@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.19 FATAL_ERROR)
+
+project(SparkEngine VERSION 0.1.0)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(BUILD_SHARED_LIBS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(CMakeDependentOption)
+
+set(SPARK_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(CMAKE_INSTALL_PREFIX "${SPARK_ROOT_DIR}/bin")
+set(BINARY_ROOT_DIR "${CMAKE_INSTALL_PREFIX}/")
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /O2")
+endif()
+
+add_subdirectory(Engine)

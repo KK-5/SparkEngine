@@ -1,0 +1,28 @@
+set(TARGET_NAME SparkCore)
+set(CORE_SOURCES
+    EASTLEX/Vsnprintf.cpp
+    Log/SpdLogSystem.cpp
+    Memory/Memory.cpp
+    SceneManager/SceneManager.cpp
+    Reflection/TypeRegistry.cpp
+)
+
+# 显式列出所有头文件（可选，用于IDE显示）
+set(CORE_HEADERDIRS
+    Reflection
+    HashString
+    ECS
+)
+
+# 创建静态库
+add_library(SparkCore STATIC ${CORE_SOURCES})
+
+target_link_libraries(${TARGET_NAME}
+    PUBLIC
+        EnTT
+        spdlog
+        EASTL
+)
+
+# 设置包含目录
+target_include_directories(SparkCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
