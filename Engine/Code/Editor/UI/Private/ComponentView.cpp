@@ -13,16 +13,19 @@ namespace Editor
     using namespace Spark;
     void ComponentView::Draw(WorldContext& context)
     {
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
+        ImGui::Begin("Component View");
+
         ReflectContext& reflectContext = TypeRegistry::GetContext();
         auto activeView = context.GetView<ActiveTag>();
         if (activeView.size() != 1)
         {
+            ImGui::End();
+            ImGui::PopStyleColor();
             return;
         }
         Entity entity = activeView.front();
 
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
-        ImGui::Begin("Component View");
         ImVec2 windowSize = ImGui::GetContentRegionAvail();
         float toolHeight = 25.f;
 
@@ -69,6 +72,7 @@ namespace Editor
                 ImGui::PopItemWidth();
             }
             ImGui::EndChild();
+            ImGui::Separator();
         }
         
         

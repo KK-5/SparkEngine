@@ -31,6 +31,12 @@ if(NOT TARGET ImGui)
     set_target_properties(EASTL PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/imgui)
 endif()
 
+if(NOT TARGET glm)
+    Message(STATUS "Build glm")
+    add_subdirectory(glm)
+    set_target_properties(glm PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/glm)
+endif()
+
 if(BUILD_TESTS)
     Message(STATUS "Build gtest")
     option(BUILD_GMOCK "Builds the googlemock subproject" ON)

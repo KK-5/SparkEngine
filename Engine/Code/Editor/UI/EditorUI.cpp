@@ -66,6 +66,7 @@ namespace Editor
         ImGuiStyle& style = ImGui::GetStyle();
         if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
             style.WindowRounding = 0.0f;
+            style.WindowPadding = ImVec2(0.0f, 0.0f);
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;
         }
     }

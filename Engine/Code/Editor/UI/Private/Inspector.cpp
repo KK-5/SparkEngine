@@ -236,6 +236,7 @@ namespace Editor
 
         IScene* scene = Spark::Service<IScene>::Get();
 
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
         ImGui::Begin("Inspector", nullptr, ImGuiWindowFlags_NoTitleBar);
         ImVec2 windowSize = ImGui::GetContentRegionAvail();
         float toolHeight = 25.f;
@@ -251,7 +252,7 @@ namespace Editor
         uint32_t rowTotalCount = uint32_t(height / rowHeight) + 1;
         uint32_t curRowCount = 0;
 
-        ImGui::Separator();
+        //ImGui::Separator();
 
         ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, IM_COL32(50, 50, 50, 255));
         ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, IM_COL32(35, 35, 35, 255));
@@ -259,7 +260,8 @@ namespace Editor
         ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.26f, 0.59f, 0.98f, 0.5f));
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.26f, 0.59f, 0.98f, 0.5f));
         if (ImGui::BeginTable("EntityList", 1, 
-            ImGuiTableFlags_RowBg))
+            ImGuiTableFlags_RowBg
+            ))
         {
             ImGui::TableSetupColumn("Entities", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHeaderWidth);
             auto DefaultSort = [&context](Entity ent1, Entity ent2)
@@ -333,5 +335,6 @@ namespace Editor
         ImGui::PopStyleColor(5);
 
         ImGui::End();
+        ImGui::PopStyleColor();
     }
 }
