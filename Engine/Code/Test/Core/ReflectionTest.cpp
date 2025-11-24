@@ -168,14 +168,14 @@ static void Reflect(ReflectContext& context)
         .Type("TestName")
         .Data<&TestName::name>("TestName::name"_hs, "name")
         .Func<&WorldContext::Has<TestName>>("HasComponent")
-        .Func<&WorldContext::Get<TestName>>("GetComponent");
+        .Func<&WorldContext::TryGet<TestName>>("GetComponent");
     
     context.Reflect<Position>()
         .Type("Position")
         .Data<&Position::x>("Position::x"_hs, "x")
         .Data<&Position::y>("Position::y"_hs, "y")
         .Func<&WorldContext::Has<Position>>("HasComponent")
-        .Func<&WorldContext::Get<Position>>("GetComponent");
+        .Func<&WorldContext::TryGet<Position>>("GetComponent");
 }
 
 bool Com(const MetaType& first, const MetaType& second)
@@ -199,15 +199,26 @@ TEST(ReflectionTest, TypeRegistry)
     WorldContext world;
     Entity ent = world.CreateEntity();
     world.Add<TestName>(ent, "TestEntity");
+    Entity ent2 = world.CreateEntity();
 
     EXPECT_EQ(world.Get<TestName>(ent).name, "TestEntity");
     MetaFunc query = context.Resolve<TestName>().func("HasComponent"_hs);
     // 这里构造了一个TestName的对象作为第一个参数
     EXPECT_TRUE(query.invoke({}, AnyCast(world), ent));
     MetaAny com = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(world), ent);
-    EXPECT_TRUE(com.try_cast<TestName>());
-    EXPECT_EQ(com.cast<TestName>().name, "TestEntity");
+    EXPECT_TRUE(com);
+    EXPECT_TRUE(com.try_cast<const TestName*>());
+    EXPECT_EQ(com.cast<const TestName*>()->name, "TestEntity");
+    MetaData name = context.Resolve<TestName>().data("TestName::name"_hs);
+    MetaAny value = name.get(*com);
+    EXPECT_TRUE(value.try_cast<eastl::string>());
 
+    MetaAny nullCom = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(world), ent2);
+    auto test = world.TryGet<TestName>(ent2);
+    EXPECT_FALSE(test);
+    EXPECT_EQ(nullCom.cast<const TestName*>(), nullptr);
+    EXPECT_FALSE(*nullCom);
+    
     MetaType testName = context.Resolve<TestName>();
     MetaAny instance = testName.construct();
     EXPECT_TRUE(instance.try_cast<TestName>());

@@ -127,13 +127,19 @@ namespace Spark
         }
         
         template<typename... T>
+        decltype(auto) Get(Entity entity) const
+        {
+            return eastl::as_const(m_registry).get<T...>(entity);
+        }
+
+        template<typename... T>
         decltype(auto) Get(Entity entity)
         {
             return m_registry.get<T...>(entity);
         }
 
         template<typename... T>
-        decltype(auto) TryGet(Entity entity)
+        decltype(auto) TryGet(Entity entity) const
         {
             return m_registry.try_get<T...>(entity);
         }
@@ -151,19 +157,19 @@ namespace Spark
         }
 
         template<typename T>
-        bool Has(Entity entity)
+        bool Has(Entity entity) const
         {
             return m_registry.any_of<T>(entity);
         }
         
         template<typename... T>
-        bool HasAny(Entity entity)
+        bool HasAny(Entity entity) const
         {
             return m_registry.any_of<T...>(entity);
         }
 
         template<typename... T>
-        bool HasAll(Entity entity)
+        bool HasAll(Entity entity) const
         {
             return m_registry.all_of<T...>(entity);
         }

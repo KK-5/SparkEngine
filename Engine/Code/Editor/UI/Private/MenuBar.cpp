@@ -7,6 +7,7 @@
 #include <ECS/NameComponent.h>
 #include <SceneManager/IScene.h>
 #include <Service/Service.h>
+#include "../../Private/Components/Position.h"
 
 namespace Editor
 {
@@ -53,6 +54,11 @@ namespace Editor
                         //scene->AddEntity(entt);
                         scene->SetParent(entt2, entt);
                         scene->SetParent(entt3, entt2);
+                        Position p;
+                        p.x = 0.6;
+                        p.y = 6.5;
+                        p.z = 9.3;
+                        context.Add<Position>(entt, p);
                         LOG_INFO("Created new GameObject");
                     }
                 }

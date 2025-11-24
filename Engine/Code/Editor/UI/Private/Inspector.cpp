@@ -84,7 +84,7 @@ namespace Editor
 
         ImGui::PopStyleColor();
 
-        // select
+        // click entity
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
         {
             if (!context.Has<SelectTag>(entity))
@@ -102,9 +102,22 @@ namespace Editor
             {
                 context.Remove<SelectTag>(entity);
             }
+
+            if (!context.Has<ActiveTag>(entity))
+            {
+                auto view = context.GetView<ActiveTag>();
+                if (view.size() > 1)
+                {
+                    LOG_ERROR("[Inspector] Thera are too many active entities in scene");
+                }
+                for (Entity ent: view)
+                {
+                    context.Remove<ActiveTag>(ent);
+                }
+                context.Add<ActiveTag>(entity);
+            }
         }   
     }
-    
 
     void Inspector::DrawEntityMenu(Entity entity, WorldContext& context)
     {
@@ -201,7 +214,6 @@ namespace Editor
                 context.Add<Renaming>(entity);
             }
         }
-
     }
 
     void Inspector::DrawTools(Spark::WorldContext& context)

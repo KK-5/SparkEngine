@@ -135,8 +135,6 @@ namespace Editor
 
         //static bool showDemoWindow = false;
         //ImGui::ShowDemoWindow(&showDemoWindow);
-
-        //ImGui::End();
     }
 
     void EditorUI::EndFrame()
