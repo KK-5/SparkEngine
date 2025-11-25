@@ -3,10 +3,10 @@
 #include <EASTL/string.h>
 #include <EASTL/string_view.h>
 
-struct Name final
+struct Name
 {
     Name() = default;
-    Name(eastl::string_view name): m_name(name){}
+    Name(eastl::string_view _name): name(_name){}
     
-    eastl::string m_name;
+    eastl::string name;
 };

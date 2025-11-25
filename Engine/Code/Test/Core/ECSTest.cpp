@@ -8,6 +8,7 @@
 #include <ECS/ISystem.h>
 #include <Service/Service.h>
 #include <Log/SpdLogSystem.h>
+#include <CoreComponents/Name.h>
 
 #include <iostream>
 
@@ -22,7 +23,7 @@ TEST(ECSTest, CreateDestoryEntity)
 
     Entity namedEntity = wordContext.CreateEntity("MyName");
     ASSERT_TRUE(wordContext.Valid(namedEntity));
-    ASSERT_EQ(wordContext.Get<Name>(namedEntity).m_name, "MyName");
+    ASSERT_EQ(wordContext.Get<Name>(namedEntity).name, "MyName");
 
     wordContext.DestoryEntity(ent);
     wordContext.DestoryEntity(namedEntity);
@@ -286,22 +287,22 @@ TEST(ECSTest, Tag)
     auto view = wordContext.GetView<Name>(ExcludeDeadTag);
     for (auto ent: view)
     {
-        EXPECT_EQ(wordContext.Get<Name>(ent).m_name, "test1");
-        EXPECT_NE(wordContext.Get<Name>(ent).m_name, "test");
+        EXPECT_EQ(wordContext.Get<Name>(ent).name, "test1");
+        EXPECT_NE(wordContext.Get<Name>(ent).name, "test");
     }
 
     auto otherView = wordContext.GetView<Name, DeadTag>();
     for (auto& [ent, name]: otherView.each())
     {
-        EXPECT_EQ(name.m_name, "test");
-        EXPECT_NE(name.m_name, "test1");
+        EXPECT_EQ(name.name, "test");
+        EXPECT_NE(name.name, "test1");
     }
 
     auto OrderView = wordContext.GetView<DeadTag, Name>();
     for (auto& [ent, name]: OrderView.each())
     {
-        EXPECT_EQ(name.m_name, "test");
-        EXPECT_NE(name.m_name, "test1");
+        EXPECT_EQ(name.name, "test");
+        EXPECT_NE(name.name, "test1");
     }
 }
 

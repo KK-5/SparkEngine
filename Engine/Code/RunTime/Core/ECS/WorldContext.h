@@ -7,10 +7,10 @@
 #include <entt/entt.hpp>
 
 #include "Entity.h"
-#include "NameComponent.h"
 #include "Reflection/RTTI.h"
 #include "Bus/EntityEventBus.h"
 #include "Bus/ComponentEventBus.h"
+#include "CoreComponents/Name.h"
 
 namespace Spark
 {

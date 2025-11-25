@@ -12,6 +12,7 @@ namespace Spark
     using MetaFunc = entt::meta_func;
     using MetaSquenceContainer = entt::meta_sequence_container;
     using TypeId = entt::id_type;
+    using MetaCustom = entt::meta_custom;
 
     template<typename T>
     MetaAny AnyCast(T&& value) 

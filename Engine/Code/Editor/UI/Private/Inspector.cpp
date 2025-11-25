@@ -4,7 +4,7 @@
 #include <EASTL/stack.h>
 
 #include <ECS/WorldContext.h>
-#include <ECS/NameComponent.h>
+#include <CoreComponents/Name.h>
 #include <Service/Service.h>
 #include <SceneManager/Component/HierarchyComponent.h>
 #include <SceneManager/IScene.h>
@@ -42,7 +42,7 @@ namespace Editor
         eastl::string name;
         if (context.Has<Name>(entity))
         {
-            name = context.Get<Name>(entity).m_name;
+            name = context.Get<Name>(entity).name;
         }
         else
         {
@@ -276,7 +276,7 @@ namespace Editor
                     return DefaultSort(ent1, ent2);
                 }
 
-                return context.Get<Name>(ent1).m_name < context.Get<Name>(ent2).m_name;
+                return context.Get<Name>(ent1).name < context.Get<Name>(ent2).name;
             };
 
             eastl::vector<Entity> roots = scene->GetRootEntities(SortByName);

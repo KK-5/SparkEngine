@@ -7,6 +7,7 @@ set(ENGINE_ASSET_DIR "${ENGINE_ROOT_DIR}/Asset")
 option(BUILD_TESTS "Build the tests" ON)
 
 add_compile_definitions(NOMINMAX)
+add_compile_definitions(MATH_BACKEND_GLM)
 
 add_subdirectory(3rdParty)
 add_subdirectory(Code/Runtime)

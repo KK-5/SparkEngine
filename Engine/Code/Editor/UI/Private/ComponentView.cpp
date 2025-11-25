@@ -55,7 +55,6 @@ namespace Editor
             ImGui::AlignTextToFramePadding();
             ImGui::SameLine();
             ImGui::TextUnformatted(component.name());
-            //ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), component.name());
             for (auto field: component.data())
             {
                 ImGui::PushItemWidth(-1);
@@ -63,10 +62,6 @@ namespace Editor
                 MetaAny value = data.get(*instancePtr);
                 if (float* result = value.try_cast<float>())
                 {
-                    //ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), data.name());
-                    //ImGui::SameLine();
-                    //ImGui::Spacing();
-                    //ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), eastl::to_string(*result).c_str());
                     ImGui::DragFloat(data.name(), result, 1.f);
                 }
                 ImGui::PopItemWidth();

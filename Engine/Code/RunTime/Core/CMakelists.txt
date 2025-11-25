@@ -1,4 +1,5 @@
 set(TARGET_NAME SparkCore)
+
 set(CORE_SOURCES
     EASTLEX/Vsnprintf.cpp
     Log/SpdLogSystem.cpp
@@ -7,7 +8,7 @@ set(CORE_SOURCES
     Reflection/TypeRegistry.cpp
 )
 
-# 显式列出所有头文件（可选，用于IDE显示）
+# 显式列出所有头文件（用于IDE显示）
 set(CORE_HEADERDIRS
     Reflection
     HashString
@@ -22,6 +23,7 @@ target_link_libraries(${TARGET_NAME}
         EnTT
         spdlog
         EASTL
+        glm
 )
 
 # 设置包含目录
