@@ -6,11 +6,39 @@
 #include <ECS/WorldContext.h>
 #include <Reflection/TypeRegistry.h>
 #include <CoreComponents/Tags.h>
+#include <Serialization/UIElement.h>
 #include "../../Private/Components/Position.h"
 
 namespace Editor
 {
     using namespace Spark;
+
+    void ComponentView::DrawElement(Spark::MetaAny& data, const Spark::MetaData& field, const Spark::MetaCustom& uiElement)
+    {
+        if (static_cast<EditTextElement*>(uiElement))
+        {
+            if (eastl::string* value = data.try_cast<eastl::string>())
+            {
+                char buffer[256];
+                strncpy(buffer, value->c_str(), sizeof(buffer) - 1);
+                buffer[sizeof(buffer) - 1] = '\0';
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text(field.name());
+                ImGui::SameLine();
+                if (ImGui::InputText(field.name(), buffer, sizeof(buffer)))
+                {
+                    LOG_INFO("[ComponentView] Editor text test {}", buffer);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] UI element and value is mismatch, expect a string value");
+            }
+        }
+
+    }
+
+
     void ComponentView::Draw(WorldContext& context)
     {
         ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
@@ -60,10 +88,22 @@ namespace Editor
                 ImGui::PushItemWidth(-1);
                 MetaData data = field.second;
                 MetaAny value = data.get(*instancePtr);
+                MetaCustom uiElem = data.custom();
+
                 if (float* result = value.try_cast<float>())
                 {
-                    ImGui::DragFloat(data.name(), result, 1.f);
+                    //float value = *result;
+                    if (ImGui::DragFloat(data.name(), result, 1.f))
+                    {
+                        //*result = value;
+                        LOG_INFO("value: {}", *result);
+                    }
                 }
+                else
+                {
+                    DrawElement(value, data, uiElem);
+                }
+
                 ImGui::PopItemWidth();
             }
             ImGui::EndChild();

@@ -4,12 +4,13 @@
 #include <Tick/TickBus.h>
 #include <ECS/WorldContext.h>
 #include <Reflection/TypeRegistry.h>
+#include <Reflect.h>
 
 namespace Spark
 {
     void SparkEngine::SetUp()
     {
-        //TypeRegistry::Register(Reflect);
+        TypeRegistry::Register(Spark::Reflect);
         TypeRegistry::RegisterAll();
 
         LogConfig logConfig{};

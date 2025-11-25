@@ -18,9 +18,6 @@
 
 namespace Spark
 {
-
-    //using Element = MetaType::custom;
-
     template<typename T>
     class Reflector
     {
@@ -78,7 +75,7 @@ namespace Spark
         }
 
         template<typename Value, typename... Args>
-        Reflector Editor(Args &&...args)
+        Reflector Custom(Args &&...args)
         {
             m_reflector.custom<Value>(eastl::forward<Args>(args)...);
             return *this;

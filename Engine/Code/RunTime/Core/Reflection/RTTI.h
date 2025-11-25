@@ -30,5 +30,4 @@ namespace Spark
     static constexpr TypeId GetTypeId() {
         return entt::type_hash<T>::value();
     }
-
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Reflection/RTTI.h>
 
 namespace Spark
 {
@@ -15,5 +16,6 @@ namespace Editor
 
     private:
         void DrawComponent();
+        void DrawElement(Spark::MetaAny& data, const Spark::MetaData& field, const Spark::MetaCustom& uiElement);
     };
 }

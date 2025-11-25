@@ -9,6 +9,7 @@
 #include <Reflection/TypeRegistry.h>
 #include <Log/SpdLogSystem.h>
 #include <ECS/WorldContext.h>
+#include <Serialization/UIElement.h>
 
 #include <Math/Vector2.h>
 #include <Math/Vector3.h>
@@ -229,4 +230,35 @@ TEST(ReflectionTest, TypeRegistry)
     MetaType testName = context.Resolve<TestName>();
     MetaAny instance = testName.construct();
     EXPECT_TRUE(instance.try_cast<TestName>());
+}
+
+struct Float
+{
+    float value = 0;
+};
+
+static void FloatReflect(ReflectContext& context)
+{
+    context.Reflect<Float>()
+        .Type("Float")
+        .Data<&Float::value>("value").Custom<FloatElement>(0.0f, 1.0f, 0.1f);
+}
+
+TEST(ReflectionTest, Custom)
+{
+    TypeRegistry::Register(FloatReflect);
+    TypeRegistry::RegisterAll();
+
+    ReflectContext& context = TypeRegistry::GetContext();
+
+    MetaData value = context.Resolve<Float>().data("value"_hs);
+    MetaCustom elem = value.custom();
+    EXPECT_NE(static_cast<FloatElement*>(elem), nullptr);
+
+    FloatElement fe = *static_cast<FloatElement*>(elem);
+    EXPECT_FLOAT_EQ(fe.min, 0.0f);
+    EXPECT_FLOAT_EQ(fe.max, 1.0f);
+    EXPECT_FLOAT_EQ(fe.speed, 0.1f);
+    EXPECT_STREQ(fe.format, "%.3f");
+
 }

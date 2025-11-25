@@ -18,14 +18,14 @@ namespace Editor
         m_editorWindow = eastl::make_unique<EditorWindow>(1920, 1080, "SparkEditor");
         m_editorWindow->Initialize();
 
+        m_runtimeEngine = eastl::make_unique<Spark::SparkEngine>();
+        m_runtimeEngine->SetUp();
+
         m_editorUI = eastl::make_unique<EditorUI>();
         m_editorUI->Initialize();
 
         m_editorInput = eastl::make_unique<EditorInputSystem>();
         m_editorInput->Initialize();
-
-        m_runtimeEngine = eastl::make_unique<Spark::SparkEngine>();
-        m_runtimeEngine->SetUp();
     }
 
     void SparkEditor::Start()
@@ -40,8 +40,8 @@ namespace Editor
     void SparkEditor::Close()
     {
         m_editorInput->ShutDown();
-        m_runtimeEngine->ShutDown();
         m_editorUI->ShutDown();
+        m_runtimeEngine->ShutDown();
         m_editorWindow->ShutDown();
     }
 }
