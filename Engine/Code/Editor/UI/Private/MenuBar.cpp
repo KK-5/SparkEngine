@@ -7,7 +7,7 @@
 #include <CoreComponents/Name.h>
 #include <SceneManager/IScene.h>
 #include <Service/Service.h>
-#include "../../Private/Components/Position.h"
+#include "../../Component/Position.h"
 
 namespace Editor
 {

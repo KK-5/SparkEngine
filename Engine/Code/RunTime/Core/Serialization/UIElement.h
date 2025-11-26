@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EASTL/string.h"
+
 namespace Spark
 {
     struct FloatElement
@@ -11,8 +13,8 @@ namespace Spark
 
         float min = 0.0f;
         float max = 1.0f;
-        float speed = 0.01f;
-        const char* format = "%.3f";
+        float speed = 0.1f;
+        eastl::string format = "%.3f";
     };
 
     struct FloatSliderElement
@@ -24,32 +26,31 @@ namespace Spark
 
         float min = 0.0f;
         float max = 1.0f;
-        float speed = 0.01f;
-        const char* format = "%.3f";
+        float speed = 0.1f;
+        eastl::string format = "%.3f";
     };
 
     struct IntElement
     {
         IntElement() = default;
-        IntElement(int _min, int _max, int _speed)
+        IntElement(int _min, int _max, float _speed)
             : min(_min), max(_max), speed(_speed)
         {}
 
         int min = 0;
         int max = 10;
-        int speed = 1;
+        float speed = 1.f;
     };
 
     struct IntSliderElement
     {
         IntSliderElement() = default;
-        IntSliderElement(int _min, int _max, int _speed)
-            : min(_min), max(_max), speed(_speed)
+        IntSliderElement(int _min, int _max)
+            : min(_min), max(_max)
         {}
 
         int min = 0;
         int max = 10;
-        int speed = 1;
     };
 
     struct BoolElement
@@ -59,43 +60,45 @@ namespace Spark
     struct EditTextElement
     {
         EditTextElement() = default;
-        EditTextElement(size_t _maxLength, bool _multiLine)
-            : maxLength(_maxLength), multiLine(_multiLine)
+        EditTextElement(size_t _maxLength)
+            : maxLength(_maxLength)
         {}
 
         size_t maxLength = 256;
-        bool multiLine = false;
     };
 
     struct ReadonlyTextElement
     {
         ReadonlyTextElement() = default;
-        ReadonlyTextElement(size_t _maxLength, bool _multiLine)
-            : maxLength(_maxLength), multiLine(_multiLine)
+        ReadonlyTextElement(size_t _maxLength)
+            : maxLength(_maxLength)
         {}
 
         size_t maxLength = 256;
-        bool multiLine = false;
     };
 
     struct Vec2Element
     {
         Vec2Element() = default;
-        Vec2Element(float _speed): speed(_speed), format("%.2f")
+        Vec2Element(float _min, float _max, float _speed): min(_min), max(_max), speed(_speed), format("%.2f")
         {}
 
+        float min = 0.0f;
+        float max = 1.0f;
         float speed = 0.1f;
-        const char* format = "%.2f";
+        eastl::string format = "%.2f";
     };
 
     struct Vec3Element
     {
         Vec3Element() = default;
-        Vec3Element(float _speed): speed(_speed), format("%.2f")
+        Vec3Element(float _min, float _max, float _speed): min(_min), max(_max), speed(_speed), format("%.2f")
         {}
 
+        float min = 0.0f;
+        float max = 1.0f;
         float speed = 0.1f;
-        const char* format = "%.2f";
+        eastl::string format = "%.2f";
     };
     
     struct ColorElement

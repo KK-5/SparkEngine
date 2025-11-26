@@ -10,7 +10,7 @@
 #include <SceneManager/IScene.h>
 #include <Log/SpdLogSystem.h>
 #include <CoreComponents/Tags.h>
-#include "../../Private/Components/Tags.h"
+#include "../../Component/Tags.h"
 
 namespace Editor
 {

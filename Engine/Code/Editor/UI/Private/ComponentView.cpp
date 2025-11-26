@@ -6,39 +6,72 @@
 #include <ECS/WorldContext.h>
 #include <Reflection/TypeRegistry.h>
 #include <CoreComponents/Tags.h>
+#include <Math/Vector2.h>
+#include <Math/Vector3.h>
+#include <Math/Vector4.h>
 #include <Serialization/UIElement.h>
-#include "../../Private/Components/Position.h"
+#include "../../Component/Position.h"
+#include "../../Component/AllUIElement.h"
 
 namespace Editor
 {
     using namespace Spark;
 
-    void ComponentView::DrawElement(Spark::MetaAny& data, const Spark::MetaData& field, const Spark::MetaCustom& uiElement, float width)
+    void ComponentView::DrawElement(MetaAny& data, eastl::string_view name, const MetaCustom& uiElement, float width)
     {
+        auto DrawLabel = [](float labelWidth, float inputWidth, const char* label)
+        {
+            ImGui::SetNextItemWidth(labelWidth);
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text(label);
+            ImGui::SameLine(labelWidth);
+            ImGui::SetNextItemWidth(inputWidth);
+            eastl::string labelId = eastl::string("##") + eastl::string(label);
+            return labelId;
+        };
+
         if (static_cast<EditTextElement*>(uiElement))
         {
+            EditTextElement* ui = static_cast<EditTextElement*>(uiElement);
             if (eastl::string* value = data.try_cast<eastl::string>())
             {
-                char buffer[256];
-                strncpy(buffer, value->c_str(), sizeof(buffer) - 1);
-                buffer[sizeof(buffer) - 1] = '\0';
+                eastl::string buffer;
+                buffer.resize(ui->maxLength);
+                strcpy(buffer.data(), value->data());
+                //buffer[]
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
-                ImGui::SetNextItemWidth(labelWidth);
-                ImGui::AlignTextToFramePadding();
-                ImGui::Text(field.name());
-                ImVec2 textWidth = ImGui::CalcTextSize(field.name());
-                ImGui::SameLine(labelWidth);
-                ImGui::SetNextItemWidth(inputWidth);
-                eastl::string label = eastl::string("##") + eastl::string(field.name());
-                if (ImGui::InputText(label.c_str(), buffer, sizeof(buffer)))
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::InputText(label.c_str(), buffer.data(), buffer.size()))
+                {
+                    data = buffer;
+                    //LOG_INFO("[ComponentView] Editor text test {}", buffer);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] EditTextElement expect a string value");
+            }
+        }
+        else if (static_cast<ReadonlyTextElement*>(uiElement))
+        {
+            ReadonlyTextElement* ui = static_cast<ReadonlyTextElement*>(uiElement);
+            if (eastl::string* value = data.try_cast<eastl::string>())
+            {
+                eastl::string buffer;
+                buffer.resize(ui->maxLength);
+                strcpy(buffer.data(), value->data());
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly))
                 {
                     LOG_INFO("[ComponentView] Editor text test {}", buffer);
                 }
             }
             else
             {
-                LOG_ERROR("[ComponentView] UI element and value is mismatch, expect a string value");
+                LOG_ERROR("[ComponentView] ReadonlyTextElement expect a string value");
             }
         }
         else if (static_cast<FloatElement*>(uiElement))
@@ -48,20 +81,203 @@ namespace Editor
             {
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
-                ImGui::SetNextItemWidth(labelWidth);
-                ImGui::AlignTextToFramePadding();
-                ImGui::Text(field.name());
-                ImVec2 textWidth = ImGui::CalcTextSize(field.name());
-                ImGui::SameLine(labelWidth);
-                ImGui::SetNextItemWidth(inputWidth);
-                eastl::string label = eastl::string("##") + eastl::string(field.name());
-                if (ImGui::DragFloat(label.c_str(), value, ui->speed, ui->min, ui->max, ui->format))
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::DragFloat(label.c_str(), value, ui->speed, ui->min, ui->max, ui->format.c_str()))
                 {
                     LOG_INFO("value: {}", *value);
                 }
             }
+            else
+            {
+                LOG_ERROR("[ComponentView] FloatElement expect a float value");
+            }
         }
+        else if (static_cast<FloatSliderElement*>(uiElement))
+        {
+            FloatSliderElement* ui = static_cast<FloatSliderElement*>(uiElement);
+            if (float* value = data.try_cast<float>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::SliderFloat(label.c_str(), value, ui->min, ui->max, ui->format.c_str()))
+                {
+                    LOG_INFO("value: {}", *value);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] FloatSliderElement expect a float value");
+            }
+        }
+        else if(static_cast<IntElement*>(uiElement))
+        {
+            IntElement* ui = static_cast<IntElement*>(uiElement);
+            if (int* value = data.try_cast<int>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::DragInt(label.c_str(), value, ui->speed, ui->min, ui->max))
+                {
+                    LOG_INFO("value: {}", *value);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] IntElement expect a int value");
+            }
+        }
+        else if(static_cast<IntSliderElement*>(uiElement))
+        {
+            IntSliderElement* ui = static_cast<IntSliderElement*>(uiElement);
+            if (int* value = data.try_cast<int>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::SliderInt(label.c_str(), value, ui->min, ui->max))
+                {
+                    LOG_INFO("value: {}", *value);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] IntSliderElement expect a int value");
+            }
+        }
+        else if(static_cast<BoolElement*>(uiElement))
+        {
+            if (bool* value = data.try_cast<bool>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::Checkbox(label.c_str(), value))
+                {
+                    LOG_INFO("value: {}", *value);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] BoolElement expect a bool value");
+            }
+        }
+        else if(static_cast<Vec2Element*>(uiElement))
+        {
+            Vec2Element* ui = static_cast<Vec2Element*>(uiElement);
+            if (Math::Vector2* value = data.try_cast<Math::Vector2>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                float inputValue[2] = {value->x, value->y};
+                if (ImGui::DragFloat2(label.c_str(), inputValue, ui->speed, ui->min, ui->max, ui->format.c_str()))
+                {
+                    LOG_INFO("value: {} {}", value->x, value->y);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] Vec2Element expect a Vector2 value");
+            }
+        }
+        else if(static_cast<Vec3Element*>(uiElement))
+        {
+            Vec3Element* ui = static_cast<Vec3Element*>(uiElement);
+            if (Math::Vector3* value = data.try_cast<Math::Vector3>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                float inputValue[3] = {value->x, value->y, value->z};
+                if (ImGui::DragFloat3(label.c_str(), inputValue, ui->speed, ui->min, ui->max, ui->format.c_str()))
+                {
+                    LOG_INFO("value: {} {}", value->x, value->y);
+                }
+            }
+            else
+            {
+                LOG_ERROR("[ComponentView] Vec3Element expect a Vector3 value");
+            }
+        }
+        else if(static_cast<ColorElement*>(uiElement))
+        {
+            ColorElement* ui = static_cast<ColorElement*>(uiElement);
+            if (Math::Vector4* value = data.try_cast<Math::Vector4>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                float inputValue[4] = {value->r, value->g, value->b, value->a};
+                if (ImGui::ColorEdit4(label.c_str(), inputValue))
+                {
+                    LOG_INFO("value: {} {}", value->x, value->y);
+                }
+            }
+            else
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("Error!");
+                LOG_ERROR("[ComponentView] ColorElement expect a Vector4 value");
+            }
+        }
+        else if(static_cast<EnumElement*>(uiElement))
+        {
+            EnumElement* ui = static_cast<EnumElement*>(uiElement);
+            // 使用allow_cast检测是否允许转换
+            if (data.allow_cast<int>())
+            {
+                int value = data.cast<int>();
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
 
+                MetaType enumType = data.type();
+                if (enumType == TypeRegistry::GetContext().Resolve<EnumElem>())
+                {
+                    int a = 0;
+                }
+                if (enumType == TypeRegistry::GetContext().Resolve<int>())
+                {
+                    int a = 0;
+                }
+                if (enumType.is_enum())
+                {
+                    int a = 0;
+                }
+                
+                MetaAny any {EnumElem::Two};
+                if (any.type().is_enum())
+                {
+                    int a = 0;
+                }
+
+
+                eastl::string inputValue;
+                inputValue.reserve(256);
+                size_t offset = 0;
+                for (auto enumValue: enumType.data())
+                {
+                    //inputValue.emplace_back(enumValue.second.name());
+                    eastl::string enumText(enumValue.second.name());
+                    eastl::copy(enumText.begin(), enumText.end(), inputValue.end());
+                    //strcpy(inputValue.data(), enumValue.second.name());
+                    //offset
+                    offset++;
+                }
+
+                if (ImGui::Combo(label.c_str(), &value, inputValue.data(), offset))
+                {
+                    LOG_INFO("value: {}", value);
+                }
+            }
+            else
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "EnumElement expect a enum value!");
+            }
+        }
     }
     
     void ComponentView::DrawComponent(const Spark::MetaType component, Spark::MetaAny& instancePtr)
@@ -98,6 +314,7 @@ namespace Editor
         ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.18f, 0.18f, 0.18f, 1.f));
         if (ImGui::CollapsingHeader(component.name(), nullptr, ImGuiTreeNodeFlags_DefaultOpen)) {
             state.isExpanded = true;
+
             float availableWidth = childWidth - (2 * 20);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
@@ -109,7 +326,7 @@ namespace Editor
                 MetaAny value = data.get(*instancePtr);
                 MetaCustom uiElem = data.custom();
 
-                DrawElement(value, data, uiElem, availableWidth);
+                DrawElement(value, data.name(), uiElem, availableWidth);
             }
             ImGui::PopStyleColor(3);
         }
@@ -122,7 +339,6 @@ namespace Editor
 
         ImGui::EndChild();
         ImGui::PopStyleVar(2);
-        
     }
 
     void ComponentView::Draw(WorldContext& context)
@@ -146,9 +362,14 @@ namespace Editor
         ImGui::BeginChild("ComponentTools", ImVec2(windowSize.x, toolHeight), false, ImGuiWindowFlags_NoTitleBar);
         if (ImGui::Button("AddComponent"))
         {
+            /*
             Position p;
             p.x = 1.f, p.y = 1.f, p.z = 1.f;
             reflectContext.Resolve("Position"_hs).func("AddComponent"_hs).invoke(p, AnyCast(context), entity);
+            */
+           AllUIElement u;
+           reflectContext.Resolve("AllUIElement"_hs).func("AddComponent"_hs).invoke(u, AnyCast(context), entity);
+
         }
         ImGui::EndChild();
 

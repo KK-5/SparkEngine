@@ -34,6 +34,7 @@ target_link_libraries(${TARGET_NAME}
         SparkCore
         gtest_main
         gmock_main
+        glm
 )
 
 # 添加为CTest测试

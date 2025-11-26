@@ -5,7 +5,7 @@
 
 #include "UI/EditorWindow.h"
 #include "UI/EditorUI.h"
-#include "Private/Components/Reflect.h"
+#include "Component/Reflect.h"
 
 
 namespace Editor
