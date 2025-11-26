@@ -38,14 +38,12 @@ namespace Editor
                 eastl::string buffer;
                 buffer.resize(ui->maxLength);
                 strcpy(buffer.data(), value->data());
-                //buffer[]
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
                 if (ImGui::InputText(label.c_str(), buffer.data(), buffer.size()))
                 {
                     data = buffer;
-                    //LOG_INFO("[ComponentView] Editor text test {}", buffer);
                 }
             }
             else
@@ -224,6 +222,8 @@ namespace Editor
         }
         else if(static_cast<EnumElement*>(uiElement))
         {
+            // cast后类型不会被检测成enum，而是检测成int，这里要先保存下来，entt bug?
+            MetaType enumType = data.type();
             EnumElement* ui = static_cast<EnumElement*>(uiElement);
             // 使用allow_cast检测是否允许转换
             if (data.allow_cast<int>())
@@ -232,39 +232,13 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
-
-                MetaType enumType = data.type();
-                if (enumType == TypeRegistry::GetContext().Resolve<EnumElem>())
-                {
-                    int a = 0;
-                }
-                if (enumType == TypeRegistry::GetContext().Resolve<int>())
-                {
-                    int a = 0;
-                }
-                if (enumType.is_enum())
-                {
-                    int a = 0;
-                }
-                
-                MetaAny any {EnumElem::Two};
-                if (any.type().is_enum())
-                {
-                    int a = 0;
-                }
-
-
                 eastl::string inputValue;
-                inputValue.reserve(256);
+                inputValue.resize(256);
                 size_t offset = 0;
                 for (auto enumValue: enumType.data())
                 {
-                    //inputValue.emplace_back(enumValue.second.name());
-                    eastl::string enumText(enumValue.second.name());
-                    eastl::copy(enumText.begin(), enumText.end(), inputValue.end());
-                    //strcpy(inputValue.data(), enumValue.second.name());
-                    //offset
-                    offset++;
+                    strcpy(inputValue.data() + offset, enumValue.second.name());
+                    offset += strlen(enumValue.second.name()) + 1;
                 }
 
                 if (ImGui::Combo(label.c_str(), &value, inputValue.data(), offset))
