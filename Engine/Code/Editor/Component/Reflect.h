@@ -2,10 +2,13 @@
 
 #include <Reflection/ReflectContext.h>
 #include <Reflection/TypeRegistry.h>
+#include <Reflection/Utility.h>
 #include <ECS/WorldContext.h>
 #include <Serialization/UIElement.h>
+#include <Serialization/MetaTypeTraits.h>
 #include "Position.h"
 #include "AllUIElement.h"
+
 
 namespace Editor
 {
@@ -15,16 +18,12 @@ namespace Editor
         using Spark::WorldContext;
 
         context.Reflect<Position>()
-            .Type("Position")
+            .Type("Position").Traits(Spark::MetaTypeTraits::Editable)
             .Data<&Position::x>("x").Custom<Spark::FloatElement>()
             .Data<&Position::y>("y").Custom<Spark::FloatElement>()
             .Data<&Position::z>("z").Custom<Spark::FloatElement>()
-            .Func<&WorldContext::Has<Position>>("HasComponent")
-            .Func<&WorldContext::TryGet<Position>>("GetComponent")
-            .Func<&WorldContext::AddOrRepalce<Position>>("AddComponent")
-            .Func<&WorldContext::Remove<Position>>("RemoveComponent")
-            .Func<&WorldContext::Repalce<Position>>("ReplaceComponent")
             ;
+        Spark::ComponentOpertion<Position>(context);
 
         context.Reflect<EnumElem>()
             .Type("EnumElement")
@@ -35,7 +34,7 @@ namespace Editor
         using namespace Spark;
         
         context.Reflect<AllUIElement>()
-            .Type("AllUIElement")
+            .Type("AllUIElement").Traits(MetaTypeTraits::Editable)
             .Data<&AllUIElement::editString>("EditString").Custom<EditTextElement>()
             .Data<&AllUIElement::readonlyString>("ReadonlyString").Custom<ReadonlyTextElement>()
             .Data<&AllUIElement::floatElement>("FloatElement").Custom<FloatElement>(0.f, 20.f, 1.f)
@@ -47,12 +46,8 @@ namespace Editor
             .Data<&AllUIElement::vec3Element>("Vec3Element").Custom<Vec3Element>()
             .Data<&AllUIElement::colorElement>("ColorElement").Custom<ColorElement>()
             .Data<&AllUIElement::enumElement>("EnumElem").Custom<EnumElement>()
-            .Func<&WorldContext::Has<AllUIElement>>("HasComponent")
-            .Func<&WorldContext::TryGet<AllUIElement>>("GetComponent")
-            .Func<&WorldContext::AddOrRepalce<AllUIElement>>("AddComponent")
-            .Func<&WorldContext::Remove<AllUIElement>>("RemoveComponent")
-            .Func<&WorldContext::Repalce<AllUIElement>>("ReplaceComponent")
             ;
+        Spark::ComponentOpertion<AllUIElement>(context);
     }
     
 } // namespace Editor

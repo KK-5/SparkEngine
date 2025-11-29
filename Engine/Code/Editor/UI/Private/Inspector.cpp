@@ -218,11 +218,17 @@ namespace Editor
 
     void Inspector::DrawTools(Spark::WorldContext& context)
     {
-        if (ImGui::Button("Add Entity"))
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.18f, 0.f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
+        if (ImGui::Button(" + "))
         {
             Entity entity = context.CreateEntity();
             Spark::Service<IScene>::Get()->AddEntity(entity);
+            eastl::string name = "Entity[" + eastl::to_string(uint32_t(entity)) + "]";
+            context.AddOrRepalce<Name>(entity, name);
         }
+        ImGui::PopStyleColor(3);
     }
     
 

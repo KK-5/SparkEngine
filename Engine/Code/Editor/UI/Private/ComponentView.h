@@ -3,6 +3,7 @@
 #include <EASTL/string_view.h>
 #include <EASTL/unordered_map.h>
 
+#include <ECS/Entity.h>
 #include <Reflection/RTTI.h>
 
 namespace Spark
@@ -27,9 +28,10 @@ namespace Editor
             bool isExpanded;
         };
 
-        void DrawElement(Spark::MetaAny& data, eastl::string_view name, const Spark::MetaCustom& uiElement, float width);
-        void DrawComponent(const Spark::MetaType component, Spark::MetaAny& instancePtr);
+        void DrawElement(Spark::WorldContext& context, Spark::MetaData& data, Spark::MetaAny& instance, float width);
+        void DrawComponent(Spark::WorldContext& context, const Spark::MetaType component, Spark::MetaAny& instance);
 
         eastl::unordered_map<Spark::TypeId, ComponentState> m_componentState;
+        Spark::Entity m_activeEntity;
     };
 }

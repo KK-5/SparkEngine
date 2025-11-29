@@ -39,35 +39,35 @@ namespace Spark
             return *this;
         }
 
-        template<auto DataT>
+        template<auto DataType>
         Reflector Data(const char* name)
         {
-            m_reflector.data<DataT>(name);
+            m_reflector.data<DataType>(name);
             return *this;
         }
 
-        template<auto DataT>
+        template<auto DataType>
         Reflector Data(TypeId id, const char* name)
         {
-            m_reflector.data<DataT>(id, name);
+            m_reflector.data<DataType>(id, name);
             return *this;
         }
 
-        template<auto FuncT>
+        template<auto FuncType>
         Reflector Func(const char* name)
         {
-            m_reflector.func<FuncT>(name);
+            m_reflector.func<FuncType>(name);
             return *this;
         }
 
-        template<auto FuncT>
+        template<auto FuncType>
         Reflector Func(TypeId id, const char* name)
         {
-            m_reflector.func<FuncT>(id, name);
+            m_reflector.func<FuncType>(id, name);
             return *this;
         }
 
-        template<auto BaseType>
+        template<typename BaseType>
         Reflector Base()
         {
             m_reflector.base<BaseType>();
@@ -78,6 +78,13 @@ namespace Spark
         Reflector Custom(Args &&...args)
         {
             m_reflector.custom<Value>(eastl::forward<Args>(args)...);
+            return *this;
+        }
+
+        template<typename Value>
+        Reflector Traits(const Value value)
+        {
+            m_reflector.traits<Value>(eastl::forward<const Value>(value));
             return *this;
         }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Reflection/ReflectContext.h"
+#include "Reflection/Utility.h"
 #include "HashString/HashString.h"
 #include "CoreComponents/Name.h"
 #include "ECS/WorldContext.h"
@@ -9,6 +10,7 @@
 #include "Math/Vector4.h"
 #include "Math/Quaternion.h"
 #include "Serialization/UIElement.h"
+#include "Serialization/MetaTypeTraits.h"
 
 namespace Spark
 {
@@ -37,12 +39,9 @@ namespace Spark
             .Data<&Math::Quaternion::w>("w");
 
 
-        context.Reflect<Name>().Type("Name")
-            .Data<&Name::name>("name").Custom<EditTextElement>()
-            .Func<&WorldContext::Has<Name>>("HasComponent")
-            .Func<&WorldContext::TryGet<Name>>("GetComponent")
-            .Func<&WorldContext::AddOrRepalce<Name>>("AddComponent")
-            .Func<&WorldContext::Remove<Name>>("RemoveComponent")
-            .Func<&WorldContext::Repalce<Name>>("ReplaceComponent");
+        context.Reflect<Name>().Type("Name").Traits(MetaTypeTraits::Editable)
+            .Data<&Name::name>("name").Custom<EditTextElement>();
+            
+        ComponentOpertion<Name>(context);
     }
 }

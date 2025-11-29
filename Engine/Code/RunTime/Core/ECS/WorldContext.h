@@ -139,7 +139,7 @@ namespace Spark
         }
 
         template<typename... T>
-        decltype(auto) TryGet(Entity entity) const
+        decltype(auto) TryGet(Entity entity) //const
         {
             return m_registry.try_get<T...>(entity);
         }

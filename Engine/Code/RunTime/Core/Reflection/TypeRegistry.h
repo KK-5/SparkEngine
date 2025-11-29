@@ -1,6 +1,7 @@
 #pragma once
 #include <EASTL/functional.h>
 #include <EASTL/vector.h>
+#include <ECS/WorldContext.h>
 
 #include "ReflectContext.h"
 
