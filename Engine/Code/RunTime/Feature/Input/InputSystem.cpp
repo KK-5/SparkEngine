@@ -12,13 +12,6 @@ namespace Spark::Input
         m_capturer = eastl::make_unique<GLFWCaptureSystem>();
         m_capturer->Initialize();
 
-        /*
-        if (!InputEventBus::HasHandlers())
-        {
-            LOG_WARN("[InputSystem] There is no system handling input events");
-        }
-        */
-
         TickBus::Handler::BusConnect();
     }
 

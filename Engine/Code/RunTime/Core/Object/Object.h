@@ -31,7 +31,7 @@ namespace Spark
 
         mutable eastl::atomic<uint32_t> m_useCount {0};
     private:
-        /// @brief 通常情况下ShutDown在m_useCount减少到0时自动调用，不需要显式调用，如果子类有显式调用的需求可以重写它到public
+        /// @brief 通常情况下Shutdown在m_useCount减少到0时自动调用，不需要显式调用，如果子类有显式调用的需求可以重写它到public
         virtual void Shutdown() {}
         
         ObjectName m_name;

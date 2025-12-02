@@ -434,9 +434,9 @@ TEST_F(SceneManagerTest, Patch)
         context.Add<Name>(entity, eastl::to_string(uint32_t(entity)));
     });
 
-    EXPECT_EQ(context.Get<Name>(ent1).m_name, eastl::to_string(uint32_t(ent1)));
-    EXPECT_EQ(context.Get<Name>(ent2).m_name, eastl::to_string(uint32_t(ent2)));
-    EXPECT_EQ(context.Get<Name>(ent3).m_name, eastl::to_string(uint32_t(ent3)));
+    EXPECT_EQ(context.Get<Name>(ent1).name, eastl::to_string(uint32_t(ent1)));
+    EXPECT_EQ(context.Get<Name>(ent2).name, eastl::to_string(uint32_t(ent2)));
+    EXPECT_EQ(context.Get<Name>(ent3).name, eastl::to_string(uint32_t(ent3)));
 }
 
 

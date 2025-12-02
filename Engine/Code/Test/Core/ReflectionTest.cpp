@@ -260,5 +260,4 @@ TEST(ReflectionTest, Custom)
     EXPECT_FLOAT_EQ(fe.max, 1.0f);
     EXPECT_FLOAT_EQ(fe.speed, 0.1f);
     EXPECT_STREQ(fe.format.c_str(), "%.3f");
-
 }

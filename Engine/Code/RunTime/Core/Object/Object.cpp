@@ -14,7 +14,7 @@ namespace Spark
 
     void Object::AddRef()
     {
-        m_useCount.fetch_add(1);
+        m_useCount.fetch_add(1, eastl::memory_order_relaxed);
     }
 
     void Object::Release()
