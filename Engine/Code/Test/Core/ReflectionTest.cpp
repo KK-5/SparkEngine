@@ -215,8 +215,8 @@ TEST(ReflectionTest, TypeRegistry)
     EXPECT_TRUE(query.invoke({}, AnyCast(world), ent));
     MetaAny com = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(world), ent);
     EXPECT_TRUE(com);
-    EXPECT_TRUE(com.try_cast<const TestName*>());
-    EXPECT_EQ(com.cast<const TestName*>()->name, "TestEntity");
+    EXPECT_TRUE(com.try_cast<TestName*>());
+    EXPECT_EQ(com.cast<TestName*>()->name, "TestEntity");
     MetaData name = context.Resolve<TestName>().data("TestName::name"_hs);
     MetaAny value = name.get(*com);
     EXPECT_TRUE(value.try_cast<eastl::string>());
@@ -224,7 +224,7 @@ TEST(ReflectionTest, TypeRegistry)
     MetaAny nullCom = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(world), ent2);
     auto test = world.TryGet<TestName>(ent2);
     EXPECT_FALSE(test);
-    EXPECT_EQ(nullCom.cast<const TestName*>(), nullptr);
+    EXPECT_EQ(nullCom.cast<TestName*>(), nullptr);
     EXPECT_FALSE(*nullCom);
     
     MetaType testName = context.Resolve<TestName>();
@@ -244,6 +244,23 @@ static void FloatReflect(ReflectContext& context)
         .Data<&Float::value>("value").Custom<FloatElement>(0.0f, 1.0f, 0.1f);
 }
 
+namespace A
+{
+    struct Foo
+    {
+        int x;
+    };
+}
+
+namespace B
+{
+    struct Foo
+    {
+        float y;
+    };
+    
+}
+
 TEST(ReflectionTest, Custom)
 {
     TypeRegistry::Register(FloatReflect);
@@ -260,4 +277,6 @@ TEST(ReflectionTest, Custom)
     EXPECT_FLOAT_EQ(fe.max, 1.0f);
     EXPECT_FLOAT_EQ(fe.speed, 0.1f);
     EXPECT_STREQ(fe.format.c_str(), "%.3f");
+
+    EXPECT_NE(GetTypeId<A::Foo>(), GetTypeId<B::Foo>());
 }
