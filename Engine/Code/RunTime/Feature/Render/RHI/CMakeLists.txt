@@ -1,9 +1,8 @@
-set(TARGET_NAME SparkRender)
-
-add_subdirectory(RHI)
+set(TARGET_NAME RHI)
 
 set(SOURCES
-    RenderSystem.cpp
+    stub.cpp
+    Size.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -13,9 +12,6 @@ add_library(${TARGET_NAME} STATIC
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
-        opengl32
-        glfw
-        ImGui
 )
 
 target_include_directories(

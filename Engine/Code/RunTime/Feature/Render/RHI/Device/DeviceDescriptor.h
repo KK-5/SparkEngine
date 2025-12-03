@@ -1,0 +1,23 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+#pragma once
+
+#include <Limits.h>
+
+namespace Spark::Render::RHI
+{
+    class DeviceDescriptor
+    {
+    public:
+        DeviceDescriptor() = default;
+        virtual ~DeviceDescriptor();
+
+        uint32_t m_frameCountMax = Limits::Device::FrameCountMax;
+    };
+}
