@@ -12,6 +12,11 @@
 namespace Spark::Render::RHI
 {
 
+    struct Validation
+    {
+        static constexpr bool isEnabled = true;
+    };
+
     /**
     * A set of general result codes used by methods which may fail.
     */

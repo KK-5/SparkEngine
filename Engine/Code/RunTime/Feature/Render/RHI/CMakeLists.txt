@@ -3,6 +3,7 @@ set(TARGET_NAME RHI)
 set(SOURCES
     stub.cpp
     Size.cpp
+    Device/Device.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
