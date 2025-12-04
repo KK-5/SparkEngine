@@ -31,10 +31,9 @@ namespace Editor
     void SparkEditor::Start()
     {
         m_runtimeEngine->Run([&]() 
-            { 
-                return m_editorWindow->ShouldClose(); 
-            }
-        );
+        { 
+            return m_editorWindow->ShouldClose(); 
+        });
     }
 
     void SparkEditor::Close()

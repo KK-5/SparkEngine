@@ -13,8 +13,12 @@
 
 namespace Spark
 {
+    class IObjectFactory;
+    class ObjectPool;
+
     class Object
     {
+        friend class IObjectFactory;  // for constructor
     public:
         virtual ~Object() = default;
 
@@ -22,7 +26,7 @@ namespace Spark
 
         const ObjectName& GetName() const;
 
-        uint32_t UseCount()
+        uint32_t UseCount() const
         {
             return static_cast<uint32_t>(m_useCount);
         }
