@@ -18,12 +18,12 @@ namespace Spark::Render
 
     void RenderSystem::Initialize()
     {
-        BusConnect();
+        TickBus::Handler::BusConnect();
     }
 
     void RenderSystem::ShutDown()
     {
-        BusDisconnect();
+        TickBus::Handler::BusDisconnect();
     }
 
     void RenderSystem::OnTick(WorldContext& context, float deltaTime)

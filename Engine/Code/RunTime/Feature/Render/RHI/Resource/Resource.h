@@ -8,22 +8,21 @@ namespace Spark::Render::RHI
     class ResourcePool;
     class ResourceView;
 
+    // Init() use DeviceObject::Init
     class Resource : public DeviceObject
     {
         friend class ResourcePool; // for SetPool
     public:
         virtual ~Resource() = default;
 
-        bool IsAttachment() const;
-
         void Shutdown() override final;
+
+        bool IsAttachment() const;
 
         const ResourcePool* GetPool() const;
         ResourcePool* GetPool();
 
         const FrameAttachment* GetFrameAttachment() const;
-
-        void EraseResourceView(ResourceView* resourceView) const;
 
     private:
         void SetFrameAttachment(FrameAttachment* frameAttachment);
@@ -31,9 +30,7 @@ namespace Spark::Render::RHI
         void SetPool(ResourcePool* pool);
                                     
         ResourcePool* m_pool = nullptr;
-
         FrameAttachment* m_frameAttachment = nullptr;
-
         bool m_isInvalidationQueued = false;
     };
 }

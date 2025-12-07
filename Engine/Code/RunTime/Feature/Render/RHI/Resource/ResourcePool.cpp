@@ -97,7 +97,7 @@ namespace Spark::Render::RHI
         m_registry.erase(&resource);
     }
 
-    ResultCode ResourcePool::Init(Device& device, const BackendMethod& initMethod)
+    ResultCode ResourcePool::Init(Device& device, const ResourcePoolDescriptor& descriptor, const BackendMethod& initMethod)
     {
         if (Validation::isEnabled)
         {

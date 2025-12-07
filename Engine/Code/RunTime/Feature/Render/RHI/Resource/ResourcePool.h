@@ -8,6 +8,8 @@
 #include <Bus/FrameEventBus.h>
 #include <Device/DeviceObject.h>
 
+#include "ResourcePoolDescriptor.h"
+
 namespace Spark::Render::RHI
 {
     class ResourcePoolResolver
@@ -17,6 +19,7 @@ namespace Spark::Render::RHI
     };
 
     class Resource;
+
     class ResourcePool : public DeviceObject,
                          public FrameEventBus::Handler
     {
@@ -27,12 +30,17 @@ namespace Spark::Render::RHI
 
         uint32_t GetResourceCount() const;
 
+        void ShutdownResource(Resource* resource);
+
         ResourcePoolResolver* GetResolver();
         const ResourcePoolResolver* GetResolver() const;
+
+        virtual const ResourcePoolDescriptor& GetDescriptor() const = 0;
 
     protected:
         ResourcePool() = default;
 
+        // FrameEventBus
         void OnFrameBegin() override;
         void OnFrameCompileBegin() override;
         void OnFrameEnd() override;
@@ -45,10 +53,9 @@ namespace Spark::Render::RHI
 
         // backend
         using BackendMethod = eastl::function<ResultCode()>;
-
-        ResultCode Init(Device& device, const BackendMethod& initMethod);
-
+        ResultCode Init(Device& device, [[maybe_unused]] const ResourcePoolDescriptor& descriptor, const BackendMethod& initMethod);
         ResultCode InitResource(Resource* resource, const BackendMethod& initResourceMethod);
+        ///////////////////////////////////////////////
 
         bool IsRegistered(const Resource* resource) const;
 
@@ -57,8 +64,6 @@ namespace Spark::Render::RHI
         bool ValidateNotProcessingFrame() const;
     
     private:
-        void ShutdownResource(Resource* resource);
-
         void Register(Resource& resource);
 
         void Unregister(Resource& resource);

@@ -14,14 +14,22 @@ namespace Spark::Render::RHI
         }
     }
 
+    void Resource::Shutdown()
+    {
+        if (m_pool)
+        {
+            if (m_frameAttachment)
+            {
+                LOG_ERROR("[Resource] Resource {} is still assigned to a frame attachment during shutdown.", GetName().GetCStr());
+            }
+            m_pool->ShutdownResource(this);
+        }
+        DeviceObject::Shutdown();
+    }
+
     bool Resource::IsAttachment() const
     {
         return m_frameAttachment != nullptr;
-    }
-
-    void Resource::Shutdown()
-    {
-        DeviceObject::Shutdown();
     }
 
     const ResourcePool* Resource::GetPool() const
@@ -39,13 +47,22 @@ namespace Spark::Render::RHI
         return m_frameAttachment;
     }
 
-    void Resource::EraseResourceView(ResourceView* resourceView) const
-    {
-        // [TODO]
-    }
-
     void Resource::SetFrameAttachment(FrameAttachment* frameAttachment)
     {
+        if (Validation::isEnabled)
+        {
+            if (m_frameAttachment && frameAttachment)
+            {
+                LOG_ERROR("[Resource] Resource {} already has a frame attachment assigned.", GetName().GetCStr());
+                return;
+            }
+            if (!m_frameAttachment && !frameAttachment)
+            {
+                LOG_ERROR("[Resource] Resource {} does not have a frame attachment assigned.", GetName().GetCStr());
+                return;
+            }
+        }
+
         m_frameAttachment = frameAttachment;
     }
 

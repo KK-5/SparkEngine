@@ -1,9 +1,14 @@
-set(TARGET_NAME RHI)
+set(TARGET_NAME SparkRHI)
 
 set(SOURCES
     stub.cpp
     Size.cpp
+    Format.cpp
     Device/Device.cpp
+    Resource/Resource.cpp
+    Resource/ResourcePool.cpp
+    Resource/ResourceView.cpp
+    Resource/Buffer/BufferViewDescriptor.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

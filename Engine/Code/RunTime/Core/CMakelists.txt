@@ -7,6 +7,7 @@ set(CORE_SOURCES
     SceneManager/SceneManager.cpp
     Reflection/TypeRegistry.cpp
     Object/Object.cpp
+    Math/Interval.cpp
 )
 
 # 显式列出所有头文件（用于IDE显示）

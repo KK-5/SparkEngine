@@ -19,6 +19,7 @@ namespace Spark::Render::RHI
 
         void Init(Device& device);
 
+        // 子类重写时需要调用此Shutdown
         void Shutdown() override;
     private:
         Ptr<Device> m_device = nullptr;
