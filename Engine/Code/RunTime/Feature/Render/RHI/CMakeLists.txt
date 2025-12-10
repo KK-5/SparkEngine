@@ -9,6 +9,15 @@ set(SOURCES
     Resource/ResourcePool.cpp
     Resource/ResourceView.cpp
     Resource/Buffer/BufferViewDescriptor.cpp
+    Resource/Buffer/Buffer.cpp
+    Resource/Buffer/BufferPool.cpp
+    Resource/Buffer/BufferView.cpp
+    Resource/Buffer/BufferViewDescriptor.cpp
+    Resource/Image/Image.cpp
+    Resource/Image/ImageDescriptor.cpp
+    Resource/Image/ImageEnum.cpp
+    Resource/Image/ImageSubResource.cpp
+    Resource/Image/ImageViewDescriptor.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

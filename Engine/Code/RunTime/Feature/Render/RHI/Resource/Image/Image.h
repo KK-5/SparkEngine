@@ -1,0 +1,75 @@
+#pragma once
+
+#include <Resource/Resource.h>
+#include <Resource/ResourceViewCache.h>
+#include <HardwareQueue.h>
+#include "ImageSubResource.h"
+#include "ImageDescriptor.h"
+#include "ImageViewDescriptor.h"
+
+namespace Spark::Render::RHI
+{
+    class ImageFrameAttachment;
+    class ImageView;
+
+    class Image : public Resource
+    {
+        friend class ImagePoolBase;
+        friend class StreamingImagePool;
+
+    public:
+        virtual ~Image() = default;
+
+        void GetSubresourceLayouts(
+            const ImageSubresourceRange& subresourceRange,
+            ImageSubresourceLayout* subresourceLayouts,
+            size_t* totalSizeInBytes) const;
+
+        uint32_t GetResidentMipLevel() const;
+
+        const ImageFrameAttachment* GetFrameAttachment() const;
+
+        Ptr<ImageView> GetImageView(const ImageViewDescriptor& imageViewDescriptor) const;
+
+        ImageAspectFlags GetAspectFlags() const;
+
+        bool IsStreamable() const;
+
+        const ImageDescriptor& GetDescriptor() const;
+
+        Ptr<ImageView> GetBufferView(const ImageViewDescriptor& imageViewDescriptor) const;
+
+        void EraseBufferView(ImageView* imageView) const;
+
+        bool IsInBufferCache(const ImageViewDescriptor& imageViewDescriptor);
+
+    protected:
+        Image() = default;
+
+        virtual void SetDescriptor(const ImageDescriptor& descriptor);
+
+    private:
+        ///////////////////////////////////////////////////////////////////
+        // Platform API
+
+        /// Called by GetSubresourceLayouts. The subresource range is clamped and validated beforehand.
+        virtual void GetSubresourceLayoutsInternal(
+            const ImageSubresourceRange& subresourceRange,
+            ImageSubresourceLayout* subresourceLayouts,
+            size_t* totalSizeInBytes) const = 0;
+
+        //! Returns whether the image has sub-resources which can be evicted from or streamed into the device memory
+        virtual bool IsStreamableInternal() const { return false;};
+        ///////////////////////////////////////////////////////////////////
+
+        ImageDescriptor m_descriptor;
+
+        HardwareQueueClassMask m_supportedQueueMask = HardwareQueueClassMask::All;
+
+        uint32_t m_residentMipLevel = 0;
+
+        ImageAspectFlags m_aspectFlags = ImageAspectFlags::None;
+
+        ResourceViewCache<ImageViewDescriptor, ImageViewDescriptoHasher> m_imageViewCache;
+    };
+}
