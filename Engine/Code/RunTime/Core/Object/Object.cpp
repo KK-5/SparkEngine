@@ -23,8 +23,6 @@ namespace Spark
         {
             Object* object = const_cast<Object*>(this);
             object->Shutdown();
-            // [TODO] 这里用delete删除？
-            delete object;
         }
     }
 }

@@ -8,10 +8,15 @@ namespace Spark::Render::RHI
 {
     ResourcePool::~ResourcePool()
     {
-        if (!m_registry.empty())
+        if (ObjectPool::GetObjectCount() != 0)
         {
             LOG_ERROR("[ResourcePool] ResourcePool {} is being destroyed while it still has {} registered resources.", GetName().GetCStr(), static_cast<uint32_t>(m_registry.size()));
         }
+    }
+
+    bool ResourcePool::IsInitialized() const
+    {
+        return DeviceObject::IsInitialized() && ObjectPool::IsInitialized();
     }
 
     ResourcePoolResolver* ResourcePool::GetResolver()
@@ -46,7 +51,7 @@ namespace Spark::Render::RHI
         {
             if (!resource || resource->GetPool() != this)
             {
-                LOG_ERROR("[DeviceResourcePool] Resource {} is not registered on this pool.", GetName().GetCStr());
+                LOG_ERROR("[ResourcePool] Resource {} is not registered on this pool.", GetName().GetCStr());
                 return false;
             }
         }
@@ -85,16 +90,16 @@ namespace Spark::Render::RHI
     {
         resource.SetPool(this);
 
-        std::unique_lock<std::shared_mutex> lock(m_registryMutex);
-        m_registry.emplace(&resource);
+        //std::unique_lock<std::shared_mutex> lock(m_registryMutex);
+        //m_registry.emplace(&resource);
     }
 
     void ResourcePool::Unregister(Resource& resource)
     {
         resource.SetPool(nullptr);
 
-        std::unique_lock<std::shared_mutex> lock(m_registryMutex);
-        m_registry.erase(&resource);
+        //std::unique_lock<std::shared_mutex> lock(m_registryMutex);
+        //m_registry.erase(&resource);
     }
 
     ResultCode ResourcePool::Init(Device& device, const ResourcePoolDescriptor& descriptor, const BackendMethod& initMethod)
@@ -107,6 +112,8 @@ namespace Spark::Render::RHI
                 return ResultCode::InvalidOperation;
             }
         }
+
+        ObjectPool::Init(descriptor);
 
         ResultCode resultCode = initMethod();
         if (resultCode == ResultCode::Success)
@@ -140,6 +147,7 @@ namespace Spark::Render::RHI
             m_registry.clear();
             m_resolver.reset();
             DeviceObject::Shutdown();
+            ObjectPool::Shutdown();
         }
     }
 
@@ -166,10 +174,11 @@ namespace Spark::Render::RHI
 
     void ResourcePool::ShutdownResource(Resource* resource)
     {
-        if (ValidateIsInitialized && IsRegistered(resource))
+        if (ValidateIsInitialized() && IsRegistered(resource))
         {
             Unregister(*resource);
             ShutdownResourceInternal(*resource);
+            ObjectPool::ShutdownObject(resource);
         }
     }
 
@@ -191,5 +200,6 @@ namespace Spark::Render::RHI
         {
             m_isProcessingFrame = false;
         }
+        ObjectPool::Collect();
     }
 }

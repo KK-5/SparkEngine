@@ -121,7 +121,7 @@ namespace Spark::Render::RHI
 
     bool ImageViewDescriptor::OverlapsSubResource(const ImageViewDescriptor& other) const
     {
-        return CheckBitsAny(m_aspectFlags, other.m_aspectFlags) &&
+        return CheckBitsAny(static_cast<uint32_t>(m_aspectFlags), static_cast<uint32_t>(other.m_aspectFlags)) &&
             Interval(m_arraySliceMin, m_arraySliceMax).Overlaps(Interval(other.m_arraySliceMin, other.m_arraySliceMax)) &&
             Interval(m_mipSliceMin, m_mipSliceMax).Overlaps(Interval(other.m_mipSliceMin, other.m_mipSliceMax));
         ;

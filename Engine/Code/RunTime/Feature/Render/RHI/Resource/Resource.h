@@ -8,12 +8,13 @@ namespace Spark::Render::RHI
     class ResourcePool;
     class ResourceView;
 
-    // Init() use DeviceObject::Init
     class Resource : public DeviceObject
     {
         friend class ResourcePool; // for SetPool
     public:
-        virtual ~Resource() = default;
+        virtual ~Resource();
+
+        // Init() = DeviceObject::Init
 
         void Shutdown() override final;
 

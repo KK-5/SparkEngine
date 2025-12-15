@@ -1,11 +1,12 @@
 #pragma once
 
 #include "BufferViewDescriptor.h"
-#include "Buffer.h"
 #include <Resource/ResourceView.h>
 
 namespace Spark::Render::RHI
 {
+    class Buffer;
+
     class BufferView : public ResourceView
     {
     public:

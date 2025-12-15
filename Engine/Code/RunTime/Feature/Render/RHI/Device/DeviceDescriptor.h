@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <Limits.h>
+#include <RHILimits.h>
 
 namespace Spark::Render::RHI
 {

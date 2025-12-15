@@ -24,6 +24,10 @@ namespace Spark::Render::RHI
             }
             m_pool->ShutdownResource(this);
         }
+        else
+        {
+            LOG_ERROR("[Resource] Resource {} has not resgistered in any resource pool.", GetName().GetCStr());
+        }
         DeviceObject::Shutdown();
     }
 

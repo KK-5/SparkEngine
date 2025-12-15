@@ -13,12 +13,8 @@
 
 namespace Spark
 {
-    class IObjectFactory;
-    class ObjectPool;
-
     class Object
     {
-        friend class IObjectFactory;  // for constructor
     public:
         virtual ~Object() = default;
 
@@ -31,14 +27,14 @@ namespace Spark
             return static_cast<uint32_t>(m_useCount);
         }
 
+        void AddRef();
+
+        void Release();
+
         virtual void Init() {}
     
     protected:
         Object() = default;
-
-        void AddRef();
-
-        void Release();
 
         mutable eastl::atomic<uint32_t> m_useCount {0};
     private:

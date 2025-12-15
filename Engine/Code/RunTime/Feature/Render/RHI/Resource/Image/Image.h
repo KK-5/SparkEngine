@@ -29,19 +29,17 @@ namespace Spark::Render::RHI
 
         const ImageFrameAttachment* GetFrameAttachment() const;
 
-        Ptr<ImageView> GetImageView(const ImageViewDescriptor& imageViewDescriptor) const;
-
         ImageAspectFlags GetAspectFlags() const;
 
         bool IsStreamable() const;
 
         const ImageDescriptor& GetDescriptor() const;
 
-        Ptr<ImageView> GetBufferView(const ImageViewDescriptor& imageViewDescriptor) const;
+        Ptr<ImageView> GetImageView(const ImageViewDescriptor& imageViewDescriptor) const;
 
-        void EraseBufferView(ImageView* imageView) const;
+        void EraseImageView(ImageView* imageView) const;
 
-        bool IsInBufferCache(const ImageViewDescriptor& imageViewDescriptor);
+        bool IsInImageCache(const ImageViewDescriptor& imageViewDescriptor);
 
     protected:
         Image() = default;

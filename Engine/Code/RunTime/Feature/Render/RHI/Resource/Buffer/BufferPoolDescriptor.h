@@ -8,6 +8,11 @@
 
 namespace Spark::Render::RHI
 {
+    struct BufferPoolTraits : ResourcePoolTraits
+    {
+
+    };
+
     struct BufferPoolDescriptor : public ResourcePoolDescriptor
     {
         BufferPoolDescriptor() = default;

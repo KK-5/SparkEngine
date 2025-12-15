@@ -8,6 +8,7 @@
 #pragma once
 
 #include <Math/Bit.h>
+#include <Format.h>
 
 namespace Spark::Render::RHI
 {

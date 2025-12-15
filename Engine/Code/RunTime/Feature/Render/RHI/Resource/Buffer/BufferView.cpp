@@ -2,6 +2,8 @@
 
 #include <Log/SpdLogSystem.h>
 
+#include "Buffer.h"
+
 namespace Spark::Render::RHI
 {
     ResultCode BufferView::Init(const Buffer& buffer, const BufferViewDescriptor& viewDescriptor)
@@ -62,7 +64,7 @@ namespace Spark::Render::RHI
                 return false;
             }
 
-            if (!CheckBitsAll(buffer.GetDescriptor().m_bindFlags, viewDescriptor.m_overrideBindFlags))
+            if (!CheckBitsAll(static_cast<uint32_t>(buffer.GetDescriptor().m_bindFlags), static_cast<uint32_t>(viewDescriptor.m_overrideBindFlags)))
             {
                 LOG_WARN("[DeviceBufferView] Buffer view has bind flags that are incompatible with the underlying buffer.");
             

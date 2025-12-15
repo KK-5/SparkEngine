@@ -29,11 +29,6 @@ namespace Spark::Render::RHI
         //return static_cast<const ImageFrameAttachment*>(Resource::GetFrameAttachment());
     }
 
-    Ptr<ImageView> Image::GetImageView(const ImageViewDescriptor& imageViewDescriptor) const
-    {
-        return nullptr;
-    }
-
     ImageAspectFlags Image::GetAspectFlags() const
     {
         return m_aspectFlags;
@@ -55,18 +50,18 @@ namespace Spark::Render::RHI
         return m_descriptor;
     }
 
-    Ptr<ImageView> Image::GetBufferView(const ImageViewDescriptor& imageViewDescriptor) const
+    Ptr<ImageView> Image::GetImageView(const ImageViewDescriptor& imageViewDescriptor) const
     {
         ResourceView* view = m_imageViewCache.GetResourceView(imageViewDescriptor);
         return static_cast<ImageView*>(view);
     }
 
-    void Image::EraseBufferView(ImageView* imageView) const
+    void Image::EraseImageView(ImageView* imageView) const
     {
         m_imageViewCache.EraseResourceView(imageView);
     }
 
-    bool Image::IsInBufferCache(const ImageViewDescriptor& imageViewDescriptor)
+    bool Image::IsInImageCache(const ImageViewDescriptor& imageViewDescriptor)
     {
         return m_imageViewCache.IsInResourceCache(imageViewDescriptor);
     }

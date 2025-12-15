@@ -43,7 +43,7 @@ namespace Spark::Render::RHI
     private:
         BufferDescriptor m_descriptor;
         ResourceViewCache<BufferViewDescriptor, BufferViewDescriptoHasher> m_bufferViewCache;
-        eastl::atomic<uint32_t> m_mapRefCount = {0};
+        eastl::atomic<uint32_t> m_mapRefCount {0};
     };
     
 }

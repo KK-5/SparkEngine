@@ -17,5 +17,7 @@ namespace Spark::Render::RHI
     protected:
         PhysicalDeviceDescriptor m_descriptor;
     };
+
+    using PhysicalDeviceList = eastl::vector<Ptr<PhysicalDevice>>;
 }
 

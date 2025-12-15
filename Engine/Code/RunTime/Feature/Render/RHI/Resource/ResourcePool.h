@@ -7,6 +7,7 @@
 
 #include <Bus/FrameEventBus.h>
 #include <Device/DeviceObject.h>
+#include <Object/ObjectPool.h>
 
 #include "ResourcePoolDescriptor.h"
 
@@ -21,6 +22,7 @@ namespace Spark::Render::RHI
     class Resource;
 
     class ResourcePool : public DeviceObject,
+                         public ObjectPool<ResourcePoolTraits>,
                          public FrameEventBus::Handler
     {
     public:
@@ -35,6 +37,8 @@ namespace Spark::Render::RHI
         ResourcePoolResolver* GetResolver();
         const ResourcePoolResolver* GetResolver() const;
 
+        bool IsInitialized() const;
+
         virtual const ResourcePoolDescriptor& GetDescriptor() const = 0;
 
     protected:
@@ -47,11 +51,10 @@ namespace Spark::Render::RHI
 
         void SetResolver(eastl::unique_ptr<ResourcePoolResolver>&& resolvePolicy);
 
+        ///////////////////////////////////////////////
+        // Backend
         virtual void ShutdownInternal() {}
-
         virtual void ShutdownResourceInternal(Resource& resource) {}
-
-        // backend
         using BackendMethod = eastl::function<ResultCode()>;
         ResultCode Init(Device& device, [[maybe_unused]] const ResourcePoolDescriptor& descriptor, const BackendMethod& initMethod);
         ResultCode InitResource(Resource* resource, const BackendMethod& initResourceMethod);

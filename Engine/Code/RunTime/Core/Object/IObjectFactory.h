@@ -13,10 +13,9 @@ namespace Spark
     template <typename ObjectType>
     class IObjectFactory
     {
-    protected:
+    public:
         virtual ~IObjectFactory() = default;
 
-    public:
         struct Descriptor {};
 
         void Init(const Descriptor& descriptor) {}
@@ -25,20 +24,20 @@ namespace Spark
 
         /// Called when an object is being first created.
         template <typename... Args>
-        Ptr<ObjectType> CreateObject(Args&&...)
+        ObjectType* Allocate(Args&&...)
         {
             return nullptr;
         }
 
         /// Called when a object collected object is being reset for new use.
         template <typename... Args>
-        void ResetObject(ObjectType& object, Args&&...)
+        void ReAllocate(ObjectType* object, Args&&...)
         {
             (void)object;
         }
 
         /// Called when the object is being shutdown.
-        void ShutdownObject(ObjectType& object, bool isPoolShutdown)
+        void DeAllocate(ObjectType* object, bool isPoolShutdown)
         {
             (void)object;
             (void)isPoolShutdown;
@@ -52,7 +51,7 @@ namespace Spark
 
         /// Called when the object is being object collected. Return true if the object should be recycled,
         /// or false if the object should be shutdown and released from the pool.
-        bool RecycleObject(ObjectType& object)
+        bool RecycleObject(ObjectType* object)
         {
             (void)object;
             return true;

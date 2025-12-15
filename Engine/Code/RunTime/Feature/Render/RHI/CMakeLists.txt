@@ -5,6 +5,7 @@ set(SOURCES
     Size.cpp
     Format.cpp
     Device/Device.cpp
+    Device/DeviceObject.cpp
     Resource/Resource.cpp
     Resource/ResourcePool.cpp
     Resource/ResourceView.cpp
@@ -16,8 +17,12 @@ set(SOURCES
     Resource/Image/Image.cpp
     Resource/Image/ImageDescriptor.cpp
     Resource/Image/ImageEnum.cpp
+    Resource/Image/ImagePoolBase.cpp
+    Resource/Image/ImagePool.cpp
     Resource/Image/ImageSubResource.cpp
     Resource/Image/ImageViewDescriptor.cpp
+    Resource/Image/ImageView.cpp
+    Resource/Image/StreamingImagePool.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

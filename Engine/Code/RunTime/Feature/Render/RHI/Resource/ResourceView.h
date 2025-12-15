@@ -25,6 +25,7 @@ namespace Spark::Render::RHI
         // DeviceObject overrides
         void Shutdown() override final;
 
+        //////////////////////////////////////////////
         // backend
         virtual ResultCode InitInternal(Device& device, const Resource& resource) = 0;
         virtual void ShutdownInternal() = 0;

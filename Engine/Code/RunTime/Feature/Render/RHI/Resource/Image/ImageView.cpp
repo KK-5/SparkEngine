@@ -53,7 +53,7 @@ namespace Spark::Render::RHI
                 return false;
             }
 
-            if (!CheckBitsAll(image.GetDescriptor().m_bindFlags, viewDescriptor.m_overrideBindFlags))
+            if (!CheckBitsAll(static_cast<uint32_t>(image.GetDescriptor().m_bindFlags), static_cast<uint32_t>(viewDescriptor.m_overrideBindFlags)))
             {
                 LOG_WARN("[ImageView] Image view has bind flags that are incompatible with the underlying image.");
                 return false;

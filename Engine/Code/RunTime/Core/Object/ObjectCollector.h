@@ -17,7 +17,7 @@
 
 namespace Spark
 {
-    struct NullMutex
+    struct NullObjectPoolMutex
     {
         inline void lock() {}
         inline bool try_lock() { return true; }
@@ -28,7 +28,7 @@ namespace Spark
     {
         using ObjectType = Object;
 
-        using MutexType = NullMutex;
+        using MutexType = NullObjectPoolMutex;
     };
 
     using ObjectCollectorNotifyFunction = eastl::function<void()>;
@@ -153,7 +153,10 @@ namespace Spark
         m_mutex.lock();
         if (m_pendingObjects.size())
         {
-            m_pendingGarbage.emplace_back({eastl::move(m_pendingObjects), m_currentIteration});
+            Garbage garbge;
+            garbge.m_objects = eastl::move(m_pendingObjects);
+            garbge.m_collectIteration = m_currentIteration;
+            m_pendingGarbage.push_back(eastl::move(garbge));
         }
 
         if (!m_pendingNotifies.empty())

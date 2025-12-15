@@ -10,7 +10,7 @@
 #include <EASTL/array.h>
 
 #include <Math/Bit.h>
-#include "Limits.h"
+#include "RHILimits.h"
 
 namespace Spark::Render::RHI
 {
