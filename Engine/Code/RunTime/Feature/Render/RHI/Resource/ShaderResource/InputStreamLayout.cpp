@@ -4,7 +4,7 @@
 
 #include <Base.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     StreamChannelDescriptor::StreamChannelDescriptor(
         ShaderSemantic semantic,

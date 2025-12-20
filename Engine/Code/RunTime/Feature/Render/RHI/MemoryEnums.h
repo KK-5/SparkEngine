@@ -10,7 +10,7 @@
 
 #include <cstdint>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     //! Describes the memory requirements for allocating a resource.
     struct ResourceMemoryRequirements

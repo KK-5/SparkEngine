@@ -4,7 +4,7 @@
 
 #include "InputStreamLayout.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class alignas(8) StreamBufferView
     {

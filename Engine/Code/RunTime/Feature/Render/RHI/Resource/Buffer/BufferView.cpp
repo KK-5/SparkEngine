@@ -4,7 +4,7 @@
 
 #include "Buffer.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ResultCode BufferView::Init(const Buffer& buffer, const BufferViewDescriptor& viewDescriptor)
     {
@@ -29,6 +29,15 @@ namespace Spark::Render::RHI
 
         m_descriptor = viewDescriptor;
         return ResourceView::Init(buffer);
+    }
+
+    void BufferView::Shutdown()
+    {
+        if (IsInitialized())
+        {
+            GetBuffer().EraseBufferView(this);
+        }
+        ResourceView::Shutdown();
     }
 
     const BufferViewDescriptor& BufferView::GetDescriptor() const

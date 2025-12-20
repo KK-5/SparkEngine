@@ -9,7 +9,7 @@
 
 #include <cstdint>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct Origin
     {

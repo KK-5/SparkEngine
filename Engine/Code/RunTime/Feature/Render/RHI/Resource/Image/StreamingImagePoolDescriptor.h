@@ -2,7 +2,7 @@
 
 #include <Resource/ResourcePoolDescriptor.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class StreamingImagePoolDescriptor : public ResourcePoolDescriptor
     {

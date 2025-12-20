@@ -4,9 +4,10 @@
 #include "Base.h"
 #include "Device/PhysicalDevice.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Device;
+    class DeviceObject;
 
     class Buffer;
     class BufferPool;
@@ -19,6 +20,7 @@ namespace Spark::Render::RHI
 
     class Factory
     {
+    public:
         Factory() = default;
         virtual ~Factory() = default;
 
@@ -45,5 +47,7 @@ namespace Spark::Render::RHI
         virtual Ptr<ImageView> CreateImageView() = 0;
 
         virtual Ptr<StreamingImagePool> CreateStreamingImagePool() = 0;
+
+        virtual void DestoryObject(DeviceObject* obj) = 0;
     };
 }

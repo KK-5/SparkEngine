@@ -8,7 +8,7 @@
 #include "BufferView.h"
 #include "BufferViewDescriptor.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class BufferFrameAttachment;
     class BufferView;
@@ -42,7 +42,7 @@ namespace Spark::Render::RHI
     
     private:
         BufferDescriptor m_descriptor;
-        ResourceViewCache<BufferViewDescriptor, BufferViewDescriptoHasher> m_bufferViewCache;
+        mutable ResourceViewCache<BufferViewDescriptor, BufferViewDescriptoHasher> m_bufferViewCache;
         eastl::atomic<uint32_t> m_mapRefCount {0};
     };
     

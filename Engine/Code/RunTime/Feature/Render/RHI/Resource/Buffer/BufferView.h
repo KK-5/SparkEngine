@@ -3,7 +3,7 @@
 #include "BufferViewDescriptor.h"
 #include <Resource/ResourceView.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Buffer;
 
@@ -39,6 +39,8 @@ namespace Spark::Render::RHI
         }
     
     private:
+        void Shutdown() override final;
+
         bool ValidateForInit(const Buffer& buffer, const BufferViewDescriptor& viewDescriptor) const;
 
         BufferViewDescriptor m_descriptor;

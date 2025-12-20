@@ -1,6 +1,6 @@
 #include "ClearValue.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ClearValue::ClearValue()
     {

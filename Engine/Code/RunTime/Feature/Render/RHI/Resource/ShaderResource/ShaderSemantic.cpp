@@ -2,7 +2,7 @@
 
 #include <EASTL/functional.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     explicit ShaderSemantic::ShaderSemantic(const ObjectName& name, size_t index)
         :m_name(name), m_index(index)

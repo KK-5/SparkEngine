@@ -3,7 +3,7 @@
 #include <EASTLEX/hash.h>
 #include <Log/SpdLogSystem.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     StreamBufferView::StreamBufferView(
         const Buffer& buffer,

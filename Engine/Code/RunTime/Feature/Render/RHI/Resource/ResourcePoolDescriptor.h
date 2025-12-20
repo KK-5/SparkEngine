@@ -4,18 +4,9 @@
 #include <mutex>
 #include <Object/ObjectPool.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
-    class Resource;
-
-    struct ResourcePoolTraits : ObjectPoolTraits
-    {
-        using ObjectType = Resource;
-
-        using MutexType = std::shared_mutex;
-    };
-
-    struct ResourcePoolDescriptor : ObjectPool<ResourcePoolTraits>::Descriptor
+    struct ResourcePoolDescriptor
     {
         ResourcePoolDescriptor() = default;
         virtual ~ResourcePoolDescriptor() = default;

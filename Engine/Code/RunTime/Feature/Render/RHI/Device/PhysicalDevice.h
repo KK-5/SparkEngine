@@ -6,18 +6,22 @@
 #include "PhysicalDeviceDescriptor.h"
 
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
+    using PhysicalDeviceList = eastl::vector<Ptr<PhysicalDevice>>;
+
     class PhysicalDevice : public Object
     {
     public:
         virtual ~PhysicalDevice() = default;
         const PhysicalDeviceDescriptor& GetDescriptor() const;
 
+        virtual PhysicalDeviceList Enumerate() = 0;
+
     protected:
         PhysicalDeviceDescriptor m_descriptor;
     };
 
-    using PhysicalDeviceList = eastl::vector<Ptr<PhysicalDevice>>;
+    //using PhysicalDeviceList = eastl::vector<Ptr<PhysicalDevice>>;
 }
 

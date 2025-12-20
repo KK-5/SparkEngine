@@ -2,7 +2,7 @@
 
 #include "Resource.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ResultCode ResourceView::Init(const Resource& resource)
     {
@@ -26,7 +26,6 @@ namespace Spark::Render::RHI
         {
             ShutdownInternal();
 
-            //m_resource->EraseResourceView(this);
             m_resource = nullptr;
             DeviceObject::Shutdown();
         }

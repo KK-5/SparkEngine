@@ -10,7 +10,7 @@
 
 #include <EASTL/algorithm.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
 
     Size::Size(uint32_t width, uint32_t height, uint32_t depth)

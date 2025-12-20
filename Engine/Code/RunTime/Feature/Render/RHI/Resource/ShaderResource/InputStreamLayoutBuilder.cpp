@@ -2,7 +2,7 @@
 
 #include <Log/SpdLogSystem.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     InputStreamLayoutBuilder::InputStreamLayoutBuilder()
     {

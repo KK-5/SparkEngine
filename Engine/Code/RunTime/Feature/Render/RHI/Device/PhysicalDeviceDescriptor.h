@@ -11,7 +11,7 @@
 #include <EASTL/string.h>
 #include <EASTL/array.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     enum class VendorId: uint32_t
     {

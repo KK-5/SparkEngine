@@ -3,7 +3,7 @@
 #include <Resource/ResourcePool.h>
 #include "Image.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class ImagePoolBase : public ResourcePool
     {

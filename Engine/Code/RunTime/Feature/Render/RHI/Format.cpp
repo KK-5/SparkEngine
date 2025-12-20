@@ -2,7 +2,7 @@
 
 #include <Log/SpdLogSystem.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     uint32_t GetFormatSize(Format format)
     {
@@ -163,6 +163,7 @@ namespace Spark::Render::RHI
             LOG_ERROR("Unimplemented format");
             return 0;
         }
+    }
     /*
     uint32_t GetFormatComponentCount(Format format)
     {
@@ -385,5 +386,5 @@ namespace Spark::Render::RHI
             return 0;
         }
         */
-    }
+    
 }

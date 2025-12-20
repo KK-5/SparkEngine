@@ -7,7 +7,7 @@
 #include "Image.h"
 #include "ImageSubresource.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct ImageInitRequest
     {

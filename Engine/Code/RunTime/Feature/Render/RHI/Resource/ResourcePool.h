@@ -11,7 +11,7 @@
 
 #include "ResourcePoolDescriptor.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class ResourcePoolResolver
     {
@@ -22,7 +22,6 @@ namespace Spark::Render::RHI
     class Resource;
 
     class ResourcePool : public DeviceObject,
-                         public ObjectPool<ResourcePoolTraits>,
                          public FrameEventBus::Handler
     {
     public:
@@ -36,8 +35,6 @@ namespace Spark::Render::RHI
 
         ResourcePoolResolver* GetResolver();
         const ResourcePoolResolver* GetResolver() const;
-
-        bool IsInitialized() const;
 
         virtual const ResourcePoolDescriptor& GetDescriptor() const = 0;
 

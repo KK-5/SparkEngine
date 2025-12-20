@@ -4,7 +4,7 @@
 
 #include <Object/ObjectName.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class ShaderSemantic
     {

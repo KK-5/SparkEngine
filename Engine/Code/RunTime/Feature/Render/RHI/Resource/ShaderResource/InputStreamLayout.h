@@ -8,7 +8,7 @@
 
 #include "ShaderSemantic.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     enum class PrimitiveTopology : uint32_t
     {

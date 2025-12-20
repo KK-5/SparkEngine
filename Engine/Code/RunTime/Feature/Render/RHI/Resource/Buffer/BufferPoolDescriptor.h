@@ -6,7 +6,7 @@
 
 #include "BufferBindFlags.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct BufferPoolTraits : ResourcePoolTraits
     {

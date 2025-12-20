@@ -3,7 +3,7 @@
 #include <Resource/ResourcePoolDescriptor.h>
 #include "ImageEnums.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class ImagePoolDescriptor: public ResourcePoolDescriptor
     {

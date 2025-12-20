@@ -1,7 +1,7 @@
 #include "Image.h"
 #include "ImageView.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     void Image::GetSubresourceLayouts(
         const ImageSubresourceRange& subresourceRange,

@@ -4,7 +4,7 @@
 
 #include "Image.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ResultCode ImageView::Init(const Image& image, const ImageViewDescriptor& viewDescriptor)
     {
@@ -15,6 +15,15 @@ namespace Spark::Render::RHI
 
         m_descriptor = viewDescriptor;
         return ResourceView::Init(image);
+    }
+
+    void ImageView::Shutdown()
+    {
+        if (IsInitialized())
+        {
+            GetImage().EraseImageView(this);
+        }
+        ResourceView::Shutdown();
     }
 
     const ImageViewDescriptor& ImageView::GetDescriptor() const

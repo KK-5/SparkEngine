@@ -3,7 +3,7 @@
 
 namespace Spark
 {
-    //using namespace Spark::Render::RHI;
+    //using namespace Spark::RHI;
 
     template <>
     class IObjectFactory<Render::RHI::Buffer>

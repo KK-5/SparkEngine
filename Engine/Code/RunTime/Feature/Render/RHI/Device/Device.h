@@ -9,7 +9,7 @@
 #include "DeviceFeatures.h"
 #include "DeviceLimits.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Device: public Object
     {

@@ -2,7 +2,7 @@
 
 #include <Object/IObjectFactory.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Buffer;
 

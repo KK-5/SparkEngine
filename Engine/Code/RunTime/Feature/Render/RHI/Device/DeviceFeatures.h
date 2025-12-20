@@ -13,7 +13,7 @@
 #include <Base.h>
 #include "VariableRateShadingEnums.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct DeviceFeatures
     {

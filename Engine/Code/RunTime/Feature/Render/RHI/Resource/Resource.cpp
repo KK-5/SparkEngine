@@ -4,7 +4,7 @@
 
 #include "ResourcePool.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     Resource::~Resource()
     {

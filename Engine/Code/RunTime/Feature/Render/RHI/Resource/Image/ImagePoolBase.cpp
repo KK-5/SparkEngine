@@ -1,6 +1,6 @@
 #include "ImagePoolBase.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ResultCode ImagePoolBase::InitImage(Image* image, const ImageDescriptor& descriptor, BackendMethod initResourceMethod)
     {

@@ -3,7 +3,7 @@
 #include <Resource/ResourceView.h>
 #include "ImageViewDescriptor.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Image;
 
@@ -32,6 +32,7 @@ namespace Spark::Render::RHI
             return InvalidBindlessIndex;
         }
     private:
+        void Shutdown() override final;
         bool ValidateForInit(const Image& image, const ImageViewDescriptor& viewDescriptor) const;
 
         ImageViewDescriptor m_descriptor;

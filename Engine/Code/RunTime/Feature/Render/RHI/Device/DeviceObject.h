@@ -3,7 +3,7 @@
 #include <Object/Object.h>
 #include "Device.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class DeviceObject: public Object
     {

@@ -6,7 +6,7 @@
 #include "BufferPoolDescriptor.h"
 #include "Buffer.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Fence;
 

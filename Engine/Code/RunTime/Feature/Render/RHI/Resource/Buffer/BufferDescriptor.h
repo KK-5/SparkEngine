@@ -3,7 +3,7 @@
 #include <HardwareQueue.h>
 #include "BufferBindFlags.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct BufferDescriptor
     {

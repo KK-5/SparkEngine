@@ -10,7 +10,7 @@
 #include <EASTL/array.h>
 #include <Math/Bit.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {       
     //! Shading rate types supported by the RHI
     enum class ShadingRateType : uint32_t

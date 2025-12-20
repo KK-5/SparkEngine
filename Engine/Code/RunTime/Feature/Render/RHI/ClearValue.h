@@ -11,7 +11,7 @@
 #include <EASTL/array.h>
 #include "Format.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     enum class ClearValueType : uint32_t
     {

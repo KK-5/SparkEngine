@@ -1,6 +1,6 @@
 #include "ImageDescriptor.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ImageDescriptor ImageDescriptor::Create1D(
         ImageBindFlags bindFlags,

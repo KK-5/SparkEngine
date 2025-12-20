@@ -11,7 +11,7 @@
 #include <Base.h>
 #include <Size.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct DeviceLimits
     {

@@ -2,7 +2,7 @@
 
 #include "assert.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     SamplePosition::SamplePosition(uint8_t x, uint8_t y)
         : m_x(x)

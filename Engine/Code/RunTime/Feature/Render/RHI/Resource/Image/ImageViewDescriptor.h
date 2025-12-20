@@ -5,7 +5,7 @@
 #include <Format.h>
 #include "ImageEnums.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     //! Image views map to a range of mips / array slices in an image.
     struct ImageViewDescriptor

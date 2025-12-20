@@ -7,7 +7,7 @@
 #include "ImageDescriptor.h"
 #include "ImageViewDescriptor.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class ImageFrameAttachment;
     class ImageView;
@@ -68,6 +68,6 @@ namespace Spark::Render::RHI
 
         ImageAspectFlags m_aspectFlags = ImageAspectFlags::None;
 
-        ResourceViewCache<ImageViewDescriptor, ImageViewDescriptoHasher> m_imageViewCache;
+        mutable ResourceViewCache<ImageViewDescriptor, ImageViewDescriptoHasher> m_imageViewCache;
     };
 }

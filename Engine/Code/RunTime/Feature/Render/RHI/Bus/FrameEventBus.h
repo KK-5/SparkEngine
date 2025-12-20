@@ -4,7 +4,7 @@
 
 #include <EBUS/EBus.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class FrameGraph;
     class FrameEventInterface : public EBusTraits

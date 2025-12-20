@@ -10,7 +10,7 @@
 #include <Math/Bit.h>
 #include <Format.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     enum class ImageBindFlags : uint32_t
     {

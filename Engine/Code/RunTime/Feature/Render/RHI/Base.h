@@ -9,7 +9,7 @@
 
 #include <Math/Bit.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
 
     struct Validation

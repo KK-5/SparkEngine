@@ -2,7 +2,7 @@
 
 #include <Math/Bit.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     enum class HardwareQueueClass : uint32_t
     {

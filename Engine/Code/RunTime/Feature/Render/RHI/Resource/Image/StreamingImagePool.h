@@ -8,7 +8,7 @@
 #include "StreamingImagePoolDescriptor.h"
 #include "ImagePoolBase.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct StreamingImageSubresourceData
     {

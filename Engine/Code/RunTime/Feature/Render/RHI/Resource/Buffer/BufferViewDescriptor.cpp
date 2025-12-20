@@ -2,7 +2,7 @@
 
 #include <Math/Interval.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     BufferViewDescriptor CreateStructured(
         uint32_t elementOffset,

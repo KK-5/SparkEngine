@@ -5,7 +5,7 @@
 
 #include "ImageEnums.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ResultCode StreamingImagePool::Init(Device& device, const StreamingImagePoolDescriptor& descriptor)
     {

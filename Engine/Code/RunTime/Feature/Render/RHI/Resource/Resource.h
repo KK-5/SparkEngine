@@ -2,7 +2,7 @@
 
 #include <Device/DeviceObject.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class FrameAttachment;
     class ResourcePool;
@@ -10,7 +10,7 @@ namespace Spark::Render::RHI
 
     class Resource : public DeviceObject
     {
-        friend class ResourcePool; // for SetPool
+        friend class ResourcePool; // for SetPool, Construct
     public:
         virtual ~Resource();
 

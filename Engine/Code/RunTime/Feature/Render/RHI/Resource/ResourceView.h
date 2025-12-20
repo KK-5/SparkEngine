@@ -2,7 +2,7 @@
 
 #include <Device/DeviceObject.h>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Resource;
 
@@ -18,13 +18,14 @@ namespace Spark::Render::RHI
         virtual bool IsFullView() const = 0;
     
     protected:
-        // derived class should call ResourceView::Init
+        // derived class should this
         ResultCode Init(const Resource& resource);
 
-    private:
         // DeviceObject overrides
-        void Shutdown() override final;
+        // derived class should call this
+        void Shutdown() override;
 
+    private:
         //////////////////////////////////////////////
         // backend
         virtual ResultCode InitInternal(Device& device, const Resource& resource) = 0;

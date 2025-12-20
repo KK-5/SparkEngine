@@ -4,19 +4,14 @@
 
 #include "Resource.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ResourcePool::~ResourcePool()
     {
-        if (ObjectPool::GetObjectCount() != 0)
+        if (m_registry.size() != 0)
         {
             LOG_ERROR("[ResourcePool] ResourcePool {} is being destroyed while it still has {} registered resources.", GetName().GetCStr(), static_cast<uint32_t>(m_registry.size()));
         }
-    }
-
-    bool ResourcePool::IsInitialized() const
-    {
-        return DeviceObject::IsInitialized() && ObjectPool::IsInitialized();
     }
 
     ResourcePoolResolver* ResourcePool::GetResolver()
@@ -113,8 +108,6 @@ namespace Spark::Render::RHI
             }
         }
 
-        ObjectPool::Init(descriptor);
-
         ResultCode resultCode = initMethod();
         if (resultCode == ResultCode::Success)
         {
@@ -147,7 +140,6 @@ namespace Spark::Render::RHI
             m_registry.clear();
             m_resolver.reset();
             DeviceObject::Shutdown();
-            ObjectPool::Shutdown();
         }
     }
 
@@ -178,7 +170,6 @@ namespace Spark::Render::RHI
         {
             Unregister(*resource);
             ShutdownResourceInternal(*resource);
-            ObjectPool::ShutdownObject(resource);
         }
     }
 
@@ -200,6 +191,5 @@ namespace Spark::Render::RHI
         {
             m_isProcessingFrame = false;
         }
-        ObjectPool::Collect();
     }
 }

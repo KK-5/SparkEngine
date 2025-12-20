@@ -5,7 +5,7 @@
 #include "ImageDescriptor.h"
 #include "ImageViewDescriptor.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     ImageSubresource::ImageSubresource(uint16_t mipSlice, uint16_t arraySlice)
         : m_mipSlice{mipSlice}

@@ -1,6 +1,6 @@
 #include "Buffer.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     void Buffer::SetDescriptor(const BufferDescriptor& descriptor)
     {

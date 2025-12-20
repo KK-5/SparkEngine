@@ -3,7 +3,7 @@
 #include <EASTL/unordered_map.h>
 #include <mutex>
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     class Resource;
     class ResourceView;
@@ -42,20 +42,6 @@ namespace Spark::Render::RHI
                 return it->second;
             }
             return nullptr;
-        }
-
-        ResourceView* InsertResourceView(const Resource* resource, const DescriptorType& viewDescriptor)
-        {
-            std::lock_guard<std::mutex> lock(m_cacheMutex);
-            auto it = m_resourceViewCache.find(viewDescriptor);
-            if (it != m_resourceViewCache.end())
-            {
-                return it->second;
-            }
-
-            // Create new resource view
-            ResourceView* resourceView = nullptr;
-            return resourceView;
         }
 
     private:

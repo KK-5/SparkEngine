@@ -8,7 +8,7 @@
 #include <Size.h>
 #include "ImageEnums.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct ImageDescriptor
     {

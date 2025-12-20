@@ -12,7 +12,7 @@
 #include <Math/Bit.h>
 #include "RHILimits.h"
 
-namespace Spark::Render::RHI
+namespace Spark::RHI
 {
     struct SamplePosition
     {

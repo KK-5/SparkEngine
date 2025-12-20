@@ -1,6 +1,9 @@
 #include "DeviceObject.h"
 
-namespace Spark::Render::RHI
+#include <Service/Service.h>
+#include <Factory.h>
+
+namespace Spark::RHI
 {
     bool DeviceObject::IsInitialized() const
     {
@@ -20,5 +23,9 @@ namespace Spark::Render::RHI
     void DeviceObject::Shutdown()
     {
         m_device = nullptr;
+        auto factory = Service<Factory>::Get();
+        assert(factory);
+        DeviceObject* obj = static_cast<DeviceObject*>(this);
+        factory->DestoryObject(obj);
     }
 }
