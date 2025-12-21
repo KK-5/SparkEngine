@@ -1,6 +1,6 @@
 #include "MultisampleState.h"
 
-#include "assert.h"
+#include <assert.h>
 
 namespace Spark::RHI
 {

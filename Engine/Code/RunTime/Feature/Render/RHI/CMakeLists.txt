@@ -34,6 +34,8 @@ target_link_libraries(${TARGET_NAME}
         SparkCore
 )
 
+add_subdirectory(Backend/DX12)
+
 target_include_directories(
   ${TARGET_NAME}
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)

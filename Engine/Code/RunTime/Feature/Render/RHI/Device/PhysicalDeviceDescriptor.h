@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <EASTL/string.h>
 #include <EASTL/array.h>
+#include <MemoryEnums.h>
 
 namespace Spark::RHI
 {
@@ -45,7 +46,6 @@ namespace Spark::RHI
         PhysicalDeviceType m_type = PhysicalDeviceType::Unknown;
         VendorId m_vendorId = VendorId::Unknown;
         uint32_t m_deviceId = 0;
-        uint32_t m_driverVersion = 0;
-        //eastl::array<size_t, HeapMemoryLevelCount> m_heapSizePerLevel = {{}};
+        eastl::array<size_t, HeapMemoryLevelCount> m_heapSizePerLevel = {{}};
     };
 }

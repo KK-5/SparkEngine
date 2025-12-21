@@ -16,12 +16,8 @@ namespace Spark::RHI
         virtual ~PhysicalDevice() = default;
         const PhysicalDeviceDescriptor& GetDescriptor() const;
 
-        virtual PhysicalDeviceList Enumerate() = 0;
-
     protected:
         PhysicalDeviceDescriptor m_descriptor;
     };
-
-    //using PhysicalDeviceList = eastl::vector<Ptr<PhysicalDevice>>;
 }
 
