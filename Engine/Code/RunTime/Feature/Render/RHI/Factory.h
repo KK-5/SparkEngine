@@ -24,11 +24,6 @@ namespace Spark::RHI
         Factory() = default;
         virtual ~Factory() = default;
 
-        Factory(const Factory&) = delete;
-        Factory& operator=(const Factory&) = delete;
-        Factory(Factory&&) = delete;
-        Factory& operator=(Factory&&) = delete;
-
         //virtual APIIndex GetType() = 0;
         virtual PhysicalDeviceList EnumeratePhysicalDevices() = 0;
 

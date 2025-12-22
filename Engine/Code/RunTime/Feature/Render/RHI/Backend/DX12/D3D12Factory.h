@@ -6,7 +6,7 @@
 
 namespace Spark::RHI::DX12
 {
-    class D3D12Factory final : public RHI::Factory
+    class D3D12Factory final : public Service<RHI::Factory>::Handler
     {
 
     };
