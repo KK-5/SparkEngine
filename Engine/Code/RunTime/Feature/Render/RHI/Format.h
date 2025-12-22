@@ -205,6 +205,21 @@ namespace Spark::RHI
         ShadingRate      = BIT(9),  // The format can be used to create a shading rate image.
     };
 
+    constexpr FormatCapabilities operator|(FormatCapabilities lhs, FormatCapabilities rhs) 
+    {
+        return static_cast<FormatCapabilities>(
+            static_cast<uint32_t>(lhs) | 
+            static_cast<uint32_t>(rhs)
+        );
+    }
+
+    constexpr FormatCapabilities& operator|=(FormatCapabilities& lhs, FormatCapabilities rhs)
+    {
+        lhs = lhs | rhs;
+        return lhs;
+    }
+
+
     uint32_t GetFormatSize(Format format);
     
 }

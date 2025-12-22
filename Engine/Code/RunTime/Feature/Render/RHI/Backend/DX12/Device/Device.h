@@ -21,6 +21,7 @@ namespace Spark::RHI::DX12
         void EndFrameInternal() override;
         void WaitForIdleInternal() override;
         RHI::ResultCode InitializeLimits() override;
+        void FillFormatsCapabilitiesInternal(FormatCapabilitiesList& formatsCapabilities) override;
         //////////////////////////////
 
         RHI::ResultCode InitD3d12maAllocator();

@@ -26,6 +26,7 @@ namespace Spark::RHI
 
         if (resultCode == ResultCode::Success)
         {
+            FillFormatsCapabilitiesInternal(m_formatsCapabilities);
             resultCode = InitializeLimits();
         }
         else
@@ -95,4 +96,9 @@ namespace Spark::RHI
     {
         return m_limits;
     }
+
+    FormatCapabilities Device::GetFormatCapabilities(Format format) const
+    {
+        return m_formatsCapabilities[static_cast<uint32_t>(format)];
+    } 
 }

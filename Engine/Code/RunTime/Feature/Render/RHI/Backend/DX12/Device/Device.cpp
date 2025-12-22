@@ -1,8 +1,10 @@
 #include "Device.h"
 
 #include <Log/SpdLogSystem.h>
+#include <Math/Bit.h>
 #include <ValidationLayer.h>
 #include <DX12.h>
+#include <Conversions.h>
 #include <3rdParty/D3D12MA/D3D12MemAlloc.h>
 
 namespace Spark::RHI::DX12
@@ -432,6 +434,65 @@ namespace Spark::RHI::DX12
         */
 
         return RHI::ResultCode::Success;
+    }
+
+    void Device::FillFormatsCapabilitiesInternal(FormatCapabilitiesList& formatsCapabilities)
+    {
+        for (uint32_t i = 0; i < formatsCapabilities.size(); ++i)
+        {
+            RHI::FormatCapabilities& flags = formatsCapabilities[i];
+            D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+            support.Format = ConvertFormat(static_cast<RHI::Format>(i), false);
+            GetDevice()->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
+            flags = RHI::FormatCapabilities::None;
+
+            if (CheckBitsAll(support.Support1, D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER))
+            {
+                flags |= RHI::FormatCapabilities::VertexBuffer;
+            }
+
+            if (CheckBitsAll(support.Support1, D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER))
+            {
+                flags |= RHI::FormatCapabilities::IndexBuffer;
+            }
+
+            if (CheckBitsAll(support.Support1, D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
+            {
+                flags |= RHI::FormatCapabilities::RenderTarget;
+            }
+
+            if (CheckBitsAll(support.Support1, D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL))
+            {
+                flags |= RHI::FormatCapabilities::DepthStencil;
+            }
+
+            if (CheckBitsAll(support.Support1, D3D12_FORMAT_SUPPORT1_BLENDABLE))
+            {
+                flags |= RHI::FormatCapabilities::Blend;
+            }
+
+            if (CheckBitsAll(support.Support1, D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE))
+            {
+                flags |= RHI::FormatCapabilities::Sample;
+            }
+
+            if (CheckBitsAll(support.Support2, D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD))
+            {
+                flags |= RHI::FormatCapabilities::TypedLoadBuffer;
+            }
+
+            if (CheckBitsAll(support.Support2, D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE))
+            {
+                flags |= RHI::FormatCapabilities::TypedStoreBuffer;
+            }
+
+            if (CheckBitsAll(support.Support2, D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD))
+            {
+                flags |= RHI::FormatCapabilities::AtomicBuffer;
+            }
+        }
+
+        formatsCapabilities[static_cast<uint32_t>(RHI::Format::R8_UINT)] |= RHI::FormatCapabilities::ShadingRate;
     }
 
     ID3D12DeviceX* Device::GetDevice()
