@@ -5,7 +5,6 @@
 #include <ValidationLayer.h>
 #include <DX12.h>
 #include <Conversions.h>
-#include <3rdParty/D3D12MA/D3D12MemAlloc.h>
 
 namespace Spark::RHI::DX12
 {
@@ -369,35 +368,32 @@ namespace Spark::RHI::DX12
 
         //m_stagingMemoryAllocator.GarbageCollect();
 
-        //m_releaseQueue.Collect();
+        m_objReleaseQueue.Collect();
         
-        //m_D3d12maReleaseQueue.Collect();
+        m_D3D12MAReleaseQueue.Collect();
     }
 
     void Device::WaitForIdleInternal()
     {
         //m_commandQueueContext.WaitForIdle();
-        //m_releaseQueue.Collect(true);
+        m_objReleaseQueue.Collect(true);
 
-        //m_D3d12maReleaseQueue.Collect(true);
-
+        m_D3D12MAReleaseQueue.Collect(true);
     }
 
     RHI::ResultCode Device::InitializeLimits()
     {
+        // Collect函数直接传入Ptr，使用Ptr在引用计数减为0时的自毁机制
+        D3D12ObjReleaseQueue::Descriptor releaseQueueDescriptor;
+        releaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
+        m_objReleaseQueue.Init(releaseQueueDescriptor);
+
+        D3D12MAReleaseQueue::Descriptor D3D12MAReleaseQueueDescriptor;
+        D3D12MAReleaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
+        m_D3D12MAReleaseQueue.Init(D3D12MAReleaseQueueDescriptor);
+
         /*
         m_allocationInfoCache.SetInitFunction([](auto& cache) { cache.set_capacity(64); });
-
-        {
-            ReleaseQueue::Descriptor releaseQueueDescriptor;
-            releaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
-            m_releaseQueue.Init(releaseQueueDescriptor);
-
-            D3d12maReleaseQueue::Descriptor D3d12maReleaseQueueDescriptor;
-            D3d12maReleaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
-            D3d12maReleaseQueueDescriptor.m_collectFunction = &D3d12maRelease;
-            m_D3d12maReleaseQueue.Init(D3d12maReleaseQueueDescriptor);
-        }
 
         m_descriptorContext = AZStd::make_shared<DescriptorContext>();
 
@@ -508,5 +504,92 @@ namespace Spark::RHI::DX12
     ID3D12DeviceX* Device::GetDevice()
     {
         return m_dx12Device.get();
+    }
+
+    MemoryView Device::CreateD3D12Buffer(
+            const RHI::BufferDescriptor& bufferDescriptor, D3D12_RESOURCE_STATES initialState, D3D12_HEAP_TYPE heapType)
+    {
+        D3D12_RESOURCE_DESC resourceDesc;
+        ConvertBufferDescriptor(bufferDescriptor, resourceDesc);
+        if (initialState == D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)
+        {
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        }
+
+        D3D12MA::ALLOCATION_DESC allocDesc = {};
+        allocDesc.HeapType = heapType;
+
+        D3D12MA::Allocation* allocation = nullptr;
+        HRESULT result = m_dx12MemAlloc->CreateResource(
+            &allocDesc,
+            &resourceDesc,
+            initialState,
+            NULL,
+            &allocation,
+            IID_NULL,
+            NULL
+        );
+        ASSERT(result == S_OK, "[DX12 Device] D3D12MA Create buffer resource failed!");
+
+        return MemoryView(allocation, MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
+    }
+
+    MemoryView Device::CreateD3D12Image(const RHI::ImageDescriptor& imageDescriptor, const RHI::ClearValue* optimizedClearValue,
+            D3D12_RESOURCE_STATES initialState, D3D12_HEAP_TYPE heapType)
+    {
+        D3D12_RESOURCE_DESC resourceDesc;
+        ConvertImageDescriptor(imageDescriptor, resourceDesc);
+
+        const bool isOutputMergerAttachment = CheckBitsAny(imageDescriptor.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
+
+        D3D12_CLEAR_VALUE clearValue;
+        if (isOutputMergerAttachment && optimizedClearValue)
+        {
+            clearValue = ConvertClearValue(imageDescriptor.m_format, *optimizedClearValue);
+        }
+
+        D3D12MA::ALLOCATION_DESC allocDesc = {};
+        allocDesc.HeapType = heapType;
+
+        D3D12MA::Allocation* allocation = nullptr;
+        HRESULT result = m_dx12MemAlloc->CreateResource(
+            &allocDesc,
+            &resourceDesc,
+            initialState,
+            &clearValue,
+            &allocation,
+            IID_NULL,
+            NULL
+        );
+        ASSERT(result == S_OK, "[DX12 Device] D3D12MA Create image resource failed!");
+
+        return MemoryView(allocation, MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());
+    }
+
+    void Device::QueueForRelease(Ptr<ID3D12Object> dx12Object)
+    {
+        m_objReleaseQueue.QueueForCollect(eastl::move(dx12Object));
+    }
+
+    void Device::QueueForRelease(const MemoryView& memoryView)
+    {
+        Ptr<D3D12MA::Allocation> allocation = memoryView.GetMemoryAllocation();
+        if (allocation)
+        {
+            m_D3D12MAReleaseQueue.QueueForCollect(allocation);
+        }
+    }
+
+    MemoryView Device::AcquireStagingMemory(size_t size, size_t alignment)
+    {
+        RHI::BufferDescriptor descriptor;
+        descriptor.m_byteCount = size;
+        descriptor.m_alignment = alignment;
+
+        MemoryView memoryView = CreateD3D12Buffer(descriptor, D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_HEAP_TYPE_UPLOAD);
+
+        // Queue the memory or deferred release immediately.
+        QueueForRelease(memoryView);
+        return memoryView;
     }
 }

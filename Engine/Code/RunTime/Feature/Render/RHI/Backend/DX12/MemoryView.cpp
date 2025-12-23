@@ -40,7 +40,7 @@ namespace Spark::RHI::DX12
 
     D3D12MA::Allocation* MemoryView::GetMemoryAllocation() const
     {
-        return m_memoryAllocation;
+        return m_memoryAllocation.get();
     }
 
     size_t MemoryView::GetOffset() const

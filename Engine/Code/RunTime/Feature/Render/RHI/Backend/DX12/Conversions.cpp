@@ -1,6 +1,9 @@
 #include "Conversions.h"
 
-#include <assert.h>
+#include <Math/Bit.h>
+#include <Resource/Buffer/BufferDescriptor.h>
+
+#include <Log/SpdLogSystem.h>
 
 namespace Spark::RHI::DX12
 {
@@ -194,8 +197,117 @@ namespace Spark::RHI::DX12
             return DXGI_FORMAT_V408;
 
         default:
-            assert(!raiseAsserts, "unhandled conversion in ConvertFormat");
+            ASSERT(!raiseAsserts, "unhandled conversion in ConvertFormat");
             return DXGI_FORMAT_UNKNOWN;
         }
+    }
+
+    D3D12_RESOURCE_FLAGS ConvertBufferBindFlags(RHI::BufferBindFlags bufferFlags)
+    {
+        D3D12_RESOURCE_FLAGS resourceFlags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+        if (CheckBitsAll(bufferFlags, RHI::BufferBindFlags::ShaderWrite))
+        {
+            resourceFlags = SetBits(resourceFlags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        }
+        if (CheckBitsAny(bufferFlags, RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::RayTracingAccelerationStructure))
+        {
+            resourceFlags = ResetBits(resourceFlags, D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+        }
+        return resourceFlags;
+    }
+
+    void ConvertBufferDescriptor(const RHI::BufferDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc)
+    {
+        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resourceDesc.Alignment = descriptor.m_alignment;
+        resourceDesc.Width = descriptor.m_byteCount;
+        resourceDesc.Height = 1;
+        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.MipLevels = 1;
+        resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resourceDesc.SampleDesc = DXGI_SAMPLE_DESC{ 1, 0 };
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resourceDesc.Flags = ConvertBufferBindFlags(descriptor.m_bindFlags);
+    }
+
+    D3D12_RESOURCE_DIMENSION ConvertImageDimension(RHI::ImageDimension dimension)
+    {
+        switch (dimension)
+        {
+        case RHI::ImageDimension::Image1D:
+            return D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+        case RHI::ImageDimension::Image2D:
+            return D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        case RHI::ImageDimension::Image3D:
+            return D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+
+        default:
+            ASSERT(false, "failed to convert image type");
+            return D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        }
+    }
+
+    D3D12_RESOURCE_FLAGS ConvertImageBindFlags(RHI::ImageBindFlags imageFlags)
+    {
+        D3D12_RESOURCE_FLAGS resourceFlags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+        if (CheckBitsAll(imageFlags, RHI::ImageBindFlags::ShaderWrite))
+        {
+            resourceFlags = SetBits(resourceFlags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        }
+        if (CheckBitsAll(imageFlags, RHI::ImageBindFlags::ShaderRead))
+        {
+            resourceFlags = ResetBits(resourceFlags, D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+        }
+        if (CheckBitsAll(imageFlags, RHI::ImageBindFlags::Color))
+        {
+            resourceFlags = SetBits(resourceFlags, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+        }
+        if (CheckBitsAny(imageFlags, RHI::ImageBindFlags::DepthStencil))
+        {
+            resourceFlags = SetBits(resourceFlags, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        }
+        else
+        {
+            resourceFlags = ResetBits(resourceFlags, D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+        }
+        return resourceFlags;
+    }
+
+    void ConvertImageDescriptor(const RHI::ImageDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc)
+    {
+        resourceDesc.Dimension = ConvertImageDimension(descriptor.m_dimension);
+        resourceDesc.Alignment = 0;
+        resourceDesc.Width = descriptor.m_size.m_width;
+        resourceDesc.Height = descriptor.m_size.m_height;
+        resourceDesc.DepthOrArraySize = static_cast<uint16_t>(resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? descriptor.m_size.m_depth : descriptor.m_arraySize);
+        resourceDesc.MipLevels = descriptor.m_mipLevels;
+        resourceDesc.Format = GetBaseFormat(ConvertFormat(descriptor.m_format));
+        resourceDesc.SampleDesc = DXGI_SAMPLE_DESC{ descriptor.m_multisampleState.m_samples, descriptor.m_multisampleState.m_quality };
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        resourceDesc.Flags = ConvertImageBindFlags(descriptor.m_bindFlags);
+    }
+
+    D3D12_CLEAR_VALUE ConvertClearValue(RHI::Format format, RHI::ClearValue clearValue)
+    {
+        switch (clearValue.m_type)
+        {
+        case RHI::ClearValueType::DepthStencil:
+            return CD3DX12_CLEAR_VALUE(ConvertFormat(format), clearValue.m_depthStencil.m_depth, clearValue.m_depthStencil.m_stencil);;
+        case RHI::ClearValueType::Vector4Float:
+        {
+            float color[] =
+            {
+                clearValue.m_vector4Float[0],
+                clearValue.m_vector4Float[1],
+                clearValue.m_vector4Float[2],
+                clearValue.m_vector4Float[3]
+            };
+            return CD3DX12_CLEAR_VALUE(ConvertFormat(format), color);
+        }
+        case RHI::ClearValueType::Vector4Uint:
+            ASSERT(false, "Can't convert unsigned type to DX12 clear value. Use float instead.");
+            return CD3DX12_CLEAR_VALUE{};
+        }
+        return CD3DX12_CLEAR_VALUE{};
     }
 }

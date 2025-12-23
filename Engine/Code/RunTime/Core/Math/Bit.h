@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <EASTL/internal/type_properties.h>
 
 #ifndef BIT
 #define BIT(x) (1u << x)
@@ -237,4 +238,33 @@ namespace Spark
     {
         typedef typename _ENUM_FLAG_INTEGER_FOR_SIZE<sizeof(T)>::type type;
     };
+
+// Overload bitwise operators(|, &, ^) for enum types
+#define DEFINE_ENUM_BITWISE_OPERATORS(EnumType) \
+constexpr EnumType operator | (EnumType a, EnumType b) \
+    { \
+        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
+        return EnumType(static_cast<UnderlyingType>(a) | static_cast<UnderlyingType>(b)); \
+    } \
+constexpr EnumType& operator |= (EnumType &a, EnumType b) \
+    { return a = a | b; } \
+constexpr EnumType operator & (EnumType a, EnumType b) \
+    { \
+        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
+        return EnumType(static_cast<UnderlyingType>(a) & static_cast<UnderlyingType>(b)); \
+    } \
+constexpr EnumType& operator &= (EnumType &a, EnumType b) \
+    { return a = a & b; } \
+constexpr EnumType operator ~ (EnumType a) \
+    { \
+        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
+        return EnumType(~static_cast<UnderlyingType>(a)); \
+    } \
+constexpr EnumType operator ^ (EnumType a, EnumType b) \
+    { \
+        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
+        return EnumType(static_cast<UnderlyingType>(a) ^ static_cast<UnderlyingType>(b)); \
+    } \
+constexpr EnumType& operator ^= (EnumType &a, EnumType b) \
+    { return a = a ^ b; }
 }

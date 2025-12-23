@@ -22,5 +22,6 @@ namespace Spark::RHI
         RayTracingShaderTable           = BIT(10),
         RayTracingScratchBuffer         = BIT(11),
     };
-    
+
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::BufferBindFlags);
 }

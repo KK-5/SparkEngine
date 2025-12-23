@@ -76,7 +76,7 @@ namespace Spark::RHI::DX12
     private:
         void Construct();
 
-        D3D12MA::Allocation* m_memoryAllocation = nullptr;
+        Ptr<D3D12MA::Allocation> m_memoryAllocation = nullptr;
 
         /// The GPU address of the memory view, offset from the base memory location.
         GpuVirtualAddress m_gpuAddress = 0;
