@@ -495,6 +495,16 @@ namespace Spark::RHI::DX12
         formatsCapabilities[static_cast<uint32_t>(RHI::Format::R8_UINT)] |= RHI::FormatCapabilities::ShadingRate;
     }
 
+    void Device::PreShutdown()
+    {
+        // Any containers that maintain references to DeviceObjects need to be cleared here to ensure the device
+        // refcount reaches 0 before shutdown.
+        //m_samplerCache.Clear();
+        //m_commandListAllocator.Shutdown();
+        //m_asyncUploadQueue.Shutdown();
+        //m_commandQueueContext.Shutdown();
+    }
+
     ID3D12DeviceX* Device::GetDevice()
     {
         return m_dx12Device.get();

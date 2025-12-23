@@ -22,4 +22,8 @@ namespace Spark::RHI::DX12
     using IDXGIFactoryX = IDXGIFactory7;
     using IDXGISwapChainX = IDXGISwapChain4;
     using DXGI_SWAP_CHAIN_DESCX = DXGI_SWAP_CHAIN_DESC1;
+
+    using GpuDescriptorHandle = D3D12_GPU_DESCRIPTOR_HANDLE;
+    using GpuVirtualAddress = D3D12_GPU_VIRTUAL_ADDRESS;
+    using CpuVirtualAddress = uint8_t*;
 }

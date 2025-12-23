@@ -37,6 +37,9 @@ namespace Spark
                     break;
                 case LogLevel::Critical:
                     m_logger->critical(std::forward<Args>(args)...);
+#ifndef NODEBUG
+                    assert(false);
+#endif
                     break;
                 default:
                     break;
@@ -77,3 +80,14 @@ namespace Spark
 #define LOG_ERROR(...) LOG_HELPER(LogLevel::Error, __VA_ARGS__);
 
 #define LOG_CIRTICAL(...) LOG_HELPER(LogLevel::Critical, __VA_ARGS__);
+
+#ifdef NODEBUG
+#define ASSERT(expression, ...) 
+#else
+#define ASSERT(expression, ...)                                                                   \
+    do                                                                                            \
+    {                                                                                             \
+        (void)sizeof(expression);                                                                 \
+        expression ? (void)0 : LOG_CIRTICAL("{}:{} {}",__FILE__, __LINE__, ##__VA_ARGS__);                   \
+    } while (0)
+#endif

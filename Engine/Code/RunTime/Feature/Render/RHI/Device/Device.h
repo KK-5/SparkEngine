@@ -37,10 +37,6 @@ namespace Spark::RHI
         //! Returns the set of hardware limits for this device.
         const DeviceLimits& GetLimits() const;
 
-        //! Called before the device is going to be shutdown. This lets the device release any resources
-        //! that also hold on to a Ptr to Device.
-        virtual void PreShutdown() = 0;
-
         //! Returns a union of all capabilities of a specific format.
         FormatCapabilities GetFormatCapabilities(Format format) const;
 
@@ -75,6 +71,10 @@ namespace Spark::RHI
 
         //! Fills the capabilities for each format.
         virtual void FillFormatsCapabilitiesInternal(FormatCapabilitiesList& formatsCapabilities) = 0;
+
+        //! Called before the device is going to be shutdown. This lets the device release any resources
+        //! that also hold on to a Ptr to Device.
+        virtual void PreShutdown() = 0;
 
         FormatCapabilitiesList m_formatsCapabilities;
 
