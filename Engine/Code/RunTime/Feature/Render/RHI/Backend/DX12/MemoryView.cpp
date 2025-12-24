@@ -125,4 +125,9 @@ namespace Spark::RHI::DX12
             m_gpuAddress += m_offset;
         }
     }
+
+    void MemoryView::ReleaseMemoryAllocation()
+    {
+        m_memoryAllocation->Release();
+    }
 }

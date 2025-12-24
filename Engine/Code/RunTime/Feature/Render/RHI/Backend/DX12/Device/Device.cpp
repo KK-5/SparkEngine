@@ -571,13 +571,15 @@ namespace Spark::RHI::DX12
         m_objReleaseQueue.QueueForCollect(eastl::move(dx12Object));
     }
 
-    void Device::QueueForRelease(const MemoryView& memoryView)
+    void Device::QueueForRelease(MemoryView& memoryView)
     {
         Ptr<D3D12MA::Allocation> allocation = memoryView.GetMemoryAllocation();
         if (allocation)
         {
             m_D3D12MAReleaseQueue.QueueForCollect(allocation);
         }
+        memoryView.ReleaseMemoryAllocation();
+        // 这里并不把allocation置空，在其真正销毁前依然可以使用
     }
 
     MemoryView Device::AcquireStagingMemory(size_t size, size_t alignment)

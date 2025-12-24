@@ -10,6 +10,7 @@
  * Modified by SparkEngine in 2025
  *  -- MemoryAllocation use D3D12MA::Allocation
  *  -- Remove MemoryView name
+ *  -- Add ReleaseResource function
  */
 
 #pragma once
@@ -72,6 +73,9 @@ namespace Spark::RHI::DX12
 
         // Offset in the heap that the Memory is allocated in. Will be zero for committed resources
         size_t GetHeapOffset();
+
+        // Release memory allocation
+        void ReleaseMemoryAllocation();
     
     private:
         void Construct();

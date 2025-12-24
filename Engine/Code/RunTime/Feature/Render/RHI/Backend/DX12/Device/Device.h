@@ -49,7 +49,7 @@ namespace Spark::RHI::DX12
         //! Queues the backing Memory instance of a MemoryView for release (by taking a reference) after the
         //! current frame has flushed through the GPU. The reference on the MemoryView itself is not released.
         //! Usually called in object ShutdownInternal function.
-        void QueueForRelease(const MemoryView& memoryView);
+        void QueueForRelease(MemoryView& memoryView);
 
         //! Allocates host memory from the internal frame allocator that is suitable for staging
         //! uploads to the GPU for the current frame. The memory is valid for the lifetime of
