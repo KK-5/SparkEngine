@@ -42,6 +42,27 @@ namespace Spark::RHI
         m_topology = topology;
     }
 
+    InputStreamLayoutBuilder::BufferDescriptorBuilder* InputStreamLayoutBuilder::BufferDescriptorBuilder::Channel(const ShaderSemantic& semantic, Format format)
+    {
+        if (m_channelDescriptors.size() == m_channelDescriptors.capacity())
+        {
+            LOG_ERROR("[InputStreamLayoutBuilder] No space to add stream channel.");
+        }
+        else
+        {
+            StreamChannelDescriptor& channel = m_channelDescriptors.emplace_back();
+
+            channel.m_bufferIndex = m_bufferIndex;
+            channel.m_byteOffset = m_byteOffset;
+            channel.m_format = format;
+            channel.m_semantic = semantic;
+
+            m_byteOffset += GetFormatSize(format);
+        }
+
+        return this;
+    }
+
     InputStreamLayoutBuilder::BufferDescriptorBuilder* InputStreamLayoutBuilder::BufferDescriptorBuilder::Channel(eastl::string_view name, uint32_t index, Format format)
     {
         return Channel(ShaderSemantic(name, index), format);

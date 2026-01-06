@@ -5,12 +5,21 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
+
+ /*
+ * Modified by SparkEngine in 2025
+ *  -- Add AddRef/Release function so that Ptr can hold DescriptorHandle/DescriptorTable
+ */
+
 #pragma once
 
 #include "../DX12.h"
 
 namespace Spark::RHI::DX12
 {
+    // DescriptorHandle和DescriptorTable有AddRef和Release函数，所以可以将其指针放入Ptr中，但Ptr不会对其生命周期进行管理，
+    // 因为这两个对象并不持有任何资源，资源由DescriptorPool进行管理
+
     struct DescriptorHandle
     {
         static const uint32_t NullIndex = (uint32_t)-1;
@@ -20,6 +29,9 @@ namespace Spark::RHI::DX12
 
         bool IsNull() const;
         bool IsShaderVisible() const;
+
+        void AddRef() {}
+        void Release() {}
 
         DescriptorHandle operator+ (uint32_t offset) const;
         DescriptorHandle& operator+= (uint32_t offset);
@@ -44,6 +56,9 @@ namespace Spark::RHI::DX12
 
         bool IsNull() const;
         bool IsValid() const;
+
+        void AddRef() {}
+        void Release() {}
 
     private:
         DescriptorHandle m_offset;

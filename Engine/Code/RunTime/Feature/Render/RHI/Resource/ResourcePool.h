@@ -7,7 +7,6 @@
 
 #include <Bus/FrameEventBus.h>
 #include <Device/DeviceObject.h>
-#include <Object/ObjectPool.h>
 
 #include "ResourcePoolDescriptor.h"
 

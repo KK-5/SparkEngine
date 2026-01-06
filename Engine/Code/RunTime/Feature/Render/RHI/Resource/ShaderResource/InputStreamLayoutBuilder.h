@@ -4,7 +4,7 @@
 
 namespace Spark::RHI
 {
-    class InputStreamLayoutBuilder
+    class InputStreamLayoutBuilder final
     {
     public:
         class BufferDescriptorBuilder
