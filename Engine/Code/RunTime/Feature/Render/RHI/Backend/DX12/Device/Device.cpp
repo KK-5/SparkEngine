@@ -531,6 +531,7 @@ namespace Spark::RHI::DX12
         );
         ASSERT(result == S_OK, "[DX12 Device] D3D12MA Create buffer resource failed!");
 
+        // 默认MemoryView使用了Memory(ID3DResource)全部资源
         return MemoryView(allocation, MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
     }
 
@@ -578,7 +579,7 @@ namespace Spark::RHI::DX12
         {
             m_D3D12MAReleaseQueue.QueueForCollect(eastl::move(allocation));
         }
-        //memoryView.ReleaseMemoryAllocation();
+        memoryView.ReleaseMemoryAllocation();
         // 这里并不把allocation置空，在其真正销毁前依然可以使用
     }
 

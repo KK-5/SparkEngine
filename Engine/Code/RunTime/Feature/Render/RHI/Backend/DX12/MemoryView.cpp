@@ -65,6 +65,7 @@ namespace Spark::RHI::DX12
         D3D12_RANGE readRange = {};
         if (hostAccess == RHI::HostMemoryAccess::Read)
         {
+            // 如果是HostMemoryAccess::Read，告诉GPU将要执行数据读取
             readRange.Begin = m_offset;
             readRange.End = m_offset + m_size;
         }
@@ -85,6 +86,7 @@ namespace Spark::RHI::DX12
         D3D12_RANGE writeRange = {};
         if (hostAccess == RHI::HostMemoryAccess::Write)
         {
+            // 如果是HostMemoryAccess::Write，告诉GPU执行了数据写入
             writeRange.Begin = m_offset;
             writeRange.End = m_offset + m_size;
         }
@@ -128,6 +130,6 @@ namespace Spark::RHI::DX12
 
     void MemoryView::ReleaseMemoryAllocation()
     {
-        m_memoryAllocation->Release();
+        m_memoryAllocation = nullptr;
     }
 }

@@ -41,6 +41,7 @@ namespace Spark::RHI::DX12
     using DescriptorTablePool = ObjectPool<DescriptorTablePoolTraits>;
 
     //! This class defines a Descriptor pool which manages all the descriptors used for binding resources
+    template <typename InternalPool>
     class DescriptorPool
     {
     public:
@@ -53,10 +54,10 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE type,
             D3D12_DESCRIPTOR_HEAP_FLAGS flags,
             uint32_t descriptorCountForHeap,
-            uint32_t descriptorCountForAllocator);
+            uint32_t descriptorCountForPool);
 
         //! Initialize a descriptor pool mapping a range of descriptors from a parent heap.
-        // void InitPooledRange(DescriptorPool& parent, uint32_t offset, uint32_t count);
+        void InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count);
 
         ID3D12DescriptorHeap* GetNativeHeap() const;
 
@@ -80,11 +81,8 @@ namespace Spark::RHI::DX12
         D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandle(DescriptorHandle handle) const;
 
     private:
-        bool m_isGpuVisible = false;
         ComPtr<ID3D12DescriptorHeap> m_descriptorHeap;
-
-        DescriptorHandlePool m_handlePool;
-        DescriptorTablePool  m_tablePool;
+        InternalPool m_internalPool;
     };
     
 }

@@ -310,4 +310,32 @@ namespace Spark::RHI::DX12
         }
         return CD3DX12_CLEAR_VALUE{};
     }
+
+    D3D12_HEAP_TYPE ConvertHeapType(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess)
+    {
+        switch (heapMemoryLevel)
+        {
+        case RHI::HeapMemoryLevel::Host:
+            switch (hostMemoryAccess)
+            {
+            case RHI::HostMemoryAccess::Write:
+                return D3D12_HEAP_TYPE_UPLOAD;
+            case RHI::HostMemoryAccess::Read:
+                return D3D12_HEAP_TYPE_READBACK;
+            };
+        case RHI::HeapMemoryLevel::Device:
+            return D3D12_HEAP_TYPE_DEFAULT;
+        }
+        ASSERT(false, "Invalid Heap Type");
+        return D3D12_HEAP_TYPE_CUSTOM;
+    }
+
+    D3D12_RESOURCE_STATES ConvertInitialResourceState(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess)
+    {
+        if (heapMemoryLevel == RHI::HeapMemoryLevel::Host)
+        {
+            return hostMemoryAccess == RHI::HostMemoryAccess::Write ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COPY_DEST;
+        }
+        return D3D12_RESOURCE_STATE_COMMON;
+    }
 }

@@ -18,6 +18,7 @@ namespace Spark::RHI::DX12
             ID3D12DescriptorHeap* descriptorHeap;
             D3D12_DESCRIPTOR_HEAP_TYPE type;
             D3D12_DESCRIPTOR_HEAP_FLAGS flags;
+            uint32_t heapOffset;
             uint32_t descriptorCount;
         };
 
@@ -57,6 +58,7 @@ namespace Spark::RHI::DX12
             ID3D12DescriptorHeap* descriptorHeap;
             D3D12_DESCRIPTOR_HEAP_TYPE type;
             D3D12_DESCRIPTOR_HEAP_FLAGS flags;
+            uint32_t heapOffset;
             uint32_t descriptorCount;
         };
 

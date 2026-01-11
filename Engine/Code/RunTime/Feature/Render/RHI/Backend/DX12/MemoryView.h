@@ -75,6 +75,7 @@ namespace Spark::RHI::DX12
         size_t GetHeapOffset();
 
         // Release memory allocation
+        // 用于释放D3D12MA::Allocation，但是不销毁MemoryView的场景
         void ReleaseMemoryAllocation();
     
     private:

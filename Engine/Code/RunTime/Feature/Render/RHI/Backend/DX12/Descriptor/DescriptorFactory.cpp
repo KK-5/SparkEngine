@@ -11,6 +11,7 @@ namespace Spark::RHI::DX12
 
         m_stride = m_descriptor.device->GetDescriptorHandleIncrementSize(m_descriptor.type);
         m_cpuStart = m_descriptor.descriptorHeap->GetCPUDescriptorHandleForHeapStart();
+        m_cpuStart.ptr += m_descriptor.heapOffset * m_stride;
         m_gpuStart = {};
 
         const bool isGpuVisible = CheckBitsAll(m_descriptor.flags, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
@@ -18,6 +19,7 @@ namespace Spark::RHI::DX12
         {
             LOG_INFO("[DescriptorHandleFactory] Creating a shader visible descriptor heap. Recommanded use DescriptorTableFactory.");
             m_gpuStart = m_descriptor.descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+            m_gpuStart.ptr += m_descriptor.heapOffset * m_stride;
         }
 
         m_handlePool.resize(m_descriptor.descriptorCount);
@@ -225,7 +227,9 @@ namespace Spark::RHI::DX12
 
         m_stride = m_descriptor.device->GetDescriptorHandleIncrementSize(m_descriptor.type);
         m_cpuStart = m_descriptor.descriptorHeap->GetCPUDescriptorHandleForHeapStart();
+        m_cpuStart.ptr += m_descriptor.heapOffset * m_stride;
         m_gpuStart = m_descriptor.descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+        m_gpuStart.ptr += m_descriptor.heapOffset * m_stride;
 
         m_headIndex = CreateNode();
         InsertNode(m_headIndex, 0, m_descriptor.descriptorCount);

@@ -9,7 +9,7 @@
 #include <DX12.h>
 
 #include "PhysicalDevice.h"
-#include "ReleaseQueue.h"
+#include "../ReleaseQueue.h"
 #include "../MemoryView.h"
 
 namespace Spark::RHI::DX12
