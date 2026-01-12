@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "../DX12.h"
+#include <DX12.h>
 
 namespace Spark::RHI::DX12
 {

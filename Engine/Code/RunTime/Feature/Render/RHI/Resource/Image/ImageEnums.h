@@ -8,7 +8,7 @@
 #pragma once
 
 #include <Math/Bit.h>
-#include <Format.h>
+#include <RHI/Format.h>
 
 namespace Spark::RHI
 {

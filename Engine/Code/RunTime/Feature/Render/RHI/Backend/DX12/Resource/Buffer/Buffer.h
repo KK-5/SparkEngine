@@ -12,7 +12,7 @@
  */
 #pragma once
 
-#include <Resource/Buffer/Buffer.h>
+#include <RHI/Resource/Buffer/Buffer.h>
 
 #include "BufferMemoryView.h"
 

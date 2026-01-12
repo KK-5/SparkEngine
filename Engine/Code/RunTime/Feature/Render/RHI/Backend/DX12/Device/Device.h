@@ -1,16 +1,16 @@
 #pragma once
 
-#include <ClearValue.h>
-#include <Device/Device.h>
-#include <Resource/Buffer/BufferDescriptor.h>
-#include <Resource/Image/ImageDescriptor.h>
+#include <RHI/ClearValue.h>
+#include <RHI/Device/Device.h>
+#include <RHI/Resource/Buffer/BufferDescriptor.h>
+#include <RHI/Resource/Image/ImageDescriptor.h>
 
 #include <3rdParty/D3D12MA/D3D12MemAlloc.h>
 #include <DX12.h>
+#include <ReleaseQueue.h>
+#include <MemoryView.h>
 
 #include "PhysicalDevice.h"
-#include "../ReleaseQueue.h"
-#include "../MemoryView.h"
 
 namespace Spark::RHI::DX12
 {
@@ -49,7 +49,7 @@ namespace Spark::RHI::DX12
         //! Queues the backing Memory instance of a MemoryView for release (by taking a reference) after the
         //! current frame has flushed through the GPU. The reference on the MemoryView itself is not released.
         //! Usually called in object ShutdownInternal function.
-        void QueueForRelease(MemoryView& memoryView);
+        void QueueForRelease(const MemoryView& memoryView);
 
         //! Allocates host memory from the internal frame allocator that is suitable for staging
         //! uploads to the GPU for the current frame. The memory is valid for the lifetime of

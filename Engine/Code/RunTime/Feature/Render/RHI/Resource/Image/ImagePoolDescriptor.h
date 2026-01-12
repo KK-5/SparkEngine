@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Resource/ResourcePoolDescriptor.h>
+#include <RHI/Resource/ResourcePoolDescriptor.h>
 #include "ImageEnums.h"
 
 namespace Spark::RHI

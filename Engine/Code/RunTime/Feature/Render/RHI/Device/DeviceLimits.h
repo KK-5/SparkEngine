@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <Base.h>
-#include <Size.h>
+#include <RHI/Base.h>
+#include <RHI/Size.h>
 
 namespace Spark::RHI
 {

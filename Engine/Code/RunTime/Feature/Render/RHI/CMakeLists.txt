@@ -36,6 +36,7 @@ target_link_libraries(${TARGET_NAME}
 
 add_subdirectory(Backend/DX12)
 
+# 指定当前目录的父目录作为包含目录，其他模块包含时必须使用 #include <RHI/...>
 target_include_directories(
   ${TARGET_NAME}
-  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../>)

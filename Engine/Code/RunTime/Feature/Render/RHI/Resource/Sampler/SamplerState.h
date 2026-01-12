@@ -14,7 +14,7 @@
 
 #include <Math/Bit.h>
 #include <EASTLEX/hash.h>
-#include <RHILimits.h>
+#include <RHI/RHILimits.h>
 
 namespace Spark::RHI
 {
@@ -63,6 +63,7 @@ namespace Spark::RHI
 
     class SamplerState
     {
+    public:
         SamplerState() = default;
 
         static SamplerState Create(

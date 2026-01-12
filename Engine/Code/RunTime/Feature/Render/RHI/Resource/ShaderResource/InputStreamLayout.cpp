@@ -2,7 +2,7 @@
 
 #include <Log/SpdLogSystem.h>
 
-#include <Base.h>
+#include <RHI/Base.h>
 
 namespace Spark::RHI
 {
@@ -135,7 +135,7 @@ namespace Spark::RHI
         return m_streamBuffers;
     }
 
-    uint32_t InputStreamLayout::GetHash() const
+    size_t InputStreamLayout::GetHash() const
     {
         return m_hash;
     }

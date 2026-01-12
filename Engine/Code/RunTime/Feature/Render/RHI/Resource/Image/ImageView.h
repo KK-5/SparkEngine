@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Resource/ResourceView.h>
+#include <RHI/Resource/ResourceView.h>
 #include "ImageViewDescriptor.h"
 
 namespace Spark::RHI

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Object/Base.h>
-#include <Device/PhysicalDevice.h>
+#include <RHI/Device/PhysicalDevice.h>
 
 #include <DX12.h>
 

@@ -15,7 +15,7 @@
 #include "DescriptorPool.h"
 
 #include <Math/Bit.h>
-#include <RHILimits.h>
+#include <RHI/RHILimits.h>
 #include "DescriptorFactory.h"
 
 namespace Spark::RHI::DX12

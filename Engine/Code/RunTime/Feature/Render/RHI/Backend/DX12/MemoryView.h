@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Object/Base.h>
-#include <MemoryEnums.h>
+#include <RHI/MemoryEnums.h>
 #include "DX12.h"
 #include "Memory.h"
 #include "3rdParty/D3D12MA/D3D12MemAlloc.h"
@@ -73,10 +73,6 @@ namespace Spark::RHI::DX12
 
         // Offset in the heap that the Memory is allocated in. Will be zero for committed resources
         size_t GetHeapOffset();
-
-        // Release memory allocation
-        // 用于释放D3D12MA::Allocation，但是不销毁MemoryView的场景
-        void ReleaseMemoryAllocation();
     
     private:
         void Construct();

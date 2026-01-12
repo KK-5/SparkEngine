@@ -1,6 +1,6 @@
 #pragma once
 
-#include <HardwareQueue.h>
+#include <RHI/HardwareQueue.h>
 #include "BufferBindFlags.h"
 
 namespace Spark::RHI

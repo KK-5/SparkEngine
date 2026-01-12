@@ -2,7 +2,7 @@
 
 #include <EASTL/atomic.h>
 
-#include <Resource/ResourcePool.h>
+#include <RHI/Resource/ResourcePool.h>
 #include "BufferPoolDescriptor.h"
 #include "Buffer.h"
 

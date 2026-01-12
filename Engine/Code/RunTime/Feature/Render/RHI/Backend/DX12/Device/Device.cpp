@@ -2,7 +2,7 @@
 
 #include <Log/SpdLogSystem.h>
 #include <Math/Bit.h>
-#include <ValidationLayer.h>
+#include <RHI/ValidationLayer.h>
 #include <DX12.h>
 #include <Conversions.h>
 
@@ -572,14 +572,14 @@ namespace Spark::RHI::DX12
         m_objReleaseQueue.QueueForCollect(eastl::move(dx12Object));
     }
 
-    void Device::QueueForRelease(MemoryView& memoryView)
+    void Device::QueueForRelease(const MemoryView& memoryView)
     {
         Ptr<D3D12MA::Allocation> allocation = memoryView.GetMemoryAllocation();
         if (allocation)
         {
             m_D3D12MAReleaseQueue.QueueForCollect(eastl::move(allocation));
         }
-        memoryView.ReleaseMemoryAllocation();
+        // memoryView.ReleaseMemoryAllocation();
         // 这里并不把allocation置空，在其真正销毁前依然可以使用
     }
 

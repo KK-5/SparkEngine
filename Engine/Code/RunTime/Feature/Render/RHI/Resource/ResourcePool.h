@@ -5,8 +5,8 @@
 #include <EASTL/functional.h>
 #include <EASTL/unordered_set.h>
 
-#include <Bus/FrameEventBus.h>
-#include <Device/DeviceObject.h>
+#include <RHI/Bus/FrameEventBus.h>
+#include <RHI/Device/DeviceObject.h>
 
 #include "ResourcePoolDescriptor.h"
 

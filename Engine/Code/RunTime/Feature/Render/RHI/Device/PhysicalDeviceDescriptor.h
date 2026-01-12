@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <EASTL/string.h>
 #include <EASTL/array.h>
-#include <MemoryEnums.h>
+#include <RHI/MemoryEnums.h>
 
 namespace Spark::RHI
 {

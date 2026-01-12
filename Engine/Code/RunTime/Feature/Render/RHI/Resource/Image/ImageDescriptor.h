@@ -2,10 +2,10 @@
 
 #include <assert.h>
 
-#include <MultisampleState.h>
-#include <Format.h>
-#include <HardwareQueue.h>
-#include <Size.h>
+#include <RHI/MultisampleState.h>
+#include <RHI/Format.h>
+#include <RHI/HardwareQueue.h>
+#include <RHI/Size.h>
 #include "ImageEnums.h"
 
 namespace Spark::RHI

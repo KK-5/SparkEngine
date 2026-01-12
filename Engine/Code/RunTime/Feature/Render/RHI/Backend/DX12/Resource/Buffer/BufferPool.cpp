@@ -259,7 +259,7 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
-        // 创建一个默认BufferMemoryView，它的MemoryView使用了Memory(ID3DResource)全部资源
+        // 创建一个默认BufferMemoryView，使用全部Memory(ID3DResource)
         MemoryView memoryView(allocation, MemoryViewType::Buffer, 0, bufferDescriptor.m_byteCount, bufferDescriptor.m_alignment);
         BufferMemoryView bufferMemoryView(eastl::move(memoryView), allocation->GetHeap() ? BufferMemoryType::Shared : BufferMemoryType::Unique);
         Buffer& buffer = static_cast<Buffer&>(bufferBase);
@@ -277,9 +277,9 @@ namespace Spark::RHI::DX12
 
         Buffer& buffer = static_cast<Buffer&>(resourceBase);
         m_releaseQueue.Collect(buffer.GetMemoryView().GetMemoryAllocation());
-        buffer.GetMemoryView().ReleaseMemoryAllocation();
+        // 这里发送移动赋值，原MemoryView持有的MemoryAllocation自动release
         buffer.m_memoryView = {};
-        buffer.m_initialAttachmentState = D3D12_RESOURCE_STATE_COMMON;            
+        buffer.m_initialAttachmentState = D3D12_RESOURCE_STATE_COMMON;
         buffer.m_pendingResolves = 0;
     }
 

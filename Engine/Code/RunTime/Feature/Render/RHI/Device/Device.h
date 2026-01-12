@@ -3,8 +3,8 @@
 #include <Object/Object.h>
 #include <Object/Base.h>
 
-#include <Base.h>
-#include <Format.h>
+#include <RHI/Base.h>
+#include <RHI/Format.h>
 #include "DeviceDescriptor.h"
 #include "PhysicalDevice.h"
 #include "DeviceFeatures.h"

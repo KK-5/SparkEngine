@@ -1,8 +1,8 @@
 #pragma once
 
-#include <MemoryEnums.h>
-#include <HardwareQueue.h>
-#include <Resource/ResourcePoolDescriptor.h>
+#include <RHI/MemoryEnums.h>
+#include <RHI/HardwareQueue.h>
+#include <RHI/Resource/ResourcePoolDescriptor.h>
 
 #include "BufferBindFlags.h"
 

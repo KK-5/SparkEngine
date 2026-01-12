@@ -17,16 +17,18 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/array.h>
 
-#include <Resource/Buffer/BufferViewDescriptor.h>
-#include <Resource/Image/ImageViewDescriptor.h>
-#include <Resource/Sampler/SamplerState.h>
-#include <Device/DeviceObject.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
+#include <RHI/Resource/Image/ImageViewDescriptor.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
+#include <RHI/Device/DeviceObject.h>
+
 #include <DX12.h>
+//#include <Device/Device.h>
 #include "DescriptorPool.h"
-#include "../Device/Device.h"
 
 namespace Spark::RHI::DX12
 {
+    class Device;
     class Buffer;
     class Image;
 
@@ -101,13 +103,14 @@ namespace Spark::RHI::DX12
             const RHI::SamplerState& samplerState,
             DescriptorHandle& samplerHandle);
 
+        void ReleaseDescriptor(DescriptorHandle descriptorHandle);
+
+        void ReleaseStaticDescriptor(DescriptorHandle handle);
+
         //! Creates a GPU-visible descriptor table.
         //! @param descriptorHeapType The descriptor heap to allocate from.
         //! @param descriptorCount The number of descriptors to allocate.
         DescriptorTable CreateDescriptorTable(D3D12_DESCRIPTOR_HEAP_TYPE descriptorHeapType, uint32_t descriptorCount);
-
-        //! Retrieve a descriptor handle to the start of the static region of the shader-visible CBV_SRV_UAV heap
-        D3D12_GPU_DESCRIPTOR_HANDLE GetBindlessGpuPlatformHandle() const;
 
         //! Releases a GPU-visible descriptor table.
         //! @param descriptorHeapType The descriptor heap to allocate from.
@@ -136,6 +139,9 @@ namespace Spark::RHI::DX12
         D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandle(DescriptorHandle handle) const;
         D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable descTable) const;
         D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandleForTable(DescriptorTable descTable) const;
+
+        //! Retrieve a descriptor handle to the start of the static region of the shader-visible CBV_SRV_UAV heap
+        D3D12_GPU_DESCRIPTOR_HANDLE GetBindlessGpuNativeHandle() const;
 
         void SetDescriptorHeaps(ID3D12GraphicsCommandList* commandList) const;
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Resource/ResourcePoolDescriptor.h>
+#include <RHI/Resource/ResourcePoolDescriptor.h>
 
 namespace Spark::RHI
 {

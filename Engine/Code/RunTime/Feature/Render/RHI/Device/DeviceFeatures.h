@@ -10,7 +10,7 @@
 
 #include <EASTL/array.h>
 
-#include <Base.h>
+#include <RHI/Base.h>
 #include "VariableRateShadingEnums.h"
 
 namespace Spark::RHI

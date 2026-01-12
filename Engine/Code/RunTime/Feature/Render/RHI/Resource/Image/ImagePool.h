@@ -1,7 +1,7 @@
 #pragma once
 
-#include <ClearValue.h>
-#include <Origin.h>
+#include <RHI/ClearValue.h>
+#include <RHI/Origin.h>
 #include "ImagePoolBase.h"
 #include "ImagePoolDescriptor.h"
 #include "Image.h"

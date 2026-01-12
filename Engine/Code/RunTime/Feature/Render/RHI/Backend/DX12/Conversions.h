@@ -1,13 +1,14 @@
 #pragma once
 
-#include <Format.h>
-#include <Resource/Buffer/BufferBindFlags.h>
-#include <Resource/Buffer/BufferDescriptor.h>
-#include <Resource/Buffer/BufferViewDescriptor.h>
-#include <Resource/Image/ImageDescriptor.h>
-#include <Resource/Image/ImageEnums.h>
-#include <ClearValue.h>
-#include <MemoryEnums.h>
+#include <RHI/Format.h>
+#include <RHI/Resource/Buffer/BufferBindFlags.h>
+#include <RHI/Resource/Buffer/BufferDescriptor.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
+#include <RHI/Resource/Image/ImageDescriptor.h>
+#include <RHI/Resource/Image/ImageEnums.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
+#include <RHI/ClearValue.h>
+#include <RHI/MemoryEnums.h>
 
 #include "DX12.h"
 
@@ -48,4 +49,14 @@ namespace Spark::RHI::DX12
         const Buffer& buffer,
         const RHI::BufferViewDescriptor& bufferViewDescriptor,
         D3D12_CONSTANT_BUFFER_VIEW_DESC& constantBufferView);
+
+    D3D12_FILTER_REDUCTION_TYPE ConvertReductionType(RHI::ReductionType reductionType);
+
+    D3D12_FILTER_TYPE ConvertFilterMode(RHI::FilterMode mode);
+
+    D3D12_TEXTURE_ADDRESS_MODE ConvertAddressMode(RHI::AddressMode addressMode);
+
+    D3D12_COMPARISON_FUNC ConvertComparisonFunc(RHI::ComparisonFunc func);
+    
+    void ConvertSamplerState(const RHI::SamplerState& state, D3D12_SAMPLER_DESC& samplerDesc);
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Resource/ResourcePool.h>
+#include <RHI/Resource/ResourcePool.h>
 #include "Image.h"
 
 namespace Spark::RHI

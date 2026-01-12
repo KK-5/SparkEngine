@@ -1,9 +1,9 @@
 #include "Conversions.h"
 
 #include <Math/Bit.h>
-#include <Resource/Buffer/BufferDescriptor.h>
-
 #include <Log/SpdLogSystem.h>
+
+#include "Resource/Buffer/Buffer.h"
 
 namespace Spark::RHI::DX12
 {
@@ -337,5 +337,212 @@ namespace Spark::RHI::DX12
             return hostMemoryAccess == RHI::HostMemoryAccess::Write ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COPY_DEST;
         }
         return D3D12_RESOURCE_STATE_COMMON;
+    }
+
+    void ConvertBufferView(
+        const Buffer& buffer,
+        const RHI::BufferViewDescriptor& bufferViewDescriptor,
+        D3D12_SHADER_RESOURCE_VIEW_DESC& shaderResourceView)
+    {
+        const uint32_t elementOffsetBase = static_cast<uint32_t>(buffer.GetMemoryView().GetOffset()) / bufferViewDescriptor.m_elementSize;
+        const uint32_t elementOffset = elementOffsetBase + bufferViewDescriptor.m_elementOffset;
+
+        if (elementOffsetBase * bufferViewDescriptor.m_elementSize != buffer.GetMemoryView().GetOffset())
+        {
+            LOG_ERROR("[RHI DX12] ConvertBufferView - SRV: buffer wasn't aligned with element size; buffer should be created"
+                " with proper alignment");
+        }
+
+        shaderResourceView = {};
+        shaderResourceView.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+        if (CheckBitsAll(buffer.GetDescriptor().m_bindFlags, RHI::BufferBindFlags::RayTracingAccelerationStructure))
+        {
+            shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+            shaderResourceView.Format = DXGI_FORMAT_UNKNOWN;
+            shaderResourceView.RaytracingAccelerationStructure.Location = buffer.GetMemoryView().GetGpuAddress();
+        }
+        else
+        {
+            shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+            shaderResourceView.Format = ConvertFormat(bufferViewDescriptor.m_elementFormat);
+            shaderResourceView.Buffer.FirstElement = elementOffset;
+            shaderResourceView.Buffer.NumElements = bufferViewDescriptor.m_elementCount;
+
+            if (bufferViewDescriptor.m_elementFormat == RHI::Format::R32_UINT)
+            {
+                shaderResourceView.Format = DXGI_FORMAT_R32_TYPELESS;
+                shaderResourceView.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+            }
+            else if (shaderResourceView.Format == DXGI_FORMAT_UNKNOWN)
+            {
+                shaderResourceView.Buffer.StructureByteStride = bufferViewDescriptor.m_elementSize;
+            }
+        }
+    }
+
+    void ConvertBufferView(
+        const Buffer& buffer,
+        const RHI::BufferViewDescriptor& bufferViewDescriptor,
+        D3D12_UNORDERED_ACCESS_VIEW_DESC& unorderedAccessView)
+    {
+        const uint32_t elementOffsetBase = static_cast<uint32_t>(buffer.GetMemoryView().GetOffset()) / bufferViewDescriptor.m_elementSize;
+        const uint32_t elementOffset = elementOffsetBase + bufferViewDescriptor.m_elementOffset;
+
+        if (elementOffsetBase * bufferViewDescriptor.m_elementSize != buffer.GetMemoryView().GetOffset())
+        {
+            LOG_ERROR("[RHI DX12] ConvertBufferView - UAV: buffer wasn't aligned with element size; buffer should be created"
+                " with proper alignment");
+        }
+        unorderedAccessView = {};
+        unorderedAccessView.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        unorderedAccessView.Format = ConvertFormat(bufferViewDescriptor.m_elementFormat);
+        unorderedAccessView.Buffer.FirstElement = elementOffset;
+        unorderedAccessView.Buffer.NumElements = bufferViewDescriptor.m_elementCount;
+
+        if (bufferViewDescriptor.m_elementFormat == RHI::Format::R32_UINT)
+        {
+            unorderedAccessView.Format = DXGI_FORMAT_R32_TYPELESS;
+            unorderedAccessView.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        }
+        else if (unorderedAccessView.Format == DXGI_FORMAT_UNKNOWN)
+        {
+            unorderedAccessView.Buffer.StructureByteStride = bufferViewDescriptor.m_elementSize;
+        }
+    }
+
+    void ConvertBufferView(
+        const Buffer& buffer,
+        const RHI::BufferViewDescriptor& bufferViewDescriptor,
+        D3D12_CONSTANT_BUFFER_VIEW_DESC& constantBufferView)
+    {
+        ASSERT(IsAligned(buffer.GetMemoryView().GetGpuAddress(), Alignment::Constant),
+            "Constant Buffer memory is not aligned to {} bytes.", Alignment::Constant);
+
+        const uint32_t bufferOffset = bufferViewDescriptor.m_elementOffset * bufferViewDescriptor.m_elementSize;
+        if (!IsAligned(bufferOffset, Alignment::Constant))
+        {
+            LOG_ERROR("[RHI DX12] Buffer View offset is not aligned to {} bytes, the view won't have the appropiate alignment for Constant Buffer reads.", Alignment::Constant);
+        }
+        // In DX12 Constant data reads must be a multiple of 256 bytes.
+        // It's not a problem if the actual buffer size is smaller since the heap (where the buffer resides) must be multiples of 64KB.
+        // This means the buffer view will never go out of heap memory, it might read pass the Constant Buffer size, but it will never be used.
+        const uint32_t bufferSize = AlignUp(bufferViewDescriptor.m_elementCount * bufferViewDescriptor.m_elementSize, Alignment::Constant);
+
+        constantBufferView.BufferLocation = buffer.GetMemoryView().GetGpuAddress() + bufferOffset;
+        constantBufferView.SizeInBytes = bufferSize;
+    }
+
+    D3D12_FILTER_REDUCTION_TYPE ConvertReductionType(RHI::ReductionType reductionType)
+    {
+        switch (reductionType)
+        {
+        case RHI::ReductionType::Filter:
+            return D3D12_FILTER_REDUCTION_TYPE_STANDARD;
+        case RHI::ReductionType::Comparison:
+            return D3D12_FILTER_REDUCTION_TYPE_COMPARISON;
+        case RHI::ReductionType::Minimum:
+            return D3D12_FILTER_REDUCTION_TYPE_MINIMUM;
+        case RHI::ReductionType::Maximum:
+            return D3D12_FILTER_REDUCTION_TYPE_MAXIMUM;
+        }
+
+        ASSERT(false, "bad conversion in ConvertReductionType");
+        return D3D12_FILTER_REDUCTION_TYPE_STANDARD;
+    }
+
+    D3D12_FILTER_TYPE ConvertFilterMode(RHI::FilterMode mode)
+    {
+        switch (mode)
+        {
+        case RHI::FilterMode::Point:
+            return D3D12_FILTER_TYPE_POINT;
+        case RHI::FilterMode::Linear:
+            return D3D12_FILTER_TYPE_LINEAR;
+        }
+
+        ASSERT(false, "bad conversion in ConvertFilterMode");
+        return D3D12_FILTER_TYPE_POINT;
+    }
+
+    D3D12_TEXTURE_ADDRESS_MODE ConvertAddressMode(RHI::AddressMode addressMode)
+    {
+        switch (addressMode)
+        {
+        case RHI::AddressMode::Wrap:
+            return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        case RHI::AddressMode::Clamp:
+            return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        case RHI::AddressMode::Mirror:
+            return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+        case RHI::AddressMode::MirrorOnce:
+            return D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE;
+        case RHI::AddressMode::Border:
+            return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        }
+
+        ASSERT(false, "bad conversion in ConvertAddressMode");
+        return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    }
+    
+    void ConvertBorderColor(RHI::BorderColor color, float outputColor[4])
+    {
+        switch (color)
+        {
+        case RHI::BorderColor::OpaqueBlack:
+            outputColor[0] = outputColor[1] = outputColor[2] = 0.0f;
+            outputColor[3] = 1.0f;
+            return;
+        case RHI::BorderColor::TransparentBlack:
+            outputColor[0] = outputColor[1] = outputColor[2] = outputColor[3] = 0.0f;
+            return;
+        case RHI::BorderColor::OpaqueWhite:
+            outputColor[0] = outputColor[1] = outputColor[2] = outputColor[3] = 1.0f;
+            return;
+        }
+    }
+
+    D3D12_COMPARISON_FUNC ConvertComparisonFunc(RHI::ComparisonFunc func)
+    {
+        static const D3D12_COMPARISON_FUNC table[] =
+        {
+            D3D12_COMPARISON_FUNC_NEVER,
+            D3D12_COMPARISON_FUNC_LESS,
+            D3D12_COMPARISON_FUNC_EQUAL,
+            D3D12_COMPARISON_FUNC_LESS_EQUAL,
+            D3D12_COMPARISON_FUNC_GREATER,
+            D3D12_COMPARISON_FUNC_NOT_EQUAL,
+            D3D12_COMPARISON_FUNC_GREATER_EQUAL,
+            D3D12_COMPARISON_FUNC_ALWAYS
+        };
+        return table[(uint32_t)func];
+    }
+
+    void ConvertSamplerState(const RHI::SamplerState& state, D3D12_SAMPLER_DESC& samplerDesc)
+    {
+        D3D12_FILTER filter;
+        D3D12_FILTER_REDUCTION_TYPE reduction = ConvertReductionType(state.m_reductionType);
+        if (state.m_anisotropyEnable)
+        {
+            filter = D3D12_ENCODE_ANISOTROPIC_FILTER(reduction);
+        }
+        else
+        {
+            D3D12_FILTER_TYPE min = ConvertFilterMode(state.m_filterMin);
+            D3D12_FILTER_TYPE mag = ConvertFilterMode(state.m_filterMag);
+            D3D12_FILTER_TYPE mip = ConvertFilterMode(state.m_filterMip);
+            filter = D3D12_ENCODE_BASIC_FILTER(min, mag, mip, reduction);
+        }
+
+        samplerDesc.AddressU = ConvertAddressMode(state.m_addressU);
+        samplerDesc.AddressV = ConvertAddressMode(state.m_addressV);
+        samplerDesc.AddressW = ConvertAddressMode(state.m_addressW);
+        ConvertBorderColor(state.m_borderColor, samplerDesc.BorderColor);
+        samplerDesc.ComparisonFunc = ConvertComparisonFunc(state.m_comparisonFunc);
+        samplerDesc.Filter = filter;
+        samplerDesc.MaxAnisotropy = uint8_t(state.m_anisotropyMax);
+        samplerDesc.MaxLOD = uint8_t(state.m_mipLodMax);
+        samplerDesc.MinLOD = uint8_t(state.m_mipLodMin);
+        samplerDesc.MipLODBias = state.m_mipLodBias;
     }
 }

@@ -1,0 +1,118 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+#include "BufferView.h"
+
+#include <Math/Bit.h>
+#include <D3D12Factory.h>
+#include <Device/Device.h>
+#include <Descriptor/DescriptorContext.h>
+#include "Buffer.h"
+
+namespace Spark::RHI::DX12
+{
+    const Buffer& BufferView::GetBuffer() const
+    {
+        return static_cast<const Buffer&>(Base::GetBuffer());
+    }
+
+    DescriptorHandle BufferView::GetReadDescriptor() const
+    {
+        return m_readDescriptor;
+    }
+
+    DescriptorHandle BufferView::GetReadWriteDescriptor() const
+    {
+        return m_readWriteDescriptor;
+    }
+
+
+    DescriptorHandle BufferView::GetClearDescriptor() const
+    {
+        return m_clearDescriptor;
+    }
+
+    DescriptorHandle BufferView::GetConstantDescriptor() const
+    {
+        return m_constantDescriptor;
+    }
+
+    GpuVirtualAddress BufferView::GetGpuAddress() const
+    {
+        return m_gpuAddress;
+    }
+
+    ID3D12Resource* BufferView::GetMemory() const
+    {
+        return m_memory;
+    }
+
+    uint32_t BufferView::GetBindlessReadIndex() const
+    {
+        return m_staticReadDescriptor.m_index;
+    }
+
+    uint32_t BufferView::GetBindlessReadWriteIndex() const
+    {
+        return m_staticReadWriteDescriptor.m_index;
+    }
+
+    uint64_t BufferView::GetDeviceAddress() const
+    {
+        return GetGpuAddress();
+    }
+
+    RHI::ResultCode BufferView::InitInternal(RHI::Device& deviceBase, const RHI::Resource& resourceBase)
+    {
+        Device& device = static_cast<Device&>(deviceBase);
+
+        const Buffer& buffer = static_cast<const Buffer&>(resourceBase);
+        const RHI::BufferViewDescriptor& viewDescriptor = GetDescriptor();
+        DescriptorContext& descriptorContext = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+
+        // By default, if no bind flags are specified on the view descriptor, attempt to create all views that are compatible with the underlying buffer's bind flags
+        // If bind flags are specified on the view descriptor, only create the views for the specified bind flags.
+        bool hasOverrideFlags = viewDescriptor.m_overrideBindFlags != RHI::BufferBindFlags::None;
+        const RHI::BufferBindFlags bindFlags = hasOverrideFlags ? viewDescriptor.m_overrideBindFlags : buffer.GetDescriptor().m_bindFlags;
+
+        m_memory = buffer.GetMemoryView().GetMemory();
+        m_gpuAddress = buffer.GetMemoryView().GetGpuAddress() + viewDescriptor.m_elementOffset * viewDescriptor.m_elementSize;
+
+        if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::RayTracingAccelerationStructure))
+        {
+            descriptorContext.CreateShaderResourceView(buffer, viewDescriptor, m_readDescriptor, m_staticReadDescriptor);
+        }
+
+        if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::ShaderWrite))
+        {
+            descriptorContext.CreateUnorderedAccessView(
+                buffer, viewDescriptor, m_readWriteDescriptor, m_clearDescriptor, m_staticReadWriteDescriptor);
+        }
+
+        if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::Constant))
+        {
+            descriptorContext.CreateConstantBufferView(buffer, viewDescriptor, m_constantDescriptor, m_staticConstantDescriptor);
+        }
+
+        return RHI::ResultCode::Success;
+    }
+
+    void BufferView::ShutdownInternal()
+    {
+        DescriptorContext& descriptorContext = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        descriptorContext.ReleaseDescriptor(m_readDescriptor);
+        descriptorContext.ReleaseDescriptor(m_readWriteDescriptor);
+        descriptorContext.ReleaseDescriptor(m_clearDescriptor);
+        descriptorContext.ReleaseDescriptor(m_constantDescriptor);
+        descriptorContext.ReleaseStaticDescriptor(m_staticReadDescriptor);
+        descriptorContext.ReleaseStaticDescriptor(m_staticReadWriteDescriptor);
+        descriptorContext.ReleaseStaticDescriptor(m_staticConstantDescriptor);
+        m_memory = nullptr;
+        m_gpuAddress = 0;
+    }
+}

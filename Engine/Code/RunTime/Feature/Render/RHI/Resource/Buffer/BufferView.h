@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BufferViewDescriptor.h"
-#include <Resource/ResourceView.h>
+#include <RHI/Resource/ResourceView.h>
 
 namespace Spark::RHI
 {

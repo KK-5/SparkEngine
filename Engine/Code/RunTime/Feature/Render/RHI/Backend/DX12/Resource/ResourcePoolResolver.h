@@ -7,7 +7,7 @@
  */
 #pragma once
 
-#include <Resource/ResourcePool.h>
+#include <RHI/Resource/ResourcePool.h>
 
 namespace Spark::RHI::DX12
 {

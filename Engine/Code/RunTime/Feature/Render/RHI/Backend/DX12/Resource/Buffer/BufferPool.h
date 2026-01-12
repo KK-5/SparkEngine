@@ -8,7 +8,8 @@
 #pragma once
 
 #include <3rdParty/D3D12MA/D3D12MemAlloc.h>
-#include <Resource/Buffer/BufferPool.h>
+#include <RHI/Resource/Buffer/BufferPool.h>
+#include <ReleaseQueue.h>
 
 namespace Spark::RHI::DX12
 {

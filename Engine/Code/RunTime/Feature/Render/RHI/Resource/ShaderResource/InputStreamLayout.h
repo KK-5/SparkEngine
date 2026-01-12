@@ -3,8 +3,8 @@
 #include <EASTL/span.h>
 #include <EASTL/fixed_vector.h>
 
-#include <Format.h>
-#include <RHILimits.h>
+#include <RHI/Format.h>
+#include <RHI/RHILimits.h>
 
 #include "ShaderSemantic.h"
 

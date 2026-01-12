@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Format.h>
-#include <Size.h>
+#include <RHI/Format.h>
+#include <RHI/Size.h>
 #include "ImageEnums.h"
 
 namespace Spark::RHI

@@ -1,7 +1,7 @@
 #include "DeviceObject.h"
 
 #include <Service/Service.h>
-#include <Factory.h>
+#include <RHI/Factory.h>
 
 namespace Spark::RHI
 {

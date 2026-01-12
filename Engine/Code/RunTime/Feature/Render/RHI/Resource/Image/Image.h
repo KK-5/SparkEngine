@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Resource/Resource.h>
-#include <Resource/ResourceViewCache.h>
-#include <HardwareQueue.h>
+#include <RHI/Resource/Resource.h>
+#include <RHI/Resource/ResourceViewCache.h>
+#include <RHI/HardwareQueue.h>
 #include "ImageSubResource.h"
 #include "ImageDescriptor.h"
 #include "ImageViewDescriptor.h"

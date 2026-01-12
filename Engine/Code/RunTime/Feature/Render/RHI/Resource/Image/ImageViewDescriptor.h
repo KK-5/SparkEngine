@@ -2,7 +2,7 @@
 
 #include <EASTL/functional.h>
 
-#include <Format.h>
+#include <RHI/Format.h>
 #include "ImageEnums.h"
 
 namespace Spark::RHI
