@@ -20,8 +20,7 @@
 
 namespace Spark::RHI::DX12
 {
-    template <typename InternalPool>
-    void DescriptorPool<InternalPool>::Init(
+    void DescriptorPool::Init(
             ID3D12DeviceX* device,
             D3D12_DESCRIPTOR_HEAP_TYPE type,
             D3D12_DESCRIPTOR_HEAP_FLAGS flags,
@@ -38,26 +37,44 @@ namespace Spark::RHI::DX12
         device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&heap));
         m_descriptorHeap.Attach(heap);
 
-        // It is possible for descriptorCountForPool to not match descriptorCountForHeap for DescriptorPoolShaderVisibleCbvSrvUav
-        // heaps in which case descriptorCountForPool defines the number of static handles
-        InternalPool::Descriptor desc;
-        desc.device = device;
-        desc.descriptorHeap = m_descriptorHeap.Get();
-        desc.type = type;
-        desc.flags = flags;
-        desc.heapOffset = 0;
-        desc.descriptorCount = descriptorCountForPool;
-        desc.m_collectLatency = RHI::Limits::Device::FrameCountMax; // Default latency
-        m_internalPool.Init(desc);
+        if (CheckBitsAll(flags, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+        {
+            // It is possible for descriptorCountForPool to not match descriptorCountForHeap for DescriptorPoolShaderVisibleCbvSrvUav
+            // heaps in which case descriptorCountForPool defines the number of static handles
+            DescriptorTablePool::Descriptor desc;
+            desc.device = device;
+            desc.descriptorHeap = m_descriptorHeap.Get();
+            desc.type = type;
+            desc.flags = flags;
+            desc.heapOffset = 0;
+            desc.descriptorCount = descriptorCountForPool;
+            desc.m_collectLatency = RHI::Limits::Device::FrameCountMax; // Default latency
+            DescriptorTablePool* pool = new DescriptorTablePool;
+            pool->Init(desc);
+            m_internalPool.reset(pool);
+        }
+        else
+        {
+            DescriptorHandlePool::Descriptor desc;
+            desc.device = device;
+            desc.descriptorHeap = m_descriptorHeap.Get();
+            desc.type = type;
+            desc.flags = flags;
+            desc.heapOffset = 0;
+            desc.descriptorCount = descriptorCountForPool;
+            desc.m_collectLatency = RHI::Limits::Device::FrameCountMax; // Default latency
+            DescriptorHandlePool* pool = new DescriptorHandlePool;
+            pool->Init(desc);
+            m_internalPool.reset(pool);
+        }
     }
 
-    template <typename InternalPool>
-    void DescriptorPool<InternalPool>::InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count)
+    void DescriptorPool::InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count)
     {
-        m_descriptorHeap.Attach(parent.GetNativeHeap());
+        m_descriptorHeap.Attach(heap);
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc = m_descriptorHeap->GetDesc();
 
-        InternalPool::Descriptor desc;
+        DescriptorHandlePool::Descriptor desc;
         desc.device = device;
         desc.descriptorHeap = m_descriptorHeap.Get();
         desc.type = heapDesc.Type;
@@ -65,117 +82,77 @@ namespace Spark::RHI::DX12
         desc.heapOffset = offset;
         desc.descriptorCount = count;
         desc.m_collectLatency = RHI::Limits::Device::FrameCountMax; // Default latency
-        m_internalPool.Init(desc);
+        DescriptorHandlePool* pool = new DescriptorHandlePool;
+        pool->Init(desc);
+        m_internalPool.reset(pool);
     }
 
-    template <typename InternalPool>
-    ID3D12DescriptorHeap* DescriptorPool<InternalPool>::GetNativeHeap() const
+    ID3D12DescriptorHeap* DescriptorPool::GetNativeHeap() const
     {
         return m_descriptorHeap.Get();
     }
 
-    template <typename InternalPool>
-    DescriptorHandle DescriptorPool<InternalPool>::AllocateHandle()
+    DescriptorHandle DescriptorPool::AllocateHandle()
     {
-        /*
-        if (m_isGpuVisible)
-        {
-            LOG_ERROR("[DescriptorPool] Trying to allocate DescriptorHandle from a GPU visible DescriptorPool. Recommanded use AllocateTable instead.");
-            return DescriptorHandle();
-        }
-        */
-        // 不保留Ptr，因为ObjectPool内部已经管理了对象的生命周期
-        return *m_internalPool.CreateObject();
+        return m_internalPool->AllocateHandle();
     }
 
-    template <typename InternalPool>
-    void DescriptorPool<InternalPool>::ReleaseHandle(DescriptorHandle& handle)
+    void DescriptorPool::ReleaseHandle(DescriptorHandle& handle)
     {
-        /*
-        if (m_isGpuVisible)
-        {
-            LOG_ERROR("[DescriptorPool] Trying to release DescriptorHandle to a GPU visible DescriptorPool. Recommanded use ReleaseTable instead.");
-            return;
-        }
-        */
-        if (handle.IsNull)
+        if (handle.IsNull())
         {
             return;
         }
-        m_internalPool.ShutdownObject(&handle);
+        m_internalPool->ReleaseHandle(handle);
     }
 
-    template <typename InternalPool>
-    DescriptorTable DescriptorPool<InternalPool>::AllocateTable(uint32_t count)
+    DescriptorTable DescriptorPool::AllocateTable(uint32_t count)
     {
-        /*
-        if (!m_isGpuVisible)
+        if (count == 0)
         {
-            LOG_ERROR("[DescriptorPool] Trying to allocate DescriptorTable from a non GPU visible DescriptorPool. Recommanded use AllocateHandle instead.");
-            return DescriptorTable();
+            return DescriptorTable{};
         }
-        */
-        // 不保留Ptr，因为ObjectPool内部已经管理了对象的生命周期
-        return *m_internalPool.CreateObject(count);
+        return m_internalPool->AllocateTable(count);
     }
 
-    template <typename InternalPool>
-    void DescriptorPool<InternalPool>::ReleaseTable(DescriptorTable& table)
+    void DescriptorPool::ReleaseTable(DescriptorTable& table)
     {
-        /*
-        if (!m_isGpuVisible)
-        {
-            LOG_ERROR("[DescriptorPool] Trying to release DescriptorTable to a non GPU visible DescriptorPool. Recommanded use ReleaseHandle instead.");
-            return;
-        }
-        */
         if (table.IsNull())
         {
             return;
         }
-        m_internalPool.ShutdownObject(&table);
+        m_internalPool->ReleaseTable(table);
     }
 
-    template <typename InternalPool>
-    void DescriptorPool<InternalPool>::Collect()
+    void DescriptorPool::Collect()
     {
-       m_internalPool.Collect();
+       m_internalPool->Collect();
     }
 
-    template <typename InternalPool>
-    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorPool<InternalPool>::GetCpuNativeHandle(DescriptorHandle handle) const
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorPool::GetCpuNativeHandle(DescriptorHandle handle) const
     {
         ASSERT(handle.m_index != DescriptorHandle::NullIndex, "Index is invalid");
-        return m_internalPool.GetFactory().GetD3D12CPUDescriptorHandle(handle);
+        return m_internalPool->GetCpuNativeHandle(handle);
     }
 
-    template <typename InternalPool>
-    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorPool<InternalPool>::GetGpuNativeHandle(DescriptorHandle handle) const
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorPool::GetGpuNativeHandle(DescriptorHandle handle) const
     {
         ASSERT(handle.m_index != DescriptorHandle::NullIndex, "Index is invalid");
         ASSERT(handle.IsShaderVisible(), "Trying to get GPU handle from a non shader visible DescriptorHandle");
-        return m_internalPool.GetFactory().GetD3D12GPUDescriptorHandle(handle);
+        return m_internalPool->GetGpuNativeHandle(handle);
 
     }
 
-    template <typename InternalPool>
-    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorPool<InternalPool>::GetCpuNativeHandleForTable(DescriptorTable table) const
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorPool::GetCpuNativeHandleForTable(DescriptorTable table) const
     {
-        DescriptorHandle handle = table.GetOffset();
-        ASSERT(handle.m_index != DescriptorHandle::NullIndex, "Index is invalid");
-        return m_internalPool.GetFactory().GetD3D12CPUDescriptorHandle(table);
+        ASSERT(table.GetOffset().m_index != DescriptorHandle::NullIndex, "Index is invalid");
+        return m_internalPool->GetCpuNativeHandleForTable(table);
     }
 
-    template <typename InternalPool>
-    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorPool<InternalPool>::GetGpuNativeHandleForTable(DescriptorTable table) const
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorPool::GetGpuNativeHandleForTable(DescriptorTable table) const
     {
-        DescriptorHandle handle = table.GetOffset();
-        ASSERT(handle.m_index != DescriptorHandle::NullIndex, "Index is invalid");
-        ASSERT(handle.IsShaderVisible(), "Trying to get GPU handle from a non shader visible DescriptorHandle");
-        return m_internalPool.GetFactory().GetD3D12GPUDescriptorHandle(table);
+        ASSERT(table.GetOffset().m_index != DescriptorHandle::NullIndex, "Index is invalid");
+        ASSERT(table.GetOffset().IsShaderVisible(), "Trying to get GPU handle from a non shader visible DescriptorHandle");
+        return m_internalPool->GetGpuNativeHandleForTable(table);
     }
-
-    // 显式实例化两个模板类
-    template class DescriptorPool<DescriptorHandlePool>;
-    template class DescriptorPool<DescriptorTablePool>;
 }

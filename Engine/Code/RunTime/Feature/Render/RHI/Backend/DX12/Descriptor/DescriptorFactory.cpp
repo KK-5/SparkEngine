@@ -305,12 +305,12 @@ namespace Spark::RHI::DX12
         return m_descriptor;
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorTableFactory::GetD3D12CPUDescriptorHandle(const DescriptorTable& table) const
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorTableFactory::GetD3D12CPUDescriptorTable(const DescriptorTable& table) const
     {
         return D3D12_CPU_DESCRIPTOR_HANDLE{ m_cpuStart.ptr + table.GetOffset().m_index * m_stride };
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorTableFactory::GetD3D12GPUDescriptorHandle(const DescriptorTable& table) const
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorTableFactory::GetD3D12GPUDescriptorTable(const DescriptorTable& table) const
     {
         return D3D12_GPU_DESCRIPTOR_HANDLE{ m_gpuStart.ptr + table.GetOffset().m_index * m_stride };
     }

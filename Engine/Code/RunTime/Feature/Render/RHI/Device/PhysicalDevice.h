@@ -8,8 +8,6 @@
 
 namespace Spark::RHI
 {
-    using PhysicalDeviceList = eastl::vector<Ptr<PhysicalDevice>>;
-
     class PhysicalDevice : public Object
     {
     public:
@@ -19,5 +17,7 @@ namespace Spark::RHI
     protected:
         PhysicalDeviceDescriptor m_descriptor;
     };
+
+    using PhysicalDeviceList = eastl::vector<Ptr<PhysicalDevice>>;
 }
 

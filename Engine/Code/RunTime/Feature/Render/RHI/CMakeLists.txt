@@ -34,7 +34,7 @@ target_link_libraries(${TARGET_NAME}
         SparkCore
 )
 
-add_subdirectory(Backend/DX12)
+#add_subdirectory(Backend/DX12)
 
 # 指定当前目录的父目录作为包含目录，其他模块包含时必须使用 #include <RHI/...>
 target_include_directories(

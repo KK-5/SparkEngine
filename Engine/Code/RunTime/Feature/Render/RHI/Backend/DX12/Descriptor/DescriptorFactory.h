@@ -74,8 +74,8 @@ namespace Spark::RHI::DX12
 
         const Descriptor& GetDescriptor() const;
 
-        D3D12_CPU_DESCRIPTOR_HANDLE GetD3D12CPUDescriptorHandle(const DescriptorTable& table) const;
-        D3D12_GPU_DESCRIPTOR_HANDLE GetD3D12GPUDescriptorHandle(const DescriptorTable& table) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE GetD3D12CPUDescriptorTable(const DescriptorTable& table) const;
+        D3D12_GPU_DESCRIPTOR_HANDLE GetD3D12GPUDescriptorTable(const DescriptorTable& table) const;
 
         uint32_t GetDescriptorHandleIncrementSize() const;
     

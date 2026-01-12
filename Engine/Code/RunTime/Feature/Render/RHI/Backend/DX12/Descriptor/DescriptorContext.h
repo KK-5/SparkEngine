@@ -23,7 +23,6 @@
 #include <RHI/Device/DeviceObject.h>
 
 #include <DX12.h>
-//#include <Device/Device.h>
 #include "DescriptorPool.h"
 
 namespace Spark::RHI::DX12
@@ -31,22 +30,6 @@ namespace Spark::RHI::DX12
     class Device;
     class Buffer;
     class Image;
-
-    template<D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flag>
-    struct DescriptorPoolTraits
-    {
-        using DescriptorPoolType = DescriptorPool<DescriptorHandlePool>;
-    };
-
-    struct DescriptorPoolTraits<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>
-    {
-        using DescriptorPoolType = DescriptorPool<DescriptorTablePool>;
-    };
-
-    struct DescriptorPoolTraits<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>
-    {
-        using DescriptorPoolType = DescriptorPool<DescriptorTablePool>;
-    };
 
     class DescriptorContext final : public RHI::DeviceObject
     {
@@ -169,16 +152,13 @@ namespace Spark::RHI::DX12
         void CreateNullDescriptorsSampler();
 
         template<D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags>
-        DescriptorPoolTraits<type, flags>::DescriptorPoolType& GetPool();
+        DescriptorPool& GetPool();
 
         template<D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags>
-        const DescriptorPoolTraits<type, flags>::DescriptorPoolType& GetPool() const;
+        const DescriptorPool& GetPool() const;
 
-        DescriptorPool<DescriptorHandlePool>& FindDescriptorHandlePool(D3D12_DESCRIPTOR_HEAP_TYPE type);
-        const DescriptorPool<DescriptorHandlePool>& FindDescriptorHandlePool(D3D12_DESCRIPTOR_HEAP_TYPE type) const;
-
-        DescriptorPool<DescriptorTablePool>& FindDescriptorTablePool(D3D12_DESCRIPTOR_HEAP_TYPE type);
-        const DescriptorPool<DescriptorTablePool>& FindDescriptorTablePool(D3D12_DESCRIPTOR_HEAP_TYPE type) const;
+        DescriptorPool& GetPool(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags);
+        const DescriptorPool& GetPool(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags) const;
 
         //! Allocates a Descriptor table which describes a contiguous range of descriptor handles
         template<D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags>
@@ -192,15 +172,15 @@ namespace Spark::RHI::DX12
 
         bool IsShaderVisibleCbvSrvUavHeap(uint32_t type, uint32_t flag) const;
 
-        DescriptorPool<DescriptorHandlePool> m_CBVSRVUAVHeapFlagNone;
-        DescriptorPool<DescriptorTablePool>  m_CBVSRVUAVHeapFlagShaderVisible;
-        DescriptorPool<DescriptorHandlePool> m_SamplerHeapFlagNone;
-        DescriptorPool<DescriptorTablePool>  m_SamplerHeapFlagShaderVisible;
-        DescriptorPool<DescriptorHandlePool> m_RTVHeapFlagNone;
-        DescriptorPool<DescriptorHandlePool> m_DSVHeapFlagNone;
+        DescriptorPool m_CBVSRVUAVHeapFlagNone;
+        DescriptorPool m_CBVSRVUAVHeapFlagShaderVisible;
+        DescriptorPool m_SamplerHeapFlagNone;
+        DescriptorPool m_SamplerHeapFlagShaderVisible;
+        DescriptorPool m_RTVHeapFlagNone;
+        DescriptorPool m_DSVHeapFlagNone;
         // The static pool is a region of the shader-visible descriptor heap used to store descriptors that persist for the
         // lifetime of the resource view they reference
-        DescriptorPool<DescriptorHandlePool> m_staticPool;
+        DescriptorPool m_staticPool;
 
         // This table binds the entire range of CBV_SRV_UAV descriptor handles in the shader visible heap
         DescriptorTable m_staticTable;
@@ -214,73 +194,73 @@ namespace Spark::RHI::DX12
         DescriptorHandle m_nullSamplerDescriptor;
     };
 
-    template<> DescriptorPool<DescriptorHandlePool>& 
+    template<> DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>()
     {
         return m_CBVSRVUAVHeapFlagNone;
     }
 
-    template<> const DescriptorPool<DescriptorHandlePool>& 
+    template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
         return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
     }
 
-    template<> DescriptorPool<DescriptorTablePool>& 
+    template<> DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>()
     {
         return m_CBVSRVUAVHeapFlagShaderVisible;
     }
 
-    template<> const DescriptorPool<DescriptorTablePool>& 
+    template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>() const
     {
         return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
     }
 
-    template<> DescriptorPool<DescriptorHandlePool>& 
+    template<> DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>()
     {
         return m_SamplerHeapFlagNone;
     }
 
-    template<> const DescriptorPool<DescriptorHandlePool>& 
+    template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
         return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
     }
 
-    template<> DescriptorPool<DescriptorTablePool>& 
+    template<> DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>()
     {
         return m_SamplerHeapFlagShaderVisible;
     }
 
-    template<> const DescriptorPool<DescriptorTablePool>& 
+    template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>() const
     {
         return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
     }
 
-    template<> DescriptorPool<DescriptorHandlePool>& 
+    template<> DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>()
     {
         return m_RTVHeapFlagNone;
     }
 
-    template<> const DescriptorPool<DescriptorHandlePool>& 
+    template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
         return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
     }
 
-    template<> DescriptorPool<DescriptorHandlePool>& 
+    template<> DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>()
     {
         return m_DSVHeapFlagNone;
     }
 
-    template<> const DescriptorPool<DescriptorHandlePool>& 
+    template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
         return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();

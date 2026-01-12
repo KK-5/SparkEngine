@@ -10,7 +10,6 @@
 
 #include <Log/SpdLogSystem.h>
 
-//#include <RHI/Device/Device.h>
 #include <Device/Device.h>
 #include <Resource/Buffer/Buffer.h>
 #include <Conversions.h>
@@ -82,7 +81,7 @@ namespace Spark::RHI::DX12
 
             for (D3D12_UAV_DIMENSION dimension : UAVDimensions)
             {
-                DescriptorHandle uavDescriptorHandle = AllocateHandle(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
+                DescriptorHandle uavDescriptorHandle = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
 
                 D3D12_UNORDERED_ACCESS_VIEW_DESC desc = {};
                 desc.Format = DXGI_FORMAT_R32_UINT;
@@ -95,14 +94,14 @@ namespace Spark::RHI::DX12
     void DescriptorContext::CreateNullDescriptorsCBV()
     {
         D3D12_CONSTANT_BUFFER_VIEW_DESC constantBufferDesc = {};
-        DescriptorHandle cbvDescriptorHandle = AllocateHandle(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
+        DescriptorHandle cbvDescriptorHandle = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
         m_D3D12Device->CreateConstantBufferView(&constantBufferDesc, GetCpuNativeHandle(cbvDescriptorHandle));
         m_nullDescriptorCBV = cbvDescriptorHandle;
     }
 
     void DescriptorContext::CreateNullDescriptorsSampler()
     {
-        m_nullSamplerDescriptor = AllocateHandle(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
+        m_nullSamplerDescriptor = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
         D3D12_SAMPLER_DESC samplerDesc = {};
         samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
         samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -328,8 +327,7 @@ namespace Spark::RHI::DX12
     {
         if (!descriptorHandle.IsNull())
         {
-            //GetPool(descriptorHandle.m_type, descriptorHandle.m_flags).ReleaseHandle(descriptorHandle);
-            FindDescriptorHandlePool(descriptorHandle.m_type).ReleaseHandle(descriptorHandle);
+            GetPool(descriptorHandle.m_type, descriptorHandle.m_flags).ReleaseHandle(descriptorHandle);
         }
     }
 
@@ -346,76 +344,60 @@ namespace Spark::RHI::DX12
         return AllocateTable(descriptorHeapType, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, descriptorCount);
     }
 
-    void DescriptorContext::ReleaseDescriptorTable(DescriptorTable descriptorTable)
+    void DescriptorContext::ReleaseDescriptorTable(DescriptorTable table)
     {
-        //GetPool(table.GetType(), table.GetFlags()).ReleaseTable(table);
-        FindDescriptorTablePool(descriptorTable.GetType()).ReleaseTable(descriptorTable);
+        GetPool(table.GetType(), table.GetFlags()).ReleaseTable(table);
     }
 
-    DescriptorPool<DescriptorHandlePool>& DescriptorContext::FindDescriptorHandlePool(D3D12_DESCRIPTOR_HEAP_TYPE type)
+    DescriptorPool& DescriptorContext::GetPool(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags)
     {
-        // ASSERT(!handle.IsNull(), "Trying to get pool with invalid handle");
-        // ASSERT(!handle.IsShaderVisible(), "DescriptorHandlePool is only used for descriptor handles that are not visible to shaders.");
-        switch (type)
+        if (flags == D3D12_DESCRIPTOR_HEAP_FLAG_NONE)
         {
-        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-            return m_CBVSRVUAVHeapFlagNone;
-        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-            return m_SamplerHeapFlagNone;
-        case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
-            return m_RTVHeapFlagNone;
-        case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
-            return m_DSVHeapFlagNone;
-        default:
-            ASSERT(false, "Unknow Desciptor Heap!");
-        }
-    }
-
-    const DescriptorPool<DescriptorHandlePool>& DescriptorContext::FindDescriptorHandlePool(D3D12_DESCRIPTOR_HEAP_TYPE type) const
-    {
-        return FindDescriptorHandlePool(type);
-    }
-
-    DescriptorPool<DescriptorTablePool>& DescriptorContext::FindDescriptorTablePool(D3D12_DESCRIPTOR_HEAP_TYPE type)
-    {
-        // ASSERT(!table.IsNull(), "Trying to get pool with invalid table");
-        // ASSERT(table.GetOffset().IsShaderVisible(), "DescriptorTablePool is only used for descriptor handles that are visible to shaders.");
-        switch (type)
-        {
+            switch (type)
+            {
             case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-                return m_CBVSRVUAVHeapFlagShaderVisible;
+                return m_CBVSRVUAVHeapFlagNone;
             case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-                return m_SamplerHeapFlagShaderVisible;
+                return m_SamplerHeapFlagNone;
+            case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
+                return m_RTVHeapFlagNone;
+            case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
+                return m_DSVHeapFlagNone;
             default:
-                ASSERT(false, "Unknow Desciptor Heap!"); 
+                ASSERT(false, "Unknow Desciptor Heap!");
+            }
+        }
+        else if (flags == D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+        {
+            switch (type)
+            {
+                case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+                    return m_CBVSRVUAVHeapFlagShaderVisible;
+                case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
+                    return m_SamplerHeapFlagShaderVisible;
+                default:
+                    ASSERT(false, "Unknow Desciptor Heap!"); 
+            }
+        }
+        else
+        {
+            ASSERT(false, "Unknow Desciptor Heap Flags!"); 
         }
     }
 
-    const DescriptorPool<DescriptorTablePool>& DescriptorContext::FindDescriptorTablePool(D3D12_DESCRIPTOR_HEAP_TYPE type) const
+    const DescriptorPool& DescriptorContext::GetPool(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags) const
     {
-        return FindDescriptorTablePool(type);
+        return GetPool(type, flags);
     }
-
 
     DescriptorHandle DescriptorContext::AllocateHandle(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags)
     {
-        if (CheckBitsAll(flags, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
-        {
-            LOG_ERROR("[DescriptorPool] Trying to allocate DescriptorHandle from a GPU visible DescriptorPool. Recommanded use AllocateTable instead.");
-            return DescriptorHandle();
-        }
-        return FindDescriptorHandlePool(type).AllocateHandle();
+        return GetPool(type, flags).AllocateHandle();
     }
 
     DescriptorTable DescriptorContext::AllocateTable(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags, uint32_t count)
     {
-        if (!CheckBitsAll(flags, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
-        {
-            LOG_ERROR("[DescriptorPool] Trying to allocate DescriptorTable from a non GPU visible DescriptorPool. Recommanded use AllocateHandle instead.");
-            return DescriptorTable();
-        }
-
-        return FindDescriptorTablePool(type).AllocateTable(count);
+        return GetPool(type, flags).AllocateTable(count);
     }
 
 }

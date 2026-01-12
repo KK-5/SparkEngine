@@ -13,13 +13,33 @@
  */
 #pragma once
 
+#include <EASTL/unique_ptr.h>
 #include <Object/ObjectPool.h>
+#include <Log/SpdLogSystem.h>
 
 #include "Descriptor.h"
 #include "DescriptorFactory.h"
 
 namespace Spark::RHI::DX12
 {
+    class DescriptorPoolBase
+    {
+    public:
+        virtual ~DescriptorPoolBase() = default;
+
+        virtual DescriptorHandle AllocateHandle() = 0;
+        virtual void ReleaseHandle(DescriptorHandle& handle) = 0;
+        virtual DescriptorTable AllocateTable(uint32_t count = 1) = 0;
+        virtual void ReleaseTable(DescriptorTable& table) = 0;
+
+        virtual D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable table) const = 0;
+        virtual D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandleForTable(DescriptorTable table) const = 0;
+        virtual D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandle(DescriptorHandle handle) const = 0;
+        virtual D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandle(DescriptorHandle handle) const = 0;
+
+        virtual void Collect() = 0;
+    };
+
     class DescriptorHandlePoolTraits : public ObjectPoolTraits
     {
     public:
@@ -28,7 +48,60 @@ namespace Spark::RHI::DX12
         using MutexType = std::mutex;
     };
 
-    using DescriptorHandlePool = ObjectPool<DescriptorHandlePoolTraits>;
+    class DescriptorHandlePool final : public ObjectPool<DescriptorHandlePoolTraits>,
+                                       public DescriptorPoolBase
+    {
+        using BasePool = ObjectPool<DescriptorHandlePoolTraits>;
+    public:
+        DescriptorHandle AllocateHandle() override
+        {
+            return *BasePool::CreateObject();
+        }
+
+        void ReleaseHandle(DescriptorHandle& handle) override
+        {
+            BasePool::ShutdownObject(&handle);
+        }
+
+        DescriptorTable AllocateTable(uint32_t count = 1) override
+        {
+            ASSERT(count == 1, "DescriptorHandlePool just support allocate single handle.");
+            return DescriptorTable(AllocateHandle(), 1);
+        }
+
+        void ReleaseTable(DescriptorTable& table) override
+        {
+            ASSERT(table.GetSize() == 1, "Try to release a desciriptortable that is not allocate from this pool");
+            ReleaseHandle(table.GetOffset());
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable table) const override
+        {
+            ASSERT(table.GetSize() == 1, "Try to release a desciriptortable that is not allocate from this pool");
+            return BasePool::GetFactory().GetD3D12CPUDescriptorHandle(table.GetOffset());
+        }
+
+        D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandleForTable(DescriptorTable table) const override
+        {
+            ASSERT(table.GetSize() == 1, "Try to release a desciriptortable that is not allocate from this pool");
+            return BasePool::GetFactory().GetD3D12GPUDescriptorHandle(table.GetOffset());
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandle(DescriptorHandle handle) const override
+        {
+            return BasePool::GetFactory().GetD3D12CPUDescriptorHandle(handle);
+        }
+
+        D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandle(DescriptorHandle handle) const override
+        {
+            return BasePool::GetFactory().GetD3D12GPUDescriptorHandle(handle);
+        }
+
+        void Collect() override
+        {
+            BasePool::Collect();
+        }
+    };
 
     class DescriptorTablePoolTraits : public ObjectPoolTraits
     {
@@ -38,10 +111,59 @@ namespace Spark::RHI::DX12
         using MutexType = std::mutex;
     };
 
-    using DescriptorTablePool = ObjectPool<DescriptorTablePoolTraits>;
+    class DescriptorTablePool final : public ObjectPool<DescriptorTablePoolTraits>,
+                                      public DescriptorPoolBase
+    {
+        using BasePool = ObjectPool<DescriptorTablePoolTraits>;
+    public:
+        DescriptorHandle AllocateHandle() override
+        {
+            return BasePool::CreateObject(1)->GetOffset();
+        }
+
+        void ReleaseHandle(DescriptorHandle& handle) override
+        {
+            DescriptorTable table(handle, 1);
+            BasePool::ShutdownObject(&table);
+        }
+
+        DescriptorTable AllocateTable(uint32_t count = 1) override
+        {
+            return *BasePool::CreateObject(count);
+        }
+
+        void ReleaseTable(DescriptorTable& table) override
+        {
+            BasePool::ShutdownObject(&table);
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable table) const override
+        {
+            return BasePool::GetFactory().GetD3D12CPUDescriptorTable(table);
+        }
+
+        D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandleForTable(DescriptorTable table) const override
+        {
+            return BasePool::GetFactory().GetD3D12GPUDescriptorTable(table);
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandle(DescriptorHandle handle) const override
+        {
+            return BasePool::GetFactory().GetD3D12CPUDescriptorTable(DescriptorTable(handle, 1));
+        }
+
+        D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandle(DescriptorHandle handle) const override
+        {
+            return BasePool::GetFactory().GetD3D12GPUDescriptorTable(DescriptorTable(handle, 1));
+        }
+
+        void Collect() override
+        {
+            BasePool::Collect();
+        }
+    };
 
     //! This class defines a Descriptor pool which manages all the descriptors used for binding resources
-    template <typename InternalPool>
     class DescriptorPool
     {
     public:
@@ -82,7 +204,7 @@ namespace Spark::RHI::DX12
 
     private:
         ComPtr<ID3D12DescriptorHeap> m_descriptorHeap;
-        InternalPool m_internalPool;
+        eastl::unique_ptr<DescriptorPoolBase> m_internalPool;
     };
     
 }

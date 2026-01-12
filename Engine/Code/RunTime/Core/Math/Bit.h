@@ -8,7 +8,7 @@
 #pragma once
 
 #include <cstdint>
-#include <EASTL/internal/type_properties.h>
+//#include <EASTL/internal/type_properties.h>
 
 #ifndef BIT
 #define BIT(x) (1u << x)
