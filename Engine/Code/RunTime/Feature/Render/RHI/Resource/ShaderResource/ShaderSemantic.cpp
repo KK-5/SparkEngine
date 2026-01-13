@@ -4,11 +4,11 @@
 
 namespace Spark::RHI
 {
-    explicit ShaderSemantic::ShaderSemantic(const ObjectName& name, size_t index)
+    ShaderSemantic::ShaderSemantic(const ObjectName& name, size_t index)
         :m_name(name), m_index(index)
     {}
 
-    explicit ShaderSemantic::ShaderSemantic(eastl::string_view name, size_t index)
+    ShaderSemantic::ShaderSemantic(eastl::string_view name, size_t index)
         : ShaderSemantic{ ObjectName{name}, index }
     {}
 
@@ -29,6 +29,6 @@ namespace Spark::RHI
 
     eastl::string ShaderSemantic::ToString() const
     {
-        m_name.GetCStr() + eastl::to_string(m_index);
+        return m_name.GetCStr() + eastl::to_string(m_index);
     }
 }

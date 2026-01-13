@@ -9,7 +9,7 @@
 
 namespace Spark::RHI::DX12
 {
-    class DescriptorHandleFactory final : IObjectFactory<DescriptorHandle>
+    class DescriptorHandleFactory final : public IObjectFactory<DescriptorHandle>
     {
     public:
         struct Descriptor
@@ -49,7 +49,7 @@ namespace Spark::RHI::DX12
         eastl::vector<uint32_t> m_freeList;
     };
 
-    class DescriptorTableFactory final : IObjectFactory<DescriptorTable>
+    class DescriptorTableFactory final : public IObjectFactory<DescriptorTable>
     {
     public:
         struct Descriptor

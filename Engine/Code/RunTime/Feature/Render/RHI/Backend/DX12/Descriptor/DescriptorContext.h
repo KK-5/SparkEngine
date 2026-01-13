@@ -9,7 +9,7 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- Use static variable s_descriptorHeapLimits instead PlatformLimitsDescriptor
- *  -- 
+ *  -- Each type of Descriptor Heap is now explicitly declared, and the specific heap to use can be specified at compile time.
  */
 
 #pragma once
@@ -203,7 +203,7 @@ namespace Spark::RHI::DX12
     template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
-        return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+        return m_CBVSRVUAVHeapFlagNone;
     }
 
     template<> DescriptorPool& 
@@ -215,7 +215,7 @@ namespace Spark::RHI::DX12
     template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>() const
     {
-        return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
+        return m_CBVSRVUAVHeapFlagShaderVisible;
     }
 
     template<> DescriptorPool& 
@@ -227,7 +227,7 @@ namespace Spark::RHI::DX12
     template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
-        return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+        return m_SamplerHeapFlagNone;
     }
 
     template<> DescriptorPool& 
@@ -239,7 +239,7 @@ namespace Spark::RHI::DX12
     template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>() const
     {
-        return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
+        return m_SamplerHeapFlagShaderVisible;
     }
 
     template<> DescriptorPool& 
@@ -251,7 +251,7 @@ namespace Spark::RHI::DX12
     template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
-        return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+        return m_RTVHeapFlagNone;
     }
 
     template<> DescriptorPool& 
@@ -263,18 +263,18 @@ namespace Spark::RHI::DX12
     template<> const DescriptorPool& 
         DescriptorContext::GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>() const
     {
-        return GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+        return m_DSVHeapFlagNone;
     }
 
     template<D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags>
     DescriptorHandle DescriptorContext::AllocateHandle()
     {
-        GetPool<type, flags>().AllocateHandle();
+        return GetPool<type, flags>().AllocateHandle();
     }
 
     template<D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags>
     DescriptorTable DescriptorContext::AllocateTable(uint32_t count)
     {
-        GetPool<type, flags>().AllocateTable(count);
+        return GetPool<type, flags>().AllocateTable(count);
     }
 }

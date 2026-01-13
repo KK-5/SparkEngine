@@ -240,29 +240,25 @@ namespace Spark
     };
 
 // Overload bitwise operators(|, &, ^) for enum types
-#define DEFINE_ENUM_BITWISE_OPERATORS(EnumType) \
+#define DEFINE_ENUM_BITWISE_OPERATORS(EnumType, UnderlyingType) \
 constexpr EnumType operator | (EnumType a, EnumType b) \
     { \
-        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
         return EnumType(static_cast<UnderlyingType>(a) | static_cast<UnderlyingType>(b)); \
     } \
 constexpr EnumType& operator |= (EnumType &a, EnumType b) \
     { return a = a | b; } \
 constexpr EnumType operator & (EnumType a, EnumType b) \
     { \
-        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
         return EnumType(static_cast<UnderlyingType>(a) & static_cast<UnderlyingType>(b)); \
     } \
 constexpr EnumType& operator &= (EnumType &a, EnumType b) \
     { return a = a & b; } \
 constexpr EnumType operator ~ (EnumType a) \
     { \
-        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
         return EnumType(~static_cast<UnderlyingType>(a)); \
     } \
 constexpr EnumType operator ^ (EnumType a, EnumType b) \
     { \
-        using UnderlyingType = eastl::underlying_type_t<EnumType>; \
         return EnumType(static_cast<UnderlyingType>(a) ^ static_cast<UnderlyingType>(b)); \
     } \
 constexpr EnumType& operator ^= (EnumType &a, EnumType b) \

@@ -27,7 +27,7 @@ namespace Spark::RHI
         ShadingRate = BIT(7),
     };
 
-    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::ImageBindFlags);
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::ImageBindFlags, uint32_t);
 
     enum class ImageDimension
     {

@@ -23,5 +23,5 @@ namespace Spark::RHI
         RayTracingScratchBuffer         = BIT(11),
     };
 
-    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::BufferBindFlags);
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::BufferBindFlags, uint32_t);
 }

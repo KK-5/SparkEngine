@@ -6,8 +6,15 @@
  *
  */
 
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Use static variable s_descriptorHeapLimits instead PlatformLimitsDescriptor
+ *  -- Each type of Descriptor Heap is now explicitly declared, and the specific heap to use can be specified at compile time.
+ */
+
 #include "DescriptorContext.h"
 
+#include <EASTL/fixed_vector.h>
 #include <Log/SpdLogSystem.h>
 
 #include <Device/Device.h>
@@ -265,7 +272,6 @@ namespace Spark::RHI::DX12
         // Copy the UAV descriptor into the GPU-visible version for clearing.
         if (unorderedAccessViewClear.IsNull())
         {
-            // [TODO] 
             unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
 
             if (unorderedAccessViewClear.IsNull())
@@ -323,6 +329,93 @@ namespace Spark::RHI::DX12
         m_D3D12Device->CopyDescriptorsSimple(1, GetCpuNativeHandle(dest), GetCpuNativeHandle(src), dest.m_type);
     }
 
+    void DescriptorContext::UpdateDescriptorTableRange(DescriptorTable gpuDestinationTable, const DescriptorHandle* cpuSourceDescriptors, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
+    {
+        const uint32_t DescriptorCount = gpuDestinationTable.GetSize();
+
+        // Resolve source descriptors to platform handles.
+        constexpr size_t FixedSize = 16;
+        eastl::fixed_vector<D3D12_CPU_DESCRIPTOR_HANDLE, FixedSize> cpuSourceHandles;
+        cpuSourceHandles.reserve(DescriptorCount);
+        for (uint32_t i = 0; i < DescriptorCount; ++i)
+        {
+            cpuSourceHandles.push_back(GetCpuNativeHandle(cpuSourceDescriptors[i]));
+        }
+
+        // Resolve destination descriptor to platform handle.
+        D3D12_CPU_DESCRIPTOR_HANDLE gpuDestinationHandle = GetCpuNativeHandleForTable(gpuDestinationTable);
+
+        // An array of descriptor sizes for each range. We just want N ranges with 1 descriptor each.
+        eastl::fixed_vector<uint32_t, FixedSize> rangeCountsFixed;
+        rangeCountsFixed.resize(DescriptorCount, 1);
+
+        //We are gathering N source descriptors into a contiguous destination table.
+        m_D3D12Device->CopyDescriptors(
+            1, // Number of destination ranges.
+            &gpuDestinationHandle, // Destination range array.
+            &DescriptorCount, // Number of destination table elements in each range.
+            DescriptorCount, // Number of source ranges.
+            cpuSourceHandles.data(), // Source range array
+            rangeCountsFixed.data(), // Number of elements in each source range.
+            heapType);
+    }
+
+    DescriptorHandle DescriptorContext::GetNullHandleSRV(D3D12_SRV_DIMENSION dimension) const
+    {
+        auto iter = m_nullDescriptorsSRV.find(dimension);
+        if (iter != m_nullDescriptorsSRV.end())
+        {
+            return iter->second;
+        }
+        else
+        {
+            return DescriptorHandle();
+        }
+    }
+
+    DescriptorHandle DescriptorContext::GetNullHandleUAV(D3D12_UAV_DIMENSION dimension) const
+    {
+        auto iter = m_nullDescriptorsUAV.find(dimension);
+        if (iter != m_nullDescriptorsUAV.end())
+        {
+            return iter->second;
+        }
+        else
+        {
+            return DescriptorHandle();
+        }
+    }
+
+    DescriptorHandle DescriptorContext::GetNullHandleCBV() const
+    {
+        return m_nullDescriptorCBV;
+    }
+
+    DescriptorHandle DescriptorContext::GetNullHandleSampler() const
+    {
+        return m_nullSamplerDescriptor;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorContext::GetCpuNativeHandle(DescriptorHandle handle) const
+    {
+        return GetPool(handle.m_type, handle.m_flags).GetCpuNativeHandle(handle);
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorContext::GetGpuNativeHandle(DescriptorHandle handle) const
+    {
+        return GetPool(handle.m_type, handle.m_flags).GetGpuNativeHandle(handle);
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorContext::GetCpuNativeHandleForTable(DescriptorTable descTable) const
+    {
+        return GetPool(descTable.GetType(), descTable.GetFlags()).GetCpuNativeHandleForTable(descTable);
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorContext::GetGpuNativeHandleForTable(DescriptorTable descTable) const
+    {
+        return GetPool(descTable.GetType(), descTable.GetFlags()).GetGpuNativeHandleForTable(descTable);
+    }
+
     void DescriptorContext::ReleaseDescriptor(DescriptorHandle descriptorHandle)
     {
         if (!descriptorHandle.IsNull())
@@ -365,6 +458,7 @@ namespace Spark::RHI::DX12
                 return m_DSVHeapFlagNone;
             default:
                 ASSERT(false, "Unknow Desciptor Heap!");
+                return m_staticPool;
             }
         }
         else if (flags == D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
@@ -376,18 +470,21 @@ namespace Spark::RHI::DX12
                 case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
                     return m_SamplerHeapFlagShaderVisible;
                 default:
-                    ASSERT(false, "Unknow Desciptor Heap!"); 
+                    ASSERT(false, "Unknow Desciptor Heap!");
+                    return m_staticPool;
             }
         }
         else
         {
             ASSERT(false, "Unknow Desciptor Heap Flags!"); 
+            return m_staticPool;
         }
     }
 
     const DescriptorPool& DescriptorContext::GetPool(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags) const
     {
-        return GetPool(type, flags);
+         // 调用非const版本
+        return const_cast<DescriptorContext*>(this)->GetPool(type, flags);
     }
 
     DescriptorHandle DescriptorContext::AllocateHandle(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags)

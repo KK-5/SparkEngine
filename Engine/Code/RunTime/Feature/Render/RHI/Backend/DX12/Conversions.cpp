@@ -417,17 +417,17 @@ namespace Spark::RHI::DX12
         D3D12_CONSTANT_BUFFER_VIEW_DESC& constantBufferView)
     {
         ASSERT(IsAligned(buffer.GetMemoryView().GetGpuAddress(), Alignment::Constant),
-            "Constant Buffer memory is not aligned to {} bytes.", Alignment::Constant);
+            "Constant Buffer memory is not aligned.");
 
         const uint32_t bufferOffset = bufferViewDescriptor.m_elementOffset * bufferViewDescriptor.m_elementSize;
         if (!IsAligned(bufferOffset, Alignment::Constant))
         {
-            LOG_ERROR("[RHI DX12] Buffer View offset is not aligned to {} bytes, the view won't have the appropiate alignment for Constant Buffer reads.", Alignment::Constant);
+            LOG_ERROR("[RHI DX12] Buffer View offset is not aligned to {} bytes, the view won't have the appropiate alignment for Constant Buffer reads.", static_cast<uint32_t>(Alignment::Constant));
         }
         // In DX12 Constant data reads must be a multiple of 256 bytes.
         // It's not a problem if the actual buffer size is smaller since the heap (where the buffer resides) must be multiples of 64KB.
         // This means the buffer view will never go out of heap memory, it might read pass the Constant Buffer size, but it will never be used.
-        const uint32_t bufferSize = AlignUp(bufferViewDescriptor.m_elementCount * bufferViewDescriptor.m_elementSize, Alignment::Constant);
+        const uint32_t bufferSize = AlignUp(bufferViewDescriptor.m_elementCount * bufferViewDescriptor.m_elementSize, static_cast<uint32_t>(Alignment::Constant));
 
         constantBufferView.BufferLocation = buffer.GetMemoryView().GetGpuAddress() + bufferOffset;
         constantBufferView.SizeInBytes = bufferSize;

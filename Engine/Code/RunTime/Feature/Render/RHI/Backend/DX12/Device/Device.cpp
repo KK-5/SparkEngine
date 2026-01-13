@@ -109,7 +109,7 @@ namespace Spark::RHI::DX12
             infoQueue->PushEmptyStorageFilter();
 
             [[maybe_unused]] HRESULT addedOk = infoQueue->AddStorageFilterEntries(&filter);
-            assert(addedOk == S_OK, "D3DInfoQueue AddStorageFilterEntries failed");
+            ASSERT(addedOk == S_OK, "D3DInfoQueue AddStorageFilterEntries failed");
 
             infoQueue->AddApplicationMessage(D3D12_MESSAGE_SEVERITY_MESSAGE, "D3D12 Debug Filters setup");
         }
@@ -356,6 +356,7 @@ namespace Spark::RHI::DX12
             m_dx12MemAlloc->SetCurrentFrameIndex(++frameIndex);
         }
         //m_commandQueueContext.Begin();
+        return RHI::ResultCode::Success;
     }
 
     void Device::EndFrameInternal()

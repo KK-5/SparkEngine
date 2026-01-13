@@ -13,6 +13,7 @@
 
 namespace Spark::RHI::DX12
 {
+    class Device;
     class BufferPoolResolver;
     
     class BufferPool : public RHI::BufferPool

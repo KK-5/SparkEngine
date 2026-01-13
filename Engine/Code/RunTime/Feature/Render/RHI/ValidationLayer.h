@@ -23,5 +23,5 @@ namespace Spark::RHI
         GPU
     };
 
-    const ValidationMode validationMode = Verbose;
+    const ValidationMode validationMode = ValidationMode::Verbose;
 }

@@ -205,7 +205,7 @@ namespace Spark::RHI
         ShadingRate      = BIT(9),  // The format can be used to create a shading rate image.
     };
 
-    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::FormatCapabilities);
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::FormatCapabilities, uint32_t);
 
     uint32_t GetFormatSize(Format format);
     

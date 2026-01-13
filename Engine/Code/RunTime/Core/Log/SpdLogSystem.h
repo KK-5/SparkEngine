@@ -88,6 +88,6 @@ namespace Spark
     do                                                                                            \
     {                                                                                             \
         (void)sizeof(expression);                                                                 \
-        expression ? (void)0 : LOG_CIRTICAL("{}:{} {}",__FILE__, __LINE__, ##__VA_ARGS__);                   \
+        expression ? (void)0 : LOG_CIRTICAL("{}:{} {}",__FILE__, __LINE__, ##__VA_ARGS__);        \
     } while (0)
 #endif

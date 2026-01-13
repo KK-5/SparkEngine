@@ -247,8 +247,7 @@ namespace Spark::RHI
             break;
 
         default:
-            LOG_ERROR("Unimplemented esoteric format {}.", static_cast<int>(imageFormat));
-            assert(false);
+            ASSERT(false, "Unimplemented esoteric format {}.", static_cast<int>(imageFormat));
         }
 
         if (isBlockCompressed)

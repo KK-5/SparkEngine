@@ -10,13 +10,13 @@
 
 #include <mutex>
 #include <Math/Bit.h>
-#include <RHILimits.h>
+#include <RHI/RHILimits.h>
 #include "Buffer.h"
 
-#include "../../Device/Device.h"
-#include "../../Memory.h"
-#include "../../MemoryView.h"
-#include "../../Conversions.h"
+#include <Device/Device.h>
+#include <Memory.h>
+#include <MemoryView.h>
+#include <Conversions.h>
 
 namespace Spark::RHI::DX12
 {
@@ -277,7 +277,7 @@ namespace Spark::RHI::DX12
 
         Buffer& buffer = static_cast<Buffer&>(resourceBase);
         m_releaseQueue.Collect(buffer.GetMemoryView().GetMemoryAllocation());
-        // 这里发送移动赋值，原MemoryView持有的MemoryAllocation自动release
+        // 这里移动赋值，原MemoryView持有的MemoryAllocation自动release
         buffer.m_memoryView = {};
         buffer.m_initialAttachmentState = D3D12_RESOURCE_STATE_COMMON;
         buffer.m_pendingResolves = 0;

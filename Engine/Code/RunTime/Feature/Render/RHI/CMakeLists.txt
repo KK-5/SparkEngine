@@ -23,6 +23,11 @@ set(SOURCES
     Resource/Image/ImageViewDescriptor.cpp
     Resource/Image/ImageView.cpp
     Resource/Image/StreamingImagePool.cpp
+    Resource/Sampler/SamplerState.cpp
+    Resource/ShaderResource/ShaderSemantic.cpp
+    Resource/ShaderResource/StreamBufferView.cpp
+    Resource/ShaderResource/InputStreamLayout.cpp
+    Resource/ShaderResource/InputStreamLayoutBuilder.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -34,7 +39,7 @@ target_link_libraries(${TARGET_NAME}
         SparkCore
 )
 
-#add_subdirectory(Backend/DX12)
+add_subdirectory(Backend/DX12)
 
 # 指定当前目录的父目录作为包含目录，其他模块包含时必须使用 #include <RHI/...>
 target_include_directories(
