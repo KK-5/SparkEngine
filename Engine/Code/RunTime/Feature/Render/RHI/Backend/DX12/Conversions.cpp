@@ -287,6 +287,34 @@ namespace Spark::RHI::DX12
         resourceDesc.Flags = ConvertImageBindFlags(descriptor.m_bindFlags);
     }
 
+    uint16_t ConvertImageAspectToPlaneSlice(RHI::ImageAspect aspect)
+    {
+        switch (aspect)
+        {
+        case RHI::ImageAspect::Color:
+        case RHI::ImageAspect::Depth:
+            return 0;
+        case RHI::ImageAspect::Stencil:
+            return 1;
+        default:
+            ASSERT(false, "Invalid image aspect {}", static_cast<uint32_t>(aspect));
+            return 0;
+        }
+    }
+
+    RHI::ImageAspectFlags ConvertPlaneSliceToImageAspectFlags(uint16_t planeSlice)
+    {
+        if (planeSlice == 0)
+        {
+            return RHI::ImageAspectFlags::Depth | RHI::ImageAspectFlags::Color;
+        }
+        else if (planeSlice == 1)
+        {
+            return RHI::ImageAspectFlags::Stencil;
+        }
+        return RHI::ImageAspectFlags::None;
+    }
+
     D3D12_CLEAR_VALUE ConvertClearValue(RHI::Format format, RHI::ClearValue clearValue)
     {
         switch (clearValue.m_type)

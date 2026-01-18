@@ -9,6 +9,8 @@
 #pragma once
 
 #include <EASTL/vector.h>
+#include <EASTL/array.h>
+#include <EASTL/unordered_map.h>
 #include <RHI/Resource/Image/Image.h>
 #include <DX12.h>
 #include <MemoryView.h>
@@ -69,6 +71,9 @@ namespace Spark::RHI::DX12
 
         // Returns whether the image is using a tiled resource.
         bool IsTiled() const;
+
+        void SetUploadFenceValue(uint64_t fenceValue);
+        uint64_t GetUploadFenceValue() const;
         
         // Describes the state of a subresource by index.
         struct SubresourceAttachmentState
@@ -77,8 +82,96 @@ namespace Spark::RHI::DX12
             D3D12_RESOURCE_STATES m_state = D3D12_RESOURCE_STATE_COMMON;
         };
 
-        // Describes the resource state of a range of subresources.
-        using SubresourceRangeAttachmentState = RHI::ImageProperty<D3D12_RESOURCE_STATES>::PropertyRange;
+        struct SubresourceRangeAttachmentState
+        {
+            RHI::ImageSubresourceRange m_range;
+            D3D12_RESOURCE_STATES m_state = D3D12_RESOURCE_STATE_COMMON;
+        };
 
+        // Set the attachment state of the image subresources. If argument "range" is nullptr, then the new state will be applied to all subresources.
+        void SetAttachmentState(D3D12_RESOURCE_STATES state, const RHI::ImageSubresourceRange* range = nullptr);
+
+        // Set the attachment state of the image subresources using the subresource index.
+        void SetAttachmentState(D3D12_RESOURCE_STATES state, uint32_t subresourceIndex);
+
+        // Get the attachment state of some of the subresources of the image by their RHI::ImageSubresourceRange.
+        // If argument "range" is nullptr, then the state for all subresource will be return.
+        eastl::vector<SubresourceRangeAttachmentState> GetAttachmentStateByRange(const RHI::ImageSubresourceRange* range = nullptr) const;
+
+        // Get the attachment state of some of the subresources of the image by their subresource index.
+        // If argument "range" is nullptr, then the state for all subresource will be return.
+        eastl::vector<SubresourceAttachmentState> GetAttachmentStateByIndex(const RHI::ImageSubresourceRange* range = nullptr) const;
+
+        // Return the initial state of this image (the one used when it was created).
+        D3D12_RESOURCE_STATES GetInitialResourceState() const;
+
+    private:
+        Image() = default;
+
+        friend class SwapChain;
+        friend class ImagePool;
+        friend class StreamingImagePool;
+        friend class AliasedHeap;
+        friend class ImagePoolResolver;
+        friend class StreamingImagePoolResolver;
+
+        //////////////////////////////////////////////////////////////////////////
+        // RHI::DeviceImage
+        void GetSubresourceLayoutsInternal(
+            const RHI::ImageSubresourceRange& subresourceRange,
+            RHI::ImageSubresourceLayout* subresourceLayouts,
+            size_t* totalSizeInBytes) const override;
+                            
+        bool IsStreamableInternal() const override;
+
+        void SetDescriptor(const RHI::ImageDescriptor& descriptor) override;
+        //////////////////////////////////////////////////////////////////////////
+
+        // Calculate the size of all the tiles allocated for this image and save the number in m_residentSizeInBytes
+        void UpdateResidentTilesSizeInBytes(uint32_t sizePerTile);
+
+        void GetSubresourceIndexByRange(const RHI::ImageSubresourceRange* range, uint32_t& indexStart, uint32_t& indexEnd) const;
+
+        void GenerateSubresourceLayouts();
+
+        void InitSubresourceAttachmentState();
+        
+        // The memory view allocated to this image.
+        MemoryView m_memoryView;
+
+        // The number of bytes actually resident.
+        // For tiled resources, this size is same as the memory of tiles are used for mipmaps which are resident. It would be updated every time the image's mipmap
+        // is expanded or trimmed.
+        // For committed resources, this size won't change after image is initialized. 
+        // size_t m_residentSizeInBytes = 0;
+
+        // The minimum resident size of this image. The size is the same as resident size when image was initialized.
+        size_t m_minimumResidentSizeInBytes = 0;
+
+        eastl::array<RHI::ImageSubresourceLayout, RHI::Limits::Image::MipCountMax> m_subresourceLayoutsPerMipChain;
+
+        // The layout of tiles with respect to each subresource in the image.
+        ImageTileLayout m_tileLayout;
+
+        // The map of heap tiles allocated for each subresources
+        // Note: the tiles allocated for each subresource may come from multiple heap pages 
+        // eastl::unordered_map<uint32_t, eastl::vector<HeapTiles>> m_heapTiles;
+
+        // Tracking the actual mip level data uploaded. It's also used for invalidate image view. 
+        uint32_t m_streamedMipLevel = 0;
+
+        // The queue fence value of latest async upload request 
+        uint64_t m_uploadFenceValue = 0;
+
+        // The initial state for the graph compiler to use when compiling the resource transition chain.
+        eastl::vector<SubresourceRangeAttachmentState> m_attachmentState;
+
+        eastl::vector<D3D12_RESOURCE_STATES> m_subresourceState;
+
+        // The initial state used when creating this image.
+        D3D12_RESOURCE_STATES m_initialResourceState = D3D12_RESOURCE_STATE_COMMON;
+
+        // The number of resolve operations pending for this image.
+        eastl::atomic<uint32_t> m_pendingResolves = 0;
     };
 }

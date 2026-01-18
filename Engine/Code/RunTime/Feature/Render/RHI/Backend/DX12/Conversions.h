@@ -29,6 +29,9 @@ namespace Spark::RHI::DX12
 
     void ConvertImageDescriptor(const RHI::ImageDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc);
 
+    uint16_t ConvertImageAspectToPlaneSlice(RHI::ImageAspect aspect);
+    RHI::ImageAspectFlags ConvertPlaneSliceToImageAspectFlags(uint16_t planeSlice);
+
     D3D12_CLEAR_VALUE ConvertClearValue(RHI::Format format, RHI::ClearValue clearValue);
 
     D3D12_HEAP_TYPE ConvertHeapType(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess);

@@ -56,5 +56,7 @@ namespace Spark::RHI
         All = ~uint32_t(0)
     };
 
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::ImageAspectFlags, uint32_t);
+
     ImageAspectFlags GetImageAspectFlags(Format format);
 }
