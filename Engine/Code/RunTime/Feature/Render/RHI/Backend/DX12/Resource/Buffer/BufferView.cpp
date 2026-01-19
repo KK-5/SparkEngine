@@ -31,7 +31,6 @@ namespace Spark::RHI::DX12
         return m_readWriteDescriptor;
     }
 
-
     DescriptorHandle BufferView::GetClearDescriptor() const
     {
         return m_clearDescriptor;

@@ -6,6 +6,11 @@
  *
  */
 
+/*
+ * Modified by SparkEngine in 2025
+ *  -- All of subresource state are stored in vector<D3D12_RESOURCE_STATES>
+ */
+
 #pragma once
 
 #include <EASTL/vector.h>
@@ -143,7 +148,7 @@ namespace Spark::RHI::DX12
         // For tiled resources, this size is same as the memory of tiles are used for mipmaps which are resident. It would be updated every time the image's mipmap
         // is expanded or trimmed.
         // For committed resources, this size won't change after image is initialized. 
-        // size_t m_residentSizeInBytes = 0;
+        size_t m_residentSizeInBytes = 0;
 
         // The minimum resident size of this image. The size is the same as resident size when image was initialized.
         size_t m_minimumResidentSizeInBytes = 0;

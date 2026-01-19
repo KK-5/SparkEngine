@@ -2,8 +2,10 @@
 
 #include <Math/Bit.h>
 #include <Log/SpdLogSystem.h>
-
-#include "Resource/Buffer/Buffer.h"
+//#include <RHI/Resource/Image/Image.h>
+//#include <RHI/Resource/Buffer/Buffer.h>
+#include <Resource/Buffer/Buffer.h>
+#include <Resource/Image/Image.h>
 
 namespace Spark::RHI::DX12
 {
@@ -287,6 +289,18 @@ namespace Spark::RHI::DX12
         resourceDesc.Flags = ConvertImageBindFlags(descriptor.m_bindFlags);
     }
 
+    DXGI_FORMAT ConvertImageViewFormat(const RHI::Image& image, const RHI::ImageViewDescriptor& imageViewDescriptor)
+    {
+        /**
+         * The format of the image is pulled from the base image or the view depending
+         * on if the user overrides it in the view. It is legal for a view to have an unknown
+         * format, which just means we're falling back to the image format.
+         */
+        return imageViewDescriptor.m_overrideFormat != RHI::Format::Unknown ?
+            ConvertFormat(imageViewDescriptor.m_overrideFormat) :
+            ConvertFormat(image.GetDescriptor().m_format);
+    }
+
     uint16_t ConvertImageAspectToPlaneSlice(RHI::ImageAspect aspect)
     {
         switch (aspect)
@@ -459,6 +473,306 @@ namespace Spark::RHI::DX12
 
         constantBufferView.BufferLocation = buffer.GetMemoryView().GetGpuAddress() + bufferOffset;
         constantBufferView.SizeInBytes = bufferSize;
+    }
+
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_SHADER_RESOURCE_VIEW_DESC& shaderResourceView)
+    {
+        const RHI::ImageDescriptor& imageDescriptor = image.GetDescriptor();
+
+        shaderResourceView = {};
+        shaderResourceView.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        shaderResourceView.Format = GetSRVFormat(ConvertImageViewFormat(image, imageViewDescriptor));
+
+        const bool bIsArray = imageDescriptor.m_arraySize > 1 || imageViewDescriptor.m_isArray;;
+        const bool bIsMsaa = imageDescriptor.m_multisampleState.m_samples > 1;
+        const bool bIsCubemap = imageViewDescriptor.m_isCubemap != 0;
+
+        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
+        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+
+        ASSERT(imageViewDescriptor.m_mipSliceMax < imageDescriptor.m_mipLevels,
+            "ImageViewDescriptor specifies a mipSliceMax of [{}], which must be strictly smaller than the mip level count [{}].",
+            imageViewDescriptor.m_mipSliceMax, imageDescriptor.m_mipLevels);
+
+        uint32_t mipLevelCount = (imageViewDescriptor.m_mipSliceMax - imageViewDescriptor.m_mipSliceMin) + 1;
+
+        switch (imageDescriptor.m_dimension)
+        {
+        case RHI::ImageDimension::Image1D:
+            if (bIsArray)
+            {
+                shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1DARRAY;
+                shaderResourceView.Texture1DArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                shaderResourceView.Texture1DArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                shaderResourceView.Texture1DArray.MipLevels = mipLevelCount;
+                shaderResourceView.Texture1DArray.MostDetailedMip = imageViewDescriptor.m_mipSliceMin;
+            }
+            else
+            {
+                shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
+                shaderResourceView.Texture1D.MipLevels = mipLevelCount;
+                shaderResourceView.Texture1D.MostDetailedMip = imageViewDescriptor.m_mipSliceMin;
+            }
+            break;
+        case RHI::ImageDimension::Image2D:
+            if (bIsArray)
+            {
+                if (bIsMsaa)
+                {
+                    shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY;
+                    shaderResourceView.Texture2DMSArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                    shaderResourceView.Texture2DMSArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                }
+                else if (bIsCubemap)
+                {
+                    uint32_t cubeSliceCount = (ArraySize / 6);
+                    if (cubeSliceCount > 1)
+                    {
+                        shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
+                        shaderResourceView.TextureCubeArray.First2DArrayFace = imageViewDescriptor.m_arraySliceMin;
+                        shaderResourceView.TextureCubeArray.MipLevels = mipLevelCount;
+                        shaderResourceView.TextureCubeArray.MostDetailedMip = imageViewDescriptor.m_mipSliceMin;
+                        shaderResourceView.TextureCubeArray.NumCubes = cubeSliceCount;
+                    }
+                    else
+                    {
+                        shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+                        shaderResourceView.TextureCube.MipLevels = mipLevelCount;
+                        shaderResourceView.TextureCube.MostDetailedMip = imageViewDescriptor.m_mipSliceMin;
+                    }
+                }
+                else
+                {
+                    shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+                    shaderResourceView.Texture2DArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                    shaderResourceView.Texture2DArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                    shaderResourceView.Texture2DArray.MipLevels = mipLevelCount;
+                    shaderResourceView.Texture2DArray.MostDetailedMip = imageViewDescriptor.m_mipSliceMin;
+                }
+            }
+            else
+            {
+                if (bIsMsaa)
+                {
+                    shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS;
+                }
+                else
+                {
+                    shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                    shaderResourceView.Texture2D.MipLevels = mipLevelCount;
+                    shaderResourceView.Texture2D.MostDetailedMip = imageViewDescriptor.m_mipSliceMin;
+                }
+            }
+            break;
+        case RHI::ImageDimension::Image3D:
+            shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+            shaderResourceView.Texture3D.MipLevels = mipLevelCount;
+            shaderResourceView.Texture3D.MostDetailedMip = imageViewDescriptor.m_mipSliceMin;
+            break;
+        default:
+            ASSERT(false, "Image dimension error {}", static_cast<uint32_t>(imageDescriptor.m_dimension));
+        }
+    }
+    
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_UNORDERED_ACCESS_VIEW_DESC& unorderedAccessView)
+    {
+        const RHI::ImageDescriptor& imageDescriptor = image.GetDescriptor();
+
+        unorderedAccessView = {};
+        unorderedAccessView.Format = GetUAVFormat(ConvertImageViewFormat(image, imageViewDescriptor));
+
+        const bool bIsArray = imageDescriptor.m_arraySize > 1 || imageViewDescriptor.m_isArray;;
+        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
+        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+
+        switch (imageDescriptor.m_dimension)
+        {
+        case RHI::ImageDimension::Image1D:
+            if (bIsArray)
+            {
+                unorderedAccessView.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1DARRAY;
+                unorderedAccessView.Texture1DArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                unorderedAccessView.Texture1DArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                unorderedAccessView.Texture1DArray.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            }
+            else
+            {
+                unorderedAccessView.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1D;
+                unorderedAccessView.Texture1D.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            }
+            break;
+        case RHI::ImageDimension::Image2D:
+            if (bIsArray)
+            {
+                unorderedAccessView.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+                unorderedAccessView.Texture2DArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                unorderedAccessView.Texture2DArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                unorderedAccessView.Texture2DArray.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            }
+            else
+            {
+                unorderedAccessView.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+                unorderedAccessView.Texture2D.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            }
+            break;
+        case RHI::ImageDimension::Image3D:
+            unorderedAccessView.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+            unorderedAccessView.Texture3D.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            unorderedAccessView.Texture3D.FirstWSlice = imageViewDescriptor.m_depthSliceMin;
+
+            if (imageViewDescriptor.m_depthSliceMax == RHI::ImageViewDescriptor::HighestSliceIndex)
+            {
+                unorderedAccessView.Texture3D.WSize = eastl::numeric_limits<UINT>::max();
+            }
+            else
+            {
+                unorderedAccessView.Texture3D.WSize = (imageViewDescriptor.m_depthSliceMax - imageViewDescriptor.m_depthSliceMin) + 1;
+            }
+            break;
+        default:
+            ASSERT(false, "Image dimension error {}", static_cast<uint32_t>(imageDescriptor.m_dimension));
+        }
+    }
+
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_RENDER_TARGET_VIEW_DESC& renderTargetView)
+    {
+        const RHI::ImageDescriptor& imageDescriptor = image.GetDescriptor();
+
+        renderTargetView = {};
+        renderTargetView.Format = ConvertImageViewFormat(image, imageViewDescriptor);
+
+        const bool bIsArray = imageDescriptor.m_arraySize > 1 || imageViewDescriptor.m_isArray;
+        const bool bIsMsaa = imageDescriptor.m_multisampleState.m_samples > 1;
+
+        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
+        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+
+        switch (imageDescriptor.m_dimension)
+        {
+        case RHI::ImageDimension::Image1D:
+            if (bIsArray)
+            {
+                renderTargetView.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE1DARRAY;
+                renderTargetView.Texture1DArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                renderTargetView.Texture1DArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                renderTargetView.Texture1DArray.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            }
+            else
+            {
+                renderTargetView.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE1D;
+                renderTargetView.Texture1D.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            }
+            break;
+        case RHI::ImageDimension::Image2D:
+            if (bIsArray)
+            {
+                if (bIsMsaa)
+                {
+                    renderTargetView.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+                    renderTargetView.Texture2DMSArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                    renderTargetView.Texture2DMSArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                }
+                else
+                {
+                    renderTargetView.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+                    renderTargetView.Texture2DArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                    renderTargetView.Texture2DArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                    renderTargetView.Texture2DArray.MipSlice = imageViewDescriptor.m_mipSliceMin;
+                }
+            }
+            else
+            {
+                if (bIsMsaa)
+                {
+                    renderTargetView.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+                }
+                else
+                {
+                    renderTargetView.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+                    renderTargetView.Texture2D.MipSlice = imageViewDescriptor.m_mipSliceMin;
+                }
+            }
+            break;
+        case RHI::ImageDimension::Image3D:
+            renderTargetView.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D;
+            renderTargetView.Texture3D.MipSlice = imageViewDescriptor.m_mipSliceMin;
+            renderTargetView.Texture3D.FirstWSlice = imageViewDescriptor.m_depthSliceMin;
+
+            if (imageViewDescriptor.m_depthSliceMax == RHI::ImageViewDescriptor::HighestSliceIndex)
+            {
+                renderTargetView.Texture3D.WSize = eastl::numeric_limits<UINT>::max();
+            }
+            else
+            {
+                renderTargetView.Texture3D.WSize = (imageViewDescriptor.m_depthSliceMax - imageViewDescriptor.m_depthSliceMin) + 1;
+            }
+            break;
+        default:
+            ASSERT(false, "Image dimension error {}", static_cast<uint32_t>(imageDescriptor.m_dimension));
+        }
+    }
+
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_DEPTH_STENCIL_VIEW_DESC& depthStencilView)
+    {
+        const RHI::ImageDescriptor& imageDescriptor = image.GetDescriptor();
+
+        depthStencilView = {};
+        depthStencilView.Format = GetDSVFormat(ConvertImageViewFormat(image, imageViewDescriptor));
+
+        const bool bIsArray = imageDescriptor.m_arraySize > 1 || imageViewDescriptor.m_isArray;;
+        const bool bIsMsaa = imageDescriptor.m_multisampleState.m_samples > 1;
+
+        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
+        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+
+        switch (imageDescriptor.m_dimension)
+        {
+        case RHI::ImageDimension::Image2D:
+            if (bIsArray)
+            {
+                if (bIsMsaa)
+                {
+                    depthStencilView.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY;
+                    depthStencilView.Texture2DMSArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                    depthStencilView.Texture2DMSArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                }
+                else
+                {
+                    depthStencilView.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+                    depthStencilView.Texture2DArray.ArraySize = static_cast<uint16_t>(ArraySize);
+                    depthStencilView.Texture2DArray.FirstArraySlice = imageViewDescriptor.m_arraySliceMin;
+                    depthStencilView.Texture2DArray.MipSlice = imageViewDescriptor.m_mipSliceMin;
+                }
+            }
+            else
+            {
+                if (bIsMsaa)
+                {
+                    depthStencilView.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS;
+                }
+                else
+                {
+                    depthStencilView.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+                    depthStencilView.Texture2D.MipSlice = imageViewDescriptor.m_mipSliceMin;
+                }
+            }
+            break;
+
+        default:
+            ASSERT(false, "unsupported");
+        }
     }
 
     D3D12_FILTER_REDUCTION_TYPE ConvertReductionType(RHI::ReductionType reductionType)

@@ -1,0 +1,148 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
+
+#include "ImagePool.h"
+
+#include <Math/Bit.h>
+#include <Conversions.h>
+#include <Device/Device.h>
+#include <Resource/ResourcePoolResolver.h>
+#include "Image.h"
+
+namespace Spark::RHI::DX12
+{
+    class ImagePoolResolver final : public ResourcePoolResolver
+    {
+    public:
+        ImagePoolResolver(Device& device, ImagePool* imagePool)
+            : m_device{&device}
+            , m_pool{imagePool}
+        {}
+
+
+        ImagePool* m_pool = nullptr;
+    private:
+        Device* m_device = nullptr;
+
+    };
+
+    Device& ImagePool::GetDevice() const
+    {
+        return static_cast<Device&>(Base::GetDevice());
+    }
+
+    ImagePoolResolver* ImagePool::GetResolver()
+    {
+        return static_cast<ImagePoolResolver*>(Base::GetResolver());
+    }
+
+    RHI::ResultCode ImagePool::InitInternal(RHI::Device& deviceBase, const RHI::ImagePoolDescriptor&)
+    {
+        Device& device = static_cast<Device&>(deviceBase);
+
+        SetResolver(eastl::make_unique<ImagePoolResolver>(device, this));
+
+        // ImagePool 分配的内存总是commited的
+        D3D12MA::ALLOCATOR_DESC desc = {};
+        desc.Flags = D3D12MA::ALLOCATOR_FLAG_ALWAYS_COMMITTED;
+        desc.pDevice = device.GetDevice();
+        desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
+
+        D3D12MA::Allocator* pAllocator;
+        if (FAILED(D3D12MA::CreateAllocator(&desc, &pAllocator)))
+        {
+            LOG_ERROR("[ImagePool] Failed to initialize the D3D12MemoryAllocator.");
+            return RHI::ResultCode::Fail;
+        }
+        m_allocator = pAllocator;
+
+        D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
+        releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
+        m_releaseQueue.Init(releaseQueueDescriptor);
+
+        return RHI::ResultCode::Success;
+    }
+
+    RHI::ResultCode ImagePool::InitImageInternal(const RHI::ImageInitRequest& request)
+    {
+        Device& device = GetDevice();
+
+        Image* image = static_cast<Image*>(request.m_image);
+
+        RHI::ImageDescriptor imageDesc = request.m_descriptor;
+
+        /**
+         * Super simple implementation. Just creates a committed resource for the image. No
+         * real pooling happening at the moment. Other approaches might involve creating dedicated
+         * heaps and then placing resources onto those heaps. This will allow us to control residency
+         * at the heap level.
+         */
+
+        D3D12_RESOURCE_DESC resourceDesc;
+        ConvertImageDescriptor(imageDesc, resourceDesc);
+
+        // Image的资源分配在默认堆上
+        D3D12MA::ALLOCATION_DESC allocDesc = {};
+        allocDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+        allocDesc.Flags = D3D12MA::ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
+
+        // Clear values only apply when the image is a render target or depth stencil.
+        const bool isOutputMergerAttachment =
+            CheckBitsAny(imageDesc.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
+
+        D3D12_CLEAR_VALUE clearValue;
+        if (isOutputMergerAttachment && request.m_optimizedClearValue)
+        {
+            clearValue = ConvertClearValue(imageDesc.m_format, *request.m_optimizedClearValue);
+        }
+
+        D3D12MA::Allocation* allocation = nullptr;
+        HRESULT result = m_allocator->CreateResource(
+            &allocDesc,
+            &resourceDesc,
+            image->GetInitialResourceState(),
+            (isOutputMergerAttachment && request.m_optimizedClearValue) ? &clearValue : nullptr,
+            &allocation,
+            IID_NULL,
+            NULL
+        );
+
+        if (FAILED(result))
+        {
+            LOG_ERROR("[ImagePool] D3D12MA Create image resource failed!");
+            return RHI::ResultCode::Fail;
+        }
+
+        MemoryView memoryView(allocation, MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());
+        image->m_residentSizeInBytes = memoryView.GetSize();
+        image->m_memoryView = eastl::move(memoryView);
+        image->GenerateSubresourceLayouts();
+        image->m_streamedMipLevel = image->GetResidentMipLevel();
+
+        return RHI::ResultCode::Success;
+    }
+
+    RHI::ResultCode ImagePool::UpdateImageContentsInternal(const RHI::ImageUpdateRequest& request)
+    {
+        size_t bytesTransferred = 0;
+        return GetResolver()->UpdateImage(request, bytesTransferred);
+    }
+
+    void ImagePool::ShutdownResourceInternal(RHI::Resource& resourceBase)
+    {
+        if (auto* resolver = GetResolver())
+        {
+            resolver->OnResourceShutdown(resourceBase);
+        }
+
+        Image& image = static_cast<Image&>(resourceBase);
+        m_releaseQueue.QueueForCollect(image.GetMemoryView().GetMemoryAllocation());
+        image.m_memoryView = {};
+        image.m_pendingResolves = 0;
+    }
+}

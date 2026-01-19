@@ -6,6 +6,11 @@
  *
  */
 
+/*
+ * Modified by SparkEngine in 2025
+ *  -- All of subresource state are stored in vector<D3D12_RESOURCE_STATES>
+ */
+
 #include "Image.h"
 
 #include <Log/SpdLogSystem.h>

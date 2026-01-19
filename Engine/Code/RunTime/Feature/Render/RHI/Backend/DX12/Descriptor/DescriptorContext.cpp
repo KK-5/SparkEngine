@@ -19,6 +19,7 @@
 
 #include <Device/Device.h>
 #include <Resource/Buffer/Buffer.h>
+#include <Resource/Image/Image.h>
 #include <Conversions.h>
 
 namespace Spark::RHI::DX12
@@ -291,6 +292,106 @@ namespace Spark::RHI::DX12
         ConvertBufferView(buffer, rawDesc, staticViewDesc);
         m_D3D12Device->CreateUnorderedAccessView(
             buffer.GetMemoryView().GetMemory(), nullptr, &staticViewDesc, m_staticPool.GetCpuNativeHandle(staticView));
+    }
+
+    void DescriptorContext::CreateShaderResourceView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        DescriptorHandle& shaderResourceView,
+        DescriptorHandle& staticView)
+    {
+        if (shaderResourceView.IsNull())
+        {
+            shaderResourceView = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+            if (shaderResourceView.IsNull())
+            {
+                ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
+                return;
+            }
+        }
+        D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle = GetCpuNativeHandle(shaderResourceView);
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC viewDesc;
+        ConvertImageView(image, imageViewDescriptor, viewDesc);
+        m_D3D12Device->CreateShaderResourceView(image.GetMemoryView().GetMemory(), &viewDesc, descriptorHandle);
+
+        // Only allocate if the index is already null, otherwise just copy the descriptor onto the old index.
+        if (staticView.m_index == DescriptorHandle::NullIndex)
+        {
+            staticView = AllocateStaticDescriptor(descriptorHandle);
+        }
+        else
+        {
+            m_D3D12Device->CopyDescriptorsSimple(
+                1, m_staticPool.GetCpuNativeHandle(staticView), descriptorHandle, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        }
+    }
+
+    void DescriptorContext::CreateUnorderedAccessView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        DescriptorHandle& unorderedAccessView,
+        DescriptorHandle& unorderedAccessViewClear,
+        DescriptorHandle& staticView)
+    {
+        if (unorderedAccessView.IsNull())
+        {
+            unorderedAccessView = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+            if (unorderedAccessView.IsNull())
+            {
+                ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
+                return;
+            }
+        }
+        D3D12_CPU_DESCRIPTOR_HANDLE unorderedAccessDescriptor = GetCpuNativeHandle(unorderedAccessView);
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC viewDesc;
+        ConvertImageView(image, imageViewDescriptor, viewDesc);
+        m_D3D12Device->CreateUnorderedAccessView(image.GetMemoryView().GetMemory(), nullptr, &viewDesc, unorderedAccessDescriptor);
+
+        // Copy the UAV descriptor into the GPU-visible version for clearing.
+        if (unorderedAccessViewClear.IsNull())
+        {
+            unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
+
+            if (unorderedAccessViewClear.IsNull())
+            {
+                ASSERT(false, "Descriptor heap ran out of memory for static handles.");
+                return;
+            }
+        }
+        CopyDescriptor(unorderedAccessViewClear, unorderedAccessView);
+
+        if (staticView.m_index == DescriptorHandle::NullIndex)
+        {
+            staticView = AllocateStaticDescriptor(unorderedAccessDescriptor);
+        }
+        else
+        {
+            m_D3D12Device->CopyDescriptorsSimple(
+                1, m_staticPool.GetCpuNativeHandle(staticView), unorderedAccessDescriptor, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        }
+    }
+
+    void DescriptorContext::CreateRenderTargetView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        DescriptorHandle& renderTargetView)
+    {
+        if (renderTargetView.IsNull())
+        {
+            renderTargetView = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+            if (renderTargetView.IsNull())
+            {
+                ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
+                return;
+            }
+        }
+        D3D12_CPU_DESCRIPTOR_HANDLE renderTargetDescriptor = GetCpuNativeHandle(renderTargetView);
+
+        D3D12_RENDER_TARGET_VIEW_DESC viewDesc;
+        ConvertImageView(image, imageViewDescriptor, viewDesc);
+        m_D3D12Device->CreateRenderTargetView(image.GetMemoryView().GetMemory(), &viewDesc, renderTargetDescriptor);
     }
 
     void DescriptorContext::CreateSampler(

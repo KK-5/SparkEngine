@@ -5,6 +5,7 @@
 #include <RHI/Resource/Buffer/BufferDescriptor.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
+#include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Resource/Image/ImageEnums.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/ClearValue.h>
@@ -29,6 +30,8 @@ namespace Spark::RHI::DX12
 
     void ConvertImageDescriptor(const RHI::ImageDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc);
 
+    DXGI_FORMAT ConvertImageViewFormat(const Image& image, const RHI::ImageViewDescriptor& imageViewDescriptor);
+
     uint16_t ConvertImageAspectToPlaneSlice(RHI::ImageAspect aspect);
     RHI::ImageAspectFlags ConvertPlaneSliceToImageAspectFlags(uint16_t planeSlice);
 
@@ -52,6 +55,26 @@ namespace Spark::RHI::DX12
         const Buffer& buffer,
         const RHI::BufferViewDescriptor& bufferViewDescriptor,
         D3D12_CONSTANT_BUFFER_VIEW_DESC& constantBufferView);
+
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_SHADER_RESOURCE_VIEW_DESC& shaderResourceView);
+
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_UNORDERED_ACCESS_VIEW_DESC& unorderedAccessView);
+
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_RENDER_TARGET_VIEW_DESC& renderTargetView);
+
+    void ConvertImageView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        D3D12_DEPTH_STENCIL_VIEW_DESC& depthStencilView);
 
     D3D12_FILTER_REDUCTION_TYPE ConvertReductionType(RHI::ReductionType reductionType);
 
