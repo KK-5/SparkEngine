@@ -2,8 +2,6 @@
 
 #include <Math/Bit.h>
 #include <Log/SpdLogSystem.h>
-//#include <RHI/Resource/Image/Image.h>
-//#include <RHI/Resource/Buffer/Buffer.h>
 #include <Resource/Buffer/Buffer.h>
 #include <Resource/Image/Image.h>
 
