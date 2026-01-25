@@ -1,7 +1,6 @@
 #pragma once
 
-#include <assert.h>
-
+#include <Log/SpdLogSystem.h>
 #include <RHI/MultisampleState.h>
 #include <RHI/Format.h>
 #include <RHI/HardwareQueue.h>
@@ -101,7 +100,7 @@ namespace Spark::RHI
     //! Increases the mip detail by increaseBy levels.
     inline uint32_t IncreaseMipDetailBy(uint32_t mipLevel, uint32_t increaseBy)
     {
-        assert(mipLevel >= increaseBy && "Exceeded mip detail.");
+        ASSERT(mipLevel >= increaseBy, "Exceeded mip detail.");
         return mipLevel - increaseBy;
     }
 

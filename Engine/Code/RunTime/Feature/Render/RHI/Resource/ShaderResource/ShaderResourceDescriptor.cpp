@@ -159,7 +159,7 @@ namespace Spark::RHI
         SamplerStateHasher hasher;
         size_t samplerStateHash = hasher(m_samplerState);
         seed ^= samplerStateHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        eastl::hash_combine(seed,m_registerId);
+        eastl::hash_combine(seed, m_registerId);
         return seed;
     }
 }

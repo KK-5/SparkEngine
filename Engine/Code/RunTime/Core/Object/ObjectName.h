@@ -64,3 +64,13 @@ namespace Spark
         HashString m_name;
     };
 }
+
+namespace eastl
+{
+    template<>
+    struct hash<Spark::ObjectName> {
+        size_t operator()(const Spark::ObjectName& name) const {
+            return static_cast<size_t>(name.GetHash());
+        }
+    };
+}
