@@ -188,12 +188,17 @@ namespace Spark::RHI
         m_intervalsForSamplers[inputIndex];
     }
 
-    uint32_t ShaderResourceLayout::GetBufferSize() const
+    Interval ShaderResourceLayout::GetConstantInterval(ShaderInputIndex inputIndex) const
+    {
+        m_constantsDataLayout->GetInterval(inputIndex);
+    }
+
+    uint32_t ShaderResourceLayout::GetBuffersSize() const
     {
         return m_bufferSize;
     }
 
-    uint32_t ShaderResourceLayout::GetImageSize() const
+    uint32_t ShaderResourceLayout::GetImagesSize() const
     {
         return m_imageSize;
     }
@@ -213,6 +218,16 @@ namespace Spark::RHI
         return m_samplerSize;
     }
 
+    uint32_t ShaderResourceLayout::GetConstantDataSize() const
+    {
+        return m_constantsDataLayout->GetDataSize();
+    }
+
+    const ConstantsLayout* ShaderResourceLayout::GetConstantsLayout() const
+    {
+        return m_constantsDataLayout.get();
+    }
+
     uint32_t ShaderResourceLayout::GetBindingSlot() const
     {
         ASSERT(IsFinalized(), "ShaderResourceLayout is not finalized");
@@ -223,6 +238,11 @@ namespace Spark::RHI
     {
         ASSERT(IsFinalized(), "ShaderResourceLayout is not finalized");
         return m_hash;
+    }
+
+    bool ShaderResourceLayout::ValidateConstantsAccess(RHI::ShaderInputIndex inputIndex) const
+    {
+        return m_constantsDataLayout->ValidateAccess(inputIndex);
     }
 
     bool ShaderResourceLayout::ValidateAccess(ShaderInputIndex inputIndex, size_t inputIndexLimit, const char* inputArrayTypeName) const

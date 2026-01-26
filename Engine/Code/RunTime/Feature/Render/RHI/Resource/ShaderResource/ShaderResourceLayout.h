@@ -118,7 +118,7 @@ namespace Spark::RHI
         Interval GetGroupInterval(ShaderInputIndex inputIndex) const;
 
         //! The interval of a constant is its byte [min, max) into the constant data.
-        //Interval GetConstantInterval(ShaderInputIndex inputIndex) const;
+        Interval GetConstantInterval(ShaderInputIndex inputIndex) const;
 
         //! Returns the total size of the flat resource table for each type of resource.
         //! Note that this size is not 1-to-1 with the 'shader input list' for that type
@@ -128,24 +128,24 @@ namespace Spark::RHI
         //!  - Buffer:   BufferView
         //!  - Image:    ImageView
         //!  - Sampler:  SamplerState
-        uint32_t GetBufferSize() const;
-        uint32_t GetImageSize() const;
+        uint32_t GetBuffersSize() const;
+        uint32_t GetImagesSize() const;
         uint32_t GetBufferUnboundedArraySize() const;
         uint32_t GetImageUnboundedArraySize() const;
         uint32_t GetSamplersSize() const;
 
         //! Constants are different and live in an opaque buffer of bytes instead of a resource group.
-        //uint32_t GetConstantDataSize() const;
+        uint32_t GetConstantDataSize() const;
 
         //! Returns the constants data layout;
-        //const ConstantsLayout* GetConstantsLayout() const;
+        const ConstantsLayout* GetConstantsLayout() const;
 
         //! Returns the hash computed in Finalize.
         size_t GetHash() const;
 
         //! Validates that the inputIndex is valid.
         //! Emits an assert and returns false on failure; returns true on success. If validation is disabled true is always returned.
-        //bool ValidateAccess(RHI::ShaderInputConstantIndex inputIndex) const;
+        bool ValidateConstantsAccess(RHI::ShaderInputIndex inputIndex) const;
 
         //! Validates that the inputIndex is valid and the arrayIndex is less than the total array size of the shader input.
         //! Emits an assert and returns false on failure; returns true on success. If validation is disabled true is always returned.
@@ -208,6 +208,5 @@ namespace Spark::RHI
 
         /// The computed hash value.
         size_t m_hash  = 0;
-
     };
 }

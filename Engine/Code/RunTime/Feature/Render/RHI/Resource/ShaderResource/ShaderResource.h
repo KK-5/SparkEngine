@@ -7,10 +7,13 @@
  */
 
 #include <EASTL/span.h>
+#include <Log/SpdLogSystem.h>
 
 #include <Resource/Resource.h>
 #include <Resource/Buffer/BufferView.h>
+#include <Resource/Buffer/Buffer.h>
 #include <Resource/Image/ImageView.h>
+#include <Resource/Image/Image.h>
 #include <Resource/Sampler/Sampler.h>
 
 #include "ShaderResourceLayoutCommon.h"
@@ -19,28 +22,27 @@
 
 namespace Spark::RHI
 {
-    enum class BindlessResourceType : uint32_t
-    {
-        m_Texture2D,            // ReadTexture
-        m_RWTexture2D,          // ReadWriteTexture
-        m_TextureCube,          // ReadTextureCube
-        m_ByteAddressBuffer,    // ReadBuffer
-        m_RWByteAddressBuffer,  // ReadWriteBuffer
-        Count
-    };
-
     //! This class is a platform-independent base class for a shader resource group. It has a
     //! pointer to the resource group pool, if the user initialized the group onto a pool.
     class ShaderResource : public Resource
     {
-        using Base = Resource;
+        friend class ShaderResourcePool;
     public:
+        virtual ~ShaderResource() = default;
+
         //! Defines the compilation modes for an SRG
         enum class CompileMode : uint8_t
         {
             Async,  // Queues SRG compilation for later. This is the most common case.
             Sync    // Compiles the SRG immediately. To be used carefully due to performance cost.
         };
+
+        //! Returns the shader resource group pool that this group is registered on.
+        ShaderResourcePool* GetPool();
+        const ShaderResourcePool* GetPool() const;
+
+        //! Returns the binding slot specified by the layout associated to this shader resource group.
+        uint32_t GetBindingSlot() const { return m_bindingSlot; }
 
         //! Resolves a shader input name to an index using reflection. For performance reasons, this resolve
         //! operation should be performed once at initialization time (or as infrequently as possible).
@@ -131,10 +133,23 @@ namespace Spark::RHI
 
         //! Returns the shader resource layout for this group.
         const ShaderResourceLayout* GetLayout() const;
+
+    protected:
+        ShaderResource() = default;
+
+        virtual void SetLayout(const ShaderResourceLayout* layout);
     private:
         static const ConstPtr<ImageView> s_nullImageView;
         static const ConstPtr<BufferView> s_nullBufferView;
         static const SamplerState s_nullSamplerState;
+
+        bool ValidateSetImageView(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const;
+        bool ValidateSetBufferView(ShaderInputIndex inputIndex, const BufferView* bufferView, uint32_t arrayIndex) const;
+
+        template<typename TShaderInputDescriptor>
+        bool ValidateImageViewAccess(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const;
+        template<typename TShaderInputDescriptor>
+        bool ValidateBufferViewAccess(ShaderInputIndex inputIndex, const BufferView* bufferView, uint32_t arrayIndex) const;
 
         ConstPtr<ShaderResourceLayout> m_shaderResourceGroupLayout;
 
@@ -147,5 +162,268 @@ namespace Spark::RHI
 
         //! The backing data store of constants for the shader resource group.
         ConstantsData m_constantsData;
+
+        // The binding slot cached from the layout.
+        uint32_t m_bindingSlot = static_cast<uint32_t>(-1);
     };
+
+    template<typename TShaderInputDescriptor>
+    bool ShaderResource::ValidateImageViewAccess(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const
+    {
+        if (!Validation::isEnabled)
+        {
+            return true;
+        }
+
+        const TShaderInputDescriptor shaderInputImage = GetLayout()->GetShaderInput(inputIndex);
+
+        if (!imageView)
+        {
+            LOG_ERROR("[ShaderResource]"
+                "Image Array Input '{}[{}]' is null.",
+                shaderInputImage.m_name.GetCStr(), arrayIndex);
+            return false;
+        }
+
+        const ImageViewDescriptor& imageViewDescriptor = imageView->GetDescriptor();
+        const Image& image = imageView->GetImage();
+        const ImageDescriptor& imageDescriptor = image.GetDescriptor();
+        const ImageFrameAttachment* frameAttachment = image.GetFrameAttachment();
+
+        // The image must have the correct bind flags for the slot.
+        const bool isValidAccess =
+            (shaderInputImage.m_access == ShaderInputImageAccess::Read && CheckBitsAll(imageDescriptor.m_bindFlags, ImageBindFlags::ShaderRead)) ||
+            (shaderInputImage.m_access == ShaderInputImageAccess::ReadWrite && CheckBitsAll(imageDescriptor.m_bindFlags, ImageBindFlags::ShaderReadWrite));
+        
+        if (!isValidAccess)
+        {
+            LOG_ERROR("[ShaderResource]"
+                "Image Input '{}[{}]': Invalid 'Read / Write' access.",
+                shaderInputImage.m_name.GetCStr(), arrayIndex);
+            return false;
+
+            // NOTE: We aren't able to validate the scope attachment here, because shader resource groups aren't directly
+            // associated with a scope. Instead, the CommandListValidator class will check that the access is correct at
+            // command list submission time.
+        }
+
+        auto checkImageType = [&imageDescriptor, &shaderInputImage, arrayIndex](ImageDimension expected)
+        {
+            if (imageDescriptor.m_dimension != expected)
+            {
+                (void)(shaderInputImage);
+                (void)(arrayIndex);
+                LOG_ERROR("[ShaderResource]",
+                    "Image Input '{}[{}]': The image is {}D but the shader expected {}D",
+                    shaderInputImage.m_name.GetCStr(),
+                    arrayIndex,
+                    static_cast<int>(imageDescriptor.m_dimension),
+                    static_cast<int>(expected));
+                return false;
+            }
+            return true;
+        };
+
+        switch (shaderInputImage.m_type)
+        {
+        case ShaderInputImageType::Unknown:
+            // Unable to validate.
+            break;
+
+        case ShaderInputImageType::Image1DArray:
+        case ShaderInputImageType::Image1D:
+            if (!checkImageType(ImageDimension::Image1D))
+            {
+                return false;
+            }
+            break;
+
+        case ShaderInputImageType::SubpassInput:
+            if (!checkImageType(ImageDimension::Image2D))
+            {
+                return false;
+            }
+            break;
+
+        case ShaderInputImageType::Image2DArray:
+        case ShaderInputImageType::Image2D:
+            if (!checkImageType(ImageDimension::Image2D))
+            {
+                return false;
+            }
+            if (imageDescriptor.m_multisampleState.m_samples != 1)
+            {
+                LOG_ERROR("[ShaderResource]",
+                    "Image Input '{}[{}]': The image has multisample count {} but the shader expected 1.",
+                    shaderInputImage.m_name.GetCStr(),
+                    arrayIndex,
+                    imageDescriptor.m_multisampleState.m_samples);
+                return false;
+            }
+            break;
+
+        case ShaderInputImageType::Image2DMultisample:
+        case ShaderInputImageType::Image2DMultisampleArray:
+            if (!checkImageType(ImageDimension::Image2D))
+            {
+                return false;
+            }
+            if (imageDescriptor.m_multisampleState.m_samples <= 1)
+            {
+                LOG_ERROR("[ShaderResource]"
+                    "Image Input '{}[{}]': The image has multisample count {} but the shader expected more than 1.",
+                    shaderInputImage.m_name.GetCStr(),
+                    arrayIndex,
+                    imageDescriptor.m_multisampleState.m_samples);
+                return false;
+            }
+            break;
+
+        case ShaderInputImageType::Image3D:
+            if (!checkImageType(ImageDimension::Image3D))
+            {
+                return false;
+            }
+            break;
+
+        case ShaderInputImageType::ImageCube:
+        case ShaderInputImageType::ImageCubeArray:
+            if (!checkImageType(ImageDimension::Image2D))
+            {
+                return false;
+            }
+            if (imageViewDescriptor.m_isCubemap == 0)
+            {
+                LOG_ERROR("[ShaderResource]"
+                    "Image Input '{}[{}]': The shader expected a cubemap.",
+                    shaderInputImage.m_name.GetCStr(),
+                    arrayIndex);
+                return false;
+            }
+            break;
+
+        default:
+            ASSERT(false, "Image Input '{}[{}]': Invalid image type!", shaderInputImage.m_name.GetCStr(), arrayIndex);
+            return false;
+        }
+
+        return true;
+    }
+
+    template<typename TShaderInputDescriptor>
+    bool ShaderResource::ValidateBufferViewAccess(ShaderInputIndex inputIndex, const BufferView* bufferView, [[maybe_unused]] uint32_t arrayIndex) const
+    {
+        if (!Validation::isEnabled)
+        {
+            return true;
+        }
+
+        const TShaderInputDescriptor& shaderInputBuffer = GetLayout()->GetShaderInput(inputIndex);
+        const BufferViewDescriptor& bufferViewDescriptor = bufferView->GetDescriptor();
+        const Buffer& buffer = bufferView->GetBuffer();
+        const BufferDescriptor& bufferDescriptor = buffer.GetDescriptor();
+        const BufferFrameAttachment* frameAttachment = buffer.GetFrameAttachment();
+
+        const bool isValidAccess =
+            (shaderInputBuffer.m_access == ShaderInputBufferAccess::Constant && CheckBitsAll(bufferDescriptor.m_bindFlags, BufferBindFlags::Constant)) ||
+            (shaderInputBuffer.m_access == ShaderInputBufferAccess::Read && CheckBitsAll(bufferDescriptor.m_bindFlags, BufferBindFlags::ShaderRead)) ||
+            (shaderInputBuffer.m_access == ShaderInputBufferAccess::Read && CheckBitsAll(bufferDescriptor.m_bindFlags, BufferBindFlags::RayTracingAccelerationStructure)) ||
+            (shaderInputBuffer.m_access == ShaderInputBufferAccess::ReadWrite && CheckBitsAll(bufferDescriptor.m_bindFlags, BufferBindFlags::ShaderReadWrite));
+
+        if (!isValidAccess)
+        {
+            LOG_ERROR("[ShaderResource]"
+                "Buffer Input '{}[{}]': Invalid 'Constant / Read / Write' access.",
+                shaderInputBuffer.m_name.GetCStr(), arrayIndex);
+            return false;
+        }
+
+        if (shaderInputBuffer.m_access == ShaderInputBufferAccess::ReadWrite)
+        {
+            // A buffer view assigned to an input with read-write access must be an attachment on the frame scheduler.
+            if (!frameAttachment)
+            {
+                LOG_ERROR("[ShaderResource]"
+                    "Buffer Input '{}[{}]': DeviceBuffer is bound to a ReadWrite shader input, "
+                    "but it is not an attachment on the frame scheduler. All GPU-writable resources "
+                    "must be declared as attachments in order to provide hazard tracking.",
+                    shaderInputBuffer.m_name.GetCStr(), arrayIndex);
+                return false;
+            }
+
+            // NOTE: We aren't able to validate the scope attachment here, because shader resource groups aren't directly
+            // associated with a scope. Instead, the CommandListValidator class will check that the access is correct at
+            // command list submission time.
+        }
+
+        if (shaderInputBuffer.m_type == ShaderInputBufferType::Constant)
+        {
+            //For Constant type the stride (full constant buffer) must be larger or equal than the buffer view size (element size x element count).
+            if (!(shaderInputBuffer.m_strideSize >= (bufferViewDescriptor.m_elementSize * bufferViewDescriptor.m_elementCount)))
+            {
+                LOG_ERROR("[ShaderResource]"
+                    "Buffer Input '{}[{}]': stride size {} must be larger than or equal to the buffer view size {}",
+                    shaderInputBuffer.m_name.GetCStr(), arrayIndex, shaderInputBuffer.m_strideSize,
+                    (bufferViewDescriptor.m_elementSize * bufferViewDescriptor.m_elementCount));
+                return false;
+            }
+        }
+        else if (shaderInputBuffer.m_type != ShaderInputBufferType::Typed)
+        {
+            // For any other type the buffer view's element size should match the stride.
+            if (shaderInputBuffer.m_strideSize != bufferViewDescriptor.m_elementSize)
+            {
+                LOG_ERROR(
+                    "[ShaderResource]"
+                    "Buffer Input '{}[{}]': Does not match expected stride size. Buffer has stride size {}. SRG expects stride size {}",
+                    shaderInputBuffer.m_name.GetCStr(),
+                    arrayIndex,
+                    bufferViewDescriptor.m_elementSize,
+                    shaderInputBuffer.m_strideSize);
+                return false;
+            }
+        }
+
+        bool isValidType = true;
+        switch (shaderInputBuffer.m_type)
+        {
+        case ShaderInputBufferType::Unknown:
+            // Unable to validate.
+            break;
+
+        case ShaderInputBufferType::Constant:
+            // Element format is not relevant for viewing a buffer as a constant buffer, any format would be valid.
+            break;
+
+        case ShaderInputBufferType::Structured:
+            isValidType &= bufferViewDescriptor.m_elementFormat == Format::Unknown;
+            break;
+
+        case ShaderInputBufferType::Typed:
+            isValidType &= bufferViewDescriptor.m_elementFormat != Format::Unknown;
+            break;
+
+        case ShaderInputBufferType::Raw:
+            isValidType &= bufferViewDescriptor.m_elementFormat == Format::R32_UINT;
+            break;
+
+        case ShaderInputBufferType::AccelerationStructure:
+            isValidType &= bufferViewDescriptor.m_elementFormat == Format::R32_UINT;
+            break;
+
+        default:
+            ASSERT(false, "Buffer Input '{}[{}]': Invalid buffer type!", shaderInputBuffer.m_name.GetCStr(), arrayIndex);
+            return false;
+        }
+
+        if (!isValidType)
+        {
+            LOG_ERROR("[ShaderResource]"
+                "Buffer Input '{}[{}]': Does not match expected type",
+                shaderInputBuffer.m_name.GetCStr(), arrayIndex);
+            return false;
+        }
+
+        return true;
+    }
 }
