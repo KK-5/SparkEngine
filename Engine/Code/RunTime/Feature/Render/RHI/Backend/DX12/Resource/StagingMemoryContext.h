@@ -8,7 +8,6 @@
 namespace Spark::RHI::DX12
 {
     class Device;
-    class Buffer;
 
     // StagingMemoryContext 保证线程安全
     class StagingMemoryContext final : public RHI::DeviceObject
