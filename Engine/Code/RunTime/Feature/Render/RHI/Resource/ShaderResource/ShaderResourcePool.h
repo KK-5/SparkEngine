@@ -9,7 +9,7 @@
 #pragma once
 
 #include <mutex>
-#include <Resource/ResourcePool.h>
+#include <RHI/Resource/ResourcePool.h>
 
 #include "ShaderResourcePoolDescriptor.h"
 #include "ShaderResourceLayout.h"
@@ -92,10 +92,10 @@ namespace Spark::RHI
         // Backend API
 
         // Called when the pool initializes.
-        virtual ResultCode InitInternal(Device& device, const ShaderResourcePoolDescriptor& descriptor);
+        virtual ResultCode InitInternal(Device& device, const ShaderResourcePoolDescriptor& descriptor) = 0;
 
         // Initializes backing resources for the resource group.
-        virtual ResultCode InitShaderResourceInternal(ShaderResource& shaderResourceGroup);
+        virtual ResultCode InitShaderResourceInternal(ShaderResource& shaderResourceGroup) = 0;
 
         virtual ResultCode CompileShaderReourceBufferInternal(ShaderResource& shaderResource) = 0;
 

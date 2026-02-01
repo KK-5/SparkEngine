@@ -32,7 +32,7 @@ namespace Spark::RHI
     size_t ShaderInputBufferDescriptor::GetHash(size_t seed) const
     {
         size_t nameHash = m_name.GetHash();
-        seed ^= nameHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_access, m_type, m_count, m_strideSize, m_registerId);
         return seed;
     }
@@ -55,7 +55,7 @@ namespace Spark::RHI
     size_t ShaderInputImageDescriptor::GetHash(size_t seed) const
     {
         size_t nameHash = m_name.GetHash();
-        seed ^= nameHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_access, m_type, m_count, m_registerId);
         return seed;
     }
@@ -78,7 +78,7 @@ namespace Spark::RHI
     size_t ShaderInputBufferUnboundedArrayDescriptor::GetHash(size_t seed) const
     {
         size_t nameHash = m_name.GetHash();
-        seed ^= nameHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_access, m_type, m_strideSize, m_registerId);
         return seed;
     }
@@ -99,7 +99,7 @@ namespace Spark::RHI
     size_t ShaderInputImageUnboundedArrayDescriptor::GetHash(size_t seed) const
     {
         size_t nameHash = m_name.GetHash();
-        seed ^= nameHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_access, m_type, m_registerId);
         return seed;
     }
@@ -118,7 +118,7 @@ namespace Spark::RHI
     size_t ShaderInputSamplerDescriptor::GetHash(size_t seed) const
     {
         size_t nameHash = m_name.GetHash();
-        seed ^= nameHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_count, m_registerId);
         return seed;
     }
@@ -139,7 +139,7 @@ namespace Spark::RHI
     size_t ShaderInputConstantDescriptor::GetHash(size_t seed) const
     {
         size_t nameHash = m_name.GetHash();
-        seed ^= nameHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_constantByteOffset, m_constantByteCount, m_registerId);
         return seed;
     }
@@ -155,10 +155,10 @@ namespace Spark::RHI
     size_t ShaderInputStaticSamplerDescriptor::GetHash(size_t seed) const
     {
         size_t nameHash = m_name.GetHash();
-        seed ^= nameHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         SamplerStateHasher hasher;
         size_t samplerStateHash = hasher(m_samplerState);
-        seed ^= samplerStateHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_registerId);
         return seed;
     }

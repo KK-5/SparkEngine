@@ -119,7 +119,7 @@ namespace Spark::RHI
             constantDataSize = eastl::max(constantDataSize, end);
 
             ++constantInputIndex;
-            eastl::hash_combine(m_hash, constantDescriptor.GetHash());
+            eastl::hash_combine_raw(m_hash, constantDescriptor.GetHash());
         }
 
         m_sizeInBytes = constantDataSize;

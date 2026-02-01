@@ -35,7 +35,7 @@ namespace Spark::RHI::DX12
         DescriptorHandle GetReadWriteDescriptor() const;
         DescriptorHandle GetClearDescriptor() const;
         DescriptorHandle GetColorDescriptor() const;
-        DescriptorHandle GetDepthStencilDescriptor(RHI::ScopeAttachmentAccess access) const;
+        // DescriptorHandle GetDepthStencilDescriptor(RHI::ScopeAttachmentAccess access) const;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::ImageView

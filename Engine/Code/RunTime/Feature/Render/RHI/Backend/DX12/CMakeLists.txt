@@ -15,6 +15,13 @@ set(SOURCES
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/Buffer.cpp
     Resource/Buffer/BufferView.cpp
+    Resource/Constant/ConstantBufferContext.cpp
+    Resource/Image/ImagePool.cpp
+    Resource/Image/Image.cpp
+    Resource/Image/ImageView.cpp
+    Resource/Sampler/Sampler.cpp
+    Resource/ShaderResource/ShaderResourcePool.cpp
+    Resource/ShaderResource/ShaderResource.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

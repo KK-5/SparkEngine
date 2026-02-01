@@ -6,15 +6,17 @@
  *
  */
 
+#pragma once
+
 #include <EASTL/span.h>
 #include <Log/SpdLogSystem.h>
 
-#include <Resource/Resource.h>
-#include <Resource/Buffer/BufferView.h>
-#include <Resource/Buffer/Buffer.h>
-#include <Resource/Image/ImageView.h>
-#include <Resource/Image/Image.h>
-#include <Resource/Sampler/Sampler.h>
+#include <RHI/Resource/Resource.h>
+#include <RHI/Resource/Buffer/BufferView.h>
+#include <RHI/Resource/Buffer/Buffer.h>
+#include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/Image/Image.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
 
 #include "ShaderResourceLayoutCommon.h"
 #include "ConstantsData.h"
@@ -56,19 +58,19 @@ namespace Spark::RHI
         bool SetImageView(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex);
 
         //! Sets an array of image view for the given shader input index.
-        bool SetImageViewArray(ShaderInputIndex inputIndex, eastl::span<const ImageView* const> imageViews, uint32_t arrayIndex = 0);
+        bool SetImageViewArray(ShaderInputIndex inputIndex, eastl::span<const ImageView*> imageViews, uint32_t arrayIndex = 0);
 
         //! Sets an unbounded array of image view for the given shader input index.
-        bool SetImageViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const ImageView* const> imageViews);
+        bool SetImageViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const ImageView*> imageViews);
 
         //! Sets one buffer view for the given shader input index.
         bool SetBufferView(ShaderInputIndex inputIndex, const BufferView* bufferView, uint32_t arrayIndex = 0);
 
         //! Sets an array of image view for the given shader input index.
-        bool SetBufferViewArray(ShaderInputIndex inputIndex, eastl::span<const BufferView* const> bufferViews, uint32_t arrayIndex = 0);
+        bool SetBufferViewArray(ShaderInputIndex inputIndex, eastl::span<const BufferView*> bufferViews, uint32_t arrayIndex = 0);
 
         //! Sets an unbounded array of buffer view for the given shader input index.
-        bool SetBufferViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const BufferView* const> bufferViews);
+        bool SetBufferViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const BufferView*> bufferViews);
 
         //! Sets one sampler for the given shader input index, using the bindingIndex as the key.
         bool SetSampler(ShaderInputIndex inputIndex, const SamplerState& sampler, uint32_t arrayIndex = 0);
@@ -146,9 +148,7 @@ namespace Spark::RHI
         bool ValidateSetImageView(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const;
         bool ValidateSetBufferView(ShaderInputIndex inputIndex, const BufferView* bufferView, uint32_t arrayIndex) const;
 
-        template<typename TShaderInputDescriptor>
         bool ValidateImageViewAccess(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const;
-        template<typename TShaderInputDescriptor>
         bool ValidateBufferViewAccess(ShaderInputIndex inputIndex, const BufferView* bufferView, uint32_t arrayIndex) const;
 
         ConstPtr<ShaderResourceLayout> m_shaderResourceGroupLayout;
@@ -167,7 +167,6 @@ namespace Spark::RHI
         uint32_t m_bindingSlot = static_cast<uint32_t>(-1);
     };
 
-    template<typename TShaderInputDescriptor>
     bool ShaderResource::ValidateImageViewAccess(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const
     {
         if (!Validation::isEnabled)
@@ -175,7 +174,7 @@ namespace Spark::RHI
             return true;
         }
 
-        const TShaderInputDescriptor shaderInputImage = GetLayout()->GetShaderInput(inputIndex);
+        const ShaderInputImageDescriptor shaderInputImage = GetLayout()->GetShaderInputForImage(inputIndex);
 
         if (!imageView)
         {
@@ -310,7 +309,6 @@ namespace Spark::RHI
         return true;
     }
 
-    template<typename TShaderInputDescriptor>
     bool ShaderResource::ValidateBufferViewAccess(ShaderInputIndex inputIndex, const BufferView* bufferView, [[maybe_unused]] uint32_t arrayIndex) const
     {
         if (!Validation::isEnabled)
@@ -318,7 +316,7 @@ namespace Spark::RHI
             return true;
         }
 
-        const TShaderInputDescriptor& shaderInputBuffer = GetLayout()->GetShaderInput(inputIndex);
+        const ShaderInputBufferDescriptor& shaderInputBuffer = GetLayout()->GetShaderInputForBuffer(inputIndex);
         const BufferViewDescriptor& bufferViewDescriptor = bufferView->GetDescriptor();
         const Buffer& buffer = bufferView->GetBuffer();
         const BufferDescriptor& bufferDescriptor = buffer.GetDescriptor();

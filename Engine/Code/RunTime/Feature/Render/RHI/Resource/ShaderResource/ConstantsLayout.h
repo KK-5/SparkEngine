@@ -6,6 +6,8 @@
  *
  */
 
+#pragma once
+
 #include <EASTL/unordered_map.h>
 #include <EASTL/span.h>
 #include <EASTL/vector.h>

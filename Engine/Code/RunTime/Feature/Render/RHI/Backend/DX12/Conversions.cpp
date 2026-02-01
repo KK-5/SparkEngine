@@ -273,6 +273,81 @@ namespace Spark::RHI::DX12
         return resourceFlags;
     }
 
+    D3D12_DESCRIPTOR_RANGE_TYPE ConvertShaderInputBufferAccess(RHI::ShaderInputBufferAccess access)
+    {
+        static const D3D12_DESCRIPTOR_RANGE_TYPE Table[] =
+        {
+            D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+        };
+
+        return Table[static_cast<size_t>(access)];
+    }
+
+    D3D12_DESCRIPTOR_RANGE_TYPE ConvertShaderInputImageAccess(RHI::ShaderInputBufferAccess access)
+    {
+        static const D3D12_DESCRIPTOR_RANGE_TYPE Table[] =
+        {
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+        };
+
+        return Table[static_cast<size_t>(access)];
+    }
+
+    D3D12_SRV_DIMENSION ConvertSRVDimension(RHI::ShaderInputImageType type)
+    {
+        switch (type)
+        {
+        case RHI::ShaderInputImageType::Image1D:
+            return D3D12_SRV_DIMENSION_TEXTURE1D;
+        case RHI::ShaderInputImageType::Image1DArray:
+            return D3D12_SRV_DIMENSION_TEXTURE1DARRAY;
+        case RHI::ShaderInputImageType::Image2D:
+            return D3D12_SRV_DIMENSION_TEXTURE2D;
+        case RHI::ShaderInputImageType::Image2DArray:
+            return D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+        case RHI::ShaderInputImageType::Image2DMultisample:
+            return D3D12_SRV_DIMENSION_TEXTURE2DMS;
+        case RHI::ShaderInputImageType::Image2DMultisampleArray:
+            return D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY;
+        case RHI::ShaderInputImageType::Image3D:
+            return D3D12_SRV_DIMENSION_TEXTURE3D;
+        case RHI::ShaderInputImageType::ImageCube:
+            return D3D12_SRV_DIMENSION_TEXTURECUBE;
+        case RHI::ShaderInputImageType::ImageCubeArray:
+            return D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
+        case RHI::ShaderInputImageType::Unknown:
+            return D3D12_SRV_DIMENSION_UNKNOWN;
+        }
+
+        ASSERT(false, "Unknown enum in ConvertSRVDimension");
+        return D3D12_SRV_DIMENSION_UNKNOWN;
+    }
+
+    D3D12_UAV_DIMENSION ConvertUAVDimension(RHI::ShaderInputImageType type)
+    {
+        switch (type)
+        {
+        case RHI::ShaderInputImageType::Image1D:
+            return D3D12_UAV_DIMENSION_TEXTURE1D;
+        case RHI::ShaderInputImageType::Image1DArray:
+            return D3D12_UAV_DIMENSION_TEXTURE1DARRAY;
+        case RHI::ShaderInputImageType::Image2D:
+            return D3D12_UAV_DIMENSION_TEXTURE2D;
+        case RHI::ShaderInputImageType::Image2DArray:
+            return D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+        case RHI::ShaderInputImageType::Image3D:
+            return D3D12_UAV_DIMENSION_TEXTURE3D;
+        case RHI::ShaderInputImageType::Unknown:
+            return D3D12_UAV_DIMENSION_UNKNOWN;
+        }
+
+        ASSERT(false, "Unknown enum in ConvertUAVDimension");
+        return D3D12_UAV_DIMENSION_UNKNOWN;
+    }
+
     void ConvertImageDescriptor(const RHI::ImageDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc)
     {
         resourceDesc.Dimension = ConvertImageDimension(descriptor.m_dimension);

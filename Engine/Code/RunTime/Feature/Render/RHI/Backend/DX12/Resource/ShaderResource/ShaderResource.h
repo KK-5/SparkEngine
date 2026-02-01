@@ -11,6 +11,7 @@
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
 
 #include <MemoryView.h>
+#include <Descriptor/Descriptor.h>
 
 namespace Spark::RHI::DX12
 {
@@ -40,7 +41,7 @@ namespace Spark::RHI::DX12
     private:
         ShaderResource() = default;
 
-        friend class ShaderResourceGroupPool;
+        friend class ShaderResourcePool;
         friend class DescriptorContext;
 
         /// The current index into the compiled data array.

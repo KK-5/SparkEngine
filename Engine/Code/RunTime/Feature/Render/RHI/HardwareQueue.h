@@ -29,4 +29,6 @@ namespace Spark::RHI
         Copy        = BIT(static_cast<uint32_t>(HardwareQueueClass::Copy)),
         All         = Graphics | Compute | Copy
     };
+
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::HardwareQueueClassMask, uint32_t);
 }

@@ -12,12 +12,12 @@ namespace Spark
         return m_name;
     }
 
-    void Object::AddRef()
+    void Object::AddRef() const
     {
         m_useCount.fetch_add(1, eastl::memory_order_relaxed);
     }
 
-    void Object::Release()
+    void Object::Release() const
     {
         if (m_useCount.fetch_sub(1) == 1)
         {

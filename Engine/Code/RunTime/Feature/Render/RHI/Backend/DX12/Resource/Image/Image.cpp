@@ -119,7 +119,7 @@ namespace Spark::RHI::DX12
         );
     }
 
-    void Image::SetAttachmentState(D3D12_RESOURCE_STATES state, const RHI::ImageSubresourceRange* range = nullptr)
+    void Image::SetAttachmentState(D3D12_RESOURCE_STATES state, const RHI::ImageSubresourceRange* range)
     {
         uint32_t indexStart = 0;
         uint32_t indexEnd = 0;
@@ -146,7 +146,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    eastl::vector<Image::SubresourceRangeAttachmentState> Image::GetAttachmentStateByRange(const RHI::ImageSubresourceRange* range = nullptr) const
+    eastl::vector<Image::SubresourceRangeAttachmentState> Image::GetAttachmentStateByRange(const RHI::ImageSubresourceRange* range) const
     {
         uint32_t indexStart = 0;
         uint32_t indexEnd = 0;

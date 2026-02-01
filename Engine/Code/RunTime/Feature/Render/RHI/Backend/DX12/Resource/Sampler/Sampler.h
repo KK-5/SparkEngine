@@ -13,6 +13,8 @@
 
 namespace Spark::RHI::DX12
 {
+    class Device;
+    
     class Sampler final : public RHI::DeviceObject
     {
         using Base = RHI::DeviceObject;

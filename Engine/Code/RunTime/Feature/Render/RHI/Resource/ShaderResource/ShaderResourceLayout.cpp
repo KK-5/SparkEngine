@@ -8,7 +8,7 @@
 
 #include "ShaderResourceLayout.h"
 
-#include <Base.h>
+#include <RHI/Base.h>
 #include <Log/SpdLogSystem.h>
 
 namespace Spark::RHI
@@ -160,7 +160,7 @@ namespace Spark::RHI
 
     eastl::span<const ShaderInputConstantDescriptor> ShaderResourceLayout::GetShaderInputListForConstants() const
     {
-        m_constantsDataLayout->GetShaderInputList();
+        return m_constantsDataLayout->GetShaderInputList();
     }
 
     eastl::span<const ShaderInputBufferUnboundedArrayDescriptor> ShaderResourceLayout::GetShaderInputListForBufferUnboundedArrays() const
@@ -173,24 +173,24 @@ namespace Spark::RHI
         return m_inputsForImageUnboundedArrays;
     }
 
-    Interval ShaderResourceLayout::GetGroupInterval(ShaderInputIndex inputIndex) const
+    Interval ShaderResourceLayout::GetGroupIntervalForBuffer(ShaderInputIndex inputIndex) const
     {
         return m_intervalsForBuffers[inputIndex];
     }
 
-    Interval ShaderResourceLayout::GetGroupInterval(ShaderInputIndex inputIndex) const
+    Interval ShaderResourceLayout::GetGroupIntervalForImage(ShaderInputIndex inputIndex) const
     {
-        m_intervalsForImages[inputIndex];
+        return m_intervalsForImages[inputIndex];
     }
 
-    Interval ShaderResourceLayout::GetGroupInterval(ShaderInputIndex inputIndex) const
+    Interval ShaderResourceLayout::GetGroupIntervalForSampler(ShaderInputIndex inputIndex) const
     {
-        m_intervalsForSamplers[inputIndex];
+        return m_intervalsForSamplers[inputIndex];
     }
 
     Interval ShaderResourceLayout::GetConstantInterval(ShaderInputIndex inputIndex) const
     {
-        m_constantsDataLayout->GetInterval(inputIndex);
+        return m_constantsDataLayout->GetInterval(inputIndex);
     }
 
     uint32_t ShaderResourceLayout::GetBuffersSize() const
@@ -397,7 +397,7 @@ namespace Spark::RHI
         eastl::unordered_map<ShaderInputName, ShaderInputIndex>& nameMap,
         uint32_t& size)
     {
-        nameMap.Reserve(shaderInputDescriptors.size());
+        nameMap.reserve(shaderInputDescriptors.size());
 
         uint32_t currentGroupSize = 0;
         uint32_t shaderInputIndex = 0;
@@ -525,7 +525,8 @@ namespace Spark::RHI
                 hash = shaderInputImageUnboundedArray.GetHash(hash);
             }
 
-            eastl::hash_combine(hash, m_constantsDataLayout->GetHash(), m_bindingSlot);
+            eastl::hash_combine_raw(hash, m_constantsDataLayout->GetHash());
+            eastl::hash_combine(hash, m_bindingSlot);
 
             m_hash = hash;
         }

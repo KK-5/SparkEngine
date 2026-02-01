@@ -15,7 +15,7 @@
 #include <EASTL/unique_ptr.h>
 #include <EASTL/vector.h>
 #include <EASTL/span.h>
-#include <Base.h>
+#include <RHI/Base.h>
 
 #include "ConstantsLayout.h"
 

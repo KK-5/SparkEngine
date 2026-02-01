@@ -25,7 +25,7 @@ namespace Spark::RHI
 
         if (imageView)
         {
-            if (!ValidateImageViewAccess<ShaderInputImageDescriptor>(inputIndex, imageView, arrayIndex))
+            if (!ValidateImageViewAccess(inputIndex, imageView, arrayIndex))
             {
                 return false;
             }
@@ -47,7 +47,7 @@ namespace Spark::RHI
 
         if (bufferView)
         {
-            if (!ValidateBufferViewAccess<ShaderInputBufferDescriptor>(inputIndex, bufferView, arrayIndex))
+            if (!ValidateBufferViewAccess(inputIndex, bufferView, arrayIndex))
             {
                 return false;
             }
@@ -58,22 +58,22 @@ namespace Spark::RHI
 
     ShaderInputIndex ShaderResource::FindShaderInputBufferIndex(const ShaderInputName& name) const
     {
-        m_shaderResourceGroupLayout->FindShaderInputBufferIndex(name);
+        return m_shaderResourceGroupLayout->FindShaderInputBufferIndex(name);
     }
 
     ShaderInputIndex ShaderResource::FindShaderInputImageIndex(const ShaderInputName& name) const
     {
-        m_shaderResourceGroupLayout->FindShaderInputImageIndex(name);
+        return m_shaderResourceGroupLayout->FindShaderInputImageIndex(name);
     }
 
     ShaderInputIndex ShaderResource::FindShaderInputSamplerIndex(const ShaderInputName& name) const
     {
-        m_shaderResourceGroupLayout->FindShaderInputSamplerIndex(name);
+        return m_shaderResourceGroupLayout->FindShaderInputSamplerIndex(name);
     }
 
     ShaderInputIndex ShaderResource::FindShaderInputConstantIndex(const ShaderInputName& name) const
     {
-        m_shaderResourceGroupLayout->FindShaderInputConstantIndex(name);
+        return m_shaderResourceGroupLayout->FindShaderInputConstantIndex(name);
     }
 
     bool ShaderResource::SetImageView(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex)
@@ -82,11 +82,11 @@ namespace Spark::RHI
         return SetImageViewArray(inputIndex, imageViews, arrayIndex);
     }
 
-    bool ShaderResource::SetImageViewArray(ShaderInputIndex inputIndex, eastl::span<const ImageView* const> imageViews, uint32_t arrayIndex)
+    bool ShaderResource::SetImageViewArray(ShaderInputIndex inputIndex, eastl::span<const ImageView*> imageViews, uint32_t arrayIndex)
     {
         if (GetLayout()->ValidateImageIndexAccess(inputIndex, static_cast<uint32_t>(arrayIndex + imageViews.size() - 1)))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForImage(inputIndex);
             bool isValidAll = true;
             for (size_t i = 0; i < imageViews.size(); ++i)
             {
@@ -103,8 +103,9 @@ namespace Spark::RHI
         return false;
     }
 
-    bool ShaderResource::SetImageViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const ImageView* const> imageViews)
+    bool ShaderResource::SetImageViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const ImageView*> imageViews)
     {
+        /*
         if (GetLayout()->ValidateImageUnboundedArrayAccess(inputIndex))
         {
             m_imageViewsUnboundedArray.clear();
@@ -126,6 +127,7 @@ namespace Spark::RHI
 
             return isValidAll;
         }
+        */
         return false;
     }
 
@@ -135,11 +137,11 @@ namespace Spark::RHI
         return SetBufferViewArray(inputIndex, bufferViews, arrayIndex);
     }
 
-    bool ShaderResource::SetBufferViewArray(ShaderInputIndex inputIndex, eastl::span<const BufferView* const> bufferViews, uint32_t arrayIndex)
+    bool ShaderResource::SetBufferViewArray(ShaderInputIndex inputIndex, eastl::span<const BufferView*> bufferViews, uint32_t arrayIndex)
     {
         if (GetLayout()->ValidateBufferIndexAccess(inputIndex, static_cast<uint32_t>(arrayIndex + bufferViews.size() - 1)))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForBuffer(inputIndex);
             bool isValidAll = true;
             for (size_t i = 0; i < bufferViews.size(); ++i)
             {
@@ -156,8 +158,9 @@ namespace Spark::RHI
         return false;
     }
 
-    bool ShaderResource::SetBufferViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const BufferView* const> bufferViews)
+    bool ShaderResource::SetBufferViewUnboundedArray(ShaderInputIndex inputIndex, eastl::span<const BufferView*> bufferViews)
     {
+        /*
         if (GetLayout()->ValidateBufferUnboundedArrayAccess(inputIndex))
         {
             m_bufferViewsUnboundedArray.clear();
@@ -179,6 +182,7 @@ namespace Spark::RHI
 
             return isValidAll;
         }
+        */
         return false;
     }
 
@@ -191,7 +195,7 @@ namespace Spark::RHI
     {
         if (GetLayout()->ValidateSamplerIndexAccess(inputIndex, static_cast<uint32_t>(arrayIndex + samplers.size() - 1)))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForSampler(inputIndex);
             for (size_t i = 0; i < samplers.size(); ++i)
             {
                 m_samplers[interval.m_min + arrayIndex + i] = samplers[i];
@@ -225,7 +229,7 @@ namespace Spark::RHI
     {
         if (GetLayout()->ValidateImageIndexAccess(inputIndex, arrayIndex))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForImage(inputIndex);
             return m_imageViews[interval.m_min + arrayIndex];
         }
         return s_nullImageView;
@@ -235,7 +239,7 @@ namespace Spark::RHI
     {
         if (GetLayout()->ValidateImageIndexAccess(inputIndex, 0))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForImage(inputIndex);
             return eastl::span<const ConstPtr<ImageView>>(&m_imageViews[interval.m_min], interval.m_max - interval.m_min);
         }
         return {};
@@ -254,7 +258,7 @@ namespace Spark::RHI
     {
         if (GetLayout()->ValidateBufferIndexAccess(inputIndex, arrayIndex))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForBuffer(inputIndex);
             return m_bufferViews[interval.m_min + arrayIndex];
         }
         return s_nullBufferView;
@@ -264,7 +268,7 @@ namespace Spark::RHI
     {
         if (GetLayout()->ValidateBufferIndexAccess(inputIndex, 0))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForBuffer(inputIndex);
             return eastl::span<const ConstPtr<BufferView>>(&m_bufferViews[interval.m_min], interval.m_max - interval.m_min);
         }
         return {};
@@ -283,7 +287,7 @@ namespace Spark::RHI
     {
         if (GetLayout()->ValidateSamplerIndexAccess(inputIndex, arrayIndex))
         {
-            const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+            const Interval interval = GetLayout()->GetGroupIntervalForSampler(inputIndex);
             return m_samplers[interval.m_min + arrayIndex];
         }
         return s_nullSamplerState;
@@ -291,7 +295,7 @@ namespace Spark::RHI
 
     eastl::span<const SamplerState> ShaderResource::GetSamplerArray(ShaderInputIndex inputIndex) const
     {
-        const Interval interval = GetLayout()->GetGroupInterval(inputIndex);
+        const Interval interval = GetLayout()->GetGroupIntervalForSampler(inputIndex);
         return eastl::span<const SamplerState>(&m_samplers[interval.m_min], interval.m_max - interval.m_min);
     }
 

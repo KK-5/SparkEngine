@@ -8,6 +8,7 @@
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Resource/Image/ImageEnums.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
+#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
 #include <RHI/ClearValue.h>
 #include <RHI/MemoryEnums.h>
 
@@ -28,11 +29,20 @@ namespace Spark::RHI::DX12
 
     D3D12_RESOURCE_FLAGS ConvertImageBindFlags(RHI::ImageBindFlags imageFlags);
 
+    D3D12_DESCRIPTOR_RANGE_TYPE ConvertShaderInputBufferAccess(RHI::ShaderInputBufferAccess access);
+
+    D3D12_DESCRIPTOR_RANGE_TYPE ConvertShaderInputImageAccess(RHI::ShaderInputImageAccess access);
+
+    D3D12_SRV_DIMENSION ConvertSRVDimension(RHI::ShaderInputImageType type);
+
+    D3D12_UAV_DIMENSION ConvertUAVDimension(RHI::ShaderInputImageType type);
+
     void ConvertImageDescriptor(const RHI::ImageDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc);
 
     DXGI_FORMAT ConvertImageViewFormat(const Image& image, const RHI::ImageViewDescriptor& imageViewDescriptor);
 
     uint16_t ConvertImageAspectToPlaneSlice(RHI::ImageAspect aspect);
+
     RHI::ImageAspectFlags ConvertPlaneSliceToImageAspectFlags(uint16_t planeSlice);
 
     D3D12_CLEAR_VALUE ConvertClearValue(RHI::Format format, RHI::ClearValue clearValue);

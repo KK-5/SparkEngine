@@ -6,7 +6,7 @@
  *
  */
 
-#include <Resource/ResourcePoolDescriptor.h>
+#include <RHI/Resource/ResourcePoolDescriptor.h>
 #include "ShaderResourceLayout.h"
 
 namespace Spark::RHI

@@ -20,6 +20,11 @@ namespace eastl
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
 
+    constexpr void hash_combine_raw(size_t& seed, const size_t& otherHash)
+    {
+        seed ^= otherHash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+
     template <class T1, class T2, class... RestTypes>
     constexpr void hash_combine(size_t& seed, const T1& firstElement, const T2& secondElement, const RestTypes&... restElements)
     {

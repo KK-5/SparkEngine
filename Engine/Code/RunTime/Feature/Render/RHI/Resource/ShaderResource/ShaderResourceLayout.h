@@ -113,9 +113,9 @@ namespace Spark::RHI
         //!
         //! The following methods return an interval - [min, max) - into the shader resource
         //! group for that resource type.
-        Interval GetGroupInterval(ShaderInputIndex inputIndex) const;
-        Interval GetGroupInterval(ShaderInputIndex inputIndex) const;
-        Interval GetGroupInterval(ShaderInputIndex inputIndex) const;
+        Interval GetGroupIntervalForBuffer(ShaderInputIndex inputIndex) const;
+        Interval GetGroupIntervalForImage(ShaderInputIndex inputIndex) const;
+        Interval GetGroupIntervalForSampler(ShaderInputIndex inputIndex) const;
 
         //! The interval of a constant is its byte [min, max) into the constant data.
         Interval GetConstantInterval(ShaderInputIndex inputIndex) const;

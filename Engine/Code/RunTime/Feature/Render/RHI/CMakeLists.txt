@@ -28,6 +28,12 @@ set(SOURCES
     Resource/ShaderResource/StreamBufferView.cpp
     Resource/ShaderResource/InputStreamLayout.cpp
     Resource/ShaderResource/InputStreamLayoutBuilder.cpp
+    Resource/ShaderResource/ConstantsData.cpp
+    Resource/ShaderResource/ConstantsLayout.cpp
+    Resource/ShaderResource/ShaderResource.cpp
+    Resource/ShaderResource/ShaderResourceDescriptor.cpp
+    Resource/ShaderResource/ShaderResourceLayout.cpp
+    Resource/ShaderResource/ShaderResourcePool.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
