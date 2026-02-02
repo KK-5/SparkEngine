@@ -7,11 +7,14 @@
  */
 #pragma once
 
+#include <Object/ObjectName.h>
 #include <Math/Bit.h>
 #include <RHI/Base.h>
 
 namespace Spark::RHI
 {
+    using AttachmentId = ObjectName;
+
     //! Describes how an attachment is accessed by a scope.
     enum class ScopeAttachmentAccess : uint32_t
     {

@@ -52,7 +52,7 @@ namespace Spark::RHI
     const uint32_t ShaderStageFragment = static_cast<uint32_t>(ShaderStage::Fragment);
     const uint32_t ShaderStageGraphicsCount = static_cast<uint32_t>(ShaderStage::GraphicsCount);
 
-        //! Describes shader stages as a mask, where each bit represents a shader stage type.
+    //! Describes shader stages as a mask, where each bit represents a shader stage type.
     enum class ShaderStageMask : uint32_t
     {
         None =       0,
