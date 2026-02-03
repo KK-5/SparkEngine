@@ -266,7 +266,7 @@ namespace Spark::RHI
         if (attachmentName.IsEmpty())
         {
             // Assign a temp name if it's empty.
-            //attachmentName = AZStd::string::format("Color%zu_Subpass%d", m_renderTargetAttachments.size(), m_subpassIndex);
+            attachmentName = spdlog::fmt_lib::format("Color{}_Subpass{}", m_renderTargetAttachments.size(), m_subpassIndex).c_str();
         }
 
         m_renderTargetAttachments.push_back({ attachmentName,

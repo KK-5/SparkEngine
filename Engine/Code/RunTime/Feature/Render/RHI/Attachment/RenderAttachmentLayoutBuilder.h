@@ -115,7 +115,7 @@ namespace Spark::RHI
                 const AttachmentLoadStoreAction& loadStoreAction = AttachmentLoadStoreAction(),
                 RHI::ScopeAttachmentAccess scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write,
                 RHI::ScopeAttachmentStage scopeAttachmentStage = RHI::ScopeAttachmentStage::EarlyFragmentTest |
-                                                                     RHI::ScopeAttachmentStage::LateFragmentTest,
+                                                                 RHI::ScopeAttachmentStage::LateFragmentTest,
                 RenderAttachmentExtras* extras = nullptr);
 
             //! Adds the use of a previously added depth/stencil attachment. The "name" attachment must
@@ -125,7 +125,7 @@ namespace Spark::RHI
                 const AttachmentLoadStoreAction& loadStoreAction = AttachmentLoadStoreAction(),
                 RHI::ScopeAttachmentAccess scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write,
                 RHI::ScopeAttachmentStage scopeAttachmentStage = RHI::ScopeAttachmentStage::EarlyFragmentTest |
-                                                                    RHI::ScopeAttachmentStage::LateFragmentTest,
+                                                                 RHI::ScopeAttachmentStage::LateFragmentTest,
                 RenderAttachmentExtras* extras = nullptr);
 
             //! Adds the use of a previously added depth/stencil attachment.
@@ -133,7 +133,7 @@ namespace Spark::RHI
                 const AttachmentLoadStoreAction& loadStoreAction,
                 RHI::ScopeAttachmentAccess scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write,
                 RHI::ScopeAttachmentStage scopeAttachmentStage = RHI::ScopeAttachmentStage::EarlyFragmentTest |
-                                                                     RHI::ScopeAttachmentStage::LateFragmentTest,
+                                                                 RHI::ScopeAttachmentStage::LateFragmentTest,
                 RenderAttachmentExtras* extras = nullptr);
 
             // Adds the use of a subpass input attachment. The "name" attachment must
