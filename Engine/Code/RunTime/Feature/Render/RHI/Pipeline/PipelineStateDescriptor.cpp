@@ -27,12 +27,6 @@ namespace Spark::RHI
         ASSERT(m_pipelineLayoutDescriptor, "Pipeline layout descriptor is null.");
         size_t seed =  0 ;
         eastl::hash_combine_raw(seed, m_pipelineLayoutDescriptor->GetHash());
-        /*
-        for (const auto& constant : m_specializationData)
-        {
-            seed = TypeHash64(constant.GetHash(), seed);
-        }
-        */
         eastl::hash_combine_raw(seed, GetHashInternal());
         return seed;
     }

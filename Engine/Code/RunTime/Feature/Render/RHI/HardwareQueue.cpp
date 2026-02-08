@@ -5,8 +5,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
-
-#include "AttachmentEnums.h"
+#include "HardwareQueue.h"
 
 namespace Spark::RHI
 {
