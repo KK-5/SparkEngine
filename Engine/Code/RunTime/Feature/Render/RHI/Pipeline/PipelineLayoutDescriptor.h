@@ -10,11 +10,11 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/fixed_vector.h>
 #include <EASTL/array.h>
+
 #include <Object/Base.h>
 #include <Object/Object.h>
 
 #include <RHI/RHILimits.h>
-
 #include "ShaderStages.h"
 
 namespace Spark::RHI

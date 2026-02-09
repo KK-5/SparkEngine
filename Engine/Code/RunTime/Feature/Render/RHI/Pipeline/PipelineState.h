@@ -33,6 +33,8 @@ namespace Spark::RHI
     public:
         virtual ~PipelineState() = default;
 
+        ResultCode Init(Device& device, const PipelineStateDescriptor& descriptor, PipelineLibrary* pipelineLibrary = nullptr);
+
         //! Initializes a graphics pipeline state, associated with the provided device, using the
         //! provided descriptor. If successful, the PSO is valid to use with DrawItems within scopes
         //! executing on device used for initialization.

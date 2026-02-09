@@ -5,6 +5,11 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
+
+ /*
+ * Modified by SparkEngine in 2025
+ *  -- Only the global PipelineState cache is being used, thread-local and global pending caches are not in use.They will be implemented in the future.
+ */
 #pragma once
 
 #include <EASTL/variant.h>
@@ -136,7 +141,7 @@ namespace Spark::RHI
     //!      pipelineStateCache->ReleaseLibrary(libraryHandle);
     //! @endcode
     //!
-    class PipelineStateCache final : public Object
+    class PipelineStateCache final : public DeviceObject
     {
     public:
         //! The maximum number of libraries is configurable at compile time. A fixed number is used
@@ -156,10 +161,10 @@ namespace Spark::RHI
         PipelineLibraryIndex CreateLibrary();
 
         //! Releases the pipeline library and purges it from the cache. Releases all held references to pipeline states for the library.
-        void ReleaseLibrary(PipelineLibraryIndex handle);
+        void ReleaseLibrary(PipelineLibraryIndex index);
 
         //! Resets cache contents in the library. Releases all held references to pipeline states for the library.
-        void ResetLibrary(PipelineLibraryIndex handle);
+        void ResetLibrary(PipelineLibraryIndex index);
 
         //! Returns the resulting merged library from all the threadLibraries related to the passed in handle.
         //! The merged library can be used to write out the serialized data.
@@ -179,7 +184,7 @@ namespace Spark::RHI
         //! This method merges the global pending cache into the global read-only cache and clears all thread-local caches.
         //! This reduces the total memory footprint of the caches and optimizes subsequent fetches. This method should be called
         //! once per frame.
-        void Compact();
+        //! void Compact();
 
     private:
         PipelineStateCache() = default;
@@ -201,6 +206,9 @@ namespace Spark::RHI
             // Contains the initial serialized data (Used to prime the thread libraries)
             // or the file name that contains the serialized data
             PipelineLibraryDescriptor m_pipelineLibraryDescriptor;
+
+            // Temporary data
+            Ptr<PipelineLibrary> m_library;
         };
 
         using GlobalLibrarySet = eastl::fixed_vector<GlobalLibraryEntry, LibraryCountMax>;
@@ -237,12 +245,19 @@ namespace Spark::RHI
             PipelineStateHash pipelineStateHash,
             const ObjectName& name);
 
+        ConstPtr<PipelineState> CompilePipelineState(
+            GlobalLibraryEntry& globalLibraryEntry,
+            // ThreadLibraryEntry& threadLibraryEntry,
+            const PipelineStateDescriptor& pipelineStateDescriptor,
+            PipelineStateHash pipelineStateHash,
+            const ObjectName& name);
+
         //! Resets the library without validating the handle or taking a lock.
-        void ResetLibraryImpl(PipelineLibraryIndex handle);
+        void ResetLibraryImpl(PipelineLibraryIndex index);
 
         /// Each thread owns a set of ThreadLibraryEntry elements. RHI::PipelineLibraryHandle is an
         /// index into the array.
-        thread_local static ThreadLibrarySet m_threadLibrarySet;
+        /// thread_local static ThreadLibrarySet m_threadLibrarySet;
 
         /// This mutex guards library creation / reset / deletion.
         mutable std::shared_mutex m_mutex;

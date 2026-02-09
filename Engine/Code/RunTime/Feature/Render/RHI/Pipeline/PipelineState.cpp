@@ -28,6 +28,38 @@ namespace Spark::RHI
         return true;
     }
 
+    ResultCode PipelineState::Init(Device& device, const PipelineStateDescriptor& descriptor, PipelineLibrary* pipelineLibrary)
+    {
+        ResultCode resultCode = ResultCode::Success;
+
+        switch (descriptor.GetType())
+        {
+            case PipelineStateType::Draw:
+            {
+                resultCode = Init(device, static_cast<const PipelineStateDescriptorForDraw&>(descriptor), pipelineLibrary);
+                break;
+            }
+            case PipelineStateType::Dispatch:
+            {
+                resultCode = Init(device, static_cast<const PipelineStateDescriptorForDispatch&>(descriptor), pipelineLibrary);
+                break;
+            }
+            case PipelineStateType::RayTracing:
+            {
+                resultCode = Init(device, static_cast<const PipelineStateDescriptorForRayTracing&>(descriptor), pipelineLibrary);
+                break;
+            }
+            default:
+            {
+                LOG_ERROR("[PipelineState] Unknown PipelineStateType!");
+                resultCode = ResultCode::InvalidArgument;
+                break;
+            }
+        }
+
+        return resultCode;
+    }
+
     ResultCode PipelineState::Init(Device& device, const PipelineStateDescriptorForDraw& descriptor, PipelineLibrary* pipelineLibrary)
     {
         if (!ValidateNotInitialized())
@@ -125,7 +157,7 @@ namespace Spark::RHI
         return resultCode;
     }
 
-    ResultCode PipelineState::Init(Device& device, const PipelineStateDescriptorForRayTracing& descriptor,PipelineLibrary* pipelineLibrary)
+    ResultCode PipelineState::Init(Device& device, const PipelineStateDescriptorForRayTracing& descriptor, PipelineLibrary* pipelineLibrary)
     {
         if (!ValidateNotInitialized())
         {

@@ -18,6 +18,9 @@ namespace Spark::RHI
     class ImageView;
     class StreamingImagePool;
 
+    class PipelineLibrary;
+    class PipelibeState;
+
     class Factory
     {
     public:
@@ -25,6 +28,7 @@ namespace Spark::RHI
         virtual ~Factory() = default;
 
         //virtual APIIndex GetType() = 0;
+        
         virtual PhysicalDeviceList EnumeratePhysicalDevices() = 0;
 
         virtual Ptr<Device> CreateDevice() = 0;
@@ -42,6 +46,10 @@ namespace Spark::RHI
         virtual Ptr<ImageView> CreateImageView() = 0;
 
         virtual Ptr<StreamingImagePool> CreateStreamingImagePool() = 0;
+
+        virtual Ptr<PipelineLibrary> CreatePipelineLibrary() = 0;
+
+        virtual Ptr<PipelibeState> CreatePipelineState() = 0;
 
         virtual void DestoryObject(DeviceObject* obj) = 0;
     };
