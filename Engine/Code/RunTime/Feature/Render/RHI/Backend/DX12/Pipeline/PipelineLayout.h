@@ -7,4 +7,88 @@
  */
 #pragma once
 
-#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <EASTL/array.h>
+#include <EASTL/fixed_vector.h>
+
+#include <DX12.h>
+
+#include "PipelineLayoutDescriptor.h"
+
+
+namespace Spark::RHI::DX12
+{
+    class Device;
+    class PipelineLayoutCache;
+
+    /**
+     * PipelineLayouts are created from a cache. They are internally de-duplicated using the hash value computed
+     * by the descriptor. Ownership of a particular element in the cache is still externally managed (via ConstPtr).
+     * When all references to a particular instance are destroyed, the object is unregistered from the cache.
+     * Therefore, ownership is still managed by the application and the cache doesn't grow unbounded.
+     */
+    class PipelineLayout final
+    {
+        friend class PipelineLayoutCache;
+    public:
+        PipelineLayout() = default;
+        ~PipelineLayout();
+
+        /// Initializes the pipeline layout.
+        void Init(ID3D12DeviceX* dx12Device, const RHI::PipelineLayoutDescriptor& descriptor);
+
+        /// Returns the number of root parameter bindings (1-to-1 with SRG).
+        size_t GetRootParameterBindingCount() const;
+
+        /// Returns the root parameter binding for the flat index.
+        RootParameterBinding GetRootParameterBindingByIndex(size_t index) const;
+
+        /// Returns the root parameter index for the Root Constants.
+        RootParameterIndex GetRootConstantsRootParameterIndex() const;
+
+        /// Returns the SRG binding slot associated with the SRG flat index.
+        size_t GetSlotByIndex(size_t index) const;
+
+        /// Returns the SRG flat index associated with the SRG binding slot.
+        size_t GetIndexBySlot(size_t slot) const;
+
+        /// Returns whether this pipeline layout has inline constants.
+        bool HasRootConstants() const;
+
+        const RHI::PipelineLayoutDescriptor& GetPipelineLayoutDescriptor() const;
+
+        /// Returns the platform pipeline layout object.
+        ID3D12RootSignature* Get() const;
+
+        /// Returns the hash of the pipeline layout provided by the descriptor.
+        size_t GetHash() const;
+
+    private:
+        PipelineLayout(PipelineLayoutCache& parentPool);
+
+        //template <typename T>
+        //friend struct AZStd::IntrusivePtrCountPolicy;
+
+        //void add_ref() const;
+        //void release() const;
+
+        /// Tables for mapping between SRG slots (sparse) to SRG indices (packed).
+        eastl::array<uint8_t, RHI::Limits::Pipeline::ShaderResourceCountMax> m_slotToIndexTable;
+        eastl::fixed_vector<uint8_t, RHI::Limits::Pipeline::ShaderResourceCountMax> m_indexToSlotTable;
+
+        /// Table for mapping SRG index (packed) to Root Parameter Binding (DX12 command list bindings).
+        eastl::fixed_vector<RootParameterBinding, RHI::Limits::Pipeline::ShaderResourceCountMax> m_indexToRootParameterBindingTable;
+
+        /// Root Parameter Index for root constants.
+        RootParameterIndex m_rootConstantsRootParameterIndex;
+
+        /// Tracks whether this pipeline layout has inline constants.
+        bool m_hasRootConstants = false;
+
+        Ptr<ID3D12RootSignature> m_signature;
+        ConstPtr<RHI::PipelineLayoutDescriptor> m_layoutDescriptor;
+        size_t m_hash{ 0 };
+        PipelineLayoutCache* m_parentCache = nullptr;
+        // AZStd::atomic_bool m_isCompiled = {false};
+        // mutable AZStd::atomic_int m_useCount = {0};
+    };
+}
