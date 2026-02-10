@@ -9,6 +9,7 @@
 #include <RHI/Resource/Image/ImageEnums.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Pipeline/ShaderStages.h>
 #include <RHI/ClearValue.h>
 #include <RHI/MemoryEnums.h>
 
@@ -95,4 +96,6 @@ namespace Spark::RHI::DX12
     D3D12_COMPARISON_FUNC ConvertComparisonFunc(RHI::ComparisonFunc func);
     
     void ConvertSamplerState(const RHI::SamplerState& state, D3D12_SAMPLER_DESC& samplerDesc);
+
+    D3D12_SHADER_VISIBILITY ConvertShaderStageMask(RHI::ShaderStageMask mask);
 }

@@ -62,9 +62,9 @@ namespace Spark::RHI::DX12
      * Describes the shader stage mask for the
      * descriptor table used by the SRG.
      */
-    struct ShaderResourceGroupVisibility
+    struct ShaderResourceVisibility
     {
-        ShaderResourceGroupVisibility() = default;
+        ShaderResourceVisibility() = default;
 
         size_t GetHash(size_t seed = 0) const;
 
@@ -80,9 +80,9 @@ namespace Spark::RHI::DX12
 
         const RootConstantBinding& GetRootConstantBinding() const;
 
-        void AddShaderResourceGroupVisibility(const ShaderResourceGroupVisibility& shaderResourceGroupVisibility);
+        void AddShaderResourceVisibility(const ShaderResourceVisibility& shaderResourceVisibility);
 
-        const ShaderResourceGroupVisibility& GetShaderResourceGroupVisibility(uint32_t index) const;
+        const ShaderResourceVisibility& GetShaderResourceVisibility(uint32_t index) const;
 
     private:
         PipelineLayoutDescriptor() = default;
@@ -93,6 +93,6 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
 
         RootConstantBinding m_rootConstantBinding;
-        eastl::fixed_vector<ShaderResourceGroupVisibility, RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResourceGroupVisibilities;
+        eastl::fixed_vector<ShaderResourceVisibility, RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResourceVisibilities;
     };
 }

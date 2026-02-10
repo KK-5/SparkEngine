@@ -960,4 +960,35 @@ namespace Spark::RHI::DX12
         samplerDesc.MinLOD = uint8_t(state.m_mipLodMin);
         samplerDesc.MipLODBias = state.m_mipLodBias;
     }
+
+    D3D12_SHADER_VISIBILITY ConvertShaderStageMask(RHI::ShaderStageMask mask)
+    {
+        // If more than one stage is in the mask, we return the visibility for all stages
+        // since D3D12_SHADER_VISIBILITY is NOT a mask, but an enum per stage.
+        if (CountBitsSet(static_cast<uint64_t>(mask)) > 1)
+        {
+            return D3D12_SHADER_VISIBILITY_ALL;
+        }
+
+        switch (mask)
+        {
+        case RHI::ShaderStageMask::None:
+            // [GFX_TODO][ATOM-1696]The resource is unused. Not sure which stage to set here.
+            return D3D12_SHADER_VISIBILITY_ALL;
+        case RHI::ShaderStageMask::Vertex:
+            return D3D12_SHADER_VISIBILITY_VERTEX;
+        case RHI::ShaderStageMask::Geometry:
+            return D3D12_SHADER_VISIBILITY_GEOMETRY;
+        case RHI::ShaderStageMask::Fragment:
+            return D3D12_SHADER_VISIBILITY_PIXEL;
+        case RHI::ShaderStageMask::Compute:
+            // Compute always uses D3D12_SHADER_VISIBILITY_ALL (since there is only one active stage)
+            return D3D12_SHADER_VISIBILITY_ALL;
+        case RHI::ShaderStageMask::RayTracing:
+            return D3D12_SHADER_VISIBILITY_ALL;
+        default:
+            ASSERT(false, "Invalid shader stage mask %d", static_cast<uint32_t>(mask));
+            return D3D12_SHADER_VISIBILITY_ALL;
+        }
+    }
 }

@@ -10,8 +10,8 @@
 #include <EASTL/array.h>
 #include <EASTL/fixed_vector.h>
 
+#include <RHI/Device/DeviceObject.h>
 #include <DX12.h>
-
 #include "PipelineLayoutDescriptor.h"
 
 
@@ -26,15 +26,17 @@ namespace Spark::RHI::DX12
      * When all references to a particular instance are destroyed, the object is unregistered from the cache.
      * Therefore, ownership is still managed by the application and the cache doesn't grow unbounded.
      */
-    class PipelineLayout final
+    class PipelineLayout final : public RHI::DeviceObject
     {
-        friend class PipelineLayoutCache;
+        // friend class PipelineLayoutCache;
     public:
         PipelineLayout() = default;
-        ~PipelineLayout();
+        ~PipelineLayout() = default;
 
         /// Initializes the pipeline layout.
-        void Init(ID3D12DeviceX* dx12Device, const RHI::PipelineLayoutDescriptor& descriptor);
+        void Init(Device& device, const RHI::PipelineLayoutDescriptor& descriptor);
+
+        void Shutdown() override;
 
         /// Returns the number of root parameter bindings (1-to-1 with SRG).
         size_t GetRootParameterBindingCount() const;
@@ -63,13 +65,28 @@ namespace Spark::RHI::DX12
         size_t GetHash() const;
 
     private:
-        PipelineLayout(PipelineLayoutCache& parentPool);
+        // PipelineLayout(PipelineLayoutCache& parentPool);
 
         //template <typename T>
         //friend struct AZStd::IntrusivePtrCountPolicy;
 
         //void add_ref() const;
         //void release() const;
+
+        void BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);
+
+        void BuildShaderResourceConstants(
+            const PipelineLayoutDescriptor* desc,
+            const eastl::vector<uint8_t>& sortedIndex,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters
+        );
+
+        void BuildShaderResourceBuffersAndImages(
+            const PipelineLayoutDescriptor* desc,
+            const eastl::vector<uint8_t>& sortedIndex,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
+            eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
+        );
 
         /// Tables for mapping between SRG slots (sparse) to SRG indices (packed).
         eastl::array<uint8_t, RHI::Limits::Pipeline::ShaderResourceCountMax> m_slotToIndexTable;
@@ -87,7 +104,8 @@ namespace Spark::RHI::DX12
         Ptr<ID3D12RootSignature> m_signature;
         ConstPtr<RHI::PipelineLayoutDescriptor> m_layoutDescriptor;
         size_t m_hash{ 0 };
-        PipelineLayoutCache* m_parentCache = nullptr;
+        // PipelineLayoutCache* m_parentCache = nullptr;
+        ID3D12DeviceX* m_d3d12Device;
         // AZStd::atomic_bool m_isCompiled = {false};
         // mutable AZStd::atomic_int m_useCount = {0};
     };

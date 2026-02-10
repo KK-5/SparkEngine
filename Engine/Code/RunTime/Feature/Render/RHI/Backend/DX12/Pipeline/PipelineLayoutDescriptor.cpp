@@ -29,7 +29,7 @@ namespace Spark::RHI::DX12
         return seed;
     }
 
-    size_t ShaderResourceGroupVisibility::GetHash(size_t seed) const
+    size_t ShaderResourceVisibility::GetHash(size_t seed) const
     {
         eastl::hash_combine(seed, m_descriptorTableShaderStageMask);
         return seed;
@@ -45,20 +45,20 @@ namespace Spark::RHI::DX12
         return m_rootConstantBinding;
     }
 
-    void PipelineLayoutDescriptor::AddShaderResourceGroupVisibility(const ShaderResourceGroupVisibility& shaderResourceGroupVisibility)
+    void PipelineLayoutDescriptor::AddShaderResourceVisibility(const ShaderResourceVisibility& shaderResourceVisibility)
     {
-        m_shaderResourceGroupVisibilities.push_back(shaderResourceGroupVisibility);
+        m_shaderResourceVisibilities.push_back(shaderResourceVisibility);
     }
 
-    const ShaderResourceGroupVisibility& PipelineLayoutDescriptor::GetShaderResourceGroupVisibility(uint32_t index) const
+    const ShaderResourceVisibility& PipelineLayoutDescriptor::GetShaderResourceVisibility(uint32_t index) const
     {
-        return m_shaderResourceGroupVisibilities[index];
+        return m_shaderResourceVisibilities[index];
     }
 
     size_t PipelineLayoutDescriptor::GetHashInternal(size_t seed) const
     {
         eastl::hash_combine_raw(seed, m_rootConstantBinding.GetHash());
-        for (const auto& visibility : m_shaderResourceGroupVisibilities)
+        for (const auto& visibility : m_shaderResourceVisibilities)
         {
             eastl::hash_combine_raw(seed, visibility.GetHash());
         }
