@@ -5,6 +5,12 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
+
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Remove the PipelineLayoutCache. D3D12Factory will manager the PipelineLayout object.
+ */
+
 #pragma once
 
 #include <EASTL/array.h>
@@ -18,7 +24,6 @@
 namespace Spark::RHI::DX12
 {
     class Device;
-    class PipelineLayoutCache;
 
     /**
      * PipelineLayouts are created from a cache. They are internally de-duplicated using the hash value computed
@@ -65,14 +70,6 @@ namespace Spark::RHI::DX12
         size_t GetHash() const;
 
     private:
-        // PipelineLayout(PipelineLayoutCache& parentPool);
-
-        //template <typename T>
-        //friend struct AZStd::IntrusivePtrCountPolicy;
-
-        //void add_ref() const;
-        //void release() const;
-
         void BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);
 
         void BuildShaderResourceConstants(
@@ -86,6 +83,20 @@ namespace Spark::RHI::DX12
             const eastl::vector<uint8_t>& sortedIndex,
             eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
             eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
+        );
+
+        void BuildShaderResourceSamplers(
+            const PipelineLayoutDescriptor* desc,
+            const eastl::vector<uint8_t>& sortedIndex,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
+            eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
+        );
+
+        void BuildStaticSamplers(
+            const PipelineLayoutDescriptor* desc, 
+            const eastl::vector<uint8_t>& sortedIndex,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters, 
+            eastl::vector<D3D12_STATIC_SAMPLER_DESC> staticSamplers
         );
 
         /// Tables for mapping between SRG slots (sparse) to SRG indices (packed).
@@ -104,9 +115,6 @@ namespace Spark::RHI::DX12
         Ptr<ID3D12RootSignature> m_signature;
         ConstPtr<RHI::PipelineLayoutDescriptor> m_layoutDescriptor;
         size_t m_hash{ 0 };
-        // PipelineLayoutCache* m_parentCache = nullptr;
         ID3D12DeviceX* m_d3d12Device;
-        // AZStd::atomic_bool m_isCompiled = {false};
-        // mutable AZStd::atomic_int m_useCount = {0};
     };
 }

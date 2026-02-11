@@ -6,6 +6,11 @@
  *
  */
 
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Remove the PipelineLayoutCache. D3D12Factory will manager the PipelineLayout object.
+ */
+
 #include "PipelineLayout.h"
 
 #include <EASTL/vector.h>
@@ -20,7 +25,9 @@ namespace Spark::RHI::DX12
     void PipelineLayout::Shutdown()
     {
         m_d3d12Device = nullptr;
+        m_layoutDescriptor = nullptr;
         m_hash = 0;
+        m_signature.reset();
         DeviceObject::Shutdown();
     }
 
@@ -155,6 +162,77 @@ namespace Spark::RHI::DX12
         }
     }
 
+    void PipelineLayout::BuildShaderResourceSamplers(
+        const PipelineLayoutDescriptor* desc,
+        const eastl::vector<uint8_t>& sortedIndex,
+        eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
+        eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
+    )
+    {
+        for (const uint32_t groupLayoutIndex : sortedIndex)
+        {
+            const RHI::ShaderResourceLayout& groupLayout = *desc->GetShaderResourceLayout(groupLayoutIndex);
+            const RHI::ShaderResourceBindingInfo& groupBindInfo = desc->GetShaderResourceBindingInfo(groupLayoutIndex);
+            const ShaderResourceVisibility& groupVisibility = desc->GetShaderResourceVisibility(groupLayoutIndex);
+
+            if (groupLayout.GetSamplersSize())
+            {
+                for (const RHI::ShaderInputSamplerDescriptor& shaderInputSampler : groupLayout.GetShaderInputListForSamplers())
+                {
+                    auto findIt = groupBindInfo.m_resourcesRegisterMap.find(shaderInputSampler.m_name);
+                    ASSERT(findIt != groupBindInfo.m_resourcesRegisterMap.end(), "Could not find register for shader input %s", shaderInputSampler.m_name.GetCStr());
+
+                    const RHI::ResourceBindingInfo& bindingInfo = findIt->second;
+                    D3D12_DESCRIPTOR_RANGE descriptorRange;
+                    descriptorRange.RegisterSpace = bindingInfo.m_spaceId;
+                    descriptorRange.NumDescriptors = shaderInputSampler.m_count;
+                    descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+                    descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+                    descriptorRange.BaseShaderRegister = bindingInfo.m_registerId;
+                    descriptorRanges[groupLayoutIndex].push_back(descriptorRange);
+                }
+
+                D3D12_ROOT_PARAMETER parameter;
+                parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+                parameter.ShaderVisibility = ConvertShaderStageMask(groupVisibility.m_descriptorTableShaderStageMask);
+                parameter.DescriptorTable.NumDescriptorRanges = static_cast<UINT>(descriptorRanges[groupLayoutIndex].size());
+                parameter.DescriptorTable.pDescriptorRanges = descriptorRanges[groupLayoutIndex].data();
+
+                m_indexToRootParameterBindingTable[groupLayoutIndex].m_samplerTable = RootParameterIndex(parameters.size());
+                parameters.push_back(parameter);
+            }
+        }
+    }
+
+    void PipelineLayout::BuildStaticSamplers(
+        const PipelineLayoutDescriptor* desc,
+        const eastl::vector<uint8_t>& sortedIndex,
+        eastl::vector<D3D12_ROOT_PARAMETER>& parameters, 
+        eastl::vector<D3D12_STATIC_SAMPLER_DESC> staticSamplers
+    )
+    {
+        for (const uint32_t groupLayoutIndex : sortedIndex)
+        {
+            const RHI::ShaderResourceLayout& groupLayout = *desc->GetShaderResourceLayout(groupLayoutIndex);
+            const RHI::ShaderResourceBindingInfo& groupBindInfo = desc->GetShaderResourceBindingInfo(groupLayoutIndex);
+
+            for (const RHI::ShaderInputStaticSamplerDescriptor& samplerInput : groupLayout.GetStaticSamplers())
+            {
+                auto findRegisterIt = groupBindInfo.m_resourcesRegisterMap.find(samplerInput.m_name);
+                ASSERT(findRegisterIt != groupBindInfo.m_resourcesRegisterMap.end(), "Could not find register for shader input %s", samplerInput.m_name.GetCStr());
+                
+                const RHI::ResourceBindingInfo& bindingInfo = findRegisterIt->second;
+                D3D12_STATIC_SAMPLER_DESC desc;
+                ConvertStaticSampler(
+                    samplerInput.m_samplerState, bindingInfo.m_registerId, bindingInfo.m_spaceId,
+                    ConvertShaderStageMask(bindingInfo.m_shaderStageMask), desc);
+
+                staticSamplers.push_back(desc);
+            }
+        }
+    }
+
     void PipelineLayout::Init(Device& device, const RHI::PipelineLayoutDescriptor& descriptor)
     {
         m_hash = descriptor.GetHash();
@@ -166,7 +244,10 @@ namespace Spark::RHI::DX12
 
         eastl::vector<D3D12_ROOT_PARAMETER> parameters;
         eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[RHI::Limits::Pipeline::ShaderResourceCountMax];
+        ////////////////////////////
+        // not use
         eastl::vector<D3D12_DESCRIPTOR_RANGE> unboundedArraydescriptorRanges[RHI::Limits::Pipeline::ShaderResourceCountMax];
+        ////////////////////////////
         eastl::vector<D3D12_DESCRIPTOR_RANGE> samplerDescriptorRanges[RHI::Limits::Pipeline::ShaderResourceCountMax];
         eastl::vector<D3D12_STATIC_SAMPLER_DESC> staticSamplers;
 
@@ -209,8 +290,38 @@ namespace Spark::RHI::DX12
 
         // Next, front-load by frequency the SRG Constants. Each SRG with Constants adds a constant buffer entry as root parameters of the root signature.
         BuildShaderResourceConstants(dx12Descriptor, indexesSortedByFrequency, parameters);
+
+        // Next, process the remaining descriptor tables by frequency.
+        BuildShaderResourceBuffersAndImages(dx12Descriptor, indexesSortedByFrequency, parameters, descriptorRanges);
+
+        // Next, process the dynamic sampler descriptor tables by frequency. Sampler can't be mixed with other resources
+        BuildShaderResourceSamplers(dx12Descriptor, indexesSortedByFrequency, parameters, samplerDescriptorRanges);
+
+        // Last, process by frequency the static samplers
+        BuildStaticSamplers(dx12Descriptor, indexesSortedByFrequency, parameters, staticSamplers);
+
+        D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        rootSignatureDesc.NumParameters = static_cast<uint32_t>(parameters.size());
+        rootSignatureDesc.pParameters = parameters.data();
+        rootSignatureDesc.NumStaticSamplers = static_cast<uint32_t>(staticSamplers.size());
+        rootSignatureDesc.pStaticSamplers = staticSamplers.data();
+
+        Microsoft::WRL::ComPtr<ID3DBlob> pOutBlob, pErrorBlob;
+        D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, pOutBlob.GetAddressOf(), pErrorBlob.GetAddressOf());
+        ASSERT(pOutBlob, "Failed to serialize root signature: ErrorBlob [{}]", pErrorBlob ? reinterpret_cast<const char*>(pErrorBlob->GetBufferPointer()) : "No error data returned");
+
+        Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature;
+        HRESULT result = m_d3d12Device->CreateRootSignature(1, pOutBlob->GetBufferPointer(), pOutBlob->GetBufferSize(), IID_PPV_ARGS(rootSignature.GetAddressOf()));
+        ASSERT(result == S_OK, "Failed to create root signature");
+        m_signature = rootSignature.Get();
         
         DeviceObject::Init(device);
+    }
+
+    bool PipelineLayout::HasRootConstants() const
+    {
+        return m_hasRootConstants;
     }
 
     size_t PipelineLayout::GetRootParameterBindingCount() const

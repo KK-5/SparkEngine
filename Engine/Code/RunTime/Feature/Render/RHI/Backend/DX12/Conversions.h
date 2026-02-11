@@ -9,7 +9,9 @@
 #include <RHI/Resource/Image/ImageEnums.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Resource/ShaderResource/InputStreamLayout.h>
 #include <RHI/Pipeline/ShaderStages.h>
+#include <RHI/Pipeline/RenderStates.h>
 #include <RHI/ClearValue.h>
 #include <RHI/MemoryEnums.h>
 
@@ -98,4 +100,21 @@ namespace Spark::RHI::DX12
     void ConvertSamplerState(const RHI::SamplerState& state, D3D12_SAMPLER_DESC& samplerDesc);
 
     D3D12_SHADER_VISIBILITY ConvertShaderStageMask(RHI::ShaderStageMask mask);
+
+    void ConvertStaticSampler(
+        const RHI::SamplerState& state,
+        uint32_t shaderRegister,
+        uint32_t shaderRegisterSpace,
+        D3D12_SHADER_VISIBILITY shaderVisibility,
+        D3D12_STATIC_SAMPLER_DESC& staticSamplerDesc);
+
+    eastl::vector<D3D12_INPUT_ELEMENT_DESC> ConvertInputElements(const RHI::InputStreamLayout& layout);
+
+    D3D12_PRIMITIVE_TOPOLOGY_TYPE ConvertToTopologyType(RHI::PrimitiveTopology type);
+
+    D3D12_BLEND_DESC ConvertBlendState(const RHI::BlendState& blend);
+
+    D3D12_RASTERIZER_DESC ConvertRasterState(const RHI::RasterState& raster);
+
+    D3D12_DEPTH_STENCIL_DESC ConvertDepthStencilState(const RHI::DepthStencilState& depthStencil);
 }

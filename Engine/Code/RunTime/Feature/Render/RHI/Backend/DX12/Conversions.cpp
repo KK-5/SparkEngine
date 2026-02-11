@@ -917,6 +917,20 @@ namespace Spark::RHI::DX12
         }
     }
 
+    D3D12_STATIC_BORDER_COLOR ConvertBorderColor(RHI::BorderColor color)
+    {
+        switch (color)
+        {
+        case RHI::BorderColor::OpaqueBlack:
+            return D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+        case RHI::BorderColor::TransparentBlack:
+            return D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+        case RHI::BorderColor::OpaqueWhite:
+            return D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+        }
+        return D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    }
+
     D3D12_COMPARISON_FUNC ConvertComparisonFunc(RHI::ComparisonFunc func)
     {
         static const D3D12_COMPARISON_FUNC table[] =
@@ -989,6 +1003,79 @@ namespace Spark::RHI::DX12
         default:
             ASSERT(false, "Invalid shader stage mask %d", static_cast<uint32_t>(mask));
             return D3D12_SHADER_VISIBILITY_ALL;
+        }
+    }
+
+    void ConvertStaticSampler(
+        const RHI::SamplerState& state,
+        uint32_t shaderRegister,
+        uint32_t shaderRegisterSpace,
+        D3D12_SHADER_VISIBILITY shaderVisibility,
+        D3D12_STATIC_SAMPLER_DESC& staticSamplerDesc)
+    {
+        D3D12_SAMPLER_DESC samplerDesc;
+        ConvertSamplerState(state, samplerDesc);
+
+        staticSamplerDesc.AddressU = samplerDesc.AddressU;
+        staticSamplerDesc.AddressV = samplerDesc.AddressV;
+        staticSamplerDesc.AddressW = samplerDesc.AddressW;
+        staticSamplerDesc.BorderColor = ConvertBorderColor(state.m_borderColor);
+        staticSamplerDesc.ComparisonFunc = samplerDesc.ComparisonFunc;
+        staticSamplerDesc.Filter = samplerDesc.Filter;
+        staticSamplerDesc.MaxAnisotropy = samplerDesc.MaxAnisotropy;
+        staticSamplerDesc.MaxLOD = samplerDesc.MaxLOD;
+        staticSamplerDesc.MinLOD = samplerDesc.MinLOD;
+        staticSamplerDesc.MipLODBias = samplerDesc.MipLODBias;
+        staticSamplerDesc.ShaderRegister = shaderRegister;
+        staticSamplerDesc.RegisterSpace = shaderRegisterSpace;
+        staticSamplerDesc.ShaderVisibility = shaderVisibility;
+    }
+
+    eastl::vector<D3D12_INPUT_ELEMENT_DESC> ConvertInputElements(const RHI::InputStreamLayout& layout)
+    {
+        eastl::vector<D3D12_INPUT_ELEMENT_DESC> result;
+        result.reserve(layout.GetStreamChannels().size());
+
+        for (size_t i = 0; i < layout.GetStreamChannels().size(); ++i)
+        {
+            const RHI::StreamChannelDescriptor& channel = layout.GetStreamChannels()[i];
+            const RHI::StreamBufferDescriptor& buffer = layout.GetStreamBuffers()[channel.m_bufferIndex];
+
+            result.emplace_back();
+
+            D3D12_INPUT_ELEMENT_DESC& desc = result.back();
+            desc.SemanticName = channel.m_semantic.m_name.GetCStr();
+            desc.SemanticIndex = channel.m_semantic.m_index;
+            desc.AlignedByteOffset = channel.m_byteOffset;
+            desc.InputSlot = channel.m_bufferIndex;
+            desc.InputSlotClass = (buffer.m_stepFunction == RHI::StreamStepFunction::PerVertex) ? D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA : D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA;
+            desc.InstanceDataStepRate = (buffer.m_stepFunction != RHI::StreamStepFunction::PerVertex) ? buffer.m_stepRate : 0;
+            desc.Format = ConvertFormat(channel.m_format);
+        }
+
+        return result;
+    }
+
+    D3D12_PRIMITIVE_TOPOLOGY_TYPE ConvertToTopologyType(RHI::PrimitiveTopology topology)
+    {
+        switch(topology)
+        {
+        case RHI::PrimitiveTopology::PointList:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+        case RHI::PrimitiveTopology::LineList:
+        case RHI::PrimitiveTopology::LineStrip:
+        case RHI::PrimitiveTopology::LineStripAdj:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+        case RHI::PrimitiveTopology::TriangleList:
+        case RHI::PrimitiveTopology::TriangleListAdj:
+        case RHI::PrimitiveTopology::TriangleStrip:
+        case RHI::PrimitiveTopology::TriangleStripAdj:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        case RHI::PrimitiveTopology::PatchList:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+        case RHI::PrimitiveTopology::Undefined:
+        default:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
         }
     }
 }

@@ -113,6 +113,11 @@ namespace Spark::RHI
         return StreamBufferInternal(request);
     }
 
+    void BufferPool::BufferCopy(void* destination, const void* source, size_t num)
+    {
+        memcpy(destination, source, num);
+    }
+
     const BufferPoolDescriptor& BufferPool::GetDescriptor() const
     {
         return m_descriptor;
