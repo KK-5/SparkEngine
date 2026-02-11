@@ -439,11 +439,11 @@ namespace Spark::RHI
             return false;
         }
 
-        if (m_bindingSlot >= Limits::Pipeline::ShaderResourceGroupCountMax)
+        if (m_bindingSlot >= Limits::Pipeline::ShaderResourceCountMax)
         {
             LOG_ERROR("[ShaderResourceGroupLayout]"
                 "Binding index ({}) must be less than the maximum number of allowed shader resource groups ({})",
-                m_bindingSlot, Limits::Pipeline::ShaderResourceGroupCountMax);
+                m_bindingSlot, Limits::Pipeline::ShaderResourceCountMax);
             Clear();
             return false;
         }

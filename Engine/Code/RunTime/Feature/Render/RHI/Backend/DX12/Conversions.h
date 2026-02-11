@@ -112,9 +112,23 @@ namespace Spark::RHI::DX12
 
     D3D12_PRIMITIVE_TOPOLOGY_TYPE ConvertToTopologyType(RHI::PrimitiveTopology type);
 
+    D3D12_BLEND ConvertBlendFactor(RHI::BlendFactor factor);
+
+    D3D12_BLEND_OP ConvertBlendOp(RHI::BlendOp op);
+
+    uint8_t ConvertColorWriteMask(uint8_t writeMask);
+
     D3D12_BLEND_DESC ConvertBlendState(const RHI::BlendState& blend);
 
+    D3D12_CULL_MODE ConvertCullMode(RHI::CullMode mode);
+
+    D3D12_FILL_MODE ConvertFillMode(RHI::FillMode mode);
+
     D3D12_RASTERIZER_DESC ConvertRasterState(const RHI::RasterState& raster);
+
+    D3D12_STENCIL_OP ConvertStencilOp(RHI::StencilOp op);
+
+    D3D12_DEPTH_WRITE_MASK ConvertDepthWriteMask(RHI::DepthWriteMask mask);
 
     D3D12_DEPTH_STENCIL_DESC ConvertDepthStencilState(const RHI::DepthStencilState& depthStencil);
 }

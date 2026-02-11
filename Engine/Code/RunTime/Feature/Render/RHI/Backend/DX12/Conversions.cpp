@@ -1078,4 +1078,184 @@ namespace Spark::RHI::DX12
             return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
         }
     }
+
+    D3D12_BLEND_OP ConvertBlendOp(RHI::BlendOp op)
+    {
+        static const D3D12_BLEND_OP table[] =
+        {
+            D3D12_BLEND_OP_ADD,
+            D3D12_BLEND_OP_SUBTRACT,
+            D3D12_BLEND_OP_REV_SUBTRACT,
+            D3D12_BLEND_OP_MIN,
+            D3D12_BLEND_OP_MAX
+        };
+
+        return table[(uint32_t)op];
+    }
+
+    D3D12_BLEND ConvertBlendFactor(RHI::BlendFactor factor)
+    {
+        static const D3D12_BLEND table[] =
+        {
+            D3D12_BLEND_ZERO,
+            D3D12_BLEND_ONE,
+            D3D12_BLEND_SRC_COLOR,
+            D3D12_BLEND_INV_SRC_COLOR,
+            D3D12_BLEND_SRC_ALPHA,
+            D3D12_BLEND_INV_SRC_ALPHA,
+            D3D12_BLEND_DEST_ALPHA,
+            D3D12_BLEND_INV_DEST_ALPHA,
+            D3D12_BLEND_DEST_COLOR,
+            D3D12_BLEND_INV_DEST_COLOR,
+            D3D12_BLEND_SRC_ALPHA_SAT,
+            D3D12_BLEND_BLEND_FACTOR,
+            D3D12_BLEND_INV_BLEND_FACTOR,
+            D3D12_BLEND_SRC1_COLOR,
+            D3D12_BLEND_INV_SRC1_COLOR,
+            D3D12_BLEND_SRC1_ALPHA,
+            D3D12_BLEND_INV_SRC1_ALPHA
+        };
+
+        return table[(uint32_t)factor];
+    }
+
+    uint8_t ConvertColorWriteMask(uint8_t writeMask)
+    {            
+        uint8_t dflags = 0;
+        if(writeMask == 0)
+        {
+            return dflags;
+        }
+        
+        if(CheckBitsAll(writeMask, static_cast<uint8_t>(RHI::WriteChannelMask::ColorWriteMaskAll)))
+        {
+            return D3D12_COLOR_WRITE_ENABLE_ALL;
+        }
+        
+        if (CheckBitsAny(writeMask, static_cast<uint8_t>(RHI::WriteChannelMask::ColorWriteMaskRed)))
+        {
+            dflags |= D3D12_COLOR_WRITE_ENABLE_RED;
+        }
+        if (CheckBitsAny(writeMask, static_cast<uint8_t>(RHI::WriteChannelMask::ColorWriteMaskGreen)))
+        {
+            dflags |= D3D12_COLOR_WRITE_ENABLE_GREEN;
+        }
+        if (CheckBitsAny(writeMask, static_cast<uint8_t>(RHI::WriteChannelMask::ColorWriteMaskBlue)))
+        {
+            dflags |= D3D12_COLOR_WRITE_ENABLE_BLUE;
+        }
+        if (CheckBitsAny(writeMask, static_cast<uint8_t>(RHI::WriteChannelMask::ColorWriteMaskAlpha)))
+        {
+            dflags |= D3D12_COLOR_WRITE_ENABLE_ALPHA;
+        }
+        return dflags;
+    }
+
+    D3D12_BLEND_DESC ConvertBlendState(const RHI::BlendState& blend)
+    {
+        D3D12_BLEND_DESC desc;
+        desc.AlphaToCoverageEnable = blend.m_alphaToCoverageEnable;
+        desc.IndependentBlendEnable = blend.m_independentBlendEnable;
+
+        for (uint32_t i = 0; i < 8; ++i)
+        {
+            const RHI::TargetBlendState& src = blend.m_targets[i];
+            D3D12_RENDER_TARGET_BLEND_DESC& dst = desc.RenderTarget[i];
+
+            dst.BlendEnable = src.m_enable;
+            dst.BlendOp = ConvertBlendOp(src.m_blendOp);
+            dst.BlendOpAlpha = ConvertBlendOp(src.m_blendAlphaOp);
+            dst.DestBlend = ConvertBlendFactor(src.m_blendDest);
+            dst.DestBlendAlpha = ConvertBlendFactor(src.m_blendAlphaDest);
+            dst.RenderTargetWriteMask = ConvertColorWriteMask(static_cast<uint8_t>(src.m_writeMask));
+            dst.SrcBlend = ConvertBlendFactor(src.m_blendSource);
+            dst.SrcBlendAlpha = ConvertBlendFactor(src.m_blendAlphaSource);
+            dst.LogicOp = D3D12_LOGIC_OP_CLEAR;
+            dst.LogicOpEnable = false;
+        }
+        return desc;
+    }
+
+    D3D12_CULL_MODE ConvertCullMode(RHI::CullMode mode)
+    {
+        static const D3D12_CULL_MODE table[] =
+        {
+            D3D12_CULL_MODE_NONE,
+            D3D12_CULL_MODE_FRONT,
+            D3D12_CULL_MODE_BACK
+        };
+        return table[(uint32_t)mode];
+    }
+
+    D3D12_FILL_MODE ConvertFillMode(RHI::FillMode mode)
+    {
+        static const D3D12_FILL_MODE table[] =
+        {
+            D3D12_FILL_MODE_SOLID,
+            D3D12_FILL_MODE_WIREFRAME
+        };
+        return table[(uint32_t)mode];
+    }
+
+    D3D12_RASTERIZER_DESC ConvertRasterState(const RHI::RasterState& raster)
+    {
+        D3D12_RASTERIZER_DESC desc = {};
+        desc.FrontCounterClockwise = true;
+        desc.CullMode = ConvertCullMode(raster.m_cullMode);
+        desc.DepthBias = raster.m_depthBias;
+        desc.DepthBiasClamp = raster.m_depthBiasClamp;
+        desc.SlopeScaledDepthBias = raster.m_depthBiasSlopeScale;
+        desc.DepthClipEnable = raster.m_depthClipEnable;
+        desc.FillMode = ConvertFillMode(raster.m_fillMode);
+        desc.MultisampleEnable = raster.m_multisampleEnable;
+        desc.ConservativeRaster = raster.m_conservativeRasterEnable ? D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON : D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+        desc.ForcedSampleCount = raster.m_forcedSampleCount;
+        return desc;
+    }
+
+    D3D12_STENCIL_OP ConvertStencilOp(RHI::StencilOp op)
+    {
+        static const D3D12_STENCIL_OP table[] =
+        {
+            D3D12_STENCIL_OP_KEEP,
+            D3D12_STENCIL_OP_ZERO,
+            D3D12_STENCIL_OP_REPLACE,
+            D3D12_STENCIL_OP_INCR_SAT,
+            D3D12_STENCIL_OP_DECR_SAT,
+            D3D12_STENCIL_OP_INVERT,
+            D3D12_STENCIL_OP_INCR,
+            D3D12_STENCIL_OP_DECR
+        };
+        return table[(uint32_t)op];
+    }
+
+    D3D12_DEPTH_WRITE_MASK ConvertDepthWriteMask(RHI::DepthWriteMask mask)
+    {
+        static const D3D12_DEPTH_WRITE_MASK table[] =
+        {
+            D3D12_DEPTH_WRITE_MASK_ZERO,
+            D3D12_DEPTH_WRITE_MASK_ALL
+        };
+        return table[(uint32_t)mask];
+    }
+
+    D3D12_DEPTH_STENCIL_DESC ConvertDepthStencilState(const RHI::DepthStencilState& depthStencil)
+    {
+        D3D12_DEPTH_STENCIL_DESC desc;
+        desc.BackFace.StencilDepthFailOp = ConvertStencilOp(depthStencil.m_stencil.m_backFace.m_depthFailOp);
+        desc.BackFace.StencilFailOp = ConvertStencilOp(depthStencil.m_stencil.m_backFace.m_failOp);
+        desc.BackFace.StencilPassOp = ConvertStencilOp(depthStencil.m_stencil.m_backFace.m_passOp);
+        desc.BackFace.StencilFunc = ConvertComparisonFunc(depthStencil.m_stencil.m_backFace.m_func);
+        desc.FrontFace.StencilDepthFailOp = ConvertStencilOp(depthStencil.m_stencil.m_frontFace.m_depthFailOp);
+        desc.FrontFace.StencilFailOp = ConvertStencilOp(depthStencil.m_stencil.m_frontFace.m_failOp);
+        desc.FrontFace.StencilPassOp = ConvertStencilOp(depthStencil.m_stencil.m_frontFace.m_passOp);
+        desc.FrontFace.StencilFunc = ConvertComparisonFunc(depthStencil.m_stencil.m_frontFace.m_func);
+        desc.DepthEnable = depthStencil.m_depth.m_enable;
+        desc.DepthFunc = ConvertComparisonFunc(depthStencil.m_depth.m_func);
+        desc.DepthWriteMask = ConvertDepthWriteMask(depthStencil.m_depth.m_writeMask);
+        desc.StencilEnable = depthStencil.m_stencil.m_enable;
+        desc.StencilReadMask = static_cast<UINT8>(depthStencil.m_stencil.m_readMask);
+        desc.StencilWriteMask = static_cast<UINT8>(depthStencil.m_stencil.m_writeMask);
+        return desc;
+    }
 }
