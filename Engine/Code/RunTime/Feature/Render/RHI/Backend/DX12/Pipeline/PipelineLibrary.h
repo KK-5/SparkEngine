@@ -19,7 +19,7 @@
 
 namespace Spark::RHI::DX12
 {
-    class PipelineLibrary final : RHI::PipelineLibrary
+    class PipelineLibrary final : public RHI::PipelineLibrary
     {
     public:
         Ptr<ID3D12PipelineState> CreateGraphicsPipelineState(uint64_t hash, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& pipelineStateDesc);

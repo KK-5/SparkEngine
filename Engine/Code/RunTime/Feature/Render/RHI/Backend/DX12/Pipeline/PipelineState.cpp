@@ -9,12 +9,14 @@
 #include "PipelineState.h"
 
 #include <EASTL/vector.h>
+#include <Log/SpdLogSystem.h>
 
 #include <D3D12Factory.h>
 #include <Device/Device.h>
 #include <Conversions.h>
 
 #include "ShaderStageFunction.h"
+#include "PipelineLibrary.h"
 
 namespace Spark::RHI::DX12
 {
@@ -38,7 +40,7 @@ namespace Spark::RHI::DX12
         return D3D12_SHADER_BYTECODE{ view.data(), view.size() };
     }
 
-    RHI::ResultCode InitInternal(RHI::Device& deviceBase, const RHI::PipelineStateDescriptorForDraw& descriptor, RHI::PipelineLibrary* pipelineLibrary)
+    RHI::ResultCode PipelineState::InitInternal(RHI::Device& deviceBase, const RHI::PipelineStateDescriptorForDraw& descriptor, RHI::PipelineLibrary* pipelineLibraryBase)
     {
         Device& device = static_cast<Device&>(deviceBase);
 
@@ -51,8 +53,9 @@ namespace Spark::RHI::DX12
         // Shader state.
         Ptr<PipelineLayout> pipelineLayout = Service<D3D12FactoryInterface>::Get()->CreatePipelineLayout();
         pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
+        pipelineStateDesc.pRootSignature = pipelineLayout->Get();
 
-        eastl::vector<ShaderByteCode> shaderByteCodeCache;
+        // eastl::vector<ShaderByteCode> shaderByteCodeCache;
         const ShaderStageFunction* vertexFunction = static_cast<const ShaderStageFunction*>(descriptor.m_vertexFunction.get());
         pipelineStateDesc.VS = D3D12BytecodeFromView(vertexFunction->GetByteCode());
         const ShaderStageFunction* geometryFunction = static_cast<const ShaderStageFunction*>(descriptor.m_geometryFunction.get());
@@ -80,5 +83,106 @@ namespace Spark::RHI::DX12
         pipelineStateDesc.RasterizerState = ConvertRasterState(descriptor.m_renderStates.m_rasterState);
         pipelineStateDesc.DepthStencilState = ConvertDepthStencilState(descriptor.m_renderStates.m_depthStencilState);
 
+        PipelineLibrary* pipelineLibrary = static_cast<PipelineLibrary*>(pipelineLibraryBase);
+
+        Ptr<ID3D12PipelineState> pipelineState;
+        if (pipelineLibrary && pipelineLibrary->IsInitialized())
+        {
+            pipelineState = pipelineLibrary->CreateGraphicsPipelineState(static_cast<uint64_t>(descriptor.GetHash()), pipelineStateDesc);
+        }
+        else
+        {
+            Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStateComPtr;
+            HRESULT result = device.GetDevice()->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(pipelineStateComPtr.GetAddressOf()));
+            if (SUCCEEDED(result))
+            {
+                pipelineState = pipelineStateComPtr.Get();
+            }
+        }
+
+        if (pipelineState)
+        {
+            m_pipelineLayout = eastl::move(pipelineLayout);
+            m_pipelineState = eastl::move(pipelineState);
+            m_pipelineStateData.m_type = RHI::PipelineStateType::Draw;
+            m_pipelineStateData.m_drawData = PipelineStateDrawData{ descriptor.m_renderStates.m_multisampleState, descriptor.m_inputStreamLayout.GetTopology() };
+            return RHI::ResultCode::Success;
+        }
+        else
+        {
+            LOG_ERROR("[PipelineState] Failed to compile graphics pipeline state. Check the D3D12 debug layer for more info.");
+            return RHI::ResultCode::Fail;
+        }
+    }
+
+    RHI::ResultCode PipelineState::InitInternal(RHI::Device& deviceBase, const RHI::PipelineStateDescriptorForDispatch& descriptor, RHI::PipelineLibrary* pipelineLibraryBase)
+    {
+        Device& device = static_cast<Device&>(deviceBase);
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pipelineStateDesc = {};
+        pipelineStateDesc.NodeMask = 1;
+
+        // Shader state.
+        Ptr<PipelineLayout> pipelineLayout = Service<D3D12FactoryInterface>::Get()->CreatePipelineLayout();
+        pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
+        pipelineStateDesc.pRootSignature = pipelineLayout->Get();
+
+        const ShaderStageFunction* computeFunction = static_cast<const ShaderStageFunction*>(descriptor.m_computeFunction.get());
+        pipelineStateDesc.CS = D3D12BytecodeFromView(computeFunction->GetByteCode());
+
+        PipelineLibrary* pipelineLibrary = static_cast<PipelineLibrary*>(pipelineLibraryBase);
+
+        Ptr<ID3D12PipelineState> pipelineState;
+        if (pipelineLibrary && pipelineLibrary->IsInitialized())
+        {
+            pipelineState = pipelineLibrary->CreateComputePipelineState(static_cast<uint64_t>(descriptor.GetHash()), pipelineStateDesc);
+        }
+        else
+        {
+            Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStateComPtr;
+            HRESULT result = device.GetDevice()->CreateComputePipelineState(&pipelineStateDesc, IID_PPV_ARGS(pipelineStateComPtr.GetAddressOf()));
+            if (SUCCEEDED(result))
+            {
+                pipelineState = pipelineStateComPtr.Get();
+            }
+        }
+
+        if (pipelineState)
+        {
+            m_pipelineLayout = eastl::move(pipelineLayout);
+            m_pipelineState = eastl::move(pipelineState);
+            m_pipelineStateData.m_type = RHI::PipelineStateType::Dispatch;
+            return RHI::ResultCode::Success;
+        }
+        else
+        {
+            LOG_ERROR("[PipelineState] Failed to compile graphics pipeline state. Check the D3D12 debug layer for more info.");
+            return RHI::ResultCode::Fail;
+        }
+    }
+
+    RHI::ResultCode PipelineState::InitInternal(RHI::Device& deviceBase, const RHI::PipelineStateDescriptorForRayTracing& descriptor, RHI::PipelineLibrary* pipelineLibrary)
+    {
+        Device& device = static_cast<Device&>(deviceBase);
+
+        Ptr<PipelineLayout> pipelineLayout = Service<D3D12FactoryInterface>::Get()->CreatePipelineLayout();
+        pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
+
+        m_pipelineLayout = eastl::move(pipelineLayout);
+        m_pipelineStateData.m_type = RHI::PipelineStateType::RayTracing;
+
+        return RHI::ResultCode::Success;
+    }
+
+    void PipelineState::ShutdownInternal()
+    {
+        // ray tracing shaders do not have a traditional pipeline state object
+        if (m_pipelineStateData.m_type != RHI::PipelineStateType::RayTracing)
+        {
+            static_cast<Device&>(GetDevice()).QueueForRelease(eastl::move(m_pipelineState));
+        }
+
+        m_pipelineState = nullptr;
+        m_pipelineLayout = nullptr;
     }
 }
