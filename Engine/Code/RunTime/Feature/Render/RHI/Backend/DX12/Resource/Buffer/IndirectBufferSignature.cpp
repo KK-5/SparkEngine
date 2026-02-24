@@ -10,6 +10,7 @@
 
 #include <Log/SpdLogSystem.h>
 
+#include <Device/Device.h>
 #include <Pipeline/PipelineState.h>
 #include <Pipeline/PipelineLayout.h>
 
