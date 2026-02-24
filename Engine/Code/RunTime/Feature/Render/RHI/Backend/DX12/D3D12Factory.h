@@ -28,7 +28,7 @@ namespace Spark::RHI::DX12
         // Sampler直接使用Factory创建
         virtual Ptr<Sampler> AcquireSampler(RHI::SamplerState) = 0;
 
-        virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0; 
+        virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
     };
 
     class D3D12Factory final : public Service<RHI::Factory>::Handler

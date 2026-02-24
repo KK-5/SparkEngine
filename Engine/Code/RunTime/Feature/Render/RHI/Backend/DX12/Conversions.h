@@ -131,4 +131,6 @@ namespace Spark::RHI::DX12
     D3D12_DEPTH_WRITE_MASK ConvertDepthWriteMask(RHI::DepthWriteMask mask);
 
     D3D12_DEPTH_STENCIL_DESC ConvertDepthStencilState(const RHI::DepthStencilState& depthStencil);
+
+    DXGI_SCALING ConvertScaling(RHI::Scaling scaling);
 }

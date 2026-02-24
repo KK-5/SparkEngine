@@ -1258,4 +1258,19 @@ namespace Spark::RHI::DX12
         desc.StencilWriteMask = static_cast<UINT8>(depthStencil.m_stencil.m_writeMask);
         return desc;
     }
+
+    DXGI_SCALING ConvertScaling(RHI::Scaling scaling)
+    {
+        switch(scaling)
+        {
+            case RHI::Scaling::None:
+                return DXGI_SCALING_NONE;
+            case RHI::Scaling::Stretch:
+                return DXGI_SCALING_STRETCH;
+            case RHI::Scaling::AspectRatioStretch:
+                return DXGI_SCALING_ASPECT_RATIO_STRETCH;
+            default:
+                return DXGI_SCALING_STRETCH;
+        }
+    }
 }
