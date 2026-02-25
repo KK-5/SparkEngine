@@ -49,5 +49,12 @@ namespace Spark::RHI
         //! Returns the signature of the indirect buffer that is associated with the view.
         const IndirectBufferSignature* GetSignature() const;
 
+    private:
+        size_t m_hash = 0;
+        const IndirectBufferSignature* m_signature = nullptr;
+        const Buffer* m_buffer = nullptr;
+        uint32_t m_byteOffset = 0;
+        uint32_t m_byteCount = 0;
+        uint32_t m_byteStride = 0;
     };
 }

@@ -45,7 +45,7 @@ namespace Spark::RHI::DX12
         void OnFrameEnd() override;
         //////////////////////////////////////////////////////////////////////////
 
-        // DX12种BufferView和ImageVIew统一处理
+        // DX12中BufferView和ImageView统一处理
         ResultCode CompileBufferViewAndImageView(RHI::ShaderResource& shaderResourceBase);
 
         void UpdateViewsDescriptorTable(DescriptorTable descriptorTable,

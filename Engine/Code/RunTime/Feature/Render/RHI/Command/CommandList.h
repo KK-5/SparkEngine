@@ -9,6 +9,11 @@
 
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
+#include <RHI/Resource/ShaderResource/ShaderResource.h>
+
+#include "DrawItem.h"
+#include "CopyItem.h"
+#include "DispatchItem.h"
 
 namespace Spark::RHI
 {
@@ -44,12 +49,85 @@ namespace Spark::RHI
         //! Assigns a shader resource group for draw on the graphics pipe, at the binding slot
         //! determined by the layout used to create the shader resource group.
         //! @param shaderResourceGroup The shader resource group to bind.
-        //virtual void SetShaderResourceGroupForDraw(const ShaderResourceGroup& shaderResourceGroup) = 0;
+        virtual void SetShaderResourceForDraw(const ShaderResource& shaderResource) = 0;
 
         //! Assigns a shader resource group for dispatch on compute pipe, at the binding slot
         //! determined by the layout used to create the shader resource group.
         //! @param shaderResourceGroup The shader resource group to bind.
-        //virtual void SetShaderResourceGroupForDispatch(const ShaderResourceGroup& shaderResourceGroup) = 0;
+        virtual void SetShaderResourceForDispatch(const ShaderResource& shaderResource) = 0;
 
+        /// Submits a single copy item for processing on the command list.
+        virtual void Submit(const CopyItem& copyItem, uint32_t submitIndex = 0) = 0;
+
+        /// Submits a single draw item for processing on the command list.
+        virtual void Submit(const DrawItem& drawItem, uint32_t submitIndex = 0) = 0;
+
+        /// Submits a single dispatch item for processing on the command list.
+        virtual void Submit(const DispatchItem& dispatchItem, uint32_t submitIndex = 0) = 0;
+
+        /// Submits a single dispatch rays item for processing on the command list.
+        /// virtual void Submit(const DeviceDispatchRaysItem& dispatchRaysItem, uint32_t submitIndex = 0) = 0;
+
+        /// Starts predication on the command list.
+        virtual void BeginPredication(const Buffer& buffer, uint64_t offset, PredicationOp operation) = 0;
+
+        /// End predication on the command list.
+        virtual void EndPredication() = 0;
+
+        /// Defines the submit range for a CommandList
+        /// Note: the default is 0 items, which disables validation for items submitted outside of the framegraph
+        struct SubmitRange
+        {
+            // the zero-based start index of the range
+            uint32_t m_startIndex = 0;
+
+            // the end index of the range
+            // Note: this is an exclusive index, meaning submitted item indices should be less than this index
+            uint32_t m_endIndex = 0;
+
+            // returns the number of items in the range
+            uint32_t GetCount() const { return m_endIndex - m_startIndex; }
+        };
+
+        /// Sets the submit range for this command list
+        void SetSubmitRange(const SubmitRange& submitRange) { m_submitRange = submitRange; }
+
+        /// Validates a submit index against the range for this command list, and tracks the total number of submits
+        void ValidateSubmitIndex(uint32_t submitIndex);
+
+        /// Validates the total number of submits against the expected number
+        /// void ValidateTotalSubmits(const ScopeProducer* scopeProducer);
+
+        /// Resets the total number of submits
+        void ResetTotalSubmits() { m_totalSubmits = 0; }
+
+        /// Default value of shading rate combinator operations.
+        static const ShadingRateCombinators DefaultShadingRateCombinators;
+
+        /// Sets the Per-Draw shading rate value. This rate will be used for all subsequent draw calls of this command list.
+        /// Combinators can also be specified as part of setting the rate. For ShadingRateCombinators = { Op1, Op2 },
+        /// the final value is calculated as Op2(Op1(PerDraw, PerPrimitive), PerRegion)
+        virtual void SetFragmentShadingRate(
+            ShadingRate rate,
+            const ShadingRateCombinators& combinators = DefaultShadingRateCombinators) = 0;
+
+    private:
+        SubmitRange m_submitRange;
+        uint32_t m_totalSubmits = 0;
     };
+
+    inline void CommandList::ValidateSubmitIndex([[maybe_unused]] uint32_t submitIndex)
+    {
+        if (m_submitRange.GetCount())
+        {
+            ASSERT((submitIndex >= m_submitRange.m_startIndex) && (submitIndex < m_submitRange.m_endIndex),
+                "Submit index {} is not in the valid submission range for this CommandList ({}, {}). "
+                "Call FrameGraphExecuteContext::GetSubmitRange() to retrieve the range when submitting items to the CommandList.",
+                submitIndex,
+                m_submitRange.m_startIndex,
+                m_submitRange.m_endIndex - 1);
+
+            m_totalSubmits++;
+        }
+    }
 }

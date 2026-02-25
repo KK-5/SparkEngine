@@ -26,7 +26,7 @@ namespace Spark::RHI::DX12
         IndirectBufferSignature() = default;
 
         //////////////////////////////////////////////////////////////////////////
-        // RHI::DeviceIndirectBufferSignature
+        // RHI::IndirectBufferSignature
         RHI::ResultCode InitInternal(RHI::Device& device, const RHI::IndirectBufferSignatureDescriptor& descriptor) override;
         uint32_t GetByteStrideInternal() const override;
         uint32_t GetOffsetInternal(RHI::IndirectCommandIndex index) const override;

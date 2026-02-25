@@ -32,7 +32,7 @@ namespace Spark::RHI::DX12
         ImagePoolResolver* GetResolver();
 
         //////////////////////////////////////////////////////////////////////////
-        // RHI::DeviceImagePool
+        // RHI::ImagePool
         RHI::ResultCode InitInternal(RHI::Device&, const RHI::ImagePoolDescriptor&) override;
         RHI::ResultCode InitImageInternal(const RHI::ImageInitRequest& request) override;
         RHI::ResultCode UpdateImageContentsInternal(const RHI::ImageUpdateRequest& request) override;

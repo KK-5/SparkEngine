@@ -24,6 +24,8 @@ namespace Spark::RHI::DX12
 
     DXGI_FORMAT ConvertFormat(RHI::Format format, bool raiseAsserts = true);
 
+    D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type);
+
     D3D12_RESOURCE_FLAGS ConvertBufferBindFlags(RHI::BufferBindFlags bufferFlags);
 
     void ConvertBufferDescriptor(const RHI::BufferDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc);
@@ -133,4 +135,6 @@ namespace Spark::RHI::DX12
     D3D12_DEPTH_STENCIL_DESC ConvertDepthStencilState(const RHI::DepthStencilState& depthStencil);
 
     DXGI_SCALING ConvertScaling(RHI::Scaling scaling);
+
+    D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type);
 }
