@@ -126,6 +126,8 @@ namespace Spark::RHI::DX12
         //! Retrieve a descriptor handle to the start of the static region of the shader-visible CBV_SRV_UAV heap
         D3D12_GPU_DESCRIPTOR_HANDLE GetBindlessGpuNativeHandle() const;
 
+        //! Bind the DescriptorHeaps in this DescriptorContext to commandlist
+        //! Use this method to ensure DescriptorHeaps cannot be accessed externally
         void SetDescriptorHeaps(ID3D12GraphicsCommandList* commandList) const;
 
         void Collect();

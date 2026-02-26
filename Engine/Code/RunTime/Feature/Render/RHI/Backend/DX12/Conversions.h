@@ -14,6 +14,7 @@
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/ClearValue.h>
 #include <RHI/MemoryEnums.h>
+#include <RHI/Command/CommandList.h>
 
 #include "DX12.h"
 
@@ -27,6 +28,8 @@ namespace Spark::RHI::DX12
     D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type);
 
     D3D12_RESOURCE_FLAGS ConvertBufferBindFlags(RHI::BufferBindFlags bufferFlags);
+
+    D3D12_PRIMITIVE_TOPOLOGY ConvertTopology(RHI::PrimitiveTopology topology);
 
     void ConvertBufferDescriptor(const RHI::BufferDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc);
 
@@ -137,4 +140,6 @@ namespace Spark::RHI::DX12
     DXGI_SCALING ConvertScaling(RHI::Scaling scaling);
 
     D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type);
+
+    D3D12_PREDICATION_OP ConvertPredicationOp(RHI::PredicationOp op);
 }

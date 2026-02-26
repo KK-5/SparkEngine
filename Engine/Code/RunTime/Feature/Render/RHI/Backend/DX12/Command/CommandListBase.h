@@ -5,6 +5,12 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
+
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Remove m_aftermathCommandListContext in CommandListBase.
+ */
+
 #pragma once
 
 #include <EASTL/optional.h>
@@ -114,6 +120,6 @@ namespace Spark::RHI::DX12
         } m_baseState;
 
         // Nsight Aftermath related command list context
-        void* m_aftermathCommandListContext = nullptr;
+        // void* m_aftermathCommandListContext = nullptr;
     };
 }

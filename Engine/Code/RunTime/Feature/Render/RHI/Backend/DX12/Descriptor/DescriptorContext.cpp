@@ -413,6 +413,15 @@ namespace Spark::RHI::DX12
         m_D3D12Device->CreateSampler(&samplerDesc, GetCpuNativeHandle(samplerHandle));
     }
 
+    void DescriptorContext::SetDescriptorHeaps(ID3D12GraphicsCommandList* commandList) const
+    {
+        ID3D12DescriptorHeap* heaps[2];
+        heaps[0] = GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>().GetNativeHeap();
+        heaps[1] = GetPool<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>().GetNativeHeap();
+
+        commandList->SetDescriptorHeaps(2, heaps);
+    }
+
     DescriptorHandle DescriptorContext::AllocateStaticDescriptor(D3D12_CPU_DESCRIPTOR_HANDLE handle)
     {
         DescriptorHandle staticHandle = m_staticPool.AllocateHandle();

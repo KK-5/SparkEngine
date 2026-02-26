@@ -8,12 +8,15 @@
 #pragma once
 
 #include <EASTL/array.h>
+#include <EASTL/numeric_limits.h>
 
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 
 namespace Spark::RHI::DX12
 {
     using RootParameterIndex = uint16_t;
+
+    static const RootParameterIndex InvalidRootParameterIndex = static_cast<uint16_t>(eastl::numeric_limits<uint16_t>::max());
 
     /**
      * Describes the root parameter binding for each component of a DX12 shader resource group.

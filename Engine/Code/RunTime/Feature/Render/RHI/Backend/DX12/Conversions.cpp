@@ -1297,4 +1297,35 @@ namespace Spark::RHI::DX12
 
         return Table[static_cast<size_t>(type)];
     }
+
+    D3D12_PREDICATION_OP ConvertPredicationOp(RHI::PredicationOp op)
+    {
+        static const D3D12_PREDICATION_OP table[] =
+        {
+            D3D12_PREDICATION_OP_EQUAL_ZERO,
+            D3D12_PREDICATION_OP_NOT_EQUAL_ZERO
+        };
+        static_assert(static_cast<uint32_t>(RHI::PredicationOp::Count) == 2, "PredicationOp count does not match DX12 predication op type table size");
+        ASSERT(static_cast<uint32_t>(op) < static_cast<uint32_t>(RHI::PredicationOp::Count), "Unsupported predication op");
+
+        return table[static_cast<uint32_t>(op)];
+    }
+
+    D3D12_PRIMITIVE_TOPOLOGY ConvertTopology(RHI::PrimitiveTopology topology)
+    {
+        static const D3D12_PRIMITIVE_TOPOLOGY table[] =
+        {
+            D3D_PRIMITIVE_TOPOLOGY_UNDEFINED,
+            D3D_PRIMITIVE_TOPOLOGY_POINTLIST,
+            D3D_PRIMITIVE_TOPOLOGY_LINELIST,
+            D3D_PRIMITIVE_TOPOLOGY_LINELIST_ADJ,
+            D3D_PRIMITIVE_TOPOLOGY_LINESTRIP,
+            D3D_PRIMITIVE_TOPOLOGY_LINESTRIP_ADJ,
+            D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+            D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST_ADJ,
+            D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+            D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP_ADJ,
+        };
+        return table[(uint32_t)topology];
+    }
 }

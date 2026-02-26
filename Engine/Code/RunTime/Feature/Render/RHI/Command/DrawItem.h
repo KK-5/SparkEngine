@@ -11,9 +11,10 @@
 #include <EASTL/vector.h>
 
 #include <RHI/RHILimits.h>
-#include <Resource/Buffer/IndexBufferView.h>
-#include <Resource/Buffer/IndirectBufferView.h>
-#include <Resource/Buffer/StreamBufferView.h>
+#include <RHI/Resource/Buffer/IndexBufferView.h>
+#include <RHI/Resource/Buffer/IndirectBufferSignature.h>
+#include <RHI/Resource/Buffer/IndirectBufferView.h>
+#include <RHI/Resource/Buffer/StreamBufferView.h>
 #include "DrawArguments.h"
 #include "IndirectArguments.h"
 
@@ -50,7 +51,7 @@ namespace Spark::RHI
             {
                 // NOTE: If you add or update any of these flags, please update the default value of m_allFlags
                 // so that your added flags are initialized properly. Also update the default value specified in
-                // the DrawPacketBuilder::End() function (seeDrawPacketBuilder.cpp). See comment above.
+                // the DrawPacketBuilder::End() function (see DrawPacketBuilder.cpp). See comment above.
 
                 bool m_enabled : 1;     // Whether the Draw Item should render
             };

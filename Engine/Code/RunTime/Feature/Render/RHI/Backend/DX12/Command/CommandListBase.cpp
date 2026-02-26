@@ -6,6 +6,11 @@
  *
  */
 
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Remove m_aftermathCommandListContext in CommandListBase.
+ */
+
 #include "CommandListBase.h"
 
 #include <Log/SpdLogSystem.h>
@@ -188,5 +193,46 @@ namespace Spark::RHI::DX12
         barrier.StateBefore = stateBefore;
         barrier.StateAfter = stateAfter;
         QueueTransitionBarrier(barrier, state);
+    }
+
+    void CommandListBase::QueueTransitionBarrier(
+        const D3D12_RESOURCE_TRANSITION_BARRIER& transitionBarrier,
+        const RHI::MultisampleState* state /*=nullptr*/)
+    {
+        if (transitionBarrier.StateBefore != transitionBarrier.StateAfter)
+        {
+            m_queuedBarriers.emplace_back();
+
+            BarrierOp& barrierOp = m_queuedBarriers.back();
+            D3D12_RESOURCE_BARRIER& barrierDesc = barrierOp.m_barrier;
+            barrierDesc.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrierDesc.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            barrierDesc.Transition = transitionBarrier;
+
+            if (state)
+            {
+                barrierOp.m_cmdListState.emplace(*state);
+            }
+        }
+        else if (transitionBarrier.StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        {
+            m_queuedBarriers.emplace_back();
+
+            BarrierOp& barrierOp = m_queuedBarriers.back();
+            D3D12_RESOURCE_BARRIER& barrierDesc = barrierOp.m_barrier;
+            barrierDesc.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            barrierDesc.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            barrierDesc.UAV.pResource = transitionBarrier.pResource;
+
+            if (state)
+            {
+                barrierOp.m_cmdListState.emplace(*state);
+            }
+        }
+    }
+
+    void CommandListBase::QueueTransitionBarrier(const BarrierOp& op)
+    {
+        QueueTransitionBarrier(op.m_barrier.Transition, op.m_cmdListState.has_value() ? &op.m_cmdListState.value() : nullptr);
     }
 }
