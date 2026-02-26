@@ -142,4 +142,8 @@ namespace Spark::RHI::DX12
     D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type);
 
     D3D12_PREDICATION_OP ConvertPredicationOp(RHI::PredicationOp op);
+
+    D3D12_SHADING_RATE_COMBINER ConvertShadingRateCombiner(RHI::ShadingRateCombinerOp op);
+
+    D3D12_SHADING_RATE ConvertShadingRateEnum(RHI::ShadingRate rate);
 }

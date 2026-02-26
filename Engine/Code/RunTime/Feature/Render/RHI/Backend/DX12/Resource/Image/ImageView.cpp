@@ -51,12 +51,10 @@ namespace Spark::RHI::DX12
         return m_colorDescriptor;
     }
 
-    /*
     DescriptorHandle ImageView::GetDepthStencilDescriptor(RHI::ScopeAttachmentAccess access) const
     {
         return CheckBitsAny(access, RHI::ScopeAttachmentAccess::Write) ? m_depthStencilDescriptor : m_depthStencilReadDescriptor;
     }
-    */
 
     uint32_t ImageView::GetBindlessReadIndex() const
     {

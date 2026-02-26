@@ -15,7 +15,10 @@
 #include <Descriptor/DescriptorContext.h>
 #include <Resource/ShaderResource/ShaderResource.h>
 #include <Resource/Buffer/Buffer.h>
+#include <Resource/Buffer/BufferView.h>
+#include <Resource/Buffer/IndirectBufferSignature.h>
 #include <Resource/Image/Image.h>
+#include <Resource/Image/ImageView.h>
 #include <SwapChain/SwapChain.h>
 
 #include "CommandQueue.h"
@@ -422,6 +425,265 @@ namespace Spark::RHI::DX12
         {
             GetCommandList()->IASetPrimitiveTopology(ConvertTopology(topology));
             m_state.m_topology = topology;
+        }
+    }
+
+    void CommandList::CommitViewportState()
+    {
+        // [TODO] remove dirty check
+        if (!m_state.m_viewportState.m_isDirty)
+        {
+            return;
+        }
+
+        D3D12_VIEWPORT dx12Viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+
+        const auto& viewports = m_state.m_viewportState.m_states;
+        for (uint32_t i = 0; i < viewports.size(); ++i)
+        {
+            dx12Viewports[i].TopLeftX = viewports[i].m_minX;
+            dx12Viewports[i].TopLeftY = viewports[i].m_minY;
+            dx12Viewports[i].Width = viewports[i].m_maxX - viewports[i].m_minX;
+            dx12Viewports[i].Height = viewports[i].m_maxY - viewports[i].m_minY;
+            dx12Viewports[i].MinDepth = viewports[i].m_minZ;
+            dx12Viewports[i].MaxDepth = viewports[i].m_maxZ;
+        }
+
+        GetCommandList()->RSSetViewports(viewports.size(), dx12Viewports);
+        m_state.m_viewportState.m_isDirty = false;
+    }
+
+    void CommandList::CommitScissorState()
+    {
+        if (!m_state.m_scissorState.m_isDirty)
+        {
+            return;
+        }
+
+        D3D12_RECT dx12Scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+
+        const auto& scissors = m_state.m_scissorState.m_states;
+        for (uint32_t i = 0; i < scissors.size(); ++i)
+        {
+            dx12Scissors[i].left = scissors[i].m_minX;
+            dx12Scissors[i].top = scissors[i].m_minY;
+            dx12Scissors[i].right = scissors[i].m_maxX;
+            dx12Scissors[i].bottom = scissors[i].m_maxY;
+        }
+
+        GetCommandList()->RSSetScissorRects(scissors.size(), dx12Scissors);
+        m_state.m_scissorState.m_isDirty = false;
+    }
+
+    void CommandList::CommitShadingRateState()
+    {
+        if (!m_state.m_shadingRateState.m_isDirty)
+        {
+            return;
+        }
+        ASSERT(
+            CheckBitsAll(GetDevice().GetFeatures().m_shadingRateTypeMask, RHI::ShadingRateTypeFlags::PerDraw),
+            "PerDraw shading rate is not supported on this platform");
+
+        eastl::array<D3D12_SHADING_RATE_COMBINER, 2> d3d12Combinators;
+        for (int i = 0; i < m_state.m_shadingRateState.m_shadingRateCombinators.size(); ++i)
+        {
+            d3d12Combinators[i] = ConvertShadingRateCombiner(m_state.m_shadingRateState.m_shadingRateCombinators[i]);
+        }
+
+        ComPtr<ID3D12GraphicsCommandList5> commandList5;
+        GetCommandList()->QueryInterface(IID_PPV_ARGS(commandList5.GetAddressOf()));
+        ASSERT(commandList5, "Failed to cast command list to ID3D12GraphicsCommandList5");
+        if (commandList5)
+        {
+            commandList5->RSSetShadingRate(
+                ConvertShadingRateEnum(m_state.m_shadingRateState.m_shadingRate), d3d12Combinators.data());
+        }
+        m_state.m_shadingRateState.m_isDirty = false;
+    }
+
+    void CommandList::ExecuteIndirect(const RHI::IndirectArguments& arguments)
+    {
+        const IndirectBufferSignature* signature = static_cast<const IndirectBufferSignature*>(arguments.m_indirectBufferView->GetSignature());
+
+        const Buffer* buffer = static_cast<const Buffer*>(arguments.m_indirectBufferView->GetBuffer());
+        const Buffer* countBuffer = arguments.m_countBuffer ? static_cast<const Buffer*>(arguments.m_countBuffer) : nullptr;
+        GetCommandList()->ExecuteIndirect(
+            signature->Get(),
+            arguments.m_maxSequenceCount,
+            buffer->GetMemoryView().GetMemory(),
+            buffer->GetMemoryView().GetOffset() + arguments.m_indirectBufferView->GetByteOffset() + arguments.m_indirectBufferByteOffset,
+            countBuffer ? countBuffer->GetMemoryView().GetMemory() : nullptr,
+            countBuffer ? arguments.m_countBufferByteOffset : 0
+        );
+    }
+
+    void CommandList::SetIndexBuffer(const RHI::IndexBufferView& indexBufferView)
+    {
+        uint64_t indexBufferHash = static_cast<uint64_t>(indexBufferView.GetHash());
+        if (indexBufferHash != m_state.m_indexBufferHash)
+        {
+            m_state.m_indexBufferHash = indexBufferHash;
+            if (const Buffer* indexBuffer = static_cast<const Buffer*>(indexBufferView.GetBuffer()))
+            {
+                D3D12_INDEX_BUFFER_VIEW view;
+                view.BufferLocation = indexBuffer->GetMemoryView().GetGpuAddress() + indexBufferView.GetByteOffset();
+                view.Format = (indexBufferView.GetIndexFormat() == RHI::IndexFormat::UINT16) ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+                view.SizeInBytes = indexBufferView.GetByteCount();
+
+                GetCommandList()->IASetIndexBuffer(&view);
+            }
+        }
+    }
+
+    void CommandList::SetRenderTargets(
+        uint32_t renderTargetCount,
+        const ImageView* const* renderTargets,
+        const ImageView* depthStencilAttachment,
+        RHI::ScopeAttachmentAccess depthStencilAccess,
+        const ImageView* shadingRateAttachment)
+    {
+        auto& descriptorContext = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+
+        D3D12_CPU_DESCRIPTOR_HANDLE colorDescriptors[RHI::Limits::Pipeline::AttachmentColorCountMax];
+        for (uint32_t i = 0; i < renderTargetCount; ++i)
+        {
+            colorDescriptors[i] =
+                descriptorContext.GetCpuNativeHandle(renderTargets[i]->GetColorDescriptor());
+        }
+
+        if (depthStencilAttachment)
+        {
+            SetSamplePositions(depthStencilAttachment->GetImage().GetDescriptor().m_multisampleState);
+            // AZ_Assert(depthStencilAttachment->IsStale() == false, "Depth Stencil view is stale!");
+            DescriptorHandle depthStencilDescriptor = depthStencilAttachment->GetDepthStencilDescriptor(depthStencilAccess);
+            D3D12_CPU_DESCRIPTOR_HANDLE depthStencilPlatformDescriptor = descriptorContext.GetCpuNativeHandle(depthStencilDescriptor);
+            GetCommandList()->OMSetRenderTargets(renderTargetCount, colorDescriptors, false, &depthStencilPlatformDescriptor);
+        }
+        else
+        {
+            SetSamplePositions(renderTargets[0]->GetImage().GetDescriptor().m_multisampleState);
+            GetCommandList()->OMSetRenderTargets(renderTargetCount, colorDescriptors, false, nullptr);
+        }
+
+        // shading rate
+        if (m_state.m_shadingRateImage != shadingRateAttachment &&
+            CheckBitsAll(GetDevice().GetFeatures().m_shadingRateTypeMask, RHI::ShadingRateTypeFlags::PerRegion))
+        {
+            ComPtr<ID3D12GraphicsCommandList5> commandList5;
+            GetCommandList()->QueryInterface(IID_PPV_ARGS(commandList5.GetAddressOf()));
+            ASSERT(commandList5, "Failed to cast command list to ID3D12GraphicsCommandList5");
+            if (commandList5)
+            {
+                if (shadingRateAttachment)
+                {
+                    commandList5->RSSetShadingRateImage(shadingRateAttachment->GetMemory());
+                    SetFragmentShadingRate(
+                        RHI::ShadingRate::Rate1x1,
+                        RHI::ShadingRateCombinators{ RHI::ShadingRateCombinerOp::Passthrough, RHI::ShadingRateCombinerOp::Override });
+                }
+                else
+                {
+                    commandList5->RSSetShadingRateImage(nullptr);
+                    SetFragmentShadingRate(
+                        RHI::ShadingRate::Rate1x1,
+                        RHI::ShadingRateCombinators{ RHI::ShadingRateCombinerOp::Override, RHI::ShadingRateCombinerOp::Passthrough });
+                }
+                m_state.m_shadingRateImage = shadingRateAttachment;
+            }
+        }
+    }
+
+    void CommandList::ClearRenderTarget(const ImageClearRequest& request)
+    {
+        auto& descriptorContext = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+
+        if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Float)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle =
+                descriptorContext.GetCpuNativeHandle(request.m_imageView->GetColorDescriptor());
+
+            GetCommandList()->ClearRenderTargetView(
+                descriptorHandle,
+                request.m_clearValue.m_vector4Float.data(),
+                0, nullptr);
+        }
+        else if (request.m_clearValue.m_type == RHI::ClearValueType::DepthStencil)
+        {
+            // Need to set the custom MSAA positions (if being used) before clearing it.
+            SetSamplePositions(request.m_imageView->GetImage().GetDescriptor().m_multisampleState);
+            D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle =
+                descriptorContext.GetCpuNativeHandle(request.m_imageView->GetDepthStencilDescriptor(RHI::ScopeAttachmentAccess::ReadWrite));
+
+            GetCommandList()->ClearDepthStencilView(
+                descriptorHandle,
+                request.m_clearFlags,
+                request.m_clearValue.m_depthStencil.m_depth,
+                request.m_clearValue.m_depthStencil.m_stencil,
+                0, nullptr);
+        }
+        else
+        {
+            ASSERT(false, "Invalid clear value for output merger clear.");
+        }
+    }
+
+    void CommandList::ClearUnorderedAccess(const ImageClearRequest& request)
+    {
+        auto& descriptorContext = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+
+        const ImageView& imageView = *request.m_imageView;
+        if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)
+        {
+            GetCommandList()->ClearUnorderedAccessViewUint(
+                descriptorContext.GetGpuNativeHandle(imageView.GetClearDescriptor()),
+                descriptorContext.GetCpuNativeHandle(imageView.GetReadWriteDescriptor()),
+                imageView.GetMemory(),
+                request.m_clearValue.m_vector4Uint.data(), 0, nullptr);
+        }
+        else if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Float)
+        {
+            GetCommandList()->ClearUnorderedAccessViewFloat(
+                descriptorContext.GetGpuNativeHandle(imageView.GetClearDescriptor()),
+                descriptorContext.GetCpuNativeHandle(imageView.GetReadWriteDescriptor()),
+                imageView.GetMemory(),
+                request.m_clearValue.m_vector4Float.data(), 0, nullptr);
+        }
+        else
+        {
+            ASSERT(false, "Invalid clear value for output merger clear.");
+        }
+    }
+
+    void CommandList::DiscardResource(ID3D12Resource* resource)
+    {
+        GetCommandList()->DiscardResource(resource, nullptr);
+    }
+
+    void CommandList::ClearUnorderedAccess(const BufferClearRequest& request)
+    {
+        auto& descriptorContext = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+
+        const BufferView& bufferView = *request.m_bufferView;
+        if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)
+        {
+            GetCommandList()->ClearUnorderedAccessViewUint(
+                descriptorContext.GetGpuNativeHandle(bufferView.GetClearDescriptor()),
+                descriptorContext.GetCpuNativeHandle(bufferView.GetReadWriteDescriptor()),
+                bufferView.GetMemory(),
+                request.m_clearValue.m_vector4Uint.data(), 0, nullptr);
+        }
+        else if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Float)
+        {
+            GetCommandList()->ClearUnorderedAccessViewFloat(
+                descriptorContext.GetGpuNativeHandle(bufferView.GetClearDescriptor()),
+                descriptorContext.GetCpuNativeHandle(bufferView.GetReadWriteDescriptor()),
+                bufferView.GetMemory(),
+                request.m_clearValue.m_vector4Float.data(), 0, nullptr);
+        }
+        else
+        {
+            ASSERT(false, "Invalid clear value for buffer");
         }
     }
 

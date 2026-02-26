@@ -1328,4 +1328,37 @@ namespace Spark::RHI::DX12
         };
         return table[(uint32_t)topology];
     }
+
+    D3D12_SHADING_RATE_COMBINER ConvertShadingRateCombiner(RHI::ShadingRateCombinerOp op)
+    {
+        switch (op)
+        {
+        case RHI::ShadingRateCombinerOp::Passthrough:
+            return D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+        case RHI::ShadingRateCombinerOp::Override:
+            return D3D12_SHADING_RATE_COMBINER_OVERRIDE;
+        case RHI::ShadingRateCombinerOp::Min:
+            return D3D12_SHADING_RATE_COMBINER_MIN;
+        case RHI::ShadingRateCombinerOp::Max:
+            return D3D12_SHADING_RATE_COMBINER_MAX;
+        default:
+            ASSERT(false, "Invalid shading rate combiner operation {}", static_cast<uint32_t>(op));
+            return D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+        }
+    }
+
+    D3D12_SHADING_RATE ConvertShadingRateEnum(RHI::ShadingRate rate)
+    {
+        static const D3D12_SHADING_RATE table[] =
+        {
+            D3D12_SHADING_RATE_1X1,
+            D3D12_SHADING_RATE_1X2,
+            D3D12_SHADING_RATE_2X1,
+            D3D12_SHADING_RATE_2X2,
+            D3D12_SHADING_RATE_2X4,
+            D3D12_SHADING_RATE_4X2,
+            D3D12_SHADING_RATE_4X4
+        };
+        return table[(uint32_t)rate];
+    }
 }
