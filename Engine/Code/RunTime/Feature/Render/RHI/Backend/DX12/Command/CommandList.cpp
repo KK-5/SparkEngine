@@ -291,6 +291,7 @@ namespace Spark::RHI::DX12
         }
 
         // SetStreamBuffers(*drawItem.m_geometryView, drawItem.m_streamIndices);
+        SetVertexBuffers(drawItem.m_vertexBufferView);
         SetStencilRef(drawItem.m_stencilRef);
 
         RHI::CommandListScissorState scissorState;
@@ -533,6 +534,42 @@ namespace Spark::RHI::DX12
 
                 GetCommandList()->IASetIndexBuffer(&view);
             }
+        }
+    }
+
+    void CommandList::SetVertexBuffers(const RHI::VertexBufferView& bufferView)
+    {
+        bool needsBinding = false;
+
+        for (const RHI::VertexInput& vertexInput : bufferView.GetVertexInputs())
+        {
+            if (m_state.m_streamBufferHashes[vertexInput.m_inputSlot] != vertexInput.m_streamBufferView.GetHash())
+            {
+                m_state.m_streamBufferHashes[vertexInput.m_inputSlot] = vertexInput.m_streamBufferView.GetHash();
+                needsBinding = true;
+            }
+        }
+
+        if (needsBinding)
+        {
+            D3D12_VERTEX_BUFFER_VIEW views[RHI::Limits::Pipeline::StreamCountMax];
+
+            for (const RHI::VertexInput& vertexInput : bufferView.GetVertexInputs())
+            {
+                const Buffer* buffer = static_cast<const Buffer*>(vertexInput.m_streamBufferView.GetBuffer());
+                if (buffer)
+                {
+                    views[vertexInput.m_inputSlot].BufferLocation = buffer->GetMemoryView().GetGpuAddress() + vertexInput.m_streamBufferView.GetByteOffset();
+                    views[vertexInput.m_inputSlot].SizeInBytes = vertexInput.m_streamBufferView.GetByteCount();
+                    views[vertexInput.m_inputSlot].StrideInBytes = vertexInput.m_streamBufferView.GetByteStride();
+                }
+                else
+                {
+                    views[vertexInput.m_inputSlot] = {};
+                }
+            }
+
+            GetCommandList()->IASetVertexBuffers(0, bufferView.GetVertexInputs().size(), views);
         }
     }
 

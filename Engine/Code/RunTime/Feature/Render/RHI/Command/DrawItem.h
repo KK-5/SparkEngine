@@ -15,6 +15,7 @@
 #include <RHI/Resource/Buffer/IndirectBufferSignature.h>
 #include <RHI/Resource/Buffer/IndirectBufferView.h>
 #include <RHI/Resource/Buffer/StreamBufferView.h>
+#include <RHI/Resource/Buffer/VertexBufferView.h>
 #include "DrawArguments.h"
 #include "IndirectArguments.h"
 
@@ -63,7 +64,7 @@ namespace Spark::RHI
 
         IndexBufferView m_indexBufferView;
 
-        eastl::vector<StreamBufferView> m_streamBufferViews;
+        VertexBufferView m_vertexBufferView;
 
         // --- Shader ---
         const PipelineState* m_pipelineState = nullptr;

@@ -8,7 +8,7 @@
 
 /*
  * Modified by SparkEngine in 2025
- *  -- Remove DescriptorContext in CommandList, use Factory to get DescriptorContext.
+ *  -- Remove DescriptorContext pointer in CommandList, use Factory to get DescriptorContext.
  *  -- Remove CommandList name.
  */
 
@@ -122,6 +122,7 @@ namespace Spark::RHI::DX12
         bool CommitShaderResources(const Item& item);
 
         // void SetStreamBuffers(const RHI::DeviceGeometryView& geometryView, const RHI::StreamBufferIndices& streamIndices);
+        void SetVertexBuffers(const RHI::VertexBufferView& bufferView);
         void SetIndexBuffer(const RHI::IndexBufferView& descriptor);
         void SetStencilRef(uint8_t stencilRef);
         void SetTopology(RHI::PrimitiveTopology topology);
