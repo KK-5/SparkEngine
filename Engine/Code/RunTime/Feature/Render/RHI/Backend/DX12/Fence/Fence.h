@@ -32,7 +32,7 @@ namespace Spark::RHI::DX12
         const char* GetName() const;
 
     private:
-        friend class D3D12Fence;
+        friend class DX12Fence;
         HANDLE m_EventHandle;
         const char* m_name;
     };
@@ -41,7 +41,7 @@ namespace Spark::RHI::DX12
      * A simple wrapper around ID3D12Fence that also includes a monotonically increasing
      * fence value.
      */
-    class D3D12Fence final
+    class DX12Fence final
     {
     public:
         RHI::ResultCode Init(ID3D12DeviceX* dx12Device, RHI::FenceState initialState);
@@ -84,11 +84,11 @@ namespace Spark::RHI::DX12
 
         void Reset();
 
-        D3D12Fence& GetD3D12Fence(RHI::HardwareQueueClass hardwareQueueClass);
-        const D3D12Fence& GetD3D12Fence(RHI::HardwareQueueClass hardwareQueueClass) const;
+        DX12Fence& GetDX12Fence(RHI::HardwareQueueClass hardwareQueueClass);
+        const DX12Fence& GetDX12Fence(RHI::HardwareQueueClass hardwareQueueClass) const;
 
     private:
-        eastl::array<D3D12Fence, RHI::HardwareQueueClassCount> m_fences;
+        eastl::array<DX12Fence, RHI::HardwareQueueClassCount> m_fences;
     };
 
     using FenceValueSet = eastl::array<uint64_t, RHI::HardwareQueueClassCount>;
@@ -104,7 +104,7 @@ namespace Spark::RHI::DX12
     class Fence final : public RHI::Fence
     {
     public:
-        D3D12Fence& Get()
+        DX12Fence& Get()
         {
             return m_fence;
         }
@@ -122,6 +122,6 @@ namespace Spark::RHI::DX12
         RHI::FenceState GetFenceStateInternal() const override;
         //////////////////////////////////////////////////////////////////////////
 
-        D3D12Fence m_fence;
+        DX12Fence m_fence;
     };
 }

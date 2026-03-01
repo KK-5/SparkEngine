@@ -31,7 +31,7 @@ namespace Spark::RHI::DX12
         return m_name;
     }
 
-    RHI::ResultCode D3D12Fence::Init(ID3D12DeviceX* dx12Device, RHI::FenceState initialState)
+    RHI::ResultCode DX12Fence::Init(ID3D12DeviceX* dx12Device, RHI::FenceState initialState)
     {
         Microsoft::WRL::ComPtr<ID3D12Fence> fencePtr;
         D3D12_FENCE_FLAGS flags = D3D12_FENCE_FLAG_NONE;
@@ -50,17 +50,17 @@ namespace Spark::RHI::DX12
         return RHI::ResultCode::Success;
     }
 
-    void D3D12Fence::Shutdown()
+    void DX12Fence::Shutdown()
     {
         m_fence = nullptr;
     }
 
-    void D3D12Fence::Wait(FenceEvent& fenceEvent) const
+    void DX12Fence::Wait(FenceEvent& fenceEvent) const
     {
         Wait(fenceEvent, GetPendingValue());
     }
 
-    void D3D12Fence::Wait(FenceEvent& fenceEvent, uint64_t fenceValue) const
+    void DX12Fence::Wait(FenceEvent& fenceEvent, uint64_t fenceValue) const
     {
         if (fenceValue > GetCompletedValue())
         {
@@ -69,28 +69,28 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void D3D12Fence::Signal()
+    void DX12Fence::Signal()
     {
         m_fence->Signal(GetPendingValue());
     }
 
-    RHI::FenceState D3D12Fence::GetFenceState() const
+    RHI::FenceState DX12Fence::GetFenceState() const
     {
         const uint64_t completedValue = GetCompletedValue();
         return (m_pendingValue <= completedValue) ? RHI::FenceState::Signaled : RHI::FenceState::Reset;
     }
 
-    uint64_t D3D12Fence::GetPendingValue() const
+    uint64_t DX12Fence::GetPendingValue() const
     {
         return m_pendingValue;
     }
 
-    uint64_t D3D12Fence::GetCompletedValue() const
+    uint64_t DX12Fence::GetCompletedValue() const
     {
         return m_fence->GetCompletedValue();
     }
 
-    ID3D12Fence* D3D12Fence::Get() const
+    ID3D12Fence* DX12Fence::Get() const
     {
         return m_fence.get();
     }
@@ -127,12 +127,12 @@ namespace Spark::RHI::DX12
         }
     }
 
-    D3D12Fence& FenceSet::GetD3D12Fence(RHI::HardwareQueueClass hardwareQueueClass)
+    DX12Fence& FenceSet::GetDX12Fence(RHI::HardwareQueueClass hardwareQueueClass)
     {
         return m_fences[static_cast<uint32_t>(hardwareQueueClass)];
     }
 
-    const D3D12Fence& FenceSet::GetD3D12Fence(RHI::HardwareQueueClass hardwareQueueClass) const
+    const DX12Fence& FenceSet::GetDX12Fence(RHI::HardwareQueueClass hardwareQueueClass) const
     {
         return m_fences[static_cast<uint32_t>(hardwareQueueClass)];
     }
