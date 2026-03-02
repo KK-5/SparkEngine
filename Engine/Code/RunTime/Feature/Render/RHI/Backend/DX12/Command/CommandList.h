@@ -177,8 +177,6 @@ namespace Spark::RHI::DX12
             const ImageView* m_shadingRateImage = nullptr;
 
         } m_state;
-
-        // DescriptorContext& m_descriptorContext;
     };
 
     template <RHI::PipelineStateType pipelineType>
