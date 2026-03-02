@@ -18,7 +18,6 @@ namespace Spark::RHI::DX12
     
     class BufferPool : public RHI::BufferPool
     {
-        using Base = RHI::BufferPool;
     public:
         virtual ~BufferPool() = default;
 

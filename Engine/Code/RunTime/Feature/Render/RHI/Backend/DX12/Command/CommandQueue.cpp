@@ -38,7 +38,7 @@ namespace Spark::RHI::DX12
 
     }
 
-    void CommandQueue::Singal(DX12Fence& fence)
+    void CommandQueue::Signal(DX12Fence& fence)
     {
         m_queue->Signal(fence.Get(), fence.GetPendingValue());
     }
@@ -52,7 +52,7 @@ namespace Spark::RHI::DX12
     {
         DX12Fence fence;
         fence.Init(m_dx12Device, RHI::FenceState::Reset);
-        Singal(fence);
+        Signal(fence);
 
         FenceEvent event("WaitForIdle");
         fence.Wait(event);

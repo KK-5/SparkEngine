@@ -22,6 +22,7 @@ namespace Spark::RHI
     class PipelibeState;
 
     class Commandlist;
+    class CommandQueue;
 
     class Factory
     {
@@ -54,6 +55,8 @@ namespace Spark::RHI
         virtual Ptr<PipelibeState> CreatePipelineState() = 0;
 
         virtual Ptr<Commandlist> CreateCommandList() = 0;
+
+        virtual Ptr<CommandQueue> CreateCommandQueue() = 0;
 
         virtual void DestoryObject(DeviceObject* obj) = 0;
     };

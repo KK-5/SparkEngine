@@ -38,7 +38,7 @@ namespace Spark::RHI::DX12
         void ExecuteCommandInternal(eastl::span<const RHI::CommandList&> commandLists) override;
         //////////////////////////////////////////////////////////////////////////
 
-        void Singal(DX12Fence& fence);
+        void Signal(DX12Fence& fence);
         ID3D12CommandQueue* GetNativeQueue() const;
     
     private:
