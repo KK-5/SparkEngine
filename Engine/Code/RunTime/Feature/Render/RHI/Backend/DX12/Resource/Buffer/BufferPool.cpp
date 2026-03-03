@@ -20,6 +20,7 @@
 
 namespace Spark::RHI::DX12
 {
+    /*
     class BufferPoolResolver: public ResourcePoolResolver
     {
     public:
@@ -74,7 +75,7 @@ namespace Spark::RHI::DX12
             return address;
         }
 
-        /*
+        
         void Compile(Scope& scope) override
         {
             for (BufferUploadPacket& packet : m_uploadPackets)
@@ -153,7 +154,7 @@ namespace Spark::RHI::DX12
             m_uploadPackets.resize(AZStd::distance(m_uploadPackets.begin(), eraseBeginIt));
             m_nonAttachmentBufferUnion.erase(buffer.GetMemoryView().GetMemory());
         }
-        */
+        
 
     private:
         struct BufferUploadPacket
@@ -173,16 +174,17 @@ namespace Spark::RHI::DX12
         eastl::vector<BufferUploadPacket> m_uploadPackets;
         eastl::unordered_set<Memory*> m_nonAttachmentBufferUnion;
     };
+    */
 
     Device& BufferPool::GetDevice() const
     {
-        return static_cast<Device&>(Base::GetDevice());
+        return static_cast<Device&>(GetDevice());
     }
 
     void BufferPool::OnFrameEnd()
     {
-        //
-        Base::OnFrameEnd();
+        m_releaseQueue.Collect();
+        ResourcePool::OnFrameEnd();
     }
 
     RHI::ResultCode BufferPool::InitInternal(RHI::Device& deviceBase, const RHI::BufferPoolDescriptor& descriptorBase)
@@ -212,7 +214,7 @@ namespace Spark::RHI::DX12
 
         if (descriptorBase.m_heapMemoryLevel == RHI::HeapMemoryLevel::Device)
         {
-            SetResolver(eastl::make_unique<BufferPoolResolver>(device, descriptorBase));
+            // SetResolver(eastl::make_unique<BufferPoolResolver>(device, descriptorBase));
         }
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
@@ -270,11 +272,6 @@ namespace Spark::RHI::DX12
 
     void BufferPool::ShutdownResourceInternal(RHI::Resource& resourceBase)
     {
-        if (auto* resolver = GetResolver())
-        {
-            resolver->OnResourceShutdown(resourceBase);
-        }
-
         Buffer& buffer = static_cast<Buffer&>(resourceBase);
         m_releaseQueue.Collect(buffer.GetMemoryView().GetMemoryAllocation());
         // 这里移动赋值，原MemoryView持有的MemoryAllocation自动release
@@ -307,11 +304,13 @@ namespace Spark::RHI::DX12
         }
         else
         {
+            /*
             mappedData = GetResolver()->MapBuffer(request);
             if (!mappedData)
             {
                 return RHI::ResultCode::OutOfMemory;
             }
+            */
         }
 
         response.m_data = mappedData;

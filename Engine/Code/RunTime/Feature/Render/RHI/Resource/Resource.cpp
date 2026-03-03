@@ -8,7 +8,7 @@ namespace Spark::RHI
 {
     Resource::~Resource()
     {
-        if (GetPool() == nullptr)
+        if (GetPool() != nullptr)
         {
             LOG_ERROR("[Resource] Resource {} is still registered on pool. {}", GetName().GetCStr(), GetPool()->GetName().GetCStr());
         }
@@ -24,10 +24,7 @@ namespace Spark::RHI
             }
             m_pool->ShutdownResource(this);
         }
-        else
-        {
-            LOG_ERROR("[Resource] Resource {} has not resgistered in any resource pool.", GetName().GetCStr());
-        }
+
         DeviceObject::Shutdown();
     }
 

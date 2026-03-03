@@ -11,8 +11,6 @@
 #include <RHI/Factory.h>
 #include <Device/Device.h>
 
-#include <DX12/Device/Device.h>
-
 namespace Spark::RHI::DX12
 {
     void CommandQueueContext::Init(RHI::Device& deviceBase)

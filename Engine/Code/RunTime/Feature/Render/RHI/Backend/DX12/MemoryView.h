@@ -10,7 +10,6 @@
  * Modified by SparkEngine in 2025
  *  -- MemoryAllocation use D3D12MA::Allocation
  *  -- Remove MemoryView name
- *  -- Add ReleaseResource function
  */
 
 #pragma once
@@ -34,6 +33,7 @@ namespace Spark::RHI::DX12
     public:
         MemoryView() = default;
         MemoryView(D3D12MA::Allocation* allocation, MemoryViewType viewType, size_t offset, size_t size, size_t alignment);
+        MemoryView(Memory* memory, MemoryViewType viewType, size_t offset, size_t size, size_t alignment);
 
         /// Supports only move construction / assignment.
         /// Copying is disallowed as it may lead to double frees of device allocations
@@ -76,6 +76,9 @@ namespace Spark::RHI::DX12
     
     private:
         void Construct();
+
+        // MemoryView holds Memory. obtained from m_memoryAllocation or externally (eg swapchain).
+        Ptr<Memory> m_memory = nullptr;
 
         Ptr<D3D12MA::Allocation> m_memoryAllocation = nullptr;
 

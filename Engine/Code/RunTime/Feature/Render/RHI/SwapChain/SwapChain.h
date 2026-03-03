@@ -120,10 +120,14 @@ namespace Spark::RHI
         virtual ResultCode InitInternal(RHI::Device& device, const SwapChainDescriptor& descriptor, SwapChainDimensions* nativeDimensions) = 0;
 
         //! Called when the swap chain is shutdown.
-        // virtual void ShutdownInternal() = 0;
+        virtual void ShutdownInternal() = 0;
 
         //! Called when the swap chain is initializing an image.
         virtual ResultCode InitImageInternal(const InitImageRequest& request) = 0;
+
+        //！swap chain中的image不再由imagepool来初始化，所以swap chain需要实现自己释放image资源的方法。
+        //! Called when swap chain shutdown images.
+        virtual void ShutdownImageInternal(Image& image) = 0;
 
         //! Called when the swap chain is resizing.
         virtual ResultCode ResizeInternal(const SwapChainDimensions& dimensions, SwapChainDimensions* nativeDimensions) = 0;

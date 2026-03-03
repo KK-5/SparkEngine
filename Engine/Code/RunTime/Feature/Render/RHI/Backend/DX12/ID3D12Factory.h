@@ -15,7 +15,9 @@ namespace Spark::RHI::DX12
     class DescriptorContext;
     class ConstantBufferContext;
     class PipelineLayout;
+    class CommandQueueContext;
 
+    // DX12内部接口
     class ID3D12FactoryInterface
     {
     public:
@@ -29,6 +31,8 @@ namespace Spark::RHI::DX12
         virtual Ptr<Sampler> AcquireSampler(RHI::SamplerState) = 0;
 
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
+
+        virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
     };
 
     class ID3D12Factory final : public Service<RHI::Factory>::Handler
@@ -39,6 +43,8 @@ namespace Spark::RHI::DX12
         DescriptorContext& AcquireDescriptorContext() override;
 
         ConstantBufferContext& AcquireConstantBufferContext() override;
+
+        CommandQueueContext& AcquireCommandQueueContext() override;
 
         Ptr<Sampler> AcquireSampler(RHI::SamplerState) override;
     };

@@ -12,6 +12,11 @@
 
 #include <Conversions.h>
 #include <Device/Device.h>
+#include <ID3D12Factory.h>
+#include <MemoryView.h>
+#include <Command/CommandQueueContext.h>
+#include <Resource/Image/Image.h>
+#include <3rdParty/D3D12MA/D3D12MemAlloc.h>
 
 namespace Spark::RHI::DX12
 {
@@ -25,9 +30,7 @@ namespace Spark::RHI::DX12
         // Check whether tearing support is available for full screen borderless windowed mode.
         Device& device = static_cast<Device&>(deviceBase);
         BOOL allowTearing = FALSE;
-        ComPtr<IDXGIFactoryX> dxgiFactory;
-        HRESULT result = CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.GetAddressOf()));
-        ASSERT(SUCCEEDED(result), "CreateDXGIFactory2 failed");
+        IDXGIFactoryX* dxgiFactory = device.GetPhysicalDevice().GetFactory();
         m_isTearingSupported = SUCCEEDED(dxgiFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing))) && allowTearing;
 
         if (nativeDimensions)
@@ -53,23 +56,26 @@ namespace Spark::RHI::DX12
             swapChainDesc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
         }
 
+        auto& commandQueueContext = Service<ID3D12FactoryInterface>::Get()->AcquireCommandQueueContext();
+
         IUnknown* window = reinterpret_cast<IUnknown*>(descriptor.m_window);
         ComPtr<IDXGISwapChain1> swapChainPtr;
 
         HRESULT hr = dxgiFactory->CreateSwapChainForHwnd(
-            m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics).GetPlatformQueue(),
+            commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics).GetNativeQueue(),
             reinterpret_cast<HWND>(descriptor.m_window),
             &swapChainDesc,
             nullptr,
             nullptr,
             &swapChainPtr);
 
-
-        RHI::ResultCode result = device.CreateSwapChain(reinterpret_cast<IUnknown*>(descriptor.m_window.GetIndex()), swapChainDesc, m_swapChain);
-        if (result == RHI::ResultCode::Success)
+        if (SUCCEEDED(hr))
         {
-            ConfigureDisplayMode(*nativeDimensions);
-
+            ComPtr<IDXGISwapChainX> swapChainX;
+            swapChainPtr->QueryInterface(IID_PPV_ARGS(swapChainX.GetAddressOf()));
+            m_swapChain = swapChainX.Get();
+            
+            // ConfigureDisplayMode(*nativeDimensions);
             // According to various docs (and the D3D12Fulscreen sample), when tearing is supported
             // a borderless full screen window is always preferred over exclusive full screen mode.
             //
@@ -90,10 +96,120 @@ namespace Spark::RHI::DX12
                 // target HWND swap chain, which you can guarantee by calling the IDXGIObject::GetParent method on the swap chain to locate the factory.
                 IDXGIFactoryX* parentFactory = nullptr;
                 m_swapChain->GetParent(__uuidof(IDXGIFactoryX), (void **)&parentFactory);
-                device.AssertSuccess(parentFactory->MakeWindowAssociation(reinterpret_cast<HWND>(window), DXGI_MWA_NO_ALT_ENTER));
+                parentFactory->MakeWindowAssociation(reinterpret_cast<HWND>(window), DXGI_MWA_NO_ALT_ENTER);
             }
-        }
-        return result;
 
+            return RHI::ResultCode::Success;
+        }
+        return RHI::ResultCode::Fail;
+    }
+
+    void SwapChain::ShutdownInternal()
+    {
+        // We must exit exclusive full screen mode before shutting down.
+        // Safe to call even if not in the exclusive full screen state.
+        m_swapChain->SetFullscreenState(0, nullptr);
+        m_swapChain = nullptr;
+    }
+
+    uint32_t SwapChain::PresentInternal()
+    {
+        if (m_swapChain)
+        {
+            // It is recommended to always pass the DXGI_PRESENT_ALLOW_TEARING flag when it is supported, even when presenting in windowed mode.
+            // But it cannot be used in an application that is currently in full screen exclusive mode, set by calling SetFullscreenState(TRUE).
+            // To use this flag in full screen Win32 apps the application should present to a fullscreen borderless window and disable automatic
+            // ALT+ENTER fullscreen switching using IDXGIFactory::MakeWindowAssociation (please see implementation of SwapChain::InitInternal).
+            // UINT presentFlags = (m_isTearingSupported && !m_isInFullScreenExclusiveState) ? DXGI_PRESENT_ALLOW_TEARING : 0;
+            HRESULT hresult = m_swapChain->Present(GetDescriptor().m_verticalSyncInterval, 0);
+
+            ASSERT(SUCCEEDED(hresult), "SwapChain present error.");
+
+            return (GetCurrentImageIndex() + 1) % GetImageCount();
+        }
+
+        return GetCurrentImageIndex();
+    }
+
+    RHI::ResultCode SwapChain::InitImageInternal(const InitImageRequest& request)
+    {
+        Device& device = GetDevice();
+
+        ComPtr<ID3D12Resource> resource;
+        HRESULT hr = m_swapChain->GetBuffer(request.m_imageIndex, IID_PPV_ARGS(resource.GetAddressOf()));
+        ASSERT(SUCCEEDED(hr), "SwapChain Get buffer failed.");
+
+        D3D12_RESOURCE_ALLOCATION_INFO allocationInfo;
+        D3D12_RESOURCE_DESC resourceDesc;
+        ConvertImageDescriptor(request.m_descriptor, resourceDesc);
+        allocationInfo = device.GetDevice()->GetResourceAllocationInfo(0, 1, &resourceDesc);
+
+        Image& image = static_cast<Image&>(*request.m_image);
+
+        image.m_memoryView = MemoryView(resource.Get(), MemoryViewType::Image, 0, allocationInfo.SizeInBytes, allocationInfo.Alignment);
+        image.GenerateSubresourceLayouts();
+        // Overwrite m_initialAttachmentState because Swapchain images are created with D3D12_RESOURCE_STATE_COMMON state
+        image.SetAttachmentState(D3D12_RESOURCE_STATE_COMMON);
+
+        return RHI::ResultCode::Success;
+    }
+
+    void SwapChain::ShutdownImageInternal(RHI::Image& imageBase)
+    {
+        Image& image = static_cast<Image&>(imageBase);
+
+        image.m_memoryView = {};
+    }
+
+    RHI::ResultCode SwapChain::ResizeInternal(const RHI::SwapChainDimensions& dimensions, RHI::SwapChainDimensions* nativeDimensions)
+    {
+        // 等待command完成
+        //GetDevice().WaitForIdle();
+
+        DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
+        m_swapChain->GetDesc(&swapChainDesc);
+        if (SUCCEEDED(m_swapChain->ResizeBuffers(
+                dimensions.m_imageCount,
+                dimensions.m_imageWidth,
+                dimensions.m_imageHeight,
+                swapChainDesc.BufferDesc.Format,
+                swapChainDesc.Flags)))
+        {
+            if (nativeDimensions)
+            {
+                *nativeDimensions = dimensions;
+            }
+            // ConfigureDisplayMode(dimensions);
+
+            // Check whether SetFullscreenState was used to enter full screen exclusive state.
+            BOOL fullscreenState;
+            m_isInFullScreenExclusiveState = SUCCEEDED(m_swapChain->GetFullscreenState(&fullscreenState, nullptr)) && fullscreenState;
+
+            return RHI::ResultCode::Success;
+        }
+
+        return RHI::ResultCode::Fail;
+    }
+
+    bool SwapChain::IsExclusiveFullScreenPreferred() const
+    {
+        return !m_isTearingSupported;
+    }
+
+    bool SwapChain::GetExclusiveFullScreenState() const
+    {
+        return m_isInFullScreenExclusiveState;
+    }
+
+    bool SwapChain::SetExclusiveFullScreenState(bool fullScreenState)
+    {
+        if (m_swapChain)
+        {
+            m_swapChain->SetFullscreenState(fullScreenState, nullptr);
+        }
+
+        // The above call to SetFullscreenState will ultimately result in
+        // SwapChain:ResizeInternal being called above where we set this.
+        return (fullScreenState == m_isInFullScreenExclusiveState);
     }
 }

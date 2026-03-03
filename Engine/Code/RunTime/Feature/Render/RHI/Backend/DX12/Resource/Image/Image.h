@@ -121,7 +121,7 @@ namespace Spark::RHI::DX12
         friend class StreamingImagePoolResolver;
 
         //////////////////////////////////////////////////////////////////////////
-        // RHI::DeviceImage
+        // RHI::Image
         void GetSubresourceLayoutsInternal(
             const RHI::ImageSubresourceRange& subresourceRange,
             RHI::ImageSubresourceLayout* subresourceLayouts,

@@ -14,7 +14,6 @@
 #include <RHI/Device/Device.h>
 
 #include <Fence/Fence.h>
-#include <DX12/Fence/Fence.h>
 #include "CommandQueue.h"
 
 namespace Spark::RHI::DX12

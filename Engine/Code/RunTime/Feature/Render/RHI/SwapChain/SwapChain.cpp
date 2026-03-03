@@ -140,7 +140,7 @@ namespace Spark::RHI
         uint32_t imageSize = static_cast<uint32_t>(m_images.size());
         for (uint32_t imageIdx = 0; imageIdx < imageSize; ++imageIdx)
         {
-            m_images[imageIdx]->Shutdown();
+            ShutdownImageInternal(*m_images[imageIdx]);
         }
 
         m_images.clear();
@@ -190,6 +190,7 @@ namespace Spark::RHI
 
     void SwapChain::Shutdown()
     {
+        ShutdownInternal();
         m_images.clear();
         DeviceObject::Shutdown();
     }

@@ -25,20 +25,20 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
         // RHI::SwapChain
         RHI::ResultCode InitInternal(RHI::Device& deviceBase, const RHI::SwapChainDescriptor& descriptor, RHI::SwapChainDimensions* nativeDimensions) override;
-        // void ShutdownInternal() override;
+        void ShutdownInternal() override;
         uint32_t PresentInternal() override;
         RHI::ResultCode InitImageInternal(const InitImageRequest& request) override;
-        // void ShutdownResourceInternal(RHI::DeviceResource& resourceBase) override;
+        void ShutdownImageInternal(RHI::Image& image) override;
         RHI::ResultCode ResizeInternal(const RHI::SwapChainDimensions& dimensions, RHI::SwapChainDimensions* nativeDimensions) override;
         bool IsExclusiveFullScreenPreferred() const override;
         bool GetExclusiveFullScreenState() const override;
         bool SetExclusiveFullScreenState(bool fullScreenState) override;
         //////////////////////////////////////////////////////////////////////////
 
-        void ConfigureDisplayMode(const RHI::SwapChainDimensions& dimensions);
-        void EnsureColorSpace(const DXGI_COLOR_SPACE_TYPE& colorSpace);
-        void DisableHdr();
-        void SetHDRMetaData(float maxOutputNits, float minOutputNits, float maxContentLightLevel, float maxFrameAverageLightLevel);
+        // void ConfigureDisplayMode(const RHI::SwapChainDimensions& dimensions);
+        // void EnsureColorSpace(const DXGI_COLOR_SPACE_TYPE& colorSpace);
+        // void DisableHdr();
+        // void SetHDRMetaData(float maxOutputNits, float minOutputNits, float maxContentLightLevel, float maxFrameAverageLightLevel);
 
         static const uint32_t InvalidColorSpace = 0xFFFFFFFE;
         DXGI_COLOR_SPACE_TYPE m_colorSpace = static_cast<DXGI_COLOR_SPACE_TYPE>(InvalidColorSpace);

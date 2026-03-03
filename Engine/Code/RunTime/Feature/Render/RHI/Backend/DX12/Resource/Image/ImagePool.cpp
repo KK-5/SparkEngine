@@ -16,6 +16,7 @@
 
 namespace Spark::RHI::DX12
 {
+    /*
     class ImagePoolResolver final : public ResourcePoolResolver
     {
     public:
@@ -30,6 +31,7 @@ namespace Spark::RHI::DX12
         Device* m_device = nullptr;
 
     };
+    */
 
     Device& ImagePool::GetDevice() const
     {
@@ -38,14 +40,15 @@ namespace Spark::RHI::DX12
 
     ImagePoolResolver* ImagePool::GetResolver()
     {
-        return static_cast<ImagePoolResolver*>(Base::GetResolver());
+        // return static_cast<ImagePoolResolver*>(Base::GetResolver());
+        return nullptr;
     }
 
     RHI::ResultCode ImagePool::InitInternal(RHI::Device& deviceBase, const RHI::ImagePoolDescriptor&)
     {
         Device& device = static_cast<Device&>(deviceBase);
 
-        SetResolver(eastl::make_unique<ImagePoolResolver>(device, this));
+        // SetResolver(eastl::make_unique<ImagePoolResolver>(device, this));
 
         // ImagePool 分配的内存总是commited的
         D3D12MA::ALLOCATOR_DESC desc = {};
@@ -129,17 +132,11 @@ namespace Spark::RHI::DX12
 
     RHI::ResultCode ImagePool::UpdateImageContentsInternal(const RHI::ImageUpdateRequest& request)
     {
-        size_t bytesTransferred = 0;
-        return GetResolver()->UpdateImage(request, bytesTransferred);
+        return RHI::ResultCode::InvalidOperation;
     }
 
     void ImagePool::ShutdownResourceInternal(RHI::Resource& resourceBase)
     {
-        if (auto* resolver = GetResolver())
-        {
-            resolver->OnResourceShutdown(resourceBase);
-        }
-
         Image& image = static_cast<Image&>(resourceBase);
         m_releaseQueue.QueueForCollect(image.GetMemoryView().GetMemoryAllocation());
         image.m_memoryView = {};

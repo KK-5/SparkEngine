@@ -25,17 +25,28 @@ namespace Spark::RHI::DX12
         , m_size(size)
         , m_alignment(alignment)
     {
+        m_memory = m_memoryAllocation->GetResource();
+        Construct();
+    }
+
+    MemoryView::MemoryView(Memory* memory, MemoryViewType viewType, size_t offset, size_t size, size_t alignment)
+        : m_memory(memory)
+        , m_viewType(viewType)
+        , m_offset(offset)
+        , m_size(size)
+        , m_alignment(alignment)
+    {
         Construct();
     }
 
     bool MemoryView::IsValid() const
     {
-        return m_memoryAllocation->GetResource() != nullptr;
+        return m_memory != nullptr;
     }
 
     Memory* MemoryView::GetMemory() const
     {
-        return m_memoryAllocation->GetResource();
+        return m_memory.get();
     }
 
     D3D12MA::Allocation* MemoryView::GetMemoryAllocation() const
@@ -69,7 +80,7 @@ namespace Spark::RHI::DX12
             readRange.Begin = m_offset;
             readRange.End = m_offset + m_size;
         }
-        m_memoryAllocation->GetResource()->Map(0, &readRange, reinterpret_cast<void**>(&cpuAddress));
+        m_memory->Map(0, &readRange, reinterpret_cast<void**>(&cpuAddress));
 
         // Make sure we return null if the map operation failed.
         if (cpuAddress)
@@ -90,7 +101,7 @@ namespace Spark::RHI::DX12
             writeRange.Begin = m_offset;
             writeRange.End = m_offset + m_size;
         }
-        m_memoryAllocation->GetResource()->Unmap(0, &writeRange);
+        m_memory->Unmap(0, &writeRange);
     }
 
     GpuVirtualAddress MemoryView::GetGpuAddress() const
@@ -100,17 +111,17 @@ namespace Spark::RHI::DX12
 
     ID3D12Heap* MemoryView::GetHeap() const
     {
-        return m_memoryAllocation->GetHeap();
+        return m_memoryAllocation ? m_memoryAllocation->GetHeap() : nullptr;
     }
 
     size_t MemoryView::GetHeapOffset()
     {
-        return m_memoryAllocation->GetOffset();
+        return m_memoryAllocation ? m_memoryAllocation->GetOffset() : 0;
     }
 
     void MemoryView::Construct()
     {
-        if (m_memoryAllocation->GetResource())
+        if (m_memory)
         {
             if (m_viewType == MemoryViewType::Image)
             {
@@ -121,7 +132,7 @@ namespace Spark::RHI::DX12
             }
             else
             {
-                m_gpuAddress = m_memoryAllocation->GetResource()->GetGPUVirtualAddress();
+                m_gpuAddress = m_memory->GetGPUVirtualAddress();
             }
 
             m_gpuAddress += m_offset;
