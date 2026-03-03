@@ -16,7 +16,7 @@
 #include <Log/SpdLogSystem.h>
 
 #include <Device/Device.h>
-#include <D3D12Factory.h>
+#include <ID3D12Factory.h>
 #include <Conversions.h>
 #include "CommandList.h"
 

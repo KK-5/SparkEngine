@@ -11,7 +11,7 @@
 #include <Math/Bit.h>
 #include <Log/SpdLogSystem.h>
 
-#include <D3D12Factory.h>
+#include <ID3D12Factory.h>
 #include <Conversions.h>
 #include <Device/Device.h>
 #include <Descriptor/DescriptorContext.h>
@@ -55,8 +55,8 @@ namespace Spark::RHI::DX12
         ShaderResource& shaderResource = static_cast<ShaderResource&>(shaderResourceBase);
         Device& device = static_cast<Device&>(GetDevice());
 
-        D3D12FactoryInterface* factory = Service<D3D12FactoryInterface>::Get();
-        ASSERT(factory, "D3D12Factory does not initialized");
+        ID3D12FactoryInterface* factory = Service<ID3D12FactoryInterface>::Get();
+        ASSERT(factory, "ID3D12Factory does not initialized");
 
         ConstantBufferContext& constantBufferCtx = factory->AcquireConstantBufferContext();
         DescriptorContext& descriptorCtx = factory->AcquireDescriptorContext();
@@ -103,12 +103,12 @@ namespace Spark::RHI::DX12
 
         if (m_constantBufferSize)
         {
-            ConstantBufferContext& constantBufferCtx = Service<D3D12FactoryInterface>::Get()->AcquireConstantBufferContext();
+            ConstantBufferContext& constantBufferCtx = Service<ID3D12FactoryInterface>::Get()->AcquireConstantBufferContext();
             shaderResource.m_constantMemoryView.Unmap(RHI::HostMemoryAccess::Write);
             constantBufferCtx.CollectConstantBuffer(shaderResource.m_constantMemoryView);
         }
 
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         if (m_viewsDescriptorTableSize)
         {
             if (shaderResource.m_viewsDescriptorTable.IsValid())
@@ -143,7 +143,7 @@ namespace Spark::RHI::DX12
         if (m_viewsDescriptorTableSize)
         {
             ShaderResource& shaderResource = static_cast<ShaderResource&>(shaderResourceBase);
-            DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+            DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
             shaderResource.m_compiledDataIndex = (shaderResource.m_compiledDataIndex + 1) % GetDevice().GetDescriptor().m_frameCountMax;
             //Lazy initialization for cbv/srv/uav Descriptor Tables
             if (!shaderResource.m_viewsDescriptorTable.IsValid())
@@ -184,7 +184,7 @@ namespace Spark::RHI::DX12
         if (m_constantBufferSize)
         {
             ShaderResource& shaderResource = static_cast<ShaderResource&>(shaderResourceBase);
-            DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+            DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
             shaderResource.m_compiledDataIndex = (shaderResource.m_compiledDataIndex + 1) % GetDevice().GetDescriptor().m_frameCountMax;
 
             memcpy(shaderResource.GetCompiledData().m_cpuConstantAddress, shaderResource.GetConstantData().data(), shaderResource.GetConstantData().size());
@@ -197,7 +197,7 @@ namespace Spark::RHI::DX12
         if (m_samplersDescriptorTableSize)
         {
             ShaderResource& shaderResource = static_cast<ShaderResource&>(shaderResourceBase);
-            DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+            DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
             shaderResource.m_compiledDataIndex = (shaderResource.m_compiledDataIndex + 1) % GetDevice().GetDescriptor().m_frameCountMax;
 
             // Sampler的DesciptorHandle已经在初始化时创建
@@ -212,7 +212,7 @@ namespace Spark::RHI::DX12
 
     void ShaderResourcePool::CacheGpuHandlesForViews(ShaderResource& shaderResource)
     {
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         for (uint32_t i = 0; i < GetDevice().GetDescriptor().m_frameCountMax; ++i)
         {
             const DescriptorHandle descriptorHandle = shaderResource.m_viewsDescriptorTable.GetOffset() + m_viewsDescriptorTableSize * i;
@@ -350,20 +350,20 @@ namespace Spark::RHI::DX12
     void ShaderResourcePool::UpdateDescriptorTableRangeForBuffer(DescriptorTable descriptorTable, const eastl::span<DescriptorHandle>& descriptors, RHI::ShaderInputIndex bufferInputIndex)
     {
         const DescriptorTable destinationTable = GetBufferTable(descriptorTable, bufferInputIndex);
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         descriptorCtx.UpdateDescriptorTableRange(destinationTable, descriptors.data(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     void ShaderResourcePool::UpdateDescriptorTableRangeForImage(DescriptorTable descriptorTable, const eastl::span<DescriptorHandle>& descriptors, RHI::ShaderInputIndex imageInputIndex)
     {
         const DescriptorTable destinationTable = GetBufferTable(descriptorTable, imageInputIndex);
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         descriptorCtx.UpdateDescriptorTableRange(destinationTable, descriptors.data(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     void ShaderResourcePool::UpdateDescriptorTableRange(DescriptorTable descriptorTable, eastl::span<const RHI::SamplerState> samplerStates, RHI::ShaderInputIndex samplerIndex)
     {
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         const DescriptorHandle nullHandle = descriptorCtx.GetNullHandleSampler();
         eastl::fixed_vector<DescriptorHandle, SRGViewsFixedSize> sourceDescriptors(
             static_cast<uint32_t>(samplerStates.size()), nullHandle);
@@ -373,7 +373,7 @@ namespace Spark::RHI::DX12
         
         for (size_t i = 0; i < samplerStates.size(); ++i)
         {
-            samplers[i] = Service<D3D12FactoryInterface>::Get()->AcquireSampler(samplerStates[i]);
+            samplers[i] = Service<ID3D12FactoryInterface>::Get()->AcquireSampler(samplerStates[i]);
             sourceDescriptors[i] = samplers[i]->GetDescriptorHandle();
         }
 
@@ -389,7 +389,7 @@ namespace Spark::RHI::DX12
         D3D12_SRV_DIMENSION dimension,
         eastl::fixed_vector<DescriptorHandle, SRGViewsFixedSize>& result)
     {
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         result.resize(imageViews.size(), descriptorCtx.GetNullHandleSRV(dimension));
 
         for (size_t i = 0; i < result.size(); ++i)
@@ -407,7 +407,7 @@ namespace Spark::RHI::DX12
         D3D12_UAV_DIMENSION dimension,
         eastl::fixed_vector<DescriptorHandle, SRGViewsFixedSize>& result)
     {
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         result.resize(imageViews.size(), descriptorCtx.GetNullHandleUAV(dimension));
         for (size_t i = 0; i < result.size(); ++i)
         {
@@ -422,7 +422,7 @@ namespace Spark::RHI::DX12
         const eastl::span<const ConstPtr<RHI::BufferView>>& bufferViews,
         eastl::fixed_vector<DescriptorHandle, SRGViewsFixedSize>& result)
     {
-        DescriptorContext& descriptorCtx = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         result.resize(bufferViews.size(), descriptorCtx.GetNullHandleCBV());
 
         for (size_t i = 0; i < bufferViews.size(); ++i)

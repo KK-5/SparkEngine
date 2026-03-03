@@ -16,10 +16,10 @@ namespace Spark::RHI::DX12
     class ConstantBufferContext;
     class PipelineLayout;
 
-    class D3D12FactoryInterface
+    class ID3D12FactoryInterface
     {
     public:
-        virtual ~D3D12FactoryInterface() = default;
+        virtual ~ID3D12FactoryInterface() = default;
 
         virtual DescriptorContext& AcquireDescriptorContext() = 0;
 
@@ -31,10 +31,10 @@ namespace Spark::RHI::DX12
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
     };
 
-    class D3D12Factory final : public Service<RHI::Factory>::Handler
-                             , public Service<D3D12FactoryInterface>::Handler
+    class ID3D12Factory final : public Service<RHI::Factory>::Handler
+                              , public Service<ID3D12FactoryInterface>::Handler
     {
-        static D3D12Factory& Get();
+        // static D3D12Factory& Get();
 
         DescriptorContext& AcquireDescriptorContext() override;
 

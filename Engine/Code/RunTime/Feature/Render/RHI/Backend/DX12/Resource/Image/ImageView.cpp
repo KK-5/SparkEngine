@@ -113,7 +113,7 @@ namespace Spark::RHI::DX12
 
     void ImageView::ShutdownInternal()
     {
-        DescriptorContext& context = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
         
         context.ReleaseDescriptor(m_readDescriptor);
         context.ReleaseDescriptor(m_readWriteDescriptor);

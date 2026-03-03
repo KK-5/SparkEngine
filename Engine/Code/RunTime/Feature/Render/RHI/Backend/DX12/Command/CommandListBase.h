@@ -111,7 +111,7 @@ namespace Spark::RHI::DX12
 
     private:
         RHI::HardwareQueueClass m_hardwareQueueClass;
-        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandListX> m_commandList;
+        ComPtr<ID3D12GraphicsCommandListX> m_commandList;
         eastl::vector<BarrierOp> m_queuedBarriers;
         bool m_isRecording = false;
         struct State
