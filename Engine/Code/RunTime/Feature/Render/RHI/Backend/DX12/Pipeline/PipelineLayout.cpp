@@ -8,7 +8,7 @@
 
 /*
  * Modified by SparkEngine in 2025
- *  -- Remove the PipelineLayoutCache. D3D12Factory will manager the PipelineLayout object.
+ *  -- Remove the PipelineLayoutCache. ID3D12Factory will manager the PipelineLayout object.
  */
 
 #include "PipelineLayout.h"

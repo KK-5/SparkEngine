@@ -45,6 +45,7 @@ namespace Spark::RHI
                     LOG_ERROR("[VertexBufferView] Duplicate input slot");
                     return false;
                 }
+                existSlot[vertexInput.m_inputSlot] = true;
 
                 maxSlot = maxSlot < vertexInput.m_inputSlot ? vertexInput.m_inputSlot : maxSlot;
             }
