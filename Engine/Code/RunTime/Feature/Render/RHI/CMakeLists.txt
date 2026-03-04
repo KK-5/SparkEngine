@@ -1,11 +1,24 @@
 set(TARGET_NAME SparkRHI)
 
 set(SOURCES
-    stub.cpp
     Size.cpp
     Format.cpp
+    HardwareQueue.cpp
+    MultisampleState.cpp
+    Attachment/RenderAttachmentLayout.cpp
+    Attachment/RenderAttachmentLayoutBuilder.cpp
+    Command/CommandList.cpp
+    Command/CommandQueue.cpp
     Device/Device.cpp
     Device/DeviceObject.cpp
+    Fence/Fence.cpp
+    Pipeline/PipelineLayoutDescriptor.cpp
+    Pipeline/PipelineLibrary.cpp
+    Pipeline/PipelineState.cpp
+    Pipeline/PipelineStateCache.cpp
+    Pipeline/PipelineStateDescriptor.cpp
+    Pipeline/RenderStates.cpp
+    Pipeline/ShaderStageFunction.cpp
     Resource/Resource.cpp
     Resource/ResourcePool.cpp
     Resource/ResourceView.cpp
@@ -14,6 +27,12 @@ set(SOURCES
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/BufferView.cpp
     Resource/Buffer/BufferViewDescriptor.cpp
+    Resource/Buffer/IndexBufferView.cpp
+    Resource/Buffer/IndirectBufferLayout.cpp
+    Resource/Buffer/IndirectBufferSignature.cpp
+    Resource/Buffer/IndirectBufferView.cpp
+    Resource/Buffer/StreamBufferView.cpp
+    Resource/Buffer/VertexBufferView.cpp
     Resource/Image/Image.cpp
     Resource/Image/ImageDescriptor.cpp
     Resource/Image/ImageEnum.cpp
@@ -25,7 +44,6 @@ set(SOURCES
     Resource/Image/StreamingImagePool.cpp
     Resource/Sampler/SamplerState.cpp
     Resource/ShaderResource/ShaderSemantic.cpp
-    Resource/ShaderResource/StreamBufferView.cpp
     Resource/ShaderResource/InputStreamLayout.cpp
     Resource/ShaderResource/InputStreamLayoutBuilder.cpp
     Resource/ShaderResource/ConstantsData.cpp
@@ -34,6 +52,9 @@ set(SOURCES
     Resource/ShaderResource/ShaderResourceDescriptor.cpp
     Resource/ShaderResource/ShaderResourceLayout.cpp
     Resource/ShaderResource/ShaderResourcePool.cpp
+    Scissor/Scissor.cpp
+    SwapChain/SwapChain.cpp
+    Viewport/VIewport.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

@@ -7,7 +7,7 @@
  */
 #pragma once
 
-#include <Device/DeviceObject.h>
+#include <RHI/Device/DeviceObject.h>
 
 #include "PipelineStateDescriptor.h"
 

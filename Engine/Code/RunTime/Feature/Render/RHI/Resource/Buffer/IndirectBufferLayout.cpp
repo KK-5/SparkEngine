@@ -13,7 +13,7 @@
 
 namespace Spark::RHI
 {
-    size_t IndirectCommandDescriptor::GetHash(size_t seed = 0) const
+    size_t IndirectCommandDescriptor::GetHash(size_t seed) const
     {
         size_t hash = eastl::hash<const IndirectCommandDescriptor*>()(this);
         eastl::hash_combine_raw(hash, seed);
@@ -81,7 +81,7 @@ namespace Spark::RHI
         return true;
     }
 
-    size_t IndirectBufferLayout::GetHash([[maybe_unused]]size_t seed = 0) const
+    size_t IndirectBufferLayout::GetHash([[maybe_unused]]size_t seed) const
     {
         return m_hash;
     }

@@ -167,6 +167,7 @@ namespace Spark::RHI
         uint32_t m_bindingSlot = static_cast<uint32_t>(-1);
     };
 
+    /*
     bool ShaderResource::ValidateImageViewAccess(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const
     {
         if (!Validation::isEnabled)
@@ -424,4 +425,5 @@ namespace Spark::RHI
 
         return true;
     }
+    */
 }

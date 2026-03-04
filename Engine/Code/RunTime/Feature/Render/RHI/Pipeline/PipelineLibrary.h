@@ -15,7 +15,7 @@
 #include <EASTL/span.h>
 #include <EASTL/string.h>
 
-#include <Device/DeviceObject.h>
+#include <RHI/Device/DeviceObject.h>
 
 namespace Spark::RHI
 {

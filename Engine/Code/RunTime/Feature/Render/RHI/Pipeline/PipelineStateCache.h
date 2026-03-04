@@ -8,7 +8,7 @@
 
  /*
  * Modified by SparkEngine in 2025
- *  -- Only the global PipelineState cache is being used, thread-local and global pending caches are not in use.They will be implemented in the future.
+ *  -- Only the global PipelineState cache is being used, thread-local and global pending caches are not in use. They will be implemented in the future.
  */
 #pragma once
 
@@ -55,7 +55,7 @@ namespace Spark::RHI
     //! Hash calculator for a PipelineStateEntry
     struct PipelineStateCacheHash
     {
-        size_t operator()(const PipelineStateEntry& entry)
+        size_t operator()(const PipelineStateEntry& entry) const
         {
             return entry.m_hash;
         }
@@ -197,11 +197,11 @@ namespace Spark::RHI
             PipelineStateSet m_readOnlyCache;
 
             // A global, locked cache used to de-duplicate pipeline allocations / compilations.
-            PipelineStateSet m_pendingCache;
-            std::mutex m_pendingCacheMutex;
+            // PipelineStateSet m_pendingCache;
+            // std::mutex m_pendingCacheMutex;
 
             // Tracks the number of pipeline states actively being compiled across all threads.
-            eastl::atomic<uint32_t> m_pendingCompileCount = {0};
+            // eastl::atomic<uint32_t> m_pendingCompileCount = {0};
 
             // Contains the initial serialized data (Used to prime the thread libraries)
             // or the file name that contains the serialized data

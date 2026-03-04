@@ -54,7 +54,9 @@ namespace Spark::RHI
 
                 if (attachment.m_format != Format::Unknown && renderAttachmentFormats[resolveAttachmentIndex] != attachment.m_format)
                 {
-                    ASSERT(false, "Incompatible format for resolve attachment {}. Expected {}. Actual {}", attachment.m_name.GetCStr(), renderAttachmentFormats[resolveAttachmentIndex], attachment.m_format);
+                    ASSERT(false, "Incompatible format for resolve attachment {}. Expected {}. Actual {}", attachment.m_name.GetCStr(), 
+                        static_cast<uint32_t>(renderAttachmentFormats[resolveAttachmentIndex]), 
+                        static_cast<uint32_t>(attachment.m_format));
                     return ResultCode::InvalidArgument;
                 }
             }
@@ -109,7 +111,10 @@ namespace Spark::RHI
 
                 if (renderTargetAttachment.m_format != Format::Unknown && renderAttachmentFormats[attachmentIndex] != renderTargetAttachment.m_format)
                 {
-                    ASSERT(false, "Incompatible format for attachment {}. Expected {}. Actual {}", renderTargetAttachment.m_name.GetCStr(), renderAttachmentFormats[attachmentIndex], renderTargetAttachment.m_format);
+                    ASSERT(false, "Incompatible format for attachment {}. Expected {}. Actual {}", 
+                        renderTargetAttachment.m_name.GetCStr(), 
+                        static_cast<uint32_t>(renderAttachmentFormats[attachmentIndex]), 
+                        static_cast<uint32_t>(renderTargetAttachment.m_format));
                     return ResultCode::InvalidArgument;
                 }
 

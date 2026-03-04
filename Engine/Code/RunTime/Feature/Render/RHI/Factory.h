@@ -19,7 +19,7 @@ namespace Spark::RHI
     class StreamingImagePool;
 
     class PipelineLibrary;
-    class PipelibeState;
+    class PipelineState;
 
     class Commandlist;
     class CommandQueue;
@@ -52,7 +52,7 @@ namespace Spark::RHI
 
         virtual Ptr<PipelineLibrary> CreatePipelineLibrary() = 0;
 
-        virtual Ptr<PipelibeState> CreatePipelineState() = 0;
+        virtual Ptr<PipelineState> CreatePipelineState() = 0;
 
         virtual Ptr<Commandlist> CreateCommandList() = 0;
 

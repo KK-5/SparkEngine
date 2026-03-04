@@ -19,6 +19,27 @@
 
 namespace Spark::RHI
 {
+    PipelineStateEntry::PipelineStateEntry(
+        PipelineStateHash hash, ConstPtr<PipelineState> pipelineState, const PipelineStateDescriptor& descriptor)
+        : m_hash{ hash }
+        , m_pipelineState{ eastl::move(pipelineState) }
+    {
+        switch (descriptor.GetType())
+        {
+        case PipelineStateType::Dispatch:
+            m_pipelineStateDescriptorVariant = static_cast<const PipelineStateDescriptorForDispatch&>(descriptor);
+            break;
+
+        case PipelineStateType::Draw:
+            m_pipelineStateDescriptorVariant = static_cast<const PipelineStateDescriptorForDraw&>(descriptor);
+            break;
+
+        case PipelineStateType::RayTracing:
+            m_pipelineStateDescriptorVariant = static_cast<const PipelineStateDescriptorForRayTracing&>(descriptor);
+            break;
+        }
+    }
+
     bool PipelineStateEntry::operator == (const PipelineStateEntry& rhs) const
     {
         if(eastl::get_if<PipelineStateDescriptorForDispatch>(&rhs.m_pipelineStateDescriptorVariant) &&
@@ -55,8 +76,8 @@ namespace Spark::RHI
         {
             const GlobalLibraryEntry& globalLibraryEntry = m_globalLibrarySet[i];
             const PipelineStateSet& readOnlyCache = globalLibraryEntry.m_readOnlyCache;
-            ASSERT(globalLibraryEntry.m_pendingCompileCount == 0, "Compiles are pending for pipeline library");
-            ASSERT(globalLibraryEntry.m_pendingCache.empty(), "Pending cache is not empty.");
+            // ASSERT(globalLibraryEntry.m_pendingCompileCount == 0, "Compiles are pending for pipeline library");
+            // ASSERT(globalLibraryEntry.m_pendingCache.empty(), "Pending cache is not empty.");
 
             if (!m_globalLibraryActiveBits[i])
             {
@@ -126,7 +147,8 @@ namespace Spark::RHI
         m_globalLibraryActiveBits[index] = true;
 
         GlobalLibraryEntry& libraryEntry = m_globalLibrarySet[index];
-        ASSERT(libraryEntry.m_readOnlyCache.empty() && libraryEntry.m_pendingCache.empty(), "Library entry has entries in its caches!");
+        // ASSERT(libraryEntry.m_readOnlyCache.empty() && libraryEntry.m_pendingCache.empty(), "Library entry has entries in its caches!");
+        ASSERT(libraryEntry.m_readOnlyCache.empty(), "Library entry has entries in its caches!");
 
         return index;
     }
@@ -161,11 +183,11 @@ namespace Spark::RHI
     {
         GlobalLibraryEntry& libraryEntry = m_globalLibrarySet[index];
 
-        ASSERT(libraryEntry.m_pendingCompileCount == 0, "Reseting library while compiles are still pending!");
+        //ASSERT(libraryEntry.m_pendingCompileCount == 0, "Reseting library while compiles are still pending!");
         libraryEntry.m_readOnlyCache.clear();
-        libraryEntry.m_pendingCacheMutex.lock();
-        libraryEntry.m_pendingCache.clear();
-        libraryEntry.m_pendingCacheMutex.unlock();
+        //libraryEntry.m_pendingCacheMutex.lock();
+        //libraryEntry.m_pendingCache.clear();
+        //libraryEntry.m_pendingCacheMutex.unlock();
     }
 
     const PipelineState* PipelineStateCache::AcquirePipelineState(PipelineLibraryIndex library, const PipelineStateDescriptor& descriptor, const ObjectName& name)
@@ -217,6 +239,8 @@ namespace Spark::RHI
 
     const PipelineState* PipelineStateCache::FindPipelineState(const PipelineStateSet& pipelineStateSet, const PipelineStateDescriptor& descriptor)
     {
+        //const PipelineStateEntry entry(descriptor.GetHash(), nullptr, descriptor);
+        //auto pipelineStateIt = pipelineStateSet.find(entry);
         auto pipelineStateIt = pipelineStateSet.find(PipelineStateEntry(descriptor.GetHash(), nullptr, descriptor));
         if (pipelineStateIt != pipelineStateSet.end())
         {

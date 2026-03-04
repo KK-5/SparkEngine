@@ -9,7 +9,7 @@
 #include "ImageView.h"
 
 #include <EASTL/algorithm.h>
-#include <D3D12Factory.h>
+#include <ID3D12Factory.h>
 #include <Conversions.h>
 #include <Descriptor/DescriptorContext.h>
 #include "Image.h"
@@ -82,7 +82,7 @@ namespace Spark::RHI::DX12
         m_format = ConvertImageViewFormat(image, viewDescriptor);
         m_memory = image.GetMemoryView().GetMemory();
 
-        DescriptorContext& context = Service<D3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
 
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::ShaderRead))
         {

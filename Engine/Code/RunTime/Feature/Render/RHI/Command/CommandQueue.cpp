@@ -28,7 +28,7 @@ namespace Spark::RHI
 
     ResultCode CommandQueue::Init(Device& device, const CommandQueueDescriptor& descriptor)
     {
-        if (IsInitialized)
+        if (IsInitialized())
         {
             LOG_ERROR("[CommandQueue] CommandQueue is already initialized!");
             return ResultCode::InvalidOperation;
@@ -69,7 +69,7 @@ namespace Spark::RHI
 
     }
 
-    void CommandQueue::ExecuteCommand(eastl::span<const CommandList&> commandLists)
+    void CommandQueue::ExecuteCommand(eastl::span<const CommandList> commandLists)
     {
         if (!ValidateIsInitialized())
         {

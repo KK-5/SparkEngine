@@ -1286,18 +1286,6 @@ namespace Spark::RHI::DX12
         }
     }
 
-    D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type)
-    {
-        static const D3D12_COMMAND_LIST_TYPE Table[] =
-        {
-            D3D12_COMMAND_LIST_TYPE_DIRECT,
-            D3D12_COMMAND_LIST_TYPE_COMPUTE,
-            D3D12_COMMAND_LIST_TYPE_COPY
-        };
-
-        return Table[static_cast<size_t>(type)];
-    }
-
     D3D12_PREDICATION_OP ConvertPredicationOp(RHI::PredicationOp op)
     {
         static const D3D12_PREDICATION_OP table[] =
