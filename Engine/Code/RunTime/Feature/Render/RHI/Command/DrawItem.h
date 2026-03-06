@@ -40,7 +40,7 @@ namespace Spark::RHI
         /// Indices of the StreamBufferViews in the GeometryView that this DrawItem will use
         // StreamBufferIndices m_streamIndices;
         uint8_t m_stencilRef = 0;
-        uint8_t m_shaderResourcCount = 0;
+        uint8_t m_shaderResourceCount = 0;
         uint8_t m_rootConstantSize = 0;
         uint8_t m_scissorsCount = 0;
         uint8_t m_viewportsCount = 0;

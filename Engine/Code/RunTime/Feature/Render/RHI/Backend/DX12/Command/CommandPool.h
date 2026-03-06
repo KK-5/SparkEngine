@@ -22,10 +22,11 @@
 #include <RHI/RHILimits.h>
 #include <DX12.h>
 
+#include "CommandList.h"
+
 namespace Spark::RHI::DX12
 {
     class Device;
-    class CommandList;
 
     class CommandAllocatorFactory final : public IObjectFactory<ID3D12CommandAllocator>
     {
@@ -79,11 +80,11 @@ namespace Spark::RHI::DX12
 
         CommandList* Allocate(ID3D12CommandAllocator* commandAllocator);
 
-        void ReAllocate(CommandList& commandList, ID3D12CommandAllocator* commandAllocator);
+        void ReAllocate(CommandList* commandList, ID3D12CommandAllocator* commandAllocator);
 
-        void DeAllocate(CommandList& commandList, bool isPoolShutdown);
+        void DeAllocate(CommandList* commandList, bool isPoolShutdown);
         
-        bool RecycleObject(CommandList& commandList);
+        bool RecycleObject(CommandList* commandList);
 
     private:
         Descriptor m_descriptor;

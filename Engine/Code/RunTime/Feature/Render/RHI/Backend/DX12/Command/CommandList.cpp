@@ -12,6 +12,7 @@
 
 #include <ID3D12Factory.h>
 #include <Conversions.h>
+#include <Device/Device.h>
 #include <Descriptor/DescriptorContext.h>
 #include <Resource/ShaderResource/ShaderResource.h>
 #include <Resource/Buffer/Buffer.h>
@@ -395,20 +396,6 @@ namespace Spark::RHI::DX12
         }
 
         m_state.m_shadingRateState.Set(rate, combinators);
-    }
-
-    void CommandList::SetViewports(
-        const RHI::Viewport* viewports,
-        uint32_t count)
-    {
-        m_state.m_viewportState.Set(eastl::span<const RHI::Viewport>(viewports, count));
-    }
-
-    void CommandList::SetScissors(
-        const RHI::Scissor* scissors,
-        uint32_t count)
-    {
-        m_state.m_scissorState.Set(eastl::span<const RHI::Scissor>(scissors, count));
     }
 
     void CommandList::SetStencilRef(uint8_t stencilRef)
@@ -839,6 +826,7 @@ namespace Spark::RHI::DX12
             // Check if we are iterating over the bindless srg slot
             // [TODO] modify the binding method of bindless
             const auto& device = static_cast<Device&>(GetDevice());
+            /*
             if (srgSlot == device.GetBindlessSrgSlot() && shaderResource == nullptr)
             {
                 // Skip in case the global static heap is already bound
@@ -869,6 +857,7 @@ namespace Spark::RHI::DX12
                 bindings.m_bindlessHeapLastIndex = binding.m_bindlessTable;
                 continue;
             }
+            */
 
             if (RHI::Validation::isEnabled)
             {
@@ -912,20 +901,21 @@ namespace Spark::RHI::DX12
                     {
                         if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
                         {
-                            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_resourceTable.GetIndex(), compiledData.m_gpuViewsDescriptorHandle);
+                            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
                         }
 
                         if (binding.m_constantBuffer != InvalidRootParameterIndex)
                         {
-                            GetCommandList()->SetGraphicsRootConstantBufferView(binding.m_constantBuffer.GetIndex(), compiledData.m_gpuConstantAddress);
+                            GetCommandList()->SetGraphicsRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
                         }
 
                         if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
                         {
-                            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_samplerTable.GetIndex(), compiledData.m_gpuSamplersDescriptorHandle);
+                            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
                         }
 
                         // [TODO] remove bindless from this
+                        /*
                         for (uint32_t unboundedArrayIndex = 0; unboundedArrayIndex < ShaderResourceCompiledData::MaxUnboundedArrays;
                              ++unboundedArrayIndex)
                         {
@@ -937,27 +927,28 @@ namespace Spark::RHI::DX12
                                     compiledData.m_gpuUnboundedArraysDescriptorHandles[unboundedArrayIndex]);
                             }
                         }
-
+                        */
                         break;
                     }
                     case RHI::PipelineStateType::Dispatch:
                     {
                         if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
                         {
-                            GetCommandList()->SetComputeRootDescriptorTable(binding.m_resourceTable.GetIndex(), compiledData.m_gpuViewsDescriptorHandle);
+                            GetCommandList()->SetComputeRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
                         }
 
                         if (binding.m_constantBuffer != InvalidRootParameterIndex)
                         {
-                            GetCommandList()->SetComputeRootConstantBufferView(binding.m_constantBuffer.GetIndex(), compiledData.m_gpuConstantAddress);
+                            GetCommandList()->SetComputeRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
                         }
 
                         if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
                         {
-                            GetCommandList()->SetComputeRootDescriptorTable(binding.m_samplerTable.GetIndex(), compiledData.m_gpuSamplersDescriptorHandle);
+                            GetCommandList()->SetComputeRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
                         }
 
                         // [TODO] remove bindless from this
+                        /*
                         for (uint32_t unboundedArrayIndex = 0; unboundedArrayIndex < ShaderResourceCompiledData::MaxUnboundedArrays;
                              ++unboundedArrayIndex)
                         {
@@ -969,6 +960,7 @@ namespace Spark::RHI::DX12
                                     compiledData.m_gpuUnboundedArraysDescriptorHandles[unboundedArrayIndex]);
                             }
                         }
+                        */
                         break;
                     }
                     default:

@@ -33,6 +33,8 @@ namespace Spark::RHI
         All = PerDraw | PerPrimitive | PerRegion
     };
 
+    DEFINE_ENUM_BITWISE_OPERATORS(ShadingRateTypeFlags, uint32_t);
+
     //! Defines constants that specify the shading rate value.
     enum class ShadingRate : uint32_t
     {
@@ -62,6 +64,8 @@ namespace Spark::RHI
         Rate1x4 = BIT(static_cast<uint32_t>(ShadingRate ::Rate1x4)),
         Rate4x4 = BIT(static_cast<uint32_t>(ShadingRate ::Rate4x4))
     };
+
+    DEFINE_ENUM_BITWISE_OPERATORS(ShadingRateFlags, uint32_t);
 
     //! Defines the operations for combining shading rates.
     enum class ShadingRateCombinerOp : uint32_t

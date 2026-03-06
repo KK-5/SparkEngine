@@ -360,6 +360,12 @@ namespace Spark::RHI::DX12
         return D3D12_UAV_DIMENSION_UNKNOWN;
     }
 
+    D3D12_SAMPLE_POSITION ConvertSamplePosition(const RHI::SamplePosition& position)
+    {
+        static const uint8_t offset = RHI::Limits::Pipeline::MultiSampleCustomLocationGridSize / 2;
+        return D3D12_SAMPLE_POSITION{ static_cast<INT8>(position.m_x - offset), static_cast<INT8>(position.m_y - offset) };
+    }
+
     void ConvertImageDescriptor(const RHI::ImageDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc)
     {
         resourceDesc.Dimension = ConvertImageDimension(descriptor.m_dimension);

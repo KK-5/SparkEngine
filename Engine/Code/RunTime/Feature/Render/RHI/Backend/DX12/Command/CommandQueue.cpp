@@ -10,7 +10,9 @@
 
 #include <Device/Device.h>
 #include <Conversions.h>
-#include <DX12/Fence/Fence.h>
+#include <Fence/Fence.h>
+
+#include "CommandList.h"
 
 namespace Spark::RHI::DX12
 {
@@ -63,13 +65,21 @@ namespace Spark::RHI::DX12
         m_queue.get();
     }
 
-    void CommandQueue::ExecuteCommandInternal(eastl::span<const RHI::CommandList&> commandLists)
+    void CommandQueue::ExecuteCommandInternal(eastl::span<const RHI::CommandList> commandLists)
     {
         if (commandLists.size() == 0)
         {
             return;
         }
 
-        m_queue->ExecuteCommandLists(commandLists.size(), commandLists.data());
+        eastl::vector<ID3D12CommandList*> dx12Commandlists;
+        dx12Commandlists.reserve(commandLists.size());
+        for (const auto commandList : commandLists)
+        {
+            auto dx12CommandList = static_cast<const CommandList>(commandList);
+            dx12Commandlists.push_back(dx12CommandList.GetCommandList());
+        }
+
+        m_queue->ExecuteCommandLists(commandLists.size(), dx12Commandlists.data());
     }
 }

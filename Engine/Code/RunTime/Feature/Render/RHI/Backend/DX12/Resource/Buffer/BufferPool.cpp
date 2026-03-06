@@ -178,7 +178,7 @@ namespace Spark::RHI::DX12
 
     Device& BufferPool::GetDevice() const
     {
-        return static_cast<Device&>(GetDevice());
+        return static_cast<Device&>(DeviceObject::GetDevice());
     }
 
     void BufferPool::OnFrameEnd()

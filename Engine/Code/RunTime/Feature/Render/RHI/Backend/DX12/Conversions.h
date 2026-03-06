@@ -25,6 +25,8 @@ namespace Spark::RHI::DX12
 
     DXGI_FORMAT ConvertFormat(RHI::Format format, bool raiseAsserts = true);
 
+    D3D12_SAMPLE_POSITION ConvertSamplePosition(const RHI::SamplePosition& position);
+
     D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type);
 
     D3D12_RESOURCE_FLAGS ConvertBufferBindFlags(RHI::BufferBindFlags bufferFlags);

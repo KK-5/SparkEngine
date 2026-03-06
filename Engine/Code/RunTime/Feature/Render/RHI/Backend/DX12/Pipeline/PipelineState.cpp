@@ -11,7 +11,7 @@
 #include <EASTL/vector.h>
 #include <Log/SpdLogSystem.h>
 
-#include <D3D12Factory.h>
+#include <ID3D12Factory.h>
 #include <Device/Device.h>
 #include <Conversions.h>
 
@@ -51,7 +51,7 @@ namespace Spark::RHI::DX12
         pipelineStateDesc.SampleDesc.Quality = descriptor.m_renderStates.m_multisampleState.m_quality;
 
         // Shader state.
-        Ptr<PipelineLayout> pipelineLayout = Service<D3D12FactoryInterface>::Get()->CreatePipelineLayout();
+        Ptr<PipelineLayout> pipelineLayout = Service<ID3D12FactoryInterface>::Get()->CreatePipelineLayout();
         pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
         pipelineStateDesc.pRootSignature = pipelineLayout->Get();
 
@@ -123,7 +123,7 @@ namespace Spark::RHI::DX12
         pipelineStateDesc.NodeMask = 1;
 
         // Shader state.
-        Ptr<PipelineLayout> pipelineLayout = Service<D3D12FactoryInterface>::Get()->CreatePipelineLayout();
+        Ptr<PipelineLayout> pipelineLayout = Service<ID3D12FactoryInterface>::Get()->CreatePipelineLayout();
         pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
         pipelineStateDesc.pRootSignature = pipelineLayout->Get();
 
@@ -165,7 +165,7 @@ namespace Spark::RHI::DX12
     {
         Device& device = static_cast<Device&>(deviceBase);
 
-        Ptr<PipelineLayout> pipelineLayout = Service<D3D12FactoryInterface>::Get()->CreatePipelineLayout();
+        Ptr<PipelineLayout> pipelineLayout = Service<ID3D12FactoryInterface>::Get()->CreatePipelineLayout();
         pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
 
         m_pipelineLayout = eastl::move(pipelineLayout);

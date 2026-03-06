@@ -18,7 +18,6 @@
 #include <Device/Device.h>
 #include <ID3D12Factory.h>
 #include <Conversions.h>
-#include "CommandList.h"
 
 namespace Spark::RHI::DX12
 {
@@ -49,22 +48,28 @@ namespace Spark::RHI::DX12
 
     CommandList* CommandListFactory::Allocate(ID3D12CommandAllocator* commandAllocator)
     {
-        Ptr<CommandList> commandList = Service<RHI::Factory>::Get()->CreateCommandList();
-        commandList->Init(*m_descriptor.m_device, m_descriptor.m_hardwareQueueClass, commandAllocator);
-        return commandList.get();
+        //Ptr<RHI::CommandList> commandListBase = Service<RHI::Factory>::Get()->CreateCommandList();
+        Ptr<RHI::CommandList> ptr(new CommandList());
+        RHI::Factory* fac = Service<RHI::Factory>::Get();
+        Ptr<RHI::CommandList> commandListBase = eastl::move(fac->CreateCommandList());
+        //auto commandListBase = Service<RHI::Factory>::Get()->CreateCommandList();
+        //Ptr<CommandList> commandList = static_cast<CommandList*>(commandListBase.get());
+        //commandList->Init(*m_descriptor.m_device, m_descriptor.m_hardwareQueueClass, commandAllocator);
+        //return commandList.get();
+        return nullptr;
     }
 
-    void CommandListFactory::ReAllocate(CommandList& commandList, ID3D12CommandAllocator* commandAllocator)
+    void CommandListFactory::ReAllocate(CommandList* commandList, ID3D12CommandAllocator* commandAllocator)
     {
-        commandList.Reset(commandAllocator);
+        commandList->Reset(commandAllocator);
     }
 
-    void DeAllocate(CommandList& commandList, [[maybe_unused]] bool isPoolShutdown)
+    void CommandListFactory::DeAllocate(CommandList* commandList, [[maybe_unused]] bool isPoolShutdown)
     {
-        commandList.Shutdown();
+        commandList->Shutdown();
     }
 
-    bool RecycleObject([[maybe_unused]] CommandList& commandList)
+    bool CommandListFactory::RecycleObject([[maybe_unused]] CommandList* commandList)
     {
         return true;
     }

@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <RHI/Device/DeviceObject.h>
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
@@ -25,7 +26,7 @@ namespace Spark::RHI
         Count
     };
 
-    class CommandList
+    class CommandList : public DeviceObject
     {
     public:
         /// Assigns a list of viewports to the raster stage of the graphics pipe.
