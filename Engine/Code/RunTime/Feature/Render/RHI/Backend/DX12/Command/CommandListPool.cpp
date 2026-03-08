@@ -11,7 +11,7 @@
  *  -- 
  */
 
-#include "CommandPool.h"
+#include "CommandListPool.h"
 
 #include <Log/SpdLogSystem.h>
 
@@ -36,9 +36,9 @@ namespace Spark::RHI::DX12
         return allocator.Get();
     }
 
-    void CommandAllocatorFactory::ReAllocate(ID3D12CommandAllocator& allocator)
+    void CommandAllocatorFactory::ReAllocate(ID3D12CommandAllocator* allocator)
     {
-        allocator.Reset();
+        allocator->Reset();
     }
 
     void CommandListFactory::Init(const Descriptor& descriptor)
@@ -48,15 +48,9 @@ namespace Spark::RHI::DX12
 
     CommandList* CommandListFactory::Allocate(ID3D12CommandAllocator* commandAllocator)
     {
-        //Ptr<RHI::CommandList> commandListBase = Service<RHI::Factory>::Get()->CreateCommandList();
-        Ptr<RHI::CommandList> ptr(new CommandList());
-        RHI::Factory* fac = Service<RHI::Factory>::Get();
-        Ptr<RHI::CommandList> commandListBase = eastl::move(fac->CreateCommandList());
-        //auto commandListBase = Service<RHI::Factory>::Get()->CreateCommandList();
-        //Ptr<CommandList> commandList = static_cast<CommandList*>(commandListBase.get());
-        //commandList->Init(*m_descriptor.m_device, m_descriptor.m_hardwareQueueClass, commandAllocator);
-        //return commandList.get();
-        return nullptr;
+        Ptr<CommandList> commandList = Service<ID3D12FactoryInterface>::Get()->CreateDX12CommandList();
+        commandList->Init(*m_descriptor.m_device, m_descriptor.m_hardwareQueueClass, commandAllocator);
+        return commandList.get();
     }
 
     void CommandListFactory::ReAllocate(CommandList* commandList, ID3D12CommandAllocator* commandAllocator)
@@ -116,7 +110,9 @@ namespace Spark::RHI::DX12
     CommandList* CommandListAllocator::Allocate(RHI::HardwareQueueClass hardwareQueueClass)
     {
         ASSERT(m_isInitialized, "CommandListAllocator is not initialized!");
-        return m_commandListPools[static_cast<uint32_t>(hardwareQueueClass)].CreateObject().get();
+        uint32_t hardwareQueue = static_cast<uint32_t>(hardwareQueueClass);
+        Ptr<ID3D12CommandAllocator> cmmandAllcator = m_commandAllocatorPools[hardwareQueue].CreateObject();
+        return m_commandListPools[hardwareQueue].CreateObject(cmmandAllcator.get()).get();
     }
 
     void CommandListAllocator::Collect()

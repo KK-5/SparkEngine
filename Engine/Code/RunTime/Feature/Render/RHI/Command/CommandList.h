@@ -26,7 +26,7 @@ namespace Spark::RHI
         Count
     };
 
-    class CommandList : public DeviceObject
+    class CommandList
     {
     public:
         /// Assigns a list of viewports to the raster stage of the graphics pipe.

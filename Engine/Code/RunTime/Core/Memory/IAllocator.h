@@ -9,55 +9,74 @@
 
 #include <cstdio>
 
-struct AllocateAddress
+namespace Spark
 {
-    //! default an empty address object
-    AllocateAddress() = default;
-
-    //! constructs an allocate address out of a void* and size
-    AllocateAddress(void* address, size_t size)
-        : m_value(address)
-        , m_size(size)
-    {}
-
-
-    //! default copy constructor and assignment operator
-    AllocateAddress(const AllocateAddress&) = default;
-    AllocateAddress& operator=(const AllocateAddress&) = default;
-
-    void* GetAddress() const
+    struct AllocateAddress
     {
-        return m_value;
-    }
+        //! default an empty address object
+        AllocateAddress() = default;
 
-    size_t GetAllocatedBytes() const
+        //! constructs an allocate address out of a void* and size
+        AllocateAddress(void* address, size_t size)
+            : m_value(address)
+            , m_size(size)
+        {}
+
+
+        //! default copy constructor and assignment operator
+        AllocateAddress(const AllocateAddress&) = default;
+        AllocateAddress& operator=(const AllocateAddress&) = default;
+
+        void* GetAddress() const
+        {
+            return m_value;
+        }
+
+        size_t GetAllocatedBytes() const
+        {
+            return m_size;
+        }
+
+        //! implicit void* operator allows assigning
+        //! an AllocateAddress directly to a void*
+        operator void* () const
+        {
+            return m_value;
+        }
+
+        //! explicit T* operator which is used
+        //! for explicit casting from an AllocateAddress
+        //! to a T* pointer
+        template <class T>
+        explicit operator T* () const
+        {
+            return reinterpret_cast<T*>(m_value);
+        }
+
+        explicit operator bool() const
+        {
+            return m_value != nullptr;
+        }
+
+        //! Store allocated memory address
+        void* m_value{};
+        //! Stores the amount of bytes allocated
+        size_t m_size{};
+    };
+
+    class IAllocator
     {
-        return m_size;
-    }
+    public:
+        IAllocator() = default;
+        IAllocator(const IAllocator&) = delete;
+        IAllocator(IAllocator&&) = delete;
+        IAllocator& operator=(const IAllocator&) = delete;
+        IAllocator& operator=(IAllocator&&) = delete;
+        virtual ~IAllocator() = default;
 
-    //! implicit void* operator allows assigning
-    //! an AllocateAddress directly to a void*
-    operator void* () const
-    {
-        return m_value;
-    }
-
-    //! explicit T* operator which is used
-    //! for explicit casting from an AllocateAddress
-    //! to a T* pointer
-    template <class T>
-    explicit operator T* () const
-    {
-        return reinterpret_cast<T*>(m_value);
-    }
-
-    explicit operator bool() const
-    {
-        return m_value != nullptr;
-    }
-
-    //! Store allocated memory address
-    void* m_value{};
-    //! Stores the amount of bytes allocated
-    size_t m_size{};
-};
+        // Allocation functions
+        virtual AllocateAddress* allocate(size_t n, int flags = 0) = 0;
+		virtual AllocateAddress* allocate(size_t n, size_t alignment, size_t offset, int flags = 0) = 0;
+		virtual void deallocate(void* ptr, size_t byteSize = 0) = 0;
+    };
+}

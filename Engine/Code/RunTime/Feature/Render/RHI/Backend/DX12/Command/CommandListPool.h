@@ -42,7 +42,7 @@ namespace Spark::RHI::DX12
 
         ID3D12CommandAllocator* Allocate();
 
-        void ReAllocate(ID3D12CommandAllocator& allocator);
+        void ReAllocate(ID3D12CommandAllocator* allocator);
 
     private:
         Descriptor m_descriptor;
@@ -132,7 +132,7 @@ namespace Spark::RHI::DX12
         void Collect();
 
     private:
-        CommandListPool* m_commandListPool = nullptr;
+        // CommandListPool* m_commandListPool = nullptr;
         eastl::array<CommandListPool, RHI::HardwareQueueClassCount> m_commandListPools;
         eastl::array<CommandAllocatorPool, RHI::HardwareQueueClassCount> m_commandAllocatorPools;
         eastl::vector<CommandList*> m_activeLists;

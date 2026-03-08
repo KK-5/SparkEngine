@@ -69,7 +69,7 @@ namespace Spark::RHI
 
     }
 
-    void CommandQueue::ExecuteCommand(eastl::span<const CommandList> commandLists)
+    void CommandQueue::ExecuteCommand(eastl::span<CommandList*> commandLists)
     {
         if (!ValidateIsInitialized())
         {

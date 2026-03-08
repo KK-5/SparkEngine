@@ -70,6 +70,7 @@ namespace Spark::RHI
     class PipelineLayoutDescriptor
         : public Object
     {
+        friend class Factory;
     public:
         virtual ~PipelineLayoutDescriptor() noexcept = default;
 

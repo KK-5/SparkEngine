@@ -36,7 +36,7 @@ namespace Spark::RHI::DX12
         // RHI::CommandQueue
         void ExecuteWork(const RHI::ExecuteWorkRequest& request) override;
         void WaitForIdle() override;
-        void ExecuteCommandInternal(eastl::span<const RHI::CommandList> commandLists) override;
+        void ExecuteCommandInternal(eastl::span<RHI::CommandList*> commandLists) override;
         //////////////////////////////////////////////////////////////////////////
 
         void Signal(DX12Fence& fence);
