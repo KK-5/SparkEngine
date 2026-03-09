@@ -10,16 +10,18 @@ namespace Spark::RHI::DX12
 {
     RHI::ResultCode ID3D12Factory::Init()
     {
+        /*
         BufferObjectPool::Descriptor bufferPoolDesc;
         bufferPoolDesc.m_collectLatency = 0;
         m_bufferObjectPool.Init(bufferPoolDesc);
+        */
 
         return RHI::ResultCode::Success;
     }
 
     void ID3D12Factory::Shutdown()
     {
-        m_bufferObjectPool.Shutdown();
+        // m_bufferObjectPool.Shutdown();
     }
 
     Ptr<PhysicalDevice> ID3D12Factory::CreatePhysicalDevice()
@@ -69,11 +71,12 @@ namespace Spark::RHI::DX12
 
     Ptr<RHI::Buffer> ID3D12Factory::CreateBuffer()
     {
-        return m_bufferObjectPool.Allocate();
+        //return m_bufferObjectPool.Allocate();
+        return nullptr;
     }
 
     void ID3D12Factory::QueueForRelease(Buffer* buffer)
     {
-        m_bufferObjectPool.DeAllocate(buffer);
+        //m_bufferObjectPool.DeAllocate(buffer);
     }
 }

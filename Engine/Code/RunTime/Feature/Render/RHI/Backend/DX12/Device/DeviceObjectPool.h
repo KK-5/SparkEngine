@@ -3,6 +3,7 @@
 #include <Object/ObjectPool.h>
 
 #include <RHI/Device/DeviceObjectFactory.h>
+#include <RHI/Device/DeviceObjectPool.h>
 
 #include <Resource/Buffer/Buffer.h>
 
@@ -17,5 +18,20 @@ namespace Spark::RHI::DX12
         using MutexType = std::mutex;
     };
 
-    using BufferObjectPool = ObjectPool<BufferObjectPoolTraits>;
+    using BufferObjectPoolInternal = ObjectPool<BufferObjectPoolTraits>;
+
+    class BufferObjectPool : public RHI::DeviceObjectPoolBase
+    {
+    public:
+        RHI::ResultCode Init();
+
+        void Shutdown();
+
+        Buffer* CreateDeviceObject() override;
+
+        void QueueForRelease(DeviceObject* buffer) override;
+
+    private:
+        BufferObjectPoolInternal m_internalPool;
+    };
 }
