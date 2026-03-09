@@ -16,7 +16,7 @@ namespace Spark::RHI
 
         // Init() = DeviceObject::Init
 
-        void Shutdown() override final;
+        void Shutdown() override;
 
         bool IsAttachment() const;
 

@@ -26,11 +26,11 @@ namespace Spark::RHI::DX12
 
         void Shutdown();
 
-        DescriptorHandle* Allocate();
+        DescriptorHandle* CreateObject();
 
-        void DeAllocate(DescriptorHandle* handle, bool isPoolShutdown);
+        void DestoryObject(DescriptorHandle* handle, bool isPoolShutdown);
 
-        bool RecycleObject(DescriptorHandle* handle);
+        bool IsRecycleObject(DescriptorHandle* handle);
 
         const Descriptor& GetDescriptor() const;
 
@@ -66,11 +66,11 @@ namespace Spark::RHI::DX12
 
         void Shutdown();
 
-        DescriptorTable* Allocate(uint32_t count = 1);
+        DescriptorTable* CreateObject(uint32_t count = 1);
 
-        void DeAllocate(DescriptorTable* table, bool isPoolShutdown);
+        void DestoryObject(DescriptorTable* table, bool isPoolShutdown);
 
-        bool RecycleObject(DescriptorTable* table);
+        bool IsRecycleObject(DescriptorTable* table);
 
         const Descriptor& GetDescriptor() const;
 

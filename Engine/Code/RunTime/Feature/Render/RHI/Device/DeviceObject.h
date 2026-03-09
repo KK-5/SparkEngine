@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Object/Object.h>
-#include <Memory/PoolAllocator.h>
 
 #include "Device.h"
 
@@ -17,20 +16,24 @@ namespace Spark::RHI
 
         Device& GetDevice() const;
 
-        PoolAllocatorBase* GetAllocator() const;
-
     protected:
         DeviceObject() = default;
 
-        void Init(Device& device, PoolAllocatorBase* allocator = nullptr);
+        void Init(Device& device);
 
-        void SetAllocator(PoolAllocatorBase* allocator);
+        template<typename T>
+        void DeAllocateThis(T& pool);
 
         // 子类重写时需要调用此Shutdown
         void Shutdown() override;
 
     private:
         Ptr<Device> m_device = nullptr;
-        PoolAllocatorBase* m_allcator = nullptr;
     };
+
+    template<typename T>
+    void DeviceObject::DeAllocateThis(T& pool)
+    {
+        pool.DeAllocate(this);
+    }
 }

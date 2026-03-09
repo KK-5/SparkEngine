@@ -75,8 +75,8 @@ namespace Spark
         virtual ~IAllocator() = default;
 
         // Allocation functions
-        virtual AllocateAddress* allocate(size_t n, int flags = 0) = 0;
-		virtual AllocateAddress* allocate(size_t n, size_t alignment, size_t offset, int flags = 0) = 0;
+        virtual AllocateAddress allocate(size_t n, int flags = 0) = 0;
+		virtual AllocateAddress allocate(size_t n, size_t alignment, size_t offset, int flags = 0) = 0;
 		virtual void deallocate(void* ptr, size_t byteSize = 0) = 0;
     };
 }

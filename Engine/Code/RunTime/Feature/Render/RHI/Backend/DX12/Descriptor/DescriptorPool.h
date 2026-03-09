@@ -55,12 +55,12 @@ namespace Spark::RHI::DX12
     public:
         DescriptorHandle AllocateHandle() override
         {
-            return *BasePool::CreateObject();
+            return *BasePool::Allocate();
         }
 
         void ReleaseHandle(DescriptorHandle& handle) override
         {
-            BasePool::ShutdownObject(&handle);
+            BasePool::DeAllocate(&handle);
         }
 
         DescriptorTable AllocateTable(uint32_t count = 1) override
@@ -118,23 +118,23 @@ namespace Spark::RHI::DX12
     public:
         DescriptorHandle AllocateHandle() override
         {
-            return BasePool::CreateObject(1)->GetOffset();
+            return BasePool::Allocate(1)->GetOffset();
         }
 
         void ReleaseHandle(DescriptorHandle& handle) override
         {
             DescriptorTable table(handle, 1);
-            BasePool::ShutdownObject(&table);
+            BasePool::DeAllocate(&table);
         }
 
         DescriptorTable AllocateTable(uint32_t count = 1) override
         {
-            return *BasePool::CreateObject(count);
+            return *BasePool::Allocate(count);
         }
 
         void ReleaseTable(DescriptorTable& table) override
         {
-            BasePool::ShutdownObject(&table);
+            BasePool::DeAllocate(&table);
         }
 
         D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable table) const override

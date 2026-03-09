@@ -13,6 +13,7 @@
 #pragma once
 
 #include <RHI/Resource/Buffer/Buffer.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 
 #include "BufferMemoryView.h"
 
@@ -27,16 +28,18 @@ namespace Spark::RHI::DX12
         BufferMemoryView& GetMemoryView();
 
         // The initial state for the graph compiler to use when compiling the resource transition chain.
+        // maybe unused
         D3D12_RESOURCE_STATES m_initialAttachmentState = D3D12_RESOURCE_STATE_COMMON;
 
         uint64_t GetDeviceAddress() const override;
 
+        void Shutdown() override;
+
     private:
         Buffer() = default;
 
-        friend class BufferPool;
-        friend class AliasedHeap;
-        friend class BufferPoolResolver;
+        friend class BufferPool; // for resource initialize
+        friend class RHI::DeviceObjectFactory<Buffer>; // for object construct
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::DeviceBuffer

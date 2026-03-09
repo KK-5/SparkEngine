@@ -23,11 +23,11 @@ namespace Spark::RHI
 
         const BufferFrameAttachment* GetFrameAttachment() const;
 
-        Ptr<BufferView> GetBufferView(const BufferViewDescriptor& bufferViewDescriptor) const;
+        // Ptr<BufferView> GetBufferView(const BufferViewDescriptor& bufferViewDescriptor) const;
 
-        void EraseBufferView(BufferView* bufferView) const;
+        // void EraseBufferView(BufferView* bufferView) const;
 
-        bool IsInBufferCache(const BufferViewDescriptor& bufferViewDescriptor);
+        // bool IsInBufferCache(const BufferViewDescriptor& bufferViewDescriptor);
 
         static constexpr uint64_t InvalidDeviceAddress = static_cast<uint64_t>(-1);
         virtual uint64_t GetDeviceAddress() const
@@ -42,7 +42,7 @@ namespace Spark::RHI
     
     private:
         BufferDescriptor m_descriptor;
-        mutable ResourceViewCache<BufferViewDescriptor, BufferViewDescriptoHasher> m_bufferViewCache;
+        // mutable ResourceViewCache<BufferViewDescriptor, BufferViewDescriptoHasher> m_bufferViewCache;
         eastl::atomic<uint32_t> m_mapRefCount {0};
     };
     

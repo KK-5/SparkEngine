@@ -18,6 +18,7 @@ namespace Spark::RHI
         return nullptr;
     }
 
+    /*
     Ptr<BufferView> Buffer::GetBufferView(const BufferViewDescriptor& bufferViewDescriptor) const
     {
         ResourceView* view = m_bufferViewCache.GetResourceView(bufferViewDescriptor);
@@ -33,4 +34,5 @@ namespace Spark::RHI
     {
         return m_bufferViewCache.IsInResourceCache(bufferViewDescriptor);
     }
+    */
 }

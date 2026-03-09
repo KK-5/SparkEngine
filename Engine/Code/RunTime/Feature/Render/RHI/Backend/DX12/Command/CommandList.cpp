@@ -971,5 +971,6 @@ namespace Spark::RHI::DX12
                 }
             }
         }
+        return true;
     }
 }

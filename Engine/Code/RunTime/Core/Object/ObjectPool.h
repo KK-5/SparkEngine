@@ -11,6 +11,7 @@
 #include <EASTL/queue.h>
 #include <EASTL/unordered_set.h>
 #include <mutex>
+#include <EASTLEX/hash.h>     // for Ptr hasher
 
 #include "Base.h"
 #include "ObjectCollector.h"
@@ -68,13 +69,13 @@ namespace Spark
             collectorDesc.m_collectLatency = descriptor.m_collectLatency;
             collectorDesc.m_collectFunction = [this](ObjectType& object)
             {
-                if (m_isInitialized && m_factory.RecycleObject(&object))
+                if (m_isInitialized && m_factory.IsRecycleObject(&object))
                 {
                     m_freeList.push(&object);
                 }
                 else
                 {
-                    m_factory.DeAllocate(&object, !m_isInitialized);
+                    m_factory.DestoryObject(&object, !m_isInitialized);
                     m_objects.erase(&object);
                 }
             };
@@ -94,7 +95,7 @@ namespace Spark
             }
             for (auto& objectPtr : m_objects)
             {
-                m_factory.DeAllocate(objectPtr, true);
+                m_factory.DestoryObject(objectPtr.get(), true);
             }
             m_objects.clear();
             m_factory.Shutdown();
@@ -103,7 +104,7 @@ namespace Spark
         //! Allocates an instance of an object from the pool. If no free object exists, it will
         //! create a new instance from the factory. If a free object exists, it will reuse that one.
         template <typename... Args>
-        Ptr<ObjectType> CreateObject(Args&&... args)
+        ObjectType* Allocate(Args&&... args)
         {
             ObjectType* objectForReset = nullptr;
 
@@ -116,7 +117,7 @@ namespace Spark
                 }
                 else
                 {
-                    ObjectType* objectPtr = m_factory.Allocate(eastl::forward<Args>(args)...);
+                    ObjectType* objectPtr = m_factory.CreateObject(eastl::forward<Args>(args)...);
                     if (objectPtr)
                     {
                         m_objects.emplace(objectPtr);
@@ -127,7 +128,7 @@ namespace Spark
 
             if (objectForReset)
             {
-                m_factory.ReAllocate(objectForReset, eastl::forward<Args>(args)...);
+                m_factory.ResetObject(objectForReset, eastl::forward<Args>(args)...);
             }
 
             return objectForReset;
@@ -135,12 +136,12 @@ namespace Spark
 
         //! Frees an object back to the pool. Depending on the object collection latency, it may take several
         //! cycles before the object is reused again.
-        void ShutdownObject(ObjectType* object)
+        void DeAllocate(ObjectType* object)
         {
             m_collector.QueueForCollect(object);
         }
 
-        void ShutdownObject(ObjectType* objects, size_t objectCount)
+        void DeAllocate(ObjectType* objects, size_t objectCount)
         {
             m_collector.QueueForCollect(objects, objectCount);
         }
@@ -180,7 +181,7 @@ namespace Spark
     private:
         ObjectFactoryType m_factory;
         ObjectCollector<Traits> m_collector;
-        eastl::unordered_set<ObjectType*> m_objects;
+        eastl::unordered_set<Ptr<ObjectType>> m_objects;
         eastl::queue<ObjectType*> m_freeList;
         MutexType m_mutex;
         bool m_isInitialized = false;

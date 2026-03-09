@@ -8,6 +8,8 @@
 
 #include "Buffer.h"
 
+#include <ID3D12Factory.h>
+
 namespace Spark::RHI::DX12
 {
     const BufferMemoryView& Buffer::GetMemoryView() const
@@ -23,5 +25,11 @@ namespace Spark::RHI::DX12
     uint64_t Buffer::GetDeviceAddress() const
     {
         return m_memoryView.GetGpuAddress();
+    }
+
+    void Buffer::Shutdown()
+    {
+        RHI::Resource::Shutdown();
+        Service<ID3D12FactoryInterface>::Get()->QueueForRelease(this);
     }
 }

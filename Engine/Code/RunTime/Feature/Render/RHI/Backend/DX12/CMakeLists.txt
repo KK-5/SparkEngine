@@ -5,6 +5,7 @@ set(SOURCES
     DX12.cpp
     MemoryView.cpp
     Conversions.cpp
+    ID3D12Factory.cpp
     Command/CommandListBase.cpp
     Command/CommandList.cpp
     Command/CommandListPool.cpp

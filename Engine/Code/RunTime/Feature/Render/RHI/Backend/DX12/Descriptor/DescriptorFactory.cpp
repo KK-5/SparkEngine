@@ -38,7 +38,7 @@ namespace Spark::RHI::DX12
         m_handlePool.clear();
     }
 
-    DescriptorHandle* DescriptorHandleFactory::Allocate()
+    DescriptorHandle* DescriptorHandleFactory::CreateObject()
     {
         if (m_freeList.empty())
         {
@@ -51,7 +51,7 @@ namespace Spark::RHI::DX12
         return &m_handlePool[index];
     }
 
-    void DescriptorHandleFactory::DeAllocate(DescriptorHandle* handle, bool isPoolShutdown)
+    void DescriptorHandleFactory::DestoryObject(DescriptorHandle* handle, bool isPoolShutdown)
     {
         if (isPoolShutdown)
         {
@@ -61,7 +61,7 @@ namespace Spark::RHI::DX12
         m_freeList.push_back(handle->m_index);
     }
 
-    bool RecycleObject([[maybe_unused]]DescriptorHandle* handle)
+    bool IsRecycleObject([[maybe_unused]]DescriptorHandle* handle)
     {
         // DescriptorHandle任何情况下都不需要ObjectPool复用它
         return false;
@@ -241,7 +241,7 @@ namespace Spark::RHI::DX12
         m_nodes.clear();
     }
 
-    DescriptorTable* DescriptorTableFactory::Allocate(uint32_t count)
+    DescriptorTable* DescriptorTableFactory::CreateObject(uint32_t count)
     {
         ASSERT(count > 0, "[DescriptorTableFactory] Allocate DescriptorTable with count 0.");
 
@@ -274,7 +274,7 @@ namespace Spark::RHI::DX12
         return &m_tablePool[foundNode.offset];
     }
 
-    void DescriptorTableFactory::DeAllocate(DescriptorTable* table, bool isPoolShutdown)
+    void DescriptorTableFactory::DestoryObject(DescriptorTable* table, bool isPoolShutdown)
     {
         if (isPoolShutdown || table == nullptr)
         {
@@ -294,7 +294,7 @@ namespace Spark::RHI::DX12
         m_tablePool.erase(it);
     }
 
-    bool RecycleObject(DescriptorTable* table)
+    bool IsRecycleObject(DescriptorTable* table)
     {
         // DescriptorTable任何情况下都不需要ObjectPool复用它
         return false;

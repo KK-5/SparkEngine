@@ -3,11 +3,13 @@
 #include <thread>
 #include <functional>
 #include <EASTL/functional.h>
+#include <EASTL/intrusive_ptr.h>
 
 namespace eastl
 {
     template<>
-    struct hash<std::thread::id> {
+    struct hash<std::thread::id> 
+    {
         size_t operator()(const std::thread::id& id) const {
             return std::hash<std::thread::id>()(id);
         }
@@ -31,4 +33,13 @@ namespace eastl
         hash_combine(seed, firstElement);
         hash_combine(seed, secondElement, restElements...);
     }
+
+    template<typename T>
+    struct hash<intrusive_ptr<T>>
+    {
+        size_t operator()(const intrusive_ptr<T>& ptr) const
+        {
+            return hash<T*>()(ptr.get());
+        }
+    };
 }

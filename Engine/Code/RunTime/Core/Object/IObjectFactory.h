@@ -24,20 +24,20 @@ namespace Spark
 
         /// Called when an object is being first created.
         template <typename... Args>
-        ObjectType* Allocate(Args&&...)
+        ObjectType* CreateObject(Args&&...)
         {
             return nullptr;
         }
 
         /// Called when a object collected object is being reset for new use.
         template <typename... Args>
-        void ReAllocate(ObjectType* object, Args&&...)
+        void ResetObject(ObjectType* object, Args&&...)
         {
             (void)object;
         }
 
         /// Called when the object is being shutdown.
-        void DeAllocate(ObjectType* object, bool isPoolShutdown)
+        void DestoryObject(ObjectType* object, bool isPoolShutdown)
         {
             (void)object;
             (void)isPoolShutdown;
@@ -51,7 +51,7 @@ namespace Spark
 
         /// Called when the object is being object collected. Return true if the object should be recycled,
         /// or false if the object should be shutdown and released from the pool.
-        bool RecycleObject(ObjectType* object)
+        bool IsRecycleObject(ObjectType* object)
         {
             (void)object;
             return true;

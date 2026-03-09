@@ -4,6 +4,7 @@ set(CORE_SOURCES
     EASTLEX/Vsnprintf.cpp
     Log/SpdLogSystem.cpp
     Memory/Memory.cpp
+    Memory/PoolAllocator.cpp
     SceneManager/SceneManager.cpp
     Reflection/TypeRegistry.cpp
     Object/Object.cpp

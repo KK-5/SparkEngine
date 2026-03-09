@@ -40,9 +40,9 @@ namespace Spark::RHI::DX12
 
         void Init(const Descriptor& descriptor);
 
-        ID3D12CommandAllocator* Allocate();
+        ID3D12CommandAllocator* CreateObject();
 
-        void ReAllocate(ID3D12CommandAllocator* allocator);
+        void ResetObject(ID3D12CommandAllocator* allocator);
 
     private:
         Descriptor m_descriptor;
@@ -78,13 +78,13 @@ namespace Spark::RHI::DX12
 
         void Init(const Descriptor& descriptor);
 
-        CommandList* Allocate(ID3D12CommandAllocator* commandAllocator);
+        CommandList* CreateObject(ID3D12CommandAllocator* commandAllocator);
 
-        void ReAllocate(CommandList* commandList, ID3D12CommandAllocator* commandAllocator);
+        void ResetObject(CommandList* commandList, ID3D12CommandAllocator* commandAllocator);
 
-        void DeAllocate(CommandList* commandList, bool isPoolShutdown);
+        void DestoryObject(CommandList* commandList, bool isPoolShutdown);
         
-        bool RecycleObject(CommandList* commandList);
+        bool IsRecycleObject(CommandList* commandList);
 
     private:
         Descriptor m_descriptor;

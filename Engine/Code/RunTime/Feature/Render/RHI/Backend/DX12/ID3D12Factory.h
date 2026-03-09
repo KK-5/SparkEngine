@@ -3,6 +3,9 @@
 #include <Service/Service.h>
 
 #include <RHI/Factory.h>
+#include <RHI/Device/DeviceObjectFactory.h>
+
+#include "Device/DeviceObjectPool.h"
 
 namespace Spark::RHI
 {
@@ -17,6 +20,9 @@ namespace Spark::RHI::DX12
     class PipelineLayout;
     class CommandList;
     class CommandQueueContext;
+    class PhysicalDevice;
+    class Device;
+    class Buffer;
 
     // DX12内部接口
     class ID3D12FactoryInterface
@@ -36,13 +42,18 @@ namespace Spark::RHI::DX12
         virtual Ptr<CommandList> CreateDX12CommandList() = 0;
 
         virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
+
+        virtual void QueueForRelease(Buffer* buffer);
     };
 
     class ID3D12Factory final : public Service<RHI::Factory>::Handler
                               , public Service<ID3D12FactoryInterface>::Handler
     {
     public:
-        // static D3D12Factory& Get();
+        RHI::ResultCode Init();
+
+        void Shutdown();
+
         ///////////////////////////////////////////////////////////
         // ID3D12FactoryInterface override
         DescriptorContext& AcquireDescriptorContext() override;
@@ -54,6 +65,8 @@ namespace Spark::RHI::DX12
         CommandQueueContext& AcquireCommandQueueContext() override;
 
         Ptr<Sampler> AcquireSampler(RHI::SamplerState) override;
+
+        void QueueForRelease(Buffer* buffer) override;
         ///////////////////////////////////////////////////////////
 
         ///////////////////////////////////////////////////////////
@@ -98,6 +111,12 @@ namespace Spark::RHI::DX12
         ///////////////////////////////////////////////////////////
 
     private:
+        Ptr<PhysicalDevice> CreatePhysicalDevice();
+        Ptr<Device> CreateDX12Device();
+
+        // Device object pools
+        BufferObjectPool m_bufferObjectPool;
         
     };
+
 }
