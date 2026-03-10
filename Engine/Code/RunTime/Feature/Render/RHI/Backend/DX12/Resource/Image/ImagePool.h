@@ -12,6 +12,7 @@
 
 #include <DX12.h>
 #include <ReleaseQueue.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Resource/Image/ImagePool.h>
 #include <3rdParty/D3D12MA/D3D12MemAlloc.h>
 
@@ -29,6 +30,8 @@ namespace Spark::RHI::DX12
     private:
         ImagePool() = default;
 
+        friend class DeviceObjectFactory<ImagePool>;
+
         ImagePoolResolver* GetResolver();
 
         //////////////////////////////////////////////////////////////////////////
@@ -38,8 +41,8 @@ namespace Spark::RHI::DX12
         RHI::ResultCode UpdateImageContentsInternal(const RHI::ImageUpdateRequest& request) override;
         void ShutdownResourceInternal(RHI::Resource& resourceBase) override;
         //////////////////////////////////////////////////////////////////////////
-    };
 
-    Ptr<D3D12MA::Allocator> m_allocator;
-    D3D12MAReleaseQueue m_releaseQueue;
+        Ptr<D3D12MA::Allocator> m_d3dmaAllocator;
+        D3D12MAReleaseQueue m_releaseQueue;
+    };
 }

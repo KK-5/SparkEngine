@@ -142,7 +142,7 @@ namespace Spark::RHI::DX12
         D3D12_RESOURCE_ALLOCATION_INFO allocationInfo;
         D3D12_RESOURCE_DESC resourceDesc;
         ConvertImageDescriptor(request.m_descriptor, resourceDesc);
-        allocationInfo = device.GetDevice()->GetResourceAllocationInfo(0, 1, &resourceDesc);
+        allocationInfo = device.GetDX12Device()->GetResourceAllocationInfo(0, 1, &resourceDesc);
 
         Image& image = static_cast<Image&>(*request.m_image);
 

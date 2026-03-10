@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Resource/Buffer/BufferView.h>
 
 #include <Descriptor/Descriptor.h>
@@ -39,6 +40,8 @@ namespace Spark::RHI::DX12
 
     private:
         BufferView() = default;
+
+        friend class DeviceObjectFactory<BufferView>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::BufferView

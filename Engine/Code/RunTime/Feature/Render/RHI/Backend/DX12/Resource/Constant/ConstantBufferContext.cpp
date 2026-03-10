@@ -10,7 +10,7 @@ namespace Spark::RHI::DX12
         DeviceObject::Init(device);
 
         D3D12MA::ALLOCATOR_DESC desc = {};
-        desc.pDevice = device.GetDevice();
+        desc.pDevice = device.GetDX12Device();
         desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
 
         D3D12MA::Allocator* pAllocator;

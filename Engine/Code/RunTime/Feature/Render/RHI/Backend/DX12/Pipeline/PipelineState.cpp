@@ -93,7 +93,7 @@ namespace Spark::RHI::DX12
         else
         {
             Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStateComPtr;
-            HRESULT result = device.GetDevice()->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(pipelineStateComPtr.GetAddressOf()));
+            HRESULT result = device.GetDX12Device()->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(pipelineStateComPtr.GetAddressOf()));
             if (SUCCEEDED(result))
             {
                 pipelineState = pipelineStateComPtr.Get();
@@ -140,7 +140,7 @@ namespace Spark::RHI::DX12
         else
         {
             Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStateComPtr;
-            HRESULT result = device.GetDevice()->CreateComputePipelineState(&pipelineStateDesc, IID_PPV_ARGS(pipelineStateComPtr.GetAddressOf()));
+            HRESULT result = device.GetDX12Device()->CreateComputePipelineState(&pipelineStateDesc, IID_PPV_ARGS(pipelineStateComPtr.GetAddressOf()));
             if (SUCCEEDED(result))
             {
                 pipelineState = pipelineStateComPtr.Get();

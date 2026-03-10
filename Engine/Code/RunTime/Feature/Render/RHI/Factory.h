@@ -4,6 +4,8 @@
 #include "Base.h"
 #include "Device/PhysicalDevice.h"
 
+#include "Pipeline/ShaderStages.h"
+
 namespace Spark::RHI
 {
     class Device;
@@ -77,15 +79,16 @@ namespace Spark::RHI
 
         virtual Ptr<PipelineState> CreatePipelineState() = 0;
 
-        virtual Ptr<ShaderStageFunction> CreateShaderStageFunction() = 0;
+        virtual Ptr<ShaderStageFunction> CreateShaderStageFunction(RHI::ShaderStage) = 0;
 
         virtual Ptr<Fence> CreateFence() = 0;
 
         virtual Ptr<SwapChain> CreateSwapChain() = 0;
 
+        virtual Ptr<PipelineLayoutDescriptor> CreatePipelineLayoutDescriptor() = 0;
+
         ///////////////////////////////
         // no platform backend object
-        virtual Ptr<PipelineLayoutDescriptor> CreatePipelineLayoutDescriptor() = 0;
 
         virtual Ptr<ConstantsLayout> CreateConstantsLayout();
 

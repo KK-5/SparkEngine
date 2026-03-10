@@ -200,7 +200,7 @@ namespace Spark::RHI::DX12
 
         D3D12MA::ALLOCATOR_DESC desc = {};
         desc.Flags = D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
-        desc.pDevice = device.GetDevice();
+        desc.pDevice = device.GetDX12Device();
         desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
         desc.PreferredBlockSize = bufferPageSize;
 

@@ -21,7 +21,7 @@ namespace Spark::RHI::DX12
     RHI::ResultCode PipelineLibrary::InitInternal(RHI::Device& deviceBase, const RHI::PipelineLibraryDescriptor& descriptor)
     {
         Device& device = static_cast<Device&>(deviceBase);
-        m_d3d12Device = device.GetDevice();
+        m_d3d12Device = device.GetDX12Device();
 
         return RHI::ResultCode::Success;
     }

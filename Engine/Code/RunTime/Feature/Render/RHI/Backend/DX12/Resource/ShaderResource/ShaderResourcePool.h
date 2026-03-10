@@ -10,6 +10,7 @@
 #include <EASTL/fixed_vector.h>
 
 #include <RHI/Resource/ShaderResource/ShaderResourcePool.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <Descriptor/Descriptor.h>
 
 namespace Spark::RHI::DX12
@@ -27,6 +28,8 @@ namespace Spark::RHI::DX12
         using Base = RHI::ShaderResourcePool;
     private:
         ShaderResourcePool() = default;
+
+        friend class DeviceObjectFactory<ShaderResourcePool>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::ShaderResourcePool override

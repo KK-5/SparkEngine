@@ -5,33 +5,65 @@
 #include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Device/DeviceObjectPool.h>
 
-#include <Resource/Buffer/Buffer.h>
-
 namespace Spark::RHI::DX12
 {
-    using BufferObjectFactory = RHI::DeviceObjectFactory<Buffer>;
-
-    struct BufferObjectPoolTraits : public ObjectPoolTraits
+    namespace Internal
     {
-        using ObjectType = Buffer;
-        using ObjectFactoryType = BufferObjectFactory;
-        using MutexType = std::mutex;
-    };
+        template <typename T>
+        using DeviceObjectFactory = RHI::DeviceObjectFactory<T>;
 
-    using BufferObjectPoolInternal = ObjectPool<BufferObjectPoolTraits>;
+        template <typename T>
+        struct DeviceObjectPoolTraits : public ObjectPoolTraits
+        {
+            using ObjectType = T;
+            using ObjectFactoryType = DeviceObjectFactory<T>;
+            using MutexType = std::mutex;
+        };
 
-    class BufferObjectPool : public RHI::DeviceObjectPoolBase
+        template <typename T>
+        using DeviceObjectPool = ObjectPool<DeviceObjectPoolTraits<T>>;
+    }
+    
+    template <typename T>
+    class DeviceObjectPool final : public DeviceObjectPoolBase
     {
     public:
-        RHI::ResultCode Init();
+        ~DeviceObjectPool() = default;
 
-        void Shutdown();
+        ResultCode InitInternal() override
+        {
+            Internal::DeviceObjectPool<T>::Descriptor desc;
+            desc.m_collectLatency = 0;
 
-        Buffer* CreateDeviceObject() override;
+            m_internalPool.Init(desc);
 
-        void QueueForRelease(DeviceObject* buffer) override;
+            return ResultCode::Success;
+        }
+
+        void ShutdownInternal() override
+        {
+            m_internalPool.Shutdown();
+        }
+
+        DeviceObject* CreateDeviceObjectInternal() override
+        {
+            T* object = m_internalPool.Allocate();
+            return object;
+        }
+
+        void QueueForReleaseInternal(DeviceObject* object) override
+        {
+            T* ptr = static_cast<T*>(object);
+            m_internalPool.DeAllocate(ptr);
+        }
+
+        void Collect() override
+        {
+            m_internalPool.Collect();
+        }
 
     private:
-        BufferObjectPoolInternal m_internalPool;
+        Internal::DeviceObjectPool<T> m_internalPool;
     };
+
 }

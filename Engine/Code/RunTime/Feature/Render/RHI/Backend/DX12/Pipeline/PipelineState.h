@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Pipeline/PipelineStateDescriptor.h>
 #include <RHI/Pipeline/PipelineLibrary.h>
 #include <RHI/Pipeline/PipelineState.h>
@@ -47,6 +48,8 @@ namespace Spark::RHI::DX12
 
     private:
         PipelineState() = default;
+
+        friend class DeviceObjectFactory<PipelineState>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::DevicePipelineState

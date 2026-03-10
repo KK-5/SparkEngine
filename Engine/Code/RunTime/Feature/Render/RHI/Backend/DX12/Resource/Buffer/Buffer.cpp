@@ -26,10 +26,4 @@ namespace Spark::RHI::DX12
     {
         return m_memoryView.GetGpuAddress();
     }
-
-    void Buffer::Shutdown()
-    {
-        RHI::Resource::Shutdown();
-        Service<ID3D12FactoryInterface>::Get()->QueueForRelease(this);
-    }
 }

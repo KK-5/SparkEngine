@@ -53,7 +53,7 @@ namespace Spark::RHI::DX12
         // ImagePool 分配的内存总是commited的
         D3D12MA::ALLOCATOR_DESC desc = {};
         desc.Flags = D3D12MA::ALLOCATOR_FLAG_ALWAYS_COMMITTED;
-        desc.pDevice = device.GetDevice();
+        desc.pDevice = device.GetDX12Device();
         desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
 
         D3D12MA::Allocator* pAllocator;
@@ -62,7 +62,7 @@ namespace Spark::RHI::DX12
             LOG_ERROR("[ImagePool] Failed to initialize the D3D12MemoryAllocator.");
             return RHI::ResultCode::Fail;
         }
-        m_allocator = pAllocator;
+        m_d3dmaAllocator = pAllocator;
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
@@ -105,7 +105,7 @@ namespace Spark::RHI::DX12
         }
 
         D3D12MA::Allocation* allocation = nullptr;
-        HRESULT result = m_allocator->CreateResource(
+        HRESULT result = m_d3dmaAllocator->CreateResource(
             &allocDesc,
             &resourceDesc,
             image->GetInitialResourceState(),

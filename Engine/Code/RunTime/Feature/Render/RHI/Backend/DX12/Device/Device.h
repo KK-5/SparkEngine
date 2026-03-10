@@ -17,7 +17,7 @@ namespace Spark::RHI::DX12
     class Device final : public RHI::Device
     {
     public:
-        ID3D12DeviceX* GetDevice();
+        ID3D12DeviceX* GetDX12Device();
 
         RHI::ResultCode CreateSwapChain(
             IUnknown* window,
@@ -34,12 +34,6 @@ namespace Spark::RHI::DX12
             const RHI::ClearValue* optimizedClearValue,
             D3D12_RESOURCE_STATES initialState,
             D3D12_HEAP_TYPE heapType);
-        /*
-        MemoryView CreateImageReserved(
-            const RHI::ImageDescriptor& imageDescriptor,
-            D3D12_RESOURCE_STATES initialState,
-            ImageTileLayout& imageTilingInfo);
-        */
 
         //! Queues a DX12 COM object for release (by taking a reference) after the current frame has flushed
         //! through the GPU.
@@ -55,16 +49,6 @@ namespace Spark::RHI::DX12
         //! uploads to the GPU for the current frame. The memory is valid for the lifetime of
         //! the frame and is automatically reclaimed after the frame has completed on the GPU.
         MemoryView AcquireStagingMemory(size_t size, size_t alignment);
-
-        //! Acquires a pipeline layout from the internal cache.
-        // ConstPtr<PipelineLayout> AcquirePipelineLayout(const RHI::PipelineLayoutDescriptor& descriptor);
-
-        //! Acquires a new command list for the frame given the hardware queue class. The command list is
-        //! automatically reclaimed after the current frame has flushed through the GPU.
-        // CommandList* AcquireCommandList(RHI::HardwareQueueClass hardwareQueueClass);
-
-        //! Acquires a sampler from the internal cache.
-        // ConstPtr<Sampler> AcquireSampler(const RHI::SamplerState& state);
 
         const PhysicalDevice& GetPhysicalDevice() const;
 

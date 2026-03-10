@@ -31,8 +31,11 @@ namespace Spark::RHI
         {
             return InvalidBindlessIndex;
         }
-    private:
+
+    protected:
         void Shutdown() override final;
+
+    private:
         bool ValidateForInit(const Image& image, const ImageViewDescriptor& viewDescriptor) const;
 
         ImageViewDescriptor m_descriptor;

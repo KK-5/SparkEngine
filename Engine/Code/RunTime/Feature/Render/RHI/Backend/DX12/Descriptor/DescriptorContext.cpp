@@ -199,7 +199,7 @@ namespace Spark::RHI::DX12
     void DescriptorContext::Init(Device& device)
     {
         DeviceObject::Init(device);
-        m_D3D12Device = device.GetDevice();
+        m_D3D12Device = device.GetDX12Device();
 
         auto GetDesciptorCount = [&](D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flag)
         {
@@ -209,7 +209,7 @@ namespace Spark::RHI::DX12
 
         uint32_t desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
         m_CBVSRVUAVHeapFlagNone.Init(
-            device.GetDevice(), 
+            device.GetDX12Device(), 
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,
@@ -221,18 +221,18 @@ namespace Spark::RHI::DX12
         uint32_t dynamicDesciptorCount = desciptorCount - staticDesciptorCount;
         m_staticDescriptorOffset = dynamicDesciptorCount;
         m_CBVSRVUAVHeapFlagShaderVisible.Init(
-            device.GetDevice(), 
+            device.GetDX12Device(), 
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 
             D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
             desciptorCount,
             dynamicDesciptorCount
         );
 
-        m_staticPool.InitPooledRange(device.GetDevice(), m_CBVSRVUAVHeapFlagShaderVisible.GetNativeHeap(), m_staticDescriptorOffset, staticDesciptorCount);
+        m_staticPool.InitPooledRange(device.GetDX12Device(), m_CBVSRVUAVHeapFlagShaderVisible.GetNativeHeap(), m_staticDescriptorOffset, staticDesciptorCount);
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
         m_SamplerHeapFlagNone.Init(
-            device.GetDevice(),
+            device.GetDX12Device(),
             D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,
@@ -241,7 +241,7 @@ namespace Spark::RHI::DX12
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
         m_SamplerHeapFlagShaderVisible.Init(
-            device.GetDevice(),
+            device.GetDX12Device(),
             D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
             D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
             desciptorCount,
@@ -250,7 +250,7 @@ namespace Spark::RHI::DX12
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
         m_RTVHeapFlagNone.Init(
-            device.GetDevice(),
+            device.GetDX12Device(),
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,
@@ -259,7 +259,7 @@ namespace Spark::RHI::DX12
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
         m_DSVHeapFlagNone.Init(
-            device.GetDevice(),
+            device.GetDX12Device(),
             D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,

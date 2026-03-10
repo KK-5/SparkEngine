@@ -33,8 +33,6 @@ namespace Spark::RHI::DX12
 
         uint64_t GetDeviceAddress() const override;
 
-        void Shutdown() override;
-
     private:
         Buffer() = default;
 

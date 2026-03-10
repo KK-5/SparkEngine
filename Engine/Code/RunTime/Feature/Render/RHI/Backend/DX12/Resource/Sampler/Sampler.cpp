@@ -17,7 +17,7 @@ namespace Spark::RHI::DX12
     void Sampler::Init(Device& device, const RHI::SamplerState& samplerState)
     {
         Base::Init(device);
-        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();;
+        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
         context.CreateSampler(samplerState, m_descriptor);
     }
 
@@ -29,7 +29,7 @@ namespace Spark::RHI::DX12
     void Sampler::Shutdown()
     {
         auto& device = static_cast<Device&>(GetDevice());
-        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();;
+        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
         context.ReleaseDescriptor(m_descriptor);
         m_descriptor = DescriptorHandle();
         Base::Shutdown();

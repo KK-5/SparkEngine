@@ -9,6 +9,7 @@
 
 #include <EASTL/vector.h>
 
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Resource/Buffer/IndirectBufferSignature.h>
 
 #include <DX12.h>
@@ -24,6 +25,8 @@ namespace Spark::RHI::DX12
 
     private:
         IndirectBufferSignature() = default;
+
+        friend class DeviceObjectFactory<IndirectBufferSignature>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::IndirectBufferSignature

@@ -3,6 +3,7 @@
 #include <Object/Object.h>
 
 #include "Device.h"
+#include "DeviceObjectPool.h"
 
 namespace Spark::RHI
 {
@@ -16,24 +17,20 @@ namespace Spark::RHI
 
         Device& GetDevice() const;
 
+        void RegisterDeviceObjectPool(DeviceObjectPoolBase* pool);
+
+        DeviceObjectPoolBase* GetObjectPool() const;
+
     protected:
         DeviceObject() = default;
 
         void Init(Device& device);
-
-        template<typename T>
-        void DeAllocateThis(T& pool);
 
         // 子类重写时需要调用此Shutdown
         void Shutdown() override;
 
     private:
         Ptr<Device> m_device = nullptr;
+        DeviceObjectPoolBase* m_objectPool;
     };
-
-    template<typename T>
-    void DeviceObject::DeAllocateThis(T& pool)
-    {
-        pool.DeAllocate(this);
-    }
 }

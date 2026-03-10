@@ -1,27 +1,66 @@
 #include "ID3D12Factory.h"
 
+#include <Log/SpdLogSystem.h>
+
 #include "DX12.h"
 #include "Device/Device.h"
 #include "Device/PhysicalDevice.h"
 
-#include "Resource/Buffer/Buffer.h"
+///////////
+#include <RHI/Resource/Image/StreamingImagePool.h>
+///////////
 
 namespace Spark::RHI::DX12
 {
     RHI::ResultCode ID3D12Factory::Init()
     {
-        /*
-        BufferObjectPool::Descriptor bufferPoolDesc;
-        bufferPoolDesc.m_collectLatency = 0;
-        m_bufferObjectPool.Init(bufferPoolDesc);
-        */
+        m_bufferObjectPool.Init();
+        m_bufferPoolObjectPool.Init();
+        m_bufferViewObjectPool.Init();
+        m_indirectBufferSignatureObjectPool.Init();
+        m_imageObjectPool.Init();
+        m_imagePoolObjectPool.Init();
+        m_imageViewObjectPool.Init();
+        m_shaderResourceObjectPool.Init();
+        m_shaderResourcePoolObjectPool.Init();
+        m_pipelineLibraryObjectPool.Init();
+        m_pipelineStateObjectPool.Init();
+        m_fenceObjectPool.Init();
+        m_swapChainObjectPool.Init();
 
         return RHI::ResultCode::Success;
     }
 
     void ID3D12Factory::Shutdown()
     {
-        // m_bufferObjectPool.Shutdown();
+        m_bufferObjectPool.Shutdown();
+        m_bufferPoolObjectPool.Shutdown();
+        m_bufferViewObjectPool.Shutdown();
+        m_indirectBufferSignatureObjectPool.Shutdown();
+        m_imageObjectPool.Shutdown();
+        m_imagePoolObjectPool.Shutdown();
+        m_imageViewObjectPool.Shutdown();
+        m_shaderResourceObjectPool.Shutdown();
+        m_shaderResourcePoolObjectPool.Shutdown();
+        m_pipelineLibraryObjectPool.Shutdown();
+        m_pipelineStateObjectPool.Shutdown();
+        m_fenceObjectPool.Shutdown();
+        m_swapChainObjectPool.Shutdown();
+    }
+
+    bool ID3D12Factory::ValidateSingleDevice(Device& device)
+    {
+        if (!m_singleDevice)
+        {
+            m_singleDevice = &device;
+        }
+        return m_singleDevice == &device;
+    }
+
+    void ID3D12Factory::InitDescriptorContext(Device& device)
+    {
+        m_descriptorContext = eastl::make_unique<DescriptorContext>();
+        m_descriptorContext->Init(device);
     }
 
     Ptr<PhysicalDevice> ID3D12Factory::CreatePhysicalDevice()
@@ -32,6 +71,16 @@ namespace Spark::RHI::DX12
     Ptr<Device> ID3D12Factory::CreateDX12Device()
     {
         return new Device();
+    }
+
+    DescriptorContext& ID3D12Factory::AcquireDescriptorContext(Device& device)
+    {
+        ASSERT(ValidateSingleDevice(device), "The current RHI system only supports a single device.");
+        if (!m_descriptorContext)
+        {
+            InitDescriptorContext(device);
+        }
+        return *m_descriptorContext;
     }
 
     RHI::PhysicalDeviceList ID3D12Factory::EnumeratePhysicalDevices()
@@ -71,12 +120,76 @@ namespace Spark::RHI::DX12
 
     Ptr<RHI::Buffer> ID3D12Factory::CreateBuffer()
     {
-        //return m_bufferObjectPool.Allocate();
+        return static_cast<RHI::Buffer*>(m_bufferObjectPool.CreateDeviceObject());  
+    }
+
+    Ptr<RHI::BufferPool> ID3D12Factory::CreateBufferPool()
+    {
+        return static_cast<RHI::BufferPool*>(m_bufferPoolObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::BufferView> ID3D12Factory::CreateBufferView()
+    {
+        return static_cast<RHI::BufferView*>(m_bufferViewObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::IndirectBufferSignature> ID3D12Factory::CreateIndirectBufferSignature()
+    {
+        return static_cast<RHI::IndirectBufferSignature*>(m_indirectBufferSignatureObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::Image> ID3D12Factory::CreateImage()
+    {
+        return static_cast<RHI::Image*>(m_imageObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::ImagePool> ID3D12Factory::CreateImagePool()
+    {
+        return static_cast<RHI::ImagePool*>(m_imagePoolObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::ImageView> ID3D12Factory::CreateImageView()
+    {
+        return static_cast<RHI::ImageView*>(m_imageViewObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::StreamingImagePool> ID3D12Factory::CreateStreamingImagePool()
+    {
         return nullptr;
     }
 
-    void ID3D12Factory::QueueForRelease(Buffer* buffer)
+    Ptr<RHI::ShaderResource> ID3D12Factory::CreateShaderResource()
     {
-        //m_bufferObjectPool.DeAllocate(buffer);
+        return static_cast<RHI::ShaderResource*>(m_shaderResourceObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::ShaderResourcePool> ID3D12Factory::CreateShaderResourcePool()
+    {
+        return static_cast<RHI::ShaderResourcePool*>(m_shaderResourcePoolObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::PipelineLibrary> ID3D12Factory::CreatePipelineLibrary()
+    {
+        return static_cast<RHI::PipelineLibrary*>(m_pipelineLibraryObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::PipelineState> ID3D12Factory::CreatePipelineState()
+    {
+        return static_cast<RHI::PipelineState*>(m_pipelineStateObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::ShaderStageFunction> ID3D12Factory::CreateShaderStageFunction(RHI::ShaderStage stage)
+    {
+        return new ShaderStageFunction(stage);
+    }
+
+    Ptr<RHI::Fence> ID3D12Factory::CreateFence()
+    {
+        return static_cast<RHI::Fence*>(m_fenceObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::SwapChain> ID3D12Factory::CreateSwapChain()
+    {
+        return static_cast<RHI::SwapChain*>(m_swapChainObjectPool.CreateDeviceObject());
     }
 }

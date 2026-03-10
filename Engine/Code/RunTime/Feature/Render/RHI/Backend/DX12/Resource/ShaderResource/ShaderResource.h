@@ -9,6 +9,7 @@
 
 #include <EASTL/array.h>
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 
 #include <MemoryView.h>
 #include <Descriptor/Descriptor.h>
@@ -43,6 +44,7 @@ namespace Spark::RHI::DX12
 
         friend class ShaderResourcePool;
         friend class DescriptorContext;
+        friend class DeviceObjectFactory<ShaderResource>;
 
         /// The current index into the compiled data array.
         uint32_t m_compiledDataIndex = 0;

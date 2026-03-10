@@ -16,6 +16,7 @@
 #include <EASTL/vector.h>
 #include <EASTL/array.h>
 #include <EASTL/unordered_map.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Resource/Image/Image.h>
 #include <DX12.h>
 #include <MemoryView.h>
@@ -116,9 +117,10 @@ namespace Spark::RHI::DX12
         friend class SwapChain;
         friend class ImagePool;
         friend class StreamingImagePool;
-        friend class AliasedHeap;
-        friend class ImagePoolResolver;
-        friend class StreamingImagePoolResolver;
+        friend class DeviceObjectFactory<Image>;
+        //friend class AliasedHeap;
+        //friend class ImagePoolResolver;
+        //friend class StreamingImagePoolResolver;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::Image

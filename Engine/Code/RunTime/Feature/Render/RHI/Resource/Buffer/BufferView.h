@@ -37,10 +37,11 @@ namespace Spark::RHI
         {
             return InvalidDeviceAddress;
         }
+
+    protected:
+        void Shutdown() override final;
     
     private:
-        void Shutdown() override final;
-
         bool ValidateForInit(const Buffer& buffer, const BufferViewDescriptor& viewDescriptor) const;
 
         BufferViewDescriptor m_descriptor;

@@ -12,6 +12,7 @@
 #include <DX12.h>
 
 #include <RHI/HardwareQueue.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Fence/Fence.h>
 
 namespace Spark::RHI::DX12
@@ -111,6 +112,8 @@ namespace Spark::RHI::DX12
 
     private:
         Fence() = default;
+
+        friend class DeviceObjectFactory<Fence>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::DeviceFence

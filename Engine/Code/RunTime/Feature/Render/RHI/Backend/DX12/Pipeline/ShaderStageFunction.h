@@ -35,6 +35,8 @@ namespace Spark::RHI::DX12
         ShaderStageFunction() = default;
         ShaderStageFunction(RHI::ShaderStage shaderStage);
 
+        friend class ID3D12Factory;
+
         ///////////////////////////////////////////////////////////////////
         // RHI::ShaderStageFunction
         RHI::ResultCode FinalizeInternal() override;

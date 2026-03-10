@@ -10,13 +10,11 @@ namespace Spark::RHI
 
     class Resource : public DeviceObject
     {
-        friend class ResourcePool; // for SetPool, Construct
+        friend class ResourcePool; // for SetPool, Init
     public:
         virtual ~Resource();
 
-        // Init() = DeviceObject::Init
-
-        void Shutdown() override;
+        void Shutdown() override final;
 
         bool IsAttachment() const;
 

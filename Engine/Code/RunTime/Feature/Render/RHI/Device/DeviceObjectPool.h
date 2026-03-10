@@ -1,17 +1,35 @@
 #pragma once
 
-#include "DeviceObject.h"
+#include <RHI/Base.h>
+
 #include "DeviceObjectFactory.h"
 
 namespace Spark::RHI
 {
+    class DeviceObject;
+
     class DeviceObjectPoolBase
     {
     public:
         virtual ~DeviceObjectPoolBase() = default;
 
-        virtual DeviceObject* CreateDeviceObject() = 0;
+        ResultCode Init();
 
-        virtual void QueueForRelease(DeviceObject* object) = 0;
+        void Shutdown();
+
+        DeviceObject* CreateDeviceObject();
+
+        void QueueForRelease(DeviceObject* object);
+
+        virtual void Collect() = 0;
+
+    protected:
+        virtual ResultCode InitInternal() = 0;
+
+        virtual void ShutdownInternal() = 0;
+
+        virtual DeviceObject* CreateDeviceObjectInternal() = 0;
+
+        virtual void QueueForReleaseInternal(DeviceObject* object) = 0;
     };
 }

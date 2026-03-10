@@ -72,7 +72,7 @@ namespace Spark::RHI::DX12
 
         const Buffer& buffer = static_cast<const Buffer&>(resourceBase);
         const RHI::BufferViewDescriptor& viewDescriptor = GetDescriptor();
-        DescriptorContext& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        DescriptorContext& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
         // By default, if no bind flags are specified on the view descriptor, attempt to create all views that are compatible with the underlying buffer's bind flags
         // If bind flags are specified on the view descriptor, only create the views for the specified bind flags.
@@ -103,7 +103,8 @@ namespace Spark::RHI::DX12
 
     void BufferView::ShutdownInternal()
     {
-        DescriptorContext& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        Device& device = static_cast<Device&>(GetDevice());
+        DescriptorContext& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
         descriptorContext.ReleaseDescriptor(m_readDescriptor);
         descriptorContext.ReleaseDescriptor(m_readWriteDescriptor);
         descriptorContext.ReleaseDescriptor(m_clearDescriptor);

@@ -102,7 +102,7 @@ namespace Spark::RHI::DX12
         desc.pArgumentDescs = argumentsDesc.data();
 
         Microsoft::WRL::ComPtr<ID3D12CommandSignature> signatureComPtr;
-        HRESULT hr = device.GetDevice()->CreateCommandSignature(&desc, rootSignature, IID_PPV_ARGS(signatureComPtr.GetAddressOf()));
+        HRESULT hr = device.GetDX12Device()->CreateCommandSignature(&desc, rootSignature, IID_PPV_ARGS(signatureComPtr.GetAddressOf()));
         if (!SUCCEEDED(hr))
         {
             return RHI::ResultCode::Fail;

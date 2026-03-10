@@ -108,10 +108,10 @@ namespace Spark::RHI
         //! Flag indicating if swapchain recreation is needed at the end of the frame.
         bool m_pendingRecreation = false;
 
+        void Shutdown() override;
+
     private:
         bool ValidateDescriptor(const SwapChainDescriptor& descriptor) const;
-
-        void Shutdown() override;
 
         //////////////////////////////////////////////////////////////////////////
         // Platform API

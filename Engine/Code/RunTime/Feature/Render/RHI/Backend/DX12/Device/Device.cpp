@@ -140,13 +140,13 @@ namespace Spark::RHI::DX12
         m_features.m_independentBlend = true;
         m_features.m_dualSourceBlending = true;
         D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2;
-        GetDevice()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS2, &options2, sizeof(options2));
+        GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS2, &options2, sizeof(options2));
         m_features.m_customSamplePositions =
             options2.ProgrammableSamplePositionsTier != D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
         //m_features.m_queryTypesMask[static_cast<uint32_t>(RHI::HardwareQueueClass::Graphics)] = RHI::QueryTypeFlags::All;
         //m_features.m_queryTypesMask[static_cast<uint32_t>(RHI::HardwareQueueClass::Compute)] = RHI::QueryTypeFlags::PipelineStatistics | RHI::QueryTypeFlags::Timestamp;
         D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3;
-        GetDevice()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3));
+        GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3));
         if (options3.CopyQueueTimestampQueriesSupported)
         {
             //m_features.m_queryTypesMask[static_cast<uint32_t>(RHI::HardwareQueueClass::Copy)] = RHI::QueryTypeFlags::Timestamp;
@@ -168,14 +168,14 @@ namespace Spark::RHI::DX12
         m_features.m_swapchainScalingFlags = RHI::ScalingFlags::Stretch;
                     
         D3D12_FEATURE_DATA_D3D12_OPTIONS options;
-        GetDevice()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+        GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
         // DX12's tile resource implementation uses undefined swizzle tile layout which only requires tier 1
         m_features.m_tiledResource = options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_1;
 
         // Check support of wive operation
         D3D12_FEATURE_DATA_SHADER_MODEL shaderModel;
         shaderModel.HighestShaderModel = D3D_SHADER_MODEL_6_0;
-        if (FAILED(GetDevice()->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel))))
+        if (FAILED(GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel))))
         {
             LOG_WARN("[DX12 Device] Failed to check feature D3D12_FEATURE_SHADER_MODEL");
             m_features.m_waveOperation = false;
@@ -186,7 +186,7 @@ namespace Spark::RHI::DX12
         }
 
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5;
-        GetDevice()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
+        GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
         m_features.m_rayTracing = options5.RaytracingTier != D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
 
         m_features.m_float16 = (options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT) != 0;
@@ -194,7 +194,7 @@ namespace Spark::RHI::DX12
         m_features.m_unboundedArrays = true;
 
         D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6;
-        GetDevice()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6, &options6, sizeof(options6));
+        GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6, &options6, sizeof(options6));
         switch (options6.VariableShadingRateTier)
         {
         case D3D12_VARIABLE_SHADING_RATE_TIER::D3D12_VARIABLE_SHADING_RATE_TIER_1:
@@ -440,7 +440,7 @@ namespace Spark::RHI::DX12
             RHI::FormatCapabilities& flags = formatsCapabilities[i];
             D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
             support.Format = ConvertFormat(static_cast<RHI::Format>(i), false);
-            GetDevice()->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
+            GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
             flags = RHI::FormatCapabilities::None;
 
             if (CheckBitsAll(support.Support1, D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER))
@@ -502,7 +502,7 @@ namespace Spark::RHI::DX12
         //m_commandQueueContext.Shutdown();
     }
 
-    ID3D12DeviceX* Device::GetDevice()
+    ID3D12DeviceX* Device::GetDX12Device()
     {
         return m_dx12Device.get();
     }

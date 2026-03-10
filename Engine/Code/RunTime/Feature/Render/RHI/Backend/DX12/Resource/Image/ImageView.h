@@ -10,6 +10,7 @@
 
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Attachment/AttachmentEnums.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 
 #include <DX12.h>
 #include <Descriptor/Descriptor.h>
@@ -46,6 +47,8 @@ namespace Spark::RHI::DX12
     
     private:
         ImageView() = default;
+
+        friend class DeviceObjectFactory<ImageView>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::ImageView

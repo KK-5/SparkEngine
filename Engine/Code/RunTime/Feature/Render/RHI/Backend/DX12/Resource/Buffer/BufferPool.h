@@ -9,6 +9,7 @@
 
 #include <3rdParty/D3D12MA/D3D12MemAlloc.h>
 #include <RHI/Resource/Buffer/BufferPool.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <ReleaseQueue.h>
 
 namespace Spark::RHI::DX12
@@ -22,6 +23,8 @@ namespace Spark::RHI::DX12
         virtual ~BufferPool() = default;
 
     private:
+        friend class DeviceObjectFactory<BufferPool>;
+
         BufferPool() = default;
 
         Device& GetDevice() const;

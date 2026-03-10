@@ -236,7 +236,7 @@ namespace Spark::RHI::DX12
     void PipelineLayout::Init(Device& device, const RHI::PipelineLayoutDescriptor& descriptor)
     {
         m_hash = descriptor.GetHash();
-        m_d3d12Device = device.GetDevice();
+        m_d3d12Device = device.GetDX12Device();
         m_layoutDescriptor = &descriptor;
 
         const uint32_t groupLayoutCount = static_cast<uint32_t>(descriptor.GetShaderResourceLayoutCount());

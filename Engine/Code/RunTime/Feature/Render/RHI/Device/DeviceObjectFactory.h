@@ -23,6 +23,16 @@ namespace Spark::RHI
             return (T*)address;
         }
 
+        /*
+        template <typename... Args>
+        T* CreateObject(Args&&... args)
+        {
+            AllocateAddress address = m_allocator.allocate(sizeof(T));
+            new (address.GetAddress()) T(eastl::forward<Args>(args)...);
+            return (T*)address;
+        }
+        */
+
         void DestoryObject(T* ptr, [[maybe_unused]]bool isPoolShutdown)
         {
             ptr->~T();

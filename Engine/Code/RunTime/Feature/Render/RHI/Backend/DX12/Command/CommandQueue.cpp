@@ -18,7 +18,7 @@ namespace Spark::RHI::DX12
 {
     RHI::ResultCode CommandQueue::InitInternal(RHI::Device& deviceBase, const RHI::CommandQueueDescriptor& descriptor)
     {
-        ID3D12DeviceX* device = static_cast<Device&>(deviceBase).GetDevice();
+        ID3D12DeviceX* device = static_cast<Device&>(deviceBase).GetDX12Device();
 
         ComPtr<ID3D12CommandQueueX> queue = nullptr;
         D3D12_COMMAND_QUEUE_DESC QueueDesc = {};

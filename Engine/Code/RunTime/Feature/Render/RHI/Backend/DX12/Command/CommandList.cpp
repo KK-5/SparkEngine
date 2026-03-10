@@ -32,7 +32,7 @@ namespace Spark::RHI::DX12
 
         if (GetHardwareQueueClass() != RHI::HardwareQueueClass::Copy)
         {
-            auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+            auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
             descriptorContext.SetDescriptorHeaps(GetCommandList());
         }
     }
@@ -53,7 +53,8 @@ namespace Spark::RHI::DX12
 
         if (GetHardwareQueueClass() != RHI::HardwareQueueClass::Copy)
         {
-            auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+            Device& device = static_cast<Device&>(GetDevice());
+            auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
             descriptorContext.SetDescriptorHeaps(GetCommandList());
         }
 
@@ -567,7 +568,8 @@ namespace Spark::RHI::DX12
         RHI::ScopeAttachmentAccess depthStencilAccess,
         const ImageView* shadingRateAttachment)
     {
-        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        Device& device = static_cast<Device&>(GetDevice());
+        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
         D3D12_CPU_DESCRIPTOR_HANDLE colorDescriptors[RHI::Limits::Pipeline::AttachmentColorCountMax];
         for (uint32_t i = 0; i < renderTargetCount; ++i)
@@ -620,7 +622,8 @@ namespace Spark::RHI::DX12
 
     void CommandList::ClearRenderTarget(const ImageClearRequest& request)
     {
-        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        Device& device = static_cast<Device&>(GetDevice());
+        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Float)
         {
@@ -654,7 +657,8 @@ namespace Spark::RHI::DX12
 
     void CommandList::ClearUnorderedAccess(const ImageClearRequest& request)
     {
-        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        Device& device = static_cast<Device&>(GetDevice());
+        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
         const ImageView& imageView = *request.m_imageView;
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)
@@ -686,7 +690,8 @@ namespace Spark::RHI::DX12
 
     void CommandList::ClearUnorderedAccess(const BufferClearRequest& request)
     {
-        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        Device& device = static_cast<Device&>(GetDevice());
+        auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
         const BufferView& bufferView = *request.m_bufferView;
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)

@@ -139,7 +139,7 @@ namespace Spark::RHI::DX12
 
     RHI::ResultCode Fence::InitInternal(RHI::Device& deviceBase, RHI::FenceState initialState)
     {
-        return m_fence.Init(static_cast<Device&>(deviceBase).GetDevice(), initialState);
+        return m_fence.Init(static_cast<Device&>(deviceBase).GetDX12Device(), initialState);
     }
 
     void Fence::ShutdownInternal()

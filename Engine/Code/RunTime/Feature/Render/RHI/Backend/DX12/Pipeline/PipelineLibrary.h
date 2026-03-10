@@ -14,6 +14,7 @@
 #pragma once
 
 #include <RHI/Pipeline/PipelineLibrary.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 
 #include <DX12.h>
 
@@ -27,6 +28,8 @@ namespace Spark::RHI::DX12
 
     private:
         PipelineLibrary() = default;
+
+        friend class DeviceObjectFactory<PipelineLibrary>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::PipelineLibrary

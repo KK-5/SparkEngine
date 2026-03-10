@@ -25,7 +25,7 @@ namespace Spark::RHI::DX12
         DeviceObject::Init(device);
         m_hardwareQueueClass = hardwareQueueClass;
 
-        HRESULT hr = device.GetDevice()->CreateCommandList(1, ConvertHardwareQueueClass(hardwareQueueClass), commandAllocator, nullptr, IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf()));
+        HRESULT hr = device.GetDX12Device()->CreateCommandList(1, ConvertHardwareQueueClass(hardwareQueueClass), commandAllocator, nullptr, IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf()));
         m_isRecording = true;
 
         /*

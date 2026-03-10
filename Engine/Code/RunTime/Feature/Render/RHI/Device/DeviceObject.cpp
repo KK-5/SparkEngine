@@ -23,5 +23,19 @@ namespace Spark::RHI
     void DeviceObject::Shutdown()
     {
         m_device = nullptr;
+        if (m_objectPool)
+        {
+            m_objectPool->QueueForRelease(this);
+        }
+    }
+
+    void DeviceObject::RegisterDeviceObjectPool(DeviceObjectPoolBase* pool)
+    {
+        m_objectPool = pool;
+    }
+
+    DeviceObjectPoolBase* DeviceObject::GetObjectPool() const
+    {
+        return m_objectPool;
     }
 }

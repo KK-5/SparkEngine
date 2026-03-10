@@ -7,6 +7,23 @@
 
 #include "Device/DeviceObjectPool.h"
 
+#include "Resource/Buffer/Buffer.h"
+#include "Resource/Buffer/BufferPool.h"
+#include "Resource/Buffer/BufferView.h"
+#include "Resource/Buffer/IndirectBufferSignature.h"
+#include "Resource/Image/Image.h"
+#include "Resource/Image/ImagePool.h"
+#include "Resource/Image/ImageView.h"
+#include "Resource/ShaderResource/ShaderResource.h"
+#include "Resource/ShaderResource/ShaderResourcePool.h"
+#include "Pipeline/PipelineLibrary.h"
+#include "Pipeline/PipelineState.h"
+#include "Pipeline/ShaderStageFunction.h"
+#include "Fence/Fence.h"
+#include "SwapChain/SwapChain.h"
+
+#include "Descriptor/DescriptorContext.h"
+
 namespace Spark::RHI
 {
     class SamplerState;
@@ -22,7 +39,6 @@ namespace Spark::RHI::DX12
     class CommandQueueContext;
     class PhysicalDevice;
     class Device;
-    class Buffer;
 
     // DX12内部接口
     class ID3D12FactoryInterface
@@ -30,20 +46,18 @@ namespace Spark::RHI::DX12
     public:
         virtual ~ID3D12FactoryInterface() = default;
 
-        virtual DescriptorContext& AcquireDescriptorContext() = 0;
+        virtual DescriptorContext& AcquireDescriptorContext(Device& device) = 0;
 
         virtual ConstantBufferContext& AcquireConstantBufferContext() = 0;
 
         // Sampler直接使用Factory创建
-        virtual Ptr<Sampler> AcquireSampler(RHI::SamplerState) = 0;
+        virtual Ptr<Sampler> CreateSampler(RHI::SamplerState) = 0;
 
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
 
         virtual Ptr<CommandList> CreateDX12CommandList() = 0;
 
         virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
-
-        virtual void QueueForRelease(Buffer* buffer);
     };
 
     class ID3D12Factory final : public Service<RHI::Factory>::Handler
@@ -56,7 +70,7 @@ namespace Spark::RHI::DX12
 
         ///////////////////////////////////////////////////////////
         // ID3D12FactoryInterface override
-        DescriptorContext& AcquireDescriptorContext() override;
+        DescriptorContext& AcquireDescriptorContext(Device& device) override;
 
         ConstantBufferContext& AcquireConstantBufferContext() override;
 
@@ -64,13 +78,11 @@ namespace Spark::RHI::DX12
 
         CommandQueueContext& AcquireCommandQueueContext() override;
 
-        Ptr<Sampler> AcquireSampler(RHI::SamplerState) override;
-
-        void QueueForRelease(Buffer* buffer) override;
+        Ptr<Sampler> CreateSampler(RHI::SamplerState) override;
         ///////////////////////////////////////////////////////////
 
         ///////////////////////////////////////////////////////////
-        // RHI::Factory onverride
+        // RHI::Factory override
         RHI::PhysicalDeviceList EnumeratePhysicalDevices() override;
 
         Ptr<RHI::Commandlist> CreateCommandList() override;
@@ -103,7 +115,7 @@ namespace Spark::RHI::DX12
 
         Ptr<RHI::PipelineState> CreatePipelineState() override;
 
-        Ptr<RHI::ShaderStageFunction> CreateShaderStageFunction() override;
+        Ptr<RHI::ShaderStageFunction> CreateShaderStageFunction(RHI::ShaderStage) override;
 
         Ptr<RHI::Fence> CreateFence() override;
 
@@ -114,9 +126,27 @@ namespace Spark::RHI::DX12
         Ptr<PhysicalDevice> CreatePhysicalDevice();
         Ptr<Device> CreateDX12Device();
 
+        bool ValidateSingleDevice(Device& device);
+
+        void InitDescriptorContext(Device& device);
+
         // Device object pools
-        BufferObjectPool m_bufferObjectPool;
-        
+        DeviceObjectPool<Buffer>     m_bufferObjectPool;
+        DeviceObjectPool<BufferPool> m_bufferPoolObjectPool;
+        DeviceObjectPool<BufferView> m_bufferViewObjectPool;
+        DeviceObjectPool<IndirectBufferSignature> m_indirectBufferSignatureObjectPool;
+        DeviceObjectPool<Image>      m_imageObjectPool;
+        DeviceObjectPool<ImagePool>  m_imagePoolObjectPool;
+        DeviceObjectPool<ImageView>  m_imageViewObjectPool;
+        DeviceObjectPool<ShaderResource> m_shaderResourceObjectPool;
+        DeviceObjectPool<ShaderResourcePool> m_shaderResourcePoolObjectPool;
+        DeviceObjectPool<PipelineLibrary> m_pipelineLibraryObjectPool;
+        DeviceObjectPool<PipelineState> m_pipelineStateObjectPool;
+        DeviceObjectPool<Fence>      m_fenceObjectPool;
+        DeviceObjectPool<SwapChain>  m_swapChainObjectPool;
+
+        Device* m_singleDevice = nullptr;
+        eastl::unique_ptr<DescriptorContext> m_descriptorContext;
     };
 
 }

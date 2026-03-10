@@ -12,6 +12,7 @@
 #include <ID3D12Factory.h>
 #include <Conversions.h>
 #include <Descriptor/DescriptorContext.h>
+#include <Device/Device.h>
 #include "Image.h"
 
 namespace Spark::RHI::DX12
@@ -82,7 +83,8 @@ namespace Spark::RHI::DX12
         m_format = ConvertImageViewFormat(image, viewDescriptor);
         m_memory = image.GetMemoryView().GetMemory();
 
-        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        Device& device = static_cast<Device&>(deviceBase);
+        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::ShaderRead))
         {
@@ -113,7 +115,8 @@ namespace Spark::RHI::DX12
 
     void ImageView::ShutdownInternal()
     {
-        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext();
+        Device& device = static_cast<Device&>(GetDevice());
+        DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
         
         context.ReleaseDescriptor(m_readDescriptor);
         context.ReleaseDescriptor(m_readWriteDescriptor);

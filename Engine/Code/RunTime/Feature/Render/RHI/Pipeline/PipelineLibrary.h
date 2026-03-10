@@ -84,12 +84,12 @@ namespace Spark::RHI
 
         //! Returns whether the current library need to be merged
         //! virtual bool IsMergeRequired() const;
+    protected:
+        // Explicit shutdown is not allowed for this type.
+        void Shutdown() override final;
 
     private:
         bool ValidateIsInitialized() const;
-
-        // Explicit shutdown is not allowed for this type.
-        void Shutdown() override final;
 
         //////////////////////////////////////////////////////////////////////////
         // Platform API

@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/SwapChain/SwapChain.h>
 #include <DX12.h>
 
@@ -21,6 +22,8 @@ namespace Spark::RHI::DX12
     
     private:
         SwapChain() = default;
+
+        friend class DeviceObjectFactory<SwapChain>;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::SwapChain

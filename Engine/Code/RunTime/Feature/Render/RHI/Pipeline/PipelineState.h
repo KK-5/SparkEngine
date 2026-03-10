@@ -57,10 +57,11 @@ namespace Spark::RHI
         ResultCode Init(Device& device, const PipelineStateDescriptorForRayTracing& descriptor, PipelineLibrary* pipelineLibrary = nullptr);
 
         PipelineStateType GetType() const;
-
-    private:
+    protected:
         // Pipeline states cannot be re-initialized, as they can be cached.
         void Shutdown() override final;
+
+    private:
 
         bool ValidateNotInitialized() const;
 
