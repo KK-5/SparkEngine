@@ -16,6 +16,7 @@
 #include <EASTL/array.h>
 #include <EASTL/fixed_vector.h>
 
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Device/DeviceObject.h>
 #include <DX12.h>
 #include "PipelineLayoutDescriptor.h"
@@ -34,6 +35,7 @@ namespace Spark::RHI::DX12
     class PipelineLayout final : public RHI::DeviceObject
     {
         // friend class PipelineLayoutCache;
+
     public:
         PipelineLayout() = default;
         ~PipelineLayout() = default;

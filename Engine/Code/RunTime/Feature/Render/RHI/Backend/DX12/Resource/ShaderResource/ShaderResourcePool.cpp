@@ -380,7 +380,9 @@ namespace Spark::RHI::DX12
         
         for (size_t i = 0; i < samplerStates.size(); ++i)
         {
-            samplers[i] = Service<ID3D12FactoryInterface>::Get()->CreateSampler(samplerStates[i]);
+            Ptr<Sampler> sampler = Service<ID3D12FactoryInterface>::Get()->CreateSampler();
+            sampler->Init(device, samplerStates[i]);
+            samplers[i] = sampler;
             sourceDescriptors[i] = samplers[i]->GetDescriptorHandle();
         }
 

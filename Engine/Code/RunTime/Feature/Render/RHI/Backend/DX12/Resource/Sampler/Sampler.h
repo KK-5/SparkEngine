@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Device/DeviceObject.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <Descriptor/Descriptor.h>
@@ -27,6 +28,9 @@ namespace Spark::RHI::DX12
         DescriptorHandle GetDescriptorHandle() const;
     private:
         Sampler() = default;
+
+        friend class DeviceObjectFactory<Sampler>;
+
         void Shutdown() override;
 
         DescriptorHandle m_descriptor;

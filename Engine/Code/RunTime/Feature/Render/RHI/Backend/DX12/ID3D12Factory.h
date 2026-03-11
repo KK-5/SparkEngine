@@ -18,9 +18,11 @@
 #include "Resource/ShaderResource/ShaderResourcePool.h"
 #include "Pipeline/PipelineLibrary.h"
 #include "Pipeline/PipelineState.h"
+#include "Pipeline/PipelineLayout.h"
 #include "Pipeline/ShaderStageFunction.h"
 #include "Fence/Fence.h"
 #include "SwapChain/SwapChain.h"
+#include "Resource/Sampler/Sampler.h"
 
 #include "Descriptor/DescriptorContext.h"
 
@@ -51,7 +53,7 @@ namespace Spark::RHI::DX12
         virtual ConstantBufferContext& AcquireConstantBufferContext() = 0;
 
         // Sampler直接使用Factory创建
-        virtual Ptr<Sampler> CreateSampler(RHI::SamplerState) = 0;
+        virtual Ptr<Sampler> CreateSampler() = 0;
 
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
 
@@ -74,11 +76,13 @@ namespace Spark::RHI::DX12
 
         ConstantBufferContext& AcquireConstantBufferContext() override;
 
+        Ptr<PipelineLayout> CreatePipelineLayout() override;
+
         Ptr<CommandList> CreateDX12CommandList() override;
 
         CommandQueueContext& AcquireCommandQueueContext() override;
 
-        Ptr<Sampler> CreateSampler(RHI::SamplerState) override;
+        Ptr<Sampler> CreateSampler() override;
         ///////////////////////////////////////////////////////////
 
         ///////////////////////////////////////////////////////////
@@ -144,6 +148,9 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<PipelineState> m_pipelineStateObjectPool;
         DeviceObjectPool<Fence>      m_fenceObjectPool;
         DeviceObjectPool<SwapChain>  m_swapChainObjectPool;
+
+        DeviceObjectPool<Sampler>    m_samplerObjectPool;
+        DeviceObjectPool<PipelineLayout> m_pipelineLayoutObjectPool;
 
         Device* m_singleDevice = nullptr;
         eastl::unique_ptr<DescriptorContext> m_descriptorContext;

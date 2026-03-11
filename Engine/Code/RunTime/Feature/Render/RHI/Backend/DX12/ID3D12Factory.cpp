@@ -28,6 +28,9 @@ namespace Spark::RHI::DX12
         m_fenceObjectPool.Init();
         m_swapChainObjectPool.Init();
 
+        m_samplerObjectPool.Init();
+        m_pipelineLayoutObjectPool.Init();
+
         return RHI::ResultCode::Success;
     }
 
@@ -46,6 +49,9 @@ namespace Spark::RHI::DX12
         m_pipelineStateObjectPool.Shutdown();
         m_fenceObjectPool.Shutdown();
         m_swapChainObjectPool.Shutdown();
+
+        m_samplerObjectPool.Shutdown();
+        m_pipelineLayoutObjectPool.Shutdown();
     }
 
     bool ID3D12Factory::ValidateSingleDevice(Device& device)
@@ -191,5 +197,15 @@ namespace Spark::RHI::DX12
     Ptr<RHI::SwapChain> ID3D12Factory::CreateSwapChain()
     {
         return static_cast<RHI::SwapChain*>(m_swapChainObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<Sampler> ID3D12Factory::CreateSampler()
+    {
+        return static_cast<Sampler*>(m_samplerObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<PipelineLayout> ID3D12Factory::CreatePipelineLayout()
+    {
+        return static_cast<PipelineLayout*>(m_pipelineLayoutObjectPool.CreateDeviceObject());
     }
 }
