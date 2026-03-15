@@ -8,6 +8,7 @@
 #pragma once
 
 #include <RHI/Command/CommandQueue.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 
 #include <DX12.h>
 
@@ -43,6 +44,8 @@ namespace Spark::RHI::DX12
         ID3D12CommandQueue* GetNativeQueue() const;
     
     private:
+        friend class DeviceObjectFactory<CommandQueue>;
+
         CommandQueue() = default;
 
         //////////////////////////////////////////////////////////////////////////

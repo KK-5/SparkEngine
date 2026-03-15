@@ -25,6 +25,7 @@
 #include "Resource/Sampler/Sampler.h"
 #include "Command/CommandList.h"
 #include "Command/CommandListPool.h"
+#include "Command/CommandQueue.h"
 
 #include "Descriptor/DescriptorContext.h"
 #include "Resource/Constant/ConstantBufferContext.h"
@@ -151,6 +152,7 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<PipelineState> m_pipelineStateObjectPool;
         DeviceObjectPool<Fence>      m_fenceObjectPool;
         DeviceObjectPool<SwapChain>  m_swapChainObjectPool;
+        DeviceObjectPool<CommandQueue> m_commandQueueObjectPool;
 
         DeviceObjectPool<Sampler>    m_samplerObjectPool;
         DeviceObjectPool<PipelineLayout> m_pipelineLayoutObjectPool;
