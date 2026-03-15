@@ -52,21 +52,75 @@ namespace Spark::RHI::DX12
 
         m_samplerObjectPool.Shutdown();
         m_pipelineLayoutObjectPool.Shutdown();
+
+        if (m_descriptorContext)
+        {
+            m_descriptorContext->Shutdown();
+        }
+
+        if (m_constantBufferContext)
+        {
+            m_constantBufferContext->Shutdown();
+        }
+
+        if (m_commandlistAllocator)
+        {
+            m_commandlistAllocator->Shutdown();
+        }
+    }
+
+    void ID3D12Factory::Collect()
+    {
+        m_bufferObjectPool.Collect();
+        m_bufferPoolObjectPool.Collect();
+        m_bufferViewObjectPool.Collect();
+        m_indirectBufferSignatureObjectPool.Collect();
+        m_imageObjectPool.Collect();
+        m_imagePoolObjectPool.Collect();
+        m_imageViewObjectPool.Collect();
+        m_shaderResourceObjectPool.Collect();
+        m_shaderResourcePoolObjectPool.Collect();
+        m_pipelineLibraryObjectPool.Collect();
+        m_pipelineStateObjectPool.Collect();
+        m_fenceObjectPool.Collect();
+        m_swapChainObjectPool.Collect();
+
+        m_samplerObjectPool.Collect();
+        m_pipelineLayoutObjectPool.Collect();
+
+        if (m_descriptorContext)
+        {
+            m_descriptorContext->Collect();
+        }
+
+        if (m_constantBufferContext)
+        {
+            m_constantBufferContext->Collect();
+        }
+
+        if (m_commandlistAllocator)
+        {
+            m_commandlistAllocator->Collect();
+        }
     }
 
     bool ID3D12Factory::ValidateSingleDevice(Device& device)
     {
-        if (!m_singleDevice)
-        {
-            m_singleDevice = &device;
-        }
-        return m_singleDevice == &device;
+        static Device* singleDevice = &device;
+
+        return singleDevice == &device;
     }
 
     void ID3D12Factory::InitDescriptorContext(Device& device)
     {
         m_descriptorContext = eastl::make_unique<DescriptorContext>();
         m_descriptorContext->Init(device);
+    }
+
+    void ID3D12Factory::InitConstantBufferContext(Device& device)
+    {
+        m_constantBufferContext = eastl::make_unique<ConstantBufferContext>();
+        m_constantBufferContext->Init(device);
     }
 
     Ptr<PhysicalDevice> ID3D12Factory::CreatePhysicalDevice()
@@ -87,6 +141,16 @@ namespace Spark::RHI::DX12
             InitDescriptorContext(device);
         }
         return *m_descriptorContext;
+    }
+
+    ConstantBufferContext& ID3D12Factory::AcquireConstantBufferContext(Device& device)
+    {
+        ASSERT(ValidateSingleDevice(device), "The current RHI system only supports a single device.");
+        if (!m_constantBufferContext)
+        {
+            InitConstantBufferContext(device);
+        }
+        return *m_constantBufferContext;
     }
 
     RHI::PhysicalDeviceList ID3D12Factory::EnumeratePhysicalDevices()
@@ -117,6 +181,21 @@ namespace Spark::RHI::DX12
         }
 
         return physicalDeviceList;
+    }
+
+    RHI::CommandList* ID3D12Factory::CreateCommandList(RHI::Device& deviceBase, RHI::HardwareQueueClass hardwareQueueClass)
+    {
+        Device& device = static_cast<Device&>(deviceBase);
+        if (!m_commandlistAllocator)
+        {
+            m_commandlistAllocator = eastl::make_unique<CommandListAllocator>();
+            CommandListAllocator::Descriptor desc;
+            desc.m_device = &device;
+            desc.m_frameCountMax = device.GetDescriptor().m_frameCountMax;
+            m_commandlistAllocator->Init(desc);
+        }
+
+        return static_cast<RHI::CommandList*>(m_commandlistAllocator->Allocate(hardwareQueueClass));
     }
 
     Ptr<RHI::Device> ID3D12Factory::CreateDevice()

@@ -58,7 +58,7 @@ namespace Spark::RHI::DX12
         ID3D12FactoryInterface* factory = Service<ID3D12FactoryInterface>::Get();
         ASSERT(factory, "ID3D12Factory does not initialized");
 
-        ConstantBufferContext& constantBufferCtx = factory->AcquireConstantBufferContext();
+        ConstantBufferContext& constantBufferCtx = factory->AcquireConstantBufferContext(device);
         DescriptorContext& descriptorCtx = factory->AcquireDescriptorContext(device);
 
         const uint32_t copyCount = device.GetDescriptor().m_frameCountMax;
@@ -101,14 +101,14 @@ namespace Spark::RHI::DX12
     {
         ShaderResource& shaderResource = static_cast<ShaderResource&>(resourceBase);
 
+        Device& device = static_cast<Device&>(GetDevice());
         if (m_constantBufferSize)
         {
-            ConstantBufferContext& constantBufferCtx = Service<ID3D12FactoryInterface>::Get()->AcquireConstantBufferContext();
+            ConstantBufferContext& constantBufferCtx = Service<ID3D12FactoryInterface>::Get()->AcquireConstantBufferContext(device);
             shaderResource.m_constantMemoryView.Unmap(RHI::HostMemoryAccess::Write);
             constantBufferCtx.CollectConstantBuffer(shaderResource.m_constantMemoryView);
         }
 
-        Device& device = static_cast<Device&>(GetDevice());
         DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
         if (m_viewsDescriptorTableSize)
         {

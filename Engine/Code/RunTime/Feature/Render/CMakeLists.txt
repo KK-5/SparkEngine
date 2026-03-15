@@ -1,6 +1,6 @@
 set(TARGET_NAME SparkRender)
 
-add_subdirectory(RHI)
+# add_subdirectory(RHI)
 
 set(SOURCES
     RenderSystem.cpp

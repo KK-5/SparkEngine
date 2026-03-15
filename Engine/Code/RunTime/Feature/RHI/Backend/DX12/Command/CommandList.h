@@ -18,6 +18,7 @@
 
 #include <RHI/Command/CommandList.h>
 #include <RHI/Command/CommandListStates.h>
+#include <RHI/Device/DeviceObjectFactory.h>
 
 #include <Pipeline/PipelineLayout.h>
 #include <Pipeline/PipelineState.h>
@@ -104,7 +105,7 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
 
     private:
-        friend CommandQueue;
+        friend class CommandQueue;
 
         void SetParentQueue(CommandQueue* commandQueue);
 

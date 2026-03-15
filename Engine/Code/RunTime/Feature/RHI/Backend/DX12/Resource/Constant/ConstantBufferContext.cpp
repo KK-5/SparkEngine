@@ -63,4 +63,9 @@ namespace Spark::RHI::DX12
     {
         m_releaseQueue.QueueForCollect(memoryView.GetMemoryAllocation());
     }
+
+    void ConstantBufferContext::Collect()
+    {
+        m_releaseQueue.Collect();
+    }
 }

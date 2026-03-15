@@ -146,6 +146,11 @@ namespace Spark
             m_collector.QueueForCollect(objects, objectCount);
         }
 
+        void DeAllocate(ObjectType** objects, size_t objectCount)
+        {
+            m_collector.QueueForCollect(objects, objectCount);
+        }
+
         //! Performs an object collection cycle. Objects which are collected can be reused by Allocate.
         void Collect()
         {

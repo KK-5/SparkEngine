@@ -133,6 +133,8 @@ namespace Spark::RHI::DX12
         void Collect();
 
     private:
+        friend class ID3D12Factory; // shutdown object
+
         // 定义每种D3D12_DESCRIPTOR_HEAP_TYPE可以创建的两种D3D12_DESCRIPTOR_HEAP_FLAGS描述符数量
         static const eastl::unordered_map<uint32_t, eastl::array<uint32_t, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE + 1>> s_descriptorHeapLimits;
         static const uint32_t NumHeapFlags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE + 1; // 2

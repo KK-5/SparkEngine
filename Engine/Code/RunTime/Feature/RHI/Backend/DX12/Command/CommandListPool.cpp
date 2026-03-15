@@ -36,6 +36,11 @@ namespace Spark::RHI::DX12
         return allocator.Get();
     }
 
+    bool IsRecycleObject([[maybe_unused]] ID3D12CommandAllocator* allocator)
+    {
+        return true;
+    }
+
     void CommandAllocatorFactory::ResetObject(ID3D12CommandAllocator* allocator)
     {
         allocator->Reset();
@@ -48,9 +53,11 @@ namespace Spark::RHI::DX12
 
     CommandList* CommandListFactory::CreateObject(ID3D12CommandAllocator* commandAllocator)
     {
-        Ptr<CommandList> commandList = Service<ID3D12FactoryInterface>::Get()->CreateDX12CommandList();
+        AllocateAddress address =  m_allocator.allocate(sizeof(CommandList));
+        new (address.GetAddress()) CommandList();
+        CommandList* commandList = (CommandList*)address;
         commandList->Init(*m_descriptor.m_device, m_descriptor.m_hardwareQueueClass, commandAllocator);
-        return commandList.get();
+        return commandList;
     }
 
     void CommandListFactory::ResetObject(CommandList* commandList, ID3D12CommandAllocator* commandAllocator)
@@ -61,6 +68,8 @@ namespace Spark::RHI::DX12
     void CommandListFactory::DestoryObject(CommandList* commandList, [[maybe_unused]] bool isPoolShutdown)
     {
         commandList->Shutdown();
+        commandList->~CommandList();
+        m_allocator.deallocate(commandList);
     }
 
     bool CommandListFactory::IsRecycleObject([[maybe_unused]] CommandList* commandList)
@@ -68,7 +77,7 @@ namespace Spark::RHI::DX12
         return true;
     }
 
-    void CommandListAllocator::Init(const Descriptor& descriptor, Device* device)
+    void CommandListAllocator::Init(const Descriptor& descriptor)
     {
         ASSERT(m_isInitialized == false, "CommandListAllocator already initialized!");
 
@@ -89,6 +98,8 @@ namespace Spark::RHI::DX12
             commandAllocatorPoolDescriptor.m_collectLatency = descriptor.m_frameCountMax;
             commandAllocatorPool.Init(commandAllocatorPoolDescriptor);
         }
+
+        m_activeCommandAllocators.fill(nullptr);
 
         m_isInitialized = true;
     }
@@ -111,14 +122,29 @@ namespace Spark::RHI::DX12
     {
         ASSERT(m_isInitialized, "CommandListAllocator is not initialized!");
         uint32_t hardwareQueue = static_cast<uint32_t>(hardwareQueueClass);
-        Ptr<ID3D12CommandAllocator> cmmandAllcator = m_commandAllocatorPools[hardwareQueue].Allocate();
-        return m_commandListPools[hardwareQueue].Allocate(cmmandAllcator.get());
+        if (!m_activeCommandAllocators[hardwareQueue])
+        {
+            m_activeCommandAllocators[hardwareQueue] = m_commandAllocatorPools[hardwareQueue].Allocate();
+
+        }
+
+        return m_commandListPools[hardwareQueue].Allocate(m_activeCommandAllocators[hardwareQueue].get());
+    }
+
+    void CommandListAllocator::Reset(uint32_t hardwareQueue)
+    {
+        m_commandListPools[hardwareQueue].DeAllocate(m_activeLists.data(), m_activeLists.size());
+        m_activeLists.clear();
+
+        m_commandAllocatorPools[hardwareQueue].DeAllocate(m_activeCommandAllocators[hardwareQueue].get());
+        m_activeCommandAllocators.fill(nullptr);
     }
 
     void CommandListAllocator::Collect()
     {
         for (uint32_t queueIdx = 0; queueIdx < RHI::HardwareQueueClassCount; ++queueIdx)
         {
+            Reset(queueIdx);
             m_commandListPools[queueIdx].Collect();
             m_commandAllocatorPools[queueIdx].Collect();
         }

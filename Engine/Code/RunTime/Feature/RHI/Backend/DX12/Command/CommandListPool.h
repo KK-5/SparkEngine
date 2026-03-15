@@ -17,6 +17,7 @@
 #include <EASTL/vector.h>
 
 #include <Object/ObjectPool.h>
+#include <Memory/PoolAllocator.h>
 
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
@@ -43,6 +44,8 @@ namespace Spark::RHI::DX12
         ID3D12CommandAllocator* CreateObject();
 
         void ResetObject(ID3D12CommandAllocator* allocator);
+
+        bool IsRecycleObject(ID3D12CommandAllocator* allocator);
 
     private:
         Descriptor m_descriptor;
@@ -88,6 +91,7 @@ namespace Spark::RHI::DX12
 
     private:
         Descriptor m_descriptor;
+        PoolAllocator m_allocator;
     };
 
     struct CommandListPoolTraits : public ObjectPoolTraits
@@ -121,7 +125,7 @@ namespace Spark::RHI::DX12
             uint32_t m_frameCountMax = RHI::Limits::Device::FrameCountMax;
         };
 
-        void Init(const Descriptor& descriptor, Device* device);
+        void Init(const Descriptor& descriptor);
         
         void Shutdown();
         
@@ -132,9 +136,11 @@ namespace Spark::RHI::DX12
         void Collect();
 
     private:
-        // CommandListPool* m_commandListPool = nullptr;
+        void Reset(uint32_t hardwareQueue);
+
         eastl::array<CommandListPool, RHI::HardwareQueueClassCount> m_commandListPools;
         eastl::array<CommandAllocatorPool, RHI::HardwareQueueClassCount> m_commandAllocatorPools;
+        eastl::array<Ptr<ID3D12CommandAllocator>, RHI::HardwareQueueClassCount> m_activeCommandAllocators;
         eastl::vector<CommandList*> m_activeLists;
 
         bool m_isInitialized = false;

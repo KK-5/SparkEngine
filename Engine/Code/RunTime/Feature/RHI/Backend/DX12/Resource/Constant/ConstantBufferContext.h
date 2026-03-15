@@ -14,9 +14,11 @@ namespace Spark::RHI::DX12
 {
     class Device;
 
-    class ConstantBufferContext final : RHI::DeviceObject
+    class ConstantBufferContext final : public RHI::DeviceObject
     {
     public:
+        ConstantBufferContext() = default;
+
         RHI::ResultCode Init(Device& device);
 
         MemoryView AcquireStagingMemory(size_t size, size_t alignment);
@@ -24,8 +26,11 @@ namespace Spark::RHI::DX12
         MemoryView CreateConstantBuffer(size_t size, size_t alignment);
 
         void CollectConstantBuffer(MemoryView& memoryView);
+
+        void Collect();
+
     private:
-        ConstantBufferContext() = default;
+        friend class ID3D12Factory; // shutdown object
 
         Ptr<D3D12MA::Allocator> m_allocator;
         D3D12MAReleaseQueue m_releaseQueue;

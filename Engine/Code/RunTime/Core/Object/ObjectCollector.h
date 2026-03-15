@@ -63,6 +63,9 @@ namespace Spark
         //! Queues an array of objects for collection.
         void QueueForCollect(ObjectType* objects, size_t objectCount);
 
+        //! Queues an array of pointers to the objects for collection.
+        void QueueForCollect(ObjectType** objects, size_t objectCount);
+
         void Collect(bool forceFlush = false);
 
         size_t GetObjectCount() const;
@@ -131,6 +134,17 @@ namespace Spark
         for (size_t i = 0; i < objectCount; ++i)
         {
             QueueForCollectInternal(&objects[i]);
+        }
+        m_mutex.unlock();
+    }
+
+    template <typename Traits>
+    void ObjectCollector<Traits>::QueueForCollect(ObjectType** objects, size_t objectCount)
+    {
+        m_mutex.lock();
+        for (size_t i = 0; i < objectCount; ++i)
+        {
+            QueueForCollectInternal(objects[i]);
         }
         m_mutex.unlock();
     }

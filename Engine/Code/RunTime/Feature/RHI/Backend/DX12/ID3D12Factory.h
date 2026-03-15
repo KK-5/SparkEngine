@@ -23,8 +23,11 @@
 #include "Fence/Fence.h"
 #include "SwapChain/SwapChain.h"
 #include "Resource/Sampler/Sampler.h"
+#include "Command/CommandList.h"
+#include "Command/CommandListPool.h"
 
 #include "Descriptor/DescriptorContext.h"
+#include "Resource/Constant/ConstantBufferContext.h"
 
 namespace Spark::RHI
 {
@@ -50,14 +53,12 @@ namespace Spark::RHI::DX12
 
         virtual DescriptorContext& AcquireDescriptorContext(Device& device) = 0;
 
-        virtual ConstantBufferContext& AcquireConstantBufferContext() = 0;
+        virtual ConstantBufferContext& AcquireConstantBufferContext(Device& device) = 0;
 
         // Sampler直接使用Factory创建
         virtual Ptr<Sampler> CreateSampler() = 0;
 
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
-
-        virtual Ptr<CommandList> CreateDX12CommandList() = 0;
 
         virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
     };
@@ -70,15 +71,15 @@ namespace Spark::RHI::DX12
 
         void Shutdown();
 
+        void Collect() override;
+
         ///////////////////////////////////////////////////////////
         // ID3D12FactoryInterface override
         DescriptorContext& AcquireDescriptorContext(Device& device) override;
 
-        ConstantBufferContext& AcquireConstantBufferContext() override;
+        ConstantBufferContext& AcquireConstantBufferContext(Device& device) override;
 
         Ptr<PipelineLayout> CreatePipelineLayout() override;
-
-        Ptr<CommandList> CreateDX12CommandList() override;
 
         CommandQueueContext& AcquireCommandQueueContext() override;
 
@@ -89,7 +90,7 @@ namespace Spark::RHI::DX12
         // RHI::Factory override
         RHI::PhysicalDeviceList EnumeratePhysicalDevices() override;
 
-        Ptr<RHI::Commandlist> CreateCommandList() override;
+        RHI::CommandList* CreateCommandList(RHI::Device& device, RHI::HardwareQueueClass hardwareQueueClass) override;
 
         Ptr<RHI::CommandQueue> CreateCommandQueue() override;
 
@@ -133,6 +134,8 @@ namespace Spark::RHI::DX12
         bool ValidateSingleDevice(Device& device);
 
         void InitDescriptorContext(Device& device);
+        void InitConstantBufferContext(Device& device);
+        void InitCommandlistAllocator(Device& device);
 
         // Device object pools
         DeviceObjectPool<Buffer>     m_bufferObjectPool;
@@ -152,8 +155,9 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<Sampler>    m_samplerObjectPool;
         DeviceObjectPool<PipelineLayout> m_pipelineLayoutObjectPool;
 
-        Device* m_singleDevice = nullptr;
         eastl::unique_ptr<DescriptorContext> m_descriptorContext;
+        eastl::unique_ptr<ConstantBufferContext> m_constantBufferContext;
+        eastl::unique_ptr<CommandListAllocator> m_commandlistAllocator;
     };
 
 }

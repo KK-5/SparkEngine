@@ -5,6 +5,7 @@
 #include "Device/PhysicalDevice.h"
 
 #include "Pipeline/ShaderStages.h"
+#include "HardwareQueue.h"
 
 namespace Spark::RHI
 {
@@ -32,7 +33,7 @@ namespace Spark::RHI
     class ShaderStageFunction;
     class PipelineLayoutDescriptor;
 
-    class Commandlist;
+    class CommandList;
     class CommandQueue;
 
     class Fence;
@@ -45,11 +46,16 @@ namespace Spark::RHI
         Factory() = default;
         virtual ~Factory() = default;
 
+        // Called end of per frame
+        virtual void Collect() = 0;
+
         //virtual APIIndex GetType() = 0;
         
         virtual PhysicalDeviceList EnumeratePhysicalDevices() = 0;
 
-        virtual Ptr<Commandlist> CreateCommandList() = 0;
+        // Commandlist创建即是初始化的，其对象生命周期由Factory管理，每帧都会重置
+        // 返回指针不应该被保存
+        virtual CommandList* CreateCommandList(RHI::Device& device, RHI::HardwareQueueClass hardwareQueueClass) = 0;
 
         virtual Ptr<CommandQueue> CreateCommandQueue() = 0;
 
