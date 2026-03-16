@@ -9,7 +9,7 @@ namespace Spark::RHI
         return m_physicalDevice != nullptr;
     }
 
-    ResultCode Device::Init(PhysicalDevice& physicalDevice)
+    ResultCode Device::Init(PhysicalDevice& physicalDevice, const DeviceDescriptor& descriptor)
     {
         if (Validation::isEnabled)
         {
@@ -21,6 +21,7 @@ namespace Spark::RHI
         }
 
         m_physicalDevice = &physicalDevice;
+        m_descriptor = descriptor;
 
         ResultCode resultCode = InitInternal(physicalDevice);
 

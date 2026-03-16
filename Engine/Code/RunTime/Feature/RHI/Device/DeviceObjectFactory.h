@@ -2,6 +2,7 @@
 
 #include <Object/IObjectFactory.h>
 #include <Memory/PoolAllocator.h>
+#include <Log/SpdLogSystem.h>
 
 namespace Spark::RHI
 {
@@ -41,8 +42,8 @@ namespace Spark::RHI
         {
             if (object->IsInitialized())
             {
-                object->Shutdown();
-            } 
+                LOG_ERROR("[DeviceObjectFactory] Reuse the initialized device object!");
+            }
         }
 
         bool IsRecycleObject(T* object)

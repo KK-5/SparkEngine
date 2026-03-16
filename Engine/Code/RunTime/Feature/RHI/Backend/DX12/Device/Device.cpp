@@ -52,7 +52,7 @@ namespace Spark::RHI::DX12
         {
             infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
             infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
+            // infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
         }
     }
 
@@ -113,24 +113,6 @@ namespace Spark::RHI::DX12
 
             infoQueue->AddApplicationMessage(D3D12_MESSAGE_SEVERITY_MESSAGE, "D3D12 Debug Filters setup");
         }
-    }
-
-    RHI::ResultCode Device::InitD3d12maAllocator()
-    {
-        // Create D3d12ma allocator
-        D3D12MA::ALLOCATOR_DESC desc = {};
-        desc.Flags = D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
-        desc.pDevice = m_dx12Device.get();
-        desc.pAdapter = m_dxgiAdapter.get();
-
-        D3D12MA::Allocator* dx12MemAlloc = nullptr;
-        if (FAILED(D3D12MA::CreateAllocator(&desc, &dx12MemAlloc)))
-        {
-            LOG_ERROR("[DX12 Device] Failed to initialize the D3D12MemoryAllocator.");
-            return RHI::ResultCode::Fail;
-        }
-        m_dx12MemAlloc = dx12MemAlloc;
-        return RHI::ResultCode::Success;
     }
 
     void Device::InitFeatures()
@@ -286,9 +268,6 @@ namespace Spark::RHI::DX12
         }
 
         ComPtr<ID3D12DeviceX> dx12Device;
-
-        HRESULT hr = D3D12CreateDevice(dx12PhysicalDevice.GetAdapter(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(dx12Device.GetAddressOf()));
-
         if (FAILED(D3D12CreateDevice(dx12PhysicalDevice.GetAdapter(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(dx12Device.GetAddressOf()))))
         {
             LOG_ERROR("[DX12 Device] Failed to initialize the device. Check the debug layer for more info.");
@@ -306,12 +285,6 @@ namespace Spark::RHI::DX12
         m_dxgiFactory = dx12PhysicalDevice.GetFactory();
         m_dxgiAdapter = dx12PhysicalDevice.GetAdapter();
 
-        RHI::ResultCode resultCode = InitD3d12maAllocator();
-        if (resultCode != RHI::ResultCode::Success)
-        {
-            return resultCode;
-        }
-
         InitFeatures();
 
         return RHI::ResultCode::Success;
@@ -319,19 +292,6 @@ namespace Spark::RHI::DX12
 
     void Device::ShutdownInternal()
     {
-        //m_allocationInfoCache.Clear();
-
-        //m_stagingMemoryAllocator.Shutdown();
-
-        //m_pipelineLayoutCache.Shutdown();
-
-        //m_descriptorContext = nullptr;
-
-        //m_releaseQueue.Shutdown();
-
-        //m_D3d12maReleaseQueue.Shutdown();
-        m_dx12MemAlloc = nullptr;
-
         m_dxgiFactory = nullptr;
         m_dxgiAdapter = nullptr;
 
@@ -342,6 +302,7 @@ namespace Spark::RHI::DX12
             {
                 m_dx12Device->QueryInterface(&dx12DebugDevice);
             }
+
             if (dx12DebugDevice)
             {
                 dx12DebugDevice->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL);
@@ -359,24 +320,12 @@ namespace Spark::RHI::DX12
     RHI::ResultCode Device::BeginFrameInternal()
     {
         static uint32_t frameIndex = 0;
-        if (m_dx12MemAlloc)
-        {
-            m_dx12MemAlloc->SetCurrentFrameIndex(++frameIndex);
-        }
-        //m_commandQueueContext.Begin();
+
         return RHI::ResultCode::Success;
     }
 
     void Device::EndFrameInternal()
     {
-        //m_commandQueueContext.End();
-
-        //m_commandListAllocator.Collect();
-
-        //m_descriptorContext->GarbageCollect();
-
-        //m_stagingMemoryAllocator.GarbageCollect();
-
         m_objReleaseQueue.Collect();
         
         m_D3D12MAReleaseQueue.Collect();
@@ -400,43 +349,6 @@ namespace Spark::RHI::DX12
         D3D12MAReleaseQueue::Descriptor D3D12MAReleaseQueueDescriptor;
         D3D12MAReleaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
         m_D3D12MAReleaseQueue.Init(D3D12MAReleaseQueueDescriptor);
-
-        /*
-        m_allocationInfoCache.SetInitFunction([](auto& cache) { cache.set_capacity(64); });
-
-        m_descriptorContext = AZStd::make_shared<DescriptorContext>();
-
-        RHI::ConstPtr<RHI::PlatformLimitsDescriptor> rhiDescriptor = m_descriptor.m_platformLimitsDescriptor;
-        RHI::ConstPtr<PlatformLimitsDescriptor> platLimitsDesc = azrtti_cast<const PlatformLimitsDescriptor*>(rhiDescriptor);
-        AZ_Assert(platLimitsDesc != nullptr, "Missing PlatformLimits config file for DX12 backend");
-        m_descriptorContext->Init(m_dx12Device.get(), platLimitsDesc);
-
-        {
-            CommandListAllocator::Descriptor commandListAllocatorDescriptor;
-            commandListAllocatorDescriptor.m_device = this;
-            commandListAllocatorDescriptor.m_frameCountMax = m_descriptor.m_frameCountMax;
-            commandListAllocatorDescriptor.m_descriptorContext = m_descriptorContext;
-            m_commandListAllocator.Init(commandListAllocatorDescriptor);
-        }
-
-        {
-            StagingMemoryAllocator::Descriptor allocatorDesc;
-            allocatorDesc.m_device = this;
-
-            allocatorDesc.m_mediumPageSizeInBytes = static_cast<uint32_t>(platLimitsDesc->m_platformDefaultValues.m_mediumStagingBufferPageSizeInBytes);
-            allocatorDesc.m_largePageSizeInBytes = static_cast<uint32_t>(platLimitsDesc->m_platformDefaultValues.m_largestStagingBufferPageSizeInBytes);
-            allocatorDesc.m_collectLatency = m_descriptor.m_frameCountMax;
-            m_stagingMemoryAllocator.Init(allocatorDesc);
-        }
-
-        m_pipelineLayoutCache.Init(*this);
-
-        m_commandQueueContext.Init(*this);
-
-        m_asyncUploadQueue.Init(*this, AsyncUploadQueue::Descriptor(platLimitsDesc->m_platformDefaultValues.m_asyncQueueStagingBufferSizeInBytes));
-
-        m_samplerCache.SetCapacity(SamplerCacheCapacity);
-        */
 
         return RHI::ResultCode::Success;
     }
@@ -502,78 +414,11 @@ namespace Spark::RHI::DX12
 
     void Device::PreShutdown()
     {
-        // Any containers that maintain references to DeviceObjects need to be cleared here to ensure the device
-        // refcount reaches 0 before shutdown.
-        //m_samplerCache.Clear();
-        //m_commandListAllocator.Shutdown();
-        //m_asyncUploadQueue.Shutdown();
-        //m_commandQueueContext.Shutdown();
     }
 
     ID3D12DeviceX* Device::GetDX12Device()
     {
         return m_dx12Device.get();
-    }
-
-    MemoryView Device::CreateD3D12Buffer(
-            const RHI::BufferDescriptor& bufferDescriptor, D3D12_RESOURCE_STATES initialState, D3D12_HEAP_TYPE heapType)
-    {
-        D3D12_RESOURCE_DESC resourceDesc;
-        ConvertBufferDescriptor(bufferDescriptor, resourceDesc);
-        if (initialState == D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)
-        {
-            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        }
-
-        D3D12MA::ALLOCATION_DESC allocDesc = {};
-        allocDesc.HeapType = heapType;
-
-        D3D12MA::Allocation* allocation = nullptr;
-        HRESULT result = m_dx12MemAlloc->CreateResource(
-            &allocDesc,
-            &resourceDesc,
-            initialState,
-            NULL,
-            &allocation,
-            IID_NULL,
-            NULL
-        );
-        ASSERT(result == S_OK, "[DX12 Device] D3D12MA Create buffer resource failed!");
-
-        // 默认MemoryView使用了Memory(ID3DResource)全部资源
-        return MemoryView(allocation, MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
-    }
-
-    MemoryView Device::CreateD3D12Image(const RHI::ImageDescriptor& imageDescriptor, const RHI::ClearValue* optimizedClearValue,
-            D3D12_RESOURCE_STATES initialState, D3D12_HEAP_TYPE heapType)
-    {
-        D3D12_RESOURCE_DESC resourceDesc;
-        ConvertImageDescriptor(imageDescriptor, resourceDesc);
-
-        const bool isOutputMergerAttachment = CheckBitsAny(imageDescriptor.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
-
-        D3D12_CLEAR_VALUE clearValue;
-        if (isOutputMergerAttachment && optimizedClearValue)
-        {
-            clearValue = ConvertClearValue(imageDescriptor.m_format, *optimizedClearValue);
-        }
-
-        D3D12MA::ALLOCATION_DESC allocDesc = {};
-        allocDesc.HeapType = heapType;
-
-        D3D12MA::Allocation* allocation = nullptr;
-        HRESULT result = m_dx12MemAlloc->CreateResource(
-            &allocDesc,
-            &resourceDesc,
-            initialState,
-            &clearValue,
-            &allocation,
-            IID_NULL,
-            NULL
-        );
-        ASSERT(result == S_OK, "[DX12 Device] D3D12MA Create image resource failed!");
-
-        return MemoryView(allocation, MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());
     }
 
     void Device::QueueForRelease(Ptr<ID3D12Object> dx12Object)
@@ -588,20 +433,5 @@ namespace Spark::RHI::DX12
         {
             m_D3D12MAReleaseQueue.QueueForCollect(eastl::move(allocation));
         }
-        // memoryView.ReleaseMemoryAllocation();
-        // 这里并不把allocation置空，在其真正销毁前依然可以使用
-    }
-
-    MemoryView Device::AcquireStagingMemory(size_t size, size_t alignment)
-    {
-        RHI::BufferDescriptor descriptor;
-        descriptor.m_byteCount = size;
-        descriptor.m_alignment = alignment;
-
-        MemoryView memoryView = CreateD3D12Buffer(descriptor, D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_HEAP_TYPE_UPLOAD);
-
-        // Queue the memory or deferred release immediately.
-        QueueForRelease(memoryView);
-        return memoryView;
     }
 }

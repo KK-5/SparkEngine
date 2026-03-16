@@ -19,7 +19,7 @@ namespace Spark::RHI
 
         bool IsInitialized() const;
 
-        ResultCode Init(PhysicalDevice& physicalDevice);
+        ResultCode Init(PhysicalDevice& physicalDevice, const DeviceDescriptor& descriptor);
 
         ResultCode BeginFrame();
 

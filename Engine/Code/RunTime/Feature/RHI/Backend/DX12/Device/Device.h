@@ -19,22 +19,6 @@ namespace Spark::RHI::DX12
     public:
         ID3D12DeviceX* GetDX12Device();
 
-        RHI::ResultCode CreateSwapChain(
-            IUnknown* window,
-            const DXGI_SWAP_CHAIN_DESCX& swapChainDesc,
-            Ptr<IDXGISwapChainX>& swapChain);
-
-        MemoryView CreateD3D12Buffer(
-            const RHI::BufferDescriptor& bufferDescriptor, 
-            D3D12_RESOURCE_STATES initialState, 
-            D3D12_HEAP_TYPE heapType);
-        
-        MemoryView CreateD3D12Image(
-            const RHI::ImageDescriptor& imageDescriptor,
-            const RHI::ClearValue* optimizedClearValue,
-            D3D12_RESOURCE_STATES initialState,
-            D3D12_HEAP_TYPE heapType);
-
         //! Queues a DX12 COM object for release (by taking a reference) after the current frame has flushed
         //! through the GPU.
         //! Usually called in object ShutdownInternal function.
@@ -45,18 +29,7 @@ namespace Spark::RHI::DX12
         //! Usually called in object ShutdownInternal function.
         void QueueForRelease(const MemoryView& memoryView);
 
-        //! Allocates host memory from the internal frame allocator that is suitable for staging
-        //! uploads to the GPU for the current frame. The memory is valid for the lifetime of
-        //! the frame and is automatically reclaimed after the frame has completed on the GPU.
-        MemoryView AcquireStagingMemory(size_t size, size_t alignment);
-
         const PhysicalDevice& GetPhysicalDevice() const;
-
-        //CommandQueueContext& GetCommandQueueContext();
-
-        //DescriptorContext& GetDescriptorContext();
-
-        //AsyncUploadQueue& GetAsyncUploadQueue();
 
         // return the binding slot of the bindless srg
         // uint32_t GetBindlessSrgSlot() const;
@@ -74,19 +47,14 @@ namespace Spark::RHI::DX12
         void PreShutdown() override;
         //////////////////////////////
 
-        RHI::ResultCode InitD3d12maAllocator();
-
         /// @brief init m_features and m_limits
         void InitFeatures();
-
 
         Ptr<ID3D12DeviceX> m_dx12Device;
         Ptr<IDXGIAdapterX> m_dxgiAdapter;
         Ptr<IDXGIFactoryX> m_dxgiFactory;
 
-        Ptr<D3D12MA::Allocator> m_dx12MemAlloc;
         D3D12ObjReleaseQueue    m_objReleaseQueue;
         D3D12MAReleaseQueue     m_D3D12MAReleaseQueue;
-
     };
 }
