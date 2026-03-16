@@ -22,7 +22,7 @@ namespace Editor
 
         // ISystem
         void Initialize() override;
-        void ShutDown() override;
+        void Shutdown() override;
 
         // IWindowSystem
         void SwapBuffer() override;

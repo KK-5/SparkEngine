@@ -5,11 +5,15 @@ set(SOURCES
     Format.cpp
     HardwareQueue.cpp
     MultisampleState.cpp
+    ClearValue.cpp
+    Factory.cpp
+    Attachment/AttachmentLoadStoreAction.cpp
     Attachment/RenderAttachmentLayout.cpp
     Attachment/RenderAttachmentLayoutBuilder.cpp
     Command/CommandList.cpp
     Command/CommandQueue.cpp
     Device/Device.cpp
+    Device/DeviceObjectPool.cpp
     Device/DeviceObject.cpp
     Fence/Fence.cpp
     Pipeline/PipelineLayoutDescriptor.cpp
@@ -26,7 +30,6 @@ set(SOURCES
     Resource/Buffer/Buffer.cpp
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/BufferView.cpp
-    Resource/Buffer/BufferViewDescriptor.cpp
     Resource/Buffer/IndexBufferView.cpp
     Resource/Buffer/IndirectBufferLayout.cpp
     Resource/Buffer/IndirectBufferSignature.cpp

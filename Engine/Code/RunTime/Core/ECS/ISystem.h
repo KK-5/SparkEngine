@@ -22,7 +22,7 @@ namespace Spark
         ISystem& operator=(ISystem&&) = default;
 
         virtual void                      Initialize()     = 0;
-        virtual void                      ShutDown()       = 0;
+        virtual void                      Shutdown()       = 0;
         virtual eastl::vector<HashString> Request() const  = 0;
         virtual HashString                GetName() const  = 0;
     };

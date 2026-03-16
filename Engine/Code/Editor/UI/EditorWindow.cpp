@@ -69,7 +69,7 @@ namespace Editor
         glfwSwapInterval(1);
     }
 
-    void EditorWindow::ShutDown()
+    void EditorWindow::Shutdown()
     {
         if (m_window) {
             glfwDestroyWindow(m_window);

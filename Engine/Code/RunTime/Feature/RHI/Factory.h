@@ -48,8 +48,6 @@ namespace Spark::RHI
 
         // Called end of per frame
         virtual void Collect() = 0;
-
-        //virtual APIIndex GetType() = 0;
         
         virtual PhysicalDeviceList EnumeratePhysicalDevices() = 0;
 

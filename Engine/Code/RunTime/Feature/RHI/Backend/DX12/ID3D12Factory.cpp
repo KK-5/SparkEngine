@@ -295,4 +295,9 @@ namespace Spark::RHI::DX12
     {
         return static_cast<PipelineLayout*>(m_pipelineLayoutObjectPool.CreateDeviceObject());
     }
+
+    Ptr<RHI::PipelineLayoutDescriptor> ID3D12Factory::CreatePipelineLayoutDescriptor()
+    {
+        return static_cast<RHI::PipelineLayoutDescriptor*>(new PipelineLayoutDescriptor());
+    }
 }

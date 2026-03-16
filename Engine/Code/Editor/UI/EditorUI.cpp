@@ -47,7 +47,7 @@ namespace Editor
         Spark::Input::InputEventBus::Handler::BusConnect(Spark::Input::InputBusId::EditorUI);
     }
 
-    void EditorUI::ShutDown()
+    void EditorUI::Shutdown()
     {
         if (Spark::Input::InputEventBus::Handler::BusIsConnectedId(Spark::Input::InputBusId::EditorUI))
         {

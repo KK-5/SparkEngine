@@ -19,6 +19,7 @@
 #include "Pipeline/PipelineLibrary.h"
 #include "Pipeline/PipelineState.h"
 #include "Pipeline/PipelineLayout.h"
+#include "Pipeline/PipelineLayoutDescriptor.h"
 #include "Pipeline/ShaderStageFunction.h"
 #include "Fence/Fence.h"
 #include "SwapChain/SwapChain.h"
@@ -61,7 +62,7 @@ namespace Spark::RHI::DX12
 
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
 
-        virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
+        // virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
     };
 
     class ID3D12Factory final : public Service<RHI::Factory>::Handler
@@ -82,7 +83,7 @@ namespace Spark::RHI::DX12
 
         Ptr<PipelineLayout> CreatePipelineLayout() override;
 
-        CommandQueueContext& AcquireCommandQueueContext() override;
+        // CommandQueueContext& AcquireCommandQueueContext() override;
 
         Ptr<Sampler> CreateSampler() override;
         ///////////////////////////////////////////////////////////
@@ -126,6 +127,8 @@ namespace Spark::RHI::DX12
         Ptr<RHI::Fence> CreateFence() override;
 
         Ptr<RHI::SwapChain> CreateSwapChain() override;
+
+        Ptr<RHI::PipelineLayoutDescriptor> CreatePipelineLayoutDescriptor() override;
         ///////////////////////////////////////////////////////////
 
     private:

@@ -2,6 +2,8 @@
 
 #include <Log/SpdLogSystem.h>
 
+#include "DeviceObject.h"
+
 namespace Spark::RHI
 {
     ResultCode DeviceObjectPoolBase::Init()

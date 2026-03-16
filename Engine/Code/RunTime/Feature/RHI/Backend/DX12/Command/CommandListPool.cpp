@@ -36,7 +36,7 @@ namespace Spark::RHI::DX12
         return allocator.Get();
     }
 
-    bool IsRecycleObject([[maybe_unused]] ID3D12CommandAllocator* allocator)
+    bool CommandAllocatorFactory::IsRecycleObject([[maybe_unused]] ID3D12CommandAllocator* allocator)
     {
         return true;
     }

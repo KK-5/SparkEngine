@@ -30,12 +30,12 @@ namespace Spark
         m_renderSystem->Initialize();
     }
 
-    void SparkEngine::ShutDown()
+    void SparkEngine::Shutdown()
     {
-        m_renderSystem->ShutDown();
-        m_inputSystem->ShutDown();
-        m_sceneManager->ShutDown();
-        m_entityReaper->ShutDown();
+        m_renderSystem->Shutdown();
+        m_inputSystem->Shutdown();
+        m_sceneManager->Shutdown();
+        m_entityReaper->Shutdown();
     }
 
     void SparkEngine::Run(eastl::function<bool()> shouldQuit)

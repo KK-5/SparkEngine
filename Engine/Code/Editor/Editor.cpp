@@ -38,9 +38,9 @@ namespace Editor
 
     void SparkEditor::Close()
     {
-        m_editorInput->ShutDown();
-        m_editorUI->ShutDown();
-        m_runtimeEngine->ShutDown();
-        m_editorWindow->ShutDown();
+        m_editorInput->Shutdown();
+        m_editorUI->Shutdown();
+        m_runtimeEngine->Shutdown();
+        m_editorWindow->Shutdown();
     }
 }

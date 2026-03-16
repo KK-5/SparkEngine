@@ -44,7 +44,7 @@ namespace Spark::RHI
         NotReady
     };
 
-    enum class APIIndex : uint32_t
+    enum class BackendType : uint32_t
     {
         Null = 0,
         DX12,

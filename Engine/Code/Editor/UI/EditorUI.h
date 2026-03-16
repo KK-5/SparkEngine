@@ -29,7 +29,7 @@ namespace Editor
     public:
         // ISystem
         void Initialize() override;
-        void ShutDown() override;
+        void Shutdown() override;
 
         // UIBaseSystem
         void NewFrame() override;

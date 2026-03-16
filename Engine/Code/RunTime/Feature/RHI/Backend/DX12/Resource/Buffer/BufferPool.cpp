@@ -11,12 +11,13 @@
 #include <mutex>
 #include <Math/Bit.h>
 #include <RHI/RHILimits.h>
-#include "Buffer.h"
-
+#include <RHI/Fence/Fence.h>
 #include <Device/Device.h>
 #include <Memory.h>
 #include <MemoryView.h>
 #include <Conversions.h>
+
+#include "Buffer.h"
 
 namespace Spark::RHI::DX12
 {
@@ -328,7 +329,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    RHI::ResultCode StreamBufferInternal(const RHI::BufferStreamRequest& request)
+    RHI::ResultCode BufferPool::StreamBufferInternal(const RHI::BufferStreamRequest& request)
     {
         // [TODO]
         return RHI::ResultCode::InvalidOperation;

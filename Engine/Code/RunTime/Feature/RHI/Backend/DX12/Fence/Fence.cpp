@@ -74,6 +74,11 @@ namespace Spark::RHI::DX12
         m_fence->Signal(GetPendingValue());
     }
 
+    uint64_t DX12Fence::Increment()
+    {
+        return ++m_pendingValue;
+    }
+
     RHI::FenceState DX12Fence::GetFenceState() const
     {
         const uint64_t completedValue = GetCompletedValue();

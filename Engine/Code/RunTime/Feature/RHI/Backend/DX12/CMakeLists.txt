@@ -6,6 +6,7 @@ set(SOURCES
     MemoryView.cpp
     Conversions.cpp
     ID3D12Factory.cpp
+    RHISystem.cpp
     Command/CommandListBase.cpp
     Command/CommandList.cpp
     Command/CommandListPool.cpp

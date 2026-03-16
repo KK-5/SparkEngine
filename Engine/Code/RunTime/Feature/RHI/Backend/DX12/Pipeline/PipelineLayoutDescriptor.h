@@ -90,6 +90,8 @@ namespace Spark::RHI::DX12
     private:
         PipelineLayoutDescriptor() = default;
 
+        friend class ID3D12Factory;
+
         //////////////////////////////////////////////////////////////////////////
         /// PipelineLayoutDescriptor
         size_t GetHashInternal(size_t seed) const override;

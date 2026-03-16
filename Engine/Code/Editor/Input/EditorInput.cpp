@@ -13,7 +13,7 @@ namespace Editor
     }
 
 
-    void EditorInputSystem::ShutDown()
+    void EditorInputSystem::Shutdown()
     {
         if (InputEventBus::Handler::BusIsConnectedId(InputBusId::Editor))
         {

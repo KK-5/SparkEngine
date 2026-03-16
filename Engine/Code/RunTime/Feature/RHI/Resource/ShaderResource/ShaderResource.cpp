@@ -12,6 +12,10 @@
 
 namespace Spark::RHI
 {
+    const ConstPtr<ImageView> ShaderResource::s_nullImageView;
+    const ConstPtr<BufferView> ShaderResource::s_nullBufferView;
+    const SamplerState ShaderResource::s_nullSamplerState{};
+
     bool ShaderResource::ValidateImageViewAccess(ShaderInputIndex inputIndex, const ImageView* imageView, uint32_t arrayIndex) const
     {
         if (!Validation::isEnabled)

@@ -58,7 +58,7 @@ namespace Spark::RHI::DX12
     class CommandListBase : public RHI::DeviceObject
     {
      public:
-        virtual ~CommandListBase() = 0;
+        virtual ~CommandListBase() = default;
 
         CommandListBase(const CommandListBase&) = delete;
 

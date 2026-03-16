@@ -13,6 +13,8 @@ add_subdirectory(3rdParty)
 add_subdirectory(Code/Runtime)
 add_subdirectory(Code/Editor)
 
+add_subdirectory(SandBox/Program)
+
 # 如果启用测试，添加测试目录
 if(BUILD_TESTS)
     enable_testing()

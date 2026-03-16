@@ -18,7 +18,7 @@ namespace Spark::Input
     public:
         // ISystem
         void Initialize() override;
-        void ShutDown() override;
+        void Shutdown() override;
 
         eastl::vector<HashString> Request() const override
         {

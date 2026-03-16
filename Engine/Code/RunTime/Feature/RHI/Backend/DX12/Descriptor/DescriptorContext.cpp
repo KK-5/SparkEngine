@@ -269,6 +269,17 @@ namespace Spark::RHI::DX12
         CreateNullDescriptors();
     }
 
+    void DescriptorContext::Collect()
+    {
+        m_CBVSRVUAVHeapFlagNone.Collect();
+        m_CBVSRVUAVHeapFlagShaderVisible.Collect();
+        m_SamplerHeapFlagNone.Collect();
+        m_SamplerHeapFlagShaderVisible.Collect();
+        m_RTVHeapFlagNone.Collect();
+        m_DSVHeapFlagNone.Collect();
+        m_staticPool.Collect();
+    }
+
     void DescriptorContext::CreateConstantBufferView(
         const Buffer& buffer,
         const RHI::BufferViewDescriptor& bufferViewDescriptor,
@@ -484,6 +495,50 @@ namespace Spark::RHI::DX12
         D3D12_SAMPLER_DESC samplerDesc;
         ConvertSamplerState(samplerState, samplerDesc);
         m_D3D12Device->CreateSampler(&samplerDesc, GetCpuNativeHandle(samplerHandle));
+    }
+
+    void DescriptorContext::CreateDepthStencilView(
+        const Image& image,
+        const RHI::ImageViewDescriptor& imageViewDescriptor,
+        DescriptorHandle& depthStencilView,
+        DescriptorHandle& depthStencilReadView)
+    {
+        if (depthStencilView.IsNull())
+        {
+            depthStencilView = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+            if (depthStencilView.IsNull())
+            {
+                ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
+                return;
+            }
+        }
+
+        if (depthStencilReadView.IsNull())
+        {
+            depthStencilReadView = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+            if (depthStencilReadView.IsNull())
+            {
+                ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
+                return;
+            }
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE depthStencilDescriptor = GetCpuNativeHandle(depthStencilView);
+
+        D3D12_DEPTH_STENCIL_VIEW_DESC viewDesc;
+        ConvertImageView(image, imageViewDescriptor, viewDesc);
+        m_D3D12Device->CreateDepthStencilView(image.GetMemoryView().GetMemory(), &viewDesc, depthStencilDescriptor);
+
+        viewDesc.Flags = D3D12_DSV_FLAG_READ_ONLY_DEPTH;
+        const bool isStencilFormat = GetStencilFormat(viewDesc.Format) != DXGI_FORMAT_UNKNOWN;
+        if (isStencilFormat)
+        {
+            viewDesc.Flags |= D3D12_DSV_FLAG_READ_ONLY_STENCIL;
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE depthStencilReadDescriptor = GetCpuNativeHandle(depthStencilView);
+
+        m_D3D12Device->CreateDepthStencilView(image.GetMemoryView().GetMemory(), &viewDesc, depthStencilReadDescriptor);
     }
 
     void DescriptorContext::SetDescriptorHeaps(ID3D12GraphicsCommandList* commandList) const

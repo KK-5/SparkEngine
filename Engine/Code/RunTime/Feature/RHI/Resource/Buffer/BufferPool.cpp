@@ -2,6 +2,8 @@
 
 #include <Log/SpdLogSystem.h>
 
+#include <RHI/Fence/Fence.h>
+
 namespace Spark::RHI
 {
     ResultCode BufferPool::Init(Device& device, const BufferPoolDescriptor& descriptor)

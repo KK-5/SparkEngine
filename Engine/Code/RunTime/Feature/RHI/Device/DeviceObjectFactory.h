@@ -3,8 +3,6 @@
 #include <Object/IObjectFactory.h>
 #include <Memory/PoolAllocator.h>
 
-#include "DeviceObject.h"
-
 namespace Spark::RHI
 {
     template <typename T>

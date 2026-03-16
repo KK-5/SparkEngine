@@ -73,6 +73,11 @@ namespace Spark::RHI::DX12
         return m_memoryView;
     }
 
+    D3D12_RESOURCE_STATES Image::GetInitialResourceState() const
+    {
+        return m_initialResourceState;
+    }
+
     bool Image::IsTiled() const
     {
         return m_tileLayout.m_tileCount > 0;

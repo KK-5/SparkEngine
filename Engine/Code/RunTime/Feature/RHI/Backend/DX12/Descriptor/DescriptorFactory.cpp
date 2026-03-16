@@ -61,7 +61,7 @@ namespace Spark::RHI::DX12
         m_freeList.push_back(handle->m_index);
     }
 
-    bool IsRecycleObject([[maybe_unused]]DescriptorHandle* handle)
+    bool DescriptorHandleFactory::IsRecycleObject([[maybe_unused]]DescriptorHandle* handle)
     {
         // DescriptorHandle任何情况下都不需要ObjectPool复用它
         return false;
@@ -294,7 +294,7 @@ namespace Spark::RHI::DX12
         m_tablePool.erase(it);
     }
 
-    bool IsRecycleObject(DescriptorTable* table)
+    bool DescriptorTableFactory::IsRecycleObject(DescriptorTable* table)
     {
         // DescriptorTable任何情况下都不需要ObjectPool复用它
         return false;

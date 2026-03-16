@@ -15,14 +15,14 @@ namespace Spark::Input
         TickBus::Handler::BusConnect();
     }
 
-    void InputSystem::ShutDown()
+    void InputSystem::Shutdown()
     {
         if (InputEventBus::HasHandlers())
         {
             LOG_WARN("[InputSystem] The input event processing system is not disconnected");
         }
 
-        m_capturer->ShutDown();
+        m_capturer->Shutdown();
 
         TickBus::Handler::BusDisconnect();
     }

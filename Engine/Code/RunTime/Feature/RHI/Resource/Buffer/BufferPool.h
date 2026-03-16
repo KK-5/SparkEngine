@@ -117,6 +117,8 @@ namespace Spark::RHI
         bool ValidateIsHostHeap() const;
         bool ValidateMapRequest(const BufferMapRequest& request) const;
 
+        void BufferCopy(void* destination, const void* source, size_t num);
+
         //////////////////////////////////////////////////////////////////////////
         // Backend API
 
@@ -136,11 +138,7 @@ namespace Spark::RHI
         virtual void UnmapBufferInternal(Buffer& buffer) = 0;
 
         /// Called when a buffer is being streamed asynchronously.
-        virtual ResultCode StreamBufferInternal(const BufferStreamRequest& request);
-
-        //Called in order to do a simple mem copy allowing Null rhi to opt out
-        virtual void BufferCopy(void* destination, const void* source, size_t num);
-
+        virtual ResultCode StreamBufferInternal(const BufferStreamRequest& request) = 0;
         //////////////////////////////////////////////////////////////////////////
         
         BufferPoolDescriptor m_descriptor;

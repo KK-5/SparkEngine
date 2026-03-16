@@ -45,6 +45,11 @@ namespace Spark::RHI
         return ResultCode::Success;
     }
 
+    const ShaderResourcePoolDescriptor& ShaderResourcePool::GetDescriptor() const
+    {
+        return m_descriptor;
+    }
+
     ResultCode ShaderResourcePool::InitShaderResource(ShaderResource& shaderResource)
     {
         ResultCode resultCode = ResourcePool::InitResource(&shaderResource, [this, &shaderResource]() { return InitShaderResourceInternal(shaderResource); });

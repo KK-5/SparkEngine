@@ -297,7 +297,7 @@ namespace Spark::RHI::DX12
         return Table[static_cast<size_t>(access)];
     }
 
-    D3D12_DESCRIPTOR_RANGE_TYPE ConvertShaderInputImageAccess(RHI::ShaderInputBufferAccess access)
+    D3D12_DESCRIPTOR_RANGE_TYPE ConvertShaderInputImageAccess(RHI::ShaderInputImageAccess access)
     {
         static const D3D12_DESCRIPTOR_RANGE_TYPE Table[] =
         {
@@ -380,7 +380,7 @@ namespace Spark::RHI::DX12
         resourceDesc.Flags = ConvertImageBindFlags(descriptor.m_bindFlags);
     }
 
-    DXGI_FORMAT ConvertImageViewFormat(const RHI::Image& image, const RHI::ImageViewDescriptor& imageViewDescriptor)
+    DXGI_FORMAT ConvertImageViewFormat(const Image& image, const RHI::ImageViewDescriptor& imageViewDescriptor)
     {
         /**
          * The format of the image is pulled from the base image or the view depending

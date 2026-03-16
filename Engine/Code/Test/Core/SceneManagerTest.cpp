@@ -33,7 +33,7 @@ protected:
 
     void TearDown() override {
         // 在每个测试用例结束后执行
-        sceneManager->ShutDown();
+        sceneManager->Shutdown();
         sceneManager.reset();
         context.Clear();
     }

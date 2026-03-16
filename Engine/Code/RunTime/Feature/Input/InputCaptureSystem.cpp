@@ -22,7 +22,7 @@ namespace Spark::Input
         Service<Window::IWindowSystem>::Get()->PollEvents();
     }
 
-    void InputCaptureSystem::ShutDown()
+    void InputCaptureSystem::Shutdown()
     {
 
     }

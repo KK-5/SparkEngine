@@ -24,7 +24,7 @@ namespace Spark
         SparkEngine& operator=(const SparkEngine&) = delete;
 
         void SetUp();
-        void ShutDown();
+        void Shutdown();
 
         void Pause();
         void Resume();

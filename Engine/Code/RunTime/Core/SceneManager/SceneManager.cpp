@@ -15,7 +15,7 @@ namespace Spark
         ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
     }
 
-    void SceneManager::ShutDown()
+    void SceneManager::Shutdown()
     {
         m_roots.clear();
         m_childrenMap.clear();

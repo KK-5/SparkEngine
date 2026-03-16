@@ -21,7 +21,7 @@ namespace Spark::Render
         TickBus::Handler::BusConnect();
     }
 
-    void RenderSystem::ShutDown()
+    void RenderSystem::Shutdown()
     {
         TickBus::Handler::BusDisconnect();
     }

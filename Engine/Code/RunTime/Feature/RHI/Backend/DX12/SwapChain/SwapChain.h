@@ -27,7 +27,7 @@ namespace Spark::RHI::DX12
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::SwapChain
-        RHI::ResultCode InitInternal(RHI::Device& deviceBase, const RHI::SwapChainDescriptor& descriptor, RHI::SwapChainDimensions* nativeDimensions) override;
+        RHI::ResultCode InitInternal(RHI::Device& deviceBase, RHI::CommandQueue& commandQueue, const RHI::SwapChainDescriptor& descriptor, RHI::SwapChainDimensions* nativeDimensions) override;
         void ShutdownInternal() override;
         uint32_t PresentInternal() override;
         RHI::ResultCode InitImageInternal(const InitImageRequest& request) override;

@@ -16,6 +16,7 @@
 #include <Log/SpdLogSystem.h>
 
 #include <RHI/Factory.h>
+#include <RHI/Command/CommandQueue.h>
 
 namespace Spark::RHI
 {
@@ -38,7 +39,7 @@ namespace Spark::RHI
         return true;
     }
 
-    ResultCode SwapChain::Init(RHI::Device& device, const SwapChainDescriptor& descriptor)
+    ResultCode SwapChain::Init(RHI::Device& device, RHI::CommandQueue& commandQueue, const SwapChainDescriptor& descriptor)
     {
         if (!ValidateDescriptor(descriptor))
         {
@@ -48,7 +49,7 @@ namespace Spark::RHI
         SetName(ObjectName{"SwapChain"});
         SwapChainDimensions nativeDimensions = descriptor.m_dimensions;
 
-        ResultCode resultCode = InitInternal(device, descriptor, &nativeDimensions);
+        ResultCode resultCode = InitInternal(device, commandQueue, descriptor, &nativeDimensions);
 
         if (resultCode == ResultCode::Success)
         {

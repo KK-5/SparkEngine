@@ -25,7 +25,7 @@ namespace Spark::RHI::DX12
         return static_cast<Device&>(RHI::SwapChain::GetDevice());
     }
 
-    RHI::ResultCode SwapChain::InitInternal(RHI::Device& deviceBase, const RHI::SwapChainDescriptor& descriptor, RHI::SwapChainDimensions* nativeDimensions)
+    RHI::ResultCode SwapChain::InitInternal(RHI::Device& deviceBase, RHI::CommandQueue& commandQueue, const RHI::SwapChainDescriptor& descriptor, RHI::SwapChainDimensions* nativeDimensions)
     {
         // Check whether tearing support is available for full screen borderless windowed mode.
         Device& device = static_cast<Device&>(deviceBase);
@@ -56,13 +56,13 @@ namespace Spark::RHI::DX12
             swapChainDesc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
         }
 
-        auto& commandQueueContext = Service<ID3D12FactoryInterface>::Get()->AcquireCommandQueueContext();
-
         IUnknown* window = reinterpret_cast<IUnknown*>(descriptor.m_window);
         ComPtr<IDXGISwapChain1> swapChainPtr;
 
+        ASSERT(commandQueue.GetHardwareQueueClass() == RHI::HardwareQueueClass::Graphics, "Must use graphics command queue to create swapchain");
+        CommandQueue& dx12CommandQueue = static_cast<CommandQueue&>(commandQueue);
         HRESULT hr = dxgiFactory->CreateSwapChainForHwnd(
-            commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics).GetNativeQueue(),
+            dx12CommandQueue.GetNativeQueue(),
             reinterpret_cast<HWND>(descriptor.m_window),
             &swapChainDesc,
             nullptr,

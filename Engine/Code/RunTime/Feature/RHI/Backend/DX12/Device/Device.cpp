@@ -258,7 +258,7 @@ namespace Spark::RHI::DX12
     RHI::ResultCode Device::InitInternal(RHI::PhysicalDevice& physicalDevice)
     {
         PhysicalDevice& dx12PhysicalDevice = static_cast<PhysicalDevice&>(physicalDevice);
-        RHI::ValidationMode validationMode = RHI::validationMode;
+        RHI::ValidationMode validationMode = RHI::curValidationMode;
 
         if (validationMode != RHI::ValidationMode::Disabled)
         {
@@ -286,6 +286,9 @@ namespace Spark::RHI::DX12
         }
 
         ComPtr<ID3D12DeviceX> dx12Device;
+
+        HRESULT hr = D3D12CreateDevice(dx12PhysicalDevice.GetAdapter(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(dx12Device.GetAddressOf()));
+
         if (FAILED(D3D12CreateDevice(dx12PhysicalDevice.GetAdapter(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(dx12Device.GetAddressOf()))))
         {
             LOG_ERROR("[DX12 Device] Failed to initialize the device. Check the debug layer for more info.");
@@ -332,7 +335,7 @@ namespace Spark::RHI::DX12
         m_dxgiFactory = nullptr;
         m_dxgiAdapter = nullptr;
 
-        if (validationMode != RHI::ValidationMode::Disabled)
+        if (RHI::curValidationMode != RHI::ValidationMode::Disabled)
         {
             ID3D12DebugDevice* dx12DebugDevice = nullptr;
             if (m_dx12Device)
@@ -346,6 +349,11 @@ namespace Spark::RHI::DX12
             }
         }
         m_dx12Device = nullptr;
+    }
+
+    const PhysicalDevice& Device::GetPhysicalDevice() const
+    {
+        return static_cast<const PhysicalDevice&>(RHI::Device::GetPhysicalDevice());
     }
 
     RHI::ResultCode Device::BeginFrameInternal()

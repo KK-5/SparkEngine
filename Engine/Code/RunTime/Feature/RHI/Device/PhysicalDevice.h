@@ -12,7 +12,10 @@ namespace Spark::RHI
     {
     public:
         virtual ~PhysicalDevice() = default;
-        const PhysicalDeviceDescriptor& GetDescriptor() const;
+        const PhysicalDeviceDescriptor& GetDescriptor() const
+        {
+            return m_descriptor;
+        }
 
     protected:
         PhysicalDeviceDescriptor m_descriptor;

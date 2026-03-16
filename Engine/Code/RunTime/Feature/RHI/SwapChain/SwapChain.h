@@ -22,6 +22,8 @@
 
 namespace Spark::RHI
 {
+    class CommandQueue;
+
     //! The platform-independent swap chain base class. Swap chains contain a "chain" of images which
     //! map to a platform-specific window, displayed on a physical monitor. The user is allowed
     //! to adjust the swap chain outside of the current FrameScheduler frame. Doing so within a frame scheduler
@@ -35,7 +37,7 @@ namespace Spark::RHI
         virtual ~SwapChain() = default;
 
         //! Initializes the swap chain, making it ready for attachment.
-        ResultCode Init(RHI::Device& device, const SwapChainDescriptor& descriptor);
+        ResultCode Init(RHI::Device& device, RHI::CommandQueue& commandQueue, const SwapChainDescriptor& descriptor);
 
         //! Presents the swap chain to the display, and rotates the images.
         void Present();
@@ -85,7 +87,7 @@ namespace Spark::RHI
         virtual bool ProcessRecreation(){ return false; };
 
     protected:
-        SwapChain();
+        SwapChain() = default;
 
         struct InitImageRequest
         {
@@ -117,7 +119,7 @@ namespace Spark::RHI
         // Platform API
 
         //! Called when the swap chain is initializing.
-        virtual ResultCode InitInternal(RHI::Device& device, const SwapChainDescriptor& descriptor, SwapChainDimensions* nativeDimensions) = 0;
+        virtual ResultCode InitInternal(RHI::Device& device, RHI::CommandQueue& commandQueue, const SwapChainDescriptor& descriptor, SwapChainDimensions* nativeDimensions) = 0;
 
         //! Called when the swap chain is shutdown.
         virtual void ShutdownInternal() = 0;

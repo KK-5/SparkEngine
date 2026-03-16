@@ -4,7 +4,7 @@
 
 namespace Spark::RHI
 {
-    BufferViewDescriptor CreateStructured(
+    BufferViewDescriptor BufferViewDescriptor::CreateStructured(
         uint32_t elementOffset,
         uint32_t elementCount,
         uint32_t elementSize)
@@ -17,7 +17,7 @@ namespace Spark::RHI
         return descriptor;
     }
 
-    BufferViewDescriptor CreateRaw(
+    BufferViewDescriptor BufferViewDescriptor::CreateRaw(
         uint32_t byteOffset,
         uint32_t byteCount)
     {

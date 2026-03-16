@@ -16,7 +16,7 @@ namespace Spark
             TickBus::Handler::BusConnect();
         }
 
-        void ShutDown() override
+        void Shutdown() override
         {
             TickBus::Handler::BusDisconnect();
         }

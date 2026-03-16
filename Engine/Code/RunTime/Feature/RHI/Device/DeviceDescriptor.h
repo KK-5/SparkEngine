@@ -16,7 +16,7 @@ namespace Spark::RHI
     {
     public:
         DeviceDescriptor() = default;
-        virtual ~DeviceDescriptor();
+        virtual ~DeviceDescriptor() = default;
 
         uint32_t m_frameCountMax = Limits::Device::FrameCountMax;
     };
