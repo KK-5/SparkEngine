@@ -28,6 +28,8 @@ namespace Spark::RHI
 
     struct PipelineLibraryDescriptor
     {
+        // now is empty
+
         //Serialized data with which to init the DevicePipelineLibrary
         // m_serializedData = nullptr;
         //The file path name associated with serialized data. It can be passed

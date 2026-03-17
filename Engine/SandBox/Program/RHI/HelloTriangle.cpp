@@ -3,6 +3,7 @@
 #include <Log/SpdLogSystem.h>
 
 #include <RHI/RHIInterface.h>
+#include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
 
 #include <RHI/Backend/DX12/RHISystem.h>
 
@@ -21,10 +22,16 @@ namespace Spark::SandBox
         void CreateDevice();
         void CreateCommandQueue();
         void CreateFence();
+        void CreateSwapChain();
+        void CreatePipelineLibrary();
+        void CreatePipelineState();
 
         Ptr<RHI::Device> m_device;
         Ptr<RHI::CommandQueue> m_commandQueue;
         Ptr<RHI::Fence> m_fence;
+        Ptr<RHI::SwapChain> m_swapChain;
+        Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
+        Ptr<RHI::PipelineState> m_pipelineState;
 
         RHI::Factory* m_rhiFactory;
 
@@ -97,11 +104,74 @@ namespace Spark::SandBox
         }
     }
 
+    void HelloTriangle::CreateSwapChain()
+    {
+        m_swapChain = m_rhiFactory->CreateSwapChain();
+        RHI::SwapChainDescriptor desc;
+        desc.m_dimensions.m_imageCount = 1;
+        desc.m_dimensions.m_imageFormat = RHI::Format::R32G32B32_UINT;
+        desc.m_dimensions.m_imageHeight = 1024;
+        desc.m_dimensions.m_imageWidth = 576;
+        desc.m_window = 0;
+        RHI::ResultCode result = m_swapChain->Init(*m_device, *m_commandQueue, desc);
+        if (result != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Create swap chain failed!");
+        }
+    }
+
+    void HelloTriangle::CreatePipelineLibrary()
+    {
+        m_pipelineLibrary = m_rhiFactory->CreatePipelineLibrary();
+        RHI::PipelineLibraryDescriptor desc; // now is empty
+
+        RHI::ResultCode result = m_pipelineLibrary->Init(*m_device, desc);
+        if (result != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Create pipeline library failed!");
+        }
+    }
+
+    void HelloTriangle::CreatePipelineState()
+    {
+        m_pipelineState = m_rhiFactory->CreatePipelineState();
+
+        RHI::PipelineStateDescriptorForDraw desc;
+        
+        // InputStreamLayout
+        RHI::InputStreamLayoutBuilder builder;
+        builder.Begin();
+        builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
+        builder.AddBuffer()->Channel("Postion", 0, RHI::Format::R32G32B32_FLOAT)
+                           ->Channel("Color", 0, RHI::Format::R32G32B32_FLOAT);
+        RHI::InputStreamLayout inputLayout = builder.End();
+        desc.m_inputStreamLayout = inputLayout;
+
+        // render config
+        RHI::RenderAttachmentConfiguration renderConfig;
+        RHI::RenderAttachmentDescriptor rednerAttachmentDesc;
+        rednerAttachmentDesc.m_attachmentIndex = 0;
+        rednerAttachmentDesc.m_resolveAttachmentIndex = 0;
+        rednerAttachmentDesc.m_loadStoreAction = RHI::AttachmentLoadStoreAction(
+            RHI::ClearValue(),
+            RHI::AttachmentLoadAction::Clear,
+            RHI::AttachmentStoreAction::Store,
+            RHI::AttachmentLoadAction::DontCare,
+            RHI::AttachmentStoreAction::DontCare
+        );
+        rednerAttachmentDesc.m_scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write;
+        rednerAttachmentDesc.m_scopeAttachmentStage = RHI::ScopeAttachmentStage::ColorAttachmentOutput;
+
+        RHI::SubpassInputDescriptor subPassInputDesc;
+        subPassInputDesc.m_aspectFlags = RHI::ImageAspectFlags::Color;
+    }
+
     void HelloTriangle::Init()
     {
         CreateDevice();
         CreateCommandQueue();
         CreateFence();
+        // CreateSwapChain();
     }
 
 

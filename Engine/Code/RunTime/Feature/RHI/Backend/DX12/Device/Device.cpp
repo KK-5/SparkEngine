@@ -267,10 +267,17 @@ namespace Spark::RHI::DX12
             }
         }
 
-        ComPtr<ID3D12DeviceX> dx12Device;
-        if (FAILED(D3D12CreateDevice(dx12PhysicalDevice.GetAdapter(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(dx12Device.GetAddressOf()))))
+        ComPtr<ID3D12Device> baseDevice;
+        if (FAILED(D3D12CreateDevice(dx12PhysicalDevice.GetAdapter(), D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(baseDevice.GetAddressOf()))))
         {
             LOG_ERROR("[DX12 Device] Failed to initialize the device. Check the debug layer for more info.");
+            return RHI::ResultCode::Fail;
+        }
+
+        ComPtr<ID3D12DeviceX> dx12Device;
+        if (FAILED(baseDevice->QueryInterface(IID_PPV_ARGS(&dx12Device))))
+        {
+            LOG_ERROR("[DX12 Device] ID3D12Device support version does not match the functional requirements.");
             return RHI::ResultCode::Fail;
         }
 
