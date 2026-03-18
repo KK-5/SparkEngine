@@ -4,6 +4,7 @@
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
+#include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
 
 #include <RHI/Backend/DX12/RHISystem.h>
 
@@ -144,26 +145,21 @@ namespace Spark::SandBox
         builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
         builder.AddBuffer()->Channel("Postion", 0, RHI::Format::R32G32B32_FLOAT)
                            ->Channel("Color", 0, RHI::Format::R32G32B32_FLOAT);
-        RHI::InputStreamLayout inputLayout = builder.End();
-        desc.m_inputStreamLayout = inputLayout;
+        desc.m_inputStreamLayout = builder.End();
 
         // render config
-        RHI::RenderAttachmentConfiguration renderConfig;
-        RHI::RenderAttachmentDescriptor rednerAttachmentDesc;
-        rednerAttachmentDesc.m_attachmentIndex = 0;
-        rednerAttachmentDesc.m_resolveAttachmentIndex = 0;
-        rednerAttachmentDesc.m_loadStoreAction = RHI::AttachmentLoadStoreAction(
-            RHI::ClearValue(),
-            RHI::AttachmentLoadAction::Clear,
-            RHI::AttachmentStoreAction::Store,
-            RHI::AttachmentLoadAction::DontCare,
-            RHI::AttachmentStoreAction::DontCare
-        );
-        rednerAttachmentDesc.m_scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write;
-        rednerAttachmentDesc.m_scopeAttachmentStage = RHI::ScopeAttachmentStage::ColorAttachmentOutput;
+        RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
+        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R32G32B32_FLOAT);
+        RHI::RenderAttachmentLayout renderAttachmentLayout;
+        attachmentBuilder.End(renderAttachmentLayout);
+        desc.m_renderAttachmentConfiguration.m_renderAttachmentLayout = renderAttachmentLayout;
+        desc.m_renderAttachmentConfiguration.m_subpassIndex = 0;
 
-        RHI::SubpassInputDescriptor subPassInputDesc;
-        subPassInputDesc.m_aspectFlags = RHI::ImageAspectFlags::Color;
+        // render state
+        desc.m_renderStates = RHI::RenderStates();
+
+        
+
     }
 
     void HelloTriangle::Init()
