@@ -90,7 +90,7 @@ namespace Spark::RHI
                 {
                     if (renderTargetAttachment.m_format == Format::Unknown)
                     {
-                        ASSERT(false, "Invalid format for rendertarget %s", renderTargetAttachment.m_name.GetCStr());
+                        ASSERT(false, "Invalid format for rendertarget {}", renderTargetAttachment.m_name.GetCStr());
                         return ResultCode::InvalidArgument;
                     }
                     attachmentIndex = builtRenderAttachmentLayout.m_attachmentCount++;
@@ -288,6 +288,32 @@ namespace Spark::RHI
         return this;
     }
 
+    RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder* RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder::ResolveAttachment(
+        const ObjectName& sourceName,
+        const ObjectName& resolveName /*= {}*/)
+    {
+        ObjectName attachmentName = resolveName;
+        if (attachmentName.IsEmpty())
+        {
+            // Assign a temp name if it's empty.
+            attachmentName = spdlog::fmt_lib::format("Resolve{}_Subpass{}", m_renderTargetAttachments.size(), m_subpassIndex).c_str();
+        }
+
+        auto findIter = eastl::find_if(m_renderTargetAttachments.begin(), m_renderTargetAttachments.end(), [sourceName](const RenderAttachmentEntry& entry)
+        {
+            return entry.m_name == sourceName;
+        });
+
+        if (findIter == m_renderTargetAttachments.end())
+        {
+            ASSERT(false, "Failed to find render target {} to resolve", sourceName.GetCStr());
+            return this;
+        }
+
+        (*findIter).m_resolveName = attachmentName;
+        return this;
+    }
+
     RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder* RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder::RenderTargetAttachment(
         Format format,
         bool resolve)
@@ -310,6 +336,27 @@ namespace Spark::RHI
         RenderAttachmentExtras* extras /*= nullptr*/)
     {
         return RenderTargetAttachment(Format::Unknown, name, loadStoreAction, resolve, extras);
+    }
+
+    RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder* RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder::DepthStencilAttachment(
+        Format format,
+        const ObjectName& name /*= {}*/,
+        const AttachmentLoadStoreAction& loadStoreAction /*= AttachmentLoadStoreAction()*/,
+        RHI::ScopeAttachmentAccess scopeAttachmentAccess,
+        RHI::ScopeAttachmentStage scopeAttachmentStage,
+        RenderAttachmentExtras* extras /*= nullptr*/)
+    {
+        ASSERT(m_depthStencilAttachment.m_format == Format::Unknown || format == m_depthStencilAttachment.m_format, "DepthStencil format has already been set");
+        // Assign a temp name if it's empty.
+        m_depthStencilAttachment = RenderAttachmentEntry{ name.IsEmpty() ? ObjectName("DepthStencil") : name,
+                                                          format,
+                                                          loadStoreAction,
+                                                          {},
+                                                          scopeAttachmentAccess,
+                                                          scopeAttachmentStage,
+                                                          extras
+        };
+        return this;
     }
 
     RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder* RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder::DepthStencilAttachment(

@@ -5,7 +5,9 @@
 
 #include <filesystem>
 
-namespace Spark::Resource
+#include "EBus/AssetBus.h"
+
+namespace Spark::Asset
 {
     void SparkAssetManager::Initialize()
     {
@@ -59,45 +61,43 @@ namespace Spark::Resource
 
     Ptr<Asset> SparkAssetManager::LoadAsset(const AssetId& id, AssetType type)
     {
-        // 先查缓存
         {
             std::lock_guard lock(m_mutex);
             auto it = m_assets.find(id);
             if (it != m_assets.end())
             {
-                return it->second;
+                return Ptr<Asset>(it->second);
             }
         }
 
         Ptr<Asset> asset(new Asset(id, type));
 
-        ProcessAsset(*asset);
-
         {
             std::lock_guard lock(m_mutex);
-            m_assets[id] = asset;
+            m_assets.insert_or_assign(id, asset.get());
         }
+
+        ProcessAsset(*asset);
+
         return asset;
     }
 
     Ptr<Asset> SparkAssetManager::RequestAsset(const AssetId& id, AssetType type)
     {
+        std::lock_guard lock(m_mutex);
+        auto it = m_assets.find(id);
+        if (it != m_assets.end())
         {
-            std::lock_guard lock(m_mutex);
-            auto it = m_assets.find(id);
-            if (it != m_assets.end())
-            {
-                return it->second;
-            }
-
-            Ptr<Asset> asset(new Asset(id, type));
-            SetAssetStatus(*asset, AssetStatus::Queued);
-            m_assets[id] = asset;
-            m_pendingQueue.push(asset.get());
-
-            m_cv.notify_one();
-            return asset;
+            return Ptr<Asset>(it->second);
         }
+
+        Ptr<Asset> asset(new Asset(id, type));
+        SetAssetStatus(*asset, AssetStatus::Queued);
+        m_assets.insert_or_assign(id, asset.get());
+        m_pendingQueue.push(asset.get());
+
+        m_cv.notify_one();
+        return asset;
     }
 
     void SparkAssetManager::AddSearchPath(eastl::string_view path)
@@ -135,6 +135,7 @@ namespace Spark::Resource
         m_assetCompilers[type] = eastl::move(compiler);
     }
 
+    /*
     eastl::string SparkAssetManager::ResolvePath(const AssetId& id) const
     {
         auto name = id.GetName().GetStringView();
@@ -149,6 +150,7 @@ namespace Spark::Resource
         }
         return {};
     }
+    */
 
     void SparkAssetManager::ProcessThread()
     {
@@ -175,48 +177,56 @@ namespace Spark::Resource
     void SparkAssetManager::ProcessAsset(Asset& asset)
     {
         AssetType type = asset.GetAssetType();
+        const AssetId& id = asset.GetAssetId();
 
-        // Load
+        AssetLoader* loader = nullptr;
         {
             std::lock_guard lock(m_mutex);
-            auto loaderIt = m_assetLoaders.find(type);
-            if (loaderIt == m_assetLoaders.end())
+            auto it = m_assetLoaders.find(type);
+            if (it == m_assetLoaders.end())
             {
                 LOG_ERROR("No loader registered for asset type {}", static_cast<uint32_t>(type));
                 SetAssetStatus(asset, AssetStatus::Error);
                 return;
             }
+            loader = it->second.get();
             SetAssetStatus(asset, AssetStatus::Loading);
         }
 
-        // Loader::Load 可能耗时，不持锁执行
-        m_assetLoaders[type]->Load(asset);
-
-        if (asset.IsError())
+        auto rawData = loader->Load(id);
+        if (!rawData)
         {
+            SetAssetStatus(asset, AssetStatus::Error);
             return;
         }
 
-        // Compile（可选）
+        // 查找 Compiler（可选）
+        AssetCompiler* compiler = nullptr;
         {
             std::lock_guard lock(m_mutex);
-            auto compilerIt = m_assetCompilers.find(type);
-            if (compilerIt != m_assetCompilers.end())
+            auto it = m_assetCompilers.find(type);
+            if (it != m_assetCompilers.end())
             {
+                compiler = it->second.get();
                 SetAssetStatus(asset, AssetStatus::Compiling);
             }
-            else
+        }
+
+        if (compiler)
+        {
+            auto compiledData = compiler->Compile(id, *rawData);
+            if (!compiledData)
             {
-                SetAssetStatus(asset, AssetStatus::Ready);
+                SetAssetStatus(asset, AssetStatus::Error);
                 return;
             }
+            SetAssetData(asset, eastl::move(compiledData));
         }
-
-        m_assetCompilers[type]->Compile(asset);
-
-        if (!asset.IsError())
+        else
         {
-            SetAssetStatus(asset, AssetStatus::Ready);
+            SetAssetData(asset, eastl::move(rawData));
         }
+
+        SetAssetStatus(asset, AssetStatus::Ready);
     }
 }

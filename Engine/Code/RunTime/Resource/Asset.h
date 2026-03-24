@@ -3,10 +3,10 @@
 #include <EASTL/unique_ptr.h>
 
 #include <Object/Object.h>
-#include <Resource/AssetTypes.h>
+#include "AssetTypes.h"
 
 
-namespace Spark::Resource
+namespace Spark::Asset
 {
     class AssetData
     {
@@ -63,12 +63,12 @@ namespace Spark::Resource
     struct AssetLoader
     {
         virtual ~AssetLoader() = default;
-        virtual void Load(Asset& asset) = 0;
+        virtual eastl::unique_ptr<AssetData> Load(const AssetId& id) = 0;
     };
 
     struct AssetCompiler
     {
         virtual ~AssetCompiler() = default;
-        virtual void Compile(Asset& asset) = 0;
+        virtual eastl::unique_ptr<AssetData> Compile(const AssetId& id, AssetData& rawData) = 0;
     };
 }

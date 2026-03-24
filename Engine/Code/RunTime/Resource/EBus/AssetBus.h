@@ -2,9 +2,11 @@
 
 #include <EBus/EBus.h>
 
-namespace Spark::Resource
+#include <Resource/AssetTypes.h>
+
+namespace Spark::Asset
 {
-    class AssetType;
+    class Asset;
 
     struct AssetBusTraits : public EBusTraits
     {
@@ -13,8 +15,11 @@ namespace Spark::Resource
 
         using BusIdType = AssetType;
 
-        
+        /// Interface
+        virtual void OnAssetReady(Asset& asset) {}
+        virtual void OnAssetError(Asset& asset) {}
 
     };
-    
+
+    using AssetBus = EBus<AssetBusTraits>;
 }

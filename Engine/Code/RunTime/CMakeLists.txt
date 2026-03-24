@@ -1,6 +1,7 @@
 set(TARGET_NAME SparkRuntime)
 
 add_subdirectory(Core)
+add_subdirectory(Resource)
 add_subdirectory(Feature/Input)
 add_subdirectory(Feature/RHI)
 add_subdirectory(Feature/Render)
@@ -16,6 +17,7 @@ target_link_libraries(${TARGET_NAME}
         SparkInput
         SparkRender
         SparkUI
+        SparkAssetManager
 )
 
 set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 17)

@@ -7,7 +7,7 @@
 #include "AssetTypes.h"
 
 
-namespace Spark::Resource
+namespace Spark::Asset
 {
     class Asset;
     class AssetLoader;
@@ -15,7 +15,7 @@ namespace Spark::Resource
 
     class AssetManager : public ISystem
     {
-        friend class Asset;
+        friend class Asset;  // for ReleaseAsset function. use to release asset when it shutdown.
     public:
         virtual ~AssetManager() = default;
 
@@ -29,6 +29,7 @@ namespace Spark::Resource
         virtual Ptr<Asset> LoadAsset(const AssetId& id, AssetType type) = 0;
 
         /// 异步请求加载，立即返回（状态为 Queued/Loading），完成后状态变为 Ready
+        /// 加载完成时触发OnAssetReady事件
         virtual Ptr<Asset> RequestAsset(const AssetId& id, AssetType type) = 0;
 
         /// 注册资产搜索路径（如 "Assets/Shaders", "Assets/Textures"）

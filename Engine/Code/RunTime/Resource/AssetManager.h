@@ -13,7 +13,7 @@
 #include "Asset.h"
 #include "AssetManagerInterface.h"
 
-namespace Spark::Resource
+namespace Spark::Asset
 {
     class SparkAssetManager final : public Service<AssetManager>::Handler
     {
@@ -39,12 +39,10 @@ namespace Spark::Resource
 
     private:
         /// 在搜索路径中查找资产文件，返回完整路径；找不到则返回空字符串
-        eastl::string ResolvePath(const AssetId& id) const;
+        /// eastl::string ResolvePath(const AssetId& id) const;
 
-        /// 异步工作线程入口
         void ProcessThread();
 
-        /// 执行单个资产的加载+编译流程
         void ProcessAsset(Asset& asset);
 
         mutable std::mutex m_mutex;
@@ -54,7 +52,7 @@ namespace Spark::Resource
         std::thread m_processThread;
         eastl::queue<Asset*> m_pendingQueue;
 
-        eastl::unordered_map<AssetId, Ptr<Asset>> m_assets;
+        eastl::unordered_map<AssetId, Asset*> m_assets;
         eastl::unordered_map<AssetType, eastl::unique_ptr<AssetLoader>> m_assetLoaders;
         eastl::unordered_map<AssetType, eastl::unique_ptr<AssetCompiler>> m_assetCompilers;
         eastl::vector<eastl::string> m_searchPaths;

@@ -37,6 +37,16 @@ if(NOT TARGET glm)
     set_target_properties(glm PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/glm)
 endif()
 
+if(NOT TARGET dxc)
+    Message(STATUS "Import DXC")
+    add_library(dxc SHARED IMPORTED GLOBAL)
+    set_target_properties(dxc PROPERTIES
+        IMPORTED_IMPLIB "${CMAKE_CURRENT_SOURCE_DIR}/DXC/lib/x64/dxcompiler.lib"
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/DXC/bin/x64/dxcompiler.dll"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/DXC/inc"
+    )
+endif()
+
 if(BUILD_TESTS)
     Message(STATUS "Import gtest")
     option(BUILD_GMOCK "Builds the googlemock subproject" ON)
