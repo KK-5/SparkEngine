@@ -13,7 +13,7 @@
 #include "Asset.h"
 #include "AssetManagerInterface.h"
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     class SparkAssetManager final : public Service<AssetManager>::Handler
     {

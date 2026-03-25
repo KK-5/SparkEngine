@@ -7,10 +7,16 @@ if (BUILD_RHI_HELLOTRIANGLE)
 
     add_executable(${TARGET_NAME} RHI/HelloTriangle.cpp)
 
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${ENGINE_ASSET_DIR}"
+    )
+
     target_link_libraries(${TARGET_NAME}
     PRIVATE
         SparkCore
         SparkRHI
         SparkRHI_DX12
+        SparkAssetManager
     )
 endif()

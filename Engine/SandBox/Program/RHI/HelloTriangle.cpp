@@ -8,6 +8,13 @@
 
 #include <RHI/Backend/DX12/RHISystem.h>
 
+#include <Resource/Asset.h>
+#include <Resource/AssetManagerInterface.h>
+#include <Resource/AssetManager.h>
+#include <Resource/Shader/ShaderAsset.h>
+#include <Resource/Shader/ShaderAssetCompiler.h>
+#include <Resource/Common/CommonAssetLoader.h>
+
 
 namespace Spark::SandBox
 {
@@ -38,6 +45,7 @@ namespace Spark::SandBox
 
         eastl::unique_ptr<ILogSystem<SpdLogSystem>> m_logger;
         eastl::unique_ptr<Spark::RHI::RHIInterface> m_rhi;
+        eastl::unique_ptr<Spark::Resource::SparkAssetManager> m_assetManager;
 
     };
 
@@ -50,18 +58,31 @@ namespace Spark::SandBox
 
         m_rhi = eastl::make_unique<Spark::RHI::DX12::RHISystem>();
         m_rhi->Initialize();
-
         m_rhiFactory = Service<Spark::RHI::RHIInterface>::Get()->GetRHIFactory();
         if (!m_rhiFactory)
         {
             LOG_ERROR("Get RHI Factory failed");
         }
+
+        eastl::vector<eastl::string> searchPaths;
+        searchPaths.push_back(SHADER_ASSET_DIR);
+        m_assetManager = eastl::make_unique<Spark::Resource::SparkAssetManager>();
+        m_assetManager->Initialize();
+        m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
+        auto loader = eastl::make_unique<Resource::BinaryAssetLoader>(searchPaths);
+        auto compiler = eastl::make_unique<Resource::ShaderAssetCompiler>(Resource::ShaderBackend::DXIL);
+        compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
+        compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
+        m_assetManager->RegisterAssetLoader(eastl::move(loader), Resource::AssetType::Shader);
+        m_assetManager->RegisterAssetCompiler(eastl::move(compiler), Resource::AssetType::Shader);
+
     }
 
     HelloTriangle::~HelloTriangle()
     {
         m_rhi->FactoryCollect();
         m_rhi->Shutdown();
+        m_assetManager->Shutdown();
     }
 
     void HelloTriangle::CreateDevice()
@@ -158,6 +179,17 @@ namespace Spark::SandBox
         // render state
         desc.m_renderStates = RHI::RenderStates();
 
+        // shader
+        Resource::AssetId shaderId("Shaders/Test/SimpleTriangle.hlsl");
+        auto assetManager = Service<Resource::AssetManager>::Get();
+        ASSERT(assetManager, "Asset Manager is Null.");
+        Ptr<Resource::ShaderAsset> shader = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);
+        if (shader->GetStatus() != Resource::AssetStatus::Ready)
+        {
+            LOG_ERROR("Load shader asset failed.");
+            return;
+        }
+        desc.m_vertexFunction = shader->GetStageBytecode(RHI::ShaderStage::Vertex);
         
 
     }

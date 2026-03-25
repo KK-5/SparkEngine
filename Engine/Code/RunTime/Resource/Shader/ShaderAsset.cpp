@@ -1,6 +1,6 @@
 #include "ShaderAsset.h"
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     // ---- ShaderAssetData ----
 

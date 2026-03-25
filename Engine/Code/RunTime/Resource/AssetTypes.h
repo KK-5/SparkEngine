@@ -6,7 +6,7 @@
 #include <EASTLEX/hash.h>
 
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     using AssetHash = ObjectName::Hash;
 
@@ -72,9 +72,9 @@ namespace Spark::Asset
 namespace eastl
 {
     template<>
-    struct hash<Spark::Asset::AssetId>
+    struct hash<Spark::Resource::AssetId>
     {
-        size_t operator()(const Spark::Asset::AssetId& id) const
+        size_t operator()(const Spark::Resource::AssetId& id) const
         {
             return static_cast<size_t>(id.GetHash());
         }

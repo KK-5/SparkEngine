@@ -6,7 +6,7 @@
 #include <Log/SpdLogSystem.h>
 #include <Resource/Common/CommonAssetLoader.h>
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     ShaderAssetCompiler::ShaderAssetCompiler(ShaderBackend backend)
         : m_backend(backend)
@@ -116,7 +116,6 @@ namespace Spark::Asset
             args.push_back(L"-Od");     // 禁用优化
 #endif
 
-            // 编译
             IDxcResult* compileResult = nullptr;
             hr = m_compiler->Compile(
                 &sourceBuffer,
@@ -134,7 +133,6 @@ namespace Spark::Asset
                 return nullptr;
             }
 
-            // 检查编译状态
             HRESULT compileStatus;
             compileResult->GetStatus(&compileStatus);
 

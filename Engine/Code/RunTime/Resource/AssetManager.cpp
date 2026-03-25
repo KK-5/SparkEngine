@@ -7,7 +7,7 @@
 
 #include "EBus/AssetBus.h"
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     void SparkAssetManager::Initialize()
     {

@@ -8,7 +8,7 @@
 struct IDxcUtils;
 struct IDxcCompiler3;
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     /// Shader stage 编译描述
     struct ShaderStageEntry

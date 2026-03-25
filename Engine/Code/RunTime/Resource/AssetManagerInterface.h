@@ -7,7 +7,7 @@
 #include "AssetTypes.h"
 
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     class Asset;
     class AssetLoader;

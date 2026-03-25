@@ -7,7 +7,7 @@
 #include <Resource/Asset.h>
 #include <RHI/Pipeline/ShaderStages.h>
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     /// DXC 编译目标
     enum class ShaderBackend : uint32_t

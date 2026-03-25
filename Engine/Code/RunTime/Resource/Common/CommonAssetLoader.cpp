@@ -5,7 +5,7 @@
 
 #include <Log/SpdLogSystem.h>
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     // ---- BinaryAssetData ----
 

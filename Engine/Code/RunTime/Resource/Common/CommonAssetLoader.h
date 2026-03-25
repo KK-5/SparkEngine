@@ -5,7 +5,7 @@
 
 #include <Resource/Asset.h>
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     class BinaryAssetData : public AssetData
     {

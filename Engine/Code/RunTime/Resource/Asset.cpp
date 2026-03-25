@@ -4,7 +4,7 @@
 #include "AssetManagerInterface.h"
 #include "EBus/AssetBus.h"
 
-namespace Spark::Asset
+namespace Spark::Resource
 {
     void Asset::SetData(eastl::unique_ptr<AssetData> data)
     {
