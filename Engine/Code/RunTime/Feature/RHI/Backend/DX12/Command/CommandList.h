@@ -10,6 +10,7 @@
  * Modified by SparkEngine in 2025
  *  -- Remove DescriptorContext pointer in CommandList, use Factory to get DescriptorContext.
  *  -- Remove CommandList name.
+ *  -- Add QueueBarrier/FlushBarriers override from RHI::CommandList.
  */
 
 #pragma once
@@ -63,6 +64,9 @@ namespace Spark::RHI::DX12
         void Submit(const RHI::DispatchItem& dispatchItem, uint32_t submitIndex = 0) override;
         void BeginPredication(const RHI::Buffer& buffer, uint64_t offset, RHI::PredicationOp operation) override;
         void EndPredication() override;
+        void QueueBarrier(const RHI::BufferBarrier& barrier) override;
+        void QueueBarrier(const RHI::ImageBarrier& barrier) override;
+        void FlushBarriers() override;
         void SetFragmentShadingRate(
             RHI::ShadingRate rate,
             const RHI::ShadingRateCombinators& combinators = DefaultShadingRateCombinators) override;
@@ -70,10 +74,9 @@ namespace Spark::RHI::DX12
 
         void SetRenderTargets(
             uint32_t renderTargetCount,
-            const ImageView* const* renderTarget,
-            const ImageView* depthStencilAttachment,
-            RHI::ScopeAttachmentAccess depthStencilAccess,
-            const ImageView* shadingRateAttachment);
+            const RHI::ImageView* const* renderTarget,
+            const RHI::ImageView* depthStencil,
+            const RHI::ImageView* shadingRate) override;
 
         //////////////////////////////////////////////////////////////////////////
         // Clear Methods

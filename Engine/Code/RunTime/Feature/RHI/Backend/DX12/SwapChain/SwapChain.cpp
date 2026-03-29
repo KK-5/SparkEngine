@@ -63,7 +63,7 @@ namespace Spark::RHI::DX12
         CommandQueue& dx12CommandQueue = static_cast<CommandQueue&>(commandQueue);
         HRESULT hr = dxgiFactory->CreateSwapChainForHwnd(
             dx12CommandQueue.GetNativeQueue(),
-            reinterpret_cast<HWND>(descriptor.m_window),
+            reinterpret_cast<HWND>(window),
             &swapChainDesc,
             nullptr,
             nullptr,

@@ -9,7 +9,6 @@
 #pragma once
 
 #include <RHI/Resource/Image/ImageView.h>
-#include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Device/DeviceObjectFactory.h>
 
 #include <DX12.h>
@@ -37,7 +36,8 @@ namespace Spark::RHI::DX12
         DescriptorHandle GetReadWriteDescriptor() const;
         DescriptorHandle GetClearDescriptor() const;
         DescriptorHandle GetColorDescriptor() const;
-        DescriptorHandle GetDepthStencilDescriptor(RHI::ScopeAttachmentAccess access) const;
+        DescriptorHandle GetDepthStencilDescriptor() const;
+        DescriptorHandle GetDepthStencilReadDescriptor() const;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::ImageView

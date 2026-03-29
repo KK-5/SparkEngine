@@ -6,12 +6,17 @@
 #include <filesystem>
 
 #include "EBus/AssetBus.h"
+#include "Shader/ShaderAsset.h"
+
+#include "Common/CommonAssetLoader.h"
+#include "Shader/ShaderAssetCompiler.h"
 
 namespace Spark::Resource
 {
     void SparkAssetManager::Initialize()
     {
         m_shutdown = false;
+        RegisterDefaultLoaderAndCompiler();
         m_processThread = std::thread(&SparkAssetManager::ProcessThread, this);
         LOG_INFO("SparkAssetManager initialized");
     }
@@ -48,6 +53,34 @@ namespace Spark::Resource
         return "AssetManager"_hs;
     }
 
+    Ptr<Asset> SparkAssetManager::CreateAssetByType(const AssetId& id, AssetType type)
+    {
+        switch (type)
+        {
+            case AssetType::Shader:
+            {
+                return Ptr<Asset>(new ShaderAsset(id));
+            }
+            default:
+            {
+                return Ptr<Asset>(new Asset(id, type));
+            }
+        }
+    }
+
+    void SparkAssetManager::RegisterDefaultLoaderAndCompiler()
+    {
+        // Shader
+        auto binaryLoader =  eastl::make_unique<BinaryAssetLoader>();
+        RegisterAssetLoader(eastl::move(binaryLoader), AssetType::Shader);
+
+        auto compiler = eastl::make_unique<ShaderAssetCompiler>(ShaderBackend::DXIL);
+        compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
+        compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
+        RegisterAssetCompiler(eastl::move(compiler), AssetType::Shader);
+
+    }
+
     Ptr<Asset> SparkAssetManager::FindAsset(const AssetId& id, AssetType type) const
     {
         std::lock_guard lock(m_mutex);
@@ -70,7 +103,7 @@ namespace Spark::Resource
             }
         }
 
-        Ptr<Asset> asset(new Asset(id, type));
+        Ptr<Asset> asset = CreateAssetByType(id, type);
 
         {
             std::lock_guard lock(m_mutex);
@@ -91,7 +124,7 @@ namespace Spark::Resource
             return Ptr<Asset>(it->second);
         }
 
-        Ptr<Asset> asset(new Asset(id, type));
+        Ptr<Asset> asset = CreateAssetByType(id, type);;
         SetAssetStatus(*asset, AssetStatus::Queued);
         m_assets.insert_or_assign(id, asset.get());
         m_pendingQueue.push(asset.get());
@@ -104,6 +137,7 @@ namespace Spark::Resource
     {
         std::lock_guard lock(m_mutex);
         m_searchPaths.emplace_back(path.data(), path.size());
+        AssetCatalogBus::Broadcast(&AssetCatalogBus::Events::OnAssetSearchPathsChange, m_searchPaths);
     }
 
     void SparkAssetManager::RemoveSearchPath(eastl::string_view path)
@@ -115,6 +149,7 @@ namespace Spark::Resource
         {
             m_searchPaths.erase(it);
         }
+        AssetCatalogBus::Broadcast(&AssetCatalogBus::Events::OnAssetSearchPathsChange, m_searchPaths);
     }
 
     void SparkAssetManager::ReleaseAsset(const AssetId& id)
@@ -126,6 +161,7 @@ namespace Spark::Resource
     void SparkAssetManager::RegisterAssetLoader(eastl::unique_ptr<AssetLoader> loader, AssetType type)
     {
         std::lock_guard lock(m_mutex);
+        loader->SetSearchPaths(m_searchPaths);
         m_assetLoaders[type] = eastl::move(loader);
     }
 

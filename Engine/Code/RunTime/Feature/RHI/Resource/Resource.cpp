@@ -71,4 +71,14 @@ namespace Spark::RHI
     {
         m_pool = pool;
     }
+
+    ResourceState Resource::GetResourceState() const
+    {
+        return m_resourceState;
+    }
+
+    void Resource::SetResourceState(ResourceState state)
+    {
+        m_resourceState = state;
+    }
 }

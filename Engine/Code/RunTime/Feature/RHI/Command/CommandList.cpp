@@ -8,8 +8,15 @@
 
 #include "CommandList.h"
 
+#include <RHI/Resource/Resource.h>
+
 namespace Spark::RHI
 {
     const ShadingRateCombinators CommandList::DefaultShadingRateCombinators = { { ShadingRateCombinerOp::Passthrough,
                                                                                   ShadingRateCombinerOp::Passthrough } };
+
+    void CommandList::SetResourceState(Resource& resource, ResourceState state)
+    {
+        resource.SetResourceState(state);
+    }
 }

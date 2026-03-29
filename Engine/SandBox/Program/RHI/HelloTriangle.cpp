@@ -1,12 +1,16 @@
 #include <EASTL/unique_ptr.h>
 
 #include <Log/SpdLogSystem.h>
+#include <Math/Vector3.h>
+#include <Math/Color.h>
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
 #include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
+#include <RHI/RHILimits.h>
 
 #include <RHI/Backend/DX12/RHISystem.h>
+#include <RHI/Bus/FrameEventBus.h>
 
 #include <Resource/Asset.h>
 #include <Resource/AssetManagerInterface.h>
@@ -15,9 +19,19 @@
 #include <Resource/Shader/ShaderAssetCompiler.h>
 #include <Resource/Common/CommonAssetLoader.h>
 
+#include "../Common/SimpleGlfwWindow.h"
+
 
 namespace Spark::SandBox
 {
+
+    struct Vertex
+    {
+        Math::Vector3 position;
+        Math::Color   color;
+    };
+    
+
     class HelloTriangle
     {
     public:
@@ -26,6 +40,8 @@ namespace Spark::SandBox
 
         void Init();
 
+        void Run();
+
     private:
         void CreateDevice();
         void CreateCommandQueue();
@@ -33,6 +49,10 @@ namespace Spark::SandBox
         void CreateSwapChain();
         void CreatePipelineLibrary();
         void CreatePipelineState();
+        void CreateVertexBuffer();
+        void CreateStageBuffer();
+        void CreateViewportAndScissor();
+        void BuildCommand(RHI::CommandList* commandList);
 
         Ptr<RHI::Device> m_device;
         Ptr<RHI::CommandQueue> m_commandQueue;
@@ -41,17 +61,37 @@ namespace Spark::SandBox
         Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         Ptr<RHI::PipelineState> m_pipelineState;
 
+        Ptr<RHI::BufferPool> m_bufferPool;
+        Ptr<RHI::Buffer> m_vertexBuffer;
+        Ptr<RHI::BufferPool> m_stageBufferPool;
+        Ptr<RHI::Buffer> m_stageBuffer;
+
+        RHI::Viewport m_viewport;
+        RHI::Scissor m_scissor;
+
         RHI::Factory* m_rhiFactory;
 
         eastl::unique_ptr<ILogSystem<SpdLogSystem>> m_logger;
         eastl::unique_ptr<Spark::RHI::RHIInterface> m_rhi;
         eastl::unique_ptr<Spark::Resource::SparkAssetManager> m_assetManager;
 
+        eastl::unique_ptr<SimpleGlfwWindow> m_glfwWindow;
+
     };
 
 
+    const static Vertex vert[3] =
+    {
+        {{ 0.0f, -0.5f, 0.f}, {1.f, 0.f, 0.f, 1.f}},
+        {{ 0.5f,  0.5f, 0.f}, {0.f, 1.f, 0.f, 1.f}},
+        {{-0.5f,  0.5f, 0.f}, {0.f, 0.f, 1.f, 1.f}}
+    };
+
     HelloTriangle::HelloTriangle()
     {
+        m_glfwWindow = eastl::make_unique<SimpleGlfwWindow>(1024, 576, "HelloTriangle");
+        m_glfwWindow->Initialize();
+
         LogConfig logConfig{};
         logConfig.m_showTimeStamp = true;
         m_logger = eastl::make_unique<SpdLogSystem>(logConfig);
@@ -64,12 +104,10 @@ namespace Spark::SandBox
             LOG_ERROR("Get RHI Factory failed");
         }
 
-        eastl::vector<eastl::string> searchPaths;
-        searchPaths.push_back(SHADER_ASSET_DIR);
         m_assetManager = eastl::make_unique<Spark::Resource::SparkAssetManager>();
         m_assetManager->Initialize();
         m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
-        auto loader = eastl::make_unique<Resource::BinaryAssetLoader>(searchPaths);
+        auto loader = eastl::make_unique<Resource::BinaryAssetLoader>();
         auto compiler = eastl::make_unique<Resource::ShaderAssetCompiler>(Resource::ShaderBackend::DXIL);
         compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
         compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
@@ -83,6 +121,7 @@ namespace Spark::SandBox
         m_rhi->FactoryCollect();
         m_rhi->Shutdown();
         m_assetManager->Shutdown();
+        m_glfwWindow->Shutdown();
     }
 
     void HelloTriangle::CreateDevice()
@@ -97,9 +136,9 @@ namespace Spark::SandBox
         RHI::DeviceDescriptor desc;
         desc.m_frameCountMax = 1;
         RHI::ResultCode result = m_device->Init(*devList[0], desc);
-        if (result == RHI::ResultCode::Success)
+        if (result != RHI::ResultCode::Success)
         {
-            LOG_INFO("Create Device successed!");
+            LOG_INFO("Create Device failed!");
         }
     }
 
@@ -110,9 +149,9 @@ namespace Spark::SandBox
         desc.m_hardwareQueueClass = RHI::HardwareQueueClass::Graphics;
         desc.m_maxFrameQueueDepth = 1;
         RHI::ResultCode result = m_commandQueue->Init(*m_device, desc);
-        if (result == RHI::ResultCode::Success)
+        if (result != RHI::ResultCode::Success)
         {
-            LOG_INFO("Create command queue successed!");
+            LOG_INFO("Create command queue failed!");
         }
     }
 
@@ -120,9 +159,9 @@ namespace Spark::SandBox
     {
         m_fence = m_rhiFactory->CreateFence();
         RHI::ResultCode result = m_fence->Init(*m_device, RHI::FenceState::Reset);
-        if (result == RHI::ResultCode::Success)
+        if (result != RHI::ResultCode::Success)
         {
-            LOG_INFO("Create fence successed!");
+            LOG_INFO("Create fence failed!");
         }
     }
 
@@ -131,10 +170,11 @@ namespace Spark::SandBox
         m_swapChain = m_rhiFactory->CreateSwapChain();
         RHI::SwapChainDescriptor desc;
         desc.m_dimensions.m_imageCount = 1;
-        desc.m_dimensions.m_imageFormat = RHI::Format::R32G32B32_UINT;
-        desc.m_dimensions.m_imageHeight = 1024;
-        desc.m_dimensions.m_imageWidth = 576;
-        desc.m_window = 0;
+        desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
+        auto windowSize = m_glfwWindow->GetWindowSize();
+        desc.m_dimensions.m_imageHeight = windowSize.second;
+        desc.m_dimensions.m_imageWidth = windowSize.first;
+        desc.m_window = m_glfwWindow->GetNativeHandle();
         RHI::ResultCode result = m_swapChain->Init(*m_device, *m_commandQueue, desc);
         if (result != RHI::ResultCode::Success)
         {
@@ -164,13 +204,14 @@ namespace Spark::SandBox
         RHI::InputStreamLayoutBuilder builder;
         builder.Begin();
         builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
-        builder.AddBuffer()->Channel("Postion", 0, RHI::Format::R32G32B32_FLOAT)
-                           ->Channel("Color", 0, RHI::Format::R32G32B32_FLOAT);
+        builder.AddBuffer()->Channel("POSITION", 0, RHI::Format::R32G32B32_FLOAT)
+                           ->Channel("COLOR", 0, RHI::Format::R32G32B32A32_FLOAT);
         desc.m_inputStreamLayout = builder.End();
 
-        // render config
+        // render config. just for vulkan
         RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
-        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R32G32B32_FLOAT);
+        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM)
+                                      ->DepthStencilAttachment(RHI::Format::D24_UNORM_S8_UINT);
         RHI::RenderAttachmentLayout renderAttachmentLayout;
         attachmentBuilder.End(renderAttachmentLayout);
         desc.m_renderAttachmentConfiguration.m_renderAttachmentLayout = renderAttachmentLayout;
@@ -183,15 +224,183 @@ namespace Spark::SandBox
         Resource::AssetId shaderId("Shaders/Test/SimpleTriangle.hlsl");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
-        Ptr<Resource::ShaderAsset> shader = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);
-        if (shader->GetStatus() != Resource::AssetStatus::Ready)
+        Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);
+        if (assetBase->GetStatus() != Resource::AssetStatus::Ready)
         {
             LOG_ERROR("Load shader asset failed.");
             return;
         }
-        desc.m_vertexFunction = shader->GetStageBytecode(RHI::ShaderStage::Vertex);
-        
+        auto shaderData = assetBase->GetData<Resource::ShaderAssetData>();
+        Ptr<RHI::ShaderStageFunction> vertFunc = m_rhiFactory->CreateShaderStageFunction(RHI::ShaderStage::Vertex);
+        vertFunc->SetByteCode(shaderData->GetStageBytecode(RHI::ShaderStage::Vertex)->bytecode);
+        vertFunc->Finalize();
+        Ptr<RHI::ShaderStageFunction> fragFunc = m_rhiFactory->CreateShaderStageFunction(RHI::ShaderStage::Fragment);
+        fragFunc->SetByteCode(shaderData->GetStageBytecode(RHI::ShaderStage::Fragment)->bytecode);
+        fragFunc->Finalize();
+        desc.m_vertexFunction = vertFunc;
+        desc.m_fragmentFunction = fragFunc;
 
+        // pipelinelayout
+        Ptr<RHI::PipelineLayoutDescriptor> layoutDesc = m_rhiFactory->CreatePipelineLayoutDescriptor();
+        layoutDesc->Finalize();
+        desc.m_pipelineLayoutDescriptor = layoutDesc;
+
+        RHI::ResultCode res = m_pipelineState->Init(*m_device, desc, m_pipelineLibrary.get());
+        if (res != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Init pso failed");
+        }
+    }
+
+    void HelloTriangle::CreateVertexBuffer()
+    {
+        m_bufferPool = m_rhiFactory->CreateBufferPool();
+        RHI::BufferPoolDescriptor desc;
+        desc.m_heapMemoryLevel = RHI::HeapMemoryLevel::Device;
+        desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly;
+        desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::All;
+        RHI::ResultCode res = m_bufferPool->Init(*m_device, desc);
+        if (res != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Init vertex buffer pool falied");
+            return;
+        }
+
+        m_vertexBuffer = m_rhiFactory->CreateBuffer();
+        RHI::BufferDescriptor bufferDesc;
+        bufferDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly;
+        bufferDesc.m_byteCount = sizeof(vert);
+        bufferDesc.m_alignment = RHI::Alignment::Buffer;
+        
+        RHI::BufferInitRequest initResquest;
+        initResquest.m_buffer = m_vertexBuffer.get();
+        initResquest.m_descriptor = bufferDesc;
+        res = m_bufferPool->InitBuffer(initResquest);
+        if (res != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Init vertex buffer falied");
+        }
+    }
+
+    void HelloTriangle::CreateStageBuffer()
+    {
+        m_stageBufferPool = m_rhiFactory->CreateBufferPool();
+        RHI::BufferPoolDescriptor desc;
+        desc.m_heapMemoryLevel = RHI::HeapMemoryLevel::Host;
+        desc.m_hostMemoryAccess = RHI::HostMemoryAccess::Write;
+        desc.m_bindFlags = RHI::BufferBindFlags::CopyRead;
+        desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::All;
+        RHI::ResultCode res = m_stageBufferPool->Init(*m_device, desc);
+        if (res != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Init stage buffer pool failed");
+            return;
+        }
+
+        m_stageBuffer = m_rhiFactory->CreateBuffer();
+        RHI::BufferDescriptor bufferDesc;
+        bufferDesc.m_bindFlags = RHI::BufferBindFlags::CopyRead;
+        bufferDesc.m_byteCount = sizeof(vert);
+        bufferDesc.m_alignment = RHI::Alignment::Constant;
+
+        RHI::BufferInitRequest initRequest;
+        initRequest.m_buffer = m_stageBuffer.get();
+        initRequest.m_descriptor = bufferDesc;
+        initRequest.m_initialData = vert;
+        res = m_stageBufferPool->InitBuffer(initRequest);
+        if (res != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Init stage buffer failed");
+        }
+    }
+
+    void HelloTriangle::CreateViewportAndScissor()
+    {
+        auto windowSize = m_glfwWindow->GetWindowSize();
+        m_viewport = RHI::Viewport(0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
+        m_scissor = RHI::Scissor(0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
+    }
+
+    void HelloTriangle::BuildCommand(RHI::CommandList* commandList)
+    {
+
+        commandList->SetViewport(m_viewport);
+        commandList->SetScissor(m_scissor);
+
+        RHI::BufferBarrier bufferBarrier;
+        bufferBarrier.m_buffer = m_stageBuffer.get();
+        bufferBarrier.m_srcAccess = m_stageBuffer->GetResourceState().m_access;
+        bufferBarrier.m_srcUsage = m_stageBuffer->GetResourceState().m_usage;
+        bufferBarrier.m_dstUsage = RHI::AttachmentUsage::Copy;
+        bufferBarrier.m_dstAccess = RHI::AttachmentAccess::Read;
+
+        commandList->QueueBarrier(bufferBarrier);
+
+        RHI::BufferBarrier vertexBufferBarrier;
+        vertexBufferBarrier.m_buffer = m_vertexBuffer.get();
+        vertexBufferBarrier.m_srcAccess = m_vertexBuffer->GetResourceState().m_access;
+        vertexBufferBarrier.m_srcUsage = m_vertexBuffer->GetResourceState().m_usage;
+        vertexBufferBarrier.m_dstUsage = RHI::AttachmentUsage::Copy;
+        vertexBufferBarrier.m_dstAccess = RHI::AttachmentAccess::Write;
+
+        commandList->QueueBarrier(vertexBufferBarrier);
+
+        commandList->FlushBarriers();
+
+        RHI::CopyItem copyItem;
+        copyItem.m_type = RHI::CopyItemType::Buffer;
+        copyItem.m_buffer.m_sourceBuffer = m_stageBuffer.get();
+        copyItem.m_buffer.m_sourceOffset = 0;
+        copyItem.m_buffer.m_destinationBuffer = m_vertexBuffer.get();
+        copyItem.m_buffer.m_destinationOffset = 0;
+        copyItem.m_buffer.m_size = AlignUp(
+            m_vertexBuffer->GetDescriptor().m_byteCount, 
+            m_vertexBuffer->GetDescriptor().m_alignment
+        );
+        
+        commandList->Submit(copyItem);
+
+        vertexBufferBarrier.m_buffer = m_vertexBuffer.get();
+        vertexBufferBarrier.m_srcAccess = m_vertexBuffer->GetResourceState().m_access;
+        vertexBufferBarrier.m_srcUsage = m_vertexBuffer->GetResourceState().m_usage;
+        vertexBufferBarrier.m_dstUsage = RHI::AttachmentUsage::InputAssembly;
+        vertexBufferBarrier.m_dstAccess = RHI::AttachmentAccess::Read;
+        vertexBufferBarrier.m_dstStage = RHI::AttachmentStage::VertexInput;
+
+        commandList->QueueBarrier(vertexBufferBarrier);
+
+        commandList->FlushBarriers();
+
+        RHI::DrawItem drawItem;
+        drawItem.m_drawInstanceArgs.m_instanceCount = 1;
+        drawItem.m_drawInstanceArgs.m_instanceOffset = 0;
+
+        drawItem.m_drawArguments.m_type = RHI::DrawType::Linear;
+        drawItem.m_drawArguments.m_linear.m_vertexCount = 3;
+        drawItem.m_drawArguments.m_linear.m_vertexOffset = 0;
+
+        // Use default viewport and scissor
+        /*
+        drawItem.m_scissors = &m_scissor;
+        drawItem.m_scissorsCount = 1;
+        drawItem.m_viewports = &m_viewport;
+        drawItem.m_viewportsCount = 1;
+        */
+
+        drawItem.m_pipelineState = m_pipelineState.get();
+
+        RHI::StreamBufferView vertexStream(
+            *m_vertexBuffer, 
+            0, 
+            m_vertexBuffer->GetDescriptor().m_byteCount,
+            sizeof(Vertex)
+        );
+
+        drawItem.m_vertexBufferView.AddStreamBufferView(vertexStream);
+
+        commandList->Submit(drawItem);
+
+        
     }
 
     void HelloTriangle::Init()
@@ -199,10 +408,25 @@ namespace Spark::SandBox
         CreateDevice();
         CreateCommandQueue();
         CreateFence();
-        // CreateSwapChain();
+        CreateSwapChain();
+        CreatePipelineLibrary();
+        CreatePipelineState();
+        CreateVertexBuffer();
+        CreateStageBuffer();
+        CreateViewportAndScissor();
     }
 
+    void HelloTriangle::Run()
+    {
+        while (!m_glfwWindow->ShouldClose())
+        {
+            m_glfwWindow->PollEvents();
+            RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
 
+            RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
+        }
+        
+    }
 }
 
 
@@ -213,6 +437,8 @@ int main(int argc, char **argv)
     Spark::SandBox::HelloTriangle app;
 
     app.Init();
+
+    app.Run();
 
     return 0;
 }

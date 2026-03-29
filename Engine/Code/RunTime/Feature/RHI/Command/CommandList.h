@@ -5,12 +5,18 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
+
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Add QueueBarrier (BufferBarrier/ImageBarrier) and FlushBarriers virtual interface.
+ */
 #pragma once
 
 #include <RHI/Device/DeviceObject.h>
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
+#include <RHI/Resource/ResourceState.h>
 
 #include "DrawItem.h"
 #include "CopyItem.h"
@@ -75,6 +81,22 @@ namespace Spark::RHI
         /// End predication on the command list.
         virtual void EndPredication() = 0;
 
+        /// Queues a buffer barrier for batched submission. Call FlushBarriers to submit all queued barriers.
+        virtual void QueueBarrier(const BufferBarrier& barrier) = 0;
+
+        /// Queues an image barrier for batched submission. Call FlushBarriers to submit all queued barriers.
+        virtual void QueueBarrier(const ImageBarrier& barrier) = 0;
+
+        /// Submits all queued barriers to the command list in a single batched call.
+        virtual void FlushBarriers() = 0;
+
+        /// Set render targets to this draw
+        virtual void SetRenderTargets(
+            uint32_t renderTargetCount,
+            const ImageView* const* renderTarget,
+            const ImageView* depthStencil = nullptr,
+            const ImageView* shadingRate = nullptr) = 0;
+
         /// Defines the submit range for a CommandList
         /// Note: the default is 0 items, which disables validation for items submitted outside of the framegraph
         struct SubmitRange
@@ -111,6 +133,10 @@ namespace Spark::RHI
         virtual void SetFragmentShadingRate(
             ShadingRate rate,
             const ShadingRateCombinators& combinators = DefaultShadingRateCombinators) = 0;
+
+    protected:
+        /// Updates the tracked resource state after a barrier. For use by backend implementations.
+        static void SetResourceState(Resource& resource, ResourceState state);
 
     private:
         SubmitRange m_submitRange;

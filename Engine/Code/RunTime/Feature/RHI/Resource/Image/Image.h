@@ -16,6 +16,7 @@ namespace Spark::RHI
     {
         friend class ImagePoolBase;
         friend class StreamingImagePool;
+        friend class SwapChain;
 
     public:
         virtual ~Image() = default;

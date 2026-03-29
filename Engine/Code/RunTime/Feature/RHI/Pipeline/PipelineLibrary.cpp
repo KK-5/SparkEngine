@@ -32,7 +32,7 @@ namespace Spark::RHI
 
     ResultCode PipelineLibrary::Init(Device& device, const PipelineLibraryDescriptor& descriptor)
     {
-        if (!ValidateIsInitialized())
+        if (IsInitialized())
         {
             return ResultCode::InvalidOperation;
         }

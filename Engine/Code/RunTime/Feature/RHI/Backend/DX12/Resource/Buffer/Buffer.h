@@ -27,10 +27,6 @@ namespace Spark::RHI::DX12
         const BufferMemoryView& GetMemoryView() const;
         BufferMemoryView& GetMemoryView();
 
-        // The initial state for the graph compiler to use when compiling the resource transition chain.
-        // maybe unused
-        D3D12_RESOURCE_STATES m_initialAttachmentState = D3D12_RESOURCE_STATE_COMMON;
-
         uint64_t GetDeviceAddress() const override;
 
     private:

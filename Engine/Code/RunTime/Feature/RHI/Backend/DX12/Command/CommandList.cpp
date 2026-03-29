@@ -6,6 +6,11 @@
  *
  */
 
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Add QueueBarrier/FlushBarriers implementation, delegates to CommandListBase.
+ */
+
 #include "CommandList.h"
 
 #include <Log/SpdLogSystem.h>
@@ -292,7 +297,6 @@ namespace Spark::RHI::DX12
             return;
         }
 
-        // SetStreamBuffers(*drawItem.m_geometryView, drawItem.m_streamIndices);
         SetVertexBuffers(drawItem.m_vertexBufferView);
         SetStencilRef(drawItem.m_stencilRef);
 
@@ -385,6 +389,33 @@ namespace Spark::RHI::DX12
     void CommandList::EndPredication()
     {
         GetCommandList()->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+    }
+
+    void CommandList::QueueBarrier(const RHI::BufferBarrier& barrier)
+    {
+        Buffer& buffer = static_cast<Buffer&>(*barrier.m_buffer);
+        CommandListBase::QueueTransitionBarrier(
+            buffer.GetMemoryView().GetMemory(),
+            ConvertAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
+            ConvertAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
+        RHI::CommandList::SetResourceState(*barrier.m_buffer,
+            RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+    }
+
+    void CommandList::QueueBarrier(const RHI::ImageBarrier& barrier)
+    {
+        Image& image = static_cast<Image&>(*barrier.m_image);
+        CommandListBase::QueueTransitionBarrier(
+            image.GetMemoryView().GetMemory(),
+            ConvertAttachmentState(barrier.m_oldUsage, barrier.m_srcAccess),
+            ConvertAttachmentState(barrier.m_newUsage, barrier.m_dstAccess));
+        RHI::CommandList::SetResourceState(*barrier.m_image,
+            RHI::ResourceState{ barrier.m_newUsage, barrier.m_dstAccess });
+    }
+
+    void CommandList::FlushBarriers()
+    {
+        CommandListBase::FlushBarriers();
     }
 
     void CommandList::SetFragmentShadingRate(
@@ -563,10 +594,9 @@ namespace Spark::RHI::DX12
 
     void CommandList::SetRenderTargets(
         uint32_t renderTargetCount,
-        const ImageView* const* renderTargets,
-        const ImageView* depthStencilAttachment,
-        RHI::ScopeAttachmentAccess depthStencilAccess,
-        const ImageView* shadingRateAttachment)
+        const RHI::ImageView* const* renderTargets,
+        const RHI::ImageView* depthStencil,
+        const RHI::ImageView* shadingRate)
     {
         Device& device = static_cast<Device&>(GetDevice());
         auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
@@ -575,14 +605,14 @@ namespace Spark::RHI::DX12
         for (uint32_t i = 0; i < renderTargetCount; ++i)
         {
             colorDescriptors[i] =
-                descriptorContext.GetCpuNativeHandle(renderTargets[i]->GetColorDescriptor());
+                descriptorContext.GetCpuNativeHandle(static_cast<const ImageView*>(renderTargets[i])->GetColorDescriptor());
         }
 
-        if (depthStencilAttachment)
+        if (depthStencil)
         {
-            SetSamplePositions(depthStencilAttachment->GetImage().GetDescriptor().m_multisampleState);
-            // AZ_Assert(depthStencilAttachment->IsStale() == false, "Depth Stencil view is stale!");
-            DescriptorHandle depthStencilDescriptor = depthStencilAttachment->GetDepthStencilDescriptor(depthStencilAccess);
+            auto dx12DepthStencil = static_cast<const ImageView*>(depthStencil);
+            SetSamplePositions(dx12DepthStencil->GetImage().GetDescriptor().m_multisampleState);
+            DescriptorHandle depthStencilDescriptor = dx12DepthStencil->GetDepthStencilDescriptor();
             D3D12_CPU_DESCRIPTOR_HANDLE depthStencilPlatformDescriptor = descriptorContext.GetCpuNativeHandle(depthStencilDescriptor);
             GetCommandList()->OMSetRenderTargets(renderTargetCount, colorDescriptors, false, &depthStencilPlatformDescriptor);
         }
@@ -593,17 +623,18 @@ namespace Spark::RHI::DX12
         }
 
         // shading rate
-        if (m_state.m_shadingRateImage != shadingRateAttachment &&
+        if (m_state.m_shadingRateImage != shadingRate &&
             CheckBitsAll(GetDevice().GetFeatures().m_shadingRateTypeMask, RHI::ShadingRateTypeFlags::PerRegion))
         {
             ComPtr<ID3D12GraphicsCommandList5> commandList5;
             GetCommandList()->QueryInterface(IID_PPV_ARGS(commandList5.GetAddressOf()));
+            auto dx12ShadingRate = static_cast<const ImageView*>(shadingRate);
             ASSERT(commandList5, "Failed to cast command list to ID3D12GraphicsCommandList5");
             if (commandList5)
             {
-                if (shadingRateAttachment)
+                if (shadingRate)
                 {
-                    commandList5->RSSetShadingRateImage(shadingRateAttachment->GetMemory());
+                    commandList5->RSSetShadingRateImage(dx12ShadingRate->GetMemory());
                     SetFragmentShadingRate(
                         RHI::ShadingRate::Rate1x1,
                         RHI::ShadingRateCombinators{ RHI::ShadingRateCombinerOp::Passthrough, RHI::ShadingRateCombinerOp::Override });
@@ -615,7 +646,7 @@ namespace Spark::RHI::DX12
                         RHI::ShadingRate::Rate1x1,
                         RHI::ShadingRateCombinators{ RHI::ShadingRateCombinerOp::Override, RHI::ShadingRateCombinerOp::Passthrough });
                 }
-                m_state.m_shadingRateImage = shadingRateAttachment;
+                m_state.m_shadingRateImage = dx12ShadingRate;
             }
         }
     }
@@ -640,7 +671,7 @@ namespace Spark::RHI::DX12
             // Need to set the custom MSAA positions (if being used) before clearing it.
             SetSamplePositions(request.m_imageView->GetImage().GetDescriptor().m_multisampleState);
             D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle =
-                descriptorContext.GetCpuNativeHandle(request.m_imageView->GetDepthStencilDescriptor(RHI::ScopeAttachmentAccess::ReadWrite));
+                descriptorContext.GetCpuNativeHandle(request.m_imageView->GetDepthStencilDescriptor());
 
             GetCommandList()->ClearDepthStencilView(
                 descriptorHandle,

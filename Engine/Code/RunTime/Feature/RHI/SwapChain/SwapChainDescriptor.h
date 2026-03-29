@@ -13,7 +13,7 @@
 
 namespace Spark::RHI
 {
-    using WindowHandle = uint64_t;
+    using WindowHandle = void*;
 
     struct SwapChainDimensions
     {

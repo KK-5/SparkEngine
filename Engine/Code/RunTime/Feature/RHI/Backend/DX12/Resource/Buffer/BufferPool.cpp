@@ -6,6 +6,12 @@
  *
  */
 
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Remove BufferPoolResolver (staging buffer auto-allocation for Device heap).
+ *  -- Device heap buffers now reject Map, matching native D3D12 behavior.
+ */
+
 #include "BufferPool.h"
 
 #include <mutex>
@@ -21,162 +27,6 @@
 
 namespace Spark::RHI::DX12
 {
-    /*
-    class BufferPoolResolver: public ResourcePoolResolver
-    {
-    public:
-        BufferPoolResolver(Device& device, const RHI::BufferPoolDescriptor& descriptor)
-        {
-            m_device = &device;
-
-            if(CheckBitsAny(descriptor.m_bindFlags, RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::DynamicInputAssembly))
-            {
-                m_readOnlyState |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER | D3D12_RESOURCE_STATE_INDEX_BUFFER;
-            }
-            if (CheckBitsAll(descriptor.m_bindFlags, RHI::BufferBindFlags::Constant))
-            {
-                m_readOnlyState |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-            }
-            if (CheckBitsAll(descriptor.m_bindFlags, RHI::BufferBindFlags::ShaderRead))
-            {
-                m_readOnlyState |= D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            }
-            if (CheckBitsAll(descriptor.m_bindFlags, RHI::BufferBindFlags::Indirect))
-            {
-                m_readOnlyState |= D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
-            }
-        }
-
-        CpuVirtualAddress MapBuffer(const RHI::BufferMapRequest& request)
-        {
-            MemoryView stagingMemory = m_device->AcquireStagingMemory(request.m_byteCount, Alignment::Buffer);
-            if (!stagingMemory.IsValid())
-            {
-                return nullptr;
-            }
-
-            BufferUploadPacket uploadRequest;
-            
-            // Fill the packet with the source and destination regions for copy.
-            Buffer* buffer = static_cast<Buffer*>(request.m_buffer);
-            buffer->m_pendingResolves++;
-
-            uploadRequest.m_buffer = buffer;
-            uploadRequest.m_memory = buffer->GetMemoryView().GetMemory();
-            uploadRequest.m_memoryByteOffset = buffer->GetMemoryView().GetOffset() + request.m_byteOffset;
-            uploadRequest.m_sourceMemory = eastl::move(stagingMemory);
-
-            CpuVirtualAddress address = uploadRequest.m_sourceMemory.Map(RHI::HostMemoryAccess::Write);
-
-            // Once the uploadRequest has been processed, add it to the uploadPackets queue.
-            m_uploadPacketsLock.lock();
-            m_uploadPackets.emplace_back(eastl::move(uploadRequest));
-            m_uploadPacketsLock.unlock();
-
-            return address;
-        }
-
-        
-        void Compile(Scope& scope) override
-        {
-            for (BufferUploadPacket& packet : m_uploadPackets)
-            {
-                packet.m_sourceMemory.Unmap(RHI::HostMemoryAccess::Write);
-
-                if (packet.m_buffer->IsAttachment())
-                {
-                    // Informs the graph compiler that this buffer is in the copy destination state.
-                    packet.m_buffer->m_initialAttachmentState = D3D12_RESOURCE_STATE_COPY_DEST;
-                }
-                else
-                {
-                    // Tracks the union of non-attachment buffers which are transitioned manually.
-                    m_nonAttachmentBufferUnion.emplace(packet.m_memory);
-                }
-            }
-        }
-        
-
-        void Resolve(CommandList& commandList) const override
-        {
-            for (const BufferUploadPacket& packet : m_uploadPackets)
-            {
-                commandList.GetCommandList()->CopyBufferRegion(
-                    packet.m_memory,
-                    packet.m_memoryByteOffset,
-                    packet.m_sourceMemory.GetMemory(),
-                    packet.m_sourceMemory.GetOffset(),
-                    packet.m_sourceMemory.GetSize());
-            }
-        }
-
-        void QueueEpilogueTransitionBarriers(CommandList& commandList) const override
-        {
-            for (ID3D12Resource* resource : m_nonAttachmentBufferUnion)
-            {
-                commandList.QueueTransitionBarrier(resource, D3D12_RESOURCE_STATE_COPY_DEST, m_readOnlyState);
-            }
-        }
-
-        void Deactivate() override
-        {
-            eastl::for_each(m_uploadPackets.begin(), m_uploadPackets.end(), [](auto& packet)
-            {
-                AZ_Assert(packet.m_buffer->m_pendingResolves, "There's no pending resolves for buffer %s", packet.m_buffer->GetName().GetCStr());
-                packet.m_buffer->m_pendingResolves--;
-            });
-
-            m_uploadPackets.clear();
-            m_nonAttachmentBufferUnion.clear();
-        }
-
-        void OnResourceShutdown(const RHI::Resource& resource) override
-        {
-            const Buffer& buffer = static_cast<const Buffer&>(resource);
-            if (!buffer.m_pendingResolves)
-            {
-                return;
-            }
-
-            AZStd::lock_guard<AZStd::mutex> lock(m_uploadPacketsLock);
-            auto eraseBeginIt = std::stable_partition(
-                m_uploadPackets.begin(),
-                m_uploadPackets.end(),
-                [&buffer](const BufferUploadPacket& packet)
-                {
-                    return packet.m_buffer != &buffer;
-                }
-            );
-
-            for (auto it = eraseBeginIt; it != m_uploadPackets.end(); ++it)
-            {
-                it->m_sourceMemory.Unmap(RHI::HostMemoryAccess::Write);
-            }
-            m_uploadPackets.resize(AZStd::distance(m_uploadPackets.begin(), eraseBeginIt));
-            m_nonAttachmentBufferUnion.erase(buffer.GetMemoryView().GetMemory());
-        }
-        
-
-    private:
-        struct BufferUploadPacket
-        {
-            Buffer* m_buffer = nullptr;
-
-            // Buffer properties are held directly to avoid an indirection through Buffer in the inner loops.
-            Memory* m_memory = nullptr;
-            size_t m_memoryByteOffset = 0;
-
-            MemoryView m_sourceMemory;
-        };
-
-        Device* m_device = nullptr;
-        D3D12_RESOURCE_STATES m_readOnlyState = D3D12_RESOURCE_STATE_COMMON;
-        std::mutex m_uploadPacketsLock;
-        eastl::vector<BufferUploadPacket> m_uploadPackets;
-        eastl::unordered_set<Memory*> m_nonAttachmentBufferUnion;
-    };
-    */
-
     Device& BufferPool::GetDevice() const
     {
         return static_cast<Device&>(DeviceObject::GetDevice());
@@ -213,11 +63,6 @@ namespace Spark::RHI::DX12
         }
         m_allocator = pAllocator;
 
-        if (descriptorBase.m_heapMemoryLevel == RHI::HeapMemoryLevel::Device)
-        {
-            // SetResolver(eastl::make_unique<BufferPoolResolver>(device, descriptorBase));
-        }
-
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
         m_releaseQueue.Init(releaseQueueDescriptor);
@@ -239,10 +84,20 @@ namespace Spark::RHI::DX12
         allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel, GetDescriptor().m_hostMemoryAccess);
         allocDesc.Flags = D3D12MA::ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
 
-        D3D12_RESOURCE_STATES initialResourceState = ConvertInitialResourceState(GetDescriptor().m_heapMemoryLevel, GetDescriptor().m_hostMemoryAccess);
-        if (CheckBitsAny(bufferDescriptor.m_bindFlags, RHI::BufferBindFlags::RayTracingAccelerationStructure))
+        // Derive D3D12 initial state from pool descriptor directly.
+        // Upload heap → GENERIC_READ (fixed), Readback → COPY_DEST (fixed), Device → COMMON.
+        D3D12_RESOURCE_STATES initialResourceState;
+        if (GetDescriptor().m_heapMemoryLevel == RHI::HeapMemoryLevel::Host)
         {
-            initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+            initialResourceState = (GetDescriptor().m_hostMemoryAccess == RHI::HostMemoryAccess::Write)
+                ? D3D12_RESOURCE_STATE_GENERIC_READ
+                : D3D12_RESOURCE_STATE_COPY_DEST;
+        }
+        else
+        {
+            initialResourceState = CheckBitsAny(bufferDescriptor.m_bindFlags, RHI::BufferBindFlags::RayTracingAccelerationStructure)
+                ? D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
+                : D3D12_RESOURCE_STATE_COMMON;
         }
 
         D3D12MA::Allocation* allocation = nullptr;
@@ -267,7 +122,6 @@ namespace Spark::RHI::DX12
         BufferMemoryView bufferMemoryView(eastl::move(memoryView), allocation->GetHeap() ? BufferMemoryType::Shared : BufferMemoryType::Unique);
         Buffer& buffer = static_cast<Buffer&>(bufferBase);
         buffer.m_memoryView = eastl::move(bufferMemoryView);
-        buffer.m_initialAttachmentState = initialResourceState;
         return RHI::ResultCode::Success;
     }
 
@@ -277,7 +131,6 @@ namespace Spark::RHI::DX12
         m_releaseQueue.Collect(buffer.GetMemoryView().GetMemoryAllocation());
         // 这里移动赋值，原MemoryView持有的MemoryAllocation自动release
         buffer.m_memoryView = {};
-        buffer.m_initialAttachmentState = D3D12_RESOURCE_STATE_COMMON;
         buffer.m_pendingResolves = 0;
     }
 
@@ -305,13 +158,8 @@ namespace Spark::RHI::DX12
         }
         else
         {
-            /*
-            mappedData = GetResolver()->MapBuffer(request);
-            if (!mappedData)
-            {
-                return RHI::ResultCode::OutOfMemory;
-            }
-            */
+            // Device heap buffers should never reach here — blocked by RHI::BufferPool::MapBuffer.
+            return RHI::ResultCode::InvalidOperation;
         }
 
         response.m_data = mappedData;

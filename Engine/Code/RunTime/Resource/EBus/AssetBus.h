@@ -1,5 +1,8 @@
 #pragma once
 
+#include <EASTL/vector.h>
+#include <EASTL/string.h>
+
 #include <EBus/EBus.h>
 
 #include <Resource/AssetTypes.h>
@@ -22,4 +25,15 @@ namespace Spark::Resource
     };
 
     using AssetBus = EBus<AssetBusTraits>;
+
+    struct AssetCatalogBusTraits : public EBusTraits
+    {
+        static const EBusHandlerPolicy HandlerPolicy = EBusHandlerPolicy::Multiple;
+        static const EBusAddressPolicy AddressPolicy = EBusAddressPolicy::Single;
+
+        // Interface
+        virtual void OnAssetSearchPathsChange(const eastl::vector<eastl::string>& paths) = 0;
+    };
+
+    using AssetCatalogBus = EBus<AssetCatalogBusTraits>;
 }

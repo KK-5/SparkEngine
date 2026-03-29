@@ -38,8 +38,10 @@ namespace Spark::Resource
         void RegisterAssetCompiler(eastl::unique_ptr<AssetCompiler> compiler, AssetType type) override;
 
     private:
-        /// 在搜索路径中查找资产文件，返回完整路径；找不到则返回空字符串
-        /// eastl::string ResolvePath(const AssetId& id) const;
+        /// 根据 AssetType 创建对应的 Asset 子类
+        static Ptr<Asset> CreateAssetByType(const AssetId& id, AssetType type);
+
+        void RegisterDefaultLoaderAndCompiler();
 
         void ProcessThread();
 

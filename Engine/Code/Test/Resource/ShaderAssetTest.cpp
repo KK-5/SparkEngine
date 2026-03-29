@@ -113,7 +113,8 @@ TEST_F(ShaderAssetTestFixture, BinaryLoaderLoadsFile)
     eastl::vector<eastl::string> searchPaths;
     searchPaths.push_back(SHADER_ASSET_DIR);
 
-    BinaryAssetLoader loader(searchPaths);
+    BinaryAssetLoader loader;
+    loader.SetSearchPaths(searchPaths);
 
     AssetId id("Shaders/Test/SimpleTriangle.hlsl");
     auto data = loader.Load(id);
@@ -129,7 +130,8 @@ TEST_F(ShaderAssetTestFixture, BinaryLoaderReturnsNullForMissing)
     eastl::vector<eastl::string> searchPaths;
     searchPaths.push_back(SHADER_ASSET_DIR);
 
-    BinaryAssetLoader loader(searchPaths);
+    BinaryAssetLoader loader;
+    loader.SetSearchPaths(searchPaths);
 
     AssetId id("Shaders/NonExistent.hlsl");
     auto data = loader.Load(id);
@@ -144,7 +146,8 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLToDXIL)
     eastl::vector<eastl::string> searchPaths;
     searchPaths.push_back(SHADER_ASSET_DIR);
 
-    BinaryAssetLoader loader(searchPaths);
+    BinaryAssetLoader loader;
+    loader.SetSearchPaths(searchPaths);
     AssetId id("Shaders/Test/SimpleTriangle.hlsl");
     auto rawData = loader.Load(id);
     ASSERT_NE(rawData, nullptr);
@@ -181,7 +184,7 @@ TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 {
     // 注册 Loader 和 Compiler
     m_assetManager->RegisterAssetLoader(
-        eastl::make_unique<BinaryAssetLoader>(s_searchPaths),
+        eastl::make_unique<BinaryAssetLoader>(),
         AssetType::Shader);
 
     auto compiler = eastl::make_unique<ShaderAssetCompiler>(ShaderBackend::DXIL);
@@ -205,7 +208,7 @@ TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 TEST_F(ShaderAssetTestFixture, LoadSameAssetReturnsCached)
 {
     m_assetManager->RegisterAssetLoader(
-        eastl::make_unique<BinaryAssetLoader>(s_searchPaths),
+        eastl::make_unique<BinaryAssetLoader>(),
         AssetType::Shader);
 
     auto compiler = eastl::make_unique<ShaderAssetCompiler>(ShaderBackend::DXIL);
@@ -229,7 +232,7 @@ TEST_F(ShaderAssetTestFixture, FindAssetBeforeLoadReturnsNull)
 TEST_F(ShaderAssetTestFixture, LoadNonExistentAssetReturnsError)
 {
     m_assetManager->RegisterAssetLoader(
-        eastl::make_unique<BinaryAssetLoader>(s_searchPaths),
+        eastl::make_unique<BinaryAssetLoader>(),
         AssetType::Shader);
 
     AssetId id("Shaders/NonExistent.hlsl");

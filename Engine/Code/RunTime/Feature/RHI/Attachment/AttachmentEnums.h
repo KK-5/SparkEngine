@@ -16,7 +16,7 @@ namespace Spark::RHI
     using AttachmentId = ObjectName;
 
     //! Describes how an attachment is accessed by a scope.
-    enum class ScopeAttachmentAccess : uint32_t
+    enum class AttachmentAccess : uint32_t
     {
         Unknown = 0,
             
@@ -29,9 +29,9 @@ namespace Spark::RHI
         //! The scope has read/write access to the attachment.
         ReadWrite = Read | Write
     };
-    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::ScopeAttachmentAccess, uint32_t);
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentAccess, uint32_t);
 
-    //ATOM_RHI_REFLECT_API const char* ToString(ScopeAttachmentAccess attachmentAccess);
+    //ATOM_RHI_REFLECT_API const char* ToString(AttachmentAccess attachmentAccess);
 
     //! Describes the underlying resource lifetime of an attachment with regards to the
     //! frame graph. Imported attachments are owned by the user and are persistent across
@@ -47,7 +47,7 @@ namespace Spark::RHI
     };
 
     //! Describes how a Scope uses an Attachment
-    enum class ScopeAttachmentUsage : uint32_t
+    enum class AttachmentUsage : uint32_t
     {
         //! Error value to catch uninitialized usage of this enum
         Uninitialized = 0,
@@ -86,29 +86,29 @@ namespace Spark::RHI
         Count,
     };
 
-    enum class ScopeAttachmentUsageMask : uint32_t
+    enum class AttachmentUsageMask : uint32_t
     {
         None = 0,
-        RenderTarget = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::RenderTarget)),
-        DepthStencil = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::DepthStencil)),
-        Shader = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::Shader)),
-        Copy = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::Copy)),
-        Resolve = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::Resolve)),
-        Predication = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::Predication)),
-        Indirect = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::Indirect)),
-        SubpassInput = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::SubpassInput)),
-        InputAssembly = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::InputAssembly)),
-        ShadingRate = BIT(static_cast<uint32_t>(ScopeAttachmentUsage::ShadingRate)),
+        RenderTarget = BIT(static_cast<uint32_t>(AttachmentUsage::RenderTarget)),
+        DepthStencil = BIT(static_cast<uint32_t>(AttachmentUsage::DepthStencil)),
+        Shader = BIT(static_cast<uint32_t>(AttachmentUsage::Shader)),
+        Copy = BIT(static_cast<uint32_t>(AttachmentUsage::Copy)),
+        Resolve = BIT(static_cast<uint32_t>(AttachmentUsage::Resolve)),
+        Predication = BIT(static_cast<uint32_t>(AttachmentUsage::Predication)),
+        Indirect = BIT(static_cast<uint32_t>(AttachmentUsage::Indirect)),
+        SubpassInput = BIT(static_cast<uint32_t>(AttachmentUsage::SubpassInput)),
+        InputAssembly = BIT(static_cast<uint32_t>(AttachmentUsage::InputAssembly)),
+        ShadingRate = BIT(static_cast<uint32_t>(AttachmentUsage::ShadingRate)),
         All =
             RenderTarget | DepthStencil | Shader | Copy | Resolve | Predication | Indirect | SubpassInput | InputAssembly | ShadingRate
     };
 
-    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::ScopeAttachmentUsageMask, uint32_t);
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentUsageMask, uint32_t);
 
-    //ATOM_RHI_REFLECT_API const char* ToString(ScopeAttachmentUsage attachmentUsage);
+    //ATOM_RHI_REFLECT_API const char* ToString(AttachmentUsage attachmentUsage);
 
     //! Describes in which pipeline stages a Scope Attachment is used
-    enum class ScopeAttachmentStage : uint32_t
+    enum class AttachmentStage : uint32_t
     {
         //! Error value to catch uninitialized usage of this enum
         Uninitialized = 0,
@@ -158,11 +158,11 @@ namespace Spark::RHI
             VertexInput | ShadingRate
     };
 
-    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::ScopeAttachmentStage, uint32_t);
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentStage, uint32_t);
 
     //! Modifies access to fit the constraints of the scope attachment usage. For example, a scope attachment
     //! with the usage 'Shader' and 'Write' access becomes a UAV under the hood, so it should be remapped to 'ReadWrite'.
-    ScopeAttachmentAccess AdjustAccessBasedOnUsage(ScopeAttachmentAccess access, ScopeAttachmentUsage usage);
+    AttachmentAccess AdjustAccessBasedOnUsage(AttachmentAccess access, AttachmentUsage usage);
 
     //! Describes the action the hardware should use when loading an attachment prior to a scope.
     enum class AttachmentLoadAction : uint8_t

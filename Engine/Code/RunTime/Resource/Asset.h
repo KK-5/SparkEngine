@@ -4,6 +4,7 @@
 
 #include <Object/Object.h>
 #include "AssetTypes.h"
+#include "EBus/AssetBus.h"
 
 
 namespace Spark::Resource
@@ -60,9 +61,10 @@ namespace Spark::Resource
         eastl::unique_ptr<AssetData>    m_data;
     };
 
-    struct AssetLoader
+    struct AssetLoader : public AssetCatalogBus::Handler
     {
         virtual ~AssetLoader() = default;
+        virtual void SetSearchPaths(const eastl::vector<eastl::string> searchPaths) = 0;
         virtual eastl::unique_ptr<AssetData> Load(const AssetId& id) = 0;
     };
 

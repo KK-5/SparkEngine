@@ -7,6 +7,7 @@
 
 #include <RHI/Bus/FrameEventBus.h>
 #include <RHI/Device/DeviceObject.h>
+#include <RHI/Resource/ResourceState.h>
 
 #include "ResourcePoolDescriptor.h"
 
@@ -57,6 +58,9 @@ namespace Spark::RHI
         ///////////////////////////////////////////////
 
         bool IsRegistered(const Resource* resource) const;
+
+        /// Sets the resource state on a resource managed by this pool.
+        void SetResourceState(Resource& resource, ResourceState state);
 
         bool ValidateIsInitialized() const;
 

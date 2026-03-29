@@ -171,6 +171,7 @@ namespace Spark::RHI
         for (uint32_t imageIdx = 0; imageIdx < m_descriptor.m_dimensions.m_imageCount; ++imageIdx)
         {
             request.m_image = m_images[imageIdx].get();
+            request.m_image->SetDescriptor(imageDescriptor);
             request.m_imageIndex = imageIdx;
 
             resultCode = InitImageInternal(request);

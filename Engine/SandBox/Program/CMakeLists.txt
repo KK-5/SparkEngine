@@ -5,7 +5,7 @@ option(BUILD_RHI_HELLOTRIANGLE "Build RHI HelloTriangle" ON)
 if (BUILD_RHI_HELLOTRIANGLE)
     set(TARGET_NAME HelloTriangle)
 
-    add_executable(${TARGET_NAME} RHI/HelloTriangle.cpp)
+    add_executable(${TARGET_NAME} Common/SimpleGlfwWindow.cpp RHI/HelloTriangle.cpp)
 
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
@@ -14,6 +14,7 @@ if (BUILD_RHI_HELLOTRIANGLE)
 
     target_link_libraries(${TARGET_NAME}
     PRIVATE
+        glfw
         SparkCore
         SparkRHI
         SparkRHI_DX12

@@ -113,9 +113,9 @@ namespace Spark::RHI
                 Format format,
                 const ObjectName& name = {},
                 const AttachmentLoadStoreAction& loadStoreAction = AttachmentLoadStoreAction(),
-                RHI::ScopeAttachmentAccess scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write,
-                RHI::ScopeAttachmentStage scopeAttachmentStage = RHI::ScopeAttachmentStage::EarlyFragmentTest |
-                                                                 RHI::ScopeAttachmentStage::LateFragmentTest,
+                RHI::AttachmentAccess scopeAttachmentAccess = RHI::AttachmentAccess::Write,
+                RHI::AttachmentStage scopeAttachmentStage = RHI::AttachmentStage::EarlyFragmentTest |
+                                                                 RHI::AttachmentStage::LateFragmentTest,
                 RenderAttachmentExtras* extras = nullptr);
 
             //! Adds the use of a previously added depth/stencil attachment. The "name" attachment must
@@ -123,17 +123,17 @@ namespace Spark::RHI
             SubpassAttachmentLayoutBuilder* DepthStencilAttachment(
                 const ObjectName name = {},
                 const AttachmentLoadStoreAction& loadStoreAction = AttachmentLoadStoreAction(),
-                RHI::ScopeAttachmentAccess scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write,
-                RHI::ScopeAttachmentStage scopeAttachmentStage = RHI::ScopeAttachmentStage::EarlyFragmentTest |
-                                                                 RHI::ScopeAttachmentStage::LateFragmentTest,
+                RHI::AttachmentAccess scopeAttachmentAccess = RHI::AttachmentAccess::Write,
+                RHI::AttachmentStage scopeAttachmentStage = RHI::AttachmentStage::EarlyFragmentTest |
+                                                                 RHI::AttachmentStage::LateFragmentTest,
                 RenderAttachmentExtras* extras = nullptr);
 
             //! Adds the use of a previously added depth/stencil attachment.
             SubpassAttachmentLayoutBuilder* DepthStencilAttachment(
                 const AttachmentLoadStoreAction& loadStoreAction,
-                RHI::ScopeAttachmentAccess scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Write,
-                RHI::ScopeAttachmentStage scopeAttachmentStage = RHI::ScopeAttachmentStage::EarlyFragmentTest |
-                                                                 RHI::ScopeAttachmentStage::LateFragmentTest,
+                RHI::AttachmentAccess scopeAttachmentAccess = RHI::AttachmentAccess::Write,
+                RHI::AttachmentStage scopeAttachmentStage = RHI::AttachmentStage::EarlyFragmentTest |
+                                                                 RHI::AttachmentStage::LateFragmentTest,
                 RenderAttachmentExtras* extras = nullptr);
 
             // Adds the use of a subpass input attachment. The "name" attachment must
@@ -164,10 +164,10 @@ namespace Spark::RHI
                 //! that will be merged.
                 //! The scope attachment access as defined in the pass template, which will be used
                 //! to accurately define the subpass dependencies.
-                RHI::ScopeAttachmentAccess m_scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Unknown;
+                RHI::AttachmentAccess m_attachmentAccess = RHI::AttachmentAccess::Unknown;
                 //! The scope attachment stage as defined in the pass template, which will be used
                 //! to accurately define the subpass dependencies.
-                RHI::ScopeAttachmentStage m_scopeAttachmentStage = RHI::ScopeAttachmentStage::Uninitialized;
+                RHI::AttachmentStage m_attachmentStage = RHI::AttachmentStage::Uninitialized;
                 //! Extra data that can be passed for platform specific operations.
                 RenderAttachmentExtras* m_extras = nullptr;
             };
@@ -180,10 +180,10 @@ namespace Spark::RHI
                 //! that will be merged.
                 //! The scope attachment access as defined in the pass template, which will be used
                 //! to accurately define the subpass dependencies.
-                RHI::ScopeAttachmentAccess m_scopeAttachmentAccess = RHI::ScopeAttachmentAccess::Unknown;
+                RHI::AttachmentAccess m_attachmentAccess = RHI::AttachmentAccess::Unknown;
                 //! The scope attachment stage as defined in the pass template, which will be used
                 //! to accurately define the subpass dependencies.
-                RHI::ScopeAttachmentStage m_scopeAttachmentStage = RHI::ScopeAttachmentStage::Uninitialized;
+                RHI::AttachmentStage m_attachmentStage = RHI::AttachmentStage::Uninitialized;
                 //! Load store action for the subpass input.
                 AttachmentLoadStoreAction m_loadStoreAction = AttachmentLoadStoreAction();
                 //! Extra data that can be passed for platform specific operations.

@@ -7,12 +7,18 @@
  */
 #pragma once
 
+#include <EASTL/vector.h>
+#include <EASTL/span.h>
+
 #include <Object/Object.h>
 
 #include "ShaderStages.h"
 
 namespace Spark::RHI
 {
+
+    using ShaderByteCodeView = eastl::span<const uint8_t>;
+
     //! Contains byte code associated with a specific entry point function of a shader stage. This
     //! data is provided to the PipelineStateDescriptor when building a PSO. Certain platforms may
     //! utilize function constants to specialize the same central byte code store. Thus, a
@@ -32,6 +38,12 @@ namespace Spark::RHI
         //! Returns the hash computed for this function. Each platform implementation
         //! must calculate and store the hash from the platform-specific data.
         size_t GetHash() const;
+
+        //! Sets the compiled byte code (DXIL, SPIR-V, etc.)
+        void SetByteCode(const eastl::vector<uint8_t>& byteCode);
+
+        //! Returns the byte code.
+        ShaderByteCodeView GetByteCode() const;
 
         //! Finalizes and validates the function data. This must be called after manipulating the
         //! data manually, prior to serialization or use by the RHI runtime. It is *not* necessary
@@ -61,5 +73,8 @@ namespace Spark::RHI
 
         /// The computed hash of the shader byte-codes.
         size_t m_hash {0};
+
+        /// The compiled shader byte code.
+        eastl::vector<uint8_t> m_byteCode;
     };
 }

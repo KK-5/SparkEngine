@@ -16,9 +16,25 @@ namespace Spark::Resource
 
     // ---- BinaryAssetLoader ----
 
-    BinaryAssetLoader::BinaryAssetLoader(const eastl::vector<eastl::string>& searchPaths)
-        : m_searchPaths(searchPaths)
-    {}
+    BinaryAssetLoader::BinaryAssetLoader()
+    {
+        AssetCatalogBus::Handler::BusConnect();
+    }
+
+    BinaryAssetLoader::~BinaryAssetLoader()
+    {
+        AssetCatalogBus::Handler::BusDisconnect();
+    }
+
+    void BinaryAssetLoader::SetSearchPaths(const eastl::vector<eastl::string> searchPaths)
+    {
+        m_searchPaths = searchPaths;
+    }
+
+    void BinaryAssetLoader::OnAssetSearchPathsChange(const eastl::vector<eastl::string>& paths)
+    {
+        SetSearchPaths(paths);
+    }
 
     eastl::unique_ptr<AssetData> BinaryAssetLoader::Load(const AssetId& id)
     {

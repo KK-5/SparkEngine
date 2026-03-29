@@ -339,7 +339,7 @@ namespace Spark::RHI::DX12
         const RHI::ImageDescriptor desc = GetDescriptor();
 
         uint32_t subresourceSize = 2 * desc.m_arraySize * desc.m_mipLevels; // 目前planeSlice最多为2
-        m_subresourceState.reserve(subresourceSize);
+        m_subresourceState.resize(subresourceSize);
 
         for (uint16_t aspectIndex = 0; aspectIndex < RHI::ImageAspectCount; ++aspectIndex)
         {

@@ -28,8 +28,8 @@ namespace Spark::RHI
         return (m_attachmentIndex == other.m_attachmentIndex) && 
                (m_resolveAttachmentIndex == other.m_resolveAttachmentIndex) &&
                (!compareLoadStoreAction || (m_loadStoreAction == other.m_loadStoreAction)) && 
-               (m_scopeAttachmentAccess == other.m_scopeAttachmentAccess) &&
-               (m_scopeAttachmentStage == other.m_scopeAttachmentStage);
+               (m_attachmentAccess == other.m_attachmentAccess) &&
+               (m_attachmentStage == other.m_attachmentStage);
         // clang-format on
     }
 
@@ -42,8 +42,8 @@ namespace Spark::RHI
     {
         return (m_attachmentIndex == other.m_attachmentIndex)
             && (m_aspectFlags == other.m_aspectFlags)
-            && (m_scopeAttachmentAccess == other.m_scopeAttachmentAccess)
-            && (m_scopeAttachmentStage == other.m_scopeAttachmentStage)
+            && (m_attachmentAccess == other.m_attachmentAccess)
+            && (m_attachmentStage == other.m_attachmentStage)
             ;
     }
 

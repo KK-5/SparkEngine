@@ -14,6 +14,7 @@
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/ClearValue.h>
 #include <RHI/MemoryEnums.h>
+#include <RHI/Resource/ResourceState.h>
 #include <RHI/Command/CommandList.h>
 
 #include "DX12.h"
@@ -59,7 +60,7 @@ namespace Spark::RHI::DX12
 
     D3D12_HEAP_TYPE ConvertHeapType(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess);
 
-    D3D12_RESOURCE_STATES ConvertInitialResourceState(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess);
+    D3D12_RESOURCE_STATES ConvertAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access);
 
     void ConvertBufferView(
         const Buffer& buffer,

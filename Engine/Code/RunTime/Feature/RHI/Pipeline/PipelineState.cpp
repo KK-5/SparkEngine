@@ -20,7 +20,7 @@ namespace Spark::RHI
         {
             if (IsInitialized())
             {
-                LOG_ERROR("[PipelineState] DevicePipelineState already initialized!");
+                LOG_ERROR("[PipelineState] PipelineState already initialized!");
                 return false;
             }
         }
@@ -62,7 +62,7 @@ namespace Spark::RHI
 
     ResultCode PipelineState::Init(Device& device, const PipelineStateDescriptorForDraw& descriptor, PipelineLibrary* pipelineLibrary)
     {
-        if (!ValidateNotInitialized())
+        if (IsInitialized())
         {
             return ResultCode::InvalidOperation;
         }

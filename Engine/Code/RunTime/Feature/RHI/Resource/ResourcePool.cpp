@@ -54,6 +54,11 @@ namespace Spark::RHI
         return true;
     }
 
+    void ResourcePool::SetResourceState(Resource& resource, ResourceState state)
+    {
+        resource.SetResourceState(state);
+    }
+
     bool ResourcePool::ValidateIsInitialized() const
     {
         if (Validation::isEnabled)

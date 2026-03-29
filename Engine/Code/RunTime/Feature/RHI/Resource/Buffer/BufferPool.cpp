@@ -1,3 +1,8 @@
+/*
+ * Modified by SparkEngine in 2025
+ *  -- MapBuffer and InitBuffer reject Device heap buffers, no auto staging buffer.
+ */
+
 #include "BufferPool.h"
 
 #include <Log/SpdLogSystem.h>
@@ -32,12 +37,35 @@ namespace Spark::RHI
 
         request.m_buffer->SetDescriptor(request.m_descriptor);
 
+        // Set initial resource state using Vulkan-style (Usage, Access) model.
+        // Host/Write (upload heap): fixed read state, no transitions needed.
+        // Host/Read (readback heap): copy destination, fixed state.
+        // Device heap: uninitialized, requires explicit transition before use.
+        if (m_descriptor.m_heapMemoryLevel == HeapMemoryLevel::Host)
+        {
+            SetResourceState(*request.m_buffer, ResourceState{
+                m_descriptor.m_hostMemoryAccess == HostMemoryAccess::Write
+                    ? AttachmentUsage::InputAssembly   // Upload heap, generic read
+                    : AttachmentUsage::Copy,           // Readback heap
+                m_descriptor.m_hostMemoryAccess == HostMemoryAccess::Write
+                    ? AttachmentAccess::Read
+                    : AttachmentAccess::Write
+            });
+        }
+
         ResultCode resultCode = ResourcePool::InitResource(request.m_buffer, [this, &request](){
             return InitBufferInternal(*request.m_buffer, request.m_descriptor);
         });
 
         if (resultCode == ResultCode::Success && request.m_initialData)
         {
+            if (m_descriptor.m_heapMemoryLevel == HeapMemoryLevel::Device)
+            {
+                LOG_ERROR("[BufferPool] Initial data upload for Device heap buffers "
+                          "is not supported via Map. Use a Host heap staging buffer and copy command instead.");
+                return ResultCode::InvalidOperation;
+            }
+
             BufferMapRequest mapRequest;
             mapRequest.m_buffer = request.m_buffer;
             mapRequest.m_byteCount = request.m_descriptor.m_byteCount;
@@ -85,6 +113,14 @@ namespace Spark::RHI
         if (!ValidateMapRequest(request))
         {
             return ResultCode::InvalidArgument;
+        }
+
+        if (m_descriptor.m_heapMemoryLevel == HeapMemoryLevel::Device)
+        {
+            LOG_ERROR("[BufferPool] Cannot map buffer {} from a Device heap pool. "
+                      "Use a Host heap pool or StreamBuffer for uploads.",
+                      request.m_buffer->GetName().GetCStr());
+            return ResultCode::InvalidOperation;
         }
 
         ResultCode resultCode = MapBufferInternal(request, response);

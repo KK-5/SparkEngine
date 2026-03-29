@@ -1,3 +1,8 @@
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Add ConvertAttachmentState: (AttachmentUsage, AttachmentAccess) to D3D12_RESOURCE_STATES.
+ */
+
 #include "Conversions.h"
 
 #include <Math/Bit.h>
@@ -463,13 +468,57 @@ namespace Spark::RHI::DX12
         return D3D12_HEAP_TYPE_CUSTOM;
     }
 
-    D3D12_RESOURCE_STATES ConvertInitialResourceState(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess)
+    D3D12_RESOURCE_STATES ConvertAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access)
     {
-        if (heapMemoryLevel == RHI::HeapMemoryLevel::Host)
+        const bool isWrite = CheckBitsAny(access, RHI::AttachmentAccess::Write);
+
+        switch (usage)
         {
-            return hostMemoryAccess == RHI::HostMemoryAccess::Write ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COPY_DEST;
+        case RHI::AttachmentUsage::RenderTarget:
+            return D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+        case RHI::AttachmentUsage::DepthStencil:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_DEPTH_WRITE
+                : D3D12_RESOURCE_STATE_DEPTH_READ;
+
+        case RHI::AttachmentUsage::Shader:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                : (D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
+                 | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+                 | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        case RHI::AttachmentUsage::Copy:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_COPY_DEST
+                : D3D12_RESOURCE_STATE_COPY_SOURCE;
+
+        case RHI::AttachmentUsage::InputAssembly:
+            return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
+                 | D3D12_RESOURCE_STATE_INDEX_BUFFER;
+
+        case RHI::AttachmentUsage::Indirect:
+            return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+
+        case RHI::AttachmentUsage::Predication:
+            return D3D12_RESOURCE_STATE_PREDICATION;
+
+        case RHI::AttachmentUsage::Resolve:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_RESOLVE_DEST
+                : D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+
+        case RHI::AttachmentUsage::ShadingRate:
+            return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+
+        case RHI::AttachmentUsage::SubpassInput:
+            return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+        case RHI::AttachmentUsage::Uninitialized:
+        default:
+            return D3D12_RESOURCE_STATE_COMMON;
         }
-        return D3D12_RESOURCE_STATE_COMMON;
     }
 
     void ConvertBufferView(

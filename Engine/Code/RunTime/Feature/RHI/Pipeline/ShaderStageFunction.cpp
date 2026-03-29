@@ -31,6 +31,16 @@ namespace Spark::RHI
         m_hash = hash;
     }
 
+    void ShaderStageFunction::SetByteCode(const eastl::vector<uint8_t>& byteCode)
+    {
+        m_byteCode = byteCode;
+    }
+
+    ShaderByteCodeView ShaderStageFunction::GetByteCode() const
+    {
+        return eastl::span<const uint8_t>(m_byteCode);
+    }
+
     ResultCode ShaderStageFunction::Finalize()
     {
         if (m_shaderStage == ShaderStage::Unknown)

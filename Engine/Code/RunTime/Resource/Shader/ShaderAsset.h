@@ -56,6 +56,8 @@ namespace Spark::Resource
     class ShaderAsset : public Asset
     {
     public:
+        static constexpr AssetType GetAssetTypeStatic() { return AssetType::Shader; }
+
         ShaderAsset(AssetId id);
 
         const ShaderAssetData* GetShaderData() const;

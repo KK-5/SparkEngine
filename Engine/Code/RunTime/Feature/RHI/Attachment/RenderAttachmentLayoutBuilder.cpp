@@ -120,8 +120,8 @@ namespace Spark::RHI
 
                 subpassLayout.m_rendertargetDescriptors[i] = RenderAttachmentDescriptor{ attachmentIndex, resolveAttachmentIndex,
                                                                                          renderTargetAttachment.m_loadStoreAction,
-                                                                                         renderTargetAttachment.m_scopeAttachmentAccess,
-                                                                                         renderTargetAttachment.m_scopeAttachmentStage,
+                                                                                         renderTargetAttachment.m_attachmentAccess,
+                                                                                         renderTargetAttachment.m_attachmentStage,
                                                                                          renderTargetAttachment.m_extras};
             }
 
@@ -164,8 +164,8 @@ namespace Spark::RHI
                 }
                 subpassLayout.m_depthStencilDescriptor = RenderAttachmentDescriptor{ attachmentIndex, resolveAttachmentIndex,
                                                 builder.m_depthStencilAttachment.m_loadStoreAction,
-                                                builder.m_depthStencilAttachment.m_scopeAttachmentAccess,
-                                                builder.m_depthStencilAttachment.m_scopeAttachmentStage,
+                                                builder.m_depthStencilAttachment.m_attachmentAccess,
+                                                builder.m_depthStencilAttachment.m_attachmentStage,
                                                 builder.m_depthStencilAttachment.m_extras};
             }
 
@@ -185,8 +185,8 @@ namespace Spark::RHI
                 subpassLayout.m_subpassInputDescriptors[i] =
                     SubpassInputDescriptor{ attachmentIndex,
                                             builder.m_subpassInputAttachments[i].m_imageAspects,
-                                            builder.m_subpassInputAttachments[i].m_scopeAttachmentAccess,
-                                            builder.m_subpassInputAttachments[i].m_scopeAttachmentStage,
+                                            builder.m_subpassInputAttachments[i].m_attachmentAccess,
+                                            builder.m_subpassInputAttachments[i].m_attachmentStage,
                                             builder.m_subpassInputAttachments[i].m_loadStoreAction,
                                             builder.m_subpassInputAttachments[i].m_extras};
             }
@@ -216,8 +216,8 @@ namespace Spark::RHI
                 subpassLayout.m_shadingRateDescriptor = RenderAttachmentDescriptor{ attachmentIndex,
                                                                                     InvalidRenderAttachmentIndex,
                                                                                     builder.m_shadingRateAttachment.m_loadStoreAction,
-                                                                                    builder.m_shadingRateAttachment.m_scopeAttachmentAccess,
-                                                                                    builder.m_shadingRateAttachment.m_scopeAttachmentStage,
+                                                                                    builder.m_shadingRateAttachment.m_attachmentAccess,
+                                                                                    builder.m_shadingRateAttachment.m_attachmentStage,
                                                                                     builder.m_shadingRateAttachment.m_extras};
             }
         }
@@ -278,8 +278,8 @@ namespace Spark::RHI
                                               format,
                                               loadStoreAction,
                                               {},
-                                              RHI::ScopeAttachmentAccess::Write,
-                                              RHI::ScopeAttachmentStage::ColorAttachmentOutput,
+                                              RHI::AttachmentAccess::Write,
+                                              RHI::AttachmentStage::ColorAttachmentOutput,
                                               extras });
         if (resolve)
         {
@@ -342,8 +342,8 @@ namespace Spark::RHI
         Format format,
         const ObjectName& name /*= {}*/,
         const AttachmentLoadStoreAction& loadStoreAction /*= AttachmentLoadStoreAction()*/,
-        RHI::ScopeAttachmentAccess scopeAttachmentAccess,
-        RHI::ScopeAttachmentStage scopeAttachmentStage,
+        RHI::AttachmentAccess scopeAttachmentAccess,
+        RHI::AttachmentStage scopeAttachmentStage,
         RenderAttachmentExtras* extras /*= nullptr*/)
     {
         ASSERT(m_depthStencilAttachment.m_format == Format::Unknown || format == m_depthStencilAttachment.m_format, "DepthStencil format has already been set");
@@ -362,8 +362,8 @@ namespace Spark::RHI
     RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder* RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder::DepthStencilAttachment(
         const ObjectName name /*= {}*/,
         const AttachmentLoadStoreAction& loadStoreAction /*= AttachmentLoadStoreAction()*/,
-        RHI::ScopeAttachmentAccess scopeAttachmentAccess,
-        RHI::ScopeAttachmentStage scopeAttachmentStage,
+        RHI::AttachmentAccess scopeAttachmentAccess,
+        RHI::AttachmentStage scopeAttachmentStage,
         RenderAttachmentExtras* extras /*= nullptr*/)
     {
         return DepthStencilAttachment(
@@ -372,8 +372,8 @@ namespace Spark::RHI
 
     RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder* RenderAttachmentLayoutBuilder::SubpassAttachmentLayoutBuilder::DepthStencilAttachment(
         const AttachmentLoadStoreAction& loadStoreAction,
-        RHI::ScopeAttachmentAccess scopeAttachmentAccess,
-        RHI::ScopeAttachmentStage scopeAttachmentStage,
+        RHI::AttachmentAccess scopeAttachmentAccess,
+        RHI::AttachmentStage scopeAttachmentStage,
         RenderAttachmentExtras* extras /*= nullptr*/)
     {
         return DepthStencilAttachment(
@@ -388,8 +388,8 @@ namespace Spark::RHI
     {
         m_subpassInputAttachments.push_back(SubpassAttachmentEntry{ name,
                                                                     aspectFlags,
-                                                                    RHI::ScopeAttachmentAccess::Read,
-                                                                    RHI::ScopeAttachmentStage::FragmentShader,
+                                                                    RHI::AttachmentAccess::Read,
+                                                                    RHI::AttachmentStage::FragmentShader,
                                                                     loadStoreAction,
                                                                     extras });
         return this;
@@ -409,8 +409,8 @@ namespace Spark::RHI
             format,
             AttachmentLoadStoreAction(),
             {},
-            RHI::ScopeAttachmentAccess::Read,
-            RHI::ScopeAttachmentStage::ShadingRate,
+            RHI::AttachmentAccess::Read,
+            RHI::AttachmentStage::ShadingRate,
             extras
         };
         m_shadingRateAttachment.m_loadStoreAction.m_storeAction = AttachmentStoreAction::None;

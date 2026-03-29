@@ -35,7 +35,7 @@ namespace Spark::RHI::DX12
         return m_pipelineStateData;
     }
 
-    D3D12_SHADER_BYTECODE D3D12BytecodeFromView(ShaderByteCodeView view)
+    D3D12_SHADER_BYTECODE D3D12BytecodeFromView(RHI::ShaderByteCodeView view)
     {
         return D3D12_SHADER_BYTECODE{ view.data(), view.size() };
     }
@@ -58,8 +58,11 @@ namespace Spark::RHI::DX12
         // eastl::vector<ShaderByteCode> shaderByteCodeCache;
         const ShaderStageFunction* vertexFunction = static_cast<const ShaderStageFunction*>(descriptor.m_vertexFunction.get());
         pipelineStateDesc.VS = D3D12BytecodeFromView(vertexFunction->GetByteCode());
-        const ShaderStageFunction* geometryFunction = static_cast<const ShaderStageFunction*>(descriptor.m_geometryFunction.get());
-        pipelineStateDesc.GS = D3D12BytecodeFromView(geometryFunction->GetByteCode());
+        if (descriptor.m_geometryFunction)
+        {
+            const ShaderStageFunction* geometryFunction = static_cast<const ShaderStageFunction*>(descriptor.m_geometryFunction.get());
+            pipelineStateDesc.GS = D3D12BytecodeFromView(geometryFunction->GetByteCode());
+        }
         const ShaderStageFunction* fragmentFunction = static_cast<const ShaderStageFunction*>(descriptor.m_fragmentFunction.get());
         pipelineStateDesc.PS = D3D12BytecodeFromView(fragmentFunction->GetByteCode());
 

@@ -5,6 +5,11 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
+
+/*
+ * Modified by SparkEngine in 2025
+ *  -- Remove BufferPoolResolver and GetResolver, barrier management moved to RHI::CommandList.
+ */
 #pragma once
 
 #include <3rdParty/D3D12MA/D3D12MemAlloc.h>
@@ -15,8 +20,7 @@
 namespace Spark::RHI::DX12
 {
     class Device;
-    class BufferPoolResolver;
-    
+
     class BufferPool : public RHI::BufferPool
     {
     public:
@@ -35,7 +39,7 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////
-        // RHI::DeviceBufferPool
+        // RHI::BufferPool
         RHI::ResultCode InitInternal(RHI::Device& device, const RHI::BufferPoolDescriptor& descriptor) override;
         void ShutdownInternal() override;
         RHI::ResultCode InitBufferInternal(
@@ -46,8 +50,6 @@ namespace Spark::RHI::DX12
         void UnmapBufferInternal(RHI::Buffer& buffer) override;
         RHI::ResultCode StreamBufferInternal(const RHI::BufferStreamRequest& request) override;
         //////////////////////////////////////////////////////////////////////////
-
-        BufferPoolResolver* GetResolver();
 
         Ptr<D3D12MA::Allocator> m_allocator;
         D3D12MAReleaseQueue m_releaseQueue;

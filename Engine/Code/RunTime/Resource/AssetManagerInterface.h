@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/string_view.h>
+#include <EASTL/type_traits.h>
 
 #include <ECS/ISystem.h>
 #include <Object/Base.h>
@@ -40,6 +41,23 @@ namespace Spark::Resource
         virtual void RegisterAssetLoader(eastl::unique_ptr<AssetLoader> loader, AssetType type) = 0;
 
         virtual void RegisterAssetCompiler(eastl::unique_ptr<AssetCompiler> compiler, AssetType type) = 0;
+
+        /// 模板便捷方法，返回具体 Asset 子类
+        template<typename T>
+        Ptr<T> LoadAsset(const AssetId& id)
+        {
+            static_assert(eastl::is_base_of_v<Asset, T>, "T must derive from Asset");
+            Ptr<Asset> asset = LoadAsset(id, T::GetAssetTypeStatic());
+            return Ptr<T>(static_cast<T*>(asset.get()));
+        }
+
+        template<typename T>
+        Ptr<T> RequestAsset(const AssetId& id)
+        {
+            static_assert(eastl::is_base_of_v<Asset, T>, "T must derive from Asset");
+            Ptr<Asset> asset = RequestAsset(id, T::GetAssetTypeStatic());
+            return Ptr<T>(static_cast<T*>(asset.get()));
+        }
 
     protected:
         /// @brief Called when Asset Shutdown
