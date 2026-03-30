@@ -9,16 +9,72 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- All of subresource state are stored in vector<D3D12_RESOURCE_STATES>
+ *  -- InitSubresourceAttachmentState / GetSubresourceIndexByRange: aspect flags -> plane slices via GetImageAspectFlags(format).
+ *  -- GetAttachmentStateByRange: per-plane segments; merge Depth+Stencil to one DepthStencil when state and mip/array match.
  */
 
 #include "Image.h"
 
+#include <EASTL/algorithm.h>
+
 #include <Log/SpdLogSystem.h>
 #include <Conversions.h>
 #include <DX12.h>
+#include <RHI/Resource/Image/ImageEnums.h>
 
 namespace Spark::RHI::DX12
 {
+    namespace
+    {
+        RHI::ImageAspectFlags AspectFlagsForPlaneSlice(const RHI::ImageDescriptor& desc, uint32_t planeSlice)
+        {
+            const RHI::ImageAspectFlags formatAspects = GetImageAspectFlags(desc.m_format);
+            if (CheckBitsAll(formatAspects, RHI::ImageAspectFlags::DepthStencil))
+            {
+                return planeSlice == 0 ? RHI::ImageAspectFlags::Depth : RHI::ImageAspectFlags::Stencil;
+            }
+            if (CheckBitsAny(formatAspects, RHI::ImageAspectFlags::Depth))
+            {
+                return RHI::ImageAspectFlags::Depth;
+            }
+            return RHI::ImageAspectFlags::Color;
+        }
+
+        bool RangesMatchMipArray(const RHI::ImageSubresourceRange& a, const RHI::ImageSubresourceRange& b)
+        {
+            return a.m_mipSliceMin == b.m_mipSliceMin && a.m_mipSliceMax == b.m_mipSliceMax &&
+                a.m_arraySliceMin == b.m_arraySliceMin && a.m_arraySliceMax == b.m_arraySliceMax;
+        }
+
+        void AppendRunSegmentsMergedIfSameStateAndMipArray(
+            eastl::vector<Image::SubresourceRangeAttachmentState>& runSegments,
+            uint32_t d3dPlaneCount,
+            eastl::vector<Image::SubresourceRangeAttachmentState>& outResult)
+        {
+            if (runSegments.size() == 2u && d3dPlaneCount == 2u &&
+                runSegments[0].m_state == runSegments[1].m_state &&
+                RangesMatchMipArray(runSegments[0].m_range, runSegments[1].m_range))
+            {
+                const auto& a = runSegments[0];
+                const auto& b = runSegments[1];
+                const bool depthThenStencil =
+                    a.m_range.m_aspectFlags == RHI::ImageAspectFlags::Depth &&
+                    b.m_range.m_aspectFlags == RHI::ImageAspectFlags::Stencil;
+                const bool stencilThenDepth =
+                    a.m_range.m_aspectFlags == RHI::ImageAspectFlags::Stencil &&
+                    b.m_range.m_aspectFlags == RHI::ImageAspectFlags::Depth;
+                if (depthThenStencil || stencilThenDepth)
+                {
+                    RHI::ImageSubresourceRange merged = a.m_range;
+                    merged.m_aspectFlags = RHI::ImageAspectFlags::DepthStencil;
+                    outResult.emplace_back(Image::SubresourceRangeAttachmentState{ merged, a.m_state });
+                    return;
+                }
+            }
+            outResult.insert(outResult.end(), runSegments.begin(), runSegments.end());
+        }
+    }
+
     bool ImageTileLayout::IsPacked(uint32_t subresourceIndex) const
     {
         return m_subresourceTiling[subresourceIndex].StartTileIndexInOverallResource == D3D12_PACKED_TILE;
@@ -106,22 +162,58 @@ namespace Spark::RHI::DX12
             subRange = *range;
         }
 
-        uint32_t planeSlice = ConvertImageAspectToPlaneSlice(static_cast<RHI::ImageAspect>(subRange.m_aspectFlags));
-        indexStart = D3D12CalcSubresource(
-            subRange.m_mipSliceMin,
-            subRange.m_arraySliceMin,
-            planeSlice,
-            GetDescriptor().m_mipLevels,
-            GetDescriptor().m_arraySize
-        );
+        const RHI::ImageDescriptor& desc = GetDescriptor();
+        RHI::ImageAspectFlags aspectFlags = subRange.m_aspectFlags;
 
-        indexEnd = D3D12CalcSubresource(
-            subRange.m_mipSliceMax,
-            subRange.m_arraySliceMax,
-            planeSlice,
-            GetDescriptor().m_mipLevels,
-            GetDescriptor().m_arraySize
-        );
+        if (aspectFlags == RHI::ImageAspectFlags::All || aspectFlags == RHI::ImageAspectFlags::None)
+        {
+            aspectFlags = GetImageAspectFlags(desc.m_format);
+        }
+
+        const uint32_t mipLevels = desc.m_mipLevels;
+        const uint32_t arraySize = desc.m_arraySize;
+
+        uint32_t minIndex = UINT32_MAX;
+        uint32_t maxIndex = 0;
+
+        auto accumulatePlaneRange = [&](uint16_t planeSlice)
+        {
+            const uint32_t s = D3D12CalcSubresource(
+                subRange.m_mipSliceMin,
+                subRange.m_arraySliceMin,
+                planeSlice,
+                mipLevels,
+                arraySize);
+            const uint32_t e = D3D12CalcSubresource(
+                subRange.m_mipSliceMax,
+                subRange.m_arraySliceMax,
+                planeSlice,
+                mipLevels,
+                arraySize);
+            minIndex = eastl::min(minIndex, s);
+            maxIndex = eastl::max(maxIndex, e);
+        };
+
+        if (CheckBitsAny(aspectFlags, RHI::ImageAspectFlags::Color))
+        {
+            accumulatePlaneRange(ConvertImageAspectToPlaneSlice(RHI::ImageAspect::Color));
+        }
+        if (CheckBitsAny(aspectFlags, RHI::ImageAspectFlags::Depth))
+        {
+            accumulatePlaneRange(ConvertImageAspectToPlaneSlice(RHI::ImageAspect::Depth));
+        }
+        if (CheckBitsAny(aspectFlags, RHI::ImageAspectFlags::Stencil))
+        {
+            accumulatePlaneRange(ConvertImageAspectToPlaneSlice(RHI::ImageAspect::Stencil));
+        }
+
+        if (minIndex == UINT32_MAX)
+        {
+            accumulatePlaneRange(0);
+        }
+
+        indexStart = minIndex;
+        indexEnd = maxIndex;
     }
 
     void Image::SetAttachmentState(D3D12_RESOURCE_STATES state, const RHI::ImageSubresourceRange* range)
@@ -158,42 +250,58 @@ namespace Spark::RHI::DX12
 
         GetSubresourceIndexByRange(range, indexStart, indexEnd);
 
+        const RHI::ImageDescriptor& desc = GetDescriptor();
+        const uint32_t mipLevels = desc.m_mipLevels;
+        const uint32_t arraySize = desc.m_arraySize;
+        const uint32_t planeSize = mipLevels * arraySize;
+        const uint32_t d3dPlaneCount =
+            CheckBitsAll(GetImageAspectFlags(desc.m_format), RHI::ImageAspectFlags::DepthStencil) ? 2u : 1u;
+
         eastl::vector<SubresourceRangeAttachmentState> result;
         D3D12_RESOURCE_STATES curState = m_subresourceState[indexStart];
         uint32_t rangeStart = indexStart;
-        for(uint32_t index = indexStart; index <= indexEnd + 1; ++index)
+        for (uint32_t index = indexStart; index <= indexEnd + 1; ++index)
         {
             if (index == indexEnd + 1 || m_subresourceState[index] != curState)
             {
-                uint32_t rangeEnd = index - 1;
-                uint16_t mipSliceMin;
-                uint16_t arraySliceMin;
-                uint16_t planeSliceMin;
-                D3D12DecomposeSubresource(
-                    rangeStart, GetDescriptor().m_mipLevels, GetDescriptor().m_arraySize, mipSliceMin, arraySliceMin, planeSliceMin);
-                
-                uint16_t mipSliceMax;
-                uint16_t arraySliceMax;
-                uint16_t planeSliceMax;
-                D3D12DecomposeSubresource(
-                    rangeEnd, GetDescriptor().m_mipLevels, GetDescriptor().m_arraySize, mipSliceMax, arraySliceMax, planeSliceMax);
-                
-                if (planeSliceMin == planeSliceMax)
-                {
-                    RHI::ImageSubresourceRange range(mipSliceMin, mipSliceMax, arraySliceMin, arraySliceMax);
-                    range.m_aspectFlags = ConvertPlaneSliceToImageAspectFlags(planeSliceMin);
-                    result.emplace_back(SubresourceRangeAttachmentState{range, curState});
-                }
-                else
-                {
-                    RHI::ImageSubresourceRange rangeMin(mipSliceMin, GetDescriptor().m_mipLevels - 1, arraySliceMin, GetDescriptor().m_arraySize - 1);
-                    rangeMin.m_aspectFlags = ConvertPlaneSliceToImageAspectFlags(planeSliceMin);
-                    result.emplace_back(SubresourceRangeAttachmentState{rangeMin, curState});
+                const uint32_t runEnd = index - 1;
 
-                    RHI::ImageSubresourceRange rangeMax(0, mipSliceMax, 0, arraySliceMax);
-                    rangeMax.m_aspectFlags = ConvertPlaneSliceToImageAspectFlags(planeSliceMax);
-                    result.emplace_back(SubresourceRangeAttachmentState{rangeMax, curState});
+                eastl::vector<SubresourceRangeAttachmentState> runSegments;
+                for (uint32_t planeSlice = 0; planeSlice < d3dPlaneCount; ++planeSlice)
+                {
+                    const uint32_t planeIndexStart = planeSlice * planeSize;
+                    const uint32_t planeIndexEnd = (planeSlice + 1) * planeSize - 1;
+                    const uint32_t segStart = eastl::max(rangeStart, planeIndexStart);
+                    const uint32_t segEnd = eastl::min(runEnd, planeIndexEnd);
+                    if (segStart > segEnd)
+                    {
+                        continue;
+                    }
+
+                    uint16_t mipA;
+                    uint16_t arrayA;
+                    uint16_t planeA;
+                    uint16_t mipB;
+                    uint16_t arrayB;
+                    uint16_t planeB;
+                    D3D12DecomposeSubresource(segStart, mipLevels, arraySize, mipA, arrayA, planeA);
+                    D3D12DecomposeSubresource(segEnd, mipLevels, arraySize, mipB, arrayB, planeB);
+                    (void)planeA;
+                    (void)planeB;
+
+                    const uint16_t mipSliceMin = eastl::min(mipA, mipB);
+                    const uint16_t mipSliceMax = eastl::max(mipA, mipB);
+                    const uint16_t arraySliceMin = eastl::min(arrayA, arrayB);
+                    const uint16_t arraySliceMax = eastl::max(arrayA, arrayB);
+
+                    RHI::ImageSubresourceRange subRange(mipSliceMin, mipSliceMax, arraySliceMin, arraySliceMax);
+                    subRange.m_aspectFlags = AspectFlagsForPlaneSlice(desc, planeSlice);
+
+                    runSegments.emplace_back(SubresourceRangeAttachmentState{ subRange, curState });
                 }
+
+                AppendRunSegmentsMergedIfSameStateAndMipArray(runSegments, d3dPlaneCount, result);
+
                 rangeStart = index;
                 if (index < indexEnd + 1)
                 {
@@ -337,24 +445,31 @@ namespace Spark::RHI::DX12
     void Image::InitSubresourceAttachmentState()
     {
         const RHI::ImageDescriptor desc = GetDescriptor();
+        const RHI::ImageAspectFlags aspectFlags = GetImageAspectFlags(desc.m_format);
 
-        uint32_t subresourceSize = 2 * desc.m_arraySize * desc.m_mipLevels; // 目前planeSlice最多为2
+        // D3D12 subresource index = mip + array * MipLevels + planeSlice * MipLevels * ArraySize.
+        // Plane 1 indices start at mipLevels * arraySize; the buffer must hold mipLevels * arraySize * (D3D plane count).
+        // Use format plane count, not the number of aspect bits mapped to distinct planes (those can coincide on plane 0).
+        const uint32_t d3dPlaneCount =
+            CheckBitsAll(aspectFlags, RHI::ImageAspectFlags::DepthStencil) ? 2u : 1u;
+
+        const uint32_t subresourceSize = desc.m_mipLevels * desc.m_arraySize * d3dPlaneCount;
         m_subresourceState.resize(subresourceSize);
 
-        for (uint16_t aspectIndex = 0; aspectIndex < RHI::ImageAspectCount; ++aspectIndex)
+        for (uint32_t planeSlice = 0; planeSlice < d3dPlaneCount; ++planeSlice)
         {
-            uint16_t planeSlice = ConvertImageAspectToPlaneSlice(static_cast<RHI::ImageAspect>(aspectIndex));
             for (uint16_t arraySlice = 0; arraySlice < desc.m_arraySize; ++arraySlice)
             {
-                for (uint16_t mipSlice = 0; mipSlice < desc.m_mipLevels; ++ mipSlice)
+                for (uint16_t mipSlice = 0; mipSlice < desc.m_mipLevels; ++mipSlice)
                 {
-                    uint32_t subresourceIndex = D3D12CalcSubresource(
+                    const uint32_t subresourceIndex = D3D12CalcSubresource(
                         mipSlice,
                         arraySlice,
-                        planeSlice,
+                        static_cast<UINT>(planeSlice),
                         desc.m_mipLevels,
                         desc.m_arraySize);
-                    
+
+                    ASSERT(subresourceIndex < subresourceSize, "[Image] Subresource index out of range");
                     m_subresourceState[subresourceIndex] = m_initialResourceState;
                 }
             }

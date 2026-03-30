@@ -536,7 +536,7 @@ namespace Spark::RHI::DX12
             viewDesc.Flags |= D3D12_DSV_FLAG_READ_ONLY_STENCIL;
         }
 
-        D3D12_CPU_DESCRIPTOR_HANDLE depthStencilReadDescriptor = GetCpuNativeHandle(depthStencilView);
+        D3D12_CPU_DESCRIPTOR_HANDLE depthStencilReadDescriptor = GetCpuNativeHandle(depthStencilReadView);
 
         m_D3D12Device->CreateDepthStencilView(image.GetMemoryView().GetMemory(), &viewDesc, depthStencilReadDescriptor);
     }

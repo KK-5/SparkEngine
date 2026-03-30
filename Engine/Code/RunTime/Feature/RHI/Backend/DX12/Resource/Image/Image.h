@@ -66,7 +66,7 @@ namespace Spark::RHI::DX12
     public:
         ~Image() = default;
 
-        // Returns the memory view allocated to this buffer.
+        // Returns the memory view allocated to this image.
         const MemoryView& GetMemoryView() const;
         MemoryView& GetMemoryView();
 
@@ -106,7 +106,7 @@ namespace Spark::RHI::DX12
 
         // Get the attachment state of some of the subresources of the image by their subresource index.
         // If argument "range" is nullptr, then the state for all subresource will be return.
-        eastl::vector<SubresourceAttachmentState> GetAttachmentStateByIndex(const RHI::ImageSubresourceRange* range = nullptr) const;
+        // eastl::vector<SubresourceAttachmentState> GetAttachmentStateByIndex(const RHI::ImageSubresourceRange* range = nullptr) const;
 
         // Return the initial state of this image (the one used when it was created).
         D3D12_RESOURCE_STATES GetInitialResourceState() const;
@@ -171,7 +171,7 @@ namespace Spark::RHI::DX12
         uint64_t m_uploadFenceValue = 0;
 
         // The initial state for the graph compiler to use when compiling the resource transition chain.
-        eastl::vector<SubresourceRangeAttachmentState> m_attachmentState;
+        // eastl::vector<SubresourceRangeAttachmentState> m_attachmentState;
 
         eastl::vector<D3D12_RESOURCE_STATES> m_subresourceState;
 

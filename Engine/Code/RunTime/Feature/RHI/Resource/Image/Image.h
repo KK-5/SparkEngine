@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) Contributors to the Open 3D Engine Project.
+ * For complete copyright and license terms please see the LICENSE at the root of this distribution.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ */
 #pragma once
 
 #include <RHI/Resource/Resource.h>
@@ -21,6 +28,18 @@ namespace Spark::RHI
     public:
         virtual ~Image() = default;
 
+        //! Computes the subresource layouts and total size of the image contents, if represented linearly. Effectively,
+        //! this data represents how to store the image in a buffer resource. Naturally, if the image contents
+        //! are swizzled in device memory, the layouts will differ from the actual physical memory footprint. Use this data
+        //! to facilitate transfers between buffers and images.
+        //!
+        //!  @param subresourceRange The range of subresources in the image to consider when computing subresource layouts.
+        //!  @param subresourceLayouts
+        //!      [Optional] If specified, fills the provided array with computed subresource layout results. The size of the
+        //!      array must be at least the number of subresources specified in the subresource range (number of mip slices *
+        //!      number of array slices).
+        //!  @param totalSizeInBytes
+        //!      [Optional] If specified, will be filled with the total size necessary to contain all subresources.
         void GetSubresourceLayouts(
             const ImageSubresourceRange& subresourceRange,
             ImageSubresourceLayout* subresourceLayouts,

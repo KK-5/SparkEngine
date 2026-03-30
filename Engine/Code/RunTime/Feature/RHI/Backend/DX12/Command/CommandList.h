@@ -11,6 +11,8 @@
  *  -- Remove DescriptorContext pointer in CommandList, use Factory to get DescriptorContext.
  *  -- Remove CommandList name.
  *  -- Add QueueBarrier/FlushBarriers override from RHI::CommandList.
+ *  -- SetRenderTargets: AttachmentAccess for depth-stencil (after depthStencil pointer).
+ *  -- Clear / DiscardImage: overrides RHI::CommandList; requests are RHI types.
  */
 
 #pragma once
@@ -45,7 +47,7 @@ namespace Spark::RHI::DX12
 
         void Shutdown() override;
 
-        void Open();
+        void Open() override;
         void Close() override;
 
         //////////////////////////////////////////////////////////////////////////
@@ -70,41 +72,18 @@ namespace Spark::RHI::DX12
         void SetFragmentShadingRate(
             RHI::ShadingRate rate,
             const RHI::ShadingRateCombinators& combinators = DefaultShadingRateCombinators) override;
-        //////////////////////////////////////////////////////////////////////////
 
         void SetRenderTargets(
             uint32_t renderTargetCount,
             const RHI::ImageView* const* renderTarget,
             const RHI::ImageView* depthStencil,
+            RHI::AttachmentAccess depthStencilAccess,
             const RHI::ImageView* shadingRate) override;
 
-        //////////////////////////////////////////////////////////////////////////
-        // Clear Methods
-        struct ImageClearRequest
-        {
-            /// The clear value used to clear the image.
-            RHI::ClearValue m_clearValue;
-
-            /// Clear flags for depth stencil images (ignored otherwise).
-            D3D12_CLEAR_FLAGS m_clearFlags = (D3D12_CLEAR_FLAGS)0;
-
-            /// The image view to clear.
-            const ImageView* m_imageView = nullptr;
-        };
-
-        struct BufferClearRequest
-        {
-            /// The clear value for this buffer. Must be Float4 or Uint4.
-            RHI::ClearValue m_clearValue;
-
-            /// The buffer view to clear.
-            const BufferView* m_bufferView = nullptr;
-        };
-
-        void ClearRenderTarget(const ImageClearRequest& request);
-        void ClearUnorderedAccess(const ImageClearRequest& request);
-        void ClearUnorderedAccess(const BufferClearRequest& request);
-        void DiscardResource(ID3D12Resource* resource);
+        void ClearRenderTarget(const RHI::ImageClearRequest& request) override;
+        void ClearUnorderedAccess(const RHI::ImageClearRequest& request) override;
+        void ClearUnorderedAccess(const RHI::BufferClearRequest& request) override;
+        void DiscardImage(const RHI::Image& image) override;
         //////////////////////////////////////////////////////////////////////////
 
     private:

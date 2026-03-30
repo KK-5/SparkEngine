@@ -33,11 +33,14 @@ namespace Spark::RHI::DX12
         IDXGIFactoryX* dxgiFactory = device.GetPhysicalDevice().GetFactory();
         m_isTearingSupported = SUCCEEDED(dxgiFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing))) && allowTearing;
 
+        const uint32_t SwapBufferCount = eastl::max(RHI::Limits::Device::MinSwapChainImages, deviceBase.GetDescriptor().m_frameCountMax);
+
         if (nativeDimensions)
         {
             *nativeDimensions = descriptor.m_dimensions;
+            // CreateSwapChain uses SwapBufferCount; RHI must create the same number of Image wrappers in InitImages.
+            nativeDimensions->m_imageCount = SwapBufferCount;
         }
-        const uint32_t SwapBufferCount = eastl::max(RHI::Limits::Device::MinSwapChainImages, deviceBase.GetDescriptor().m_frameCountMax);
 
         DXGI_SWAP_CHAIN_DESCX swapChainDesc = {};
         swapChainDesc.SampleDesc.Quality = 0;
@@ -94,9 +97,11 @@ namespace Spark::RHI::DX12
                 // ALT+ENTER fullscreen switching using IDXGIFactory::MakeWindowAssociation (see also implementation of SwapChain::PresentInternal).
                 // You must call the MakeWindowAssociation method after the creation of the swap chain, and on the factory object associated with the
                 // target HWND swap chain, which you can guarantee by calling the IDXGIObject::GetParent method on the swap chain to locate the factory.
-                IDXGIFactoryX* parentFactory = nullptr;
-                m_swapChain->GetParent(__uuidof(IDXGIFactoryX), (void **)&parentFactory);
-                parentFactory->MakeWindowAssociation(reinterpret_cast<HWND>(window), DXGI_MWA_NO_ALT_ENTER);
+                ComPtr<IDXGIFactoryX> parentFactory;
+                if (SUCCEEDED(m_swapChain->GetParent(IID_PPV_ARGS(parentFactory.GetAddressOf()))))
+                {
+                    parentFactory->MakeWindowAssociation(reinterpret_cast<HWND>(window), DXGI_MWA_NO_ALT_ENTER);
+                }
             }
 
             return RHI::ResultCode::Success;
@@ -163,9 +168,6 @@ namespace Spark::RHI::DX12
 
     RHI::ResultCode SwapChain::ResizeInternal(const RHI::SwapChainDimensions& dimensions, RHI::SwapChainDimensions* nativeDimensions)
     {
-        // 等待command完成
-        //GetDevice().WaitForIdle();
-
         DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
         m_swapChain->GetDesc(&swapChainDesc);
         if (SUCCEEDED(m_swapChain->ResizeBuffers(

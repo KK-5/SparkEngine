@@ -1,6 +1,6 @@
 /*
  * Modified by SparkEngine in 2025
- *  -- Add ConvertAttachmentState: (AttachmentUsage, AttachmentAccess) to D3D12_RESOURCE_STATES.
+ *  -- ConvertBufferAttachmentState / ConvertImageAttachmentState: RHI usage/access to D3D12_RESOURCE_STATES.
  */
 
 #include "Conversions.h"
@@ -468,7 +468,7 @@ namespace Spark::RHI::DX12
         return D3D12_HEAP_TYPE_CUSTOM;
     }
 
-    D3D12_RESOURCE_STATES ConvertAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access)
+    D3D12_RESOURCE_STATES ConvertBufferAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access)
     {
         const bool isWrite = CheckBitsAny(access, RHI::AttachmentAccess::Write);
 
@@ -497,6 +497,58 @@ namespace Spark::RHI::DX12
         case RHI::AttachmentUsage::InputAssembly:
             return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
                  | D3D12_RESOURCE_STATE_INDEX_BUFFER;
+
+        case RHI::AttachmentUsage::Indirect:
+            return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+
+        case RHI::AttachmentUsage::Predication:
+            return D3D12_RESOURCE_STATE_PREDICATION;
+
+        case RHI::AttachmentUsage::Resolve:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_RESOLVE_DEST
+                : D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+
+        case RHI::AttachmentUsage::ShadingRate:
+            return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+
+        case RHI::AttachmentUsage::SubpassInput:
+            return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+        case RHI::AttachmentUsage::Uninitialized:
+        default:
+            return D3D12_RESOURCE_STATE_COMMON;
+        }
+    }
+
+    D3D12_RESOURCE_STATES ConvertImageAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access)
+    {
+        const bool isWrite = CheckBitsAny(access, RHI::AttachmentAccess::Write);
+
+        switch (usage)
+        {
+        case RHI::AttachmentUsage::RenderTarget:
+            return D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+        case RHI::AttachmentUsage::DepthStencil:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_DEPTH_WRITE
+                : D3D12_RESOURCE_STATE_DEPTH_READ;
+
+        case RHI::AttachmentUsage::Shader:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                : (D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+                 | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        case RHI::AttachmentUsage::Copy:
+            return isWrite
+                ? D3D12_RESOURCE_STATE_COPY_DEST
+                : D3D12_RESOURCE_STATE_COPY_SOURCE;
+
+        case RHI::AttachmentUsage::InputAssembly:
+            // Not applicable to textures; avoid VCB/IB states on images.
+            return D3D12_RESOURCE_STATE_COMMON;
 
         case RHI::AttachmentUsage::Indirect:
             return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
@@ -1403,5 +1455,19 @@ namespace Spark::RHI::DX12
             D3D12_SHADING_RATE_4X4
         };
         return table[(uint32_t)rate];
+    }
+
+    D3D12_CLEAR_FLAGS ConvertDepthStencilClearFlags(RHI::DepthStencilClearFlags flags)
+    {
+        uint32_t d3d = 0;
+        if (CheckBitsAny(flags, RHI::DepthStencilClearFlags::Depth))
+        {
+            d3d |= D3D12_CLEAR_FLAG_DEPTH;
+        }
+        if (CheckBitsAny(flags, RHI::DepthStencilClearFlags::Stencil))
+        {
+            d3d |= D3D12_CLEAR_FLAG_STENCIL;
+        }
+        return static_cast<D3D12_CLEAR_FLAGS>(d3d);
     }
 }

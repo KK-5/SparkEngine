@@ -12,6 +12,8 @@
 
 namespace Spark::RHI
 {
+    //! A set of combinable flags which inform the system how an image is to be
+    //! bound to the pipeline at all stages of its lifetime.
     enum class ImageBindFlags : uint32_t
     {
         None        =    0,
@@ -46,6 +48,7 @@ namespace Spark::RHI
 
     static const uint32_t ImageAspectCount = static_cast<uint32_t>(ImageAspect::Count);
 
+    //! Mask of Aspects (or Planes in some graphic APIs) that an image can contain.
     enum class ImageAspectFlags : uint32_t
     {
         None    = 0,

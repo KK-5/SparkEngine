@@ -13,6 +13,7 @@
 #include <RHI/Pipeline/ShaderStages.h>
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/ClearValue.h>
+#include <RHI/Command/ClearRequest.h>
 #include <RHI/MemoryEnums.h>
 #include <RHI/Resource/ResourceState.h>
 #include <RHI/Command/CommandList.h>
@@ -60,7 +61,9 @@ namespace Spark::RHI::DX12
 
     D3D12_HEAP_TYPE ConvertHeapType(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess);
 
-    D3D12_RESOURCE_STATES ConvertAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access);
+    D3D12_RESOURCE_STATES ConvertBufferAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access);
+
+    D3D12_RESOURCE_STATES ConvertImageAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access);
 
     void ConvertBufferView(
         const Buffer& buffer,
@@ -149,4 +152,6 @@ namespace Spark::RHI::DX12
     D3D12_SHADING_RATE_COMBINER ConvertShadingRateCombiner(RHI::ShadingRateCombinerOp op);
 
     D3D12_SHADING_RATE ConvertShadingRateEnum(RHI::ShadingRate rate);
+
+    D3D12_CLEAR_FLAGS ConvertDepthStencilClearFlags(RHI::DepthStencilClearFlags flags);
 }

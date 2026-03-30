@@ -52,6 +52,7 @@ namespace Spark::RHI
         //! Resizes the display resolution of the swap chain. Ideally, this matches the platform window
         //! resolution. Typically, the resize operation will occur in reaction to a platform window size
         //! change. Takes effect immediately and results in a GPU pipeline flush.
+        //! Note: Must wait for the command queue to be idle before calling this function.
         ResultCode Resize(const SwapChainDimensions& dimensions);
 
         //! Returns the number of images in the swap chain.

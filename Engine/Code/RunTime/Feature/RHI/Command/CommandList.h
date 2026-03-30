@@ -9,21 +9,26 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- Add QueueBarrier (BufferBarrier/ImageBarrier) and FlushBarriers virtual interface.
+ *  -- SetRenderTargets: AttachmentAccess for depth-stencil next to depthStencil; read-only DSV when Read without Write.
+ *  -- ClearRenderTarget / ClearUnorderedAccess / DiscardImage on RHI CommandList (ClearRequest.h).
  */
 #pragma once
 
+#include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Device/DeviceObject.h>
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
 #include <RHI/Resource/ResourceState.h>
 
+#include "ClearRequest.h"
 #include "DrawItem.h"
 #include "CopyItem.h"
 #include "DispatchItem.h"
 
 namespace Spark::RHI
 {
+    class Image;
     //! Supported operations for rendering predication.
     enum class PredicationOp : uint32_t
     {
@@ -52,6 +57,13 @@ namespace Spark::RHI
         {
             SetViewports(&viewport, 1);
         }
+
+        /// Opens the command list for recording commands.
+        virtual void Open() = 0;
+
+        /// Closes the command list after recording commands.
+        /// @note: This should be called after all commands have been recorded.
+        virtual void Close() = 0;
 
         //! Assigns a shader resource group for draw on the graphics pipe, at the binding slot
         //! determined by the layout used to create the shader resource group.
@@ -91,11 +103,25 @@ namespace Spark::RHI
         virtual void FlushBarriers() = 0;
 
         /// Set render targets to this draw
+        /// @param depthStencilAccess AttachmentAccess for the depth-stencil view: Read-only DSV if Read is set and Write is not; otherwise writable DSV.
         virtual void SetRenderTargets(
             uint32_t renderTargetCount,
             const ImageView* const* renderTarget,
             const ImageView* depthStencil = nullptr,
+            AttachmentAccess depthStencilAccess = AttachmentAccess::ReadWrite,
             const ImageView* shadingRate = nullptr) = 0;
+
+        /// Clears a color render-target view or a depth-stencil view (see @a ImageClearRequest::m_clearValue).
+        virtual void ClearRenderTarget(const ImageClearRequest& request) = 0;
+
+        /// Clears an image UAV (uint or float clear value per @a ImageClearRequest::m_clearValue).
+        virtual void ClearUnorderedAccess(const ImageClearRequest& request) = 0;
+
+        /// Clears a buffer UAV (uint or float clear value per @a BufferClearRequest::m_clearValue).
+        virtual void ClearUnorderedAccess(const BufferClearRequest& request) = 0;
+
+        /// Hints that the image contents need not be preserved (backend may no-op if unsupported).
+        virtual void DiscardImage(const Image& image) = 0;
 
         /// Defines the submit range for a CommandList
         /// Note: the default is 0 items, which disables validation for items submitted outside of the framegraph

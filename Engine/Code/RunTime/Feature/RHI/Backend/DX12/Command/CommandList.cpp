@@ -396,8 +396,8 @@ namespace Spark::RHI::DX12
         Buffer& buffer = static_cast<Buffer&>(*barrier.m_buffer);
         CommandListBase::QueueTransitionBarrier(
             buffer.GetMemoryView().GetMemory(),
-            ConvertAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
-            ConvertAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
+            ConvertBufferAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
+            ConvertBufferAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
         RHI::CommandList::SetResourceState(*barrier.m_buffer,
             RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
     }
@@ -407,8 +407,8 @@ namespace Spark::RHI::DX12
         Image& image = static_cast<Image&>(*barrier.m_image);
         CommandListBase::QueueTransitionBarrier(
             image.GetMemoryView().GetMemory(),
-            ConvertAttachmentState(barrier.m_oldUsage, barrier.m_srcAccess),
-            ConvertAttachmentState(barrier.m_newUsage, barrier.m_dstAccess));
+            ConvertImageAttachmentState(barrier.m_oldUsage, barrier.m_srcAccess),
+            ConvertImageAttachmentState(barrier.m_newUsage, barrier.m_dstAccess));
         RHI::CommandList::SetResourceState(*barrier.m_image,
             RHI::ResourceState{ barrier.m_newUsage, barrier.m_dstAccess });
     }
@@ -596,6 +596,7 @@ namespace Spark::RHI::DX12
         uint32_t renderTargetCount,
         const RHI::ImageView* const* renderTargets,
         const RHI::ImageView* depthStencil,
+        RHI::AttachmentAccess depthStencilAccess,
         const RHI::ImageView* shadingRate)
     {
         Device& device = static_cast<Device&>(GetDevice());
@@ -612,7 +613,12 @@ namespace Spark::RHI::DX12
         {
             auto dx12DepthStencil = static_cast<const ImageView*>(depthStencil);
             SetSamplePositions(dx12DepthStencil->GetImage().GetDescriptor().m_multisampleState);
-            DescriptorHandle depthStencilDescriptor = dx12DepthStencil->GetDepthStencilDescriptor();
+            const bool readOnlyDsv =
+                CheckBitsAny(depthStencilAccess, RHI::AttachmentAccess::Read) &&
+                !CheckBitsAny(depthStencilAccess, RHI::AttachmentAccess::Write);
+            const DescriptorHandle depthStencilDescriptor =
+                readOnlyDsv ? dx12DepthStencil->GetDepthStencilReadDescriptor()
+                            : dx12DepthStencil->GetDepthStencilDescriptor();
             D3D12_CPU_DESCRIPTOR_HANDLE depthStencilPlatformDescriptor = descriptorContext.GetCpuNativeHandle(depthStencilDescriptor);
             GetCommandList()->OMSetRenderTargets(renderTargetCount, colorDescriptors, false, &depthStencilPlatformDescriptor);
         }
@@ -651,7 +657,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void CommandList::ClearRenderTarget(const ImageClearRequest& request)
+    void CommandList::ClearRenderTarget(const RHI::ImageClearRequest& request)
     {
         Device& device = static_cast<Device&>(GetDevice());
         auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
@@ -659,7 +665,7 @@ namespace Spark::RHI::DX12
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Float)
         {
             D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle =
-                descriptorContext.GetCpuNativeHandle(request.m_imageView->GetColorDescriptor());
+                descriptorContext.GetCpuNativeHandle(static_cast<const ImageView*>(request.m_imageView)->GetColorDescriptor());
 
             GetCommandList()->ClearRenderTargetView(
                 descriptorHandle,
@@ -671,11 +677,11 @@ namespace Spark::RHI::DX12
             // Need to set the custom MSAA positions (if being used) before clearing it.
             SetSamplePositions(request.m_imageView->GetImage().GetDescriptor().m_multisampleState);
             D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle =
-                descriptorContext.GetCpuNativeHandle(request.m_imageView->GetDepthStencilDescriptor());
+                descriptorContext.GetCpuNativeHandle(static_cast<const ImageView*>(request.m_imageView)->GetDepthStencilDescriptor());
 
             GetCommandList()->ClearDepthStencilView(
                 descriptorHandle,
-                request.m_clearFlags,
+                ConvertDepthStencilClearFlags(request.m_depthStencilClearFlags),
                 request.m_clearValue.m_depthStencil.m_depth,
                 request.m_clearValue.m_depthStencil.m_stencil,
                 0, nullptr);
@@ -686,12 +692,12 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void CommandList::ClearUnorderedAccess(const ImageClearRequest& request)
+    void CommandList::ClearUnorderedAccess(const RHI::ImageClearRequest& request)
     {
         Device& device = static_cast<Device&>(GetDevice());
         auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
-        const ImageView& imageView = *request.m_imageView;
+        const ImageView& imageView = *static_cast<const ImageView*>(request.m_imageView);
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)
         {
             GetCommandList()->ClearUnorderedAccessViewUint(
@@ -710,21 +716,22 @@ namespace Spark::RHI::DX12
         }
         else
         {
-            ASSERT(false, "Invalid clear value for output merger clear.");
+            ASSERT(false, "Invalid clear value for image UAV clear.");
         }
     }
 
-    void CommandList::DiscardResource(ID3D12Resource* resource)
+    void CommandList::DiscardImage(const RHI::Image& image)
     {
-        GetCommandList()->DiscardResource(resource, nullptr);
+        const Image& dxImage = static_cast<const Image&>(image);
+        GetCommandList()->DiscardResource(dxImage.GetMemoryView().GetMemory(), nullptr);
     }
 
-    void CommandList::ClearUnorderedAccess(const BufferClearRequest& request)
+    void CommandList::ClearUnorderedAccess(const RHI::BufferClearRequest& request)
     {
         Device& device = static_cast<Device&>(GetDevice());
         auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
-        const BufferView& bufferView = *request.m_bufferView;
+        const BufferView& bufferView = *static_cast<const BufferView*>(request.m_bufferView);
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)
         {
             GetCommandList()->ClearUnorderedAccessViewUint(

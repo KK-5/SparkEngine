@@ -66,6 +66,8 @@ namespace Spark::SandBox
         Ptr<RHI::BufferPool> m_stageBufferPool;
         Ptr<RHI::Buffer> m_stageBuffer;
 
+        Ptr<RHI::ImageView> m_swapChainImageView;
+
         RHI::Viewport m_viewport;
         RHI::Scissor m_scissor;
 
@@ -179,6 +181,19 @@ namespace Spark::SandBox
         if (result != RHI::ResultCode::Success)
         {
             LOG_ERROR("Create swap chain failed!");
+        }
+
+        auto image = m_swapChain->GetImage(0);
+        m_swapChainImageView = m_rhiFactory->CreateImageView();
+        RHI::ImageViewDescriptor viewDesc;
+        viewDesc.m_mipSliceMin = 0;
+        viewDesc.m_mipSliceMax = 0;
+        viewDesc.m_arraySliceMin = 0;
+        viewDesc.m_arraySliceMax = 0;
+        result = m_swapChainImageView->Init(*image, viewDesc);
+        if (result != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Create render target view failed!");
         }
     }
 
@@ -323,7 +338,7 @@ namespace Spark::SandBox
 
     void HelloTriangle::BuildCommand(RHI::CommandList* commandList)
     {
-
+        commandList->Open();
         commandList->SetViewport(m_viewport);
         commandList->SetScissor(m_scissor);
 
@@ -371,6 +386,14 @@ namespace Spark::SandBox
 
         commandList->FlushBarriers();
 
+
+        RHI::ClearRequest clearRequest;
+        clearRequest.m_imageView = m_swapChainImageView.get();
+        clearRequest.m_clearValue = RHI::ClearValue::Color(0.0f, 0.0f, 0.0f, 1.0f);
+        commandList->ClearRenderTarget(clearRequest);
+
+        commandList->SetRenderTargets(1, m_swapChainImageView.get());
+
         RHI::DrawItem drawItem;
         drawItem.m_drawInstanceArgs.m_instanceCount = 1;
         drawItem.m_drawInstanceArgs.m_instanceOffset = 0;
@@ -400,7 +423,7 @@ namespace Spark::SandBox
 
         commandList->Submit(drawItem);
 
-        
+        commandList->Close();
     }
 
     void HelloTriangle::Init()

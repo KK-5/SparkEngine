@@ -68,6 +68,8 @@ namespace Spark::RHI
 
         bool ValidateUpdateRequest(const ImageUpdateRequest& updateRequest) const;
 
+        bool ValidateInitRequest(const ImageInitRequest& initRequest) const;
+
         //////////////////////////////////////////////////////////////////////////
         // Backend API
 

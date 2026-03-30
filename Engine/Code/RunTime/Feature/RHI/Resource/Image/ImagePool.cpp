@@ -17,6 +17,11 @@ namespace Spark::RHI
 
     ResultCode ImagePool::InitImage(const ImageInitRequest& initRequest)
     {
+        if (!ValidateInitRequest(initRequest))
+        {
+            return ResultCode::InvalidArgument;
+        }
+
         return ImagePoolBase::InitImage(
             initRequest.m_image,
             initRequest.m_descriptor,
@@ -46,6 +51,20 @@ namespace Spark::RHI
     const ImagePoolDescriptor& ImagePool::GetDescriptor() const
     {
         return m_descriptor;
+    }
+
+    bool ImagePool::ValidateInitRequest(const ImageInitRequest& initRequest) const
+    {
+        if (Validation::isEnabled)
+        {
+            if (initRequest.m_descriptor.m_bindFlags != GetDescriptor().m_bindFlags)
+            {
+                LOG_ERROR("[ImagePool] Image bind flags don't match pool bind flags in pool {}.", GetName().GetCStr());
+                return false;
+            }
+        }
+
+        return true;
     }
 
     bool ImagePool::ValidateUpdateRequest(const ImageUpdateRequest& updateRequest) const
