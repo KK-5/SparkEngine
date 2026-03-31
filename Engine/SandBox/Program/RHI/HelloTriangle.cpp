@@ -334,7 +334,7 @@ namespace Spark::SandBox
     {
         auto windowSize = m_glfwWindow->GetWindowSize();
         m_viewport = RHI::Viewport(0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
-        m_scissor = RHI::Scissor(0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
+        m_scissor = RHI::Scissor(0.f, 0.f, (float)windowSize.first, (float)windowSize.second);
     }
 
     void HelloTriangle::BuildCommand(RHI::CommandList* commandList)
