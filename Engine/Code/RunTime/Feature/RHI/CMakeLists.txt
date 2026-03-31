@@ -28,7 +28,6 @@ set(SOURCES
     Resource/ResourcePool.cpp
     Resource/ResourceView.cpp
     Resource/Buffer/BufferViewDescriptor.cpp
-    Resource/Buffer/BufferDescriptor.cpp
     Resource/Buffer/Buffer.cpp
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/BufferView.cpp

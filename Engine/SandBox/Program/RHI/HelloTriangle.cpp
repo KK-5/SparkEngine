@@ -67,6 +67,7 @@ namespace Spark::SandBox
         Ptr<RHI::Buffer> m_stageBuffer;
 
         Ptr<RHI::ImageView> m_swapChainImageView;
+        RHI::Image* m_swapChainCurImage;
 
         RHI::Viewport m_viewport;
         RHI::Scissor m_scissor;
@@ -183,14 +184,14 @@ namespace Spark::SandBox
             LOG_ERROR("Create swap chain failed!");
         }
 
-        auto image = m_swapChain->GetImage(0);
+        m_swapChainCurImage = m_swapChain->GetCurrentImage();
         m_swapChainImageView = m_rhiFactory->CreateImageView();
         RHI::ImageViewDescriptor viewDesc;
         viewDesc.m_mipSliceMin = 0;
         viewDesc.m_mipSliceMax = 0;
         viewDesc.m_arraySliceMin = 0;
         viewDesc.m_arraySliceMax = 0;
-        result = m_swapChainImageView->Init(*image, viewDesc);
+        result = m_swapChainImageView->Init(*m_swapChainCurImage, viewDesc);
         if (result != RHI::ResultCode::Success)
         {
             LOG_ERROR("Create render target view failed!");
@@ -225,8 +226,7 @@ namespace Spark::SandBox
 
         // render config. just for vulkan
         RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
-        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM)
-                                      ->DepthStencilAttachment(RHI::Format::D24_UNORM_S8_UINT);
+        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM);
         RHI::RenderAttachmentLayout renderAttachmentLayout;
         attachmentBuilder.End(renderAttachmentLayout);
         desc.m_renderAttachmentConfiguration.m_renderAttachmentLayout = renderAttachmentLayout;
@@ -234,6 +234,8 @@ namespace Spark::SandBox
 
         // render state
         desc.m_renderStates = RHI::RenderStates();
+        desc.m_renderStates.m_depthStencilState.m_depth.m_enable = false;
+        desc.m_renderStates.m_depthStencilState.m_stencil.m_enable = false;
 
         // shader
         Resource::AssetId shaderId("Shaders/Test/SimpleTriangle.hlsl");
@@ -272,7 +274,7 @@ namespace Spark::SandBox
         m_bufferPool = m_rhiFactory->CreateBufferPool();
         RHI::BufferPoolDescriptor desc;
         desc.m_heapMemoryLevel = RHI::HeapMemoryLevel::Device;
-        desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly;
+        desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
         desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::All;
         RHI::ResultCode res = m_bufferPool->Init(*m_device, desc);
         if (res != RHI::ResultCode::Success)
@@ -283,7 +285,7 @@ namespace Spark::SandBox
 
         m_vertexBuffer = m_rhiFactory->CreateBuffer();
         RHI::BufferDescriptor bufferDesc;
-        bufferDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly;
+        bufferDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
         bufferDesc.m_byteCount = sizeof(vert);
         bufferDesc.m_alignment = RHI::Alignment::Buffer;
         
@@ -303,7 +305,7 @@ namespace Spark::SandBox
         RHI::BufferPoolDescriptor desc;
         desc.m_heapMemoryLevel = RHI::HeapMemoryLevel::Host;
         desc.m_hostMemoryAccess = RHI::HostMemoryAccess::Write;
-        desc.m_bindFlags = RHI::BufferBindFlags::CopyRead;
+        desc.m_bindFlags = RHI::BufferBindFlags::CopyRead | RHI::BufferBindFlags::Constant;
         desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::All;
         RHI::ResultCode res = m_stageBufferPool->Init(*m_device, desc);
         if (res != RHI::ResultCode::Success)
@@ -314,7 +316,7 @@ namespace Spark::SandBox
 
         m_stageBuffer = m_rhiFactory->CreateBuffer();
         RHI::BufferDescriptor bufferDesc;
-        bufferDesc.m_bindFlags = RHI::BufferBindFlags::CopyRead;
+        bufferDesc.m_bindFlags = RHI::BufferBindFlags::CopyRead | RHI::BufferBindFlags::Constant;
         bufferDesc.m_byteCount = sizeof(vert);
         bufferDesc.m_alignment = RHI::Alignment::Constant;
 
@@ -342,22 +344,10 @@ namespace Spark::SandBox
         commandList->SetViewport(m_viewport);
         commandList->SetScissor(m_scissor);
 
-        RHI::BufferBarrier bufferBarrier;
-        bufferBarrier.m_buffer = m_stageBuffer.get();
-        bufferBarrier.m_srcAccess = m_stageBuffer->GetResourceState().m_access;
-        bufferBarrier.m_srcUsage = m_stageBuffer->GetResourceState().m_usage;
-        bufferBarrier.m_dstUsage = RHI::AttachmentUsage::Copy;
-        bufferBarrier.m_dstAccess = RHI::AttachmentAccess::Read;
-
+        RHI::BufferBarrier bufferBarrier = RHI::ConvertToCopyRead(*m_stageBuffer);
         commandList->QueueBarrier(bufferBarrier);
 
-        RHI::BufferBarrier vertexBufferBarrier;
-        vertexBufferBarrier.m_buffer = m_vertexBuffer.get();
-        vertexBufferBarrier.m_srcAccess = m_vertexBuffer->GetResourceState().m_access;
-        vertexBufferBarrier.m_srcUsage = m_vertexBuffer->GetResourceState().m_usage;
-        vertexBufferBarrier.m_dstUsage = RHI::AttachmentUsage::Copy;
-        vertexBufferBarrier.m_dstAccess = RHI::AttachmentAccess::Write;
-
+        RHI::BufferBarrier vertexBufferBarrier = RHI::ConvertToCopyWrite(*m_vertexBuffer);
         commandList->QueueBarrier(vertexBufferBarrier);
 
         commandList->FlushBarriers();
@@ -375,24 +365,21 @@ namespace Spark::SandBox
         
         commandList->Submit(copyItem);
 
-        vertexBufferBarrier.m_buffer = m_vertexBuffer.get();
-        vertexBufferBarrier.m_srcAccess = m_vertexBuffer->GetResourceState().m_access;
-        vertexBufferBarrier.m_srcUsage = m_vertexBuffer->GetResourceState().m_usage;
-        vertexBufferBarrier.m_dstUsage = RHI::AttachmentUsage::InputAssembly;
-        vertexBufferBarrier.m_dstAccess = RHI::AttachmentAccess::Read;
-        vertexBufferBarrier.m_dstStage = RHI::AttachmentStage::VertexInput;
+        RHI::BufferBarrier inputAssemblyBarrier = RHI::ConvertToInputAssembly(*m_vertexBuffer);
+        commandList->QueueBarrier(inputAssemblyBarrier);
 
-        commandList->QueueBarrier(vertexBufferBarrier);
+        RHI::ImageBarrier imageBarrier = RHI::ConvertToRenderTarget(*m_swapChainCurImage);
+        commandList->QueueBarrier(imageBarrier);
 
         commandList->FlushBarriers();
 
-
-        RHI::ClearRequest clearRequest;
+        RHI::ImageClearRequest clearRequest;
         clearRequest.m_imageView = m_swapChainImageView.get();
-        clearRequest.m_clearValue = RHI::ClearValue::Color(0.0f, 0.0f, 0.0f, 1.0f);
+        clearRequest.m_clearValue = RHI::ClearValue::CreateVector4Uint(0, 0, 0, 255);
         commandList->ClearRenderTarget(clearRequest);
 
-        commandList->SetRenderTargets(1, m_swapChainImageView.get());
+        const RHI::ImageView* renderTargets[] = { m_swapChainImageView.get() };
+        commandList->SetRenderTargets(1, renderTargets);
 
         RHI::DrawItem drawItem;
         drawItem.m_drawInstanceArgs.m_instanceCount = 1;
@@ -423,6 +410,9 @@ namespace Spark::SandBox
 
         commandList->Submit(drawItem);
 
+        RHI::ImageBarrier presentBarrier = RHI::ConvertToPresent(*m_swapChainCurImage);
+        commandList->QueueBarrier(presentBarrier);
+
         commandList->Close();
     }
 
@@ -445,6 +435,14 @@ namespace Spark::SandBox
         {
             m_glfwWindow->PollEvents();
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
+
+            RHI::CommandList* commandList = m_rhiFactory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
+            BuildCommand(commandList);
+            RHI::CommandList* commandLists[] = { commandList };
+            m_commandQueue->ExecuteCommand(commandLists);
+            m_commandQueue->FlushCommands();
+
+            m_swapChain->Present();
 
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         }

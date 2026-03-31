@@ -61,7 +61,7 @@ namespace Spark::RHI
 
     void CommandQueue::FlushCommands()
     {
-
+        WaitForIdle();
     }
 
     void CommandQueue::ProcessQueue()

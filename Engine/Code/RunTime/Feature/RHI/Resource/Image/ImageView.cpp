@@ -54,7 +54,7 @@ namespace Spark::RHI
 
             if (!image.IsInitialized())
             {
-                LOG_WARN("[ImageView] Attempting to create view from uninitialized image '%s'.", image.GetName().GetCStr());
+                LOG_WARN("[ImageView] Attempting to create view from uninitialized image '{}'.", image.GetName().GetCStr());
                 return false;
             }
 

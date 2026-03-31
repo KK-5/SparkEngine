@@ -182,6 +182,7 @@ namespace Spark::RHI
                 Shutdown();
                 break;
             }
+            request.m_image->Init(GetDevice());
         }
 
         // Reset the current index back to 0 so we match the platform swap chain.

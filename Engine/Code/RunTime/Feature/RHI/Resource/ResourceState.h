@@ -100,6 +100,7 @@ namespace Spark::RHI
     ImageBarrier ConvertToImageCopyRead(Image& image);
     ImageBarrier ConvertToImageCopyWrite(Image& image);
     ImageBarrier ConvertToShadingRate(Image& image);
+    ImageBarrier ConvertToPresent(Image& image);
 
     //! Validates whether destination state is supported by the resource bind flags.
     //! Returns false and reports an error if the transition is invalid.

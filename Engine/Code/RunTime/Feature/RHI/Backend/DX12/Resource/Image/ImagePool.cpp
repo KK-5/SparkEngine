@@ -128,6 +128,7 @@ namespace Spark::RHI::DX12
         image->m_residentSizeInBytes = memoryView.GetSize();
         image->m_memoryView = eastl::move(memoryView);
         image->GenerateSubresourceLayouts();
+        image->InitSubresourceAttachmentState();
         image->m_streamedMipLevel = image->GetResidentMipLevel();
 
         return RHI::ResultCode::Success;

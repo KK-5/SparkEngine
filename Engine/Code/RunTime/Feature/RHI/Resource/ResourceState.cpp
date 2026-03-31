@@ -264,6 +264,11 @@ namespace Spark::RHI
         return MakeImageBarrier(image, AttachmentUsage::ShadingRate, AttachmentAccess::Read);
     }
 
+    ImageBarrier ConvertToPresent(Image& image)
+    {
+        return MakeImageBarrier(image, AttachmentUsage::Present, AttachmentAccess::Read);
+    }
+
     bool ValidateBufferBarrier(const BufferBarrier& barrier)
     {
         if (!barrier.m_buffer)
