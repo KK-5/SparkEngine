@@ -57,7 +57,9 @@ namespace Spark::RHI
         ResultCode InitResource(Resource* resource, const BackendMethod& initResourceMethod);
         ///////////////////////////////////////////////
 
-        bool IsRegistered(const Resource* resource) const;
+        bool ValidateIsUnregistered(const Resource* resource) const;
+
+        bool ValidateIsRegistered(const Resource* resource) const;
 
         /// Sets the resource state on a resource managed by this pool.
         void SetResourceState(Resource& resource, ResourceState state);

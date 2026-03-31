@@ -236,8 +236,8 @@ namespace Spark::RHI::DX12
     void ConvertBufferDescriptor(const RHI::BufferDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc)
     {
         resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        resourceDesc.Alignment = descriptor.m_alignment;
-        resourceDesc.Width = descriptor.m_byteCount;
+        resourceDesc.Alignment = 0;
+        resourceDesc.Width = AlignUp(descriptor.m_byteCount, Alignment::CommittedBuffer);
         resourceDesc.Height = 1;
         resourceDesc.DepthOrArraySize = 1;
         resourceDesc.MipLevels = 1;

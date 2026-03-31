@@ -40,13 +40,27 @@ namespace Spark::RHI
         m_resolver = eastl::move(resolver);
     }
 
-    bool ResourcePool::IsRegistered(const Resource* resource) const
+    bool ResourcePool::ValidateIsUnregistered(const Resource* resource) const
+    {
+        if (Validation::isEnabled)
+        {
+            if (!resource || resource->GetPool() != nullptr)
+            {
+                LOG_ERROR("[ResourcePool] Resource {} is null or is registered on another pool.", GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool ResourcePool::ValidateIsRegistered(const Resource* resource) const
     {
         if (Validation::isEnabled)
         {
             if (!resource || resource->GetPool() != this)
             {
-                LOG_ERROR("[ResourcePool] Resource {} is not registered on this pool.", GetName().GetCStr());
+                LOG_ERROR("[ResourcePool] Resource {} is null or is not registered on this pool.", GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
                 return false;
             }
         }
@@ -155,7 +169,7 @@ namespace Spark::RHI
             return ResultCode::InvalidOperation;
         }
 
-        if (IsRegistered(resource))
+        if (!ValidateIsUnregistered(resource))
         {
             return ResultCode::InvalidArgument;
         }
@@ -171,7 +185,7 @@ namespace Spark::RHI
 
     void ResourcePool::ShutdownResource(Resource* resource)
     {
-        if (ValidateIsInitialized() && IsRegistered(resource))
+        if (ValidateIsInitialized() && ValidateIsRegistered(resource))
         {
             Unregister(*resource);
             ShutdownResourceInternal(*resource);

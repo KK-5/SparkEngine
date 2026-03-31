@@ -28,12 +28,13 @@ namespace Spark::RHI::DX12
 
     ID3D12CommandAllocator* CommandAllocatorFactory::CreateObject()
     {
-        ComPtr<ID3D12CommandAllocator> allocator;
+        // ComPtr<ID3D12CommandAllocator> allocator;
+        ID3D12CommandAllocator* allocator;
         HRESULT hr = m_descriptor.m_dx12Device->CreateCommandAllocator(
             ConvertHardwareQueueClass(m_descriptor.m_hardwareQueueClass),
-            IID_PPV_ARGS(allocator.GetAddressOf()));
+            IID_PPV_ARGS(&allocator));
 
-        return allocator.Get();
+        return allocator;
     }
 
     bool CommandAllocatorFactory::IsRecycleObject([[maybe_unused]] ID3D12CommandAllocator* allocator)

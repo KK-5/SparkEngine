@@ -77,7 +77,7 @@ namespace Spark::RHI
             return ResultCode::InvalidOperation;
         }
 
-        if (!IsRegistered(&buffer))
+        if (!ValidateIsRegistered(&buffer))
         {
             return ResultCode::InvalidArgument;
         }
@@ -92,7 +92,7 @@ namespace Spark::RHI
             return ResultCode::InvalidOperation;
         }
 
-        if (!IsRegistered(request.m_buffer))
+        if (!ValidateIsRegistered(request.m_buffer))
         {
             return ResultCode::InvalidArgument;
         }
@@ -117,7 +117,7 @@ namespace Spark::RHI
 
     void BufferPool::UnmapBuffer(Buffer& buffer)
     {
-        if (ValidateIsInitialized() && ValidateNotProcessingFrame() && IsRegistered(&buffer) && ValidateBufferUnmap(buffer))
+        if (ValidateIsInitialized() && ValidateNotProcessingFrame() && ValidateIsRegistered(&buffer) && ValidateBufferUnmap(buffer))
         {
             UnmapBufferInternal(buffer);
         }
@@ -130,7 +130,7 @@ namespace Spark::RHI
             return ResultCode::InvalidOperation;
         }
 
-        if (!IsRegistered(request.m_buffer))
+        if (!ValidateIsRegistered(request.m_buffer))
         {
             return ResultCode::InvalidArgument;
         }
@@ -152,10 +152,10 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (GetMapRefCount() == 0 || GetDescriptor().m_heapMemoryLevel != HeapMemoryLevel::Device)
+            if (GetMapRefCount() != 0 && GetDescriptor().m_heapMemoryLevel == HeapMemoryLevel::Host)
             {
                 LOG_ERROR("[BufferPool] There are currently buffers mapped on buffer pool {}"
-                "All buffers must be unmapped when the frame is processing.", GetName().GetCStr());
+                "All buffers must be unmapped when the frame is processing.", GetName().GetCStr() ? GetName().GetCStr() : "[Unknow]");
             }
         }
 

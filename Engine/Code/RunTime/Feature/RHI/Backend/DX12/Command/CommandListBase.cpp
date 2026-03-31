@@ -26,6 +26,7 @@ namespace Spark::RHI::DX12
         m_hardwareQueueClass = hardwareQueueClass;
 
         HRESULT hr = device.GetDX12Device()->CreateCommandList(1, ConvertHardwareQueueClass(hardwareQueueClass), commandAllocator, nullptr, IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf()));
+        ASSERT(SUCCEEDED(hr), "[DX12 CommandListBase] CreateCommandList failed!");
         m_isRecording = true;
 
         /*

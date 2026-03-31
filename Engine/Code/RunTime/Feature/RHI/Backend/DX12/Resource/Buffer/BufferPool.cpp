@@ -87,6 +87,15 @@ namespace Spark::RHI::DX12
         // D3D12_RESOURCE_STATES is D3D12_RESOURCE_STATE_COMMON by default
         const RHI::ResourceState resourceState = bufferBase.GetResourceState();
         D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
+        // Upload and Readback heap resource has a constant D3D12_RESOURCE_STATE
+        if (allocDesc.HeapType == D3D12_HEAP_TYPE_UPLOAD)
+        {
+            initialResourceState = D3D12_RESOURCE_STATE_GENERIC_READ;
+        }
+        else if (allocDesc.HeapType == D3D12_HEAP_TYPE_READBACK)
+        {
+            initialResourceState = D3D12_RESOURCE_STATE_COPY_DEST;
+        }
 
         D3D12MA::Allocation* allocation = nullptr;
         HRESULT result = m_allocator->CreateResource(
@@ -106,7 +115,7 @@ namespace Spark::RHI::DX12
         }
 
         // 创建一个默认BufferMemoryView，使用全部Memory(ID3DResource)
-        MemoryView memoryView(allocation, MemoryViewType::Buffer, 0, bufferDescriptor.m_byteCount, bufferDescriptor.m_alignment);
+        MemoryView memoryView(allocation, MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
         BufferMemoryView bufferMemoryView(eastl::move(memoryView), allocation->GetHeap() ? BufferMemoryType::Shared : BufferMemoryType::Unique);
         Buffer& buffer = static_cast<Buffer&>(bufferBase);
         buffer.m_memoryView = eastl::move(bufferMemoryView);

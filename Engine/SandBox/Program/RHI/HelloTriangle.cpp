@@ -287,7 +287,6 @@ namespace Spark::SandBox
         RHI::BufferDescriptor bufferDesc;
         bufferDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
         bufferDesc.m_byteCount = sizeof(vert);
-        bufferDesc.m_alignment = RHI::Alignment::Buffer;
         
         RHI::BufferInitRequest initResquest;
         initResquest.m_buffer = m_vertexBuffer.get();
@@ -375,7 +374,7 @@ namespace Spark::SandBox
 
         RHI::ImageClearRequest clearRequest;
         clearRequest.m_imageView = m_swapChainImageView.get();
-        clearRequest.m_clearValue = RHI::ClearValue::CreateVector4Uint(0, 0, 0, 255);
+        clearRequest.m_clearValue = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
         commandList->ClearRenderTarget(clearRequest);
 
         const RHI::ImageView* renderTargets[] = { m_swapChainImageView.get() };

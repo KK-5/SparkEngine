@@ -76,7 +76,7 @@ namespace Spark::RHI
             return ResultCode::InvalidOperation;
         }
 
-        if (!IsRegistered(&image))
+        if (!ValidateIsRegistered(&image))
         {
             return ResultCode::InvalidArgument;
         }
@@ -141,7 +141,7 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (!IsRegistered(expandRequest.m_image.get()))
+            if (!ValidateIsRegistered(expandRequest.m_image.get()))
             {
                 return false;
             }
