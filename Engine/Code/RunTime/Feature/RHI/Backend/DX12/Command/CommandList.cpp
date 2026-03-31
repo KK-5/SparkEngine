@@ -393,6 +393,12 @@ namespace Spark::RHI::DX12
 
     void CommandList::QueueBarrier(const RHI::BufferBarrier& barrier)
     {
+        if (!RHI::ValidateBufferBarrier(barrier))
+        {
+            ASSERT(false, "[RHI DX12] Rejected invalid buffer barrier.");
+            return;
+        }
+
         Buffer& buffer = static_cast<Buffer&>(*barrier.m_buffer);
         CommandListBase::QueueTransitionBarrier(
             buffer.GetMemoryView().GetMemory(),
@@ -404,6 +410,12 @@ namespace Spark::RHI::DX12
 
     void CommandList::QueueBarrier(const RHI::ImageBarrier& barrier)
     {
+        if (!RHI::ValidateImageBarrier(barrier))
+        {
+            ASSERT(false, "[RHI DX12] Rejected invalid image barrier.");
+            return;
+        }
+
         Image& image = static_cast<Image&>(*barrier.m_image);
         CommandListBase::QueueTransitionBarrier(
             image.GetMemoryView().GetMemory(),

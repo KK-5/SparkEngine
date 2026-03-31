@@ -38,20 +38,7 @@ namespace Spark::RHI
         request.m_buffer->SetDescriptor(request.m_descriptor);
 
         // Set initial resource state using Vulkan-style (Usage, Access) model.
-        // Host/Write (upload heap): fixed read state, no transitions needed.
-        // Host/Read (readback heap): copy destination, fixed state.
-        // Device heap: uninitialized, requires explicit transition before use.
-        if (m_descriptor.m_heapMemoryLevel == HeapMemoryLevel::Host)
-        {
-            SetResourceState(*request.m_buffer, ResourceState{
-                m_descriptor.m_hostMemoryAccess == HostMemoryAccess::Write
-                    ? AttachmentUsage::InputAssembly   // Upload heap, generic read
-                    : AttachmentUsage::Copy,           // Readback heap
-                m_descriptor.m_hostMemoryAccess == HostMemoryAccess::Write
-                    ? AttachmentAccess::Read
-                    : AttachmentAccess::Write
-            });
-        }
+        SetResourceState(*request.m_buffer, RHI::ResourceState{});
 
         ResultCode resultCode = ResourcePool::InitResource(request.m_buffer, [this, &request](){
             return InitBufferInternal(*request.m_buffer, request.m_descriptor);

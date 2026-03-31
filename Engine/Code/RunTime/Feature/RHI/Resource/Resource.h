@@ -13,6 +13,7 @@ namespace Spark::RHI
     {
         friend class ResourcePool;  // for SetPool, Init, SetResourceState
         friend class CommandList;   // for SetResourceState (barrier updates)
+        friend class SwapChain;     // for SetResourceState (barrier updates)
     public:
         virtual ~Resource();
 

@@ -24,9 +24,11 @@ set(SOURCES
     Pipeline/RenderStates.cpp
     Pipeline/ShaderStageFunction.cpp
     Resource/Resource.cpp
+    Resource/ResourceState.cpp
     Resource/ResourcePool.cpp
     Resource/ResourceView.cpp
     Resource/Buffer/BufferViewDescriptor.cpp
+    Resource/Buffer/BufferDescriptor.cpp
     Resource/Buffer/Buffer.cpp
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/BufferView.cpp

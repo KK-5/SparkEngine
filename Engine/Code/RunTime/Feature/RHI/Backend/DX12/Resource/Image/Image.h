@@ -131,7 +131,7 @@ namespace Spark::RHI::DX12
                             
         bool IsStreamableInternal() const override;
 
-        void SetDescriptor(const RHI::ImageDescriptor& descriptor) override;
+        // void SetDescriptor(const RHI::ImageDescriptor& descriptor) override;
         //////////////////////////////////////////////////////////////////////////
 
         // Calculate the size of all the tiles allocated for this image and save the number in m_residentSizeInBytes

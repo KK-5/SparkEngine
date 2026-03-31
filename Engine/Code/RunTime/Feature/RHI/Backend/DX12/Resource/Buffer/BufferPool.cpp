@@ -84,21 +84,9 @@ namespace Spark::RHI::DX12
         allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel, GetDescriptor().m_hostMemoryAccess);
         allocDesc.Flags = D3D12MA::ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
 
-        // Derive D3D12 initial state from pool descriptor directly.
-        // Upload heap → GENERIC_READ (fixed), Readback → COPY_DEST (fixed), Device → COMMON.
-        D3D12_RESOURCE_STATES initialResourceState;
-        if (GetDescriptor().m_heapMemoryLevel == RHI::HeapMemoryLevel::Host)
-        {
-            initialResourceState = (GetDescriptor().m_hostMemoryAccess == RHI::HostMemoryAccess::Write)
-                ? D3D12_RESOURCE_STATE_GENERIC_READ
-                : D3D12_RESOURCE_STATE_COPY_DEST;
-        }
-        else
-        {
-            initialResourceState = CheckBitsAny(bufferDescriptor.m_bindFlags, RHI::BufferBindFlags::RayTracingAccelerationStructure)
-                ? D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
-                : D3D12_RESOURCE_STATE_COMMON;
-        }
+        // D3D12_RESOURCE_STATES is D3D12_RESOURCE_STATE_COMMON by default
+        const RHI::ResourceState resourceState = bufferBase.GetResourceState();
+        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
 
         D3D12MA::Allocation* allocation = nullptr;
         HRESULT result = m_allocator->CreateResource(

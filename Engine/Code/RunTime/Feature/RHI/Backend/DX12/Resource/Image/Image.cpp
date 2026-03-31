@@ -374,12 +374,14 @@ namespace Spark::RHI::DX12
         return IsTiled();
     }
 
+
+    /*
     void Image::SetDescriptor(const RHI::ImageDescriptor& descriptor)
     {
         RHI::Image::SetDescriptor(descriptor);
 
         m_initialResourceState = D3D12_RESOURCE_STATE_COMMON;
-
+        
         const RHI::ImageBindFlags bindFlags = descriptor.m_bindFlags;
 
         // Write only states
@@ -438,9 +440,10 @@ namespace Spark::RHI::DX12
                 m_initialResourceState |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
             }
         }
-
+        
         InitSubresourceAttachmentState();
     }
+    */
 
     void Image::InitSubresourceAttachmentState()
     {

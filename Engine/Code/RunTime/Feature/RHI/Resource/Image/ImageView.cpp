@@ -19,10 +19,6 @@ namespace Spark::RHI
 
     void ImageView::Shutdown()
     {
-        if (IsInitialized())
-        {
-            GetImage().EraseImageView(this);
-        }
         ResourceView::Shutdown();
     }
 

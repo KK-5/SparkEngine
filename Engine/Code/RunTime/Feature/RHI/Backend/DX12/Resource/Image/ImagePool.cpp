@@ -104,6 +104,9 @@ namespace Spark::RHI::DX12
             clearValue = ConvertClearValue(imageDesc.m_format, *request.m_optimizedClearValue);
         }
 
+        const RHI::ResourceState resourceState = image->GetResourceState();
+        D3D12_RESOURCE_STATES initialResourceState = ConvertImageAttachmentState(resourceState.m_usage, resourceState.m_access);
+
         D3D12MA::Allocation* allocation = nullptr;
         HRESULT result = m_d3dmaAllocator->CreateResource(
             &allocDesc,

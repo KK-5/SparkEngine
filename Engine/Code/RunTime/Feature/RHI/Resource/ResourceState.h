@@ -26,7 +26,7 @@ namespace Spark::RHI
         (RenderTarget, *)      → RENDER_TARGET
         (Indirect, *)          → INDIRECT_ARGUMENT
         (Uninitialized, *)     → COMMON
-    AttachmentStage is unused by DX12
+    AttachmentStage is unused in DX12
     */
 
     /// Tracks the current usage state of a resource.
@@ -64,4 +64,45 @@ namespace Spark::RHI
         AttachmentStage  m_srcStage = AttachmentStage::Any;
         AttachmentStage  m_dstStage = AttachmentStage::Any;
     };
+
+    BufferBarrier MakeBufferBarrier(
+        Buffer& buffer,
+        AttachmentUsage dstUsage,
+        AttachmentAccess dstAccess,
+        AttachmentStage srcStage = AttachmentStage::Any,
+        AttachmentStage dstStage = AttachmentStage::Any);
+
+    ImageBarrier MakeImageBarrier(
+        Image& image,
+        AttachmentUsage newUsage,
+        AttachmentAccess dstAccess,
+        AttachmentStage srcStage = AttachmentStage::Any,
+        AttachmentStage dstStage = AttachmentStage::Any);
+
+    // Buffer transition helpers.
+    BufferBarrier ConvertToCopyRead(Buffer& buffer);
+    BufferBarrier ConvertToCopyWrite(Buffer& buffer);
+    BufferBarrier ConvertToShaderRead(Buffer& buffer);
+    BufferBarrier ConvertToShaderWrite(Buffer& buffer);
+    BufferBarrier ConvertToShaderReadWrite(Buffer& buffer);
+    BufferBarrier ConvertToInputAssembly(Buffer& buffer);
+    BufferBarrier ConvertToIndirect(Buffer& buffer);
+    BufferBarrier ConvertToPredication(Buffer& buffer);
+    BufferBarrier ConvertToRayTracingAccelerationStructure(Buffer& buffer);
+
+    // Image transition helpers.
+    ImageBarrier ConvertToRenderTarget(Image& image);
+    ImageBarrier ConvertToDepthStencilRead(Image& image);
+    ImageBarrier ConvertToDepthStencilWrite(Image& image);
+    ImageBarrier ConvertToImageShaderRead(Image& image);
+    ImageBarrier ConvertToImageShaderWrite(Image& image);
+    ImageBarrier ConvertToImageShaderReadWrite(Image& image);
+    ImageBarrier ConvertToImageCopyRead(Image& image);
+    ImageBarrier ConvertToImageCopyWrite(Image& image);
+    ImageBarrier ConvertToShadingRate(Image& image);
+
+    //! Validates whether destination state is supported by the resource bind flags.
+    //! Returns false and reports an error if the transition is invalid.
+    bool ValidateBufferBarrier(const BufferBarrier& barrier);
+    bool ValidateImageBarrier(const ImageBarrier& barrier);
 }

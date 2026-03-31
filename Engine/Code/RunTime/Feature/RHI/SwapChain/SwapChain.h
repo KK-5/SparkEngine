@@ -90,6 +90,8 @@ namespace Spark::RHI
     protected:
         SwapChain() = default;
 
+        void SetResourceState(Resource& resource, ResourceState state);
+
         struct InitImageRequest
         {
             //! Pointer to the image to initialize.

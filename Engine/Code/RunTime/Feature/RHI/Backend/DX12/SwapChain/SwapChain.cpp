@@ -155,6 +155,7 @@ namespace Spark::RHI::DX12
         image.GenerateSubresourceLayouts();
         // Overwrite m_initialAttachmentState because Swapchain images are created with D3D12_RESOURCE_STATE_COMMON state
         image.SetAttachmentState(D3D12_RESOURCE_STATE_COMMON);
+        SetResourceState(image, RHI::ResourceState{});
 
         return RHI::ResultCode::Success;
     }

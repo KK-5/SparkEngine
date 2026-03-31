@@ -197,4 +197,10 @@ namespace Spark::RHI
         ShutdownInternal();
         DeviceObject::Shutdown();
     }
+
+    void SwapChain::SetResourceState(Resource& resource, ResourceState state)
+    {
+        Image& image = static_cast<Image&>(resource);
+        image.SetResourceState(state);
+    }
 }

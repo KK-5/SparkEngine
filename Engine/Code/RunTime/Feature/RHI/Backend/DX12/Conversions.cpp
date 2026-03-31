@@ -511,6 +511,15 @@ namespace Spark::RHI::DX12
 
         case RHI::AttachmentUsage::ShadingRate:
             return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+        
+        case RHI::AttachmentUsage::Present:
+            return D3D12_RESOURCE_STATE_PRESENT;
+
+        case RHI::AttachmentUsage::ConstantBuffer:
+            return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+
+        case RHI::AttachmentUsage::RayTracingAccelerationStructure:
+            return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
 
         case RHI::AttachmentUsage::SubpassInput:
             return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
@@ -548,6 +557,7 @@ namespace Spark::RHI::DX12
 
         case RHI::AttachmentUsage::InputAssembly:
             // Not applicable to textures; avoid VCB/IB states on images.
+            LOG_ERROR("[RHI DX12] ConvertImageAttachmentState - InputAssembly usage is not applicable to textures; return COMMON state.");
             return D3D12_RESOURCE_STATE_COMMON;
 
         case RHI::AttachmentUsage::Indirect:
@@ -563,6 +573,17 @@ namespace Spark::RHI::DX12
 
         case RHI::AttachmentUsage::ShadingRate:
             return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+
+        case RHI::AttachmentUsage::Present:
+            return D3D12_RESOURCE_STATE_PRESENT;
+
+        case RHI::AttachmentUsage::ConstantBuffer:
+            // Not applicable to textures; avoid VCB/IB states on images.
+            LOG_ERROR("[RHI DX12] ConvertImageAttachmentState - ConstantBuffer usage is not applicable to textures; return COMMON state.");
+            return D3D12_RESOURCE_STATE_COMMON;
+
+        case RHI::AttachmentUsage::RayTracingAccelerationStructure:
+            return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
 
         case RHI::AttachmentUsage::SubpassInput:
             return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;

@@ -55,16 +55,10 @@ namespace Spark::RHI
 
         const ImageDescriptor& GetDescriptor() const;
 
-        Ptr<ImageView> GetImageView(const ImageViewDescriptor& imageViewDescriptor) const;
-
-        void EraseImageView(ImageView* imageView) const;
-
-        bool IsInImageCache(const ImageViewDescriptor& imageViewDescriptor);
-
     protected:
         Image() = default;
 
-        virtual void SetDescriptor(const ImageDescriptor& descriptor);
+        void SetDescriptor(const ImageDescriptor& descriptor);
 
     private:
         ///////////////////////////////////////////////////////////////////
@@ -87,7 +81,5 @@ namespace Spark::RHI
         uint32_t m_residentMipLevel = 0;
 
         ImageAspectFlags m_aspectFlags = ImageAspectFlags::None;
-
-        mutable ResourceViewCache<ImageViewDescriptor, ImageViewDescriptoHasher> m_imageViewCache;
     };
 }

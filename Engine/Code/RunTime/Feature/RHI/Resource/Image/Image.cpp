@@ -50,6 +50,7 @@ namespace Spark::RHI
         return m_descriptor;
     }
 
+    /*
     Ptr<ImageView> Image::GetImageView(const ImageViewDescriptor& imageViewDescriptor) const
     {
         ResourceView* view = m_imageViewCache.GetResourceView(imageViewDescriptor);
@@ -65,4 +66,5 @@ namespace Spark::RHI
     {
         return m_imageViewCache.IsInResourceCache(imageViewDescriptor);
     }
+    */
 }
