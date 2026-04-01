@@ -12,6 +12,7 @@
 #include <RHI/RHILimits.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/Device/DeviceObject.h>
+#include <RHI/Fence/Fence.h>
 
 namespace Spark::RHI
 {
@@ -40,8 +41,10 @@ namespace Spark::RHI
 
         using Command = eastl::function<void(void* commandQueue)>;
         void QueueCommand(Command command);
-        void FlushCommands();
+        void FlushCommands(RHI::Fence& fence);
         void ExecuteCommand(eastl::span<CommandList*> commandLists);
+
+        void Signal(RHI::Fence& fence);
             
         RHI::HardwareQueueClass GetHardwareQueueClass() const;
         const CommandQueueDescriptor& GetDescriptor() const;
@@ -52,6 +55,7 @@ namespace Spark::RHI
         virtual ResultCode InitInternal(Device& device, const CommandQueueDescriptor& descriptor) = 0;
         virtual void ExecuteWork(const ExecuteWorkRequest& request) = 0;
         virtual void ExecuteCommandInternal(eastl::span<CommandList*> commandLists) = 0;
+        virtual void SignalInternal(RHI::Fence& fence) = 0;
         virtual void WaitForIdle() = 0;
         virtual void ShutdownInternal() = 0;
         // virtual void* GetNativeQueue() = 0;

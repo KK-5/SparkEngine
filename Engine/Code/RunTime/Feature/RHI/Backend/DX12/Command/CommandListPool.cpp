@@ -26,15 +26,26 @@ namespace Spark::RHI::DX12
         m_descriptor = descriptor;
     }
 
+    /*
+     * ID3D12Object与SparkObject不同，SparkObject允许引用计数降为0，此时对象处于待回收状态，
+     * 而ID3D12Object引用计数为0时自动析构
+     *
+    */
     ID3D12CommandAllocator* CommandAllocatorFactory::CreateObject()
     {
-        // ComPtr<ID3D12CommandAllocator> allocator;
-        ID3D12CommandAllocator* allocator;
+        ComPtr<ID3D12CommandAllocator> allocator;
         HRESULT hr = m_descriptor.m_dx12Device->CreateCommandAllocator(
             ConvertHardwareQueueClass(m_descriptor.m_hardwareQueueClass),
             IID_PPV_ARGS(&allocator));
+        // 增加引用防止析构
+        allocator->AddRef();
+        return allocator.Get();
+    }
 
-        return allocator;
+    void CommandAllocatorFactory::DestoryObject(ID3D12CommandAllocator* allocator, [[maybe_unused]]bool isPoolShutdown)
+    {
+        // 手动减少引用析构
+        allocator->Release();
     }
 
     bool CommandAllocatorFactory::IsRecycleObject([[maybe_unused]] ID3D12CommandAllocator* allocator)
@@ -97,6 +108,7 @@ namespace Spark::RHI::DX12
             commandAllocatorPoolDescriptor.m_hardwareQueueClass = static_cast<RHI::HardwareQueueClass>(queueIdx);
             commandAllocatorPoolDescriptor.m_dx12Device = descriptor.m_device->GetDX12Device();
             commandAllocatorPoolDescriptor.m_collectLatency = descriptor.m_frameCountMax;
+            commandAllocatorPoolDescriptor.m_collectLatency = 0;
             commandAllocatorPool.Init(commandAllocatorPoolDescriptor);
         }
 
@@ -111,7 +123,7 @@ namespace Spark::RHI::DX12
         {
             for (uint32_t queueIdx = 0; queueIdx < RHI::HardwareQueueClassCount; ++queueIdx)
             {
-                m_activeLists.clear();
+                Reset(queueIdx);
                 m_commandListPools[queueIdx].Shutdown();
                 m_commandAllocatorPools[queueIdx].Shutdown();
             }
@@ -126,17 +138,23 @@ namespace Spark::RHI::DX12
         if (!m_activeCommandAllocators[hardwareQueue])
         {
             m_activeCommandAllocators[hardwareQueue] = m_commandAllocatorPools[hardwareQueue].Allocate();
-
         }
 
-        return m_commandListPools[hardwareQueue].Allocate(m_activeCommandAllocators[hardwareQueue].get());
+        CommandList* commandList = m_commandListPools[hardwareQueue].Allocate(m_activeCommandAllocators[hardwareQueue].get());
+        m_activeLists.push_back(commandList);
+        return commandList;
     }
 
     void CommandListAllocator::Reset(uint32_t hardwareQueue)
     {
-        m_commandListPools[hardwareQueue].DeAllocate(m_activeLists.data(), m_activeLists.size());
-        m_activeLists.clear();
-
+        if (!m_activeLists.empty())
+        {
+            eastl::for_each(m_activeLists.begin(), m_activeLists.end(), [&](Ptr<CommandList> commandList)
+            {
+                 m_commandListPools[hardwareQueue].DeAllocate(commandList.get());
+            });
+            m_activeLists.clear();
+        }
         if (m_activeCommandAllocators[hardwareQueue])
         {
             m_commandAllocatorPools[hardwareQueue].DeAllocate(m_activeCommandAllocators[hardwareQueue].get());

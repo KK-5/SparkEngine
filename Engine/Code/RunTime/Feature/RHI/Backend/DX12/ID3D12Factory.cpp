@@ -175,6 +175,7 @@ namespace Spark::RHI::DX12
             desc.m_collectLatency = device.GetDescriptor().m_frameCountMax;
             desc.m_collectFunction = nullptr;
             
+            m_dx12ObjReleaseQueue = eastl::make_unique<D3D12ObjReleaseQueue>();
             m_dx12ObjReleaseQueue->Init(desc);
         }
         m_dx12ObjReleaseQueue->QueueForCollect(dx12Object);

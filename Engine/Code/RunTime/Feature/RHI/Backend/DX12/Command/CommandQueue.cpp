@@ -48,6 +48,12 @@ namespace Spark::RHI::DX12
         m_queue->Signal(fence.Get(), fence.GetPendingValue());
     }
 
+    void CommandQueue::SignalInternal(RHI::Fence& fence)
+    {
+        Fence& dx12Fence = static_cast<Fence&>(fence);
+        Signal(dx12Fence.Get());
+    }
+
     void CommandQueue::ExecuteWork(const RHI::ExecuteWorkRequest& request)
     {
 

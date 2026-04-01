@@ -38,13 +38,13 @@ namespace Spark::RHI::DX12
         desc.pDevice = device.GetDX12Device();
         desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
 
-        D3D12MA::Allocator* pAllocator;
+        ComPtr<D3D12MA::Allocator> pAllocator;
         if (FAILED(D3D12MA::CreateAllocator(&desc, &pAllocator)))
         {
             LOG_ERROR("[ImagePool] Failed to initialize the D3D12MemoryAllocator.");
             return RHI::ResultCode::Fail;
         }
-        m_d3dmaAllocator = pAllocator;
+        m_d3dmaAllocator = pAllocator.Get();
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
@@ -95,7 +95,7 @@ namespace Spark::RHI::DX12
         const RHI::ResourceState resourceState = image->GetResourceState();
         D3D12_RESOURCE_STATES initialResourceState = ConvertImageAttachmentState(resourceState.m_usage, resourceState.m_access);
 
-        D3D12MA::Allocation* allocation = nullptr;
+        ComPtr<D3D12MA::Allocation> allocation = nullptr;
         HRESULT result = m_d3dmaAllocator->CreateResource(
             &allocDesc,
             &resourceDesc,
@@ -112,7 +112,7 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
-        MemoryView memoryView(allocation, MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());
+        MemoryView memoryView(allocation.Get(), MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());
         image->m_residentSizeInBytes = memoryView.GetSize();
         image->m_memoryView = eastl::move(memoryView);
         image->GenerateSubresourceLayouts();

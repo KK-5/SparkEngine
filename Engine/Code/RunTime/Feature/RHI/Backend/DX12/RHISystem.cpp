@@ -12,6 +12,7 @@ namespace Spark::RHI::DX12
         {
             LOG_ERROR("Failed to initialize ID3D12Factory!");
         }
+        FrameEventBus::Handler::BusConnect();
     }
 
     void RHISystem::ShutdownInternal()
@@ -20,6 +21,7 @@ namespace Spark::RHI::DX12
         {
             m_rhiFactory->Shutdown();
         }
+        FrameEventBus::Handler::BusDisconnect();
     }
 
     void RHISystem::OnFrameEnd()

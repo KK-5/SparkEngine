@@ -59,9 +59,17 @@ namespace Spark::RHI
     
     }
 
-    void CommandQueue::FlushCommands()
+    void CommandQueue::FlushCommands(RHI::Fence& fence)
     {
-        WaitForIdle();
+        if (fence.Reset() == RHI::ResultCode::Success)
+        {
+            Signal(fence);
+            fence.WaitOnCpu();
+        }
+        else
+        {
+            LOG_ERROR("[CommandQueue] Reset Fence failed.");
+        }
     }
 
     void CommandQueue::ProcessQueue()
@@ -73,10 +81,28 @@ namespace Spark::RHI
     {
         if (!ValidateIsInitialized())
         {
+            LOG_ERROR("[CommandQueue] CommandQueue is not initialize.");
             return;
         }
 
         ExecuteCommandInternal(commandLists);
+    }
+
+    void CommandQueue::Signal(RHI::Fence& fence)
+    {
+        if (!ValidateIsInitialized())
+        {
+            LOG_ERROR("[CommandQueue] CommandQueue is not initialize.");
+            return;
+        }
+
+        if (!fence.IsInitialized())
+        {
+            LOG_ERROR("[CommandQueue] Fence is not initialize.");
+            return;
+        }
+
+        SignalInternal(fence);
     }
 
     RHI::HardwareQueueClass CommandQueue::GetHardwareQueueClass() const

@@ -13,13 +13,13 @@ namespace Spark::RHI::DX12
         desc.pDevice = device.GetDX12Device();
         desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
 
-        D3D12MA::Allocator* pAllocator;
+        ComPtr<D3D12MA::Allocator> pAllocator;
         if (FAILED(D3D12MA::CreateAllocator(&desc, &pAllocator)))
         {
             LOG_ERROR("[ConstantBufferContext] Failed to initialize the D3D12MemoryAllocator.");
             return RHI::ResultCode::Fail;
         }
-        m_allocator = pAllocator;
+        m_allocator = pAllocator.Get();
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
@@ -35,7 +35,7 @@ namespace Spark::RHI::DX12
         D3D12MA::ALLOCATION_DESC allocDesc = {};
         allocDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
 
-        D3D12MA::Allocation* allocation = nullptr;
+        ComPtr<D3D12MA::Allocation> allocation = nullptr;
         HRESULT result = m_allocator->CreateResource(
             &allocDesc,
             &desc,
@@ -48,7 +48,7 @@ namespace Spark::RHI::DX12
         ASSERT(result == S_OK, "[StagingMemoryContext] D3D12MA Create buffer resource failed!");
 
         // 默认MemoryView使用了Memory(ID3DResource)全部资源
-        return MemoryView(allocation, MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
+        return MemoryView(allocation.Get(), MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
     }
 
     MemoryView ConstantBufferContext::AcquireStagingMemory(size_t size, size_t alignment)

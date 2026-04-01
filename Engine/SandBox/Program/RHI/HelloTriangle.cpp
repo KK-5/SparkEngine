@@ -440,19 +440,20 @@ namespace Spark::SandBox
         {
             m_glfwWindow->PollEvents();
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
-
+            
             RHI::CommandList* commandList = m_rhiFactory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
             BuildCommand(commandList);
             RHI::CommandList* commandLists[] = { commandList };
             m_commandQueue->ExecuteCommand(commandLists);
-            m_commandQueue->FlushCommands();
+            
+            m_commandQueue->FlushCommands(*m_fence);
 
             m_swapChain->Present();
 
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         }
         // 退出时需要等待命令队列执行完成
-        m_commandQueue->FlushCommands();
+        m_commandQueue->FlushCommands(*m_fence);
     }
 }
 

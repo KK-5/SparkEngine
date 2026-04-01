@@ -54,7 +54,7 @@ namespace Spark::RHI::DX12
         desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
         desc.PreferredBlockSize = bufferPageSize;
 
-        D3D12MA::Allocator* pAllocator = nullptr;
+        ComPtr<D3D12MA::Allocator> pAllocator = nullptr;
         //desc.Flags = D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
         desc.Flags = D3D12MA::ALLOCATOR_FLAG_NONE;
         HRESULT allocatorCreateResult = D3D12MA::CreateAllocator(&desc, &pAllocator);
@@ -72,7 +72,7 @@ namespace Spark::RHI::DX12
 
             LOG_WARN("[BufferPool] D3D12 allocator not-zeroed heaps are unsupported on this runtime, fallback to zeroed heaps.");
         }
-        m_allocator = pAllocator;
+        m_allocator = pAllocator.Get();
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
@@ -83,8 +83,8 @@ namespace Spark::RHI::DX12
 
     void BufferPool::ShutdownInternal()
     {
-        m_allocator.reset();
         m_releaseQueue.Shutdown();
+        m_allocator.reset();
     }
 
     RHI::ResultCode BufferPool::InitBufferInternal(RHI::Buffer& bufferBase, const RHI::BufferDescriptor& bufferDescriptor)
@@ -109,7 +109,7 @@ namespace Spark::RHI::DX12
             initialResourceState = D3D12_RESOURCE_STATE_COPY_DEST;
         }
 
-        D3D12MA::Allocation* allocation = nullptr;
+        ComPtr<D3D12MA::Allocation> allocation = nullptr;
         HRESULT result = m_allocator->CreateResource(
             &allocDesc,
             &resourceDesc,
@@ -127,7 +127,7 @@ namespace Spark::RHI::DX12
         }
 
         // 创建一个默认BufferMemoryView，使用全部Memory(ID3DResource)
-        MemoryView memoryView(allocation, MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
+        MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
         BufferMemoryView bufferMemoryView(eastl::move(memoryView), allocation->GetHeap() ? BufferMemoryType::Shared : BufferMemoryType::Unique);
         Buffer& buffer = static_cast<Buffer&>(bufferBase);
         buffer.m_memoryView = eastl::move(bufferMemoryView);

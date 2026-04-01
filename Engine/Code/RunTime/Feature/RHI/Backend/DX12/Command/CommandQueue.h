@@ -40,7 +40,7 @@ namespace Spark::RHI::DX12
         void ExecuteCommandInternal(eastl::span<RHI::CommandList*> commandLists) override;
         //////////////////////////////////////////////////////////////////////////
 
-        void Signal(DX12Fence& fence);
+        // void Signal(DX12Fence& fence);
         ID3D12CommandQueue* GetNativeQueue() const;
     
     private:
@@ -52,9 +52,11 @@ namespace Spark::RHI::DX12
         // RHI::CommandQueue
         RHI::ResultCode InitInternal(RHI::Device& device, const RHI::CommandQueueDescriptor& descriptor) override;
         void ShutdownInternal() override;
+        void SignalInternal(RHI::Fence& fence) override;
         //////////////////////////////////////////////////////////////////////////
 
         // void UpdateTileMappings(CommandList& commandList);
+        void Signal(DX12Fence& fence);
 
         Ptr<ID3D12CommandQueue> m_queue;
         ID3D12DeviceX* m_dx12Device;

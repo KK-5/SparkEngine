@@ -43,6 +43,8 @@ namespace Spark::RHI::DX12
 
         ID3D12CommandAllocator* CreateObject();
 
+        void DestoryObject(ID3D12CommandAllocator* allocator, bool isPoolShutdown);
+
         void ResetObject(ID3D12CommandAllocator* allocator);
 
         bool IsRecycleObject(ID3D12CommandAllocator* allocator);
@@ -141,7 +143,8 @@ namespace Spark::RHI::DX12
         eastl::array<CommandListPool, RHI::HardwareQueueClassCount> m_commandListPools;
         eastl::array<CommandAllocatorPool, RHI::HardwareQueueClassCount> m_commandAllocatorPools;
         eastl::array<Ptr<ID3D12CommandAllocator>, RHI::HardwareQueueClassCount> m_activeCommandAllocators;
-        eastl::vector<CommandList*> m_activeLists;
+        //eastl::vector<CommandList*> m_activeLists;
+        eastl::vector<Ptr<CommandList>> m_activeLists;
 
         bool m_isInitialized = false;
     };
