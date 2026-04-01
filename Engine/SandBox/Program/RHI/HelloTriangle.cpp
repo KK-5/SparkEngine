@@ -449,7 +449,6 @@ namespace Spark::SandBox
 
             m_swapChain->Present();
 
-            m_rhi->FactoryCollect();
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         }
         // 退出时需要等待命令队列执行完成

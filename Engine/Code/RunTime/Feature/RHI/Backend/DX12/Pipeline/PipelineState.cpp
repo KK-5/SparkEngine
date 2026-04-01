@@ -182,7 +182,9 @@ namespace Spark::RHI::DX12
         // ray tracing shaders do not have a traditional pipeline state object
         if (m_pipelineStateData.m_type != RHI::PipelineStateType::RayTracing)
         {
-            static_cast<Device&>(GetDevice()).QueueForRelease(eastl::move(m_pipelineState));
+            auto ID3D12Factory = Service<ID3D12FactoryInterface>::Get();
+            ASSERT(ID3D12Factory, "ID3D12Factory is null!");
+            ID3D12Factory->QueueForRelease(static_cast<Device&>(GetDevice()), eastl::move(m_pipelineState));
         }
 
         m_pipelineState = nullptr;

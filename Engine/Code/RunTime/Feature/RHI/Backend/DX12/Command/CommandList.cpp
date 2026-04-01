@@ -396,7 +396,7 @@ namespace Spark::RHI::DX12
         RHI::BufferPool& bufferPool = static_cast<RHI::BufferPool&>(*barrier.m_buffer->GetPool());
         if (bufferPool.GetDescriptor().m_heapMemoryLevel == RHI::HeapMemoryLevel::Host)
         {
-            LOG_INFO("[DX12 CommandList] Discard resource barrier to buffer which on upload heap or readbach heap.");
+            // LOG_INFO("[DX12 CommandList] Discard resource barrier to buffer which on upload heap or readbach heap.");
             return;
         }
 

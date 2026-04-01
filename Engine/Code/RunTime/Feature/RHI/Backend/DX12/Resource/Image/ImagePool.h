@@ -35,11 +35,17 @@ namespace Spark::RHI::DX12
         ImagePoolResolver* GetResolver();
 
         //////////////////////////////////////////////////////////////////////////
+        // FrameEventBus::Handler
+        void OnFrameEnd() override;
+        //////////////////////////////////////////////////////////////////////////
+
+        //////////////////////////////////////////////////////////////////////////
         // RHI::ImagePool
         RHI::ResultCode InitInternal(RHI::Device&, const RHI::ImagePoolDescriptor&) override;
         RHI::ResultCode InitImageInternal(const RHI::ImageInitRequest& request) override;
         RHI::ResultCode UpdateImageContentsInternal(const RHI::ImageUpdateRequest& request) override;
         void ShutdownResourceInternal(RHI::Resource& resourceBase) override;
+        void ShutdownInternal() override;
         //////////////////////////////////////////////////////////////////////////
 
         Ptr<D3D12MA::Allocator> m_d3dmaAllocator;

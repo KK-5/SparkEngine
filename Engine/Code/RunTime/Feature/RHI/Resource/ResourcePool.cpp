@@ -143,7 +143,7 @@ namespace Spark::RHI
 
     void ResourcePool::Shutdown()
     {
-        if (ValidateNotProcessingFrame())
+        if (!ValidateNotProcessingFrame())
         {
             LOG_ERROR("[ResourcePool] {} Attempting to shutdown while processing the frame is undefined behavior.", GetName().GetCStr());
             return;

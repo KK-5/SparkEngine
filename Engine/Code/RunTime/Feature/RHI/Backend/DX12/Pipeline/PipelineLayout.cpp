@@ -19,15 +19,19 @@
 #include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
 #include <Device/Device.h>
 #include <Conversions.h>
+#include <ID3D12Factory.h>
 
 namespace Spark::RHI::DX12
 {
     void PipelineLayout::Shutdown()
     {
+        auto ID3D12Factory = Service<ID3D12FactoryInterface>::Get();
+        ASSERT(ID3D12Factory, "ID3D12Factory is null!");
+        ID3D12Factory->QueueForRelease(static_cast<Device&>(GetDevice()), eastl::move(m_signature));
+
         m_d3d12Device = nullptr;
         m_layoutDescriptor = nullptr;
         m_hash = 0;
-        m_signature.reset();
         DeviceObject::Shutdown();
     }
 

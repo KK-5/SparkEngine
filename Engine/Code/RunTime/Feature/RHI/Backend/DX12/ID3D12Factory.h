@@ -4,9 +4,10 @@
 
 #include <RHI/Factory.h>
 #include <RHI/Device/DeviceObjectFactory.h>
+#include <RHI/Bus/FrameEventBus.h>
 
+#include "ReleaseQueue.h"
 #include "Device/DeviceObjectPool.h"
-
 #include "Resource/Buffer/Buffer.h"
 #include "Resource/Buffer/BufferPool.h"
 #include "Resource/Buffer/BufferView.h"
@@ -62,6 +63,10 @@ namespace Spark::RHI::DX12
 
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
 
+        virtual void QueueForRelease(Device& device, Ptr<ID3D12Object> dx12Object) = 0;
+
+        // virtual void QueueForRelease();
+
         // virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
     };
 
@@ -86,6 +91,8 @@ namespace Spark::RHI::DX12
         // CommandQueueContext& AcquireCommandQueueContext() override;
 
         Ptr<Sampler> CreateSampler() override;
+
+        void QueueForRelease(Device& device, Ptr<ID3D12Object> dx12Object) override;
         ///////////////////////////////////////////////////////////
 
         ///////////////////////////////////////////////////////////
@@ -163,6 +170,8 @@ namespace Spark::RHI::DX12
         eastl::unique_ptr<DescriptorContext> m_descriptorContext;
         eastl::unique_ptr<ConstantBufferContext> m_constantBufferContext;
         eastl::unique_ptr<CommandListAllocator> m_commandlistAllocator;
+
+        eastl::unique_ptr<D3D12ObjReleaseQueue> m_dx12ObjReleaseQueue;
     };
 
 }

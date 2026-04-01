@@ -16,23 +16,6 @@
 
 namespace Spark::RHI::DX12
 {
-    /*
-    class ImagePoolResolver final : public ResourcePoolResolver
-    {
-    public:
-        ImagePoolResolver(Device& device, ImagePool* imagePool)
-            : m_device{&device}
-            , m_pool{imagePool}
-        {}
-
-
-        ImagePool* m_pool = nullptr;
-    private:
-        Device* m_device = nullptr;
-
-    };
-    */
-
     Device& ImagePool::GetDevice() const
     {
         return static_cast<Device&>(Base::GetDevice());
@@ -40,7 +23,6 @@ namespace Spark::RHI::DX12
 
     ImagePoolResolver* ImagePool::GetResolver()
     {
-        // return static_cast<ImagePoolResolver*>(Base::GetResolver());
         return nullptr;
     }
 
@@ -69,6 +51,12 @@ namespace Spark::RHI::DX12
         m_releaseQueue.Init(releaseQueueDescriptor);
 
         return RHI::ResultCode::Success;
+    }
+
+    void ImagePool::ShutdownInternal()
+    {
+        m_d3dmaAllocator.reset();
+        m_releaseQueue.Shutdown();
     }
 
     RHI::ResultCode ImagePool::InitImageInternal(const RHI::ImageInitRequest& request)
@@ -145,5 +133,11 @@ namespace Spark::RHI::DX12
         m_releaseQueue.QueueForCollect(image.GetMemoryView().GetMemoryAllocation());
         image.m_memoryView = {};
         image.m_pendingResolves = 0;
+    }
+
+    void ImagePool::OnFrameEnd()
+    {
+        m_releaseQueue.Collect();
+        ResourcePool::OnFrameEnd();
     }
 }

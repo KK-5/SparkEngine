@@ -24,11 +24,6 @@ namespace Spark::RHI::DX12
         //! Usually called in object ShutdownInternal function.
         void QueueForRelease(Ptr<ID3D12Object> dx12Object);
 
-        //! Queues the backing Memory instance of a MemoryView for release (by taking a reference) after the
-        //! current frame has flushed through the GPU. The reference on the MemoryView itself is not released.
-        //! Usually called in object ShutdownInternal function.
-        void QueueForRelease(const MemoryView& memoryView);
-
         const PhysicalDevice& GetPhysicalDevice() const;
 
         // return the binding slot of the bindless srg
@@ -39,12 +34,12 @@ namespace Spark::RHI::DX12
         /// RHI::Device override
         RHI::ResultCode InitInternal(RHI::PhysicalDevice& physicalDevice) override;
         void ShutdownInternal() override;
-        RHI::ResultCode BeginFrameInternal() override;
-        void EndFrameInternal() override;
-        void WaitForIdleInternal() override;
+        // RHI::ResultCode BeginFrameInternal() override;
+        //void EndFrameInternal() override;
+        //void WaitForIdleInternal() override;
         RHI::ResultCode InitializeLimits() override;
         void FillFormatsCapabilitiesInternal(FormatCapabilitiesList& formatsCapabilities) override;
-        void PreShutdown() override;
+        // void PreShutdown() override;
         //////////////////////////////
 
         /// @brief init m_features and m_limits
@@ -55,6 +50,5 @@ namespace Spark::RHI::DX12
         Ptr<IDXGIFactoryX> m_dxgiFactory;
 
         D3D12ObjReleaseQueue    m_objReleaseQueue;
-        D3D12MAReleaseQueue     m_D3D12MAReleaseQueue;
     };
 }

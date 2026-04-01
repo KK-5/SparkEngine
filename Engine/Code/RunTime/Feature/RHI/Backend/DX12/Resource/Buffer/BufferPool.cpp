@@ -84,6 +84,7 @@ namespace Spark::RHI::DX12
     void BufferPool::ShutdownInternal()
     {
         m_allocator.reset();
+        m_releaseQueue.Shutdown();
     }
 
     RHI::ResultCode BufferPool::InitBufferInternal(RHI::Buffer& bufferBase, const RHI::BufferDescriptor& bufferDescriptor)
@@ -136,7 +137,7 @@ namespace Spark::RHI::DX12
     void BufferPool::ShutdownResourceInternal(RHI::Resource& resourceBase)
     {
         Buffer& buffer = static_cast<Buffer&>(resourceBase);
-        m_releaseQueue.Collect(buffer.GetMemoryView().GetMemoryAllocation());
+        m_releaseQueue.QueueForCollect(buffer.GetMemoryView().GetMemoryAllocation());
         // 这里移动赋值，原MemoryView持有的MemoryAllocation自动release
         buffer.m_memoryView = {};
         buffer.m_pendingResolves = 0;

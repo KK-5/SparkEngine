@@ -22,7 +22,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void RHISystem::FactoryCollect()
+    void RHISystem::OnFrameEnd()
     {
         if (m_rhiFactory)
         {

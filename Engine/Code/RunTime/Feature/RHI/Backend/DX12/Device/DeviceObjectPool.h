@@ -33,6 +33,7 @@ namespace Spark::RHI::DX12
         ResultCode InitInternal() override
         {
             Internal::DeviceObjectPool<T>::Descriptor desc;
+            // 对象不需要做延迟回收，其Shutdown时会将持有的资源转移到ReleaseQueue中
             desc.m_collectLatency = 0;
 
             m_internalPool.Init(desc);

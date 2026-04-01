@@ -13,7 +13,10 @@ namespace Spark::RHI::DX12
 
         void ShutdownInternal() override;
 
-        void FactoryCollect() override;
+        ///////////////////////////////////////////////////////////
+        // FrameEventBus override
+        void OnFrameEnd() override;
+        ///////////////////////////////////////////////////////////
 
         BackendType GetBackendType() const override
         {

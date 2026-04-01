@@ -21,11 +21,11 @@ namespace Spark::RHI
 
         ResultCode Init(PhysicalDevice& physicalDevice, const DeviceDescriptor& descriptor);
 
-        ResultCode BeginFrame();
+        //ResultCode BeginFrame();
 
-        ResultCode EndFrame();
+        //ResultCode EndFrame();
 
-        ResultCode WaitForIdle();
+        //ResultCode WaitForIdle();
 
         const PhysicalDevice& GetPhysicalDevice() const;
 
@@ -58,13 +58,13 @@ namespace Spark::RHI
         virtual void ShutdownInternal() = 0;
 
         //! Called when the device is beginning a frame for processing.
-        virtual ResultCode BeginFrameInternal() = 0;
+        // virtual ResultCode BeginFrameInternal() = 0;
 
         //! Called when the device is ending a frame for processing.
-        virtual void EndFrameInternal() = 0;
+        // virtual void EndFrameInternal() = 0;
 
         //! Called when the device is flushing all GPU operations and waiting for idle.
-        virtual void WaitForIdleInternal() = 0;
+        //virtual void WaitForIdleInternal() = 0;
 
         //! Initialize limits and resources associated with them.
         virtual ResultCode InitializeLimits() = 0;
@@ -74,7 +74,7 @@ namespace Spark::RHI
 
         //! Called before the device is going to be shutdown. This lets the device release any resources
         //! that also hold on to a Ptr to Device.
-        virtual void PreShutdown() = 0;
+        // virtual void PreShutdown() = 0;
 
         FormatCapabilitiesList m_formatsCapabilities;
 

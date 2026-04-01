@@ -11,6 +11,7 @@
 #include <Device/Device.h>
 #include <Conversions.h>
 #include <Fence/Fence.h>
+#include <ID3D12Factory.h>
 
 #include "CommandList.h"
 
@@ -35,11 +36,11 @@ namespace Spark::RHI::DX12
 
     void CommandQueue::ShutdownInternal()
     {
-        if (m_queue)
-        {
-            m_queue.reset();
-        }
+        auto ID3D12Factory = Service<ID3D12FactoryInterface>::Get();
+        ASSERT(ID3D12Factory, "ID3D12Factory is null!");
+        ID3D12Factory->QueueForRelease(static_cast<Device&>(GetDevice()), eastl::move(m_queue));
 
+        m_queue.reset();
     }
 
     void CommandQueue::Signal(DX12Fence& fence)

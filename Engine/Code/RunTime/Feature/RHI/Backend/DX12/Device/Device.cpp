@@ -324,6 +324,7 @@ namespace Spark::RHI::DX12
         return static_cast<const PhysicalDevice&>(RHI::Device::GetPhysicalDevice());
     }
 
+    /*
     RHI::ResultCode Device::BeginFrameInternal()
     {
         static uint32_t frameIndex = 0;
@@ -334,8 +335,6 @@ namespace Spark::RHI::DX12
     void Device::EndFrameInternal()
     {
         m_objReleaseQueue.Collect();
-        
-        m_D3D12MAReleaseQueue.Collect();
     }
 
     void Device::WaitForIdleInternal()
@@ -343,8 +342,8 @@ namespace Spark::RHI::DX12
         //m_commandQueueContext.WaitForIdle();
         m_objReleaseQueue.Collect(true);
 
-        m_D3D12MAReleaseQueue.Collect(true);
     }
+    */
 
     RHI::ResultCode Device::InitializeLimits()
     {
@@ -352,10 +351,6 @@ namespace Spark::RHI::DX12
         D3D12ObjReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
         m_objReleaseQueue.Init(releaseQueueDescriptor);
-
-        D3D12MAReleaseQueue::Descriptor D3D12MAReleaseQueueDescriptor;
-        D3D12MAReleaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
-        m_D3D12MAReleaseQueue.Init(D3D12MAReleaseQueueDescriptor);
 
         return RHI::ResultCode::Success;
     }
@@ -419,10 +414,6 @@ namespace Spark::RHI::DX12
         formatsCapabilities[static_cast<uint32_t>(RHI::Format::R8_UINT)] |= RHI::FormatCapabilities::ShadingRate;
     }
 
-    void Device::PreShutdown()
-    {
-    }
-
     ID3D12DeviceX* Device::GetDX12Device()
     {
         return m_dx12Device.get();
@@ -431,14 +422,5 @@ namespace Spark::RHI::DX12
     void Device::QueueForRelease(Ptr<ID3D12Object> dx12Object)
     {
         m_objReleaseQueue.QueueForCollect(eastl::move(dx12Object));
-    }
-
-    void Device::QueueForRelease(const MemoryView& memoryView)
-    {
-        Ptr<D3D12MA::Allocation> allocation = memoryView.GetMemoryAllocation();
-        if (allocation)
-        {
-            m_D3D12MAReleaseQueue.QueueForCollect(eastl::move(allocation));
-        }
     }
 }

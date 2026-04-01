@@ -69,6 +69,11 @@ namespace Spark::RHI::DX12
         {
             m_commandlistAllocator->Shutdown();
         }
+
+        if (m_dx12ObjReleaseQueue)
+        {
+            m_dx12ObjReleaseQueue->Shutdown();
+        }
     }
 
     void ID3D12Factory::Collect()
@@ -104,6 +109,11 @@ namespace Spark::RHI::DX12
         if (m_commandlistAllocator)
         {
             m_commandlistAllocator->Collect();
+        }
+
+        if (m_dx12ObjReleaseQueue)
+        {
+            m_dx12ObjReleaseQueue->Collect();
         }
     }
 
@@ -154,6 +164,20 @@ namespace Spark::RHI::DX12
             InitConstantBufferContext(device);
         }
         return *m_constantBufferContext;
+    }
+
+    void ID3D12Factory::QueueForRelease(Device& device, Ptr<ID3D12Object> dx12Object)
+    {
+        ASSERT(ValidateSingleDevice(device), "The current RHI system only supports a single device.");
+        if (!m_dx12ObjReleaseQueue)
+        {
+            D3D12ObjReleaseQueue::Descriptor desc;
+            desc.m_collectLatency = device.GetDescriptor().m_frameCountMax;
+            desc.m_collectFunction = nullptr;
+            
+            m_dx12ObjReleaseQueue->Init(desc);
+        }
+        m_dx12ObjReleaseQueue->QueueForCollect(dx12Object);
     }
 
     RHI::PhysicalDeviceList ID3D12Factory::EnumeratePhysicalDevices()

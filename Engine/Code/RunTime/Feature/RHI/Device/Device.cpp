@@ -47,6 +47,7 @@ namespace Spark::RHI
         }
     }
 
+    /*
     ResultCode Device::BeginFrame()
     {
         if (IsInitialized() && !m_isInFrame)
@@ -77,6 +78,7 @@ namespace Spark::RHI
         }
         return ResultCode::InvalidOperation;
     }
+    */
 
     const PhysicalDevice& Device::GetPhysicalDevice() const
     {
