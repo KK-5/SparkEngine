@@ -15,7 +15,7 @@ namespace Spark::UI
     public:
         virtual ~UIBaseSystem() = default;
         // ISystem
-        void Initialize() override;
+        void InitInternal() override;
 
         eastl::vector<HashString> Request() const override
         {

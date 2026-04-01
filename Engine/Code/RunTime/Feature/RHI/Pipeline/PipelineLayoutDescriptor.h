@@ -11,7 +11,7 @@
 #include <EASTL/fixed_vector.h>
 #include <EASTL/array.h>
 
-#include <Object/Base.h>
+#include <Base.h>
 #include <Object/Object.h>
 
 #include <RHI/RHILimits.h>

@@ -16,12 +16,12 @@
 namespace Spark::Render
 {
 
-    void RenderSystem::Initialize()
+    void RenderSystem::InitInternal()
     {
         TickBus::Handler::BusConnect();
     }
 
-    void RenderSystem::Shutdown()
+    void RenderSystem::ShutdownInternal()
     {
         TickBus::Handler::BusDisconnect();
     }

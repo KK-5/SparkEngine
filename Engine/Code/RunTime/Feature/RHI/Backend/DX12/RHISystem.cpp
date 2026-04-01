@@ -4,7 +4,7 @@
 
 namespace Spark::RHI::DX12
 {
-    void RHISystem::Initialize()
+    void RHISystem::InitInternal()
     {
         m_rhiFactory = eastl::make_unique<ID3D12Factory>();
         RHI::ResultCode res =  m_rhiFactory->Init();
@@ -14,7 +14,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void RHISystem::Shutdown()
+    void RHISystem::ShutdownInternal()
     {
         if (m_rhiFactory)
         {

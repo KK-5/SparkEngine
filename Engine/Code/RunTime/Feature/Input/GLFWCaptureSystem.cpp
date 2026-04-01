@@ -10,10 +10,10 @@
 
 namespace Spark::Input
 {
-    void GLFWCaptureSystem::Initialize()
+    void GLFWCaptureSystem::InitInternal()
     {
         using namespace Spark::Window;
-        InputCaptureSystem::Initialize();
+        InputCaptureSystem::InitInternal();
 
         if (Service<IWindowSystem>::Get()->GetWindowBackend() != WindowBackend::GLFW)
         {

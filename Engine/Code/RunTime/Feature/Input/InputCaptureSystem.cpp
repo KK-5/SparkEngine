@@ -7,7 +7,7 @@
 
 namespace Spark::Input
 {
-    void InputCaptureSystem::Initialize()
+    void InputCaptureSystem::InitInternal()
     {
         if (!Service<Spark::Window::IWindowSystem>::Get())
         {
@@ -22,7 +22,7 @@ namespace Spark::Input
         Service<Window::IWindowSystem>::Get()->PollEvents();
     }
 
-    void InputCaptureSystem::Shutdown()
+    void InputCaptureSystem::ShutdownInternal()
     {
 
     }

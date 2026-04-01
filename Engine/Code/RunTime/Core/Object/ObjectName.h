@@ -52,6 +52,10 @@ namespace Spark
 
         const char* GetCStr() const
         {
+            if (IsEmpty())
+            {
+                return "[unnamed]";
+            }
             return m_name.data();
         }
 

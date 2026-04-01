@@ -7,13 +7,13 @@ namespace Editor
     using namespace Spark;
     using namespace Spark::Input;
 
-    void EditorInputSystem::Initialize()
+    void EditorInputSystem::InitInternal()
     {
         InputEventBus::Handler::BusConnect(InputBusId::Editor);
     }
 
 
-    void EditorInputSystem::Shutdown()
+    void EditorInputSystem::ShutdownInternal()
     {
         if (InputEventBus::Handler::BusIsConnectedId(InputBusId::Editor))
         {

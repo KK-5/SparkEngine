@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include <Object/Base.h>
+#include <Base.h>
 #include <RHI/MemoryEnums.h>
 #include "DX12.h"
 #include "Memory.h"

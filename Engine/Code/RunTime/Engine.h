@@ -1,9 +1,9 @@
 #pragma once
 
 #include <EASTL/chrono.h>
-#include <EASTL/unique_ptr.h>
 #include <EASTL/functional.h>
 
+#include <Base.h>
 #include <ECS/WorldContext.h>
 #include <Log/SpdLogSystem.h>
 #include <SceneManager/SceneManager.h>
@@ -42,10 +42,10 @@ namespace Spark
 
         WorldContext m_worldContext {};
 
-        eastl::unique_ptr<Render::RenderSystem>        m_renderSystem;
-        eastl::unique_ptr<SpdLogSystem>                m_logSystem;
-        eastl::unique_ptr<Input::InputSystem>          m_inputSystem;
-        eastl::unique_ptr<SceneManager>                m_sceneManager;
-        eastl::unique_ptr<EntityReaper>                m_entityReaper;
+        SystemUniquePtr<Render::RenderSystem> m_renderSystem;
+        UniquePtr<SpdLogSystem>               m_logSystem;
+        SystemUniquePtr<Input::InputSystem>   m_inputSystem;
+        SystemUniquePtr<SceneManager>         m_sceneManager;
+        SystemUniquePtr<EntityReaper>         m_entityReaper;
     };
 }

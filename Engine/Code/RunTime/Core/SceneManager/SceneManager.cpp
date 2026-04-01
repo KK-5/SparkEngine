@@ -9,13 +9,13 @@
 
 namespace Spark
 {
-    void SceneManager::Initialize()
+    void SceneManager::InitInternal()
     {
         m_context.SetupComponentEvents<Hierarchy>();
         ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
     }
 
-    void SceneManager::Shutdown()
+    void SceneManager::ShutdownInternal()
     {
         m_roots.clear();
         m_childrenMap.clear();

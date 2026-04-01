@@ -15,17 +15,17 @@ namespace Editor
         Spark::TypeRegistry::Register(Editor::Reflect);
         Spark::TypeRegistry::RegisterAll();
 
-        m_editorWindow = eastl::make_unique<EditorWindow>(1920, 1080, "SparkEditor");
-        m_editorWindow->Initialize();
+        m_editorWindow = Spark::CreateSystem<EditorWindow>(1920, 1080, "SparkEditor");
+        m_editorWindow->Init();
 
         m_runtimeEngine = eastl::make_unique<Spark::SparkEngine>();
         m_runtimeEngine->SetUp();
 
-        m_editorUI = eastl::make_unique<EditorUI>();
-        m_editorUI->Initialize();
+        m_editorUI = Spark::CreateSystem<EditorUI>();
+        m_editorUI->Init();
 
-        m_editorInput = eastl::make_unique<EditorInputSystem>();
-        m_editorInput->Initialize();
+        m_editorInput = Spark::CreateSystem<EditorInputSystem>();
+        m_editorInput->Init();
     }
 
     void SparkEditor::Start()
@@ -38,9 +38,9 @@ namespace Editor
 
     void SparkEditor::Close()
     {
-        m_editorInput->Shutdown();
-        m_editorUI->Shutdown();
-        m_runtimeEngine->Shutdown();
-        m_editorWindow->Shutdown();
+        //m_editorInput->Shutdown();
+        //m_editorUI->Shutdown();
+        //m_runtimeEngine->Shutdown();
+        //m_editorWindow->Shutdown();
     }
 }

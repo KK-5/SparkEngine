@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <EASTL/unique_ptr.h>
-
 #include <Resource/Asset.h>
 #include <Resource/AssetManager.h>
 #include <Resource/Common/CommonAssetLoader.h>
@@ -19,19 +17,18 @@ class ShaderAssetTestFixture : public ::testing::Test
 protected:
     void SetUp() override
     {
-        m_assetManager = eastl::make_unique<SparkAssetManager>();
-        m_assetManager->Initialize();
+        m_assetManager = CreateSystem<SparkAssetManager>();
+        m_assetManager->Init();
 
         m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
     }
 
     void TearDown() override
     {
-        m_assetManager->Shutdown();
         m_assetManager.reset();
     }
 
-    eastl::unique_ptr<SparkAssetManager> m_assetManager;
+    SystemUniquePtr<SparkAssetManager> m_assetManager;
 };
 
 // ---- AssetId 基础测试 ----

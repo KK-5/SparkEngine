@@ -20,8 +20,8 @@ namespace Spark::SandBox
         { }
 
         // ISystem
-        void Initialize() override;
-        void Shutdown() override;
+        void InitInternal() override;
+        void ShutdownInternal() override;
 
         // IWindowSystem
         void SwapBuffer() override;
@@ -36,7 +36,7 @@ namespace Spark::SandBox
         Spark::Window::WindowBackend GetWindowBackend() const override;
 
     private:
-        GLFWwindow*     m_window;
+        GLFWwindow*     m_window = nullptr;
         int             m_width;
         int             m_height;
         eastl::string   m_title;

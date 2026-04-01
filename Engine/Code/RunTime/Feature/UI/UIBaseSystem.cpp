@@ -33,7 +33,7 @@ namespace Spark::UI
         TickBus::Handler::BusDisconnect();
     }
 
-    void UIBaseSystem::Initialize()
+    void UIBaseSystem::InitInternal()
     {
         m_tickHandlerFrameStart = eastl::make_unique<TickHandlerFrameStart>(*this);
         m_tickHandlerAfterInput = eastl::make_unique<TickHandlerAfterInput>(*this);

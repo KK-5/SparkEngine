@@ -23,8 +23,8 @@ namespace Spark
         SceneManager(WorldContext& context) : m_context(context) {}
 
         // ISystem
-        void Initialize() override;
-        void Shutdown() override;
+        void InitInternal() override;
+        void ShutdownInternal() override;
         eastl::vector<HashString> Request() const override
         {
             return {"LogSystem"_hs};

@@ -21,8 +21,8 @@ namespace Editor
         { }
 
         // ISystem
-        void Initialize() override;
-        void Shutdown() override;
+        void InitInternal() override;
+        void ShutdownInternal() override;
 
         // IWindowSystem
         void SwapBuffer() override;

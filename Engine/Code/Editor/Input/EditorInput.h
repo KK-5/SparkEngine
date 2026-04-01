@@ -12,8 +12,8 @@ namespace Editor
     {
     public:
         // ISystem
-        void Initialize() override;
-        void Shutdown() override;
+        void InitInternal() override;
+        void ShutdownInternal() override;
 
         eastl::vector<HashString> Request() const override
         {

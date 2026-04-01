@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Object/Object.h>
-#include <Object/Base.h>
+#include <Base.h>
 
 #include <RHI/Base.h>
 #include <RHI/Format.h>

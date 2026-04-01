@@ -12,8 +12,7 @@
 #include <EASTL/unordered_set.h>
 #include <mutex>
 #include <EASTLEX/hash.h>     // for Ptr hasher
-
-#include "Base.h"
+#include <Base.h>
 #include "ObjectCollector.h"
 #include "IObjectFactory.h"
 
@@ -95,7 +94,7 @@ namespace Spark
             }
             for (auto& objectPtr : m_objects)
             {
-                m_factory.DestoryObject(objectPtr.get(), true);
+                m_factory.DestoryObject(objectPtr, true);
             }
             m_objects.clear();
             m_factory.Shutdown();
@@ -186,7 +185,7 @@ namespace Spark
     private:
         ObjectFactoryType m_factory;
         ObjectCollector<Traits> m_collector;
-        eastl::unordered_set<Ptr<ObjectType>> m_objects;
+        eastl::unordered_set<ObjectType*> m_objects;
         eastl::queue<ObjectType*> m_freeList;
         MutexType m_mutex;
         bool m_isInitialized = false;

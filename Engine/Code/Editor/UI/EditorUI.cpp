@@ -12,9 +12,9 @@ namespace Editor
 {
     using namespace Spark;
 
-    void EditorUI::Initialize()
+    void EditorUI::InitInternal()
     {
-        Spark::UI::UIBaseSystem::Initialize();
+        Spark::UI::UIBaseSystem::Init();
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -47,7 +47,7 @@ namespace Editor
         Spark::Input::InputEventBus::Handler::BusConnect(Spark::Input::InputBusId::EditorUI);
     }
 
-    void EditorUI::Shutdown()
+    void EditorUI::ShutdownInternal()
     {
         if (Spark::Input::InputEventBus::Handler::BusIsConnectedId(Spark::Input::InputBusId::EditorUI))
         {
@@ -172,7 +172,7 @@ namespace Editor
     {
         using namespace Spark::Input;
 
-        // Initialize 中保证platform backend是glfw，目前只支持glfw
+        // Init 中保证platform backend是glfw，目前只支持glfw
         GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
         int button;

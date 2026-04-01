@@ -2,6 +2,7 @@ set(TARGET_NAME SparkCore)
 
 set(CORE_SOURCES
     EASTLEX/Vsnprintf.cpp
+    ECS/ISystem.cpp
     Log/SpdLogSystem.cpp
     Memory/Memory.cpp
     Memory/PoolAllocator.cpp

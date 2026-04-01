@@ -12,6 +12,11 @@ namespace Spark::RHI
         {
             LOG_ERROR("[ResourcePool] ResourcePool {} is being destroyed while it still has {} registered resources.", GetName().GetCStr(), static_cast<uint32_t>(m_registry.size()));
         }
+
+        if (FrameEventBus::Handler::BusIsConnected())
+        {
+            FrameEventBus::Handler::BusDisconnect();
+        }
     }
 
     ResourcePoolResolver* ResourcePool::GetResolver()
@@ -132,7 +137,6 @@ namespace Spark::RHI
         {
             DeviceObject::Init(device);
             FrameEventBus::Handler::BusConnect();
-            //device.GetResourcePoolDatabase().AttachPool(this);
         }
         return resultCode;
     }
@@ -147,7 +151,6 @@ namespace Spark::RHI
         // Multiple shutdown is allowed for pools.
         if (IsInitialized())
         {
-            //GetDevice().GetResourcePoolDatabase().DetachPool(this);
             FrameEventBus::Handler::BusDisconnect();
             for (Resource* resource : m_registry)
             {

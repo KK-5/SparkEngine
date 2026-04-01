@@ -9,9 +9,9 @@ namespace Spark::RHI::DX12
     class RHISystem final : public Service<RHIInterface>::Handler
     {
     public:
-        void Initialize() override;
+        void InitInternal() override;
 
-        void Shutdown() override;
+        void ShutdownInternal() override;
 
         void FactoryCollect() override;
 

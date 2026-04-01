@@ -1,7 +1,6 @@
 #pragma once
 
 #include <EASTL/vector.h>
-#include <EASTL/unique_ptr.h>
 
 #include <ECS/ISystem.h>
 #include <ECS/WorldContext.h>
@@ -17,8 +16,8 @@ namespace Spark::Input
     {
     public:
         // ISystem
-        void Initialize() override;
-        void Shutdown() override;
+        void InitInternal() override;
+        void ShutdownInternal() override;
 
         eastl::vector<HashString> Request() const override
         {
@@ -39,6 +38,6 @@ namespace Spark::Input
         }
 
     private:
-        eastl::unique_ptr<InputCaptureSystem> m_capturer;
+        SystemUniquePtr<InputCaptureSystem> m_capturer;
     };
 }

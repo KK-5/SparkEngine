@@ -137,8 +137,11 @@ namespace Spark::RHI::DX12
         m_commandListPools[hardwareQueue].DeAllocate(m_activeLists.data(), m_activeLists.size());
         m_activeLists.clear();
 
-        m_commandAllocatorPools[hardwareQueue].DeAllocate(m_activeCommandAllocators[hardwareQueue].get());
-        m_activeCommandAllocators.fill(nullptr);
+        if (m_activeCommandAllocators[hardwareQueue])
+        {
+            m_commandAllocatorPools[hardwareQueue].DeAllocate(m_activeCommandAllocators[hardwareQueue].get());
+            m_activeCommandAllocators[hardwareQueue].reset();
+        }
     }
 
     void CommandListAllocator::Collect()

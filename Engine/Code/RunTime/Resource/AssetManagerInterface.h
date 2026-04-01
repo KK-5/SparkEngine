@@ -4,7 +4,7 @@
 #include <EASTL/type_traits.h>
 
 #include <ECS/ISystem.h>
-#include <Object/Base.h>
+#include <Base.h>
 #include "AssetTypes.h"
 
 

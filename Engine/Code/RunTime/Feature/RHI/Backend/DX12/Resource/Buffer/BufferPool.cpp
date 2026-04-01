@@ -50,16 +50,27 @@ namespace Spark::RHI::DX12
         }
 
         D3D12MA::ALLOCATOR_DESC desc = {};
-        desc.Flags = D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
         desc.pDevice = device.GetDX12Device();
         desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
         desc.PreferredBlockSize = bufferPageSize;
 
-        D3D12MA::Allocator* pAllocator;
-        if (FAILED(D3D12MA::CreateAllocator(&desc, &pAllocator)))
+        D3D12MA::Allocator* pAllocator = nullptr;
+        //desc.Flags = D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
+        desc.Flags = D3D12MA::ALLOCATOR_FLAG_NONE;
+        HRESULT allocatorCreateResult = D3D12MA::CreateAllocator(&desc, &pAllocator);
+        if (FAILED(allocatorCreateResult))
         {
-            LOG_ERROR("[BufferPool] Failed to initialize the D3D12MemoryAllocator.");
-            return RHI::ResultCode::Fail;
+            // Compatibility fallback: some older Windows 10 D3D12 runtimes reject
+            // D3D12_HEAP_FLAG_CREATE_NOT_ZEROED (0x1000) used by this allocator flag.
+            desc.Flags = D3D12MA::ALLOCATOR_FLAG_NONE;
+            allocatorCreateResult = D3D12MA::CreateAllocator(&desc, &pAllocator);
+            if (FAILED(allocatorCreateResult))
+            {
+                LOG_ERROR("[BufferPool] Failed to initialize the D3D12MemoryAllocator.");
+                return RHI::ResultCode::Fail;
+            }
+
+            LOG_WARN("[BufferPool] D3D12 allocator not-zeroed heaps are unsupported on this runtime, fallback to zeroed heaps.");
         }
         m_allocator = pAllocator;
 

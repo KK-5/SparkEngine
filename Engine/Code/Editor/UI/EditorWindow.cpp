@@ -47,7 +47,7 @@ namespace Editor
         glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
     }
 
-    void EditorWindow::Initialize()
+    void EditorWindow::InitInternal()
     {
         using namespace Spark;
         if (!glfwInit()) 
@@ -69,7 +69,7 @@ namespace Editor
         glfwSwapInterval(1);
     }
 
-    void EditorWindow::Shutdown()
+    void EditorWindow::ShutdownInternal()
     {
         if (m_window) {
             glfwDestroyWindow(m_window);

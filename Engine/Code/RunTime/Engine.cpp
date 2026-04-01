@@ -17,25 +17,27 @@ namespace Spark
         logConfig.m_showTimeStamp = true;
         m_logSystem = eastl::make_unique<SpdLogSystem>(logConfig);
 
-        m_entityReaper = eastl::make_unique<EntityReaper>();
-        m_entityReaper->Initialize();
+        m_entityReaper = CreateSystem<EntityReaper>();
+        m_entityReaper->Init();
 
-        m_sceneManager = eastl::make_unique<SceneManager>(m_worldContext);
-        m_sceneManager->Initialize();
+        m_sceneManager = CreateSystem<SceneManager>(m_worldContext);
+        m_sceneManager->Init();
 
-        m_inputSystem = eastl::make_unique<Input::InputSystem>();
-        m_inputSystem->Initialize();
+        m_inputSystem = CreateSystem<Input::InputSystem>();
+        m_inputSystem->Init();
 
-        m_renderSystem = eastl::make_unique<Render::RenderSystem>();
-        m_renderSystem->Initialize();
+        m_renderSystem = CreateSystem<Render::RenderSystem>();
+        m_renderSystem->Init();
     }
 
     void SparkEngine::Shutdown()
     {
+        /*
         m_renderSystem->Shutdown();
         m_inputSystem->Shutdown();
         m_sceneManager->Shutdown();
         m_entityReaper->Shutdown();
+        */
     }
 
     void SparkEngine::Run(eastl::function<bool()> shouldQuit)

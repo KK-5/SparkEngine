@@ -1,8 +1,7 @@
-#include <EASTL/unique_ptr.h>
-
 #include <Log/SpdLogSystem.h>
 #include <Math/Vector3.h>
 #include <Math/Color.h>
+#include <Base.h>
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
@@ -54,6 +53,13 @@ namespace Spark::SandBox
         void CreateViewportAndScissor();
         void BuildCommand(RHI::CommandList* commandList);
 
+        // 依赖成员声明顺序管理生命周期
+        UniquePtr<ILogSystem<SpdLogSystem>> m_logger;
+        SystemUniquePtr<Spark::RHI::RHIInterface> m_rhi;
+        SystemUniquePtr<Spark::Resource::SparkAssetManager> m_assetManager;
+
+        SystemUniquePtr<SimpleGlfwWindow> m_glfwWindow;
+
         Ptr<RHI::Device> m_device;
         Ptr<RHI::CommandQueue> m_commandQueue;
         Ptr<RHI::Fence> m_fence;
@@ -66,20 +72,14 @@ namespace Spark::SandBox
         Ptr<RHI::BufferPool> m_stageBufferPool;
         Ptr<RHI::Buffer> m_stageBuffer;
 
-        Ptr<RHI::ImageView> m_swapChainImageView;
+        Ptr<RHI::ImageView> m_swapChainImageViews[2];
         RHI::Image* m_swapChainCurImage;
 
         RHI::Viewport m_viewport;
         RHI::Scissor m_scissor;
 
+
         RHI::Factory* m_rhiFactory;
-
-        eastl::unique_ptr<ILogSystem<SpdLogSystem>> m_logger;
-        eastl::unique_ptr<Spark::RHI::RHIInterface> m_rhi;
-        eastl::unique_ptr<Spark::Resource::SparkAssetManager> m_assetManager;
-
-        eastl::unique_ptr<SimpleGlfwWindow> m_glfwWindow;
-
     };
 
 
@@ -92,23 +92,23 @@ namespace Spark::SandBox
 
     HelloTriangle::HelloTriangle()
     {
-        m_glfwWindow = eastl::make_unique<SimpleGlfwWindow>(1024, 576, "HelloTriangle");
-        m_glfwWindow->Initialize();
+        m_glfwWindow = CreateSystem<SimpleGlfwWindow>(1024, 576, "HelloTriangle");
+        m_glfwWindow->Init();
 
         LogConfig logConfig{};
         logConfig.m_showTimeStamp = true;
         m_logger = eastl::make_unique<SpdLogSystem>(logConfig);
 
-        m_rhi = eastl::make_unique<Spark::RHI::DX12::RHISystem>();
-        m_rhi->Initialize();
+        m_rhi = CreateSystem<Spark::RHI::DX12::RHISystem>();
+        m_rhi->Init();
         m_rhiFactory = Service<Spark::RHI::RHIInterface>::Get()->GetRHIFactory();
         if (!m_rhiFactory)
         {
             LOG_ERROR("Get RHI Factory failed");
         }
 
-        m_assetManager = eastl::make_unique<Spark::Resource::SparkAssetManager>();
-        m_assetManager->Initialize();
+        m_assetManager = CreateSystem<Spark::Resource::SparkAssetManager>();
+        m_assetManager->Init();
         m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
         auto loader = eastl::make_unique<Resource::BinaryAssetLoader>();
         auto compiler = eastl::make_unique<Resource::ShaderAssetCompiler>(Resource::ShaderBackend::DXIL);
@@ -121,10 +121,12 @@ namespace Spark::SandBox
 
     HelloTriangle::~HelloTriangle()
     {
+        /*
         m_rhi->FactoryCollect();
         m_rhi->Shutdown();
         m_assetManager->Shutdown();
         m_glfwWindow->Shutdown();
+        */
     }
 
     void HelloTriangle::CreateDevice()
@@ -137,7 +139,7 @@ namespace Spark::SandBox
 
         m_device = m_rhiFactory->CreateDevice();
         RHI::DeviceDescriptor desc;
-        desc.m_frameCountMax = 1;
+        desc.m_frameCountMax = 2;
         RHI::ResultCode result = m_device->Init(*devList[0], desc);
         if (result != RHI::ResultCode::Success)
         {
@@ -172,7 +174,7 @@ namespace Spark::SandBox
     {
         m_swapChain = m_rhiFactory->CreateSwapChain();
         RHI::SwapChainDescriptor desc;
-        desc.m_dimensions.m_imageCount = 1;
+        desc.m_dimensions.m_imageCount = 2;
         desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
         auto windowSize = m_glfwWindow->GetWindowSize();
         desc.m_dimensions.m_imageHeight = windowSize.second;
@@ -184,17 +186,20 @@ namespace Spark::SandBox
             LOG_ERROR("Create swap chain failed!");
         }
 
-        m_swapChainCurImage = m_swapChain->GetCurrentImage();
-        m_swapChainImageView = m_rhiFactory->CreateImageView();
-        RHI::ImageViewDescriptor viewDesc;
-        viewDesc.m_mipSliceMin = 0;
-        viewDesc.m_mipSliceMax = 0;
-        viewDesc.m_arraySliceMin = 0;
-        viewDesc.m_arraySliceMax = 0;
-        result = m_swapChainImageView->Init(*m_swapChainCurImage, viewDesc);
-        if (result != RHI::ResultCode::Success)
+        for (uint32_t i = 0; i < desc.m_dimensions.m_imageCount; ++i)
         {
-            LOG_ERROR("Create render target view failed!");
+            auto image = m_swapChain->GetImage(i);
+            m_swapChainImageViews[i] = m_rhiFactory->CreateImageView();
+            RHI::ImageViewDescriptor viewDesc;
+            viewDesc.m_mipSliceMin = 0;
+            viewDesc.m_mipSliceMax = 0;
+            viewDesc.m_arraySliceMin = 0;
+            viewDesc.m_arraySliceMax = 0;
+            result = m_swapChainImageViews[i]->Init(*image, viewDesc);
+            if (result != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("Create render target view failed!");
+            }
         }
     }
 
@@ -357,29 +362,30 @@ namespace Spark::SandBox
         copyItem.m_buffer.m_sourceOffset = 0;
         copyItem.m_buffer.m_destinationBuffer = m_vertexBuffer.get();
         copyItem.m_buffer.m_destinationOffset = 0;
-        copyItem.m_buffer.m_size = AlignUp(
-            m_vertexBuffer->GetDescriptor().m_byteCount, 
-            m_vertexBuffer->GetDescriptor().m_alignment
-        );
+        // Buffer copy size doesn't need alignment. Using m_alignment==0 here
+        // would make AlignUp return 0 and skip vertex upload entirely.
+        copyItem.m_buffer.m_size = m_vertexBuffer->GetDescriptor().m_byteCount;
         
         commandList->Submit(copyItem);
 
         RHI::BufferBarrier inputAssemblyBarrier = RHI::ConvertToInputAssembly(*m_vertexBuffer);
         commandList->QueueBarrier(inputAssemblyBarrier);
 
+        m_swapChainCurImage = m_swapChain->GetCurrentImage();
         RHI::ImageBarrier imageBarrier = RHI::ConvertToRenderTarget(*m_swapChainCurImage);
         commandList->QueueBarrier(imageBarrier);
 
         commandList->FlushBarriers();
 
         RHI::ImageClearRequest clearRequest;
-        clearRequest.m_imageView = m_swapChainImageView.get();
+        clearRequest.m_imageView = m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get();
         clearRequest.m_clearValue = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
         commandList->ClearRenderTarget(clearRequest);
 
-        const RHI::ImageView* renderTargets[] = { m_swapChainImageView.get() };
+        const RHI::ImageView* renderTargets[] = { m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get() };
         commandList->SetRenderTargets(1, renderTargets);
 
+        /// build draw item
         RHI::DrawItem drawItem;
         drawItem.m_drawInstanceArgs.m_instanceCount = 1;
         drawItem.m_drawInstanceArgs.m_instanceOffset = 0;
@@ -443,9 +449,11 @@ namespace Spark::SandBox
 
             m_swapChain->Present();
 
+            m_rhi->FactoryCollect();
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         }
-        
+        // 退出时需要等待命令队列执行完成
+        m_commandQueue->FlushCommands();
     }
 }
 

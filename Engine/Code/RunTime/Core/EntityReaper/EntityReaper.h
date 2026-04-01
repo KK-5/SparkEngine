@@ -11,12 +11,12 @@ namespace Spark
     {
     public:
         // ISystem
-        void Initialize() override
+        void InitInternal() override
         {
             TickBus::Handler::BusConnect();
         }
 
-        void Shutdown() override
+        void ShutdownInternal() override
         {
             TickBus::Handler::BusDisconnect();
         }

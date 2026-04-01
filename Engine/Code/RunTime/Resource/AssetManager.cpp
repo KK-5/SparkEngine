@@ -13,7 +13,7 @@
 
 namespace Spark::Resource
 {
-    void SparkAssetManager::Initialize()
+    void SparkAssetManager::InitInternal()
     {
         m_shutdown = false;
         RegisterDefaultLoaderAndCompiler();
@@ -21,7 +21,7 @@ namespace Spark::Resource
         LOG_INFO("SparkAssetManager initialized");
     }
 
-    void SparkAssetManager::Shutdown()
+    void SparkAssetManager::ShutdownInternal()
     {
         {
             std::lock_guard lock(m_mutex);

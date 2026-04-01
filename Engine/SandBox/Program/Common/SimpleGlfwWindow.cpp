@@ -13,7 +13,7 @@
 
 namespace Spark::SandBox
 {
-    void SimpleGlfwWindow::Initialize()
+    void SimpleGlfwWindow::InitInternal()
     {
         if (!glfwInit()) 
         {
@@ -32,12 +32,13 @@ namespace Spark::SandBox
         glfwSwapInterval(1);
     }
 
-    void SimpleGlfwWindow::Shutdown()
+    void SimpleGlfwWindow::ShutdownInternal()
     {
         if (m_window) {
             glfwDestroyWindow(m_window);
         }
         glfwTerminate();
+        m_window = nullptr;
     }
 
     void SimpleGlfwWindow::PollEvents()

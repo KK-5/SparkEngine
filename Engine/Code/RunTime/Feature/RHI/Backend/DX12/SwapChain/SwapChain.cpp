@@ -42,6 +42,12 @@ namespace Spark::RHI::DX12
             nativeDimensions->m_imageCount = SwapBufferCount;
         }
 
+        if (SwapBufferCount > deviceBase.GetDescriptor().m_frameCountMax)
+        {
+            LOG_ERROR("[SwapChain] SwapChain buffer count at least is {}, but the device frame count max is {}.", SwapBufferCount, deviceBase.GetDescriptor().m_frameCountMax);
+            return RHI::ResultCode::Fail;
+        }
+
         DXGI_SWAP_CHAIN_DESCX swapChainDesc = {};
         swapChainDesc.SampleDesc.Quality = 0;
         swapChainDesc.SampleDesc.Count = 1;

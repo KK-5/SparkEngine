@@ -47,7 +47,7 @@ namespace Spark::Input
     {
     public:
         // ISystem
-        void Initialize() override;
+        void InitInternal() override;
 
     protected:
         // InputCaptureSystem

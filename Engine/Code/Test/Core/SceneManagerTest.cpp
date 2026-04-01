@@ -27,18 +27,17 @@ protected:
     void SetUp() override {
         // 在每个测试用例开始前执行
         context.SetupComponentsEvents<Hierarchy>();
-        sceneManager = eastl::make_unique<SceneManager>(context);
-        sceneManager->Initialize();
+        sceneManager = CreateSystem<SceneManager>(context);
+        sceneManager->Init();
     }
 
     void TearDown() override {
         // 在每个测试用例结束后执行
-        sceneManager->Shutdown();
         sceneManager.reset();
         context.Clear();
     }
 
-    eastl::unique_ptr<SceneManager> sceneManager;
+    SystemUniquePtr<SceneManager> sceneManager;
     WorldContext context;
 };
 
