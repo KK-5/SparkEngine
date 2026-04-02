@@ -86,7 +86,7 @@ namespace Spark
         //! Shutdown the pool. The user must re-initialize to use it again.
         void Shutdown()
         {
-            m_isInitialized = false;
+            // m_isInitialized = false;
             m_collector.Shutdown();
             while (!m_freeList.empty())
             {
@@ -98,6 +98,7 @@ namespace Spark
             }
             m_objects.clear();
             m_factory.Shutdown();
+            m_isInitialized = false;
         }
 
         //! Allocates an instance of an object from the pool. If no free object exists, it will

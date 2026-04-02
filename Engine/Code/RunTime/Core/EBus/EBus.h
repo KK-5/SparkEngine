@@ -159,13 +159,30 @@ namespace Spark
 
             using CallstackTrackerLockGuard = CallstackTrackerLockGuardTemplate<ContextMutexType>;
 
-            BusesContainer          m_buses;         ///< The actual bus container, which is a static map for each bus type.
             ContextMutexType        m_contextMutex;  ///< Mutex to control access when modifying the context
             QueuePolicy             m_queue;
 
             Context() = default;
             //Context(EBusEnvironment* environment);
             virtual ~Context() = default;
+            /*
+            {
+                // Drop cached pointers into m_callstackRoots before handler teardown: ~m_buses (first among
+                // members, see declaration order) may call GetOrCreateContext and re-insert roots. Clearing
+                // here leaves a valid empty map object until the member destructor runs.
+                if constexpr (eastl::is_same_v<ContextMutexType, NullMutex>)
+                {
+                    s_callstack = static_cast<CallstackEntryBase*>(nullptr);
+                    m_callstackRoots.clear();
+                }
+                else
+                {
+                    std::scoped_lock<ContextMutexType> lock(m_contextMutex);
+                    s_callstack = static_cast<CallstackEntryBase*>(nullptr);
+                    m_callstackRoots.clear();
+                }
+            }
+            */
 
             // Disallow all copying/moving
             Context(const Context&) = delete;
@@ -187,6 +204,10 @@ namespace Spark
                 > m_callstackRoots;
             CallstackEntryStorageType s_callstack;    ///< Linked list of other bus calls to this bus on the stack, per thread if MutexType is defined
             eastl::atomic<unsigned int> m_dispatches;   ///< Number of active dispatches in progress
+
+        public:
+            /// Declared last so it is destroyed first: handler teardown may touch m_callstackRoots / mutex.
+            BusesContainer          m_buses;            ///< The actual bus container, which is a static map for each bus type.
         };
 
         using StoragePolicy = typename Traits::template StoragePolicy<Context>;

@@ -25,6 +25,10 @@ namespace Spark::RHI::DX12
 {
     void PipelineLayout::Shutdown()
     {
+        if (!IsInitialized())
+        {
+            return;
+        }
         auto ID3D12Factory = Service<ID3D12FactoryInterface>::Get();
         ASSERT(ID3D12Factory, "ID3D12Factory is null!");
         ID3D12Factory->QueueForRelease(static_cast<Device&>(GetDevice()), eastl::move(m_signature));

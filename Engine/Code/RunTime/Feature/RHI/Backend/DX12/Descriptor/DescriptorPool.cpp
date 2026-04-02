@@ -71,7 +71,8 @@ namespace Spark::RHI::DX12
 
     void DescriptorPool::InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count)
     {
-        m_descriptorHeap.Attach(heap);
+        // Share the parent heap: must AddRef — Attach would leave two ComPtrs with a single refcount.
+        m_descriptorHeap = heap;
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc = m_descriptorHeap->GetDesc();
 
         DescriptorHandlePool::Descriptor desc;

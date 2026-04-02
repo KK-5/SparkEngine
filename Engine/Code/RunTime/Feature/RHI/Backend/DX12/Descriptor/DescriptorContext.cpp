@@ -269,6 +269,16 @@ namespace Spark::RHI::DX12
         CreateNullDescriptors();
     }
 
+    void DescriptorContext::Shutdown()
+    {
+        if (!IsInitialized())
+        {
+            return;
+        }
+
+        DeviceObject::Shutdown();
+    }
+
     void DescriptorContext::Collect()
     {
         m_CBVSRVUAVHeapFlagNone.Collect();

@@ -1,0 +1,63 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 19,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-msvc-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {}
+    },
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "MSVC x64 Debug",
+      "description": "",
+      "inherits": "windows-msvc-base"
+    },
+    {
+      "name": "windows-msvc-debug-asan",
+      "displayName": "MSVC x64 Debug + AddressSanitizer",
+      "description": "",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS_DEBUG": "/Zi /Od /MDd /fsanitize=address",
+        "CMAKE_C_FLAGS_DEBUG": "/Zi /Od /MDd /fsanitize=address"
+      }
+    },
+    {
+      "name": "windows-ninja-debug",
+      "displayName": "Ninja Debug",
+      "description": "",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "Build Debug",
+      "configurePreset": "windows-msvc-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "debug-asan",
+      "displayName": "Build Debug (ASan)",
+      "configurePreset": "windows-msvc-debug-asan",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ninja-debug",
+      "displayName": "Build Ninja Debug",
+      "configurePreset": "windows-ninja-debug"
+    }
+  ]
+}

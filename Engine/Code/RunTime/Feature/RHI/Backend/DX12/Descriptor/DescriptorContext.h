@@ -39,6 +39,8 @@ namespace Spark::RHI::DX12
 
         void Init(Device& device);
 
+        void Shutdown() override;
+
         void CreateConstantBufferView(
             const Buffer& buffer,
             const RHI::BufferViewDescriptor& bufferViewDescriptor,

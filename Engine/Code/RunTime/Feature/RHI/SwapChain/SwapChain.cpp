@@ -193,6 +193,10 @@ namespace Spark::RHI
 
     void SwapChain::Shutdown()
     {
+        if (!IsInitialized())
+        {
+            return;
+        }
         // Release Image views / references to swap chain buffers before destroying the swap chain (DXGI owns the buffers).
         ShutdownImages();
         ShutdownInternal();
