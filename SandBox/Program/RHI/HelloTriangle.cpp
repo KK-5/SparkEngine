@@ -35,7 +35,7 @@ namespace Spark::SandBox
     {
     public:
         HelloTriangle();
-        ~HelloTriangle();
+        ~HelloTriangle() = default;
 
         void Init();
 
@@ -110,28 +110,12 @@ namespace Spark::SandBox
         m_assetManager = CreateSystem<Spark::Resource::SparkAssetManager>();
         m_assetManager->Init();
         m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
-        auto loader = eastl::make_unique<Resource::BinaryAssetLoader>();
-        auto compiler = eastl::make_unique<Resource::ShaderAssetCompiler>(Resource::ShaderBackend::DXIL);
-        compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
-        compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
-        m_assetManager->RegisterAssetLoader(eastl::move(loader), Resource::AssetType::Shader);
-        m_assetManager->RegisterAssetCompiler(eastl::move(compiler), Resource::AssetType::Shader);
-
-    }
-
-    HelloTriangle::~HelloTriangle()
-    {
-        /*
-        m_rhi->FactoryCollect();
-        m_rhi->Shutdown();
-        m_assetManager->Shutdown();
-        m_glfwWindow->Shutdown();
-        */
     }
 
     void HelloTriangle::CreateDevice()
     {
         RHI::PhysicalDeviceList devList = m_rhiFactory->EnumeratePhysicalDevices();
+        ASSERT(devList.size() > 0, "No physical devices available.");
         for (Ptr<RHI::PhysicalDevice> physicalDev: devList)
         {
             LOG_INFO(physicalDev->GetDescriptor().m_description.c_str());
@@ -140,7 +124,8 @@ namespace Spark::SandBox
         m_device = m_rhiFactory->CreateDevice();
         RHI::DeviceDescriptor desc;
         desc.m_frameCountMax = 2;
-        RHI::ResultCode result = m_device->Init(*devList[0], desc);
+        auto firstDevice = devList[0];
+        RHI::ResultCode result = m_device->Init(*firstDevice, desc);
         if (result != RHI::ResultCode::Success)
         {
             LOG_INFO("Create Device failed!");
@@ -243,7 +228,7 @@ namespace Spark::SandBox
         desc.m_renderStates.m_depthStencilState.m_stencil.m_enable = false;
 
         // shader
-        Resource::AssetId shaderId("Shaders/Test/SimpleTriangle.hlsl");
+        Resource::AssetId shaderId("Shader/SimpleTriangle.hlsl");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
         Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);
@@ -394,14 +379,6 @@ namespace Spark::SandBox
         drawItem.m_drawArguments.m_linear.m_vertexCount = 3;
         drawItem.m_drawArguments.m_linear.m_vertexOffset = 0;
 
-        // Use default viewport and scissor
-        /*
-        drawItem.m_scissors = &m_scissor;
-        drawItem.m_scissorsCount = 1;
-        drawItem.m_viewports = &m_viewport;
-        drawItem.m_viewportsCount = 1;
-        */
-
         drawItem.m_pipelineState = m_pipelineState.get();
 
         RHI::StreamBufferView vertexStream(
@@ -444,7 +421,7 @@ namespace Spark::SandBox
             RHI::CommandList* commandList = m_rhiFactory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
             BuildCommand(commandList);
             RHI::CommandList* commandLists[] = { commandList };
-            m_commandQueue->ExecuteCommand(commandLists);
+            m_commandQueue->ExecuteCommands(commandLists);
             
             m_commandQueue->FlushCommands(*m_fence);
 

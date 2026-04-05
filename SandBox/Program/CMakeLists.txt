@@ -9,7 +9,7 @@ if (BUILD_RHI_HELLOTRIANGLE)
 
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
-        SHADER_ASSET_DIR="${ENGINE_ASSET_DIR}"
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
     )
 
     target_link_libraries(${TARGET_NAME}

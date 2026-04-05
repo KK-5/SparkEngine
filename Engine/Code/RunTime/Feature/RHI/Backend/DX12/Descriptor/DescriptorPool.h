@@ -46,6 +46,7 @@ namespace Spark::RHI::DX12
         using ObjectType = DescriptorHandle;
         using ObjectFactoryType = DescriptorHandleFactory;
         using MutexType = std::mutex;
+        using StorageType = DescriptorHandle*;
     };
 
     class DescriptorHandlePool final : public ObjectPool<DescriptorHandlePoolTraits>,
@@ -109,6 +110,7 @@ namespace Spark::RHI::DX12
         using ObjectType = DescriptorTable;
         using ObjectFactoryType = DescriptorTableFactory;
         using MutexType = std::mutex;
+        using StorageType = DescriptorTable*;
     };
 
     class DescriptorTablePool final : public ObjectPool<DescriptorTablePoolTraits>,

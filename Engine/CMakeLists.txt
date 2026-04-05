@@ -8,14 +8,9 @@ option(BUILD_TESTS "Build the tests" ON)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${BINARY_ROOT_DIR}")
 
-add_compile_definitions(NOMINMAX)
-add_compile_definitions(MATH_BACKEND_GLM)
-
 add_subdirectory(3rdParty)
 add_subdirectory(Code/Runtime)
 add_subdirectory(Code/Editor)
-
-add_subdirectory(SandBox/Program)
 
 # 如果启用测试，添加测试目录
 if(BUILD_TESTS)

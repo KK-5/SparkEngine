@@ -18,7 +18,6 @@ namespace Spark::Resource
         m_shutdown = false;
         RegisterDefaultLoaderAndCompiler();
         m_processThread = std::thread(&SparkAssetManager::ProcessThread, this);
-        LOG_INFO("SparkAssetManager initialized");
     }
 
     void SparkAssetManager::ShutdownInternal()
@@ -39,8 +38,6 @@ namespace Spark::Resource
         m_assetLoaders.clear();
         m_assetCompilers.clear();
         m_searchPaths.clear();
-
-        LOG_INFO("SparkAssetManager shutdown");
     }
 
     eastl::vector<HashString> SparkAssetManager::Request() const

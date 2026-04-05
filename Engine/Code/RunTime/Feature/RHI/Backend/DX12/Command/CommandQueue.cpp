@@ -45,7 +45,8 @@ namespace Spark::RHI::DX12
 
     void CommandQueue::Signal(DX12Fence& fence)
     {
-        m_queue->Signal(fence.Get(), fence.GetPendingValue());
+        HRESULT hr = m_queue->Signal(fence.Get(), fence.GetPendingValue());
+        ASSERT(SUCCEEDED(hr), "[DX12 CommandQueue] Signal fence failed.");
     }
 
     void CommandQueue::SignalInternal(RHI::Fence& fence)
@@ -74,7 +75,7 @@ namespace Spark::RHI::DX12
         return m_queue.get();
     }
 
-    void CommandQueue::ExecuteCommandInternal(eastl::span<RHI::CommandList*> commandLists)
+    void CommandQueue::ExecuteCommandsInternal(eastl::span<RHI::CommandList*> commandLists)
     {
         if (commandLists.size() == 0)
         {

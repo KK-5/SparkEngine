@@ -195,6 +195,7 @@ namespace Spark::RHI
     {
         if (!IsInitialized())
         {
+            LOG_ERROR("[SwapChain] Repeatedly shutdown SwapChain.");
             return;
         }
         // Release Image views / references to swap chain buffers before destroying the swap chain (DXGI owns the buffers).

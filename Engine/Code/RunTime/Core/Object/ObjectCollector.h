@@ -29,16 +29,48 @@ namespace Spark
         using ObjectType = Object;
 
         using MutexType = NullObjectPoolMutex;
+
+        /// 可以设置使用Ptr或者裸指针存储Object，默认使用Ptr，它们的区别在于
+        /// 使用Ptr：
+        ///     明确表示ObjectCollector持有Object的语义，当ObjectCollector释放此Ptr时，自动触发Object的析构，
+        ///     适用于多数普通的Object或者ID3D12Object，这类对象在引用计数为0时自动析构，ObjectCollector通过
+        ///     持有Ptr来延长其生命周期。
+        ///     使用Ptr时，外部在回收Object时需要手动调用QueueForCollect（或ObjectPool::DeAllocate）显式地转移Object所有权
+        /// 使用裸指针：
+        ///     ObjectCollector不再持有Object，Object的生命周期管理将完全交给外部，ObjectCollector只负责在一段
+        ///     延迟后调用它的销毁函数，通常在CollectFunction中完成这个工作。
+        ///     外部可以拥有更高的生命周期管理权限，比如可以定义Object在引用计数为0时不析构此对象。
+        ///     作为代价，ObjectCollector的CollectFunction需要认真考虑，如果使用了ObjectPool，ObejctFactory::DestoryObject
+        ///     将被用来执行销毁工作
+        ///
+        /// Usage:
+        /// using StorageType = Ptr<ObjectType>;
+        /// using StorageType = ObjectType*;
     };
 
     using ObjectCollectorNotifyFunction = eastl::function<void()>;
+
+    namespace Internal
+    {
+        /// 若 Traits 显式定义了 StorageType 则使用它，否则默认推导为 Ptr<Traits::ObjectType>
+        template<typename Traits, typename = void>
+        struct ResolveStorageType
+        {
+            using type = Ptr<typename Traits::ObjectType>;
+        };
+        template<typename Traits>
+        struct ResolveStorageType<Traits, eastl::void_t<typename Traits::StorageType>>
+        {
+            using type = typename Traits::StorageType;
+        };
+    }
 
     template <typename Traits = ObjectCollectorTraits>
     class ObjectCollector final
     {
     public:
         using ObjectType = typename Traits::ObjectType;
-        using ObjectPtrType = Ptr<ObjectType>;
+        using ObjectPtrType = typename Internal::ResolveStorageType<Traits>::type;
 
         ObjectCollector() = default;
         ~ObjectCollector();

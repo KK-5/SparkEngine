@@ -14,7 +14,7 @@ namespace Editor
 
     void EditorUI::InitInternal()
     {
-        Spark::UI::UIBaseSystem::Init();
+        Spark::UI::UIBaseSystem::InitInternal();
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();

@@ -54,55 +54,53 @@ namespace Spark::RHI
         }
     }
 
-    void CommandQueue::QueueCommand(Command command)
+    ResultCode CommandQueue::FlushCommands(RHI::Fence& fence)
     {
-    
-    }
-
-    void CommandQueue::FlushCommands(RHI::Fence& fence)
-    {
-        if (fence.Reset() == RHI::ResultCode::Success)
-        {
-            Signal(fence);
-            fence.WaitOnCpu();
-        }
-        else
+        if (fence.Reset() != RHI::ResultCode::Success)
         {
             LOG_ERROR("[CommandQueue] Reset Fence failed.");
+            return ResultCode::Fail;
         }
+
+        if (Signal(fence) != ResultCode::Success)
+        {
+            LOG_ERROR("[CommandQueue] Signal Fence failed.");
+            return ResultCode::Fail;
+        }
+            
+        fence.WaitOnCpu();
+        return ResultCode::Success;
     }
 
-    void CommandQueue::ProcessQueue()
-    {
-
-    }
-
-    void CommandQueue::ExecuteCommand(eastl::span<CommandList*> commandLists)
+    ResultCode CommandQueue::ExecuteCommands(eastl::span<CommandList*> commandLists)
     {
         if (!ValidateIsInitialized())
         {
             LOG_ERROR("[CommandQueue] CommandQueue is not initialize.");
-            return;
+            return ResultCode::InvalidOperation;
         }
 
-        ExecuteCommandInternal(commandLists);
+        ExecuteCommandsInternal(commandLists);
+        return ResultCode::Success;
     }
 
-    void CommandQueue::Signal(RHI::Fence& fence)
+    ResultCode CommandQueue::Signal(RHI::Fence& fence)
     {
         if (!ValidateIsInitialized())
         {
             LOG_ERROR("[CommandQueue] CommandQueue is not initialize.");
-            return;
+            return ResultCode::InvalidOperation;
         }
 
         if (!fence.IsInitialized())
         {
             LOG_ERROR("[CommandQueue] Fence is not initialize.");
-            return;
+            return ResultCode::InvalidOperation;
         }
 
         SignalInternal(fence);
+
+        return ResultCode::Success;
     }
 
     RHI::HardwareQueueClass CommandQueue::GetHardwareQueueClass() const

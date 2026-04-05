@@ -13,9 +13,14 @@ include(CMakeDependentOption)
 set(SPARK_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(CMAKE_INSTALL_PREFIX "${SPARK_ROOT_DIR}/bin")
 set(BINARY_ROOT_DIR "${CMAKE_INSTALL_PREFIX}/")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${BINARY_ROOT_DIR}")
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /O2")
 endif()
 
+add_compile_definitions(NOMINMAX)
+add_compile_definitions(MATH_BACKEND_GLM)
+
 add_subdirectory(Engine)
+add_subdirectory(SandBox)

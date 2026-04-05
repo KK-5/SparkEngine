@@ -17,7 +17,7 @@ namespace Spark::RHI::DX12
         const bool isGpuVisible = CheckBitsAll(m_descriptor.flags, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
         if (isGpuVisible)
         {
-            LOG_INFO("[DescriptorHandleFactory] Creating a shader visible descriptor heap. Recommanded use DescriptorTableFactory.");
+            // LOG_INFO("[DescriptorHandleFactory] Creating a shader visible descriptor heap. Recommanded use DescriptorTableFactory.");
             m_gpuStart = m_descriptor.descriptorHeap->GetGPUDescriptorHandleForHeapStart();
             m_gpuStart.ptr += m_descriptor.heapOffset * m_stride;
         }

@@ -39,12 +39,12 @@ namespace Spark::RHI
         ResultCode Init(Device& device, const CommandQueueDescriptor& descriptor);
         void Shutdown();
 
-        using Command = eastl::function<void(void* commandQueue)>;
-        void QueueCommand(Command command);
-        void FlushCommands(RHI::Fence& fence);
-        void ExecuteCommand(eastl::span<CommandList*> commandLists);
+        // using Command = eastl::function<void(void* commandQueue)>;
+        // void QueueCommand(Command command);
+        ResultCode FlushCommands(RHI::Fence& fence);
+        ResultCode ExecuteCommands(eastl::span<CommandList*> commandLists);
 
-        void Signal(RHI::Fence& fence);
+        ResultCode Signal(RHI::Fence& fence);
             
         RHI::HardwareQueueClass GetHardwareQueueClass() const;
         const CommandQueueDescriptor& GetDescriptor() const;
@@ -54,7 +54,7 @@ namespace Spark::RHI
         // Functions that must be implemented by each RHI.
         virtual ResultCode InitInternal(Device& device, const CommandQueueDescriptor& descriptor) = 0;
         virtual void ExecuteWork(const ExecuteWorkRequest& request) = 0;
-        virtual void ExecuteCommandInternal(eastl::span<CommandList*> commandLists) = 0;
+        virtual void ExecuteCommandsInternal(eastl::span<CommandList*> commandLists) = 0;
         virtual void SignalInternal(RHI::Fence& fence) = 0;
         virtual void WaitForIdle() = 0;
         virtual void ShutdownInternal() = 0;
