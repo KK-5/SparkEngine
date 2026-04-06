@@ -26,7 +26,7 @@ namespace Spark::RHI
     class ConstantsLayout;
     class ShaderResourceLayout;
     class ShaderResource;
-    class ShaderResourcePool;
+    class ShaderResourceCompiler;
 
     class PipelineLibrary;
     class PipelineState;
@@ -77,7 +77,7 @@ namespace Spark::RHI
 
         virtual Ptr<ShaderResource> CreateShaderResource() = 0;
 
-        virtual Ptr<ShaderResourcePool> CreateShaderResourcePool() = 0;
+        virtual ShaderResourceCompiler& AcquireShaderResourceCompiler(RHI::Device& device) = 0;
 
         virtual Ptr<PipelineLibrary> CreatePipelineLibrary() = 0;
 

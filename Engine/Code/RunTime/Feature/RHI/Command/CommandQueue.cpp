@@ -49,6 +49,7 @@ namespace Spark::RHI
     {
         if (ValidateIsInitialized())
         {
+            WaitForIdle();
             ShutdownInternal();
             DeviceObject::Shutdown();
         }

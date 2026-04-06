@@ -6,6 +6,8 @@ set(SOURCES
     Common/CommonAssetLoader.cpp
     Shader/ShaderAsset.cpp
     Shader/ShaderAssetCompiler.cpp
+    Image/ImageAsset.cpp
+    Image/stb_impl.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -18,6 +20,7 @@ target_link_libraries(${TARGET_NAME}
         SparkRHI
     PRIVATE
         dxc
+        stb
 )
 
 target_include_directories(

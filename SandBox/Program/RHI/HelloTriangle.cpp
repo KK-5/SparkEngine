@@ -61,9 +61,9 @@ namespace Spark::SandBox
         SystemUniquePtr<SimpleGlfwWindow> m_glfwWindow;
 
         Ptr<RHI::Device> m_device;
+        Ptr<RHI::SwapChain> m_swapChain;
         Ptr<RHI::CommandQueue> m_commandQueue;
         Ptr<RHI::Fence> m_fence;
-        Ptr<RHI::SwapChain> m_swapChain;
         Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         Ptr<RHI::PipelineState> m_pipelineState;
 
@@ -429,8 +429,6 @@ namespace Spark::SandBox
 
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         }
-        // 退出时需要等待命令队列执行完成
-        m_commandQueue->FlushCommands(*m_fence);
     }
 }
 

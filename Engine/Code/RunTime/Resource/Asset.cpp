@@ -1,11 +1,28 @@
 #include "Asset.h"
 
+#include <filesystem>
+
 #include <Service/Service.h>
 #include "AssetManagerInterface.h"
 #include "EBus/AssetBus.h"
 
 namespace Spark::Resource
 {
+    eastl::string AssetLoader::ResolvePath(const AssetId& id) const
+    {
+        auto name = id.GetName().GetStringView();
+        for (const auto& searchPath : m_searchPaths)
+        {
+            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / name.data();
+            if (std::filesystem::exists(full))
+            {
+                auto str = full.string();
+                return eastl::string(str.c_str(), str.size());
+            }
+        }
+        return {};
+    }
+
     void Asset::SetData(eastl::unique_ptr<AssetData> data)
     {
         m_data = eastl::move(data);

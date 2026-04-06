@@ -6,6 +6,11 @@
  *
  */
 
+#include <Device/Device.h>
+#include <Resource/Constant/ConstantBufferContext.h>
+#include <Descriptor/DescriptorContext.h>
+#include <ID3D12Factory.h>
+
 #include "ShaderResource.h"
 
 namespace Spark::RHI::DX12
@@ -13,5 +18,31 @@ namespace Spark::RHI::DX12
     const ShaderResourceCompiledData& ShaderResource::GetCompiledData() const
     {
         return m_compiledData[m_compiledDataIndex];
+    }
+
+    void ShaderResource::ShutdownInternal()
+    {
+        Device& device = static_cast<Device&>(GetDevice());
+        ID3D12FactoryInterface* factory = Service<ID3D12FactoryInterface>::Get();
+        ASSERT(factory, "ID3D12Factory is null.");
+
+        DescriptorContext& descriptorCtx = factory->AcquireDescriptorContext(device);
+        ConstantBufferContext& constantBufferCtx = factory->AcquireConstantBufferContext(device);
+
+        if (m_constantMemoryView.IsValid())
+        {
+            constantBufferCtx.CollectConstantBuffer(m_constantMemoryView);
+        }
+
+        if (m_viewsDescriptorTable.IsValid())
+        {
+            descriptorCtx.ReleaseDescriptorTable(m_viewsDescriptorTable);
+        }
+
+        if (m_samplersDescriptorTable.IsValid())
+        {
+            descriptorCtx.ReleaseDescriptorTable(m_samplersDescriptorTable);
+        }
+
     }
 }

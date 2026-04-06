@@ -55,7 +55,7 @@ set(SOURCES
     Resource/ShaderResource/ShaderResource.cpp
     Resource/ShaderResource/ShaderResourceDescriptor.cpp
     Resource/ShaderResource/ShaderResourceLayout.cpp
-    Resource/ShaderResource/ShaderResourcePool.cpp
+    Resource/ShaderResource/ShaderResourceCompiler.cpp
     Scissor/Scissor.cpp
     SwapChain/SwapChain.cpp
     Viewport/VIewport.cpp

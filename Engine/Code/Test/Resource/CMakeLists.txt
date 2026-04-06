@@ -1,4 +1,5 @@
 option(ShaderAssetTests "Shader Asset Tests" ON)
+option(ImageAssetTests  "Image Asset Tests"  ON)
 
 
 set(TEST_SOURCES "")
@@ -10,6 +11,7 @@ function(ADD_TEST_SOUECE TEST_OPTION TEST_SOURCE_FILE)
 endfunction(ADD_TEST_SOUECE)
 
 ADD_TEST_SOUECE(ShaderAssetTests "ShaderAssetTest.cpp")
+ADD_TEST_SOUECE(ImageAssetTests  "ImageAssetTests.cpp")
 
 
 set(TARGET_NAME SparkAssetTest)
@@ -32,6 +34,7 @@ target_link_libraries(${TARGET_NAME}
 target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${ENGINE_ASSET_DIR}"
+        IMAGE_ASSET_DIR="${ENGINE_ASSET_DIR}/Image/Test"
 )
 
 # 添加为CTest测试

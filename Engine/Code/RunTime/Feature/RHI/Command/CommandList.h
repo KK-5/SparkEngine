@@ -67,12 +67,12 @@ namespace Spark::RHI
 
         //! Assigns a shader resource group for draw on the graphics pipe, at the binding slot
         //! determined by the layout used to create the shader resource group.
-        //! @param shaderResourceGroup The shader resource group to bind.
+        //! @param ShaderResource The shader resource group to bind.
         virtual void SetShaderResourceForDraw(const ShaderResource& shaderResource) = 0;
 
         //! Assigns a shader resource group for dispatch on compute pipe, at the binding slot
         //! determined by the layout used to create the shader resource group.
-        //! @param shaderResourceGroup The shader resource group to bind.
+        //! @param ShaderResource The shader resource group to bind.
         virtual void SetShaderResourceForDispatch(const ShaderResource& shaderResource) = 0;
 
         /// Submits a single copy item for processing on the command list.

@@ -42,6 +42,7 @@ namespace Spark::RHI::DX12
 
         // void Signal(DX12Fence& fence);
         ID3D12CommandQueue* GetNativeQueue() const;
+        void Signal(DX12Fence& fence);
     
     private:
         friend class DeviceObjectFactory<CommandQueue>;
@@ -56,7 +57,6 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
 
         // void UpdateTileMappings(CommandList& commandList);
-        void Signal(DX12Fence& fence);
 
         Ptr<ID3D12CommandQueue> m_queue;
         ID3D12DeviceX* m_dx12Device;

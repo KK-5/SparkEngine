@@ -47,6 +47,12 @@ if(NOT TARGET dxc)
     )
 endif()
 
+if(NOT TARGET stb)
+    Message(STATUS "Import stb")
+    add_library(stb INTERFACE)
+    target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
+endif()
+
 if(BUILD_TESTS)
     Message(STATUS "Import gtest")
     option(BUILD_GMOCK "Builds the googlemock subproject" ON)

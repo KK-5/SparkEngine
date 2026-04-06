@@ -16,7 +16,7 @@
 #include "Resource/Image/ImagePool.h"
 #include "Resource/Image/ImageView.h"
 #include "Resource/ShaderResource/ShaderResource.h"
-#include "Resource/ShaderResource/ShaderResourcePool.h"
+#include "Resource/ShaderResource/ShaderResourceCompiler.h"
 #include "Pipeline/PipelineLibrary.h"
 #include "Pipeline/PipelineState.h"
 #include "Pipeline/PipelineLayout.h"
@@ -64,8 +64,6 @@ namespace Spark::RHI::DX12
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
 
         virtual void QueueForRelease(Device& device, Ptr<ID3D12Object> dx12Object) = 0;
-
-        // virtual void QueueForRelease();
 
         // virtual CommandQueueContext& AcquireCommandQueueContext() = 0;
     };
@@ -123,7 +121,7 @@ namespace Spark::RHI::DX12
 
         Ptr<RHI::ShaderResource> CreateShaderResource() override;
 
-        Ptr<RHI::ShaderResourcePool> CreateShaderResourcePool() override;
+        RHI::ShaderResourceCompiler& AcquireShaderResourceCompiler(RHI::Device& device) override;
 
         Ptr<RHI::PipelineLibrary> CreatePipelineLibrary() override;
 
@@ -157,7 +155,6 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<ImagePool>  m_imagePoolObjectPool;
         DeviceObjectPool<ImageView>  m_imageViewObjectPool;
         DeviceObjectPool<ShaderResource> m_shaderResourceObjectPool;
-        DeviceObjectPool<ShaderResourcePool> m_shaderResourcePoolObjectPool;
         DeviceObjectPool<PipelineLibrary> m_pipelineLibraryObjectPool;
         DeviceObjectPool<PipelineState> m_pipelineStateObjectPool;
         DeviceObjectPool<Fence>      m_fenceObjectPool;
@@ -170,6 +167,7 @@ namespace Spark::RHI::DX12
         eastl::unique_ptr<DescriptorContext> m_descriptorContext;
         eastl::unique_ptr<ConstantBufferContext> m_constantBufferContext;
         eastl::unique_ptr<CommandListAllocator> m_commandlistAllocator;
+        eastl::unique_ptr<ShaderResourceCompiler> m_shaderResourceCompiler;
 
         eastl::unique_ptr<D3D12ObjReleaseQueue> m_dx12ObjReleaseQueue;
     };

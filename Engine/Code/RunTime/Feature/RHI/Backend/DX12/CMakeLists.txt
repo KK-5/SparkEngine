@@ -33,7 +33,7 @@ set(SOURCES
     Resource/Image/Image.cpp
     Resource/Image/ImageView.cpp
     Resource/Sampler/Sampler.cpp
-    Resource/ShaderResource/ShaderResourcePool.cpp
+    Resource/ShaderResource/ShaderResourceCompiler.cpp
     Resource/ShaderResource/ShaderResource.cpp
     SwapChain/SwapChain.cpp
 )

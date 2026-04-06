@@ -318,6 +318,42 @@ namespace Spark::RHI
         return true;
     }
 
+    ResultCode ShaderResource::Init(Device& device, ConstPtr<ShaderResourceLayout> layout)
+    {
+        if (Validation::isEnabled)
+        {
+            if (IsInitialized())
+            {
+                LOG_ERROR("[ShaderResource] ShaderResource is already initialized.");
+                return ResultCode::InvalidOperation;
+            }
+
+            if (!layout)
+            {
+                LOG_ERROR("[ShaderResource] ShaderResourceLayout is null");
+                return ResultCode::InvalidArgument;
+            }
+        }
+
+        SetLayout(layout.get());
+        return ResultCode::Success;
+    }
+
+    void ShaderResource::Shutdown()
+    {
+        if (Validation::isEnabled)
+        {
+            if (!IsInitialized())
+            {
+                LOG_ERROR("[ShaderResource] ShaderResource is not initialized.");
+                return;
+            }
+        }
+
+        ShutdownInternal();
+        DeviceObject::Shutdown();
+    }
+
     ShaderInputIndex ShaderResource::FindShaderInputBufferIndex(const ShaderInputName& name) const
     {
         return m_shaderResourceGroupLayout->FindShaderInputBufferIndex(name);
@@ -602,20 +638,11 @@ namespace Spark::RHI
     void ShaderResource::SetLayout(const ShaderResourceLayout* layout)
     {
         m_shaderResourceGroupLayout = layout;
+        m_bindingSlot = layout->GetBindingSlot();
     }
 
     const ShaderResourceLayout* ShaderResource::GetLayout() const
     {
         return m_shaderResourceGroupLayout.get();
-    }
-
-    ShaderResourcePool* ShaderResource::GetPool()
-    {
-        return static_cast<ShaderResourcePool*>(Resource::GetPool());
-    }
-
-    const ShaderResourcePool* ShaderResource::GetPool() const
-    {
-        return static_cast<const ShaderResourcePool*>(Resource::GetPool());
     }
 }

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <EASTL/unique_ptr.h>
+#include <EASTL/vector.h>
+#include <EASTL/string.h>
 
 #include <Object/Object.h>
 #include "AssetTypes.h"
@@ -64,8 +66,23 @@ namespace Spark::Resource
     struct AssetLoader : public AssetCatalogBus::Handler
     {
         virtual ~AssetLoader() = default;
-        virtual void SetSearchPaths(const eastl::vector<eastl::string> searchPaths) = 0;
+
+        void SetSearchPaths(const eastl::vector<eastl::string> searchPaths)
+        {
+            m_searchPaths = searchPaths;
+        }
+
+        void OnAssetSearchPathsChange(const eastl::vector<eastl::string>& paths) override
+        {
+            m_searchPaths = paths;
+        }
+
         virtual eastl::unique_ptr<AssetData> Load(const AssetId& id) = 0;
+
+    protected:
+        eastl::string ResolvePath(const AssetId& id) const;
+
+        eastl::vector<eastl::string> m_searchPaths;
     };
 
     struct AssetCompiler

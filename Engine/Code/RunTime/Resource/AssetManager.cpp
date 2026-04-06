@@ -7,6 +7,7 @@
 
 #include "EBus/AssetBus.h"
 #include "Shader/ShaderAsset.h"
+#include "Image/ImageAsset.h"
 
 #include "Common/CommonAssetLoader.h"
 #include "Shader/ShaderAssetCompiler.h"
@@ -67,15 +68,22 @@ namespace Spark::Resource
 
     void SparkAssetManager::RegisterDefaultLoaderAndCompiler()
     {
+        //////////////////////////////////////
         // Shader
-        auto binaryLoader =  eastl::make_unique<BinaryAssetLoader>();
+        auto binaryLoader = eastl::make_unique<BinaryAssetLoader>();
         RegisterAssetLoader(eastl::move(binaryLoader), AssetType::Shader);
 
         auto compiler = eastl::make_unique<ShaderAssetCompiler>(ShaderBackend::DXIL);
         compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
         compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
         RegisterAssetCompiler(eastl::move(compiler), AssetType::Shader);
+        //////////////////////////////////////
 
+        //////////////////////////////////////
+        // Image
+        auto imageLoader = eastl::make_unique<ImageAssetLoader>();
+        RegisterAssetLoader(eastl::move(imageLoader), AssetType::Image);
+        //////////////////////////////////////
     }
 
     Ptr<Asset> SparkAssetManager::FindAsset(const AssetId& id, AssetType type) const
@@ -167,23 +175,6 @@ namespace Spark::Resource
         std::lock_guard lock(m_mutex);
         m_assetCompilers[type] = eastl::move(compiler);
     }
-
-    /*
-    eastl::string SparkAssetManager::ResolvePath(const AssetId& id) const
-    {
-        auto name = id.GetName().GetStringView();
-        for (const auto& searchPath : m_searchPaths)
-        {
-            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / name.data();
-            if (std::filesystem::exists(full))
-            {
-                auto str = full.string();
-                return eastl::string(str.c_str(), str.size());
-            }
-        }
-        return {};
-    }
-    */
 
     void SparkAssetManager::ProcessThread()
     {

@@ -66,6 +66,7 @@ namespace Spark::Resource
     enum class AssetType : uint32_t
     {
         Shader,
+        Image,
     };
 }
 

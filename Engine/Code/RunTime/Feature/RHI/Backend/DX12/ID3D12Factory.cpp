@@ -22,7 +22,6 @@ namespace Spark::RHI::DX12
         m_imagePoolObjectPool.Init();
         m_imageViewObjectPool.Init();
         m_shaderResourceObjectPool.Init();
-        m_shaderResourcePoolObjectPool.Init();
         m_pipelineLibraryObjectPool.Init();
         m_pipelineStateObjectPool.Init();
         m_fenceObjectPool.Init();
@@ -45,7 +44,6 @@ namespace Spark::RHI::DX12
         m_imagePoolObjectPool.Shutdown();
         m_imageViewObjectPool.Shutdown();
         m_shaderResourceObjectPool.Shutdown();
-        m_shaderResourcePoolObjectPool.Shutdown();
         m_pipelineLibraryObjectPool.Shutdown();
         m_pipelineStateObjectPool.Shutdown();
         m_fenceObjectPool.Shutdown();
@@ -86,7 +84,6 @@ namespace Spark::RHI::DX12
         m_imagePoolObjectPool.Collect();
         m_imageViewObjectPool.Collect();
         m_shaderResourceObjectPool.Collect();
-        m_shaderResourcePoolObjectPool.Collect();
         m_pipelineLibraryObjectPool.Collect();
         m_pipelineStateObjectPool.Collect();
         m_fenceObjectPool.Collect();
@@ -281,9 +278,19 @@ namespace Spark::RHI::DX12
         return static_cast<RHI::ShaderResource*>(m_shaderResourceObjectPool.CreateDeviceObject());
     }
 
-    Ptr<RHI::ShaderResourcePool> ID3D12Factory::CreateShaderResourcePool()
+    RHI::ShaderResourceCompiler& ID3D12Factory::AcquireShaderResourceCompiler(RHI::Device& device)
     {
-        return static_cast<RHI::ShaderResourcePool*>(m_shaderResourcePoolObjectPool.CreateDeviceObject());
+        if (!m_shaderResourceCompiler)
+        {
+            m_shaderResourceCompiler = eastl::make_unique<ShaderResourceCompiler>();
+
+            Device& dx12Device = static_cast<Device&>(device);
+            ASSERT(ValidateSingleDevice(dx12Device), "The current RHI system only supports a single device.");
+            RHI::ShaderResourceCompilerDescriptor desc;
+            m_shaderResourceCompiler->Init(dx12Device, desc);
+        }
+
+        return *m_shaderResourceCompiler;
     }
 
     Ptr<RHI::PipelineLibrary> ID3D12Factory::CreatePipelineLibrary()

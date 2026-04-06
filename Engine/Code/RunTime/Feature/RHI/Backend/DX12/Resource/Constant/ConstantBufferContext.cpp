@@ -51,14 +51,6 @@ namespace Spark::RHI::DX12
         return MemoryView(allocation.Get(), MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
     }
 
-    MemoryView ConstantBufferContext::AcquireStagingMemory(size_t size, size_t alignment)
-    {
-        MemoryView memoryView = CreateConstantBuffer(size, alignment);
-        // Queue the memory or deferred release immediately.
-        m_releaseQueue.QueueForCollect(memoryView.GetMemoryAllocation());
-        return memoryView;
-    }
-
     void ConstantBufferContext::CollectConstantBuffer(MemoryView& memoryView)
     {
         m_releaseQueue.QueueForCollect(memoryView.GetMemoryAllocation());

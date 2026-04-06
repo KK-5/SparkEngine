@@ -95,7 +95,7 @@ namespace Spark::RHI
         virtual ResultCode InitInternal(Device& device, const ShaderResourcePoolDescriptor& descriptor) = 0;
 
         // Initializes backing resources for the resource group.
-        virtual ResultCode InitShaderResourceInternal(ShaderResource& shaderResourceGroup) = 0;
+        virtual ResultCode InitShaderResourceInternal(ShaderResource& shaderResource) = 0;
 
         virtual ResultCode CompileShaderReourceBufferInternal(ShaderResource& shaderResource) = 0;
 

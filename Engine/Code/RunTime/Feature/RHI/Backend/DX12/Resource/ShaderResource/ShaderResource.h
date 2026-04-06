@@ -42,7 +42,10 @@ namespace Spark::RHI::DX12
     private:
         ShaderResource() = default;
 
+        void ShutdownInternal() override;
+
         friend class ShaderResourcePool;
+        friend class ShaderResourceCompiler;
         friend class DescriptorContext;
         friend class DeviceObjectFactory<ShaderResource>;
 

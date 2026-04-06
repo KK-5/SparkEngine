@@ -27,15 +27,6 @@ namespace Spark::Resource
         BinaryAssetLoader();
         virtual ~BinaryAssetLoader();
 
-        void SetSearchPaths(const eastl::vector<eastl::string> searchPaths) override;
-
         eastl::unique_ptr<AssetData> Load(const AssetId& id) override;
-
-        void OnAssetSearchPathsChange(const eastl::vector<eastl::string>& paths) override;
-
-    private:
-        eastl::string ResolvePath(const AssetId& id) const;
-
-        eastl::vector<eastl::string> m_searchPaths;
     };
 }
