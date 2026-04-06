@@ -143,6 +143,21 @@ namespace Spark::RHI
         memcpy(destination, source, num);
     }
 
+    void BufferPool::MemcpySubresource(MemoryCopyDest* dest, MemoryCopySrc* src, size_t rowSizeInBytes, uint32_t numRows, uint32_t numSlices)
+    {
+        for (uint32_t z = 0; z < numSlices; ++z)
+        {
+            uint8_t* pDestSlice = reinterpret_cast<uint8_t*>(dest->pData) + dest->slicePitch * z;
+            const uint8_t* pSrcSlice = reinterpret_cast<const uint8_t*>(src->pData) + src->slicePitch * z;
+            for (uint32_t y = 0; y < numRows; ++y)
+            {
+                memcpy(pDestSlice + dest->rowPitch * y,
+                    pSrcSlice + src->rowPitch * y,
+                    rowSizeInBytes);
+            }
+        }
+    }
+
     const BufferPoolDescriptor& BufferPool::GetDescriptor() const
     {
         return m_descriptor;

@@ -95,6 +95,7 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
         /// PipelineLayoutDescriptor
         size_t GetHashInternal(size_t seed) const override;
+        ResultCode FinalizeInternal() override;
         //////////////////////////////////////////////////////////////////////////
 
         RootConstantBinding m_rootConstantBinding;

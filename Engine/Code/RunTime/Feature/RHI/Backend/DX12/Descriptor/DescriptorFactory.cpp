@@ -258,6 +258,7 @@ namespace Spark::RHI::DX12
         }
 
         Node& foundNode = m_nodes[response.nodeIndex];
+        size_t result = foundNode.offset;
         DescriptorHandle handle(
             m_descriptor.type,
             m_descriptor.flags,
@@ -267,11 +268,13 @@ namespace Spark::RHI::DX12
 
         if (response.remainingSize > 0)
         {
-            InsertNode(response.prevIndex, foundNode.offset + count, response.remainingSize);
+            InsertNode(response.nodeIndex, foundNode.offset + count, response.remainingSize);
         }
         RemoveNode(response.prevIndex, response.nodeIndex);
 
-        return &m_tablePool[foundNode.offset];
+        auto table = m_tablePool[result];
+
+        return &m_tablePool[result];
     }
 
     void DescriptorTableFactory::DestoryObject(DescriptorTable* table, bool isPoolShutdown)

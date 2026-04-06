@@ -79,5 +79,8 @@ namespace Spark::RHI
         constexpr uint32_t InputAssembly = 4;
         constexpr uint32_t Constant = 256;
         constexpr uint32_t Buffer = 16;
+        
+        // for dx12 requirment
+        constexpr uint32_t TexturePitch = 256;
     }
 }

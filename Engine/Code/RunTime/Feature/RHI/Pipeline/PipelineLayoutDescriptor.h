@@ -10,18 +10,18 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/fixed_vector.h>
 #include <EASTL/array.h>
+#include <EASTL/span.h>
 
 #include <Base.h>
 #include <Object/Object.h>
 
 #include <RHI/RHILimits.h>
+#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
+#include <RHI/Resource/ShaderResource/ConstantsLayout.h>
 #include "ShaderStages.h"
 
 namespace Spark::RHI
 {
-    class ShaderResourceLayout;
-    class ConstantsLayout;
-
     struct ResourceBindingInfo
     {
         ResourceBindingInfo() = default;
@@ -110,6 +110,10 @@ namespace Spark::RHI
     protected:
         PipelineLayoutDescriptor() = default;
 
+        using ShaderResourceLayoutInfo = eastl::pair<Ptr<ShaderResourceLayout>, ShaderResourceBindingInfo>;
+
+        const eastl::fixed_vector<ShaderResourceLayoutInfo, RHI::Limits::Pipeline::ShaderResourceCountMax>& GetShaderResourceLayoutInfo() const;
+
     private:
         ///////////////////////////////////////////////////////////////////
         // Platform API
@@ -127,7 +131,6 @@ namespace Spark::RHI
 
         // A hash of 0 is valid if the descriptor is empty.
         static constexpr size_t InvalidHash = static_cast<size_t>(~0);
-        using ShaderResourceLayoutInfo = eastl::pair<Ptr<ShaderResourceLayout>, ShaderResourceBindingInfo>;
 
         /// List of layout and binding information for each Shader Resource that is part of this Pipeline.
         eastl::fixed_vector<ShaderResourceLayoutInfo, RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResourceLayoutsInfo;

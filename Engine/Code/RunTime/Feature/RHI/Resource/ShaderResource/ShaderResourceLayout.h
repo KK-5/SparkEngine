@@ -19,6 +19,7 @@
 #include <EASTL/span.h>
 #include <Math/Interval.h>
 #include <Object/Object.h>
+#include <Base.h>
 #include "ShaderResourceDescriptor.h"
 #include "ShaderResourceLayoutCommon.h"
 #include "ConstantsLayout.h"
@@ -140,6 +141,8 @@ namespace Spark::RHI
         //! Returns the constants data layout;
         const ConstantsLayout* GetConstantsLayout() const;
 
+        void AddConstantsLayout(Ptr<ConstantsLayout> constantsLayout);
+
         //! Returns the hash computed in Finalize.
         size_t GetHash() const;
 
@@ -204,7 +207,7 @@ namespace Spark::RHI
         uint32_t m_bindingSlot;
 
         /// The layout of the constants data.
-        eastl::unique_ptr<ConstantsLayout> m_constantsDataLayout;
+        Ptr<ConstantsLayout> m_constantsDataLayout;
 
         /// The computed hash value.
         size_t m_hash  = 0;

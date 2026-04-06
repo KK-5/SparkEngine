@@ -228,6 +228,11 @@ namespace Spark::RHI
         return m_constantsDataLayout.get();
     }
 
+    void ShaderResourceLayout::AddConstantsLayout(Ptr<ConstantsLayout> constantsLayout)
+    {
+        m_constantsDataLayout = constantsLayout;
+    }
+
     uint32_t ShaderResourceLayout::GetBindingSlot() const
     {
         ASSERT(IsFinalized(), "ShaderResourceLayout is not finalized");
@@ -281,7 +286,7 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (!ValidateAccess(inputIndex, m_inputsForBuffers.size(), "Image"))
+            if (!ValidateAccess(inputIndex, m_inputsForImages.size(), "Image"))
             {
                 return false;
             }
@@ -300,7 +305,7 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (!ValidateAccess(inputIndex, m_inputsForBuffers.size(), "Sampler"))
+            if (!ValidateAccess(inputIndex, m_inputsForSamplers.size(), "Sampler"))
             {
                 return false;
             }

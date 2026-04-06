@@ -55,6 +55,23 @@ namespace Spark::RHI::DX12
         return m_shaderResourceVisibilities[index];
     }
 
+    ResultCode PipelineLayoutDescriptor::FinalizeInternal()
+    {
+        auto shaderResourceLayoutInfo = GetShaderResourceLayoutInfo();
+        for (auto layoutInfo: shaderResourceLayoutInfo)
+        {
+            RHI::ShaderResourceBindingInfo bindingInfo = layoutInfo.second;
+            ShaderResourceVisibility visibility;
+            for (const auto& bindInfo : bindingInfo.m_resourcesRegisterMap)
+            {
+                visibility.m_descriptorTableShaderStageMask |= bindInfo.second.m_shaderStageMask;
+            }
+            AddShaderResourceVisibility(visibility);
+        }
+
+        return ResultCode::Success;
+    }
+
     size_t PipelineLayoutDescriptor::GetHashInternal(size_t seed) const
     {
         eastl::hash_combine_raw(seed, m_rootConstantBinding.GetHash());

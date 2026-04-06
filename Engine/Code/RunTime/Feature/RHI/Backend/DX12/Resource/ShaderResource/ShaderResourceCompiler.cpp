@@ -101,10 +101,11 @@ namespace Spark::RHI::DX12
         // -- Constant buffer (ring-buffered) --
         if (constantSize > 0)
         {
-            const uint32_t constantRingSize = constantSize * frameCountMax;
+            const size_t byteSize = AlignUp(constantSize, RHI::Alignment::Constant);
+            const uint32_t constantRingSize = byteSize * frameCountMax;
             ConstantBufferContext& constantBufferCtx = factory->AcquireConstantBufferContext(device);
             dx12Srg.m_constantMemoryView =
-                constantBufferCtx.CreateConstantBuffer(constantRingSize, RHI::Alignment::Constant);
+                constantBufferCtx.CreateConstantBuffer(constantRingSize);
 
             CpuVirtualAddress cpuAddress = dx12Srg.m_constantMemoryView.Map(RHI::HostMemoryAccess::Write);
             GpuVirtualAddress gpuAddress = dx12Srg.m_constantMemoryView.GetGpuAddress();

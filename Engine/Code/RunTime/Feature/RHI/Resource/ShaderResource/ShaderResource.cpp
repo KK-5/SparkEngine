@@ -336,6 +336,7 @@ namespace Spark::RHI
         }
 
         SetLayout(layout.get());
+        DeviceObject::Init(device);
         return ResultCode::Success;
     }
 
@@ -639,6 +640,10 @@ namespace Spark::RHI
     {
         m_shaderResourceGroupLayout = layout;
         m_bindingSlot = layout->GetBindingSlot();
+
+        m_imageViews.resize(layout->GetImagesSize());
+        m_bufferViews.resize(layout->GetBuffersSize());
+        m_samplers.resize(layout->GetSamplersSize());
     }
 
     const ShaderResourceLayout* ShaderResource::GetLayout() const

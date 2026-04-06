@@ -28,9 +28,9 @@ namespace Spark::RHI::DX12
         return RHI::ResultCode::Success;
     }
 
-    MemoryView ConstantBufferContext::CreateConstantBuffer(size_t size, size_t alignment)
+    MemoryView ConstantBufferContext::CreateConstantBuffer(size_t size)
     {
-        CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(size, D3D12_RESOURCE_FLAG_NONE, alignment);
+        CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(size, D3D12_RESOURCE_FLAG_NONE, 0);
 
         D3D12MA::ALLOCATION_DESC allocDesc = {};
         allocDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;

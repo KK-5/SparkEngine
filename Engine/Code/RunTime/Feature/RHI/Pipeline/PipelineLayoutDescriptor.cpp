@@ -109,6 +109,11 @@ namespace Spark::RHI
         return m_shaderResourceLayoutsInfo.size();
     }
 
+    const eastl::fixed_vector<PipelineLayoutDescriptor::ShaderResourceLayoutInfo, RHI::Limits::Pipeline::ShaderResourceCountMax>& PipelineLayoutDescriptor::GetShaderResourceLayoutInfo() const
+    {
+        return m_shaderResourceLayoutsInfo;
+    }
+
     const ShaderResourceLayout* PipelineLayoutDescriptor::GetShaderResourceLayout(size_t index) const
     {
         ASSERT(IsFinalized(), "Accessor called on a non-finalized pipeline layout. This is not permitted.");

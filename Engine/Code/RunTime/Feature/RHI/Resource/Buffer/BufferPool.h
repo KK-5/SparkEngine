@@ -80,6 +80,20 @@ namespace Spark::RHI
     using BufferMapRequest = BufferMapRequestTemplate<Buffer>;
     using BufferStreamRequest = BufferStreamRequestTemplate<Buffer, Fence>;
 
+    struct MemoryCopyDest
+    {
+        void *pData;
+        size_t rowPitch;
+        size_t slicePitch;
+    };
+
+    struct MemoryCopySrc
+    {
+        void *pData;
+        size_t rowPitch;
+        size_t slicePitch;
+    };
+
     class BufferPool : public ResourcePool
     {
     public:
@@ -96,6 +110,8 @@ namespace Spark::RHI
         void UnmapBuffer(Buffer& buffer);
 
         ResultCode StreamBuffer(const BufferStreamRequest& request);
+
+        void MemcpySubresource(MemoryCopyDest* dest, MemoryCopySrc* src, size_t rowSizeInBytes, uint32_t numRows, uint32_t numSlices);
 
         const BufferPoolDescriptor& GetDescriptor() const override final;
 
