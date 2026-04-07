@@ -10,6 +10,6 @@ namespace Spark::Math
 
     namespace Matrix4X4Const
     {
-      static const Matrix4X4 IDENTITY(1.0f);
+        static const Matrix4X4 IDENTITY(1.0f);
     }
 }

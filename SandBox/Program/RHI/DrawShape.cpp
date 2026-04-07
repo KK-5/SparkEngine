@@ -2,10 +2,8 @@
 #include <Math/Vector3.h>
 #include <Math/Vector2.h>
 #include <Math/Matrix4x4.h>
+#include <Math/MathUtils.h>
 #include <Base.h>
-
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/ext/matrix_clip_space.hpp>
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
@@ -691,20 +689,20 @@ namespace Spark::SandBox
         auto windowSize = m_glfwWindow->GetWindowSize();
         float aspect = (float)windowSize.first / (float)windowSize.second;
 
-        m_rotationAngle += 0.001f;
+        m_rotationAngle += 0.01f;
 
-        Math::Matrix4X4 model = glm::rotate(
+        Math::Matrix4X4 model = Math::Rotate(
             Math::Matrix4X4Const::IDENTITY,
             m_rotationAngle,
-            glm::vec3(0.5f, 1.f, 0.f));
+            Math::Vector3(0.5f, 1.f, 0.f));
 
-        Math::Matrix4X4 view = glm::lookAtLH(
-            glm::vec3(0.f, 0.f, -3.f),
-            glm::vec3(0.f, 0.f, 0.f),
-            glm::vec3(0.f, 1.f, 0.f));
+        Math::Matrix4X4 view = Math::LookAt(
+            Math::Vector3(0.f, 0.f, -3.f),
+            Math::Vector3(0.f, 0.f, 0.f),
+            Math::Vector3(0.f, 1.f, 0.f));
 
-        Math::Matrix4X4 proj = glm::perspectiveLH_ZO(
-            glm::radians(45.f),
+        Math::Matrix4X4 proj = Math::PerspectiveFov(
+            Math::Radians(45.f),
             aspect,
             0.1f, 100.f);
 
