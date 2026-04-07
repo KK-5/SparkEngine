@@ -644,6 +644,9 @@ namespace Spark::RHI
         m_imageViews.resize(layout->GetImagesSize());
         m_bufferViews.resize(layout->GetBuffersSize());
         m_samplers.resize(layout->GetSamplersSize());
+
+        const ConstantsLayout* constantsLayout = layout->GetConstantsLayout();
+        m_constantsData = ConstantsData(constantsLayout);
     }
 
     const ShaderResourceLayout* ShaderResource::GetLayout() const

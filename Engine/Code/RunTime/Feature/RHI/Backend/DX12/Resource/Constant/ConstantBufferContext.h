@@ -21,7 +21,7 @@ namespace Spark::RHI::DX12
 
         RHI::ResultCode Init(Device& device);
 
-        MemoryView CreateConstantBuffer(size_t size);
+        MemoryView CreateConstantBuffer(size_t size, size_t alignment);
 
         void CollectConstantBuffer(MemoryView& memoryView);
 

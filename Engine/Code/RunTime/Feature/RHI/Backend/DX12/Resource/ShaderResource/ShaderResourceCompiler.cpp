@@ -105,7 +105,7 @@ namespace Spark::RHI::DX12
             const uint32_t constantRingSize = byteSize * frameCountMax;
             ConstantBufferContext& constantBufferCtx = factory->AcquireConstantBufferContext(device);
             dx12Srg.m_constantMemoryView =
-                constantBufferCtx.CreateConstantBuffer(constantRingSize);
+                constantBufferCtx.CreateConstantBuffer(constantRingSize, RHI::Alignment::Constant);
 
             CpuVirtualAddress cpuAddress = dx12Srg.m_constantMemoryView.Map(RHI::HostMemoryAccess::Write);
             GpuVirtualAddress gpuAddress = dx12Srg.m_constantMemoryView.GetGpuAddress();
@@ -236,12 +236,36 @@ namespace Spark::RHI::DX12
         RHI::ShaderResource& shaderResourceBase,
         const RHI::ShaderResourceLayout& layout)
     {
+        ShaderResource& shaderResource = static_cast<ShaderResource&>(shaderResourceBase);
+        Device& device = static_cast<Device&>(GetDevice());
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
+        const DescriptorHandle nullHandle = descriptorCtx.GetNullHandleSampler();
+
         const size_t shaderInputSize = layout.GetShaderInputListForSamplers().size();
         for (size_t shaderInputIndex = 0; shaderInputIndex < shaderInputSize; ++shaderInputIndex)
         {
-            eastl::span<const RHI::SamplerState> samplers =
+            eastl::span<const RHI::SamplerState> samplerStates =
                 shaderResourceBase.GetSamplerArray(shaderInputIndex);
-            UpdateDescriptorTableRange(descriptorTable, samplers, shaderInputIndex, layout);
+            eastl::fixed_vector<DescriptorHandle, SRGViewsFixedSize> descriptorHandles
+                (static_cast<uint32_t>(samplerStates.size()), nullHandle);
+            for(size_t i = 0; i < samplerStates.size(); ++i)
+            {
+                auto samplerState = samplerStates[i];
+                Ptr<Sampler> sampler = nullptr;
+                if (shaderResource.m_samplers.find(samplerState) == shaderResource.m_samplers.end())
+                {
+                    sampler = Service<ID3D12FactoryInterface>::Get()->CreateSampler();
+                    sampler->Init(device, samplerState);
+                    shaderResource.m_samplers.insert({samplerState, sampler});
+                }
+                else
+                {
+                    sampler = shaderResource.m_samplers[samplerState];
+                }
+                descriptorHandles[i] = sampler->GetDescriptorHandle();
+            }
+            // UpdateDescriptorTableRange(descriptorTable, samplers, shaderInputIndex, layout);
+            UpdateDescriptorTableRangeForSampler(descriptorTable, descriptorHandles, shaderInputIndex, layout);
         }
     }
 
@@ -307,6 +331,19 @@ namespace Spark::RHI::DX12
         Device& device = static_cast<Device&>(GetDevice());
         DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
         descriptorCtx.UpdateDescriptorTableRange(destinationTable, descriptors.data(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    void ShaderResourceCompiler::UpdateDescriptorTableRangeForSampler(
+        DescriptorTable descriptorTable,
+        const eastl::span<DescriptorHandle>& descriptors,
+        RHI::ShaderInputIndex samplerIndex,
+        const RHI::ShaderResourceLayout& layout)
+    {
+        const uint32_t samplerOffset = 0;
+        const DescriptorTable destinationTable = GetSamplerTable(descriptorTable, samplerIndex, layout);
+        Device& device = static_cast<Device&>(GetDevice());
+        DescriptorContext& descriptorCtx = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
+        descriptorCtx.UpdateDescriptorTableRange(destinationTable, descriptors.data(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
     }
 
     void ShaderResourceCompiler::UpdateDescriptorTableRange(

@@ -170,7 +170,12 @@ namespace Spark::RHI::DX12
         {
             D3D12ObjReleaseQueue::Descriptor desc;
             desc.m_collectLatency = device.GetDescriptor().m_frameCountMax;
-            desc.m_collectFunction = nullptr;
+            desc.m_collectFunction = [&](ID3D12Object& obj){
+                if (RHI::Validation::isEnabled)
+                {
+                    (void)obj;
+                }
+            };
             
             m_dx12ObjReleaseQueue = eastl::make_unique<D3D12ObjReleaseQueue>();
             m_dx12ObjReleaseQueue->Init(desc);

@@ -31,6 +31,8 @@ namespace Spark::RHI::DX12
 
         if (m_constantMemoryView.IsValid())
         {
+            // 常量缓冲区创建时处于Map状态
+            m_constantMemoryView.Unmap(RHI::HostMemoryAccess::Write);
             constantBufferCtx.CollectConstantBuffer(m_constantMemoryView);
         }
 

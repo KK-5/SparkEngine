@@ -93,6 +93,12 @@ namespace Spark::RHI::DX12
             RHI::ShaderInputIndex samplerIndex,
             const RHI::ShaderResourceLayout& layout);
 
+        void UpdateDescriptorTableRangeForSampler(
+            DescriptorTable descriptorTable,
+            const eastl::span<DescriptorHandle>& descriptors,
+            RHI::ShaderInputIndex samplerIndex,
+            const RHI::ShaderResourceLayout& layout);
+
         //////////////////////////////////////////////////////////////////////////
         // Descriptor gather helpers
 

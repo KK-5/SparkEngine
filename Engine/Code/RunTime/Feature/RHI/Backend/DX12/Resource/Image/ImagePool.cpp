@@ -55,8 +55,8 @@ namespace Spark::RHI::DX12
 
     void ImagePool::ShutdownInternal()
     {
-        m_d3dmaAllocator.reset();
         m_releaseQueue.Shutdown();
+        m_d3dmaAllocator.reset();
     }
 
     RHI::ResultCode ImagePool::InitImageInternal(const RHI::ImageInitRequest& request)

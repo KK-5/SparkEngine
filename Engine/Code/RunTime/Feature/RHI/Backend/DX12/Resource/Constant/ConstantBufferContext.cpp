@@ -28,9 +28,9 @@ namespace Spark::RHI::DX12
         return RHI::ResultCode::Success;
     }
 
-    MemoryView ConstantBufferContext::CreateConstantBuffer(size_t size)
+    MemoryView ConstantBufferContext::CreateConstantBuffer(size_t size, size_t alignment)
     {
-        CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(size, D3D12_RESOURCE_FLAG_NONE, 0);
+        CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(AlignUp(size, alignment), D3D12_RESOURCE_FLAG_NONE, 0);
 
         D3D12MA::ALLOCATION_DESC allocDesc = {};
         allocDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
@@ -48,7 +48,7 @@ namespace Spark::RHI::DX12
         ASSERT(result == S_OK, "[StagingMemoryContext] D3D12MA Create buffer resource failed!");
 
         // 默认MemoryView使用了Memory(ID3DResource)全部资源
-        return MemoryView(allocation.Get(), MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
+        return MemoryView(allocation.Get(), MemoryViewType::Buffer, 0, size, alignment);
     }
 
     void ConstantBufferContext::CollectConstantBuffer(MemoryView& memoryView)

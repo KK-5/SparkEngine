@@ -430,7 +430,7 @@ namespace Spark::RHI::DX12
         switch (clearValue.m_type)
         {
         case RHI::ClearValueType::DepthStencil:
-            return CD3DX12_CLEAR_VALUE(ConvertFormat(format), clearValue.m_depthStencil.m_depth, clearValue.m_depthStencil.m_stencil);;
+            return CD3DX12_CLEAR_VALUE(ConvertFormat(format), clearValue.m_depthStencil.m_depth, clearValue.m_depthStencil.m_stencil);
         case RHI::ClearValueType::Vector4Float:
         {
             float color[] =

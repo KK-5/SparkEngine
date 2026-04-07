@@ -127,7 +127,7 @@ namespace Spark::RHI::DX12
         }
 
         // 创建一个默认BufferMemoryView，使用全部Memory(ID3DResource)
-        MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer, 0, allocation->GetSize(), allocation->GetAlignment());
+        MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer, 0, bufferDescriptor.m_byteCount, bufferDescriptor.m_alignment);
         BufferMemoryView bufferMemoryView(eastl::move(memoryView), allocation->GetHeap() ? BufferMemoryType::Shared : BufferMemoryType::Unique);
         Buffer& buffer = static_cast<Buffer&>(bufferBase);
         buffer.m_memoryView = eastl::move(bufferMemoryView);

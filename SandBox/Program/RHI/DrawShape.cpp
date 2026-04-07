@@ -28,6 +28,7 @@
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderAssetCompiler.h>
 #include <Resource/Common/CommonAssetLoader.h>
+#include <Resource/Image/ImageAsset.h>
 
 #include "../Common/SimpleGlfwWindow.h"
 
@@ -80,12 +81,12 @@ namespace Spark::SandBox
 
     static const uint16_t g_cubeIndices[] =
     {
-         0,  1,  2,   0,  2,  3,   // Front
-         4,  5,  6,   4,  6,  7,   // Back
-         8,  9, 10,   8, 10, 11,   // Top
-        12, 13, 14,  12, 14, 15,   // Bottom
-        16, 17, 18,  16, 18, 19,   // Right
-        20, 21, 22,  20, 22, 23,   // Left
+         0,  2,  1,   0,  3,  2,   // Front
+         4,  6,  5,   4,  7,  6,   // Back
+         8, 10,  9,   8, 11, 10,   // Top
+        12, 14, 13,  12, 15, 14,   // Bottom
+        16, 18, 17,  16, 19, 18,   // Right
+        20, 22, 21,  20, 23, 22,   // Left
     };
 
     static constexpr uint32_t g_cubeIndexCount = sizeof(g_cubeIndices) / sizeof(g_cubeIndices[0]);
@@ -115,13 +116,18 @@ namespace Spark::SandBox
         void CreateBaseColorTexture();
         void CreateViewportAndScissor();
         void UpdateMVP();
+        void SubmitResources(RHI::CommandList* commandList);
         void BuildCommand(RHI::CommandList* commandList);
+
+        void LoadImageAsset();
 
         // System lifetime
         UniquePtr<ILogSystem<SpdLogSystem>> m_logger;
         SystemUniquePtr<Spark::RHI::RHIInterface> m_rhi;
         SystemUniquePtr<Spark::Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<SimpleGlfwWindow> m_glfwWindow;
+
+        Ptr<Resource::ImageAsset> m_imageAsset;
 
         // Device / Queue / Fence
         Ptr<RHI::Device> m_device;
@@ -196,6 +202,20 @@ namespace Spark::SandBox
         m_assetManager = CreateSystem<Spark::Resource::SparkAssetManager>();
         m_assetManager->Init();
         m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
+    }
+
+    void DrawShape::LoadImageAsset()
+    {
+        Resource::AssetId shaderId("Image/rusty_metal_04_diff_2k.jpg");
+        auto assetManager = Service<Resource::AssetManager>::Get();
+        ASSERT(assetManager, "Asset Manager is Null.");
+        m_imageAsset = assetManager->LoadAsset<Resource::ImageAsset>(shaderId);
+        if (m_imageAsset->GetStatus() != Resource::AssetStatus::Ready)
+        {
+            LOG_ERROR("Load shader asset failed.");
+            return;
+        }
+        ASSERT(m_imageAsset->GetFormat() == Resource::ImageFormat::RGBA8, "Error image format.");
     }
 
     void DrawShape::CreateDevice()
@@ -294,6 +314,8 @@ namespace Spark::SandBox
             RHI::ImageBindFlags::DepthStencil,
             windowSize.first, windowSize.second,
             RHI::Format::D32_FLOAT);
+        RHI::ClearValue cleatValue = RHI::ClearValue::CreateDepth(1.f);
+        initReq.m_optimizedClearValue = &cleatValue;
         res = m_depthImagePool->InitImage(initReq);
         if (res != RHI::ResultCode::Success)
         {
@@ -537,6 +559,7 @@ namespace Spark::SandBox
         }
 
         // Staging texture buffer (8x8 RGBA8 checkerboard)
+        /*
         static constexpr uint32_t texWidth = 8;
         static constexpr uint32_t texHeight = 8;
         static constexpr uint32_t texBytesPerPixel = 4;
@@ -558,11 +581,19 @@ namespace Spark::SandBox
 
         const uint32_t preRowBytes = AlignUp(texBytesPerRow, RHI::Alignment::TexturePitch);
         const size_t totalBufferSize = preRowBytes * texHeight;
+        */
+
+        const uint32_t imageWidth = m_imageAsset->GetWidth();
+        const uint32_t imageHeight = m_imageAsset->GetHeight();
+        const uint32_t imageBytesPerRow = imageWidth * m_imageAsset->GetImageData()->GetBytesPerPixel();
+        const uint32_t imageBytesPerRowAligned = AlignUp(imageBytesPerRow, RHI::Alignment::TexturePitch);
+        const uint32_t imageTotalBytes = imageBytesPerRow * imageHeight;
+        const uint32_t stageTexBytes = imageBytesPerRowAligned * imageHeight;
 
         m_stageTextureBuffer = m_rhiFactory->CreateBuffer();
         RHI::BufferDescriptor texStageDesc;
         texStageDesc.m_bindFlags = RHI::BufferBindFlags::CopyRead;
-        texStageDesc.m_byteCount = totalBufferSize;
+        texStageDesc.m_byteCount = stageTexBytes;
 
         // 用于上传纹理数据的Buffer对对齐有要求，需要手动Map
         RHI::BufferInitRequest texReq;
@@ -587,22 +618,19 @@ namespace Spark::SandBox
 
         RHI::MemoryCopyDest copydest;
         copydest.pData = mapResponse.m_data;
-        copydest.rowPitch = preRowBytes;
-        copydest.slicePitch = totalBufferSize;
+        copydest.rowPitch = imageBytesPerRowAligned;
+        copydest.slicePitch = stageTexBytes;
         RHI::MemoryCopySrc copySrc;
-        copySrc.pData = texData;
-        copySrc.rowPitch = texBytesPerRow;
-        copydest.slicePitch = texDataSize;
-        m_stageBufferPool->MemcpySubresource(&copydest, &copySrc, texBytesPerRow, texHeight, 1);
+        copySrc.pData = const_cast<uint8_t*>(m_imageAsset->GetImageData()->GetPixels().data());
+        copySrc.rowPitch = imageBytesPerRow;
+        copydest.slicePitch = imageTotalBytes;
+        m_stageBufferPool->MemcpySubresource(&copydest, &copySrc, imageBytesPerRow, imageHeight, 1);
 
         m_stageBufferPool->UnmapBuffer(*m_stageTextureBuffer);
     }
 
     void DrawShape::CreateBaseColorTexture()
     {
-        static constexpr uint32_t texWidth = 8;
-        static constexpr uint32_t texHeight = 8;
-
         m_texturePool = m_rhiFactory->CreateImagePool();
         RHI::ImagePoolDescriptor poolDesc;
         poolDesc.m_bindFlags = RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite;
@@ -618,7 +646,7 @@ namespace Spark::SandBox
         imgReq.m_image = m_baseColorImage.get();
         imgReq.m_descriptor = RHI::ImageDescriptor::Create2D(
             RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite,
-            texWidth, texHeight,
+            m_imageAsset->GetWidth(), m_imageAsset->GetHeight(),
             RHI::Format::R8G8B8A8_UNORM);
         res = m_texturePool->InitImage(imgReq);
         if (res != RHI::ResultCode::Success)
@@ -663,7 +691,7 @@ namespace Spark::SandBox
         auto windowSize = m_glfwWindow->GetWindowSize();
         float aspect = (float)windowSize.first / (float)windowSize.second;
 
-        m_rotationAngle += 0.01f;
+        m_rotationAngle += 0.001f;
 
         Math::Matrix4X4 model = glm::rotate(
             Math::Matrix4X4Const::IDENTITY,
@@ -691,75 +719,82 @@ namespace Spark::SandBox
         compiler.Compiler(eastl::span<RHI::ShaderResource*>(srgs, 1));
     }
 
-    void DrawShape::BuildCommand(RHI::CommandList* commandList)
+    void DrawShape::SubmitResources(RHI::CommandList* commandList)
     {
         commandList->Open();
-        commandList->SetViewport(m_viewport);
-        commandList->SetScissor(m_scissor);
 
-        // Upload vertex/index data on first frame
-        if (m_needUpload)
-        {
-            // Stage buffers -> copy read
-            RHI::BufferBarrier stageVertBarrier = RHI::ConvertToCopyRead(*m_stageVertexBuffer);
-            commandList->QueueBarrier(stageVertBarrier);
-            RHI::BufferBarrier stageIdxBarrier = RHI::ConvertToCopyRead(*m_stageIndexBuffer);
-            commandList->QueueBarrier(stageIdxBarrier);
-            RHI::BufferBarrier stageTexBarrier = RHI::ConvertToCopyRead(*m_stageTextureBuffer);
-            commandList->QueueBarrier(stageTexBarrier);
+        // Stage buffers -> copy read
+        RHI::BufferBarrier stageVertBarrier = RHI::ConvertToCopyRead(*m_stageVertexBuffer);
+        commandList->QueueBarrier(stageVertBarrier);
+        RHI::BufferBarrier stageIdxBarrier = RHI::ConvertToCopyRead(*m_stageIndexBuffer);
+        commandList->QueueBarrier(stageIdxBarrier);
+        RHI::BufferBarrier stageTexBarrier = RHI::ConvertToCopyRead(*m_stageTextureBuffer);
+        commandList->QueueBarrier(stageTexBarrier);
 
-            // Device buffers -> copy write
-            RHI::BufferBarrier vertCopyBarrier = RHI::ConvertToCopyWrite(*m_vertexBuffer);
-            commandList->QueueBarrier(vertCopyBarrier);
-            RHI::BufferBarrier idxCopyBarrier = RHI::ConvertToCopyWrite(*m_indexBuffer);
-            commandList->QueueBarrier(idxCopyBarrier);
-            RHI::ImageBarrier texCopyBarrier = RHI::ConvertToImageCopyWrite(*m_baseColorImage);
-            commandList->QueueBarrier(texCopyBarrier);
+        // Device buffers -> copy write
+        RHI::BufferBarrier vertCopyBarrier = RHI::ConvertToCopyWrite(*m_vertexBuffer);
+        commandList->QueueBarrier(vertCopyBarrier);
+        RHI::BufferBarrier idxCopyBarrier = RHI::ConvertToCopyWrite(*m_indexBuffer);
+        commandList->QueueBarrier(idxCopyBarrier);
+        RHI::ImageBarrier texCopyBarrier = RHI::ConvertToImageCopyWrite(*m_baseColorImage);
+        commandList->QueueBarrier(texCopyBarrier);
 
-            commandList->FlushBarriers();
+        commandList->FlushBarriers();
 
-            // Copy vertex data
-            RHI::CopyItem vertCopy;
-            vertCopy.m_type = RHI::CopyItemType::Buffer;
-            vertCopy.m_buffer.m_sourceBuffer = m_stageVertexBuffer.get();
-            vertCopy.m_buffer.m_sourceOffset = 0;
-            vertCopy.m_buffer.m_destinationBuffer = m_vertexBuffer.get();
-            vertCopy.m_buffer.m_destinationOffset = 0;
-            vertCopy.m_buffer.m_size = m_vertexBuffer->GetDescriptor().m_byteCount;
-            commandList->Submit(vertCopy);
+        // Copy vertex data
+        RHI::CopyItem vertCopy;
+        vertCopy.m_type = RHI::CopyItemType::Buffer;
+        vertCopy.m_buffer.m_sourceBuffer = m_stageVertexBuffer.get();
+        vertCopy.m_buffer.m_sourceOffset = 0;
+        vertCopy.m_buffer.m_destinationBuffer = m_vertexBuffer.get();
+        vertCopy.m_buffer.m_destinationOffset = 0;
+        vertCopy.m_buffer.m_size = m_vertexBuffer->GetDescriptor().m_byteCount;
+        commandList->Submit(vertCopy);
 
-            // Copy index data
-            RHI::CopyItem idxCopy;
-            idxCopy.m_type = RHI::CopyItemType::Buffer;
-            idxCopy.m_buffer.m_sourceBuffer = m_stageIndexBuffer.get();
-            idxCopy.m_buffer.m_sourceOffset = 0;
-            idxCopy.m_buffer.m_destinationBuffer = m_indexBuffer.get();
-            idxCopy.m_buffer.m_destinationOffset = 0;
-            idxCopy.m_buffer.m_size = m_indexBuffer->GetDescriptor().m_byteCount;
-            commandList->Submit(idxCopy);
+        // Copy index data
+        RHI::CopyItem idxCopy;
+        idxCopy.m_type = RHI::CopyItemType::Buffer;
+        idxCopy.m_buffer.m_sourceBuffer = m_stageIndexBuffer.get();
+        idxCopy.m_buffer.m_sourceOffset = 0;
+        idxCopy.m_buffer.m_destinationBuffer = m_indexBuffer.get();
+        idxCopy.m_buffer.m_destinationOffset = 0;
+        idxCopy.m_buffer.m_size = m_indexBuffer->GetDescriptor().m_byteCount;
+        commandList->Submit(idxCopy);
 
-            /// Copy texture data
-            RHI::CopyItem textureCopy;
-            textureCopy.m_type = RHI::CopyItemType::BufferToImage;
-            textureCopy.m_bufferToImage.m_sourceBuffer = m_stageTextureBuffer.get();
-            textureCopy.m_bufferToImage.m_sourceOffset = 0;
-            textureCopy.m_bufferToImage.m_sourceBytesPerRow = 256;
-            textureCopy.m_bufferToImage.m_sourceBytesPerImage = 8 * 256;
-            textureCopy.m_bufferToImage.m_sourceFormat = RHI::Format::R8G8B8A8_UNORM;
-            textureCopy.m_bufferToImage.m_sourceSize = RHI::Size(8, 8, 1);
-            textureCopy.m_bufferToImage.m_destinationImage = m_baseColorImage.get();
-            textureCopy.m_bufferToImage.m_destinationSubresource = RHI::ImageSubresource(0, 0);
-            textureCopy.m_bufferToImage.m_destinationOrigin = RHI::Origin(0, 0, 0);
-            commandList->Submit(textureCopy);
-
-            m_needUpload = false;
-        }
+        /// Copy texture data
+        RHI::CopyItem textureCopy;
+        textureCopy.m_type = RHI::CopyItemType::BufferToImage;
+        textureCopy.m_bufferToImage.m_sourceBuffer = m_stageTextureBuffer.get();
+        textureCopy.m_bufferToImage.m_sourceOffset = 0;
+        textureCopy.m_bufferToImage.m_sourceBytesPerRow = AlignUp(m_imageAsset->GetWidth() * m_imageAsset->GetImageData()->GetBytesPerPixel(), RHI::Alignment::TexturePitch);
+        textureCopy.m_bufferToImage.m_sourceBytesPerImage = textureCopy.m_bufferToImage.m_sourceBytesPerRow * m_imageAsset->GetHeight();
+        textureCopy.m_bufferToImage.m_sourceFormat = RHI::Format::R8G8B8A8_UNORM;
+        textureCopy.m_bufferToImage.m_sourceSize = RHI::Size(m_imageAsset->GetWidth(), m_imageAsset->GetHeight(), 1);
+        textureCopy.m_bufferToImage.m_destinationImage = m_baseColorImage.get();
+        textureCopy.m_bufferToImage.m_destinationSubresource = RHI::ImageSubresource(0, 0);
+        textureCopy.m_bufferToImage.m_destinationOrigin = RHI::Origin(0, 0, 0);
+        commandList->Submit(textureCopy);
 
         // Transition buffers to input assembly
         RHI::BufferBarrier vertIABarrier = RHI::ConvertToInputAssembly(*m_vertexBuffer);
         commandList->QueueBarrier(vertIABarrier);
         RHI::BufferBarrier idxIABarrier = RHI::ConvertToInputAssembly(*m_indexBuffer);
         commandList->QueueBarrier(idxIABarrier);
+
+        // Transition base color texture to shader read
+        RHI::ImageBarrier texBarrier = RHI::ConvertToImageShaderRead(*m_baseColorImage);
+        commandList->QueueBarrier(texBarrier);
+
+        commandList->FlushBarriers();
+
+        commandList->Close();
+    }
+
+    void DrawShape::BuildCommand(RHI::CommandList* commandList)
+    {
+        commandList->Open();
+        commandList->SetViewport(m_viewport);
+        commandList->SetScissor(m_scissor);
 
         // Transition swap chain image to render target
         m_swapChainCurImage = m_swapChain->GetCurrentImage();
@@ -769,11 +804,6 @@ namespace Spark::SandBox
         // Transition depth buffer to depth-stencil write
         RHI::ImageBarrier depthBarrier = RHI::ConvertToDepthStencilWrite(*m_depthImage);
         commandList->QueueBarrier(depthBarrier);
-
-        // Transition base color texture to shader read
-        RHI::ImageBarrier texBarrier = RHI::ConvertToImageShaderRead(*m_baseColorImage);
-        commandList->QueueBarrier(texBarrier);
-
         commandList->FlushBarriers();
 
         // Clear render target
@@ -785,6 +815,7 @@ namespace Spark::SandBox
         // Clear depth
         RHI::ImageClearRequest clearDepth;
         clearDepth.m_imageView = m_depthImageView.get();
+        clearDepth.m_depthStencilClearFlags = RHI::DepthStencilClearFlags::Depth;
         clearDepth.m_clearValue = RHI::ClearValue::CreateDepth(1.f);
         commandList->ClearRenderTarget(clearDepth);
 
@@ -837,6 +868,7 @@ namespace Spark::SandBox
 
     void DrawShape::Init()
     {
+        LoadImageAsset();
         CreateDevice();
         CreateCommandQueue();
         CreateFence();
@@ -854,6 +886,13 @@ namespace Spark::SandBox
 
     void DrawShape::Run()
     {
+        RHI::CommandList* commandList = m_rhiFactory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
+        SubmitResources(commandList);
+        RHI::CommandList* commandLists[] = { commandList };
+        m_commandQueue->ExecuteCommands(commandLists);
+
+        m_commandQueue->FlushCommands(*m_fence);
+
         while (!m_glfwWindow->ShouldClose())
         {
             m_glfwWindow->PollEvents();

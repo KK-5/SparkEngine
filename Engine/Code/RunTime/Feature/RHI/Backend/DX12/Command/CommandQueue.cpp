@@ -40,7 +40,7 @@ namespace Spark::RHI::DX12
         ASSERT(ID3D12Factory, "ID3D12Factory is null!");
         ID3D12Factory->QueueForRelease(static_cast<Device&>(GetDevice()), eastl::move(m_queue));
 
-        m_queue.reset();
+        m_queue = nullptr;
     }
 
     void CommandQueue::Signal(DX12Fence& fence)

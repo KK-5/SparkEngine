@@ -51,6 +51,7 @@ namespace Spark::SandBox
         void CreateVertexBuffer();
         void CreateStageBuffer();
         void CreateViewportAndScissor();
+        void SubmitVertices(RHI::CommandList* commandList);
         void BuildCommand(RHI::CommandList* commandList);
 
         // 依赖成员声明顺序管理生命周期
@@ -327,11 +328,9 @@ namespace Spark::SandBox
         m_scissor = RHI::Scissor(0.f, 0.f, (float)windowSize.first, (float)windowSize.second);
     }
 
-    void HelloTriangle::BuildCommand(RHI::CommandList* commandList)
+    void HelloTriangle::SubmitVertices(RHI::CommandList* commandList)
     {
         commandList->Open();
-        commandList->SetViewport(m_viewport);
-        commandList->SetScissor(m_scissor);
 
         RHI::BufferBarrier bufferBarrier = RHI::ConvertToCopyRead(*m_stageBuffer);
         commandList->QueueBarrier(bufferBarrier);
@@ -355,6 +354,17 @@ namespace Spark::SandBox
 
         RHI::BufferBarrier inputAssemblyBarrier = RHI::ConvertToInputAssembly(*m_vertexBuffer);
         commandList->QueueBarrier(inputAssemblyBarrier);
+
+        commandList->FlushBarriers();
+
+        commandList->Close();
+    }
+
+    void HelloTriangle::BuildCommand(RHI::CommandList* commandList)
+    {
+        commandList->Open();
+        commandList->SetViewport(m_viewport);
+        commandList->SetScissor(m_scissor);
 
         m_swapChainCurImage = m_swapChain->GetCurrentImage();
         RHI::ImageBarrier imageBarrier = RHI::ConvertToRenderTarget(*m_swapChainCurImage);
@@ -413,6 +423,13 @@ namespace Spark::SandBox
 
     void HelloTriangle::Run()
     {
+
+        RHI::CommandList* commandList = m_rhiFactory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
+        SubmitVertices(commandList);
+        RHI::CommandList* commandLists[] = { commandList };
+        m_commandQueue->ExecuteCommands(commandLists);
+        m_commandQueue->FlushCommands(*m_fence);
+
         while (!m_glfwWindow->ShouldClose())
         {
             m_glfwWindow->PollEvents();

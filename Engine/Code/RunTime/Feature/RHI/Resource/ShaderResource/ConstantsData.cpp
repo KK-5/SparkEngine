@@ -28,9 +28,9 @@ namespace Spark::RHI
 
     bool ConstantsData::ValidateConstantAccess(ShaderInputIndex inputIndex, size_t offsetInBytes, size_t sizeInBytes) const
     {
-        if (Validation::isEnabled)
+        if (!Validation::isEnabled)
         {
-            return false;
+            return true;
         }
 
         if (!GetLayout()->ValidateAccess(inputIndex))

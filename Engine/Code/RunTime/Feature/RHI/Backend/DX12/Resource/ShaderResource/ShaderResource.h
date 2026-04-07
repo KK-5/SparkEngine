@@ -16,6 +16,8 @@
 
 namespace Spark::RHI::DX12
 {
+    class Sampler;
+    
     struct ShaderResourceCompiledData
     {
         /// The GPU descriptor handle for views to bind to the command list.
@@ -63,6 +65,10 @@ namespace Spark::RHI::DX12
 
         /// The allocated descriptor table for samplers.
         DescriptorTable m_samplersDescriptorTable; 
+
+        /// 上层ShaderResource不持有具体Sampler，只有SamplerState，暂时由底层ShaderResource持有
+        // eastl::vector<ConstPtr<Sampler>> m_samplers;
+        eastl::unordered_map<RHI::SamplerState, Ptr<Sampler>, RHI::SamplerStateHasher> m_samplers;
 
         /// The descriptor tables for unbounded arrays.  Allocated on demand.
         // eastl::array<DescriptorTable, ShaderResourceGroupCompiledData::MaxUnboundedArrays * RHI::Limits::Device::FrameCountMax> m_unboundedDescriptorTables;

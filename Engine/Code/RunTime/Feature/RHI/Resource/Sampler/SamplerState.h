@@ -97,7 +97,7 @@ namespace Spark::RHI
 
     struct SamplerStateHasher
     {
-        size_t operator()(const SamplerState& samplerState)
+        size_t operator()(const SamplerState& samplerState) const
         {
             // 这里直接用指针作为哈希seed
             size_t hash = eastl::hash<const SamplerState*>()(&samplerState);

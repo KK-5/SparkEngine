@@ -33,6 +33,7 @@ namespace Spark::RHI::DX12
         ASSERT(ID3D12Factory, "ID3D12Factory is null!");
         ID3D12Factory->QueueForRelease(static_cast<Device&>(GetDevice()), eastl::move(m_signature));
 
+        m_signature = nullptr;
         m_d3d12Device = nullptr;
         m_layoutDescriptor = nullptr;
         m_hash = 0;
