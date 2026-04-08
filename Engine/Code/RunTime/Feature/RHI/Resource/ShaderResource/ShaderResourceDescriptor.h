@@ -13,6 +13,9 @@
 
 namespace Spark::RHI
 {
+
+    using InputName = ObjectName;
+
     //! A "ShaderInput" describes an input into a ShaderResource. Shader inputs are comprised of
     //! Buffers, Images, Samplers, and Constants. The former three shader inputs each contain an array
     //! of their respective resources. All of the resources in a shader input are identical with respect
@@ -59,7 +62,7 @@ namespace Spark::RHI
     public:
         ShaderInputBufferDescriptor() = default;
         ShaderInputBufferDescriptor(
-            const ObjectName& name,
+            const InputName& name,
             ShaderInputBufferAccess access,
             ShaderInputBufferType type,
             uint32_t bufferCount,
@@ -70,7 +73,7 @@ namespace Spark::RHI
         size_t GetHash(size_t seed = 0) const;
 
         //! The name id used to reflect the buffer input.
-        ObjectName m_name;
+        InputName m_name;
 
         //! The type of the buffer for all array elements in the buffer input.
         ShaderInputBufferType m_type = ShaderInputBufferType::Unknown;
@@ -128,7 +131,7 @@ namespace Spark::RHI
 
         ShaderInputImageDescriptor() = default;
         ShaderInputImageDescriptor(
-            const ObjectName& name,
+            const InputName& name,
             ShaderInputImageAccess access,
             ShaderInputImageType type,
             uint32_t imageCount,
@@ -138,7 +141,7 @@ namespace Spark::RHI
         size_t GetHash(size_t seed = 0) const;
 
         //! The name id used to reflect the image input.
-        ObjectName m_name;
+        InputName m_name;
 
         //! The type of image required for this shader input.
         ShaderInputImageType m_type = ShaderInputImageType::Unknown;
@@ -169,7 +172,7 @@ namespace Spark::RHI
     public:
         ShaderInputBufferUnboundedArrayDescriptor() = default;
         ShaderInputBufferUnboundedArrayDescriptor(
-            const ObjectName& name,
+            const InputName& name,
             ShaderInputBufferAccess access,
             ShaderInputBufferType type,
             uint32_t strideSize,
@@ -179,7 +182,7 @@ namespace Spark::RHI
         size_t GetHash(size_t seed = 0) const;
 
         //! The name id used to reflect the buffer input.
-        ObjectName m_name;
+        InputName m_name;
 
         //! The type of buffer required for this shader input.
         ShaderInputBufferType m_type = ShaderInputBufferType::Unknown;
@@ -210,7 +213,7 @@ namespace Spark::RHI
     public:
         ShaderInputImageUnboundedArrayDescriptor() = default;
         ShaderInputImageUnboundedArrayDescriptor(
-            const ObjectName& name,
+            const InputName& name,
             ShaderInputImageAccess access,
             ShaderInputImageType type,
             uint32_t registerId,
@@ -219,7 +222,7 @@ namespace Spark::RHI
         size_t GetHash(size_t seed = 0) const;
 
         //! The name id used to reflect the image input.
-        ObjectName m_name;
+        InputName m_name;
 
         //! The type of image required for this shader input.
         ShaderInputImageType m_type = ShaderInputImageType::Unknown;
@@ -246,12 +249,12 @@ namespace Spark::RHI
     {
     public:
         ShaderInputSamplerDescriptor() = default;
-        ShaderInputSamplerDescriptor(const ObjectName& name, uint32_t samplerCount, uint32_t registerId, uint32_t spaceId);
+        ShaderInputSamplerDescriptor(const InputName& name, uint32_t samplerCount, uint32_t registerId, uint32_t spaceId);
 
         size_t GetHash(size_t seed = 0) const;
 
         //! The name id used to reflect the sampler input.
-        ObjectName m_name;
+        InputName m_name;
 
         //! Number of sampler array elements.
         uint32_t m_count = 0;
@@ -276,7 +279,7 @@ namespace Spark::RHI
     public:
         ShaderInputConstantDescriptor() = default;
         ShaderInputConstantDescriptor(
-            const ObjectName& name,
+            const InputName& name,
             uint32_t constantByteOffset,
             uint32_t constantByteCount,
             uint32_t registerId,
@@ -286,7 +289,7 @@ namespace Spark::RHI
         size_t GetHash(size_t seed = 0) const;
 
         //! The name id used to reflect the constant input.
-        ObjectName m_name;
+        InputName m_name;
 
         //! The offset from the start of the constant buffer in bytes.
         uint32_t m_constantByteOffset = 0;
@@ -313,12 +316,12 @@ namespace Spark::RHI
     {
     public:
         ShaderInputStaticSamplerDescriptor() = default;
-        ShaderInputStaticSamplerDescriptor(const ObjectName& name, const SamplerState& samplerState, uint32_t registerId, uint32_t spaceId);
+        ShaderInputStaticSamplerDescriptor(const InputName& name, const SamplerState& samplerState, uint32_t registerId, uint32_t spaceId);
 
         size_t GetHash(size_t seed = 0) const;
 
         //! The name id used to reflect the static sampler input.
-        ObjectName m_name;
+        InputName m_name;
             
         //! The state of this static sampler.
         SamplerState m_samplerState;

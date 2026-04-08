@@ -89,6 +89,14 @@ namespace Spark::SandBox
 
     static constexpr uint32_t g_cubeIndexCount = sizeof(g_cubeIndices) / sizeof(g_cubeIndices[0]);
 
+    struct FrameResource
+    {
+        Ptr<RHI::ImageView> m_renderTargetView;
+        Ptr<RHI::Image> m_depthImage;
+        Ptr<RHI::ImageView> m_depthImageView;
+        Ptr<RHI::Fence> m_fence;
+    };
+
 
     class DrawShape
     {
@@ -104,7 +112,7 @@ namespace Spark::SandBox
         void CreateCommandQueue();
         void CreateFence();
         void CreateSwapChain();
-        void CreateDepthBuffer();
+        void CreateDepthBufferPool();
         void CreatePipelineLibrary();
         void CreateShaderResources();
         void CreatePipelineState();
@@ -114,6 +122,7 @@ namespace Spark::SandBox
         void CreateBaseColorTexture();
         void CreateViewportAndScissor();
         void UpdateMVP();
+        void BuildFrameResources();
         void SubmitResources(RHI::CommandList* commandList);
         void BuildCommand(RHI::CommandList* commandList);
 
@@ -131,7 +140,7 @@ namespace Spark::SandBox
         Ptr<RHI::Device> m_device;
         Ptr<RHI::SwapChain> m_swapChain;
         Ptr<RHI::CommandQueue> m_commandQueue;
-        Ptr<RHI::Fence> m_fence;
+        Ptr<RHI::Fence> m_submitFence;
         Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         Ptr<RHI::PipelineState> m_pipelineState;
 
@@ -168,15 +177,19 @@ namespace Spark::SandBox
         // Pipeline layout
         Ptr<RHI::PipelineLayoutDescriptor> m_pipelineLayoutDesc;
 
+        // Frame Resource
+        eastl::fixed_vector<FrameResource, RHI::Limits::Device::FrameCountMax> m_frameResources;
+
         // Viewport / Scissor
         RHI::Viewport m_viewport;
         RHI::Scissor m_scissor;
 
         RHI::Factory* m_rhiFactory = nullptr;
 
+        uint32_t m_curFrameIndex {0};
+
         // Transform
         float m_rotationAngle = 0.f;
-        bool m_needUpload = true;
     };
 
 
@@ -251,8 +264,8 @@ namespace Spark::SandBox
 
     void DrawShape::CreateFence()
     {
-        m_fence = m_rhiFactory->CreateFence();
-        RHI::ResultCode result = m_fence->Init(*m_device, RHI::FenceState::Reset);
+        m_submitFence = m_rhiFactory->CreateFence();
+        RHI::ResultCode result = m_submitFence->Init(*m_device, RHI::FenceState::Reset);
         if (result != RHI::ResultCode::Success)
         {
             LOG_ERROR("Create fence failed!");
@@ -292,7 +305,7 @@ namespace Spark::SandBox
         }
     }
 
-    void DrawShape::CreateDepthBuffer()
+    void DrawShape::CreateDepthBufferPool()
     {
         m_depthImagePool = m_rhiFactory->CreateImagePool();
         RHI::ImagePoolDescriptor poolDesc;
@@ -304,6 +317,7 @@ namespace Spark::SandBox
             return;
         }
 
+        /*
         auto windowSize = m_glfwWindow->GetWindowSize();
         m_depthImage = m_rhiFactory->CreateImage();
         RHI::ImageInitRequest initReq;
@@ -332,6 +346,7 @@ namespace Spark::SandBox
         {
             LOG_ERROR("Init depth image view failed");
         }
+        */
     }
 
     void DrawShape::CreatePipelineLibrary()
@@ -355,7 +370,7 @@ namespace Spark::SandBox
 
         // Constant: MVP matrix (4x4 float = 64 bytes)
         RHI::ShaderInputConstantDescriptor mvpConstant(
-            ObjectName("g_MVP"),
+            RHI::InputName("g_MVP"),
             0,                  // byte offset
             sizeof(Math::Matrix4X4), // 64 bytes
             0,                  // register b0
@@ -364,7 +379,7 @@ namespace Spark::SandBox
 
         // Image: base color texture (t0, space0)
         RHI::ShaderInputImageDescriptor baseColorImage(
-            ObjectName("g_BaseColor"),
+            RHI::InputName("g_BaseColor"),
             RHI::ShaderInputImageAccess::Read,
             RHI::ShaderInputImageType::Image2D,
             1,      // count
@@ -374,7 +389,7 @@ namespace Spark::SandBox
 
         // Sampler: linear wrap (s0, space0)
         RHI::ShaderInputSamplerDescriptor samplerDesc(
-            ObjectName("g_Sampler"),
+            RHI::InputName("g_Sampler"),
             1,      // count
             0,      // register s0
             0);     // space0
@@ -397,9 +412,9 @@ namespace Spark::SandBox
         RHI::ShaderResourceBindingInfo bindingInfo;
         bindingInfo.m_constantDataBindingInfo = RHI::ResourceBindingInfo(
             RHI::ShaderStageMask::Vertex, 0, 0); // b0, space0 for vertex stage
-        bindingInfo.m_resourcesRegisterMap[ObjectName("g_BaseColor")] =
+        bindingInfo.m_resourcesRegisterMap[RHI::InputName("g_BaseColor")] =
             RHI::ResourceBindingInfo(RHI::ShaderStageMask::Fragment, 0, 0); // t0
-        bindingInfo.m_resourcesRegisterMap[ObjectName("g_Sampler")] =
+        bindingInfo.m_resourcesRegisterMap[RHI::InputName("g_Sampler")] =
             RHI::ResourceBindingInfo(RHI::ShaderStageMask::Fragment, 0, 0); // s0
         m_pipelineLayoutDesc->AddShaderResourceLayoutInfo(*m_srgLayout, bindingInfo);
         m_pipelineLayoutDesc->Finalize();
@@ -689,7 +704,7 @@ namespace Spark::SandBox
         auto windowSize = m_glfwWindow->GetWindowSize();
         float aspect = (float)windowSize.first / (float)windowSize.second;
 
-        m_rotationAngle += 0.01f;
+        m_rotationAngle += 0.001f;
 
         Math::Matrix4X4 model = Math::Rotate(
             Math::Matrix4X4Const::IDENTITY,
@@ -715,6 +730,57 @@ namespace Spark::SandBox
         RHI::ShaderResourceCompiler& compiler = m_rhiFactory->AcquireShaderResourceCompiler(*m_device);
         RHI::ShaderResource* srgs[] = { m_shaderResource.get() };
         compiler.Compiler(eastl::span<RHI::ShaderResource*>(srgs, 1));
+    }
+
+    void DrawShape::BuildFrameResources()
+    {
+        for (uint32_t i = 0; i < m_device->GetDescriptor().m_frameCountMax; ++i)
+        {
+            FrameResource resource;
+
+            // Fence
+            resource.m_fence = m_rhiFactory->CreateFence();
+            RHI::ResultCode result = resource.m_fence->Init(*m_device, RHI::FenceState::Signaled);
+            if (result != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("Create fence failed!");
+            }
+
+            // Render Target
+            resource.m_renderTargetView = m_swapChainImageViews[i];
+
+            // Depth Buffer
+            auto windowSize = m_glfwWindow->GetWindowSize();
+            resource.m_depthImage = m_rhiFactory->CreateImage();
+            RHI::ImageInitRequest initReq;
+            initReq.m_image = resource.m_depthImage.get();
+            initReq.m_descriptor = RHI::ImageDescriptor::Create2D(
+                RHI::ImageBindFlags::DepthStencil,
+                windowSize.first, windowSize.second,
+                RHI::Format::D32_FLOAT);
+            RHI::ClearValue cleatValue = RHI::ClearValue::CreateDepth(1.f);
+            initReq.m_optimizedClearValue = &cleatValue;
+            RHI::ResultCode res = m_depthImagePool->InitImage(initReq);
+            if (res != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("Init depth image failed");
+                return;
+            }
+
+            resource.m_depthImageView = m_rhiFactory->CreateImageView();
+            RHI::ImageViewDescriptor viewDesc;
+            viewDesc.m_mipSliceMin = 0;
+            viewDesc.m_mipSliceMax = 0;
+            viewDesc.m_arraySliceMin = 0;
+            viewDesc.m_arraySliceMax = 0;
+            res = resource.m_depthImageView->Init(*resource.m_depthImage, viewDesc);
+            if (res != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("Init depth image view failed");
+            }
+
+            m_frameResources.push_back(resource);
+        }
     }
 
     void DrawShape::SubmitResources(RHI::CommandList* commandList)
@@ -794,34 +860,45 @@ namespace Spark::SandBox
         commandList->SetViewport(m_viewport);
         commandList->SetScissor(m_scissor);
 
+        FrameResource& curFrameResource = m_frameResources[m_curFrameIndex];
+
         // Transition swap chain image to render target
         m_swapChainCurImage = m_swapChain->GetCurrentImage();
         RHI::ImageBarrier rtBarrier = RHI::ConvertToRenderTarget(*m_swapChainCurImage);
         commandList->QueueBarrier(rtBarrier);
 
         // Transition depth buffer to depth-stencil write
-        RHI::ImageBarrier depthBarrier = RHI::ConvertToDepthStencilWrite(*m_depthImage);
+        //RHI::ImageBarrier depthBarrier = RHI::ConvertToDepthStencilWrite(*m_depthImage);
+        RHI::ImageBarrier depthBarrier = RHI::ConvertToDepthStencilWrite(*curFrameResource.m_depthImage);
         commandList->QueueBarrier(depthBarrier);
         commandList->FlushBarriers();
 
         // Clear render target
         RHI::ImageClearRequest clearRT;
-        clearRT.m_imageView = m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get();
+        // clearRT.m_imageView = m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get();
+        clearRT.m_imageView = curFrameResource.m_renderTargetView.get();
         clearRT.m_clearValue = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
         commandList->ClearRenderTarget(clearRT);
 
         // Clear depth
         RHI::ImageClearRequest clearDepth;
-        clearDepth.m_imageView = m_depthImageView.get();
+        //clearDepth.m_imageView = m_depthImageView.get();
+        clearDepth.m_imageView = curFrameResource.m_depthImageView.get();
         clearDepth.m_depthStencilClearFlags = RHI::DepthStencilClearFlags::Depth;
         clearDepth.m_clearValue = RHI::ClearValue::CreateDepth(1.f);
         commandList->ClearRenderTarget(clearDepth);
 
         // Set render targets with depth
+        /*
         const RHI::ImageView* renderTargets[] = {
             m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get()
         };
         commandList->SetRenderTargets(1, renderTargets, m_depthImageView.get());
+        */
+        const RHI::ImageView* renderTargets[] = {
+            curFrameResource.m_renderTargetView.get()
+        };
+        commandList->SetRenderTargets(1, renderTargets, curFrameResource.m_depthImageView.get());
 
         // Build draw item
         RHI::DrawItem drawItem;
@@ -871,7 +948,7 @@ namespace Spark::SandBox
         CreateCommandQueue();
         CreateFence();
         CreateSwapChain();
-        CreateDepthBuffer();
+        CreateDepthBufferPool();
         CreatePipelineLibrary();
         CreateShaderResources();
         CreatePipelineState();
@@ -880,6 +957,7 @@ namespace Spark::SandBox
         CreateStageBuffer();
         CreateBaseColorTexture();
         CreateViewportAndScissor();
+        BuildFrameResources();
     }
 
     void DrawShape::Run()
@@ -889,12 +967,16 @@ namespace Spark::SandBox
         RHI::CommandList* commandLists[] = { commandList };
         m_commandQueue->ExecuteCommands(commandLists);
 
-        m_commandQueue->FlushCommands(*m_fence);
+        m_commandQueue->FlushCommands(*m_submitFence);
 
         while (!m_glfwWindow->ShouldClose())
         {
             m_glfwWindow->PollEvents();
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
+
+            m_curFrameIndex = m_swapChain->GetCurrentImageIndex();
+            FrameResource& curFrameResource = m_frameResources[m_curFrameIndex];
+            curFrameResource.m_fence->WaitOnCpu();
 
             UpdateMVP();
 
@@ -902,8 +984,10 @@ namespace Spark::SandBox
             BuildCommand(commandList);
             RHI::CommandList* commandLists[] = { commandList };
             m_commandQueue->ExecuteCommands(commandLists);
+            //m_commandQueue->FlushCommands(*m_fence);
 
-            m_commandQueue->FlushCommands(*m_fence);
+            curFrameResource.m_fence->Reset();
+            m_commandQueue->Signal(*curFrameResource.m_fence);
 
             m_swapChain->Present();
 

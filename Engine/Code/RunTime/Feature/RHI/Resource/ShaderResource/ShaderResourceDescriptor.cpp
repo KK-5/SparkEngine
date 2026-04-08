@@ -13,7 +13,7 @@
 namespace Spark::RHI
 {
     ShaderInputBufferDescriptor::ShaderInputBufferDescriptor(
-        const ObjectName& name,
+        const InputName& name,
         ShaderInputBufferAccess access,
         ShaderInputBufferType type,
         uint32_t bufferCount,
@@ -38,7 +38,7 @@ namespace Spark::RHI
     }
 
     ShaderInputImageDescriptor::ShaderInputImageDescriptor(
-        const ObjectName& name,
+        const InputName& name,
         ShaderInputImageAccess access,
         ShaderInputImageType type,
         uint32_t imageCount,
@@ -61,7 +61,7 @@ namespace Spark::RHI
     }
 
     ShaderInputBufferUnboundedArrayDescriptor::ShaderInputBufferUnboundedArrayDescriptor(
-        const ObjectName& name,
+        const InputName& name,
         ShaderInputBufferAccess access,
         ShaderInputBufferType type,
         uint32_t strideSize,
@@ -84,7 +84,7 @@ namespace Spark::RHI
     }
 
     ShaderInputImageUnboundedArrayDescriptor::ShaderInputImageUnboundedArrayDescriptor(
-        const ObjectName& name,
+        const InputName& name,
         ShaderInputImageAccess access,
         ShaderInputImageType type,
         uint32_t registerId,
@@ -105,7 +105,7 @@ namespace Spark::RHI
     }
 
     ShaderInputSamplerDescriptor::ShaderInputSamplerDescriptor(
-        const ObjectName& name,
+        const InputName& name,
         uint32_t samplerCount,
         uint32_t registerId,
         uint32_t spaceId)
@@ -124,7 +124,7 @@ namespace Spark::RHI
     }
 
     ShaderInputConstantDescriptor::ShaderInputConstantDescriptor(
-        const ObjectName& name,
+        const InputName& name,
         uint32_t constantByteOffset,
         uint32_t constantByteCount,
         uint32_t registerId,
@@ -145,7 +145,7 @@ namespace Spark::RHI
     }
 
     ShaderInputStaticSamplerDescriptor::ShaderInputStaticSamplerDescriptor(
-        const ObjectName& name, const SamplerState& samplerState, uint32_t registerId, uint32_t spaceId)
+        const InputName& name, const SamplerState& samplerState, uint32_t registerId, uint32_t spaceId)
         : m_name{name}
         , m_samplerState{ samplerState }
         , m_registerId{ registerId }

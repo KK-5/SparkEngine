@@ -57,7 +57,7 @@ namespace Spark::RHI
         /// Register number for the constant data. All constants have the same register number.
         ResourceBindingInfo m_constantDataBindingInfo;
         /// Register number for the Shader Resource resources.
-        eastl::unordered_map<ObjectName, ResourceBindingInfo> m_resourcesRegisterMap;
+        eastl::unordered_map<RHI::InputName, ResourceBindingInfo> m_resourcesRegisterMap;
     };
 
     //! This class describes shader bindings to the RHI platform backend when creating a PipelineState.

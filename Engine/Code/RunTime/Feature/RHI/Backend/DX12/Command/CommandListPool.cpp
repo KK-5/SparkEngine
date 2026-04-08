@@ -108,7 +108,6 @@ namespace Spark::RHI::DX12
             commandAllocatorPoolDescriptor.m_hardwareQueueClass = static_cast<RHI::HardwareQueueClass>(queueIdx);
             commandAllocatorPoolDescriptor.m_dx12Device = descriptor.m_device->GetDX12Device();
             commandAllocatorPoolDescriptor.m_collectLatency = descriptor.m_frameCountMax;
-            commandAllocatorPoolDescriptor.m_collectLatency = 0;
             commandAllocatorPool.Init(commandAllocatorPoolDescriptor);
         }
 

@@ -30,16 +30,12 @@ namespace Spark::Resource
     public:
         ShaderAssetData() = default;
 
-        /// 添加一个 stage 的编译结果
         void AddStageBytecode(ShaderStageBytecode bytecode);
 
-        /// 查询某个 stage 的字节码，不存在则返回 nullptr
         const ShaderStageBytecode* GetStageBytecode(RHI::ShaderStage stage) const;
 
-        /// 是否包含指定 stage
         bool HasStage(RHI::ShaderStage stage) const;
 
-        /// 获取编译目标后端
         ShaderBackend GetBackend() const { return m_backend; }
         void SetBackend(ShaderBackend backend) { m_backend = backend; }
 

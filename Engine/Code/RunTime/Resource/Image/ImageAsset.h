@@ -46,7 +46,6 @@ namespace Spark::Resource
         ImageAssetLoader();
         ~ImageAssetLoader();
 
-        /// 加载图片，LDR 统一转为 RGBA8，HDR 转为 RGBAF32
         eastl::unique_ptr<AssetData> Load(const AssetId& id) override;
     };
 
