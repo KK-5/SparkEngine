@@ -28,8 +28,8 @@ namespace Spark::SandBox
         void PollEvents() override;
         bool ShouldClose() const override;
 
-        eastl::pair<int, int> GetWindowSize() const override;
-        eastl::pair<int, int> GetWindowPos() const override;
+        eastl::pair<int, int> GetWindowSize() override;
+        eastl::pair<int, int> GetWindowPos() override;
 
         void* GetNativeHandle() const override;
         void* GetWindowHandle() const override;

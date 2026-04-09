@@ -41,7 +41,7 @@ namespace Spark::RHI::DX12
 
         void SignalOnGpu(FenceSet& fenceSet);
 
-        void ExecuteWork(RHI::HardwareQueueClass hardwareQueueClass, eastl::span<const RHI::CommandList&> commandLists);
+        // void ExecuteWork(RHI::HardwareQueueClass hardwareQueueClass, eastl::span<const RHI::CommandList&> commandLists);
 
         void WaitForIdle();
 

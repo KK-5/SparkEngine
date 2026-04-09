@@ -4,7 +4,6 @@
 
 #ifdef _WIN32
     #include "../../Code/RunTime/Platform/Windows/Editor/UI/GetNativeWindowHandle.h"
-    // D:\SparkEngine\Engine\Code\RunTime\Platform\Windows\Editor\UI\GetNativeWindowHandle.h
 #endif
 
 #include <GLFW/glfw3.h>
@@ -51,7 +50,7 @@ namespace Spark::SandBox
         glfwSwapBuffers(m_window);
     }
 
-    eastl::pair<int, int> SimpleGlfwWindow::GetWindowPos() const
+    eastl::pair<int, int> SimpleGlfwWindow::GetWindowPos()
     {
         int x, y;
         glfwGetWindowPos(m_window, &x, &y);
@@ -63,8 +62,9 @@ namespace Spark::SandBox
         return glfwWindowShouldClose(m_window);
     }
 
-    eastl::pair<int, int> SimpleGlfwWindow::GetWindowSize() const
+    eastl::pair<int, int> SimpleGlfwWindow::GetWindowSize()
     {
+        glfwGetWindowSize(m_window, &m_width, &m_height);
         return eastl::make_pair<int, int>(m_width, m_height);
     }
 

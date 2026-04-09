@@ -38,6 +38,7 @@ if (BUILD_RHI_DRAWSHAPE)
     PRIVATE
         glfw
         SparkCore
+        SparkInput
         SparkRHI
         SparkRHI_DX12
         SparkAssetManager

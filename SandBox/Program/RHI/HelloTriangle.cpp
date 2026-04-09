@@ -39,6 +39,8 @@ namespace Spark::SandBox
 
         void Init();
 
+        void SetUp();
+
         void Run();
 
     private:

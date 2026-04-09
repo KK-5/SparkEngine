@@ -9,13 +9,14 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- Using DescriptorHandleFactory/DescriptorTableFactory instead Allocator to manage DescriptorHandle/DescriptorTable
- *  -- DescriptorHandleFactory/DescriptorTableFactory is thread safe so that DescriptorPool don't need mutex anymore
+ *  -- Collect() must not run concurrently with Allocate() / DeAllocate(); external synchronization is required.
  */
 #pragma once
 
 #include <EASTL/unique_ptr.h>
 #include <Object/ObjectPool.h>
 #include <Log/SpdLogSystem.h>
+#include <RHI/RHILimits.h>
 
 #include "Descriptor.h"
 #include "DescriptorFactory.h"
@@ -120,11 +121,13 @@ namespace Spark::RHI::DX12
     public:
         DescriptorHandle AllocateHandle() override
         {
+            ASSERT(false, "DescriptorHandle can not create by DescriptorTablePool");
             return BasePool::Allocate(1)->GetOffset();
         }
 
         void ReleaseHandle(DescriptorHandle& handle) override
         {
+            ASSERT(false, "DescriptorHandle can not release by DescriptorTablePool");
             DescriptorTable table(handle, 1);
             BasePool::DeAllocate(&table);
         }
@@ -178,10 +181,11 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE type,
             D3D12_DESCRIPTOR_HEAP_FLAGS flags,
             uint32_t descriptorCountForHeap,
-            uint32_t descriptorCountForPool);
+            uint32_t descriptorCountForPool,
+            uint32_t collectLatency = RHI::Limits::Device::FrameCountMax);
 
         //! Initialize a descriptor pool mapping a range of descriptors from a parent heap.
-        void InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count);
+        void InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count, uint32_t collectLatency = RHI::Limits::Device::FrameCountMax);
 
         ID3D12DescriptorHeap* GetNativeHeap() const;
 

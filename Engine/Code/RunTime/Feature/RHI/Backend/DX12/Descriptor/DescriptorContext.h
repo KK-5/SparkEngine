@@ -88,9 +88,9 @@ namespace Spark::RHI::DX12
             const RHI::SamplerState& samplerState,
             DescriptorHandle& samplerHandle);
 
-        void ReleaseDescriptor(DescriptorHandle descriptorHandle);
+        void ReleaseDescriptor(DescriptorHandle& descriptorHandle);
 
-        void ReleaseStaticDescriptor(DescriptorHandle handle);
+        void ReleaseStaticDescriptor(DescriptorHandle& handle);
 
         //! Creates a GPU-visible descriptor table.
         //! @param descriptorHeapType The descriptor heap to allocate from.
@@ -99,7 +99,7 @@ namespace Spark::RHI::DX12
 
         //! Releases a GPU-visible descriptor table.
         //! @param descriptorHeapType The descriptor heap to allocate from.
-        void ReleaseDescriptorTable(DescriptorTable descriptorTable);
+        void ReleaseDescriptorTable(DescriptorTable& descriptorTable);
         
         //! Performs a gather of disjoint CPU-side descriptors and copies to a contiguous GPU-side descriptor table.
         //! @param gpuDestinationTable The destination descriptor table that the descriptors will be uploaded to.

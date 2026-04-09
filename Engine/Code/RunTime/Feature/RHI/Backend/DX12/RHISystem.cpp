@@ -24,11 +24,22 @@ namespace Spark::RHI::DX12
         FrameEventBus::Handler::BusDisconnect();
     }
 
+    void RHISystem::AcquireCommandQueueContext(RHI::Device& device)
+    {
+        ASSERT(m_rhiFactory, "RHI Factory is invalid.");
+        m_rhiFactory->SetUpCommandQueueContext(device);
+
+    }
+
+    void RHISystem::OnFrameBegin()
+    {
+        ASSERT(m_rhiFactory, "RHI Factory is invalid.");
+        m_rhiFactory->BeginFrame();
+    }
+
     void RHISystem::OnFrameEnd()
     {
-        if (m_rhiFactory)
-        {
-            m_rhiFactory->Collect();
-        }
+        ASSERT(m_rhiFactory, "RHI Factory is invalid.");
+        m_rhiFactory->EndFrame();
     }
 }

@@ -10,7 +10,7 @@ namespace Spark::Input
     void InputSystem::InitInternal()
     {
         m_capturer = CreateSystem<GLFWCaptureSystem>();
-        m_capturer->InitInternal();
+        m_capturer->Init();
 
         TickBus::Handler::BusConnect();
     }
@@ -21,8 +21,6 @@ namespace Spark::Input
         {
             LOG_WARN("[InputSystem] The input event processing system is not disconnected");
         }
-
-        m_capturer->ShutdownInternal();
 
         TickBus::Handler::BusDisconnect();
     }

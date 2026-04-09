@@ -20,10 +20,10 @@ namespace Spark::RHI::DX12
         m_frameFences.resize(m_device->GetDescriptor().m_frameCountMax);
         for (FenceSet& fences : m_frameFences)
         {
-            fences.Init(m_device->GetDevice(), RHI::FenceState::Signaled);
+            fences.Init(m_device->GetDX12Device(), RHI::FenceState::Signaled);
         }
 
-        m_compiledFences.Init(m_device->GetDevice(), RHI::FenceState::Reset);
+        m_compiledFences.Init(m_device->GetDX12Device(), RHI::FenceState::Reset);
 
         for (uint32_t hardwareQueueIdx = 0; hardwareQueueIdx < RHI::HardwareQueueClassCount; ++hardwareQueueIdx)
         {
@@ -63,11 +63,6 @@ namespace Spark::RHI::DX12
             DX12Fence& fence = fenceSet.GetDX12Fence(hardwareQueueClass);
             m_commandQueues[hardwareQueueIdx]->Signal(fence);
         }
-    }
-
-    void CommandQueueContext::ExecuteWork(RHI::HardwareQueueClass hardwareQueueClass, eastl::span<const RHI::CommandList&> commandLists)
-    {
-        GetCommandQueue(hardwareQueueClass).ExecuteCommand(commandLists);
     }
 
     void CommandQueueContext::WaitForIdle()

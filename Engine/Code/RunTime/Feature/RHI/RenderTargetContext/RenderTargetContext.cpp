@@ -4,8 +4,6 @@
 
 #include <RHI/Factory.h>
 #include <RHI/Device/Device.h>
-#include <RHI/Device/DeviceLimits.h>
-#include <RHI/SwapChain/SwapChain.h>
 #include <RHI/Resource/Image/ImagePool.h>
 
 namespace Spark::RHI
@@ -16,415 +14,401 @@ namespace Spark::RHI
     }
 
     ResultCode RenderTargetContext::Init(
-        Device& device, ImagePool& imagePool, SwapChain& swapChain,
+        Device& device, ImagePool& imagePool,
         const RenderTargetContextDescriptor& descriptor)
     {
-        if (descriptor.m_imageWidth == 0 || descriptor.m_imageHeight == 0 || descriptor.m_bufferCount == 0)
+        if (!ValidateDescriptor(descriptor))
         {
-            LOG_WARN("[RenderTargetContext] Invalid descriptor: width, height and bufferCount must be non-zero.");
             return ResultCode::InvalidArgument;
         }
 
+        Shutdown();
+
         m_device = &device;
         m_imagePool = &imagePool;
-        m_swapChain = &swapChain;
         m_descriptor = descriptor;
 
-        CollectAttachmentInfo();
+        RebuildAttachmentIndices();
 
-        ResultCode result = CreateImages();
+        ResultCode result = BuildResources();
         if (result != ResultCode::Success)
         {
             return result;
         }
 
-        return CreateImageViews();
+        return BuildImageViews();
     }
 
     void RenderTargetContext::Shutdown()
     {
-        DestroyImages();
-        m_attachmentInfos.clear();
+        DestroyResources();
         m_renderTargetIndices.clear();
         m_resolveIndices.clear();
-        m_depthStencilIndex = InvalidRenderAttachmentIndex;
-        m_shadingRateIndex = InvalidRenderAttachmentIndex;
+        m_depthStencilIndex = Limits::Pipeline::RenderAttachmentCountMax;
+        m_shadingRateIndex = Limits::Pipeline::RenderAttachmentCountMax;
+        m_descriptor = {};
         m_device = nullptr;
         m_imagePool = nullptr;
-        m_swapChain = nullptr;
     }
 
-    ResultCode RenderTargetContext::Resize(uint32_t width, uint32_t height)
+    ResultCode RenderTargetContext::Resize(const RenderTargetContextDescriptor& descriptor)
     {
-        if (width == 0 || height == 0)
+        if (!m_device || !m_imagePool)
         {
-            LOG_WARN("[RenderTargetContext] Resize dimensions must be non-zero.");
+            LOG_WARN("[RenderTargetContext] Resize called before Init.");
             return ResultCode::InvalidArgument;
         }
 
-        DestroyImages();
-        m_descriptor.m_imageWidth = width;
-        m_descriptor.m_imageHeight = height;
+        if (!ValidateDescriptor(descriptor))
+        {
+            return ResultCode::InvalidArgument;
+        }
 
-        ResultCode result = CreateImages();
+        DestroyResources();
+        m_descriptor = descriptor;
+        RebuildAttachmentIndices();
+
+        ResultCode result = BuildResources();
         if (result != ResultCode::Success)
         {
             return result;
         }
 
-        return CreateImageViews();
+        return BuildImageViews();
     }
 
-    void RenderTargetContext::CollectAttachmentInfo()
+    bool RenderTargetContext::ValidateDescriptor(const RenderTargetContextDescriptor& descriptor) const
     {
-        const RenderAttachmentLayout& layout = m_descriptor.m_attachmentLayout;
-        const uint32_t attachmentCount = layout.m_attachmentCount;
+        if (descriptor.m_bufferCount == 0)
+        {
+            LOG_WARN("[RenderTargetContext] Invalid descriptor: m_bufferCount must be non-zero.");
+            return false;
+        }
 
-        m_attachmentInfos.resize(attachmentCount);
+        uint32_t depthStencilCount = 0;
+        uint32_t shadingRateCount = 0;
+
+        for (uint32_t i = 0; i < descriptor.m_attachments.size(); ++i)
+        {
+            const RTAttachmentDescriptor& attachmentDesc = descriptor.m_attachments[i];
+            if (attachmentDesc.m_usage == RTAttachmentUsage::DepthStencil)
+            {
+                ++depthStencilCount;
+            }
+            else if (attachmentDesc.m_usage == RTAttachmentUsage::ShadingRate)
+            {
+                ++shadingRateCount;
+            }
+
+            if (attachmentDesc.m_source == RTAttachmentSource::External)
+            {
+                if (attachmentDesc.m_externalImages.size() != descriptor.m_bufferCount)
+                {
+                    LOG_WARN(
+                        "[RenderTargetContext] External attachment[{}] image count mismatch. expected={}, actual={}.",
+                        i, descriptor.m_bufferCount, attachmentDesc.m_externalImages.size());
+                    return false;
+                }
+
+                for (uint32_t bufferIndex = 0; bufferIndex < attachmentDesc.m_externalImages.size(); ++bufferIndex)
+                {
+                    if (!attachmentDesc.m_externalImages[bufferIndex])
+                    {
+                        LOG_WARN(
+                            "[RenderTargetContext] External attachment[{}] has null image at bufferIndex={}.",
+                            i, bufferIndex);
+                        return false;
+                    }
+                }
+            }
+            else if (attachmentDesc.m_imageDescriptor.m_format == Format::Unknown)
+            {
+                LOG_WARN("[RenderTargetContext] Owned attachment[{}] must provide a valid image format.", i);
+                return false;
+            }
+        }
+
+        if (depthStencilCount > 1)
+        {
+            LOG_WARN("[RenderTargetContext] Only one depth-stencil attachment is supported.");
+            return false;
+        }
+        if (shadingRateCount > 1)
+        {
+            LOG_WARN("[RenderTargetContext] Only one shading-rate attachment is supported.");
+            return false;
+        }
+
+        return true;
+    }
+
+    void RenderTargetContext::RebuildAttachmentIndices()
+    {
         m_renderTargetIndices.clear();
         m_resolveIndices.clear();
-        m_depthStencilIndex = InvalidRenderAttachmentIndex;
-        m_shadingRateIndex = InvalidRenderAttachmentIndex;
+        m_depthStencilIndex = Limits::Pipeline::RenderAttachmentCountMax;
+        m_shadingRateIndex = Limits::Pipeline::RenderAttachmentCountMax;
 
-        // 遍历所有 subpass，收集每个 attachment 的角色
-        for (uint32_t sp = 0; sp < layout.m_subpassCount; ++sp)
+        for (uint32_t i = 0; i < m_descriptor.m_attachments.size(); ++i)
         {
-            const SubpassRenderAttachmentLayout& subpass = layout.m_subpassLayouts[sp];
-
-            // Render targets
-            for (uint32_t rt = 0; rt < subpass.m_rendertargetCount; ++rt)
+            switch (m_descriptor.m_attachments[i].m_usage)
             {
-                const uint32_t idx = subpass.m_rendertargetDescriptors[rt].m_attachmentIndex;
-                if (idx < attachmentCount && m_attachmentInfos[idx].m_role == AttachmentRole::None)
-                {
-                    m_attachmentInfos[idx].m_role = AttachmentRole::RenderTarget;
-                    m_attachmentInfos[idx].m_bindFlags = ImageBindFlags::Color | ImageBindFlags::ShaderRead;
-                    m_renderTargetIndices.push_back(idx);
-                }
-
-                // Resolve targets
-                const uint32_t resolveIdx = subpass.m_rendertargetDescriptors[rt].m_resolveAttachmentIndex;
-                if (resolveIdx != InvalidRenderAttachmentIndex &&
-                    resolveIdx < attachmentCount && m_attachmentInfos[resolveIdx].m_role == AttachmentRole::None)
-                {
-                    m_attachmentInfos[resolveIdx].m_role = AttachmentRole::Resolve;
-                    m_attachmentInfos[resolveIdx].m_bindFlags = ImageBindFlags::Color | ImageBindFlags::ShaderRead;
-                    m_resolveIndices.push_back(resolveIdx);
-                }
-            }
-
-            // Depth stencil
-            const uint32_t dsIdx = subpass.m_depthStencilDescriptor.m_attachmentIndex;
-            if (dsIdx != InvalidRenderAttachmentIndex &&
-                dsIdx < attachmentCount && m_attachmentInfos[dsIdx].m_role == AttachmentRole::None)
-            {
-                m_attachmentInfos[dsIdx].m_role = AttachmentRole::DepthStencil;
-                m_attachmentInfos[dsIdx].m_bindFlags = ImageBindFlags::DepthStencil | ImageBindFlags::ShaderRead;
-                m_depthStencilIndex = dsIdx;
-            }
-
-            // Shading rate
-            const uint32_t srIdx = subpass.m_shadingRateDescriptor.m_attachmentIndex;
-            if (srIdx != InvalidRenderAttachmentIndex &&
-                srIdx < attachmentCount && m_attachmentInfos[srIdx].m_role == AttachmentRole::None)
-            {
-                m_attachmentInfos[srIdx].m_role = AttachmentRole::ShadingRate;
-                m_attachmentInfos[srIdx].m_bindFlags = ImageBindFlags::ShadingRate;
-                m_shadingRateIndex = srIdx;
+            case RTAttachmentUsage::RenderTarget:
+                m_renderTargetIndices.push_back(i);
+                break;
+            case RTAttachmentUsage::Resolve:
+                m_resolveIndices.push_back(i);
+                break;
+            case RTAttachmentUsage::DepthStencil:
+                m_depthStencilIndex = i;
+                break;
+            case RTAttachmentUsage::ShadingRate:
+                m_shadingRateIndex = i;
+                break;
+            default:
+                break;
             }
         }
     }
 
-    ResultCode RenderTargetContext::CreateImages()
+    ResultCode RenderTargetContext::BuildResources()
     {
-        const RenderAttachmentLayout& layout = m_descriptor.m_attachmentLayout;
-        const uint32_t attachmentCount = layout.m_attachmentCount;
+        const uint32_t attachmentCount = static_cast<uint32_t>(m_descriptor.m_attachments.size());
         const uint32_t bufferCount = m_descriptor.m_bufferCount;
-        const uint32_t swapChainRT = m_descriptor.m_swapChainBackBufferIndex;
 
+        m_images.clear();
         m_images.resize(attachmentCount);
 
-        for (uint32_t i = 0; i < attachmentCount; ++i)
+        for (uint32_t attachmentIndex = 0; attachmentIndex < attachmentCount; ++attachmentIndex)
         {
-            const AttachmentInfo& info = m_attachmentInfos[i];
-            if (info.m_role == AttachmentRole::None)
+            const RTAttachmentDescriptor& attachmentDesc = m_descriptor.m_attachments[attachmentIndex];
+            m_images[attachmentIndex].resize(bufferCount);
+
+            if (attachmentDesc.m_source == RTAttachmentSource::External)
             {
+                for (uint32_t bufferIndex = 0; bufferIndex < bufferCount; ++bufferIndex)
+                {
+                    m_images[attachmentIndex][bufferIndex] = attachmentDesc.m_externalImages[bufferIndex];
+                }
                 continue;
             }
 
-            // swap chain back buffer 位置不创建资源
-            if (i == swapChainRT)
-            {
-                continue;
-            }
-
-            // 确定该 attachment 需要几份
-            // shading rate 只需一份，其余按 bufferCount
-            const uint32_t imageCount = (info.m_role == AttachmentRole::ShadingRate) ? 1 : bufferCount;
-
-            // 确定尺寸
-            uint32_t width = m_descriptor.m_imageWidth;
-            uint32_t height = m_descriptor.m_imageHeight;
-
-            if (info.m_role == AttachmentRole::ShadingRate)
-            {
-                const Size& tileSize = m_device->GetLimits().m_shadingRateTileSize;
-                width = (width + tileSize.m_width - 1) / tileSize.m_width;
-                height = (height + tileSize.m_height - 1) / tileSize.m_height;
-            }
-
-            const Format format = layout.m_attachmentFormats[i];
-
-            m_images[i].resize(imageCount);
-            for (uint32_t buf = 0; buf < imageCount; ++buf)
+            for (uint32_t bufferIndex = 0; bufferIndex < bufferCount; ++bufferIndex)
             {
                 Ptr<Image> image = Service<Factory>::Get()->CreateImage();
-
-                ImageDescriptor imageDesc = ImageDescriptor::Create2D(
-                    info.m_bindFlags, width, height, format);
+                if (!image)
+                {
+                    LOG_ERROR(
+                        "[RenderTargetContext] Failed to allocate image object [attachment={}, buffer={}].",
+                        attachmentIndex, bufferIndex);
+                    DestroyResources();
+                    return ResultCode::Fail;
+                }
 
                 ImageInitRequest request;
                 request.m_image = image.get();
-                request.m_descriptor = imageDesc;
-                request.m_optimizedClearValue =
-                    (i < m_descriptor.m_optimizedClearValues.size())
-                    ? &m_descriptor.m_optimizedClearValues[i] : nullptr;
+                request.m_descriptor = attachmentDesc.m_imageDescriptor;
+                request.m_optimizedClearValue = attachmentDesc.m_hasOptimizedClearValue
+                    ? &attachmentDesc.m_optimizedClearValue
+                    : nullptr;
 
-                ResultCode result = m_imagePool->InitImage(request);
+                const ResultCode result = m_imagePool->InitImage(request);
                 if (result != ResultCode::Success)
                 {
-                    LOG_ERROR("[RenderTargetContext] Failed to create image [attachment={}, buffer={}].", i, buf);
-                    DestroyImages();
+                    LOG_ERROR(
+                        "[RenderTargetContext] Failed to create owned image [attachment={}, buffer={}].",
+                        attachmentIndex, bufferIndex);
+                    DestroyResources();
                     return result;
                 }
 
-                m_images[i][buf] = eastl::move(image);
+                m_images[attachmentIndex][bufferIndex] = eastl::move(image);
             }
         }
 
         return ResultCode::Success;
     }
 
-    ResultCode RenderTargetContext::CreateImageViews()
+    ResultCode RenderTargetContext::BuildImageViews()
     {
         const uint32_t attachmentCount = static_cast<uint32_t>(m_images.size());
-
+        m_imageViews.clear();
         m_imageViews.resize(attachmentCount);
 
-        for (uint32_t i = 0; i < attachmentCount; ++i)
+        for (uint32_t attachmentIndex = 0; attachmentIndex < attachmentCount; ++attachmentIndex)
         {
-            const uint32_t imageCount = static_cast<uint32_t>(m_images[i].size());
-            if (imageCount == 0)
-            {
-                continue;
-            }
+            const RTAttachmentDescriptor& attachmentDesc = m_descriptor.m_attachments[attachmentIndex];
+            const uint32_t bufferCount = static_cast<uint32_t>(m_images[attachmentIndex].size());
 
-            const AttachmentInfo& info = m_attachmentInfos[i];
-
-            // 构建 ImageViewDescriptor：mip 0 only，覆盖全部 array slice
             ImageViewDescriptor viewDesc;
-            viewDesc.m_mipSliceMin = 0;
-            viewDesc.m_mipSliceMax = 0;
-            viewDesc.m_arraySliceMin = 0;
-            viewDesc.m_arraySliceMax = 0;
-            viewDesc.m_overrideBindFlags = info.m_bindFlags;
+            viewDesc.m_overrideBindFlags = GetViewBindFlags(attachmentDesc.m_usage);
+            viewDesc.m_aspectFlags = GetViewAspectFlags(attachmentDesc.m_usage);
 
-            // depth stencil view 只访问 depth aspect
-            if (info.m_role == AttachmentRole::DepthStencil)
+            m_imageViews[attachmentIndex].resize(bufferCount);
+            for (uint32_t bufferIndex = 0; bufferIndex < bufferCount; ++bufferIndex)
             {
-                viewDesc.m_aspectFlags = ImageAspectFlags::DepthStencil;
-            }
+                if (!m_images[attachmentIndex][bufferIndex])
+                {
+                    LOG_ERROR(
+                        "[RenderTargetContext] Attachment image is null [attachment={}, buffer={}].",
+                        attachmentIndex, bufferIndex);
+                    DestroyResources();
+                    return ResultCode::InvalidArgument;
+                }
 
-            m_imageViews[i].resize(imageCount);
-            for (uint32_t buf = 0; buf < imageCount; ++buf)
-            {
                 Ptr<ImageView> view = Service<Factory>::Get()->CreateImageView();
+                if (!view)
+                {
+                    LOG_ERROR(
+                        "[RenderTargetContext] Failed to allocate image view object [attachment={}, buffer={}].",
+                        attachmentIndex, bufferIndex);
+                    DestroyResources();
+                    return ResultCode::Fail;
+                }
 
-                ResultCode result = view->Init(*m_images[i][buf], viewDesc);
+                const ResultCode result = view->Init(*m_images[attachmentIndex][bufferIndex], viewDesc);
                 if (result != ResultCode::Success)
                 {
-                    LOG_ERROR("[RenderTargetContext] Failed to create image view [attachment={}, buffer={}].", i, buf);
-                    DestroyImages();
+                    LOG_ERROR(
+                        "[RenderTargetContext] Failed to create image view [attachment={}, buffer={}].",
+                        attachmentIndex, bufferIndex);
+                    DestroyResources();
                     return result;
                 }
 
-                m_imageViews[i][buf] = eastl::move(view);
+                m_imageViews[attachmentIndex][bufferIndex] = eastl::move(view);
             }
         }
 
         return ResultCode::Success;
     }
 
-    void RenderTargetContext::DestroyImages()
+    void RenderTargetContext::DestroyResources()
     {
-        // ImageView 需要在 Image 之前释放
         m_imageViews.clear();
         m_images.clear();
     }
 
-    uint32_t RenderTargetContext::GetCurrentBufferIndex() const
+    ImageBindFlags RenderTargetContext::GetViewBindFlags(RTAttachmentUsage usage)
     {
-        return m_swapChain->GetCurrentImageIndex() % m_descriptor.m_bufferCount;
+        switch (usage)
+        {
+        case RTAttachmentUsage::RenderTarget:
+            return ImageBindFlags::Color;
+        case RTAttachmentUsage::DepthStencil:
+            return ImageBindFlags::DepthStencil;
+        case RTAttachmentUsage::Resolve:
+            return ImageBindFlags::Color;
+        case RTAttachmentUsage::ShadingRate:
+            return ImageBindFlags::ShadingRate;
+        default:
+            return ImageBindFlags::None;
+        }
     }
 
-    //////////////////////////////////////////////////////////////////////////
-    // 按当前帧索引访问
-
-    Image* RenderTargetContext::GetCurrentRenderTarget(uint32_t index) const
+    ImageAspectFlags RenderTargetContext::GetViewAspectFlags(RTAttachmentUsage usage)
     {
-        return GetRenderTarget(GetCurrentBufferIndex(), index);
+        if (usage == RTAttachmentUsage::DepthStencil)
+        {
+            return ImageAspectFlags::DepthStencil;
+        }
+        return ImageAspectFlags::All;
     }
 
-    ImageView* RenderTargetContext::GetCurrentRenderTargetView(uint32_t index) const
+    uint32_t RenderTargetContext::ResolveBufferIndex(uint32_t frameIndex) const
     {
-        return GetRenderTargetView(GetCurrentBufferIndex(), index);
+        if (m_descriptor.m_bufferCount == 0)
+        {
+            return 0;
+        }
+        return frameIndex % m_descriptor.m_bufferCount;
     }
 
-    Image* RenderTargetContext::GetCurrentResolveTarget(uint32_t index) const
+    Image* RenderTargetContext::GetImageByGlobalAttachmentIndex(uint32_t frameIndex, uint32_t globalAttachmentIndex) const
     {
-        return GetResolveTarget(GetCurrentBufferIndex(), index);
+        if (globalAttachmentIndex >= m_images.size())
+        {
+            return nullptr;
+        }
+
+        const uint32_t bufferIndex = ResolveBufferIndex(frameIndex);
+        if (bufferIndex >= m_images[globalAttachmentIndex].size())
+        {
+            return nullptr;
+        }
+        return m_images[globalAttachmentIndex][bufferIndex].get();
     }
 
-    ImageView* RenderTargetContext::GetCurrentResolveTargetView(uint32_t index) const
+    ImageView* RenderTargetContext::GetImageViewByGlobalAttachmentIndex(uint32_t frameIndex, uint32_t globalAttachmentIndex) const
     {
-        return GetResolveTargetView(GetCurrentBufferIndex(), index);
+        if (globalAttachmentIndex >= m_imageViews.size())
+        {
+            return nullptr;
+        }
+
+        const uint32_t bufferIndex = ResolveBufferIndex(frameIndex);
+        if (bufferIndex >= m_imageViews[globalAttachmentIndex].size())
+        {
+            return nullptr;
+        }
+        return m_imageViews[globalAttachmentIndex][bufferIndex].get();
     }
 
-    Image* RenderTargetContext::GetCurrentDepthStencil() const
-    {
-        return GetDepthStencil(GetCurrentBufferIndex());
-    }
-
-    ImageView* RenderTargetContext::GetCurrentDepthStencilView() const
-    {
-        return GetDepthStencilView(GetCurrentBufferIndex());
-    }
-
-    //////////////////////////////////////////////////////////////////////////
-    // 按显式帧索引访问 — Image
-
-    Image* RenderTargetContext::GetRenderTarget(uint32_t bufferIndex, uint32_t attachmentIndex) const
+    Image* RenderTargetContext::GetRenderTarget(uint32_t frameIndex, uint32_t attachmentIndex) const
     {
         if (attachmentIndex >= m_renderTargetIndices.size())
         {
             return nullptr;
         }
-
-        const uint32_t globalIndex = m_renderTargetIndices[attachmentIndex];
-
-        // 该位置使用 swap chain 的 back buffer
-        if (globalIndex == m_descriptor.m_swapChainBackBufferIndex)
-        {
-            return m_swapChain->GetImage(bufferIndex);
-        }
-
-        if (globalIndex < m_images.size() && bufferIndex < m_images[globalIndex].size())
-        {
-            return m_images[globalIndex][bufferIndex].get();
-        }
-        return nullptr;
+        return GetImageByGlobalAttachmentIndex(frameIndex, m_renderTargetIndices[attachmentIndex]);
     }
 
-    Image* RenderTargetContext::GetResolveTarget(uint32_t bufferIndex, uint32_t attachmentIndex) const
-    {
-        if (attachmentIndex >= m_resolveIndices.size())
-        {
-            return nullptr;
-        }
-
-        const uint32_t globalIndex = m_resolveIndices[attachmentIndex];
-        if (globalIndex < m_images.size() && bufferIndex < m_images[globalIndex].size())
-        {
-            return m_images[globalIndex][bufferIndex].get();
-        }
-        return nullptr;
-    }
-
-    Image* RenderTargetContext::GetDepthStencil(uint32_t bufferIndex) const
-    {
-        if (m_depthStencilIndex != InvalidRenderAttachmentIndex &&
-            m_depthStencilIndex < m_images.size() && bufferIndex < m_images[m_depthStencilIndex].size())
-        {
-            return m_images[m_depthStencilIndex][bufferIndex].get();
-        }
-        return nullptr;
-    }
-
-    //////////////////////////////////////////////////////////////////////////
-    // 按显式帧索引访问 — ImageView
-
-    ImageView* RenderTargetContext::GetRenderTargetView(uint32_t bufferIndex, uint32_t attachmentIndex) const
+    ImageView* RenderTargetContext::GetRenderTargetView(uint32_t frameIndex, uint32_t attachmentIndex) const
     {
         if (attachmentIndex >= m_renderTargetIndices.size())
         {
             return nullptr;
         }
-
-        const uint32_t globalIndex = m_renderTargetIndices[attachmentIndex];
-
-        // swap chain back buffer 的 view 不由本模块管理
-        if (globalIndex == m_descriptor.m_swapChainBackBufferIndex)
-        {
-            return nullptr;
-        }
-
-        if (globalIndex < m_imageViews.size() && bufferIndex < m_imageViews[globalIndex].size())
-        {
-            return m_imageViews[globalIndex][bufferIndex].get();
-        }
-        return nullptr;
+        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_renderTargetIndices[attachmentIndex]);
     }
 
-    ImageView* RenderTargetContext::GetResolveTargetView(uint32_t bufferIndex, uint32_t attachmentIndex) const
+    Image* RenderTargetContext::GetResolveTarget(uint32_t frameIndex, uint32_t attachmentIndex) const
     {
         if (attachmentIndex >= m_resolveIndices.size())
         {
             return nullptr;
         }
-
-        const uint32_t globalIndex = m_resolveIndices[attachmentIndex];
-        if (globalIndex < m_imageViews.size() && bufferIndex < m_imageViews[globalIndex].size())
-        {
-            return m_imageViews[globalIndex][bufferIndex].get();
-        }
-        return nullptr;
+        return GetImageByGlobalAttachmentIndex(frameIndex, m_resolveIndices[attachmentIndex]);
     }
 
-    ImageView* RenderTargetContext::GetDepthStencilView(uint32_t bufferIndex) const
+    ImageView* RenderTargetContext::GetResolveTargetView(uint32_t frameIndex, uint32_t attachmentIndex) const
     {
-        if (m_depthStencilIndex != InvalidRenderAttachmentIndex &&
-            m_depthStencilIndex < m_imageViews.size() && bufferIndex < m_imageViews[m_depthStencilIndex].size())
+        if (attachmentIndex >= m_resolveIndices.size())
         {
-            return m_imageViews[m_depthStencilIndex][bufferIndex].get();
+            return nullptr;
         }
-        return nullptr;
+        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_resolveIndices[attachmentIndex]);
     }
 
-    //////////////////////////////////////////////////////////////////////////
-    // Shading rate
-
-    Image* RenderTargetContext::GetShadingRateImage() const
+    Image* RenderTargetContext::GetDepthStencil(uint32_t frameIndex) const
     {
-        if (m_shadingRateIndex != InvalidRenderAttachmentIndex &&
-            m_shadingRateIndex < m_images.size() && !m_images[m_shadingRateIndex].empty())
-        {
-            return m_images[m_shadingRateIndex][0].get();
-        }
-        return nullptr;
+        return GetImageByGlobalAttachmentIndex(frameIndex, m_depthStencilIndex);
     }
 
-    ImageView* RenderTargetContext::GetShadingRateImageView() const
+    ImageView* RenderTargetContext::GetDepthStencilView(uint32_t frameIndex) const
     {
-        if (m_shadingRateIndex != InvalidRenderAttachmentIndex &&
-            m_shadingRateIndex < m_imageViews.size() && !m_imageViews[m_shadingRateIndex].empty())
-        {
-            return m_imageViews[m_shadingRateIndex][0].get();
-        }
-        return nullptr;
+        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_depthStencilIndex);
     }
 
-    //////////////////////////////////////////////////////////////////////////
-    // 查询
+    Image* RenderTargetContext::GetShadingRateImage(uint32_t frameIndex) const
+    {
+        return GetImageByGlobalAttachmentIndex(frameIndex, m_shadingRateIndex);
+    }
+
+    ImageView* RenderTargetContext::GetShadingRateImageView(uint32_t frameIndex) const
+    {
+        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_shadingRateIndex);
+    }
 
     uint32_t RenderTargetContext::GetRenderTargetCount() const
     {
@@ -433,7 +417,7 @@ namespace Spark::RHI
 
     bool RenderTargetContext::HasDepthStencil() const
     {
-        return m_depthStencilIndex != InvalidRenderAttachmentIndex;
+        return m_depthStencilIndex != Limits::Pipeline::RenderAttachmentCountMax;
     }
 
     bool RenderTargetContext::HasResolveTargets() const
@@ -443,7 +427,7 @@ namespace Spark::RHI
 
     bool RenderTargetContext::HasShadingRateImage() const
     {
-        return m_shadingRateIndex != InvalidRenderAttachmentIndex;
+        return m_shadingRateIndex != Limits::Pipeline::RenderAttachmentCountMax;
     }
 
     const RenderTargetContextDescriptor& RenderTargetContext::GetDescriptor() const

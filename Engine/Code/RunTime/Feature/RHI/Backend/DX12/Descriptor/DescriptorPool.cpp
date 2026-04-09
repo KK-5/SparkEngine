@@ -15,7 +15,6 @@
 #include "DescriptorPool.h"
 
 #include <Math/Bit.h>
-#include <RHI/RHILimits.h>
 #include "DescriptorFactory.h"
 
 namespace Spark::RHI::DX12
@@ -25,7 +24,8 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE type,
             D3D12_DESCRIPTOR_HEAP_FLAGS flags,
             uint32_t descriptorCountForHeap,
-            uint32_t descriptorCountForPool)
+            uint32_t descriptorCountForPool,
+            uint32_t collectLatency)
     {
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc {};
         heapDesc.Type = type;
@@ -48,7 +48,7 @@ namespace Spark::RHI::DX12
             desc.flags = flags;
             desc.heapOffset = 0;
             desc.descriptorCount = descriptorCountForPool;
-            desc.m_collectLatency = RHI::Limits::Device::FrameCountMax; // Default latency
+            desc.m_collectLatency = collectLatency; // Default latency
             DescriptorTablePool* pool = new DescriptorTablePool;
             pool->Init(desc);
             m_internalPool.reset(pool);
@@ -62,14 +62,14 @@ namespace Spark::RHI::DX12
             desc.flags = flags;
             desc.heapOffset = 0;
             desc.descriptorCount = descriptorCountForPool;
-            desc.m_collectLatency = RHI::Limits::Device::FrameCountMax; // Default latency
+            desc.m_collectLatency = collectLatency; // Default latency
             DescriptorHandlePool* pool = new DescriptorHandlePool;
             pool->Init(desc);
             m_internalPool.reset(pool);
         }
     }
 
-    void DescriptorPool::InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count)
+    void DescriptorPool::InitPooledRange(ID3D12DeviceX* device, ID3D12DescriptorHeap* heap, uint32_t offset, uint32_t count, uint32_t collectLatency)
     {
         // Share the parent heap: must AddRef — Attach would leave two ComPtrs with a single refcount.
         m_descriptorHeap = heap;
@@ -82,7 +82,7 @@ namespace Spark::RHI::DX12
         desc.flags = heapDesc.Flags;
         desc.heapOffset = offset;
         desc.descriptorCount = count;
-        desc.m_collectLatency = RHI::Limits::Device::FrameCountMax; // Default latency
+        desc.m_collectLatency = collectLatency; // Default latency
         DescriptorHandlePool* pool = new DescriptorHandlePool;
         pool->Init(desc);
         m_internalPool.reset(pool);

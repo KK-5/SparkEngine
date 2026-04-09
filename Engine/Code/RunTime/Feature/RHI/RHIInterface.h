@@ -12,11 +12,14 @@ namespace Spark::RHI
                        , public FrameEventBus::Handler
     {
     public:
+        RHIInterface() = default;
         virtual ~RHIInterface() = default;
 
         virtual BackendType GetBackendType() const = 0;
 
         virtual Factory* GetRHIFactory() const = 0;
+
+        virtual void AcquireCommandQueueContext(RHI::Device& device) = 0;
 
         ///////////////////////////////
         eastl::vector<HashString> Request() const override

@@ -74,6 +74,6 @@ namespace Spark::Input
 
     struct WindowResizeEvent
     {
-        float width, height;
+        int width, height;
     };
 }

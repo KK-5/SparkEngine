@@ -17,15 +17,14 @@ namespace Spark::Input
 
         if (Service<IWindowSystem>::Get()->GetWindowBackend() != WindowBackend::GLFW)
         {
-            LOG_ERROR("[GLFWCaptureSystem] The window backend does not match");
-            assert(false);
+            ASSERT(false, "[GLFWCaptureSystem] The window backend does not match");
         }
 
         if (void* window = Service<IWindowSystem>::Get()->GetWindowHandle())
         {
             m_windowCache = static_cast<GLFWwindow*>(window);
         }
-        assert(m_windowCache && "[GLFWCaptureSystem] Get glfw window failed!");
+        ASSERT(m_windowCache, "[GLFWCaptureSystem] Get glfw window failed!");
         glfwSetWindowUserPointer(m_windowCache, this);
 
         CaptureMouseButtonEvent();

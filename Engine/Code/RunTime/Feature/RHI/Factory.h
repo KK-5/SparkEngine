@@ -57,6 +57,8 @@ namespace Spark::RHI
 
         virtual Ptr<CommandQueue> CreateCommandQueue() = 0;
 
+        virtual CommandQueue* AcquireCommandQueue(RHI::HardwareQueueClass hardwareQueueClass) = 0;
+
         virtual Ptr<Device> CreateDevice() = 0;
 
         virtual Ptr<Buffer> CreateBuffer() = 0;

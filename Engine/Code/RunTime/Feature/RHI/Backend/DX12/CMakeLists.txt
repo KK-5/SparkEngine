@@ -11,6 +11,7 @@ set(SOURCES
     Command/CommandList.cpp
     Command/CommandListPool.cpp
     Command/CommandQueue.cpp
+    Command/CommandQueueContext.cpp
     Device/PhysicalDevice.cpp
     Device/Device.cpp
     Descriptor/Descriptor.cpp

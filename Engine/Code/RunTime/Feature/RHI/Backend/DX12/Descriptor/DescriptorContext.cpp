@@ -207,13 +207,16 @@ namespace Spark::RHI::DX12
             return desciptorCountArray[static_cast<uint32_t>(flag)];
         };
 
+        uint32_t collectLatency = device.GetDescriptor().m_frameCountMax;
+
         uint32_t desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
         m_CBVSRVUAVHeapFlagNone.Init(
             device.GetDX12Device(), 
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,
-            desciptorCount
+            desciptorCount,
+            collectLatency
         );
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
@@ -225,7 +228,8 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 
             D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
             desciptorCount,
-            dynamicDesciptorCount
+            dynamicDesciptorCount,
+            collectLatency
         );
 
         m_staticPool.InitPooledRange(device.GetDX12Device(), m_CBVSRVUAVHeapFlagShaderVisible.GetNativeHeap(), m_staticDescriptorOffset, staticDesciptorCount);
@@ -236,7 +240,8 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,
-            desciptorCount
+            desciptorCount,
+            collectLatency
         );
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
@@ -245,7 +250,8 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
             D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
             desciptorCount,
-            desciptorCount
+            desciptorCount,
+            collectLatency
         );
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
@@ -254,7 +260,8 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,
-            desciptorCount
+            desciptorCount,
+            collectLatency
         );
 
         desciptorCount = GetDesciptorCount(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
@@ -263,7 +270,8 @@ namespace Spark::RHI::DX12
             D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             desciptorCount,
-            desciptorCount
+            desciptorCount,
+            collectLatency
         );
         
         CreateNullDescriptors();
@@ -664,7 +672,7 @@ namespace Spark::RHI::DX12
         return GetPool(descTable.GetType(), descTable.GetFlags()).GetGpuNativeHandleForTable(descTable);
     }
 
-    void DescriptorContext::ReleaseDescriptor(DescriptorHandle descriptorHandle)
+    void DescriptorContext::ReleaseDescriptor(DescriptorHandle& descriptorHandle)
     {
         if (!descriptorHandle.IsNull())
         {
@@ -672,7 +680,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void DescriptorContext::ReleaseStaticDescriptor(DescriptorHandle handle)
+    void DescriptorContext::ReleaseStaticDescriptor(DescriptorHandle& handle)
     {
         if (!handle.IsNull())
         {
@@ -685,7 +693,7 @@ namespace Spark::RHI::DX12
         return AllocateTable(descriptorHeapType, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, descriptorCount);
     }
 
-    void DescriptorContext::ReleaseDescriptorTable(DescriptorTable table)
+    void DescriptorContext::ReleaseDescriptorTable(DescriptorTable& table)
     {
         GetPool(table.GetType(), table.GetFlags()).ReleaseTable(table);
     }

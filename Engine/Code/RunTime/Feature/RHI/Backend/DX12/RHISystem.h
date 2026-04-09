@@ -9,12 +9,17 @@ namespace Spark::RHI::DX12
     class RHISystem final : public Service<RHIInterface>::Handler
     {
     public:
+        RHISystem() = default;
+
         void InitInternal() override;
 
         void ShutdownInternal() override;
 
+        void AcquireCommandQueueContext(RHI::Device& device) override;
+
         ///////////////////////////////////////////////////////////
         // FrameEventBus override
+        void OnFrameBegin() override;
         void OnFrameEnd() override;
         ///////////////////////////////////////////////////////////
 

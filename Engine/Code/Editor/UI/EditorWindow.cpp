@@ -87,7 +87,7 @@ namespace Editor
         glfwSwapBuffers(m_window);
     }
 
-    eastl::pair<int, int> EditorWindow::GetWindowPos() const
+    eastl::pair<int, int> EditorWindow::GetWindowPos()
     {
         int x, y;
         glfwGetWindowPos(m_window, &x, &y);
@@ -99,7 +99,7 @@ namespace Editor
         return glfwWindowShouldClose(m_window);
     }
 
-    eastl::pair<int, int> EditorWindow::GetWindowSize() const
+    eastl::pair<int, int> EditorWindow::GetWindowSize()
     {
         return eastl::make_pair<int, int>(m_width, m_height);
     }

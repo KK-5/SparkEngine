@@ -4,6 +4,7 @@
 #include <EASTL/vector.h>
 #include <HashString/HashString.h>
 #include <ECS/ISystem.h>
+#include <Math/Vector2.h>
 
 namespace Spark::Window
 {
@@ -34,8 +35,8 @@ namespace Spark::Window
         virtual bool ShouldClose() const = 0;
         virtual void SwapBuffer()        = 0;
 
-        virtual eastl::pair<int, int> GetWindowSize() const   = 0;
-        virtual eastl::pair<int, int> GetWindowPos()  const   = 0;
+        virtual eastl::pair<int, int> GetWindowSize()   = 0;
+        virtual eastl::pair<int, int> GetWindowPos()    = 0;
         virtual void*                 GetNativeHandle() const = 0;
         virtual void*                 GetWindowHandle() const = 0;
 

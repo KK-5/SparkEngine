@@ -3,31 +3,52 @@
 #include <EASTL/vector.h>
 
 #include <RHI/ClearValue.h>
-#include <RHI/Attachment/RenderAttachmentLayout.h>
+#include <RHI/Resource/Image/Image.h>
+#include <RHI/Resource/Image/ImageDescriptor.h>
 
 namespace Spark::RHI
 {
     static constexpr uint32_t SwapChainRenderTargetIndex = ~0u;
+    
+    enum class RTAttachmentUsage : uint8_t
+    {
+        RenderTarget,
+        DepthStencil,
+        Resolve,
+        ShadingRate
+    };
+
+    enum class RTAttachmentSource : uint8_t
+    {
+        //! 外部提供每帧 Image（例如 swap chain back buffer），Context 仅创建 ImageView。
+        External,
+
+        //! Context 基于 ImageDescriptor 创建每帧 Image 和 ImageView。
+        Owned
+    };
+
+    struct RTAttachmentDescriptor
+    {
+        RTAttachmentUsage m_usage = RTAttachmentUsage::RenderTarget;
+        RTAttachmentSource m_source = RTAttachmentSource::Owned;
+
+        //! source == External 时使用，大小必须等于 m_bufferCount。
+        eastl::vector<Ptr<Image>> m_externalImages;
+
+        //! source == Owned 时使用，作为每帧 image 创建描述。
+        ImageDescriptor m_imageDescriptor;
+
+        //! 可选优化 clear 值。
+        bool m_hasOptimizedClearValue = false;
+        ClearValue m_optimizedClearValue{};
+    };
 
     struct RenderTargetContextDescriptor
     {
-        //! 资源的格式和数量配置，决定了 render target、depth stencil、resolve、shading rate 的格式。
-        RenderAttachmentLayout m_attachmentLayout;
-
-        //! 渲染目标的宽高。
-        uint32_t m_imageWidth = 0;
-        uint32_t m_imageHeight = 0;
-
-        //! 多重缓冲数量（通常与 swap chain 的 image count 一致）。
+        //! 固定外部传入 frame index，这里仅声明缓冲数量。
         uint32_t m_bufferCount = 1;
 
-        //! 指定哪个 render target 位置直接使用 swap chain 的 back buffer，而不是自己创建。
-        //! 设为 SwapChainRenderTargetIndex 表示所有 render target 都由本模块创建。
-        //! 例如设为 0，则第 0 个 render target 直接引用 swap chain image。
-        uint32_t m_swapChainBackBufferIndex = SwapChainRenderTargetIndex;
-
-        //! 各 attachment 的优化 clear value，按 attachmentLayout 中 m_attachmentFormats 的顺序对应。
-        //! 可以为空，表示不指定优化 clear value。
-        eastl::vector<ClearValue> m_optimizedClearValues;
+        //! 显式声明需要管理的附件集合。
+        eastl::vector<RTAttachmentDescriptor> m_attachments;
     };
 }

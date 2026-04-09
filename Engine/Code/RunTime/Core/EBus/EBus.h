@@ -164,8 +164,8 @@ namespace Spark
 
             Context() = default;
             //Context(EBusEnvironment* environment);
-            virtual ~Context() = default;
-            /*
+            virtual ~Context() //= default;
+            
             {
                 // Drop cached pointers into m_callstackRoots before handler teardown: ~m_buses (first among
                 // members, see declaration order) may call GetOrCreateContext and re-insert roots. Clearing
@@ -182,7 +182,7 @@ namespace Spark
                     m_callstackRoots.clear();
                 }
             }
-            */
+            
 
             // Disallow all copying/moving
             Context(const Context&) = delete;
