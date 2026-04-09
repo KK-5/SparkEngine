@@ -51,6 +51,15 @@ namespace Spark::RHI
         m_imagePool = nullptr;
     }
 
+    void RenderTargetContext::Begin()
+    {
+    }
+
+    void RenderTargetContext::End()
+    {
+        m_currentFrameIndex = (m_currentFrameIndex + 1) % m_descriptor.m_bufferCount;
+    }
+
     ResultCode RenderTargetContext::Resize(const RenderTargetContextDescriptor& descriptor)
     {
         if (!m_device || !m_imagePool)
@@ -66,6 +75,7 @@ namespace Spark::RHI
 
         DestroyResources();
         m_descriptor = descriptor;
+        m_currentFrameIndex = 0;
         RebuildAttachmentIndices();
 
         ResultCode result = BuildResources();
@@ -354,60 +364,60 @@ namespace Spark::RHI
         return m_imageViews[globalAttachmentIndex][bufferIndex].get();
     }
 
-    Image* RenderTargetContext::GetRenderTarget(uint32_t frameIndex, uint32_t attachmentIndex) const
+    Image* RenderTargetContext::GetRenderTarget(uint32_t attachmentIndex) const
     {
         if (attachmentIndex >= m_renderTargetIndices.size())
         {
             return nullptr;
         }
-        return GetImageByGlobalAttachmentIndex(frameIndex, m_renderTargetIndices[attachmentIndex]);
+        return GetImageByGlobalAttachmentIndex(m_currentFrameIndex, m_renderTargetIndices[attachmentIndex]);
     }
 
-    ImageView* RenderTargetContext::GetRenderTargetView(uint32_t frameIndex, uint32_t attachmentIndex) const
+    ImageView* RenderTargetContext::GetRenderTargetView(uint32_t attachmentIndex) const
     {
         if (attachmentIndex >= m_renderTargetIndices.size())
         {
             return nullptr;
         }
-        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_renderTargetIndices[attachmentIndex]);
+        return GetImageViewByGlobalAttachmentIndex(m_currentFrameIndex, m_renderTargetIndices[attachmentIndex]);
     }
 
-    Image* RenderTargetContext::GetResolveTarget(uint32_t frameIndex, uint32_t attachmentIndex) const
+    Image* RenderTargetContext::GetResolveTarget(uint32_t attachmentIndex) const
     {
         if (attachmentIndex >= m_resolveIndices.size())
         {
             return nullptr;
         }
-        return GetImageByGlobalAttachmentIndex(frameIndex, m_resolveIndices[attachmentIndex]);
+        return GetImageByGlobalAttachmentIndex(m_currentFrameIndex, m_resolveIndices[attachmentIndex]);
     }
 
-    ImageView* RenderTargetContext::GetResolveTargetView(uint32_t frameIndex, uint32_t attachmentIndex) const
+    ImageView* RenderTargetContext::GetResolveTargetView(uint32_t attachmentIndex) const
     {
         if (attachmentIndex >= m_resolveIndices.size())
         {
             return nullptr;
         }
-        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_resolveIndices[attachmentIndex]);
+        return GetImageViewByGlobalAttachmentIndex(m_currentFrameIndex, m_resolveIndices[attachmentIndex]);
     }
 
-    Image* RenderTargetContext::GetDepthStencil(uint32_t frameIndex) const
+    Image* RenderTargetContext::GetDepthStencil() const
     {
-        return GetImageByGlobalAttachmentIndex(frameIndex, m_depthStencilIndex);
+        return GetImageByGlobalAttachmentIndex(m_currentFrameIndex, m_depthStencilIndex);
     }
 
-    ImageView* RenderTargetContext::GetDepthStencilView(uint32_t frameIndex) const
+    ImageView* RenderTargetContext::GetDepthStencilView() const
     {
-        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_depthStencilIndex);
+        return GetImageViewByGlobalAttachmentIndex(m_currentFrameIndex, m_depthStencilIndex);
     }
 
-    Image* RenderTargetContext::GetShadingRateImage(uint32_t frameIndex) const
+    Image* RenderTargetContext::GetShadingRateImage() const
     {
-        return GetImageByGlobalAttachmentIndex(frameIndex, m_shadingRateIndex);
+        return GetImageByGlobalAttachmentIndex(m_currentFrameIndex, m_shadingRateIndex);
     }
 
-    ImageView* RenderTargetContext::GetShadingRateImageView(uint32_t frameIndex) const
+    ImageView* RenderTargetContext::GetShadingRateImageView() const
     {
-        return GetImageViewByGlobalAttachmentIndex(frameIndex, m_shadingRateIndex);
+        return GetImageViewByGlobalAttachmentIndex(m_currentFrameIndex, m_shadingRateIndex);
     }
 
     uint32_t RenderTargetContext::GetRenderTargetCount() const

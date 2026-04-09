@@ -76,18 +76,11 @@ namespace Spark::RHI::DX12
 
     void ID3D12Factory::BeginFrame()
     {
-        if (m_commandQueueContext)
-        {
-            m_commandQueueContext->Begin();
-        }
+        
     }
 
     void ID3D12Factory::EndFrame()
     {
-        if (m_commandQueueContext)
-        {
-            m_commandQueueContext->End();
-        }
         Collect();
     }
 
@@ -200,16 +193,6 @@ namespace Spark::RHI::DX12
         m_dx12ObjReleaseQueue->QueueForCollect(dx12Object);
     }
 
-    void ID3D12Factory::SetUpCommandQueueContext(RHI::Device& device)
-    {
-        if (!m_commandQueueContext)
-        {
-            auto& dx12Device = static_cast<Device&>(device);
-            m_commandQueueContext = eastl::make_unique<CommandQueueContext>();
-            m_commandQueueContext->Init(device);
-        }
-    }
-
     RHI::PhysicalDeviceList ID3D12Factory::EnumeratePhysicalDevices()
     {
         RHI::PhysicalDeviceList physicalDeviceList;
@@ -258,16 +241,6 @@ namespace Spark::RHI::DX12
     Ptr<RHI::CommandQueue> ID3D12Factory::CreateCommandQueue()
     {
         return static_cast<RHI::CommandQueue*>(m_commandQueueObjectPool.CreateDeviceObject());
-    }
-
-    RHI::CommandQueue* ID3D12Factory::AcquireCommandQueue(RHI::HardwareQueueClass hardwareQueueClass)
-    {
-        if (!m_commandlistAllocator)
-        {
-            LOG_ERROR("[ID3D12Factory] CommandQueueContext is invalid. You should call RHIInterface::AcquireCommandQueueContext before, or use CreateCommandQueue instead.");
-            return nullptr;
-        }
-        return &m_commandQueueContext->GetCommandQueue(hardwareQueueClass);
     }
 
     Ptr<RHI::Device> ID3D12Factory::CreateDevice()

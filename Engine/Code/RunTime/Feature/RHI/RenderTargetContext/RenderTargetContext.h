@@ -28,6 +28,10 @@ namespace Spark::RHI
 
         void Shutdown();
 
+        void Begin();
+
+        void End();
+
         //! 使用新的 descriptor 重建资源
         ResultCode Resize(const RenderTargetContextDescriptor& descriptor);
 
@@ -35,20 +39,20 @@ namespace Spark::RHI
         // 按外部 frame index 访问
 
         //! 获取指定 frame index 的第 attachmentIndex 个 render target image / view。
-        Image* GetRenderTarget(uint32_t frameIndex, uint32_t attachmentIndex) const;
-        ImageView* GetRenderTargetView(uint32_t frameIndex, uint32_t attachmentIndex) const;
+        Image* GetRenderTarget(uint32_t attachmentIndex) const;
+        ImageView* GetRenderTargetView(uint32_t attachmentIndex) const;
 
         //! 获取指定 frame index 的第 attachmentIndex 个 resolve target image / view。
-        Image* GetResolveTarget(uint32_t frameIndex, uint32_t attachmentIndex) const;
-        ImageView* GetResolveTargetView(uint32_t frameIndex, uint32_t attachmentIndex) const;
+        Image* GetResolveTarget(uint32_t attachmentIndex) const;
+        ImageView* GetResolveTargetView(uint32_t attachmentIndex) const;
 
         //! 获取指定 frame index 的 depth stencil image / view。
-        Image* GetDepthStencil(uint32_t frameIndex) const;
-        ImageView* GetDepthStencilView(uint32_t frameIndex) const;
+        Image* GetDepthStencil() const;
+        ImageView* GetDepthStencilView() const;
 
         //! 获取指定 frame index 的 shading rate image / view。
-        Image* GetShadingRateImage(uint32_t frameIndex) const;
-        ImageView* GetShadingRateImageView(uint32_t frameIndex) const;
+        Image* GetShadingRateImage() const;
+        ImageView* GetShadingRateImageView() const;
 
         //////////////////////////////////////////////////////////////////////////
         // 查询
@@ -93,5 +97,7 @@ namespace Spark::RHI
         eastl::vector<uint32_t> m_resolveIndices;
         uint32_t m_depthStencilIndex = Limits::Pipeline::RenderAttachmentCountMax;
         uint32_t m_shadingRateIndex = Limits::Pipeline::RenderAttachmentCountMax;
+
+        uint32_t m_currentFrameIndex = 0;
     };
 }

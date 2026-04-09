@@ -12,6 +12,7 @@ set(SOURCES
     Attachment/RenderAttachmentLayoutBuilder.cpp
     Command/CommandList.cpp
     Command/CommandQueue.cpp
+    Command/CommandQueueContext.cpp
     Device/Device.cpp
     Device/DeviceObjectPool.cpp
     Device/DeviceObject.cpp

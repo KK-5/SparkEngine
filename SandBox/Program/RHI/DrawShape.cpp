@@ -20,6 +20,7 @@
 #include <RHI/Resource/Image/ImageSubResource.h>
 #include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
 #include <RHI/RenderTargetContext/RenderTargetContext.h>
+#include <RHI/Command/CommandQueueContext.h>
 #include <RHI/RHILimits.h>
 
 #include <RHI/Backend/DX12/RHISystem.h>
@@ -94,15 +95,6 @@ namespace Spark::SandBox
 
     static constexpr uint32_t g_cubeIndexCount = sizeof(g_cubeIndices) / sizeof(g_cubeIndices[0]);
 
-    struct FrameResource
-    {
-        Ptr<RHI::ImageView> m_renderTargetView;
-        Ptr<RHI::Image> m_depthImage;
-        Ptr<RHI::ImageView> m_depthImageView;
-        Ptr<RHI::Fence> m_fence;
-    };
-
-
     class DrawShape : public Spark::Input::InputEventBus::Handler
     {
     public:
@@ -114,7 +106,6 @@ namespace Spark::SandBox
 
     private:
         void CreateDevice();
-        void CreateCommandQueue();
         void CreateFence();
         void CreateSwapChain();
         void CreateDepthBufferPool();
@@ -129,6 +120,7 @@ namespace Spark::SandBox
         void UpdateMVP();
         void BuildFrameResources();
         void BuildRenderTargetContext();
+        void BuildCommandQueueContext();
         void SubmitResources(RHI::CommandList* commandList);
         void BuildCommand(RHI::CommandList* commandList);
 
@@ -144,7 +136,6 @@ namespace Spark::SandBox
         // Device / Queue / Fence
         Ptr<RHI::Device> m_device;
         Ptr<RHI::SwapChain> m_swapChain;
-        Ptr<RHI::CommandQueue> m_commandQueue;
         Ptr<RHI::Fence> m_submitFence;
         Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         Ptr<RHI::PipelineState> m_pipelineState;
@@ -182,17 +173,15 @@ namespace Spark::SandBox
         // Pipeline layout
         Ptr<RHI::PipelineLayoutDescriptor> m_pipelineLayoutDesc;
 
-        // Frame Resource manager
-        eastl::fixed_vector<FrameResource, RHI::Limits::Device::FrameCountMax> m_frameResources;
+        // Frame Resource manager util
         RHI::RenderTargetContext m_rtContext;
+        RHI::CommandQueueContext m_commandQueueContext;
 
         // Viewport / Scissor
         RHI::Viewport m_viewport;
         RHI::Scissor m_scissor;
 
         RHI::Factory* m_rhiFactory = nullptr;
-
-        uint32_t m_curFrameIndex {0};
 
         // Transform
         float m_rotationAngle = 0.f;
@@ -250,21 +239,6 @@ namespace Spark::SandBox
         {
             LOG_ERROR("Create Device failed!");
         }
-
-        Service<Spark::RHI::RHIInterface>::Get()->AcquireCommandQueueContext(*m_device);
-    }
-
-    void DrawShape::CreateCommandQueue()
-    {
-        m_commandQueue = m_rhiFactory->CreateCommandQueue();
-        RHI::CommandQueueDescriptor desc;
-        desc.m_hardwareQueueClass = RHI::HardwareQueueClass::Graphics;
-        desc.m_maxFrameQueueDepth = 1;
-        RHI::ResultCode result = m_commandQueue->Init(*m_device, desc);
-        if (result != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("Create command queue failed!");
-        }
     }
 
     void DrawShape::CreateFence()
@@ -287,7 +261,7 @@ namespace Spark::SandBox
         desc.m_dimensions.m_imageHeight = windowSize.second;
         desc.m_dimensions.m_imageWidth = windowSize.first;
         desc.m_window = m_window->GetNativeHandle();
-        RHI::ResultCode result = m_swapChain->Init(*m_device, *m_commandQueue, desc);
+        RHI::ResultCode result = m_swapChain->Init(*m_device, m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics), desc);
         if (result != RHI::ResultCode::Success)
         {
             LOG_ERROR("Create swap chain failed!");
@@ -655,8 +629,7 @@ namespace Spark::SandBox
             return;
         }
 
-        RHI::CommandQueue* commandQueue = m_rhiFactory->AcquireCommandQueue(RHI::HardwareQueueClass::Graphics);
-        commandQueue->FlushCommands(*m_submitFence);
+        m_commandQueueContext.FlushCommands(RHI::HardwareQueueClass::Graphics);
 
         RHI::SwapChainDimensions swapChainDimen;
         swapChainDimen.m_imageCount = m_swapChain->GetImageCount();
@@ -740,23 +713,6 @@ namespace Spark::SandBox
         compiler.Compiler(eastl::span<RHI::ShaderResource*>(srgs, 1));
     }
 
-    void DrawShape::BuildFrameResources()
-    {
-        for (uint32_t i = 0; i < m_device->GetDescriptor().m_frameCountMax; ++i)
-        {
-            FrameResource resource;
-
-            // Fence
-            resource.m_fence = m_rhiFactory->CreateFence();
-            RHI::ResultCode result = resource.m_fence->Init(*m_device, RHI::FenceState::Signaled);
-            if (result != RHI::ResultCode::Success)
-            {
-                LOG_ERROR("Create fence failed!");
-            }
-            m_frameResources.push_back(resource);
-        }
-    }
-
     void DrawShape::BuildRenderTargetContext()
     {
         RHI::RenderTargetContextDescriptor desc;
@@ -785,6 +741,14 @@ namespace Spark::SandBox
         desc.m_attachments.push_back(depthDesc);
 
         m_rtContext.Init(*m_device, *m_depthImagePool, desc);
+    }
+
+    void DrawShape::BuildCommandQueueContext()
+    {
+        if (m_commandQueueContext.Init(*m_device) != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("BuildCommandQueueContext failed.");
+        }
     }
 
     void DrawShape::SubmitResources(RHI::CommandList* commandList)
@@ -864,35 +828,33 @@ namespace Spark::SandBox
         commandList->SetViewport(m_viewport);
         commandList->SetScissor(m_scissor);
 
-        FrameResource& curFrameResource = m_frameResources[m_curFrameIndex];
-
         // Transition swap chain image to render target
-        RHI::ImageBarrier rtBarrier = RHI::ConvertToRenderTarget(*m_rtContext.GetRenderTarget(m_curFrameIndex, 0));
+        RHI::ImageBarrier rtBarrier = RHI::ConvertToRenderTarget(*m_rtContext.GetRenderTarget(0));
         commandList->QueueBarrier(rtBarrier);
 
         // Transition depth buffer to depth-stencil write
-        RHI::ImageBarrier depthBarrier = RHI::ConvertToDepthStencilWrite(*m_rtContext.GetDepthStencil(m_curFrameIndex));
+        RHI::ImageBarrier depthBarrier = RHI::ConvertToDepthStencilWrite(*m_rtContext.GetDepthStencil());
         commandList->QueueBarrier(depthBarrier);
         commandList->FlushBarriers();
 
         // Clear render target
         RHI::ImageClearRequest clearRT;
-        clearRT.m_imageView = m_rtContext.GetRenderTargetView(m_curFrameIndex, 0);
+        clearRT.m_imageView = m_rtContext.GetRenderTargetView(0);
         clearRT.m_clearValue = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
         commandList->ClearRenderTarget(clearRT);
 
         // Clear depth
         RHI::ImageClearRequest clearDepth;
-        clearDepth.m_imageView = m_rtContext.GetDepthStencilView(m_curFrameIndex);
+        clearDepth.m_imageView = m_rtContext.GetDepthStencilView();
         clearDepth.m_depthStencilClearFlags = RHI::DepthStencilClearFlags::Depth;
         clearDepth.m_clearValue = RHI::ClearValue::CreateDepth(1.f);
         commandList->ClearRenderTarget(clearDepth);
 
         // Set render targets with depth
         const RHI::ImageView* renderTargets[] = {
-            m_rtContext.GetRenderTargetView(m_curFrameIndex, 0)
+            m_rtContext.GetRenderTargetView(0)
         };
-        commandList->SetRenderTargets(1, renderTargets, m_rtContext.GetDepthStencilView(m_curFrameIndex));
+        commandList->SetRenderTargets(1, renderTargets, m_rtContext.GetDepthStencilView());
 
         // Build draw item
         RHI::DrawItem drawItem;
@@ -929,7 +891,7 @@ namespace Spark::SandBox
         commandList->Submit(drawItem);
 
         // Transition to present
-        RHI::ImageBarrier presentBarrier = RHI::ConvertToPresent(*m_rtContext.GetRenderTarget(m_curFrameIndex, 0));
+        RHI::ImageBarrier presentBarrier = RHI::ConvertToPresent(*m_rtContext.GetRenderTarget(0));
         commandList->QueueBarrier(presentBarrier);
 
         commandList->Close();
@@ -939,7 +901,7 @@ namespace Spark::SandBox
     {
         LoadImageAsset();
         CreateDevice();
-        CreateCommandQueue();
+        BuildCommandQueueContext();
         CreateFence();
         CreateSwapChain();
         CreateDepthBufferPool();
@@ -951,20 +913,16 @@ namespace Spark::SandBox
         CreateStageBuffer();
         CreateBaseColorTexture();
         CreateViewportAndScissor();
-        BuildFrameResources();
         BuildRenderTargetContext();
     }
 
     void DrawShape::Run()
     {
-        RHI::CommandQueue* commandQueue = m_rhiFactory->AcquireCommandQueue(RHI::HardwareQueueClass::Graphics);
-
         RHI::CommandList* commandList = m_rhiFactory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
         SubmitResources(commandList);
         RHI::CommandList* commandLists[] = { commandList };
-        commandQueue->ExecuteCommands(commandLists);
-
-        commandQueue->FlushCommands(*m_submitFence);
+        m_commandQueueContext.ExecuteCommands(RHI::HardwareQueueClass::Graphics, commandLists);
+        m_commandQueueContext.FlushCommands(RHI::HardwareQueueClass::Graphics);
 
         WorldContext context;
         while (!m_window->ShouldClose())
@@ -972,23 +930,20 @@ namespace Spark::SandBox
             TickBus::Broadcast(&TickBus::Events::OnTick, context, 0.f);
 
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
-
-            m_curFrameIndex = m_swapChain->GetCurrentImageIndex();
-            //FrameResource& curFrameResource = m_frameResources[m_curFrameIndex];
-            //curFrameResource.m_fence->WaitOnCpu();
+            m_rtContext.Begin();
+            m_commandQueueContext.Begin();
 
             UpdateMVP();
 
             RHI::CommandList* commandList = m_rhiFactory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
             BuildCommand(commandList);
             RHI::CommandList* commandLists[] = { commandList };
-            commandQueue->ExecuteCommands(commandLists);
-
-            //curFrameResource.m_fence->Reset();
-            //m_commandQueue->Signal(*curFrameResource.m_fence);
+            m_commandQueueContext.ExecuteCommands(RHI::HardwareQueueClass::Graphics, commandLists);
 
             m_swapChain->Present();
 
+            m_commandQueueContext.End();
+            m_rtContext.End();
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         }
     }

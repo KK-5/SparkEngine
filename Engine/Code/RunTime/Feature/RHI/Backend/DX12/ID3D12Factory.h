@@ -28,7 +28,6 @@
 #include "Command/CommandList.h"
 #include "Command/CommandListPool.h"
 #include "Command/CommandQueue.h"
-#include "Command/CommandQueueContext.h"
 
 #include "Descriptor/DescriptorContext.h"
 #include "Resource/Constant/ConstantBufferContext.h"
@@ -65,8 +64,6 @@ namespace Spark::RHI::DX12
         virtual Ptr<PipelineLayout> CreatePipelineLayout() = 0;
 
         virtual void QueueForRelease(Device& device, Ptr<ID3D12Object> dx12Object) = 0;
-
-        virtual void SetUpCommandQueueContext(RHI::Device& device) = 0;
     };
 
     class ID3D12Factory final : public Service<RHI::Factory>::Handler
@@ -94,8 +91,6 @@ namespace Spark::RHI::DX12
         Ptr<Sampler> CreateSampler() override;
 
         void QueueForRelease(Device& device, Ptr<ID3D12Object> dx12Object) override;
-
-        void SetUpCommandQueueContext(RHI::Device& device) override;
         ///////////////////////////////////////////////////////////
 
         ///////////////////////////////////////////////////////////
@@ -105,8 +100,6 @@ namespace Spark::RHI::DX12
         RHI::CommandList* CreateCommandList(RHI::Device& device, RHI::HardwareQueueClass hardwareQueueClass) override;
 
         Ptr<RHI::CommandQueue> CreateCommandQueue() override;
-
-        RHI::CommandQueue* AcquireCommandQueue(RHI::HardwareQueueClass hardwareQueueClass) override;
 
         Ptr<RHI::Device> CreateDevice() override;
 
@@ -175,7 +168,6 @@ namespace Spark::RHI::DX12
         eastl::unique_ptr<ConstantBufferContext> m_constantBufferContext;
         eastl::unique_ptr<CommandListAllocator> m_commandlistAllocator;
         eastl::unique_ptr<ShaderResourceCompiler> m_shaderResourceCompiler;
-        UniquePtr<CommandQueueContext> m_commandQueueContext;
 
         eastl::unique_ptr<D3D12ObjReleaseQueue> m_dx12ObjReleaseQueue;
     };

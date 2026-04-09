@@ -24,13 +24,6 @@ namespace Spark::RHI::DX12
         FrameEventBus::Handler::BusDisconnect();
     }
 
-    void RHISystem::AcquireCommandQueueContext(RHI::Device& device)
-    {
-        ASSERT(m_rhiFactory, "RHI Factory is invalid.");
-        m_rhiFactory->SetUpCommandQueueContext(device);
-
-    }
-
     void RHISystem::OnFrameBegin()
     {
         ASSERT(m_rhiFactory, "RHI Factory is invalid.");

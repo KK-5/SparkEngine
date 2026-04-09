@@ -19,8 +19,6 @@ namespace Spark::RHI
 
         virtual Factory* GetRHIFactory() const = 0;
 
-        virtual void AcquireCommandQueueContext(RHI::Device& device) = 0;
-
         ///////////////////////////////
         eastl::vector<HashString> Request() const override
         {
