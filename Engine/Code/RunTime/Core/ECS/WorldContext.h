@@ -11,6 +11,7 @@
 #include "Bus/EntityEventBus.h"
 #include "Bus/ComponentEventBus.h"
 #include "CoreComponents/Name.h"
+#include "ComponentTraits.h"
 
 namespace Spark
 {
@@ -95,15 +96,18 @@ namespace Spark
             return m_registry.valid(entity);
         }
 
-        // Component operation
+        //////////////////////////////////////////
+        // Add Component
+        /*
         template<typename T>
         decltype(auto) Add(Entity entity, const T& component)
         {
             return m_registry.emplace<T>(entity, component);
         }
+        */
 
         template<typename T, typename... Args>
-        decltype(auto) Add(Entity entity, Args... args)
+        decltype(auto) Add(Entity entity, Args&&... args)
         {
             return m_registry.emplace<T>(entity, eastl::forward<Args>(args)...);
         }
@@ -114,8 +118,25 @@ namespace Spark
             return m_registry.insert(first, last, component);
         }
 
+        template<typename T, eastl::enable_if_t<ComponentTraits<T>::componentEvents == ComponentEventMask::None, int> = 0>
+        decltype(auto) Add(Entity entity, const T& component)
+        {
+            return m_registry.emplace<T>(entity, component);
+        }
+
+        template<typename T, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & ComponentEventMask::Create) != ComponentEventMask::None, int> = 0>
+        decltype(auto) Add(Entity entity, const T& component)
+        {
+            decltype(auto) result = m_registry.emplace<T>(entity, component);
+            ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, *this, entity);
+            return result;
+        }
+
+
+        //////////////////////////
+
         template<typename T, typename... Args>
-        decltype(auto) AddOrRepalce(Entity entity, Args... args)
+        decltype(auto) AddOrRepalce(Entity entity, Args&&... args)
         {
             return m_registry.emplace_or_replace<T>(entity, eastl::forward<Args>(args)...);
         }
