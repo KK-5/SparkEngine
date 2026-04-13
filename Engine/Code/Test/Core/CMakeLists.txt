@@ -1,9 +1,9 @@
 option(Reflection_TESTS "Reflection tests" ON)
-option(ECS_TESTS "ECS tests" OFF)
+option(ECS_TESTS "ECS tests" ON)
 option(Log_TESTS "Log tests" OFF)
 option(EASTL_TESTS "EASTL tests" OFF)
 option(EBus_TESTS "EBus tests" OFF)
-option(SCENEMANAGER_TESTS "Scene manager tests" OFF)
+option(SCENEMANAGER_TESTS "Scene manager tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -22,6 +22,7 @@ ADD_TEST_SOUECE(SCENEMANAGER_TESTS "SceneManagerTest.cpp")
 
 set(TARGET_NAME SparkCoreTest)
 
+Message(STATUS "These source files will be add to tests.")
 Message(STATUS ${TEST_SOURCES})
 
 add_executable(${TARGET_NAME}

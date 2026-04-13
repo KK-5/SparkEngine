@@ -11,7 +11,7 @@ namespace Spark
 {
     void SceneManager::InitInternal()
     {
-        m_context.SetupComponentEvents<Hierarchy>();
+        m_context.RegisterEventOnEntityRemove<Hierarchy>();
         ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
     }
 
@@ -632,12 +632,12 @@ namespace Spark
         UpdateEntityTree();
     }
 
-    void SceneManager::OnComponentUpdate(WorldContext& context, Entity entity)
+    void SceneManager::OnComponentUpdated(WorldContext& context, Entity entity)
     {
         const auto hier = context.Get<Hierarchy>(entity);
         if (!Valid(hier))
         {
-            LOG_ERROR("[SceneManager] OnComponentUpdate: Hierarchy is invalid");
+            LOG_ERROR("[SceneManager] OnComponentUpdated: Hierarchy is invalid");
             return;
         }
 

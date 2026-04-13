@@ -24,7 +24,6 @@ protected:
     SystemUniquePtr<SparkAssetManager> m_assetManager;
 };
 
-// ---- ImageAssetData 单元测试 ----
 
 TEST(ImageAssetDataTest, BytesPerPixelR8)
 {
@@ -58,7 +57,6 @@ TEST(ImageAssetDataTest, BytesPerPixelRGBAF32)
     EXPECT_TRUE(data.IsHDR());
 }
 
-// ---- ImageAssetLoader 测试 ----
 
 TEST(ImageAssetLoaderTest, LoadMissingFileReturnsNull)
 {
@@ -145,7 +143,6 @@ TEST(ImageAssetLoaderTest, ExrNotSupportedReturnsNull)
     EXPECT_EQ(loader.Load(id), nullptr);
 }
 
-// ---- AssetManager 集成测试 ----
 
 TEST_F(ImageAssetTestFixture, LoadImageAssetSync)
 {

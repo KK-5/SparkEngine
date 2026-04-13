@@ -10,9 +10,10 @@ namespace Spark
         context.Reflect<T>()
             .Func<&WorldContext::Has<T>>("HasComponent")
             .Func<&WorldContext::TryGet<T>>("GetComponent")
-            .Func<&WorldContext::AddOrRepalce<T, T>>("AddComponent")
+            //.Func<&WorldContext::AddOrRepalce<T, T>>("AddComponent")
+            .Func<&WorldContext::AddOrRepalce<T>>("AddComponent")
             .Func<&WorldContext::Remove<T>>("RemoveComponent")
-            .Func<&WorldContext::Repalce<T, T>>("ReplaceComponent");
+            .Func<&WorldContext::Repalce<T>>("ReplaceComponent");
     }
     ;
 }

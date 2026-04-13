@@ -2,7 +2,9 @@
 
 #include <EASTL/string_view.h>
 #include <EASTL/unordered_map.h>
+#include <EASTL/unordered_set.h>
 #include <EASTL/unique_ptr.h>
+#include <EASTL/algorithm.h>
 
 #include <entt/entt.hpp>
 
@@ -21,6 +23,26 @@ namespace Spark
     template<typename... Type>
     inline constexpr entt::get_t<Type...> Include{};
 
+    namespace Internal
+    {
+        template<typename... Cs>
+        struct AnyComponentTraitsRemoveEvent;
+
+        template<typename Head, typename... Tail>
+        struct AnyComponentTraitsRemoveEvent<Head, Tail...>
+        {
+            static constexpr bool value =
+                ((ComponentTraits<Head>::componentEvents & ComponentEventMask::Remove) != ComponentEventMask::None)
+                || AnyComponentTraitsRemoveEvent<Tail...>::value;
+        };
+
+        template<>
+        struct AnyComponentTraitsRemoveEvent<>
+        {
+            static constexpr bool value = false;
+        };
+    }
+
     class WorldContext final
     {
     public:
@@ -36,7 +58,7 @@ namespace Spark
         void Clear()
         {
             m_registry.clear();
-            m_forwarders.clear();
+            m_entityRemoveEvents.clear();
         }
         
         // Entity operation
@@ -66,6 +88,7 @@ namespace Spark
         void DestoryEntity(Entity entity)
         {
             EntityEventBus::Broadcast(&EntityEventBus::Events::OnEntityDestory, entity);
+            DispatchComponentDestoryEventsForEntityDestroy(entity);
             m_registry.destroy(entity);
         }
 
@@ -86,6 +109,7 @@ namespace Spark
             for(It cur = first; cur != last; ++cur)
             {
                 EntityEventBus::Broadcast(&EntityEventBus::Events::OnEntityDestory, *cur);
+                DispatchComponentDestoryEventsForEntityDestroy(*cur);
             }
 
             m_registry.destroy(first, last);
@@ -98,54 +122,103 @@ namespace Spark
 
         //////////////////////////////////////////
         // Add Component
-        /*
-        template<typename T>
-        decltype(auto) Add(Entity entity, const T& component)
-        {
-            return m_registry.emplace<T>(entity, component);
-        }
-        */
-
-        template<typename T, typename... Args>
+        template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & ComponentEventMask::Create) == ComponentEventMask::None, int> = 0>
         decltype(auto) Add(Entity entity, Args&&... args)
         {
             return m_registry.emplace<T>(entity, eastl::forward<Args>(args)...);
         }
 
-        template<typename T, typename It>
-        decltype(auto) Add(It first, It last, const T& component)
+        template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & ComponentEventMask::Create) != ComponentEventMask::None, int> = 0>
+        decltype(auto) Add(Entity entity, Args&&... args)
         {
-            return m_registry.insert(first, last, component);
-        }
-
-        template<typename T, eastl::enable_if_t<ComponentTraits<T>::componentEvents == ComponentEventMask::None, int> = 0>
-        decltype(auto) Add(Entity entity, const T& component)
-        {
-            return m_registry.emplace<T>(entity, component);
-        }
-
-        template<typename T, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & ComponentEventMask::Create) != ComponentEventMask::None, int> = 0>
-        decltype(auto) Add(Entity entity, const T& component)
-        {
-            decltype(auto) result = m_registry.emplace<T>(entity, component);
+            decltype(auto) result = m_registry.emplace<T>(entity, eastl::forward<Args>(args)...);
             ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, *this, entity);
             return result;
         }
 
+        template<typename T, typename It, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & ComponentEventMask::Create) == ComponentEventMask::None, int> = 0>
+        void Add(It first, It last, const T& value)
+        {
+            m_registry.insert(first, last, value);
+        }
 
-        //////////////////////////
+        template<typename T, typename It, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & ComponentEventMask::Create) != ComponentEventMask::None, int> = 0>
+        void Add(It first, It last, const T& value)
+        {
+            m_registry.insert(first, last, value);
+            eastl::for_each(first, last, [&](auto entity)
+            {
+                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, *this, entity);
+            });
+        }
+        //////////////////////////////////////////
 
-        template<typename T, typename... Args>
+        //////////////////////////////////////////
+        // Update Component
+        template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::Create | ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) == ComponentEventMask::None, int> = 0>
         decltype(auto) AddOrRepalce(Entity entity, Args&&... args)
         {
             return m_registry.emplace_or_replace<T>(entity, eastl::forward<Args>(args)...);
         }
 
-        template<typename T, typename... Args>
-        decltype(auto) Repalce(Entity entity, Args... args)
+        template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::Create | ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) != ComponentEventMask::None, int> = 0>
+        decltype(auto) AddOrRepalce(Entity entity, Args&&... args)
+        {
+            const bool had = m_registry.template any_of<T>(entity);
+
+            if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::WillUpdate) != ComponentEventMask::None)
+            {
+                if (had)
+                {
+                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentWillUpdate, *this, entity);
+                }
+            }
+
+            decltype(auto) result = m_registry.emplace_or_replace<T>(entity, eastl::forward<Args>(args)...);
+
+            if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::Create) != ComponentEventMask::None)
+            {
+                if (!had)
+                {
+                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, *this, entity);
+                }
+            }
+
+            if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::Updated) != ComponentEventMask::None)
+            {
+                if (had)
+                {
+                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentUpdated, *this, entity);
+                }
+            }
+
+            return result;
+        }
+
+        template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) == ComponentEventMask::None, int> = 0>
+        decltype(auto) Repalce(Entity entity, Args&&... args)
         {
             return m_registry.replace<T>(entity, eastl::forward<Args>(args)...);
         }
+
+        template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) != ComponentEventMask::None, int> = 0>
+        decltype(auto) Repalce(Entity entity, Args&&... args)
+        {
+            if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::WillUpdate) != ComponentEventMask::None)
+            {
+                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentWillUpdate, *this, entity);
+            }
+
+            decltype(auto) result = m_registry.replace<T>(entity, eastl::forward<Args>(args)...);
+
+            if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::Updated) != ComponentEventMask::None)
+            {
+                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentUpdated, *this, entity);
+            }
+
+            return result;
+        }
+        //////////////////////////////////////////
         
         template<typename... T>
         decltype(auto) Get(Entity entity) const
@@ -160,22 +233,42 @@ namespace Spark
         }
 
         template<typename... T>
-        decltype(auto) TryGet(Entity entity) //const
+        decltype(auto) TryGet(Entity entity)
         {
             return m_registry.try_get<T...>(entity);
         }
 
-        template<typename Type, typename... Other>
+        //////////////////////////////////////////
+        // Remove Component
+        template<typename Type, typename... Other, eastl::enable_if_t<Internal::AnyComponentTraitsRemoveEvent<Type, Other...>::value, int> = 0>
+        decltype(auto) Remove(Entity entity)
+        {
+            DispatchComponentRemoveBusIfForEntity<Type, Other...>(entity);
+            return m_registry.remove<Type, Other...>(entity);
+        }
+
+        template<typename Type, typename... Other, eastl::enable_if_t<!Internal::AnyComponentTraitsRemoveEvent<Type, Other...>::value, int> = 0>
         decltype(auto) Remove(Entity entity)
         {
             return m_registry.remove<Type, Other...>(entity);
         }
 
-        template<typename Type, typename... Other, typename It>
+        template<typename Type, typename... Other, typename It, eastl::enable_if_t<Internal::AnyComponentTraitsRemoveEvent<Type, Other...>::value, int> = 0>
+        decltype(auto) Remove(It first, It last)
+        {
+            for (It cur = first; cur != last; ++cur)
+            {
+                DispatchComponentRemoveBusIfForEntity<Type, Other...>(*cur);
+            }
+            return m_registry.remove<Type, Other..., It>(first, last);
+        }
+
+        template<typename Type, typename... Other, typename It, eastl::enable_if_t<!Internal::AnyComponentTraitsRemoveEvent<Type, Other...>::value, int> = 0>
         decltype(auto) Remove(It first, It last)
         {
             return m_registry.remove<Type, Other..., It>(first, last);
         }
+        //////////////////////////////////////////
 
         template<typename T>
         bool Has(Entity entity) const
@@ -217,70 +310,67 @@ namespace Spark
             return eastl::as_const(m_registry).view<Component...>(excludes);
         }
 
-        /// @brief Setup component events listener.
-        /// Only AddOrRepalce or Replace method can trigger update evnets.
-        /// @tparam Component 
-        template<typename Component>
-        void SetupComponentEvents() 
-        {
-            // 绑定所有forwarder生命周期与WorldContext一致
-            if (m_forwarders.contains(GetTypeId<Component>()))
-            {
-                return;
-            }
-            ComponentEventForwarder<Component>* forwarder = new ComponentEventForwarder<Component>(*this);
-            m_forwarders.emplace(GetTypeId<Component>(), forwarder);
 
-            m_registry.on_construct<Component>().connect<&ComponentEventForwarder<Component>::ForwardConstruct>(*forwarder);
-            m_registry.on_update<Component>().connect<&ComponentEventForwarder<Component>::ForwardUpdate>(*forwarder);
-            m_registry.on_destroy<Component>().connect<&ComponentEventForwarder<Component>::ForwardDestory>(*forwarder);
+        /// @brief Explicitly opt in component destroy events when an entity is destroyed.
+        /// This does NOT replace/remove the existing Remove() path behavior.
+        template<typename Component>
+        void RegisterEventOnEntityRemove()
+        {
+            static_assert((ComponentTraits<Component>::componentEvents & ComponentEventMask::Remove) != ComponentEventMask::None,
+                "RegisterEventOnEntityRemove requires ComponentTraits<Component>::componentEvents to include ComponentEventMask::Remove");
+
+            m_entityRemoveEvents.emplace(GetTypeId<Component>());
         }
 
         template<typename... Components>
-        void SetupComponentsEvents()
+        void RegisterEventsOnEntityRemove()
         {
-            (SetupComponentEvents<Components>(), ...);
+            (RegisterEventOnEntityRemove<Components>(), ...);
         }
 
     private:
-        struct Forwarder
+        void DispatchComponentDestoryEventsForEntityDestroy(Entity entity)
         {
-            virtual ~Forwarder() = default;
+            if (m_entityRemoveEvents.empty())
+            {
+                return;
+            }
 
-            virtual void ForwardConstruct(entt::registry& registry, entt::entity entity) = 0;
+            for (auto&& [storageTypeId, cpool] : m_registry.storage())
+            {
+                if (!cpool.contains(entity))
+                {
+                    continue;
+                }
 
-            virtual void ForwardUpdate(entt::registry& registry, entt::entity entity) = 0;
+                if (!m_entityRemoveEvents.contains(storageTypeId))
+                {
+                    continue;
+                }
 
-            virtual void ForwardDestory(entt::registry& registry, entt::entity entity) = 0;
-        }; 
+                ComponentEventBus::Event(storageTypeId, &ComponentEventBus::Events::OnComponentDestory, *this, entity);
+            }
+        }
 
-        template <typename Component>
-        struct ComponentEventForwarder final : public Forwarder
+        template<typename C>
+        void DispatchComponentRemoveBusIf([[maybe_unused]] Entity entity)
         {
-        public:
-            ComponentEventForwarder(WorldContext& context) : m_context(context) {}
-            ~ComponentEventForwarder() = default;
-
-            void ForwardConstruct([[meybe_unused]]entt::registry& registry, entt::entity entity) override
+            if constexpr ((ComponentTraits<C>::componentEvents & ComponentEventMask::Remove) != ComponentEventMask::None)
             {
-                ComponentEventBus::Event(GetTypeId<Component>(), &ComponentEventBus::Events::OnComponentConstruct, m_context, entity);
+                if (m_registry.template any_of<C>(entity))
+                {
+                    ComponentEventBus::Event(GetTypeId<C>(), &ComponentEventBus::Events::OnComponentDestory, *this, entity);
+                }
             }
+        }
 
-            void ForwardUpdate([[meybe_unused]]entt::registry& registry, entt::entity entity) override
-            {
-                ComponentEventBus::Event(GetTypeId<Component>(), &ComponentEventBus::Events::OnComponentUpdate, m_context, entity);
-            }
-
-            void ForwardDestory([[meybe_unused]]entt::registry& registry, entt::entity entity) override
-            {
-                ComponentEventBus::Event(GetTypeId<Component>(), &ComponentEventBus::Events::OnComponentDestory, m_context, entity);
-            }
-
-        private:
-            WorldContext& m_context;
-        };
+        template<typename... Cs>
+        void DispatchComponentRemoveBusIfForEntity(Entity entity)
+        {
+            (DispatchComponentRemoveBusIf<Cs>(entity), ...);
+        }
 
         entt::registry m_registry{};
-        eastl::unordered_map<TypeId, eastl::unique_ptr<Forwarder>> m_forwarders;
+        eastl::unordered_set<TypeId> m_entityRemoveEvents{};
     };
 }

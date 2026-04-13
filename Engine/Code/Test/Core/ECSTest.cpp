@@ -6,6 +6,7 @@
 #include <ECS/WorldContext.h>
 #include <ECS/Tag.h>
 #include <ECS/ISystem.h>
+#include <ECS/ComponentTraits.h>
 #include <Service/Service.h>
 #include <Log/SpdLogSystem.h>
 #include <CoreComponents/Name.h>
@@ -40,6 +41,21 @@ struct Velocity
     float dx;
     float dy; 
 };
+
+namespace Spark
+{
+    template<>
+    struct ComponentTraits<Position> : ComponentTraitsBase<Position>
+    {
+        static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
+    };
+
+    template<>
+    struct ComponentTraits<Velocity> : ComponentTraitsBase<Velocity>
+    {
+        static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
+    };
+}
 
 TEST(ECSTest, Component)
 {
@@ -137,143 +153,7 @@ TEST(ECSTest, ViewAndGroup)
     ASSERT_FLOAT_EQ(wordContext.Get<Position>(ent3).x, 3.4f);
     ASSERT_FLOAT_EQ(wordContext.Get<Position>(ent3).y, 3.8f);
 }
-/*
-    已废弃
 
-TEST(ECSTest, HierarchySetUp)
-{
-    WorldContext wordContext;
-
-    auto ent = wordContext.CreateEntityInHierarchy();
-    EXPECT_EQ(ent, NullEntity);
-    EXPECT_FALSE(wordContext.Valid(ent));
-    EXPECT_EQ(wordContext.Size(), 0);
-    auto parent = wordContext.CreateEntity();
-    auto ent2 = wordContext.CreateEntityWithParent(parent);
-    EXPECT_EQ(ent2, NullEntity);
-    EXPECT_FALSE(wordContext.Valid(ent2));
-    EXPECT_EQ(wordContext.Size(), 1);
-    
-    wordContext.Clear();
-    wordContext.SetUpEntityHierarchy();
-    auto ent3 = wordContext.CreateEntityInHierarchy();
-    EXPECT_NE(ent3, NullEntity);
-    EXPECT_EQ(wordContext.Size(), 1);
-    EXPECT_EQ(wordContext.GetEntityHierarchy().Size(), 1);
-}
-
-TEST(ECSTest, HierarchyFunctionalities)
-{
-    WorldContext wordContext;
-    wordContext.SetUpEntityHierarchy();
-
-    Entity root = wordContext.CreateEntityInHierarchy("root");
-
-    Entity ent1 = wordContext.CreateEntityWithParent("ent1", root);
-    Entity ent2 = wordContext.CreateEntityWithParent("ent2", root);
-    ASSERT_NE(ent1, NullEntity);
-    ASSERT_NE(ent2, NullEntity);
-
-    const auto& hierarchy = wordContext.GetEntityHierarchy();
-    
-    EXPECT_EQ(hierarchy.Size(), 3);
-    EXPECT_TRUE(hierarchy.Contain(root));
-    EXPECT_FALSE(hierarchy.Empty());
-
-    EXPECT_EQ(hierarchy.GetRoots().size(), 1);
-    EXPECT_EQ(hierarchy.GetRoots()[0], root);
-
-    EXPECT_TRUE(hierarchy.IsAncestor(ent1, root));
-    EXPECT_TRUE(hierarchy.IsAncestor(ent2, root));
-    EXPECT_FALSE(hierarchy.IsAncestor(ent2, ent1));
-    
-    eastl::vector<Entity> children= hierarchy.GetChildren(root);
-    EXPECT_EQ(children.size(), 2);
-    EXPECT_EQ(children[0], ent1);
-    EXPECT_EQ(children[1], ent2);
-
-    Entity ent3 = wordContext.CreateEntityWithParent("ent3", ent1);
-    Entity ent4 = wordContext.CreateEntityWithParent("ent4", ent1);
-    EXPECT_TRUE(hierarchy.IsAncestor(ent3, root));
-
-    eastl::vector<Entity> path = hierarchy.FindPath(ent3);
-    EXPECT_EQ(path.size(), 2);
-    EXPECT_EQ(path[0], root);
-    EXPECT_EQ(path[1], ent1);
-
-    wordContext.Clear();
-    EXPECT_EQ(hierarchy.Size(), 0);
-    EXPECT_FALSE(hierarchy.Contain(root));
-    EXPECT_TRUE(hierarchy.Empty());
-}
-
-TEST(ECSTest, HierarchyDFS)
-{
-    WorldContext wordContext;
-    wordContext.SetUpEntityHierarchy();
-
-    Entity root = wordContext.CreateEntityInHierarchy("root");
-
-    Entity ent1 = wordContext.CreateEntityWithParent("ent1", root);
-    Entity ent2 = wordContext.CreateEntityWithParent("ent2", root);
-    Entity ent3 = wordContext.CreateEntityWithParent("ent3", ent1);
-    Entity ent4 = wordContext.CreateEntityWithParent("ent4", ent1);
-    ASSERT_NE(ent1, NullEntity);
-    ASSERT_NE(ent2, NullEntity);
-    ASSERT_NE(ent3, NullEntity);
-    ASSERT_NE(ent4, NullEntity);
-    EXPECT_EQ(wordContext.Size(), 5);
-
-    eastl::vector<Entity> dfsOrder = {root, ent1, ent3, ent4, ent2};
-    int index = 0;
-    const auto& hierarchy = wordContext.GetEntityHierarchy();
-    hierarchy.DFSTraversal(root, 
-        [&dfsOrder, &index](const Entity& ent)
-        {
-            EXPECT_EQ(ent, dfsOrder[index++]);
-            return;
-        }
-    );
-
-    wordContext.MoveEntityNode(ent1, ent2);
-    eastl::vector<Entity> dfsOrder2 = {root, ent2, ent1, ent3, ent4};
-    int index2 = 0;
-    hierarchy.DFSTraversal(root, 
-        [&dfsOrder2, &index2](const Entity& ent)
-        {
-            EXPECT_EQ(ent, dfsOrder2[index2++]);
-            return;
-        }
-    );
-
-    Entity ent5 = wordContext.CreateEntityWithParent("ent5", root);
-    EXPECT_EQ(wordContext.Size(), 6);
-    wordContext.DestoryEntityInHierarchy(ent1);
-    EXPECT_EQ(wordContext.Size(), 3);
-    EXPECT_EQ(hierarchy.Size(), 3);
-    eastl::vector<Entity> dfsOrder3 = {root, ent2, ent5};
-    int index3 = 0;
-    hierarchy.DFSTraversal(root, 
-        [&dfsOrder3, &index3](const Entity& ent)
-        {
-            EXPECT_EQ(ent, dfsOrder3[index3++]);
-            return;
-        }
-    );
-
-    wordContext.MoveEntityNode(ent5);
-    EXPECT_EQ(wordContext.Size(), 3);
-    EXPECT_EQ(hierarchy.Size(), 3);
-    EXPECT_EQ(hierarchy.GetRoots().size(), 2);
-    EXPECT_EQ(hierarchy.GetRoots()[0], root);
-    EXPECT_EQ(hierarchy.GetRoots()[1], ent5);
-
-    wordContext.DestoryEntityInHierarchy(root);
-    EXPECT_FALSE(hierarchy.Empty());
-    EXPECT_EQ(wordContext.Size(), 1);
-    EXPECT_EQ(hierarchy.Size(), 1);
-}
-*/
 TEST(ECSTest, Tag)
 {
     WorldContext wordContext;
@@ -521,7 +401,7 @@ public:
         }
     }
 
-    void OnComponentUpdate(WorldContext& context, Entity entity) override
+    void OnComponentUpdated(WorldContext& context, Entity entity) override
     {
         if (context.HasAll<Position>(entity))
         {
@@ -557,10 +437,6 @@ TEST(ECSTest, ComponentBus)
     WorldContext context;
     ComponentHandler handler;
 
-    //context.SetupComponentEvents<Position>();
-    //context.SetupComponentEvents<Velocity>();
-    context.SetupComponentsEvents<Position, Velocity>();
-
     auto ent1 = context.CreateEntity();
     context.Add<Position>(ent1, 1.f, 1.f);
     EXPECT_FLOAT_EQ(handler.m_position.x, 1.f);
@@ -584,12 +460,26 @@ TEST(ECSTest, ComponentBus)
     EXPECT_FLOAT_EQ(handler.m_velocity.dy, 0.f);
 }
 
-TEST(ECSTest, DestoryEntityAndComponentBus)
+TEST(ECSTest, DestoryEntityWithoutRegisterEventOnEntityRemove)
 {
     WorldContext context;
     ComponentHandler handler;
 
-    context.SetupComponentsEvents<Position>();
+    auto ent1 = context.CreateEntity();
+    context.Add<Position>(ent1, 1.f, 1.f);
+    EXPECT_FLOAT_EQ(handler.m_position.x, 1.f);
+    EXPECT_FLOAT_EQ(handler.m_position.y, 1.f);
+
+    context.DestoryEntity(ent1);
+    EXPECT_FLOAT_EQ(handler.m_position.x, 1.f);
+    EXPECT_FLOAT_EQ(handler.m_position.y, 1.f);
+}
+
+TEST(ECSTest, DestoryEntityAndComponentBus)
+{
+    WorldContext context;
+    ComponentHandler handler;
+    context.RegisterEventOnEntityRemove<Position>();
 
     auto ent1 = context.CreateEntity();
     context.Add<Position>(ent1, 1.f, 1.f);
@@ -599,4 +489,25 @@ TEST(ECSTest, DestoryEntityAndComponentBus)
     context.DestoryEntity(ent1);
     EXPECT_FLOAT_EQ(handler.m_position.x, 0.f);
     EXPECT_FLOAT_EQ(handler.m_position.y, 0.f);
+}
+
+TEST(ECSTest, DestoryEntityWithRegisterEventsOnEntityRemove)
+{
+    WorldContext context;
+    ComponentHandler handler;
+    context.RegisterEventsOnEntityRemove<Position, Velocity>();
+
+    auto ent1 = context.CreateEntity();
+    context.Add<Position>(ent1, 1.f, 1.f);
+    context.Add<Velocity>(ent1, 0.2f, 0.3f);
+    EXPECT_FLOAT_EQ(handler.m_position.x, 1.f);
+    EXPECT_FLOAT_EQ(handler.m_position.y, 1.f);
+    EXPECT_FLOAT_EQ(handler.m_velocity.dx, 0.2f);
+    EXPECT_FLOAT_EQ(handler.m_velocity.dy, 0.3f);
+
+    context.DestoryEntity(ent1);
+    EXPECT_FLOAT_EQ(handler.m_position.x, 0.f);
+    EXPECT_FLOAT_EQ(handler.m_position.y, 0.f);
+    EXPECT_FLOAT_EQ(handler.m_velocity.dx, 0.f);
+    EXPECT_FLOAT_EQ(handler.m_velocity.dy, 0.f);
 }

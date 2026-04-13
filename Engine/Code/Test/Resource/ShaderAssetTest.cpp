@@ -31,8 +31,6 @@ protected:
     SystemUniquePtr<SparkAssetManager> m_assetManager;
 };
 
-// ---- AssetId 基础测试 ----
-
 TEST(AssetIdTest, DefaultConstructedIsInvalid)
 {
     AssetId id;
@@ -68,7 +66,6 @@ TEST(AssetIdTest, SubAssetHashDiffers)
     EXPECT_NE(id1, id2);
 }
 
-// ---- ShaderAssetData 测试 ----
 
 TEST(ShaderAssetDataTest, AddAndQueryStage)
 {
@@ -103,8 +100,6 @@ TEST(ShaderAssetDataTest, BackendDefaultIsDXIL)
     EXPECT_EQ(data.GetBackend(), ShaderBackend::DXIL);
 }
 
-// ---- BinaryAssetLoader 测试 ----
-
 TEST_F(ShaderAssetTestFixture, BinaryLoaderLoadsFile)
 {
     eastl::vector<eastl::string> searchPaths;
@@ -134,8 +129,6 @@ TEST_F(ShaderAssetTestFixture, BinaryLoaderReturnsNullForMissing)
     auto data = loader.Load(id);
     EXPECT_EQ(data, nullptr);
 }
-
-// ---- ShaderAssetCompiler 测试 ----
 
 TEST_F(ShaderAssetTestFixture, CompileHLSLToDXIL)
 {
@@ -175,11 +168,8 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLToDXIL)
     EXPECT_GT(psBytecode->bytecode.size(), 0u);
 }
 
-// ---- AssetManager 集成测试 ----
-
 TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 {
-    // 注册 Loader 和 Compiler
     m_assetManager->RegisterAssetLoader(
         eastl::make_unique<BinaryAssetLoader>(),
         AssetType::Shader);
@@ -189,7 +179,6 @@ TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
     compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
     m_assetManager->RegisterAssetCompiler(eastl::move(compiler), AssetType::Shader);
 
-    // 同步加载
     AssetId id("Shaders/Test/SimpleTriangle.hlsl");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Shader);
 

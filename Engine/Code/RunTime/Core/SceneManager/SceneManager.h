@@ -55,7 +55,7 @@ namespace Spark
 
         // ComponentEventBus
         void OnComponentConstruct(WorldContext& context, Entity entity) override;
-        void OnComponentUpdate(WorldContext& context, Entity entity) override;
+        void OnComponentUpdated(WorldContext& context, Entity entity) override;
         void OnComponentDestory(WorldContext& context, Entity entity) override;
     
     private:

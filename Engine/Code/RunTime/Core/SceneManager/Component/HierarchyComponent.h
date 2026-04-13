@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ECS/Entity.h>
+#include <ECS/ComponentTraits.h>
 
 namespace Spark
 {
@@ -20,6 +21,12 @@ namespace Spark
         Entity firstChild {NullEntity};
         Entity prevSibling {NullEntity};
         Entity nextSibling {NullEntity};
+    };
+
+    template<>
+    struct ComponentTraits<Hierarchy> : ComponentTraitsBase<Hierarchy>
+    {
+        static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
     };
     
 }

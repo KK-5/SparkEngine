@@ -16,23 +16,20 @@ class SceneManagerTest : public ::testing::Test
 {
 protected:
     static void SetUpTestSuite() {
-        // 在整个测试套件开始前执行一次
+
     }
 
     static void TearDownTestSuite() {
-        // 在整个测试套件结束后执行一次
 
     }
 
     void SetUp() override {
-        // 在每个测试用例开始前执行
-        context.SetupComponentsEvents<Hierarchy>();
         sceneManager = CreateSystem<SceneManager>(context);
         sceneManager->Init();
     }
 
     void TearDown() override {
-        // 在每个测试用例结束后执行
+
         sceneManager.reset();
         context.Clear();
     }

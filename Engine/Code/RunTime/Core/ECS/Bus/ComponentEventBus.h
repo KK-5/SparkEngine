@@ -9,7 +9,7 @@ namespace Spark
 {
     class WorldContext;
 
-    class ComponentEvent : public EBusTraits
+    class ComponentEvents : public EBusTraits
     {
     public:
         static const EBusHandlerPolicy HandlerPolicy = EBusHandlerPolicy::Multiple;
@@ -20,11 +20,15 @@ namespace Spark
     public:
         virtual void OnComponentConstruct(WorldContext& context, Entity entity) {};
 
-        virtual void OnComponentUpdate(WorldContext& context, Entity entity) {};
+        /// Dispatched from WorldContext::Repalce before registry state is replaced when ComponentEventMask::WillUpdate is set.
+        virtual void OnComponentWillUpdate(WorldContext& context, Entity entity) {};
+
+        /// Dispatched from WorldContext::Repalce after registry state is replaced when ComponentEventMask::Updated is set.
+        virtual void OnComponentUpdated(WorldContext& context, Entity entity) {};
 
         virtual void OnComponentDestory(WorldContext& context, Entity entity) {};
     };
 
-    using ComponentEventBus = EBus<ComponentEvent>;
+    using ComponentEventBus = EBus<ComponentEvents>;
 
 }
