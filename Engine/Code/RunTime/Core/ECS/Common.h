@@ -5,7 +5,17 @@
 namespace Spark
 {
     template<typename EntityType>
-    class BasicWorldContext;
+    class BasicContext;
 
-    using WorldContext = BasicWorldContext<Entity>;
+    template<typename EntityType>
+    class ExecuteContext;
+
+    template<typename EntityType>
+    class ExecuteContextGuard;
+
+    // Forward-declaration only. Include WorldContext.h to instantiate objects.
+    using WorldContext = BasicContext<Entity>;
+
+    using WorldExecuteContext = ExecuteContext<Entity>;
+    using WorldExecuteContextGuard = ExecuteContextGuard<Entity>;
 }

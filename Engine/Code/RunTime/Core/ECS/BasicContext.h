@@ -12,19 +12,19 @@
 namespace Spark
 {
     template<typename EntityType>
-    class BasicWorldContext final
+    class BasicContext final
     {
     public:
         using Entity = EntityType;
 
-        BasicWorldContext() = default;
-        ~BasicWorldContext() noexcept
+        BasicContext() = default;
+        ~BasicContext() noexcept
         {
             Clear();
         }
 
-        BasicWorldContext(const BasicWorldContext&) = delete;
-        BasicWorldContext& operator=(const BasicWorldContext&) = delete;
+        BasicContext(const BasicContext&) = delete;
+        BasicContext& operator=(const BasicContext&) = delete;
 
         void Clear()
         {
@@ -173,7 +173,7 @@ namespace Spark
             return eastl::as_const(m_registry).template view<Component...>(excludes);
         }
 
-        // Reserved extension points. BasicWorldContext itself does not dispatch bus events.
+        // Reserved extension points. BasicContext itself does not dispatch bus events.
         template<typename Component>
         void RegisterEventOnEntityRemove()
         {

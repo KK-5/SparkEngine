@@ -8,7 +8,7 @@
 
 #include <entt/entt.hpp>
 
-#include "BasicWorldContext.h"
+#include "BasicContext.h"
 #include "Entity.h"
 #include "Reflection/RTTI.h"
 #include "Bus/EntityEventBus.h"
@@ -45,17 +45,17 @@ namespace Spark
     }
 
     template<>
-    class BasicWorldContext<Entity> final
+    class BasicContext<Entity> final
     {
     public:
-        BasicWorldContext() = default;
-        ~BasicWorldContext() noexcept
+        BasicContext() = default;
+        ~BasicContext() noexcept
         {
             Clear();
         }
 
-        BasicWorldContext(const BasicWorldContext&) = delete;
-        BasicWorldContext& operator=(const BasicWorldContext&) = delete;
+        BasicContext(const BasicContext&) = delete;
+        BasicContext& operator=(const BasicContext&) = delete;
 
         void Clear()
         {
@@ -376,5 +376,5 @@ namespace Spark
         eastl::unordered_set<TypeId> m_entityRemoveEvents{};
     };
 
-    using WorldContext = BasicWorldContext<Entity>;
+    using WorldContext = BasicContext<Entity>;
 }
