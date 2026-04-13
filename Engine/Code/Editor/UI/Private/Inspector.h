@@ -2,12 +2,7 @@
 
 #include <imgui.h>
 
-#include <ECS/Entity.h>
-
-namespace Spark
-{
-    class WorldContext;
-}
+#include <ECS/Common.h>
 
 namespace Editor
 {

@@ -3,13 +3,8 @@
 #include <EASTL/string_view.h>
 #include <EASTL/unordered_map.h>
 
-#include <ECS/Entity.h>
+#include <ECS/Common.h>
 #include <Reflection/RTTI.h>
-
-namespace Spark
-{
-    class WorldContext;
-}
 
 namespace Editor
 {

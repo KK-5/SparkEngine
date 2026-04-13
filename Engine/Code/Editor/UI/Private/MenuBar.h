@@ -1,9 +1,6 @@
 #pragma once
 
-namespace Spark
-{
-    class WorldContext;
-}
+#include <ECS/Common.h>
 
 namespace Editor
 {

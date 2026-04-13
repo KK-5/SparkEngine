@@ -129,17 +129,6 @@ TEST(ECSTest, ViewAndGroup)
     ASSERT_FLOAT_EQ(wordContext.Get<Position>(ent1).x, 3.f);
     ASSERT_FLOAT_EQ(wordContext.Get<Position>(ent3).x, 3.2f);
 
-    /*
-    auto group = wordContext.CreateGroup<Position>();
-    group.each([&](Entity entity, Position& pos)
-        {
-            pos.x += 1.f;
-        }
-    );
-    ASSERT_EQ(wordContext.Get<Position>(ent1).x, 4.f);
-    ASSERT_EQ(wordContext.Get<Position>(ent3).x, 4.2f);
-    */
-
     auto multiGroup = wordContext.CreateGroup<Position>(Include<Velocity>);
     multiGroup.each([&](Entity entity, Position& p, Velocity& v)
         {
@@ -200,12 +189,12 @@ class SampleSystem final : public Service<SampleSystemInferface>::Handler
 public:
     SampleSystem()
     {
-        std::cout << "System Construct\n";
+        LOG_INFO("System Construct");
     }
 
     ~SampleSystem()
     {
-        std::cout << "System Destruct\n";
+        LOG_INFO("System Destruct");
     }
 
     void Process(WorldContext& worldContext)
@@ -288,18 +277,18 @@ class SelfSystem final : public Service<ISelfSystem<SelfSystem>>::Handler
 public:
     SelfSystem()
     {
-        std::cout << "SelfSystem Construct\n";
+        LOG_INFO("SelfSystem Construct");
     }
 
     template<typename... Args>
     void ProcessImpl(Args&&... args)
     {
-        std::cout << "SelfSystem Process" << "\n";
+        LOG_INFO("SelfSystem Process");
     }
 
     ~SelfSystem()
     {
-        std::cout << "SelfSystem Destruct\n";
+        LOG_INFO("SelfSystem Destruct");
     }
 };
 

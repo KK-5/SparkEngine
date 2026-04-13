@@ -7,14 +7,10 @@
 #include <EASTL/set.h>
 #include <EASTL/functional.h>
 
-#include <ECS/Entity.h>
+#include <ECS/Common.h>
 
 namespace Spark
 {
-    /**
-    *  查询场景中的Entity信息
-    */
-    class WorldContext;
 
     class IScene
     {

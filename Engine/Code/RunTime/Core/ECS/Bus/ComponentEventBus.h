@@ -3,11 +3,10 @@
 #include <EBUS/EBus.h>
 #include <Reflection/RTTI.h>
 
-#include "../Entity.h"
+#include "../Common.h"
 
 namespace Spark
 {
-    class WorldContext;
 
     class ComponentEvents : public EBusTraits
     {

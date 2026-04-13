@@ -112,11 +112,11 @@ TEST(ReflectionTest, ClassPrint) {
         std::cout << cur.first << " " << data.name() << ": ";
         if (data.get(foo).try_cast<int>())
         {
-            std::cout << data.get(foo).cast<int>();
+            LOG_INFO(data.get(foo).cast<int>());
         }
         else if (data.get(foo).try_cast<float>())
         {
-            std::cout << data.get(foo).cast<float>();
+            LOG_INFO(data.get(foo).cast<float>());
         }
 
         if (data.get(foo).type().is_sequence_container())
@@ -129,10 +129,9 @@ TEST(ReflectionTest, ClassPrint) {
 
             for (auto value : view)
             {
-                std::cout << value.cast<int>() << " ";
+                LOG_INFO(value.cast<int>());
             }
         }
-        std::cout << "\n";
     }
 }
 
