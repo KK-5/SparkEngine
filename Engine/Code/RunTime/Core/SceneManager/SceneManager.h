@@ -46,7 +46,6 @@ namespace Spark
         bool IsAncestor(Entity entity, Entity ancestor) const override;
         Entity GetEntityRoot(Entity entity) const override;
         eastl::vector<Entity> GetRootEntities() const override;
-        eastl::vector<Entity> GetRootEntities(eastl::function<bool(Entity, Entity)> compare) const override;
         eastl::vector<Entity> GetChildren(Entity entity) const override;
         size_t GetDepth(Entity entity) const override;
         eastl::vector<eastl::pair<Entity, unsigned int>> GetEntityTree() const override;
@@ -55,20 +54,11 @@ namespace Spark
 
         // ComponentEventBus
         void OnComponentConstruct(Entity entity) override;
+        void OnComponentWillUpdate(Entity entity) override;
         void OnComponentUpdated(Entity entity) override;
         void OnComponentDestory(Entity entity) override;
     
     private:
-        /// @brief Update m_entityDFSTree according to m_roots and m_childrenMap
-        void UpdateEntityTree();
-
-        /// @brief Update m_childrenMap according to Hierarchy component of entity
-        /// @param entity 
-        void UpdateChildrenMap(Entity entity);
-
-        /// @brief Update m_roots according to Hierarchy component of entity
-        void UpdateRoots(Entity entity);
-
         /// @brief Remove entity hierarchy from the hierarchies, the functon will not trigger any Hierarchy component update event
         ///        or update m_childrenMap and m_roots
         /// @param hierarchy The Hierarchy component of the entity, the param is not a entity, because the entity has been updated or destoryed 
@@ -82,14 +72,5 @@ namespace Spark
         bool Valid(const Hierarchy& hierarchy) const;
 
         void ForEachChild(const Hierarchy& hierarchy, eastl::function<void(Entity)> func);
-
-        eastl::queue<eastl::function<void()>> m_updateFunctions;
-
-        // 缓存信息
-        eastl::vector<eastl::pair<Entity, uint32_t>> m_entityDFSTree;
-        eastl::unordered_set<Entity>  m_entities;
-        eastl::unordered_set<Entity>  m_roots;
-        eastl::unordered_map<Entity, eastl::vector<Entity>> m_childrenMap;
-        eastl::unordered_map<Entity, Hierarchy> m_componentCache;
     };
 }

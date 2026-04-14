@@ -39,8 +39,6 @@ namespace Spark
 
         virtual eastl::vector<Entity> GetRootEntities() const = 0;
 
-        virtual eastl::vector<Entity> GetRootEntities(eastl::function<bool(Entity, Entity)> compare) const = 0;
-
         virtual eastl::vector<Entity> GetChildren(Entity entity) const = 0;
 
         virtual size_t GetDepth(Entity entity) const = 0;

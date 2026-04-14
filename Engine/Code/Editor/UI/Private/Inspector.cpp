@@ -292,7 +292,7 @@ namespace Editor
                 return context.Get<Name>(ent1).name < context.Get<Name>(ent2).name;
             };
 
-            eastl::vector<Entity> roots = scene->GetRootEntities(SortByName);
+            eastl::vector<Entity> roots = scene->GetRootEntities();
             eastl::stack<eastl::pair<Entity, int32_t>> stack;
             // eastl::stack底层默认用vector，用unique_ptr方式容器扩容时意外析构
             eastl::stack<eastl::unique_ptr<EntityNode>> nodeStack;

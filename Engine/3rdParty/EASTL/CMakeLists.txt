@@ -10,7 +10,7 @@ project(EASTL CXX)
 #-------------------------------------------------------------------------------------------
 option(EASTL_BUILD_BENCHMARK "Enable generation of build files for benchmark" OFF)
 option(EASTL_BUILD_TESTS "Enable generation of build files for tests" OFF)
-option(EASTL_STD_ITERATOR_CATEGORY_ENABLED "Enable compatibility with std:: iterator categories" OFF)
+option(EASTL_STD_ITERATOR_CATEGORY_ENABLED "Enable compatibility with std:: iterator categories" ON)
 
 
 option(EASTL_DISABLE_APRIL_2024_DEPRECATIONS "Enable use of API marked for removal in April 2024." OFF)

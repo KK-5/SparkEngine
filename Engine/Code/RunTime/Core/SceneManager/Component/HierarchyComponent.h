@@ -28,5 +28,7 @@ namespace Spark
     {
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
     };
-    
+
+    /// @brief Mark an entity is hierarchy tag.
+    struct HierarchyRootTag {};
 }

@@ -375,19 +375,19 @@ TEST_F(SceneManagerTest, Query)
     //EXPECT_TRUE(roots.contains(ents[0]));
 
     eastl::vector<Entity> children = scene->GetChildren(ents[1]);
-    EXPECT_EQ(children.size(), 2);
+    ASSERT_EQ(children.size(), 2);
     EXPECT_EQ(children[0], ents[2]);
     EXPECT_EQ(children[1], ents[3]);
     eastl::vector<Entity> children2 = scene->GetChildren(ents[2]);
-    EXPECT_EQ(children2.size(), 3);
+    ASSERT_EQ(children2.size(), 3);
     EXPECT_EQ(children2[0], ents[4]);
     EXPECT_EQ(children2[1], ents[5]);
     EXPECT_EQ(children2[2], ents[6]);
     eastl::vector<Entity> children3 = scene->GetChildren(ents[9]);
-    EXPECT_EQ(children3.size(), 1);
+    ASSERT_EQ(children3.size(), 1);
     EXPECT_EQ(children3[0], ents[10]);
     eastl::vector<Entity> empty = scene->GetChildren(ents[11]);
-    EXPECT_EQ(empty.size(), 0);
+    ASSERT_EQ(empty.size(), 0);
 
     EXPECT_EQ(scene->GetDepth(ents[0]), 0);
     EXPECT_EQ(scene->GetDepth(ents[1]), 0);
@@ -395,14 +395,14 @@ TEST_F(SceneManagerTest, Query)
     EXPECT_EQ(scene->GetDepth(ents[7]), 2);
 
     eastl::vector<eastl::pair<Entity, uint32_t>> tree = scene->GetEntityTree();
-    EXPECT_EQ(tree.size(), 12);
+    ASSERT_EQ(tree.size(), 12);
 
     auto GetSpace = [](uint32_t num)
     {
         eastl::string res = "";
         while(num--)
         {
-            res += " ";
+            res += "  ";
         }
         return res;
     };
