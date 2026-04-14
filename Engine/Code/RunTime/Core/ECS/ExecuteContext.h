@@ -3,6 +3,7 @@
 #include <EASTL/vector.h>
 
 #include "BasicContext.h"
+#include "ContextReference.h"
 
 namespace Spark
 {
@@ -14,6 +15,12 @@ namespace Spark
     {
     public:
         static BasicContext<EntityType>* Current() { return s_current; }
+
+        template <typename TraitsType>
+        static ContextReference<BasicContext<EntityType>, TraitsType> CurrentReference()
+        {
+            return ContextReference<BasicContext<EntityType>, TraitsType>(*s_current);
+        }
 
         static void Push(BasicContext<EntityType>& ctx)
         {

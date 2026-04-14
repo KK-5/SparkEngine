@@ -109,6 +109,12 @@ namespace Spark
         }
 
         template<typename... T>
+        decltype(auto) TryGet(Entity entity) const
+        {
+            return eastl::as_const(m_registry).template try_get<T...>(entity);
+        }
+
+        template<typename... T>
         decltype(auto) TryGet(Entity entity)
         {
             return m_registry.template try_get<T...>(entity);

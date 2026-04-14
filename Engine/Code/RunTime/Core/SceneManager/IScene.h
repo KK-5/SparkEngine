@@ -7,8 +7,6 @@
 #include <EASTL/set.h>
 #include <EASTL/functional.h>
 
-#include <ECS/Common.h>
-
 namespace Spark
 {
 

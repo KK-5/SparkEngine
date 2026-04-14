@@ -379,7 +379,7 @@ namespace Editor
                 {
                     if (ImGui::Selectable(component.name())) {
                         MetaAny instance = component.construct();
-                        component.func("AddComponent"_hs).invoke({}, AnyCast(context), m_activeEntity, instance);
+                        component.func("AddOrReplaceComponent"_hs).invoke({}, AnyCast(context), m_activeEntity, instance);
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::Spacing();

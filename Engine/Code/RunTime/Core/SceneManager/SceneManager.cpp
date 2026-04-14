@@ -5,6 +5,7 @@
 
 #include <Log/SpdLogSystem.h>
 #include <ECS/Tag.h>
+#include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 #include <ECS/Common.h>
 #include <Reflection/RTTI.h>

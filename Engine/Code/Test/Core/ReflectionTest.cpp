@@ -7,6 +7,7 @@
 #include <HashString/HashString.h>
 #include <Reflection/ReflectContext.h>
 #include <Reflection/TypeRegistry.h>
+#include <Reflection/Utility.h>
 #include <Log/SpdLogSystem.h>
 #include <ECS/WorldContext.h>
 #include <Serialization/UIElement.h>
@@ -175,14 +176,14 @@ static void Reflect(ReflectContext& context)
         .Type("TestName")
         .Data<&TestName::name>("TestName::name"_hs, "name")
         .Func<&WorldContext::Has<TestName>>("HasComponent")
-        .Func<&WorldContext::TryGet<TestName>>("GetComponent");
+        .Func<Overload<TestName*(Entity)>(&WorldContext::TryGet<TestName>)>("GetComponent");
     
     context.Reflect<Position>()
         .Type("Position")
         .Data<&Position::x>("Position::x"_hs, "x")
         .Data<&Position::y>("Position::y"_hs, "y")
         .Func<&WorldContext::Has<Position>>("HasComponent")
-        .Func<&WorldContext::TryGet<Position>>("GetComponent");
+        .Func<Overload<Position*(Entity)>(&WorldContext::TryGet<Position>)>("GetComponent");
 }
 
 bool Com(const MetaType& first, const MetaType& second)

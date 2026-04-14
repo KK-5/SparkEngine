@@ -27,6 +27,7 @@ namespace Spark
         All         = Create | WillUpdate | Updated | Remove
     };
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::ComponentEventMask, uint32_t);
+    
     /// Inherits EnTT storage traits and holds Spark defaults. Fully specialize ComponentTraits by
     /// inheriting this type and overriding only the members you need (others stay at defaults).
     template<typename T, typename EntityType = Spark::Entity>

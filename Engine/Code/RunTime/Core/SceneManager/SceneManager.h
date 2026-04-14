@@ -7,10 +7,9 @@
 
 #include <ECS/ISystem.h>
 #include <ECS/Bus/ComponentEventBus.h>
-#include <ECS/WorldContext.h>
+#include <ECS/Common.h>
 
 #include "IScene.h"
-#include "EntityHierarchy.h"
 #include "Component/HierarchyComponent.h"
 
 namespace Spark

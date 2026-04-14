@@ -5,6 +5,7 @@ option(EASTL_TESTS "EASTL tests" OFF)
 option(EBus_TESTS "EBus tests" OFF)
 option(SCENEMANAGER_TESTS "Scene manager tests" ON)
 option(EXECUTECONTEXT_TESTS "ExecuteContext tests" ON)
+option(WORLDCONTEXTREFERENCE_TESTS "WorldContextReference tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -21,6 +22,7 @@ ADD_TEST_SOUECE(EASTL_TESTS "EASTLTest.cpp")
 ADD_TEST_SOUECE(EBus_TESTS "EBusTest.cpp")
 ADD_TEST_SOUECE(SCENEMANAGER_TESTS "SceneManagerTest.cpp")
 ADD_TEST_SOUECE(EXECUTECONTEXT_TESTS "ExecuteContextTest.cpp")
+ADD_TEST_SOUECE(WORLDCONTEXTREFERENCE_TESTS "WorldContextReferenceTest.cpp")
 
 set(TARGET_NAME SparkCoreTest)
 
