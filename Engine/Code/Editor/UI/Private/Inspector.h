@@ -11,7 +11,7 @@ namespace Editor
     public:
         struct EntityNode
         {
-            EntityNode(Spark::Entity entity, Spark::WorldContext& context);
+            EntityNode(Spark::Entity entity);
 
             ~EntityNode()
             {
@@ -30,10 +30,10 @@ namespace Editor
             bool m_isOpen = false;
         };
 
-        void Draw(Spark::WorldContext& context);
+        void Draw();
     
     private:
-        void DrawEntityMenu(Spark::Entity entity, Spark::WorldContext& context);
-        void DrawTools(Spark::WorldContext& context);
+        void DrawEntityMenu(Spark::Entity entity);
+        void DrawTools();
     };
 }

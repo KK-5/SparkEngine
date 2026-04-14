@@ -40,17 +40,17 @@ namespace Spark::UI
         m_tickHandlerFrameEnd = eastl::make_unique<TickHandlerFrameEnd>(*this);
     }
 
-    void UIBaseSystem::TickHandlerFrameStart::OnTick([[maybe_unused]]WorldContext& context, [[maybe_unused]]float deltaTime)
+    void UIBaseSystem::TickHandlerFrameStart::OnTick([[maybe_unused]]float deltaTime)
     {
         m_UISystem.NewFrame();
     }
 
-    void UIBaseSystem::TickHandlerAfterInput::OnTick(WorldContext& context, [[maybe_unused]]float deltaTime)
+    void UIBaseSystem::TickHandlerAfterInput::OnTick([[maybe_unused]]float deltaTime)
     {
-        m_UISystem.DrawUI(context);
+        m_UISystem.DrawUI();
     }
 
-    void UIBaseSystem::TickHandlerFrameEnd::OnTick([[maybe_unused]]WorldContext& context, [[maybe_unused]]float deltaTime)
+    void UIBaseSystem::TickHandlerFrameEnd::OnTick([[maybe_unused]]float deltaTime)
     {
         m_UISystem.EndFrame();
     }

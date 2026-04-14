@@ -21,7 +21,7 @@ namespace Editor
         }
     }
 
-    void EditorInputSystem::OnMouseButtonEvent(WorldContext& context, MouseButtonEvent event)
+    void EditorInputSystem::OnMouseButtonEvent(MouseButtonEvent event)
     {
         if (event.button == MouseButton::Left && event.state == InputState::Press)
         {

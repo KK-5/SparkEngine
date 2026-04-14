@@ -4,6 +4,8 @@
 
 #include <Log/SpdLogSystem.h>
 #include <ECS/WorldContext.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/Common.h>
 #include <CoreComponents/Name.h>
 #include <SceneManager/IScene.h>
 #include <Service/Service.h>
@@ -13,8 +15,10 @@ namespace Editor
 {
     using namespace Spark;
 
-    void MenuBar::Draw(WorldContext& context)
+    void MenuBar::Draw()
     {
+        auto& context = *WorldExecuteContext::Current();
+
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("New Scene")) {

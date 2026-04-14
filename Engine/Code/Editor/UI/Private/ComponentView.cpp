@@ -4,6 +4,8 @@
 #include <EASTL/array.h>
 
 #include <ECS/WorldContext.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/Common.h>
 #include <Reflection/TypeRegistry.h>
 #include <CoreComponents/Tags.h>
 #include <Math/Vector2.h>
@@ -18,7 +20,7 @@ namespace Editor
 {
     using namespace Spark;
 
-    void ComponentView::DrawElement(WorldContext& context, MetaData& data, MetaAny& instance, float width)
+    void ComponentView::DrawElement(MetaData& data, MetaAny& instance, float width)
     {
         eastl::string_view name = data.name();
         MetaCustom uiElement = data.custom();
@@ -270,7 +272,7 @@ namespace Editor
         }
     }
     
-    void ComponentView::DrawComponent(Spark::WorldContext& context, const Spark::MetaType component, Spark::MetaAny& instance)
+    void ComponentView::DrawComponent(const Spark::MetaType component, Spark::MetaAny& instance)
     {
         float rounding = 5.f;
         ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, rounding);
@@ -312,7 +314,7 @@ namespace Editor
             for (auto&& [id, data]: component.data())
             {
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 20);
-                DrawElement(context, data, instance, availableWidth);
+                DrawElement(data, instance, availableWidth);
             }
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(2);
@@ -328,7 +330,7 @@ namespace Editor
         ImGui::PopStyleVar(2);
     }
 
-    void ComponentView::Draw(WorldContext& context)
+    void ComponentView::Draw()
     {
         ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
@@ -337,6 +339,8 @@ namespace Editor
         ImGui::Begin("Component View");
 
         ReflectContext& reflectContext = TypeRegistry::GetContext();
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         auto activeView = context.GetView<ActiveTag>();
         if (activeView.size() != 1)
         {
@@ -404,7 +408,7 @@ namespace Editor
                 m_componentState.emplace(component.id(), ComponentState{component.name(), true});
             }
             MetaAny instance = *instancePtr;
-            DrawComponent(context, component, instance);
+            DrawComponent(component, instance);
         }
 
         ImGui::End();

@@ -102,7 +102,7 @@ namespace Editor
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
     }
-    void EditorUI::DrawUI(Spark::WorldContext& context)
+    void EditorUI::DrawUI()
     {
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -120,7 +120,7 @@ namespace Editor
         ImGui::Begin("Main Window", nullptr, window_flags);
         ImGui::PopStyleVar(3);
 
-        m_menuBar->Draw(context);
+        m_menuBar->Draw();
         
         // DockSpace
         ImGuiID dockspaceId = ImGui::GetID("DockSpace");
@@ -131,8 +131,8 @@ namespace Editor
 
         m_bottomPanel->Draw();
         m_sceneView->Draw();
-        m_inspector->Draw(context);
-        m_componentView->Draw(context);
+        m_inspector->Draw();
+        m_componentView->Draw();
 
         //static bool showDemoWindow = false;
         //ImGui::ShowDemoWindow(&showDemoWindow);
@@ -168,7 +168,7 @@ namespace Editor
         return ImGui::GetIO().WantCaptureKeyboard;
     }
 
-    void EditorUI::OnMouseButtonEvent(Spark::WorldContext& context, Spark::Input::MouseButtonEvent event)
+    void EditorUI::OnMouseButtonEvent(Spark::Input::MouseButtonEvent event)
     {
         using namespace Spark::Input;
 
@@ -228,7 +228,7 @@ namespace Editor
         }
     }
 
-    void EditorUI::OnMouseCursorPosEvent(Spark::WorldContext& context, Spark::Input::MouseCursorPosEvent event)
+    void EditorUI::OnMouseCursorPosEvent(Spark::Input::MouseCursorPosEvent event)
     {
         GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
@@ -236,7 +236,7 @@ namespace Editor
         io.AddMousePosEvent(event.xPos, event.yPos);
     }
 
-    void EditorUI::OnMouseScrollEvent(Spark::WorldContext& context, Spark::Input::MouseScrollEvent event)
+    void EditorUI::OnMouseScrollEvent(Spark::Input::MouseScrollEvent event)
     {
         GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
@@ -372,7 +372,7 @@ namespace Editor
         }
     }
         
-    void EditorUI::OnKeyboardEvent(Spark::WorldContext& context, Spark::Input::KeyboardEvent event)
+    void EditorUI::OnKeyboardEvent(Spark::Input::KeyboardEvent event)
     {
         using namespace Spark::Input;
 

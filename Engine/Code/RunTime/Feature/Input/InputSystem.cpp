@@ -25,8 +25,8 @@ namespace Spark::Input
         TickBus::Handler::BusDisconnect();
     }
 
-    void InputSystem::OnTick(WorldContext& context, [[maybe_unused]]float deltaTime)
+    void InputSystem::OnTick([[maybe_unused]]float deltaTime)
     {
-        m_capturer->CaptureWindowEvent(context);
+        m_capturer->CaptureWindowEvent();
     }
 }

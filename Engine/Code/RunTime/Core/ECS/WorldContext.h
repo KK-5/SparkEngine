@@ -134,7 +134,7 @@ namespace Spark
         decltype(auto) Add(Entity entity, Args&&... args)
         {
             decltype(auto) result = m_registry.emplace<T>(entity, eastl::forward<Args>(args)...);
-            ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, *this, entity);
+            ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, entity);
             return result;
         }
 
@@ -150,7 +150,7 @@ namespace Spark
             m_registry.insert(first, last, value);
             eastl::for_each(first, last, [&](auto entity)
             {
-                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, *this, entity);
+                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, entity);
             });
         }
         //////////////////////////////////////////
@@ -172,7 +172,7 @@ namespace Spark
             {
                 if (had)
                 {
-                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentWillUpdate, *this, entity);
+                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentWillUpdate, entity);
                 }
             }
 
@@ -182,7 +182,7 @@ namespace Spark
             {
                 if (!had)
                 {
-                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, *this, entity);
+                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, entity);
                 }
             }
 
@@ -190,7 +190,7 @@ namespace Spark
             {
                 if (had)
                 {
-                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentUpdated, *this, entity);
+                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentUpdated, entity);
                 }
             }
 
@@ -208,14 +208,14 @@ namespace Spark
         {
             if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::WillUpdate) != ComponentEventMask::None)
             {
-                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentWillUpdate, *this, entity);
+                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentWillUpdate, entity);
             }
 
             decltype(auto) result = m_registry.replace<T>(entity, eastl::forward<Args>(args)...);
 
             if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::Updated) != ComponentEventMask::None)
             {
-                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentUpdated, *this, entity);
+                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentUpdated, entity);
             }
 
             return result;
@@ -350,7 +350,7 @@ namespace Spark
                     continue;
                 }
 
-                ComponentEventBus::Event(storageTypeId, &ComponentEventBus::Events::OnComponentDestory, *this, entity);
+                ComponentEventBus::Event(storageTypeId, &ComponentEventBus::Events::OnComponentDestory, entity);
             }
         }
 
@@ -361,7 +361,7 @@ namespace Spark
             {
                 if (m_registry.template any_of<C>(entity))
                 {
-                    ComponentEventBus::Event(GetTypeId<C>(), &ComponentEventBus::Events::OnComponentDestory, *this, entity);
+                    ComponentEventBus::Event(GetTypeId<C>(), &ComponentEventBus::Events::OnComponentDestory, entity);
                 }
             }
         }

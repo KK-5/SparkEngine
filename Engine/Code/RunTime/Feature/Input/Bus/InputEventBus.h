@@ -25,12 +25,12 @@ namespace Spark::Input
         using BusIdOrderCompare = eastl::less<InputBusId>;
     public:
         // 非纯虚函数，子类可以选择响应哪些事件
-        virtual void OnMouseButtonEvent(WorldContext& context, MouseButtonEvent event) {};
-        virtual void OnMouseCursorPosEvent(WorldContext& context, MouseCursorPosEvent event) {};
-        virtual void OnMouseScrollEvent(WorldContext& context, MouseScrollEvent event) {};
-        virtual void OnKeyboardEvent(WorldContext& context, KeyboardEvent event) {};
-        virtual void OnWindowCloseEvnet(WorldContext& context) {};
-        virtual void OnWindowResizeEvent(WorldContext& context, WindowResizeEvent event) {};
+        virtual void OnMouseButtonEvent(MouseButtonEvent event) {};
+        virtual void OnMouseCursorPosEvent(MouseCursorPosEvent event) {};
+        virtual void OnMouseScrollEvent(MouseScrollEvent event) {};
+        virtual void OnKeyboardEvent(KeyboardEvent event) {};
+        virtual void OnWindowCloseEvnet() {};
+        virtual void OnWindowResizeEvent(WindowResizeEvent event) {};
     };
 
     using InputEventBus = EBus<InputEvents>;

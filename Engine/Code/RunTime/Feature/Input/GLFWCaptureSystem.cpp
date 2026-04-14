@@ -52,12 +52,12 @@ namespace Spark::Input
             {
                 if (ui->WantCaptureMouse())
                 {
-                    InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseButtonEvent, thisPointer->m_contextRef.value(), event);
+                    InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseButtonEvent, event);
                     return;
                 }
             }
 
-            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnMouseButtonEvent, thisPointer->m_contextRef.value(), event);
+            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnMouseButtonEvent, event);
         });
     }
 
@@ -73,7 +73,7 @@ namespace Spark::Input
             event.xPos = (float)x;
             event.yPos = (float)y;
 
-            InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseCursorPosEvent, thisPointer->m_contextRef.value(), event);
+            InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseCursorPosEvent, event);
 
             if (auto ui = Service<UI::UIBaseSystem>::Get())
             {
@@ -83,7 +83,7 @@ namespace Spark::Input
                 }
             }
 
-            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnMouseCursorPosEvent, thisPointer->m_contextRef.value(), event);
+            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnMouseCursorPosEvent, event);
         });
     }
 
@@ -103,12 +103,12 @@ namespace Spark::Input
             {
                 if (ui->WantCaptureMouse())
                 {
-                    InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseScrollEvent, thisPointer->m_contextRef.value(), event);
+                    InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseScrollEvent, event);
                     return;
                 }
             }
 
-            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnMouseScrollEvent, thisPointer->m_contextRef.value(), event);
+            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnMouseScrollEvent, event);
         });
     }
 
@@ -129,12 +129,12 @@ namespace Spark::Input
             {
                 if (ui->WantCaptureMouse())
                 {
-                    InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnKeyboardEvent, thisPointer->m_contextRef.value(), event);
+                    InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnKeyboardEvent, event);
                     return;
                 }
             }
            
-            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnKeyboardEvent, thisPointer->m_contextRef.value(), event);
+            InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnKeyboardEvent, event);
         });
     }
 
@@ -146,7 +146,7 @@ namespace Spark::Input
         {
             GLFWCaptureSystem* thisPointer = static_cast<GLFWCaptureSystem*>(glfwGetWindowUserPointer(window));
 
-            InputEventBus::Broadcast(&InputEventBus::Events::OnWindowCloseEvnet, thisPointer->m_contextRef.value());
+            InputEventBus::Broadcast(&InputEventBus::Events::OnWindowCloseEvnet);
         });
     }
 
@@ -162,7 +162,7 @@ namespace Spark::Input
             event.width = width;
             event.height = height;
 
-            InputEventBus::Broadcast(&InputEventBus::Events::OnWindowResizeEvent, thisPointer->m_contextRef.value(), event);
+            InputEventBus::Broadcast(&InputEventBus::Events::OnWindowResizeEvent, event);
         });
     }
 }

@@ -33,7 +33,7 @@ namespace Spark::Input
         }
 
         //////////////////////
-        void CaptureWindowEvent(WorldContext& context);
+        void CaptureWindowEvent();
 
     protected:
         virtual void CaptureMouseButtonEvent()     = 0;
@@ -42,7 +42,5 @@ namespace Spark::Input
         virtual void CaptureKeyboardEvent()        = 0;
         virtual void CaptureWindowCloseEvent()     = 0;
         virtual void CaptureWindowResizeEvent()    = 0;
-
-        eastl::optional<eastl::reference_wrapper<WorldContext>> m_contextRef;
     };
 }

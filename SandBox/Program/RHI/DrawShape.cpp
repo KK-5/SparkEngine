@@ -127,7 +127,7 @@ namespace Spark::SandBox
         void LoadImageAsset();
 
         // InputEventBus override
-        void OnWindowResizeEvent(WorldContext& context, Input::WindowResizeEvent event) override;
+        void OnWindowResizeEvent(Input::WindowResizeEvent event) override;
 
         Window::IWindowSystem* m_window = nullptr;
 
@@ -622,7 +622,7 @@ namespace Spark::SandBox
         m_scissor = RHI::Scissor(0.f, 0.f, (float)windowSize.first, (float)windowSize.second);
     }
 
-    void DrawShape::OnWindowResizeEvent([[maybe_unused]]WorldContext& context, Input::WindowResizeEvent event)
+    void DrawShape::OnWindowResizeEvent(Input::WindowResizeEvent event)
     {
         if (event.width <= 0 || event.height <= 0)
         {
@@ -924,10 +924,9 @@ namespace Spark::SandBox
         m_commandQueueContext.ExecuteCommands(RHI::HardwareQueueClass::Graphics, commandLists);
         m_commandQueueContext.FlushCommands(RHI::HardwareQueueClass::Graphics);
 
-        WorldContext context;
         while (!m_window->ShouldClose())
         {
-            TickBus::Broadcast(&TickBus::Events::OnTick, context, 0.f);
+            TickBus::Broadcast(&TickBus::Events::OnTick, 0.f);
 
             RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
             m_rtContext.Begin();

@@ -33,7 +33,7 @@ namespace Editor
 
         // UIBaseSystem
         void NewFrame() override;
-        void DrawUI(Spark::WorldContext& context) override;
+        void DrawUI() override;
         void EndFrame() override;
 
         eastl::any GetUIRenderData() override;
@@ -42,10 +42,10 @@ namespace Editor
         bool WantCaptureKeyboard() const override; 
 
         // InputEventBus
-        void OnMouseButtonEvent(Spark::WorldContext& context, Spark::Input::MouseButtonEvent event) override;
-        void OnMouseCursorPosEvent(Spark::WorldContext& context, Spark::Input::MouseCursorPosEvent event) override;
-        void OnMouseScrollEvent(Spark::WorldContext& context, Spark::Input::MouseScrollEvent event) override;
-        void OnKeyboardEvent(Spark::WorldContext& context, Spark::Input::KeyboardEvent event) override;
+        void OnMouseButtonEvent(Spark::Input::MouseButtonEvent event) override;
+        void OnMouseCursorPosEvent(Spark::Input::MouseCursorPosEvent event) override;
+        void OnMouseScrollEvent(Spark::Input::MouseScrollEvent event) override;
+        void OnKeyboardEvent(Spark::Input::KeyboardEvent event) override;
 
     private:
         void SetUpStyle();

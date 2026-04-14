@@ -3,7 +3,6 @@
 #include <mutex>
 
 #include <EBus/EBus.h>
-#include <ECS/WorldContext.h>
 
 #include "TickOrder.h"
 
@@ -27,7 +26,7 @@ namespace Spark
         TickEvents() = default;
         virtual ~TickEvents() = default;
         
-        virtual void         OnTick(WorldContext& context, float deltaTime) = 0;
+        virtual void         OnTick(float deltaTime) = 0;
         virtual unsigned int GetTickOrder() const
         {
             return static_cast<unsigned int>(TickOrder::TICK_DEFAULT);

@@ -4,6 +4,8 @@
 #include <EASTL/stack.h>
 
 #include <ECS/WorldContext.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/Common.h>
 #include <CoreComponents/Name.h>
 #include <Service/Service.h>
 #include <SceneManager/Component/HierarchyComponent.h>
@@ -16,13 +18,15 @@ namespace Editor
 {
     using namespace Spark;
 
-    Inspector::EntityNode::EntityNode(Entity entity, WorldContext& context)
+    Inspector::EntityNode::EntityNode(Entity entity)
     {
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | 
         ImGuiTreeNodeFlags_DrawLinesFull |
         ImGuiTreeNodeFlags_FramePadding |
         ImGuiTreeNodeFlags_SpanAllColumns |
         ImGuiTreeNodeFlags_DefaultOpen;
+
+        auto& context = *WorldExecuteContext::Current();
         Hierarchy hierarchy = context.Get<Hierarchy>(entity);
         if (hierarchy.firstChild == NullEntity)
         {
@@ -119,9 +123,10 @@ namespace Editor
         }   
     }
 
-    void Inspector::DrawEntityMenu(Entity entity, WorldContext& context)
+    void Inspector::DrawEntityMenu(Entity entity)
     {
         auto scene = Spark::Service<IScene>::Get();
+        auto& context = *WorldExecuteContext::Current();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.f), "Entity");
         ImGui::Spacing();
         ImGui::Separator();
@@ -216,8 +221,9 @@ namespace Editor
         }
     }
 
-    void Inspector::DrawTools(Spark::WorldContext& context)
+    void Inspector::DrawTools()
     {
+        auto& context = *WorldExecuteContext::Current();
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.18f, 0.f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
@@ -232,7 +238,7 @@ namespace Editor
     }
     
 
-    void Inspector::Draw(WorldContext& context)
+    void Inspector::Draw()
     {
         if (!Spark::Service<IScene>::Get())
         {
@@ -241,6 +247,7 @@ namespace Editor
         }
 
         IScene* scene = Spark::Service<IScene>::Get();
+        auto& context = *WorldExecuteContext::Current();
 
         ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
         ImGui::Begin("Inspector", nullptr, ImGuiWindowFlags_NoTitleBar);
@@ -249,7 +256,7 @@ namespace Editor
 
         ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(50, 50, 50, 255));
         ImGui::BeginChild("InspectorTools", ImVec2(windowSize.x, toolHeight), false, ImGuiWindowFlags_NoTitleBar);
-        DrawTools(context);
+        DrawTools();
         ImGui::EndChild();
         ImGui::PopStyleColor();
 
@@ -302,7 +309,7 @@ namespace Editor
                     curRowCount++;
 
                     ImGui::TableSetColumnIndex(0);
-                    nodeStack.emplace(eastl::make_unique<EntityNode>(cur, context));
+                    nodeStack.emplace(eastl::make_unique<EntityNode>(cur));
                     if (nodeStack.top()->IsOpen())
                     {
                         eastl::vector<Entity> children = scene->GetChildren(cur);
@@ -324,7 +331,7 @@ namespace Editor
                     // item menu
                     if (ImGui::BeginPopupContextItem())
                     {
-                        DrawEntityMenu(cur, context);
+                        DrawEntityMenu(cur);
                         ImGui::EndPopup();
                     }
                 }

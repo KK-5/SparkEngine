@@ -3,6 +3,8 @@
 
 #include <Tick/TickBus.h>
 #include <ECS/WorldContext.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/Common.h>
 #include <Reflection/TypeRegistry.h>
 #include <Reflect.h>
 
@@ -13,6 +15,8 @@ namespace Spark
         TypeRegistry::Register(Spark::Reflect);
         TypeRegistry::RegisterAll();
 
+        WorldExecuteContext::Push(m_worldContext);
+
         LogConfig logConfig{};
         logConfig.m_showTimeStamp = true;
         m_logSystem = eastl::make_unique<SpdLogSystem>(logConfig);
@@ -20,7 +24,7 @@ namespace Spark
         m_entityReaper = CreateSystem<EntityReaper>();
         m_entityReaper->Init();
 
-        m_sceneManager = CreateSystem<SceneManager>(m_worldContext);
+        m_sceneManager = CreateSystem<SceneManager>();
         m_sceneManager->Init();
 
         m_inputSystem = CreateSystem<Input::InputSystem>();
@@ -32,12 +36,7 @@ namespace Spark
 
     void SparkEngine::Shutdown()
     {
-        /*
-        m_renderSystem->Shutdown();
-        m_inputSystem->Shutdown();
-        m_sceneManager->Shutdown();
-        m_entityReaper->Shutdown();
-        */
+        WorldExecuteContext::Pop();
     }
 
     void SparkEngine::Run(eastl::function<bool()> shouldQuit)
@@ -45,7 +44,7 @@ namespace Spark
         while (!shouldQuit())
         {
             float deltaTime = CalculDeltaTime();
-            TickBus::Broadcast(&TickBus::Events::OnTick, m_worldContext, deltaTime);
+            TickBus::Broadcast(&TickBus::Events::OnTick, deltaTime);
         }
     }
 

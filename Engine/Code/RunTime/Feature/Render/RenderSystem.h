@@ -26,7 +26,7 @@ namespace Spark::Render
         }
 
         // TickBus
-        void OnTick(WorldContext& context, float deltaTime) override;
+        void OnTick(float deltaTime) override;
         
         inline unsigned int GetTickOrder() const override 
         {

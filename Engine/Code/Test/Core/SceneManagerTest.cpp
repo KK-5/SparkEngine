@@ -2,6 +2,8 @@
 #include <EASTL/array.h>
 
 #include <ECS/WorldContext.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/Common.h>
 #include <ECS/Tag.h>
 #include <Service/Service.h>
 #include <Log/SpdLogSystem.h>
@@ -24,13 +26,14 @@ protected:
     }
 
     void SetUp() override {
-        sceneManager = CreateSystem<SceneManager>(context);
+        WorldExecuteContext::Push(context);
+        sceneManager = CreateSystem<SceneManager>();
         sceneManager->Init();
     }
 
     void TearDown() override {
-
         sceneManager.reset();
+        WorldExecuteContext::Pop();
         context.Clear();
     }
 

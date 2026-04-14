@@ -26,10 +26,8 @@ namespace Spark::Render
         TickBus::Handler::BusDisconnect();
     }
 
-    void RenderSystem::OnTick(WorldContext& context, float deltaTime)
+    void RenderSystem::OnTick(float deltaTime)
     {
-        //LOG_INFO("[RenderSystem] render tick");
-        //std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
 
 

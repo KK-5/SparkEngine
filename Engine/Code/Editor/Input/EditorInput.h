@@ -26,7 +26,7 @@ namespace Editor
         }
 
         // InputEventBus
-        void OnMouseButtonEvent(Spark::WorldContext& context, Spark::Input::MouseButtonEvent event) override;
+        void OnMouseButtonEvent(Spark::Input::MouseButtonEvent event) override;
 
     };
 }

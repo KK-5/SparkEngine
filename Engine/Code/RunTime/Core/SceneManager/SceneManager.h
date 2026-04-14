@@ -20,7 +20,7 @@ namespace Spark
                                public ComponentEventBus::Handler
     {
     public:
-        SceneManager(WorldContext& context) : m_context(context) {}
+        SceneManager() = default;
 
         // ISystem
         void InitInternal() override;
@@ -54,9 +54,9 @@ namespace Spark
         void PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func) override;
 
         // ComponentEventBus
-        void OnComponentConstruct(WorldContext& context, Entity entity) override;
-        void OnComponentUpdated(WorldContext& context, Entity entity) override;
-        void OnComponentDestory(WorldContext& context, Entity entity) override;
+        void OnComponentConstruct(Entity entity) override;
+        void OnComponentUpdated(Entity entity) override;
+        void OnComponentDestory(Entity entity) override;
     
     private:
         /// @brief Update m_entityDFSTree according to m_roots and m_childrenMap
@@ -84,8 +84,6 @@ namespace Spark
         void ForEachChild(const Hierarchy& hierarchy, eastl::function<void(Entity)> func);
 
         eastl::queue<eastl::function<void()>> m_updateFunctions;
-
-        WorldContext& m_context;
 
         // 缓存信息
         eastl::vector<eastl::pair<Entity, uint32_t>> m_entityDFSTree;

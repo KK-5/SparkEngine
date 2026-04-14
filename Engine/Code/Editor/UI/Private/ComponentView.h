@@ -11,7 +11,7 @@ namespace Editor
     class ComponentView final
     {
     public:
-        void Draw(Spark::WorldContext& context);
+        void Draw();
 
     private:
         struct ComponentState
@@ -23,8 +23,8 @@ namespace Editor
             bool isExpanded;
         };
 
-        void DrawElement(Spark::WorldContext& context, Spark::MetaData& data, Spark::MetaAny& instance, float width);
-        void DrawComponent(Spark::WorldContext& context, const Spark::MetaType component, Spark::MetaAny& instance);
+        void DrawElement(Spark::MetaData& data, Spark::MetaAny& instance, float width);
+        void DrawComponent(const Spark::MetaType component, Spark::MetaAny& instance);
 
         eastl::unordered_map<Spark::TypeId, ComponentState> m_componentState;
         Spark::Entity m_activeEntity;

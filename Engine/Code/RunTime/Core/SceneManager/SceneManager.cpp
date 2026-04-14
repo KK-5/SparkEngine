@@ -5,13 +5,17 @@
 
 #include <Log/SpdLogSystem.h>
 #include <ECS/Tag.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/Common.h>
 #include <Reflection/RTTI.h>
 
 namespace Spark
 {
     void SceneManager::InitInternal()
     {
-        m_context.RegisterEventOnEntityRemove<Hierarchy>();
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
+        context.RegisterEventOnEntityRemove<Hierarchy>();
         ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
     }
 
@@ -33,15 +37,17 @@ namespace Spark
 
     void SceneManager::AddEntity(Entity entity)
     {
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         if (entity == NullEntity)
         {
             LOG_ERROR("[SceneManager] AddEntity: entity is null");
             return;
         }
 
-        if (!m_context.Has<Hierarchy>(entity))
+        if (!context.Has<Hierarchy>(entity))
         {
-            m_context.Add<Hierarchy>(entity);
+            context.Add<Hierarchy>(entity);
         }
     }
 
@@ -55,8 +61,9 @@ namespace Spark
                 return;
             }
         }
-
-        m_context.Add<Hierarchy>(entities.begin(), entities.end(), Hierarchy{});
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
+        context.Add<Hierarchy>(entities.begin(), entities.end(), Hierarchy{});
     }
 
     void SceneManager::RemoveEntity(Entity entity)
@@ -67,9 +74,11 @@ namespace Spark
             return;
         }
 
-        if (m_context.Has<Hierarchy>(entity))
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
+        if (context.Has<Hierarchy>(entity))
         {
-            m_context.Remove<Hierarchy>(entity);
+            context.Remove<Hierarchy>(entity);
         }
     }
 
@@ -84,7 +93,9 @@ namespace Spark
             }
         }
 
-        m_context.Remove<Hierarchy>(entities.begin(), entities.end());
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
+        context.Remove<Hierarchy>(entities.begin(), entities.end());
     }
 
     bool SceneManager::Contain(Entity entity) const
@@ -102,10 +113,12 @@ namespace Spark
     {
         eastl::vector<Entity> ancestors;
 
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
-        while(m_context.Has<Hierarchy>(cur))
+        while(context.Has<Hierarchy>(cur))
         {
-            Entity parent = m_context.Get<Hierarchy>(cur).parent;
+            Entity parent = context.Get<Hierarchy>(cur).parent;
             if (parent == NullEntity)
             {
                 break;
@@ -120,10 +133,12 @@ namespace Spark
 
     bool SceneManager::IsAncestor(Entity entity, Entity ancestor) const
     {
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
-        while(m_context.Has<Hierarchy>(cur))
+        while(context.Has<Hierarchy>(cur))
         {
-            Entity parent = m_context.Get<Hierarchy>(cur).parent;
+            Entity parent = context.Get<Hierarchy>(cur).parent;
             if (parent == NullEntity)
             {
                 break;
@@ -140,10 +155,12 @@ namespace Spark
 
     Entity SceneManager::GetEntityRoot(Entity entity) const
     {
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
-        while(m_context.Has<Hierarchy>(cur))
+        while(context.Has<Hierarchy>(cur))
         {
-            Entity parent = m_context.Get<Hierarchy>(cur).parent;
+            Entity parent = context.Get<Hierarchy>(cur).parent;
             if (parent == NullEntity)
             {
                 break;
@@ -183,9 +200,11 @@ namespace Spark
         size_t depth = 0;
 
         Entity cur = entity;
-        while(m_context.Has<Hierarchy>(cur))
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
+        while(context.Has<Hierarchy>(cur))
         {
-            Entity parent = m_context.Get<Hierarchy>(cur).parent;
+            Entity parent = context.Get<Hierarchy>(cur).parent;
             if (parent == NullEntity)
             {
                 break;
@@ -251,27 +270,29 @@ namespace Spark
             AddEntity(prevSibling);
         }
 
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         Hierarchy entityHier;
-        if (m_context.Has<Hierarchy>(entity))
+        if (context.Has<Hierarchy>(entity))
         {
-            entityHier = m_context.Get<Hierarchy>(entity);
+            entityHier = context.Get<Hierarchy>(entity);
         }
 
         // get next
         Entity next = NullEntity;
         if (prevSibling != NullEntity)
         {
-            next = m_context.Get<Hierarchy>(prevSibling).nextSibling;
+            next = context.Get<Hierarchy>(prevSibling).nextSibling;
         }
         else
         {
-            next = m_context.Get<Hierarchy>(parent).firstChild;
+            next = context.Get<Hierarchy>(parent).firstChild;
         }
 
         entityHier.parent = parent;
         entityHier.prevSibling = prevSibling;
         entityHier.nextSibling = next;
-        m_context.AddOrRepalce<Hierarchy>(entity, entityHier);
+        context.AddOrRepalce<Hierarchy>(entity, entityHier);
     }
 
     void SceneManager::PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func)
@@ -295,25 +316,27 @@ namespace Spark
 
     void SceneManager::UpdateChildrenMap(Entity entity)
     {
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         if (entity == NullEntity)
         {
             LOG_ERROR("[SceneManager] UpdateChildrenMap: NullEntity does not have children map");
             return;
         }
 
-        if (!m_context.Has<Hierarchy>(entity))
+        if (!context.Has<Hierarchy>(entity))
         {
             LOG_ERROR("[SceneManager] UpdateChildrenMap: The entity does not have Hierarchy component");
             return;
         }
 
-        const auto hierarchy = m_context.Get<Hierarchy>(entity);
+        const auto hierarchy = context.Get<Hierarchy>(entity);
         eastl::vector<Entity> newChildren;
         Entity cur = hierarchy.firstChild;
         while(cur != NullEntity)
         {
             newChildren.push_back(cur);
-            cur = m_context.Has<Hierarchy>(cur) ? m_context.Get<Hierarchy>(cur).nextSibling : NullEntity;
+            cur = context.Has<Hierarchy>(cur) ? context.Get<Hierarchy>(cur).nextSibling : NullEntity;
         }
 
         if (newChildren.empty())
@@ -341,13 +364,15 @@ namespace Spark
             return;
         }
 
-        if (!m_context.Has<Hierarchy>(entity))
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
+        if (!context.Has<Hierarchy>(entity))
         {
             LOG_ERROR("[SceneManager] UpdateRoots: The entity does not have Hierarchy component");
             return;
         }
 
-        if (m_context.Get<Hierarchy>(entity).parent != NullEntity)
+        if (context.Get<Hierarchy>(entity).parent != NullEntity)
         {
             m_roots.erase(entity);
         }
@@ -383,6 +408,8 @@ namespace Spark
             return false;
         }
 
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         if (hierarchy.nextSibling != NullEntity || hierarchy.prevSibling != NullEntity)
         { 
             if (hierarchy.parent == NullEntity)
@@ -393,13 +420,13 @@ namespace Spark
 
             if (hierarchy.prevSibling != NullEntity)
             {
-                Entity siblingParent = m_context.Get<Hierarchy>(hierarchy.prevSibling).parent;
+                Entity siblingParent = context.Get<Hierarchy>(hierarchy.prevSibling).parent;
                 if (siblingParent != hierarchy.parent)
                 {
                     LOG_ERROR("[SceneManager] Valid: Entity and its previous sibling has a different parent.");
                     return false;
                 }
-                Entity next = m_context.Get<Hierarchy>(hierarchy.prevSibling).nextSibling;
+                Entity next = context.Get<Hierarchy>(hierarchy.prevSibling).nextSibling;
                 if (next != hierarchy.nextSibling)
                 {
                     LOG_ERROR("[SceneManager] Valid: The previous sibling has a next entity and it is different from the nextSibling in this Hierarchy.");
@@ -409,13 +436,13 @@ namespace Spark
 
             if (hierarchy.nextSibling != NullEntity)
             {
-                Entity siblingParent = m_context.Get<Hierarchy>(hierarchy.nextSibling).parent;
+                Entity siblingParent = context.Get<Hierarchy>(hierarchy.nextSibling).parent;
                 if (siblingParent != hierarchy.parent)
                 {
                     LOG_ERROR("[SceneManager] Valid: Entity and its next sibling has a different parent.");
                     return false;
                 }
-                Entity prev = m_context.Get<Hierarchy>(hierarchy.nextSibling).prevSibling;
+                Entity prev = context.Get<Hierarchy>(hierarchy.nextSibling).prevSibling;
                 if (prev != hierarchy.prevSibling)
                 {
                     LOG_ERROR("[SceneManager] Valid: The next sibling has a previous entity and it is different from the prevSibling in this Hierarchy.");
@@ -425,8 +452,8 @@ namespace Spark
 
             if (hierarchy.prevSibling != NullEntity && hierarchy.nextSibling != NullEntity)
             {
-                Entity next = m_context.Get<Hierarchy>(hierarchy.prevSibling).nextSibling;
-                Entity prev = m_context.Get<Hierarchy>(hierarchy.nextSibling).prevSibling;
+                Entity next = context.Get<Hierarchy>(hierarchy.prevSibling).nextSibling;
+                Entity prev = context.Get<Hierarchy>(hierarchy.nextSibling).prevSibling;
                 if (next != prev)
                 {
                     LOG_ERROR("[SceneManager] Valid: Hierarchy both set prevSibling and nextSibling but they are not adjacent now.");
@@ -438,7 +465,7 @@ namespace Spark
         {
             if (hierarchy.parent != NullEntity)
             {
-                if (m_context.Get<Hierarchy>(hierarchy.parent).firstChild != NullEntity)
+                if (context.Get<Hierarchy>(hierarchy.parent).firstChild != NullEntity)
                 {
                     LOG_ERROR("[SceneManager] Valid: The parent entity already has child,"
                         "but Hierarchy have not specified the insertion position for this entity."
@@ -453,11 +480,13 @@ namespace Spark
 
     void SceneManager::ForEachChild(const Hierarchy& hierarchy, eastl::function<void(Entity entity)> func)
     {
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         Entity cur = hierarchy.firstChild;
-        while(cur != NullEntity && m_context.Has<Hierarchy>(cur))
+        while(cur != NullEntity && context.Has<Hierarchy>(cur))
         {
             func(cur);
-            cur = m_context.Get<Hierarchy>(cur).nextSibling;
+            cur = context.Get<Hierarchy>(cur).nextSibling;
         }
     }
 
@@ -468,11 +497,13 @@ namespace Spark
         Entity nextSibling = hierarchy.nextSibling;
         Entity firstChild = hierarchy.firstChild;
 
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         if (parent != NullEntity)
         {
             if (prevSibling == NullEntity)
             {
-                auto& parentHier = m_context.Get<Hierarchy>(parent);
+                auto& parentHier = context.Get<Hierarchy>(parent);
                 parentHier.firstChild = nextSibling;
                 m_componentCache[parent] = parentHier;
             }
@@ -485,10 +516,10 @@ namespace Spark
         Entity last = cur;
         bool isFirst = true;
         ForEachChild(hierarchy, [&](Entity child){
-            auto& curHier = m_context.Get<Hierarchy>(child);
+            auto& curHier = context.Get<Hierarchy>(child);
             if (isFirst && parent != NullEntity)
             {
-                auto& parentHier =  m_context.Get<Hierarchy>(parent);
+                auto& parentHier =  context.Get<Hierarchy>(parent);
                 if (parentHier.firstChild == NullEntity)
                 {
                     parentHier.firstChild = child;
@@ -503,10 +534,10 @@ namespace Spark
 
         if (prevSibling != NullEntity)
         {
-            auto& prevSiblingHier = m_context.Get<Hierarchy>(prevSibling);
+            auto& prevSiblingHier = context.Get<Hierarchy>(prevSibling);
             if (first != NullEntity)
             {
-                auto& firstHier = m_context.Get<Hierarchy>(first);
+                auto& firstHier = context.Get<Hierarchy>(first);
                 firstHier.prevSibling = prevSibling;
                 prevSiblingHier.nextSibling = first;
                 m_componentCache[first] = firstHier;
@@ -520,10 +551,10 @@ namespace Spark
 
         if (nextSibling != NullEntity)
         {
-            auto& nextSiblingHier = m_context.Get<Hierarchy>(nextSibling);
+            auto& nextSiblingHier = context.Get<Hierarchy>(nextSibling);
             if (last != NullEntity)
             {
-                auto& lastHier = m_context.Get<Hierarchy>(last);
+                auto& lastHier = context.Get<Hierarchy>(last);
                 lastHier.nextSibling = nextSibling;
                 nextSiblingHier.prevSibling = last;
                 m_componentCache[last] = lastHier;
@@ -538,7 +569,9 @@ namespace Spark
 
     void SceneManager::AddEntityInternal(Entity entity)
     {
-        const auto hier = m_context.Get<Hierarchy>(entity);
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
+        const auto hier = context.Get<Hierarchy>(entity);
 
         Entity parent = hier.parent;
         Entity prevSibling = hier.prevSibling;
@@ -550,7 +583,7 @@ namespace Spark
             // 插入至第一个子节点
             if (prevSibling == NullEntity)
             {
-                auto& parentHier = m_context.Get<Hierarchy>(parent);
+                auto& parentHier = context.Get<Hierarchy>(parent);
                 parentHier.firstChild = entity;
                 m_componentCache[parent] = parentHier;
             }
@@ -561,17 +594,17 @@ namespace Spark
 
         if (prevSibling == NullEntity && nextSibling != NullEntity)
         {
-            prevSibling = m_context.Get<Hierarchy>(nextSibling).prevSibling;
+            prevSibling = context.Get<Hierarchy>(nextSibling).prevSibling;
         }
 
         if (prevSibling != NullEntity && nextSibling == NullEntity)
         {
-            nextSibling = m_context.Get<Hierarchy>(prevSibling).nextSibling;
+            nextSibling = context.Get<Hierarchy>(prevSibling).nextSibling;
         }
 
         if (prevSibling != NullEntity)
         {
-            auto& prevSiblingHier = m_context.Get<Hierarchy>(prevSibling);
+            auto& prevSiblingHier = context.Get<Hierarchy>(prevSibling);
             prevSiblingHier.nextSibling = entity;
             m_componentCache[prevSibling] = prevSiblingHier;
             m_updateFunctions.emplace([this, prevSibling](){UpdateRoots(prevSibling);});
@@ -579,7 +612,7 @@ namespace Spark
 
         if (nextSibling != NullEntity)
         {
-            auto& nextSiblingHier = m_context.Get<Hierarchy>(nextSibling);
+            auto& nextSiblingHier = context.Get<Hierarchy>(nextSibling);
             nextSiblingHier.prevSibling = entity;
             m_componentCache[nextSibling] = nextSiblingHier;
             m_updateFunctions.emplace([this, nextSibling](){UpdateRoots(nextSibling);});
@@ -587,14 +620,14 @@ namespace Spark
 
         bool isFirst = true;
         ForEachChild(hier, [&](Entity child){
-            auto& curHier = m_context.Get<Hierarchy>(child);
+            auto& curHier = context.Get<Hierarchy>(child);
             curHier.parent = entity;
             if (isFirst)
             {
                 Entity prev = curHier.prevSibling;
                 if (prev != NullEntity)
                 {
-                    auto& hier = m_context.Get<Hierarchy>(prev);
+                    auto& hier = context.Get<Hierarchy>(prev);
                     hier.nextSibling = NullEntity;
                     Entity oldParent = hier.parent;
                     m_updateFunctions.emplace([this, oldParent](){UpdateChildrenMap(oldParent);});
@@ -610,8 +643,10 @@ namespace Spark
         m_updateFunctions.emplace([this, entity](){UpdateRoots(entity);});
     }
 
-    void SceneManager::OnComponentConstruct(WorldContext& context, Entity entity)
+    void SceneManager::OnComponentConstruct(Entity entity)
     {
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         const auto hier = context.Get<Hierarchy>(entity);
         if (!Valid(hier))
         {
@@ -632,8 +667,10 @@ namespace Spark
         UpdateEntityTree();
     }
 
-    void SceneManager::OnComponentUpdated(WorldContext& context, Entity entity)
+    void SceneManager::OnComponentUpdated(Entity entity)
     {
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         const auto hier = context.Get<Hierarchy>(entity);
         if (!Valid(hier))
         {
@@ -643,7 +680,7 @@ namespace Spark
 
         if (!m_componentCache.contains(entity))
         {
-            OnComponentConstruct(context, entity);
+            OnComponentConstruct(entity);
             return;
         }
         // process old hierarchy
@@ -658,16 +695,18 @@ namespace Spark
         }
 
         // update hierarchy
-        OnComponentConstruct(context, entity);
+        OnComponentConstruct(entity);
     }
 
-    void SceneManager::OnComponentDestory(WorldContext& context, Entity entity)
+    void SceneManager::OnComponentDestory(Entity entity)
     {
         if (!m_componentCache.contains(entity))
         {
             return;
         }
 
+        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
+        auto& context = *WorldExecuteContext::Current();
         const auto hier = context.Get<Hierarchy>(entity);
         RemoveEntityInternal(hier);
         

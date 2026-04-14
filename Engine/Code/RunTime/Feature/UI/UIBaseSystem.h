@@ -29,7 +29,7 @@ namespace Spark::UI
 
         ///////////////////////////
         virtual void NewFrame()                    = 0;    // 每帧开始时被调用，可以设置ui环境
-        virtual void DrawUI(WorldContext& context) = 0;    // 输入系统结束之后，场景渲染之前被调用
+        virtual void DrawUI()                      = 0;    // 输入系统结束之后，场景渲染之前被调用
         virtual void EndFrame()                    = 0;    // 所有渲染之后被调用
 
         virtual eastl::any GetUIRenderData() = 0;  // 获取UI的渲染数据，交给渲染系统渲染
@@ -44,7 +44,7 @@ namespace Spark::UI
             TickHandlerFrameStart(UIBaseSystem& UISystem);
             ~TickHandlerFrameStart();
 
-            void OnTick(WorldContext& context, float deltaTime) override;
+            void OnTick(float deltaTime) override;
 
             inline unsigned int GetTickOrder() const override
             {
@@ -60,7 +60,7 @@ namespace Spark::UI
             TickHandlerAfterInput(UIBaseSystem& UISystem);
             ~TickHandlerAfterInput();
 
-            void OnTick(WorldContext& context, float deltaTime) override;
+            void OnTick(float deltaTime) override;
 
             inline unsigned int GetTickOrder() const override
             {
@@ -76,7 +76,7 @@ namespace Spark::UI
             TickHandlerFrameEnd(UIBaseSystem& UISystem);
             ~TickHandlerFrameEnd();
 
-            void OnTick(WorldContext& context, float deltaTime) override;
+            void OnTick(float deltaTime) override;
 
             inline unsigned int GetTickOrder() const override
             {

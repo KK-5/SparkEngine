@@ -4,6 +4,8 @@
 
 #include <ECS/Entity.h>
 #include <ECS/WorldContext.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/Common.h>
 #include <ECS/Tag.h>
 #include <ECS/ISystem.h>
 #include <ECS/ComponentTraits.h>
@@ -345,6 +347,8 @@ TEST(ECSTest, EntityBus)
     WorldContext context;
     EntityHandler handler;
 
+    WorldExecuteContextGuard guard(context);
+
     Entity ent1 = context.CreateEntity();
     EXPECT_EQ(handler.Count(), 1);
     EXPECT_EQ(handler.Last(), ent1);
@@ -373,8 +377,10 @@ public:
         ComponentEventBus::MultiHandler::BusDisconnect();
     }
 
-    void OnComponentConstruct(WorldContext& context, Entity entity) override
+    void OnComponentConstruct(Entity entity) override
     {
+        ASSERT_NE(WorldExecuteContext::Current(), nullptr);
+        auto& context = *WorldExecuteContext::Current();
         if (!context.Valid(entity))
         {
             return;
@@ -390,8 +396,10 @@ public:
         }
     }
 
-    void OnComponentUpdated(WorldContext& context, Entity entity) override
+    void OnComponentUpdated(Entity entity) override
     {
+        ASSERT_NE(WorldExecuteContext::Current(), nullptr);
+        auto& context = *WorldExecuteContext::Current();
         if (context.HasAll<Position>(entity))
         {
             m_position = context.Get<Position>(entity);
@@ -402,8 +410,10 @@ public:
         }
     }
 
-    void OnComponentDestory(WorldContext& context, Entity entity) override
+    void OnComponentDestory(Entity entity) override
     {
+        ASSERT_NE(WorldExecuteContext::Current(), nullptr);
+        auto& context = *WorldExecuteContext::Current();
         if (context.HasAll<Position>(entity))
         {
             m_position.x = 0.f;
@@ -425,6 +435,8 @@ TEST(ECSTest, ComponentBus)
 {
     WorldContext context;
     ComponentHandler handler;
+
+    WorldExecuteContextGuard guard(context);
 
     auto ent1 = context.CreateEntity();
     context.Add<Position>(ent1, 1.f, 1.f);
@@ -454,6 +466,8 @@ TEST(ECSTest, DestoryEntityWithoutRegisterEventOnEntityRemove)
     WorldContext context;
     ComponentHandler handler;
 
+    WorldExecuteContextGuard guard(context);
+
     auto ent1 = context.CreateEntity();
     context.Add<Position>(ent1, 1.f, 1.f);
     EXPECT_FLOAT_EQ(handler.m_position.x, 1.f);
@@ -470,6 +484,8 @@ TEST(ECSTest, DestoryEntityAndComponentBus)
     ComponentHandler handler;
     context.RegisterEventOnEntityRemove<Position>();
 
+    WorldExecuteContextGuard guard(context);
+
     auto ent1 = context.CreateEntity();
     context.Add<Position>(ent1, 1.f, 1.f);
     EXPECT_FLOAT_EQ(handler.m_position.x, 1.f);
@@ -485,6 +501,8 @@ TEST(ECSTest, DestoryEntityWithRegisterEventsOnEntityRemove)
     WorldContext context;
     ComponentHandler handler;
     context.RegisterEventsOnEntityRemove<Position, Velocity>();
+
+    WorldExecuteContextGuard guard(context);
 
     auto ent1 = context.CreateEntity();
     context.Add<Position>(ent1, 1.f, 1.f);

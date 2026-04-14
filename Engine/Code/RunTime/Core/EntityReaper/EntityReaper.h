@@ -1,6 +1,9 @@
 #pragma once
 
 #include <ECS/ISystem.h>
+#include <ECS/ExecuteContext.h>
+#include <ECS/WorldContext.h>
+#include <ECS/Common.h>
 #include <Tick/TickBus.h>
 #include <CoreComponents/Tags.h>
 
@@ -32,10 +35,11 @@ namespace Spark
         }
 
         // TickBus
-        void OnTick(WorldContext& context, float deltaTime) override
+        void OnTick(float deltaTime) override
         {
-            auto view = context.GetView<DeadTag>();
-            context.DestoryEntity(view.begin(), view.end());
+            auto curContext = WorldExecuteContext::Current();
+            auto view = curContext->GetView<DeadTag>();
+            curContext->DestoryEntity(view.begin(), view.end());
         }
 
         unsigned int GetTickOrder() const

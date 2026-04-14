@@ -16,9 +16,8 @@ namespace Spark::Input
         }
     }
 
-    void InputCaptureSystem::CaptureWindowEvent(WorldContext& context)
+    void InputCaptureSystem::CaptureWindowEvent()
     {
-        m_contextRef = eastl::ref(context);
         Service<Window::IWindowSystem>::Get()->PollEvents();
     }
 
