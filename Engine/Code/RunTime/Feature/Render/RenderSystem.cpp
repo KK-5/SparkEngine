@@ -8,6 +8,9 @@
 
 #include <EASTL/any.h>
 
+#include <Pass/Pass.h>
+#include <Pass/PassContext.h>
+
 #include "../Window/IWindowSystem.h"
 #include "../UI/UIBaseSystem.h"
 
