@@ -30,6 +30,7 @@ namespace Spark::RHI::DX12
     class Device;
     class Buffer;
     class Image;
+    class ImGui;
 
     class DescriptorContext final : public RHI::DeviceObject
     {
@@ -136,6 +137,7 @@ namespace Spark::RHI::DX12
 
     private:
         friend class ID3D12Factory; // shutdown object
+        friend class ImGui;         // Get descriptor heap to bind
 
         // 定义每种D3D12_DESCRIPTOR_HEAP_TYPE可以创建的两种D3D12_DESCRIPTOR_HEAP_FLAGS描述符数量
         static const eastl::unordered_map<uint32_t, eastl::array<uint32_t, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE + 1>> s_descriptorHeapLimits;

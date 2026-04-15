@@ -61,6 +61,7 @@ set(SOURCES
     RenderTargetContext/RenderTargetContext.cpp
     SwapChain/SwapChain.cpp
     Viewport/VIewport.cpp
+    UI/ImGui.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -70,6 +71,7 @@ add_library(${TARGET_NAME} STATIC
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
+        ImGui
 )
 
 add_subdirectory(Backend/DX12)

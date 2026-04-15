@@ -47,39 +47,6 @@ namespace Spark::RHI
         }
     }
 
-    /*
-    ResultCode Device::BeginFrame()
-    {
-        if (IsInitialized() && !m_isInFrame)
-        {
-            m_isInFrame = true;
-            return BeginFrameInternal();
-        }
-        return ResultCode::InvalidOperation;
-    }
-
-    ResultCode Device::EndFrame()
-    {
-        if (IsInitialized() && m_isInFrame)
-        {
-            EndFrameInternal();
-            m_isInFrame = false;
-            return ResultCode::Success;
-        }
-        return ResultCode::InvalidOperation;
-    }
-
-    ResultCode Device::WaitForIdle()
-    {
-        if (IsInitialized() && !m_isInFrame)
-        {
-            WaitForIdleInternal();
-            return ResultCode::Success;
-        }
-        return ResultCode::InvalidOperation;
-    }
-    */
-
     const PhysicalDevice& Device::GetPhysicalDevice() const
     {
         return *m_physicalDevice;

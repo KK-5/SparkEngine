@@ -4,6 +4,7 @@
 #include <imgui_internal.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
+#include <backends/imgui_impl_dx12.h>
 #include <glfw/glfw3.h>
 
 #include <Log/SpdLogSystem.h>
@@ -36,6 +37,8 @@ namespace Editor
         GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
         ImGui_ImplGlfw_InitForOpenGL(window, true);
         ImGui_ImplOpenGL3_Init("#version 330");
+        // ImGui_ImplGlfw_InitForOther(window, true);
+        // ImGui_ImplDX12_Init();
 
         m_dockLayoutInit = false;
         m_menuBar = eastl::make_unique<MenuBar>();
@@ -55,6 +58,7 @@ namespace Editor
         }
 
         ImGui_ImplOpenGL3_Shutdown();
+        //ImGui_ImplDX12_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
     }
@@ -99,6 +103,7 @@ namespace Editor
     void EditorUI::NewFrame()
     {
         ImGui_ImplOpenGL3_NewFrame();
+        //ImGui_ImplDX12_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
     }

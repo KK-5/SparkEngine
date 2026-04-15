@@ -36,6 +36,7 @@ set(SOURCES
     Resource/ShaderResource/ShaderResourceCompiler.cpp
     Resource/ShaderResource/ShaderResource.cpp
     SwapChain/SwapChain.cpp
+    UI/ImGui.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
