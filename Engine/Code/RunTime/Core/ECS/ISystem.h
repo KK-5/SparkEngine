@@ -64,7 +64,7 @@ namespace Spark
     {
         static_assert(eastl::is_base_of_v<ISystem, T>, "T must derive from ISystem");
         return SystemUniquePtr<T>(
-            new T(std::forward<Args>(args)...)
+            new T(eastl::forward<Args>(args)...)
         );
     }
 }
