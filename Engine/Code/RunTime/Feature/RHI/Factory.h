@@ -93,7 +93,7 @@ namespace Spark::RHI
 
         virtual Ptr<PipelineLayoutDescriptor> CreatePipelineLayoutDescriptor() = 0;
 
-        virtual ImGui* GetImGui(Device& device) = 0;
+        virtual UniquePtr<ImGui> CreateRHIImGui() = 0;
         ///////////////////////////////
         // no platform backend object
 

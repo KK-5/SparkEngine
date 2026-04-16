@@ -16,4 +16,10 @@ namespace Spark
 
     template <typename T, typename Deleter = eastl::default_delete<const T>>
     using ConstUniquePtr = eastl::unique_ptr<const T, Deleter>;
+
+    template<typename T, typename... Args>
+    inline auto MakeUnique(Args&&... args)
+    {
+        return eastl::make_unique<T>(eastl::forward<Args>(args)...);
+    }
 }

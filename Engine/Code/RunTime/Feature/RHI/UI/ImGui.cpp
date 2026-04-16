@@ -1,5 +1,7 @@
 #include "ImGui.h"
 
+#include <Log/SpdLogSystem.h>
+
 #include <RHI/Device/Device.h>
 #include <RHI/Command/CommandQueue.h>
 
@@ -9,6 +11,11 @@ namespace Spark::RHI
     {
         m_desc = desc;
 
+        if (commandQueue.GetDescriptor().m_hardwareQueueClass != RHI::HardwareQueueClass::Graphics)
+        {
+            LOG_ERROR("[ImGui] Require a graphics command queue to initialize ImGui.");
+            return ResultCode::InvalidArgument;
+        }
         return InitInternal(device, commandQueue, desc);
     }
 

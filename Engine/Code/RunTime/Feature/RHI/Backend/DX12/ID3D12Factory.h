@@ -32,6 +32,8 @@
 #include "Descriptor/DescriptorContext.h"
 #include "Resource/Constant/ConstantBufferContext.h"
 
+#include "UI/ImGui.h"
+
 namespace Spark::RHI
 {
     class SamplerState;
@@ -134,6 +136,8 @@ namespace Spark::RHI::DX12
         Ptr<RHI::SwapChain> CreateSwapChain() override;
 
         Ptr<RHI::PipelineLayoutDescriptor> CreatePipelineLayoutDescriptor() override;
+
+        UniquePtr<RHI::ImGui> CreateRHIImGui() override;
         ///////////////////////////////////////////////////////////
 
     private:

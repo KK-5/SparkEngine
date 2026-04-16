@@ -347,4 +347,13 @@ namespace Spark::RHI::DX12
     {
         return static_cast<RHI::PipelineLayoutDescriptor*>(new PipelineLayoutDescriptor());
     }
+
+    UniquePtr<RHI::ImGui> CreateRHIImGui()
+    {
+        return MakeUnique<ImGui>(new ImGui, [](ImGui* ptr){
+            static_assert(eastl::internal::is_complete_type_v<ImGui>, "Attempting to call the destructor of an incomplete type");
+            ptr->Shutdown();
+            delete ptr;
+        });
+    }
 }
