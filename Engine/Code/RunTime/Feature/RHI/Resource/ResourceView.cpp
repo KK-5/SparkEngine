@@ -1,5 +1,6 @@
 #include "ResourceView.h"
 
+#include <Log/SpdLogSystem.h>
 #include "Resource.h"
 
 namespace Spark::RHI
@@ -28,6 +29,10 @@ namespace Spark::RHI
 
             m_resource = nullptr;
             DeviceObject::Shutdown();
+        }
+        else
+        {
+            LOG_ERROR("[ResourceView] Shutdown an uninitialize resource view.");
         }
     }
 

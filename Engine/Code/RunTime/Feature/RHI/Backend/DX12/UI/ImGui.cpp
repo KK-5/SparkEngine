@@ -89,4 +89,9 @@ namespace Spark::RHI::DX12
             userData->allocatedHandles.erase(it);
         }
     }
+
+    ImGui::~ImGui()
+    {
+        Shutdown();
+    }
 }

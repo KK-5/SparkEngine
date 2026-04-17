@@ -12,6 +12,11 @@
 
 namespace Spark::RHI
 {
+    ConstantsLayout::~ConstantsLayout()
+    {
+        Clear();
+    }
+
     void ConstantsLayout::AddShaderInput(const ShaderInputConstantDescriptor& descriptor)
     {
         m_inputs.push_back(descriptor);

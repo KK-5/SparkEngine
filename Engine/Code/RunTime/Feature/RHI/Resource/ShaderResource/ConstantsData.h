@@ -12,9 +12,9 @@
  */
 #pragma once
 
-#include <EASTL/unique_ptr.h>
 #include <EASTL/vector.h>
 #include <EASTL/span.h>
+#include <Base.h>
 #include <RHI/Base.h>
 
 #include "ConstantsLayout.h"
@@ -55,7 +55,7 @@ namespace Spark::RHI
         bool ValidateConstantAccess(ShaderInputIndex inputIndex, size_t offsetInBytes, size_t sizeInBytes) const;
         bool ValidateConstantBufferAccess(size_t offsetInBytes, size_t sizeInBytes) const;
 
-        eastl::unique_ptr<const ConstantsLayout> m_layout;
+        ConstPtr<ConstantsLayout> m_layout;
         eastl::vector<uint8_t> m_constantData;
     };
 }

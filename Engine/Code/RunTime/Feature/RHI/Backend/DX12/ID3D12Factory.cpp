@@ -76,7 +76,7 @@ namespace Spark::RHI::DX12
 
     void ID3D12Factory::BeginFrame()
     {
-        
+
     }
 
     void ID3D12Factory::EndFrame()
@@ -348,12 +348,8 @@ namespace Spark::RHI::DX12
         return static_cast<RHI::PipelineLayoutDescriptor*>(new PipelineLayoutDescriptor());
     }
 
-    UniquePtr<RHI::ImGui> CreateRHIImGui()
+    UniquePtr<RHI::ImGui> ID3D12Factory::CreateRHIImGui()
     {
-        return MakeUnique<ImGui>(new ImGui, [](ImGui* ptr){
-            static_assert(eastl::internal::is_complete_type_v<ImGui>, "Attempting to call the destructor of an incomplete type");
-            ptr->Shutdown();
-            delete ptr;
-        });
+        return UniquePtr<RHI::ImGui>(new ImGui);
     }
 }

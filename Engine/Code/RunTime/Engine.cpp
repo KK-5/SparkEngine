@@ -30,6 +30,9 @@ namespace Spark
         m_inputSystem = CreateSystem<Input::InputSystem>();
         m_inputSystem->Init();
 
+        m_dx12Rhi = CreateSystem<RHI::DX12::RHISystem>();
+        m_dx12Rhi->Init();
+
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();
     }

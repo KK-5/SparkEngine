@@ -15,6 +15,8 @@ target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
         SparkInput
+        SparkRHI
+        SparkRHI_DX12
         SparkRender
         SparkUI
         SparkAssetManager

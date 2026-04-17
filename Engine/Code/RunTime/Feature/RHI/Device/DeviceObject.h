@@ -31,6 +31,6 @@ namespace Spark::RHI
 
     private:
         Ptr<Device> m_device = nullptr;
-        DeviceObjectPoolBase* m_objectPool;
+        DeviceObjectPoolBase* m_objectPool = nullptr;
     };
 }

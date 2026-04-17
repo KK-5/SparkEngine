@@ -23,6 +23,8 @@ namespace Spark::RHI::DX12
     class ImGui final : public RHI::ImGui
     {
     public:
+        ~ImGui();
+
         void Shutdown() override;
         void NewFrame() override;
         void RenderDrawData(ImDrawData* drawData, RHI::CommandList* commandList) override;

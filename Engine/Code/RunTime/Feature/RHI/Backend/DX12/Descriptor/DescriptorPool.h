@@ -74,7 +74,8 @@ namespace Spark::RHI::DX12
         void ReleaseTable(DescriptorTable& table) override
         {
             ASSERT(table.GetSize() == 1, "Try to release a desciriptortable that is not allocate from this pool");
-            ReleaseHandle(table.GetOffset());
+            DescriptorHandle handle = table.GetOffset();
+            ReleaseHandle(handle);
         }
 
         D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable table) const override

@@ -8,8 +8,9 @@
 #include <Log/SpdLogSystem.h>
 #include <SceneManager/SceneManager.h>
 #include <EntityReaper/EntityReaper.h>
-#include <Feature/Render/RenderSystem.h>
-#include <Feature/Input/InputSystem.h>
+#include <Render/RenderSystem.h>
+#include <Input/InputSystem.h>
+#include <RHI/Backend/DX12/RHISystem.h>
 
 namespace Spark
 {
@@ -47,5 +48,6 @@ namespace Spark
         SystemUniquePtr<Input::InputSystem>   m_inputSystem;
         SystemUniquePtr<SceneManager>         m_sceneManager;
         SystemUniquePtr<EntityReaper>         m_entityReaper;
+        SystemUniquePtr<RHI::DX12::RHISystem> m_dx12Rhi;
     };
 }

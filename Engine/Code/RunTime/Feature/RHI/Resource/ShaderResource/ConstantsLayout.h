@@ -31,6 +31,8 @@ namespace Spark::RHI
         //! Adds a shader input to the constants layout.
         void AddShaderInput(const ShaderInputConstantDescriptor& descriptor);
 
+        ~ConstantsLayout();
+
         //! Clears the layout to an empty state. The layout must be finalized prior to usage.
         void Clear();
 

@@ -33,10 +33,7 @@ namespace Spark::RHI
 
     void FenceSet::Shutdown()
     {
-        for (uint32_t hardwareQueueIdx = 0; hardwareQueueIdx < RHI::HardwareQueueClassCount; ++hardwareQueueIdx)
-        {
-            m_fences[hardwareQueueIdx]->Shutdown();
-        }
+        // easlt container auto release
     }
 
     void FenceSet::Wait() const
@@ -107,18 +104,7 @@ namespace Spark::RHI
 
     void CommandQueueContext::Shutdown()
     {
-        m_compiledFences.Shutdown();
-
-        for (FenceSet& fenceSet : m_frameFences)
-        {
-            fenceSet.Shutdown();
-        }
-        m_frameFences.clear();
-
-        for (uint32_t hardwareQueueIdx = 0; hardwareQueueIdx < RHI::HardwareQueueClassCount; ++hardwareQueueIdx)
-        {
-            m_commandQueues[hardwareQueueIdx]->Shutdown();
-        }
+        // easlt container auto release
     }
 
     CommandQueue& CommandQueueContext::GetCommandQueue(RHI::HardwareQueueClass hardwareQueueClass)
