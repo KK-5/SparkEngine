@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Base.h>
+#include <Object/ObjectName.h>
 
 #include <RHI/Resource/ShaderResource/InputStreamLayout.h>
 #include <RHI/Attachment/RenderAttachmentLayout.h>
@@ -8,6 +9,8 @@
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
 
 #include <Resource/Shader/ShaderAsset.h>
+
+#include "Pass.h"
 
 namespace Spark::Render
 {
@@ -22,11 +25,31 @@ namespace Spark::Render
     struct RayTracingPassTag
     {
     };
+
+    struct ParentPassTag
+    {
+    };
     
     ////////////////////////////////////////////////////
+    struct PassName
+    {
+        ObjectName m_name {};
+    };
+
     struct PassInputLayout
     {
         RHI::InputStreamLayout m_inputLayout {};
+    };
+
+    struct PassRenderAttachmentLayout
+    {
+        RHI::RenderAttachmentLayout m_layout {};
+    };
+
+    struct ParentPass
+    {
+        Pass     m_parent {NullPass};
+        uint32_t m_subPassIndex {0};
     };
 
     struct PassRenderAttachment
@@ -60,5 +83,10 @@ namespace Spark::Render
         eastl::function<void()> m_buildFunction;
         eastl::function<void()> m_compileFunction;
         eastl::function<void()> m_executeFunction;
+    };
+
+    struct RHIResources
+    {
+        // eastl::vector<RHI:>
     };
 }
