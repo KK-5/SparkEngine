@@ -54,4 +54,11 @@ namespace Spark::Render
         eastl::vector<RHI::ShaderInputSamplerDescriptor>  m_inputSamplers;
         eastl::vector<RHI::ShaderInputConstantDescriptor> m_inputConstants;
     };
+
+    struct PassFunctions
+    {
+        eastl::function<void()> m_buildFunction;
+        eastl::function<void()> m_compileFunction;
+        eastl::function<void()> m_executeFunction;
+    };
 }

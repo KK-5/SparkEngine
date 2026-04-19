@@ -217,7 +217,7 @@ namespace Spark::SandBox
                            ->Channel("COLOR", 0, RHI::Format::R32G32B32A32_FLOAT);
         desc.m_inputStreamLayout = builder.End();
 
-        // render config. just for vulkan
+        // render config. vulkan style
         RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
         attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM);
         RHI::RenderAttachmentLayout renderAttachmentLayout;

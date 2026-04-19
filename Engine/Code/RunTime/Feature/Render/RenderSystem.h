@@ -4,6 +4,11 @@
 #include <Tick/TickOrder.h>
 #include <Tick/TickBus.h>
 
+#include <RHI/RHIInterface.h>
+#include <RHI/Factory.h>
+#include <RHI/Command/CommandQueueContext.h>
+#include <RHI/RenderTargetContext/RenderTargetContext.h>
+
 namespace Spark::Render
 {
     class RenderSystem final: 
@@ -34,6 +39,14 @@ namespace Spark::Render
         }
 
     private:
+        struct RHIContext
+        {
+            RHI::Factory* m_factory;
+            Ptr<RHI::Device> m_device;
+            RHI::CommandQueueContext m_commandQueuecontext;
+            RHI::RenderTargetContext m_rtContext;
+        };
 
+        RHIContext m_rhiContext;
     };
 }
