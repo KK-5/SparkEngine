@@ -10,7 +10,12 @@
 
 #include <Resource/Shader/ShaderAsset.h>
 
-#include "Pass.h"
+#include <Pass/Pass.h>
+
+namespace Spark::RHI
+{
+    class CommandList;
+}
 
 namespace Spark::Render
 {
@@ -27,6 +32,10 @@ namespace Spark::Render
     };
 
     struct ParentPassTag
+    {
+    };
+
+    struct ActivePassTag
     {
     };
     
@@ -82,11 +91,6 @@ namespace Spark::Render
     {
         eastl::function<void()> m_buildFunction;
         eastl::function<void()> m_compileFunction;
-        eastl::function<void()> m_executeFunction;
-    };
-
-    struct RHIResources
-    {
-        // eastl::vector<RHI:>
+        eastl::function<void(RHI::CommandList* commandList)> m_executeFunction;
     };
 }

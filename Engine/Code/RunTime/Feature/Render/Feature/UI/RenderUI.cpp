@@ -1,5 +1,7 @@
 #include "RenderUI.h"
 
+#include <EASTL/any.h>
+
 #include <Log/SpdLogSystem.h>
 #include <Service/Service.h>
 #include <RHI/RHIInterface.h>
@@ -7,6 +9,8 @@
 #include <RHI/Command/CommandQueue.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/UI/ImGuiDescriptor.h>
+
+#include <UI/UIBaseSystem.h>
 
 namespace Spark::Render
 {
@@ -39,17 +43,25 @@ namespace Spark::Render
         }
     }
 
-    void RenderUI::Render(ImDrawData* drawData, RHI::CommandList* commandList)
+    void RenderUI::Render(RHI::CommandList* commandList)
     {
-        if (!drawData || !commandList)
+        if (!commandList)
         {
-            LOG_ERROR("[RenderUI] Invalid imgui render data or rhi commandlist");
+            LOG_ERROR("[RenderUI] Invalid rhi commandlist");
             return;
         }
 
-        if (m_rhiImGUi)
+        auto ui = Service<UI::UIBaseSystem>::Get();
+        if (!ui)
         {
-            m_rhiImGUi->RenderDrawData(drawData, commandList);
+            LOG_ERROR("[RenderUI] Invalid imgui window");
+            return;
+        }
+        auto drawData = ui->GetUIRenderData();
+        ImDrawData* imguiDrawData = eastl::any_cast<ImDrawData*>(drawData);
+        if (m_rhiImGUi && imguiDrawData)
+        {
+            m_rhiImGUi->RenderDrawData(imguiDrawData, commandList);
         }
     }
 }

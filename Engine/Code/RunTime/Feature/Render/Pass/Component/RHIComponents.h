@@ -2,6 +2,8 @@
 
 #include <Object/ObjectName.h>
 
+#include <Pass/RHIHandle.h>
+
 #include <RHI/Resource/Buffer/BufferDescriptor.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
@@ -14,7 +16,7 @@ namespace Spark::Render
     {
         ObjectName m_name {};
     };
-
+    /*
     struct RHIBuffer
     {
         RHI::BufferDescriptor m_desc {};
@@ -39,17 +41,17 @@ namespace Spark::Render
     {
         RHI::ImageViewDescriptor m_desc {};
     };
+    */
 
-
-    struct ResourceViewHierichy
+    struct ResourceHierarchy
     {
-        uint32_t m_firstView;
+        RHIHandle m_firstView;
     };
 
-    struct ViewHierichy
+    struct ViewHierarchy
     {
-        uint32_t m_parentResource;
-        uint32_t m_prevView;
-        uint32_t m_nextView;
+        RHIHandle m_parentResource;
+        RHIHandle m_prevView;
+        RHIHandle m_nextView;
     };
 }

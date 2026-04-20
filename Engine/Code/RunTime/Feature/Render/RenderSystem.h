@@ -9,6 +9,9 @@
 #include <RHI/Command/CommandQueueContext.h>
 #include <RHI/RenderTargetContext/RenderTargetContext.h>
 
+#include "Pass/Pipeline.h"
+#include "Feature/UI/RenderUI.h"
+
 namespace Spark::Render
 {
     class RenderSystem final: 
@@ -39,14 +42,22 @@ namespace Spark::Render
         }
 
     private:
-        struct RHIContext
+        bool InitRHIData();
+        bool InitRenderUI();
+
+        struct RHIData
         {
             RHI::Factory* m_factory;
             Ptr<RHI::Device> m_device;
             RHI::CommandQueueContext m_commandQueuecontext;
+            Ptr<RHI::ImagePool> m_renderTargetImagePool;
+            Ptr<RHI::SwapChain> m_swapChain;
             RHI::RenderTargetContext m_rtContext;
         };
 
-        RHIContext m_rhiContext;
+        RHIData m_rhiData;
+        RenderUI m_rednerUI;
+
+        Pipeline m_pipeline {"default"};
     };
 }

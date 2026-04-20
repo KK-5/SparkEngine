@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Object/ObjectName.h>
 #include "PassContext.h"
 #include "RHIContext.h"
 
@@ -8,23 +9,20 @@ namespace Spark::Render
     class Pipeline final
     {
     public:
-        void Init();
+        Pipeline() = default;
+        Pipeline(eastl::string_view name);
+        
+        void SetName(eastl::string_view name);
+        ObjectName GetName() const;
 
-        void Shutdown();
-
-        PassContext& GetContext();
+        PassContext& GetPassContext();
+        const PassContext& GetPassContext() const;
+        RHIContext& GetRHIContext();
+        const RHIContext& GetRHIContext() const;
         
     private:
-        void BuildPipeline();
-
-        void BuildUIPass();
-
-        struct RHIResources
-        {
-            
-        };
-
         PassContext m_passContext;
         RHIContext  m_rhiContext;
+        ObjectName  m_name;
     };
 }

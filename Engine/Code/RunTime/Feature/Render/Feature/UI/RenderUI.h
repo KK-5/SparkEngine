@@ -21,7 +21,7 @@ namespace Spark::Render
 
         void NewFrame() override;
 
-        void Render(ImDrawData* drawData, RHI::CommandList* commandList);
+        void Render(RHI::CommandList* commandList);
 
     private:
         UniquePtr<RHI::ImGui> m_rhiImGUi;
