@@ -9,6 +9,9 @@
 
 #include <RHI/SwapChain/SwapChainDescriptor.h>
 #include <RHI/SwapChain/SwapChain.h>
+#include <RHI/Bus/FrameEventBus.h>
+#include <RHI/Attachment/RenderAttachmentLayout.h>
+#include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
 
 #include <Pass/Pass.h>
 #include <Pass/PassContext.h>
@@ -83,23 +86,44 @@ namespace Spark::Render
         if (result != RHI::ResultCode::Success)
         {
             LOG_ERROR("[RenderSystem] Create swap chain failed!");
+            return false;
         }
+
+        return true;
     }
 
     bool RenderSystem::InitRenderUI()
     {
-        //m_rednerUI.Init()
+        RHI::ImGuiDescriptor desc;
+        desc.m_rtvFormat = RHI::Format::R8G8B8A8_UNORM;
+        desc.m_dsvFormat = RHI::Format::D32_FLOAT;
+        m_rednerUI.Init(*m_rhiData.m_device, m_rhiData.m_commandQueuecontext.GetCommandQueue(RHI::HardwareQueueClass::Graphics), desc);
+        return true;
     }
 
-    void RenderSystem::InitInternal()
+    void RenderSystem::BuildPipeline()
     {
-
-
-
         auto& passContext = m_pipeline.GetPassContext();
+        
+        Pass parentPass = passContext.CreateEntity();
+        passContext.Add<PassName>(parentPass, "Parent Pass");
+        passContext.Add<ActivePassTag>(parentPass);
+        passContext.Add<ParentPassTag>(parentPass);
+
+        RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
+        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM)
+                                      ->DepthStencilAttachment(RHI::Format::D32_FLOAT);
+        RHI::RenderAttachmentLayout renderAttachmentLayout;
+        attachmentBuilder.End(renderAttachmentLayout);
+        passContext.Add<RHI::RenderAttachmentLayout>(parentPass, renderAttachmentLayout);
+
+
+
         Pass uiPass = passContext.CreateEntity();
         passContext.Add<PassName>(uiPass, "UIPass");
         passContext.Add<ActivePassTag>(uiPass);
+        passContext.Add<RenderPassTag>(uiPass);
+        passContext.Add<ParentPassInfo>(uiPass, parentPass, 0);
 
         PassFunctions uiPassFunc;
         uiPassFunc.m_executeFunction = [](RHI::CommandList* commandList)
@@ -112,8 +136,41 @@ namespace Spark::Render
                 return;
             }
         };
-        
+        passContext.Add<PassFunctions>(uiPass, uiPassFunc);
 
+        auto& rhiContext = m_pipeline.GetRHIContext();
+        for (uint32_t i = 0; i < m_rhiData.m_swapChain->GetDescriptor().m_dimensions.m_imageCount; ++i)
+        {
+            auto image = m_rhiData.m_swapChain->GetImage(i);
+            Ptr<RHI::ImageView> imageview = m_rhiData.m_factory->CreateImageView();
+            RHI::ImageViewDescriptor viewDesc;
+            viewDesc.m_mipSliceMin = 0;
+            viewDesc.m_mipSliceMax = 0;
+            viewDesc.m_arraySliceMin = 0;
+            viewDesc.m_arraySliceMax = 0;
+            RHI::ResultCode result = imageview->Init(*image, viewDesc);
+            if (result != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("Create swap chain view failed.");
+                continue;
+            }
+            RHIHandle swapchainHandle = rhiContext.CreateEntity();
+            rhiContext.Add<Ptr<RHI::ImageView>>(swapchainHandle, eastl::move(imageview));
+            rhiContext.Add<SwapChainView>(swapchainHandle, i);
+        }
+    }
+
+    void ExecutePipeline(Pipeline& pipeline)
+    {
+        RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
+
+
+
+        RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
+    }
+
+    void RenderSystem::InitInternal()
+    {
         TickBus::Handler::BusConnect();
     }
 
@@ -124,6 +181,7 @@ namespace Spark::Render
 
     void RenderSystem::OnTick(float deltaTime)
     {
+        // Simple execute
 
 
 

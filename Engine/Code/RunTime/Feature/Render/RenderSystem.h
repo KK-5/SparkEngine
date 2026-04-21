@@ -45,14 +45,18 @@ namespace Spark::Render
         bool InitRHIData();
         bool InitRenderUI();
 
+        void BuildPipeline();
+
+
+        void ExecutePipeline(Pipeline& pipeline);
+
         struct RHIData
         {
             RHI::Factory* m_factory;
             Ptr<RHI::Device> m_device;
             RHI::CommandQueueContext m_commandQueuecontext;
-            Ptr<RHI::ImagePool> m_renderTargetImagePool;
             Ptr<RHI::SwapChain> m_swapChain;
-            RHI::RenderTargetContext m_rtContext;
+            // eastl::vector<Ptr<RHI::ImageView>>
         };
 
         RHIData m_rhiData;

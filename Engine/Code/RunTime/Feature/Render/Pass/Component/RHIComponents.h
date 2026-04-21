@@ -16,6 +16,11 @@ namespace Spark::Render
     {
         ObjectName m_name {};
     };
+
+    struct SwapChainView
+    {
+        uint32_t m_index;
+    };
     /*
     struct RHIBuffer
     {

@@ -55,7 +55,7 @@ namespace Spark::Render
         RHI::RenderAttachmentLayout m_layout {};
     };
 
-    struct ParentPass
+    struct ParentPassInfo
     {
         Pass     m_parent {NullPass};
         uint32_t m_subPassIndex {0};
