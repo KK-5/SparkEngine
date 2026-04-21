@@ -14,6 +14,7 @@
 #include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
 
 #include <Pass/Pass.h>
+#include <Pass/PassTag.h>
 #include <Pass/PassContext.h>
 #include <Pass/RHIContext.h>
 #include <Pass/Component/PassComponents.h>
@@ -157,6 +158,7 @@ namespace Spark::Render
             RHIHandle swapchainHandle = rhiContext.CreateEntity();
             rhiContext.Add<Ptr<RHI::ImageView>>(swapchainHandle, eastl::move(imageview));
             rhiContext.Add<SwapChainView>(swapchainHandle, i);
+            // rhiContext.Add<PassTag<uiPass>>(swapchainHandle);
         }
     }
 
