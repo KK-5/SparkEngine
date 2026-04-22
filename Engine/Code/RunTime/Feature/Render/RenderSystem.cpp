@@ -71,7 +71,6 @@ namespace Spark::Render
             return false;
         }
 
-        RHI::SwapChainDescriptor desc;
         m_rhiData.m_swapChain = m_rhiData.m_factory->CreateSwapChain();
         RHI::SwapChainDescriptor desc;
         desc.m_dimensions.m_imageCount = deviceDesc.m_frameCountMax;
@@ -88,6 +87,28 @@ namespace Spark::Render
         {
             LOG_ERROR("[RenderSystem] Create swap chain failed!");
             return false;
+        }
+
+        auto& rhiContext = m_rhiContext;
+        for (uint32_t i = 0; i < m_rhiData.m_swapChain->GetDescriptor().m_dimensions.m_imageCount; ++i)
+        {
+            auto image = m_rhiData.m_swapChain->GetImage(i);
+            Ptr<RHI::ImageView> imageview = m_rhiData.m_factory->CreateImageView();
+            RHI::ImageViewDescriptor viewDesc;
+            viewDesc.m_mipSliceMin = 0;
+            viewDesc.m_mipSliceMax = 0;
+            viewDesc.m_arraySliceMin = 0;
+            viewDesc.m_arraySliceMax = 0;
+            RHI::ResultCode viewResult = imageview->Init(*image, viewDesc);
+            if (viewResult != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("Create swap chain view failed.");
+                continue;
+            }
+            RHIHandle swapchainHandle = rhiContext.CreateEntity();
+            rhiContext.Add<Ptr<RHI::ImageView>>(swapchainHandle, eastl::move(imageview));
+            rhiContext.Add<SwapChainView>(swapchainHandle, i);
+            // rhiContext.Add<PassTag<uiPass>>(swapchainHandle);
         }
 
         return true;
@@ -107,13 +128,13 @@ namespace Spark::Render
         auto& passContext = m_pipeline.GetPassContext();
         
         Pass parentPass = passContext.CreateEntity();
-        passContext.Add<PassName>(parentPass, "Parent Pass");
+        passContext.Add<PassName>(parentPass, ObjectName("Parent Pass"));
         passContext.Add<ActivePassTag>(parentPass);
         passContext.Add<ParentPassTag>(parentPass);
 
         RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
-        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM)
-                                      ->DepthStencilAttachment(RHI::Format::D32_FLOAT);
+        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM, "Color")
+                                      ->DepthStencilAttachment(RHI::Format::D32_FLOAT, "Depth");
         RHI::RenderAttachmentLayout renderAttachmentLayout;
         attachmentBuilder.End(renderAttachmentLayout);
         passContext.Add<RHI::RenderAttachmentLayout>(parentPass, renderAttachmentLayout);
@@ -121,45 +142,22 @@ namespace Spark::Render
 
 
         Pass uiPass = passContext.CreateEntity();
-        passContext.Add<PassName>(uiPass, "UIPass");
+        passContext.Add<PassName>(uiPass, ObjectName("UIPass"));
         passContext.Add<ActivePassTag>(uiPass);
         passContext.Add<RenderPassTag>(uiPass);
-        passContext.Add<ParentPassInfo>(uiPass, parentPass, 0);
+        passContext.Add<ParentPassInfo>(uiPass, parentPass, (uint32_t)0);
 
         PassFunctions uiPassFunc;
-        uiPassFunc.m_executeFunction = [](RHI::CommandList* commandList)
+        uiPassFunc.m_buildFunction = [](RHIContext& rhiContext)
         {
-            eastl::any renderData = Service<UI::UIBaseSystem>::Get()->GetUIRenderData();
-            ImDrawData* data = eastl::any_cast<ImDrawData*>(renderData);
-            if (!data)
-            {
-                LOG_ERROR("[UI Pass] Imgui render data is null.");
-                return;
-            }
+
+        };
+        uiPassFunc.m_executeFunction = [&](RHI::CommandList* commandList)
+        {
+            m_rednerUI.Render(commandList);
         };
         passContext.Add<PassFunctions>(uiPass, uiPassFunc);
 
-        auto& rhiContext = m_pipeline.GetRHIContext();
-        for (uint32_t i = 0; i < m_rhiData.m_swapChain->GetDescriptor().m_dimensions.m_imageCount; ++i)
-        {
-            auto image = m_rhiData.m_swapChain->GetImage(i);
-            Ptr<RHI::ImageView> imageview = m_rhiData.m_factory->CreateImageView();
-            RHI::ImageViewDescriptor viewDesc;
-            viewDesc.m_mipSliceMin = 0;
-            viewDesc.m_mipSliceMax = 0;
-            viewDesc.m_arraySliceMin = 0;
-            viewDesc.m_arraySliceMax = 0;
-            RHI::ResultCode result = imageview->Init(*image, viewDesc);
-            if (result != RHI::ResultCode::Success)
-            {
-                LOG_ERROR("Create swap chain view failed.");
-                continue;
-            }
-            RHIHandle swapchainHandle = rhiContext.CreateEntity();
-            rhiContext.Add<Ptr<RHI::ImageView>>(swapchainHandle, eastl::move(imageview));
-            rhiContext.Add<SwapChainView>(swapchainHandle, i);
-            // rhiContext.Add<PassTag<uiPass>>(swapchainHandle);
-        }
     }
 
     void ExecutePipeline(Pipeline& pipeline)

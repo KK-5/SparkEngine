@@ -26,14 +26,4 @@ namespace Spark::Render
     {
         return m_passContext;
     }
-
-    RHIContext& Pipeline::GetRHIContext()
-    {
-        return m_rhiContext;
-    }
-
-    const RHIContext& Pipeline::GetRHIContext() const
-    {
-        return m_rhiContext;
-    }
 }

@@ -11,6 +11,7 @@
 #include <Resource/Shader/ShaderAsset.h>
 
 #include <Pass/Pass.h>
+#include <Pass/RHIContext.h>
 
 namespace Spark::RHI
 {
@@ -89,7 +90,7 @@ namespace Spark::Render
 
     struct PassFunctions
     {
-        eastl::function<void()> m_buildFunction;
+        eastl::function<void(RHIContext& rhiContext)> m_buildFunction;
         eastl::function<void()> m_compileFunction;
         eastl::function<void(RHI::CommandList* commandList)> m_executeFunction;
     };

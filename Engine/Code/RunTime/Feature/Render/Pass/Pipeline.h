@@ -2,7 +2,6 @@
 
 #include <Object/ObjectName.h>
 #include "PassContext.h"
-#include "RHIContext.h"
 
 namespace Spark::Render
 {
@@ -17,12 +16,9 @@ namespace Spark::Render
 
         PassContext& GetPassContext();
         const PassContext& GetPassContext() const;
-        RHIContext& GetRHIContext();
-        const RHIContext& GetRHIContext() const;
         
     private:
         PassContext m_passContext;
-        RHIContext  m_rhiContext;
         ObjectName  m_name;
     };
 }

@@ -5,7 +5,7 @@ namespace Spark::Render
     class RenderUIInterface
     {
     public:
-        virtual ~RenderUIInterface() = 0;
+        virtual ~RenderUIInterface() = default;
 
         virtual void NewFrame() = 0;  // Called when frame begin
     };
