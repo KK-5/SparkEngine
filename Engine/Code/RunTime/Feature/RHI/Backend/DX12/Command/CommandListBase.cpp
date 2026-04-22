@@ -97,12 +97,12 @@ namespace Spark::RHI::DX12
         return m_isRecording;
     }
 
-    ID3D12GraphicsCommandList* CommandListBase::GetCommandList()
+    ID3D12GraphicsCommandListX* CommandListBase::GetCommandList()
     {
         return m_commandList.Get();
     }
 
-    const ID3D12GraphicsCommandList* CommandListBase::GetCommandList() const
+    const ID3D12GraphicsCommandListX* CommandListBase::GetCommandList() const
     {
         return m_commandList.Get();
     }

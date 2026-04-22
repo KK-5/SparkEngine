@@ -599,55 +599,132 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void CommandList::SetRenderTargets(
-        uint32_t renderTargetCount,
-        const RHI::ImageView* const* renderTargets,
-        const RHI::ImageView* depthStencil,
-        RHI::AttachmentAccess depthStencilAccess,
-        const RHI::ImageView* shadingRate)
+    // Resolves the effective format of an image view: override if set, otherwise the image's format.
+    static RHI::Format ResolveImageViewFormat(const ImageView* view)
+    {
+        const RHI::Format overrideFormat = view->GetDescriptor().m_overrideFormat;
+        return overrideFormat != RHI::Format::Unknown
+            ? overrideFormat
+            : static_cast<const RHI::Image&>(view->GetResource()).GetDescriptor().m_format;
+    }
+
+    // Fills an MSAA-resolve EndingAccess using the color attachment's source / resolve views.
+    // The subresource parameter block is kept alive via `subresourceStorage`, which must
+    // outlive the pending BeginRenderPass call (CommandList stores it as a member).
+    static void FillResolveEndingAccess(
+        const ImageView& srcView,
+        const ImageView& dstView,
+        RHI::Format format,
+        bool preserveSource,
+        D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS& subresourceStorage,
+        D3D12_RENDER_PASS_ENDING_ACCESS& outAccess)
+    {
+        const auto& srcImageDesc = srcView.GetImage().GetDescriptor();
+        const auto& srcViewDesc = srcView.GetDescriptor();
+        const auto& dstViewDesc = dstView.GetDescriptor();
+
+        subresourceStorage = {};
+        subresourceStorage.SrcSubresource = srcViewDesc.m_mipSliceMin;
+        subresourceStorage.DstSubresource = dstViewDesc.m_mipSliceMin;
+        subresourceStorage.DstX = 0;
+        subresourceStorage.DstY = 0;
+        subresourceStorage.SrcRect = {
+            0, 0,
+            static_cast<LONG>(srcImageDesc.m_size.m_width),
+            static_cast<LONG>(srcImageDesc.m_size.m_height)
+        };
+
+        outAccess = {};
+        outAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
+        auto& r = outAccess.Resolve;
+        r.pSrcResource           = srcView.GetMemory();
+        r.pDstResource           = dstView.GetMemory();
+        r.SubresourceCount       = 1;
+        r.pSubresourceParameters = &subresourceStorage;
+        r.Format                 = ConvertFormat(format);
+        r.ResolveMode            = D3D12_RESOLVE_MODE_AVERAGE;
+        r.PreserveResolveSource  = preserveSource ? TRUE : FALSE;
+    }
+
+    void CommandList::BeginRenderPass(const RHI::RenderPassBeginInfo& info)
     {
         Device& device = static_cast<Device&>(GetDevice());
         auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
 
-        D3D12_CPU_DESCRIPTOR_HANDLE colorDescriptors[RHI::Limits::Pipeline::AttachmentColorCountMax];
-        for (uint32_t i = 0; i < renderTargetCount; ++i)
+        // --- Color attachments -------------------------------------------------
+        D3D12_RENDER_PASS_RENDER_TARGET_DESC renderTargets[RHI::Limits::Pipeline::AttachmentColorCountMax] = {};
+        for (uint32_t i = 0; i < info.m_colorAttachmentCount; ++i)
         {
-            colorDescriptors[i] =
-                descriptorContext.GetCpuNativeHandle(static_cast<const ImageView*>(renderTargets[i])->GetColorDescriptor());
+            const auto& colorAttachment = info.m_colorAttachments[i];
+            const auto* view = static_cast<const ImageView*>(colorAttachment.m_view);
+            ASSERT(view, "Color attachment {} has a null view", i);
+
+            const RHI::Format format = ResolveImageViewFormat(view);
+
+            renderTargets[i].cpuDescriptor    = descriptorContext.GetCpuNativeHandle(view->GetColorDescriptor());
+            renderTargets[i].BeginningAccess  = ConvertBeginningAccess(format, colorAttachment.m_loadStoreAction);
+
+            if (colorAttachment.m_resolveView)
+            {
+                const auto* resolveView = static_cast<const ImageView*>(colorAttachment.m_resolveView);
+                const bool preserveSource =
+                    colorAttachment.m_loadStoreAction.m_storeAction == RHI::AttachmentStoreAction::Store;
+                FillResolveEndingAccess(
+                    *view, *resolveView, format, preserveSource,
+                    m_resolveSubresourceParams[i], renderTargets[i].EndingAccess);
+            }
+            else
+            {
+                renderTargets[i].EndingAccess = ConvertEndingAccess(colorAttachment.m_loadStoreAction);
+            }
         }
 
-        if (depthStencil)
+        // --- Depth-stencil attachment (optional) ------------------------------
+        D3D12_RENDER_PASS_DEPTH_STENCIL_DESC depthStencil {};
+        D3D12_RENDER_PASS_DEPTH_STENCIL_DESC* pDepthStencil = nullptr;
+
+        const auto* dsView = static_cast<const ImageView*>(info.m_depthStencilAttachment.m_view);
+        if (dsView)
         {
-            auto dx12DepthStencil = static_cast<const ImageView*>(depthStencil);
-            SetSamplePositions(dx12DepthStencil->GetImage().GetDescriptor().m_multisampleState);
+            const RHI::AttachmentAccess dsAccess = info.m_depthStencilAttachment.m_access;
             const bool readOnlyDsv =
-                CheckBitsAny(depthStencilAccess, RHI::AttachmentAccess::Read) &&
-                !CheckBitsAny(depthStencilAccess, RHI::AttachmentAccess::Write);
-            const DescriptorHandle depthStencilDescriptor =
-                readOnlyDsv ? dx12DepthStencil->GetDepthStencilReadDescriptor()
-                            : dx12DepthStencil->GetDepthStencilDescriptor();
-            D3D12_CPU_DESCRIPTOR_HANDLE depthStencilPlatformDescriptor = descriptorContext.GetCpuNativeHandle(depthStencilDescriptor);
-            GetCommandList()->OMSetRenderTargets(renderTargetCount, colorDescriptors, false, &depthStencilPlatformDescriptor);
+                CheckBitsAny(dsAccess, RHI::AttachmentAccess::Read) &&
+                !CheckBitsAny(dsAccess, RHI::AttachmentAccess::Write);
+            const DescriptorHandle dsvHandle =
+                readOnlyDsv ? dsView->GetDepthStencilReadDescriptor()
+                            : dsView->GetDepthStencilDescriptor();
+
+            const RHI::Format dsFormat = ResolveImageViewFormat(dsView);
+            const auto& dsLoadStore = info.m_depthStencilAttachment.m_loadStoreAction;
+
+            depthStencil.cpuDescriptor          = descriptorContext.GetCpuNativeHandle(dsvHandle);
+            depthStencil.DepthBeginningAccess   = ConvertBeginningAccess(dsFormat, dsLoadStore);
+            depthStencil.DepthEndingAccess      = ConvertEndingAccess(dsLoadStore);
+            depthStencil.StencilBeginningAccess = ConvertBeginningAccessStencil(dsFormat, dsLoadStore);
+            depthStencil.StencilEndingAccess    = ConvertEndingAccessStencil(dsLoadStore);
+            pDepthStencil = &depthStencil;
+
+            SetSamplePositions(dsView->GetImage().GetDescriptor().m_multisampleState);
         }
-        else
+        else if (info.m_colorAttachmentCount > 0)
         {
-            SetSamplePositions(renderTargets[0]->GetImage().GetDescriptor().m_multisampleState);
-            GetCommandList()->OMSetRenderTargets(renderTargetCount, colorDescriptors, false, nullptr);
+            const auto* firstColor = static_cast<const ImageView*>(info.m_colorAttachments[0].m_view);
+            SetSamplePositions(firstColor->GetImage().GetDescriptor().m_multisampleState);
         }
 
-        // shading rate
-        if (m_state.m_shadingRateImage != shadingRate &&
+        // --- Shading rate image (optional, needs ID3D12GraphicsCommandList5) --
+        const auto* shadingRateView = static_cast<const ImageView*>(info.m_shadingRateAttachment);
+        if (m_state.m_shadingRateImage != shadingRateView &&
             CheckBitsAll(GetDevice().GetFeatures().m_shadingRateTypeMask, RHI::ShadingRateTypeFlags::PerRegion))
         {
             ComPtr<ID3D12GraphicsCommandList5> commandList5;
             GetCommandList()->QueryInterface(IID_PPV_ARGS(commandList5.GetAddressOf()));
-            auto dx12ShadingRate = static_cast<const ImageView*>(shadingRate);
             ASSERT(commandList5, "Failed to cast command list to ID3D12GraphicsCommandList5");
             if (commandList5)
             {
-                if (shadingRate)
+                if (shadingRateView)
                 {
-                    commandList5->RSSetShadingRateImage(dx12ShadingRate->GetMemory());
+                    commandList5->RSSetShadingRateImage(shadingRateView->GetMemory());
                     SetFragmentShadingRate(
                         RHI::ShadingRate::Rate1x1,
                         RHI::ShadingRateCombinators{ RHI::ShadingRateCombinerOp::Passthrough, RHI::ShadingRateCombinerOp::Override });
@@ -659,9 +736,25 @@ namespace Spark::RHI::DX12
                         RHI::ShadingRate::Rate1x1,
                         RHI::ShadingRateCombinators{ RHI::ShadingRateCombinerOp::Override, RHI::ShadingRateCombinerOp::Passthrough });
                 }
-                m_state.m_shadingRateImage = dx12ShadingRate;
+                m_state.m_shadingRateImage = shadingRateView;
             }
         }
+
+        // --- Render area -------------------------------------------------------
+        // DX12 BeginRenderPass has no render-area parameter; translate to a scissor
+        // so the same RHI input drives DX12 and Vulkan consistently.
+        if (!info.m_renderArea.IsNull())
+        {
+            SetScissor(info.m_renderArea);
+        }
+
+        GetCommandList()->BeginRenderPass(
+            info.m_colorAttachmentCount, renderTargets, pDepthStencil, D3D12_RENDER_PASS_FLAG_NONE);
+    }
+
+    void CommandList::EndRenderPass()
+    {
+        GetCommandList()->EndRenderPass();
     }
 
     void CommandList::ClearRenderTarget(const RHI::ImageClearRequest& request)

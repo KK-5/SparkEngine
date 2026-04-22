@@ -66,13 +66,28 @@ namespace Spark::RHI::DX12
         const ShaderStageFunction* fragmentFunction = static_cast<const ShaderStageFunction*>(descriptor.m_fragmentFunction.get());
         pipelineStateDesc.PS = D3D12BytecodeFromView(fragmentFunction->GetByteCode());
 
-        // RTV/DSV Format
-        const RHI::RenderAttachmentConfiguration& renderAttachmentConfiguration = descriptor.m_renderAttachmentConfiguration;
-        pipelineStateDesc.DSVFormat = ConvertFormat(renderAttachmentConfiguration.GetDepthStencilFormat());
-        pipelineStateDesc.NumRenderTargets = renderAttachmentConfiguration.GetRenderTargetCount();
-        for (uint32_t targetIdx = 0; targetIdx < pipelineStateDesc.NumRenderTargets; ++targetIdx)
+        // RTV/DSV Format. Prefer the slim RenderTargetLayout when callers set it.
+        // Legacy callers (examples, old subpass-era code) still populate
+        // RenderAttachmentConfiguration, which we fall back to.
+        if (!descriptor.m_renderTargetLayout.IsEmpty())
         {
-            pipelineStateDesc.RTVFormats[targetIdx] = ConvertFormat(renderAttachmentConfiguration.GetRenderTargetFormat(targetIdx));
+            const RHI::RenderTargetLayout& layout = descriptor.m_renderTargetLayout;
+            pipelineStateDesc.DSVFormat = ConvertFormat(layout.m_depthStencilFormat);
+            pipelineStateDesc.NumRenderTargets = layout.m_colorAttachmentCount;
+            for (uint32_t targetIdx = 0; targetIdx < pipelineStateDesc.NumRenderTargets; ++targetIdx)
+            {
+                pipelineStateDesc.RTVFormats[targetIdx] = ConvertFormat(layout.m_colorFormats[targetIdx]);
+            }
+        }
+        else
+        {
+            const RHI::RenderAttachmentConfiguration& renderAttachmentConfiguration = descriptor.m_renderAttachmentConfiguration;
+            pipelineStateDesc.DSVFormat = ConvertFormat(renderAttachmentConfiguration.GetDepthStencilFormat());
+            pipelineStateDesc.NumRenderTargets = renderAttachmentConfiguration.GetRenderTargetCount();
+            for (uint32_t targetIdx = 0; targetIdx < pipelineStateDesc.NumRenderTargets; ++targetIdx)
+            {
+                pipelineStateDesc.RTVFormats[targetIdx] = ConvertFormat(renderAttachmentConfiguration.GetRenderTargetFormat(targetIdx));
+            }
         }
 
         // Input element

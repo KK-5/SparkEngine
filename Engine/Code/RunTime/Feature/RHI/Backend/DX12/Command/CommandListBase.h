@@ -94,9 +94,9 @@ namespace Spark::RHI::DX12
 
         void FlushBarriers();
 
-        ID3D12GraphicsCommandList* GetCommandList();
+        ID3D12GraphicsCommandListX* GetCommandList();
 
-        const ID3D12GraphicsCommandList* GetCommandList() const;
+        const ID3D12GraphicsCommandListX* GetCommandList() const;
 
         RHI::HardwareQueueClass GetHardwareQueueClass() const;
     

@@ -76,6 +76,7 @@ namespace Spark::RHI
         }
 
         eastl::hash_combine_raw(seed, m_inputStreamLayout.GetHash());
+        eastl::hash_combine_raw(seed, m_renderTargetLayout.GetHash());
         eastl::hash_combine_raw(seed, m_renderAttachmentConfiguration.GetHash());
 
         seed = m_renderStates.GetHash(seed);
@@ -94,7 +95,8 @@ namespace Spark::RHI
     {
         return m_fragmentFunction == rhs.m_fragmentFunction && m_pipelineLayoutDescriptor == rhs.m_pipelineLayoutDescriptor &&
             m_renderStates == rhs.m_renderStates && m_vertexFunction == rhs.m_vertexFunction &&
-            m_geometryFunction == rhs.m_geometryFunction && m_inputStreamLayout == rhs.m_inputStreamLayout && 
+            m_geometryFunction == rhs.m_geometryFunction && m_inputStreamLayout == rhs.m_inputStreamLayout &&
+            m_renderTargetLayout == rhs.m_renderTargetLayout &&
             m_renderAttachmentConfiguration == rhs.m_renderAttachmentConfiguration/* && m_specializationData == rhs.m_specializationData */;
     }
 

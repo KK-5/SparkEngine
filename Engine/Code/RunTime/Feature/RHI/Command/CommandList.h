@@ -9,7 +9,9 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- Add QueueBarrier (BufferBarrier/ImageBarrier) and FlushBarriers virtual interface.
- *  -- SetRenderTargets: AttachmentAccess for depth-stencil next to depthStencil; read-only DSV when Read without Write.
+ *  -- BeginRenderPass / EndRenderPass: dynamic render pass API (replaces SetRenderTargets).
+ *     Carries AttachmentLoadStoreAction so Vulkan dynamic rendering and DX12 RenderPass
+ *     API can both drive tile-memory-correct load/store behavior.
  *  -- ClearRenderTarget / ClearUnorderedAccess / DiscardImage on RHI CommandList (ClearRequest.h).
  */
 #pragma once
@@ -25,6 +27,7 @@
 #include "DrawItem.h"
 #include "CopyItem.h"
 #include "DispatchItem.h"
+#include "RenderPassBeginInfo.h"
 
 namespace Spark::RHI
 {
@@ -102,14 +105,16 @@ namespace Spark::RHI
         /// Submits all queued barriers to the command list in a single batched call.
         virtual void FlushBarriers() = 0;
 
-        /// Set render targets to this draw
-        /// @param depthStencilAccess AttachmentAccess for the depth-stencil view: Read-only DSV if Read is set and Write is not; otherwise writable DSV.
-        virtual void SetRenderTargets(
-            uint32_t renderTargetCount,
-            const ImageView* const* renderTarget,
-            const ImageView* depthStencil = nullptr,
-            AttachmentAccess depthStencilAccess = AttachmentAccess::ReadWrite,
-            const ImageView* shadingRate = nullptr) = 0;
+        /// Opens a dynamic render pass. Attachments, load/store actions, render area
+        /// and (optionally) resolve / shading-rate / multiview are all carried in @a info.
+        /// Must be paired with EndRenderPass before submitting the command list or
+        /// beginning another render pass. No VkRenderPass / VkFramebuffer object is
+        /// implied — backends use vkCmdBeginRendering or ID3D12GraphicsCommandList4::BeginRenderPass.
+        virtual void BeginRenderPass(const RenderPassBeginInfo& info) = 0;
+
+        /// Closes the render pass opened by the previous BeginRenderPass, triggering
+        /// any pending StoreOp / resolve work declared at BeginRenderPass time.
+        virtual void EndRenderPass() = 0;
 
         /// Clears a color render-target view or a depth-stencil view (see @a ImageClearRequest::m_clearValue).
         virtual void ClearRenderTarget(const ImageClearRequest& request) = 0;

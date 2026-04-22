@@ -16,6 +16,7 @@
 #include "ShaderStageFunction.h"
 #include "RenderStates.h"
 #include "PipelineLayoutDescriptor.h"
+#include "RenderTargetLayout.h"
 
 namespace Spark::RHI
 {
@@ -109,7 +110,15 @@ namespace Spark::RHI
         /// The input assembly vertex stream layout for the pipeline.
         InputStreamLayout m_inputStreamLayout;
 
-        /// The render target configuration for the pipeline.
+        /// [Preferred] Dynamic-rendering render-target format layout for the pipeline.
+        /// When non-empty (see RenderTargetLayout::IsEmpty), backends use this directly
+        /// and ignore m_renderAttachmentConfiguration.
+        RenderTargetLayout m_renderTargetLayout;
+
+        /// [Legacy] Kept only for callers that still build through the subpass-era
+        /// RenderAttachmentLayoutBuilder. Backends fall back to this when
+        /// m_renderTargetLayout is empty. Remove once all call sites (examples, etc.)
+        /// have migrated to m_renderTargetLayout.
         RenderAttachmentConfiguration m_renderAttachmentConfiguration;
 
         /// Various render states for the pipeline.

@@ -11,7 +11,10 @@
  *  -- Remove DescriptorContext pointer in CommandList, use Factory to get DescriptorContext.
  *  -- Remove CommandList name.
  *  -- Add QueueBarrier/FlushBarriers override from RHI::CommandList.
- *  -- SetRenderTargets: AttachmentAccess for depth-stencil (after depthStencil pointer).
+ *  -- BeginRenderPass / EndRenderPass: dynamic render pass implementation on top of
+ *     ID3D12GraphicsCommandList4. Handles MSAA SetSamplePositions, read-only DSV via
+ *     AttachmentAccess, optional MSAA resolve (EndingAccess = RESOLVE) and per-region
+ *     shading rate image.
  *  -- Clear / DiscardImage: overrides RHI::CommandList; requests are RHI types.
  */
 
@@ -73,12 +76,8 @@ namespace Spark::RHI::DX12
             RHI::ShadingRate rate,
             const RHI::ShadingRateCombinators& combinators = DefaultShadingRateCombinators) override;
 
-        void SetRenderTargets(
-            uint32_t renderTargetCount,
-            const RHI::ImageView* const* renderTarget,
-            const RHI::ImageView* depthStencil,
-            RHI::AttachmentAccess depthStencilAccess,
-            const RHI::ImageView* shadingRate) override;
+        void BeginRenderPass(const RHI::RenderPassBeginInfo& info) override;
+        void EndRenderPass() override;
 
         void ClearRenderTarget(const RHI::ImageClearRequest& request) override;
         void ClearUnorderedAccess(const RHI::ImageClearRequest& request) override;
@@ -160,6 +159,12 @@ namespace Spark::RHI::DX12
             const ImageView* m_shadingRateImage = nullptr;
 
         } m_state;
+
+        // Keep-alive storage for resolve subresource parameters during an active render pass.
+        // DX12 requires pSubresourceParameters to stay valid from BeginRenderPass until EndRenderPass.
+        // One entry per color attachment; only the ones with an active resolve are populated.
+        eastl::array<D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS,
+            RHI::Limits::Pipeline::AttachmentColorCountMax> m_resolveSubresourceParams = {};
     };
 
     template <RHI::PipelineStateType pipelineType>

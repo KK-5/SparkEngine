@@ -154,4 +154,20 @@ namespace Spark::RHI::DX12
     D3D12_SHADING_RATE ConvertShadingRateEnum(RHI::ShadingRate rate);
 
     D3D12_CLEAR_FLAGS ConvertDepthStencilClearFlags(RHI::DepthStencilClearFlags flags);
+
+    D3D12_RENDER_PASS_BEGINNING_ACCESS ConvertBeginningAccess(RHI::Format format, const RHI::AttachmentLoadStoreAction& action);
+
+    //! Converts a store action into a D3D12 render-pass ending access.
+    //! NOTE: MSAA resolve is NOT handled here. When an attachment resolves,
+    //! the caller fills D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS
+    //! manually (needs src/dst resource + subresource info).
+    //! Pairing rule: NO_ACCESS at end must match NO_ACCESS at begin.
+    D3D12_RENDER_PASS_ENDING_ACCESS ConvertEndingAccess(const RHI::AttachmentLoadStoreAction& action);
+
+    //! Stencil variant: reads m_storeActionStencil instead of m_storeAction.
+    //! Use for the stencil ending access of a depth-stencil attachment.
+    D3D12_RENDER_PASS_ENDING_ACCESS ConvertEndingAccessStencil(const RHI::AttachmentLoadStoreAction& action);
+
+    //! Stencil variant of ConvertBeginningAccess: reads m_loadActionStencil.
+    D3D12_RENDER_PASS_BEGINNING_ACCESS ConvertBeginningAccessStencil(RHI::Format format, const RHI::AttachmentLoadStoreAction& action);
 }

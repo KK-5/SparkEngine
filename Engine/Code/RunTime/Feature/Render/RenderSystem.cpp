@@ -133,8 +133,8 @@ namespace Spark::Render
         passContext.Add<ParentPassTag>(parentPass);
 
         RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
-        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM, "Color")
-                                      ->DepthStencilAttachment(RHI::Format::D32_FLOAT, "Depth");
+        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM, ObjectName("Color"))
+                                      ->DepthStencilAttachment(RHI::Format::D32_FLOAT, ObjectName("Depth"));
         RHI::RenderAttachmentLayout renderAttachmentLayout;
         attachmentBuilder.End(renderAttachmentLayout);
         passContext.Add<RHI::RenderAttachmentLayout>(parentPass, renderAttachmentLayout);

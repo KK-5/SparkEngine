@@ -1491,4 +1491,75 @@ namespace Spark::RHI::DX12
         }
         return static_cast<D3D12_CLEAR_FLAGS>(d3d);
     }
+
+    static D3D12_RENDER_PASS_BEGINNING_ACCESS ConvertLoadActionToBeginningAccess(
+        RHI::Format format, RHI::AttachmentLoadAction loadAction, const RHI::ClearValue& clearValue)
+    {
+        D3D12_RENDER_PASS_BEGINNING_ACCESS access = {};
+        switch (loadAction)
+        {
+        case RHI::AttachmentLoadAction::Load:
+            access.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+            break;
+        case RHI::AttachmentLoadAction::Clear:
+            access.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+            access.Clear.ClearValue = ConvertClearValue(format, clearValue);
+            break;
+        case RHI::AttachmentLoadAction::DontCare:
+            access.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+            break;
+        case RHI::AttachmentLoadAction::None:
+            access.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_NO_ACCESS;
+            break;
+        default:
+            ASSERT(false, "Unhandled AttachmentLoadAction");
+            access.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+            break;
+        }
+        return access;
+    }
+
+    static D3D12_RENDER_PASS_ENDING_ACCESS ConvertStoreActionToEndingAccess(RHI::AttachmentStoreAction storeAction)
+    {
+        D3D12_RENDER_PASS_ENDING_ACCESS access = {};
+        switch (storeAction)
+        {
+        case RHI::AttachmentStoreAction::Store:
+            access.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+            break;
+        case RHI::AttachmentStoreAction::DontCare:
+            access.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD;
+            break;
+        case RHI::AttachmentStoreAction::None:
+            // Must pair with BEGINNING_ACCESS_TYPE_NO_ACCESS. Caller's responsibility.
+            access.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
+            break;
+        default:
+            ASSERT(false, "Unhandled AttachmentStoreAction");
+            access.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+            break;
+        }
+        return access;
+    }
+
+    D3D12_RENDER_PASS_BEGINNING_ACCESS ConvertBeginningAccess(RHI::Format format, const RHI::AttachmentLoadStoreAction& action)
+    {
+        return ConvertLoadActionToBeginningAccess(format, action.m_loadAction, action.m_clearValue);
+    }
+
+    D3D12_RENDER_PASS_BEGINNING_ACCESS ConvertBeginningAccessStencil(RHI::Format format, const RHI::AttachmentLoadStoreAction& action)
+    {
+        return ConvertLoadActionToBeginningAccess(format, action.m_loadActionStencil, action.m_clearValue);
+    }
+
+    D3D12_RENDER_PASS_ENDING_ACCESS ConvertEndingAccess(const RHI::AttachmentLoadStoreAction& action)
+    {
+        return ConvertStoreActionToEndingAccess(action.m_storeAction);
+    }
+
+    D3D12_RENDER_PASS_ENDING_ACCESS ConvertEndingAccessStencil(const RHI::AttachmentLoadStoreAction& action)
+    {
+        return ConvertStoreActionToEndingAccess(action.m_storeActionStencil);
+    }
+
 }
