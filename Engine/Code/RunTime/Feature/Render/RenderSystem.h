@@ -57,7 +57,7 @@ namespace Spark::Render
             Ptr<RHI::Device> m_device;
             RHI::CommandQueueContext m_commandQueuecontext;
             Ptr<RHI::SwapChain> m_swapChain;
-            // eastl::vector<Ptr<RHI::ImageView>>
+            RHIHandle m_swapchainHandle;
         };
 
         RHIData m_rhiData;

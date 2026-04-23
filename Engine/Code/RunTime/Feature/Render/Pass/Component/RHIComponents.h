@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/type_traits.h>
+
 #include <Object/ObjectName.h>
 
 #include <Pass/RHIHandle.h>
@@ -9,9 +11,16 @@
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
+#include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+
+#include <RHI/Attachment/AttachmentEnums.h>
 
 namespace Spark::Render
 {
+    template <typename T>
+    using FrameArray = eastl::array<T, RHI::Limits::Device::FrameCountMax>;
+
     struct ResourceName
     {
         ObjectName m_name {};
@@ -19,34 +28,36 @@ namespace Spark::Render
 
     struct SwapChainView
     {
-        uint32_t m_index;
-    };
-    /*
-    struct RHIBuffer
-    {
-        RHI::BufferDescriptor m_desc {};
+        FrameArray<Ptr<RHI::ImageView>> imageViews;
     };
 
-    struct RHIImage
+    struct ImportedTag {};
+
+    struct TransientTag {};
+
+    struct PassAttachment
     {
-        RHI::ImageDescriptor m_desc {};
+        RHI::AttachmentId m_attachmentId;
+        RHI::InputName m_slotName;
+        RHI::AttachmentType m_type = RHI::AttachmentType::Uninitialized;
+        RHI::AttachmentAccess m_access = RHI::AttachmentAccess::Unknown;
+        RHI::AttachmentUsage m_usage = RHI::AttachmentUsage::Uninitialized;
+        RHI::AttachmentStage m_stage = RHI::AttachmentStage::Any;
+        RHI::AttachmentLoadStoreAction m_action {};
+        RHIHandle m_resource;
+        union
+        {
+           RHI::ImageViewDescriptor  m_imageViewDesc {};
+           RHI::BufferViewDescriptor m_bufferViewDesc;
+        };
+        
     };
 
-    struct RHISampler
-    {
-        RHI::SamplerState m_desc {};
-    };
+    static_assert(eastl::is_trivially_copyable_v<RHI::ImageViewDescriptor>);
+    static_assert(eastl::is_trivially_copyable_v<RHI::BufferViewDescriptor>);
+    static_assert(eastl::is_trivially_copyable_v<PassAttachment>);
+    static_assert(eastl::is_default_constructible_v<PassAttachment>);
 
-    struct RHIBufferView
-    {
-        RHI::BufferViewDescriptor m_desc {};
-    };
-
-    struct RHIImageView
-    {
-        RHI::ImageViewDescriptor m_desc {};
-    };
-    */
 
     struct ResourceHierarchy
     {

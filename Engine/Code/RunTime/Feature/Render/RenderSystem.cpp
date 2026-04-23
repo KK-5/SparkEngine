@@ -12,6 +12,7 @@
 #include <RHI/Bus/FrameEventBus.h>
 #include <RHI/Attachment/RenderAttachmentLayout.h>
 #include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
+#include <RHI/Pipeline/RenderTargetLayout.h>
 
 #include <Pass/Pass.h>
 #include <Pass/PassTag.h>
@@ -89,7 +90,8 @@ namespace Spark::Render
             return false;
         }
 
-        auto& rhiContext = m_rhiContext;
+        SwapChainView swapChainView;
+        m_rhiData.m_swapchainHandle = m_rhiContext.CreateEntity();
         for (uint32_t i = 0; i < m_rhiData.m_swapChain->GetDescriptor().m_dimensions.m_imageCount; ++i)
         {
             auto image = m_rhiData.m_swapChain->GetImage(i);
@@ -105,11 +107,11 @@ namespace Spark::Render
                 LOG_ERROR("Create swap chain view failed.");
                 continue;
             }
-            RHIHandle swapchainHandle = rhiContext.CreateEntity();
-            rhiContext.Add<Ptr<RHI::ImageView>>(swapchainHandle, eastl::move(imageview));
-            rhiContext.Add<SwapChainView>(swapchainHandle, i);
-            // rhiContext.Add<PassTag<uiPass>>(swapchainHandle);
+            swapChainView.imageViews[i] = eastl::move(imageview);
         }
+        m_rhiContext.Add<SwapChainView>(m_rhiData.m_swapchainHandle, eastl::move(swapChainView));
+        m_rhiContext.Add<ImportedTag>(m_rhiData.m_swapchainHandle);
+        m_rhiContext.Add<ResourceName>(m_rhiData.m_swapchainHandle, ObjectName{"SwapChain"});
 
         return true;
     }
@@ -126,32 +128,38 @@ namespace Spark::Render
     void RenderSystem::BuildPipeline()
     {
         auto& passContext = m_pipeline.GetPassContext();
-        
-        Pass parentPass = passContext.CreateEntity();
-        passContext.Add<PassName>(parentPass, ObjectName("Parent Pass"));
-        passContext.Add<ActivePassTag>(parentPass);
-        passContext.Add<ParentPassTag>(parentPass);
-
-        RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
-        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM, ObjectName("Color"))
-                                      ->DepthStencilAttachment(RHI::Format::D32_FLOAT, ObjectName("Depth"));
-        RHI::RenderAttachmentLayout renderAttachmentLayout;
-        attachmentBuilder.End(renderAttachmentLayout);
-        passContext.Add<RHI::RenderAttachmentLayout>(parentPass, renderAttachmentLayout);
-
 
 
         Pass uiPass = passContext.CreateEntity();
         passContext.Add<PassName>(uiPass, ObjectName("UIPass"));
         passContext.Add<ActivePassTag>(uiPass);
         passContext.Add<RenderPassTag>(uiPass);
-        passContext.Add<ParentPassInfo>(uiPass, parentPass, (uint32_t)0);
+
+        RHI::RenderTargetLayout renderTargetLayout;
+        renderTargetLayout.m_colorAttachmentCount = 1;
+        renderTargetLayout.m_colorFormats = {RHI::Format::R8G8B8A8_UNORM};
+        passContext.Add<RHI::RenderTargetLayout>(uiPass, renderTargetLayout);
 
         PassFunctions uiPassFunc;
-        uiPassFunc.m_buildFunction = [](RHIContext& rhiContext)
+        uiPassFunc.m_buildFunction = [&](RHIContext& rhiContext)
         {
-
+            PassAttachment passAttachment;
+            passAttachment.m_attachmentId = "SwapChainOutput";
+            passAttachment.m_type = RHI::AttachmentType::Image;
+            passAttachment.m_access = RHI::AttachmentAccess::Write;
+            passAttachment.m_usage = RHI::AttachmentUsage::RenderTarget;
+            RHI::AttachmentLoadStoreAction loadStoreAction;
+            loadStoreAction.m_clearValue = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
+            loadStoreAction.m_loadAction = RHI::AttachmentLoadAction::Clear;
+            loadStoreAction.m_storeAction = RHI::AttachmentStoreAction::Store;
+            passAttachment.m_action = loadStoreAction;
+            passAttachment.m_resource = m_rhiData.m_swapchainHandle;
+            
+            auto uiPassOutput = rhiContext.CreateEntity();
+            rhiContext.Add<PassAttachment>(uiPassOutput, passAttachment);
+            rhiContext.Add<SPARK_PASS_TAG("UIPass")>(uiPassOutput);
         };
+        
         uiPassFunc.m_executeFunction = [&](RHI::CommandList* commandList)
         {
             m_rednerUI.Render(commandList);

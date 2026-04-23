@@ -3,4 +3,8 @@
 #include <entt/core/hashed_string.hpp>
 
 using namespace entt::literals;
-using HashString = entt::hashed_string;
+
+namespace Spark
+{
+    using HashString = entt::hashed_string;
+}
