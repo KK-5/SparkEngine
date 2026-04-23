@@ -169,7 +169,6 @@ namespace Spark::RHI
         const BufferViewDescriptor& bufferViewDescriptor = bufferView->GetDescriptor();
         const Buffer& buffer = bufferView->GetBuffer();
         const BufferDescriptor& bufferDescriptor = buffer.GetDescriptor();
-        const BufferFrameAttachment* frameAttachment = buffer.GetFrameAttachment();
 
         const bool isValidAccess =
             (shaderInputBuffer.m_access == ShaderInputBufferAccess::Constant && CheckBitsAll(bufferDescriptor.m_bindFlags, BufferBindFlags::Constant)) ||
@@ -188,15 +187,6 @@ namespace Spark::RHI
         if (shaderInputBuffer.m_access == ShaderInputBufferAccess::ReadWrite)
         {
             // A buffer view assigned to an input with read-write access must be an attachment on the frame scheduler.
-            if (!frameAttachment)
-            {
-                LOG_ERROR("[ShaderResource]"
-                    "Buffer Input '{}[{}]': DeviceBuffer is bound to a ReadWrite shader input, "
-                    "but it is not an attachment on the frame scheduler. All GPU-writable resources "
-                    "must be declared as attachments in order to provide hazard tracking.",
-                    shaderInputBuffer.m_name.GetCStr(), arrayIndex);
-                return false;
-            }
 
             // NOTE: We aren't able to validate the scope attachment here, because shader resource groups aren't directly
             // associated with a scope. Instead, the CommandListValidator class will check that the access is correct at

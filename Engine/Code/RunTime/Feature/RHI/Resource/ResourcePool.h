@@ -33,9 +33,6 @@ namespace Spark::RHI
 
         void ShutdownResource(Resource* resource);
 
-        ResourcePoolResolver* GetResolver();
-        const ResourcePoolResolver* GetResolver() const;
-
         virtual const ResourcePoolDescriptor& GetDescriptor() const = 0;
 
     protected:
@@ -45,8 +42,6 @@ namespace Spark::RHI
         void OnFrameBegin() override;
         void OnFrameCompileBegin() override;
         void OnFrameEnd() override;
-
-        void SetResolver(eastl::unique_ptr<ResourcePoolResolver>&& resolvePolicy);
 
         ///////////////////////////////////////////////
         // Backend
@@ -75,7 +70,6 @@ namespace Spark::RHI
 
         mutable std::shared_mutex m_registryMutex;
         eastl::unordered_set<Resource*> m_registry;
-        eastl::unique_ptr<ResourcePoolResolver> m_resolver;
         eastl::atomic<bool> m_isProcessingFrame = false;
     };
 }

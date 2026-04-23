@@ -5,7 +5,6 @@
 
 namespace Spark::RHI
 {
-    class FrameAttachment;
     class ResourcePool;
     class ResourceView;
 
@@ -19,24 +18,17 @@ namespace Spark::RHI
 
         void Shutdown() override final;
 
-        bool IsAttachment() const;
-
         const ResourcePool* GetPool() const;
         ResourcePool* GetPool();
-
-        const FrameAttachment* GetFrameAttachment() const;
 
         ResourceState GetResourceState() const;
 
     private:
         void SetResourceState(ResourceState state);
 
-        void SetFrameAttachment(FrameAttachment* frameAttachment);
-
         void SetPool(ResourcePool* pool);
                                     
         ResourcePool* m_pool = nullptr;
-        FrameAttachment* m_frameAttachment = nullptr;
         ResourceState m_resourceState;
         bool m_isInvalidationQueued = false;
     };

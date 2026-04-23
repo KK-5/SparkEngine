@@ -30,7 +30,6 @@ namespace Spark::RHI
         // backend
         virtual ResultCode InitInternal(Device& device, const Resource& resource) = 0;
         virtual void ShutdownInternal() = 0;
-        //virtual ResultCode InvalidateInternal() = 0;
         ///////////////////////////////////////////////
 
         const Resource* m_resource = nullptr;

@@ -10,7 +10,6 @@
 
 namespace Spark::RHI
 {
-    class BufferFrameAttachment;
     class BufferView;
 
     class Buffer : public Resource
@@ -20,8 +19,6 @@ namespace Spark::RHI
         virtual ~Buffer() = default;
 
         const BufferDescriptor& GetDescriptor() const;
-
-        const BufferFrameAttachment* GetFrameAttachment() const;
 
         static constexpr uint64_t InvalidDeviceAddress = static_cast<uint64_t>(-1);
         virtual uint64_t GetDeviceAddress() const

@@ -19,30 +19,10 @@ namespace Spark::RHI
         }
     }
 
-    ResourcePoolResolver* ResourcePool::GetResolver()
-    {
-        return m_resolver.get();
-    }
-
-    const ResourcePoolResolver* ResourcePool::GetResolver() const
-    {
-        return m_resolver.get();
-    }
-
     uint32_t ResourcePool::GetResourceCount() const
     {
         std::shared_lock<std::shared_mutex> lock(m_registryMutex);
         return static_cast<uint32_t>(m_registry.size());
-    }
-
-    void ResourcePool::SetResolver(eastl::unique_ptr<ResourcePoolResolver>&& resolver)
-    {
-        if (!IsInitialized())
-        {
-            LOG_ERROR("[ResourcePool] Assigning a resolver after the pool has been initialized is not allowed.");
-            return;
-        }
-        m_resolver = eastl::move(resolver);
     }
 
     bool ResourcePool::ValidateIsUnregistered(const Resource* resource) const
@@ -160,7 +140,6 @@ namespace Spark::RHI
             }
             ShutdownInternal();
             m_registry.clear();
-            m_resolver.reset();
             DeviceObject::Shutdown();
         }
     }

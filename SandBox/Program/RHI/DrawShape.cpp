@@ -153,8 +153,6 @@ namespace Spark::SandBox
 
         // Depth buffer
         Ptr<RHI::ImagePool> m_depthImagePool;
-        Ptr<RHI::Image> m_depthImage;
-        Ptr<RHI::ImageView> m_depthImageView;
 
         // Swap chain images
         Ptr<RHI::ImageView> m_swapChainImageViews[2];
@@ -381,18 +379,6 @@ namespace Spark::SandBox
         builder.AddBuffer()->Channel("POSITION", 0, RHI::Format::R32G32B32_FLOAT)
                            ->Channel("TEXCOORD", 0, RHI::Format::R32G32_FLOAT);
         desc.m_inputStreamLayout = builder.End();
-
-        // Render attachment layout: color + depth
-        /*
-        RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
-        attachmentBuilder.AddSubpass()
-            ->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM)
-            ->DepthStencilAttachment(RHI::Format::D32_FLOAT);
-        RHI::RenderAttachmentLayout renderAttachmentLayout;
-        attachmentBuilder.End(renderAttachmentLayout);
-        desc.m_renderAttachmentConfiguration.m_renderAttachmentLayout = renderAttachmentLayout;
-        desc.m_renderAttachmentConfiguration.m_subpassIndex = 0;
-        */
 
         RHI::RenderTargetLayout rtLayout;
         rtLayout.m_colorAttachmentCount = 1;
@@ -845,26 +831,6 @@ namespace Spark::SandBox
         commandList->QueueBarrier(depthBarrier);
         commandList->FlushBarriers();
 
-        // Clear render target
-        /*
-        RHI::ImageClearRequest clearRT;
-        clearRT.m_imageView = m_rtContext.GetRenderTargetView(0);
-        clearRT.m_clearValue = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
-        commandList->ClearRenderTarget(clearRT);
-
-        // Clear depth
-        RHI::ImageClearRequest clearDepth;
-        clearDepth.m_imageView = m_rtContext.GetDepthStencilView();
-        clearDepth.m_depthStencilClearFlags = RHI::DepthStencilClearFlags::Depth;
-        clearDepth.m_clearValue = RHI::ClearValue::CreateDepth(1.f);
-        commandList->ClearRenderTarget(clearDepth);
-
-        // Set render targets with depth
-        const RHI::ImageView* renderTargets[] = {
-            m_rtContext.GetRenderTargetView(0)
-        };
-        commandList->SetRenderTargets(1, renderTargets, m_rtContext.GetDepthStencilView());
-        */
         RHI::RenderPassBeginInfo beginInfo;
         beginInfo.m_renderArea = m_scissor;
         beginInfo.m_colorAttachmentCount = 1;
@@ -949,7 +915,7 @@ namespace Spark::SandBox
         CreateStageBuffer();
         CreateBaseColorTexture();
         CreateViewportAndScissor();
-        // BuildRenderTargetContext();
+        BuildRenderTargetContext();
     }
 
     void DrawShape::Run()
@@ -1010,7 +976,7 @@ int main(int argc, char** argv)
 
     app.Init();
 
-    // app.Run();
+    app.Run();
 
     return 0;
 }

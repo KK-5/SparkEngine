@@ -49,22 +49,4 @@ namespace Spark::RHI
     {
         return m_descriptor;
     }
-
-    /*
-    Ptr<ImageView> Image::GetImageView(const ImageViewDescriptor& imageViewDescriptor) const
-    {
-        ResourceView* view = m_imageViewCache.GetResourceView(imageViewDescriptor);
-        return static_cast<ImageView*>(view);
-    }
-
-    void Image::EraseImageView(ImageView* imageView) const
-    {
-        m_imageViewCache.EraseResourceView(imageView);
-    }
-
-    bool Image::IsInImageCache(const ImageViewDescriptor& imageViewDescriptor)
-    {
-        return m_imageViewCache.IsInResourceCache(imageViewDescriptor);
-    }
-    */
 }
