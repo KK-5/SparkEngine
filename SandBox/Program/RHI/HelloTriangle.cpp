@@ -217,13 +217,10 @@ namespace Spark::SandBox
                            ->Channel("COLOR", 0, RHI::Format::R32G32B32A32_FLOAT);
         desc.m_inputStreamLayout = builder.End();
 
-        // render config. vulkan style
-        RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
-        attachmentBuilder.AddSubpass()->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM);
-        RHI::RenderAttachmentLayout renderAttachmentLayout;
-        attachmentBuilder.End(renderAttachmentLayout);
-        desc.m_renderAttachmentConfiguration.m_renderAttachmentLayout = renderAttachmentLayout;
-        desc.m_renderAttachmentConfiguration.m_subpassIndex = 0;
+        RHI::RenderTargetLayout rtLayout;
+        rtLayout.m_colorAttachmentCount = 1;
+        rtLayout.m_colorFormats = {RHI::Format::R8G8B8A8_UNORM};
+        desc.m_renderTargetLayout = rtLayout;
 
         // render state
         desc.m_renderStates = RHI::RenderStates();
@@ -366,7 +363,6 @@ namespace Spark::SandBox
     {
         commandList->Open();
         commandList->SetViewport(m_viewport);
-        commandList->SetScissor(m_scissor);
 
         m_swapChainCurImage = m_swapChain->GetCurrentImage();
         RHI::ImageBarrier imageBarrier = RHI::ConvertToRenderTarget(*m_swapChainCurImage);
@@ -374,13 +370,20 @@ namespace Spark::SandBox
 
         commandList->FlushBarriers();
 
-        RHI::ImageClearRequest clearRequest;
-        clearRequest.m_imageView = m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get();
-        clearRequest.m_clearValue = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
-        commandList->ClearRenderTarget(clearRequest);
+        RHI::RenderPassBeginInfo beginInfo;
+        beginInfo.m_renderArea = m_scissor;
+        beginInfo.m_colorAttachmentCount = 1;
 
-        const RHI::ImageView* renderTargets[] = { m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get() };
-        commandList->SetRenderTargets(1, renderTargets);
+        RHI::RenderPassColorAttachment renderTarget;
+        renderTarget.m_view = m_swapChainImageViews[m_swapChain->GetCurrentImageIndex()].get();
+        RHI::AttachmentLoadStoreAction loadStoreAction;
+        loadStoreAction.m_clearValue = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
+        loadStoreAction.m_loadAction = RHI::AttachmentLoadAction::Clear;
+        loadStoreAction.m_storeAction = RHI::AttachmentStoreAction::Store;
+        renderTarget.m_loadStoreAction = loadStoreAction;
+        beginInfo.m_colorAttachments = {renderTarget};
+
+        commandList->BeginRenderPass(beginInfo);
 
         /// build draw item
         RHI::DrawItem drawItem;
@@ -403,6 +406,8 @@ namespace Spark::SandBox
         drawItem.m_vertexBufferView.AddStreamBufferView(vertexStream);
 
         commandList->Submit(drawItem);
+
+        commandList->EndRenderPass();
 
         RHI::ImageBarrier presentBarrier = RHI::ConvertToPresent(*m_swapChainCurImage);
         commandList->QueueBarrier(presentBarrier);

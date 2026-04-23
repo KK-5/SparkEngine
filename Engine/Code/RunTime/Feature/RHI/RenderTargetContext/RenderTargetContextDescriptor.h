@@ -20,10 +20,8 @@ namespace Spark::RHI
 
     enum class RTAttachmentSource : uint8_t
     {
-        //! 外部提供每帧 Image（例如 swap chain back buffer），Context 仅创建 ImageView。
         External,
 
-        //! Context 基于 ImageDescriptor 创建每帧 Image 和 ImageView。
         Owned
     };
 
@@ -38,17 +36,14 @@ namespace Spark::RHI
         //! source == Owned 时使用，作为每帧 image 创建描述。
         ImageDescriptor m_imageDescriptor;
 
-        //! 可选优化 clear 值。
+        //! 可选优化 clear 值
         bool m_hasOptimizedClearValue = false;
         ClearValue m_optimizedClearValue{};
     };
 
     struct RenderTargetContextDescriptor
     {
-        //! 固定外部传入 frame index，这里仅声明缓冲数量。
         uint32_t m_bufferCount = 1;
-
-        //! 显式声明需要管理的附件集合。
         eastl::vector<RTAttachmentDescriptor> m_attachments;
     };
 }

@@ -39,8 +39,6 @@ namespace Spark::RHI
         ResultCode Init(Device& device, const CommandQueueDescriptor& descriptor);
         void Shutdown();
 
-        // using Command = eastl::function<void(void* commandQueue)>;
-        // void QueueCommand(Command command);
         ResultCode FlushCommands(RHI::Fence& fence);
         ResultCode ExecuteCommands(eastl::span<CommandList*> commandLists);
 
@@ -58,7 +56,6 @@ namespace Spark::RHI
         virtual void SignalInternal(RHI::Fence& fence) = 0;
         virtual void WaitForIdle() = 0;
         virtual void ShutdownInternal() = 0;
-        // virtual void* GetNativeQueue() = 0;
         //////////////////////////////////////////////////////////////////////////
 
     private:

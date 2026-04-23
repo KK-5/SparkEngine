@@ -29,6 +29,7 @@ namespace Spark::RHI
     class ShaderResourceLayout final : public Object
     {
     public:
+        ~ShaderResourceLayout() = default;
         //! Adds a static sampler to the layout. Static samplers are immutable and cannot
         //! be assigned at runtime.
         void AddStaticSampler(const ShaderInputStaticSamplerDescriptor& sampler);

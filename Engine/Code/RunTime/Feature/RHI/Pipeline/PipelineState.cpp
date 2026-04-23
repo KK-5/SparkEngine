@@ -77,45 +77,30 @@ namespace Spark::RHI
                 error = true;
             }
 
-            const auto& renderTargetConfiguration = descriptor.m_renderAttachmentConfiguration;
-
-            if (renderTargetConfiguration.m_subpassIndex >= renderTargetConfiguration.m_renderAttachmentLayout.m_subpassCount)
-            {
-                LOG_ERROR("[PipelineState] Invalid subpassIndex {}. SubpassCount is {}.", renderTargetConfiguration.m_subpassIndex, renderTargetConfiguration.m_renderAttachmentLayout.m_subpassCount);
-                return ResultCode::InvalidOperation;
-            }
+            const auto& renderTargetLayout = descriptor.m_renderTargetLayout;
 
             if (descriptor.m_renderStates.m_depthStencilState.m_depth.m_enable || descriptor.m_renderStates.m_depthStencilState.m_stencil.m_enable)
             {
-                if (renderTargetConfiguration.GetDepthStencilFormat() == RHI::Format::Unknown)
+                if (renderTargetLayout.m_depthStencilFormat == RHI::Format::Unknown)
                 {
                     LOG_ERROR("[PipelineState] Depth-stencil format is not set.");
                     error = true;
                 }
             }
 
-            for (uint32_t i = 0; i < renderTargetConfiguration.GetRenderTargetCount(); ++i)
+            for (uint32_t i = 0; i < renderTargetLayout.m_colorAttachmentCount; ++i)
             {
-                if (renderTargetConfiguration.GetRenderTargetFormat(i) == RHI::Format::Unknown)
+                if (renderTargetLayout.m_colorFormats[i] == RHI::Format::Unknown)
                 {
                     LOG_ERROR("[PipelineState] Rendertarget attachment {} format is not set.", i);
                     error = true;
                 }
             }
 
-            for (uint32_t i = 0; i < renderTargetConfiguration.GetSubpassInputCount(); ++i)
+            for (uint32_t i = 0; i < renderTargetLayout.m_colorAttachmentCount; ++i)
             {
-                if (renderTargetConfiguration.GetSubpassInputFormat(i) == RHI::Format::Unknown)
-                {
-                    LOG_ERROR("[PipelineState] Subpass input attachment {} format is not set.", i);
-                    error = true;
-                }
-            }
-
-            for (uint32_t i = 0; i < renderTargetConfiguration.GetRenderTargetCount(); ++i)
-            {
-                if (renderTargetConfiguration.DoesRenderTargetResolve(i) &&
-                    renderTargetConfiguration.GetRenderTargetResolveFormat(i) != renderTargetConfiguration.GetRenderTargetFormat(i))
+                if (renderTargetLayout.m_resolveFormats[i] != RHI::Format::Unknown &&
+                    renderTargetLayout.m_resolveFormats[i] != renderTargetLayout.m_colorFormats[i])
                 {
                     LOG_ERROR("[PipelineState] Invalid resolve format for attachment {}.", i);
                     error = true;

@@ -383,6 +383,7 @@ namespace Spark::SandBox
         desc.m_inputStreamLayout = builder.End();
 
         // Render attachment layout: color + depth
+        /*
         RHI::RenderAttachmentLayoutBuilder attachmentBuilder;
         attachmentBuilder.AddSubpass()
             ->RenderTargetAttachment(RHI::Format::R8G8B8A8_UNORM)
@@ -391,6 +392,13 @@ namespace Spark::SandBox
         attachmentBuilder.End(renderAttachmentLayout);
         desc.m_renderAttachmentConfiguration.m_renderAttachmentLayout = renderAttachmentLayout;
         desc.m_renderAttachmentConfiguration.m_subpassIndex = 0;
+        */
+
+        RHI::RenderTargetLayout rtLayout;
+        rtLayout.m_colorAttachmentCount = 1;
+        rtLayout.m_colorFormats = {RHI::Format::R8G8B8A8_UNORM};
+        rtLayout.m_depthStencilFormat = RHI::Format::D32_FLOAT;
+        desc.m_renderTargetLayout = rtLayout;
 
         // Render states: enable depth, back-face culling
         desc.m_renderStates = RHI::RenderStates();
@@ -826,7 +834,7 @@ namespace Spark::SandBox
     {
         commandList->Open();
         commandList->SetViewport(m_viewport);
-        commandList->SetScissor(m_scissor);
+        //commandList->SetScissor(m_scissor);
 
         // Transition swap chain image to render target
         RHI::ImageBarrier rtBarrier = RHI::ConvertToRenderTarget(*m_rtContext.GetRenderTarget(0));
@@ -838,6 +846,7 @@ namespace Spark::SandBox
         commandList->FlushBarriers();
 
         // Clear render target
+        /*
         RHI::ImageClearRequest clearRT;
         clearRT.m_imageView = m_rtContext.GetRenderTargetView(0);
         clearRT.m_clearValue = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
@@ -855,6 +864,32 @@ namespace Spark::SandBox
             m_rtContext.GetRenderTargetView(0)
         };
         commandList->SetRenderTargets(1, renderTargets, m_rtContext.GetDepthStencilView());
+        */
+        RHI::RenderPassBeginInfo beginInfo;
+        beginInfo.m_renderArea = m_scissor;
+        beginInfo.m_colorAttachmentCount = 1;
+
+        RHI::RenderPassColorAttachment renderTarget;
+        renderTarget.m_view = m_rtContext.GetRenderTargetView(0);
+        RHI::AttachmentLoadStoreAction loadStoreAction;
+        loadStoreAction.m_clearValue = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
+        loadStoreAction.m_loadAction = RHI::AttachmentLoadAction::Clear;
+        loadStoreAction.m_storeAction = RHI::AttachmentStoreAction::Store;
+        renderTarget.m_loadStoreAction = loadStoreAction;
+        beginInfo.m_colorAttachments = {renderTarget};
+
+        RHI::RenderPassDepthStencilAttachment depthStencil;
+        depthStencil.m_view = m_rtContext.GetDepthStencilView();
+        depthStencil.m_loadStoreAction = RHI::AttachmentLoadStoreAction(
+            RHI::ClearValue::CreateDepth(1.f),
+            RHI::AttachmentLoadAction::Clear,
+            RHI::AttachmentStoreAction::Store,
+            RHI::AttachmentLoadAction::DontCare,
+            RHI::AttachmentStoreAction::DontCare
+        );
+        beginInfo.m_depthStencilAttachment = depthStencil;
+
+        commandList->BeginRenderPass(beginInfo);
 
         // Build draw item
         RHI::DrawItem drawItem;
@@ -889,6 +924,7 @@ namespace Spark::SandBox
         drawItem.m_shaderResourceCount = 1;
 
         commandList->Submit(drawItem);
+        commandList->EndRenderPass();
 
         // Transition to present
         RHI::ImageBarrier presentBarrier = RHI::ConvertToPresent(*m_rtContext.GetRenderTarget(0));
@@ -913,7 +949,7 @@ namespace Spark::SandBox
         CreateStageBuffer();
         CreateBaseColorTexture();
         CreateViewportAndScissor();
-        BuildRenderTargetContext();
+        // BuildRenderTargetContext();
     }
 
     void DrawShape::Run()
@@ -974,7 +1010,7 @@ int main(int argc, char** argv)
 
     app.Init();
 
-    app.Run();
+    // app.Run();
 
     return 0;
 }
