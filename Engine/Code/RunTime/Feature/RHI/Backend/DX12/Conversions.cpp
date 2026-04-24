@@ -515,9 +515,6 @@ namespace Spark::RHI::DX12
         case RHI::AttachmentUsage::Present:
             return D3D12_RESOURCE_STATE_PRESENT;
 
-        case RHI::AttachmentUsage::ConstantBuffer:
-            return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-
         case RHI::AttachmentUsage::RayTracingAccelerationStructure:
             return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
 
@@ -576,11 +573,6 @@ namespace Spark::RHI::DX12
 
         case RHI::AttachmentUsage::Present:
             return D3D12_RESOURCE_STATE_PRESENT;
-
-        case RHI::AttachmentUsage::ConstantBuffer:
-            // Not applicable to textures; avoid VCB/IB states on images.
-            LOG_ERROR("[RHI DX12] ConvertImageAttachmentState - ConstantBuffer usage is not applicable to textures; return COMMON state.");
-            return D3D12_RESOURCE_STATE_COMMON;
 
         case RHI::AttachmentUsage::RayTracingAccelerationStructure:
             return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;

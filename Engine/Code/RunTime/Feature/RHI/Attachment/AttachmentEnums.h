@@ -86,9 +86,6 @@ namespace Spark::RHI
         //! An attachment used for presenting the swap chain.
         Present,
 
-        //! An attachment used for constant buffers.
-        ConstantBuffer,
-
         //! Ray tracing acceleration structure (BLAS/TLAS). Distinct from generic Shader read in D3D12/Vulkan.
         RayTracingAccelerationStructure,
 
@@ -109,11 +106,10 @@ namespace Spark::RHI
         InputAssembly = BIT(static_cast<uint32_t>(AttachmentUsage::InputAssembly)),
         ShadingRate = BIT(static_cast<uint32_t>(AttachmentUsage::ShadingRate)),
         Present = BIT(static_cast<uint32_t>(AttachmentUsage::Present)),
-        ConstantBuffer = BIT(static_cast<uint32_t>(AttachmentUsage::ConstantBuffer)),
         RayTracingAccelerationStructure = BIT(static_cast<uint32_t>(AttachmentUsage::RayTracingAccelerationStructure)),
         All =
             RenderTarget | DepthStencil | Shader | Copy | Resolve | Predication | Indirect | SubpassInput | InputAssembly | ShadingRate |
-            Present | ConstantBuffer | RayTracingAccelerationStructure
+            Present | RayTracingAccelerationStructure
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentUsageMask, uint32_t);

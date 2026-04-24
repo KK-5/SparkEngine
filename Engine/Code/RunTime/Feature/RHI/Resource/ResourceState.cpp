@@ -60,8 +60,6 @@ namespace Spark::RHI
             case AttachmentUsage::RayTracingAccelerationStructure:
                 return wantsRead && !wantsWrite
                     && CheckBitsAny(bindFlags, BufferBindFlags::RayTracingAccelerationStructure);
-            case AttachmentUsage::ConstantBuffer:
-                return CheckBitsAny(bindFlags, BufferBindFlags::Constant);
             default:
                 return false;
             }
