@@ -46,5 +46,6 @@ namespace Spark::RHI::DX12
             descriptorCtx.ReleaseDescriptorTable(m_samplersDescriptorTable);
         }
 
+        m_samplers.clear();
     }
-}
+} 

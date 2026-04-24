@@ -553,7 +553,7 @@ namespace Spark::SandBox
         RHI::MemoryCopySrc copySrc;
         copySrc.pData = const_cast<uint8_t*>(m_imageAsset->GetImageData()->GetPixels().data());
         copySrc.rowPitch = imageBytesPerRow;
-        copydest.slicePitch = imageTotalBytes;
+        copySrc.slicePitch = imageTotalBytes;
         m_stageBufferPool->MemcpySubresource(&copydest, &copySrc, imageBytesPerRow, imageHeight, 1);
 
         m_stageBufferPool->UnmapBuffer(*m_stageTextureBuffer);

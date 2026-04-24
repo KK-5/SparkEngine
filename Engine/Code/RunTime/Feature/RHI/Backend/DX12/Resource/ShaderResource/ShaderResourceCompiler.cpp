@@ -102,7 +102,7 @@ namespace Spark::RHI::DX12
         if (constantSize > 0)
         {
             const size_t byteSize = AlignUp(constantSize, RHI::Alignment::Constant);
-            const uint32_t constantRingSize = byteSize * frameCountMax;
+            const uint32_t constantRingSize = static_cast<uint32_t>(byteSize) * frameCountMax;
             ConstantBufferContext& constantBufferCtx = factory->AcquireConstantBufferContext(device);
             dx12Srg.m_constantMemoryView =
                 constantBufferCtx.CreateConstantBuffer(constantRingSize, RHI::Alignment::Constant);

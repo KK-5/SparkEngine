@@ -32,6 +32,6 @@ namespace Spark::RHI
         virtual void ShutdownInternal() = 0;
         ///////////////////////////////////////////////
 
-        const Resource* m_resource = nullptr;
+        ConstPtr<Resource> m_resource = nullptr;
     };
 }

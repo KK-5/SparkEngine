@@ -15,12 +15,12 @@ namespace Editor
         void InitInternal() override;
         void ShutdownInternal() override;
 
-        eastl::vector<HashString> Request() const override
+        eastl::vector<Spark::HashString> Request() const override
         {
             return {"InputSystem"_hs};
         }
 
-        HashString GetName() const override
+        Spark::HashString GetName() const override
         {
             return "EditorInputSystem"_hs;
         }

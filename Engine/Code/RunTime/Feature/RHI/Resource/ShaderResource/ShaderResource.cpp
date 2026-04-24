@@ -341,6 +341,7 @@ namespace Spark::RHI
             }
         }
 
+        ResetViews();
         ShutdownInternal();
         DeviceObject::Shutdown();
     }

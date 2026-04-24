@@ -120,7 +120,7 @@ namespace Spark::RHI::DX12
 
         if (m_samplersDescriptorTableSize)
         {
-            if (shaderResource.m_viewsDescriptorTable.IsValid())
+            if (shaderResource.m_samplersDescriptorTable.IsValid())
             {
                 descriptorCtx.ReleaseDescriptorTable(shaderResource.m_samplersDescriptorTable);
             }
