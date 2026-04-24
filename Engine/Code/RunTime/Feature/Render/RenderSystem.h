@@ -47,23 +47,24 @@ namespace Spark::Render
         bool InitRenderUI();
 
         void BuildPipeline();
-
+        void InitPipeline();
 
         void ExecutePipeline(Pipeline& pipeline);
 
         struct RHIData
         {
-            RHI::Factory* m_factory;
-            Ptr<RHI::Device> m_device;
-            RHI::CommandQueueContext m_commandQueuecontext;
-            Ptr<RHI::SwapChain> m_swapChain;
-            RHIHandle m_swapchainHandle;
+            RHI::Factory*             m_factory;
+            Ptr<RHI::Device>          m_device;
+            RHI::CommandQueueContext  m_commandQueuecontext;
+            Ptr<RHI::SwapChain>       m_swapChain;
+            RHIHandle                 m_swapchainHandle;
+            Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         };
 
-        RHIData m_rhiData;
+        RHIData  m_rhiData;
         RenderUI m_rednerUI;
 
         RHIContext m_rhiContext;
-        Pipeline m_pipeline {"default"};
+        Pipeline   m_pipeline {"default"};
     };
 }

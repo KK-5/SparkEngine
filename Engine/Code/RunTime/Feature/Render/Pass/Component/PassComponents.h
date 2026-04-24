@@ -32,10 +32,6 @@ namespace Spark::Render
     {
     };
 
-    struct ParentPassTag
-    {
-    };
-
     struct ActivePassTag
     {
     };
@@ -44,32 +40,6 @@ namespace Spark::Render
     struct PassName
     {
         ObjectName m_name {};
-    };
-
-    struct PassInputLayout
-    {
-        RHI::InputStreamLayout m_inputLayout {};
-    };
-
-    struct PassRenderAttachmentLayout
-    {
-        RHI::RenderAttachmentLayout m_layout {};
-    };
-
-    struct ParentPassInfo
-    {
-        Pass     m_parent {NullPass};
-        uint32_t m_subPassIndex {0};
-    };
-
-    struct PassRenderAttachment
-    {
-        RHI::RenderAttachmentConfiguration m_config {};
-    };
-
-    struct PassRenderStates
-    {
-        RHI::RenderStates m_states {};
     };
 
     struct PassShaders

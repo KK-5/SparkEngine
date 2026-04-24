@@ -55,7 +55,6 @@ namespace Spark::RHI::DX12
         pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
         pipelineStateDesc.pRootSignature = pipelineLayout->Get();
 
-        // eastl::vector<ShaderByteCode> shaderByteCodeCache;
         const ShaderStageFunction* vertexFunction = static_cast<const ShaderStageFunction*>(descriptor.m_vertexFunction.get());
         pipelineStateDesc.VS = D3D12BytecodeFromView(vertexFunction->GetByteCode());
         if (descriptor.m_geometryFunction)

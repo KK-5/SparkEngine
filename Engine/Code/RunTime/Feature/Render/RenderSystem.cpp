@@ -13,6 +13,9 @@
 #include <RHI/Attachment/RenderAttachmentLayout.h>
 #include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
 #include <RHI/Pipeline/RenderTargetLayout.h>
+#include <RHI/Pipeline/PipelineLibrary.h>
+#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <RHI/Pipeline/PipelineStateDescriptor.h>
 
 #include <Pass/Pass.h>
 #include <Pass/PassTag.h>
@@ -113,6 +116,16 @@ namespace Spark::Render
         m_rhiContext.Add<ImportedTag>(m_rhiData.m_swapchainHandle);
         m_rhiContext.Add<ResourceName>(m_rhiData.m_swapchainHandle, ObjectName{"SwapChain"});
 
+        m_rhiData.m_pipelineLibrary = m_rhiData.m_factory->CreatePipelineLibrary();
+        RHI::PipelineLibraryDescriptor pipelineLibraryDesc;
+
+        result = m_rhiData.m_pipelineLibrary->Init(*m_rhiData.m_device, pipelineLibraryDesc);
+        if (result != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("Create pipeline library failed!");
+            return false;
+        }
+
         return true;
     }
 
@@ -129,16 +142,23 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
-
         Pass uiPass = passContext.CreateEntity();
         passContext.Add<PassName>(uiPass, ObjectName("UIPass"));
         passContext.Add<ActivePassTag>(uiPass);
         passContext.Add<RenderPassTag>(uiPass);
 
+        passContext.Add<RHI::InputStreamLayout>(uiPass);
+
         RHI::RenderTargetLayout renderTargetLayout;
         renderTargetLayout.m_colorAttachmentCount = 1;
         renderTargetLayout.m_colorFormats = {RHI::Format::R8G8B8A8_UNORM};
         passContext.Add<RHI::RenderTargetLayout>(uiPass, renderTargetLayout);
+
+        passContext.Add<RHI::RenderStates>(uiPass);
+
+        passContext.Add<PassShaders>(uiPass);
+
+        passContext.Add<PassShaderInputs>(uiPass);
 
         PassFunctions uiPassFunc;
         uiPassFunc.m_buildFunction = [&](RHIContext& rhiContext)
@@ -168,9 +188,60 @@ namespace Spark::Render
 
     }
 
-    void ExecutePipeline(Pipeline& pipeline)
+    void RenderSystem::InitPipeline()
+    {
+        auto& passContext = m_pipeline.GetPassContext();
+
+
+        auto& passShaders = passContext.GetView<PassShaders>();
+        for (auto& [pass, passShaders]: passShaders.each())
+        {
+            if (passShaders.m_vertexShader->GetStatus() == Resource::AssetStatus::NotLoaded)
+            {
+                // passShaders.m_vertexShader->
+            }
+        }
+
+        auto renderPasses = passContext.GetView<RenderPassTag>();
+
+        for (Pass pass: renderPasses)
+        {
+            RHI::PipelineStateDescriptorForDraw desc;
+
+            desc.m_inputStreamLayout = passContext.Get<RHI::InputStreamLayout>(pass);
+            desc.m_renderTargetLayout = passContext.Get<RHI::RenderTargetLayout>(pass);
+            desc.m_renderStates = passContext.Get<RHI::RenderStates>(pass);
+
+            PassShaders& shaders = passContext.Get<PassShaders>(pass);
+
+            Ptr<RHI::ShaderStageFunction> vertFunc = m_rhiData.m_factory->CreateShaderStageFunction(RHI::ShaderStage::Vertex);
+            vertFunc->SetByteCode(shaders.m_vertexShader->GetStageBytecode(RHI::ShaderStage::Vertex)->bytecode);
+            vertFunc->Finalize();
+            Ptr<RHI::ShaderStageFunction> fragFunc = m_rhiData.m_factory->CreateShaderStageFunction(RHI::ShaderStage::Fragment);
+            fragFunc->SetByteCode(shaders.m_fragmentShader->GetStageBytecode(RHI::ShaderStage::Fragment)->bytecode);
+            fragFunc->Finalize();
+
+            desc.m_vertexFunction = eastl::move(vertFunc);
+            desc.m_fragmentFunction = eastl::move(fragFunc);
+
+        }
+
+
+    }
+
+    void RenderSystem::ExecutePipeline(Pipeline& pipeline)
     {
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
+
+        auto& passContext = pipeline.GetPassContext();
+        // PrepareResource
+        auto 
+
+        // Build
+        auto& passContext = pipeline.GetPassContext();
+
+        //auto builderfuncs = passContext.
+
 
 
 
