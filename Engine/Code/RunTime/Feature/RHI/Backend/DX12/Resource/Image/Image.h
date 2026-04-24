@@ -118,9 +118,6 @@ namespace Spark::RHI::DX12
         friend class ImagePool;
         friend class StreamingImagePool;
         friend class DeviceObjectFactory<Image>;
-        //friend class AliasedHeap;
-        //friend class ImagePoolResolver;
-        //friend class StreamingImagePoolResolver;
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::Image
@@ -130,8 +127,6 @@ namespace Spark::RHI::DX12
             size_t* totalSizeInBytes) const override;
                             
         bool IsStreamableInternal() const override;
-
-        // void SetDescriptor(const RHI::ImageDescriptor& descriptor) override;
         //////////////////////////////////////////////////////////////////////////
 
         // Calculate the size of all the tiles allocated for this image and save the number in m_residentSizeInBytes

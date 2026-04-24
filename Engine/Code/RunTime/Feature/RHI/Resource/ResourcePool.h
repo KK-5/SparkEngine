@@ -13,12 +13,6 @@
 
 namespace Spark::RHI
 {
-    class ResourcePoolResolver
-    {
-    public:
-        virtual ~ResourcePoolResolver() = default;
-    };
-
     class Resource;
 
     class ResourcePool : public DeviceObject,

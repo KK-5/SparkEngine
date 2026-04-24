@@ -13,12 +13,10 @@ namespace Spark::RHI
 
         const Resource& GetResource() const;
 
-        //bool IsStale() const;
-
         virtual bool IsFullView() const = 0;
     
     protected:
-        // derived class should this
+        // derived class should call this
         ResultCode Init(const Resource& resource);
 
         // DeviceObject overrides

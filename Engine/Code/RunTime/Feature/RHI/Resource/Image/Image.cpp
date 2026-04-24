@@ -23,12 +23,6 @@ namespace Spark::RHI
         return m_residentMipLevel;
      }
 
-    const ImageFrameAttachment* Image::GetFrameAttachment() const
-    {
-        return nullptr;
-        //return static_cast<const ImageFrameAttachment*>(Resource::GetFrameAttachment());
-    }
-
     ImageAspectFlags Image::GetAspectFlags() const
     {
         return m_aspectFlags;

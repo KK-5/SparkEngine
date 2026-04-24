@@ -3,7 +3,6 @@
 #include <EASTL/atomic.h>
 
 #include <RHI/Resource/Resource.h>
-#include <RHI/Resource/ResourceViewCache.h>
 #include "BufferDescriptor.h"
 #include "BufferView.h"
 #include "BufferViewDescriptor.h"

@@ -11,7 +11,6 @@
 #include <Math/Bit.h>
 #include <Conversions.h>
 #include <Device/Device.h>
-#include <Resource/ResourcePoolResolver.h>
 #include "Image.h"
 
 namespace Spark::RHI::DX12
@@ -29,8 +28,6 @@ namespace Spark::RHI::DX12
     RHI::ResultCode ImagePool::InitInternal(RHI::Device& deviceBase, const RHI::ImagePoolDescriptor&)
     {
         Device& device = static_cast<Device&>(deviceBase);
-
-        // SetResolver(eastl::make_unique<ImagePoolResolver>(device, this));
 
         // ImagePool 分配的内存总是commited的
         D3D12MA::ALLOCATOR_DESC desc = {};

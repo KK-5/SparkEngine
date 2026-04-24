@@ -21,6 +21,7 @@ namespace Spark
     public:
         SceneManager() = default;
 
+        ///////////////////////////////////////////
         // ISystem
         void InitInternal() override;
         void ShutdownInternal() override;
@@ -33,7 +34,9 @@ namespace Spark
         {
             return "SceneManager"_hs;
         }
+        ///////////////////////////////////////////
 
+        ///////////////////////////////////////////
         // IScene
         size_t GetEntityCount() const override;
         void AddEntity(Entity entity) override;
@@ -50,12 +53,15 @@ namespace Spark
         eastl::vector<eastl::pair<Entity, unsigned int>> GetEntityTree() const override;
         void SetParent(Entity entity, Entity parent, Entity prevSibling = NullEntity) override;
         void PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func) override;
+        ///////////////////////////////////////////
 
+        ///////////////////////////////////////////
         // ComponentEventBus
         void OnComponentConstruct(Entity entity) override;
         void OnComponentWillUpdate(Entity entity) override;
         void OnComponentUpdated(Entity entity) override;
         void OnComponentDestory(Entity entity) override;
+        ///////////////////////////////////////////
     
     private:
         /// @brief Remove entity hierarchy from the hierarchies, the functon will not trigger any Hierarchy component update event

@@ -4,54 +4,6 @@
 
 namespace Spark::RHI
 {
-    ResourceState GetResourceStateFromImageBindFlags(ImageBindFlags bindFlags)
-    {
-        const bool renderTarget = CheckBitsAny(bindFlags, ImageBindFlags::Color);
-        const bool copyDest = CheckBitsAny(bindFlags, ImageBindFlags::CopyWrite);
-        const bool depthTarget = CheckBitsAny(bindFlags, ImageBindFlags::DepthStencil);
-        const bool shaderResource = CheckBitsAny(bindFlags, ImageBindFlags::ShaderRead);
-        const bool copySource = CheckBitsAny(bindFlags, ImageBindFlags::CopyRead);
-        const bool writeState = renderTarget || copyDest || depthTarget;
-        const bool readState = shaderResource || copySource;
-
-        if (writeState)
-        {
-            if (renderTarget)
-            {
-                return ResourceState{ AttachmentUsage::RenderTarget, AttachmentAccess::Write };
-            }
-            if (copyDest)
-            {
-                return ResourceState{ AttachmentUsage::Copy, AttachmentAccess::Write };
-            }
-            if (depthTarget)
-            {
-                return ResourceState{ AttachmentUsage::DepthStencil, AttachmentAccess::Write };
-            }
-        }
-        else if (readState)
-        {
-            if (shaderResource)
-            {
-                return ResourceState{ AttachmentUsage::Shader, AttachmentAccess::Read };
-            }
-            if (copySource)
-            {
-                return ResourceState{ AttachmentUsage::Copy, AttachmentAccess::Read };
-            }
-        }
-        else if (CheckBitsAny(bindFlags, ImageBindFlags::ShaderWrite))
-        {
-            return ResourceState{ AttachmentUsage::Shader, AttachmentAccess::Write };
-        }
-        else if (CheckBitsAny(bindFlags, ImageBindFlags::ShadingRate))
-        {
-            return ResourceState{ AttachmentUsage::ShadingRate, AttachmentAccess::Read };
-        }
-
-        return ResourceState{ AttachmentUsage::Uninitialized, AttachmentAccess::Unknown };
-    }
-
     ImageDescriptor ImageDescriptor::Create1D(
         ImageBindFlags bindFlags,
         uint32_t width,

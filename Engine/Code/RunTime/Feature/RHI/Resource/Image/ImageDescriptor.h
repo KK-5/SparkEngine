@@ -110,8 +110,4 @@ namespace Spark::RHI
     {
         return mipLevel + decreaseBy;
     }
-
-    //! Initial RHI resource state derived from bind flags. Matches the priority used by DX12::Image::SetDescriptor
-    //! for m_initialResourceState (Color / CopyWrite / DepthStencil, then ShaderRead / CopyRead, then ShaderWrite, then ShadingRate).
-    ResourceState GetResourceStateFromImageBindFlags(ImageBindFlags bindFlags);
 }

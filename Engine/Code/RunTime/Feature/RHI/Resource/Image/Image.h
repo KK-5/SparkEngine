@@ -8,7 +8,6 @@
 #pragma once
 
 #include <RHI/Resource/Resource.h>
-#include <RHI/Resource/ResourceViewCache.h>
 #include <RHI/HardwareQueue.h>
 #include "ImageSubResource.h"
 #include "ImageDescriptor.h"
@@ -16,7 +15,6 @@
 
 namespace Spark::RHI
 {
-    class ImageFrameAttachment;
     class ImageView;
 
     class Image : public Resource
@@ -46,8 +44,6 @@ namespace Spark::RHI
             size_t* totalSizeInBytes) const;
 
         uint32_t GetResidentMipLevel() const;
-
-        const ImageFrameAttachment* GetFrameAttachment() const;
 
         ImageAspectFlags GetAspectFlags() const;
 

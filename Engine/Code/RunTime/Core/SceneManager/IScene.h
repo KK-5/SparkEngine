@@ -54,6 +54,5 @@ namespace Spark
         virtual void SetParent(Entity entity, Entity parent, Entity prevSibling = NullEntity) = 0;
 
         virtual void PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func) = 0;
-
     };
 }

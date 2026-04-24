@@ -36,7 +36,6 @@ namespace Spark::RHI
         const ImageViewDescriptor& imageViewDescriptor = imageView->GetDescriptor();
         const Image& image = imageView->GetImage();
         const ImageDescriptor& imageDescriptor = image.GetDescriptor();
-        const ImageFrameAttachment* frameAttachment = image.GetFrameAttachment();
 
         // The image must have the correct bind flags for the slot.
         const bool isValidAccess =
