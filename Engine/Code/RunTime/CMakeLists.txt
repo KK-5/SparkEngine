@@ -2,10 +2,12 @@ set(TARGET_NAME SparkRuntime)
 
 add_subdirectory(Core)
 add_subdirectory(Resource)
+add_subdirectory(Platform)
 add_subdirectory(Feature/Input)
 add_subdirectory(Feature/RHI)
 add_subdirectory(Feature/Render)
 add_subdirectory(Feature/UI)
+add_subdirectory(Feature/Window)
 
 add_library(${TARGET_NAME} 
     Engine.cpp
@@ -14,11 +16,13 @@ add_library(${TARGET_NAME}
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
+        SparkPlatform
         SparkInput
         SparkRHI
         SparkRHI_DX12
         SparkRender
         SparkUI
+        SparkWindow
         SparkAssetManager
 )
 

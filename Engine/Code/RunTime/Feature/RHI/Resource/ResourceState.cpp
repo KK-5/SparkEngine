@@ -158,8 +158,8 @@ namespace Spark::RHI
         const ResourceState srcState = image.GetResourceState();
         ImageBarrier barrier;
         barrier.m_image = &image;
-        barrier.m_oldUsage = srcState.m_usage;
-        barrier.m_newUsage = newUsage;
+        barrier.m_srcUsage = srcState.m_usage;
+        barrier.m_dstUsage = newUsage;
         barrier.m_srcAccess = srcState.m_access;
         barrier.m_dstAccess = dstAccess;
         barrier.m_srcStage = srcStage;
@@ -298,13 +298,13 @@ namespace Spark::RHI
         }
 
         const Image& image = *barrier.m_image;
-        if (!IsImageStateSupportedByBindFlags(image, barrier.m_newUsage, barrier.m_dstAccess))
+        if (!IsImageStateSupportedByBindFlags(image, barrier.m_dstUsage, barrier.m_dstAccess))
         {
             LOG_ERROR(
                 "[RHI] Invalid image barrier for '{}': bindFlags={}, requested dstState=(usage={}, access={}).",
                 image.GetName().GetCStr(),
                 static_cast<uint32_t>(image.GetDescriptor().m_bindFlags),
-                static_cast<uint32_t>(barrier.m_newUsage),
+                static_cast<uint32_t>(barrier.m_dstUsage),
                 static_cast<uint32_t>(barrier.m_dstAccess));
             return false;
         }

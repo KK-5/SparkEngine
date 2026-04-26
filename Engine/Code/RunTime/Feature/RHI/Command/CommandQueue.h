@@ -41,8 +41,9 @@ namespace Spark::RHI
 
         ResultCode FlushCommands(RHI::Fence& fence);
         ResultCode ExecuteCommands(eastl::span<CommandList*> commandLists);
-
         ResultCode Signal(RHI::Fence& fence);
+
+        virtual void WaitForIdle() = 0;
             
         RHI::HardwareQueueClass GetHardwareQueueClass() const;
         const CommandQueueDescriptor& GetDescriptor() const;
@@ -54,7 +55,6 @@ namespace Spark::RHI
         virtual void ExecuteWork(const ExecuteWorkRequest& request) = 0;
         virtual void ExecuteCommandsInternal(eastl::span<CommandList*> commandLists) = 0;
         virtual void SignalInternal(RHI::Fence& fence) = 0;
-        virtual void WaitForIdle() = 0;
         virtual void ShutdownInternal() = 0;
         //////////////////////////////////////////////////////////////////////////
 

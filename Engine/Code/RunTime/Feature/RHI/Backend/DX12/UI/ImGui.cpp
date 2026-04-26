@@ -14,6 +14,10 @@
 
 namespace Spark::RHI::DX12
 {
+    ImGui::~ImGui()
+    {
+        Shutdown();
+    }
 
     RHI::ResultCode ImGui::InitInternal(RHI::Device& deviceBase, RHI::CommandQueue& commandQueue, [[maybe_unused]] const ImGuiDescriptor& desc)
     {
@@ -48,7 +52,7 @@ namespace Spark::RHI::DX12
         // Release all allocated descriptors
         for (auto& [ptr, handle] : m_userData.allocatedHandles)
         {
-            m_userData.descriptorContext->ReleaseDescriptor(handle);
+            m_userData.descriptorContext->ReleaseDescriptorTable(handle);
         }
         m_userData.allocatedHandles.clear();
         m_userData.descriptorContext = nullptr;
@@ -61,7 +65,6 @@ namespace Spark::RHI::DX12
 
     void ImGui::RenderDrawData(ImDrawData* drawData, RHI::CommandList* commandList)
     {
-        // TODO: Need to pass ID3D12GraphicsCommandList* from the caller
         auto dx12CommandList = static_cast<CommandList*>(commandList);
         ImGui_ImplDX12_RenderDrawData(drawData, dx12CommandList->GetCommandList());
     }
@@ -70,12 +73,13 @@ namespace Spark::RHI::DX12
         D3D12_CPU_DESCRIPTOR_HANDLE* outCpu, D3D12_GPU_DESCRIPTOR_HANDLE* outGpu)
     {
         auto* userData = static_cast<ImGuiDescriptorUserData*>(info->UserData);
-        DescriptorHandle handle = userData->descriptorContext->AllocateHandle(
+        // SHADER_VISIBLE 堆上不允许创建单独的handle，即使只有一个也应该使用table
+        DescriptorTable table = userData->descriptorContext->AllocateTable<
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-            D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
-        *outCpu = userData->descriptorContext->GetCpuNativeHandle(handle);
-        *outGpu = userData->descriptorContext->GetGpuNativeHandle(handle);
-        userData->allocatedHandles[outGpu->ptr] = handle;
+            D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>(1);
+        *outCpu = userData->descriptorContext->GetCpuNativeHandleForTable(table);
+        *outGpu = userData->descriptorContext->GetGpuNativeHandleForTable(table);
+        userData->allocatedHandles[outGpu->ptr] = table;
     }
 
     void ImGui::SrvDescriptorFree(ImGui_ImplDX12_InitInfo* info,
@@ -85,13 +89,8 @@ namespace Spark::RHI::DX12
         auto it = userData->allocatedHandles.find(gpu.ptr);
         if (it != userData->allocatedHandles.end())
         {
-            userData->descriptorContext->ReleaseDescriptor(it->second);
+            userData->descriptorContext->ReleaseDescriptorTable(it->second);
             userData->allocatedHandles.erase(it);
         }
-    }
-
-    ImGui::~ImGui()
-    {
-        Shutdown();
     }
 }

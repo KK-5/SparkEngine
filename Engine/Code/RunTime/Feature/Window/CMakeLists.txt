@@ -1,8 +1,7 @@
-set(TARGET_NAME SparkUI)
+set(TARGET_NAME SparkWindow)
 
 set(SOURCES
-    UIBaseSystem.cpp
-    ImGui/SparkImGui.cpp
+    GLFW/GlfwWindow.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -12,10 +11,11 @@ add_library(${TARGET_NAME} STATIC
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
-        ImGui
+        SparkPlatform
+        glfw
 )
 
-# 指定当前目录的父目录作为包含目录，其他模块包含时必须使用 #include <UI/...>
+# 指定当前目录的父目录作为包含目录，其他模块包含时必须使用 #include <Window/...>
 target_include_directories(
   ${TARGET_NAME}
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../>)

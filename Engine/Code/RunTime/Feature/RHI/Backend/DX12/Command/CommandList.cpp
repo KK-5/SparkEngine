@@ -414,10 +414,10 @@ namespace Spark::RHI::DX12
         Image& image = static_cast<Image&>(*barrier.m_image);
         CommandListBase::QueueTransitionBarrier(
             image.GetMemoryView().GetMemory(),
-            ConvertImageAttachmentState(barrier.m_oldUsage, barrier.m_srcAccess),
-            ConvertImageAttachmentState(barrier.m_newUsage, barrier.m_dstAccess));
+            ConvertImageAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
+            ConvertImageAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
         RHI::CommandList::SetResourceState(*barrier.m_image,
-            RHI::ResourceState{ barrier.m_newUsage, barrier.m_dstAccess });
+            RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
     }
 
     void CommandList::FlushBarriers()

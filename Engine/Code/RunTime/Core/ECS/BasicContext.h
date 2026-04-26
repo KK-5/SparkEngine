@@ -31,6 +31,12 @@ namespace Spark
             m_registry.clear();
         }
 
+        template<typename Type, typename... Other>
+        void Clear()
+        {
+            m_registry.template clear<Type, Other...>();
+        }
+
         // Entity operation
         Entity CreateEntity()
         {

@@ -62,7 +62,21 @@ namespace Spark
             m_registry.clear();
             m_entityRemoveEvents.clear();
         }
-        
+
+        template<typename Type, typename... Other, eastl::enable_if_t<Internal::AnyComponentTraitsRemoveEvent<Type, Other...>::value, int> = 0>
+        void Clear()
+        {
+            DispatchComponentRemoveBusForStorage<Type, Other...>();
+            m_registry.clear<Type, Other...>();
+        }
+
+        template<typename Type, typename... Other, eastl::enable_if_t<!Internal::AnyComponentTraitsRemoveEvent<Type, Other...>::value, int> = 0>
+        void Clear()
+        {
+            m_registry.clear<Type, Other...>();
+        }
+
+
         // Entity operation
         Entity CreateEntity()
         {
@@ -376,6 +390,25 @@ namespace Spark
         void DispatchComponentRemoveBusIfForEntity(Entity entity)
         {
             (DispatchComponentRemoveBusIf<Cs>(entity), ...);
+        }
+
+        template<typename C>
+        void DispatchComponentRemoveBusForStorageIf()
+        {
+            if constexpr ((ComponentTraits<C>::componentEvents & ComponentEventMask::Remove) != ComponentEventMask::None)
+            {
+                const TypeId typeId = GetTypeId<C>();
+                for (auto entity : m_registry.view<C>())
+                {
+                    ComponentEventBus::Event(typeId, &ComponentEventBus::Events::OnComponentDestory, entity);
+                }
+            }
+        }
+
+        template<typename... Cs>
+        void DispatchComponentRemoveBusForStorage()
+        {
+            (DispatchComponentRemoveBusForStorageIf<Cs>(), ...);
         }
 
         entt::basic_registry<Entity> m_registry{};

@@ -3,6 +3,8 @@
 #include <Log/SpdLogSystem.h>
 #include <Reflection/TypeRegistry.h>
 
+#include <Window/GLFW/GlfwWindow.h>
+
 #include "UI/EditorWindow.h"
 #include "UI/EditorUI.h"
 #include "Component/Reflect.h"
@@ -15,7 +17,7 @@ namespace Editor
         Spark::TypeRegistry::Register(Editor::Reflect);
         Spark::TypeRegistry::RegisterAll();
 
-        m_editorWindow = Spark::CreateSystem<EditorWindow>(1920, 1080, "SparkEditor");
+        m_editorWindow = Spark::CreateSystem<Spark::Window::GlfwWindow>(1920, 1080, "SparkEditor");
         m_editorWindow->Init();
 
         m_runtimeEngine = eastl::make_unique<Spark::SparkEngine>();

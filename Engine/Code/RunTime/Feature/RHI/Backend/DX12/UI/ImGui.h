@@ -17,7 +17,7 @@ namespace Spark::RHI::DX12
     struct ImGuiDescriptorUserData
     {
         DescriptorContext* descriptorContext = nullptr;
-        eastl::unordered_map<uint64_t, DescriptorHandle> allocatedHandles;
+        eastl::unordered_map<uint64_t, DescriptorTable> allocatedHandles;
     };
 
     class ImGui final : public RHI::ImGui

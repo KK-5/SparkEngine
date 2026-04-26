@@ -32,7 +32,7 @@ namespace Spark::UI
         virtual void DrawUI()                      = 0;    // 输入系统结束之后，场景渲染之前被调用
         virtual void EndFrame()                    = 0;    // 所有渲染之后被调用
 
-        virtual eastl::any GetUIRenderData() = 0;  // 获取UI的渲染数据，交给渲染系统渲染
+        virtual eastl::any RenderUI() = 0;
 
         virtual bool WantCaptureMouse()    const = 0;  // 检查UI是否需要捕获鼠标事件，如果是，此事件不应被输入系统响应
         virtual bool WantCaptureKeyboard() const = 0;  // 同上，检查UI是否需要捕获键盘事件

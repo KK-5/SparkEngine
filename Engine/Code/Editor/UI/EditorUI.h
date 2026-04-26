@@ -10,8 +10,7 @@
 #include <ECS/ISystem.h>
 #include <Service/Service.h>
 
-#include <Feature/Window/IWindowSystem.h>
-#include <Feature/UI/UIBaseSystem.h>
+#include <Feature/UI/ImGui/SparkImGui.h>
 #include <Feature/Input/InputEvent.h>
 #include <Feature/Input/Bus/InputEventBus.h>
 
@@ -23,23 +22,14 @@
 
 namespace Editor
 {
-    class EditorUI : public Spark::Service<Spark::UI::UIBaseSystem>::Handler,
+    class EditorUI : public Spark::UI::SparkImGui,
                      public Spark::Input::InputEventBus::Handler
     {
     public:
-        // ISystem
+        // SparkImGui
         void InitInternal() override;
         void ShutdownInternal() override;
-
-        // UIBaseSystem
-        void NewFrame() override;
         void DrawUI() override;
-        void EndFrame() override;
-
-        eastl::any GetUIRenderData() override;
-
-        bool WantCaptureMouse() const override;
-        bool WantCaptureKeyboard() const override; 
 
         // InputEventBus
         void OnMouseButtonEvent(Spark::Input::MouseButtonEvent event) override;
@@ -48,7 +38,6 @@ namespace Editor
         void OnKeyboardEvent(Spark::Input::KeyboardEvent event) override;
 
     private:
-        void SetUpStyle();
         void SetupDefaultLayout(ImGuiID dockspaceId);
 
         bool m_dockLayoutInit;

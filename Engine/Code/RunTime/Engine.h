@@ -43,11 +43,11 @@ namespace Spark
 
         WorldContext m_worldContext {};
 
-        SystemUniquePtr<Render::RenderSystem> m_renderSystem;
         UniquePtr<SpdLogSystem>               m_logSystem;
         SystemUniquePtr<Input::InputSystem>   m_inputSystem;
         SystemUniquePtr<SceneManager>         m_sceneManager;
         SystemUniquePtr<EntityReaper>         m_entityReaper;
         SystemUniquePtr<RHI::DX12::RHISystem> m_dx12Rhi;
+        SystemUniquePtr<Render::RenderSystem> m_renderSystem;
     };
 }

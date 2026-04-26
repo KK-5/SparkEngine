@@ -143,7 +143,6 @@ namespace Spark::RHI::DX12
         eastl::array<CommandListPool, RHI::HardwareQueueClassCount> m_commandListPools;
         eastl::array<CommandAllocatorPool, RHI::HardwareQueueClassCount> m_commandAllocatorPools;
         eastl::array<Ptr<ID3D12CommandAllocator>, RHI::HardwareQueueClassCount> m_activeCommandAllocators;
-        //eastl::vector<CommandList*> m_activeLists;
         eastl::vector<Ptr<CommandList>> m_activeLists;
 
         bool m_isInitialized = false;

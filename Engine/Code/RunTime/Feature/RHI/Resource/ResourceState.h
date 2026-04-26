@@ -57,8 +57,8 @@ namespace Spark::RHI
     struct ImageBarrier
     {
         Image*           m_image    = nullptr;
-        AttachmentUsage  m_oldUsage = AttachmentUsage::Uninitialized;
-        AttachmentUsage  m_newUsage = AttachmentUsage::Uninitialized;
+        AttachmentUsage  m_srcUsage = AttachmentUsage::Uninitialized;
+        AttachmentUsage  m_dstUsage = AttachmentUsage::Uninitialized;
         AttachmentAccess m_srcAccess = AttachmentAccess::Unknown;
         AttachmentAccess m_dstAccess = AttachmentAccess::Unknown;
         AttachmentStage  m_srcStage = AttachmentStage::Any;

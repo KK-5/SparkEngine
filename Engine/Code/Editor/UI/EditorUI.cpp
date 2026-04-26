@@ -2,12 +2,11 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_opengl3.h>
-#include <backends/imgui_impl_dx12.h>
 #include <glfw/glfw3.h>
 
 #include <Log/SpdLogSystem.h>
+
+#include <Render/Feature/UI/RenderUIInterface.h>
 
 namespace Editor
 {
@@ -15,30 +14,7 @@ namespace Editor
 
     void EditorUI::InitInternal()
     {
-        Spark::UI::UIBaseSystem::InitInternal();
-
-        IMGUI_CHECKVERSION();
-        ImGui::CreateContext();
-        ImGuiIO& io = ImGui::GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-        io.FontGlobalScale = 1.2f;
-
-        SetUpStyle();
-
-        if (!Service<Window::IWindowSystem>::Get() ||
-            Service<Window::IWindowSystem>::Get()->GetWindowBackend() != Window::WindowBackend::GLFW)
-        {
-            LOG_ERROR("[EditorUI] Get window bankend failed!");
-            assert(false);
-        }
-
-        GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
-        ImGui_ImplGlfw_InitForOpenGL(window, true);
-        ImGui_ImplOpenGL3_Init("#version 330");
-        // ImGui_ImplGlfw_InitForOther(window, true);
-        // ImGui_ImplDX12_Init();
+        Spark::UI::SparkImGui::InitInternal();
 
         m_dockLayoutInit = false;
         m_menuBar = eastl::make_unique<MenuBar>();
@@ -57,22 +33,7 @@ namespace Editor
             Spark::Input::InputEventBus::Handler::BusDisconnect(Spark::Input::InputBusId::EditorUI);
         }
 
-        ImGui_ImplOpenGL3_Shutdown();
-        //ImGui_ImplDX12_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
-    }
-
-    void EditorUI::SetUpStyle()
-    {
-        ImGui::StyleColorsDark();
-    
-        ImGuiStyle& style = ImGui::GetStyle();
-        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-            style.WindowRounding = 0.0f;
-            style.WindowPadding = ImVec2(0.0f, 0.0f);
-            style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-        }
+        Spark::UI::SparkImGui::ShutdownInternal();
     }
 
     void EditorUI::SetupDefaultLayout(ImGuiID dockspaceId)
@@ -100,13 +61,6 @@ namespace Editor
         }
     }
 
-    void EditorUI::NewFrame()
-    {
-        ImGui_ImplOpenGL3_NewFrame();
-        //ImGui_ImplDX12_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-    }
     void EditorUI::DrawUI()
     {
         ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -143,42 +97,12 @@ namespace Editor
         //ImGui::ShowDemoWindow(&showDemoWindow);
     }
 
-    void EditorUI::EndFrame()
-    {
-        Service<Window::IWindowSystem>::Get()->SwapBuffer();
-        
-        // glfw依赖，应该移除？
-        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-        {
-            GLFWwindow* backup_current_context = glfwGetCurrentContext();
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
-            glfwMakeContextCurrent(backup_current_context);
-        } 
-    }
-
-    eastl::any EditorUI::GetUIRenderData()
-    {
-        ImGui::Render();
-        return ImGui::GetDrawData();
-    }
-
-    bool EditorUI::WantCaptureMouse() const
-    {
-        return ImGui::GetIO().WantCaptureMouse;
-    }
-
-    bool EditorUI::WantCaptureKeyboard() const
-    {
-        return ImGui::GetIO().WantCaptureKeyboard;
-    }
-
     void EditorUI::OnMouseButtonEvent(Spark::Input::MouseButtonEvent event)
     {
         using namespace Spark::Input;
 
         // Init 中保证platform backend是glfw，目前只支持glfw
-        GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
+        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
         int button;
         if (event.button == MouseButton::Left)
@@ -235,7 +159,7 @@ namespace Editor
 
     void EditorUI::OnMouseCursorPosEvent(Spark::Input::MouseCursorPosEvent event)
     {
-        GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
+        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
         ImGuiIO& io = ImGui::GetIO();
         io.AddMousePosEvent(event.xPos, event.yPos);
@@ -243,7 +167,7 @@ namespace Editor
 
     void EditorUI::OnMouseScrollEvent(Spark::Input::MouseScrollEvent event)
     {
-        GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
+        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
         ImGuiIO& io = ImGui::GetIO();
         io.AddMouseWheelEvent(event.xOffset, event.yOffset);
@@ -381,7 +305,7 @@ namespace Editor
     {
         using namespace Spark::Input;
 
-        GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
+        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
         int key {0};
         switch(event.button)

@@ -7,6 +7,7 @@ set(SOURCES
     MultisampleState.cpp
     ClearValue.cpp
     Factory.cpp
+    Attachment/AttachmentEnums.cpp
     Attachment/AttachmentLoadStoreAction.cpp
     Attachment/RenderAttachmentLayout.cpp
     Attachment/RenderAttachmentLayoutBuilder.cpp
