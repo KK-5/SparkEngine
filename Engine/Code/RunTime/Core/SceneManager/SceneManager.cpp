@@ -14,7 +14,6 @@ namespace Spark
 {
     void SceneManager::InitInternal()
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         context.RegisterEventOnEntityRemove<Hierarchy>();
         ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
@@ -34,7 +33,6 @@ namespace Spark
 
     void SceneManager::AddEntity(Entity entity)
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         if (entity == NullEntity)
         {
@@ -58,7 +56,6 @@ namespace Spark
                 return;
             }
         }
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         context.Add<Hierarchy>(entities.begin(), entities.end(), Hierarchy{});
     }
@@ -71,7 +68,6 @@ namespace Spark
             return;
         }
 
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         if (context.Has<Hierarchy>(entity))
         {
@@ -90,7 +86,6 @@ namespace Spark
             }
         }
 
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         context.Remove<Hierarchy>(entities.begin(), entities.end());
     }
@@ -111,7 +106,6 @@ namespace Spark
     {
         eastl::vector<Entity> ancestors;
 
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
         while(context.Has<Hierarchy>(cur))
@@ -131,7 +125,6 @@ namespace Spark
 
     bool SceneManager::IsAncestor(Entity entity, Entity ancestor) const
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
         while(context.Has<Hierarchy>(cur))
@@ -153,7 +146,6 @@ namespace Spark
 
     Entity SceneManager::GetEntityRoot(Entity entity) const
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
         while(context.Has<Hierarchy>(cur))
@@ -172,7 +164,6 @@ namespace Spark
 
     eastl::vector<Entity> SceneManager::GetRootEntities() const
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         auto roots = context.GetView<HierarchyRootTag>();
 
@@ -205,7 +196,6 @@ namespace Spark
         size_t depth = 0;
 
         Entity cur = entity;
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         while(context.Has<Hierarchy>(cur))
         {
@@ -274,7 +264,6 @@ namespace Spark
             AddEntity(prevSibling);
         }
 
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         Hierarchy entityHier;
         if (context.Has<Hierarchy>(entity))
@@ -344,7 +333,6 @@ namespace Spark
             return false;
         }
 
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         if (hierarchy.nextSibling != NullEntity || hierarchy.prevSibling != NullEntity)
         { 
@@ -416,7 +404,6 @@ namespace Spark
 
     void SceneManager::ForEachChild(const Hierarchy& hierarchy, eastl::function<void(Entity entity)> func)
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         Entity cur = hierarchy.firstChild;
         while(cur != NullEntity && context.Has<Hierarchy>(cur))
@@ -433,7 +420,6 @@ namespace Spark
         Entity nextSibling = hierarchy.nextSibling;
         Entity firstChild = hierarchy.firstChild;
 
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         if (parent != NullEntity)
         {
@@ -497,7 +483,6 @@ namespace Spark
 
     void SceneManager::AddEntityInternal(Entity entity)
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         const auto hier = context.Get<Hierarchy>(entity);
 
@@ -559,7 +544,6 @@ namespace Spark
 
     void SceneManager::OnComponentConstruct(Entity entity)
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
         if (!Valid(hier))
@@ -581,7 +565,6 @@ namespace Spark
 
     void SceneManager::OnComponentWillUpdate(Entity entity)
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         const auto& oldHier = context.Get<Hierarchy>(entity);
 
@@ -590,7 +573,6 @@ namespace Spark
 
     void SceneManager::OnComponentUpdated(Entity entity)
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
         if (!Valid(hier))
@@ -611,7 +593,6 @@ namespace Spark
 
     void SceneManager::OnComponentDestory(Entity entity)
     {
-        ASSERT(WorldExecuteContext::Current(), "There is no world context.");
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
         RemoveEntityInternal(hier);
