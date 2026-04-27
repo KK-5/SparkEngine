@@ -21,6 +21,9 @@ namespace Spark::RHI
 
 namespace Spark::Render
 {
+    class RenderGraphBuilder;
+
+
     struct RenderPassTag
     {
     };
@@ -61,7 +64,7 @@ namespace Spark::Render
 
     struct PassFunctions
     {
-        eastl::function<void(RHIContext& rhiContext)> m_buildFunction;
+        eastl::function<void(RenderGraphBuilder& builder)> m_buildFunction;
         eastl::function<void(RHIContext& rhiContext)> m_compileFunction;
         eastl::function<void(RHI::CommandList* commandList)> m_executeFunction;
     };

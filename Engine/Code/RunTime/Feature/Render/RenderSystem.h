@@ -11,6 +11,9 @@
 
 #include "Pass/Pipeline.h"
 #include "Pass/RHIContext.h"
+
+#include "RenderGraph/RenderGraphBuilder.h"
+
 #include "Feature/UI/RenderUI.h"
 
 namespace Spark::Render
@@ -67,5 +70,7 @@ namespace Spark::Render
 
         RHIContext m_rhiContext;
         Pipeline   m_pipeline {"default"};
+
+        RenderGraphBuilder m_renderGraphBuilder {};
     };
 }

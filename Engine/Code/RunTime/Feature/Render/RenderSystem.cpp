@@ -70,7 +70,7 @@ namespace Spark::Render
     RHIHandle ResolveResource(RHIHandle handle, const RHIContext& context)
     {
         if (context.Has<ViewHierarchy>(handle))
-            return context.Get<ViewHierarchy>(handle).m_parentResource;
+            return context.Get<ViewHierarchy>(handle).m_resource;
         return handle;
     }
 
@@ -310,7 +310,7 @@ namespace Spark::Render
         );
 
         // View entity: owns the ImageViews, shader bindings reference this.
-        // Compile-time barrier code walks ViewHierarchy.m_parentResource to reach the resource entity.
+        // Compile-time barrier code walks ViewHierarchy.m_resource to reach the resource entity.
         m_rhiData.m_swapchainViewHandle = m_rhiContext.CreateEntity();
         SwapChainViews swapChainView;
         for (uint32_t i = 0; i < imageCount; ++i)
@@ -390,7 +390,7 @@ namespace Spark::Render
         passContext.Add<PassShaderInputs>(uiPass);
 
         PassFunctions uiPassFunc;
-        uiPassFunc.m_buildFunction = [&](RHIContext& rhiContext)
+        uiPassFunc.m_buildFunction = [&](RenderGraphBuilder& builder)
         {
             ImagePassAttachment passAttachment;
             passAttachment.m_attachmentId = "SwapChainOutput";
@@ -403,9 +403,13 @@ namespace Spark::Render
             passAttachment.m_action = loadStoreAction;
             passAttachment.m_view = m_rhiData.m_swapchainViewHandle;
 
+            builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(passAttachment);
+
+            /*
             auto uiPassOutput = rhiContext.CreateEntity();
             rhiContext.Add<ImagePassAttachment>(uiPassOutput, passAttachment);
             rhiContext.Add<SPARK_PASS_TAG("UIPass")>(uiPassOutput);
+            */
         };
 
         uiPassFunc.m_compileFunction = [&](RHIContext& rhiContext)
@@ -473,7 +477,7 @@ namespace Spark::Render
         {
             if (funcs.m_buildFunction)
             {
-                funcs.m_buildFunction(m_rhiContext);
+                funcs.m_buildFunction(m_renderGraphBuilder);
             }
         });
 
@@ -628,11 +632,14 @@ namespace Spark::Render
         InitRenderUI();
         BuildPipeline();
         InitPipeline();
+
+        RHIExecuteContext::Push(m_rhiContext);
         TickBus::Handler::BusConnect();
     }
 
     void RenderSystem::ShutdownInternal()
     {
+        RHIExecuteContext::Pop();
         TickBus::Handler::BusDisconnect();
     }
 

@@ -20,6 +20,8 @@
 
 namespace Spark::Render
 {
+    ///////////////////////////////////////////////
+    // Resource(Buffer, Image, BufferView, ImageView) component
     template <typename T>
     using FrameArray = eastl::array<T, RHI::Limits::Device::FrameCountMax>;
 
@@ -59,19 +61,19 @@ namespace Spark::Render
 
     struct ResourceHierarchy
     {
-        RHIHandle m_firstView;
+        RHIHandle m_firstView {NullHandle};
     };
 
     struct ViewHierarchy
     {
-        RHIHandle m_parentResource;
-        RHIHandle m_prevView;
-        RHIHandle m_nextView;
+        RHIHandle m_resource {NullHandle};
+        RHIHandle m_prevView {NullHandle};
+        RHIHandle m_nextView {NullHandle};
     };
-
-
     ///////////////////////////////////////////////
 
+    ///////////////////////////////////////////////
+    // Attachment component
     struct ImagePassAttachment
     {
         RHI::AttachmentId              m_attachmentId;
@@ -80,7 +82,7 @@ namespace Spark::Render
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
         RHI::AttachmentLoadStoreAction m_action {};
-        RHIHandle                      m_view;
+        RHIHandle                      m_view {NullHandle};
     };
 
     struct BufferPassAttachment
@@ -90,7 +92,7 @@ namespace Spark::Render
         RHI::AttachmentAccess m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage  m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage  m_stage  = RHI::AttachmentStage::Any;
-        RHIHandle             m_view;
+        RHIHandle             m_view {NullHandle};
     };
 
     static_assert(eastl::is_trivially_copyable_v<ImagePassAttachment>);
@@ -99,4 +101,5 @@ namespace Spark::Render
     static_assert(eastl::is_default_constructible_v<BufferPassAttachment>);
 
     struct AttachmentCompilingTag {};
+    /////////////////////////////////////////////////
 }
