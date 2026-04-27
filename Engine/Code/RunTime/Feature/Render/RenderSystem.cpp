@@ -393,7 +393,8 @@ namespace Spark::Render
         uiPassFunc.m_buildFunction = [&](RenderGraphBuilder& builder)
         {
             ImagePassAttachment passAttachment;
-            passAttachment.m_attachmentId = "SwapChainOutput";
+            passAttachment.m_attachmentId = "SwapChainView";
+            passAttachment.m_slotName = "ColorOutput";
             passAttachment.m_access = RHI::AttachmentAccess::Write;
             passAttachment.m_usage = RHI::AttachmentUsage::RenderTarget;
             RHI::AttachmentLoadStoreAction loadStoreAction;
@@ -404,12 +405,6 @@ namespace Spark::Render
             passAttachment.m_view = m_rhiData.m_swapchainViewHandle;
 
             builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(passAttachment);
-
-            /*
-            auto uiPassOutput = rhiContext.CreateEntity();
-            rhiContext.Add<ImagePassAttachment>(uiPassOutput, passAttachment);
-            rhiContext.Add<SPARK_PASS_TAG("UIPass")>(uiPassOutput);
-            */
         };
 
         uiPassFunc.m_compileFunction = [&](RHIContext& rhiContext)

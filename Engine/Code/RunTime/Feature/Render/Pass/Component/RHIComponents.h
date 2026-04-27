@@ -83,6 +83,7 @@ namespace Spark::Render
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
         RHI::AttachmentLoadStoreAction m_action {};
         RHIHandle                      m_view {NullHandle};
+        Pass                           m_pass {NullPass};
     };
 
     struct BufferPassAttachment
@@ -93,6 +94,7 @@ namespace Spark::Render
         RHI::AttachmentUsage  m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage  m_stage  = RHI::AttachmentStage::Any;
         RHIHandle             m_view {NullHandle};
+        Pass                  m_pass {NullPass};
     };
 
     static_assert(eastl::is_trivially_copyable_v<ImagePassAttachment>);
