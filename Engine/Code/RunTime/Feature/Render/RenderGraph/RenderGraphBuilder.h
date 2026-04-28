@@ -101,6 +101,11 @@ namespace Spark::Render
 
         struct AttachmentEntry
         {
+            AttachmentEntry() = default;
+            AttachmentEntry(Pass p, RHI::AttachmentAccess a)
+                : pass(p), access(a)
+            {}
+
             Pass pass;
             RHI::AttachmentAccess access;
         };

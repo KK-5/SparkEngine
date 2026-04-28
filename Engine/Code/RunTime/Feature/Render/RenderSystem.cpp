@@ -393,7 +393,7 @@ namespace Spark::Render
         uiPassFunc.m_buildFunction = [&](RenderGraphBuilder& builder)
         {
             ImagePassAttachment passAttachment;
-            passAttachment.m_attachmentId.m_id = "SwapChainView";
+            passAttachment.m_attachmentId.m_id = "SwapChain";
             passAttachment.m_slotName = "ColorOutput";
             passAttachment.m_access = RHI::AttachmentAccess::Write;
             passAttachment.m_usage = RHI::AttachmentUsage::RenderTarget;
