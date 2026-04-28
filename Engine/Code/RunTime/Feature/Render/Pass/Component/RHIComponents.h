@@ -3,6 +3,7 @@
 #include <EASTL/type_traits.h>
 
 #include <Object/ObjectName.h>
+#include <EASTLEX/hash.h>
 
 #include <Pass/RHIHandle.h>
 #include <Pass/Pass.h>
@@ -74,9 +75,36 @@ namespace Spark::Render
 
     ///////////////////////////////////////////////
     // Attachment component
+    struct AttachmentId
+    {
+        RHI::AttachmentId m_id;
+        uint32_t m_version {0};
+
+        bool operator==(const AttachmentId& other) const
+        {
+            return m_id == other.m_id && m_version == other.m_version;
+        }
+
+        bool operator!=(const AttachmentId& other) const
+        {
+            return !(*this == other);
+        }
+
+        AttachmentId Next() const
+        {
+            return AttachmentId{m_id, m_version + 1};
+        }
+
+        bool IsValid() const
+        {
+            return !m_id.IsEmpty();
+        }
+    };
+
+
     struct ImagePassAttachment
     {
-        RHI::AttachmentId              m_attachmentId;
+        AttachmentId                   m_attachmentId;
         RHI::InputName                 m_slotName;
         RHI::AttachmentAccess          m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
@@ -88,7 +116,7 @@ namespace Spark::Render
 
     struct BufferPassAttachment
     {
-        RHI::AttachmentId     m_attachmentId;
+        AttachmentId          m_attachmentId;
         RHI::InputName        m_slotName;
         RHI::AttachmentAccess m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage  m_usage  = RHI::AttachmentUsage::Uninitialized;
@@ -104,4 +132,18 @@ namespace Spark::Render
 
     struct AttachmentCompilingTag {};
     /////////////////////////////////////////////////
+}
+
+namespace eastl
+{
+    template<>
+    struct hash<Spark::Render::AttachmentId>
+    {
+        size_t operator()(const Spark::Render::AttachmentId& id) const noexcept
+        {
+            size_t h = hash<Spark::ObjectName>{}(id.m_id);
+            hash_combine(h, id.m_version);
+            return h;
+        }
+    };
 }
