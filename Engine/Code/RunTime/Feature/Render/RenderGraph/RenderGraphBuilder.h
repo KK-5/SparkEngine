@@ -84,6 +84,10 @@ namespace Spark::Render
 
         void BuildGraph();
 
+        eastl::vector<Pass> TopoSort();
+
+        void Begin();
+
         eastl::vector<Pass> End();
 
         static constexpr bool s_buildValidation { true };

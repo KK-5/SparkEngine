@@ -2,6 +2,13 @@
 
 namespace Spark::Render
 {
+
+    void RenderGraphBuilder::Begin()
+    {
+        m_graph.clear();
+        m_attachmentUses.clear();
+    }
+
     void RenderGraphBuilder::TouchNode(Pass pass)
     {
         // 让没有任何边的孤立 pass 也出现在图里
@@ -45,8 +52,6 @@ namespace Spark::Render
                 }
             }
         }
-
-        m_graph.clear();
 
         auto HasFlag = [](RHI::AttachmentAccess access, RHI::AttachmentAccess require) -> bool
         {
@@ -113,5 +118,56 @@ namespace Spark::Render
                 }
             }
         }
+    }
+
+    eastl::vector<Pass> RenderGraphBuilder::TopoSort()
+    {
+        eastl::vector<Pass> result;
+        result.reserve(m_graph.size());
+
+        eastl::vector<Pass> ready;
+        ready.reserve(m_graph.size());
+
+        for (const auto& [pass, node] : m_graph)
+        {
+            if (node.inDegree == 0)
+            {
+                ready.push_back(pass);
+            }
+        }
+        
+        while(!ready.empty())
+        {
+            Pass cur = ready.back();
+            ready.pop_back();
+
+            result.push_back(cur);
+
+            auto nodeIt = m_graph.find(cur);
+            if (nodeIt == m_graph.end())
+            {
+                continue;
+            }
+
+            for (Pass dep : nodeIt->second.dependents)
+            {
+                auto depNodeIt = m_graph.find(dep);
+                ASSERT(depNodeIt != m_graph.end(), "Dependency pass {} not found in graph.", dep);
+                ASSERT(depNodeIt->second.inDegree > 0, "Invalid indegree state in topo sort.");
+                if (--depNodeIt->second.inDegree == 0)
+                {
+                    ready.push_back(dep);
+                }
+            }
+        }
+
+        ASSERT(result.size() == m_graph.size(), "RenderGraph contains cycle, topo sort failed.");
+        return result;
+    }
+
+    eastl::vector<Pass> RenderGraphBuilder::End()
+    {
+        BuildGraph();
+        return TopoSort();
     }
 }

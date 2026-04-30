@@ -1,5 +1,6 @@
 #pragma once
 
+#include <EASTL/span.h>
 #include <Log/SpdLogSystem.h>
 
 #include <Pass/Component/RHIComponents.h>
@@ -15,7 +16,7 @@ namespace Spark::Render
     private:
         friend class RenderGraph;
 
-        void TopoSort();
+        void CompilePassCrossQueue(eastl::span<Pass> passes);
 
     };
 }
