@@ -7,6 +7,7 @@
 #include <RHI/Attachment/RenderAttachmentLayout.h>
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/HardwareQueue.h>
 
 #include <Resource/Shader/ShaderAsset.h>
 
@@ -44,6 +45,11 @@ namespace Spark::Render
     struct PassName
     {
         ObjectName m_name {};
+    };
+
+    struct PassExecuteQueue
+    {
+        RHI::HardwareQueueClass m_queue;
     };
 
     struct PassShaders

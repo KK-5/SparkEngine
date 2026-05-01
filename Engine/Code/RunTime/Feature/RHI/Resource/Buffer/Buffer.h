@@ -14,6 +14,7 @@ namespace Spark::RHI
     class Buffer : public Resource
     {
         friend class BufferPool;  // for SetDescriptor, m_mapRefCount
+        friend class TransientResourcePool;
     public:
         virtual ~Buffer() = default;
 

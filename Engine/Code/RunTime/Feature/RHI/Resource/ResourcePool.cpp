@@ -8,21 +8,10 @@ namespace Spark::RHI
 {
     ResourcePool::~ResourcePool()
     {
-        if (m_registry.size() != 0)
-        {
-            LOG_ERROR("[ResourcePool] ResourcePool {} is being destroyed while it still has {} registered resources.", GetName().GetCStr(), static_cast<uint32_t>(m_registry.size()));
-        }
-
         if (FrameEventBus::Handler::BusIsConnected())
         {
             FrameEventBus::Handler::BusDisconnect();
         }
-    }
-
-    uint32_t ResourcePool::GetResourceCount() const
-    {
-        std::shared_lock<std::shared_mutex> lock(m_registryMutex);
-        return static_cast<uint32_t>(m_registry.size());
     }
 
     bool ResourcePool::ValidateIsUnregistered(const Resource* resource) const
@@ -88,17 +77,11 @@ namespace Spark::RHI
     void ResourcePool::Register(Resource& resource)
     {
         resource.SetPool(this);
-
-        //std::unique_lock<std::shared_mutex> lock(m_registryMutex);
-        //m_registry.emplace(&resource);
     }
 
     void ResourcePool::Unregister(Resource& resource)
     {
         resource.SetPool(nullptr);
-
-        //std::unique_lock<std::shared_mutex> lock(m_registryMutex);
-        //m_registry.erase(&resource);
     }
 
     ResultCode ResourcePool::Init(Device& device, const ResourcePoolDescriptor& descriptor, const BackendMethod& initMethod)
@@ -132,14 +115,15 @@ namespace Spark::RHI
         if (IsInitialized())
         {
             FrameEventBus::Handler::BusDisconnect();
+            /*
             for (Resource* resource : m_registry)
             {
                 resource->SetPool(nullptr);
                 ShutdownResourceInternal(*resource);
                 resource->Shutdown();
             }
+            */
             ShutdownInternal();
-            m_registry.clear();
             DeviceObject::Shutdown();
         }
     }

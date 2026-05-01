@@ -21,6 +21,7 @@ namespace Spark::RHI
     {
         friend class ImagePoolBase;
         friend class StreamingImagePool;
+        friend class TransientResourcePool;
         friend class SwapChain;
 
     public:

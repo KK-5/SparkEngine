@@ -62,8 +62,6 @@ namespace Spark::RHI
 
         void Unregister(Resource& resource);
 
-        mutable std::shared_mutex m_registryMutex;
-        eastl::unordered_set<Resource*> m_registry;
         eastl::atomic<bool> m_isProcessingFrame = false;
     };
 }

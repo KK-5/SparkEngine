@@ -77,9 +77,6 @@ namespace Spark::RHI::DX12
 
         // Returns whether the image is using a tiled resource.
         bool IsTiled() const;
-
-        void SetUploadFenceValue(uint64_t fenceValue);
-        uint64_t GetUploadFenceValue() const;
         
         // Describes the state of a subresource by index.
         struct SubresourceAttachmentState
@@ -117,6 +114,7 @@ namespace Spark::RHI::DX12
         friend class SwapChain;
         friend class ImagePool;
         friend class StreamingImagePool;
+        friend class TransientResourcePool;
         friend class DeviceObjectFactory<Image>;
 
         //////////////////////////////////////////////////////////////////////////
@@ -161,9 +159,6 @@ namespace Spark::RHI::DX12
 
         // Tracking the actual mip level data uploaded. It's also used for invalidate image view. 
         uint32_t m_streamedMipLevel = 0;
-
-        // The queue fence value of latest async upload request 
-        uint64_t m_uploadFenceValue = 0;
 
         // The initial state for the graph compiler to use when compiling the resource transition chain.
         // eastl::vector<SubresourceRangeAttachmentState> m_attachmentState;

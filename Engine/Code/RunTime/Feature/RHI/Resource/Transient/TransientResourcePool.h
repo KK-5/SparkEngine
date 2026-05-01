@@ -1,0 +1,166 @@
+#pragma once
+
+#include <EASTL/vector.h>
+
+#include <Object/ObjectName.h>
+
+#include <RHI/ClearValue.h>
+#include <RHI/Resource/ResourcePool.h>
+#include <RHI/Resource/Buffer/BufferDescriptor.h>
+#include <RHI/Resource/Image/ImageDescriptor.h>
+
+#include "TransientAllocationFence.h"
+#include "TransientResourcePoolDescriptor.h"
+#include "TransientResourcePoolStats.h"
+
+namespace Spark::RHI
+{
+    class Resource;
+    class Image;
+    class Buffer;
+    class Device;
+
+    struct TransientImageCreateInfo
+    {
+        ImageDescriptor   m_descriptor;
+        const ClearValue* m_optimizedClearValue = nullptr;
+        ObjectName        m_debugName;
+    };
+
+    struct TransientBufferCreateInfo
+    {
+        BufferDescriptor m_descriptor;
+        ObjectName       m_debugName;
+    };
+
+    //! Aliasing barrier emitted when a memory range is reused: m_resourceAfter is
+    //! about to be used and shares its heap range with m_resourceBefore (which the
+    //! pool has already discarded). A null m_resourceBefore stands for "any prior
+    //! owner" and is translated by the backend into the platform-appropriate form.
+    struct TransientAliasingBarrier
+    {
+        Resource* m_resourceBefore = nullptr;
+        Resource* m_resourceAfter  = nullptr;
+    };
+
+    using AliasingBarrierList = eastl::vector<TransientAliasingBarrier>;
+
+    //! Pool that allocates short-lived images and buffers from heap memory shared
+    //! through aliasing. Resources are valid from their Create*() fence through
+    //! their Discard() fence; resources whose fence intervals do not overlap may
+    //! share the same heap range.
+    //!
+    //! Lifecycle is driven by FrameEventBus:
+    //!   - OnFrameBegin opens a new allocation batch. The previous batch's GPU
+    //!     work is guaranteed complete by the engine's frames-in-flight fence,
+    //!     so heap memory can be safely recycled.
+    //!   - OnFrameEnd seals the batch; aliasing relationships and barriers
+    //!     become queryable through GetAliasingBarriers().
+    //!
+    //! Returned resources are bare RHI::Image* / RHI::Buffer*. Ownership is
+    //! tracked via Resource::m_pool, so destroying the resource routes through
+    //! TransientResourcePool::ShutdownResourceInternal in the same way ImagePool
+    //! and BufferPool work. Callers above the RHI mark transient resources via
+    //! their own ECS tags — the RHI does not introduce a separate transient type.
+    //!
+    //! Discard() is distinct from ShutdownResource(): Discard only releases the
+    //! backing memory range for reuse within the current batch. The Image*/Buffer*
+    //! object itself remains valid and is held by the pool's cross-batch cache so
+    //! that a later batch can reuse the same placed resource on a descriptor hit.
+    class TransientResourcePool : public ResourcePool
+    {
+    public:
+        virtual ~TransientResourcePool() = default;
+
+        ResultCode Init(Device& device, const TransientResourcePoolDescriptor& descriptor);
+
+        //! Allocate a transient image. Returns an Image whose memory is bound and
+        //! ready for use from allocFence onwards. The image is owned by this pool;
+        //! its destruction routes through ShutdownResourceInternal().
+        Image* CreateImage(
+            const TransientImageCreateInfo& createInfo,
+            const TransientAllocationFence& allocFence);
+
+        //! Allocate a transient buffer. See CreateImage().
+        Buffer* CreateBuffer(
+            const TransientBufferCreateInfo& createInfo,
+            const TransientAllocationFence&  allocFence);
+
+        //! Mark a previously-created image's memory range as no longer in use after
+        //! discardFence. The Image* itself remains valid until OnFrameEnd; only the
+        //! heap range becomes available for re-allocation by subsequent Create*()
+        //! calls in the same batch.
+        void Discard(Image*  image,  const TransientAllocationFence& discardFence);
+        void Discard(Buffer* buffer, const TransientAllocationFence& discardFence);
+
+        //! Aliasing barriers that must be issued before any use of resources at the
+        //! given timeline position. Only meaningful after OnFrameEnd has sealed the
+        //! batch — callers (typically a render-system barrier compiler) merge the
+        //! result into their own pre-barrier list for the corresponding command
+        //! stream.
+        void GetAliasingBarriers(uint32_t timelinePosition, AliasingBarrierList& out) const;
+
+        //! Cheap snapshot of pool occupancy and aliasing efficiency.
+        TransientResourcePoolStats GetStats() const;
+
+        const TransientResourcePoolDescriptor& GetDescriptor() const override final;
+
+    protected:
+        TransientResourcePool() = default;
+
+        void SetImageDescriptor (Image&  image,  const ImageDescriptor&  descriptor);
+        void SetBufferDescriptor(Buffer& buffer, const BufferDescriptor& descriptor);
+
+        //////////////////////////////////////////////////////////////////////////
+        // FrameEventBus
+        void OnFrameBegin() override;
+        void OnFrameEnd()   override;
+        //////////////////////////////////////////////////////////////////////////
+
+        //////////////////////////////////////////////////////////////////////////
+        // Backend API
+        virtual ResultCode InitInternal(
+            Device& device,
+            const TransientResourcePoolDescriptor& descriptor) = 0;
+
+        virtual Image* CreateImageInternal(
+            const TransientImageCreateInfo& createInfo,
+            const TransientAllocationFence& allocFence) = 0;
+
+        virtual Buffer* CreateBufferInternal(
+            const TransientBufferCreateInfo& createInfo,
+            const TransientAllocationFence&  allocFence) = 0;
+
+        virtual void DiscardInternal(
+            Image* image,
+            const TransientAllocationFence& discardFence) = 0;
+
+        virtual void DiscardInternal(
+            Buffer* buffer,
+            const TransientAllocationFence& discardFence) = 0;
+
+        virtual void GetAliasingBarriersInternal(
+            uint32_t             timelinePosition,
+            AliasingBarrierList& out) const = 0;
+
+        virtual void OnFrameBeginInternal() {}
+        virtual void OnFrameEndInternal()   {}
+
+        virtual TransientResourcePoolStats GetStatsInternal() const { return {}; }
+        //////////////////////////////////////////////////////////////////////////
+
+    private:
+        using ResourcePool::Init;
+
+        bool ValidateImageOwnedByThis(const Image*  image)  const;
+        bool ValidateBufferOwnedByThis(const Buffer* buffer) const;
+        bool ValidateBatchOpen() const;
+        bool ValidateFenceWithinPool(const TransientAllocationFence& fence) const;
+
+        TransientResourcePoolDescriptor m_descriptor;
+
+        //! True between OnFrameBegin and OnFrameEnd. Create / Discard are only
+        //! valid inside this window; GetAliasingBarriers is only valid outside it.
+        bool m_batchOpen = false;
+    };
+}

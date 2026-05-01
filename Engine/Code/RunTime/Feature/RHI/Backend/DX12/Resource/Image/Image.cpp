@@ -407,17 +407,5 @@ namespace Spark::RHI::DX12
                 }
             }
         }
-    }
-    
-    void Image::SetUploadFenceValue(uint64_t fenceValue)
-    {
-        ASSERT(fenceValue > m_uploadFenceValue, "New fence value should always larger than previous fence value");
-        m_uploadFenceValue = fenceValue;
-    }
-
-    uint64_t Image::GetUploadFenceValue() const
-    {
-        return m_uploadFenceValue;
-    }
-    
+    } 
 }

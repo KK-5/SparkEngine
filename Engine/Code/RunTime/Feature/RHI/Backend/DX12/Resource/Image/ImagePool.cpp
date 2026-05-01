@@ -96,7 +96,7 @@ namespace Spark::RHI::DX12
         HRESULT result = m_d3dmaAllocator->CreateResource(
             &allocDesc,
             &resourceDesc,
-            image->GetInitialResourceState(),
+            initialResourceState,
             (isOutputMergerAttachment && request.m_optimizedClearValue) ? &clearValue : nullptr,
             &allocation,
             IID_NULL,
