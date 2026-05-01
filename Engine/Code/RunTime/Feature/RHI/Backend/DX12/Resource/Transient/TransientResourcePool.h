@@ -42,7 +42,13 @@ namespace Spark::RHI::DX12
             const RHI::TransientImageCreateInfo& createInfo,
             const RHI::TransientAllocationFence& allocFence) override;
 
+        RHI::Buffer* CreateBufferInternal(
+            const RHI::TransientBufferCreateInfo& createInfo,
+            const RHI::TransientAllocationFence&  allocFence) override;
+
         void DiscardInternal(RHI::Image* image, const RHI::TransientAllocationFence& discardFence) override;
+
+        void DiscardInternal(RHI::Buffer* buffer, const RHI::TransientAllocationFence& discardFence) override;
 
         void GetAliasingBarriersInternal(
             uint32_t timelinePosition,
@@ -51,9 +57,6 @@ namespace Spark::RHI::DX12
         void OnFrameBeginInternal() override;
 
         void OnFrameEndInternal() override;
-
-        // CreateBufferInternal / DiscardInternal
-        // are added in subsequent stages.
         ////////////////////////////////////////////////////////////////////////
 
         static constexpr uint32_t InvalidPlacementIndex = eastl::numeric_limits<uint32_t>::max();

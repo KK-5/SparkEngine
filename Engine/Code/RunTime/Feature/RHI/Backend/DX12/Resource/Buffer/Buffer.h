@@ -33,6 +33,7 @@ namespace Spark::RHI::DX12
         Buffer() = default;
 
         friend class BufferPool; // for resource initialize
+        friend class TransientResourcePool; // for transient placed-resource initialize
         friend class RHI::DeviceObjectFactory<Buffer>; // for object construct
 
         //////////////////////////////////////////////////////////////////////////

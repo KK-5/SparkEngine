@@ -6,6 +6,7 @@
 
 #include <Conversions.h>
 #include <Device/Device.h>
+#include <Resource/Buffer/Buffer.h>
 #include <Resource/Image/Image.h>
 #include <ID3D12Factory.h>
 
@@ -274,6 +275,147 @@ namespace Spark::RHI::DX12
         return image.get();
     }
 
+    RHI::Buffer* TransientResourcePool::CreateBufferInternal(
+        const RHI::TransientBufferCreateInfo& createInfo,
+        const RHI::TransientAllocationFence&  allocFence)
+    {
+        D3D12_RESOURCE_DESC resourceDesc;
+        ConvertBufferDescriptor(createInfo.m_descriptor, resourceDesc);
+
+        Device& device = GetDevice();
+        D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = device.GetDX12Device()->GetResourceAllocationInfo(0, 1, &resourceDesc);
+
+        uint32_t bestChainSlot = InvalidPlacementIndex;
+        uint32_t index = 0;
+        for (auto& tailIndex : m_bucket.m_chainTails)
+        {
+            const Placement& tail = m_bucket.m_placements[tailIndex];
+
+            if (tail.m_discard.m_timelinePosition <= allocFence.m_timelinePosition &&
+                tail.m_size >= allocationInfo.SizeInBytes &&
+                IsAligned(tail.m_offset, allocationInfo.Alignment)
+                )
+            {
+                // first-fit，add best-fit in future.
+                bestChainSlot = index;
+                break;
+            }
+            ++index;
+        }
+
+        const uint32_t newIndex = static_cast<uint32_t>(m_bucket.m_placements.size());
+
+        if (bestChainSlot != InvalidPlacementIndex)
+        {
+            const uint32_t prevTailIdx = m_bucket.m_chainTails[bestChainSlot];
+            Placement& prevTail = m_bucket.m_placements[prevTailIdx];
+
+            Placement newPlacement;
+            newPlacement.m_offset = prevTail.m_offset;  // 同 offset
+            newPlacement.m_size = allocationInfo.SizeInBytes;
+            newPlacement.m_alloc = allocFence;
+            newPlacement.m_aliasedFrom = prevTailIdx;
+            newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
+            // newPlacement.m_vAlloc 留空：本次复用别人预定的 offset，没向 VirtualBlock 申请
+            m_bucket.m_placements.push_back(eastl::move(newPlacement));
+
+            // 注意prevTail可能失效，这里重新取
+            m_bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
+            m_bucket.m_chainTails[bestChainSlot] = newIndex;
+
+            // 加入barrier
+            RHI::TransientAliasingBarrier barrier;
+            barrier.m_resourceBefore = prevTail.m_resource.get();
+            m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
+        }
+        else
+        {
+            D3D12MA::VIRTUAL_ALLOCATION_DESC vDesc;
+            vDesc.Flags = D3D12MA::VIRTUAL_ALLOCATION_FLAG_NONE;
+            vDesc.Size = allocationInfo.SizeInBytes;
+            vDesc.Alignment = allocationInfo.Alignment;
+
+            D3D12MA::VirtualAllocation vAlloc;
+            UINT64 offset;
+            HRESULT hr = m_bucket.m_offsetBlock->Allocate(&vDesc, &vAlloc, &offset);
+            if (FAILED(hr))
+            {
+                // Create committed resource, now return null
+                LOG_WARN("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}). "
+                    "Committed fallback not yet implemented.",
+                    allocationInfo.SizeInBytes, allocationInfo.Alignment);
+                return nullptr;
+            }
+
+            Placement newPlacement;
+            newPlacement.m_offset = offset;
+            newPlacement.m_size = allocationInfo.SizeInBytes;
+            newPlacement.m_alloc = allocFence;
+            newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
+            m_bucket.m_placements.push_back(eastl::move(newPlacement));
+
+            m_bucket.m_chainTails.push_back(newIndex);
+        }
+
+        // Create resource for new Placement
+        auto factory = Service<RHI::Factory>::Get();
+        ASSERT(factory, "RHI::Factory is null when creating transient buffer.");
+
+        // 初始化为无效状态
+        Ptr<RHI::Buffer> buffer = factory->CreateBuffer();
+        SetResourceState(*buffer, RHI::ResourceState{});
+
+        const RHI::ResourceState resourceState = buffer->GetResourceState();
+        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
+
+        auto& newPlacement = m_bucket.m_placements.back();
+
+        RHI::ResultCode result = InitResource(buffer.get(), [&]() -> RHI::ResultCode
+        {
+            ComPtr<ID3D12Resource> dx12Resource;
+            HRESULT hr = m_allocator->CreateAliasingResource(
+                m_bucket.m_heap.get(),
+                newPlacement.m_offset,
+                &resourceDesc,
+                initialResourceState,
+                nullptr,
+                IID_PPV_ARGS(&dx12Resource));
+            if (FAILED(hr))
+            {
+                LOG_ERROR("[TransientResourcePool] CreateAliasingResource (Buffer) failed (HRESULT 0x{:X}).",
+                        static_cast<uint32_t>(hr));
+                return RHI::ResultCode::Fail;
+            }
+
+            Buffer* dx12Buffer = static_cast<Buffer*>(buffer.get());
+            SetBufferDescriptor(*buffer, createInfo.m_descriptor);
+            MemoryView memoryView(dx12Resource.Get(), MemoryViewType::Buffer,
+                        newPlacement.m_offset,
+                        newPlacement.m_size,
+                        allocationInfo.Alignment);
+            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Shared);
+            return RHI::ResultCode::Success;
+        });
+
+        if (result != RHI::ResultCode::Success)
+        {
+            // committed fallback 的位置；现在直接返回。
+            // 注意：scan 阶段已经 push 了 Placement，严格来说要回滚（pop_back + 还原 chain tail）
+            // 但先用 ASSERT/LOG 占位，等真要 fallback 时再处理。
+            return nullptr;
+        }
+
+        newPlacement.m_resource = buffer;
+
+        if (bestChainSlot != InvalidPlacementIndex)
+        {
+            auto& curBarrier = m_aliasingBarriers[allocFence.m_timelinePosition].back();
+            curBarrier.m_resourceAfter = buffer.get();
+        }
+
+        return buffer.get();
+    }
+
     void TransientResourcePool::GetAliasingBarriersInternal(uint32_t timelinePosition, RHI::AliasingBarrierList& out) const
     {
         auto it = m_aliasingBarriers.find(timelinePosition);
@@ -306,6 +448,29 @@ namespace Spark::RHI::DX12
                        "Discard must follow LIFO order on each alias chain: the last-allocated resource "
                        "at an offset must be discarded before its predecessor can be discarded.",
                image->GetName().GetCStr());
+    }
+
+    void TransientResourcePool::DiscardInternal(RHI::Buffer* buffer, const RHI::TransientAllocationFence& discardFence)
+    {
+        for (auto tailIndex : m_bucket.m_chainTails)
+        {
+            Placement& tail = m_bucket.m_placements[tailIndex];
+            if (tail.m_resource.get() == buffer)
+            {
+                ASSERT(tail.m_discard.m_timelinePosition == RHI::InvalidTimelinePosition,
+                    "[TransientResourcePool] Repeat discard of buffer %s. "
+                    "Each transient resource must be discarded exactly once.",
+                    buffer->GetName().GetCStr());
+
+                tail.m_discard = discardFence;
+                return;
+            }
+        }
+
+        ASSERT(false, "[TransientResourcePool] Discard called on buffer %s that is not a chain tail. "
+                       "Discard must follow LIFO order on each alias chain: the last-allocated resource "
+                       "at an offset must be discarded before its predecessor can be discarded.",
+               buffer->GetName().GetCStr());
     }
 
     void TransientResourcePool::OnFrameBeginInternal()
