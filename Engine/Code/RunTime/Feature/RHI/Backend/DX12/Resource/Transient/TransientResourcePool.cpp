@@ -285,9 +285,40 @@ namespace Spark::RHI::DX12
         out = {};
     }
 
+    void TransientResourcePool::DiscardInternal(RHI::Image* image, const RHI::TransientAllocationFence& discardFence)
+    {
+        for(auto tailIndex: m_bucket.m_chainTails)
+        {
+            Placement& tail = m_bucket.m_placements[tailIndex];
+            if (tail.m_resource.get() == image)
+            {
+                ASSERT(tail.m_discard.m_timelinePosition == RHI::InvalidTimelinePosition,
+                    "[TransientResourcePool] Repeat discard of image %s. "
+                    "Each transient resource must be discarded exactly once.",
+                    image->GetName().GetCStr());
+
+                tail.m_discard = discardFence;
+                return;
+            }
+        }
+
+        ASSERT(false, "[TransientResourcePool] Discard called on image %s that is not a chain tail. "
+                       "Discard must follow LIFO order on each alias chain: the last-allocated resource "
+                       "at an offset must be discarded before its predecessor can be discarded.",
+               image->GetName().GetCStr());
+    }
+
     void TransientResourcePool::OnFrameBeginInternal()
     {
         m_aliasingBarriers.clear();
+        m_bucket.m_placements.clear();
+        m_bucket.m_chainTails.clear();
+        m_bucket.m_offsetBlock->Clear();
+    }
+
+    void TransientResourcePool::OnFrameEndInternal()
+    {
+
     }
 
     void TransientResourcePool::ShutdownInternal()

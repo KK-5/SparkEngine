@@ -42,11 +42,15 @@ namespace Spark::RHI::DX12
             const RHI::TransientImageCreateInfo& createInfo,
             const RHI::TransientAllocationFence& allocFence) override;
 
+        void DiscardInternal(RHI::Image* image, const RHI::TransientAllocationFence& discardFence) override;
+
         void GetAliasingBarriersInternal(
             uint32_t timelinePosition,
             RHI::AliasingBarrierList& out) const override;
 
         void OnFrameBeginInternal() override;
+
+        void OnFrameEndInternal() override;
 
         // CreateBufferInternal / DiscardInternal
         // are added in subsequent stages.
