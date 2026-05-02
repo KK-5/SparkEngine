@@ -7,6 +7,7 @@ namespace Spark::Render
     {
         m_graph.clear();
         m_attachmentUses.clear();
+        m_latestVersions.clear();
     }
 
     void RenderGraphBuilder::TouchNode(Pass pass)
