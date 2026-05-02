@@ -52,6 +52,8 @@ namespace Spark::Render
         RHI::HardwareQueueClass m_queue;
     };
 
+    //////////////////////////////
+    // PSO components
     struct PassShaders
     {
         Ptr<Resource::ShaderAsset> m_vertexShader   = nullptr;
@@ -67,6 +69,7 @@ namespace Spark::Render
         eastl::vector<RHI::ShaderInputSamplerDescriptor>  m_inputSamplers;
         eastl::vector<RHI::ShaderInputConstantDescriptor> m_inputConstants;
     };
+    //////////////////////////////
 
     struct PassFunctions
     {
@@ -84,6 +87,36 @@ namespace Spark::Render
         eastl::vector<RHI::ImageBarrier>  m_postImage;
         eastl::vector<RHI::BufferBarrier> m_postBuffer;
     };
+
+    /////////////////////////////////////////////////////
+    // Sync cross queue component. Process per pass, so it has container.
+    // Clean every frame
+    struct PassPredecessors
+    {
+        eastl::vector<Pass> m_preds;
+    };
+
+    struct PassSuccessors
+    {
+        eastl::vector<Pass> m_succs;
+    };
+
+    struct SyncOperation
+    {
+        RHI::HardwareQueueClass m_queue;  // 所属队列,wait 时是源,signal 时是己方
+        uint64_t                m_value;
+    };
+
+    struct PassSyncWait
+    {
+        eastl::vector<SyncOperation> m_waits;
+    };
+
+    struct PassSyncSignal
+    {
+        SyncOperation m_signal;
+    };
+    /////////////////////////////////////////////////////
 
     // Lives on a Pass entity. Engine invokes m_markFn during the compile phase to
     // tag this pass's PassAttachments with AttachmentCompilingTag, so engine-level

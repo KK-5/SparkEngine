@@ -9,14 +9,17 @@
 
 namespace Spark::Render
 {
+
+    using QueueBasedPasses = eastl::array<eastl::vector<Pass>, static_cast<size_t>(RHI::HardwareQueueClass::Count)>;
+
     class RenderGraphCompiler
     {
     public:
         
     private:
         friend class RenderGraph;
-
-        void CompilePassCrossQueue(eastl::span<Pass> passes);
+        
+        QueueBasedPasses CompilePassCrossQueue(eastl::span<Pass> passes);
 
     };
 }
