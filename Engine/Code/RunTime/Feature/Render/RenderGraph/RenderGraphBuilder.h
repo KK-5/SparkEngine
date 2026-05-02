@@ -29,8 +29,7 @@ namespace Spark::Render
             RHIHandle view,
             RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            Pass pass = NullPass
+            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
         );
 
         template<typename PassTag>
@@ -44,8 +43,7 @@ namespace Spark::Render
             RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
             RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction(),
-            Pass pass = NullPass
+            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
         );
 
         template<typename PassTag>
@@ -57,8 +55,7 @@ namespace Spark::Render
             const RHI::InputName& slot,
             RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            Pass pass = NullPass
+            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
         );
 
         template<typename PassTag>
@@ -71,8 +68,7 @@ namespace Spark::Render
             RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
             RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction(),
-            Pass pass = NullPass
+            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
         );
 
         // Read* / Write* — auto-version helpers. The bare RHI::AttachmentId names
@@ -86,8 +82,7 @@ namespace Spark::Render
             const RHI::AttachmentId& name,
             const RHI::InputName& slot,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            Pass pass = NullPass
+            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
         );
 
         template<typename PassTag>
@@ -95,8 +90,7 @@ namespace Spark::Render
             const RHI::AttachmentId& name,
             const RHI::InputName& slot,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            Pass pass = NullPass
+            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
         );
 
         template<typename PassTag>
@@ -105,8 +99,7 @@ namespace Spark::Render
             const RHI::InputName& slot,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
             RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction(),
-            Pass pass = NullPass
+            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
         );
 
         template<typename PassTag>
@@ -115,8 +108,7 @@ namespace Spark::Render
             const RHI::InputName& slot,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
             RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction(),
-            Pass pass = NullPass
+            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
         );
 
         // ReadWrite* — single-slot read-modify-write. Same version semantics as
@@ -131,8 +123,7 @@ namespace Spark::Render
             const RHI::AttachmentId& name,
             const RHI::InputName& slot,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            Pass pass = NullPass
+            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
         );
 
         template<typename PassTag>
@@ -141,8 +132,7 @@ namespace Spark::Render
             const RHI::InputName& slot,
             RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
             RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction(),
-            Pass pass = NullPass
+            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
         );
 
     private:
@@ -159,6 +149,10 @@ namespace Spark::Render
         void Begin();
 
         eastl::vector<Pass> End();
+
+        void BeginPass(Pass pass);
+
+        void EndPass();
 
         static constexpr bool s_buildValidation { true };
 
@@ -214,6 +208,8 @@ namespace Spark::Render
             eastl::unordered_set<Pass> dependents;
             uint32_t inDegree = 0;
         };
+
+        Pass m_currentPass {NullPass};
 
         eastl::unordered_map<Pass, PassNode> m_graph;
 
@@ -347,11 +343,14 @@ namespace Spark::Render
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateImportBufferAttachment(attachment.m_view, attachment.m_attachmentId);
         }
-        m_latestVersions.try_emplace(
-            attachment.m_attachmentId.m_id, attachment.m_attachmentId.m_version);
-        RegisterBufferAttachment<PassTag>(attachment);
+        BufferPassAttachment a = attachment;
+        a.m_pass = m_currentPass;
+        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
+        RegisterBufferAttachment<PassTag>(a);
     }
 
     template<typename PassTag>
@@ -361,8 +360,7 @@ namespace Spark::Render
         RHIHandle view,
         RHI::AttachmentAccess access,
         RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        Pass pass)
+        RHI::AttachmentStage stage)
     {
         BufferPassAttachment attachment;
         attachment.m_attachmentId = id;
@@ -371,7 +369,7 @@ namespace Spark::Render
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
         attachment.m_view         = view;
-        attachment.m_pass         = pass;
+        // m_pass is filled by the object-form below from m_currentPass.
         ImportBufferAttachment<PassTag>(attachment);
     }
 
@@ -384,11 +382,14 @@ namespace Spark::Render
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateImportImageAttachment(attachment.m_view, attachment.m_attachmentId);
         }
-        m_latestVersions.try_emplace(
-            attachment.m_attachmentId.m_id, attachment.m_attachmentId.m_version);
-        RegisterImageAttachment<PassTag>(attachment);
+        ImagePassAttachment a = attachment;
+        a.m_pass = m_currentPass;
+        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
+        RegisterImageAttachment<PassTag>(a);
     }
 
     template<typename PassTag>
@@ -399,8 +400,7 @@ namespace Spark::Render
         RHI::AttachmentAccess access,
         RHI::AttachmentUsage usage,
         RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action,
-        Pass pass)
+        const RHI::AttachmentLoadStoreAction& action)
     {
         ImagePassAttachment attachment;
         attachment.m_attachmentId = id;
@@ -410,7 +410,6 @@ namespace Spark::Render
         attachment.m_stage        = stage;
         attachment.m_action       = action;
         attachment.m_view         = view;
-        attachment.m_pass         = pass;
         ImportImageAttachment<PassTag>(attachment);
     }
 
@@ -423,11 +422,14 @@ namespace Spark::Render
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateCreateBufferAttachment<PassTag>(attachment.m_view, attachment.m_slotName);
         }
-        m_latestVersions.try_emplace(
-            attachment.m_attachmentId.m_id, attachment.m_attachmentId.m_version);
-        RegisterBufferAttachment<PassTag>(attachment);
+        BufferPassAttachment a = attachment;
+        a.m_pass = m_currentPass;
+        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
+        RegisterBufferAttachment<PassTag>(a);
     }
 
     template<typename PassTag>
@@ -436,8 +438,7 @@ namespace Spark::Render
         const RHI::InputName& slot,
         RHI::AttachmentAccess access,
         RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        Pass pass)
+        RHI::AttachmentStage stage)
     {
         BufferPassAttachment attachment;
         attachment.m_attachmentId = id;
@@ -445,7 +446,6 @@ namespace Spark::Render
         attachment.m_access       = access;
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
-        attachment.m_pass         = pass;
         CreateBufferAttachment<PassTag>(attachment);
     }
 
@@ -458,11 +458,14 @@ namespace Spark::Render
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateCreateImageAttachment<PassTag>(attachment.m_view, attachment.m_slotName);
         }
-        m_latestVersions.try_emplace(
-            attachment.m_attachmentId.m_id, attachment.m_attachmentId.m_version);
-        RegisterImageAttachment<PassTag>(attachment);
+        ImagePassAttachment a = attachment;
+        a.m_pass = m_currentPass;
+        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
+        RegisterImageAttachment<PassTag>(a);
     }
 
     template<typename PassTag>
@@ -472,8 +475,7 @@ namespace Spark::Render
         RHI::AttachmentAccess access,
         RHI::AttachmentUsage usage,
         RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action,
-        Pass pass)
+        const RHI::AttachmentLoadStoreAction& action)
     {
         ImagePassAttachment attachment;
         attachment.m_attachmentId = id;
@@ -482,7 +484,6 @@ namespace Spark::Render
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
         attachment.m_action       = action;
-        attachment.m_pass         = pass;
         CreateImageAttachment<PassTag>(attachment);
     }
 
@@ -495,11 +496,12 @@ namespace Spark::Render
         const RHI::AttachmentId& name,
         const RHI::InputName& slot,
         RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        Pass pass)
+        RHI::AttachmentStage stage)
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(slot);
         }
 
@@ -509,7 +511,7 @@ namespace Spark::Render
         attachment.m_access       = RHI::AttachmentAccess::Read;
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
-        attachment.m_pass         = pass;
+        attachment.m_pass         = m_currentPass;
         RegisterBufferAttachment<PassTag>(attachment);
         return attachment.m_attachmentId;
     }
@@ -519,11 +521,12 @@ namespace Spark::Render
         const RHI::AttachmentId& name,
         const RHI::InputName& slot,
         RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        Pass pass)
+        RHI::AttachmentStage stage)
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(slot);
         }
 
@@ -532,7 +535,7 @@ namespace Spark::Render
         // created for it, so slot uniqueness is unaffected.
         const uint32_t latestVersion = LookupLatestVersion(name);
         m_attachmentUses[AttachmentId{ name, latestVersion }]
-            .emplace_back(pass, RHI::AttachmentAccess::Read);
+            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
 
         // Then publish a new version as the produced output.
         const uint32_t newVersion = BumpVersion(name);
@@ -543,7 +546,7 @@ namespace Spark::Render
         attachment.m_access       = RHI::AttachmentAccess::Write;
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
-        attachment.m_pass         = pass;
+        attachment.m_pass         = m_currentPass;
         RegisterBufferAttachment<PassTag>(attachment);
         return attachment.m_attachmentId;
     }
@@ -558,11 +561,12 @@ namespace Spark::Render
         const RHI::InputName& slot,
         RHI::AttachmentUsage usage,
         RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action,
-        Pass pass)
+        const RHI::AttachmentLoadStoreAction& action)
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(slot);
         }
 
@@ -573,7 +577,7 @@ namespace Spark::Render
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
         attachment.m_action       = action;
-        attachment.m_pass         = pass;
+        attachment.m_pass         = m_currentPass;
         RegisterImageAttachment<PassTag>(attachment);
         return attachment.m_attachmentId;
     }
@@ -584,17 +588,18 @@ namespace Spark::Render
         const RHI::InputName& slot,
         RHI::AttachmentUsage usage,
         RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action,
-        Pass pass)
+        const RHI::AttachmentLoadStoreAction& action)
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(slot);
         }
 
         const uint32_t latestVersion = LookupLatestVersion(name);
         m_attachmentUses[AttachmentId{ name, latestVersion }]
-            .emplace_back(pass, RHI::AttachmentAccess::Read);
+            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
 
         const uint32_t newVersion = BumpVersion(name);
 
@@ -605,7 +610,7 @@ namespace Spark::Render
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
         attachment.m_action       = action;
-        attachment.m_pass         = pass;
+        attachment.m_pass         = m_currentPass;
         RegisterImageAttachment<PassTag>(attachment);
         return attachment.m_attachmentId;
     }
@@ -619,17 +624,18 @@ namespace Spark::Render
         const RHI::AttachmentId& name,
         const RHI::InputName& slot,
         RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        Pass pass)
+        RHI::AttachmentStage stage)
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(slot);
         }
 
         const uint32_t latestVersion = LookupLatestVersion(name);
         m_attachmentUses[AttachmentId{ name, latestVersion }]
-            .emplace_back(pass, RHI::AttachmentAccess::Read);
+            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
 
         const uint32_t newVersion = BumpVersion(name);
 
@@ -639,7 +645,7 @@ namespace Spark::Render
         attachment.m_access       = RHI::AttachmentAccess::ReadWrite;
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
-        attachment.m_pass         = pass;
+        attachment.m_pass         = m_currentPass;
         RegisterBufferAttachment<PassTag>(attachment);
         return attachment.m_attachmentId;
     }
@@ -650,17 +656,18 @@ namespace Spark::Render
         const RHI::InputName& slot,
         RHI::AttachmentUsage usage,
         RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action,
-        Pass pass)
+        const RHI::AttachmentLoadStoreAction& action)
     {
         if constexpr (s_buildValidation)
         {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(slot);
         }
 
         const uint32_t latestVersion = LookupLatestVersion(name);
         m_attachmentUses[AttachmentId{ name, latestVersion }]
-            .emplace_back(pass, RHI::AttachmentAccess::Read);
+            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
 
         const uint32_t newVersion = BumpVersion(name);
 
@@ -671,7 +678,7 @@ namespace Spark::Render
         attachment.m_usage        = usage;
         attachment.m_stage        = stage;
         attachment.m_action       = action;
-        attachment.m_pass         = pass;
+        attachment.m_pass         = m_currentPass;
         RegisterImageAttachment<PassTag>(attachment);
         return attachment.m_attachmentId;
     }

@@ -8,6 +8,21 @@ namespace Spark::Render
         m_graph.clear();
         m_attachmentUses.clear();
         m_latestVersions.clear();
+        m_currentPass = NullPass;
+    }
+
+    void RenderGraphBuilder::BeginPass(Pass pass)
+    {
+        ASSERT(pass != NullPass, "BeginPass called with NullPass.");
+        ASSERT(m_currentPass == NullPass,
+            "BeginPass called while another pass scope is still active.");
+        m_currentPass = pass;
+    }
+
+    void RenderGraphBuilder::EndPass()
+    {
+        ASSERT(m_currentPass != NullPass, "EndPass called without an active pass scope.");
+        m_currentPass = NullPass;
     }
 
     void RenderGraphBuilder::TouchNode(Pass pass)
@@ -168,6 +183,8 @@ namespace Spark::Render
 
     eastl::vector<Pass> RenderGraphBuilder::End()
     {
+        ASSERT(m_currentPass == NullPass,
+            "End() called with an active pass scope; missing EndPass?");
         BuildGraph();
         return TopoSort();
     }
