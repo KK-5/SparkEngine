@@ -285,7 +285,7 @@ namespace Spark
         entityHier.parent = parent;
         entityHier.prevSibling = prevSibling;
         entityHier.nextSibling = next;
-        context.AddOrRepalce<Hierarchy>(entity, entityHier);
+        context.AddOrReplace<Hierarchy>(entity, entityHier);
     }
 
     void SceneManager::PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func)

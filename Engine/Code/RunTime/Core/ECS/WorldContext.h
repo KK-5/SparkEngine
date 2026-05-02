@@ -172,13 +172,13 @@ namespace Spark
         //////////////////////////////////////////
         // Update Component
         template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::Create | ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) == ComponentEventMask::None, int> = 0>
-        decltype(auto) AddOrRepalce(Entity entity, Args&&... args)
+        decltype(auto) AddOrReplace(Entity entity, Args&&... args)
         {
             return m_registry.emplace_or_replace<T>(entity, eastl::forward<Args>(args)...);
         }
 
         template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::Create | ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) != ComponentEventMask::None, int> = 0>
-        decltype(auto) AddOrRepalce(Entity entity, Args&&... args)
+        decltype(auto) AddOrReplace(Entity entity, Args&&... args)
         {
             const bool had = m_registry.template any_of<T>(entity);
 

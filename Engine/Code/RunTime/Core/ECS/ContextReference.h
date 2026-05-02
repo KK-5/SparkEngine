@@ -110,12 +110,12 @@ namespace Spark
         }
 
         template <typename T, typename... Args>
-        decltype(auto) AddOrRepalce(Entity entity, Args&&... args)
+        decltype(auto) AddOrReplace(Entity entity, Args&&... args)
         {
             static_assert(CanWriteComponentV<T>,
-                "ContextReference::AddOrRepalce<T>: write access required. Declare WriteComponent<T>, "
+                "ContextReference::AddOrReplace<T>: write access required. Declare WriteComponent<T>, "
                 "ReadWriteComponent<T>, WriteComponent<All>, or ReadWriteComponent<All>.");
-            return m_context.template AddOrRepalce<T>(entity, eastl::forward<Args>(args)...);
+            return m_context.template AddOrReplace<T>(entity, eastl::forward<Args>(args)...);
         }
 
         template <typename T, typename... Args>

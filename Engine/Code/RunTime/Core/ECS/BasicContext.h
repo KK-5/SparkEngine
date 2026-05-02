@@ -90,7 +90,7 @@ namespace Spark
 
         // Update Component
         template<typename T, typename... Args>
-        decltype(auto) AddOrRepalce(Entity entity, Args&&... args)
+        decltype(auto) AddOrReplace(Entity entity, Args&&... args)
         {
             return m_registry.template emplace_or_replace<T>(entity, eastl::forward<Args>(args)...);
         }

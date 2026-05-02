@@ -70,13 +70,13 @@ namespace Editor
                                     ImGuiInputTextFlags_AutoSelectAll;
             if (ImGui::InputText("##RenameInput", newName.data(), 256, input_flags))
             {
-                context.AddOrRepalce<Name>(entity, newName);
+                context.AddOrReplace<Name>(entity, newName);
                 context.Remove<Renaming>(entity);
             }
 
             if (!ImGui::IsItemActive() && ImGui::IsMouseClicked(0))
             {
-                context.AddOrRepalce<Name>(entity, newName);
+                context.AddOrReplace<Name>(entity, newName);
                 context.Remove<Renaming>(entity);
             }
         }
@@ -232,7 +232,7 @@ namespace Editor
             Entity entity = context.CreateEntity();
             Spark::Service<IScene>::Get()->AddEntity(entity);
             eastl::string name = "Entity[" + eastl::to_string(uint32_t(entity)) + "]";
-            context.AddOrRepalce<Name>(entity, name);
+            context.AddOrReplace<Name>(entity, name);
         }
         ImGui::PopStyleColor(3);
     }
