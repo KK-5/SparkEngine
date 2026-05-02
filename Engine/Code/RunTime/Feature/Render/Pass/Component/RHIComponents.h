@@ -18,6 +18,7 @@
 #include <RHI/Resource/ResourceState.h>
 
 #include <RHI/Attachment/AttachmentEnums.h>
+#include <RHI/Attachment/AttachmentLoadStoreAction.h>
 
 namespace Spark::Render
 {

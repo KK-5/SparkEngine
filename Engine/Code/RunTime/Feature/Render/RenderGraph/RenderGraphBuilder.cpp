@@ -193,8 +193,9 @@ namespace Spark::Render
 
             for (Pass dep : nodeIt->second.dependents)
             {
+                auto& passContext = *PassExecuteContext::Current();
                 auto depNodeIt = m_graph.find(dep);
-                ASSERT(depNodeIt != m_graph.end(), "Dependency pass {} not found in graph.", dep);
+                ASSERT(depNodeIt != m_graph.end(), "Dependency pass {} not found in graph.", passContext.Get<PassName>(dep).m_name.GetCStr());
                 ASSERT(depNodeIt->second.inDegree > 0, "Invalid indegree state in topo sort.");
                 if (--depNodeIt->second.inDegree == 0)
                 {

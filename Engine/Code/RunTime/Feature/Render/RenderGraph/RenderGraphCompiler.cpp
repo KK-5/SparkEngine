@@ -63,7 +63,7 @@ namespace Spark::Render
 
                 if (passContext.Has<PassSyncWait>(pass))
                 {
-                    passContext.Get<PassSyncWait>(pass).m_waits.emplace_back(queueSrc, value);
+                    passContext.Get<PassSyncWait>(pass).m_waits.emplace_back(SyncOperation{ queueSrc, value });
                 }
                 else
                 {
@@ -75,7 +75,7 @@ namespace Spark::Render
                 // pred 自己队列上只 signal 一次
                 if (!passContext.Has<PassSyncSignal>(latestPred[queue]))
                 {
-                    passContext.Add<PassSyncSignal>(latestPred[queue], queueSrc, value);
+                    passContext.Add<PassSyncSignal>(latestPred[queue], SyncOperation{ queueSrc, value });
                 }
             }
         }

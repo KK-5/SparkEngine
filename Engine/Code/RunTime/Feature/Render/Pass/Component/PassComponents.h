@@ -103,6 +103,12 @@ namespace Spark::Render
 
     struct SyncOperation
     {
+        SyncOperation() = default;
+        SyncOperation(RHI::HardwareQueueClass queue, uint64_t value)
+            : m_queue(queue), m_value(value)
+        {
+        }
+
         RHI::HardwareQueueClass m_queue;  // 所属队列,wait 时是源,signal 时是己方
         uint64_t                m_value;
     };
