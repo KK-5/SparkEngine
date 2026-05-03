@@ -52,6 +52,16 @@ namespace Spark::Render
         RHI::HardwareQueueClass m_queue;
     };
 
+    //! Index of the pass in RenderGraphBuilder::TopoSort()'s returned linear order.
+    //! Assigned in TopoSort itself, so any code consuming the topo-sorted span can
+    //! rely on `m_position == span index`. Used as the opaque ordering key for
+    //! cross-queue sync (timeline semaphore values) and for transient resource
+    //! lifetime overlap analysis.
+    struct PassGlobalTimeline
+    {
+        uint32_t m_position {0};
+    };
+
     //////////////////////////////
     // PSO components
     struct PassShaders

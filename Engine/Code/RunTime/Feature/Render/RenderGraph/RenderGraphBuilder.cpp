@@ -164,6 +164,8 @@ namespace Spark::Render
 
     eastl::vector<Pass> RenderGraphBuilder::TopoSort()
     {
+        auto& passContext = *PassExecuteContext::Current();
+
         eastl::vector<Pass> result;
         result.reserve(m_graph.size());
 
@@ -177,12 +179,13 @@ namespace Spark::Render
                 ready.push_back(pass);
             }
         }
-        
+
         while(!ready.empty())
         {
             Pass cur = ready.back();
             ready.pop_back();
 
+            passContext.Add<PassGlobalTimeline>(cur, PassGlobalTimeline{ static_cast<uint32_t>(result.size()) });
             result.push_back(cur);
 
             auto nodeIt = m_graph.find(cur);
@@ -193,7 +196,6 @@ namespace Spark::Render
 
             for (Pass dep : nodeIt->second.dependents)
             {
-                auto& passContext = *PassExecuteContext::Current();
                 auto depNodeIt = m_graph.find(dep);
                 ASSERT(depNodeIt != m_graph.end(), "Dependency pass {} not found in graph.", passContext.Get<PassName>(dep).m_name.GetCStr());
                 ASSERT(depNodeIt->second.inDegree > 0, "Invalid indegree state in topo sort.");
