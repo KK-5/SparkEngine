@@ -384,7 +384,7 @@ namespace Spark::Render
                             "TransientResourcePool::CreateImage returned null for '{}'.",
                             name.GetCStr());
 
-                        rhiContext.Add<TransientImage>(ev.m_resource, TransientImage{ image });
+                        rhiContext.Add<BackingImage>(ev.m_resource, BackingImage{ image });
                         CompileTransientImageViews(rhiContext, factory, ev.m_resource, *image, life.m_attachments);
                     }
                     break;
@@ -404,7 +404,7 @@ namespace Spark::Render
                             "TransientResourcePool::CreateBuffer returned null for '{}'.",
                             name.GetCStr());
 
-                        rhiContext.Add<TransientBuffer>(ev.m_resource, TransientBuffer{ buffer });
+                        rhiContext.Add<BackingBuffer>(ev.m_resource, BackingBuffer{ buffer });
                         CompileTransientBufferViews(rhiContext, factory, ev.m_resource, *buffer, life.m_attachments);
                     }
                     break;
@@ -414,7 +414,7 @@ namespace Spark::Render
                 switch (ev.m_resourceType)
                 {
                 case SweepResourceType::Image:
-                    if (auto* ti = rhiContext.TryGet<TransientImage>(ev.m_resource))
+                    if (auto* ti = rhiContext.TryGet<BackingImage>(ev.m_resource))
                     {
                         auto& life = rhiContext.Get<ImageLifetime>(ev.m_resource);
                         RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos };
@@ -422,7 +422,7 @@ namespace Spark::Render
                     }
                     break;
                 case SweepResourceType::Buffer:
-                    if (auto* tb = rhiContext.TryGet<TransientBuffer>(ev.m_resource))
+                    if (auto* tb = rhiContext.TryGet<BackingBuffer>(ev.m_resource))
                     {
                         auto& life = rhiContext.Get<BufferLifetime>(ev.m_resource);
                         RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos };

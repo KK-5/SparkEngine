@@ -47,20 +47,23 @@ namespace Spark::Render
 
     struct TransientTag {};
 
-    //! Backing RHI::Image* for a transient resource entity, set by
-    //! RenderGraphCompiler::CompileTransientResources after the pool allocates.
-    //! Lifetime is owned by RHI::TransientResourcePool — this is a non-owning
-    //! observer (the same Image* may be reused across batches by the pool's
-    //! cross-batch cache).
-    struct TransientImage
+
+    //! Non-owning pointer to the actual RHI resource backing a resource entity.
+    //! For transient resources, populated by RenderGraphCompiler::CompileTransientResources
+    //! after the pool allocates. For imported resources, populated by the importer
+    //! (e.g. RenderSystem for swapchain, or external code).
+    //! Lifetime is managed externally — transient pool or importing owner.
+    struct BackingImage
     {
         RHI::Image* m_image = nullptr;
     };
 
-    struct TransientBuffer
+    struct BackingBuffer
     {
         RHI::Buffer* m_buffer = nullptr;
     };
+
+
 
     //! Create RHI::ImageView / RHI::BufferView for a view entity that
     //! wraps a transient resource. The view object is owned by this component
