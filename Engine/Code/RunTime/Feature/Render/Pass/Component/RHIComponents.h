@@ -14,6 +14,7 @@
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
 #include <RHI/Resource/ResourceState.h>
 
@@ -45,6 +46,34 @@ namespace Spark::Render
     struct ImportedTag {};
 
     struct TransientTag {};
+
+    //! Backing RHI::Image* for a transient resource entity, set by
+    //! RenderGraphCompiler::CompileTransientResources after the pool allocates.
+    //! Lifetime is owned by RHI::TransientResourcePool — this is a non-owning
+    //! observer (the same Image* may be reused across batches by the pool's
+    //! cross-batch cache).
+    struct TransientImage
+    {
+        RHI::Image* m_image = nullptr;
+    };
+
+    struct TransientBuffer
+    {
+        RHI::Buffer* m_buffer = nullptr;
+    };
+
+    //! Create RHI::ImageView / RHI::BufferView for a view entity that
+    //! wraps a transient resource. The view object is owned by this component
+    //! (Ptr<>); destroying the view entity releases it.
+    struct TransientImageView
+    {
+        Ptr<RHI::ImageView> m_view;
+    };
+
+    struct TransientBufferView
+    {
+        Ptr<RHI::BufferView> m_view;
+    };
 
     struct ImportedResourceState
     {
@@ -111,19 +140,26 @@ namespace Spark::Render
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
         RHI::AttachmentLoadStoreAction m_action {};
+        //! View descriptor for transient attachments (m_view is NullHandle until
+        //! CompileTransientResources materializes the view). Ignored for imported
+        //! attachments — their m_view is already a fully formed view entity whose
+        //! descriptor lives on the view itself.
+        RHI::ImageViewDescriptor       m_viewDescriptor {};
         RHIHandle                      m_view {NullHandle};
         Pass                           m_pass {NullPass};
     };
 
     struct BufferPassAttachment
     {
-        AttachmentId          m_attachmentId;
-        RHI::InputName        m_slotName;
-        RHI::AttachmentAccess m_access = RHI::AttachmentAccess::Unknown;
-        RHI::AttachmentUsage  m_usage  = RHI::AttachmentUsage::Uninitialized;
-        RHI::AttachmentStage  m_stage  = RHI::AttachmentStage::Any;
-        RHIHandle             m_view {NullHandle};
-        Pass                  m_pass {NullPass};
+        AttachmentId              m_attachmentId;
+        RHI::InputName            m_slotName;
+        RHI::AttachmentAccess     m_access = RHI::AttachmentAccess::Unknown;
+        RHI::AttachmentUsage      m_usage  = RHI::AttachmentUsage::Uninitialized;
+        RHI::AttachmentStage      m_stage  = RHI::AttachmentStage::Any;
+        //! See ImagePassAttachment::m_viewDescriptor.
+        RHI::BufferViewDescriptor m_viewDescriptor {};
+        RHIHandle                 m_view {NullHandle};
+        Pass                      m_pass {NullPass};
     };
 
     static_assert(eastl::is_trivially_copyable_v<ImagePassAttachment>);

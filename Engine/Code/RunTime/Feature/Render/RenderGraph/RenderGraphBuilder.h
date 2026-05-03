@@ -13,127 +13,138 @@
 
 namespace Spark::Render
 {
+    //! Per-call binding info for a transient image attachment (Create / Read /
+    //! Write / ReadWrite). Bundles "how this pass slot looks at the resource"
+    //! and "how this pass uses the slot" so the builder API stays small.
+    //!
+    //! m_view defaults to a default-constructed ImageViewDescriptor, which
+    //! CompileTransientResources interprets as "view onto the entire resource".
+    //! For Read / Write / ReadWrite the access is implied by the function name
+    //! and is set by the builder; CreateImageAttachment takes access as a
+    //! separate parameter (defaulting to Write) since the producing pass may
+    //! also want to read the freshly-created resource (RW).
+    struct ImageAttachmentBindInfo
+    {
+        RHI::InputName                 m_slot;
+        RHI::ImageViewDescriptor       m_view  {};
+        RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
+        RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
+        RHI::AttachmentLoadStoreAction m_action {};
+    };
+
+    //! Per-call binding info for an imported image attachment. The view is a
+    //! fully-formed RHIHandle (an entity with ImageView / ViewHierarchy already
+    //! present) supplied by the caller — the render graph never builds it.
+    //! Access is part of this struct because the same imported view may be
+    //! consumed with different access in different passes.
+    struct ImportedImageAttachmentBindInfo
+    {
+        RHI::InputName                 m_slot;
+        RHIHandle                      m_view  {NullHandle};
+        RHI::AttachmentAccess          m_access = RHI::AttachmentAccess::Unknown;
+        RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
+        RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
+        RHI::AttachmentLoadStoreAction m_action {};
+    };
+
+    struct BufferAttachmentBindInfo
+    {
+        RHI::InputName            m_slot;
+        RHI::BufferViewDescriptor m_view  {};
+        RHI::AttachmentUsage      m_usage  = RHI::AttachmentUsage::Uninitialized;
+        RHI::AttachmentStage      m_stage  = RHI::AttachmentStage::Any;
+    };
+
+    struct ImportedBufferAttachmentBindInfo
+    {
+        RHI::InputName            m_slot;
+        RHIHandle                 m_view  {NullHandle};
+        RHI::AttachmentAccess     m_access = RHI::AttachmentAccess::Unknown;
+        RHI::AttachmentUsage      m_usage  = RHI::AttachmentUsage::Uninitialized;
+        RHI::AttachmentStage      m_stage  = RHI::AttachmentStage::Any;
+    };
+
     class RenderGraphBuilder
     {
     public:
         RenderGraphBuilder() = default;
         ~RenderGraphBuilder() = default;
 
-        template<typename PassTag>
-        void ImportBufferAttachment(const BufferPassAttachment& attachment);
-
-        template<typename PassTag>
-        void ImportBufferAttachment(
-            const AttachmentId& id,
-            const RHI::InputName& slot,
-            RHIHandle view,
-            RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
-        );
-
-        template<typename PassTag>
-        void ImportImageAttachment(const ImagePassAttachment& attachment);
+        // ============================================================
+        // Import — caller already owns the resource and a view onto it.
+        // ============================================================
 
         template<typename PassTag>
         void ImportImageAttachment(
-            const AttachmentId& id,
-            const RHI::InputName& slot,
-            RHIHandle view,
-            RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
-        );
+            const RHI::AttachmentId& name,
+            const ImportedImageAttachmentBindInfo& bind);
 
         template<typename PassTag>
-        void CreateBufferAttachment(const BufferPassAttachment& attachment);
+        void ImportBufferAttachment(
+            const RHI::AttachmentId& name,
+            const ImportedBufferAttachmentBindInfo& bind);
 
-        template<typename PassTag>
-        void CreateBufferAttachment(
-            const AttachmentId& id,
-            const RHI::InputName& slot,
-            RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
-        );
-
-        template<typename PassTag>
-        void CreateImageAttachment(const ImagePassAttachment& attachment);
+        // ============================================================
+        // Create — declare a transient resource and use it in this pass.
+        // The resource entity is materialized in RHIContext immediately
+        // (TransientTag + ResourceName + ImageDescriptor / BufferDescriptor);
+        // its actual RHI::Image / RHI::Buffer and views are produced later
+        // by RenderGraphCompiler::CompileTransientResources.
+        // ============================================================
 
         template<typename PassTag>
         void CreateImageAttachment(
-            const AttachmentId& id,
-            const RHI::InputName& slot,
-            RHI::AttachmentAccess access = RHI::AttachmentAccess::Unknown,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
-        );
-
-        // Read* / Write* — auto-version helpers. The bare RHI::AttachmentId names
-        // a previously created/imported attachment; the builder resolves the
-        // version. Read uses the current latest. Write first injects an implicit
-        // Read on the current latest (modeling "consume current content"), then
-        // bumps the version and registers the Write — so BuildGraph chains the
-        // producers in order.
-        template<typename PassTag>
-        AttachmentId ReadBufferAttachment(
-            const RHI::AttachmentId& name,
-            const RHI::InputName& slot,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
-        );
+            const RHI::AttachmentId&        name,
+            const RHI::ImageDescriptor&     desc,
+            const ImageAttachmentBindInfo&  bind,
+            RHI::AttachmentAccess           access = RHI::AttachmentAccess::Write);
 
         template<typename PassTag>
-        AttachmentId WriteBufferAttachment(
-            const RHI::AttachmentId& name,
-            const RHI::InputName& slot,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
-        );
+        void CreateBufferAttachment(
+            const RHI::AttachmentId&        name,
+            const RHI::BufferDescriptor&    desc,
+            const BufferAttachmentBindInfo& bind,
+            RHI::AttachmentAccess           access = RHI::AttachmentAccess::Write);
+
+        // ============================================================
+        // Read* / Write* / ReadWrite* — auto-version helpers. Refer to a
+        // previously Create'd or Imported attachment by bare name; the
+        // builder resolves the version. Write* injects an implicit Read on
+        // the current latest version (modeling "consume current content"),
+        // then bumps the version and registers the Write.
+        // ReadWrite* shares Write*'s versioning but registers the
+        // attachment with access = ReadWrite — a single-slot RMW.
+        // ============================================================
 
         template<typename PassTag>
         AttachmentId ReadImageAttachment(
-            const RHI::AttachmentId& name,
-            const RHI::InputName& slot,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
-        );
+            const RHI::AttachmentId&        name,
+            const ImageAttachmentBindInfo&  bind);
 
         template<typename PassTag>
         AttachmentId WriteImageAttachment(
-            const RHI::AttachmentId& name,
-            const RHI::InputName& slot,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
-        );
-
-        // ReadWrite* — single-slot read-modify-write. Same version semantics as
-        // Write* (consume current latest, then publish a new version) but the
-        // ECS attachment is registered with access = ReadWrite, so subsequent
-        // passes see this pass as both consumer of v_N and producer of v_(N+1).
-        // For images, callers typically pair this with LoadAction = Load /
-        // StoreAction = Store; for buffers (no LoadStoreAction) this is the
-        // only way to express RMW on a single slot.
-        template<typename PassTag>
-        AttachmentId ReadWriteBufferAttachment(
-            const RHI::AttachmentId& name,
-            const RHI::InputName& slot,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any
-        );
+            const RHI::AttachmentId&        name,
+            const ImageAttachmentBindInfo&  bind);
 
         template<typename PassTag>
         AttachmentId ReadWriteImageAttachment(
-            const RHI::AttachmentId& name,
-            const RHI::InputName& slot,
-            RHI::AttachmentUsage usage = RHI::AttachmentUsage::Uninitialized,
-            RHI::AttachmentStage stage = RHI::AttachmentStage::Any,
-            const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction()
-        );
+            const RHI::AttachmentId&        name,
+            const ImageAttachmentBindInfo&  bind);
+
+        template<typename PassTag>
+        AttachmentId ReadBufferAttachment(
+            const RHI::AttachmentId&        name,
+            const BufferAttachmentBindInfo& bind);
+
+        template<typename PassTag>
+        AttachmentId WriteBufferAttachment(
+            const RHI::AttachmentId&        name,
+            const BufferAttachmentBindInfo& bind);
+
+        template<typename PassTag>
+        AttachmentId ReadWriteBufferAttachment(
+            const RHI::AttachmentId&        name,
+            const BufferAttachmentBindInfo& bind);
 
     private:
         friend class RenderGraph;
@@ -167,22 +178,25 @@ namespace Spark::Render
             return access;
         }
 
-        // Pure registration: build entity, attach components, record use. No validation.
+        // Pure registration: build attachment entity, attach components, record use. No validation.
         template<typename PassTag>
         void RegisterBufferAttachment(const BufferPassAttachment& attachment);
 
         template<typename PassTag>
         void RegisterImageAttachment(const ImagePassAttachment& attachment);
 
+        // Materialize a transient resource entity in RHIContext: TransientTag,
+        // ResourceName, plus the resource descriptor.
+        RHIHandle CreateTransientImageResource(
+            const RHI::AttachmentId&    name,
+            const RHI::ImageDescriptor& desc);
+
+        RHIHandle CreateTransientBufferResource(
+            const RHI::AttachmentId&     name,
+            const RHI::BufferDescriptor& desc);
+
         // Validations.
-        static void ValidateImportBufferAttachment(RHIHandle view, const AttachmentId& id);
-        static void ValidateImportImageAttachment(RHIHandle view, const AttachmentId& id);
-
-        template<typename PassTag>
-        static void ValidateCreateBufferAttachment(RHIHandle view, const RHI::InputName& slot);
-
-        template<typename PassTag>
-        static void ValidateCreateImageAttachment(RHIHandle view, const RHI::InputName& slot);
+        static void ValidateImportedView(RHIHandle view, const RHI::AttachmentId& name, bool image);
 
         template<typename PassTag, typename ComponentT>
         static void ValidateUniqueSlot(const RHI::InputName& slot);
@@ -223,38 +237,23 @@ namespace Spark::Render
     // Validation helpers
     // ============================================================
 
-    inline void RenderGraphBuilder::ValidateImportBufferAttachment(
-        RHIHandle view, const AttachmentId& id)
+    inline void RenderGraphBuilder::ValidateImportedView(
+        RHIHandle view, const RHI::AttachmentId& name, bool image)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
-        ASSERT(rhiContext.Has<ViewHierarchy>(view), "The buffer view has not owned buffer.");
-        RHIHandle buffer = rhiContext.Get<ViewHierarchy>(view).m_resource;
-        ASSERT(buffer != NullHandle, "The owned buffer is null.");
-        ASSERT(rhiContext.Has<ImportedTag>(buffer),
-            "ImportBufferAttachment can only be used for imported resource.");
+        ASSERT(view != NullHandle, "Imported attachment requires a non-null view handle.");
+        ASSERT(rhiContext.Has<ViewHierarchy>(view), "The view has no ViewHierarchy.");
+        RHIHandle resource = rhiContext.Get<ViewHierarchy>(view).m_resource;
+        ASSERT(resource != NullHandle, "The owned resource is null.");
+        ASSERT(rhiContext.Has<ImportedTag>(resource),
+            "Import*Attachment can only be used for imported resources.");
         ASSERT(rhiContext.Has<ResourceName>(view), "The view has no ResourceName component.");
-        const auto& bufferName = rhiContext.Get<ResourceName>(buffer).m_name;
-        ASSERT(id.m_id == bufferName,
-            "AttachmentId {} does not match imported view ResourceName {}.",
-            id.m_id.GetCStr(),
-            bufferName.GetCStr());
-    }
-
-    inline void RenderGraphBuilder::ValidateImportImageAttachment(
-        RHIHandle view, const AttachmentId& id)
-    {
-        auto& rhiContext = *RHIExecuteContext::Current();
-        ASSERT(rhiContext.Has<ViewHierarchy>(view), "The image view has not owned image.");
-        RHIHandle image = rhiContext.Get<ViewHierarchy>(view).m_resource;
-        ASSERT(image != NullHandle, "The owned image is null.");
-        ASSERT(rhiContext.Has<ImportedTag>(image),
-            "ImportImageAttachment can only be used for imported resource.");
-        ASSERT(rhiContext.Has<ResourceName>(view), "The view has no ResourceName component.");
-        const auto& imageName = rhiContext.Get<ResourceName>(image).m_name;
-        ASSERT(id.m_id == imageName,
-            "AttachmentId {} does not match imported view ResourceName {}.",
-            id.m_id.GetCStr(),
-            imageName.GetCStr());
+        const auto& resourceName = rhiContext.Get<ResourceName>(resource).m_name;
+        ASSERT(name == resourceName,
+            "AttachmentId {} does not match imported resource ResourceName {}.",
+            name.GetCStr(),
+            resourceName.GetCStr());
+        (void)image;
     }
 
     template<typename PassTag, typename ComponentT>
@@ -267,24 +266,6 @@ namespace Spark::Render
             ASSERT(slot != a.m_slotName,
                 "Duplicate slot name {} in same pass.", slot.GetCStr());
         });
-    }
-
-    template<typename PassTag>
-    void RenderGraphBuilder::ValidateCreateBufferAttachment(
-        RHIHandle view, const RHI::InputName& slot)
-    {
-        ASSERT(view == NullHandle,
-            "Transient resource should not be create before render graph compiling.");
-        ValidateUniqueSlot<PassTag, BufferPassAttachment>(slot);
-    }
-
-    template<typename PassTag>
-    void RenderGraphBuilder::ValidateCreateImageAttachment(
-        RHIHandle view, const RHI::InputName& slot)
-    {
-        ASSERT(view == NullHandle,
-            "Transient resource should not be create before render graph compiling.");
-        ValidateUniqueSlot<PassTag, ImagePassAttachment>(slot);
     }
 
     // ============================================================
@@ -334,200 +315,195 @@ namespace Spark::Render
             NormalizeImageAccess(attachment.m_access, attachment.m_action));
     }
 
+    inline RHIHandle RenderGraphBuilder::CreateTransientImageResource(
+        const RHI::AttachmentId&    name,
+        const RHI::ImageDescriptor& desc)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        RHIHandle resource = rhiContext.CreateEntity();
+        rhiContext.Add<TransientTag>(resource);
+        rhiContext.Add<ResourceName>(resource, ResourceName{ name });
+        rhiContext.Add<RHI::ImageDescriptor>(resource, desc);
+        return resource;
+    }
+
+    inline RHIHandle RenderGraphBuilder::CreateTransientBufferResource(
+        const RHI::AttachmentId&     name,
+        const RHI::BufferDescriptor& desc)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        RHIHandle resource = rhiContext.CreateEntity();
+        rhiContext.Add<TransientTag>(resource);
+        rhiContext.Add<ResourceName>(resource, ResourceName{ name });
+        rhiContext.Add<RHI::BufferDescriptor>(resource, desc);
+        return resource;
+    }
+
     // ============================================================
-    // ImportBufferAttachment
+    // ImportImageAttachment / ImportBufferAttachment
     // ============================================================
 
     template<typename PassTag>
-    void RenderGraphBuilder::ImportBufferAttachment(const BufferPassAttachment& attachment)
+    void RenderGraphBuilder::ImportImageAttachment(
+        const RHI::AttachmentId&                name,
+        const ImportedImageAttachmentBindInfo&  bind)
     {
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ValidateImportBufferAttachment(attachment.m_view, attachment.m_attachmentId);
+            ValidateImportedView(bind.m_view, name, /*image=*/true);
+            ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
-        BufferPassAttachment a = attachment;
-        a.m_pass = m_currentPass;
-        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
-        RegisterBufferAttachment<PassTag>(a);
+
+        ImagePassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, 0 };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = bind.m_access;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_action          = bind.m_action;
+        a.m_view            = bind.m_view;
+        a.m_pass            = m_currentPass;
+
+        m_latestVersions.try_emplace(name, 0u);
+        RegisterImageAttachment<PassTag>(a);
     }
 
     template<typename PassTag>
     void RenderGraphBuilder::ImportBufferAttachment(
-        const AttachmentId& id,
-        const RHI::InputName& slot,
-        RHIHandle view,
-        RHI::AttachmentAccess access,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage)
-    {
-        BufferPassAttachment attachment;
-        attachment.m_attachmentId = id;
-        attachment.m_slotName     = slot;
-        attachment.m_access       = access;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_view         = view;
-        // m_pass is filled by the object-form below from m_currentPass.
-        ImportBufferAttachment<PassTag>(attachment);
-    }
-
-    // ============================================================
-    // ImportImageAttachment
-    // ============================================================
-
-    template<typename PassTag>
-    void RenderGraphBuilder::ImportImageAttachment(const ImagePassAttachment& attachment)
+        const RHI::AttachmentId&                 name,
+        const ImportedBufferAttachmentBindInfo&  bind)
     {
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ValidateImportImageAttachment(attachment.m_view, attachment.m_attachmentId);
+            ValidateImportedView(bind.m_view, name, /*image=*/false);
+            ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
         }
-        ImagePassAttachment a = attachment;
-        a.m_pass = m_currentPass;
-        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
-        RegisterImageAttachment<PassTag>(a);
-    }
 
-    template<typename PassTag>
-    void RenderGraphBuilder::ImportImageAttachment(
-        const AttachmentId& id,
-        const RHI::InputName& slot,
-        RHIHandle view,
-        RHI::AttachmentAccess access,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action)
-    {
-        ImagePassAttachment attachment;
-        attachment.m_attachmentId = id;
-        attachment.m_slotName     = slot;
-        attachment.m_access       = access;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_action       = action;
-        attachment.m_view         = view;
-        ImportImageAttachment<PassTag>(attachment);
-    }
+        BufferPassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, 0 };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = bind.m_access;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_view            = bind.m_view;
+        a.m_pass            = m_currentPass;
 
-    // ============================================================
-    // CreateBufferAttachment
-    // ============================================================
-
-    template<typename PassTag>
-    void RenderGraphBuilder::CreateBufferAttachment(const BufferPassAttachment& attachment)
-    {
-        if constexpr (s_buildValidation)
-        {
-            ASSERT(m_currentPass != NullPass,
-                "BeginPass must be called before declaring attachments.");
-            ValidateCreateBufferAttachment<PassTag>(attachment.m_view, attachment.m_slotName);
-        }
-        BufferPassAttachment a = attachment;
-        a.m_pass = m_currentPass;
-        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
+        m_latestVersions.try_emplace(name, 0u);
         RegisterBufferAttachment<PassTag>(a);
+    }
+
+    // ============================================================
+    // CreateImageAttachment / CreateBufferAttachment
+    // ============================================================
+
+    template<typename PassTag>
+    void RenderGraphBuilder::CreateImageAttachment(
+        const RHI::AttachmentId&        name,
+        const RHI::ImageDescriptor&     desc,
+        const ImageAttachmentBindInfo&  bind,
+        RHI::AttachmentAccess           access)
+    {
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
+            ASSERT(m_latestVersions.find(name) == m_latestVersions.end(),
+                "AttachmentId {} has already been declared (Create / Import).",
+                name.GetCStr());
+            ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
+        }
+
+        CreateTransientImageResource(name, desc);
+
+        ImagePassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, 0 };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = access;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_action          = bind.m_action;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+
+        m_latestVersions.emplace(name, 0u);
+        RegisterImageAttachment<PassTag>(a);
     }
 
     template<typename PassTag>
     void RenderGraphBuilder::CreateBufferAttachment(
-        const AttachmentId& id,
-        const RHI::InputName& slot,
-        RHI::AttachmentAccess access,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage)
-    {
-        BufferPassAttachment attachment;
-        attachment.m_attachmentId = id;
-        attachment.m_slotName     = slot;
-        attachment.m_access       = access;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        CreateBufferAttachment<PassTag>(attachment);
-    }
-
-    // ============================================================
-    // CreateImageAttachment
-    // ============================================================
-
-    template<typename PassTag>
-    void RenderGraphBuilder::CreateImageAttachment(const ImagePassAttachment& attachment)
+        const RHI::AttachmentId&        name,
+        const RHI::BufferDescriptor&    desc,
+        const BufferAttachmentBindInfo& bind,
+        RHI::AttachmentAccess           access)
     {
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ValidateCreateImageAttachment<PassTag>(attachment.m_view, attachment.m_slotName);
+            ASSERT(m_latestVersions.find(name) == m_latestVersions.end(),
+                "AttachmentId {} has already been declared (Create / Import).",
+                name.GetCStr());
+            ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
         }
-        ImagePassAttachment a = attachment;
-        a.m_pass = m_currentPass;
-        m_latestVersions.try_emplace(a.m_attachmentId.m_id, a.m_attachmentId.m_version);
+
+        CreateTransientBufferResource(name, desc);
+
+        BufferPassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, 0 };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = access;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+
+        m_latestVersions.emplace(name, 0u);
+        RegisterBufferAttachment<PassTag>(a);
+    }
+
+    // ============================================================
+    // ReadImageAttachment / WriteImageAttachment / ReadWriteImageAttachment
+    // ============================================================
+
+    template<typename PassTag>
+    AttachmentId RenderGraphBuilder::ReadImageAttachment(
+        const RHI::AttachmentId&        name,
+        const ImageAttachmentBindInfo&  bind)
+    {
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
+            ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
+        }
+
+        ImagePassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, LookupLatestVersion(name) };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = RHI::AttachmentAccess::Read;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_action          = bind.m_action;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
         RegisterImageAttachment<PassTag>(a);
+        return a.m_attachmentId;
     }
 
     template<typename PassTag>
-    void RenderGraphBuilder::CreateImageAttachment(
-        const AttachmentId& id,
-        const RHI::InputName& slot,
-        RHI::AttachmentAccess access,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action)
-    {
-        ImagePassAttachment attachment;
-        attachment.m_attachmentId = id;
-        attachment.m_slotName     = slot;
-        attachment.m_access       = access;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_action       = action;
-        CreateImageAttachment<PassTag>(attachment);
-    }
-
-    // ============================================================
-    // ReadBufferAttachment / WriteBufferAttachment
-    // ============================================================
-
-    template<typename PassTag>
-    AttachmentId RenderGraphBuilder::ReadBufferAttachment(
-        const RHI::AttachmentId& name,
-        const RHI::InputName& slot,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage)
+    AttachmentId RenderGraphBuilder::WriteImageAttachment(
+        const RHI::AttachmentId&        name,
+        const ImageAttachmentBindInfo&  bind)
     {
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ValidateUniqueSlot<PassTag, BufferPassAttachment>(slot);
-        }
-
-        BufferPassAttachment attachment;
-        attachment.m_attachmentId = AttachmentId{ name, LookupLatestVersion(name) };
-        attachment.m_slotName     = slot;
-        attachment.m_access       = RHI::AttachmentAccess::Read;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_pass         = m_currentPass;
-        RegisterBufferAttachment<PassTag>(attachment);
-        return attachment.m_attachmentId;
-    }
-
-    template<typename PassTag>
-    AttachmentId RenderGraphBuilder::WriteBufferAttachment(
-        const RHI::AttachmentId& name,
-        const RHI::InputName& slot,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage)
-    {
-        if constexpr (s_buildValidation)
-        {
-            ASSERT(m_currentPass != NullPass,
-                "BeginPass must be called before declaring attachments.");
-            ValidateUniqueSlot<PassTag, BufferPassAttachment>(slot);
+            ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
         // Consume the current latest version (graph-only entry; BuildGraph turns
@@ -537,132 +513,31 @@ namespace Spark::Render
         m_attachmentUses[AttachmentId{ name, latestVersion }]
             .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
 
-        // Then publish a new version as the produced output.
         const uint32_t newVersion = BumpVersion(name);
 
-        BufferPassAttachment attachment;
-        attachment.m_attachmentId = AttachmentId{ name, newVersion };
-        attachment.m_slotName     = slot;
-        attachment.m_access       = RHI::AttachmentAccess::Write;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_pass         = m_currentPass;
-        RegisterBufferAttachment<PassTag>(attachment);
-        return attachment.m_attachmentId;
-    }
-
-    // ============================================================
-    // ReadImageAttachment / WriteImageAttachment
-    // ============================================================
-
-    template<typename PassTag>
-    AttachmentId RenderGraphBuilder::ReadImageAttachment(
-        const RHI::AttachmentId& name,
-        const RHI::InputName& slot,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action)
-    {
-        if constexpr (s_buildValidation)
-        {
-            ASSERT(m_currentPass != NullPass,
-                "BeginPass must be called before declaring attachments.");
-            ValidateUniqueSlot<PassTag, ImagePassAttachment>(slot);
-        }
-
-        ImagePassAttachment attachment;
-        attachment.m_attachmentId = AttachmentId{ name, LookupLatestVersion(name) };
-        attachment.m_slotName     = slot;
-        attachment.m_access       = RHI::AttachmentAccess::Read;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_action       = action;
-        attachment.m_pass         = m_currentPass;
-        RegisterImageAttachment<PassTag>(attachment);
-        return attachment.m_attachmentId;
-    }
-
-    template<typename PassTag>
-    AttachmentId RenderGraphBuilder::WriteImageAttachment(
-        const RHI::AttachmentId& name,
-        const RHI::InputName& slot,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action)
-    {
-        if constexpr (s_buildValidation)
-        {
-            ASSERT(m_currentPass != NullPass,
-                "BeginPass must be called before declaring attachments.");
-            ValidateUniqueSlot<PassTag, ImagePassAttachment>(slot);
-        }
-
-        const uint32_t latestVersion = LookupLatestVersion(name);
-        m_attachmentUses[AttachmentId{ name, latestVersion }]
-            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
-
-        const uint32_t newVersion = BumpVersion(name);
-
-        ImagePassAttachment attachment;
-        attachment.m_attachmentId = AttachmentId{ name, newVersion };
-        attachment.m_slotName     = slot;
-        attachment.m_access       = RHI::AttachmentAccess::Write;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_action       = action;
-        attachment.m_pass         = m_currentPass;
-        RegisterImageAttachment<PassTag>(attachment);
-        return attachment.m_attachmentId;
-    }
-
-    // ============================================================
-    // ReadWriteBufferAttachment / ReadWriteImageAttachment
-    // ============================================================
-
-    template<typename PassTag>
-    AttachmentId RenderGraphBuilder::ReadWriteBufferAttachment(
-        const RHI::AttachmentId& name,
-        const RHI::InputName& slot,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage)
-    {
-        if constexpr (s_buildValidation)
-        {
-            ASSERT(m_currentPass != NullPass,
-                "BeginPass must be called before declaring attachments.");
-            ValidateUniqueSlot<PassTag, BufferPassAttachment>(slot);
-        }
-
-        const uint32_t latestVersion = LookupLatestVersion(name);
-        m_attachmentUses[AttachmentId{ name, latestVersion }]
-            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
-
-        const uint32_t newVersion = BumpVersion(name);
-
-        BufferPassAttachment attachment;
-        attachment.m_attachmentId = AttachmentId{ name, newVersion };
-        attachment.m_slotName     = slot;
-        attachment.m_access       = RHI::AttachmentAccess::ReadWrite;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_pass         = m_currentPass;
-        RegisterBufferAttachment<PassTag>(attachment);
-        return attachment.m_attachmentId;
+        ImagePassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, newVersion };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = RHI::AttachmentAccess::Write;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_action          = bind.m_action;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+        RegisterImageAttachment<PassTag>(a);
+        return a.m_attachmentId;
     }
 
     template<typename PassTag>
     AttachmentId RenderGraphBuilder::ReadWriteImageAttachment(
-        const RHI::AttachmentId& name,
-        const RHI::InputName& slot,
-        RHI::AttachmentUsage usage,
-        RHI::AttachmentStage stage,
-        const RHI::AttachmentLoadStoreAction& action)
+        const RHI::AttachmentId&        name,
+        const ImageAttachmentBindInfo&  bind)
     {
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ValidateUniqueSlot<PassTag, ImagePassAttachment>(slot);
+            ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
         const uint32_t latestVersion = LookupLatestVersion(name);
@@ -671,16 +546,105 @@ namespace Spark::Render
 
         const uint32_t newVersion = BumpVersion(name);
 
-        ImagePassAttachment attachment;
-        attachment.m_attachmentId = AttachmentId{ name, newVersion };
-        attachment.m_slotName     = slot;
-        attachment.m_access       = RHI::AttachmentAccess::ReadWrite;
-        attachment.m_usage        = usage;
-        attachment.m_stage        = stage;
-        attachment.m_action       = action;
-        attachment.m_pass         = m_currentPass;
-        RegisterImageAttachment<PassTag>(attachment);
-        return attachment.m_attachmentId;
+        ImagePassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, newVersion };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = RHI::AttachmentAccess::ReadWrite;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_action          = bind.m_action;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+        RegisterImageAttachment<PassTag>(a);
+        return a.m_attachmentId;
+    }
+
+    // ============================================================
+    // ReadBufferAttachment / WriteBufferAttachment / ReadWriteBufferAttachment
+    // ============================================================
+
+    template<typename PassTag>
+    AttachmentId RenderGraphBuilder::ReadBufferAttachment(
+        const RHI::AttachmentId&        name,
+        const BufferAttachmentBindInfo& bind)
+    {
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
+            ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
+        }
+
+        BufferPassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, LookupLatestVersion(name) };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = RHI::AttachmentAccess::Read;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+        RegisterBufferAttachment<PassTag>(a);
+        return a.m_attachmentId;
+    }
+
+    template<typename PassTag>
+    AttachmentId RenderGraphBuilder::WriteBufferAttachment(
+        const RHI::AttachmentId&        name,
+        const BufferAttachmentBindInfo& bind)
+    {
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
+            ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
+        }
+
+        const uint32_t latestVersion = LookupLatestVersion(name);
+        m_attachmentUses[AttachmentId{ name, latestVersion }]
+            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
+
+        const uint32_t newVersion = BumpVersion(name);
+
+        BufferPassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, newVersion };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = RHI::AttachmentAccess::Write;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+        RegisterBufferAttachment<PassTag>(a);
+        return a.m_attachmentId;
+    }
+
+    template<typename PassTag>
+    AttachmentId RenderGraphBuilder::ReadWriteBufferAttachment(
+        const RHI::AttachmentId&        name,
+        const BufferAttachmentBindInfo& bind)
+    {
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
+            ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
+        }
+
+        const uint32_t latestVersion = LookupLatestVersion(name);
+        m_attachmentUses[AttachmentId{ name, latestVersion }]
+            .emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
+
+        const uint32_t newVersion = BumpVersion(name);
+
+        BufferPassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, newVersion };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = RHI::AttachmentAccess::ReadWrite;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+        RegisterBufferAttachment<PassTag>(a);
+        return a.m_attachmentId;
     }
 
 }

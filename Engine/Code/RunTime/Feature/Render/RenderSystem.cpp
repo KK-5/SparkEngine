@@ -392,19 +392,17 @@ namespace Spark::Render
         PassFunctions uiPassFunc;
         uiPassFunc.m_buildFunction = [&](RenderGraphBuilder& builder)
         {
-            ImagePassAttachment passAttachment;
-            passAttachment.m_attachmentId.m_id = "SwapChain";
-            passAttachment.m_slotName = "ColorOutput";
-            passAttachment.m_access = RHI::AttachmentAccess::Write;
-            passAttachment.m_usage = RHI::AttachmentUsage::RenderTarget;
-            RHI::AttachmentLoadStoreAction loadStoreAction;
-            loadStoreAction.m_clearValue = RHI::ClearValue::CreateVector4Float(1.f, 0.f, 0.f, 1.f);
-            loadStoreAction.m_loadAction = RHI::AttachmentLoadAction::Clear;
-            loadStoreAction.m_storeAction = RHI::AttachmentStoreAction::Store;
-            passAttachment.m_action = loadStoreAction;
-            passAttachment.m_view = m_rhiData.m_swapchainViewHandle;
+            ImportedImageAttachmentBindInfo bind;
+            bind.m_slot   = RHI::InputName("ColorOutput");
+            bind.m_view   = m_rhiData.m_swapchainViewHandle;
+            bind.m_access = RHI::AttachmentAccess::Write;
+            bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
+            bind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(1.f, 0.f, 0.f, 1.f);
+            bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+            bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-            builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(passAttachment);
+            builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(
+                RHI::AttachmentId("SwapChain"), bind);
         };
 
         uiPassFunc.m_compileFunction = [&](RHIContext& rhiContext)
