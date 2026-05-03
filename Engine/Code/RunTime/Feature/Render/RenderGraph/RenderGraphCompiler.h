@@ -35,11 +35,17 @@ namespace Spark::Render
             eastl::span<Pass>           passes,
             RHI::TransientResourcePool& pool);
 
-        //! Per-pass aliasing barriers from the pool. Caller must ensure the
-        //! pool's batch is sealed (GetAliasingBarriers requires this — see
-        //! TransientResourcePool::GetAliasingBarriers docstring).
-        void CompileTransientAliasingBarriers(
-            eastl::span<Pass>           passes,
+
+        //! Compile all barriers for a single pass. Must be called in topo-sort
+        //! order so that cross-queue Release/Acquire pairs are written to the
+        //! correct upstream passes. Emits aliasing barriers first (heap
+        //! ownership transfer), then image barriers (including cross-queue
+        //! Acquire for the current pass), then buffer barriers. Result is
+        //! stored as PassBarriers on the pass entity in PassContext.
+        void CompileResourceBarriers(
+            Pass                        pass,
+            PassContext&                passContext,
+            RHIContext&                 context,
             RHI::TransientResourcePool& pool);
     };
 }
