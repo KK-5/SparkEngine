@@ -6,6 +6,7 @@
 #pragma once
 
 #include <RHI/Attachment/AttachmentEnums.h>
+#include <RHI/HardwareQueue.h>
 
 namespace Spark::RHI
 {
@@ -43,26 +44,44 @@ namespace Spark::RHI
         bool operator!=(const ResourceState& other) const { return !(*this == other); }
     };
 
+    //! Cross-queue ownership transfer (Vulkan QFOT) is encoded by setting
+    //! m_srcQueue != m_dstQueue. Such a barrier MUST be emitted twice with
+    //! identical (srcQueue, dstQueue): once on the src queue's command list
+    //! (release) and once on the dst queue's command list (acquire). The
+    //! happens-before between release and acquire is provided externally by
+    //! a timeline-semaphore signal/wait pair (see PassSyncSignal/PassSyncWait
+    //! in the render layer); the barrier itself only describes the transfer.
+    //!
+    //! Vulkan backend: emits both halves with srcQueueFamilyIndex/dstQueueFamilyIndex
+    //!     set, performs layout transition exactly as Vulkan spec requires.
+    //! DX12 backend: bridges through COMMON state — release side transitions
+    //!     srcUsage → COMMON, acquire side transitions COMMON → dstUsage.
+    //!
+    //! Intra-queue is the common case: leave m_srcQueue == m_dstQueue (default).
     struct BufferBarrier
     {
-        Buffer*          m_buffer   = nullptr;
-        AttachmentUsage  m_srcUsage = AttachmentUsage::Uninitialized;
-        AttachmentUsage  m_dstUsage = AttachmentUsage::Uninitialized;
-        AttachmentAccess m_srcAccess = AttachmentAccess::Unknown;
-        AttachmentAccess m_dstAccess = AttachmentAccess::Unknown;
-        AttachmentStage  m_srcStage = AttachmentStage::Any;
-        AttachmentStage  m_dstStage = AttachmentStage::Any;
+        Buffer*            m_buffer    = nullptr;
+        AttachmentUsage    m_srcUsage  = AttachmentUsage::Uninitialized;
+        AttachmentUsage    m_dstUsage  = AttachmentUsage::Uninitialized;
+        AttachmentAccess   m_srcAccess = AttachmentAccess::Unknown;
+        AttachmentAccess   m_dstAccess = AttachmentAccess::Unknown;
+        AttachmentStage    m_srcStage  = AttachmentStage::Any;
+        AttachmentStage    m_dstStage  = AttachmentStage::Any;
+        HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
+        HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
     struct ImageBarrier
     {
-        Image*           m_image    = nullptr;
-        AttachmentUsage  m_srcUsage = AttachmentUsage::Uninitialized;
-        AttachmentUsage  m_dstUsage = AttachmentUsage::Uninitialized;
-        AttachmentAccess m_srcAccess = AttachmentAccess::Unknown;
-        AttachmentAccess m_dstAccess = AttachmentAccess::Unknown;
-        AttachmentStage  m_srcStage = AttachmentStage::Any;
-        AttachmentStage  m_dstStage = AttachmentStage::Any;
+        Image*             m_image     = nullptr;
+        AttachmentUsage    m_srcUsage  = AttachmentUsage::Uninitialized;
+        AttachmentUsage    m_dstUsage  = AttachmentUsage::Uninitialized;
+        AttachmentAccess   m_srcAccess = AttachmentAccess::Unknown;
+        AttachmentAccess   m_dstAccess = AttachmentAccess::Unknown;
+        AttachmentStage    m_srcStage  = AttachmentStage::Any;
+        AttachmentStage    m_dstStage  = AttachmentStage::Any;
+        HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
+        HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
     BufferBarrier MakeBufferBarrier(

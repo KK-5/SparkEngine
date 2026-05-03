@@ -393,31 +393,113 @@ namespace Spark::RHI::DX12
 
     void CommandList::QueueBarrier(const RHI::BufferBarrier& barrier)
     {
+        // Cross-queue ownership transfer (Vulkan QFOT) maps to a Common-state
+        // bridge in DX12: release side transitions srcUsage → COMMON, acquire
+        // side transitions COMMON → dstUsage. COMMON is the only state both
+        // queues are guaranteed to support transitioning into / out of, so the
+        // bridge is universally safe regardless of dstUsage's queue affinity.
+        // Cross-queue happens-before is provided by the timeline-semaphore
+        // wait that the render layer inserts between the two queues.
+        const auto myQueue       = GetHardwareQueueClass();
+        const bool isCrossQueue  = (barrier.m_srcQueue != barrier.m_dstQueue);
+
+        if (isCrossQueue)
+        {
+            ASSERT(myQueue == barrier.m_srcQueue || myQueue == barrier.m_dstQueue,
+                "Cross-queue buffer barrier emitted on queue {} that is neither srcQueue {} nor dstQueue {}.",
+                static_cast<uint32_t>(myQueue),
+                static_cast<uint32_t>(barrier.m_srcQueue),
+                static_cast<uint32_t>(barrier.m_dstQueue));
+        }
+
         RHI::BufferPool& bufferPool = static_cast<RHI::BufferPool&>(*barrier.m_buffer->GetPool());
         if (bufferPool.GetDescriptor().m_heapMemoryLevel == RHI::HeapMemoryLevel::Host)
         {
-            // LOG_INFO("[DX12 CommandList] Discard resource barrier to buffer which on upload heap or readbach heap.");
+            // Upload / readback heaps live in GENERIC_READ permanently; no transition needed.
             return;
         }
 
         Buffer& buffer = static_cast<Buffer&>(*barrier.m_buffer);
-        CommandListBase::QueueTransitionBarrier(
-            buffer.GetMemoryView().GetMemory(),
-            ConvertBufferAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
-            ConvertBufferAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
-        RHI::CommandList::SetResourceState(*barrier.m_buffer,
-            RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+        ID3D12Resource* resource = buffer.GetMemoryView().GetMemory();
+
+        if (!isCrossQueue)
+        {
+            CommandListBase::QueueTransitionBarrier(
+                resource,
+                ConvertBufferAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
+                ConvertBufferAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
+            RHI::CommandList::SetResourceState(*barrier.m_buffer,
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+        }
+        else if (myQueue == barrier.m_srcQueue)
+        {
+            // Release: srcUsage → COMMON.
+            CommandListBase::QueueTransitionBarrier(
+                resource,
+                ConvertBufferAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
+                D3D12_RESOURCE_STATE_COMMON);
+            RHI::CommandList::SetResourceState(*barrier.m_buffer,
+                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown });
+        }
+        else
+        {
+            // Acquire: COMMON → dstUsage.
+            CommandListBase::QueueTransitionBarrier(
+                resource,
+                D3D12_RESOURCE_STATE_COMMON,
+                ConvertBufferAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
+            RHI::CommandList::SetResourceState(*barrier.m_buffer,
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+        }
     }
 
     void CommandList::QueueBarrier(const RHI::ImageBarrier& barrier)
     {
+        // Cross-queue handling: see BufferBarrier overload above.
+        const auto myQueue       = GetHardwareQueueClass();
+        const bool isCrossQueue  = (barrier.m_srcQueue != barrier.m_dstQueue);
+
+        if (isCrossQueue)
+        {
+            ASSERT(myQueue == barrier.m_srcQueue || myQueue == barrier.m_dstQueue,
+                "Cross-queue image barrier emitted on queue {} that is neither srcQueue {} nor dstQueue {}.",
+                static_cast<uint32_t>(myQueue),
+                static_cast<uint32_t>(barrier.m_srcQueue),
+                static_cast<uint32_t>(barrier.m_dstQueue));
+        }
+
         Image& image = static_cast<Image&>(*barrier.m_image);
-        CommandListBase::QueueTransitionBarrier(
-            image.GetMemoryView().GetMemory(),
-            ConvertImageAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
-            ConvertImageAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
-        RHI::CommandList::SetResourceState(*barrier.m_image,
-            RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+        ID3D12Resource* resource = image.GetMemoryView().GetMemory();
+
+        if (!isCrossQueue)
+        {
+            CommandListBase::QueueTransitionBarrier(
+                resource,
+                ConvertImageAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
+                ConvertImageAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
+            RHI::CommandList::SetResourceState(*barrier.m_image,
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+        }
+        else if (myQueue == barrier.m_srcQueue)
+        {
+            // Release: srcUsage → COMMON.
+            CommandListBase::QueueTransitionBarrier(
+                resource,
+                ConvertImageAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
+                D3D12_RESOURCE_STATE_COMMON);
+            RHI::CommandList::SetResourceState(*barrier.m_image,
+                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown });
+        }
+        else
+        {
+            // Acquire: COMMON → dstUsage.
+            CommandListBase::QueueTransitionBarrier(
+                resource,
+                D3D12_RESOURCE_STATE_COMMON,
+                ConvertImageAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
+            RHI::CommandList::SetResourceState(*barrier.m_image,
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+        }
     }
 
     void CommandList::FlushBarriers()

@@ -267,6 +267,26 @@ namespace Spark::RHI
         return MakeImageBarrier(image, AttachmentUsage::Present, AttachmentAccess::Read);
     }
 
+    namespace
+    {
+        //! Cross-queue ownership transfer requires the resource to be visible
+        //! on both src and dst queues — i.e. the descriptor's sharedQueueMask
+        //! must cover both bits. Returns true for intra-queue barriers.
+        bool IsCrossQueueAllowed(
+            HardwareQueueClassMask sharedMask,
+            HardwareQueueClass     srcQueue,
+            HardwareQueueClass     dstQueue)
+        {
+            if (srcQueue == dstQueue)
+            {
+                return true;
+            }
+            const HardwareQueueClassMask required =
+                GetHardwareQueueClassMask(srcQueue) | GetHardwareQueueClassMask(dstQueue);
+            return CheckBitsAll(sharedMask, required);
+        }
+    }
+
     bool ValidateBufferBarrier(const BufferBarrier& barrier)
     {
         if (!barrier.m_buffer)
@@ -284,6 +304,18 @@ namespace Spark::RHI
                 static_cast<uint32_t>(buffer.GetDescriptor().m_bindFlags),
                 static_cast<uint32_t>(barrier.m_dstUsage),
                 static_cast<uint32_t>(barrier.m_dstAccess));
+            return false;
+        }
+
+        if (!IsCrossQueueAllowed(buffer.GetDescriptor().m_sharedQueueMask, barrier.m_srcQueue, barrier.m_dstQueue))
+        {
+            LOG_ERROR(
+                "[RHI] Cross-queue buffer barrier for '{}' is invalid: sharedQueueMask=0x{:x} does not cover "
+                "both srcQueue={} and dstQueue={}.",
+                buffer.GetName().GetCStr(),
+                static_cast<uint32_t>(buffer.GetDescriptor().m_sharedQueueMask),
+                static_cast<uint32_t>(barrier.m_srcQueue),
+                static_cast<uint32_t>(barrier.m_dstQueue));
             return false;
         }
         return true;
@@ -306,6 +338,18 @@ namespace Spark::RHI
                 static_cast<uint32_t>(image.GetDescriptor().m_bindFlags),
                 static_cast<uint32_t>(barrier.m_dstUsage),
                 static_cast<uint32_t>(barrier.m_dstAccess));
+            return false;
+        }
+
+        if (!IsCrossQueueAllowed(image.GetDescriptor().m_sharedQueueMask, barrier.m_srcQueue, barrier.m_dstQueue))
+        {
+            LOG_ERROR(
+                "[RHI] Cross-queue image barrier for '{}' is invalid: sharedQueueMask=0x{:x} does not cover "
+                "both srcQueue={} and dstQueue={}.",
+                image.GetName().GetCStr(),
+                static_cast<uint32_t>(image.GetDescriptor().m_sharedQueueMask),
+                static_cast<uint32_t>(barrier.m_srcQueue),
+                static_cast<uint32_t>(barrier.m_dstQueue));
             return false;
         }
         return true;
