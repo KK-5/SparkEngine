@@ -97,9 +97,8 @@ namespace Spark::Render
         eastl::vector<RHI::BufferBarrier> m_preBuffer;
         eastl::vector<RHI::ImageBarrier>  m_postImage;
         eastl::vector<RHI::BufferBarrier> m_postBuffer;
-        //! Aliasing barriers for transient resource memory reuse, compiled by
-        //! RenderGraphCompiler::CompileTransientAliasingBarriers. Must be
-        //! issued before the state-transition barriers above so that the heap
+        
+        //!  Must be issued before the state-transition barriers above so that the heap
         //! range ownership transfer happens before any layout/state work.
         RHI::AliasingBarrierList          m_preAliasing;
     };

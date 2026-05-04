@@ -21,6 +21,11 @@ namespace Spark::Render
     class RenderGraphCompiler
     {
     public:
+        RHI::ShaderResource* GetShaderResource() const;
+
+        RHI::ImageView*  GetImageView(RHI::InputName slot) const;
+
+        RHI::BufferView* GetBufferView(RHI::InputName slot) const;
 
     private:
         friend class RenderGraph;
