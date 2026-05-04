@@ -52,7 +52,7 @@ namespace Spark::RHI::DX12
 
         void GetAliasingBarriersInternal(
             uint32_t timelinePosition,
-            RHI::AliasingBarrierList& out) const override;
+            eastl::vector<RHI::AliasingBarrier>& out) const override;
 
         void OnFrameBeginInternal() override;
 
@@ -111,7 +111,7 @@ namespace Spark::RHI::DX12
 
         D3D12MAReleaseQueue      m_releaseQueue;
 
-        eastl::unordered_map<uint32_t, eastl::vector<RHI::TransientAliasingBarrier>> m_aliasingBarriers;
+        eastl::unordered_map<uint32_t, eastl::vector<RHI::AliasingBarrier>> m_aliasingBarriers;
 
         // 跨批次 placed resource 复用：descriptor 哈希 → 候选资源列表
         // [TODO] 跨帧缓存ID3D12Resource

@@ -7,7 +7,7 @@
 #include <RHI/Attachment/RenderAttachmentLayout.h>
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
-#include <RHI/Resource/Transient/TransientResourcePool.h>
+#include <RHI/Resource/ResourceState.h>
 #include <RHI/HardwareQueue.h>
 
 #include <Resource/Shader/ShaderAsset.h>
@@ -100,7 +100,7 @@ namespace Spark::Render
         
         //!  Must be issued before the state-transition barriers above so that the heap
         //! range ownership transfer happens before any layout/state work.
-        RHI::AliasingBarrierList          m_preAliasing;
+        eastl::vector<RHI::AliasingBarrier>  m_preAliasing;
     };
 
     /////////////////////////////////////////////////////

@@ -172,6 +172,56 @@ namespace Spark::RHI
         return barrier;
     }
 
+    namespace
+    {
+        AliasingBarrier MakeAliasingBarrierImpl(
+            Resource*           before,
+            Resource*           after,
+            BarrierResourceType typeBefore,
+            BarrierResourceType typeAfter,
+            AttachmentStage     srcStage,
+            AttachmentStage     dstStage)
+        {
+            ASSERT(after != nullptr, "[RHI] MakeAliasingBarrier: 'after' resource must be non-null.");
+            AliasingBarrier barrier;
+            barrier.m_resourceBefore = before;
+            barrier.m_resourceAfter  = after;
+            barrier.m_typeBefore     = typeBefore;
+            barrier.m_typeAfter      = typeAfter;
+            barrier.m_srcStage       = srcStage;
+            barrier.m_dstStage       = dstStage;
+            return barrier;
+        }
+    }
+
+    AliasingBarrier MakeAliasingBarrier(
+        Buffer* before, Buffer* after, AttachmentStage srcStage, AttachmentStage dstStage)
+    {
+        return MakeAliasingBarrierImpl(
+            before, after, BarrierResourceType::Buffer, BarrierResourceType::Buffer, srcStage, dstStage);
+    }
+
+    AliasingBarrier MakeAliasingBarrier(
+        Buffer* before, Image* after, AttachmentStage srcStage, AttachmentStage dstStage)
+    {
+        return MakeAliasingBarrierImpl(
+            before, after, BarrierResourceType::Buffer, BarrierResourceType::Image, srcStage, dstStage);
+    }
+
+    AliasingBarrier MakeAliasingBarrier(
+        Image* before, Buffer* after, AttachmentStage srcStage, AttachmentStage dstStage)
+    {
+        return MakeAliasingBarrierImpl(
+            before, after, BarrierResourceType::Image, BarrierResourceType::Buffer, srcStage, dstStage);
+    }
+
+    AliasingBarrier MakeAliasingBarrier(
+        Image* before, Image* after, AttachmentStage srcStage, AttachmentStage dstStage)
+    {
+        return MakeAliasingBarrierImpl(
+            before, after, BarrierResourceType::Image, BarrierResourceType::Image, srcStage, dstStage);
+    }
+
     BufferBarrier ConvertToCopyRead(Buffer& buffer)
     {
         return MakeBufferBarrier(buffer, AttachmentUsage::Copy, AttachmentAccess::Read);

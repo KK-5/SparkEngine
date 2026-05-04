@@ -4,6 +4,7 @@
 
 #include <EASTL/numeric_limits.h>
 
+#include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/HardwareQueue.h>
 
 namespace Spark::RHI
@@ -19,6 +20,10 @@ namespace Spark::RHI
     //! a transient resource is consumed across multiple queues the pool unions the
     //! Create / Discard masks to compute the full set of pipelines that must
     //! synchronize before the memory range is recycled.
+    //!
+    //! m_stage carries the pipeline stage at this anchor so the pool can populate
+    //! aliasing barriers without coupling to pass-attachment iteration. For Create
+    //! it should be the first attachment's stage; for Discard, the last.
     struct TransientAllocationFence
     {
         TransientAllocationFence() = default;
@@ -28,8 +33,15 @@ namespace Spark::RHI
             , m_timelinePosition(timelinePosition)
         {}
 
+        TransientAllocationFence(HardwareQueueClassMask pipelines, uint32_t timelinePosition, AttachmentStage stage)
+            : m_pipelines(pipelines)
+            , m_timelinePosition(timelinePosition)
+            , m_stage(stage)
+        {}
+
         HardwareQueueClassMask m_pipelines        = HardwareQueueClassMask::All;
         uint32_t               m_timelinePosition = 0; // half-open interval [alloc, discard)
+        AttachmentStage        m_stage            = AttachmentStage::Any;
     };
 
     static constexpr uint32_t InvalidTimelinePosition = eastl::numeric_limits<uint32_t>::max();

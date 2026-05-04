@@ -87,7 +87,7 @@ namespace Spark::RHI
         DiscardInternal(buffer, discardFence);
     }
 
-    void TransientResourcePool::GetAliasingBarriers(uint32_t timelinePosition, AliasingBarrierList& out) const
+    void TransientResourcePool::GetAliasingBarriers(uint32_t timelinePosition, eastl::vector<AliasingBarrier>& out) const
     {
         if (!ValidateIsInitialized())
         {

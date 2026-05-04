@@ -502,6 +502,50 @@ namespace Spark::RHI::DX12
         }
     }
 
+    void CommandList::QueueAliasingBarrier(AliasingBarrier barrier)
+    {
+        D3D12_RESOURCE_ALIASING_BARRIER dx12Barrier{};
+
+        if (barrier.m_resourceBefore)
+        {
+            switch (barrier.m_typeBefore)
+            {
+                case RHI::BarrierResourceType::Buffer:
+                {
+                    auto buffer = static_cast<Buffer*>(barrier.m_resourceBefore);
+                    dx12Barrier.pResourceBefore = buffer->GetMemoryView().GetMemory();
+                    break;
+                }
+                case RHI::BarrierResourceType::Image:
+                {
+                    auto image = static_cast<Image*>(barrier.m_resourceBefore);
+                    dx12Barrier.pResourceBefore = image->GetMemoryView().GetMemory();
+                    break;
+                }
+            }
+        }
+
+        switch (barrier.m_typeAfter)
+        {
+            case RHI::BarrierResourceType::Buffer:
+            {
+                auto buffer = static_cast<Buffer*>(barrier.m_resourceAfter);
+                dx12Barrier.pResourceAfter = buffer->GetMemoryView().GetMemory();
+                break;
+            }
+            case RHI::BarrierResourceType::Image:
+            {
+                auto image = static_cast<Image*>(barrier.m_resourceAfter);
+                dx12Barrier.pResourceAfter = image->GetMemoryView().GetMemory();
+                break;
+            }
+            default:
+                ASSERT(false, "Invalid aliasing barrier type.");
+        }
+
+        CommandListBase::QueueAliasingBarrier(dx12Barrier, nullptr);
+    }
+
     void CommandList::FlushBarriers()
     {
         CommandListBase::FlushBarriers();

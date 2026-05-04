@@ -27,6 +27,8 @@ namespace Spark::Render
             uint32_t                    m_firstPos   = RHI::InvalidTimelinePosition;
             uint32_t                    m_lastPos    = 0;
             RHI::HardwareQueueClassMask m_queueMask  = RHI::HardwareQueueClassMask::None;
+            RHI::AttachmentStage        m_firstStage = RHI::AttachmentStage::Any;
+            RHI::AttachmentStage        m_lastStage  = RHI::AttachmentStage::Any;
             eastl::vector<RHIHandle>    m_attachments;
             const RHI::ClearValue*      m_clearValue = nullptr;
         };
@@ -36,6 +38,8 @@ namespace Spark::Render
             uint32_t                    m_firstPos  = RHI::InvalidTimelinePosition;
             uint32_t                    m_lastPos   = 0;
             RHI::HardwareQueueClassMask m_queueMask = RHI::HardwareQueueClassMask::None;
+            RHI::AttachmentStage        m_firstStage = RHI::AttachmentStage::Any;
+            RHI::AttachmentStage        m_lastStage  = RHI::AttachmentStage::Any;
             eastl::vector<RHIHandle>    m_attachments;
         };
 
@@ -186,15 +190,7 @@ namespace Spark::Render
                 passContext.Get<PassName>(pass).m_name.GetCStr());
             const uint32_t pos = passContext.Get<PassGlobalTimeline>(pass).m_position;
 
-            RHI::AliasingBarrierList barriers;
-            pool.GetAliasingBarriers(pos, barriers);
-
-            if (barriers.empty())
-            {
-                return;
-            }
-
-            out.m_preAliasing = eastl::move(barriers);
+            pool.GetAliasingBarriers(pos, out.m_preAliasing);
         }
 
         void CompileBufferBarriers(
@@ -508,15 +504,22 @@ namespace Spark::Render
                 const auto     queue = passContext.Get<PassExecuteQueue>(a.m_pass).m_queue;
 
                 auto* life = rhiContext.TryGet<ImageLifetime>(resource);
-                if (!life)
+                const bool isNew = (life == nullptr);
+                if (isNew)
                 {
                     life = &rhiContext.Add<ImageLifetime>(resource);
                 }
 
-                life->m_firstPos  = eastl::min(life->m_firstPos, pos);
-                life->m_lastPos   = eastl::max(life->m_lastPos,  pos);
+                const uint32_t oldFirst = life->m_firstPos;
+                const uint32_t oldLast  = life->m_lastPos;
+
+                life->m_firstPos  = eastl::min(oldFirst, pos);
+                life->m_lastPos   = eastl::max(oldLast,  pos);
                 life->m_queueMask = life->m_queueMask | RHI::GetHardwareQueueClassMask(queue);
                 life->m_attachments.push_back(attachmentHandle);
+
+                if (isNew || pos < oldFirst) life->m_firstStage = a.m_stage;
+                if (isNew || pos > oldLast)  life->m_lastStage  = a.m_stage;
 
                 if (life->m_clearValue == nullptr &&
                     a.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
@@ -552,15 +555,22 @@ namespace Spark::Render
                 const auto     queue = passContext.Get<PassExecuteQueue>(a.m_pass).m_queue;
 
                 auto* life = rhiContext.TryGet<BufferLifetime>(resource);
-                if (!life)
+                const bool isNew = (life == nullptr);
+                if (isNew)
                 {
                     life = &rhiContext.Add<BufferLifetime>(resource);
                 }
 
-                life->m_firstPos  = eastl::min(life->m_firstPos, pos);
-                life->m_lastPos   = eastl::max(life->m_lastPos,  pos);
+                const uint32_t oldFirst = life->m_firstPos;
+                const uint32_t oldLast  = life->m_lastPos;
+
+                life->m_firstPos  = eastl::min(oldFirst, pos);
+                life->m_lastPos   = eastl::max(oldLast,  pos);
                 life->m_queueMask = life->m_queueMask | RHI::GetHardwareQueueClassMask(queue);
                 life->m_attachments.push_back(attachmentHandle);
+
+                if (isNew || pos < oldFirst) life->m_firstStage = a.m_stage;
+                if (isNew || pos > oldLast)  life->m_lastStage  = a.m_stage;
             });
 
         // 3. Build sweep events: emit (firstPos, Create) and (lastPos+1, Discard) for each lifetime.
@@ -626,7 +636,7 @@ namespace Spark::Render
                         info.m_optimizedClearValue = life.m_clearValue;
                         info.m_debugName           = name;
 
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos };
+                        RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos, life.m_firstStage };
                         RHI::Image* image = pool.CreateImage(info, fence);
                         ASSERT(image != nullptr,
                             "TransientResourcePool::CreateImage returned null for '{}'.",
@@ -646,7 +656,7 @@ namespace Spark::Render
                         info.m_descriptor = desc;
                         info.m_debugName  = name;
 
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos };
+                        RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos, life.m_firstStage };
                         RHI::Buffer* buffer = pool.CreateBuffer(info, fence);
                         ASSERT(buffer != nullptr,
                             "TransientResourcePool::CreateBuffer returned null for '{}'.",
@@ -665,7 +675,7 @@ namespace Spark::Render
                     if (auto* ti = rhiContext.TryGet<BackingImage>(ev.m_resource))
                     {
                         auto& life = rhiContext.Get<ImageLifetime>(ev.m_resource);
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos };
+                        RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos, life.m_lastStage };
                         pool.Discard(ti->m_image, fence);
                     }
                     break;
@@ -673,7 +683,7 @@ namespace Spark::Render
                     if (auto* tb = rhiContext.TryGet<BackingBuffer>(ev.m_resource))
                     {
                         auto& life = rhiContext.Get<BufferLifetime>(ev.m_resource);
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos };
+                        RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos, life.m_lastStage };
                         pool.Discard(tb->m_buffer, fence);
                     }
                     break;

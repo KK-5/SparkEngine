@@ -157,6 +157,9 @@ namespace Spark::RHI::DX12
             const uint32_t prevTailIdx = m_bucket.m_chainTails[bestChainSlot];
             Placement& prevTail = m_bucket.m_placements[prevTailIdx];
 
+            const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
+            const RHI::AttachmentStage dstStage = allocFence.m_stage;
+
             Placement newPlacement;
             newPlacement.m_offset = prevTail.m_offset;  // 同 offset
             newPlacement.m_size = allocationInfo.SizeInBytes;
@@ -171,10 +174,12 @@ namespace Spark::RHI::DX12
             m_bucket.m_chainTails[bestChainSlot] = newIndex;
 
             // 加入barrier
-            RHI::TransientAliasingBarrier barrier;
+            RHI::AliasingBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
+            barrier.m_typeBefore = RHI::BarrierResourceType::Image;
+            barrier.m_srcStage       = srcStage;
+            barrier.m_dstStage       = dstStage;
             m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
-
         }
         else
         {
@@ -270,6 +275,7 @@ namespace Spark::RHI::DX12
         {
             auto& curBarrier = m_aliasingBarriers[allocFence.m_timelinePosition].back();
             curBarrier.m_resourceAfter = image.get();
+            curBarrier.m_typeAfter = RHI::BarrierResourceType::Image;
         }
 
         return image.get();
@@ -310,6 +316,9 @@ namespace Spark::RHI::DX12
             const uint32_t prevTailIdx = m_bucket.m_chainTails[bestChainSlot];
             Placement& prevTail = m_bucket.m_placements[prevTailIdx];
 
+            const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
+            const RHI::AttachmentStage dstStage = allocFence.m_stage;
+
             Placement newPlacement;
             newPlacement.m_offset = prevTail.m_offset;  // 同 offset
             newPlacement.m_size = allocationInfo.SizeInBytes;
@@ -324,8 +333,11 @@ namespace Spark::RHI::DX12
             m_bucket.m_chainTails[bestChainSlot] = newIndex;
 
             // 加入barrier
-            RHI::TransientAliasingBarrier barrier;
+            RHI::AliasingBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
+            barrier.m_typeBefore = RHI::BarrierResourceType::Buffer;
+            barrier.m_srcStage       = srcStage;
+            barrier.m_dstStage       = dstStage;
             m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
         }
         else
@@ -411,12 +423,13 @@ namespace Spark::RHI::DX12
         {
             auto& curBarrier = m_aliasingBarriers[allocFence.m_timelinePosition].back();
             curBarrier.m_resourceAfter = buffer.get();
+            curBarrier.m_typeAfter = RHI::BarrierResourceType::Buffer;
         }
 
         return buffer.get();
     }
 
-    void TransientResourcePool::GetAliasingBarriersInternal(uint32_t timelinePosition, RHI::AliasingBarrierList& out) const
+    void TransientResourcePool::GetAliasingBarriersInternal(uint32_t timelinePosition, eastl::vector<RHI::AliasingBarrier>& out) const
     {
         auto it = m_aliasingBarriers.find(timelinePosition);
         if (it != m_aliasingBarriers.end())

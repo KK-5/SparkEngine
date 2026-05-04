@@ -10,8 +10,21 @@
 
 namespace Spark::RHI
 {
+    class Resource;
     class Buffer;
     class Image;
+
+    //! Discriminator for the concrete RHI resource subtype referenced by an
+    //! AliasingBarrier. Carried on the barrier itself (rather than queried
+    //! from the base class) so RHI::Resource stays a thin ownership / state
+    //! tracker. Producers of aliasing barriers (transient pool, render-graph
+    //! compiler) always know the type at the call site; backends switch on
+    //! it to recover the typed pointer.
+    enum class BarrierResourceType : uint8_t
+    {
+        Buffer,
+        Image
+    };
 
     /*
     DX12 Conversion
@@ -84,6 +97,33 @@ namespace Spark::RHI
         HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
+    //! Heap-range ownership transfer between two resources that share backing
+    //! memory. m_resourceAfter is about to be used; m_resourceBefore was the
+    //! previous owner of the same heap range (null = "any prior owner").
+    //!
+    //! Aliasing is a memory-level concept, so Buffer/Image are not split into
+    //! separate barrier types; instead m_typeBefore / m_typeAfter discriminate
+    //! the concrete subtype the backend should static_cast to. Use the
+    //! MakeAliasingBarrier overloads below — they fill the type fields from
+    //! the typed pointer arguments so callers cannot get them out of sync.
+    //!
+    //! Vulkan backend: emits a VkMemoryBarrier (or pipeline barrier) using
+    //!     m_srcStage / m_dstStage to scope the memory hazard. The "after"
+    //!     image's layout transition is NOT this barrier's responsibility —
+    //!     it is carried by the regular ImageBarrier (src layout = Undefined)
+    //!     that immediately follows the aliasing barrier.
+    //! DX12 backend: emits a single D3D12_RESOURCE_ALIASING_BARRIER; stage
+    //!     fields are unused (the subsequent transition barrier is enough).
+    struct AliasingBarrier
+    {
+        Resource*           m_resourceBefore = nullptr;
+        Resource*           m_resourceAfter  = nullptr;
+        BarrierResourceType m_typeBefore     = BarrierResourceType::Buffer;
+        BarrierResourceType m_typeAfter      = BarrierResourceType::Buffer;
+        AttachmentStage     m_srcStage       = AttachmentStage::Any;
+        AttachmentStage     m_dstStage       = AttachmentStage::Any;
+    };
+
     BufferBarrier MakeBufferBarrier(
         Buffer& buffer,
         AttachmentUsage dstUsage,
@@ -95,6 +135,30 @@ namespace Spark::RHI
         Image& image,
         AttachmentUsage newUsage,
         AttachmentAccess dstAccess,
+        AttachmentStage srcStage = AttachmentStage::Any,
+        AttachmentStage dstStage = AttachmentStage::Any);
+
+    //! Aliasing-barrier factories. Type fields are filled from the typed
+    //! pointer arguments, so callers cannot get m_typeBefore / m_typeAfter
+    //! out of sync with the actual resources. @a before may be null to
+    //! denote "any prior owner"; @a after must be non-null.
+    AliasingBarrier MakeAliasingBarrier(
+        Buffer* before, Buffer* after,
+        AttachmentStage srcStage = AttachmentStage::Any,
+        AttachmentStage dstStage = AttachmentStage::Any);
+
+    AliasingBarrier MakeAliasingBarrier(
+        Buffer* before, Image* after,
+        AttachmentStage srcStage = AttachmentStage::Any,
+        AttachmentStage dstStage = AttachmentStage::Any);
+
+    AliasingBarrier MakeAliasingBarrier(
+        Image* before, Buffer* after,
+        AttachmentStage srcStage = AttachmentStage::Any,
+        AttachmentStage dstStage = AttachmentStage::Any);
+
+    AliasingBarrier MakeAliasingBarrier(
+        Image* before, Image* after,
         AttachmentStage srcStage = AttachmentStage::Any,
         AttachmentStage dstStage = AttachmentStage::Any);
 
