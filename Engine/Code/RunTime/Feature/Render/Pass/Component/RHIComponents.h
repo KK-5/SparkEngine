@@ -63,17 +63,19 @@ namespace Spark::Render
         RHI::Buffer* m_buffer = nullptr;
     };
 
-
-
-    //! Create RHI::ImageView / RHI::BufferView for a view entity that
-    //! wraps a transient resource. The view object is owned by this component
-    //! (Ptr<>); destroying the view entity releases it.
-    struct TransientImageView
+    //! View component on a view entity. Owns the underlying RHI view via Ptr<>;
+    //! destroying the view entity releases it. The transient/imported distinction
+    //! is expressed by TransientTag / ImportedTag stamped on the view entity
+    //! itself (mirroring how the resource entity is tagged), not by the component
+    //! type. Transient view entities are created by RenderGraphCompiler and live
+    //! one frame; imported view entities are created by external importers and
+    //! persist across frames until the importer releases them.
+    struct ImageViewPtr
     {
         Ptr<RHI::ImageView> m_view;
     };
 
-    struct TransientBufferView
+    struct BufferViewPtr
     {
         Ptr<RHI::BufferView> m_view;
     };

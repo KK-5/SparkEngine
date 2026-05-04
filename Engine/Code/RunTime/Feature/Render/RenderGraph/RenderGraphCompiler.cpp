@@ -11,6 +11,7 @@
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Image/Image.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
+#include <RHI/Command/RenderPassBeginInfo.h>
 
 #include <Pass/Component/PassComponents.h>
 
@@ -80,7 +81,8 @@ namespace Spark::Render
                     a.m_attachmentId.m_id.GetCStr());
 
                 RHIHandle viewEntity = rhiContext.CreateEntity();
-                rhiContext.Add<TransientImageView>(viewEntity, TransientImageView{ eastl::move(view) });
+                rhiContext.Add<ImageViewPtr>(viewEntity, ImageViewPtr{ eastl::move(view) });
+                rhiContext.Add<TransientTag>(viewEntity);
                 rhiContext.Add<ViewHierarchy>(viewEntity,
                     ViewHierarchy{ resource, NullHandle, NullHandle });
 
@@ -117,7 +119,8 @@ namespace Spark::Render
                     a.m_attachmentId.m_id.GetCStr());
 
                 RHIHandle viewEntity = rhiContext.CreateEntity();
-                rhiContext.Add<TransientBufferView>(viewEntity, TransientBufferView{ eastl::move(view) });
+                rhiContext.Add<BufferViewPtr>(viewEntity, BufferViewPtr{ eastl::move(view) });
+                rhiContext.Add<TransientTag>(viewEntity);
                 rhiContext.Add<ViewHierarchy>(viewEntity,
                     ViewHierarchy{ resource, NullHandle, NullHandle });
 
@@ -682,5 +685,52 @@ namespace Spark::Render
         // 5. Clean up ephemeral lifetime components from resource entities.
         rhiContext.Clear<ImageLifetime>();
         rhiContext.Clear<BufferLifetime>();
+    }
+
+    void RenderGraphCompiler::CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context)
+    {
+        RHI::RenderPassBeginInfo info;
+        bool hasAny = false;
+
+        auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>();
+        view.each([&](auto, const ImagePassAttachment& att)
+        {
+            ASSERT(att.m_view != NullHandle,
+                "[RenderGraphCompiler] Attachment {} has a null view entity; transient view materialization may have been skipped.",
+                att.m_attachmentId.m_id.GetCStr());
+
+            ASSERT(context.Has<ImageViewPtr>(att.m_view),
+                "[RenderGraphCompiler] Attachment {}'s view entity has no ImageViewPtr component.",
+                att.m_attachmentId.m_id.GetCStr());
+
+            RHI::ImageView* imageView = context.Get<ImageViewPtr>(att.m_view).m_view.get();
+            ASSERT(imageView != nullptr,
+                "[RenderGraphCompiler] Attachment {}'s ImageViewPtr holds a null RHI::ImageView pointer.",
+                att.m_attachmentId.m_id.GetCStr());
+
+            if (att.m_usage == RHI::AttachmentUsage::RenderTarget)
+            {
+                ASSERT(info.m_colorAttachmentCount < RHI::Limits::Pipeline::AttachmentColorCountMax,
+                       "[RenderGraphCompiler] Too many color attachments on pass.");
+                auto& color = info.m_colorAttachments[info.m_colorAttachmentCount++];
+                color.m_view = imageView;
+                color.m_loadStoreAction = att.m_action;
+                hasAny = true;
+            }
+            else if (att.m_usage == RHI::AttachmentUsage::DepthStencil)
+            {
+                ASSERT(info.m_depthStencilAttachment.m_view == nullptr,
+                    "[RenderGraphCompiler] Pass has more than one depth-stencil attachment.");
+                info.m_depthStencilAttachment.m_view = imageView;
+                info.m_depthStencilAttachment.m_access = att.m_access;
+                info.m_depthStencilAttachment.m_loadStoreAction = att.m_action;
+                hasAny = true;
+            }
+        });
+
+        ASSERT(hasAny,
+            "[RenderGraphCompiler] Render pass {} has no color or depth-stencil attachment.",
+            passContext.Get<PassName>(pass).m_name.GetCStr());
+        passContext.AddOrReplace<RHI::RenderPassBeginInfo>(pass, eastl::move(info));
     }
 }

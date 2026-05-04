@@ -52,5 +52,15 @@ namespace Spark::Render
             PassContext&                passContext,
             RHIContext&                 context,
             RHI::TransientResourcePool& pool);
+
+        //! Translate this pass's ImagePassAttachments (the ones tagged with
+        //! AttachmentCompilingTag) into a RHI::RenderPassBeginInfo component on
+        //! the pass entity. Reads each attachment's view via the ImageViewPtr
+        //! component on the view entity (transient/imported are unified — the
+        //! distinction is carried by tags on the view entity, not the component
+        //! type). Caller must have run the per-pass attachment tagging step
+        //! first, and CompileTransientResources must already have materialized
+        //! transient views.
+        void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
     };
 }
