@@ -147,6 +147,9 @@ namespace Spark::RHI
 
         /// Sets the submit range for this command list
         void SetSubmitRange(const SubmitRange& submitRange) { m_submitRange = submitRange; }
+        
+        /// Gets the submit range for this command list
+        const SubmitRange& GetSubmitRange() const { return m_submitRange; }
 
         /// Validates a submit index against the range for this command list, and tracks the total number of submits
         void ValidateSubmitIndex(uint32_t submitIndex);

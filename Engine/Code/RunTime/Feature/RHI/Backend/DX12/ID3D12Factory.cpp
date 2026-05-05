@@ -21,6 +21,7 @@ namespace Spark::RHI::DX12
         m_imageObjectPool.Init();
         m_imagePoolObjectPool.Init();
         m_imageViewObjectPool.Init();
+        m_transientResourcePoolObjectPool.Init();
         m_shaderResourceObjectPool.Init();
         m_pipelineLibraryObjectPool.Init();
         m_pipelineStateObjectPool.Init();
@@ -43,6 +44,7 @@ namespace Spark::RHI::DX12
         m_imageObjectPool.Shutdown();
         m_imagePoolObjectPool.Shutdown();
         m_imageViewObjectPool.Shutdown();
+        m_transientResourcePoolObjectPool.Shutdown();
         m_shaderResourceObjectPool.Shutdown();
         m_pipelineLibraryObjectPool.Shutdown();
         m_pipelineStateObjectPool.Shutdown();
@@ -93,6 +95,7 @@ namespace Spark::RHI::DX12
         m_imageObjectPool.Collect();
         m_imagePoolObjectPool.Collect();
         m_imageViewObjectPool.Collect();
+        m_transientResourcePoolObjectPool.Collect();
         m_shaderResourceObjectPool.Collect();
         m_pipelineLibraryObjectPool.Collect();
         m_pipelineStateObjectPool.Collect();
@@ -286,6 +289,11 @@ namespace Spark::RHI::DX12
     Ptr<RHI::StreamingImagePool> ID3D12Factory::CreateStreamingImagePool()
     {
         return nullptr;
+    }
+
+    Ptr<RHI::TransientResourcePool> ID3D12Factory::CreateTransientResourcePool()
+    {
+        return static_cast<RHI::TransientResourcePool*>(m_transientResourcePoolObjectPool.CreateDeviceObject());
     }
 
     Ptr<RHI::ShaderResource> ID3D12Factory::CreateShaderResource()

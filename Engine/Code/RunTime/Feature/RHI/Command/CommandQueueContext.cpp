@@ -83,7 +83,7 @@ namespace Spark::RHI
             fences.Init(device, RHI::FenceState::Signaled);
         }
 
-        m_compiledFences.Init(device, RHI::FenceState::Reset);
+        m_flushFences.Init(device, RHI::FenceState::Reset);
 
         for (uint32_t hardwareQueueIdx = 0; hardwareQueueIdx < RHI::HardwareQueueClassCount; ++hardwareQueueIdx)
         {
@@ -122,9 +122,9 @@ namespace Spark::RHI
 
     }
 
-    void CommandQueueContext::ResetCompiledFence(RHI::HardwareQueueClass hardwareQueueClass)
+    void CommandQueueContext::IncrementFlushFence(RHI::HardwareQueueClass hardwareQueueClass)
     {
-        ResultCode result = m_compiledFences.GetFence(hardwareQueueClass).Reset();
+        ResultCode result = m_flushFences.GetFence(hardwareQueueClass).Reset();
         if (result != ResultCode::Success)
         {
             LOG_ERROR("[CommandQueueContext] Compile fence reset failed.");
@@ -144,8 +144,7 @@ namespace Spark::RHI
 
     void CommandQueueContext::FlushCommands(RHI::HardwareQueueClass hardwareQueueClass)
     {
-        ResetCompiledFence(hardwareQueueClass);
-        ResultCode result = GetCommandQueue(hardwareQueueClass).FlushCommands(m_compiledFences.GetFence(hardwareQueueClass));
+        ResultCode result = GetCommandQueue(hardwareQueueClass).FlushCommands(m_flushFences.GetFence(hardwareQueueClass));
         if (result != ResultCode::Success)
         {
             LOG_ERROR("[CommandQueueContext] Wait compile fence failed.");
@@ -175,9 +174,9 @@ namespace Spark::RHI
         }
     }
 
-    const FenceSet& CommandQueueContext::GetCompiledFences()
+    const FenceSet& CommandQueueContext::GetFlushFences()
     {
-        return m_compiledFences;
+        return m_flushFences;
     }
 
     const FenceSet& CommandQueueContext::GetFrameFences(size_t frameIndex) const

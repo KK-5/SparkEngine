@@ -18,11 +18,6 @@ namespace Spark::RHI
 {
     class CommandList;
 
-    struct ExecuteWorkRequest
-    {
-
-    };
-
     struct CommandQueueDescriptor
     {
         HardwareQueueClass m_hardwareQueueClass = HardwareQueueClass::Graphics;
@@ -41,7 +36,15 @@ namespace Spark::RHI
 
         ResultCode FlushCommands(RHI::Fence& fence);
         ResultCode ExecuteCommands(eastl::span<CommandList*> commandLists);
+
+        /// GPU signals fence to a specific timeline value.
+        ResultCode Signal(RHI::Fence& fence, uint64_t value);
+
+        /// Convenience: signal at fence's current pending value.
         ResultCode Signal(RHI::Fence& fence);
+
+        /// GPU waits for fence to reach >= value before executing subsequent commands.
+        ResultCode Wait(RHI::Fence& fence, uint64_t value);
 
         virtual void WaitForIdle() = 0;
             
@@ -52,9 +55,9 @@ namespace Spark::RHI
         //////////////////////////////////////////////////////////////////////////
         // Functions that must be implemented by each RHI.
         virtual ResultCode InitInternal(Device& device, const CommandQueueDescriptor& descriptor) = 0;
-        virtual void ExecuteWork(const ExecuteWorkRequest& request) = 0;
         virtual void ExecuteCommandsInternal(eastl::span<CommandList*> commandLists) = 0;
-        virtual void SignalInternal(RHI::Fence& fence) = 0;
+        virtual void SignalInternal(RHI::Fence& fence, uint64_t value) = 0;
+        virtual void WaitInternal(RHI::Fence& fence, uint64_t value) = 0;
         virtual void ShutdownInternal() = 0;
         //////////////////////////////////////////////////////////////////////////
 

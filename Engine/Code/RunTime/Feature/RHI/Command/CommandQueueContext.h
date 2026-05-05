@@ -53,10 +53,10 @@ namespace Spark::RHI
 
         void Begin();
 
-        // Increase the compiled fence
-        void ResetCompiledFence(RHI::HardwareQueueClass hardwareQueueClass);
+        /// Advance the persistent flush fence to the next timeline value.
+        void IncrementFlushFence(RHI::HardwareQueueClass hardwareQueueClass);
 
-        /// @brief Reset compile fence and wait for complete
+        /// Reset the flush fence, signal it on the GPU queue, and wait for completion.
         void FlushCommands(RHI::HardwareQueueClass hardwareQueueClass);
 
         void SignalOnGpu(FenceSet& fenceSet);
@@ -65,8 +65,8 @@ namespace Spark::RHI
 
         void End();
 
-        // Fences across all queues that are compiled by the frame graph compilation phase
-        const FenceSet& GetCompiledFences();
+        /// Persistent fences used for intra-frame command flushing.
+        const FenceSet& GetFlushFences();
 
         // Get frame fences for the specified frame
         const FenceSet& GetFrameFences(size_t frameIndex) const;
@@ -74,7 +74,7 @@ namespace Spark::RHI
     private:
         eastl::array<Ptr<CommandQueue>, RHI::HardwareQueueClassCount> m_commandQueues;
 
-        FenceSet m_compiledFences;
+        FenceSet m_flushFences;
         eastl::vector<FenceSet> m_frameFences;
         uint32_t m_currentFrameIndex = 0;
         Device* m_device = nullptr;

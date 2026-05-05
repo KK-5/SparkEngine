@@ -24,6 +24,8 @@ namespace Spark::RHI
 namespace Spark::Render
 {
     class RenderGraphBuilder;
+    class RenderGraphCompiler;
+    class RenderGraphExecuter;
 
 
     struct RenderPassTag
@@ -84,9 +86,9 @@ namespace Spark::Render
 
     struct PassFunctions
     {
-        eastl::function<void(RenderGraphBuilder& builder)> m_buildFunction;
-        eastl::function<void(RHIContext& rhiContext)> m_compileFunction;
-        eastl::function<void(RHI::CommandList* commandList)> m_executeFunction;
+        eastl::function<void(RenderGraphBuilder&)> m_buildFunction;
+        eastl::function<void(RenderGraphCompiler&)> m_compileFunction;
+        eastl::function<void(RHI::CommandList*)> m_executeFunction;
     };
 
     // Compiled barriers for a single pass. Filled by CompileImageBarriers /

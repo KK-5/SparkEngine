@@ -40,12 +40,17 @@ namespace Spark::RHI
     //! their Discard() fence; resources whose fence intervals do not overlap may
     //! share the same heap range.
     //!
-    //! Lifecycle is driven by FrameEventBus:
+    //! Lifecycle is driven by FrameEventBus plus an explicit Seal() call:
     //!   - OnFrameBegin opens a new allocation batch. The previous batch's GPU
     //!     work is guaranteed complete by the engine's frames-in-flight fence,
     //!     so heap memory can be safely recycled.
-    //!   - OnFrameEnd seals the batch; aliasing relationships and barriers
-    //!     become queryable through GetAliasingBarriers().
+    //!   - Create*() / Discard() are valid only while the batch is open.
+    //!   - Seal() closes the batch. After Seal(), aliasing relationships and
+    //!     barriers become queryable through GetAliasingBarriers(). The caller
+    //!     must Seal before recording barriers into command lists, so Seal
+    //!     belongs in the render-graph compile phase, not at end-of-frame.
+    //!   - OnFrameEnd performs end-of-frame bookkeeping; it does not seal
+    //!     the batch.
     //!
     //! Returned resources are bare RHI::Image* / RHI::Buffer*. Ownership is
     //! tracked via Resource::m_pool, so destroying the resource routes through
@@ -77,15 +82,22 @@ namespace Spark::RHI
             const TransientAllocationFence&  allocFence);
 
         //! Mark a previously-created image's memory range as no longer in use after
-        //! discardFence. The Image* itself remains valid until OnFrameEnd; only the
-        //! heap range becomes available for re-allocation by subsequent Create*()
-        //! calls in the same batch.
+        //! discardFence. The Image* itself remains valid for the rest of the batch;
+        //! only the heap range becomes available for re-allocation by subsequent
+        //! Create*() calls in the same batch.
         void Discard(Image*  image,  const TransientAllocationFence& discardFence);
         void Discard(Buffer* buffer, const TransientAllocationFence& discardFence);
 
+        //! Close the current allocation batch. After this, Create*() / Discard()
+        //! are no longer valid until the next OnFrameBegin, and GetAliasingBarriers()
+        //! becomes valid. Call this once per frame, after all transient resources
+        //! have been allocated/discarded and before barriers are recorded into
+        //! command lists.
+        void Seal();
+
         //! Full aliasing barriers (with src/dst stage populated from Create/Discard
-        //! fence data) for the given timeline position. Only meaningful after
-        //! OnFrameEnd has sealed the batch.
+        //! fence data) for the given timeline position. Only valid after Seal()
+        //! has closed the batch.
         void GetAliasingBarriers(uint32_t timelinePosition, eastl::vector<AliasingBarrier>& out) const;
 
         //! Cheap snapshot of pool occupancy and aliasing efficiency.
@@ -143,12 +155,13 @@ namespace Spark::RHI
         bool ValidateImageOwnedByThis(const Image*  image)  const;
         bool ValidateBufferOwnedByThis(const Buffer* buffer) const;
         bool ValidateBatchOpen() const;
+        bool ValidateBatchSealed() const;
         bool ValidateFenceWithinPool(const TransientAllocationFence& fence) const;
 
         TransientResourcePoolDescriptor m_descriptor;
 
-        //! True between OnFrameBegin and OnFrameEnd. Create / Discard are only
-        //! valid inside this window; GetAliasingBarriers is only valid outside it.
+        //! True between OnFrameBegin and Seal(). Create / Discard are only
+        //! valid while open; GetAliasingBarriers requires the batch sealed.
         bool m_batchOpen = false;
     };
 }

@@ -90,6 +90,11 @@ namespace Spark::RHI::DX12
         return m_pendingValue;
     }
 
+    void DX12Fence::SetPendingValue(uint64_t value)
+    {
+        m_pendingValue = value;
+    }
+
     uint64_t DX12Fence::GetCompletedValue() const
     {
         return m_fence->GetCompletedValue();
@@ -166,6 +171,26 @@ namespace Spark::RHI::DX12
     {
         FenceEvent event("WaitOnCpu");
         m_fence.Wait(event);
+    }
+
+    uint64_t Fence::IncrementInternal()
+    {
+        return m_fence.Increment();
+    }
+
+    uint64_t Fence::GetPendingValueInternal() const
+    {
+        return m_fence.GetPendingValue();
+    }
+
+    uint64_t Fence::GetCompletedValueInternal() const
+    {
+        return m_fence.GetCompletedValue();
+    }
+
+    void Fence::SetPendingValueInternal(uint64_t value)
+    {
+        m_fence.SetPendingValue(value);
     }
 
     RHI::FenceState Fence::GetFenceStateInternal() const

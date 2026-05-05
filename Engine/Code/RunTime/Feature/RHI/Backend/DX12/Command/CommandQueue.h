@@ -35,15 +35,14 @@ namespace Spark::RHI::DX12
     public:
         //////////////////////////////////////////////////////////////////////////
         // RHI::CommandQueue
-        void ExecuteWork(const RHI::ExecuteWorkRequest& request) override;
         void WaitForIdle() override;
         void ExecuteCommandsInternal(eastl::span<RHI::CommandList*> commandLists) override;
         //////////////////////////////////////////////////////////////////////////
 
-        // void Signal(DX12Fence& fence);
         ID3D12CommandQueue* GetNativeQueue() const;
-        void Signal(DX12Fence& fence);
-    
+        void Signal(DX12Fence& fence, uint64_t value);
+        void Wait(DX12Fence& fence, uint64_t value);
+
     private:
         friend class DeviceObjectFactory<CommandQueue>;
 
@@ -53,7 +52,8 @@ namespace Spark::RHI::DX12
         // RHI::CommandQueue
         RHI::ResultCode InitInternal(RHI::Device& device, const RHI::CommandQueueDescriptor& descriptor) override;
         void ShutdownInternal() override;
-        void SignalInternal(RHI::Fence& fence) override;
+        void SignalInternal(RHI::Fence& fence, uint64_t value) override;
+        void WaitInternal(RHI::Fence& fence, uint64_t value) override;
         //////////////////////////////////////////////////////////////////////////
 
         // void UpdateTileMappings(CommandList& commandList);

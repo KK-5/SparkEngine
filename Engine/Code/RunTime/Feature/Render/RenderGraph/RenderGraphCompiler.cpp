@@ -695,6 +695,10 @@ namespace Spark::Render
         // 5. Clean up ephemeral lifetime components from resource entities.
         rhiContext.Clear<ImageLifetime>();
         rhiContext.Clear<BufferLifetime>();
+
+        // 6. Seal the pool: no further Create/Discard for this frame, and aliasing
+        //    barriers are now queryable for per-pass barrier compilation.
+        pool.Seal();
     }
 
     void RenderGraphCompiler::CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context)

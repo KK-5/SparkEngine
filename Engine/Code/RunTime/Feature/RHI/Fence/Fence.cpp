@@ -131,6 +131,46 @@ namespace Spark::RHI
         return ResultCode::Success;
     }
 
+    uint64_t Fence::Increment()
+    {
+        if (!ValidateIsInitialized())
+        {
+            return 0;
+        }
+
+        return IncrementInternal();
+    }
+
+    uint64_t Fence::GetPendingValue() const
+    {
+        if (!ValidateIsInitialized())
+        {
+            return 0;
+        }
+
+        return GetPendingValueInternal();
+    }
+
+    uint64_t Fence::GetCompletedValue() const
+    {
+        if (!ValidateIsInitialized())
+        {
+            return 0;
+        }
+
+        return GetCompletedValueInternal();
+    }
+
+    void Fence::SetPendingValue(uint64_t value)
+    {
+        if (!ValidateIsInitialized())
+        {
+            return;
+        }
+
+        SetPendingValueInternal(value);
+    }
+
     FenceState Fence::GetFenceState() const
     {
         if (!ValidateIsInitialized())

@@ -1,11 +1,92 @@
 #include "RenderGraphExecuter.h"
 
 #include <RHI/Command/CommandList.h>
+#include <RHI/Command/RenderPassBeginInfo.h>
+#include <RHI/Factory.h>
 
 #include <Pass/Component/PassComponents.h>
 
 namespace Spark::Render
 {
+
+	void RenderGraphExecuter::BuildExecuteTable(const QueueBasedPasses& queueBasedPasses, const PassContext& passContext)
+	{
+	    for (uint32_t i = 0; i < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++i)
+	    {
+	        BuildSegments(i, queueBasedPasses[i], passContext);
+	        for (auto& segment : m_queueSegments[i])
+	        {
+	            BuildExecuteGroups(segment, passContext);
+	            for (auto& group : segment.m_groups)
+	            {
+	                BuildExecuteWorks(group, passContext);
+	            }
+	        }
+	    }
+	}
+
+    void RenderGraphExecuter::BuildSegments(
+        uint32_t queueIndex,
+        eastl::span<const Pass> queuePasses,
+        const PassContext&      passContext)
+    {
+        auto& out = m_queueSegments[queueIndex];
+        QueueSegment cur;
+
+        for (Pass pass : queuePasses)
+        {
+            const bool hasWait = passContext.Has<PassSyncWait>(pass);
+            if (hasWait && !cur.m_passes.empty())
+            {
+                out.push_back(eastl::move(cur));
+                cur = {};
+            }
+            if (hasWait)
+            {
+                const auto& wait = passContext.Get<PassSyncWait>(pass);
+                cur.m_waits.insert(cur.m_waits.end(), wait.m_waits.begin(), wait.m_waits.end());
+            }
+
+            cur.m_passes.push_back(pass);
+
+            if (passContext.Has<PassSyncSignal>(pass))
+            {
+                cur.m_signal = passContext.Get<PassSyncSignal>(pass).m_signal;
+                out.push_back(eastl::move(cur));
+                cur = {};
+            }
+        }
+
+        if (!cur.m_passes.empty())
+        {
+            out.push_back(eastl::move(cur));
+        }
+    }
+
+    void RenderGraphExecuter::BuildExecuteGroups(QueueSegment& segment, const PassContext& passContext) const
+    {
+        // TODO: 按负载将 segment 的 passes 分组到 ExecuteGroup
+        // 当前默认: 每个 pass → 一个 ExecuteGroup
+        for (Pass pass : segment.m_passes)
+        {
+            ExecuteGroup group;
+            group.m_passes.push_back(pass);
+            segment.m_groups.push_back(eastl::move(group));
+        }
+    }
+
+    void RenderGraphExecuter::BuildExecuteWorks(ExecuteGroup& group, const PassContext& passContext) const
+    {
+        // TODO: 按负载合并/拆分 group 的 passes 到 ExecuteWork
+        // 当前默认: 每个 pass → 一个 Work → 一个 Item
+        for (Pass pass : group.m_passes)
+        {
+            ExecuteWork work;
+            work.m_items.push_back({ pass, {}, 0, 1 });
+            group.m_works.push_back(eastl::move(work));
+        }
+    }
+
     void RenderGraphExecuter::ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
     {
         const PassBarriers& barriers = passContext.Get<PassBarriers>(pass);
@@ -39,5 +120,53 @@ namespace Spark::Render
         {
             commandList->QueueBarrier(b);
         }
+    }
+
+    void RenderGraphExecuter::ExecuteBeginRenderPass(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
+    {
+        if (passContext.Has<RHI::RenderPassBeginInfo>(pass))
+        {
+            commandList->BeginRenderPass(passContext.Get<RHI::RenderPassBeginInfo>(pass));
+        }
+    }
+
+    void RenderGraphExecuter::ExecuteEndRenderPass(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
+    {
+        if (passContext.Has<RHI::RenderPassBeginInfo>(pass))
+        {
+            commandList->EndRenderPass();
+        }
+    }
+
+    void RenderGraphExecuter::Execute(ExecuteWork& work, RHI::Factory& factory, RHI::Device& device, RHI::HardwareQueueClass queueClass, PassContext& passContext)
+    {
+        RHI::CommandList* cmdList = factory.CreateCommandList(device, queueClass);
+        cmdList->Open();
+        work.m_commandList = cmdList;
+
+        for (const auto& item : work.m_items)
+        {
+            if (item.m_itemIndex == 0)
+            {
+                ExecutePreBarriers(cmdList, item.m_pass, passContext);
+                ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);
+            }
+
+            cmdList->SetSubmitRange({ item.m_draws.m_startIndex, item.m_draws.m_endIndex });
+
+            const auto& funcs = passContext.Get<PassFunctions>(item.m_pass);
+            if (funcs.m_executeFunction)
+            {
+                funcs.m_executeFunction(cmdList);
+            }
+
+            if (item.m_itemIndex == item.m_itemCount - 1)
+            {
+                ExecuteEndRenderPass(cmdList, item.m_pass, passContext);
+                ExecutePostBarriers(cmdList, item.m_pass, passContext);
+            }
+        }
+
+        cmdList->Close();
     }
 }

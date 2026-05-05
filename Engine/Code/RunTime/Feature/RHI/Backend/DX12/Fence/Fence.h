@@ -57,6 +57,7 @@ namespace Spark::RHI::DX12
         void Wait(FenceEvent& fenceEvent, uint64_t fenceValue) const;
 
         uint64_t GetPendingValue() const;
+        void SetPendingValue(uint64_t value);
 
         uint64_t GetCompletedValue() const;
 
@@ -122,6 +123,10 @@ namespace Spark::RHI::DX12
         void SignalOnCpuInternal() override;
         void WaitOnCpuInternal() const override;
         void ResetInternal() override;
+        uint64_t IncrementInternal() override;
+        uint64_t GetPendingValueInternal() const override;
+        uint64_t GetCompletedValueInternal() const override;
+        void SetPendingValueInternal(uint64_t value) override;
         RHI::FenceState GetFenceStateInternal() const override;
         //////////////////////////////////////////////////////////////////////////
 

@@ -43,28 +43,36 @@ namespace Spark::RHI::DX12
         m_queue = nullptr;
     }
 
-    void CommandQueue::Signal(DX12Fence& fence)
+    void CommandQueue::Signal(DX12Fence& fence, uint64_t value)
     {
-        HRESULT hr = m_queue->Signal(fence.Get(), fence.GetPendingValue());
+        fence.SetPendingValue(value);
+        HRESULT hr = m_queue->Signal(fence.Get(), value);
         ASSERT(SUCCEEDED(hr), "[DX12 CommandQueue] Signal fence failed.");
     }
 
-    void CommandQueue::SignalInternal(RHI::Fence& fence)
+    void CommandQueue::Wait(DX12Fence& fence, uint64_t value)
     {
-        Fence& dx12Fence = static_cast<Fence&>(fence);
-        Signal(dx12Fence.Get());
+        HRESULT hr = m_queue->Wait(fence.Get(), value);
+        ASSERT(SUCCEEDED(hr), "[DX12 CommandQueue] Wait fence failed.");
     }
 
-    void CommandQueue::ExecuteWork(const RHI::ExecuteWorkRequest& request)
+    void CommandQueue::SignalInternal(RHI::Fence& fence, uint64_t value)
     {
+        Fence& dx12Fence = static_cast<Fence&>(fence);
+        Signal(dx12Fence.Get(), value);
+    }
 
+    void CommandQueue::WaitInternal(RHI::Fence& fence, uint64_t value)
+    {
+        Fence& dx12Fence = static_cast<Fence&>(fence);
+        Wait(dx12Fence.Get(), value);
     }
 
     void CommandQueue::WaitForIdle()
     {
         DX12Fence fence;
         fence.Init(m_dx12Device, RHI::FenceState::Reset);
-        Signal(fence);
+        Signal(fence, fence.GetPendingValue());
 
         FenceEvent event("WaitForIdle");
         fence.Wait(event);

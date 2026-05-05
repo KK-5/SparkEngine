@@ -22,6 +22,7 @@ namespace Spark::RHI
     class ImagePool;
     class ImageView;
     class StreamingImagePool;
+    class TransientResourcePool;
 
     class ConstantsLayout;
     class ShaderResourceLayout;
@@ -76,6 +77,8 @@ namespace Spark::RHI
         virtual Ptr<ImageView> CreateImageView() = 0;
 
         virtual Ptr<StreamingImagePool> CreateStreamingImagePool() = 0;
+
+        virtual Ptr<TransientResourcePool> CreateTransientResourcePool() = 0;
 
         virtual Ptr<ShaderResource> CreateShaderResource() = 0;
 

@@ -85,7 +85,7 @@ namespace Spark::RHI
         return ResultCode::Success;
     }
 
-    ResultCode CommandQueue::Signal(RHI::Fence& fence)
+    ResultCode CommandQueue::Signal(RHI::Fence& fence, uint64_t value)
     {
         if (!ValidateIsInitialized())
         {
@@ -99,7 +99,32 @@ namespace Spark::RHI
             return ResultCode::InvalidOperation;
         }
 
-        SignalInternal(fence);
+        fence.SetPendingValue(value);
+        SignalInternal(fence, value);
+
+        return ResultCode::Success;
+    }
+
+    ResultCode CommandQueue::Signal(RHI::Fence& fence)
+    {
+        return Signal(fence, fence.GetPendingValue());
+    }
+
+    ResultCode CommandQueue::Wait(RHI::Fence& fence, uint64_t value)
+    {
+        if (!ValidateIsInitialized())
+        {
+            LOG_ERROR("[CommandQueue] CommandQueue is not initialize.");
+            return ResultCode::InvalidOperation;
+        }
+
+        if (!fence.IsInitialized())
+        {
+            LOG_ERROR("[CommandQueue] Fence is not initialize.");
+            return ResultCode::InvalidOperation;
+        }
+
+        WaitInternal(fence, value);
 
         return ResultCode::Success;
     }

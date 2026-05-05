@@ -61,7 +61,7 @@ namespace Spark::RHI::DX12
         {
             const RHI::HardwareQueueClass hardwareQueueClass = static_cast<RHI::HardwareQueueClass>(hardwareQueueIdx);
             DX12Fence& fence = fenceSet.GetDX12Fence(hardwareQueueClass);
-            m_commandQueues[hardwareQueueIdx]->Signal(fence);
+            m_commandQueues[hardwareQueueIdx]->Signal(fence, fence.GetPendingValue());
         }
     }
 

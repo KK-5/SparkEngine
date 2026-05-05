@@ -87,9 +87,19 @@ namespace Spark::RHI
         DiscardInternal(buffer, discardFence);
     }
 
+    void TransientResourcePool::Seal()
+    {
+        if (!ValidateIsInitialized() || !ValidateBatchOpen())
+        {
+            return;
+        }
+
+        m_batchOpen = false;
+    }
+
     void TransientResourcePool::GetAliasingBarriers(uint32_t timelinePosition, eastl::vector<AliasingBarrier>& out) const
     {
-        if (!ValidateIsInitialized())
+        if (!ValidateIsInitialized() || !ValidateBatchSealed())
         {
             return;
         }
@@ -121,8 +131,15 @@ namespace Spark::RHI
 
     void TransientResourcePool::OnFrameEnd()
     {
+        if (Validation::isEnabled && m_batchOpen)
+        {
+            LOG_ERROR("[TransientResourcePool] {} OnFrameEnd reached with the batch still open. "
+                      "Seal() must be called once per frame, after the last Create*/Discard and "
+                      "before command recording.",
+                      GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
+        }
+
         OnFrameEndInternal();
-        m_batchOpen = false;
         ResourcePool::OnFrameEnd();
     }
 
@@ -170,7 +187,21 @@ namespace Spark::RHI
         {
             if (!m_batchOpen)
             {
-                LOG_ERROR("[TransientResourcePool] {} Operation requires an open batch (call must occur between OnFrameBegin and OnFrameEnd).",
+                LOG_ERROR("[TransientResourcePool] {} Operation requires an open batch (call must occur between OnFrameBegin and Seal()).",
+                          GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool TransientResourcePool::ValidateBatchSealed() const
+    {
+        if (Validation::isEnabled)
+        {
+            if (m_batchOpen)
+            {
+                LOG_ERROR("[TransientResourcePool] {} GetAliasingBarriers requires the batch to be sealed (call Seal() after the last Create*/Discard).",
                           GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
                 return false;
             }
