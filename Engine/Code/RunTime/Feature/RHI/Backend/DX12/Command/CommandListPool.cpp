@@ -89,6 +89,17 @@ namespace Spark::RHI::DX12
         return true;
     }
 
+    CommandListAllocator::ThreadSubAllocator& CommandListAllocator::GetThreadSubAllocator()
+    {
+        thread_local ThreadSubAllocator t_subAlloc;
+        if (!t_subAlloc.m_isRegistered)
+        {
+            m_registeredSubAllocators.push_back(&t_subAlloc);
+            t_subAlloc.m_isRegistered = true;
+        }
+        return t_subAlloc;
+    }
+
     void CommandListAllocator::Init(const Descriptor& descriptor)
     {
         ASSERT(m_isInitialized == false, "CommandListAllocator already initialized!");
@@ -111,8 +122,6 @@ namespace Spark::RHI::DX12
             commandAllocatorPool.Init(commandAllocatorPoolDescriptor);
         }
 
-        m_activeCommandAllocators.fill(nullptr);
-
         m_isInitialized = true;
     }
 
@@ -122,10 +131,19 @@ namespace Spark::RHI::DX12
         {
             for (uint32_t queueIdx = 0; queueIdx < RHI::HardwareQueueClassCount; ++queueIdx)
             {
-                Reset(queueIdx);
+                for (ThreadSubAllocator* subAlloc : m_registeredSubAllocators)
+                {
+                    Reset(*subAlloc, queueIdx);
+                }
                 m_commandListPools[queueIdx].Shutdown();
                 m_commandAllocatorPools[queueIdx].Shutdown();
             }
+
+            for (ThreadSubAllocator* subAlloc : m_registeredSubAllocators)
+            {
+                subAlloc->m_isRegistered = false;
+            }
+            m_registeredSubAllocators.clear();
             m_isInitialized = false;
         }
     }
@@ -133,31 +151,42 @@ namespace Spark::RHI::DX12
     CommandList* CommandListAllocator::Allocate(RHI::HardwareQueueClass hardwareQueueClass)
     {
         ASSERT(m_isInitialized, "CommandListAllocator is not initialized!");
-        uint32_t hardwareQueue = static_cast<uint32_t>(hardwareQueueClass);
-        if (!m_activeCommandAllocators[hardwareQueue])
+        const uint32_t hardwareQueue = static_cast<uint32_t>(hardwareQueueClass);
+
+        ThreadSubAllocator& subAlloc = GetThreadSubAllocator();
+
+        if (!subAlloc.m_activeCommandAllocators[hardwareQueue])
         {
-            m_activeCommandAllocators[hardwareQueue] = m_commandAllocatorPools[hardwareQueue].Allocate();
+            subAlloc.m_activeCommandAllocators[hardwareQueue] =
+                m_commandAllocatorPools[hardwareQueue].Allocate();
         }
 
-        CommandList* commandList = m_commandListPools[hardwareQueue].Allocate(m_activeCommandAllocators[hardwareQueue].get());
-        m_activeLists.push_back(commandList);
+        CommandList* commandList = m_commandListPools[hardwareQueue].Allocate(
+            subAlloc.m_activeCommandAllocators[hardwareQueue].get());
+        subAlloc.m_activeLists.push_back(commandList);
         return commandList;
     }
 
-    void CommandListAllocator::Reset(uint32_t hardwareQueue)
+    void CommandListAllocator::Reset(ThreadSubAllocator& subAlloc, uint32_t hardwareQueue)
     {
-        if (!m_activeLists.empty())
+        for (size_t i = 0; i < subAlloc.m_activeLists.size(); )
         {
-            eastl::for_each(m_activeLists.begin(), m_activeLists.end(), [&](Ptr<CommandList> commandList)
+            if (static_cast<uint32_t>(subAlloc.m_activeLists[i]->GetHardwareQueueClass()) == hardwareQueue)
             {
-                 m_commandListPools[hardwareQueue].DeAllocate(commandList.get());
-            });
-            m_activeLists.clear();
+                m_commandListPools[hardwareQueue].DeAllocate(subAlloc.m_activeLists[i].get());
+                subAlloc.m_activeLists.erase(subAlloc.m_activeLists.begin() + i);
+            }
+            else
+            {
+                ++i;
+            }
         }
-        if (m_activeCommandAllocators[hardwareQueue])
+
+        if (subAlloc.m_activeCommandAllocators[hardwareQueue])
         {
-            m_commandAllocatorPools[hardwareQueue].DeAllocate(m_activeCommandAllocators[hardwareQueue].get());
-            m_activeCommandAllocators[hardwareQueue].reset();
+            m_commandAllocatorPools[hardwareQueue].DeAllocate(
+                subAlloc.m_activeCommandAllocators[hardwareQueue].get());
+            subAlloc.m_activeCommandAllocators[hardwareQueue].reset();
         }
     }
 
@@ -165,7 +194,10 @@ namespace Spark::RHI::DX12
     {
         for (uint32_t queueIdx = 0; queueIdx < RHI::HardwareQueueClassCount; ++queueIdx)
         {
-            Reset(queueIdx);
+            for (ThreadSubAllocator* subAlloc : m_registeredSubAllocators)
+            {
+                Reset(*subAlloc, queueIdx);
+            }
             m_commandListPools[queueIdx].Collect();
             m_commandAllocatorPools[queueIdx].Collect();
         }

@@ -117,7 +117,7 @@ namespace Spark::RHI::DX12
     {
     public:
         CommandListAllocator() = default;
-        
+
         struct Descriptor
         {
             // The device used for creating the command lists.
@@ -128,9 +128,9 @@ namespace Spark::RHI::DX12
         };
 
         void Init(const Descriptor& descriptor);
-        
+
         void Shutdown();
-        
+
         CommandList* Allocate(RHI::HardwareQueueClass hardwareQueueClass);
 
         // Call this once per frame to retire the current frame and reclaim
@@ -138,12 +138,24 @@ namespace Spark::RHI::DX12
         void Collect();
 
     private:
-        void Reset(uint32_t hardwareQueue);
+        // Per-thread active allocator and command lists.
+        // ID3D12CommandAllocator is not thread-safe, so each thread must own its allocator.
+        struct ThreadSubAllocator
+        {
+            eastl::array<Ptr<ID3D12CommandAllocator>, RHI::HardwareQueueClassCount> m_activeCommandAllocators;
+            eastl::vector<Ptr<CommandList>> m_activeLists;
+            bool m_isRegistered = false;
+        };
+
+        ThreadSubAllocator& GetThreadSubAllocator();
+        void Reset(ThreadSubAllocator& subAlloc, uint32_t hardwareQueue);
 
         eastl::array<CommandListPool, RHI::HardwareQueueClassCount> m_commandListPools;
         eastl::array<CommandAllocatorPool, RHI::HardwareQueueClassCount> m_commandAllocatorPools;
-        eastl::array<Ptr<ID3D12CommandAllocator>, RHI::HardwareQueueClassCount> m_activeCommandAllocators;
-        eastl::vector<Ptr<CommandList>> m_activeLists;
+
+        // Pointers to thread-local sub-allocators so Collect() can reset them.
+        // Collect and Allocate are never concurrent (frame boundary), so registration needs no lock.
+        eastl::vector<ThreadSubAllocator*> m_registeredSubAllocators;
 
         bool m_isInitialized = false;
     };
