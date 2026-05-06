@@ -34,6 +34,7 @@ namespace Spark::Render
     private:
         Ptr<RHI::TransientResourcePool> m_pool;
         RHI::CommandQueueContext  m_commandQueueContext;
+        RHI::FenceSet             m_crossQueueFences;
         RHIHandle                 m_swapchainResource;
         RHIHandle                 m_swapchainView;
 

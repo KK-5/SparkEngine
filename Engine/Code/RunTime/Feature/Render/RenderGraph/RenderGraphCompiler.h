@@ -32,6 +32,9 @@ namespace Spark::Render
 
         QueueBasedPasses CompilePassCrossQueue(eastl::span<Pass> passes);
 
+        // Successor-driven variant: signal emitted when processing the source pass.
+        QueueBasedPasses CompilePassCrossQueue2(eastl::span<Pass> passes);
+
         //! Allocate transient images/buffers from the pool, materialize their
         //! views, and write the backing pointers / view handles back onto the
         //! resource and attachment entities in RHIContext. Caller must ensure
@@ -64,5 +67,9 @@ namespace Spark::Render
         //! first, and CompileTransientResources must already have materialized
         //! transient views.
         void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
+
+        // Per-queue monotonically increasing counter for cross-queue fence values.
+        // Incremented each time a queue emits a signal; never resets across frames.
+        eastl::array<uint64_t, RHI::HardwareQueueClassCount> m_crossQueueFenceValues{1, 1, 1};
     };
 }

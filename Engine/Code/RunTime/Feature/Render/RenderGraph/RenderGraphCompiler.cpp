@@ -385,11 +385,18 @@ namespace Spark::Render
 
         QueueBasedPasses result;
 
+        // (dstQueue, srcQueue) → src 队列已同步到的最晚 timeline position
+        eastl::array<eastl::array<uint32_t, RHI::HardwareQueueClassCount>, RHI::HardwareQueueClassCount> syncedPositions;
+        for (auto& row : syncedPositions)
+        {
+            row.fill(RHI::InvalidTimelinePosition);
+        }
+
         for(auto pass : passes)
         {
             ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
-            const auto queue = passContext.Get<PassExecuteQueue>(pass).m_queue;
-            const auto queueIndex = static_cast<size_t>(queue);
+            const auto curQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
+            const auto queueIndex = static_cast<uint32_t>(curQueue);
 
             result[queueIndex].push_back(pass);
 
@@ -400,7 +407,8 @@ namespace Spark::Render
 
             // 跨队列压缩: 每个源队列只留全局 timeline 最大的 pred。
             // 全局 timeline 在每个队列子集上仍然单调递增,所以挑出来的"最晚 pred"和
-            // 用队列局部位置比较的结果一致;同时 latestPos 直接当 timeline semaphore 的 value 用。
+            // 用队列局部位置比较的结果一致。
+            // Fence value 使用 per-queue 单调递增计数器,不与每帧重置的 timeline 绑定。
             eastl::array<Pass,     RHI::HardwareQueueClassCount> latestPred{ NullPass, NullPass, NullPass };
             eastl::array<uint32_t, RHI::HardwareQueueClassCount> latestPos { 0, 0, 0 };
 
@@ -427,8 +435,31 @@ namespace Spark::Render
                     continue;
                 }
 
+                // 同队列不需要同步 — GPU 按提交顺序串行执行
+                if (queue == queueIndex)
+                {
+                    continue;
+                }
+
+                // 此队列对的同步已被当前队列上更早的 pass 覆盖
+                {
+                    const uint32_t lastSynced = syncedPositions[queueIndex][queue];
+                    if (lastSynced != RHI::InvalidTimelinePosition && latestPos[queue] <= lastSynced)
+                    {
+                        continue;
+                    }
+                }
+                syncedPositions[queueIndex][queue] = latestPos[queue];
+
                 const auto queueSrc = static_cast<RHI::HardwareQueueClass>(queue);
-                const uint64_t value = latestPos[queue];
+
+                // 每个 src queue 首次 signal 时递增计数器,后续 wait 复用同一个值
+                if (!passContext.Has<PassSyncSignal>(latestPred[queue]))
+                {
+                    const uint64_t value = ++m_crossQueueFenceValues[queue];
+                    passContext.Add<PassSyncSignal>(latestPred[queue], SyncOperation{ queueSrc, value });
+                }
+                const uint64_t value = passContext.Get<PassSyncSignal>(latestPred[queue]).m_signal.m_value;
 
                 if (passContext.Has<PassSyncWait>(pass))
                 {
@@ -440,11 +471,112 @@ namespace Spark::Render
                     wait.m_waits.emplace_back(queueSrc, value);
                     passContext.Add<PassSyncWait>(pass, wait);
                 }
+            }
+        }
 
-                // pred 自己队列上只 signal 一次
-                if (!passContext.Has<PassSyncSignal>(latestPred[queue]))
+        return result;
+    }
+
+    QueueBasedPasses RenderGraphCompiler::CompilePassCrossQueue2(eastl::span<Pass> passes)
+    {
+        auto& passContext = *PassExecuteContext::Current();
+        QueueBasedPasses result;
+
+        // (dstQueue, srcQueue) → src 队列已同步到的最晚 timeline position
+        eastl::array<eastl::array<uint32_t, RHI::HardwareQueueClassCount>, RHI::HardwareQueueClassCount> syncedPositions;
+        for (auto& row : syncedPositions)
+        {
+            row.fill(RHI::InvalidTimelinePosition);
+        }
+
+        for (auto pass : passes)
+        {
+            ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
+            const auto curQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
+            const auto queueIndex = static_cast<uint32_t>(curQueue);
+
+            result[queueIndex].push_back(pass);
+
+            // ---- signal: successor-driven ----
+            // 处理当前 pass 时检查后继,有跨队列依赖则在自己身上 emit signal。后续
+            // 处理到 successor 时 predecessor 的 signal 已经就位,直接读取即可
+            if (passContext.Has<PassSuccessors>(pass) && !passContext.Has<PassSyncSignal>(pass))
+            {
+                bool needSignal = false;
+                for (Pass succ : passContext.Get<PassSuccessors>(pass).m_succs)
                 {
-                    passContext.Add<PassSyncSignal>(latestPred[queue], SyncOperation{ queueSrc, value });
+                    if (passContext.Get<PassExecuteQueue>(succ).m_queue != curQueue)
+                    {
+                        needSignal = true;
+                        break;
+                    }
+                }
+                if (needSignal)
+                {
+                    const uint64_t value = ++m_crossQueueFenceValues[queueIndex];
+                    passContext.Add<PassSyncSignal>(pass, SyncOperation{ curQueue, value });
+                }
+            }
+
+            // ---- wait: predecessor-driven ----
+            if (!passContext.Has<PassPredecessors>(pass))
+            {
+                continue;
+            }
+
+            eastl::array<Pass,     RHI::HardwareQueueClassCount> latestPred{ NullPass, NullPass, NullPass };
+            eastl::array<uint32_t, RHI::HardwareQueueClassCount> latestPos { 0, 0, 0 };
+
+            for (Pass pred : passContext.Get<PassPredecessors>(pass).m_preds)
+            {
+                ASSERT(passContext.Has<PassExecuteQueue>(pred), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pred).m_name.GetCStr());
+                ASSERT(passContext.Has<PassGlobalTimeline>(pred), "The pass {} has not PassGlobalTimeline", passContext.Get<PassName>(pred).m_name.GetCStr());
+                const auto predQueue = passContext.Get<PassExecuteQueue>(pred).m_queue;
+                const auto predQueueIndex = static_cast<size_t>(predQueue);
+                const uint32_t predPos = passContext.Get<PassGlobalTimeline>(pred).m_position;
+
+                if (latestPred[predQueueIndex] == NullPass || predPos > latestPos[predQueueIndex])
+                {
+                    latestPred[predQueueIndex] = pred;
+                    latestPos[predQueueIndex] = predPos;
+                }
+            }
+
+            for (uint32_t srcQueueIndex = 0; srcQueueIndex < RHI::HardwareQueueClassCount; ++srcQueueIndex)
+            {
+                if (latestPred[srcQueueIndex] == NullPass)
+                {
+                    continue;
+                }
+
+                if (srcQueueIndex == queueIndex)
+                {
+                    continue;
+                }
+
+                {
+                    const uint32_t lastSynced = syncedPositions[queueIndex][srcQueueIndex];
+                    if (lastSynced != RHI::InvalidTimelinePosition && latestPos[srcQueueIndex] <= lastSynced)
+                        continue;
+                }
+                syncedPositions[queueIndex][srcQueueIndex] = latestPos[srcQueueIndex];
+
+                const auto queueSrc = static_cast<RHI::HardwareQueueClass>(srcQueueIndex);
+
+                ASSERT(passContext.Has<PassSyncSignal>(latestPred[srcQueueIndex]),
+                    "[CompilePassCrossQueue2] Predecessor pass {} has no PassSyncSignal.",
+                    passContext.Get<PassName>(latestPred[srcQueueIndex]).m_name.GetCStr());
+                const uint64_t value = passContext.Get<PassSyncSignal>(latestPred[srcQueueIndex]).m_signal.m_value;
+
+                if (passContext.Has<PassSyncWait>(pass))
+                {
+                    passContext.Get<PassSyncWait>(pass).m_waits.emplace_back(SyncOperation{ queueSrc, value });
+                }
+                else
+                {
+                    PassSyncWait wait;
+                    wait.m_waits.emplace_back(queueSrc, value);
+                    passContext.Add<PassSyncWait>(pass, wait);
                 }
             }
         }

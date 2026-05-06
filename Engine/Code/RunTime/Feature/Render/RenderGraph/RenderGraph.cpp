@@ -26,6 +26,8 @@ namespace Spark::Render
             return false;
         }
 
+        m_crossQueueFences.Init(device, RHI::FenceState::Reset);
+
         const uint32_t imageCount = swapChain.GetImageCount();
         auto& context = *RHIExecuteContext::Current();
         auto* factoryPtr = Service<RHI::Factory>::Get();
@@ -127,7 +129,7 @@ namespace Spark::Render
 
         ////////////////////////////////////////////////
         // Compile
-        QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue(passes);
+        QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);
 
         m_compiler.CompileTransientResources(passes, *m_pool);
 
@@ -180,9 +182,10 @@ namespace Spark::Render
 
             for (auto& segment : segments)
             {
-                // TODO: GPU-side cross-queue wait
-                // for (const auto& wait : segment.m_waits)
-                //     queue.Wait(queueContext.GetCompiledFences().GetFence(wait.m_queue), wait.m_value);
+                for (const auto& wait : segment.m_waits)
+                {
+                    queue.Wait(m_crossQueueFences.GetFence(wait.m_queue), wait.m_value);
+                }
 
                 for (auto& group : segment.m_groups)
                 {
@@ -197,10 +200,10 @@ namespace Spark::Render
                     queue.ExecuteCommands(cmdLists);
                 }
 
-                // TODO: GPU-side signal
-                // if (segment.m_signal)
-                //     queue.Signal(queueContext.GetCompiledFences().GetFence(segment.m_signal->m_queue),
-                //                  segment.m_signal->m_value);
+                if (segment.m_signal)
+                {
+                    queue.Signal(m_crossQueueFences.GetFence(segment.m_signal->m_queue), segment.m_signal->m_value);
+                }
             }
         }
 
