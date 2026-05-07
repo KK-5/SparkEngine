@@ -32,6 +32,7 @@ namespace Spark::Render
 
 
     private:
+        Ptr<RHI::Device>          m_device;
         Ptr<RHI::TransientResourcePool> m_pool;
         RHI::CommandQueueContext  m_commandQueueContext;
         RHI::FenceSet             m_crossQueueFences;

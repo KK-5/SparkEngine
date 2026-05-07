@@ -87,6 +87,122 @@ namespace Spark::Render
         }
     }
 
+
+    void RenderGraphExecuter::BuildFinalTransitionSegments(RHIContext& context, PassContext& passContext)
+    {
+        for (uint32_t index = 0; index < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++index)
+        {
+            auto barrierPass = passContext.CreateEntity();
+            passContext.Add<PassName>(barrierPass, PassName{ ObjectName{"FinalTransition"} });
+            passContext.Add<PassExecuteQueue>(barrierPass, PassExecuteQueue{ static_cast<RHI::HardwareQueueClass>(index) });
+            passContext.Add<PassFunctions>(barrierPass, PassFunctions{});   // execute可空，但组件要有
+            passContext.AddOrReplace<PassBarriers>(barrierPass, PassBarriers{});
+
+            auto importedView = context.GetView<ImportedTag, ImportedResourceState>();
+            importedView.each([&](auto resource, const ImportedResourceState& imp)
+            {
+                if (context.Has<BackingImage>(resource))
+                {
+                    RHI::Image* image = context.Get<BackingImage>(resource).m_image;
+                    ASSERT(image != nullptr, "BackingImage image is null.");
+                    ASSERT(context.Has<ResourceStateTracker>(resource), "Image {} has BackingImage but no ResourceStateTracker.",
+                        context.Get<ResourceName>(resource).m_name.GetCStr());
+
+                    ResourceStateTracker current = context.Get<ResourceStateTracker>(resource);
+                    const RHI::ResourceState currentState = current.m_current;
+                    if (currentState == imp.m_final) 
+                    { 
+                        return;
+                    }
+
+                    RHI::HardwareQueueClass curQueue = passContext.Get<PassExecuteQueue>(current.m_lastPass).m_queue;
+
+                    // 只处理本队列的资源
+                    if (index != static_cast<uint32_t>(curQueue))
+                    {
+                        return;
+                    }
+
+                    // 跨队列barrier先不处理
+                    if (curQueue != imp.m_finalQueue)
+                    {
+                        return;
+                    }
+
+                    RHI::ImageBarrier b;
+                    b.m_image     = image;
+                    b.m_srcUsage  = currentState.m_usage;
+                    b.m_dstUsage  = imp.m_final.m_usage;
+                    b.m_srcAccess = currentState.m_access;
+                    b.m_dstAccess = imp.m_final.m_access;
+                    b.m_srcStage  = current.m_lastStage;
+                    b.m_dstStage  = imp.m_finalStage;
+                    b.m_srcQueue  = curQueue;
+                    b.m_dstQueue  = imp.m_finalQueue;
+                    
+                    passContext.Get<PassBarriers>(barrierPass).m_preImage.push_back(b);
+                    return;
+                }
+
+                if (context.Has<BackingBuffer>(resource))
+                {
+                    RHI::Buffer* buffer = context.Get<BackingBuffer>(resource).m_buffer;
+                    ASSERT(buffer != nullptr, "BackingBuffer buffer is null.");
+                    ASSERT(context.Has<ResourceStateTracker>(resource), "Buffer {} has BackingBuffer but no ResourceStateTracker.",
+                        context.Get<ResourceName>(resource).m_name.GetCStr());
+
+                    ResourceStateTracker current = context.Get<ResourceStateTracker>(resource);
+                    const RHI::ResourceState currentState = current.m_current;
+                    if (currentState == imp.m_final) 
+                    { 
+                        return;
+                    }
+
+                    RHI::HardwareQueueClass curQueue = passContext.Get<PassExecuteQueue>(current.m_lastPass).m_queue;
+
+                    // 只处理本队列的资源
+                    if (index != static_cast<uint32_t>(curQueue))
+                    {
+                        return;
+                    }
+
+                    // 跨队列barrier先不处理
+                    if (curQueue != imp.m_finalQueue)
+                    {
+                        return;
+                    }
+
+                    RHI::BufferBarrier b;
+                    b.m_buffer    = buffer;
+                    b.m_srcUsage  = currentState.m_usage;
+                    b.m_dstUsage  = imp.m_final.m_usage;
+                    b.m_srcAccess = currentState.m_access;
+                    b.m_dstAccess = imp.m_final.m_access;
+                    b.m_srcStage  = current.m_lastStage;
+                    b.m_dstStage  = RHI::AttachmentStage::Any;
+                    b.m_srcQueue  = curQueue;
+                    b.m_dstQueue  = imp.m_finalQueue;
+
+                    passContext.Get<PassBarriers>(barrierPass).m_preBuffer.push_back(b);
+                    return;
+                }
+            });
+
+            if (passContext.Get<PassBarriers>(barrierPass).m_preBuffer.empty() && passContext.Get<PassBarriers>(barrierPass).m_preImage.empty())
+            {
+                continue;
+            }
+
+
+            QueueSegment segment;
+            segment.m_passes.push_back(barrierPass);
+            BuildExecuteGroups(segment, passContext);
+            BuildExecuteWorks(segment.m_groups[0], passContext);
+
+            m_queueSegments[index].push_back(segment);
+        }
+    }
+
     void RenderGraphExecuter::ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
     {
         const PassBarriers& barriers = passContext.Get<PassBarriers>(pass);

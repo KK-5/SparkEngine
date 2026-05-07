@@ -81,6 +81,8 @@ namespace Spark::Render
 
         void BuildExecuteWorks(ExecuteGroup& group, const PassContext& passContext) const;
 
+        void BuildFinalTransitionSegments(RHIContext& context, PassContext& passContext);
+
         void ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
         void ExecutePostBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
@@ -91,6 +93,8 @@ namespace Spark::Render
 
         //! 创建 CommandList 并录制 ExecuteWork,完成后存入 work.m_commandList。
         void Execute(ExecuteWork& work, RHI::Factory& factory, RHI::Device& device, RHI::HardwareQueueClass queueClass, PassContext& passContext);
+
+        void ExecuteFinalBarriers(RHI::CommandList* commandList);
 
         QueueSegments m_queueSegments;
     };

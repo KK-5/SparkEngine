@@ -82,8 +82,12 @@ namespace Spark::Render
 
     struct ImportedResourceState
     {
-        RHI::ResourceState m_initial;
-        RHI::ResourceState m_final;
+        RHI::ResourceState      m_initial;
+        RHI::AttachmentStage    m_initialStage = RHI::AttachmentStage::Any;
+        RHI::HardwareQueueClass m_initialQueue = RHI::HardwareQueueClass::Graphics;
+        RHI::ResourceState      m_final;
+        RHI::AttachmentStage    m_finalStage = RHI::AttachmentStage::Any;
+        RHI::HardwareQueueClass m_finalQueue = RHI::HardwareQueueClass::Graphics;
     };
 
     // Simulated resource state during barrier compile.

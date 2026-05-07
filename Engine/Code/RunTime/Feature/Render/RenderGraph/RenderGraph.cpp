@@ -91,6 +91,8 @@ namespace Spark::Render
             return false;
         }
 
+        m_device = &device;
+
         return true;
     }
 
@@ -178,7 +180,6 @@ namespace Spark::Render
 
             const auto queueClass = static_cast<RHI::HardwareQueueClass>(qi);
             auto& queue = m_commandQueueContext.GetCommandQueue(queueClass);
-            auto& device = queue.GetDevice();
 
             for (auto& segment : segments)
             {
@@ -193,7 +194,7 @@ namespace Spark::Render
 
                     for (auto& work : group.m_works)
                     {
-                        m_executer.Execute(work, *factory, device, queueClass, passContext);
+                        m_executer.Execute(work, *factory, *m_device, queueClass, passContext);
                         cmdLists.push_back(work.m_commandList);
                     }
 
@@ -209,6 +210,71 @@ namespace Spark::Render
 
         ////////////////////////////////////////////////
 
+        // Frame-end final barriers: walk Imported resources, compare each Resource's runtime
+        // state against ImportedResourceState.m_final, emit a barrier for the gap.
+        // Stage info is unavailable from Resource itself — use Any for safety; final barriers
+        // are few and not perf-critical.
+        eastl::vector<RHI::CommandList*> executeCommandLists;
+        RHI::CommandList* finalCmd = factory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
+        bool finalCmdHasWork = false;
+        finalCmd->Open();
+        auto importedView = context.GetView<ImportedTag, ImportedResourceState>();
+        importedView.each([&](auto resource, const ImportedResourceState& imp)
+        {
+            if (context.Has<BackingImage>(resource))
+            {
+                RHI::Image* image = context.Get<BackingImage>(resource).m_image;
+                ASSERT(image != nullptr, "BackingImage image is null.");
+
+                ResourceStateTracker current = context.Get<ResourceStateTracker>(resource);
+                const RHI::ResourceState currentState = current.m_current;
+                if (currentState == imp.m_final) 
+                { 
+                    return;
+                }
+
+                RHI::ImageBarrier b;
+                b.m_image     = image;
+                b.m_srcUsage  = current.m_usage;
+                b.m_dstUsage  = imp.m_final.m_usage;
+                b.m_srcAccess = current.m_access;
+                b.m_dstAccess = imp.m_final.m_access;
+                b.m_srcStage  = current.m_lastStage;
+                b.m_dstStage  = RHI::AttachmentStage::Any;
+                finalCmd->QueueBarrier(b);
+                return;
+            }
+
+            if (context.Has<BackingBuffer>(resource))
+            {
+                RHI::Buffer* buffer = context.Get<BackingBuffer>(resource).m_buffer;
+                ASSERT(buffer != nullptr, "BackingBuffer buffer is null.");
+
+                ResourceStateTracker current = context.Get<ResourceStateTracker>(resource);
+                const RHI::ResourceState currentState = current.m_current;
+                if (currentState == imp.m_final) 
+                { 
+                    return;
+                }
+
+                RHI::BufferBarrier b;
+                b.m_buffer    = buffer;
+                b.m_srcUsage  = current.m_usage;
+                b.m_dstUsage  = imp.m_final.m_usage;
+                b.m_srcAccess = current.m_access;
+                b.m_dstAccess = imp.m_final.m_access;
+                b.m_srcStage  = current.m_lastStage;
+                b.m_dstStage  = RHI::AttachmentStage::Any;
+                finalCmd->QueueBarrier(b);
+                return;
+            }
+        });
+
+        finalCmd->FlushBarriers();
+        executeCommandLists.push_back(finalCmd);
+        finalCmd->Close();
+
+        m_commandQueueContext.ExecuteCommands(RHI::HardwareQueueClass::Graphics, executeCommandLists);
 
 
         m_commandQueueContext.End();
