@@ -23,7 +23,7 @@ namespace Spark::Render
 
     class RenderGraph
     {
-    public: 
+    public:
         bool Init(RHI::Device& device, RHI::SwapChain& swapChain);
 
         void Shutdown();
@@ -32,6 +32,16 @@ namespace Spark::Render
 
 
     private:
+        //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame on
+        //! resource entities, ImageViewPerFrame / BufferViewPerFrame on view
+        //! entities) and refresh BackingImage / BackingBuffer / BackingImageView /
+        //! BackingBufferView from m_xxx[frameIndex]. Single-frame imports are
+        //! handled by the builder's lazy-add path on first ImportImageAttachment;
+        //! this function only touches per-frame variants — work is bounded by
+        //! the number of per-frame resources (typically very small).
+        void RefreshPerFrameBackings(RHIContext& context, uint32_t frameIndex);
+
+
         Ptr<RHI::Device>          m_device;
         Ptr<RHI::TransientResourcePool> m_pool;
         RHI::CommandQueueContext  m_commandQueueContext;

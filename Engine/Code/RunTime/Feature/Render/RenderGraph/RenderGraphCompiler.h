@@ -60,13 +60,23 @@ namespace Spark::Render
 
         //! Translate this pass's ImagePassAttachments (the ones tagged with
         //! AttachmentCompilingTag) into a RHI::RenderPassBeginInfo component on
-        //! the pass entity. Reads each attachment's view via the ImageViewPtr
-        //! component on the view entity (transient/imported are unified — the
-        //! distinction is carried by tags on the view entity, not the component
-        //! type). Caller must have run the per-pass attachment tagging step
-        //! first, and CompileTransientResources must already have materialized
-        //! transient views.
+        //! the pass entity. Reads each attachment's view via the BackingImageView
+        //! component on the view entity — transient and imported, single-frame
+        //! and per-frame views are all unified through this borrowed pointer.
+        //! Caller must have run the per-pass attachment tagging step first, and
+        //! CompileTransientResources must already have materialized transient views.
         void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
+
+
+        // Inject barrier-only sink passes (one per finalQueue, at most 3) that
+        // transition Imported resources to ImportedResourceState.m_final at frame end.
+        // Cross-queue cases emit the release barrier on the resource's m_lastPass
+        // (m_postImage/m_postBuffer) and the acquire barrier on the sink, plus link
+        // them via PassPredecessors/PassSuccessors so CompilePassCrossQueue2 推断 the
+        // fence wait/signal. Same-queue cases rely on implicit single-queue submission
+        // ordering — sink is appended to passes after m_lastPass. The appended sinks
+        // are pushed into `passes`; caller must run CompilePassCrossQueue2 afterward.
+        void CompileFinalTransitionBarrier(PassContext& passContext, RHIContext& context, eastl::vector<Pass>& passes);
 
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.

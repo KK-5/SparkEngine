@@ -245,8 +245,8 @@ namespace Spark::Render
         ASSERT(rhiContext.Has<ViewHierarchy>(view), "The view has no ViewHierarchy.");
         RHIHandle resource = rhiContext.Get<ViewHierarchy>(view).m_resource;
         ASSERT(resource != NullHandle, "The owned resource is null.");
-        ASSERT(rhiContext.Has<ImportedTag>(resource),
-            "Import*Attachment can only be used for imported resources.");
+        // ImportedTag is no longer a precondition — Import*Attachment auto-attaches
+        // it. Caller only needs the owning resource/view components in place.
         ASSERT(rhiContext.Has<ResourceName>(view), "The view has no ResourceName component.");
         const auto& resourceName = rhiContext.Get<ResourceName>(resource).m_name;
         ASSERT(name == resourceName,
@@ -348,12 +348,48 @@ namespace Spark::Render
         const RHI::AttachmentId&                name,
         const ImportedImageAttachmentBindInfo&  bind)
     {
+        auto& rhiContext = *RHIExecuteContext::Current();
+
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
             ValidateImportedView(bind.m_view, name, /*image=*/true);
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
+        }
+
+        RHIHandle resource = rhiContext.Get<ViewHierarchy>(bind.m_view).m_resource;
+
+        // Auto-attach ImportedTag — caller doesn't need to know about this concept.
+        if (!rhiContext.Has<ImportedTag>(resource))
+            rhiContext.Add<ImportedTag>(resource);
+        if (!rhiContext.Has<ImportedTag>(bind.m_view))
+            rhiContext.Add<ImportedTag>(bind.m_view);
+
+        // Single-frame: lazy-add BackingImage / BackingImageView from the owning
+        // Image / ImageView. Per-frame variants (ImagePerFrame / ImageViewPerFrame)
+        // are refreshed by RenderGraph::RefreshPerFrameBackings at frame start.
+        if (!rhiContext.Has<BackingImage>(resource) && rhiContext.Has<Image>(resource))
+        {
+            rhiContext.Add<BackingImage>(resource,
+                BackingImage{ rhiContext.Get<Image>(resource).m_image.get() });
+        }
+        if (!rhiContext.Has<BackingImageView>(bind.m_view) && rhiContext.Has<ImageView>(bind.m_view))
+        {
+            rhiContext.Add<BackingImageView>(bind.m_view,
+                BackingImageView{ rhiContext.Get<ImageView>(bind.m_view).m_view.get() });
+        }
+
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(rhiContext.Has<BackingImage>(resource),
+                "Imported resource {} has no BackingImage. Caller must attach "
+                "Image (single-frame) or ImagePerFrame (per-frame) before importing.",
+                name.GetCStr());
+            ASSERT(rhiContext.Has<BackingImageView>(bind.m_view),
+                "Imported view for {} has no BackingImageView. Caller must attach "
+                "ImageView (single-frame) or ImageViewPerFrame (per-frame) before importing.",
+                name.GetCStr());
         }
 
         ImagePassAttachment a;
@@ -375,12 +411,44 @@ namespace Spark::Render
         const RHI::AttachmentId&                 name,
         const ImportedBufferAttachmentBindInfo&  bind)
     {
+        auto& rhiContext = *RHIExecuteContext::Current();
+
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
             ValidateImportedView(bind.m_view, name, /*image=*/false);
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
+        }
+
+        RHIHandle resource = rhiContext.Get<ViewHierarchy>(bind.m_view).m_resource;
+
+        if (!rhiContext.Has<ImportedTag>(resource))
+            rhiContext.Add<ImportedTag>(resource);
+        if (!rhiContext.Has<ImportedTag>(bind.m_view))
+            rhiContext.Add<ImportedTag>(bind.m_view);
+
+        if (!rhiContext.Has<BackingBuffer>(resource) && rhiContext.Has<Buffer>(resource))
+        {
+            rhiContext.Add<BackingBuffer>(resource,
+                BackingBuffer{ rhiContext.Get<Buffer>(resource).m_buffer.get() });
+        }
+        if (!rhiContext.Has<BackingBufferView>(bind.m_view) && rhiContext.Has<BufferView>(bind.m_view))
+        {
+            rhiContext.Add<BackingBufferView>(bind.m_view,
+                BackingBufferView{ rhiContext.Get<BufferView>(bind.m_view).m_view.get() });
+        }
+
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(rhiContext.Has<BackingBuffer>(resource),
+                "Imported resource {} has no BackingBuffer. Caller must attach "
+                "Buffer (single-frame) or BufferPerFrame (per-frame) before importing.",
+                name.GetCStr());
+            ASSERT(rhiContext.Has<BackingBufferView>(bind.m_view),
+                "Imported view for {} has no BackingBufferView. Caller must attach "
+                "BufferView (single-frame) or BufferViewPerFrame (per-frame) before importing.",
+                name.GetCStr());
         }
 
         BufferPassAttachment a;

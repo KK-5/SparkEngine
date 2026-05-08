@@ -48,10 +48,44 @@ namespace Spark::Render
     struct TransientTag {};
 
 
+    //! Owning resource components for imported resources. Lifetime managed by
+    //! the external importer (asset system, per-frame buffer pool, ...). Render
+    //! graph never touches these — it reads BackingImage/BackingBuffer below,
+    //! which the importer refreshes from these on a schedule it controls
+    //! (single-frame: once at registration; per-frame: every OnFrameBegin).
+    struct Image
+    {
+        Ptr<RHI::Image> m_image;
+    };
+
+    struct Buffer
+    {
+        Ptr<RHI::Buffer> m_buffer;
+    };
+
+    //! Per-frame (frame-in-flight) owning variants. Used for swap chain images,
+    //! per-frame UBO / staging buffers, query result buffers, etc. The importer
+    //! fills all FrameCountMax slots once at registration; per-frame refresh of
+    //! BackingImage/BackingBuffer picks the active slot via the current frameIndex.
+    struct ImagePerFrame
+    {
+        FrameArray<Ptr<RHI::Image>> m_images {};
+    };
+
+    struct BufferPerFrame
+    {
+        FrameArray<Ptr<RHI::Buffer>> m_buffers {};
+    };
+
     //! Non-owning pointer to the actual RHI resource backing a resource entity.
-    //! For transient resources, populated by RenderGraphCompiler::CompileTransientResources
-    //! after the pool allocates. For imported resources, populated by the importer
-    //! (e.g. RenderSystem for swapchain, or external code).
+    //! Render graph (barrier compile, attachment resolution, executer) reads only
+    //! this component — imported and transient resources are unified here.
+    //!  - Transient: written by RenderGraphCompiler::CompileTransientResources
+    //!    after the pool allocates.
+    //!  - Imported single-frame: written once by the importer at registration,
+    //!    points into the entity's own Image::m_image.
+    //!  - Imported per-frame: written each OnFrameBegin by the importer,
+    //!    points into ImagePerFrame::m_images[frameIndex].
     //! Lifetime is managed externally — transient pool or importing owner.
     struct BackingImage
     {
@@ -63,21 +97,53 @@ namespace Spark::Render
         RHI::Buffer* m_buffer = nullptr;
     };
 
-    //! View component on a view entity. Owns the underlying RHI view via Ptr<>;
-    //! destroying the view entity releases it. The transient/imported distinction
-    //! is expressed by TransientTag / ImportedTag stamped on the view entity
-    //! itself (mirroring how the resource entity is tagged), not by the component
-    //! type. Transient view entities are created by RenderGraphCompiler and live
-    //! one frame; imported view entities are created by external importers and
-    //! persist across frames until the importer releases them.
-    struct ImageViewPtr
+    //! Owning view components on a view entity. Mirror of Image / Buffer on
+    //! the resource side — caller (transient view materialization, importer)
+    //! owns the underlying RHI view via Ptr<>; destroying the view entity
+    //! releases it. The transient/imported distinction is expressed by
+    //! TransientTag / ImportedTag stamped on the view entity itself, not by
+    //! the component type.
+    struct ImageView
     {
         Ptr<RHI::ImageView> m_view;
     };
 
-    struct BufferViewPtr
+    struct BufferView
     {
         Ptr<RHI::BufferView> m_view;
+    };
+
+    //! Per-frame (frame-in-flight) owning variants. Used when the underlying
+    //! view rotates with the resource it views (e.g. swap chain image views).
+    struct ImageViewPerFrame
+    {
+        FrameArray<Ptr<RHI::ImageView>> m_views {};
+    };
+
+    struct BufferViewPerFrame
+    {
+        FrameArray<Ptr<RHI::BufferView>> m_views {};
+    };
+
+    //! Non-owning pointer to the actual RHI view backing a view entity.
+    //! Render graph (CompileRenderPassBeginInfo, attachment binding, etc.) reads
+    //! only this component — transient and imported, single-frame and per-frame
+    //! views are unified here.
+    //!  - Transient: written by RenderGraphCompiler at view materialization,
+    //!    points into the entity's own ImageView::m_view.
+    //!  - Imported single-frame: written once by the importer at registration,
+    //!    points into ImageView::m_view.
+    //!  - Imported per-frame: written each OnFrameBegin by the importer,
+    //!    points into ImageViewPerFrame::m_views[frameIndex].
+    //! Lifetime is managed by the owning Ptr<> on the same entity.
+    struct BackingImageView
+    {
+        RHI::ImageView* m_view = nullptr;
+    };
+
+    struct BackingBufferView
+    {
+        RHI::BufferView* m_view = nullptr;
     };
 
     struct ImportedResourceState

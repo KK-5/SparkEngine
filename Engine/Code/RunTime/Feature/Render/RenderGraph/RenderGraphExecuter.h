@@ -81,8 +81,6 @@ namespace Spark::Render
 
         void BuildExecuteWorks(ExecuteGroup& group, const PassContext& passContext) const;
 
-        void BuildFinalTransitionSegments(RHIContext& context, PassContext& passContext);
-
         void ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
         void ExecutePostBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);

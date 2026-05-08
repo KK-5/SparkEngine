@@ -45,8 +45,14 @@ namespace Spark::Render
         context.Add<ResourceName>(m_swapchainResource, ObjectName{"SwapChain"});
         context.Add<ImportedResourceState>(
             m_swapchainResource,
-            RHI::ResourceState{RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown},
-            RHI::ResourceState{RHI::AttachmentUsage::Present, RHI::AttachmentAccess::Read}
+            ImportedResourceState{
+                /* m_initial      */ RHI::ResourceState{RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown},
+                /* m_initialStage */ RHI::AttachmentStage::Any,
+                /* m_initialQueue */ RHI::HardwareQueueClass::Graphics,
+                /* m_final        */ RHI::ResourceState{RHI::AttachmentUsage::Present, RHI::AttachmentAccess::Read},
+                /* m_finalStage   */ RHI::AttachmentStage::Any,
+                /* m_finalQueue   */ RHI::HardwareQueueClass::Graphics,
+            }
         );
 
         m_swapchainView = context.CreateEntity();
@@ -103,12 +109,20 @@ namespace Spark::Render
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
         m_commandQueueContext.Begin();
 
-        // Push swap chain image and imageview
         auto& context = *RHIExecuteContext::Current();
+
+        // Refresh borrowed pointers (BackingImage / BackingBuffer / Backing*View)
+        // for any per-frame imported resources whose Owning component rotates with
+        // frameIndex. Single-frame imports are handled lazily by the builder.
+        RefreshPerFrameBackings(context, frameIndex);
+
+        // TODO: swap chain still uses SwapChainImages/SwapChainViews + ad-hoc
+        // refresh. Migrate to ImagePerFrame / ImageViewPerFrame so this block
+        // disappears (depends on RHI::Image ref-count support).
         auto& images = context.Get<SwapChainImages>(m_swapchainResource);
         auto& views  = context.Get<SwapChainViews>(m_swapchainView);
         context.AddOrReplace<BackingImage>(m_swapchainResource, BackingImage{ images.images[frameIndex] });
-        context.AddOrReplace<ImageViewPtr>(m_swapchainView, ImageViewPtr{ views.imageViews[frameIndex] });
+        context.AddOrReplace<BackingImageView>(m_swapchainView, BackingImageView{ views.imageViews[frameIndex].get() });
 
         auto passFuncs = passContext.GetView<PassFunctions, ActivePassTag>();
 
@@ -131,8 +145,6 @@ namespace Spark::Render
 
         ////////////////////////////////////////////////
         // Compile
-        QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);
-
         m_compiler.CompileTransientResources(passes, *m_pool);
 
         m_pool->Seal();
@@ -158,6 +170,10 @@ namespace Spark::Render
 
             context.Clear<AttachmentCompilingTag>();
         }
+
+        m_compiler.CompileFinalTransitionBarrier(passContext, context, passes);
+
+        QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);
         ////////////////////////////////////////////////
 
         ////////////////////////////////////////////////
@@ -210,75 +226,39 @@ namespace Spark::Render
 
         ////////////////////////////////////////////////
 
-        // Frame-end final barriers: walk Imported resources, compare each Resource's runtime
-        // state against ImportedResourceState.m_final, emit a barrier for the gap.
-        // Stage info is unavailable from Resource itself — use Any for safety; final barriers
-        // are few and not perf-critical.
-        eastl::vector<RHI::CommandList*> executeCommandLists;
-        RHI::CommandList* finalCmd = factory->CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
-        bool finalCmdHasWork = false;
-        finalCmd->Open();
-        auto importedView = context.GetView<ImportedTag, ImportedResourceState>();
-        importedView.each([&](auto resource, const ImportedResourceState& imp)
-        {
-            if (context.Has<BackingImage>(resource))
-            {
-                RHI::Image* image = context.Get<BackingImage>(resource).m_image;
-                ASSERT(image != nullptr, "BackingImage image is null.");
-
-                ResourceStateTracker current = context.Get<ResourceStateTracker>(resource);
-                const RHI::ResourceState currentState = current.m_current;
-                if (currentState == imp.m_final) 
-                { 
-                    return;
-                }
-
-                RHI::ImageBarrier b;
-                b.m_image     = image;
-                b.m_srcUsage  = current.m_usage;
-                b.m_dstUsage  = imp.m_final.m_usage;
-                b.m_srcAccess = current.m_access;
-                b.m_dstAccess = imp.m_final.m_access;
-                b.m_srcStage  = current.m_lastStage;
-                b.m_dstStage  = RHI::AttachmentStage::Any;
-                finalCmd->QueueBarrier(b);
-                return;
-            }
-
-            if (context.Has<BackingBuffer>(resource))
-            {
-                RHI::Buffer* buffer = context.Get<BackingBuffer>(resource).m_buffer;
-                ASSERT(buffer != nullptr, "BackingBuffer buffer is null.");
-
-                ResourceStateTracker current = context.Get<ResourceStateTracker>(resource);
-                const RHI::ResourceState currentState = current.m_current;
-                if (currentState == imp.m_final) 
-                { 
-                    return;
-                }
-
-                RHI::BufferBarrier b;
-                b.m_buffer    = buffer;
-                b.m_srcUsage  = current.m_usage;
-                b.m_dstUsage  = imp.m_final.m_usage;
-                b.m_srcAccess = current.m_access;
-                b.m_dstAccess = imp.m_final.m_access;
-                b.m_srcStage  = current.m_lastStage;
-                b.m_dstStage  = RHI::AttachmentStage::Any;
-                finalCmd->QueueBarrier(b);
-                return;
-            }
-        });
-
-        finalCmd->FlushBarriers();
-        executeCommandLists.push_back(finalCmd);
-        finalCmd->Close();
-
-        m_commandQueueContext.ExecuteCommands(RHI::HardwareQueueClass::Graphics, executeCommandLists);
-
-
         m_commandQueueContext.End();
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         PassExecuteContext::Pop();
+    }
+
+    void RenderGraph::RefreshPerFrameBackings(RHIContext& context, uint32_t frameIndex)
+    {
+        context.GetView<ImportedTag, ImagePerFrame>().each(
+            [&](RHIHandle entity, const ImagePerFrame& owning)
+            {
+                context.AddOrReplace<BackingImage>(entity,
+                    BackingImage{ owning.m_images[frameIndex].get() });
+            });
+
+        context.GetView<ImportedTag, BufferPerFrame>().each(
+            [&](RHIHandle entity, const BufferPerFrame& owning)
+            {
+                context.AddOrReplace<BackingBuffer>(entity,
+                    BackingBuffer{ owning.m_buffers[frameIndex].get() });
+            });
+
+        context.GetView<ImportedTag, ImageViewPerFrame>().each(
+            [&](RHIHandle entity, const ImageViewPerFrame& owning)
+            {
+                context.AddOrReplace<BackingImageView>(entity,
+                    BackingImageView{ owning.m_views[frameIndex].get() });
+            });
+
+        context.GetView<ImportedTag, BufferViewPerFrame>().each(
+            [&](RHIHandle entity, const BufferViewPerFrame& owning)
+            {
+                context.AddOrReplace<BackingBufferView>(entity,
+                    BackingBufferView{ owning.m_views[frameIndex].get() });
+            });
     }
 }
