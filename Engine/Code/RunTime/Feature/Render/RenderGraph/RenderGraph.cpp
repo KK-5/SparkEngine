@@ -75,6 +75,7 @@ namespace Spark::Render
             swapChainView.imageViews[i] = eastl::move(imageview);
         }
         context.Add<SwapChainViews>(m_swapchainView, eastl::move(swapChainView));
+        context.Add<ImportedTag>(m_swapchainView);
         context.Add<ResourceName>(m_swapchainView, ObjectName{"SwapChainView"});
         context.Add<ViewHierarchy>(
             m_swapchainView,
@@ -114,21 +115,14 @@ namespace Spark::Render
         // Refresh borrowed pointers (BackingImage / BackingBuffer / Backing*View)
         // for any per-frame imported resources whose Owning component rotates with
         // frameIndex. Single-frame imports are handled lazily by the builder.
+        // Swap chain (SwapChainImages / SwapChainViews) is also refreshed here.
         RefreshPerFrameBackings(context, frameIndex);
-
-        // TODO: swap chain still uses SwapChainImages/SwapChainViews + ad-hoc
-        // refresh. Migrate to ImagePerFrame / ImageViewPerFrame so this block
-        // disappears (depends on RHI::Image ref-count support).
-        auto& images = context.Get<SwapChainImages>(m_swapchainResource);
-        auto& views  = context.Get<SwapChainViews>(m_swapchainView);
-        context.AddOrReplace<BackingImage>(m_swapchainResource, BackingImage{ images.images[frameIndex] });
-        context.AddOrReplace<BackingImageView>(m_swapchainView, BackingImageView{ views.imageViews[frameIndex].get() });
 
         auto passFuncs = passContext.GetView<PassFunctions, ActivePassTag>();
 
         ////////////////////////////////////////////////
         // Build
-        m_builder.Begin();
+        m_builder.Begin(frameIndex);
 
         passFuncs.each([&](Pass pass, PassFunctions& funcs)
         {
@@ -145,6 +139,8 @@ namespace Spark::Render
 
         ////////////////////////////////////////////////
         // Compile
+        m_compiler.Begin(frameIndex);
+
         m_compiler.CompileTransientResources(passes, *m_pool);
 
         m_pool->Seal();
@@ -174,10 +170,13 @@ namespace Spark::Render
         m_compiler.CompileFinalTransitionBarrier(passContext, context, passes);
 
         QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);
+
+        m_compiler.End();
         ////////////////////////////////////////////////
 
         ////////////////////////////////////////////////
         // Execute
+        m_executer.Begin(frameIndex);
 
         m_executer.BuildExecuteTable(queueBasedPasses, passContext);
 
@@ -224,6 +223,7 @@ namespace Spark::Render
             }
         }
 
+        m_executer.End();
         ////////////////////////////////////////////////
 
         m_commandQueueContext.End();
@@ -259,6 +259,25 @@ namespace Spark::Render
             {
                 context.AddOrReplace<BackingBufferView>(entity,
                     BackingBufferView{ owning.m_views[frameIndex].get() });
+            });
+
+        // Swap chain is special: the underlying RHI image is owned by SwapChain
+        // (Vulkan/DX12 don't allow independent ref-counting of swap chain images),
+        // so the resource side stores raw pointers. Treat BackingImage as the
+        // borrowed pointer the rest of the graph reads — same contract as for
+        // owning ImagePerFrame, just sourced from a raw array.
+        context.GetView<ImportedTag, SwapChainImages>().each(
+            [&](RHIHandle entity, const SwapChainImages& owning)
+            {
+                context.AddOrReplace<BackingImage>(entity,
+                    BackingImage{ owning.images[frameIndex] });
+            });
+
+        context.GetView<ImportedTag, SwapChainViews>().each(
+            [&](RHIHandle entity, const SwapChainViews& owning)
+            {
+                context.AddOrReplace<BackingImageView>(entity,
+                    BackingImageView{ owning.imageViews[frameIndex].get() });
             });
     }
 }

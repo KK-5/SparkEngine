@@ -8,6 +8,18 @@
 
 namespace Spark::Render
 {
+    void RenderGraphExecuter::Begin(uint32_t frameIndex)
+    {
+        m_frameIndex = frameIndex;
+    }
+
+    void RenderGraphExecuter::End()
+    {
+        for (auto& queue : m_queueSegments)
+        {
+            queue.clear();
+        }
+    }
 
 	void RenderGraphExecuter::BuildExecuteTable(const QueueBasedPasses& queueBasedPasses, const PassContext& passContext)
 	{
@@ -157,7 +169,7 @@ namespace Spark::Render
             const auto& funcs = passContext.Get<PassFunctions>(item.m_pass);
             if (funcs.m_executeFunction)
             {
-                funcs.m_executeFunction(cmdList);
+                funcs.m_executeFunction(cmdList, *this);
             }
 
             if (item.m_itemIndex == item.m_itemCount - 1)

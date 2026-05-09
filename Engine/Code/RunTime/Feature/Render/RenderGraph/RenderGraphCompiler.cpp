@@ -17,6 +17,20 @@
 
 namespace Spark::Render
 {
+    void RenderGraphCompiler::Begin(uint32_t frameIndex)
+    {
+        m_frameIndex = frameIndex;
+    }
+
+    void RenderGraphCompiler::End()
+    {
+        // No frame-scoped state to clear yet — m_crossQueueFenceValues is
+        // intentionally cross-frame. AttachmentCompilingTag is a per-pass marker
+        // cleared inline by the pass loop, not frame-scoped. This hook exists for
+        // symmetry with Builder/Executer and as a future home for compile-stage
+        // intermediate cleanup.
+    }
+
     namespace
     {
         //! Per-resource lifetime aggregated from all attachment uses. Stored as ECS

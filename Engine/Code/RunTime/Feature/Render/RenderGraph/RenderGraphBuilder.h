@@ -146,6 +146,8 @@ namespace Spark::Render
             const RHI::AttachmentId&        name,
             const BufferAttachmentBindInfo& bind);
 
+        uint32_t GetFrameIndex() const { return m_frameIndex; }
+
     private:
         friend class RenderGraph;
 
@@ -157,7 +159,7 @@ namespace Spark::Render
 
         eastl::vector<Pass> TopoSort();
 
-        void Begin();
+        void Begin(uint32_t frameIndex);
 
         eastl::vector<Pass> End();
 
@@ -231,6 +233,8 @@ namespace Spark::Render
 
         // bare-name → latest produced version. Seeded by Create/Import; bumped by Write*.
         eastl::unordered_map<RHI::AttachmentId, uint32_t> m_latestVersions;
+
+        uint32_t m_frameIndex { 0 };
     };
 
     // ============================================================

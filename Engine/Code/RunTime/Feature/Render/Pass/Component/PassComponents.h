@@ -88,7 +88,7 @@ namespace Spark::Render
     {
         eastl::function<void(RenderGraphBuilder&)> m_buildFunction;
         eastl::function<void(RenderGraphCompiler&)> m_compileFunction;
-        eastl::function<void(RHI::CommandList*)> m_executeFunction;
+        eastl::function<void(RHI::CommandList*, RenderGraphExecuter&)> m_executeFunction;
     };
 
     // Compiled barriers for a single pass. Filled by CompileImageBarriers /

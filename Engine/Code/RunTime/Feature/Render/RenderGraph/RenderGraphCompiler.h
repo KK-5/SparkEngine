@@ -27,8 +27,14 @@ namespace Spark::Render
 
         RHI::BufferView* GetBufferView(RHI::InputName slot) const;
 
+        uint32_t GetFrameIndex() const { return m_frameIndex; }
+
     private:
         friend class RenderGraph;
+
+        void Begin(uint32_t frameIndex);
+
+        void End();
 
         QueueBasedPasses CompilePassCrossQueue(eastl::span<Pass> passes);
 
@@ -81,5 +87,7 @@ namespace Spark::Render
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.
         eastl::array<uint64_t, RHI::HardwareQueueClassCount> m_crossQueueFenceValues{1, 1, 1};
+
+        uint32_t m_frameIndex { 0 };
     };
 }

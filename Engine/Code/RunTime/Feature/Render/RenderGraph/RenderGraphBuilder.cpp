@@ -6,12 +6,9 @@
 namespace Spark::Render
 {
 
-    void RenderGraphBuilder::Begin()
+    void RenderGraphBuilder::Begin(uint32_t frameIndex)
     {
-        m_graph.clear();
-        m_attachmentUses.clear();
-        m_latestVersions.clear();
-        m_currentPass = NullPass;
+        m_frameIndex = frameIndex;
     }
 
     void RenderGraphBuilder::BeginPass(Pass pass)
@@ -215,6 +212,15 @@ namespace Spark::Render
         ASSERT(m_currentPass == NullPass,
             "End() called with an active pass scope; missing EndPass?");
         BuildGraph();
-        return TopoSort();
+        eastl::vector<Pass> passes = TopoSort();
+
+        // Frame-scoped state: cleared at frame end, not next frame's start —
+        // so a missed Begin() can't drag stale data forward.
+        m_graph.clear();
+        m_attachmentUses.clear();
+        m_latestVersions.clear();
+        m_currentPass = NullPass;
+
+        return passes;
     }
 }

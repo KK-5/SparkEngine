@@ -68,8 +68,15 @@ namespace Spark::Render
 
     class RenderGraphExecuter
     {
+    public:
+        uint32_t GetFrameIndex() const { return m_frameIndex; }
+
     private:
         friend class RenderGraph;
+
+        void Begin(uint32_t frameIndex);
+
+        void End();
 
         void BuildExecuteTable(const QueueBasedPasses& queueBasedPasses, const PassContext& passContext);
 
@@ -95,5 +102,7 @@ namespace Spark::Render
         void ExecuteFinalBarriers(RHI::CommandList* commandList);
 
         QueueSegments m_queueSegments;
+
+        uint32_t m_frameIndex { 0 };
     };
 }

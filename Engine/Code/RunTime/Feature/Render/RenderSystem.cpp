@@ -410,7 +410,7 @@ namespace Spark::Render
             // pass-local compile logic only; engine handles attachment marking via PassAttachmentMarker.
         };
         
-        uiPassFunc.m_executeFunction = [&](RHI::CommandList* commandList)
+        uiPassFunc.m_executeFunction = [&](RHI::CommandList* commandList, RenderGraphExecuter&)
         {
             m_rednerUI.Render(commandList);
         };
