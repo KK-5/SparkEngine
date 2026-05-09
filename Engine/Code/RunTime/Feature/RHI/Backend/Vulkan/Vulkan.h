@@ -14,6 +14,5 @@
 
 namespace Spark::RHI::Vulkan
 {
-    // using GpuVirtualAddress = VkDeviceAddress;
     using CpuVirtualAddress = uint8_t *;
 }
