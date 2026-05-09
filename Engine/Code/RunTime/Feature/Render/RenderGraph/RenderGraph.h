@@ -24,12 +24,14 @@ namespace Spark::Render
     class RenderGraph
     {
     public:
-        bool Init(RHI::Device& device, RHI::SwapChain& swapChain);
+        bool Init(RHI::Device& device, RHI::SwapChain& swapChain, RHI::CommandQueueContext& commandQueueContext);
 
         void Shutdown();
 
         void ExecutePipeline(Pipeline& pipeline, uint32_t frameIndex);
 
+        RHIHandle GetSwapchainResource() const { return m_swapchainResource; }
+        RHIHandle GetSwapchainView() const     { return m_swapchainView; }
 
     private:
         //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame on
@@ -44,7 +46,7 @@ namespace Spark::Render
 
         Ptr<RHI::Device>          m_device;
         Ptr<RHI::TransientResourcePool> m_pool;
-        RHI::CommandQueueContext  m_commandQueueContext;
+        RHI::CommandQueueContext* m_commandQueueContext = nullptr; // borrowed; owned by RenderSystem
         RHI::FenceSet             m_crossQueueFences;
         RHIHandle                 m_swapchainResource;
         RHIHandle                 m_swapchainView;

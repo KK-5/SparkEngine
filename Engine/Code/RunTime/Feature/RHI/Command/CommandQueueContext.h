@@ -6,6 +6,8 @@
  *
  */
 
+#pragma once
+
 #include <RHI/HardwareQueue.h>
 #include <RHI/Device/Device.h>
 

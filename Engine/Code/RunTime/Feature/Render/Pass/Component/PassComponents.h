@@ -43,7 +43,14 @@ namespace Spark::Render
     struct ActivePassTag
     {
     };
-    
+
+    //! Tags pass entities that are synthesized by the compiler each frame
+    //! (currently: final-transition sink passes from CompileFinalTransitionBarrier).
+    //! Executer.End walks this view to destroy these entities so they don't leak.
+    struct SinkPassTag
+    {
+    };
+
     ////////////////////////////////////////////////////
     struct PassName
     {

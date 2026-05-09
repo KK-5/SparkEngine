@@ -7,6 +7,8 @@ set(SOURCES
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
+    RenderGraph/RenderGraphExecuter.cpp
+    RenderGraph/RenderGraph.cpp
     RenderSystem.cpp
 )
 

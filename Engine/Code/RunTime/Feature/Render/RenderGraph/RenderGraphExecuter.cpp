@@ -19,6 +19,30 @@ namespace Spark::Render
         {
             queue.clear();
         }
+
+        // Destroy compiler-synthesized sink passes (final transition barriers).
+        // They are recreated each frame; persisting them would leak entities
+        // and cause CompileFinalTransitionBarrier to clash with stale state.
+        auto& passContext = *PassExecuteContext::Current();
+        auto sinks = passContext.GetView<SinkPassTag>();
+        eastl::vector<Pass> sinkPasses;
+        sinks.each([&](Pass pass) { sinkPasses.push_back(pass); });
+        for (Pass pass : sinkPasses)
+        {
+            passContext.DestoryEntity(pass);
+        }
+
+        // Frame-scoped components on regular Pass entities. Pass entities themselves
+        // persist across frames (created once in BuildPipeline); these components
+        // are populated fresh each compile and must be cleared so next frame's
+        // Add doesn't trip the entt 'slot not available' assert.
+        passContext.Clear<PassGlobalTimeline>();
+        passContext.Clear<PassPredecessors>();
+        passContext.Clear<PassSuccessors>();
+        passContext.Clear<PassSyncWait>();
+        passContext.Clear<PassSyncSignal>();
+        passContext.Clear<PassBarriers>();
+        passContext.Clear<RHI::RenderPassBeginInfo>();
     }
 
 	void RenderGraphExecuter::BuildExecuteTable(const QueueBasedPasses& queueBasedPasses, const PassContext& passContext)
@@ -117,6 +141,11 @@ namespace Spark::Render
         {
             commandList->QueueBarrier(b);
         }
+
+        // QueueBarrier only batches; the actual ResourceBarrier call lives in
+        // FlushBarriers. Must flush before BeginRenderPass / draws so the
+        // resource is in the expected state at first use.
+        commandList->FlushBarriers();
     }
 
     void RenderGraphExecuter::ExecutePostBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
@@ -132,6 +161,8 @@ namespace Spark::Render
         {
             commandList->QueueBarrier(b);
         }
+
+        commandList->FlushBarriers();
     }
 
     void RenderGraphExecuter::ExecuteBeginRenderPass(RHI::CommandList* commandList, Pass pass, PassContext& passContext)

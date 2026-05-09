@@ -11,6 +11,9 @@
 namespace Spark::RHI
 {
     class TransientResourcePool;
+    class ShaderResource;
+    class ImageView;
+    class BufferView;
 }
 
 namespace Spark::Render

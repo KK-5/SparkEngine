@@ -17,14 +17,9 @@
 
 namespace Spark::Render
 {
-    bool RenderGraph::Init(RHI::Device& device, RHI::SwapChain& swapChain)
+    bool RenderGraph::Init(RHI::Device& device, RHI::SwapChain& swapChain, RHI::CommandQueueContext& commandQueueContext)
     {
-        RHI::ResultCode result = m_commandQueueContext.Init(device);
-        if (result != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("[RenderGraph] CommandQueueContext initialize failed.");
-            return false;
-        }
+        m_commandQueueContext = &commandQueueContext;
 
         m_crossQueueFences.Init(device, RHI::FenceState::Reset);
 
@@ -89,10 +84,11 @@ namespace Spark::Render
             m_swapchainView
         );
 
+        m_pool = factory.CreateTransientResourcePool();
+        ASSERT(m_pool != nullptr, "[RenderGraph] Factory::CreateTransientResourcePool returned null.");
         RHI::TransientResourcePoolDescriptor desc;
         // Use default config
-        result = m_pool->Init(device, desc);
-        if (result != RHI::ResultCode::Success)
+        if (m_pool->Init(device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[RenderGraph] TransientResourcePool initialize failed.");
             return false;
@@ -108,7 +104,7 @@ namespace Spark::Render
         auto& passContext = pipeline.GetPassContext();
         PassExecuteContext::Push(passContext);
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
-        m_commandQueueContext.Begin();
+        m_commandQueueContext->Begin();
 
         auto& context = *RHIExecuteContext::Current();
 
@@ -143,7 +139,7 @@ namespace Spark::Render
 
         m_compiler.CompileTransientResources(passes, *m_pool);
 
-        m_pool->Seal();
+        // m_pool->Seal();
 
         for (auto pass : passes)
         {
@@ -194,7 +190,7 @@ namespace Spark::Render
             }
 
             const auto queueClass = static_cast<RHI::HardwareQueueClass>(qi);
-            auto& queue = m_commandQueueContext.GetCommandQueue(queueClass);
+            auto& queue = m_commandQueueContext->GetCommandQueue(queueClass);
 
             for (auto& segment : segments)
             {
@@ -226,7 +222,7 @@ namespace Spark::Render
         m_executer.End();
         ////////////////////////////////////////////////
 
-        m_commandQueueContext.End();
+        m_commandQueueContext->End();
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         PassExecuteContext::Pop();
     }

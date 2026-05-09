@@ -35,6 +35,7 @@ set(SOURCES
     Resource/Sampler/Sampler.cpp
     Resource/ShaderResource/ShaderResourceCompiler.cpp
     Resource/ShaderResource/ShaderResource.cpp
+    Resource/Transient/TransientResourcePool.cpp
     SwapChain/SwapChain.cpp
     UI/ImGui.cpp
 )

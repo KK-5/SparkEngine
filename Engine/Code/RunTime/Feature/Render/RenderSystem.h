@@ -12,7 +12,7 @@
 #include "Pass/Pipeline.h"
 #include "Pass/RHIContext.h"
 
-#include "RenderGraph/RenderGraphBuilder.h"
+#include "RenderGraph/RenderGraph.h"
 
 #include "Feature/UI/RenderUI.h"
 
@@ -60,8 +60,6 @@ namespace Spark::Render
             Ptr<RHI::Device>          m_device;
             RHI::CommandQueueContext  m_commandQueuecontext;
             Ptr<RHI::SwapChain>       m_swapChain;
-            RHIHandle                 m_swapchainResourceHandle;
-            RHIHandle                 m_swapchainViewHandle;
             Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         };
 
@@ -71,6 +69,6 @@ namespace Spark::Render
         RHIContext m_rhiContext;
         Pipeline   m_pipeline {"default"};
 
-        RenderGraphBuilder m_renderGraphBuilder {};
+        RenderGraph m_renderGraph;
     };
 }

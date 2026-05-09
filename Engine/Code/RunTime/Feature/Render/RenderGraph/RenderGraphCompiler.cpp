@@ -24,11 +24,31 @@ namespace Spark::Render
 
     void RenderGraphCompiler::End()
     {
-        // No frame-scoped state to clear yet — m_crossQueueFenceValues is
-        // intentionally cross-frame. AttachmentCompilingTag is a per-pass marker
-        // cleared inline by the pass loop, not frame-scoped. This hook exists for
-        // symmetry with Builder/Executer and as a future home for compile-stage
-        // intermediate cleanup.
+        auto& context = *RHIExecuteContext::Current();
+
+        // Attachment entities are build/compile inputs only; executer reads
+        // PassBarriers / RenderPassBeginInfo on Pass entities. Destroy them so
+        // next frame's ValidateUniqueSlot doesn't trip over stale slot names.
+        auto imageAttachments = context.GetView<ImagePassAttachment>();
+        imageAttachments.each([&](RHIHandle handle, ImagePassAttachment&)
+        {
+            context.DestoryEntity(handle);
+        });
+
+        auto bufferAttachments = context.GetView<BufferPassAttachment>();
+        bufferAttachments.each([&](RHIHandle handle, BufferPassAttachment&)
+        {
+            context.DestoryEntity(handle);
+        });
+
+        // Per-resource compile-time state cursor. Lazy-init in CompileImage/BufferBarriers
+        // expects a fresh slate each frame — imported resources start at m_initial,
+        // transients at Uninitialized. Without this clear, frame N+1 inherits frame N's
+        // m_current and emits wrong barriers.
+        context.Clear<ResourceStateTracker>();
+
+        // m_crossQueueFenceValues is intentionally cross-frame (monotonic).
+        // AttachmentCompilingTag is per-pass, cleared inline in the compile loop.
     }
 
     namespace
@@ -922,6 +942,7 @@ namespace Spark::Render
 
             Pass sinkPass = passContext.CreateEntity();
             passContext.Add<PassName>(sinkPass, PassName{ ObjectName{sinkNames[index]} });
+            passContext.Add<SinkPassTag>(sinkPass);
 
             passContext.Add<PassExecuteQueue>(sinkPass, PassExecuteQueue{ queue });
             passContext.Add<PassFunctions>(sinkPass, PassFunctions{});            // 全空
