@@ -17,11 +17,38 @@
 
 namespace Spark::Render
 {
-    bool RenderGraph::Init(RHI::Device& device, RHI::SwapChain& swapChain, RHI::CommandQueueContext& commandQueueContext)
+    bool RenderGraph::Init(RHI::Device& device)
     {
-        m_commandQueueContext = &commandQueueContext;
+        if (m_commandQueueContext.Init(device) != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("[RenderGraph] CommandQueueContext Init failed.");
+            return false;
+        }
 
         m_crossQueueFences.Init(device, RHI::FenceState::Reset);
+
+        auto* factoryPtr = Service<RHI::Factory>::Get();
+        ASSERT(factoryPtr != nullptr, "RHI::Factory service is not registered.");
+        auto& factory = *factoryPtr;
+
+        m_pool = factory.CreateTransientResourcePool();
+        ASSERT(m_pool != nullptr, "[RenderGraph] Factory::CreateTransientResourcePool returned null.");
+        RHI::TransientResourcePoolDescriptor desc;
+        // Use default config
+        if (m_pool->Init(device, desc) != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("[RenderGraph] TransientResourcePool initialize failed.");
+            return false;
+        }
+
+        m_device = &device;
+
+        return true;
+    }
+
+    bool RenderGraph::ImportSwapChain(RHI::SwapChain& swapChain)
+    {
+        ASSERT(m_device != nullptr, "[RenderGraph] ImportSwapChain called before Init.");
 
         const uint32_t imageCount = swapChain.GetImageCount();
         auto& context = *RHIExecuteContext::Current();
@@ -84,18 +111,6 @@ namespace Spark::Render
             m_swapchainView
         );
 
-        m_pool = factory.CreateTransientResourcePool();
-        ASSERT(m_pool != nullptr, "[RenderGraph] Factory::CreateTransientResourcePool returned null.");
-        RHI::TransientResourcePoolDescriptor desc;
-        // Use default config
-        if (m_pool->Init(device, desc) != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("[RenderGraph] TransientResourcePool initialize failed.");
-            return false;
-        }
-
-        m_device = &device;
-
         return true;
     }
 
@@ -104,7 +119,7 @@ namespace Spark::Render
         auto& passContext = pipeline.GetPassContext();
         PassExecuteContext::Push(passContext);
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
-        m_commandQueueContext->Begin();
+        m_commandQueueContext.Begin();
 
         auto& context = *RHIExecuteContext::Current();
 
@@ -190,7 +205,7 @@ namespace Spark::Render
             }
 
             const auto queueClass = static_cast<RHI::HardwareQueueClass>(qi);
-            auto& queue = m_commandQueueContext->GetCommandQueue(queueClass);
+            auto& queue = m_commandQueueContext.GetCommandQueue(queueClass);
 
             for (auto& segment : segments)
             {
@@ -222,7 +237,7 @@ namespace Spark::Render
         m_executer.End();
         ////////////////////////////////////////////////
 
-        m_commandQueueContext->End();
+        m_commandQueueContext.End();
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
         PassExecuteContext::Pop();
     }

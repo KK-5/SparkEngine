@@ -50,7 +50,11 @@ namespace Spark::Render
             return false;
         }
 
-        m_rhiData.m_commandQueuecontext.Init(*m_rhiData.m_device);
+        if (!m_renderGraph.Init(*m_rhiData.m_device))
+        {
+            LOG_ERROR("[RenderSystem] RenderGraph init failed.");
+            return false;
+        }
 
         auto window = Service<Window::IWindowSystem>::Get();
         if (!window)
@@ -69,7 +73,7 @@ namespace Spark::Render
         desc.m_window = window->GetNativeHandle();
         RHI::ResultCode result = m_rhiData.m_swapChain->Init(
             *m_rhiData.m_device,
-            m_rhiData.m_commandQueuecontext.GetCommandQueue(RHI::HardwareQueueClass::Graphics),
+            m_renderGraph.GetCommandQueue(RHI::HardwareQueueClass::Graphics),
             desc);
         if (result != RHI::ResultCode::Success)
         {
@@ -93,7 +97,7 @@ namespace Spark::Render
         RHI::ImGuiDescriptor desc;
         desc.m_rtvFormat = RHI::Format::R8G8B8A8_UNORM;
         desc.m_dsvFormat = RHI::Format::D32_FLOAT;
-        m_rednerUI.Bind(*m_rhiData.m_device, m_rhiData.m_commandQueuecontext.GetCommandQueue(RHI::HardwareQueueClass::Graphics), desc);
+        m_rednerUI.Bind(*m_rhiData.m_device, m_renderGraph.GetCommandQueue(RHI::HardwareQueueClass::Graphics), desc);
         return true;
     }
 
@@ -163,9 +167,9 @@ namespace Spark::Render
 
         RHIExecuteContext::Push(m_rhiContext);
 
-        // RenderGraph requires the RHIExecuteContext to be active before Init —
-        // it materializes swap chain entities into the current RHIContext.
-        m_renderGraph.Init(*m_rhiData.m_device, *m_rhiData.m_swapChain, m_rhiData.m_commandQueuecontext);
+        // ImportSwapChain materializes swap chain entities into the current RHIContext,
+        // so it must run after RHIExecuteContext::Push.
+        m_renderGraph.ImportSwapChain(*m_rhiData.m_swapChain);
 
         InitRenderUI();
         BuildPipeline();

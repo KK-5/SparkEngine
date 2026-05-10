@@ -6,7 +6,6 @@
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Factory.h>
-#include <RHI/Command/CommandQueueContext.h>
 #include <RHI/RenderTargetContext/RenderTargetContext.h>
 
 #include "Pass/Pipeline.h"
@@ -58,7 +57,6 @@ namespace Spark::Render
         {
             RHI::Factory*             m_factory;
             Ptr<RHI::Device>          m_device;
-            RHI::CommandQueueContext  m_commandQueuecontext;
             Ptr<RHI::SwapChain>       m_swapChain;
             Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         };
