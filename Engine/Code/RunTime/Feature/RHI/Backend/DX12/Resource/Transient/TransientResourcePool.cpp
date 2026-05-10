@@ -14,7 +14,6 @@ namespace Spark::RHI::DX12
 {
     namespace
     {
-        // 当 descriptor 中 image+buffer budget 都为 0 时使用的默认堆预算
         constexpr uint64_t DefaultHeapBudgetInBytes = 256ull * 1024 * 1024;
 
         uint64_t ResolveHeapBudget(const RHI::TransientResourcePoolDescriptor& descriptor)
@@ -24,19 +23,37 @@ namespace Spark::RHI::DX12
             {
                 total = DefaultHeapBudgetInBytes;
             }
-            // heap 必须按 MSAA 对齐，否则后续放置 MSAA RT/DS 时
-            // CreateAliasingResource 会以 E_INVALIDARG 失败
+            // 必须按 MSAA 对齐，否则放置 MSAA RT/DS 时 CreateAliasingResource 会 E_INVALIDARG。
             return AlignUp(total, static_cast<uint64_t>(D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT));
         }
-    }
 
-    /*
-    size_t TransientResourcePool::ImageCacheEntry::GetHash() const
-    {
-        size_t hash = eastl::hash<uint32_t>()(m_offset);
-        eastl::hash_combine(hash, m_descriptor);
+        // 字段级哈希避开 D3D12_RESOURCE_DESC 的 padding。cache 命中复用 ID3D12Resource
+        // 时物理布局必须与本次请求完全一致，所有影响布局的字段都得进 hash。
+        size_t HashResourceDesc(const D3D12_RESOURCE_DESC& d)
+        {
+            size_t h = 0;
+            eastl::hash_combine(h, static_cast<uint32_t>(d.Dimension));
+            eastl::hash_combine(h, static_cast<uint64_t>(d.Alignment));
+            eastl::hash_combine(h, static_cast<uint64_t>(d.Width));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.Height));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.DepthOrArraySize));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.MipLevels));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.Format));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.SampleDesc.Count));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.SampleDesc.Quality));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.Layout));
+            eastl::hash_combine(h, static_cast<uint32_t>(d.Flags));
+            return h;
+        }
+
+        uint64_t MakeResourceCacheKey(uint64_t offset, size_t descHash)
+        {
+            size_t h = 0;
+            eastl::hash_combine(h, offset);
+            eastl::hash_combine_raw(h, descHash);
+            return static_cast<uint64_t>(h);
+        }
     }
-    */
 
 
     Device& TransientResourcePool::GetDevice() const
@@ -50,7 +67,6 @@ namespace Spark::RHI::DX12
     {
         Device& device = static_cast<Device&>(deviceBase);
 
-        // 1. D3D12MA::Allocator
         D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
         allocatorDesc.Flags    = D3D12MA::ALLOCATOR_FLAG_NONE;
         allocatorDesc.pDevice  = device.GetDX12Device();
@@ -76,10 +92,41 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
-        // 申请 transient 整块 heap，单块、永不扩容、ALLOW_ALL_BUFFERS_AND_TEXTURES
+        D3D12MAReleaseQueue::Descriptor mqDesc;
+        mqDesc.m_collectLatency = device.GetDescriptor().m_frameCountMax;
+        m_releaseQueue.Init(mqDesc);
+
+        // 每槽独立 heap，descriptor 的 budget 是「单帧 working set」，总 VRAM = budget × frameCountMax
+        const uint32_t frameCountMax = device.GetDescriptor().m_frameCountMax;
+        ASSERT(frameCountMax > 0, "TransientResourcePool requires frameCountMax > 0.");
+
         const uint64_t heapSize  = ResolveHeapBudget(descriptor);
         const uint64_t heapAlign = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
 
+        m_buckets.resize(frameCountMax);
+        for (uint32_t i = 0; i < frameCountMax; ++i)
+        {
+            if (InitBucket(m_buckets[i], descriptor, heapSize, heapAlign) != RHI::ResultCode::Success)
+            {
+                m_buckets.clear();
+                m_releaseQueue.Shutdown();
+                m_allocator.reset();
+                return RHI::ResultCode::Fail;
+            }
+        }
+
+        // 首次 OnFrameBegin 推进到 slot 0
+        m_currentSlot = frameCountMax - 1;
+
+        return RHI::ResultCode::Success;
+    }
+
+    RHI::ResultCode TransientResourcePool::InitBucket(
+        HeapBucket& bucket,
+        const RHI::TransientResourcePoolDescriptor& descriptor,
+        uint64_t heapSize,
+        uint64_t heapAlign)
+    {
         D3D12MA::ALLOCATION_DESC heapAllocDesc = {};
         heapAllocDesc.Flags          = D3D12MA::ALLOCATION_FLAG_NONE;
         heapAllocDesc.HeapType       = ConvertHeapType(descriptor.m_heapMemoryLevel,
@@ -93,14 +140,11 @@ namespace Spark::RHI::DX12
         {
             LOG_ERROR("[TransientResourcePool] AllocateMemory failed (heap size {} bytes, align {} bytes).",
                       heapSize, heapAlign);
-            m_allocator.reset();
             return RHI::ResultCode::Fail;
         }
-        m_bucket.m_heap = heapAllocation.Get();
+        bucket.m_heap = heapAllocation.Get();
 
-        //    配套 VirtualBlock —— heap 内 offset 簿记。
-        //    用默认 best-fit 算法；不要 LINEAR：别名命中需要在中间复用旧 offset，
-        //    LINEAR 模式只允许尾部分配，跟我们的需求直接冲突。
+        // 别名命中需要在 heap 中段复用旧 offset，不能用 LINEAR 模式（只允许尾部分配）。
         D3D12MA::VIRTUAL_BLOCK_DESC vbDesc = {};
         vbDesc.Size  = heapSize;
         vbDesc.Flags = D3D12MA::VIRTUAL_BLOCK_FLAG_NONE;
@@ -109,17 +153,84 @@ namespace Spark::RHI::DX12
         if (FAILED(D3D12MA::CreateVirtualBlock(&vbDesc, &virtualBlock)))
         {
             LOG_ERROR("[TransientResourcePool] CreateVirtualBlock failed.");
-            m_bucket.m_heap.reset();
-            m_allocator.reset();
+            bucket.m_heap.reset();
             return RHI::ResultCode::Fail;
         }
-        m_bucket.m_offsetBlock = virtualBlock.Get();
-
-        D3D12MAReleaseQueue::Descriptor mqDesc;
-        mqDesc.m_collectLatency = device.GetDescriptor().m_frameCountMax;
-        m_releaseQueue.Init(mqDesc);
+        bucket.m_offsetBlock = virtualBlock.Get();
 
         return RHI::ResultCode::Success;
+    }
+
+    void TransientResourcePool::ResetBucket(HeapBucket& bucket)
+    {
+        bucket.m_resourceCache.clear();
+
+        if (GetDescriptor().m_allowCrossBatchReuse)
+        {
+            for (auto& placement : bucket.m_placements)
+            {
+                if (!placement.m_resource)
+                {
+                    continue;
+                }
+
+                ID3D12Resource* dx12Resource = nullptr;
+                if (placement.m_resourceType == RHI::BarrierResourceType::Image)
+                {
+                    dx12Resource = static_cast<Image*>(placement.m_resource.get())->GetMemoryView().GetMemory();
+                }
+                else
+                {
+                    dx12Resource = static_cast<Buffer*>(placement.m_resource.get())->GetMemoryView().GetMemory();
+                }
+
+                if (dx12Resource)
+                {
+                    // intrusive_ptr 从 raw pointer 构造会 AddRef，placements.clear() 后 cache 仍持 ref
+                    bucket.m_resourceCache[placement.m_cacheKey].emplace_back(dx12Resource);
+                }
+            }
+        }
+
+        bucket.m_aliasingBarriers.clear();
+        bucket.m_placements.clear();
+        bucket.m_chainTails.clear();
+        if (bucket.m_offsetBlock)
+        {
+            bucket.m_offsetBlock->Clear();
+        }
+        bucket.m_committedFallbacks.clear();
+    }
+
+    void TransientResourcePool::DestroyBucket(HeapBucket& bucket)
+    {
+        // shutdown 时不能假设 GPU idle，走 release queue 兜底 frameCountMax 帧
+        auto factory = Service<ID3D12FactoryInterface>::Get();
+        if (factory)
+        {
+            Device& device = GetDevice();
+            for (auto& [key, list] : bucket.m_resourceCache)
+            {
+                for (auto& resource : list)
+                {
+                    if (resource)
+                    {
+                        factory->QueueForRelease(device, eastl::move(resource));
+                    }
+                }
+            }
+        }
+        bucket.m_resourceCache.clear();
+
+        bucket.m_aliasingBarriers.clear();
+        bucket.m_placements.clear();
+        bucket.m_chainTails.clear();
+        bucket.m_committedFallbacks.clear();
+        bucket.m_offsetBlock.reset();
+        if (bucket.m_heap)
+        {
+            m_releaseQueue.QueueForCollect(eastl::move(bucket.m_heap));
+        }
     }
 
     RHI::Image* TransientResourcePool::CreateImageInternal(
@@ -132,54 +243,58 @@ namespace Spark::RHI::DX12
         Device& device = GetDevice();
         D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = device.GetDX12Device()->GetResourceAllocationInfo(0, 1, &resourceDesc);
 
+        HeapBucket& bucket = CurrentBucket();
+        const size_t descHash = HashResourceDesc(resourceDesc);
+        constexpr RHI::BarrierResourceType resourceType = RHI::BarrierResourceType::Image;
+
         uint32_t bestChainSlot = InvalidPlacementIndex;
         uint32_t index = 0;
-        for (auto& tailIndex : m_bucket.m_chainTails)
+        for (auto& tailIndex : bucket.m_chainTails)
         {
-            const Placement& tail = m_bucket.m_placements[tailIndex];
+            const Placement& tail = bucket.m_placements[tailIndex];
 
             if (tail.m_discard.m_timelinePosition <= allocFence.m_timelinePosition &&
                 tail.m_size >= allocationInfo.SizeInBytes &&
                 IsAligned(tail.m_offset, allocationInfo.Alignment)
                 )
             {
-                // first-fit，add best-fit in future.
+                // TODO: best-fit
                 bestChainSlot = index;
                 break;
             }
             ++index;
         }
 
-        const uint32_t newIndex = static_cast<uint32_t>(m_bucket.m_placements.size());
+        const uint32_t newIndex = static_cast<uint32_t>(bucket.m_placements.size());
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            const uint32_t prevTailIdx = m_bucket.m_chainTails[bestChainSlot];
-            Placement& prevTail = m_bucket.m_placements[prevTailIdx];
+            const uint32_t prevTailIdx = bucket.m_chainTails[bestChainSlot];
+            Placement& prevTail = bucket.m_placements[prevTailIdx];
 
             const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
             const RHI::AttachmentStage dstStage = allocFence.m_stage;
 
             Placement newPlacement;
-            newPlacement.m_offset = prevTail.m_offset;  // 同 offset
+            newPlacement.m_offset = prevTail.m_offset;
             newPlacement.m_size = allocationInfo.SizeInBytes;
+            newPlacement.m_cacheKey = MakeResourceCacheKey(prevTail.m_offset, descHash);
             newPlacement.m_alloc = allocFence;
             newPlacement.m_aliasedFrom = prevTailIdx;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            // newPlacement.m_vAlloc 留空：本次复用别人预定的 offset，没向 VirtualBlock 申请
-            m_bucket.m_placements.push_back(eastl::move(newPlacement));
+            newPlacement.m_resourceType = resourceType;
+            bucket.m_placements.push_back(eastl::move(newPlacement));
 
-            // 注意prevTail可能失效，这里重新取
-            m_bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
-            m_bucket.m_chainTails[bestChainSlot] = newIndex;
+            // push_back 后 prevTail 引用可能失效，必须用 index 重新拿
+            bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
+            bucket.m_chainTails[bestChainSlot] = newIndex;
 
-            // 加入barrier
             RHI::AliasingBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
-            barrier.m_typeBefore = RHI::BarrierResourceType::Image;
+            barrier.m_typeBefore = resourceType;
             barrier.m_srcStage       = srcStage;
             barrier.m_dstStage       = dstStage;
-            m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
+            bucket.m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
         }
         else
         {
@@ -190,31 +305,37 @@ namespace Spark::RHI::DX12
 
             D3D12MA::VirtualAllocation vAlloc;
             UINT64 offset;
-            HRESULT hr = m_bucket.m_offsetBlock->Allocate(&vDesc, &vAlloc, &offset);
+            HRESULT hr = bucket.m_offsetBlock->Allocate(&vDesc, &vAlloc, &offset);
             if (FAILED(hr))
             {
-                // Create committed resource, now return null
-                LOG_WARN("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}). "
-                    "Committed fallback not yet implemented.",
-                    allocationInfo.SizeInBytes, allocationInfo.Alignment);
+                if (GetDescriptor().m_allowCommittedFallback)
+                {
+                    LOG_WARN("[TransientResourcePool] VirtualBlock full (size {} align {}); "
+                             "falling back to committed image.",
+                             allocationInfo.SizeInBytes, allocationInfo.Alignment);
+                    return CreateCommittedImage(createInfo, resourceDesc, allocationInfo);
+                }
+                LOG_ERROR("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}); "
+                          "committed fallback disabled by descriptor.",
+                          allocationInfo.SizeInBytes, allocationInfo.Alignment);
                 return nullptr;
             }
 
             Placement newPlacement;
             newPlacement.m_offset = offset;
             newPlacement.m_size = allocationInfo.SizeInBytes;
+            newPlacement.m_cacheKey = MakeResourceCacheKey(offset, descHash);
             newPlacement.m_alloc = allocFence;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            m_bucket.m_placements.push_back(eastl::move(newPlacement));
+            newPlacement.m_resourceType = resourceType;
+            bucket.m_placements.push_back(eastl::move(newPlacement));
 
-            m_bucket.m_chainTails.push_back(newIndex);
+            bucket.m_chainTails.push_back(newIndex);
         }
 
-        // Create resource for new Placement
         auto factory = Service<RHI::Factory>::Get();
-        ASSERT(factory, "RHI::Factory is null when shutting down TransientResourcePool.");
+        ASSERT(factory, "RHI::Factory is null when creating transient image.");
 
-        // 初始化为无效状态
         Ptr<RHI::Image> image = factory->CreateImage();
         SetResourceState(*image, RHI::ResourceState{});
 
@@ -229,28 +350,52 @@ namespace Spark::RHI::DX12
         const RHI::ResourceState resourceState = image->GetResourceState();
         D3D12_RESOURCE_STATES initialResourceState = ConvertImageAttachmentState(resourceState.m_usage, resourceState.m_access);
 
-        auto& newPlacement = m_bucket.m_placements.back();
-        
-        RHI::ResultCode result = InitResource(image.get(), [&]() -> RHI::ResultCode 
+        auto& newPlacement = bucket.m_placements.back();
+
+        Ptr<ID3D12Resource> cachedResource;
+        if (GetDescriptor().m_allowCrossBatchReuse)
         {
-            ComPtr<ID3D12Resource> dx12Resource;
-            HRESULT hr = m_allocator->CreateAliasingResource(
-                m_bucket.m_heap.get(),
-                newPlacement.m_offset,
-                &resourceDesc,
-                initialResourceState,
-                (isOutputMergerAttachment && createInfo.m_optimizedClearValue) ? &clearValue : nullptr,
-                IID_PPV_ARGS(&dx12Resource));
-            if (FAILED(hr))
+            auto cacheIt = bucket.m_resourceCache.find(newPlacement.m_cacheKey);
+            if (cacheIt != bucket.m_resourceCache.end() && !cacheIt->second.empty())
             {
-                LOG_ERROR("[TransientResourcePool] CreateAliasingResource failed (HRESULT 0x{:X}).",
-                        static_cast<uint32_t>(hr));
-                return RHI::ResultCode::Fail;
+                cachedResource = eastl::move(cacheIt->second.back());
+                cacheIt->second.pop_back();
+                if (cacheIt->second.empty())
+                {
+                    bucket.m_resourceCache.erase(cacheIt);
+                }
+            }
+        }
+
+        RHI::ResultCode result = InitResource(image.get(), [&]() -> RHI::ResultCode
+        {
+            Ptr<ID3D12Resource> dx12Resource;
+            if (cachedResource)
+            {
+                dx12Resource = eastl::move(cachedResource);
+            }
+            else
+            {
+                ComPtr<ID3D12Resource> created;
+                HRESULT hr = m_allocator->CreateAliasingResource(
+                    bucket.m_heap.get(),
+                    newPlacement.m_offset,
+                    &resourceDesc,
+                    initialResourceState,
+                    (isOutputMergerAttachment && createInfo.m_optimizedClearValue) ? &clearValue : nullptr,
+                    IID_PPV_ARGS(&created));
+                if (FAILED(hr))
+                {
+                    LOG_ERROR("[TransientResourcePool] CreateAliasingResource failed (HRESULT 0x{:X}).",
+                            static_cast<uint32_t>(hr));
+                    return RHI::ResultCode::Fail;
+                }
+                dx12Resource = created.Get();
             }
 
             Image* dx12Image = static_cast<Image*>(image.get());
             SetImageDescriptor(*image, createInfo.m_descriptor);
-            MemoryView memoryView(dx12Resource.Get(), MemoryViewType::Image,
+            MemoryView memoryView(dx12Resource.get(), MemoryViewType::Image,
                         newPlacement.m_offset,
                         newPlacement.m_size,
                         allocationInfo.Alignment);
@@ -263,9 +408,35 @@ namespace Spark::RHI::DX12
 
         if (result != RHI::ResultCode::Success)
         {
-            // committed fallback 的位置；现在直接返回。
-            // 注意：scan 阶段已经 push 了 Placement，严格来说要回滚（pop_back + 还原 chain tail）
-            // 但先用 ASSERT/LOG 占位，等真要 fallback 时再处理。
+            // 回滚簿记。VirtualBlock 那侧的 vAlloc 不显式 free，留待下一次 ResetBucket 的 Clear()。
+            if (bestChainSlot != InvalidPlacementIndex)
+            {
+                const uint32_t prevTailIdx = bucket.m_placements.back().m_aliasedFrom;
+                bucket.m_placements[prevTailIdx].m_aliasedTo = InvalidPlacementIndex;
+                bucket.m_chainTails[bestChainSlot] = prevTailIdx;
+
+                auto barrierIt = bucket.m_aliasingBarriers.find(allocFence.m_timelinePosition);
+                if (barrierIt != bucket.m_aliasingBarriers.end() && !barrierIt->second.empty())
+                {
+                    barrierIt->second.pop_back();
+                    if (barrierIt->second.empty())
+                    {
+                        bucket.m_aliasingBarriers.erase(barrierIt);
+                    }
+                }
+            }
+            else
+            {
+                bucket.m_chainTails.pop_back();
+            }
+            bucket.m_placements.pop_back();
+
+            if (GetDescriptor().m_allowCommittedFallback)
+            {
+                LOG_WARN("[TransientResourcePool] CreateAliasingResource (Image) failed; "
+                         "falling back to committed image.");
+                return CreateCommittedImage(createInfo, resourceDesc, allocationInfo);
+            }
             return nullptr;
         }
 
@@ -273,9 +444,9 @@ namespace Spark::RHI::DX12
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            auto& curBarrier = m_aliasingBarriers[allocFence.m_timelinePosition].back();
+            auto& curBarrier = bucket.m_aliasingBarriers[allocFence.m_timelinePosition].back();
             curBarrier.m_resourceAfter = image.get();
-            curBarrier.m_typeAfter = RHI::BarrierResourceType::Image;
+            curBarrier.m_typeAfter = resourceType;
         }
 
         return image.get();
@@ -291,54 +462,58 @@ namespace Spark::RHI::DX12
         Device& device = GetDevice();
         D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = device.GetDX12Device()->GetResourceAllocationInfo(0, 1, &resourceDesc);
 
+        HeapBucket& bucket = CurrentBucket();
+        const size_t descHash = HashResourceDesc(resourceDesc);
+        constexpr RHI::BarrierResourceType resourceType = RHI::BarrierResourceType::Buffer;
+
         uint32_t bestChainSlot = InvalidPlacementIndex;
         uint32_t index = 0;
-        for (auto& tailIndex : m_bucket.m_chainTails)
+        for (auto& tailIndex : bucket.m_chainTails)
         {
-            const Placement& tail = m_bucket.m_placements[tailIndex];
+            const Placement& tail = bucket.m_placements[tailIndex];
 
             if (tail.m_discard.m_timelinePosition <= allocFence.m_timelinePosition &&
                 tail.m_size >= allocationInfo.SizeInBytes &&
                 IsAligned(tail.m_offset, allocationInfo.Alignment)
                 )
             {
-                // first-fit，add best-fit in future.
+                // TODO: best-fit
                 bestChainSlot = index;
                 break;
             }
             ++index;
         }
 
-        const uint32_t newIndex = static_cast<uint32_t>(m_bucket.m_placements.size());
+        const uint32_t newIndex = static_cast<uint32_t>(bucket.m_placements.size());
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            const uint32_t prevTailIdx = m_bucket.m_chainTails[bestChainSlot];
-            Placement& prevTail = m_bucket.m_placements[prevTailIdx];
+            const uint32_t prevTailIdx = bucket.m_chainTails[bestChainSlot];
+            Placement& prevTail = bucket.m_placements[prevTailIdx];
 
             const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
             const RHI::AttachmentStage dstStage = allocFence.m_stage;
 
             Placement newPlacement;
-            newPlacement.m_offset = prevTail.m_offset;  // 同 offset
+            newPlacement.m_offset = prevTail.m_offset;
             newPlacement.m_size = allocationInfo.SizeInBytes;
+            newPlacement.m_cacheKey = MakeResourceCacheKey(prevTail.m_offset, descHash);
             newPlacement.m_alloc = allocFence;
             newPlacement.m_aliasedFrom = prevTailIdx;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            // newPlacement.m_vAlloc 留空：本次复用别人预定的 offset，没向 VirtualBlock 申请
-            m_bucket.m_placements.push_back(eastl::move(newPlacement));
+            newPlacement.m_resourceType = resourceType;
+            bucket.m_placements.push_back(eastl::move(newPlacement));
 
-            // 注意prevTail可能失效，这里重新取
-            m_bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
-            m_bucket.m_chainTails[bestChainSlot] = newIndex;
+            // push_back 后 prevTail 引用可能失效，必须用 index 重新拿
+            bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
+            bucket.m_chainTails[bestChainSlot] = newIndex;
 
-            // 加入barrier
             RHI::AliasingBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
-            barrier.m_typeBefore = RHI::BarrierResourceType::Buffer;
+            barrier.m_typeBefore = resourceType;
             barrier.m_srcStage       = srcStage;
             barrier.m_dstStage       = dstStage;
-            m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
+            bucket.m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
         }
         else
         {
@@ -349,59 +524,89 @@ namespace Spark::RHI::DX12
 
             D3D12MA::VirtualAllocation vAlloc;
             UINT64 offset;
-            HRESULT hr = m_bucket.m_offsetBlock->Allocate(&vDesc, &vAlloc, &offset);
+            HRESULT hr = bucket.m_offsetBlock->Allocate(&vDesc, &vAlloc, &offset);
             if (FAILED(hr))
             {
-                // Create committed resource, now return null
-                LOG_WARN("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}). "
-                    "Committed fallback not yet implemented.",
-                    allocationInfo.SizeInBytes, allocationInfo.Alignment);
+                if (GetDescriptor().m_allowCommittedFallback)
+                {
+                    LOG_WARN("[TransientResourcePool] VirtualBlock full (size {} align {}); "
+                             "falling back to committed buffer.",
+                             allocationInfo.SizeInBytes, allocationInfo.Alignment);
+                    return CreateCommittedBuffer(createInfo, resourceDesc, allocationInfo);
+                }
+                LOG_ERROR("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}); "
+                          "committed fallback disabled by descriptor.",
+                          allocationInfo.SizeInBytes, allocationInfo.Alignment);
                 return nullptr;
             }
 
             Placement newPlacement;
             newPlacement.m_offset = offset;
             newPlacement.m_size = allocationInfo.SizeInBytes;
+            newPlacement.m_cacheKey = MakeResourceCacheKey(offset, descHash);
             newPlacement.m_alloc = allocFence;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            m_bucket.m_placements.push_back(eastl::move(newPlacement));
+            newPlacement.m_resourceType = resourceType;
+            bucket.m_placements.push_back(eastl::move(newPlacement));
 
-            m_bucket.m_chainTails.push_back(newIndex);
+            bucket.m_chainTails.push_back(newIndex);
         }
 
-        // Create resource for new Placement
         auto factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "RHI::Factory is null when creating transient buffer.");
 
-        // 初始化为无效状态
         Ptr<RHI::Buffer> buffer = factory->CreateBuffer();
         SetResourceState(*buffer, RHI::ResourceState{});
 
         const RHI::ResourceState resourceState = buffer->GetResourceState();
         D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
 
-        auto& newPlacement = m_bucket.m_placements.back();
+        auto& newPlacement = bucket.m_placements.back();
+
+        Ptr<ID3D12Resource> cachedResource;
+        if (GetDescriptor().m_allowCrossBatchReuse)
+        {
+            auto cacheIt = bucket.m_resourceCache.find(newPlacement.m_cacheKey);
+            if (cacheIt != bucket.m_resourceCache.end() && !cacheIt->second.empty())
+            {
+                cachedResource = eastl::move(cacheIt->second.back());
+                cacheIt->second.pop_back();
+                if (cacheIt->second.empty())
+                {
+                    bucket.m_resourceCache.erase(cacheIt);
+                }
+            }
+        }
 
         RHI::ResultCode result = InitResource(buffer.get(), [&]() -> RHI::ResultCode
         {
-            ComPtr<ID3D12Resource> dx12Resource;
-            HRESULT hr = m_allocator->CreateAliasingResource(
-                m_bucket.m_heap.get(),
-                newPlacement.m_offset,
-                &resourceDesc,
-                initialResourceState,
-                nullptr,
-                IID_PPV_ARGS(&dx12Resource));
-            if (FAILED(hr))
+            Ptr<ID3D12Resource> dx12Resource;
+            if (cachedResource)
             {
-                LOG_ERROR("[TransientResourcePool] CreateAliasingResource (Buffer) failed (HRESULT 0x{:X}).",
-                        static_cast<uint32_t>(hr));
-                return RHI::ResultCode::Fail;
+                dx12Resource = eastl::move(cachedResource);
+            }
+            else
+            {
+                ComPtr<ID3D12Resource> created;
+                HRESULT hr = m_allocator->CreateAliasingResource(
+                    bucket.m_heap.get(),
+                    newPlacement.m_offset,
+                    &resourceDesc,
+                    initialResourceState,
+                    nullptr,
+                    IID_PPV_ARGS(&created));
+                if (FAILED(hr))
+                {
+                    LOG_ERROR("[TransientResourcePool] CreateAliasingResource (Buffer) failed (HRESULT 0x{:X}).",
+                            static_cast<uint32_t>(hr));
+                    return RHI::ResultCode::Fail;
+                }
+                dx12Resource = created.Get();
             }
 
             Buffer* dx12Buffer = static_cast<Buffer*>(buffer.get());
             SetBufferDescriptor(*buffer, createInfo.m_descriptor);
-            MemoryView memoryView(dx12Resource.Get(), MemoryViewType::Buffer,
+            MemoryView memoryView(dx12Resource.get(), MemoryViewType::Buffer,
                         newPlacement.m_offset,
                         newPlacement.m_size,
                         allocationInfo.Alignment);
@@ -411,9 +616,34 @@ namespace Spark::RHI::DX12
 
         if (result != RHI::ResultCode::Success)
         {
-            // committed fallback 的位置；现在直接返回。
-            // 注意：scan 阶段已经 push 了 Placement，严格来说要回滚（pop_back + 还原 chain tail）
-            // 但先用 ASSERT/LOG 占位，等真要 fallback 时再处理。
+            if (bestChainSlot != InvalidPlacementIndex)
+            {
+                const uint32_t prevTailIdx = bucket.m_placements.back().m_aliasedFrom;
+                bucket.m_placements[prevTailIdx].m_aliasedTo = InvalidPlacementIndex;
+                bucket.m_chainTails[bestChainSlot] = prevTailIdx;
+
+                auto barrierIt = bucket.m_aliasingBarriers.find(allocFence.m_timelinePosition);
+                if (barrierIt != bucket.m_aliasingBarriers.end() && !barrierIt->second.empty())
+                {
+                    barrierIt->second.pop_back();
+                    if (barrierIt->second.empty())
+                    {
+                        bucket.m_aliasingBarriers.erase(barrierIt);
+                    }
+                }
+            }
+            else
+            {
+                bucket.m_chainTails.pop_back();
+            }
+            bucket.m_placements.pop_back();
+
+            if (GetDescriptor().m_allowCommittedFallback)
+            {
+                LOG_WARN("[TransientResourcePool] CreateAliasingResource (Buffer) failed; "
+                         "falling back to committed buffer.");
+                return CreateCommittedBuffer(createInfo, resourceDesc, allocationInfo);
+            }
             return nullptr;
         }
 
@@ -421,18 +651,146 @@ namespace Spark::RHI::DX12
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            auto& curBarrier = m_aliasingBarriers[allocFence.m_timelinePosition].back();
+            auto& curBarrier = bucket.m_aliasingBarriers[allocFence.m_timelinePosition].back();
             curBarrier.m_resourceAfter = buffer.get();
-            curBarrier.m_typeAfter = RHI::BarrierResourceType::Buffer;
+            curBarrier.m_typeAfter = resourceType;
         }
 
         return buffer.get();
     }
 
+    RHI::Image* TransientResourcePool::CreateCommittedImage(
+        const RHI::TransientImageCreateInfo& createInfo,
+        const D3D12_RESOURCE_DESC& resourceDesc,
+        const D3D12_RESOURCE_ALLOCATION_INFO& allocationInfo)
+    {
+        HeapBucket& bucket = CurrentBucket();
+
+        auto factory = Service<RHI::Factory>::Get();
+        ASSERT(factory, "RHI::Factory is null when creating committed transient image.");
+
+        Ptr<RHI::Image> image = factory->CreateImage();
+        SetResourceState(*image, RHI::ResourceState{});
+
+        const bool isOutputMergerAttachment =
+            CheckBitsAny(createInfo.m_descriptor.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
+        D3D12_CLEAR_VALUE clearValue;
+        if (isOutputMergerAttachment && createInfo.m_optimizedClearValue)
+        {
+            clearValue = ConvertClearValue(createInfo.m_descriptor.m_format, *createInfo.m_optimizedClearValue);
+        }
+
+        const RHI::ResourceState resourceState = image->GetResourceState();
+        D3D12_RESOURCE_STATES initialResourceState = ConvertImageAttachmentState(resourceState.m_usage, resourceState.m_access);
+
+        RHI::ResultCode result = InitResource(image.get(), [&]() -> RHI::ResultCode
+        {
+            D3D12MA::ALLOCATION_DESC allocDesc = {};
+            allocDesc.Flags    = D3D12MA::ALLOCATION_FLAG_COMMITTED;
+            allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel,
+                                                 RHI::HostMemoryAccess::Write);
+
+            ComPtr<D3D12MA::Allocation> allocation;
+            ComPtr<ID3D12Resource>      dx12Resource;
+            HRESULT hr = m_allocator->CreateResource(
+                &allocDesc,
+                &resourceDesc,
+                initialResourceState,
+                (isOutputMergerAttachment && createInfo.m_optimizedClearValue) ? &clearValue : nullptr,
+                &allocation,
+                IID_PPV_ARGS(&dx12Resource));
+            if (FAILED(hr))
+            {
+                LOG_ERROR("[TransientResourcePool] Committed CreateResource (Image) failed (HRESULT 0x{:X}).",
+                          static_cast<uint32_t>(hr));
+                return RHI::ResultCode::Fail;
+            }
+
+            Image* dx12Image = static_cast<Image*>(image.get());
+            SetImageDescriptor(*image, createInfo.m_descriptor);
+            MemoryView memoryView(allocation.Get(), MemoryViewType::Image,
+                                  0,
+                                  allocationInfo.SizeInBytes,
+                                  allocationInfo.Alignment);
+            dx12Image->m_residentSizeInBytes = memoryView.GetSize();
+            dx12Image->m_memoryView = eastl::move(memoryView);
+            dx12Image->GenerateSubresourceLayouts();
+            dx12Image->InitSubresourceAttachmentState();
+            return RHI::ResultCode::Success;
+        });
+
+        if (result != RHI::ResultCode::Success)
+        {
+            return nullptr;
+        }
+
+        bucket.m_committedFallbacks.push_back(image);
+        return image.get();
+    }
+
+    RHI::Buffer* TransientResourcePool::CreateCommittedBuffer(
+        const RHI::TransientBufferCreateInfo& createInfo,
+        const D3D12_RESOURCE_DESC& resourceDesc,
+        const D3D12_RESOURCE_ALLOCATION_INFO& allocationInfo)
+    {
+        HeapBucket& bucket = CurrentBucket();
+
+        auto factory = Service<RHI::Factory>::Get();
+        ASSERT(factory, "RHI::Factory is null when creating committed transient buffer.");
+
+        Ptr<RHI::Buffer> buffer = factory->CreateBuffer();
+        SetResourceState(*buffer, RHI::ResourceState{});
+
+        const RHI::ResourceState resourceState = buffer->GetResourceState();
+        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
+
+        RHI::ResultCode result = InitResource(buffer.get(), [&]() -> RHI::ResultCode
+        {
+            D3D12MA::ALLOCATION_DESC allocDesc = {};
+            allocDesc.Flags    = D3D12MA::ALLOCATION_FLAG_COMMITTED;
+            allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel,
+                                                 RHI::HostMemoryAccess::Write);
+
+            ComPtr<D3D12MA::Allocation> allocation;
+            ComPtr<ID3D12Resource>      dx12Resource;
+            HRESULT hr = m_allocator->CreateResource(
+                &allocDesc,
+                &resourceDesc,
+                initialResourceState,
+                nullptr,
+                &allocation,
+                IID_PPV_ARGS(&dx12Resource));
+            if (FAILED(hr))
+            {
+                LOG_ERROR("[TransientResourcePool] Committed CreateResource (Buffer) failed (HRESULT 0x{:X}).",
+                          static_cast<uint32_t>(hr));
+                return RHI::ResultCode::Fail;
+            }
+
+            Buffer* dx12Buffer = static_cast<Buffer*>(buffer.get());
+            SetBufferDescriptor(*buffer, createInfo.m_descriptor);
+            MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer,
+                                  0,
+                                  allocationInfo.SizeInBytes,
+                                  allocationInfo.Alignment);
+            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
+            return RHI::ResultCode::Success;
+        });
+
+        if (result != RHI::ResultCode::Success)
+        {
+            return nullptr;
+        }
+
+        bucket.m_committedFallbacks.push_back(buffer);
+        return buffer.get();
+    }
+
     void TransientResourcePool::GetAliasingBarriersInternal(uint32_t timelinePosition, eastl::vector<RHI::AliasingBarrier>& out) const
     {
-        auto it = m_aliasingBarriers.find(timelinePosition);
-        if (it != m_aliasingBarriers.end())
+        const HeapBucket& bucket = CurrentBucket();
+        auto it = bucket.m_aliasingBarriers.find(timelinePosition);
+        if (it != bucket.m_aliasingBarriers.end())
         {
             out = it->second;
             return;
@@ -442,9 +800,10 @@ namespace Spark::RHI::DX12
 
     void TransientResourcePool::DiscardInternal(RHI::Image* image, const RHI::TransientAllocationFence& discardFence)
     {
-        for(auto tailIndex: m_bucket.m_chainTails)
+        HeapBucket& bucket = CurrentBucket();
+        for(auto tailIndex: bucket.m_chainTails)
         {
-            Placement& tail = m_bucket.m_placements[tailIndex];
+            Placement& tail = bucket.m_placements[tailIndex];
             if (tail.m_resource.get() == image)
             {
                 ASSERT(tail.m_discard.m_timelinePosition == RHI::InvalidTimelinePosition,
@@ -457,6 +816,15 @@ namespace Spark::RHI::DX12
             }
         }
 
+        // committed fallback 不参与 aliasing，没 offset 要回收，no-op。
+        for (auto& res : bucket.m_committedFallbacks)
+        {
+            if (res.get() == image)
+            {
+                return;
+            }
+        }
+
         ASSERT(false, "[TransientResourcePool] Discard called on image %s that is not a chain tail. "
                        "Discard must follow LIFO order on each alias chain: the last-allocated resource "
                        "at an offset must be discarded before its predecessor can be discarded.",
@@ -465,9 +833,10 @@ namespace Spark::RHI::DX12
 
     void TransientResourcePool::DiscardInternal(RHI::Buffer* buffer, const RHI::TransientAllocationFence& discardFence)
     {
-        for (auto tailIndex : m_bucket.m_chainTails)
+        HeapBucket& bucket = CurrentBucket();
+        for (auto tailIndex : bucket.m_chainTails)
         {
-            Placement& tail = m_bucket.m_placements[tailIndex];
+            Placement& tail = bucket.m_placements[tailIndex];
             if (tail.m_resource.get() == buffer)
             {
                 ASSERT(tail.m_discard.m_timelinePosition == RHI::InvalidTimelinePosition,
@@ -480,6 +849,14 @@ namespace Spark::RHI::DX12
             }
         }
 
+        for (auto& res : bucket.m_committedFallbacks)
+        {
+            if (res.get() == buffer)
+            {
+                return;
+            }
+        }
+
         ASSERT(false, "[TransientResourcePool] Discard called on buffer %s that is not a chain tail. "
                        "Discard must follow LIFO order on each alias chain: the last-allocated resource "
                        "at an offset must be discarded before its predecessor can be discarded.",
@@ -488,10 +865,9 @@ namespace Spark::RHI::DX12
 
     void TransientResourcePool::OnFrameBeginInternal()
     {
-        m_aliasingBarriers.clear();
-        m_bucket.m_placements.clear();
-        m_bucket.m_chainTails.clear();
-        m_bucket.m_offsetBlock->Clear();
+        // 推进到下一槽。frames-in-flight fence 保证此槽上一次 GPU 工作已完成。
+        m_currentSlot = (m_currentSlot + 1) % static_cast<uint32_t>(m_buckets.size());
+        ResetBucket(m_buckets[m_currentSlot]);
     }
 
     void TransientResourcePool::OnFrameEndInternal()
@@ -501,34 +877,11 @@ namespace Spark::RHI::DX12
 
     void TransientResourcePool::ShutdownInternal()
     {
-        auto factory = Service<ID3D12FactoryInterface>::Get();
-        ASSERT(factory, "ID3D12FactoryInterface is null when shutting down TransientResourcePool.");
-
-        Device& device = GetDevice();
-
-        // 跨批次缓存里的 placed resource 走 ID3D12Factory 的全局 ObjReleaseQueue，
-        // GPU 完成最后一帧消费后真正释放
-        for (auto& [hash, resources] : m_placedResourceCache)
+        for (auto& bucket : m_buckets)
         {
-            for (auto& resource : resources)
-            {
-                if (resource)
-                {
-                    factory->QueueForRelease(device, eastl::move(resource));
-                }
-            }
+            DestroyBucket(bucket);
         }
-        m_placedResourceCache.clear();
-
-        // VirtualBlock 内残留的 vAlloc 由其析构自动 Clear。
-        m_bucket.m_placements.clear();
-        m_bucket.m_offsetBlock.reset();
-        m_aliasingBarriers.clear();
-
-        if (m_bucket.m_heap)
-        {
-            m_releaseQueue.QueueForCollect(eastl::move(m_bucket.m_heap));
-        }
+        m_buckets.clear();
 
         m_releaseQueue.Shutdown();
         m_allocator.reset();
