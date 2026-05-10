@@ -18,12 +18,6 @@
 
 namespace Spark
 {
-    template<typename... Type>
-    inline constexpr entt::exclude_t<Type...> Exclude{};
-
-    template<typename... Type>
-    inline constexpr entt::get_t<Type...> Include{};
-
     namespace Internal
     {
         template<typename... Cs>

@@ -164,7 +164,6 @@ namespace Spark::SandBox
         Ptr<RHI::ImageView> m_baseColorImageView;
 
         // Shader resources (SRG)
-        Ptr<RHI::ConstantsLayout> m_constantsLayout;
         Ptr<RHI::ShaderResourceLayout> m_srgLayout;
         Ptr<RHI::ShaderResource> m_shaderResource;
 
@@ -308,11 +307,8 @@ namespace Spark::SandBox
 
     void DrawShape::CreateShaderResources()
     {
-        m_constantsLayout = m_rhiFactory->CreateConstantsLayout();
-
         // Build ShaderResourceLayout: one constant buffer (MVP), one texture, one sampler
         m_srgLayout = m_rhiFactory->CreateShaderResourceLayout();
-        m_srgLayout->AddConstantsLayout(m_constantsLayout);
 
         // Constant: MVP matrix (4x4 float = 64 bytes)
         RHI::ShaderInputConstantDescriptor mvpConstant(

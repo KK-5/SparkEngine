@@ -154,8 +154,6 @@ namespace Spark::Render
 
         m_compiler.CompileTransientResources(passes, *m_pool);
 
-        // m_pool->Seal();
-
         for (auto pass : passes)
         {
             ASSERT(passContext.Has<PassAttachmentMarker>(pass),

@@ -1,14 +1,17 @@
 #pragma once
 
 #include <Base.h>
+#include <EASTL/fixed_vector.h>
 #include <Object/ObjectName.h>
 
 #include <RHI/Resource/ShaderResource/InputStreamLayout.h>
 #include <RHI/Attachment/RenderAttachmentLayout.h>
 #include <RHI/Pipeline/RenderStates.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Pipeline/RenderTargetLayout.h>
+#include <RHI/Pipeline/PipelineState.h>
 #include <RHI/Resource/ResourceState.h>
 #include <RHI/HardwareQueue.h>
+#include <RHI/RHILimits.h>
 
 #include <Resource/Shader/ShaderAsset.h>
 
@@ -44,6 +47,12 @@ namespace Spark::Render
     {
     };
 
+    //! Marks a pass that manages its own pipeline state (e.g. ImGui), skipping
+    //! engine-side PSO compilation. PSO compiler skips passes with this tag.
+    struct CustomPipelinePassTag
+    {
+    };
+
     //! Tags pass entities that are synthesized by the compiler each frame
     //! (currently: final-transition sink passes from CompileFinalTransitionBarrier).
     //! Executer.End walks this view to destroy these entities so they don't leak.
@@ -74,6 +83,17 @@ namespace Spark::Render
 
     //////////////////////////////
     // PSO components
+
+    //! Fixed-function pipeline state: input layout, render-target formats,
+    //! and raster/blend/depth states. Bundled into one component so the
+    //! builder and PSO compiler don't need to track three separate pieces.
+    struct PassPipelineState
+    {
+        RHI::InputStreamLayout  m_inputStreamLayout  {};
+        RHI::RenderTargetLayout m_renderTargetLayout {};
+        RHI::RenderStates       m_renderStates       {};
+    };
+
     struct PassShaders
     {
         Ptr<Resource::ShaderAsset> m_vertexShader   = nullptr;
@@ -82,12 +102,33 @@ namespace Spark::Render
         Ptr<Resource::ShaderAsset> m_computeShader  = nullptr;
     };
 
-    struct PassShaderInputs
+    //! Compiled PSO cache. Written by PSO compiler, read by executer.
+    struct PassCompiledPSO
     {
-        eastl::vector<RHI::ShaderInputBufferDescriptor>   m_inputBuffers;
-        eastl::vector<RHI::ShaderInputImageDescriptor>    m_inputImages;
-        eastl::vector<RHI::ShaderInputSamplerDescriptor>  m_inputSamplers;
-        eastl::vector<RHI::ShaderInputConstantDescriptor> m_inputConstants;
+        Ptr<RHI::PipelineState> m_pso;
+    };
+
+    //! Slot-indexed table of SRG entity references the pass uses. Slot index
+    //! corresponds to the shader register space / Vulkan set index — builder
+    //! sets the slot explicitly so this aligns with the shader contract.
+    //!
+    //! NullHandle entries are unused slots. Non-null entries point into the
+    //! RHIContext at SRG entities; the consumer dispatches on component
+    //! presence:
+    //!  - SRG entity has BackingShaderResource → executer binds at pass begin.
+    //!  - SRG entity lacks BackingShaderResource (layout-only) → execute
+    //!    lambda is responsible for binding per draw.
+    //!
+    //! In both cases the PSO compiler reads ShaderResourceLayout off the SRG
+    //! entity to assemble PipelineLayoutDescriptor.
+    struct PassShaderResources
+    {
+        eastl::fixed_vector<RHIHandle, RHI::Limits::Pipeline::ShaderResourceCountMax> m_slots;
+    };
+
+    //! Forces PSO recompilation on next frame (set on shader hot-reload).
+    struct PassPSODirtyTag
+    {
     };
     //////////////////////////////
 

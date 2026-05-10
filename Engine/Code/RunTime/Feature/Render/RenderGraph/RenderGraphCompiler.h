@@ -14,6 +14,7 @@ namespace Spark::RHI
     class ShaderResource;
     class ImageView;
     class BufferView;
+    class PipelineLibrary;
 }
 
 namespace Spark::Render
@@ -86,6 +87,15 @@ namespace Spark::Render
         // ordering — sink is appended to passes after m_lastPass. The appended sinks
         // are pushed into `passes`; caller must run CompilePassCrossQueue2 afterward.
         void CompileFinalTransitionBarrier(PassContext& passContext, RHIContext& context, eastl::vector<Pass>& passes);
+
+        //! Compile PSO for each non-custom pipeline pass and cache the result
+        //! as PassCompiledPSO on the pass entity. Skips passes that already have
+        //! a cached PSO (no PassPSODirtyTag).
+        void CompilePipelineStates(
+            eastl::span<Pass>     passes,
+            PassContext&          passContext,
+            RHI::Device&          device,
+            RHI::PipelineLibrary* pipelineLibrary);
 
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.

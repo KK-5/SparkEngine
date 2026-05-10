@@ -8,6 +8,7 @@
 #include <Service/Service.h>
 
 #include <RHI/Factory.h>
+#include <RHI/Pipeline/PipelineState.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Image/Image.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
@@ -916,6 +917,115 @@ namespace Spark::Render
             "[RenderGraphCompiler] Render pass {} has no color or depth-stencil attachment.",
             passContext.Get<PassName>(pass).m_name.GetCStr());
         passContext.AddOrReplace<RHI::RenderPassBeginInfo>(pass, eastl::move(info));
+    }
+
+    void RenderGraphCompiler::CompilePipelineStates(
+        eastl::span<Pass>,
+        PassContext&          passContext,
+        RHI::Device&          device,
+        RHI::PipelineLibrary* pipelineLibrary)
+    {
+        auto* factory = Service<RHI::Factory>::Get();
+        ASSERT(factory, "RHI::Factory service not registered.");
+
+        // --- Render passes ---
+        {
+            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState>(
+                Exclude<CustomPipelinePassTag>);
+
+            view.each([&](Pass pass, const PassShaders& shaders, const PassPipelineState& pipelineState)
+            {
+                if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
+                    return;
+
+                RHI::PipelineStateDescriptorForDraw descriptor;
+
+                if (shaders.m_vertexShader)
+                {
+                    auto* stage = shaders.m_vertexShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Vertex);
+                    ASSERT(stage, "Pass '{}': VertexShader has no vertex-stage bytecode.",
+                        passContext.Get<PassName>(pass).m_name.GetCStr());
+                    auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Vertex);
+                    func->SetByteCode(stage->bytecode);
+                    func->Finalize();
+                    descriptor.m_vertexFunction = eastl::move(func);
+                }
+
+                if (shaders.m_fragmentShader)
+                {
+                    auto* stage = shaders.m_fragmentShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Fragment);
+                    ASSERT(stage, "Pass '{}': FragmentShader has no fragment-stage bytecode.",
+                        passContext.Get<PassName>(pass).m_name.GetCStr());
+                    auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Fragment);
+                    func->SetByteCode(stage->bytecode);
+                    func->Finalize();
+                    descriptor.m_fragmentFunction = eastl::move(func);
+                }
+
+                if (shaders.m_geometryShader)
+                {
+                    auto* stage = shaders.m_geometryShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Geometry);
+                    ASSERT(stage, "Pass '{}': GeometryShader has no geometry-stage bytecode.",
+                        passContext.Get<PassName>(pass).m_name.GetCStr());
+                    auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Geometry);
+                    func->SetByteCode(stage->bytecode);
+                    func->Finalize();
+                    descriptor.m_geometryFunction = eastl::move(func);
+                }
+
+                descriptor.m_inputStreamLayout  = pipelineState.m_inputStreamLayout;
+                descriptor.m_renderTargetLayout = pipelineState.m_renderTargetLayout;
+                descriptor.m_renderStates       = pipelineState.m_renderStates;
+
+                auto pso = factory->CreatePipelineState();
+                RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
+                ASSERT(rc == RHI::ResultCode::Success,
+                    "Failed to create graphics PSO for pass '{}'.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
+
+                passContext.AddOrReplace<PassCompiledPSO>(pass, PassCompiledPSO{eastl::move(pso)});
+
+                if (passContext.Has<PassPSODirtyTag>(pass))
+                    passContext.Remove<PassPSODirtyTag>(pass);
+            });
+        }
+
+        // --- Compute passes ---
+        {
+            auto view = passContext.GetView<ComputePassTag, PassShaders>(
+                Exclude<CustomPipelinePassTag>);
+
+            view.each([&](Pass pass, const PassShaders& shaders)
+            {
+                if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
+                    return;
+
+                ASSERT(shaders.m_computeShader,
+                    "Compute pass '{}' has no ComputeShader.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
+
+                RHI::PipelineStateDescriptorForDispatch descriptor;
+
+                auto* stage = shaders.m_computeShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Compute);
+                ASSERT(stage, "Pass '{}': ComputeShader has no compute-stage bytecode.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
+                auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Compute);
+                func->SetByteCode(stage->bytecode);
+                func->Finalize();
+                descriptor.m_computeFunction = eastl::move(func);
+
+                auto pso = factory->CreatePipelineState();
+                RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
+                ASSERT(rc == RHI::ResultCode::Success,
+                    "Failed to create compute PSO for pass '{}'.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
+
+                passContext.AddOrReplace<PassCompiledPSO>(pass, PassCompiledPSO{eastl::move(pso)});
+
+                if (passContext.Has<PassPSODirtyTag>(pass))
+                    passContext.Remove<PassPSODirtyTag>(pass);
+            });
+        }
     }
 
     void RenderGraphCompiler::CompileFinalTransitionBarrier(

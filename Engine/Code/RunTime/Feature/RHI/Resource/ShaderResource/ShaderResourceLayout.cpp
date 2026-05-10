@@ -45,6 +45,10 @@ namespace Spark::RHI
 
     void ShaderResourceLayout::AddShaderInput(const ShaderInputConstantDescriptor& constant)
     {
+        if (!m_constantsDataLayout)
+        {
+            m_constantsDataLayout = new ConstantsLayout();
+        }
         m_constantsDataLayout->AddShaderInput(constant);
     }
 
@@ -226,11 +230,6 @@ namespace Spark::RHI
     const ConstantsLayout* ShaderResourceLayout::GetConstantsLayout() const
     {
         return m_constantsDataLayout.get();
-    }
-
-    void ShaderResourceLayout::AddConstantsLayout(Ptr<ConstantsLayout> constantsLayout)
-    {
-        m_constantsDataLayout = constantsLayout;
     }
 
     uint32_t ShaderResourceLayout::GetBindingSlot() const
@@ -489,7 +488,7 @@ namespace Spark::RHI
         }
 
         // Finalize the constants data layout.
-        if (!m_constantsDataLayout->Finalize())
+        if (m_constantsDataLayout && !m_constantsDataLayout->Finalize())
         {
             Clear();
             return false;
@@ -530,7 +529,10 @@ namespace Spark::RHI
                 hash = shaderInputImageUnboundedArray.GetHash(hash);
             }
 
-            eastl::hash_combine_raw(hash, m_constantsDataLayout->GetHash());
+            if (m_constantsDataLayout)
+            {
+                eastl::hash_combine_raw(hash, m_constantsDataLayout->GetHash());
+            }
             eastl::hash_combine(hash, m_bindingSlot);
 
             m_hash = hash;

@@ -16,6 +16,8 @@
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Resource/ShaderResource/ShaderResource.h>
+#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
 #include <RHI/Resource/ResourceState.h>
 
 #include <RHI/Attachment/AttachmentEnums.h>
@@ -46,6 +48,13 @@ namespace Spark::Render
     struct ImportedTag {};
 
     struct TransientTag {};
+
+    //! Marks an RHI resource entity whose CPU-side staging state has been mutated
+    //! and needs flushing this frame. Generic across resource types — currently
+    //! consumed by the ShaderResource batch Compile pass; can extend to other
+    //! resource updates without introducing per-resource dirty tags. Cleared
+    //! after the consumer walks the view.
+    struct RHIUpdateTag {};
 
 
     //! Owning resource components for imported resources. Lifetime managed by
@@ -144,6 +153,38 @@ namespace Spark::Render
     struct BackingBufferView
     {
         RHI::BufferView* m_view = nullptr;
+    };
+
+    //! Discovery tag — marks an entity as a shader resource binding. Useful for
+    //! debug views ("list all SRGs") and component-presence-based identification
+    //! when a generic RHI view doesn't carry enough information.
+    struct ShaderResourceTag {};
+
+    //! Owning shader resource — the descriptor table / root signature binding
+    //! container the shader actually samples from. Mirrors Image / Buffer:
+    //! the Ptr<> is the lifetime owner; consumers read BackingShaderResource.
+    //! Only present on concrete instances; layout-only entities (per-draw
+    //! layout slots) intentionally omit this and BackingShaderResource.
+    struct ShaderResource
+    {
+        Ptr<RHI::ShaderResource> m_shaderResource;
+    };
+
+    //! Non-owning pointer to the actual RHI shader resource. Read by the
+    //! executer to bind at pass begin (concrete slot) or by execute lambdas
+    //! to bind dynamically per draw. Absence of this component on an SRG
+    //! entity is the per-draw / layout-only signal — no extra tag needed.
+    struct BackingShaderResource
+    {
+        RHI::ShaderResource* m_shaderResource = nullptr;
+    };
+
+    //! Logical schema of a shader resource — what bindings exist, in what
+    //! slots. Always present on SRG entities, including layout-only ones.
+    //! Read by the PSO compiler to assemble PipelineLayoutDescriptor.
+    struct ShaderResourceLayout
+    {
+        Ptr<RHI::ShaderResourceLayout> m_layout;
     };
 
     struct ImportedResourceState

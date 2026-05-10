@@ -12,6 +12,7 @@
 #include <Pass/Pass.h>
 #include <Pass/PassTag.h>
 #include <Pass/PassContext.h>
+#include <Pass/PassBuilder.h>
 #include <Pass/RHIContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
@@ -105,47 +106,28 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
-        Pass uiPass = passContext.CreateEntity();
-        passContext.Add<PassName>(uiPass, ObjectName("UIPass"));
-        passContext.Add<ActivePassTag>(uiPass);
-        passContext.Add<RenderPassTag>(uiPass);
-        passContext.Add<PassAttachmentMarker>(uiPass, MarkPassAttachmentCompiling<SPARK_PASS_TAG("UIPass")>());
+        SPARK_RENDER_PASS(passContext, "UIPass")
+            .Queue(RHI::HardwareQueueClass::Graphics)
+            .CustomPipeline()
+            .Build([this](RenderGraphBuilder& builder)
+            {
+                ImportedImageAttachmentBindInfo bind;
+                bind.m_slot   = RHI::InputName("ColorOutput");
+                bind.m_view   = m_renderGraph.GetSwapchainView();
+                bind.m_access = RHI::AttachmentAccess::Write;
+                bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
+                bind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(1.f, 0.f, 0.f, 1.f);
+                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-        passContext.Add<PassExecuteQueue>(uiPass, PassExecuteQueue{ RHI::HardwareQueueClass::Graphics });
-
-        passContext.Add<RHI::InputStreamLayout>(uiPass);
-
-        RHI::RenderTargetLayout renderTargetLayout;
-        renderTargetLayout.m_colorAttachmentCount = 1;
-        renderTargetLayout.m_colorFormats = {RHI::Format::R8G8B8A8_UNORM};
-        passContext.Add<RHI::RenderTargetLayout>(uiPass, renderTargetLayout);
-
-        passContext.Add<RHI::RenderStates>(uiPass);
-        passContext.Add<PassShaders>(uiPass);
-        passContext.Add<PassShaderInputs>(uiPass);
-
-        PassFunctions uiPassFunc;
-        uiPassFunc.m_buildFunction = [this](RenderGraphBuilder& builder)
-        {
-            ImportedImageAttachmentBindInfo bind;
-            bind.m_slot   = RHI::InputName("ColorOutput");
-            bind.m_view   = m_renderGraph.GetSwapchainView();
-            bind.m_access = RHI::AttachmentAccess::Write;
-            bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
-            bind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(1.f, 0.f, 0.f, 1.f);
-            bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-            bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-            builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(
-                RHI::AttachmentId("SwapChain"), bind);
-        };
-
-        uiPassFunc.m_executeFunction = [this](RHI::CommandList* commandList, RenderGraphExecuter&)
-        {
-            m_rednerUI.Render(commandList);
-        };
-
-        passContext.Add<PassFunctions>(uiPass, uiPassFunc);
+                builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(
+                    RHI::AttachmentId("SwapChain"), bind);
+            })
+            .Execute([this](RHI::CommandList* commandList, RenderGraphExecuter&)
+            {
+                m_rednerUI.Render(commandList);
+            })
+            .Finalize();
     }
 
     void RenderSystem::InitPipeline()

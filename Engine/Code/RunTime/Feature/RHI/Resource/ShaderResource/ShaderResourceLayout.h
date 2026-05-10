@@ -142,7 +142,6 @@ namespace Spark::RHI
         //! Returns the constants data layout;
         const ConstantsLayout* GetConstantsLayout() const;
 
-        void AddConstantsLayout(Ptr<ConstantsLayout> constantsLayout);
 
         //! Returns the hash computed in Finalize.
         size_t GetHash() const;
