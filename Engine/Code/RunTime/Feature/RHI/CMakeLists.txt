@@ -1,6 +1,7 @@
 set(TARGET_NAME SparkRHI)
 
 set(SOURCES
+    RHIInterface.cpp
     Size.cpp
     Format.cpp
     HardwareQueue.cpp

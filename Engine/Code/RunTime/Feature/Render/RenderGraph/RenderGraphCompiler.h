@@ -6,7 +6,7 @@
 
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassContext.h>
-#include <Pass/RHIContext.h>
+#include <RHI/Context/RHIContext.h>
 
 namespace Spark::RHI
 {

@@ -13,10 +13,18 @@ namespace Spark::RHI::DX12
             LOG_ERROR("Failed to initialize ID3D12Factory!");
         }
         FrameEventBus::Handler::BusConnect();
+
+        // Chain to base: push the engine-wide RHIContext onto the execute
+        // context stack now that the backend is fully bootstrapped.
+        RHIInterface::InitInternal();
     }
 
     void RHISystem::ShutdownInternal()
     {
+        // Chain to base first: pop the RHIContext while the backend is still
+        // healthy, mirroring the init order.
+        RHIInterface::ShutdownInternal();
+
         if (m_rhiFactory)
         {
             m_rhiFactory->Shutdown();

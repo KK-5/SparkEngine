@@ -12,7 +12,6 @@
 #include <Pass/PassTag.h>
 #include <Pass/PassContext.h>
 #include <Pass/PassBuilder.h>
-#include <Pass/RHIContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
 
@@ -131,10 +130,9 @@ namespace Spark::Render
     {
         InitRHIData();
 
-        RHIExecuteContext::Push(m_rhiContext);
-
-        // ImportSwapChain materializes swap chain entities into the current RHIContext,
-        // so it must run after RHIExecuteContext::Push.
+        // ImportSwapChain materializes swap chain entities into the active RHIContext;
+        // the context is owned and pushed by the RHI layer (see RHIInterface),
+        // so by this point RHIExecuteContext::Current() is already valid.
         m_renderGraph.ImportSwapChain(*m_rhiData.m_swapChain);
 
         InitRenderUI();
@@ -149,7 +147,6 @@ namespace Spark::Render
     void RenderSystem::ShutdownInternal()
     {
         PassExecuteContext::Pop();
-        RHIExecuteContext::Pop();
         TickBus::Handler::BusDisconnect();
     }
 

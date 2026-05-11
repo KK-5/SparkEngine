@@ -2,7 +2,7 @@
 
 #include <RHI/Command/CommandQueueContext.h>
 
-#include <Pass/RHIContext.h>
+#include <RHI/Context/RHIContext.h>
 #include <Pass/PassContext.h>
 
 #include "RenderGraphBuilder.h"

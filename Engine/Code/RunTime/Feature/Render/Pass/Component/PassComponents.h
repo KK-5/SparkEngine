@@ -16,7 +16,7 @@
 #include <Resource/Shader/ShaderAsset.h>
 
 #include <Pass/Pass.h>
-#include <Pass/RHIContext.h>
+#include <RHI/Context/RHIContext.h>
 #include <Pass/Component/RHIComponents.h>
 
 namespace Spark::RHI

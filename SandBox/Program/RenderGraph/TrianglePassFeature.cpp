@@ -12,7 +12,7 @@
 
 #include <Pass/PassContext.h>
 #include <Pass/PassBuilder.h>
-#include <Pass/RHIContext.h>
+#include <RHI/Context/RHIContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
 

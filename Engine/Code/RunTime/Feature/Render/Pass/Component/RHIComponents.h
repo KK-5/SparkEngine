@@ -5,7 +5,7 @@
 #include <Object/ObjectName.h>
 #include <EASTLEX/hash.h>
 
-#include <Pass/RHIHandle.h>
+#include <RHI/Context/RHIContext.h>
 #include <Pass/Pass.h>
 
 #include <RHI/Resource/Buffer/BufferDescriptor.h>
@@ -25,6 +25,15 @@
 
 namespace Spark::Render
 {
+    //! RHIContext lives in the RHI layer (Spark::RHI). Re-expose its handle,
+    //! null sentinel, and ECS-context aliases unqualified so Render-namespace
+    //! component types, builders, compilers and pass code keep their usage.
+    using RHI::RHIHandle;
+    using RHI::NullHandle;
+    using RHI::RHIContext;
+    using RHI::RHIExecuteContext;
+    using RHI::RHIExecuteContextGuard;
+
     ///////////////////////////////////////////////
     // Resource(Buffer, Image, BufferView, ImageView) component
     template <typename T>

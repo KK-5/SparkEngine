@@ -3,7 +3,7 @@
 #include <Base.h>
 #include <Tick/TickBus.h>
 #include <Pass/Pass.h>
-#include <Pass/RHIHandle.h>
+#include <RHI/Context/RHIHandle.h>
 
 namespace Spark::RHI
 {
@@ -44,7 +44,7 @@ namespace Spark::SandBox
         void UpdateViewSRG();
 
         // ViewSRG (in RHIContext)
-        Spark::Render::RHIHandle  m_viewSRGEntity = Spark::Render::NullHandle;
+        Spark::RHI::RHIHandle  m_viewSRGEntity = Spark::RHI::NullHandle;
         Spark::RHI::ShaderResource* m_srg = nullptr;
 
         // Resources

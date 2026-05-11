@@ -9,7 +9,6 @@
 #include <RHI/RenderTargetContext/RenderTargetContext.h>
 
 #include "Pass/Pipeline.h"
-#include "Pass/RHIContext.h"
 
 #include "RenderGraph/RenderGraph.h"
 
@@ -61,9 +60,7 @@ namespace Spark::Render
         RHIData  m_rhiData;
         RenderUI m_rednerUI;
 
-        RHIContext m_rhiContext;
-        Pipeline   m_pipeline {"default"};
-
+        Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;
     };
 }

@@ -5,7 +5,7 @@
 
 #include "RHIHandle.h"
 
-namespace Spark::Render
+namespace Spark::RHI
 {
     using RHIContext = BasicContext<RHIHandle>;
 
