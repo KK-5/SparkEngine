@@ -23,7 +23,7 @@ namespace Spark::Render
     public:
         using BuildFunction   = eastl::function<void(RenderGraphBuilder&)>;
         using CompileFunction = eastl::function<void(RenderGraphCompiler&)>;
-        using ExecuteFunction = eastl::function<void(RHI::CommandList*, RenderGraphExecuter&)>;
+        using ExecuteFunction = eastl::function<void(ExecuteWork&, RenderGraphExecuter&)>;
 
         RenderPassBuilder& Queue(RHI::HardwareQueueClass q)
         {
@@ -220,7 +220,7 @@ namespace Spark::Render
     public:
         using BuildFunction   = eastl::function<void(RenderGraphBuilder&)>;
         using CompileFunction = eastl::function<void(RenderGraphCompiler&)>;
-        using ExecuteFunction = eastl::function<void(RHI::CommandList*, RenderGraphExecuter&)>;
+        using ExecuteFunction = eastl::function<void(ExecuteWork&, RenderGraphExecuter&)>;
 
         ComputePassBuilder& Queue(RHI::HardwareQueueClass q)
         {

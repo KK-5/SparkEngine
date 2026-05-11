@@ -57,7 +57,6 @@
 - 计算 pass：组装 `PipelineStateDescriptorForDispatch`
 - 调用 `factory->CreatePipelineState()->Init(device, descriptor, pipelineLibrary)`
 - 结果写回 `PassCompiledPSO`，清除 `PassPSODirtyTag`
-- **未完成**：`PipelineLayoutDescriptor` 暂未构建（需要 SRG entity 设计落地后才能从 pass 的 `PassShaderResources` 推导）
 
 ### 5. ShaderResourceLayout 内部优化 — `ShaderResource/ShaderResourceLayout.cpp`
 
@@ -67,8 +66,6 @@
 - `DrawShape.cpp` 移除手动创建/传入 `ConstantsLayout`
 
 ### 6. ShaderResource Entity 模型落地 — `Pass/Component/RHIComponents.h` + `Pass/Component/PassComponents.h` + `Pass/PassBuilder.h`
-
-完成项：
 
 **RHIComponents.h** 新增组件（仿 Image/Buffer 模式）：
 - `ShaderResourceTag` — discovery tag，"列出所有 SRG"用
@@ -89,6 +86,168 @@
 - 校验通过 `RHIExecuteContext::Current()->Has<...>` 查询 RHIContext（注意：builder 自己的 `m_context` 是 `PassContext*`，是另一个 ECS 上下文）
 - builder 构造时 pre-fill `m_slots` 为 `ShaderResourceCountMax` 个 `NullHandle`，让索引访问安全
 - Finalize 末尾无条件 `Add<PassShaderResources>`（即使 pass 没用 SRG 也加空的，让 consumer 不用 TryGet 分支）
+
+### 7. RHIUpdateTag 消费者 + 接入 RenderGraph 编译流程
+
+**依赖**：第 6 项（SRG entity 已能创建）
+
+**实现内容**：
+
+- `RenderGraph::Init()` 中创建 `PipelineLibrary`（从 `RenderSystem` 移入，避免 `RenderSystem` 持有 pipeline library）
+- `RenderGraph::ExecutePipeline()` 在编译阶段按以下顺序调用：
+  1. `m_compiler.CompileShaderResources(device, context)` — 批量 flush dirty SRG
+  2. `m_compiler.CompilePipelineStates(...)` — 编译所有 pass 的 PSO
+  3. `m_compiler.CompileTransientResources(...)` — 分配 transient 资源
+  4. 遍历所有 pass，编译 barrier + RenderPassBeginInfo
+  
+- `RenderGraphCompiler::CompileShaderResources()` 实现（[RenderGraphCompiler.cpp:1324-1340](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphCompiler.cpp#L1324-L1340)）：
+```cpp
+void RenderGraphCompiler::CompileShaderResources(RHI::Device& device, RHIContext& context)
+{
+    auto& view = context.GetView<RHIUpdateTag, BackingShaderResource>();
+    auto* factory = Service<RHI::Factory>::Get();
+    auto& shaderResourceCompiler = factory->AcquireShaderResourceCompiler(device);
+    eastl::vector<RHI::ShaderResource*> shaderResources;
+    shaderResources.reserve(view.size_hint());
+    view.each([&](RHIHandle handle, BackingShaderResource& shaderResource)
+    {
+        shaderResources.push_back(shaderResource.m_shaderResource);
+        context.Remove<RHIUpdateTag>(handle);
+    });
+    shaderResourceCompiler.Compiler(shaderResources);
+}
+```
+
+**关键设计决策**：
+- 所有 SRG 的 Compile 在**同一处**集中执行，便于将来开 `parallel_for`
+- `RHIUpdateTag` 在 Compile 后立即 Remove，下帧 agent 重新标
+- 放在 `CompilePipelineStates` 之前执行——虽然 PSO 不依赖 SRG 数据，但 layout 验证可能依赖
+
+### 8. PipelineLayoutDescriptor 构建（在 PSO Compiler 里）
+
+**依赖**：第 7 项
+
+**实现内容**（[RenderGraphCompiler.cpp:46-99](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphCompiler.cpp#L46-L99)）：
+
+- 新增静态函数 `BuildPipelineLayoutDescriptor()`，从 pass 的 `PassShaderResources.m_slots` + `ShaderStageMask` 推导完整 pipeline layout：
+
+```cpp
+Ptr<RHI::PipelineLayoutDescriptor> BuildPipelineLayoutDescriptor(
+    const PassShaderResources& slots,
+    RHI::ShaderStageMask       stageMask)
+{
+    // 遍历每个 slot
+    // 1. 读取 SRG entity 上的 ShaderResourceLayout
+    // 2. 提取 ConstantsLayout → ResourceBindingInfo（取首个 constant descriptor 的 register/space）
+    // 3. 遍历 buffer/image/sampler/static sampler 列表 → m_resourcesRegisterMap
+    // 4. 对每个 layout 调用 desc->AddShaderResourceLayoutInfo(layout, bindingInfo)
+    // 5. desc->Finalize() 返回
+}
+```
+
+- 在 `CompilePipelineStates()` 中，图形 pass 和计算 pass 的 `PipelineStateDescriptor::m_pipelineLayoutDescriptor` 均由此函数填充
+- **stageMask 当前用保守值**（所有活跃 stage 的 OR），等 shader reflection 通了再细化 per-resource 的 visibility
+
+### 9. PassExecuteContext 注入架构（RenderSystem 与外部管线）
+
+**动机**：`RenderSystem` 不应硬引用自己的 `Pipeline`，应该让外部代码能通过堆栈注入替代管线。
+
+**具体改造**（[RenderSystem.cpp:144-163](Engine/Code/RunTime/Feature/Render/RenderSystem.cpp#L144-L163)）：
+
+- `RenderSystem::InitInternal()` 末尾执行 `PassExecuteContext::Push(m_pipeline.GetPassContext())`，将默认的 UIPass 管线压入堆栈
+- `RenderSystem::ShutdownInternal()` 开头执行 `PassExecuteContext::Pop()`
+- `RenderSystem::OnTick()` 改为从 `*PassExecuteContext::Current()` 读取当前 PassContext，不再持有 Pipeline 引用：
+
+```cpp
+void RenderSystem::OnTick(float deltaTime)
+{
+    auto& passContext = *PassExecuteContext::Current(); 
+    const uint32_t frameIndex = m_rhiData.m_swapChain->GetCurrentImageIndex();
+    m_renderGraph.ExecutePipeline(passContext, frameIndex);
+    m_rhiData.m_swapChain->Present();
+}
+```
+
+- `RenderGraph::ExecutePipeline()` 签名为 `void ExecutePipeline(PassContext& passContext, uint32_t frameIndex)`，直接接受引用，内部不做 Push/Pop
+
+**外部覆盖用法**（[main.cpp:46-48](SandBox/Program/RenderGraph/main.cpp#L46-L48)）：
+
+```cpp
+// Push 自己的管线覆盖默认的 UIPass
+Spark::Render::Pipeline triPipeline("Triangle");
+Spark::Render::PassExecuteContext::Push(triPipeline.GetPassContext());
+// ... Init Feature ...
+// ... 游戏循环 ...
+Spark::Render::PassExecuteContext::Pop();
+```
+
+### 10. RenderGraphExecuter 绑定 PSO + SRG
+
+**依赖**：第 8 项（PipelineLayoutDescriptor）和第 9 项（PassExecuteContext 注入）
+
+**实现内容**：
+
+- `ExecuteWork::Item` 新增执行期缓存字段（[RenderGraphExecuter.h:38-46](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphExecuter.h#L38-L46)）：
+```cpp
+struct Item
+{
+    Pass      m_pass;
+    DrawRange m_draws;
+    uint32_t  m_itemIndex = 0;
+    uint32_t  m_itemCount = 1;
+
+    const RHI::PipelineState* m_pipelineState = nullptr;
+    eastl::fixed_vector<const RHI::ShaderResource*, RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResources;
+};
+```
+
+- `ExecuteWork` 新增 `RHI::CommandList* m_commandList` 字段
+
+- `Execute()` 在录制前从 ECS 解析 PSO 和 SRG（[RenderGraphExecuter.cpp:184-240](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphExecuter.cpp#L184-L240)）：
+  1. 创建设备 CS：`factory.CreateCommandList(device, queueClass)`
+  2. 遍历所有 Item，对每个 Item：
+     - 从 pass entity 的 `PassCompiledPSO` 取出 `m_pipelineState`
+     - 从 pass entity 的 `PassShaderResources.m_slots` 取 slot → entity，再查 RHIContext 的 `BackingShaderResource`，填入 `m_shaderResources`
+  3. 执行 pre-barriers + BeginRenderPass → 调用 execute lambda → EndRenderPass + post-barriers
+  4. 录制完毕后 `cmdList->Close()`
+
+- `ExecuteFunction` 签名从 `void(RenderGraphExecuter&)` 改为 `void(ExecuteWork&, RenderGraphExecuter&)`，lambda 可通过 `work.m_commandList` 和 `work.m_items[0].m_pipelineState` 访问执行期上下文
+
+- 受影响文件：
+  - [PassComponents.h:136-140](Engine/Code/RunTime/Feature/Render/Pass/Component/PassComponents.h#L136-L140)：`PassFunctions::m_executeFunction` 签名变更
+  - [PassBuilder.h:26](Engine/Code/RunTime/Feature/Render/Pass/PassBuilder.h#L26)：`RenderPassBuilder::ExecuteFunction` typedef 更新
+  - [PassBuilder.h:222](Engine/Code/RunTime/Feature/Render/Pass/PassBuilder.h#L222)：`ComputePassBuilder::ExecuteFunction` typedef 更新
+
+### 11. TrianglePass 骨架搭建（部分完成）
+
+**依赖**：第 10 项 + PassExecuteContext 注入
+
+**已创建文件**：
+- [SandBox/Program/RenderGraph/TrianglePassFeature.h](SandBox/Program/RenderGraph/TrianglePassFeature.h) — Feature 类声明
+- [SandBox/Program/RenderGraph/TrianglePassFeature.cpp](SandBox/Program/RenderGraph/TrianglePassFeature.cpp) — TODO stub 实现
+- [SandBox/Program/RenderGraph/main.cpp](SandBox/Program/RenderGraph/main.cpp) — 入口，演示 PassExecuteContext 注入
+- [SandBox/Program/CMakeLists.txt:48-73](SandBox/Program/CMakeLists.txt#L48-L73) — `BUILD_RG_TRIANGLEPASS` target
+
+**TrianglePassFeature 成员经过设计修剪后的最终形态**：
+
+| 成员 | 用途 | 为什么需要 |
+|---|---|---|
+| `m_viewSRGEntity` (RHIHandle) | RHIContext 中 ViewSRG entity 的快速句柄 | 外部更新时需要查找 entity |
+| `m_srg` (RHI::ShaderResource*) | ViewSRG 的裸指针 | SetConstant 时使用，所有权在 entity |
+| `m_bufferPool` (Ptr<RHI::BufferPool>) | 顶点/索引 buffer 的 pool | 管理 buffer 生命周期 |
+| `m_vertexBuffer` (Ptr<RHI::Buffer>) | 三角形顶点数据 | 绘制时绑 |
+| `m_vertShader` / `m_fragShader` (Ptr<ShaderAsset>) | 着色器资产 | PassBuilder 链式 API 需要 |
+| `m_rotationAngle` (float) | MVP 旋转角度 | OnTick 更新用 |
+
+**被删除的成员**（及原因）：
+- `m_renderSystem` — RenderSystem 通过 Service 访问，不直接持有引用
+- `m_srgLayout` — 归 entity 的 `ShaderResourceLayout` 组件所有，Feature 不需要缓存
+- `m_trianglePass` (Pass entity) — render graph 迭代 pass entity 走 ECS view，不需要存储
+- `m_indexBuffer` — 画单个三角形只需要 3 个顶点 + vertex buffer，不需要 index buffer
+
+**注意**：`m_srg` 改为**裸指针**而非 `Ptr<>`，所有权在 entity 的 `ShaderResource` 组件。Feature 只是更新 SRG 内容的 agent，不延长 lifetime。
+
+**当前状态**：所有 `CreateViewSRG()`、`CreateVertexBuffer()`、`CreateTrianglePass()`、`UpdateViewSRG()` 仍然是 TODO stub（[TrianglePassFeature.cpp:57-90](SandBox/Program/RenderGraph/TrianglePassFeature.cpp#L57-L90)），等待 UploadManager 和完整 SRG 创建路径落地后再填。
 
 ---
 
@@ -167,7 +326,7 @@ Per-Material 和 Per-Object SRG 在 pass-builder 期**不知道具体绑哪个 e
 - 两个方法只是 typo 保护，但运行时 GPU 验证层能兜住相同问题
 - 一条规则更好教："给 slot 一个 entity，有 Backing 就自动绑，没有就你自己绑"
 
-### 6.5 SRG 是绑定容器，不是 render graph 节点 ⚠️
+### 6.5 SRG 是绑定容器，不是 render graph 节点
 
 **这条规则不写清楚的话，将来一定有人踩坑**。
 
@@ -317,7 +476,7 @@ SPARK_RENDER_PASS(ctx, "GBufferPass")
 
 下面按推荐顺序排列，每项标注依赖关系。
 
-### [ ] 7. SRG 创建/销毁的 builder 接口
+### [ ] 12. SRG 创建/销毁的 builder 接口
 
 **依赖**：无（可以现在做）
 
@@ -344,105 +503,132 @@ void DestroyShaderResource(RHIHandle entity);
 - `RegisterShaderResourceLayout`：CreateEntity → 加 `ImportedTag` + `ShaderResourceTag` + `ResourceName` + `ShaderResourceLayout`（**不加 BackingShaderResource**，这是 layout-only 的标志）
 - `DestroyShaderResource`：从 RHIContext 删除 entity（Ptr<> 自动 release）
 
-### [ ] 8. 接入 RenderGraph 编译流程 + RHIUpdateTag 消费者
+### [ ] 13. UploadManager 模块
 
-**依赖**：第 7 项（SRG entity 已经能创建）
+**依赖**：无（独立模块，但 TrianglePass 需要它上传顶点数据）
 
-- `RenderGraph` 新增 `SetPipelineLibrary(RHI::PipelineLibrary*)` 接口
-- `RenderSystem::InitInternal()` 传入 `m_rhiData.m_pipelineLibrary`
-- `ExecutePipeline()` 在 topo sort 后、barrier 编译前依次调用：
-  1. `m_compiler.FlushDirtyShaderResources()` — 见下
-  2. `m_compiler.CompilePipelineStates()` — 已实现
+**背景**：引擎当前没有统一的资源上传机制。Vertex buffer 等 RHI 资源的初始数据需要从 CPU 拷贝到 GPU，这个路径应该统一管理，而不是每个 Feature 各自写一套 staging buffer + command list。
 
-新增 `RenderGraphCompiler::FlushDirtyShaderResources()`：
+**设计方案**（已讨论一致）：
 
+**API 形态**：
 ```cpp
-void RenderGraphCompiler::FlushDirtyShaderResources()
-{
-    auto& ctx = *RHIExecuteContext::Current();
-    ctx.GetView<RHIUpdateTag, BackingShaderResource>().each(
-        [](RHIHandle e, BackingShaderResource& srg) {
-            srg.m_shaderResource->Compile();
-        });
-    ctx.Clear<RHIUpdateTag>();
-}
+class UploadManager {
+public:
+    // Feature 在 Init 或 OnFrameBegin 调用，只注册请求，CPU 端操作
+    void QueueUpload(RHI::Buffer* dst, const void* data, size_t size);
+    void QueueUpload(RHI::Image* dst, const void* data, size_t size, /* subresource layout */);
+
+    // RenderGraph 在 ExecutePipeline 的 Build 阶段前调用，批量执行所有 upload
+    void Flush(RHI::Device& device, RHI::CommandQueue& queue);
+
+    // 帧末：推进 ring buffer 指针，释放当前帧的 staging 内存
+    void EndFrame();
+};
 ```
 
-**注意 ordering**：必须在 `CompilePipelineStates` 之前——理论上 PSO 不依赖 SRG 数据，但 layout 验证可能依赖。保险起见放前面。
+**核心机制**：
+- **Ring-buffer staging memory**：分配 N 个 frame 的 staging buffer（N = frameCountMax，通常 3），每帧轮换一个。新一帧直接复用 N 帧前的那份——此时 GPU 肯定已经消费完毕（N 帧的 serialized 提交保证）
+- **单 CommandList 批量执行**：`Flush()` 时把所有 pending upload 打包到一个 command list，执行 copy → barrier → close → submit，降低提交开销
+- **GPU 串行执行保证**：同一队列上的 copy barrier → draw 天然有序，不需要 CPU 端 wait
+- **大数据不阻塞**：UploadManager 不做分片。大数据上传触发 CPU 端 memcpy + GPU copy，会阻塞当前帧，但这不是 UploadManager 的问题——是调用方的策略问题（大纹理应在加载线程异步做）
 
-### [ ] 9. PipelineLayoutDescriptor 构建（在 PSO Compiler 里）
+**所有权**：UploadManager 由 RenderGraph 创建和管理。Feature 通过 `Service<UploadManager>` 访问。
 
-**依赖**：第 7 项
+### [ ] 14. TrianglePass 端到端实现
 
-`RenderGraphCompiler::CompilePipelineStates` 当前没建 `PipelineLayoutDescriptor`。需要从 pass 的 `PassShaderResources.m_slots` 推：
+**依赖**：第 12 项（SRG 注册接口）+ 第 13 项（UploadManager）
 
-```cpp
-RHI::PipelineLayoutDescriptor BuildPipelineLayout(RHIHandle passEntity)
-{
-    auto& slots = ctx.Get<PassShaderResources>(passEntity).m_slots;
-    RHI::PipelineLayoutDescriptor desc;
-    for (uint32_t slot = 0; slot < slots.size(); ++slot) {
-        if (slots[slot] == NullHandle) continue;
-        // Layout 一定有，无论 concrete 还是 layout-only
-        auto& layoutRef = ctx.Get<ShaderResourceLayout>(slots[slot]);
-        desc.AddSrgLayout(slot, layoutRef.m_layout);
-    }
-    return desc;
-}
-```
+需要完成的具体工作（按顺序）：
 
-注意：`PipelineLayoutDescriptor::AddSrgLayout` 接口名字是猜的，要看现有 RHI 接口实际叫什么。
+1. **`CreateViewSRG()`**：构建 ShaderResourceLayout（MVP constant + 可选纹理/采样器），创建 ShaderResource，通过 builder API 在 RHIContext 创建 Imported SRG entity
+2. **`CreateVertexBuffer()`**：分配 GPU buffer（StructuredBuffer 或 staging + copy），通过 UploadManager 上传三角形顶点数据
+3. **`CreateTrianglePass()`**：用 `SPARK_RENDER_PASS` 链式 API，设置 VS/FS、RenderTargetLayout、绑定 ViewSRG、Build 中 import swap chain RTV、Execute 中设 viewport + 绑顶点 buffer + Draw(3)
+4. **`UpdateViewSRG()`**：计算 MVP 矩阵，调 `m_srg->SetConstantRaw(...)` 写常量，标 `RHIUpdateTag`
+5. **Shader 资产**：创建简单的三角形 VS/PS `.hlsl`，编入 CMake，加载为 `ShaderAsset`
 
-### [ ] 10. RenderGraphExecuter 绑定 PSO + SRG
+### [ ] 15. Smoke test
 
-**依赖**：第 9 项
-
-非 raw pass 在 execute 前：
-
-```cpp
-void RenderGraphExecuter::BindPassResources(RHIHandle passEntity, RHI::CommandList* cl)
-{
-    auto& ctx = *RHIExecuteContext::Current();
-
-    // 1. 绑 PSO
-    auto& pso = ctx.Get<PassCompiledPSO>(passEntity).m_pso;
-    cl->SetPipelineState(pso.Get());
-
-    // 2. 自动绑 concrete SRG（layout-only slot 跳过）
-    auto& slots = ctx.Get<PassShaderResources>(passEntity).m_slots;
-    for (uint32_t slot = 0; slot < slots.size(); ++slot) {
-        if (slots[slot] == NullHandle) continue;
-        if (auto* b = ctx.TryGet<BackingShaderResource>(slots[slot]))
-            cl->BindShaderResource(slot, b->m_shaderResource);
-        // else: layout-only slot, execute lambda 负责绑
-    }
-}
-```
-
-具体的 RHI 接口名（`SetPipelineState` / `BindShaderResource`）要看现有 RHI 实际定义。
-
-### [ ] 11. TrianglePass 端到端用例
-
-**依赖**：第 7-10 项
-
-把 `SandBox/Program/DrawShape` 的三角形移植到 render graph：
-
-- 创建一个 `TrianglePassFeature : ISystem`，在 Init 里：
-  - 创建 ViewSRG entity（即使简单也走完整流程）
-  - 创建 TrianglePass entity，链式 builder：`.VertexShader().FragmentShader().ShaderResource(0, viewSRGEntity).RenderTargetLayout(...).Build(...).Execute(...)`
-- 在 OnFrameBegin 里更新 ViewSRG（即使 view 不变，走 Set + RHIUpdateTag 流程）
-
-这是 PSO 路径 + SRG 路径的端到端验证用例，比 UI Pass（custom pipeline）更能暴露问题。
-
-### [ ] 12. Smoke test
-
-**依赖**：第 11 项
+**依赖**：第 14 项
 
 构建、运行，确认：
 - UI Pass（custom pipeline 路径，无 PSO/SRG）正常显示
 - TrianglePass（PSO + SRG 路径）正常显示三角形
 - ViewSRG 数据每帧通过 batch Compile 正常上传到 GPU
 - 没有 GPU validation error
+
+---
+
+## 遇到的问题与解决记录
+
+记录在前两个 session 中遇到的具体问题和解决方法，避免未来重复踩坑。
+
+### Q1: `auto&` 绑定 `CreateSystem()` 返回值
+
+**现象**：
+```cpp
+auto& renderSystem = CreateSystem<Spark::Render::RenderSystem>();
+// error: cannot bind non-const lvalue reference to an rvalue
+```
+**原因**：`CreateSystem<T>()` 返回 `SystemUniquePtr`（即 `eastl::unique_ptr<ISystem>`），临时对象不能绑定到 `auto&`。
+
+**解决**：使用 `auto`（不加 `&`），或 `auto renderSystem = CreateSystem<...>()`.
+
+### Q2: `#include <Render/RenderSystem.h>` — include 路径不对
+
+**现象**：编译报错找不到 `RenderSystem.h`。
+
+**原因**：SparkRender 的 include 根是 `Engine/Code/RunTime/Feature/Render/`，不是 `Engine/Code/RunTime/Feature/`。CMake 的 `target_include_directories` 暴露的是前者。
+
+**解决**：改成 `#include <RenderSystem.h>`，直接使用根相对路径。
+
+### Q3: `#include <Resource/Asset.h>` 缺失导致 `AssetData` 未声明
+
+**现象**：`ShaderAsset` 的 `GetShaderData()` 返回的类型涉及 `AssetData`，编译器报未声明类型。
+
+**解决**：在 `TrianglePassFeature.h` 中添加 `#include <Resource/Asset.h>`。
+
+### Q4: 命名空间解析错误 — `RHIHandle`、`Pass`、`NullPass` 未找到
+
+**现象**：`TrianglePassFeature` 在 `Spark::SandBox` 命名空间下，成员使用 `RHIHandle`、`Pass`、`NullHandle` 等类型时编译报错。
+
+**原因**：这些类型定义在 `Spark::Render` 命名空间下，`Spark::SandBox` 中无 using。
+
+**解决**：使用完全限定名：
+- `Spark::Render::RHIHandle`
+- `Spark::Render::NullHandle`
+- `Spark::Render::Pass`
+
+### Q5: Design mistake — Feature 持有 RenderSystem 引用
+
+**讨论**：初始设计中 `TrianglePassFeature` 持有 `RenderSystem*`，以便访问 Device/CommandQueue。
+
+**结论**：错误。RenderSystem 通过 `Service<>` 模式访问即可。Feature 不应该也不需要持有 RenderSystem 引用。已从成员中移除。
+
+### Q6: Design mistake — Feature 持有 Pass entity
+
+**讨论**：初始设计存储了 `Pass m_trianglePass`。
+
+**结论**：不需要。Render graph 通过 ECS view 迭代所有 pass entity，Feature 不需要存储 pass 句柄。Create 完即可丢弃。
+
+### Q7: `m_srg` 的所有权 — Ptr<> vs 裸指针
+
+**讨论**：`m_srg`（ShaderResource 数据）用 `Ptr<>` 还是裸指针？
+
+**结论**：用裸指针 `RHI::ShaderResource*`。所有权在 RHIContext entity 的 `ShaderResource` 组件上。Feature 只是更新 SRG 内容的外部 agent，不负责生命周期。
+
+### Q8: UploadManager 设计 — GPU 数据有效性保证
+
+**用户问题**："如果上传数据太多阻塞了主线程怎么办？"
+
+**分析**：
+- Ring-buffer：N 帧后 GPU 肯定消费完（串行提交保证），无需 wait
+- 大数据阻塞是 streaming 问题，不是 UploadManager 的职责
+- 如果上传 1GB，CPU memcpy + GPU copy 确实会阻塞，但 UploadManager 不负责分片——调用方应在加载线程异步做
+
+**用户问题**："不阻塞就继续怎么保证这个资源使用功能时是有效的？"
+
+**分析**：同一 CommandQueue 上的操作是串行的——copy → barrier → draw 在 GPU 上按提交顺序执行，draw 执行时 upload 肯定已经完成。
 
 ---
 
@@ -465,6 +651,7 @@ void RenderGraphExecuter::BindPassResources(RHIHandle passEntity, RHI::CommandLi
 - Pass builder：[Engine/Code/RunTime/Feature/Render/Pass/PassBuilder.h](Engine/Code/RunTime/Feature/Render/Pass/PassBuilder.h)
 - RG builder（imported 资源接口的对照）：[Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphBuilder.h](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphBuilder.h)
 - RG compiler：[Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphCompiler.cpp](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphCompiler.cpp)
+- RG executer：[Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphExecuter.cpp](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphExecuter.cpp)
 - RHI ShaderResource：[Engine/Code/RunTime/Feature/RHI/Resource/ShaderResource/ShaderResource.h](Engine/Code/RunTime/Feature/RHI/Resource/ShaderResource/ShaderResource.h)、[Engine/Code/RunTime/Feature/RHI/Resource/ShaderResource/ShaderResourceLayout.h](Engine/Code/RunTime/Feature/RHI/Resource/ShaderResource/ShaderResourceLayout.h)
 - RHI 限制：[Engine/Code/RunTime/Feature/RHI/RHILimits.h](Engine/Code/RunTime/Feature/RHI/RHILimits.h)（`ShaderResourceCountMax = 8`）
 - ECS 上下文：[Engine/Code/RunTime/Feature/Render/Pass/RHIContext.h](Engine/Code/RunTime/Feature/Render/Pass/RHIContext.h)（`RHIExecuteContext::Current()` 取当前 RHIContext）

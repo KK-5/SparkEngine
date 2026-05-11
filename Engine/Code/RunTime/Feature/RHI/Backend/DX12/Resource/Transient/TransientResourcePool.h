@@ -95,8 +95,6 @@ namespace Spark::RHI::DX12
             // value 是 vector 因为单帧内同 (offset, desc) 可能出现多次（同链多段同描述符）。
             eastl::unordered_map<uint64_t, eastl::vector<Ptr<ID3D12Resource>>> m_resourceCache;
 
-            // VirtualBlock 满或 CreateAliasingResource 失败时的兜底：自有 D3D12MA::Allocation，
-            // 不进 alias 链，随槽轮回释放。
             eastl::vector<Ptr<RHI::Resource>> m_committedFallbacks;
         };
 
@@ -107,7 +105,7 @@ namespace Spark::RHI::DX12
         void ResetBucket(HeapBucket& bucket);
         void DestroyBucket(HeapBucket& bucket);
 
-        // 调用方已确认 m_allowCommittedFallback=true
+        // m_allowCommittedFallback=true
         RHI::Image*  CreateCommittedImage(
             const RHI::TransientImageCreateInfo& createInfo,
             const D3D12_RESOURCE_DESC& resourceDesc,

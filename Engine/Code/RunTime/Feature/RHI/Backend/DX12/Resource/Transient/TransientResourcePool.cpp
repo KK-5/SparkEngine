@@ -408,7 +408,7 @@ namespace Spark::RHI::DX12
 
         if (result != RHI::ResultCode::Success)
         {
-            // 回滚簿记。VirtualBlock 那侧的 vAlloc 不显式 free，留待下一次 ResetBucket 的 Clear()。
+            // 回滚。VirtualBlock 那侧的 vAlloc 不显式 free，留待下一次 ResetBucket 的 Clear()。
             if (bestChainSlot != InvalidPlacementIndex)
             {
                 const uint32_t prevTailIdx = bucket.m_placements.back().m_aliasedFrom;

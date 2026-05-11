@@ -5,7 +5,6 @@
 #include <RHI/SwapChain/SwapChainDescriptor.h>
 #include <RHI/SwapChain/SwapChain.h>
 #include <RHI/Pipeline/RenderTargetLayout.h>
-#include <RHI/Pipeline/PipelineLibrary.h>
 #include <RHI/Pipeline/PipelineStateDescriptor.h>
 #include <RHI/Command/CommandList.h>
 
@@ -82,14 +81,6 @@ namespace Spark::Render
             return false;
         }
 
-        m_rhiData.m_pipelineLibrary = m_rhiData.m_factory->CreatePipelineLibrary();
-        RHI::PipelineLibraryDescriptor pipelineLibraryDesc;
-        if (m_rhiData.m_pipelineLibrary->Init(*m_rhiData.m_device, pipelineLibraryDesc) != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("Create pipeline library failed!");
-            return false;
-        }
-
         return true;
     }
 
@@ -123,9 +114,9 @@ namespace Spark::Render
                 builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(
                     RHI::AttachmentId("SwapChain"), bind);
             })
-            .Execute([this](RHI::CommandList* commandList, RenderGraphExecuter&)
+            .Execute([this](ExecuteWork& work, RenderGraphExecuter&)
             {
-                m_rednerUI.Render(commandList);
+                m_rednerUI.Render(work.m_commandList);
             })
             .Finalize();
     }
@@ -134,13 +125,6 @@ namespace Spark::Render
     {
         // TODO: pipeline state object creation per pass — depends on shader asset wiring
         // (see commented block in git history). Left as no-op until shader pipeline is rebuilt.
-    }
-
-    void RenderSystem::ExecutePipeline(Pipeline& pipeline)
-    {
-        const uint32_t frameIndex = m_rhiData.m_swapChain->GetCurrentImageIndex();
-        m_renderGraph.ExecutePipeline(pipeline, frameIndex);
-        m_rhiData.m_swapChain->Present();
     }
 
     void RenderSystem::InitInternal()
@@ -157,17 +141,24 @@ namespace Spark::Render
         BuildPipeline();
         InitPipeline();
 
+        PassExecuteContext::Push(m_pipeline.GetPassContext());
+
         TickBus::Handler::BusConnect();
     }
 
     void RenderSystem::ShutdownInternal()
     {
+        PassExecuteContext::Pop();
         RHIExecuteContext::Pop();
         TickBus::Handler::BusDisconnect();
     }
 
     void RenderSystem::OnTick(float deltaTime)
     {
-        ExecutePipeline(m_pipeline);
+        auto& passContext = *PassExecuteContext::Current(); 
+        
+        const uint32_t frameIndex = m_rhiData.m_swapChain->GetCurrentImageIndex();
+        m_renderGraph.ExecutePipeline(passContext, frameIndex);
+        m_rhiData.m_swapChain->Present();
     }
 }

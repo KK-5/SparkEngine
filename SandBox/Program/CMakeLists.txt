@@ -44,3 +44,31 @@ if (BUILD_RHI_DRAWSHAPE)
         SparkAssetManager
     )
 endif()
+
+option(BUILD_RG_TRIANGLEPASS "Build RenderGraph TrianglePass" ON)
+
+if (BUILD_RG_TRIANGLEPASS)
+    set(TARGET_NAME TrianglePass)
+
+    add_executable(${TARGET_NAME}
+        Common/SimpleGlfwWindow.cpp
+        RenderGraph/main.cpp
+        RenderGraph/TrianglePassFeature.cpp
+    )
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        glfw
+        SparkCore
+        SparkInput
+        SparkRender
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+    )
+endif()

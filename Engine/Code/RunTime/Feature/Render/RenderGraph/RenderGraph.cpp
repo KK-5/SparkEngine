@@ -10,6 +10,7 @@
 #include <RHI/SwapChain/SwapChain.h>
 #include <RHI/Bus/FrameEventBus.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
+#include <RHI/Pipeline/PipelineLibrary.h>
 
 #include <Pass/Pipeline.h>
 #include <Pass/Component/RHIComponents.h>
@@ -34,10 +35,18 @@ namespace Spark::Render
         m_pool = factory.CreateTransientResourcePool();
         ASSERT(m_pool != nullptr, "[RenderGraph] Factory::CreateTransientResourcePool returned null.");
         RHI::TransientResourcePoolDescriptor desc;
-        // Use default config
         if (m_pool->Init(device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[RenderGraph] TransientResourcePool initialize failed.");
+            return false;
+        }
+
+        m_pipelineLibrary = factory.CreatePipelineLibrary();
+        ASSERT(m_pipelineLibrary != nullptr, "[RenderGraph] Factory::CreatePipelineLibrary returned null.");
+        RHI::PipelineLibraryDescriptor pipelineLibraryDesc;
+        if (m_pipelineLibrary->Init(device, pipelineLibraryDesc) != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("[RenderGraph] PipelineLibrary init failed.");
             return false;
         }
 
@@ -114,10 +123,8 @@ namespace Spark::Render
         return true;
     }
 
-    void RenderGraph::ExecutePipeline(Pipeline& pipeline, uint32_t frameIndex)
+    void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex)
     {
-        auto& passContext = pipeline.GetPassContext();
-        PassExecuteContext::Push(passContext);
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
         m_commandQueueContext.Begin();
 
@@ -152,6 +159,8 @@ namespace Spark::Render
         // Compile
         m_compiler.Begin(frameIndex);
 
+        m_compiler.CompileShaderResources(*m_device, context);
+        m_compiler.CompilePipelineStates(passes, passContext, *m_device, m_pipelineLibrary.get());
         m_compiler.CompileTransientResources(passes, *m_pool);
 
         for (auto pass : passes)
@@ -237,7 +246,6 @@ namespace Spark::Render
 
         m_commandQueueContext.End();
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
-        PassExecuteContext::Pop();
     }
 
     void RenderGraph::RefreshPerFrameBackings(RHIContext& context, uint32_t frameIndex)

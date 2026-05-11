@@ -32,7 +32,7 @@ namespace Spark::Render
 
         void Shutdown();
 
-        void ExecutePipeline(Pipeline& pipeline, uint32_t frameIndex);
+        void ExecutePipeline(PassContext& passContext, uint32_t frameIndex);
 
         RHI::CommandQueue& GetCommandQueue(RHI::HardwareQueueClass queueClass)
         {
@@ -55,6 +55,7 @@ namespace Spark::Render
 
         Ptr<RHI::Device>          m_device;
         Ptr<RHI::TransientResourcePool> m_pool;
+        Ptr<RHI::PipelineLibrary>       m_pipelineLibrary;
         RHI::CommandQueueContext  m_commandQueueContext;
         RHI::FenceSet             m_crossQueueFences;
         RHIHandle                 m_swapchainResource;

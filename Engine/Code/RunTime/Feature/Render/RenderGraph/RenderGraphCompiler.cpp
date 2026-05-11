@@ -8,16 +8,97 @@
 #include <Service/Service.h>
 
 #include <RHI/Factory.h>
+#include <RHI/Device/Device.h>
 #include <RHI/Pipeline/PipelineState.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Image/Image.h>
+#include <RHI/Resource/ShaderResource/ShaderResourceCompiler.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Command/RenderPassBeginInfo.h>
+
+#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <RHI/Pipeline/ShaderStages.h>
 
 #include <Pass/Component/PassComponents.h>
 
 namespace Spark::Render
 {
+
+namespace
+{
+    //! Derive a conservative ShaderStageMask from the shaders a pass carries.
+    RHI::ShaderStageMask DeriveStageMask(const PassShaders& shaders)
+    {
+        RHI::ShaderStageMask mask = RHI::ShaderStageMask::None;
+        if (shaders.m_vertexShader)   mask |= RHI::ShaderStageMask::Vertex;
+        if (shaders.m_fragmentShader) mask |= RHI::ShaderStageMask::Fragment;
+        if (shaders.m_geometryShader) mask |= RHI::ShaderStageMask::Geometry;
+        if (shaders.m_computeShader)  mask |= RHI::ShaderStageMask::Compute;
+        return mask;
+    }
+
+    //! Build a PipelineLayoutDescriptor from a pass's PassShaderResources slots.
+    //! @param stageMask  Conservative stage mask — every binding declares visibility
+    //!                    to all active stages. Correct but may inhibit driver
+    //!                    dead-code elimination of unused descriptors. Will be
+    //!                    replaced by per-resource masks once shader reflection is
+    //!                    plumbed through ShaderAsset.
+    Ptr<RHI::PipelineLayoutDescriptor> BuildPipelineLayoutDescriptor(
+        const PassShaderResources& slots,
+        RHI::ShaderStageMask       stageMask)
+    {
+        auto& rhiCtx = *RHIExecuteContext::Current();
+        auto* factory = Service<RHI::Factory>::Get();
+
+        auto desc = factory->CreatePipelineLayoutDescriptor();
+
+        for (uint32_t slot = 0; slot < slots.m_slots.size(); ++slot)
+        {
+            if (slots.m_slots[slot] == NullHandle)
+                continue;
+
+            const auto& srgLayout = rhiCtx.Get<ShaderResourceLayout>(slots.m_slots[slot]);
+            const auto& layout = *srgLayout.m_layout;
+
+            RHI::ShaderResourceBindingInfo bindingInfo;
+
+            // --- constant data binding ---
+            if (const auto* constLayout = layout.GetConstantsLayout())
+            {
+                // Pick up register / space from the first constant descriptor.
+                auto constants = layout.GetShaderInputListForConstants();
+                if (!constants.empty())
+                {
+                    bindingInfo.m_constantDataBindingInfo = RHI::ResourceBindingInfo(
+                        stageMask,
+                        constants[0].m_registerId,
+                        constants[0].m_spaceId);
+                }
+            }
+
+            // --- per-resource register map ---
+            auto addResources = [&](auto& list)
+            {
+                for (const auto& input : list)
+                {
+                    bindingInfo.m_resourcesRegisterMap[RHI::InputName(input.m_name)] =
+                        RHI::ResourceBindingInfo(stageMask, input.m_registerId, input.m_spaceId);
+                }
+            };
+
+            addResources(layout.GetShaderInputListForBuffers());
+            addResources(layout.GetShaderInputListForImages());
+            addResources(layout.GetShaderInputListForSamplers());
+            addResources(layout.GetStaticSamplers());
+
+            desc->AddShaderResourceLayoutInfo(layout, bindingInfo);
+        }
+
+        desc->Finalize();
+        return desc;
+    }
+} // namespace
+
     void RenderGraphCompiler::Begin(uint32_t frameIndex)
     {
         m_frameIndex = frameIndex;
@@ -930,10 +1011,10 @@ namespace Spark::Render
 
         // --- Render passes ---
         {
-            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState>(
+            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState, PassShaderResources>(
                 Exclude<CustomPipelinePassTag>);
 
-            view.each([&](Pass pass, const PassShaders& shaders, const PassPipelineState& pipelineState)
+            view.each([&](Pass pass, const PassShaders& shaders, const PassPipelineState& pipelineState, const PassShaderResources& srgs)
             {
                 if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
                     return;
@@ -977,6 +1058,9 @@ namespace Spark::Render
                 descriptor.m_renderTargetLayout = pipelineState.m_renderTargetLayout;
                 descriptor.m_renderStates       = pipelineState.m_renderStates;
 
+                descriptor.m_pipelineLayoutDescriptor =
+                    BuildPipelineLayoutDescriptor(srgs, DeriveStageMask(shaders));
+
                 auto pso = factory->CreatePipelineState();
                 RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
                 ASSERT(rc == RHI::ResultCode::Success,
@@ -986,16 +1070,18 @@ namespace Spark::Render
                 passContext.AddOrReplace<PassCompiledPSO>(pass, PassCompiledPSO{eastl::move(pso)});
 
                 if (passContext.Has<PassPSODirtyTag>(pass))
+                {
                     passContext.Remove<PassPSODirtyTag>(pass);
+                }
             });
         }
 
         // --- Compute passes ---
         {
-            auto view = passContext.GetView<ComputePassTag, PassShaders>(
+            auto view = passContext.GetView<ComputePassTag, PassShaders, PassShaderResources>(
                 Exclude<CustomPipelinePassTag>);
 
-            view.each([&](Pass pass, const PassShaders& shaders)
+            view.each([&](Pass pass, const PassShaders& shaders, const PassShaderResources& srgs)
             {
                 if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
                     return;
@@ -1014,6 +1100,9 @@ namespace Spark::Render
                 func->Finalize();
                 descriptor.m_computeFunction = eastl::move(func);
 
+                descriptor.m_pipelineLayoutDescriptor =
+                    BuildPipelineLayoutDescriptor(srgs, DeriveStageMask(shaders));
+
                 auto pso = factory->CreatePipelineState();
                 RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
                 ASSERT(rc == RHI::ResultCode::Success,
@@ -1023,7 +1112,9 @@ namespace Spark::Render
                 passContext.AddOrReplace<PassCompiledPSO>(pass, PassCompiledPSO{eastl::move(pso)});
 
                 if (passContext.Has<PassPSODirtyTag>(pass))
+                {
                     passContext.Remove<PassPSODirtyTag>(pass);
+                }
             });
         }
     }
@@ -1228,5 +1319,23 @@ namespace Spark::Render
             preds.assign(predSets[i].begin(), predSets[i].end());
             passes.push_back(sinks[i]);
         }
+    }
+
+    void RenderGraphCompiler::CompileShaderResources(RHI::Device& device, RHIContext& context)
+    {
+        auto& view = context.GetView<RHIUpdateTag, BackingShaderResource>();
+        auto* factory = Service<RHI::Factory>::Get();
+        ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
+
+        auto& shaderResourceCompiler = factory->AcquireShaderResourceCompiler(device);
+        eastl::vector<RHI::ShaderResource*> shaderResources;
+        shaderResources.reserve(view.size_hint());
+        view.each([&](RHIHandle handle, BackingShaderResource& shaderResource)
+        {
+            shaderResources.push_back(shaderResource.m_shaderResource);
+            context.Remove<RHIUpdateTag>(handle);
+        });
+        shaderResourceCompiler.Compiler(shaderResources);
+
     }
 }

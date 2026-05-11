@@ -51,14 +51,11 @@ namespace Spark::Render
         void BuildPipeline();
         void InitPipeline();
 
-        void ExecutePipeline(Pipeline& pipeline);
-
         struct RHIData
         {
             RHI::Factory*             m_factory;
             Ptr<RHI::Device>          m_device;
             Ptr<RHI::SwapChain>       m_swapChain;
-            Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
         };
 
         RHIData  m_rhiData;

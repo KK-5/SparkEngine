@@ -187,8 +187,34 @@ namespace Spark::Render
         cmdList->Open();
         work.m_commandList = cmdList;
 
-        for (const auto& item : work.m_items)
+        auto& rhiCtx = *RHIExecuteContext::Current();
+
+        for (auto& item : work.m_items)
         {
+            // --- resolve per-item PSO / SRG binding ---
+            item.m_pipelineState = nullptr;
+            item.m_shaderResources.clear();
+
+            if (auto* pso = passContext.TryGet<PassCompiledPSO>(item.m_pass))
+            {
+                item.m_pipelineState = pso->m_pso.get();
+            }
+
+            if (auto* srgs = passContext.TryGet<PassShaderResources>(item.m_pass))
+            {
+                for (RHIHandle handle : srgs->m_slots)
+                {
+                    if (handle == NullHandle)
+                    {
+                        continue;
+                    }
+                    if (auto* backing = rhiCtx.TryGet<BackingShaderResource>(handle))
+                    {
+                        item.m_shaderResources.push_back(backing->m_shaderResource);
+                    }
+                }
+            }
+
             if (item.m_itemIndex == 0)
             {
                 ExecutePreBarriers(cmdList, item.m_pass, passContext);
@@ -200,7 +226,7 @@ namespace Spark::Render
             const auto& funcs = passContext.Get<PassFunctions>(item.m_pass);
             if (funcs.m_executeFunction)
             {
-                funcs.m_executeFunction(cmdList, *this);
+                funcs.m_executeFunction(work, *this);
             }
 
             if (item.m_itemIndex == item.m_itemCount - 1)

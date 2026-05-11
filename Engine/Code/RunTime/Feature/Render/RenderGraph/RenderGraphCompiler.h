@@ -10,8 +10,10 @@
 
 namespace Spark::RHI
 {
+    class Device;
     class TransientResourcePool;
     class ShaderResource;
+    class ShaderResourceCompiler;
     class ImageView;
     class BufferView;
     class PipelineLibrary;
@@ -96,6 +98,9 @@ namespace Spark::Render
             PassContext&          passContext,
             RHI::Device&          device,
             RHI::PipelineLibrary* pipelineLibrary);
+
+
+        void CompileShaderResources(RHI::Device& device, RHIContext& context);
 
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.

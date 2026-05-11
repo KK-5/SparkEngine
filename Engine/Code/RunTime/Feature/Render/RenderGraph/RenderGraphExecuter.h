@@ -1,11 +1,13 @@
 #pragma once
 
 #include <EASTL/array.h>
+#include <EASTL/fixed_vector.h>
 #include <EASTL/optional.h>
 #include <EASTL/span.h>
 #include <EASTL/vector.h>
 
 #include <RHI/HardwareQueue.h>
+#include <RHI/RHILimits.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
@@ -39,6 +41,9 @@ namespace Spark::Render
             DrawRange m_draws;
             uint32_t  m_itemIndex = 0;
             uint32_t  m_itemCount = 1;
+
+            const RHI::PipelineState* m_pipelineState = nullptr;
+            eastl::fixed_vector<const RHI::ShaderResource*, RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResources;
         };
         eastl::vector<Item>    m_items;
         RHI::CommandList*      m_commandList = nullptr;
