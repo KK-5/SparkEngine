@@ -53,6 +53,8 @@ namespace Spark::RHI
             Ptr<Buffer>      m_stagingBuffer;
             uint8_t*         m_mappedPtr   = nullptr;
             uint32_t         m_offset      = 0;
+            // Last m_packetFence value signalled after this packet's commands.
+            // Rotation must wait for the GPU to reach this value before reusing the packet.
             uint64_t         m_fenceValue  = 0;
         };
 
@@ -97,7 +99,14 @@ namespace Spark::RHI
         eastl::vector<FramePacket> m_packets;
         uint32_t                 m_currentPacketIndex = 0;
 
+        // External contract fence — signalled exactly once per batch (final value).
+        // Consumers (UploadSubmitted, RG cross-queue wait, FlushAndWait) check this.
         Ptr<Fence>               m_uploadFence;
+
+        // Internal staging-rotation fence — signalled per packet flush, upload-thread
+        // private. Decoupled from m_uploadFence so the external contract stays monotonic
+        // with one Signal per batch.
+        Ptr<Fence>               m_packetFence;
 
         std::mutex               m_mutex;
         std::condition_variable  m_cv;

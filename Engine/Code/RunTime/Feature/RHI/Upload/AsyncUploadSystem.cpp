@@ -47,12 +47,22 @@ namespace Spark::RHI
             }
         }
 
-        // Upload fence
+        // Upload fence — external contract, one Signal per batch.
         {
             m_uploadFence = factory->CreateFence();
             if (m_uploadFence->Init(*device, FenceState::Reset) != ResultCode::Success)
             {
                 LOG_ERROR("[AsyncUploadSystem] Failed to init upload fence.");
+                return;
+            }
+        }
+
+        // Packet fence — internal staging rotation tracker, upload-thread private.
+        {
+            m_packetFence = factory->CreateFence();
+            if (m_packetFence->Init(*device, FenceState::Reset) != ResultCode::Success)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Failed to init packet fence.");
                 return;
             }
         }
@@ -115,6 +125,7 @@ namespace Spark::RHI
         }
         m_packets.clear();
 
+        m_packetFence.reset();
         m_uploadFence.reset();
         m_stagingPool.reset();
         m_copyQueue.reset();
@@ -175,6 +186,26 @@ namespace Spark::RHI
             auto* owning = ctx.TryGet<Components::Buffer>(handle);
             if (!owning || !owning->m_buffer)
             {
+                // Host-visible per-frame buffers must not go through staging — they're
+                // CPU-mapped and the caller should write to them directly via Map().
+                if (ctx.TryGet<Components::BufferPerFrame>(handle))
+                {
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingBufferUpload "
+                              "but is host-visible (BufferPerFrame). Write via Map() "
+                              "instead of staging upload.",
+                              static_cast<uint32_t>(handle));
+                }
+                else
+                {
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingBufferUpload "
+                              "but has no materialized Buffer. Make sure BufferDescriptor "
+                              "is declared and RHIResourceSystem runs before this system.",
+                              static_cast<uint32_t>(handle));
+                }
+                // Clear pending state so the caller can release m_data and the entity
+                // doesn't get retried every frame forever.
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingBufferUpload>(handle);
                 return;
             }
 
@@ -195,6 +226,22 @@ namespace Spark::RHI
             auto* owning = ctx.TryGet<Components::Image>(handle);
             if (!owning || !owning->m_image)
             {
+                if (ctx.TryGet<Components::ImagePerFrame>(handle))
+                {
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingImageUpload "
+                              "but is host-visible (ImagePerFrame). Staging upload is "
+                              "not supported for per-frame images.",
+                              static_cast<uint32_t>(handle));
+                }
+                else
+                {
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingImageUpload "
+                              "but has no materialized Image. Make sure ImageDescriptor "
+                              "is declared and RHIResourceSystem runs before this system.",
+                              static_cast<uint32_t>(handle));
+                }
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingImageUpload>(handle);
                 return;
             }
 
@@ -261,20 +308,24 @@ namespace Spark::RHI
 
         auto* packet = &m_packets[m_currentPacketIndex];
 
-        auto SubmitFramePacket = [&](uint64_t fenceValue)
+        // Mid-batch flush: staging packet is full, retire it and rotate to the next.
+        // Uses m_packetFence (upload-thread private) so m_uploadFence stays clean —
+        // exactly one Signal per batch lands on the external contract fence.
+        auto SubmitFramePacket = [&]()
         {
             cmdList->Close();
             m_copyQueue->ExecuteCommands({ &cmdList, 1 });
-            m_copyQueue->Signal(*m_uploadFence, fenceValue);
-            packet->m_fenceValue = fenceValue;
+
+            packet->m_fenceValue = m_packetFence->Increment();
+            m_copyQueue->Signal(*m_packetFence);
 
             m_currentPacketIndex = (m_currentPacketIndex + 1) % m_packets.size();
             packet = &m_packets[m_currentPacketIndex];
 
-            // Wait if GPU hasn't finished with the next packet's staging buffer
-            if (packet->m_fenceValue > m_uploadFence->GetCompletedValue())
+            // Wait until the GPU is done consuming this packet's previous use.
+            if (packet->m_fenceValue > m_packetFence->GetCompletedValue())
             {
-                m_uploadFence->WaitOnCpu();
+                m_packetFence->WaitOnCpu();
             }
             packet->m_offset = 0;
 
@@ -287,7 +338,7 @@ namespace Spark::RHI
         {
             if (packet->m_offset + upload.m_dataSize > m_descriptor.m_stagingSizeInBytes)
             {
-                SubmitFramePacket(m_uploadFence->Increment());
+                SubmitFramePacket();
             }
 
             const auto* src = static_cast<const uint8_t*>(upload.m_data);
@@ -313,10 +364,18 @@ namespace Spark::RHI
             const uint32_t numRows      = upload.m_size.m_height;
             const uint32_t dstTotalSize = dstRowPitch * numRows;
 
-            if (packet->m_offset + dstTotalSize > m_descriptor.m_stagingSizeInBytes)
+            // DX12 CopyTextureRegion requires the source buffer offset to be aligned
+            // to TexturePlacement (512). Pad current offset up; previous buffer uploads
+            // leave the packet at arbitrary alignment.
+            uint32_t alignedOffset = AlignUp(packet->m_offset, RHI::Alignment::TexturePlacement);
+
+            if (alignedOffset + dstTotalSize > m_descriptor.m_stagingSizeInBytes)
             {
-                SubmitFramePacket(m_uploadFence->Increment());
+                SubmitFramePacket();
+                // Fresh packet starts at offset 0, which already satisfies TexturePlacement.
+                alignedOffset = 0;
             }
+            packet->m_offset = alignedOffset;
 
             const auto* srcRow = static_cast<const uint8_t*>(upload.m_data);
             uint8_t* dstRow = packet->m_mappedPtr + packet->m_offset;
@@ -343,8 +402,15 @@ namespace Spark::RHI
             packet->m_offset += dstTotalSize;
         }
 
-        // Final submit with batch fence value
-        SubmitFramePacket(batch.m_fenceValue);
+        // Batch end: single Signal on m_uploadFence carries the external contract.
+        // Also stamp m_packetFence on the current packet so future rotations can
+        // tell the GPU is done with this packet's data.
+        cmdList->Close();
+        m_copyQueue->ExecuteCommands({ &cmdList, 1 });
+        m_copyQueue->Signal(*m_uploadFence, batch.m_fenceValue);
+
+        packet->m_fenceValue = m_packetFence->Increment();
+        m_copyQueue->Signal(*m_packetFence);
     }
 
 }

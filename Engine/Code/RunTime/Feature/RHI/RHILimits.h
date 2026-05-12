@@ -81,6 +81,10 @@ namespace Spark::RHI
         constexpr uint32_t Buffer = 16;
         
         // for dx12 requirment
+        // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT — row pitch alignment for CopyTextureRegion.
         constexpr uint32_t TexturePitch = 256;
+        // D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT — source buffer offset alignment for
+        // CopyTextureRegion. Source offsets in a staging buffer must be a multiple of this.
+        constexpr uint32_t TexturePlacement = 512;
     }
 }
