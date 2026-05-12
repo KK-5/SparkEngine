@@ -237,10 +237,10 @@ namespace Spark::RHI
         {
             const BufferPoolDescriptor& poolDescriptor = GetDescriptor();
 
-            // Bind flags of the buffer must match the pool bind flags.
-            if (initRequest.m_descriptor.m_bindFlags != poolDescriptor.m_bindFlags)
+            // Pool bind flags must contain all buffer bind flags.
+            if ((poolDescriptor.m_bindFlags & initRequest.m_descriptor.m_bindFlags) != initRequest.m_descriptor.m_bindFlags)
             {
-                LOG_ERROR("[BufferPool] DeviceBuffer bind flags don't match pool bind flags in pool {}", GetName().GetCStr());
+                LOG_ERROR("[BufferPool] Pool bind flags do not contain buffer bind flags in pool {}", GetName().GetCStr());
                 return false;
             }
 

@@ -29,27 +29,28 @@ namespace Spark::Render
             return false;
         }
 
-        m_rhiData.m_factory = rhi->GetRHIFactory();
-        if (!m_rhiData.m_factory)
+        RHI::Factory* factory = rhi->GetRHIFactory();
+        if (!factory)
         {
             LOG_ERROR("[RenderSystem] Get RHI factory failed.");
             return false;
         }
 
-        RHI::PhysicalDeviceList devList = m_rhiData.m_factory->EnumeratePhysicalDevices();
+        RHI::PhysicalDeviceList devList = rhi->EnumeratePhysicalDevices();
         ASSERT(devList.size() > 0, "[RenderSystem] No physical devices available.");
         Ptr<RHI::PhysicalDevice> selectDevice = devList.front();
 
         RHI::DeviceDescriptor deviceDesc;
         deviceDesc.m_frameCountMax = 3;
-        m_rhiData.m_device = m_rhiData.m_factory->CreateDevice();
-        if (m_rhiData.m_device->Init(*selectDevice, deviceDesc) != RHI::ResultCode::Success)
+        RHI::ResultCode result = rhi->InitDevice(*selectDevice, deviceDesc);
+        if (result != RHI::ResultCode::Success)
         {
             LOG_ERROR("[RenderSystem] Init device failed.");
             return false;
         }
 
-        if (!m_renderGraph.Init(*m_rhiData.m_device))
+        RHI::Device* device = rhi->GetDevice();
+        if (!m_renderGraph.Init(*device))
         {
             LOG_ERROR("[RenderSystem] RenderGraph init failed.");
             return false;
@@ -62,7 +63,7 @@ namespace Spark::Render
             return false;
         }
 
-        m_rhiData.m_swapChain = m_rhiData.m_factory->CreateSwapChain();
+        m_rhiData.m_swapChain = factory->CreateSwapChain();
         RHI::SwapChainDescriptor desc;
         desc.m_dimensions.m_imageCount = deviceDesc.m_frameCountMax;
         desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
@@ -70,8 +71,8 @@ namespace Spark::Render
         desc.m_dimensions.m_imageHeight = windowSize.second;
         desc.m_dimensions.m_imageWidth = windowSize.first;
         desc.m_window = window->GetNativeHandle();
-        RHI::ResultCode result = m_rhiData.m_swapChain->Init(
-            *m_rhiData.m_device,
+        result = m_rhiData.m_swapChain->Init(
+            *device,
             m_renderGraph.GetCommandQueue(RHI::HardwareQueueClass::Graphics),
             desc);
         if (result != RHI::ResultCode::Success)
@@ -88,7 +89,8 @@ namespace Spark::Render
         RHI::ImGuiDescriptor desc;
         desc.m_rtvFormat = RHI::Format::R8G8B8A8_UNORM;
         desc.m_dsvFormat = RHI::Format::D32_FLOAT;
-        m_rednerUI.Bind(*m_rhiData.m_device, m_renderGraph.GetCommandQueue(RHI::HardwareQueueClass::Graphics), desc);
+        auto* device = Service<RHI::RHIInterface>::Get()->GetDevice();
+        m_rednerUI.Bind(*device, m_renderGraph.GetCommandQueue(RHI::HardwareQueueClass::Graphics), desc);
         return true;
     }
 

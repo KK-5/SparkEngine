@@ -52,8 +52,6 @@ namespace Spark::Render
 
         struct RHIData
         {
-            RHI::Factory*             m_factory;
-            Ptr<RHI::Device>          m_device;
             Ptr<RHI::SwapChain>       m_swapChain;
         };
 

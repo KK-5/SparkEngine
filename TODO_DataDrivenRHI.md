@@ -49,6 +49,35 @@ RHIResourceSystem            RG::CompileTransientResources  RG::CompileShaderRes
     - Device 用户驱动构造：`EnumeratePhysicalDevices()` + `InitDevice(PhysicalDevice&, DeviceDescriptor&)` —— 用户挑物理设备 + 填 descriptor，结果交付给 RHIInterface 持有
     - `RenderSystem::m_rhiContext` 字段已删除，Push/Pop 调用已删除
 
+14. **RHIResourceSystem 实现（T3）**
+    - 文件：`Engine/Code/RunTime/Feature/RHI/Resource/RHIResourceSystem.{h,cpp}`
+    - 身份：`ISystem` + `FrameEventBus::Handler`（不需要 Service）
+    - 三个 canonical pool：`m_deviceBufferPool`（Device heap, VB/IB/UAV/CBV/SRV）、`m_hostBufferPool`（Host heap, CopyRead/Constant → 自动 PerFrame）、`m_deviceImagePool`（Device heap, RT/DS/SRV）
+    - 四个 Create 方法：`CreateBuffers`、`CreateImages`、`CreateBufferViews`、`CreateImageViews`
+    - PerFrame 策略：`SelectBufferPool` 按 bind flags 自动判断 —— Host pool → `BufferPerFrame`（FrameCountMax 份），Device pool → 单份 `Buffer`
+    - FrameCountMax 取自 `device.GetDescriptor().m_frameCountMax`（不硬编码 `Limits::Device::FrameCountMax`）
+    - View 创建：通过 `ViewHierarchy::m_resource` 查找底层 resource entity，判断单帧/PerFrame 后创建对应 View
+    - 幂等：物化后 entity 已有 `Components::Buffer`/`Components::Image` 组件，下次 view 不再命中
+    - 引擎注册：`SparkEngine::SetUp()` 中在 DX12::RHISystem→RenderSystem 之后、AsyncUploadSystem 之前 Init
+
+15. **Upload 组件 + AsyncUploadSystem 实现（T4）**
+    - 组件位置：`Engine/Code/RunTime/Feature/RHI/Component/Component.h`（`Spark::RHI` 命名空间）
+    - 状态机：`UploadPendingTag` + `PendingBufferUpload`/`PendingImageUpload` → （SubmitBatch 处理后）→ `UploadSubmitted { fenceValue }` → （PollCompletions 确认 GPU 完成）→ 清除
+    - `PendingBufferUpload`/`PendingImageUpload` 中 `m_data` 为 `const void*`（指针，调用方保证生命周期），不持有数据拷贝
+    - `UploadSubmitted`（替代原设计 `UploadInFlight`）：记录 `m_fenceValue`，PollCompletions 对比 `fence.GetCompletedValue()` 后清除
+    - `PerFrame` 组件位置：`Spark::RHI::Components` 子命名空间（`BufferPerFrame`、`ImagePerFrame`、`BufferViewPerFrame`、`ImageViewPerFrame`），使用 `FrameArray<Ptr<T>>`
+    - 文件：`Engine/Code/RunTime/Feature/RHI/Upload/AsyncUploadSystem.{h,cpp}`
+    - 身份：`ISystem` + `FrameEventBus::Handler`，`Service<AsyncUploadSystem>` 手动 Register/Unregister（非 CRTP Handler 模式，避免循环继承）
+    - 架构：专用 copy queue + staging pool（Host heap, CopyRead）+ timeline fence + 后台 upload 线程
+    - Staging ring：`FrameCountMax` 个 `FramePacket`，每 packet 默认 16MB，persistent map
+    - `OnFrameBegin`（主线程）：PollCompletions → SubmitBatch（收集 → reserve → 判空 → Increment fence → UploadSubmitted → mutex enqueue）
+    - Upload 线程：dequeue → ProcessBatch → `SubmitFramePacket` 旋转 packet ring + 等 GPU 消费完 → memcpy 到 staging → 录 CopyItem → GPU Signal fence
+    - Image 上传：按 `RHI::Alignment::TexturePitch`（256）对齐目标行 pitch，逐行 memcpy（兼容 D3D12 要求）
+    - `FlushAndWait()`：等待 `fence.GetPendingValue()` 完成
+    - `GetUploadFence()`：供 RenderGraph 跨队列 wait 使用
+    - 规范：所有 Init 调用检查 `ResultCode`，if/for 单行加大括号
+    - 引擎注册：`SparkEngine::SetUp()` 中在 RHIResourceSystem 之后 Init
+
 ---
 
 ## 核心设计：两个新 System
@@ -430,49 +459,30 @@ GPU 端 graphics queue 等到 copy queue 把所有已提交的 upload 都信号�
 - `m_device` 用法替换为 `m_rhi->GetDevice()`
 - SwapChain **不动**（仍在 sample 私有管理）
 
-### [ ] T3. RHIResourceSystem 实现
+### [x] T3. RHIResourceSystem 实现
 
-**依赖**：T1
+**已完成**，见已办事项 #14。
 
-**子任务**：
-1. 新建 `Engine/Code/RunTime/Feature/RHI/Resource/RHIResourceSystem.{h,cpp}`
-2. CMakeLists.txt 注册新 cpp
-3. Init 创建 canonical pools（`m_deviceBufferPool` / `m_deviceImagePool`）
-4. OnFrameBegin 实现四类物化：Buffer / Image / BufferView / ImageView
-5. `SparkEngine::SetUp` 中创建 + Init，必须在 `m_dx12Rhi->Init()` 之后、`m_renderSystem->Init()` 之前
-6. 测试：写个临时 demo entity，确认能自动物化
+### [x] T4. Upload 组件 + AsyncUploadSystem 实现
 
-### [ ] T4. Upload 组件 + AsyncUploadSystem 实现
-
-**依赖**：T3（物化先就绪）
-
-**子任务**：
-1. 在 `Engine/Code/RunTime/Feature/RHI/Context/` 或 `Feature/Render/Pass/Component/RHIComponents.h` 加四个组件：
-   - `UploadPendingTag` / `PendingBufferUpload` / `PendingImageUpload` / `UploadInFlight`
-   - **位置选择**：upload 组件归属感更接近 RHI 层，建议放在 `Feature/RHI/Upload/UploadComponents.h`
-2. 新建 `Engine/Code/RunTime/Feature/RHI/Upload/AsyncUploadSystem.{h,cpp}`
-3. CMakeLists.txt 注册
-4. `InitInternal`：建 copy queue（从 `CommandQueueContext` 拿，或自己直接 `factory->CreateCommandQueue(HardwareQueueClass::Copy)`，需查现有 API）、建 staging pool（UPLOAD heap）、分配 N 个 FramePacket、map staging buffer 持久化、起 upload thread
-5. `OnFrameBegin`：poll + submit batch
-6. Upload thread：drain queue → process batch → packet ring + 分片
-7. `ShutdownInternal`：`m_running=false; m_cv.notify_all(); m_uploadThread.join(); m_copyQueue.WaitForIdle(); 释放资源`
-8. `FlushAndWait()` 实现：`m_uploadFence->WaitOnCpu()` 到 `m_maxInFlightValue`，然后立刻调一次 poll phase
-9. `SparkEngine::SetUp` 注册，handler order 必须在 RHIResourceSystem 之后
+**已完成**，见已办事项 #15。
 
 ### [ ] T5. RenderGraph 接入 cross-queue wait
 
 **依赖**：T4
 
-`RenderGraph::ExecutePipeline` 顶端加 4 行：
+在 `RenderGraph::ExecutePipeline` 的 execute phase，对 graphics queue 发 upload fence 的 wait：
 
 ```cpp
 if (auto* upload = Service<AsyncUploadSystem>::Get()) {
-    uint64_t v = upload->GetMaxInFlightValue();
+    uint64_t v = upload->GetUploadFence().GetPendingValue();
     if (v > upload->GetUploadFence().GetCompletedValue())
         m_commandQueueContext.GetCommandQueue(HardwareQueueClass::Graphics)
             .Wait(upload->GetUploadFence(), v);
 }
 ```
+
+注意：`GetMaxInFlightValue()` 方法已取消，统一用 `GetUploadFence().GetPendingValue()`。
 
 ### [ ] T6. SRG 创建/销毁的 builder 接口（原 #12）
 

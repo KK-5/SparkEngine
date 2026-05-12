@@ -57,9 +57,9 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (initRequest.m_descriptor.m_bindFlags != GetDescriptor().m_bindFlags)
+            if ((GetDescriptor().m_bindFlags & initRequest.m_descriptor.m_bindFlags) != initRequest.m_descriptor.m_bindFlags)
             {
-                LOG_ERROR("[ImagePool] Image bind flags don't match pool bind flags in pool {}.", GetName().GetCStr());
+                LOG_ERROR("[ImagePool] Pool bind flags do not contain image bind flags in pool {}.", GetName().GetCStr());
                 return false;
             }
         }

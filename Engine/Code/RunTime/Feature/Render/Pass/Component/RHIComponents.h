@@ -6,6 +6,7 @@
 #include <EASTLEX/hash.h>
 
 #include <RHI/Context/RHIContext.h>
+#include <RHI/Component/Component.h>
 #include <Pass/Pass.h>
 
 #include <RHI/Resource/Buffer/BufferDescriptor.h>
@@ -35,15 +36,31 @@ namespace Spark::Render
     using RHI::RHIExecuteContextGuard;
 
     ///////////////////////////////////////////////
-    // Resource(Buffer, Image, BufferView, ImageView) component
-    template <typename T>
-    using FrameArray = eastl::array<T, RHI::Limits::Device::FrameCountMax>;
+    // RHI-layer components re-exported into Render namespace.
+    // Code that already uses Spark::Render::Xxx continues to compile.
+    using RHI::ImportedTag;
+    using RHI::TransientTag;
+    using RHI::RHIUpdateTag;
+    using RHI::ResourceName;
+    using RHI::ShaderResourceTag;
+    using RHI::ViewHierarchy;
+    using RHI::ResourceHierarchy;
 
-    struct ResourceName
-    {
-        ObjectName m_name {};
-    };
+    using RHI::Components::Buffer;
+    using RHI::Components::Image;
+    using RHI::Components::BufferView;
+    using RHI::Components::ImageView;
+    using RHI::Components::ShaderResource;
+    using RHI::Components::ShaderResourceLayout;
+    using RHI::Components::FrameArray;
+    using RHI::Components::ImagePerFrame;
+    using RHI::Components::BufferPerFrame;
+    using RHI::Components::ImageViewPerFrame;
+    using RHI::Components::BufferViewPerFrame;
+    ///////////////////////////////////////////////
 
+    ///////////////////////////////////////////////
+    // SwapChain-specific components (Render-layer concept)
     struct SwapChainViews
     {
         FrameArray<Ptr<RHI::ImageView>> imageViews;
@@ -52,47 +69,6 @@ namespace Spark::Render
     struct SwapChainImages
     {
         FrameArray<RHI::Image*> images;
-    };
-
-    struct ImportedTag {};
-
-    struct TransientTag {};
-
-    //! Marks an RHI resource entity whose CPU-side staging state has been mutated
-    //! and needs flushing this frame. Generic across resource types — currently
-    //! consumed by the ShaderResource batch Compile pass; can extend to other
-    //! resource updates without introducing per-resource dirty tags. Cleared
-    //! after the consumer walks the view.
-    struct RHIUpdateTag {};
-
-
-    //! Owning resource components for imported resources. Lifetime managed by
-    //! the external importer (asset system, per-frame buffer pool, ...). Render
-    //! graph never touches these — it reads BackingImage/BackingBuffer below,
-    //! which the importer refreshes from these on a schedule it controls
-    //! (single-frame: once at registration; per-frame: every OnFrameBegin).
-    struct Image
-    {
-        Ptr<RHI::Image> m_image;
-    };
-
-    struct Buffer
-    {
-        Ptr<RHI::Buffer> m_buffer;
-    };
-
-    //! Per-frame (frame-in-flight) owning variants. Used for swap chain images,
-    //! per-frame UBO / staging buffers, query result buffers, etc. The importer
-    //! fills all FrameCountMax slots once at registration; per-frame refresh of
-    //! BackingImage/BackingBuffer picks the active slot via the current frameIndex.
-    struct ImagePerFrame
-    {
-        FrameArray<Ptr<RHI::Image>> m_images {};
-    };
-
-    struct BufferPerFrame
-    {
-        FrameArray<Ptr<RHI::Buffer>> m_buffers {};
     };
 
     //! Non-owning pointer to the actual RHI resource backing a resource entity.
@@ -113,34 +89,6 @@ namespace Spark::Render
     struct BackingBuffer
     {
         RHI::Buffer* m_buffer = nullptr;
-    };
-
-    //! Owning view components on a view entity. Mirror of Image / Buffer on
-    //! the resource side — caller (transient view materialization, importer)
-    //! owns the underlying RHI view via Ptr<>; destroying the view entity
-    //! releases it. The transient/imported distinction is expressed by
-    //! TransientTag / ImportedTag stamped on the view entity itself, not by
-    //! the component type.
-    struct ImageView
-    {
-        Ptr<RHI::ImageView> m_view;
-    };
-
-    struct BufferView
-    {
-        Ptr<RHI::BufferView> m_view;
-    };
-
-    //! Per-frame (frame-in-flight) owning variants. Used when the underlying
-    //! view rotates with the resource it views (e.g. swap chain image views).
-    struct ImageViewPerFrame
-    {
-        FrameArray<Ptr<RHI::ImageView>> m_views {};
-    };
-
-    struct BufferViewPerFrame
-    {
-        FrameArray<Ptr<RHI::BufferView>> m_views {};
     };
 
     //! Non-owning pointer to the actual RHI view backing a view entity.
@@ -164,36 +112,10 @@ namespace Spark::Render
         RHI::BufferView* m_view = nullptr;
     };
 
-    //! Discovery tag — marks an entity as a shader resource binding. Useful for
-    //! debug views ("list all SRGs") and component-presence-based identification
-    //! when a generic RHI view doesn't carry enough information.
-    struct ShaderResourceTag {};
-
-    //! Owning shader resource — the descriptor table / root signature binding
-    //! container the shader actually samples from. Mirrors Image / Buffer:
-    //! the Ptr<> is the lifetime owner; consumers read BackingShaderResource.
-    //! Only present on concrete instances; layout-only entities (per-draw
-    //! layout slots) intentionally omit this and BackingShaderResource.
-    struct ShaderResource
-    {
-        Ptr<RHI::ShaderResource> m_shaderResource;
-    };
-
-    //! Non-owning pointer to the actual RHI shader resource. Read by the
-    //! executer to bind at pass begin (concrete slot) or by execute lambdas
-    //! to bind dynamically per draw. Absence of this component on an SRG
-    //! entity is the per-draw / layout-only signal — no extra tag needed.
+    // Non-owning pointer to the actual RHI shader resource backing an SRG entity.
     struct BackingShaderResource
     {
         RHI::ShaderResource* m_shaderResource = nullptr;
-    };
-
-    //! Logical schema of a shader resource — what bindings exist, in what
-    //! slots. Always present on SRG entities, including layout-only ones.
-    //! Read by the PSO compiler to assemble PipelineLayoutDescriptor.
-    struct ShaderResourceLayout
-    {
-        Ptr<RHI::ShaderResourceLayout> m_layout;
     };
 
     struct ImportedResourceState
@@ -215,17 +137,6 @@ namespace Spark::Render
         RHI::AttachmentStage m_lastStage { RHI::AttachmentStage::Any };
     };
 
-    struct ResourceHierarchy
-    {
-        RHIHandle m_firstView {NullHandle};
-    };
-
-    struct ViewHierarchy
-    {
-        RHIHandle m_resource {NullHandle};
-        RHIHandle m_prevView {NullHandle};
-        RHIHandle m_nextView {NullHandle};
-    };
     ///////////////////////////////////////////////
 
     ///////////////////////////////////////////////

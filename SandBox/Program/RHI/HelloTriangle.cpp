@@ -63,7 +63,7 @@ namespace Spark::SandBox
 
         SystemUniquePtr<SimpleGlfwWindow> m_glfwWindow;
 
-        Ptr<RHI::Device> m_device;
+        RHI::Device* m_device = nullptr;
         Ptr<RHI::SwapChain> m_swapChain;
         Ptr<RHI::CommandQueue> m_commandQueue;
         Ptr<RHI::Fence> m_fence;
@@ -117,22 +117,21 @@ namespace Spark::SandBox
 
     void HelloTriangle::CreateDevice()
     {
-        RHI::PhysicalDeviceList devList = m_rhiFactory->EnumeratePhysicalDevices();
+        RHI::PhysicalDeviceList devList = m_rhi->EnumeratePhysicalDevices();
         ASSERT(devList.size() > 0, "No physical devices available.");
         for (Ptr<RHI::PhysicalDevice> physicalDev: devList)
         {
             LOG_INFO(physicalDev->GetDescriptor().m_description.c_str());
         }
 
-        m_device = m_rhiFactory->CreateDevice();
         RHI::DeviceDescriptor desc;
         desc.m_frameCountMax = 2;
-        auto firstDevice = devList[0];
-        RHI::ResultCode result = m_device->Init(*firstDevice, desc);
+        RHI::ResultCode result = m_rhi->InitDevice(*devList[0], desc);
         if (result != RHI::ResultCode::Success)
         {
             LOG_INFO("Create Device failed!");
         }
+        m_device = m_rhi->GetDevice();
     }
 
     void HelloTriangle::CreateCommandQueue()

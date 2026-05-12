@@ -134,7 +134,7 @@ namespace Spark::SandBox
         Ptr<Resource::ImageAsset> m_imageAsset;
 
         // Device / Queue / Fence
-        Ptr<RHI::Device> m_device;
+        RHI::Device* m_device = nullptr;
         Ptr<RHI::SwapChain> m_swapChain;
         Ptr<RHI::Fence> m_submitFence;
         Ptr<RHI::PipelineLibrary> m_pipelineLibrary;
@@ -220,22 +220,22 @@ namespace Spark::SandBox
 
     void DrawShape::CreateDevice()
     {
-        RHI::PhysicalDeviceList devList = m_rhiFactory->EnumeratePhysicalDevices();
+        auto* rhi = Service<RHI::RHIInterface>::Get();
+        RHI::PhysicalDeviceList devList = rhi->EnumeratePhysicalDevices();
         ASSERT(devList.size() > 0, "No physical devices available.");
         for (Ptr<RHI::PhysicalDevice> physicalDev : devList)
         {
             LOG_INFO(physicalDev->GetDescriptor().m_description.c_str());
         }
 
-        m_device = m_rhiFactory->CreateDevice();
         RHI::DeviceDescriptor desc;
         desc.m_frameCountMax = 2;
-        auto firstDevice = devList[0];
-        RHI::ResultCode result = m_device->Init(*firstDevice, desc);
+        RHI::ResultCode result = rhi->InitDevice(*devList[0], desc);
         if (result != RHI::ResultCode::Success)
         {
             LOG_ERROR("Create Device failed!");
         }
+        m_device = rhi->GetDevice();
     }
 
     void DrawShape::CreateFence()

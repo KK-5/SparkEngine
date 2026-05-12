@@ -35,6 +35,12 @@ namespace Spark
 
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();
+
+        m_rhiResourceSystem = CreateSystem<RHI::RHIResourceSystem>();
+        m_rhiResourceSystem->Init();
+
+        m_asyncUploadSystem = CreateSystem<RHI::AsyncUploadSystem>();
+        m_asyncUploadSystem->Init();
     }
 
     void SparkEngine::Shutdown()

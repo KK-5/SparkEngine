@@ -11,6 +11,8 @@
 #include <Render/RenderSystem.h>
 #include <Input/InputSystem.h>
 #include <RHI/Backend/DX12/RHISystem.h>
+#include <RHI/Resource/RHIResourceSystem.h>
+#include <RHI/Upload/AsyncUploadSystem.h>
 
 namespace Spark
 {
@@ -48,6 +50,8 @@ namespace Spark
         SystemUniquePtr<SceneManager>         m_sceneManager;
         SystemUniquePtr<EntityReaper>         m_entityReaper;
         SystemUniquePtr<RHI::DX12::RHISystem> m_dx12Rhi;
-        SystemUniquePtr<Render::RenderSystem> m_renderSystem;
+        SystemUniquePtr<Render::RenderSystem>   m_renderSystem;
+        SystemUniquePtr<RHI::RHIResourceSystem>  m_rhiResourceSystem;
+        SystemUniquePtr<RHI::AsyncUploadSystem>  m_asyncUploadSystem;
     };
 }
