@@ -10,6 +10,7 @@ set(SOURCES
     Command/CommandListBase.cpp
     Command/CommandList.cpp
     Command/CommandListPool.cpp
+    Command/CommandRecorder.cpp
     Command/CommandQueue.cpp
     Device/PhysicalDevice.cpp
     Device/Device.cpp

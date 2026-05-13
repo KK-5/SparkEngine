@@ -14,6 +14,7 @@
 #include <RHI/Bus/FrameEventBus.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Command/CommandQueue.h>
+#include <RHI/Command/CommandRecorder.h>
 #include <RHI/Fence/Fence.h>
 #include <RHI/Resource/Buffer/BufferPool.h>
 
@@ -50,12 +51,11 @@ namespace Spark::RHI
     private:
         struct FramePacket
         {
-            Ptr<Buffer>      m_stagingBuffer;
-            uint8_t*         m_mappedPtr   = nullptr;
-            uint32_t         m_offset      = 0;
-            // Last m_packetFence value signalled after this packet's commands.
-            // Rotation must wait for the GPU to reach this value before reusing the packet.
-            uint64_t         m_fenceValue  = 0;
+            Ptr<Buffer>           m_stagingBuffer;
+            uint8_t*              m_mappedPtr       = nullptr;
+            uint32_t              m_offset          = 0;
+            uint64_t              m_fenceValue      = 0;
+            Ptr<CommandRecorder>  m_commandRecorder;
         };
 
         // Source data + resolved target, packed for the upload thread.

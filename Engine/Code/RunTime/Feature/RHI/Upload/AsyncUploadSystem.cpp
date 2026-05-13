@@ -90,6 +90,15 @@ namespace Spark::RHI
                 BufferMapRequest{*packet.m_stagingBuffer, 0, m_descriptor.m_stagingSizeInBytes},
                 mapResponse);
             packet.m_mappedPtr = static_cast<uint8_t*>(mapResponse.m_data);
+
+            packet.m_commandRecorder = factory->CreateCommandRecorder();
+            CommandRecorderDescriptor recorderDesc;
+            recorderDesc.m_queue = HardwareQueueClass::Copy;
+            if (packet.m_commandRecorder->Init(*device, recorderDesc) != ResultCode::Success)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Failed to init command recorder.");
+                return;
+            }
         }
 
         // Start upload thread
@@ -299,14 +308,9 @@ namespace Spark::RHI
 
     void AsyncUploadSystem::ProcessBatch(Batch& batch)
     {
-        auto* rhi = Service<RHIInterface>::Get();
-        auto* factory = rhi->GetRHIFactory();
-        auto* device = rhi->GetDevice();
-
-        CommandList* cmdList = factory->CreateCommandList(*device, HardwareQueueClass::Copy);
-        cmdList->Open();
-
         auto* packet = &m_packets[m_currentPacketIndex];
+        packet->m_commandRecorder->Reset();
+        CommandList* cmdList = packet->m_commandRecorder->GetCommandList();
 
         // Mid-batch flush: staging packet is full, retire it and rotate to the next.
         // Uses m_packetFence (upload-thread private) so m_uploadFence stays clean —
@@ -329,8 +333,8 @@ namespace Spark::RHI
             }
             packet->m_offset = 0;
 
-            cmdList = factory->CreateCommandList(*device, HardwareQueueClass::Copy);
-            cmdList->Open();
+            packet->m_commandRecorder->Reset();
+            cmdList = packet->m_commandRecorder->GetCommandList();
         };
 
         // Process buffer uploads

@@ -31,7 +31,7 @@
 
 namespace Spark::RHI::DX12
 {
-    void CommandList::Init(Device& device, RHI::HardwareQueueClass hardwareQueueClass, ID3D12CommandAllocator* commandAllocator)
+    void CommandList::Init(Device& device, RHI::HardwareQueueClass hardwareQueueClass, ID3D12CommandAllocatorX* commandAllocator)
     {
         CommandListBase::Init(device, hardwareQueueClass, commandAllocator);
 
@@ -52,7 +52,7 @@ namespace Spark::RHI::DX12
         ASSERT(IsInitialized(), "[CommandList] Shutdown an uninitialized CommandList");
     }
 
-    void CommandList::Reset(ID3D12CommandAllocator* commandAllocator)
+    void CommandList::Reset(ID3D12CommandAllocatorX* commandAllocator)
     {
         CommandListBase::Reset(commandAllocator);
 

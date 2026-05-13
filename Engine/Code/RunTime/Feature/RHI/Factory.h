@@ -35,6 +35,7 @@ namespace Spark::RHI
     class PipelineLayoutDescriptor;
 
     class CommandList;
+    class CommandRecorder;
     class CommandQueue;
 
     class Fence;
@@ -57,6 +58,11 @@ namespace Spark::RHI
         // Commandlist创建即是初始化的，其对象生命周期由Factory管理，每帧都会重置
         // 返回指针不应该被保存
         virtual CommandList* CreateCommandList(RHI::Device& device, RHI::HardwareQueueClass hardwareQueueClass) = 0;
+
+        // 创建独立的CommandRecorder，生命周期由调用方通过Ptr管理
+        // 与池化的CommandList不同，CommandRecorder可以在帧循环外安全使用，
+        // 调用方通过Reset()显式控制allocator和commandlist的重置时机
+        virtual Ptr<CommandRecorder> CreateCommandRecorder() = 0;
 
         virtual Ptr<CommandQueue> CreateCommandQueue() = 0;
 

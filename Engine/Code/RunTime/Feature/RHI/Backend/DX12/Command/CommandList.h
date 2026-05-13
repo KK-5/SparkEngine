@@ -46,7 +46,7 @@ namespace Spark::RHI::DX12
         void Init(
             Device& device,
             RHI::HardwareQueueClass hardwareQueueClass,
-            ID3D12CommandAllocator* commandAllocator);
+            ID3D12CommandAllocatorX* commandAllocator);
 
         void Shutdown() override;
 
@@ -55,7 +55,7 @@ namespace Spark::RHI::DX12
 
         //////////////////////////////////////////////////////////////////////////
         // CommandListBase
-        void Reset(ID3D12CommandAllocator* commandAllocator) override;
+        void Reset(ID3D12CommandAllocatorX* commandAllocator) override;
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////

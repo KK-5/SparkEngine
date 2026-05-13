@@ -28,6 +28,7 @@
 #include "Resource/Sampler/Sampler.h"
 #include "Command/CommandList.h"
 #include "Command/CommandListPool.h"
+#include "Command/CommandRecorder.h"
 #include "Command/CommandQueue.h"
 
 #include "Descriptor/DescriptorContext.h"
@@ -141,6 +142,8 @@ namespace Spark::RHI::DX12
         Ptr<RHI::PipelineLayoutDescriptor> CreatePipelineLayoutDescriptor() override;
 
         UniquePtr<RHI::ImGui> CreateRHIImGui() override;
+
+        Ptr<RHI::CommandRecorder> CreateCommandRecorder() override;
         ///////////////////////////////////////////////////////////
 
     private:
@@ -168,6 +171,7 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<Fence>      m_fenceObjectPool;
         DeviceObjectPool<SwapChain>  m_swapChainObjectPool;
         DeviceObjectPool<CommandQueue> m_commandQueueObjectPool;
+        DeviceObjectPool<CommandRecorder> m_commandRecorderObjectPool;
 
         DeviceObjectPool<Sampler>    m_samplerObjectPool;
         DeviceObjectPool<PipelineLayout> m_pipelineLayoutObjectPool;

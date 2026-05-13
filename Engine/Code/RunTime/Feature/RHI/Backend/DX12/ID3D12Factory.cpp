@@ -28,6 +28,7 @@ namespace Spark::RHI::DX12
         m_fenceObjectPool.Init();
         m_swapChainObjectPool.Init();
         m_commandQueueObjectPool.Init();
+        m_commandRecorderObjectPool.Init();
 
         m_samplerObjectPool.Init();
         m_pipelineLayoutObjectPool.Init();
@@ -51,6 +52,7 @@ namespace Spark::RHI::DX12
         m_fenceObjectPool.Shutdown();
         m_swapChainObjectPool.Shutdown();
         m_commandQueueObjectPool.Shutdown();
+        m_commandRecorderObjectPool.Shutdown();
 
         m_samplerObjectPool.Shutdown();
         m_pipelineLayoutObjectPool.Shutdown();
@@ -102,6 +104,7 @@ namespace Spark::RHI::DX12
         m_fenceObjectPool.Collect();
         m_swapChainObjectPool.Collect();
         m_commandQueueObjectPool.Collect();
+        m_commandRecorderObjectPool.Collect();
 
         m_samplerObjectPool.Collect();
         m_pipelineLayoutObjectPool.Collect();
@@ -239,6 +242,11 @@ namespace Spark::RHI::DX12
         }
 
         return static_cast<RHI::CommandList*>(m_commandlistAllocator->Allocate(hardwareQueueClass));
+    }
+
+    Ptr<RHI::CommandRecorder> ID3D12Factory::CreateCommandRecorder()
+    {
+        return static_cast<RHI::CommandRecorder*>(m_commandRecorderObjectPool.CreateDeviceObject());
     }
 
     Ptr<RHI::CommandQueue> ID3D12Factory::CreateCommandQueue()
