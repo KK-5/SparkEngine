@@ -74,9 +74,10 @@ namespace Spark::RHI::DX12
         D3D12_RESOURCE_DESC resourceDesc;
         ConvertImageDescriptor(imageDesc, resourceDesc);
 
-        // Image的资源分配在默认堆上
+        // Read heap type from pool descriptor (Device → DEFAULT, Host+Read → READBACK)
+        const RHI::ImagePoolDescriptor& poolDesc = GetDescriptor();
         D3D12MA::ALLOCATION_DESC allocDesc = {};
-        allocDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+        allocDesc.HeapType = ConvertHeapType(poolDesc.m_heapMemoryLevel, poolDesc.m_hostMemoryAccess);
         allocDesc.Flags = D3D12MA::ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
 
         // Clear values only apply when the image is a render target or depth stencil.

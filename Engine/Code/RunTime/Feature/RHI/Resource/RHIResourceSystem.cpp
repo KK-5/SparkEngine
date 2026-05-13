@@ -16,39 +16,75 @@ namespace Spark::RHI
         auto* factory = rhi->GetRHIFactory();
         auto* device = rhi->GetDevice();
 
-        // Device buffer pool — GPU-resident buffers (VB/IB/structured/UAV/indirect)
+        // Device placed pool — sub-allocated GPU-resident buffers
         {
             BufferPoolDescriptor desc;
             desc.m_heapMemoryLevel = HeapMemoryLevel::Device;
             desc.m_bindFlags = BufferBindFlags::InputAssembly
+                             | BufferBindFlags::DynamicInputAssembly
                              | BufferBindFlags::ShaderRead
                              | BufferBindFlags::ShaderWrite
-                             | BufferBindFlags::Constant
                              | BufferBindFlags::CopyWrite
-                             | BufferBindFlags::Indirect;
+                             | BufferBindFlags::Indirect
+                             | BufferBindFlags::Predication;
             desc.m_sharedQueueMask = HardwareQueueClassMask::All;
-            m_deviceBufferPool = factory->CreateBufferPool();
-            m_deviceBufferPool->Init(*device, desc);
+            m_devicePlacedBufferPool = factory->CreateBufferPool();
+            m_devicePlacedBufferPool->Init(*device, desc);
         }
 
-        // Host buffer pool — CPU-writable dynamic buffers (per-frame StructuredBuffer, cbuffer)
+        // Device committed pool — oversized / ray-tracing escape hatch
+        {
+            BufferPoolDescriptor desc;
+            desc.m_heapMemoryLevel = HeapMemoryLevel::Device;
+            desc.m_bindFlags = BufferBindFlags::RayTracingAccelerationStructure
+                             | BufferBindFlags::RayTracingShaderTable
+                             | BufferBindFlags::RayTracingScratchBuffer;
+            desc.m_sharedQueueMask = HardwareQueueClassMask::All;
+            m_deviceCommittedBufferPool = factory->CreateBufferPool();
+            m_deviceCommittedBufferPool->Init(*device, desc);
+        }
+
+        // Host upload placed pool — CPU-writable dynamic buffers (per-frame StructuredBuffer, cbuffer)
         {
             BufferPoolDescriptor desc;
             desc.m_heapMemoryLevel = HeapMemoryLevel::Host;
             desc.m_hostMemoryAccess = HostMemoryAccess::Write;
             desc.m_bindFlags = BufferBindFlags::CopyRead | BufferBindFlags::Constant;
             desc.m_sharedQueueMask = HardwareQueueClassMask::All;
-            m_hostBufferPool = factory->CreateBufferPool();
-            m_hostBufferPool->Init(*device, desc);
+            m_hostUploadPlacedBufferPool = factory->CreateBufferPool();
+            m_hostUploadPlacedBufferPool->Init(*device, desc);
         }
 
-        // Device image pool — GPU-resident images (textures/RenderTarget/DepthStencil)
+        // Host readback placed pool — GPU-written, CPU-read buffers
+        {
+            BufferPoolDescriptor desc;
+            desc.m_heapMemoryLevel = HeapMemoryLevel::Host;
+            desc.m_hostMemoryAccess = HostMemoryAccess::Read;
+            desc.m_bindFlags = BufferBindFlags::CopyWrite;
+            desc.m_sharedQueueMask = HardwareQueueClassMask::All;
+            m_hostReadbackPlacedBufferPool = factory->CreateBufferPool();
+            m_hostReadbackPlacedBufferPool->Init(*device, desc);
+        }
+
+        // Device image pool — GPU-resident images (textures/RenderTarget/DepthStencil/UAV)
         {
             ImagePoolDescriptor desc;
-            desc.m_bindFlags = ImageBindFlags::ShaderRead | ImageBindFlags::Color
-                             | ImageBindFlags::DepthStencil | ImageBindFlags::CopyWrite;
+            desc.m_bindFlags = ImageBindFlags::ShaderRead | ImageBindFlags::ShaderWrite
+                             | ImageBindFlags::Color | ImageBindFlags::DepthStencil
+                             | ImageBindFlags::CopyRead | ImageBindFlags::CopyWrite
+                             | ImageBindFlags::ShadingRate;
             m_deviceImagePool = factory->CreateImagePool();
             m_deviceImagePool->Init(*device, desc);
+        }
+
+        // Host readback image pool — GPU-written, CPU-read images (screenshots, etc.)
+        {
+            ImagePoolDescriptor desc;
+            desc.m_heapMemoryLevel = HeapMemoryLevel::Host;
+            desc.m_hostMemoryAccess = HostMemoryAccess::Read;
+            desc.m_bindFlags = ImageBindFlags::CopyWrite;
+            m_hostReadbackImagePool = factory->CreateImagePool();
+            m_hostReadbackImagePool->Init(*device, desc);
         }
 
         FrameEventBus::Handler::BusConnect();
@@ -57,9 +93,12 @@ namespace Spark::RHI
     void RHIResourceSystem::ShutdownInternal()
     {
         FrameEventBus::Handler::BusDisconnect();
+        m_hostReadbackImagePool.reset();
         m_deviceImagePool.reset();
-        m_hostBufferPool.reset();
-        m_deviceBufferPool.reset();
+        m_hostReadbackPlacedBufferPool.reset();
+        m_hostUploadPlacedBufferPool.reset();
+        m_deviceCommittedBufferPool.reset();
+        m_devicePlacedBufferPool.reset();
     }
 
     void RHIResourceSystem::OnFrameBegin()
@@ -76,16 +115,45 @@ namespace Spark::RHI
 
     BufferPool* RHIResourceSystem::SelectBufferPool(const BufferDescriptor& desc) const
     {
-        // Host heap: CopyRead or Constant flags present, no GPU-only flags.
-        bool isHost = (desc.m_bindFlags & (BufferBindFlags::CopyRead | BufferBindFlags::Constant))
-                      != BufferBindFlags::None;
-        return isHost ? m_hostBufferPool.get() : m_deviceBufferPool.get();
+        const BufferBindFlags flags = desc.m_bindFlags;
+
+        // Host upload: CopyRead | Constant
+        constexpr auto hostUploadMask = BufferBindFlags::CopyRead | BufferBindFlags::Constant;
+        if (flags != BufferBindFlags::None && (flags & hostUploadMask) == flags)
+        {
+            return m_hostUploadPlacedBufferPool.get();
+        }
+
+        // Host readback: CopyWrite
+        if (flags != BufferBindFlags::None && (flags & BufferBindFlags::CopyWrite) == flags)
+        {
+            return m_hostReadbackPlacedBufferPool.get();
+        }
+
+        // Device committed: ray tracing acceleration structures / shader tables
+        constexpr auto deviceCommittedMask = BufferBindFlags::RayTracingAccelerationStructure
+                                            | BufferBindFlags::RayTracingShaderTable
+                                            | BufferBindFlags::RayTracingScratchBuffer;
+        if (flags != BufferBindFlags::None && (flags & deviceCommittedMask) == flags)
+        {
+            return m_deviceCommittedBufferPool.get();
+        }
+
+        // Device placed: catch-all for all remaining device-local flags
+        return m_devicePlacedBufferPool.get();
     }
 
     ImagePool* RHIResourceSystem::SelectImagePool(const ImageDescriptor& desc) const
     {
-        // v1: single device image pool for all GPU-resident images.
-        (void)desc;
+        const ImageBindFlags flags = desc.m_bindFlags;
+
+        // Host readback: CopyWrite only (GPU writes, CPU reads back)
+        if (flags != ImageBindFlags::None && (flags & ImageBindFlags::CopyWrite) == flags)
+        {
+            return m_hostReadbackImagePool.get();
+        }
+
+        // Device: all GPU-resident images
         return m_deviceImagePool.get();
     }
 
@@ -101,7 +169,7 @@ namespace Spark::RHI
         {
             BufferPool* pool = SelectBufferPool(desc);
 
-            if (pool == m_hostBufferPool.get())
+            if (ctx.Has<PerFrameTag>(handle))
             {
                 Components::BufferPerFrame perFrame;
                 const uint32_t frameCount = device.GetDescriptor().m_frameCountMax;
@@ -157,18 +225,48 @@ namespace Spark::RHI
         {
             ImagePool* pool = SelectImagePool(desc);
 
-            Ptr<RHI::Image> image = factory->CreateImage();
-            ImageInitRequest request;
-            request.m_image = image.get();
-            request.m_descriptor = desc;
-            if (pool->InitImage(request) != ResultCode::Success)
+            if (ctx.Has<PerFrameTag>(handle))
             {
-                LOG_ERROR("[RHIResourceSystem] InitImage failed (entity {}); destroying entity.",
-                          static_cast<uint32_t>(handle));
-                toDestroy.push_back(handle);
-                return;
+                Components::ImagePerFrame perFrame;
+                const uint32_t frameCount = device.GetDescriptor().m_frameCountMax;
+                bool failed = false;
+                for (uint32_t i = 0; i < frameCount; ++i)
+                {
+                    Ptr<RHI::Image> image = factory->CreateImage();
+                    ImageInitRequest request;
+                    request.m_image = image.get();
+                    request.m_descriptor = desc;
+                    if (pool->InitImage(request) != ResultCode::Success)
+                    {
+                        LOG_ERROR("[RHIResourceSystem] InitImage failed for per-frame image "
+                                  "(entity {}); destroying entity.", static_cast<uint32_t>(handle));
+                        failed = true;
+                        break;
+                    }
+                    perFrame.m_images[i] = eastl::move(image);
+                }
+                if (failed)
+                {
+                    toDestroy.push_back(handle);
+                    return;
+                }
+                ctx.Add<Components::ImagePerFrame>(handle, eastl::move(perFrame));
             }
-            ctx.Add<Components::Image>(handle, Components::Image{ image });
+            else
+            {
+                Ptr<RHI::Image> image = factory->CreateImage();
+                ImageInitRequest request;
+                request.m_image = image.get();
+                request.m_descriptor = desc;
+                if (pool->InitImage(request) != ResultCode::Success)
+                {
+                    LOG_ERROR("[RHIResourceSystem] InitImage failed (entity {}); destroying entity.",
+                              static_cast<uint32_t>(handle));
+                    toDestroy.push_back(handle);
+                    return;
+                }
+                ctx.Add<Components::Image>(handle, Components::Image{ image });
+            }
         });
 
         for (RHIHandle handle : toDestroy)

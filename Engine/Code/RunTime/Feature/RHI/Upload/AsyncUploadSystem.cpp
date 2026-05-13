@@ -336,24 +336,35 @@ namespace Spark::RHI
         // Process buffer uploads
         for (const auto& upload : batch.m_bufferUploads)
         {
-            if (packet->m_offset + upload.m_dataSize > m_descriptor.m_stagingSizeInBytes)
-            {
-                SubmitFramePacket();
-            }
-
+            size_t srcOffset = 0;
+            size_t dstOffset = upload.m_destinationOffset;
+            size_t pendingByteCount = upload.m_dataSize;
             const auto* src = static_cast<const uint8_t*>(upload.m_data);
-            memcpy(packet->m_mappedPtr + packet->m_offset, src, upload.m_dataSize);
 
-            CopyBufferDescriptor copyDesc;
-            copyDesc.m_sourceBuffer      = packet->m_stagingBuffer.get();
-            copyDesc.m_sourceOffset      = packet->m_offset;
-            copyDesc.m_destinationBuffer = upload.m_targetBuffer;
-            copyDesc.m_destinationOffset = static_cast<uint32_t>(upload.m_destinationOffset);
-            copyDesc.m_size              = static_cast<uint32_t>(upload.m_dataSize);
+            while (pendingByteCount > 0)
+            {
+                if (packet->m_offset >= m_descriptor.m_stagingSizeInBytes)
+                {
+                    SubmitFramePacket();
+                }
 
-            cmdList->Submit(CopyItem{ copyDesc });
+                const size_t bytesToCopy = eastl::min(pendingByteCount, m_descriptor.m_stagingSizeInBytes - packet->m_offset);
+                memcpy(packet->m_mappedPtr + packet->m_offset, src + srcOffset, bytesToCopy);
 
-            packet->m_offset += static_cast<uint32_t>(upload.m_dataSize);
+                CopyBufferDescriptor copyDesc;
+                copyDesc.m_sourceBuffer      = packet->m_stagingBuffer.get();
+                copyDesc.m_sourceOffset      = packet->m_offset;
+                copyDesc.m_destinationBuffer = upload.m_targetBuffer;
+                copyDesc.m_destinationOffset = static_cast<uint32_t>(dstOffset);
+                copyDesc.m_size              = static_cast<uint32_t>(bytesToCopy);
+
+                cmdList->Submit(CopyItem{ copyDesc });
+
+                packet->m_offset += static_cast<uint32_t>(bytesToCopy);
+                pendingByteCount -= bytesToCopy;
+                srcOffset += bytesToCopy;
+                dstOffset += bytesToCopy;
+            }
         }
 
         // Process image uploads

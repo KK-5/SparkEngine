@@ -40,8 +40,11 @@ namespace Spark::RHI
         BufferPool* SelectBufferPool(const BufferDescriptor& desc) const;
         ImagePool*  SelectImagePool(const ImageDescriptor& desc) const;
 
-        Ptr<BufferPool> m_deviceBufferPool;
-        Ptr<BufferPool> m_hostBufferPool;
+        Ptr<BufferPool> m_devicePlacedBufferPool;
+        Ptr<BufferPool> m_deviceCommittedBufferPool;
+        Ptr<BufferPool> m_hostUploadPlacedBufferPool;
+        Ptr<BufferPool> m_hostReadbackPlacedBufferPool;
         Ptr<ImagePool>  m_deviceImagePool;
+        Ptr<ImagePool>  m_hostReadbackImagePool;
     };
 }

@@ -28,6 +28,10 @@ namespace Spark::RHI
     struct ImportedTag {};
     struct TransientTag {};
 
+    // Resource multiplicity tags — determines single vs. per-frame allocation.
+    // Absence of PerFrameTag defaults to single-frame behavior.
+    struct PerFrameTag {};
+
     // Marks an RHI resource entity whose CPU-side staging state has been mutated
     // and needs flushing this frame.
     struct RHIUpdateTag {};
