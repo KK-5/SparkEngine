@@ -27,9 +27,11 @@ namespace Spark::RHI
     public:
         struct Descriptor
         {
-            size_t   m_stagingSizeInBytes = 16 * 1024 * 1024;
-            uint32_t m_frameCount         = Limits::Device::FrameCountMax;
+            size_t m_stagingSizeInBytes = 16 * 1024 * 1024;
         };
+
+        AsyncUploadSystem() = default;
+        explicit AsyncUploadSystem(const Descriptor& desc) : m_descriptor(desc) {}
 
         // ISystem
         eastl::vector<HashString> Request() const override { return {"RHI"_hs}; }
@@ -37,12 +39,6 @@ namespace Spark::RHI
 
         // FrameEventBus
         void OnFrameBegin() override;
-
-        // Cross-queue GPU wait point — render graph calls before graphics submit.
-        Fence& GetUploadFence() const { return *m_uploadFence; }
-
-        // CPU-blocking sync flush for init-time paths.
-        void FlushAndWait();
 
     protected:
         void InitInternal()     override;
@@ -55,6 +51,7 @@ namespace Spark::RHI
             uint8_t*              m_mappedPtr       = nullptr;
             uint32_t              m_offset          = 0;
             uint64_t              m_fenceValue      = 0;
+            Ptr<Fence>            m_fence;
             Ptr<CommandRecorder>  m_commandRecorder;
         };
 
@@ -87,6 +84,9 @@ namespace Spark::RHI
             eastl::vector<ImageUpload>   m_imageUploads;
         };
 
+        // CPU-blocking sync flush for init-time paths.
+        void FlushUploadPackets();
+
         void PollCompletions(RHIContext& ctx);
         void SubmitBatch(RHIContext& ctx);
 
@@ -102,11 +102,6 @@ namespace Spark::RHI
         // External contract fence — signalled exactly once per batch (final value).
         // Consumers (UploadSubmitted, RG cross-queue wait, FlushAndWait) check this.
         Ptr<Fence>               m_uploadFence;
-
-        // Internal staging-rotation fence — signalled per packet flush, upload-thread
-        // private. Decoupled from m_uploadFence so the external contract stays monotonic
-        // with one Signal per batch.
-        Ptr<Fence>               m_packetFence;
 
         std::mutex               m_mutex;
         std::condition_variable  m_cv;

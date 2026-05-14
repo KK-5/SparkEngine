@@ -4,6 +4,7 @@
 
 #include <Object/ObjectName.h>
 
+#include <RHI/MemoryEnums.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Resource/Buffer/Buffer.h>
@@ -24,6 +25,8 @@
 
 namespace Spark::RHI
 {
+    class Fence;
+
     // Discovery tags
     struct ImportedTag {};
     struct TransientTag {};
@@ -59,6 +62,25 @@ namespace Spark::RHI
     };
 
     //////////////////////////////////////////////////////////////
+    // Resource initialization — descriptor + placement for buffer creation.
+    // RHIResourceSystem consumes this on materialization and removes the component.
+    struct PendingBufferInit
+    {
+        BufferDescriptor m_descriptor;
+        HeapMemoryLevel  m_heapMemoryLevel  = HeapMemoryLevel::Device;
+        HostMemoryAccess m_hostMemoryAccess = HostMemoryAccess::Write;
+    };
+
+    // Resource initialization — descriptor + placement for image creation.
+    // RHIResourceSystem consumes this on materialization and removes the component.
+    struct PendingImageInit
+    {
+        ImageDescriptor  m_descriptor;
+        HeapMemoryLevel  m_heapMemoryLevel  = HeapMemoryLevel::Device;
+        HostMemoryAccess m_hostMemoryAccess = HostMemoryAccess::Write;
+    };
+
+    //////////////////////////////////////////////////////////////
     // Upload pipeline components
     // Entity state machine: [UploadPendingTag] → [UploadSubmitted] → [done]
 
@@ -66,7 +88,7 @@ namespace Spark::RHI
     struct UploadPendingTag {};
 
     // CPU source data for a buffer upload. Caller guarantees m_data is valid
-    // until UploadSubmitted is removed (or FlushAndWait returns).
+    // until BOTH PendingBufferUpload AND UploadSubmitted are removed from the entity.
     struct PendingBufferUpload
     {
         const void* m_data              = nullptr;
@@ -75,7 +97,7 @@ namespace Spark::RHI
     };
 
     // CPU source data for an image upload. Caller guarantees m_data is valid
-    // until UploadSubmitted is removed (or FlushAndWait returns).
+    // until BOTH PendingImageUpload AND UploadSubmitted are removed from the entity.
     struct PendingImageUpload
     {
         const void*      m_data                = nullptr;
@@ -88,11 +110,24 @@ namespace Spark::RHI
         uint32_t         m_sourceBytesPerImage = 0;
     };
 
+    // CPU source data + destination range for a host-buffer write via Map.
+    // Processed synchronously by RHIResourceSystem::OnFrameBegin: Map →
+    // memcpy → Unmap. Only valid for Host heap buffers; Device heap buffers
+    // must use PendingBufferUpload instead.
+    // Caller guarantees m_data is valid until this component is removed.
+    struct PendingBufferMap
+    {
+        const void* m_data       = nullptr;
+        size_t      m_byteOffset = 0;
+        size_t      m_byteCount  = 0;
+    };
+
     // Marks an entity whose upload batch has been submitted to the copy queue
     // but not yet signalled complete. Removed by AsyncUploadSystem on poll.
     struct UploadSubmitted
     {
         uint64_t m_fenceValue = 0;
+        Fence*   m_uploadFence = nullptr;
     };
 }
 

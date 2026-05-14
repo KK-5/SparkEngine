@@ -48,7 +48,6 @@ namespace Spark::RHI::DX12
         RHI::ResultCode OrphanBufferInternal(RHI::Buffer& buffer) override;
         RHI::ResultCode MapBufferInternal(const RHI::BufferMapRequest& mapRequest, RHI::BufferMapResponse& response) override;
         void UnmapBufferInternal(RHI::Buffer& buffer) override;
-        RHI::ResultCode StreamBufferInternal(const RHI::BufferStreamRequest& request) override;
         //////////////////////////////////////////////////////////////////////////
 
         Ptr<D3D12MA::Allocator> m_allocator;

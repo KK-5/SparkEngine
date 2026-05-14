@@ -11,8 +11,8 @@
 #include <Render/RenderSystem.h>
 #include <Input/InputSystem.h>
 #include <RHI/Backend/DX12/RHISystem.h>
-#include <RHI/Resource/RHIResourceSystem.h>
-#include <RHI/Upload/AsyncUploadSystem.h>
+#include <RHI/System/RHIResourceSystem.h>
+#include <RHI/System/AsyncUploadSystem.h>
 
 namespace Spark
 {

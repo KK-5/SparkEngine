@@ -11,6 +11,9 @@
 
 namespace Spark::RHI
 {
+    struct PendingBufferInit;
+    struct PendingImageInit;
+
     //! Frame-begin system that scans RHIContext for imported entities carrying
     //! a resource descriptor (BufferDescriptor / ImageDescriptor / ...) but no
     //! backing RHI object yet, and materializes the underlying RHI resource.
@@ -34,11 +37,17 @@ namespace Spark::RHI
     private:
         void CreateBuffers(RHIContext& ctx, Device& device);
         void CreateImages(RHIContext& ctx, Device& device);
+        void ProcessBufferMaps(RHIContext& ctx);
         void CreateBufferViews(RHIContext& ctx, Device& device);
         void CreateImageViews(RHIContext& ctx, Device& device);
 
-        BufferPool* SelectBufferPool(const BufferDescriptor& desc) const;
-        ImagePool*  SelectImagePool(const ImageDescriptor& desc) const;
+        // Head-inserts a view entity into its resource's ViewHierarchy linked list.
+        void LinkViewToResource(RHIContext& ctx, RHIHandle viewEntity, RHIHandle resourceEntity);
+
+        BufferPool* SelectBufferPool(const PendingBufferInit& init) const;
+        ImagePool*  SelectImagePool(const PendingImageInit& init) const;
+
+        uint32_t m_frameIndex = 0;
 
         Ptr<BufferPool> m_devicePlacedBufferPool;
         Ptr<BufferPool> m_deviceCommittedBufferPool;

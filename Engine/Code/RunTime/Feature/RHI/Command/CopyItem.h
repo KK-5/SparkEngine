@@ -16,10 +16,10 @@ namespace Spark::RHI
     struct CopyBufferDescriptor
     {
         const Buffer* m_sourceBuffer = nullptr;
-        uint32_t m_sourceOffset = 0;
+        uint64_t m_sourceOffset = 0;
         const Buffer* m_destinationBuffer = nullptr;
-        uint32_t m_destinationOffset = 0;
-        uint32_t m_size = 0;
+        uint64_t m_destinationOffset = 0;
+        uint64_t m_size = 0;
     };
 
     struct CopyImageDescriptor

@@ -7,8 +7,6 @@
 
 #include <Log/SpdLogSystem.h>
 
-#include <RHI/Fence/Fence.h>
-
 namespace Spark::RHI
 {
     ResultCode BufferPool::Init(Device& device, const BufferPoolDescriptor& descriptor)
@@ -121,21 +119,6 @@ namespace Spark::RHI
         {
             UnmapBufferInternal(buffer);
         }
-    }
-
-    ResultCode BufferPool::StreamBuffer(const BufferStreamRequest& request)
-    {
-        if (!ValidateIsInitialized())
-        {
-            return ResultCode::InvalidOperation;
-        }
-
-        if (!ValidateIsRegistered(request.m_buffer))
-        {
-            return ResultCode::InvalidArgument;
-        }
-
-        return StreamBufferInternal(request);
     }
 
     void BufferPool::BufferCopy(void* destination, const void* source, size_t num)

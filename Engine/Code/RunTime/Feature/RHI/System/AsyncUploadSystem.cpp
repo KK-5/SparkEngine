@@ -1,6 +1,5 @@
 #include "AsyncUploadSystem.h"
 
-#include <Service/Service.h>
 #include <Log/SpdLogSystem.h>
 #include <Math/Bit.h>
 
@@ -14,8 +13,6 @@ namespace Spark::RHI
 {
     void AsyncUploadSystem::InitInternal()
     {
-        Service<AsyncUploadSystem>::Register(this);
-
         auto* rhi = Service<RHIInterface>::Get();
         auto* factory = rhi->GetRHIFactory();
         auto* device = rhi->GetDevice();
@@ -57,16 +54,6 @@ namespace Spark::RHI
             }
         }
 
-        // Packet fence — internal staging rotation tracker, upload-thread private.
-        {
-            m_packetFence = factory->CreateFence();
-            if (m_packetFence->Init(*device, FenceState::Reset) != ResultCode::Success)
-            {
-                LOG_ERROR("[AsyncUploadSystem] Failed to init packet fence.");
-                return;
-            }
-        }
-
         // Pre-allocate staging packets
         const uint32_t frameCount = device->GetDescriptor().m_frameCountMax;
         m_packets.resize(frameCount);
@@ -99,6 +86,13 @@ namespace Spark::RHI
                 LOG_ERROR("[AsyncUploadSystem] Failed to init command recorder.");
                 return;
             }
+
+            packet.m_fence = factory->CreateFence();
+            if (packet.m_fence->Init(*device, FenceState::Reset) != ResultCode::Success)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Failed to init packet fence {}.", i);
+                return;
+            }
         }
 
         // Start upload thread
@@ -123,9 +117,7 @@ namespace Spark::RHI
             m_pendingBatches.pop_front();
         }
 
-        FlushAndWait();
-
-        Service<AsyncUploadSystem>::Unregister(this);
+        FlushUploadPackets();
 
         for (auto& packet : m_packets)
         {
@@ -134,7 +126,6 @@ namespace Spark::RHI
         }
         m_packets.clear();
 
-        m_packetFence.reset();
         m_uploadFence.reset();
         m_stagingPool.reset();
         m_copyQueue.reset();
@@ -148,7 +139,7 @@ namespace Spark::RHI
         SubmitBatch(ctx);
     }
 
-    void AsyncUploadSystem::FlushAndWait()
+    void AsyncUploadSystem::FlushUploadPackets()
     {
         const uint64_t pending = m_uploadFence->GetPendingValue();
         if (pending > m_uploadFence->GetCompletedValue())
@@ -195,6 +186,12 @@ namespace Spark::RHI
             auto* owning = ctx.TryGet<Components::Buffer>(handle);
             if (!owning || !owning->m_buffer)
             {
+                // Materialization still in flight — PendingBufferInit is present so
+                // RHIResourceSystem will create the buffer in a future frame.
+                if (ctx.Has<PendingBufferInit>(handle))
+                {
+                    return;
+                }
                 // Host-visible per-frame buffers must not go through staging — they're
                 // CPU-mapped and the caller should write to them directly via Map().
                 if (ctx.TryGet<Components::BufferPerFrame>(handle))
@@ -207,12 +204,9 @@ namespace Spark::RHI
                 else
                 {
                     LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingBufferUpload "
-                              "but has no materialized Buffer. Make sure BufferDescriptor "
-                              "is declared and RHIResourceSystem runs before this system.",
+                              "but has no materialized Buffer and no PendingBufferInit.",
                               static_cast<uint32_t>(handle));
                 }
-                // Clear pending state so the caller can release m_data and the entity
-                // doesn't get retried every frame forever.
                 ctx.Remove<UploadPendingTag>(handle);
                 ctx.Remove<PendingBufferUpload>(handle);
                 return;
@@ -235,6 +229,11 @@ namespace Spark::RHI
             auto* owning = ctx.TryGet<Components::Image>(handle);
             if (!owning || !owning->m_image)
             {
+                // Materialization still in flight.
+                if (ctx.Has<PendingImageInit>(handle))
+                {
+                    return;
+                }
                 if (ctx.TryGet<Components::ImagePerFrame>(handle))
                 {
                     LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingImageUpload "
@@ -245,8 +244,7 @@ namespace Spark::RHI
                 else
                 {
                     LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingImageUpload "
-                              "but has no materialized Image. Make sure ImageDescriptor "
-                              "is declared and RHIResourceSystem runs before this system.",
+                              "but has no materialized Image and no PendingImageInit.",
                               static_cast<uint32_t>(handle));
                 }
                 ctx.Remove<UploadPendingTag>(handle);
@@ -278,7 +276,7 @@ namespace Spark::RHI
 
         batch.m_fenceValue = m_uploadFence->Increment();
 
-        ctx.Add<UploadSubmitted>(submittedHandles.begin(), submittedHandles.end(), UploadSubmitted{ batch.m_fenceValue });
+        ctx.Add<UploadSubmitted>(submittedHandles.begin(), submittedHandles.end(), UploadSubmitted{ batch.m_fenceValue, m_uploadFence.get() });
 
         {
             std::lock_guard lk(m_mutex);
@@ -313,23 +311,25 @@ namespace Spark::RHI
         CommandList* cmdList = packet->m_commandRecorder->GetCommandList();
 
         // Mid-batch flush: staging packet is full, retire it and rotate to the next.
-        // Uses m_packetFence (upload-thread private) so m_uploadFence stays clean —
-        // exactly one Signal per batch lands on the external contract fence.
+        // Each packet owns its own fence — Signal/Wait are naturally scoped to
+        // the packet's previous use, no cross-packet over-wait.
         auto SubmitFramePacket = [&]()
         {
+            Fence* const fence = packet->m_fence.get();
+
             cmdList->Close();
             m_copyQueue->ExecuteCommands({ &cmdList, 1 });
 
-            packet->m_fenceValue = m_packetFence->Increment();
-            m_copyQueue->Signal(*m_packetFence);
+            packet->m_fenceValue = fence->Increment();
+            m_copyQueue->Signal(*fence);
 
             m_currentPacketIndex = (m_currentPacketIndex + 1) % m_packets.size();
             packet = &m_packets[m_currentPacketIndex];
 
             // Wait until the GPU is done consuming this packet's previous use.
-            if (packet->m_fenceValue > m_packetFence->GetCompletedValue())
+            if (packet->m_fenceValue > packet->m_fence->GetCompletedValue())
             {
-                m_packetFence->WaitOnCpu();
+                packet->m_fence->WaitOnCpu();
             }
             packet->m_offset = 0;
 
@@ -359,8 +359,8 @@ namespace Spark::RHI
                 copyDesc.m_sourceBuffer      = packet->m_stagingBuffer.get();
                 copyDesc.m_sourceOffset      = packet->m_offset;
                 copyDesc.m_destinationBuffer = upload.m_targetBuffer;
-                copyDesc.m_destinationOffset = static_cast<uint32_t>(dstOffset);
-                copyDesc.m_size              = static_cast<uint32_t>(bytesToCopy);
+                copyDesc.m_destinationOffset = dstOffset;
+                copyDesc.m_size              = bytesToCopy;
 
                 cmdList->Submit(CopyItem{ copyDesc });
 
@@ -418,14 +418,14 @@ namespace Spark::RHI
         }
 
         // Batch end: single Signal on m_uploadFence carries the external contract.
-        // Also stamp m_packetFence on the current packet so future rotations can
-        // tell the GPU is done with this packet's data.
+        // Also stamp the current packet's fence so future rotations can tell the
+        // GPU is done with this packet's data.
         cmdList->Close();
         m_copyQueue->ExecuteCommands({ &cmdList, 1 });
         m_copyQueue->Signal(*m_uploadFence, batch.m_fenceValue);
 
-        packet->m_fenceValue = m_packetFence->Increment();
-        m_copyQueue->Signal(*m_packetFence);
+        packet->m_fenceValue = packet->m_fence->Increment();
+        m_copyQueue->Signal(*packet->m_fence);
     }
 
 }

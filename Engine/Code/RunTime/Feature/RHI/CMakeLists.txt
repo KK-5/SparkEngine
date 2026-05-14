@@ -27,8 +27,8 @@ set(SOURCES
     Pipeline/PipelineStateDescriptor.cpp
     Pipeline/RenderStates.cpp
     Pipeline/ShaderStageFunction.cpp
-    Resource/RHIResourceSystem.cpp
-    Upload/AsyncUploadSystem.cpp
+    System/RHIResourceSystem.cpp
+    System/AsyncUploadSystem.cpp
     Resource/Resource.cpp
     Resource/ResourceState.cpp
     Resource/ResourcePool.cpp

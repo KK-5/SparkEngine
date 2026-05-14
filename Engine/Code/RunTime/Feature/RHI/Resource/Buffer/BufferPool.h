@@ -8,8 +8,6 @@
 
 namespace Spark::RHI
 {
-    class Fence;
-
     struct BufferInitRequest
     {
         BufferInitRequest() = default;
@@ -56,29 +54,7 @@ namespace Spark::RHI
         void* m_data = nullptr;
     };
 
-    template <typename BufferClass, typename FenceClass>
-    struct BufferStreamRequestTemplate
-    {
-        /// A fence to signal on completion of the upload operation.
-        FenceClass* m_fenceToSignal = nullptr;
-
-        /// The buffer instance to stream up to.
-        BufferClass* m_buffer = nullptr;
-
-        /// The number of bytes offset from the base of the buffer to start the upload.
-        size_t m_byteOffset = 0;
-
-        /// The number of bytes to upload beginning from m_byteOffset.
-        size_t m_byteCount = 0;
-
-        /// A pointer to the source data to upload. The source data must remain valid
-        /// for the duration of the upload operation (i.e. until m_callbackFunction
-        /// is invoked).
-        const void* m_sourceData = nullptr;
-    };
-
     using BufferMapRequest = BufferMapRequestTemplate<Buffer>;
-    using BufferStreamRequest = BufferStreamRequestTemplate<Buffer, Fence>;
 
     struct MemoryCopyDest
     {
@@ -108,8 +84,6 @@ namespace Spark::RHI
         ResultCode MapBuffer(const BufferMapRequest& request, BufferMapResponse& response);
 
         void UnmapBuffer(Buffer& buffer);
-
-        ResultCode StreamBuffer(const BufferStreamRequest& request);
 
         void MemcpySubresource(MemoryCopyDest* dest, MemoryCopySrc* src, size_t rowSizeInBytes, uint32_t numRows, uint32_t numSlices);
 
@@ -152,9 +126,6 @@ namespace Spark::RHI
 
         /// Called when a buffer is being unmapped.
         virtual void UnmapBufferInternal(Buffer& buffer) = 0;
-
-        /// Called when a buffer is being streamed asynchronously.
-        virtual ResultCode StreamBufferInternal(const BufferStreamRequest& request) = 0;
         //////////////////////////////////////////////////////////////////////////
         
         BufferPoolDescriptor m_descriptor;

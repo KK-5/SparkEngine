@@ -8,6 +8,7 @@
 
 #include "ImagePool.h"
 
+#include <EASTL/vector.h>
 #include <Math/Bit.h>
 #include <Conversions.h>
 #include <Device/Device.h>
@@ -108,6 +109,22 @@ namespace Spark::RHI::DX12
         {
             LOG_ERROR("[ImagePool] D3D12MA Create image resource failed!");
             return RHI::ResultCode::Fail;
+        }
+
+        // Set debug name on the D3D12 resource for GPU debug tools (PIX / RenderDoc).
+        {
+            const ObjectName& debugName = image->GetName();
+            if (!debugName.IsEmpty())
+            {
+                const char* utf8Name = debugName.GetCStr();
+                const int len = MultiByteToWideChar(CP_UTF8, 0, utf8Name, -1, nullptr, 0);
+                if (len > 0)
+                {
+                    eastl::vector<wchar_t> wideName(static_cast<size_t>(len));
+                    MultiByteToWideChar(CP_UTF8, 0, utf8Name, -1, wideName.data(), len);
+                    allocation->SetName(wideName.data());
+                }
+            }
         }
 
         MemoryView memoryView(allocation.Get(), MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());

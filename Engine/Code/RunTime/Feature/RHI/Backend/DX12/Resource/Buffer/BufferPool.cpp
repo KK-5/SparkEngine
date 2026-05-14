@@ -15,6 +15,7 @@
 #include "BufferPool.h"
 
 #include <mutex>
+#include <EASTL/vector.h>
 #include <Math/Bit.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Fence/Fence.h>
@@ -126,6 +127,22 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
+        // Set debug name on the D3D12 resource for GPU debug tools (PIX / RenderDoc).
+        {
+            const ObjectName& debugName = bufferBase.GetName();
+            if (!debugName.IsEmpty())
+            {
+                const char* utf8Name = debugName.GetCStr();
+                const int len = MultiByteToWideChar(CP_UTF8, 0, utf8Name, -1, nullptr, 0);
+                if (len > 0)
+                {
+                    eastl::vector<wchar_t> wideName(static_cast<size_t>(len));
+                    MultiByteToWideChar(CP_UTF8, 0, utf8Name, -1, wideName.data(), len);
+                    allocation->SetName(wideName.data());
+                }
+            }
+        }
+
         // 创建一个默认BufferMemoryView，使用全部Memory(ID3DResource)
         MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer, 0, bufferDescriptor.m_byteCount, bufferDescriptor.m_alignment);
         BufferMemoryView bufferMemoryView(eastl::move(memoryView), allocation->GetHeap() ? BufferMemoryType::Shared : BufferMemoryType::Unique);
@@ -186,9 +203,4 @@ namespace Spark::RHI::DX12
         }
     }
 
-    RHI::ResultCode BufferPool::StreamBufferInternal(const RHI::BufferStreamRequest& request)
-    {
-        // [TODO]
-        return RHI::ResultCode::InvalidOperation;
-    }
 }
