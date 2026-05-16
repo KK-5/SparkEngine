@@ -50,33 +50,59 @@ RHIResourceSystem            RG::CompileTransientResources  RG::CompileShaderRes
     - `RenderSystem::m_rhiContext` 字段已删除，Push/Pop 调用已删除
 
 14. **RHIResourceSystem 实现（T3）**
-    - 文件：`Engine/Code/RunTime/Feature/RHI/Resource/RHIResourceSystem.{h,cpp}`
+    - 文件：`Engine/Code/RunTime/Feature/RHI/System/RHIResourceSystem.{h,cpp}`
     - 身份：`ISystem` + `FrameEventBus::Handler`（不需要 Service）
-    - 三个 canonical pool：`m_deviceBufferPool`（Device heap, VB/IB/UAV/CBV/SRV）、`m_hostBufferPool`（Host heap, CopyRead/Constant → 自动 PerFrame）、`m_deviceImagePool`（Device heap, RT/DS/SRV）
-    - 四个 Create 方法：`CreateBuffers`、`CreateImages`、`CreateBufferViews`、`CreateImageViews`
-    - PerFrame 策略：`SelectBufferPool` 按 bind flags 自动判断 —— Host pool → `BufferPerFrame`（FrameCountMax 份），Device pool → 单份 `Buffer`
+    - **六个 pool**（按"绑定位 + 内存位"两轴正交细分）：
+      - `m_devicePlacedBufferPool` — Device heap, VB/IB/UAV/CBV/SRV/Indirect/Predication (suballocated)
+      - `m_deviceCommittedBufferPool` — Device heap, RayTracing AS/SBT/Scratch (oversized escape hatch)
+      - `m_hostUploadPlacedBufferPool` — Host heap + Write, CopyRead/Constant（per-frame cbuffer 走这里）
+      - `m_hostReadbackPlacedBufferPool` — Host heap + Read, CopyWrite
+      - `m_deviceImagePool` — Device heap, RT/DS/SRV/UAV
+      - `m_hostReadbackImagePool` — Host heap + Read, CopyWrite（截图等）
+    - **声明组件不是裸 descriptor**：调用方挂 `PendingBufferInit { descriptor, heapLevel, hostAccess }` / `PendingImageInit { descriptor, heapLevel, hostAccess }`，由 `SelectBufferPool` / `SelectImagePool` 按 placement 路由到对应池
+    - 五个处理方法：`CreateBuffers`、`CreateImages`、`ProcessBufferMaps`、`CreateBufferViews`、`CreateImageViews`
+    - PerFrame 策略：实体上挂 `PerFrameTag` → 物化为 `Components::BufferPerFrame` / `Components::ImagePerFrame`（FrameCountMax 份）；无 tag → 单份 `Components::Buffer` / `Components::Image`
+    - `PendingBufferMap`：Host buffer 的同步写路径（Map → memcpy → Unmap）。PerFrame 时只写当前帧的 slot
+    - View 创建：通过 `ViewHierarchy::m_resource` 查底层 resource entity，按单帧/PerFrame 物化为 `Components::BufferView` / `Components::BufferViewPerFrame`，并维护 `ResourceHierarchy::m_firstView` 头插链表
+    - 失败处理：`InitBuffer/InitImage/View::Init` 失败 → 实体收集到 `toDestroy`，循环外统一 `DestoryEntity`，避免重试风暴
+    - Host+Write image 无对应 pool（`SelectImagePool` 返回 nullptr，实体直接销毁并报错）
+    - ResourceName：`SetName` 在 `pool->InitBuffer/InitImage` 之前调用 → DX12 backend `CreateResource` 后读取并 `MultiByteToWideChar` → `allocation->SetName`
     - FrameCountMax 取自 `device.GetDescriptor().m_frameCountMax`（不硬编码 `Limits::Device::FrameCountMax`）
-    - View 创建：通过 `ViewHierarchy::m_resource` 查找底层 resource entity，判断单帧/PerFrame 后创建对应 View
-    - 幂等：物化后 entity 已有 `Components::Buffer`/`Components::Image` 组件，下次 view 不再命中
+    - 幂等：物化后 entity 已有 `Components::Buffer/Image`，下次循环靠 `Exclude<...>` 跳过
     - 引擎注册：`SparkEngine::SetUp()` 中在 DX12::RHISystem→RenderSystem 之后、AsyncUploadSystem 之前 Init
+    - **Backing\* bridge 已由 T4b 完成**：`BackingBuffer/BackingImage/BackingBufferView/BackingImageView` 在 `RenderGraphBuilder::Import*Attachment` 路径懒挂（单帧 set-once，PerFrame `AddOrReplace`），不在 RHIResourceSystem 物化路径里写
 
 15. **Upload 组件 + AsyncUploadSystem 实现（T4）**
     - 组件位置：`Engine/Code/RunTime/Feature/RHI/Component/Component.h`（`Spark::RHI` 命名空间）
-    - 状态机：`UploadPendingTag` + `PendingBufferUpload`/`PendingImageUpload` → （SubmitBatch 处理后）→ `UploadSubmitted { fenceValue }` → （PollCompletions 确认 GPU 完成）→ 清除
-    - `PendingBufferUpload`/`PendingImageUpload` 中 `m_data` 为 `const void*`（指针，调用方保证生命周期），不持有数据拷贝
-    - `UploadSubmitted`（替代原设计 `UploadInFlight`）：记录 `m_fenceValue`，PollCompletions 对比 `fence.GetCompletedValue()` 后清除
+    - 状态机：`UploadPendingTag` + `PendingBufferUpload`/`PendingImageUpload` → （SubmitBatch 处理后，移除 upload 组件，挂 `BufferUploadSubmitted`/`ImageUploadSubmitted` 含 cross-queue acquire barrier）→ （RG executer 在 pass 首次使用资源且 fence 就绪时，emit acquire barrier + fence wait on graphics queue，移除该组件）
+    - **跨队列 barrier 管道**（完整的 copy→graphics 所有权转移）：
+      - **Pre-copy**（upload 线程 ProcessBatch 开头）：`ConvertToCopyWrite` → intra-copy-queue transition（target → Copy/Write@Copy）
+      - **Copy**（upload 线程）：memcpy staging → `CopyItem` on copy queue
+      - **Release**（upload 线程 ProcessBatch 结尾）：cross-queue release（Copy/Write@Copy → COMMON），DX12 backend 看到 `srcQueue==dstQueue` 对 release 侧是 `target→COMMON`
+      - **Acquire**（RG executer，per-pass，未来实现）：cross-queue acquire（COMMON → `m_initial@m_initialQueue`），executer 检查 `m_fenceValue ≤ completed` 后 emit paired `Wait(fence)` + acquire barrier，移除 `BufferUploadSubmitted`/`ImageUploadSubmitted`
+    - **`ImportedResourceState` 硬要求**：每个走 staging upload 的资源 entity 必须挂 `ImportedResourceState`（声明 post-upload rest state）。SubmitBatch 从它构造 release/acquire barrier pair。没有则报错 + 跳过
+    - **`m_data` 非 owning**：`PendingBufferUpload`/`PendingImageUpload` 中 `m_data` 为 `const void*`，调用方保证从挂组件到 `BufferUploadSubmitted`/`ImageUploadSubmitted` 清除前数据存活
+    - `BufferUploadSubmitted`：`{ m_fenceValue, m_uploadFence, m_acquireBarrier }`，acquire barrier 由 SubmitBatch 构造（跟 release barrier 相同结构，镜像到 entity 上供 executer 后续 emit）
+    - `ImageUploadSubmitted`：同上，携带 `ImageBarrier m_acquireBarrier`
     - `PerFrame` 组件位置：`Spark::RHI::Components` 子命名空间（`BufferPerFrame`、`ImagePerFrame`、`BufferViewPerFrame`、`ImageViewPerFrame`），使用 `FrameArray<Ptr<T>>`
-    - 文件：`Engine/Code/RunTime/Feature/RHI/Upload/AsyncUploadSystem.{h,cpp}`
-    - 身份：`ISystem` + `FrameEventBus::Handler`，`Service<AsyncUploadSystem>` 手动 Register/Unregister（非 CRTP Handler 模式，避免循环继承）
-    - 架构：专用 copy queue + staging pool（Host heap, CopyRead）+ timeline fence + 后台 upload 线程
-    - Staging ring：`FrameCountMax` 个 `FramePacket`，每 packet 默认 16MB，persistent map
-    - `OnFrameBegin`（主线程）：PollCompletions → SubmitBatch（收集 → reserve → 判空 → Increment fence → UploadSubmitted → mutex enqueue）
-    - Upload 线程：dequeue → ProcessBatch → `SubmitFramePacket` 旋转 packet ring + 等 GPU 消费完 → memcpy 到 staging → 录 CopyItem → GPU Signal fence
-    - Image 上传：按 `RHI::Alignment::TexturePitch`（256）对齐目标行 pitch，逐行 memcpy（兼容 D3D12 要求）
-    - `FlushAndWait()`：等待 `fence.GetPendingValue()` 完成
-    - `GetUploadFence()`：供 RenderGraph 跨队列 wait 使用
+    - 文件：`Engine/Code/RunTime/Feature/RHI/System/AsyncUploadSystem.{h,cpp}`
+    - 身份：`ISystem` + `FrameEventBus::Handler`（不需要 Service）
+    - 架构：专用 copy queue + staging pool（Host heap + Write, CopyRead）+ timeline fence + 后台 upload 线程
+    - Staging ring：`FrameCountMax` 个 `FramePacket`，每个含 `Ptr<Buffer>` staging + `Ptr<CommandRecorder>` + **per-packet `Ptr<Fence>`**（隔离 packet 轮转 wait，避免跨 packet 过度等待）
+    - **两套 fence**：
+      - `m_uploadFence`（外部契约）：每个 batch 在结尾 Signal 一次；初始化为 `FenceState::Signaled`（pending=0，避免空 shutdown 时 FlushUploadPackets hang）；**`m_pendingValue` 由 upload 线程独占写入**（通过 `CommandQueue::Signal` 的 `SetPendingValue`），主线程通过私有计数器 `m_batchFenceValue` 分配 batch fence 值
+      - `packet.m_fence`（私有）：packet 轮转时 wait/signal，跟 batch fence 完全解耦
+    - `OnFrameBegin`（主线程）：直接 `SubmitBatch`（不再有 `PollCompletions` —— submitted entity 上的 `BufferUploadSubmitted`/`ImageUploadSubmitted` 由 RG executer 消费并 emit acquire barrier，CPU 侧不主动 poll）
+    - SubmitBatch 防御逻辑：
+      - `Components::Buffer/Image` 不存在 + `PendingBufferInit/PendingImageInit` 还在 → 静默跳过（同帧物化未完成，下帧重试）
+      - `Components::Buffer/Image` 不存在 + 物化标也不在 → 报错 + 清标签（异常实体）
+      - `Components::BufferPerFrame` 或 `Components::ImagePerFrame` → 报错"用 PendingBufferMap 或直接写，不要走 staging"+ 清标签
+      - `ImportedResourceState` 缺失 → 报错 + 清标签（无法构造 cross-queue barrier pair）
+    - Upload 线程（ProcessBatch）：dequeue → Reset recorder → pre-copy barriers（ConvertToCopyWrite per target）+ FlushBarriers → memcpy + CopyItem → release barriers（从 `batch.m_bufferReleaseBarriers`/`m_imageReleaseBarriers`）+ FlushBarriers → Close + ExecuteCommands + `m_uploadFence.Signal(batch.m_fenceValue)` + per-packet fence Signal
+    - `Batch` 结构含 `m_bufferReleaseBarriers` / `m_imageReleaseBarriers`：主线程 SubmitBatch 阶段从 `ImportedResourceState` 构造，upload 线程在 copy 完成后 emit
     - 规范：所有 Init 调用检查 `ResultCode`，if/for 单行加大括号
     - 引擎注册：`SparkEngine::SetUp()` 中在 RHIResourceSystem 之后 Init
+    - 残余 TODO 见 [TODO_AsyncUpload_RemainingIssues.md](TODO_AsyncUpload_RemainingIssues.md)
 
 ---
 
@@ -98,16 +124,24 @@ auto& ctx = *RHIExecuteContext::Current();
 RHIHandle vbEntity = ctx.CreateEntity();
 ctx.Add<ImportedTag>(vbEntity);
 ctx.Add<ResourceName>(vbEntity, ObjectName{"TriangleVB"});
-ctx.Add<RHI::BufferDescriptor>(vbEntity, vbDesc);
-// 完。下一帧 OnFrameBegin 自动物化为 Buffer + BackingBuffer。
+
+PendingBufferInit init;
+init.m_descriptor      = vbDesc;
+init.m_heapMemoryLevel = HeapMemoryLevel::Device;     // 默认 Device
+init.m_hostMemoryAccess = HostMemoryAccess::Write;     // 仅 Host 时有意义
+ctx.Add<PendingBufferInit>(vbEntity, init);
+// 下一帧 OnFrameBegin 自动物化为 Components::Buffer (+ TODO: BackingBuffer)
 
 // Image 声明同理
-ctx.Add<RHI::ImageDescriptor>(imgEntity, imgDesc);
+ctx.Add<PendingImageInit>(imgEntity, { imgDesc, HeapMemoryLevel::Device, HostMemoryAccess::Write });
 
 // View 声明
 ctx.Add<ViewHierarchy>(viewEntity, { resourceEntity });
 ctx.Add<RHI::BufferViewDescriptor>(viewEntity, viewDesc);
-// → 自动物化为 BufferView + BackingBufferView
+// → 自动物化为 Components::BufferView (+ TODO: BackingBufferView)
+
+// PerFrame 资源加 tag
+ctx.Add<PerFrameTag>(cbufferEntity);
 ```
 
 **自动物化逻辑（OnFrameBegin）**：
@@ -118,34 +152,35 @@ void RHIResourceSystem::OnFrameBegin()
     auto& ctx = *RHIExecuteContext::Current();
     Device* device = Service<RHIInterface>::Get()->GetDevice();
 
-    MaterializeBuffers(ctx, *device);
-    MaterializeImages(ctx, *device);
-    MaterializeBufferViews(ctx, *device);
-    MaterializeImageViews(ctx, *device);
+    CreateBuffers(ctx, *device);
+    CreateImages(ctx, *device);
+    ProcessBufferMaps(ctx);             // 同步 host buffer 写
+    CreateBufferViews(ctx, *device);
+    CreateImageViews(ctx, *device);
+
+    m_frameIndex = (m_frameIndex + 1) % device->GetDescriptor().m_frameCountMax;
 }
 
-void RHIResourceSystem::MaterializeBuffers(RHIContext& ctx, Device& device)
+void RHIResourceSystem::CreateBuffers(RHIContext& ctx, Device& device)
 {
-    // <ImportedTag, BufferDescriptor> & !<Buffer> 就是新声明的
-    auto view = ctx.GetView<ImportedTag, RHI::BufferDescriptor>(Exclude<Buffer>);
-    view.each([&](RHIHandle e, const RHI::BufferDescriptor& desc)
+    // <PendingBufferInit> & !<Buffer, BufferPerFrame> 是新声明的
+    auto view = ctx.GetView<PendingBufferInit>(Exclude<Components::Buffer, Components::BufferPerFrame>);
+    eastl::vector<RHIHandle> toDestroy;
+    view.each([&](RHIHandle e, const PendingBufferInit& init)
     {
-        BufferPool& pool = SelectPoolFor(desc);
-        Ptr<RHI::Buffer> buf = pool.AllocateBuffer(desc);
-        ctx.Add<Buffer>(e, Buffer{ buf });
-        ctx.Add<BackingBuffer>(e, BackingBuffer{ buf.get() });
+        BufferPool* pool = SelectBufferPool(init);
+        // ... 单帧 / PerFrame 分支，每个槽位 InitBuffer
+        // 失败收集进 toDestroy；成功 Add<Components::Buffer/BufferPerFrame> + Remove<PendingBufferInit>
     });
+    for (RHIHandle e : toDestroy) ctx.DestoryEntity(e);
 }
 ```
 
-幂等：物化后 entity 已经有 `Buffer` 组件，下次 view 不再命中。
+幂等：物化后 entity 已有 `Components::Buffer` / `Components::BufferPerFrame`，循环靠 `Exclude<...>` 自动跳过。
 
-**Pool 选择策略（第一版）**：
-- `m_deviceBufferPool`：device-local，bind-flags-all，shared-queue-all
-- `m_deviceImagePool`：普通 device-local 纹理
-- 未来按需细分（host-visible / attachment-only / 等）
+**Pool 选择规则**：见已完成事项 #14，按 `HeapMemoryLevel × HostMemoryAccess × BindFlags` 三轴路由到六个 pool 之一。
 
-**逃生口**：caller 可自己创建 `Ptr<RHI::Buffer>` 后直接 `ctx.Add<Buffer>(e, ...)` —— view 不命中，跳过自动物化。给 swap chain 这种特殊场景留路。
+**逃生口**：caller 可自己创建 `Ptr<RHI::Buffer>` 后直接 `ctx.Add<Components::Buffer>(e, ...)` —— `Exclude` 不命中，跳过自动物化。给 swap chain 这种特殊场景留路。
 
 ---
 
@@ -153,9 +188,9 @@ void RHIResourceSystem::MaterializeBuffers(RHIContext& ctx, Device& device)
 
 **职责**：扫 `UploadPendingTag` 标记的 entity，把 CPU 端数据通过专用 copy queue 异步上传到 GPU。
 
-**位置**：`Engine/Code/RunTime/Feature/RHI/Upload/AsyncUploadSystem.{h,cpp}`，归 RHI 层
+**位置**：`Engine/Code/RunTime/Feature/RHI/System/AsyncUploadSystem.{h,cpp}`，归 RHI 层
 
-**身份**：`ISystem` + `Service<AsyncUploadSystem>::Handler` + `FrameEventBus::Handler`
+**身份**：`ISystem` + `FrameEventBus::Handler`（不需要 Service）
 
 #### 数据契约（住在 RHIContext 上的组件）
 
@@ -165,31 +200,74 @@ namespace Spark::RHI
     //! Discovery tag — entity has staged upload data not yet flushed to GPU.
     struct UploadPendingTag {};
 
-    //! Component on an imported Buffer entity. Owning move-in of source bytes.
+    //! Component on an imported Buffer entity. m_data is NON-OWNING — caller
+    //! must keep the source memory alive until BOTH PendingBufferUpload AND
+    //! BufferUploadSubmitted are removed from the entity.
     struct PendingBufferUpload
     {
-        eastl::vector<uint8_t> m_data;
-        uint64_t               m_destinationOffset = 0;
+        const void* m_data              = nullptr;
+        size_t      m_dataSize          = 0;
+        uint64_t    m_destinationOffset = 0;
     };
 
-    //! Component on an imported Image entity.
+    //! Component on an imported Image entity. Same lifetime contract as
+    //! PendingBufferUpload — m_data is non-owning.
     struct PendingImageUpload
     {
-        eastl::vector<uint8_t> m_data;
-        ImageSubresource       m_subresource {};
-        Origin                 m_destinationOrigin {};
-        Size                   m_size {};
-        Format                 m_sourceFormat = Format::Unknown;
-        uint32_t               m_sourceBytesPerRow   = 0;
-        uint32_t               m_sourceBytesPerImage = 0;
+        const void*      m_data                = nullptr;
+        size_t           m_dataSize            = 0;
+        ImageSubresource m_subresource {};
+        Origin           m_destinationOrigin {};
+        Size             m_size {};
+        Format           m_sourceFormat        = Format::Unknown;
+        uint32_t         m_sourceBytesPerRow   = 0;
+        uint32_t         m_sourceBytesPerImage = 0;
     };
 
-    //! "已提交 GPU、未完成" 状态。由 AsyncUploadSystem 在 SubmitBatch 时挂上,
-    //! 每帧顶端 poll fence 之后移除。消费者用 ctx.Has<UploadInFlight>(e) 判
-    //! 断资源是否就绪。
-    struct UploadInFlight
+    //! Per-frame "rest state" of an imported resource. Declared by the owner
+    //! when the resource is registered into the RHIContext. Two systems read it:
+    //!  - AsyncUploadSystem: derives the cross-queue release barrier
+    //!  - RenderGraph: seeds ResourceStateTracker from m_initial each frame
+    struct ImportedResourceState
     {
-        uint64_t m_pendingValue = 0;
+        ResourceState      m_initial;
+        AttachmentStage    m_initialStage = AttachmentStage::Any;
+        HardwareQueueClass m_initialQueue = HardwareQueueClass::Graphics;
+        ResourceState      m_final;
+        AttachmentStage    m_finalStage = AttachmentStage::Any;
+        HardwareQueueClass m_finalQueue = HardwareQueueClass::Graphics;
+    };
+
+    //! Marks a Buffer entity whose upload has been submitted to the copy queue
+    //! and is pending the cross-queue acquire barrier on graphics queue.
+    //! Added by AsyncUploadSystem::SubmitBatch with the acquire barrier already
+    //! constructed (mirror of the release barrier emitted on copy queue).
+    //! Consumed by the RenderGraph executer: when a pass first uses the resource
+    //! AND the fence is ready, it emits m_acquireBarrier on graphics queue
+    //! (paired with a fence wait) and removes this component.
+    struct BufferUploadSubmitted
+    {
+        uint64_t      m_fenceValue   = 0;
+        Fence*        m_uploadFence  = nullptr;
+        BufferBarrier m_acquireBarrier {};
+    };
+
+    //! Image counterpart to BufferUploadSubmitted; same semantics.
+    struct ImageUploadSubmitted
+    {
+        uint64_t      m_fenceValue   = 0;
+        Fence*        m_uploadFence  = nullptr;
+        ImageBarrier  m_acquireBarrier {};
+    };
+
+    //! Sync-write path for Host buffers. Processed by RHIResourceSystem
+    //! (NOT AsyncUploadSystem): Map → memcpy → Unmap. Only valid for Host
+    //! heap buffers. Device buffers must use PendingBufferUpload.
+    struct PendingBufferMap
+    {
+        const void* m_data       = nullptr;
+        size_t      m_byteOffset = 0;
+        size_t      m_byteCount  = 0;
     };
 }
 ```
@@ -200,45 +278,52 @@ namespace Spark::RHI
 ctx.Add<PendingBufferUpload> + ctx.Add<UploadPendingTag>
         │
         ▼
-[UploadPendingTag]                ← 已声明，尚未提交。资源**绝对未就绪**。
-        │  AsyncUploadSystem::OnFrameBegin (submit phase):
-        │   snapshot + move data + 提交 copy queue + Add<UploadInFlight> + 移除 PendingUpload/UploadPendingTag
+[UploadPendingTag]                  ← 已声明，尚未提交。资源**绝对未就绪**。
+        │  AsyncUploadSystem::OnFrameBegin (SubmitBatch):
+        │   检查 ImportedResourceState → 构造 cross-queue barrier pair
+        │   → Add<BufferUploadSubmitted/ImageUploadSubmitted>(acquire barrier + fence)
+        │   → 移除 PendingX/UploadPendingTag → enqueue batch
         ▼
-[UploadInFlight { fenceValue }]   ← 已提交，等 GPU。资源**可能就绪也可能未就绪**。
-        │  AsyncUploadSystem::OnFrameBegin (poll phase, 次帧):
-        │   if (uploadFence.GetCompletedValue() >= m_pendingValue) Remove<UploadInFlight>
+[BufferUploadSubmitted /           ← 已提交到 copy queue，等 GPU + 等 acquire。
+ ImageUploadSubmitted]               资源**可能就绪也可能未就绪**。
+        │  RG executer (per-pass, 未来实现):
+        │   if (m_fenceValue <= m_uploadFence->GetCompletedValue())
+        │     graphicsQueue.Wait(fence) + emit m_acquireBarrier
+        │     + Remove<BufferUploadSubmitted/ImageUploadSubmitted>
         ▼
-[no upload-related component]     ← 资源 GPU 端就绪，可安全使用。
+[no upload-related component]      ← 资源 GPU 端就绪，graphics queue 可见，可安全使用。
 ```
+
+**关键变化 vs 旧设计**：不再有 CPU 侧 `PollCompletions`。Submitted 组件由 RG executer 在 **pass 级别**消费（emit acquire barrier + 移除），保证 acquire 在 graphics queue 的正确 timeline 位置，且不早于依赖此资源的 pass。
 
 #### API
 
 ```cpp
-class AsyncUploadSystem
+class AsyncUploadSystem final
     : public ISystem
-    , public Service<AsyncUploadSystem>::Handler
     , public FrameEventBus::Handler
 {
 public:
     struct Descriptor
     {
-        size_t   m_stagingSizeInBytes = 16 * 1024 * 1024;       // per packet
-        uint32_t m_frameCount         = Limits::Device::FrameCountMax;
+        size_t m_stagingSizeInBytes = 16 * 1024 * 1024;  // per packet
     };
 
+    AsyncUploadSystem() = default;
+    explicit AsyncUploadSystem(const Descriptor&);
+
     // FrameEventBus
-    void OnFrameBegin() override;     // poll completions, submit new batch
+    void OnFrameBegin() override;   // SubmitBatch: snapshot entities + enqueue
 
-    // Cross-queue GPU wait point — RG 在 graphics submit 前调
-    Fence&   GetUploadFence();
-    uint64_t GetMaxInFlightValue() const;
+    // CPU-blocking sync flush (init-time paths).
+    void FlushUploadPackets();
 
-    // CPU 阻塞，Init-time 同步路径
-    void     FlushAndWait();
-
+    // 注意：未暴露 GetUploadFence 公共 getter。RG executer 从 entity 上的
+    // BufferUploadSubmitted / ImageUploadSubmitted 组件拿 fence 指针和
+    // m_fenceValue，执行 per-pass 的 acquire barrier + fence wait。
 protected:
-    void InitInternal()     override;     // create copy queue, packets, fence, spawn thread
-    void ShutdownInternal() override;     // stop thread, drain, release
+    void InitInternal()     override;
+    void ShutdownInternal() override;
 };
 ```
 
@@ -247,21 +332,36 @@ protected:
 ```cpp
 struct FramePacket
 {
-    Ptr<Buffer>      m_stagingBuffer;        // UPLOAD heap
-    Ptr<CommandList> m_commandList;
-    uint8_t*         m_mappedPtr = nullptr;  // persistent map
-    uint32_t         m_offset    = 0;
-    uint64_t         m_fenceValue = 0;
+    Ptr<Buffer>          m_stagingBuffer;       // Host+Write, CopyRead
+    uint8_t*             m_mappedPtr = nullptr; // persistent map
+    uint32_t             m_offset    = 0;
+    uint64_t             m_fenceValue = 0;
+    Ptr<Fence>           m_fence;               // per-packet fence (NOT shared)
+    Ptr<CommandRecorder> m_commandRecorder;
 };
+
+// Source data + resolved target, packed for the upload thread.
+struct BufferUpload
+{
+    const void* m_data              = nullptr;
+    size_t      m_dataSize          = 0;
+    Buffer*     m_targetBuffer      = nullptr;  // 裸指针：调用方契约保证活到 batch 处理完
+    uint64_t    m_destinationOffset = 0;
+};
+
+struct ImageUpload { /* 类似，含 subresource/origin/size/format/row pitch */ };
 
 struct Batch
 {
-    uint64_t                                            m_fenceValue;
-    eastl::vector<PendingBufferUpload>                  m_buffers;
-    eastl::vector<eastl::pair<Buffer*, /*dstOffset*/uint64_t>>  m_bufferTargets;
-    eastl::vector<PendingImageUpload>                   m_images;
-    eastl::vector<Image*>                               m_imageTargets;
-    eastl::vector<RHIHandle>                            m_entities;     // 用于挂 UploadInFlight
+    uint64_t                    m_fenceValue;
+    eastl::vector<BufferUpload> m_bufferUploads;
+    eastl::vector<ImageUpload>  m_imageUploads;
+
+    // Cross-queue release barriers, constructed on main thread from each
+    // target's ImportedResourceState. Emitted on copy queue after copies.
+    // Indices align with m_bufferUploads / m_imageUploads respectively.
+    eastl::vector<BufferBarrier> m_bufferReleaseBarriers;
+    eastl::vector<ImageBarrier>  m_imageReleaseBarriers;
 };
 
 class AsyncUploadSystem : ...
@@ -272,8 +372,11 @@ class AsyncUploadSystem : ...
     eastl::vector<FramePacket>  m_packets;
     uint32_t                    m_currentPacketIndex = 0;
 
+    // 外部契约 fence — 每 batch Signal 一次。m_pendingValue 由 upload 线程
+    // 独占写入；主线程通过 m_batchFenceValue 私有计数器分配 batch fence 值,
+    // 不触碰 fence 本身。
     Ptr<Fence>                  m_uploadFence;
-    eastl::atomic<uint64_t>     m_maxInFlightValue {0};
+    uint64_t                    m_batchFenceValue = 0;
 
     // Main → upload thread pipe — per-batch transaction (NOT per-request)
     std::mutex                  m_mutex;
@@ -292,48 +395,69 @@ class AsyncUploadSystem : ...
 void OnFrameBegin()
 {
     auto& ctx = *RHIExecuteContext::Current();
-
-    // Phase 1: poll completions (清掉已完成的 UploadInFlight)
-    PollCompletions(ctx);
-
-    // Phase 2: snapshot + submit new batch
-    SubmitBatchInternal(ctx);
+    // 没有 PollCompletions: BufferUploadSubmitted / ImageUploadSubmitted
+    // 由 RG executer 在 pass 级别消费（emit acquire barrier + 移除）
+    SubmitBatch(ctx);
 }
 
-void PollCompletions(RHIContext& ctx)
+void SubmitBatch(RHIContext& ctx)
 {
-    const uint64_t completed = m_uploadFence->GetCompletedValue();
-    auto view = ctx.GetView<UploadInFlight>();
-    view.each([&](RHIHandle e, const UploadInFlight& f) {
-        if (f.m_pendingValue <= completed)
-            ctx.Remove<UploadInFlight>(e);
+    auto bufferView = ctx.GetView<UploadPendingTag, PendingBufferUpload>();
+    auto imageView  = ctx.GetView<UploadPendingTag, PendingImageUpload>();
+    Batch batch;
+
+    bufferView.each([&](RHIHandle e, const PendingBufferUpload& pending) {
+        auto* owning = ctx.TryGet<Components::Buffer>(e);
+        if (!owning || !owning->m_buffer) {
+            if (ctx.Has<PendingBufferInit>(e)) return;          // 同帧物化未完成
+            LOG_ERROR(...);
+            ctx.Remove<UploadPendingTag>(e);
+            ctx.Remove<PendingBufferUpload>(e);
+            return;
+        }
+        // 跨队列 handoff 必须声明 post-upload rest state
+        auto* imported = ctx.TryGet<ImportedResourceState>(e);
+        if (!imported) {
+            LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingBufferUpload "
+                      "but no ImportedResourceState.", ...);
+            ctx.Remove<UploadPendingTag>(e);
+            ctx.Remove<PendingBufferUpload>(e);
+            return;
+        }
+        Buffer* target = owning->m_buffer.get();
+
+        batch.m_bufferUploads.push_back({ pending.m_data, pending.m_dataSize,
+                                          target, pending.m_destinationOffset });
+
+        // 构造 cross-queue barrier pair: release (copy queue) + acquire (graphics)
+        BufferBarrier barrier;
+        barrier.m_buffer    = target;
+        barrier.m_srcUsage  = AttachmentUsage::Copy;
+        barrier.m_srcAccess = AttachmentAccess::Write;
+        barrier.m_dstUsage  = imported->m_initial.m_usage;
+        barrier.m_dstAccess = imported->m_initial.m_access;
+        barrier.m_srcStage  = AttachmentStage::Copy;
+        barrier.m_dstStage  = imported->m_initialStage;
+        barrier.m_srcQueue  = HardwareQueueClass::Copy;
+        barrier.m_dstQueue  = imported->m_initialQueue;
+
+        batch.m_bufferReleaseBarriers.push_back(barrier);   // batch 侧 release
+        // 同一份 barrier 存入 entity 组件作为 acquire（镜像）
+        ctx.Add<BufferUploadSubmitted>(e, BufferUploadSubmitted{
+            batch.m_fenceValue, m_uploadFence.get(), barrier });
+
+        ctx.Remove<UploadPendingTag>(e);
+        ctx.Remove<PendingBufferUpload>(e);
     });
-}
+    // imageView.each(...) 类似，产出 ImageUploadSubmitted
 
-uint64_t SubmitBatchInternal(RHIContext& ctx)
-{
-    auto bufferView = ctx.GetView<UploadPendingTag, PendingBufferUpload, BackingBuffer>();
-    auto imageView  = ctx.GetView<UploadPendingTag, PendingImageUpload,  BackingImage>();
-    if (bufferView.size() == 0 && imageView.size() == 0)
-        return 0;
+    if (batch.m_bufferUploads.empty() && batch.m_imageUploads.empty())
+        return;
 
-    const uint64_t batchValue = m_uploadFence->Increment();
-    Batch batch{ batchValue };
-
-    bufferView.each([&](RHIHandle e, PendingBufferUpload& up, BackingBuffer& dst) {
-        batch.m_entities.push_back(e);
-        batch.m_buffers.push_back(eastl::move(up));
-        batch.m_bufferTargets.emplace_back(dst.m_buffer, up.m_destinationOffset);
-        ctx.Add<UploadInFlight>(e, { batchValue });
-    });
-    // ... 类似处理 image
-    ctx.Clear<UploadPendingTag>();
-    ctx.Remove<PendingBufferUpload>(/*all in batch*/);
+    batch.m_fenceValue = ++m_batchFenceValue;
 
     { std::lock_guard lk(m_mutex); m_pendingBatches.push_back(eastl::move(batch)); }
     m_cv.notify_one();
-    m_maxInFlightValue.store(batchValue);
-    return batchValue;
 }
 ```
 
@@ -342,14 +466,13 @@ uint64_t SubmitBatchInternal(RHIContext& ctx)
 ```cpp
 void UploadThreadMain()
 {
-    while (m_running) {
+    while (m_running.load()) {
         Batch batch;
-        {
-            std::unique_lock lk(m_mutex);
-            m_cv.wait(lk, [&]{ return !m_running || !m_pendingBatches.empty(); });
-            if (!m_running) break;
-            batch = eastl::move(m_pendingBatches.front());
-            m_pendingBatches.pop_front();
+        { std::unique_lock lk(m_mutex);
+          m_cv.wait(lk, [&]{ return !m_running.load() || !m_pendingBatches.empty(); });
+          if (!m_running.load()) break;
+          batch = eastl::move(m_pendingBatches.front());
+          m_pendingBatches.pop_front();
         }
         ProcessBatch(batch);
     }
@@ -357,73 +480,83 @@ void UploadThreadMain()
 
 void ProcessBatch(Batch& batch)
 {
-    for (size_t i = 0; i < batch.m_buffers.size(); ++i) {
-        auto& src = batch.m_buffers[i];
-        auto& [dst, dstOff] = batch.m_bufferTargets[i];
+    auto* packet = &m_packets[m_currentPacketIndex];
+    packet->m_commandRecorder->Reset();
+    CommandList* cmdList = packet->m_commandRecorder->GetCommandList();
 
-        // 分片处理：单 request > packet size 时切多个 packet
-        size_t copied = 0;
-        while (copied < src.m_data.size()) {
-            size_t chunk = min(src.m_data.size() - copied, m_descriptor.m_stagingSizeInBytes);
-            FramePacket& pkt = BeginPacket(chunk);
-            memcpy(pkt.m_mappedPtr + pkt.m_offset, src.m_data.data() + copied, chunk);
-            // record CopyBufferDescriptor: staging → dst[dstOff + copied]
-            pkt.m_offset += chunk;
-            copied += chunk;
-            if (pkt.m_offset >= m_descriptor.m_stagingSizeInBytes)
-                EndPacket(pkt, /*intermediate value*/);
-        }
-    }
-    // images 同理（CopyBufferToImageDescriptor）
+    auto SubmitFramePacket = [&]() {
+        cmdList->Close();
+        m_copyQueue->ExecuteCommands({ &cmdList, 1 });
+        packet->m_fenceValue = packet->m_fence->Increment();
+        m_copyQueue->Signal(*packet->m_fence);
 
-    // 最后一个 packet 信号到 batch.m_fenceValue
-    EndPacket(currentPacket, batch.m_fenceValue);
-}
-
-FramePacket& BeginPacket(size_t bytesNeeded)
-{
-    auto& pkt = m_packets[m_currentPacketIndex];
-    if (pkt.m_offset + bytesNeeded > m_descriptor.m_stagingSizeInBytes) {
-        EndPacket(pkt, pkt.m_fenceValue);
         m_currentPacketIndex = (m_currentPacketIndex + 1) % m_packets.size();
-        auto& next = m_packets[m_currentPacketIndex];
-        m_uploadFence->WaitOnCpuValue(next.m_fenceValue);  // 等 GPU 消费完
-        next.m_offset = 0;
-        next.m_commandList->Reset();
-        return next;
-    }
-    return pkt;
-}
+        packet = &m_packets[m_currentPacketIndex];
+        if (packet->m_fenceValue > packet->m_fence->GetCompletedValue())
+            packet->m_fence->WaitOnCpu();
+        packet->m_offset = 0;
+        packet->m_commandRecorder->Reset();
+        cmdList = packet->m_commandRecorder->GetCommandList();
+    };
 
-void EndPacket(FramePacket& pkt, uint64_t fenceValue)
-{
-    pkt.m_commandList->Close();
-    m_copyQueue->ExecuteCommands({ pkt.m_commandList });
-    m_copyQueue->Signal(*m_uploadFence, fenceValue);
-    pkt.m_fenceValue = fenceValue;
+    // 1. Pre-copy barriers: transition every target → Copy/Write on copy queue
+    for (const auto& upload : batch.m_bufferUploads) {
+        BufferBarrier pre = ConvertToCopyWrite(*upload.m_targetBuffer);
+        pre.m_srcQueue = HardwareQueueClass::Copy;
+        pre.m_dstQueue = HardwareQueueClass::Copy;
+        cmdList->QueueBarrier(pre);
+    }
+    for (const auto& upload : batch.m_imageUploads) {
+        ImageBarrier pre = ConvertToImageCopyWrite(*upload.m_targetImage);
+        pre.m_srcQueue = HardwareQueueClass::Copy;
+        pre.m_dstQueue = HardwareQueueClass::Copy;
+        cmdList->QueueBarrier(pre);
+    }
+    cmdList->FlushBarriers();
+
+    // 2. Copies — 大缓冲自动分片，单次拷贝 ≤ packet size
+    for (const auto& upload : batch.m_bufferUploads) { /* memcpy + CopyItem */ }
+    for (const auto& upload : batch.m_imageUploads) { /* AlignUp + memcpy 逐行 + CopyItem */ }
+
+    // 3. Release barriers: cross-queue handoff Copy/Write → COMMON
+    for (const auto& barrier : batch.m_bufferReleaseBarriers)
+        cmdList->QueueBarrier(barrier);
+    for (const auto& barrier : batch.m_imageReleaseBarriers)
+        cmdList->QueueBarrier(barrier);
+    cmdList->FlushBarriers();
+
+    // 4. Batch end: close + execute + external fence signal + packet fence stamp
+    cmdList->Close();
+    m_copyQueue->ExecuteCommands({ &cmdList, 1 });
+    m_copyQueue->Signal(*m_uploadFence, batch.m_fenceValue);
+    packet->m_fenceValue = packet->m_fence->Increment();
+    m_copyQueue->Signal(*packet->m_fence);
 }
 ```
 
 #### 跟 RenderGraph 的集成
 
-RG 在 `ExecutePipeline` 顶端加 4 行：
+**跨队列 acquire 由 RG executer 按 pass 驱动**（待实现，T5 后半）：
 
-```cpp
-if (auto* upload = Service<AsyncUploadSystem>::Get()) {
-    uint64_t v = upload->GetMaxInFlightValue();
-    if (v > upload->GetUploadFence().GetCompletedValue())
-        m_commandQueueContext.GetCommandQueue(HardwareQueueClass::Graphics)
-            .Wait(upload->GetUploadFence(), v);
-}
-```
+- executer 在执行 pass 时，扫描 pass 引用的 resource entity，如果其上还有 `BufferUploadSubmitted` / `ImageUploadSubmitted`：
+  1. 检查 `m_fenceValue <= m_uploadFence->GetCompletedValue()`（GPU 端 copy 已完成）
+  2. 若未完成则 block/wait
+  3. Emit `graphicsQueue.Wait(*m_uploadFence, m_fenceValue)`
+  4. Emit `m_acquireBarrier` on graphics queue（COMMON → `m_initial`）
+  5. `ctx.Remove<BufferUploadSubmitted/ImageUploadSubmitted>()`
 
-GPU 端 graphics queue 等到 copy queue 把所有已提交的 upload 都信号完，再开始 draw。
+**为什么是 pass 级别而非 frame 级别**：
+- Acquire barrier 必须在 graphics queue 的正确 timeline 位置（pass 开始前），不能过早（可能被后续命令覆盖）也不能过晚（resource 在被使用前必须是正确状态）
+- 多个 pass 可能先后使用同一 resource，只需第一个使用它的 pass emit acquire
+- 这跟 barrier compile 的 pass-scope 语义一致
+
+**主线程 OnFrameBegin 不再 poll**：`SubmitBatch` 只负责提交 batch + 挂 `BufferUploadSubmitted`/`ImageUploadSubmitted` 组件。CPU 侧不主动清除这些组件——executer 是唯一的"就绪裁判"。
 
 #### 消费者侧两种用法（一套机制全覆盖）
 
-**A. 阻塞式（默认）**：外层完全不感知 UploadInFlight。RG 顶端的跨队列 wait 保证 graphics 提交前所有 in-flight upload 已完成。Init-time 也可用 `FlushAndWait()` 同步等。
+**A. 阻塞式（默认）**：外层完全不感知 `BufferUploadSubmitted`/`ImageUploadSubmitted`。RG executer 在 pass 使用资源前自动 wait fence + emit acquire barrier。Init-time 同步路径通过 `FlushUploadPackets` 等待。
 
-**B. Fire-and-forget**（streaming）：消费者自己 poll `ctx.Has<UploadInFlight>(e)`。未就绪就用 fallback（低 mip 贴图 / 跳过 draw / ...）。就绪后由 streaming 系统切换 SRG view 指针。
+**B. Fire-and-forget**（streaming）：消费者自己 poll `ctx.Has<BufferUploadSubmitted>(e)`。未就绪就用 fallback（低 mip 贴图 / 跳过 draw）；就绪后 executer 自动完成 acquire。
 
 ---
 
@@ -431,8 +564,9 @@ GPU 端 graphics queue 等到 copy queue 把所有已提交的 upload 都信号�
 
 ```
 1. RHIResourceSystem::OnFrameBegin     ← 物化新声明的 Buffer/Image/View
-2. AsyncUploadSystem::OnFrameBegin     ← Poll completions + submit new batch
-3. ... 其它 frame-begin handler ...
+2. AsyncUploadSystem::OnFrameBegin     ← SubmitBatch (snapshot entities + enqueue)
+3. RenderGraph::OnFrameBegin           ← Import 资源挂 Backing*, 更新 PerFrame slot
+4. ... 其它 frame-begin handler ...
 ```
 
 需要在 `SparkEngine::SetUp()` 中通过 Init 注册顺序保证（`m_dx12Rhi` 已先 Init），或者让 `FrameEventBus` 提供显式 order key。具体机制实现时查证。
@@ -441,14 +575,12 @@ GPU 端 graphics queue 等到 copy queue 把所有已提交的 upload 都信号�
 
 ## 未完成事项（按推荐顺序）
 
-### [ ] T1. RenderSystem 适配 RHIInterface 的 Device
+### [x] T1. RenderSystem 适配 RHIInterface 的 Device
 
-**依赖**：无（RHIInterface 已就绪）
-
-**改动点**：
-- `RenderSystem::InitRHIData`：物理设备筛选 + DeviceDescriptor 仍保留在这里，但 `factory->CreateDevice() + Init()` 改成 `rhi->InitDevice(*selected, desc)`
-- `RenderSystem` 删 `m_rhiData.m_device`，所有引用替换为 `Service<RHIInterface>::Get()->GetDevice()`
-- 全 Debug build 验证 + 跑 SparkEditor 烟雾测试
+**已完成**：
+- `RenderSystem::InitRHIData` 改用 `rhi->EnumeratePhysicalDevices()` + `rhi->InitDevice(*selected, desc)`
+- `RHIData` struct 已删 `m_device`，只保留 `m_swapChain`
+- 所有 device 引用走 `Service<RHI::RHIInterface>::Get()->GetDevice()`
 
 ### [ ] T2. SandBox RHI 示例适配
 
@@ -467,22 +599,47 @@ GPU 端 graphics queue 等到 copy queue 把所有已提交的 upload 都信号�
 
 **已完成**，见已办事项 #15。
 
-### [ ] T5. RenderGraph 接入 cross-queue wait
+### [x] T4b. Backing* bridge（已完成）
+
+**依赖**：T3
+
+**方案演进**：最初考虑把 `Backing*` 搬到 RHI 层或新建 BackingBridgeSystem。最终采用**在 RenderGraphBuilder import 路径懒挂 Backing\***——单帧资源用 `Has<>` guard set-once，PerFrame 用 `AddOrReplace` 每帧更新到当前 slot。无需新 system、无需移动组件命名空间。
+
+**实现位置**：[RenderGraphBuilder.h](Engine/Code/RunTime/Feature/Render/RenderGraph/RenderGraphBuilder.h) 的 `ImportImageAttachment` / `ImportBufferAttachment` 及 view 绑定路径：
+
+```cpp
+// Single-frame: set-once
+if (auto* img = rhiContext.TryGet<Image>(resource)) {
+    if (!rhiContext.Has<BackingImage>(resource))
+        rhiContext.Add<BackingImage>(resource, BackingImage{ img->m_image.get() });
+}
+// Per-frame: AddOrReplace every OnFrameBegin (slot rotates with m_frameIndex)
+else if (auto* imgPF = rhiContext.TryGet<ImagePerFrame>(resource)) {
+    rhiContext.AddOrReplace<BackingImage>(resource,
+        BackingImage{ imgPF->m_images[m_frameIndex].get() });
+}
+// Buffer / BufferView / ImageView 同样模式
+```
+
+- 单帧 Backing* 在第一次 import 时 set-once，终生有效
+- PerFrame Backing* 在每帧 `Import*Attachment` 时（`RefreshPerFrameBackings` 或 import lambda 内）`AddOrReplace` 指向 `m_xxx[m_frameIndex]`
+- 无额外 system、无额外 scan —— 跟着已有的 import 路径走
+
+### [~] T5. 跨队列 barrier + wait（半完成）
 
 **依赖**：T4
 
-在 `RenderGraph::ExecutePipeline` 的 execute phase，对 graphics queue 发 upload fence 的 wait：
+**已完成（release 侧）**：AsyncUploadSystem 在 ProcessBatch 中 emit pre-copy barriers（ConvertToCopyWrite, intra-copy-queue）+ 拷贝完毕后 emit release barriers（Copy/Write → COMMON, cross-queue release）。Batch 末尾 `m_copyQueue->Signal(*m_uploadFence, batch.m_fenceValue)`。
 
-```cpp
-if (auto* upload = Service<AsyncUploadSystem>::Get()) {
-    uint64_t v = upload->GetUploadFence().GetPendingValue();
-    if (v > upload->GetUploadFence().GetCompletedValue())
-        m_commandQueueContext.GetCommandQueue(HardwareQueueClass::Graphics)
-            .Wait(upload->GetUploadFence(), v);
-}
-```
+**待完成（acquire 侧）**：RG executer 在 pass 执行时，检查资源 entity 上的 `BufferUploadSubmitted` / `ImageUploadSubmitted`：
+1. 若 `m_fenceValue > m_uploadFence->GetCompletedValue()` → block/wait
+2. Emit `graphicsQueue.Wait(*m_uploadFence, m_fenceValue)`
+3. Emit `m_acquireBarrier` on graphics queue（COMMON → `m_initial`）
+4. `ctx.Remove<BufferUploadSubmitted/ImageUploadSubmitted>()`
 
-注意：`GetMaxInFlightValue()` 方法已取消，统一用 `GetUploadFence().GetPendingValue()`。
+**关键**：per-pass 的 acquire 必须在 graphics queue 的正确 timeline 位置（pass 开始前）。这是唯一需要 fence wait 的地方——所有 upload 的 GPU 完成检查、barrier 插入、组件清除都在 executer 的 pass-begin 路径完成。
+
+~~方案 1 getter / 方案 2 ECS 扫描 已废弃。~~ Acquire 不从 system 拿 fence——从 entity 组件拿（`BufferUploadSubmitted::m_uploadFence`），每个 entity 独立 wait + barrier，最后 remove 组件。
 
 ### [ ] T6. SRG 创建/销毁的 builder 接口（原 #12）
 
@@ -515,9 +672,9 @@ static void DestroyShaderResource(RHIHandle entity);
 
 ### [ ] T7. TrianglePass 端到端实现（原 #14）
 
-**依赖**：T3 + T4 + T6
+**依赖**：T3 + T4 + T4b + T6
 
-按 v4 声明式终态写：
+按声明式终态写：
 
 ```cpp
 void TrianglePassFeature::CreateVertexBuffer()
@@ -526,9 +683,30 @@ void TrianglePassFeature::CreateVertexBuffer()
     RHIHandle vbEntity = ctx.CreateEntity();
     ctx.Add<ImportedTag>(vbEntity);
     ctx.Add<ResourceName>(vbEntity, ObjectName{"TriangleVB"});
-    ctx.Add<RHI::BufferDescriptor>(vbEntity, vbDesc);
-    ctx.Add<PendingBufferUpload>(vbEntity, { eastl::move(triangleBytes), 0 });
+
+    // 声明 post-upload rest state（AsyncUploadSystem + RG 都用它构造 barriers）
+    ImportedResourceState importedState;
+    importedState.m_initial      = ResourceState::VertexBuffer;
+    importedState.m_initialStage = AttachmentStage::VertexInput;
+    importedState.m_initialQueue = HardwareQueueClass::Graphics;
+    importedState.m_final        = ResourceState::VertexBuffer;
+    importedState.m_finalStage   = AttachmentStage::VertexInput;
+    importedState.m_finalQueue   = HardwareQueueClass::Graphics;
+    ctx.Add<ImportedResourceState>(vbEntity, importedState);
+
+    PendingBufferInit init;
+    init.m_descriptor      = vbDesc;
+    init.m_heapMemoryLevel = HeapMemoryLevel::Device;
+    ctx.Add<PendingBufferInit>(vbEntity, init);
+
+    // m_triangleBytes 是 feature 的成员，保活到 BufferUploadSubmitted 被清除前不释放
+    PendingBufferUpload upload;
+    upload.m_data              = m_triangleBytes.data();
+    upload.m_dataSize          = m_triangleBytes.size();
+    upload.m_destinationOffset = 0;
+    ctx.Add<PendingBufferUpload>(vbEntity, upload);
     ctx.Add<UploadPendingTag>(vbEntity);
+
     m_vbEntity = vbEntity;
 }
 
@@ -701,18 +879,29 @@ model matrix 这种"逐 draw 变化、小数据"的东西**仍然走 SRG**（在
 - **专用 copy queue**：GPU 端真异步（DMA 引擎并行 graphics queue），必须有
 - **CPU 端独立线程**：开始就有，避免后续接 streaming 时改动面大；用 SubmitBatch 一次性 handoff 设计降低锁竞争
 - **Per-frame batch handoff**：snapshot 在主线程做（ECS 单线程约定），处理在 upload thread。同步原语压到每帧一次
-- **owning data**（`eastl::vector<uint8_t> m_data`）：UploadManager 持有用户数据所有权，调用方不用管生命周期。代价是一次额外 memcpy
+- **non-owning `m_data`**（最终选定）：`PendingBufferUpload::m_data` 是 `const void*`，调用方保活到 `BufferUploadSubmitted`/`ImageUploadSubmitted` 清除前。理由：上传源大多是 asset 系统里已经持有的 buffer，让 AsyncUploadSystem 做一次额外的 owning vector 拷贝白白浪费内存和带宽；调用方维护生命周期更自然。代价是契约转嫁——必须明确文档化
 - **大数据自动分片**：单 request > packet size 自动切多个 packet（FramePacket ring）
-- **状态机三态**：UploadPendingTag → UploadInFlight → cleared。消费者可选阻塞（默认）或 fire-and-forget
-- **Host-visible buffer 不走这条路**：调用方自己 Map 即可，不需要 staging
+- **状态机三态**：`UploadPendingTag` → `BufferUploadSubmitted`/`ImageUploadSubmitted` → cleared（由 RG executer 消费）。无 CPU 侧 PollCompletions —— acquire barrier 必须在 graphics queue 的正确 timeline 位置 emit
+- **Per-packet fence + 外部契约 fence 两套**：packet 轮转用各自 fence，避免一个 packet 等到不相关 batch 的进度；对外只暴露 `m_uploadFence`，每 batch 末尾 Signal 一次。`m_uploadFence` 的指针存在每个 `BufferUploadSubmitted`/`ImageUploadSubmitted` 组件上供 executer 使用
+- **`m_uploadFence` pending 单写**：主线程通过 `m_batchFenceValue` 私有计数器分配 batch fence 值，永不触碰 fence；upload 线程通过 `CommandQueue::Signal` 独占写 pending。绕开 `Fence::Increment` + `Signal::SetPendingValue` 的双写 race
+- **Host-visible buffer 不走这条路**：调用方挂 `PendingBufferMap`（同步 Map/memcpy/Unmap），由 RHIResourceSystem 处理
+
+### Cross-queue barrier 设计决策
+
+- **`ImportedResourceState` 是单一真相源**：调用方在创建资源 entity 时必须声明 post-upload rest state（`m_initial`/`m_initialQueue`）。AsyncUploadSystem 用它构造 release barrier（Copy/Write → COMMON），RG 用它 seed `ResourceStateTracker`。两个系统读同一份数据，barrier 状态天然一致，不存在 mismatch
+- **Barrier pair 在 SubmitBatch 构造，分发到两处**：同一份 `BufferBarrier`/`ImageBarrier` 被复制到 batch 的 `m_*ReleaseBarriers`（upload 线程在 copy 后 emit）和 entity 的 `BufferUploadSubmitted::m_acquireBarrier`/`ImageUploadSubmitted::m_acquireBarrier`（executer 在 pass 开始前 emit）。src/dst queue 不同（Copy→Graphics），DX12 backend 看到 `srcQueue != dstQueue` 时 release 侧 emit `target→COMMON`，acquire 侧 emit `COMMON→dstUsage`
+- **Pre-copy barrier 跟 release 职责分离**：pre-copy 是 intra-queue transition（any→Copy/Write@Copy），release 是 cross-queue handoff（Copy/Write→COMMON）。两者缺一不可——没有 pre-copy，资源可能不在 Copy 状态；没有 release，graphics queue 看不到 copy 结果
+- **Acquire 由 executer 在 pass 级别驱动，不是 frame 级别**：acquire barrier 必须插入 graphics queue 的正确位置（依赖该资源的 pass 开始前），不能过早（会被后续 transition 覆盖）也不能过晚（pass 执行时资源还在 COMMON）
 
 ### 不变量小结
 
 - **Init**：子类先做 backend init，**末尾** chain 父类（context push 在 backend ready 之后）
 - **Shutdown**：子类**开头** chain 父类（resource/context unwind 在 backend teardown 之前）
-- **OnFrameBegin handler 顺序**：RHIResourceSystem → AsyncUploadSystem → 其它
+- **OnFrameBegin handler 顺序**：RHIResourceSystem（物化新资源）→ AsyncUploadSystem（SubmitBatch，snapshot + enqueue）→ 其它
 - **每个 SRG 只有一个 owner agent**（设计强制，未来 Set 阶段可并行）
 - **Compile 在同一处**（便于将来开 `parallel_for`）
+- **Upload 就绪检查不在 CPU 侧**：`BufferUploadSubmitted`/`ImageUploadSubmitted` 由 RG executer 在 pass 级别消费，CPU 侧不主动 poll
+- **所有走 staging upload 的资源必须有 `ImportedResourceState`**：缺失则 SubmitBatch 报错跳过
 
 ---
 

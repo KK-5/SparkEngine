@@ -1,32 +1,34 @@
 # AsyncUploadSystem / RHIResourceSystem 审查残余问题
 
-来自一次代码审查的修复进度跟踪。原始问题清单审查于 `AsyncUploadSystem.cpp` / `RHIResourceSystem.cpp` 实现完成时。
+剩余的 TODO，已完成项已清理。
 
 ---
 
-## 已完成
+## 待处理
 
-| # | 问题 | 修复方式 | 文件 |
-|---|---|---|---|
-| 1 | `m_uploadFence` 单调性 bug — 主线程与 upload 线程共用 Increment + 同 batch 内多次 Signal 倒序 | 引入 `m_packetFence`：外部契约每 batch 只 Signal 一次；packet 轮转用 upload 线程私有 fence | AsyncUploadSystem.h/cpp |
-| 2 | CommandList 不是一等 RHI 资源 — cross-thread data race | 抽离到独立方案 [TODO_RHI_CommandList_FirstClass.md](TODO_RHI_CommandList_FirstClass.md) | — |
-| 3 | host-pool buffer 挂 `PendingBufferUpload` 被静默丢弃 | 识别 `Components::BufferPerFrame`，报错"请用 Map"并清除标签 | AsyncUploadSystem.cpp |
-| 4 | Image upload 缺 `D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT`（512）对齐 | `RHILimits.h` 加 `TexturePlacement`；image upload 进 staging 前 AlignUp | RHILimits.h / AsyncUploadSystem.cpp |
-| 5 | entity 没物化时 UploadPendingTag + PendingX 永远卡住 | 与 #3 合并：缺 Components::Buffer/Image 一律 log + 清标签 | AsyncUploadSystem.cpp |
-| 6 | RHIResourceSystem 物化失败重试风暴 | 失败时收集到 toDestroy，循环外 DestroyEntity | RHIResourceSystem.cpp |
-| 7 | Pool 选择策略把"绑定位"和"内存位"混在一起 | `PendingBufferInit`/`PendingImageInit` 显式控制 `HeapMemoryLevel` + `HostMemoryAccess`；`SelectBufferPool`/`SelectImagePool` 按 placement 路由 | Component.h / RHIResourceSystem.cpp |
-| 8 | ViewHierarchy 反向链没人维护 | `LinkViewToResource` 头插维护 prevView/nextView/firstView 链表 | RHIResourceSystem.cpp |
-| 9 | AsyncUploadSystem Descriptor 无入口 / m_frameCount 死代码 | 删 `m_frameCount`；加 `AsyncUploadSystem(const Descriptor&)` 构造函数 | AsyncUploadSystem.h |
-| 10 | pendingBatches 无背压 | 非问题 — 每个 Batch 只有元数据指针，真正的大数据在调用方 | — |
-| 11 | 同帧物化 → 同帧上传的顺序耦合脆弱 | `SubmitBatch` 中检查 `Has<PendingBufferInit/PendingImageInit>` 静默跳过，物化完成后下帧自动重试 | AsyncUploadSystem.cpp |
-| 12 | `PendingBufferUpload::m_data` 生命周期注释不准确 | 改为 "直到 BOTH PendingX AND UploadSubmitted 从 entity 消失" | Component.h |
-| 13 | packet 轮转 WaitOnCpu 不带值，过度保守 | 改为 per-packet fence — 每个 FramePacket 有自己的 fence，Wait 精确等自己的 value | AsyncUploadSystem.h/cpp |
-| 14 | ResourceName 没传给 D3D12 SetName | RHIResourceSystem 在 Init 前 SetName → DX12 BufferPool/ImagePool 在 CreateResource 后 GetName → MultiByteToWideChar → allocation->SetName() | RHIResourceSystem.cpp / DX12 BufferPool.cpp / ImagePool.cpp |
-| 15 | CopyBufferDescriptor m_destinationOffset/m_size 截断到 uint32_t | 改为 `uint64_t` | CopyItem.h / AsyncUploadSystem.cpp |
+### Image upload 只支持 2D 单 subresource
+
+`AsyncUploadSystem::ProcessBatch` 的 image 上传循环只按 `m_size.m_height` 走行 memcpy，`m_size.m_depth` 完全没用到；`PendingImageUpload` 也只挂一个 `ImageSubresource`。3D / 体积纹理 / cubemap 的多 slice 当前单次只能传一片。
+
+**搁置原因**：纹理格式与上传 API 后续会统一重新拟定，等那次重构一并处理。当前如果有调用方传 `m_size.m_depth > 1`，会被无声吞掉——重构前可考虑加个 assert 把契约钉死。
+
+**相关代码**：[AsyncUploadSystem.cpp:375-418](Engine/Code/RunTime/Feature/RHI/System/AsyncUploadSystem.cpp#L375-L418)
+
+---
+
+### Frame index 应归属 Device
+
+`RHIResourceSystem::m_frameIndex` 每帧在 `OnFrameBegin` 里 `(idx + 1) % frameCountMax`，目前只用于 per-frame buffer 的 `PendingBufferMap` 当前 slot 写入。
+
+但"当前帧的 in-flight slot"本质是全局概念，将来 RenderSystem 写 per-frame SRG、swap-chain 关联 back buffer 等都需要同一份索引。应该挪到 `Device`（或 `RHIInterface`），由它统一推进，提供 `GetCurrentFrameIndex()`。
+
+**搁置原因**：目前只有一个使用者，YAGNI。第二个调用方（很可能是 RenderSystem）出现时再搬迁，那时"谁负责 advance"的语义问题会自然有答案。
+
+**相关代码**：[RHIResourceSystem.cpp:117](Engine/Code/RunTime/Feature/RHI/System/RHIResourceSystem.cpp#L117)
 
 ---
 
 ## 与其他 TODO 的关系
 
 - 主推进路径在 [TODO_DataDrivenRHI.md](TODO_DataDrivenRHI.md)。
-- [TODO_RHI_CommandList_FirstClass.md](TODO_RHI_CommandList_FirstClass.md) 是 #2 的独立方案。
+- CommandList 一等化方案在 [TODO_RHI_CommandList_FirstClass.md](TODO_RHI_CommandList_FirstClass.md)。
