@@ -74,17 +74,8 @@ namespace Spark::Render
         context.Add<SwapChainImages>(m_swapchainResource, eastl::move(swapChainImages));
         context.Add<ImportedTag>(m_swapchainResource);
         context.Add<ResourceName>(m_swapchainResource, ObjectName{"SwapChain"});
-        context.Add<ImportedResourceState>(
-            m_swapchainResource,
-            ImportedResourceState{
-                /* m_initial      */ RHI::ResourceState{RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown},
-                /* m_initialStage */ RHI::AttachmentStage::Any,
-                /* m_initialQueue */ RHI::HardwareQueueClass::Graphics,
-                /* m_final        */ RHI::ResourceState{RHI::AttachmentUsage::Present, RHI::AttachmentAccess::Read},
-                /* m_finalStage   */ RHI::AttachmentStage::Any,
-                /* m_finalQueue   */ RHI::HardwareQueueClass::Graphics,
-            }
-        );
+        // NOTE: swap chain Present-state transition at frame end is TBD —
+        // CompileFinalTransitionBarrier was removed alongside ImportedResourceState.
 
         m_swapchainView = context.CreateEntity();
         SwapChainViews swapChainView;
@@ -184,8 +175,6 @@ namespace Spark::Render
 
             context.Clear<AttachmentCompilingTag>();
         }
-
-        m_compiler.CompileFinalTransitionBarrier(passContext, context, passes);
 
         QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);
 

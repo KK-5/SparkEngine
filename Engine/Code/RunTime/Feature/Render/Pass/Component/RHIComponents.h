@@ -118,23 +118,16 @@ namespace Spark::Render
         RHI::ShaderResource* m_shaderResource = nullptr;
     };
 
-    struct ImportedResourceState
-    {
-        RHI::ResourceState      m_initial;
-        RHI::AttachmentStage    m_initialStage = RHI::AttachmentStage::Any;
-        RHI::HardwareQueueClass m_initialQueue = RHI::HardwareQueueClass::Graphics;
-        RHI::ResourceState      m_final;
-        RHI::AttachmentStage    m_finalStage = RHI::AttachmentStage::Any;
-        RHI::HardwareQueueClass m_finalQueue = RHI::HardwareQueueClass::Graphics;
-    };
-
     // Simulated resource state during barrier compile.
     // Lives on Resource entities; seeded lazily on first touch, cleared at end of frame.
+    // m_current is the full post-barrier state (usage + access + queue + stage) — read
+    // it for both srcQueue and srcStage when constructing the next barrier.
+    // m_lastPass is kept only to know which pass entity to push the cross-queue release
+    // (m_postBuffer / m_postImage) onto; NullPass means first touch (no producer yet).
     struct ResourceStateTracker
     {
-        RHI::ResourceState   m_current {};
-        Pass                 m_lastPass  { NullPass };
-        RHI::AttachmentStage m_lastStage { RHI::AttachmentStage::Any };
+        RHI::ResourceState m_current {};
+        Pass               m_lastPass { NullPass };
     };
 
     ///////////////////////////////////////////////

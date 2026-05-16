@@ -370,18 +370,32 @@ namespace Spark::Render
         if (!rhiContext.Has<ImportedTag>(bind.m_view))
             rhiContext.Add<ImportedTag>(bind.m_view);
 
-        // Single-frame: lazy-add BackingImage / BackingImageView from the owning
-        // Image / ImageView. Per-frame variants (ImagePerFrame / ImageViewPerFrame)
-        // are refreshed by RenderGraph::RefreshPerFrameBackings at frame start.
-        if (!rhiContext.Has<BackingImage>(resource) && rhiContext.Has<Image>(resource))
+        // Materialize BackingImage / BackingImageView from the owning resource.
+        // Single-frame variants (Image / ImageView) write once and never change.
+        // Per-frame variants (ImagePerFrame / ImageViewPerFrame) point at the
+        // current frame's slot — refreshed every frame by
+        // RenderGraph::RefreshPerFrameBackings for already-imported entities;
+        // first-frame imports are handled here using m_frameIndex.
+        if (auto* img = rhiContext.TryGet<Image>(resource))
         {
-            rhiContext.Add<BackingImage>(resource,
-                BackingImage{ rhiContext.Get<Image>(resource).m_image.get() });
+            if (!rhiContext.Has<BackingImage>(resource))
+                rhiContext.Add<BackingImage>(resource, BackingImage{ img->m_image.get() });
         }
-        if (!rhiContext.Has<BackingImageView>(bind.m_view) && rhiContext.Has<ImageView>(bind.m_view))
+        else if (auto* imgPF = rhiContext.TryGet<ImagePerFrame>(resource))
         {
-            rhiContext.Add<BackingImageView>(bind.m_view,
-                BackingImageView{ rhiContext.Get<ImageView>(bind.m_view).m_view.get() });
+            rhiContext.AddOrReplace<BackingImage>(resource,
+                BackingImage{ imgPF->m_images[m_frameIndex].get() });
+        }
+
+        if (auto* view = rhiContext.TryGet<ImageView>(bind.m_view))
+        {
+            if (!rhiContext.Has<BackingImageView>(bind.m_view))
+                rhiContext.Add<BackingImageView>(bind.m_view, BackingImageView{ view->m_view.get() });
+        }
+        else if (auto* viewPF = rhiContext.TryGet<ImageViewPerFrame>(bind.m_view))
+        {
+            rhiContext.AddOrReplace<BackingImageView>(bind.m_view,
+                BackingImageView{ viewPF->m_views[m_frameIndex].get() });
         }
 
         if constexpr (s_buildValidation)
@@ -432,15 +446,27 @@ namespace Spark::Render
         if (!rhiContext.Has<ImportedTag>(bind.m_view))
             rhiContext.Add<ImportedTag>(bind.m_view);
 
-        if (!rhiContext.Has<BackingBuffer>(resource) && rhiContext.Has<Buffer>(resource))
+        // See ImportImageAttachment for the Backing materialization rationale.
+        if (auto* buf = rhiContext.TryGet<Buffer>(resource))
         {
-            rhiContext.Add<BackingBuffer>(resource,
-                BackingBuffer{ rhiContext.Get<Buffer>(resource).m_buffer.get() });
+            if (!rhiContext.Has<BackingBuffer>(resource))
+                rhiContext.Add<BackingBuffer>(resource, BackingBuffer{ buf->m_buffer.get() });
         }
-        if (!rhiContext.Has<BackingBufferView>(bind.m_view) && rhiContext.Has<BufferView>(bind.m_view))
+        else if (auto* bufPF = rhiContext.TryGet<BufferPerFrame>(resource))
         {
-            rhiContext.Add<BackingBufferView>(bind.m_view,
-                BackingBufferView{ rhiContext.Get<BufferView>(bind.m_view).m_view.get() });
+            rhiContext.AddOrReplace<BackingBuffer>(resource,
+                BackingBuffer{ bufPF->m_buffers[m_frameIndex].get() });
+        }
+
+        if (auto* view = rhiContext.TryGet<BufferView>(bind.m_view))
+        {
+            if (!rhiContext.Has<BackingBufferView>(bind.m_view))
+                rhiContext.Add<BackingBufferView>(bind.m_view, BackingBufferView{ view->m_view.get() });
+        }
+        else if (auto* viewPF = rhiContext.TryGet<BufferViewPerFrame>(bind.m_view))
+        {
+            rhiContext.AddOrReplace<BackingBufferView>(bind.m_view,
+                BackingBufferView{ viewPF->m_views[m_frameIndex].get() });
         }
 
         if constexpr (s_buildValidation)

@@ -283,20 +283,31 @@ namespace
             return handle;
         }
 
-        RHI::ResourceState GetImportedResourceInitialState(RHIHandle resource, const RHIContext& context)
+        //! Read the resource's current observed state from the BackingImage / BackingBuffer
+        //! component (set at runtime by barrier emit paths) for first-touch tracker seeding.
+        //! Imported resources end the previous frame in whatever state the last barrier left
+        //! them in; transient resources start each frame at the descriptor default
+        //! (Uninitialized + Graphics queue). The new state model carries queue + stage
+        //! alongside usage/access, so the consuming pass's barrier construction has full
+        //! src information without consulting a separate "imported initial state" record.
+        RHI::ResourceState GetResourceInitialState(RHIHandle resource, const RHIContext& context)
         {
-            if (context.Has<ImportedTag>(resource))
+            if (auto* backing = context.TryGet<BackingImage>(resource))
             {
-                ASSERT(context.Has<ImportedResourceState>(resource), "Imported resource must have ImportedResourceState.");
-                return context.Get<ImportedResourceState>(resource).m_initial;
+                ASSERT(backing->m_image != nullptr, "BackingImage::m_image is null.");
+                return backing->m_image->GetResourceState();
             }
-            else if (context.Has<TransientTag>(resource))
+            if (auto* backing = context.TryGet<BackingBuffer>(resource))
             {
-                return RHI::ResourceState{RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown};
+                ASSERT(backing->m_buffer != nullptr, "BackingBuffer::m_buffer is null.");
+                return backing->m_buffer->GetResourceState();
             }
 
-            LOG_ERROR("Resource {} has not ImportedTag nor TransientTag", context.Get<ResourceName>(resource).m_name.GetCStr());
-            return RHI::ResourceState{RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown};
+            LOG_ERROR("Resource {} has neither BackingImage nor BackingBuffer at first-touch.",
+                context.Has<ResourceName>(resource)
+                    ? context.Get<ResourceName>(resource).m_name.GetCStr()
+                    : "[Unnamed]");
+            return RHI::ResourceState{};
         }
 
         void CompileTransientAliasingBarriers(
@@ -322,35 +333,27 @@ namespace
         {
             ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
 
+            const RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
+
             auto view = context.GetView<BufferPassAttachment, AttachmentCompilingTag>();
             view.each([&](auto, const BufferPassAttachment& att)
             {
                 RHIHandle resource = ResolveResource(att.m_view, context);
                 ASSERT(resource != NullHandle, "Buffer attachment view has no resource.");
 
-                //
                 if (!context.Has<ResourceStateTracker>(resource))
                 {
                     ResourceStateTracker init;
-                    init.m_current = GetImportedResourceInitialState(resource, context);
+                    init.m_current = GetResourceInitialState(resource, context);
+                    // First touch: pin queue to the current consumer so srcQueue==dstQueue
+                    // suppresses a spurious cross-queue handoff (no producer to release from).
+                    init.m_current.m_queue = dstQueue;
                     context.Add<ResourceStateTracker>(resource, init);
                 }
                 auto& tracker = context.Get<ResourceStateTracker>(resource);
 
-                RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
-                RHI::HardwareQueueClass srcQueue;
-                if (tracker.m_lastPass != NullPass)
-                {
-                    ASSERT(passContext.Has<PassExecuteQueue>(tracker.m_lastPass), 
-                        "The pass {} has not PassExecuteQueue", 
-                        passContext.Get<PassName>(tracker.m_lastPass).m_name.GetCStr());
-                    srcQueue = passContext.Get<PassExecuteQueue>(tracker.m_lastPass).m_queue;
-                }
-                else
-                {
-                    srcQueue = dstQueue; // 首次接触：同一队列，无需 ownership transfer
-                }
-
+                const RHI::HardwareQueueClass srcQueue = tracker.m_current.m_queue;
+                const RHI::AttachmentStage    srcStage = tracker.m_current.m_stage;
 
                 RHI::ResourceState src = tracker.m_current;
                 RHI::ResourceState dst = CompileResourceState(att);
@@ -367,14 +370,14 @@ namespace
                     b.m_dstUsage  = dst.m_usage;
                     b.m_srcAccess = src.m_access;
                     b.m_dstAccess = dst.m_access;
-                    b.m_srcStage  = tracker.m_lastStage;
+                    b.m_srcStage  = srcStage;
                     b.m_dstStage  = att.m_stage;
                     b.m_srcQueue  = srcQueue;
                     b.m_dstQueue  = dstQueue;
                     out.m_preBuffer.push_back(b);
                 }
 
-                // Sync cross queue, emit Release Barrier on previous pass
+                // Cross-queue: push the release half onto the previous-pass entity.
                 if (srcQueue != dstQueue)
                 {
                     if (auto barriers = passContext.TryGet<PassBarriers>(tracker.m_lastPass))
@@ -389,9 +392,8 @@ namespace
                     }
                 }
 
-                tracker.m_current   = dst;
-                tracker.m_lastPass  = pass;
-                tracker.m_lastStage = att.m_stage;
+                tracker.m_current = RHI::ResourceState{ dst.m_usage, dst.m_access, dstQueue, att.m_stage };
+                tracker.m_lastPass = pass;
             });
         }
 
@@ -404,6 +406,8 @@ namespace
         {
             ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
 
+            const RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
+
             auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>();
             view.each([&](auto, const ImagePassAttachment& att)
             {
@@ -413,24 +417,15 @@ namespace
                 if (!context.Has<ResourceStateTracker>(resource))
                 {
                     ResourceStateTracker init;
-                    init.m_current = GetImportedResourceInitialState(resource, context);
+                    init.m_current = GetResourceInitialState(resource, context);
+                    // First touch: pin queue to the current consumer (see CompileBufferBarriers).
+                    init.m_current.m_queue = dstQueue;
                     context.Add<ResourceStateTracker>(resource, init);
                 }
                 auto& tracker = context.Get<ResourceStateTracker>(resource);
 
-                RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
-                RHI::HardwareQueueClass srcQueue;
-                if (tracker.m_lastPass != NullPass)
-                {
-                    ASSERT(passContext.Has<PassExecuteQueue>(tracker.m_lastPass),
-                        "The pass {} has not PassExecuteQueue",
-                        passContext.Get<PassName>(tracker.m_lastPass).m_name.GetCStr());
-                    srcQueue = passContext.Get<PassExecuteQueue>(tracker.m_lastPass).m_queue;
-                }
-                else
-                {
-                    srcQueue = dstQueue;
-                }
+                const RHI::HardwareQueueClass srcQueue = tracker.m_current.m_queue;
+                const RHI::AttachmentStage    srcStage = tracker.m_current.m_stage;
 
                 RHI::ResourceState src = tracker.m_current;
                 RHI::ResourceState dst = CompileResourceState(att);
@@ -454,7 +449,7 @@ namespace
                     b.m_dstUsage  = dst.m_usage;
                     b.m_srcAccess = src.m_access;
                     b.m_dstAccess = dst.m_access;
-                    b.m_srcStage  = tracker.m_lastStage;
+                    b.m_srcStage  = srcStage;
                     b.m_dstStage  = att.m_stage;
                     b.m_srcQueue  = srcQueue;
                     b.m_dstQueue  = dstQueue;
@@ -475,9 +470,8 @@ namespace
                     }
                 }
 
-                tracker.m_current   = dst;
-                tracker.m_lastPass  = pass;
-                tracker.m_lastStage = att.m_stage;
+                tracker.m_current = RHI::ResourceState{ dst.m_usage, dst.m_access, dstQueue, att.m_stage };
+                tracker.m_lastPass = pass;
             });
         }
 
@@ -1116,208 +1110,6 @@ namespace
                     passContext.Remove<PassPSODirtyTag>(pass);
                 }
             });
-        }
-    }
-
-    void RenderGraphCompiler::CompileFinalTransitionBarrier(
-        PassContext&         passContext, 
-        RHIContext&          context, 
-        eastl::vector<Pass>& passes)
-    {
-        eastl::array<Pass, RHI::HardwareQueueClassCount> sinks;
-        sinks.fill(NullPass);
-
-        static constexpr const char* sinkNames[] = {
-            "FinalTransition_Graphics",
-            "FinalTransition_Compute",
-            "FinalTransition_Copy",
-        };
-
-        auto GetOrCreateSink = [&](RHI::HardwareQueueClass queue) -> Pass
-        {
-            const auto index = static_cast<uint32_t>(queue);
-            if (sinks[index] != NullPass)
-            {
-                return sinks[index];
-            }
-
-            Pass sinkPass = passContext.CreateEntity();
-            passContext.Add<PassName>(sinkPass, PassName{ ObjectName{sinkNames[index]} });
-            passContext.Add<SinkPassTag>(sinkPass);
-
-            passContext.Add<PassExecuteQueue>(sinkPass, PassExecuteQueue{ queue });
-            passContext.Add<PassFunctions>(sinkPass, PassFunctions{});            // 全空
-            passContext.Add<PassBarriers>(sinkPass, PassBarriers{});
-            passContext.Add<PassPredecessors>(sinkPass, PassPredecessors{});
-
-            sinks[index] = sinkPass;
-            return sinkPass;
-        };
-
-        eastl::array<eastl::hash_set<Pass>, RHI::HardwareQueueClassCount> predSets;
-
-        auto importedView = context.GetView<ImportedTag, ImportedResourceState>();
-        importedView.each([&](auto resource, const ImportedResourceState& imp)
-        {
-            if (context.Has<BackingImage>(resource))
-            {
-                RHI::Image* image = context.Get<BackingImage>(resource).m_image;
-                ASSERT(image != nullptr, "BackingImage image is null.");
-
-                // Untouched: imported but no pass referenced it this frame. We still
-                // honor the import contract by transitioning initial → final on the
-                // resource's initial queue (same-queue only). Cross-queue untouched
-                // would require a producer-less release on m_initialQueue — unsupported.
-                const bool untouched = !context.Has<ResourceStateTracker>(resource);
-                const ResourceStateTracker* tracker = nullptr;
-                if (!untouched)
-                {
-                    tracker = &context.Get<ResourceStateTracker>(resource);
-                    ASSERT(tracker->m_lastPass != NullPass,
-                        "Imported resource {} has tracker but NullPass m_lastPass.",
-                        context.Get<ResourceName>(resource).m_name.GetCStr());
-                }
-
-                const RHI::ResourceState      curState = untouched ? imp.m_initial      : tracker->m_current;
-                const RHI::AttachmentStage    curStage = untouched ? imp.m_initialStage : tracker->m_lastStage;
-                const RHI::HardwareQueueClass curQueue = untouched
-                    ? imp.m_initialQueue
-                    : passContext.Get<PassExecuteQueue>(tracker->m_lastPass).m_queue;
-
-                if (curQueue == imp.m_finalQueue && curState == imp.m_final)
-                {
-                    return;
-                }
-
-                if (untouched && curQueue != imp.m_finalQueue)
-                {
-                    LOG_WARN("[RenderGraph] Imported image {} is untouched and crosses queues "
-                             "(initial queue={} → final queue={}); cross-queue acquire without "
-                             "producer-side release is unsupported. Bind the resource on the "
-                             "initial queue or pre-transition before the frame.",
-                             context.Get<ResourceName>(resource).m_name.GetCStr(),
-                             static_cast<uint32_t>(imp.m_initialQueue),
-                             static_cast<uint32_t>(imp.m_finalQueue));
-                    return;
-                }
-
-                auto sink = GetOrCreateSink(imp.m_finalQueue);
-                PassBarriers& barriers = passContext.Get<PassBarriers>(sink);
-
-                RHI::ImageBarrier b;
-                b.m_image     = image;
-                b.m_srcUsage  = curState.m_usage;
-                b.m_dstUsage  = imp.m_final.m_usage;
-                b.m_srcAccess = curState.m_access;
-                b.m_dstAccess = imp.m_final.m_access;
-                b.m_srcStage  = curStage;
-                b.m_dstStage  = imp.m_finalStage;
-                b.m_srcQueue  = curQueue;
-                b.m_dstQueue  = imp.m_finalQueue;
-
-                barriers.m_preImage.push_back(b);
-
-                // 跨队列(只有 touched 时才到这里:untouched 的跨队列已被上面 LOG_WARN 早返回)
-                if (!untouched && curQueue != imp.m_finalQueue)
-                {
-                    auto& srcBarriers = passContext.Get<PassBarriers>(tracker->m_lastPass);
-                    srcBarriers.m_postImage.push_back(b);
-                    predSets[static_cast<uint32_t>(imp.m_finalQueue)].insert(tracker->m_lastPass);
-
-                    if (!passContext.Has<PassSuccessors>(tracker->m_lastPass))
-                    {
-                        passContext.Add<PassSuccessors>(tracker->m_lastPass, PassSuccessors{});
-                    }
-                    auto& succs = passContext.Get<PassSuccessors>(tracker->m_lastPass).m_succs;
-                    if (eastl::find(succs.begin(), succs.end(), sink) == succs.end())
-                    {
-                        succs.push_back(sink);
-                    }
-                }
-            }
-            else if (context.Has<BackingBuffer>(resource))
-            {
-                RHI::Buffer* buffer = context.Get<BackingBuffer>(resource).m_buffer;
-                ASSERT(buffer != nullptr, "BackingBuffer buffer is null.");
-
-                const bool untouched = !context.Has<ResourceStateTracker>(resource);
-                const ResourceStateTracker* tracker = nullptr;
-                if (!untouched)
-                {
-                    tracker = &context.Get<ResourceStateTracker>(resource);
-                    ASSERT(tracker->m_lastPass != NullPass,
-                        "Imported resource {} has tracker but NullPass m_lastPass.",
-                        context.Get<ResourceName>(resource).m_name.GetCStr());
-                }
-
-                const RHI::ResourceState      curState = untouched ? imp.m_initial      : tracker->m_current;
-                const RHI::AttachmentStage    curStage = untouched ? imp.m_initialStage : tracker->m_lastStage;
-                const RHI::HardwareQueueClass curQueue = untouched
-                    ? imp.m_initialQueue
-                    : passContext.Get<PassExecuteQueue>(tracker->m_lastPass).m_queue;
-
-                if (curQueue == imp.m_finalQueue && curState == imp.m_final)
-                {
-                    return;
-                }
-
-                if (untouched && curQueue != imp.m_finalQueue)
-                {
-                    LOG_WARN("[RenderGraph] Imported buffer {} is untouched and crosses queues "
-                             "(initial queue={} → final queue={}); cross-queue acquire without "
-                             "producer-side release is unsupported. Bind the resource on the "
-                             "initial queue or pre-transition before the frame.",
-                             context.Get<ResourceName>(resource).m_name.GetCStr(),
-                             static_cast<uint32_t>(imp.m_initialQueue),
-                             static_cast<uint32_t>(imp.m_finalQueue));
-                    return;
-                }
-
-                auto sink = GetOrCreateSink(imp.m_finalQueue);
-                PassBarriers& barriers = passContext.Get<PassBarriers>(sink);
-
-                RHI::BufferBarrier b;
-                b.m_buffer    = buffer;
-                b.m_srcUsage  = curState.m_usage;
-                b.m_dstUsage  = imp.m_final.m_usage;
-                b.m_srcAccess = curState.m_access;
-                b.m_dstAccess = imp.m_final.m_access;
-                b.m_srcStage  = curStage;
-                b.m_dstStage  = imp.m_finalStage;
-                b.m_srcQueue  = curQueue;
-                b.m_dstQueue  = imp.m_finalQueue;
-
-                barriers.m_preBuffer.push_back(b);
-
-                if (!untouched && curQueue != imp.m_finalQueue)
-                {
-                    auto& srcBarriers = passContext.Get<PassBarriers>(tracker->m_lastPass);
-                    srcBarriers.m_postBuffer.push_back(b);
-                    predSets[static_cast<uint32_t>(imp.m_finalQueue)].insert(tracker->m_lastPass);
-
-                    if (!passContext.Has<PassSuccessors>(tracker->m_lastPass))
-                    {
-                        passContext.Add<PassSuccessors>(tracker->m_lastPass, PassSuccessors{});
-                    }
-                    auto& succs = passContext.Get<PassSuccessors>(tracker->m_lastPass).m_succs;
-                    if (eastl::find(succs.begin(), succs.end(), sink) == succs.end())
-                    {
-                        succs.push_back(sink);
-                    }
-                }
-            }
-        });
-        
-        for (uint32_t i = 0; i < RHI::HardwareQueueClassCount; ++i)
-        {
-            if (sinks[i] == NullPass) 
-            { 
-                continue;
-            }
-
-            auto& preds = passContext.Get<PassPredecessors>(sinks[i]).m_preds;
-            preds.assign(predSets[i].begin(), predSets[i].end());
-            passes.push_back(sinks[i]);
         }
     }
 

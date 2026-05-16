@@ -77,17 +77,39 @@ namespace Spark::RHI
             uint32_t         m_sourceBytesPerImage = 0;
         };
 
+        // Cross-system handoff fence wait, recorded by SubmitBatch when a
+        // target carries a PendingSync from a different queue's previous
+        // submission. Upload thread emits queue.Wait before the pre-copy
+        // barrier so the prior owner's GPU work is guaranteed complete.
+        struct FenceWait
+        {
+            Fence*   m_fence = nullptr;
+            uint64_t m_value = 0;
+        };
+
         struct Batch
         {
             uint64_t                     m_fenceValue;
             eastl::vector<BufferUpload>  m_bufferUploads;
             eastl::vector<ImageUpload>   m_imageUploads;
+
+            // Release barriers constructed on the main thread in SubmitBatch.
+            // CONCURRENT targets: intra-Copy Copy/Write → Uninitialized (lands at COMMON).
+            // EXCLUSIVE targets:  cross-queue Copy → homeQueue, srcUsage=Copy/Write → Uninit.
+            // The upload thread flushes them after copies.
+            // Indices align with m_bufferUploads / m_imageUploads respectively.
+            eastl::vector<BufferBarrier> m_bufferReleaseBarriers;
+            eastl::vector<ImageBarrier>  m_imageReleaseBarriers;
+
+            // Pre-copy fence waits — emitted on the copy queue before pre-copy
+            // barriers. Collected from each target's PendingSync component when
+            // resource.m_resourceState.m_queue != Copy (cross-queue handoff).
+            eastl::vector<FenceWait>     m_preFenceWaits;
         };
 
         // CPU-blocking sync flush for init-time paths.
         void FlushUploadPackets();
 
-        void PollCompletions(RHIContext& ctx);
         void SubmitBatch(RHIContext& ctx);
 
         void UploadThreadMain();
@@ -100,8 +122,14 @@ namespace Spark::RHI
         uint32_t                 m_currentPacketIndex = 0;
 
         // External contract fence — signalled exactly once per batch (final value).
-        // Consumers (UploadSubmitted, RG cross-queue wait, FlushAndWait) check this.
+        // Each BufferUploadSubmitted / ImageUploadSubmitted component carries
+        // a raw pointer to this fence, which the RG executer uses when emitting
+        // the paired graphics-queue fence wait + acquire barrier.
+        // m_pendingValue is written exclusively by the upload thread via
+        // CommandQueue::Signal; the main thread allocates batch fence values
+        // through m_batchFenceValue instead and never touches the fence.
         Ptr<Fence>               m_uploadFence;
+        uint64_t                 m_batchFenceValue = 0;
 
         std::mutex               m_mutex;
         std::condition_variable  m_cv;

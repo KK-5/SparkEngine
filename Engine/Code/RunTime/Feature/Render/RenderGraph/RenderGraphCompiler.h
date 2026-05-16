@@ -80,16 +80,6 @@ namespace Spark::Render
         void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
 
 
-        // Inject barrier-only sink passes (one per finalQueue, at most 3) that
-        // transition Imported resources to ImportedResourceState.m_final at frame end.
-        // Cross-queue cases emit the release barrier on the resource's m_lastPass
-        // (m_postImage/m_postBuffer) and the acquire barrier on the sink, plus link
-        // them via PassPredecessors/PassSuccessors so CompilePassCrossQueue2 推断 the
-        // fence wait/signal. Same-queue cases rely on implicit single-queue submission
-        // ordering — sink is appended to passes after m_lastPass. The appended sinks
-        // are pushed into `passes`; caller must run CompilePassCrossQueue2 afterward.
-        void CompileFinalTransitionBarrier(PassContext& passContext, RHIContext& context, eastl::vector<Pass>& passes);
-
         //! Compile PSO for each non-custom pipeline pass and cache the result
         //! as PassCompiledPSO on the pass entity. Skips passes that already have
         //! a cached PSO (no PassPSODirtyTag).

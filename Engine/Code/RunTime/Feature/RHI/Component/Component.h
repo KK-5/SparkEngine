@@ -45,6 +45,44 @@ namespace Spark::RHI
         ObjectName m_name {};
     };
 
+    //! Cross-system handoff handshake. Present on a resource entity when some
+    //! producer has submitted work touching the resource but no cross-queue
+    //! consumer has yet absorbed the fence.
+    //!
+    //! Producer protocol (uniform across all systems — AsyncUploadSystem, RG, ...):
+    //!     after queue.Signal(myFence, V), for each touched resource:
+    //!         ctx.AddOrReplace<PendingSync>(resource, {&myFence, V});
+    //! Same-queue producers MUST still stamp — the next cross-queue consumer
+    //! relies on the latest value being visible here.
+    //!
+    //! Consumer protocol (first touch of resource on a new queue):
+    //!     if (resource.GetResourceState().m_queue != myQueue) {
+    //!         if (auto* sync = ctx.TryGet<PendingSync>(resource)) {
+    //!             myQueue.Wait(*sync->m_fence, sync->m_fenceValue);
+    //!             ctx.Remove<PendingSync>(resource);
+    //!         }
+    //!         // emit cross-queue acquire barrier
+    //!     }
+    //!     // else same queue — serial execution guarantees happens-before; do nothing.
+    //!
+    //! AddOrReplace is safe across the various producer/consumer interleavings:
+    //!  - Cross-queue overwrite: a consumer must have removed the prior PendingSync
+    //!    before the new producer touched the resource, so the overwritten value
+    //!    has already been consumed.
+    //!  - Same-queue overwrite (possibly with different m_fence): queue serial
+    //!    execution guarantees the new fence's signal happens-after the old
+    //!    fence's signal on this queue, so waiting on the new value implies the
+    //!    old work has completed.
+    //!
+    //! Lifetime: m_fence is a non-owning pointer. The owning system (e.g.
+    //! AsyncUploadSystem for m_uploadFence) must outlive any resource that
+    //! carries a PendingSync referencing its fence.
+    struct PendingSync
+    {
+        Fence*   m_fence      = nullptr;
+        uint64_t m_fenceValue = 0;
+    };
+
     // Marks an entity as a shader resource binding.
     struct ShaderResourceTag {};
 
@@ -82,13 +120,14 @@ namespace Spark::RHI
 
     //////////////////////////////////////////////////////////////
     // Upload pipeline components
-    // Entity state machine: [UploadPendingTag] → [UploadSubmitted] → [done]
+    // Buffer state machine: [UploadPendingTag] → [BufferUploadSubmitted] → [done]
+    // Image  state machine: [UploadPendingTag] → [ImageUploadSubmitted]  → [done]
 
     // Discovery tag — entity has staged upload data not yet flushed to GPU.
     struct UploadPendingTag {};
 
     // CPU source data for a buffer upload. Caller guarantees m_data is valid
-    // until BOTH PendingBufferUpload AND UploadSubmitted are removed from the entity.
+    // until BOTH PendingBufferUpload AND BufferUploadSubmitted are removed from the entity.
     struct PendingBufferUpload
     {
         const void* m_data              = nullptr;
@@ -97,7 +136,7 @@ namespace Spark::RHI
     };
 
     // CPU source data for an image upload. Caller guarantees m_data is valid
-    // until BOTH PendingImageUpload AND UploadSubmitted are removed from the entity.
+    // until BOTH PendingImageUpload AND ImageUploadSubmitted are removed from the entity.
     struct PendingImageUpload
     {
         const void*      m_data                = nullptr;
@@ -122,12 +161,34 @@ namespace Spark::RHI
         size_t      m_byteCount  = 0;
     };
 
-    // Marks an entity whose upload batch has been submitted to the copy queue
-    // but not yet signalled complete. Removed by AsyncUploadSystem on poll.
-    struct UploadSubmitted
+    //! Marks a Buffer entity whose upload has been submitted to the copy queue
+    //! and is pending the cross-queue acquire barrier on graphics queue.
+    //!
+    //! Lifecycle:
+    //!  - Added by AsyncUploadSystem::SubmitBatch with the cross-queue
+    //!    acquire barrier already constructed (mirror of the release barrier
+    //!    emitted on copy queue).
+    //!  - Consumed by the RenderGraph executer: when a pass uses the resource
+    //!    AND m_fenceValue <= m_uploadFence->GetCompletedValue(), the executer
+    //!    emits m_acquireBarrier on the graphics queue (paired with a fence
+    //!    wait) and removes this component. Resource is then "fully published".
+    //!
+    //! Until removed, downstream consumers MUST treat the resource as not yet
+    //! safe to use on graphics queue. Has<BufferUploadSubmitted> is the
+    //! one-stop readiness check.
+    struct BufferUploadSubmitted
     {
-        uint64_t m_fenceValue = 0;
-        Fence*   m_uploadFence = nullptr;
+        uint64_t      m_fenceValue   = 0;
+        Fence*        m_uploadFence  = nullptr;
+        BufferBarrier m_acquireBarrier {};
+    };
+
+    //! Image counterpart to BufferUploadSubmitted; same semantics.
+    struct ImageUploadSubmitted
+    {
+        uint64_t      m_fenceValue   = 0;
+        Fence*        m_uploadFence  = nullptr;
+        ImageBarrier  m_acquireBarrier {};
     };
 }
 

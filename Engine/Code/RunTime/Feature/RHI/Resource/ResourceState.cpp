@@ -128,18 +128,20 @@ namespace Spark::RHI
         Buffer& buffer,
         AttachmentUsage dstUsage,
         AttachmentAccess dstAccess,
-        AttachmentStage srcStage,
         AttachmentStage dstStage)
     {
         const ResourceState srcState = buffer.GetResourceState();
         BufferBarrier barrier;
-        barrier.m_buffer = &buffer;
-        barrier.m_srcUsage = srcState.m_usage;
-        barrier.m_dstUsage = dstUsage;
+        barrier.m_buffer    = &buffer;
+        barrier.m_srcUsage  = srcState.m_usage;
+        barrier.m_dstUsage  = dstUsage;
         barrier.m_srcAccess = srcState.m_access;
         barrier.m_dstAccess = dstAccess;
-        barrier.m_srcStage = srcStage;
-        barrier.m_dstStage = dstStage;
+        barrier.m_srcStage  = srcState.m_stage;
+        barrier.m_dstStage  = dstStage;
+        barrier.m_srcQueue  = srcState.m_queue;
+        // m_dstQueue defaults to BufferBarrier struct default (Graphics);
+        // callers crossing queues override it after construction.
 
         if (!ValidateBufferBarrier(barrier))
         {
@@ -152,18 +154,19 @@ namespace Spark::RHI
         Image& image,
         AttachmentUsage newUsage,
         AttachmentAccess dstAccess,
-        AttachmentStage srcStage,
         AttachmentStage dstStage)
     {
         const ResourceState srcState = image.GetResourceState();
         ImageBarrier barrier;
-        barrier.m_image = &image;
-        barrier.m_srcUsage = srcState.m_usage;
-        barrier.m_dstUsage = newUsage;
+        barrier.m_image     = &image;
+        barrier.m_srcUsage  = srcState.m_usage;
+        barrier.m_dstUsage  = newUsage;
         barrier.m_srcAccess = srcState.m_access;
         barrier.m_dstAccess = dstAccess;
-        barrier.m_srcStage = srcStage;
-        barrier.m_dstStage = dstStage;
+        barrier.m_srcStage  = srcState.m_stage;
+        barrier.m_dstStage  = dstStage;
+        barrier.m_srcQueue  = srcState.m_queue;
+        // See MakeBufferBarrier above for m_dstQueue rationale.
 
         if (!ValidateImageBarrier(barrier))
         {

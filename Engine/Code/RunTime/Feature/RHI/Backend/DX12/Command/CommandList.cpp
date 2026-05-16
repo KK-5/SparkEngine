@@ -429,27 +429,29 @@ namespace Spark::RHI::DX12
                 ConvertBufferAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
                 ConvertBufferAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
             RHI::CommandList::SetResourceState(*barrier.m_buffer,
-                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess, myQueue, barrier.m_dstStage });
         }
         else if (myQueue == barrier.m_srcQueue)
         {
-            // Release: srcUsage → COMMON.
+            // Release: srcUsage → COMMON. Resource is now in a queue-agnostic
+            // state; m_queue records "the queue that just released it" so the
+            // next consumer's m_lastQueue check sees the right source side.
             CommandListBase::QueueTransitionBarrier(
                 resource,
                 ConvertBufferAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
                 D3D12_RESOURCE_STATE_COMMON);
             RHI::CommandList::SetResourceState(*barrier.m_buffer,
-                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown });
+                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown, myQueue, RHI::AttachmentStage::Any });
         }
         else
         {
-            // Acquire: COMMON → dstUsage.
+            // Acquire: COMMON → dstUsage on the destination queue.
             CommandListBase::QueueTransitionBarrier(
                 resource,
                 D3D12_RESOURCE_STATE_COMMON,
                 ConvertBufferAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
             RHI::CommandList::SetResourceState(*barrier.m_buffer,
-                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess, myQueue, barrier.m_dstStage });
         }
     }
 
@@ -478,27 +480,27 @@ namespace Spark::RHI::DX12
                 ConvertImageAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
                 ConvertImageAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
             RHI::CommandList::SetResourceState(*barrier.m_image,
-                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess, myQueue, barrier.m_dstStage });
         }
         else if (myQueue == barrier.m_srcQueue)
         {
-            // Release: srcUsage → COMMON.
+            // Release: see BufferBarrier overload for rationale.
             CommandListBase::QueueTransitionBarrier(
                 resource,
                 ConvertImageAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
                 D3D12_RESOURCE_STATE_COMMON);
             RHI::CommandList::SetResourceState(*barrier.m_image,
-                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown });
+                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown, myQueue, RHI::AttachmentStage::Any });
         }
         else
         {
-            // Acquire: COMMON → dstUsage.
+            // Acquire: COMMON → dstUsage on the destination queue.
             CommandListBase::QueueTransitionBarrier(
                 resource,
                 D3D12_RESOURCE_STATE_COMMON,
                 ConvertImageAttachmentState(barrier.m_dstUsage, barrier.m_dstAccess));
             RHI::CommandList::SetResourceState(*barrier.m_image,
-                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess });
+                RHI::ResourceState{ barrier.m_dstUsage, barrier.m_dstAccess, myQueue, barrier.m_dstStage });
         }
     }
 

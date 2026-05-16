@@ -140,7 +140,14 @@ namespace Spark::RHI
     ImagePool* RHIResourceSystem::SelectImagePool(const PendingImageInit& init) const
     {
         if (init.m_heapMemoryLevel == HeapMemoryLevel::Host)
+        {
+            // Host-write images have no realistic use case in graphics rendering
+            // (uploads go through staging buffers + copy queue). Only readback is
+            // supported on the host heap.
+            if (init.m_hostMemoryAccess != HostMemoryAccess::Read)
+                return nullptr;
             return m_hostReadbackImagePool.get();
+        }
 
         return m_deviceImagePool.get();
     }
@@ -223,6 +230,14 @@ namespace Spark::RHI
         view.each([&](RHIHandle handle, const PendingImageInit& init)
         {
             ImagePool* pool = SelectImagePool(init);
+            if (!pool)
+            {
+                LOG_ERROR("[RHIResourceSystem] No image pool for entity {} "
+                          "(HeapMemoryLevel=Host with HostMemoryAccess=Write is not supported); "
+                          "destroying entity.", static_cast<uint32_t>(handle));
+                toDestroy.push_back(handle);
+                return;
+            }
             const ImageDescriptor& desc = init.m_descriptor;
 
             if (ctx.Has<PerFrameTag>(handle))
@@ -379,6 +394,16 @@ namespace Spark::RHI
         {
             const RHIHandle resourceEntity = hierarchy.m_resource;
 
+            // Resource entity already gone (e.g., materialization failed and was
+            // destroyed) — the view can never resolve, drop it.
+            if (resourceEntity == NullHandle || !ctx.Valid(resourceEntity))
+            {
+                LOG_ERROR("[RHIResourceSystem] BufferView entity {} references a destroyed "
+                          "resource entity; destroying view.", static_cast<uint32_t>(handle));
+                toDestroy.push_back(handle);
+                return;
+            }
+
             // Check if the underlying resource is single-frame or per-frame.
             if (auto* buffer = ctx.TryGet<Components::Buffer>(resourceEntity))
             {
@@ -438,6 +463,14 @@ namespace Spark::RHI
         view.each([&](RHIHandle handle, const ImageViewDescriptor& viewDesc, const ViewHierarchy& hierarchy)
         {
             const RHIHandle resourceEntity = hierarchy.m_resource;
+
+            if (resourceEntity == NullHandle || !ctx.Valid(resourceEntity))
+            {
+                LOG_ERROR("[RHIResourceSystem] ImageView entity {} references a destroyed "
+                          "resource entity; destroying view.", static_cast<uint32_t>(handle));
+                toDestroy.push_back(handle);
+                return;
+            }
 
             if (auto* image = ctx.TryGet<Components::Image>(resourceEntity))
             {

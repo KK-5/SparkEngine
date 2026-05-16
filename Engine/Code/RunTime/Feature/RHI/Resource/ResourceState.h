@@ -43,16 +43,38 @@ namespace Spark::RHI
     AttachmentStage is unused in DX12
     */
 
-    /// Tracks the current usage state of a resource.
-    /// Based on Vulkan's synchronization model: Usage (what) + Access (read/write).
+    //! Snapshot of a resource's current synchronization state, owned by
+    //! `Resource::m_resourceState` and updated whenever a barrier is emitted
+    //! against the resource. Four orthogonal axes:
+    //!   - m_usage / m_access : Vulkan-style "what / read-or-write"
+    //!   - m_queue            : which queue most recently emitted a barrier
+    //!                          on this resource (= the queue that currently
+    //!                          "owns" it, cross-queue handoff sense)
+    //!   - m_stage            : pipeline stage at which the most recent
+    //!                          barrier was scheduled — fed back as srcStage
+    //!                          for the next barrier
+    //!
+    //! Update rule (uniform across all paths): after emitting a barrier,
+    //! `m_queue = GetHardwareQueueClass()` of the cmd list, `m_stage =
+    //! barrier.m_dstStage`, `m_usage / m_access = barrier.m_dst...`. For
+    //! cross-queue release (which transitions to COMMON), usage/access reset
+    //! and stage = Any.
+    //!
+    //! Make{Buffer,Image}Barrier helpers auto-populate srcUsage / srcAccess /
+    //! srcStage / srcQueue from this struct, so callers only fill the dst side.
     struct ResourceState
     {
-        AttachmentUsage  m_usage  = AttachmentUsage::Uninitialized;
-        AttachmentAccess m_access = AttachmentAccess::Unknown;
+        AttachmentUsage    m_usage  = AttachmentUsage::Uninitialized;
+        AttachmentAccess   m_access = AttachmentAccess::Unknown;
+        HardwareQueueClass m_queue  = HardwareQueueClass::Graphics;
+        AttachmentStage    m_stage  = AttachmentStage::Any;
 
         bool operator==(const ResourceState& other) const
         {
-            return m_usage == other.m_usage && m_access == other.m_access;
+            return m_usage  == other.m_usage
+                && m_access == other.m_access
+                && m_queue  == other.m_queue
+                && m_stage  == other.m_stage;
         }
         bool operator!=(const ResourceState& other) const { return !(*this == other); }
     };
@@ -124,18 +146,21 @@ namespace Spark::RHI
         AttachmentStage     m_dstStage       = AttachmentStage::Any;
     };
 
+    //! Construct a barrier whose src side is auto-populated from
+    //! `buffer.GetResourceState()` (usage / access / stage / queue). Caller
+    //! supplies the destination side. dstQueue stays at the BufferBarrier
+    //! struct default (Graphics) — callers crossing queues override it post-
+    //! construction.
     BufferBarrier MakeBufferBarrier(
         Buffer& buffer,
         AttachmentUsage dstUsage,
         AttachmentAccess dstAccess,
-        AttachmentStage srcStage = AttachmentStage::Any,
         AttachmentStage dstStage = AttachmentStage::Any);
 
     ImageBarrier MakeImageBarrier(
         Image& image,
         AttachmentUsage newUsage,
         AttachmentAccess dstAccess,
-        AttachmentStage srcStage = AttachmentStage::Any,
         AttachmentStage dstStage = AttachmentStage::Any);
 
     //! Aliasing-barrier factories. Type fields are filled from the typed
