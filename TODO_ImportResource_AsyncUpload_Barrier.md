@@ -1,180 +1,127 @@
-# Import 资源异步上传 → Render Graph Barrier 集成方案
+# Upload 资源 → Render Graph Barrier 集成方案
 
-## 背景
+## 当前架构（与旧方案的区别）
 
-`AsyncUploadSystem` 在 Copy 队列上完成资源初始化（staging → copy → signal fence），资源实体上挂 `UploadSubmitted{m_fenceValue, m_uploadFence}` 标记"GPU 上传已提交、等待完成"。
+旧方案依赖的概念现在已变更：
 
-Render Graph 在 `CompileImageBarriers` / `CompileBufferBarriers` 中为 import 资源编译 barrier 时，存在两个 gap：
+| 旧概念 | 当前状态 |
+|---|---|
+| `UploadSubmitted` (统一) | 已拆为 `BufferUploadSubmitted` / `ImageUploadSubmitted`，含预构 `m_acquireBarrier` |
+| `ImportedResourceState` (声明态) | 已删除。初始状态从 `Resource::GetResourceState()` 读取运行时态 |
+| `PollCompletions` | 已删除。CPU 不再主动 poll |
+| `CompileFinalTransitionBarrier` | 已删除。帧末归位不在本轮范围 |
 
-1. **srcQueue 不正确**：首 pass 遇到 import 资源时 `srcQueue = dstQueue`，但资源刚从 Copy 队列的 copy 操作出来，真实的 srcQueue 是 Copy，barrier 缺少跨队列所有权转移
-2. **UploadSubmitted 被 PollCompletions 提前清理**：编译阶段需要 `UploadSubmitted` 提供 barrier 来源信息，但 `PollCompletions` 在 `OnFrameBegin` 就会删除它
+核心变更：`ResourceState` 新增 `m_queue` / `m_stage`，`PendingSync` 取代 `PollCompletions`。upload 完成后 `ProcessBatch` 的 release barrier 已经把 `Resource::m_resourceState` 设为 `{Uninitialized, Unknown, Copy, Any}`，并且 entity 上挂了 `PendingSync { m_uploadFence, V }`。
 
-方案目标：让 Render Graph Compiler 在 barrier 编译时消费 `UploadSubmitted`，生成正确的 CopyDst(Copy) → m_initial(首 pass 队列) 屏障，并统一同步/异步场景。
+**所以 `BufferUploadSubmitted` / `ImageUploadSubmitted` 是冗余的**——它携带的 `m_acquireBarrier` 可以由 barrier compiler 现场构造（从 `ResourceState` 取 srcQueue/srcStage），它携带的 `m_uploadFence` / `m_fenceValue` 就是 `PendingSync` 的内容。
 
----
+## 问题
 
-## 设计
-
-### 统一用户合约
-
-**规则：用户必须确保 import 时资源 GPU 侧已就绪。Render Graph 负责 barrier 和队列所有权转移。**
-
-| 场景 | 用法 | 谁负责等待 |
-|---|---|---|
-| 同步 | `FlushUploadPackets()` 后 import | 用户（CPU 阻塞） |
-| 异步 | CPU 检查 `UploadSubmitted` fence 完成后 import | 用户（PollCompletions 或自行 check） |
-| 未就绪 | 不 import，跳过 pass 或用 fallback | 用户（Build 阶段决策） |
-
-Render Graph 侧不再感知"资源是否还在上传中"，不需要注入外部 fence wait（`Wait(fence, V)`）。用户保证 import 进来的资源 fence 已完成，compiler 只需发出正确的 barrier 完成 Copy→firstPassQueue 的队列所有权转移。
-
-### 数据流
-
-```
-AsyncUploadSystem::ProcessBatch
-  → Signal(m_uploadFence, V)
-  → entity 挂 UploadSubmitted{m_fenceValue=V, m_srcQueue=Copy, m_srcState=CopyDst}
-
-用户侧（Build 阶段）：
-  if (fence 就绪):
-      builder.ImportImageAttachment(name, bind)   // 正常 import
-
-RenderGraphCompiler::CompileResourceBarriers（首 pass 遇此资源）：
-  if (entity 有 UploadSubmitted):
-      srcQueue = UploadSubmitted.m_srcQueue     // Copy
-      srcState = UploadSubmitted.m_srcState     // CopyDst
-      dstQueue = firstPassQueue
-      dstState = ImportedResourceState.m_initial
-      → 生成 barrier: CopyDst(Copy) → m_initial(firstPassQueue)
-      → 标记 UploadSubmitted 已消费
-
-Compiler::End():
-  清理已消费的 UploadSubmitted
-
-PollCompletions:
-  兜底清理：fence 已完成但未被消费的 UploadSubmitted（资源本帧未 import）
-```
-
-### UploadSubmitted 扩展
-
-`Component.h` — 增加 barrier 来源信息：
+`CompileBufferBarriers` / `CompileImageBarriers` first-touch 路径：
 
 ```cpp
-struct UploadSubmitted
+init.m_current = GetResourceInitialState(resource, context); // m_queue = Copy (upload 后)
+init.m_current.m_queue = dstQueue;  // ← 立即覆盖！丢失了"资源在 Copy 上"
+```
+
+这导致 upload 后的资源 first touch 时 `srcQueue == dstQueue`，不生成跨队列 acquire barrier，资源直接从 COMMON 被当作 Graphics 队列上的 Uninitialized 处理。
+
+## 方案
+
+### 删除 `BufferUploadSubmitted` / `ImageUploadSubmitted`
+
+它们的职责被拆分到：
+- `PendingSync` — 跨系统 fence 句柄交换（`m_fence`, `m_fenceValue`）
+- `ResourceState::m_queue` — barrier 的 srcQueue
+- `ResourceState::m_stage` — barrier 的 srcStage
+
+### 修正 CompileBufferBarriers / CompileImageBarriers first-touch
+
+```cpp
+if (!context.Has<ResourceStateTracker>(resource))
 {
-    uint64_t                m_fenceValue  = 0;
-    Fence*                  m_uploadFence = nullptr;
-    // Barrier source: state the Copy queue leaves the resource in.
-    RHI::ResourceState      m_srcState    {RHI::AttachmentUsage::CopyDst, RHI::AttachmentAccess::Write};
-    RHI::HardwareQueueClass m_srcQueue    {RHI::HardwareQueueClass::Copy};
+    ResourceStateTracker init;
+    init.m_current = GetResourceInitialState(resource, context);
+    // 不再覆盖 m_queue。fresh resource 默认 m_queue=Graphics (构造默认值),
+    // upload 后 m_queue=Copy (release barrier 写入)。覆盖会丢失真实的 srcQueue。
+
+    // consume PendingSync: 记录 fence wait, 摘掉组件
+    if (init.m_current.m_queue != dstQueue)
+    {
+        if (auto* sync = context.TryGet<PendingSync>(resource))
+        {
+            RecordExternalFenceWait(pass, *sync);  // 见下文
+            context.Remove<PendingSync>(resource);
+        }
+    }
+
+    context.Add<ResourceStateTracker>(resource, init);
+}
+```
+
+### 跨队列 release 侧加 NullPass 守卫
+
+```cpp
+// 旧: if (srcQueue != dstQueue)
+// 新: first touch 时 tracker.m_lastPass == NullPass, 没有 producer 可挂 release.
+//     此时 release 已在 Copy 队列的 ProcessBatch 中 emit 过, acquire 侧只需 pre-barrier.
+if (srcQueue != dstQueue && tracker.m_lastPass != NullPass)
+{
+    // push release onto previous pass
+}
+```
+
+### 外部 fence wait 传递到 executer
+
+新增组件 `PassExternalFenceWaits`（`PassComponents.h`）：
+
+```cpp
+struct PassExternalFenceWaits
+{
+    eastl::vector<FenceWait> m_waits;
 };
 ```
 
-`m_srcState` / `m_srcQueue` 描述 upload 完成后资源的物理状态——Copy 队列的 copy 操作总是以 CopyDst 结束，这是确定性的。`m_srcStage`（Copy 操作的 pipeline stage）暂不加入——`ResourceStateTracker::m_lastStage` 默认为 `AttachmentStage::Any`，对首 pass barrier 而言保守但正确。未来可加入以提升 barrier 精度。
-
-### PollCompletions 职责调整
-
-**当前**：fence 完成即删除 `UploadSubmitted`。
-
-**改为**：兜底清理 stragglers——只删除 fence 已完成但 compiler 未消费的 `UploadSubmitted`（资源本帧未被 import，没有 pass 引用它）。正常情况下 compiler 消费后自己删除，PollCompletions 看不到。
+Compiler first-touch 消费 `PendingSync` 时写入：
 
 ```cpp
-// PollCompletions: 兜底清理
-view.each([&](handle, submitted) {
-    if (submitted.m_fenceValue <= completed) {
-        toRemove.push_back(handle);  // 本帧未 import，安全清理
-    }
-});
+auto& waits = passContext.GetOrAdd<PassExternalFenceWaits>(pass);
+waits.m_waits.push_back({ sync.m_fence, sync.m_fenceValue });
 ```
 
-### CompileImageBarriers / CompileBufferBarriers 首 pass 路径
-
-当前（`RenderGraphCompiler.cpp:430`）：
+Executer 在 `Execute` 的 `item.m_itemIndex == 0` 分支中，**在 `ExecutePreBarriers` 之前** emit：
 
 ```cpp
-else  // first use
+if (item.m_itemIndex == 0)
 {
-    srcQueue = dstQueue;
-}
-```
-
-改为：
-
-```cpp
-else  // first use
-{
-    if (context.Has<UploadSubmitted>(resource))
+    if (auto* extWaits = passContext.TryGet<PassExternalFenceWaits>(item.m_pass))
     {
-        auto& us = context.Get<UploadSubmitted>(resource);
-        // 用 upload 侧的真实物理状态覆盖
-        tracker.m_current = us.m_srcState;
-        srcQueue = us.m_srcQueue;
-        consumedUploads.push_back(resource);  // 标记待清理
+        for (const auto& w : extWaits->m_waits)
+            cmdList->QueueWait(*w.m_fence, w.m_value);
     }
-    else
-    {
-        srcQueue = m_import.m_initialQueue;  // 普通 import: 尊重用户声明的初始队列
-    }
+    ExecutePreBarriers(cmdList, item.m_pass, passContext);
 }
 ```
 
-`tracker.m_current` 被覆盖为 CopyDst，`tracker.m_lastStage` 保持默认值 `AttachmentStage::Any`（保守但正确）。后续 barrier 构造逻辑自然生成 CopyDst→m_initial 的 barrier。
+### 清理
 
-**Release 侧必须显式跳过**：`tracker.m_lastPass == NullPass` 时，现有代码的 `if (srcQueue != dstQueue) { tryGet<PassBarriers>(NullPass) → else → Add<PassBarriers>(NullPass, ...) }` 路径会导致 crash。上传的 fence 已完成，源队列工作已结束，acquire 侧的 pre-barrier 足以完成所有权转移，不需要 release。应在 release 分支加上 `tracker.m_lastPass != NullPass` 守卫。
+- `Component.h` 删除 `BufferUploadSubmitted` 和 `ImageUploadSubmitted`
+- `AsyncUploadSystem.cpp` 的 `SubmitBatch` 不再 Add 这两个组件（当前已经是错的——它根本没 Add 它们，只 Add `PendingSync`）
+- `RenderGraphExecuter::End()` 清理 `PassExternalFenceWaits`
 
-同样的守卫也修复了普通 import 的潜在问题——如果用户设 `m_initialQueue != firstPassQueue`，之前同样会 crash。合并修复：
+## 变更清单
 
-```cpp
-if (srcQueue != dstQueue)
-```
-改为：
-```cpp
-if (srcQueue != dstQueue && tracker.m_lastPass != NullPass)
-```
-
-### Compiler::End() 清理
-
-```cpp
-for (RHIHandle resource : consumedUploads) {
-    context.Remove<UploadSubmitted>(resource);
-}
-```
-
-### SubmitBatch 处理重复 UploadSubmitted
-
-正常路径不会重复——同一实体一次 upload 完成前不会有第二次 upload。但为安全，也为了 UploadSubmitted 跨帧存活的场景（资源导入后可能跨帧使用），`SubmitBatch` 改为 `AddOrReplace`：
-
-```cpp
-ctx.AddOrReplace<UploadSubmitted>(handle, UploadSubmitted{...});
-```
-
----
-
-## 变更范围
-
-| 文件 | 变更 |
-|---|---|
-| `RHI/Component/Component.h` | `UploadSubmitted` 加 `m_srcState` / `m_srcQueue` |
-| `RHI/System/AsyncUploadSystem.cpp` | `SubmitBatch`：`UploadSubmitted` 填充 srcState/srcQueue；`PollCompletions`：兜底清理 stragglers；`Add` → `AddOrReplace` |
-| `Render/RenderGraph/RenderGraphCompiler.cpp` | `CompileImageBarriers` / `CompileBufferBarriers` 首 pass 消费 `UploadSubmitted`；`Compiler::End()` 清理已消费的 `UploadSubmitted` |
-
----
-
-## TODO 列表
-
-| # | 任务 | 文件 | 说明 |
-|---|---|---|---|
-| 1 | `UploadSubmitted` 增加 `m_srcState` / `m_srcQueue` 字段 | `Component.h` | 描述 upload 完成后的物理状态，带默认值{CopyDst, Copy} |
-| 2 | `SubmitBatch` 填充 srcState/srcQueue，改用 `AddOrReplace` | `AsyncUploadSystem.cpp` | 写 `UploadSubmitted` 时带上 srcState{CopyDst,Write} srcQueue{Copy} |
-| 3 | `PollCompletions` 改为兜底清理模式 | `AsyncUploadSystem.cpp` | 只删 fence 已完成且未被 compiler 消费的 straggler `UploadSubmitted` |
-| 4 | `CompileImageBarriers` 首 pass 消费 `UploadSubmitted` | `RenderGraphCompiler.cpp:398` | 检测 `UploadSubmitted`，覆盖 `tracker.m_current` 和 `srcQueue`，收集到 consumed 列表 |
-| 5 | `CompileBufferBarriers` 首 pass 消费 `UploadSubmitted` | `RenderGraphCompiler.cpp:316` | 同 #4，对称逻辑 |
-| 6 | 修复 release 侧守卫：`srcQueue != dstQueue` → `srcQueue != dstQueue && tracker.m_lastPass != NullPass` | `RenderGraphCompiler.cpp:464,326` | 阻止首 pass（无 producer）时向 NullPass 添加 PassBarriers，同时修复普通 import 跨队列的潜在 crash |
-| 7 | `Compiler::End()` 清理已消费的 `UploadSubmitted` | `RenderGraphCompiler.cpp:108` | 遍历 consumed 列表，`Remove<UploadSubmitted>` |
-| 8 | 修正普通 import 首 pass 的 `srcQueue`：`dstQueue` → `ImportedResourceState.m_initialQueue` | `RenderGraphCompiler.cpp:432` | 无 `UploadSubmitted` 的首 use 也应尊重用户声明的初始队列 |
-
----
+| # | 文件 | 变更 |
+|---|---|---|
+| 1 | `RHI/Component/Component.h` | 删除 `BufferUploadSubmitted`、`ImageUploadSubmitted` |
+| 2 | `Render/RenderGraph/RenderGraphCompiler.cpp` | `CompileBufferBarriers` first-touch: 去掉 `m_queue = dstQueue` 覆盖；消费 `PendingSync` → 写 `PassExternalFenceWaits`；release 侧加 `NullPass` 守卫 |
+| 3 | `Render/RenderGraph/RenderGraphCompiler.cpp` | `CompileImageBarriers` 同上 |
+| 4 | `Render/Pass/Component/PassComponents.h` | 新增 `PassExternalFenceWaits`；复用 `RHI::FenceWait`（挪到 RHI 层或直接 inline `{Fence*, uint64_t}`） |
+| 5 | `Render/RenderGraph/RenderGraphExecuter.cpp` | `Execute`: 在 `ExecutePreBarriers` 前 emit external fence waits |
+| 6 | `Render/RenderGraph/RenderGraphExecuter.cpp` | `End()`: 清理 `PassExternalFenceWaits` |
 
 ## 与其他 TODO 的关系
 
-- [TODO_AsyncUpload_RemainingIssues.md](TODO_AsyncUpload_RemainingIssues.md) — 本方案是其延伸，解决 upload→barrier 集成问题
-- [TODO_DataDrivenRHI.md](TODO_DataDrivenRHI.md) — 数据驱动 RHI 的主推进路径，本方案是其 imported 资源通道的补全
+- 本方案完成后，`TODO_CrossSystemResourceSync.md` 的 RG consumer 步骤落地
+- `TODO_AsyncUpload_RemainingIssues.md` — 独立推进
+- `TODO_DataDrivenRHI.md` — T5 acquire 侧通过本方案完成

@@ -100,11 +100,6 @@ namespace Spark::RHI
             // Indices align with m_bufferUploads / m_imageUploads respectively.
             eastl::vector<BufferBarrier> m_bufferReleaseBarriers;
             eastl::vector<ImageBarrier>  m_imageReleaseBarriers;
-
-            // Pre-copy fence waits — emitted on the copy queue before pre-copy
-            // barriers. Collected from each target's PendingSync component when
-            // resource.m_resourceState.m_queue != Copy (cross-queue handoff).
-            eastl::vector<FenceWait>     m_preFenceWaits;
         };
 
         // CPU-blocking sync flush for init-time paths.
@@ -122,12 +117,11 @@ namespace Spark::RHI
         uint32_t                 m_currentPacketIndex = 0;
 
         // External contract fence — signalled exactly once per batch (final value).
-        // Each BufferUploadSubmitted / ImageUploadSubmitted component carries
-        // a raw pointer to this fence, which the RG executer uses when emitting
-        // the paired graphics-queue fence wait + acquire barrier.
-        // m_pendingValue is written exclusively by the upload thread via
-        // CommandQueue::Signal; the main thread allocates batch fence values
-        // through m_batchFenceValue instead and never touches the fence.
+        // PendingSync carries a raw pointer to this fence so the RG barrier
+        // compiler can record the paired graphics-queue fence wait + acquire barrier.
+        // The upload thread writes fence values via CommandQueue::Signal;
+        // the main thread allocates batch fence values through m_batchFenceValue
+        // and never touches the fence directly.
         Ptr<Fence>               m_uploadFence;
         uint64_t                 m_batchFenceValue = 0;
 

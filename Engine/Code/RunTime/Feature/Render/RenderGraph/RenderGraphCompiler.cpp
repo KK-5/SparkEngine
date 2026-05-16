@@ -9,6 +9,7 @@
 
 #include <RHI/Factory.h>
 #include <RHI/Device/Device.h>
+#include <RHI/Fence/Fence.h>
 #include <RHI/Pipeline/PipelineState.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Image/Image.h>
@@ -123,11 +124,8 @@ namespace
             context.DestoryEntity(handle);
         });
 
-        // Per-resource compile-time state cursor. Lazy-init in CompileImage/BufferBarriers
-        // expects a fresh slate each frame — imported resources start at m_initial,
-        // transients at Uninitialized. Without this clear, frame N+1 inherits frame N's
-        // m_current and emits wrong barriers.
-        context.Clear<ResourceStateTracker>();
+        // Per-resource compile-time state cursor is now cleared in
+        // Executer::End(), after frame-end PendingSync update consumes it.
 
         // m_crossQueueFenceValues is intentionally cross-frame (monotonic).
         // AttachmentCompilingTag is per-pass, cleared inline in the compile loop.
@@ -310,10 +308,60 @@ namespace
             return RHI::ResourceState{};
         }
 
+        //! Collect a cross-queue PendingSync wait onto the consuming pass's
+        //! PassExternalFenceWaits component. Common code for buffer / image
+        //! first-touch barrier compile — both call this with the resource +
+        //! queue pair after computing the first-touch state but before adding
+        //! the ResourceStateTracker. Skips if:
+        //!  - srcQueue == dstQueue (same queue, no fence wait needed)
+        //!  - resource is not Imported (transient resources don't carry PendingSync)
+        //!  - no PendingSync on the resource (fresh / never produced by another system)
+        //!  - PendingSync's fence has already reached its value (queue.Wait would
+        //!    be a no-op; fence values are monotonic so "stale at compile" is
+        //!    permanent through execute).
+        void CompilePassExternalFenceWait(
+            Pass                    pass,
+            RHIHandle               resource,
+            RHI::HardwareQueueClass srcQueue,
+            RHI::HardwareQueueClass dstQueue,
+            PassContext&            passContext,
+            RHIContext&             context)
+        {
+            if (srcQueue == dstQueue)
+            {
+                return;
+            }
+            if (!context.Has<ImportedTag>(resource))
+            {
+                return;
+            }
+            auto* sync = context.TryGet<RHI::PendingSync>(resource);
+            if (!sync)
+            {
+                return;
+            }
+            if (sync->m_fence != nullptr
+                && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue)
+            {
+                return;
+            }
+
+            if (auto* existing = passContext.TryGet<PassExternalFenceWaits>(pass))
+            {
+                existing->m_waits.push_back(*sync);
+            }
+            else
+            {
+                PassExternalFenceWaits waits;
+                waits.m_waits.push_back(*sync);
+                passContext.Add<PassExternalFenceWaits>(pass, eastl::move(waits));
+            }
+        }
+
         void CompileTransientAliasingBarriers(
-            Pass                        pass, 
-            PassContext&                passContext, 
-            RHI::TransientResourcePool& pool, 
+            Pass                        pass,
+            PassContext&                passContext,
+            RHI::TransientResourcePool& pool,
             PassBarriers&               out)
         {
             ASSERT(passContext.Has<PassGlobalTimeline>(pass),
@@ -324,11 +372,41 @@ namespace
             pool.GetAliasingBarriers(pos, out.m_preAliasing);
         }
 
+        // Hard-fail any attempt to use an EXCLUSIVE imported resource on a queue
+        // other than its declared home queue. EXCLUSIVE's design promise is
+        // "stays on one queue, optimized by driver for that queue"; allowing
+        // cross-queue access would silently work on DX12 (COMMON-agnostic) but
+        // UB on Vulkan EXCLUSIVE (missing QFOT release pair). The caller's fix
+        // is to declare multi-bit m_sharedQueueMask (CONCURRENT).
+        auto ValidateExclusiveHomeQueue = [](
+            RHI::HardwareQueueClassMask mask,
+            RHI::HardwareQueueClass     passQueue,
+            const char*                 resourceName)
+        {
+            const uint32_t m = static_cast<uint32_t>(mask);
+            const bool exclusive = (m != 0) && ((m & (m - 1)) == 0);
+            if (!exclusive)
+            {
+                return;
+            }
+            const RHI::HardwareQueueClass homeQueue =
+                  (mask == RHI::HardwareQueueClassMask::Compute) ? RHI::HardwareQueueClass::Compute
+                : (mask == RHI::HardwareQueueClassMask::Copy)    ? RHI::HardwareQueueClass::Copy
+                                                                 : RHI::HardwareQueueClass::Graphics;
+            ASSERT(passQueue == homeQueue,
+                "Exclusive imported resource '{}' accessed on queue {} but home queue is {}. "
+                "Cross-queue access is not supported for EXCLUSIVE resources — declare CONCURRENT "
+                "(multi-bit m_sharedQueueMask) if the resource needs to flow across queues.",
+                resourceName,
+                static_cast<uint32_t>(passQueue),
+                static_cast<uint32_t>(homeQueue));
+        };
+
         void CompileBufferBarriers(
-            Pass                        pass, 
-            PassContext&                passContext, 
-            RHIContext&                 context, 
-            RHI::TransientResourcePool& pool, 
+            Pass                        pass,
+            PassContext&                passContext,
+            RHIContext&                 context,
+            RHI::TransientResourcePool& pool,
             PassBarriers&               out)
         {
             ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
@@ -341,13 +419,26 @@ namespace
                 RHIHandle resource = ResolveResource(att.m_view, context);
                 ASSERT(resource != NullHandle, "Buffer attachment view has no resource.");
 
+                if (context.Has<ImportedTag>(resource))
+                {
+                    if (auto* backing = context.TryGet<BackingBuffer>(resource);
+                        backing && backing->m_buffer)
+                    {
+                        ValidateExclusiveHomeQueue(
+                            backing->m_buffer->GetDescriptor().m_sharedQueueMask,
+                            dstQueue,
+                            context.Has<ResourceName>(resource)
+                                ? context.Get<ResourceName>(resource).m_name.GetCStr()
+                                : "[Unnamed]");
+                    }
+                }
+
                 if (!context.Has<ResourceStateTracker>(resource))
                 {
                     ResourceStateTracker init;
                     init.m_current = GetResourceInitialState(resource, context);
-                    // First touch: pin queue to the current consumer so srcQueue==dstQueue
-                    // suppresses a spurious cross-queue handoff (no producer to release from).
-                    init.m_current.m_queue = dstQueue;
+                    CompilePassExternalFenceWait(pass, resource,
+                        init.m_current.m_queue, dstQueue, passContext, context);
                     context.Add<ResourceStateTracker>(resource, init);
                 }
                 auto& tracker = context.Get<ResourceStateTracker>(resource);
@@ -378,7 +469,7 @@ namespace
                 }
 
                 // Cross-queue: push the release half onto the previous-pass entity.
-                if (srcQueue != dstQueue)
+                if (srcQueue != dstQueue && tracker.m_lastPass != NullPass)
                 {
                     if (auto barriers = passContext.TryGet<PassBarriers>(tracker.m_lastPass))
                     {
@@ -414,12 +505,26 @@ namespace
                 RHIHandle resource = ResolveResource(att.m_view, context);
                 ASSERT(resource != NullHandle, "Image attachment view has no resource.");
 
+                if (context.Has<ImportedTag>(resource))
+                {
+                    if (auto* backing = context.TryGet<BackingImage>(resource);
+                        backing && backing->m_image)
+                    {
+                        ValidateExclusiveHomeQueue(
+                            backing->m_image->GetDescriptor().m_sharedQueueMask,
+                            dstQueue,
+                            context.Has<ResourceName>(resource)
+                                ? context.Get<ResourceName>(resource).m_name.GetCStr()
+                                : "[Unnamed]");
+                    }
+                }
+
                 if (!context.Has<ResourceStateTracker>(resource))
                 {
                     ResourceStateTracker init;
                     init.m_current = GetResourceInitialState(resource, context);
-                    // First touch: pin queue to the current consumer (see CompileBufferBarriers).
-                    init.m_current.m_queue = dstQueue;
+                    CompilePassExternalFenceWait(pass, resource,
+                        init.m_current.m_queue, dstQueue, passContext, context);
                     context.Add<ResourceStateTracker>(resource, init);
                 }
                 auto& tracker = context.Get<ResourceStateTracker>(resource);
@@ -456,7 +561,7 @@ namespace
                     out.m_preImage.push_back(b);
                 }
 
-                if (srcQueue != dstQueue)
+                if (srcQueue != dstQueue && tracker.m_lastPass != NullPass)
                 {
                     if (auto barriers = passContext.TryGet<PassBarriers>(tracker.m_lastPass))
                     {

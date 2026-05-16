@@ -52,6 +52,18 @@ namespace Spark::Render
         //! the number of per-frame resources (typically very small).
         void RefreshPerFrameBackings(RHIContext& context, uint32_t frameIndex);
 
+        //! Emit barriers transitioning every imported swap chain image to Present
+        //! state on the graphics queue. Called at frame end, after the main
+        //! segment execution loop and after each active queue's frame-end fence
+        //! Signal (the producer queue's fence must be live before we queue.Wait
+        //! on it for cross-queue producers).
+        //!
+        //! Supports any producer queue (Graphics direct render / Compute final
+        //! composite / Copy queue blit): for non-Graphics producers, emits
+        //! queue.Wait on the producer's frame-end fence and a cross-queue acquire
+        //! barrier (srcQueue=producer, dstQueue=Graphics) on the transition cmd list.
+        void SubmitSwapChainPresentTransition(RHIContext& ctx, RHI::Factory& factory);
+
 
         Ptr<RHI::Device>          m_device;
         Ptr<RHI::TransientResourcePool> m_pool;

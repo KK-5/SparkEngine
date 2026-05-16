@@ -210,6 +210,11 @@ namespace Spark::Render
                     queue.Wait(m_crossQueueFences.GetFence(wait.m_queue), wait.m_value);
                 }
 
+                for (const auto& wait : segment.m_externalWaits)
+                {
+                    queue.Wait(*wait.m_fence, wait.m_fenceValue);
+                }
+
                 for (auto& group : segment.m_groups)
                 {
                     eastl::vector<RHI::CommandList*> cmdLists;
@@ -228,6 +233,62 @@ namespace Spark::Render
                     queue.Signal(m_crossQueueFences.GetFence(segment.m_signal->m_queue), segment.m_signal->m_value);
                 }
             }
+        }
+
+        // Frame-end: signal each active queue's cross-queue fence one more time.
+        // Two consumers depend on this value being live before they run:
+        //  - Swap chain Present transition (below): may queue.Wait on a
+        //    non-Graphics producer fence if the swap chain image ends on
+        //    Compute/Copy (e.g. compute final composite).
+        //  - PendingSync stamp (further below): writes this value onto every
+        //    imported resource's PendingSync component.
+        //
+        // m_crossQueueFenceValues is **shared** between two writers:
+        //  - CompilePassCrossQueue2 (in-frame, allocates values for cross-queue
+        //    pair signals on segment.m_signal)
+        //  - this frame-end step (one extra ++ per active queue, used as the
+        //    "frame-end timestamp")
+        // Both writers are monotonic in submission order on the same queue, so
+        // sharing one counter is safe.
+        for (uint32_t qi = 0; qi < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++qi)
+        {
+            if (queueSegments[qi].empty())
+            {
+                continue;
+            }
+
+            const auto queueClass = static_cast<RHI::HardwareQueueClass>(qi);
+            auto& queue = m_commandQueueContext.GetCommandQueue(queueClass);
+
+            const uint64_t value = ++m_compiler.m_crossQueueFenceValues[qi];
+            queue.Signal(m_crossQueueFences.GetFence(queueClass), value);
+        }
+
+        SubmitSwapChainPresentTransition(*RHIExecuteContext::Current(), *factory);
+
+        // Stamp PendingSync on every imported resource the RG touched this
+        // frame, using the producer queue's frame-end fence value (signaled
+        // above). Note: Graphics queue's stamp value reflects "before the swap
+        // chain Present transition cmd list", but no one consumes PendingSync
+        // on a swap chain (they're never re-used by other systems), so the
+        // small inconsistency is harmless.
+        {
+            auto& ctx = *RHIExecuteContext::Current();
+            ctx.GetView<ImportedTag, ResourceStateTracker>().each(
+                [&](RHIHandle resource, const ResourceStateTracker& tracker)
+                {
+                    const auto qi = static_cast<uint32_t>(tracker.m_current.m_queue);
+                    ASSERT(qi < RHI::HardwareQueueClassCount,
+                        "ResourceStateTracker for {} has invalid m_queue ({}).",
+                        ctx.Has<ResourceName>(resource)
+                            ? ctx.Get<ResourceName>(resource).m_name.GetCStr()
+                            : "[Unnamed]",
+                        qi);
+                    RHI::PendingSync sync;
+                    sync.m_fence = &m_crossQueueFences.GetFence(tracker.m_current.m_queue);
+                    sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
+                    ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
+                });
         }
 
         m_executer.End();
@@ -285,5 +346,95 @@ namespace Spark::Render
                 context.AddOrReplace<BackingImageView>(entity,
                     BackingImageView{ owning.imageViews[frameIndex].get() });
             });
+    }
+
+    void RenderGraph::SubmitSwapChainPresentTransition(RHIContext& ctx, RHI::Factory& factory)
+    {
+        struct PresentEntry
+        {
+            RHI::ImageBarrier       m_barrier;
+            RHI::HardwareQueueClass m_producer;
+        };
+        eastl::vector<PresentEntry> presents;
+
+        ctx.GetView<ImportedTag, SwapChainImages>().each(
+            [&](RHIHandle resource, const SwapChainImages&)
+            {
+                auto* backing = ctx.TryGet<BackingImage>(resource);
+                if (!backing || backing->m_image == nullptr)
+                {
+                    return;
+                }
+
+                // Untouched this frame: no transition needed.
+                auto* tracker = ctx.TryGet<ResourceStateTracker>(resource);
+                if (!tracker)
+                {
+                    return;
+                }
+
+                const RHI::ResourceState cur = tracker->m_current;
+                if (cur.m_usage == RHI::AttachmentUsage::Present
+                    && cur.m_queue == RHI::HardwareQueueClass::Graphics)
+                {
+                    return;
+                }
+
+                ASSERT(static_cast<uint32_t>(cur.m_queue) < RHI::HardwareQueueClassCount,
+                    "Swap chain image '{}' has invalid producer queue ({}).",
+                    ctx.Has<ResourceName>(resource)
+                        ? ctx.Get<ResourceName>(resource).m_name.GetCStr()
+                        : "[Unnamed]",
+                    static_cast<uint32_t>(cur.m_queue));
+
+                RHI::ImageBarrier b;
+                b.m_image     = backing->m_image;
+                b.m_srcUsage  = cur.m_usage;
+                b.m_dstUsage  = RHI::AttachmentUsage::Present;
+                b.m_srcAccess = cur.m_access;
+                b.m_dstAccess = RHI::AttachmentAccess::Read;
+                b.m_srcStage  = cur.m_stage;
+                b.m_dstStage  = RHI::AttachmentStage::Any;
+                b.m_srcQueue  = cur.m_queue;
+                b.m_dstQueue  = RHI::HardwareQueueClass::Graphics;
+                presents.push_back({ b, cur.m_queue });
+            });
+
+        if (presents.empty())
+        {
+            return;
+        }
+
+        auto& gfxQueue = m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics);
+
+        // Wait on each non-Graphics producer queue's frame-end fence before
+        // issuing the transition. Dedup by producer queue — multiple swap chain
+        // images sharing the same producer only need one wait.
+        eastl::array<bool, RHI::HardwareQueueClassCount> waited{};
+        for (const auto& p : presents)
+        {
+            if (p.m_producer == RHI::HardwareQueueClass::Graphics)
+            {
+                continue;
+            }
+            const auto qi = static_cast<uint32_t>(p.m_producer);
+            if (waited[qi])
+            {
+                continue;
+            }
+            waited[qi] = true;
+            gfxQueue.Wait(m_crossQueueFences.GetFence(p.m_producer),
+                          m_compiler.m_crossQueueFenceValues[qi]);
+        }
+
+        RHI::CommandList* cmd = factory.CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
+        cmd->Open();
+        for (const auto& p : presents)
+        {
+            cmd->QueueBarrier(p.m_barrier);
+        }
+        cmd->FlushBarriers();
+        cmd->Close();
+        gfxQueue.ExecuteCommands({ &cmd, 1 });
     }
 }

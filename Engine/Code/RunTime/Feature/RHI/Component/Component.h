@@ -120,14 +120,23 @@ namespace Spark::RHI
 
     //////////////////////////////////////////////////////////////
     // Upload pipeline components
-    // Buffer state machine: [UploadPendingTag] → [BufferUploadSubmitted] → [done]
-    // Image  state machine: [UploadPendingTag] → [ImageUploadSubmitted]  → [done]
+    // Buffer state machine: [UploadPendingTag] → [PendingSync] → [done]
+    // Image  state machine: [UploadPendingTag] → [PendingSync] → [done]
 
     // Discovery tag — entity has staged upload data not yet flushed to GPU.
     struct UploadPendingTag {};
 
     // CPU source data for a buffer upload. Caller guarantees m_data is valid
-    // until BOTH PendingBufferUpload AND BufferUploadSubmitted are removed from the entity.
+    // until PendingBufferUpload is removed from the entity.
+    //
+    // NOTE: re-upload safety uses a CPU-side skip — if the target carries a
+    // PendingSync whose fence hasn't reached its value yet, AsyncUploadSystem
+    // silently leaves the entity for the next frame instead of submitting now.
+    // The entity stays in (UploadPendingTag + PendingBufferUpload) state across
+    // these retries, so m_data must remain valid until the upload is actually
+    // submitted — potentially several frames after the caller added the
+    // component. For first-upload (no prior PendingSync) this lifetime extension
+    // is a no-op.
     struct PendingBufferUpload
     {
         const void* m_data              = nullptr;
@@ -135,8 +144,8 @@ namespace Spark::RHI
         uint64_t    m_destinationOffset = 0;
     };
 
-    // CPU source data for an image upload. Caller guarantees m_data is valid
-    // until BOTH PendingImageUpload AND ImageUploadSubmitted are removed from the entity.
+    // CPU source data for an image upload. Same m_data lifetime contract as
+    // PendingBufferUpload (including the CPU-side skip retry behavior).
     struct PendingImageUpload
     {
         const void*      m_data                = nullptr;
@@ -161,35 +170,6 @@ namespace Spark::RHI
         size_t      m_byteCount  = 0;
     };
 
-    //! Marks a Buffer entity whose upload has been submitted to the copy queue
-    //! and is pending the cross-queue acquire barrier on graphics queue.
-    //!
-    //! Lifecycle:
-    //!  - Added by AsyncUploadSystem::SubmitBatch with the cross-queue
-    //!    acquire barrier already constructed (mirror of the release barrier
-    //!    emitted on copy queue).
-    //!  - Consumed by the RenderGraph executer: when a pass uses the resource
-    //!    AND m_fenceValue <= m_uploadFence->GetCompletedValue(), the executer
-    //!    emits m_acquireBarrier on the graphics queue (paired with a fence
-    //!    wait) and removes this component. Resource is then "fully published".
-    //!
-    //! Until removed, downstream consumers MUST treat the resource as not yet
-    //! safe to use on graphics queue. Has<BufferUploadSubmitted> is the
-    //! one-stop readiness check.
-    struct BufferUploadSubmitted
-    {
-        uint64_t      m_fenceValue   = 0;
-        Fence*        m_uploadFence  = nullptr;
-        BufferBarrier m_acquireBarrier {};
-    };
-
-    //! Image counterpart to BufferUploadSubmitted; same semantics.
-    struct ImageUploadSubmitted
-    {
-        uint64_t      m_fenceValue   = 0;
-        Fence*        m_uploadFence  = nullptr;
-        ImageBarrier  m_acquireBarrier {};
-    };
 }
 
 namespace Spark::RHI::Components

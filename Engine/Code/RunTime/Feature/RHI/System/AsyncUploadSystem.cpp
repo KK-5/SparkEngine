@@ -11,6 +11,111 @@
 
 namespace Spark::RHI
 {
+    namespace
+    {
+        // Single bit → EXCLUSIVE; multi bit → CONCURRENT.
+        bool IsExclusive(HardwareQueueClassMask mask)
+        {
+            return CountBitsSet(static_cast<uint32_t>(mask)) == 1;
+        }
+        HardwareQueueClass ResolveHomeQueue(HardwareQueueClassMask mask)
+        {
+            if (mask == HardwareQueueClassMask::Compute)
+            {
+                return HardwareQueueClass::Compute;
+            }
+            if (mask == HardwareQueueClassMask::Copy)
+            {
+                return HardwareQueueClass::Copy;
+            }
+            return HardwareQueueClass::Graphics;
+        }
+
+        // Returns true if the entity should be skipped (validation failed).
+        // On failure, logs the error and removes UploadPendingTag + PendingBufferUpload.
+        bool ValidateBufferUpload(
+            RHIContext& ctx,
+            RHIHandle handle,
+            HardwareQueueClassMask mask,
+            bool exclusive,
+            const ResourceState& curState)
+        {
+            if (mask == HardwareQueueClassMask::None)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} target buffer has empty "
+                          "m_sharedQueueMask; declare at least one consumer queue.",
+                          static_cast<uint32_t>(handle));
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingBufferUpload>(handle);
+                return true;
+            }
+            if (exclusive && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
+                          "m_sharedQueueMask, which has no consumer. Set at least one "
+                          "non-Copy queue.", static_cast<uint32_t>(handle));
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingBufferUpload>(handle);
+                return true;
+            }
+            if (exclusive && curState.m_usage != AttachmentUsage::Uninitialized)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
+                          "(usage={}). Exclusive resources cannot be re-uploaded — "
+                          "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
+                          "re-uploadable resources.",
+                          static_cast<uint32_t>(handle),
+                          static_cast<uint32_t>(curState.m_usage));
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingBufferUpload>(handle);
+                return true;
+            }
+            return false;
+        }
+
+        // Returns true if the entity should be skipped (validation failed).
+        // On failure, logs the error and removes UploadPendingTag + PendingImageUpload.
+        bool ValidateImageUpload(
+            RHIContext& ctx,
+            RHIHandle handle,
+            HardwareQueueClassMask mask,
+            bool exclusive,
+            const ResourceState& curState)
+        {
+            if (mask == HardwareQueueClassMask::None)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} target image has empty "
+                          "m_sharedQueueMask; declare at least one consumer queue.",
+                          static_cast<uint32_t>(handle));
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingImageUpload>(handle);
+                return true;
+            }
+            if (exclusive && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
+                          "m_sharedQueueMask, which has no consumer. Set at least one "
+                          "non-Copy queue.", static_cast<uint32_t>(handle));
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingImageUpload>(handle);
+                return true;
+            }
+            if (exclusive && curState.m_usage != AttachmentUsage::Uninitialized)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
+                          "(usage={}). Exclusive resources cannot be re-uploaded — "
+                          "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
+                          "re-uploadable resources.",
+                          static_cast<uint32_t>(handle),
+                          static_cast<uint32_t>(curState.m_usage));
+                ctx.Remove<UploadPendingTag>(handle);
+                ctx.Remove<PendingImageUpload>(handle);
+                return true;
+            }
+            return false;
+        }
+    }
+
     void AsyncUploadSystem::InitInternal()
     {
         auto* rhi = Service<RHIInterface>::Get();
@@ -138,13 +243,10 @@ namespace Spark::RHI
     {
         auto& ctx = *RHIExecuteContext::Current();
 
-        // Note: there is no PollCompletions step here. Submitted upload entities
-        // carry BufferUploadSubmitted / ImageUploadSubmitted with the cross-queue
-        // acquire barrier. The RenderGraph executer consumes those components
-        // (emits the acquire on graphics queue + removes the component) when the
-        // resource is first used and the fence is ready. This avoids the race
-        // where a CPU-side poll could clear the component before the executer
-        // had a chance to emit the acquire barrier.
+        // Submitted upload entities carry PendingSync with the upload fence.
+        // The RG barrier compiler consumes PendingSync on first cross-queue
+        // touch → PassExternalFenceWaits → executer emits queue.Wait before
+        // the acquire barrier. No CPU-side poll step needed.
         SubmitBatch(ctx);
     }
 
@@ -168,43 +270,8 @@ namespace Spark::RHI
         batch.m_bufferReleaseBarriers.reserve(bufferView.size_hint());
         batch.m_imageReleaseBarriers.reserve(imageView.size_hint());
 
-        // Touched entities, collected so we can stamp PendingSync after the
-        // batch's fence value is allocated.
         eastl::vector<RHIHandle> touchedEntities;
         touchedEntities.reserve(bufferView.size_hint() + imageView.size_hint());
-
-        // Inline resolution of EXCLUSIVE vs CONCURRENT sharing mode and the
-        // home-queue extraction from m_sharedQueueMask. Single bit (and not Copy
-        // alone) → EXCLUSIVE; multi bit → CONCURRENT. No helper functions per
-        // codebase convention — just power-of-two and direct mask compare.
-        auto IsExclusive = [](HardwareQueueClassMask mask) -> bool
-        {
-            const uint32_t m = static_cast<uint32_t>(mask);
-            return m != 0 && (m & (m - 1)) == 0;
-        };
-        auto ResolveHomeQueue = [](HardwareQueueClassMask mask) -> HardwareQueueClass
-        {
-            if (mask == HardwareQueueClassMask::Compute) return HardwareQueueClass::Compute;
-            if (mask == HardwareQueueClassMask::Copy)    return HardwareQueueClass::Copy;
-            return HardwareQueueClass::Graphics;
-        };
-
-        // Consumer protocol: if target has a PendingSync from a non-Copy queue,
-        // emit a queue.Wait before pre-copy and remove the component. Same-queue
-        // PendingSync (rare — e.g. a previous Copy queue submission) is left
-        // alone because intra-queue submission ordering provides happens-before.
-        auto AbsorbPendingSync = [&](RHIHandle handle, const ResourceState& state)
-        {
-            if (state.m_queue == HardwareQueueClass::Copy)
-            {
-                return;
-            }
-            if (auto* sync = ctx.TryGet<PendingSync>(handle))
-            {
-                batch.m_preFenceWaits.push_back({ sync->m_fence, sync->m_fenceValue });
-                ctx.Remove<PendingSync>(handle);
-            }
-        };
 
         bufferView.each([&](RHIHandle handle, const PendingBufferUpload& pending)
         {
@@ -243,46 +310,17 @@ namespace Spark::RHI
             const bool  exclusive = IsExclusive(mask);
             const ResourceState curState = target->GetResourceState();
 
-            // Validation: m_sharedQueueMask must be non-empty and, for EXCLUSIVE,
-            // the home queue must not be Copy (Copy-only rendering resource is
-            // a contradiction — nothing renders, just uploads forever).
-            if (mask == HardwareQueueClassMask::None)
-            {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} target buffer has empty "
-                          "m_sharedQueueMask; declare at least one consumer queue.",
-                          static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingBufferUpload>(handle);
+            if (ValidateBufferUpload(ctx, handle, mask, exclusive, curState))
                 return;
-            }
-            if (exclusive && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
-            {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
-                          "m_sharedQueueMask, which has no consumer. Set at least one "
-                          "non-Copy queue.", static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingBufferUpload>(handle);
-                return;
-            }
-            // EXCLUSIVE re-upload would require the previous owner to emit a
-            // QFOT release pair back to Copy, which we don't support — see
-            // TODO_CrossSystemResourceSync.md. Caller must use CONCURRENT.
-            if (exclusive && curState.m_usage != AttachmentUsage::Uninitialized)
-            {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
-                          "(usage={}). Exclusive resources cannot be re-uploaded — "
-                          "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
-                          "re-uploadable resources.",
-                          static_cast<uint32_t>(handle),
-                          static_cast<uint32_t>(curState.m_usage));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingBufferUpload>(handle);
-                return;
-            }
 
-            // Consumer-side: absorb any pending sync debt from a previous owner
-            // (only meaningful for re-upload of CONCURRENT resources).
-            AbsorbPendingSync(handle, curState);
+            if (auto* sync = ctx.TryGet<PendingSync>(handle))
+            {
+                if (sync->m_fence->GetCompletedValue() < sync->m_fenceValue)
+                {
+                    // Skip the buffer that are in use
+                    return;
+                } 
+            }
 
             BufferUpload upload;
             upload.m_data              = pending.m_data;
@@ -348,38 +386,17 @@ namespace Spark::RHI
             const bool  exclusive = IsExclusive(mask);
             const ResourceState curState = target->GetResourceState();
 
-            if (mask == HardwareQueueClassMask::None)
-            {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} target image has empty "
-                          "m_sharedQueueMask; declare at least one consumer queue.",
-                          static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingImageUpload>(handle);
+            if (ValidateImageUpload(ctx, handle, mask, exclusive, curState))
                 return;
-            }
-            if (exclusive && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
-            {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
-                          "m_sharedQueueMask, which has no consumer. Set at least one "
-                          "non-Copy queue.", static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingImageUpload>(handle);
-                return;
-            }
-            if (exclusive && curState.m_usage != AttachmentUsage::Uninitialized)
-            {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
-                          "(usage={}). Exclusive resources cannot be re-uploaded — "
-                          "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
-                          "re-uploadable resources.",
-                          static_cast<uint32_t>(handle),
-                          static_cast<uint32_t>(curState.m_usage));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingImageUpload>(handle);
-                return;
-            }
 
-            AbsorbPendingSync(handle, curState);
+            if (auto* sync = ctx.TryGet<PendingSync>(handle))
+            {
+                if (sync->m_fence->GetCompletedValue() < sync->m_fenceValue)
+                {
+                    // Skip the image that are in use
+                    return;
+                } 
+            }
 
             ImageUpload upload;
             upload.m_data                = pending.m_data;
@@ -492,27 +509,20 @@ namespace Spark::RHI
             cmdList = packet->m_commandRecorder->GetCommandList();
         };
 
-        // Cross-system fence waits: each entry was recorded on the main thread
-        // by SubmitBatch when a target carried a PendingSync from a non-Copy
-        // queue's previous submission. Emit queue.Wait on the copy queue so the
-        // prior owner's GPU work is guaranteed complete before pre-copy starts.
-        for (const auto& w : batch.m_preFenceWaits)
-        {
-            m_copyQueue->Wait(*w.m_fence, w.m_value);
-        }
-
         // Pre-copy barriers: transition every target into Copy/Write on the copy
-        // queue. ConvertTo* helpers source srcUsage from the resource's tracked
-        // state (Uninitialized after creation, or whatever the previous owner
-        // left it in). We override the queue fields to make the barrier
-        // semantically an intra-copy-queue transition — for both EXCLUSIVE
-        // (implicit Vulkan first-acquire is allowed) and CONCURRENT (no QFOT
-        // ever needed) since the prior cross-queue handoff is the fence wait
-        // emitted just above, not a barrier.
+        // queue. ConvertTo* auto-populates src* from the resource's tracked state:
+        //  - Fresh resource:     {Uninitialized, Graphics-default, Any}
+        //  - Re-upload pickup:   whatever the prior owner left (e.g. {VertexBuffer,
+        //                        Graphics, VertexInput}) — fence wait was already
+        //                        cleared by SubmitBatch's CPU-side skip-or-proceed
+        //                        check, so prior GPU work is guaranteed complete.
+        // dstQueue is overridden to Copy. Because the resource's tracked m_queue
+        // is rarely Copy in practice, the backend's cross-queue acquire path runs
+        // (DX12: COMMON → COPY_DEST regardless of srcUsage; Vulkan CONCURRENT:
+        // pipeline barrier with no QFOT). dstStage pinned to Copy.
         for (const auto& upload : batch.m_bufferUploads)
         {
             BufferBarrier pre = ConvertToCopyWrite(*upload.m_targetBuffer);
-            pre.m_srcQueue = HardwareQueueClass::Copy;
             pre.m_dstQueue = HardwareQueueClass::Copy;
             pre.m_dstStage = AttachmentStage::Copy;
             cmdList->QueueBarrier(pre);
@@ -520,7 +530,6 @@ namespace Spark::RHI
         for (const auto& upload : batch.m_imageUploads)
         {
             ImageBarrier pre = ConvertToImageCopyWrite(*upload.m_targetImage);
-            pre.m_srcQueue = HardwareQueueClass::Copy;
             pre.m_dstQueue = HardwareQueueClass::Copy;
             pre.m_dstStage = AttachmentStage::Copy;
             cmdList->QueueBarrier(pre);

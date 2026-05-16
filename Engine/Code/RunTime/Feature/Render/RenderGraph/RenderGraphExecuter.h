@@ -62,10 +62,11 @@ namespace Spark::Render
     //! m_passes 由 BuildSegments 填充,m_groups 由 BuildExecuteGroups 填充。
     struct QueueSegment
     {
-        eastl::vector<SyncOperation>     m_waits;
-        eastl::vector<Pass>              m_passes;
-        eastl::vector<ExecuteGroup>      m_groups;
-        eastl::optional<SyncOperation>   m_signal;
+        eastl::vector<SyncOperation>             m_waits;
+        eastl::vector<RHI::PendingSync>          m_externalWaits;
+        eastl::vector<Pass>                      m_passes;
+        eastl::vector<ExecuteGroup>              m_groups;
+        eastl::optional<SyncOperation>           m_signal;
     };
 
     using QueueSegments = eastl::array<eastl::vector<QueueSegment>, RHI::HardwareQueueClassCount>;

@@ -20,6 +20,12 @@ namespace Spark::Render
             queue.clear();
         }
 
+        // Per-resource compile-time state cursor. Lazy-init in CompileImage/BufferBarriers
+        // expects a fresh slate each frame — imported resources start at m_initial,
+        // transients at Uninitialized. Without this clear, frame N+1 inherits frame N's
+        // m_current and emits wrong barriers.
+        RHIExecuteContext::Current()->Clear<ResourceStateTracker>();
+
         // Destroy compiler-synthesized sink passes (final transition barriers).
         // They are recreated each frame; persisting them would leak entities
         // and cause CompileFinalTransitionBarrier to clash with stale state.
@@ -42,6 +48,7 @@ namespace Spark::Render
         passContext.Clear<PassSyncWait>();
         passContext.Clear<PassSyncSignal>();
         passContext.Clear<PassBarriers>();
+        passContext.Clear<PassExternalFenceWaits>();
         passContext.Clear<RHI::RenderPassBeginInfo>();
     }
 
@@ -84,6 +91,13 @@ namespace Spark::Render
             }
 
             cur.m_passes.push_back(pass);
+
+            if (auto* extWaits = passContext.TryGet<PassExternalFenceWaits>(pass))
+            {
+                cur.m_externalWaits.insert(cur.m_externalWaits.end(),
+                                           extWaits->m_waits.begin(),
+                                           extWaits->m_waits.end());
+            }
 
             if (passContext.Has<PassSyncSignal>(pass))
             {

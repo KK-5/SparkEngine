@@ -140,6 +140,14 @@ namespace Spark::Render
         eastl::function<void(ExecuteWork&, RenderGraphExecuter&)> m_executeFunction;
     };
 
+    // External fence waits that must be issued on the GPU queue before this
+    // pass's pre-barriers. Populated by barrier compiler on first-touch of a
+    // cross-queue resource carrying PendingSync (e.g. upload fence).
+    struct PassExternalFenceWaits
+    {
+        eastl::vector<RHI::PendingSync> m_waits;
+    };
+
     // Compiled barriers for a single pass. Filled by CompileImageBarriers /
     // CompileBufferBarriers, consumed by execute. Per-frame, cleared at frame end.
     struct PassBarriers
