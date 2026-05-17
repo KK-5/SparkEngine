@@ -1,0 +1,14 @@
+*.o
+*.obj
+*.exe
+
+# Non-library files from the stb distribution
+deprecated/
+data/
+docs/
+tools/
+stb_image_resize_test/
+.NO_AI/
+.travis.yml
+CONTRIBUTING.md
+SECURITY.md
