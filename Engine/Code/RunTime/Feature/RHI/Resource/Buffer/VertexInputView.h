@@ -22,16 +22,16 @@ namespace Spark::RHI
     //!
     //! Note that the buffer is further described in InputStreamLayout, through StreamChannelDescriptors
     //! and a StreamBufferDescriptor, which is provided to the RHI back-end at PSO compile time.
-    //! - The view will be associated with one or more StreamChannelDescriptors to describe its specific content. 
-    //!   Channels maybe be stored in separate StreamBufferViews (each view having a separate StreamChannelDescriptor)
-    //!   or interleaved in a single DeviceStreamBufferView (one view having multiple StreamChannelDescriptors).
+    //! - The view will be associated with one or more StreamChannelDescriptors to describe its specific content.
+    //!   Channels maybe be stored in separate VertexInputViews (each view having a separate StreamChannelDescriptor)
+    //!   or interleaved in a single VertexInputView (one view having multiple StreamChannelDescriptors).
     //! - The view will correspond to a single StreamBufferDescriptor.
-    class alignas(8) StreamBufferView
+    class alignas(8) VertexInputView
     {
     public:
-        StreamBufferView() = default;
+        VertexInputView() = default;
 
-        StreamBufferView(
+        VertexInputView(
             const Buffer& buffer,
             uint32_t byteOffset,
             uint32_t byteCount,
@@ -53,7 +53,7 @@ namespace Spark::RHI
         //! This must match the stride value in StreamBufferDescriptor.
         uint32_t GetByteStride() const;
 
-        bool operator==(const StreamBufferView& other) const;
+        bool operator==(const VertexInputView& other) const;
 
     private:
         size_t m_hash{ 0 };
@@ -63,6 +63,6 @@ namespace Spark::RHI
         uint32_t m_byteStride = 0;
     };
 
-    //! Utility function for checking that the set of StreamBufferViews aligns with the InputStreamLayout
-    bool ValidateStreamBufferViews(const InputStreamLayout& inputStreamLayout, eastl::span<const StreamBufferView> streamBufferViews);
+    //! Utility function for checking that the set of VertexInputViews aligns with the InputStreamLayout
+    bool ValidateVertexInputViews(const InputStreamLayout& inputStreamLayout, eastl::span<const VertexInputView> vertexInputViews);
 }

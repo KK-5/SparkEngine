@@ -14,7 +14,7 @@
 #include <RHI/Resource/Buffer/IndexBufferView.h>
 #include <RHI/Resource/Buffer/IndirectBufferSignature.h>
 #include <RHI/Resource/Buffer/IndirectBufferView.h>
-#include <RHI/Resource/Buffer/StreamBufferView.h>
+#include <RHI/Resource/Buffer/VertexInputView.h>
 #include <RHI/Resource/Buffer/VertexBufferView.h>
 #include "DrawArguments.h"
 #include "IndirectArguments.h"
@@ -37,7 +37,7 @@ namespace Spark::RHI
 
         DrawInstanceArguments m_drawInstanceArgs;
 
-        /// Indices of the StreamBufferViews in the GeometryView that this DrawItem will use
+        /// Indices of the VertexInputViews in the GeometryView that this DrawItem will use
         // StreamBufferIndices m_streamIndices;
         uint8_t m_stencilRef = 0;
         uint8_t m_shaderResourceCount = 0;

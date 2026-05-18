@@ -395,14 +395,14 @@ namespace Spark::SandBox
 
         drawItem.m_pipelineState = m_pipelineState.get();
 
-        RHI::StreamBufferView vertexStream(
-            *m_vertexBuffer, 
-            0, 
+        RHI::VertexInputView vertexStream(
+            *m_vertexBuffer,
+            0,
             m_vertexBuffer->GetDescriptor().m_byteCount,
             sizeof(Vertex)
         );
 
-        drawItem.m_vertexBufferView.AddStreamBufferView(vertexStream);
+        drawItem.m_vertexBufferView.AddVertexInputView(vertexStream);
 
         commandList->Submit(drawItem);
 

@@ -6,7 +6,7 @@
  *
  */
 
-#include "StreamBufferView.h"
+#include "VertexInputView.h"
 
 #include <EASTLEX/hash.h>
 #include <Log/SpdLogSystem.h>
@@ -15,7 +15,7 @@
 
 namespace Spark::RHI
 {
-    StreamBufferView::StreamBufferView(
+    VertexInputView::VertexInputView(
         const Buffer& buffer,
         uint32_t byteOffset,
         uint32_t byteCount,
@@ -33,32 +33,32 @@ namespace Spark::RHI
         m_hash = seed;
     }
 
-    size_t StreamBufferView::GetHash() const
+    size_t VertexInputView::GetHash() const
     {
         return m_hash;
     }
 
-    const Buffer* StreamBufferView::GetBuffer() const
+    const Buffer* VertexInputView::GetBuffer() const
     {
         return m_buffer;
     }
 
-    uint32_t StreamBufferView::GetByteOffset() const
+    uint32_t VertexInputView::GetByteOffset() const
     {
         return m_byteOffset;
     }
 
-    uint32_t StreamBufferView::GetByteCount() const
+    uint32_t VertexInputView::GetByteCount() const
     {
         return m_byteCount;
     }
 
-    uint32_t StreamBufferView::GetByteStride() const
+    uint32_t VertexInputView::GetByteStride() const
     {
         return m_byteStride;
     }
 
-    bool StreamBufferView::operator==(const StreamBufferView& other) const
+    bool VertexInputView::operator==(const VertexInputView& other) const
     {
         return (m_hash == other.m_hash) &&
             (m_buffer == other.m_buffer) &&
@@ -67,7 +67,7 @@ namespace Spark::RHI
             (m_byteStride == other.m_byteStride);
     }
 
-    bool ValidateStreamBufferViews(const RHI::InputStreamLayout& inputStreamLayout, eastl::span<const StreamBufferView> streamBufferViews)
+    bool ValidateVertexInputViews(const RHI::InputStreamLayout& inputStreamLayout, eastl::span<const VertexInputView> vertexInputViews)
     {
         bool ok = true;
 
@@ -79,18 +79,18 @@ namespace Spark::RHI
                 ok = false;
             }
 
-            if (inputStreamLayout.GetStreamBuffers().size() != streamBufferViews.size())
+            if (inputStreamLayout.GetStreamBuffers().size() != vertexInputViews.size())
             {
-                LOG_ERROR("[InputStreamLayout] InputStreamLayout references {} stream buffers but {} StreamBufferViews were provided.",
-                    inputStreamLayout.GetStreamBuffers().size(), streamBufferViews.size());
+                LOG_ERROR("[InputStreamLayout] InputStreamLayout references {} stream buffers but {} VertexInputViews were provided.",
+                    inputStreamLayout.GetStreamBuffers().size(), vertexInputViews.size());
                 ok = false;
             }
 
-            for (int i = 0; i < inputStreamLayout.GetStreamBuffers().size() && i < streamBufferViews.size(); ++i)
+            for (int i = 0; i < inputStreamLayout.GetStreamBuffers().size() && i < vertexInputViews.size(); ++i)
             {
                 auto bufferDescriptors = inputStreamLayout.GetStreamBuffers();
                 auto& bufferDescriptor = bufferDescriptors[i];
-                auto& bufferView = streamBufferViews[i];
+                auto& bufferView = vertexInputViews[i];
 
                 // It can be valid to have a null buffer if this stream is not actually used by the shader, which can be the case for streams marked optional.
                 if (bufferView.GetBuffer() == nullptr)
@@ -100,7 +100,7 @@ namespace Spark::RHI
 
                 if (bufferDescriptor.m_byteStride != bufferView.GetByteStride())
                 {
-                    LOG_ERROR("[InputStreamLayout] InputStreamLayout's buffer[{}] has stride={} but StreamBufferView[{}] has stride={}.",
+                    LOG_ERROR("[InputStreamLayout] InputStreamLayout's buffer[{}] has stride={} but VertexInputView[{}] has stride={}.",
                         i, bufferDescriptor.m_byteStride, i, bufferView.GetByteStride());
                     ok = false;
                 }

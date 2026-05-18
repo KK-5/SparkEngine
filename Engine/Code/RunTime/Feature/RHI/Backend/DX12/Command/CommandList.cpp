@@ -697,9 +697,9 @@ namespace Spark::RHI::DX12
 
         for (const RHI::VertexInput& vertexInput : bufferView.GetVertexInputs())
         {
-            if (m_state.m_streamBufferHashes[vertexInput.m_inputSlot] != vertexInput.m_streamBufferView.GetHash())
+            if (m_state.m_streamBufferHashes[vertexInput.m_inputSlot] != vertexInput.m_vertexInputView.GetHash())
             {
-                m_state.m_streamBufferHashes[vertexInput.m_inputSlot] = vertexInput.m_streamBufferView.GetHash();
+                m_state.m_streamBufferHashes[vertexInput.m_inputSlot] = vertexInput.m_vertexInputView.GetHash();
                 needsBinding = true;
             }
         }
@@ -710,12 +710,12 @@ namespace Spark::RHI::DX12
 
             for (const RHI::VertexInput& vertexInput : bufferView.GetVertexInputs())
             {
-                const Buffer* buffer = static_cast<const Buffer*>(vertexInput.m_streamBufferView.GetBuffer());
+                const Buffer* buffer = static_cast<const Buffer*>(vertexInput.m_vertexInputView.GetBuffer());
                 if (buffer)
                 {
-                    views[vertexInput.m_inputSlot].BufferLocation = buffer->GetMemoryView().GetGpuAddress() + vertexInput.m_streamBufferView.GetByteOffset();
-                    views[vertexInput.m_inputSlot].SizeInBytes = vertexInput.m_streamBufferView.GetByteCount();
-                    views[vertexInput.m_inputSlot].StrideInBytes = vertexInput.m_streamBufferView.GetByteStride();
+                    views[vertexInput.m_inputSlot].BufferLocation = buffer->GetMemoryView().GetGpuAddress() + vertexInput.m_vertexInputView.GetByteOffset();
+                    views[vertexInput.m_inputSlot].SizeInBytes = vertexInput.m_vertexInputView.GetByteCount();
+                    views[vertexInput.m_inputSlot].StrideInBytes = vertexInput.m_vertexInputView.GetByteStride();
                 }
                 else
                 {

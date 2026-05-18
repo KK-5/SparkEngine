@@ -53,7 +53,7 @@ namespace Spark::RHI
         //! @param slot The stream buffer slot that the view will set.
         //! @param view The DeviceStreamBufferView that will be set.
         //! @return A pointer to the DeviceIndirectBufferWriter object (this).
-        // IndirectBufferWriter* SetVertexView(uint32_t slot, const StreamBufferView& view);
+        // IndirectBufferWriter* SetVertexView(uint32_t slot, const VertexInputView& view);
 
         //! Writes an index buffer view command into the current sequence.
         //! @param view The DeviceIndexBufferView that will be set.

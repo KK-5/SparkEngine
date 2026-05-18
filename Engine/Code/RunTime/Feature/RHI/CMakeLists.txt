@@ -41,7 +41,7 @@ set(SOURCES
     Resource/Buffer/IndirectBufferLayout.cpp
     Resource/Buffer/IndirectBufferSignature.cpp
     Resource/Buffer/IndirectBufferView.cpp
-    Resource/Buffer/StreamBufferView.cpp
+    Resource/Buffer/VertexInputView.cpp
     Resource/Buffer/VertexBufferView.cpp
     Resource/Image/Image.cpp
     Resource/Image/ImageDescriptor.cpp

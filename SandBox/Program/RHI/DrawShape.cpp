@@ -866,12 +866,12 @@ namespace Spark::SandBox
         drawItem.m_pipelineState = m_pipelineState.get();
 
         // Vertex buffer
-        RHI::StreamBufferView vertexStream(
+        RHI::VertexInputView vertexStream(
             *m_vertexBuffer,
             0,
             m_vertexBuffer->GetDescriptor().m_byteCount,
             sizeof(ShapeVertex));
-        drawItem.m_vertexBufferView.AddStreamBufferView(vertexStream);
+        drawItem.m_vertexBufferView.AddVertexInputView(vertexStream);
 
         // Index buffer
         drawItem.m_indexBufferView = RHI::IndexBufferView(

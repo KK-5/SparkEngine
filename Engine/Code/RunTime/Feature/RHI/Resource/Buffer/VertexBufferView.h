@@ -4,7 +4,7 @@
 
 #include <RHI/Base.h>
 #include <RHI/RHILimits.h>
-#include "StreamBufferView.h"
+#include "VertexInputView.h"
 
 namespace Spark::RHI
 {
@@ -12,7 +12,7 @@ namespace Spark::RHI
 
     struct VertexInput
     {
-        StreamBufferView m_streamBufferView;
+        VertexInputView m_vertexInputView;
         uint32_t m_inputSlot;
     };
 
@@ -21,9 +21,9 @@ namespace Spark::RHI
     public:
         VertexBufferView() = default;
 
-        void AddStreamBufferView(const StreamBufferView& streamBufferView);
+        void AddVertexInputView(const VertexInputView& vertexInputView);
 
-        void SetStreamBufferView(uint32_t slot, const StreamBufferView& streamBufferView);
+        void SetVertexInputView(uint32_t slot, const VertexInputView& vertexInputView);
 
         const eastl::fixed_vector<VertexInput, Limits::Pipeline::StreamCountMax>& GetVertexInputs() const;
 

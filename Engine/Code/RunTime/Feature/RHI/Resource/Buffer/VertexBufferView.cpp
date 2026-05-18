@@ -4,26 +4,26 @@
 
 namespace Spark::RHI
 {
-    void VertexBufferView::AddStreamBufferView(const StreamBufferView& streamBufferView)
+    void VertexBufferView::AddVertexInputView(const VertexInputView& vertexInputView)
     {
         m_vertexInputs.emplace_back();
 
         VertexInput& input = m_vertexInputs.back();
-        input.m_streamBufferView = streamBufferView;
+        input.m_vertexInputView = vertexInputView;
         input.m_inputSlot = m_vertexInputs.size() - 1;
 
-        ASSERT(ValidateVertexInputs(), "[VertexBufferView] AddStreamBufferView failed!");
+        ASSERT(ValidateVertexInputs(), "[VertexBufferView] AddVertexInputView failed!");
     }
 
-    void VertexBufferView::SetStreamBufferView(uint32_t slot, const StreamBufferView& streamBufferView)
+    void VertexBufferView::SetVertexInputView(uint32_t slot, const VertexInputView& vertexInputView)
     {
         m_vertexInputs.emplace_back();
 
         VertexInput& input = m_vertexInputs.back();
-        input.m_streamBufferView = streamBufferView;
+        input.m_vertexInputView = vertexInputView;
         input.m_inputSlot = slot;
 
-        ASSERT(ValidateVertexInputs(), "[VertexBufferView] SetStreamBufferView failed!");
+        ASSERT(ValidateVertexInputs(), "[VertexBufferView] SetVertexInputView failed!");
     }
 
     const eastl::fixed_vector<VertexInput, Limits::Pipeline::StreamCountMax>& VertexBufferView::GetVertexInputs() const
