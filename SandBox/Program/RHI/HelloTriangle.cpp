@@ -369,8 +369,9 @@ namespace Spark::SandBox
 
         commandList->FlushBarriers();
 
+        commandList->SetScissor(m_scissor);
+
         RHI::RenderPassBeginInfo beginInfo;
-        beginInfo.m_renderArea = m_scissor;
         beginInfo.m_colorAttachmentCount = 1;
 
         RHI::RenderPassColorAttachment renderTarget;
@@ -384,6 +385,8 @@ namespace Spark::SandBox
 
         commandList->BeginRenderPass(beginInfo);
 
+        commandList->SetPipelineState(*m_pipelineState);
+
         /// build draw item
         RHI::DrawItem drawItem;
         drawItem.m_drawInstanceArgs.m_instanceCount = 1;
@@ -392,8 +395,6 @@ namespace Spark::SandBox
         drawItem.m_drawArguments.m_type = RHI::DrawType::Linear;
         drawItem.m_drawArguments.m_linear.m_vertexCount = 3;
         drawItem.m_drawArguments.m_linear.m_vertexOffset = 0;
-
-        drawItem.m_pipelineState = m_pipelineState.get();
 
         RHI::VertexInputView vertexStream(
             *m_vertexBuffer,

@@ -34,6 +34,7 @@ namespace Spark::RHI
             constexpr uint32_t SubpassCountMax = 13;
             constexpr uint32_t RenderAttachmentCountMax = 2 * AttachmentColorCountMax + 2; // RenderAttachments + ResolveAttachments + DepthStencilAttachment +  ShadingRateAttachment
             constexpr uint32_t UnboundedArraySize = 100000u;
+            constexpr uint32_t RootConstantByteCountMax = 256; // DX12 max 64 DWORDS, Vulkan maxPushConstantsSize >= 128
         }
 
         namespace Device

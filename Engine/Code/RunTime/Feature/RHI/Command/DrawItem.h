@@ -5,86 +5,57 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
  */
+
+/*
+ * Modified by SparkEngine in 2026
+ *  -- Stripped per-pass data (PSO, PerPass SRGs — auto-bound by executer).
+ *  -- Replaced bulk-allocated raw pointers with inline fixed_vector storage
+ *     for per-draw SRGs, viewports, scissors, and root constants.
+ *  -- Usable as an ECS component on DrawItem entities.
+ */
 #pragma once
 
-#include <EASTL/array.h>
-#include <EASTL/vector.h>
+#include <EASTL/fixed_vector.h>
 
 #include <RHI/RHILimits.h>
 #include <RHI/Resource/Buffer/IndexBufferView.h>
-#include <RHI/Resource/Buffer/IndirectBufferSignature.h>
-#include <RHI/Resource/Buffer/IndirectBufferView.h>
-#include <RHI/Resource/Buffer/VertexInputView.h>
 #include <RHI/Resource/Buffer/VertexBufferView.h>
+#include <RHI/Scissor/Scissor.h>
+#include <RHI/Viewport/Viewport.h>
 #include "DrawArguments.h"
-#include "IndirectArguments.h"
 
 namespace Spark::RHI
 {
-    class PipelineState;
     class ShaderResource;
-    struct Scissor;
-    struct Viewport;
 
-    // A DrawItem corresponds to one draw of one mesh in one pass. Multiple draw items are bundled
-    // in a DrawPacket, which corresponds to multiple draws of one mesh in multiple passes.
-    // NOTE: Do not rely solely on default member initialization here, as DrawItems are bulk allocated for
-    // DrawPackets and their memory aliased in DrawPacketBuilder. Any default values should also be specified
-    // in the DrawPacketBuilder::End() function (see DrawPacketBuilder.cpp)
+    // Per-draw data: geometry, per-draw SRGs, optional viewport/scissor overrides,
+    // and future root constants. PSO and PerPass SRGs are not here — the executer
+    // auto-binds those at pass begin.
     struct DrawItem
     {
         DrawItem() = default;
 
+        DrawArguments         m_drawArguments;
         DrawInstanceArguments m_drawInstanceArgs;
+        uint8_t               m_stencilRef = 0;
+        bool                  m_enabled = true;
 
-        /// Indices of the VertexInputViews in the GeometryView that this DrawItem will use
-        // StreamBufferIndices m_streamIndices;
-        uint8_t m_stencilRef = 0;
-        uint8_t m_shaderResourceCount = 0;
-        uint8_t m_rootConstantSize = 0;
-        uint8_t m_scissorsCount = 0;
-        uint8_t m_viewportsCount = 0;
-
-        // Remove?
-        union
-        {
-            struct
-            {
-                // NOTE: If you add or update any of these flags, please update the default value of m_allFlags
-                // so that your added flags are initialized properly. Also update the default value specified in
-                // the DrawPacketBuilder::End() function (see DrawPacketBuilder.cpp). See comment above.
-
-                bool m_enabled : 1;     // Whether the Draw Item should render
-            };
-            uint8_t m_allFlags = 1;     //< Update default value if you add flags. Also update in DrawPacketBuilder::End()
-        };
-
-        // --- Geometry ---
-        DrawArguments m_drawArguments;
-
-        IndexBufferView m_indexBufferView;
-
+        // Geometry
+        IndexBufferView  m_indexBufferView;
         VertexBufferView m_vertexBufferView;
 
-        // --- Shader ---
-        const PipelineState* m_pipelineState = nullptr;
+        // Per-draw SRGs (material + unique). Populated in Build, bound by lambda
+        // or Submit() before the draw call.
+        eastl::fixed_vector<Ptr<ShaderResource>, Limits::Pipeline::ShaderResourceCountMax> m_shaderResources;
 
-        /// Array of shader resource groups to bind (count must match m_shaderResourceGroupCount).
-        const ShaderResource* const* m_shaderResource = nullptr;
+        // Per-draw viewport / scissor overrides (rare, e.g. multi-viewport passes).
+        uint8_t m_scissorsCount = 0;
+        uint8_t m_viewportsCount = 0;
+        eastl::fixed_vector<Viewport, Limits::Pipeline::AttachmentColorCountMax> m_viewports;
+        eastl::fixed_vector<Scissor,  Limits::Pipeline::AttachmentColorCountMax> m_scissors;
 
-        /// Unique SRG, not shared within the draw packet. This is usually a per-draw SRG, populated with the shader variant fallback key
-        const ShaderResource* m_uniqueShaderResource = nullptr;
-
-        /// Array of root constants to bind (count must match m_rootConstantSize).
-        const uint8_t* m_rootConstants = nullptr;
-
-        // --- Scissor and Viewport ---
-        /// List of scissors to be applied to this draw item only. Scissor will be restore to the previous state
-        /// after the DeviceDrawItem has been processed.
-        const Scissor* m_scissors = nullptr;
-
-        /// List of viewports to be applied to this draw item only. Viewports will be restore to the previous state
-        /// after the DeviceDrawItem has been processed.
-        const Viewport* m_viewports = nullptr;
+        // Root constants (future support).
+        uint8_t m_rootConstantSize = 0;
+        eastl::fixed_vector<uint8_t, Limits::Pipeline::RootConstantByteCountMax> m_rootConstants;
     };
 }

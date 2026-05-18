@@ -816,7 +816,7 @@ namespace Spark::SandBox
     {
         commandList->Open();
         commandList->SetViewport(m_viewport);
-        //commandList->SetScissor(m_scissor);
+        commandList->SetScissor(m_scissor);
 
         // Transition swap chain image to render target
         RHI::ImageBarrier rtBarrier = RHI::ConvertToRenderTarget(*m_rtContext.GetRenderTarget(0));
@@ -828,7 +828,6 @@ namespace Spark::SandBox
         commandList->FlushBarriers();
 
         RHI::RenderPassBeginInfo beginInfo;
-        beginInfo.m_renderArea = m_scissor;
         beginInfo.m_colorAttachmentCount = 1;
 
         RHI::RenderPassColorAttachment renderTarget;
@@ -853,6 +852,8 @@ namespace Spark::SandBox
 
         commandList->BeginRenderPass(beginInfo);
 
+        commandList->SetPipelineState(*m_pipelineState);
+
         // Build draw item
         RHI::DrawItem drawItem;
         drawItem.m_drawInstanceArgs.m_instanceCount = 1;
@@ -862,8 +863,6 @@ namespace Spark::SandBox
         drawItem.m_drawArguments.m_indexed.m_indexCount = g_cubeIndexCount;
         drawItem.m_drawArguments.m_indexed.m_indexOffset = 0;
         drawItem.m_drawArguments.m_indexed.m_vertexOffset = 0;
-
-        drawItem.m_pipelineState = m_pipelineState.get();
 
         // Vertex buffer
         RHI::VertexInputView vertexStream(
@@ -881,9 +880,7 @@ namespace Spark::SandBox
             RHI::IndexFormat::UINT16);
 
         // Shader resources
-        const RHI::ShaderResource* srgs[] = { m_shaderResource.get() };
-        drawItem.m_shaderResource = srgs;
-        drawItem.m_shaderResourceCount = 1;
+        drawItem.m_shaderResources.push_back(m_shaderResource);
 
         commandList->Submit(drawItem);
         commandList->EndRenderPass();

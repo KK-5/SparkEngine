@@ -442,19 +442,10 @@ namespace Spark::RHI::DX12
     {
         ValidateSubmitIndex(submitIndex);
 
-        if (drawItem.m_pipelineState)
+        // Per-draw SRGs (material + unique)
+        for (const auto& srg : drawItem.m_shaderResources)
         {
-            SetPipelineState(*drawItem.m_pipelineState);
-        }
-
-        for (uint32_t srgIndex = 0; srgIndex < drawItem.m_shaderResourceCount; ++srgIndex)
-        {
-            SetShaderResourceForDraw(*drawItem.m_shaderResource[srgIndex]);
-        }
-
-        if (drawItem.m_uniqueShaderResource)
-        {
-            SetShaderResourceForDraw(*drawItem.m_uniqueShaderResource);
+            SetShaderResourceForDraw(*srg);
         }
 
         SetVertexBuffers(drawItem.m_vertexBufferView);
@@ -464,14 +455,14 @@ namespace Spark::RHI::DX12
         if (drawItem.m_scissorsCount)
         {
             scissorState = m_state.m_scissorState;
-            SetScissors(drawItem.m_scissors, drawItem.m_scissorsCount);
+            SetScissors(drawItem.m_scissors.data(), drawItem.m_scissorsCount);
         }
 
         RHI::CommandListViewportState viewportState;
         if (drawItem.m_viewportsCount)
         {
             viewportState = m_state.m_viewportState;
-            SetViewports(drawItem.m_viewports, drawItem.m_viewportsCount);
+            SetViewports(drawItem.m_viewports.data(), drawItem.m_viewportsCount);
         }
 
         CommitScissorState();
@@ -1026,14 +1017,6 @@ namespace Spark::RHI::DX12
                 }
                 m_state.m_shadingRateImage = shadingRateView;
             }
-        }
-
-        // --- Render area -------------------------------------------------------
-        // DX12 BeginRenderPass has no render-area parameter; translate to a scissor
-        // so the same RHI input drives DX12 and Vulkan consistently.
-        if (!info.m_renderArea.IsNull())
-        {
-            SetScissor(info.m_renderArea);
         }
 
         GetCommandList()->BeginRenderPass(

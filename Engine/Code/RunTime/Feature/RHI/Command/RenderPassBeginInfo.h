@@ -12,7 +12,6 @@
 #include <RHI/RHILimits.h>
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
-#include <RHI/Scissor/Scissor.h>
 
 namespace Spark::RHI
 {
@@ -52,9 +51,6 @@ namespace Spark::RHI
     /// object is implied or required.
     struct RenderPassBeginInfo
     {
-        /// Render area. If IsNull(), the backend falls back to the full attachment extent.
-        Scissor m_renderArea = Scissor::CreateNull();
-
         /// Number of valid entries in m_colorAttachments.
         uint32_t m_colorAttachmentCount = 0;
 

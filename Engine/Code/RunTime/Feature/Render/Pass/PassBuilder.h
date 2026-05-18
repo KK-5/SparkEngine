@@ -97,6 +97,14 @@ namespace Spark::Render
             ASSERT(RHIExecuteContext::Current()->Has<ShaderResourceLayout>(entity),
                 "Pass '{}': SRG slot {} entity has no ShaderResourceLayout.",
                 m_name.GetCStr(), slot);
+            {
+                auto& layout = RHIExecuteContext::Current()->Get<ShaderResourceLayout>(entity).m_layout;
+                const uint32_t prevSlot = layout->GetBindingSlot();
+                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
+                    "Pass '{}': SRG slot {} but entity's layout already bound to slot {}.",
+                    m_name.GetCStr(), slot, prevSlot);
+                layout->SetBindingSlot(slot);
+            }
             m_shaderResources.m_slots[slot] = entity;
             return *this;
         }
@@ -117,6 +125,13 @@ namespace Spark::Render
                 ASSERT(existing && *existing == NullHandle,
                     "Pass '{}': SRG slot {} already bound.",
                     m_name.GetCStr(), slot);
+            }
+            {
+                const uint32_t prevSlot = layout->GetBindingSlot();
+                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
+                    "Pass '{}': SRG slot {} but layout already bound to slot {}.",
+                    m_name.GetCStr(), slot, prevSlot);
+                layout->SetBindingSlot(slot);
             }
             m_shaderResources.m_slots[slot] = eastl::move(layout);
             return *this;
@@ -279,6 +294,14 @@ namespace Spark::Render
             ASSERT(RHIExecuteContext::Current()->Has<ShaderResourceLayout>(entity),
                 "Compute pass '{}': SRG slot {} entity has no ShaderResourceLayout.",
                 m_name.GetCStr(), slot);
+            {
+                auto& layout = RHIExecuteContext::Current()->Get<ShaderResourceLayout>(entity).m_layout;
+                const uint32_t prevSlot = layout->GetBindingSlot();
+                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
+                    "Compute pass '{}': SRG slot {} but entity's layout already bound to slot {}.",
+                    m_name.GetCStr(), slot, prevSlot);
+                layout->SetBindingSlot(slot);
+            }
             m_shaderResources.m_slots[slot] = entity;
             return *this;
         }
@@ -296,6 +319,13 @@ namespace Spark::Render
                 ASSERT(existing && *existing == NullHandle,
                     "Compute pass '{}': SRG slot {} already bound.",
                     m_name.GetCStr(), slot);
+            }
+            {
+                const uint32_t prevSlot = layout->GetBindingSlot();
+                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
+                    "Compute pass '{}': SRG slot {} but layout already bound to slot {}.",
+                    m_name.GetCStr(), slot, prevSlot);
+                layout->SetBindingSlot(slot);
             }
             m_shaderResources.m_slots[slot] = eastl::move(layout);
             return *this;
