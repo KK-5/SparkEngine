@@ -206,10 +206,14 @@ namespace Spark::RHI
         // Start upload thread
         m_running.store(true);
         m_uploadThread = std::thread(&AsyncUploadSystem::UploadThreadMain, this);
+
+        FrameEventBus::Handler::BusConnect();
     }
 
     void AsyncUploadSystem::ShutdownInternal()
     {
+        FrameEventBus::Handler::BusDisconnect();
+
         m_running.store(false);
         m_cv.notify_one();
 
@@ -479,7 +483,23 @@ namespace Spark::RHI
     void AsyncUploadSystem::ProcessBatch(Batch& batch)
     {
         auto* packet = &m_packets[m_currentPacketIndex];
-        packet->m_commandRecorder->Reset();
+
+        // The cmdList is left in recording state by CommandRecorder::Init, so on
+        // the very first use of each packet (m_fenceValue == 0) we must not Reset
+        // the allocator — that would fail with "command allocator cannot be reset
+        // because a command list is currently being recorded". On reuse, the
+        // previous ProcessBatch left the cmdList Closed; we wait for the GPU to
+        // drain it, then Reset.
+        if (packet->m_fenceValue > 0)
+        {
+            if (packet->m_fenceValue > packet->m_fence->GetCompletedValue())
+            {
+                packet->m_fence->WaitOnCpu();
+            }
+            packet->m_commandRecorder->Reset();
+        }
+        packet->m_offset = 0;
+
         CommandList* cmdList = packet->m_commandRecorder->GetCommandList();
 
         // Mid-batch flush: staging packet is full, retire it and rotate to the next.
@@ -498,14 +518,18 @@ namespace Spark::RHI
             m_currentPacketIndex = (m_currentPacketIndex + 1) % m_packets.size();
             packet = &m_packets[m_currentPacketIndex];
 
-            // Wait until the GPU is done consuming this packet's previous use.
-            if (packet->m_fenceValue > packet->m_fence->GetCompletedValue())
+            // Same first-use-vs-reuse split as the top of ProcessBatch:
+            // freshly-Init'd packets are already in recording state.
+            if (packet->m_fenceValue > 0)
             {
-                packet->m_fence->WaitOnCpu();
+                if (packet->m_fenceValue > packet->m_fence->GetCompletedValue())
+                {
+                    packet->m_fence->WaitOnCpu();
+                }
+                packet->m_commandRecorder->Reset();
             }
             packet->m_offset = 0;
 
-            packet->m_commandRecorder->Reset();
             cmdList = packet->m_commandRecorder->GetCommandList();
         };
 
@@ -640,6 +664,12 @@ namespace Spark::RHI
 
         packet->m_fenceValue = packet->m_fence->Increment();
         m_copyQueue->Signal(*packet->m_fence);
+
+        // Advance to the next packet so the next batch reuses a different
+        // command allocator + staging range — gives us m_packets.size() batches
+        // of in-flight pipelining before the top-of-ProcessBatch wait actually
+        // has to block.
+        m_currentPacketIndex = (m_currentPacketIndex + 1) % m_packets.size();
     }
 
 }

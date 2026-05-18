@@ -4,6 +4,8 @@
 #include <Input/InputSystem.h>
 
 #include <RHI/Backend/DX12/RHISystem.h>
+#include <RHI/System/RHIResourceSystem.h>
+#include <RHI/System/AsyncUploadSystem.h>
 
 #include <Resource/Asset.h>
 #include <Resource/AssetManagerInterface.h>
@@ -39,6 +41,22 @@ int main(int argc, char** argv)
 
     auto renderSystem = CreateSystem<Spark::Render::RenderSystem>();
     renderSystem->Init();
+
+    // RHIResourceSystem + AsyncUploadSystem must be brought up *after* RenderSystem
+    // (which creates the device + RHIContext) but *before* TrianglePassFeature
+    // declares its data-driven resources, so the first FrameEventBus::OnFrameBegin
+    // already has both handlers registered.
+    //
+    // Init order matters: EBus handler list dispatches in LIFO order (push_front on
+    // BusConnect, iterate via begin()). To get RHIResourceSystem::OnFrameBegin to
+    // fire *before* AsyncUploadSystem (materialize the buffer first, then submit
+    // upload in the same frame), AsyncUploadSystem must be Init'd first so it ends
+    // up at the tail of the list.
+    auto asyncUploadSystem = CreateSystem<Spark::RHI::AsyncUploadSystem>();
+    asyncUploadSystem->Init();
+
+    auto rhiResourceSystem = CreateSystem<Spark::RHI::RHIResourceSystem>();
+    rhiResourceSystem->Init();
 
     // Push our own pipeline to override the default UIPass pipeline.
     // OnTick reads PassExecuteContext::Current(), so whichever context is on top

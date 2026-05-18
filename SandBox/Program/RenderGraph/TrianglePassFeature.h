@@ -7,11 +7,9 @@
 
 namespace Spark::RHI
 {
-    class Device;
-    class BufferPool;
-    class Buffer;
-    class ShaderResourceLayout;
     class ShaderResource;
+    class ShaderResourceLayout;
+    class Fence;
 }
 
 namespace Spark::Resource
@@ -43,13 +41,22 @@ namespace Spark::SandBox
         void CreateVertexBuffer();
         void UpdateViewSRG();
 
+        Spark::RHI::RHIHandle FindSwapChainView() const;
+
         // ViewSRG (in RHIContext)
         Spark::RHI::RHIHandle  m_viewSRGEntity = Spark::RHI::NullHandle;
-        Spark::RHI::ShaderResource* m_srg = nullptr;
+        Ptr<Spark::RHI::ShaderResourceLayout> m_srgLayout;
+        Ptr<Spark::RHI::ShaderResource>       m_srg;
 
-        // Resources
-        Ptr<Spark::RHI::BufferPool> m_bufferPool;
-        Ptr<Spark::RHI::Buffer>     m_vertexBuffer;
+        // Vertex buffer (in RHIContext) + raw view entity used to import it as
+        // a buffer attachment in the pass — the attachment path is how RG picks
+        // up PendingSync from AsyncUploadSystem and emits the queue.Wait + acquire
+        // barrier on the graphics queue.
+        Spark::RHI::RHIHandle m_vbEntity     = Spark::RHI::NullHandle;
+        Spark::RHI::RHIHandle m_vbViewEntity = Spark::RHI::NullHandle;
+
+        // Swap chain view (looked up from RHIContext at Init time)
+        Spark::RHI::RHIHandle m_swapchainView = Spark::RHI::NullHandle;
 
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_vertShader;
