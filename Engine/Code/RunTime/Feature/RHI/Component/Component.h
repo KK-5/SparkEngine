@@ -39,6 +39,10 @@ namespace Spark::RHI
     // and needs flushing this frame.
     struct RHIUpdateTag {};
 
+    // Marks an SRG entity whose constants / views have been updated and need
+    // recompilation this frame. Consumed by RenderGraphCompiler::CompileShaderResources.
+    struct ShaderResourceUpdateTag {};
+
     // Human-readable debug name on a resource entity.
     struct ResourceName
     {

@@ -41,9 +41,6 @@ namespace Spark::Render
             DrawRange m_draws;
             uint32_t  m_itemIndex = 0;
             uint32_t  m_itemCount = 1;
-
-            const RHI::PipelineState* m_pipelineState = nullptr;
-            eastl::fixed_vector<const RHI::ShaderResource*, RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResources;
         };
         eastl::vector<Item>    m_items;
         RHI::CommandList*      m_commandList = nullptr;
@@ -93,6 +90,10 @@ namespace Spark::Render
         void BuildExecuteGroups(QueueSegment& segment, const PassContext& passContext) const;
 
         void BuildExecuteWorks(ExecuteGroup& group, const PassContext& passContext) const;
+
+        void ExecuteBindPSO(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
+
+        void ExecuteBindPerPassSRGs(RHI::CommandList* commandList, Pass pass, PassContext& passContext, RHIContext& rhiContext);
 
         void ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 

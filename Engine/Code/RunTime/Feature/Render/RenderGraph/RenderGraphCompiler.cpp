@@ -55,19 +55,35 @@ namespace
 
         for (uint32_t slot = 0; slot < slots.m_slots.size(); ++slot)
         {
-            if (slots.m_slots[slot] == NullHandle)
-                continue;
+            const auto& slotValue = slots.m_slots[slot];
 
-            const auto& srgLayout = rhiCtx.Get<ShaderResourceLayout>(slots.m_slots[slot]);
-            const auto& layout = *srgLayout.m_layout;
+            const RHI::ShaderResourceLayout* layout = nullptr;
+
+            if (eastl::holds_alternative<RHIHandle>(slotValue))
+            {
+                RHIHandle entity = eastl::get<RHIHandle>(slotValue);
+                if (entity == NullHandle)
+                {
+                    continue;
+                }
+                const auto& srgLayout = rhiCtx.Get<ShaderResourceLayout>(entity);
+                layout = srgLayout.m_layout.get();
+                ASSERT(layout, "Pass SRG entity has null ShaderResourceLayout.");
+            }
+            else
+            {
+                auto& srgLayout = eastl::get<Ptr<RHI::ShaderResourceLayout>>(slotValue);
+                layout = srgLayout.get();
+                ASSERT(layout, "Pass SRG slot has null PerDraw layout.");
+            }
 
             RHI::ShaderResourceBindingInfo bindingInfo;
 
             // --- constant data binding ---
-            if (const auto* constLayout = layout.GetConstantsLayout())
+            if (const auto* constLayout = layout->GetConstantsLayout())
             {
                 // Pick up register / space from the first constant descriptor.
-                auto constants = layout.GetShaderInputListForConstants();
+                auto constants = layout->GetShaderInputListForConstants();
                 if (!constants.empty())
                 {
                     bindingInfo.m_constantDataBindingInfo = RHI::ResourceBindingInfo(
@@ -87,12 +103,12 @@ namespace
                 }
             };
 
-            addResources(layout.GetShaderInputListForBuffers());
-            addResources(layout.GetShaderInputListForImages());
-            addResources(layout.GetShaderInputListForSamplers());
-            addResources(layout.GetStaticSamplers());
+            addResources(layout->GetShaderInputListForBuffers());
+            addResources(layout->GetShaderInputListForImages());
+            addResources(layout->GetShaderInputListForSamplers());
+            addResources(layout->GetStaticSamplers());
 
-            desc->AddShaderResourceLayoutInfo(layout, bindingInfo);
+            desc->AddShaderResourceLayoutInfo(*layout, bindingInfo);
         }
 
         desc->Finalize();
@@ -1220,17 +1236,17 @@ namespace
 
     void RenderGraphCompiler::CompileShaderResources(RHI::Device& device, RHIContext& context)
     {
-        auto& view = context.GetView<RHIUpdateTag, BackingShaderResource>();
+        auto& view = context.GetView<ShaderResourceUpdateTag, RHI::Components::ShaderResource>();
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
         auto& shaderResourceCompiler = factory->AcquireShaderResourceCompiler(device);
         eastl::vector<RHI::ShaderResource*> shaderResources;
         shaderResources.reserve(view.size_hint());
-        view.each([&](RHIHandle handle, BackingShaderResource& shaderResource)
+        view.each([&](RHIHandle handle, RHI::Components::ShaderResource& shaderResourceComp)
         {
-            shaderResources.push_back(shaderResource.m_shaderResource);
-            context.Remove<RHIUpdateTag>(handle);
+            shaderResources.push_back(shaderResourceComp.m_shaderResource.get());
+            context.Remove<ShaderResourceUpdateTag>(handle);
         });
         shaderResourceCompiler.Compiler(shaderResources);
 

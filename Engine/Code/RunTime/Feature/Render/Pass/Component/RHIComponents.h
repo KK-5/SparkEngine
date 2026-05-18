@@ -41,6 +41,7 @@ namespace Spark::Render
     using RHI::ImportedTag;
     using RHI::TransientTag;
     using RHI::RHIUpdateTag;
+    using RHI::ShaderResourceUpdateTag;
     using RHI::ResourceName;
     using RHI::ShaderResourceTag;
     using RHI::ViewHierarchy;
@@ -110,12 +111,6 @@ namespace Spark::Render
     struct BackingBufferView
     {
         RHI::BufferView* m_view = nullptr;
-    };
-
-    // Non-owning pointer to the actual RHI shader resource backing an SRG entity.
-    struct BackingShaderResource
-    {
-        RHI::ShaderResource* m_shaderResource = nullptr;
     };
 
     // Simulated resource state during barrier compile.

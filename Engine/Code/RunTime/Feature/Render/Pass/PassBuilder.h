@@ -77,14 +77,9 @@ namespace Spark::Render
         }
 
         // ---- Shader resource binding ----
-        //! Wire an SRG entity into a slot. The slot index corresponds to the
-        //! shader register space / Vulkan set index. The executer dispatches on
-        //! the entity at pass begin:
-        //!  - Entity has BackingShaderResource → auto-bound at pass begin.
-        //!  - Entity is layout-only (no Backing) → execute lambda is expected
-        //!    to bind a concrete SRG per draw (per-material / per-object).
-        //! Either way the PSO compiler reads ShaderResourceLayout off the entity
-        //! to assemble the pipeline layout, so it must be present.
+        //! Wire a PerPass SRG entity into a slot. The executer auto-binds
+        //! Components::ShaderResource off the entity at pass begin.
+        //! The PSO compiler reads ShaderResourceLayout off the entity.
         RenderPassBuilder& ShaderResource(uint32_t slot, RHIHandle entity)
         {
             ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
@@ -93,13 +88,37 @@ namespace Spark::Render
             ASSERT(entity != NullHandle,
                 "Pass '{}': SRG slot {} entity is NullHandle.",
                 m_name.GetCStr(), slot);
-            ASSERT(m_shaderResources.m_slots[slot] == NullHandle,
-                "Pass '{}': SRG slot {} already bound.",
-                m_name.GetCStr(), slot);
+            {
+                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
+                ASSERT(existing && *existing == NullHandle,
+                    "Pass '{}': SRG slot {} already bound.",
+                    m_name.GetCStr(), slot);
+            }
             ASSERT(RHIExecuteContext::Current()->Has<ShaderResourceLayout>(entity),
                 "Pass '{}': SRG slot {} entity has no ShaderResourceLayout.",
                 m_name.GetCStr(), slot);
             m_shaderResources.m_slots[slot] = entity;
+            return *this;
+        }
+
+        //! Wire a PerDraw layout into a slot. The execute lambda is responsible
+        //! for picking a concrete SRG instance and binding it per draw.
+        //! The PSO compiler reads the layout directly.
+        RenderPassBuilder& ShaderResource(uint32_t slot, Ptr<RHI::ShaderResourceLayout> layout)
+        {
+            ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
+                "Pass '{}': SRG slot {} >= ShaderResourceCountMax.",
+                m_name.GetCStr(), slot);
+            ASSERT(layout != nullptr,
+                "Pass '{}': SRG slot {} layout is null.",
+                m_name.GetCStr(), slot);
+            {
+                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
+                ASSERT(existing && *existing == NullHandle,
+                    "Pass '{}': SRG slot {} already bound.",
+                    m_name.GetCStr(), slot);
+            }
+            m_shaderResources.m_slots[slot] = eastl::move(layout);
             return *this;
         }
 
@@ -190,7 +209,7 @@ namespace Spark::Render
             , m_name(name)
         {
             m_shaderResources.m_slots.resize(
-                RHI::Limits::Pipeline::ShaderResourceCountMax, NullHandle);
+                RHI::Limits::Pipeline::ShaderResourceCountMax, ShaderResourceSlot{NullHandle});
         }
 
         PassContext*            m_context;
@@ -243,7 +262,6 @@ namespace Spark::Render
         }
 
         // ---- Shader resource binding ----
-        //! See RenderPassBuilder::ShaderResource.
         ComputePassBuilder& ShaderResource(uint32_t slot, RHIHandle entity)
         {
             ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
@@ -252,13 +270,34 @@ namespace Spark::Render
             ASSERT(entity != NullHandle,
                 "Compute pass '{}': SRG slot {} entity is NullHandle.",
                 m_name.GetCStr(), slot);
-            ASSERT(m_shaderResources.m_slots[slot] == NullHandle,
-                "Compute pass '{}': SRG slot {} already bound.",
-                m_name.GetCStr(), slot);
+            {
+                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
+                ASSERT(existing && *existing == NullHandle,
+                    "Compute pass '{}': SRG slot {} already bound.",
+                    m_name.GetCStr(), slot);
+            }
             ASSERT(RHIExecuteContext::Current()->Has<ShaderResourceLayout>(entity),
                 "Compute pass '{}': SRG slot {} entity has no ShaderResourceLayout.",
                 m_name.GetCStr(), slot);
             m_shaderResources.m_slots[slot] = entity;
+            return *this;
+        }
+
+        ComputePassBuilder& ShaderResource(uint32_t slot, Ptr<RHI::ShaderResourceLayout> layout)
+        {
+            ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
+                "Compute pass '{}': SRG slot {} >= ShaderResourceCountMax.",
+                m_name.GetCStr(), slot);
+            ASSERT(layout != nullptr,
+                "Compute pass '{}': SRG slot {} layout is null.",
+                m_name.GetCStr(), slot);
+            {
+                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
+                ASSERT(existing && *existing == NullHandle,
+                    "Compute pass '{}': SRG slot {} already bound.",
+                    m_name.GetCStr(), slot);
+            }
+            m_shaderResources.m_slots[slot] = eastl::move(layout);
             return *this;
         }
 
@@ -342,7 +381,7 @@ namespace Spark::Render
             , m_name(name)
         {
             m_shaderResources.m_slots.resize(
-                RHI::Limits::Pipeline::ShaderResourceCountMax, NullHandle);
+                RHI::Limits::Pipeline::ShaderResourceCountMax, ShaderResourceSlot{NullHandle});
         }
 
         PassContext*            m_context;

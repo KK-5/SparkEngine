@@ -2,6 +2,7 @@
 
 #include <Base.h>
 #include <EASTL/fixed_vector.h>
+#include <EASTL/variant.h>
 #include <Object/ObjectName.h>
 
 #include <RHI/Resource/ShaderResource/InputStreamLayout.h>
@@ -109,22 +110,26 @@ namespace Spark::Render
         Ptr<RHI::PipelineState> m_pso;
     };
 
-    //! Slot-indexed table of SRG entity references the pass uses. Slot index
-    //! corresponds to the shader register space / Vulkan set index — builder
-    //! sets the slot explicitly so this aligns with the shader contract.
+    //! A single shader resource binding slot — either a PerPass SRG entity
+    //! (RHIHandle → executer auto-binds at pass begin) or a PerDraw layout
+    //! (Ptr<ShaderResourceLayout> → execute lambda picks instance per draw).
+    //! The two cases are mutually exclusive; an unused slot holds RHIHandle{NullHandle}.
+    using ShaderResourceSlot = eastl::variant<RHIHandle, Ptr<RHI::ShaderResourceLayout>>;
+
+    //! Slot-indexed table of shader resource bindings the pass declares.
+    //! Slot index corresponds to the shader register space / Vulkan set index —
+    //! builder sets the slot explicitly so this aligns with the shader contract.
     //!
-    //! NullHandle entries are unused slots. Non-null entries point into the
-    //! RHIContext at SRG entities; the consumer dispatches on component
-    //! presence:
-    //!  - SRG entity has BackingShaderResource → executer binds at pass begin.
-    //!  - SRG entity lacks BackingShaderResource (layout-only) → execute
-    //!    lambda is responsible for binding per draw.
+    //! PerPass slots hold an SRG entity handle; executer reads
+    //! Components::ShaderResource off that entity and auto-binds at pass begin.
+    //! PerDraw slots hold a ShaderResourceLayout Ptr; the execute lambda is
+    //! responsible for picking a concrete SRG instance and binding it per draw.
     //!
-    //! In both cases the PSO compiler reads ShaderResourceLayout off the SRG
-    //! entity to assemble PipelineLayoutDescriptor.
+    //! The PSO compiler reads ShaderResourceLayout from either alternative
+    //! to assemble the PipelineLayoutDescriptor.
     struct PassShaderResources
     {
-        eastl::fixed_vector<RHIHandle, RHI::Limits::Pipeline::ShaderResourceCountMax> m_slots;
+        eastl::fixed_vector<ShaderResourceSlot, RHI::Limits::Pipeline::ShaderResourceCountMax> m_slots;
     };
 
     //! Forces PSO recompilation on next frame (set on shader hot-reload).

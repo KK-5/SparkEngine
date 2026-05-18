@@ -195,6 +195,50 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphExecuter::ExecuteBindPSO(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
+    {
+        if (auto* pso = passContext.TryGet<PassCompiledPSO>(pass))
+        {
+            commandList->SetPipelineState(*pso->m_pso);
+        }
+    }
+
+    void RenderGraphExecuter::ExecuteBindPerPassSRGs(RHI::CommandList* commandList, Pass pass, PassContext& passContext, RHIContext& rhiContext)
+    {
+        auto* srgs = passContext.TryGet<PassShaderResources>(pass);
+        if (!srgs)
+        {
+            return;
+        }
+
+        const bool isCompute = passContext.Has<ComputePassTag>(pass);
+
+        for (auto& slotValue : srgs->m_slots)
+        {
+            if (!eastl::holds_alternative<RHIHandle>(slotValue))
+            {
+                continue;
+            }
+            RHIHandle entity = eastl::get<RHIHandle>(slotValue);
+            if (entity == NullHandle)
+            {
+                continue;
+            }
+            auto* srgComp = rhiContext.TryGet<RHI::Components::ShaderResource>(entity);
+            if (srgComp && srgComp->m_shaderResource)
+            {
+                if (isCompute)
+                {
+                    commandList->SetShaderResourceForDispatch(*srgComp->m_shaderResource);
+                }
+                else
+                {
+                    commandList->SetShaderResourceForDraw(*srgComp->m_shaderResource);
+                }
+            }
+        }
+    }
+
     void RenderGraphExecuter::Execute(ExecuteWork& work, RHI::Factory& factory, RHI::Device& device, RHI::HardwareQueueClass queueClass, PassContext& passContext)
     {
         RHI::CommandList* cmdList = factory.CreateCommandList(device, queueClass);
@@ -205,32 +249,10 @@ namespace Spark::Render
 
         for (auto& item : work.m_items)
         {
-            // --- resolve per-item PSO / SRG binding ---
-            item.m_pipelineState = nullptr;
-            item.m_shaderResources.clear();
-
-            if (auto* pso = passContext.TryGet<PassCompiledPSO>(item.m_pass))
-            {
-                item.m_pipelineState = pso->m_pso.get();
-            }
-
-            if (auto* srgs = passContext.TryGet<PassShaderResources>(item.m_pass))
-            {
-                for (RHIHandle handle : srgs->m_slots)
-                {
-                    if (handle == NullHandle)
-                    {
-                        continue;
-                    }
-                    if (auto* backing = rhiCtx.TryGet<BackingShaderResource>(handle))
-                    {
-                        item.m_shaderResources.push_back(backing->m_shaderResource);
-                    }
-                }
-            }
-
             if (item.m_itemIndex == 0)
             {
+                ExecuteBindPSO(cmdList, item.m_pass, passContext);
+                ExecuteBindPerPassSRGs(cmdList, item.m_pass, passContext, rhiCtx);
                 ExecutePreBarriers(cmdList, item.m_pass, passContext);
                 ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);
             }
