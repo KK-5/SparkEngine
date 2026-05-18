@@ -9,6 +9,13 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- Add QueueBarrier/FlushBarriers implementation, delegates to CommandListBase.
+ * Modified by SparkEngine in 2026
+ *  -- CommitShaderResources removed; Submit(DrawItem/DispatchItem) rewritten to call
+ *     SetPipelineState / SetShaderResourceForDraw / SetShaderResourceForDispatch directly.
+ *  -- SetShaderResourceForDraw/Dispatch: direct binding via srg->GetBindingSlot() →
+ *     pipelineLayout->GetIndexBySlot() → m_srgsByIndex dedup → DX12 bind.
+ *  -- SetPipelineState: unconditional PSO bind (no dedup), root signature update
+ *     on layout change, SRG cache invalidation.
  */
 
 #include "CommandList.h"
@@ -102,14 +109,146 @@ namespace Spark::RHI::DX12
         m_state.m_scissorState.Set(eastl::span<const RHI::Scissor>(scissors, count));
     }
 
+    void CommandList::SetPipelineState(const RHI::PipelineState& pipelineState)
+    {
+        const PipelineState& pso = static_cast<const PipelineState&>(pipelineState);
+
+        if (!pso.IsInitialized())
+        {
+            LOG_WARN("[CommandList] Pipeline State is not initialized.");
+            return;
+        }
+
+        const PipelineLayout* pipelineLayout = pso.GetPipelineLayout();
+        if (!pipelineLayout)
+        {
+            ASSERT(false, "Pipeline layout is null.");
+            return;
+        }
+
+        m_state.m_pipelineState = &pipelineState;
+
+        const RHI::PipelineStateType pipelineType = pso.GetType();
+        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(pipelineType);
+
+        GetCommandList()->SetPipelineState(pso.Get());
+
+        if (pipelineType == RHI::PipelineStateType::Draw)
+        {
+            const auto& pipelineData = pso.GetPipelineStateData();
+            auto& multisampleState = pipelineData.m_drawData.m_multisampleState;
+            SetSamplePositions(multisampleState);
+            SetTopology(pipelineData.m_drawData.m_primitiveTopology);
+        }
+
+        if (bindings.m_pipelineLayout != pipelineLayout)
+        {
+            switch (pipelineType)
+            {
+            case RHI::PipelineStateType::Draw:
+                GetCommandList()->SetGraphicsRootSignature(pipelineLayout->Get());
+                break;
+
+            case RHI::PipelineStateType::Dispatch:
+                GetCommandList()->SetComputeRootSignature(pipelineLayout->Get());
+                break;
+
+            default:
+                ASSERT(false, "Invalid PipelineType");
+                return;
+            }
+
+            bindings.m_pipelineLayout = pipelineLayout;
+
+            for (size_t i = 0; i < bindings.m_srgsByIndex.size(); ++i)
+            {
+                bindings.m_srgsByIndex[i] = nullptr;
+            }
+        }
+    }
+
     void CommandList::SetShaderResourceForDraw(const RHI::ShaderResource& shaderResourceGroup)
     {
-        SetShaderResource<RHI::PipelineStateType::Draw>(static_cast<const ShaderResource*>(&shaderResourceGroup));
+        const ShaderResource* srg = static_cast<const ShaderResource*>(&shaderResourceGroup);
+
+        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType::Draw);
+        const PipelineLayout* pipelineLayout = bindings.m_pipelineLayout;
+
+        if (!pipelineLayout)
+        {
+            ASSERT(false, "Pipeline layout is null. SetPipelineState must be called before binding shader resources.");
+            return;
+        }
+
+        const uint32_t slot = srg->GetBindingSlot();
+        const size_t srgIndex = pipelineLayout->GetIndexBySlot(slot);
+
+        if (bindings.m_srgsByIndex[srgIndex] == srg)
+        {
+            return;
+        }
+
+        bindings.m_srgsByIndex[srgIndex] = srg;
+
+        const RootParameterBinding binding = pipelineLayout->GetRootParameterBindingByIndex(srgIndex);
+        const ShaderResourceCompiledData& compiledData = srg->GetCompiledData();
+
+        if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
+        }
+
+        if (binding.m_constantBuffer != InvalidRootParameterIndex)
+        {
+            GetCommandList()->SetGraphicsRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
+        }
+
+        if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
+        }
     }
 
     void CommandList::SetShaderResourceForDispatch(const RHI::ShaderResource& shaderResourceGroup)
     {
-        SetShaderResource<RHI::PipelineStateType::Dispatch>(static_cast<const ShaderResource*>(&shaderResourceGroup));
+        const ShaderResource* srg = static_cast<const ShaderResource*>(&shaderResourceGroup);
+
+        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType::Dispatch);
+        const PipelineLayout* pipelineLayout = bindings.m_pipelineLayout;
+
+        if (!pipelineLayout)
+        {
+            ASSERT(false, "Pipeline layout is null. SetPipelineState must be called before binding shader resources.");
+            return;
+        }
+
+        const uint32_t slot = srg->GetBindingSlot();
+        const size_t srgIndex = pipelineLayout->GetIndexBySlot(slot);
+
+        if (bindings.m_srgsByIndex[srgIndex] == srg)
+        {
+            return;
+        }
+
+        bindings.m_srgsByIndex[srgIndex] = srg;
+
+        const RootParameterBinding binding = pipelineLayout->GetRootParameterBindingByIndex(srgIndex);
+        const ShaderResourceCompiledData& compiledData = srg->GetCompiledData();
+
+        if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetComputeRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
+        }
+
+        if (binding.m_constantBuffer != InvalidRootParameterIndex)
+        {
+            GetCommandList()->SetComputeRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
+        }
+
+        if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetComputeRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
+        }
     }
 
     void CommandList::Submit(const RHI::CopyItem& copyItem, uint32_t submitIndex)
@@ -264,10 +403,22 @@ namespace Spark::RHI::DX12
     {
         ValidateSubmitIndex(submitIndex);
 
-        if (!CommitShaderResources<RHI::PipelineStateType::Dispatch>(dispatchItem))
+        if (dispatchItem.m_pipelineState)
         {
-            LOG_WARN("[CommandList] Failed to bind shader resources for dispatch item. Skipping.");
-            return;
+            SetPipelineState(*dispatchItem.m_pipelineState);
+        }
+
+        for (const auto& srg : dispatchItem.m_shaderResource)
+        {
+            if (srg)
+            {
+                SetShaderResourceForDispatch(*srg);
+            }
+        }
+
+        if (dispatchItem.m_uniqueShaderResource)
+        {
+            SetShaderResourceForDispatch(*dispatchItem.m_uniqueShaderResource);
         }
 
         switch (dispatchItem.m_arguments.m_type)
@@ -291,10 +442,19 @@ namespace Spark::RHI::DX12
     {
         ValidateSubmitIndex(submitIndex);
 
-        if (!CommitShaderResources<RHI::PipelineStateType::Draw>(drawItem))
+        if (drawItem.m_pipelineState)
         {
-            LOG_WARN("[CommandList] Failed to bind shader resources for draw item. Skipping.");
-            return;
+            SetPipelineState(*drawItem.m_pipelineState);
+        }
+
+        for (uint32_t srgIndex = 0; srgIndex < drawItem.m_shaderResourceCount; ++srgIndex)
+        {
+            SetShaderResourceForDraw(*drawItem.m_shaderResource[srgIndex]);
+        }
+
+        if (drawItem.m_uniqueShaderResource)
+        {
+            SetShaderResourceForDraw(*drawItem.m_uniqueShaderResource);
         }
 
         SetVertexBuffers(drawItem.m_vertexBufferView);
@@ -982,266 +1142,4 @@ namespace Spark::RHI::DX12
         }
     }
 
-    template <RHI::PipelineStateType pipelineType, typename Item>
-    bool CommandList::CommitShaderResources(const Item& item)
-    {
-        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(pipelineType);
-
-        const PipelineState* pipelineState = static_cast<const PipelineState*>(item.m_pipelineState);
-        if(!pipelineState)
-        {
-            ASSERT(false, "Pipeline state not provided");
-            return false;
-        }
-
-        const PipelineLayout* pipelineLayout = pipelineState->GetPipelineLayout();
-        if (!pipelineLayout)
-        {
-            ASSERT(false, "Pipeline layout is null.");
-            return false;
-        }
-
-        bool updatePipelineState = m_state.m_pipelineState != pipelineState;
-        // The pipeline state gets set first.
-        if (updatePipelineState)
-        {
-            if (!pipelineState->IsInitialized())
-            {
-                LOG_WARN("[CommandList] Pipeline State is not initialized.");
-                return false;
-            }
-
-            GetCommandList()->SetPipelineState(pipelineState->Get());
-
-            // Check if we need to set custom sample positions
-            if constexpr (pipelineType == RHI::PipelineStateType::Draw)
-            {
-                const auto& pipelineData = pipelineState->GetPipelineStateData();
-                auto& multisampleState = pipelineData.m_drawData.m_multisampleState;
-                SetSamplePositions(multisampleState);
-                SetTopology(pipelineData.m_drawData.m_primitiveTopology);
-            }
-
-            // Pipeline layouts change when pipeline states do, just not as often. If the root
-            // signature changes all shader bindings are invalidated.
-            if (bindings.m_pipelineLayout != pipelineLayout)
-            {
-                switch (pipelineType)
-                {
-                case RHI::PipelineStateType::Draw:
-                    GetCommandList()->SetGraphicsRootSignature(pipelineLayout->Get());
-                    break;
-
-                case RHI::PipelineStateType::Dispatch:
-                    GetCommandList()->SetComputeRootSignature(pipelineLayout->Get());
-                    break;
-
-                default:
-                    ASSERT(false, "Invalid PipelineType");
-                    return false;
-                }
-
-                bindings.m_pipelineLayout = pipelineLayout;
-                bindings.m_hasRootConstants = pipelineLayout->HasRootConstants();
-
-                // We need to zero these out, since the command list root parameters are invalid.
-                for (size_t i = 0; i < bindings.m_srgsByIndex.size(); ++i)
-                {
-                    bindings.m_srgsByIndex[i] = nullptr;
-                }
-                bindings.m_bindlessHeapLastIndex = -1;
-            }
-
-            m_state.m_pipelineState = pipelineState;
-        }
-
-        // Assign shader resource groups from the item to slot bindings.
-        for (uint32_t srgIndex = 0; srgIndex < item.m_shaderResourceCount; ++srgIndex)
-        {
-            SetShaderResource<pipelineType>(static_cast<const ShaderResource*>(item.m_shaderResource[srgIndex]));
-        }
-
-        if (item.m_uniqueShaderResource)
-        {
-            SetShaderResource<pipelineType>(static_cast<const ShaderResource*>(item.m_uniqueShaderResource));
-        }
-
-        // Bind the inline constants from the item, if present.
-        if (bindings.m_hasRootConstants && item.m_rootConstantSize)
-        {
-            ASSERT((item.m_rootConstantSize % 4) == 0, "Invalid inline constant data size. It must be a multiple of 32 bit.");
-            switch (pipelineType)
-            {
-            case RHI::PipelineStateType::Draw:
-                GetCommandList()->SetGraphicsRoot32BitConstants(0, item.m_rootConstantSize / 4, item.m_rootConstants, 0);
-                break;
-
-            case RHI::PipelineStateType::Dispatch:
-                GetCommandList()->SetComputeRoot32BitConstants(0, item.m_rootConstantSize / 4, item.m_rootConstants, 0);
-                break;
-
-            default:
-                ASSERT(false, "Invalid PipelineType");
-                return false;
-            }
-        }
-
-        // Pull from slot bindings dictated by the pipeline layout. Re-bind anything that has changed
-        // at the flat index level.
-        for (size_t srgIndex = 0; srgIndex < pipelineLayout->GetRootParameterBindingCount(); ++srgIndex)
-        {
-            const size_t srgSlot = pipelineLayout->GetSlotByIndex(srgIndex);
-            const ShaderResource* shaderResource = bindings.m_srgsBySlot[srgSlot];
-            RootParameterBinding binding = pipelineLayout->GetRootParameterBindingByIndex(srgIndex);
-
-            // Check if we are iterating over the bindless srg slot
-            // [TODO] modify the binding method of bindless
-            const auto& device = static_cast<Device&>(GetDevice());
-            /*
-            if (srgSlot == device.GetBindlessSrgSlot() && shaderResource == nullptr)
-            {
-                // Skip in case the global static heap is already bound
-                if (bindings.m_bindlessHeapLastIndex == binding.m_bindlessTable)
-                {
-                    continue;
-                }
-                ASSERT(binding.m_bindlessTable.IsValid(), "BindlessSRG handles is not valid.");
-
-                switch (pipelineType)
-                {
-                case RHI::PipelineStateType::Draw:
-                    {
-                        GetCommandList()->SetGraphicsRootDescriptorTable(
-                            binding.m_bindlessTable, m_descriptorContext->GetBindlessGpuPlatformHandle());
-                        break;
-                    }
-                case RHI::PipelineStateType::Dispatch:
-                    {
-                        GetCommandList()->SetComputeRootDescriptorTable(
-                            binding.m_bindlessTable, m_descriptorContext->GetBindlessGpuPlatformHandle());
-                        break;
-                    }
-                default:
-                    ASSERT(false, "Invalid PipelineType");
-                    break;
-                }
-                bindings.m_bindlessHeapLastIndex = binding.m_bindlessTable;
-                continue;
-            }
-            */
-
-            if (RHI::Validation::isEnabled)
-            {
-                if (!shaderResource)
-                {
-                    /*
-                    eastl::string slotSrgString;
-                    for (size_t slot = 0; slot < RHI::Limits::Pipeline::ShaderResourceCountMax; ++slot)
-                    {
-                        if (bindings.m_srgsBySlot[slot])
-                        {
-                            if (!slotSrgString.empty())
-                            {
-                                slotSrgString += ", ";
-                            }
-
-                            slotSrgString += AZStd::string::format("Slot #%zu = '%s'", slot, bindings.m_srgsBySlot[slot]->GetName().GetCStr());
-                        }
-                    }
-
-                    // this assert typically happens when a shader needs a particular Srg (e.g., the ViewSrg) but the code did not bind it,
-                    // check the pass code in this callstack to determine why it was not bound
-                    AZ_Assert(false, "The DrawItem being submitted doesn't provide an SRG for slot '%zu', which the shader is expecting. If this slot is for a Pass, View or Scene SRG, this likely means "
-                        "the pass didn't collect it (for the view SRG, check if your pass provides a PipelineViewTag). The SRGs currently provided by the DrawItem are: %s",
-                        srgSlot,
-                        slotSrgString.c_str());
-                    */
-                    return false;
-                }
-            }
-
-            bool updateSRG = bindings.m_srgsByIndex[srgIndex] != shaderResource;
-            if (updateSRG)
-            {
-                bindings.m_srgsByIndex[srgIndex] = shaderResource;
-                const ShaderResourceCompiledData& compiledData = shaderResource->GetCompiledData();
-
-                switch (pipelineType)
-                {
-                    case RHI::PipelineStateType::Draw:
-                    {
-                        if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
-                        {
-                            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
-                        }
-
-                        if (binding.m_constantBuffer != InvalidRootParameterIndex)
-                        {
-                            GetCommandList()->SetGraphicsRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
-                        }
-
-                        if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
-                        {
-                            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
-                        }
-
-                        // [TODO] remove bindless from this
-                        /*
-                        for (uint32_t unboundedArrayIndex = 0; unboundedArrayIndex < ShaderResourceCompiledData::MaxUnboundedArrays;
-                             ++unboundedArrayIndex)
-                        {
-                            if (binding.m_bindlessTable != InvalidRootParameterIndex &&
-                                compiledData.m_gpuUnboundedArraysDescriptorHandles[unboundedArrayIndex].ptr)
-                            {
-                                GetCommandList()->SetGraphicsRootDescriptorTable(
-                                    binding.m_bindlessTable.GetIndex(),
-                                    compiledData.m_gpuUnboundedArraysDescriptorHandles[unboundedArrayIndex]);
-                            }
-                        }
-                        */
-                        break;
-                    }
-                    case RHI::PipelineStateType::Dispatch:
-                    {
-                        if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
-                        {
-                            GetCommandList()->SetComputeRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
-                        }
-
-                        if (binding.m_constantBuffer != InvalidRootParameterIndex)
-                        {
-                            GetCommandList()->SetComputeRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
-                        }
-
-                        if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
-                        {
-                            GetCommandList()->SetComputeRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
-                        }
-
-                        // [TODO] remove bindless from this
-                        /*
-                        for (uint32_t unboundedArrayIndex = 0; unboundedArrayIndex < ShaderResourceCompiledData::MaxUnboundedArrays;
-                             ++unboundedArrayIndex)
-                        {
-                            if (binding.m_bindlessTable != InvalidRootParameterIndex &&
-                                compiledData.m_gpuUnboundedArraysDescriptorHandles[unboundedArrayIndex].ptr)
-                            {
-                                GetCommandList()->SetComputeRootDescriptorTable(
-                                    binding.m_bindlessTable.GetIndex(),
-                                    compiledData.m_gpuUnboundedArraysDescriptorHandles[unboundedArrayIndex]);
-                            }
-                        }
-                        */
-                        break;
-                    }
-                    default:
-                    {
-                        ASSERT(false, "Invalid PipelineType");
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    }
 }

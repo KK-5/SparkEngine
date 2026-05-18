@@ -13,6 +13,10 @@
  *     Carries AttachmentLoadStoreAction so Vulkan dynamic rendering and DX12 RenderPass
  *     API can both drive tile-memory-correct load/store behavior.
  *  -- ClearRenderTarget / ClearUnorderedAccess / DiscardImage on RHI CommandList (ClearRequest.h).
+ * Modified by SparkEngine in 2026
+ *  -- Add SetPipelineState virtual interface; PSO binding separated from Submit path.
+ *  -- SetShaderResourceForDraw / SetShaderResourceForDispatch changed from slot-assign
+ *     to direct-bind semantics (CommitShaderResources removed).
  */
 #pragma once
 
@@ -67,6 +71,11 @@ namespace Spark::RHI
         /// Closes the command list after recording commands.
         /// @note: This should be called after all commands have been recorded.
         virtual void Close() = 0;
+
+        //! Sets the pipeline state object for subsequent draw/dispatch calls.
+        //! Must be called before SetShaderResourceForDraw/Dispatch.
+        //! @param pso The pipeline state to bind.
+        virtual void SetPipelineState(const PipelineState& pso) = 0;
 
         //! Assigns a shader resource group for draw on the graphics pipe, at the binding slot
         //! determined by the layout used to create the shader resource group.

@@ -16,6 +16,11 @@
  *     AttachmentAccess, optional MSAA resolve (EndingAccess = RESOLVE) and per-region
  *     shading rate image.
  *  -- Clear / DiscardImage: overrides RHI::CommandList; requests are RHI types.
+ * Modified by SparkEngine in 2026
+ *  -- Simplify ShaderResourceBindings: remove m_srgsBySlot (two-stage assign-then-pull
+ *     replaced by direct bind), remove m_bindlessHeapLastIndex, remove m_hasRootConstants.
+ *  -- Delete CommitShaderResources template; split into SetPipelineState (per-pass),
+ *     SetShaderResourceForDraw/Dispatch (direct dedup+bind), SetRootConstants removed.
  */
 
 #pragma once
@@ -60,6 +65,7 @@ namespace Spark::RHI::DX12
 
         //////////////////////////////////////////////////////////////////////////
         // RHI::CommandList
+        void SetPipelineState(const RHI::PipelineState& pso) override;
         void SetViewports(const RHI::Viewport* viewports, uint32_t count) override;
         void SetScissors(const RHI::Scissor* scissors, uint32_t count) override;
         void SetShaderResourceForDraw(const RHI::ShaderResource& shaderResource) override;
@@ -91,19 +97,6 @@ namespace Spark::RHI::DX12
 
         void SetParentQueue(CommandQueue* commandQueue);
 
-        // NOTE: Uses templates to remove branching. Specialized between draw / dispatch paths.
-        // Assigns a shader resource group to a logical slot. Does not bind to the command list
-        // (CommitShaderResources does the command list bind).
-        template <RHI::PipelineStateType>
-        void SetShaderResource(const ShaderResource* shaderResource);
-
-        // NOTE: Uses templates to remove branching. Specialized between draw / dispatch paths.
-        // Binds the pipeline state / pipeline layout, then the shader resources associated with a
-        // draw / dispatch call. Uses a pull model to bind state to the command list. Returns
-        // whether the operation succeeded.
-        template <RHI::PipelineStateType, typename Item>
-        bool CommitShaderResources(const Item& item);
-
         // void SetStreamBuffers(const RHI::DeviceGeometryView& geometryView, const RHI::StreamBufferIndices& streamIndices);
         void SetVertexBuffers(const RHI::VertexBufferView& bufferView);
         void SetIndexBuffer(const RHI::IndexBufferView& descriptor);
@@ -119,9 +112,6 @@ namespace Spark::RHI::DX12
         {
             const PipelineLayout* m_pipelineLayout = nullptr;
             eastl::array<const ShaderResource*, RHI::Limits::Pipeline::ShaderResourceCountMax> m_srgsByIndex;
-            eastl::array<const ShaderResource*, RHI::Limits::Pipeline::ShaderResourceCountMax> m_srgsBySlot;
-            bool m_hasRootConstants = false;
-            int m_bindlessHeapLastIndex = -1;
         };
 
         ShaderResourceBindings& GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType pipelineType);
@@ -168,20 +158,4 @@ namespace Spark::RHI::DX12
             RHI::Limits::Pipeline::AttachmentColorCountMax> m_resolveSubresourceParams = {};
     };
 
-    template <RHI::PipelineStateType pipelineType>
-    void CommandList::SetShaderResource(const ShaderResource* shaderResource)
-    {
-        if (RHI::Validation::isEnabled)
-        {
-            if (!shaderResource)
-            {
-                ASSERT(false, "ShaderResource assigned to draw item is null. This is not allowed.");
-                return;
-            }
-        }
-
-        const uint32_t bindingSlot = shaderResource->GetBindingSlot();
-
-        GetShaderResourceBindingsByPipelineType(pipelineType).m_srgsBySlot[bindingSlot] = shaderResource;
-    }
 }
