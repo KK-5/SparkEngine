@@ -142,11 +142,6 @@ namespace Spark::Render
             m_swapchainResource = NullHandle;
         }
 
-        m_pipelineLibrary.reset();
-        m_pool.reset();
-        m_crossQueueFences.Shutdown();
-        m_commandQueueContext.Shutdown();
-        m_device.reset();
     }
 
     void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex)

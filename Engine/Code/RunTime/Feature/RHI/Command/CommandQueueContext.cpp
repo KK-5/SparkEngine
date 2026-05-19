@@ -33,7 +33,7 @@ namespace Spark::RHI
 
     void FenceSet::Shutdown()
     {
-        // easlt container auto release
+        // eastl container auto release
     }
 
     void FenceSet::Wait() const
@@ -104,7 +104,7 @@ namespace Spark::RHI
 
     void CommandQueueContext::Shutdown()
     {
-        // easlt container auto release
+        // eastl container auto release
     }
 
     CommandQueue& CommandQueueContext::GetCommandQueue(RHI::HardwareQueueClass hardwareQueueClass)

@@ -234,13 +234,9 @@ namespace Spark::RHI
         for (auto& packet : m_packets)
         {
             m_stagingPool->UnmapBuffer(*packet.m_stagingBuffer);
-            packet.m_stagingBuffer.reset();
         }
         m_packets.clear();
 
-        m_uploadFence.reset();
-        m_stagingPool.reset();
-        m_copyQueue.reset();
     }
 
     void AsyncUploadSystem::OnFrameBegin()

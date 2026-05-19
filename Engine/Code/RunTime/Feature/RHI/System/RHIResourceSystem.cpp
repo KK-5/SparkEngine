@@ -94,12 +94,6 @@ namespace Spark::RHI
     void RHIResourceSystem::ShutdownInternal()
     {
         FrameEventBus::Handler::BusDisconnect();
-        m_hostReadbackImagePool.reset();
-        m_deviceImagePool.reset();
-        m_hostReadbackPlacedBufferPool.reset();
-        m_hostUploadPlacedBufferPool.reset();
-        m_deviceCommittedBufferPool.reset();
-        m_devicePlacedBufferPool.reset();
     }
 
     void RHIResourceSystem::OnFrameBegin()

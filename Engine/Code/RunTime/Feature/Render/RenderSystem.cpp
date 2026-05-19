@@ -152,7 +152,6 @@ namespace Spark::Render
         // itself can be released — any in-flight Present has completed and
         // the imported ImageView entities are gone.
         m_renderGraph.Shutdown();
-        m_rhiData.m_swapChain.reset();
     }
 
     void RenderSystem::OnTick(float deltaTime)

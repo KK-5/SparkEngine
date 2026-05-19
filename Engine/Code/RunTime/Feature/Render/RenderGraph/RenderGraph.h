@@ -21,7 +21,7 @@ namespace Spark::Render
 {
     class Pipeline;
 
-    class RenderGraph
+    class RenderGraph final
     {
     public:
         bool Init(RHI::Device& device);
