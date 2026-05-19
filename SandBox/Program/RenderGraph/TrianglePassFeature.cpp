@@ -169,7 +169,7 @@ namespace Spark::SandBox
         init.m_descriptor.m_bindFlags =
             Spark::RHI::BufferBindFlags::InputAssembly | Spark::RHI::BufferBindFlags::CopyWrite;
         init.m_descriptor.m_byteCount = sizeof(g_triangleVertices);
-        init.m_descriptor.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::All;
+        init.m_descriptor.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
         init.m_heapMemoryLevel = Spark::RHI::HeapMemoryLevel::Device;
         ctx.Add<Spark::RHI::PendingBufferInit>(m_vbEntity, init);
 
@@ -250,11 +250,6 @@ namespace Spark::SandBox
                 builder.ImportImageAttachment<SPARK_PASS_TAG("TrianglePass")>(
                     Spark::RHI::AttachmentId("SwapChain"), colorBind);
 
-                // Importing the VB as a buffer attachment is how RG sees the
-                // cross-queue handoff: barrier compile picks up PendingSync
-                // stamped by AsyncUploadSystem and emits queue.Wait(uploadFence)
-                // + acquire barrier (Copy/COMMON → InputAssembly @ Graphics)
-                // before this pass on the graphics queue.
                 Spark::Render::ImportedBufferAttachmentBindInfo vbBind;
                 vbBind.m_slot   = Spark::RHI::InputName("TriangleVB");
                 vbBind.m_view   = m_vbViewEntity;
@@ -267,38 +262,16 @@ namespace Spark::SandBox
             .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-
-                // VB is imported as a buffer attachment in Build above, so
-                // ImportBufferAttachment's validation has already asserted
-                // BackingBuffer is wired. Cross-queue sync (queue.Wait on the
-                // upload fence + acquire barrier) is emitted by the RG barrier
-                // compiler from PendingSync — no CPU wait needed here.
-                // auto* vertexBuffer = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_vbEntity);
-                // ASSERT(vertexBuffer && vertexBuffer->m_buffer, "[TrianglePassFeature] VB has no Buffer at execute.");
-
                 auto* commandList = work.m_commandList;
 
-                commandList->SetViewport(m_viewport);
-                commandList->SetScissor(m_scissor);
-                /*
-                Spark::RHI::DrawItem drawItem;
-                drawItem.m_drawArguments =
-                    Spark::RHI::DrawArguments(Spark::RHI::DrawLinear(g_vertexCount, 0));
-                drawItem.m_drawInstanceArgs = Spark::RHI::DrawInstanceArguments(1, 0);
+                // commandList->SetViewport(m_viewport);
+                // commandList->SetScissor(m_scissor);
 
-                Spark::RHI::VertexInputView vbView(
-                    *vertexBuffer->m_buffer,
-                    0,
-                    sizeof(g_triangleVertices),
-                    sizeof(TriangleVertex));
-                drawItem.m_vertexBufferView.AddVertexInputView(vbView);
-                */
                 auto& view = rhiCtx.GetView<SPARK_PASS_TAG("TrianglePass"), Spark::RHI::DrawItem>();
                 view.each([&](Spark::RHI::RHIHandle handle, const Spark::RHI::DrawItem& drawItem){
                     commandList->Submit(drawItem);
                 });
 
-                //commandList->Submit(drawItem);
             })
             .Finalize();
     }
@@ -327,6 +300,10 @@ namespace Spark::SandBox
                 sizeof(g_triangleVertices),
                 sizeof(TriangleVertex));
             drawItem.m_vertexBufferView.AddVertexInputView(vbView);
+            drawItem.m_viewportsCount = 1;
+            drawItem.m_scissorsCount = 1;
+            drawItem.m_viewports.push_back(m_viewport);
+            drawItem.m_scissors.push_back(m_scissor);
 
             rhiCtx.Add<Spark::RHI::DrawItem>(m_drawItemEntity, eastl::move(drawItem));
             rhiCtx.Add<SPARK_PASS_TAG("TrianglePass")>(m_drawItemEntity);
