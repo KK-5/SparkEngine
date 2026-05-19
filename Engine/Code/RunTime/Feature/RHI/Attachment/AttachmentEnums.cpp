@@ -37,7 +37,10 @@ namespace Spark::RHI
         // Remap read/write to read for Subpass input  attachments.
         // We disallow write access and throw an error because having a write access on an subpass input attachment is nonsensical.
         case AttachmentUsage::SubpassInput:
-            LOG_ERROR("Attachment", access == AttachmentAccess::Read, "AttachmentAccess cannot be 'Write' when usage is 'SubpassInput'.");
+            if (access != AttachmentAccess::Read)
+            {
+                LOG_ERROR("AttachmentAccess cannot be 'Write' when usage is 'SubpassInput'.");
+            }
             return AttachmentAccess::Read;
 
         // Remap write to read/write for Shader  attachments. This is because  
@@ -54,16 +57,19 @@ namespace Spark::RHI
             return access;
 
         case AttachmentUsage::InputAssembly:
-            LOG_ERROR("Attachment", !CheckBitsAll(access, AttachmentAccess::Write), "AttachmentAccess cannot be 'Write' when usage is 'InputAssembly'.");
+            if (CheckBitsAll(access, AttachmentAccess::Write))
+            {
+                LOG_ERROR("AttachmentAccess cannot be 'Write' when usage is 'InputAssembly'.");
+            }
             return AttachmentAccess::Read;
 
         // Remap read/write to read for ShadingRate  attachments.
         // We disallow write access and throw an error because having a write access on an ShadingRate input attachment is not allowed.
         case AttachmentUsage::ShadingRate:
-            LOG_ERROR(
-                "Attachment",
-                access == AttachmentAccess::Read,
-                "AttachmentAccess cannot be 'Write' when usage is 'ShadingRate'.");
+            if (access != AttachmentAccess::Read)
+            {
+                LOG_ERROR("AttachmentAccess cannot be 'Write' when usage is 'ShadingRate'.");
+            }
             return AttachmentAccess::Read;
 
         // No access adjustment for Resolve or Predication
@@ -73,10 +79,10 @@ namespace Spark::RHI
             return access;
 
         case AttachmentUsage::Indirect:
-            LOG_ERROR(
-                "Attachment",
-                !CheckBitsAll(access, AttachmentAccess::Write),
-                "AttachmentAccess cannot be 'Write' when usage is 'Indirect'.");
+            if (CheckBitsAll(access, AttachmentAccess::Write))
+            {
+                LOG_ERROR("AttachmentAccess cannot be 'Write' when usage is 'Indirect'.");
+            }
             return AttachmentAccess::Read;
 
         case AttachmentUsage::Uninitialized:

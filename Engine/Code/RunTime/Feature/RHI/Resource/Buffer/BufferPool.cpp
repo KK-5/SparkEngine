@@ -150,7 +150,7 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (GetMapRefCount() != 0 && GetDescriptor().m_heapMemoryLevel == HeapMemoryLevel::Host)
+            if (GetMapRefCount() != 0 && GetDescriptor().m_heapMemoryLevel == HeapMemoryLevel::Device)
             {
                 LOG_ERROR("[BufferPool] There are currently buffers mapped on buffer pool {}"
                 "All buffers must be unmapped when the frame is processing.", GetName().GetCStr() ? GetName().GetCStr() : "[Unknow]");

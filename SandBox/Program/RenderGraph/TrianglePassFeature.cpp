@@ -121,7 +121,6 @@ namespace Spark::SandBox
             0,
             0);
         m_srgLayout->AddShaderInput(mvpConstant);
-        m_srgLayout->SetBindingSlot(0);
 
         bool ok = m_srgLayout->Finalize();
         ASSERT(ok, "[TrianglePassFeature] SRG layout Finalize failed.");
@@ -264,8 +263,11 @@ namespace Spark::SandBox
                 // BackingBuffer is wired. Cross-queue sync (queue.Wait on the
                 // upload fence + acquire barrier) is emitted by the RG barrier
                 // compiler from PendingSync — no CPU wait needed here.
-                auto* backing = rhiCtx.TryGet<Spark::Render::BackingBuffer>(m_vbEntity);
-                ASSERT(backing && backing->m_buffer, "[TrianglePassFeature] VB has no BackingBuffer at execute.");
+                // auto* backing = rhiCtx.TryGet<Spark::Render::BackingBuffer>(m_vbEntity);
+                // ASSERT(backing && backing->m_buffer, "[TrianglePassFeature] VB has no BackingBuffer at execute.");
+
+                auto* vertexBuffer = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_vbEntity);
+                ASSERT(vertexBuffer && vertexBuffer->m_buffer, "[TrianglePassFeature] VB has no Buffer at execute.");
 
                 auto* commandList = work.m_commandList;
 
@@ -284,7 +286,7 @@ namespace Spark::SandBox
                 drawItem.m_drawInstanceArgs = Spark::RHI::DrawInstanceArguments(1, 0);
 
                 Spark::RHI::VertexInputView vbView(
-                    *backing->m_buffer,
+                    *vertexBuffer->m_buffer,
                     0,
                     sizeof(g_triangleVertices),
                     sizeof(TriangleVertex));
