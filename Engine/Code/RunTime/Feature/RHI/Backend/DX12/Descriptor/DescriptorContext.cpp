@@ -284,6 +284,14 @@ namespace Spark::RHI::DX12
             return;
         }
 
+        m_CBVSRVUAVHeapFlagNone.Shutdown();
+        m_CBVSRVUAVHeapFlagShaderVisible.Shutdown();
+        m_SamplerHeapFlagNone.Shutdown();
+        m_SamplerHeapFlagShaderVisible.Shutdown();
+        m_RTVHeapFlagNone.Shutdown();
+        m_DSVHeapFlagNone.Shutdown();
+        m_staticPool.Shutdown();
+
         DeviceObject::Shutdown();
     }
 

@@ -201,6 +201,11 @@ namespace Spark::RHI::DX12
         //! Release a range contiguous handles (i.e Descriptor table)
         void ReleaseTable(DescriptorTable& table);
 
+        //! Release the underlying D3D12 descriptor heap and internal pool immediately,
+        //! rather than waiting for the destructor. This allows ReportLiveDeviceObjects
+        //! to see zero live objects when called after factory shutdown.
+        void Shutdown();
+
         //! Garbage collection for freed handles or tables
         void Collect();
         //Get native pointers from the heap

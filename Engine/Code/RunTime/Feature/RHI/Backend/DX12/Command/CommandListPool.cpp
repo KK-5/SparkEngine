@@ -80,6 +80,7 @@ namespace Spark::RHI::DX12
     void CommandListFactory::DestoryObject(CommandList* commandList, [[maybe_unused]] bool isPoolShutdown)
     {
         commandList->Shutdown();
+        static_cast<CommandListBase*>(commandList)->Shutdown();
         commandList->~CommandList();
         m_allocator.deallocate(commandList);
     }

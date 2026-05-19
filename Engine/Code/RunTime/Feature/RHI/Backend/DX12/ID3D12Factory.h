@@ -157,31 +157,31 @@ namespace Spark::RHI::DX12
         void InitCommandlistAllocator(Device& device);
 
         // Device object pools
-        DeviceObjectPool<Buffer>     m_bufferObjectPool;
-        DeviceObjectPool<BufferPool> m_bufferPoolObjectPool;
-        DeviceObjectPool<BufferView> m_bufferViewObjectPool;
-        DeviceObjectPool<IndirectBufferSignature> m_indirectBufferSignatureObjectPool;
-        DeviceObjectPool<Image>      m_imageObjectPool;
-        DeviceObjectPool<ImagePool>  m_imagePoolObjectPool;
-        DeviceObjectPool<ImageView>  m_imageViewObjectPool;
-        DeviceObjectPool<TransientResourcePool> m_transientResourcePoolObjectPool;
-        DeviceObjectPool<ShaderResource> m_shaderResourceObjectPool;
-        DeviceObjectPool<PipelineLibrary> m_pipelineLibraryObjectPool;
-        DeviceObjectPool<PipelineState> m_pipelineStateObjectPool;
-        DeviceObjectPool<Fence>      m_fenceObjectPool;
-        DeviceObjectPool<SwapChain>  m_swapChainObjectPool;
-        DeviceObjectPool<CommandQueue> m_commandQueueObjectPool;
-        DeviceObjectPool<CommandRecorder> m_commandRecorderObjectPool;
+        DeviceObjectPool<Buffer>                    m_bufferObjectPool;
+        DeviceObjectPool<BufferPool>                m_bufferPoolObjectPool;
+        DeviceObjectPool<BufferView>                m_bufferViewObjectPool;
+        DeviceObjectPool<IndirectBufferSignature>   m_indirectBufferSignatureObjectPool;
+        DeviceObjectPool<Image>                     m_imageObjectPool;
+        DeviceObjectPool<ImagePool>                 m_imagePoolObjectPool;
+        DeviceObjectPool<ImageView>                 m_imageViewObjectPool;
+        DeviceObjectPool<TransientResourcePool>     m_transientResourcePoolObjectPool;
+        DeviceObjectPool<ShaderResource>            m_shaderResourceObjectPool;
+        DeviceObjectPool<PipelineLibrary>           m_pipelineLibraryObjectPool;
+        DeviceObjectPool<PipelineState>             m_pipelineStateObjectPool;
+        DeviceObjectPool<Fence>                     m_fenceObjectPool;
+        DeviceObjectPool<SwapChain>                 m_swapChainObjectPool;
+        DeviceObjectPool<CommandQueue>              m_commandQueueObjectPool;
+        DeviceObjectPool<CommandRecorder>           m_commandRecorderObjectPool;
 
-        DeviceObjectPool<Sampler>    m_samplerObjectPool;
-        DeviceObjectPool<PipelineLayout> m_pipelineLayoutObjectPool;
+        DeviceObjectPool<Sampler>                   m_samplerObjectPool;
+        DeviceObjectPool<PipelineLayout>            m_pipelineLayoutObjectPool;
 
-        eastl::unique_ptr<DescriptorContext> m_descriptorContext;
-        eastl::unique_ptr<ConstantBufferContext> m_constantBufferContext;
-        eastl::unique_ptr<CommandListAllocator> m_commandlistAllocator;
-        eastl::unique_ptr<ShaderResourceCompiler> m_shaderResourceCompiler;
+        eastl::unique_ptr<DescriptorContext>        m_descriptorContext;
+        eastl::unique_ptr<ConstantBufferContext>    m_constantBufferContext;
+        eastl::unique_ptr<CommandListAllocator>     m_commandlistAllocator;
+        eastl::unique_ptr<ShaderResourceCompiler>   m_shaderResourceCompiler;
 
-        eastl::unique_ptr<D3D12ObjReleaseQueue> m_dx12ObjReleaseQueue;
+        eastl::unique_ptr<D3D12ObjReleaseQueue>     m_dx12ObjReleaseQueue;
     };
 
 }

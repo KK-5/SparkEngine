@@ -72,6 +72,11 @@ namespace Spark::RHI::DX12
             m_commandlistAllocator->Shutdown();
         }
 
+        if (m_shaderResourceCompiler)
+        {
+            m_shaderResourceCompiler->Shutdown();
+        }
+
         if (m_dx12ObjReleaseQueue)
         {
             m_dx12ObjReleaseQueue->Shutdown();

@@ -28,12 +28,6 @@ namespace Spark::RHI
         {
             m_objectPool->QueueForRelease(this);
         }
-        /*
-        else
-        {
-            LOG_ERROR("[DeviceObject] There is a device object have not registered to pool.");
-        }
-        */
     }
 
     void DeviceObject::RegisterDeviceObjectPool(DeviceObjectPoolBase* pool)

@@ -37,6 +37,8 @@ namespace Spark::RHI::DX12
         auto* factory = Service<ID3D12FactoryInterface>::Get();
         ASSERT(factory, "[CommandRecorder] ID3D12FactoryInterface is not registered.");
 
+        static_cast<CommandListBase*>(m_dx12CommandList.get())->Shutdown();
+
         factory->QueueForRelease(static_cast<Device&>(GetDevice()), m_dx12CommandList->GetCommandList());
         factory->QueueForRelease(static_cast<Device&>(GetDevice()), m_commandAllocator.Get());
     }

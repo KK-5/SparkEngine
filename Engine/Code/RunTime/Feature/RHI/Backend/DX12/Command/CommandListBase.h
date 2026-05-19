@@ -60,6 +60,8 @@ namespace Spark::RHI::DX12
      public:
         virtual ~CommandListBase() = default;
 
+        using RHI::DeviceObject::Shutdown;
+
         CommandListBase(const CommandListBase&) = delete;
 
         virtual void Reset(ID3D12CommandAllocator* commandAllocator);

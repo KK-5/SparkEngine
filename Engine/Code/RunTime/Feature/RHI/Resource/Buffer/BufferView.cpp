@@ -33,11 +33,12 @@ namespace Spark::RHI
 
     void BufferView::Shutdown()
     {
+        /*
         if (IsInitialized())
         {
-            //GetBuffer().EraseBufferView(this);
             return;
         }
+        */
         ResourceView::Shutdown();
     }
 

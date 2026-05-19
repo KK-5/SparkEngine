@@ -73,6 +73,15 @@ namespace Spark::SandBox
             return false;
         }
 
+        auto* window = Service<Spark::Window::IWindowSystem>::Get();
+        auto windowSize = window->GetWindowSize();
+        Spark::RHI::Viewport viewport(
+            0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
+        Spark::RHI::Scissor scissor(
+            0, 0, (int32_t)windowSize.first, (int32_t)windowSize.second);
+        m_viewport = viewport;
+        m_scissor = scissor;
+
         CreateViewSRG();
         CreateVertexBuffer();
         CreateTrianglePass();
@@ -89,6 +98,7 @@ namespace Spark::SandBox
     void TrianglePassFeature::OnTick(float /*deltaTime*/)
     {
         UpdateViewSRG();
+        BuildDrawItemEntity();
     }
 
     Spark::RHI::RHIHandle TrianglePassFeature::FindSwapChainView() const
@@ -263,23 +273,14 @@ namespace Spark::SandBox
                 // BackingBuffer is wired. Cross-queue sync (queue.Wait on the
                 // upload fence + acquire barrier) is emitted by the RG barrier
                 // compiler from PendingSync — no CPU wait needed here.
-                // auto* backing = rhiCtx.TryGet<Spark::Render::BackingBuffer>(m_vbEntity);
-                // ASSERT(backing && backing->m_buffer, "[TrianglePassFeature] VB has no BackingBuffer at execute.");
-
-                auto* vertexBuffer = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_vbEntity);
-                ASSERT(vertexBuffer && vertexBuffer->m_buffer, "[TrianglePassFeature] VB has no Buffer at execute.");
+                // auto* vertexBuffer = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_vbEntity);
+                // ASSERT(vertexBuffer && vertexBuffer->m_buffer, "[TrianglePassFeature] VB has no Buffer at execute.");
 
                 auto* commandList = work.m_commandList;
 
-                auto* window = Service<Spark::Window::IWindowSystem>::Get();
-                auto windowSize = window->GetWindowSize();
-                Spark::RHI::Viewport viewport(
-                    0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
-                Spark::RHI::Scissor scissor(
-                    0, 0, (int32_t)windowSize.first, (int32_t)windowSize.second);
-                commandList->SetViewport(viewport);
-                commandList->SetScissor(scissor);
-
+                commandList->SetViewport(m_viewport);
+                commandList->SetScissor(m_scissor);
+                /*
                 Spark::RHI::DrawItem drawItem;
                 drawItem.m_drawArguments =
                     Spark::RHI::DrawArguments(Spark::RHI::DrawLinear(g_vertexCount, 0));
@@ -291,10 +292,45 @@ namespace Spark::SandBox
                     sizeof(g_triangleVertices),
                     sizeof(TriangleVertex));
                 drawItem.m_vertexBufferView.AddVertexInputView(vbView);
+                */
+                auto& view = rhiCtx.GetView<SPARK_PASS_TAG("TrianglePass"), Spark::RHI::DrawItem>();
+                view.each([&](Spark::RHI::RHIHandle handle, const Spark::RHI::DrawItem& drawItem){
+                    commandList->Submit(drawItem);
+                });
 
-                commandList->Submit(drawItem);
+                //commandList->Submit(drawItem);
             })
             .Finalize();
+    }
+
+    void TrianglePassFeature::BuildDrawItemEntity()
+    {
+        if (m_drawItemEntity != Spark::RHI::NullHandle)
+        {
+            return;
+        }
+
+        auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
+
+        auto* vertexBuffer = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_vbEntity);
+        if (vertexBuffer && vertexBuffer->m_buffer)
+        {
+            m_drawItemEntity = rhiCtx.CreateEntity();
+            Spark::RHI::DrawItem drawItem;
+            drawItem.m_drawArguments =
+                Spark::RHI::DrawArguments(Spark::RHI::DrawLinear(g_vertexCount, 0));
+            drawItem.m_drawInstanceArgs = Spark::RHI::DrawInstanceArguments(1, 0);
+
+            Spark::RHI::VertexInputView vbView(
+                *vertexBuffer->m_buffer,
+                0,
+                sizeof(g_triangleVertices),
+                sizeof(TriangleVertex));
+            drawItem.m_vertexBufferView.AddVertexInputView(vbView);
+
+            rhiCtx.Add<Spark::RHI::DrawItem>(m_drawItemEntity, eastl::move(drawItem));
+            rhiCtx.Add<SPARK_PASS_TAG("TrianglePass")>(m_drawItemEntity);
+        }
     }
 
     void TrianglePassFeature::UpdateViewSRG()

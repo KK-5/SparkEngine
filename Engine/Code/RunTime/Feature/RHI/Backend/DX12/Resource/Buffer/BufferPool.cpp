@@ -138,7 +138,7 @@ namespace Spark::RHI::DX12
                 {
                     eastl::vector<wchar_t> wideName(static_cast<size_t>(len));
                     MultiByteToWideChar(CP_UTF8, 0, utf8Name, -1, wideName.data(), len);
-                    allocation->SetName(wideName.data());
+                    allocation->SetName(L"aaaaa");
                 }
             }
         }

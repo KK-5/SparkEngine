@@ -51,6 +51,13 @@ namespace Spark::RHI::DX12
         return MemoryView(allocation.Get(), MemoryViewType::Buffer, 0, size, alignment);
     }
 
+    void ConstantBufferContext::Shutdown()
+    {
+        m_releaseQueue.Collect(true);
+        m_allocator = nullptr;
+        DeviceObject::Shutdown();
+    }
+
     void ConstantBufferContext::CollectConstantBuffer(MemoryView& memoryView)
     {
         m_releaseQueue.QueueForCollect(memoryView.GetMemoryAllocation());

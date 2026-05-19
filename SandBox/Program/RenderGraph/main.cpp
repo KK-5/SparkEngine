@@ -69,12 +69,15 @@ int main(int argc, char** argv)
 
     while (!glfwWindow->ShouldClose())
     {
-        glfwWindow->PollEvents();
         TickBus::Broadcast(&TickBus::Events::OnTick, 0.f);
     }
 
     triFeature.Shutdown();
     Spark::Render::PassExecuteContext::Pop();
+
+    renderSystem.reset();
+    auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
+    ctx.Clear();
 
     return 0;
 }

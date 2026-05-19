@@ -660,10 +660,11 @@ namespace Spark::RHI
         // GPU is done with this packet's data.
         cmdList->Close();
         m_copyQueue->ExecuteCommands({ &cmdList, 1 });
-        m_copyQueue->Signal(*m_uploadFence, batch.m_fenceValue);
 
         packet->m_fenceValue = packet->m_fence->Increment();
         m_copyQueue->Signal(*packet->m_fence);
+
+        m_copyQueue->Signal(*m_uploadFence, batch.m_fenceValue);
 
         // Advance to the next packet so the next batch reuses a different
         // command allocator + staging range — gives us m_packets.size() batches

@@ -4,6 +4,8 @@
 #include <Tick/TickBus.h>
 #include <Pass/Pass.h>
 #include <RHI/Context/RHIHandle.h>
+#include <RHI/Viewport/Viewport.h>
+#include <RHI/Scissor/Scissor.h>
 
 namespace Spark::RHI
 {
@@ -40,6 +42,7 @@ namespace Spark::SandBox
         void CreateTrianglePass();
         void CreateVertexBuffer();
         void UpdateViewSRG();
+        void BuildDrawItemEntity();
 
         Spark::RHI::RHIHandle FindSwapChainView() const;
 
@@ -58,9 +61,14 @@ namespace Spark::SandBox
         // Swap chain view (looked up from RHIContext at Init time)
         Spark::RHI::RHIHandle m_swapchainView = Spark::RHI::NullHandle;
 
+        Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
+
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_vertShader;
         Ptr<Spark::Resource::ShaderAsset> m_fragShader;
+
+        Spark::RHI::Viewport m_viewport;
+        Spark::RHI::Scissor  m_scissor;
 
         // Transform
         float m_rotationAngle = 0.f;

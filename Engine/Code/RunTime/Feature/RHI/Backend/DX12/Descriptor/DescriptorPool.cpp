@@ -125,6 +125,12 @@ namespace Spark::RHI::DX12
         m_internalPool->ReleaseTable(table);
     }
 
+    void DescriptorPool::Shutdown()
+    {
+        m_internalPool.reset();
+        m_descriptorHeap = nullptr;
+    }
+
     void DescriptorPool::Collect()
     {
        m_internalPool->Collect();

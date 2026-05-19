@@ -21,14 +21,17 @@ namespace Spark::RHI::DX12
 
     void RHISystem::ShutdownInternal()
     {
-        // Chain to base first: pop the RHIContext while the backend is still
-        // healthy, mirroring the init order.
-        RHIInterface::ShutdownInternal();
-
+        // Shut down the factory first so that all D3D12 resources (descriptor
+        // heaps, command queues, fences, pipeline states, root signatures,
+        // command allocators, command lists, D3D12MA allocations) are released
+        // before Device::ShutdownInternal calls ReportLiveDeviceObjects.
         if (m_rhiFactory)
         {
             m_rhiFactory->Shutdown();
         }
+
+        RHIInterface::ShutdownInternal();
+
         FrameEventBus::Handler::BusDisconnect();
     }
 
