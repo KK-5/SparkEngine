@@ -132,7 +132,7 @@ namespace Spark::Render
         for (Pass pass : group.m_passes)
         {
             ExecuteWork work;
-            work.m_items.push_back({ pass, {}, 0, 1 });
+            work.m_items.push_back({ pass, {0, 1}, 0, 1 });
             group.m_works.push_back(eastl::move(work));
         }
     }

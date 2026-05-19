@@ -24,8 +24,6 @@ namespace Spark::RHI
 
 namespace Spark::Render
 {
-    //! draw call 子区间,左闭右开 [m_startIndex, m_endIndex)。
-    //! m_endIndex == 0 表示整个 pass (等同于 startIndex=0 且不截断)。
     struct DrawRange
     {
         uint32_t m_startIndex = 0;
