@@ -93,6 +93,31 @@ namespace Spark::SandBox
     void TrianglePassFeature::Shutdown()
     {
         TickBus::Handler::BusDisconnect();
+
+        // Entities live in RHIContext (owned by RHISystem), not in any Ptr<>
+        // member here — RAII can't reach them, so the owner has to destroy
+        // them explicitly while the resource pools they reference are still
+        // alive. Order: DrawItem (consumer) → VB view → VB → ViewSRG;
+        // Components on the entity (Components::Buffer / ShaderResource / ...)
+        // tear down with the entity, releasing their Ptr<> refs.
+        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
+        auto destroyIfValid = [&](Spark::RHI::RHIHandle& handle)
+        {
+            if (handle != Spark::RHI::NullHandle && ctx.Valid(handle))
+            {
+                ctx.DestoryEntity(handle);
+            }
+            handle = Spark::RHI::NullHandle;
+        };
+        destroyIfValid(m_drawItemEntity);
+        destroyIfValid(m_vbViewEntity);
+        destroyIfValid(m_vbEntity);
+        destroyIfValid(m_viewSRGEntity);
+
+        // m_srg / m_srgLayout / m_vertShader / m_fragShader are Ptr<> members:
+        // their refs are released automatically by ~TrianglePassFeature() at
+        // scope exit, which runs before any system shuts down (triFeature is
+        // declared last in main).
     }
 
     void TrianglePassFeature::OnTick(float /*deltaTime*/)

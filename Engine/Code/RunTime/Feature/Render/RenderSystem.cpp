@@ -36,20 +36,16 @@ namespace Spark::Render
             return false;
         }
 
-        RHI::PhysicalDeviceList devList = rhi->EnumeratePhysicalDevices();
-        ASSERT(devList.size() > 0, "[RenderSystem] No physical devices available.");
-        Ptr<RHI::PhysicalDevice> selectDevice = devList.front();
-
-        RHI::DeviceDescriptor deviceDesc;
-        deviceDesc.m_frameCountMax = 3;
-        RHI::ResultCode result = rhi->InitDevice(*selectDevice, deviceDesc);
-        if (result != RHI::ResultCode::Success)
+        // Device is initialized by the caller (main) via rhi->InitDevice() before
+        // RenderSystem::Init runs. RenderSystem is a pure consumer here.
+        RHI::Device* device = rhi->GetDevice();
+        if (!device)
         {
-            LOG_ERROR("[RenderSystem] Init device failed.");
+            LOG_ERROR("[RenderSystem] RHI device is not initialized — call "
+                      "RHIInterface::InitDevice() before RenderSystem::Init().");
             return false;
         }
 
-        RHI::Device* device = rhi->GetDevice();
         if (!m_renderGraph.Init(*device))
         {
             LOG_ERROR("[RenderSystem] RenderGraph init failed.");
@@ -65,13 +61,13 @@ namespace Spark::Render
 
         m_rhiData.m_swapChain = factory->CreateSwapChain();
         RHI::SwapChainDescriptor desc;
-        desc.m_dimensions.m_imageCount = deviceDesc.m_frameCountMax;
+        desc.m_dimensions.m_imageCount = device->GetDescriptor().m_frameCountMax;
         desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
         auto windowSize = window->GetWindowSize();
         desc.m_dimensions.m_imageHeight = windowSize.second;
         desc.m_dimensions.m_imageWidth = windowSize.first;
         desc.m_window = window->GetNativeHandle();
-        result = m_rhiData.m_swapChain->Init(
+        RHI::ResultCode result = m_rhiData.m_swapChain->Init(
             *device,
             m_renderGraph.GetCommandQueue(RHI::HardwareQueueClass::Graphics),
             desc);
@@ -148,8 +144,15 @@ namespace Spark::Render
 
     void RenderSystem::ShutdownInternal()
     {
-        PassExecuteContext::Pop();
         TickBus::Handler::BusDisconnect();
+        PassExecuteContext::Pop();
+
+        // RenderGraph::Shutdown drains the GPU and destroys the swap chain
+        // entities it imported into RHIContext. After that the swap chain
+        // itself can be released — any in-flight Present has completed and
+        // the imported ImageView entities are gone.
+        m_renderGraph.Shutdown();
+        m_rhiData.m_swapChain.reset();
     }
 
     void RenderSystem::OnTick(float deltaTime)

@@ -114,6 +114,41 @@ namespace Spark::Render
         return true;
     }
 
+    void RenderGraph::Shutdown()
+    {
+        if (m_device == nullptr)
+        {
+            return;
+        }
+
+        // Drain the GPU before releasing anything the in-flight command lists
+        // could still reference (swap chain views, transient pool allocations,
+        // PSOs in the pipeline library, etc.). RHI::CommandQueueContext doesn't
+        // expose a single WaitForIdle, so walk the queues we own.
+        for (uint32_t i = 0; i < RHI::HardwareQueueClassCount; ++i)
+        {
+            m_commandQueueContext.GetCommandQueue(static_cast<RHI::HardwareQueueClass>(i)).WaitForIdle();
+        }
+
+        auto& context = *RHIExecuteContext::Current();
+        if (m_swapchainView != NullHandle && context.Valid(m_swapchainView))
+        {
+            context.DestoryEntity(m_swapchainView);
+            m_swapchainView = NullHandle;
+        }
+        if (m_swapchainResource != NullHandle && context.Valid(m_swapchainResource))
+        {
+            context.DestoryEntity(m_swapchainResource);
+            m_swapchainResource = NullHandle;
+        }
+
+        m_pipelineLibrary.reset();
+        m_pool.reset();
+        m_crossQueueFences.Shutdown();
+        m_commandQueueContext.Shutdown();
+        m_device.reset();
+    }
+
     void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex)
     {
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
