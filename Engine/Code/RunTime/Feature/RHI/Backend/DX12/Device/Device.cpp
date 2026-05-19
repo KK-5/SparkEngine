@@ -324,34 +324,8 @@ namespace Spark::RHI::DX12
         return static_cast<const PhysicalDevice&>(RHI::Device::GetPhysicalDevice());
     }
 
-    /*
-    RHI::ResultCode Device::BeginFrameInternal()
-    {
-        static uint32_t frameIndex = 0;
-
-        return RHI::ResultCode::Success;
-    }
-
-    void Device::EndFrameInternal()
-    {
-        m_objReleaseQueue.Collect();
-    }
-
-    void Device::WaitForIdleInternal()
-    {
-        //m_commandQueueContext.WaitForIdle();
-        m_objReleaseQueue.Collect(true);
-
-    }
-    */
-
     RHI::ResultCode Device::InitializeLimits()
     {
-        // Collect函数直接传入Ptr，使用Ptr在引用计数减为0时的自毁机制
-        D3D12ObjReleaseQueue::Descriptor releaseQueueDescriptor;
-        releaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
-        m_objReleaseQueue.Init(releaseQueueDescriptor);
-
         return RHI::ResultCode::Success;
     }
 
@@ -417,10 +391,5 @@ namespace Spark::RHI::DX12
     ID3D12DeviceX* Device::GetDX12Device()
     {
         return m_dx12Device.get();
-    }
-
-    void Device::QueueForRelease(Ptr<ID3D12Object> dx12Object)
-    {
-        m_objReleaseQueue.QueueForCollect(eastl::move(dx12Object));
     }
 }
