@@ -113,11 +113,6 @@ namespace Spark::SandBox
         destroyIfValid(m_vbViewEntity);
         destroyIfValid(m_vbEntity);
         destroyIfValid(m_viewSRGEntity);
-
-        // m_srg / m_srgLayout / m_vertShader / m_fragShader are Ptr<> members:
-        // their refs are released automatically by ~TrianglePassFeature() at
-        // scope exit, which runs before any system shuts down (triFeature is
-        // declared last in main).
     }
 
     void TrianglePassFeature::OnTick(float /*deltaTime*/)
@@ -156,6 +151,16 @@ namespace Spark::SandBox
             0,
             0);
         m_srgLayout->AddShaderInput(mvpConstant);
+
+        Spark::RHI::ShaderInputConstantDescriptor vColor
+        (
+            Spark::RHI::InputName("g_Color"),
+            sizeof(Math::Matrix4X4),
+            sizeof(Math::Vector3) * 3,
+            0,
+            0
+        );
+        m_srgLayout->AddShaderInput(vColor);
 
         bool ok = m_srgLayout->Finalize();
         ASSERT(ok, "[TrianglePassFeature] SRG layout Finalize failed.");
@@ -367,6 +372,21 @@ namespace Spark::SandBox
         Spark::RHI::ShaderInputIndex mvpIdx =
             m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_MVP"));
         m_srg->SetConstantRaw(mvpIdx, &mvp, sizeof(mvp));
+
+        m_colorPhase += 0.01f;
+        Math::Vector3 colors[3];
+        for (int i = 0; i < 3; ++i)
+        {
+            float phase = m_colorPhase + i * 2.0f;
+            colors[i] = Math::Vector3(
+                sinf(phase) * 0.5f + 0.5f,
+                sinf(phase + 2.0f) * 0.5f + 0.5f,
+                sinf(phase + 4.0f) * 0.5f + 0.5f);
+        }
+
+        Spark::RHI::ShaderInputIndex colorIdx =
+            m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_Color"));
+        m_srg->SetConstantRaw(colorIdx, colors, sizeof(colors));
 
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
         ctx.AddOrReplace<Spark::RHI::ShaderResourceUpdateTag>(m_viewSRGEntity);

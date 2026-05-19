@@ -72,5 +72,7 @@ namespace Spark::SandBox
 
         // Transform
         float m_rotationAngle = 0.f;
+
+        float m_colorPhase = 0.f;
     };
 }
