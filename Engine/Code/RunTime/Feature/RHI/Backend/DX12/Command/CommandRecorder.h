@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Base.h>
+
 #include <RHI/Command/CommandRecorder.h>
 
 #include <DX12.h>
@@ -17,7 +19,7 @@ namespace Spark::RHI::DX12
         void ResetInternal() override;
 
     private:
-        Ptr<CommandList>                m_dx12CommandList;
+        UniquePtr<CommandList>          m_dx12CommandList;
         ComPtr<ID3D12CommandAllocatorX> m_commandAllocator;
     };
 

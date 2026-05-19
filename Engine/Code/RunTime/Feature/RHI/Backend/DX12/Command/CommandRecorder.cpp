@@ -24,7 +24,7 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
-        m_dx12CommandList = new CommandList;
+        m_dx12CommandList = MakeUnique<CommandList>();
         m_dx12CommandList->Init(dx12Device, desc.m_queue, m_commandAllocator.Get());
 
         RHI::CommandRecorder::SetCommandList(m_dx12CommandList.get());
@@ -41,6 +41,9 @@ namespace Spark::RHI::DX12
 
         factory->QueueForRelease(static_cast<Device&>(GetDevice()), m_dx12CommandList->GetCommandList());
         factory->QueueForRelease(static_cast<Device&>(GetDevice()), m_commandAllocator.Get());
+
+        m_dx12CommandList.reset();
+        m_commandAllocator.Reset();
     }
 
     void CommandRecorder::ResetInternal()
