@@ -18,7 +18,7 @@ namespace Spark
     inline constexpr entt::get_t<Type...> Include{};
 
     template<typename EntityType>
-    class BasicContext final
+    class BasicContext
     {
     public:
         using Entity = EntityType;

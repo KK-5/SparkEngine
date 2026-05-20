@@ -158,39 +158,26 @@ namespace Spark::Render
         // Swap chain (SwapChainImages / SwapChainViews) is also refreshed here.
         RefreshPerFrameBackings(context, frameIndex);
 
-        auto passFuncs = passContext.GetView<PassFunctions, ActivePassTag>();
-
         ////////////////////////////////////////////////
         // Build
+        // Iterate passes in declaration order so that attachment version
+        // tracking (LookupLatestVersion / BumpVersion) converges deterministically
+        // regardless of entt's pool order.
         m_builder.Begin(frameIndex);
-
-        // Collect active passes and sort by declaration index so that
-        // Build lambdas execute in source-code order regardless of entt
-        // entity-ID order. This guarantees attachment version tracking
-        // (LookupLatestVersion / BumpVersion) converges deterministically.
+        for (Pass pass : passContext.GetPassesInDeclOrder())
         {
-            eastl::vector<eastl::pair<Pass, uint32_t>> sorted;
-            passFuncs.each([&](Pass pass, PassFunctions&)
+            if (!passContext.Has<ActivePassTag>(pass))
             {
-                sorted.emplace_back(pass,
-                    passContext.Get<PassDeclarationIndex>(pass).m_index);
-            });
-
-            eastl::sort(sorted.begin(), sorted.end(),
-                [](const auto& a, const auto& b) { return a.second < b.second; });
-
-            for (const auto& [pass, _] : sorted)
-            {
-                auto& funcs = passContext.Get<PassFunctions>(pass);
-                m_builder.BeginPass(pass);
-                if (funcs.m_buildFunction)
-                {
-                    funcs.m_buildFunction(m_builder);
-                }
-                m_builder.EndPass();
+                continue;
             }
+            auto& funcs = passContext.Get<PassFunctions>(pass);
+            m_builder.BeginPass(pass);
+            if (funcs.m_buildFunction)
+            {
+                funcs.m_buildFunction(m_builder);
+            }
+            m_builder.EndPass();
         }
-
         eastl::vector<Pass> passes = m_builder.End();
         ////////////////////////////////////////////////
 

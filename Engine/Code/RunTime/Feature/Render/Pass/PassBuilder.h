@@ -1,7 +1,5 @@
 #pragma once
 
-#include <EASTL/atomic.h>
-
 #include <Log/SpdLogSystem.h>
 
 #include <RHI/Format.h>
@@ -16,12 +14,6 @@
 
 namespace Spark::Render
 {
-
-    inline uint32_t NextPassDeclarationIndex()
-    {
-        static eastl::atomic<uint32_t> s_counter{ 0 };
-        return s_counter.fetch_add(1);
-    }
 
     // ================================================================
     // RenderPassBuilder<PassTag> — chainable builder for graphics passes
@@ -196,10 +188,9 @@ namespace Spark::Render
                     m_name.GetCStr());
             }
 
-            Pass pass = m_context->CreateEntity();
+            Pass pass = m_context->CreatePass();
 
             m_context->Add<PassName>(pass, PassName{m_name});
-            m_context->Add<PassDeclarationIndex>(pass, PassDeclarationIndex{ NextPassDeclarationIndex() });
             m_context->Add<RenderPassTag>(pass);
             m_context->Add<PassExecuteQueue>(pass, PassExecuteQueue{m_queue});
             m_context->Add<PassAttachmentMarker>(pass, MarkPassAttachmentCompiling<PassTag>());
@@ -386,10 +377,9 @@ namespace Spark::Render
                     "Compute pass '{}': ComputePass needs ComputeShader.", m_name.GetCStr());
             }
 
-            Pass pass = m_context->CreateEntity();
+            Pass pass = m_context->CreatePass();
 
             m_context->Add<PassName>(pass, PassName{m_name});
-            m_context->Add<PassDeclarationIndex>(pass, PassDeclarationIndex{ NextPassDeclarationIndex() });
             m_context->Add<ComputePassTag>(pass);
             m_context->Add<PassExecuteQueue>(pass, PassExecuteQueue{m_queue});
             m_context->Add<PassAttachmentMarker>(pass, MarkPassAttachmentCompiling<PassTag>());
