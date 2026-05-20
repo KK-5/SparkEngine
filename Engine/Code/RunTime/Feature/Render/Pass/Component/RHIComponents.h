@@ -160,6 +160,7 @@ namespace Spark::Render
     {
         AttachmentId                   m_attachmentId;
         RHI::InputName                 m_slotName;
+        RHI::InputName                 m_resolveSourceSlot;
         RHI::AttachmentAccess          m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;

@@ -38,6 +38,37 @@ namespace Spark::Render
             passContext.DestoryEntity(pass);
         }
 
+        // Destroy transient view entities created this frame by
+        // CompileTransientImageViews / CompileTransientBufferViews.
+        // Each view allocates descriptor handles; without this cleanup the
+        // descriptor pool exhausts after ~3 frames.
+        {
+            auto& rhiContext = *RHIExecuteContext::Current();
+
+            auto imageViewEntities = rhiContext.GetView<TransientTag, ImageView>();
+            eastl::vector<RHIHandle> imageViewHandles;
+            imageViewEntities.each(
+                [&](RHIHandle h, const ImageView&) { imageViewHandles.push_back(h); });
+            for (RHIHandle h : imageViewHandles)
+            {
+                rhiContext.DestoryEntity(h);
+            }
+
+            auto bufferViewEntities = rhiContext.GetView<TransientTag, BufferView>();
+            eastl::vector<RHIHandle> bufferViewHandles;
+            bufferViewEntities.each(
+                [&](RHIHandle h, const BufferView&) { bufferViewHandles.push_back(h); });
+            for (RHIHandle h : bufferViewHandles)
+            {
+                rhiContext.DestoryEntity(h);
+            }
+
+            // ResourceHierarchy on transient resource entities holds stale
+            // m_firstView handles to the view entities we just destroyed.
+            rhiContext.GetView<TransientTag>().each(
+                [&](RHIHandle h) { rhiContext.Remove<ResourceHierarchy>(h); });
+        }
+
         // Frame-scoped components on regular Pass entities. Pass entities themselves
         // persist across frames (created once in BuildPipeline); these components
         // are populated fresh each compile and must be cleared so next frame's

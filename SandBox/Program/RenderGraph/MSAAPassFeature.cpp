@@ -1,4 +1,4 @@
-#include "TrianglePassFeature.h"
+#include "MSAAPassFeature.h"
 
 #include <Log/SpdLogSystem.h>
 #include <Math/Vector3.h>
@@ -18,8 +18,10 @@
 #include <RHI/Command/CommandList.h>
 #include <RHI/Command/DrawItem.h>
 #include <RHI/ClearValue.h>
+#include <RHI/MultisampleState.h>
 #include <RHI/Resource/Buffer/VertexInputView.h>
 #include <RHI/Resource/Buffer/BufferDescriptor.h>
+#include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
@@ -45,6 +47,7 @@
 
 namespace Spark::SandBox
 {
+
     namespace
     {
         struct TriangleVertex
@@ -63,15 +66,15 @@ namespace Spark::SandBox
         constexpr uint32_t g_vertexCount = sizeof(g_triangleVertices) / sizeof(g_triangleVertices[0]);
     }
 
-    TrianglePassFeature::TrianglePassFeature() = default;
-    TrianglePassFeature::~TrianglePassFeature() = default;
+    MSAAPassFeature::MSAAPassFeature() = default;
+    MSAAPassFeature::~MSAAPassFeature() = default;
 
-    bool TrianglePassFeature::Init()
+    bool MSAAPassFeature::Init()
     {
         m_swapchainView = FindSwapChainView();
         if (m_swapchainView == Spark::RHI::NullHandle)
         {
-            LOG_ERROR("[TrianglePassFeature] No swap chain view found in RHIContext.");
+            LOG_ERROR("[MSAAPassFeature] No swap chain view found in RHIContext.");
             return false;
         }
 
@@ -86,22 +89,16 @@ namespace Spark::SandBox
 
         CreateViewSRG();
         CreateVertexBuffer();
-        CreateTrianglePass();
+        CreatePasses();
 
         TickBus::Handler::BusConnect();
         return true;
     }
 
-    void TrianglePassFeature::Shutdown()
+    void MSAAPassFeature::Shutdown()
     {
         TickBus::Handler::BusDisconnect();
 
-        // Entities live in RHIContext (owned by RHISystem), not in any Ptr<>
-        // member here — RAII can't reach them, so the owner has to destroy
-        // them explicitly while the resource pools they reference are still
-        // alive. Order: DrawItem (consumer) → VB view → VB → ViewSRG;
-        // Components on the entity (Components::Buffer / ShaderResource / ...)
-        // tear down with the entity, releasing their Ptr<> refs.
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
         auto destroyIfValid = [&](Spark::RHI::RHIHandle& handle)
         {
@@ -117,13 +114,13 @@ namespace Spark::SandBox
         destroyIfValid(m_viewSRGEntity);
     }
 
-    void TrianglePassFeature::OnTick(float /*deltaTime*/)
+    void MSAAPassFeature::OnTick(float /*deltaTime*/)
     {
         UpdateViewSRG();
         BuildDrawItemEntity();
     }
 
-    Spark::RHI::RHIHandle TrianglePassFeature::FindSwapChainView() const
+    Spark::RHI::RHIHandle MSAAPassFeature::FindSwapChainView() const
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
         Spark::RHI::RHIHandle found = Spark::RHI::NullHandle;
@@ -138,7 +135,7 @@ namespace Spark::SandBox
         return found;
     }
 
-    void TrianglePassFeature::CreateViewSRG()
+    void MSAAPassFeature::CreateViewSRG()
     {
         auto* rhi = Service<Spark::RHI::RHIInterface>::Get();
         auto* factory = rhi->GetRHIFactory();
@@ -165,12 +162,12 @@ namespace Spark::SandBox
         m_srgLayout->AddShaderInput(vColor);
 
         bool ok = m_srgLayout->Finalize();
-        ASSERT(ok, "[TrianglePassFeature] SRG layout Finalize failed.");
+        ASSERT(ok, "[MSAAPassFeature] SRG layout Finalize failed.");
 
         m_srg = factory->CreateShaderResource();
         if (m_srg->Init(*device, m_srgLayout) != Spark::RHI::ResultCode::Success)
         {
-            LOG_ERROR("[TrianglePassFeature] ShaderResource Init failed.");
+            LOG_ERROR("[MSAAPassFeature] ShaderResource Init failed.");
             return;
         }
 
@@ -186,12 +183,10 @@ namespace Spark::SandBox
             Spark::RHI::Components::ShaderResource{ m_srg });
     }
 
-    void TrianglePassFeature::CreateVertexBuffer()
+    void MSAAPassFeature::CreateVertexBuffer()
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
 
-        // Resource entity: PendingBufferInit materialized by RHIResourceSystem,
-        // PendingBufferUpload submitted by AsyncUploadSystem.
         m_vbEntity = ctx.CreateEntity();
         ctx.Add<Spark::RHI::ImportedTag>(m_vbEntity);
         ctx.Add<Spark::RHI::ResourceName>(m_vbEntity,
@@ -212,13 +207,6 @@ namespace Spark::SandBox
         ctx.Add<Spark::RHI::PendingBufferUpload>(m_vbEntity, upload);
         ctx.Add<Spark::RHI::UploadPendingTag>(m_vbEntity);
 
-        // View entity: needed by ImportBufferAttachment. RHIResourceSystem
-        // materializes Components::BufferView from (BufferViewDescriptor +
-        // ViewHierarchy) on the same OnFrameBegin tick that materializes the
-        // resource. The view itself has no SRV/UAV/CBV (the buffer's bind
-        // flags don't include ShaderRead/Write/Constant) — BufferView::Init
-        // just records the GPU address, which is exactly what we need to let
-        // the RG barrier compiler see this resource as a buffer attachment.
         m_vbViewEntity = ctx.CreateEntity();
         ctx.Add<Spark::RHI::ResourceName>(m_vbViewEntity,
             Spark::RHI::ResourceName{ ObjectName("TriangleVB.View") });
@@ -229,15 +217,15 @@ namespace Spark::SandBox
         ctx.Add<Spark::RHI::ViewHierarchy>(m_vbViewEntity, hierarchy);
     }
 
-    void TrianglePassFeature::CreateTrianglePass()
+    void MSAAPassFeature::CreatePasses()
     {
         auto assetManager = Service<Spark::Resource::AssetManager>::Get();
-        ASSERT(assetManager, "[TrianglePassFeature] AssetManager service missing.");
+        ASSERT(assetManager, "[MSAAPassFeature] AssetManager service missing.");
         Ptr<Spark::Resource::ShaderAsset> shader =
             assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
                 Spark::Resource::AssetId("Shader/TriangleMVP.hlsl"));
         ASSERT(shader && shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
-            "[TrianglePassFeature] TriangleMVP.hlsl load failed.");
+            "[MSAAPassFeature] TriangleMVP.hlsl load failed.");
         m_vertShader = shader;
         m_fragShader = shader;
 
@@ -256,10 +244,17 @@ namespace Spark::SandBox
         renderStates.m_depthStencilState.m_depth.m_enable   = 0;
         renderStates.m_depthStencilState.m_stencil.m_enable = 0;
         renderStates.m_rasterState.m_cullMode               = Spark::RHI::CullMode::None;
+        renderStates.m_multisampleState = RHI::MultisampleState(4, 0);
+
+        auto* window = Service<Spark::Window::IWindowSystem>::Get();
+        auto windowSize = window->GetWindowSize();
 
         auto& passContext = *Spark::Render::PassExecuteContext::Current();
 
-        SPARK_RENDER_PASS(passContext, "TrianglePass")
+        // ================================================================
+        // Pass 1: ScenePass — render triangle to 4x MSAA transient target
+        // ================================================================
+        SPARK_RENDER_PASS(passContext, "ScenePass")
             .Queue(Spark::RHI::HardwareQueueClass::Graphics)
             .VertexShader(m_vertShader)
             .FragmentShader(m_fragShader)
@@ -267,20 +262,27 @@ namespace Spark::SandBox
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
             .ShaderResource(0, m_viewSRGEntity)
-            .Build([this](Spark::Render::RenderGraphBuilder& builder)
+            .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
             {
-                Spark::Render::ImportedImageAttachmentBindInfo colorBind;
-                colorBind.m_slot   = Spark::RHI::InputName("ColorOutput");
-                colorBind.m_view   = m_swapchainView;
-                colorBind.m_access = Spark::RHI::AttachmentAccess::Write;
-                colorBind.m_usage  = Spark::RHI::AttachmentUsage::RenderTarget;
-                colorBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_clearValue  =
+                auto imageDesc = RHI::ImageDescriptor::Create2D(
+                    RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
+                    windowSize.first, windowSize.second,
+                    RHI::Format::R8G8B8A8_UNORM
+                );
+                imageDesc.m_multisampleState = RHI::MultisampleState(4, 0);
+
+                Render::ImageAttachmentBindInfo msaaBind;
+                msaaBind.m_slot   = Spark::RHI::InputName("MSAAColor");
+                msaaBind.m_usage  = Spark::RHI::AttachmentUsage::RenderTarget;
+                msaaBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;
+                msaaBind.m_action.m_clearValue  =
                     Spark::RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
-                colorBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
-                colorBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::Store;
-                builder.ImportImageAttachment<SPARK_PASS_TAG("TrianglePass")>(
-                    Spark::RHI::AttachmentId("SwapChain"), colorBind);
+                msaaBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
+                msaaBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::Store;
+
+                builder.CreateImageAttachment<SPARK_PASS_TAG("ScenePass")>(
+                    RHI::AttachmentId("MSAAColor"), imageDesc, msaaBind, RHI::AttachmentAccess::Write);
+
 
                 Spark::Render::ImportedBufferAttachmentBindInfo vbBind;
                 vbBind.m_slot   = Spark::RHI::InputName("TriangleVB");
@@ -288,24 +290,56 @@ namespace Spark::SandBox
                 vbBind.m_access = Spark::RHI::AttachmentAccess::Read;
                 vbBind.m_usage  = Spark::RHI::AttachmentUsage::InputAssembly;
                 vbBind.m_stage  = Spark::RHI::AttachmentStage::VertexInput;
-                builder.ImportBufferAttachment<SPARK_PASS_TAG("TrianglePass")>(
+                builder.ImportBufferAttachment<SPARK_PASS_TAG("ScenePass")>(
                     Spark::RHI::AttachmentId("TriangleVB"), vbBind);
             })
             .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
-                auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-                auto* commandList = work.m_commandList;
-
-                auto& view = rhiCtx.GetView<SPARK_PASS_TAG("TrianglePass"), Spark::RHI::DrawItem>();
-                view.each([&](Spark::RHI::RHIHandle handle, const Spark::RHI::DrawItem& drawItem){
-                    commandList->Submit(drawItem);
+                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
+                auto* cmdList = work.m_commandList;
+                auto& view = rhiCtx.GetView<SPARK_PASS_TAG("ScenePass"), RHI::DrawItem>();
+                view.each([&](RHI::RHIHandle handle, const RHI::DrawItem& drawItem) {
+                    cmdList->Submit(drawItem);
                 });
+            })
+            .Finalize();
 
+        // ================================================================
+        // Pass 2: ResolvePass — resolve MSAA to swapchain
+        // ================================================================
+        SPARK_RENDER_PASS(passContext, "ResolvePass")
+            .Queue(Spark::RHI::HardwareQueueClass::Graphics)
+            .CustomPipeline()
+            .Build([this](Spark::Render::RenderGraphBuilder& builder)
+            {
+                Render::ImageAttachmentBindInfo msaaBind;
+                msaaBind.m_slot  = RHI::InputName("MSAABind");
+                msaaBind.m_usage = RHI::AttachmentUsage::RenderTarget;
+                msaaBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
+                msaaBind.m_action.m_loadAction = RHI::AttachmentLoadAction::Load;
+                builder.ReadImageAttachment<SPARK_PASS_TAG("ResolvePass")>(
+                    RHI::AttachmentId("MSAAColor"), msaaBind);
+
+                Spark::Render::ImportedImageAttachmentBindInfo resolveBind;
+                resolveBind.m_slot   = Spark::RHI::InputName("ColorOutput");
+                resolveBind.m_resolveSourceSlot = RHI::InputName("MSAABind");
+                resolveBind.m_view   = m_swapchainView;
+                resolveBind.m_access = Spark::RHI::AttachmentAccess::Write;
+                resolveBind.m_usage  = Spark::RHI::AttachmentUsage::Resolve;
+                resolveBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;
+                resolveBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::DontCare;
+                resolveBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::Store;
+                builder.ImportImageAttachment<SPARK_PASS_TAG("ResolvePass")>(
+                    Spark::RHI::AttachmentId("SwapChain"), resolveBind);
+            })
+            .Execute([](Spark::Render::ExecuteWork&, Spark::Render::RenderGraphExecuter&)
+            {
+                // Empty — resolve happens at EndRenderPass via m_resolveView
             })
             .Finalize();
     }
 
-    void TrianglePassFeature::BuildDrawItemEntity()
+    void MSAAPassFeature::BuildDrawItemEntity()
     {
         if (m_drawItemEntity != Spark::RHI::NullHandle)
         {
@@ -335,11 +369,11 @@ namespace Spark::SandBox
             drawItem.m_scissors.push_back(m_scissor);
 
             rhiCtx.Add<Spark::RHI::DrawItem>(m_drawItemEntity, eastl::move(drawItem));
-            rhiCtx.Add<SPARK_PASS_TAG("TrianglePass")>(m_drawItemEntity);
+            rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
         }
     }
 
-    void TrianglePassFeature::UpdateViewSRG()
+    void MSAAPassFeature::UpdateViewSRG()
     {
         if (!m_srg || !m_srgLayout || m_viewSRGEntity == Spark::RHI::NullHandle)
         {
@@ -390,19 +424,19 @@ namespace Spark::SandBox
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
         ctx.AddOrReplace<Spark::RHI::ShaderResourceUpdateTag>(m_viewSRGEntity);
     }
+
 }
 
 int main(int, char**)
 {
     using namespace Spark;
 
-    auto sys = SandBox::InitRenderGraphApp(1024, 576, "TrianglePass");
+    auto sys = SandBox::InitRenderGraphApp(1024, 576, "MSAAPass");
 
-    // Pipeline + Feature setup
-    Render::Pipeline pipeline("Triangle");
+    Render::Pipeline pipeline("MSAAPass");
     Render::PassExecuteContext::Push(pipeline.GetPassContext());
 
-    SandBox::TrianglePassFeature feature;
+    SandBox::MSAAPassFeature feature;
     feature.Init();
 
     while (!sys.m_window->ShouldClose())

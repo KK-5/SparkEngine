@@ -1073,6 +1073,8 @@ namespace
         RHI::RenderPassBeginInfo info;
         bool hasAny = false;
 
+        eastl::unordered_map<RHI::InputName, uint32_t> colorSlotToIndex;
+
         auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>();
         view.each([&](auto, const ImagePassAttachment& att)
         {
@@ -1093,9 +1095,11 @@ namespace
             {
                 ASSERT(info.m_colorAttachmentCount < RHI::Limits::Pipeline::AttachmentColorCountMax,
                        "[RenderGraphCompiler] Too many color attachments on pass.");
-                auto& color = info.m_colorAttachments[info.m_colorAttachmentCount++];
+                auto& color = info.m_colorAttachments[info.m_colorAttachmentCount];
                 color.m_view = imageView;
                 color.m_loadStoreAction = att.m_action;
+                colorSlotToIndex[att.m_slotName] = info.m_colorAttachmentCount;
+                ++info.m_colorAttachmentCount;
                 hasAny = true;
             }
             else if (att.m_usage == RHI::AttachmentUsage::DepthStencil)
@@ -1107,6 +1111,30 @@ namespace
                 info.m_depthStencilAttachment.m_loadStoreAction = att.m_action;
                 hasAny = true;
             }
+        });
+
+        view.each([&](auto, const ImagePassAttachment& att)
+        {
+            if (att.m_usage != RHI::AttachmentUsage::Resolve)
+                return;
+
+            ASSERT(att.m_view != NullHandle,
+                "[RenderGraphCompiler] Resolve attachment has a null view entity.");
+            ASSERT(context.Has<BackingImageView>(att.m_view),
+                "[RenderGraphCompiler] Resolve attachment's view entity has no BackingImageView component.");
+
+            RHI::ImageView* resolveView = context.Get<BackingImageView>(att.m_view).m_view;
+            ASSERT(resolveView != nullptr,
+                "[RenderGraphCompiler] Resolve attachment {}'s BackingImageView holds a null RHI::ImageView pointer.",
+                att.m_attachmentId.m_id.GetCStr());
+
+            auto it = colorSlotToIndex.find(att.m_resolveSourceSlot);
+            ASSERT(it != colorSlotToIndex.end(),
+                "[RenderGraphCompiler] Resolve attachment slot '{}' references unknown RenderTarget slot '{}'.",
+                att.m_slotName.GetCStr(),
+                att.m_resolveSourceSlot.GetCStr());
+
+            info.m_colorAttachments[it->second].m_resolveView = resolveView;
         });
 
         ASSERT(hasAny,

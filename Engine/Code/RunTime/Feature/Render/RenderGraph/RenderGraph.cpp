@@ -35,6 +35,7 @@ namespace Spark::Render
         m_pool = factory.CreateTransientResourcePool();
         ASSERT(m_pool != nullptr, "[RenderGraph] Factory::CreateTransientResourcePool returned null.");
         RHI::TransientResourcePoolDescriptor desc;
+        desc.m_allowCrossBatchReuse = false;
         if (m_pool->Init(device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[RenderGraph] TransientResourcePool initialize failed.");
@@ -163,15 +164,32 @@ namespace Spark::Render
         // Build
         m_builder.Begin(frameIndex);
 
-        passFuncs.each([&](Pass pass, PassFunctions& funcs)
+        // Collect active passes and sort by declaration index so that
+        // Build lambdas execute in source-code order regardless of entt
+        // entity-ID order. This guarantees attachment version tracking
+        // (LookupLatestVersion / BumpVersion) converges deterministically.
         {
-            m_builder.BeginPass(pass);
-            if (funcs.m_buildFunction)
+            eastl::vector<eastl::pair<Pass, uint32_t>> sorted;
+            passFuncs.each([&](Pass pass, PassFunctions&)
             {
-                funcs.m_buildFunction(m_builder);
+                sorted.emplace_back(pass,
+                    passContext.Get<PassDeclarationIndex>(pass).m_index);
+            });
+
+            eastl::sort(sorted.begin(), sorted.end(),
+                [](const auto& a, const auto& b) { return a.second < b.second; });
+
+            for (const auto& [pass, _] : sorted)
+            {
+                auto& funcs = passContext.Get<PassFunctions>(pass);
+                m_builder.BeginPass(pass);
+                if (funcs.m_buildFunction)
+                {
+                    funcs.m_buildFunction(m_builder);
+                }
+                m_builder.EndPass();
             }
-            m_builder.EndPass();
-        });
+        }
 
         eastl::vector<Pass> passes = m_builder.End();
         ////////////////////////////////////////////////

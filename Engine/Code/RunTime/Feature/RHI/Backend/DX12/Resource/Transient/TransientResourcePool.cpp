@@ -226,7 +226,17 @@ namespace Spark::RHI::DX12
         bucket.m_placements.clear();
         bucket.m_chainTails.clear();
         bucket.m_committedFallbacks.clear();
+
+        // D3D12MA::VirtualBlock::~VirtualBlock asserts that all allocations have
+        // been freed. Normal-frame ResetBucket handles this via Clear(), but at
+        // shutdown DestroyBucket is called on every bucket and the most recent
+        // frameCountMax-1 buckets haven't been cycled through ResetBucket yet.
+        if (bucket.m_offsetBlock)
+        {
+            bucket.m_offsetBlock->Clear();
+        }
         bucket.m_offsetBlock.reset();
+
         if (bucket.m_heap)
         {
             m_releaseQueue.QueueForCollect(eastl::move(bucket.m_heap));

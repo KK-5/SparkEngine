@@ -73,6 +73,16 @@ namespace Spark::Render
         RHI::HardwareQueueClass m_queue;
     };
 
+    //! Monotonic counter assigned at Finalize() time. Guaranteed to reflect
+    //! source-code declaration order — earlier SPARK_RENDER_PASS calls get
+    //! smaller values. Sorted by this before Build so that attachment version
+    //! tracking (LookupLatestVersion / BumpVersion) converges deterministically
+    //! regardless of entt entity-ID order.
+    struct PassDeclarationIndex
+    {
+        uint32_t m_index {0};
+    };
+
     //! Index of the pass in RenderGraphBuilder::TopoSort()'s returned linear order.
     //! Assigned in TopoSort itself, so any code consuming the topo-sorted span can
     //! rely on `m_position == span index`. Used as the opaque ordering key for

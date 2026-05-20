@@ -26,6 +26,7 @@ namespace Spark::Render
     struct ImageAttachmentBindInfo
     {
         RHI::InputName                 m_slot;
+        RHI::InputName                 m_resolveSourceSlot;
         RHI::ImageViewDescriptor       m_view  {};
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
@@ -40,6 +41,7 @@ namespace Spark::Render
     struct ImportedImageAttachmentBindInfo
     {
         RHI::InputName                 m_slot;
+        RHI::InputName                 m_resolveSourceSlot;
         RHIHandle                      m_view  {NullHandle};
         RHI::AttachmentAccess          m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
@@ -280,7 +282,10 @@ namespace Spark::Render
     {
         auto it = m_latestVersions.find(name);
         ASSERT(it != m_latestVersions.end(),
-            "AttachmentId {} has not been created or imported.", name.GetCStr());
+            "AttachmentId '{}' has not been declared (Create / Import) yet. "
+            "Passes must be declared in dependency order — a Read/Write must "
+            "appear after the corresponding Create/Import.",
+            name.GetCStr());
         return it->second;
     }
 
@@ -288,7 +293,10 @@ namespace Spark::Render
     {
         auto it = m_latestVersions.find(name);
         ASSERT(it != m_latestVersions.end(),
-            "AttachmentId {} has not been created or imported.", name.GetCStr());
+            "AttachmentId '{}' has not been declared (Create / Import) yet. "
+            "Passes must be declared in dependency order — a Write must "
+            "appear after the corresponding Create/Import.",
+            name.GetCStr());
         return ++(it->second);
     }
 
@@ -411,16 +419,17 @@ namespace Spark::Render
         }
 
         ImagePassAttachment a;
-        a.m_attachmentId    = AttachmentId{ name, 0 };
-        a.m_slotName        = bind.m_slot;
-        a.m_access          = bind.m_access;
-        a.m_usage           = bind.m_usage;
-        a.m_stage           = bind.m_stage;
-        a.m_action          = bind.m_action;
-        a.m_view            = bind.m_view;
-        a.m_pass            = m_currentPass;
+        a.m_attachmentId      = AttachmentId{ name, 0 };
+        a.m_slotName          = bind.m_slot;
+        a.m_resolveSourceSlot = bind.m_resolveSourceSlot;
+        a.m_access            = bind.m_access;
+        a.m_usage             = bind.m_usage;
+        a.m_stage             = bind.m_stage;
+        a.m_action            = bind.m_action;
+        a.m_view              = bind.m_view;
+        a.m_pass              = m_currentPass;
 
-        m_latestVersions.try_emplace(name, 0u);
+        m_latestVersions.emplace(name, 0u);
         RegisterImageAttachment<PassTag>(a);
     }
 
@@ -490,7 +499,7 @@ namespace Spark::Render
         a.m_view            = bind.m_view;
         a.m_pass            = m_currentPass;
 
-        m_latestVersions.try_emplace(name, 0u);
+        m_latestVersions.emplace(name, 0u);
         RegisterBufferAttachment<PassTag>(a);
     }
 
@@ -518,14 +527,15 @@ namespace Spark::Render
         CreateTransientImageResource(name, desc);
 
         ImagePassAttachment a;
-        a.m_attachmentId    = AttachmentId{ name, 0 };
-        a.m_slotName        = bind.m_slot;
-        a.m_access          = access;
-        a.m_usage           = bind.m_usage;
-        a.m_stage           = bind.m_stage;
-        a.m_action          = bind.m_action;
-        a.m_viewDescriptor  = bind.m_view;
-        a.m_pass            = m_currentPass;
+        a.m_attachmentId      = AttachmentId{ name, 0 };
+        a.m_slotName          = bind.m_slot;
+        a.m_resolveSourceSlot = bind.m_resolveSourceSlot;
+        a.m_access            = access;
+        a.m_usage             = bind.m_usage;
+        a.m_stage             = bind.m_stage;
+        a.m_action            = bind.m_action;
+        a.m_viewDescriptor    = bind.m_view;
+        a.m_pass              = m_currentPass;
 
         m_latestVersions.emplace(name, 0u);
         RegisterImageAttachment<PassTag>(a);

@@ -52,8 +52,34 @@ if (BUILD_RG_TRIANGLEPASS)
 
     add_executable(${TARGET_NAME}
         Common/SimpleGlfwWindow.cpp
-        RenderGraph/main.cpp
         RenderGraph/TrianglePassFeature.cpp
+    )
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        glfw
+        SparkCore
+        SparkInput
+        SparkRender
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+    )
+endif()
+
+option(BUILD_RG_MSAAPASS "Build RenderGraph MSAAPass" ON)
+
+if (BUILD_RG_MSAAPASS)
+    set(TARGET_NAME MSAAPass)
+
+    add_executable(${TARGET_NAME}
+        Common/SimpleGlfwWindow.cpp
+        RenderGraph/MSAAPassFeature.cpp
     )
 
     target_compile_definitions(${TARGET_NAME}
