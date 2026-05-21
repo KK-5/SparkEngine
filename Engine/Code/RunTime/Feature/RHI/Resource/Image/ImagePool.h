@@ -55,8 +55,6 @@ namespace Spark::RHI
 
         ResultCode InitImage(const ImageInitRequest& request);
 
-        ResultCode UpdateImageContents(const ImageUpdateRequest& request);
-
         const ImagePoolDescriptor& GetDescriptor() const override final;
     
     protected:
@@ -66,8 +64,6 @@ namespace Spark::RHI
         using ResourcePool::Init;
         using ImagePoolBase::InitImage;
 
-        bool ValidateUpdateRequest(const ImageUpdateRequest& updateRequest) const;
-
         bool ValidateInitRequest(const ImageInitRequest& initRequest) const;
 
         //////////////////////////////////////////////////////////////////////////
@@ -75,8 +71,6 @@ namespace Spark::RHI
 
         /// Called when the pool is being initialized.
         virtual ResultCode InitInternal(Device& device, const ImagePoolDescriptor& descriptor) = 0;
-        /// Called when an image contents are being updated.
-        virtual ResultCode UpdateImageContentsInternal(const ImageUpdateRequest& request) = 0;
         /// Called when an image is being initialized on the pool.
         virtual ResultCode InitImageInternal(const ImageInitRequest& request) = 0;
         //////////////////////////////////////////////////////////////////////////

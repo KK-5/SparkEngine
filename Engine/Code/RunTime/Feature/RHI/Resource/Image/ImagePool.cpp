@@ -28,26 +28,6 @@ namespace Spark::RHI
             [this, &initRequest]() { return InitImageInternal(initRequest); });
     }
 
-    ResultCode ImagePool::UpdateImageContents(const ImageUpdateRequest& request)
-    {
-        if (!ValidateIsInitialized() || !ValidateNotProcessingFrame())
-        {
-            return ResultCode::InvalidOperation;
-        }
-
-        if (!ValidateIsRegistered(request.m_image))
-        {
-            return ResultCode::InvalidArgument;
-        }
-
-        if (!ValidateUpdateRequest(request))
-        {
-            return ResultCode::InvalidArgument;
-        }
-
-        return UpdateImageContentsInternal(request);
-    }
-
     const ImagePoolDescriptor& ImagePool::GetDescriptor() const
     {
         return m_descriptor;
@@ -67,24 +47,4 @@ namespace Spark::RHI
         return true;
     }
 
-    bool ImagePool::ValidateUpdateRequest(const ImageUpdateRequest& updateRequest) const
-    {
-        if (Validation::isEnabled)
-        {
-            const ImageDescriptor& imageDescriptor = updateRequest.m_image->GetDescriptor();
-            if (updateRequest.m_imageSubresource.m_mipSlice >= imageDescriptor.m_mipLevels ||
-                updateRequest.m_imageSubresource.m_arraySlice >= imageDescriptor.m_arraySize)
-            {
-                LOG_ERROR("[ImagePool]"
-                    "Updating subresource (array: {}, mip: {}), but the image dimensions are (arraySize: {}, mipLevels: {})",
-                    updateRequest.m_imageSubresource.m_mipSlice,
-                    updateRequest.m_imageSubresource.m_arraySlice,
-                    imageDescriptor.m_arraySize,
-                    imageDescriptor.m_mipLevels);
-                return false;
-            }
-        }
-
-        return true;
-    }
 }

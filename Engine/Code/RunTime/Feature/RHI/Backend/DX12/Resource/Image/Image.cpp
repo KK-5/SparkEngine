@@ -9,8 +9,8 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- All of subresource state are stored in vector<D3D12_RESOURCE_STATES>
- *  -- InitSubresourceAttachmentState / GetSubresourceIndexByRange: aspect flags -> plane slices via GetImageAspectFlags(format).
- *  -- GetAttachmentStateByRange: per-plane segments; merge Depth+Stencil to one DepthStencil when state and mip/array match.
+ *  -- InitSubresourceState / GetSubresourceIndexByRange: aspect flags -> plane slices via GetImageAspectFlags(format).
+ *  -- GetSubresourceStateByRange: per-plane segments; merge Depth+Stencil to one DepthStencil when state and mip/array match.
  */
 
 #include "Image.h"
@@ -47,9 +47,9 @@ namespace Spark::RHI::DX12
         }
 
         void AppendRunSegmentsMergedIfSameStateAndMipArray(
-            eastl::vector<Image::SubresourceRangeAttachmentState>& runSegments,
+            eastl::vector<Image::SubresourceRangeState>& runSegments,
             uint32_t d3dPlaneCount,
-            eastl::vector<Image::SubresourceRangeAttachmentState>& outResult)
+            eastl::vector<Image::SubresourceRangeState>& outResult)
         {
             if (runSegments.size() == 2u && d3dPlaneCount == 2u &&
                 runSegments[0].m_state == runSegments[1].m_state &&
@@ -67,7 +67,7 @@ namespace Spark::RHI::DX12
                 {
                     RHI::ImageSubresourceRange merged = a.m_range;
                     merged.m_aspectFlags = RHI::ImageAspectFlags::DepthStencil;
-                    outResult.emplace_back(Image::SubresourceRangeAttachmentState{ merged, a.m_state });
+                    outResult.emplace_back(Image::SubresourceRangeState{ merged, a.m_state });
                     return;
                 }
             }
@@ -139,21 +139,6 @@ namespace Spark::RHI::DX12
         return m_tileLayout.m_tileCount > 0;
     }
 
-    // Get mip level uploaded to GPU
-    uint32_t Image::GetStreamedMipLevel() const
-    {
-        return m_streamedMipLevel;
-    }
-
-    void Image::SetStreamedMipLevel(uint32_t streamedMipLevel)
-    {
-        if (m_streamedMipLevel != streamedMipLevel)
-        {
-            m_streamedMipLevel = streamedMipLevel;
-            // InvalidateViews();
-        }
-    }
-
     void Image::GetSubresourceIndexByRange(const RHI::ImageSubresourceRange* range, uint32_t& indexStart, uint32_t& indexEnd) const
     {
         RHI::ImageSubresourceRange subRange(GetDescriptor());
@@ -216,7 +201,7 @@ namespace Spark::RHI::DX12
         indexEnd = maxIndex;
     }
 
-    void Image::SetAttachmentState(D3D12_RESOURCE_STATES state, const RHI::ImageSubresourceRange* range)
+    void Image::SetSubresourceState(D3D12_RESOURCE_STATES state, const RHI::ImageSubresourceRange* range)
     {
         uint32_t indexStart = 0;
         uint32_t indexEnd = 0;
@@ -230,7 +215,7 @@ namespace Spark::RHI::DX12
 
     }
 
-    void Image::SetAttachmentState(D3D12_RESOURCE_STATES state, uint32_t subresourceIndex)
+    void Image::SetSubresourceState(D3D12_RESOURCE_STATES state, uint32_t subresourceIndex)
     {
         if (subresourceIndex == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
         {
@@ -243,7 +228,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    eastl::vector<Image::SubresourceRangeAttachmentState> Image::GetAttachmentStateByRange(const RHI::ImageSubresourceRange* range) const
+    eastl::vector<Image::SubresourceRangeState> Image::GetSubresourceStateByRange(const RHI::ImageSubresourceRange* range) const
     {
         uint32_t indexStart = 0;
         uint32_t indexEnd = 0;
@@ -257,7 +242,7 @@ namespace Spark::RHI::DX12
         const uint32_t d3dPlaneCount =
             CheckBitsAll(GetImageAspectFlags(desc.m_format), RHI::ImageAspectFlags::DepthStencil) ? 2u : 1u;
 
-        eastl::vector<SubresourceRangeAttachmentState> result;
+        eastl::vector<SubresourceRangeState> result;
         D3D12_RESOURCE_STATES curState = m_subresourceState[indexStart];
         uint32_t rangeStart = indexStart;
         for (uint32_t index = indexStart; index <= indexEnd + 1; ++index)
@@ -266,7 +251,7 @@ namespace Spark::RHI::DX12
             {
                 const uint32_t runEnd = index - 1;
 
-                eastl::vector<SubresourceRangeAttachmentState> runSegments;
+                eastl::vector<SubresourceRangeState> runSegments;
                 for (uint32_t planeSlice = 0; planeSlice < d3dPlaneCount; ++planeSlice)
                 {
                     const uint32_t planeIndexStart = planeSlice * planeSize;
@@ -297,7 +282,7 @@ namespace Spark::RHI::DX12
                     RHI::ImageSubresourceRange subRange(mipSliceMin, mipSliceMax, arraySliceMin, arraySliceMax);
                     subRange.m_aspectFlags = AspectFlagsForPlaneSlice(desc, planeSlice);
 
-                    runSegments.emplace_back(SubresourceRangeAttachmentState{ subRange, curState });
+                    runSegments.emplace_back(SubresourceRangeState{ subRange, curState });
                 }
 
                 AppendRunSegmentsMergedIfSameStateAndMipArray(runSegments, d3dPlaneCount, result);
@@ -369,15 +354,9 @@ namespace Spark::RHI::DX12
         }
     }
 
-    bool Image::IsStreamableInternal() const
+    void Image::InitSubresourceState()
     {
-        return IsTiled();
-    }
-
-
-    void Image::InitSubresourceAttachmentState()
-    {
-        const RHI::ImageDescriptor desc = GetDescriptor();
+        const RHI::ImageDescriptor& desc = GetDescriptor();
         const RHI::ImageAspectFlags aspectFlags = GetImageAspectFlags(desc.m_format);
 
         // D3D12 subresource index = mip + array * MipLevels + planeSlice * MipLevels * ArraySize.

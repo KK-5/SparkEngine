@@ -77,7 +77,6 @@ namespace Spark::RHI::DX12
         const Image& image = static_cast<const Image&>(resourceBase);
 
         RHI::ImageViewDescriptor viewDescriptor = GetDescriptor();
-        viewDescriptor.m_mipSliceMin = eastl::max<uint16_t>(viewDescriptor.m_mipSliceMin, static_cast<uint16_t>(image.GetStreamedMipLevel()));
         viewDescriptor.m_mipSliceMax = eastl::min<uint16_t>(viewDescriptor.m_mipSliceMax, static_cast<uint16_t>(image.GetDescriptor().m_mipLevels - 1));
 
         // By default, if no bind flags are specified on the view descriptor, attempt to create all views that are compatible with the underlying image's bind flags

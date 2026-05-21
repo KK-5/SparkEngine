@@ -399,15 +399,12 @@ namespace Spark::RHI
             }
 
             ImageUpload upload;
-            upload.m_data                = pending.m_data;
-            upload.m_dataSize            = pending.m_dataSize;
-            upload.m_targetImage         = target;
-            upload.m_subresource         = pending.m_subresource;
-            upload.m_destinationOrigin   = pending.m_destinationOrigin;
-            upload.m_size                = pending.m_size;
-            upload.m_sourceFormat        = pending.m_sourceFormat;
-            upload.m_sourceBytesPerRow   = pending.m_sourceBytesPerRow;
-            upload.m_sourceBytesPerImage = pending.m_sourceBytesPerImage;
+            upload.m_data              = pending.m_data;
+            upload.m_dataSize          = pending.m_dataSize;
+            upload.m_targetImage       = target;
+            upload.m_range             = pending.m_range;
+            upload.m_destinationOrigin = pending.m_destinationOrigin;
+            upload.m_sourceFormat      = pending.m_sourceFormat;
             batch.m_imageUploads.push_back(upload);
 
             // See CompileBufferBarriers's release-barrier comment above.
@@ -593,47 +590,65 @@ namespace Spark::RHI
         // Process image uploads
         for (const auto& upload : batch.m_imageUploads)
         {
-            const uint32_t srcRowPitch  = upload.m_sourceBytesPerRow;
-            const uint32_t dstRowPitch  = AlignUp(srcRowPitch, RHI::Alignment::TexturePitch);
-            const uint32_t numRows      = upload.m_size.m_height;
-            const uint32_t dstTotalSize = dstRowPitch * numRows;
+            // Query per-subresource layouts from the Image. The layout
+            // already contains byte-aligned row pitch and image size for DX12.
+            ImageSubresourceLayout layouts[RHI::Limits::Image::MipCountMax];
+            upload.m_targetImage->GetSubresourceLayouts(upload.m_range, layouts, nullptr);
 
-            // DX12 CopyTextureRegion requires the source buffer offset to be aligned
-            // to TexturePlacement (512). Pad current offset up; previous buffer uploads
-            // leave the packet at arbitrary alignment.
-            uint32_t alignedOffset = AlignUp(packet->m_offset, RHI::Alignment::TexturePlacement);
+            const auto& imageDesc = upload.m_targetImage->GetDescriptor();
+            const uint32_t mipLevels = imageDesc.m_mipLevels;
+            const uint8_t* srcData = static_cast<const uint8_t*>(upload.m_data);
 
-            if (alignedOffset + dstTotalSize > m_descriptor.m_stagingSizeInBytes)
+            for (uint16_t arraySlice = upload.m_range.m_arraySliceMin; arraySlice <= upload.m_range.m_arraySliceMax; ++arraySlice)
             {
-                SubmitFramePacket();
-                // Fresh packet starts at offset 0, which already satisfies TexturePlacement.
-                alignedOffset = 0;
+                for (uint16_t mipSlice = upload.m_range.m_mipSliceMin; mipSlice <= upload.m_range.m_mipSliceMax; ++mipSlice)
+                {
+                    const uint32_t subresourceIndex = GetImageSubresourceIndex(mipSlice, arraySlice, mipLevels);
+                    const ImageSubresourceLayout& layout = layouts[subresourceIndex];
+
+                    const uint32_t srcRowPitch  = layout.m_bytesPerRow;
+                    const uint32_t dstRowPitch  = srcRowPitch; // already aligned by GenerateSubresourceLayouts
+                    const uint32_t numRows      = layout.m_rowCount;
+                    const uint32_t dstTotalSize = layout.m_bytesPerImage;
+
+                    // DX12 CopyTextureRegion requires the source buffer offset to be
+                    // aligned to TexturePlacement (512). Pad current offset up; previous
+                    // buffer uploads leave the packet at arbitrary alignment.
+                    uint32_t alignedOffset = AlignUp(packet->m_offset, RHI::Alignment::TexturePlacement);
+
+                    if (alignedOffset + dstTotalSize > m_descriptor.m_stagingSizeInBytes)
+                    {
+                        SubmitFramePacket();
+                        alignedOffset = 0;
+                    }
+                    packet->m_offset = alignedOffset;
+
+                    const uint8_t* srcRow = srcData;
+                    uint8_t* dstRow = packet->m_mappedPtr + packet->m_offset;
+                    for (uint32_t row = 0; row < numRows; ++row)
+                    {
+                        memcpy(dstRow, srcRow, srcRowPitch);
+                        srcRow += srcRowPitch;
+                        dstRow += dstRowPitch;
+                    }
+                    srcData += dstTotalSize;
+
+                    CopyBufferToImageDescriptor copyDesc;
+                    copyDesc.m_sourceBuffer          = packet->m_stagingBuffer.get();
+                    copyDesc.m_sourceOffset          = packet->m_offset;
+                    copyDesc.m_sourceBytesPerRow     = dstRowPitch;
+                    copyDesc.m_sourceBytesPerImage   = dstTotalSize;
+                    copyDesc.m_sourceFormat          = upload.m_sourceFormat;
+                    copyDesc.m_sourceSize            = layout.m_size;
+                    copyDesc.m_destinationImage      = upload.m_targetImage;
+                    copyDesc.m_destinationSubresource = ImageSubresource(mipSlice, arraySlice);
+                    copyDesc.m_destinationOrigin     = upload.m_destinationOrigin;
+
+                    cmdList->Submit(CopyItem{ copyDesc });
+
+                    packet->m_offset += dstTotalSize;
+                }
             }
-            packet->m_offset = alignedOffset;
-
-            const auto* srcRow = static_cast<const uint8_t*>(upload.m_data);
-            uint8_t* dstRow = packet->m_mappedPtr + packet->m_offset;
-            for (uint32_t row = 0; row < numRows; ++row)
-            {
-                memcpy(dstRow, srcRow, srcRowPitch);
-                srcRow += srcRowPitch;
-                dstRow += dstRowPitch;
-            }
-
-            CopyBufferToImageDescriptor copyDesc;
-            copyDesc.m_sourceBuffer        = packet->m_stagingBuffer.get();
-            copyDesc.m_sourceOffset        = packet->m_offset;
-            copyDesc.m_sourceBytesPerRow   = dstRowPitch;
-            copyDesc.m_sourceBytesPerImage = dstTotalSize;
-            copyDesc.m_sourceFormat        = upload.m_sourceFormat;
-            copyDesc.m_sourceSize          = upload.m_size;
-            copyDesc.m_destinationImage    = upload.m_targetImage;
-            copyDesc.m_destinationSubresource = upload.m_subresource;
-            copyDesc.m_destinationOrigin   = upload.m_destinationOrigin;
-
-            cmdList->Submit(CopyItem{ copyDesc });
-
-            packet->m_offset += dstTotalSize;
         }
 
         // Release barriers: cross-queue handoff to the destination queue. The

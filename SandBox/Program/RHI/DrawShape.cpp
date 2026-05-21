@@ -784,14 +784,20 @@ namespace Spark::SandBox
         commandList->Submit(idxCopy);
 
         /// Copy texture data
+        RHI::ImageSubresourceLayout textureLayout;
+        {
+            RHI::ImageSubresourceRange range(0, 0, 0, 0);
+            m_baseColorImage->GetSubresourceLayouts(range, &textureLayout, nullptr);
+        }
+
         RHI::CopyItem textureCopy;
         textureCopy.m_type = RHI::CopyItemType::BufferToImage;
         textureCopy.m_bufferToImage.m_sourceBuffer = m_stageTextureBuffer.get();
         textureCopy.m_bufferToImage.m_sourceOffset = 0;
-        textureCopy.m_bufferToImage.m_sourceBytesPerRow = AlignUp(m_imageAsset->GetWidth() * m_imageAsset->GetImageData()->GetBytesPerPixel(), RHI::Alignment::TexturePitch);
-        textureCopy.m_bufferToImage.m_sourceBytesPerImage = textureCopy.m_bufferToImage.m_sourceBytesPerRow * m_imageAsset->GetHeight();
+        textureCopy.m_bufferToImage.m_sourceBytesPerRow = textureLayout.m_bytesPerRow;
+        textureCopy.m_bufferToImage.m_sourceBytesPerImage = textureLayout.m_bytesPerImage;
         textureCopy.m_bufferToImage.m_sourceFormat = RHI::Format::R8G8B8A8_UNORM;
-        textureCopy.m_bufferToImage.m_sourceSize = RHI::Size(m_imageAsset->GetWidth(), m_imageAsset->GetHeight(), 1);
+        textureCopy.m_bufferToImage.m_sourceSize = textureLayout.m_size;
         textureCopy.m_bufferToImage.m_destinationImage = m_baseColorImage.get();
         textureCopy.m_bufferToImage.m_destinationSubresource = RHI::ImageSubresource(0, 0);
         textureCopy.m_bufferToImage.m_destinationOrigin = RHI::Origin(0, 0, 0);

@@ -409,10 +409,10 @@ namespace Spark::RHI::DX12
                         newPlacement.m_offset,
                         newPlacement.m_size,
                         allocationInfo.Alignment);
-            dx12Image->m_residentSizeInBytes = memoryView.GetSize();
+            dx12Image->m_sizeInBytes = memoryView.GetSize();
             dx12Image->m_memoryView = eastl::move(memoryView);
             dx12Image->GenerateSubresourceLayouts();
-            dx12Image->InitSubresourceAttachmentState();
+            dx12Image->InitSubresourceState();
             return RHI::ResultCode::Success;
         });
 
@@ -722,10 +722,10 @@ namespace Spark::RHI::DX12
                                   0,
                                   allocationInfo.SizeInBytes,
                                   allocationInfo.Alignment);
-            dx12Image->m_residentSizeInBytes = memoryView.GetSize();
+            dx12Image->m_sizeInBytes = memoryView.GetSize();
             dx12Image->m_memoryView = eastl::move(memoryView);
             dx12Image->GenerateSubresourceLayouts();
-            dx12Image->InitSubresourceAttachmentState();
+            dx12Image->InitSubresourceState();
             return RHI::ResultCode::Success;
         });
 

@@ -128,18 +128,12 @@ namespace Spark::RHI::DX12
         }
 
         MemoryView memoryView(allocation.Get(), MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());
-        image->m_residentSizeInBytes = memoryView.GetSize();
+        image->m_sizeInBytes = memoryView.GetSize();
         image->m_memoryView = eastl::move(memoryView);
         image->GenerateSubresourceLayouts();
-        image->InitSubresourceAttachmentState();
-        image->m_streamedMipLevel = image->GetResidentMipLevel();
+        image->InitSubresourceState();
 
         return RHI::ResultCode::Success;
-    }
-
-    RHI::ResultCode ImagePool::UpdateImageContentsInternal(const RHI::ImageUpdateRequest& request)
-    {
-        return RHI::ResultCode::InvalidOperation;
     }
 
     void ImagePool::ShutdownResourceInternal(RHI::Resource& resourceBase)
@@ -147,7 +141,6 @@ namespace Spark::RHI::DX12
         Image& image = static_cast<Image&>(resourceBase);
         m_releaseQueue.QueueForCollect(image.GetMemoryView().GetMemoryAllocation());
         image.m_memoryView = {};
-        image.m_pendingResolves = 0;
     }
 
     void ImagePool::OnFrameEnd()

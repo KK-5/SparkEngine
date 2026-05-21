@@ -66,15 +66,12 @@ namespace Spark::RHI
 
         struct ImageUpload
         {
-            const void*      m_data                = nullptr;
-            size_t           m_dataSize            = 0;
-            Image*           m_targetImage         = nullptr;
-            ImageSubresource m_subresource {};
-            Origin           m_destinationOrigin {};
-            Size             m_size {};
-            Format           m_sourceFormat        = Format::Unknown;
-            uint32_t         m_sourceBytesPerRow   = 0;
-            uint32_t         m_sourceBytesPerImage = 0;
+            const void*           m_data              = nullptr;
+            size_t                m_dataSize          = 0;
+            Image*                m_targetImage       = nullptr;
+            ImageSubresourceRange m_range {};
+            Origin                m_destinationOrigin {};
+            Format                m_sourceFormat      = Format::Unknown;
         };
 
         // Cross-system handoff fence wait, recorded by SubmitBatch when a

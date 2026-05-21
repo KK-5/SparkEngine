@@ -150,16 +150,16 @@ namespace Spark::RHI
 
     // CPU source data for an image upload. Same m_data lifetime contract as
     // PendingBufferUpload (including the CPU-side skip retry behavior).
+    // m_range specifies the subresource range to upload; per-subresource
+    // layout (row pitch, image size, dimensions) is queried from the target
+    // Image at execution time via GetSubresourceLayouts.
     struct PendingImageUpload
     {
-        const void*      m_data                = nullptr;
-        size_t           m_dataSize            = 0;
-        ImageSubresource m_subresource {};
-        Origin           m_destinationOrigin {};
-        Size             m_size {};
-        Format           m_sourceFormat        = Format::Unknown;
-        uint32_t         m_sourceBytesPerRow   = 0;
-        uint32_t         m_sourceBytesPerImage = 0;
+        const void*           m_data              = nullptr;
+        size_t                m_dataSize          = 0;
+        ImageSubresourceRange m_range {};
+        Origin                m_destinationOrigin {};
+        Format                m_sourceFormat      = Format::Unknown;
     };
 
     // CPU source data + destination range for a host-buffer write via Map.
