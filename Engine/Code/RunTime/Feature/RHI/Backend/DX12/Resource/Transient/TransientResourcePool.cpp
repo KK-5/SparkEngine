@@ -301,7 +301,7 @@ namespace Spark::RHI::DX12
 
             RHI::DeviceMemoryBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
-            barrier.m_typeBefore = resourceType;
+            barrier.m_typeBefore     = prevTail.m_resourceType;
             barrier.m_srcStage       = srcStage;
             barrier.m_dstStage       = dstStage;
             bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].push_back(barrier);
@@ -520,7 +520,7 @@ namespace Spark::RHI::DX12
 
             RHI::DeviceMemoryBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
-            barrier.m_typeBefore = resourceType;
+            barrier.m_typeBefore     = prevTail.m_resourceType;
             barrier.m_srcStage       = srcStage;
             barrier.m_dstStage       = dstStage;
             bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].push_back(barrier);
