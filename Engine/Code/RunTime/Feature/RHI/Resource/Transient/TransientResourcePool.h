@@ -46,7 +46,7 @@ namespace Spark::RHI
     //!     so heap memory can be safely recycled.
     //!   - Create*() / Discard() are valid only while the batch is open.
     //!   - Seal() closes the batch. After Seal(), aliasing relationships and
-    //!     barriers become queryable through GetAliasingBarriers(). The caller
+    //!     barriers become queryable through GetDeviceMemoryBarriers(). The caller
     //!     must Seal before recording barriers into command lists, so Seal
     //!     belongs in the render-graph compile phase, not at end-of-frame.
     //!   - OnFrameEnd performs end-of-frame bookkeeping; it does not seal
@@ -89,16 +89,16 @@ namespace Spark::RHI
         void Discard(Buffer* buffer, const TransientAllocationFence& discardFence);
 
         //! Close the current allocation batch. After this, Create*() / Discard()
-        //! are no longer valid until the next OnFrameBegin, and GetAliasingBarriers()
+        //! are no longer valid until the next OnFrameBegin, and GetDeviceMemoryBarriers()
         //! becomes valid. Call this once per frame, after all transient resources
         //! have been allocated/discarded and before barriers are recorded into
         //! command lists.
         void Seal();
 
-        //! Full aliasing barriers (with src/dst stage populated from Create/Discard
+        //! Full memory barriers (with src/dst stage populated from Create/Discard
         //! fence data) for the given timeline position. Only valid after Seal()
         //! has closed the batch.
-        void GetAliasingBarriers(uint32_t timelinePosition, eastl::vector<AliasingBarrier>& out) const;
+        void GetDeviceMemoryBarriers(uint32_t timelinePosition, eastl::vector<DeviceMemoryBarrier>& out) const;
 
         //! Cheap snapshot of pool occupancy and aliasing efficiency.
         TransientResourcePoolStats GetStats() const;
@@ -139,9 +139,9 @@ namespace Spark::RHI
             Buffer* buffer,
             const TransientAllocationFence& discardFence) = 0;
 
-        virtual void GetAliasingBarriersInternal(
+        virtual void GetDeviceMemoryBarriersInternal(
             uint32_t                     timelinePosition,
-            eastl::vector<AliasingBarrier>& out) const = 0;
+            eastl::vector<DeviceMemoryBarrier>& out) const = 0;
 
         virtual void OnFrameBeginInternal() {}
         virtual void OnFrameEndInternal()   {}
@@ -161,7 +161,7 @@ namespace Spark::RHI
         TransientResourcePoolDescriptor m_descriptor;
 
         //! True between OnFrameBegin and Seal(). Create / Discard are only
-        //! valid while open; GetAliasingBarriers requires the batch sealed.
+        //! valid while open; GetDeviceMemoryBarriers requires the batch sealed.
         bool m_batchOpen = false;
     };
 }

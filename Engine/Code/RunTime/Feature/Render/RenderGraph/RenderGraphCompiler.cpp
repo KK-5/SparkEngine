@@ -374,7 +374,7 @@ namespace
             }
         }
 
-        void CompileTransientAliasingBarriers(
+        void CompileTransientDeviceMemoryBarriers(
             Pass                        pass,
             PassContext&                passContext,
             RHI::TransientResourcePool& pool,
@@ -385,7 +385,7 @@ namespace
                 passContext.Get<PassName>(pass).m_name.GetCStr());
             const uint32_t pos = passContext.Get<PassGlobalTimeline>(pass).m_position;
 
-            pool.GetAliasingBarriers(pos, out.m_preAliasing);
+            pool.GetDeviceMemoryBarriers(pos, out.m_preDeviceMemory);
         }
 
         // Hard-fail any attempt to use an EXCLUSIVE imported resource on a queue
@@ -606,8 +606,8 @@ namespace
     {
         PassBarriers result;
 
-        // Aliasing barriers must be issued before state-transition barriers.
-        CompileTransientAliasingBarriers(pass, passContext, pool, result);
+        // Device memory barriers must be issued before state-transition barriers.
+        CompileTransientDeviceMemoryBarriers(pass, passContext, pool, result);
         CompileImageBarriers(pass, passContext, context, pool, result);
         CompileBufferBarriers(pass, passContext, context, pool, result);
 

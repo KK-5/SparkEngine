@@ -177,7 +177,7 @@ namespace Spark::RHI
 
     namespace
     {
-        AliasingBarrier MakeAliasingBarrierImpl(
+        DeviceMemoryBarrier MakeDeviceMemoryBarrierImpl(
             Resource*           before,
             Resource*           after,
             BarrierResourceType typeBefore,
@@ -185,8 +185,8 @@ namespace Spark::RHI
             AttachmentStage     srcStage,
             AttachmentStage     dstStage)
         {
-            ASSERT(after != nullptr, "[RHI] MakeAliasingBarrier: 'after' resource must be non-null.");
-            AliasingBarrier barrier;
+            ASSERT(after != nullptr, "[RHI] MakeDeviceMemoryBarrier: 'after' resource must be non-null.");
+            DeviceMemoryBarrier barrier;
             barrier.m_resourceBefore = before;
             barrier.m_resourceAfter  = after;
             barrier.m_typeBefore     = typeBefore;
@@ -197,31 +197,31 @@ namespace Spark::RHI
         }
     }
 
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Buffer* before, Buffer* after, AttachmentStage srcStage, AttachmentStage dstStage)
     {
-        return MakeAliasingBarrierImpl(
+        return MakeDeviceMemoryBarrierImpl(
             before, after, BarrierResourceType::Buffer, BarrierResourceType::Buffer, srcStage, dstStage);
     }
 
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Buffer* before, Image* after, AttachmentStage srcStage, AttachmentStage dstStage)
     {
-        return MakeAliasingBarrierImpl(
+        return MakeDeviceMemoryBarrierImpl(
             before, after, BarrierResourceType::Buffer, BarrierResourceType::Image, srcStage, dstStage);
     }
 
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Image* before, Buffer* after, AttachmentStage srcStage, AttachmentStage dstStage)
     {
-        return MakeAliasingBarrierImpl(
+        return MakeDeviceMemoryBarrierImpl(
             before, after, BarrierResourceType::Image, BarrierResourceType::Buffer, srcStage, dstStage);
     }
 
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Image* before, Image* after, AttachmentStage srcStage, AttachmentStage dstStage)
     {
-        return MakeAliasingBarrierImpl(
+        return MakeDeviceMemoryBarrierImpl(
             before, after, BarrierResourceType::Image, BarrierResourceType::Image, srcStage, dstStage);
     }
 

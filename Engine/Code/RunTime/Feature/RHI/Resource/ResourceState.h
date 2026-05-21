@@ -14,10 +14,10 @@ namespace Spark::RHI
     class Buffer;
     class Image;
 
-    //! Discriminator for the concrete RHI resource subtype referenced by an
-    //! AliasingBarrier. Carried on the barrier itself (rather than queried
+    //! Discriminator for the concrete RHI resource subtype referenced by a
+    //! DeviceMemoryBarrier. Carried on the barrier itself (rather than queried
     //! from the base class) so RHI::Resource stays a thin ownership / state
-    //! tracker. Producers of aliasing barriers (transient pool, render-graph
+    //! tracker. Producers of device memory barriers (transient pool, render-graph
     //! compiler) always know the type at the call site; backends switch on
     //! it to recover the typed pointer.
     enum class BarrierResourceType : uint8_t
@@ -119,24 +119,25 @@ namespace Spark::RHI
         HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
-    //! Heap-range ownership transfer between two resources that share backing
+    //! Heap-range coherence barrier between two resources that share backing
     //! memory. m_resourceAfter is about to be used; m_resourceBefore was the
     //! previous owner of the same heap range (null = "any prior owner").
     //!
-    //! Aliasing is a memory-level concept, so Buffer/Image are not split into
+    //! This is a memory-level concept, so Buffer/Image are not split into
     //! separate barrier types; instead m_typeBefore / m_typeAfter discriminate
     //! the concrete subtype the backend should static_cast to. Use the
-    //! MakeAliasingBarrier overloads below — they fill the type fields from
+    //! MakeDeviceMemoryBarrier overloads below — they fill the type fields from
     //! the typed pointer arguments so callers cannot get them out of sync.
     //!
-    //! Vulkan backend: emits a VkMemoryBarrier (or pipeline barrier) using
-    //!     m_srcStage / m_dstStage to scope the memory hazard. The "after"
-    //!     image's layout transition is NOT this barrier's responsibility —
-    //!     it is carried by the regular ImageBarrier (src layout = Undefined)
-    //!     that immediately follows the aliasing barrier.
-    //! DX12 backend: emits a single D3D12_RESOURCE_ALIASING_BARRIER; stage
-    //!     fields are unused (the subsequent transition barrier is enough).
-    struct AliasingBarrier
+    //! Vulkan backend: emits a VkMemoryBarrier using m_srcStage / m_dstStage
+    //!     to scope the memory hazard. m_resourceBefore / m_resourceAfter are
+    //!     ignored (VkMemoryBarrier is global). The "after" image's layout
+    //!     transition is carried by the regular ImageBarrier (src layout =
+    //!     Undefined) that immediately follows.
+    //! DX12 backend: emits a D3D12_RESOURCE_ALIASING_BARRIER from
+    //!     m_resourceBefore / m_resourceAfter; then the subsequent transition
+    //!     barrier handles the per-resource state.
+    struct DeviceMemoryBarrier
     {
         Resource*           m_resourceBefore = nullptr;
         Resource*           m_resourceAfter  = nullptr;
@@ -163,26 +164,26 @@ namespace Spark::RHI
         AttachmentAccess dstAccess,
         AttachmentStage dstStage = AttachmentStage::Any);
 
-    //! Aliasing-barrier factories. Type fields are filled from the typed
+    //! Device memory barrier factories. Type fields are filled from the typed
     //! pointer arguments, so callers cannot get m_typeBefore / m_typeAfter
     //! out of sync with the actual resources. @a before may be null to
     //! denote "any prior owner"; @a after must be non-null.
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Buffer* before, Buffer* after,
         AttachmentStage srcStage = AttachmentStage::Any,
         AttachmentStage dstStage = AttachmentStage::Any);
 
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Buffer* before, Image* after,
         AttachmentStage srcStage = AttachmentStage::Any,
         AttachmentStage dstStage = AttachmentStage::Any);
 
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Image* before, Buffer* after,
         AttachmentStage srcStage = AttachmentStage::Any,
         AttachmentStage dstStage = AttachmentStage::Any);
 
-    AliasingBarrier MakeAliasingBarrier(
+    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
         Image* before, Image* after,
         AttachmentStage srcStage = AttachmentStage::Any,
         AttachmentStage dstStage = AttachmentStage::Any);

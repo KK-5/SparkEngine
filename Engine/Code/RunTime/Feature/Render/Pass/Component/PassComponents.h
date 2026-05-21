@@ -164,7 +164,7 @@ namespace Spark::Render
         
         //!  Must be issued before the state-transition barriers above so that the heap
         //! range ownership transfer happens before any layout/state work.
-        eastl::vector<RHI::AliasingBarrier>  m_preAliasing;
+        eastl::vector<RHI::DeviceMemoryBarrier>  m_preDeviceMemory;
     };
 
     /////////////////////////////////////////////////////

@@ -51,7 +51,7 @@ namespace Spark::Render
         //! views, and write the backing pointers / view handles back onto the
         //! resource and attachment entities in RHIContext. Caller must ensure
         //! the pool's batch is open (post-OnFrameBegin). On return, the pool is
-        //! sealed and ready for GetAliasingBarriers queries during per-pass
+        //! sealed and ready for GetDeviceMemoryBarriers queries during per-pass
         //! barrier compilation.
         void CompileTransientResources(
             eastl::span<Pass>           passes,

@@ -192,7 +192,7 @@ namespace Spark::RHI::DX12
             }
         }
 
-        bucket.m_aliasingBarriers.clear();
+        bucket.m_deviceMemoryBarriers.clear();
         bucket.m_placements.clear();
         bucket.m_chainTails.clear();
         if (bucket.m_offsetBlock)
@@ -222,7 +222,7 @@ namespace Spark::RHI::DX12
         }
         bucket.m_resourceCache.clear();
 
-        bucket.m_aliasingBarriers.clear();
+        bucket.m_deviceMemoryBarriers.clear();
         bucket.m_placements.clear();
         bucket.m_chainTails.clear();
         bucket.m_committedFallbacks.clear();
@@ -299,12 +299,12 @@ namespace Spark::RHI::DX12
             bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
             bucket.m_chainTails[bestChainSlot] = newIndex;
 
-            RHI::AliasingBarrier barrier;
+            RHI::DeviceMemoryBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
             barrier.m_typeBefore = resourceType;
             barrier.m_srcStage       = srcStage;
             barrier.m_dstStage       = dstStage;
-            bucket.m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
+            bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].push_back(barrier);
         }
         else
         {
@@ -425,13 +425,13 @@ namespace Spark::RHI::DX12
                 bucket.m_placements[prevTailIdx].m_aliasedTo = InvalidPlacementIndex;
                 bucket.m_chainTails[bestChainSlot] = prevTailIdx;
 
-                auto barrierIt = bucket.m_aliasingBarriers.find(allocFence.m_timelinePosition);
-                if (barrierIt != bucket.m_aliasingBarriers.end() && !barrierIt->second.empty())
+                auto barrierIt = bucket.m_deviceMemoryBarriers.find(allocFence.m_timelinePosition);
+                if (barrierIt != bucket.m_deviceMemoryBarriers.end() && !barrierIt->second.empty())
                 {
                     barrierIt->second.pop_back();
                     if (barrierIt->second.empty())
                     {
-                        bucket.m_aliasingBarriers.erase(barrierIt);
+                        bucket.m_deviceMemoryBarriers.erase(barrierIt);
                     }
                 }
             }
@@ -454,7 +454,7 @@ namespace Spark::RHI::DX12
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            auto& curBarrier = bucket.m_aliasingBarriers[allocFence.m_timelinePosition].back();
+            auto& curBarrier = bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].back();
             curBarrier.m_resourceAfter = image.get();
             curBarrier.m_typeAfter = resourceType;
         }
@@ -518,12 +518,12 @@ namespace Spark::RHI::DX12
             bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
             bucket.m_chainTails[bestChainSlot] = newIndex;
 
-            RHI::AliasingBarrier barrier;
+            RHI::DeviceMemoryBarrier barrier;
             barrier.m_resourceBefore = prevTail.m_resource.get();
             barrier.m_typeBefore = resourceType;
             barrier.m_srcStage       = srcStage;
             barrier.m_dstStage       = dstStage;
-            bucket.m_aliasingBarriers[allocFence.m_timelinePosition].push_back(barrier);
+            bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].push_back(barrier);
         }
         else
         {
@@ -632,13 +632,13 @@ namespace Spark::RHI::DX12
                 bucket.m_placements[prevTailIdx].m_aliasedTo = InvalidPlacementIndex;
                 bucket.m_chainTails[bestChainSlot] = prevTailIdx;
 
-                auto barrierIt = bucket.m_aliasingBarriers.find(allocFence.m_timelinePosition);
-                if (barrierIt != bucket.m_aliasingBarriers.end() && !barrierIt->second.empty())
+                auto barrierIt = bucket.m_deviceMemoryBarriers.find(allocFence.m_timelinePosition);
+                if (barrierIt != bucket.m_deviceMemoryBarriers.end() && !barrierIt->second.empty())
                 {
                     barrierIt->second.pop_back();
                     if (barrierIt->second.empty())
                     {
-                        bucket.m_aliasingBarriers.erase(barrierIt);
+                        bucket.m_deviceMemoryBarriers.erase(barrierIt);
                     }
                 }
             }
@@ -661,7 +661,7 @@ namespace Spark::RHI::DX12
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            auto& curBarrier = bucket.m_aliasingBarriers[allocFence.m_timelinePosition].back();
+            auto& curBarrier = bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].back();
             curBarrier.m_resourceAfter = buffer.get();
             curBarrier.m_typeAfter = resourceType;
         }
@@ -796,11 +796,11 @@ namespace Spark::RHI::DX12
         return buffer.get();
     }
 
-    void TransientResourcePool::GetAliasingBarriersInternal(uint32_t timelinePosition, eastl::vector<RHI::AliasingBarrier>& out) const
+    void TransientResourcePool::GetDeviceMemoryBarriersInternal(uint32_t timelinePosition, eastl::vector<RHI::DeviceMemoryBarrier>& out) const
     {
         const HeapBucket& bucket = CurrentBucket();
-        auto it = bucket.m_aliasingBarriers.find(timelinePosition);
-        if (it != bucket.m_aliasingBarriers.end())
+        auto it = bucket.m_deviceMemoryBarriers.find(timelinePosition);
+        if (it != bucket.m_deviceMemoryBarriers.end())
         {
             out = it->second;
             return;

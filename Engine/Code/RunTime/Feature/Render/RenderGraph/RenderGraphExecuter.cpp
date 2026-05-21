@@ -172,9 +172,9 @@ namespace Spark::Render
     {
         const PassBarriers& barriers = passContext.Get<PassBarriers>(pass);
 
-        for (const auto& b : barriers.m_preAliasing)
+        for (const auto& b : barriers.m_preDeviceMemory)
         {
-            commandList->QueueAliasingBarrier(b);
+            commandList->QueueBarrier(b);
         }
 
         for (const auto& b : barriers.m_preImage)

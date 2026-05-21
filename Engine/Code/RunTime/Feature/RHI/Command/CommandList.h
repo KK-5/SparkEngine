@@ -111,7 +111,8 @@ namespace Spark::RHI
         /// Queues an image barrier for batched submission. Call FlushBarriers to submit all queued barriers.
         virtual void QueueBarrier(const ImageBarrier& barrier) = 0;
 
-        virtual void QueueAliasingBarrier(AliasingBarrier barrier) = 0;
+        /// Queues a memory barrier for batched submission. Call FlushBarriers to submit all queued barriers.
+        virtual void QueueBarrier(const DeviceMemoryBarrier& barrier) = 0;
 
         /// Submits all queued barriers to the command list in a single batched call.
         virtual void FlushBarriers() = 0;

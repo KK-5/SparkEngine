@@ -655,7 +655,7 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void CommandList::QueueAliasingBarrier(AliasingBarrier barrier)
+    void CommandList::QueueBarrier(const RHI::DeviceMemoryBarrier& barrier)
     {
         D3D12_RESOURCE_ALIASING_BARRIER dx12Barrier{};
 
@@ -693,7 +693,7 @@ namespace Spark::RHI::DX12
                 break;
             }
             default:
-                ASSERT(false, "Invalid aliasing barrier type.");
+                ASSERT(false, "Invalid memory barrier type.");
         }
 
         CommandListBase::QueueAliasingBarrier(dx12Barrier, nullptr);
