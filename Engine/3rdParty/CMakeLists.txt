@@ -54,6 +54,34 @@ if(NOT TARGET stb)
     target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
 endif()
 
+if(NOT TARGET ktx)
+    Message(STATUS "Import KTX-Software (libktx)")
+
+    # Strip everything we don't need: tools, tests, docs, language bindings,
+    # KTX1 legacy, GPU upload helpers (we have our own RHI), OpenCL accel.
+    set(KTX_FEATURE_STATIC_LIBRARY ON  CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_TOOLS          OFF CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_TESTS          OFF CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_DOC            OFF CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_JNI            OFF CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_PY             OFF CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_KTX1           OFF CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_KTX2           ON  CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_VK_UPLOAD      OFF CACHE BOOL "" FORCE)
+    set(KTX_FEATURE_GL_UPLOAD      OFF CACHE BOOL "" FORCE)
+    set(BASISU_SUPPORT_OPENCL      OFF CACHE BOOL "" FORCE)
+    set(KTX_WERROR                 OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING              OFF CACHE BOOL "" FORCE)
+
+    add_subdirectory(KTX-Software)
+
+    foreach(_ktx_target ktx ktx_read objUtil astcenc-avx2-static astcenc-sse4.1-static astcenc-sse2-static astcenc-none-static)
+        if(TARGET ${_ktx_target})
+            set_target_properties(${_ktx_target} PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/ktx)
+        endif()
+    endforeach()
+endif()
+
 if(BUILD_TESTS)
     Message(STATUS "Import gtest")
     option(BUILD_GMOCK "Builds the googlemock subproject" ON)
