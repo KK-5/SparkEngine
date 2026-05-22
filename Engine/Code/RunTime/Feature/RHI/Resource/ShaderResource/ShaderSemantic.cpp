@@ -12,12 +12,9 @@
 
 namespace Spark::RHI
 {
-    ShaderSemantic::ShaderSemantic(const ObjectName& name, size_t index)
-        :m_name(name), m_index(index)
-    {}
-
     ShaderSemantic::ShaderSemantic(eastl::string_view name, size_t index)
-        : ShaderSemantic{ ObjectName{name}, index }
+        : m_name(name.data(), name.size())
+        , m_index(static_cast<uint32_t>(index))
     {}
 
     bool ShaderSemantic::operator==(const ShaderSemantic& rhs) const
@@ -27,7 +24,7 @@ namespace Spark::RHI
 
     size_t ShaderSemantic::GetHash() const
     {
-        size_t h1 = m_name.GetHash();
+        size_t h1 = eastl::hash<eastl::string>()(m_name);
         size_t h2 = eastl::hash<uint32_t>()(m_index);
 
         size_t combinedHash = h1;
@@ -37,6 +34,6 @@ namespace Spark::RHI
 
     eastl::string ShaderSemantic::ToString() const
     {
-        return m_name.GetCStr() + eastl::to_string(m_index);
+        return m_name + eastl::to_string(m_index);
     }
 }

@@ -1,9 +1,11 @@
 #pragma once
 
 #include <EASTL/string.h>
+#include <EASTL/string_view.h>
 
 #include <Base.h>
 #include <EASTLEX/hash.h>
+#include <Object/ObjectName.h>
 
 
 namespace Spark::Resource
@@ -15,33 +17,41 @@ namespace Spark::Resource
     public:
         AssetId() = default;
 
-        /// 用资源路径构造，hash 自动从 name 生成
-        explicit AssetId(eastl::string_view name)
-            : m_name(name)
-            , m_hash(m_name.GetHash())
+        /// 用资源路径构造，hash 自动从 path 生成
+        explicit AssetId(eastl::string_view path)
+            : m_path(path.data(), path.size())
+            , m_hash(ComputeHash(m_path))
         {}
 
         /// 用资源路径 + 子资产 hash 构造
-        AssetId(eastl::string_view name, AssetHash subId)
-            : m_name(name)
-            , m_hash(HashCombine(m_name.GetHash(), subId))
+        AssetId(eastl::string_view path, AssetHash subId)
+            : m_path(path.data(), path.size())
+            , m_hash(HashCombine(ComputeHash(m_path), subId))
         {}
 
         /// 用资源路径 + 子资产 名称/路径 构造
-        AssetId(eastl::string_view name, eastl::string_view subName)
-            : m_name(name)
-            , m_hash(HashCombine(m_name.GetHash(), ObjectName(subName).GetHash()))
-        {}
+        AssetId(eastl::string_view path, eastl::string_view subName)
+            : m_path(path.data(), path.size())
+        {
+            const eastl::string subTmp(subName.data(), subName.size());
+            m_hash = HashCombine(ComputeHash(m_path), ComputeHash(subTmp));
+        }
 
         bool operator==(const AssetId& other) const { return m_hash == other.m_hash; }
         bool operator!=(const AssetId& other) const { return m_hash != other.m_hash; }
         bool operator<(const AssetId& other) const  { return m_hash < other.m_hash; }
 
-        AssetHash GetHash() const          { return m_hash; }
-        const ObjectName& GetName() const  { return m_name; }
-        bool IsValid() const               { return !m_name.IsEmpty(); }
+        AssetHash GetHash() const               { return m_hash; }
+        const eastl::string& GetPath() const    { return m_path; }
+        bool IsValid() const                    { return !m_path.empty(); }
 
     private:
+        static AssetHash ComputeHash(const eastl::string& s)
+        {
+            if (s.empty()) { return 0; }
+            return HashString(s.c_str()).value();
+        }
+
         static AssetHash HashCombine(AssetHash a, AssetHash b)
         {
             size_t hashCombined = static_cast<size_t>(a);
@@ -49,8 +59,8 @@ namespace Spark::Resource
             return static_cast<AssetHash>(hashCombined);
         }
 
-        ObjectName m_name;
-        AssetHash m_hash{0};
+        eastl::string m_path;
+        AssetHash     m_hash{0};
     };
 
     enum class AssetStatus : uint32_t

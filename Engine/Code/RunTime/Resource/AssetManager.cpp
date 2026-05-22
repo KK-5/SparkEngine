@@ -8,6 +8,8 @@
 #include "EBus/AssetBus.h"
 #include "Shader/ShaderAsset.h"
 #include "Image/ImageAsset.h"
+#include "Image/ImageAssetLoader.h"
+#include "Image/ImageAssetCompiler.h"
 
 #include "Common/CommonAssetLoader.h"
 #include "Shader/ShaderAssetCompiler.h"
@@ -83,6 +85,8 @@ namespace Spark::Resource
         // Image
         auto imageLoader = eastl::make_unique<ImageAssetLoader>();
         RegisterAssetLoader(eastl::move(imageLoader), AssetType::Image);
+        auto imageCompiler = MakeUnique<ImageAssetCompiler>();
+        RegisterAssetCompiler(eastl::move(imageCompiler), AssetType::Image);
         //////////////////////////////////////
     }
 

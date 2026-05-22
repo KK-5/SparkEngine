@@ -108,9 +108,11 @@ function(generate_version _var )
     set(${_var} "${KTX_VERSION}" PARENT_SCOPE)
 endfunction()
 
-# Get latest tag
-git_describe_raw(KTX_VERSION_FULL --abbrev=0 --match v[0-9]*)
-#message("KTX full version: ${KTX_VERSION_FULL}")
+# Vendored copy has no .git history; hardcode version to silence
+# "Error retrieving version from GIT tag" warning. Upstream uses
+# git describe to discover the tag.
+set(KTX_VERSION_FULL "v4.3.2")
+# git_describe_raw(KTX_VERSION_FULL --abbrev=0 --match v[0-9]*)
 
 # generate_version(TOKTX_VERSION tools/toktx)
 # message("TOKTX_VERSION: ${TOKTX_VERSION}")

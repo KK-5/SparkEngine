@@ -82,7 +82,7 @@ namespace Spark::Resource
 
             if (FAILED(hr))
             {
-                LOG_ERROR("DXC: Failed to create source blob for {}", id.GetName().GetStringView().data());
+                LOG_ERROR("DXC: Failed to create source blob for {}", id.GetPath().c_str());
                 return nullptr;
             }
 
@@ -129,7 +129,7 @@ namespace Spark::Resource
             if (FAILED(hr))
             {
                 LOG_ERROR("DXC: Compile call failed for {} [{}]",
-                    id.GetName().GetStringView().data(), entry.entryPoint.c_str());
+                    id.GetPath().c_str(), entry.entryPoint.c_str());
                 return nullptr;
             }
 
@@ -143,7 +143,7 @@ namespace Spark::Resource
                 if (errors && errors->GetStringLength() > 0)
                 {
                     LOG_ERROR("DXC: Shader compile error [{}:{}]:\n{}",
-                        id.GetName().GetStringView().data(),
+                        id.GetPath().c_str(),
                         entry.entryPoint.c_str(),
                         errors->GetStringPointer());
                 }
@@ -158,7 +158,7 @@ namespace Spark::Resource
             if (!shaderBlob || shaderBlob->GetBufferSize() == 0)
             {
                 LOG_ERROR("DXC: Empty output for {} [{}]",
-                    id.GetName().GetStringView().data(), entry.entryPoint.c_str());
+                    id.GetPath().c_str(), entry.entryPoint.c_str());
                 if (shaderBlob) shaderBlob->Release();
                 compileResult->Release();
                 return nullptr;

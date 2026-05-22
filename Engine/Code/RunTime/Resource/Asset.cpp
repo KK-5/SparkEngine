@@ -10,10 +10,10 @@ namespace Spark::Resource
 {
     eastl::string AssetLoader::ResolvePath(const AssetId& id) const
     {
-        auto name = id.GetName().GetStringView();
+        const eastl::string& path = id.GetPath();
         for (const auto& searchPath : m_searchPaths)
         {
-            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / name.data();
+            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / path.c_str();
             if (std::filesystem::exists(full))
             {
                 auto str = full.string();

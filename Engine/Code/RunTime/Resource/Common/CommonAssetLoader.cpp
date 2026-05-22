@@ -30,7 +30,7 @@ namespace Spark::Resource
         eastl::string path = ResolvePath(id);
         if (path.empty())
         {
-            LOG_ERROR("Asset file not found: {}", id.GetName().GetStringView().data());
+            LOG_ERROR("Asset file not found: {}", id.GetPath().c_str());
             return nullptr;
         }
 

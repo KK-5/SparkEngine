@@ -9,18 +9,19 @@
 #pragma once
 
 #include <EASTL/string.h>
-
-#include <Object/ObjectName.h>
+#include <EASTL/string_view.h>
 
 namespace Spark::RHI
 {
+    // Holds the HLSL/SPIR-V vertex input semantic name ("POSITION", "TEXCOORD", ...) plus
+    // its array index. The name is forwarded verbatim to D3D12_INPUT_ELEMENT_DESC::SemanticName,
+    // so it must remain a live string in release builds — cannot be hash-stripped via ObjectName.
     class ShaderSemantic
     {
     public:
         static constexpr const char UvStreamSemantic[] = "UV";
 
         ShaderSemantic() = default;
-        explicit ShaderSemantic(const ObjectName& name, size_t index = 0);
         explicit ShaderSemantic(eastl::string_view name, size_t index = 0);
 
         bool operator==(const ShaderSemantic& rhs) const;
@@ -29,7 +30,7 @@ namespace Spark::RHI
 
         eastl::string ToString() const;
 
-        ObjectName m_name;
-        uint32_t m_index = 0;
+        eastl::string m_name;
+        uint32_t      m_index = 0;
     };
 }

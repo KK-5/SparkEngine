@@ -19,8 +19,8 @@ namespace Spark::Resource
     /// 单个 shader stage 的编译产物
     struct ShaderStageBytecode
     {
-        RHI::ShaderStage stage{RHI::ShaderStage::Unknown};
-        eastl::string entryPoint;                  ///< 入口函数名，如 "VSMain", "PSMain"
+        RHI::ShaderStage       stage{RHI::ShaderStage::Unknown};
+        eastl::string          entryPoint;         ///< 入口函数名，如 "VSMain", "PSMain"
         eastl::vector<uint8_t> bytecode;           ///< DXIL 或 SPIR-V 字节码
     };
 

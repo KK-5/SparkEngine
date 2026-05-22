@@ -7,6 +7,8 @@ set(SOURCES
     Shader/ShaderAsset.cpp
     Shader/ShaderAssetCompiler.cpp
     Image/ImageAsset.cpp
+    Image/ImageAssetLoader.cpp
+    Image/ImageAssetCompiler.cpp
     Image/stb_impl.cpp
 )
 
