@@ -63,7 +63,7 @@ namespace Spark::Resource
             }
             default:
             {
-                return Ptr<Asset>(new Asset(id, type));
+                return Ptr<Asset>(new ImageAsset(id));
             }
         }
     }

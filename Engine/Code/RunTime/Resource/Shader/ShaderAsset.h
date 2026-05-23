@@ -16,6 +16,16 @@ namespace Spark::Resource
         SPIRV,      ///< Vulkan
     };
 
+    /// Per-instance shader compile config. Lives on the AssetId so the same
+    /// HLSL file compiled for DXIL vs SPIRV is two distinct assets.
+    class ShaderDescriptor : public AssetDescriptor
+    {
+    public:
+        ShaderBackend backend = ShaderBackend::DXIL;
+
+        AssetHash Hash() const override;
+    };
+
     /// 单个 shader stage 的编译产物
     struct ShaderStageBytecode
     {
@@ -52,7 +62,10 @@ namespace Spark::Resource
     class ShaderAsset : public Asset
     {
     public:
+        using Descriptor = ShaderDescriptor;
+
         static constexpr AssetType GetAssetTypeStatic() { return AssetType::Shader; }
+        static Ptr<AssetDescriptor> DefaultDescriptor();
 
         ShaderAsset(AssetId id);
 

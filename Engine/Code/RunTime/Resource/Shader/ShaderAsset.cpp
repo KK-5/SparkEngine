@@ -1,7 +1,18 @@
 #include "ShaderAsset.h"
 
+#include <EASTLEX/hash.h>
+
 namespace Spark::Resource
 {
+    // ---- ShaderDescriptor ----
+
+    AssetHash ShaderDescriptor::Hash() const
+    {
+        size_t h = 0;
+        eastl::hash_combine(h, static_cast<size_t>(backend));
+        return static_cast<AssetHash>(h);
+    }
+
     // ---- ShaderAssetData ----
 
     void ShaderAssetData::AddStageBytecode(ShaderStageBytecode bytecode)
@@ -22,6 +33,12 @@ namespace Spark::Resource
     }
 
     // ---- ShaderAsset ----
+
+    Ptr<AssetDescriptor> ShaderAsset::DefaultDescriptor()
+    {
+        static Ptr<AssetDescriptor> instance(new ShaderDescriptor{});
+        return instance;
+    }
 
     ShaderAsset::ShaderAsset(AssetId id)
         : Asset(eastl::move(id), AssetType::Shader)

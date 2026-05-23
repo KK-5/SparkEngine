@@ -5,6 +5,7 @@
 
 #include <Base.h>
 #include <EASTLEX/hash.h>
+#include <Object/Object.h>
 #include <Object/ObjectName.h>
 
 
@@ -12,55 +13,76 @@ namespace Spark::Resource
 {
     using AssetHash = ObjectName::Hash;
 
+    /// Per-asset-type compile-time configuration (compression, mip count, ...).
+    /// Concrete derived types provide field storage and implement Hash() over
+    /// those fields. Equals is hash-based: two descriptors are equal iff their
+    /// hashes are equal. In practice an AssetId never carries cross-type
+    /// descriptors against the same path, so cross-type hash collisions cannot
+    /// reach Equals.
+    class AssetDescriptor : public Object
+    {
+    public:
+        ~AssetDescriptor() override = default;
+
+        virtual AssetHash Hash() const = 0;
+
+        bool Equals(const AssetDescriptor& other) const { return Hash() == other.Hash(); }
+    };
+
     class AssetId
     {
     public:
         AssetId() = default;
 
-        /// 用资源路径构造，hash 自动从 path 生成
-        explicit AssetId(eastl::string_view path)
-            : m_path(path.data(), path.size())
-            , m_hash(ComputeHash(m_path))
-        {}
-
-        /// 用资源路径 + 子资产 hash 构造
-        AssetId(eastl::string_view path, AssetHash subId)
-            : m_path(path.data(), path.size())
-            , m_hash(HashCombine(ComputeHash(m_path), subId))
-        {}
-
-        /// 用资源路径 + 子资产 名称/路径 构造
-        AssetId(eastl::string_view path, eastl::string_view subName)
-            : m_path(path.data(), path.size())
+        /// Build an AssetId for asset type T with T's default descriptor.
+        template<typename T>
+        static AssetId Of(eastl::string_view path)
         {
-            const eastl::string subTmp(subName.data(), subName.size());
-            m_hash = HashCombine(ComputeHash(m_path), ComputeHash(subTmp));
+            return AssetId(path, T::DefaultDescriptor());
+        }
+
+        /// Build an AssetId for asset type T with a caller-supplied descriptor.
+        template<typename T>
+        static AssetId Of(eastl::string_view path, const typename T::Descriptor& desc)
+        {
+            return AssetId(path, Ptr<AssetDescriptor>(new typename T::Descriptor(desc)));
         }
 
         bool operator==(const AssetId& other) const { return m_hash == other.m_hash; }
         bool operator!=(const AssetId& other) const { return m_hash != other.m_hash; }
         bool operator<(const AssetId& other) const  { return m_hash < other.m_hash; }
 
-        AssetHash GetHash() const               { return m_hash; }
-        const eastl::string& GetPath() const    { return m_path; }
-        bool IsValid() const                    { return !m_path.empty(); }
+        AssetHash              GetHash() const        { return m_hash; }
+        const eastl::string&   GetPath() const        { return m_path; }
+        const AssetDescriptor* GetDescriptor() const  { return m_descriptor.get(); }
+        bool                   IsValid() const        { return !m_path.empty(); }
 
     private:
-        static AssetHash ComputeHash(const eastl::string& s)
+        AssetId(eastl::string_view path, Ptr<AssetDescriptor> descriptor)
+            : m_path(path.data(), path.size())
+            , m_descriptor(eastl::move(descriptor))
+            , m_hash(ComputeHash(m_path, m_descriptor.get()))
+        {}
+
+        static AssetHash ComputeHash(const eastl::string& path, const AssetDescriptor* desc)
         {
-            if (s.empty()) { return 0; }
-            return HashString(s.c_str()).value();
+            if (path.empty())
+            {
+                return 0;
+            }
+            AssetHash pathHash = HashString(path.c_str()).value();
+            if (!desc)
+            {
+                return pathHash;
+            }
+            size_t combined = static_cast<size_t>(pathHash);
+            eastl::hash_combine_raw(combined, static_cast<size_t>(desc->Hash()));
+            return static_cast<AssetHash>(combined);
         }
 
-        static AssetHash HashCombine(AssetHash a, AssetHash b)
-        {
-            size_t hashCombined = static_cast<size_t>(a);
-            eastl::hash_combine_raw(hashCombined, static_cast<size_t>(b));
-            return static_cast<AssetHash>(hashCombined);
-        }
-
-        eastl::string m_path;
-        AssetHash     m_hash{0};
+        eastl::string         m_path;
+        Ptr<AssetDescriptor>  m_descriptor;
+        AssetHash             m_hash{0};
     };
 
     enum class AssetStatus : uint32_t

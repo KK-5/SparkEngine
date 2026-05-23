@@ -65,7 +65,9 @@ if(NOT TARGET ktx)
     set(KTX_FEATURE_DOC            OFF CACHE BOOL "" FORCE)
     set(KTX_FEATURE_JNI            OFF CACHE BOOL "" FORCE)
     set(KTX_FEATURE_PY             OFF CACHE BOOL "" FORCE)
-    set(KTX_FEATURE_KTX1           OFF CACHE BOOL "" FORCE)
+    # KTX1 cannot be cleanly disabled: texture.obj's dispatcher unconditionally
+    # references KTX1 constructors, so OFF leads to LNK2019 at exe link time.
+    set(KTX_FEATURE_KTX1           ON  CACHE BOOL "" FORCE)
     set(KTX_FEATURE_KTX2           ON  CACHE BOOL "" FORCE)
     set(KTX_FEATURE_VK_UPLOAD      OFF CACHE BOOL "" FORCE)
     set(KTX_FEATURE_GL_UPLOAD      OFF CACHE BOOL "" FORCE)

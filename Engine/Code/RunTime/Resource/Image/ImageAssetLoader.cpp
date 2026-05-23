@@ -54,7 +54,7 @@ namespace Spark::Resource
             memcpy(pixels.data(), data, byteCount);
             stbi_image_free(data);
 
-            return eastl::make_unique<ImageAssetRawData>(
+            return MakeUnique<ImageAssetRawData>(
                 width, height, ImageFormat::RGBAF32, eastl::move(pixels), eastl::move(path));
         }
         else

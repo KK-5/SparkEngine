@@ -35,7 +35,7 @@ namespace Spark::Render
         m_pool = factory.CreateTransientResourcePool();
         ASSERT(m_pool != nullptr, "[RenderGraph] Factory::CreateTransientResourcePool returned null.");
         RHI::TransientResourcePoolDescriptor desc;
-        desc.m_allowCrossBatchReuse = false;
+        desc.m_allowCrossBatchReuse = false;  // There is a bug in cross batch reuse
         if (m_pool->Init(device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[RenderGraph] TransientResourcePool initialize failed.");
