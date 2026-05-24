@@ -9,6 +9,69 @@
 
 namespace Spark::Resource
 {
+    static ImageFormat ChannelsToFormat(int channels)
+    {
+        switch (channels)
+        {
+        case 1:  return ImageFormat::R8;
+        case 2:  return ImageFormat::RG8;
+        default: return ImageFormat::RGBA8;
+        }
+    }
+
+    static UniquePtr<AssetData> WrapLdrPixels(
+        uint8_t* data, int w, int h, int srcCh, int forceCh,
+        eastl::string&& resolvedPath)
+    {
+        if (!data)
+        {
+            LOG_ERROR("Failed to decode LDR image: {} ({})", resolvedPath.c_str(), stbi_failure_reason());
+            return nullptr;
+        }
+        const int actualCh = (forceCh != 0) ? forceCh : srcCh;
+        const size_t byteCount = static_cast<size_t>(w) * h * actualCh;
+        eastl::vector<uint8_t> pixels(byteCount);
+        memcpy(pixels.data(), data, byteCount);
+        stbi_image_free(data);
+        return MakeUnique<ImageAssetRawData>(
+            w, h, ChannelsToFormat(actualCh), eastl::move(pixels), eastl::move(resolvedPath));
+    }
+
+    static UniquePtr<AssetData> WrapHdrPixels(
+        float* data, int w, int h, eastl::string&& resolvedPath)
+    {
+        if (!data)
+        {
+            LOG_ERROR("Failed to decode HDR image: {} ({})", resolvedPath.c_str(), stbi_failure_reason());
+            return nullptr;
+        }
+        const size_t byteCount = static_cast<size_t>(w) * h * 4 * sizeof(float);
+        eastl::vector<uint8_t> pixels(byteCount);
+        memcpy(pixels.data(), data, byteCount);
+        stbi_image_free(data);
+        return MakeUnique<ImageAssetRawData>(
+            w, h, ImageFormat::RGBAF32, eastl::move(pixels), eastl::move(resolvedPath));
+    }
+
+    UniquePtr<AssetData> ImageAssetLoader::DecodeFromMemory(
+        const uint8_t* bytes, size_t byteCount, eastl::string_view sourceLabel)
+    {
+        eastl::string label(sourceLabel.data(), sourceLabel.size());
+        const auto* buf = reinterpret_cast<const stbi_uc*>(bytes);
+        const int len = static_cast<int>(byteCount);
+        int w = 0, h = 0, srcCh = 0;
+
+        if (stbi_is_hdr_from_memory(buf, len))
+        {
+            return WrapHdrPixels(stbi_loadf_from_memory(buf, len, &w, &h, &srcCh, 4), w, h, eastl::move(label));
+        }
+
+        stbi_info_from_memory(buf, len, &w, &h, &srcCh);
+        const int force = (srcCh == 3) ? 4 : 0;
+        return WrapLdrPixels(
+            stbi_load_from_memory(buf, len, &w, &h, &srcCh, force), w, h, srcCh, force, eastl::move(label));
+    }
+
     eastl::string ImageAssetLoader::ResolvePath(const AssetId& id) const
     {
         const eastl::string& path = id.GetPath();
@@ -24,16 +87,6 @@ namespace Spark::Resource
         return {};
     }
 
-    static ImageFormat ChannelsToFormat(int channels)
-    {
-        switch (channels)
-        {
-        case 1:  return ImageFormat::R8;
-        case 2:  return ImageFormat::RG8;
-        default: return ImageFormat::RGBA8;
-        }
-    }
-
     UniquePtr<AssetData> ImageAssetLoader::Load(const AssetId& id)
     {
         eastl::string path = ResolvePath(id);
@@ -43,46 +96,16 @@ namespace Spark::Resource
             return nullptr;
         }
 
-        int width = 0, height = 0, srcChannels = 0;
+        int w = 0, h = 0, srcCh = 0;
 
         if (stbi_is_hdr(path.c_str()))
         {
-            // HDR 统一输出 RGBAF32，GPU 对 3 通道 float 支持不普遍
-            float* data = stbi_loadf(path.c_str(), &width, &height, &srcChannels, 4);
-            if (!data)
-            {
-                LOG_ERROR("Failed to load HDR image: {} ({})", path.c_str(), stbi_failure_reason());
-                return nullptr;
-            }
-
-            const size_t byteCount = static_cast<size_t>(width) * height * 4 * sizeof(float);
-            eastl::vector<uint8_t> pixels(byteCount);
-            memcpy(pixels.data(), data, byteCount);
-            stbi_image_free(data);
-
-            return MakeUnique<ImageAssetRawData>(
-                width, height, ImageFormat::RGBAF32, eastl::move(pixels), eastl::move(path));
+            return WrapHdrPixels(stbi_loadf(path.c_str(), &w, &h, &srcCh, 4), w, h, eastl::move(path));
         }
-        else
-        {
-            // 先读文件头拿到源通道数，RGB8 在大多数 GPU 上没有原生格式支持，强制升为 RGBA8
-            stbi_info(path.c_str(), &width, &height, &srcChannels);
-            const int forceChannels = (srcChannels == 3) ? 4 : 0;
-            uint8_t* data = stbi_load(path.c_str(), &width, &height, &srcChannels, forceChannels);
-            if (!data)
-            {
-                LOG_ERROR("Failed to load image: {} ({})", path.c_str(), stbi_failure_reason());
-                return nullptr;
-            }
 
-            const int actualChannels = (forceChannels != 0) ? forceChannels : srcChannels;
-            const size_t byteCount = static_cast<size_t>(width) * height * actualChannels;
-            eastl::vector<uint8_t> pixels(byteCount);
-            memcpy(pixels.data(), data, byteCount);
-            stbi_image_free(data);
-
-            return MakeUnique<ImageAssetRawData>(
-                width, height, ChannelsToFormat(actualChannels), eastl::move(pixels), eastl::move(path));
-        }
+        stbi_info(path.c_str(), &w, &h, &srcCh);
+        const int force = (srcCh == 3) ? 4 : 0;
+        return WrapLdrPixels(
+            stbi_load(path.c_str(), &w, &h, &srcCh, force), w, h, srcCh, force, eastl::move(path));
     }
 }

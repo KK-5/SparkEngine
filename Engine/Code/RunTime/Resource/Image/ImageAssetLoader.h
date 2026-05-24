@@ -3,6 +3,8 @@
 #include <EASTL/string.h>
 #include <EASTL/vector.h>
 
+#include <Base.h>
+
 #include "ImageAsset.h"
 
 namespace Spark::Resource
@@ -19,6 +21,9 @@ namespace Spark::Resource
         }
 
         UniquePtr<AssetData> Load(const AssetId& id);
+
+        static UniquePtr<AssetData> DecodeFromMemory(
+            const uint8_t* bytes, size_t byteCount, eastl::string_view sourceLabel);
 
     private:
         eastl::string ResolvePath(const AssetId& id) const;

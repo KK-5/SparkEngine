@@ -13,6 +13,8 @@
 
 namespace Spark::Resource
 {
+    class AssetDataBase;
+
     class AssetBuildContext
     {
     public:
@@ -27,8 +29,12 @@ namespace Spark::Resource
         UniquePtr<AssetData> rawData;        ///< Load 输出 / Compile 输入；外部预置时跳过 Load
         UniquePtr<AssetData> compiledData;   ///< Compile 输出
 
-        // ===== 环境快照（manager 在构造 ctx 时填入） =====
+        const uint8_t* sourceData = nullptr; ///< 非空时 Load 从内存解码（不读磁盘）
+        size_t         sourceSize = 0;
+
+        // ===== 环境（manager 在构造 ctx 时填入；子 ctx 由 MakeChild 继承） =====
         eastl::vector<eastl::string> searchPaths;
+        AssetDataBase*               db{nullptr};   ///< Builder 注册子资产用
 
         AssetBuildContext() = default;
         AssetBuildContext(const AssetBuildContext&) = delete;

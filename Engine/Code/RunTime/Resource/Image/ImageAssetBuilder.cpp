@@ -31,6 +31,12 @@ namespace Spark::Resource
     {
         ASSERT(ctx.type == AssetType::Image, "[ImageAssetBuilder] ctx.type mismatch");
 
+        if (ctx.sourceData)
+        {
+            ctx.rawData = ImageAssetLoader::DecodeFromMemory(
+                ctx.sourceData, ctx.sourceSize, ctx.id.GetSubLabel());
+            return;
+        }
         m_loader.SetSearchPaths(ctx.searchPaths);
         ctx.rawData = m_loader.Load(ctx.id);
     }
