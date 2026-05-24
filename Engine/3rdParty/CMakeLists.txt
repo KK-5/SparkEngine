@@ -84,6 +84,37 @@ if(NOT TARGET ktx)
     endforeach()
 endif()
 
+if(NOT TARGET fastgltf)
+    Message(STATUS "Import fastgltf")
+    # simdjson is auto-downloaded into fastgltf/deps/simdjson on first configure.
+    set(FASTGLTF_ENABLE_TESTS    OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_DOCS     OFF CACHE BOOL "" FORCE)
+    add_subdirectory(fastgltf)
+    set_target_properties(fastgltf PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/fastgltf)
+endif()
+
+if(NOT TARGET meshoptimizer)
+    Message(STATUS "Import meshoptimizer")
+    set(MESHOPT_BUILD_DEMO        OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_GLTFPACK    OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_INSTALL           OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_WERROR            OFF CACHE BOOL "" FORCE)
+    add_subdirectory(meshoptimizer)
+    set_target_properties(meshoptimizer PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/meshoptimizer)
+endif()
+
+if(NOT TARGET mikktspace)
+    Message(STATUS "Import MikkTSpace")
+    add_library(mikktspace STATIC
+        MikkTSpace/mikktspace.c
+        MikkTSpace/mikktspace.h
+    )
+    target_include_directories(mikktspace PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/MikkTSpace)
+    set_target_properties(mikktspace PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/MikkTSpace)
+endif()
+
 if(BUILD_TESTS)
     Message(STATUS "Import gtest")
     option(BUILD_GMOCK "Builds the googlemock subproject" ON)
