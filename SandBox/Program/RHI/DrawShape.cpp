@@ -98,7 +98,7 @@ namespace Spark::SandBox
     // Which mip of the source asset we upload to a same-index slot of the
     // GPU image. Image is created with the asset's full mip count; only this
     // slot is populated, and the view exposes just this one.
-    static constexpr uint32_t kViewMipLevel = 2;
+    static constexpr uint32_t kViewMipLevel = 3;
 
     class DrawShape : public Spark::Input::InputEventBus::Handler
     {

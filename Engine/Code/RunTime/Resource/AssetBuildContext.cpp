@@ -31,6 +31,7 @@ namespace Spark::Resource
         child.type        = subType;
         child.parentId    = id;
         child.searchPaths = searchPaths;
+        child.db          = db;
         return child;
     }
 }

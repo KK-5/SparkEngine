@@ -205,6 +205,7 @@ namespace Spark::Resource
         ctx.id          = asset.GetAssetId();
         ctx.type        = asset.GetAssetType();
         ctx.searchPaths = SnapshotSearchPaths();
+        ctx.db          = m_db.get();
 
         asset.SetStatus(AssetStatus::Loading);
         AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Load, ctx);
