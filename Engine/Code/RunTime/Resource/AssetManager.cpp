@@ -1,32 +1,41 @@
 #include "AssetManager.h"
 
 #include <EASTL/algorithm.h>
+
 #include <Log/SpdLogSystem.h>
-
-#include <filesystem>
-
+#include "AssetDataBase.h"
+#include "AssetBuildContext.h"
+#include "EBus/AssetBuildBus.h"
 #include "EBus/AssetBus.h"
-#include "Shader/ShaderAsset.h"
-#include "Image/ImageAsset.h"
-#include "Image/ImageAssetLoader.h"
-#include "Image/ImageAssetCompiler.h"
-
-#include "Common/CommonAssetLoader.h"
-#include "Shader/ShaderAssetCompiler.h"
+#include "Image/ImageAssetBuilder.h"
+#include "Shader/ShaderAssetBuilder.h"
 
 namespace Spark::Resource
 {
+    SparkAssetManager::SparkAssetManager() = default;
+    SparkAssetManager::~SparkAssetManager() = default;
+
     void SparkAssetManager::InitInternal()
     {
+        // 先起 DataBase（内部仓储）
+        m_db = CreateSystem<AssetDataBase>();
+        m_db->Init();
+
+        // 再起所有内置 Builders（在 Bus 上注册 handler）。新增 AssetType 时在这里加一行。
+        m_imageBuilder  = CreateSystem<ImageAssetBuilder>();
+        m_imageBuilder->Init();
+
+        m_shaderBuilder = CreateSystem<ShaderAssetBuilder>();
+        m_shaderBuilder->Init();
+
         m_shutdown = false;
-        RegisterDefaultLoaderAndCompiler();
         m_processThread = std::thread(&SparkAssetManager::ProcessThread, this);
     }
 
     void SparkAssetManager::ShutdownInternal()
     {
         {
-            std::lock_guard lock(m_mutex);
+            std::lock_guard lock(m_queueMutex);
             m_shutdown = true;
         }
         m_cv.notify_one();
@@ -36,11 +45,19 @@ namespace Spark::Resource
             m_processThread.join();
         }
 
-        m_pendingQueue.swap(eastl::queue<Asset*>());
-        m_assets.clear();
-        m_assetLoaders.clear();
-        m_assetCompilers.clear();
-        m_searchPaths.clear();
+        // 反向顺序释放：Builders（断开 Bus） → DataBase
+        m_shaderBuilder.reset();
+        m_imageBuilder.reset();
+
+        {
+            std::lock_guard lock(m_queueMutex);
+            m_pendingQueue.swap(eastl::queue<Asset*>());
+        }
+        {
+            std::lock_guard lock(m_searchPathsMutex);
+            m_searchPaths.clear();
+        }
+        m_db.reset();
     }
 
     eastl::vector<HashString> SparkAssetManager::Request() const
@@ -53,131 +70,112 @@ namespace Spark::Resource
         return "AssetManager"_hs;
     }
 
-    Ptr<Asset> SparkAssetManager::CreateAssetByType(const AssetId& id, AssetType type)
+    Ptr<Asset> SparkAssetManager::CreateAsset(const AssetId& id, AssetType type)
     {
-        switch (type)
+        Ptr<Asset> result;
+        AssetBuildBus::EventResult(result, type, &AssetBuildEvents::CreateAsset, id);
+        if (!result)
         {
-            case AssetType::Shader:
-            {
-                return Ptr<Asset>(new ShaderAsset(id));
-            }
-            default:
-            {
-                return Ptr<Asset>(new ImageAsset(id));
-            }
+            LOG_ERROR("[SparkAssetManager] No builder registered for AssetType {}",
+                static_cast<uint32_t>(type));
         }
+        return result;
     }
 
-    void SparkAssetManager::RegisterDefaultLoaderAndCompiler()
+    Ptr<Asset> SparkAssetManager::FindAsset(const AssetId& id) const
     {
-        //////////////////////////////////////
-        // Shader
-        auto binaryLoader = eastl::make_unique<BinaryAssetLoader>();
-        RegisterAssetLoader(eastl::move(binaryLoader), AssetType::Shader);
-
-        auto compiler = eastl::make_unique<ShaderAssetCompiler>(ShaderBackend::DXIL);
-        compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
-        compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
-        RegisterAssetCompiler(eastl::move(compiler), AssetType::Shader);
-        //////////////////////////////////////
-
-        //////////////////////////////////////
-        // Image
-        auto imageLoader = eastl::make_unique<ImageAssetLoader>();
-        RegisterAssetLoader(eastl::move(imageLoader), AssetType::Image);
-        auto imageCompiler = MakeUnique<ImageAssetCompiler>();
-        RegisterAssetCompiler(eastl::move(imageCompiler), AssetType::Image);
-        //////////////////////////////////////
-    }
-
-    Ptr<Asset> SparkAssetManager::FindAsset(const AssetId& id, AssetType type) const
-    {
-        std::lock_guard lock(m_mutex);
-        auto it = m_assets.find(id);
-        if (it != m_assets.end())
-        {
-            return it->second;
-        }
-        return nullptr;
+        return m_db ? m_db->Find(id) : nullptr;
     }
 
     Ptr<Asset> SparkAssetManager::LoadAsset(const AssetId& id, AssetType type)
     {
+        Ptr<Asset> existing = m_db->Find(id);
+        if (existing)
         {
-            std::lock_guard lock(m_mutex);
-            auto it = m_assets.find(id);
-            if (it != m_assets.end())
-            {
-                return Ptr<Asset>(it->second);
-            }
+            return existing;
         }
 
-        Ptr<Asset> asset = CreateAssetByType(id, type);
-
+        Ptr<Asset> created = CreateAsset(id, type);
+        if (!created)
         {
-            std::lock_guard lock(m_mutex);
-            m_assets.insert_or_assign(id, asset.get());
+            return nullptr;
         }
 
-        ProcessAsset(*asset);
+        Ptr<Asset> stored = m_db->InsertOrGet(id, created);
+        if (stored.get() != created.get())
+        {
+            // 竞争失败：别人先注册，直接返回别人的
+            return stored;
+        }
 
-        return asset;
+        // 同步走完处理
+        ProcessAsset(*stored);
+        return stored;
     }
 
     Ptr<Asset> SparkAssetManager::RequestAsset(const AssetId& id, AssetType type)
     {
-        std::lock_guard lock(m_mutex);
-        auto it = m_assets.find(id);
-        if (it != m_assets.end())
+        Ptr<Asset> existing = m_db->Find(id);
+        if (existing)
         {
-            return Ptr<Asset>(it->second);
+            return existing;
         }
 
-        Ptr<Asset> asset = CreateAssetByType(id, type);;
-        SetAssetStatus(*asset, AssetStatus::Queued);
-        m_assets.insert_or_assign(id, asset.get());
-        m_pendingQueue.push(asset.get());
+        Ptr<Asset> created = CreateAsset(id, type);
+        if (!created)
+        {
+            return nullptr;
+        }
 
+        Ptr<Asset> stored = m_db->InsertOrGet(id, created);
+        if (stored.get() != created.get())
+        {
+            return stored;
+        }
+
+        EnqueueForProcessing(*stored);
+        return stored;
+    }
+
+    void SparkAssetManager::EnqueueForProcessing(Asset& asset)
+    {
+        asset.SetStatus(AssetStatus::Queued);
+        {
+            std::lock_guard lock(m_queueMutex);
+            m_pendingQueue.push(&asset);
+        }
         m_cv.notify_one();
-        return asset;
     }
 
     void SparkAssetManager::AddSearchPath(eastl::string_view path)
     {
-        std::lock_guard lock(m_mutex);
+        std::lock_guard lock(m_searchPathsMutex);
         m_searchPaths.emplace_back(path.data(), path.size());
-        AssetCatalogBus::Broadcast(&AssetCatalogBus::Events::OnAssetSearchPathsChange, m_searchPaths);
     }
 
     void SparkAssetManager::RemoveSearchPath(eastl::string_view path)
     {
-        std::lock_guard lock(m_mutex);
+        std::lock_guard lock(m_searchPathsMutex);
         eastl::string pathStr(path.data(), path.size());
         auto it = eastl::find(m_searchPaths.begin(), m_searchPaths.end(), pathStr);
         if (it != m_searchPaths.end())
         {
             m_searchPaths.erase(it);
         }
-        AssetCatalogBus::Broadcast(&AssetCatalogBus::Events::OnAssetSearchPathsChange, m_searchPaths);
     }
 
     void SparkAssetManager::ReleaseAsset(const AssetId& id)
     {
-        std::lock_guard lock(m_mutex);
-        m_assets.erase(id);
+        if (m_db)
+        {
+            m_db->Remove(id);
+        }
     }
 
-    void SparkAssetManager::RegisterAssetLoader(eastl::unique_ptr<AssetLoader> loader, AssetType type)
+    eastl::vector<eastl::string> SparkAssetManager::SnapshotSearchPaths() const
     {
-        std::lock_guard lock(m_mutex);
-        loader->SetSearchPaths(m_searchPaths);
-        m_assetLoaders[type] = eastl::move(loader);
-    }
-
-    void SparkAssetManager::RegisterAssetCompiler(eastl::unique_ptr<AssetCompiler> compiler, AssetType type)
-    {
-        std::lock_guard lock(m_mutex);
-        m_assetCompilers[type] = eastl::move(compiler);
+        std::lock_guard lock(m_searchPathsMutex);
+        return m_searchPaths;
     }
 
     void SparkAssetManager::ProcessThread()
@@ -186,14 +184,13 @@ namespace Spark::Resource
         {
             Asset* asset = nullptr;
             {
-                std::unique_lock lock(m_mutex);
+                std::unique_lock lock(m_queueMutex);
                 m_cv.wait(lock, [this] { return m_shutdown || !m_pendingQueue.empty(); });
 
                 if (m_shutdown && m_pendingQueue.empty())
                 {
                     return;
                 }
-
                 asset = m_pendingQueue.front();
                 m_pendingQueue.pop();
             }
@@ -204,57 +201,30 @@ namespace Spark::Resource
 
     void SparkAssetManager::ProcessAsset(Asset& asset)
     {
-        AssetType type = asset.GetAssetType();
-        const AssetId& id = asset.GetAssetId();
+        AssetBuildContext ctx;
+        ctx.id          = asset.GetAssetId();
+        ctx.type        = asset.GetAssetType();
+        ctx.searchPaths = SnapshotSearchPaths();
 
-        AssetLoader* loader = nullptr;
+        asset.SetStatus(AssetStatus::Loading);
+        AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Load, ctx);
+        if (!ctx.rawData)
         {
-            std::lock_guard lock(m_mutex);
-            auto it = m_assetLoaders.find(type);
-            if (it == m_assetLoaders.end())
-            {
-                LOG_ERROR("No loader registered for asset type {}", static_cast<uint32_t>(type));
-                SetAssetStatus(asset, AssetStatus::Error);
-                return;
-            }
-            loader = it->second.get();
-            SetAssetStatus(asset, AssetStatus::Loading);
-        }
-
-        auto rawData = loader->Load(id);
-        if (!rawData)
-        {
-            SetAssetStatus(asset, AssetStatus::Error);
+            asset.SetStatus(AssetStatus::Error);
+            AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetError, asset);
             return;
         }
 
-        // 查找 Compiler（可选）
-        AssetCompiler* compiler = nullptr;
+        asset.SetStatus(AssetStatus::Compiling);
+        AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Compile, ctx);
+        if (!ctx.compiledData)
         {
-            std::lock_guard lock(m_mutex);
-            auto it = m_assetCompilers.find(type);
-            if (it != m_assetCompilers.end())
-            {
-                compiler = it->second.get();
-                SetAssetStatus(asset, AssetStatus::Compiling);
-            }
+            asset.SetStatus(AssetStatus::Error);
+            AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetError, asset);
+            return;
         }
 
-        if (compiler)
-        {
-            auto compiledData = compiler->Compile(id, *rawData);
-            if (!compiledData)
-            {
-                SetAssetStatus(asset, AssetStatus::Error);
-                return;
-            }
-            SetAssetData(asset, eastl::move(compiledData));
-        }
-        else
-        {
-            SetAssetData(asset, eastl::move(rawData));
-        }
-
-        SetAssetStatus(asset, AssetStatus::Ready);
+        asset.SetDataReady(eastl::move(ctx.compiledData));
+        AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetReady, asset);
     }
 }

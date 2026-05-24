@@ -22,7 +22,7 @@ protected:
         m_assetManager.reset();
     }
 
-    SystemUniquePtr<SparkAssetManager> m_assetManager;
+    SystemUniquePtr<SparkAssetManager>  m_assetManager;
 };
 
 

@@ -1,5 +1,6 @@
 #include "CommonAssetLoader.h"
 
+#include <filesystem>
 #include <fstream>
 
 #include <Log/SpdLogSystem.h>
@@ -15,14 +16,19 @@ namespace Spark::Resource
 
     // ---- BinaryAssetLoader ----
 
-    BinaryAssetLoader::BinaryAssetLoader()
+    eastl::string BinaryAssetLoader::ResolvePath(const AssetId& id) const
     {
-        AssetCatalogBus::Handler::BusConnect();
-    }
-
-    BinaryAssetLoader::~BinaryAssetLoader()
-    {
-        AssetCatalogBus::Handler::BusDisconnect();
+        const eastl::string& path = id.GetPath();
+        for (const auto& searchPath : m_searchPaths)
+        {
+            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / path.c_str();
+            if (std::filesystem::exists(full))
+            {
+                auto str = full.string();
+                return eastl::string(str.c_str(), str.size());
+            }
+        }
+        return {};
     }
 
     eastl::unique_ptr<AssetData> BinaryAssetLoader::Load(const AssetId& id)
@@ -49,6 +55,4 @@ namespace Spark::Resource
 
         return eastl::make_unique<BinaryAssetData>(eastl::move(bytes), eastl::move(path));
     }
-
-
 }

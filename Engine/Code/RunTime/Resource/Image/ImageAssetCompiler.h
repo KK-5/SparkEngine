@@ -29,13 +29,13 @@ namespace Spark::Resource
         constexpr uint32_t BC7_SRGB_BLOCK           = 146;
     }
 
-    class ImageAssetCompiler final : public AssetCompiler
+    class ImageAssetCompiler final
     {
     public:
         ImageAssetCompiler() = default;
-        ~ImageAssetCompiler() override = default;
+        ~ImageAssetCompiler() = default;
 
-        UniquePtr<AssetData> Compile(const AssetId& id, AssetData& rawData) override;
+        UniquePtr<AssetData> Compile(const AssetId& id, AssetData& rawData);
 
     private:
         static RHI::Format MapToRHIFormat(ImageFormat src, TextureCompression compression, ImageColorSpace colorSpace);

@@ -19,7 +19,6 @@ protected:
     {
         m_assetManager = CreateSystem<SparkAssetManager>();
         m_assetManager->Init();
-
         m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
     }
 
@@ -28,7 +27,7 @@ protected:
         m_assetManager.reset();
     }
 
-    SystemUniquePtr<SparkAssetManager> m_assetManager;
+    SystemUniquePtr<SparkAssetManager>   m_assetManager;
 };
 
 TEST(AssetIdTest, DefaultConstructedIsInvalid)
@@ -162,15 +161,6 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLToDXIL)
 
 TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 {
-    m_assetManager->RegisterAssetLoader(
-        eastl::make_unique<BinaryAssetLoader>(),
-        AssetType::Shader);
-
-    auto compiler = eastl::make_unique<ShaderAssetCompiler>(ShaderBackend::DXIL);
-    compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
-    compiler->AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
-    m_assetManager->RegisterAssetCompiler(eastl::move(compiler), AssetType::Shader);
-
     AssetId id = AssetId::Of<ShaderAsset>("Shaders/Test/SimpleTriangle.hlsl");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Shader);
 
@@ -185,14 +175,6 @@ TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 
 TEST_F(ShaderAssetTestFixture, LoadSameAssetReturnsCached)
 {
-    m_assetManager->RegisterAssetLoader(
-        eastl::make_unique<BinaryAssetLoader>(),
-        AssetType::Shader);
-
-    auto compiler = eastl::make_unique<ShaderAssetCompiler>(ShaderBackend::DXIL);
-    compiler->AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
-    m_assetManager->RegisterAssetCompiler(eastl::move(compiler), AssetType::Shader);
-
     AssetId id = AssetId::Of<ShaderAsset>("Shaders/Test/SimpleTriangle.hlsl");
     Ptr<Asset> asset1 = m_assetManager->LoadAsset(id, AssetType::Shader);
     Ptr<Asset> asset2 = m_assetManager->LoadAsset(id, AssetType::Shader);
@@ -203,16 +185,12 @@ TEST_F(ShaderAssetTestFixture, LoadSameAssetReturnsCached)
 TEST_F(ShaderAssetTestFixture, FindAssetBeforeLoadReturnsNull)
 {
     AssetId id = AssetId::Of<ShaderAsset>("Shaders/Test/SimpleTriangle.hlsl");
-    Ptr<Asset> asset = m_assetManager->FindAsset(id, AssetType::Shader);
+    Ptr<Asset> asset = m_assetManager->FindAsset(id);
     EXPECT_EQ(asset, nullptr);
 }
 
 TEST_F(ShaderAssetTestFixture, LoadNonExistentAssetReturnsError)
 {
-    m_assetManager->RegisterAssetLoader(
-        eastl::make_unique<BinaryAssetLoader>(),
-        AssetType::Shader);
-
     AssetId id = AssetId::Of<ShaderAsset>("Shaders/NonExistent.hlsl");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Shader);
 

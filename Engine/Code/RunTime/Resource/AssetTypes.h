@@ -38,14 +38,29 @@ namespace Spark::Resource
         template<typename T>
         static AssetId Of(eastl::string_view path)
         {
-            return AssetId(path, T::DefaultDescriptor());
+            return AssetId(path, {}, T::DefaultDescriptor());
         }
 
         /// Build an AssetId for asset type T with a caller-supplied descriptor.
         template<typename T>
         static AssetId Of(eastl::string_view path, const typename T::Descriptor& desc)
         {
-            return AssetId(path, Ptr<AssetDescriptor>(new typename T::Descriptor(desc)));
+            return AssetId(path, {}, Ptr<AssetDescriptor>(new typename T::Descriptor(desc)));
+        }
+
+        /// Build a sub-asset AssetId. Path is the parent's path; subLabel identifies
+        /// the sub-object within (UE style: "parent.gltf:image/3").
+        template<typename T>
+        static AssetId OfSub(eastl::string_view parentPath, eastl::string_view subLabel)
+        {
+            return AssetId(parentPath, subLabel, T::DefaultDescriptor());
+        }
+
+        template<typename T>
+        static AssetId OfSub(eastl::string_view parentPath, eastl::string_view subLabel,
+                             const typename T::Descriptor& desc)
+        {
+            return AssetId(parentPath, subLabel, Ptr<AssetDescriptor>(new typename T::Descriptor(desc)));
         }
 
         bool operator==(const AssetId& other) const { return m_hash == other.m_hash; }
@@ -54,33 +69,40 @@ namespace Spark::Resource
 
         AssetHash              GetHash() const        { return m_hash; }
         const eastl::string&   GetPath() const        { return m_path; }
+        const eastl::string&   GetSubLabel() const    { return m_subLabel; }
+        bool                   IsSubAsset() const     { return !m_subLabel.empty(); }
         const AssetDescriptor* GetDescriptor() const  { return m_descriptor.get(); }
         bool                   IsValid() const        { return !m_path.empty(); }
 
     private:
-        AssetId(eastl::string_view path, Ptr<AssetDescriptor> descriptor)
+        AssetId(eastl::string_view path, eastl::string_view subLabel, Ptr<AssetDescriptor> descriptor)
             : m_path(path.data(), path.size())
+            , m_subLabel(subLabel.data(), subLabel.size())
             , m_descriptor(eastl::move(descriptor))
-            , m_hash(ComputeHash(m_path, m_descriptor.get()))
+            , m_hash(ComputeHash(m_path, m_subLabel, m_descriptor.get()))
         {}
 
-        static AssetHash ComputeHash(const eastl::string& path, const AssetDescriptor* desc)
+        static AssetHash ComputeHash(const eastl::string& path, const eastl::string& subLabel,
+                                     const AssetDescriptor* desc)
         {
             if (path.empty())
             {
                 return 0;
             }
-            AssetHash pathHash = HashString(path.c_str()).value();
-            if (!desc)
+            size_t combined = static_cast<size_t>(HashString(path.c_str()).value());
+            if (!subLabel.empty())
             {
-                return pathHash;
+                eastl::hash_combine_raw(combined, static_cast<size_t>(HashString(subLabel.c_str()).value()));
             }
-            size_t combined = static_cast<size_t>(pathHash);
-            eastl::hash_combine_raw(combined, static_cast<size_t>(desc->Hash()));
+            if (desc)
+            {
+                eastl::hash_combine_raw(combined, static_cast<size_t>(desc->Hash()));
+            }
             return static_cast<AssetHash>(combined);
         }
 
         eastl::string         m_path;
+        eastl::string         m_subLabel;
         Ptr<AssetDescriptor>  m_descriptor;
         AssetHash             m_hash{0};
     };

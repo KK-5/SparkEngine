@@ -1,32 +1,17 @@
 #include "Asset.h"
 
-#include <filesystem>
-
 #include <Service/Service.h>
 #include "AssetManagerInterface.h"
-#include "EBus/AssetBus.h"
+
 
 namespace Spark::Resource
 {
-    eastl::string AssetLoader::ResolvePath(const AssetId& id) const
-    {
-        const eastl::string& path = id.GetPath();
-        for (const auto& searchPath : m_searchPaths)
-        {
-            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / path.c_str();
-            if (std::filesystem::exists(full))
-            {
-                auto str = full.string();
-                return eastl::string(str.c_str(), str.size());
-            }
-        }
-        return {};
-    }
-
-    void Asset::SetData(eastl::unique_ptr<AssetData> data)
+    void Asset::SetDataReady(eastl::unique_ptr<AssetData> data)
     {
         m_data = eastl::move(data);
-        m_status = m_data ? AssetStatus::Ready : AssetStatus::Error;
+        // release 写：m_data 的写入对其它线程的 acquire 读可见
+        m_status.store(m_data ? AssetStatus::Ready : AssetStatus::Error,
+                       eastl::memory_order_release);
     }
 
     void Asset::Shutdown()
@@ -36,24 +21,5 @@ namespace Spark::Resource
             manager->ReleaseAsset(m_id);
         }
         delete this;
-    }
-
-    void AssetManager::SetAssetStatus(Asset& asset, AssetStatus status)
-    {
-        asset.SetStatus(status);
-
-        if (status == AssetStatus::Error)
-        {
-            AssetBus::Event(asset.GetAssetType(), &AssetBus::Events::OnAssetError, asset);
-        }
-        else if (status == AssetStatus::Ready)
-        {
-            AssetBus::Event(asset.GetAssetType(), &AssetBus::Events::OnAssetReady, asset);
-        }
-    }
-
-    void AssetManager::SetAssetData(Asset& asset, eastl::unique_ptr<AssetData> data)
-    {
-        asset.SetData(eastl::move(data));
     }
 }

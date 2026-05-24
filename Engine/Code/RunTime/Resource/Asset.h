@@ -1,5 +1,6 @@
 #pragma once
 
+#include <EASTL/atomic.h>
 #include <EASTL/unique_ptr.h>
 #include <EASTL/vector.h>
 #include <EASTL/string.h>
@@ -35,12 +36,13 @@ namespace Spark::Resource
 
         const AssetId&  GetAssetId() const  { return m_id; }
         AssetType       GetAssetType() const { return m_type; }
-        AssetStatus     GetStatus() const   { return m_status; }
-        bool            IsReady() const     { return m_status == AssetStatus::Ready; }
-        bool            IsError() const     { return m_status == AssetStatus::Error; }
-        bool            IsLoading() const   { return m_status == AssetStatus::Loading
-                                                  || m_status == AssetStatus::Queued
-                                                  || m_status == AssetStatus::Compiling; }
+        AssetStatus     GetStatus() const   { return m_status.load(eastl::memory_order_acquire); }
+        bool            IsReady() const     { return GetStatus() == AssetStatus::Ready; }
+        bool            IsError() const     { return GetStatus() == AssetStatus::Error; }
+        bool            IsLoading() const   { auto s = GetStatus();
+                                              return s == AssetStatus::Loading
+                                                  || s == AssetStatus::Queued
+                                                  || s == AssetStatus::Compiling; }
 
         /// 获取资产数据，调用前应确保 IsReady()
         template<typename T>
@@ -49,45 +51,18 @@ namespace Spark::Resource
             return static_cast<T*>(m_data.get());
         }
 
-    protected:
-        friend class AssetManager;
+        void SetStatus(AssetStatus status)  { m_status.store(status, eastl::memory_order_release); }
 
-        void SetStatus(AssetStatus status)  { m_status = status; }
-        void SetData(eastl::unique_ptr<AssetData> data);
+        void SetDataReady(eastl::unique_ptr<AssetData> data);
+
+    protected:
         void Shutdown() override;
 
     private:
-        AssetId                         m_id;
-        AssetType                       m_type;
-        AssetStatus                     m_status{AssetStatus::NotLoaded};
-        eastl::unique_ptr<AssetData>    m_data;
+        AssetId                              m_id;
+        AssetType                            m_type;
+        eastl::atomic<AssetStatus>           m_status{AssetStatus::NotLoaded};
+        eastl::unique_ptr<AssetData>         m_data;
     };
 
-    struct AssetLoader : public AssetCatalogBus::Handler
-    {
-        virtual ~AssetLoader() = default;
-
-        void SetSearchPaths(const eastl::vector<eastl::string> searchPaths)
-        {
-            m_searchPaths = searchPaths;
-        }
-
-        void OnAssetSearchPathsChange(const eastl::vector<eastl::string>& paths) override
-        {
-            m_searchPaths = paths;
-        }
-
-        virtual eastl::unique_ptr<AssetData> Load(const AssetId& id) = 0;
-
-    protected:
-        eastl::string ResolvePath(const AssetId& id) const;
-
-        eastl::vector<eastl::string> m_searchPaths;
-    };
-
-    struct AssetCompiler
-    {
-        virtual ~AssetCompiler() = default;
-        virtual eastl::unique_ptr<AssetData> Compile(const AssetId& id, AssetData& rawData) = 0;
-    };
 }

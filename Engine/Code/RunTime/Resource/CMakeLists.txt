@@ -2,13 +2,17 @@ set(TARGET_NAME SparkAssetManager)
 
 set(SOURCES
     Asset.cpp
+    AssetBuildContext.cpp
+    AssetDataBase.cpp
     AssetManager.cpp
     Common/CommonAssetLoader.cpp
     Shader/ShaderAsset.cpp
     Shader/ShaderAssetCompiler.cpp
+    Shader/ShaderAssetBuilder.cpp
     Image/ImageAsset.cpp
     Image/ImageAssetLoader.cpp
     Image/ImageAssetCompiler.cpp
+    Image/ImageAssetBuilder.cpp
     Image/stb_impl.cpp
 )
 

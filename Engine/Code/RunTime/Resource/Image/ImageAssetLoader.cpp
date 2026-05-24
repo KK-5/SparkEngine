@@ -1,21 +1,27 @@
-#pragma once
-
 #include "ImageAssetLoader.h"
+
+#include <filesystem>
 
 #include <stb_image.h>
 
 #include <Base.h>
+#include <Log/SpdLogSystem.h>
 
 namespace Spark::Resource
 {
-    ImageAssetLoader::ImageAssetLoader()
+    eastl::string ImageAssetLoader::ResolvePath(const AssetId& id) const
     {
-        AssetCatalogBus::Handler::BusConnect();
-    }
-
-    ImageAssetLoader::~ImageAssetLoader()
-    {
-        AssetCatalogBus::Handler::BusDisconnect();
+        const eastl::string& path = id.GetPath();
+        for (const auto& searchPath : m_searchPaths)
+        {
+            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / path.c_str();
+            if (std::filesystem::exists(full))
+            {
+                auto str = full.string();
+                return eastl::string(str.c_str(), str.size());
+            }
+        }
+        return {};
     }
 
     static ImageFormat ChannelsToFormat(int channels)
