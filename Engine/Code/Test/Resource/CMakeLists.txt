@@ -1,5 +1,6 @@
 option(ShaderAssetTests "Shader Asset Tests" ON)
 option(ImageAssetTests  "Image Asset Tests"  ON)
+option(ModelAssetTests  "Model Asset Tests"  ON)
 
 
 set(TEST_SOURCES "")
@@ -12,6 +13,7 @@ endfunction(ADD_TEST_SOUECE)
 
 ADD_TEST_SOUECE(ShaderAssetTests "ShaderAssetTest.cpp")
 ADD_TEST_SOUECE(ImageAssetTests  "ImageAssetTests.cpp")
+ADD_TEST_SOUECE(ModelAssetTests  "ModelAssetTests.cpp")
 
 
 set(TARGET_NAME SparkAssetTest)
@@ -35,6 +37,7 @@ target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${ENGINE_ASSET_DIR}"
         IMAGE_ASSET_DIR="${ENGINE_ASSET_DIR}/Image/Test"
+        MODEL_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Asset"
 )
 
 # 添加为CTest测试

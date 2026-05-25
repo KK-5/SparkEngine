@@ -126,16 +126,6 @@ namespace Spark::Math
         return glm::mix(a, b, t);
     }
 
-    inline Vector3 Min(const Vector3& a, const Vector3& b)
-    {
-        return glm::min(a, b);
-    }
-
-    inline Vector3 Max(const Vector3& a, const Vector3& b)
-    {
-        return glm::max(a, b);
-    }
-
     inline Vector3 Clamp(const Vector3& v, const Vector3& minVal, const Vector3& maxVal)
     {
         return glm::clamp(v, minVal, maxVal);
@@ -235,6 +225,11 @@ namespace Spark::Math
     inline Matrix4X4 QuaternionToMatrix4X4(const Quaternion& q)
     {
         return glm::mat4_cast(q);
+    }
+
+    inline Matrix4X4 Rotate(const Matrix4X4& m, const Quaternion& q)
+    {
+        return m * QuaternionToMatrix4X4(q);
     }
 
     inline Matrix3X3 QuaternionToMatrix3X3(const Quaternion& q)

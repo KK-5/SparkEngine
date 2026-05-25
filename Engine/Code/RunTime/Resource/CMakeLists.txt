@@ -14,6 +14,10 @@ set(SOURCES
     Image/ImageAssetCompiler.cpp
     Image/ImageAssetBuilder.cpp
     Image/stb_impl.cpp
+    Model/ModelAsset.cpp
+    Model/ModelAssetLoader.cpp
+    Model/ModelAssetCompiler.cpp
+    Model/ModelAssetBuilder.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -28,6 +32,9 @@ target_link_libraries(${TARGET_NAME}
         dxc
         stb
         ktx
+        fastgltf
+        meshoptimizer
+        mikktspace
 )
 
 target_include_directories(

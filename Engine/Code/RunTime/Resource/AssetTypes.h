@@ -121,6 +121,7 @@ namespace Spark::Resource
     {
         Shader,
         Image,
+        Model,
     };
 }
 

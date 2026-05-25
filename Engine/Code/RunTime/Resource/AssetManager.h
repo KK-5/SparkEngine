@@ -16,6 +16,7 @@ namespace Spark::Resource
     class AssetDataBase;
     class ImageAssetBuilder;
     class ShaderAssetBuilder;
+    class ModelAssetBuilder;
 
     class SparkAssetManager final : public Service<AssetManager>::Handler
     {
@@ -64,5 +65,6 @@ namespace Spark::Resource
 
         SystemUniquePtr<ImageAssetBuilder>   m_imageBuilder;
         SystemUniquePtr<ShaderAssetBuilder>  m_shaderBuilder;
+        SystemUniquePtr<ModelAssetBuilder>   m_modelBuilder;
     };
 }

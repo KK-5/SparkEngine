@@ -1,11 +1,15 @@
 #pragma once
 
 #include <glm/vec3.hpp>
+#include <glm/common.hpp>
 
 namespace Spark::Math
 {
 #ifdef MATH_BACKEND_GLM
     using Vector3 = glm::vec3;
+
+    inline Vector3 Min(const Vector3& a, const Vector3& b) { return glm::min(a, b); }
+    inline Vector3 Max(const Vector3& a, const Vector3& b) { return glm::max(a, b); }
 #endif
 
     namespace Vector3Const

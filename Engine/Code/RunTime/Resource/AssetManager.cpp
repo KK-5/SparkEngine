@@ -9,6 +9,7 @@
 #include "EBus/AssetBus.h"
 #include "Image/ImageAssetBuilder.h"
 #include "Shader/ShaderAssetBuilder.h"
+#include "Model/ModelAssetBuilder.h"
 
 namespace Spark::Resource
 {
@@ -28,6 +29,9 @@ namespace Spark::Resource
         m_shaderBuilder = CreateSystem<ShaderAssetBuilder>();
         m_shaderBuilder->Init();
 
+        m_modelBuilder = CreateSystem<ModelAssetBuilder>();
+        m_modelBuilder->Init();
+
         m_shutdown = false;
         m_processThread = std::thread(&SparkAssetManager::ProcessThread, this);
     }
@@ -46,6 +50,7 @@ namespace Spark::Resource
         }
 
         // 反向顺序释放：Builders（断开 Bus） → DataBase
+        m_modelBuilder.reset();
         m_shaderBuilder.reset();
         m_imageBuilder.reset();
 

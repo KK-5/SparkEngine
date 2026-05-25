@@ -4,6 +4,19 @@
 
 ---
 
+## 0. 实施记录（偏离原始方案的决策）
+
+| # | 决策 | 理由 |
+|---|---|---|
+| **VertexLayout 动态推导** | 去掉 `StaticVertex` 固定 struct。Compiler 从 glTF accessor 动态发现属性，分离数组提取，最后按 `VertexLayout` 描述 interleave | 既然定义了灵活的 `VertexLayout`，中间表示也应该灵活；固定 struct 无法适配缺属性 / 多 UV 等变体 |
+| **ModelAssetDescriptor 简化** | 去掉 `generateTangents` / `optimize*` 四个 bool 开关，新增 `ModelAssetType type` 枚举（当前仅 `GLTF`）| 优化总是无损且应该开启的；保留 type 字段方便以后扩展 FBX 等格式 |
+| **贴图子资产同步等待** | `EmitEmbeddedImage` 内部走 `LoadAsset`（blocking），Compile 完成时贴图已 Ready | 不搞"异步的异步" |
+| **AABB / OBB 独立文件** | 放 `Core/Math/AABB.h` 和 `Core/Math/OBB.h`，不在 Model 模块内 | 通用数学类型，后续视锥裁剪等场景复用 |
+| **Vector3::Min/Max** | 封装 `glm::min/max` 为 `Math::Min/Max` free function，加 `MATH_BACKEND_GLM` 保护 | 避免各处手动 include `<glm/common.hpp>` |
+| **v1 Material 不填充** | `Material` 结构体定义保留，Loader/Compiler 阶段暂不解析材质数据 | 先把几何管线走通，材质/贴图后续接入 |
+
+---
+
 ## 1. 三方库角色分工
 
 | 库 | 阶段 | 用途 |
@@ -20,7 +33,7 @@
 
 ```
 ModelAsset
-  ├─ SubMesh[]      ← 顶点/索引数据内嵌
+  ├─ Primitive[]      ← 顶点/索引数据内嵌
   ├─ Material[]     ← PBR 标量内嵌
   │     └─ AssetId  → ImageAsset  ← 仅贴图是独立资产
   └─ Node[]
@@ -78,13 +91,13 @@ public:
 class ModelAssetData : public AssetData
 {
 public:
-    eastl::vector<SubMesh>   submeshes;
+    eastl::vector<Primitive>   submeshes;
     eastl::vector<Material>  materials;
     eastl::vector<Node>      nodes;
     Aabb                     bounds;
 };
 
-struct SubMesh
+struct Primitive
 {
     eastl::vector<uint8_t>   vertexBuffer;   // interleaved
     eastl::vector<uint8_t>   indexBuffer;
@@ -177,7 +190,7 @@ void ModelAssetBuilder::Load(AssetBuildContext& ctx)
 
 ## 5. Compiler 阶段（meshoptimizer + MikkTSpace）
 
-按 `gltf.meshes[].primitives[]` 循环，每个 primitive 一个 SubMesh。
+按 `gltf.meshes[].primitives[]` 循环，每个 primitive 一个 Primitive。
 
 ### 5.1 顶点属性提取（fastgltf accessor 视图）
 
