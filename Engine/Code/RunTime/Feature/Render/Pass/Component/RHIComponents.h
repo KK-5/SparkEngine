@@ -187,9 +187,16 @@ namespace Spark::Render
         Pass                      m_pass {NullPass};
     };
 
+    // ObjectName (the underlying type of RHI::AttachmentId) embeds an eastl::string
+    // in debug builds for log/inspection, which makes AttachmentId — and therefore
+    // these components — non-trivially-copyable. Only enforce the POD invariant in
+    // builds where ObjectName is stripped to its 8-byte hash. TODO: move the debug
+    // string to a global intern table so the invariant holds in all configs.
+#if !SPARK_OBJECT_NAME_KEEP_STRING
     static_assert(eastl::is_trivially_copyable_v<ImagePassAttachment>);
-    static_assert(eastl::is_default_constructible_v<ImagePassAttachment>);
     static_assert(eastl::is_trivially_copyable_v<BufferPassAttachment>);
+#endif
+    static_assert(eastl::is_default_constructible_v<ImagePassAttachment>);
     static_assert(eastl::is_default_constructible_v<BufferPassAttachment>);
 
     struct AttachmentCompilingTag {};
