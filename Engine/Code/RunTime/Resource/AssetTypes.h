@@ -1,56 +1,110 @@
 #pragma once
 
 #include <EASTL/string.h>
+#include <EASTL/string_view.h>
 
 #include <Base.h>
 #include <EASTLEX/hash.h>
+#include <Object/Object.h>
+#include <Object/ObjectName.h>
 
 
 namespace Spark::Resource
 {
     using AssetHash = ObjectName::Hash;
 
+    /// Per-asset-type compile-time configuration (compression, mip count, ...).
+    /// Concrete derived types provide field storage and implement Hash() over
+    /// those fields. Equals is hash-based: two descriptors are equal iff their
+    /// hashes are equal. In practice an AssetId never carries cross-type
+    /// descriptors against the same path, so cross-type hash collisions cannot
+    /// reach Equals.
+    class AssetDescriptor : public Object
+    {
+    public:
+        ~AssetDescriptor() override = default;
+
+        virtual AssetHash Hash() const = 0;
+
+        bool Equals(const AssetDescriptor& other) const { return Hash() == other.Hash(); }
+    };
+
     class AssetId
     {
     public:
         AssetId() = default;
 
-        /// 用资源路径构造，hash 自动从 name 生成
-        explicit AssetId(eastl::string_view name)
-            : m_name(name)
-            , m_hash(m_name.GetHash())
-        {}
+        /// Build an AssetId for asset type T with T's default descriptor.
+        template<typename T>
+        static AssetId Of(eastl::string_view path)
+        {
+            return AssetId(path, {}, T::DefaultDescriptor());
+        }
 
-        /// 用资源路径 + 子资产 hash 构造
-        AssetId(eastl::string_view name, AssetHash subId)
-            : m_name(name)
-            , m_hash(HashCombine(m_name.GetHash(), subId))
-        {}
+        /// Build an AssetId for asset type T with a caller-supplied descriptor.
+        template<typename T>
+        static AssetId Of(eastl::string_view path, const typename T::Descriptor& desc)
+        {
+            return AssetId(path, {}, Ptr<AssetDescriptor>(new typename T::Descriptor(desc)));
+        }
 
-        /// 用资源路径 + 子资产 名称/路径 构造
-        AssetId(eastl::string_view name, eastl::string_view subName)
-            : m_name(name)
-            , m_hash(HashCombine(m_name.GetHash(), ObjectName(subName).GetHash()))
-        {}
+        /// Build a sub-asset AssetId. Path is the parent's path; subLabel identifies
+        /// the sub-object within (UE style: "parent.gltf:image/3").
+        template<typename T>
+        static AssetId OfSub(eastl::string_view parentPath, eastl::string_view subLabel)
+        {
+            return AssetId(parentPath, subLabel, T::DefaultDescriptor());
+        }
+
+        template<typename T>
+        static AssetId OfSub(eastl::string_view parentPath, eastl::string_view subLabel,
+                             const typename T::Descriptor& desc)
+        {
+            return AssetId(parentPath, subLabel, Ptr<AssetDescriptor>(new typename T::Descriptor(desc)));
+        }
 
         bool operator==(const AssetId& other) const { return m_hash == other.m_hash; }
         bool operator!=(const AssetId& other) const { return m_hash != other.m_hash; }
         bool operator<(const AssetId& other) const  { return m_hash < other.m_hash; }
 
-        AssetHash GetHash() const          { return m_hash; }
-        const ObjectName& GetName() const  { return m_name; }
-        bool IsValid() const               { return !m_name.IsEmpty(); }
+        AssetHash              GetHash() const        { return m_hash; }
+        const eastl::string&   GetPath() const        { return m_path; }
+        const eastl::string&   GetSubLabel() const    { return m_subLabel; }
+        bool                   IsSubAsset() const     { return !m_subLabel.empty(); }
+        const AssetDescriptor* GetDescriptor() const  { return m_descriptor.get(); }
+        bool                   IsValid() const        { return !m_path.empty(); }
 
     private:
-        static AssetHash HashCombine(AssetHash a, AssetHash b)
+        AssetId(eastl::string_view path, eastl::string_view subLabel, Ptr<AssetDescriptor> descriptor)
+            : m_path(path.data(), path.size())
+            , m_subLabel(subLabel.data(), subLabel.size())
+            , m_descriptor(eastl::move(descriptor))
+            , m_hash(ComputeHash(m_path, m_subLabel, m_descriptor.get()))
+        {}
+
+        static AssetHash ComputeHash(const eastl::string& path, const eastl::string& subLabel,
+                                     const AssetDescriptor* desc)
         {
-            size_t hashCombined = static_cast<size_t>(a);
-            eastl::hash_combine_raw(hashCombined, static_cast<size_t>(b));
-            return static_cast<AssetHash>(hashCombined);
+            if (path.empty())
+            {
+                return 0;
+            }
+            size_t combined = static_cast<size_t>(HashString(path.c_str()).value());
+            if (!subLabel.empty())
+            {
+                eastl::hash_combine_raw(combined, static_cast<size_t>(HashString(subLabel.c_str()).value()));
+            }
+            if (desc)
+            {
+                eastl::hash_combine_raw(combined, static_cast<size_t>(desc->Hash()));
+            }
+            return static_cast<AssetHash>(combined);
         }
 
-        ObjectName m_name;
-        AssetHash m_hash{0};
+        eastl::string         m_path;
+        eastl::string         m_subLabel;
+        Ptr<AssetDescriptor>  m_descriptor;
+        AssetHash             m_hash{0};
     };
 
     enum class AssetStatus : uint32_t

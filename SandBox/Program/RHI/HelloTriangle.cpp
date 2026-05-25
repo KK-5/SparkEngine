@@ -227,7 +227,7 @@ namespace Spark::SandBox
         desc.m_renderStates.m_depthStencilState.m_stencil.m_enable = false;
 
         // shader
-        Resource::AssetId shaderId("Shader/SimpleTriangle.hlsl");
+        Resource::AssetId shaderId = Resource::AssetId::Of<Resource::ShaderAsset>("Shader/SimpleTriangle.hlsl");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
         Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);

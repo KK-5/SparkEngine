@@ -95,6 +95,11 @@ namespace Spark::SandBox
 
     static constexpr uint32_t g_cubeIndexCount = sizeof(g_cubeIndices) / sizeof(g_cubeIndices[0]);
 
+    // Which mip of the source asset we upload to a same-index slot of the
+    // GPU image. Image is created with the asset's full mip count; only this
+    // slot is populated, and the view exposes just this one.
+    static constexpr uint32_t kViewMipLevel = 3;
+
     class DrawShape : public Spark::Input::InputEventBus::Handler
     {
     public:
@@ -206,16 +211,18 @@ namespace Spark::SandBox
 
     void DrawShape::LoadImageAsset()
     {
-        Resource::AssetId shaderId("Image/rusty_metal_04_diff_2k.jpg");
+        Resource::AssetId imageId = Resource::AssetId::Of<Resource::ImageAsset>("Image/rusty_metal_04_diff_2k.jpg");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
-        m_imageAsset = assetManager->LoadAsset<Resource::ImageAsset>(shaderId);
+        m_imageAsset = assetManager->LoadAsset<Resource::ImageAsset>(imageId);
         if (m_imageAsset->GetStatus() != Resource::AssetStatus::Ready)
         {
-            LOG_ERROR("Load shader asset failed.");
+            LOG_ERROR("Load image asset failed.");
             return;
         }
-        ASSERT(m_imageAsset->GetFormat() == Resource::ImageFormat::RGBA8, "Error image format.");
+        // 默认 hint = BC3_RGBA + sRGB → R8G8B8A8_UNORM_SRGB 用不到这里
+        // 验证 asset 已就绪即可，具体 format 由 ImageAssetData 决定
+        ASSERT(m_imageAsset->GetMipLevels() > 0, "Image has no mip data.");
     }
 
     void DrawShape::CreateDevice()
@@ -273,6 +280,7 @@ namespace Spark::SandBox
             viewDesc.m_mipSliceMax = 0;
             viewDesc.m_arraySliceMin = 0;
             viewDesc.m_arraySliceMax = 0;
+            viewDesc.m_overrideFormat = RHI::Format::R8G8B8A8_UNORM;
             result = m_swapChainImageViews[i]->Init(*image, viewDesc);
             if (result != RHI::ResultCode::Success)
             {
@@ -391,7 +399,7 @@ namespace Spark::SandBox
         desc.m_renderStates.m_rasterState.m_cullMode = RHI::CullMode::Back;
 
         // Shader
-        Resource::AssetId shaderId("Shader/DrawShape.hlsl");
+        Resource::AssetId shaderId = Resource::AssetId::Of<Resource::ShaderAsset>("Shader/DrawShape.hlsl");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
         Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);
@@ -509,12 +517,19 @@ namespace Spark::SandBox
             LOG_ERROR("Init stage index buffer failed");
         }
 
-        const uint32_t imageWidth = m_imageAsset->GetWidth();
-        const uint32_t imageHeight = m_imageAsset->GetHeight();
-        const uint32_t imageBytesPerRow = imageWidth * m_imageAsset->GetImageData()->GetBytesPerPixel();
-        const uint32_t imageBytesPerRowAligned = AlignUp(imageBytesPerRow, RHI::Alignment::TexturePitch);
-        const uint32_t imageTotalBytes = imageBytesPerRow * imageHeight;
-        const uint32_t stageTexBytes = imageBytesPerRowAligned * imageHeight;
+        // ----- 把 ImageAsset 的某层 mip 上传到 staging buffer -----
+        // RHI::GetImageSubresourceLayout 按 format 自动处理 BCn / packed / 普通的 row 计算。
+        const auto* imgData = m_imageAsset->GetImageData();
+        const auto mipDim = imgData->GetMipDimensions(kViewMipLevel);
+        const RHI::Format format = imgData->GetFormat();
+        const RHI::ImageSubresourceLayout layout = RHI::GetImageSubresourceLayout(
+            RHI::Size{mipDim.width, mipDim.height, 1}, format);
+
+        const uint32_t rowBytes        = layout.m_bytesPerRow;
+        const uint32_t rowCount        = layout.m_rowCount;
+        const uint32_t rowBytesAligned = AlignUp(rowBytes, RHI::Alignment::TexturePitch);
+        const uint32_t imageTotalBytes = layout.m_bytesPerImage;
+        const uint32_t stageTexBytes   = rowBytesAligned * rowCount;
 
         m_stageTextureBuffer = m_rhiFactory->CreateBuffer();
         RHI::BufferDescriptor texStageDesc;
@@ -544,13 +559,13 @@ namespace Spark::SandBox
 
         RHI::MemoryCopyDest copydest;
         copydest.pData = mapResponse.m_data;
-        copydest.rowPitch = imageBytesPerRowAligned;
+        copydest.rowPitch = rowBytesAligned;
         copydest.slicePitch = stageTexBytes;
         RHI::MemoryCopySrc copySrc;
-        copySrc.pData = const_cast<uint8_t*>(m_imageAsset->GetImageData()->GetPixels().data());
-        copySrc.rowPitch = imageBytesPerRow;
+        copySrc.pData = const_cast<uint8_t*>(imgData->GetMipBytes(kViewMipLevel));
+        copySrc.rowPitch = rowBytes;
         copySrc.slicePitch = imageTotalBytes;
-        m_stageBufferPool->MemcpySubresource(&copydest, &copySrc, imageBytesPerRow, imageHeight, 1);
+        m_stageBufferPool->MemcpySubresource(&copydest, &copySrc, rowBytes, rowCount, 1);
 
         m_stageBufferPool->UnmapBuffer(*m_stageTextureBuffer);
     }
@@ -573,7 +588,8 @@ namespace Spark::SandBox
         imgReq.m_descriptor = RHI::ImageDescriptor::Create2D(
             RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite,
             m_imageAsset->GetWidth(), m_imageAsset->GetHeight(),
-            RHI::Format::R8G8B8A8_UNORM);
+            m_imageAsset->GetFormat());
+        imgReq.m_descriptor.m_mipLevels = static_cast<uint16_t>(m_imageAsset->GetMipLevels());
         res = m_texturePool->InitImage(imgReq);
         if (res != RHI::ResultCode::Success)
         {
@@ -583,8 +599,8 @@ namespace Spark::SandBox
 
         m_baseColorImageView = m_rhiFactory->CreateImageView();
         RHI::ImageViewDescriptor viewDesc;
-        viewDesc.m_mipSliceMin = 0;
-        viewDesc.m_mipSliceMax = 0;
+        viewDesc.m_mipSliceMin = static_cast<uint16_t>(kViewMipLevel);
+        viewDesc.m_mipSliceMax = static_cast<uint16_t>(kViewMipLevel);
         viewDesc.m_arraySliceMin = 0;
         viewDesc.m_arraySliceMax = 0;
         res = m_baseColorImageView->Init(*m_baseColorImage, viewDesc);
@@ -783,12 +799,18 @@ namespace Spark::SandBox
         idxCopy.m_buffer.m_size = m_indexBuffer->GetDescriptor().m_byteCount;
         commandList->Submit(idxCopy);
 
-        /// Copy texture data
-        RHI::ImageSubresourceLayout textureLayout;
+        /// Copy texture data — target mip kViewMipLevel of m_baseColorImage.
+        /// GetSubresourceLayouts writes layouts indexed by global subresource
+        /// index, so we pass an array large enough to hold the full mip chain.
+        RHI::ImageSubresourceLayout layouts[RHI::Limits::Image::MipCountMax];
         {
-            RHI::ImageSubresourceRange range(0, 0, 0, 0);
-            m_baseColorImage->GetSubresourceLayouts(range, &textureLayout, nullptr);
+            RHI::ImageSubresourceRange range(
+                static_cast<uint16_t>(kViewMipLevel),
+                static_cast<uint16_t>(kViewMipLevel),
+                0, 0);
+            m_baseColorImage->GetSubresourceLayouts(range, layouts, nullptr);
         }
+        const RHI::ImageSubresourceLayout& textureLayout = layouts[kViewMipLevel];
 
         RHI::CopyItem textureCopy;
         textureCopy.m_type = RHI::CopyItemType::BufferToImage;
@@ -796,10 +818,11 @@ namespace Spark::SandBox
         textureCopy.m_bufferToImage.m_sourceOffset = 0;
         textureCopy.m_bufferToImage.m_sourceBytesPerRow = textureLayout.m_bytesPerRow;
         textureCopy.m_bufferToImage.m_sourceBytesPerImage = textureLayout.m_bytesPerImage;
-        textureCopy.m_bufferToImage.m_sourceFormat = RHI::Format::R8G8B8A8_UNORM;
+        textureCopy.m_bufferToImage.m_sourceFormat = m_imageAsset->GetFormat();
         textureCopy.m_bufferToImage.m_sourceSize = textureLayout.m_size;
         textureCopy.m_bufferToImage.m_destinationImage = m_baseColorImage.get();
-        textureCopy.m_bufferToImage.m_destinationSubresource = RHI::ImageSubresource(0, 0);
+        textureCopy.m_bufferToImage.m_destinationSubresource = RHI::ImageSubresource(
+            static_cast<uint16_t>(kViewMipLevel), 0);
         textureCopy.m_bufferToImage.m_destinationOrigin = RHI::Origin(0, 0, 0);
         commandList->Submit(textureCopy);
 

@@ -65,7 +65,9 @@ if(NOT TARGET ktx)
     set(KTX_FEATURE_DOC            OFF CACHE BOOL "" FORCE)
     set(KTX_FEATURE_JNI            OFF CACHE BOOL "" FORCE)
     set(KTX_FEATURE_PY             OFF CACHE BOOL "" FORCE)
-    set(KTX_FEATURE_KTX1           OFF CACHE BOOL "" FORCE)
+    # KTX1 cannot be cleanly disabled: texture.obj's dispatcher unconditionally
+    # references KTX1 constructors, so OFF leads to LNK2019 at exe link time.
+    set(KTX_FEATURE_KTX1           ON  CACHE BOOL "" FORCE)
     set(KTX_FEATURE_KTX2           ON  CACHE BOOL "" FORCE)
     set(KTX_FEATURE_VK_UPLOAD      OFF CACHE BOOL "" FORCE)
     set(KTX_FEATURE_GL_UPLOAD      OFF CACHE BOOL "" FORCE)
@@ -80,6 +82,37 @@ if(NOT TARGET ktx)
             set_target_properties(${_ktx_target} PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/ktx)
         endif()
     endforeach()
+endif()
+
+if(NOT TARGET fastgltf)
+    Message(STATUS "Import fastgltf")
+    # simdjson is auto-downloaded into fastgltf/deps/simdjson on first configure.
+    set(FASTGLTF_ENABLE_TESTS    OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_DOCS     OFF CACHE BOOL "" FORCE)
+    add_subdirectory(fastgltf)
+    set_target_properties(fastgltf PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/fastgltf)
+endif()
+
+if(NOT TARGET meshoptimizer)
+    Message(STATUS "Import meshoptimizer")
+    set(MESHOPT_BUILD_DEMO        OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_GLTFPACK    OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_INSTALL           OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_WERROR            OFF CACHE BOOL "" FORCE)
+    add_subdirectory(meshoptimizer)
+    set_target_properties(meshoptimizer PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/meshoptimizer)
+endif()
+
+if(NOT TARGET mikktspace)
+    Message(STATUS "Import MikkTSpace")
+    add_library(mikktspace STATIC
+        MikkTSpace/mikktspace.c
+        MikkTSpace/mikktspace.h
+    )
+    target_include_directories(mikktspace PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/MikkTSpace)
+    set_target_properties(mikktspace PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/MikkTSpace)
 endif()
 
 if(BUILD_TESTS)

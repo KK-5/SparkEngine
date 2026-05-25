@@ -28,5 +28,7 @@ PSInput VSMain(VSInput input)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return g_BaseColor.Sample(g_Sampler, input.uv);
+    float4 color = g_BaseColor.Sample(g_Sampler, input.uv);
+    // 转回 SRGB
+    return pow(color, 1.0/2.2);
 }

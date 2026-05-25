@@ -1176,7 +1176,7 @@ namespace Spark::RHI::DX12
             result.emplace_back();
 
             D3D12_INPUT_ELEMENT_DESC& desc = result.back();
-            desc.SemanticName = channel.m_semantic.m_name.GetCStr();
+            desc.SemanticName = channel.m_semantic.m_name.c_str();
             desc.SemanticIndex = channel.m_semantic.m_index;
             desc.AlignedByteOffset = channel.m_byteOffset;
             desc.InputSlot = channel.m_bufferIndex;

@@ -33,6 +33,18 @@ namespace Spark
         m_dx12Rhi = CreateSystem<RHI::DX12::RHISystem>();
         m_dx12Rhi->Init();
 
+        {
+            // Create RHI Device
+            auto* rhi = Service<RHI::RHIInterface>::Get();
+            auto devs = rhi->EnumeratePhysicalDevices();
+            ASSERT(!devs.empty(), "[Engine] No physical device available.");
+
+            RHI::DeviceDescriptor deviceDesc;
+            deviceDesc.m_frameCountMax = 3;
+            RHI::ResultCode r = rhi->InitDevice(*devs.front(), deviceDesc);
+            ASSERT(r == RHI::ResultCode::Success, "[Engine] Init RHI device failed.");
+        }
+
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();
 

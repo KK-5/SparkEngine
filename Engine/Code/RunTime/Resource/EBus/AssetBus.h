@@ -25,15 +25,4 @@ namespace Spark::Resource
     };
 
     using AssetBus = EBus<AssetBusTraits>;
-
-    struct AssetCatalogBusTraits : public EBusTraits
-    {
-        static const EBusHandlerPolicy HandlerPolicy = EBusHandlerPolicy::Multiple;
-        static const EBusAddressPolicy AddressPolicy = EBusAddressPolicy::Single;
-
-        // Interface
-        virtual void OnAssetSearchPathsChange(const eastl::vector<eastl::string>& paths) = 0;
-    };
-
-    using AssetCatalogBus = EBus<AssetCatalogBusTraits>;
 }
