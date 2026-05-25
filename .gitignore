@@ -1,5 +1,6 @@
 # ignore
 .vscode/
 build/
+build_verify/
 bin/
 imgui.ini
