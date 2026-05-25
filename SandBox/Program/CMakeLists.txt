@@ -72,6 +72,33 @@ if (BUILD_RG_TRIANGLEPASS)
     )
 endif()
 
+option(BUILD_RG_DRAWCUBE "Build RenderGraph DrawCube" ON)
+
+if (BUILD_RG_DRAWCUBE)
+    set(TARGET_NAME DrawCube)
+
+    add_executable(${TARGET_NAME}
+        Common/SimpleGlfwWindow.cpp
+        RenderGraph/DrawCube.cpp
+    )
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        glfw
+        SparkCore
+        SparkInput
+        SparkRender
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+    )
+endif()
+
 option(BUILD_RG_MSAAPASS "Build RenderGraph MSAAPass" ON)
 
 if (BUILD_RG_MSAAPASS)
