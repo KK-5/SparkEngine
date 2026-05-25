@@ -17,6 +17,38 @@ namespace Spark::Resource
         static constexpr uint32_t StrideFloat4 = 4 * sizeof(float);
         static constexpr uint32_t StrideFloat2 = 2 * sizeof(float);
 
+        // Split a GLTF semantic like "TEXCOORD_0" into name="TEXCOORD" and index=0.
+        // Names without a trailing _N (e.g. "POSITION") return index=0 and the
+        // original name unchanged.
+        struct ParsedSemantic
+        {
+            eastl::string name;
+            uint32_t      index = 0;
+        };
+        ParsedSemantic ParseSemantic(const char* gltfAttributeName)
+        {
+            eastl::string_view sv(gltfAttributeName);
+            const size_t len = sv.size();
+            if (len > 2 && sv[len - 1] >= '0' && sv[len - 1] <= '9')
+            {
+                size_t pos = len - 1;
+                while (pos > 0 && sv[pos - 1] >= '0' && sv[pos - 1] <= '9')
+                {
+                    --pos;
+                }
+                if (pos > 0 && sv[pos - 1] == '_')
+                {
+                    uint32_t idx = 0;
+                    for (size_t i = pos; i < len; ++i)
+                    {
+                        idx = idx * 10 + static_cast<uint32_t>(sv[i] - '0');
+                    }
+                    return { eastl::string(sv.data(), sv.data() + (pos - 1)), idx };
+                }
+            }
+            return { eastl::string(sv.data(), sv.size()), 0 };
+        }
+
         // ---- vertex attribute extraction helpers ----
 
         template<typename VecT>
@@ -284,18 +316,20 @@ namespace Spark::Resource
                 VertexLayout layout;
                 VertexAttribute attr;
 
-                attr.semantic   = "POSITION";
-                attr.format     = RHI::Format::R32G32B32_FLOAT;
-                attr.byteOffset = 0;
+                attr.semantic      = "POSITION";
+                attr.semanticIndex = 0;
+                attr.format        = RHI::Format::R32G32B32_FLOAT;
+                attr.byteOffset    = 0;
                 layout.attributes.push_back(attr);
                 layout.stride += StrideFloat3;
 
                 const uint32_t nrmOffset = layout.stride;
                 if (hasNormals)
                 {
-                    attr.semantic   = "NORMAL";
-                    attr.format     = RHI::Format::R32G32B32_FLOAT;
-                    attr.byteOffset = layout.stride;
+                    attr.semantic      = "NORMAL";
+                    attr.semanticIndex = 0;
+                    attr.format        = RHI::Format::R32G32B32_FLOAT;
+                    attr.byteOffset    = layout.stride;
                     layout.attributes.push_back(attr);
                     layout.stride += StrideFloat3;
                 }
@@ -303,9 +337,10 @@ namespace Spark::Resource
                 const uint32_t tanOffset = layout.stride;
                 if (hasTangents)
                 {
-                    attr.semantic   = "TANGENT";
-                    attr.format     = RHI::Format::R32G32B32A32_FLOAT;
-                    attr.byteOffset = layout.stride;
+                    attr.semantic      = "TANGENT";
+                    attr.semanticIndex = 0;
+                    attr.format        = RHI::Format::R32G32B32A32_FLOAT;
+                    attr.byteOffset    = layout.stride;
                     layout.attributes.push_back(attr);
                     layout.stride += StrideFloat4;
                 }
@@ -313,9 +348,10 @@ namespace Spark::Resource
                 const uint32_t uvOffset = layout.stride;
                 if (hasUV0)
                 {
-                    attr.semantic   = "TEXCOORD_0";
+                    attr.semantic   = "TEXCOORD";
                     attr.format     = RHI::Format::R32G32_FLOAT;
                     attr.byteOffset = layout.stride;
+                    attr.semanticIndex = 0;
                     layout.attributes.push_back(attr);
                     layout.stride += StrideFloat2;
                 }

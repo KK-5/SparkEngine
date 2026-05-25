@@ -606,10 +606,19 @@ namespace Spark::RHI
                     const uint32_t subresourceIndex = GetImageSubresourceIndex(mipSlice, arraySlice, mipLevels);
                     const ImageSubresourceLayout& layout = layouts[subresourceIndex];
 
-                    const uint32_t srcRowPitch  = layout.m_bytesPerRow;
-                    const uint32_t dstRowPitch  = srcRowPitch; // already aligned by GenerateSubresourceLayouts
-                    const uint32_t numRows      = layout.m_rowCount;
+                    // GPU-side layout (already aligned by GenerateSubresourceLayouts for
+                    // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT). Used for staging-buffer writes
+                    // and the CopyBufferToImage descriptor.
+                    const uint32_t dstRowPitch  = layout.m_bytesPerRow;
                     const uint32_t dstTotalSize = layout.m_bytesPerImage;
+                    const uint32_t numRows      = layout.m_rowCount;
+
+                    // CPU-side layout (unaligned). ImageAsset stores mips tightly packed;
+                    // we must not read past the end of each source row.
+                    RHI::ImageSubresourceLayout srcLayout =
+                        RHI::GetImageSubresourceLayout(imageDesc, RHI::ImageSubresource(mipSlice, arraySlice));
+                    const uint32_t srcRowPitch     = srcLayout.m_bytesPerRow;
+                    const uint32_t srcBytesPerImage = srcLayout.m_bytesPerImage;
 
                     // DX12 CopyTextureRegion requires the source buffer offset to be
                     // aligned to TexturePlacement (512). Pad current offset up; previous
@@ -631,7 +640,7 @@ namespace Spark::RHI
                         srcRow += srcRowPitch;
                         dstRow += dstRowPitch;
                     }
-                    srcData += dstTotalSize;
+                    srcData += srcBytesPerImage;
 
                     CopyBufferToImageDescriptor copyDesc;
                     copyDesc.m_sourceBuffer          = packet->m_stagingBuffer.get();

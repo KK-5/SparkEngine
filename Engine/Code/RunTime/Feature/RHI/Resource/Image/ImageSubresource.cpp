@@ -264,8 +264,12 @@ namespace Spark::RHI
             }
             subresourceLayout.m_bytesPerRow = numBlocksWide * bytesPerElement;
             subresourceLayout.m_rowCount = numBlocksHigh;
-            subresourceLayout.m_size.m_width = imageSize.m_width;
-            subresourceLayout.m_size.m_height = imageSize.m_height;
+            // Block-compressed formats require footprint dimensions to be
+            // multiples of the block size (D3D12 validation). The source data
+            // already covers whole blocks — edge blocks are padded by the
+            // asset compiler.
+            subresourceLayout.m_size.m_width = numBlocksWide * numBlocks;
+            subresourceLayout.m_size.m_height = numBlocksHigh * numBlocks;
             subresourceLayout.m_blockElementWidth = numBlocks;
             subresourceLayout.m_blockElementHeight = numBlocks;
         }

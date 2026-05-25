@@ -11,7 +11,8 @@ namespace Spark::Resource
     /// Maps to RHI::StreamChannelDescriptor at the render layer.
     struct VertexAttribute
     {
-        eastl::string   semantic;      // "POSITION", "NORMAL", "TANGENT", "TEXCOORD0", ...
+        eastl::string   semantic;      // "POSITION", "NORMAL", "TANGENT", "TEXCOORD"
+        uint32_t        semanticIndex = 0; // 0 for most; >0 for TEXCOORD_1, JOINTS_1 etc.
         RHI::Format     format;        // element format, e.g. R32G32B32_FLOAT
         uint32_t        byteOffset;    // offset from start of vertex in bytes
     };

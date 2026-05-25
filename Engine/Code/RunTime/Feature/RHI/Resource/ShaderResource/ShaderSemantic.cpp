@@ -9,13 +9,22 @@
 #include "ShaderSemantic.h"
 
 #include <EASTL/functional.h>
+#include <Log/SpdLogSystem.h>
 
 namespace Spark::RHI
 {
     ShaderSemantic::ShaderSemantic(eastl::string_view name, size_t index)
         : m_name(name.data(), name.size())
         , m_index(static_cast<uint32_t>(index))
-    {}
+    {
+        // D3D12 forbids semantic names ending with a digit. The asset pipeline
+        // must strip the trailing "_N" and pass the index separately. This
+        // assertion catches "TEXCOORD_0" that should have been "TEXCOORD", 0.
+        ASSERT(m_name.empty() || !(m_name.back() >= '0' && m_name.back() <= '9'),
+            "[ShaderSemantic] Name '{}' ends with a digit. "
+            "Strip the _N suffix and pass the index explicitly via the second argument.",
+            m_name.c_str());
+    }
 
     bool ShaderSemantic::operator==(const ShaderSemantic& rhs) const
     {

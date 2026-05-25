@@ -103,7 +103,7 @@ namespace Spark::Resource
             const auto* posAttr = FindAttribute(prim.layout, "POSITION");
             const auto* nrmAttr = FindAttribute(prim.layout, "NORMAL");
             const auto* tanAttr = FindAttribute(prim.layout, "TANGENT");
-            const auto* uvAttr  = FindAttribute(prim.layout, "TEXCOORD_0");
+            const auto* uvAttr  = FindAttribute(prim.layout, "TEXCOORD");
 
             if (!posAttr || !nrmAttr || !uvAttr || tanAttr)
             {
@@ -218,27 +218,31 @@ namespace Spark::Resource
             VertexLayout newLayout;
             VertexAttribute attr;
 
-            attr.semantic   = "POSITION";
-            attr.format     = RHI::Format::R32G32B32_FLOAT;
-            attr.byteOffset = 0;
+            attr.semantic      = "POSITION";
+            attr.semanticIndex = 0;
+            attr.format        = RHI::Format::R32G32B32_FLOAT;
+            attr.byteOffset    = 0;
             newLayout.attributes.push_back(attr);
             newLayout.stride += StrideFloat3;
 
-            attr.semantic   = "NORMAL";
-            attr.format     = RHI::Format::R32G32B32_FLOAT;
-            attr.byteOffset = newLayout.stride;
+            attr.semantic      = "NORMAL";
+            attr.semanticIndex = 0;
+            attr.format        = RHI::Format::R32G32B32_FLOAT;
+            attr.byteOffset    = newLayout.stride;
             newLayout.attributes.push_back(attr);
             newLayout.stride += StrideFloat3;
 
-            attr.semantic   = "TANGENT";
-            attr.format     = RHI::Format::R32G32B32A32_FLOAT;
-            attr.byteOffset = newLayout.stride;
+            attr.semantic      = "TANGENT";
+            attr.semanticIndex = 0;
+            attr.format        = RHI::Format::R32G32B32A32_FLOAT;
+            attr.byteOffset    = newLayout.stride;
             newLayout.attributes.push_back(attr);
             newLayout.stride += StrideFloat4;
 
-            attr.semantic   = "TEXCOORD_0";
-            attr.format     = RHI::Format::R32G32_FLOAT;
-            attr.byteOffset = newLayout.stride;
+            attr.semantic      = "TEXCOORD";
+            attr.semanticIndex = 0;
+            attr.format        = RHI::Format::R32G32_FLOAT;
+            attr.byteOffset    = newLayout.stride;
             newLayout.attributes.push_back(attr);
             newLayout.stride += StrideFloat2;
 
