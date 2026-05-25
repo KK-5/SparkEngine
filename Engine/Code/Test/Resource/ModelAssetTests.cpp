@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <Resource/AssetManager.h>
+#include <Resource/Image/ImageAsset.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Model/ModelAssetLoader.h>
 #include <Resource/Model/ModelAssetCompiler.h>
@@ -229,4 +230,139 @@ TEST_F(ModelAssetTestFixture, FindAssetBeforeLoadReturnsNull)
     AssetId id = AssetId::Of<ModelAsset>("Cube.glb");
     Ptr<Asset> asset = m_assetManager->FindAsset(id);
     EXPECT_EQ(asset, nullptr);
+}
+
+// ===== Embedded image (.glb) — Loader 层 =====
+
+TEST(ModelAssetLoaderTest, LoadCubeTexturedGLB_HasEmbeddedImage)
+{
+    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+
+    ModelAssetLoader loader;
+    loader.SetSearchPaths(searchPaths);
+
+    AssetId id = AssetId::Of<ModelAsset>("CubeTextured.glb");
+    auto data = loader.Load(id);
+    ASSERT_NE(data, nullptr);
+
+    auto* model = static_cast<ModelAssetData*>(data.get());
+    ASSERT_EQ(model->GetRawImageCount(), 1u);
+
+    const RawImageEntry* entry = model->GetRawImage(0);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_FALSE(entry->data.empty());         // 内嵌：data 非空
+    EXPECT_TRUE(entry->externalUri.empty());   // 内嵌：URI 空
+    EXPECT_GT(entry->data.size(), 1024u);      // 至少有压缩图字节
+}
+
+// ===== External image (.gltf) — Loader 层 =====
+
+TEST(ModelAssetLoaderTest, LoadCubeTexturedGLTF_HasExternalImage)
+{
+    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+
+    ModelAssetLoader loader;
+    loader.SetSearchPaths(searchPaths);
+
+    AssetId id = AssetId::Of<ModelAsset>("CubeTextured.gltf");
+    auto data = loader.Load(id);
+    ASSERT_NE(data, nullptr);
+
+    auto* model = static_cast<ModelAssetData*>(data.get());
+    ASSERT_EQ(model->GetRawImageCount(), 1u);
+
+    const RawImageEntry* entry = model->GetRawImage(0);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_TRUE(entry->data.empty());                                    // 外部：data 空
+    EXPECT_EQ(entry->externalUri, "Textures/stone_wall_04_diff_1k.jpg"); // 外部：URI 是相对路径
+    EXPECT_EQ(entry->name, "stone_wall_04_diff_1k");
+}
+
+// ===== Embedded image (.glb) — Builder 派发 + m_imageAssetIds =====
+
+TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLB_DispatchesEmbeddedImage)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.glb");
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
+
+    ASSERT_NE(modelAsset, nullptr);
+    EXPECT_TRUE(modelAsset->IsReady());
+
+    auto* modelData = modelAsset->GetData<ModelAssetData>();
+    ASSERT_NE(modelData, nullptr);
+
+    // m_imageAssetIds 跟 gltf.images[] 对齐
+    ASSERT_EQ(modelData->GetImageAssetCount(), 1u);
+    const AssetId& imgId = modelData->GetImageAssetId(0);
+    EXPECT_TRUE(imgId.IsValid());
+
+    // 子资产应该被注册到 db 且 Ready
+    Ptr<Asset> imgAsset = m_assetManager->FindAsset(imgId);
+    ASSERT_NE(imgAsset, nullptr);
+    EXPECT_EQ(imgAsset->GetAssetType(), AssetType::Image);
+    EXPECT_TRUE(imgAsset->IsReady());
+
+    // 内嵌图的 subId 形态：(parentPath, "image/<name>")
+    EXPECT_EQ(imgId.GetPath(), "CubeTextured.glb");
+    EXPECT_EQ(imgId.GetSubLabel(), "image/stone_wall_04_diff_1k");
+}
+
+// ===== External image (.gltf) — Builder 派发 + m_imageAssetIds =====
+
+TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.gltf");
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
+
+    ASSERT_NE(modelAsset, nullptr);
+    EXPECT_TRUE(modelAsset->IsReady());
+
+    auto* modelData = modelAsset->GetData<ModelAssetData>();
+    ASSERT_NE(modelData, nullptr);
+
+    ASSERT_EQ(modelData->GetImageAssetCount(), 1u);
+    const AssetId& imgId = modelData->GetImageAssetId(0);
+    EXPECT_TRUE(imgId.IsValid());
+
+    // 外部图：subId 用相对 URI（顶层 asset 不是 sub）
+    EXPECT_EQ(imgId.GetPath(), "Textures/stone_wall_04_diff_1k.jpg");
+    EXPECT_FALSE(imgId.IsSubAsset());
+
+    Ptr<Asset> imgAsset = m_assetManager->FindAsset(imgId);
+    ASSERT_NE(imgAsset, nullptr);
+    EXPECT_EQ(imgAsset->GetAssetType(), AssetType::Image);
+    EXPECT_TRUE(imgAsset->IsReady());
+}
+
+// ===== Builder 派发完后 raw 端 m_rawImages 被清空 =====
+
+TEST_F(ModelAssetTestFixture, CompiledModelDoesNotCarryRawImages)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.glb");
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
+    ASSERT_NE(modelAsset, nullptr);
+
+    auto* modelData = modelAsset->GetData<ModelAssetData>();
+    ASSERT_NE(modelData, nullptr);
+
+    // 运行时 ModelAssetData 上不携带原始图字节
+    EXPECT_EQ(modelData->GetRawImageCount(), 0u);
+}
+
+// ===== 同一外部图被多次加载应该 dedup =====
+
+TEST_F(ModelAssetTestFixture, ExternalImageDedupAcrossModelLoads)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.gltf");
+
+    Ptr<Asset> first  = m_assetManager->LoadAsset(modelId, AssetType::Model);
+    Ptr<Asset> second = m_assetManager->LoadAsset(modelId, AssetType::Model);
+    EXPECT_EQ(first.get(), second.get());  // model 本身已 dedup
+
+    auto* modelData = first->GetData<ModelAssetData>();
+    const AssetId& imgId = modelData->GetImageAssetId(0);
+
+    Ptr<Asset> imgA = m_assetManager->FindAsset(imgId);
+    Ptr<Asset> imgB = m_assetManager->FindAsset(imgId);
+    EXPECT_EQ(imgA.get(), imgB.get());     // image 也指向同一实例
 }

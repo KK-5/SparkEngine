@@ -4,6 +4,7 @@
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
+#include <fastgltf/util.hpp>
 
 #include <Log/SpdLogSystem.h>
 #include <Math/MathUtils.h>
@@ -78,7 +79,9 @@ namespace Spark::Resource
 
         // ---- node flattening ----
 
+        /// meshRemap[gltfMeshIdx] = new mesh index in m_meshes, or -1 if mesh was dropped
         void FlattenNodes(const fastgltf::Asset& gltf, size_t nodeIdx, int32_t parentFlat,
+                          const eastl::vector<int32_t>& meshRemap,
                           eastl::vector<Node>& out)
         {
             const auto& src = gltf.nodes[nodeIdx];
@@ -86,7 +89,15 @@ namespace Spark::Resource
             Node dst;
             dst.name         = src.name.empty() ? eastl::string() : eastl::string(src.name.c_str());
             dst.parent       = parentFlat;
-            dst.meshIndex    = src.meshIndex.has_value() ? static_cast<int32_t>(src.meshIndex.value()) : -1;
+            dst.meshIndex    = -1;
+            if (src.meshIndex.has_value())
+            {
+                const size_t gltfMeshIdx = src.meshIndex.value();
+                if (gltfMeshIdx < meshRemap.size())
+                {
+                    dst.meshIndex = meshRemap[gltfMeshIdx];
+                }
+            }
 
             if (const auto* mat = std::get_if<fastgltf::math::fmat4x4>(&src.transform))
             {
@@ -117,7 +128,7 @@ namespace Spark::Resource
 
             for (auto child : src.children)
             {
-                FlattenNodes(gltf, child, myIndex, out);
+                FlattenNodes(gltf, child, myIndex, meshRemap, out);
             }
         }
 
@@ -203,8 +214,13 @@ namespace Spark::Resource
 
         // ---- Meshes & Primitives ----
 
-        for (const auto& gltfMesh : gltf.meshes)
+        // Track glTF mesh index -> m_meshes index (or -1 if dropped) so node.meshIndex
+        // stays valid when meshes without usable primitives are filtered out.
+        eastl::vector<int32_t> meshRemap(gltf.meshes.size(), -1);
+
+        for (size_t gltfMeshIdx = 0; gltfMeshIdx < gltf.meshes.size(); ++gltfMeshIdx)
         {
+            const auto& gltfMesh = gltf.meshes[gltfMeshIdx];
             Mesh mesh;
             mesh.name = gltfMesh.name.empty()
                 ? eastl::string()
@@ -308,7 +324,9 @@ namespace Spark::Resource
                 prim.layout        = layout;
                 prim.vertexBuffer.resize(vertexCount * layout.stride);
                 prim.indexBuffer.resize(indices.size() * sizeof(uint32_t));
-                prim.materialIndex = static_cast<uint32_t>(gltfPrim.materialIndex.value_or(0));
+                prim.materialIndex = gltfPrim.materialIndex.has_value()
+                    ? static_cast<uint32_t>(gltfPrim.materialIndex.value())
+                    : Primitive::kInvalidMaterialIndex;
 
                 InterleaveVertexBuffer(
                     prim.vertexBuffer.data(), vertexCount, layout.stride,
@@ -326,6 +344,7 @@ namespace Spark::Resource
 
             if (!mesh.primitives.empty())
             {
+                meshRemap[gltfMeshIdx] = static_cast<int32_t>(result->m_meshes.size());
                 result->m_meshes.push_back(eastl::move(mesh));
             }
         }
@@ -338,8 +357,56 @@ namespace Spark::Resource
             const auto& scene = gltf.scenes[gltf.defaultScene.value()];
             for (auto rootIdx : scene.nodeIndices)
             {
-                FlattenNodes(gltf, rootIdx, -1, result->m_nodes);
+                FlattenNodes(gltf, rootIdx, -1, meshRemap, result->m_nodes);
             }
+        }
+
+        // ---- Images (copy bytes / URI; fastgltf objects die when this fn returns) ----
+        //
+        // 严格按 gltf.images[] 顺序 push，不可跳过：m_rawImages[i] ↔ gltf.images[i]
+        // 是材质 by-index 引用的基础。不支持/解析失败的源仍 push 一个空 entry，
+        // 由 Builder 决定如何在 m_imageAssetIds 上占位。
+
+        result->m_rawImages.reserve(gltf.images.size());
+        for (const auto& image : gltf.images)
+        {
+            RawImageEntry entry;
+            entry.name = image.name.empty()
+                ? eastl::string()
+                : eastl::string(image.name.c_str());
+
+            std::visit(fastgltf::visitor{
+                [&](const fastgltf::sources::Array& src) {
+                    const auto* p = reinterpret_cast<const uint8_t*>(src.bytes.data());
+                    entry.data.assign(p, p + src.bytes.size_bytes());
+                },
+                [&](const fastgltf::sources::Vector& src) {
+                    const auto* p = reinterpret_cast<const uint8_t*>(src.bytes.data());
+                    entry.data.assign(p, p + src.bytes.size());
+                },
+                [&](const fastgltf::sources::ByteView& src) {
+                    const auto* p = reinterpret_cast<const uint8_t*>(src.bytes.data());
+                    entry.data.assign(p, p + src.bytes.size());
+                },
+                [&](const fastgltf::sources::BufferView& src) {
+                    fastgltf::DefaultBufferDataAdapter adapter;
+                    auto span = adapter(gltf, src.bufferViewIndex);
+                    const auto* p = reinterpret_cast<const uint8_t*>(span.data());
+                    entry.data.assign(p, p + span.size());
+                },
+                [&](const fastgltf::sources::URI& src) {
+                    // generic_string() 强制正斜杠，保证 AssetId 跨平台稳定
+                    auto uri = src.uri.fspath().generic_string();
+                    entry.externalUri.assign(uri.c_str(), uri.size());
+                },
+                [&](const auto&) {
+                    LOG_WARN("[ModelAssetLoader] image '{}' has unsupported source variant; "
+                             "leaving slot empty (index alignment preserved)",
+                        entry.name.empty() ? "<unnamed>" : entry.name.c_str());
+                }
+            }, image.data);
+
+            result->m_rawImages.push_back(eastl::move(entry));
         }
 
         // ---- Global bounds ----
@@ -355,11 +422,12 @@ namespace Spark::Resource
             }
         }
 
-        LOG_INFO("[ModelAssetLoader] Loaded '{}': {} meshes, {} primitives, {} nodes",
+        LOG_INFO("[ModelAssetLoader] Loaded '{}': {} meshes, {} primitives, {} nodes, {} images",
             result->m_resolvedPath.c_str(),
             result->GetMeshCount(),
             result->GetPrimitiveCount(),
-            result->GetNodeCount());
+            result->GetNodeCount(),
+            result->GetRawImageCount());
 
         return result;
     }

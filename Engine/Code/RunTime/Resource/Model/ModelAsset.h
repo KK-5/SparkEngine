@@ -59,11 +59,22 @@ namespace Spark::Resource
 
     struct Primitive
     {
+        static constexpr uint32_t kInvalidMaterialIndex = ~0u;
+
         eastl::vector<uint8_t>  vertexBuffer;
         eastl::vector<uint8_t>  indexBuffer;
         VertexLayout            layout;
-        uint32_t                materialIndex{0};
+        uint32_t                materialIndex{kInvalidMaterialIndex};
         Math::AABB              bounds;
+    };
+
+    // === Raw image entry (intermediate; Builder consumes & clears after sub-asset dispatch) ===
+
+    struct RawImageEntry
+    {
+        eastl::vector<uint8_t> data;          ///< 内嵌图字节（已 copy 自源数据）；空 = 外部
+        eastl::string          externalUri;   ///< 外部图相对路径（相对 glTF 所在目录）；空 = 内嵌
+        eastl::string          name;          ///< glTF image.name；用于子资产 subLabel；空时回落到索引
     };
 
     // === Mesh (named group of primitives sharing a transform) ===
@@ -105,15 +116,31 @@ namespace Spark::Resource
         size_t          GetMaterialCount()      const { return m_materials.size(); }
         const Material* GetMaterial(size_t i)   const { return i < m_materials.size() ? &m_materials[i] : nullptr; }
 
+        // embed image
+        size_t               GetRawImageCount() const { return m_rawImages.size(); }
+        const RawImageEntry* GetRawImage(size_t i) const
+        {
+            return i < m_rawImages.size() ? &m_rawImages[i] : nullptr;
+        }
+
+        // Image sub-assets —— index 对齐 glTF images[]。Builder 派发后填充到
+        // compiledData 上；dispatch 失败 / 源不可用的槽位为默认构造的 AssetId
+        // （IsValid() == false），保持下标对齐供材质阶段 by-index 引用。
+        size_t          GetImageAssetCount()      const { return m_imageAssetIds.size(); }
+        const AssetId&  GetImageAssetId(size_t i) const { return m_imageAssetIds[i]; }
+
     private:
         friend class ModelAssetLoader;
         friend class ModelAssetCompiler;
+        friend class ModelAssetBuilder;     // 派发完允许 clear + 写 m_imageAssetIds
 
-        eastl::vector<Mesh>       m_meshes;
-        eastl::vector<Material>   m_materials;       // v1 不填充
-        eastl::vector<Node>       m_nodes;            // v1 不填充
-        Math::AABB                m_bounds;
-        eastl::string             m_resolvedPath;
+        eastl::vector<Mesh>          m_meshes;
+        eastl::vector<Material>      m_materials;       // v1 不填充
+        eastl::vector<Node>          m_nodes;
+        eastl::vector<RawImageEntry> m_rawImages;       // 仅 raw 阶段非空
+        eastl::vector<AssetId>       m_imageAssetIds;   // 仅 compiled 阶段非空，index 对齐 glTF images[]
+        Math::AABB                   m_bounds;
+        eastl::string                m_resolvedPath;
     };
 
     // === Asset ===
