@@ -205,6 +205,22 @@ namespace Spark::Math
         return glm::transpose(m);
     }
 
+    inline float Determinant(const Matrix3X3& m)
+    {
+        return glm::determinant(m);
+    }
+
+    inline float Determinant(const Matrix4X4& m)
+    {
+        return glm::determinant(m);
+    }
+
+    /// Returns the upper-left 3x3 of a 4x4 matrix (i.e. its linear / rotation-scale part).
+    inline Matrix3X3 ToMatrix3X3(const Matrix4X4& m)
+    {
+        return Matrix3X3(m);
+    }
+
     // ---- Quaternion Operations ----
 
     inline Quaternion QuaternionFromAxisAngle(const Vector3& axis, float angle)

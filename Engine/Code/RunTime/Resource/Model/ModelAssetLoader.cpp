@@ -177,6 +177,98 @@ namespace Spark::Resource
             }
             return b;
         }
+
+        // ---- node transform baking ----
+
+        // Bake a world-space transform into the primitive's vertex data
+        // (positions, normals, tangents) in place; recompute the AABB; and,
+        // if the transform's 3x3 part has negative determinant (mirror), undo
+        // the loader's earlier winding swap so screen-space winding remains CCW.
+        void BakeNodeTransformIntoPrimitive(Primitive& prim, const Math::Matrix4X4& world)
+        {
+            if (world == Math::Matrix4X4Const::IDENTITY)
+            {
+                return;
+            }
+
+            const uint32_t stride      = prim.layout.stride;
+            const size_t   vertexCount = stride > 0 ? prim.vertexBuffer.size() / stride : 0;
+            if (vertexCount == 0)
+            {
+                return;
+            }
+
+            const VertexAttribute* posAttr = prim.layout.FindAttribute(VertexSemantic::Position);
+            const VertexAttribute* nrmAttr = prim.layout.FindAttribute(VertexSemantic::Normal);
+            const VertexAttribute* tanAttr = prim.layout.FindAttribute(VertexSemantic::Tangent);
+            const int32_t posOffset = posAttr ? static_cast<int32_t>(posAttr->byteOffset) : -1;
+            const int32_t nrmOffset = nrmAttr ? static_cast<int32_t>(nrmAttr->byteOffset) : -1;
+            const int32_t tanOffset = tanAttr ? static_cast<int32_t>(tanAttr->byteOffset) : -1;
+
+            const Math::Matrix3X3 rot3         = Math::ToMatrix3X3(world);
+            const Math::Matrix3X3 normalMatrix = Math::Transpose(Math::Inverse(rot3));
+            const float           det          = Math::Determinant(rot3);
+            const bool            mirrors      = det < 0.0f;
+
+            uint8_t* vb = prim.vertexBuffer.data();
+            for (size_t v = 0; v < vertexCount; ++v)
+            {
+                uint8_t* vert = vb + v * stride;
+
+                if (posOffset >= 0)
+                {
+                    float* p = reinterpret_cast<float*>(vert + posOffset);
+                    const Math::Vector4 t = world * Math::Vector4(p[0], p[1], p[2], 1.0f);
+                    p[0] = t.x; p[1] = t.y; p[2] = t.z;
+                }
+                if (nrmOffset >= 0)
+                {
+                    float* n = reinterpret_cast<float*>(vert + nrmOffset);
+                    Math::Vector3 t = normalMatrix * Math::Vector3(n[0], n[1], n[2]);
+                    t = Math::Normalize(t);
+                    n[0] = t.x; n[1] = t.y; n[2] = t.z;
+                }
+                if (tanOffset >= 0)
+                {
+                    float* t = reinterpret_cast<float*>(vert + tanOffset);
+                    Math::Vector3 r = rot3 * Math::Vector3(t[0], t[1], t[2]);
+                    r = Math::Normalize(r);
+                    t[0] = r.x; t[1] = r.y; t[2] = r.z;
+                    if (mirrors)
+                    {
+                        t[3] = -t[3];  // tangent-space handedness flips under mirror
+                    }
+                }
+            }
+
+            // Mirrored transforms flip triangle winding in object space; combined
+            // with the loader's preemptive RH→LH winding swap this would double-flip,
+            // so undo the swap here.
+            if (mirrors)
+            {
+                uint32_t* idx = reinterpret_cast<uint32_t*>(prim.indexBuffer.data());
+                const size_t indexCount = prim.indexBuffer.size() / sizeof(uint32_t);
+                for (size_t i = 0; i + 2 < indexCount; i += 3)
+                {
+                    const uint32_t tmp = idx[i + 1];
+                    idx[i + 1] = idx[i + 2];
+                    idx[i + 2] = tmp;
+                }
+            }
+
+            // AABB is no longer the original glTF-local one; recompute from the
+            // transformed positions.
+            if (posOffset >= 0)
+            {
+                prim.bounds.min = Math::Vector3(eastl::numeric_limits<float>::max());
+                prim.bounds.max = Math::Vector3(eastl::numeric_limits<float>::lowest());
+                for (size_t v = 0; v < vertexCount; ++v)
+                {
+                    const float* p = reinterpret_cast<const float*>(vb + v * stride + posOffset);
+                    prim.bounds.Expand(Math::Vector3(p[0], p[1], p[2]));
+                }
+            }
+        }
     }
 
     // ===== Public API =====
@@ -312,11 +404,22 @@ namespace Spark::Resource
                     for (uint32_t i = 0; i < vertexCount; ++i) { indices[i] = i; }
                 }
 
+                // ---- glTF (CCW front) → engine LH screen winding ----
+                // Diagnostic: only reverse triangle winding; leave positions/normals/
+                // tangents untouched to see if the model's face layout matches engine
+                // Y-up convention without any per-axis flip.
+                for (size_t i = 0; i + 2 < indices.size(); i += 3)
+                {
+                    const uint32_t tmp = indices[i + 1];
+                    indices[i + 1] = indices[i + 2];
+                    indices[i + 2] = tmp;
+                }
+
                 // Build VertexLayout & interleave
                 VertexLayout layout;
                 VertexAttribute attr;
 
-                attr.semantic      = "POSITION";
+                attr.semantic      = VertexSemantic::Position;
                 attr.semanticIndex = 0;
                 attr.format        = RHI::Format::R32G32B32_FLOAT;
                 attr.byteOffset    = 0;
@@ -326,7 +429,7 @@ namespace Spark::Resource
                 const uint32_t nrmOffset = layout.stride;
                 if (hasNormals)
                 {
-                    attr.semantic      = "NORMAL";
+                    attr.semantic      = VertexSemantic::Normal;
                     attr.semanticIndex = 0;
                     attr.format        = RHI::Format::R32G32B32_FLOAT;
                     attr.byteOffset    = layout.stride;
@@ -337,7 +440,7 @@ namespace Spark::Resource
                 const uint32_t tanOffset = layout.stride;
                 if (hasTangents)
                 {
-                    attr.semantic      = "TANGENT";
+                    attr.semantic      = VertexSemantic::Tangent;
                     attr.semanticIndex = 0;
                     attr.format        = RHI::Format::R32G32B32A32_FLOAT;
                     attr.byteOffset    = layout.stride;
@@ -348,10 +451,10 @@ namespace Spark::Resource
                 const uint32_t uvOffset = layout.stride;
                 if (hasUV0)
                 {
-                    attr.semantic   = "TEXCOORD";
-                    attr.format     = RHI::Format::R32G32_FLOAT;
-                    attr.byteOffset = layout.stride;
+                    attr.semantic      = VertexSemantic::TexCoord;
                     attr.semanticIndex = 0;
+                    attr.format        = RHI::Format::R32G32_FLOAT;
+                    attr.byteOffset    = layout.stride;
                     layout.attributes.push_back(attr);
                     layout.stride += StrideFloat2;
                 }
@@ -394,6 +497,70 @@ namespace Spark::Resource
             for (auto rootIdx : scene.nodeIndices)
             {
                 FlattenNodes(gltf, rootIdx, -1, meshRemap, result->m_nodes);
+            }
+        }
+
+        // ---- Bake node world transforms into mesh vertex data ----
+        //
+        // glTF often stores geometry in an authoring tool's local frame (e.g.
+        // Blender Z-up) and relies on the node tree to orient it into glTF
+        // Y-up at render time. Bake those transforms so the vertex buffer is
+        // already in world space relative to the model root, and feature code
+        // doesn't need to walk the node tree. After baking, node localTransforms
+        // are reset to identity to prevent double-application downstream.
+        //
+        // Limitation: if multiple nodes reference the same mesh (glTF allows
+        // this as a primitive form of instancing), only the first reference's
+        // transform is baked; subsequent references are warned and skipped.
+        // Real instancing support requires duplicating mesh data per reference.
+        {
+            // FlattenNodes guarantees children appear after their parent in
+            // m_nodes, so a single forward pass can compose world transforms.
+            eastl::vector<Math::Matrix4X4> worldTransforms(
+                result->m_nodes.size(), Math::Matrix4X4Const::IDENTITY);
+            for (size_t i = 0; i < result->m_nodes.size(); ++i)
+            {
+                const Node& node = result->m_nodes[i];
+                if (node.parent >= 0 &&
+                    static_cast<size_t>(node.parent) < i)
+                {
+                    worldTransforms[i] =
+                        worldTransforms[node.parent] * node.localTransform;
+                }
+                else
+                {
+                    worldTransforms[i] = node.localTransform;
+                }
+            }
+
+            eastl::vector<bool> meshBaked(result->m_meshes.size(), false);
+            for (size_t nodeIdx = 0; nodeIdx < result->m_nodes.size(); ++nodeIdx)
+            {
+                Node& node = result->m_nodes[nodeIdx];
+                if (node.meshIndex < 0 ||
+                    static_cast<size_t>(node.meshIndex) >= result->m_meshes.size())
+                {
+                    continue;
+                }
+                if (meshBaked[node.meshIndex])
+                {
+                    LOG_WARN("[ModelAssetLoader] mesh '{}' is referenced by multiple nodes; "
+                             "only the first reference's transform is baked",
+                             result->m_meshes[node.meshIndex].name.c_str());
+                    continue;
+                }
+
+                Mesh& mesh = result->m_meshes[node.meshIndex];
+                for (Primitive& prim : mesh.primitives)
+                {
+                    BakeNodeTransformIntoPrimitive(prim, worldTransforms[nodeIdx]);
+                }
+                meshBaked[node.meshIndex] = true;
+            }
+
+            for (Node& node : result->m_nodes)
+            {
+                node.localTransform = Math::Matrix4X4Const::IDENTITY;
             }
         }
 

@@ -16,18 +16,6 @@ namespace Spark::Resource
         static constexpr uint32_t StrideFloat4 = 4 * sizeof(float);
         static constexpr uint32_t StrideFloat2 = 2 * sizeof(float);
 
-        const VertexAttribute* FindAttribute(const VertexLayout& layout, const char* semantic)
-        {
-            for (const auto& attr : layout.attributes)
-            {
-                if (attr.semantic == semantic)
-                {
-                    return &attr;
-                }
-            }
-            return nullptr;
-        }
-
         // ===== MikkTSpace callbacks =====
 
         struct MikkContext
@@ -100,10 +88,10 @@ namespace Spark::Resource
 
         bool GenerateTangents(Primitive& prim)
         {
-            const auto* posAttr = FindAttribute(prim.layout, "POSITION");
-            const auto* nrmAttr = FindAttribute(prim.layout, "NORMAL");
-            const auto* tanAttr = FindAttribute(prim.layout, "TANGENT");
-            const auto* uvAttr  = FindAttribute(prim.layout, "TEXCOORD");
+            const auto* posAttr = prim.layout.FindAttribute(VertexSemantic::Position);
+            const auto* nrmAttr = prim.layout.FindAttribute(VertexSemantic::Normal);
+            const auto* tanAttr = prim.layout.FindAttribute(VertexSemantic::Tangent);
+            const auto* uvAttr  = prim.layout.FindAttribute(VertexSemantic::TexCoord);
 
             if (!posAttr || !nrmAttr || !uvAttr || tanAttr)
             {
@@ -218,28 +206,28 @@ namespace Spark::Resource
             VertexLayout newLayout;
             VertexAttribute attr;
 
-            attr.semantic      = "POSITION";
+            attr.semantic      = VertexSemantic::Position;
             attr.semanticIndex = 0;
             attr.format        = RHI::Format::R32G32B32_FLOAT;
             attr.byteOffset    = 0;
             newLayout.attributes.push_back(attr);
             newLayout.stride += StrideFloat3;
 
-            attr.semantic      = "NORMAL";
+            attr.semantic      = VertexSemantic::Normal;
             attr.semanticIndex = 0;
             attr.format        = RHI::Format::R32G32B32_FLOAT;
             attr.byteOffset    = newLayout.stride;
             newLayout.attributes.push_back(attr);
             newLayout.stride += StrideFloat3;
 
-            attr.semantic      = "TANGENT";
+            attr.semantic      = VertexSemantic::Tangent;
             attr.semanticIndex = 0;
             attr.format        = RHI::Format::R32G32B32A32_FLOAT;
             attr.byteOffset    = newLayout.stride;
             newLayout.attributes.push_back(attr);
             newLayout.stride += StrideFloat4;
 
-            attr.semantic      = "TEXCOORD";
+            attr.semantic      = VertexSemantic::TexCoord;
             attr.semanticIndex = 0;
             attr.format        = RHI::Format::R32G32_FLOAT;
             attr.byteOffset    = newLayout.stride;
@@ -272,7 +260,7 @@ namespace Spark::Resource
             const uint8_t*  srcVB      = prim.vertexBuffer.data();
             const uint32_t  stride     = prim.layout.stride;
 
-            const auto* posAttr = FindAttribute(prim.layout, "POSITION");
+            const auto* posAttr = prim.layout.FindAttribute(VertexSemantic::Position);
             if (!posAttr)
             {
                 return;
