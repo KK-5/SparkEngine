@@ -12,6 +12,7 @@
 #include <RHI/HardwareQueue.h>
 #include <RHI/Fence/Fence.h>
 #include <RHI/Component/Component.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
@@ -20,7 +21,6 @@
 #include <RHI/ClearValue.h>
 #include <RHI/MultisampleState.h>
 #include <RHI/Resource/Buffer/VertexInputView.h>
-#include <RHI/Resource/Buffer/BufferDescriptor.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
@@ -187,34 +187,19 @@ namespace Spark::SandBox
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
 
-        m_vbEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ImportedTag>(m_vbEntity);
-        ctx.Add<Spark::RHI::ResourceName>(m_vbEntity,
-            Spark::RHI::ResourceName{ ObjectName("TriangleVB") });
-
-        Spark::RHI::PendingBufferInit init;
-        init.m_descriptor.m_bindFlags =
+        Spark::RHI::BufferDescriptor vbDesc;
+        vbDesc.m_bindFlags =
             Spark::RHI::BufferBindFlags::InputAssembly | Spark::RHI::BufferBindFlags::CopyWrite;
-        init.m_descriptor.m_byteCount = sizeof(g_triangleVertices);
-        init.m_descriptor.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
-        init.m_heapMemoryLevel = Spark::RHI::HeapMemoryLevel::Device;
-        ctx.Add<Spark::RHI::PendingBufferInit>(m_vbEntity, init);
+        vbDesc.m_byteCount = sizeof(g_triangleVertices);
+        vbDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        Spark::RHI::PendingBufferUpload upload;
-        upload.m_data = g_triangleVertices;
-        upload.m_dataSize = sizeof(g_triangleVertices);
-        upload.m_destinationOffset = 0;
-        ctx.Add<Spark::RHI::PendingBufferUpload>(m_vbEntity, upload);
-        ctx.Add<Spark::RHI::UploadPendingTag>(m_vbEntity);
-
-        m_vbViewEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ResourceName>(m_vbViewEntity,
-            Spark::RHI::ResourceName{ ObjectName("TriangleVB.View") });
-        ctx.Add<Spark::RHI::BufferViewDescriptor>(m_vbViewEntity,
+        m_vbEntity = Spark::RHI::CreateImportedBuffer(
+            ctx, ObjectName("TriangleVB"), vbDesc);
+        Spark::RHI::RequestBufferUpload(
+            ctx, m_vbEntity, g_triangleVertices, sizeof(g_triangleVertices));
+        m_vbViewEntity = Spark::RHI::CreateBufferView(
+            ctx, m_vbEntity, ObjectName("TriangleVB.View"),
             Spark::RHI::BufferViewDescriptor::CreateRaw(0, sizeof(g_triangleVertices)));
-        Spark::RHI::ViewHierarchy hierarchy;
-        hierarchy.m_resource = m_vbEntity;
-        ctx.Add<Spark::RHI::ViewHierarchy>(m_vbViewEntity, hierarchy);
     }
 
     void MSAAPassFeature::CreatePasses()
