@@ -405,8 +405,10 @@ namespace Spark::RHI::DX12
 
             Image* dx12Image = static_cast<Image*>(image.get());
             SetImageDescriptor(*image, createInfo.m_descriptor);
+            // newPlacement.m_offset 是堆偏移（已传给 CreateAliasingResource），
+            // 不是 view 在 ID3D12Resource 内的子偏移。Image 的子偏移恒为 0。
             MemoryView memoryView(dx12Resource.get(), MemoryViewType::Image,
-                        newPlacement.m_offset,
+                        0,
                         newPlacement.m_size,
                         allocationInfo.Alignment);
             dx12Image->m_sizeInBytes = memoryView.GetSize();
@@ -616,11 +618,14 @@ namespace Spark::RHI::DX12
 
             Buffer* dx12Buffer = static_cast<Buffer*>(buffer.get());
             SetBufferDescriptor(*buffer, createInfo.m_descriptor);
+            // newPlacement.m_offset 是堆偏移（已传给 CreateAliasingResource），
+            // 不是 view 在 ID3D12Resource 内的子偏移。Placed buffer 拥有独占
+            // ID3D12Resource，其内子偏移为 0；因此 type 也是 Unique 而非 Shared。
             MemoryView memoryView(dx12Resource.get(), MemoryViewType::Buffer,
-                        newPlacement.m_offset,
+                        0,
                         newPlacement.m_size,
                         allocationInfo.Alignment);
-            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Shared);
+            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
             return RHI::ResultCode::Success;
         });
 
