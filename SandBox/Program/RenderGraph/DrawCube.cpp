@@ -335,11 +335,14 @@ namespace Spark::SandBox
         Spark::RHI::RenderTargetLayout rtLayout;
         rtLayout.m_colorAttachmentCount = 1;
         rtLayout.m_colorFormats[0]      = Spark::RHI::Format::R8G8B8A8_UNORM;
+        rtLayout.m_depthStencilFormat   = Spark::RHI::Format::D32_FLOAT;
 
         Spark::RHI::RenderStates renderStates;
-        renderStates.m_depthStencilState.m_depth.m_enable   = 0;
-        renderStates.m_depthStencilState.m_stencil.m_enable = 0;
-        renderStates.m_rasterState.m_cullMode               = Spark::RHI::CullMode::None;
+        renderStates.m_depthStencilState.m_depth.m_enable    = 1;
+        renderStates.m_depthStencilState.m_depth.m_writeMask = Spark::RHI::DepthWriteMask::All;
+        renderStates.m_depthStencilState.m_depth.m_func      = Spark::RHI::ComparisonFunc::Less;
+        renderStates.m_depthStencilState.m_stencil.m_enable  = 0;
+        renderStates.m_rasterState.m_cullMode                = Spark::RHI::CullMode::Back;
         renderStates.m_multisampleState = RHI::MultisampleState(4, 0);
 
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
@@ -378,6 +381,25 @@ namespace Spark::SandBox
 
                 builder.CreateImageAttachment<SPARK_PASS_TAG("ScenePass")>(
                     RHI::AttachmentId("MSAAColor"), imageDesc, msaaBind, RHI::AttachmentAccess::Write);
+
+                auto depthDesc = RHI::ImageDescriptor::Create2D(
+                    RHI::ImageBindFlags::DepthStencil,
+                    windowSize.first, windowSize.second,
+                    RHI::Format::D32_FLOAT
+                );
+                depthDesc.m_multisampleState = RHI::MultisampleState(4, 0);
+
+                Render::ImageAttachmentBindInfo depthBind;
+                depthBind.m_slot   = Spark::RHI::InputName("SceneDepth");
+                depthBind.m_usage  = Spark::RHI::AttachmentUsage::DepthStencil;
+                depthBind.m_stage  = Spark::RHI::AttachmentStage::EarlyFragmentTest |
+                                     Spark::RHI::AttachmentStage::LateFragmentTest;
+                depthBind.m_action.m_clearValue  = Spark::RHI::ClearValue::CreateDepth(1.0f);
+                depthBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
+                depthBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::DontCare;
+
+                builder.CreateImageAttachment<SPARK_PASS_TAG("ScenePass")>(
+                    RHI::AttachmentId("SceneDepth"), depthDesc, depthBind, RHI::AttachmentAccess::Write);
 
                 Spark::Render::ImportedBufferAttachmentBindInfo vbBind;
                 vbBind.m_slot   = Spark::RHI::InputName("Vertex");
@@ -517,13 +539,12 @@ namespace Spark::SandBox
         float aspect = (float)windowSize.first / (float)windowSize.second;
 
         m_rotationAngle += 0.01f;
-
         Math::Matrix4X4 model = Math::Rotate(
             Math::Matrix4X4Const::IDENTITY,
             m_rotationAngle,
-            Math::Vector3(0.f, 0.f, 1.f));
+            Math::Vector3(0.f, 1.f, 0.f));   // spin around world up
         Math::Matrix4X4 view = Math::LookAt(
-            Math::Vector3(0.f, 0.f, -5.f),
+            Math::Vector3(0.f, 5.f, -5.f),
             Math::Vector3(0.f, 0.f, 0.f),
             Math::Vector3(0.f, 1.f, 0.f));
         Math::Matrix4X4 proj = Math::PerspectiveFov(
