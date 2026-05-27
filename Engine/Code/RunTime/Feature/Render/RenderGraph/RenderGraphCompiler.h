@@ -24,6 +24,20 @@ namespace Spark::Render
 
     using QueueBasedPasses = eastl::array<eastl::vector<Pass>, static_cast<size_t>(RHI::HardwareQueueClass::Count)>;
 
+    // Per-queue pre-frame barriers for static resources (StaticImportTag).
+    // Compiled once before the per-pass compile loop, executed before any pass
+    // work on each queue. Empty after the first frame when resources reach steady state.
+    struct StaticPreBarriers
+    {
+        eastl::vector<RHI::PendingSync>  m_fenceWaits;
+        eastl::vector<RHI::ImageBarrier> m_imageBarriers;
+        eastl::vector<RHI::BufferBarrier> m_bufferBarriers;
+
+        bool IsEmpty() const { return m_fenceWaits.empty() && m_imageBarriers.empty() && m_bufferBarriers.empty(); }
+    };
+
+    using StaticPreBarrierTable = eastl::array<StaticPreBarriers, static_cast<size_t>(RHI::HardwareQueueClass::Count)>;
+
     class RenderGraphCompiler
     {
     public:
@@ -79,6 +93,11 @@ namespace Spark::Render
         //! CompileTransientResources must already have materialized transient views.
         void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
 
+        //! Compile per-queue pre-frame fence-waits + acquire-barriers for all
+        //! StaticImportTag attachments. Called once before the per-pass compile
+        //! loop. Reads RHI resource state directly — after the first frame the
+        //! resource is in its steady state and the resulting barrier lists are empty.
+        StaticPreBarrierTable CompileStaticResourceBarriers(RHIContext& context);
 
         //! Compile PSO for each non-custom pipeline pass and cache the result
         //! as PassCompiledPSO on the pass entity. Skips passes that already have

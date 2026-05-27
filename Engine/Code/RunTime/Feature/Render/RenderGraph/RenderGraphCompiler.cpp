@@ -114,11 +114,189 @@ namespace
         desc->Finalize();
         return desc;
     }
+
+    template <typename AttachmentT>
+    RHI::ResourceState CompileResourceState(const AttachmentT& attachment)
+    {
+        ASSERT(attachment.m_usage != RHI::AttachmentUsage::Uninitialized,
+            "[RenderSystem] Attachment has uninitialized usage.");
+        ASSERT(attachment.m_access != RHI::AttachmentAccess::Unknown,
+            "[RenderSystem] Attachment has unknown access.");
+
+        RHI::ResourceState state;
+        state.m_usage  = attachment.m_usage;
+        state.m_access = RHI::AdjustAccessBasedOnUsage(attachment.m_access, attachment.m_usage);
+        return state;
+    }
+
+    // View handle → underlying Resource handle. Falls back to the input if it is already a resource.
+    RHIHandle ResolveResource(RHIHandle handle, const RHIContext& context)
+    {
+        if (context.Has<ViewHierarchy>(handle))
+            return context.Get<ViewHierarchy>(handle).m_resource;
+        return handle;
+    }
 } // namespace
 
     void RenderGraphCompiler::Begin(uint32_t frameIndex)
     {
         m_frameIndex = frameIndex;
+    }
+
+    StaticPreBarrierTable RenderGraphCompiler::CompileStaticResourceBarriers(RHIContext& context)
+    {
+        StaticPreBarrierTable table;
+
+        auto ResolveHomeQueue = [](RHI::HardwareQueueClassMask mask) -> RHI::HardwareQueueClass
+        {
+            if (mask == RHI::HardwareQueueClassMask::Compute) { return RHI::HardwareQueueClass::Compute; }
+            if (mask == RHI::HardwareQueueClassMask::Copy)    { return RHI::HardwareQueueClass::Copy; }
+            return RHI::HardwareQueueClass::Graphics;
+        };
+
+        // Buffer static imports
+        context.GetView<StaticImportTag, BufferPassAttachment>().each(
+            [&](RHIHandle resource, const BufferPassAttachment& att) {
+                // StaticImportTag lives on the resource entity; the attachment is
+                // also on the resource entity with m_view == NullHandle (static
+                // imports are accessed via SRG bindings, not as pass attachments).
+                ASSERT(att.m_view == NullHandle,
+                    "[StaticImport] m_view must be NullHandle on static import attachments.");
+
+                auto* buf = context.TryGet<Buffer>(resource);
+                if (!buf || !buf->m_buffer)
+                {
+                    return; // Resource not materialized yet
+                }
+
+                const RHI::ResourceState src = buf->m_buffer->GetResourceState();
+                const RHI::ResourceState dst = CompileResourceState(att);
+
+                const auto homeQueue = ResolveHomeQueue(
+                    buf->m_buffer->GetDescriptor().m_sharedQueueMask);
+                const auto qi = static_cast<uint32_t>(homeQueue);
+
+                if (src == dst && src.m_queue == homeQueue)
+                {
+                    return; // Steady state
+                }
+
+                // Fence wait for cross-queue handoff from upload
+                if (src.m_queue != homeQueue)
+                {
+                    if (auto* sync = context.TryGet<RHI::PendingSync>(resource))
+                    {
+                        if (!(sync->m_fence
+                            && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue))
+                        {
+                            auto& waits = table[qi].m_fenceWaits;
+                            bool found = false;
+                            for (const auto& w : waits)
+                            {
+                                if (w.m_fence == sync->m_fence && w.m_fenceValue == sync->m_fenceValue)
+                                {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found)
+                            {
+                                waits.push_back(*sync);
+                            }
+                        }
+                    }
+                }
+
+                RHI::BufferBarrier b;
+                b.m_buffer    = buf->m_buffer.get();
+                b.m_srcUsage  = src.m_usage;
+                b.m_dstUsage  = dst.m_usage;
+                b.m_srcAccess = src.m_access;
+                b.m_dstAccess = dst.m_access;
+                b.m_srcStage  = src.m_stage;
+                b.m_dstStage  = att.m_stage;
+                b.m_srcQueue  = src.m_queue;
+                b.m_dstQueue  = homeQueue;
+                table[qi].m_bufferBarriers.push_back(b);
+            });
+
+        // Image static imports
+        context.GetView<StaticImportTag, ImagePassAttachment>().each(
+            [&](RHIHandle resource, const ImagePassAttachment& att) {
+                // StaticImportTag lives on the resource entity; the attachment is
+                // also on the resource entity with m_view == NullHandle (static
+                // imports are accessed via SRG bindings, not as pass attachments).
+                ASSERT(att.m_view == NullHandle,
+                    "[StaticImport] m_view must be NullHandle on static import attachments.");
+
+                auto* img = context.TryGet<Image>(resource);
+                if (!img || !img->m_image)
+                {
+                    return;
+                }
+
+                const RHI::ResourceState src = img->m_image->GetResourceState();
+                const RHI::ResourceState dst = CompileResourceState(att);
+
+                const auto homeQueue = ResolveHomeQueue(
+                    img->m_image->GetDescriptor().m_sharedQueueMask);
+                const auto qi = static_cast<uint32_t>(homeQueue);
+
+                if (src == dst && src.m_queue == homeQueue)
+                {
+                    return;
+                }
+
+                if (src.m_queue != homeQueue)
+                {
+                    if (auto* sync = context.TryGet<RHI::PendingSync>(resource))
+                    {
+                        if (!(sync->m_fence
+                            && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue))
+                        {
+                            auto& waits = table[qi].m_fenceWaits;
+                            bool found = false;
+                            for (const auto& w : waits)
+                            {
+                                if (w.m_fence == sync->m_fence && w.m_fenceValue == sync->m_fenceValue)
+                                {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found)
+                            {
+                                waits.push_back(*sync);
+                            }
+                        }
+                    }
+                }
+
+                // loadOp=Clear discards prior contents — force src to Uninitialized
+                RHI::ResourceState srcForBarrier = src;
+                if (att.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
+                {
+                    srcForBarrier.m_usage  = RHI::AttachmentUsage::Uninitialized;
+                    srcForBarrier.m_access = RHI::AttachmentAccess::Unknown;
+                }
+
+                if (srcForBarrier != dst || src.m_queue != homeQueue)
+                {
+                    RHI::ImageBarrier b;
+                    b.m_image     = img->m_image.get();
+                    b.m_srcUsage  = srcForBarrier.m_usage;
+                    b.m_dstUsage  = dst.m_usage;
+                    b.m_srcAccess = srcForBarrier.m_access;
+                    b.m_dstAccess = dst.m_access;
+                    b.m_srcStage  = src.m_stage;
+                    b.m_dstStage  = att.m_stage;
+                    b.m_srcQueue  = src.m_queue;
+                    b.m_dstQueue  = homeQueue;
+                    table[qi].m_imageBarriers.push_back(b);
+                }
+            });
+
+        return table;
     }
 
     void RenderGraphCompiler::End()
@@ -128,13 +306,13 @@ namespace
         // Attachment entities are build/compile inputs only; executer reads
         // PassBarriers / RenderPassBeginInfo on Pass entities. Destroy them so
         // next frame's ValidateUniqueSlot doesn't trip over stale slot names.
-        auto imageAttachments = context.GetView<ImagePassAttachment>();
+        auto imageAttachments = context.GetView<ImagePassAttachment>(Exclude<StaticImportTag>);
         imageAttachments.each([&](RHIHandle handle, ImagePassAttachment&)
         {
             context.DestoryEntity(handle);
         });
 
-        auto bufferAttachments = context.GetView<BufferPassAttachment>();
+        auto bufferAttachments = context.GetView<BufferPassAttachment>(Exclude<StaticImportTag>);
         bufferAttachments.each([&](RHIHandle handle, BufferPassAttachment&)
         {
             context.DestoryEntity(handle);
@@ -218,7 +396,7 @@ namespace
                 RHI::ImageView* viewRaw = view.get();
                 rhiContext.Add<ImageView>(viewEntity, ImageView{ eastl::move(view) });
                 rhiContext.Add<BackingImageView>(viewEntity, BackingImageView{ viewRaw });
-                rhiContext.Add<TransientTag>(viewEntity);
+                rhiContext.Add<TransientViewTag>(viewEntity);
                 rhiContext.Add<ViewHierarchy>(viewEntity,
                     ViewHierarchy{ resource, NullHandle, NullHandle });
 
@@ -258,7 +436,7 @@ namespace
                 RHI::BufferView* viewRaw = view.get();
                 rhiContext.Add<BufferView>(viewEntity, BufferView{ eastl::move(view) });
                 rhiContext.Add<BackingBufferView>(viewEntity, BackingBufferView{ viewRaw });
-                rhiContext.Add<TransientTag>(viewEntity);
+                rhiContext.Add<TransientViewTag>(viewEntity);
                 rhiContext.Add<ViewHierarchy>(viewEntity,
                     ViewHierarchy{ resource, NullHandle, NullHandle });
 
@@ -273,28 +451,6 @@ namespace
                     firstView = false;
                 }
             }
-        }
-
-        template <typename AttachmentT>
-        RHI::ResourceState CompileResourceState(const AttachmentT& attachment)
-        {
-            ASSERT(attachment.m_usage != RHI::AttachmentUsage::Uninitialized,
-                "[RenderSystem] Attachment has uninitialized usage.");
-            ASSERT(attachment.m_access != RHI::AttachmentAccess::Unknown,
-                "[RenderSystem] Attachment has unknown access.");
-
-            RHI::ResourceState state;
-            state.m_usage  = attachment.m_usage;
-            state.m_access = RHI::AdjustAccessBasedOnUsage(attachment.m_access, attachment.m_usage);
-            return state;
-        }
-
-        // View handle → underlying Resource handle. Falls back to the input if it is already a resource.
-        RHIHandle ResolveResource(RHIHandle handle, const RHIContext& context)
-        {
-            if (context.Has<ViewHierarchy>(handle))
-                return context.Get<ViewHierarchy>(handle).m_resource;
-            return handle;
         }
 
         //! Read the resource's current observed state from the BackingImage / BackingBuffer
@@ -429,7 +585,8 @@ namespace
 
             const RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
 
-            auto view = context.GetView<BufferPassAttachment, AttachmentCompilingTag>();
+            auto view = context.GetView<BufferPassAttachment, AttachmentCompilingTag>(
+                Exclude<StaticImportTag>);
             view.each([&](auto, const BufferPassAttachment& att)
             {
                 RHIHandle resource = ResolveResource(att.m_view, context);
@@ -515,7 +672,8 @@ namespace
 
             const RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
 
-            auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>();
+            auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>(
+                Exclude<StaticImportTag>);
             view.each([&](auto, const ImagePassAttachment& att)
             {
                 RHIHandle resource = ResolveResource(att.m_view, context);
@@ -844,7 +1002,7 @@ namespace
 
         // 2. Walk attachments, accumulate per-resource lifetime + queue mask + clear value
         //    directly on the resource entity as ECS components.
-        rhiContext.GetView<ImagePassAttachment>().each(
+        rhiContext.GetView<ImagePassAttachment>(Exclude<StaticImportTag>).each(
             [&](RHIHandle attachmentHandle, ImagePassAttachment& a)
             {
                 if (a.m_view != NullHandle)
@@ -895,7 +1053,7 @@ namespace
                 }
             });
 
-        rhiContext.GetView<BufferPassAttachment>().each(
+        rhiContext.GetView<BufferPassAttachment>(Exclude<StaticImportTag>).each(
             [&](RHIHandle attachmentHandle, BufferPassAttachment& a)
             {
                 if (a.m_view != NullHandle)

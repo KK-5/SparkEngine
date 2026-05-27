@@ -39,7 +39,9 @@ namespace Spark::Render
     // RHI-layer components re-exported into Render namespace.
     // Code that already uses Spark::Render::Xxx continues to compile.
     using RHI::ImportedTag;
+    using RHI::StaticImportTag;
     using RHI::TransientTag;
+    using RHI::TransientViewTag;
     using RHI::RHIUpdateTag;
     using RHI::ShaderResourceUpdateTag;
     using RHI::ResourceName;

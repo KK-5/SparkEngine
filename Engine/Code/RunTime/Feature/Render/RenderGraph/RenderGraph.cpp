@@ -98,7 +98,6 @@ namespace Spark::Render
             swapChainView.imageViews[i] = eastl::move(imageview);
         }
         context.Add<SwapChainViews>(m_swapchainView, eastl::move(swapChainView));
-        context.Add<ImportedTag>(m_swapchainView);
         context.Add<ResourceName>(m_swapchainView, ObjectName{"SwapChainView"});
         context.Add<ViewHierarchy>(
             m_swapchainView,
@@ -189,6 +188,8 @@ namespace Spark::Render
         m_compiler.CompilePipelineStates(passes, passContext, *m_device, m_pipelineLibrary.get());
         m_compiler.CompileTransientResources(passes, *m_pool);
 
+        StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);
+
         for (auto pass : passes)
         {
             ASSERT(passContext.Has<PassAttachmentMarker>(pass),
@@ -220,6 +221,7 @@ namespace Spark::Render
         // Execute
         m_executer.Begin(frameIndex);
 
+        m_executer.SetStaticPreBarriers(eastl::move(staticPreBarriers));
         m_executer.BuildExecuteTable(queueBasedPasses, passContext);
 
         auto* factory = Service<RHI::Factory>::Get();
@@ -237,6 +239,23 @@ namespace Spark::Render
 
             const auto queueClass = static_cast<RHI::HardwareQueueClass>(qi);
             auto& queue = m_commandQueueContext.GetCommandQueue(queueClass);
+
+            // Static-resource pre-frame barriers — only first frame when
+            // resources transition from upload state to steady state.
+            if (!m_executer.m_staticPreBarriers[qi].IsEmpty())
+            {
+                for (auto& sync : m_executer.m_staticPreBarriers[qi].m_fenceWaits)
+                {
+                    queue.Wait(*sync.m_fence, sync.m_fenceValue);
+                }
+
+                auto* preCmdList = factory->CreateCommandList(*m_device, queueClass);
+                preCmdList->Open();
+                m_executer.ExecuteStaticPreBarriers(preCmdList, qi);
+                preCmdList->Close();
+
+                queue.ExecuteCommands({ &preCmdList, 1 });
+            }
 
             for (auto& segment : segments)
             {
@@ -301,12 +320,13 @@ namespace Spark::Render
 
         SubmitSwapChainPresentTransition(*RHIExecuteContext::Current(), *factory);
 
-        // Stamp PendingSync on every imported resource the RG touched this
-        // frame, using the producer queue's frame-end fence value (signaled
+        // Stamp PendingSync on every dynamic imported resource the RG touched
+        // this frame, using the producer queue's frame-end fence value (signaled
         // above). Note: Graphics queue's stamp value reflects "before the swap
         // chain Present transition cmd list", but no one consumes PendingSync
         // on a swap chain (they're never re-used by other systems), so the
         // small inconsistency is harmless.
+        // Static imported resources are handled by a separate block below.
         {
             auto& ctx = *RHIExecuteContext::Current();
             ctx.GetView<ImportedTag, ResourceStateTracker>().each(
@@ -326,6 +346,65 @@ namespace Spark::Render
                 });
         }
 
+        // Stamp PendingSync on every static imported resource with the home
+        // queue's frame-end fence value.
+        //
+        // Static resources are excluded from per-pass barrier tracking — no
+        // ResourceStateTracker is created for them, so we cannot tell which
+        // ones were actually sampled this frame. The conservative choice is to
+        // stamp all of them: from the GPU's perspective any texture resident on
+        // the home queue may have been read by a shader, and the upload system
+        // (streaming textures) must wait for this fence before re-uploading.
+        //
+        // Guard: skip if the home queue had no work this frame. Overwriting a
+        // live upload-system PendingSync{copyFence} with a stale completed
+        // Graphics fence would incorrectly signal "safe to re-upload" while
+        // the copy transition is still pending.
+        {
+            auto& ctx = *RHIExecuteContext::Current();
+
+            auto ResolveHomeQueue = [](RHI::HardwareQueueClassMask mask) -> RHI::HardwareQueueClass
+            {
+                if (mask == RHI::HardwareQueueClassMask::Compute) { return RHI::HardwareQueueClass::Compute; }
+                if (mask == RHI::HardwareQueueClassMask::Copy)    { return RHI::HardwareQueueClass::Copy; }
+                return RHI::HardwareQueueClass::Graphics;
+            };
+
+            // StaticImportTag lives on resource entities; BackingImage/Buffer
+            // are also on resource entities — no ViewHierarchy resolution needed.
+            ctx.GetView<StaticImportTag, BackingImage>().each(
+                [&](RHIHandle resource, const BackingImage& backing)
+                {
+                    if (!backing.m_image) { return; }
+
+                    const auto homeQueue = ResolveHomeQueue(
+                        backing.m_image->GetDescriptor().m_sharedQueueMask);
+                    const auto qi = static_cast<uint32_t>(homeQueue);
+                    if (queueSegments[qi].empty()) { return; }
+
+                    RHI::PendingSync sync;
+                    sync.m_fence      = &m_crossQueueFences.GetFence(homeQueue);
+                    sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
+                    ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
+                });
+
+            ctx.GetView<StaticImportTag, BackingBuffer>().each(
+                [&](RHIHandle resource, const BackingBuffer& backing)
+                {
+                    if (!backing.m_buffer) { return; }
+
+                    const auto homeQueue = ResolveHomeQueue(
+                        backing.m_buffer->GetDescriptor().m_sharedQueueMask);
+                    const auto qi = static_cast<uint32_t>(homeQueue);
+                    if (queueSegments[qi].empty()) { return; }
+
+                    RHI::PendingSync sync;
+                    sync.m_fence      = &m_crossQueueFences.GetFence(homeQueue);
+                    sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
+                    ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
+                });
+        }
+
         m_executer.End();
         ////////////////////////////////////////////////
 
@@ -335,6 +414,10 @@ namespace Spark::Render
 
     void RenderGraph::RefreshPerFrameBackings(RHIContext& context, uint32_t frameIndex)
     {
+        // ImportedTag lives on resource entities only. Per-frame resource
+        // backing is refreshed here; per-frame VIEW backing is refreshed below.
+        // The ImportedTag filter on per-frame views was superfluous — the
+        // PerFrame components are only ever on imported entities by construction.
         context.GetView<ImportedTag, ImagePerFrame>().each(
             [&](RHIHandle entity, const ImagePerFrame& owning)
             {
@@ -349,14 +432,14 @@ namespace Spark::Render
                     BackingBuffer{ owning.m_buffers[frameIndex].get() });
             });
 
-        context.GetView<ImportedTag, ImageViewPerFrame>().each(
+        context.GetView<ImageViewPerFrame>().each(
             [&](RHIHandle entity, const ImageViewPerFrame& owning)
             {
                 context.AddOrReplace<BackingImageView>(entity,
                     BackingImageView{ owning.m_views[frameIndex].get() });
             });
 
-        context.GetView<ImportedTag, BufferViewPerFrame>().each(
+        context.GetView<BufferViewPerFrame>().each(
             [&](RHIHandle entity, const BufferViewPerFrame& owning)
             {
                 context.AddOrReplace<BackingBufferView>(entity,
@@ -375,7 +458,7 @@ namespace Spark::Render
                     BackingImage{ owning.images[frameIndex] });
             });
 
-        context.GetView<ImportedTag, SwapChainViews>().each(
+        context.GetView<SwapChainViews>().each(
             [&](RHIHandle entity, const SwapChainViews& owning)
             {
                 context.AddOrReplace<BackingImageView>(entity,

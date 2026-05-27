@@ -106,7 +106,12 @@ namespace Spark::Render
 
         void ExecuteFinalBarriers(RHI::CommandList* commandList);
 
+        void ExecuteStaticPreBarriers(RHI::CommandList* commandList, uint32_t queueIndex);
+
+        void SetStaticPreBarriers(StaticPreBarrierTable&& table) { m_staticPreBarriers = eastl::move(table); }
+
         QueueSegments m_queueSegments;
+        StaticPreBarrierTable m_staticPreBarriers;
 
         uint32_t m_frameIndex { 0 };
     };

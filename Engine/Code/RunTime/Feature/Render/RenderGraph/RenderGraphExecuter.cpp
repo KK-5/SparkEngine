@@ -45,7 +45,7 @@ namespace Spark::Render
         {
             auto& rhiContext = *RHIExecuteContext::Current();
 
-            auto imageViewEntities = rhiContext.GetView<TransientTag, ImageView>();
+            auto imageViewEntities = rhiContext.GetView<TransientViewTag, ImageView>();
             eastl::vector<RHIHandle> imageViewHandles;
             imageViewEntities.each(
                 [&](RHIHandle h, const ImageView&) { imageViewHandles.push_back(h); });
@@ -54,7 +54,7 @@ namespace Spark::Render
                 rhiContext.DestoryEntity(h);
             }
 
-            auto bufferViewEntities = rhiContext.GetView<TransientTag, BufferView>();
+            auto bufferViewEntities = rhiContext.GetView<TransientViewTag, BufferView>();
             eastl::vector<RHIHandle> bufferViewHandles;
             bufferViewEntities.each(
                 [&](RHIHandle h, const BufferView&) { bufferViewHandles.push_back(h); });
@@ -65,6 +65,8 @@ namespace Spark::Render
 
             // ResourceHierarchy on transient resource entities holds stale
             // m_firstView handles to the view entities we just destroyed.
+            // TransientTag is on resource entities only, so this view finds
+            // exactly the resource entities (not the now-destroyed view entities).
             rhiContext.GetView<TransientTag>().each(
                 [&](RHIHandle h) { rhiContext.Remove<ResourceHierarchy>(h); });
         }
@@ -77,7 +79,7 @@ namespace Spark::Render
         passContext.Clear<PassPredecessors>();
         passContext.Clear<PassSuccessors>();
         passContext.Clear<PassSyncWait>();
-        passContext.Clear<PassSyncSignal>();
+        passContext.Clear<PassSyncSignal>();1
         passContext.Clear<PassBarriers>();
         passContext.Clear<PassExternalFenceWaits>();
         passContext.Clear<RHI::RenderPassBeginInfo>();
@@ -190,6 +192,23 @@ namespace Spark::Render
         // QueueBarrier only batches; the actual ResourceBarrier call lives in
         // FlushBarriers. Must flush before BeginRenderPass / draws so the
         // resource is in the expected state at first use.
+        commandList->FlushBarriers();
+    }
+
+    void RenderGraphExecuter::ExecuteStaticPreBarriers(RHI::CommandList* commandList, uint32_t queueIndex)
+    {
+        const auto& barriers = m_staticPreBarriers[queueIndex];
+
+        for (const auto& b : barriers.m_imageBarriers)
+        {
+            commandList->QueueBarrier(b);
+        }
+
+        for (const auto& b : barriers.m_bufferBarriers)
+        {
+            commandList->QueueBarrier(b);
+        }
+
         commandList->FlushBarriers();
     }
 

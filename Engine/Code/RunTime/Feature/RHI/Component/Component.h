@@ -27,9 +27,18 @@ namespace Spark::RHI
 {
     class Fence;
 
-    // Discovery tags
+    // Discovery tags — placed on RESOURCE entities only.
+    // Views inherit lifecycle from their parent resource via ViewHierarchy;
+    // tagging views separately would duplicate the semantic.
     struct ImportedTag {};
     struct TransientTag {};
+    struct StaticImportTag {};
+
+    // Placed on VIEW entities whose parent resource is transient.
+    // Kept separate from TransientTag so cleanup queries can target views
+    // directly (TransientTag, ImageView → no match after refactor because
+    // ImageView lives on view entities while TransientTag lives on resources).
+    struct TransientViewTag {};
 
     // Resource multiplicity tags — determines single vs. per-frame allocation.
     // Absence of PerFrameTag defaults to single-frame behavior.

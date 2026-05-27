@@ -372,11 +372,11 @@ namespace Spark::Render
 
         RHIHandle resource = rhiContext.Get<ViewHierarchy>(bind.m_view).m_resource;
 
-        // Auto-attach ImportedTag — caller doesn't need to know about this concept.
+        // Auto-attach ImportedTag on the resource entity.
+        // ImportedTag is a resource-level concept — views inherit their
+        // lifecycle classification from the parent resource via ViewHierarchy.
         if (!rhiContext.Has<ImportedTag>(resource))
             rhiContext.Add<ImportedTag>(resource);
-        if (!rhiContext.Has<ImportedTag>(bind.m_view))
-            rhiContext.Add<ImportedTag>(bind.m_view);
 
         // Materialize BackingImage / BackingImageView from the owning resource.
         // Single-frame variants (Image / ImageView) write once and never change.
@@ -450,10 +450,10 @@ namespace Spark::Render
 
         RHIHandle resource = rhiContext.Get<ViewHierarchy>(bind.m_view).m_resource;
 
+        // Auto-attach ImportedTag on the resource entity (same rationale as
+        // ImportImageAttachment — resource-level concept, not view-level).
         if (!rhiContext.Has<ImportedTag>(resource))
             rhiContext.Add<ImportedTag>(resource);
-        if (!rhiContext.Has<ImportedTag>(bind.m_view))
-            rhiContext.Add<ImportedTag>(bind.m_view);
 
         // See ImportImageAttachment for the Backing materialization rationale.
         if (auto* buf = rhiContext.TryGet<Buffer>(resource))
