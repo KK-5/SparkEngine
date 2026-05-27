@@ -79,7 +79,7 @@ namespace Spark::Render
         passContext.Clear<PassPredecessors>();
         passContext.Clear<PassSuccessors>();
         passContext.Clear<PassSyncWait>();
-        passContext.Clear<PassSyncSignal>();1
+        passContext.Clear<PassSyncSignal>();
         passContext.Clear<PassBarriers>();
         passContext.Clear<PassExternalFenceWaits>();
         passContext.Clear<RHI::RenderPassBeginInfo>();

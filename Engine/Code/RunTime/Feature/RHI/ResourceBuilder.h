@@ -15,7 +15,18 @@ namespace Spark::RHI
 
     // === Buffer helpers ===
 
-    inline RHIHandle CreateImportedBuffer(
+    //! Create a static-import buffer — uploaded once (or infrequently via streaming)
+    //! and used with a single, pre-declared bind usage (e.g. vertex / index /
+    //! shader-resource).  The render graph does not require an explicit
+    //! ImportBufferAttachment call in every build function; the compiler detects
+    //! the resource via StaticImportTag and emits a one-time CopyDst→target-usage
+    //! barrier on first access.
+    //!
+    //! For per-frame CPU-written buffers (e.g. constant / uniform buffers that
+    //! are updated every frame) use CreateDynamicBuffer (ImportedTag) instead —
+    //! that path participates in the per-pass barrier compile and the per-frame
+    //! ResourceStateTracker cursor.
+    inline RHIHandle CreateStaticBuffer(
         BasicContext<RHIHandle>& ctx,
         ObjectName name,
         const BufferDescriptor& desc,
@@ -23,7 +34,7 @@ namespace Spark::RHI
         HostMemoryAccess hostAccess = HostMemoryAccess::Write)
     {
         RHIHandle entity = ctx.CreateEntity();
-        ctx.Add<ImportedTag>(entity);
+        ctx.Add<StaticImportTag>(entity);
         ctx.Add<ResourceName>(entity, ResourceName{ name });
         ctx.Add<PendingBufferInit>(entity, PendingBufferInit{ desc, heapLevel, hostAccess });
         return entity;
@@ -57,7 +68,11 @@ namespace Spark::RHI
 
     // === Image helpers ===
 
-    inline RHIHandle CreateImportedImage(
+    //! Create a static-import image — the primary entry point for material
+    //! textures, cubemaps, and other images that are uploaded once (or via mip
+    //! streaming) and sampled every frame without explicit per-pass registration.
+    //! Same StaticImportTag semantics as CreateStaticBuffer above.
+    inline RHIHandle CreateStaticImage(
         BasicContext<RHIHandle>& ctx,
         ObjectName name,
         const ImageDescriptor& desc,
@@ -65,7 +80,7 @@ namespace Spark::RHI
         HostMemoryAccess hostAccess = HostMemoryAccess::Write)
     {
         RHIHandle entity = ctx.CreateEntity();
-        ctx.Add<ImportedTag>(entity);
+        ctx.Add<StaticImportTag>(entity);
         ctx.Add<ResourceName>(entity, ResourceName{ name });
         ctx.Add<PendingImageInit>(entity, PendingImageInit{ desc, heapLevel, hostAccess });
         return entity;

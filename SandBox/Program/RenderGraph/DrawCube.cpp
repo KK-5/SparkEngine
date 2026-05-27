@@ -12,6 +12,7 @@
 #include <RHI/HardwareQueue.h>
 #include <RHI/Fence/Fence.h>
 #include <RHI/Component/Component.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
@@ -116,7 +117,7 @@ namespace Spark::SandBox
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
         Spark::RHI::RHIHandle found = Spark::RHI::NullHandle;
-        ctx.GetView<Spark::RHI::ImportedTag, Spark::Render::SwapChainViews>().each(
+        ctx.GetView<Spark::Render::SwapChainViews>().each(
             [&](Spark::RHI::RHIHandle h, const Spark::Render::SwapChainViews&)
             {
                 if (found == Spark::RHI::NullHandle)
@@ -218,62 +219,43 @@ namespace Spark::SandBox
         ASSERT(mesh->primitives.size() > 0, "No primitive in mesh.");
         const Resource::Primitive& primitive = mesh->primitives[0];
 
-        m_vbEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ImportedTag>(m_vbEntity);
-        ctx.Add<Spark::RHI::ResourceName>(m_vbEntity,
-            Spark::RHI::ResourceName{ ObjectName("CubeVertex") });
-
-        Spark::RHI::PendingBufferInit init;
-        init.m_descriptor.m_bindFlags =
+        Spark::RHI::BufferDescriptor vbDesc;
+        vbDesc.m_bindFlags =
             Spark::RHI::BufferBindFlags::InputAssembly | Spark::RHI::BufferBindFlags::CopyWrite;
-        init.m_descriptor.m_byteCount = primitive.vertexBuffer.size();
-        init.m_descriptor.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
-        init.m_heapMemoryLevel = Spark::RHI::HeapMemoryLevel::Device;
-        ctx.Add<Spark::RHI::PendingBufferInit>(m_vbEntity, init);
+        vbDesc.m_byteCount = primitive.vertexBuffer.size();
+        vbDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        Spark::RHI::PendingBufferUpload upload;
-        upload.m_data = primitive.vertexBuffer.data();
-        upload.m_dataSize = primitive.vertexBuffer.size();
-        upload.m_destinationOffset = 0;
-        ctx.Add<Spark::RHI::PendingBufferUpload>(m_vbEntity, upload);
-        ctx.Add<Spark::RHI::UploadPendingTag>(m_vbEntity);
+        m_vbEntity = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeVertex"), vbDesc);
+        Spark::RHI::RequestBufferUpload(
+            ctx, m_vbEntity, primitive.vertexBuffer.data(), primitive.vertexBuffer.size());
+        Spark::Render::CreateStaticBufferAttachment(ctx, m_vbEntity,
+            Spark::RHI::InputName("CubeVertex"),
+            Spark::RHI::AttachmentAccess::Read,
+            Spark::RHI::AttachmentUsage::InputAssembly,
+            Spark::RHI::AttachmentStage::VertexInput);
 
-        m_vbViewEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ResourceName>(m_vbViewEntity,
-            Spark::RHI::ResourceName{ ObjectName("CubeVertex.View") });
-        ctx.Add<Spark::RHI::BufferViewDescriptor>(m_vbViewEntity,
+        m_vbViewEntity = Spark::RHI::CreateBufferView(ctx, m_vbEntity,
+            ObjectName("CubeVertex.View"),
             Spark::RHI::BufferViewDescriptor::CreateRaw(0, primitive.vertexBuffer.size()));
-        Spark::RHI::ViewHierarchy hierarchy;
-        hierarchy.m_resource = m_vbEntity;
-        ctx.Add<Spark::RHI::ViewHierarchy>(m_vbViewEntity, hierarchy);
 
-        m_indexEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ImportedTag>(m_indexEntity);
-        ctx.Add<Spark::RHI::ResourceName>(m_indexEntity,
-            Spark::RHI::ResourceName{ ObjectName("CubeIndex") });
-
-        Spark::RHI::PendingBufferInit initIndex;
-        initIndex.m_descriptor.m_bindFlags =
+        Spark::RHI::BufferDescriptor ibDesc;
+        ibDesc.m_bindFlags =
             Spark::RHI::BufferBindFlags::InputAssembly | Spark::RHI::BufferBindFlags::CopyWrite;
-        initIndex.m_descriptor.m_byteCount = primitive.indexBuffer.size();
-        initIndex.m_descriptor.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
-        initIndex.m_heapMemoryLevel = Spark::RHI::HeapMemoryLevel::Device;
-        ctx.Add<Spark::RHI::PendingBufferInit>(m_indexEntity, initIndex);
+        ibDesc.m_byteCount = primitive.indexBuffer.size();
+        ibDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        Spark::RHI::PendingBufferUpload uploadIndex;
-        uploadIndex.m_data = primitive.indexBuffer.data();
-        uploadIndex.m_dataSize = primitive.indexBuffer.size();
-        uploadIndex.m_destinationOffset = 0;
-        ctx.Add<Spark::RHI::PendingBufferUpload>(m_indexEntity, uploadIndex);
-        ctx.Add<Spark::RHI::UploadPendingTag>(m_indexEntity);
+        m_indexEntity = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeIndex"), ibDesc);
+        Spark::RHI::RequestBufferUpload(
+            ctx, m_indexEntity, primitive.indexBuffer.data(), primitive.indexBuffer.size());
+        Spark::Render::CreateStaticBufferAttachment(ctx, m_indexEntity,
+            Spark::RHI::InputName("CubeIndex"),
+            Spark::RHI::AttachmentAccess::Read,
+            Spark::RHI::AttachmentUsage::InputAssembly,
+            Spark::RHI::AttachmentStage::VertexInput);
 
-        m_indexViewEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ResourceName>(m_indexViewEntity,
-            Spark::RHI::ResourceName{ ObjectName("CubeIndex.View") });
-        ctx.Add<Spark::RHI::BufferViewDescriptor>(m_indexViewEntity,
+        m_indexViewEntity = Spark::RHI::CreateBufferView(ctx, m_indexEntity,
+            ObjectName("CubeIndex.View"),
             Spark::RHI::BufferViewDescriptor::CreateRaw(0, primitive.indexBuffer.size()));
-        hierarchy.m_resource = m_indexEntity;
-        ctx.Add<Spark::RHI::ViewHierarchy>(m_indexViewEntity, hierarchy);
     }
 
     void DrawCube::CreateImage()
@@ -401,23 +383,10 @@ namespace Spark::SandBox
                 builder.CreateImageAttachment<SPARK_PASS_TAG("ScenePass")>(
                     RHI::AttachmentId("SceneDepth"), depthDesc, depthBind, RHI::AttachmentAccess::Write);
 
-                Spark::Render::ImportedBufferAttachmentBindInfo vbBind;
-                vbBind.m_slot   = Spark::RHI::InputName("Vertex");
-                vbBind.m_view   = m_vbViewEntity;
-                vbBind.m_access = Spark::RHI::AttachmentAccess::Read;
-                vbBind.m_usage  = Spark::RHI::AttachmentUsage::InputAssembly;
-                vbBind.m_stage  = Spark::RHI::AttachmentStage::VertexInput;
-                builder.ImportBufferAttachment<SPARK_PASS_TAG("ScenePass")>(
-                    Spark::RHI::AttachmentId("CubeVertex"), vbBind);
-
-                Spark::Render::ImportedBufferAttachmentBindInfo indexBind;
-                indexBind.m_slot   = Spark::RHI::InputName("Index");
-                indexBind.m_view   = m_indexViewEntity;
-                indexBind.m_access = Spark::RHI::AttachmentAccess::Read;
-                indexBind.m_usage  = Spark::RHI::AttachmentUsage::InputAssembly;
-                indexBind.m_stage  = Spark::RHI::AttachmentStage::VertexInput;
-                builder.ImportBufferAttachment<SPARK_PASS_TAG("ScenePass")>(
-                    Spark::RHI::AttachmentId("CubeIndex"), indexBind);
+                // CubeVertex / CubeIndex are StaticImportTag resources.
+                // BufferPassAttachment was declared at creation time (DeclareStaticBufferAttachment).
+                // CompileStaticResourceBarriers handles the CopyDst→InputAssembly
+                // barrier automatically; no per-frame build registration needed.
 
                 Render::ImportedImageAttachmentBindInfo imageBind;
                 imageBind.m_slot    = Spark::RHI::InputName("Texture");

@@ -21,7 +21,7 @@ PSInput VSMain(VSInput input, uint vertexId : SV_VertexID)
     PSInput output;
     // output.position = mul(g_MVP, float4(input.position, 1.0));
     output.position = float4(input.position, 1.0);
-    //output.color = input.color;
+    // output.color = input.color;
     output.color = g_Colors[vertexId];
     return output;
 }

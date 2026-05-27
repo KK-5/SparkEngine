@@ -127,7 +127,7 @@ namespace Spark::SandBox
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
         Spark::RHI::RHIHandle found = Spark::RHI::NullHandle;
-        ctx.GetView<Spark::RHI::ImportedTag, Spark::Render::SwapChainViews>().each(
+        ctx.GetView<Spark::Render::SwapChainViews>().each(
             [&](Spark::RHI::RHIHandle h, const Spark::Render::SwapChainViews&)
             {
                 if (found == Spark::RHI::NullHandle)
@@ -196,10 +196,15 @@ namespace Spark::SandBox
         vbDesc.m_byteCount = sizeof(g_triangleVertices);
         vbDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        m_vbEntity = Spark::RHI::CreateImportedBuffer(
+        m_vbEntity = Spark::RHI::CreateStaticBuffer(
             ctx, ObjectName("TriangleVB"), vbDesc);
         Spark::RHI::RequestBufferUpload(
             ctx, m_vbEntity, g_triangleVertices, sizeof(g_triangleVertices));
+        Spark::Render::CreateStaticBufferAttachment(ctx, m_vbEntity,
+            Spark::RHI::InputName("TriangleVB"),
+            Spark::RHI::AttachmentAccess::Read,
+            Spark::RHI::AttachmentUsage::InputAssembly,
+            Spark::RHI::AttachmentStage::VertexInput);
         m_vbViewEntity = Spark::RHI::CreateBufferView(
             ctx, m_vbEntity, ObjectName("TriangleVB.View"),
             Spark::RHI::BufferViewDescriptor::CreateRaw(0, sizeof(g_triangleVertices)));
@@ -258,14 +263,6 @@ namespace Spark::SandBox
                 builder.ImportImageAttachment<SPARK_PASS_TAG("TrianglePass")>(
                     Spark::RHI::AttachmentId("SwapChain"), colorBind);
 
-                Spark::Render::ImportedBufferAttachmentBindInfo vbBind;
-                vbBind.m_slot   = Spark::RHI::InputName("TriangleVB");
-                vbBind.m_view   = m_vbViewEntity;
-                vbBind.m_access = Spark::RHI::AttachmentAccess::Read;
-                vbBind.m_usage  = Spark::RHI::AttachmentUsage::InputAssembly;
-                vbBind.m_stage  = Spark::RHI::AttachmentStage::VertexInput;
-                builder.ImportBufferAttachment<SPARK_PASS_TAG("TrianglePass")>(
-                    Spark::RHI::AttachmentId("TriangleVB"), vbBind);
             })
             .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {

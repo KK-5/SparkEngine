@@ -203,6 +203,63 @@ namespace Spark::Render
 
     struct AttachmentCompilingTag {};
     /////////////////////////////////////////////////
+
+    ///////////////////////////////////////////////
+    // Static-import resource attachment helpers
+    //
+    // Call once at resource creation time (not in the Build lambda) to store
+    // BufferPassAttachment / ImagePassAttachment directly on the static resource
+    // entity (m_view == NullHandle).  The component persists across frames and is
+    // consumed each compile by CompileStaticResourceBarriers, which drives the
+    // CopyDst → target-usage barrier without any per-pass Build registration.
+    //
+    // Pattern:
+    //   auto vb = RHI::CreateStaticBuffer(ctx, name, desc);
+    //   Render::CreateStaticBufferAttachment(ctx, vb,
+    //       RHI::InputName("MyVB"),
+    //       RHI::AttachmentAccess::Read,
+    //       RHI::AttachmentUsage::InputAssembly,
+    //       RHI::AttachmentStage::VertexInput);
+    ///////////////////////////////////////////////
+
+    inline void CreateStaticBufferAttachment(
+        RHIContext&              ctx,
+        RHIHandle                resourceEntity,
+        RHI::InputName           slot,
+        RHI::AttachmentAccess    access,
+        RHI::AttachmentUsage     usage,
+        RHI::AttachmentStage     stage)
+    {
+        BufferPassAttachment a;
+        a.m_attachmentId = AttachmentId{ ctx.Get<ResourceName>(resourceEntity).m_name, 0 };
+        a.m_slotName     = slot;
+        a.m_access       = access;
+        a.m_usage        = usage;
+        a.m_stage        = stage;
+        a.m_view         = NullHandle;  // static: no view entity; compiler reads Buffer directly
+        a.m_pass         = NullPass;    // persists across frames, not tied to one pass
+        ctx.AddOrReplace<BufferPassAttachment>(resourceEntity, a);
+    }
+
+    inline void CreateStaticImageAttachment(
+        RHIContext&              ctx,
+        RHIHandle                resourceEntity,
+        RHI::InputName           slot,
+        RHI::AttachmentAccess    access,
+        RHI::AttachmentUsage     usage,
+        RHI::AttachmentStage     stage)
+    {
+        ImagePassAttachment a;
+        a.m_attachmentId = AttachmentId{ ctx.Get<ResourceName>(resourceEntity).m_name, 0 };
+        a.m_slotName     = slot;
+        a.m_access       = access;
+        a.m_usage        = usage;
+        a.m_stage        = stage;
+        a.m_view         = NullHandle;
+        a.m_pass         = NullPass;
+        ctx.AddOrReplace<ImagePassAttachment>(resourceEntity, a);
+    }
+    ///////////////////////////////////////////////
 }
 
 namespace eastl
