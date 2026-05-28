@@ -74,6 +74,8 @@ The RHI is loosely modeled on O3DE/Atom but **explicitly diverges** wherever Ato
 
 - **Cross-backend abstraction follows the stricter backend.** When DX12 and Vulkan have asymmetric semantics, RHI signatures align with whichever is more constrained — typically Vulkan. The looser backend (DX12) drops what it doesn't need; the stricter one cannot synthesize what's missing. Concrete example: `BeginRenderPass` / `EndRenderPass` carries `AttachmentLoadStoreAction` + `RenderAttachmentLayout` because Vulkan requires it (and TBDR mobile bandwidth depends on correct loadOp/storeOp), even though DX12's `OMSetRenderTargets` doesn't.
 
+- **Never defer cross-backend correctness to "when Vulkan is added".** Any data structure, descriptor, or validation that exists in the RHI abstraction layer must be designed to be correct for all intended backends from the moment it is written — even if only the DX12 backend is currently implemented. "We'll fix it when we add Vulkan" is not acceptable: deferred compatibility debt compounds and forces breaking API changes later. If the correct multi-backend design is not yet clear, resolve the design question first before writing the code.
+
 - **No render-layer concepts inside RHI.** RHI types and APIs must not mention `Attachment`, `AttachmentId`, `Scope`, `Pass`, `RenderGraph`, or `Frame Graph`. These belong to `SparkRender` above. RHI takes opaque integers (e.g. `timelinePosition`), descriptors, and queue masks. `Scope` in particular is an O3DE term that has been removed.
 
 - **EASTL replaces AZStd** throughout. `Ptr<T> = eastl::intrusive_ptr<T>` (`Core/Base.h`), `UniquePtr<T> = eastl::unique_ptr<T>`. ComPtr (Microsoft) is used only at the DX12 boundary; convert to `Ptr<>` for storage via `pComPtr.Get()`.

@@ -153,19 +153,22 @@ class ShaderInputSampler {
 };
 ```
 
-### 2. SpaceGroup — RHI 层按 space 分组
+### 2. ShaderInputGroup — RHI 层按 space 分组
 
 ```cpp
-static constexpr uint32_t MaxShaderInputsPerPipeline = 64;
-static constexpr uint32_t MaxSpaceGroups = 8;
-
-// RHI::PipelineLayout 持有
-struct ShaderInputSpaceGroup {
-    uint32_t m_spaceId;
-    eastl::small_vector<const ShaderInput*, 8> m_inputs;
-    // register 就是组内索引，不需要额外 offset 字段
+// PipelineLayoutDescriptor / RHI::PipelineLayout 持有
+// 引用 PipelineLayoutDescriptor 各类型 descriptor 数组中的下标，避免裸指针稳定性问题
+struct ShaderInputHandle {
+    ShaderInputType m_type  = ShaderInputType::Count;
+    uint32_t        m_index = 0; // 在 m_bufferDescs / m_imageDescs / m_samplerDescs / m_constantDescs 中的位置
 };
-eastl::fixed_vector<ShaderInputSpaceGroup, MaxSpaceGroups> m_spaceGroups;
+
+struct ShaderInputGroup {
+    uint32_t        m_spaceId   = 0;
+    ShaderStageMask m_stageMask = ShaderStageMask::None; // AddShaderInputDescriptors 时做并集更新
+    eastl::fixed_vector<ShaderInputHandle, 8> m_shaderInputs; // 纯 layout 引用，无数据
+};
+eastl::fixed_vector<ShaderInputGroup, Limits::Pipeline::ShaderInputGroupCountMax> m_spaceGroups;
 ```
 
 ### 3. DX12SpaceBinding — DX12 后端映射
@@ -179,9 +182,9 @@ eastl::fixed_vector<DX12SpaceBinding, MaxSpaceGroups> m_spaceBindings;
 // m_spaceBindings[i] 对应 m_spaceGroups[i]
 ```
 
-构建 root signature 时，遍历 SpaceGroup 内 ShaderInput 的 `(type, register, count)` → 生成 `D3D12_DESCRIPTOR_RANGE`，全组共享一个 descriptor table。
+构建 root signature 时，遍历 SpaceGroup 内每个 `ShaderInputRef`，通过 `(type, index)` 查 PipelineLayoutDescriptor 的 descriptor 数组，取 `(registerId, count)` → 生成 `D3D12_DESCRIPTOR_RANGE`，全组共享一个 descriptor table。
 
-Vulkan 后端：SpaceGroup → VkDescriptorSet（set = m_spaceId），组内每个 ShaderInput → VkDescriptorSetLayoutBinding（binding = registerId）。
+Vulkan 后端：SpaceGroup → VkDescriptorSet（set = m_spaceId），组内每个 ref 对应的 descriptor → VkDescriptorSetLayoutBinding（binding = registerId）。
 
 ### 4. ShaderBindings — GPU 资源载体
 
@@ -213,15 +216,23 @@ public:
 ### Compiler
 
 ```
-输入: ShaderInput 列表 + PipelineLayout (SpaceGroup + DX12SpaceBinding)
-1. 按 SpaceGroup 分组 ShaderInput
-2. 为每个 SpaceGroup:
-   a. 按 register 最大值确定 descriptor table 大小
-   b. 从 DescriptorContext 分配 descriptor table
-   c. 遍历组内 ShaderInput → 读 bound data → 按 register 位置写入:
-      table[input.registerId] = ConvertDescriptor(input.boundData)
-   d. 记录 GPU handle 到 ShaderBindings::Entry
-3. 常量处理: 小常量合并为 root constants（≤256 bytes）；大常量走 CBV
+输入:
+  - per-draw ShaderInput 列表 (由 Pass / Material 持有并传入)
+      span<const ShaderInputBuffer*>
+      span<const ShaderInputImage*>
+      span<const ShaderInputSampler*>
+      span<const ShaderInputConstant*>
+  - PipelineLayout (SpaceGroup + DX12SpaceBinding)
+
+1. 遍历传入的 ShaderInput 列表，按 GetDescription().(spaceId) 映射到对应 SpaceGroup
+2. 为每个命中的 SpaceGroup:
+   a. 按 spaceGroup 内所有 registerId + count 的上界确定 descriptor table 大小
+      (从 SpaceGroup::m_refs 查 PipelineLayoutDescriptor 的 descriptor 数组得到)
+   b. 从 DescriptorContext 分配 descriptor table (per-frame ring allocator)
+   c. 遍历传入的 ShaderInput → 按 GetDescription().registerId 写入:
+      table[input.GetDescription().registerId] = ConvertDescriptor(input 的 bound data)
+   d. 记录 GPU handle 到 ShaderBindings::Entry[rootParamIdx]
+3. 常量处理: byteSize ≤ 32 bytes 且有可用 slot → root constants；否则走 CBV descriptor table
 4. 输出: ShaderBindings
 ```
 
@@ -259,10 +270,10 @@ for each non-null Entry in ShaderBindings.m_entries:
 
 | 文件 | 改动 |
 |------|------|
-| `ShaderResourceDescriptor.h` | 重写为 ShaderInput.h，每个 descriptor 加 bound data |
+| `ShaderResourceDescriptor.h` | 拆为 `ShaderInputDescriptor.h`（纯 layout）+ `ShaderInput.h`（data，由 Pass/Material 持有） |
 | `DX12/Pipeline/PipelineLayout.cpp` | 不再每 slot 一个 CBV；按 SpaceGroup 映射到 root params |
 | `DX12/Command/CommandList.cpp` | SetShaderResourceForDraw → BindShaderInputs |
-| `RHI/Pipeline/PipelineLayoutDescriptor.h/.cpp` | 不再存 ShaderResourceLayout，改为 SpaceGroup 列表 |
+| `RHI/Pipeline/PipelineLayoutDescriptor.h/.cpp` | 只存 `ShaderInputXXXDescriptor` + `ShaderInputSpaceGroup`；不持有任何 ShaderInput 数据对象 |
 | `RHI/Component/Component.h` | Components::ShaderResource → ShaderBindings |
 
 ### 适配
@@ -280,19 +291,37 @@ for each non-null Entry in ShaderBindings.m_entries:
 
 ## 设计决策
 
-### ShaderInput 持有 dirty flag
+### 所有权边界（核心规则）
 
-当前 ECS entity + `ShaderResourceUpdateTag` 的 dirty 标记机制替换为 ShaderInput 自身的 dirty flag。Compiler 收集所有 dirty 的 ShaderInput → 按 pass/PipelineLayout 分组编译 → 产出 ShaderBindings。
+```
+PipelineLayoutDescriptor   →  只持有 ShaderInputXXXDescriptor（纯 layout）
+                               用于构建 SpaceGroup 和 root signature
+                               不持有任何 views / states / bytes
+                               字段: vector<ShaderInputBufferDescriptor>
+                                     vector<ShaderInputImageDescriptor>
+                                     vector<ShaderInputSamplerDescriptor>
+                                     vector<ShaderInputConstantDescriptor>
+
+ShaderInput{Buffer,Image…}  →  由 Pass / Material 实例自己持有（不进 PipelineLayoutDescriptor）
+                               每个 Pass 自己 SetView / SetData
+                               调用 ShaderInputCompiler(inputs, pipelineLayout) → ShaderBindings
+```
+
+**为什么不能让 PipelineLayoutDescriptor 持有含数据的 ShaderInput：** Pipeline 是跨 draw 共享的静态对象；ShaderInput 的 data 是 per-draw/per-material 的动态状态。如果二者混在一起，同一帧内两个使用相同 pipeline 但绑定不同资源的 drawcall 就无法独立持有各自的数据。
+
+### ShaderInput 的 dirty flag
+
+ShaderInput 作为 Pass / Material 持有的数据对象，dirty flag 由上层自行管理（Pass 在 `SetView`/`SetData` 后标记脏，Compiler 只处理脏的 ShaderInput）。不在 ShaderInput 类本身引入 dirty 成员——保持值语义纯洁。
 
 ### ShaderBindings 的生命周期
 
-和当前 `PassCompiledPSO` 类似，作为 pass 编译产出存在 PassContext 上。跨 pass 共享的 ShaderInput 组（如 ViewSRG）可独立编译并放自己的 ECS entity 上，多个 pass 引用同一个 entity。
+和当前 `PassCompiledPSO` 类似，作为 pass 编译产出存在 PassContext 上。跨 pass 共享的数据（如全局 ViewBuffer）可单独维护一组 ShaderInput，独立编译后产出的 ShaderBindings 由多个 pass 引用。
 
 ### 常量处理
 
-PipelineLayout 构建时自动判断每个 ShaderInputConstant：
-- `byteSize ≤ 256` 且有可用 slot → 合并为 root constants / push constants
-- 大常量 → CBV descriptor（始终走 descriptor table/set，保持 Vulkan 兼容）
+PipelineLayout 构建时（从 `ShaderInputConstantDescriptor`）自动判断：
+- `constantByteCount ≤ 32` 且有可用 slot → root constants / push constants
+- 其余 → CBV descriptor table（始终走 descriptor table/set，保持 Vulkan 兼容）
 - 多个小常量合并到一个 root constant range / VkPushConstantRange
 
 ### 为什么不用 BindPointMapping（per-input 映射表）
@@ -324,48 +353,125 @@ PipelineLayout 构建时自动判断每个 ShaderInputConstant：
 - 不继承 Object，纯值语义
 - `ShaderInputConstant` 和 `ShaderInputBuffer` 保留区分——前者支持 root constants 优化合并，后者是完整的 GPU buffer binding
 
-**ShaderInputSpaceGroup 设计**（讨论确定，待实现）：
+**ShaderInputGroup 设计**（已实现）：
 
 ```cpp
-struct ShaderInputSpaceGroup {
-    uint32_t m_spaceId;
-    ShaderStageMask m_stageMask;      // AddShaderInput 时做并集更新
-    eastl::vector<const ShaderInput*> m_inputs;
+// 引用 PipelineLayoutDescriptor 各类型 descriptor 数组中的下标，不持有数据
+struct ShaderInputHandle {
+    ShaderInputType m_type  = ShaderInputType::Count;
+    uint32_t        m_index = 0;
+};
+
+struct ShaderInputGroup {
+    uint32_t        m_spaceId   = 0;
+    ShaderStageMask m_stageMask = ShaderStageMask::None;
+    eastl::fixed_vector<ShaderInputHandle, 8> m_shaderInputs;
 };
 ```
 
-- Key = `(spaceId, stageMask)`，分组用 `fixed_vector<ShaderInputSpaceGroup, 8>` + 线性查找
-- `spaceId` 和 `stageMask` 都直接存在 group 上，不从首个 input 推导
-- 用户不感知 SpaceGroup——由 PipelineLayoutDescriptor::AddShaderInput() 内部自动分组
+- Key = `spaceId`，分组用 `fixed_vector<ShaderInputGroup, ShaderInputGroupCountMax>` + 线性查找
+- `stageMask` 存在 group 上，由多次 `AddShaderInputDescriptors` 做并集更新
+- 用户不感知 group——由 `InsertShaderInput()` 内部自动分组
 - DX12 后端通过 `m_stageMask` 设置 `D3D12_SHADER_VISIBILITY`
+- 用下标而非裸指针，避免 descriptor vector 扩容后指针失效
 
 **ShaderInputList**（反射中间容器）:
 
 ```cpp
+// 纯 descriptor 容器，由 ShaderAsset 反射产出，消费后销毁
 struct ShaderInputList {
-    eastl::vector<ShaderInputBuffer>  m_buffers;
-    eastl::vector<ShaderInputImage>   m_images;
-    eastl::vector<ShaderInputSampler> m_samplers;
-    eastl::vector<ShaderInputConstant> m_constants;
+    eastl::vector<ShaderInputBufferDescriptor>   m_buffers;
+    eastl::vector<ShaderInputImageDescriptor>    m_images;
+    eastl::vector<ShaderInputSamplerDescriptor>  m_samplers;
+    eastl::vector<ShaderInputConstantDescriptor> m_constants;
 };
 ```
 
-从 ShaderAsset 反射产出的临时集合，消费后销毁。PipelineLayoutDescriptor 是最终持有者和唯一查询入口。
+从 ShaderAsset 反射产出纯 layout 的临时集合，通过 `PipelineLayoutDescriptor::AddShaderInputDescriptors(list, stageMask)` 消费后销毁。
 
 **数据流**:
 ```
-ShaderAsset 反射 → ShaderInputList (临时) → PipelineLayoutDescriptor (唯一持有者)
-                                                   ├─ 持有: vector<ShaderInputBuffer>, vector<ShaderInputImage>, ...
-                                                   ├─ 索引: fixed_vector<ShaderInputSpaceGroup, 8>
-                                                   └─ 查询入口: FindShaderInput(name)
+ShaderAsset 反射 → ShaderInputList (临时, 纯 descriptor)
+                        │
+                        ▼ AddShaderInputDescriptors(list, stageMask)
+                   PipelineLayoutDescriptor (layout 唯一持有者)
+                     ├─ vector<ShaderInputBufferDescriptor>   m_bufferDescs
+                     ├─ vector<ShaderInputImageDescriptor>    m_imageDescs
+                     ├─ vector<ShaderInputSamplerDescriptor>  m_samplerDescs
+                     ├─ vector<ShaderInputConstantDescriptor> m_constantDescs
+                     ├─ fixed_vector<ShaderInputSpaceGroup, 8> m_spaceGroups  (引用上面数组的下标)
+                     └─ 查询入口: FindBufferDescriptor(name) / FindImageDescriptor(name) / ...
+
+Pass / Material (data 持有者, 与 PipelineLayoutDescriptor 完全分离)
+  ├─ ShaderInputBuffer   m_myBuffer   { desc, views[] }
+  ├─ ShaderInputImage    m_myTexture  { desc, views[] }
+  └─ ShaderInputConstant m_myConst    { desc, bytes[] }
+       │
+       ▼ ShaderInputCompiler(inputs, pipelineLayout)
+  ShaderBindings  (每帧产出, 存 PassContext)
 ```
+
+### 2026-05-29 — Step 2 完成：PipelineLayoutDescriptor 新路径 API
+
+**改动文件**：
+- `RHI/Pipeline/PipelineLayoutDescriptor.h` — 新增 `ShaderInputHandle`、`ShaderInputGroup`、`ShaderInputList` 结构体；新增完整新路径 API；`ValidateShaderInputOverlapInternal` 虚函数
+- `RHI/Pipeline/PipelineLayoutDescriptor.cpp` — 实现 `AddShaderInputDescriptors`、`InsertShaderInput`、所有新路径访问器
+- `RHI/RHILimits.h` — 新增 `Limits::VulkanBindingShift`（CBV=0, SRV=1000, UAV=2000, Sampler=3000）
+
+**新增 API**（新路径，旧 SRG 路径不动）：
+
+| 方法 | 用途 |
+|------|------|
+| `AddShaderInputDescriptors(list, stageMask)` | 批量消费 ShaderInputList，自动按 spaceId 分组 |
+| `AddStaticSamplerDescriptor(desc, stageMask)` | 静态采样器（DX12 static sampler，不占 root param） |
+| `UsesShaderInputPath()` | 判断走新路径还是旧 SRG 路径 |
+| `GetSpaceGroup(index)` / `GetSpaceGroupCount()` | DX12 build loop 入口 |
+| `GetBufferDescriptor(i)` / `GetImageDescriptor(i)` 等 | SpaceGroup loop 内按下标取 descriptor |
+| `FindBufferDescriptor(name)` / `FindImageDescriptor(name)` 等 | 按名字查找（调试/校验用，线性扫描） |
+| `GetStaticSamplerDescriptor(i)` / `GetStaticSamplerStageMask(i)` | 静态采样器访问 |
+
+**Binding 冲突检查设计**（讨论确定）：
+
+DX12 和 Vulkan 的寄存器命名空间模型根本不同：
+- **DX12**：同一 space 内 `b`/`t`/`u`/`s` 是 4 个独立命名空间，`b0` 和 `t0` 不冲突
+- **Vulkan**：同一 descriptor set 内所有 binding 是平坦命名空间，需要 shift 区分
+
+采用 **WickedEngine 风格** 的 shift 方案：
+```
+Limits::VulkanBindingShift::CBV     =    0   // b registers
+Limits::VulkanBindingShift::SRV     = 1000   // t registers
+Limits::VulkanBindingShift::UAV     = 2000   // u registers
+Limits::VulkanBindingShift::Sampler = 3000   // s registers
+```
+
+这三处必须使用同一套常量保持一致：
+1. DXC 编译 HLSL→SPIR-V 时的 `-fvk-X-shift` 参数（ShaderAsset 负责）
+2. Vulkan backend 运行时写 descriptor 时加的偏移（Vulkan backend 负责）
+3. `ValidateShaderInputOverlapInternal` 里的冲突检查（backend 实现）
+
+**`ValidateShaderInputOverlapInternal` 虚函数**：
+
+```cpp
+// 默认：no-op。各 backend override 实现 API-specific 冲突检查。
+// DX12 backend：按 (HlslRegNs, registerId) 范围检查 + Vulkan flat binding 检查
+// Vulkan backend：按 (VulkanBindingShift[ns] + registerId) 范围检查
+virtual void ValidateShaderInputOverlapInternal(
+    const ShaderInputHandle& newHandle,
+    const ShaderInputHandle& existingHandle,
+    uint32_t spaceId) const;
+```
+
+abstract RHI 只做调用，完全不出现 CBV/SRV/UAV/Sampler 字样。CBV/SRV 等 DX12 register namespace 概念属于 backend，`HlslRegNs` enum 和 `kVkBindingShift` 查表逻辑在 DX12 backend 的 override 里实现。
+
+**新增 CLAUDE.md 原则**：
+> 禁止出现"等 Vulkan 实装后再处理"的设计决策。RHI 抽象层的数据结构和 API 必须在设计时就对所有目标后端正确，不能留跨后端兼容债。
 
 ### 下一步
 
-1. PipelineLayoutDescriptor 改造（SpaceGroup 替代 ShaderResourceLayout）
-2. ShaderBuilder::BuildShaderInputs() 产出 ShaderInputList
-3. PipelineLayoutDescriptor::AddShaderInputs(ShaderInputList, stageMask)
-4. DX12 PipelineLayout 适配
+1. **ShaderBuilder::BuildShaderInputList()**：调用 DXC 反射 DXIL 填 `ShaderInputList`（纯 descriptor，不含数据）
+2. **DX12 PipelineLayout 适配**：`UsesShaderInputPath()` 为 true 时按 SpaceGroup 构建 root signature descriptor table ranges，产出并行数组 `DX12SpaceBinding[]`
+3. **DX12 `ValidateShaderInputOverlapInternal` 实现**：按 `(HlslRegNs, registerId)` + `VulkanBindingShift` 做 flat binding 重叠检查
+4. **ShaderInputCompiler 骨架**：`Compile(span<ShaderInput*>, PipelineLayout)` → `ShaderBindings`
 
 ## 验证
 

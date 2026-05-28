@@ -25,6 +25,7 @@ namespace Spark::RHI
         {
             constexpr uint32_t AttachmentColorCountMax = 8;
             constexpr uint32_t ShaderResourceCountMax = 8;
+            constexpr uint32_t ShaderInputGroupCountMax = 8;
             constexpr uint32_t StreamCountMax = 12;
             constexpr uint32_t StreamChannelCountMax = 16;
             constexpr uint32_t DrawListTagCountMax = 64;
@@ -74,6 +75,22 @@ namespace Spark::RHI
             constexpr uint64_t BufferPoolPageSizeInBytes           = 16ul  * 1024 * 1024;
         }
     } // namespace DefaultValues
+
+    // Vulkan binding shifts applied to each HLSL register namespace when compiling
+    // HLSL to SPIR-V via DXC. Within a descriptor set (= HLSL space) all binding
+    // numbers are flat, so each namespace gets a non-overlapping range.
+    //
+    // These values must be used in three places and must stay consistent:
+    //   1. DXC compilation flags: -fvk-b-shift / -fvk-t-shift / -fvk-u-shift / -fvk-s-shift
+    //   2. RHI validation (InsertShaderInput): cross-namespace overlap check
+    //   3. Vulkan backend runtime binding: write.dstBinding = Shift_XXX + registerId
+    namespace VulkanBindingShift
+    {
+        constexpr uint32_t CBV     =    0;  // b registers → binding   0 – 999
+        constexpr uint32_t SRV     = 1000;  // t registers → binding 1000 – 1999
+        constexpr uint32_t UAV     = 2000;  // u registers → binding 2000 – 2999
+        constexpr uint32_t Sampler = 3000;  // s registers → binding 3000+
+    }
 
     namespace Alignment
     {
