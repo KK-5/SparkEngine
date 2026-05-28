@@ -299,6 +299,74 @@ PipelineLayout 构建时自动判断每个 ShaderInputConstant：
 
 `register` 本身就可以充当 descriptor table offset。按 space 分组（SpaceGroup）后，`table[input.registerId]` 直接写，不需要维护额外的 `descriptorOffset` 字段。register 号紧凑是 HLSL 的常态，稀疏情况极少见，且可降级为多个小 SpaceGroup。
 
+## 实施进展
+
+### 2026-05-28 — Step 1 完成: ShaderInputDescriptor + ShaderInput 类型
+
+**新建文件** `RHI/Resource/ShaderInput/`:
+- `ShaderInputDescriptor.h/.cpp` — 从 `ShaderResourceDescriptor` 抄出纯描述类型，去掉 UnboundedArray
+- `ShaderInput.h` — 自持类型（描述 + 数据），全部 inline 实现
+
+**四个 ShaderInput 类型**:
+
+| 类型 | 数据存储 | 主要方法 |
+|---|---|---|
+| `ShaderInputBuffer` | `fixed_vector<ConstPtr<BufferView>, 16>` | `SetView(index, view)`, `GetView(index)`, `SetViews(span)`, `GetViews()` |
+| `ShaderInputImage` | `fixed_vector<ConstPtr<ImageView>, 16>` | 同上 |
+| `ShaderInputSampler` | `fixed_vector<SamplerState, 8>` | `SetState(index, state)`, `GetState(index)`, `SetStates(span)`, `GetStates()` |
+| `ShaderInputConstant` | `vector<uint8_t>` | `SetData(bytes, count)`, `SetData(bytes, offset, count)`, `GetData()` |
+
+**设计决策**（实施中调整）：
+- 每个 ShaderInput 包含 `m_descriptor`（组合，不扁平化），通过 `GetDescription()` 访问
+- 构造时从 descriptor 的 `m_count` / `m_constantByteCount` 确定数据容器大小
+- 无 UnboundedArray（后续以普通类型 + flag 方式处理）
+- 无 dirty flag（资源管理交上层）
+- 不继承 Object，纯值语义
+- `ShaderInputConstant` 和 `ShaderInputBuffer` 保留区分——前者支持 root constants 优化合并，后者是完整的 GPU buffer binding
+
+**ShaderInputSpaceGroup 设计**（讨论确定，待实现）：
+
+```cpp
+struct ShaderInputSpaceGroup {
+    uint32_t m_spaceId;
+    ShaderStageMask m_stageMask;      // AddShaderInput 时做并集更新
+    eastl::vector<const ShaderInput*> m_inputs;
+};
+```
+
+- Key = `(spaceId, stageMask)`，分组用 `fixed_vector<ShaderInputSpaceGroup, 8>` + 线性查找
+- `spaceId` 和 `stageMask` 都直接存在 group 上，不从首个 input 推导
+- 用户不感知 SpaceGroup——由 PipelineLayoutDescriptor::AddShaderInput() 内部自动分组
+- DX12 后端通过 `m_stageMask` 设置 `D3D12_SHADER_VISIBILITY`
+
+**ShaderInputList**（反射中间容器）:
+
+```cpp
+struct ShaderInputList {
+    eastl::vector<ShaderInputBuffer>  m_buffers;
+    eastl::vector<ShaderInputImage>   m_images;
+    eastl::vector<ShaderInputSampler> m_samplers;
+    eastl::vector<ShaderInputConstant> m_constants;
+};
+```
+
+从 ShaderAsset 反射产出的临时集合，消费后销毁。PipelineLayoutDescriptor 是最终持有者和唯一查询入口。
+
+**数据流**:
+```
+ShaderAsset 反射 → ShaderInputList (临时) → PipelineLayoutDescriptor (唯一持有者)
+                                                   ├─ 持有: vector<ShaderInputBuffer>, vector<ShaderInputImage>, ...
+                                                   ├─ 索引: fixed_vector<ShaderInputSpaceGroup, 8>
+                                                   └─ 查询入口: FindShaderInput(name)
+```
+
+### 下一步
+
+1. PipelineLayoutDescriptor 改造（SpaceGroup 替代 ShaderResourceLayout）
+2. ShaderBuilder::BuildShaderInputs() 产出 ShaderInputList
+3. PipelineLayoutDescriptor::AddShaderInputs(ShaderInputList, stageMask)
+4. DX12 PipelineLayout 适配
+
 ## 验证
 
 1. 编译通过：`cmake --build build --config Debug`
