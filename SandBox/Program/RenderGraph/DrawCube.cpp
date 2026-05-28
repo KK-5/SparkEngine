@@ -46,6 +46,8 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
+#include <Render/Shader/ShaderBuilder.h>
+
 #include <Window/IWindowSystem.h>
 
 #include "../Common/RenderGraphUtil.h"
@@ -74,8 +76,8 @@ namespace Spark::SandBox
         m_viewport = viewport;
         m_scissor = scissor;
 
-        CreateViewSRG();
         LoadAsset();
+        CreateViewSRG();
         CreateImage();
         CreateVertexBuffer();
         CreatePasses();
@@ -132,13 +134,10 @@ namespace Spark::SandBox
     {
         auto assetManager = Service<Spark::Resource::AssetManager>::Get();
         ASSERT(assetManager, "[DrawCube] AssetManager service missing.");
-        Ptr<Spark::Resource::ShaderAsset> shader =
-            assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
-                Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("Shader/CubeTextured.hlsl"));
-        ASSERT(shader && shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
+        m_shader = assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
+            Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("Shader/CubeTextured.hlsl"));
+        ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[DrawCube] CubeTextured.hlsl load failed.");
-        m_vertShader = shader;
-        m_fragShader = shader;
 
         m_model = assetManager->LoadAsset<Resource::ModelAsset>(Resource::AssetId::Of<Resource::ModelAsset>("Model/CubeTextured.glb"));
         ASSERT(m_model && m_model->GetStatus() == Spark::Resource::AssetStatus::Ready,
@@ -159,38 +158,7 @@ namespace Spark::SandBox
         auto* factory = rhi->GetRHIFactory();
         auto* device  = rhi->GetDevice();
 
-        m_srgLayout = factory->CreateShaderResourceLayout();
-
-        Spark::RHI::ShaderInputConstantDescriptor mvpConstant(
-            Spark::RHI::InputName("g_MVP"),
-            0,
-            sizeof(Math::Matrix4X4),
-            0,
-            0);
-        m_srgLayout->AddShaderInput(mvpConstant);
-
-        RHI::ShaderInputImageDescriptor texture
-        (
-            RHI::InputName("g_Texture"),
-            RHI::ShaderInputImageAccess::Read,
-            RHI::ShaderInputImageType::Image2D,
-            1,
-            0,
-            0
-        );
-        m_srgLayout->AddShaderInput(texture);
-
-        RHI::ShaderInputSamplerDescriptor sampler
-        (
-            RHI::InputName("g_Sampler"),
-            1,
-            0,
-            0
-        );
-        m_srgLayout->AddShaderInput(sampler);
-
-        bool ok = m_srgLayout->Finalize();
-        ASSERT(ok, "[DrawCube] SRG layout Finalize failed.");
+        m_srgLayout = Render::BuildShaderResourceLayout(*m_shader);
 
         m_srg = factory->CreateShaderResource();
         if (m_srg->Init(*device, m_srgLayout) != Spark::RHI::ResultCode::Success)
@@ -262,40 +230,48 @@ namespace Spark::SandBox
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
 
-        m_imageEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ImportedTag>(m_imageEntity);
-        ctx.Add<Spark::RHI::ResourceName>(m_imageEntity,
-            Spark::RHI::ResourceName{ ObjectName("BaseColorImage") });
-
-        Spark::RHI::PendingImageInit init;
-        init.m_descriptor = RHI::ImageDescriptor::Create2D(
+        RHI::ImageDescriptor desc = RHI::ImageDescriptor::Create2D(
             RHI::ImageBindFlags::ShaderRead, 
             m_image->GetWidth(), 
             m_image->GetHeight(), 
             m_image->GetFormat());
-        init.m_descriptor.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
-        init.m_descriptor.m_mipLevels = m_image->GetMipLevels();
-        init.m_descriptor.m_bindFlags = RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite;
-        init.m_heapMemoryLevel = Spark::RHI::HeapMemoryLevel::Device;
-        ctx.Add<Spark::RHI::PendingImageInit>(m_imageEntity, init);
+        desc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
+        desc.m_mipLevels = m_image->GetMipLevels();
+        desc.m_bindFlags = RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite;
 
-        Spark::RHI::PendingImageUpload upload;
-        upload.m_data = m_image->GetImageData()->GetTextureBytes().data();
-        upload.m_dataSize = m_image->GetImageData()->GetTextureBytes().size();
-        upload.m_destinationOrigin = RHI::Origin();
-        upload.m_range = RHI::ImageSubresourceRange(init.m_descriptor);
-        upload.m_sourceFormat = m_image->GetFormat();
-        ctx.Add<Spark::RHI::PendingImageUpload>(m_imageEntity, upload);
-        ctx.Add<Spark::RHI::UploadPendingTag>(m_imageEntity);
+        m_imageEntity = RHI::CreateStaticImage(
+            ctx,
+            ObjectName("BaseColorImage"),
+            desc,
+            Spark::RHI::HeapMemoryLevel::Device,
+            Spark::RHI::HostMemoryAccess::Write
+        );
 
-        m_imageViewEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ResourceName>(m_imageViewEntity,
-            Spark::RHI::ResourceName{ ObjectName("BaseColorImage.View") });
-        ctx.Add<Spark::RHI::ImageViewDescriptor>(m_imageViewEntity,
-           RHI::ImageViewDescriptor::Create(m_image->GetFormat(), 0, m_image->GetMipLevels() - 1));
-        Spark::RHI::ViewHierarchy hierarchy;
-        hierarchy.m_resource = m_imageEntity;
-        ctx.Add<Spark::RHI::ViewHierarchy>(m_imageViewEntity, hierarchy);
+        RHI::RequestImageUpload(
+            ctx,
+            m_imageEntity,
+            m_image->GetImageData()->GetTextureBytes().data(),
+            m_image->GetImageData()->GetTextureBytes().size(),
+            RHI::ImageSubresourceRange(desc),
+            RHI::Origin(),
+            m_image->GetFormat()
+        );
+
+        Render::CreateStaticImageAttachment(
+            ctx,
+            m_imageEntity,
+            Spark::RHI::InputName("BaseColorImage"),
+            Spark::RHI::AttachmentAccess::Read,
+            Spark::RHI::AttachmentUsage::Shader,
+            Spark::RHI::AttachmentStage::FragmentShader
+        );
+
+        m_imageViewEntity = RHI::CreateImageView(
+            ctx,
+            m_imageEntity,
+            ObjectName("BaseColorImage.View"),
+            RHI::ImageViewDescriptor::Create(m_image->GetFormat(), 0, m_image->GetMipLevels() - 1)
+        );
     }
 
     void DrawCube::CreatePasses()
@@ -337,8 +313,8 @@ namespace Spark::SandBox
         // ================================================================
         SPARK_RENDER_PASS(passContext, "ScenePass")
             .Queue(Spark::RHI::HardwareQueueClass::Graphics)
-            .VertexShader(m_vertShader)
-            .FragmentShader(m_fragShader)
+            .VertexShader(m_shader)
+            .FragmentShader(m_shader)
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
@@ -382,21 +358,6 @@ namespace Spark::SandBox
 
                 builder.CreateImageAttachment<SPARK_PASS_TAG("ScenePass")>(
                     RHI::AttachmentId("SceneDepth"), depthDesc, depthBind, RHI::AttachmentAccess::Write);
-
-                // CubeVertex / CubeIndex are StaticImportTag resources.
-                // BufferPassAttachment was declared at creation time (DeclareStaticBufferAttachment).
-                // CompileStaticResourceBarriers handles the CopyDst→InputAssembly
-                // barrier automatically; no per-frame build registration needed.
-
-                Render::ImportedImageAttachmentBindInfo imageBind;
-                imageBind.m_slot    = Spark::RHI::InputName("Texture");
-                imageBind.m_view    = m_imageViewEntity;
-                imageBind.m_access  = Spark::RHI::AttachmentAccess::Read;
-                imageBind.m_usage   = Spark::RHI::AttachmentUsage::Shader;
-                imageBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Load;
-                imageBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::None;
-                builder.ImportImageAttachment<SPARK_PASS_TAG("ScenePass")>(
-                    Spark::RHI::AttachmentId("BaseColorImage"), imageBind);
             })
             .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
@@ -522,6 +483,7 @@ namespace Spark::SandBox
 
         Spark::RHI::ShaderInputIndex mvpIdx =
             m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_MVP"));
+        ASSERT(mvpIdx != RHI::InvalidShaderInputIndex, "No g_MVP shader input.");
         m_srg->SetConstantRaw(mvpIdx, &mvp, sizeof(mvp));
 
         Spark::RHI::ShaderInputIndex textureIdx =

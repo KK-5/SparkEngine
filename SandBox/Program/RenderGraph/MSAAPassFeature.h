@@ -61,8 +61,7 @@ namespace Spark::SandBox
         Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
 
         // Shader assets
-        Ptr<Spark::Resource::ShaderAsset> m_vertShader;
-        Ptr<Spark::Resource::ShaderAsset> m_fragShader;
+        Ptr<Spark::Resource::ShaderAsset> m_shader;
 
         Spark::RHI::Viewport m_viewport;
         Spark::RHI::Scissor  m_scissor;

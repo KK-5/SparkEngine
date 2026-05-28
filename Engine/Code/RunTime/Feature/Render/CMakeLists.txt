@@ -10,6 +10,7 @@ set(SOURCES
     RenderGraph/RenderGraphExecuter.cpp
     RenderGraph/RenderGraph.cpp
     RenderSystem.cpp
+    Shader/ShaderBuilder.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

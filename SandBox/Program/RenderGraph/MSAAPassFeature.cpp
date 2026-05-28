@@ -41,6 +41,8 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
+#include <Render/Shader/ShaderBuilder.h>
+
 #include <Window/IWindowSystem.h>
 
 #include "../Common/RenderGraphUtil.h"
@@ -86,6 +88,13 @@ namespace Spark::SandBox
             0, 0, (int32_t)windowSize.first, (int32_t)windowSize.second);
         m_viewport = viewport;
         m_scissor = scissor;
+
+        auto assetManager = Service<Spark::Resource::AssetManager>::Get();
+        ASSERT(assetManager, "[MSAAPassFeature] AssetManager service missing.");
+        m_shader = assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
+            Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("Shader/TriangleMVP.hlsl"));
+        ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
+            "[MSAAPassFeature] TriangleMVP.hlsl load failed.");
 
         CreateViewSRG();
         CreateVertexBuffer();
@@ -141,28 +150,7 @@ namespace Spark::SandBox
         auto* factory = rhi->GetRHIFactory();
         auto* device  = rhi->GetDevice();
 
-        m_srgLayout = factory->CreateShaderResourceLayout();
-
-        Spark::RHI::ShaderInputConstantDescriptor mvpConstant(
-            Spark::RHI::InputName("g_MVP"),
-            0,
-            sizeof(Math::Matrix4X4),
-            0,
-            0);
-        m_srgLayout->AddShaderInput(mvpConstant);
-
-        Spark::RHI::ShaderInputConstantDescriptor vColor
-        (
-            Spark::RHI::InputName("g_Color"),
-            sizeof(Math::Matrix4X4),
-            sizeof(Math::Vector3) * 3,
-            0,
-            0
-        );
-        m_srgLayout->AddShaderInput(vColor);
-
-        bool ok = m_srgLayout->Finalize();
-        ASSERT(ok, "[MSAAPassFeature] SRG layout Finalize failed.");
+        m_srgLayout = Render::BuildShaderResourceLayout(*m_shader);
 
         m_srg = factory->CreateShaderResource();
         if (m_srg->Init(*device, m_srgLayout) != Spark::RHI::ResultCode::Success)
@@ -209,16 +197,6 @@ namespace Spark::SandBox
 
     void MSAAPassFeature::CreatePasses()
     {
-        auto assetManager = Service<Spark::Resource::AssetManager>::Get();
-        ASSERT(assetManager, "[MSAAPassFeature] AssetManager service missing.");
-        Ptr<Spark::Resource::ShaderAsset> shader =
-            assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
-                Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("Shader/TriangleMVP.hlsl"));
-        ASSERT(shader && shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
-            "[MSAAPassFeature] TriangleMVP.hlsl load failed.");
-        m_vertShader = shader;
-        m_fragShader = shader;
-
         Spark::RHI::InputStreamLayoutBuilder islBuilder;
         islBuilder.Begin();
         islBuilder.SetTopology(Spark::RHI::PrimitiveTopology::TriangleList);
@@ -246,8 +224,8 @@ namespace Spark::SandBox
         // ================================================================
         SPARK_RENDER_PASS(passContext, "ScenePass")
             .Queue(Spark::RHI::HardwareQueueClass::Graphics)
-            .VertexShader(m_vertShader)
-            .FragmentShader(m_fragShader)
+            .VertexShader(m_shader)
+            .FragmentShader(m_shader)
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
@@ -388,6 +366,7 @@ namespace Spark::SandBox
 
         Spark::RHI::ShaderInputIndex mvpIdx =
             m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_MVP"));
+        ASSERT(mvpIdx != RHI::InvalidShaderInputIndex, "No g_MVP shader input.");
         m_srg->SetConstantRaw(mvpIdx, &mvp, sizeof(mvp));
 
         m_colorPhase += 0.01f;
@@ -402,7 +381,8 @@ namespace Spark::SandBox
         }
 
         Spark::RHI::ShaderInputIndex colorIdx =
-            m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_Color"));
+            m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_Colors"));
+        ASSERT(colorIdx != RHI::InvalidShaderInputIndex, "No g_Colors shader input.");
         m_srg->SetConstantRaw(colorIdx, colors, sizeof(colors));
 
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();

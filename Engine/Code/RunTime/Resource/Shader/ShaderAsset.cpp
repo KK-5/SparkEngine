@@ -32,6 +32,22 @@ namespace Spark::Resource
         return m_stages.find(stage) != m_stages.end();
     }
 
+    void ShaderAssetData::AddStageReflection(RHI::ShaderStage stage, ShaderStageReflection reflection)
+    {
+        m_reflections[stage] = eastl::move(reflection);
+    }
+
+    const ShaderStageReflection* ShaderAssetData::GetStageReflection(RHI::ShaderStage stage) const
+    {
+        auto it = m_reflections.find(stage);
+        return it != m_reflections.end() ? &it->second : nullptr;
+    }
+
+    bool ShaderAssetData::HasStageReflection(RHI::ShaderStage stage) const
+    {
+        return m_reflections.find(stage) != m_reflections.end();
+    }
+
     // ---- ShaderAsset ----
 
     Ptr<AssetDescriptor> ShaderAsset::DefaultDescriptor()
@@ -59,5 +75,11 @@ namespace Spark::Resource
     {
         auto* data = GetShaderData();
         return data ? data->HasStage(stage) : false;
+    }
+
+    const ShaderStageReflection* ShaderAsset::GetStageReflection(RHI::ShaderStage stage) const
+    {
+        auto* data = GetShaderData();
+        return data ? data->GetStageReflection(stage) : nullptr;
     }
 }

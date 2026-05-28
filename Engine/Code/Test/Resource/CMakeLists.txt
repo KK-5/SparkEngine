@@ -29,6 +29,7 @@ target_link_libraries(${TARGET_NAME}
     PRIVATE
         SparkCore
         SparkAssetManager
+        SparkRender
         gtest_main
         gmock_main
 )
@@ -38,6 +39,7 @@ target_compile_definitions(${TARGET_NAME}
         SHADER_ASSET_DIR="${ENGINE_ASSET_DIR}"
         IMAGE_ASSET_DIR="${ENGINE_ASSET_DIR}/Image/Test"
         MODEL_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Asset"
+        TEST_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 # 添加为CTest测试

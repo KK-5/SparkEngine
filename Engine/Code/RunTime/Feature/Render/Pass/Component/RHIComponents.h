@@ -166,7 +166,7 @@ namespace Spark::Render
         RHI::AttachmentAccess          m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
-        RHI::AttachmentLoadStoreAction m_action {};
+        RHI::AttachmentLoadStoreAction m_action {};  // Only meaningful for RenderTarget / DepthStencil; ignored for Shader, Copy, etc.
         //! View descriptor for transient attachments (m_view is NullHandle until
         //! CompileTransientResources materializes the view). Ignored for imported
         //! attachments — their m_view is already a fully formed view entity whose
