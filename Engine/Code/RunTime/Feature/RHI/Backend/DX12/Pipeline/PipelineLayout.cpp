@@ -242,6 +242,191 @@ namespace Spark::RHI::DX12
         }
     }
 
+    ////////////////////////////////////////////////////////////////
+    /// New path
+    void PipelineLayout::BuildSpaceGroupConstants(
+            const PipelineLayoutDescriptor* desc,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters
+    )
+    {
+        uint32_t groupCount = static_cast<uint32_t>(desc->GetSpaceGroupCount());
+        for (uint32_t index = 0; index < groupCount; ++index)
+        {
+            const RHI::ShaderInputGroup& spaceGroup = desc->GetSpaceGroup(index);
+
+            for (auto handle: spaceGroup.m_shaderInputs)
+            {
+                if (handle.m_type != ShaderInputType::Constant)
+                {
+                    continue;
+                }
+                const RHI::ShaderInputConstantDescriptor& constantInput = desc->GetConstantDescriptor(handle.m_index);
+
+                D3D12_ROOT_PARAMETER parameter;
+                parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+
+                parameter.ShaderVisibility = ConvertShaderStageMask(spaceGroup.m_stageMask);
+
+                parameter.Descriptor.ShaderRegister = constantInput.m_registerId;
+                parameter.Descriptor.RegisterSpace  = constantInput.m_spaceId;
+
+                m_spaceRootParams[index].m_constantBuffer = RootParameterIndex(parameters.size());
+                parameters.push_back(parameter);
+                break; // 同一组常量共享一个 CBV，取第一个即可
+            }
+        }
+    }
+
+    void PipelineLayout::BuildSpaceGroupResources(
+        const PipelineLayoutDescriptor* desc,
+        eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
+        eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
+    )
+    {
+        uint32_t groupCount = static_cast<uint32_t>(desc->GetSpaceGroupCount());
+        for (uint32_t index = 0; index < groupCount; ++index)
+        {
+            const RHI::ShaderInputGroup& spaceGroup = desc->GetSpaceGroup(index);
+
+            for (auto handle: spaceGroup.m_shaderInputs)
+            {
+                if (handle.m_type != ShaderInputType::Buffer && handle.m_type != ShaderInputType::Image)
+                {
+                    continue;
+                }
+
+                if (handle.m_type == ShaderInputType::Buffer)
+                {
+                    const RHI::ShaderInputBufferDescriptor& bufferInput = desc->GetBufferDescriptor(handle.m_index);
+                    D3D12_DESCRIPTOR_RANGE descriptorRange;
+                    descriptorRange.RegisterSpace  = bufferInput.m_spaceId;
+                    descriptorRange.NumDescriptors = bufferInput.m_count;
+                    descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+                    descriptorRange.BaseShaderRegister = bufferInput.m_registerId;
+
+                    switch (bufferInput.m_access)
+                    {
+                    case RHI::ShaderInputBufferAccess::Constant:
+                        descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+                        break;
+
+                    case RHI::ShaderInputBufferAccess::Read:
+                        descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                        break;
+
+                    case RHI::ShaderInputBufferAccess::ReadWrite:
+                        descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+                        break;
+                    }
+
+                    descriptorRanges[index].push_back(descriptorRange);
+                }
+
+                if (handle.m_type == ShaderInputType::Image)
+                {
+                    const RHI::ShaderInputImageDescriptor& imageInput = desc->GetImageDescriptor(handle.m_index);
+                    D3D12_DESCRIPTOR_RANGE descriptorRange;
+                    descriptorRange.RegisterSpace  = imageInput.m_spaceId;
+                    descriptorRange.NumDescriptors = imageInput.m_count;
+                    descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+                    descriptorRange.BaseShaderRegister = imageInput.m_registerId;
+
+                    switch (imageInput.m_access)
+                    {
+                    case RHI::ShaderInputImageAccess::Read:
+                        descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                        break;
+
+                    case RHI::ShaderInputImageAccess::ReadWrite:
+                        descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+                        break;
+                    }
+
+                    descriptorRanges[index].push_back(descriptorRange);
+                }
+            }
+
+            if (descriptorRanges[index].empty())
+            {
+                continue;
+            }
+
+            D3D12_ROOT_PARAMETER parameter;
+            parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            parameter.ShaderVisibility = ConvertShaderStageMask(spaceGroup.m_stageMask);
+            parameter.DescriptorTable.NumDescriptorRanges = static_cast<UINT>(descriptorRanges[index].size());
+            parameter.DescriptorTable.pDescriptorRanges = descriptorRanges[index].data();
+
+            m_spaceRootParams[index].m_resourceTable = RootParameterIndex(parameters.size());
+            parameters.push_back(parameter);
+        }
+    }
+
+    void PipelineLayout::BuildSpaceGroupSamplers(
+        const PipelineLayoutDescriptor* desc,
+        eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
+        eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[])
+    {
+        for (uint32_t index = 0; index < desc->GetSpaceGroupCount(); ++index)
+        {
+            const RHI::ShaderInputGroup& spaceGroup = desc->GetSpaceGroup(index);
+
+            for (auto handle : spaceGroup.m_shaderInputs)
+            {
+                if (handle.m_type != ShaderInputType::Sampler)
+                {
+                    continue;
+                }
+
+                const RHI::ShaderInputSamplerDescriptor& samplerInput = desc->GetSamplerDescriptor(handle.m_index);
+                D3D12_DESCRIPTOR_RANGE descriptorRange;
+                descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+                descriptorRange.RegisterSpace = samplerInput.m_spaceId;
+                descriptorRange.NumDescriptors = samplerInput.m_count;
+                descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+                descriptorRange.BaseShaderRegister = samplerInput.m_registerId;
+
+                descriptorRanges[index].push_back(descriptorRange);
+            }
+
+            if (descriptorRanges[index].empty())
+            {
+                continue;
+            }
+
+            D3D12_ROOT_PARAMETER parameter;
+            parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            parameter.ShaderVisibility = ConvertShaderStageMask(spaceGroup.m_stageMask);
+            parameter.DescriptorTable.NumDescriptorRanges = static_cast<UINT>(descriptorRanges[index].size());
+            parameter.DescriptorTable.pDescriptorRanges = descriptorRanges[index].data();
+
+            m_spaceRootParams[index].m_samplerTable = RootParameterIndex(parameters.size());
+            parameters.push_back(parameter);
+        }
+    }
+
+    void PipelineLayout::BuildSpaceGroupStaticSamplers(
+        const PipelineLayoutDescriptor* desc,
+        eastl::vector<D3D12_STATIC_SAMPLER_DESC>& staticSamplers)
+    {
+        for (uint32_t i = 0; i < desc->GetStaticSamplerDescriptorCount(); ++i)
+        {
+            const RHI::ShaderInputStaticSamplerDescriptor& samplerDesc = desc->GetStaticSamplerDescriptor(i);
+            const RHI::ShaderStageMask stageMask = desc->GetStaticSamplerStageMask(i);
+
+            D3D12_STATIC_SAMPLER_DESC d3dDesc;
+            ConvertStaticSampler(
+                samplerDesc.m_samplerState,
+                samplerDesc.m_registerId,
+                samplerDesc.m_spaceId,
+                ConvertShaderStageMask(stageMask),
+                d3dDesc);
+
+            staticSamplers.push_back(d3dDesc);
+        }
+    }
+    ////////////////////////////////////////////////////////////////
+
     void PipelineLayout::Init(Device& device, const RHI::PipelineLayoutDescriptor& descriptor)
     {
         m_hash = descriptor.GetHash();
@@ -273,6 +458,8 @@ namespace Spark::RHI::DX12
         m_indexToRootParameterBindingTable.resize(groupLayoutCount);
         m_indexToSlotTable.resize(groupLayoutCount);
 
+        m_spaceRootParams.resize(descriptor.GetSpaceGroupCount());
+
         for (uint32_t groupLayoutIndex = 0; groupLayoutIndex < groupLayoutCount; ++groupLayoutIndex)
         {
             const RHI::ShaderResourceLayout& groupLayout = *descriptor.GetShaderResourceLayout(groupLayoutIndex);
@@ -297,17 +484,30 @@ namespace Spark::RHI::DX12
         }
         ASSERT(usedSlotIndex == groupLayoutCount, "Unexpected number of used slots");
 
-        // Next, front-load by frequency the SRG Constants. Each SRG with Constants adds a constant buffer entry as root parameters of the root signature.
-        BuildShaderResourceConstants(dx12Descriptor, indexesSortedByFrequency, parameters);
+        if (descriptor.UsesShaderInputPath())
+        {
+            BuildSpaceGroupConstants(dx12Descriptor, parameters);
 
-        // Next, process the remaining descriptor tables by frequency.
-        BuildShaderResourceBuffersAndImages(dx12Descriptor, indexesSortedByFrequency, parameters, descriptorRanges);
+            BuildSpaceGroupResources(dx12Descriptor, parameters, descriptorRanges);
 
-        // Next, process the dynamic sampler descriptor tables by frequency. Sampler can't be mixed with other resources
-        BuildShaderResourceSamplers(dx12Descriptor, indexesSortedByFrequency, parameters, samplerDescriptorRanges);
+            BuildSpaceGroupSamplers(dx12Descriptor, parameters, samplerDescriptorRanges);
 
-        // Last, process by frequency the static samplers
-        BuildStaticSamplers(dx12Descriptor, indexesSortedByFrequency, parameters, staticSamplers);
+            BuildSpaceGroupStaticSamplers(dx12Descriptor, staticSamplers);
+        }
+        else
+        {
+            // Next, front-load by frequency the SRG Constants. Each SRG with Constants adds a constant buffer entry as root parameters of the root signature.
+            BuildShaderResourceConstants(dx12Descriptor, indexesSortedByFrequency, parameters);
+
+            // Next, process the remaining descriptor tables by frequency.
+            BuildShaderResourceBuffersAndImages(dx12Descriptor, indexesSortedByFrequency, parameters, descriptorRanges);
+
+            // Next, process the dynamic sampler descriptor tables by frequency. Sampler can't be mixed with other resources
+            BuildShaderResourceSamplers(dx12Descriptor, indexesSortedByFrequency, parameters, samplerDescriptorRanges);
+
+            // Last, process by frequency the static samplers
+            BuildStaticSamplers(dx12Descriptor, indexesSortedByFrequency, parameters, staticSamplers);
+        }
 
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;

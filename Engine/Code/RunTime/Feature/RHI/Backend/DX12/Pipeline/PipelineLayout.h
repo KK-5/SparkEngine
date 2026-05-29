@@ -71,6 +71,11 @@ namespace Spark::RHI::DX12
         /// Returns the hash of the pipeline layout provided by the descriptor.
         size_t GetHash() const;
 
+        // New path
+        const RootParameterBinding& GetSpaceBinding(uint32_t spaceIndex) const;
+
+        size_t GetSpaceGroupCount() const;
+
     private:
         void BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);
 
@@ -101,6 +106,29 @@ namespace Spark::RHI::DX12
             eastl::vector<D3D12_STATIC_SAMPLER_DESC> staticSamplers
         );
 
+        /// New path
+        void BuildSpaceGroupConstants(
+            const PipelineLayoutDescriptor* desc,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters
+        );
+
+        void BuildSpaceGroupResources(
+            const PipelineLayoutDescriptor* desc,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
+            eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
+        );
+
+        void BuildSpaceGroupSamplers(
+            const PipelineLayoutDescriptor* desc,
+            eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
+            eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
+        );
+
+        void BuildSpaceGroupStaticSamplers(
+            const PipelineLayoutDescriptor* desc,
+            eastl::vector<D3D12_STATIC_SAMPLER_DESC>& staticSamplers
+        );
+
         /// Tables for mapping between SRG slots (sparse) to SRG indices (packed).
         eastl::array<uint8_t, RHI::Limits::Pipeline::ShaderResourceCountMax> m_slotToIndexTable;
         eastl::fixed_vector<uint8_t, RHI::Limits::Pipeline::ShaderResourceCountMax> m_indexToSlotTable;
@@ -113,6 +141,9 @@ namespace Spark::RHI::DX12
 
         /// Tracks whether this pipeline layout has inline constants.
         bool m_hasRootConstants = false;
+
+        /// New path
+        eastl::fixed_vector<RootParameterBinding, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceRootParams;
 
         Ptr<ID3D12RootSignature> m_signature;
         ConstPtr<RHI::PipelineLayoutDescriptor> m_layoutDescriptor;

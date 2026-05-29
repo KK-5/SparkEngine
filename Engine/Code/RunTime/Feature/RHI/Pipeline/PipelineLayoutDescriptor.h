@@ -12,7 +12,7 @@
 #include <RHI/RHILimits.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
 #include <RHI/Resource/ShaderResource/ConstantsLayout.h>
-#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
+#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
 #include "ShaderStages.h"
 
 namespace Spark::RHI
@@ -132,7 +132,7 @@ namespace Spark::RHI
         bool UsesShaderInputPath() const;
 
         // SpaceGroup 访问 — DX12 build loop 和 Compiler 使用
-        size_t                      GetSpaceGroupCount() const;
+        size_t                  GetSpaceGroupCount() const;
         const ShaderInputGroup& GetSpaceGroup(size_t index) const;
 
         // 按下标取单个 descriptor — 配合 ShaderInputRef 在 SpaceGroup loop 里使用
