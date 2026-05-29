@@ -27,6 +27,25 @@ namespace Spark::RHI::DX12
     class Device;
 
     /**
+     * Root parameter indices for each inline CBV (D3D12_ROOT_PARAMETER_TYPE_CBV) in a SpaceGroup.
+     * One entry per unique cbuffer register, in the order they are first seen within the group.
+     */
+    struct SpaceCBVBinding
+    {
+        static constexpr uint32_t MaxCount = 8;
+        eastl::fixed_vector<RootParameterIndex, MaxCount> m_rootIndices;
+    };
+
+    /**
+     * Root parameter indices for the descriptor tables of a SpaceGroup.
+     */
+    struct SpaceTableBinding
+    {
+        RootParameterIndex m_resourceTable = InvalidRootParameterIndex;
+        RootParameterIndex m_samplerTable  = InvalidRootParameterIndex;
+    };
+
+    /**
      * PipelineLayouts are created from a cache. They are internally de-duplicated using the hash value computed
      * by the descriptor. Ownership of a particular element in the cache is still externally managed (via ConstPtr).
      * When all references to a particular instance are destroyed, the object is unregistered from the cache.
@@ -75,6 +94,9 @@ namespace Spark::RHI::DX12
         const RootParameterBinding& GetSpaceBinding(uint32_t spaceIndex) const;
 
         size_t GetSpaceGroupCount() const;
+
+        const SpaceCBVBinding&   GetSpaceCBVBinding(uint32_t spaceIndex) const;
+        const SpaceTableBinding& GetSpaceTableBinding(uint32_t spaceIndex) const;
 
     private:
         void BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);
@@ -144,6 +166,8 @@ namespace Spark::RHI::DX12
 
         /// New path
         eastl::fixed_vector<RootParameterBinding, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceRootParams;
+        eastl::fixed_vector<SpaceCBVBinding,       RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceCBVBindings;
+        eastl::fixed_vector<SpaceTableBinding,     RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceTableBindings;
 
         Ptr<ID3D12RootSignature> m_signature;
         ConstPtr<RHI::PipelineLayoutDescriptor> m_layoutDescriptor;

@@ -96,6 +96,10 @@ namespace Spark::RHI::DX12
         /// PipelineLayoutDescriptor
         size_t GetHashInternal(size_t seed) const override;
         ResultCode FinalizeInternal() override;
+        void ValidateShaderInputOverlapInternal(
+            const ShaderInputHandle& newHandle,
+            const ShaderInputHandle& existingHandle,
+            uint32_t spaceId) const override;
         //////////////////////////////////////////////////////////////////////////
 
         RootConstantBinding m_rootConstantBinding;

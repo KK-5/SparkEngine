@@ -254,7 +254,11 @@ namespace Spark::RHI::DX12
         {
             const RHI::ShaderInputGroup& spaceGroup = desc->GetSpaceGroup(index);
 
-            for (auto handle: spaceGroup.m_shaderInputs)
+            // One root CBV per unique register — constants sharing the same register
+            // belong to the same cbuffer and must not produce duplicate root parameters.
+            eastl::fixed_vector<uint32_t, SpaceCBVBinding::MaxCount> registers;
+
+            for (auto handle : spaceGroup.m_shaderInputs)
             {
                 if (handle.m_type != ShaderInputType::Constant)
                 {
@@ -262,17 +266,29 @@ namespace Spark::RHI::DX12
                 }
                 const RHI::ShaderInputConstantDescriptor& constantInput = desc->GetConstantDescriptor(handle.m_index);
 
+                bool hasRegister = false;
+                for (uint32_t reg : registers)
+                {
+                    if (reg == constantInput.m_registerId)
+                    {
+                        hasRegister = true;
+                        break;
+                    }
+                }
+                if (hasRegister)
+                {
+                    continue;
+                }
+                registers.push_back(constantInput.m_registerId);
+
                 D3D12_ROOT_PARAMETER parameter;
                 parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-
                 parameter.ShaderVisibility = ConvertShaderStageMask(spaceGroup.m_stageMask);
-
                 parameter.Descriptor.ShaderRegister = constantInput.m_registerId;
                 parameter.Descriptor.RegisterSpace  = constantInput.m_spaceId;
 
-                m_spaceRootParams[index].m_constantBuffer = RootParameterIndex(parameters.size());
+                m_spaceCBVBindings[index].m_rootIndices.push_back(RootParameterIndex(parameters.size()));
                 parameters.push_back(parameter);
-                break; // 同一组常量共享一个 CBV，取第一个即可
             }
         }
     }
@@ -357,7 +373,7 @@ namespace Spark::RHI::DX12
             parameter.DescriptorTable.NumDescriptorRanges = static_cast<UINT>(descriptorRanges[index].size());
             parameter.DescriptorTable.pDescriptorRanges = descriptorRanges[index].data();
 
-            m_spaceRootParams[index].m_resourceTable = RootParameterIndex(parameters.size());
+            m_spaceTableBindings[index].m_resourceTable = RootParameterIndex(parameters.size());
             parameters.push_back(parameter);
         }
     }
@@ -400,7 +416,7 @@ namespace Spark::RHI::DX12
             parameter.DescriptorTable.NumDescriptorRanges = static_cast<UINT>(descriptorRanges[index].size());
             parameter.DescriptorTable.pDescriptorRanges = descriptorRanges[index].data();
 
-            m_spaceRootParams[index].m_samplerTable = RootParameterIndex(parameters.size());
+            m_spaceTableBindings[index].m_samplerTable = RootParameterIndex(parameters.size());
             parameters.push_back(parameter);
         }
     }
@@ -447,18 +463,10 @@ namespace Spark::RHI::DX12
 
         const PipelineLayoutDescriptor* dx12Descriptor = static_cast<const PipelineLayoutDescriptor*>(&descriptor);
 
-        /**
-         * If the pipeline layout uses an inline constant binding, that becomes the very first
-         * parameter in the root signature.
-         */
-        BuildRootCanstants(dx12Descriptor, parameters);
-
-        // Initialise mapping tables
+        // Initialise old-path mapping tables (no-op for new path since groupLayoutCount == 0)
         m_slotToIndexTable.fill(static_cast<uint8_t>(RHI::Limits::Pipeline::ShaderResourceCountMax));
         m_indexToRootParameterBindingTable.resize(groupLayoutCount);
         m_indexToSlotTable.resize(groupLayoutCount);
-
-        m_spaceRootParams.resize(descriptor.GetSpaceGroupCount());
 
         for (uint32_t groupLayoutIndex = 0; groupLayoutIndex < groupLayoutCount; ++groupLayoutIndex)
         {
@@ -486,12 +494,13 @@ namespace Spark::RHI::DX12
 
         if (descriptor.UsesShaderInputPath())
         {
+            m_spaceRootParams.resize(descriptor.GetSpaceGroupCount());
+            m_spaceCBVBindings.resize(descriptor.GetSpaceGroupCount());
+            m_spaceTableBindings.resize(descriptor.GetSpaceGroupCount());
+
             BuildSpaceGroupConstants(dx12Descriptor, parameters);
-
             BuildSpaceGroupResources(dx12Descriptor, parameters, descriptorRanges);
-
             BuildSpaceGroupSamplers(dx12Descriptor, parameters, samplerDescriptorRanges);
-
             BuildSpaceGroupStaticSamplers(dx12Descriptor, staticSamplers);
         }
         else
@@ -526,6 +535,26 @@ namespace Spark::RHI::DX12
         m_signature = rootSignature.Get();
         
         DeviceObject::Init(device);
+    }
+
+    const RootParameterBinding& PipelineLayout::GetSpaceBinding(uint32_t spaceIndex) const
+    {
+        return m_spaceRootParams[spaceIndex];
+    }
+
+    size_t PipelineLayout::GetSpaceGroupCount() const
+    {
+        return m_spaceRootParams.size();
+    }
+
+    const SpaceCBVBinding& PipelineLayout::GetSpaceCBVBinding(uint32_t spaceIndex) const
+    {
+        return m_spaceCBVBindings[spaceIndex];
+    }
+
+    const SpaceTableBinding& PipelineLayout::GetSpaceTableBinding(uint32_t spaceIndex) const
+    {
+        return m_spaceTableBindings[spaceIndex];
     }
 
     bool PipelineLayout::HasRootConstants() const
