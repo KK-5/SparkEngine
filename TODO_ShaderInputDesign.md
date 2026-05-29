@@ -466,12 +466,322 @@ abstract RHI 只做调用，完全不出现 CBV/SRV/UAV/Sampler 字样。CBV/SRV
 **新增 CLAUDE.md 原则**：
 > 禁止出现"等 Vulkan 实装后再处理"的设计决策。RHI 抽象层的数据结构和 API 必须在设计时就对所有目标后端正确，不能留跨后端兼容债。
 
+### 2026-05-29 — Step 3 完成：DX12 PipelineLayout 构建 root signature from SpaceGroups
+
+**改动文件**：
+- `RHI/Backend/DX12/Pipeline/PipelineLayout.h` — 新增 `GetSpaceBinding`、`GetSpaceGroupCount`；新增 4 个 BuildSpaceGroup* 方法声明；新增 `m_spaceRootParams` 成员
+- `RHI/Backend/DX12/Pipeline/PipelineLayout.cpp` — 实现 `BuildSpaceGroupConstants`、`BuildSpaceGroupResources`、`BuildSpaceGroupSamplers`、`BuildSpaceGroupStaticSamplers`；`Init()` 内 `UsesShaderInputPath()` 分支
+
+**BuildSpaceGroupConstants**：遍历 SpaceGroup，找到 Constant 类型 handle → 查 descriptor 取 `registerId`/`spaceId` → 生产 `D3D12_ROOT_PARAMETER_TYPE_CBV`。一个 SpaceGroup 最多一个 CBV root param。
+
+**BuildSpaceGroupResources**：对每个 SpaceGroup，收集内部 Buffer/Image handle 对应的 `D3D12_DESCRIPTOR_RANGE`（Buffer Constant→CBV, Buffer Read→SRV, Buffer ReadWrite→UAV, Image Read→SRV, Image ReadWrite→UAV），汇总为一个 `D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE`。
+
+**BuildSpaceGroupSamplers**：同上，只收集 Sampler 类型 → 一个 sampler descriptor table。
+
+**BuildSpaceGroupStaticSamplers**：遍历 `m_staticSamplerDescs`，调用 `ConvertStaticSampler` 生成 `D3D12_STATIC_SAMPLER_DESC`。
+
+**Root parameter 顺序（每个 SpaceGroup）**：
+1. CBV root param（如有 Constant）
+2. Resource descriptor table（CBV+SRV+UAV，如有多条 range）
+3. Sampler descriptor table（如有 Sampler）
+
+`m_spaceRootParams[spaceIndex]` 并行于 `PipelineLayoutDescriptor::m_spaceGroups`，存每组对应的 `RootParameterBinding{m_constantBuffer, m_resourceTable, m_samplerTable}`。
+
+### RHI 层剩余待完成
+
+以下 5 项是 RHI 层尚未完成的工作（按优先级排序）：
+
+#### 1. `BuildRootCanstants` 对新路径仍执行（正确性 bug）
+
+`PipelineLayout.cpp::Init()` L454 在 `UsesShaderInputPath()` 分支**之前**无条件调用 `BuildRootCanstants(dx12Descriptor, parameters)`。旧路径的 root constants 排在 root signature 最前面，但新路径的常量通过 `BuildSpaceGroupConstants` 以 CBV 形式处理。结果：新路径 root signature 多一个不该存在的 32BIT_CONSTANTS root parameter。
+
+**修复**：把 `BuildRootCanstants` 移入 `else` 分支（旧路径专用）。
+
+#### 2. 旧路径初始化代码也在分支前执行（浪费）
+
+`PipelineLayout.cpp::Init()` L436-484 计算 `groupLayoutCount`、填充 `m_slotToIndexTable`/`m_indexToSlotTable`/`m_indexToRootParameterBindingTable`、构建 `indexesSortedByFrequency`——新路径不需要这些。对新路径不会崩溃但浪费，应移入 `else` 分支。
+
+#### 3. DX12 `ValidateShaderInputOverlapInternal` 未 override
+
+虚函数在 `RHI::PipelineLayoutDescriptor` 已定义（默认 no-op），`InsertShaderInput` 在 `Validation::isEnabled` 下调用，但 DX12 的 `PipelineLayoutDescriptor` 没有 override。Binding 重叠检查被静默跳过。
+
+需要：在 DX12 `PipelineLayoutDescriptor` override `ValidateShaderInputOverlapInternal`，按 `(HlslRegNs namespace, registerId, count)` 做范围重叠检查。同时考虑 `VulkanBindingShift`（CBV=0, SRV=1000, UAV=2000, Sampler=3000）做 flat binding namespace 检查，确保同一 space 内不同 HLSL register namespace 不映射到相同 flat binding。
+
+#### 4. ShaderInputCompiler + ShaderBindings（新文件）
+
+参见下方 [ShaderInputCompiler 设计](#ShaderInputCompiler-设计)。
+
+#### 5. 旧 ShaderResource 路径删除（远期）
+
+`ShaderResource`/`ShaderResourceLayout`/`ShaderResourcePool`/`ConstantsLayout`/`ConstantsData` 等 ~16 个文件。等新路径跑通 demo 后一次性删除。
+
 ### 下一步
 
-1. **ShaderBuilder::BuildShaderInputList()**：调用 DXC 反射 DXIL 填 `ShaderInputList`（纯 descriptor，不含数据）
-2. **DX12 PipelineLayout 适配**：`UsesShaderInputPath()` 为 true 时按 SpaceGroup 构建 root signature descriptor table ranges，产出并行数组 `DX12SpaceBinding[]`
-3. **DX12 `ValidateShaderInputOverlapInternal` 实现**：按 `(HlslRegNs, registerId)` + `VulkanBindingShift` 做 flat binding 重叠检查
-4. **ShaderInputCompiler 骨架**：`Compile(span<ShaderInput*>, PipelineLayout)` → `ShaderBindings`
+1. 修复 `BuildRootCanstants` 和旧路径 init 代码的 placement（移入 `else` 分支）
+2. DX12 `ValidateShaderInputOverlapInternal` override
+3. ShaderInputCompiler + ShaderBindings 实现
+4. ShaderBuilder::BuildShaderInputList()（DXC 反射填 `ShaderInputList`）
+
+---
+
+## ShaderInputCompiler 设计
+
+### 概述
+
+ShaderInputCompiler 取代 `ShaderResourceCompiler`。输入是 caller 传入的 ShaderInput 列表（只有需要编译的才传，不内部判断 dirty）+ PipelineLayout，输出是 `ShaderBindings`（每帧产出 per-root-param GPU handles）。`ShaderBindings` 首次编译时惰性分配 descriptor table，后续复用。
+
+### API
+
+```cpp
+// RHI 层
+class ShaderInputCompiler : public DeviceObject
+{
+public:
+    ResultCode Init(Device& device);
+    void Shutdown() override;
+
+    // 只编译 caller 传入的 inputs（脏的才传），不做 dirty 判断
+    // ShaderBindings: in/out，首次为空对象时内部惰性分配 descriptor table
+    ResultCode Compile(
+        const PipelineLayout& layout,
+        eastl::span<const ShaderInputBuffer*>   buffers,
+        eastl::span<const ShaderInputImage*>    images,
+        eastl::span<const ShaderInputSampler*>  samplers,
+        eastl::span<const ShaderInputConstant*> constants,
+        ShaderBindings& outBindings);
+
+private:
+    virtual ResultCode CompileInternal(...) = 0;
+};
+```
+
+### ShaderBindings
+
+**RHI 层**：空壳 DeviceObject，只提供类型和生命周期，CommandList 绑定接口通过它关联资源。
+
+```cpp
+class ShaderBindings : public DeviceObject
+{
+public:
+    virtual ~ShaderBindings() = default;
+protected:
+    ShaderBindings() = default;
+};
+```
+
+**DX12 层**：全部数据（m_spaceData / m_entries / dirty mask）都在此处。ShaderBindings 创建时为空，首次 Compile 时根据 PipelineLayout 的实际规模 resize 到精确大小，不预设最大值。
+
+```cpp
+class ShaderBindings final : public RHI::ShaderBindings
+{
+    // 每个 SpaceGroup 持有的分配资源，以 DescriptorTable::IsValid() 判断是否已分配
+    struct SpaceGroupData
+    {
+        DescriptorTable m_viewsTable;       // CBV+SRV+UAV descriptor table (ring-buffered)
+        DescriptorTable m_samplersTable;    // sampler descriptor table (ring-buffered)
+        MemoryView      m_constantMemory;   // constant buffer (ring-buffered)
+        uint32_t        m_ringIndex = 0;
+    };
+    eastl::vector<SpaceGroupData> m_spaceData;
+    // m_spaceData[i] 对应 PipelineLayout::m_spaceGroups[i]
+
+    struct Entry
+    {
+        GpuDescriptorHandle m_gpuDescriptorTable;   // descriptor table 类型的 GPU handle
+        GpuVirtualAddress  m_gpuConstantAddress;    // CBV 类型的 GPU 地址
+        CpuVirtualAddress  m_cpuConstantAddress;    // CBV 的 CPU 写入口
+    };
+
+    eastl::vector<Entry> m_entries;   // size = root param count
+
+    // dirty mask: bit i = 第 i 个 root param 被本次 Compile 写入
+    // CommandList 只绑定脏的，绑定后清零
+    uint64_t m_dirtyMask = 0;
+
+    size_t m_layoutHash = 0;     // 首次 Compile 记下，后续校验 layout 匹配
+
+    friend class ShaderInputCompiler;
+    friend class CommandList;
+};
+```
+
+**首次 Compile 确定形态**（类似 Vulkan `vkAllocateDescriptorSets` 在已知 `VkDescriptorSetLayout` 下分配）：
+
+```cpp
+auto& b = static_cast<ShaderBindings&>(outBindings);
+
+if (b.m_layoutHash == 0)
+{
+    b.m_layoutHash = layout.GetHash();
+    b.m_spaceData.resize(layout.GetSpaceGroupCount());
+    b.m_entries.resize(layout.GetRootParameterCount());
+}
+```
+
+之后 Compile 和 Bind 用 `m_spaceData.size()` / `m_entries.size()` 作为边界，不需要假设全局上限。实际效果：
+
+```
+Pass layout:    1 SpaceGroup, 1 root param  → m_spaceData=1, m_entries=1
+Material layout: 2 SpaceGroups, 4 root params → m_spaceData=2, m_entries=4
+```
+
+**Binding**：m_entries 和 root signature 的 root param index 始终 1:1 对应，下标直接索引。
+
+**dirty mask 机制**
+
+ShaderBindings 持有全部 root param 的 Entry，单次 Compile 只更新部分 SpaceGroup。需要区分哪些 root param 真正被更新，避免 CommandList 调用多余的 `SetGraphicsRootDescriptorTable`。
+
+```cpp
+// Compiler — 写 Entry 后置位
+m_entries[rootParamIdx].m_gpuDescriptorTable = gpuHandle;
+m_dirtyMask |= (1ull << rootParamIdx);
+
+// CommandList — 只绑脏的
+uint64_t mask = bindings.m_dirtyMask;
+while (mask)
+{
+    uint32_t idx = BitScanForward(mask);   // idx of least significant set bit
+    const auto& e = bindings.m_entries[idx];
+    if (e.m_gpuDescriptorTable.IsValid())
+        commandList->SetGraphicsRootDescriptorTable(idx, e.m_gpuDescriptorTable);
+    if (e.m_gpuConstantAddress != 0)
+        commandList->SetGraphicsRootConstantBufferView(idx, e.m_gpuConstantAddress);
+    mask &= (mask - 1);
+}
+bindings.m_dirtyMask = 0;
+```
+
+dirty mask 是 per-ShaderBindings 的，不是全局的。多个 ShaderBindings（Pass + Material）各自独立管理。
+
+**layout 匹配校验**
+
+ShaderBindings 首次 Compile 时记录 PipelineLayout 的 hash，后续每次 Compile 校验是否匹配，防止传错 ShaderBindings。
+
+```cpp
+class ShaderBindings final : public RHI::ShaderBindings
+{
+    size_t m_layoutHash = 0;   // 首次 Compile 记下，后续校验
+    // ...
+};
+```
+
+```cpp
+// CompileInternal:
+auto& dx12Bindings = static_cast<ShaderBindings&>(outBindings);
+
+if (dx12Bindings.m_layoutHash == 0)
+{
+    dx12Bindings.m_layoutHash = layout.GetHash();
+}
+else
+{
+    ASSERT(dx12Bindings.m_layoutHash == layout.GetHash(),
+           "[ShaderInputCompiler] ShaderBindings / PipelineLayout mismatch.");
+}
+```
+
+首次 layout hash 为 0 意味着新实例（或 Reset 后），自动记录。后续如果传了不同 PipelineLayout 的 ShaderBindings，Assert 会直接触发。
+
+### 后端 CompileInternal 流程（DX12）
+
+```
+1. 将传入的 ShaderInput 按 GetDescription().m_spaceId 分组
+   → 匹配 PipelineLayout::m_spaceGroups[i]
+
+2. 对每个命中的 SpaceGroup:
+   a. 首次编译: 从 DescriptorContext 分配 descriptor table
+      - 计算 views/sampler descriptor 总大小: 遍历 SpaceGroup::m_shaderInputs，累加 count
+      - Ring-buffered: totalSize × frameCountMax
+      - 同样从 ConstantBufferContext 分配 constant buffer
+      - 存到 ShaderBindings 内部
+
+   b. 推进 ring index
+
+   c. 写资源 descriptor（按 m_shaderInputs 顺序，累加 offset）:
+      遍历 SpaceGroup::m_shaderInputs:
+        Buffer(Constant)  → CBV @ offset
+        Buffer(Read)      → SRV @ offset
+        Buffer(ReadWrite) → UAV @ offset
+        Image(Read)       → SRV @ offset
+        Image(ReadWrite)  → UAV @ offset
+        offset += handle 对应 descriptor 的 m_count
+
+   d. 写 sampler descriptor（同上，sampler table 独立）:
+      遍历 Sampler handle → sampler descriptor @ offset, offset += count
+
+   e. 常量处理（暂不做 split，全部走 CBV）:
+      → 分配 constant buffer → memcpy 常量数据
+      → CBV descriptor @ offset, offset += 1
+
+   f. 记录 GPU handles 到 Entry + 置 dirty bit:
+      取 m_spaceRootParams[spaceIndex].m_resourceTable 等
+      → m_entries[rootParamIdx] = { gpuHandle, gpuConstAddress, cpuConstAddress }
+      → m_dirtyMask |= (1ull << rootParamIdx)
+
+3. 静态采样器不占 descriptor table，跳过
+```
+
+### Descriptor table offset 计算
+
+**key: BuildSpaceGroupResources 和 Compiler 两边遍历同一个 `SpaceGroup::m_shaderInputs`，用同一个顺序，累加同一个 `m_count`。**
+
+```
+SpaceGroup::m_shaderInputs (space=0):
+  [0] Buffer(b0, Constant, count=1)  → offset = 0
+  [1] Buffer(b3, Read,     count=2)  → offset = 0 + 1 = 1
+  [2] Image (t0, Read,     count=1)  → offset = 0 + 1 + 2 = 3
+
+DescriptorTable 布局:
+  table[0]   = CBV(b0)       ← handle[0]
+  table[1]   = SRV(b3 view0) ← handle[1]
+  table[2]   = SRV(b3 view1)
+  table[3]   = SRV(t0)       ← handle[2]
+```
+
+Build 侧和 Compile 侧的伪代码：
+
+```cpp
+// BuildSpaceGroupResources — 生成 D3D12_DESCRIPTOR_RANGE
+uint32_t offset = 0;
+for (auto& handle : spaceGroup.m_shaderInputs) {
+    uint32_t count = GetCountFromDescriptor(desc, handle);
+    D3D12_DESCRIPTOR_RANGE& range = ranges.push_back();
+    range.BaseShaderRegister  = GetRegisterId(desc, handle);
+    range.OffsetInDescriptorsFromTableStart = offset;   // GPU 从这里读
+    range.NumDescriptors      = count;
+    offset += count;
+}
+
+// Compiler — 写 descriptor
+uint32_t offset = 0;
+for (auto& handle : spaceGroup.m_shaderInputs) {
+    uint32_t count = GetCountFromDescriptor(desc, handle);  // 同一个 desc
+    WriteDescriptors(&table[offset], shaderInput, count);   // 写到 GPU 读的位置
+    offset += count;
+}
+```
+
+不存预计算 offset：一个 SpaceGroup 最多 8 个 handle（`fixed_vector<ShaderInputHandle, 8>`），累加 count 就是 8 次查 descriptor + 8 次加法。全局最多 8 个 SpaceGroup，不值得存。
+
+### 与旧 Compiler 对应关系
+
+| 旧 (ShaderResourceCompiler) | 新 (ShaderInputCompiler) |
+|---|---|
+| `span<ShaderResource*>` | `span<const ShaderInput*>` 四种类型 |
+| `AllocateShaderResource` | `ShaderBindings` 首次 Compile 惰性分配 |
+| `UpdateShaderResource` | Compile 每帧 descriptor 写入 |
+| `SRG.m_compiledData[N]` | `ShaderBindings.m_entries[N]` |
+| `GetGroupInterval` 计算偏移 | 遍历 `m_shaderInputs` 累加 `m_count` |
+| `m_indexToRootParameterBindingTable[slot]` | `m_spaceRootParams[spaceIndex]` |
+| 所有常量 → SRG constant buffer | 所有常量 → CBV (暂不做 root constant split) |
+
+### VulkanBindingShift 职责限定
+
+`VulkanBindingShift`（CBV=0, SRV=1000, UAV=2000, Sampler=3000）**只用于 Vulkan 路径**，和 DX12 descriptor table offset 无关：
+
+1. DXC 编译 HLSL→SPIR-V 时的 `-fvk-X-shift` 参数（shader 侧 register remapping）
+2. Vulkan backend 写 `VkWriteDescriptorSet::dstBinding` 时的偏移（`shift + registerId`）
+3. `ValidateShaderInputOverlapInternal` binding 冲突检查——把不同 HLSL register namespace 映射到 Vulkan 平坦 binding 空间做重叠检测
 
 ## 验证
 

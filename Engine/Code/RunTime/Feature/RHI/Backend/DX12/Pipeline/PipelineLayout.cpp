@@ -409,7 +409,7 @@ namespace Spark::RHI::DX12
         const PipelineLayoutDescriptor* desc,
         eastl::vector<D3D12_STATIC_SAMPLER_DESC>& staticSamplers)
     {
-        for (uint32_t i = 0; i < desc->GetStaticSamplerDescriptorCount(); ++i)
+        for (uint32_t i = 0; i < desc->GetStaticSamplerCount(); ++i)
         {
             const RHI::ShaderInputStaticSamplerDescriptor& samplerDesc = desc->GetStaticSamplerDescriptor(i);
             const RHI::ShaderStageMask stageMask = desc->GetStaticSamplerStageMask(i);
