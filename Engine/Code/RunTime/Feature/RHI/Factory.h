@@ -28,6 +28,8 @@ namespace Spark::RHI
     class ShaderResourceLayout;
     class ShaderResource;
     class ShaderResourceCompiler;
+    class ShaderBindings;
+    class ShaderInputCompiler;
 
     class PipelineLibrary;
     class PipelineState;
@@ -89,6 +91,10 @@ namespace Spark::RHI
         virtual Ptr<ShaderResource> CreateShaderResource() = 0;
 
         virtual ShaderResourceCompiler& AcquireShaderResourceCompiler(RHI::Device& device) = 0;
+
+        virtual Ptr<ShaderBindings> CreateShaderBindings() = 0;
+
+        virtual ShaderInputCompiler& AcquireShaderInputCompiler(RHI::Device& device) = 0;
 
         virtual Ptr<PipelineLibrary> CreatePipelineLibrary() = 0;
 

@@ -27,8 +27,10 @@ namespace Spark::RHI::DX12
     class Device;
 
     /**
-     * Root parameter indices for each inline CBV (D3D12_ROOT_PARAMETER_TYPE_CBV) in a SpaceGroup.
-     * One entry per unique cbuffer register, in the order they are first seen within the group.
+     * Root parameter indices for the K root CBVs of one SpaceGroup. The k-th entry
+     * here corresponds 1:1 with RHI::ShaderInputGroup::m_constantBuffers[k] — same
+     * register, same iteration order. Byte layout itself lives on the RHI-layer
+     * ConstantBufferLayout; this struct only carries the DX12-specific binding info.
      */
     struct SpaceCBVBinding
     {
@@ -97,6 +99,10 @@ namespace Spark::RHI::DX12
 
         const SpaceCBVBinding&   GetSpaceCBVBinding(uint32_t spaceIndex) const;
         const SpaceTableBinding& GetSpaceTableBinding(uint32_t spaceIndex) const;
+
+        /// Resolve an HLSL space id to the parallel array index used by
+        /// GetSpaceCBVBinding / GetSpaceTableBinding. Returns -1 if not present.
+        int32_t FindSpaceIndexBySpaceId(uint32_t spaceId) const;
 
     private:
         void BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);

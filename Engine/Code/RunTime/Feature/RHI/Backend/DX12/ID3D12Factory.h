@@ -18,6 +18,8 @@
 #include "Resource/Transient/TransientResourcePool.h"
 #include "Resource/ShaderResource/ShaderResource.h"
 #include "Resource/ShaderResource/ShaderResourceCompiler.h"
+#include "Resource/ShaderInput/ShaderBindings.h"
+#include "Resource/ShaderInput/ShaderInputCompiler.h"
 #include "Pipeline/PipelineLibrary.h"
 #include "Pipeline/PipelineState.h"
 #include "Pipeline/PipelineLayout.h"
@@ -129,6 +131,10 @@ namespace Spark::RHI::DX12
 
         RHI::ShaderResourceCompiler& AcquireShaderResourceCompiler(RHI::Device& device) override;
 
+        Ptr<RHI::ShaderBindings> CreateShaderBindings() override;
+
+        RHI::ShaderInputCompiler& AcquireShaderInputCompiler(RHI::Device& device) override;
+
         Ptr<RHI::PipelineLibrary> CreatePipelineLibrary() override;
 
         Ptr<RHI::PipelineState> CreatePipelineState() override;
@@ -166,6 +172,7 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<ImageView>                 m_imageViewObjectPool;
         DeviceObjectPool<TransientResourcePool>     m_transientResourcePoolObjectPool;
         DeviceObjectPool<ShaderResource>            m_shaderResourceObjectPool;
+        DeviceObjectPool<ShaderBindings>            m_shaderBindingsObjectPool;
         DeviceObjectPool<PipelineLibrary>           m_pipelineLibraryObjectPool;
         DeviceObjectPool<PipelineState>             m_pipelineStateObjectPool;
         DeviceObjectPool<Fence>                     m_fenceObjectPool;
@@ -180,6 +187,7 @@ namespace Spark::RHI::DX12
         eastl::unique_ptr<ConstantBufferContext>    m_constantBufferContext;
         eastl::unique_ptr<CommandListAllocator>     m_commandlistAllocator;
         eastl::unique_ptr<ShaderResourceCompiler>   m_shaderResourceCompiler;
+        eastl::unique_ptr<ShaderInputCompiler>      m_shaderInputCompiler;
 
         eastl::unique_ptr<D3D12ObjReleaseQueue>     m_dx12ObjReleaseQueue;
     };

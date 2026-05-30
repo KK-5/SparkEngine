@@ -40,6 +40,7 @@ namespace Spark::RHI::DX12
 {
     class CommandQueue;
     class ShaderResource;
+    class ShaderBindings;
     class SwapChain;
 
     class CommandList : public RHI::CommandList, 
@@ -70,6 +71,8 @@ namespace Spark::RHI::DX12
         void SetScissors(const RHI::Scissor* scissors, uint32_t count) override;
         void SetShaderResourceForDraw(const RHI::ShaderResource& shaderResource) override;
         void SetShaderResourceForDispatch(const RHI::ShaderResource& shaderResource) override;
+        void BindShaderInputsForDraw(const RHI::ShaderBindings& bindings) override;
+        void BindShaderInputsForDispatch(const RHI::ShaderBindings& bindings) override;
         void Submit(const RHI::DrawItem& drawItem, uint32_t submitIndex = 0) override;
         void Submit(const RHI::CopyItem& copyItem, uint32_t submitIndex = 0) override;
         void Submit(const RHI::DispatchItem& dispatchItem, uint32_t submitIndex = 0) override;
@@ -112,6 +115,9 @@ namespace Spark::RHI::DX12
         {
             const PipelineLayout* m_pipelineLayout = nullptr;
             eastl::array<const ShaderResource*, RHI::Limits::Pipeline::ShaderResourceCountMax> m_srgsByIndex;
+            // New-path dedup cache: same ShaderBindings re-bound at the same space is a no-op.
+            // Indexed by the parallel array index from PipelineLayout::FindSpaceIndexBySpaceId.
+            eastl::array<const ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_bindingsBySpace;
         };
 
         ShaderResourceBindings& GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType pipelineType);

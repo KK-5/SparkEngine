@@ -62,7 +62,9 @@ set(SOURCES
     Resource/ShaderResource/ShaderResourceDescriptor.cpp
     Resource/ShaderResource/ShaderResourceLayout.cpp
     Resource/ShaderResource/ShaderResourceCompiler.cpp
-    # Resource/ShaderInput/ShaderInputDescriptor.cpp
+    Resource/ShaderInput/ShaderInputDescriptor.cpp
+    Resource/ShaderInput/ShaderBindings.cpp
+    Resource/ShaderInput/ShaderInputCompiler.cpp
     Resource/Transient/TransientResourcePool.cpp
     Scissor/Scissor.cpp
     RenderTargetContext/RenderTargetContext.cpp

@@ -87,29 +87,35 @@ CommandList::SetShaderResourceForDraw(srg)
 ### 目标（ShaderInput 模式）
 
 ```
-用户代码                         RHI 层                            DX12 后端
-───────                         ──────                            ────────
-ShaderInput  (自持描述+数据)     RHI::PipelineLayout              DX12::PipelineLayout
-  ├─ m_name, m_registerId         ├─ m_spaceGroups[]               ├─ m_spaceBindings[]
-  ├─ m_spaceId, m_type, ...         (按 space 分组，                 (DX12SpaceBinding:
-  └─ 数据:                           register 即组内 offset)          rootParamIdx)
-      ├─ m_imageViews[]                                              │
-      ├─ m_bufferViews[]          ShaderInputCompiler              ├─ BuildRootSignature()
-      ├─ m_samplers[]             (重命名自 SRG Compiler)          │   按 spaceGroup 生成
-      └─ m_constantData               │                            │   descriptor table range
-                                      │                            └─ 生成 m_spaceBindings
-                                    ShaderBindings      │
-                                    ├─ 新建对象           │
-                                    ├─ Compiler 每帧产出   │
-                                    └─ m_entries[]       │
-                                       (按 rootParamIdx   │
-                                        索引的 GPU handles)│
+用户代码                              RHI 层                          DX12 后端
+───────                              ──────                          ────────
+ShaderBindings (per-HLSL-space)      RHI::PipelineLayout            DX12::PipelineLayout
+  Descriptor:                          ├─ m_spaceGroups[]             ├─ m_spaceRootParams[]
+    layout, spaceId                    │   (按 space 分组)             │   (per-space RootParameterBinding)
+  Init: 按 SpaceGroup 创建             │                               │
+    ├─ vector<ShaderInputBuffer>    ShaderInputCompiler              ├─ BuildRootSignature
+    ├─ vector<ShaderInputImage>     (per-ShaderBindings 编译)        │   按 SpaceGroup 生成
+    ├─ vector<ShaderInputSampler>       │                            │   descriptor table range
+    └─ vector<ShaderInputConstant>      │                            └─ m_spaceRootParams[i]
+  用户:                                 │                               对应 m_spaceGroups[i]
+    FindBufferInput(name)->SetView(..)  │
+    FindConstantInput(name)->SetData()  │
+                                        ▼
+                              DX12::ShaderBindings (派生)
+                                ├─ m_viewsTable    (一次性分配, ring-buffered)
+                                ├─ m_samplersTable
+                                ├─ m_constantMemory
+                                ├─ m_entry (per-space, 至多 3 个 root param)
+                                │    { gpuDescriptorTable, gpuConstantAddress, ... }
+                                └─ m_dirty (≤3 bit: views/samplers/constants)
 
-CommandList::BindShaderInputs(ShaderBindings&, DX12::PipelineLayout&)
-  └─ 遍历 ShaderBindings::m_entries:
-     ├─ SetGraphicsRootDescriptorTable(paramIdx, entry.m_gpuDescriptorTable)
-     ├─ SetGraphicsRootConstantBufferView(paramIdx, entry.m_gpuConstantAddress)
-     └─ SetGraphicsRoot32BitConstants(paramIdx, ...)
+CommandList::BindShaderBindings(ShaderBindings&, DX12::PipelineLayout&)
+  └─ 取 DX12::PipelineLayout::FindSpaceBindingBySpaceId(bindings.GetSpaceId()) →
+       RootParameterBinding{ m_constantBuffer, m_resourceTable, m_samplerTable }
+     按 ShaderBindings 的 dirty 位绑定:
+       SetGraphicsRootDescriptorTable(m_resourceTable, ...)
+       SetGraphicsRootConstantBufferView(m_constantBuffer, ...)
+       SetGraphicsRootDescriptorTable(m_samplerTable, ...)
 ```
 
 ## 核心数据结构
@@ -186,30 +192,75 @@ eastl::fixed_vector<DX12SpaceBinding, MaxSpaceGroups> m_spaceBindings;
 
 Vulkan 后端：SpaceGroup → VkDescriptorSet（set = m_spaceId），组内每个 ref 对应的 descriptor → VkDescriptorSetLayoutBinding（binding = registerId）。
 
-### 4. ShaderBindings — GPU 资源载体
+### 4. ShaderBindings — per-space 自持对象
 
-当前 `DX12::ShaderResource::m_compiledData[FrameCountMax]` 存 GPU handles。去掉 SRG 后，引入新对象，由 Compiler 每帧产出：
+ShaderBindings 取代旧的 `ShaderResource`，但**粒度从 per-SRG 改为 per-HLSL-space**。一个 ShaderBindings 实例对应 `PipelineLayoutDescriptor::m_spaceGroups[i]`，自持该 space 的所有 ShaderInput 数据 + 后端 compile 产物。
 
 ```cpp
-class ShaderBindings {
+// RHI 层：抽象基类，对外提供 ShaderInput 数据访问
+class ShaderBindings : public DeviceObject
+{
 public:
-    static constexpr uint32_t MaxRootParams = 64;
-
-    struct Entry {
-        GpuDescriptorHandle m_gpuDescriptorTable;  // descriptor table 类型
-        GpuVirtualAddress  m_gpuConstantAddress;   // CBV 类型
-        CpuVirtualAddress  m_cpuConstantAddress;   // 常量更新用
+    struct Descriptor {
+        ConstPtr<PipelineLayoutDescriptor> m_layout;
+        uint32_t                           m_spaceId = 0;  // HLSL space number
     };
 
-    // 按 root param index 索引，和 root signature 顺序一致
-    eastl::fixed_vector<Entry, MaxRootParams> m_entries;
+    ResultCode Init(Device& device, const Descriptor& descriptor);
+    void       Shutdown() override;
+
+    // 按 name 找单条 ShaderInput，用户对其 SetView / SetData / SetState
+    ShaderInputBuffer*   FindBufferInput(const InputName& name);
+    ShaderInputImage*    FindImageInput(const InputName& name);
+    ShaderInputSampler*  FindSamplerInput(const InputName& name);
+    ShaderInputConstant* FindConstantInput(const InputName& name);
+
+    // 编译用迭代
+    eastl::span<const ShaderInputBuffer>   GetBufferInputs()   const;
+    eastl::span<const ShaderInputImage>    GetImageInputs()    const;
+    eastl::span<const ShaderInputSampler>  GetSamplerInputs()  const;
+    eastl::span<const ShaderInputConstant> GetConstantInputs() const;
+
+    uint32_t                              GetSpaceId()          const { return m_spaceId; }
+    const PipelineLayoutDescriptor&       GetLayoutDescriptor() const { return *m_layoutDescriptor; }
+
+protected:
+    virtual ResultCode InitInternal(Device& device, const Descriptor& descriptor) = 0;
+    virtual void       ShutdownInternal() = 0;
+
+private:
+    void BuildInputsFromLayout(const Descriptor& descriptor);  // 按 SpaceGroup 创建 ShaderInput 对象
+
+    ConstPtr<PipelineLayoutDescriptor> m_layoutDescriptor;
+    uint32_t                           m_spaceId = 0;
+    eastl::vector<ShaderInputBuffer>   m_buffers;
+    eastl::vector<ShaderInputImage>    m_images;
+    eastl::vector<ShaderInputSampler>  m_samplers;
+    eastl::vector<ShaderInputConstant> m_constants;
 };
 ```
 
-和当前 `ShaderResourceCompiledData` 的区别：
-- 当前：3 个 GPU handle 绑定在一个 SRG 上，每个 SRG 独立分配 descriptor table
-- 新：Entry 按 root param 粒度组织，每个 Entry 对应 root signature 中的一个 root parameter
-- 多个 ShaderInput 指向同一个 SpaceGroup 时共享一个 descriptor table（Compiler 分配一次，填多条）
+**典型用法**：
+
+```cpp
+ShaderBindings::Descriptor desc{ pipelineLayoutDesc, /*spaceId*/0 };
+auto bindings = factory.CreateShaderBindings(desc);
+
+bindings->FindBufferInput("PerView")->SetView(0, viewBuf);
+bindings->FindImageInput("AlbedoTex")->SetView(0, albedoView);
+bindings->FindConstantInput("Material")->SetData(&matCb, sizeof(matCb));
+
+// 每帧（或脏时）
+compiler.Compile(*bindings);
+
+// 绑定
+commandList.BindShaderBindings(*bindings, pipelineLayout);
+```
+
+和旧 `DX12::ShaderResource::m_compiledData` 的区别：
+- 旧：3 个 GPU handle 绑定在一个 SRG 上，SRG 是 layout + data 平铺数组的间接对象
+- 新：ShaderBindings 自持 ShaderInput 数据（per-name SetView/SetData，无平铺数组与 index 查表），并在后端派生类中持有 compile 产物
+- 一个 Pass / Material 持有 N 个 ShaderBindings（每个用到的 space 一个），不再有跨 space 的全局 root param 表
 
 ## 编译与绑定流程
 
@@ -217,36 +268,44 @@ public:
 
 ```
 输入:
-  - per-draw ShaderInput 列表 (由 Pass / Material 持有并传入)
-      span<const ShaderInputBuffer*>
-      span<const ShaderInputImage*>
-      span<const ShaderInputSampler*>
-      span<const ShaderInputConstant*>
-  - PipelineLayout (SpaceGroup + DX12SpaceBinding)
+  - ShaderBindings& (自持 ShaderInput 数据 + spaceId + layout)
 
-1. 遍历传入的 ShaderInput 列表，按 GetDescription().(spaceId) 映射到对应 SpaceGroup
-2. 为每个命中的 SpaceGroup:
-   a. 按 spaceGroup 内所有 registerId + count 的上界确定 descriptor table 大小
-      (从 SpaceGroup::m_refs 查 PipelineLayoutDescriptor 的 descriptor 数组得到)
-   b. 从 DescriptorContext 分配 descriptor table (per-frame ring allocator)
-   c. 遍历传入的 ShaderInput → 按 GetDescription().registerId 写入:
-      table[input.GetDescription().registerId] = ConvertDescriptor(input 的 bound data)
-   d. 记录 GPU handle 到 ShaderBindings::Entry[rootParamIdx]
-3. 常量处理: byteSize ≤ 32 bytes 且有可用 slot → root constants；否则走 CBV descriptor table
-4. 输出: ShaderBindings
+1. 取 bindings.GetLayoutDescriptor() / GetSpaceId() → SpaceGroup（layout.FindSpaceGroupBySpaceId）
+2. 首次编译（DX12 ShaderBindings::m_layoutHash == 0）:
+   a. 计算 resource table 大小: 遍历 SpaceGroup::m_shaderInputs 累加 m_count
+   b. 从 DescriptorContext 分配 resource table（CBV+SRV+UAV, ring-buffered × FrameCountMax）
+   c. 同样分配 sampler table（仅当存在 sampler）
+   d. 同样分配 constant buffer 内存（仅当存在 constant）
+   e. 记录 m_layoutHash = layout.GetHash()
+3. 推进 ring index
+4. 写 resource descriptors（顺序与 SpaceGroup::m_shaderInputs 一致，累加 offset）:
+   Buffer(Constant)  → CBV @ offset
+   Buffer(Read)      → SRV @ offset
+   Buffer(ReadWrite) → UAV @ offset
+   Image(Read)       → SRV @ offset
+   Image(ReadWrite)  → UAV @ offset
+   offset += GetDescription().m_count
+5. 写 sampler descriptors（独立 table）
+6. 常量 memcpy 到 constant buffer
+7. 设置 dirty 位（views / samplers / constants）
 ```
 
 ### CommandList 绑定
 
 ```
 输入: ShaderBindings + DX12::PipelineLayout
-for each non-null Entry in ShaderBindings.m_entries:
-    SetGraphicsRootDescriptorTable(rootParamIdx, entry.m_gpuDescriptorTable)
-    // 或 SetGraphicsRootConstantBufferView(rootParamIdx, entry.m_gpuConstantAddress)
-    // 或 SetGraphicsRoot32BitConstants(rootParamIdx, ...)
+RootParameterBinding rp = pipelineLayout.FindSpaceBindingBySpaceId(bindings.GetSpaceId())
+
+if (dirty & DirtyResources)
+    SetGraphicsRootDescriptorTable(rp.m_resourceTable, m_viewsTable.GetGpuHandle())
+if (dirty & DirtyConstants)
+    SetGraphicsRootConstantBufferView(rp.m_constantBuffer, m_constantMemory.GetGpuAddress())
+if (dirty & DirtySamplers)
+    SetGraphicsRootDescriptorTable(rp.m_samplerTable, m_samplersTable.GetGpuHandle())
+dirty = 0
 ```
 
-不再读 SRG → 不再有 slotToIndex / dedup cache / per-SRG compiled data。
+不再读 SRG → 不再有 slotToIndex / dedup cache / per-SRG compiled data。多个 ShaderBindings（Pass 持有的多个 space）各自管理 dirty，CommandList 按顺序绑即可。
 
 ## 改动范围
 
@@ -272,7 +331,7 @@ for each non-null Entry in ShaderBindings.m_entries:
 |------|------|
 | `ShaderResourceDescriptor.h` | 拆为 `ShaderInputDescriptor.h`（纯 layout）+ `ShaderInput.h`（data，由 Pass/Material 持有） |
 | `DX12/Pipeline/PipelineLayout.cpp` | 不再每 slot 一个 CBV；按 SpaceGroup 映射到 root params |
-| `DX12/Command/CommandList.cpp` | SetShaderResourceForDraw → BindShaderInputs |
+| `DX12/Command/CommandList.cpp` | SetShaderResourceForDraw → BindShaderBindings(per-space ShaderBindings) |
 | `RHI/Pipeline/PipelineLayoutDescriptor.h/.cpp` | 只存 `ShaderInputXXXDescriptor` + `ShaderInputSpaceGroup`；不持有任何 ShaderInput 数据对象 |
 | `RHI/Component/Component.h` | Components::ShaderResource → ShaderBindings |
 
@@ -302,20 +361,33 @@ PipelineLayoutDescriptor   →  只持有 ShaderInputXXXDescriptor（纯 layout�
                                      vector<ShaderInputSamplerDescriptor>
                                      vector<ShaderInputConstantDescriptor>
 
-ShaderInput{Buffer,Image…}  →  由 Pass / Material 实例自己持有（不进 PipelineLayoutDescriptor）
-                               每个 Pass 自己 SetView / SetData
-                               调用 ShaderInputCompiler(inputs, pipelineLayout) → ShaderBindings
+ShaderBindings (per-HLSL-space)
+                            →  由 Pass / Material 实例自己持有（每个 space 一个 ShaderBindings）
+                               Init(layout, spaceId) 时按 SpaceGroup 自动建出
+                                 所有 ShaderInputBuffer/Image/Sampler/Constant
+                               用户 FindXxxInput(name)->SetView/SetData
+                               后端派生类持有 compile 产物（descriptor table、CBV memory）
 ```
 
 **为什么不能让 PipelineLayoutDescriptor 持有含数据的 ShaderInput：** Pipeline 是跨 draw 共享的静态对象；ShaderInput 的 data 是 per-draw/per-material 的动态状态。如果二者混在一起，同一帧内两个使用相同 pipeline 但绑定不同资源的 drawcall 就无法独立持有各自的数据。
 
+**为什么 ShaderBindings 的粒度是 space 而不是 Pass：**
+- 一个 HLSL space 对应 Vulkan 一个 `VkDescriptorSet`、DX12 一组 root params（resource table + sampler table + 可选 CBV），是天然的绑定单元
+- per-space 粒度让 ShaderBindings 自身的 dirty 标记退化为最多 3 个布尔位，CommandList 绑定循环只看自己这一组 root param
+- 跨 pass 共享的 binding 集（例如 PerView）只需一个 ShaderBindings 对象，多个 pass 引用即可——粒度细 = 复用更精确
+
 ### ShaderInput 的 dirty flag
 
-ShaderInput 作为 Pass / Material 持有的数据对象，dirty flag 由上层自行管理（Pass 在 `SetView`/`SetData` 后标记脏，Compiler 只处理脏的 ShaderInput）。不在 ShaderInput 类本身引入 dirty 成员——保持值语义纯洁。
+ShaderInput 数据现在归 ShaderBindings 持有。dirty 状态由 ShaderBindings 自身（具体为后端派生类）跟踪：
+- ShaderInput 本体不带 dirty 成员（保持值语义纯洁）
+- 后端 ShaderBindings 在 Compile 时基于 "本帧用户是否动过对应输入" 决定写哪些 descriptor，置位对应 dirty bit
+- CommandList 按 dirty bit 决定绑哪些 root param，绑完清零
+
+最简实现：每次 Compile 都全量重写自己的 descriptor table，dirty bit 仅用于跳过未使用的 root param 类别（例如没有 sampler 时不绑 sampler table）。
 
 ### ShaderBindings 的生命周期
 
-和当前 `PassCompiledPSO` 类似，作为 pass 编译产出存在 PassContext 上。跨 pass 共享的数据（如全局 ViewBuffer）可单独维护一组 ShaderInput，独立编译后产出的 ShaderBindings 由多个 pass 引用。
+由 Pass / Material 直接持有，每用到一个 HLSL space 就一个实例。Init 时绑定 layout + spaceId 不变（layout 变化 = 重新 Init）。跨 pass 共享的数据（如全局 ViewBuffer 对应的 space）单独建一个 ShaderBindings，通过引用被多个 pass 共享。
 
 ### 常量处理
 
@@ -402,14 +474,18 @@ ShaderAsset 反射 → ShaderInputList (临时, 纯 descriptor)
                      ├─ fixed_vector<ShaderInputSpaceGroup, 8> m_spaceGroups  (引用上面数组的下标)
                      └─ 查询入口: FindBufferDescriptor(name) / FindImageDescriptor(name) / ...
 
-Pass / Material (data 持有者, 与 PipelineLayoutDescriptor 完全分离)
-  ├─ ShaderInputBuffer   m_myBuffer   { desc, views[] }
-  ├─ ShaderInputImage    m_myTexture  { desc, views[] }
-  └─ ShaderInputConstant m_myConst    { desc, bytes[] }
+Pass / Material (持有 N 个 ShaderBindings，N = 用到的 space 数)
+  └─ ShaderBindings (per-space, 自持 ShaderInput 数据)
+        ├─ vector<ShaderInputBuffer>   m_buffers   { desc, views[] }
+        ├─ vector<ShaderInputImage>    m_images    { desc, views[] }
+        ├─ vector<ShaderInputSampler>  m_samplers  { desc, states[] }
+        └─ vector<ShaderInputConstant> m_constants { desc, bytes[] }
        │
-       ▼ ShaderInputCompiler(inputs, pipelineLayout)
-  ShaderBindings  (每帧产出, 存 PassContext)
+       ▼ ShaderInputCompiler.Compile(bindings)
+  DX12::ShaderBindings (后端派生, 持有 descriptor table + GPU handles + dirty 位)
 ```
+
+> **注**：旧设计草案曾让 Pass / Material 直接持有零散的 ShaderInput*，由 Compiler 通过 span 收集。Step 4 调整为 per-space ShaderBindings 自持 ShaderInput 数据，这是当前生效的设计。
 
 ### 2026-05-29 — Step 2 完成：PipelineLayoutDescriptor 新路径 API
 
@@ -515,12 +591,34 @@ abstract RHI 只做调用，完全不出现 CBV/SRV/UAV/Sampler 字样。CBV/SRV
 
 `ShaderResource`/`ShaderResourceLayout`/`ShaderResourcePool`/`ConstantsLayout`/`ConstantsData` 等 ~16 个文件。等新路径跑通 demo 后一次性删除。
 
+### 2026-05-30 — Step 4 完成：RHI 层 ShaderBindings 骨架
+
+**设计方向调整**：原计划中 ShaderInput 数据由 Pass / Material 各自持有，Compiler 接收 `span<const ShaderInput*>`。实施时改为 **ShaderBindings 自持 ShaderInput 数据**：
+
+- ShaderBindings 粒度 = HLSL space（1 对 1 对应 `PipelineLayoutDescriptor::m_spaceGroups[i]`）
+- Pass / Material 持有 N 个 ShaderBindings（用到的每个 space 一个）
+- ShaderBindings::Init(layout, spaceIndex) 时按 SpaceGroup 自动构造该 space 内所有 ShaderInputBuffer/Image/Sampler/Constant
+- 用户通过 `FindBufferInput(name)->SetView(...)` 直接设值，不再有平铺数组 + index 查表的中间层
+- Compiler 改签名为 `Compile(ShaderBindings& bindings)`，所有上下文（layout、spaceIndex、ShaderInput 数据）都从 bindings 取
+- 后端派生 ShaderBindings 持有 compile 产物（descriptor table、CBV memory、GPU handles、dirty 位）
+
+**为什么改方向**：
+- per-space ShaderBindings 自然 1:1 对应 Vulkan `VkDescriptorSet` 和 DX12 一组 root params（resource table + sampler table + 可选 CBV）
+- dirty 位退化为最多 3 位（views / samplers / constants），不再需要 64 位 mask + BitScan
+- 跨 pass 共享 binding 集（如 PerView）只需一个 ShaderBindings 对象被多个 pass 引用，复用粒度更精确
+- 用户 API 大幅简化：no span 收集、no SRG layout/data 双对象
+
+**新建文件** `RHI/Resource/ShaderInput/`:
+- `ShaderBindings.h` — 抽象基类，per-space 自持 ShaderInput 数据 + Find*Input/Get*Inputs 查询接口 + InitInternal/ShutdownInternal 虚函数
+- `ShaderBindings.cpp` — Init 时 `BuildInputsFromLayout` 按 SpaceGroup handle 类型创建 ShaderInput 实例
+
 ### 下一步
 
 1. 修复 `BuildRootCanstants` 和旧路径 init 代码的 placement（移入 `else` 分支）
 2. DX12 `ValidateShaderInputOverlapInternal` override
-3. ShaderInputCompiler + ShaderBindings 实现
-4. ShaderBuilder::BuildShaderInputList()（DXC 反射填 `ShaderInputList`）
+3. DX12 `ShaderBindings` 派生类（descriptor table 字段 + dirty 位 + InitInternal/ShutdownInternal）
+4. ShaderInputCompiler + DX12 后端实现
+5. ShaderBuilder::BuildShaderInputList()（DXC 反射填 `ShaderInputList`）
 
 ---
 
@@ -528,7 +626,7 @@ abstract RHI 只做调用，完全不出现 CBV/SRV/UAV/Sampler 字样。CBV/SRV
 
 ### 概述
 
-ShaderInputCompiler 取代 `ShaderResourceCompiler`。输入是 caller 传入的 ShaderInput 列表（只有需要编译的才传，不内部判断 dirty）+ PipelineLayout，输出是 `ShaderBindings`（每帧产出 per-root-param GPU handles）。`ShaderBindings` 首次编译时惰性分配 descriptor table，后续复用。
+ShaderInputCompiler 取代 `ShaderResourceCompiler`。输入是一个 ShaderBindings（自带 layout、spaceIndex、以及 ShaderInput 数据），输出写回到这个 ShaderBindings 的后端字段。首次 Compile 时惰性分配 descriptor table，后续复用。
 
 ### API
 
@@ -540,185 +638,137 @@ public:
     ResultCode Init(Device& device);
     void Shutdown() override;
 
-    // 只编译 caller 传入的 inputs（脏的才传），不做 dirty 判断
-    // ShaderBindings: in/out，首次为空对象时内部惰性分配 descriptor table
-    ResultCode Compile(
-        const PipelineLayout& layout,
-        eastl::span<const ShaderInputBuffer*>   buffers,
-        eastl::span<const ShaderInputImage*>    images,
-        eastl::span<const ShaderInputSampler*>  samplers,
-        eastl::span<const ShaderInputConstant*> constants,
-        ShaderBindings& outBindings);
+    // 输入即输出：ShaderBindings 自带 layout + spaceIndex + ShaderInput 数据
+    // 后端派生的 ShaderBindings 接收 compile 产物（descriptor table / GPU handles / dirty bits）
+    ResultCode Compile(ShaderBindings& bindings);
 
 private:
-    virtual ResultCode CompileInternal(...) = 0;
+    virtual ResultCode CompileInternal(ShaderBindings& bindings) = 0;
 };
 ```
 
-### ShaderBindings
+### ShaderBindings 后端派生
 
-**RHI 层**：空壳 DeviceObject，只提供类型和生命周期，CommandList 绑定接口通过它关联资源。
+**RHI 层**（[ShaderBindings.h](Engine/Code/RunTime/Feature/RHI/Resource/ShaderInput/ShaderBindings.h)）：自持 ShaderInput 数据 + 查询接口；Init 时按 SpaceGroup 自动构造 ShaderInput；compile 产物留给派生类。
 
-```cpp
-class ShaderBindings : public DeviceObject
-{
-public:
-    virtual ~ShaderBindings() = default;
-protected:
-    ShaderBindings() = default;
-};
-```
-
-**DX12 层**：全部数据（m_spaceData / m_entries / dirty mask）都在此处。ShaderBindings 创建时为空，首次 Compile 时根据 PipelineLayout 的实际规模 resize 到精确大小，不预设最大值。
+**DX12 层**：per-space 编译产物。由于 ShaderBindings 已经是 per-space 的，无需再嵌套 SpaceGroupData 数组。
 
 ```cpp
 class ShaderBindings final : public RHI::ShaderBindings
 {
-    // 每个 SpaceGroup 持有的分配资源，以 DescriptorTable::IsValid() 判断是否已分配
-    struct SpaceGroupData
-    {
-        DescriptorTable m_viewsTable;       // CBV+SRV+UAV descriptor table (ring-buffered)
-        DescriptorTable m_samplersTable;    // sampler descriptor table (ring-buffered)
-        MemoryView      m_constantMemory;   // constant buffer (ring-buffered)
-        uint32_t        m_ringIndex = 0;
+private:
+    ResultCode InitInternal(Device& device, const Descriptor& descriptor) override;
+    void       ShutdownInternal() override;
+
+    // 一次性分配（首次 Compile），ring-buffered × FrameCountMax
+    DescriptorTable m_viewsTable;       // CBV+SRV+UAV
+    DescriptorTable m_samplersTable;    // sampler
+    MemoryView      m_constantMemory;   // constant buffer
+    uint32_t        m_ringIndex = 0;
+
+    // 本帧产出的 GPU handles
+    struct Frame {
+        GpuDescriptorHandle m_gpuViewsHandle;
+        GpuDescriptorHandle m_gpuSamplersHandle;
+        GpuVirtualAddress   m_gpuConstantAddress;
+        CpuVirtualAddress   m_cpuConstantAddress;
+    } m_frame;
+
+    // dirty 位 — 至多 3 个：views / samplers / constants
+    enum DirtyBits : uint8_t {
+        DirtyResources = 1 << 0,
+        DirtySamplers  = 1 << 1,
+        DirtyConstants = 1 << 2,
     };
-    eastl::vector<SpaceGroupData> m_spaceData;
-    // m_spaceData[i] 对应 PipelineLayout::m_spaceGroups[i]
+    uint8_t m_dirty = 0;
 
-    struct Entry
-    {
-        GpuDescriptorHandle m_gpuDescriptorTable;   // descriptor table 类型的 GPU handle
-        GpuVirtualAddress  m_gpuConstantAddress;    // CBV 类型的 GPU 地址
-        CpuVirtualAddress  m_cpuConstantAddress;    // CBV 的 CPU 写入口
-    };
-
-    eastl::vector<Entry> m_entries;   // size = root param count
-
-    // dirty mask: bit i = 第 i 个 root param 被本次 Compile 写入
-    // CommandList 只绑定脏的，绑定后清零
-    uint64_t m_dirtyMask = 0;
-
-    size_t m_layoutHash = 0;     // 首次 Compile 记下，后续校验 layout 匹配
+    size_t m_layoutHash = 0;   // 首次 Compile 记下，后续校验
 
     friend class ShaderInputCompiler;
     friend class CommandList;
 };
 ```
 
-**首次 Compile 确定形态**（类似 Vulkan `vkAllocateDescriptorSets` 在已知 `VkDescriptorSetLayout` 下分配）：
+**首次 Compile 惰性分配**（类似 Vulkan `vkAllocateDescriptorSets`）：
 
 ```cpp
-auto& b = static_cast<ShaderBindings&>(outBindings);
+// CompileInternal:
+auto& b = static_cast<ShaderBindings&>(bindings);
+const auto& layout = b.GetLayoutDescriptor();
+const auto& group  = layout.GetSpaceGroup(b.GetSpaceIndex());
 
 if (b.m_layoutHash == 0)
 {
     b.m_layoutHash = layout.GetHash();
-    b.m_spaceData.resize(layout.GetSpaceGroupCount());
-    b.m_entries.resize(layout.GetRootParameterCount());
-}
-```
 
-之后 Compile 和 Bind 用 `m_spaceData.size()` / `m_entries.size()` 作为边界，不需要假设全局上限。实际效果：
+    // 累加 SpaceGroup 内所有 ShaderInputHandle 对应 descriptor 的 m_count
+    uint32_t viewsCount    = ComputeViewsCount(layout, group);
+    uint32_t samplersCount = ComputeSamplersCount(layout, group);
+    uint32_t constantBytes = ComputeConstantBytes(layout, group);
 
-```
-Pass layout:    1 SpaceGroup, 1 root param  → m_spaceData=1, m_entries=1
-Material layout: 2 SpaceGroups, 4 root params → m_spaceData=2, m_entries=4
-```
-
-**Binding**：m_entries 和 root signature 的 root param index 始终 1:1 对应，下标直接索引。
-
-**dirty mask 机制**
-
-ShaderBindings 持有全部 root param 的 Entry，单次 Compile 只更新部分 SpaceGroup。需要区分哪些 root param 真正被更新，避免 CommandList 调用多余的 `SetGraphicsRootDescriptorTable`。
-
-```cpp
-// Compiler — 写 Entry 后置位
-m_entries[rootParamIdx].m_gpuDescriptorTable = gpuHandle;
-m_dirtyMask |= (1ull << rootParamIdx);
-
-// CommandList — 只绑脏的
-uint64_t mask = bindings.m_dirtyMask;
-while (mask)
-{
-    uint32_t idx = BitScanForward(mask);   // idx of least significant set bit
-    const auto& e = bindings.m_entries[idx];
-    if (e.m_gpuDescriptorTable.IsValid())
-        commandList->SetGraphicsRootDescriptorTable(idx, e.m_gpuDescriptorTable);
-    if (e.m_gpuConstantAddress != 0)
-        commandList->SetGraphicsRootConstantBufferView(idx, e.m_gpuConstantAddress);
-    mask &= (mask - 1);
-}
-bindings.m_dirtyMask = 0;
-```
-
-dirty mask 是 per-ShaderBindings 的，不是全局的。多个 ShaderBindings（Pass + Material）各自独立管理。
-
-**layout 匹配校验**
-
-ShaderBindings 首次 Compile 时记录 PipelineLayout 的 hash，后续每次 Compile 校验是否匹配，防止传错 ShaderBindings。
-
-```cpp
-class ShaderBindings final : public RHI::ShaderBindings
-{
-    size_t m_layoutHash = 0;   // 首次 Compile 记下，后续校验
-    // ...
-};
-```
-
-```cpp
-// CompileInternal:
-auto& dx12Bindings = static_cast<ShaderBindings&>(outBindings);
-
-if (dx12Bindings.m_layoutHash == 0)
-{
-    dx12Bindings.m_layoutHash = layout.GetHash();
+    if (viewsCount)    b.m_viewsTable    = descriptorContext.Allocate(viewsCount    * FrameCountMax, ...);
+    if (samplersCount) b.m_samplersTable = descriptorContext.Allocate(samplersCount * FrameCountMax, ...);
+    if (constantBytes) b.m_constantMemory = constantContext.Allocate(constantBytes  * FrameCountMax);
 }
 else
 {
-    ASSERT(dx12Bindings.m_layoutHash == layout.GetHash(),
-           "[ShaderInputCompiler] ShaderBindings / PipelineLayout mismatch.");
+    ASSERT(b.m_layoutHash == layout.GetHash(),
+           "[ShaderInputCompiler] ShaderBindings / PipelineLayoutDescriptor mismatch.");
 }
 ```
 
-首次 layout hash 为 0 意味着新实例（或 Reset 后），自动记录。后续如果传了不同 PipelineLayout 的 ShaderBindings，Assert 会直接触发。
+不预设全局上限，per-ShaderBindings 按实际 layout 规模分配。
+
+**绑定**：CommandList 通过 `DX12::PipelineLayout::GetSpaceRootParam(spaceIndex)` 拿到 `RootParameterBinding{ m_constantBuffer, m_resourceTable, m_samplerTable }`，按 ShaderBindings 自身的 dirty 位绑定（最多 3 次 Set*Root* 调用）。
+
+**dirty 位机制**
+
+per-ShaderBindings 的 dirty 位非常小（≤3 个 bool）。Compile 写完 descriptor 后置位：
+
+```cpp
+// Compiler
+if (viewsCount)    b.m_dirty |= DirtyResources;
+if (samplersCount) b.m_dirty |= DirtySamplers;
+if (constantBytes) b.m_dirty |= DirtyConstants;
+
+// CommandList — 见上方"CommandList 绑定"伪代码
+```
+
+dirty 位在 CommandList 绑定后清零。不存在跨 SpaceGroup 的全局 dirty 位图——每个 ShaderBindings 各自管自己的 3 位即可。
+
+**layout 匹配校验**
+
+首次 Compile 记录 `PipelineLayoutDescriptor` 的 hash，后续 Compile 校验。理论上 ShaderBindings 的 layout 在 Init 之后不变，hash 校验主要捕获"用户在 Init 后改了 PipelineLayoutDescriptor"这类误用。
 
 ### 后端 CompileInternal 流程（DX12）
 
 ```
-1. 将传入的 ShaderInput 按 GetDescription().m_spaceId 分组
-   → 匹配 PipelineLayout::m_spaceGroups[i]
+输入: ShaderBindings& (自带 layout + spaceIndex + ShaderInput 数据)
 
-2. 对每个命中的 SpaceGroup:
-   a. 首次编译: 从 DescriptorContext 分配 descriptor table
-      - 计算 views/sampler descriptor 总大小: 遍历 SpaceGroup::m_shaderInputs，累加 count
-      - Ring-buffered: totalSize × frameCountMax
-      - 同样从 ConstantBufferContext 分配 constant buffer
-      - 存到 ShaderBindings 内部
+1. 取 SpaceGroup = layout.GetSpaceGroup(bindings.GetSpaceIndex())
 
-   b. 推进 ring index
+2. 首次编译: 见上方"首次 Compile 惰性分配"
 
-   c. 写资源 descriptor（按 m_shaderInputs 顺序，累加 offset）:
-      遍历 SpaceGroup::m_shaderInputs:
-        Buffer(Constant)  → CBV @ offset
-        Buffer(Read)      → SRV @ offset
-        Buffer(ReadWrite) → UAV @ offset
-        Image(Read)       → SRV @ offset
-        Image(ReadWrite)  → UAV @ offset
-        offset += handle 对应 descriptor 的 m_count
+3. 推进 ring index (m_ringIndex = (m_ringIndex + 1) % FrameCountMax)
+   计算本帧 views/samplers/constant 在 ring buffer 内的起始位置
 
-   d. 写 sampler descriptor（同上，sampler table 独立）:
-      遍历 Sampler handle → sampler descriptor @ offset, offset += count
+4. 写资源 descriptor（按 SpaceGroup::m_shaderInputs 顺序，累加 offset）:
+   uint32_t offset = 0;
+   for handle in SpaceGroup::m_shaderInputs:
+       if Constant: 跳过（独立 CBV）
+       else 取对应 ShaderInputBuffer/Image → ConvertView → 写到 m_viewsTable[ringStart + offset]
+       offset += desc.m_count
+   记录 m_frame.m_gpuViewsHandle, 置位 DirtyResources
 
-   e. 常量处理（暂不做 split，全部走 CBV）:
-      → 分配 constant buffer → memcpy 常量数据
-      → CBV descriptor @ offset, offset += 1
+5. 写 sampler descriptor（同上，sampler table 独立）:
+   遍历 Sampler handle → sampler descriptor @ offset, offset += count
+   记录 m_frame.m_gpuSamplersHandle, 置位 DirtySamplers
 
-   f. 记录 GPU handles 到 Entry + 置 dirty bit:
-      取 m_spaceRootParams[spaceIndex].m_resourceTable 等
-      → m_entries[rootParamIdx] = { gpuHandle, gpuConstAddress, cpuConstAddress }
-      → m_dirtyMask |= (1ull << rootParamIdx)
+6. 常量处理（暂不做 root constant split，全部走 CBV）:
+   memcpy 常量数据到 m_constantMemory[ringStart]
+   记录 m_frame.m_gpuConstantAddress / m_cpuConstantAddress, 置位 DirtyConstants
 
-3. 静态采样器不占 descriptor table，跳过
+7. 静态采样器不占 descriptor table，跳过
 ```
 
 ### Descriptor table offset 计算
@@ -767,13 +817,14 @@ for (auto& handle : spaceGroup.m_shaderInputs) {
 
 | 旧 (ShaderResourceCompiler) | 新 (ShaderInputCompiler) |
 |---|---|
-| `span<ShaderResource*>` | `span<const ShaderInput*>` 四种类型 |
+| `span<ShaderResource*>` | `ShaderBindings&`（自带 layout + spaceIndex + ShaderInput 数据） |
 | `AllocateShaderResource` | `ShaderBindings` 首次 Compile 惰性分配 |
 | `UpdateShaderResource` | Compile 每帧 descriptor 写入 |
-| `SRG.m_compiledData[N]` | `ShaderBindings.m_entries[N]` |
-| `GetGroupInterval` 计算偏移 | 遍历 `m_shaderInputs` 累加 `m_count` |
+| `SRG.m_compiledData[N]` | `DX12::ShaderBindings::m_frame`（per-space） |
+| `GetGroupInterval` 计算偏移 | 遍历 SpaceGroup `m_shaderInputs` 累加 `m_count` |
 | `m_indexToRootParameterBindingTable[slot]` | `m_spaceRootParams[spaceIndex]` |
-| 所有常量 → SRG constant buffer | 所有常量 → CBV (暂不做 root constant split) |
+| 所有常量 → SRG constant buffer | 所有常量 → CBV（暂不做 root constant split） |
+| per-SRG 平铺数组 + index 查表 | per-name `FindXxxInput(name)->SetView/SetData` |
 
 ### VulkanBindingShift 职责限定
 

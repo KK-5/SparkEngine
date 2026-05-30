@@ -2,6 +2,7 @@
 
 #include <EASTLEX/hash.h>
 #include <Log/SpdLogSystem.h>
+#include <Math/Bit.h>
 
 #include <RHI/Resource/ShaderResource/ConstantsLayout.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
@@ -65,6 +66,11 @@ namespace Spark::RHI
         if (result != ResultCode::Success)
         {
             return result;
+        }
+
+        if (UsesShaderInputPath())
+        {
+            BuildConstantBufferLayouts();
         }
 
         size_t seed = 0;
@@ -261,6 +267,54 @@ namespace Spark::RHI
         return !m_spaceGroups.empty();
     }
 
+    void PipelineLayoutDescriptor::BuildConstantBufferLayouts()
+    {
+        for (ShaderInputGroup& group : m_spaceGroups)
+        {
+            group.m_constantBuffers.clear();
+
+            // Pass 1: dedup by registerId, expand byteSize = max(offset + count).
+            for (const ShaderInputHandle& handle : group.m_shaderInputs)
+            {
+                if (handle.m_type != ShaderInputType::Constant)
+                {
+                    continue;
+                }
+                const ShaderInputConstantDescriptor& cd = m_constantDescs[handle.m_index];
+
+                ConstantBufferLayout* slot = nullptr;
+                for (auto& s : group.m_constantBuffers)
+                {
+                    if (s.m_registerId == cd.m_registerId)
+                    {
+                        slot = &s;
+                        break;
+                    }
+                }
+                if (slot == nullptr)
+                {
+                    ASSERT(group.m_constantBuffers.size() < ShaderInputGroup::ConstantBufferCountMax,
+                        "[PipelineLayoutDescriptor] Exceeded ConstantBufferCountMax (%u) in space %u.",
+                        ShaderInputGroup::ConstantBufferCountMax, group.m_spaceId);
+                    group.m_constantBuffers.push_back({ cd.m_registerId, 0, 0 });
+                    slot = &group.m_constantBuffers.back();
+                }
+
+                const uint32_t end = cd.m_constantByteOffset + cd.m_constantByteCount;
+                slot->m_byteSize = eastl::max(slot->m_byteSize, end);
+            }
+
+            // Pass 2: align each slot to 256B and compute prefix-sum byteOffset.
+            uint32_t offset = 0;
+            for (auto& slot : group.m_constantBuffers)
+            {
+                slot.m_byteSize   = AlignUp(slot.m_byteSize, RHI::Alignment::Constant);
+                slot.m_byteOffset = offset;
+                offset += slot.m_byteSize;
+            }
+        }
+    }
+
     size_t PipelineLayoutDescriptor::GetSpaceGroupCount() const
     {
         ASSERT(IsFinalized(), "[PipelineLayoutDescriptor] Accessor called on a non-finalized descriptor.");
@@ -271,6 +325,19 @@ namespace Spark::RHI
     {
         ASSERT(IsFinalized(), "[PipelineLayoutDescriptor] Accessor called on a non-finalized descriptor.");
         return m_spaceGroups[index];
+    }
+
+    const ShaderInputGroup* PipelineLayoutDescriptor::FindSpaceGroupBySpaceId(uint32_t spaceId) const
+    {
+        ASSERT(IsFinalized(), "[PipelineLayoutDescriptor] Accessor called on a non-finalized descriptor.");
+        for (const ShaderInputGroup& group : m_spaceGroups)
+        {
+            if (group.m_spaceId == spaceId)
+            {
+                return &group;
+            }
+        }
+        return nullptr;
     }
 
     const ShaderInputBufferDescriptor& PipelineLayoutDescriptor::GetBufferDescriptor(uint32_t index) const

@@ -23,6 +23,7 @@ namespace Spark::RHI::DX12
         m_imageViewObjectPool.Init();
         m_transientResourcePoolObjectPool.Init();
         m_shaderResourceObjectPool.Init();
+        m_shaderBindingsObjectPool.Init();
         m_pipelineLibraryObjectPool.Init();
         m_pipelineStateObjectPool.Init();
         m_fenceObjectPool.Init();
@@ -47,6 +48,7 @@ namespace Spark::RHI::DX12
         m_imageViewObjectPool.Shutdown();
         m_transientResourcePoolObjectPool.Shutdown();
         m_shaderResourceObjectPool.Shutdown();
+        m_shaderBindingsObjectPool.Shutdown();
         m_pipelineLibraryObjectPool.Shutdown();
         m_pipelineStateObjectPool.Shutdown();
         m_fenceObjectPool.Shutdown();
@@ -77,6 +79,11 @@ namespace Spark::RHI::DX12
             m_shaderResourceCompiler->Shutdown();
         }
 
+        if (m_shaderInputCompiler)
+        {
+            m_shaderInputCompiler->Shutdown();
+        }
+
         if (m_dx12ObjReleaseQueue)
         {
             m_dx12ObjReleaseQueue->Shutdown();
@@ -104,6 +111,7 @@ namespace Spark::RHI::DX12
         m_imageViewObjectPool.Collect();
         m_transientResourcePoolObjectPool.Collect();
         m_shaderResourceObjectPool.Collect();
+        m_shaderBindingsObjectPool.Collect();
         m_pipelineLibraryObjectPool.Collect();
         m_pipelineStateObjectPool.Collect();
         m_fenceObjectPool.Collect();
@@ -327,6 +335,26 @@ namespace Spark::RHI::DX12
         }
 
         return *m_shaderResourceCompiler;
+    }
+
+    Ptr<RHI::ShaderBindings> ID3D12Factory::CreateShaderBindings()
+    {
+        return static_cast<RHI::ShaderBindings*>(m_shaderBindingsObjectPool.CreateDeviceObject());
+    }
+
+    RHI::ShaderInputCompiler& ID3D12Factory::AcquireShaderInputCompiler(RHI::Device& device)
+    {
+        if (!m_shaderInputCompiler)
+        {
+            m_shaderInputCompiler = eastl::make_unique<ShaderInputCompiler>();
+
+            Device& dx12Device = static_cast<Device&>(device);
+            ASSERT(ValidateSingleDevice(dx12Device), "The current RHI system only supports a single device.");
+            RHI::ShaderInputCompilerDescriptor desc;
+            m_shaderInputCompiler->Init(dx12Device, desc);
+        }
+
+        return *m_shaderInputCompiler;
     }
 
     Ptr<RHI::PipelineLibrary> ID3D12Factory::CreatePipelineLibrary()

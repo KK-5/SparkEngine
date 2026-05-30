@@ -27,6 +27,7 @@
 #include <Device/Device.h>
 #include <Descriptor/DescriptorContext.h>
 #include <Resource/ShaderResource/ShaderResource.h>
+#include <Resource/ShaderInput/ShaderBindings.h>
 #include <Resource/Buffer/Buffer.h>
 #include <Resource/Buffer/BufferView.h>
 #include <Resource/Buffer/IndirectBufferSignature.h>
@@ -164,6 +165,10 @@ namespace Spark::RHI::DX12
             {
                 bindings.m_srgsByIndex[i] = nullptr;
             }
+            for (size_t i = 0; i < bindings.m_bindingsBySpace.size(); ++i)
+            {
+                bindings.m_bindingsBySpace[i] = nullptr;
+            }
         }
     }
 
@@ -248,6 +253,104 @@ namespace Spark::RHI::DX12
         if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
         {
             GetCommandList()->SetComputeRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
+        }
+    }
+
+    void CommandList::BindShaderInputsForDraw(const RHI::ShaderBindings& base)
+    {
+        const ShaderBindings* b = static_cast<const ShaderBindings*>(&base);
+
+        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType::Draw);
+        const PipelineLayout* pipelineLayout = bindings.m_pipelineLayout;
+        if (!pipelineLayout)
+        {
+            ASSERT(false, "Pipeline layout is null. SetPipelineState must be called before binding shader inputs.");
+            return;
+        }
+
+        const int32_t spaceIdx = pipelineLayout->FindSpaceIndexBySpaceId(b->GetSpaceId());
+        if (spaceIdx < 0)
+        {
+            ASSERT(false, "[CommandList] ShaderBindings spaceId %u not in current PipelineLayout.", b->GetSpaceId());
+            return;
+        }
+
+        if (bindings.m_bindingsBySpace[spaceIdx] == b)
+        {
+            return;
+        }
+        bindings.m_bindingsBySpace[spaceIdx] = b;
+
+        const SpaceCBVBinding&   cbv = pipelineLayout->GetSpaceCBVBinding(static_cast<uint32_t>(spaceIdx));
+        const SpaceTableBinding& tbl = pipelineLayout->GetSpaceTableBinding(static_cast<uint32_t>(spaceIdx));
+        const ShaderBindingsCompiledData& cd = b->GetCompiledData();
+
+        if (tbl.m_resourceTable != InvalidRootParameterIndex && cd.m_gpuViewsDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetGraphicsRootDescriptorTable(tbl.m_resourceTable, cd.m_gpuViewsDescriptorHandle);
+        }
+        if (tbl.m_samplerTable != InvalidRootParameterIndex && cd.m_gpuSamplersDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetGraphicsRootDescriptorTable(tbl.m_samplerTable, cd.m_gpuSamplersDescriptorHandle);
+        }
+
+        ASSERT(cbv.m_rootIndices.size() == cd.m_gpuConstantAddresses.size(),
+            "[CommandList] CBV root indices count (%u) != compiled GPU addresses count (%u).",
+            static_cast<uint32_t>(cbv.m_rootIndices.size()),
+            static_cast<uint32_t>(cd.m_gpuConstantAddresses.size()));
+        for (size_t k = 0; k < cbv.m_rootIndices.size(); ++k)
+        {
+            GetCommandList()->SetGraphicsRootConstantBufferView(
+                cbv.m_rootIndices[k], cd.m_gpuConstantAddresses[k]);
+        }
+    }
+
+    void CommandList::BindShaderInputsForDispatch(const RHI::ShaderBindings& base)
+    {
+        const ShaderBindings* b = static_cast<const ShaderBindings*>(&base);
+
+        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType::Dispatch);
+        const PipelineLayout* pipelineLayout = bindings.m_pipelineLayout;
+        if (!pipelineLayout)
+        {
+            ASSERT(false, "Pipeline layout is null. SetPipelineState must be called before binding shader inputs.");
+            return;
+        }
+
+        const int32_t spaceIdx = pipelineLayout->FindSpaceIndexBySpaceId(b->GetSpaceId());
+        if (spaceIdx < 0)
+        {
+            ASSERT(false, "[CommandList] ShaderBindings spaceId %u not in current PipelineLayout.", b->GetSpaceId());
+            return;
+        }
+
+        if (bindings.m_bindingsBySpace[spaceIdx] == b)
+        {
+            return;
+        }
+        bindings.m_bindingsBySpace[spaceIdx] = b;
+
+        const SpaceCBVBinding&   cbv = pipelineLayout->GetSpaceCBVBinding(static_cast<uint32_t>(spaceIdx));
+        const SpaceTableBinding& tbl = pipelineLayout->GetSpaceTableBinding(static_cast<uint32_t>(spaceIdx));
+        const ShaderBindingsCompiledData& cd = b->GetCompiledData();
+
+        if (tbl.m_resourceTable != InvalidRootParameterIndex && cd.m_gpuViewsDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetComputeRootDescriptorTable(tbl.m_resourceTable, cd.m_gpuViewsDescriptorHandle);
+        }
+        if (tbl.m_samplerTable != InvalidRootParameterIndex && cd.m_gpuSamplersDescriptorHandle.ptr)
+        {
+            GetCommandList()->SetComputeRootDescriptorTable(tbl.m_samplerTable, cd.m_gpuSamplersDescriptorHandle);
+        }
+
+        ASSERT(cbv.m_rootIndices.size() == cd.m_gpuConstantAddresses.size(),
+            "[CommandList] CBV root indices count (%u) != compiled GPU addresses count (%u).",
+            static_cast<uint32_t>(cbv.m_rootIndices.size()),
+            static_cast<uint32_t>(cd.m_gpuConstantAddresses.size()));
+        for (size_t k = 0; k < cbv.m_rootIndices.size(); ++k)
+        {
+            GetCommandList()->SetComputeRootConstantBufferView(
+                cbv.m_rootIndices[k], cd.m_gpuConstantAddresses[k]);
         }
     }
 

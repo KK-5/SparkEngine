@@ -249,45 +249,23 @@ namespace Spark::RHI::DX12
             eastl::vector<D3D12_ROOT_PARAMETER>& parameters
     )
     {
-        uint32_t groupCount = static_cast<uint32_t>(desc->GetSpaceGroupCount());
+        // Pure consumer of RHI-layer m_constantBuffers — dedup / byte layout already done.
+        // We just generate one root CBV per slot, in the same iteration order.
+        const uint32_t groupCount = static_cast<uint32_t>(desc->GetSpaceGroupCount());
         for (uint32_t index = 0; index < groupCount; ++index)
         {
             const RHI::ShaderInputGroup& spaceGroup = desc->GetSpaceGroup(index);
+            SpaceCBVBinding& cbv = m_spaceCBVBindings[index];
 
-            // One root CBV per unique register — constants sharing the same register
-            // belong to the same cbuffer and must not produce duplicate root parameters.
-            eastl::fixed_vector<uint32_t, SpaceCBVBinding::MaxCount> registers;
-
-            for (auto handle : spaceGroup.m_shaderInputs)
+            for (const RHI::ConstantBufferLayout& slot : spaceGroup.m_constantBuffers)
             {
-                if (handle.m_type != ShaderInputType::Constant)
-                {
-                    continue;
-                }
-                const RHI::ShaderInputConstantDescriptor& constantInput = desc->GetConstantDescriptor(handle.m_index);
+                D3D12_ROOT_PARAMETER parameter{};
+                parameter.ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+                parameter.ShaderVisibility          = ConvertShaderStageMask(spaceGroup.m_stageMask);
+                parameter.Descriptor.ShaderRegister = slot.m_registerId;
+                parameter.Descriptor.RegisterSpace  = spaceGroup.m_spaceId;
 
-                bool hasRegister = false;
-                for (uint32_t reg : registers)
-                {
-                    if (reg == constantInput.m_registerId)
-                    {
-                        hasRegister = true;
-                        break;
-                    }
-                }
-                if (hasRegister)
-                {
-                    continue;
-                }
-                registers.push_back(constantInput.m_registerId);
-
-                D3D12_ROOT_PARAMETER parameter;
-                parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-                parameter.ShaderVisibility = ConvertShaderStageMask(spaceGroup.m_stageMask);
-                parameter.Descriptor.ShaderRegister = constantInput.m_registerId;
-                parameter.Descriptor.RegisterSpace  = constantInput.m_spaceId;
-
-                m_spaceCBVBindings[index].m_rootIndices.push_back(RootParameterIndex(parameters.size()));
+                cbv.m_rootIndices.push_back(RootParameterIndex(parameters.size()));
                 parameters.push_back(parameter);
             }
         }
@@ -555,6 +533,19 @@ namespace Spark::RHI::DX12
     const SpaceTableBinding& PipelineLayout::GetSpaceTableBinding(uint32_t spaceIndex) const
     {
         return m_spaceTableBindings[spaceIndex];
+    }
+
+    int32_t PipelineLayout::FindSpaceIndexBySpaceId(uint32_t spaceId) const
+    {
+        const size_t count = m_layoutDescriptor->GetSpaceGroupCount();
+        for (size_t i = 0; i < count; ++i)
+        {
+            if (m_layoutDescriptor->GetSpaceGroup(i).m_spaceId == spaceId)
+            {
+                return static_cast<int32_t>(i);
+            }
+        }
+        return -1;
     }
 
     bool PipelineLayout::HasRootConstants() const

@@ -25,6 +25,7 @@
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
 #include <RHI/Resource/ShaderResource/ShaderResource.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Resource/ResourceState.h>
 
 #include "ClearRequest.h"
@@ -86,6 +87,14 @@ namespace Spark::RHI
         //! determined by the layout used to create the shader resource group.
         //! @param ShaderResource The shader resource group to bind.
         virtual void SetShaderResourceForDispatch(const ShaderResource& shaderResource) = 0;
+
+        //! Binds a per-space ShaderBindings on the graphics pipe. The ShaderBindings must
+        //! have been compiled (Compile()) prior to this call and the active pipeline
+        //! state's layout must match the layout the ShaderBindings was Init'd with.
+        virtual void BindShaderInputsForDraw(const ShaderBindings& bindings) = 0;
+
+        //! Compute equivalent of BindShaderInputsForDraw.
+        virtual void BindShaderInputsForDispatch(const ShaderBindings& bindings) = 0;
 
         /// Submits a single copy item for processing on the command list.
         virtual void Submit(const CopyItem& copyItem, uint32_t submitIndex = 0) = 0;
