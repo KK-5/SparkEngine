@@ -11,10 +11,11 @@
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
-#include <RHI/Resource/ShaderResource/ShaderResource.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceCompiler.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderInput.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
+#include <RHI/Resource/ShaderInput/ShaderInputCompiler.h>
+#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/Image/ImagePool.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/Image/ImageSubResource.h>
@@ -115,7 +116,7 @@ namespace Spark::SandBox
         void CreateSwapChain();
         void CreateDepthBufferPool();
         void CreatePipelineLibrary();
-        void CreateShaderResources();
+        void CreateShaderInputs();
         void CreatePipelineState();
         void CreateVertexBuffer();
         void CreateIndexBuffer();
@@ -168,12 +169,11 @@ namespace Spark::SandBox
         Ptr<RHI::Image> m_baseColorImage;
         Ptr<RHI::ImageView> m_baseColorImageView;
 
-        // Shader resources (SRG)
-        Ptr<RHI::ShaderResourceLayout> m_srgLayout;
-        Ptr<RHI::ShaderResource> m_shaderResource;
-
-        // Pipeline layout
+        // Pipeline layout (owns the ShaderInput descriptors for space 0)
         Ptr<RHI::PipelineLayoutDescriptor> m_pipelineLayoutDesc;
+
+        // Per-space ShaderBindings (replaces the old SRG ShaderResource)
+        Ptr<RHI::ShaderBindings> m_shaderBindings;
 
         // Frame Resource manager util
         RHI::RenderTargetContext m_rtContext;
@@ -313,61 +313,50 @@ namespace Spark::SandBox
         }
     }
 
-    void DrawShape::CreateShaderResources()
+    void DrawShape::CreateShaderInputs()
     {
-        // Build ShaderResourceLayout: one constant buffer (MVP), one texture, one sampler
-        m_srgLayout = m_rhiFactory->CreateShaderResourceLayout();
+        // Build PipelineLayoutDescriptor: one constant (MVP @ b0), one texture (t0),
+        // one sampler (s0). All live in HLSL space=0. The new ShaderInput path
+        // owns dedup + byte layout + root signature build in one pass.
+        m_pipelineLayoutDesc = m_rhiFactory->CreatePipelineLayoutDescriptor();
 
-        // Constant: MVP matrix (4x4 float = 64 bytes)
-        RHI::ShaderInputConstantDescriptor mvpConstant(
+        RHI::ShaderInputList inputs;
+        inputs.m_constants.push_back(RHI::ShaderInputConstantDescriptor(
             RHI::InputName("g_MVP"),
-            0,                  // byte offset
-            sizeof(Math::Matrix4X4), // 64 bytes
-            0,                  // register b0
-            0);                 // space0
-        m_srgLayout->AddShaderInput(mvpConstant);
-
-        // Image: base color texture (t0, space0)
-        RHI::ShaderInputImageDescriptor baseColorImage(
+            /*byteOffset*/0,
+            /*byteCount*/sizeof(Math::Matrix4X4),
+            /*registerId b0*/0,
+            /*spaceId*/0));
+        inputs.m_images.push_back(RHI::ShaderInputImageDescriptor(
             RHI::InputName("g_BaseColor"),
             RHI::ShaderInputImageAccess::Read,
             RHI::ShaderInputImageType::Image2D,
-            1,      // count
-            0,      // register t0
-            0);     // space0
-        m_srgLayout->AddShaderInput(baseColorImage);
-
-        // Sampler: linear wrap (s0, space0)
-        RHI::ShaderInputSamplerDescriptor samplerDesc(
+            /*count*/1,
+            /*registerId t0*/0,
+            /*spaceId*/0));
+        inputs.m_samplers.push_back(RHI::ShaderInputSamplerDescriptor(
             RHI::InputName("g_Sampler"),
-            1,      // count
-            0,      // register s0
-            0);     // space0
-        m_srgLayout->AddShaderInput(samplerDesc);
+            /*count*/1,
+            /*registerId s0*/0,
+            /*spaceId*/0));
 
-        m_srgLayout->SetBindingSlot(0);
-        bool ok = m_srgLayout->Finalize();
-        ASSERT(ok, "Failed to finalize ShaderResourceLayout");
+        // SpaceGroup stageMask is the union across inputs; resulting D3D12 visibility
+        // becomes ALL when both Vertex and Fragment touch the space.
+        m_pipelineLayoutDesc->AddShaderInputDescriptors(
+            inputs, RHI::ShaderStageMask::Vertex | RHI::ShaderStageMask::Fragment);
+        m_pipelineLayoutDesc->Finalize();
 
-        // Create ShaderResource and init with layout
-        m_shaderResource = m_rhiFactory->CreateShaderResource();
-        RHI::ResultCode res = m_shaderResource->Init(*m_device, m_srgLayout);
+        // Create the per-space ShaderBindings; auto-builds the ShaderInput*
+        // data containers from the SpaceGroup at Init.
+        m_shaderBindings = m_rhiFactory->CreateShaderBindings();
+        RHI::ShaderBindings::Descriptor bindingsDesc;
+        bindingsDesc.m_layout  = m_pipelineLayoutDesc;
+        bindingsDesc.m_spaceId = 0;
+        RHI::ResultCode res = m_shaderBindings->Init(*m_device, bindingsDesc);
         if (res != RHI::ResultCode::Success)
         {
-            LOG_ERROR("Init ShaderResource failed");
+            LOG_ERROR("Init ShaderBindings failed");
         }
-
-        // Build PipelineLayoutDescriptor
-        m_pipelineLayoutDesc = m_rhiFactory->CreatePipelineLayoutDescriptor();
-        RHI::ShaderResourceBindingInfo bindingInfo;
-        bindingInfo.m_constantDataBindingInfo = RHI::ResourceBindingInfo(
-            RHI::ShaderStageMask::Vertex, 0, 0); // b0, space0 for vertex stage
-        bindingInfo.m_resourcesRegisterMap[RHI::InputName("g_BaseColor")] =
-            RHI::ResourceBindingInfo(RHI::ShaderStageMask::Fragment, 0, 0); // t0
-        bindingInfo.m_resourcesRegisterMap[RHI::InputName("g_Sampler")] =
-            RHI::ResourceBindingInfo(RHI::ShaderStageMask::Fragment, 0, 0); // s0
-        m_pipelineLayoutDesc->AddShaderResourceLayoutInfo(*m_srgLayout, bindingInfo);
-        m_pipelineLayoutDesc->Finalize();
     }
 
     void DrawShape::CreatePipelineState()
@@ -609,16 +598,17 @@ namespace Spark::SandBox
             LOG_ERROR("Init base color image view failed");
         }
 
-        // Bind texture and sampler to ShaderResource
-        RHI::ShaderInputIndex imageIdx = m_shaderResource->FindShaderInputImageIndex(ObjectName("g_BaseColor"));
-        m_shaderResource->SetImageView(imageIdx, m_baseColorImageView.get(), 0);
+        // Bind texture and sampler to ShaderBindings (static for the lifetime of the demo).
+        auto* imageInput = m_shaderBindings->FindImageInput(ObjectName("g_BaseColor"));
+        ASSERT(imageInput, "g_BaseColor not found in ShaderBindings");
+        imageInput->SetView(0, m_baseColorImageView.get());
 
-        RHI::ShaderInputIndex samplerIdx = m_shaderResource->FindShaderInputSamplerIndex(ObjectName("g_Sampler"));
-        RHI::SamplerState sampler = RHI::SamplerState::Create(
+        auto* samplerInput = m_shaderBindings->FindSamplerInput(ObjectName("g_Sampler"));
+        ASSERT(samplerInput, "g_Sampler not found in ShaderBindings");
+        samplerInput->SetState(0, RHI::SamplerState::Create(
             RHI::FilterMode::Linear,
             RHI::FilterMode::Linear,
-            RHI::AddressMode::Wrap);
-        m_shaderResource->SetSampler(samplerIdx, sampler, 0);
+            RHI::AddressMode::Wrap));
     }
 
     void DrawShape::CreateViewportAndScissor()
@@ -710,13 +700,13 @@ namespace Spark::SandBox
 
         Math::Matrix4X4 mvp = proj * view * model;
 
-        RHI::ShaderInputIndex mvpIdx = m_shaderResource->FindShaderInputConstantIndex(ObjectName("g_MVP"));
-        m_shaderResource->SetConstantRaw(mvpIdx, &mvp, sizeof(mvp));
+        auto* mvpInput = m_shaderBindings->FindConstantInput(ObjectName("g_MVP"));
+        ASSERT(mvpInput, "g_MVP not found in ShaderBindings");
+        mvpInput->SetData(&mvp, sizeof(mvp));
 
-        // Compile ShaderResource to upload constants/descriptors to GPU
-        RHI::ShaderResourceCompiler& compiler = m_rhiFactory->AcquireShaderResourceCompiler(*m_device);
-        RHI::ShaderResource* srgs[] = { m_shaderResource.get() };
-        compiler.Compiler(eastl::span<RHI::ShaderResource*>(srgs, 1));
+        // Compile ShaderBindings to upload constants/descriptors to GPU.
+        RHI::ShaderInputCompiler& compiler = m_rhiFactory->AcquireShaderInputCompiler(*m_device);
+        compiler.Compile(*m_shaderBindings);
     }
 
     void DrawShape::BuildRenderTargetContext()
@@ -883,6 +873,10 @@ namespace Spark::SandBox
 
         commandList->SetPipelineState(*m_pipelineState);
 
+        // New-path binding: explicit per-space ShaderBindings bind. Replaces the old
+        // SRG path's drawItem.m_shaderResources mechanism.
+        commandList->BindShaderInputsForDraw(*m_shaderBindings);
+
         // Build draw item
         RHI::DrawItem drawItem;
         drawItem.m_drawInstanceArgs.m_instanceCount = 1;
@@ -908,9 +902,6 @@ namespace Spark::SandBox
             m_indexBuffer->GetDescriptor().m_byteCount,
             RHI::IndexFormat::UINT16);
 
-        // Shader resources
-        drawItem.m_shaderResources.push_back(m_shaderResource);
-
         commandList->Submit(drawItem);
         commandList->EndRenderPass();
 
@@ -930,7 +921,7 @@ namespace Spark::SandBox
         CreateSwapChain();
         CreateDepthBufferPool();
         CreatePipelineLibrary();
-        CreateShaderResources();
+        CreateShaderInputs();
         CreatePipelineState();
         CreateVertexBuffer();
         CreateIndexBuffer();
