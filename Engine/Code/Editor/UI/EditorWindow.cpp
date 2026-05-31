@@ -87,11 +87,11 @@ namespace Editor
         glfwSwapBuffers(m_window);
     }
 
-    eastl::pair<int, int> EditorWindow::GetWindowPos()
+    Spark::Math::Vector2Int EditorWindow::GetWindowPos()
     {
         int x, y;
         glfwGetWindowPos(m_window, &x, &y);
-        return eastl::make_pair<int, int>(x, y);
+        return { x, y };
     }
 
     bool EditorWindow::ShouldClose() const
@@ -99,9 +99,9 @@ namespace Editor
         return glfwWindowShouldClose(m_window);
     }
 
-    eastl::pair<int, int> EditorWindow::GetWindowSize()
+    Spark::Math::Vector2Int EditorWindow::GetWindowSize()
     {
-        return eastl::make_pair<int, int>(m_width, m_height);
+        return { m_width, m_height };
     }
 
     void* EditorWindow::GetNativeHandle() const

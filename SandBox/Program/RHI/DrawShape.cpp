@@ -262,8 +262,8 @@ namespace Spark::SandBox
         desc.m_dimensions.m_imageCount = 2;
         desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
         auto windowSize = m_window->GetWindowSize();
-        desc.m_dimensions.m_imageHeight = windowSize.second;
-        desc.m_dimensions.m_imageWidth = windowSize.first;
+        desc.m_dimensions.m_imageHeight = windowSize.y;
+        desc.m_dimensions.m_imageWidth = windowSize.x;
         desc.m_window = m_window->GetNativeHandle();
         RHI::ResultCode result = m_swapChain->Init(*m_device, m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics), desc);
         if (result != RHI::ResultCode::Success)
@@ -619,8 +619,8 @@ namespace Spark::SandBox
     void DrawShape::CreateViewportAndScissor()
     {
         auto windowSize = m_window->GetWindowSize();
-        m_viewport = RHI::Viewport(0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
-        m_scissor = RHI::Scissor(0.f, 0.f, (float)windowSize.first, (float)windowSize.second);
+        m_viewport = RHI::Viewport(0.f, (float)windowSize.x, 0.f, (float)windowSize.y);
+        m_scissor = RHI::Scissor(0.f, 0.f, (float)windowSize.x, (float)windowSize.y);
     }
 
     void DrawShape::OnWindowResizeEvent(Input::WindowResizeEvent event)
@@ -679,12 +679,12 @@ namespace Spark::SandBox
     void DrawShape::UpdateMVP()
     {
         auto windowSize = m_window->GetWindowSize();
-        if (windowSize.first <= 0 || windowSize.second <= 0)
+        if (windowSize.x <= 0 || windowSize.y <= 0)
         {
             return;
         }
 
-        float aspect = (float)windowSize.first / (float)windowSize.second;
+        float aspect = (float)windowSize.x / (float)windowSize.y;
 
         m_rotationAngle += 0.001f;
 
@@ -734,7 +734,7 @@ namespace Spark::SandBox
         auto windowSize = m_window->GetWindowSize();
         RHI::ImageDescriptor depthImageDesc = RHI::ImageDescriptor::Create2D(
             RHI::ImageBindFlags::DepthStencil,
-            windowSize.first, windowSize.second,
+            windowSize.x, windowSize.y,
             RHI::Format::D32_FLOAT);
         depthDesc.m_imageDescriptor = depthImageDesc;
         depthDesc.m_hasOptimizedClearValue = true;

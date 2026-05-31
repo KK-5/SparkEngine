@@ -50,11 +50,11 @@ namespace Spark::SandBox
         glfwSwapBuffers(m_window);
     }
 
-    eastl::pair<int, int> SimpleGlfwWindow::GetWindowPos()
+    Math::Vector2Int SimpleGlfwWindow::GetWindowPos()
     {
         int x, y;
         glfwGetWindowPos(m_window, &x, &y);
-        return eastl::make_pair<int, int>(x, y);
+        return { x, y };
     }
 
     bool SimpleGlfwWindow::ShouldClose() const
@@ -62,10 +62,10 @@ namespace Spark::SandBox
         return glfwWindowShouldClose(m_window);
     }
 
-    eastl::pair<int, int> SimpleGlfwWindow::GetWindowSize()
+    Math::Vector2Int SimpleGlfwWindow::GetWindowSize()
     {
         glfwGetWindowSize(m_window, &m_width, &m_height);
-        return eastl::make_pair<int, int>(m_width, m_height);
+        return { m_width, m_height };
     }
 
     void* SimpleGlfwWindow::GetNativeHandle() const

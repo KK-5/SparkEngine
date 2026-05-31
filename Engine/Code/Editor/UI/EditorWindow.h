@@ -29,8 +29,8 @@ namespace Editor
         void PollEvents() override;
         bool ShouldClose() const override;
 
-        eastl::pair<int, int> GetWindowSize() override;
-        eastl::pair<int, int> GetWindowPos() override;
+        Spark::Math::Vector2Int GetWindowSize() override;
+        Spark::Math::Vector2Int GetWindowPos() override;
 
         void* GetNativeHandle() const override;
         void* GetWindowHandle() const override;

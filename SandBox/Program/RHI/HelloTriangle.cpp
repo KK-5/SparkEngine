@@ -164,8 +164,8 @@ namespace Spark::SandBox
         desc.m_dimensions.m_imageCount = 2;
         desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
         auto windowSize = m_glfwWindow->GetWindowSize();
-        desc.m_dimensions.m_imageHeight = windowSize.second;
-        desc.m_dimensions.m_imageWidth = windowSize.first;
+        desc.m_dimensions.m_imageHeight = windowSize.y;
+        desc.m_dimensions.m_imageWidth = windowSize.x;
         desc.m_window = m_glfwWindow->GetNativeHandle();
         RHI::ResultCode result = m_swapChain->Init(*m_device, *m_commandQueue, desc);
         if (result != RHI::ResultCode::Success)
@@ -322,8 +322,8 @@ namespace Spark::SandBox
     void HelloTriangle::CreateViewportAndScissor()
     {
         auto windowSize = m_glfwWindow->GetWindowSize();
-        m_viewport = RHI::Viewport(0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
-        m_scissor = RHI::Scissor(0.f, 0.f, (float)windowSize.first, (float)windowSize.second);
+        m_viewport = RHI::Viewport(0.f, (float)windowSize.x, 0.f, (float)windowSize.y);
+        m_scissor = RHI::Scissor(0.f, 0.f, (float)windowSize.x, (float)windowSize.y);
     }
 
     void HelloTriangle::SubmitVertices(RHI::CommandList* commandList)

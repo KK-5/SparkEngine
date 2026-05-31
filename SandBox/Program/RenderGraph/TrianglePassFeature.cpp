@@ -78,9 +78,9 @@ namespace Spark::SandBox
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
         Spark::RHI::Viewport viewport(
-            0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
+            0.f, (float)windowSize.x, 0.f, (float)windowSize.y);
         Spark::RHI::Scissor scissor(
-            0, 0, (int32_t)windowSize.first, (int32_t)windowSize.second);
+            0, 0, (int32_t)windowSize.x, (int32_t)windowSize.y);
         m_viewport = viewport;
         m_scissor = scissor;
 
@@ -297,11 +297,11 @@ namespace Spark::SandBox
 
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
-        if (windowSize.first <= 0 || windowSize.second <= 0)
+        if (windowSize.x <= 0 || windowSize.y <= 0)
         {
             return;
         }
-        float aspect = (float)windowSize.first / (float)windowSize.second;
+        float aspect = (float)windowSize.x / (float)windowSize.y;
 
         m_rotationAngle += 0.01f;
 

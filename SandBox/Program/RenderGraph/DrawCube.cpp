@@ -68,9 +68,9 @@ namespace Spark::SandBox
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
         Spark::RHI::Viewport viewport(
-            0.f, (float)windowSize.first, 0.f, (float)windowSize.second);
+            0.f, (float)windowSize.x, 0.f, (float)windowSize.y);
         Spark::RHI::Scissor scissor(
-            0, 0, (int32_t)windowSize.first, (int32_t)windowSize.second);
+            0, 0, (int32_t)windowSize.x, (int32_t)windowSize.y);
         m_viewport = viewport;
         m_scissor = scissor;
 
@@ -316,7 +316,7 @@ namespace Spark::SandBox
             {
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                    windowSize.first, windowSize.second,
+                    windowSize.x, windowSize.y,
                     RHI::Format::R8G8B8A8_UNORM
                 );
                 imageDesc.m_multisampleState = RHI::MultisampleState(4, 0);
@@ -335,7 +335,7 @@ namespace Spark::SandBox
 
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil,
-                    windowSize.first, windowSize.second,
+                    windowSize.x, windowSize.y,
                     RHI::Format::D32_FLOAT
                 );
                 depthDesc.m_multisampleState = RHI::MultisampleState(4, 0);
@@ -455,11 +455,11 @@ namespace Spark::SandBox
 
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
-        if (windowSize.first <= 0 || windowSize.second <= 0)
+        if (windowSize.x <= 0 || windowSize.y <= 0)
         {
             return;
         }
-        float aspect = (float)windowSize.first / (float)windowSize.second;
+        float aspect = (float)windowSize.x / (float)windowSize.y;
 
         m_rotationAngle += 0.01f;
         Math::Matrix4X4 model = Math::Rotate(

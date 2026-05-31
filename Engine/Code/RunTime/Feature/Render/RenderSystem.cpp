@@ -64,8 +64,8 @@ namespace Spark::Render
         desc.m_dimensions.m_imageCount = device->GetDescriptor().m_frameCountMax;
         desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
         auto windowSize = window->GetWindowSize();
-        desc.m_dimensions.m_imageHeight = windowSize.second;
-        desc.m_dimensions.m_imageWidth = windowSize.first;
+        desc.m_dimensions.m_imageHeight = windowSize.y;
+        desc.m_dimensions.m_imageWidth = windowSize.x;
         desc.m_window = window->GetNativeHandle();
         RHI::ResultCode result = m_rhiData.m_swapChain->Init(
             *device,

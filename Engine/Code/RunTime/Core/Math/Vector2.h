@@ -6,6 +6,7 @@ namespace Spark::Math
 {
 #ifdef MATH_BACKEND_GLM
     using Vector2 = glm::vec2;
+    using Vector2Int = glm::ivec2;
 #endif
 
     namespace Vector2Const
