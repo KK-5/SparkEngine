@@ -4,6 +4,7 @@ set(TARGET_NAME SparkRender)
 
 set(SOURCES
     Feature/UI/RenderUI.cpp
+    Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp

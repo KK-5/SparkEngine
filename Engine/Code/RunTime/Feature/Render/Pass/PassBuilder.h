@@ -1,19 +1,51 @@
 #pragma once
 
 #include <Log/SpdLogSystem.h>
+#include <Service/Service.h>
 
+#include <RHI/Factory.h>
 #include <RHI/Format.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
+#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/RenderStates.h>
 
 #include <Pass/Pass.h>
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/Component/PassComponents.h>
+#include <Shader/ShaderBuilder.h>
 
 namespace Spark::Render
 {
+    //! Build a PipelineLayoutDescriptor from a PassShaders set via shader
+    //! reflection. Returns nullptr if no shader is present (custom-pipeline
+    //! passes). The result is owned by the caller; PassBuilder stores it on
+    //! the pass as PassPipelineLayout so user Build callbacks can grab it
+    //! before the render-graph Compile phase runs.
+    inline Ptr<RHI::PipelineLayoutDescriptor> BuildPipelineLayoutFromShaders(
+        RHI::Factory& factory, const PassShaders& shaders)
+    {
+        const Resource::ShaderAsset* assets[] = {
+            shaders.m_vertexShader.get(),
+            shaders.m_fragmentShader.get(),
+            shaders.m_geometryShader.get(),
+            shaders.m_computeShader.get(),
+        };
+        ShaderInputBuildResult built = BuildShaderInputList(
+            eastl::span<const Resource::ShaderAsset* const>(assets, 4));
+
+        if (built.stageMask == RHI::ShaderStageMask::None)
+        {
+            return nullptr;
+        }
+
+        auto layout = factory.CreatePipelineLayoutDescriptor();
+        layout->AddShaderInputDescriptors(built.list, built.stageMask);
+        layout->Finalize();
+        return layout;
+    }
+
 
     // ================================================================
     // RenderPassBuilder<PassTag> — chainable builder for graphics passes
@@ -77,67 +109,6 @@ namespace Spark::Render
             return *this;
         }
 
-        // ---- Shader resource binding ----
-        //! Wire a PerPass SRG entity into a slot. The executer auto-binds
-        //! Components::ShaderResource off the entity at pass begin.
-        //! The PSO compiler reads ShaderResourceLayout off the entity.
-        RenderPassBuilder& ShaderResource(uint32_t slot, RHIHandle entity)
-        {
-            ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
-                "Pass '{}': SRG slot {} >= ShaderResourceCountMax.",
-                m_name.GetCStr(), slot);
-            ASSERT(entity != NullHandle,
-                "Pass '{}': SRG slot {} entity is NullHandle.",
-                m_name.GetCStr(), slot);
-            {
-                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
-                ASSERT(existing && *existing == NullHandle,
-                    "Pass '{}': SRG slot {} already bound.",
-                    m_name.GetCStr(), slot);
-            }
-            ASSERT(RHIExecuteContext::Current()->Has<ShaderResourceLayout>(entity),
-                "Pass '{}': SRG slot {} entity has no ShaderResourceLayout.",
-                m_name.GetCStr(), slot);
-            {
-                auto& layout = RHIExecuteContext::Current()->Get<ShaderResourceLayout>(entity).m_layout;
-                const uint32_t prevSlot = layout->GetBindingSlot();
-                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
-                    "Pass '{}': SRG slot {} but entity's layout already bound to slot {}.",
-                    m_name.GetCStr(), slot, prevSlot);
-                layout->SetBindingSlot(slot);
-            }
-            m_shaderResources.m_slots[slot] = entity;
-            return *this;
-        }
-
-        //! Wire a PerDraw layout into a slot. The execute lambda is responsible
-        //! for picking a concrete SRG instance and binding it per draw.
-        //! The PSO compiler reads the layout directly.
-        RenderPassBuilder& ShaderResource(uint32_t slot, Ptr<RHI::ShaderResourceLayout> layout)
-        {
-            ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
-                "Pass '{}': SRG slot {} >= ShaderResourceCountMax.",
-                m_name.GetCStr(), slot);
-            ASSERT(layout != nullptr,
-                "Pass '{}': SRG slot {} layout is null.",
-                m_name.GetCStr(), slot);
-            {
-                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
-                ASSERT(existing && *existing == NullHandle,
-                    "Pass '{}': SRG slot {} already bound.",
-                    m_name.GetCStr(), slot);
-            }
-            {
-                const uint32_t prevSlot = layout->GetBindingSlot();
-                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
-                    "Pass '{}': SRG slot {} but layout already bound to slot {}.",
-                    m_name.GetCStr(), slot, prevSlot);
-                layout->SetBindingSlot(slot);
-            }
-            m_shaderResources.m_slots[slot] = eastl::move(layout);
-            return *this;
-        }
-
         // ---- Custom pipeline (skip engine PSO) ----
         RenderPassBuilder& CustomPipeline()
         {
@@ -190,6 +161,15 @@ namespace Spark::Render
 
             Pass pass = m_context->CreatePass();
 
+            // Tag the entity with its compile-time PassTag so external code can
+            // do O(1) lookup via GetView<SPARK_PASS_TAG("Name")>(). Asserting
+            // view emptiness here catches both duplicate registration and the
+            // (vanishingly rare) 32-bit FNV-1a hash collision at fail-fast time.
+            ASSERT(m_context->GetView<PassTag>().size() == 0,
+                "Pass '{}' tag collides with an existing pass (duplicate name or 32-bit hash collision).",
+                m_name.GetCStr());
+            m_context->Add<PassTag>(pass);
+
             m_context->Add<PassName>(pass, PassName{m_name});
             m_context->Add<RenderPassTag>(pass);
             m_context->Add<PassExecuteQueue>(pass, PassExecuteQueue{m_queue});
@@ -198,13 +178,26 @@ namespace Spark::Render
             if (m_active)
                 m_context->Add<ActivePassTag>(pass);
 
+            m_context->Add<PassShaders>(pass, m_shaders);
+
             if (m_customPipeline)
+            {
                 m_context->Add<CustomPipelinePassTag>(pass);
+            }
             else
+            {
                 m_context->Add<PassPipelineState>(pass, m_pipelineState);
 
-            m_context->Add<PassShaders>(pass, m_shaders);
-            m_context->Add<PassShaderResources>(pass, eastl::move(m_shaderResources));
+                // Eager build PipelineLayoutDescriptor from shader reflection so
+                // user code (e.g. ShaderBindings::Init) can grab it before Compile.
+                auto* factory = Service<RHI::Factory>::Get();
+                ASSERT(factory, "Pass '{}': RHI::Factory service is not registered.",
+                    m_name.GetCStr());
+                if (auto layout = BuildPipelineLayoutFromShaders(*factory, m_shaders))
+                {
+                    m_context->Add<PassPipelineLayout>(pass, PassPipelineLayout{ eastl::move(layout) });
+                }
+            }
 
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
@@ -224,8 +217,6 @@ namespace Spark::Render
             : m_context(&ctx)
             , m_name(name)
         {
-            m_shaderResources.m_slots.resize(
-                RHI::Limits::Pipeline::ShaderResourceCountMax, ShaderResourceSlot{NullHandle});
         }
 
         PassContext*            m_context;
@@ -236,7 +227,6 @@ namespace Spark::Render
 
         PassShaders             m_shaders;
         PassPipelineState       m_pipelineState;
-        PassShaderResources     m_shaderResources;
 
         BuildFunction           m_buildFunction;
         CompileFunction         m_compileFunction;
@@ -274,61 +264,6 @@ namespace Spark::Render
         ComputePassBuilder& ComputeShader(Ptr<Resource::ShaderAsset> asset)
         {
             m_shaders.m_computeShader = eastl::move(asset);
-            return *this;
-        }
-
-        // ---- Shader resource binding ----
-        ComputePassBuilder& ShaderResource(uint32_t slot, RHIHandle entity)
-        {
-            ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
-                "Compute pass '{}': SRG slot {} >= ShaderResourceCountMax.",
-                m_name.GetCStr(), slot);
-            ASSERT(entity != NullHandle,
-                "Compute pass '{}': SRG slot {} entity is NullHandle.",
-                m_name.GetCStr(), slot);
-            {
-                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
-                ASSERT(existing && *existing == NullHandle,
-                    "Compute pass '{}': SRG slot {} already bound.",
-                    m_name.GetCStr(), slot);
-            }
-            ASSERT(RHIExecuteContext::Current()->Has<ShaderResourceLayout>(entity),
-                "Compute pass '{}': SRG slot {} entity has no ShaderResourceLayout.",
-                m_name.GetCStr(), slot);
-            {
-                auto& layout = RHIExecuteContext::Current()->Get<ShaderResourceLayout>(entity).m_layout;
-                const uint32_t prevSlot = layout->GetBindingSlot();
-                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
-                    "Compute pass '{}': SRG slot {} but entity's layout already bound to slot {}.",
-                    m_name.GetCStr(), slot, prevSlot);
-                layout->SetBindingSlot(slot);
-            }
-            m_shaderResources.m_slots[slot] = entity;
-            return *this;
-        }
-
-        ComputePassBuilder& ShaderResource(uint32_t slot, Ptr<RHI::ShaderResourceLayout> layout)
-        {
-            ASSERT(slot < RHI::Limits::Pipeline::ShaderResourceCountMax,
-                "Compute pass '{}': SRG slot {} >= ShaderResourceCountMax.",
-                m_name.GetCStr(), slot);
-            ASSERT(layout != nullptr,
-                "Compute pass '{}': SRG slot {} layout is null.",
-                m_name.GetCStr(), slot);
-            {
-                auto* existing = eastl::get_if<RHIHandle>(&m_shaderResources.m_slots[slot]);
-                ASSERT(existing && *existing == NullHandle,
-                    "Compute pass '{}': SRG slot {} already bound.",
-                    m_name.GetCStr(), slot);
-            }
-            {
-                const uint32_t prevSlot = layout->GetBindingSlot();
-                ASSERT(prevSlot == RHI::InvalidBindingSlot || prevSlot == slot,
-                    "Compute pass '{}': SRG slot {} but layout already bound to slot {}.",
-                    m_name.GetCStr(), slot, prevSlot);
-                layout->SetBindingSlot(slot);
-            }
-            m_shaderResources.m_slots[slot] = eastl::move(layout);
             return *this;
         }
 
@@ -379,6 +314,11 @@ namespace Spark::Render
 
             Pass pass = m_context->CreatePass();
 
+            ASSERT(m_context->GetView<PassTag>().size() == 0,
+                "Compute pass '{}' tag collides with an existing pass (duplicate name or 32-bit hash collision).",
+                m_name.GetCStr());
+            m_context->Add<PassTag>(pass);
+
             m_context->Add<PassName>(pass, PassName{m_name});
             m_context->Add<ComputePassTag>(pass);
             m_context->Add<PassExecuteQueue>(pass, PassExecuteQueue{m_queue});
@@ -387,11 +327,24 @@ namespace Spark::Render
             if (m_active)
                 m_context->Add<ActivePassTag>(pass);
 
-            if (m_customPipeline)
-                m_context->Add<CustomPipelinePassTag>(pass);
-
             m_context->Add<PassShaders>(pass, m_shaders);
-            m_context->Add<PassShaderResources>(pass, eastl::move(m_shaderResources));
+
+            if (m_customPipeline)
+            {
+                m_context->Add<CustomPipelinePassTag>(pass);
+            }
+            else
+            {
+                // Eager build PipelineLayoutDescriptor from shader reflection so
+                // user code (e.g. ShaderBindings::Init) can grab it before Compile.
+                auto* factory = Service<RHI::Factory>::Get();
+                ASSERT(factory, "Compute pass '{}': RHI::Factory service is not registered.",
+                    m_name.GetCStr());
+                if (auto layout = BuildPipelineLayoutFromShaders(*factory, m_shaders))
+                {
+                    m_context->Add<PassPipelineLayout>(pass, PassPipelineLayout{ eastl::move(layout) });
+                }
+            }
 
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
@@ -411,8 +364,6 @@ namespace Spark::Render
             : m_context(&ctx)
             , m_name(name)
         {
-            m_shaderResources.m_slots.resize(
-                RHI::Limits::Pipeline::ShaderResourceCountMax, ShaderResourceSlot{NullHandle});
         }
 
         PassContext*            m_context;
@@ -422,7 +373,6 @@ namespace Spark::Render
         bool                    m_customPipeline{false};
 
         PassShaders             m_shaders;
-        PassShaderResources     m_shaderResources;
 
         BuildFunction           m_buildFunction;
         CompileFunction         m_compileFunction;

@@ -9,8 +9,7 @@
 
 namespace Spark::RHI
 {
-    class ShaderResource;
-    class ShaderResourceLayout;
+    class ShaderBindings;
     class Fence;
 }
 
@@ -38,18 +37,19 @@ namespace Spark::SandBox
         }
 
     private:
-        void CreateViewSRG();
+        void CreateViewBindings();
         void CreateTrianglePass();
         void CreateVertexBuffer();
-        void UpdateViewSRG();
+        void UpdateViewBindings();
         void BuildDrawItemEntity();
 
         Spark::RHI::RHIHandle FindSwapChainView() const;
 
-        // ViewSRG (in RHIContext)
-        Spark::RHI::RHIHandle  m_viewSRGEntity = Spark::RHI::NullHandle;
-        Ptr<Spark::RHI::ShaderResourceLayout> m_srgLayout;
-        Ptr<Spark::RHI::ShaderResource>       m_srg;
+        // Per-pass ShaderBindings (new ShaderInput path). Entity lives in
+        // RHIContext so CompileShaderInputs can discover it; m_viewBindings
+        // is the user-facing Ptr<> for SetXxx data updates.
+        Spark::RHI::RHIHandle           m_viewBindingsEntity = Spark::RHI::NullHandle;
+        Ptr<Spark::RHI::ShaderBindings> m_viewBindings;
 
         // Vertex buffer (in RHIContext) + raw view entity used to import it as
         // a buffer attachment in the pass — the attachment path is how RG picks

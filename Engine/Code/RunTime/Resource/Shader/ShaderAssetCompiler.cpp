@@ -316,6 +316,56 @@ namespace Spark::Resource
                                 varRefl.m_byteOffset = varDesc.StartOffset;
                                 varRefl.m_byteSize = varDesc.Size;
 
+                                // ---- stride-aware fields ----
+                                // 把"数组-of-矩阵"展开成统一的 (elementCount, elementByteSize, elementStride)
+                                // 三元组，让 ShaderInputConstant::SetData 自动处理 HLSL CB 16-byte 对齐。
+                                ID3D12ShaderReflectionType* varType = var->GetType();
+                                D3D12_SHADER_TYPE_DESC typeDesc{};
+                                if (varType && SUCCEEDED(varType->GetDesc(&typeDesc)))
+                                {
+                                    // 标量大小：HLSL CB 里 int/uint/bool/float 都是 4B，double 是 8B。
+                                    const uint32_t scalarSize =
+                                        (typeDesc.Type == D3D_SVT_DOUBLE) ? 8u : 4u;
+
+                                    const uint32_t arrayLen =
+                                        (typeDesc.Elements > 0) ? typeDesc.Elements : 1u;
+
+                                    uint32_t innerCount = 1;
+                                    uint32_t innerSize  = scalarSize;
+                                    if (typeDesc.Class == D3D_SVC_MATRIX_COLUMNS)
+                                    {
+                                        // column-major: array of Columns 列，每列 Rows 个标量
+                                        innerCount = typeDesc.Columns;
+                                        innerSize  = typeDesc.Rows * scalarSize;
+                                    }
+                                    else if (typeDesc.Class == D3D_SVC_MATRIX_ROWS)
+                                    {
+                                        // row-major: array of Rows 行，每行 Columns 个标量
+                                        innerCount = typeDesc.Rows;
+                                        innerSize  = typeDesc.Columns * scalarSize;
+                                    }
+                                    else
+                                    {
+                                        // SCALAR / VECTOR: Rows=1, Columns=N → 单一 element
+                                        innerCount = 1;
+                                        innerSize  = typeDesc.Rows * typeDesc.Columns * scalarSize;
+                                    }
+
+                                    varRefl.m_elementCount    = arrayLen * innerCount;
+                                    varRefl.m_elementByteSize = innerSize;
+
+                                    const bool hasMultiplicity = (arrayLen > 1) || (innerCount > 1);
+                                    varRefl.m_elementStride =
+                                        hasMultiplicity ? 16u : innerSize;
+                                }
+                                else
+                                {
+                                    // Fallback：当成单个原子 blob
+                                    varRefl.m_elementCount    = 1;
+                                    varRefl.m_elementByteSize = varDesc.Size;
+                                    varRefl.m_elementStride   = varDesc.Size;
+                                }
+
                                 cbRefl.m_variables.push_back(eastl::move(varRefl));
                             }
 

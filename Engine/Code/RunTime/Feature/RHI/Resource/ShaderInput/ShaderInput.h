@@ -234,16 +234,47 @@ namespace Spark::RHI
 
         const ShaderInputConstantDescriptor& GetDescription() const { return m_descriptor; }
 
+        //! Upload C++-packed data. Caller passes `elementCount * elementByteSize`
+        //! bytes laid out naturally (e.g. `glm::vec3 colors[3]` → 36 bytes for
+        //! `float3 g_Colors[3]`); this function expands them across the HLSL
+        //! 16-byte CB stride if needed.
+        //!
+        //! Fast path: when `elementStride == elementByteSize` (any non-array
+        //! scalar/vector/matrix, float4 / float4x4 / etc.), this is a single
+        //! memcpy and has identical cost to the old direct-write path.
         bool SetData(const void* bytes, uint32_t byteCount)
         {
-            if (byteCount != m_descriptor.m_constantByteCount)
+            const uint32_t expected =
+                m_descriptor.m_elementCount * m_descriptor.m_elementByteSize;
+            if (byteCount != expected)
             {
                 return false;
             }
-            memcpy(m_data.data(), bytes, byteCount);
+
+            // Fast path: HLSL stride == C++ packing (no per-element gaps).
+            if (m_descriptor.m_elementStride == m_descriptor.m_elementByteSize)
+            {
+                memcpy(m_data.data(), bytes, byteCount);
+                return true;
+            }
+
+            // Slow path: per-element strided copy. Common case is `floatN arr[]`
+            // with N < 4 (HLSL 16-byte array stride). m_elementCount is small in
+            // practice (matrix dims or array len), so this is a few memcpys.
+            const auto* src = static_cast<const uint8_t*>(bytes);
+            for (uint32_t i = 0; i < m_descriptor.m_elementCount; ++i)
+            {
+                memcpy(m_data.data() + i * m_descriptor.m_elementStride,
+                       src + i * m_descriptor.m_elementByteSize,
+                       m_descriptor.m_elementByteSize);
+            }
             return true;
         }
 
+        //! Sub-region write into the HLSL CB layout directly. `byteOffset` and
+        //! `byteCount` are in HLSL-layout bytes (no stride translation); intended
+        //! for advanced callers that have already laid out their data to match
+        //! the CB. Most callers should use SetData(bytes, byteCount) above.
         bool SetData(const void* bytes, uint32_t byteOffset, uint32_t byteCount)
         {
             if (byteOffset + byteCount > m_descriptor.m_constantByteCount)

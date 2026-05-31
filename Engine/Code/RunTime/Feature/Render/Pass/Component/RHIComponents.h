@@ -17,8 +17,6 @@
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
-#include <RHI/Resource/ShaderResource/ShaderResource.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
 #include <RHI/Resource/ResourceState.h>
 
 #include <RHI/Attachment/AttachmentEnums.h>
@@ -43,9 +41,8 @@ namespace Spark::Render
     using RHI::TransientTag;
     using RHI::TransientViewTag;
     using RHI::RHIUpdateTag;
-    using RHI::ShaderResourceUpdateTag;
+    using RHI::ShaderBindingsUpdateTag;
     using RHI::ResourceName;
-    using RHI::ShaderResourceTag;
     using RHI::ViewHierarchy;
     using RHI::ResourceHierarchy;
 
@@ -53,8 +50,6 @@ namespace Spark::Render
     using RHI::Components::Image;
     using RHI::Components::BufferView;
     using RHI::Components::ImageView;
-    using RHI::Components::ShaderResource;
-    using RHI::Components::ShaderResourceLayout;
     using RHI::Components::FrameArray;
     using RHI::Components::ImagePerFrame;
     using RHI::Components::BufferPerFrame;

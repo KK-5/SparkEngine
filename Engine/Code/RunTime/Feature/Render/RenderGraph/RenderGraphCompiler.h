@@ -12,8 +12,6 @@ namespace Spark::RHI
 {
     class Device;
     class TransientResourcePool;
-    class ShaderResource;
-    class ShaderResourceCompiler;
     class ImageView;
     class BufferView;
     class PipelineLibrary;
@@ -41,12 +39,6 @@ namespace Spark::Render
     class RenderGraphCompiler
     {
     public:
-        RHI::ShaderResource* GetShaderResource() const;
-
-        RHI::ImageView*  GetImageView(RHI::InputName slot) const;
-
-        RHI::BufferView* GetBufferView(RHI::InputName slot) const;
-
         uint32_t GetFrameIndex() const { return m_frameIndex; }
 
     private:
@@ -103,13 +95,15 @@ namespace Spark::Render
         //! as PassCompiledPSO on the pass entity. Skips passes that already have
         //! a cached PSO (no PassPSODirtyTag).
         void CompilePipelineStates(
-            eastl::span<Pass>     passes,
             PassContext&          passContext,
             RHI::Device&          device,
             RHI::PipelineLibrary* pipelineLibrary);
 
 
-        void CompileShaderResources(RHI::Device& device, RHIContext& context);
+        //! Sweeps every entity carrying ShaderBindingsUpdateTag + Components::ShaderBindings,
+        //! dispatches Compile on each, and clears the tag. User code (typically
+        //! CreatePassShaderBindings + MarkShaderBindingsUpdate) drives the dirty bit.
+        void CompileShaderInputs(RHI::Device& device, RHIContext& context);
 
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.

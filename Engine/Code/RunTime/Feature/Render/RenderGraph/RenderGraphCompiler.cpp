@@ -13,7 +13,7 @@
 #include <RHI/Pipeline/PipelineState.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Image/Image.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceCompiler.h>
+#include <RHI/Resource/ShaderInput/ShaderInputCompiler.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Command/RenderPassBeginInfo.h>
 
@@ -27,94 +27,6 @@ namespace Spark::Render
 
 namespace
 {
-    //! Derive a conservative ShaderStageMask from the shaders a pass carries.
-    RHI::ShaderStageMask DeriveStageMask(const PassShaders& shaders)
-    {
-        RHI::ShaderStageMask mask = RHI::ShaderStageMask::None;
-        if (shaders.m_vertexShader)   mask |= RHI::ShaderStageMask::Vertex;
-        if (shaders.m_fragmentShader) mask |= RHI::ShaderStageMask::Fragment;
-        if (shaders.m_geometryShader) mask |= RHI::ShaderStageMask::Geometry;
-        if (shaders.m_computeShader)  mask |= RHI::ShaderStageMask::Compute;
-        return mask;
-    }
-
-    //! Build a PipelineLayoutDescriptor from a pass's PassShaderResources slots.
-    //! @param stageMask  Conservative stage mask — every binding declares visibility
-    //!                    to all active stages. Correct but may inhibit driver
-    //!                    dead-code elimination of unused descriptors. Will be
-    //!                    replaced by per-resource masks once shader reflection is
-    //!                    plumbed through ShaderAsset.
-    Ptr<RHI::PipelineLayoutDescriptor> BuildPipelineLayoutDescriptor(
-        const PassShaderResources& slots,
-        RHI::ShaderStageMask       stageMask)
-    {
-        auto& rhiCtx = *RHIExecuteContext::Current();
-        auto* factory = Service<RHI::Factory>::Get();
-
-        auto desc = factory->CreatePipelineLayoutDescriptor();
-
-        for (uint32_t slot = 0; slot < slots.m_slots.size(); ++slot)
-        {
-            const auto& slotValue = slots.m_slots[slot];
-
-            const RHI::ShaderResourceLayout* layout = nullptr;
-
-            if (eastl::holds_alternative<RHIHandle>(slotValue))
-            {
-                RHIHandle entity = eastl::get<RHIHandle>(slotValue);
-                if (entity == NullHandle)
-                {
-                    continue;
-                }
-                const auto& srgLayout = rhiCtx.Get<ShaderResourceLayout>(entity);
-                layout = srgLayout.m_layout.get();
-                ASSERT(layout, "Pass SRG entity has null ShaderResourceLayout.");
-            }
-            else
-            {
-                auto& srgLayout = eastl::get<Ptr<RHI::ShaderResourceLayout>>(slotValue);
-                layout = srgLayout.get();
-                ASSERT(layout, "Pass SRG slot has null PerDraw layout.");
-            }
-
-            RHI::ShaderResourceBindingInfo bindingInfo;
-
-            // --- constant data binding ---
-            if (const auto* constLayout = layout->GetConstantsLayout())
-            {
-                // Pick up register / space from the first constant descriptor.
-                auto constants = layout->GetShaderInputListForConstants();
-                if (!constants.empty())
-                {
-                    bindingInfo.m_constantDataBindingInfo = RHI::ResourceBindingInfo(
-                        stageMask,
-                        constants[0].m_registerId,
-                        constants[0].m_spaceId);
-                }
-            }
-
-            // --- per-resource register map ---
-            auto addResources = [&](auto& list)
-            {
-                for (const auto& input : list)
-                {
-                    bindingInfo.m_resourcesRegisterMap[RHI::InputName(input.m_name)] =
-                        RHI::ResourceBindingInfo(stageMask, input.m_registerId, input.m_spaceId);
-                }
-            };
-
-            addResources(layout->GetShaderInputListForBuffers());
-            addResources(layout->GetShaderInputListForImages());
-            addResources(layout->GetShaderInputListForSamplers());
-            addResources(layout->GetStaticSamplers());
-
-            desc->AddShaderResourceLayoutInfo(*layout, bindingInfo);
-        }
-
-        desc->Finalize();
-        return desc;
-    }
-
     template <typename AttachmentT>
     RHI::ResourceState CompileResourceState(const AttachmentT& attachment)
     {
@@ -1302,7 +1214,6 @@ namespace
     }
 
     void RenderGraphCompiler::CompilePipelineStates(
-        eastl::span<Pass>,
         PassContext&          passContext,
         RHI::Device&          device,
         RHI::PipelineLibrary* pipelineLibrary)
@@ -1312,10 +1223,10 @@ namespace
 
         // --- Render passes ---
         {
-            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState, PassShaderResources>(
+            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState>(
                 Exclude<CustomPipelinePassTag>);
 
-            view.each([&](Pass pass, const PassShaders& shaders, const PassPipelineState& pipelineState, const PassShaderResources& srgs)
+            view.each([&](Pass pass, const PassShaders& shaders, const PassPipelineState& pipelineState)
             {
                 if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
                     return;
@@ -1359,8 +1270,11 @@ namespace
                 descriptor.m_renderTargetLayout = pipelineState.m_renderTargetLayout;
                 descriptor.m_renderStates       = pipelineState.m_renderStates;
 
+                ASSERT(passContext.Has<PassPipelineLayout>(pass),
+                    "Pass '{}' has no PassPipelineLayout (eager build in PassBuilder::Finalize failed?).",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
                 descriptor.m_pipelineLayoutDescriptor =
-                    BuildPipelineLayoutDescriptor(srgs, DeriveStageMask(shaders));
+                    passContext.Get<PassPipelineLayout>(pass).m_layout;
 
                 auto pso = factory->CreatePipelineState();
                 RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
@@ -1379,10 +1293,10 @@ namespace
 
         // --- Compute passes ---
         {
-            auto view = passContext.GetView<ComputePassTag, PassShaders, PassShaderResources>(
+            auto view = passContext.GetView<ComputePassTag, PassShaders>(
                 Exclude<CustomPipelinePassTag>);
 
-            view.each([&](Pass pass, const PassShaders& shaders, const PassShaderResources& srgs)
+            view.each([&](Pass pass, const PassShaders& shaders)
             {
                 if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
                     return;
@@ -1401,8 +1315,11 @@ namespace
                 func->Finalize();
                 descriptor.m_computeFunction = eastl::move(func);
 
+                ASSERT(passContext.Has<PassPipelineLayout>(pass),
+                    "Compute pass '{}' has no PassPipelineLayout (eager build in PassBuilder::Finalize failed?).",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
                 descriptor.m_pipelineLayoutDescriptor =
-                    BuildPipelineLayoutDescriptor(srgs, DeriveStageMask(shaders));
+                    passContext.Get<PassPipelineLayout>(pass).m_layout;
 
                 auto pso = factory->CreatePipelineState();
                 RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
@@ -1420,21 +1337,21 @@ namespace
         }
     }
 
-    void RenderGraphCompiler::CompileShaderResources(RHI::Device& device, RHIContext& context)
+    void RenderGraphCompiler::CompileShaderInputs(RHI::Device& device, RHIContext& context)
     {
-        auto& view = context.GetView<ShaderResourceUpdateTag, RHI::Components::ShaderResource>();
+        auto& view = context.GetView<ShaderBindingsUpdateTag, RHI::Components::ShaderBindings>();
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
-        auto& shaderResourceCompiler = factory->AcquireShaderResourceCompiler(device);
-        eastl::vector<RHI::ShaderResource*> shaderResources;
-        shaderResources.reserve(view.size_hint());
-        view.each([&](RHIHandle handle, RHI::Components::ShaderResource& shaderResourceComp)
+        auto& shaderInputCompiler = factory->AcquireShaderInputCompiler(device);
+        view.each([&](RHIHandle handle, RHI::Components::ShaderBindings& comp)
         {
-            shaderResources.push_back(shaderResourceComp.m_shaderResource.get());
-            context.Remove<ShaderResourceUpdateTag>(handle);
+            ASSERT(comp.m_bindings,
+                "[CompileShaderInputs] Components::ShaderBindings holds null Ptr.");
+            const RHI::ResultCode rc = shaderInputCompiler.Compile(*comp.m_bindings);
+            ASSERT(rc == RHI::ResultCode::Success,
+                "[CompileShaderInputs] ShaderInputCompiler::Compile failed.");
+            context.Remove<ShaderBindingsUpdateTag>(handle);
         });
-        shaderResourceCompiler.Compiler(shaderResources);
-
     }
 }

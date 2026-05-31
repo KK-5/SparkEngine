@@ -91,7 +91,11 @@ namespace Spark::Render
 
         void ExecuteBindPSO(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
-        void ExecuteBindPerPassSRGs(RHI::CommandList* commandList, Pass pass, PassContext& passContext, RHIContext& rhiContext);
+        //! Iterates the pass's PassShaderBindings component (populated via
+        //! Render::AttachShaderBindings) in attach order and dispatches
+        //! CommandList::BindShaderInputsForDraw / BindShaderInputsForDispatch
+        //! on each non-null entry. Skips entries detached by attaching nullptr.
+        void ExecutePassShaderBindings(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
         void ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 

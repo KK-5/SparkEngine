@@ -3,6 +3,7 @@
 #include <RHI/Command/CommandList.h>
 #include <RHI/Command/RenderPassBeginInfo.h>
 #include <RHI/Factory.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Pass/Component/PassComponents.h>
 
@@ -253,38 +254,29 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphExecuter::ExecuteBindPerPassSRGs(RHI::CommandList* commandList, Pass pass, PassContext& passContext, RHIContext& rhiContext)
+    void RenderGraphExecuter::ExecutePassShaderBindings(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
     {
-        auto* srgs = passContext.TryGet<PassShaderResources>(pass);
-        if (!srgs)
+        auto* attached = passContext.TryGet<PassShaderBindings>(pass);
+        if (!attached)
         {
             return;
         }
 
         const bool isCompute = passContext.Has<ComputePassTag>(pass);
 
-        for (auto& slotValue : srgs->m_slots)
+        for (const auto& entry : attached->m_entries)
         {
-            if (!eastl::holds_alternative<RHIHandle>(slotValue))
+            if (!entry.m_bindings)
             {
                 continue;
             }
-            RHIHandle entity = eastl::get<RHIHandle>(slotValue);
-            if (entity == NullHandle)
+            if (isCompute)
             {
-                continue;
+                commandList->BindShaderInputsForDispatch(*entry.m_bindings);
             }
-            auto* srgComp = rhiContext.TryGet<RHI::Components::ShaderResource>(entity);
-            if (srgComp && srgComp->m_shaderResource)
+            else
             {
-                if (isCompute)
-                {
-                    commandList->SetShaderResourceForDispatch(*srgComp->m_shaderResource);
-                }
-                else
-                {
-                    commandList->SetShaderResourceForDraw(*srgComp->m_shaderResource);
-                }
+                commandList->BindShaderInputsForDraw(*entry.m_bindings);
             }
         }
     }
@@ -295,14 +287,12 @@ namespace Spark::Render
         cmdList->Open();
         work.m_commandList = cmdList;
 
-        auto& rhiCtx = *RHIExecuteContext::Current();
-
         for (auto& item : work.m_items)
         {
             if (item.m_itemIndex == 0)
             {
                 ExecuteBindPSO(cmdList, item.m_pass, passContext);
-                ExecuteBindPerPassSRGs(cmdList, item.m_pass, passContext, rhiCtx);
+                ExecutePassShaderBindings(cmdList, item.m_pass, passContext);
                 ExecutePreBarriers(cmdList, item.m_pass, passContext);
                 ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);
             }

@@ -321,12 +321,17 @@ namespace Spark::SandBox
         m_pipelineLayoutDesc = m_rhiFactory->CreatePipelineLayoutDescriptor();
 
         RHI::ShaderInputList inputs;
+        // float4x4 (column-major) decomposes as 4 columns × 16B (each column is
+        // float4 width, so HLSL stride matches C++ packing — fast path memcpy).
         inputs.m_constants.push_back(RHI::ShaderInputConstantDescriptor(
             RHI::InputName("g_MVP"),
-            /*byteOffset*/0,
-            /*byteCount*/sizeof(Math::Matrix4X4),
-            /*registerId b0*/0,
-            /*spaceId*/0));
+            /*byteOffset*/     0,
+            /*byteCount*/      sizeof(Math::Matrix4X4),
+            /*elementCount*/   4,
+            /*elementByteSize*/sizeof(float) * 4,
+            /*elementStride*/  16,
+            /*registerId b0*/  0,
+            /*spaceId*/        0));
         inputs.m_images.push_back(RHI::ShaderInputImageDescriptor(
             RHI::InputName("g_BaseColor"),
             RHI::ShaderInputImageAccess::Read,

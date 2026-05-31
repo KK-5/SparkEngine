@@ -20,11 +20,26 @@ namespace Spark::Resource
     // ---- Platform-agnostic shader reflection types ----
 
     /// cbuffer 内单个变量的反射信息
+    ///
+    /// 字段语义（用于 stride-aware 上传）：
+    ///   - m_byteOffset / m_byteSize：DXC 直接报的反射值；m_byteSize 等于
+    ///     `(m_elementCount - 1) * m_elementStride + m_elementByteSize`。
+    ///   - m_elementCount    : 这个变量在 CB 中"分组数"。
+    ///                          标量/向量 = 1；矩阵 = 列数（column-major）；
+    ///                          数组 = 数组长度 × (矩阵列数或 1)。
+    ///   - m_elementByteSize : 每一"组"在 C++ 紧凑布局下的字节数。
+    ///                          例 float3[3]: 12；float4x4: 16；float3x3: 12。
+    ///   - m_elementStride   : 每一"组"在 HLSL CB 布局下占用的字节数。
+    ///                          有数组/矩阵多重性 → 16（HLSL 数组规则）；
+    ///                          单标量/向量（无多重性）→ = m_elementByteSize。
     struct ShaderConstantVariableReflection
     {
         eastl::string m_name;
-        uint32_t m_byteOffset = 0;
-        uint32_t m_byteSize = 0;
+        uint32_t m_byteOffset      = 0;
+        uint32_t m_byteSize        = 0;
+        uint32_t m_elementCount    = 1;
+        uint32_t m_elementByteSize = 0;
+        uint32_t m_elementStride   = 0;
     };
 
     /// cbuffer 反射信息（含变量布局）

@@ -23,9 +23,8 @@
 #include <RHI/Resource/Buffer/VertexInputView.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
-#include <RHI/Resource/ShaderResource/ShaderResource.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
+#include <RHI/Resource/ShaderInput/ShaderInput.h>
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/Pipeline/RenderTargetLayout.h>
 
@@ -36,12 +35,11 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassBuilder.h>
 #include <Pass/PassTag.h>
+#include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
-
-#include <Render/Shader/ShaderBuilder.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -96,9 +94,10 @@ namespace Spark::SandBox
         ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[MSAAPassFeature] TriangleMVP.hlsl load failed.");
 
-        CreateViewSRG();
+        // Pass must exist before CreatePassShaderBindings can look it up by tag.
         CreateVertexBuffer();
         CreatePasses();
+        CreateViewBindings();
 
         TickBus::Handler::BusConnect();
         return true;
@@ -120,12 +119,14 @@ namespace Spark::SandBox
         destroyIfValid(m_drawItemEntity);
         destroyIfValid(m_vbViewEntity);
         destroyIfValid(m_vbEntity);
-        destroyIfValid(m_viewSRGEntity);
+        destroyIfValid(m_viewBindingsEntity);
+
+        m_viewBindings.reset();
     }
 
     void MSAAPassFeature::OnTick(float /*deltaTime*/)
     {
-        UpdateViewSRG();
+        UpdateViewBindings();
         BuildDrawItemEntity();
     }
 
@@ -144,31 +145,24 @@ namespace Spark::SandBox
         return found;
     }
 
-    void MSAAPassFeature::CreateViewSRG()
+    void MSAAPassFeature::CreateViewBindings()
     {
-        auto* rhi = Service<Spark::RHI::RHIInterface>::Get();
-        auto* factory = rhi->GetRHIFactory();
-        auto* device  = rhi->GetDevice();
+        auto& passCtx = *Spark::Render::PassExecuteContext::Current();
+        auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
 
-        m_srgLayout = Render::BuildShaderResourceLayout(*m_shader);
-
-        m_srg = factory->CreateShaderResource();
-        if (m_srg->Init(*device, m_srgLayout) != Spark::RHI::ResultCode::Success)
+        auto handle = Spark::Render::CreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
+            passCtx, rhiCtx, /*spaceId*/ 0);
+        if (!handle.m_bindings)
         {
-            LOG_ERROR("[MSAAPassFeature] ShaderResource Init failed.");
+            LOG_ERROR("[MSAAPassFeature] CreatePassShaderBindings failed.");
             return;
         }
 
-        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
-        m_viewSRGEntity = ctx.CreateEntity();
-        ctx.Add<Spark::RHI::ImportedTag>(m_viewSRGEntity);
-        ctx.Add<Spark::RHI::ShaderResourceTag>(m_viewSRGEntity);
-        ctx.Add<Spark::RHI::ResourceName>(m_viewSRGEntity,
-            Spark::RHI::ResourceName{ ObjectName("ViewSRG") });
-        ctx.Add<Spark::RHI::Components::ShaderResourceLayout>(m_viewSRGEntity,
-            Spark::RHI::Components::ShaderResourceLayout{ m_srgLayout });
-        ctx.Add<Spark::RHI::Components::ShaderResource>(m_viewSRGEntity,
-            Spark::RHI::Components::ShaderResource{ m_srg });
+        m_viewBindings       = handle.m_bindings;
+        m_viewBindingsEntity = handle.m_entity;
+
+        Spark::Render::AttachShaderBindings<SPARK_PASS_TAG("ScenePass")>(
+            passCtx, /*spaceId*/ 0, m_viewBindings);
     }
 
     void MSAAPassFeature::CreateVertexBuffer()
@@ -229,7 +223,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .ShaderResource(0, m_viewSRGEntity)
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
             {
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
@@ -335,9 +328,9 @@ namespace Spark::SandBox
         }
     }
 
-    void MSAAPassFeature::UpdateViewSRG()
+    void MSAAPassFeature::UpdateViewBindings()
     {
-        if (!m_srg || !m_srgLayout || m_viewSRGEntity == Spark::RHI::NullHandle)
+        if (!m_viewBindings || m_viewBindingsEntity == Spark::RHI::NullHandle)
         {
             return;
         }
@@ -364,10 +357,9 @@ namespace Spark::SandBox
             Math::Radians(45.f), aspect, 0.1f, 100.f);
         Math::Matrix4X4 mvp = proj * view * model;
 
-        Spark::RHI::ShaderInputIndex mvpIdx =
-            m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_MVP"));
-        ASSERT(mvpIdx != RHI::InvalidShaderInputIndex, "No g_MVP shader input.");
-        m_srg->SetConstantRaw(mvpIdx, &mvp, sizeof(mvp));
+        auto* mvpInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_MVP"));
+        ASSERT(mvpInput, "No g_MVP shader input.");
+        mvpInput->SetData(&mvp, sizeof(mvp));
 
         m_colorPhase += 0.01f;
         Math::Vector3 colors[3];
@@ -380,13 +372,12 @@ namespace Spark::SandBox
                 sinf(phase + 4.0f) * 0.5f + 0.5f);
         }
 
-        Spark::RHI::ShaderInputIndex colorIdx =
-            m_srgLayout->FindShaderInputConstantIndex(Spark::RHI::InputName("g_Colors"));
-        ASSERT(colorIdx != RHI::InvalidShaderInputIndex, "No g_Colors shader input.");
-        m_srg->SetConstantRaw(colorIdx, colors, sizeof(colors));
+        auto* colorInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_Colors"));
+        ASSERT(colorInput, "No g_Colors shader input.");
+        colorInput->SetData(colors, sizeof(colors));
 
-        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
-        ctx.AddOrReplace<Spark::RHI::ShaderResourceUpdateTag>(m_viewSRGEntity);
+        auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
+        Spark::Render::MarkShaderBindingsUpdate(rhiCtx, m_viewBindingsEntity);
     }
 
 }

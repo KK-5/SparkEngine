@@ -1,8 +1,6 @@
 #include "ShaderBuilder.h"
 
 #include <EASTL/set.h>
-#include <Core/Service/Service.h>
-#include <RHI/Factory.h>
 
 namespace Spark::Render
 {
@@ -21,60 +19,63 @@ namespace Spark::Render
                 return static_cast<uint32_t>(type) < static_cast<uint32_t>(other.type);
             }
         };
-    }
 
-    void BuildShaderResourceLayout(const Resource::ShaderAsset& shader, RHI::ShaderResourceLayout& layout)
-    {
-        auto* shaderData = shader.GetShaderData();
-        if (!shaderData)
+        RHI::ShaderStageMask StageToMask(RHI::ShaderStage stage)
         {
-            return;
+            return static_cast<RHI::ShaderStageMask>(BIT(static_cast<uint32_t>(stage)));
         }
 
-        eastl::set<RegisterKey> addedBindings;
-        eastl::set<eastl::string> addedConstants;
-
-        for (uint32_t stageIdx = 0; stageIdx < static_cast<uint32_t>(RHI::ShaderStage::Count); ++stageIdx)
+        //! 跨多次调用共享的去重表，配合 MergeStageReflection 使用。
+        struct ShaderInputMergeState
         {
-            auto stage = static_cast<RHI::ShaderStage>(stageIdx);
-            auto* refl = shaderData->GetStageReflection(stage);
-            if (!refl)
-            {
-                continue;
-            }
+            eastl::set<RegisterKey>   addedBindings;
+            eastl::set<eastl::string> addedConstants;
+        };
 
-            // cbuffer → 每个变量展开为 Constant 描述符（GPU 虚拟地址绑定）
-            for (const auto& cb : refl->m_cbuffers)
+        //! 将单个 stage 反射并入 ShaderInputList，去重表跨调用累积。
+        //! Buffer/Image/Sampler 按 (spaceId, registerId, type) 去重；
+        //! 常量按变量名去重（cbuffer 变量展开为独立 ShaderInputConstantDescriptor，
+        //! Finalize 时 PipelineLayoutDescriptor 再按 registerId 聚合成 ConstantBufferLayout）。
+        void MergeStageReflection(
+            const Resource::ShaderStageReflection& refl,
+            ShaderInputMergeState&                 state,
+            RHI::ShaderInputList&                  out)
+        {
+            for (const auto& cb : refl.m_cbuffers)
             {
                 for (const auto& var : cb.m_variables)
                 {
-                    if (addedConstants.insert(var.m_name).second)
+                    if (!state.addedConstants.insert(var.m_name).second)
                     {
-                        layout.AddShaderInput(RHI::ShaderInputConstantDescriptor(
-                            RHI::InputName(var.m_name.c_str()),
-                            var.m_byteOffset,
-                            var.m_byteSize,
-                            cb.m_registerId,
-                            cb.m_spaceId));
+                        continue;
                     }
+                    out.m_constants.push_back(RHI::ShaderInputConstantDescriptor(
+                        RHI::InputName(var.m_name.c_str()),
+                        var.m_byteOffset,
+                        var.m_byteSize,
+                        var.m_elementCount,
+                        var.m_elementByteSize,
+                        var.m_elementStride,
+                        cb.m_registerId,
+                        cb.m_spaceId));
                 }
             }
 
-            // 资源绑定: SRV / UAV / Sampler
-            for (const auto& res : refl->m_resources)
+            for (const auto& res : refl.m_resources)
             {
-                RegisterKey key{res.m_registerId, res.m_spaceId, res.m_type};
-                if (!addedBindings.insert(key).second)
+                RegisterKey key{ res.m_registerId, res.m_spaceId, res.m_type };
+                if (!state.addedBindings.insert(key).second)
                 {
                     continue;
                 }
+
+                const uint32_t count = res.m_count > 0 ? res.m_count : 1;
 
                 switch (res.m_type)
                 {
                 case RHI::ShaderInputType::Buffer:
                 {
-                    uint32_t count = res.m_count > 0 ? res.m_count : 1;
-                    layout.AddShaderInput(RHI::ShaderInputBufferDescriptor(
+                    out.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
                         RHI::InputName(res.m_name.c_str()),
                         res.m_bufferAccess,
                         res.m_bufferType,
@@ -85,8 +86,7 @@ namespace Spark::Render
                 }
                 case RHI::ShaderInputType::Image:
                 {
-                    uint32_t count = res.m_count > 0 ? res.m_count : 1;
-                    layout.AddShaderInput(RHI::ShaderInputImageDescriptor(
+                    out.m_images.push_back(RHI::ShaderInputImageDescriptor(
                         RHI::InputName(res.m_name.c_str()),
                         res.m_imageAccess,
                         res.m_imageType,
@@ -97,8 +97,7 @@ namespace Spark::Render
                 }
                 case RHI::ShaderInputType::Sampler:
                 {
-                    uint32_t count = res.m_count > 0 ? res.m_count : 1;
-                    layout.AddShaderInput(RHI::ShaderInputSamplerDescriptor(
+                    out.m_samplers.push_back(RHI::ShaderInputSamplerDescriptor(
                         RHI::InputName(res.m_name.c_str()),
                         count,
                         res.m_registerId,
@@ -110,19 +109,91 @@ namespace Spark::Render
                 }
             }
         }
+
+        //! 单个 ShaderAsset 的反射遍历主体：迭代所有 stage，并入 list、累积 stageMask。
+        //! stageOwner != nullptr 时启用跨 asset 的 stage 唯一性检查（多 asset 路径用）。
+        void MergeAssetReflection(
+            const Resource::ShaderAsset&            shader,
+            ShaderInputMergeState&                  state,
+            ShaderInputBuildResult&                 result,
+            const Resource::ShaderAsset**           stageOwner /* nullable, size = ShaderStageCount */)
+        {
+            auto* shaderData = shader.GetShaderData();
+            if (!shaderData)
+            {
+                return;
+            }
+
+            for (uint32_t i = 0; i < static_cast<uint32_t>(RHI::ShaderStage::Count); ++i)
+            {
+                auto  stage = static_cast<RHI::ShaderStage>(i);
+                auto* refl  = shaderData->GetStageReflection(stage);
+                if (!refl)
+                {
+                    continue;
+                }
+
+                if (stageOwner != nullptr)
+                {
+                    ASSERT(stageOwner[i] == nullptr,
+                        "[BuildShaderInputList] ShaderStage %u is contributed by more than one "
+                        "ShaderAsset; a pass cannot have multiple shaders for the same stage.", i);
+                    stageOwner[i] = &shader;
+                }
+
+                result.stageMask = result.stageMask | StageToMask(stage);
+                MergeStageReflection(*refl, state, result.list);
+            }
+        }
     }
 
-    Ptr<RHI::ShaderResourceLayout> BuildShaderResourceLayout(const Resource::ShaderAsset& shader)
+    ShaderInputBuildResult BuildShaderInputList(const Resource::ShaderAsset& shader)
     {
-        auto* factory = Service<RHI::Factory>::Get();
-        if (!factory)
+        ShaderInputBuildResult result;
+        ShaderInputMergeState  state;
+        MergeAssetReflection(shader, state, result, /*stageOwner*/nullptr);
+        return result;
+    }
+
+    ShaderInputBuildResult BuildShaderInputList(
+        eastl::span<const Resource::ShaderAsset* const> shaders)
+    {
+        ShaderInputBuildResult result;
+        ShaderInputMergeState  state;
+
+        // 指针去重 — 同一个组合 HLSL 被同时挂到多个 stage 槽位时只处理一次。
+        // pass 内 shader 槽位很少（≤ ShaderStageCount），线性扫描即可。
+        eastl::fixed_vector<const Resource::ShaderAsset*, RHI::ShaderStageCount> processed;
+
+        // 跨 asset 的 stage 唯一性检查：每个 stage 最多被一个 asset 贡献反射。
+        eastl::array<const Resource::ShaderAsset*, RHI::ShaderStageCount> stageOwner{};
+        stageOwner.fill(nullptr);
+
+        for (const Resource::ShaderAsset* shader : shaders)
         {
-            return nullptr;
+            if (shader == nullptr)
+            {
+                continue;
+            }
+
+            bool seen = false;
+            for (const Resource::ShaderAsset* p : processed)
+            {
+                if (p == shader)
+                {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen)
+            {
+                continue;
+            }
+            processed.push_back(shader);
+
+            MergeAssetReflection(*shader, state, result, stageOwner.data());
         }
 
-        auto layout = factory->CreateShaderResourceLayout();
-        BuildShaderResourceLayout(shader, *layout);
-        layout->Finalize();
-        return layout;
+        return result;
     }
 }

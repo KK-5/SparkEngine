@@ -11,8 +11,7 @@
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/Image/Image.h>
 #include <RHI/Resource/Image/ImageView.h>
-#include <RHI/Resource/ShaderResource/ShaderResource.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Resource/Buffer/BufferDescriptor.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
@@ -48,9 +47,10 @@ namespace Spark::RHI
     // and needs flushing this frame.
     struct RHIUpdateTag {};
 
-    // Marks an SRG entity whose constants / views have been updated and need
-    // recompilation this frame. Consumed by RenderGraphCompiler::CompileShaderResources.
-    struct ShaderResourceUpdateTag {};
+    // Marks a ShaderBindings entity whose constants / views have been updated
+    // and need recompilation this frame. Consumed by
+    // RenderGraphCompiler::CompileShaderInputs.
+    struct ShaderBindingsUpdateTag {};
 
     // Human-readable debug name on a resource entity.
     struct ResourceName
@@ -95,9 +95,6 @@ namespace Spark::RHI
         Fence*   m_fence      = nullptr;
         uint64_t m_fenceValue = 0;
     };
-
-    // Marks an entity as a shader resource binding.
-    struct ShaderResourceTag {};
 
     // View-to-resource and resource-to-views linked lists.
     struct ViewHierarchy
@@ -209,16 +206,12 @@ namespace Spark::RHI::Components
         Ptr<RHI::ImageView> m_view;
     };
 
-    struct ShaderResource
+    // Owning component holding a ShaderBindings instance. Placed on an entity by
+    // Render::CreatePassShaderBindings so RenderGraphCompiler::CompileShaderInputs
+    // can discover it via view iteration. Filter tag is ShaderBindingsUpdateTag.
+    struct ShaderBindings
     {
-        Ptr<RHI::ShaderResource> m_shaderResource;
-    };
-
-    // Logical schema of a shader resource bindings layout.
-    // Always present on SRG entities, including layout-only ones.
-    struct ShaderResourceLayout
-    {
-        Ptr<RHI::ShaderResourceLayout> m_layout;
+        Ptr<RHI::ShaderBindings> m_bindings;
     };
 
     template <typename T>

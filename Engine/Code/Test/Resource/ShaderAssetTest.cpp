@@ -306,7 +306,7 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLReflection)
     ASSERT_NE(psTimeVar, nullptr);
 }
 
-TEST_F(ShaderAssetTestFixture, BuildShaderResourceLayoutFromReflection)
+TEST_F(ShaderAssetTestFixture, BuildShaderInputListFromReflection)
 {
     eastl::vector<eastl::string> searchPaths;
     searchPaths.push_back(TEST_RESOURCE_DIR);
@@ -327,39 +327,34 @@ TEST_F(ShaderAssetTestFixture, BuildShaderResourceLayoutFromReflection)
     ShaderAsset shader(id);
     shader.SetDataReady(eastl::move(compiledData));
 
-    Ptr<RHI::ShaderResourceLayout> layout(new RHI::ShaderResourceLayout());
-    Render::BuildShaderResourceLayout(shader, *layout);
-    layout->Finalize();
+    auto built = Render::BuildShaderInputList(shader);
 
     // ---- Buffer: cbuffer 不产生 Buffer(CBV) 描述符 ----
-    {
-        auto buffers = layout->GetShaderInputListForBuffers();
-        EXPECT_EQ(buffers.size(), 0u);
-    }
+    EXPECT_EQ(built.list.m_buffers.size(), 0u);
 
     // ---- Image: g_AlbedoMap (t0, space0) ----
     {
-        auto images = layout->GetShaderInputListForImages();
-        ASSERT_EQ(images.size(), 1u);
-        EXPECT_STREQ(images[0].m_name.GetCStr(), "g_AlbedoMap");
-        EXPECT_EQ(images[0].m_access, RHI::ShaderInputImageAccess::Read);
-        EXPECT_EQ(images[0].m_type, RHI::ShaderInputImageType::Image2D);
-        EXPECT_EQ(images[0].m_registerId, 0u);
-        EXPECT_EQ(images[0].m_spaceId, 0u);
+        ASSERT_EQ(built.list.m_images.size(), 1u);
+        const auto& img = built.list.m_images[0];
+        EXPECT_STREQ(img.m_name.GetCStr(), "g_AlbedoMap");
+        EXPECT_EQ(img.m_access, RHI::ShaderInputImageAccess::Read);
+        EXPECT_EQ(img.m_type, RHI::ShaderInputImageType::Image2D);
+        EXPECT_EQ(img.m_registerId, 0u);
+        EXPECT_EQ(img.m_spaceId, 0u);
     }
 
     // ---- Sampler: g_AlbedoSamp (s0, space0) ----
     {
-        auto samplers = layout->GetShaderInputListForSamplers();
-        ASSERT_EQ(samplers.size(), 1u);
-        EXPECT_STREQ(samplers[0].m_name.GetCStr(), "g_AlbedoSamp");
-        EXPECT_EQ(samplers[0].m_registerId, 0u);
-        EXPECT_EQ(samplers[0].m_spaceId, 0u);
+        ASSERT_EQ(built.list.m_samplers.size(), 1u);
+        const auto& smp = built.list.m_samplers[0];
+        EXPECT_STREQ(smp.m_name.GetCStr(), "g_AlbedoSamp");
+        EXPECT_EQ(smp.m_registerId, 0u);
+        EXPECT_EQ(smp.m_spaceId, 0u);
     }
 
     // ---- Constants: cbuffer 变量展开为 Constant 描述符 ----
     {
-        auto constants = layout->GetShaderInputListForConstants();
+        const auto& constants = built.list.m_constants;
         ASSERT_EQ(constants.size(), 3u);
 
         auto findConst = [&](const char* name) -> const RHI::ShaderInputConstantDescriptor* {
