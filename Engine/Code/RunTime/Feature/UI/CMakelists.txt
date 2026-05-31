@@ -9,6 +9,11 @@ add_library(${TARGET_NAME} STATIC
     ${SOURCES}
 )
 
+target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SPARK_UI_FONT_DIR="${THIRD_PARTY_DIR}/imgui/misc/fonts"
+)
+
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore

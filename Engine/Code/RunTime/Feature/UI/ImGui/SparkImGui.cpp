@@ -19,7 +19,9 @@ namespace Spark::UI
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-        io.FontGlobalScale = 1.2f;
+
+        // TTF vector font at native size — sharp at any scale, no blur.
+        io.Fonts->AddFontFromFileTTF(SPARK_UI_FONT_DIR "/Karla-Regular.ttf", 18.0f);
 
         ImGui::StyleColorsDark();
     

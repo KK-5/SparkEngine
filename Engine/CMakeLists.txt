@@ -27,3 +27,12 @@ add_custom_target(copy_dxc_dlls ALL
         "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>"
     COMMENT "Copying DXC DLLs"
 )
+
+# 拷贝 UI 字体到输出目录
+add_custom_target(copy_ui_fonts ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${THIRD_PARTY_DIR}/imgui/misc/fonts/Roboto-Medium.ttf"
+        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>"
+    COMMENT "Copying UI fonts"
+)
