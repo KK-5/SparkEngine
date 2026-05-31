@@ -3,7 +3,7 @@
 #include <EASTL/vector.h>
 #include <EASTL/string.h>
 #include <EASTL/allocator.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/Bit.h>
 
 #include <RHI/Base.h>

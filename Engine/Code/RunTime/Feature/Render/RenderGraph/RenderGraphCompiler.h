@@ -2,7 +2,7 @@
 
 #include <EASTL/span.h>
 #include <EASTL/vector.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassContext.h>

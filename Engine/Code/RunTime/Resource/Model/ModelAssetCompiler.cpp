@@ -3,7 +3,7 @@
 #include <meshoptimizer.h>
 #include <mikktspace.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/MathUtils.h>
 
 #include "ModelAsset.h"

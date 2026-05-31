@@ -1,6 +1,6 @@
 #include "ImageSubResource.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "ImageDescriptor.h"
 #include "ImageViewDescriptor.h"

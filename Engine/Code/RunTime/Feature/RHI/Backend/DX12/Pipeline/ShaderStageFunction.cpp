@@ -8,7 +8,7 @@
 
 #include "ShaderStageFunction.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <EASTLEX/hash.h>
 
 namespace Spark::RHI::DX12

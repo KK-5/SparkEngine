@@ -8,7 +8,7 @@
 
 #include "InputStreamLayout.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <RHI/Base.h>
 

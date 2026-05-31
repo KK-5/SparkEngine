@@ -15,7 +15,7 @@
 #include "DescriptorContext.h"
 
 #include <EASTL/fixed_vector.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Device/Device.h>
 #include <Resource/Buffer/Buffer.h>

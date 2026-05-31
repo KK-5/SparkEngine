@@ -1,6 +1,6 @@
 #include "ShaderInputCompiler.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <RHI/ValidationLayer.h>
 

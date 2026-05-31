@@ -1,7 +1,7 @@
 #include "ImageAsset.h"
 
 #include <EASTLEX/hash.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::Resource
 {

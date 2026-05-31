@@ -1,7 +1,7 @@
 #include "ResourceState.h"
 
 #include <Math/Bit.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Buffer/BufferBindFlags.h>
 #include <RHI/Resource/Image/Image.h>

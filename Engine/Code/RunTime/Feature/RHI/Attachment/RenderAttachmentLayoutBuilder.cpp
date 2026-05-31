@@ -10,7 +10,7 @@
 
 #include <EASTL/string.h>
 #include <EASTL/unordered_map.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::RHI
 {
@@ -271,7 +271,7 @@ namespace Spark::RHI
         if (attachmentName.IsEmpty())
         {
             // Assign a temp name if it's empty.
-            attachmentName = spdlog::fmt_lib::format("Color{}_Subpass{}", m_renderTargetAttachments.size(), m_subpassIndex).c_str();
+            attachmentName = fmt::format("Color{}_Subpass{}", m_renderTargetAttachments.size(), m_subpassIndex).c_str();
         }
 
         m_renderTargetAttachments.push_back({ attachmentName,
@@ -296,7 +296,7 @@ namespace Spark::RHI
         if (attachmentName.IsEmpty())
         {
             // Assign a temp name if it's empty.
-            attachmentName = spdlog::fmt_lib::format("Resolve{}_Subpass{}", m_renderTargetAttachments.size(), m_subpassIndex).c_str();
+            attachmentName = fmt::format("Resolve{}_Subpass{}", m_renderTargetAttachments.size(), m_subpassIndex).c_str();
         }
 
         auto findIter = eastl::find_if(m_renderTargetAttachments.begin(), m_renderTargetAttachments.end(), [sourceName](const RenderAttachmentEntry& entry)

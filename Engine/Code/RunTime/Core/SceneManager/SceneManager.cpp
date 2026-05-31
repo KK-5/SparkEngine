@@ -3,7 +3,7 @@
 #include <EASTL/stack.h>
 #include <EASTL/sort.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <ECS/Tag.h>
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>

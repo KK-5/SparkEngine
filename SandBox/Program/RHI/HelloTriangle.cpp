@@ -1,3 +1,4 @@
+#include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <Math/Vector3.h>
 #include <Math/Color.h>
@@ -57,7 +58,7 @@ namespace Spark::SandBox
         void BuildCommand(RHI::CommandList* commandList);
 
         // 依赖成员声明顺序管理生命周期
-        UniquePtr<ILogSystem<SpdLogSystem>> m_logger;
+        UniquePtr<ILogSystem> m_logger;
         SystemUniquePtr<Spark::RHI::RHIInterface> m_rhi;
         SystemUniquePtr<Spark::Resource::SparkAssetManager> m_assetManager;
 

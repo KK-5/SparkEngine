@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <RHI/MultisampleState.h>
 #include <RHI/Format.h>
 #include <RHI/HardwareQueue.h>

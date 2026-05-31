@@ -2,7 +2,7 @@
 
 #include <Object/IObjectFactory.h>
 #include <Memory/PoolAllocator.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::RHI
 {

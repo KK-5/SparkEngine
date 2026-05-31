@@ -2,7 +2,7 @@
 
 #include <imgui.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 #include <ECS/Common.h>

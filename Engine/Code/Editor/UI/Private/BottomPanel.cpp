@@ -2,7 +2,7 @@
 
 #include <imgui.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 
 namespace Editor
@@ -77,7 +77,7 @@ namespace Editor
             }
         };
 
-        if (auto logger = Service<ILogSystem<SpdLogSystem>>::Get())
+        if (auto logger = Service<ILogSystem>::Get())
         {
             auto logs = logger->GetLogs();
             for (const auto& log : logs) {

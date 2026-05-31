@@ -13,7 +13,7 @@
 #include <Base.h>
 #include "Object.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark
 {

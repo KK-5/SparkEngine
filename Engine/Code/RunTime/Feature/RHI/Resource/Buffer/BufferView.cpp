@@ -1,6 +1,6 @@
 #include "BufferView.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "Buffer.h"
 

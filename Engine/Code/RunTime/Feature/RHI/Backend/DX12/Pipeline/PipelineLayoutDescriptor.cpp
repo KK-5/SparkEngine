@@ -10,7 +10,7 @@
 #include "PipelineLayoutDescriptor.h"
 
 #include <EASTLEX/hash.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/Interval.h>
 
 namespace Spark::RHI::DX12

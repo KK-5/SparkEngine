@@ -1,6 +1,6 @@
 #include "RenderGraph.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Core/Service/Service.h>
 

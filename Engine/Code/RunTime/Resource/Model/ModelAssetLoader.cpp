@@ -6,7 +6,7 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/util.hpp>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/MathUtils.h>
 
 namespace Spark::Resource

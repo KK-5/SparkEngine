@@ -2,7 +2,7 @@
 
 #include <EASTL/algorithm.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include "AssetDataBase.h"
 #include "AssetBuildContext.h"
 #include "EBus/AssetBuildBus.h"

@@ -1,6 +1,6 @@
 #include "AsyncUploadSystem.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/Bit.h>
 
 #include <RHI/RHIInterface.h>

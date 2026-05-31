@@ -1,6 +1,6 @@
 #include "EditorInput.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Editor
 {

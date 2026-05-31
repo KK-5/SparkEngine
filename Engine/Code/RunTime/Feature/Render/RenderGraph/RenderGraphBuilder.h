@@ -4,7 +4,7 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
 #include <Pass/Component/RHIComponents.h>

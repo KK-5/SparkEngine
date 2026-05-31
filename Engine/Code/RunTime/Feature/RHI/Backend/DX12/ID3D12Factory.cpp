@@ -1,6 +1,6 @@
 #include "ID3D12Factory.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "DX12.h"
 #include "Device/Device.h"

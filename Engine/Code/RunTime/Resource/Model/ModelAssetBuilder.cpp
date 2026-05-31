@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <filesystem>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Resource/AssetBuildContext.h>
 #include <Resource/AssetDataBase.h>

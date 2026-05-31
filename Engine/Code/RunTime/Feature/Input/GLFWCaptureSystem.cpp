@@ -1,6 +1,6 @@
 #include "GLFWCaptureSystem.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Service/Service.h>
 
 #include "../Window/IWindowSystem.h"

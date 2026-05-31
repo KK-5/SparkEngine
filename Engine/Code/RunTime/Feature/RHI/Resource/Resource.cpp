@@ -1,6 +1,6 @@
 #include "Resource.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "ResourcePool.h"
 

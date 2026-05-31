@@ -1,6 +1,6 @@
 #include "Editor.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Reflection/TypeRegistry.h>
 
 #include <Window/GLFW/GlfwWindow.h>

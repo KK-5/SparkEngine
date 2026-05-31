@@ -4,7 +4,7 @@
 #include <EASTL/type_traits.h>
 #include <mutex>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "Polices.h"
 #include "Container.h"

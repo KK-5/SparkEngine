@@ -1,7 +1,7 @@
 #include "InputCaptureSystem.h"
 
 #include <EASTL/functional.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "../Window/IWindowSystem.h"
 

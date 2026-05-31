@@ -1,6 +1,6 @@
 #include "ImageView.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "Image.h"
 

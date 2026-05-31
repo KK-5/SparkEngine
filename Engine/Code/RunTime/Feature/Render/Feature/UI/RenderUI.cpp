@@ -2,7 +2,7 @@
 
 #include <EASTL/any.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <RHI/RHIInterface.h>
 #include <RHI/Device/Device.h>

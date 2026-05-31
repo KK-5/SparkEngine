@@ -4,7 +4,7 @@
 #include <d3d12shader.h>
 #include <dxcapi.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Resource/Common/CommonAssetLoader.h>
 
 namespace Spark::Resource

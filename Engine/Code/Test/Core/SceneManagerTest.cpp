@@ -6,7 +6,7 @@
 #include <ECS/Common.h>
 #include <ECS/Tag.h>
 #include <Service/Service.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <SceneManager/Component/HierarchyComponent.h>
 #include <SceneManager/IScene.h>

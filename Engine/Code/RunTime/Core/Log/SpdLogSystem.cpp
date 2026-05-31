@@ -65,7 +65,7 @@ namespace Spark
         m_ringBufferSink->set_pattern(pattern);
 
         const spdlog::sinks_init_list sink_list = {console_sink, m_ringBufferSink};
-        spdlog::init_thread_pool(8192, 1);  
+        spdlog::init_thread_pool(8192, 1);
         m_logger = logConfig.m_async ? std::make_shared<spdlog::async_logger>("spd_logger",
                                                           sink_list.begin(),
                                                           sink_list.end(),
@@ -73,6 +73,25 @@ namespace Spark
                                                           spdlog::async_overflow_policy::block)
                                      : std::make_shared<spdlog::logger>("spd_logger", sink_list);
         m_logger->set_level(spdlog::level::trace);
+    }
+
+    void SpdLogSystem::LogV(LogLevel level, fmt::string_view fmt, fmt::format_args args)
+    {
+        auto spdLevel = [&]() -> spdlog::level::level_enum {
+            switch (level)
+            {
+            case LogLevel::Trace:    return spdlog::level::trace;
+            case LogLevel::Debug:    return spdlog::level::debug;
+            case LogLevel::Info:     return spdlog::level::info;
+            case LogLevel::Warn:     return spdlog::level::warn;
+            case LogLevel::Error:    return spdlog::level::err;
+            case LogLevel::Critical: return spdlog::level::critical;
+            default:                 return spdlog::level::off;
+            }
+        }();
+
+        std::string msg = fmt::vformat(fmt, args);
+        m_logger->log(spdLevel, "{}", msg);
     }
 
     void SpdLogSystem::Reset(LogConfig config)

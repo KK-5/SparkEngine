@@ -11,7 +11,7 @@
 #include <RHI/Factory.h>
 #include <RHI/Fence/Fence.h>
 
-#include <Log/SpdlogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::RHI
 {

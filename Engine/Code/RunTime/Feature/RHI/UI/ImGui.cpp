@@ -1,6 +1,6 @@
 #include "ImGui.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <RHI/Device/Device.h>
 #include <RHI/Command/CommandQueue.h>

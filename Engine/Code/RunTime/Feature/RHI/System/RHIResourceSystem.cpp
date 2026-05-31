@@ -1,7 +1,7 @@
 #include "RHIResourceSystem.h"
 
 #include <Service/Service.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <RHI/RHIInterface.h>
 #include <RHI/Factory.h>
 #include <RHI/Component/Component.h>

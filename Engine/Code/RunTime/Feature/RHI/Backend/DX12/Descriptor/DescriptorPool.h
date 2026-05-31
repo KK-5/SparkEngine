@@ -15,7 +15,7 @@
 
 #include <EASTL/unique_ptr.h>
 #include <Object/ObjectPool.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <RHI/RHILimits.h>
 
 #include "Descriptor.h"

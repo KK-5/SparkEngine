@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 using namespace Spark;
 

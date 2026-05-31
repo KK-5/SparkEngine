@@ -10,7 +10,7 @@
 
 #include <EASTL/array.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/Bit.h>
 
 namespace Spark::RHI::Vulkan

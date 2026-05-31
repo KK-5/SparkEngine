@@ -14,7 +14,7 @@
 #include "PipelineLayout.h"
 
 #include <EASTL/vector.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Device/Device.h>
 #include <Conversions.h>

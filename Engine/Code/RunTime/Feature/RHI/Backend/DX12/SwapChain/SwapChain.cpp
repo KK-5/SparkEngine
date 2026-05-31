@@ -8,7 +8,7 @@
 
 #include "SwapChain.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Conversions.h>
 #include <Device/Device.h>

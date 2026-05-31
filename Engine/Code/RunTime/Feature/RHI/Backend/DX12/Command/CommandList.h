@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <RHI/Command/CommandList.h>
 #include <RHI/Command/CommandListStates.h>

@@ -8,7 +8,7 @@
 #include <Reflection/ReflectContext.h>
 #include <Reflection/TypeRegistry.h>
 #include <Reflection/Utility.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <ECS/WorldContext.h>
 #include <Serialization/UIElement.h>
 

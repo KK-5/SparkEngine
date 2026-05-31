@@ -1,6 +1,6 @@
 #include "DeviceObjectPool.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "DeviceObject.h"
 

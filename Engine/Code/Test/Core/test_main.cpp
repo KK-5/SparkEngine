@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <EASTL/unique_ptr.h>
 

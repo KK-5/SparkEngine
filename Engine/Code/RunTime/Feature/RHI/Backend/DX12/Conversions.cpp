@@ -6,7 +6,7 @@
 #include "Conversions.h"
 
 #include <Math/Bit.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Resource/Buffer/Buffer.h>
 #include <Resource/Image/Image.h>
 

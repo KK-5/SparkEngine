@@ -1,7 +1,7 @@
 
 #include "GlfwWindow.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #ifdef _WIN32
     #include <Windows/Editor/UI/GetNativeWindowHandle.h>

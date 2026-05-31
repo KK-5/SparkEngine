@@ -1,6 +1,6 @@
 #include "Device.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/Bit.h>
 #include <RHI/ValidationLayer.h>
 #include <DX12.h>

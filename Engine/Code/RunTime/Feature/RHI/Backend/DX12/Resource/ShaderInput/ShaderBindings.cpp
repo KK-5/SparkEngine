@@ -1,6 +1,6 @@
 #include "ShaderBindings.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <ID3D12Factory.h>
 #include <Device/Device.h>

@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <fstream>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::Resource
 {

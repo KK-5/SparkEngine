@@ -13,7 +13,7 @@
 
 #include "CommandListPool.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Device/Device.h>
 #include <ID3D12Factory.h>

@@ -17,7 +17,7 @@
 
 #include <EASTL/algorithm.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Conversions.h>
 #include <DX12.h>
 #include <RHI/Resource/Image/ImageEnums.h>

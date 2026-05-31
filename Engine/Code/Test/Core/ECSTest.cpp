@@ -10,7 +10,7 @@
 #include <ECS/ISystem.h>
 #include <ECS/ComponentTraits.h>
 #include <Service/Service.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <CoreComponents/Name.h>
 
 #include <iostream>

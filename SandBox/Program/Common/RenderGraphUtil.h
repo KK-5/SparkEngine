@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <Base.h>
 
@@ -32,7 +33,7 @@ namespace Spark::SandBox
         SystemUniquePtr<RHI::RHIResourceSystem>     m_rhiResource;
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<Render::RenderSystem>       m_render;
-        UniquePtr<ILogSystem<SpdLogSystem>>         m_logger;
+        UniquePtr<ILogSystem>                     m_logger;
     };
 
     inline RenderGraphSystems InitRenderGraphApp(int width, int height, const char* title)

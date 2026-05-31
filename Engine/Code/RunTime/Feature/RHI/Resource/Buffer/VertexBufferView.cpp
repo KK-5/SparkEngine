@@ -1,6 +1,6 @@
 #include "VertexBufferView.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::RHI
 {

@@ -10,7 +10,7 @@
 #include <Service/Service.h>
 #include <SceneManager/Component/HierarchyComponent.h>
 #include <SceneManager/IScene.h>
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <CoreComponents/Tags.h>
 #include "../../Component/Tags.h"
 

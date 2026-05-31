@@ -1,6 +1,6 @@
 #include "RenderSystem.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <RHI/SwapChain/SwapChainDescriptor.h>
 #include <RHI/SwapChain/SwapChain.h>

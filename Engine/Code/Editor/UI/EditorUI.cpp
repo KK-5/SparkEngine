@@ -4,7 +4,7 @@
 #include <imgui_internal.h>
 #include <glfw/glfw3.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include <Render/Feature/UI/RenderUIInterface.h>
 

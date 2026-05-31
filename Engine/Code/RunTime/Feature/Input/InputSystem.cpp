@@ -1,6 +1,6 @@
 #include "InputSystem.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "GLFWCaptureSystem.h"
 #include "Bus/InputEventBus.h"

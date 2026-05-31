@@ -1,6 +1,6 @@
 #include "StreamingImagePool.h"
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 #include <Math/Bit.h>
 
 #include "ImageEnums.h"

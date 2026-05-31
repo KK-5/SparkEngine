@@ -1,3 +1,4 @@
+#include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <Math/Vector3.h>
 #include <Math/Vector2.h>
@@ -975,7 +976,7 @@ int main(int argc, char** argv)
 
     LogConfig logConfig{};
     logConfig.m_showTimeStamp = true;
-    UniquePtr<ILogSystem<SpdLogSystem>> s_logger = eastl::make_unique<SpdLogSystem>(logConfig);
+    UniquePtr<ILogSystem> s_logger = eastl::make_unique<SpdLogSystem>(logConfig);
 
     auto glfwWindow = CreateSystem<Spark::SandBox::SimpleGlfwWindow>(1024, 576, "DrawShape");
     glfwWindow->Init();

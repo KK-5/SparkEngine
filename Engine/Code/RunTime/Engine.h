@@ -5,6 +5,7 @@
 
 #include <Base.h>
 #include <ECS/WorldContext.h>
+#include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <SceneManager/SceneManager.h>
 #include <EntityReaper/EntityReaper.h>

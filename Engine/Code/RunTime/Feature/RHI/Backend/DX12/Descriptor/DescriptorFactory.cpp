@@ -1,7 +1,7 @@
 #include "DescriptorFactory.h"
 
 #include <Math/Bit.h>
-#include <LOG/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::RHI::DX12
 {

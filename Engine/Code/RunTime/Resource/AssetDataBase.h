@@ -6,6 +6,7 @@
 #include <EASTL/vector.h>
 
 #include <Base.h>
+#include <ECS/ISystem.h>
 #include <Service/Service.h>
 
 #include "Asset.h"

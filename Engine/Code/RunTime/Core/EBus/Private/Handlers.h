@@ -4,7 +4,7 @@
 #include <EASTL/type_traits.h>
 #include <EASTL/unordered_map.h>
 
-#include <Log/SpdLogSystem.h>
+#include <Log/ILogSystem.h>
 
 #include "Polices.h"
 #include "StoragePolices.h"
