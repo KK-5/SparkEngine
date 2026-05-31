@@ -50,12 +50,9 @@ namespace Spark::Render
         void BuildPipeline();
         void InitPipeline();
 
-        struct RHIData
-        {
-            Ptr<RHI::SwapChain>       m_swapChain;
-        };
 
-        RHIData  m_rhiData;
+        Ptr<RHI::SwapChain> m_swapChain;
+        
         RenderUI m_rednerUI;
 
         Pipeline    m_pipeline {"default"};

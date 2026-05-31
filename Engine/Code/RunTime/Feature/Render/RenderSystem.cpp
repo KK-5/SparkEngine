@@ -59,7 +59,7 @@ namespace Spark::Render
             return false;
         }
 
-        m_rhiData.m_swapChain = factory->CreateSwapChain();
+        m_swapChain = factory->CreateSwapChain();
         RHI::SwapChainDescriptor desc;
         desc.m_dimensions.m_imageCount = device->GetDescriptor().m_frameCountMax;
         desc.m_dimensions.m_imageFormat = RHI::Format::R8G8B8A8_UNORM;
@@ -67,7 +67,7 @@ namespace Spark::Render
         desc.m_dimensions.m_imageHeight = windowSize.y;
         desc.m_dimensions.m_imageWidth = windowSize.x;
         desc.m_window = window->GetNativeHandle();
-        RHI::ResultCode result = m_rhiData.m_swapChain->Init(
+        RHI::ResultCode result = m_swapChain->Init(
             *device,
             m_renderGraph.GetCommandQueue(RHI::HardwareQueueClass::Graphics),
             desc);
@@ -131,7 +131,7 @@ namespace Spark::Render
         // ImportSwapChain materializes swap chain entities into the active RHIContext;
         // the context is owned and pushed by the RHI layer (see RHIInterface),
         // so by this point RHIExecuteContext::Current() is already valid.
-        m_renderGraph.ImportSwapChain(*m_rhiData.m_swapChain);
+        m_renderGraph.ImportSwapChain(*m_swapChain);
 
         InitRenderUI();
         BuildPipeline();
@@ -158,8 +158,8 @@ namespace Spark::Render
     {
         auto& passContext = *PassExecuteContext::Current(); 
         
-        const uint32_t frameIndex = m_rhiData.m_swapChain->GetCurrentImageIndex();
+        const uint32_t frameIndex =m_swapChain->GetCurrentImageIndex();
         m_renderGraph.ExecutePipeline(passContext, frameIndex);
-        m_rhiData.m_swapChain->Present();
+        m_swapChain->Present();
     }
 }
