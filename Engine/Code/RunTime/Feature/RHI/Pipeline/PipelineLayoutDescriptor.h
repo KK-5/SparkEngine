@@ -1,8 +1,6 @@
 #pragma once
 
-#include <EASTL/unordered_map.h>
 #include <EASTL/fixed_vector.h>
-#include <EASTL/array.h>
 #include <EASTL/span.h>
 #include <EASTL/vector.h>
 
@@ -10,50 +8,12 @@
 #include <Object/Object.h>
 
 #include <RHI/RHILimits.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
 #include <RHI/Resource/ShaderResource/ConstantsLayout.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include "ShaderStages.h"
 
 namespace Spark::RHI
 {
-    //=========================================================================
-    // 旧路径（SRG）binding structures — 保持不动，等新路径稳定后再删
-    //=========================================================================
-
-    struct ResourceBindingInfo
-    {
-        ResourceBindingInfo() = default;
-        ResourceBindingInfo(const RHI::ShaderStageMask& mask, uint32_t registerId, uint32_t spaceId)
-            : m_shaderStageMask{ mask }
-            , m_registerId{ registerId }
-            , m_spaceId{ spaceId }
-        {}
-
-        size_t GetHash() const;
-
-        using Register = uint32_t;
-        static const Register InvalidRegister = ~0u;
-
-        RHI::ShaderStageMask m_shaderStageMask = RHI::ShaderStageMask::None;
-        Register             m_registerId      = InvalidRegister;
-        uint32_t             m_spaceId         = InvalidRegister;
-    };
-
-    struct ShaderResourceBindingInfo
-    {
-        ShaderResourceBindingInfo() = default;
-
-        size_t GetHash() const;
-
-        ResourceBindingInfo m_constantDataBindingInfo;
-        eastl::unordered_map<RHI::InputName, ResourceBindingInfo> m_resourcesRegisterMap;
-    };
-
-    //=========================================================================
-    // 新路径（ShaderInput）structures
-    //=========================================================================
-
     //! 引用 PipelineLayoutDescriptor 各类型 descriptor 数组里的一条记录。
     //! m_index 是对应类型数组（m_bufferDescs / m_imageDescs / ...）里的下标。
     struct ShaderInputHandle
@@ -125,23 +85,15 @@ namespace Spark::RHI
         size_t     GetHash() const;
 
         //---------------------------------------------------------------------
-        // 旧路径 API（SRG）— 保持不动
+        // Root constants（push constant）
         //---------------------------------------------------------------------
-
-        void AddShaderResourceLayoutInfo(
-            const ShaderResourceLayout& layout,
-            const ShaderResourceBindingInfo& shaderResourceInfo);
 
         void SetRootConstantsLayout(const ConstantsLayout& rootConstantsLayout);
 
-        size_t                           GetShaderResourceLayoutCount() const;
-        const ShaderResourceLayout*      GetShaderResourceLayout(size_t index) const;
-        const ShaderResourceBindingInfo& GetShaderResourceBindingInfo(size_t index) const;
-        const ConstantsLayout*           GetRootConstantsLayout() const;
-        uint32_t                         GetShaderResourceIndexFromBindingSlot(uint32_t bindingSlot) const;
+        const ConstantsLayout* GetRootConstantsLayout() const;
 
         //---------------------------------------------------------------------
-        // 新路径 API（ShaderInput）
+        // ShaderInput API
         //---------------------------------------------------------------------
 
         //! 批量添加一组 descriptor，stageMask 指明使用这组 input 的着色器阶段。
@@ -153,10 +105,6 @@ namespace Spark::RHI
         void AddStaticSamplerDescriptor(
             const ShaderInputStaticSamplerDescriptor& desc,
             ShaderStageMask stageMask);
-
-        //! 当前描述符是否走新路径（ShaderInput）。
-        //! DX12::PipelineLayout::Init 用此 flag 选择构建分支。
-        bool UsesShaderInputPath() const;
 
         // SpaceGroup 访问 — DX12 build loop 按数组下标遍历用
         size_t                  GetSpaceGroupCount() const;
@@ -186,14 +134,6 @@ namespace Spark::RHI
     protected:
         PipelineLayoutDescriptor() = default;
 
-        using ShaderResourceLayoutInfo =
-            eastl::pair<Ptr<ShaderResourceLayout>, ShaderResourceBindingInfo>;
-
-        const eastl::fixed_vector<
-            ShaderResourceLayoutInfo,
-            RHI::Limits::Pipeline::ShaderResourceCountMax>&
-        GetShaderResourceLayoutInfo() const;
-
     private:
         //---------------------------------------------------------------------
         // Platform virtuals
@@ -222,19 +162,12 @@ namespace Spark::RHI
         static constexpr size_t InvalidHash    = static_cast<size_t>(~0);
 
         //---------------------------------------------------------------------
-        // 旧路径数据（SRG）
+        // Root constants（push constant）
         //---------------------------------------------------------------------
-        eastl::fixed_vector<
-            ShaderResourceLayoutInfo,
-            RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResourceLayoutsInfo;
-
         Ptr<ConstantsLayout> m_rootConstantsLayout;
 
-        eastl::array<uint32_t,
-            RHI::Limits::Pipeline::ShaderResourceCountMax> m_bindingSlotToIndex = {};
-
         //---------------------------------------------------------------------
-        // 新路径数据（ShaderInput）
+        // ShaderInput 数据
         //---------------------------------------------------------------------
         eastl::vector<ShaderInputBufferDescriptor>        m_bufferDescs;
         eastl::vector<ShaderInputImageDescriptor>         m_imageDescs;

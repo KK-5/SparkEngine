@@ -7,15 +7,12 @@
  */
 #pragma once
 
-#include <EASTL/array.h>
-
 #include <RHI/RHILimits.h>
 #include "IndirectArguments.h"
 
 namespace Spark::RHI
 {
     class PipelineState;
-    class ShaderResource;
 
     constexpr uint32_t DivideAndRoundUp(uint32_t value, uint32_t alignment)
     {
@@ -119,18 +116,11 @@ namespace Spark::RHI
         /// Arguments specific to a dispatch type.
         DispatchArguments m_arguments;
 
-        /// The number of shader resource groups and inline constants in each array.
-        uint8_t m_shaderResourceCount = 0;
+        /// The number of inline constants bytes.
         uint8_t m_rootConstantSize = 0;
 
         /// The pipeline state to bind.
         const PipelineState* m_pipelineState = nullptr;
-
-        /// Array of shader resource groups to bind (count must match m_shaderResourceCount).
-        eastl::array<const ShaderResource*, Limits::Pipeline::ShaderResourceCountMax> m_shaderResource = {};
-
-        /// Unique SRG, not shared within the draw packet. This is usually a per-draw SRG, populated with the shader variant fallback key
-        const ShaderResource* m_uniqueShaderResource = nullptr;
 
         /// Inline constants data.
         const uint8_t* m_rootConstants = nullptr;

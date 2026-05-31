@@ -11,12 +11,17 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/span.h>
 #include <EASTL/vector.h>
+#include <Math/Interval.h>
 #include <Object/Object.h>
-#include "ShaderResourceDescriptor.h"
-#include "ShaderResourceLayoutCommon.h"
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 
 namespace Spark::RHI
 {
+    using ShaderInputIndex = uint32_t;
+    using ShaderInputName = ObjectName;
+
+    static constexpr ShaderInputIndex InvalidShaderInputIndex = static_cast<uint32_t>(-1);
+
     //! ConstantsLayout defines a the layout of a set of constant shader inputs.
     //! Each constant input spans a range of bytes in an byte array.
     //! The array could represent a constant buffer or an inline structure

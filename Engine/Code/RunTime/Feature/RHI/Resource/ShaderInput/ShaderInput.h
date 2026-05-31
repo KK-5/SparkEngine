@@ -8,7 +8,7 @@
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
-#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 
 namespace Spark::RHI
 {

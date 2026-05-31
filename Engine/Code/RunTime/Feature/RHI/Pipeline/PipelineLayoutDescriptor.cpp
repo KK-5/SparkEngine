@@ -5,36 +5,10 @@
 #include <Math/Bit.h>
 
 #include <RHI/Resource/ShaderResource/ConstantsLayout.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
 #include <RHI/ValidationLayer.h>
 
 namespace Spark::RHI
 {
-    //=========================================================================
-    // 旧路径 hash helpers
-    //=========================================================================
-
-    size_t ResourceBindingInfo::GetHash() const
-    {
-        size_t hash = eastl::hash<uint32_t>()(static_cast<uint32_t>(m_shaderStageMask));
-        eastl::hash_combine(hash, static_cast<uint32_t>(m_registerId));
-        return hash;
-    }
-
-    size_t ShaderResourceBindingInfo::GetHash() const
-    {
-        size_t hash = m_constantDataBindingInfo.GetHash();
-        for (const auto& pair : m_resourcesRegisterMap)
-        {
-            eastl::hash_combine_raw(hash, pair.second.GetHash());
-        }
-        return hash;
-    }
-
-    //=========================================================================
-    // 共用
-    //=========================================================================
-
     bool PipelineLayoutDescriptor::IsFinalized() const
     {
         return m_hash != InvalidHash;
@@ -44,12 +18,8 @@ namespace Spark::RHI
     {
         m_hash = InvalidHash;
 
-        // 旧路径
-        m_shaderResourceLayoutsInfo.clear();
         m_rootConstantsLayout = nullptr;
-        m_bindingSlotToIndex.fill(RHI::Limits::Pipeline::ShaderResourceCountMax);
 
-        // 新路径
         m_bufferDescs.clear();
         m_imageDescs.clear();
         m_samplerDescs.clear();
@@ -68,38 +38,21 @@ namespace Spark::RHI
             return result;
         }
 
-        if (UsesShaderInputPath())
-        {
-            BuildConstantBufferLayouts();
-        }
+        BuildConstantBufferLayouts();
 
         size_t seed = 0;
 
-        if (UsesShaderInputPath())
+        // hash 各类型 ShaderInput descriptor 数组
+        for (const auto& d : m_bufferDescs)       { eastl::hash_combine_raw(seed, d.GetHash()); }
+        for (const auto& d : m_imageDescs)         { eastl::hash_combine_raw(seed, d.GetHash()); }
+        for (const auto& d : m_samplerDescs)       { eastl::hash_combine_raw(seed, d.GetHash()); }
+        for (const auto& d : m_constantDescs)      { eastl::hash_combine_raw(seed, d.GetHash()); }
+        for (const auto& e : m_staticSamplerDescs) { eastl::hash_combine_raw(seed, e.m_desc.GetHash()); }
+
+        // root constants（push constant）
+        if (m_rootConstantsLayout)
         {
-            // 新路径：hash 各类型 descriptor 数组
-            for (const auto& d : m_bufferDescs)       { eastl::hash_combine_raw(seed, d.GetHash()); }
-            for (const auto& d : m_imageDescs)         { eastl::hash_combine_raw(seed, d.GetHash()); }
-            for (const auto& d : m_samplerDescs)       { eastl::hash_combine_raw(seed, d.GetHash()); }
-            for (const auto& d : m_constantDescs)      { eastl::hash_combine_raw(seed, d.GetHash()); }
-            for (const auto& e : m_staticSamplerDescs) { eastl::hash_combine_raw(seed, e.m_desc.GetHash()); }
-        }
-        else
-        {
-            // 旧路径：hash SRG layout info
-            for (const ShaderResourceLayoutInfo& info : m_shaderResourceLayoutsInfo)
-            {
-                eastl::hash_combine_raw(seed, info.first->GetHash());
-                eastl::hash_combine_raw(seed, info.second.GetHash());
-            }
-            if (m_rootConstantsLayout)
-            {
-                eastl::hash_combine_raw(seed, m_rootConstantsLayout->GetHash());
-            }
-            for (const auto& index : m_bindingSlotToIndex)
-            {
-                eastl::hash_combine(seed, index);
-            }
+            eastl::hash_combine_raw(seed, m_rootConstantsLayout->GetHash());
         }
 
         m_hash = GetHashInternal(seed);
@@ -130,47 +83,12 @@ namespace Spark::RHI
     }
 
     //=========================================================================
-    // 旧路径 API
+    // Root constants（push constant）
     //=========================================================================
-
-    void PipelineLayoutDescriptor::AddShaderResourceLayoutInfo(
-        const ShaderResourceLayout& layout,
-        const ShaderResourceBindingInfo& bindingInfo)
-    {
-        m_bindingSlotToIndex[layout.GetBindingSlot()] =
-            static_cast<uint32_t>(m_shaderResourceLayoutsInfo.size());
-        m_shaderResourceLayoutsInfo.push_back(
-            { const_cast<ShaderResourceLayout*>(&layout), bindingInfo });
-    }
 
     void PipelineLayoutDescriptor::SetRootConstantsLayout(const ConstantsLayout& rootConstantsLayout)
     {
         m_rootConstantsLayout = const_cast<ConstantsLayout*>(&rootConstantsLayout);
-    }
-
-    size_t PipelineLayoutDescriptor::GetShaderResourceLayoutCount() const
-    {
-        ASSERT(IsFinalized(), "[PipelineLayoutDescriptor] Accessor called on a non-finalized descriptor.");
-        return m_shaderResourceLayoutsInfo.size();
-    }
-
-    const eastl::fixed_vector<PipelineLayoutDescriptor::ShaderResourceLayoutInfo,
-        RHI::Limits::Pipeline::ShaderResourceCountMax>&
-    PipelineLayoutDescriptor::GetShaderResourceLayoutInfo() const
-    {
-        return m_shaderResourceLayoutsInfo;
-    }
-
-    const ShaderResourceLayout* PipelineLayoutDescriptor::GetShaderResourceLayout(size_t index) const
-    {
-        ASSERT(IsFinalized(), "[PipelineLayoutDescriptor] Accessor called on a non-finalized descriptor.");
-        return m_shaderResourceLayoutsInfo[index].first.get();
-    }
-
-    const ShaderResourceBindingInfo& PipelineLayoutDescriptor::GetShaderResourceBindingInfo(size_t index) const
-    {
-        ASSERT(IsFinalized(), "[PipelineLayoutDescriptor] Accessor called on a non-finalized descriptor.");
-        return m_shaderResourceLayoutsInfo[index].second;
     }
 
     const ConstantsLayout* PipelineLayoutDescriptor::GetRootConstantsLayout() const
@@ -179,14 +97,8 @@ namespace Spark::RHI
         return m_rootConstantsLayout.get();
     }
 
-    uint32_t PipelineLayoutDescriptor::GetShaderResourceIndexFromBindingSlot(uint32_t bindingSlot) const
-    {
-        ASSERT(IsFinalized(), "[PipelineLayoutDescriptor] Accessor called on a non-finalized descriptor.");
-        return m_bindingSlotToIndex[bindingSlot];
-    }
-
     //=========================================================================
-    // 新路径 API
+    // ShaderInput API
     //=========================================================================
 
     void PipelineLayoutDescriptor::AddShaderInputDescriptors(
@@ -260,11 +172,6 @@ namespace Spark::RHI
         }
 
         targetGroup->m_shaderInputs.push_back(newHandle);
-    }
-
-    bool PipelineLayoutDescriptor::UsesShaderInputPath() const
-    {
-        return !m_spaceGroups.empty();
     }
 
     void PipelineLayoutDescriptor::BuildConstantBufferLayouts()

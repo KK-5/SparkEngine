@@ -26,7 +26,6 @@
 #include <Conversions.h>
 #include <Device/Device.h>
 #include <Descriptor/DescriptorContext.h>
-#include <Resource/ShaderResource/ShaderResource.h>
 #include <Resource/ShaderInput/ShaderBindings.h>
 #include <Resource/Buffer/Buffer.h>
 #include <Resource/Buffer/BufferView.h>
@@ -161,98 +160,10 @@ namespace Spark::RHI::DX12
 
             bindings.m_pipelineLayout = pipelineLayout;
 
-            for (size_t i = 0; i < bindings.m_srgsByIndex.size(); ++i)
-            {
-                bindings.m_srgsByIndex[i] = nullptr;
-            }
             for (size_t i = 0; i < bindings.m_bindingsBySpace.size(); ++i)
             {
                 bindings.m_bindingsBySpace[i] = nullptr;
             }
-        }
-    }
-
-    void CommandList::SetShaderResourceForDraw(const RHI::ShaderResource& shaderResourceGroup)
-    {
-        const ShaderResource* srg = static_cast<const ShaderResource*>(&shaderResourceGroup);
-
-        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType::Draw);
-        const PipelineLayout* pipelineLayout = bindings.m_pipelineLayout;
-
-        if (!pipelineLayout)
-        {
-            ASSERT(false, "Pipeline layout is null. SetPipelineState must be called before binding shader resources.");
-            return;
-        }
-
-        const uint32_t slot = srg->GetBindingSlot();
-        const size_t srgIndex = pipelineLayout->GetIndexBySlot(slot);
-
-        if (bindings.m_srgsByIndex[srgIndex] == srg)
-        {
-            return;
-        }
-
-        bindings.m_srgsByIndex[srgIndex] = srg;
-
-        const RootParameterBinding binding = pipelineLayout->GetRootParameterBindingByIndex(srgIndex);
-        const ShaderResourceCompiledData& compiledData = srg->GetCompiledData();
-
-        if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
-        {
-            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
-        }
-
-        if (binding.m_constantBuffer != InvalidRootParameterIndex)
-        {
-            GetCommandList()->SetGraphicsRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
-        }
-
-        if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
-        {
-            GetCommandList()->SetGraphicsRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
-        }
-    }
-
-    void CommandList::SetShaderResourceForDispatch(const RHI::ShaderResource& shaderResourceGroup)
-    {
-        const ShaderResource* srg = static_cast<const ShaderResource*>(&shaderResourceGroup);
-
-        ShaderResourceBindings& bindings = GetShaderResourceBindingsByPipelineType(RHI::PipelineStateType::Dispatch);
-        const PipelineLayout* pipelineLayout = bindings.m_pipelineLayout;
-
-        if (!pipelineLayout)
-        {
-            ASSERT(false, "Pipeline layout is null. SetPipelineState must be called before binding shader resources.");
-            return;
-        }
-
-        const uint32_t slot = srg->GetBindingSlot();
-        const size_t srgIndex = pipelineLayout->GetIndexBySlot(slot);
-
-        if (bindings.m_srgsByIndex[srgIndex] == srg)
-        {
-            return;
-        }
-
-        bindings.m_srgsByIndex[srgIndex] = srg;
-
-        const RootParameterBinding binding = pipelineLayout->GetRootParameterBindingByIndex(srgIndex);
-        const ShaderResourceCompiledData& compiledData = srg->GetCompiledData();
-
-        if (binding.m_resourceTable != InvalidRootParameterIndex && compiledData.m_gpuViewsDescriptorHandle.ptr)
-        {
-            GetCommandList()->SetComputeRootDescriptorTable(binding.m_resourceTable, compiledData.m_gpuViewsDescriptorHandle);
-        }
-
-        if (binding.m_constantBuffer != InvalidRootParameterIndex)
-        {
-            GetCommandList()->SetComputeRootConstantBufferView(binding.m_constantBuffer, compiledData.m_gpuConstantAddress);
-        }
-
-        if (binding.m_samplerTable != InvalidRootParameterIndex && compiledData.m_gpuSamplersDescriptorHandle.ptr)
-        {
-            GetCommandList()->SetComputeRootDescriptorTable(binding.m_samplerTable, compiledData.m_gpuSamplersDescriptorHandle);
         }
     }
 
@@ -511,19 +422,6 @@ namespace Spark::RHI::DX12
             SetPipelineState(*dispatchItem.m_pipelineState);
         }
 
-        for (const auto& srg : dispatchItem.m_shaderResource)
-        {
-            if (srg)
-            {
-                SetShaderResourceForDispatch(*srg);
-            }
-        }
-
-        if (dispatchItem.m_uniqueShaderResource)
-        {
-            SetShaderResourceForDispatch(*dispatchItem.m_uniqueShaderResource);
-        }
-
         switch (dispatchItem.m_arguments.m_type)
         {
         case RHI::DispatchType::Direct:
@@ -544,12 +442,6 @@ namespace Spark::RHI::DX12
     void CommandList::Submit(const RHI::DrawItem& drawItem, uint32_t submitIndex)
     {
         ValidateSubmitIndex(submitIndex);
-
-        // Per-draw SRGs (material + unique)
-        for (const auto& srg : drawItem.m_shaderResources)
-        {
-            SetShaderResourceForDraw(*srg);
-        }
 
         SetVertexBuffers(drawItem.m_vertexBufferView);
         SetStencilRef(drawItem.m_stencilRef);

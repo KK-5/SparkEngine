@@ -24,7 +24,6 @@ namespace Spark::RHI
         namespace Pipeline
         {
             constexpr uint32_t AttachmentColorCountMax = 8;
-            constexpr uint32_t ShaderResourceCountMax = 8;
             constexpr uint32_t ShaderInputGroupCountMax = 8;
             constexpr uint32_t StreamCountMax = 12;
             constexpr uint32_t StreamChannelCountMax = 16;

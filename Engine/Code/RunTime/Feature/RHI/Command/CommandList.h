@@ -24,7 +24,6 @@
 #include <RHI/Device/DeviceObject.h>
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
-#include <RHI/Resource/ShaderResource/ShaderResource.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Resource/ResourceState.h>
 
@@ -74,19 +73,9 @@ namespace Spark::RHI
         virtual void Close() = 0;
 
         //! Sets the pipeline state object for subsequent draw/dispatch calls.
-        //! Must be called before SetShaderResourceForDraw/Dispatch.
+        //! Must be called before BindShaderInputsForDraw/Dispatch.
         //! @param pso The pipeline state to bind.
         virtual void SetPipelineState(const PipelineState& pso) = 0;
-
-        //! Assigns a shader resource group for draw on the graphics pipe, at the binding slot
-        //! determined by the layout used to create the shader resource group.
-        //! @param ShaderResource The shader resource group to bind.
-        virtual void SetShaderResourceForDraw(const ShaderResource& shaderResource) = 0;
-
-        //! Assigns a shader resource group for dispatch on compute pipe, at the binding slot
-        //! determined by the layout used to create the shader resource group.
-        //! @param ShaderResource The shader resource group to bind.
-        virtual void SetShaderResourceForDispatch(const ShaderResource& shaderResource) = 0;
 
         //! Binds a per-space ShaderBindings on the graphics pipe. The ShaderBindings must
         //! have been compiled (Compile()) prior to this call and the active pipeline

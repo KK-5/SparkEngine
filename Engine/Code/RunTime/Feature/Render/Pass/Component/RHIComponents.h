@@ -16,7 +16,7 @@
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Buffer/BufferView.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <RHI/Resource/ResourceState.h>
 
 #include <RHI/Attachment/AttachmentEnums.h>

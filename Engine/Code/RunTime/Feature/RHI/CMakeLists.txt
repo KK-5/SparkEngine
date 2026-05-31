@@ -58,10 +58,6 @@ set(SOURCES
     Resource/ShaderResource/InputStreamLayoutBuilder.cpp
     Resource/ShaderResource/ConstantsData.cpp
     Resource/ShaderResource/ConstantsLayout.cpp
-    Resource/ShaderResource/ShaderResource.cpp
-    Resource/ShaderResource/ShaderResourceDescriptor.cpp
-    Resource/ShaderResource/ShaderResourceLayout.cpp
-    Resource/ShaderResource/ShaderResourceCompiler.cpp
     Resource/ShaderInput/ShaderInputDescriptor.cpp
     Resource/ShaderInput/ShaderBindings.cpp
     Resource/ShaderInput/ShaderInputCompiler.cpp

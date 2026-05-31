@@ -16,8 +16,6 @@
 #include "Resource/Image/ImagePool.h"
 #include "Resource/Image/ImageView.h"
 #include "Resource/Transient/TransientResourcePool.h"
-#include "Resource/ShaderResource/ShaderResource.h"
-#include "Resource/ShaderResource/ShaderResourceCompiler.h"
 #include "Resource/ShaderInput/ShaderBindings.h"
 #include "Resource/ShaderInput/ShaderInputCompiler.h"
 #include "Pipeline/PipelineLibrary.h"
@@ -127,10 +125,6 @@ namespace Spark::RHI::DX12
 
         Ptr<RHI::TransientResourcePool> CreateTransientResourcePool() override;
 
-        Ptr<RHI::ShaderResource> CreateShaderResource() override;
-
-        RHI::ShaderResourceCompiler& AcquireShaderResourceCompiler(RHI::Device& device) override;
-
         Ptr<RHI::ShaderBindings> CreateShaderBindings() override;
 
         RHI::ShaderInputCompiler& AcquireShaderInputCompiler(RHI::Device& device) override;
@@ -171,7 +165,6 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<ImagePool>                 m_imagePoolObjectPool;
         DeviceObjectPool<ImageView>                 m_imageViewObjectPool;
         DeviceObjectPool<TransientResourcePool>     m_transientResourcePoolObjectPool;
-        DeviceObjectPool<ShaderResource>            m_shaderResourceObjectPool;
         DeviceObjectPool<ShaderBindings>            m_shaderBindingsObjectPool;
         DeviceObjectPool<PipelineLibrary>           m_pipelineLibraryObjectPool;
         DeviceObjectPool<PipelineState>             m_pipelineStateObjectPool;
@@ -186,7 +179,6 @@ namespace Spark::RHI::DX12
         eastl::unique_ptr<DescriptorContext>        m_descriptorContext;
         eastl::unique_ptr<ConstantBufferContext>    m_constantBufferContext;
         eastl::unique_ptr<CommandListAllocator>     m_commandlistAllocator;
-        eastl::unique_ptr<ShaderResourceCompiler>   m_shaderResourceCompiler;
         eastl::unique_ptr<ShaderInputCompiler>      m_shaderInputCompiler;
 
         eastl::unique_ptr<D3D12ObjReleaseQueue>     m_dx12ObjReleaseQueue;

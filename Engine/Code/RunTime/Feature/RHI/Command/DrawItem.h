@@ -26,11 +26,9 @@
 
 namespace Spark::RHI
 {
-    class ShaderResource;
-
-    // Per-draw data: geometry, per-draw SRGs, optional viewport/scissor overrides,
-    // and future root constants. PSO and PerPass SRGs are not here — the executer
-    // auto-binds those at pass begin.
+    // Per-draw data: geometry, optional viewport/scissor overrides,
+    // and future root constants. PSO and per-draw bindings are not here —
+    // the executer auto-binds those at pass begin.
     struct DrawItem
     {
         DrawItem() = default;
@@ -43,10 +41,6 @@ namespace Spark::RHI
         // Geometry
         IndexBufferView  m_indexBufferView;
         VertexBufferView m_vertexBufferView;
-
-        // Per-draw SRGs (material + unique). Populated in Build, bound by lambda
-        // or Submit() before the draw call.
-        eastl::fixed_vector<Ptr<ShaderResource>, Limits::Pipeline::ShaderResourceCountMax> m_shaderResources;
 
         // Per-draw viewport / scissor overrides (rare, e.g. multi-viewport passes).
         uint8_t m_scissorsCount = 0;

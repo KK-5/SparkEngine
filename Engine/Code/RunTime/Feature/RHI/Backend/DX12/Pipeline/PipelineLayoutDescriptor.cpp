@@ -31,12 +31,6 @@ namespace Spark::RHI::DX12
         return seed;
     }
 
-    size_t ShaderResourceVisibility::GetHash(size_t seed) const
-    {
-        eastl::hash_combine(seed, m_descriptorTableShaderStageMask);
-        return seed;
-    }
-
     void PipelineLayoutDescriptor::SetRootConstantBinding(const RootConstantBinding& rootConstantBinding)
     {
         m_rootConstantBinding = rootConstantBinding;
@@ -45,33 +39,6 @@ namespace Spark::RHI::DX12
     const RootConstantBinding& PipelineLayoutDescriptor::GetRootConstantBinding() const
     {
         return m_rootConstantBinding;
-    }
-
-    void PipelineLayoutDescriptor::AddShaderResourceVisibility(const ShaderResourceVisibility& shaderResourceVisibility)
-    {
-        m_shaderResourceVisibilities.push_back(shaderResourceVisibility);
-    }
-
-    const ShaderResourceVisibility& PipelineLayoutDescriptor::GetShaderResourceVisibility(uint32_t index) const
-    {
-        return m_shaderResourceVisibilities[index];
-    }
-
-    ResultCode PipelineLayoutDescriptor::FinalizeInternal()
-    {
-        auto shaderResourceLayoutInfo = GetShaderResourceLayoutInfo();
-        for (auto layoutInfo: shaderResourceLayoutInfo)
-        {
-            RHI::ShaderResourceBindingInfo bindingInfo = layoutInfo.second;
-            ShaderResourceVisibility visibility;
-            for (const auto& bindInfo : bindingInfo.m_resourcesRegisterMap)
-            {
-                visibility.m_descriptorTableShaderStageMask |= bindInfo.second.m_shaderStageMask;
-            }
-            AddShaderResourceVisibility(visibility);
-        }
-
-        return ResultCode::Success;
     }
 
     void PipelineLayoutDescriptor::ValidateShaderInputOverlapInternal(
@@ -192,10 +159,6 @@ namespace Spark::RHI::DX12
     size_t PipelineLayoutDescriptor::GetHashInternal(size_t seed) const
     {
         eastl::hash_combine_raw(seed, m_rootConstantBinding.GetHash());
-        for (const auto& visibility : m_shaderResourceVisibilities)
-        {
-            eastl::hash_combine_raw(seed, visibility.GetHash());
-        }
         return seed;
     }
 }

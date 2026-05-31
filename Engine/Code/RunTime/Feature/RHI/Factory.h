@@ -25,9 +25,6 @@ namespace Spark::RHI
     class TransientResourcePool;
 
     class ConstantsLayout;
-    class ShaderResourceLayout;
-    class ShaderResource;
-    class ShaderResourceCompiler;
     class ShaderBindings;
     class ShaderInputCompiler;
 
@@ -88,10 +85,6 @@ namespace Spark::RHI
 
         virtual Ptr<TransientResourcePool> CreateTransientResourcePool() = 0;
 
-        virtual Ptr<ShaderResource> CreateShaderResource() = 0;
-
-        virtual ShaderResourceCompiler& AcquireShaderResourceCompiler(RHI::Device& device) = 0;
-
         virtual Ptr<ShaderBindings> CreateShaderBindings() = 0;
 
         virtual ShaderInputCompiler& AcquireShaderInputCompiler(RHI::Device& device) = 0;
@@ -113,7 +106,5 @@ namespace Spark::RHI
         // no platform backend object
 
         virtual Ptr<ConstantsLayout> CreateConstantsLayout();
-
-        virtual Ptr<ShaderResourceLayout> CreateShaderResourceLayout();
     };
 }

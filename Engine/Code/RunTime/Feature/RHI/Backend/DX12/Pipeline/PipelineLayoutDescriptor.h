@@ -61,19 +61,6 @@ namespace Spark::RHI::DX12
         uint32_t m_constantRegisterSpace = 0;
     };
 
-    /**
-     * Describes the shader stage mask for the
-     * descriptor table used by the SRG.
-     */
-    struct ShaderResourceVisibility
-    {
-        ShaderResourceVisibility() = default;
-
-        size_t GetHash(size_t seed = 0) const;
-
-        RHI::ShaderStageMask m_descriptorTableShaderStageMask = RHI::ShaderStageMask::None;
-    };
-
     class PipelineLayoutDescriptor final
         : public RHI::PipelineLayoutDescriptor
     {
@@ -83,10 +70,6 @@ namespace Spark::RHI::DX12
 
         const RootConstantBinding& GetRootConstantBinding() const;
 
-        void AddShaderResourceVisibility(const ShaderResourceVisibility& shaderResourceVisibility);
-
-        const ShaderResourceVisibility& GetShaderResourceVisibility(uint32_t index) const;
-
     private:
         PipelineLayoutDescriptor() = default;
 
@@ -95,7 +78,6 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
         /// PipelineLayoutDescriptor
         size_t GetHashInternal(size_t seed) const override;
-        ResultCode FinalizeInternal() override;
         void ValidateShaderInputOverlapInternal(
             const ShaderInputHandle& newHandle,
             const ShaderInputHandle& existingHandle,
@@ -103,6 +85,5 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
 
         RootConstantBinding m_rootConstantBinding;
-        eastl::fixed_vector<ShaderResourceVisibility, RHI::Limits::Pipeline::ShaderResourceCountMax> m_shaderResourceVisibilities;
     };
 }

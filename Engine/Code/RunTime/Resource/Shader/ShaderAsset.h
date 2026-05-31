@@ -6,7 +6,7 @@
 
 #include <Resource/Asset.h>
 #include <RHI/Pipeline/ShaderStages.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 
 namespace Spark::Resource
 {

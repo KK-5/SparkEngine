@@ -34,8 +34,6 @@ set(SOURCES
     Resource/Image/Image.cpp
     Resource/Image/ImageView.cpp
     Resource/Sampler/Sampler.cpp
-    Resource/ShaderResource/ShaderResourceCompiler.cpp
-    Resource/ShaderResource/ShaderResource.cpp
     Resource/ShaderInput/ShaderBindings.cpp
     Resource/ShaderInput/ShaderInputCompiler.cpp
     Resource/Transient/TransientResourcePool.cpp

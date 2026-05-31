@@ -5,7 +5,7 @@
 #include <Resource/Common/CommonAssetLoader.h>
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderAssetCompiler.h>
-#include <RHI/Resource/ShaderResource/ShaderResourceLayout.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <Render/Shader/ShaderBuilder.h>
 
 using namespace Spark;

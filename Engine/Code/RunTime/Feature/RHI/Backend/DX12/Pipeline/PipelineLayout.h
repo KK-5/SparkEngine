@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <EASTL/array.h>
 #include <EASTL/fixed_vector.h>
 
 #include <RHI/Device/DeviceObjectFactory.h>
@@ -66,20 +65,8 @@ namespace Spark::RHI::DX12
 
         void Shutdown() override;
 
-        /// Returns the number of root parameter bindings (1-to-1 with SRG).
-        size_t GetRootParameterBindingCount() const;
-
-        /// Returns the root parameter binding for the flat index.
-        RootParameterBinding GetRootParameterBindingByIndex(size_t index) const;
-
         /// Returns the root parameter index for the Root Constants.
         RootParameterIndex GetRootConstantsRootParameterIndex() const;
-
-        /// Returns the SRG binding slot associated with the SRG flat index.
-        size_t GetSlotByIndex(size_t index) const;
-
-        /// Returns the SRG flat index associated with the SRG binding slot.
-        size_t GetIndexBySlot(size_t slot) const;
 
         /// Returns whether this pipeline layout has inline constants.
         bool HasRootConstants() const;
@@ -107,34 +94,6 @@ namespace Spark::RHI::DX12
     private:
         void BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);
 
-        void BuildShaderResourceConstants(
-            const PipelineLayoutDescriptor* desc,
-            const eastl::vector<uint8_t>& sortedIndex,
-            eastl::vector<D3D12_ROOT_PARAMETER>& parameters
-        );
-
-        void BuildShaderResourceBuffersAndImages(
-            const PipelineLayoutDescriptor* desc,
-            const eastl::vector<uint8_t>& sortedIndex,
-            eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
-            eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
-        );
-
-        void BuildShaderResourceSamplers(
-            const PipelineLayoutDescriptor* desc,
-            const eastl::vector<uint8_t>& sortedIndex,
-            eastl::vector<D3D12_ROOT_PARAMETER>& parameters,
-            eastl::vector<D3D12_DESCRIPTOR_RANGE> descriptorRanges[]
-        );
-
-        void BuildStaticSamplers(
-            const PipelineLayoutDescriptor* desc, 
-            const eastl::vector<uint8_t>& sortedIndex,
-            eastl::vector<D3D12_ROOT_PARAMETER>& parameters, 
-            eastl::vector<D3D12_STATIC_SAMPLER_DESC> staticSamplers
-        );
-
-        /// New path
         void BuildSpaceGroupConstants(
             const PipelineLayoutDescriptor* desc,
             eastl::vector<D3D12_ROOT_PARAMETER>& parameters
@@ -157,20 +116,12 @@ namespace Spark::RHI::DX12
             eastl::vector<D3D12_STATIC_SAMPLER_DESC>& staticSamplers
         );
 
-        /// Tables for mapping between SRG slots (sparse) to SRG indices (packed).
-        eastl::array<uint8_t, RHI::Limits::Pipeline::ShaderResourceCountMax> m_slotToIndexTable;
-        eastl::fixed_vector<uint8_t, RHI::Limits::Pipeline::ShaderResourceCountMax> m_indexToSlotTable;
-
-        /// Table for mapping SRG index (packed) to Root Parameter Binding (DX12 command list bindings).
-        eastl::fixed_vector<RootParameterBinding, RHI::Limits::Pipeline::ShaderResourceCountMax> m_indexToRootParameterBindingTable;
-
         /// Root Parameter Index for root constants.
         RootParameterIndex m_rootConstantsRootParameterIndex;
 
         /// Tracks whether this pipeline layout has inline constants.
         bool m_hasRootConstants = false;
 
-        /// New path
         eastl::fixed_vector<RootParameterBinding, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceRootParams;
         eastl::fixed_vector<SpaceCBVBinding,       RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceCBVBindings;
         eastl::fixed_vector<SpaceTableBinding,     RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceTableBindings;
