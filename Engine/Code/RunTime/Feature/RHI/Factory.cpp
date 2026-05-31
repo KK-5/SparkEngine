@@ -1,7 +1,7 @@
 #include "Factory.h"
 
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
-#include <RHI/Resource/ShaderResource/ConstantsLayout.h>
+#include <RHI/Pipeline/ConstantsLayout.h>
 
 namespace Spark::RHI
 {

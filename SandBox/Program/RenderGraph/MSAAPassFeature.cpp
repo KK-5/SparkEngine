@@ -22,7 +22,7 @@
 #include <RHI/MultisampleState.h>
 #include <RHI/Resource/Buffer/VertexInputView.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
-#include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
+#include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Resource/ShaderInput/ShaderInput.h>
 #include <RHI/Pipeline/RenderStates.h>

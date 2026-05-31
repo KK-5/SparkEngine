@@ -4,7 +4,7 @@
 #include <Log/SpdLogSystem.h>
 #include <Math/Bit.h>
 
-#include <RHI/Resource/ShaderResource/ConstantsLayout.h>
+#include <RHI/Pipeline/ConstantsLayout.h>
 #include <RHI/ValidationLayer.h>
 
 namespace Spark::RHI

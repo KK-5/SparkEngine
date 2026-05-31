@@ -10,7 +10,7 @@
 #include <Input/Bus/InputEventBus.h>
 
 #include <RHI/RHIInterface.h>
-#include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
+#include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderInput.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>

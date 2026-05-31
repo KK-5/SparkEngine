@@ -53,11 +53,11 @@ set(SOURCES
     Resource/Image/ImageView.cpp
     Resource/Image/StreamingImagePool.cpp
     Resource/Sampler/SamplerState.cpp
-    Resource/ShaderResource/ShaderSemantic.cpp
-    Resource/ShaderResource/InputStreamLayout.cpp
-    Resource/ShaderResource/InputStreamLayoutBuilder.cpp
-    Resource/ShaderResource/ConstantsData.cpp
-    Resource/ShaderResource/ConstantsLayout.cpp
+    Pipeline/ShaderSemantic.cpp
+    Pipeline/InputStreamLayout.cpp
+    Pipeline/InputStreamLayoutBuilder.cpp
+    Pipeline/ConstantsData.cpp
+    Pipeline/ConstantsLayout.cpp
     Resource/ShaderInput/ShaderInputDescriptor.cpp
     Resource/ShaderInput/ShaderBindings.cpp
     Resource/ShaderInput/ShaderInputCompiler.cpp

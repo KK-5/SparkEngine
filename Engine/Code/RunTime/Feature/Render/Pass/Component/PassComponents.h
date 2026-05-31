@@ -5,7 +5,7 @@
 #include <EASTL/variant.h>
 #include <Object/ObjectName.h>
 
-#include <RHI/Resource/ShaderResource/InputStreamLayout.h>
+#include <RHI/Pipeline/InputStreamLayout.h>
 #include <RHI/Attachment/RenderAttachmentLayout.h>
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/Pipeline/RenderTargetLayout.h>

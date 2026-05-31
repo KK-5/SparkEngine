@@ -8,7 +8,7 @@
 #include <Object/Object.h>
 
 #include <RHI/RHILimits.h>
-#include <RHI/Resource/ShaderResource/ConstantsLayout.h>
+#include <RHI/Pipeline/ConstantsLayout.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include "ShaderStages.h"
 

@@ -11,7 +11,7 @@
 
 #include <RHI/Base.h>
 #include <RHI/Format.h>
-#include <RHI/Resource/ShaderResource/InputStreamLayout.h>
+#include <RHI/Pipeline/InputStreamLayout.h>
 
 namespace Spark::RHI
 {

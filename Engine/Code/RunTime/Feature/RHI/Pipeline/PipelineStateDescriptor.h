@@ -10,7 +10,7 @@
 
 #include <EASTL/array.h>
 
-#include <RHI/Resource/ShaderResource/InputStreamLayout.h>
+#include <RHI/Pipeline/InputStreamLayout.h>
 #include <RHI/Attachment/RenderAttachmentLayout.h>
 #include "ShaderStages.h"
 #include "ShaderStageFunction.h"

@@ -4,7 +4,7 @@
 #include <Base.h>
 
 #include <RHI/RHIInterface.h>
-#include <RHI/Resource/ShaderResource/InputStreamLayoutBuilder.h>
+#include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Attachment/RenderAttachmentLayoutBuilder.h>
 #include <RHI/RHILimits.h>
 

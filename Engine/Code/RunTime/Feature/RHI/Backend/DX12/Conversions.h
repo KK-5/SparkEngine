@@ -9,7 +9,7 @@
 #include <RHI/Resource/Image/ImageEnums.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
-#include <RHI/Resource/ShaderResource/InputStreamLayout.h>
+#include <RHI/Pipeline/InputStreamLayout.h>
 #include <RHI/Pipeline/ShaderStages.h>
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/ClearValue.h>
