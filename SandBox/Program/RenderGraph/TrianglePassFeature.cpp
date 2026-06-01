@@ -38,6 +38,7 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <Draw/DrawRequest.h>
+#include <View/View.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -288,13 +289,14 @@ namespace Spark::SandBox
             Math::Matrix4X4Const::IDENTITY,
             m_rotationAngle,
             Math::Vector3(0.f, 0.f, 1.f));
-        Math::Matrix4X4 view = Math::LookAt(
-            Math::Vector3(0.f, 0.f, -2.f),
-            Math::Vector3(0.f, 0.f, 0.f),
-            Math::Vector3(0.f, 1.f, 0.f));
-        Math::Matrix4X4 proj = Math::PerspectiveFov(
+
+        Render::View camera = Render::MakePerspectiveView(
+            Math::Vector3(0.f, 0.f, -2.f),   // eye
+            Math::Vector3(0.f, 0.f, 0.f),    // target
+            Math::Vector3(0.f, 1.f, 0.f),    // up
             Math::Radians(45.f), aspect, 0.1f, 100.f);
-        Math::Matrix4X4 mvp = proj * view * model;
+
+        Math::Matrix4X4 mvp = camera.GetWorldToClip() * model;
 
         auto* mvpInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_MVP"));
         ASSERT(mvpInput, "No g_MVP shader input.");

@@ -46,6 +46,7 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <Draw/DrawRequest.h>
+#include <View/View.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -434,17 +435,20 @@ namespace Spark::SandBox
             Math::Matrix4X4Const::IDENTITY,
             m_rotationAngle,
             Math::Vector3(0.f, 1.f, 0.f));   // spin around world up
-        Math::Matrix4X4 view = Math::LookAt(
-            Math::Vector3(0.f, 5.f, -5.f),
-            Math::Vector3(0.f, 0.f, 0.f),
-            Math::Vector3(0.f, 1.f, 0.f));
-        Math::Matrix4X4 proj = Math::PerspectiveFov(
-            Math::Radians(45.f), aspect, 0.1f, 100.f);
-        Math::Matrix4X4 mvp = proj * view * model;
 
-        auto* mvpInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_MVP"));
-        ASSERT(mvpInput, "No g_MVP shader input.");
-        mvpInput->SetData(&mvp, sizeof(mvp));
+        Render::View camera = Render::MakePerspectiveView(
+            Math::Vector3(0.f, 5.f, -5.f),   // eye
+            Math::Vector3(0.f, 0.f, 0.f),    // target
+            Math::Vector3(0.f, 1.f, 0.f),    // up
+            Math::Radians(45.f), aspect, 0.1f, 100.f);
+
+        // View owns view+proj and writes g_ViewProjection; the per-object model
+        // is the feature's and goes into g_Model separately.
+        Spark::Render::WriteViewConstants(camera, *m_viewBindings);
+
+        auto* modelInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_Model"));
+        ASSERT(modelInput, "No g_Model shader input.");
+        modelInput->SetData(&model, sizeof(model));
 
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         if (auto* iv = rhiCtx.TryGet<Spark::RHI::Components::ImageView>(m_imageViewEntity))

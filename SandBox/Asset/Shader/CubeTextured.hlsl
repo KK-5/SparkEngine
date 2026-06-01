@@ -3,7 +3,8 @@ SamplerState g_Sampler : register(s0, space0);
 
 cbuffer ViewConstants : register(b0, space0)
 {
-    float4x4 g_MVP;
+    float4x4 g_ViewProjection;   // per-view, written by Render::View
+    float4x4 g_Model;            // per-object, written by the feature
 };
 
 struct VSInput
@@ -23,7 +24,7 @@ struct PSInput
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.position = mul(g_MVP, float4(input.position, 1.0));
+    output.position = mul(g_ViewProjection, mul(g_Model, float4(input.position, 1.0)));
     output.uv       = input.uv;
     return output;
 }
