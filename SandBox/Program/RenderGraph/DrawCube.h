@@ -73,11 +73,12 @@ namespace Spark::SandBox
         Ptr<Spark::Resource::ModelAsset> m_model;
         Ptr<Spark::Resource::ImageAsset> m_image;
 
-        Spark::RHI::Viewport m_viewport;
-        Spark::RHI::Scissor  m_scissor;
-
         // Transform
         float m_rotationAngle = 0.f;
+
+        // Pass-level viewport / scissor (stored here so CreatePasses can pick them up)
+        Spark::RHI::Viewport m_viewport;
+        Spark::RHI::Scissor  m_scissor;
 
         // Sampler
         Spark::RHI::SamplerState m_samplerState = Spark::RHI::SamplerState::Create(

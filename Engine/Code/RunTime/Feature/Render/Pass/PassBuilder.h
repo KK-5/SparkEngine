@@ -109,6 +109,15 @@ namespace Spark::Render
             return *this;
         }
 
+        // ---- Viewport / Scissor ----
+        RenderPassBuilder& ViewportScissor(const RHI::Viewport& vp, const RHI::Scissor& scissor)
+        {
+            m_viewport = vp;
+            m_scissor  = scissor;
+            m_hasViewportScissor = true;
+            return *this;
+        }
+
         // ---- Custom pipeline (skip engine PSO) ----
         RenderPassBuilder& CustomPipeline()
         {
@@ -178,6 +187,9 @@ namespace Spark::Render
             if (m_active)
                 m_context->Add<ActivePassTag>(pass);
 
+            if (m_hasViewportScissor)
+                m_context->Add<PassViewportState>(pass, PassViewportState{m_viewport, m_scissor});
+
             m_context->Add<PassShaders>(pass, m_shaders);
 
             if (m_customPipeline)
@@ -222,11 +234,15 @@ namespace Spark::Render
         PassContext*            m_context;
         ObjectName              m_name;
         RHI::HardwareQueueClass m_queue {};
-        bool                    m_active        {true};
-        bool                    m_customPipeline{false};
+        bool                    m_active            {true};
+        bool                    m_customPipeline    {false};
 
         PassShaders             m_shaders;
         PassPipelineState       m_pipelineState;
+
+        RHI::Viewport           m_viewport {};
+        RHI::Scissor            m_scissor  {};
+        bool                    m_hasViewportScissor{false};
 
         BuildFunction           m_buildFunction;
         CompileFunction         m_compileFunction;
@@ -369,8 +385,8 @@ namespace Spark::Render
         PassContext*            m_context;
         ObjectName              m_name;
         RHI::HardwareQueueClass m_queue {};
-        bool                    m_active        {true};
-        bool                    m_customPipeline{false};
+        bool                    m_active            {true};
+        bool                    m_customPipeline    {false};
 
         PassShaders             m_shaders;
 

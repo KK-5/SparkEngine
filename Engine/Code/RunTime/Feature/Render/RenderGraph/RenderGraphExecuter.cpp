@@ -254,6 +254,15 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphExecuter::ExecutePassViewportState(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
+    {
+        if (auto* vp = passContext.TryGet<PassViewportState>(pass))
+        {
+            commandList->SetViewports(&vp->m_viewport, 1);
+            commandList->SetScissors(&vp->m_scissor, 1);
+        }
+    }
+
     void RenderGraphExecuter::ExecutePassShaderBindings(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
     {
         auto* attached = passContext.TryGet<PassShaderBindings>(pass);
@@ -293,6 +302,7 @@ namespace Spark::Render
             {
                 ExecuteBindPSO(cmdList, item.m_pass, passContext);
                 ExecutePassShaderBindings(cmdList, item.m_pass, passContext);
+                ExecutePassViewportState(cmdList, item.m_pass, passContext);
                 ExecutePreBarriers(cmdList, item.m_pass, passContext);
                 ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);
             }

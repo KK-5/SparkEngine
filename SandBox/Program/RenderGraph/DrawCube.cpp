@@ -72,7 +72,7 @@ namespace Spark::SandBox
         Spark::RHI::Scissor scissor(
             0, 0, (int32_t)windowSize.x, (int32_t)windowSize.y);
         m_viewport = viewport;
-        m_scissor = scissor;
+        m_scissor  = scissor;
 
         // Pass must exist before CreatePassShaderBindings can look it up by tag.
         LoadAsset();
@@ -312,6 +312,7 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
+            .ViewportScissor(m_viewport, m_scissor)
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
             {
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
@@ -369,6 +370,7 @@ namespace Spark::SandBox
         SPARK_RENDER_PASS(passContext, "ResolvePass")
             .Queue(Spark::RHI::HardwareQueueClass::Graphics)
             .CustomPipeline()
+            .ViewportScissor(m_viewport, m_scissor)
             .Build([this](Spark::Render::RenderGraphBuilder& builder)
             {
                 Render::ImageAttachmentBindInfo msaaBind;
@@ -435,11 +437,6 @@ namespace Spark::SandBox
                 0,
                 static_cast<uint32_t>(primitive.indexBuffer.size()),
                 Spark::RHI::IndexFormat::UINT32);
-
-            drawItem.m_viewportsCount = 1;
-            drawItem.m_scissorsCount = 1;
-            drawItem.m_viewports.push_back(m_viewport);
-            drawItem.m_scissors.push_back(m_scissor);
 
             rhiCtx.Add<Spark::RHI::DrawItem>(m_drawItemEntity, eastl::move(drawItem));
             rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);

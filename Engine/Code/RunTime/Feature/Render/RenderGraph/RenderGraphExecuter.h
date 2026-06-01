@@ -91,6 +91,8 @@ namespace Spark::Render
 
         void ExecuteBindPSO(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
+        void ExecutePassViewportState(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
+
         //! Iterates the pass's PassShaderBindings component (populated via
         //! Render::AttachShaderBindings) in attach order and dispatches
         //! CommandList::BindShaderInputsForDraw / BindShaderInputsForDispatch
