@@ -446,6 +446,11 @@ namespace Spark::RHI::DX12
         SetVertexBuffers(drawItem.m_vertexBufferView);
         SetStencilRef(drawItem.m_stencilRef);
 
+        if (drawItem.m_pipelineState)
+        {
+            SetPipelineState(*drawItem.m_pipelineState);
+        }
+
         RHI::CommandListScissorState scissorState;
         if (drawItem.m_scissorsCount)
         {
@@ -463,6 +468,14 @@ namespace Spark::RHI::DX12
         CommitScissorState();
         CommitViewportState();
         CommitShadingRateState();
+
+        if (drawItem.m_shaderBindingsCount)
+        {
+            for (uint32_t i = 0; i < drawItem.m_shaderBindingsCount; ++i)
+            {
+                BindShaderInputsForDraw(*drawItem.m_shaderBindings[i]);
+            }
+        }
 
         switch (drawItem.m_drawArguments.m_type)
         {

@@ -26,9 +26,11 @@
 
 namespace Spark::RHI
 {
-    // Per-draw data: geometry, optional viewport/scissor overrides,
-    // and future root constants. PSO and per-draw bindings are not here —
-    // the executer auto-binds those at pass begin.
+    class PipelineState;
+    class ShaderBindings;
+
+    // Per-draw data: geometry, per-draw PSO / ShaderBindings overrides,
+    // and optional viewport/scissor / root-constant overrides.
     struct DrawItem
     {
         DrawItem() = default;
@@ -41,6 +43,11 @@ namespace Spark::RHI
         // Geometry
         IndexBufferView  m_indexBufferView;
         VertexBufferView m_vertexBufferView;
+
+        const PipelineState* m_pipelineState = nullptr;
+
+        uint8_t m_shaderBindingsCount = 0;
+        eastl::fixed_vector<const ShaderBindings*, Limits::Pipeline::ShaderInputGroupCountMax> m_shaderBindings;
 
         // Per-draw viewport / scissor overrides (rare, e.g. multi-viewport passes).
         uint8_t m_scissorsCount = 0;
