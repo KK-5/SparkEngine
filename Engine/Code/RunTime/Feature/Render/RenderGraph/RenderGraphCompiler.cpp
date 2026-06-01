@@ -17,9 +17,11 @@
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Command/RenderPassBeginInfo.h>
 
+#include <RHI/Command/DrawItem.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/ShaderStages.h>
 
+#include <Draw/DrawRequest.h>
 #include <Pass/Component/PassComponents.h>
 
 namespace Spark::Render
@@ -1352,6 +1354,74 @@ namespace
             ASSERT(rc == RHI::ResultCode::Success,
                 "[CompileShaderInputs] ShaderInputCompiler::Compile failed.");
             context.Remove<ShaderBindingsUpdateTag>(handle);
+        });
+    }
+
+    void RenderGraphCompiler::CompileDrawRequests(
+        RHI::Device& /*device*/,
+        RHIContext&  context,
+        RHI::PipelineLibrary* /*pipelineLibrary*/)
+    {
+        context.GetView<DrawRequest>().each([&](RHIHandle h, const DrawRequest& req) {
+            RHI::DrawItem item;
+            item.m_drawArguments    = req.m_drawArguments;
+            item.m_drawInstanceArgs = req.m_drawInstanceArgs;
+            item.m_stencilRef       = req.m_stencilRef;
+
+            for (uint8_t i = 0; i < req.m_shaderBindingsCount; ++i)
+            {
+                if (auto* shaderBindings = context.TryGet<RHI::Components::ShaderBindings>(
+                        req.m_shaderBindingEntities[i]))
+                {
+                    if (shaderBindings->m_bindings)
+                    {
+                        item.m_shaderBindings.push_back(shaderBindings->m_bindings.get());
+                    }
+                }
+            }
+            item.m_shaderBindingsCount =
+                static_cast<uint8_t>(item.m_shaderBindings.size());
+
+            auto vBuffer = context.TryGet<RHI::Components::Buffer>(req.m_vertexBufferView);
+            if (vBuffer)
+            {
+                RHI::VertexInputView vbView(
+                    *vBuffer->m_buffer,
+                    req.m_vertexBufferInfo.m_byteOffset,
+                    req.m_vertexBufferInfo.m_byteCount,
+                    req.m_vertexBufferInfo.m_byteStride);
+                item.m_vertexBufferView.AddVertexInputView(vbView);
+            }
+            else
+            {
+                LOG_ERROR("[CompileDrawRequests] Vertex buffer entity {} not found or has no Components::Buffer.",
+                    static_cast<uint32_t>(req.m_vertexBufferView));
+            }
+
+            if (req.m_indexBufferView != NullHandle)
+            {
+                auto iBuffer = context.TryGet<RHI::Components::Buffer>(req.m_indexBufferView);
+                if (iBuffer)
+                {
+                    item.m_indexBufferView = RHI::IndexBufferView(
+                        *iBuffer->m_buffer,
+                        req.m_indexBufferInfo.m_byteOffset,
+                        req.m_indexBufferInfo.m_byteCount,
+                        req.m_indexBufferInfo.m_format);
+                }
+                else
+                {
+                    LOG_ERROR("[CompileDrawRequests] Index buffer entity {} not found or has no Components::Buffer.",
+                        static_cast<uint32_t>(req.m_indexBufferView));
+                }
+            }
+
+
+            // PSO (TBD): pass PSO is bound by executer at pass begin. Per-draw
+            // PSO variants from m_vertexShaderOverride / m_fragmentShaderOverride
+            // / m_renderStatesOverride will be resolved via PipelineLibrary.
+
+            context.AddOrReplace<RHI::DrawItem>(h, eastl::move(item));
         });
     }
 }

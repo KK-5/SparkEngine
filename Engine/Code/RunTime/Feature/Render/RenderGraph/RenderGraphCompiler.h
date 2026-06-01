@@ -105,6 +105,9 @@ namespace Spark::Render
         //! CreatePassShaderBindings + MarkShaderBindingsUpdate) drives the dirty bit.
         void CompileShaderInputs(RHI::Device& device, RHIContext& context);
 
+
+        void CompileDrawRequests(RHI::Device& device, RHIContext& context, RHI::PipelineLibrary* pipelineLibrary);
+
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.
         eastl::array<uint64_t, RHI::HardwareQueueClassCount> m_crossQueueFenceValues{1, 1, 1};

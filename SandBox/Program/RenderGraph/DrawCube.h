@@ -44,7 +44,7 @@ namespace Spark::SandBox
         void CreateVertexBuffer();
         void CreatePasses();
         void UpdateViewBindings();
-        void BuildDrawItemEntity();
+        void BuildDrawRequest();
         void LoadAsset();
         void CreateImage();
 

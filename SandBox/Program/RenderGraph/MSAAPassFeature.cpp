@@ -20,7 +20,6 @@
 #include <RHI/Command/DrawItem.h>
 #include <RHI/ClearValue.h>
 #include <RHI/MultisampleState.h>
-#include <RHI/Resource/Buffer/VertexInputView.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
@@ -40,6 +39,7 @@
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
+#include <Draw/DrawRequest.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -98,6 +98,7 @@ namespace Spark::SandBox
         CreateVertexBuffer();
         CreatePasses();
         CreateViewBindings();
+        BuildDrawRequest();
 
         TickBus::Handler::BusConnect();
         return true;
@@ -127,7 +128,6 @@ namespace Spark::SandBox
     void MSAAPassFeature::OnTick(float /*deltaTime*/)
     {
         UpdateViewBindings();
-        BuildDrawItemEntity();
     }
 
     Spark::RHI::RHIHandle MSAAPassFeature::FindSwapChainView() const
@@ -223,6 +223,7 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
+            .ViewportScissor(m_viewport, m_scissor)
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
             {
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
@@ -294,38 +295,20 @@ namespace Spark::SandBox
             .Finalize();
     }
 
-    void MSAAPassFeature::BuildDrawItemEntity()
+    void MSAAPassFeature::BuildDrawRequest()
     {
-        if (m_drawItemEntity != Spark::RHI::NullHandle)
-        {
-            return;
-        }
-
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
+        m_drawItemEntity = rhiCtx.CreateEntity();
 
-        auto* vertexBuffer = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_vbEntity);
-        if (vertexBuffer && vertexBuffer->m_buffer)
-        {
-            m_drawItemEntity = rhiCtx.CreateEntity();
-            Spark::RHI::DrawItem drawItem;
-            drawItem.m_drawArguments =
-                Spark::RHI::DrawArguments(Spark::RHI::DrawLinear(g_vertexCount, 0));
-            drawItem.m_drawInstanceArgs = Spark::RHI::DrawInstanceArguments(1, 0);
+        Render::DrawRequest req;
+        req.m_drawArguments    = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
+        req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
+        req.m_vertexBufferInfo = Render::VertexBufferInfo{
+            0, sizeof(g_triangleVertices), sizeof(TriangleVertex)};
+        req.m_vertexBufferView = m_vbEntity;
 
-            Spark::RHI::VertexInputView vbView(
-                *vertexBuffer->m_buffer,
-                0,
-                sizeof(g_triangleVertices),
-                sizeof(TriangleVertex));
-            drawItem.m_vertexBufferView.AddVertexInputView(vbView);
-            drawItem.m_viewportsCount = 1;
-            drawItem.m_scissorsCount = 1;
-            drawItem.m_viewports.push_back(m_viewport);
-            drawItem.m_scissors.push_back(m_scissor);
-
-            rhiCtx.Add<Spark::RHI::DrawItem>(m_drawItemEntity, eastl::move(drawItem));
-            rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
-        }
+        rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
+        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
     }
 
     void MSAAPassFeature::UpdateViewBindings()

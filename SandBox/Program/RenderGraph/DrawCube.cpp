@@ -45,6 +45,7 @@
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
+#include <Draw/DrawRequest.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -81,6 +82,8 @@ namespace Spark::SandBox
         CreatePasses();
         CreateViewBindings();
 
+        BuildDrawRequest();
+
         TickBus::Handler::BusConnect();
         return true;
     }
@@ -113,7 +116,6 @@ namespace Spark::SandBox
     void DrawCube::OnTick(float /*deltaTime*/)
     {
         UpdateViewBindings();
-        BuildDrawItemEntity();
     }
 
     Spark::RHI::RHIHandle DrawCube::FindSwapChainView() const
@@ -400,47 +402,26 @@ namespace Spark::SandBox
             .Finalize();
     }
 
-    void DrawCube::BuildDrawItemEntity()
+    void DrawCube::BuildDrawRequest()
     {
-        if (m_drawItemEntity != Spark::RHI::NullHandle)
-        {
-            return;
-        }
-
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
+        m_drawItemEntity = rhiCtx.CreateEntity();
 
-        auto* vb = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_vbEntity);
-        auto* ib = rhiCtx.TryGet<Spark::RHI::Components::Buffer>(m_indexEntity);
-        if (vb && vb->m_buffer && ib && ib->m_buffer)
-        {
-            auto* mesh = m_model->GetModelData()->GetMesh(0);
-            const Resource::Primitive& primitive = mesh->primitives[0];
+        auto* mesh = m_model->GetModelData()->GetMesh(0);
+        const Resource::Primitive& primitive = mesh->primitives[0];
+        const uint32_t indexCount =
+            static_cast<uint32_t>(primitive.indexBuffer.size() / sizeof(uint32_t));
 
-            const uint32_t indexCount =
-                static_cast<uint32_t>(primitive.indexBuffer.size() / sizeof(uint32_t));
+        Render::DrawRequest req;
+        req.m_drawArguments    = RHI::DrawArguments(Spark::RHI::DrawIndexed(0, indexCount, 0));
+        req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
+        req.m_vertexBufferInfo = Render::VertexBufferInfo{0, static_cast<uint32_t>(primitive.vertexBuffer.size()), primitive.layout.stride};
+        req.m_vertexBufferView = m_vbEntity;
+        req.m_indexBufferInfo  = Render::IndexBufferInfo{0, static_cast<uint32_t>(primitive.indexBuffer.size()), RHI::IndexFormat::UINT32};
+        req.m_indexBufferView  = m_indexEntity;
 
-            m_drawItemEntity = rhiCtx.CreateEntity();
-            Spark::RHI::DrawItem drawItem;
-            drawItem.m_drawArguments =
-                Spark::RHI::DrawArguments(Spark::RHI::DrawIndexed(0, indexCount, 0));
-            drawItem.m_drawInstanceArgs = Spark::RHI::DrawInstanceArguments(1, 0);
-
-            Spark::RHI::VertexInputView vbView(
-                *vb->m_buffer,
-                0,
-                static_cast<uint32_t>(primitive.vertexBuffer.size()),
-                primitive.layout.stride);
-            drawItem.m_vertexBufferView.AddVertexInputView(vbView);
-
-            drawItem.m_indexBufferView = Spark::RHI::IndexBufferView(
-                *ib->m_buffer,
-                0,
-                static_cast<uint32_t>(primitive.indexBuffer.size()),
-                Spark::RHI::IndexFormat::UINT32);
-
-            rhiCtx.Add<Spark::RHI::DrawItem>(m_drawItemEntity, eastl::move(drawItem));
-            rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
-        }
+        rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
+        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
     }
 
     void DrawCube::UpdateViewBindings()

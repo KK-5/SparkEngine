@@ -41,7 +41,7 @@ namespace Spark::SandBox
         void CreateTrianglePass();
         void CreateVertexBuffer();
         void UpdateViewBindings();
-        void BuildDrawItemEntity();
+        void BuildDrawRequest();
 
         Spark::RHI::RHIHandle FindSwapChainView() const;
 
