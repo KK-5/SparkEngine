@@ -463,6 +463,8 @@ namespace Spark::Resource
                 prim.layout        = layout;
                 prim.vertexBuffer.resize(vertexCount * layout.stride);
                 prim.indexBuffer.resize(indices.size() * sizeof(uint32_t));
+                prim.indexCount    = static_cast<uint32_t>(indices.size());
+                prim.indexFormat   = RHI::IndexFormat::UINT32;
                 prim.materialIndex = gltfPrim.materialIndex.has_value()
                     ? static_cast<uint32_t>(gltfPrim.materialIndex.value())
                     : Primitive::kInvalidMaterialIndex;

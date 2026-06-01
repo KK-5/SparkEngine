@@ -10,6 +10,8 @@
 #include <Resource/Asset.h>
 #include <Resource/AssetTypes.h>
 
+#include <RHI/Resource/Buffer/IndexBufferView.h>
+
 #include "VertexLayout.h"
 
 namespace Spark::Resource
@@ -63,6 +65,8 @@ namespace Spark::Resource
 
         eastl::vector<uint8_t>  vertexBuffer;
         eastl::vector<uint8_t>  indexBuffer;
+        uint32_t                indexCount = 0;
+        RHI::IndexFormat        indexFormat = RHI::IndexFormat::UINT32;
         VertexLayout            layout;
         uint32_t                materialIndex{kInvalidMaterialIndex};
         Math::AABB              bounds;

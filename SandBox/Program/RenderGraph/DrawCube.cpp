@@ -399,15 +399,15 @@ namespace Spark::SandBox
 
         auto* mesh = m_model->GetModelData()->GetMesh(0);
         const Resource::Primitive& primitive = mesh->primitives[0];
-        const uint32_t indexCount =
-            static_cast<uint32_t>(primitive.indexBuffer.size() / sizeof(uint32_t));
 
         Render::DrawRequest req;
-        req.m_drawArguments    = RHI::DrawArguments(Spark::RHI::DrawIndexed(0, indexCount, 0));
+        req.m_drawArguments    = RHI::DrawArguments(RHI::DrawIndexed(0, primitive.indexCount, 0));
         req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
-        req.m_vertexBufferInfo = Render::VertexBufferInfo{0, static_cast<uint32_t>(primitive.vertexBuffer.size()), primitive.layout.stride};
+        req.m_vertexBufferInfo = Render::VertexBufferInfo{
+            0, static_cast<uint32_t>(primitive.vertexBuffer.size()), primitive.layout.stride};
         req.m_vertexBufferView = m_vbEntity;
-        req.m_indexBufferInfo  = Render::IndexBufferInfo{0, static_cast<uint32_t>(primitive.indexBuffer.size()), RHI::IndexFormat::UINT32};
+        req.m_indexBufferInfo  = Render::IndexBufferInfo{
+            0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat};
         req.m_indexBufferView  = m_indexEntity;
 
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
