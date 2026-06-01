@@ -51,7 +51,6 @@ namespace Spark::SandBox
 
         // Vertex buffer (in RHIContext)
         Spark::RHI::RHIHandle m_vbEntity     = Spark::RHI::NullHandle;
-        Spark::RHI::RHIHandle m_vbViewEntity = Spark::RHI::NullHandle;
 
         // Swap chain view (looked up from RHIContext at Init time)
         Spark::RHI::RHIHandle m_swapchainView = Spark::RHI::NullHandle;

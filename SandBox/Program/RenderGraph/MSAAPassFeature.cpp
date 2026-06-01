@@ -118,7 +118,6 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
         destroyIfValid(m_drawItemEntity);
-        destroyIfValid(m_vbViewEntity);
         destroyIfValid(m_vbEntity);
         destroyIfValid(m_viewBindingsEntity);
 
@@ -184,9 +183,6 @@ namespace Spark::SandBox
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
             Spark::RHI::AttachmentStage::VertexInput);
-        m_vbViewEntity = Spark::RHI::CreateBufferView(
-            ctx, m_vbEntity, ObjectName("TriangleVB.View"),
-            Spark::RHI::BufferViewDescriptor::CreateRaw(0, sizeof(g_triangleVertices)));
     }
 
     void MSAAPassFeature::CreatePasses()

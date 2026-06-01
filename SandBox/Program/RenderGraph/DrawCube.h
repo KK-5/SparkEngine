@@ -56,9 +56,7 @@ namespace Spark::SandBox
 
         // Vertex buffer (in RHIContext)
         Spark::RHI::RHIHandle m_vbEntity        = Spark::RHI::NullHandle;
-        Spark::RHI::RHIHandle m_vbViewEntity    = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_indexEntity     = Spark::RHI::NullHandle;
-        Spark::RHI::RHIHandle m_indexViewEntity = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_imageEntity     = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_imageViewEntity = Spark::RHI::NullHandle;
 

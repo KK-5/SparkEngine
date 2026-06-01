@@ -102,8 +102,6 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
         destroyIfValid(m_drawItemEntity);
-        destroyIfValid(m_vbViewEntity);
-        destroyIfValid(m_indexViewEntity);
         destroyIfValid(m_imageViewEntity);
         destroyIfValid(m_vbEntity);
         destroyIfValid(m_indexEntity);
@@ -198,10 +196,6 @@ namespace Spark::SandBox
             Spark::RHI::AttachmentUsage::InputAssembly,
             Spark::RHI::AttachmentStage::VertexInput);
 
-        m_vbViewEntity = Spark::RHI::CreateBufferView(ctx, m_vbEntity,
-            ObjectName("CubeVertex.View"),
-            Spark::RHI::BufferViewDescriptor::CreateRaw(0, primitive.vertexBuffer.size()));
-
         Spark::RHI::BufferDescriptor ibDesc;
         ibDesc.m_bindFlags =
             Spark::RHI::BufferBindFlags::InputAssembly | Spark::RHI::BufferBindFlags::CopyWrite;
@@ -216,10 +210,6 @@ namespace Spark::SandBox
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
             Spark::RHI::AttachmentStage::VertexInput);
-
-        m_indexViewEntity = Spark::RHI::CreateBufferView(ctx, m_indexEntity,
-            ObjectName("CubeIndex.View"),
-            Spark::RHI::BufferViewDescriptor::CreateRaw(0, primitive.indexBuffer.size()));
     }
 
     void DrawCube::CreateImage()
