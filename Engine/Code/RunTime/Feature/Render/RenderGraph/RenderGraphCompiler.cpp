@@ -1368,10 +1368,10 @@ namespace
             item.m_drawInstanceArgs = req.m_drawInstanceArgs;
             item.m_stencilRef       = req.m_stencilRef;
 
-            for (uint8_t i = 0; i < req.m_shaderBindingsCount; ++i)
+            for (RHIHandle bindingEntity : req.m_shaderBindingEntities)
             {
                 if (auto* shaderBindings = context.TryGet<RHI::Components::ShaderBindings>(
-                        req.m_shaderBindingEntities[i]))
+                        bindingEntity))
                 {
                     if (shaderBindings->m_bindings)
                     {
@@ -1382,7 +1382,7 @@ namespace
             item.m_shaderBindingsCount =
                 static_cast<uint8_t>(item.m_shaderBindings.size());
 
-            auto vBuffer = context.TryGet<RHI::Components::Buffer>(req.m_vertexBufferView);
+            auto vBuffer = context.TryGet<RHI::Components::Buffer>(req.m_vertexBuffer);
             if (vBuffer)
             {
                 RHI::VertexInputView vbView(
@@ -1395,12 +1395,12 @@ namespace
             else
             {
                 LOG_ERROR("[CompileDrawRequests] Vertex buffer entity {} not found or has no Components::Buffer.",
-                    static_cast<uint32_t>(req.m_vertexBufferView));
+                    static_cast<uint32_t>(req.m_vertexBuffer));
             }
 
-            if (req.m_indexBufferView != NullHandle)
+            if (req.m_indexBuffer != NullHandle)
             {
-                auto iBuffer = context.TryGet<RHI::Components::Buffer>(req.m_indexBufferView);
+                auto iBuffer = context.TryGet<RHI::Components::Buffer>(req.m_indexBuffer);
                 if (iBuffer)
                 {
                     item.m_indexBufferView = RHI::IndexBufferView(
@@ -1412,7 +1412,7 @@ namespace
                 else
                 {
                     LOG_ERROR("[CompileDrawRequests] Index buffer entity {} not found or has no Components::Buffer.",
-                        static_cast<uint32_t>(req.m_indexBufferView));
+                        static_cast<uint32_t>(req.m_indexBuffer));
                 }
             }
 

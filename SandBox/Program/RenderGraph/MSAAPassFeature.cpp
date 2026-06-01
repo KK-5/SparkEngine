@@ -301,7 +301,7 @@ namespace Spark::SandBox
         req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
         req.m_vertexBufferInfo = Render::VertexBufferInfo{
             0, sizeof(g_triangleVertices), sizeof(TriangleVertex)};
-        req.m_vertexBufferView = m_vbEntity;
+        req.m_vertexBuffer = m_vbEntity;
 
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
         rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);

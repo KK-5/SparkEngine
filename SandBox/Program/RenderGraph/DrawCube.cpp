@@ -405,10 +405,10 @@ namespace Spark::SandBox
         req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
         req.m_vertexBufferInfo = Render::VertexBufferInfo{
             0, static_cast<uint32_t>(primitive.vertexBuffer.size()), primitive.layout.stride};
-        req.m_vertexBufferView = m_vbEntity;
+        req.m_vertexBuffer = m_vbEntity;
         req.m_indexBufferInfo  = Render::IndexBufferInfo{
             0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat};
-        req.m_indexBufferView  = m_indexEntity;
+        req.m_indexBuffer  = m_indexEntity;
 
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
         rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);

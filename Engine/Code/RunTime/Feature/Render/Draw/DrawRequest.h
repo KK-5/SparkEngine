@@ -42,17 +42,17 @@ namespace Spark::Render
         RHI::DrawInstanceArguments m_drawInstanceArgs;
         uint8_t                    m_stencilRef = 0;
 
-        // Geometry: RHIHandle entities carrying VertexBufferView / IndexBufferView
-        // in RHIContext. Compiler resolves these to the view structs for DrawItem.
+        // Geometry: RHIHandle entities carrying a Components::Buffer in RHIContext.
+        // Compiler reads each buffer and builds the VertexInputView / IndexBufferView
+        // for the DrawItem from the m_*BufferInfo offsets/stride.
         VertexBufferInfo m_vertexBufferInfo;
         IndexBufferInfo  m_indexBufferInfo;
-        RHI::RHIHandle m_vertexBufferView = RHI::NullHandle;
-        RHI::RHIHandle m_indexBufferView  = RHI::NullHandle;
+        RHI::RHIHandle m_vertexBuffer = RHI::NullHandle;
+        RHI::RHIHandle m_indexBuffer  = RHI::NullHandle;
 
         // Per-draw ShaderBindings entities. User creates them via
         // CreateShaderBindings(), populates shader inputs, and marks dirty.
         // Compiler resolves each entity's compiled ShaderBindings pointer.
-        uint8_t m_shaderBindingsCount = 0;
         eastl::fixed_vector<RHI::RHIHandle, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_shaderBindingEntities;
 
         // Optional per-draw PSO variant: override the pass-level vertex/fragment
