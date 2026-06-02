@@ -43,13 +43,13 @@ namespace Spark::Render
         return view;
     }
 
-    //! Reserved engine name for the per-view world->clip constant. Any shader
-    //! that wants view data declares this in its per-view SRG (HLSL:
-    //! `float4x4 g_ViewProjection;`). This is a convention, mirroring Atom's
-    //! hardcoded view-constant names.
+    //! Reserved engine name for the per-view world->clip constant. Shaders pull
+    //! it in via `#include "ViewBindings.hlsl"` (declares `float4x4
+    //! g_ViewProjection;` in the ViewBindings group at space0). This is a
+    //! convention, mirroring Atom's hardcoded view-constant names.
     inline constexpr const char* ViewProjectionConstantName = "g_ViewProjection";
 
-    //! Write the View's per-view constants into a shader binding group by the
+    //! Write the View's per-view constants into the ViewBindings group by the
     //! reserved names above. The caller owns the binding group and must call
     //! MarkShaderBindingsUpdate after all of the frame's writes are done — this
     //! only stages the data, it does not mark the group dirty.

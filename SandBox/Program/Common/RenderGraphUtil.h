@@ -81,6 +81,7 @@ namespace Spark::SandBox
         sys.m_assetManager = CreateSystem<Resource::SparkAssetManager>();
         sys.m_assetManager->Init();
         sys.m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
+        sys.m_assetManager->AddSearchPath(ENGINE_SHADER_DIR);   // shared engine shader headers (#include <...>)
 
         // Renderer
         sys.m_render = CreateSystem<Render::RenderSystem>();

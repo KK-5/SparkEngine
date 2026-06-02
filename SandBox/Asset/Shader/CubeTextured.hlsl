@@ -1,9 +1,10 @@
+#include <ViewBindings.hlsl>
+
 Texture2D    g_Texture : register(t0, space0);
 SamplerState g_Sampler : register(s0, space0);
 
-cbuffer ViewConstants : register(b0, space0)
+cbuffer ObjectConstants : register(b1, space0)
 {
-    float4x4 g_ViewProjection;   // per-view, written by Render::View
     float4x4 g_Model;            // per-object, written by the feature
 };
 
