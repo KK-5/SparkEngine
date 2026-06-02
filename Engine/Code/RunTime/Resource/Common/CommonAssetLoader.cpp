@@ -16,19 +16,53 @@ namespace Spark::Resource
 
     // ---- BinaryAssetLoader ----
 
-    eastl::string BinaryAssetLoader::ResolvePath(const AssetId& id) const
+    eastl::string BinaryAssetLoader::ResolvePathStr(eastl::string_view path) const
     {
-        const eastl::string& path = id.GetPath();
+        namespace fs = std::filesystem;
+        eastl::string p(path.data(), path.size());
+
+        // 1) Literal path (absolute, or relative to CWD) — handles include
+        //    paths DXC already resolved against its -I directories.
+        if (fs::exists(p.c_str()))
+        {
+            auto str = fs::path(p.c_str()).string();
+            return eastl::string(str.c_str(), str.size());
+        }
+
+        // 2) Relative to each search path — handles asset-relative paths.
         for (const auto& searchPath : m_searchPaths)
         {
-            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / path.c_str();
-            if (std::filesystem::exists(full))
+            fs::path full = fs::path(searchPath.c_str()) / p.c_str();
+            if (fs::exists(full))
             {
                 auto str = full.string();
                 return eastl::string(str.c_str(), str.size());
             }
         }
         return {};
+    }
+
+    eastl::string BinaryAssetLoader::ResolvePath(const AssetId& id) const
+    {
+        return ResolvePathStr(id.GetPath());
+    }
+
+    eastl::unique_ptr<AssetData> BinaryAssetLoader::ReadResolved(eastl::string resolvedPath) const
+    {
+        std::ifstream file(resolvedPath.c_str(), std::ios::binary | std::ios::ate);
+        if (!file.is_open())
+        {
+            LOG_ERROR("Failed to open asset file: {}", resolvedPath.c_str());
+            return nullptr;
+        }
+
+        auto size = file.tellg();
+        file.seekg(0, std::ios::beg);
+
+        eastl::vector<uint8_t> bytes(static_cast<size_t>(size));
+        file.read(reinterpret_cast<char*>(bytes.data()), size);
+
+        return eastl::make_unique<BinaryAssetData>(eastl::move(bytes), eastl::move(resolvedPath));
     }
 
     eastl::unique_ptr<AssetData> BinaryAssetLoader::Load(const AssetId& id)
@@ -39,20 +73,16 @@ namespace Spark::Resource
             LOG_ERROR("Asset file not found: {}", id.GetPath().c_str());
             return nullptr;
         }
+        return ReadResolved(eastl::move(path));
+    }
 
-        std::ifstream file(path.c_str(), std::ios::binary | std::ios::ate);
-        if (!file.is_open())
+    eastl::unique_ptr<AssetData> BinaryAssetLoader::LoadFile(eastl::string_view path) const
+    {
+        eastl::string resolved = ResolvePathStr(path);
+        if (resolved.empty())
         {
-            LOG_ERROR("Failed to open asset file: {}", path.c_str());
             return nullptr;
         }
-
-        auto size = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        eastl::vector<uint8_t> bytes(static_cast<size_t>(size));
-        file.read(reinterpret_cast<char*>(bytes.data()), size);
-
-        return eastl::make_unique<BinaryAssetData>(eastl::move(bytes), eastl::move(path));
+        return ReadResolved(eastl::move(resolved));
     }
 }

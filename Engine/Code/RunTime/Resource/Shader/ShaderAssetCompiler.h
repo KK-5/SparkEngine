@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/vector.h>
+#include <EASTL/string.h>
 
 #include <Resource/Asset.h>
 #include "ShaderAsset.h"
@@ -26,7 +27,8 @@ namespace Spark::Resource
         
         void AddStageEntry(ShaderStageEntry entry);
 
-        eastl::unique_ptr<AssetData> Compile(const AssetId& id, AssetData& rawData);
+        eastl::unique_ptr<AssetData> Compile(const AssetId& id, AssetData& rawData,
+            const eastl::vector<eastl::string>& searchPaths);
 
     private:
         bool InitDxc();

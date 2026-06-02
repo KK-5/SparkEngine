@@ -4,6 +4,11 @@
 #include <d3d12shader.h>
 #include <dxcapi.h>
 
+#include <string>
+
+#include <EASTL/algorithm.h>
+#include <EASTL/unique_ptr.h>
+
 #include <Log/ILogSystem.h>
 #include <Resource/Common/CommonAssetLoader.h>
 
@@ -58,6 +63,105 @@ namespace Spark::Resource
 
     namespace
     {
+        std::wstring ToWide(const eastl::string& s)
+        {
+            return std::wstring(s.begin(), s.end());
+        }
+
+        //! DXC include handler that routes #include through the asset search
+        //! paths (same resolution as BinaryAssetLoader) and records each
+        //! included file as a build dependency. Quote-includes resolve relative
+        //! to the including file (DXC combines the path against the source name
+        //! we pass before calling LoadSource); angle / fallback includes resolve
+        //! against the -I search roots. Stack-owned for the duration of Compile.
+        class ShaderIncludeHandler : public IDxcIncludeHandler
+        {
+        public:
+            ShaderIncludeHandler(IDxcUtils* utils, const eastl::vector<eastl::string>& searchPaths)
+                : m_utils(utils)
+            {
+                m_loader.SetSearchPaths(searchPaths);
+            }
+
+            HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR pFilename, IDxcBlob** ppIncludeSource) override
+            {
+                if (!ppIncludeSource)
+                {
+                    return E_POINTER;
+                }
+                *ppIncludeSource = nullptr;
+
+                const eastl::string path = Normalize(pFilename);
+
+                auto data = m_loader.LoadFile(path);
+                if (!data)
+                {
+                    return E_FAIL; // DXC turns this into an "include not found" diagnostic
+                }
+                const auto& bytes = static_cast<BinaryAssetData*>(data.get())->GetBytes();
+
+                IDxcBlobEncoding* blob = nullptr;
+                HRESULT hr = m_utils->CreateBlobFromPinned(
+                    bytes.data(), static_cast<UINT32>(bytes.size()), DXC_CP_UTF8, &blob);
+                if (FAILED(hr))
+                {
+                    return hr;
+                }
+
+                // CreateBlobFromPinned does not copy — keep the bytes alive for
+                // the handler's whole lifetime (covers every stage Compile).
+                m_keepAlive.push_back(eastl::move(data));
+                if (eastl::find(m_dependencies.begin(), m_dependencies.end(), path) == m_dependencies.end())
+                {
+                    m_dependencies.push_back(path);
+                }
+
+                *ppIncludeSource = blob;
+                return S_OK;
+            }
+
+            HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override
+            {
+                if (!ppvObject)
+                {
+                    return E_POINTER;
+                }
+                if (riid == __uuidof(IDxcIncludeHandler) || riid == __uuidof(IUnknown))
+                {
+                    *ppvObject = this;
+                    return S_OK;
+                }
+                *ppvObject = nullptr;
+                return E_NOINTERFACE;
+            }
+
+            ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+            ULONG STDMETHODCALLTYPE Release() override { return 1; }
+
+            const eastl::vector<eastl::string>& GetDependencies() const { return m_dependencies; }
+
+        private:
+            static eastl::string Normalize(LPCWSTR w)
+            {
+                eastl::string s;
+                for (const wchar_t* p = w; p && *p; ++p)
+                {
+                    const char c = static_cast<char>(*p);
+                    s.push_back(c == '\\' ? '/' : c);
+                }
+                while (s.size() >= 2 && s[0] == '.' && s[1] == '/')
+                {
+                    s.erase(0, 2);
+                }
+                return s;
+            }
+
+            IDxcUtils*                                  m_utils;
+            BinaryAssetLoader                           m_loader;
+            eastl::vector<eastl::unique_ptr<AssetData>> m_keepAlive;
+            eastl::vector<eastl::string>                m_dependencies;
+        };
+
         RHI::ShaderInputType MapInputType(D3D_SHADER_INPUT_TYPE type)
         {
             switch (type)
@@ -141,7 +245,8 @@ namespace Spark::Resource
         }
     }
 
-    eastl::unique_ptr<AssetData> ShaderAssetCompiler::Compile(const AssetId& id, AssetData& rawData)
+    eastl::unique_ptr<AssetData> ShaderAssetCompiler::Compile(const AssetId& id, AssetData& rawData,
+        const eastl::vector<eastl::string>& searchPaths)
     {
         if (!m_compiler || !m_utils)
         {
@@ -155,6 +260,30 @@ namespace Spark::Resource
         auto result = eastl::make_unique<ShaderAssetData>();
         result->SetBackend(m_backend);
         result->SetSourcePath(binaryData.GetResolvedPath());
+
+        // #include resolution: search the asset roots plus the compiled shader's
+        // own directory, so both `#include "X"` (sibling) and root-relative
+        // includes resolve consistently with the asset system.
+        eastl::vector<eastl::string> includeSearch = searchPaths;
+        {
+            const eastl::string& resolved = binaryData.GetResolvedPath();
+            const auto slash = resolved.find_last_of("/\\");
+            if (slash != eastl::string::npos)
+            {
+                includeSearch.push_back(resolved.substr(0, slash));
+            }
+        }
+        ShaderIncludeHandler includeHandler(m_utils, includeSearch);
+
+        // Wide-string arg storage must outlive the Compile() calls below.
+        // Source name gives DXC the base dir for relative #include + diagnostics.
+        const std::wstring wSourceName = ToWide(id.GetPath());
+        eastl::vector<std::wstring> wIncludeDirs;
+        wIncludeDirs.reserve(includeSearch.size());
+        for (const auto& dir : includeSearch)
+        {
+            wIncludeDirs.push_back(ToWide(dir));
+        }
 
         for (const auto& entry : m_stageEntries)
         {
@@ -192,6 +321,18 @@ namespace Spark::Resource
             args.push_back(L"-T");
             args.push_back(wTargetProfile.c_str());
 
+            // Input filename: DXC uses its directory as the base for relative
+            // `#include "..."` and reports it in diagnostics. The buffer above
+            // is the actual source; this is metadata only.
+            args.push_back(wSourceName.c_str());
+
+            // Include search roots for angle / fallback includes.
+            for (const auto& wDir : wIncludeDirs)
+            {
+                args.push_back(L"-I");
+                args.push_back(wDir.c_str());
+            }
+
             if (m_backend == ShaderBackend::SPIRV)
             {
                 args.push_back(L"-spirv");
@@ -207,7 +348,7 @@ namespace Spark::Resource
                 &sourceBuffer,
                 args.data(),
                 static_cast<UINT32>(args.size()),
-                nullptr,    // include handler
+                &includeHandler,
                 IID_PPV_ARGS(&compileResult));
 
             sourceBlob->Release();
@@ -417,6 +558,13 @@ namespace Spark::Resource
 
             shaderBlob->Release();
             compileResult->Release();
+        }
+
+        // Record #include build dependencies (deduped across stages) for a
+        // future cook-cache / hot-reload to key off of.
+        for (const auto& dep : includeHandler.GetDependencies())
+        {
+            result->AddDependency(dep);
         }
 
         return result;

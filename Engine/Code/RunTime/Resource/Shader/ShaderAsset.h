@@ -119,11 +119,18 @@ namespace Spark::Resource
         eastl::string GetSourcePath() const { return m_resolvedPath; }
         void SetSourcePath(eastl::string_view path) { m_resolvedPath = path; }
 
+        //! Source files pulled in via #include during compilation. Recorded as
+        //! build dependencies; a future cook-cache / hot-reload uses these to
+        //! decide when this shader must be recompiled. No consumer wires them yet.
+        void AddDependency(const eastl::string& path) { m_dependencies.push_back(path); }
+        const eastl::vector<eastl::string>& GetDependencies() const { return m_dependencies; }
+
     private:
         ShaderBackend m_backend{ShaderBackend::DXIL};
         eastl::unordered_map<RHI::ShaderStage, ShaderStageBytecode> m_stages;
         eastl::unordered_map<RHI::ShaderStage, ShaderStageReflection> m_reflections;
         eastl::string m_resolvedPath;
+        eastl::vector<eastl::string> m_dependencies;
     };
 
 

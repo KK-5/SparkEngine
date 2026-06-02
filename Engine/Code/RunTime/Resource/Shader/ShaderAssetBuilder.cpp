@@ -44,6 +44,6 @@ namespace Spark::Resource
         {
             return;
         }
-        ctx.compiledData = m_compiler.Compile(ctx.id, *ctx.rawData);
+        ctx.compiledData = m_compiler.Compile(ctx.id, *ctx.rawData, ctx.searchPaths);
     }
 }

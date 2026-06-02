@@ -2,6 +2,7 @@
 
 #include <EASTL/vector.h>
 #include <EASTL/string.h>
+#include <EASTL/string_view.h>
 
 #include <Resource/Asset.h>
 
@@ -35,8 +36,15 @@ namespace Spark::Resource
 
         eastl::unique_ptr<AssetData> Load(const AssetId& id);
 
+        //! Resolve a raw file path (asset-relative or absolute) against the
+        //! search paths and read its bytes. Used by the shader #include handler
+        //! so includes resolve through the same roots as regular assets.
+        eastl::unique_ptr<AssetData> LoadFile(eastl::string_view path) const;
+
     private:
         eastl::string ResolvePath(const AssetId& id) const;
+        eastl::string ResolvePathStr(eastl::string_view path) const;
+        eastl::unique_ptr<AssetData> ReadResolved(eastl::string resolvedPath) const;
 
         eastl::vector<eastl::string> m_searchPaths;
     };
