@@ -145,6 +145,24 @@ namespace Spark
             return m_context.template Get<T...>(entity);
         }
 
+        template <typename... T>
+        decltype(auto) TryGet(Entity entity) const
+        {
+            static_assert(CanReadAllV<T...>,
+                "ContextReference::TryGet<T...> const: read access required for all requested components. "
+                "Declare ReadComponent/ReadWriteComponent (or All variants).");
+            return m_context.template TryGet<T...>(entity);
+        }
+
+        template <typename... T>
+        decltype(auto) TryGet(Entity entity)
+        {
+            static_assert(CanWriteAllV<T...>,
+                "ContextReference::TryGet<T...>: write access required for all requested components. "
+                "Declare WriteComponent/ReadWriteComponent (or All variants).");
+            return m_context.template TryGet<T...>(entity);
+        }
+
         template <typename Type, typename... Other>
         decltype(auto) Remove(Entity entity)
         {

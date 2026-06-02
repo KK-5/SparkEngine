@@ -13,12 +13,12 @@ namespace Spark::Transform
         Math::Vector3    m_scale   {1, 1, 1};
     };
 
-    struct LocalTransformComponent
+    struct LocalTransformMatrix
     {
         Math::Matrix4X4 m_localMatrix{Math::Matrix4X4Const::IDENTITY};
     };
 
-    struct WorldTransformComponent
+    struct WorldTransformMatrix
     {
         Math::Matrix4X4 m_worldMatrix{Math::Matrix4X4Const::IDENTITY};
     };

@@ -53,6 +53,14 @@ namespace Spark
     template <typename... Args>
     using ComponentAcquires = ComponentAcquireList<Args...>;
 
+#define SPARK_COMPONENT_ACCESS(...) \
+    public: \
+    using ComponentAcquires = Spark::ComponentAcquireList<__VA_ARGS__>;
+
+#define SPARK_SYSTEM_TRAITS(ClassName) \
+    using SystemTraits = Spark::SystemTraits<ClassName>; \
+    using ContextRef = Spark::WorldContextReference<SystemTraits>;
+
     template <typename SystemType, typename = void>
     struct SystemTraits
     {

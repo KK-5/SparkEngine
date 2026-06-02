@@ -1,7 +1,5 @@
 set(TARGET_NAME SparkRender)
 
-# add_subdirectory(RHI)
-
 set(SOURCES
     Feature/UI/RenderUI.cpp
     Pass/PassAccess.cpp
