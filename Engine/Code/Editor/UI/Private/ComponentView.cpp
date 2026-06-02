@@ -6,6 +6,7 @@
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 #include <ECS/Common.h>
+#include <ECS/ComponentTraits.h>
 #include <Reflection/TypeRegistry.h>
 #include <CoreComponents/Tags.h>
 #include <Math/Vector2.h>
@@ -375,7 +376,10 @@ namespace Editor
         {
             for (MetaType& component: components)
             {
-                if (static_cast<uint8_t>(component.traits<MetaTypeTraits>()) & static_cast<uint8_t>(MetaTypeTraits::Editable))
+                if (static_cast<uint8_t>(component.traits<MetaTypeTraits>()) & static_cast<uint8_t>(MetaTypeTraits::Editable) ||
+                    static_cast<ComponentTraitsRuntime*>(component.custom()) && 
+                    static_cast<ComponentTraitsRuntime*>(component.custom())->editable
+                )
                 {
                     if (ImGui::Selectable(component.name())) {
                         MetaAny instance = component.construct();

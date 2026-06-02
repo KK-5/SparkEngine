@@ -23,11 +23,9 @@ namespace Spark
         Entity nextSibling {NullEntity};
     };
 
-    template<>
-    struct ComponentTraits<Hierarchy> : ComponentTraitsBase<Hierarchy>
-    {
+    SPARK_COMPONENT_TRAITS(Hierarchy,
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
-    };
+    )
 
     /// @brief Mark an entity is hierarchy tag.
     struct HierarchyRootTag {};

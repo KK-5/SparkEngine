@@ -8,11 +8,14 @@
 #include <Reflection/TypeRegistry.h>
 #include <Reflect.h>
 
+#include <Feature/Transform/Reflect.h>
+
 namespace Spark
 {
     void SparkEngine::SetUp()
     {
         TypeRegistry::Register(Spark::Reflect);
+        TypeRegistry::Register(Spark::Transform::Reflect);
         TypeRegistry::RegisterAll();
 
         WorldExecuteContext::Push(m_worldContext);

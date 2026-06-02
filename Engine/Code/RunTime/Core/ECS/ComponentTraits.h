@@ -27,6 +27,13 @@ namespace Spark
         All         = Create | WillUpdate | Updated | Remove
     };
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::ComponentEventMask, uint32_t);
+
+
+    struct ComponentTraitsRuntime 
+    {
+        bool                editable = false;
+        ComponentEventMask  events   = ComponentEventMask::None;
+    };
     
     /// Inherits EnTT storage traits and holds Spark defaults. Fully specialize ComponentTraits by
     /// inheriting this type and overriding only the members you need (others stay at defaults).
@@ -41,6 +48,30 @@ namespace Spark
     /// For a non-default entity type, specialize using ComponentTraitsBase<T, YourEntity>.
     template<typename T>
     struct ComponentTraits : public ComponentTraitsBase<T>
-    {};
-    
+    {
+        constexpr operator ComponentTraitsRuntime() const
+        {
+            return {this->editable, this->componentEvents};
+        }
+    };
+
+    /// Convenience macro for full specialization of ComponentTraits.
+    /// Inherits ComponentTraitsBase automatically so you only write the overrides.
+    ///
+    /// Usage:
+    ///   SPARK_COMPONENT_TRAITS(MyComponent,
+    ///       static constexpr bool editable = true;
+    ///       static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
+    ///   )
+#define SPARK_COMPONENT_TRAITS(ComponentType, ...)                      \
+    template<>                                                          \
+    struct ComponentTraits<ComponentType> : ComponentTraitsBase<ComponentType> \
+    {                                                                   \
+        __VA_ARGS__                                                     \
+        constexpr operator ComponentTraitsRuntime() const               \
+        {                                                               \
+            return {editable, componentEvents};                         \
+        }                                                               \
+    };
+
 }
