@@ -177,7 +177,7 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLToDXIL)
     compiler.AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
     compiler.AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
 
-    auto compiledData = compiler.Compile(id, *rawData);
+    auto compiledData = compiler.Compile(id, *rawData, searchPaths);
     ASSERT_NE(compiledData, nullptr);
 
     auto* shaderData = static_cast<ShaderAssetData*>(compiledData.get());
@@ -213,7 +213,7 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLReflection)
     compiler.AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
     compiler.AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
 
-    auto compiledData = compiler.Compile(id, *rawData);
+    auto compiledData = compiler.Compile(id, *rawData, searchPaths);
     ASSERT_NE(compiledData, nullptr);
 
     auto* shaderData = static_cast<ShaderAssetData*>(compiledData.get());
@@ -321,7 +321,7 @@ TEST_F(ShaderAssetTestFixture, BuildShaderInputListFromReflection)
     compiler.AddStageEntry({RHI::ShaderStage::Vertex, "VSMain", "vs_6_0"});
     compiler.AddStageEntry({RHI::ShaderStage::Fragment, "PSMain", "ps_6_0"});
 
-    auto compiledData = compiler.Compile(id, *rawData);
+    auto compiledData = compiler.Compile(id, *rawData, searchPaths);
     ASSERT_NE(compiledData, nullptr);
 
     ShaderAsset shader(id);
