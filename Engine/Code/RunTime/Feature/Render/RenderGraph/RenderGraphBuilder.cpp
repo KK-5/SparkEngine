@@ -6,9 +6,10 @@
 namespace Spark::Render
 {
 
-    void RenderGraphBuilder::Begin(uint32_t frameIndex)
+    void RenderGraphBuilder::Begin(uint32_t frameIndex, const Math::Vector2Int& renderSize)
     {
         m_frameIndex = frameIndex;
+        m_renderSize = renderSize;
     }
 
     void RenderGraphBuilder::BeginPass(Pass pass)

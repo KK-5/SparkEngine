@@ -5,6 +5,7 @@
 #include <EASTL/vector.h>
 
 #include <Log/ILogSystem.h>
+#include <Math/Vector2.h>
 
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
 #include <Pass/Component/RHIComponents.h>
@@ -150,6 +151,15 @@ namespace Spark::Render
 
         uint32_t GetFrameIndex() const { return m_frameIndex; }
 
+        //! Current render-output resolution for this frame, seeded by the driver
+        //! via Begin. This is the region the pipeline renders into (swap chain
+        //! size for a fullscreen game, editor viewport panel size in-editor) — it
+        //! is NOT necessarily the swap chain. Build callbacks size transient
+        //! attachments against this value, re-read every frame, so resize works
+        //! without rebuilding the pass. NOTE: single render output for now;
+        //! becomes per-view-keyed when multi-view lands.
+        Math::Vector2Int GetRenderSize() const { return m_renderSize; }
+
     private:
         friend class RenderGraph;
 
@@ -161,7 +171,7 @@ namespace Spark::Render
 
         eastl::vector<Pass> TopoSort();
 
-        void Begin(uint32_t frameIndex);
+        void Begin(uint32_t frameIndex, const Math::Vector2Int& renderSize);
 
         eastl::vector<Pass> End();
 
@@ -237,6 +247,10 @@ namespace Spark::Render
         eastl::unordered_map<RHI::AttachmentId, uint32_t> m_latestVersions;
 
         uint32_t m_frameIndex { 0 };
+
+        // Render-output resolution for the current frame; seeded by Begin, read
+        // by Build callbacks via GetRenderSize. Frame-scoped input, not state.
+        Math::Vector2Int m_renderSize { 0, 0 };
     };
 
     // ============================================================

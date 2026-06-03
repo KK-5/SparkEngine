@@ -46,6 +46,20 @@ namespace Spark::Render
         return layout;
     }
 
+    struct RenderPassConfig
+    {
+        Ptr<Resource::ShaderAsset> m_vertexShader = nullptr;
+        Ptr<Resource::ShaderAsset> m_fragmentShader = nullptr;
+        Ptr<Resource::ShaderAsset> m_geometryShader = nullptr;
+        RHI::InputStreamLayout     m_inputLayout {};
+        RHI::RenderStates          m_renderStates {};
+        RHI::RenderTargetLayout    m_renderTargetLayout {};
+        RHI::Viewport              m_viewport {};
+        RHI::Scissor               m_scissor {};
+        RHI::MultisampleState      m_msaaState {};
+    };
+    
+
 
     // ================================================================
     // RenderPassBuilder<PassTag> — chainable builder for graphics passes
@@ -163,8 +177,13 @@ namespace Spark::Render
                 ASSERT(m_shaders.m_vertexShader || m_shaders.m_fragmentShader,
                     "Pass '{}': RenderPass needs at least VertexShader or FragmentShader.",
                     m_name.GetCStr());
-                ASSERT(m_pipelineState.m_renderTargetLayout.m_colorAttachmentCount > 0,
-                    "Pass '{}': RenderPass needs at least one ColorTarget.",
+                // A render pass must write at least one attachment — a color
+                // target OR a depth-stencil target. Depth-only passes (depth
+                // prepass, shadow) have zero color attachments but a valid
+                // depth-stencil format, which IsEmpty() correctly accepts.
+                ASSERT(!m_pipelineState.m_renderTargetLayout.IsEmpty(),
+                    "Pass '{}': RenderPass needs at least one color target or a "
+                    "depth-stencil format.",
                     m_name.GetCStr());
             }
 

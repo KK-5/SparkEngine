@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Math/Vector2.h>
+
 #include <RHI/Command/CommandQueueContext.h>
 
 #include <RHI/Context/RHIContext.h>
@@ -32,7 +34,11 @@ namespace Spark::Render
 
         void Shutdown();
 
-        void ExecutePipeline(PassContext& passContext, uint32_t frameIndex);
+        //! renderSize is the render-output resolution for this frame (see
+        //! RenderGraphBuilder::GetRenderSize). The caller (driver) decides where
+        //! it comes from — window size, editor viewport, etc. — and the graph
+        //! threads it to Build callbacks via the builder.
+        void ExecutePipeline(PassContext& passContext, uint32_t frameIndex, const Math::Vector2Int& renderSize);
 
         RHI::CommandQueue& GetCommandQueue(RHI::HardwareQueueClass queueClass)
         {

@@ -144,7 +144,7 @@ namespace Spark::Render
 
     }
 
-    void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex)
+    void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex, const Math::Vector2Int& renderSize)
     {
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
         m_commandQueueContext.Begin();
@@ -162,7 +162,7 @@ namespace Spark::Render
         // Iterate passes in declaration order so that attachment version
         // tracking (LookupLatestVersion / BumpVersion) converges deterministically
         // regardless of entt's pool order.
-        m_builder.Begin(frameIndex);
+        m_builder.Begin(frameIndex, renderSize);
         for (Pass pass : passContext.GetPassesInDeclOrder())
         {
             if (!passContext.Has<ActivePassTag>(pass))

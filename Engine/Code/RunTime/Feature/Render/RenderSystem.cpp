@@ -159,8 +159,14 @@ namespace Spark::Render
         auto& passContext = *PassExecuteContext::Current(); 
         
         const uint32_t frameIndex =m_swapChain->GetCurrentImageIndex();
+
+        // Driver decides the render-output resolution and hands it to the graph,
+        // which threads it to Build callbacks via the builder. Today that's the
+        // window size; an editor would feed its viewport panel size here instead.
+        const Math::Vector2Int renderSize = Service<Window::IWindowSystem>::Get()->GetWindowSize();
+
         m_uiProcessFeature.Process();
-        m_renderGraph.ExecutePipeline(passContext, frameIndex);
+        m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
         m_swapChain->Present();
     }
 }
