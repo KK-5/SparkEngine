@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ECS/ISystem.h>
-#include <Resource/EBus/AssetBuildBus.h>
+#include <Resource/Bus/AssetBuildBus.h>
 #include <Resource/Common/CommonAssetLoader.h>
 
 #include "ShaderAssetCompiler.h"

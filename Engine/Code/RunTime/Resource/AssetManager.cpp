@@ -5,8 +5,8 @@
 #include <Log/ILogSystem.h>
 #include "AssetDataBase.h"
 #include "AssetBuildContext.h"
-#include "EBus/AssetBuildBus.h"
-#include "EBus/AssetBus.h"
+#include "Bus/AssetBuildBus.h"
+#include "Bus/AssetBus.h"
 #include "Image/ImageAssetBuilder.h"
 #include "Shader/ShaderAssetBuilder.h"
 #include "Model/ModelAssetBuilder.h"

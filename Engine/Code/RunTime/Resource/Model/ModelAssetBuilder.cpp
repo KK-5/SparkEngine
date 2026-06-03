@@ -7,8 +7,8 @@
 
 #include <Resource/AssetBuildContext.h>
 #include <Resource/AssetDataBase.h>
-#include <Resource/EBus/AssetBuildBus.h>
-#include <Resource/EBus/AssetBus.h>
+#include <Resource/Bus/AssetBuildBus.h>
+#include <Resource/Bus/AssetBus.h>
 #include <Resource/Image/ImageAsset.h>
 
 #include "ModelAsset.h"

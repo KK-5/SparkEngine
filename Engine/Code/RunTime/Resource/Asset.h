@@ -7,7 +7,7 @@
 
 #include <Object/Object.h>
 #include "AssetTypes.h"
-#include "EBus/AssetBus.h"
+#include "Bus/AssetBus.h"
 
 
 namespace Spark::Resource

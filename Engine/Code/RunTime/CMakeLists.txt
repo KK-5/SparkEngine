@@ -5,6 +5,7 @@ add_subdirectory(Resource)
 add_subdirectory(Platform)
 add_subdirectory(Feature/Input)
 add_subdirectory(Feature/Transform)
+add_subdirectory(Feature/Mesh)
 add_subdirectory(Feature/RHI)
 add_subdirectory(Feature/Render)
 add_subdirectory(Feature/UI)
@@ -25,6 +26,7 @@ target_link_libraries(${TARGET_NAME}
         SparkUI
         SparkWindow
         SparkAssetManager
+        SparkMesh
 )
 
 set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 17)
