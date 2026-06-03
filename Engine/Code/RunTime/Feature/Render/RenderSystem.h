@@ -13,6 +13,7 @@
 #include "RenderGraph/RenderGraph.h"
 
 #include "Feature/UI/RenderUI.h"
+#include "Feature/UI/UIProcessFeature.h"
 
 namespace Spark::Render
 {
@@ -54,6 +55,7 @@ namespace Spark::Render
         Ptr<RHI::SwapChain> m_swapChain;
         
         RenderUI m_rednerUI;
+        UIProcessFeature m_uiProcessFeature;
 
         Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;

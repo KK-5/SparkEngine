@@ -47,7 +47,7 @@ namespace Spark::UI
 
     void UIBaseSystem::TickHandlerAfterInput::OnTick([[maybe_unused]]float deltaTime)
     {
-        m_UISystem.DrawUI();
+        // m_UISystem.DrawUI();
     }
 
     void UIBaseSystem::TickHandlerFrameEnd::OnTick([[maybe_unused]]float deltaTime)

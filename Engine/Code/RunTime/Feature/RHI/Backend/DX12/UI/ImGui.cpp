@@ -9,6 +9,7 @@
 #include <Command/CommandQueue.h>
 #include <Command/CommandList.h>
 #include <Descriptor/DescriptorContext.h>
+#include <Resource/Image/ImageView.h>
 
 #include <Conversions.h>
 
@@ -55,6 +56,14 @@ namespace Spark::RHI::DX12
             m_userData.descriptorContext->ReleaseDescriptorTable(handle);
         }
         m_userData.allocatedHandles.clear();
+
+        // Release registered texture batches
+        for (auto& batch : m_registeredBatches)
+        {
+            m_userData.descriptorContext->ReleaseDescriptorTable(batch.m_table);
+        }
+        m_registeredBatches.clear();
+
         m_userData.descriptorContext = nullptr;
     }
 
@@ -92,5 +101,49 @@ namespace Spark::RHI::DX12
             userData->descriptorContext->ReleaseDescriptorTable(it->second);
             userData->allocatedHandles.erase(it);
         }
+    }
+
+    void ImGui::RegisterTextures(
+        const eastl::vector<const RHI::ImageView*>& imageViews,
+        eastl::vector<ImTextureID>& outTextureIds)
+    {
+        const uint32_t count = static_cast<uint32_t>(imageViews.size());
+        outTextureIds.assign(count, ImTextureID_Invalid);
+
+        if (count == 0 || !m_userData.descriptorContext)
+        {
+            return;
+        }
+
+        // Batch-allocate a contiguous descriptor table from the shader-visible heap.
+        DescriptorTable table = m_userData.descriptorContext->AllocateTable<
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+            D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>(count);
+
+        // Collect source CPU descriptor handles from each DX12 ImageView.
+        eastl::vector<DescriptorHandle> srcHandles;
+        srcHandles.reserve(count);
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            auto* dx12View = static_cast<const ImageView*>(imageViews[i]);
+            srcHandles.push_back(dx12View->GetReadDescriptor());
+        }
+
+        // Copy all SRV descriptors into ImGui's shader-visible heap at once.
+        m_userData.descriptorContext->UpdateDescriptorTableRange(
+            table,
+            srcHandles.data(),
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        // Compute individual ImTextureID values from the contiguous table.
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            DescriptorHandle handle = table[i];
+            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle =
+                m_userData.descriptorContext->GetGpuNativeHandle(handle);
+            outTextureIds[i] = (ImTextureID)gpuHandle.ptr;
+        }
+
+        m_registeredBatches.push_back({table, count});
     }
 }

@@ -29,7 +29,7 @@ namespace Spark::UI
 
         ///////////////////////////
         virtual void NewFrame()                    = 0;    // 每帧开始时被调用，可以设置ui环境
-        virtual void DrawUI()                      = 0;    // 输入系统结束之后，场景渲染之前被调用
+        virtual void DrawUI()                      = 0;
         virtual void EndFrame()                    = 0;    // 所有渲染之后被调用
 
         virtual eastl::any RenderUI() = 0;

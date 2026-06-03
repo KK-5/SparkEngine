@@ -159,6 +159,7 @@ namespace Spark::Render
         auto& passContext = *PassExecuteContext::Current(); 
         
         const uint32_t frameIndex =m_swapChain->GetCurrentImageIndex();
+        m_uiProcessFeature.Process();
         m_renderGraph.ExecutePipeline(passContext, frameIndex);
         m_swapChain->Present();
     }

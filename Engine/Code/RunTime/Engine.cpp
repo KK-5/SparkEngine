@@ -9,6 +9,7 @@
 #include <Reflect.h>
 
 #include <Feature/Transform/Reflect.h>
+#include <Feature/Mesh/Reflect.h>
 
 namespace Spark
 {
@@ -16,6 +17,7 @@ namespace Spark
     {
         TypeRegistry::Register(Spark::Reflect);
         TypeRegistry::Register(Spark::Transform::Reflect);
+        TypeRegistry::Register(Spark::Mesh::Reflect);
         TypeRegistry::RegisterAll();
 
         WorldExecuteContext::Push(m_worldContext);
@@ -50,6 +52,13 @@ namespace Spark
 
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();
+
+        m_assetManager = CreateSystem<Resource::SparkAssetManager>();
+        m_assetManager->Init();
+        m_assetManager->AddSearchPath("Engine/Code");
+
+        m_iconManager = CreateSystem<UI::IconManager>();
+        m_iconManager->Init();
 
         m_rhiResourceSystem = CreateSystem<RHI::RHIResourceSystem>();
         m_rhiResourceSystem->Init();

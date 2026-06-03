@@ -12,8 +12,12 @@ namespace Spark::Render
     class RHI::CommandQueue;
     class RHI::CommandList;
 
+    class UIProcessFeature;
+
     class RenderUI : public Service<RenderUIInterface>::Handler
     {
+        friend class UIProcessFeature;
+
     public:
         virtual ~RenderUI();
 

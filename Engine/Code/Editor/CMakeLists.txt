@@ -21,5 +21,8 @@ target_link_libraries(${TARGET_NAME}
         SparkRuntime
 )
 
-set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "SparkEditor")
+set_target_properties(${TARGET_NAME} PROPERTIES
+    FOLDER "SparkEditor"
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
 

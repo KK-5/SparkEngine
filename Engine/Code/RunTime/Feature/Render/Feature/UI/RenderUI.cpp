@@ -94,6 +94,7 @@ namespace Spark::Render
             LOG_ERROR("[RenderUI] Invalid imgui window");
             return;
         }
+        ui->DrawUI();
         auto drawData = ui->RenderUI();
         ImDrawData* imguiDrawData = eastl::any_cast<ImDrawData*>(drawData);
         if (m_rhiImGUi && imguiDrawData)
