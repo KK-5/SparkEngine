@@ -2,6 +2,7 @@ set(TARGET_NAME SparkMesh)
 
 set(SOURCES
     MeshSystem.cpp
+    MeshUtils.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

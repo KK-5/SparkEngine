@@ -233,6 +233,11 @@ namespace Spark::Math
         return glm::quat(eulerAngles);
     }
 
+    inline Quaternion QuaternionFromMatrix3X3(const Matrix3X3& m)
+    {
+        return glm::quat_cast(m);
+    }
+
     inline Vector3 QuaternionToEuler(const Quaternion& q)
     {
         return glm::eulerAngles(q);

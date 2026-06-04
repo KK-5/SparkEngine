@@ -16,7 +16,7 @@ namespace Spark::Transform
             .Type("Transform").Custom<ComponentTraitsRuntime>(ComponentTraits<TransformComponent>{})
             .Data<&TransformComponent::m_position>("Position").Custom<Spark::Vec3Element>(0, 10000, 0.01)
             .Data<&TransformComponent::m_rotation>("Rotation").Custom<Spark::Vec3Element>(0, 360, 1)
-            .Data<&TransformComponent::m_scale>("Scale").Custom<Spark::Vec3Element>(1, 10000, 0.01)
+            .Data<&TransformComponent::m_scale>("Scale").Custom<Spark::Vec3Element>(-1000, 1000, 0.01)
             ;
 
         Spark::ComponentOpertion<TransformComponent>(context);

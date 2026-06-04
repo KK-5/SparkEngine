@@ -158,6 +158,44 @@ namespace Editor
                 ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "IntSliderElement expect a int value!");
             }
         }
+        else if(static_cast<UIntElement*>(uiElement))
+        {
+            UIntElement* ui = static_cast<UIntElement*>(uiElement);
+            if (uint32_t* value = fieldValue.try_cast<uint32_t>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::DragScalar(label.c_str(), ImGuiDataType_U32, value, ui->speed, &ui->min, &ui->max))
+                {
+                    data.set(instance, *value);
+                }
+            }
+            else
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "UIntElement expect a uint32_t value!");
+            }
+        }
+        else if(static_cast<UIntSliderElement*>(uiElement))
+        {
+            UIntSliderElement* ui = static_cast<UIntSliderElement*>(uiElement);
+            if (uint32_t* value = fieldValue.try_cast<uint32_t>())
+            {
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ImGui::SliderScalar(label.c_str(), ImGuiDataType_U32, value, &ui->min, &ui->max))
+                {
+                    data.set(instance, *value);
+                }
+            }
+            else
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "UIntSliderElement expect a uint32_t value!");
+            }
+        }
         else if(static_cast<BoolElement*>(uiElement))
         {
             if (bool* value = fieldValue.try_cast<bool>())

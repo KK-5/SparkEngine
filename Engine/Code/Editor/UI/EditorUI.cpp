@@ -49,12 +49,19 @@ namespace Editor
             ImGuiID dockRightTop = ImGui::DockBuilderSplitNode(dockRight, ImGuiDir_Up, 0.45f, nullptr, &dockRight);
             ImGuiID dockRightDown = dockRight;
             ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.25f, nullptr, &dockMain);
-            
+
             ImGui::DockBuilderDockWindow("Scene View", dockMain);
             ImGui::DockBuilderDockWindow("Inspector", dockRightTop);
             ImGui::DockBuilderDockWindow("Component View", dockRightDown);
-            ImGui::DockBuilderDockWindow("Browser", dockBottom);        
-            
+            ImGui::DockBuilderDockWindow("Browser", dockBottom);
+
+            // Hide tab bar on all leaf dock nodes — no tab bar, no triangle
+            for (ImGuiID id : {dockMain, dockRightTop, dockRightDown, dockBottom}) {
+                if (ImGuiDockNode* node = ImGui::DockBuilderGetNode(id)) {
+                    node->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
+                }
+            }
+
             ImGui::DockBuilderFinish(dockspaceId);
 
             m_dockLayoutInit = true;
@@ -92,17 +99,11 @@ namespace Editor
         m_sceneView->Draw();
         m_inspector->Draw();
         m_componentView->Draw();
-
-        //static bool showDemoWindow = false;
-        //ImGui::ShowDemoWindow(&showDemoWindow);
     }
 
     void EditorUI::OnMouseButtonEvent(Spark::Input::MouseButtonEvent event)
     {
         using namespace Spark::Input;
-
-        // Init 中保证platform backend是glfw，目前只支持glfw
-        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
         int button;
         if (event.button == MouseButton::Left)
@@ -167,8 +168,6 @@ namespace Editor
 
     void EditorUI::OnMouseScrollEvent(Spark::Input::MouseScrollEvent event)
     {
-        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
-
         ImGuiIO& io = ImGui::GetIO();
         io.AddMouseWheelEvent(event.xOffset, event.yOffset);
     }
@@ -304,8 +303,6 @@ namespace Editor
     void EditorUI::OnKeyboardEvent(Spark::Input::KeyboardEvent event)
     {
         using namespace Spark::Input;
-
-        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
 
         int key {0};
         switch(event.button)

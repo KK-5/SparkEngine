@@ -15,8 +15,8 @@ namespace Spark::Mesh
         context.Reflect<MeshComponent>()
             .Type("Mesh").Custom<ComponentTraitsRuntime>(ComponentTraits<MeshComponent>{})
             .Data<&MeshComponent::m_modelAssetId>("Model Asset").Custom<Spark::AssetElement>()
-            .Data<&MeshComponent::m_meshIndex>("Mesh Index").Custom<Spark::IntElement>(0, 255, 1)
-            .Data<&MeshComponent::m_primitiveIndex>("Primitive Index").Custom<Spark::IntElement>(0, 255, 1)
+            .Data<&MeshComponent::m_meshIndex>("Mesh Index").Custom<Spark::UIntElement>(0, 255, 1)
+            .Data<&MeshComponent::m_primitiveIndex>("Primitive Index").Custom<Spark::UIntElement>(0, 255, 1)
             ;
 
         Spark::ComponentOpertion<MeshComponent>(context);

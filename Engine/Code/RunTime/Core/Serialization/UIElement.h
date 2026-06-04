@@ -53,6 +53,29 @@ namespace Spark
         int max = 10;
     };
 
+    struct UIntElement
+    {
+        UIntElement() = default;
+        UIntElement(uint32_t _min, uint32_t _max, float _speed)
+            : min(_min), max(_max), speed(_speed)
+        {}
+
+        uint32_t min = 0;
+        uint32_t max = 10;
+        float speed = 1.f;
+    };
+
+    struct UIntSliderElement
+    {
+        UIntSliderElement() = default;
+        UIntSliderElement(uint32_t _min, uint32_t _max)
+            : min(_min), max(_max)
+        {}
+
+        uint32_t min = 0;
+        uint32_t max = 10;
+    };
+
     struct BoolElement
     {
     };
