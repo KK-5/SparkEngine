@@ -37,6 +37,9 @@ namespace Spark::Resource
 
         void AddSearchPath(eastl::string_view path) override;
         void RemoveSearchPath(eastl::string_view path) override;
+        eastl::vector<eastl::string> GetSearchPathes() const override;
+
+        AssetType GetSupportAssetType(eastl::string_view file) override;
 
         void ReleaseAsset(const AssetId& id) override;
 

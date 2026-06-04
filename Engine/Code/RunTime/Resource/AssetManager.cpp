@@ -169,6 +169,46 @@ namespace Spark::Resource
         }
     }
 
+    eastl::vector<eastl::string> SparkAssetManager::GetSearchPathes() const
+    {
+        return m_searchPaths;
+    }
+
+    AssetType SparkAssetManager::GetSupportAssetType(eastl::string_view file)
+    {
+        eastl::string_view ext;
+        const auto pos = file.rfind('.');
+        if (pos != eastl::string_view::npos)
+        {
+            ext = file.substr(pos);
+        }
+
+        if (ext.empty())
+        {
+            return AssetType::Unknown;
+        }
+
+        if (ext == ".hlsl")
+        {
+            return AssetType::Shader;
+        }
+
+        if (ext == ".gltf" || ext == ".glb")
+        {
+            return AssetType::Model;
+        }
+
+        if (ext == ".png"  || ext == ".jpg" || ext == ".jpeg" ||
+            ext == ".bmp"  || ext == ".tga" || ext == ".hdr" ||
+            ext == ".psd"  || ext == ".gif" || ext == ".pic" ||
+            ext == ".pnm"  || ext == ".svg")
+        {
+            return AssetType::Image;
+        }
+
+        return AssetType::Unknown;
+    }
+
     void SparkAssetManager::ReleaseAsset(const AssetId& id)
     {
         if (m_db)

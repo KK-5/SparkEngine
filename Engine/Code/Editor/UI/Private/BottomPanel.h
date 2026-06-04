@@ -44,7 +44,6 @@ namespace Editor
         void DrawFolderTree(const AssetFolder& folder);
         void DrawAssetList();
 
-        eastl::string        m_searchRoot;       // root directory of the project content
         AssetFolder          m_rootFolder;
         const AssetFolder*   m_selectedFolder = nullptr;
         const FileEntry*     m_selectedFile = nullptr;

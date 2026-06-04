@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/vector.h>
+#include <EASTL/string.h>
 #include <EASTL/string_view.h>
 #include <EASTL/type_traits.h>
 
@@ -29,6 +31,9 @@ namespace Spark::Resource
 
         virtual void AddSearchPath(eastl::string_view path) = 0;
         virtual void RemoveSearchPath(eastl::string_view path) = 0;
+        virtual eastl::vector<eastl::string> GetSearchPathes() const = 0;
+
+        virtual AssetType GetSupportAssetType(eastl::string_view file) = 0;
 
         template<typename T>
         Ptr<T> LoadAsset(const AssetId& id)

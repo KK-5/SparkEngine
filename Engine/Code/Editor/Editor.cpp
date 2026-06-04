@@ -9,6 +9,8 @@
 #include "UI/EditorUI.h"
 #include "Component/Reflect.h"
 
+#include <Resource/AssetManagerInterface.h>
+
 
 namespace Editor
 {
@@ -28,6 +30,14 @@ namespace Editor
 
         m_editorInput = Spark::CreateSystem<EditorInputSystem>();
         m_editorInput->Init();
+
+        {
+            using namespace Spark;
+            auto* assetManager = Service<Resource::AssetManager>::Get();
+            ASSERT(assetManager, "AssetManager is unregister.");
+            assetManager->AddSearchPath("Engine/Code/Test/Resource/Asset");
+            assetManager->AddSearchPath("Engine/Code/Editor/Asset");
+        }
     }
 
     void SparkEditor::Start()

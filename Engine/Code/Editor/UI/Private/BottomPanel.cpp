@@ -5,6 +5,7 @@
 
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
+#include <Resource/AssetManagerInterface.h>
 #include <Feature/UI/ImGui/IconManagerInterface.h>
 
 
@@ -181,11 +182,11 @@ namespace Editor
             return;
         }
 
-        m_folderIconId  = iconMgr->OpenIcon("Editor/Asset/folder.svg");
-        m_fileIconId    = iconMgr->OpenIcon("Editor/Asset/plus-square.svg");
-        m_consoleIconId = iconMgr->OpenIcon("Editor/Asset/Console.svg");
-        m_assetsIconId  = iconMgr->OpenIcon("Editor/Asset/Assets.svg");
-        m_searchIconId = iconMgr->OpenIcon("Editor/Asset/search.svg");
+        m_folderIconId  = iconMgr->OpenIcon("folder.svg");
+        m_fileIconId    = iconMgr->OpenIcon("plus-square.svg");
+        m_consoleIconId = iconMgr->OpenIcon("Console.svg");
+        m_assetsIconId  = iconMgr->OpenIcon("Assets.svg");
+        m_searchIconId  = iconMgr->OpenIcon("search.svg");
     }
 
     void BottomPanel::ScanDirectory(const eastl::string& path, AssetFolder& folder)
@@ -405,11 +406,18 @@ namespace Editor
 
             LoadIcons();
 
-            m_searchRoot = "SandBox/Asset";
             m_rootFolder.name = "Assets";
-            m_rootFolder.fullPath = m_searchRoot;
-            ScanDirectory(m_searchRoot, m_rootFolder);
             m_selectedFolder = &m_rootFolder;
+
+            if (auto* am = Spark::Service<Spark::Resource::AssetManager>::Get()) {
+                for (const auto& searchPath : am->GetSearchPathes()) {
+                    AssetFolder searchRoot;
+                    searchRoot.name = searchPath;
+                    searchRoot.fullPath = searchPath;
+                    ScanDirectory(searchPath, searchRoot);
+                    m_rootFolder.children.push_back(eastl::move(searchRoot));
+                }
+            }
         }
 
         // ---- 顶部工具栏 ----
