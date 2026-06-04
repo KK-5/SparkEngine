@@ -47,6 +47,7 @@ namespace Editor
         eastl::string        m_searchRoot;       // root directory of the project content
         AssetFolder          m_rootFolder;
         const AssetFolder*   m_selectedFolder = nullptr;
+        const FileEntry*     m_selectedFile = nullptr;
         eastl::vector<char>  m_filterBuf{};
         bool                 m_treeBuilt = false;
 
@@ -56,5 +57,8 @@ namespace Editor
         bool                   m_iconsLoaded = false;
         Spark::Resource::AssetId m_folderIconId;
         Spark::Resource::AssetId m_fileIconId;
+        Spark::Resource::AssetId m_consoleIconId;
+        Spark::Resource::AssetId m_assetsIconId;
+        Spark::Resource::AssetId m_searchIconId;
     };
 }

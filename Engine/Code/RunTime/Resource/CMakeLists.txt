@@ -31,6 +31,7 @@ target_link_libraries(${TARGET_NAME}
     PRIVATE
         dxc
         stb
+        nanosvg
         ktx
         fastgltf
         meshoptimizer

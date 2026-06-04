@@ -54,6 +54,13 @@ if(NOT TARGET stb)
     target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
 endif()
 
+if(NOT TARGET nanosvg)
+    Message(STATUS "Import nanosvg")
+    add_library(nanosvg STATIC nanosvg/nanosvg.cpp)
+    target_include_directories(nanosvg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/nanosvg/src)
+    set_target_properties(nanosvg PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/nanosvg)
+endif()
+
 if(NOT TARGET ktx)
     Message(STATUS "Import KTX-Software (libktx)")
 
