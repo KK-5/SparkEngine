@@ -77,12 +77,28 @@ namespace Spark::Resource
         uint32_t m_threadGroupSizeZ = 1;
     };
 
+    /// Shader stage 编译描述（入口函数 + 目标 profile）。属于"编译配置"，
+    /// 因此挂在 ShaderDescriptor 上，而不是写死在 ShaderAssetCompiler 里。
+    struct ShaderStageEntry
+    {
+        RHI::ShaderStage stage = RHI::ShaderStage::Unknown;
+        eastl::string    entryPoint;     ///< 入口函数名，如 "VSMain"
+        eastl::string    targetProfile;  ///< 编译目标，如 "vs_6_0"
+    };
+
     /// Per-instance shader compile config. Lives on the AssetId so the same
     /// HLSL file compiled for DXIL vs SPIRV is two distinct assets.
     class ShaderDescriptor : public AssetDescriptor
     {
     public:
         ShaderBackend backend = ShaderBackend::DXIL;
+
+        //! Which stages to compile (entry point + target profile per stage).
+        //! Moved off ShaderAssetCompiler so stages are per-shader instead of a
+        //! global VS+PS hardcode. Populated per shader by ShaderAssetBuilder; the
+        //! authoring "source" (pragma / [shader()] attribute / sidecar) is TBD,
+        //! so these are not folded into Hash() yet.
+        eastl::vector<ShaderStageEntry> stages;
 
         AssetHash Hash() const override;
     };

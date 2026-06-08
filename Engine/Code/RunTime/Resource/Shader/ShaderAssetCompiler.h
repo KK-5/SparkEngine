@@ -11,30 +11,24 @@ struct IDxcCompiler3;
 
 namespace Spark::Resource
 {
-    /// Shader stage 编译描述
-    struct ShaderStageEntry
-    {
-        RHI::ShaderStage stage;
-        eastl::string entryPoint;       ///< 入口函数名，如 "VSMain"
-        eastl::string targetProfile;    ///< 编译目标，如 "vs_6_0"
-    };
+    // ShaderStageEntry moved to ShaderAsset.h — it is compile config and now
+    // lives on ShaderDescriptor. This header sees it via "ShaderAsset.h".
 
     class ShaderAssetCompiler
     {
     public:
-        ShaderAssetCompiler(ShaderBackend backend = ShaderBackend::DXIL);
+        ShaderAssetCompiler();
         ~ShaderAssetCompiler();
-        
-        void AddStageEntry(ShaderStageEntry entry);
 
+        //! Stateless w.r.t. compile config: backend + stages come entirely from
+        //! the ShaderDescriptor. The compiler owns only the DXC tooling, so one
+        //! instance can compile any shader (and is safe to reuse across shaders).
         eastl::unique_ptr<AssetData> Compile(const AssetId& id, AssetData& rawData,
-            const eastl::vector<eastl::string>& searchPaths);
+            const eastl::vector<eastl::string>& searchPaths,
+            const ShaderDescriptor& descriptor);
 
     private:
         bool InitDxc();
-
-        ShaderBackend m_backend;
-        eastl::vector<ShaderStageEntry> m_stageEntries;
 
         IDxcUtils* m_utils{nullptr};
         IDxcCompiler3* m_compiler{nullptr};

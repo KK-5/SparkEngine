@@ -14,8 +14,7 @@
 
 namespace Spark::Resource
 {
-    ShaderAssetCompiler::ShaderAssetCompiler(ShaderBackend backend)
-        : m_backend(backend)
+    ShaderAssetCompiler::ShaderAssetCompiler()
     {
         if (!InitDxc())
         {
@@ -35,11 +34,6 @@ namespace Spark::Resource
             m_utils->Release();
             m_utils = nullptr;
         }
-    }
-
-    void ShaderAssetCompiler::AddStageEntry(ShaderStageEntry entry)
-    {
-        m_stageEntries.push_back(eastl::move(entry));
     }
 
     bool ShaderAssetCompiler::InitDxc()
@@ -246,7 +240,8 @@ namespace Spark::Resource
     }
 
     eastl::unique_ptr<AssetData> ShaderAssetCompiler::Compile(const AssetId& id, AssetData& rawData,
-        const eastl::vector<eastl::string>& searchPaths)
+        const eastl::vector<eastl::string>& searchPaths,
+        const ShaderDescriptor& descriptor)
     {
         if (!m_compiler || !m_utils)
         {
@@ -254,11 +249,15 @@ namespace Spark::Resource
             return nullptr;
         }
 
+        // Compile config comes entirely from the descriptor — the compiler holds
+        // no backend / stage state of its own.
+        const eastl::vector<ShaderStageEntry>& stageEntries = descriptor.stages;
+
         auto& binaryData = static_cast<BinaryAssetData&>(rawData);
         const auto& sourceBytes = binaryData.GetBytes();
 
         auto result = eastl::make_unique<ShaderAssetData>();
-        result->SetBackend(m_backend);
+        result->SetBackend(descriptor.backend);
         result->SetSourcePath(binaryData.GetResolvedPath());
 
         // #include resolution: search the asset roots plus the compiled shader's
@@ -285,7 +284,7 @@ namespace Spark::Resource
             wIncludeDirs.push_back(ToWide(dir));
         }
 
-        for (const auto& entry : m_stageEntries)
+        for (const auto& entry : stageEntries)
         {
             // 创建源码 blob
             IDxcBlobEncoding* sourceBlob = nullptr;
@@ -333,7 +332,7 @@ namespace Spark::Resource
                 args.push_back(wDir.c_str());
             }
 
-            if (m_backend == ShaderBackend::SPIRV)
+            if (descriptor.backend == ShaderBackend::SPIRV)
             {
                 args.push_back(L"-spirv");
             }
