@@ -18,21 +18,17 @@ namespace Spark::Resource
     class AssetBuildContext
     {
     public:
-        // ===== 身份 =====
         AssetId   id;
         AssetType type{AssetType::Image};
 
-        // ===== 父资产链接（root 为空 AssetId） =====
         AssetId   parentId;
 
-        // ===== 流转中的数据 =====
         UniquePtr<AssetData> rawData;        ///< Load 输出 / Compile 输入；外部预置时跳过 Load
         UniquePtr<AssetData> compiledData;   ///< Compile 输出
 
         const uint8_t* sourceData = nullptr; ///< 非空时 Load 从内存解码（不读磁盘）
         size_t         sourceSize = 0;
 
-        // ===== 环境（manager 在构造 ctx 时填入；子 ctx 由 MakeChild 继承） =====
         eastl::vector<eastl::string> searchPaths;
         AssetDataBase*               db{nullptr};   ///< Builder 注册子资产用
 
@@ -46,4 +42,8 @@ namespace Spark::Resource
 
         AssetBuildContext MakeChild(AssetId subId, AssetType subType) const;
     };
+
+    /// 统一路径解析：先检查 path 是否直接存在，再遍历 searchPaths 拼接查找
+    eastl::string ResolveAssetPath(eastl::string_view path,
+                                   const eastl::vector<eastl::string>& searchPaths);
 }

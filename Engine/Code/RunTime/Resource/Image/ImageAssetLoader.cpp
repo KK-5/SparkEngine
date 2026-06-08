@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <filesystem>
 
+#include <Resource/AssetBuildContext.h>
+
 #include <stb_image.h>
 #include <nanosvg.h>
 #include <nanosvgrast.h>
@@ -104,17 +106,7 @@ static UniquePtr<AssetData> DecodeSvg(
 
     eastl::string ImageAssetLoader::ResolvePath(const AssetId& id) const
     {
-        const eastl::string& path = id.GetPath();
-        for (const auto& searchPath : m_searchPaths)
-        {
-            std::filesystem::path full = std::filesystem::path(searchPath.c_str()) / path.c_str();
-            if (std::filesystem::exists(full))
-            {
-                auto str = full.string();
-                return eastl::string(str.c_str(), str.size());
-            }
-        }
-        return {};
+        return ResolveAssetPath(id.GetPath(), m_searchPaths);
     }
 
     UniquePtr<AssetData> ImageAssetLoader::Load(const AssetId& id)
@@ -122,7 +114,7 @@ static UniquePtr<AssetData> DecodeSvg(
         eastl::string path = ResolvePath(id);
         if (path.empty())
         {
-            LOG_ERROR("Image file not found: {}", id.GetPath().c_str());
+            LOG_ERROR("[ImageAssetLoader] Image file not found: {}", id.GetPath().c_str());
             return nullptr;
         }
 

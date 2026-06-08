@@ -7,9 +7,13 @@
 #include "AssetBuildContext.h"
 #include "Bus/AssetBuildBus.h"
 #include "Bus/AssetBus.h"
+#include <filesystem>
 #include "Image/ImageAssetBuilder.h"
+#include "Image/ImageAsset.h"
 #include "Shader/ShaderAssetBuilder.h"
+#include "Shader/ShaderAsset.h"
 #include "Model/ModelAssetBuilder.h"
+#include "Model/ModelAsset.h"
 
 namespace Spark::Resource
 {
@@ -97,6 +101,14 @@ namespace Spark::Resource
         Ptr<Asset> existing = m_db->Find(id);
         if (existing)
         {
+            if (existing->IsReady())
+            {
+                return existing;
+            }
+            if (!existing->IsLoading())
+            {
+                ProcessAsset(*existing);
+            }
             return existing;
         }
 
@@ -272,5 +284,68 @@ namespace Spark::Resource
 
         asset.SetDataReady(eastl::move(ctx.compiledData));
         AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetReady, asset);
+    }
+
+    AssetId SparkAssetManager::MakeAssetIdForType(eastl::string_view path, AssetType type)
+    {
+        switch (type)
+        {
+            case AssetType::Image:  return AssetId::Of<ImageAsset>(path);
+            case AssetType::Shader: return AssetId::Of<ShaderAsset>(path);
+            case AssetType::Model:  return AssetId::Of<ModelAsset>(path);
+            default:                return AssetId();
+        }
+    }
+
+    AssetId SparkAssetManager::MakeAssetId(eastl::string_view path)
+    {
+        AssetType type = GetSupportAssetType(path);
+        if (type == AssetType::Unknown)
+        {
+            return AssetId();
+        }
+
+        eastl::string resolved = ResolveAssetPath(path, SnapshotSearchPaths());
+        if (resolved.empty())
+        {
+            LOG_ERROR("[SparkAssetManager] File not found in any search path: {}", path);
+            return AssetId();
+        }
+
+        return MakeAssetIdForType(resolved, type);
+    }
+
+    void SparkAssetManager::AssetRegistry()
+    {
+        namespace fs = std::filesystem;
+
+        for (const auto& searchPath : m_searchPaths)
+        {
+            std::error_code ec;
+            if (!fs::exists(searchPath.c_str(), ec) || !fs::is_directory(searchPath.c_str(), ec))
+            {
+                continue;
+            }
+
+            for (auto it = fs::recursive_directory_iterator(searchPath.c_str(), ec),
+                      end = fs::recursive_directory_iterator();
+                 it != end; it.increment(ec))
+            {
+                if (ec) { break; }
+                if (it->is_directory(ec)) { continue; }
+
+                eastl::string filePath(it->path().generic_string().c_str());
+                AssetId id = MakeAssetId(filePath);
+                if (!id.IsValid()) { continue; }
+                if (m_db->Find(id)) { continue; }
+
+                AssetType type = GetSupportAssetType(filePath);
+                Ptr<Asset> asset = CreateAsset(id, type);
+                if (asset)
+                {
+                    m_db->InsertOrGet(id, asset);
+                }
+            }
+        }
     }
 }

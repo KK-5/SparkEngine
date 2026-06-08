@@ -56,6 +56,7 @@ namespace Spark
         m_assetManager = CreateSystem<Resource::SparkAssetManager>();
         m_assetManager->Init();
         m_assetManager->AddSearchPath("Engine/Asset");
+        m_assetManager->AssetRegistry();
 
         m_iconManager = CreateSystem<UI::IconManager>();
         m_iconManager->Init();

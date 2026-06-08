@@ -60,7 +60,7 @@ namespace Spark::Resource
             Ptr<Asset> stored = parentCtx.db->InsertOrGet(subId, created);
             if (stored.get() != created.get())
             {
-                return;  // 别人先注册，沿用现成的
+                return;
             }
 
             // 3. child ctx

@@ -35,6 +35,9 @@ namespace Spark::Resource
         AssetId() = default;
 
         /// Build an AssetId for asset type T with T's default descriptor.
+        /// Prefer MakeAssetId() on AssetManager unless you can guarantee the path
+        /// is canonical (full, unique across search paths). This factory does NOT
+        /// validate existence or resolve the path against search paths.
         template<typename T>
         static AssetId Of(eastl::string_view path)
         {
@@ -42,6 +45,7 @@ namespace Spark::Resource
         }
 
         /// Build an AssetId for asset type T with a caller-supplied descriptor.
+        /// Same caveats as above: caller must ensure path is valid and unique.
         template<typename T>
         static AssetId Of(eastl::string_view path, const typename T::Descriptor& desc)
         {
@@ -72,7 +76,7 @@ namespace Spark::Resource
         const eastl::string&   GetSubLabel() const    { return m_subLabel; }
         bool                   IsSubAsset() const     { return !m_subLabel.empty(); }
         const AssetDescriptor* GetDescriptor() const  { return m_descriptor.get(); }
-        bool                   IsValid() const        { return !m_path.empty(); }
+        bool                   IsValid() const        { return !m_path.empty() && m_hash != 0; }
 
     private:
         AssetId(eastl::string_view path, eastl::string_view subLabel, Ptr<AssetDescriptor> descriptor)

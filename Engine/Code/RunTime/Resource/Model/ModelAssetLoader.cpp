@@ -2,6 +2,8 @@
 
 #include <filesystem>
 
+#include <Resource/AssetBuildContext.h>
+
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/util.hpp>
@@ -280,17 +282,7 @@ namespace Spark::Resource
 
     eastl::string ModelAssetLoader::ResolvePath(const AssetId& id) const
     {
-        const eastl::string& assetPath = id.GetPath();
-        for (const auto& sp : m_searchPaths)
-        {
-            std::filesystem::path full = std::filesystem::path(sp.c_str()) / assetPath.c_str();
-            if (std::filesystem::exists(full))
-            {
-                auto str = full.string();
-                return eastl::string(str.c_str(), str.size());
-            }
-        }
-        return {};
+        return ResolveAssetPath(id.GetPath(), m_searchPaths);
     }
 
     UniquePtr<AssetData> ModelAssetLoader::Load(const AssetId& id)

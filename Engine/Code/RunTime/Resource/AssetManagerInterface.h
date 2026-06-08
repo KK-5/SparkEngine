@@ -35,6 +35,10 @@ namespace Spark::Resource
 
         virtual AssetType GetSupportAssetType(eastl::string_view file) = 0;
 
+        virtual AssetId MakeAssetId(eastl::string_view path) = 0;
+
+        virtual void AssetRegistry() = 0;
+
         template<typename T>
         Ptr<T> LoadAsset(const AssetId& id)
         {

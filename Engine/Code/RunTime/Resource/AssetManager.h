@@ -41,6 +41,10 @@ namespace Spark::Resource
 
         AssetType GetSupportAssetType(eastl::string_view file) override;
 
+        AssetId MakeAssetId(eastl::string_view path) override;
+
+        void AssetRegistry() override;
+
         void ReleaseAsset(const AssetId& id) override;
 
     private:
@@ -54,6 +58,7 @@ namespace Spark::Resource
 
         /// 拷贝当前搜索路径，避免 worker 线程长持锁
         eastl::vector<eastl::string> SnapshotSearchPaths() const;
+        AssetId MakeAssetIdForType(eastl::string_view path, AssetType type);
 
         mutable std::mutex      m_queueMutex;     ///< 保护 pendingQueue
         std::condition_variable m_cv;

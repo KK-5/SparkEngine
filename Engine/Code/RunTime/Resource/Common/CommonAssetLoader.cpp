@@ -1,7 +1,8 @@
 #include "CommonAssetLoader.h"
 
-#include <filesystem>
 #include <fstream>
+
+#include <Resource/AssetBuildContext.h>
 
 #include <Log/ILogSystem.h>
 
@@ -18,28 +19,7 @@ namespace Spark::Resource
 
     eastl::string BinaryAssetLoader::ResolvePathStr(eastl::string_view path) const
     {
-        namespace fs = std::filesystem;
-        eastl::string p(path.data(), path.size());
-
-        // 1) Literal path (absolute, or relative to CWD) — handles include
-        //    paths DXC already resolved against its -I directories.
-        if (fs::exists(p.c_str()))
-        {
-            auto str = fs::path(p.c_str()).string();
-            return eastl::string(str.c_str(), str.size());
-        }
-
-        // 2) Relative to each search path — handles asset-relative paths.
-        for (const auto& searchPath : m_searchPaths)
-        {
-            fs::path full = fs::path(searchPath.c_str()) / p.c_str();
-            if (fs::exists(full))
-            {
-                auto str = full.string();
-                return eastl::string(str.c_str(), str.size());
-            }
-        }
-        return {};
+        return ResolveAssetPath(path, m_searchPaths);
     }
 
     eastl::string BinaryAssetLoader::ResolvePath(const AssetId& id) const

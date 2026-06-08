@@ -24,7 +24,13 @@ namespace Spark::UI
             return {};
         }
 
-        auto assetId = Resource::AssetId::Of<Resource::ImageAsset>(imagePath);
+        auto assetId = assetMgr->MakeAssetId(imagePath);
+        if (!assetId.IsValid())
+        {
+            LOG_ERROR("[IconManager] Failed to resolve icon path: {}", imagePath);
+            return {};
+        }
+
         Ptr<Resource::ImageAsset> imageAsset =
             assetMgr->LoadAsset<Resource::ImageAsset>(assetId);
 

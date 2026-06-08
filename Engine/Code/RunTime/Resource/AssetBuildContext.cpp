@@ -5,23 +5,43 @@
 
 namespace Spark::Resource
 {
-    eastl::string AssetBuildContext::ResolvePath(eastl::string_view relative) const
+    eastl::string ResolveAssetPath(eastl::string_view path,
+                                    const eastl::vector<eastl::string>& searchPaths)
     {
-        if (relative.empty())
+        namespace fs = std::filesystem;
+
+        if (path.empty())
         {
             return {};
         }
-        const eastl::string rel(relative.data(), relative.size());
-        for (const auto& base : searchPaths)
+
+        // Check if path exists as-is (full / canonical path)
         {
-            std::filesystem::path full = std::filesystem::path(base.c_str()) / rel.c_str();
-            if (std::filesystem::exists(full))
+            std::error_code ec;
+            if (fs::exists(path.data(), ec))
             {
-                auto str = full.string();
+                auto str = fs::path(path.data()).generic_string();
+                return eastl::string(str.c_str(), str.size());
+            }
+        }
+
+        // Search through registered paths
+        for (const auto& sp : searchPaths)
+        {
+            fs::path full = fs::path(sp.c_str()) / path.data();
+            std::error_code ec;
+            if (fs::exists(full, ec))
+            {
+                auto str = full.generic_string();
                 return eastl::string(str.c_str(), str.size());
             }
         }
         return {};
+    }
+
+    eastl::string AssetBuildContext::ResolvePath(eastl::string_view relative) const
+    {
+        return ResolveAssetPath(relative, searchPaths);
     }
 
     AssetBuildContext AssetBuildContext::MakeChild(AssetId subId, AssetType subType) const

@@ -9,6 +9,24 @@
 #include <Feature/UI/ImGui/IconManagerInterface.h>
 
 
+namespace
+{
+    eastl::string GetAssetDisplayName(const Spark::Resource::AssetId& id)
+    {
+        const auto& path = id.GetPath();
+        auto pos = path.rfind('/');
+        if (pos == eastl::string::npos)
+        {
+            pos = path.rfind('\\');
+        }
+        if (pos != eastl::string::npos)
+        {
+            return eastl::string(path.data() + pos + 1, path.size() - pos - 1);
+        }
+        return path;
+    }
+}
+
 namespace Editor
 {
 
@@ -187,6 +205,8 @@ namespace Editor
         m_consoleIconId = iconMgr->OpenIcon("Console.svg");
         m_assetsIconId  = iconMgr->OpenIcon("Assets.svg");
         m_searchIconId  = iconMgr->OpenIcon("search.svg");
+        m_unloadIconId  = iconMgr->OpenIcon("unload.svg");
+        m_loadingIconId = iconMgr->OpenIcon("loading.svg");
     }
 
     void BottomPanel::ScanDirectory(const eastl::string& path, AssetFolder& folder)
@@ -209,7 +229,7 @@ namespace Editor
 
             const fs::path& entryPath = it->path();
             eastl::string entryName(entryPath.filename().string().c_str());
-            eastl::string entryFullPath(entryPath.string().c_str());
+            eastl::string entryFullPath(entryPath.generic_string().c_str());
 
             if (fs::is_directory(entryPath, ec)) {
                 AssetFolder subFolder;
@@ -218,11 +238,18 @@ namespace Editor
                 ScanDirectory(entryFullPath, subFolder);
                 folder.children.push_back(eastl::move(subFolder));
             } else {
-                FileEntry file;
-                file.name = eastl::move(entryName);
-                file.fullPath = entryFullPath;
-                file.isDirectory = false;
-                folder.files.push_back(eastl::move(file));
+                auto* am = Spark::Service<Spark::Resource::AssetManager>::Get();
+                if (am)
+                {
+                    Spark::Resource::AssetId id = am->MakeAssetId(entryFullPath);
+                    if (id.IsValid() && am->FindAsset(id))
+                    {
+                        AssetEntry entry;
+                        entry.id = id;
+                        entry.type = am->GetSupportAssetType(entryName);
+                        folder.assets.push_back(eastl::move(entry));
+                    }
+                }
             }
         }
     }
@@ -261,7 +288,7 @@ namespace Editor
 
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
             m_selectedFolder = &folder;
-            m_selectedFile = nullptr;
+            m_selectedAsset = nullptr;
         }
 
         // Draw icon after TreeNodeEx so hover highlight doesn't cover it
@@ -277,12 +304,12 @@ namespace Editor
             for (const auto& child : folder.children) {
                 DrawFolderTree(child);
             }
-            for (const auto& file : folder.files)
+            for (const auto& asset : folder.assets)
             {
                 ImGuiTreeNodeFlags fileFlags = ImGuiTreeNodeFlags_Leaf
                                              | ImGuiTreeNodeFlags_SpanFullWidth;
 
-                bool fileIsSelected = (m_selectedFile == &file);
+                bool fileIsSelected = (m_selectedAsset == &asset);
                 if (fileIsSelected) {
                     fileFlags |= ImGuiTreeNodeFlags_Selected;
                 }
@@ -292,10 +319,11 @@ namespace Editor
                 ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(66, 150, 250, 128));
                 ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(66, 150, 250, 128));
 
-                ImGui::TreeNodeEx(file.name.c_str(), fileFlags);
+                eastl::string displayName = GetAssetDisplayName(asset.id);
+                ImGui::TreeNodeEx(displayName.c_str(), fileFlags);
 
                 if (ImGui::IsItemClicked()) {
-                    m_selectedFile = &file;
+                    m_selectedAsset = &asset;
                     m_selectedFolder = nullptr;
                 }
 
@@ -309,7 +337,7 @@ namespace Editor
 
     void BottomPanel::DrawAssetList()
     {
-        if (m_selectedFolder == nullptr && m_selectedFile == nullptr) {
+        if (m_selectedFolder == nullptr && m_selectedAsset == nullptr) {
             ImGui::TextUnformatted("Select a folder to browse assets.");
             return;
         }
@@ -319,8 +347,16 @@ namespace Editor
 
         auto* iconMgr = Spark::Service<Spark::UI::IconManagerInterface>::Get();
         ImTextureID folderIcon = ImTextureID_Invalid;
+        ImTextureID unloadIcon = ImTextureID_Invalid;
+        ImTextureID loadingIcon = ImTextureID_Invalid;
         if (iconMgr && m_folderIconId.IsValid()) {
             folderIcon = iconMgr->RequestIconId(m_folderIconId);
+        }
+        if (iconMgr && m_unloadIconId.IsValid()) {
+            unloadIcon = iconMgr->RequestIconId(m_unloadIconId);
+        }
+        if (iconMgr && m_loadingIconId.IsValid()) {
+            loadingIcon = iconMgr->RequestIconId(m_loadingIconId);
         }
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -349,7 +385,7 @@ namespace Editor
         ImVec2 basePos = ImGui::GetCursorScreenPos();
         int idx = 0;
 
-        auto DrawThumb = [&](const eastl::string& name) {
+        auto DrawThumb = [&](const eastl::string& name, const AssetEntry* assetEntry = nullptr) {
             int col = idx % cols;
             int row = idx / cols;
             idx++;
@@ -363,32 +399,79 @@ namespace Editor
             ImVec2 thumbMin(cellPos.x + thumbX, cellPos.y + 4);
             ImVec2 thumbMax(thumbMin.x + thumbSize, thumbMin.y + thumbSize);
 
-            if (folderIcon != ImTextureID_Invalid) {
-                dl->AddImage(folderIcon, thumbMin, thumbMax);
+            if (assetEntry)
+            {
+                const auto* am = Spark::Service<Spark::Resource::AssetManager>::Get();
+                const auto asset = am->FindAsset(assetEntry->id);
+                if (asset)
+                {
+                    if (asset->GetStatus() == Spark::Resource::AssetStatus::NotLoaded)
+                    {
+                        if (unloadIcon != ImTextureID_Invalid) {
+                            dl->AddImage(unloadIcon, thumbMin, thumbMax);
+                        }
+                    }
+                    else if 
+                    (
+                        asset->GetStatus() == Spark::Resource::AssetStatus::Loading ||
+                        asset->GetStatus() == Spark::Resource::AssetStatus::Compiling
+                    )
+                    {
+                        if (loadingIcon != ImTextureID_Invalid) {
+                            dl->AddImage(loadingIcon, thumbMin, thumbMax);
+                        }
+                    }
+                    else
+                    {
+                        if (folderIcon != ImTextureID_Invalid) {
+                            dl->AddImage(folderIcon, thumbMin, thumbMax);
+                        }
+                    }
+                }
             }
+            else
+            {
+                if (folderIcon != ImTextureID_Invalid) {
+                    dl->AddImage(folderIcon, thumbMin, thumbMax);
+                }
+            }
+
 
             eastl::string label = TruncateName(name);
             ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
             ImVec2 textPos(cellPos.x + (cellW - textSize.x) * 0.5f,
                            thumbMax.y + 4);
             dl->AddText(textPos, IM_COL32(200, 200, 200, 255), label.c_str());
+
+            if (assetEntry)
+            {
+                char dragId[64];
+                snprintf(dragId, sizeof(dragId), "##drag_%p", static_cast<const void*>(assetEntry));
+                ImGui::SetCursorScreenPos(cellPos);
+                ImGui::InvisibleButton(dragId, ImVec2(cellW, cellH));
+                if (ImGui::BeginDragDropSource())
+                {
+                    ImGui::SetDragDropPayload("ASSET_FILE", &assetEntry, sizeof(const AssetEntry*));
+                    ImGui::Text("%s", name.c_str());
+                    ImGui::EndDragDropSource();
+                }
+            }
         };
 
-        if (m_selectedFile != nullptr) {
-            // 选中文件：只展示该资产
-            DrawThumb(m_selectedFile->name);
+        if (m_selectedAsset != nullptr) {
+            DrawThumb(GetAssetDisplayName(m_selectedAsset->id), m_selectedAsset);
         } else {
-            // 选中文件夹：展示子文件夹 + 文件
             for (const auto& folder : m_selectedFolder->children) {
                 DrawThumb(folder.name);
             }
-            for (const auto& file : m_selectedFolder->files) {
+            for (const auto& asset : m_selectedFolder->assets) {
+                eastl::string assetName = GetAssetDisplayName(asset.id);
                 if (filter && filter[0] != '\0') {
-                    if (file.name.find(filter) == eastl::string::npos) {
+                    if (assetName.find(filter) == eastl::string::npos) {
                         continue;
                     }
                 }
-                DrawThumb(file.name);
+                DrawThumb(assetName, &asset);
             }
         }
 

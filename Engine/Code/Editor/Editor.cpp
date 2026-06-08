@@ -37,6 +37,7 @@ namespace Editor
             ASSERT(assetManager, "AssetManager is unregister.");
             assetManager->AddSearchPath("Engine/Code/Test/Resource/Asset");
             assetManager->AddSearchPath("Engine/Code/Editor/Asset");
+            assetManager->AssetRegistry();
         }
     }
 

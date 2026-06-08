@@ -25,11 +25,10 @@ namespace Editor
         void LoadIcons();
 
         // ---- asset browser ----
-        struct FileEntry
+        struct AssetEntry
         {
-            eastl::string name;
-            eastl::string fullPath;
-            bool         isDirectory = false;
+            Spark::Resource::AssetId   id;
+            Spark::Resource::AssetType type = Spark::Resource::AssetType::Unknown;
         };
 
         struct AssetFolder
@@ -37,7 +36,7 @@ namespace Editor
             eastl::string              name;
             eastl::string              fullPath;
             eastl::vector<AssetFolder> children;
-            eastl::vector<FileEntry>   files;
+            eastl::vector<AssetEntry>  assets;
         };
 
         void ScanDirectory(const eastl::string& path, AssetFolder& folder);
@@ -46,18 +45,20 @@ namespace Editor
 
         AssetFolder          m_rootFolder;
         const AssetFolder*   m_selectedFolder = nullptr;
-        const FileEntry*     m_selectedFile = nullptr;
+        const AssetEntry*    m_selectedAsset = nullptr;
         eastl::vector<char>  m_filterBuf{};
         bool                 m_treeBuilt = false;
 
         Tab currentTab = Tab::CONSILE;
 
         // Icon resources
-        bool                   m_iconsLoaded = false;
+        bool                     m_iconsLoaded = false;
         Spark::Resource::AssetId m_folderIconId;
         Spark::Resource::AssetId m_fileIconId;
         Spark::Resource::AssetId m_consoleIconId;
         Spark::Resource::AssetId m_assetsIconId;
         Spark::Resource::AssetId m_searchIconId;
+        Spark::Resource::AssetId m_unloadIconId;
+        Spark::Resource::AssetId m_loadingIconId;
     };
 }
