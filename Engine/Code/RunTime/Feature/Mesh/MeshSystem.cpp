@@ -49,12 +49,13 @@ namespace Spark::Mesh
         const Resource::AssetHash readyHash = asset.GetAssetId().GetHash();
 
         auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
-        auto view = ctx.GetView<MeshComponent>();
+        auto view = ctx.GetView<MeshComponent, MeshAssetLoadingTag>();
 
         eastl::vector<Entity> matches;
+        matches.reserve(view.size_hint());
         view.each([&](Entity entity, const MeshComponent& meshComp)
         {
-            if (meshComp.m_modelAssetId.GetHash() == readyHash && ctx.Has<MeshAssetLoadingTag>(entity))
+            if (meshComp.m_modelAssetId.GetHash() == readyHash)
             {
                 matches.push_back(entity);
             }
@@ -73,12 +74,13 @@ namespace Spark::Mesh
         const Resource::AssetHash errorHash = asset.GetAssetId().GetHash();
 
         auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
-        auto view = ctx.GetView<MeshComponent>();
+        auto view = ctx.GetView<MeshComponent, MeshAssetLoadingTag>();
 
         eastl::vector<Entity> matches;
+        matches.reserve(view.size_hint());
         view.each([&](Entity entity, const MeshComponent& meshComp)
         {
-            if (meshComp.m_modelAssetId.GetHash() == errorHash && ctx.Has<MeshAssetLoadingTag>(entity))
+            if (meshComp.m_modelAssetId.GetHash() == errorHash)
             {
                 matches.push_back(entity);
             }
