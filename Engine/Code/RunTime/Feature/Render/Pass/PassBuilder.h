@@ -2,6 +2,7 @@
 
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
+#include <Base.h>
 
 #include <RHI/Factory.h>
 #include <RHI/Format.h>
@@ -56,7 +57,7 @@ namespace Spark::Render
         RHI::RenderTargetLayout    m_renderTargetLayout {};
         RHI::Viewport              m_viewport {};
         RHI::Scissor               m_scissor {};
-        RHI::MultisampleState      m_msaaState {};
+        RHI::MultisampleState      m_multisampleState {};
     };
     
 

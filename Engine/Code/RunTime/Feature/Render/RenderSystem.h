@@ -49,7 +49,6 @@ namespace Spark::Render
         bool InitRenderUI();
 
         void BuildPipeline();
-        void InitPipeline();
 
 
         Ptr<RHI::SwapChain> m_swapChain;

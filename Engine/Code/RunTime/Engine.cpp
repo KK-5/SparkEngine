@@ -49,14 +49,14 @@ namespace Spark
             RHI::ResultCode r = rhi->InitDevice(*devs.front(), deviceDesc);
             ASSERT(r == RHI::ResultCode::Success, "[Engine] Init RHI device failed.");
         }
-
-        m_renderSystem = CreateSystem<Render::RenderSystem>();
-        m_renderSystem->Init();
-
+        
         m_assetManager = CreateSystem<Resource::SparkAssetManager>();
         m_assetManager->Init();
         m_assetManager->AddSearchPath("Engine/Asset");
         m_assetManager->AssetRegistry();
+
+        m_renderSystem = CreateSystem<Render::RenderSystem>();
+        m_renderSystem->Init();
 
         m_iconManager = CreateSystem<UI::IconManager>();
         m_iconManager->Init();

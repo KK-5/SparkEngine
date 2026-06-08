@@ -15,6 +15,8 @@
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
 
+#include <Feature/DepthPre/DepthPrePass.h>
+
 #include "../Window/IWindowSystem.h"
 #include "../UI/UIBaseSystem.h"
 
@@ -94,6 +96,8 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
+        DepthPrePass::SetUp(passContext, DepthPrePass::DefaultConfig());
+
         SPARK_RENDER_PASS(passContext, "UIPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .CustomPipeline()
@@ -118,12 +122,6 @@ namespace Spark::Render
             .Finalize();
     }
 
-    void RenderSystem::InitPipeline()
-    {
-        // TODO: pipeline state object creation per pass — depends on shader asset wiring
-        // (see commented block in git history). Left as no-op until shader pipeline is rebuilt.
-    }
-
     void RenderSystem::InitInternal()
     {
         InitRHIData();
@@ -135,7 +133,6 @@ namespace Spark::Render
 
         InitRenderUI();
         BuildPipeline();
-        InitPipeline();
 
         PassExecuteContext::Push(m_pipeline.GetPassContext());
 
