@@ -49,6 +49,8 @@ namespace Editor
         eastl::vector<char>  m_filterBuf{};
         bool                 m_treeBuilt = false;
 
+        Spark::ConstPtr<Spark::Resource::Asset>   m_dragAsset = nullptr;
+
         Tab currentTab = Tab::CONSILE;
 
         // Icon resources

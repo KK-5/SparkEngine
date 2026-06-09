@@ -135,6 +135,14 @@ namespace Spark::Resource
         Ptr<Asset> existing = m_db->Find(id);
         if (existing)
         {
+            if (existing->IsReady())
+            {
+                return existing;
+            }
+            if (!existing->IsLoading())
+            {
+                EnqueueForProcessing(*existing);
+            }
             return existing;
         }
 

@@ -39,6 +39,8 @@ namespace Editor
             assetManager->AddSearchPath("Engine/Code/Editor/Asset");
             assetManager->AssetRegistry();
         }
+
+        m_assetHandler = Spark::MakeUnique<AssetHandler>();
     }
 
     void SparkEditor::Start()

@@ -7,6 +7,7 @@ add_executable(${TARGET_NAME}
     UI/Private/SceneView.cpp
     UI/Private/Inspector.cpp
     UI/Private/ComponentView.cpp
+    Handler/AssetHandler.cpp
     UI/EditorWindow.cpp
     UI/EditorUI.cpp
     Input/EditorInput.cpp
@@ -20,6 +21,10 @@ target_link_libraries(${TARGET_NAME}
         ImGui
         SparkRuntime
 )
+
+target_include_directories(
+  ${TARGET_NAME}
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 
 set_target_properties(${TARGET_NAME} PROPERTIES
     FOLDER "SparkEditor"

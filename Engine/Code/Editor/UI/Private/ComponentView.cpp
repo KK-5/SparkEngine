@@ -12,6 +12,7 @@
 #include <Math/Vector2.h>
 #include <Math/Vector3.h>
 #include <Math/Vector4.h>
+#include <Resource/AssetTypes.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
 #include "../../Component/Position.h"
@@ -49,11 +50,13 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
-                if (ImGui::InputText(label.c_str(), buffer.data(), buffer.size()))
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
+                if (ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ui->readOnly ? ImGuiInputTextFlags_ReadOnly : 0))
                 {
                     data.set(instance, eastl::string(buffer));
                     // Sent replace event
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -90,10 +93,12 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::DragFloat(label.c_str(), value, ui->speed, ui->min, ui->max, ui->format.c_str()))
                 {
                     data.set(instance, *value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -109,10 +114,12 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::SliderFloat(label.c_str(), value, ui->min, ui->max, ui->format.c_str()))
                 {
                     data.set(instance, *value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -128,10 +135,12 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::DragInt(label.c_str(), value, ui->speed, ui->min, ui->max))
                 {
                     data.set(instance, *value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -147,10 +156,12 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::SliderInt(label.c_str(), value, ui->min, ui->max))
                 {
                     data.set(instance, *value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -166,10 +177,12 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::DragScalar(label.c_str(), ImGuiDataType_U32, value, ui->speed, &ui->min, &ui->max))
                 {
                     data.set(instance, *value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -185,10 +198,12 @@ namespace Editor
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::SliderScalar(label.c_str(), ImGuiDataType_U32, value, &ui->min, &ui->max))
                 {
                     data.set(instance, *value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -198,15 +213,18 @@ namespace Editor
         }
         else if(static_cast<BoolElement*>(uiElement))
         {
+            BoolElement* ui = static_cast<BoolElement*>(uiElement);
             if (bool* value = fieldValue.try_cast<bool>())
             {
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::Checkbox(label.c_str(), value))
                 {
                     data.set(instance, *value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -223,11 +241,13 @@ namespace Editor
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
                 float inputValue[2] = {value->x, value->y};
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::DragFloat2(label.c_str(), inputValue, ui->speed, ui->min, ui->max, ui->format.c_str()))
                 {
                     Math::Vector2 vec2(inputValue[0], inputValue[1]);
                     data.set(instance, vec2);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -244,11 +264,13 @@ namespace Editor
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
                 float inputValue[3] = {value->x, value->y, value->z};
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::DragFloat3(label.c_str(), inputValue, ui->speed, ui->min, ui->max, ui->format.c_str()))
                 {
                     Math::Vector3 vec3(inputValue[0], inputValue[1], inputValue[2]);
                     data.set(instance, vec3);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
@@ -265,16 +287,41 @@ namespace Editor
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
                 float inputValue[4] = {value->r, value->g, value->b, value->a};
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::ColorEdit4(label.c_str(), inputValue))
                 {
                     Math::Vector4 vec4(inputValue[0], inputValue[1], inputValue[2], inputValue[3]);
                     data.set(instance, vec4);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "ColorElement expect a Vector4 value!");
+            }
+        }
+        else if(static_cast<AssetElement*>(uiElement))
+        {
+            AssetElement* ui = static_cast<AssetElement*>(uiElement);
+            if (Resource::AssetId* value = fieldValue.try_cast<Resource::AssetId>())
+            {
+                eastl::string display = value->IsValid() ? value->GetPath() : "None";
+                eastl::string buffer;
+                buffer.resize(256);
+                strcpy(buffer.data(), display.c_str());
+
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
+                ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
+                if (ui->readOnly) { ImGui::EndDisabled(); }
+            }
+            else
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "AssetElement expect an AssetId value!");
             }
         }
         else if(static_cast<EnumElement*>(uiElement))
@@ -298,10 +345,12 @@ namespace Editor
                     offset += strlen(enumValue.second.name()) + 1;
                 }
 
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::Combo(label.c_str(), &value, inputValue.data(), offset))
                 {
                     data.set(instance, value);
                 }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {

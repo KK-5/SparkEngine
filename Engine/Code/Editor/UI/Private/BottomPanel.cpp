@@ -451,9 +451,24 @@ namespace Editor
                 ImGui::InvisibleButton(dragId, ImVec2(cellW, cellH));
                 if (ImGui::BeginDragDropSource())
                 {
-                    ImGui::SetDragDropPayload("ASSET_FILE", &assetEntry, sizeof(const AssetEntry*));
+                    if (!m_dragAsset)
+                    {
+                        const auto* am = Spark::Service<Spark::Resource::AssetManager>::Get();
+                        m_dragAsset = am->FindAsset(assetEntry->id);
+                    }
+
+                    const Spark::Resource::Asset* rawPtr = m_dragAsset.get();
+                    ImGui::SetDragDropPayload("DRAG_ASSET_FILE", &rawPtr, sizeof(rawPtr));
+                    ImGui::Image(folderIcon, ImVec2(thumbSize, thumbSize));
                     ImGui::Text("%s", name.c_str());
                     ImGui::EndDragDropSource();
+                }
+                else
+                {
+                    if (m_dragAsset)
+                    {
+                        m_dragAsset = nullptr;
+                    }
                 }
             }
         };

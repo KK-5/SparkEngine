@@ -61,6 +61,9 @@ namespace Spark
         m_iconManager = CreateSystem<UI::IconManager>();
         m_iconManager->Init();
 
+        m_meshSystem = CreateSystem<Mesh::MeshSystem>();
+        m_meshSystem->Init();
+
         m_rhiResourceSystem = CreateSystem<RHI::RHIResourceSystem>();
         m_rhiResourceSystem->Init();
 

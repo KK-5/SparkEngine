@@ -16,6 +16,7 @@
 #include <RHI/System/AsyncUploadSystem.h>
 #include <Resource/AssetManager.h>
 #include <UI/ImGui/IconManager.h>
+#include <Mesh/MeshSystem.h>
 
 namespace Spark
 {
@@ -48,15 +49,16 @@ namespace Spark
 
         WorldContext m_worldContext {};
 
-        UniquePtr<SpdLogSystem>               m_logSystem;
-        SystemUniquePtr<Input::InputSystem>   m_inputSystem;
-        SystemUniquePtr<SceneManager>         m_sceneManager;
-        SystemUniquePtr<EntityReaper>         m_entityReaper;
-        SystemUniquePtr<RHI::DX12::RHISystem> m_dx12Rhi;
-        SystemUniquePtr<Render::RenderSystem>   m_renderSystem;
-        SystemUniquePtr<RHI::RHIResourceSystem>  m_rhiResourceSystem;
-        SystemUniquePtr<RHI::AsyncUploadSystem>  m_asyncUploadSystem;
+        UniquePtr<SpdLogSystem>                      m_logSystem;
+        SystemUniquePtr<Input::InputSystem>          m_inputSystem;
+        SystemUniquePtr<SceneManager>                m_sceneManager;
+        SystemUniquePtr<EntityReaper>                m_entityReaper;
+        SystemUniquePtr<RHI::DX12::RHISystem>        m_dx12Rhi;
+        SystemUniquePtr<Render::RenderSystem>        m_renderSystem;
+        SystemUniquePtr<RHI::RHIResourceSystem>      m_rhiResourceSystem;
+        SystemUniquePtr<RHI::AsyncUploadSystem>      m_asyncUploadSystem;
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<UI::IconManager>             m_iconManager;
+        SystemUniquePtr<Mesh::MeshSystem>            m_meshSystem;
     };
 }

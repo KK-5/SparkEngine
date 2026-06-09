@@ -6,6 +6,8 @@
 
 #include "Input/EditorInput.h"
 
+#include "Handler/AssetHandler.h"
+
 namespace Editor
 {
     class SparkEditor
@@ -16,9 +18,10 @@ namespace Editor
         void Close();
 
     private:
-        Spark::UniquePtr<Spark::SparkEngine>      m_runtimeEngine;
+        Spark::UniquePtr<Spark::SparkEngine>                 m_runtimeEngine;
         Spark::SystemUniquePtr<Spark::Window::IWindowSystem> m_editorWindow;
-        Spark::SystemUniquePtr<EditorInputSystem> m_editorInput;
-        Spark::SystemUniquePtr<Spark::UI::UIBaseSystem> m_editorUI;
+        Spark::SystemUniquePtr<EditorInputSystem>            m_editorInput;
+        Spark::SystemUniquePtr<Spark::UI::UIBaseSystem>      m_editorUI;
+        Spark::UniquePtr<AssetHandler>                       m_assetHandler;
     };
 }

@@ -24,6 +24,12 @@ namespace Spark::Mesh
 
     void MeshSystem::ShutdownInternal()
     {
+        auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
+        ctx.GetView<MeshGPUComponent>().each([&](Entity entity, MeshGPUComponent&)
+        {
+            CleanupGPUResources(entity);
+        });
+
         Resource::AssetBus::Handler::BusDisconnect();
         ComponentEventBus::Handler::BusDisconnect();
     }

@@ -286,6 +286,12 @@ namespace Spark
         entityHier.prevSibling = prevSibling;
         entityHier.nextSibling = next;
         context.AddOrReplace<Hierarchy>(entity, entityHier);
+
+        // Remove root tag
+        if (context.Has<HierarchyRootTag>(entity))
+        {
+            context.Remove<HierarchyRootTag>(entity);
+        }
     }
 
     void SceneManager::PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func)
