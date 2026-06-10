@@ -16,51 +16,51 @@ namespace Spark::RHI
     struct CopyBufferDescriptor
     {
         const Buffer* m_sourceBuffer = nullptr;
-        uint64_t m_sourceOffset = 0;
+        uint64_t      m_sourceOffset = 0;
         const Buffer* m_destinationBuffer = nullptr;
-        uint64_t m_destinationOffset = 0;
-        uint64_t m_size = 0;
+        uint64_t      m_destinationOffset = 0;
+        uint64_t      m_size = 0;
     };
 
     struct CopyImageDescriptor
     {
-        const Image* m_sourceImage = nullptr;
+        const Image*     m_sourceImage = nullptr;
         ImageSubresource m_sourceSubresource;
-        Origin m_sourceOrigin;
-        Size m_sourceSize;
-        const Image* m_destinationImage = nullptr;
+        Origin           m_sourceOrigin;
+        Size             m_sourceSize;
+        const Image*     m_destinationImage = nullptr;
         ImageSubresource m_destinationSubresource;
-        Origin m_destinationOrigin;
+        Origin           m_destinationOrigin;
     };
 
     struct CopyBufferToImageDescriptor
     {
-        const Buffer* m_sourceBuffer = nullptr;
-        uint32_t m_sourceOffset = 0;
-        uint32_t m_sourceBytesPerRow = 0;
-        uint32_t m_sourceBytesPerImage = 0;
+        const Buffer*    m_sourceBuffer = nullptr;
+        uint32_t         m_sourceOffset = 0;
+        uint32_t         m_sourceBytesPerRow = 0;
+        uint32_t         m_sourceBytesPerImage = 0;
         // The source format is usually same as m_destinationImage's format. When destination image contains more than one aspect,
         // the format should be compatiable with the aspect of the destination image's subresource
-        Format m_sourceFormat = Format::Unknown;
-        Size m_sourceSize;
-        const Image* m_destinationImage = nullptr;
+        Format           m_sourceFormat = Format::Unknown;
+        Size             m_sourceSize;
+        const Image*     m_destinationImage = nullptr;
         ImageSubresource m_destinationSubresource;
-        Origin m_destinationOrigin;
+        Origin           m_destinationOrigin;
     };
 
     struct CopyImageToBufferDescriptor
     {
-        const Image* m_sourceImage = nullptr;
+        const Image*     m_sourceImage = nullptr;
         ImageSubresource m_sourceSubresource;
-        Origin m_sourceOrigin;
-        Size m_sourceSize;
-        const Buffer* m_destinationBuffer = nullptr;
-        uint32_t m_destinationOffset = 0;
-        uint32_t m_destinationBytesPerRow = 0;
-        uint32_t m_destinationBytesPerImage = 0;
+        Origin           m_sourceOrigin;
+        Size             m_sourceSize;
+        const Buffer*    m_destinationBuffer = nullptr;
+        uint32_t         m_destinationOffset = 0;
+        uint32_t         m_destinationBytesPerRow = 0;
+        uint32_t         m_destinationBytesPerImage = 0;
         // The destination format is usually same as m_sourceImage's format. When source image contains more than one aspect,
         // the format should be compatiable with the aspect of the source image's subresource
-        Format m_destinationFormat = Format::Unknown;
+        Format           m_destinationFormat = Format::Unknown;
     };
 
     /*

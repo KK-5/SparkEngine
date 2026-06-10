@@ -35,6 +35,7 @@ namespace Editor
         // bool WantCaptureKeyboard() const override;
 
         Spark::Math::Vector2Int GetFrameBufferSize() const override;
+        Spark::Math::Vector2Int GetFrameBufferPos() const override;
 
         // InputEventBus
         void OnMouseButtonEvent(Spark::Input::MouseButtonEvent event) override;

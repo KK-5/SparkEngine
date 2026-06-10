@@ -16,6 +16,7 @@
 #include <Pass/Component/RHIComponents.h>
 
 #include <Feature/DepthPre/DepthPrePass.h>
+#include <Feature/UI/CopyFrameBufferPass.h>
 
 #include "../Window/IWindowSystem.h"
 #include "../UI/UIBaseSystem.h"
@@ -97,6 +98,8 @@ namespace Spark::Render
         auto& passContext = m_pipeline.GetPassContext();
 
         DepthPrePass::SetUp(passContext, DepthPrePass::DefaultConfig());
+
+        CopyFrameBufferPass::SetUp(passContext);
 
         SPARK_RENDER_PASS(passContext, "UIPass")
             .Queue(RHI::HardwareQueueClass::Graphics)

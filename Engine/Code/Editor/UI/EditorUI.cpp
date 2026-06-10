@@ -113,6 +113,18 @@ namespace Editor
         return Math::Vector2Int(1024, 576);
     }
 
+    Math::Vector2Int EditorUI::GetFrameBufferPos() const
+    {
+        ImGuiWindow* window = ImGui::FindWindowByName("Scene View");
+        if (window && window->DockNode)
+        {
+            ImVec2 dockPos = window->DockNode->Pos;
+            return Math::Vector2Int(static_cast<int>(dockPos.x), static_cast<int>(dockPos.y));
+        }
+
+        return Math::Vector2Int(0, 0);
+    }
+
     bool EditorUI::WantCaptureMouse() const
     {
         ImGuiWindow* window = ImGui::FindWindowByName("Scene View");

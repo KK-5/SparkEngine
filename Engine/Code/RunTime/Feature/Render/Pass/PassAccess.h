@@ -152,4 +152,83 @@ namespace Spark::Render
             static_cast<uint32_t>(comp.m_entries.max_size()));
         comp.m_entries.push_back(PassShaderBindings::Entry{ spaceId, eastl::move(bindings) });
     }
+
+
+    template<typename PassTag>
+    RHI::Image* FindPassAttachmentImage(RHIContext& rhiCtx, RHI::InputName slot)
+    {
+        RHI::Image* result = nullptr;
+        for (auto [handle, attachment] : rhiCtx.GetView<PassTag, ImagePassAttachment>().each())
+        {
+            if (attachment.m_slotName != slot)
+            {
+                continue;
+            }
+
+            RHIHandle viewEntity = attachment.m_view;
+            auto* viewHier = rhiCtx.TryGet<RHI::ViewHierarchy>(viewEntity);
+            if (!viewHier)
+            {
+                LOG_ERROR("[FindPassAttachmentImage] View entity has no ViewHierarchy component (slot: {}).",
+                    slot.GetCStr());
+                break;
+            }
+            RHIHandle image = viewHier->m_resource;
+            auto* backImage = rhiCtx.TryGet<BackingImage>(image);
+            if (!backImage)
+            {
+                LOG_ERROR("[FindPassAttachmentImage] Image entity has no BackingImage component (slot: {}).",
+                    slot.GetCStr());
+                break;
+            }
+
+            result = backImage->m_image;
+            break;
+        }
+
+        if (!result)
+        {
+            LOG_ERROR("[FindPassAttachmentImage] No attachment image found for slot '{}'.", slot.GetCStr());
+        }
+        return result;
+    }
+
+    template<typename PassTag>
+    RHI::Buffer* FindPassAttachmentBuffer(RHIContext& rhiCtx, RHI::InputName slot)
+    {
+        RHI::Buffer* result = nullptr;
+        for (auto [handle, attachment] : rhiCtx.GetView<PassTag, BufferPassAttachment>().each())
+        {
+            if (attachment.m_slotName != slot)
+            {
+                continue;
+            }
+
+            RHIHandle viewEntity = attachment.m_view;
+            auto* viewHier = rhiCtx.TryGet<RHI::ViewHierarchy>(viewEntity);
+            if (!viewHier)
+            {
+                LOG_ERROR("[FindPassAttachmentBuffer] View entity has no ViewHierarchy component (slot: {}).",
+                    slot.GetCStr());
+                break;
+            }
+            RHIHandle buffer = viewHier->m_resource;
+            auto* backBuffer = rhiCtx.TryGet<BackingBuffer>(buffer);
+            if (!backBuffer)
+            {
+                LOG_ERROR("[FindPassAttachmentBuffer] Buffer entity has no BackingBuffer component (slot: {}).",
+                    slot.GetCStr());
+                break;
+            }
+
+            result = backBuffer->m_buffer;
+            break;
+        }
+
+        if (!result)
+        {
+            LOG_ERROR("[FindPassAttachmentBuffer] No attachment buffer found for slot '{}'.", slot.GetCStr());
+        }
+        return result;
+    }
 }

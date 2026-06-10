@@ -39,6 +39,7 @@ namespace Spark::UI
         virtual bool WantCaptureKeyboard() const = 0;  // 同上，检查UI是否需要捕获键盘事件
 
         virtual Math::Vector2Int GetFrameBufferSize() const = 0;
+        virtual Math::Vector2Int GetFrameBufferPos() const = 0;
 
     protected:
         class TickHandlerFrameStart final : public TickBus::Handler
