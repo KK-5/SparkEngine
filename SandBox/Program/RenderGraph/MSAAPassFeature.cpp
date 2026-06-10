@@ -71,13 +71,6 @@ namespace Spark::SandBox
 
     bool MSAAPassFeature::Init()
     {
-        m_swapchainView = FindSwapChainView();
-        if (m_swapchainView == Spark::RHI::NullHandle)
-        {
-            LOG_ERROR("[MSAAPassFeature] No swap chain view found in RHIContext.");
-            return false;
-        }
-
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
         Spark::RHI::Viewport viewport(
@@ -127,21 +120,6 @@ namespace Spark::SandBox
     void MSAAPassFeature::OnTick(float /*deltaTime*/)
     {
         UpdateViewBindings();
-    }
-
-    Spark::RHI::RHIHandle MSAAPassFeature::FindSwapChainView() const
-    {
-        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
-        Spark::RHI::RHIHandle found = Spark::RHI::NullHandle;
-        ctx.GetView<Spark::Render::SwapChainViews>().each(
-            [&](Spark::RHI::RHIHandle h, const Spark::Render::SwapChainViews&)
-            {
-                if (found == Spark::RHI::NullHandle)
-                {
-                    found = h;
-                }
-            });
-        return found;
     }
 
     void MSAAPassFeature::CreateViewBindings()
@@ -275,7 +253,7 @@ namespace Spark::SandBox
                 Spark::Render::ImportedImageAttachmentBindInfo resolveBind;
                 resolveBind.m_slot   = Spark::RHI::InputName("ColorOutput");
                 resolveBind.m_resolveSourceSlot = RHI::InputName("MSAABind");
-                resolveBind.m_view   = m_swapchainView;
+                resolveBind.m_view   = builder.GetCurrentSwapChainView();
                 resolveBind.m_access = Spark::RHI::AttachmentAccess::Write;
                 resolveBind.m_usage  = Spark::RHI::AttachmentUsage::Resolve;
                 resolveBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;

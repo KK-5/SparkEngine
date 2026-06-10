@@ -160,6 +160,8 @@ namespace Spark::Render
         //! becomes per-view-keyed when multi-view lands.
         Math::Vector2Int GetRenderSize() const { return m_renderSize; }
 
+        RHI::RHIHandle GetCurrentSwapChainView() const { return m_curSwapChainView; }
+
     private:
         friend class RenderGraph;
 
@@ -171,7 +173,7 @@ namespace Spark::Render
 
         eastl::vector<Pass> TopoSort();
 
-        void Begin(uint32_t frameIndex, const Math::Vector2Int& renderSize);
+        void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainView, const Math::Vector2Int& renderSize);
 
         eastl::vector<Pass> End();
 
@@ -251,6 +253,8 @@ namespace Spark::Render
         // Render-output resolution for the current frame; seeded by Begin, read
         // by Build callbacks via GetRenderSize. Frame-scoped input, not state.
         Math::Vector2Int m_renderSize { 0, 0 };
+
+        RHI::RHIHandle m_curSwapChainView;
     };
 
     // ============================================================

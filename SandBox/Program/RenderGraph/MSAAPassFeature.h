@@ -43,17 +43,12 @@ namespace Spark::SandBox
         void UpdateViewBindings();
         void BuildDrawRequest();
 
-        Spark::RHI::RHIHandle FindSwapChainView() const;
-
         // Per-pass ShaderBindings (new ShaderInput path).
         Spark::RHI::RHIHandle           m_viewBindingsEntity = Spark::RHI::NullHandle;
         Ptr<Spark::RHI::ShaderBindings> m_viewBindings;
 
         // Vertex buffer (in RHIContext)
         Spark::RHI::RHIHandle m_vbEntity     = Spark::RHI::NullHandle;
-
-        // Swap chain view (looked up from RHIContext at Init time)
-        Spark::RHI::RHIHandle m_swapchainView = Spark::RHI::NullHandle;
 
         Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
 

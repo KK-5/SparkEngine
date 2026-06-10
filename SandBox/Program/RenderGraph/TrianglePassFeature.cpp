@@ -69,13 +69,6 @@ namespace Spark::SandBox
 
     bool TrianglePassFeature::Init()
     {
-        m_swapchainView = FindSwapChainView();
-        if (m_swapchainView == Spark::RHI::NullHandle)
-        {
-            LOG_ERROR("[TrianglePassFeature] No swap chain view found in RHIContext.");
-            return false;
-        }
-
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
         Spark::RHI::Viewport viewport(
@@ -135,21 +128,6 @@ namespace Spark::SandBox
     void TrianglePassFeature::OnTick(float /*deltaTime*/)
     {
         UpdateViewBindings();
-    }
-
-    Spark::RHI::RHIHandle TrianglePassFeature::FindSwapChainView() const
-    {
-        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
-        Spark::RHI::RHIHandle found = Spark::RHI::NullHandle;
-        ctx.GetView<Spark::Render::SwapChainViews>().each(
-            [&](Spark::RHI::RHIHandle h, const Spark::Render::SwapChainViews&)
-            {
-                if (found == Spark::RHI::NullHandle)
-                {
-                    found = h;
-                }
-            });
-        return found;
     }
 
     void TrianglePassFeature::CreateViewBindings()
@@ -226,7 +204,7 @@ namespace Spark::SandBox
             {
                 Spark::Render::ImportedImageAttachmentBindInfo colorBind;
                 colorBind.m_slot   = Spark::RHI::InputName("ColorOutput");
-                colorBind.m_view   = m_swapchainView;
+                colorBind.m_view   = builder.GetCurrentSwapChainView();
                 colorBind.m_access = Spark::RHI::AttachmentAccess::Write;
                 colorBind.m_usage  = Spark::RHI::AttachmentUsage::RenderTarget;
                 colorBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;

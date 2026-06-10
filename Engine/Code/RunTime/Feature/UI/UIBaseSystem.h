@@ -7,6 +7,7 @@
 #include <ECS/WorldContext.h>
 #include <HashString/HashString.h>
 #include <Tick/TickBus.h>
+#include <Math/Vector2.h>
 
 namespace Spark::UI
 {
@@ -36,6 +37,8 @@ namespace Spark::UI
 
         virtual bool WantCaptureMouse()    const = 0;  // 检查UI是否需要捕获鼠标事件，如果是，此事件不应被输入系统响应
         virtual bool WantCaptureKeyboard() const = 0;  // 同上，检查UI是否需要捕获键盘事件
+
+        virtual Math::Vector2Int GetFrameBufferSize() const = 0;
 
     protected:
         class TickHandlerFrameStart final : public TickBus::Handler

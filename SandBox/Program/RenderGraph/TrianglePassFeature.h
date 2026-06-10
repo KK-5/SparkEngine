@@ -43,8 +43,6 @@ namespace Spark::SandBox
         void UpdateViewBindings();
         void BuildDrawRequest();
 
-        Spark::RHI::RHIHandle FindSwapChainView() const;
-
         // Per-pass ShaderBindings (new ShaderInput path). Entity lives in
         // RHIContext so CompileShaderInputs can discover it; m_viewBindings
         // is the user-facing Ptr<> for SetXxx data updates.
@@ -56,9 +54,6 @@ namespace Spark::SandBox
         // up PendingSync from AsyncUploadSystem and emits the queue.Wait + acquire
         // barrier on the graphics queue.
         Spark::RHI::RHIHandle m_vbEntity     = Spark::RHI::NullHandle;
-
-        // Swap chain view (looked up from RHIContext at Init time)
-        Spark::RHI::RHIHandle m_swapchainView = Spark::RHI::NullHandle;
 
         Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
 

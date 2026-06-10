@@ -48,8 +48,6 @@ namespace Spark::SandBox
         void LoadAsset();
         void CreateImage();
 
-        Spark::RHI::RHIHandle FindSwapChainView() const;
-
         // Per-pass ShaderBindings (new ShaderInput path).
         Spark::RHI::RHIHandle           m_viewBindingsEntity = Spark::RHI::NullHandle;
         Ptr<Spark::RHI::ShaderBindings> m_viewBindings;
@@ -59,9 +57,6 @@ namespace Spark::SandBox
         Spark::RHI::RHIHandle m_indexEntity     = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_imageEntity     = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_imageViewEntity = Spark::RHI::NullHandle;
-
-        // Swap chain view (looked up from RHIContext at Init time)
-        Spark::RHI::RHIHandle m_swapchainView = Spark::RHI::NullHandle;
 
         Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
 

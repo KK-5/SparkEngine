@@ -162,7 +162,7 @@ namespace Spark::Render
         // Iterate passes in declaration order so that attachment version
         // tracking (LookupLatestVersion / BumpVersion) converges deterministically
         // regardless of entt's pool order.
-        m_builder.Begin(frameIndex, renderSize);
+        m_builder.Begin(frameIndex, m_swapchainView, renderSize);
         for (Pass pass : passContext.GetPassesInDeclOrder())
         {
             if (!passContext.Has<ActivePassTag>(pass))
