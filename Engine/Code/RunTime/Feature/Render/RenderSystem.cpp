@@ -97,7 +97,8 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
-        DepthPrePass::SetUp(passContext, DepthPrePass::DefaultConfig());
+        auto depthPrePassCfg = DepthPrePass::DefaultConfig();
+        DepthPrePass::SetUp(passContext, depthPrePassCfg);
 
         CopyFrameBufferPass::SetUp(passContext);
 

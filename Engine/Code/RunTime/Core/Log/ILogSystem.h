@@ -103,7 +103,23 @@ namespace Spark
 
 #define LOG_ERROR(...) LOG_HELPER(LogLevel::Error, __VA_ARGS__)
 
-#define LOG_CIRTICAL(...) LOG_HELPER(LogLevel::Critical, __VA_ARGS__)
+// Cross-platform debugger break. No-op in shipping builds.
+#if defined(NDEBUG)
+    #define SPARK_DEBUGBREAK() ((void)0)
+#elif defined(_MSC_VER)
+    #define SPARK_DEBUGBREAK() __debugbreak()
+#elif defined(__clang__) || defined(__GNUC__)
+    #define SPARK_DEBUGBREAK() __builtin_debugtrap()
+#else
+    #include <csignal>
+    #define SPARK_DEBUGBREAK() std::raise(SIGTRAP)
+#endif
+
+#define LOG_CIRTICAL(...) \
+    do { \
+        LOG_HELPER(LogLevel::Critical, __VA_ARGS__); \
+        SPARK_DEBUGBREAK(); \
+    } while (0)
 
 #ifdef NODEBUG
 #define ASSERT(expression, ...)
@@ -112,6 +128,9 @@ namespace Spark
     do                                                                                            \
     {                                                                                             \
         (void)sizeof(expression);                                                                 \
-        expression ? (void)0 : LOG_CIRTICAL("{}:{} {}",__FILE__, __LINE__, fmt::format(__VA_ARGS__));        \
+        if (!(expression))                                                                        \
+        {                                                                                         \
+            LOG_CIRTICAL("{}:{} {}", __FILE__, __LINE__, fmt::format(__VA_ARGS__));               \
+        }                                                                                         \
     } while (0)
 #endif

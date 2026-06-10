@@ -16,7 +16,7 @@ namespace Spark::Render
 {
     void CopyFrameBufferPass::SetUp(PassContext& ctx)
     {
-        SPARK_RENDER_PASS(ctx, "CopyFrameBufferPass")
+        SPARK_COMPUTE_PASS(ctx, "CopyFrameBufferPass")
             .Queue(RHI::HardwareQueueClass::Copy)
             .CustomPipeline()
             .Build([](RenderGraphBuilder& builder)
@@ -54,7 +54,7 @@ namespace Spark::Render
                 if (ui)
                 {
                     Math::Vector2Int pos = ui->GetFrameBufferPos();
-                    dstOrigin = RHI::Origin{pos.x, pos.y, 0};
+                    dstOrigin = RHI::Origin{static_cast<uint32_t>(pos.x), static_cast<uint32_t>(pos.y), 0};
                 }
 
                 RHI::CopyItem item;
@@ -69,6 +69,7 @@ namespace Spark::Render
 
                 work.m_commandList->Submit(item);
             })
+            .Finalize()
         ;
     }
 }

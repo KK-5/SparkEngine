@@ -30,6 +30,8 @@ namespace Spark::Render
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
         RHI::RenderTargetLayout rt;
+        rt.m_colorAttachmentCount = 1;
+        rt.m_colorFormats[0] = RHI::Format::R8G8B8A8_UNORM;
         rt.m_depthStencilFormat = RHI::Format::D32_FLOAT;
 
         RHI::InputStreamLayout input;
@@ -47,6 +49,7 @@ namespace Spark::Render
 
         RenderPassConfig cfg;
         cfg.m_vertexShader       = shaderAsset;
+        cfg.m_fragmentShader     = shaderAsset;
         cfg.m_renderTargetLayout = rt;
         cfg.m_inputLayout        = input;
         cfg.m_renderStates       = states;
@@ -59,11 +62,12 @@ namespace Spark::Render
         SPARK_RENDER_PASS(ctx, "DepthPrePass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .VertexShader(cfg.m_vertexShader)
+            .FragmentShader(cfg.m_fragmentShader)
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
-            .Build([&](RenderGraphBuilder& builder)
+            .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil | RHI::ImageBindFlags::ShaderRead,
@@ -87,6 +91,27 @@ namespace Spark::Render
                     RHI::AttachmentAccess::Write
                 );
 
+                auto colorDesc = RHI::ImageDescriptor::Create2D(
+                    RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyRead,
+                    builder.GetRenderSize().x,
+                    builder.GetRenderSize().y,
+                    RHI::Format::R8G8B8A8_UNORM);
+
+                Render::ImageAttachmentBindInfo colorBind;
+                colorBind.m_slot  = RHI::InputName("SceneColor");
+                colorBind.m_usage = RHI::AttachmentUsage::RenderTarget;
+                colorBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
+                colorBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
+                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                colorBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                builder.CreateImageAttachment<SPARK_PASS_TAG("DepthPrePass")>(
+                    RHI::AttachmentId("SceneColor"),
+                    colorDesc,
+                    colorBind,
+                    RHI::AttachmentAccess::Write
+                );
+
             })
             .Execute([](ExecuteWork& work, RenderGraphExecuter&)
             {
@@ -96,7 +121,9 @@ namespace Spark::Render
                 {
                     work.m_commandList->Submit(item); 
                 });
-            });
+            })
+            .Finalize()
+            ;
         ;
     }
 }

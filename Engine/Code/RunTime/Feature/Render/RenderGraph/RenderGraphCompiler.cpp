@@ -1142,6 +1142,11 @@ namespace
 
     void RenderGraphCompiler::CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context)
     {
+        if (!passContext.Has<RenderPassTag>(pass))
+        {
+            return;
+        }
+
         RHI::RenderPassBeginInfo info;
         bool hasAny = false;
 

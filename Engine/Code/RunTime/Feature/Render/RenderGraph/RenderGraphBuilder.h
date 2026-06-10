@@ -301,7 +301,7 @@ namespace Spark::Render
         auto it = m_latestVersions.find(name);
         ASSERT(it != m_latestVersions.end(),
             "AttachmentId '{}' has not been declared (Create / Import) yet. "
-            "Passes must be declared in dependency order — a Read/Write must "
+            "Passes must be declared in dependency order, a Read/Write must "
             "appear after the corresponding Create/Import.",
             name.GetCStr());
         return it->second;
