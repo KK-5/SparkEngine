@@ -45,6 +45,14 @@ namespace Spark::Render
     {
     };
 
+    //! Marks a pass that does raw command-list copy/blit/resolve work (no shaders,
+    //! no PSO, no render targets). Discriminator alongside RenderPassTag /
+    //! ComputePassTag; also the natural hook for future automated copy-command
+    //! synthesis from declared attachments.
+    struct CopyPassTag
+    {
+    };
+
     struct RayTracingPassTag
     {
     };

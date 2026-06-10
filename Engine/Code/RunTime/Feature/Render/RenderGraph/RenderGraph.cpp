@@ -184,10 +184,14 @@ namespace Spark::Render
         // Compile
         m_compiler.Begin(frameIndex);
 
+        // Transient resources and their views must be materialized before
+        // CompileShaderInputs: a transient view has to be resolved and wired into
+        // its ShaderBindings before the bindings are compiled into descriptors.
+        m_compiler.CompileTransientResources(passes, *m_pool);
+
         m_compiler.CompileShaderInputs(*m_device, context);
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
         m_compiler.CompileDrawRequests(*m_device, context, m_pipelineLibrary.get());
-        m_compiler.CompileTransientResources(passes, *m_pool);
 
         StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);
 

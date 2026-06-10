@@ -215,22 +215,11 @@ namespace
 
     void RenderGraphCompiler::End()
     {
-        auto& context = *RHIExecuteContext::Current();
-
-        // Attachment entities are build/compile inputs only; executer reads
-        // PassBarriers / RenderPassBeginInfo on Pass entities. Destroy them so
-        // next frame's ValidateUniqueSlot doesn't trip over stale slot names.
-        auto imageAttachments = context.GetView<ImagePassAttachment>(Exclude<StaticImportTag>);
-        imageAttachments.each([&](RHIHandle handle, ImagePassAttachment&)
-        {
-            context.DestoryEntity(handle);
-        });
-
-        auto bufferAttachments = context.GetView<BufferPassAttachment>(Exclude<StaticImportTag>);
-        bufferAttachments.each([&](RHIHandle handle, BufferPassAttachment&)
-        {
-            context.DestoryEntity(handle);
-        });
+        // Attachment entities are the pass→resource edges. They are NOT destroyed
+        // here: Execute needs them to resolve "which resource does this pass use at
+        // slot S" (see FindPassAttachmentImage / FindPassAttachmentImageView). They
+        // are destroyed in RenderGraphExecuter::End(), after Execute, but still
+        // before next frame's Build — so next frame's ValidateUniqueSlot is unaffected.
 
         // Per-resource compile-time state cursor is now cleared in
         // Executer::End(), after frame-end PendingSync update consumes it.

@@ -16,9 +16,11 @@ namespace Spark::Render
 {
     void CopyFrameBufferPass::SetUp(PassContext& ctx)
     {
-        SPARK_COMPUTE_PASS(ctx, "CopyFrameBufferPass")
-            .Queue(RHI::HardwareQueueClass::Copy)
-            .CustomPipeline()
+        // Writes the swap chain back buffer, which DX12 binds to the queue the
+        // swap chain was created on (Graphics). A command list touching the back
+        // buffer must run on that queue, so this copy cannot use the Copy queue.
+        SPARK_COPY_PASS(ctx, "CopyFrameBufferPass")
+            .Queue(RHI::HardwareQueueClass::Graphics)
             .Build([](RenderGraphBuilder& builder)
             {
                 Render::ImageAttachmentBindInfo bind;

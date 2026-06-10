@@ -64,12 +64,36 @@ namespace Spark::Render
                 rhiContext.DestoryEntity(h);
             }
 
-            // ResourceHierarchy on transient resource entities holds stale
-            // m_firstView handles to the view entities we just destroyed.
-            // TransientTag is on resource entities only, so this view finds
-            // exactly the resource entities (not the now-destroyed view entities).
+            // Attachment entities are the pass→resource edges. They live through
+            // Build/Compile/Execute (Execute resolves resources by slot via them)
+            // and are destroyed here, after Execute — but still before next frame's
+            // Build, so next frame's ValidateUniqueSlot sees no stale slot names.
+            // StaticImport attachments are excluded: they persist by design.
+            eastl::vector<RHIHandle> attachmentHandles;
+            rhiContext.GetView<ImagePassAttachment>(Exclude<StaticImportTag>).each(
+                [&](RHIHandle h, const ImagePassAttachment&) { attachmentHandles.push_back(h); });
+            rhiContext.GetView<BufferPassAttachment>(Exclude<StaticImportTag>).each(
+                [&](RHIHandle h, const BufferPassAttachment&) { attachmentHandles.push_back(h); });
+            for (RHIHandle h : attachmentHandles)
+            {
+                rhiContext.DestoryEntity(h);
+            }
+
+            // Transient resource entities are rebuilt every frame by the builder
+            // (CreateTransientImageResource / CreateTransientBufferResource), so they
+            // must be destroyed here too — otherwise they accumulate and next frame's
+            // name→resource lookup in CompileTransientResources can bind to a stale
+            // entity. The backing GPU memory is owned/recycled by the TransientResourcePool;
+            // destroying the entity only drops the borrowed BackingImage/BackingBuffer
+            // pointer. TransientTag is on resource entities only, so this view finds
+            // exactly them (their views/attachments were already destroyed above).
+            eastl::vector<RHIHandle> transientResourceHandles;
             rhiContext.GetView<TransientTag>().each(
-                [&](RHIHandle h) { rhiContext.Remove<ResourceHierarchy>(h); });
+                [&](RHIHandle h) { transientResourceHandles.push_back(h); });
+            for (RHIHandle h : transientResourceHandles)
+            {
+                rhiContext.DestoryEntity(h);
+            }
         }
 
         // Frame-scoped components on regular Pass entities. Pass entities themselves

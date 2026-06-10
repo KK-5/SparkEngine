@@ -419,6 +419,110 @@ namespace Spark::Render
     };
 
     // ================================================================
+    // CopyPassBuilder<PassTag>
+    //
+    // For passes that issue raw command-list copy/blit/resolve work: no
+    // shaders, no PSO, no render targets. Always a custom-pipeline pass and
+    // defaults to the Copy queue (override via Queue() if the copy must run on
+    // Graphics/Compute). Build declares the source/dest attachments; Execute
+    // resolves them (FindPassAttachmentImage) and submits the CopyItem.
+    // ================================================================
+    template<typename PassTag>
+    class CopyPassBuilder
+    {
+    public:
+        using BuildFunction   = eastl::function<void(RenderGraphBuilder&)>;
+        using CompileFunction = eastl::function<void(RenderGraphCompiler&)>;
+        using ExecuteFunction = eastl::function<void(ExecuteWork&, RenderGraphExecuter&)>;
+
+        CopyPassBuilder& Queue(RHI::HardwareQueueClass q)
+        {
+            m_queue = q;
+            return *this;
+        }
+
+        CopyPassBuilder& Inactive()
+        {
+            m_active = false;
+            return *this;
+        }
+
+        // ---- Functions ----
+        CopyPassBuilder& Build(BuildFunction fn)
+        {
+            m_buildFunction = eastl::move(fn);
+            return *this;
+        }
+
+        CopyPassBuilder& Compile(CompileFunction fn)
+        {
+            m_compileFunction = eastl::move(fn);
+            return *this;
+        }
+
+        CopyPassBuilder& Execute(ExecuteFunction fn)
+        {
+            m_executeFunction = eastl::move(fn);
+            return *this;
+        }
+
+        // ---- Finalize ----
+        Pass Finalize()
+        {
+            ASSERT(!m_finalized, "Copy pass '{}' is already finalized.", m_name.GetCStr());
+            ASSERT(m_buildFunction, "Copy pass '{}': Build function is required.", m_name.GetCStr());
+            ASSERT(m_executeFunction, "Copy pass '{}': Execute function is required.", m_name.GetCStr());
+
+            Pass pass = m_context->CreatePass();
+
+            ASSERT(m_context->GetView<PassTag>().size() == 0,
+                "Copy pass '{}' tag collides with an existing pass (duplicate name or 32-bit hash collision).",
+                m_name.GetCStr());
+            m_context->Add<PassTag>(pass);
+
+            m_context->Add<PassName>(pass, PassName{m_name});
+            m_context->Add<CopyPassTag>(pass);
+            // A copy pass never owns an engine PSO; tag it so the PSO compiler skips it.
+            m_context->Add<CustomPipelinePassTag>(pass);
+            m_context->Add<PassExecuteQueue>(pass, PassExecuteQueue{m_queue});
+            m_context->Add<PassAttachmentMarker>(pass, MarkPassAttachmentCompiling<PassTag>());
+
+            if (m_active)
+                m_context->Add<ActivePassTag>(pass);
+
+            PassFunctions funcs;
+            funcs.m_buildFunction   = eastl::move(m_buildFunction);
+            funcs.m_compileFunction = eastl::move(m_compileFunction);
+            funcs.m_executeFunction = eastl::move(m_executeFunction);
+            m_context->Add<PassFunctions>(pass, eastl::move(funcs));
+
+            m_finalized = true;
+            return pass;
+        }
+
+    private:
+        template<typename T>
+        friend CopyPassBuilder<T> RegisterCopyPass(PassContext&, ObjectName);
+
+        CopyPassBuilder(PassContext& ctx, ObjectName name)
+            : m_context(&ctx)
+            , m_name(name)
+        {
+        }
+
+        PassContext*            m_context;
+        ObjectName              m_name;
+        RHI::HardwareQueueClass m_queue   {RHI::HardwareQueueClass::Copy};
+        bool                    m_active  {true};
+
+        BuildFunction           m_buildFunction;
+        CompileFunction         m_compileFunction;
+        ExecuteFunction         m_executeFunction;
+
+        bool                    m_finalized {false};
+    };
+
+    // ================================================================
     // Factory functions
     // ================================================================
     template<typename PassTag>
@@ -433,6 +537,12 @@ namespace Spark::Render
         return ComputePassBuilder<PassTag>(ctx, name);
     }
 
+    template<typename PassTag>
+    CopyPassBuilder<PassTag> RegisterCopyPass(PassContext& ctx, ObjectName name)
+    {
+        return CopyPassBuilder<PassTag>(ctx, name);
+    }
+
 } // namespace Spark::Render
 
 #define SPARK_RENDER_PASS(ctx, NAME) \
@@ -440,3 +550,6 @@ namespace Spark::Render
 
 #define SPARK_COMPUTE_PASS(ctx, NAME) \
     ::Spark::Render::RegisterComputePass<SPARK_PASS_TAG(NAME)>((ctx), ::Spark::ObjectName(NAME))
+
+#define SPARK_COPY_PASS(ctx, NAME) \
+    ::Spark::Render::RegisterCopyPass<SPARK_PASS_TAG(NAME)>((ctx), ::Spark::ObjectName(NAME))
