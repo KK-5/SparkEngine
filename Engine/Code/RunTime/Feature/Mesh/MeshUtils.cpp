@@ -94,7 +94,7 @@ void ExtractMeshToWorld(Ptr<Resource::ModelAsset> model, WorldContext& context)
         const size_t primCount = mesh->primitives.size();
         for (size_t p = 0; p < primCount; ++p)
         {
-            eastl::string primName = mesh->name + "_" + eastl::to_string(p);
+            eastl::string primName = p == 0 ?  mesh->name : mesh->name + "." + eastl::to_string(p);
             Entity primEntity = context.CreateEntity(primName);
 
             MeshComponent meshComp;

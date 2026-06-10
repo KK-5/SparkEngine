@@ -187,7 +187,7 @@ namespace Spark::Mesh
         RHI::RHIHandle vbEntity = rhiCtx->CreateEntity();
         {
             RHI::BufferDescriptor desc;
-            desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly;
+            desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
             desc.m_byteCount = prim.vertexBuffer.size();
 
             RHI::PendingBufferInit init;
@@ -208,7 +208,7 @@ namespace Spark::Mesh
             ibEntity = rhiCtx->CreateEntity();
 
             RHI::BufferDescriptor desc;
-            desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly;
+            desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
             desc.m_byteCount = prim.indexBuffer.size();
 
             RHI::PendingBufferInit init;

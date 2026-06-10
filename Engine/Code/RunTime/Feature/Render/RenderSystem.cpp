@@ -160,7 +160,20 @@ namespace Spark::Render
         // Driver decides the render-output resolution and hands it to the graph,
         // which threads it to Build callbacks via the builder. Today that's the
         // window size; an editor would feed its viewport panel size here instead.
-        const Math::Vector2Int renderSize = Service<Window::IWindowSystem>::Get()->GetWindowSize();
+        // const Math::Vector2Int renderSize = Service<Window::IWindowSystem>::Get()->GetWindowSize();
+        auto* ui = Service<UI::UIBaseSystem>::Get();
+        Math::Vector2Int renderSize;
+        if (ui)
+        {
+            renderSize = ui->GetFrameBufferSize();
+        }
+        else
+        {
+            renderSize = Math::Vector2Int(
+                m_swapChain->GetDescriptor().m_dimensions.m_imageWidth,
+                m_swapChain->GetDescriptor().m_dimensions.m_imageHeight
+            );
+        }
 
         m_uiProcessFeature.Process();
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);

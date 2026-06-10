@@ -20,6 +20,10 @@ namespace Spark::Mesh
                 .Custom<Spark::UIntElement>(0, 255, 1, true)
             .Data<&MeshComponent::m_primitiveIndex>("Primitive Index")
                 .Custom<Spark::UIntElement>(0, 255, 1, true)
+            .Data<&MeshComponent::m_vertexCount>("Vertex Count")
+                .Custom<Spark::UIntElement>(0, static_cast<uint32_t>(-1), 1, true)
+            .Data<&MeshComponent::m_triangleCount>("Triangle Count")
+                .Custom<Spark::UIntElement>(0, static_cast<uint32_t>(-1), 1, true)
             ;
 
         Spark::ComponentOpertion<MeshComponent>(context);

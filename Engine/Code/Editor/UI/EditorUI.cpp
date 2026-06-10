@@ -101,6 +101,34 @@ namespace Editor
         m_componentView->Draw();
     }
 
+    Math::Vector2Int EditorUI::GetFrameBufferSize() const
+    {
+        ImGuiWindow* window = ImGui::FindWindowByName("Scene View");
+        if (window && window->DockNode)
+        {
+            ImVec2 dockSize = window->DockNode->Size;
+            return Math::Vector2Int(static_cast<int>(dockSize.x), static_cast<int>(dockSize.y));
+        }
+
+        return Math::Vector2Int(1024, 576);
+    }
+
+    bool EditorUI::WantCaptureMouse() const
+    {
+        ImGuiWindow* window = ImGui::FindWindowByName("Scene View");
+        if (window && window->DockNode)
+        {
+            ImVec2 dockPos  = window->DockNode->Pos;
+            ImVec2 dockSize = window->DockNode->Size;
+            if (m_lastMouseX >= dockPos.x && m_lastMouseX <= dockPos.x + dockSize.x &&
+                m_lastMouseY >= dockPos.y && m_lastMouseY <= dockPos.y + dockSize.y)
+            {
+                return false;
+            }
+        }
+        return ImGui::GetIO().WantCaptureMouse;
+    }
+
     void EditorUI::OnMouseButtonEvent(Spark::Input::MouseButtonEvent event)
     {
         using namespace Spark::Input;
@@ -160,7 +188,8 @@ namespace Editor
 
     void EditorUI::OnMouseCursorPosEvent(Spark::Input::MouseCursorPosEvent event)
     {
-        // GLFWwindow* window = static_cast<GLFWwindow*>(Service<Window::IWindowSystem>::Get()->GetWindowHandle());
+        m_lastMouseX = event.xPos;
+        m_lastMouseY = event.yPos;
 
         ImGuiIO& io = ImGui::GetIO();
         io.AddMousePosEvent(event.xPos, event.yPos);

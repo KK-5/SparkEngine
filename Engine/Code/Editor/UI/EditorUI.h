@@ -31,6 +31,11 @@ namespace Editor
         void ShutdownInternal() override;
         void DrawUI() override;
 
+        bool WantCaptureMouse() const override;
+        // bool WantCaptureKeyboard() const override;
+
+        Math::Vector2Int GetFrameBufferSize() const override;
+
         // InputEventBus
         void OnMouseButtonEvent(Spark::Input::MouseButtonEvent event) override;
         void OnMouseCursorPosEvent(Spark::Input::MouseCursorPosEvent event) override;
@@ -41,6 +46,8 @@ namespace Editor
         void SetupDefaultLayout(ImGuiID dockspaceId);
 
         bool m_dockLayoutInit;
+        float m_lastMouseX = 0.0f;
+        float m_lastMouseY = 0.0f;
 
         eastl::unique_ptr<MenuBar>       m_menuBar;
         eastl::unique_ptr<BottomPanel>   m_bottomPanel;
