@@ -14,6 +14,8 @@
 
 #include <Resource/AssetManagerInterface.h>
 
+#include "../../../UI/UIBaseSystem.h"
+
 namespace Spark::Render
 {
     RenderPassConfig DepthPrePass::DefaultConfig()
@@ -53,6 +55,11 @@ namespace Spark::Render
         cfg.m_renderTargetLayout = rt;
         cfg.m_inputLayout        = input;
         cfg.m_renderStates       = states;
+
+
+        cfg.m_viewport = RHI::Viewport(0.f, 1920.f, 0.f, 1080.f);
+        cfg.m_scissor  = RHI::Scissor(0, 0, 1920, 1080);
+
 
         return cfg;
     }
