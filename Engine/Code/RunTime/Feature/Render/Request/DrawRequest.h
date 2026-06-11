@@ -47,8 +47,14 @@ namespace Spark::Render
         // for the DrawItem from the m_*BufferInfo offsets/stride.
         VertexBufferInfo m_vertexBufferInfo;
         IndexBufferInfo  m_indexBufferInfo;
-        RHI::RHIHandle m_vertexBuffer = RHI::NullHandle;
-        RHI::RHIHandle m_indexBuffer  = RHI::NullHandle;
+        RHI::RHIHandle   m_vertexBuffer = RHI::NullHandle;
+        RHI::RHIHandle   m_indexBuffer  = RHI::NullHandle;
+
+
+        uint8_t m_scissorsCount  = 0;
+        uint8_t m_viewportsCount = 0;
+        eastl::fixed_vector<RHI::Viewport, RHI::Limits::Pipeline::AttachmentColorCountMax> m_viewports;
+        eastl::fixed_vector<RHI::Scissor,  RHI::Limits::Pipeline::AttachmentColorCountMax> m_scissors;
 
         // Per-draw ShaderBindings entities. User creates them via
         // CreateShaderBindings(), populates shader inputs, and marks dirty.
@@ -58,8 +64,8 @@ namespace Spark::Render
         // Optional per-draw PSO variant: override the pass-level vertex/fragment
         // shader and/or fixed-function render states. When both are default
         // (nullptr / nullopt), the draw inherits the pass PSO.
-        Ptr<Resource::ShaderAsset>       m_vertexShaderOverride;
-        Ptr<Resource::ShaderAsset>       m_fragmentShaderOverride;
+        Ptr<Resource::ShaderAsset>         m_vertexShaderOverride;
+        Ptr<Resource::ShaderAsset>         m_fragmentShaderOverride;
         eastl::optional<RHI::RenderStates> m_renderStatesOverride;
     };
 }

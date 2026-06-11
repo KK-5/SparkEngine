@@ -1410,6 +1410,11 @@ namespace
                 }
             }
 
+            item.m_viewportsCount = req.m_viewportsCount;
+            item.m_viewports      = req.m_viewports;
+            item.m_scissorsCount  = req.m_scissorsCount;
+            item.m_scissors       = req.m_scissors;
+
 
             // PSO (TBD): pass PSO is bound by executer at pass begin. Per-draw
             // PSO variants from m_vertexShaderOverride / m_fragmentShaderOverride
