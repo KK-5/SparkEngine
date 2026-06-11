@@ -82,9 +82,9 @@ namespace Editor
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0,0,0,0));
         ImGui::Begin("Main Window", nullptr, window_flags);
-        ImGui::PopStyleVar(3);
+        
 
         m_menuBar->Draw();
         
@@ -94,6 +94,8 @@ namespace Editor
         SetupDefaultLayout(dockspaceId);
 
         ImGui::End();
+        ImGui::PopStyleVar(3);
+        ImGui::PopStyleColor();
 
         m_bottomPanel->Draw();
         m_sceneView->Draw();

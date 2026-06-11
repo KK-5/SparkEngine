@@ -19,7 +19,8 @@ namespace Editor
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar 
                                 | ImGuiWindowFlags_NoScrollWithMouse
                                 | ImGuiWindowFlags_NoTitleBar
-                                | ImGuiWindowFlags_NoInputs;
+                                | ImGuiWindowFlags_NoInputs
+                                | ImGuiWindowFlags_NoBackground;
         ImGui::Begin("Scene View", nullptr, flags);
 
         ImVec2 viewportPos  = ImGui::GetCursorScreenPos();
@@ -30,12 +31,6 @@ namespace Editor
             return;
         }
 
-        /*
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            viewportPos,
-            ImVec2(viewportPos.x + viewportSize.x, viewportPos.y + viewportSize.y),
-            IM_COL32(30, 30, 30, 255));
-        */
 
         ImGui::InvisibleButton("SceneViewport", viewportSize);
         ImGui::PushStyleColor(ImGuiCol_DragDropTarget, IM_COL32(0, 0, 0, 0));
