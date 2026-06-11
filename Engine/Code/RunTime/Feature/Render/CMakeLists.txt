@@ -5,6 +5,7 @@ set(SOURCES
     Feature/UI/UIProcessFeature.cpp
     Feature/UI/CopyFrameBufferPass.cpp
     Feature/DepthPre/DepthPrePass.cpp
+    Feature/DepthPre/DepthPreProcessor.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp

@@ -14,6 +14,7 @@
 
 #include "Feature/UI/RenderUI.h"
 #include "Feature/UI/UIProcessFeature.h"
+#include "Feature/DepthPre/DepthPreProcessor.h"
 
 namespace Spark::Render
 {
@@ -55,6 +56,7 @@ namespace Spark::Render
         
         RenderUI m_rednerUI;
         UIProcessFeature m_uiProcessFeature;
+        DepthPreProcessor m_depthPreProcessor;
 
         Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;

@@ -7,6 +7,7 @@
 #include <RHI/Pipeline/RenderTargetLayout.h>
 #include <RHI/Pipeline/PipelineStateDescriptor.h>
 #include <RHI/Command/CommandList.h>
+#include <RHI/Context/RHIContext.h>
 
 #include <Pass/Pass.h>
 #include <Pass/PassTag.h>
@@ -102,22 +103,39 @@ namespace Spark::Render
 
         CopyFrameBufferPass::SetUp(passContext);
 
+        auto* rhiCtxForInit = RHI::RHIExecuteContext::Current();
+        if (rhiCtxForInit)
+        {
+            m_depthPreProcessor.Init(passContext, *rhiCtxForInit);
+        }
+
         SPARK_RENDER_PASS(passContext, "UIPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .CustomPipeline()
             .Build([this](RenderGraphBuilder& builder)
             {
+                
                 ImportedImageAttachmentBindInfo bind;
                 bind.m_slot   = RHI::InputName("ColorOutput");
                 bind.m_view   = m_renderGraph.GetSwapchainView();
                 bind.m_access = RHI::AttachmentAccess::Write;
                 bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
-                bind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(1.f, 0.f, 0.f, 1.f);
-                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(
                     RHI::AttachmentId("SwapChain"), bind);
+                
+                /*
+                ImageAttachmentBindInfo bind;
+                bind.m_slot   = RHI::InputName("ColorOutput");
+                bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
+                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                builder.WriteImageAttachment<SPARK_PASS_TAG("UIPass")>(
+                    RHI::AttachmentId("SwapChain"), bind);
+                */
             })
             .Execute([this](ExecuteWork& work, RenderGraphExecuter&)
             {
@@ -146,6 +164,9 @@ namespace Spark::Render
     void RenderSystem::ShutdownInternal()
     {
         TickBus::Handler::BusDisconnect();
+
+        m_depthPreProcessor.Shutdown(m_pipeline.GetPassContext());
+
         PassExecuteContext::Pop();
 
         // RenderGraph::Shutdown drains the GPU and destroys the swap chain
@@ -180,6 +201,7 @@ namespace Spark::Render
         }
 
         m_uiProcessFeature.Process();
+        m_depthPreProcessor.Process(renderSize);
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
         m_swapChain->Present();
     }
