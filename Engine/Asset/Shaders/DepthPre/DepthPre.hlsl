@@ -23,15 +23,11 @@ VSOutput VSMain(VSInput input)
     VSOutput output;
     float4 worldPos = mul(g_Model, float4(input.position, 1.0));
     output.position = mul(g_ViewProjection, worldPos);
-    // output.position.w = view-space z. Use linear depth for visible gradation.
-    output.depth    = output.position.w;
+    output.depth    = output.position.z / output.position.w;
     return output;
 }
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    // Normalize by a reasonable range (e.g. 20 world units).
-    // Objects beyond this distance clip to white.
-    float linearDepth = saturate(input.depth / 20.0);
-    return float4(linearDepth, linearDepth, linearDepth, 1.0);
+    return float4(input.depth, input.depth, input.depth, 1.0);
 }
