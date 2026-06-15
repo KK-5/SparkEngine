@@ -43,7 +43,11 @@ namespace Spark::Render
     {
         RHI::InputName                 m_slot;
         RHI::InputName                 m_resolveSourceSlot;
-        RHIHandle                      m_view  {NullHandle};
+        //! The imported image resource entity (e.g. GetCurrentSwapChainResource()),
+        //! plus the view descriptor to resolve against it. The view comes from the
+        //! resource's view cache (single-frame or per-frame), not a pre-built view entity.
+        RHIHandle                      m_image {NullHandle};
+        RHI::ImageViewDescriptor       m_viewDescriptor {};
         RHI::AttachmentAccess          m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
@@ -160,7 +164,7 @@ namespace Spark::Render
         //! becomes per-view-keyed when multi-view lands.
         Math::Vector2Int GetRenderSize() const { return m_renderSize; }
 
-        RHI::RHIHandle GetCurrentSwapChainView() const { return m_curSwapChainView; }
+        RHI::RHIHandle GetCurrentSwapChainResource() const { return m_curSwapChainResource; }
 
     private:
         friend class RenderGraph;
@@ -173,7 +177,7 @@ namespace Spark::Render
 
         eastl::vector<Pass> TopoSort();
 
-        void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainView, const Math::Vector2Int& renderSize);
+        void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource, const Math::Vector2Int& renderSize);
 
         eastl::vector<Pass> End();
 
@@ -254,7 +258,7 @@ namespace Spark::Render
         // by Build callbacks via GetRenderSize. Frame-scoped input, not state.
         Math::Vector2Int m_renderSize { 0, 0 };
 
-        RHI::RHIHandle m_curSwapChainView;
+        RHI::RHIHandle m_curSwapChainResource;
     };
 
     // ============================================================
@@ -384,55 +388,38 @@ namespace Spark::Render
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ValidateImportedView(bind.m_view, name, /*image=*/true);
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
-        RHIHandle resource = rhiContext.Get<ViewHierarchy>(bind.m_view).m_resource;
+        RHIHandle resource = bind.m_image;
+        ASSERT(resource != NullHandle, "ImportImageAttachment: bind.m_image is NullHandle.");
 
-        // Auto-attach ImportedTag on the resource entity.
-        // ImportedTag is a resource-level concept — views inherit their
-        // lifecycle classification from the parent resource via ViewHierarchy.
+        // ImportedTag is a resource-level concept.
         if (!rhiContext.Has<ImportedTag>(resource))
+        {
             rhiContext.Add<ImportedTag>(resource);
+        }
 
-        // Materialize BackingImage / BackingImageView from the owning resource.
-        // Single-frame variants (Image / ImageView) write once and never change.
-        // Per-frame variants (ImagePerFrame / ImageViewPerFrame) point at the
-        // current frame's slot — refreshed every frame by
-        // RenderGraph::RefreshPerFrameBackings for already-imported entities;
-        // first-frame imports are handled here using m_frameIndex.
+        // Materialize BackingImage for single-frame imports from the owning Image
+        // component (write once). Per-frame resources (ImagePerFrame / swap chain
+        // SwapChainImages) get BackingImage refreshed every frame by
+        // RenderGraph::RefreshPerFrameBackings, which runs before Build — nothing to do here.
+        // The view itself is resolved on demand from the resource's view cache
+        // (GetOrCreateImageView / GetOrCreateImageViewPerFrame), not materialized here.
         if (auto* img = rhiContext.TryGet<Image>(resource))
         {
             if (!rhiContext.Has<BackingImage>(resource))
+            {
                 rhiContext.Add<BackingImage>(resource, BackingImage{ img->m_image.get() });
-        }
-        else if (auto* imgPF = rhiContext.TryGet<ImagePerFrame>(resource))
-        {
-            rhiContext.AddOrReplace<BackingImage>(resource,
-                BackingImage{ imgPF->m_images[m_frameIndex].get() });
-        }
-
-        if (auto* view = rhiContext.TryGet<ImageView>(bind.m_view))
-        {
-            if (!rhiContext.Has<BackingImageView>(bind.m_view))
-                rhiContext.Add<BackingImageView>(bind.m_view, BackingImageView{ view->m_view.get() });
-        }
-        else if (auto* viewPF = rhiContext.TryGet<ImageViewPerFrame>(bind.m_view))
-        {
-            rhiContext.AddOrReplace<BackingImageView>(bind.m_view,
-                BackingImageView{ viewPF->m_views[m_frameIndex].get() });
+            }
         }
 
         if constexpr (s_buildValidation)
         {
             ASSERT(rhiContext.Has<BackingImage>(resource),
-                "Imported resource {} has no BackingImage. Caller must attach "
-                "Image (single-frame) or ImagePerFrame (per-frame) before importing.",
-                name.GetCStr());
-            ASSERT(rhiContext.Has<BackingImageView>(bind.m_view),
-                "Imported view for {} has no BackingImageView. Caller must attach "
-                "ImageView (single-frame) or ImageViewPerFrame (per-frame) before importing.",
+                "Imported resource {} has no BackingImage. Single-frame: attach an Image "
+                "component before importing; per-frame: ensure RefreshPerFrameBackings ran "
+                "(ImagePerFrame / SwapChainImages).",
                 name.GetCStr());
         }
 
@@ -444,7 +431,8 @@ namespace Spark::Render
         a.m_usage             = bind.m_usage;
         a.m_stage             = bind.m_stage;
         a.m_action            = bind.m_action;
-        a.m_view              = bind.m_view;
+        a.m_viewDescriptor    = bind.m_viewDescriptor;
+        a.m_image             = resource;
         a.m_pass              = m_currentPass;
 
         m_latestVersions.emplace(name, 0u);
@@ -514,7 +502,7 @@ namespace Spark::Render
         a.m_access          = bind.m_access;
         a.m_usage           = bind.m_usage;
         a.m_stage           = bind.m_stage;
-        a.m_view            = bind.m_view;
+        a.m_buffer          = resource;
         a.m_pass            = m_currentPass;
 
         m_latestVersions.emplace(name, 0u);
@@ -542,13 +530,14 @@ namespace Spark::Render
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
-        CreateTransientImageResource(name, desc);
+        RHIHandle resource = CreateTransientImageResource(name, desc);
 
         ImagePassAttachment a;
         a.m_attachmentId      = AttachmentId{ name, 0 };
         a.m_slotName          = bind.m_slot;
         a.m_resolveSourceSlot = bind.m_resolveSourceSlot;
         a.m_access            = access;
+        a.m_image             = resource;
         a.m_usage             = bind.m_usage;
         a.m_stage             = bind.m_stage;
         a.m_action            = bind.m_action;
@@ -576,7 +565,7 @@ namespace Spark::Render
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
         }
 
-        CreateTransientBufferResource(name, desc);
+        RHIHandle resource = CreateTransientBufferResource(name, desc);
 
         BufferPassAttachment a;
         a.m_attachmentId    = AttachmentId{ name, 0 };
@@ -585,6 +574,7 @@ namespace Spark::Render
         a.m_usage           = bind.m_usage;
         a.m_stage           = bind.m_stage;
         a.m_viewDescriptor  = bind.m_view;
+        a.m_buffer          = resource;
         a.m_pass            = m_currentPass;
 
         m_latestVersions.emplace(name, 0u);

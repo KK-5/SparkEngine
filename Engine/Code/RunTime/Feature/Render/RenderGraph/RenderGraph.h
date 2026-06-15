@@ -46,7 +46,6 @@ namespace Spark::Render
         }
 
         RHIHandle GetSwapchainResource() const { return m_swapchainResource; }
-        RHIHandle GetSwapchainView() const     { return m_swapchainView; }
 
     private:
         //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame on
@@ -77,7 +76,6 @@ namespace Spark::Render
         RHI::CommandQueueContext  m_commandQueueContext;
         RHI::FenceSet             m_crossQueueFences;
         RHIHandle                 m_swapchainResource;
-        RHIHandle                 m_swapchainView;
 
         RenderGraphBuilder  m_builder;
         RenderGraphCompiler m_compiler;

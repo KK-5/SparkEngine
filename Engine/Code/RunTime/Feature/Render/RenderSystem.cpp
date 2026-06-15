@@ -94,7 +94,7 @@ namespace Spark::Render
         return true;
     }
 
-    void RenderSystem::BuildPipeline()
+    void RenderSystem::SetUpDefaultPipeline()
     {
         auto& passContext = m_pipeline.GetPassContext();
 
@@ -117,7 +117,7 @@ namespace Spark::Render
                 
                 ImportedImageAttachmentBindInfo bind;
                 bind.m_slot   = RHI::InputName("ColorOutput");
-                bind.m_view   = m_renderGraph.GetSwapchainView();
+                bind.m_image  = m_renderGraph.GetSwapchainResource();
                 bind.m_access = RHI::AttachmentAccess::Write;
                 bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
                 bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
@@ -154,7 +154,6 @@ namespace Spark::Render
         m_renderGraph.ImportSwapChain(*m_swapChain);
 
         InitRenderUI();
-        BuildPipeline();
 
         PassExecuteContext::Push(m_pipeline.GetPassContext());
 

@@ -60,6 +60,7 @@ namespace Spark
 
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();
+        m_renderSystem->SetUpDefaultPipeline();
 
         m_iconManager = CreateSystem<UI::IconManager>();
         m_iconManager->Init();

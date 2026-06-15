@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/array.h>
+#include <EASTL/fixed_vector.h>
 
 #include <Object/ObjectName.h>
 
@@ -32,12 +33,6 @@ namespace Spark::RHI
     struct ImportedTag {};
     struct TransientTag {};
     struct StaticImportTag {};
-
-    // Placed on VIEW entities whose parent resource is transient.
-    // Kept separate from TransientTag so cleanup queries can target views
-    // directly (TransientTag, ImageView → no match after refactor because
-    // ImageView lives on view entities while TransientTag lives on resources).
-    struct TransientViewTag {};
 
     // Resource multiplicity tags — determines single vs. per-frame allocation.
     // Absence of PerFrameTag defaults to single-frame behavior.
@@ -206,6 +201,32 @@ namespace Spark::RHI::Components
         Ptr<RHI::ImageView> m_view;
     };
 
+    //! One cached single-frame image view on a resource: its descriptor (cache key)
+    //! and the owning RHI view. The view pointer (m_view.get()) is stable for the
+    //! resource's lifetime, so consumers may bake it directly into compile products.
+    struct ImageViewCacheEntry
+    {
+        RHI::ImageViewDescriptor m_descriptor {};
+        Ptr<RHI::ImageView>      m_view;
+    };
+
+    //! Resource-owned, descriptor-keyed image view cache (lives on the RESOURCE
+    //! entity). A resource is pure memory; each distinct ImageViewDescriptor on it
+    //! is one shared (deduplicated) view. Views live here, NOT as separate entities:
+    //! they are lightweight, never shared across owners (only reused), carry only
+    //! closed per-view data, and are never queried across entities — i.e. the
+    //! resource's intrinsic data, so a bounded container is the right home (not the
+    //! "container-in-component" smell). Append is an in-place write (parallel-
+    //! friendly per resource) once the empty cache is pre-added at resource creation.
+    //!
+    //! Multiplicity mirrors the resource: single-frame resources (Image) carry this;
+    //! per-frame resources (ImagePerFrame) carry ImageViewCachePerFrame instead.
+    struct ImageViewCache
+    {
+        static constexpr uint32_t MaxViews = 8;
+        eastl::fixed_vector<ImageViewCacheEntry, MaxViews> m_entries;
+    };
+
     // Owning component holding a ShaderBindings instance. Placed on an entity by
     // Render::CreatePassShaderBindings so RenderGraphCompiler::CompileShaderInputs
     // can discover it via view iteration. Filter tag is ShaderBindingsUpdateTag.
@@ -238,5 +259,24 @@ namespace Spark::RHI::Components
     struct BufferViewPerFrame
     {
         FrameArray<Ptr<RHI::BufferView>> m_views {};
+    };
+
+    //! Per-frame counterpart of ImageViewCacheEntry: one descriptor keys N owning
+    //! views (one per frame-in-flight). Unlike the single-frame entry there is no
+    //! stable pointer to bake at compile time — the concrete view must be resolved
+    //! at execute by frameIndex (m_views[frameIndex].get()).
+    struct ImageViewCachePerFrameEntry
+    {
+        RHI::ImageViewDescriptor        m_descriptor {};
+        FrameArray<Ptr<RHI::ImageView>> m_views {};
+    };
+
+    //! Per-frame view cache on a per-frame resource entity (ImagePerFrame). See
+    //! ImageViewCache for the single-frame rationale; this variant differs only in
+    //! that each entry owns one view per frame-in-flight and is resolved by frame.
+    struct ImageViewCachePerFrame
+    {
+        static constexpr uint32_t MaxViews = 8;
+        eastl::fixed_vector<ImageViewCachePerFrameEntry, MaxViews> m_entries;
     };
 }

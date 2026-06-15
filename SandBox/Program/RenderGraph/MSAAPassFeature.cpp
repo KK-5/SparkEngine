@@ -253,7 +253,7 @@ namespace Spark::SandBox
                 Spark::Render::ImportedImageAttachmentBindInfo resolveBind;
                 resolveBind.m_slot   = Spark::RHI::InputName("ColorOutput");
                 resolveBind.m_resolveSourceSlot = RHI::InputName("MSAABind");
-                resolveBind.m_view   = builder.GetCurrentSwapChainView();
+                resolveBind.m_image  = builder.GetCurrentSwapChainResource();
                 resolveBind.m_access = Spark::RHI::AttachmentAccess::Write;
                 resolveBind.m_usage  = Spark::RHI::AttachmentUsage::Resolve;
                 resolveBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;

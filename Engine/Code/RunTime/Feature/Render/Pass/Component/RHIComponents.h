@@ -39,7 +39,6 @@ namespace Spark::Render
     using RHI::ImportedTag;
     using RHI::StaticImportTag;
     using RHI::TransientTag;
-    using RHI::TransientViewTag;
     using RHI::RHIUpdateTag;
     using RHI::ShaderBindingsUpdateTag;
     using RHI::ResourceName;
@@ -58,12 +57,10 @@ namespace Spark::Render
     ///////////////////////////////////////////////
 
     ///////////////////////////////////////////////
-    // SwapChain-specific components (Render-layer concept)
-    struct SwapChainViews
-    {
-        FrameArray<Ptr<RHI::ImageView>> imageViews;
-    };
-
+    // SwapChain-specific component (Render-layer concept). Holds the back-buffer
+    // images borrowed from the SwapChain (raw pointers — the swap chain owns them).
+    // Views are NOT stored here: they live in the resource's ImageViewCachePerFrame,
+    // built lazily per frame via GetOrCreateImageViewPerFrame.
     struct SwapChainImages
     {
         FrameArray<RHI::Image*> images;
@@ -162,12 +159,15 @@ namespace Spark::Render
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
         RHI::AttachmentLoadStoreAction m_action {};  // Only meaningful for RenderTarget / DepthStencil; ignored for Shader, Copy, etc.
-        //! View descriptor for transient attachments (m_view is NullHandle until
-        //! CompileTransientResources materializes the view). Ignored for imported
-        //! attachments — their m_view is already a fully formed view entity whose
-        //! descriptor lives on the view itself.
+        //! View descriptor keying this attachment's view in the resource's view
+        //! cache. The view is resolved on demand via GetOrCreateImageView(m_image,
+        //! m_viewDescriptor) — deduplicated and reused per resource.
         RHI::ImageViewDescriptor       m_viewDescriptor {};
-        RHIHandle                      m_view {NullHandle};
+        //! The image resource entity this attachment uses (its primary link).
+        //! Filled at Build for Create/Import and at compile (lifetime sweep) for
+        //! Read/Write. Views are resolved from this resource's cache, not stored
+        //! per attachment.
+        RHIHandle                      m_image {NullHandle};
         Pass                           m_pass {NullPass};
     };
 
@@ -180,7 +180,10 @@ namespace Spark::Render
         RHI::AttachmentStage      m_stage  = RHI::AttachmentStage::Any;
         //! See ImagePassAttachment::m_viewDescriptor.
         RHI::BufferViewDescriptor m_viewDescriptor {};
-        RHIHandle                 m_view {NullHandle};
+        //! The buffer resource entity this attachment uses (its primary link).
+        //! Mirrors ImagePassAttachment::m_image. Filled at Build for Create/Import
+        //! and at compile (lifetime sweep) for Read/Write.
+        RHIHandle                 m_buffer {NullHandle};
         Pass                      m_pass {NullPass};
     };
 
@@ -231,7 +234,6 @@ namespace Spark::Render
         a.m_access       = access;
         a.m_usage        = usage;
         a.m_stage        = stage;
-        a.m_view         = NullHandle;  // static: no view entity; compiler reads Buffer directly
         a.m_pass         = NullPass;    // persists across frames, not tied to one pass
         ctx.AddOrReplace<BufferPassAttachment>(resourceEntity, a);
     }
@@ -250,7 +252,6 @@ namespace Spark::Render
         a.m_access       = access;
         a.m_usage        = usage;
         a.m_stage        = stage;
-        a.m_view         = NullHandle;
         a.m_pass         = NullPass;
         ctx.AddOrReplace<ImagePassAttachment>(resourceEntity, a);
     }

@@ -8,6 +8,7 @@
 #include <Service/Service.h>
 
 #include <RHI/Factory.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Device/Device.h>
 #include <RHI/Fence/Fence.h>
 #include <RHI/Pipeline/PipelineState.h>
@@ -42,14 +43,6 @@ namespace
         state.m_access = RHI::AdjustAccessBasedOnUsage(attachment.m_access, attachment.m_usage);
         return state;
     }
-
-    // View handle → underlying Resource handle. Falls back to the input if it is already a resource.
-    RHIHandle ResolveResource(RHIHandle handle, const RHIContext& context)
-    {
-        if (context.Has<ViewHierarchy>(handle))
-            return context.Get<ViewHierarchy>(handle).m_resource;
-        return handle;
-    }
 } // namespace
 
     void RenderGraphCompiler::Begin(uint32_t frameIndex)
@@ -72,11 +65,8 @@ namespace
         context.GetView<StaticImportTag, BufferPassAttachment>().each(
             [&](RHIHandle resource, const BufferPassAttachment& att) {
                 // StaticImportTag lives on the resource entity; the attachment is
-                // also on the resource entity with m_view == NullHandle (static
-                // imports are accessed via SRG bindings, not as pass attachments).
-                ASSERT(att.m_view == NullHandle,
-                    "[StaticImport] m_view must be NullHandle on static import attachments.");
-
+                // also on the resource entity (static imports are accessed via SRG
+                // bindings, not as pass attachments).
                 auto* buf = context.TryGet<Buffer>(resource);
                 if (!buf || !buf->m_buffer)
                 {
@@ -138,11 +128,8 @@ namespace
         context.GetView<StaticImportTag, ImagePassAttachment>().each(
             [&](RHIHandle resource, const ImagePassAttachment& att) {
                 // StaticImportTag lives on the resource entity; the attachment is
-                // also on the resource entity with m_view == NullHandle (static
-                // imports are accessed via SRG bindings, not as pass attachments).
-                ASSERT(att.m_view == NullHandle,
-                    "[StaticImport] m_view must be NullHandle on static import attachments.");
-
+                // also on the resource entity (static imports are accessed via SRG
+                // bindings, not as pass attachments).
                 auto* img = context.TryGet<Image>(resource);
                 if (!img || !img->m_image)
                 {
@@ -276,85 +263,12 @@ namespace
             RHIHandle         m_resource;
         };
 
-        void CompileTransientImageViews(
-            RHIContext&                     rhiContext,
-            RHI::Factory&                   factory,
-            RHIHandle                       resource,
-            RHI::Image&                     image,
-            const eastl::vector<RHIHandle>& attachments)
-        {
-            bool firstView = true;
-            for (RHIHandle attachmentHandle : attachments)
-            {
-                auto& a = rhiContext.Get<ImagePassAttachment>(attachmentHandle);
-
-                Ptr<RHI::ImageView> view = factory.CreateImageView();
-                ASSERT(view != nullptr, "Factory::CreateImageView returned null.");
-                RHI::ResultCode rc = view->Init(image, a.m_viewDescriptor);
-                ASSERT(rc == RHI::ResultCode::Success,
-                    "Transient ImageView::Init failed for attachment {}.",
-                    a.m_attachmentId.m_id.GetCStr());
-
-                RHIHandle viewEntity = rhiContext.CreateEntity();
-                RHI::ImageView* viewRaw = view.get();
-                rhiContext.Add<ImageView>(viewEntity, ImageView{ eastl::move(view) });
-                rhiContext.Add<BackingImageView>(viewEntity, BackingImageView{ viewRaw });
-                rhiContext.Add<TransientViewTag>(viewEntity);
-                rhiContext.Add<ViewHierarchy>(viewEntity,
-                    ViewHierarchy{ resource, NullHandle, NullHandle });
-
-                a.m_view = viewEntity;
-
-                if (firstView)
-                {
-                    if (!rhiContext.Has<ResourceHierarchy>(resource))
-                    {
-                        rhiContext.Add<ResourceHierarchy>(resource, ResourceHierarchy{ viewEntity });
-                    }
-                    firstView = false;
-                }
-            }
-        }
-
-        void CompileTransientBufferViews(
-            RHIContext&                     rhiContext,
-            RHI::Factory&                   factory,
-            RHIHandle                       resource,
-            RHI::Buffer&                    buffer,
-            const eastl::vector<RHIHandle>& attachments)
-        {
-            bool firstView = true;
-            for (RHIHandle attachmentHandle : attachments)
-            {
-                auto& a = rhiContext.Get<BufferPassAttachment>(attachmentHandle);
-
-                Ptr<RHI::BufferView> view = factory.CreateBufferView();
-                ASSERT(view != nullptr, "Factory::CreateBufferView returned null.");
-                RHI::ResultCode rc = view->Init(buffer, a.m_viewDescriptor);
-                ASSERT(rc == RHI::ResultCode::Success,
-                    "Transient BufferView::Init failed for attachment {}.",
-                    a.m_attachmentId.m_id.GetCStr());
-
-                RHIHandle viewEntity = rhiContext.CreateEntity();
-                RHI::BufferView* viewRaw = view.get();
-                rhiContext.Add<BufferView>(viewEntity, BufferView{ eastl::move(view) });
-                rhiContext.Add<BackingBufferView>(viewEntity, BackingBufferView{ viewRaw });
-                rhiContext.Add<TransientViewTag>(viewEntity);
-                rhiContext.Add<ViewHierarchy>(viewEntity,
-                    ViewHierarchy{ resource, NullHandle, NullHandle });
-
-                a.m_view = viewEntity;
-
-                if (firstView)
-                {
-                    if (!rhiContext.Has<ResourceHierarchy>(resource))
-                    {
-                        rhiContext.Add<ResourceHierarchy>(resource, ResourceHierarchy{ viewEntity });
-                    }
-                    firstView = false;
-                }
-            }
-        }
+        // Transient image AND buffer views are no longer materialized as view
+        // entities. Image views are built lazily via GetOrCreateImageView (resource's
+        // ImageViewCache). Buffer views currently have no consumer (nothing reads a
+        // BackingBufferView), so no view is created at all — only the buffer itself
+        // (att.m_buffer → BackingBuffer) is needed for barriers and FindPassAttachmentBuffer.
+        // A buffer-side view cache can be added when a buffer-view consumer appears.
 
         //! Read the resource's current observed state from the BackingImage / BackingBuffer
         //! component (set at runtime by barrier emit paths) for first-touch tracker seeding.
@@ -492,8 +406,8 @@ namespace
                 Exclude<StaticImportTag>);
             view.each([&](auto, const BufferPassAttachment& att)
             {
-                RHIHandle resource = ResolveResource(att.m_view, context);
-                ASSERT(resource != NullHandle, "Buffer attachment view has no resource.");
+                RHIHandle resource = att.m_buffer;
+                ASSERT(resource != NullHandle, "Buffer attachment has no resource entity.");
 
                 if (context.Has<ImportedTag>(resource))
                 {
@@ -579,8 +493,8 @@ namespace
                 Exclude<StaticImportTag>);
             view.each([&](auto, const ImagePassAttachment& att)
             {
-                RHIHandle resource = ResolveResource(att.m_view, context);
-                ASSERT(resource != NullHandle, "Image attachment view has no resource.");
+                RHIHandle resource = att.m_image;
+                ASSERT(resource != NullHandle, "Image attachment has no resource entity.");
 
                 if (context.Has<ImportedTag>(resource))
                 {
@@ -887,20 +801,22 @@ namespace
         auto& rhiContext  = *RHIExecuteContext::Current();
         auto& passContext = *PassExecuteContext::Current();
 
-        // 1. Build name → resource entity for transient images / buffers.
-        eastl::unordered_map<RHI::AttachmentId, RHIHandle> nameToImageResource;
-        eastl::unordered_map<RHI::AttachmentId, RHIHandle> nameToBufferResource;
+        // 1. Build name → resource-entity lookup for transient images / buffers.
+        //    These hold ONLY transient resources, so an attachment whose id misses
+        //    the lookup is targeting an imported/static resource and is skipped.
+        eastl::unordered_map<RHI::AttachmentId, RHIHandle> transientImageByName;
+        eastl::unordered_map<RHI::AttachmentId, RHIHandle> transientBufferByName;
 
         rhiContext.GetView<TransientTag, ResourceName, RHI::ImageDescriptor>().each(
             [&](RHIHandle resource, const ResourceName& rn, const RHI::ImageDescriptor&)
             {
-                nameToImageResource.emplace(rn.m_name, resource);
+                transientImageByName.emplace(rn.m_name, resource);
             });
 
         rhiContext.GetView<TransientTag, ResourceName, RHI::BufferDescriptor>().each(
             [&](RHIHandle resource, const ResourceName& rn, const RHI::BufferDescriptor&)
             {
-                nameToBufferResource.emplace(rn.m_name, resource);
+                transientBufferByName.emplace(rn.m_name, resource);
             });
 
         // 2. Walk attachments, accumulate per-resource lifetime + queue mask + clear value
@@ -908,18 +824,17 @@ namespace
         rhiContext.GetView<ImagePassAttachment>(Exclude<StaticImportTag>).each(
             [&](RHIHandle attachmentHandle, ImagePassAttachment& a)
             {
-                if (a.m_view != NullHandle)
-                {
-                    return;
-                }
-
-                auto it = nameToImageResource.find(a.m_attachmentId.m_id);
-                if (it == nameToImageResource.end())
+                // Only transient attachments belong here. An attachment targeting an
+                // imported resource carries an id that is not in transientImageByName,
+                // so the lookup miss below filters it out — no view-based gate needed.
+                auto it = transientImageByName.find(a.m_attachmentId.m_id);
+                if (it == transientImageByName.end())
                 {
                     return;
                 }
 
                 const RHIHandle resource = it->second;
+                a.m_image = resource;   // primary link for Read/Write/Create attachments
 
                 ASSERT(passContext.Has<PassGlobalTimeline>(a.m_pass),
                     "Transient image attachment {}'s pass has no PassGlobalTimeline.",
@@ -959,18 +874,17 @@ namespace
         rhiContext.GetView<BufferPassAttachment>(Exclude<StaticImportTag>).each(
             [&](RHIHandle attachmentHandle, BufferPassAttachment& a)
             {
-                if (a.m_view != NullHandle)
-                {
-                    return;
-                }
-
-                auto it = nameToBufferResource.find(a.m_attachmentId.m_id);
-                if (it == nameToBufferResource.end())
+                // Only transient attachments belong here. An attachment targeting an
+                // imported resource carries an id not in transientBufferByName, so the
+                // lookup miss below filters it out — no view-based gate needed.
+                auto it = transientBufferByName.find(a.m_attachmentId.m_id);
+                if (it == transientBufferByName.end())
                 {
                     return;
                 }
 
                 const RHIHandle resource = it->second;
+                a.m_buffer = resource;   // primary link for Read/Write/Create attachments
 
                 ASSERT(passContext.Has<PassGlobalTimeline>(a.m_pass),
                     "Transient buffer attachment {}'s pass has no PassGlobalTimeline.",
@@ -1041,11 +955,8 @@ namespace
             return false;
         });
 
-        // 4. Sweep: call pool, store backing on resource entity, materialize views.
-        auto* factoryPtr = Service<RHI::Factory>::Get();
-        ASSERT(factoryPtr != nullptr, "RHI::Factory service is not registered.");
-        auto& factory = *factoryPtr;
-
+        // 4. Sweep: call pool, store backing on resource entity. Views are no longer
+        //    materialized here — they come from the resource's view cache on demand.
         for (const auto& ev : events)
         {
             switch (ev.m_action)
@@ -1071,7 +982,6 @@ namespace
                             name.GetCStr());
 
                         rhiContext.Add<BackingImage>(ev.m_resource, BackingImage{ image });
-                        CompileTransientImageViews(rhiContext, factory, ev.m_resource, *image, life.m_attachments);
                     }
                     break;
                 case SweepResourceType::Buffer:
@@ -1091,7 +1001,6 @@ namespace
                             name.GetCStr());
 
                         rhiContext.Add<BackingBuffer>(ev.m_resource, BackingBuffer{ buffer });
-                        CompileTransientBufferViews(rhiContext, factory, ev.m_resource, *buffer, life.m_attachments);
                     }
                     break;
                 }
@@ -1141,20 +1050,37 @@ namespace
 
         eastl::unordered_map<RHI::InputName, uint32_t> colorSlotToIndex;
 
+        // Resolve an attachment to its RHI::ImageView from the resource's view cache,
+        // keyed by att.m_viewDescriptor. Per-frame resources (PerFrameTag — swap chain
+        // / ImagePerFrame) resolve the current frame's view from ImageViewCachePerFrame;
+        // single-frame resources use the stable ImageViewCache. Deduplicated per resource.
+        const uint32_t frameIndex = m_frameIndex;
+        auto resolveView = [&context, frameIndex](const ImagePassAttachment& att) -> RHI::ImageView*
+        {
+            auto* backImage = context.TryGet<BackingImage>(att.m_image);
+            if (!backImage || !backImage->m_image)
+            {
+                return nullptr;
+            }
+            if (context.Has<RHI::PerFrameTag>(att.m_image))
+            {
+                return RHI::GetOrCreateImageViewPerFrame(
+                    context, att.m_image, *backImage->m_image, att.m_viewDescriptor, frameIndex);
+            }
+            return RHI::GetOrCreateImageView(
+                context, att.m_image, *backImage->m_image, att.m_viewDescriptor);
+        };
+
         auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>();
         view.each([&](auto, const ImagePassAttachment& att)
         {
-            ASSERT(att.m_view != NullHandle,
-                "[RenderGraphCompiler] Attachment {} has a null view entity; transient view materialization may have been skipped.",
+            ASSERT(att.m_image != NullHandle,
+                "[RenderGraphCompiler] Attachment {} has a null image resource entity.",
                 att.m_attachmentId.m_id.GetCStr());
 
-            ASSERT(context.Has<BackingImageView>(att.m_view),
-                "[RenderGraphCompiler] Attachment {}'s view entity has no BackingImageView component.",
-                att.m_attachmentId.m_id.GetCStr());
-
-            RHI::ImageView* imageView = context.Get<BackingImageView>(att.m_view).m_view;
+            RHI::ImageView* imageView = resolveView(att);
             ASSERT(imageView != nullptr,
-                "[RenderGraphCompiler] Attachment {}'s BackingImageView holds a null RHI::ImageView pointer.",
+                "[RenderGraphCompiler] Attachment {}'s view could not be resolved from its resource view cache.",
                 att.m_attachmentId.m_id.GetCStr());
 
             if (att.m_usage == RHI::AttachmentUsage::RenderTarget)
@@ -1184,14 +1110,12 @@ namespace
             if (att.m_usage != RHI::AttachmentUsage::Resolve)
                 return;
 
-            ASSERT(att.m_view != NullHandle,
-                "[RenderGraphCompiler] Resolve attachment has a null view entity.");
-            ASSERT(context.Has<BackingImageView>(att.m_view),
-                "[RenderGraphCompiler] Resolve attachment's view entity has no BackingImageView component.");
+            ASSERT(att.m_image != NullHandle,
+                "[RenderGraphCompiler] Resolve attachment has a null image resource entity.");
 
-            RHI::ImageView* resolveView = context.Get<BackingImageView>(att.m_view).m_view;
-            ASSERT(resolveView != nullptr,
-                "[RenderGraphCompiler] Resolve attachment {}'s BackingImageView holds a null RHI::ImageView pointer.",
+            RHI::ImageView* resolved = resolveView(att);
+            ASSERT(resolved != nullptr,
+                "[RenderGraphCompiler] Resolve attachment {}'s view could not be resolved from its resource view cache.",
                 att.m_attachmentId.m_id.GetCStr());
 
             auto it = colorSlotToIndex.find(att.m_resolveSourceSlot);
@@ -1200,7 +1124,7 @@ namespace
                 att.m_slotName.GetCStr(),
                 att.m_resolveSourceSlot.GetCStr());
 
-            info.m_colorAttachments[it->second].m_resolveView = resolveView;
+            info.m_colorAttachments[it->second].m_resolveView = resolved;
         });
 
         ASSERT(hasAny,

@@ -10,6 +10,7 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Context/RHIContext.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/RHILimits.h>
 
 #include <Pass/Pass.h>
@@ -154,6 +155,11 @@ namespace Spark::Render
     }
 
 
+    //! Resolve a declared image attachment to its backing RHI::Image via the
+    //! pass→resource edge (the ImagePassAttachment entity tagged with PassTag).
+    //! Reads attachment.m_image (the resource entity) → BackingImage directly —
+    //! one hop, no view indirection. Valid once the resource is materialized
+    //! (transient: after CompileTransientResources; imported/static: at import).
     template<typename PassTag>
     RHI::Image* FindPassAttachmentImage(RHIContext& rhiCtx, RHI::InputName slot)
     {
@@ -165,16 +171,7 @@ namespace Spark::Render
                 continue;
             }
 
-            RHIHandle viewEntity = attachment.m_view;
-            auto* viewHier = rhiCtx.TryGet<RHI::ViewHierarchy>(viewEntity);
-            if (!viewHier)
-            {
-                LOG_ERROR("[FindPassAttachmentImage] View entity has no ViewHierarchy component (slot: {}).",
-                    slot.GetCStr());
-                break;
-            }
-            RHIHandle image = viewHier->m_resource;
-            auto* backImage = rhiCtx.TryGet<BackingImage>(image);
+            auto* backImage = rhiCtx.TryGet<BackingImage>(attachment.m_image);
             if (!backImage)
             {
                 LOG_ERROR("[FindPassAttachmentImage] Image entity has no BackingImage component (slot: {}).",
@@ -193,16 +190,20 @@ namespace Spark::Render
         return result;
     }
 
-    //! Resolve a declared image attachment to its backing RHI::ImageView via the
-    //! pass→resource edge (the ImagePassAttachment entity tagged with PassTag).
-    //! Same lifetime contract as FindPassAttachmentImage: valid once transient
-    //! views are materialized (i.e. from the per-pass Compile step onward) and up
-    //! to the end of Execute, after which the edge entities are destroyed.
+    //! Resolve a declared image attachment to an RHI::ImageView via the pass→resource
+    //! edge (the ImagePassAttachment entity tagged with PassTag). Frame-aware:
+    //!  - Per-frame resource (PerFrameTag — swap chain / ImagePerFrame): the current
+    //!    frame's view from ImageViewCachePerFrame (frameIndex selects the slot).
+    //!  - Single-frame resource: the stable view from ImageViewCache (frameIndex unused).
+    //! The view is deduplicated and reused, not minted fresh per call. Valid once the
+    //! resource is materialized (transient: after CompileTransientResources; imported:
+    //! at import).
     //!
-    //! Returns the view (e.g. to feed RHI::ShaderBindings::SetImage); nullptr if
-    //! the slot is not found or its view has no BackingImageView yet.
+    //! frameIndex is typically RenderGraphExecuter::GetFrameIndex() at execute time.
+    //! Returns the view (e.g. to feed RHI::ShaderBindings::SetImage); nullptr if the
+    //! slot is not found, the resource is unmaterialized, or view Init fails.
     template<typename PassTag>
-    RHI::ImageView* FindPassAttachmentImageView(RHIContext& rhiCtx, RHI::InputName slot)
+    RHI::ImageView* FindPassAttachmentImageView(RHIContext& rhiCtx, RHI::InputName slot, uint32_t frameIndex)
     {
         RHI::ImageView* result = nullptr;
         for (auto [handle, attachment] : rhiCtx.GetView<PassTag, ImagePassAttachment>().each())
@@ -212,16 +213,24 @@ namespace Spark::Render
                 continue;
             }
 
-            RHIHandle viewEntity = attachment.m_view;
-            auto* backView = rhiCtx.TryGet<BackingImageView>(viewEntity);
-            if (!backView)
+            auto* backImage = rhiCtx.TryGet<BackingImage>(attachment.m_image);
+            if (!backImage || !backImage->m_image)
             {
-                LOG_ERROR("[FindPassAttachmentImageView] View entity has no BackingImageView component (slot: {}).",
+                LOG_ERROR("[FindPassAttachmentImageView] Image entity has no backing image (slot: {}).",
                     slot.GetCStr());
                 break;
             }
 
-            result = backView->m_view;
+            if (rhiCtx.Has<RHI::PerFrameTag>(attachment.m_image))
+            {
+                result = RHI::GetOrCreateImageViewPerFrame(
+                    rhiCtx, attachment.m_image, *backImage->m_image, attachment.m_viewDescriptor, frameIndex);
+            }
+            else
+            {
+                result = RHI::GetOrCreateImageView(
+                    rhiCtx, attachment.m_image, *backImage->m_image, attachment.m_viewDescriptor);
+            }
             break;
         }
 
@@ -243,16 +252,7 @@ namespace Spark::Render
                 continue;
             }
 
-            RHIHandle viewEntity = attachment.m_view;
-            auto* viewHier = rhiCtx.TryGet<RHI::ViewHierarchy>(viewEntity);
-            if (!viewHier)
-            {
-                LOG_ERROR("[FindPassAttachmentBuffer] View entity has no ViewHierarchy component (slot: {}).",
-                    slot.GetCStr());
-                break;
-            }
-            RHIHandle buffer = viewHier->m_resource;
-            auto* backBuffer = rhiCtx.TryGet<BackingBuffer>(buffer);
+            auto* backBuffer = rhiCtx.TryGet<BackingBuffer>(attachment.m_buffer);
             if (!backBuffer)
             {
                 LOG_ERROR("[FindPassAttachmentBuffer] Buffer entity has no BackingBuffer component (slot: {}).",

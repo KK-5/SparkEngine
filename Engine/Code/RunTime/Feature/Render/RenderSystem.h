@@ -45,12 +45,11 @@ namespace Spark::Render
             return static_cast<unsigned int>(RenderSystemTickOrder);
         }
 
+        void SetUpDefaultPipeline();
+
     private:
         bool InitRHIData();
         bool InitRenderUI();
-
-        void BuildPipeline();
-
 
         Ptr<RHI::SwapChain> m_swapChain;
         

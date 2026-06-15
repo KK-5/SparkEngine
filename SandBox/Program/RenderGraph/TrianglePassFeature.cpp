@@ -204,7 +204,7 @@ namespace Spark::SandBox
             {
                 Spark::Render::ImportedImageAttachmentBindInfo colorBind;
                 colorBind.m_slot   = Spark::RHI::InputName("ColorOutput");
-                colorBind.m_view   = builder.GetCurrentSwapChainView();
+                colorBind.m_image  = builder.GetCurrentSwapChainResource();
                 colorBind.m_access = Spark::RHI::AttachmentAccess::Write;
                 colorBind.m_usage  = Spark::RHI::AttachmentUsage::RenderTarget;
                 colorBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;

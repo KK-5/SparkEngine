@@ -37,7 +37,7 @@ namespace Spark::Render
                 outputBind.m_access = RHI::AttachmentAccess::Write;
                 outputBind.m_action.m_loadAction = RHI::AttachmentLoadAction::Clear;
                 outputBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-                outputBind.m_view   = builder.GetCurrentSwapChainView();
+                outputBind.m_image = builder.GetCurrentSwapChainResource();
 
                 builder.ImportImageAttachment<SPARK_PASS_TAG("CopyFrameBufferPass")>(
                     RHI::AttachmentId("SwapChain"), outputBind);
@@ -69,7 +69,7 @@ namespace Spark::Render
                 work.m_commandList->QueueBarrier(toRT);
                 work.m_commandList->FlushBarriers();
 
-                auto* swapChainView = FindPassAttachmentImageView<SPARK_PASS_TAG("CopyFrameBufferPass")>(rhiCtx, RHI::InputName("CopyWrite"));
+                auto* swapChainView = FindPassAttachmentImageView<SPARK_PASS_TAG("CopyFrameBufferPass")>(rhiCtx, RHI::InputName("CopyWrite"), executer.GetFrameIndex());
                 if (swapChainView)
                 {
                     RHI::ImageClearRequest clearReq;

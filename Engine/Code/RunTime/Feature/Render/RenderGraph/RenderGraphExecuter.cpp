@@ -39,30 +39,12 @@ namespace Spark::Render
             passContext.DestoryEntity(pass);
         }
 
-        // Destroy transient view entities created this frame by
-        // CompileTransientImageViews / CompileTransientBufferViews.
-        // Each view allocates descriptor handles; without this cleanup the
-        // descriptor pool exhausts after ~3 frames.
+        // Transient views are no longer separate entities: image views live in the
+        // resource's ImageViewCache and buffer attachments hold no view. Both are
+        // released when the transient RESOURCE entity is destroyed below (its cache
+        // component drops the owning Ptr<ImageView>), so no per-view cleanup is needed.
         {
             auto& rhiContext = *RHIExecuteContext::Current();
-
-            auto imageViewEntities = rhiContext.GetView<TransientViewTag, ImageView>();
-            eastl::vector<RHIHandle> imageViewHandles;
-            imageViewEntities.each(
-                [&](RHIHandle h, const ImageView&) { imageViewHandles.push_back(h); });
-            for (RHIHandle h : imageViewHandles)
-            {
-                rhiContext.DestoryEntity(h);
-            }
-
-            auto bufferViewEntities = rhiContext.GetView<TransientViewTag, BufferView>();
-            eastl::vector<RHIHandle> bufferViewHandles;
-            bufferViewEntities.each(
-                [&](RHIHandle h, const BufferView&) { bufferViewHandles.push_back(h); });
-            for (RHIHandle h : bufferViewHandles)
-            {
-                rhiContext.DestoryEntity(h);
-            }
 
             // Attachment entities are the pass→resource edges. They live through
             // Build/Compile/Execute (Execute resolves resources by slot via them)

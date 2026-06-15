@@ -8,7 +8,11 @@
 
 #pragma once
 
+#include <Log/ILogSystem.h>
+#include <Service/Service.h>
+
 #include <RHI/Component/Component.h>
+#include <RHI/Factory.h>
 
 namespace Spark::RHI
 {
@@ -112,6 +116,129 @@ namespace Spark::RHI
         ctx.Add<ViewHierarchy>(viewEntity,
             ViewHierarchy{ resourceEntity, NullHandle, NullHandle });
         return viewEntity;
+    }
+
+    //! Resource-owned, descriptor-keyed image view cache (see Components::ImageViewCache).
+    //! Looks up the resource's view cache by descriptor; on a hit returns the cached
+    //! view, on a miss materializes a new RHI::ImageView (from the given image) and
+    //! caches it. Returns the RHI::ImageView* (nullptr on init failure). The pointer
+    //! is stable for the resource's lifetime, so callers may bake it into compile
+    //! products.
+    //!
+    //! The caller supplies the RHI::Image because its owner differs by resource kind
+    //! (Components::Image for external/static, the render graph's BackingImage for
+    //! transient) and this RHI-layer helper must not depend on the render layer.
+    //!
+    //! A resource is pure memory; each distinct ImageViewDescriptor on it is one
+    //! shared (deduplicated) view. Meant to gradually replace CreateImageView so
+    //! callers stop minting a fresh view per use. Append is in-place once the empty
+    //! cache is pre-added at resource creation (parallel-friendly per resource).
+    //!
+    //! Single-frame only — for per-frame (ImagePerFrame) resources use
+    //! GetOrCreateImageViewPerFrame.
+    inline RHI::ImageView* GetOrCreateImageView(
+        BasicContext<RHIHandle>& ctx,
+        RHIHandle resourceEntity,
+        Image& image,
+        const ImageViewDescriptor& viewDesc)
+    {
+        Components::ImageViewCache* cache = ctx.TryGet<Components::ImageViewCache>(resourceEntity);
+        if (!cache)
+        {
+            ctx.Add<Components::ImageViewCache>(resourceEntity, Components::ImageViewCache{});
+            cache = ctx.TryGet<Components::ImageViewCache>(resourceEntity);
+        }
+
+        for (auto& entry : cache->m_entries)
+        {
+            if (entry.m_descriptor == viewDesc)
+            {
+                return entry.m_view.get();   // cache hit
+            }
+        }
+
+        // Miss — materialize a new view and cache it.
+        Ptr<RHI::ImageView> view = Service<Factory>::Get()->CreateImageView();
+        ASSERT(view != nullptr, "[GetOrCreateImageView] Factory::CreateImageView returned null.");
+        if (view->Init(image, viewDesc) != ResultCode::Success)
+        {
+            LOG_ERROR("[GetOrCreateImageView] ImageView::Init failed.");
+            return nullptr;
+        }
+        RHI::ImageView* raw = view.get();
+
+        cache->m_entries.push_back(
+            Components::ImageViewCacheEntry{ viewDesc, eastl::move(view) });
+        return raw;
+    }
+
+    //! Per-frame counterpart of GetOrCreateImageView, for per-frame resources
+    //! (ImagePerFrame / swap chain). The descriptor keys one entry holding N views
+    //! (one per frame-in-flight); each slot is built lazily for its frame and reused.
+    //! Cache home is Components::ImageViewCachePerFrame.
+    //!
+    //! Contract: `image` MUST be the frameIndex-th image of the resource — typically
+    //! the current BackingImage, which RefreshPerFrameBackings has already rotated to
+    //! frameIndex. This call only ever fills the frameIndex slot from `image`, so over
+    //! N frames every slot fills and then steady-state reuses. On a cache hit the
+    //! contract is validated via ImageView::GetImage() (catches a mismatched
+    //! (image,frameIndex) or a per-frame image that changed without cache invalidation).
+    //!
+    //! Returns the frameIndex view (nullptr on init failure).
+    inline RHI::ImageView* GetOrCreateImageViewPerFrame(
+        BasicContext<RHIHandle>& ctx,
+        RHIHandle resourceEntity,
+        Image& image,
+        const ImageViewDescriptor& viewDesc,
+        uint32_t frameIndex)
+    {
+        ASSERT(frameIndex < RHI::Limits::Device::FrameCountMax,
+            "[GetOrCreateImageViewPerFrame] frameIndex {} out of range.", frameIndex);
+
+        Components::ImageViewCachePerFrame* cache =
+            ctx.TryGet<Components::ImageViewCachePerFrame>(resourceEntity);
+        if (!cache)
+        {
+            ctx.Add<Components::ImageViewCachePerFrame>(
+                resourceEntity, Components::ImageViewCachePerFrame{});
+            cache = ctx.TryGet<Components::ImageViewCachePerFrame>(resourceEntity);
+        }
+
+        Components::ImageViewCachePerFrameEntry* entry = nullptr;
+        for (auto& e : cache->m_entries)
+        {
+            if (e.m_descriptor == viewDesc)
+            {
+                entry = &e;
+                break;
+            }
+        }
+        if (!entry)
+        {
+            cache->m_entries.push_back(
+                Components::ImageViewCachePerFrameEntry{ viewDesc, {} });
+            entry = &cache->m_entries.back();
+        }
+
+        Ptr<RHI::ImageView>& slot = entry->m_views[frameIndex];
+        if (slot)
+        {
+            ASSERT(&slot->GetImage() == &image,
+                "[GetOrCreateImageViewPerFrame] cached view for frame {} was built over a "
+                "different image — (image,frameIndex) mismatch or the resource's per-frame "
+                "image changed without cache invalidation.", frameIndex);
+            return slot.get();
+        }
+
+        Ptr<RHI::ImageView> view = Service<Factory>::Get()->CreateImageView();
+        ASSERT(view != nullptr, "[GetOrCreateImageViewPerFrame] Factory::CreateImageView returned null.");
+        if (view->Init(image, viewDesc) != ResultCode::Success)
+        {
+            LOG_ERROR("[GetOrCreateImageViewPerFrame] ImageView::Init failed.");
+            return nullptr;
+        }
+        slot = eastl::move(view);
+        return slot.get();
     }
 
 } // namespace Spark::RHI

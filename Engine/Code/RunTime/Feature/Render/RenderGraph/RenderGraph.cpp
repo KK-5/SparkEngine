@@ -62,9 +62,6 @@ namespace Spark::Render
 
         const uint32_t imageCount = swapChain.GetImageCount();
         auto& context = *RHIExecuteContext::Current();
-        auto* factoryPtr = Service<RHI::Factory>::Get();
-        ASSERT(factoryPtr != nullptr, "RHI::Factory service is not registered.");
-        auto& factory = *factoryPtr;
 
         m_swapchainResource = context.CreateEntity();
         SwapChainImages swapChainImages;
@@ -74,43 +71,15 @@ namespace Spark::Render
         }
         context.Add<SwapChainImages>(m_swapchainResource, eastl::move(swapChainImages));
         context.Add<ImportedTag>(m_swapchainResource);
+        context.Add<RHI::PerFrameTag>(m_swapchainResource);
         context.Add<ResourceName>(m_swapchainResource, ObjectName{"SwapChain"});
         // NOTE: swap chain Present-state transition at frame end is TBD —
         // CompileFinalTransitionBarrier was removed alongside ImportedResourceState.
-
-        m_swapchainView = context.CreateEntity();
-        SwapChainViews swapChainView;
-        for (uint32_t i = 0; i < imageCount; ++i)
-        {
-            auto image = swapChain.GetImage(i);
-            Ptr<RHI::ImageView> imageview = factory.CreateImageView();
-            RHI::ImageViewDescriptor viewDesc;
-            viewDesc.m_mipSliceMin = 0;
-            viewDesc.m_mipSliceMax = 0;
-            viewDesc.m_arraySliceMin = 0;
-            viewDesc.m_arraySliceMax = 0;
-            RHI::ResultCode viewResult = imageview->Init(*image, viewDesc);
-            if (viewResult != RHI::ResultCode::Success)
-            {
-                LOG_ERROR("Create swap chain view failed.");
-                continue;
-            }
-            swapChainView.imageViews[i] = eastl::move(imageview);
-        }
-        context.Add<SwapChainViews>(m_swapchainView, eastl::move(swapChainView));
-        context.Add<ResourceName>(m_swapchainView, ObjectName{"SwapChainView"});
-        context.Add<ViewHierarchy>(
-            m_swapchainView,
-            m_swapchainResource,
-            NullHandle,
-            NullHandle
-        );
-
-        context.Add<ResourceHierarchy>(
-            m_swapchainResource,
-            m_swapchainView
-        );
-
+        //
+        // Swap chain views are no longer pre-built into a SwapChainViews component.
+        // They are materialized lazily, per frame, via the resource's
+        // ImageViewCachePerFrame (GetOrCreateImageViewPerFrame), keyed by the
+        // attachment's view descriptor and indexed by frameIndex.
         return true;
     }
 
@@ -131,11 +100,6 @@ namespace Spark::Render
         }
 
         auto& context = *RHIExecuteContext::Current();
-        if (m_swapchainView != NullHandle && context.Valid(m_swapchainView))
-        {
-            context.DestoryEntity(m_swapchainView);
-            m_swapchainView = NullHandle;
-        }
         if (m_swapchainResource != NullHandle && context.Valid(m_swapchainResource))
         {
             context.DestoryEntity(m_swapchainResource);
@@ -154,7 +118,7 @@ namespace Spark::Render
         // Refresh borrowed pointers (BackingImage / BackingBuffer / Backing*View)
         // for any per-frame imported resources whose Owning component rotates with
         // frameIndex. Single-frame imports are handled lazily by the builder.
-        // Swap chain (SwapChainImages / SwapChainViews) is also refreshed here.
+        // Swap chain BackingImage (from SwapChainImages) is also refreshed here.
         RefreshPerFrameBackings(context, frameIndex);
 
         ////////////////////////////////////////////////
@@ -162,7 +126,7 @@ namespace Spark::Render
         // Iterate passes in declaration order so that attachment version
         // tracking (LookupLatestVersion / BumpVersion) converges deterministically
         // regardless of entt's pool order.
-        m_builder.Begin(frameIndex, m_swapchainView, renderSize);
+        m_builder.Begin(frameIndex, m_swapchainResource, renderSize);
         for (Pass pass : passContext.GetPassesInDeclOrder())
         {
             if (!passContext.Has<ActivePassTag>(pass))
@@ -184,9 +148,12 @@ namespace Spark::Render
         // Compile
         m_compiler.Begin(frameIndex);
 
-        // Transient resources and their views must be materialized before
-        // CompileShaderInputs: a transient view has to be resolved and wired into
-        // its ShaderBindings before the bindings are compiled into descriptors.
+        // Transient resources must be materialized (backing allocated) before the
+        // rest of compile. Image views are now built lazily on demand via the
+        // resource's ImageViewCache (GetOrCreateImageView); only transient buffer
+        // views are still eagerly materialized here. A ShaderBindings that samples a
+        // transient image must obtain its view (FindPassAttachmentImageView) before
+        // CompileShaderInputs so the descriptor is compiled with it.
         m_compiler.CompileTransientResources(passes, *m_pool);
 
         m_compiler.CompileShaderInputs(*m_device, context);
@@ -462,13 +429,8 @@ namespace Spark::Render
                 context.AddOrReplace<BackingImage>(entity,
                     BackingImage{ owning.images[frameIndex] });
             });
-
-        context.GetView<SwapChainViews>().each(
-            [&](RHIHandle entity, const SwapChainViews& owning)
-            {
-                context.AddOrReplace<BackingImageView>(entity,
-                    BackingImageView{ owning.imageViews[frameIndex].get() });
-            });
+        // Swap chain views are no longer refreshed here — they live in the resource's
+        // ImageViewCachePerFrame and are resolved per frame via GetOrCreateImageViewPerFrame.
     }
 
     void RenderGraph::SubmitSwapChainPresentTransition(RHIContext& ctx, RHI::Factory& factory)
