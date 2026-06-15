@@ -42,18 +42,12 @@ namespace Spark::Render
     using RHI::RHIUpdateTag;
     using RHI::ShaderBindingsUpdateTag;
     using RHI::ResourceName;
-    using RHI::ViewHierarchy;
-    using RHI::ResourceHierarchy;
 
     using RHI::Components::Buffer;
     using RHI::Components::Image;
-    using RHI::Components::BufferView;
-    using RHI::Components::ImageView;
     using RHI::Components::FrameArray;
     using RHI::Components::ImagePerFrame;
     using RHI::Components::BufferPerFrame;
-    using RHI::Components::ImageViewPerFrame;
-    using RHI::Components::BufferViewPerFrame;
     ///////////////////////////////////////////////
 
     ///////////////////////////////////////////////
@@ -84,27 +78,6 @@ namespace Spark::Render
     struct BackingBuffer
     {
         RHI::Buffer* m_buffer = nullptr;
-    };
-
-    //! Non-owning pointer to the actual RHI view backing a view entity.
-    //! Render graph (CompileRenderPassBeginInfo, attachment binding, etc.) reads
-    //! only this component — transient and imported, single-frame and per-frame
-    //! views are unified here.
-    //!  - Transient: written by RenderGraphCompiler at view materialization,
-    //!    points into the entity's own ImageView::m_view.
-    //!  - Imported single-frame: written once by the importer at registration,
-    //!    points into ImageView::m_view.
-    //!  - Imported per-frame: written each OnFrameBegin by the importer,
-    //!    points into ImageViewPerFrame::m_views[frameIndex].
-    //! Lifetime is managed by the owning Ptr<> on the same entity.
-    struct BackingImageView
-    {
-        RHI::ImageView* m_view = nullptr;
-    };
-
-    struct BackingBufferView
-    {
-        RHI::BufferView* m_view = nullptr;
     };
 
     // Simulated resource state during barrier compile.

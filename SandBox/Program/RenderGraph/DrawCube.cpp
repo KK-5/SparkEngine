@@ -96,7 +96,6 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
         destroyIfValid(m_drawItemEntity);
-        destroyIfValid(m_imageViewEntity);
         destroyIfValid(m_vbEntity);
         destroyIfValid(m_indexEntity);
         destroyIfValid(m_imageEntity);
@@ -231,12 +230,10 @@ namespace Spark::SandBox
             Spark::RHI::AttachmentStage::FragmentShader
         );
 
-        m_imageViewEntity = RHI::CreateImageView(
-            ctx,
-            m_imageEntity,
-            ObjectName("BaseColorImage.View"),
-            RHI::ImageViewDescriptor::Create(m_image->GetFormat(), 0, m_image->GetMipLevels() - 1)
-        );
+        // View is no longer a separate entity — it is resolved on demand from the
+        // image resource's view cache. Just record the descriptor (the cache key).
+        m_baseColorViewDesc =
+            RHI::ImageViewDescriptor::Create(m_image->GetFormat(), 0, m_image->GetMipLevels() - 1);
     }
 
     void DrawCube::CreatePasses()
@@ -429,13 +426,16 @@ namespace Spark::SandBox
         modelInput->SetData(&model, sizeof(model));
 
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        if (auto* iv = rhiCtx.TryGet<Spark::RHI::Components::ImageView>(m_imageViewEntity))
+        if (auto* imgComp = rhiCtx.TryGet<Spark::RHI::Components::Image>(m_imageEntity);
+            imgComp && imgComp->m_image)
         {
-            if (iv->m_view)
+            auto* view = Spark::RHI::GetOrCreateImageView(
+                rhiCtx, m_imageEntity, *imgComp->m_image, m_baseColorViewDesc);
+            if (view)
             {
                 auto* texInput = m_viewBindings->FindImageInput(Spark::RHI::InputName("g_Texture"));
                 ASSERT(texInput, "No g_Texture shader input.");
-                texInput->SetView(/*arrayIndex*/0, iv->m_view.get());
+                texInput->SetView(/*arrayIndex*/0, view);
             }
         }
 

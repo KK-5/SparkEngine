@@ -48,11 +48,11 @@ namespace Spark::Render
         RHIHandle GetSwapchainResource() const { return m_swapchainResource; }
 
     private:
-        //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame on
-        //! resource entities, ImageViewPerFrame / BufferViewPerFrame on view
-        //! entities) and refresh BackingImage / BackingBuffer / BackingImageView /
-        //! BackingBufferView from m_xxx[frameIndex]. Single-frame imports are
-        //! handled by the builder's lazy-add path on first ImportImageAttachment;
+        //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame /
+        //! SwapChainImages on resource entities) and refresh BackingImage /
+        //! BackingBuffer from m_xxx[frameIndex]. Views are not refreshed here — they
+        //! are resolved per frame from each resource's view cache. Single-frame
+        //! imports are handled by the builder's lazy-add path on first import;
         //! this function only touches per-frame variants — work is bounded by
         //! the number of per-frame resources (typically very small).
         void RefreshPerFrameBackings(RHIContext& context, uint32_t frameIndex);

@@ -342,8 +342,7 @@ namespace Spark::Render
                 return RHI::HardwareQueueClass::Graphics;
             };
 
-            // StaticImportTag lives on resource entities; BackingImage/Buffer
-            // are also on resource entities — no ViewHierarchy resolution needed.
+            // StaticImportTag and BackingImage/Buffer all live on resource entities.
             ctx.GetView<StaticImportTag, BackingImage>().each(
                 [&](RHIHandle resource, const BackingImage& backing)
                 {
@@ -402,20 +401,6 @@ namespace Spark::Render
             {
                 context.AddOrReplace<BackingBuffer>(entity,
                     BackingBuffer{ owning.m_buffers[frameIndex].get() });
-            });
-
-        context.GetView<ImageViewPerFrame>().each(
-            [&](RHIHandle entity, const ImageViewPerFrame& owning)
-            {
-                context.AddOrReplace<BackingImageView>(entity,
-                    BackingImageView{ owning.m_views[frameIndex].get() });
-            });
-
-        context.GetView<BufferViewPerFrame>().each(
-            [&](RHIHandle entity, const BufferViewPerFrame& owning)
-            {
-                context.AddOrReplace<BackingBufferView>(entity,
-                    BackingBufferView{ owning.m_views[frameIndex].get() });
             });
 
         // Swap chain is special: the underlying RHI image is owned by SwapChain

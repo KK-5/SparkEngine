@@ -81,20 +81,15 @@ namespace Spark::UI
             {},
             imageData->GetFormat());
 
-        // SRV view
+        // SRV view descriptor — the view itself is resolved on demand from the
+        // image resource's view cache (GetOrCreateImageView), not a separate entity.
         RHI::ImageViewDescriptor viewDesc;
         viewDesc.m_mipSliceMax = static_cast<uint16_t>(imageData->GetMipLevels() - 1);
-
-        RHI::RHIHandle viewEntity = RHI::CreateImageView(
-            *rhiCtx,
-            imageEntity,
-            ObjectName(eastl::string(imagePath) + "_view"),
-            viewDesc);
 
         // GPU component on world entity
         IconGPUComponent gpuComp;
         gpuComp.m_image = imageEntity;
-        gpuComp.m_imageView = viewEntity;
+        gpuComp.m_viewDesc = viewDesc;
         world.AddOrReplace<IconGPUComponent>(worldEntity, eastl::move(gpuComp));
 
         return assetId;
@@ -141,13 +136,11 @@ namespace Spark::UI
 
             if (rhiCtx)
             {
+                // Destroying the image entity also drops its ImageViewCache (and the
+                // owned views) — no separate view entity to destroy.
                 if (gpuComp->m_image != RHI::NullHandle && rhiCtx->Valid(gpuComp->m_image))
                 {
                     rhiCtx->DestoryEntity(gpuComp->m_image);
-                }
-                if (gpuComp->m_imageView != RHI::NullHandle && rhiCtx->Valid(gpuComp->m_imageView))
-                {
-                    rhiCtx->DestoryEntity(gpuComp->m_imageView);
                 }
             }
 

@@ -56,20 +56,6 @@ namespace Spark::RHI
         ctx.Add<UploadPendingTag>(resourceEntity);
     }
 
-    inline RHIHandle CreateBufferView(
-        BasicContext<RHIHandle>& ctx,
-        RHIHandle resourceEntity,
-        ObjectName viewName,
-        const BufferViewDescriptor& viewDesc)
-    {
-        RHIHandle viewEntity = ctx.CreateEntity();
-        ctx.Add<ResourceName>(viewEntity, ResourceName{ viewName });
-        ctx.Add<BufferViewDescriptor>(viewEntity, viewDesc);
-        ctx.Add<ViewHierarchy>(viewEntity,
-            ViewHierarchy{ resourceEntity, NullHandle, NullHandle });
-        return viewEntity;
-    }
-
     // === Image helpers ===
 
     //! Create a static-import image — the primary entry point for material
@@ -102,20 +88,6 @@ namespace Spark::RHI
         ctx.Add<PendingImageUpload>(resourceEntity,
             PendingImageUpload{ data, dataSize, range, destinationOrigin, sourceFormat });
         ctx.Add<UploadPendingTag>(resourceEntity);
-    }
-
-    inline RHIHandle CreateImageView(
-        BasicContext<RHIHandle>& ctx,
-        RHIHandle resourceEntity,
-        ObjectName viewName,
-        const ImageViewDescriptor& viewDesc)
-    {
-        RHIHandle viewEntity = ctx.CreateEntity();
-        ctx.Add<ResourceName>(viewEntity, ResourceName{ viewName });
-        ctx.Add<ImageViewDescriptor>(viewEntity, viewDesc);
-        ctx.Add<ViewHierarchy>(viewEntity,
-            ViewHierarchy{ resourceEntity, NullHandle, NullHandle });
-        return viewEntity;
     }
 
     //! Resource-owned, descriptor-keyed image view cache (see Components::ImageViewCache).

@@ -34,11 +34,10 @@ namespace Spark::Render
         RHI::AttachmentLoadStoreAction m_action {};
     };
 
-    //! Per-call binding info for an imported image attachment. The view is a
-    //! fully-formed RHIHandle (an entity with ImageView / ViewHierarchy already
-    //! present) supplied by the caller — the render graph never builds it.
-    //! Access is part of this struct because the same imported view may be
-    //! consumed with different access in different passes.
+    //! Per-call binding info for an imported image attachment. The caller supplies
+    //! the resource entity + a view descriptor; the view is resolved on demand from
+    //! the resource's view cache. Access is part of this struct because the same
+    //! imported resource may be consumed with different access in different passes.
     struct ImportedImageAttachmentBindInfo
     {
         RHI::InputName                 m_slot;
@@ -65,7 +64,10 @@ namespace Spark::Render
     struct ImportedBufferAttachmentBindInfo
     {
         RHI::InputName            m_slot;
-        RHIHandle                 m_view  {NullHandle};
+        //! The imported buffer resource entity + the view descriptor to resolve
+        //! against it (mirrors ImportedImageAttachmentBindInfo).
+        RHIHandle                 m_buffer {NullHandle};
+        RHI::BufferViewDescriptor m_viewDescriptor {};
         RHI::AttachmentAccess     m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage      m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage      m_stage  = RHI::AttachmentStage::Any;
@@ -215,9 +217,6 @@ namespace Spark::Render
             const RHI::AttachmentId&     name,
             const RHI::BufferDescriptor& desc);
 
-        // Validations.
-        static void ValidateImportedView(RHIHandle view, const RHI::AttachmentId& name, bool image);
-
         template<typename PassTag, typename ComponentT>
         static void ValidateUniqueSlot(const RHI::InputName& slot);
 
@@ -260,29 +259,6 @@ namespace Spark::Render
 
         RHI::RHIHandle m_curSwapChainResource;
     };
-
-    // ============================================================
-    // Validation helpers
-    // ============================================================
-
-    inline void RenderGraphBuilder::ValidateImportedView(
-        RHIHandle view, const RHI::AttachmentId& name, bool image)
-    {
-        auto& rhiContext = *RHIExecuteContext::Current();
-        ASSERT(view != NullHandle, "Imported attachment requires a non-null view handle.");
-        ASSERT(rhiContext.Has<ViewHierarchy>(view), "The view has no ViewHierarchy.");
-        RHIHandle resource = rhiContext.Get<ViewHierarchy>(view).m_resource;
-        ASSERT(resource != NullHandle, "The owned resource is null.");
-        // ImportedTag is no longer a precondition — Import*Attachment auto-attaches
-        // it. Caller only needs the owning resource/view components in place.
-        ASSERT(rhiContext.Has<ResourceName>(view), "The view has no ResourceName component.");
-        const auto& resourceName = rhiContext.Get<ResourceName>(resource).m_name;
-        ASSERT(name == resourceName,
-            "AttachmentId {} does not match imported resource ResourceName {}.",
-            name.GetCStr(),
-            resourceName.GetCStr());
-        (void)image;
-    }
 
     template<typename PassTag, typename ComponentT>
     void RenderGraphBuilder::ValidateUniqueSlot(const RHI::InputName& slot)
@@ -450,49 +426,33 @@ namespace Spark::Render
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ValidateImportedView(bind.m_view, name, /*image=*/false);
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
         }
 
-        RHIHandle resource = rhiContext.Get<ViewHierarchy>(bind.m_view).m_resource;
+        RHIHandle resource = bind.m_buffer;
+        ASSERT(resource != NullHandle, "ImportBufferAttachment: bind.m_buffer is NullHandle.");
 
-        // Auto-attach ImportedTag on the resource entity (same rationale as
-        // ImportImageAttachment — resource-level concept, not view-level).
         if (!rhiContext.Has<ImportedTag>(resource))
+        {
             rhiContext.Add<ImportedTag>(resource);
+        }
 
-        // See ImportImageAttachment for the Backing materialization rationale.
+        // Single-frame imports materialize BackingBuffer from the owning Buffer
+        // component; per-frame resources get it refreshed by RefreshPerFrameBackings.
+        // The view (if any) is resolved on demand from the resource's view cache.
         if (auto* buf = rhiContext.TryGet<Buffer>(resource))
         {
             if (!rhiContext.Has<BackingBuffer>(resource))
+            {
                 rhiContext.Add<BackingBuffer>(resource, BackingBuffer{ buf->m_buffer.get() });
-        }
-        else if (auto* bufPF = rhiContext.TryGet<BufferPerFrame>(resource))
-        {
-            rhiContext.AddOrReplace<BackingBuffer>(resource,
-                BackingBuffer{ bufPF->m_buffers[m_frameIndex].get() });
-        }
-
-        if (auto* view = rhiContext.TryGet<BufferView>(bind.m_view))
-        {
-            if (!rhiContext.Has<BackingBufferView>(bind.m_view))
-                rhiContext.Add<BackingBufferView>(bind.m_view, BackingBufferView{ view->m_view.get() });
-        }
-        else if (auto* viewPF = rhiContext.TryGet<BufferViewPerFrame>(bind.m_view))
-        {
-            rhiContext.AddOrReplace<BackingBufferView>(bind.m_view,
-                BackingBufferView{ viewPF->m_views[m_frameIndex].get() });
+            }
         }
 
         if constexpr (s_buildValidation)
         {
             ASSERT(rhiContext.Has<BackingBuffer>(resource),
-                "Imported resource {} has no BackingBuffer. Caller must attach "
-                "Buffer (single-frame) or BufferPerFrame (per-frame) before importing.",
-                name.GetCStr());
-            ASSERT(rhiContext.Has<BackingBufferView>(bind.m_view),
-                "Imported view for {} has no BackingBufferView. Caller must attach "
-                "BufferView (single-frame) or BufferViewPerFrame (per-frame) before importing.",
+                "Imported resource {} has no BackingBuffer. Single-frame: attach a Buffer "
+                "component before importing; per-frame: ensure RefreshPerFrameBackings ran.",
                 name.GetCStr());
         }
 
@@ -502,6 +462,7 @@ namespace Spark::Render
         a.m_access          = bind.m_access;
         a.m_usage           = bind.m_usage;
         a.m_stage           = bind.m_stage;
+        a.m_viewDescriptor  = bind.m_viewDescriptor;
         a.m_buffer          = resource;
         a.m_pass            = m_currentPass;
 

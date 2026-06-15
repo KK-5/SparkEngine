@@ -27,9 +27,8 @@ namespace Spark::RHI
 {
     class Fence;
 
-    // Discovery tags — placed on RESOURCE entities only.
-    // Views inherit lifecycle from their parent resource via ViewHierarchy;
-    // tagging views separately would duplicate the semantic.
+    // Discovery tags — placed on RESOURCE entities only. Views are not entities;
+    // they live in each resource's view cache (see Components::ImageViewCache).
     struct ImportedTag {};
     struct TransientTag {};
     struct StaticImportTag {};
@@ -89,19 +88,6 @@ namespace Spark::RHI
     {
         Fence*   m_fence      = nullptr;
         uint64_t m_fenceValue = 0;
-    };
-
-    // View-to-resource and resource-to-views linked lists.
-    struct ViewHierarchy
-    {
-        RHIHandle m_resource  {NullHandle};
-        RHIHandle m_prevView  {NullHandle};
-        RHIHandle m_nextView  {NullHandle};
-    };
-
-    struct ResourceHierarchy
-    {
-        RHIHandle m_firstView {NullHandle};
     };
 
     //////////////////////////////////////////////////////////////
@@ -191,16 +177,6 @@ namespace Spark::RHI::Components
         Ptr<RHI::Image> m_image;
     };
 
-    struct BufferView
-    {
-        Ptr<RHI::BufferView> m_view;
-    };
-
-    struct ImageView
-    {
-        Ptr<RHI::ImageView> m_view;
-    };
-
     //! One cached single-frame image view on a resource: its descriptor (cache key)
     //! and the owning RHI view. The view pointer (m_view.get()) is stable for the
     //! resource's lifetime, so consumers may bake it directly into compile products.
@@ -249,16 +225,6 @@ namespace Spark::RHI::Components
     struct BufferPerFrame
     {
         FrameArray<Ptr<RHI::Buffer>> m_buffers {};
-    };
-
-    struct ImageViewPerFrame
-    {
-        FrameArray<Ptr<RHI::ImageView>> m_views {};
-    };
-
-    struct BufferViewPerFrame
-    {
-        FrameArray<Ptr<RHI::BufferView>> m_views {};
     };
 
     //! Per-frame counterpart of ImageViewCacheEntry: one descriptor keys N owning

@@ -7,6 +7,7 @@
 
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Fence/Fence.h>
 
 #include <UI/ImGui/Components.h>
@@ -43,8 +44,10 @@ namespace Spark::Render
                 return;
             }
 
-            auto* viewComp = rhiCtx->TryGet<RHI::Components::ImageView>(gpu.m_imageView);
-            if (!viewComp || !viewComp->m_view)
+            // Resolve the icon's view from the image resource's view cache. A missing
+            // Image component means the resource is not materialized yet — skip.
+            auto* imgComp = rhiCtx->TryGet<RHI::Components::Image>(gpu.m_image);
+            if (!imgComp || !imgComp->m_image)
             {
                 return;
             }
@@ -58,7 +61,14 @@ namespace Spark::Render
                 }
             }
 
-            pendingViews.push_back(viewComp->m_view.get());
+            auto* imageView = RHI::GetOrCreateImageView(
+                *rhiCtx, gpu.m_image, *imgComp->m_image, gpu.m_viewDesc);
+            if (!imageView)
+            {
+                return;
+            }
+
+            pendingViews.push_back(imageView);
             pendingEntities.push_back(entity);
         });
 

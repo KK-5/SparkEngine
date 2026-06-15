@@ -180,8 +180,19 @@ swapchain / dynamic 的 view 是 per-frame(一个 descriptor 对应 N 个真 vie
 - [x] 调用点:`CopyFrameBufferPass`(bind + execute 用 `executer.GetFrameIndex()`)、`RenderSystem` UIPass、3 个 sample(Triangle/MSAA/DrawCube)。
 - [x] 删死组件 `SwapChainViews`。全量(引擎+5 sample+editor+test)编译通过。**注:运行时未实跑验证(需窗口)。**
 
+### 阶段 9 — view 实体彻底退役(已完成)
+- [x] 迁移最后两个旧 `CreateImageView` 消费方:DrawCube(存 `m_baseColorViewDesc`、bind 时 `GetOrCreateImageView`)、ImGui 图标(`IconGPUComponent` 存 `m_viewDesc`、`UIProcessFeature` 走 `GetOrCreateImageView`)。
+- [x] 删 `RHI::CreateImageView`/`CreateBufferView`(返回实体的 helper)。
+- [x] 删 `RHIResourceSystem::CreateImageViews`/`CreateBufferViews`/`LinkViewToResource` + 调用(只留资源材质化)。
+- [x] `ImportBufferAttachment` 迁到 `bind.m_buffer`+`m_viewDescriptor`(镜像 image);删 `ValidateImportedView`。
+- [x] 删 `RefreshPerFrameBackings` 的 `ImageViewPerFrame`/`BufferViewPerFrame` 死分支。
+- [x] **删组件**:`Components::ImageView`/`BufferView`/`ImageViewPerFrame`/`BufferViewPerFrame`、`ViewHierarchy`/`ResourceHierarchy`、`BackingImageView`/`BackingBufferView`,及 RHIComponents.h 的 re-export。
+- 全量(引擎+5 sample+editor+test)编译通过。**至此 view 不再以任何形式作为 entity 存在,全部走 resource 的 view cache。**
+
 ### Follow-up / 剩余
-- **`BackingImageView` / view 的 `ViewHierarchy`/`ResourceHierarchy` 退役**:现 `BackingImageView` 已无读取方,但仍被 `RefreshPerFrameBackings` 的 `ImageViewPerFrame` 分支 + `ImportBufferAttachment` 写;`ViewHierarchy`/`ResourceHierarchy` 仍被旧 `CreateImageView`/`CreateBufferView` + `RHIResourceSystem` view 材质化 + buffer import 用。需先退役这些「外部资源 view 实体」路径(评估 `RHIResourceSystem` 的非 swapchain 用户)才能删。
+- B 类 ShaderBindings 注入复用 `GetOrCreateImageView`;compile 并行(串行结构 pre-pass + 并行填充)。
+- buffer-view cache:出现 buffer-view 消费点时再做。
+- 运行时未实跑验证(需窗口),建议跑 sample/editor 确认。
 - 旧 `CreateImageView`/`CreateBufferView`(返回 view 实体)+ `RHIResourceSystem` 的 view 材质化:评估非 swapchain 用户后退役。
 - B 类 ShaderBindings 注入复用 `GetOrCreateImageView`;compile 并行(串行结构 pre-pass + 并行填充)。
 - buffer-view cache:出现消费点时再做。

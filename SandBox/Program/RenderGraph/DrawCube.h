@@ -5,6 +5,7 @@
 #include <Pass/Pass.h>
 #include <RHI/Context/RHIHandle.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
+#include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
 
@@ -56,7 +57,7 @@ namespace Spark::SandBox
         Spark::RHI::RHIHandle m_vbEntity        = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_indexEntity     = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_imageEntity     = Spark::RHI::NullHandle;
-        Spark::RHI::RHIHandle m_imageViewEntity = Spark::RHI::NullHandle;
+        Spark::RHI::ImageViewDescriptor m_baseColorViewDesc {};
 
         Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
 

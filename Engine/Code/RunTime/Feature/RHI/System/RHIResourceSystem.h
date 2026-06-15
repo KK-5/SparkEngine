@@ -38,11 +38,6 @@ namespace Spark::RHI
         void CreateBuffers(RHIContext& ctx, Device& device);
         void CreateImages(RHIContext& ctx, Device& device);
         void ProcessBufferMaps(RHIContext& ctx);
-        void CreateBufferViews(RHIContext& ctx, Device& device);
-        void CreateImageViews(RHIContext& ctx, Device& device);
-
-        // Head-inserts a view entity into its resource's ViewHierarchy linked list.
-        void LinkViewToResource(RHIContext& ctx, RHIHandle viewEntity, RHIHandle resourceEntity);
 
         BufferPool* SelectBufferPool(const PendingBufferInit& init) const;
         ImagePool*  SelectImagePool(const PendingImageInit& init) const;

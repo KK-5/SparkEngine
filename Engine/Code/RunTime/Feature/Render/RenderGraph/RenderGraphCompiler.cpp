@@ -265,10 +265,10 @@ namespace
 
         // Transient image AND buffer views are no longer materialized as view
         // entities. Image views are built lazily via GetOrCreateImageView (resource's
-        // ImageViewCache). Buffer views currently have no consumer (nothing reads a
-        // BackingBufferView), so no view is created at all — only the buffer itself
-        // (att.m_buffer → BackingBuffer) is needed for barriers and FindPassAttachmentBuffer.
-        // A buffer-side view cache can be added when a buffer-view consumer appears.
+        // ImageViewCache). Buffer views currently have no consumer, so no view is
+        // created at all — only the buffer itself (att.m_buffer → BackingBuffer) is
+        // needed for barriers and FindPassAttachmentBuffer. A buffer-side view cache
+        // can be added when a buffer-view consumer appears.
 
         //! Read the resource's current observed state from the BackingImage / BackingBuffer
         //! component (set at runtime by barrier emit paths) for first-touch tracker seeding.

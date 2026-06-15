@@ -77,12 +77,12 @@ namespace Spark::Render
             RHI::TransientResourcePool& pool);
 
         //! Translate this pass's ImagePassAttachments (the ones tagged with
-        //! AttachmentCompilingTag) into a RHI::RenderPassBeginInfo component on
-        //! the pass entity. Reads each attachment's view via the BackingImageView
-        //! component on the view entity — transient and imported, single-frame
-        //! and per-frame views are all unified through this borrowed pointer.
-        //! Caller must have run the per-pass attachment tagging step first, and
-        //! CompileTransientResources must already have materialized transient views.
+        //! AttachmentCompilingTag) into a RHI::RenderPassBeginInfo component on the
+        //! pass entity. Each attachment's view is resolved from its resource's view
+        //! cache (single-frame ImageViewCache or per-frame ImageViewCachePerFrame)
+        //! keyed by the attachment's view descriptor. Caller must have run the
+        //! per-pass attachment tagging step first, and CompileTransientResources
+        //! must already have materialized the transient resources.
         void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
 
         //! Compile per-queue pre-frame fence-waits + acquire-barriers for all
