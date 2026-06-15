@@ -195,6 +195,7 @@ swapchain / dynamic 的 view 是 per-frame(一个 descriptor 对应 N 个真 vie
 - 现无消费点(buffer view 尚无人用),作为与 image 对称的原语先就位;出现消费点时直接 `FindPassAttachmentBufferView` + resolve 即可。
 
 ### Follow-up / 剩余
+- **`GetOrCreate*View` 多线程化**:方案已定稿,见 [TODO_ViewCacheConcurrency.md](TODO_ViewCacheConcurrency.md)(无锁读 + per-component 内联 `atomic_flag` 写锁 + 预加空 cache + 自定义 move)。等 parallel compile 时落地。
 - B 类 ShaderBindings 注入复用 `GetOrCreateImageView`;compile 并行(串行结构 pre-pass + 并行填充)。
 - 运行时未实跑验证(需窗口),建议跑 sample/editor 确认。
 - 旧 `CreateImageView`/`CreateBufferView`(返回 view 实体)+ `RHIResourceSystem` 的 view 材质化:评估非 swapchain 用户后退役。
