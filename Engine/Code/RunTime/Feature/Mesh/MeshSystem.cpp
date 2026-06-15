@@ -2,11 +2,9 @@
 
 #include <ECS/ExecuteContext.h>
 #include <Log/ILogSystem.h>
-#include <Service/Service.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
-#include <Resource/AssetManagerInterface.h>
 #include <Resource/Model/ModelAsset.h>
 
 namespace Spark::Mesh
@@ -14,7 +12,6 @@ namespace Spark::Mesh
     void MeshSystem::InitInternal()
     {
         ComponentEventBus::Handler::BusConnect(GetTypeId<MeshComponent>());
-        Resource::AssetBus::Handler::BusConnect(Resource::AssetType::Model);
 
         if (auto* world = WorldExecuteContext::Current())
         {
@@ -30,119 +27,38 @@ namespace Spark::Mesh
             CleanupGPUResources(entity);
         });
 
-        Resource::AssetBus::Handler::BusDisconnect();
         ComponentEventBus::Handler::BusDisconnect();
     }
 
     void MeshSystem::OnComponentConstruct(Entity entity)
     {
-        ProcessMeshEntity(entity);
+        auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
+
+        auto* meshComp = ctx.TryGet<MeshComponent>(entity);
+        if (!meshComp || !meshComp->m_modelAsset)
+        {
+            return;
+        }
+
+        if (!meshComp->m_modelAsset->IsReady())
+        {
+            LOG_WARN("[MeshSystem] Model asset not ready, skipping GPU build: {}",
+                      meshComp->m_modelAssetId.GetPath().c_str());
+            return;
+        }
+
+        BuildGPUResources(entity, *meshComp->m_modelAsset);
     }
 
     void MeshSystem::OnComponentUpdated(Entity entity)
     {
         CleanupGPUResources(entity);
-        ProcessMeshEntity(entity);
+        OnComponentConstruct(entity);
     }
 
     void MeshSystem::OnComponentDestory(Entity entity)
     {
         CleanupGPUResources(entity);
-    }
-
-    void MeshSystem::OnAssetReady(Resource::Asset& asset)
-    {
-        const Resource::AssetHash readyHash = asset.GetAssetId().GetHash();
-
-        auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
-        auto view = ctx.GetView<MeshComponent, MeshAssetLoadingTag>();
-
-        eastl::vector<Entity> matches;
-        matches.reserve(view.size_hint());
-        view.each([&](Entity entity, const MeshComponent& meshComp)
-        {
-            if (meshComp.m_modelAssetId.GetHash() == readyHash)
-            {
-                matches.push_back(entity);
-            }
-        });
-
-        auto& modelAsset = static_cast<Resource::ModelAsset&>(asset);
-        for (Entity entity : matches)
-        {
-            BuildGPUResources(entity, modelAsset);
-            ctx.Remove<MeshAssetLoadingTag>(entity);
-        }
-    }
-
-    void MeshSystem::OnAssetError(Resource::Asset& asset)
-    {
-        const Resource::AssetHash errorHash = asset.GetAssetId().GetHash();
-
-        auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
-        auto view = ctx.GetView<MeshComponent, MeshAssetLoadingTag>();
-
-        eastl::vector<Entity> matches;
-        matches.reserve(view.size_hint());
-        view.each([&](Entity entity, const MeshComponent& meshComp)
-        {
-            if (meshComp.m_modelAssetId.GetHash() == errorHash)
-            {
-                matches.push_back(entity);
-            }
-        });
-
-        for (Entity entity : matches)
-        {
-            LOG_ERROR("[MeshSystem] Asset load failed for entity {}",
-                      static_cast<uint32_t>(entity));
-            ctx.Remove<MeshAssetLoadingTag>(entity);
-        }
-    }
-
-    void MeshSystem::ProcessMeshEntity(Entity entity)
-    {
-        auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
-
-        auto* meshComp = ctx.TryGet<MeshComponent>(entity);
-        if (!meshComp || !meshComp->m_modelAssetId.IsValid())
-        {
-            return;
-        }
-
-        auto* assetMgr = Service<Resource::AssetManager>::Get();
-        if (!assetMgr)
-        {
-            LOG_ERROR("[MeshSystem] AssetManager service not available.");
-            return;
-        }
-
-        Ptr<Resource::ModelAsset> modelAsset =
-            assetMgr->RequestAsset<Resource::ModelAsset>(meshComp->m_modelAssetId);
-        if (!modelAsset)
-        {
-            LOG_ERROR("[MeshSystem] Failed to request model asset: {}",
-                      meshComp->m_modelAssetId.GetPath().c_str());
-            return;
-        }
-
-        if (modelAsset->IsError())
-        {
-            LOG_ERROR("[MeshSystem] Model asset in error state: {}",
-                      meshComp->m_modelAssetId.GetPath().c_str());
-            return;
-        }
-
-        meshComp->m_modelAsset = eastl::move(modelAsset);
-
-        if (meshComp->m_modelAsset->IsReady())
-        {
-            BuildGPUResources(entity, *meshComp->m_modelAsset);
-        }
-        else
-        {
-            ctx.AddOrReplace<MeshAssetLoadingTag>(entity);
-        }
     }
 
     void MeshSystem::BuildGPUResources(Entity entity, Resource::ModelAsset& modelAsset)
@@ -251,8 +167,6 @@ namespace Spark::Mesh
     {
         auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
-
-        ctx.Remove<MeshAssetLoadingTag>(entity);
 
         auto* gpuComp = ctx.TryGet<MeshGPUComponent>(entity);
         if (!gpuComp)

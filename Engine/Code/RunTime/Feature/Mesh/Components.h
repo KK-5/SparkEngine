@@ -23,7 +23,7 @@ namespace Spark::Mesh
     };
 
 
-    
+
     struct MeshGPUComponent {
         RHI::RHIHandle m_vertexBuffer   {RHI::NullHandle};
         RHI::RHIHandle m_indexBindings  {RHI::NullHandle};
@@ -32,9 +32,6 @@ namespace Spark::Mesh
         RHI::IndexFormat m_indexFormat;
     };
 
-    struct MeshAssetLoadingTag {};
-    
-    
 }
 
 namespace Spark

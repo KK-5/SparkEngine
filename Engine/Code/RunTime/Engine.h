@@ -17,6 +17,8 @@
 #include <Resource/AssetManager.h>
 #include <UI/ImGui/IconManager.h>
 #include <Mesh/MeshSystem.h>
+#include <Mesh/MeshResolver.h>
+#include <Resource/Bus/AssetResolveBus.h>
 
 namespace Spark
 {
@@ -25,7 +27,7 @@ namespace Spark
     {
     public:
         SparkEngine() = default;
-        ~SparkEngine() = default;
+        ~SparkEngine();
 
         SparkEngine(const SparkEngine&) = delete;
         SparkEngine& operator=(const SparkEngine&) = delete;
@@ -45,9 +47,11 @@ namespace Spark
     private:
         eastl::chrono::steady_clock::time_point m_lastTickTime {eastl::chrono::steady_clock::now()};
         unsigned int m_fps  {0};
-        bool         m_quit {false};
+        bool         m_quit       {false};
+        bool         m_initialized{false};
 
         WorldContext m_worldContext {};
+        UniquePtr<WorldExecuteContextGuard>           m_worldCtxGuard;
 
         UniquePtr<SpdLogSystem>                      m_logSystem;
         SystemUniquePtr<Input::InputSystem>          m_inputSystem;
@@ -60,5 +64,6 @@ namespace Spark
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<UI::IconManager>             m_iconManager;
         SystemUniquePtr<Mesh::MeshSystem>            m_meshSystem;
+        UniquePtr<Mesh::MeshResolver>                 m_meshResolver;
     };
 }

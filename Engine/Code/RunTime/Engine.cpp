@@ -20,7 +20,7 @@ namespace Spark
         TypeRegistry::Register(Spark::Mesh::Reflect);
         TypeRegistry::RegisterAll();
 
-        WorldExecuteContext::Push(m_worldContext);
+        m_worldCtxGuard = eastl::make_unique<WorldExecuteContextGuard>(m_worldContext);
 
         LogConfig logConfig{};
         logConfig.m_showTimeStamp = true;
@@ -64,22 +64,40 @@ namespace Spark
         m_meshSystem = CreateSystem<Mesh::MeshSystem>();
         m_meshSystem->Init();
 
+        m_meshResolver = eastl::make_unique<Mesh::MeshResolver>();
+        m_meshResolver->Init();
+
         m_rhiResourceSystem = CreateSystem<RHI::RHIResourceSystem>();
         m_rhiResourceSystem->Init();
 
         m_asyncUploadSystem = CreateSystem<RHI::AsyncUploadSystem>();
         m_asyncUploadSystem->Init();
+
+        m_initialized = true;
+    }
+
+    SparkEngine::~SparkEngine()
+    {
+        Shutdown();
     }
 
     void SparkEngine::Shutdown()
     {
-        WorldExecuteContext::Pop();
+        if (!m_initialized)
+        {
+            return;
+        }
+        m_initialized = false;
     }
 
     void SparkEngine::Run(eastl::function<bool()> shouldQuit)
     {
         while (!shouldQuit())
         {
+            // Fetch asset resolve request
+            Resource::AssetResolveBus::ExecuteQueuedEvents();
+
+
             float deltaTime = CalculDeltaTime();
             TickBus::Broadcast(&TickBus::Events::OnTick, deltaTime);
         }

@@ -5,21 +5,16 @@
 #include <ECS/Common.h>
 #include <ECS/Bus/ComponentEventBus.h>
 
-#include <Resource/AssetTypes.h>
-#include <Resource/Bus/AssetBus.h>
-
 #include "Components.h"
 
 namespace Spark::Mesh
 {
     class MeshSystem final : public ISystem,
-                             public ComponentEventBus::Handler,
-                             public Resource::AssetBus::Handler
+                             public ComponentEventBus::Handler
     {
     public:
         SPARK_COMPONENT_ACCESS(
             ReadWriteComponent<MeshComponent>,
-            ReadWriteComponent<MeshAssetLoadingTag>,
             WriteComponent<MeshGPUComponent>
         );
 
@@ -36,12 +31,7 @@ namespace Spark::Mesh
         void OnComponentUpdated(Entity entity) override;
         void OnComponentDestory(Entity entity) override;
 
-        // AssetBus
-        void OnAssetReady(Resource::Asset& asset) override;
-        void OnAssetError(Resource::Asset& asset) override;
-
     private:
-        void ProcessMeshEntity(Entity entity);
         void BuildGPUResources(Entity entity, Resource::ModelAsset& modelAsset);
         void CleanupGPUResources(Entity entity);
     };

@@ -10,6 +10,7 @@
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Asset.h>
 #include <Mesh/MeshUtils.h>
+#include <Resource/Bus/AssetResolveBus.h>
 
 namespace Editor
 {
@@ -88,18 +89,11 @@ namespace Editor
             return;
         }
 
-        auto* worldCtx = WorldExecuteContext::Current();
-        if (!worldCtx)
-        {
-            LOG_ERROR("[AssetHandler] No WorldContext active when model asset '{}' became ready.", asset.GetName().GetCStr());
-            m_loadingAssets.erase(it);
-            return;
-        }
-
-        LOG_INFO("[AssetHandler] Model asset '{}' loaded, extracting to world.", asset.GetName().GetCStr());
+        LOG_INFO("[AssetHandler] Model asset '{}' ready, queuing scene resolve.", asset.GetName().GetCStr());
         auto* modelAsset = static_cast<Resource::ModelAsset*>(&asset);
         Ptr<Resource::ModelAsset> model(modelAsset);
-        Mesh::ExtractMeshToWorld(model, *worldCtx);
+        Resource::AssetResolveBus::QueueBroadcast(
+            &Resource::AssetResolveBusTraits::ResolveModelAssetToScene, eastl::move(model));
         m_loadingAssets.erase(it);
     }
 
