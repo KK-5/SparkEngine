@@ -19,6 +19,7 @@
 #include <Mesh/MeshSystem.h>
 #include <Mesh/MeshResolver.h>
 #include <Resource/Bus/AssetResolveBus.h>
+#include <Feature/Transform/TransformSystem.h>
 
 namespace Spark
 {
@@ -56,6 +57,7 @@ namespace Spark
         UniquePtr<SpdLogSystem>                      m_logSystem;
         SystemUniquePtr<Input::InputSystem>          m_inputSystem;
         SystemUniquePtr<SceneManager>                m_sceneManager;
+        SystemUniquePtr<Transform::TransformSystem>  m_transformSystem;
         SystemUniquePtr<EntityReaper>                m_entityReaper;
         SystemUniquePtr<RHI::DX12::RHISystem>        m_dx12Rhi;
         SystemUniquePtr<Render::RenderSystem>        m_renderSystem;

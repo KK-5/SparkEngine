@@ -38,26 +38,28 @@ namespace Spark::Render
                 m_viewBindingsEntity = RHI::NullHandle;
             }
 
-            // Destroy all DrawRequest entities created during Process().
-            for (auto& [meshEntity, drawEntity] : m_meshToDrawRequest)
+            // Collect and destroy all DrawRequest entities tagged with this pass.
             {
-                if (rhiCtx->Valid(drawEntity))
+                eastl::vector<RHIHandle> toDestroy;
+                rhiCtx->GetView<DrawRequest, SPARK_PASS_TAG("DepthPrePass")>().each(
+                    [&](RHIHandle entity, const DrawRequest&) { toDestroy.push_back(entity); });
+                for (auto entity : toDestroy)
                 {
-                    rhiCtx->DestoryEntity(drawEntity);
+                    rhiCtx->DestoryEntity(entity);
                 }
             }
 
-            // Destroy all per-draw model ShaderBindings entities.
-            for (auto& [meshEntity, bindEntity] : m_meshToModelBinding)
+            // Collect and destroy all per-draw model ShaderBindings entities.
             {
-                if (rhiCtx->Valid(bindEntity))
+                eastl::vector<RHIHandle> toDestroy;
+                rhiCtx->GetView<RHI::Components::ShaderBindings, SPARK_PASS_TAG("DepthPrePass")>().each(
+                    [&](RHIHandle entity, const RHI::Components::ShaderBindings&) { toDestroy.push_back(entity); });
+                for (auto entity : toDestroy)
                 {
-                    rhiCtx->DestoryEntity(bindEntity);
+                    rhiCtx->DestoryEntity(entity);
                 }
             }
         }
-        m_meshToDrawRequest.clear();
-        m_meshToModelBinding.clear();
     }
 
     void DepthPreProcessor::Init(PassContext& passCtx, RHI::RHIContext& rhiCtx)
@@ -102,46 +104,31 @@ namespace Spark::Render
             MarkShaderBindingsUpdate(*rhiCtx, m_viewBindingsEntity);
         }
 
-        // Snapshot MeshGPUComponent data first to avoid holding references
-        // into the component pool across RHI entity creation. The asset worker
-        // thread may call AddOrReplace<MeshGPUComponent> during iteration,
-        // which can reallocate the packed array and invalidate references.
-        eastl::vector<eastl::pair<Entity, Mesh::MeshGPUComponent>> snapshot;
-        world->GetView<Mesh::MeshGPUComponent>().each(
+        world->GetView<Mesh::MeshGPUComponent>(Exclude<SPARK_PASS_TAG("DepthPrePass")>).each(
             [&](Entity entity, const Mesh::MeshGPUComponent& gpu)
-            {
-                snapshot.emplace_back(entity, gpu);
-            });
-
-        for (const auto& [entity, gpu] : snapshot)
         {
-            if (m_meshToDrawRequest.find(entity) != m_meshToDrawRequest.end())
-            {
-                continue;
-            }
-
             if (gpu.m_vertexBuffer == RHI::NullHandle)
             {
-                continue;
+                return;
             }
 
             auto* vbComp = rhiCtx->TryGet<RHI::Components::Buffer>(gpu.m_vertexBuffer);
             if (!vbComp || !vbComp->m_buffer)
             {
-                continue;
+                return;
             }
 
             const uint64_t vbByteCount = vbComp->m_buffer->GetDescriptor().m_byteCount;
             if (vbByteCount == 0)
             {
-                continue;
+                return;
             }
 
             auto streamBuffers = gpu.m_inputLayout.GetStreamBuffers();
             const uint32_t stride = streamBuffers.empty() ? 0 : streamBuffers[0].m_byteStride;
             if (stride == 0)
             {
-                continue;
+                return;
             }
 
             RHIHandle drawEntity = rhiCtx->CreateEntity();
@@ -201,7 +188,7 @@ namespace Spark::Render
                         modelInput->SetData(&modelMatrix, sizeof(modelMatrix));
                     }
 
-                    m_meshToModelBinding[entity] = modelHandle.m_entity;
+                    rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(modelHandle.m_entity);
                     req.m_shaderBindingEntities.push_back(modelHandle.m_entity);
                 }
             }
@@ -209,36 +196,7 @@ namespace Spark::Render
             rhiCtx->Add<DrawRequest>(drawEntity, eastl::move(req));
             rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(drawEntity);
 
-            m_meshToDrawRequest[entity] = drawEntity;
-        }
-
-        // Prune DrawRequests and model bindings for entities that no longer
-        // carry MeshGPUComponent.
-        for (auto it = m_meshToDrawRequest.begin(); it != m_meshToDrawRequest.end(); )
-        {
-            if (!world->TryGet<Mesh::MeshGPUComponent>(it->first))
-            {
-                if (rhiCtx->Valid(it->second))
-                {
-                    rhiCtx->DestoryEntity(it->second);
-                }
-
-                auto modelIt = m_meshToModelBinding.find(it->first);
-                if (modelIt != m_meshToModelBinding.end())
-                {
-                    if (rhiCtx->Valid(modelIt->second))
-                    {
-                        rhiCtx->DestoryEntity(modelIt->second);
-                    }
-                    m_meshToModelBinding.erase(modelIt);
-                }
-
-                it = m_meshToDrawRequest.erase(it);
-            }
-            else
-            {
-                ++it;
-            }
-        }
+            world->Add<SPARK_PASS_TAG("DepthPrePass")>(entity);
+        });
     }
 }

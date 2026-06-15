@@ -32,6 +32,9 @@ namespace Spark
         m_sceneManager = CreateSystem<SceneManager>();
         m_sceneManager->Init();
 
+        m_transformSystem = CreateSystem<Transform::TransformSystem>();
+        m_transformSystem->Init();
+
         m_inputSystem = CreateSystem<Input::InputSystem>();
         m_inputSystem->Init();
 
