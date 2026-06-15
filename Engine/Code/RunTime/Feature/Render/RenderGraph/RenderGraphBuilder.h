@@ -201,11 +201,20 @@ namespace Spark::Render
         }
 
         // Pure registration: build attachment entity, attach components, record use. No validation.
+        // Takes the attachment by value: resolves an imported resource link (m_image/
+        // m_buffer) at declaration time when it was not set by the caller.
         template<typename PassTag>
-        void RegisterBufferAttachment(const BufferPassAttachment& attachment);
+        void RegisterBufferAttachment(BufferPassAttachment attachment);
 
         template<typename PassTag>
-        void RegisterImageAttachment(const ImagePassAttachment& attachment);
+        void RegisterImageAttachment(ImagePassAttachment attachment);
+
+        // Resolve an attachment name to an imported resource entity (ImportedTag).
+        // Imported resources exist from import time (before any Build), so the link is
+        // set right here at declaration. Returns NullHandle when the name is not an
+        // imported resource — then it is a transient name, resolved later by
+        // CompileTransientResources.
+        static RHIHandle FindImportedResourceByName(const RHI::AttachmentId& name);
 
         // Materialize a transient resource entity in RHIContext: TransientTag,
         // ResourceName, plus the resource descriptor.
@@ -302,10 +311,26 @@ namespace Spark::Render
     // Registration helpers
     // ============================================================
 
-    template<typename PassTag>
-    void RenderGraphBuilder::RegisterBufferAttachment(const BufferPassAttachment& attachment)
+    inline RHIHandle RenderGraphBuilder::FindImportedResourceByName(const RHI::AttachmentId& name)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
+        RHIHandle result = NullHandle;
+        rhiContext.GetView<ImportedTag, ResourceName>().each(
+            [&](RHIHandle resource, const ResourceName& rn)
+            {
+                if (rn.m_name == name) { result = resource; }
+            });
+        return result;
+    }
+
+    template<typename PassTag>
+    void RenderGraphBuilder::RegisterBufferAttachment(BufferPassAttachment attachment)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        if (attachment.m_buffer == NullHandle)
+        {
+            attachment.m_buffer = FindImportedResourceByName(attachment.m_attachmentId.m_id);
+        }
         RHIHandle attachmentHandle = rhiContext.CreateEntity();
         rhiContext.Add<BufferPassAttachment>(attachmentHandle, attachment);
         rhiContext.Add<PassTag>(attachmentHandle);
@@ -314,9 +339,13 @@ namespace Spark::Render
     }
 
     template<typename PassTag>
-    void RenderGraphBuilder::RegisterImageAttachment(const ImagePassAttachment& attachment)
+    void RenderGraphBuilder::RegisterImageAttachment(ImagePassAttachment attachment)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
+        if (attachment.m_image == NullHandle)
+        {
+            attachment.m_image = FindImportedResourceByName(attachment.m_attachmentId.m_id);
+        }
         RHIHandle attachmentHandle = rhiContext.CreateEntity();
         rhiContext.Add<ImagePassAttachment>(attachmentHandle, attachment);
         rhiContext.Add<PassTag>(attachmentHandle);

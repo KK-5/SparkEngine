@@ -149,12 +149,11 @@ namespace Spark::Render
         m_compiler.Begin(frameIndex);
 
         // Transient resources must be materialized (backing allocated) before the
-        // rest of compile. Image views are now built lazily on demand via the
-        // resource's ImageViewCache (GetOrCreateImageView); only transient buffer
-        // views are still eagerly materialized here. A ShaderBindings that samples a
+        // rest of compile. Views are no longer materialized here — they are resolved
+        // on demand from each resource's view cache. A ShaderBindings that samples a
         // transient image must obtain its view (FindPassAttachmentImageView) before
         // CompileShaderInputs so the descriptor is compiled with it.
-        m_compiler.CompileTransientResources(passes, *m_pool);
+        m_compiler.CompileTransientResources(*m_pool);
 
         m_compiler.CompileShaderInputs(*m_device, context);
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());

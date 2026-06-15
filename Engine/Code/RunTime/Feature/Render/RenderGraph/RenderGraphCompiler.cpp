@@ -794,16 +794,15 @@ namespace
         return result;
     }
 
-    void RenderGraphCompiler::CompileTransientResources(
-        eastl::span<Pass>           /*passes*/,
-        RHI::TransientResourcePool& pool)
+    void RenderGraphCompiler::CompileTransientResources(RHI::TransientResourcePool& pool)
     {
         auto& rhiContext  = *RHIExecuteContext::Current();
         auto& passContext = *PassExecuteContext::Current();
 
         // 1. Build name → resource-entity lookup for transient images / buffers.
         //    These hold ONLY transient resources, so an attachment whose id misses
-        //    the lookup is targeting an imported/static resource and is skipped.
+        //    the lookup targets an imported/static resource (its m_image/m_buffer was
+        //    already resolved at Build time) and is skipped here.
         eastl::unordered_map<RHI::AttachmentId, RHIHandle> transientImageByName;
         eastl::unordered_map<RHI::AttachmentId, RHIHandle> transientBufferByName;
 
@@ -824,9 +823,6 @@ namespace
         rhiContext.GetView<ImagePassAttachment>(Exclude<StaticImportTag>).each(
             [&](RHIHandle attachmentHandle, ImagePassAttachment& a)
             {
-                // Only transient attachments belong here. An attachment targeting an
-                // imported resource carries an id that is not in transientImageByName,
-                // so the lookup miss below filters it out — no view-based gate needed.
                 auto it = transientImageByName.find(a.m_attachmentId.m_id);
                 if (it == transientImageByName.end())
                 {
@@ -874,9 +870,6 @@ namespace
         rhiContext.GetView<BufferPassAttachment>(Exclude<StaticImportTag>).each(
             [&](RHIHandle attachmentHandle, BufferPassAttachment& a)
             {
-                // Only transient attachments belong here. An attachment targeting an
-                // imported resource carries an id not in transientBufferByName, so the
-                // lookup miss below filters it out — no view-based gate needed.
                 auto it = transientBufferByName.find(a.m_attachmentId.m_id);
                 if (it == transientBufferByName.end())
                 {

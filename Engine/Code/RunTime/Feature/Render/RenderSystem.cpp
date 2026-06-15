@@ -114,28 +114,15 @@ namespace Spark::Render
             .CustomPipeline()
             .Build([this](RenderGraphBuilder& builder)
             {
-                
-                ImportedImageAttachmentBindInfo bind;
-                bind.m_slot   = RHI::InputName("ColorOutput");
-                bind.m_image  = m_renderGraph.GetSwapchainResource();
-                bind.m_access = RHI::AttachmentAccess::Write;
-                bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
-                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.ImportImageAttachment<SPARK_PASS_TAG("UIPass")>(
-                    RHI::AttachmentId("SwapChain"), bind);
-                
-                /*
                 ImageAttachmentBindInfo bind;
                 bind.m_slot   = RHI::InputName("ColorOutput");
                 bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
+                bind.m_view   = RHI::ImageViewDescriptor{};  // All image
                 bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 builder.WriteImageAttachment<SPARK_PASS_TAG("UIPass")>(
                     RHI::AttachmentId("SwapChain"), bind);
-                */
             })
             .Execute([this](ExecuteWork& work, RenderGraphExecuter&)
             {

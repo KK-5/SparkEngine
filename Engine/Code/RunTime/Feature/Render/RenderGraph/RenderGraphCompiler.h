@@ -59,9 +59,7 @@ namespace Spark::Render
         //! the pool's batch is open (post-OnFrameBegin). On return, the pool is
         //! sealed and ready for GetDeviceMemoryBarriers queries during per-pass
         //! barrier compilation.
-        void CompileTransientResources(
-            eastl::span<Pass>           passes,
-            RHI::TransientResourcePool& pool);
+        void CompileTransientResources(RHI::TransientResourcePool& pool);
 
 
         //! Compile all barriers for a single pass. Must be called in topo-sort
