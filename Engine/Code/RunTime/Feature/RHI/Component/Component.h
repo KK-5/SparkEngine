@@ -203,6 +203,20 @@ namespace Spark::RHI::Components
         eastl::fixed_vector<ImageViewCacheEntry, MaxViews> m_entries;
     };
 
+    //! Buffer-view counterpart of ImageViewCacheEntry / ImageViewCache — same
+    //! rationale (resource-owned, descriptor-keyed, deduplicated, views not entities).
+    struct BufferViewCacheEntry
+    {
+        RHI::BufferViewDescriptor m_descriptor {};
+        Ptr<RHI::BufferView>      m_view;
+    };
+
+    struct BufferViewCache
+    {
+        static constexpr uint32_t MaxViews = 8;
+        eastl::fixed_vector<BufferViewCacheEntry, MaxViews> m_entries;
+    };
+
     // Owning component holding a ShaderBindings instance. Placed on an entity by
     // Render::CreatePassShaderBindings so RenderGraphCompiler::CompileShaderInputs
     // can discover it via view iteration. Filter tag is ShaderBindingsUpdateTag.
@@ -244,5 +258,18 @@ namespace Spark::RHI::Components
     {
         static constexpr uint32_t MaxViews = 8;
         eastl::fixed_vector<ImageViewCachePerFrameEntry, MaxViews> m_entries;
+    };
+
+    //! Per-frame buffer-view cache — buffer counterpart of ImageViewCachePerFrame.
+    struct BufferViewCachePerFrameEntry
+    {
+        RHI::BufferViewDescriptor        m_descriptor {};
+        FrameArray<Ptr<RHI::BufferView>> m_views {};
+    };
+
+    struct BufferViewCachePerFrame
+    {
+        static constexpr uint32_t MaxViews = 8;
+        eastl::fixed_vector<BufferViewCachePerFrameEntry, MaxViews> m_entries;
     };
 }

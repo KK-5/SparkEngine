@@ -213,4 +213,104 @@ namespace Spark::RHI
         return slot.get();
     }
 
+    //! Buffer-view counterpart of GetOrCreateImageView (see it for the full rationale).
+    //! Resource-owned, descriptor-keyed buffer view cache; on a miss materializes a new
+    //! RHI::BufferView from the given buffer and caches it. Returns a pointer stable for
+    //! the resource's lifetime (nullptr on init failure). Single-frame only — for
+    //! per-frame resources use GetOrCreateBufferViewPerFrame.
+    inline RHI::BufferView* GetOrCreateBufferView(
+        BasicContext<RHIHandle>& ctx,
+        RHIHandle resourceEntity,
+        Buffer& buffer,
+        const BufferViewDescriptor& viewDesc)
+    {
+        Components::BufferViewCache* cache = ctx.TryGet<Components::BufferViewCache>(resourceEntity);
+        if (!cache)
+        {
+            ctx.Add<Components::BufferViewCache>(resourceEntity, Components::BufferViewCache{});
+            cache = ctx.TryGet<Components::BufferViewCache>(resourceEntity);
+        }
+
+        for (auto& entry : cache->m_entries)
+        {
+            if (entry.m_descriptor == viewDesc)
+            {
+                return entry.m_view.get();   // cache hit
+            }
+        }
+
+        // Miss — materialize a new view and cache it.
+        Ptr<RHI::BufferView> view = Service<Factory>::Get()->CreateBufferView();
+        ASSERT(view != nullptr, "[GetOrCreateBufferView] Factory::CreateBufferView returned null.");
+        if (view->Init(buffer, viewDesc) != ResultCode::Success)
+        {
+            LOG_ERROR("[GetOrCreateBufferView] BufferView::Init failed.");
+            return nullptr;
+        }
+        RHI::BufferView* raw = view.get();
+
+        cache->m_entries.push_back(
+            Components::BufferViewCacheEntry{ viewDesc, eastl::move(view) });
+        return raw;
+    }
+
+    //! Per-frame counterpart of GetOrCreateBufferView (see GetOrCreateImageViewPerFrame
+    //! for the per-frame contract). `buffer` MUST be the frameIndex-th buffer of the
+    //! resource. On a cache hit the contract is validated via BufferView::GetBuffer().
+    inline RHI::BufferView* GetOrCreateBufferViewPerFrame(
+        BasicContext<RHIHandle>& ctx,
+        RHIHandle resourceEntity,
+        Buffer& buffer,
+        const BufferViewDescriptor& viewDesc,
+        uint32_t frameIndex)
+    {
+        ASSERT(frameIndex < RHI::Limits::Device::FrameCountMax,
+            "[GetOrCreateBufferViewPerFrame] frameIndex {} out of range.", frameIndex);
+
+        Components::BufferViewCachePerFrame* cache =
+            ctx.TryGet<Components::BufferViewCachePerFrame>(resourceEntity);
+        if (!cache)
+        {
+            ctx.Add<Components::BufferViewCachePerFrame>(
+                resourceEntity, Components::BufferViewCachePerFrame{});
+            cache = ctx.TryGet<Components::BufferViewCachePerFrame>(resourceEntity);
+        }
+
+        Components::BufferViewCachePerFrameEntry* entry = nullptr;
+        for (auto& e : cache->m_entries)
+        {
+            if (e.m_descriptor == viewDesc)
+            {
+                entry = &e;
+                break;
+            }
+        }
+        if (!entry)
+        {
+            cache->m_entries.push_back(
+                Components::BufferViewCachePerFrameEntry{ viewDesc, {} });
+            entry = &cache->m_entries.back();
+        }
+
+        Ptr<RHI::BufferView>& slot = entry->m_views[frameIndex];
+        if (slot)
+        {
+            ASSERT(&slot->GetBuffer() == &buffer,
+                "[GetOrCreateBufferViewPerFrame] cached view for frame {} was built over a "
+                "different buffer — (buffer,frameIndex) mismatch or the resource's per-frame "
+                "buffer changed without cache invalidation.", frameIndex);
+            return slot.get();
+        }
+
+        Ptr<RHI::BufferView> view = Service<Factory>::Get()->CreateBufferView();
+        ASSERT(view != nullptr, "[GetOrCreateBufferViewPerFrame] Factory::CreateBufferView returned null.");
+        if (view->Init(buffer, viewDesc) != ResultCode::Success)
+        {
+            LOG_ERROR("[GetOrCreateBufferViewPerFrame] BufferView::Init failed.");
+            return nullptr;
+        }
+        slot = eastl::move(view);
+        return slot.get();
+    }
+
 } // namespace Spark::RHI

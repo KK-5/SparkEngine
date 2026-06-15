@@ -189,9 +189,13 @@ swapchain / dynamic 的 view 是 per-frame(一个 descriptor 对应 N 个真 vie
 - [x] **删组件**:`Components::ImageView`/`BufferView`/`ImageViewPerFrame`/`BufferViewPerFrame`、`ViewHierarchy`/`ResourceHierarchy`、`BackingImageView`/`BackingBufferView`,及 RHIComponents.h 的 re-export。
 - 全量(引擎+5 sample+editor+test)编译通过。**至此 view 不再以任何形式作为 entity 存在,全部走 resource 的 view cache。**
 
+### 阶段 10 — buffer-view cache(已完成,镜像 image)
+- [x] `BufferViewCache`/`BufferViewCacheEntry` + `BufferViewCachePerFrame`/`...Entry`(Component.h)。
+- [x] `GetOrCreateBufferView` + `GetOrCreateBufferViewPerFrame`(ResourceBuilder.h),逐行镜像 image 版,per-frame 命中用 `BufferView::GetBuffer()` 校验。
+- 现无消费点(buffer view 尚无人用),作为与 image 对称的原语先就位;出现消费点时直接 `FindPassAttachmentBufferView` + resolve 即可。
+
 ### Follow-up / 剩余
 - B 类 ShaderBindings 注入复用 `GetOrCreateImageView`;compile 并行(串行结构 pre-pass + 并行填充)。
-- buffer-view cache:出现 buffer-view 消费点时再做。
 - 运行时未实跑验证(需窗口),建议跑 sample/editor 确认。
 - 旧 `CreateImageView`/`CreateBufferView`(返回 view 实体)+ `RHIResourceSystem` 的 view 材质化:评估非 swapchain 用户后退役。
 - B 类 ShaderBindings 注入复用 `GetOrCreateImageView`;compile 并行(串行结构 pre-pass + 并行填充)。
