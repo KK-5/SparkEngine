@@ -25,6 +25,7 @@ target_link_libraries(${TARGET_NAME}
         SparkAssetManager
         SparkUI
     PUBLIC
+        SparkCamera
         SparkCore
         SparkRHI
         opengl32

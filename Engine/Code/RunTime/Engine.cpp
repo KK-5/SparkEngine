@@ -9,6 +9,7 @@
 #include <Reflect.h>
 
 #include <Feature/Transform/Reflect.h>
+#include <Feature/Camera/Reflect.h>
 #include <Feature/Mesh/Reflect.h>
 
 namespace Spark
@@ -17,6 +18,7 @@ namespace Spark
     {
         TypeRegistry::Register(Spark::Reflect);
         TypeRegistry::Register(Spark::Transform::Reflect);
+        TypeRegistry::Register(Spark::Camera::Reflect);
         TypeRegistry::Register(Spark::Mesh::Reflect);
         TypeRegistry::RegisterAll();
 
@@ -34,6 +36,9 @@ namespace Spark
 
         m_transformSystem = CreateSystem<Transform::TransformSystem>();
         m_transformSystem->Init();
+
+        m_cameraSystem = CreateSystem<Camera::CameraSystem>();
+        m_cameraSystem->Init();
 
         m_inputSystem = CreateSystem<Input::InputSystem>();
         m_inputSystem->Init();

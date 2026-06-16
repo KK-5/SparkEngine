@@ -16,6 +16,7 @@
 
 #include <Mesh/Components.h>
 #include <Transform/Components.h>
+#include <Feature/Camera/Components.h>
 
 namespace Spark::Render
 {
@@ -90,18 +91,16 @@ namespace Spark::Render
 
         if (m_viewBindings && m_viewBindingsEntity != RHI::NullHandle)
         {
-            const float aspect = (renderSize.y > 0)
-                ? static_cast<float>(renderSize.x) / static_cast<float>(renderSize.y)
-                : 1.0f;
+            auto cameraView = world->GetView<Camera::CameraViewMatrix>();
+            cameraView.each([&](Entity, const Camera::CameraViewMatrix& cameraMats)
+            {
+                View view;
+                view.m_worldToView = cameraMats.m_viewMatrix;
+                view.m_viewToClip  = cameraMats.m_projectionMatrix;
 
-            View view = MakePerspectiveView(
-                Math::Vector3(0.f, 5.f, -5.f),
-                Math::Vector3(0.f, 0.f, 0.f),
-                Math::Vector3(0.f, 1.f, 0.f),
-                Math::Radians(45.f), aspect, 0.1f, 100.f);
-
-            WriteViewConstants(view, *m_viewBindings);
-            MarkShaderBindingsUpdate(*rhiCtx, m_viewBindingsEntity);
+                WriteViewConstants(view, *m_viewBindings);
+                MarkShaderBindingsUpdate(*rhiCtx, m_viewBindingsEntity);
+            });
         }
 
         world->GetView<Mesh::MeshGPUComponent, Transform::WorldTransformMatrix>(Exclude<SPARK_PASS_TAG("DepthPrePass")>).each(

@@ -3,11 +3,12 @@
 #include <ECS/ISystem.h>
 #include <ECS/WorldContext.h>
 #include <Feature/Input/Bus/InputEventBus.h>
+#include <Tick/TickBus.h>
 
 namespace Editor
 {
-    // 响应输入事件的系统，它会在OnTick的Input阶段被调用
     class EditorInputSystem : public Spark::ISystem,
+                              public Spark::TickBus::Handler,
                               public Spark::Input::InputEventBus::Handler
     {
     public:
@@ -25,8 +26,35 @@ namespace Editor
             return "EditorInputSystem"_hs;
         }
 
+        // TickBus
+        void OnTick(float deltaTime) override;
+
+        inline unsigned int GetTickOrder() const override
+        {
+            return static_cast<unsigned int>(Spark::TickOrder::TICK_INPUT) + 1;
+        }
+
         // InputEventBus
         void OnMouseButtonEvent(Spark::Input::MouseButtonEvent event) override;
+        void OnMouseCursorPosEvent(Spark::Input::MouseCursorPosEvent event) override;
+        void OnKeyboardEvent(Spark::Input::KeyboardEvent event) override;
 
+    private:
+        void FindOrCreateEditorCamera();
+
+        float m_moveSpeed    = 10.f;
+        float m_rotateSpeed  = 0.03f;
+
+        bool m_keyW = false;
+        bool m_keyA = false;
+        bool m_keyS = false;
+        bool m_keyD = false;
+
+        bool m_mouseLeftHeld  = false;
+        bool m_firstMouseMove = false;
+        float m_lastMouseX = 0.f;
+        float m_lastMouseY = 0.f;
+
+        Spark::Entity m_editorCamera = Spark::NullEntity;
     };
 }

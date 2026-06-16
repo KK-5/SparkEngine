@@ -5,6 +5,7 @@ add_subdirectory(Resource)
 add_subdirectory(Platform)
 add_subdirectory(Feature/Input)
 add_subdirectory(Feature/Transform)
+add_subdirectory(Feature/Camera)
 add_subdirectory(Feature/Mesh)
 add_subdirectory(Feature/RHI)
 add_subdirectory(Feature/Render)
@@ -26,6 +27,7 @@ target_link_libraries(${TARGET_NAME}
         SparkUI
         SparkWindow
         SparkAssetManager
+        SparkCamera
         SparkMesh
         SparkTransform
 )

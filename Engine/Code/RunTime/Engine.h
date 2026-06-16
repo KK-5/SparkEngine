@@ -20,6 +20,7 @@
 #include <Mesh/MeshResolver.h>
 #include <Resource/Bus/AssetResolveBus.h>
 #include <Feature/Transform/TransformSystem.h>
+#include <Feature/Camera/CameraSystem.h>
 
 namespace Spark
 {
@@ -58,6 +59,7 @@ namespace Spark
         SystemUniquePtr<Input::InputSystem>          m_inputSystem;
         SystemUniquePtr<SceneManager>                m_sceneManager;
         SystemUniquePtr<Transform::TransformSystem>  m_transformSystem;
+        SystemUniquePtr<Camera::CameraSystem>        m_cameraSystem;
         SystemUniquePtr<EntityReaper>                m_entityReaper;
         SystemUniquePtr<RHI::DX12::RHISystem>        m_dx12Rhi;
         SystemUniquePtr<Render::RenderSystem>        m_renderSystem;
