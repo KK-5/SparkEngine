@@ -24,7 +24,12 @@ namespace Spark::RHI
         , m_byteCount{byteCount}
         , m_format{format}
     {
-        m_hash = eastl::hash<const IndexBufferView*>()(this);
+        size_t seed = 0;
+        eastl::hash_combine(seed, m_buffer);
+        eastl::hash_combine(seed, m_byteOffset);
+        eastl::hash_combine(seed, m_byteCount);
+        eastl::hash_combine(seed, static_cast<uint32_t>(m_format));
+        m_hash = seed;
     }
 
     size_t IndexBufferView::GetHash() const
@@ -50,5 +55,14 @@ namespace Spark::RHI
     IndexFormat IndexBufferView::GetIndexFormat() const
     {
         return m_format;
+    }
+
+    bool IndexBufferView::operator==(const IndexBufferView& other) const
+    {
+        return (m_hash == other.m_hash) &&
+            (m_buffer == other.m_buffer) &&
+            (m_byteOffset == other.m_byteOffset) &&
+            (m_byteCount == other.m_byteCount) &&
+            (m_format == other.m_format);
     }
 }

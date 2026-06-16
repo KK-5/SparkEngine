@@ -27,9 +27,15 @@ namespace Spark::Mesh
     struct MeshGPUComponent {
         RHI::RHIHandle m_vertexBuffer   {RHI::NullHandle};
         RHI::RHIHandle m_indexBindings  {RHI::NullHandle};
+
         RHI::InputStreamLayout m_inputLayout;
-        uint32_t       m_indexCount = 0;
+
+        uint32_t         m_indexCount = 0;
         RHI::IndexFormat m_indexFormat;
+        uint32_t         m_indexByteCount   = 0;
+
+        uint32_t m_vertexByteCount  = 0;
+        uint32_t m_vertexByteStride = 0;
     };
 
 }

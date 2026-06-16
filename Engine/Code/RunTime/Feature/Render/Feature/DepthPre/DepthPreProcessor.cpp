@@ -5,7 +5,6 @@
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Command/DrawArguments.h>
-#include <RHI/Resource/Buffer/Buffer.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
@@ -83,7 +82,8 @@ namespace Spark::Render
     {
         auto* world = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!world || !rhiCtx)
+        auto* passCtx = PassExecuteContext::Current();
+        if (!world || !rhiCtx || !passCtx)
         {
             return;
         }
@@ -104,29 +104,15 @@ namespace Spark::Render
             MarkShaderBindingsUpdate(*rhiCtx, m_viewBindingsEntity);
         }
 
-        world->GetView<Mesh::MeshGPUComponent>(Exclude<SPARK_PASS_TAG("DepthPrePass")>).each(
-            [&](Entity entity, const Mesh::MeshGPUComponent& gpu)
+        world->GetView<Mesh::MeshGPUComponent, Transform::WorldTransformMatrix>(Exclude<SPARK_PASS_TAG("DepthPrePass")>).each(
+            [&](Entity entity, const Mesh::MeshGPUComponent& gpu, const Transform::WorldTransformMatrix& worldMatrix)
         {
             if (gpu.m_vertexBuffer == RHI::NullHandle)
             {
                 return;
             }
 
-            auto* vbComp = rhiCtx->TryGet<RHI::Components::Buffer>(gpu.m_vertexBuffer);
-            if (!vbComp || !vbComp->m_buffer)
-            {
-                return;
-            }
-
-            const uint64_t vbByteCount = vbComp->m_buffer->GetDescriptor().m_byteCount;
-            if (vbByteCount == 0)
-            {
-                return;
-            }
-
-            auto streamBuffers = gpu.m_inputLayout.GetStreamBuffers();
-            const uint32_t stride = streamBuffers.empty() ? 0 : streamBuffers[0].m_byteStride;
-            if (stride == 0)
+            if (gpu.m_vertexByteCount == 0 || gpu.m_vertexByteStride == 0)
             {
                 return;
             }
@@ -137,24 +123,19 @@ namespace Spark::Render
             req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
             req.m_vertexBuffer = gpu.m_vertexBuffer;
             req.m_vertexBufferInfo = VertexBufferInfo{
-                0, static_cast<uint32_t>(vbByteCount), stride};
+                0, gpu.m_vertexByteCount, gpu.m_vertexByteStride};
 
             if (gpu.m_indexBindings != RHI::NullHandle)
             {
-                auto* ibComp = rhiCtx->TryGet<RHI::Components::Buffer>(gpu.m_indexBindings);
-                if (ibComp && ibComp->m_buffer)
-                {
-                    req.m_drawArguments = RHI::DrawArguments(
-                        RHI::DrawIndexed(0, gpu.m_indexCount, 0));
-                    req.m_indexBuffer = gpu.m_indexBindings;
-                    req.m_indexBufferInfo = IndexBufferInfo{
-                        0, static_cast<uint32_t>(ibComp->m_buffer->GetDescriptor().m_byteCount),
-                        gpu.m_indexFormat};
-                }
+                req.m_drawArguments = RHI::DrawArguments(
+                    RHI::DrawIndexed(0, gpu.m_indexCount, 0));
+                req.m_indexBuffer = gpu.m_indexBindings;
+                req.m_indexBufferInfo = IndexBufferInfo{
+                    0, gpu.m_indexByteCount, gpu.m_indexFormat};
             }
             else
             {
-                const uint32_t vertexCount = static_cast<uint32_t>(vbByteCount / stride);
+                const uint32_t vertexCount = gpu.m_vertexByteCount / gpu.m_vertexByteStride;
                 req.m_drawArguments = RHI::DrawArguments(
                     RHI::DrawLinear(0, vertexCount));
             }
@@ -166,37 +147,44 @@ namespace Spark::Render
             req.m_scissorsCount  = 1;
             req.m_scissors[0]    = RHI::Scissor{0, 0, renderSize.x, renderSize.y};
 
-            // Per-draw ShaderBindings at space1: model matrix from Transform
-            // system, or identity if the entity has no transform component.
-            if (auto* passCtx = PassExecuteContext::Current())
+            // Per-draw ShaderBindings at space1: model matrix from Transform system.
+            auto modelHandle = CreatePassShaderBindings<SPARK_PASS_TAG("DepthPrePass")>(
+                *passCtx, *rhiCtx, /*spaceId*/ 1);
+
+            if (modelHandle.m_bindings)
             {
-                auto modelHandle = CreatePassShaderBindings<SPARK_PASS_TAG("DepthPrePass")>(
-                    *passCtx, *rhiCtx, /*spaceId*/ 1);
-
-                if (modelHandle.m_bindings)
+                auto* modelInput = modelHandle.m_bindings->FindConstantInput(
+                    RHI::InputName("g_Model"));
+                if (modelInput)
                 {
-                    Math::Matrix4X4 modelMatrix = Math::Matrix4X4Const::IDENTITY;
-                    if (auto* worldMatrix = world->TryGet<Transform::WorldTransformMatrix>(entity))
-                    {
-                        modelMatrix = worldMatrix->m_worldMatrix;
-                    }
-
-                    auto* modelInput = modelHandle.m_bindings->FindConstantInput(
-                        RHI::InputName("g_Model"));
-                    if (modelInput)
-                    {
-                        modelInput->SetData(&modelMatrix, sizeof(modelMatrix));
-                    }
-
-                    rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(modelHandle.m_entity);
-                    req.m_shaderBindingEntities.push_back(modelHandle.m_entity);
+                    modelInput->SetData(&worldMatrix.m_worldMatrix, sizeof(worldMatrix.m_worldMatrix));
                 }
+
+                rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(modelHandle.m_entity);
+                req.m_shaderBindingEntities.push_back(modelHandle.m_entity);
             }
 
             rhiCtx->Add<DrawRequest>(drawEntity, eastl::move(req));
             rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(drawEntity);
 
             world->Add<SPARK_PASS_TAG("DepthPrePass")>(entity);
+            world->Add<DrawEntity>(entity, drawEntity);
+            world->Add<MatrixBindEntity>(entity, modelHandle.m_entity);
+        });
+
+        world->GetView<SPARK_PASS_TAG("DepthPrePass"), Transform::WorldTransformMatrix, MatrixBindEntity>().each(
+            [&](Entity entity, const Transform::WorldTransformMatrix& worldMatrix, const MatrixBindEntity& bind)
+        {
+            auto shaderBindings = rhiCtx->Get<RHI::Components::ShaderBindings>(bind.m_binding);
+            auto* modelInput = shaderBindings.m_bindings->FindConstantInput(RHI::InputName("g_Model"));
+            if (modelInput)
+            {
+                modelInput->SetData(&worldMatrix.m_worldMatrix, sizeof(worldMatrix.m_worldMatrix));
+            }
+            if (!rhiCtx->Has<RHI::ShaderBindingsUpdateTag>(bind.m_binding))
+            {
+                rhiCtx->Add<RHI::ShaderBindingsUpdateTag>(bind.m_binding);
+            }
         });
     }
 }

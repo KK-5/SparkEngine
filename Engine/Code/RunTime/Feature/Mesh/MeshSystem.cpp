@@ -149,11 +149,14 @@ namespace Spark::Mesh
 
         // Write MeshGPUComponent
         MeshGPUComponent gpuComp;
-        gpuComp.m_vertexBuffer = vbEntity;
-        gpuComp.m_indexBindings = ibEntity;
-        gpuComp.m_inputLayout = eastl::move(inputLayout);
-        gpuComp.m_indexCount = prim.indexCount;
-        gpuComp.m_indexFormat = prim.indexFormat;
+        gpuComp.m_vertexBuffer     = vbEntity;
+        gpuComp.m_indexBindings    = ibEntity;
+        gpuComp.m_inputLayout      = eastl::move(inputLayout);
+        gpuComp.m_indexCount       = prim.indexCount;
+        gpuComp.m_indexFormat      = prim.indexFormat;
+        gpuComp.m_vertexByteCount  = static_cast<uint32_t>(prim.vertexBuffer.size());
+        gpuComp.m_vertexByteStride = prim.layout.stride;
+        gpuComp.m_indexByteCount   = static_cast<uint32_t>(prim.indexBuffer.size());
 
         ctx.AddOrReplace<MeshGPUComponent>(entity, eastl::move(gpuComp));
 

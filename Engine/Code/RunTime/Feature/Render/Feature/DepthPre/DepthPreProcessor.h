@@ -13,6 +13,17 @@ namespace Spark::Render
     class DepthPreProcessor final
     {
     public:
+        struct DrawEntity
+        {
+            RHI::RHIHandle m_entity;
+        };
+
+        struct MatrixBindEntity
+        {
+            RHI::RHIHandle m_binding;
+        };
+
+
         void Init(PassContext& passCtx, RHI::RHIContext& rhiCtx);
         void Shutdown(PassContext& passCtx);
         void Process(const Math::Vector2Int& renderSize);

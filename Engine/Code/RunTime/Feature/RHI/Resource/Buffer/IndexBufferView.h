@@ -60,6 +60,8 @@ namespace Spark::RHI
         //! Returns the format of each index in the view.
         IndexFormat GetIndexFormat() const;
 
+        bool operator==(const IndexBufferView& other) const;
+
     private:
         size_t m_hash { 0 };
         const Buffer* m_buffer = nullptr;
