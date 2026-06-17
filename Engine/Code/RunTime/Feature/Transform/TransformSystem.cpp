@@ -30,7 +30,7 @@ namespace Spark::Transform
         {
             Math::Matrix4X4 localMatrix = Math::Matrix4X4Const::IDENTITY;
             localMatrix = Math::Translate(localMatrix, transform.m_position);
-            localMatrix = Math::Rotate(localMatrix, Math::QuaternionFromEuler(transform.m_rotation));
+            localMatrix = Math::Rotate(localMatrix, Math::QuaternionFromEuler(glm::radians(transform.m_rotation)));
             localMatrix = Math::Scale(localMatrix, transform.m_scale);
             return localMatrix;
         };

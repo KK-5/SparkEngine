@@ -20,8 +20,8 @@ namespace Spark::Input
     static eastl::fixed_hash_map<int, InputState,  3>   s_inputStateMap =
     {
         {GLFW_PRESS,                  InputState::Press},
-        {GLFW_RELEASE,                InputState::Repeat},
-        {GLFW_REPEAT,                 InputState::Release},
+        {GLFW_RELEASE,                InputState::Release},
+        {GLFW_REPEAT,                 InputState::Repeat},
     };
 
     static eastl::fixed_hash_map<int, InputMode,  3>      s_inputModMap =

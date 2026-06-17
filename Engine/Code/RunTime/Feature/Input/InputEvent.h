@@ -49,6 +49,8 @@ namespace Spark::Input
         MouseButton button;
         InputState  state;
         InputMode   mode;
+        float       xPos = 0.f;
+        float       yPos = 0.f;
     };
 
     struct MouseCursorPosEvent

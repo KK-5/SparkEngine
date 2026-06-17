@@ -56,7 +56,11 @@ namespace Editor
         if (event.button == MouseButton::Left)
         {
             m_mouseLeftHeld = (event.state == InputState::Press);
-            m_firstMouseMove = m_mouseLeftHeld;
+            if (m_mouseLeftHeld)
+            {
+                m_lastMouseX = event.xPos;
+                m_lastMouseY = event.yPos;
+            }
         }
     }
 
@@ -64,14 +68,6 @@ namespace Editor
     {
         if (!m_mouseLeftHeld)
         {
-            return;
-        }
-
-        if (m_firstMouseMove)
-        {
-            m_lastMouseX = event.xPos;
-            m_lastMouseY = event.yPos;
-            m_firstMouseMove = false;
             return;
         }
 

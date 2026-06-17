@@ -43,7 +43,7 @@ namespace Editor
         void FindOrCreateEditorCamera();
 
         float m_moveSpeed    = 10.f;
-        float m_rotateSpeed  = 0.03f;
+        float m_rotateSpeed  = 0.1f;
 
         bool m_keyW = false;
         bool m_keyA = false;
@@ -51,7 +51,6 @@ namespace Editor
         bool m_keyD = false;
 
         bool m_mouseLeftHeld  = false;
-        bool m_firstMouseMove = false;
         float m_lastMouseX = 0.f;
         float m_lastMouseY = 0.f;
 

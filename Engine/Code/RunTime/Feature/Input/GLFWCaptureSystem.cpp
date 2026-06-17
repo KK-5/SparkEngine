@@ -48,6 +48,13 @@ namespace Spark::Input
             event.state  = s_inputStateMap[action];
             event.mode   = s_inputModMap.find(mods) != s_inputModMap.end() ? s_inputModMap[mods] : InputMode::Invalid;
 
+            {
+                double x, y;
+                glfwGetCursorPos(window, &x, &y);
+                event.xPos = static_cast<float>(x);
+                event.yPos = static_cast<float>(y);
+            }
+
             if (auto ui = Service<UI::UIBaseSystem>::Get())
             {
                 if (ui->WantCaptureMouse())
