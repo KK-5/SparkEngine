@@ -1,7 +1,6 @@
 #include "CopyFrameBufferPass.h"
 
 #include <RHI/HardwareQueue.h>
-#include <RHI/Command/CopyItem.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/Context/RHIContext.h>
 
@@ -9,8 +8,7 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 
 #include <Pass/PassAccess.h>
-
-#include <UI/UIBaseSystem.h>
+#include <Pass/CopyPass.h>
 
 namespace Spark::Render
 {
@@ -46,9 +44,13 @@ namespace Spark::Render
             .Execute([](ExecuteWork& work, RenderGraphExecuter& executer){
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
 
-                auto* copySource = FindPassAttachmentImage<SPARK_PASS_TAG("CopyFrameBufferPass")>(rhiCtx, RHI::InputName("CopySource"));
+                // The copy itself is compiled from the CopyRequest (produced by
+                // UIProcessFeature) into a CopyItem by the pass's default Compile.
+                // This override only wraps that copy with the clear-to-black, so we
+                // resolve just the destination (swapchain) here — for the clear view
+                // and the surrounding RENDER_TARGET<->COPY_DEST barriers.
                 auto* copyDst = FindPassAttachmentImage<SPARK_PASS_TAG("CopyFrameBufferPass")>(rhiCtx, RHI::InputName("CopyWrite"));
-                if (!copySource || !copyDst)
+                if (!copyDst)
                 {
                     return;
                 }
@@ -91,25 +93,9 @@ namespace Spark::Render
                 work.m_commandList->QueueBarrier(toCopy);
                 work.m_commandList->FlushBarriers();
 
-                RHI::Origin dstOrigin{};
-                const auto* ui = Service<UI::UIBaseSystem>::Get();
-                if (ui)
-                {
-                    Math::Vector2Int pos = ui->GetFrameBufferPos();
-                    dstOrigin = RHI::Origin{static_cast<uint32_t>(pos.x), static_cast<uint32_t>(pos.y), 0};
-                }
-
-                RHI::CopyItem item;
-                item.m_type = RHI::CopyItemType::Image;
-                item.m_image.m_sourceImage = copySource;
-                item.m_image.m_sourceOrigin = RHI::Origin();
-                item.m_image.m_sourceSize = copySource->GetDescriptor().m_size;
-                item.m_image.m_sourceSubresource = RHI::ImageSubresource();
-                item.m_image.m_destinationImage = copyDst;
-                item.m_image.m_destinationOrigin = dstOrigin;
-                item.m_image.m_destinationSubresource = RHI::ImageSubresource();
-
-                work.m_commandList->Submit(item);
+                // Submit the compiled copy — its source/dest images and all scalar
+                // parameters were already resolved by the default Compile.
+                SubmitPassCopyItems<SPARK_PASS_TAG("CopyFrameBufferPass")>(work, executer);
             })
             .Finalize()
         ;
