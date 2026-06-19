@@ -103,12 +103,6 @@ namespace Spark::Render
 
         CopyFrameBufferPass::SetUp(passContext);
 
-        auto* rhiCtxForInit = RHI::RHIExecuteContext::Current();
-        if (rhiCtxForInit)
-        {
-            m_depthPreProcessor.Init(passContext, *rhiCtxForInit);
-        }
-
         SPARK_RENDER_PASS(passContext, "UIPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .CustomPipeline()
@@ -129,6 +123,10 @@ namespace Spark::Render
                 m_rednerUI.Render(work.m_commandList);
             })
             .Finalize();
+
+        // Processor setup
+        auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
+        m_depthPreProcessor.Init(passContext, rhiCtxForInit);
     }
 
     void RenderSystem::InitInternal()
