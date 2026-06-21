@@ -12,7 +12,7 @@
 #include <Pass/Pass.h>
 #include <Pass/PassTag.h>
 #include <Pass/PassContext.h>
-#include <Pass/PassBuilder.h>
+#include <Pass/RenderPass.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
 
@@ -126,6 +126,7 @@ namespace Spark::Render
 
         // Processor setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
+        m_viewBindingSystem.Init(rhiCtxForInit);
         m_depthPreProcessor.Init(passContext, rhiCtxForInit);
     }
 
@@ -150,6 +151,7 @@ namespace Spark::Render
         TickBus::Handler::BusDisconnect();
 
         m_depthPreProcessor.Shutdown(m_pipeline.GetPassContext());
+        m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         PassExecuteContext::Pop();
 
@@ -184,6 +186,7 @@ namespace Spark::Render
             );
         }
 
+        m_viewBindingSystem.Update();
         m_uiProcessFeature.Process();
         m_depthPreProcessor.Process(renderSize);
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);

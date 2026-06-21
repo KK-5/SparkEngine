@@ -30,7 +30,7 @@
 #include <Resource/Shader/ShaderAsset.h>
 
 #include <Pass/PassContext.h>
-#include <Pass/PassBuilder.h>
+#include <Pass/RenderPass.h>
 #include <Pass/PassTag.h>
 #include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>

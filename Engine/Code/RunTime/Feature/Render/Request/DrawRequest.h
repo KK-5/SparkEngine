@@ -8,6 +8,7 @@
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Resource/Buffer/IndexBufferView.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 
 namespace Spark::Resource
 {
@@ -28,6 +29,18 @@ namespace Spark::Render
         uint32_t m_byteOffset = 0;
         uint32_t m_byteCount = 0;
         RHI::IndexFormat m_format = RHI::IndexFormat::UINT32;
+    };
+
+    //! Binds a pass attachment's view into one of the draw's ShaderBindings at
+    //! compile time. The attachment (e.g. a transient SceneColor) does not exist
+    //! when the DrawRequest is built, so it is referenced by slot name; the view
+    //! is resolved per-pass during Compile (CompilePassDrawBindings) and written
+    //! into the target ShaderBindings' image input via SetView.
+    struct AttachmentBinding
+    {
+        RHI::InputName m_slot;           //!< Pass attachment slot, e.g. "SceneColor".
+        RHI::InputName m_shaderInput;    //!< Shader image input name, e.g. "g_SceneColor".
+        uint8_t        m_groupIndex = 0; //!< Which m_shaderBindingEntities entry receives the view.
     };
 
     //! Declarative draw "recipe" filled by user code during the Build phase.
@@ -56,10 +69,18 @@ namespace Spark::Render
         eastl::fixed_vector<RHI::Viewport, RHI::Limits::Pipeline::AttachmentColorCountMax> m_viewports;
         eastl::fixed_vector<RHI::Scissor,  RHI::Limits::Pipeline::AttachmentColorCountMax> m_scissors;
 
-        // Per-draw ShaderBindings entities. User creates them via
-        // CreateShaderBindings(), populates shader inputs, and marks dirty.
-        // Compiler resolves each entity's compiled ShaderBindings pointer.
+        // ShaderBindings entities this draw binds, in space order. These are
+        // REFERENCES, not owned — the entity's lifetime belongs to whoever produced
+        // it (today the Processor; later a View / mesh / Material owning a shared,
+        // reusable binding). Compiler resolves each entity's ShaderBindings pointer
+        // into the DrawItem.
         eastl::fixed_vector<RHI::RHIHandle, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_shaderBindingEntities;
+
+        // Pass attachments this draw samples, injected into m_shaderBindingEntities
+        // at compile time (CompilePassDrawBindings). Empty for draws that sample no
+        // pass-produced resource (e.g. a depth prepass that only writes). N is a
+        // soft cap (fixed_vector spills to heap); revisit once real sampling passes land.
+        eastl::fixed_vector<AttachmentBinding, 8> m_attachmentBindings;
 
         // Optional per-draw PSO variant: override the pass-level vertex/fragment
         // shader and/or fixed-function render states. When both are default

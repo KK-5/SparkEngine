@@ -5,7 +5,7 @@
 #include <Math/MathUtils.h>
 
 #include <Log/ILogSystem.h>
-#include <RHI/Resource/ShaderInput/ShaderBindings.h>
+#include <Shader/ShaderBindingsUtils.h>
 
 namespace Spark::Render
 {
@@ -49,15 +49,12 @@ namespace Spark::Render
     //! convention, mirroring Atom's hardcoded view-constant names.
     inline constexpr const char* ViewProjectionConstantName = "g_ViewProjection";
 
-    //! Write the View's per-view constants into the ViewBindings group by the
-    //! reserved names above. The caller owns the binding group and must call
-    //! MarkShaderBindingsUpdate after all of the frame's writes are done — this
-    //! only stages the data, it does not mark the group dirty.
-    inline void WriteViewConstants(const View& view, RHI::ShaderBindings& srg)
+    //! Write the View's per-view world->clip into the ViewBindings group's
+    //! g_ViewProjection on the given ShaderBindings ENTITY. Built on the generic
+    //! SetShaderConstant helper, so it both stages the data and marks the binding
+    //! dirty for the next compile.
+    inline void WriteViewConstants(const View& view, RHI::RHIHandle viewBindings)
     {
-        const Math::Matrix4X4 worldToClip = view.GetWorldToClip();
-        auto* input = srg.FindConstantInput(RHI::InputName(ViewProjectionConstantName));
-        ASSERT(input, "[View] view SRG has no '{}' constant.", ViewProjectionConstantName);
-        input->SetData(&worldToClip, sizeof(worldToClip));
+        SetShaderConstant(viewBindings, RHI::InputName(ViewProjectionConstantName), view.GetWorldToClip());
     }
 }

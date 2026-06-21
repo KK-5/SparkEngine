@@ -14,6 +14,7 @@ set(SOURCES
     RenderGraph/RenderGraph.cpp
     RenderSystem.cpp
     Shader/ShaderBuilder.cpp
+    View/ViewBindingSystem.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

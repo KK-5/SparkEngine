@@ -98,8 +98,7 @@ namespace Spark::Render
                 view.m_worldToView = cameraMats.m_viewMatrix;
                 view.m_viewToClip  = cameraMats.m_projectionMatrix;
 
-                WriteViewConstants(view, *m_viewBindings);
-                MarkShaderBindingsUpdate(*rhiCtx, m_viewBindingsEntity);
+                WriteViewConstants(view, m_viewBindingsEntity);   // stages data + marks dirty
             });
         }
 

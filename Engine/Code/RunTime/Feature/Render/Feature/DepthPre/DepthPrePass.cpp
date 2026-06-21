@@ -7,7 +7,7 @@
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 
 #include <Pass/PassContext.h>
-#include <Pass/PassBuilder.h>
+#include <Pass/RenderPass.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>

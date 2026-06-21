@@ -155,7 +155,6 @@ namespace Spark::Render
         // CompileShaderInputs so the descriptor is compiled with it.
         m_compiler.CompileTransientResources(*m_pool);
 
-        m_compiler.CompileShaderInputs(*m_device, context);
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
         m_compiler.CompileDrawRequests(*m_device, context, m_pipelineLibrary.get());
 
@@ -182,6 +181,8 @@ namespace Spark::Render
 
             context.Clear<AttachmentCompilingTag>();
         }
+
+        m_compiler.CompileShaderInputs(*m_device, context);
 
         QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);
 

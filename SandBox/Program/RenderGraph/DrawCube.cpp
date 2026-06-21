@@ -38,7 +38,7 @@
 #include <Resource/Image/ImageAsset.h>
 
 #include <Pass/PassContext.h>
-#include <Pass/PassBuilder.h>
+#include <Pass/RenderPass.h>
 #include <Pass/PassTag.h>
 #include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
@@ -419,7 +419,7 @@ namespace Spark::SandBox
 
         // View owns view+proj and writes g_ViewProjection; the per-object model
         // is the feature's and goes into g_Model separately.
-        Spark::Render::WriteViewConstants(camera, *m_viewBindings);
+        Spark::Render::WriteViewConstants(camera, m_viewBindingsEntity);
 
         auto* modelInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_Model"));
         ASSERT(modelInput, "No g_Model shader input.");
