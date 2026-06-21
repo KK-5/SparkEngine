@@ -40,31 +40,23 @@ namespace Spark::Render
         return result;
     }
 
-    //! Returned by CreatePassShaderBindings. Bundles the ShaderBindings Ptr
-    //! (for SetXxx data calls) with the RHIContext entity (for dirty marking
-    //! via MarkShaderBindingsUpdate and for lifetime management).
-    //! m_bindings == nullptr / m_entity == NullHandle indicates creation failed.
-    struct PassShaderBindingsHandle
-    {
-        Ptr<RHI::ShaderBindings> m_bindings;
-        RHIHandle                m_entity = NullHandle;
-    };
-
     //! Allocate a ShaderBindings against the named pass's input layout and
     //! register it on the RHIContext so RenderGraphCompiler::CompileShaderInputs
-    //! can find it. The returned handle is initialized with ShaderBindingsUpdateTag
-    //! so the very first compile sweep picks it up and produces valid GPU bindings
-    //! before the first execute.
+    //! can find it. The entity is created with ShaderBindingsUpdateTag so the very
+    //! first compile sweep picks it up and produces valid GPU bindings before the
+    //! first execute.
     //!
-    //! Intended for once-per-feature-init use. Callers store the returned
-    //! struct, call SetXxx on m_bindings to update data, then call
-    //! MarkShaderBindingsUpdate(rhiCtx, .m_entity) to schedule a recompile.
+    //! Returns the binding ENTITY (RHIHandle) only — not the RHI::ShaderBindings
+    //! Ptr. Stage data through the entity with the Render::SetShaderXxx helpers
+    //! (Shader/ShaderBindingsUtils.h), which also mark it dirty; push the entity
+    //! into a DrawRequest's m_shaderBindingEntities so the draw references it. The
+    //! entity owns the binding's lifetime (Components::ShaderBindings holds the Ptr),
+    //! so destroying the entity releases it.
     //!
-    //! Returns a default-constructed handle (m_bindings == nullptr) if the
-    //! pass has no PassPipelineLayout (e.g. custom-pipeline pass), or if RHI
-    //! services / Init fail.
+    //! Returns NullHandle if the pass has no PassPipelineLayout (e.g.
+    //! custom-pipeline pass), or if RHI services / Init fail.
     template<typename PassTagT>
-    PassShaderBindingsHandle CreatePassShaderBindings(
+    RHIHandle CreatePassShaderBindings(
         PassContext& passCtx, RHIContext& rhiCtx, uint32_t spaceId)
     {
         Pass pass = FindPass<PassTagT>(passCtx);
@@ -73,7 +65,7 @@ namespace Spark::Render
         {
             LOG_ERROR("[CreatePassShaderBindings] Pass has no PassPipelineLayout "
                       "(custom-pipeline pass or shader reflection unavailable).");
-            return {};
+            return NullHandle;
         }
         auto& layout = passCtx.Get<PassPipelineLayout>(pass).m_layout;
         ASSERT(layout, "[CreatePassShaderBindings] PassPipelineLayout component holds null layout.");
@@ -95,16 +87,17 @@ namespace Spark::Render
         if (rc != RHI::ResultCode::Success)
         {
             LOG_ERROR("[CreatePassShaderBindings] ShaderBindings::Init failed for spaceId={}.", spaceId);
-            return {};
+            return NullHandle;
         }
 
         // Register on RHIContext for CompileShaderInputs discovery; flag as
         // dirty so the very first frame compiles the bindings before execute.
+        // The entity owns the Ptr from here on.
         RHIHandle entity = rhiCtx.CreateEntity();
         rhiCtx.Add<RHI::Components::ShaderBindings>(entity, RHI::Components::ShaderBindings{ bindings });
         rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(entity);
 
-        return PassShaderBindingsHandle{ bindings, entity };
+        return entity;
     }
 
     //! Mark a ShaderBindings entity as dirty so RenderGraphCompiler::CompileShaderInputs

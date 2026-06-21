@@ -1,10 +1,6 @@
 #pragma once
 
-#include <Base.h>
-
 #include <RHI/Context/RHIContext.h>
-#include <RHI/Resource/ShaderInput/ShaderBindings.h>
-#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 
 namespace Spark::Render
 {
@@ -17,6 +13,10 @@ namespace Spark::Render
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced BEFORE the Processors so the binding is
     //! materialized and up to date before any draw references it.
+    //!
+    //! Holds no Ptr to the bindings/layout: the binding entity owns the
+    //! ShaderBindings (which in turn owns its layout), so m_viewEntity is the only
+    //! handle we need. Data is pushed/read through the entity via ShaderBindingsUtils.
     class ViewBindingSystem
     {
     public:
@@ -25,8 +25,6 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
-        Ptr<RHI::PipelineLayoutDescriptor> m_layout;        //!< Keeps the ViewBindings layout alive.
-        Ptr<RHI::ShaderBindings>           m_viewBindings;
-        RHI::RHIHandle                     m_viewEntity = RHI::NullHandle;
+        RHI::RHIHandle m_viewEntity = RHI::NullHandle;
     };
 }

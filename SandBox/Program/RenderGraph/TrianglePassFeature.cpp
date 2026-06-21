@@ -38,6 +38,7 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <Request/DrawRequest.h>
+#include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
 
 #include <Window/IWindowSystem.h>
@@ -117,12 +118,9 @@ namespace Spark::SandBox
         };
         destroyIfValid(m_drawItemEntity);
         destroyIfValid(m_vbEntity);
+        // Destroying the binding entity releases the ShaderBindings it owns; no
+        // local Ptr<> to reset, and the pass holds no ref (no AttachShaderBindings).
         destroyIfValid(m_viewBindingsEntity);
-
-        // Release our refcount on the shared ShaderBindings. The pass entity
-        // also holds one (via PassShaderBindings component); it's released when
-        // the pass entity is destroyed at PassContext teardown.
-        m_viewBindings.reset();
     }
 
     void TrianglePassFeature::OnTick(float /*deltaTime*/)
@@ -135,20 +133,15 @@ namespace Spark::SandBox
         auto& passCtx = *Spark::Render::PassExecuteContext::Current();
         auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
 
-        auto handle = Spark::Render::CreatePassShaderBindings<SPARK_PASS_TAG("TrianglePass")>(
+        m_viewBindingsEntity = Spark::Render::CreatePassShaderBindings<SPARK_PASS_TAG("TrianglePass")>(
             passCtx, rhiCtx, /*spaceId*/ 0);
-        if (!handle.m_bindings)
+        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
         {
             LOG_ERROR("[TrianglePassFeature] CreatePassShaderBindings failed.");
             return;
         }
-
-        m_viewBindings       = handle.m_bindings;
-        m_viewBindingsEntity = handle.m_entity;
-
-        // Auto-bind at pass-begin; executer reads PassShaderBindings component.
-        Spark::Render::AttachShaderBindings<SPARK_PASS_TAG("TrianglePass")>(
-            passCtx, /*spaceId*/ 0, m_viewBindings);
+        // No pass-level AttachShaderBindings: the binding flows into the draw via
+        // DrawRequest::m_shaderBindingEntities (see BuildDrawRequest).
     }
 
     void TrianglePassFeature::CreateVertexBuffer()
@@ -242,13 +235,19 @@ namespace Spark::SandBox
             0, sizeof(g_triangleVertices), sizeof(TriangleVertex)};
         req.m_vertexBuffer = m_vbEntity;
 
+        // space0 view/color binding: referenced by this draw (push, not pass-attach).
+        if (m_viewBindingsEntity != Spark::RHI::NullHandle)
+        {
+            req.m_shaderBindingEntities.push_back(m_viewBindingsEntity);
+        }
+
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
         rhiCtx.Add<SPARK_PASS_TAG("TrianglePass")>(m_drawItemEntity);
     }
 
     void TrianglePassFeature::UpdateViewBindings()
     {
-        if (!m_viewBindings || m_viewBindingsEntity == Spark::RHI::NullHandle)
+        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
         {
             return;
         }
@@ -276,9 +275,7 @@ namespace Spark::SandBox
 
         Math::Matrix4X4 mvp = camera.GetWorldToClip() * model;
 
-        auto* mvpInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_MVP"));
-        ASSERT(mvpInput, "No g_MVP shader input.");
-        mvpInput->SetData(&mvp, sizeof(mvp));
+        Spark::Render::SetShaderConstant(m_viewBindingsEntity, Spark::RHI::InputName("g_MVP"), mvp);
 
         m_colorPhase += 0.01f;
         Math::Vector3 colors[3];
@@ -291,12 +288,7 @@ namespace Spark::SandBox
                 sinf(phase + 4.0f) * 0.5f + 0.5f);
         }
 
-        auto* colorInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_Colors"));
-        ASSERT(colorInput, "No g_Colors shader input.");
-        colorInput->SetData(colors, sizeof(colors));
-
-        auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        Spark::Render::MarkShaderBindingsUpdate(rhiCtx, m_viewBindingsEntity);
+        Spark::Render::SetShaderConstant(m_viewBindingsEntity, Spark::RHI::InputName("g_Colors"), colors);
     }
 }
 

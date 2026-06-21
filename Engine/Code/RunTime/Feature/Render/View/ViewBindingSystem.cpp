@@ -8,6 +8,8 @@
 #include <RHI/Factory.h>
 #include <RHI/Device/Device.h>
 #include <RHI/Component/Component.h>
+#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Shader/ShaderAsset.h>
@@ -56,25 +58,27 @@ namespace Spark::Render
         auto* device  = rhi->GetDevice();
         ASSERT(factory && device, "[ViewBindingSystem] RHI factory or device is null.");
 
-        m_layout = factory->CreatePipelineLayoutDescriptor();
-        m_layout->AddShaderInputDescriptors(built.list, built.stageMask);
-        m_layout->Finalize();
+        // Built locally and handed to the entity below: the ShaderBindings owns its
+        // layout, and the entity's Components::ShaderBindings owns the ShaderBindings,
+        // so the system itself keeps no Ptr — the entity is the lifetime owner.
+        Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
+        layout->AddShaderInputDescriptors(built.list, built.stageMask);
+        layout->Finalize();
 
-        m_viewBindings = factory->CreateShaderBindings();
+        Ptr<RHI::ShaderBindings> viewBindings = factory->CreateShaderBindings();
         RHI::ShaderBindings::Descriptor desc;
-        desc.m_layout  = m_layout;
+        desc.m_layout  = layout;
         desc.m_spaceId = 0;   // ViewBindings is reserved at space0.
-        if (m_viewBindings->Init(*device, desc) != RHI::ResultCode::Success)
+        if (viewBindings->Init(*device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[ViewBindingSystem] ShaderBindings::Init failed.");
-            m_viewBindings = nullptr;
-            m_layout = nullptr;
             return;
         }
 
-        // One shared binding entity, tagged so consumers can find it by type.
+        // One shared binding entity, tagged so consumers can find it by type. The
+        // entity now owns the binding (and transitively its layout).
         m_viewEntity = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(m_viewEntity, RHI::Components::ShaderBindings{ m_viewBindings });
+        rhiCtx.Add<RHI::Components::ShaderBindings>(m_viewEntity, RHI::Components::ShaderBindings{ viewBindings });
         rhiCtx.Add<MainViewTag>(m_viewEntity);
         rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(m_viewEntity);   // compile on the first frame
     }
@@ -83,7 +87,7 @@ namespace Spark::Render
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!world || !rhiCtx || !m_viewBindings || m_viewEntity == RHI::NullHandle)
+        if (!world || !rhiCtx || m_viewEntity == RHI::NullHandle)
         {
             return;
         }
@@ -102,10 +106,8 @@ namespace Spark::Render
     {
         if (m_viewEntity != RHI::NullHandle)
         {
-            rhiCtx.DestoryEntity(m_viewEntity);
+            rhiCtx.DestoryEntity(m_viewEntity);   // releases the binding + its layout
             m_viewEntity = RHI::NullHandle;
         }
-        m_viewBindings = nullptr;
-        m_layout = nullptr;
     }
 }

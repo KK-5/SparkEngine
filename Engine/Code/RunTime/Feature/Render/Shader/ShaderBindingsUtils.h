@@ -5,6 +5,7 @@
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
 
 namespace Spark::Render
 {
@@ -99,6 +100,26 @@ namespace Spark::Render
             return;
         }
         buffer->SetView(arrayIndex, view);
+        Detail::MarkShaderBindingsDirty(ctx, bindings);
+    }
+
+    //! Bind a sampler state into the named sampler input, then mark the binding dirty.
+    inline void SetShaderSampler(
+        RHI::RHIHandle bindings, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)
+    {
+        auto& ctx = *RHI::RHIExecuteContext::Current();
+        auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
+        if (!sb)
+        {
+            return;
+        }
+        auto* sampler = sb->FindSamplerInput(input);
+        if (!sampler)
+        {
+            LOG_ERROR("[ShaderBindingsUtils] Sampler input '{}' not found.", input.GetCStr());
+            return;
+        }
+        sampler->SetState(arrayIndex, state);
         Detail::MarkShaderBindingsDirty(ctx, bindings);
     }
 }

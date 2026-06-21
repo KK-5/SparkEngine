@@ -43,9 +43,10 @@ namespace Spark::SandBox
         void UpdateViewBindings();
         void BuildDrawRequest();
 
-        // Per-pass ShaderBindings (new ShaderInput path).
-        Spark::RHI::RHIHandle           m_viewBindingsEntity = Spark::RHI::NullHandle;
-        Ptr<Spark::RHI::ShaderBindings> m_viewBindings;
+        // Per-pass ShaderBindings entity. Lives in RHIContext (CompileShaderInputs
+        // discovers it, the entity owns the binding's Ptr); data is staged through
+        // the entity via Render::SetShaderXxx, no local Ptr<> needed.
+        Spark::RHI::RHIHandle m_viewBindingsEntity = Spark::RHI::NullHandle;
 
         // Vertex buffer (in RHIContext)
         Spark::RHI::RHIHandle m_vbEntity     = Spark::RHI::NullHandle;

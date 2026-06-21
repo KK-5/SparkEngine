@@ -46,6 +46,7 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <Request/DrawRequest.h>
+#include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
 
 #include <Window/IWindowSystem.h>
@@ -99,9 +100,8 @@ namespace Spark::SandBox
         destroyIfValid(m_vbEntity);
         destroyIfValid(m_indexEntity);
         destroyIfValid(m_imageEntity);
+        // Destroying the binding entity releases the ShaderBindings it owns.
         destroyIfValid(m_viewBindingsEntity);
-
-        m_viewBindings.reset();
     }
 
     void DrawCube::OnTick(float /*deltaTime*/)
@@ -136,19 +136,15 @@ namespace Spark::SandBox
         auto& passCtx = *Spark::Render::PassExecuteContext::Current();
         auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
 
-        auto handle = Spark::Render::CreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
+        m_viewBindingsEntity = Spark::Render::CreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
             passCtx, rhiCtx, /*spaceId*/ 0);
-        if (!handle.m_bindings)
+        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
         {
             LOG_ERROR("[DrawCube] CreatePassShaderBindings failed.");
             return;
         }
-
-        m_viewBindings       = handle.m_bindings;
-        m_viewBindingsEntity = handle.m_entity;
-
-        Spark::Render::AttachShaderBindings<SPARK_PASS_TAG("ScenePass")>(
-            passCtx, /*spaceId*/ 0, m_viewBindings);
+        // No pass-level AttachShaderBindings: the binding flows into the draw via
+        // DrawRequest::m_shaderBindingEntities (see BuildDrawRequest).
     }
 
     void DrawCube::CreateVertexBuffer()
@@ -386,13 +382,19 @@ namespace Spark::SandBox
             0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat};
         req.m_indexBuffer  = m_indexEntity;
 
+        // space0 view/model/material binding: referenced by this draw (push, not pass-attach).
+        if (m_viewBindingsEntity != Spark::RHI::NullHandle)
+        {
+            req.m_shaderBindingEntities.push_back(m_viewBindingsEntity);
+        }
+
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
         rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
     }
 
     void DrawCube::UpdateViewBindings()
     {
-        if (!m_viewBindings || m_viewBindingsEntity == Spark::RHI::NullHandle)
+        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
         {
             return;
         }
@@ -420,10 +422,7 @@ namespace Spark::SandBox
         // View owns view+proj and writes g_ViewProjection; the per-object model
         // is the feature's and goes into g_Model separately.
         Spark::Render::WriteViewConstants(camera, m_viewBindingsEntity);
-
-        auto* modelInput = m_viewBindings->FindConstantInput(Spark::RHI::InputName("g_Model"));
-        ASSERT(modelInput, "No g_Model shader input.");
-        modelInput->SetData(&model, sizeof(model));
+        Spark::Render::SetShaderConstant(m_viewBindingsEntity, Spark::RHI::InputName("g_Model"), model);
 
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         if (auto* imgComp = rhiCtx.TryGet<Spark::RHI::Components::Image>(m_imageEntity);
@@ -433,17 +432,11 @@ namespace Spark::SandBox
                 rhiCtx, m_imageEntity, *imgComp->m_image, m_baseColorViewDesc);
             if (view)
             {
-                auto* texInput = m_viewBindings->FindImageInput(Spark::RHI::InputName("g_Texture"));
-                ASSERT(texInput, "No g_Texture shader input.");
-                texInput->SetView(/*arrayIndex*/0, view);
+                Spark::Render::SetShaderImage(m_viewBindingsEntity, Spark::RHI::InputName("g_Texture"), view);
             }
         }
 
-        auto* samplerInput = m_viewBindings->FindSamplerInput(Spark::RHI::InputName("g_Sampler"));
-        ASSERT(samplerInput, "No g_Sampler shader input.");
-        samplerInput->SetState(/*arrayIndex*/0, m_samplerState);
-
-        Spark::Render::MarkShaderBindingsUpdate(rhiCtx, m_viewBindingsEntity);
+        Spark::Render::SetShaderSampler(m_viewBindingsEntity, Spark::RHI::InputName("g_Sampler"), m_samplerState);
     }
 
 }
