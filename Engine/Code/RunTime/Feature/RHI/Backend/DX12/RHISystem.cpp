@@ -21,16 +21,22 @@ namespace Spark::RHI::DX12
 
     void RHISystem::ShutdownInternal()
     {
-        // Shut down the factory first so that all D3D12 resources (descriptor
-        // heaps, command queues, fences, pipeline states, root signatures,
-        // command allocators, command lists, D3D12MA allocations) are released
-        // before Device::ShutdownInternal calls ReportLiveDeviceObjects.
+        // Step 1: Destroy all RHI entities while the factory (and its pools /
+        // release queues) are still alive. Component destructors return D3D12
+        // resources to their pools; pools queue allocations for release.
+        RHIInterface::ShutdownInternal();
+
+        // Step 2: Shut down the factory. This destroys every pool → every
+        // D3D12MA allocator → every remaining allocation and D3D12 resource.
+        // After this point no D3D12 resources remain.
         if (m_rhiFactory)
         {
             m_rhiFactory->Shutdown();
         }
 
-        RHIInterface::ShutdownInternal();
+        // Step 3: Release the logical device. Device::ShutdownInternal calls
+        // ReportLiveDeviceObjects, which must find zero live D3D12 objects.
+        m_device.reset();
 
         FrameEventBus::Handler::BusDisconnect();
     }

@@ -8,6 +8,7 @@
 #include <RHI/Factory.h>
 #include <RHI/Device/Device.h>
 #include <RHI/Component/Component.h>
+#include <CoreComponents/Tags.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
@@ -106,7 +107,7 @@ namespace Spark::Render
     {
         if (m_viewEntity != RHI::NullHandle)
         {
-            rhiCtx.DestoryEntity(m_viewEntity);   // releases the binding + its layout
+            rhiCtx.Add<DeadTag>(m_viewEntity);
             m_viewEntity = RHI::NullHandle;
         }
     }

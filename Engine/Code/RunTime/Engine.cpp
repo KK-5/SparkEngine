@@ -82,6 +82,9 @@ namespace Spark
         m_asyncUploadSystem = CreateSystem<RHI::AsyncUploadSystem>();
         m_asyncUploadSystem->Init();
 
+        m_rhiHandleClearSystem = CreateSystem<RHI::RHIHandleClearSystem>();
+        m_rhiHandleClearSystem->Init();
+
         m_initialized = true;
     }
 

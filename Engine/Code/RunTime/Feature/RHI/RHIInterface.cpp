@@ -11,9 +11,7 @@ namespace Spark::RHI
 
     void RHIInterface::ShutdownInternal()
     {
-        // Device::Shutdown is private — release via Ptr<> destructor which
-        // routes through DeviceObject's RAII chain.
-        m_device.reset();
+        m_context.Clear();
         RHIExecuteContext::Pop();
     }
 
@@ -47,6 +45,8 @@ namespace Spark::RHI
             LOG_ERROR("[RHIInterface] Device::Init failed.");
             m_device.reset();
         }
+
+        LOG_INFO("[RHI] Physical Device: {}", physicalDevice.GetDescriptor().m_description.c_str());
         return result;
     }
 }

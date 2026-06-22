@@ -4,6 +4,7 @@
 
 #include "BasicContext.h"
 #include "SystemTraits.h"
+#include <CoreComponents/Tags.h>
 
 namespace Spark
 {
@@ -40,6 +41,14 @@ namespace Spark
         template <typename Component, ComponentAccess RequiredAccess, typename... AcquireTypes>
         struct HasAccess<Component, RequiredAccess, eastl::meta::type_list<AcquireTypes...>>
             : eastl::disjunction<AcquireMatches<Component, RequiredAccess, AcquireTypes>...>
+        {
+        };
+
+        // DeadTag is a system-level lifecycle primitive — every system can read and
+        // write it without an explicit declaration, same as CreateEntity/DestoryEntity.
+        template <ComponentAccess RequiredAccess, typename... AcquireTypes>
+        struct HasAccess<DeadTag, RequiredAccess, eastl::meta::type_list<AcquireTypes...>>
+            : eastl::true_type
         {
         };
     } // namespace Details

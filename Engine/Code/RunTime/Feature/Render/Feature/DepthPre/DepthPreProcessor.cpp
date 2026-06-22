@@ -1,6 +1,7 @@
 #include "DepthPreProcessor.h"
 
 #include <ECS/Common.h>
+#include <CoreComponents/Tags.h>
 
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
@@ -28,27 +29,11 @@ namespace Spark::Render
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
         if (rhiCtx)
         {
-            // Collect and destroy all DrawRequest entities tagged with this pass.
-            {
-                eastl::vector<RHIHandle> toDestroy;
-                rhiCtx->GetView<DrawRequest, SPARK_PASS_TAG("DepthPrePass")>().each(
-                    [&](RHIHandle entity, const DrawRequest&) { toDestroy.push_back(entity); });
-                for (auto entity : toDestroy)
-                {
-                    rhiCtx->DestoryEntity(entity);
-                }
-            }
+            rhiCtx->GetView<DrawRequest, SPARK_PASS_TAG("DepthPrePass")>().each(
+                [&](RHIHandle entity, const DrawRequest&) { rhiCtx->Add<DeadTag>(entity); });
 
-            // Collect and destroy all per-draw model ShaderBindings entities.
-            {
-                eastl::vector<RHIHandle> toDestroy;
-                rhiCtx->GetView<RHI::Components::ShaderBindings, SPARK_PASS_TAG("DepthPrePass")>().each(
-                    [&](RHIHandle entity, const RHI::Components::ShaderBindings&) { toDestroy.push_back(entity); });
-                for (auto entity : toDestroy)
-                {
-                    rhiCtx->DestoryEntity(entity);
-                }
-            }
+            rhiCtx->GetView<RHI::Components::ShaderBindings, SPARK_PASS_TAG("DepthPrePass")>().each(
+                [&](RHIHandle entity, const RHI::Components::ShaderBindings&) { rhiCtx->Add<DeadTag>(entity); });
         }
     }
 

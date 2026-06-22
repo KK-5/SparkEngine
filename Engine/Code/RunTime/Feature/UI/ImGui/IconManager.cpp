@@ -1,6 +1,7 @@
 #include "IconManager.h"
 
 #include <ECS/ExecuteContext.h>
+#include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 
@@ -119,32 +120,14 @@ namespace Spark::UI
         auto world = WorldExecuteContext::CurrentReference<SystemTraits>();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
 
-        auto view = world.GetView<IconGPUComponent>();
-        eastl::vector<Entity> entities;
-        view.each([&](Entity entity, const IconGPUComponent&)
+        world.GetView<IconGPUComponent>().each([&](Entity entity, const IconGPUComponent& gpuComp)
         {
-            entities.push_back(entity);
+            if (rhiCtx && gpuComp.m_image != RHI::NullHandle && rhiCtx->Valid(gpuComp.m_image))
+            {
+                rhiCtx->Add<DeadTag>(gpuComp.m_image);
+            }
+
+            world.Add<DeadTag>(entity);
         });
-
-        for (Entity entity : entities)
-        {
-            auto* gpuComp = world.TryGet<IconGPUComponent>(entity);
-            if (!gpuComp)
-            {
-                continue;
-            }
-
-            if (rhiCtx)
-            {
-                // Destroying the image entity also drops its ImageViewCache (and the
-                // owned views) — no separate view entity to destroy.
-                if (gpuComp->m_image != RHI::NullHandle && rhiCtx->Valid(gpuComp->m_image))
-                {
-                    rhiCtx->DestoryEntity(gpuComp->m_image);
-                }
-            }
-
-            world.DestoryEntity(entity);
-        }
     }
 }

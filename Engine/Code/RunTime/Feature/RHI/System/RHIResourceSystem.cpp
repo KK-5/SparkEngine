@@ -2,6 +2,7 @@
 
 #include <Service/Service.h>
 #include <Log/ILogSystem.h>
+#include <CoreComponents/Tags.h>
 #include <RHI/RHIInterface.h>
 #include <RHI/Factory.h>
 #include <RHI/Component/Component.h>
@@ -94,6 +95,22 @@ namespace Spark::RHI
     void RHIResourceSystem::ShutdownInternal()
     {
         FrameEventBus::Handler::BusDisconnect();
+
+        if (auto* rhiCtx = RHIExecuteContext::Current())
+        {
+            // View caches hold ConstPtr<Resource> back-references that keep the
+            // underlying Image/Buffer alive. Clear them first so the resource
+            // component Ptr<>s are the last remaining references.
+            rhiCtx->Clear<Components::ImageViewCache>();
+            rhiCtx->Clear<Components::ImageViewCachePerFrame>();
+            rhiCtx->Clear<Components::BufferViewCache>();
+            rhiCtx->Clear<Components::BufferViewCachePerFrame>();
+
+            rhiCtx->Clear<Components::Buffer>();
+            rhiCtx->Clear<Components::BufferPerFrame>();
+            rhiCtx->Clear<Components::Image>();
+            rhiCtx->Clear<Components::ImagePerFrame>();
+        }
     }
 
     void RHIResourceSystem::OnFrameBegin()
@@ -153,8 +170,6 @@ namespace Spark::RHI
 
         auto view = ctx.GetView<PendingBufferInit>(Exclude<Components::Buffer, Components::BufferPerFrame>);
 
-        eastl::vector<RHIHandle> toDestroy;
-
         view.each([&](RHIHandle handle, const PendingBufferInit& init)
         {
             BufferPool* pool = SelectBufferPool(init);
@@ -183,7 +198,7 @@ namespace Spark::RHI
                 }
                 if (failed)
                 {
-                    toDestroy.push_back(handle);
+                    ctx.Add<DeadTag>(handle);
                     return;
                 }
                 ctx.Add<Components::BufferPerFrame>(handle, eastl::move(perFrame));
@@ -199,7 +214,7 @@ namespace Spark::RHI
                 {
                     LOG_ERROR("[RHIResourceSystem] InitBuffer failed (entity {}); destroying entity.",
                               static_cast<uint32_t>(handle));
-                    toDestroy.push_back(handle);
+                    ctx.Add<DeadTag>(handle);
                     return;
                 }
                 ctx.Add<Components::Buffer>(handle, Components::Buffer{ buffer });
@@ -208,10 +223,6 @@ namespace Spark::RHI
             ctx.Remove<PendingBufferInit>(handle);
         });
 
-        for (RHIHandle handle : toDestroy)
-        {
-            ctx.DestoryEntity(handle);
-        }
     }
 
     void RHIResourceSystem::CreateImages(RHIContext& ctx, Device& device)
@@ -219,8 +230,6 @@ namespace Spark::RHI
         auto* factory = Service<Factory>::Get();
 
         auto view = ctx.GetView<PendingImageInit>(Exclude<Components::Image, Components::ImagePerFrame>);
-
-        eastl::vector<RHIHandle> toDestroy;
 
         view.each([&](RHIHandle handle, const PendingImageInit& init)
         {
@@ -230,7 +239,7 @@ namespace Spark::RHI
                 LOG_ERROR("[RHIResourceSystem] No image pool for entity {} "
                           "(HeapMemoryLevel=Host with HostMemoryAccess=Write is not supported); "
                           "destroying entity.", static_cast<uint32_t>(handle));
-                toDestroy.push_back(handle);
+                ctx.Add<DeadTag>(handle);
                 return;
             }
             const ImageDescriptor& desc = init.m_descriptor;
@@ -261,7 +270,7 @@ namespace Spark::RHI
                 }
                 if (failed)
                 {
-                    toDestroy.push_back(handle);
+                    ctx.Add<DeadTag>(handle);
                     return;
                 }
                 ctx.Add<Components::ImagePerFrame>(handle, eastl::move(perFrame));
@@ -280,7 +289,7 @@ namespace Spark::RHI
                 {
                     LOG_ERROR("[RHIResourceSystem] InitImage failed (entity {}); destroying entity.",
                               static_cast<uint32_t>(handle));
-                    toDestroy.push_back(handle);
+                    ctx.Add<DeadTag>(handle);
                     return;
                 }
                 ctx.Add<Components::Image>(handle, Components::Image{ image });
@@ -289,10 +298,6 @@ namespace Spark::RHI
             ctx.Remove<PendingImageInit>(handle);
         });
 
-        for (RHIHandle handle : toDestroy)
-        {
-            ctx.DestoryEntity(handle);
-        }
     }
 
     void RHIResourceSystem::ProcessBufferMaps(RHIContext& ctx)

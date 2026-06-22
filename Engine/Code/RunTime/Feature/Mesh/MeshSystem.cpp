@@ -1,6 +1,7 @@
 #include "MeshSystem.h"
 
 #include <ECS/ExecuteContext.h>
+#include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
@@ -179,15 +180,14 @@ namespace Spark::Mesh
 
         if (rhiCtx)
         {
-            auto destroyBuffer = [&](RHI::RHIHandle handle)
+            if (rhiCtx->Valid(gpuComp->m_vertexBuffer))
             {
-                if (handle != RHI::NullHandle && rhiCtx->Valid(handle))
-                {
-                    rhiCtx->DestoryEntity(handle);
-                }
-            };
-            destroyBuffer(gpuComp->m_vertexBuffer);
-            destroyBuffer(gpuComp->m_indexBindings);
+                rhiCtx->Add<DeadTag>(gpuComp->m_vertexBuffer);
+            }
+            if (rhiCtx->Valid(gpuComp->m_indexBindings))
+            {
+                rhiCtx->Add<DeadTag>(gpuComp->m_indexBindings);
+            }
         }
 
         ctx.Remove<MeshGPUComponent>(entity);

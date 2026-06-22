@@ -14,6 +14,7 @@
 #include <RHI/Backend/DX12/RHISystem.h>
 #include <RHI/System/RHIResourceSystem.h>
 #include <RHI/System/AsyncUploadSystem.h>
+#include <RHI/System/RHIHandleClearSystem.h>
 #include <Resource/AssetManager.h>
 #include <UI/ImGui/IconManager.h>
 #include <Mesh/MeshSystem.h>
@@ -65,6 +66,7 @@ namespace Spark
         SystemUniquePtr<Render::RenderSystem>        m_renderSystem;
         SystemUniquePtr<RHI::RHIResourceSystem>      m_rhiResourceSystem;
         SystemUniquePtr<RHI::AsyncUploadSystem>      m_asyncUploadSystem;
+        SystemUniquePtr<RHI::RHIHandleClearSystem>  m_rhiHandleClearSystem;
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<UI::IconManager>             m_iconManager;
         SystemUniquePtr<Mesh::MeshSystem>            m_meshSystem;
