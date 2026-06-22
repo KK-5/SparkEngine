@@ -52,6 +52,18 @@ namespace Spark
             auto devs = rhi->EnumeratePhysicalDevices();
             ASSERT(!devs.empty(), "[Engine] No physical device available.");
 
+            // Prefer discrete GPU: dedicated video memory is the most reliable
+            // heuristic — discrete GPUs have their own VRAM while integrated
+            // GPUs share system memory and report 0 or very little.
+            eastl::sort(devs.begin(), devs.end(), [](const Ptr<RHI::PhysicalDevice>& a,
+                                                      const Ptr<RHI::PhysicalDevice>& b)
+            {
+                const auto& da = a->GetDescriptor();
+                const auto& db = b->GetDescriptor();
+                return da.m_heapSizePerLevel[static_cast<size_t>(RHI::HeapMemoryLevel::Device)]
+                     > db.m_heapSizePerLevel[static_cast<size_t>(RHI::HeapMemoryLevel::Device)];
+            });
+
             RHI::DeviceDescriptor deviceDesc;
             deviceDesc.m_frameCountMax = 3;
             RHI::ResultCode r = rhi->InitDevice(*devs.front(), deviceDesc);

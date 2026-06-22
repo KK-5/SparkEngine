@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/sort.h>
+
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <Base.h>
@@ -63,6 +65,15 @@ namespace Spark::SandBox
             auto* rhi = Service<RHI::RHIInterface>::Get();
             auto devs = rhi->EnumeratePhysicalDevices();
             ASSERT(!devs.empty(), "[InitRenderGraphApp] No physical device available.");
+
+            eastl::sort(devs.begin(), devs.end(), [](const Ptr<RHI::PhysicalDevice>& a,
+                                                      const Ptr<RHI::PhysicalDevice>& b)
+            {
+                const auto& da = a->GetDescriptor();
+                const auto& db = b->GetDescriptor();
+                return da.m_heapSizePerLevel[static_cast<size_t>(RHI::HeapMemoryLevel::Device)]
+                     > db.m_heapSizePerLevel[static_cast<size_t>(RHI::HeapMemoryLevel::Device)];
+            });
 
             RHI::DeviceDescriptor deviceDesc;
             deviceDesc.m_frameCountMax = 3;

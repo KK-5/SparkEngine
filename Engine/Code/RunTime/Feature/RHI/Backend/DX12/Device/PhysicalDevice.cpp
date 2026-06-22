@@ -25,13 +25,22 @@ namespace Spark::RHI::DX12
         description.append_convert(adapterDescStr);
 
         m_descriptor.m_description = eastl::move(description);
-        m_descriptor.m_type = RHI::PhysicalDeviceType::Unknown; /// DXGI can't tell what kind of device this is?!
         m_descriptor.m_vendorId = static_cast<RHI::VendorId>(adapterDesc.VendorId);
         m_descriptor.m_deviceId = adapterDesc.DeviceId;
-        /// GPU专用内存
         m_descriptor.m_heapSizePerLevel[static_cast<size_t>(RHI::HeapMemoryLevel::Device)] = adapterDesc.DedicatedVideoMemory;
-        /// 系统专用内存
         m_descriptor.m_heapSizePerLevel[static_cast<size_t>(RHI::HeapMemoryLevel::Host)] = adapterDesc.DedicatedSystemMemory;
+
+        // DXGI doesn't expose device type directly. Heuristic: discrete GPUs
+        // have their own VRAM; integrated GPUs share system memory and report
+        // little or no dedicated video memory.
+        if (adapterDesc.DedicatedVideoMemory > 0)
+        {
+            m_descriptor.m_type = RHI::PhysicalDeviceType::GpuDiscrete;
+        }
+        else
+        {
+            m_descriptor.m_type = RHI::PhysicalDeviceType::GpuIntegrated;
+        }
     }
 
     void PhysicalDevice::Shutdown() 

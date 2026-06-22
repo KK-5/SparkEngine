@@ -67,11 +67,9 @@ namespace Spark::RHI::DX12
         enabledSeverities.push_back(D3D12_MESSAGE_SEVERITY_WARNING);
         enabledSeverities.push_back(D3D12_MESSAGE_SEVERITY_MESSAGE);
 
-        if (validationMode == RHI::ValidationMode::Verbose)
-        {
-            // Verbose only filters
-            enabledSeverities.push_back(D3D12_MESSAGE_SEVERITY_INFO);
-        }
+        // D3D12_MESSAGE_SEVERITY_INFO is intentionally excluded — it produces
+        // STATE_CREATION INFO messages for every Create/Destroy of every
+        // D3D12 object, flooding the log with useless noise.
 
         ////// O3DE settings
 
