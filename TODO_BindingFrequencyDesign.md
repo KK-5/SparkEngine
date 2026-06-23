@@ -63,20 +63,20 @@ MeshSystem、InstanceBindingSystem、ViewBindingSystem 本质是**同一类系�
 
 ---
 
-## 5. 方向与数据形态绑定:两个一致组合(不可混搭)
+## 5. 方向与数据形态:正向 + 全局 structured buffer
 
-**硬约束**:ShaderBindings 最终要进 RHIContext 被 compiler 扫描编译,所以它得在 RHIContext 有承载体。这把"方向"和"per-instance 数据做成什么"锁成两个一致组合:
+**硬约束**:ShaderBindings 最终要进 RHIContext 被 compiler 扫描编译,所以它得在 RHIContext 有承载体。这决定了"方向"和"per-instance 数据做成什么"必须一致。
 
-### 组合 1(过渡 / 当前):每实例一个独立 ShaderBindings 实体
-- 实体独立、有自己生命周期 → **只能反向**(binding 持 `SourceEntity`)对账解 destroy。
-- 独立实体 + 正向 = **destroy 漏**:世界实体销毁,它身上的 ref 组件随之没,但独立 binding 实体仍留在 RHIContext。这正是最初 DepthPre 的漏洞。
-
-### 组合 2(终态 / bindless):per-instance 数据是世界实体的组件
+### 选定方案:per-instance 数据是世界实体的组件
 - 世界实体挂 `InstanceSlot { uint32 index }`,数据进全局共享 structured buffer,一个共享 binding 引用整段。
 - **正向 + destroy 几乎免费**:实体销毁,`InstanceSlot` 组件随之没,只剩一个 slot 还给 freelist。
 - 组装 = 读世界实体的 `MeshGPUComponent + InstanceSlot` + 共享 view/buffer binding —— 完全是"收集同一实体身上的组件"。
+- 这里"bindless"是 **lite 版**:一个共享 `StructuredBuffer<InstanceData>` SRV + uint 索引(SM 5.0 即支持),不是真 bindless(`ResourceDescriptorHeap[index]` / SM 6.6)。门槛低。
 
-> 正向洞察的终点其实是组合 2。当前先走组合 1,但 `InstanceBindings` 的数据布局要按"**将来是 structured buffer 里的一条记录**"来设计,别绑死在"每实例一个 cbuffer 实体"。
+### 已否决方案:每实例一个独立 ShaderBindings 实体
+- 形态:每实例独立 CBuffer + CBV descriptor,binding 反向持 `SourceEntity` 对账解 destroy。
+- **为什么否决**:看似过渡简单,实际省不了多少工作量——反向对账机制本身要写一套全场扫描,CBuffer 池/碎片管理、per-pass per-instance SetCBV 都是它独有的负担;而 shader 走 bindless lite、freelist + sparse upload 都是终态必经,提前做反而少一次过渡重写。
+- **遗留风险**:正向 + 独立实体 = **destroy 漏**(世界实体销毁,它身上的 ref 组件随之没,但独立 binding 实体仍留在 RHIContext)。这正是最初 DepthPre 的漏洞;选定方案天然没有这个问题。
 
 ---
 
@@ -84,7 +84,10 @@ MeshSystem、InstanceBindingSystem、ViewBindingSystem 本质是**同一类系�
 
 - **create**:正向。世界侧遍历可渲染实体,谓词满足 + 未标记 → 建。`GetView<...>(Exclude<MirroredTag>)` 让 create **只命中新实体**,判重免费。标记位是挂在世界实体上的**空 tag**,只表示"已镜像",不含对应关系(权威对应仍在资源侧)。
   - 反向无法做 create(遍历资源发现不了新实体),所以 **create 必须正向**。
-- **update**:从源组件拉数据写进派生资源。
+- **update**:由**源组件 dirty 触发**,不按"是否被当前帧渲染"筛选。
+  - 实现:entt `on_update<C>` 信号挂 `DirtyTag<C>`,或上游写完打 tag、frame 末清掉;extract 系统每帧 `GetView<DirtyTag<C>, ...>` 批量重写派生资源。
+  - 为什么不按可见性筛:①多 view(主相机剔了但 shadow / probe / editor 要);②时序耦合(本帧剔除、下帧入视野会错位置,得插 catch-up 路径);③串行化(cull→update→render 变成依赖链,update-anytime 才能并行);④违反 §3 的 producer 不问 consumer 原则。
+  - 成本是 **O(本帧 dirty 数)**,与总量、可见数都无关;静止物体 create 时上传一次,后续永远不进 update 路径(UE GPUScene 同款)。
 - **destroy**:按**源组件谓词**(见 §7),不按实体 valid。
 
 ---
@@ -153,8 +156,14 @@ compile  : DrawRequest ──每 pass、每帧──► DrawItem
 
 ## 10. 待定 / 遗留
 
+- **InstanceID 传递机制**:当前未合批 → root constant(每 draw 一个 `uint InstanceIndex`)最直接;未来合批 → 切 `SV_InstanceID + StartInstanceLocation`(slot 在 draw 内必须连续)。shader 侧用 `GetInstanceData()` 抽象隔离两种路径,合批时只改读取层不动 pass。
+- **Slot 回收时机**(已定):走 `DeadTag` reap 阶段统一处理,**不**用 entt `on_destroy<InstanceSlot>` 信号。理由:slot 回收是每帧批处理性质,信号/EBus 是为稀疏事件设计;延迟一帧 reap 完全可接受。与 §6 destroy 判据共享路径,与 commit 91d0d9f 的 entity lifecycle 模式对齐。
+- **InstanceData 全集 schema 扩展策略**:首版只塞 `Model`,后续按需加字段(`ObjectId` / `MeshId` / `PrevModel` / `NormalMatrix` / `BoundsCenterRadius` / `Flags`)。
+  - 加字段不需要保留 padding 或预占位:InstanceData 是纯 GPU 运行时数据(无磁盘持久化、无跨进程 ABI),改完 struct 重建 buffer 即可。
+  - **守则**:HLSL `InstanceData` struct **必须**在公共 `.hlsli` 单一定义,所有 pass `#include`,严禁复制粘贴定义——这是"加字段成本恒为 O(1)"的唯一前提。C++ 侧同理。
+- **结构 buffer 容量策略**:首版固定上限(如 64k 条,约 8MB),超了 assert;grow + 数据迁移留作后续。
 - **DrawRequest 里 material 元信息的具体表达**:透明性 / material 引用怎么编码,pass 怎么据此从 cache 选 PSO。
-- **destroy 的级联销毁执行机制**:判据已定(源组件谓词),但"谁执行"取决于形态——组件形态(随实体/组件消失,但 entt 不自动级联,需一个清理步骤)vs 独立实体形态(需反向找源组件)。
+- **destroy 的级联销毁执行机制**:判据已定(源组件谓词),Instance 的形态已由 §5 锁定为组件形态(slot 回收即特例,见本节首条),但 entt 不自动级联——**通用** extractor 清理机制(应用于 Mesh / 未来 Material 等)待定。
 - **DrawItem 瞬态化的实现**:当前 DrawItem 是带 `PassTag` 持久化的组件,目标改为 compile 阶段产出的 per-pass 瞬态数组。
 
 ---
@@ -170,5 +179,5 @@ compile  : DrawRequest ──每 pass、每帧──► DrawItem
 ## 当前实现状态(过渡)
 
 - **ViewBindingSystem**:create-once 共享实体(`MainViewTag`),每帧 update;Shutdown 打 `DeadTag`。已落地。
-- **InstanceBindingSystem**:待落地(组合 1:独立实体 + 反向 `SourceEntity` + 源组件谓词)。
-- **InstanceBindings.hlsl**:`space1`,统一全集(当前仅 `g_Model`)。
+- **InstanceBindingSystem**:待落地。目标形态:世界实体挂 `InstanceSlot { uint32 index }` + 全局共享 `StructuredBuffer<InstanceData>`(详见 §5)。
+- **InstanceBindings.hlsl**:`space1`,统一全集 struct(首版仅 `Model`,见 §10 schema 扩展策略)。
