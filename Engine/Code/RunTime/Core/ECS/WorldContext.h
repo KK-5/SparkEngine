@@ -15,6 +15,7 @@
 #include "Bus/ComponentEventBus.h"
 #include "CoreComponents/Name.h"
 #include "ComponentTraits.h"
+#include "ExecuteContext.h"
 
 namespace Spark
 {
@@ -410,4 +411,14 @@ namespace Spark
     };
 
     using WorldContext = BasicContext<Entity>;
+
+    // ExecuteContext<Entity> returns WorldContext* so callers that use
+    // WorldContext-specific methods (e.g. RegisterEventOnEntityRemove) get the
+    // specialized class — not the empty BasicContext stubs.
+    template<>
+    struct ContextTraits<Entity>
+    {
+        using ContextType = WorldContext;
+    };
+
 }

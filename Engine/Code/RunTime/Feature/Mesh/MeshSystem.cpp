@@ -1,5 +1,6 @@
 #include "MeshSystem.h"
 
+#include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 #include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
@@ -14,10 +15,8 @@ namespace Spark::Mesh
     {
         ComponentEventBus::Handler::BusConnect(GetTypeId<MeshComponent>());
 
-        if (auto* world = WorldExecuteContext::Current())
-        {
-            world->RegisterEventOnEntityRemove<MeshComponent>();
-        }
+        auto& world = *WorldExecuteContext::Current();
+        world.RegisterEventOnEntityRemove<MeshComponent>();
     }
 
     void MeshSystem::ShutdownInternal()

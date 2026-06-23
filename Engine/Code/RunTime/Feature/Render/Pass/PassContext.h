@@ -39,35 +39,20 @@ namespace Spark::Render
         eastl::vector<Pass> m_declOrder;
     };
 
-    //! Thin wrapper around ExecuteContext<Pass> that exposes the stored context
-    //! as PassContext* (the actual derived type). All Push sites accept
-    //! PassContext& so the downcast in Current() is always safe.
-    class PassExecuteContext
-    {
-    public:
-        static PassContext* Current()
-        {
-            return static_cast<PassContext*>(ExecuteContext<Pass>::Current());
-        }
+} // namespace Spark::Render
 
-        static void Push(PassContext& ctx) { ExecuteContext<Pass>::Push(ctx); }
-        static void Pop()                  { ExecuteContext<Pass>::Pop(); }
+namespace Spark
+{
+    template<>
+    struct ContextTraits<Render::Pass>
+    {
+        using ContextType = Render::PassContext;
     };
 
-    class PassExecuteContextGuard
-    {
-    public:
-        explicit PassExecuteContextGuard(PassContext& ctx)
-        {
-            PassExecuteContext::Push(ctx);
-        }
+} // namespace Spark
 
-        ~PassExecuteContextGuard()
-        {
-            PassExecuteContext::Pop();
-        }
-
-        PassExecuteContextGuard(const PassExecuteContextGuard&) = delete;
-        PassExecuteContextGuard& operator=(const PassExecuteContextGuard&) = delete;
-    };
+namespace Spark::Render
+{
+    using PassExecuteContext = ExecuteContext<Pass>;
+    using PassExecuteContextGuard = ExecuteContextGuard<Pass>;
 }
