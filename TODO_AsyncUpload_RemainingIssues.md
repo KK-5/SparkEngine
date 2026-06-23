@@ -22,9 +22,11 @@
 
 但"当前帧的 in-flight slot"本质是全局概念，将来 RenderSystem 写 per-frame SRG、swap-chain 关联 back buffer 等都需要同一份索引。应该挪到 `Device`（或 `RHIInterface`），由它统一推进，提供 `GetCurrentFrameIndex()`。
 
-**搁置原因**：目前只有一个使用者，YAGNI。第二个调用方（很可能是 RenderSystem）出现时再搬迁，那时"谁负责 advance"的语义问题会自然有答案。
+**第二调用方已到（2026-06-24）**：`InstanceBindingSystem` 的 `g_Instances` 已改 per-frame（`PerFrameTag`，N 份 buffer 解 G2 帧间 race）。它每帧用 **swap-chain 的 `GetCurrentImageIndex()`**（由 `RenderSystem::OnTick` 传入 `Update(frameIndex)`）选当前帧的 buffer 来绑 per-frame SRV；而 `ProcessBufferMaps` 写的是 `RHIResourceSystem::m_frameIndex` 那一份。**两者必须是同一 slot**，目前靠"都从 device 的 `frameCountMax` 取模、都从 0 起、每帧各 +1 一次"的隐式锁步成立——脆弱点：任一计数器漏跳/相位偏移就会让"写的 buffer"和"读的 buffer"错位（轻则读到陈旧帧，重则与正在写的那份撞上、race 复现）。
 
-**相关代码**：[RHIResourceSystem.cpp:117](Engine/Code/RunTime/Feature/RHI/System/RHIResourceSystem.cpp#L117)
+**加固**：把 frame index 收口到 `Device::GetCurrentFrameIndex()`，让 `ProcessBufferMaps`、`InstanceBindingSystem` 的 per-frame SRV 绑定、render 三方读同一权威 index，消掉两计数器锁步假设。**待 InstanceBindingSystem 这套先成功跑通一遍后再做**（已和作者确认这个顺序）。
+
+**相关代码**：[RHIResourceSystem.cpp:117](Engine/Code/RunTime/Feature/RHI/System/RHIResourceSystem.cpp#L117)、`InstanceBindingSystem::BindFrameInstances` / `Update(frameIndex)`、`RenderSystem::OnTick`。
 
 ---
 

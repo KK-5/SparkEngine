@@ -1302,6 +1302,27 @@ namespace
                     req.m_vertexBufferInfo.m_byteCount,
                     req.m_vertexBufferInfo.m_byteStride);
                 item.m_vertexBufferView.AddVertexInputView(vbView);
+
+                // Optional per-instance vertex stream (slot 1). Added right after the
+                // mesh VB so AddVertexInputView assigns it input slot 1 (plan §2.5).
+                if (req.m_instanceIdBuffer != NullHandle)
+                {
+                    auto idBuffer = context.TryGet<RHI::Components::Buffer>(req.m_instanceIdBuffer);
+                    if (idBuffer && idBuffer->m_buffer)
+                    {
+                        RHI::VertexInputView idView(
+                            *idBuffer->m_buffer,
+                            req.m_instanceIdBufferInfo.m_byteOffset,
+                            req.m_instanceIdBufferInfo.m_byteCount,
+                            req.m_instanceIdBufferInfo.m_byteStride);
+                        item.m_vertexBufferView.AddVertexInputView(idView);
+                    }
+                    else
+                    {
+                        LOG_ERROR("[CompileDrawRequests] Instance ID buffer entity {} not found or has no Components::Buffer.",
+                            static_cast<uint32_t>(req.m_instanceIdBuffer));
+                    }
+                }
             }
             else
             {

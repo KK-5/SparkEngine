@@ -127,6 +127,7 @@ namespace Spark::Render
         // Processor setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_viewBindingSystem.Init(rhiCtxForInit);
+        m_instanceBindingSystem.Init(rhiCtxForInit);
         m_depthPreProcessor.Init(passContext, rhiCtxForInit);
     }
 
@@ -151,6 +152,7 @@ namespace Spark::Render
         TickBus::Handler::BusDisconnect();
 
         m_depthPreProcessor.Shutdown(m_pipeline.GetPassContext());
+        m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         PassExecuteContext::Pop();
@@ -187,6 +189,7 @@ namespace Spark::Render
         }
 
         m_viewBindingSystem.Update();
+        m_instanceBindingSystem.Update(frameIndex);
         m_uiProcessFeature.Process();
         m_depthPreProcessor.Process(renderSize);
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);

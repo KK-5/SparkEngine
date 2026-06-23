@@ -16,6 +16,7 @@
 #include "Feature/UI/UIProcessFeature.h"
 #include "Feature/DepthPre/DepthPreProcessor.h"
 #include "View/ViewBindingSystem.h"
+#include "Instance/InstanceBindingSystem.h"
 
 namespace Spark::Render
 {
@@ -58,6 +59,7 @@ namespace Spark::Render
         UIProcessFeature m_uiProcessFeature;
         DepthPreProcessor m_depthPreProcessor;
         ViewBindingSystem m_viewBindingSystem;
+        InstanceBindingSystem m_instanceBindingSystem;
 
         Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;

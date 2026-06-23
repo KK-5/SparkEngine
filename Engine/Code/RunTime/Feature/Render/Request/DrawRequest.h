@@ -63,6 +63,14 @@ namespace Spark::Render
         RHI::RHIHandle   m_vertexBuffer = RHI::NullHandle;
         RHI::RHIHandle   m_indexBuffer  = RHI::NullHandle;
 
+        // Optional per-instance vertex stream, bound at the slot AFTER the mesh VB
+        // (slot 1): the shared instance-ID buffer feeding the INSTANCE_INDEX semantic.
+        // NullHandle = single-stream draw. See InstanceBindingSystem / plan §2.5.
+        // NOTE: minimal v1 carrier — the general multi-stream DrawRequest shape is a
+        // separate design cycle (plan §2.5 / §6), so this stays one named stream.
+        RHI::RHIHandle   m_instanceIdBuffer = RHI::NullHandle;
+        VertexBufferInfo m_instanceIdBufferInfo;
+
 
         uint8_t m_scissorsCount  = 0;
         uint8_t m_viewportsCount = 0;

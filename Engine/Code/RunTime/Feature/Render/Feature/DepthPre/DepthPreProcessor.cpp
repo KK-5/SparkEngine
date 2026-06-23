@@ -1,48 +1,53 @@
 #include "DepthPreProcessor.h"
 
+#include <EASTL/vector.h>
+
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
 
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Command/DrawArguments.h>
+#include <RHI/Viewport/Viewport.h>
+#include <RHI/Scissor/Scissor.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
-#include <Pass/PassAccess.h>
+#include <Pass/Component/RHIComponents.h>   // Render-namespace RHIHandle / NullHandle aliases
 
 #include <Request/DrawRequest.h>
+#include <Resource/Shader/ShaderAsset.h>   // complete type for DrawRequest's Ptr<ShaderAsset> dtor
 
-#include <Shader/ShaderBindingsUtils.h>
 #include <View/ViewTags.h>
+#include <Instance/InstanceSlot.h>
 
 #include <Mesh/Components.h>
-#include <Transform/Components.h>
 
 namespace Spark::Render
 {
     void DepthPreProcessor::Shutdown(PassContext& /*passCtx*/)
     {
-        // The view binding is owned by ViewBindingSystem (MainViewTag) — not ours to
-        // tear down. We only destroy the entities this processor created: the
-        // DrawRequests and the per-draw model ShaderBindings.
+        // Reap the last frame's transient DrawRequests (the per-view / per-instance
+        // bindings and the ID buffer are owned by their systems — not ours to free).
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
         if (rhiCtx)
         {
+            eastl::vector<RHIHandle> stale;
             rhiCtx->GetView<DrawRequest, SPARK_PASS_TAG("DepthPrePass")>().each(
-                [&](RHIHandle entity, const DrawRequest&) { rhiCtx->Add<DeadTag>(entity); });
-
-            rhiCtx->GetView<RHI::Components::ShaderBindings, SPARK_PASS_TAG("DepthPrePass")>().each(
-                [&](RHIHandle entity, const RHI::Components::ShaderBindings&) { rhiCtx->Add<DeadTag>(entity); });
+                [&](RHIHandle entity, const DrawRequest&) { stale.push_back(entity); });
+            for (RHIHandle entity : stale)
+            {
+                rhiCtx->DestoryEntity(entity);
+            }
         }
     }
 
     void DepthPreProcessor::Init(PassContext& /*passCtx*/, RHI::RHIContext& /*rhiCtx*/)
     {
-        // Nothing to set up: the per-view (space0) binding is the shared ViewBindings
-        // entity produced by ViewBindingSystem (MainViewTag); per-draw model (space1)
-        // bindings are created on demand in Process. All shader inputs flow through
-        // each DrawRequest's m_shaderBindingEntities — no pass-level AttachShaderBindings.
+        // Nothing to set up: the per-view (space0) and per-instance (space1) bindings
+        // and the per-instance ID vertex stream are shared resources produced by
+        // ViewBindingSystem / InstanceBindingSystem. Each frame's DrawRequests just
+        // reference them via m_shaderBindingEntities / m_instanceIdBuffer.
     }
 
     void DepthPreProcessor::Process(const Math::Vector2Int& renderSize)
@@ -55,25 +60,59 @@ namespace Spark::Render
             return;
         }
 
-        // The shared per-view (space0) binding, produced and refreshed by
-        // ViewBindingSystem before Processors run. We only reference it.
+        // Per-frame transient model: reap the previous frame's DrawRequests (CPU-only —
+        // the GPU consumed last frame's DrawItems already), then rebuild from scratch.
+        // Destroy after collecting, never during the view iteration.
+        {
+            eastl::vector<RHIHandle> stale;
+            rhiCtx->GetView<DrawRequest, SPARK_PASS_TAG("DepthPrePass")>().each(
+                [&](RHIHandle entity, const DrawRequest&) { stale.push_back(entity); });
+            for (RHIHandle entity : stale)
+            {
+                rhiCtx->DestoryEntity(entity);
+            }
+        }
+
+        // Shared per-view (space0) binding, produced/refreshed by ViewBindingSystem.
         RHIHandle viewBindingEntity = RHI::NullHandle;
         rhiCtx->GetView<MainViewTag, RHI::Components::ShaderBindings>().each(
             [&](RHIHandle e, const RHI::Components::ShaderBindings&) { viewBindingEntity = e; });
-        if (viewBindingEntity == RHI::NullHandle)
+
+        // Shared per-instance (space1) g_Instances binding, from InstanceBindingSystem.
+        RHIHandle instanceBindingEntity = RHI::NullHandle;
+        rhiCtx->GetView<InstanceBindingTag, RHI::Components::ShaderBindings>().each(
+            [&](RHIHandle e, const RHI::Components::ShaderBindings&) { instanceBindingEntity = e; });
+
+        // Shared per-instance ID vertex stream, from InstanceBindingSystem.
+        RHIHandle idBufferEntity = RHI::NullHandle;
+        uint32_t  idBufferByteCount = 0;
+        rhiCtx->GetView<InstanceIDBufferTag, RHI::Components::Buffer>().each(
+            [&](RHIHandle e, const RHI::Components::Buffer& buf)
         {
-            LOG_ERROR("[DepthPreProcessor] No MainViewTag view binding found; ViewBindingSystem not initialized?");
+            idBufferEntity    = e;
+            idBufferByteCount = buf.m_buffer ? static_cast<uint32_t>(buf.m_buffer->GetDescriptor().m_byteCount) : 0;
+        });
+
+        // Any missing → warmup frame (the shared resources materialize one frame after
+        // Init). InstanceSlot also won't exist yet, so there is nothing to draw.
+        if (viewBindingEntity == RHI::NullHandle
+            || instanceBindingEntity == RHI::NullHandle
+            || idBufferEntity == RHI::NullHandle
+            || idBufferByteCount == 0)
+        {
             return;
         }
 
-        world->GetView<Mesh::MeshGPUComponent, Transform::WorldTransformMatrix>(Exclude<SPARK_PASS_TAG("DepthPrePass")>).each(
-            [&](Entity entity, const Mesh::MeshGPUComponent& gpu, const Transform::WorldTransformMatrix& worldMatrix)
+        // Renderable set THIS frame == entities carrying an InstanceSlot (plan §11).
+        // DepthPre touches no world-layer concept (Transform / WorldTransformMatrix);
+        // the slot is the only — and GPU-layer — coupling point.
+        world->GetView<Mesh::MeshGPUComponent, InstanceSlot>().each(
+            [&](Entity, const Mesh::MeshGPUComponent& gpu, const InstanceSlot& slot)
         {
             if (gpu.m_vertexBuffer == RHI::NullHandle)
             {
                 return;
             }
-
             if (gpu.m_vertexByteCount == 0 || gpu.m_vertexByteStride == 0)
             {
                 return;
@@ -82,10 +121,20 @@ namespace Spark::Render
             RHIHandle drawEntity = rhiCtx->CreateEntity();
 
             DrawRequest req;
-            req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
+            // InstanceCount = 1 (un-batched); StartInstanceLocation = the entity's
+            // per-frame slot — the entry point for InstanceIndex into the shader.
+            req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, slot.m_index);
+
+            // slot 0: mesh vertex buffer.
             req.m_vertexBuffer = gpu.m_vertexBuffer;
             req.m_vertexBufferInfo = VertexBufferInfo{
                 0, gpu.m_vertexByteCount, gpu.m_vertexByteStride};
+
+            // slot 1: shared per-instance ID stream (full buffer; IA reads element
+            // [StartInstanceLocation]). Stride = one uint per instance.
+            req.m_instanceIdBuffer = idBufferEntity;
+            req.m_instanceIdBufferInfo = VertexBufferInfo{
+                0, idBufferByteCount, static_cast<uint32_t>(sizeof(uint32_t))};
 
             if (gpu.m_indexBindings != RHI::NullHandle)
             {
@@ -109,35 +158,12 @@ namespace Spark::Render
             req.m_scissorsCount  = 1;
             req.m_scissors[0]    = RHI::Scissor{0, 0, renderSize.x, renderSize.y};
 
-            // Shared per-view (space0) binding: just a reference into this draw.
+            // Shared bindings, in space order: space0 view, space1 g_Instances.
             req.m_shaderBindingEntities.push_back(viewBindingEntity);
-
-            // Per-draw ShaderBindings at space1: model matrix from Transform system.
-            RHIHandle modelEntity = CreatePassShaderBindings<SPARK_PASS_TAG("DepthPrePass")>(
-                *passCtx, *rhiCtx, /*spaceId*/ 1);
-
-            if (modelEntity != RHI::NullHandle)
-            {
-                SetShaderConstant(modelEntity, RHI::InputName("g_Model"), worldMatrix.m_worldMatrix);
-
-                rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(modelEntity);
-                req.m_shaderBindingEntities.push_back(modelEntity);
-            }
+            req.m_shaderBindingEntities.push_back(instanceBindingEntity);
 
             rhiCtx->Add<DrawRequest>(drawEntity, eastl::move(req));
             rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(drawEntity);
-
-            world->Add<SPARK_PASS_TAG("DepthPrePass")>(entity);
-            world->Add<DrawEntity>(entity, drawEntity);
-            world->Add<MatrixBindEntity>(entity, modelEntity);
-        });
-
-        world->GetView<SPARK_PASS_TAG("DepthPrePass"), Transform::WorldTransformMatrix, MatrixBindEntity>().each(
-            [&](Entity entity, const Transform::WorldTransformMatrix& worldMatrix, const MatrixBindEntity& bind)
-        {
-            // SetShaderConstant resolves the entity's binding, stages the data, and
-            // marks it dirty for the next compile.
-            SetShaderConstant(bind.m_binding, RHI::InputName("g_Model"), worldMatrix.m_worldMatrix);
         });
     }
 }

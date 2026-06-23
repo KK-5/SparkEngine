@@ -1,0 +1,22 @@
+#pragma once
+
+#include <Math/Matrix4x4.h>
+
+namespace Spark::Render
+{
+    //! Per-instance GPU record, one element of the global g_Instances
+    //! StructuredBuffer (space1). HLSL mirror lives in InstanceData.hlsli — the
+    //! two MUST stay byte-for-byte identical (the static_assert below is the only
+    //! automatic guard until RHI reflection can read StructuredBuffer element
+    //! fields; see TODO_InstanceBindingSystemPlan.md §2 / §G5).
+    struct InstanceData
+    {
+        Math::Matrix4X4 m_model{Math::Matrix4X4Const::IDENTITY};   // object -> world
+    };
+
+    // 64B, already 16B-aligned. StructuredBuffer elements are tightly C-packed
+    // (no cbuffer 16B rounding), so sizeof must match the HLSL `float4x4 Model;`.
+    static_assert(sizeof(InstanceData) == 64,
+        "InstanceData must stay 64 bytes to match InstanceData.hlsli; add padding "
+        "deliberately when introducing new fields.");
+}

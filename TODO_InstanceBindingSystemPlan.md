@@ -5,6 +5,44 @@
 
 ---
 
+## ✅ 实现状态(已落地,Debug 全量编译通过)
+
+Step 1–5 全部落地。新增 `Render/Instance/{InstanceData.h, InstanceSlot.h, InstanceBindingSystem.h/.cpp}`、
+`Asset/Shaders/{InstanceData.hlsli, InstanceBindings.hlsl(改写), InstanceBindingsReflect.hlsl}`;改写
+DepthPre.hlsl / DepthPrePass 输入布局 / DepthPreProcessor;`RenderSystem` 挂载;`DrawRequest` + `CompileDrawRequests`
+加第二顶点流。落地中相对本草稿的**实现决定**:
+
+1. **缓冲创建走 ECS,生命周期交给 `RHIResourceSystem`**。代价:`OnFrameBegin` 在 `ExecutePipeline` 内广播(晚于
+   `Update/Process`),故 buffer **晚一帧物化**——`InstanceBindingSystem::EnsureWired()` 在首个就绪帧建 SRV +
+   `SetShaderBuffer`(只一次);渲染从第 2 帧起。**数据上传不自己 map**:每帧写 CPU 端 `m_instanceData`,挂
+   `PendingBufferMap`,由 `RHIResourceSystem::ProcessBufferMaps`(在 `OnFrameBegin` 里、排在 `CreateBuffers` 之后)统一
+   Map/memcpy/Unmap——map 动作不归本系统管,无持久映射、不碰 pool。两条 buffer 的 barrier 处理不同:
+   - **ID buffer**(Device/InputAssembly,copy 队列一次性上传)走 **StaticImported 三件套**:`CreateStaticBuffer` +
+     `RequestBufferUpload` + `CreateStaticBufferAttachment(Read, InputAssembly, VertexInput)`,让 `CompileStaticResourceBarriers`
+     发 upload→InputAssembly barrier + copy→graphics fence wait。**必须有 attachment,否则 graphics 队列会和异步上传 race**
+     (参 DrawCube;注:`MeshSystem` 的顶点 buffer 目前也漏了这步,是既存隐患,不在本次 scope)。
+   - **g_Instances**(Host upload 堆,每帧 CPU 写,同 graphics 队列读 SRV)不注册 attachment:不走 copy 队列、不换队列、
+     无状态 transition,host-write→shader-read 跨 submit 的可见性由 submit 语义保证(同 ViewBindings 的每帧 host cbuffer)。
+     待 `CreateDynamicBuffer`(ImportedTag,目前仅注释未实现)落地后再统一。
+2. **共享 host upload pool 补 `ShaderRead`**(`RHIResourceSystem.cpp`)—— 让 host StructuredBuffer 直接挂 SRV,
+   无需 device 拷贝。该 pool 注释本就声明"用于 per-frame StructuredBuffer",属补齐。
+3. **DrawRequest 第二流 = 最小桥**:加 `m_instanceIdBuffer` + `m_instanceIdBufferInfo` 单一具名流(非通用多流列表),
+   `CompileDrawRequests` 紧跟 mesh VB 后 `AddVertexInputView` → 自动得 slot 1。通用多流形态仍按 §2.5/§6 留给 DrawRequest 自身设计周期。
+4. **DepthPre per-frame transient**:executer 每帧只回收 transient 资源/attachment,不回收 DrawRequest/DrawItem 实体;
+   故 `DepthPreProcessor::Process` 开头收集并 `DestoryEntity` 上一帧的 DrawRequest 实体(CPU-only,GPU 上一帧已消费),再重建。
+5. 反射主机 `InstanceBindingsReflect.hlsl` 仿 `ViewBindingsReflect.hlsl`(dummy VSMain 读 g_Instances)。
+
+**G2 n-buffering(已做)**:g_Instances 加 `PerFrameTag` → `RHIResourceSystem` 自动建 N 份、`ProcessBufferMaps` 自动写当前帧那份;
+`InstanceBindingSystem::BindFrameInstances(frameIndex)` 每帧把 SRV 重绑到当前帧的 copy(`GetOrCreateBufferViewPerFrame`,一次便宜的
+descriptor 重 compile,同 ViewBindings)。frameIndex 由 `RenderSystem::OnTick` 传入(swap-chain `GetCurrentImageIndex`)。
+**遗留加固**:该 frameIndex 必须与 `ProcessBufferMaps` 用的 `RHIResourceSystem::m_frameIndex` 选中同一 slot,目前靠隐式锁步成立
+(两者都 mod device `frameCountMax`、每帧各 +1);robust 解法是 `Device::GetCurrentFrameIndex()` 统一——**待跑通一遍后再做**
+(见 [TODO_AsyncUpload_RemainingIssues.md](TODO_AsyncUpload_RemainingIssues.md))。
+
+**未做**:runtime 像素级 parity 验证(§8,需 RenderDoc/截屏,留给人工)。
+
+---
+
 ## 0. 现状勘察(已有 / 已确认)
 
 落地前先核对环境,以下能力**已具备**,不需要重新造:

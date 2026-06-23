@@ -40,7 +40,8 @@ namespace Spark::Render
         RHI::InputStreamLayoutBuilder builder;
         builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
         builder.AddBuffer()->Channel("POSITION", 0, Spark::RHI::Format::R32G32B32_FLOAT);
-                           //->Padding(48);
+        builder.AddBuffer(RHI::StreamStepFunction::PerInstance, 1)
+               ->Channel("INSTANCE_INDEX", 0, Spark::RHI::Format::R32_UINT);
         input = builder.End();
 
         RHI::RenderStates states;

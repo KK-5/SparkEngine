@@ -1,15 +1,14 @@
 #include <Shaders/ViewBindings.hlsl>
+#include <Shaders/InstanceBindings.hlsl>
 
-// Per-object model matrix, space1. Filled by DepthPreProcessor from
-// Transform::WorldTransformMatrix (identity if the entity has no transform).
-cbuffer ModelBindings : register(b0, space1)
-{
-    float4x4 g_Model;
-};
-
+// Per-instance model matrix comes from the global g_Instances StructuredBuffer
+// (space1), indexed by InstanceIdx. InstanceIdx is delivered through a per-instance
+// vertex stream (PER_INSTANCE_DATA + StartInstanceLocation), filled by
+// InstanceBindingSystem. See TODO_InstanceBindingSystemPlan.md §2.5.
 struct VSInput
 {
-    float3 position : POSITION;
+    float3 position    : POSITION;        // slot 0, per-vertex
+    uint   instanceIdx : INSTANCE_INDEX;  // slot 1, per-instance
 };
 
 struct VSOutput
@@ -21,7 +20,8 @@ struct VSOutput
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    float4 worldPos = mul(g_Model, float4(input.position, 1.0));
+    InstanceData inst = GetInstanceData(input.instanceIdx);
+    float4 worldPos = mul(inst.Model, float4(input.position, 1.0));
     output.position = mul(g_ViewProjection, worldPos);
     output.depth    = output.position.z / output.position.w;
     return output;

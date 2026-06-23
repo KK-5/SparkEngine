@@ -15,6 +15,7 @@ set(SOURCES
     RenderSystem.cpp
     Shader/ShaderBuilder.cpp
     View/ViewBindingSystem.cpp
+    Instance/InstanceBindingSystem.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
