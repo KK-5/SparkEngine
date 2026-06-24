@@ -1277,49 +1277,41 @@ namespace
     {
         context.GetView<DrawRequest>().each([&](RHIHandle h, const DrawRequest& req)
         {
-            const RHIHandle drawable = req.m_drawable;
-            if (drawable == NullHandle)
+            const RHIHandle drawableEntity = req.m_drawable;
+            if (drawableEntity == NullHandle)
             {
                 LOG_ERROR("[CompileDrawRequests] DrawRequest entity {} has no Drawable.",
                     static_cast<uint32_t>(h));
                 return;
             }
 
-            const auto* streams  = context.TryGet<VertexStreams>(drawable);
-            const auto* geomArgs = context.TryGet<DrawGeomArgs>(drawable);
-            const auto* inst     = context.TryGet<DrawInstancing>(drawable);
-            if (!streams || !geomArgs || !inst)
+            const auto* d = context.TryGet<Drawable>(drawableEntity);
+            if (!d)
             {
-                LOG_ERROR("[CompileDrawRequests] Drawable {} missing core components.",
-                    static_cast<uint32_t>(drawable));
+                LOG_ERROR("[CompileDrawRequests] Drawable {} missing.",
+                    static_cast<uint32_t>(drawableEntity));
                 return;
             }
 
-            // Resolve StartInstanceLocation through the Drawable's slot ref +
-            // the global InstanceSlotTable. Missing / sentinel value means the
-            // entity is being torn down — skip the draw this frame.
-            uint32_t startInstance = 0;
-            if (const auto* slotRef = context.TryGet<InstanceSlotRef>(drawable))
+            // Resolve StartInstanceLocation through m_slotRef + the global
+            // InstanceSlotTable. Sentinel (UINT32_MAX) means the entity is
+            // being torn down — skip the draw this frame.
+            const auto* slotTable = d->m_instanceBinding != NullHandle
+                ? context.TryGet<InstanceSlotTable>(d->m_instanceBinding)
+                : nullptr;
+            if (!slotTable || d->m_slotRef.m_id >= slotTable->m_slots.size())
             {
-                const auto* bindingRef = context.TryGet<InstanceBindingRef>(drawable);
-                const auto* slotTable  = bindingRef
-                    ? context.TryGet<InstanceSlotTable>(bindingRef->m_binding)
-                    : nullptr;
-                if (!slotTable || slotRef->m_id >= slotTable->m_slots.size())
-                {
-                    return;
-                }
-                const uint32_t slotValue = slotTable->m_slots[slotRef->m_id];
-                if (slotValue == UINT32_MAX)
-                {
-                    return;
-                }
-                startInstance = slotValue;
+                return;
+            }
+            const uint32_t slotValue = slotTable->m_slots[d->m_slotRef.m_id];
+            if (slotValue == UINT32_MAX)
+            {
+                return;
             }
 
             RHI::DrawItem item;
-            item.m_drawArguments    = geomArgs->m_args;
-            item.m_drawInstanceArgs = RHI::DrawInstanceArguments(inst->m_instanceCount, startInstance);
+            item.m_drawArguments    = d->m_drawArgs;
+            item.m_drawInstanceArgs = RHI::DrawInstanceArguments(d->m_instanceCount, slotValue);
             item.m_stencilRef       = req.m_stencilRef;
 
             // ShaderBindings: Pass injects view (space0); Drawable supplies the
@@ -1334,21 +1326,18 @@ namespace
                     }
                 }
             }
-            if (const auto* bindingRef = context.TryGet<InstanceBindingRef>(drawable))
+            if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(d->m_instanceBinding))
             {
-                if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(bindingRef->m_binding))
+                if (sb->m_bindings)
                 {
-                    if (sb->m_bindings)
-                    {
-                        item.m_shaderBindings.push_back(sb->m_bindings.get());
-                    }
+                    item.m_shaderBindings.push_back(sb->m_bindings.get());
                 }
             }
             item.m_shaderBindingsCount = static_cast<uint8_t>(item.m_shaderBindings.size());
 
             // Vertex streams: every entry sets its declared slot via
             // SetVertexInputView (VertexBufferView validates 0..N-1 contiguous).
-            for (const auto& s : streams->m_streams)
+            for (const auto& s : d->m_streams)
             {
                 auto* buf = context.TryGet<RHI::Components::Buffer>(s.m_buffer);
                 if (!buf || !buf->m_buffer)
@@ -1362,20 +1351,20 @@ namespace
                     RHI::VertexInputView(*buf->m_buffer, s.m_byteOffset, s.m_byteCount, s.m_byteStride));
             }
 
-            if (const auto* ib = context.TryGet<IndexBufferRef>(drawable))
+            if (d->m_indexBuffer != NullHandle)
             {
-                if (auto* iBuf = context.TryGet<RHI::Components::Buffer>(ib->m_buffer))
+                if (auto* iBuf = context.TryGet<RHI::Components::Buffer>(d->m_indexBuffer))
                 {
                     item.m_indexBufferView = RHI::IndexBufferView(
                         *iBuf->m_buffer,
-                        ib->m_info.m_byteOffset,
-                        ib->m_info.m_byteCount,
-                        ib->m_info.m_format);
+                        d->m_indexInfo.m_byteOffset,
+                        d->m_indexInfo.m_byteCount,
+                        d->m_indexInfo.m_format);
                 }
                 else
                 {
                     LOG_ERROR("[CompileDrawRequests] Index buffer entity {} unresolved.",
-                        static_cast<uint32_t>(ib->m_buffer));
+                        static_cast<uint32_t>(d->m_indexBuffer));
                 }
             }
 

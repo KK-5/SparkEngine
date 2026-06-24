@@ -18,85 +18,63 @@ namespace Spark::Render
     {
         bool AnyDependencyDead(
             RHI::RHIContext&         ctx,
-            RHI::RHIHandle           drawable,
-            const VertexStreams&     streams,
-            const InstanceSlotTable* table)
+            const Drawable&          d,
+            const InstanceSlotTable& table)
         {
-            for (const auto& s : streams.m_streams)
+            for (const auto& s : d.m_streams)
             {
                 if (s.m_buffer != RHI::NullHandle && ctx.Has<DeadTag>(s.m_buffer))
                 {
                     return true;
                 }
             }
-            if (const auto* ib = ctx.TryGet<IndexBufferRef>(drawable))
+            if (d.m_indexBuffer != RHI::NullHandle && ctx.Has<DeadTag>(d.m_indexBuffer))
             {
-                if (ib->m_buffer != RHI::NullHandle && ctx.Has<DeadTag>(ib->m_buffer))
-                {
-                    return true;
-                }
+                return true;
             }
-            if (const auto* ibd = ctx.TryGet<InstanceBindingRef>(drawable))
+            if (d.m_instanceBinding != RHI::NullHandle && ctx.Has<DeadTag>(d.m_instanceBinding))
             {
-                if (ibd->m_binding != RHI::NullHandle && ctx.Has<DeadTag>(ibd->m_binding))
-                {
-                    return true;
-                }
+                return true;
             }
-            if (const auto* ref = ctx.TryGet<InstanceSlotRef>(drawable))
+            if (d.m_slotRef.m_id >= table.m_slots.size() ||
+                table.m_slots[d.m_slotRef.m_id] == UINT32_MAX)
             {
-                if (ref->m_id >= table->m_slots.size() ||
-                    table->m_slots[ref->m_id] == UINT32_MAX)
-                {
-                    return true;
-                }
+                return true;
             }
             return false;
         }
 
-        void ComposePersistent(
-            RHI::RHIContext&              ctx,
-            RHI::RHIHandle                drawable,
+        Drawable ComposePersistent(
             const Mesh::MeshGPUComponent& gpu,
             const InstanceSlotRef&        slotRef,
             RHI::RHIHandle                instanceBindingEntity,
             RHI::RHIHandle                idBufferEntity,
             uint32_t                      idBufferBytes)
         {
-            ctx.Add<DrawableTag>(drawable);
-
-            VertexStreams streams;
-            streams.m_streams.push_back(VertexStreamSpec{
+            Drawable d;
+            d.m_streams.push_back(VertexStreamSpec{
                 gpu.m_vertexBuffer, /*slot*/ 0, 0, gpu.m_vertexByteCount, gpu.m_vertexByteStride });
-            streams.m_streams.push_back(VertexStreamSpec{
+            d.m_streams.push_back(VertexStreamSpec{
                 idBufferEntity, /*slot*/ 1, 0, idBufferBytes, sizeof(uint32_t) });
-            ctx.Add<VertexStreams>(drawable, eastl::move(streams));
 
             if (gpu.m_indexBindings != RHI::NullHandle)
             {
-                ctx.Add<IndexBufferRef>(drawable, IndexBufferRef{
-                    gpu.m_indexBindings,
-                    IndexBufferInfo{ 0, gpu.m_indexByteCount, gpu.m_indexFormat } });
-            }
-
-            ctx.Add<InstanceBindingRef>(drawable, InstanceBindingRef{ instanceBindingEntity });
-
-            DrawGeomArgs args;
-            if (gpu.m_indexBindings != RHI::NullHandle)
-            {
-                args.m_args = RHI::DrawArguments(RHI::DrawIndexed(0, gpu.m_indexCount, 0));
+                d.m_indexBuffer = gpu.m_indexBindings;
+                d.m_indexInfo   = IndexBufferInfo{ 0, gpu.m_indexByteCount, gpu.m_indexFormat };
+                d.m_drawArgs    = RHI::DrawArguments(RHI::DrawIndexed(0, gpu.m_indexCount, 0));
             }
             else
             {
                 const uint32_t vertexCount = gpu.m_vertexByteStride
                     ? gpu.m_vertexByteCount / gpu.m_vertexByteStride
                     : 0;
-                args.m_args = RHI::DrawArguments(RHI::DrawLinear(0, vertexCount));
+                d.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(0, vertexCount));
             }
-            ctx.Add<DrawGeomArgs>(drawable, args);
 
-            ctx.Add<DrawInstancing>(drawable, DrawInstancing{ 1 });
-            ctx.Add<InstanceSlotRef>(drawable, slotRef);
+            d.m_instanceBinding = instanceBindingEntity;
+            d.m_slotRef         = slotRef;
+            d.m_instanceCount   = 1;
+            return d;
         }
     }
 
@@ -145,10 +123,10 @@ namespace Spark::Render
         }
 
         // Cascade reap: any dependency dead → mark Drawable DeadTag.
-        rhiCtx->GetView<DrawableTag, VertexStreams>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle d, const VertexStreams& vs)
+        rhiCtx->GetView<DrawableTag, Drawable>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle d, const Drawable& drawable)
         {
-            if (AnyDependencyDead(*rhiCtx, d, vs, slotTable))
+            if (AnyDependencyDead(*rhiCtx, drawable, *slotTable))
             {
                 rhiCtx->Add<DeadTag>(d);
             }
@@ -167,8 +145,9 @@ namespace Spark::Render
             }
 
             RHI::RHIHandle drawable = rhiCtx->CreateEntity();
-            ComposePersistent(*rhiCtx, drawable, gpu, ref,
-                              instanceBindingEntity, idBufferEntity, idBufferByteCount);
+            rhiCtx->Add<DrawableTag>(drawable);
+            rhiCtx->Add<Drawable>(drawable, ComposePersistent(
+                gpu, ref, instanceBindingEntity, idBufferEntity, idBufferByteCount));
             world->Add<WorldComposedTag>(wE);
         });
     }
