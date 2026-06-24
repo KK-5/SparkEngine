@@ -74,6 +74,14 @@ namespace
                 {
                     return; // Resource not materialized yet
                 }
+                // Upload not yet submitted (PendingSync absent): the resource sits
+                // at its post-Init Uninitialized state, but advancing it now would
+                // race the eventual cross-queue copy. Defer the static barrier to
+                // a later frame when SubmitBatch has stamped PendingSync.
+                if (context.Has<RHI::UploadPendingTag>(resource))
+                {
+                    return;
+                }
 
                 const RHI::ResourceState src = buf->m_buffer->GetResourceState();
                 const RHI::ResourceState dst = CompileResourceState(att);
@@ -134,6 +142,11 @@ namespace
                 // bindings, not as pass attachments).
                 auto* img = context.TryGet<Image>(resource);
                 if (!img || !img->m_image)
+                {
+                    return;
+                }
+                // See BufferPassAttachment path above for the rationale.
+                if (context.Has<RHI::UploadPendingTag>(resource))
                 {
                     return;
                 }
