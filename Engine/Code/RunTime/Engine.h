@@ -63,10 +63,10 @@ namespace Spark
         SystemUniquePtr<Camera::CameraSystem>        m_cameraSystem;
         SystemUniquePtr<EntityReaper>                m_entityReaper;
         SystemUniquePtr<RHI::DX12::RHISystem>        m_dx12Rhi;
-        SystemUniquePtr<Render::RenderSystem>        m_renderSystem;
         SystemUniquePtr<RHI::RHIResourceSystem>      m_rhiResourceSystem;
         SystemUniquePtr<RHI::AsyncUploadSystem>      m_asyncUploadSystem;
-        SystemUniquePtr<RHI::RHIHandleClearSystem>  m_rhiHandleClearSystem;
+        SystemUniquePtr<RHI::RHIHandleClearSystem>   m_rhiHandleClearSystem;
+        SystemUniquePtr<Render::RenderSystem>        m_renderSystem;
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<UI::IconManager>             m_iconManager;
         SystemUniquePtr<Mesh::MeshSystem>            m_meshSystem;
