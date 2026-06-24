@@ -2,25 +2,30 @@
 
 #include <cstdint>
 
+#include <EASTL/vector.h>
+
 namespace Spark::Render
 {
-    //! Per-frame slot index into the global g_Instances StructuredBuffer, placed
-    //! on a WORLD entity by InstanceBindingSystem::Update each frame.
-    //!
-    //! ⚠ STRICTLY per-frame — never cache across frames. InstanceBindingSystem is
-    //! free to renumber every frame; consumers MUST re-query in their Process step.
-    //! See TODO_InstanceBindingSystemPlan.md §11 (the one inviolable contract):
-    //! existence ⟺ renderable this frame; the value is not stable across frames.
-    struct InstanceSlot
+    //! Stable per-renderable id, allocated by InstanceBindingSystem on first
+    //! renderable, freed on DeadTag. The current-frame g_Instances slot lives
+    //! in InstanceSlotTable.m_slots[m_id] — indirection lets the table reorder
+    //! slots every frame to match dense ECS storage (memcpy upload path)
+    //! without disturbing any Drawable.
+    struct InstanceSlotRef
     {
-        uint32_t m_index = UINT32_MAX;
+        uint32_t m_id = UINT32_MAX;
     };
 
-    //! Identifies, in the RHIContext, the single shared ShaderBindings entity that
-    //! carries the g_Instances StructuredBuffer SRV (space1).
+    //! Component on the InstanceBindingTag entity. m_slots[id] = id's current
+    //! slot in g_Instances; UINT32_MAX means freed (cascade-reap signal).
+    struct InstanceSlotTable
+    {
+        eastl::vector<uint32_t> m_slots;
+    };
+
+    //! The single shared ShaderBindings entity carrying g_Instances (space1).
     struct InstanceBindingTag {};
 
-    //! Identifies, in the RHIContext, the single shared per-instance vertex stream
-    //! ID buffer entity (content [0, 1, ..., Capacity-1]). See plan §2.5.
+    //! The single shared per-instance vertex stream ID buffer entity.
     struct InstanceIDBufferTag {};
 }

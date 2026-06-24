@@ -11,58 +11,12 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Pass/PassBuilder.h>   // RenderPassConfig, BuildPipelineLayoutFromShaders, shared components
-#include <Pass/PassAccess.h>    // FindPassAttachmentImageView, MarkShaderBindingsUpdate
 #include <Request/DrawRequest.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
 namespace Spark::Render
 {
-    //! Default Compile body for a render pass. For every DrawRequest tagged with
-    //! PassTag, resolves each declared AttachmentBinding's view (by slot, frame-aware)
-    //! and writes it into the referenced ShaderBindings' image input, marking the
-    //! bindings dirty so CompileShaderInputs (which runs after the per-pass compile
-    //! loop) recompiles the descriptor. Draws with no m_attachmentBindings are no-ops,
-    //! so write-only passes (e.g. depth prepass) cost nothing.
-    template<typename PassTag>
-    void CompilePassDrawBindings(RenderGraphCompiler& compiler)
-    {
-        auto& ctx = *RHI::RHIExecuteContext::Current();
-        const uint32_t frameIndex = compiler.GetFrameIndex();
-        ctx.GetView<PassTag, DrawRequest>().each([&](RHIHandle, const DrawRequest& req)
-        {
-            for (const auto& bind : req.m_attachmentBindings)
-            {
-                auto* view = FindPassAttachmentImageView<PassTag>(ctx, bind.m_slot, frameIndex);
-                if (!view)
-                {
-                    continue;
-                }
-                if (bind.m_groupIndex >= req.m_shaderBindingEntities.size())
-                {
-                    LOG_ERROR("[CompilePassDrawBindings] AttachmentBinding groupIndex {} out of range (slot '{}').",
-                        bind.m_groupIndex, bind.m_slot.GetCStr());
-                    continue;
-                }
-                RHIHandle bindingEntity = req.m_shaderBindingEntities[bind.m_groupIndex];
-                auto* comp = ctx.TryGet<RHI::Components::ShaderBindings>(bindingEntity);
-                if (!comp || !comp->m_bindings)
-                {
-                    continue;
-                }
-                auto* imageInput = comp->m_bindings->FindImageInput(bind.m_shaderInput);
-                if (!imageInput)
-                {
-                    LOG_ERROR("[CompilePassDrawBindings] Shader image input '{}' not found.",
-                        bind.m_shaderInput.GetCStr());
-                    continue;
-                }
-                imageInput->SetView(0, view);
-                MarkShaderBindingsUpdate(ctx, bindingEntity);
-            }
-        });
-    }
-
     //! Default Execute body for a render pass. Submits every compiled DrawItem
     //! tagged with PassTag to the pass's command list, in pool order.
     template<typename PassTag>
@@ -249,11 +203,14 @@ namespace Spark::Render
             }
 
             // Install the slot-resolving defaults unless the caller overrode them.
+            // m_compileFunction has no engine-provided default: the only consumer
+            // was the now-removed AttachmentBinding flow, and per-pass binding
+            // population is a separate Binding system's responsibility. Passes
+            // that need a compile step opt in via .Compile(...). RenderGraph
+            // already null-checks before invoking, so an empty slot is fine.
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
-            funcs.m_compileFunction = m_compileFunction
-                ? eastl::move(m_compileFunction)
-                : CompileFunction(CompilePassDrawBindings<PassTag>);
+            funcs.m_compileFunction = eastl::move(m_compileFunction);
             funcs.m_executeFunction = m_executeFunction
                 ? eastl::move(m_executeFunction)
                 : ExecuteFunction(SubmitPassDrawItems<PassTag>);

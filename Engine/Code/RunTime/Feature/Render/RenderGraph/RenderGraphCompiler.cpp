@@ -23,6 +23,8 @@
 #include <RHI/Pipeline/ShaderStages.h>
 
 #include <Request/DrawRequest.h>
+#include <Drawable/Drawable.h>
+#include <Instance/InstanceSlot.h>
 #include <Pass/Component/PassComponents.h>
 
 namespace Spark::Render
@@ -1273,78 +1275,107 @@ namespace
         RHIContext&  context,
         RHI::PipelineLibrary* /*pipelineLibrary*/)
     {
-        context.GetView<DrawRequest>().each([&](RHIHandle h, const DrawRequest& req) {
+        context.GetView<DrawRequest>().each([&](RHIHandle h, const DrawRequest& req)
+        {
+            const RHIHandle drawable = req.m_drawable;
+            if (drawable == NullHandle)
+            {
+                LOG_ERROR("[CompileDrawRequests] DrawRequest entity {} has no Drawable.",
+                    static_cast<uint32_t>(h));
+                return;
+            }
+
+            const auto* streams  = context.TryGet<VertexStreams>(drawable);
+            const auto* geomArgs = context.TryGet<DrawGeomArgs>(drawable);
+            const auto* inst     = context.TryGet<DrawInstancing>(drawable);
+            if (!streams || !geomArgs || !inst)
+            {
+                LOG_ERROR("[CompileDrawRequests] Drawable {} missing core components.",
+                    static_cast<uint32_t>(drawable));
+                return;
+            }
+
+            // Resolve StartInstanceLocation through the Drawable's slot ref +
+            // the global InstanceSlotTable. Missing / sentinel value means the
+            // entity is being torn down — skip the draw this frame.
+            uint32_t startInstance = 0;
+            if (const auto* slotRef = context.TryGet<InstanceSlotRef>(drawable))
+            {
+                const auto* bindingRef = context.TryGet<InstanceBindingRef>(drawable);
+                const auto* slotTable  = bindingRef
+                    ? context.TryGet<InstanceSlotTable>(bindingRef->m_binding)
+                    : nullptr;
+                if (!slotTable || slotRef->m_id >= slotTable->m_slots.size())
+                {
+                    return;
+                }
+                const uint32_t slotValue = slotTable->m_slots[slotRef->m_id];
+                if (slotValue == UINT32_MAX)
+                {
+                    return;
+                }
+                startInstance = slotValue;
+            }
+
             RHI::DrawItem item;
-            item.m_drawArguments    = req.m_drawArguments;
-            item.m_drawInstanceArgs = req.m_drawInstanceArgs;
+            item.m_drawArguments    = geomArgs->m_args;
+            item.m_drawInstanceArgs = RHI::DrawInstanceArguments(inst->m_instanceCount, startInstance);
             item.m_stencilRef       = req.m_stencilRef;
 
-            for (RHIHandle bindingEntity : req.m_shaderBindingEntities)
+            // ShaderBindings: Pass injects view (space0); Drawable supplies the
+            // global instance binding (space1).
+            if (req.m_viewBinding != NullHandle)
             {
-                if (auto* shaderBindings = context.TryGet<RHI::Components::ShaderBindings>(
-                        bindingEntity))
+                if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(req.m_viewBinding))
                 {
-                    if (shaderBindings->m_bindings)
+                    if (sb->m_bindings)
                     {
-                        item.m_shaderBindings.push_back(shaderBindings->m_bindings.get());
+                        item.m_shaderBindings.push_back(sb->m_bindings.get());
                     }
                 }
             }
-            item.m_shaderBindingsCount =
-                static_cast<uint8_t>(item.m_shaderBindings.size());
-
-            auto vBuffer = context.TryGet<RHI::Components::Buffer>(req.m_vertexBuffer);
-            if (vBuffer)
+            if (const auto* bindingRef = context.TryGet<InstanceBindingRef>(drawable))
             {
-                RHI::VertexInputView vbView(
-                    *vBuffer->m_buffer,
-                    req.m_vertexBufferInfo.m_byteOffset,
-                    req.m_vertexBufferInfo.m_byteCount,
-                    req.m_vertexBufferInfo.m_byteStride);
-                item.m_vertexBufferView.AddVertexInputView(vbView);
-
-                // Optional per-instance vertex stream (slot 1). Added right after the
-                // mesh VB so AddVertexInputView assigns it input slot 1 (plan §2.5).
-                if (req.m_instanceIdBuffer != NullHandle)
+                if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(bindingRef->m_binding))
                 {
-                    auto idBuffer = context.TryGet<RHI::Components::Buffer>(req.m_instanceIdBuffer);
-                    if (idBuffer && idBuffer->m_buffer)
+                    if (sb->m_bindings)
                     {
-                        RHI::VertexInputView idView(
-                            *idBuffer->m_buffer,
-                            req.m_instanceIdBufferInfo.m_byteOffset,
-                            req.m_instanceIdBufferInfo.m_byteCount,
-                            req.m_instanceIdBufferInfo.m_byteStride);
-                        item.m_vertexBufferView.AddVertexInputView(idView);
-                    }
-                    else
-                    {
-                        LOG_ERROR("[CompileDrawRequests] Instance ID buffer entity {} not found or has no Components::Buffer.",
-                            static_cast<uint32_t>(req.m_instanceIdBuffer));
+                        item.m_shaderBindings.push_back(sb->m_bindings.get());
                     }
                 }
             }
-            else
+            item.m_shaderBindingsCount = static_cast<uint8_t>(item.m_shaderBindings.size());
+
+            // Vertex streams: every entry sets its declared slot via
+            // SetVertexInputView (VertexBufferView validates 0..N-1 contiguous).
+            for (const auto& s : streams->m_streams)
             {
-                LOG_ERROR("[CompileDrawRequests] Vertex buffer entity {} not found or has no Components::Buffer.",
-                    static_cast<uint32_t>(req.m_vertexBuffer));
+                auto* buf = context.TryGet<RHI::Components::Buffer>(s.m_buffer);
+                if (!buf || !buf->m_buffer)
+                {
+                    LOG_ERROR("[CompileDrawRequests] Vertex stream slot {} buffer entity {} unresolved.",
+                        s.m_inputSlot, static_cast<uint32_t>(s.m_buffer));
+                    continue;
+                }
+                item.m_vertexBufferView.SetVertexInputView(
+                    s.m_inputSlot,
+                    RHI::VertexInputView(*buf->m_buffer, s.m_byteOffset, s.m_byteCount, s.m_byteStride));
             }
 
-            if (req.m_indexBuffer != NullHandle)
+            if (const auto* ib = context.TryGet<IndexBufferRef>(drawable))
             {
-                auto iBuffer = context.TryGet<RHI::Components::Buffer>(req.m_indexBuffer);
-                if (iBuffer)
+                if (auto* iBuf = context.TryGet<RHI::Components::Buffer>(ib->m_buffer))
                 {
                     item.m_indexBufferView = RHI::IndexBufferView(
-                        *iBuffer->m_buffer,
-                        req.m_indexBufferInfo.m_byteOffset,
-                        req.m_indexBufferInfo.m_byteCount,
-                        req.m_indexBufferInfo.m_format);
+                        *iBuf->m_buffer,
+                        ib->m_info.m_byteOffset,
+                        ib->m_info.m_byteCount,
+                        ib->m_info.m_format);
                 }
                 else
                 {
-                    LOG_ERROR("[CompileDrawRequests] Index buffer entity {} not found or has no Components::Buffer.",
-                        static_cast<uint32_t>(req.m_indexBuffer));
+                    LOG_ERROR("[CompileDrawRequests] Index buffer entity {} unresolved.",
+                        static_cast<uint32_t>(ib->m_buffer));
                 }
             }
 
@@ -1352,11 +1383,6 @@ namespace
             item.m_viewports      = req.m_viewports;
             item.m_scissorsCount  = req.m_scissorsCount;
             item.m_scissors       = req.m_scissors;
-
-
-            // PSO (TBD): pass PSO is bound by executer at pass begin. Per-draw
-            // PSO variants from m_vertexShaderOverride / m_fragmentShaderOverride
-            // / m_renderStatesOverride will be resolved via PipelineLibrary.
 
             context.AddOrReplace<RHI::DrawItem>(h, eastl::move(item));
         });

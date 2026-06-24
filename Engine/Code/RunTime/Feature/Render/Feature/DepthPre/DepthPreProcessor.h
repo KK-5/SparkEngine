@@ -7,13 +7,12 @@ namespace Spark::Render
 {
     class PassContext;
 
-    //! Builds the DepthPrePass draw list each frame. Stateless across frames: it
-    //! emits transient DrawRequests for the entities renderable THIS frame (those
-    //! carrying an InstanceSlot from InstanceBindingSystem) and reaps the previous
-    //! frame's DrawRequests at the start of Process. The per-view (space0) and
-    //! per-instance (space1, g_Instances) bindings plus the per-instance ID vertex
-    //! stream are shared resources it only references — see InstanceBindingSystem
-    //! and TODO_InstanceBindingSystemPlan.md §6.
+    //! Builds the DepthPrePass draw list each frame. Stateless across frames:
+    //! emits one transient DrawRequest per live Drawable in RHIContext, and
+    //! reaps the previous frame's at Process start. The DrawRequest carries
+    //! only the Drawable handle plus per-pass injection (view binding,
+    //! viewport, scissor); geometry / instancing / instance binding flow
+    //! through the Drawable.
     class DepthPreProcessor final
     {
     public:

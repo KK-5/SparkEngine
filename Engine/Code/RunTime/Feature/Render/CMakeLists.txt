@@ -16,6 +16,7 @@ set(SOURCES
     Shader/ShaderBuilder.cpp
     View/ViewBindingSystem.cpp
     Instance/InstanceBindingSystem.cpp
+    Drawable/DrawableComposer.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

@@ -17,6 +17,7 @@
 #include "Feature/DepthPre/DepthPreProcessor.h"
 #include "View/ViewBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
+#include "Drawable/DrawableComposer.h"
 
 namespace Spark::Render
 {
@@ -60,6 +61,7 @@ namespace Spark::Render
         DepthPreProcessor m_depthPreProcessor;
         ViewBindingSystem m_viewBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
+        DrawableComposer m_drawableComposer;
 
         Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;

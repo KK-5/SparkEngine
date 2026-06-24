@@ -8,22 +8,17 @@
 
 namespace Spark::Render
 {
-    //! Per-instance frequency system. Owns ONE shared StructuredBuffer (g_Instances,
-    //! space1) plus the ShaderBindings entity that exposes its SRV, and a static
-    //! per-instance vertex-stream ID buffer ([0, 1, ..., Capacity-1]) that delivers
-    //! each draw's InstanceIndex through hardware instancing (PER_INSTANCE_DATA +
-    //! StartInstanceLocation; see TODO_InstanceBindingSystemPlan.md §2.5).
+    //! Owns the g_Instances StructuredBuffer (space1) + its ShaderBindings,
+    //! and the static per-instance ID vertex stream ([0..Capacity-1]) that
+    //! delivers InstanceIndex via PER_INSTANCE_DATA + StartInstanceLocation
+    //! (TODO_InstanceBindingSystemPlan.md §2.5).
     //!
-    //! Each frame Update() rebuilds the buffer from scratch: clear last frame's
-    //! InstanceSlot components, walk the renderable entities, scatter their transform
-    //! into g_Instances, and stamp a per-frame InstanceSlot back on each entity.
+    //! Each renderable gets a stable InstanceSlotRef.m_id; its current slot
+    //! is read through InstanceSlotTable on the bindings entity. See
+    //! InstanceSlot.h for the contract.
     //!
-    //! Contract (plan §11): InstanceSlot exists ⟺ entity is renderable THIS frame; the
-    //! index value is per-frame and MUST NOT be cached across frames by consumers.
-    //!
-    //! Not an ISystem: a plain helper owned by RenderSystem and driven from
-    //! RenderSystem::OnTick, sequenced after ViewBindingSystem and before the
-    //! Processors so g_Instances is ready before any draw references it.
+    //! Plain helper, not ISystem — owned by RenderSystem, ticked between
+    //! ViewBindingSystem and the Processors.
     class InstanceBindingSystem
     {
     public:
@@ -74,5 +69,10 @@ namespace Spark::Render
         // CPU-side source for the one-time ID-buffer upload. Must outlive the async
         // upload (PendingBufferUpload contract), so it lives for the system's lifetime.
         eastl::vector<uint32_t> m_idData;
+
+        // Stable id allocator (counter + recycled list). Consumers never see
+        // this — they read InstanceSlotTable.
+        uint32_t                m_nextFreshId = 0;
+        eastl::vector<uint32_t> m_freeIds;
     };
 }

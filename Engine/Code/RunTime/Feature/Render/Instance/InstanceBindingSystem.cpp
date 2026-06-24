@@ -93,6 +93,7 @@ namespace Spark::Render
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindingsEntity, RHI::Components::ShaderBindings{ instanceBindings });
         rhiCtx.Add<InstanceBindingTag>(m_bindingsEntity);
+        rhiCtx.Add<InstanceSlotTable>(m_bindingsEntity, InstanceSlotTable{});
 
         // g_Instances: host-visible (upload heap) StructuredBuffer, PER-FRAME (PerFrameTag
         // → N copies, one per frame-in-flight) so each frame writes its own copy without
@@ -192,45 +193,87 @@ namespace Spark::Render
 
         if (!BindFrameInstances(frameIndex))
         {
-            // Buffers not ready yet (warmup frame). Emit no slots — consumers naturally
-            // produce no draws this frame, which keeps the §11 contract intact.
             return;
         }
 
-        // Clear last frame's slots first: the values are per-frame (§11), so a stale
-        // slot left on a now-dead / non-renderable entity would be wrong. After this
-        // rebuild, InstanceSlot exists ⟺ renderable this frame.
-        world->Clear<InstanceSlot>();
-
-        uint32_t idx = 0;
-        world->GetView<Transform::WorldTransformMatrix, Mesh::MeshGPUComponent>(Exclude<DeadTag>)
-            .each([&](Entity e, const Transform::WorldTransformMatrix& m, const Mesh::MeshGPUComponent&)
+        auto* table = rhiCtx->TryGet<InstanceSlotTable>(m_bindingsEntity);
+        if (!table)
         {
-            if (idx >= Capacity)
-            {
-                LOG_ERROR("[InstanceBindingSystem] Capacity={} overflow; dropping surplus instances.", Capacity);
-                return;
-            }
+            LOG_ERROR("[InstanceBindingSystem] InstanceSlotTable missing on bindings entity.");
+            return;
+        }
 
-            m_instanceData[idx].m_model = m.m_worldMatrix;
-            world->Add<InstanceSlot>(e, InstanceSlot{ idx });
-            ++idx;
+        // Free dead ids; UINT32_MAX in the table signals cascade-reap downstream.
+        world->GetView<InstanceSlotRef, DeadTag>().each(
+            [&](Entity, const InstanceSlotRef& ref)
+        {
+            if (ref.m_id < table->m_slots.size())
+            {
+                table->m_slots[ref.m_id] = UINT32_MAX;
+            }
+            m_freeIds.push_back(ref.m_id);
         });
 
-        // Hand this frame's staged data to the host buffer. ProcessBufferMaps (in the
-        // upcoming OnFrameBegin, after buffer creation) does Map → memcpy → Unmap and
-        // removes the component, so we re-add it every frame. Only the written prefix is
-        // copied; elements [idx, Capacity) are stale but never indexed by any slot.
-        if (idx > 0)
+        // Allocate ids for newly renderable entities.
+        world->GetView<Transform::WorldTransformMatrix, Mesh::MeshGPUComponent>(
+                  Exclude<InstanceSlotRef, DeadTag>)
+            .each([&](Entity e, const Transform::WorldTransformMatrix&, const Mesh::MeshGPUComponent&)
+        {
+            uint32_t id;
+            if (!m_freeIds.empty())
+            {
+                id = m_freeIds.back();
+                m_freeIds.pop_back();
+            }
+            else
+            {
+                if (m_nextFreshId >= Capacity)
+                {
+                    LOG_ERROR("[InstanceBindingSystem] Capacity={} overflow; dropping new renderable.", Capacity);
+                    return;
+                }
+                id = m_nextFreshId++;
+            }
+            if (id >= table->m_slots.size())
+            {
+                table->m_slots.resize(id + 1, UINT32_MAX);
+            }
+            world->Add<InstanceSlotRef>(e, InstanceSlotRef{ id });
+        });
+
+        // Dense-order scatter. "slot == iteration index" keeps the layout
+        // aligned with WorldTransformMatrix storage so this scatter can later
+        // be replaced by one memcpy.
+        uint32_t slot = 0;
+        world->GetView<InstanceSlotRef, Transform::WorldTransformMatrix, Mesh::MeshGPUComponent>(
+                  Exclude<DeadTag>)
+            .each([&](Entity, const InstanceSlotRef& ref,
+                      const Transform::WorldTransformMatrix& m, const Mesh::MeshGPUComponent&)
+        {
+            m_instanceData[slot].m_model = m.m_worldMatrix;
+            table->m_slots[ref.m_id]     = slot;
+            ++slot;
+        });
+
+        if (slot > 0)
         {
             rhiCtx->AddOrReplace<RHI::PendingBufferMap>(
                 m_bufferEntity,
-                RHI::PendingBufferMap{ m_instanceData.data(), 0, static_cast<size_t>(idx) * sizeof(InstanceData) });
+                RHI::PendingBufferMap{ m_instanceData.data(), 0, static_cast<size_t>(slot) * sizeof(InstanceData) });
         }
     }
 
     void InstanceBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
+        // Refs and allocator must clear together — leftover refs would point
+        // into a fresh allocator after re-init.
+        if (auto* world = WorldExecuteContext::Current())
+        {
+            world->Clear<InstanceSlotRef>();
+        }
+        m_freeIds.clear();
+        m_nextFreshId = 0;
+
         if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
         if (m_bufferEntity   != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bufferEntity); }
         if (m_idBufferEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_idBufferEntity); }
