@@ -18,17 +18,21 @@ namespace Spark::Render
 {
     //! A per-pass-per-Drawable draw recipe. Stitches a persistent Drawable
     //! (which carries the per-object data: geometry, instance binding,
-    //! geometry/instancing args, slot ref) together with the Pass-side
-    //! injection (view binding, viewport/scissor, optional PSO override).
+    //! geometry/instancing args, slot ref) together with the externally
+    //! supplied bindings, viewport/scissor, and optional PSO override.
     //! CompileDrawRequests resolves it into a DrawItem each frame.
     struct DrawRequest
     {
         //! The Drawable this request draws. Required.
         RHI::RHIHandle m_drawable = RHI::NullHandle;
 
-        //! Per-pass space0 ShaderBindings entity. The Pass injects it each
-        //! frame; consumers never long-term cache this handle elsewhere.
-        RHI::RHIHandle m_viewBinding = RHI::NullHandle;
+        //! ShaderBindings entities supplied externally for this draw — view
+        //! (space0) is the typical occupant; scene constants / other context
+        //! can ride alongside. Each ShaderBindings self-describes its HLSL space
+        //! (GetSpaceId), so order here is irrelevant. Per-object bindings come
+        //! from the Drawable's m_instanceData instead. Injected each frame;
+        //! consumers never long-term cache these handles elsewhere.
+        eastl::fixed_vector<RHI::RHIHandle, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_shaderBindings;
 
         //! Per-pass viewport / scissor; the Processor fills them per Pass.
         uint8_t m_viewportsCount = 0;

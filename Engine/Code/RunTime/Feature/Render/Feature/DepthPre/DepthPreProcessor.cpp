@@ -79,8 +79,8 @@ namespace Spark::Render
             RHIHandle drawRequestEntity = rhiCtx->CreateEntity();
 
             DrawRequest req;
-            req.m_drawable    = drawable;
-            req.m_viewBinding = viewBindingEntity;
+            req.m_drawable = drawable;
+            req.m_shaderBindings.push_back(viewBindingEntity);
 
             req.m_viewports.resize(1);
             req.m_scissors.resize(1);

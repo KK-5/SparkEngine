@@ -1,6 +1,7 @@
 #include "RenderGraphCompiler.h"
 
 #include <EASTL/algorithm.h>
+#include <EASTL/bonus/overloaded.h>
 #include <EASTL/sort.h>
 #include <EASTL/unordered_map.h>
 
@@ -1306,32 +1307,65 @@ namespace
                 return;
             }
 
-            // Resolve StartInstanceLocation through m_slotRef + the global
-            // InstanceSlotTable. Sentinel (UINT32_MAX) means the entity is
-            // being torn down — skip the draw this frame.
-            const auto* slotTable = d->m_instanceBinding != NullHandle
-                ? context.TryGet<InstanceSlotTable>(d->m_instanceBinding)
-                : nullptr;
-            if (!slotTable || d->m_slotRef.m_id >= slotTable->m_slots.size())
-            {
-                return;
-            }
-            const uint32_t slotValue = slotTable->m_slots[d->m_slotRef.m_id];
-            if (slotValue == UINT32_MAX)
+            // Per-object data provisioning. Each strategy resolves
+            // StartInstanceLocation, the per-object SRG (space1), and any extra
+            // per-instance vertex stream it needs. For the indexed strategy a
+            // sentinel slot (UINT32_MAX) means the entity is being torn down —
+            // skip the draw this frame.
+            uint32_t                startInstance  = 0;
+            RHIHandle               objectBindings = NullHandle;
+            const VertexStreamSpec* idStream       = nullptr;
+            bool                    skip           = false;
+
+            eastl::visit(eastl::overloaded{
+                [&](const SlotInstanceBinding& s)
+                {
+                    const auto* slotTable = s.m_sharedBindings != NullHandle
+                        ? context.TryGet<InstanceSlotTable>(s.m_sharedBindings)
+                        : nullptr;
+                    if (!slotTable || s.m_slotRef.m_id >= slotTable->m_slots.size())
+                    {
+                        skip = true;
+                        return;
+                    }
+                    const uint32_t slotValue = slotTable->m_slots[s.m_slotRef.m_id];
+                    if (slotValue == UINT32_MAX)
+                    {
+                        skip = true;
+                        return;
+                    }
+                    startInstance  = slotValue;
+                    objectBindings = s.m_sharedBindings;
+                    idStream       = &s.m_idStream;
+                },
+                [&](const DirectInstanceBinding& direct)
+                {
+                    startInstance  = 0;
+                    objectBindings = direct.m_bindings;
+                },
+            }, d->m_instanceData);
+
+            if (skip)
             {
                 return;
             }
 
             RHI::DrawItem item;
             item.m_drawArguments    = d->m_drawArgs;
-            item.m_drawInstanceArgs = RHI::DrawInstanceArguments(d->m_instanceCount, slotValue);
+            item.m_drawInstanceArgs = RHI::DrawInstanceArguments(d->m_instanceCount, startInstance);
             item.m_stencilRef       = req.m_stencilRef;
 
-            // ShaderBindings: Pass injects view (space0); Drawable supplies the
-            // global instance binding (space1).
-            if (req.m_viewBinding != NullHandle)
+            // ShaderBindings: the request supplies externally-injected bindings
+            // (view space0, optional scene, …); the Drawable's provisioning
+            // strategy supplies the per-object binding (space1). Each SRG
+            // self-describes its space, so push order is irrelevant.
+            for (const RHIHandle bindingEntity : req.m_shaderBindings)
             {
-                if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(req.m_viewBinding))
+                if (bindingEntity == NullHandle)
+                {
+                    continue;
+                }
+                if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(bindingEntity))
                 {
                     if (sb->m_bindings)
                     {
@@ -1339,29 +1373,42 @@ namespace
                     }
                 }
             }
-            if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(d->m_instanceBinding))
+            if (objectBindings != NullHandle)
             {
-                if (sb->m_bindings)
+                if (auto* sb = context.TryGet<RHI::Components::ShaderBindings>(objectBindings))
                 {
-                    item.m_shaderBindings.push_back(sb->m_bindings.get());
+                    if (sb->m_bindings)
+                    {
+                        item.m_shaderBindings.push_back(sb->m_bindings.get());
+                    }
                 }
             }
             item.m_shaderBindingsCount = static_cast<uint8_t>(item.m_shaderBindings.size());
 
             // Vertex streams: every entry sets its declared slot via
             // SetVertexInputView (VertexBufferView validates 0..N-1 contiguous).
-            for (const auto& s : d->m_streams)
+            // Geometry streams come from the Drawable; the indexed strategy adds
+            // its per-instance ID stream on top.
+            auto setStream = [&](const VertexStreamSpec& s)
             {
                 auto* buf = context.TryGet<RHI::Components::Buffer>(s.m_buffer);
                 if (!buf || !buf->m_buffer)
                 {
                     LOG_ERROR("[CompileDrawRequests] Vertex stream slot {} buffer entity {} unresolved.",
                         s.m_inputSlot, static_cast<uint32_t>(s.m_buffer));
-                    continue;
+                    return;
                 }
                 item.m_vertexBufferView.SetVertexInputView(
                     s.m_inputSlot,
                     RHI::VertexInputView(*buf->m_buffer, s.m_byteOffset, s.m_byteCount, s.m_byteStride));
+            };
+            for (const auto& s : d->m_streams)
+            {
+                setStream(s);
+            }
+            if (idStream != nullptr)
+            {
+                setStream(*idStream);
             }
 
             if (d->m_indexBuffer != NullHandle)

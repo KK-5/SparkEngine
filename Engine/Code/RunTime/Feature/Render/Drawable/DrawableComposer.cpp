@@ -1,5 +1,7 @@
 #include "DrawableComposer.h"
 
+#include <EASTL/bonus/overloaded.h>
+
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
 
@@ -32,16 +34,31 @@ namespace Spark::Render
             {
                 return true;
             }
-            if (d.m_instanceBinding != RHI::NullHandle && ctx.Has<DeadTag>(d.m_instanceBinding))
-            {
-                return true;
-            }
-            if (d.m_slotRef.m_id >= table.m_slots.size() ||
-                table.m_slots[d.m_slotRef.m_id] == UINT32_MAX)
-            {
-                return true;
-            }
-            return false;
+
+            // Per-object data provisioning: each strategy reaps on its own deps.
+            return eastl::visit(eastl::overloaded{
+                [&](const SlotInstanceBinding& s) -> bool
+                {
+                    if (s.m_sharedBindings != RHI::NullHandle && ctx.Has<DeadTag>(s.m_sharedBindings))
+                    {
+                        return true;
+                    }
+                    if (s.m_idStream.m_buffer != RHI::NullHandle && ctx.Has<DeadTag>(s.m_idStream.m_buffer))
+                    {
+                        return true;
+                    }
+                    if (s.m_slotRef.m_id >= table.m_slots.size() ||
+                        table.m_slots[s.m_slotRef.m_id] == UINT32_MAX)
+                    {
+                        return true;
+                    }
+                    return false;
+                },
+                [&](const DirectInstanceBinding& d2) -> bool
+                {
+                    return d2.m_bindings != RHI::NullHandle && ctx.Has<DeadTag>(d2.m_bindings);
+                },
+            }, d.m_instanceData);
         }
 
         Drawable ComposePersistent(
@@ -54,8 +71,6 @@ namespace Spark::Render
             Drawable d;
             d.m_streams.push_back(VertexStreamSpec{
                 gpu.m_vertexBuffer, /*slot*/ 0, 0, gpu.m_vertexByteCount, gpu.m_vertexByteStride });
-            d.m_streams.push_back(VertexStreamSpec{
-                idBufferEntity, /*slot*/ 1, 0, idBufferBytes, sizeof(uint32_t) });
 
             if (gpu.m_indexBindings != RHI::NullHandle)
             {
@@ -71,9 +86,17 @@ namespace Spark::Render
                 d.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(0, vertexCount));
             }
 
-            d.m_instanceBinding = instanceBindingEntity;
-            d.m_slotRef         = slotRef;
-            d.m_instanceCount   = 1;
+            d.m_instanceCount = 1;
+
+            // Indexed provisioning: shared g_Instances SRG + slot + identity ID
+            // stream at slot 1 (per-instance, fed by StartInstanceLocation).
+            SlotInstanceBinding slot;
+            slot.m_sharedBindings = instanceBindingEntity;
+            slot.m_slotRef        = slotRef;
+            slot.m_idStream       = VertexStreamSpec{
+                idBufferEntity, /*slot*/ 1, 0, idBufferBytes, sizeof(uint32_t) };
+            d.m_instanceData = slot;
+
             return d;
         }
     }
