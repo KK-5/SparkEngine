@@ -1,7 +1,5 @@
 #include "DepthPreProcessor.h"
 
-#include <EASTL/vector.h>
-
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
 
@@ -16,29 +14,33 @@
 
 #include <Drawable/Drawable.h>
 #include <Request/DrawRequest.h>
+#include <Request/DrawRequestAssemble.h>
 #include <Resource/Shader/ShaderAsset.h>
 
 #include <View/ViewTags.h>
 
 namespace Spark::Render
 {
-    void DepthPreProcessor::Shutdown(PassContext& /*passCtx*/)
+    void DepthPreProcessor::Shutdown()
     {
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
         if (!rhiCtx)
         {
             return;
         }
-        eastl::vector<RHIHandle> stale;
-        rhiCtx->GetView<DrawRequest, SPARK_PASS_TAG("DepthPrePass")>().each(
-            [&](RHIHandle entity, const DrawRequest&) { stale.push_back(entity); });
-        for (RHIHandle entity : stale)
+
+        // Mark this Pass's DrawRequests for reap. Drawables themselves are
+        // reaped by DrawableComposer::Shutdown (called next), and the PassTag
+        // marker on Drawable entities goes with them when the entity is
+        // destroyed — no need to strip it here.
+        rhiCtx->GetView<SPARK_PASS_TAG("DepthPrePass"), DrawRequest>(Exclude<DeadTag>)
+            .each([&](RHIHandle request, const DrawRequest&)
         {
-            rhiCtx->DestoryEntity(entity);
-        }
+            rhiCtx->Add<DeadTag>(request);
+        });
     }
 
-    void DepthPreProcessor::Init(PassContext& /*passCtx*/, RHI::RHIContext& /*rhiCtx*/)
+    void DepthPreProcessor::Init()
     {
     }
 
@@ -51,18 +53,6 @@ namespace Spark::Render
             return;
         }
 
-        // Reap last frame's DrawRequests (their DrawItems were consumed already).
-        {
-            eastl::vector<RHIHandle> stale;
-            rhiCtx->GetView<DrawRequest, SPARK_PASS_TAG("DepthPrePass")>().each(
-                [&](RHIHandle entity, const DrawRequest&) { stale.push_back(entity); });
-            for (RHIHandle entity : stale)
-            {
-                rhiCtx->DestoryEntity(entity);
-            }
-        }
-
-        // Per-pass view binding (space0). Fresh lookup, never long-term cached.
         RHIHandle viewBindingEntity = RHI::NullHandle;
         rhiCtx->GetView<MainViewTag, RHI::Components::ShaderBindings>().each(
             [&](RHIHandle e, const RHI::Components::ShaderBindings&) { viewBindingEntity = e; });
@@ -71,27 +61,23 @@ namespace Spark::Render
             return;
         }
 
-        // One DrawRequest per Drawable. Each request is just (Drawable handle,
-        // Pass injection) — geometry/instance/binding flow through Drawable.
-        rhiCtx->GetView<DrawableTag>(Exclude<DeadTag>).each(
-            [&](RHIHandle drawable)
-        {
-            RHIHandle drawRequestEntity = rhiCtx->CreateEntity();
 
-            DrawRequest req;
-            req.m_drawable = drawable;
+        AssembleDrawRequests<SPARK_PASS_TAG("DepthPrePass")>();
+
+        rhiCtx->GetView<SPARK_PASS_TAG("DepthPrePass"), DrawRequest>(Exclude<DeadTag>)
+            .each([&](RHIHandle, DrawRequest& req)
+        {
+            req.m_shaderBindings.clear();
             req.m_shaderBindings.push_back(viewBindingEntity);
 
             req.m_viewports.resize(1);
-            req.m_scissors.resize(1);
-            req.m_viewportsCount = 1;
             req.m_viewports[0]   = RHI::Viewport{
                 0, static_cast<float>(renderSize.x), 0, static_cast<float>(renderSize.y) };
-            req.m_scissorsCount  = 1;
-            req.m_scissors[0]    = RHI::Scissor{ 0, 0, renderSize.x, renderSize.y };
+            req.m_viewportsCount = 1;
 
-            rhiCtx->Add<DrawRequest>(drawRequestEntity, eastl::move(req));
-            rhiCtx->Add<SPARK_PASS_TAG("DepthPrePass")>(drawRequestEntity);
+            req.m_scissors.resize(1);
+            req.m_scissors[0]    = RHI::Scissor{ 0, 0, renderSize.x, renderSize.y };
+            req.m_scissorsCount  = 1;
         });
     }
 }
