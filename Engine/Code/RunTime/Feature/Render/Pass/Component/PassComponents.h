@@ -126,23 +126,6 @@ namespace Spark::Render
         Ptr<RHI::PipelineLayoutDescriptor> m_layout;
     };
 
-    //! Pass-attached ShaderBindings list. Executer binds these in attach order
-    //! at pass begin. Maintained by Render::AttachShaderBindings:
-    //!  - One entry per (pass, spaceId); re-attach overwrites the existing entry's
-    //!    Ptr (last attach wins).
-    //!  - Entries with nullptr Ptr are skipped at bind time (the "detached" case).
-    //!  - max_size() == ShaderInputGroupCountMax (matches PipelineLayoutDescriptor's
-    //!    per-pass space cap).
-    struct PassShaderBindings
-    {
-        struct Entry
-        {
-            uint32_t                 m_spaceId  = 0;
-            Ptr<RHI::ShaderBindings> m_bindings;
-        };
-        eastl::fixed_vector<Entry, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_entries;
-    };
-
     //! Compiled PSO cache. Written by PSO compiler, read by executer.
     struct PassCompiledPSO
     {

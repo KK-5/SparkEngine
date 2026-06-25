@@ -269,33 +269,6 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphExecuter::ExecutePassShaderBindings(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
-    {
-        auto* attached = passContext.TryGet<PassShaderBindings>(pass);
-        if (!attached)
-        {
-            return;
-        }
-
-        const bool isCompute = passContext.Has<ComputePassTag>(pass);
-
-        for (const auto& entry : attached->m_entries)
-        {
-            if (!entry.m_bindings)
-            {
-                continue;
-            }
-            if (isCompute)
-            {
-                commandList->BindShaderInputsForDispatch(*entry.m_bindings);
-            }
-            else
-            {
-                commandList->BindShaderInputsForDraw(*entry.m_bindings);
-            }
-        }
-    }
-
     void RenderGraphExecuter::Execute(ExecuteWork& work, RHI::Factory& factory, RHI::Device& device, RHI::HardwareQueueClass queueClass, PassContext& passContext)
     {
         RHI::CommandList* cmdList = factory.CreateCommandList(device, queueClass);
@@ -307,7 +280,6 @@ namespace Spark::Render
             if (item.m_itemIndex == 0)
             {
                 ExecuteBindPSO(cmdList, item.m_pass, passContext);
-                ExecutePassShaderBindings(cmdList, item.m_pass, passContext);
                 ExecutePassViewportState(cmdList, item.m_pass, passContext);
                 ExecutePreBarriers(cmdList, item.m_pass, passContext);
                 ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);

@@ -116,38 +116,6 @@ namespace Spark::Render
         }
     }
 
-    //! Attach ShaderBindings to a pass so the executer auto-binds it at pass begin.
-    //! Semantics:
-    //!   - One entry per (pass, spaceId). Re-attaching the same spaceId overwrites
-    //!     the previous Ptr — last attach wins, no per-frame clearing.
-    //!   - Detach = pass nullptr; the spaceId entry is kept (preserves attach
-    //!     order for the remaining slots) but skipped at bind time.
-    //!   - Bind order is attach order. Caller controls ordering if it matters.
-    template<typename PassTagT>
-    void AttachShaderBindings(
-        PassContext& passCtx, uint32_t spaceId, Ptr<RHI::ShaderBindings> bindings)
-    {
-        Pass pass = FindPass<PassTagT>(passCtx);
-
-        auto& comp = passCtx.Has<PassShaderBindings>(pass)
-            ? passCtx.Get<PassShaderBindings>(pass)
-            : passCtx.Add<PassShaderBindings>(pass, PassShaderBindings{});
-
-        for (auto& e : comp.m_entries)
-        {
-            if (e.m_spaceId == spaceId)
-            {
-                e.m_bindings = eastl::move(bindings);
-                return;
-            }
-        }
-        ASSERT(comp.m_entries.size() < comp.m_entries.max_size(),
-            "AttachShaderBindings: exceeded ShaderInputGroupCountMax ({}).",
-            static_cast<uint32_t>(comp.m_entries.max_size()));
-        comp.m_entries.push_back(PassShaderBindings::Entry{ spaceId, eastl::move(bindings) });
-    }
-
-
     //! Resolve a declared image attachment to its backing RHI::Image via the
     //! pass→resource edge (the ImagePassAttachment entity tagged with PassTag).
     //! Reads attachment.m_image (the resource entity) → BackingImage directly —

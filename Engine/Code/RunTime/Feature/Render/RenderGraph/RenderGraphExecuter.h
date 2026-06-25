@@ -93,12 +93,6 @@ namespace Spark::Render
 
         void ExecutePassViewportState(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
-        //! Iterates the pass's PassShaderBindings component (populated via
-        //! Render::AttachShaderBindings) in attach order and dispatches
-        //! CommandList::BindShaderInputsForDraw / BindShaderInputsForDispatch
-        //! on each non-null entry. Skips entries detached by attaching nullptr.
-        void ExecutePassShaderBindings(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
-
         void ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
         void ExecutePostBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);

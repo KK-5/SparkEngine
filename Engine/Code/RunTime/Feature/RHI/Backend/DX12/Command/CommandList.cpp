@@ -521,18 +521,19 @@ namespace Spark::RHI::DX12
                 ASSERT(false, "Invalid draw type {}", static_cast<uint32_t>(drawItem.m_drawArguments.m_type));
                 break;
             }
+        }
 
-            // Restore the scissors if needed.
-            if (scissorState.IsValid())
-            {
-                SetScissors(scissorState.m_states.data(), scissorState.m_states.size());
-            }
-
-            // Restore the viewports if needed.
-            if (viewportState.IsValid())
-            {
-                SetViewports(viewportState.m_states.data(), viewportState.m_states.size());
-            }
+        // Restore prev viewport/scissor so a per-draw override is local to
+        // this Submit — subsequent count==0 draws inherit pass-default rather
+        // than this draw's override. Set() marks m_state dirty; the next
+        // draw's CommitXxxState() issues the GPU call before its draw.
+        if (scissorState.IsValid())
+        {
+            SetScissors(scissorState.m_states.data(), scissorState.m_states.size());
+        }
+        if (viewportState.IsValid())
+        {
+            SetViewports(viewportState.m_states.data(), viewportState.m_states.size());
         }
     }
 
