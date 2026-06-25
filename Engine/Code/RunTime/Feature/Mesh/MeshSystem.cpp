@@ -7,7 +7,11 @@
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
+#include <RHI/ResourceBuilder.h>
+#include <Pass/Component/RHIComponents.h>
 #include <Resource/Model/ModelAsset.h>
+
+#include <EASTL/string.h>
 
 namespace Spark::Mesh
 {
@@ -99,43 +103,47 @@ namespace Spark::Mesh
             return;
         }
 
-        // Create vertex buffer RHI entity
-        RHI::RHIHandle vbEntity = rhiCtx->CreateEntity();
-        {
-            RHI::BufferDescriptor desc;
-            desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
-            desc.m_byteCount = prim.vertexBuffer.size();
+        // Unique suffix so per-entity ResourceNames don't collide as AttachmentIds.
+        const eastl::string idSuffix = eastl::to_string(static_cast<uint32_t>(entity));
 
-            RHI::PendingBufferInit init;
-            init.m_descriptor = desc;
-            rhiCtx->Add<RHI::PendingBufferInit>(vbEntity, init);
+        // Vertex buffer: static-import + InputAssembly/VertexInput attachment so the
+        // render graph's static-barrier compile emits the upload→VB barrier (and the
+        // copy→graphics fence). Without the attachment the graphics queue races the
+        // async upload.
+        RHI::BufferDescriptor vbDesc;
+        vbDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
+        vbDesc.m_byteCount       = prim.vertexBuffer.size();
+        vbDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
-            RHI::PendingBufferUpload upload;
-            upload.m_data = prim.vertexBuffer.data();
-            upload.m_dataSize = prim.vertexBuffer.size();
-            rhiCtx->Add<RHI::PendingBufferUpload>(vbEntity, upload);
-            rhiCtx->Add<RHI::UploadPendingTag>(vbEntity);
-        }
+        const eastl::string vbName = eastl::string("MeshVB_") + idSuffix;
+        RHI::RHIHandle vbEntity = RHI::CreateStaticBuffer(*rhiCtx, ObjectName(vbName), vbDesc);
+        RHI::RequestBufferUpload(
+            *rhiCtx, vbEntity, prim.vertexBuffer.data(), prim.vertexBuffer.size());
+        Render::CreateStaticBufferAttachment(*rhiCtx, vbEntity,
+            RHI::InputName(vbName),
+            RHI::AttachmentAccess::Read,
+            RHI::AttachmentUsage::InputAssembly,
+            RHI::AttachmentStage::VertexInput);
 
-        // Create index buffer RHI entity
+        // Index buffer: same static-import + InputAssembly path (VertexInput stage
+        // covers both vertex fetch and index fetch).
         RHI::RHIHandle ibEntity = RHI::NullHandle;
         if (!prim.indexBuffer.empty())
         {
-            ibEntity = rhiCtx->CreateEntity();
+            RHI::BufferDescriptor ibDesc;
+            ibDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
+            ibDesc.m_byteCount       = prim.indexBuffer.size();
+            ibDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
-            RHI::BufferDescriptor desc;
-            desc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
-            desc.m_byteCount = prim.indexBuffer.size();
-
-            RHI::PendingBufferInit init;
-            init.m_descriptor = desc;
-            rhiCtx->Add<RHI::PendingBufferInit>(ibEntity, init);
-
-            RHI::PendingBufferUpload upload;
-            upload.m_data = prim.indexBuffer.data();
-            upload.m_dataSize = prim.indexBuffer.size();
-            rhiCtx->Add<RHI::PendingBufferUpload>(ibEntity, upload);
-            rhiCtx->Add<RHI::UploadPendingTag>(ibEntity);
+            const eastl::string ibName = eastl::string("MeshIB_") + idSuffix;
+            ibEntity = RHI::CreateStaticBuffer(*rhiCtx, ObjectName(ibName), ibDesc);
+            RHI::RequestBufferUpload(
+                *rhiCtx, ibEntity, prim.indexBuffer.data(), prim.indexBuffer.size());
+            Render::CreateStaticBufferAttachment(*rhiCtx, ibEntity,
+                RHI::InputName(ibName),
+                RHI::AttachmentAccess::Read,
+                RHI::AttachmentUsage::InputAssembly,
+                RHI::AttachmentStage::VertexInput);
         }
 
         // Build InputStreamLayout from VertexLayout
