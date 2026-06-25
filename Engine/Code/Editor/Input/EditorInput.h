@@ -49,6 +49,8 @@ namespace Editor
         bool m_keyA = false;
         bool m_keyS = false;
         bool m_keyD = false;
+        bool m_keyQ = false;
+        bool m_keyE = false;
 
         bool m_mouseLeftHeld  = false;
         float m_lastMouseX = 0.f;

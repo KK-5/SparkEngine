@@ -89,7 +89,7 @@ namespace Editor
         }
 
         transform->m_rotation.y += dx * m_rotateSpeed;
-        transform->m_rotation.x -= dy * m_rotateSpeed;
+        transform->m_rotation.x += dy * m_rotateSpeed;
 
         const float pitchLimit = 89.f;
         transform->m_rotation.x = Math::Clamp(transform->m_rotation.x, -pitchLimit, pitchLimit);
@@ -104,6 +104,8 @@ namespace Editor
         case Key::AlphanumericA: m_keyA = pressed; break;
         case Key::AlphanumericS: m_keyS = pressed; break;
         case Key::AlphanumericD: m_keyD = pressed; break;
+        case Key::AlphanumericQ: m_keyQ = pressed; break;
+        case Key::AlphanumericE: m_keyE = pressed; break;
         default: break;
         }
     }
@@ -115,7 +117,7 @@ namespace Editor
             return;
         }
 
-        if (!m_keyW && !m_keyA && !m_keyS && !m_keyD)
+        if (!m_keyW && !m_keyA && !m_keyS && !m_keyD && !m_keyQ && !m_keyE)
         {
             return;
         }
@@ -131,12 +133,15 @@ namespace Editor
 
         Math::Vector3 forward(std::sin(yawRad), 0.f, std::cos(yawRad));
         Math::Vector3 right(std::cos(yawRad), 0.f, -std::sin(yawRad));
+        Math::Vector3 up(0.f, 1.f, 0.f);
 
         Math::Vector3 movement(0.f);
         if (m_keyW) { movement += forward; }
         if (m_keyS) { movement -= forward; }
         if (m_keyD) { movement += right; }
         if (m_keyA) { movement -= right; }
+        if (m_keyQ) { movement += up; }
+        if (m_keyE) { movement -= up; }
 
         if (Math::Length(movement) > 0.f)
         {
