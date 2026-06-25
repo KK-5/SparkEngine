@@ -17,13 +17,18 @@
 
 2. **bake(equirect→cubemap)概念上属于资产处理(cook)阶段,不属于 per-frame 渲染管线。**
    - 标准出货形态:HDRI 在离线/导入时 bake 一次 → 序列化 cubemap → 运行时**只 load cubemap**,游戏循环里没有 equirect→cubemap 这一步。
-   - 「需要 GPU」≠「是帧管线的一个 Pass」。bake 是一次性 GPU job,参照 `AsyncUploadSystem` 的形态(自带 command recorder + 队列 + fence,游离于 per-frame RenderGraph 之外)。
-   - **不**实现成"run-once 渲染图 Pass + `m_baked` 标志"——那是把一次性 cook job 塞进帧管线,概念污染,已否决。
+   - 「需要 GPU」≠「是帧管线的一个 Pass」。bake 是 GPU job,参照 `AsyncUploadSystem` 的形态(自带 command recorder + 队列 + fence,游离于 per-frame RenderGraph 之外)。但**「不是 Pass」≠「不用协调」**——协调模型见 §0.4。
+   - **不**实现成"run-once 渲染图 Pass + `m_baked` 标志"——那是把 cook job 塞进帧管线,概念污染,已否决。
 
 3. **触发点分阶段推进,GPU bake 代码同一份。**
    三种触发点(离线 cooker / 编辑器导入时 / 运行时 load 时)只是"何时跑 + 结果是否落盘"的区别,共用同一份 GPU bake 代码。
-   - **先做运行时 load-time bake**(无磁盘缓存,启动即 bake),把天空盒正确渲出来。这不是图省事,是同一份 bake 代码的最早触发点。
+   - **先做运行时按需 bake**(无磁盘缓存)。资产何时被引擎识别**不可控**——HDRI 可能运行到一半才加载,**没有"启动期"窗口可阻塞**。所以触发是"观察到 equirect 上传完成、对应 cube 尚未烘焙 → 发一次 bake",**不是"启动即 bake"**。这是同一份 bake 代码的最早触发点,不是图省事。
    - **再 promote 成 cook 阶段**(编辑器导入 bake → 落盘 → 运行时有缓存就直接 load cooked cubemap)。这是 M5,先不做。
+
+4. **bake 用 GPU,但必须和渲染系统在 GPU 原语层面协调。**
+   - bake 走 **graphics 队列**的独立提交(render-to-texture 6 个 face),不进 per-frame RenderGraph;但它和帧共享 device / 同一条队列时间线,产物要跨帧交给 SkyboxPass 采样,因此协调不可免。
+   - 协调四要素:① 共享 device / graphics 队列;② 生产者→消费者 fence + 资源状态转换 barrier;③ cube 是 **imported 持久资源**(不进 transient 分配器,跨帧存活);④ 独立 command recorder。全部复用 `AsyncUploadSystem` 现成契约(release barrier 生产者侧发,acquire barrier + fence wait 由 `RenderGraphExecuter` 在首次使用时补)。
+   - **CPU cook 路线已评估并否决**:CPU 只在离线 HDRI 工具(cmft / CubeMapGen / cmgen)里算标准;实时引擎(本引擎对标的 O3DE/Atom、UE、Unity 导入)走 GPU,且 GPU 设施可与未来 IBL 预过滤复用。CPU 的优势只是当前落地风险低、方向约定可单测,**不是正统**。
 
 ---
 
@@ -34,7 +39,7 @@ Table_Defringed_4k2k.hdr  (equirect, RGBAF32)
    │  ① 资产加载/上传 (M1)
    ▼
 2D 纹理 (equirect, GPU)
-   │  ② EnvironmentBaker:一次性 GPU job,渲染进 6 个 face (M3)
+   │  ② EnvironmentBaker:按需 GPU bake job(equirect 上传完成后触发),渲染进 6 个 face (M3)
    ▼
 Cubemap 纹理 (GPU, 持久, bake 一次)
    │  ③ SkyboxPass:全屏三角形,按视线方向采样 TextureCube (M2)
@@ -62,13 +67,15 @@ SceneColor → CopyFrameBufferPass → swapchain
 
 **缺口 / 待核对**(实现到对应 M 时逐个压):
 
-- ⚠ `ImageAssetCompiler::MapToRHIFormat` 对 `RGBAF32 + compression=None + colorSpace=Linear` 是否正确产出 `R32G32B32A32_FLOAT`、是否会误走 BC 路径。(M1)
-- ⚠ 4096×2048×16B ≈ **128MB 单 subresource 上传**是否超 `AsyncUploadSystem` staging 容量(`m_stagingSizeInBytes`);超了要加大 staging 或支持单 subresource 分块。(M1)
-- ❓ DX12 后端 **cube SRV**(`CreateCubemap` view → `TextureCube`)是否真实现,还是只有抽象层声明。(M2)
-- ❓ DX12 `ImagePool` 创建 `arraySize=6 / m_isCubemap` image 是否 OK。(M2)
-- ❓ 空 input layout + `DrawLinear(3)` 的 PSO/DrawItem 编译路径是否支持(现有只跑过有顶点流的 indexed draw)。(M2)
-- ❓ DX12 后端**单 array-slice / face 的 RTV**(`CreateCubemapFace` 作为 render target)是否实现——最可能要补的地方。(M3)
-- ❓ 一次性离屏 render-to-texture 的承载:`EnvironmentBaker` 用独立 command recorder + graphics 队列离屏渲染 6 个 face,不走 per-frame RenderGraph。需要确认离屏 RTV + barrier + fence 能在帧管线之外独立成立。(M3)
+已核对(2026-06,基于当前代码):
+
+- ✓ `MapToRHIFormat`:`None + RGBAF32` 正确产出 `R32G32B32A32_FLOAT`([ImageAssetCompiler.cpp:447-448]);BC6H/BC7 在 `ResolveCompression` 直接 fallback None,不会误走 BC。(M1)
+- ⚠ **真实缺口**:`AsyncUploadSystem` 默认 staging 仅 **16MB**([AsyncUploadSystem.h:30]),而 128MB 单 subresource **不会按行拆分**——分块逻辑只在 subresource 之间切包([AsyncUploadSystem.cpp:628]),单 subresource > staging 会 memcpy 溢出。修法:快路把 staging 调到 ≥144MB;正路加 subresource 内按行段分块(推到 M4)。(M1)
+- ✓ DX12 **cube SRV** 已实现:`m_isCubemap` 走 `TEXTURECUBE`/`TEXTURECUBEARRAY`([Conversions.cpp:734-751])。(M2)
+- ✓ DX12 `ImagePool` 建 `arraySize=6` image 透明支持(cubemap-ness 全在 descriptor,后端不特判,[ImagePool.cpp:60-112])。(M2)
+- ❓ **唯一未验证项**:空 input layout + `DrawLinear(3)` 的 PSO/DrawItem 编译路径(现有只跑过有顶点流的 indexed draw;DrawItem 能否表达"非索引、3 顶点、无 VB"待验)。M2/M3 全屏 draw 都依赖它,开工第一步先做最小验证。(M2/M3)
+- ✓ DX12 **单 face RTV 已现成**(此前判断错误,**非"最可能要补"**):RTV 对 `bIsArray` 走 `Texture2DArray`,`CreateCubemapFace(f)` 设 `arraySliceMin=max=f` → `FirstArraySlice=f, ArraySize=1`,正是单 face RTV([Conversions.cpp:880-895] + [ImageViewDescriptor.cpp:88-90])。(M3)
+- ✓ 离屏 render-to-texture 在帧管线之外的承载有现成先例:`AsyncUploadSystem` 即同形态 job(独立 recorder + 队列 + fence,release/acquire barrier 契约,[AsyncUploadSystem.cpp:663-668])。(M3)
 
 ---
 
@@ -94,21 +101,24 @@ SceneColor → CopyFrameBufferPass → swapchain
 - Shader `Engine/Asset/Shaders/Skybox/Skybox.hlsl`:空 input layout、全屏三角形 VS(`SV_VertexID`,深度=远平面)、PS 用 `inverse(viewProj)` 重建视线方向 → `TextureCube.Sample(dir)` → tonemap 写 SceneColor。space0 放 `cbuffer{ float4x4 g_InvViewProj; }` + `TextureCube g_SkyCube` + `SamplerState g_SkySampler`。
 - 新建 `Feature/Skybox/SkyboxProcessor.{h,cpp}`(plain helper,仿 DepthPreProcessor):持占位 cubemap entity + pass ShaderBindings + 全屏 Drawable/DrawRequest;每帧从 `Camera::CameraViewMatrix` 取矩阵算逆 VP、绑 cube view + sampler、刷 viewport/scissor。
 - 插进 `RenderSystem`:`SetUpDefaultPipeline` 在 DepthPre 之后调 `SkyboxPass::SetUp` + `m_skyboxProcessor.Init()`;`OnTick` depthPre 之后 `Process(renderSize)`;`ShutdownInternal` `Shutdown()`。
-- 压缺口:cube SRV、cubemap image 创建、空 input layout + DrawLinear。
+- 压缺口:空 input layout + `DrawLinear(3)`(**唯一未验证项**,见 §2);cube SRV 与 cubemap image 创建已确认现成。
 - **验收**:相机转动,屏幕背景显示 6 面占位色天空盒,方向正确(左右上下对得上)。
 
 状态:⬜ 未开始
 
 ---
 
-### M3 — EnvironmentBaker:equirect → cubemap(一次性 GPU job)
-**目标**:用 M1 的 equirect 2D 纹理,GPU 渲染进 M2 的 cubemap 6 个面,bake 一次,接上真实资产。
+### M3 — EnvironmentBaker:equirect → cubemap(按需 GPU bake job)
+**目标**:用 M1 的 equirect 2D 纹理,GPU 渲染进 M2 的 cubemap 6 个面,烘一次,接上真实资产。
 
-- 新建 `EnvironmentBaker`:**独立一次性 GPU job**(自带 command recorder + graphics 队列 + fence,**不进 per-frame RenderGraph**,形态参照 `AsyncUploadSystem`)。load 时触发一次。
-- 6 次 fullscreen draw,每次把一个 face 当 RTV(`CreateCubemapFace`),PS 按该 face 的方向基重建世界方向 → equirect uv(`atan2/asin`)→ 采样 equirect → 写入对应 face。
-- 产出**持久** cubemap 资源,交给 SkyboxPass 采样;M2 的占位 cube 退役。
-- 压缺口:单 face RTV、离屏 render-to-texture 在帧管线之外独立成立。
-- **验收**:天空盒从占位色变成真实 HDR 天空,接缝/方向正确。
+- 新建 `EnvironmentBaker`:graphics 队列上的**独立 GPU job**(自带 command recorder + fence,**不进 per-frame RenderGraph**,形态参照 `AsyncUploadSystem`)。
+- **触发按需,不是启动期**(详见 §0.3):资产识别时机不可控,HDRI 可能运行到一半才加载,没有可阻塞的启动窗口。模型——观察到"equirect 上传完成 + 对应 cube 尚未烘焙" → 发一次 bake;一个资产烘一次,热重载让 cube 退回"未请求"重走。
+- **两级 GPU 生产者依赖链**:资产加载(CPU) → equirect 上传(AsyncUpload, fenceA) → bake(等 fenceA,产出 fenceB) → SkyboxPass 首次采样(等 fenceB)。
+- **cube 就绪状态机 + 回退是基线,非可选**:`未请求 → 烘焙中(fenceB 未 signal) → 就绪`。SkyboxPass 每帧查状态——就绪才绑真 cube,否则跳过天空盒绘制(露 clear 色)。"cube 这帧可能还没好"必须被设计成正确,不能假设它一定在。
+- 6 次 fullscreen draw,每次把一个 face 当 RTV(`CreateCubemapFace`),PS 按该 face 的方向基重建世界方向 → equirect uv(`atan2/asin`)→ 采样 equirect → 写入对应 face。**方向约定与 M2 SkyboxPass 的 `Sample(dir)` 是同一套,成对锁定。**
+- 产出 **imported 持久** cubemap 资源(不进 transient 分配器),交给 SkyboxPass 采样;M2 的占位 cube 退役。
+- 压缺口:~~单 face RTV~~(已确认现成,见 §2);离屏 render-to-texture 复用 `AsyncUploadSystem` 的 release/acquire + fence 契约。
+- **验收**:天空盒从占位色变成真实 HDR 天空,接缝/方向正确;且 cube 烘好之前的若干帧能稳定回退、不崩不闪。
 
 状态:⬜ 未开始
 
