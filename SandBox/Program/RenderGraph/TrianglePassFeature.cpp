@@ -40,6 +40,7 @@
 #include <Request/DrawRequest.h>
 #include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
+#include <Drawable/Drawable.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -104,7 +105,7 @@ namespace Spark::SandBox
         // Entities live in RHIContext (owned by RHISystem), not in any Ptr<>
         // member here — RAII can't reach them, so the owner has to destroy
         // them explicitly while the resource pools they reference are still
-        // alive. Order: DrawItem (consumer) → VB view → VB → ViewSRG;
+        // alive. Order: DrawRequest (consumer) → Drawable → VB → ViewSRG;
         // Components on the entity (Components::Buffer / ShaderResource / ...)
         // tear down with the entity, releasing their Ptr<> refs.
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
@@ -117,6 +118,7 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
         destroyIfValid(m_drawItemEntity);
+        destroyIfValid(m_drawableEntity);
         destroyIfValid(m_vbEntity);
         // Destroying the binding entity releases the ShaderBindings it owns; no
         // local Ptr<> to reset, and the pass holds no ref (no AttachShaderBindings).
@@ -227,18 +229,27 @@ namespace Spark::SandBox
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         m_drawItemEntity = rhiCtx.CreateEntity();
+        m_drawableEntity = rhiCtx.CreateEntity();
+
+        Render::Drawable drawable;
+        drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
+        Render::VertexStreamSpec vertex;
+        vertex.m_buffer = m_vbEntity;
+        vertex.m_byteCount = sizeof(g_triangleVertices);
+        vertex.m_byteOffset = 0;
+        vertex.m_byteStride = sizeof(TriangleVertex);
+        vertex.m_inputSlot  = 0;
+        drawable.m_streams.push_back(vertex);
+        drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };
+
+        rhiCtx.Add<Render::Drawable>(m_drawableEntity, drawable);
 
         Render::DrawRequest req;
-        req.m_drawArguments    = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
-        req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
-        req.m_vertexBufferInfo = Render::VertexBufferInfo{
-            0, sizeof(g_triangleVertices), sizeof(TriangleVertex)};
-        req.m_vertexBuffer = m_vbEntity;
-
+        req.m_drawable = m_drawableEntity;
         // space0 view/color binding: referenced by this draw (push, not pass-attach).
         if (m_viewBindingsEntity != Spark::RHI::NullHandle)
         {
-            req.m_shaderBindingEntities.push_back(m_viewBindingsEntity);
+            req.m_shaderBindings.push_back(m_viewBindingsEntity);
         }
 
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));

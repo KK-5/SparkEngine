@@ -46,6 +46,7 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <Request/DrawRequest.h>
+#include <Drawable/Drawable.h>
 #include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
 
@@ -96,7 +97,9 @@ namespace Spark::SandBox
             }
             handle = Spark::RHI::NullHandle;
         };
+        // Order: DrawRequest (consumer) → Drawable → VB/IB/Image → ViewSRG.
         destroyIfValid(m_drawItemEntity);
+        destroyIfValid(m_drawableEntity);
         destroyIfValid(m_vbEntity);
         destroyIfValid(m_indexEntity);
         destroyIfValid(m_imageEntity);
@@ -368,24 +371,35 @@ namespace Spark::SandBox
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         m_drawItemEntity = rhiCtx.CreateEntity();
+        m_drawableEntity = rhiCtx.CreateEntity();
 
         auto* mesh = m_model->GetModelData()->GetMesh(0);
         const Resource::Primitive& primitive = mesh->primitives[0];
 
-        Render::DrawRequest req;
-        req.m_drawArguments    = RHI::DrawArguments(RHI::DrawIndexed(0, primitive.indexCount, 0));
-        req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
-        req.m_vertexBufferInfo = Render::VertexBufferInfo{
-            0, static_cast<uint32_t>(primitive.vertexBuffer.size()), primitive.layout.stride};
-        req.m_vertexBuffer = m_vbEntity;
-        req.m_indexBufferInfo  = Render::IndexBufferInfo{
-            0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat};
-        req.m_indexBuffer  = m_indexEntity;
+        Render::Drawable drawable;
+        drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawIndexed(0, primitive.indexCount, 0));
+        Render::VertexStreamSpec vertex;
+        vertex.m_buffer     = m_vbEntity;
+        vertex.m_byteCount  = static_cast<uint32_t>(primitive.vertexBuffer.size());
+        vertex.m_byteOffset = 0;
+        vertex.m_byteStride = primitive.layout.stride;
+        vertex.m_inputSlot  = 0;
+        drawable.m_streams.push_back(vertex);
 
+        drawable.m_indexBuffer = m_indexEntity;
+        drawable.m_indexInfo   = Render::IndexBufferInfo{
+            0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat };
+
+        drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };
+
+        rhiCtx.Add<Render::Drawable>(m_drawableEntity, drawable);
+
+        Render::DrawRequest req;
+        req.m_drawable = m_drawableEntity;
         // space0 view/model/material binding: referenced by this draw (push, not pass-attach).
         if (m_viewBindingsEntity != Spark::RHI::NullHandle)
         {
-            req.m_shaderBindingEntities.push_back(m_viewBindingsEntity);
+            req.m_shaderBindings.push_back(m_viewBindingsEntity);
         }
 
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));

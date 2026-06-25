@@ -40,6 +40,7 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <Request/DrawRequest.h>
+#include <Drawable/Drawable.h>
 #include <Shader/ShaderBindingsUtils.h>
 
 #include <Window/IWindowSystem.h>
@@ -111,7 +112,9 @@ namespace Spark::SandBox
             }
             handle = Spark::RHI::NullHandle;
         };
+        // Order: DrawRequest (consumer) → Drawable → VB → ViewSRG.
         destroyIfValid(m_drawItemEntity);
+        destroyIfValid(m_drawableEntity);
         destroyIfValid(m_vbEntity);
         // Destroying the binding entity releases the ShaderBindings it owns.
         destroyIfValid(m_viewBindingsEntity);
@@ -269,18 +272,27 @@ namespace Spark::SandBox
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         m_drawItemEntity = rhiCtx.CreateEntity();
+        m_drawableEntity = rhiCtx.CreateEntity();
+
+        Render::Drawable drawable;
+        drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
+        Render::VertexStreamSpec vertex;
+        vertex.m_buffer     = m_vbEntity;
+        vertex.m_byteCount  = sizeof(g_triangleVertices);
+        vertex.m_byteOffset = 0;
+        vertex.m_byteStride = sizeof(TriangleVertex);
+        vertex.m_inputSlot  = 0;
+        drawable.m_streams.push_back(vertex);
+        drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };
+
+        rhiCtx.Add<Render::Drawable>(m_drawableEntity, drawable);
 
         Render::DrawRequest req;
-        req.m_drawArguments    = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
-        req.m_drawInstanceArgs = RHI::DrawInstanceArguments(1, 0);
-        req.m_vertexBufferInfo = Render::VertexBufferInfo{
-            0, sizeof(g_triangleVertices), sizeof(TriangleVertex)};
-        req.m_vertexBuffer = m_vbEntity;
-
+        req.m_drawable = m_drawableEntity;
         // space0 view/color binding: referenced by this draw (push, not pass-attach).
         if (m_viewBindingsEntity != Spark::RHI::NullHandle)
         {
-            req.m_shaderBindingEntities.push_back(m_viewBindingsEntity);
+            req.m_shaderBindings.push_back(m_viewBindingsEntity);
         }
 
         rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));

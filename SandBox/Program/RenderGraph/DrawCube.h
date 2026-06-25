@@ -61,6 +61,7 @@ namespace Spark::SandBox
         Spark::RHI::ImageViewDescriptor m_baseColorViewDesc {};
 
         Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
+        Spark::RHI::RHIHandle m_drawableEntity = Spark::RHI::NullHandle;
 
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_shader;
