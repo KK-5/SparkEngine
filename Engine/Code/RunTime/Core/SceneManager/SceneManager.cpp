@@ -453,6 +453,12 @@ namespace Spark
                 isFirst = false;
             }
             curHier.parent = parent;
+            
+            if (curHier.parent == NullEntity && !context.Has<HierarchyRootTag>(child))
+            {
+                context.Add<HierarchyRootTag>(child);
+            }
+
             last = child;
         });
 
@@ -505,6 +511,11 @@ namespace Spark
                 auto& parentHier = context.Get<Hierarchy>(parent);
                 parentHier.firstChild = entity;
             }
+
+            if (context.Has<HierarchyRootTag>(entity))
+            {
+                context.Remove<HierarchyRootTag>(entity);
+            }
         }
 
         if (prevSibling == NullEntity && nextSibling != NullEntity)
@@ -533,6 +544,11 @@ namespace Spark
         ForEachChild(hier, [&](Entity child){
             auto& curHier = context.Get<Hierarchy>(child);
             curHier.parent = entity;
+            if (context.Has<HierarchyRootTag>(child))
+            {
+                context.Remove<HierarchyRootTag>(child);
+            }
+
             if (isFirst)
             {
                 Entity prev = curHier.prevSibling;
