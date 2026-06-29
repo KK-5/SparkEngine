@@ -8,6 +8,7 @@ add_executable(${TARGET_NAME}
     UI/Private/Inspector.cpp
     UI/Private/ComponentView.cpp
     Handler/AssetHandler.cpp
+    Handler/ComponentAssetResolver.cpp
     UI/EditorWindow.cpp
     UI/EditorUI.cpp
     Input/EditorInput.cpp

@@ -13,8 +13,10 @@
 #include <Math/Vector3.h>
 #include <Math/Vector4.h>
 #include <Resource/AssetTypes.h>
+#include <Resource/Asset.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
+#include "UI/Bus/AssetEditBus.h"
 #include "../../Component/Position.h"
 #include "../../Component/AllUIElement.h"
 
@@ -22,7 +24,7 @@ namespace Editor
 {
     using namespace Spark;
 
-    void ComponentView::DrawElement(MetaData& data, MetaAny& instance, float width)
+    void ComponentView::DrawElement(const MetaType& component, TypeId fieldId, MetaData& data, MetaAny& instance, float width)
     {
         eastl::string_view name = data.name();
         MetaCustom uiElement = data.custom();
@@ -317,6 +319,25 @@ namespace Editor
                 if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
                 if (ui->readOnly) { ImGui::EndDisabled(); }
+
+                if (!ui->readOnly && ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ASSET_FILE"))
+                    {
+                        auto* asset = *static_cast<Resource::Asset**>(payload->Data);
+                        const bool typeOk = asset
+                            && (ui->expectType == 0
+                                || static_cast<uint32_t>(asset->GetAssetType()) == ui->expectType);
+                        if (typeOk)
+                        {
+                            AssetEditBus::Broadcast(
+                                &AssetEditEvents::OnAssetDragToComponent,
+                                m_activeEntity, component.id(), fieldId,
+                                asset->GetAssetId(), asset->GetAssetType());
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
             }
             else
             {
@@ -402,7 +423,7 @@ namespace Editor
             for (auto&& [id, data]: component.data())
             {
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 20);
-                DrawElement(data, instance, availableWidth);
+                DrawElement(component, id, data, instance, availableWidth);
             }
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(2);

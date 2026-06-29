@@ -41,6 +41,7 @@ namespace Editor
         }
 
         m_assetHandler = Spark::MakeUnique<AssetHandler>();
+        m_componentAssetResolver = Spark::MakeUnique<ComponentAssetResolver>();
     }
 
     void SparkEditor::Start()

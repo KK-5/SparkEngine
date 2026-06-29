@@ -23,7 +23,7 @@ namespace Editor
             bool isExpanded;
         };
 
-        void DrawElement(Spark::MetaData& data, Spark::MetaAny& instance, float width);
+        void DrawElement(const Spark::MetaType& component, Spark::TypeId fieldId, Spark::MetaData& data, Spark::MetaAny& instance, float width);
         void DrawComponent(const Spark::MetaType component, Spark::MetaAny& instance);
 
         eastl::unordered_map<Spark::TypeId, ComponentState> m_componentState;

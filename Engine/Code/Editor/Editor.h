@@ -7,6 +7,7 @@
 #include "Input/EditorInput.h"
 
 #include "Handler/AssetHandler.h"
+#include "Handler/ComponentAssetResolver.h"
 
 namespace Editor
 {
@@ -23,5 +24,6 @@ namespace Editor
         Spark::SystemUniquePtr<EditorInputSystem>            m_editorInput;
         Spark::SystemUniquePtr<Spark::UI::UIBaseSystem>      m_editorUI;
         Spark::UniquePtr<AssetHandler>                       m_assetHandler;
+        Spark::UniquePtr<ComponentAssetResolver>             m_componentAssetResolver;
     };
 }
