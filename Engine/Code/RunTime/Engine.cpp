@@ -11,6 +11,7 @@
 #include <Feature/Transform/Reflect.h>
 #include <Feature/Camera/Reflect.h>
 #include <Feature/Mesh/Reflect.h>
+#include <Feature/Skybox/Reflect.h>
 
 namespace Spark
 {
@@ -20,6 +21,7 @@ namespace Spark
         TypeRegistry::Register(Spark::Transform::Reflect);
         TypeRegistry::Register(Spark::Camera::Reflect);
         TypeRegistry::Register(Spark::Mesh::Reflect);
+        TypeRegistry::Register(Spark::Skybox::Reflect);
         TypeRegistry::RegisterAll();
 
         m_worldCtxGuard = eastl::make_unique<WorldExecuteContextGuard>(m_worldContext);
@@ -87,6 +89,9 @@ namespace Spark
 
         m_meshResolver = eastl::make_unique<Mesh::MeshResolver>();
         m_meshResolver->Init();
+
+        m_skyboxSystem = CreateSystem<Skybox::SkyboxSystem>();
+        m_skyboxSystem->Init();
 
         m_rhiResourceSystem = CreateSystem<RHI::RHIResourceSystem>();
         m_rhiResourceSystem->Init();

@@ -7,6 +7,7 @@ add_subdirectory(Feature/Input)
 add_subdirectory(Feature/Transform)
 add_subdirectory(Feature/Camera)
 add_subdirectory(Feature/Mesh)
+add_subdirectory(Feature/Skybox)
 add_subdirectory(Feature/RHI)
 add_subdirectory(Feature/Render)
 add_subdirectory(Feature/UI)
@@ -29,6 +30,7 @@ target_link_libraries(${TARGET_NAME}
         SparkAssetManager
         SparkCamera
         SparkMesh
+        SparkSkybox
         SparkTransform
 )
 

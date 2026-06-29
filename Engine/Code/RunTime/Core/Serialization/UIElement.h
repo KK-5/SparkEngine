@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "EASTL/string.h"
 
 namespace Spark
@@ -149,8 +151,12 @@ namespace Spark
     struct AssetElement
     {
         AssetElement() = default;
-        explicit AssetElement(bool _readOnly) : readOnly(_readOnly) {}
-        bool readOnly = false;
+        explicit AssetElement(bool _readOnly, uint32_t _expectType = 0)
+            : readOnly(_readOnly), expectType(_expectType) {}
+        bool     readOnly = false;
+        //! Accepted asset type for drag-drop, as static_cast<uint32_t>(Resource::AssetType).
+        //! 0 == accept any. Kept as a raw uint to avoid a Core→Resource dependency.
+        uint32_t expectType = 0;
     };
 
     struct EnumElement
