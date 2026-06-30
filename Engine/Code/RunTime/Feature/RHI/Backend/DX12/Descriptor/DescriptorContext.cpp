@@ -380,18 +380,23 @@ namespace Spark::RHI::DX12
         ConvertBufferView(buffer, bufferViewDescriptor, viewDesc);
         m_D3D12Device->CreateUnorderedAccessView(buffer.GetMemoryView().GetMemory(), nullptr, &viewDesc, unorderedAccessDescriptor);
 
-        // Copy the UAV descriptor into the GPU-visible version for clearing.
-        if (unorderedAccessViewClear.IsNull())
-        {
-            unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
-
-            if (unorderedAccessViewClear.IsNull())
-            {
-                ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
-                return;
-            }
-        }
-        CopyDescriptor(unorderedAccessViewClear, unorderedAccessView);
+        // The shader-visible "clear" descriptor is intentionally NOT allocated here.
+        // It is only consumed by CommandList::ClearUnorderedAccess (a per-use op), but
+        // was baked onto every UAV view unconditionally, via a single SHADER_VISIBLE
+        // AllocateHandle — which is invalid: shader-visible descriptors must come from a
+        // table, not a single handle (this ASSERTed inside DescriptorTablePool). The clear
+        // path will instead supply its own shader-visible handle (via a View) at clear
+        // time, keeping descriptor purposes separated. Until then, clear is a no-op.
+        // if (unorderedAccessViewClear.IsNull())
+        // {
+        //     unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
+        //     if (unorderedAccessViewClear.IsNull())
+        //     {
+        //         ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
+        //         return;
+        //     }
+        // }
+        // CopyDescriptor(unorderedAccessViewClear, unorderedAccessView);
 
         staticView = m_staticPool.AllocateHandle();
         ASSERT(!staticView.IsNull(), "Failed to allocate static descriptor from shader-visible CBV_SRV_UAV heap");
@@ -459,18 +464,23 @@ namespace Spark::RHI::DX12
         ConvertImageView(image, imageViewDescriptor, viewDesc);
         m_D3D12Device->CreateUnorderedAccessView(image.GetMemoryView().GetMemory(), nullptr, &viewDesc, unorderedAccessDescriptor);
 
-        // Copy the UAV descriptor into the GPU-visible version for clearing.
-        if (unorderedAccessViewClear.IsNull())
-        {
-            unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
-
-            if (unorderedAccessViewClear.IsNull())
-            {
-                ASSERT(false, "Descriptor heap ran out of memory for static handles.");
-                return;
-            }
-        }
-        CopyDescriptor(unorderedAccessViewClear, unorderedAccessView);
+        // The shader-visible "clear" descriptor is intentionally NOT allocated here.
+        // It is only consumed by CommandList::ClearUnorderedAccess (a per-use op), but
+        // was baked onto every UAV view unconditionally, via a single SHADER_VISIBLE
+        // AllocateHandle — which is invalid: shader-visible descriptors must come from a
+        // table, not a single handle (this ASSERTed inside DescriptorTablePool). The clear
+        // path will instead supply its own shader-visible handle (via a View) at clear
+        // time, keeping descriptor purposes separated. Until then, clear is a no-op.
+        // if (unorderedAccessViewClear.IsNull())
+        // {
+        //     unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
+        //     if (unorderedAccessViewClear.IsNull())
+        //     {
+        //         ASSERT(false, "Descriptor heap ran out of memory for static handles.");
+        //         return;
+        //     }
+        // }
+        // CopyDescriptor(unorderedAccessViewClear, unorderedAccessView);
 
         if (staticView.m_index == DescriptorHandle::NullIndex)
         {
