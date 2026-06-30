@@ -426,7 +426,7 @@ namespace Spark::Resource
         LOG_INFO("[EnvironmentBaker] readback buffers created.");
 
         // ---- Record: upload -> dispatch -> readback ----
-        m_recorder->Reset();
+        // m_recorder->Reset();
         RHI::CommandList* cmd = m_recorder->GetCommandList();
         LOG_INFO("[EnvironmentBaker] rec: cmd list open.");
 
@@ -504,6 +504,7 @@ namespace Spark::Resource
         m_queue->ExecuteCommands(lists);
         m_queue->FlushCommands(*m_fence);
         LOG_INFO("[EnvironmentBaker] GPU finished, reading back.");
+        m_recorder->Reset();
 
         // ---- Read back faces, de-pad rows into a tight, face-major buffer ----
         const uint32_t tightRowBytes = faceSize * kCubeBytesPP;
