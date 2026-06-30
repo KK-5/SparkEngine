@@ -95,13 +95,18 @@ static UniquePtr<AssetData> DecodeSvg(
 
         if (stbi_is_hdr_from_memory(buf, len))
         {
-            return WrapHdrPixels(stbi_loadf_from_memory(buf, len, &w, &h, &srcCh, 4), w, h, eastl::move(label));
+            // stbi_loadf writes w/h via the out-params; it MUST be sequenced before w/h
+            // are read as arguments. Hoist it to its own statement — passing it inline
+            // alongside w,h relies on unspecified argument evaluation order (MSVC reads
+            // right-to-left, so w,h would be read as 0 before stbi runs).
+            float* pixels = stbi_loadf_from_memory(buf, len, &w, &h, &srcCh, 4);
+            return WrapHdrPixels(pixels, w, h, eastl::move(label));
         }
 
         stbi_info_from_memory(buf, len, &w, &h, &srcCh);
         const int force = (srcCh == 3) ? 4 : 0;
-        return WrapLdrPixels(
-            stbi_load_from_memory(buf, len, &w, &h, &srcCh, force), w, h, srcCh, force, eastl::move(label));
+        stbi_uc* pixels = stbi_load_from_memory(buf, len, &w, &h, &srcCh, force);
+        return WrapLdrPixels(pixels, w, h, srcCh, force, eastl::move(label));
     }
 
     eastl::string ImageAssetLoader::ResolvePath(const AssetId& id) const
@@ -144,12 +149,13 @@ static UniquePtr<AssetData> DecodeSvg(
 
         if (stbi_is_hdr(path.c_str()))
         {
-            return WrapHdrPixels(stbi_loadf(path.c_str(), &w, &h, &srcCh, 4), w, h, eastl::move(path));
+            float* pixels = stbi_loadf(path.c_str(), &w, &h, &srcCh, 4);
+            return WrapHdrPixels(pixels, w, h, eastl::move(path));
         }
 
         stbi_info(path.c_str(), &w, &h, &srcCh);
         const int force = (srcCh == 3) ? 4 : 0;
-        return WrapLdrPixels(
-            stbi_load(path.c_str(), &w, &h, &srcCh, force), w, h, srcCh, force, eastl::move(path));
+        stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &srcCh, force);
+        return WrapLdrPixels(pixels, w, h, srcCh, force, eastl::move(path));
     }
 }
