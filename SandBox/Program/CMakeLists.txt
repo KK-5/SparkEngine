@@ -23,6 +23,30 @@ if (BUILD_RHI_HELLOTRIANGLE)
     )
 endif()
 
+option(BUILD_RHI_BAKECUBEMAP "Build RHI BakeCubemap" ON)
+
+if (BUILD_RHI_BAKECUBEMAP)
+    set(TARGET_NAME BakeCubemap)
+
+    # Headless compute sample — no window/swapchain, so no glfw.
+    add_executable(${TARGET_NAME} RHI/BakeCubemap.cpp)
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        SparkCore
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+        stb
+    )
+endif()
+
 option(BUILD_RHI_DRAWSHAPE "Build RHI DrawShape" ON)
 
 if (BUILD_RHI_DRAWSHAPE)

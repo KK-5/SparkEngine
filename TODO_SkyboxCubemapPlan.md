@@ -77,6 +77,7 @@ SceneColor → CopyFrameBufferPass → swapchain
 - ❓ **唯一残留未验证项(已收窄)**:PSO 用**空 `InputStreamLayout`** 建管线是否通过(D3D12 原生允许空 input layout,大概率 OK,但未实测)。M2/M3 全屏 draw 依赖它,开工第一步先做最小验证。(M2/M3)
 - ✓ DX12 **单 face RTV 已现成**(此前判断错误,**非"最可能要补"**):RTV 对 `bIsArray` 走 `Texture2DArray`,`CreateCubemapFace(f)` 设 `arraySliceMin=max=f` → `FirstArraySlice=f, ArraySize=1`,正是单 face RTV([Conversions.cpp:880-895] + [ImageViewDescriptor.cpp:88-90])。(M3)
 - ✓ 离屏 render-to-texture 在帧管线之外的承载有现成先例:`AsyncUploadSystem` 即同形态 job(独立 recorder + 队列 + fence,release/acquire barrier 契约,[AsyncUploadSystem.cpp:663-668])。(M3)
+- ⚠ **已知 RHI 缺口(M3b 实现时发现,后补)**:image 的 `Shader`-read barrier 把 `PIXEL_SHADER_RESOURCE | NON_PIXEL_SHADER_RESOURCE` **捆在一起**返回([Conversions.cpp:544-548]),其中 `PIXEL` 是 graphics-only,带它的状态在 **Compute 队列上非法**。后果:无法用现有 barrier helper 把 SRV 输入显式转成 compute 能用的态(只 `NON_PIXEL`)。当前**零影响**——没有任何 pass 跑在 compute 队列(全 graphics,AsyncUpload 用 Copy 队列),故 baker 暂走 **graphics 队列**(dispatch 仍是 compute 管线,`PIXEL` 态在 graphics 队列合法)。**正路**:让 barrier 带 shader stage,DX12 据此选 `PIXEL` vs 只 `NON_PIXEL`(与 Vulkan 显式 src/dst stage 同向,非删 bit——`PIXEL` 是片元采样必需)。**触发补齐的时点:第一个 async-compute 工作负载**(最自然是 **IBL 预过滤**,要在 compute 队列读 cube SRV 做卷积)。
 
 ---
 
