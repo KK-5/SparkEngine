@@ -13,7 +13,6 @@ set(SOURCES
     RenderGraph/RenderGraphExecuter.cpp
     RenderGraph/RenderGraph.cpp
     RenderSystem.cpp
-    Shader/ShaderBuilder.cpp
     View/ViewBindingSystem.cpp
     Instance/InstanceBindingSystem.cpp
     Drawable/DrawableComposer.cpp

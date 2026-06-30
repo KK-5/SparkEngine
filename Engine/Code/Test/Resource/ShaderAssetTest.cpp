@@ -6,7 +6,7 @@
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderAssetCompiler.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
-#include <Render/Shader/ShaderBuilder.h>
+#include <Resource/Shader/ShaderBuilder.h>
 
 using namespace Spark;
 using namespace Spark::Resource;
@@ -339,7 +339,7 @@ TEST_F(ShaderAssetTestFixture, BuildShaderInputListFromReflection)
     ShaderAsset shader(id);
     shader.SetDataReady(eastl::move(compiledData));
 
-    auto built = Render::BuildShaderInputList(shader);
+    auto built = Resource::BuildShaderInputList(shader);
 
     // ---- Buffer: cbuffer 不产生 Buffer(CBV) 描述符 ----
     EXPECT_EQ(built.list.m_buffers.size(), 0u);

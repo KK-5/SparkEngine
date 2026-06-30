@@ -20,7 +20,7 @@
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Shader/ShaderAsset.h>
 
-#include <Shader/ShaderBuilder.h>
+#include <Resource/Shader/ShaderBuilder.h>
 #include <Shader/ShaderBindingsUtils.h>
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticBufferAttachment + Attachment enums
@@ -59,7 +59,7 @@ namespace Spark::Render
             return;
         }
 
-        ShaderInputBuildResult built = BuildShaderInputList(*shaderAsset);
+        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
             LOG_ERROR("[InstanceBindingSystem] InstanceBindings.hlsl produced no shader inputs.");

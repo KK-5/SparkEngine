@@ -15,7 +15,7 @@
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Shader/ShaderAsset.h>
 
-#include <Shader/ShaderBuilder.h>
+#include <Resource/Shader/ShaderBuilder.h>
 #include <Feature/Camera/Components.h>
 
 #include "View.h"
@@ -46,7 +46,7 @@ namespace Spark::Render
         }
 
         // space0 / ViewBindings group, reflected from the host shader above.
-        ShaderInputBuildResult built = BuildShaderInputList(*shaderAsset);
+        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
             LOG_ERROR("[ViewBindingSystem] ViewBindings.hlsl produced no shader inputs.");

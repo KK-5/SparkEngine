@@ -9,10 +9,12 @@ set(SOURCES
     Shader/ShaderAsset.cpp
     Shader/ShaderAssetCompiler.cpp
     Shader/ShaderAssetBuilder.cpp
+    Shader/ShaderBuilder.cpp
     Image/ImageAsset.cpp
     Image/ImageAssetLoader.cpp
     Image/ImageAssetCompiler.cpp
     Image/ImageAssetBuilder.cpp
+    Image/EnvironmentBaker.cpp
     Image/stb_impl.cpp
     Model/ModelAsset.cpp
     Model/ModelAssetLoader.cpp

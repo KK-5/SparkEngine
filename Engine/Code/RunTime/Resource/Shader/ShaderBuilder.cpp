@@ -2,21 +2,45 @@
 
 #include <EASTL/set.h>
 
-namespace Spark::Render
+namespace Spark::Resource
 {
     namespace
     {
+        //! D3D register classes (HLSL b/t/u/s) each have an INDEPENDENT index space, so
+        //! the same registerId in different classes is a distinct binding. ShaderInputType
+        //! alone cannot tell an SRV texture (t0) from a UAV texture (u0) — both are Image —
+        //! so the dedup key must also fold in the class derived from the resource's access.
+        enum class RegisterClass : uint8_t { CBV, SRV, UAV, Sampler };
+
+        RegisterClass ResolveRegisterClass(const ShaderResourceBindingReflection& res)
+        {
+            switch (res.m_type)
+            {
+            case RHI::ShaderInputType::Sampler:
+                return RegisterClass::Sampler;
+            case RHI::ShaderInputType::Image:
+                return res.m_imageAccess == RHI::ShaderInputImageAccess::ReadWrite
+                    ? RegisterClass::UAV : RegisterClass::SRV;
+            case RHI::ShaderInputType::Buffer:
+                if (res.m_bufferAccess == RHI::ShaderInputBufferAccess::ReadWrite) return RegisterClass::UAV;
+                if (res.m_bufferAccess == RHI::ShaderInputBufferAccess::Constant)  return RegisterClass::CBV;
+                return RegisterClass::SRV;
+            default:
+                return RegisterClass::SRV;
+            }
+        }
+
         struct RegisterKey
         {
-            uint32_t registerId;
-            uint32_t spaceId;
-            RHI::ShaderInputType type;
+            uint32_t      registerId;
+            uint32_t      spaceId;
+            RegisterClass regClass;
 
             bool operator<(const RegisterKey& other) const
             {
                 if (registerId != other.registerId) return registerId < other.registerId;
                 if (spaceId != other.spaceId) return spaceId < other.spaceId;
-                return static_cast<uint32_t>(type) < static_cast<uint32_t>(other.type);
+                return static_cast<uint32_t>(regClass) < static_cast<uint32_t>(other.regClass);
             }
         };
 
@@ -37,9 +61,9 @@ namespace Spark::Render
         //! 常量按变量名去重（cbuffer 变量展开为独立 ShaderInputConstantDescriptor，
         //! Finalize 时 PipelineLayoutDescriptor 再按 registerId 聚合成 ConstantBufferLayout）。
         void MergeStageReflection(
-            const Resource::ShaderStageReflection& refl,
-            ShaderInputMergeState&                 state,
-            RHI::ShaderInputList&                  out)
+            const ShaderStageReflection& refl,
+            ShaderInputMergeState&       state,
+            RHI::ShaderInputList&        out)
         {
             for (const auto& cb : refl.m_cbuffers)
             {
@@ -63,7 +87,7 @@ namespace Spark::Render
 
             for (const auto& res : refl.m_resources)
             {
-                RegisterKey key{ res.m_registerId, res.m_spaceId, res.m_type };
+                RegisterKey key{ res.m_registerId, res.m_spaceId, ResolveRegisterClass(res) };
                 if (!state.addedBindings.insert(key).second)
                 {
                     continue;
@@ -113,10 +137,10 @@ namespace Spark::Render
         //! 单个 ShaderAsset 的反射遍历主体：迭代所有 stage，并入 list、累积 stageMask。
         //! stageOwner != nullptr 时启用跨 asset 的 stage 唯一性检查（多 asset 路径用）。
         void MergeAssetReflection(
-            const Resource::ShaderAsset&            shader,
-            ShaderInputMergeState&                  state,
-            ShaderInputBuildResult&                 result,
-            const Resource::ShaderAsset**           stageOwner /* nullable, size = ShaderStageCount */)
+            const ShaderAsset&        shader,
+            ShaderInputMergeState&    state,
+            ShaderInputBuildResult&   result,
+            const ShaderAsset**       stageOwner /* nullable, size = ShaderStageCount */)
         {
             auto* shaderData = shader.GetShaderData();
             if (!shaderData)
@@ -147,7 +171,7 @@ namespace Spark::Render
         }
     }
 
-    ShaderInputBuildResult BuildShaderInputList(const Resource::ShaderAsset& shader)
+    ShaderInputBuildResult BuildShaderInputList(const ShaderAsset& shader)
     {
         ShaderInputBuildResult result;
         ShaderInputMergeState  state;
@@ -156,20 +180,20 @@ namespace Spark::Render
     }
 
     ShaderInputBuildResult BuildShaderInputList(
-        eastl::span<const Resource::ShaderAsset* const> shaders)
+        eastl::span<const ShaderAsset* const> shaders)
     {
         ShaderInputBuildResult result;
         ShaderInputMergeState  state;
 
         // 指针去重 — 同一个组合 HLSL 被同时挂到多个 stage 槽位时只处理一次。
         // pass 内 shader 槽位很少（≤ ShaderStageCount），线性扫描即可。
-        eastl::fixed_vector<const Resource::ShaderAsset*, RHI::ShaderStageCount> processed;
+        eastl::fixed_vector<const ShaderAsset*, RHI::ShaderStageCount> processed;
 
         // 跨 asset 的 stage 唯一性检查：每个 stage 最多被一个 asset 贡献反射。
-        eastl::array<const Resource::ShaderAsset*, RHI::ShaderStageCount> stageOwner{};
+        eastl::array<const ShaderAsset*, RHI::ShaderStageCount> stageOwner{};
         stageOwner.fill(nullptr);
 
-        for (const Resource::ShaderAsset* shader : shaders)
+        for (const ShaderAsset* shader : shaders)
         {
             if (shader == nullptr)
             {
@@ -177,7 +201,7 @@ namespace Spark::Render
             }
 
             bool seen = false;
-            for (const Resource::ShaderAsset* p : processed)
+            for (const ShaderAsset* p : processed)
             {
                 if (p == shader)
                 {

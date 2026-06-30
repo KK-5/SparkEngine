@@ -15,7 +15,7 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/Component/PassComponents.h>
-#include <Shader/ShaderBuilder.h>
+#include <Resource/Shader/ShaderBuilder.h>
 
 namespace Spark::Render
 {
@@ -33,7 +33,7 @@ namespace Spark::Render
             shaders.m_geometryShader.get(),
             shaders.m_computeShader.get(),
         };
-        ShaderInputBuildResult built = BuildShaderInputList(
+        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(
             eastl::span<const Resource::ShaderAsset* const>(assets, 4));
 
         if (built.stageMask == RHI::ShaderStageMask::None)
