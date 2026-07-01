@@ -1,5 +1,19 @@
 set(TARGET_NAME SparkRHI_DX12)
 
+# --- Minimum Windows SDK (DX12 backend only) ----------------------------------
+# Currently the backend uses no SDK feature newer than what ships everywhere, so
+# this check is disabled and the single 22H2-only symbol (D3D12_COMPARISON_FUNC_NONE)
+# is worked around via a fallback macro in DX12.h. Re-enable this block once a real
+# new-SDK feature is adopted (Enhanced Barriers, bindless / SM6.6, etc.).
+# set(SPARK_MIN_WINDOWS_SDK "10.0.22621.0")
+# if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION AND
+#    CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION VERSION_LESS SPARK_MIN_WINDOWS_SDK)
+#     message(FATAL_ERROR
+#         "Windows SDK ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION} is too old for "
+#         "SparkEngine's DX12 backend (requires >= ${SPARK_MIN_WINDOWS_SDK}, the "
+#         "Windows 11 22H2 SDK). Install a newer SDK via the Visual Studio Installer.")
+# endif()
+
 set(SOURCES
     3rdParty/D3D12MA/D3D12MemAlloc.cpp
     DX12.cpp
