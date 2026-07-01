@@ -17,5 +17,10 @@
 
 float4 VSMain(float3 pos : POSITION) : SV_Position
 {
-    return mul(g_ViewProjection, float4(pos, 1.0));
+    // Reference every member so none is optimized out of the reflected cbuffer.
+    float4 clip  = mul(g_ViewProjection, float4(pos, 1.0));
+    float4 world = mul(g_InvViewProj, clip);
+    float4 vpos  = mul(g_View, float4(pos, 1.0));
+    float4 wpos  = mul(g_InvView, vpos);
+    return clip + (world + vpos + wpos) * 1e-6;
 }

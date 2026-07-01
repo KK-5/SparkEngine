@@ -11,6 +11,9 @@
 cbuffer ViewBindings : register(b0, space0)
 {
     float4x4 g_ViewProjection;   // world -> clip (projection * view)
+    float4x4 g_InvViewProj;      // clip  -> world (inverse of g_ViewProjection)
+    float4x4 g_View;             // world -> view
+    float4x4 g_InvView;          // view  -> world (mul by view origin -> camera world pos)
 };
 
 #endif // SPARK_VIEW_BINDINGS_HLSL

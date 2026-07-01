@@ -115,10 +115,6 @@ namespace Spark::Skybox
             return;
         }
 
-        // Build the image descriptor from the asset itself, so whatever the
-        // compiled form is uploads correctly with no change here: a 6-face cubemap
-        // in the end-state (asset-layer bake), a plain 2D today before that bake
-        // exists. m_cubemap is the semantic role — the texture SkyboxPass samples.
         const bool isCube = data->GetArrayLayers() == RHI::ImageDescriptor::NumCubeMapSlices;
 
         RHI::ImageDescriptor desc = isCube

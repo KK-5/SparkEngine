@@ -47,14 +47,24 @@ namespace Spark::Render
     //! it in via `#include "ViewBindings.hlsl"` (declares `float4x4
     //! g_ViewProjection;` in the ViewBindings group at space0). This is a
     //! convention, mirroring Atom's hardcoded view-constant names.
-    inline constexpr const char* ViewProjectionConstantName = "g_ViewProjection";
+    inline constexpr const char* ViewProjectionConstantName    = "g_ViewProjection";
+    inline constexpr const char* InvViewProjectionConstantName = "g_InvViewProj";
+    inline constexpr const char* ViewConstantName              = "g_View";
+    inline constexpr const char* InvViewConstantName           = "g_InvView";
 
-    //! Write the View's per-view world->clip into the ViewBindings group's
-    //! g_ViewProjection on the given ShaderBindings ENTITY. Built on the generic
-    //! SetShaderConstant helper, so it both stages the data and marks the binding
-    //! dirty for the next compile.
+    //! Write the View's per-view constants into the ViewBindings group on the given
+    //! ShaderBindings ENTITY: world->clip (g_ViewProjection) and world->view (g_View),
+    //! plus their inverses g_InvViewProj (clip->world) and g_InvView (view->world; its
+    //! translation is the camera world position). The inverses are computed once here so
+    //! consumers never re-read the camera. Built on the generic SetShaderConstant helper,
+    //! so it both stages the data and marks the binding dirty for the next compile.
     inline void WriteViewConstants(const View& view, RHI::RHIHandle viewBindings)
     {
-        SetShaderConstant(viewBindings, RHI::InputName(ViewProjectionConstantName), view.GetWorldToClip());
+        const Math::Matrix4X4 worldToClip = view.GetWorldToClip();
+        const Math::Matrix4X4 worldToView = view.m_worldToView;
+        SetShaderConstant(viewBindings, RHI::InputName(ViewProjectionConstantName),    worldToClip);
+        SetShaderConstant(viewBindings, RHI::InputName(InvViewProjectionConstantName), Math::Inverse(worldToClip));
+        SetShaderConstant(viewBindings, RHI::InputName(ViewConstantName),              worldToView);
+        SetShaderConstant(viewBindings, RHI::InputName(InvViewConstantName),           Math::Inverse(worldToView));
     }
 }

@@ -6,6 +6,8 @@ set(SOURCES
     Feature/UI/CopyFrameBufferPass.cpp
     Feature/DepthPre/DepthPrePass.cpp
     Feature/DepthPre/DepthPreProcessor.cpp
+    Feature/Skybox/SkyboxPass.cpp
+    Feature/Skybox/SkyboxProcessor.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp

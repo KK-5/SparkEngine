@@ -15,6 +15,7 @@
 #include "Feature/UI/RenderUI.h"
 #include "Feature/UI/UIProcessFeature.h"
 #include "Feature/DepthPre/DepthPreProcessor.h"
+#include "Feature/Skybox/SkyboxProcessor.h"
 #include "View/ViewBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
 #include "Drawable/DrawableComposer.h"
@@ -59,6 +60,7 @@ namespace Spark::Render
         RenderUI m_rednerUI;
         UIProcessFeature m_uiProcessFeature;
         DepthPreProcessor m_depthPreProcessor;
+        SkyboxProcessor m_skyboxProcessor;
         ViewBindingSystem m_viewBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
         DrawableComposer m_drawableComposer;

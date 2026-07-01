@@ -27,7 +27,7 @@ namespace Spark::RHI
     public:
         struct Descriptor
         {
-            size_t m_stagingSizeInBytes = 16 * 1024 * 1024;
+            size_t m_stagingSizeInBytes = 120 * 1024 * 1024;
         };
 
         AsyncUploadSystem() = default;
