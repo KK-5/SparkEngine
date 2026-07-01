@@ -54,6 +54,20 @@ namespace Spark::Resource
         return instance;
     }
 
+    Ptr<AssetDescriptor> ImageAsset::DefaultHDRDescriptor()
+    {
+        static Ptr<AssetDescriptor> instance = []
+        {
+            auto* desc = new ImageAssetDescriptor{};
+            desc->usage           = ImageUsage::EnvironmentCubemap;
+            desc->colorSpace      = ImageColorSpace::Linear;
+            desc->compression     = TextureCompression::None;
+            desc->cubemapFaceSize = 0; // auto: derived from the source at compile
+            return Ptr<AssetDescriptor>(desc);
+        }();
+        return instance;
+    }
+
     ImageAsset::ImageAsset(AssetId id)
         : Asset(eastl::move(id), AssetType::Image)
     {}

@@ -308,7 +308,23 @@ namespace Spark::Resource
     {
         switch (type)
         {
-            case AssetType::Image:  return AssetId::Of<ImageAsset>(path);
+            case AssetType::Image:
+            {
+                // HDR files are equirectangular environment maps in this engine, so give
+                // them the cubemap descriptor at registration: the descriptor folds into
+                // the AssetId hash, making "Foo.hdr" identify the baked cube everywhere.
+                // Everyone downstream just references that identity. Per-asset usage
+                // overrides belong to a future editor "change asset usage" / ReLoad path.
+                eastl::string ext(
+                    std::filesystem::path(path.begin(), path.end()).extension().string().c_str());
+                for (auto& c : ext)
+                {
+                    c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+                }
+                const bool isHdr = (ext == ".hdr");
+                return AssetId::Of(path,
+                    isHdr ? ImageAsset::DefaultHDRDescriptor() : ImageAsset::DefaultDescriptor());
+            }
             case AssetType::Shader: return AssetId::Of<ShaderAsset>(path);
             case AssetType::Model:  return AssetId::Of<ModelAsset>(path);
             default:                return AssetId();

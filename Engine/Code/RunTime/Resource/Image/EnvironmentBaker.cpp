@@ -62,6 +62,38 @@ namespace Spark::Resource
     EnvironmentBaker::EnvironmentBaker() = default;
     EnvironmentBaker::~EnvironmentBaker() = default;
 
+    uint32_t EnvironmentBaker::RecommendedFaceSize(uint32_t equirectHeight)
+    {
+        // Equirect is 2:1; a cube face covers 90°, so equatorial density matches at ~H/2.
+        uint32_t target = equirectHeight / 2;
+        if (target < 1)
+        {
+            target = 1;
+        }
+
+        // Round to the nearest power of two.
+        uint32_t lo = 1;
+        while ((lo << 1) <= target)
+        {
+            lo <<= 1;
+        }
+        const uint32_t hi  = lo << 1;
+        uint32_t       pot = (target - lo <= hi - target) ? lo : hi;
+
+        // Clamp to a sane range.
+        constexpr uint32_t kMinFace = 256;
+        constexpr uint32_t kMaxFace = 2048;
+        if (pot < kMinFace)
+        {
+            pot = kMinFace;
+        }
+        if (pot > kMaxFace)
+        {
+            pot = kMaxFace;
+        }
+        return pot;
+    }
+
     bool EnvironmentBaker::Init()
     {
         if (m_initialized)

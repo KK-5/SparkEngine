@@ -113,22 +113,23 @@ int main(int, char**)
         return 1;
     }
 
-    // --- Drive the real pipeline: an EnvironmentCubemap image asset ---
-    // usage == EnvironmentCubemap routes Compile through the GPU baker; Linear + None
-    // keeps the HDR float data intact. Descriptor is part of the AssetId hash, so this
-    // is a distinct asset from the same .hdr loaded as a plain 2D texture.
-    const uint32_t faceSize = 1024;
-    Resource::ImageAssetDescriptor cubeDesc;
-    cubeDesc.usage           = Resource::ImageUsage::EnvironmentCubemap;
-    cubeDesc.colorSpace      = Resource::ImageColorSpace::Linear;
-    cubeDesc.compression     = Resource::TextureCompression::None;
-    cubeDesc.cubemapFaceSize = faceSize;
-
-    // Go through the AssetManager interface: the concrete override
+    // --- Drive the real pipeline via the registration convention ---
+    // MakeAssetId gives .hdr files the EnvironmentCubemap descriptor (see
+    // MakeAssetIdForType), so the identity is the baked cube — no explicit descriptor
+    // here. Go through the AssetManager interface: the concrete override
     // LoadAsset(AssetId, AssetType) would otherwise name-hide the base LoadAsset<T>.
+    const uint32_t faceSize = 1024; // matches DefaultHDRDescriptor's cubemapFaceSize
     auto* am = Service<Resource::AssetManager>::Get();
-    Ptr<Resource::ImageAsset> image = am->LoadAsset<Resource::ImageAsset>(
-        Resource::AssetId::Of<Resource::ImageAsset>("Image/Table_Defringed_4k2k.hdr", cubeDesc));
+    Resource::AssetId cubeId = am->MakeAssetId("Image/Table_Defringed_4k2k.hdr");
+
+    const auto* convDesc = static_cast<const Resource::ImageAssetDescriptor*>(cubeId.GetDescriptor());
+    if (!convDesc || convDesc->usage != Resource::ImageUsage::EnvironmentCubemap)
+    {
+        LOG_ERROR("[BakeCubemap] .hdr did not get the EnvironmentCubemap descriptor at registration.");
+        return 1;
+    }
+
+    Ptr<Resource::ImageAsset> image = am->LoadAsset<Resource::ImageAsset>(cubeId);
 
     if (!image || image->GetStatus() != Resource::AssetStatus::Ready)
     {

@@ -60,6 +60,13 @@ namespace Spark::Resource
             return AssetId(path, {}, Ptr<AssetDescriptor>(new typename T::Descriptor(desc)));
         }
 
+        /// Build an AssetId from an already-prepared descriptor Ptr (e.g. one of the
+        /// ImageAsset::Default*Descriptor() singletons). Same path caveats as Of above.
+        static AssetId Of(eastl::string_view path, Ptr<AssetDescriptor> descriptor)
+        {
+            return AssetId(path, {}, eastl::move(descriptor));
+        }
+
         /// Build a sub-asset AssetId. Path is the parent's path; subLabel identifies
         /// the sub-object within (UE style: "parent.gltf:image/3").
         template<typename T>

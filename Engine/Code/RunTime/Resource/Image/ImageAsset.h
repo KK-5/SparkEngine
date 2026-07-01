@@ -49,7 +49,10 @@ namespace Spark::Resource
         uint32_t           maxMipLevels = 0; // 0 = full chain; 1 = no mips beyond base
 
         ImageUsage         usage           = ImageUsage::Texture2D;
-        uint32_t           cubemapFaceSize = 1024; // per-face resolution when usage == EnvironmentCubemap
+        //! Per-face resolution when usage == EnvironmentCubemap. 0 == auto: derived from
+        //! the source at compile (equirect H/2, rounded to a power of two, clamped). A
+        //! non-zero value is an explicit override.
+        uint32_t           cubemapFaceSize = 0;
 
         AssetHash Hash() const override;
     };
@@ -137,6 +140,11 @@ namespace Spark::Resource
 
         static constexpr AssetType GetAssetTypeStatic() { return AssetType::Image; }
         static Ptr<AssetDescriptor> DefaultDescriptor();
+
+        //! Descriptor for HDR (equirectangular) sources: Linear + uncompressed, and
+        //! usage == EnvironmentCubemap so registration/compile bakes them into a cube.
+        //! Sibling of DefaultDescriptor; a distinct identity from the same file loaded 2D.
+        static Ptr<AssetDescriptor> DefaultHDRDescriptor();
 
         explicit ImageAsset(AssetId id);
 

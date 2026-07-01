@@ -72,7 +72,11 @@ namespace Spark::Resource
             }
 
             auto& raw = static_cast<ImageAssetRawData&>(*ctx.rawData);
-            BakedCubemap baked = m_baker.Bake(raw, desc->cubemapFaceSize);
+            // cubemapFaceSize == 0 means auto: size the cube from the decoded source.
+            const uint32_t faceSize = desc->cubemapFaceSize != 0
+                ? desc->cubemapFaceSize
+                : EnvironmentBaker::RecommendedFaceSize(raw.GetHeight());
+            BakedCubemap baked = m_baker.Bake(raw, faceSize);
             if (!baked.IsValid())
             {
                 LOG_ERROR("[ImageAssetBuilder] EnvironmentBaker failed for {}",

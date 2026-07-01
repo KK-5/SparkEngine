@@ -67,6 +67,12 @@ namespace Spark::Resource
         //! Blocks until the GPU finishes. Returns an invalid result on failure.
         BakedCubemap Bake(const ImageAssetRawData& equirect, uint32_t faceSize);
 
+        //! Recommended cube face resolution for an equirect source of the given height:
+        //! equatorial texel density matches at ~H/2 (== W/4 for a 2:1 source), rounded to
+        //! the nearest power of two and clamped to [256, 2048]. Used when a cubemap
+        //! descriptor requests auto face size (cubemapFaceSize == 0).
+        static uint32_t RecommendedFaceSize(uint32_t equirectHeight);
+
     private:
         bool m_initialized = false;
 
