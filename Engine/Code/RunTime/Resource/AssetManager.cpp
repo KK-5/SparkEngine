@@ -237,6 +237,16 @@ namespace Spark::Resource
         }
     }
 
+    bool SparkAssetManager::InitEnvironmentBaker()
+    {
+        if (!m_imageBuilder)
+        {
+            LOG_ERROR("[SparkAssetManager] InitEnvironmentBaker before Init.");
+            return false;
+        }
+        return m_imageBuilder->InitEnvironmentBaker();
+    }
+
     eastl::vector<eastl::string> SparkAssetManager::SnapshotSearchPaths() const
     {
         std::lock_guard lock(m_searchPathsMutex);

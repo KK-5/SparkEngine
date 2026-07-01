@@ -46,7 +46,10 @@ namespace Spark::Resource
     class EnvironmentBaker
     {
     public:
-        EnvironmentBaker() = default;
+        // ctor + dtor are out-of-line (defined where the RHI Ptr members are complete),
+        // so value-holding this class (e.g. ImageAssetBuilder::m_baker) does not force
+        // callers to see the full RHI types.
+        EnvironmentBaker();
         ~EnvironmentBaker();
 
         EnvironmentBaker(const EnvironmentBaker&) = delete;
@@ -73,7 +76,6 @@ namespace Spark::Resource
         Ptr<RHI::PipelineLibrary>          m_pipelineLibrary;
         Ptr<RHI::PipelineLayoutDescriptor> m_layout;
         Ptr<RHI::PipelineState>            m_pso;
-        Ptr<RHI::ShaderBindings>           m_bindings;
         Ptr<RHI::CommandQueue>             m_queue;
         Ptr<RHI::CommandRecorder>          m_recorder;
         Ptr<RHI::Fence>                    m_fence;
@@ -86,5 +88,8 @@ namespace Spark::Resource
         Ptr<RHI::ImagePool>                m_imagePool;
         Ptr<RHI::BufferPool>               m_stagingPool;
         Ptr<RHI::BufferPool>               m_readbackPool;
+
+        // Destory before ImagePool/BufferPool
+        Ptr<RHI::ShaderBindings>           m_bindings;
     };
 }

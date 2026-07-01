@@ -1,5 +1,8 @@
 #include "ImageAssetBuilder.h"
 
+#include <EASTL/utility.h>
+
+#include <Log/ILogSystem.h>
 #include <Resource/AssetBuildContext.h>
 
 #include "ImageAsset.h"
@@ -41,6 +44,11 @@ namespace Spark::Resource
         ctx.rawData = m_loader.Load(ctx.id);
     }
 
+    bool ImageAssetBuilder::InitEnvironmentBaker()
+    {
+        return m_baker.Init();
+    }
+
     void ImageAssetBuilder::Compile(AssetBuildContext& ctx)
     {
         ASSERT(ctx.type == AssetType::Image, "[ImageAssetBuilder] ctx.type mismatch");
@@ -48,6 +56,33 @@ namespace Spark::Resource
         {
             return;
         }
+
+        // EnvironmentCubemap usage routes through the GPU baker: the equirect raw is
+        // baked into a 6-face cube and wrapped as a cube ImageAssetData. The default
+        // Texture2D path (mip-gen + optional BCn) is untouched.
+        const auto* desc = static_cast<const ImageAssetDescriptor*>(ctx.id.GetDescriptor());
+        if (desc && desc->usage == ImageUsage::EnvironmentCubemap)
+        {
+            if (!m_baker.IsInitialized())
+            {
+                LOG_ERROR("[ImageAssetBuilder] EnvironmentCubemap asset requested but the "
+                          "baker is not initialized (call InitEnvironmentBaker during setup): {}",
+                          ctx.id.GetPath().c_str());
+                return;
+            }
+
+            auto& raw = static_cast<ImageAssetRawData&>(*ctx.rawData);
+            BakedCubemap baked = m_baker.Bake(raw, desc->cubemapFaceSize);
+            if (!baked.IsValid())
+            {
+                LOG_ERROR("[ImageAssetBuilder] EnvironmentBaker failed for {}",
+                          ctx.id.GetPath().c_str());
+                return;
+            }
+            ctx.compiledData = m_compiler.AssembleCubemapData(eastl::move(baked));
+            return;
+        }
+
         ctx.compiledData = m_compiler.Compile(ctx.id, *ctx.rawData);
     }
 }

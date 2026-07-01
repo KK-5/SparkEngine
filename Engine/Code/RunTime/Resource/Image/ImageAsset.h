@@ -35,12 +35,21 @@ namespace Spark::Resource
         sRGB,
     };
 
+    enum class ImageUsage : uint8_t
+    {
+        Texture2D,
+        EnvironmentCubemap,
+    };
+
     class ImageAssetDescriptor : public AssetDescriptor
     {
     public:
         TextureCompression compression  = TextureCompression::BC3_RGBA;
         ImageColorSpace    colorSpace   = ImageColorSpace::sRGB;
         uint32_t           maxMipLevels = 0; // 0 = full chain; 1 = no mips beyond base
+
+        ImageUsage         usage           = ImageUsage::Texture2D;
+        uint32_t           cubemapFaceSize = 1024; // per-face resolution when usage == EnvironmentCubemap
 
         AssetHash Hash() const override;
     };

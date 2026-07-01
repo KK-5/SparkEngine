@@ -4,6 +4,8 @@
 #include <stb_dxt.h>
 #include <ktx.h>
 
+#include "EnvironmentBaker.h"
+
 namespace Spark::Resource
 {
     namespace
@@ -429,6 +431,41 @@ namespace Spark::Resource
         return result;
     }
 
+
+    UniquePtr<AssetData> ImageAssetCompiler::AssembleCubemapData(BakedCubemap&& baked)
+    {
+        if (!baked.IsValid())
+        {
+            LOG_ERROR("[ImageAssetCompiler] AssembleCubemapData: invalid baked cubemap.");
+            return nullptr;
+        }
+
+        // RGBA16F, tight rows. Per-face byte size for the (single) base mip.
+        constexpr uint32_t kCubeBytesPP  = 8; // R16G16B16A16_FLOAT
+        constexpr uint32_t kNumCubeFaces = 6;
+        const uint64_t perFaceBytes =
+            static_cast<uint64_t>(baked.faceSize) * baked.faceSize * kCubeBytesPP;
+
+        auto result = MakeUnique<ImageAssetData>();
+        result->m_width       = baked.faceSize;
+        result->m_height      = baked.faceSize;
+        result->m_mipLevels   = 1;
+        result->m_arrayLayers = kNumCubeFaces;
+        result->m_format      = baked.format; // R16G16B16A16_FLOAT
+        result->m_textureBytes = eastl::move(baked.faceBytes);
+
+        // m_mips is indexed by mip level only (no per-layer offset). The upload path
+        // does not read it (it recomputes each subresource via GetImageSubresourceLayout);
+        // it is only consulted by GetMipRange / SerializeToKtx2. One entry describing the
+        // base mip's per-face size is a correct placeholder until the multi-layer m_mips
+        // layout lands (M5).
+        result->m_mips.push_back({0, perFaceBytes});
+
+        LOG_INFO("[ImageAssetCompiler] baked cubemap: {} faces @ {}px, {}B",
+            kNumCubeFaces, baked.faceSize, result->m_textureBytes.size());
+
+        return result;
+    }
 
     RHI::Format ImageAssetCompiler::MapToRHIFormat(ImageFormat src, TextureCompression compression, ImageColorSpace colorSpace)
     {

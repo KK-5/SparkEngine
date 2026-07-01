@@ -76,6 +76,7 @@ namespace Spark
         m_assetManager->Init();
         m_assetManager->AddSearchPath("Engine/Asset");
         m_assetManager->AssetRegistry();
+        m_assetManager->InitEnvironmentBaker();
 
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();

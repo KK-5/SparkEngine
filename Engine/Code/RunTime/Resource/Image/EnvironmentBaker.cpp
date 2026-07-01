@@ -59,6 +59,7 @@ namespace Spark::Resource
         }
     }
 
+    EnvironmentBaker::EnvironmentBaker() = default;
     EnvironmentBaker::~EnvironmentBaker() = default;
 
     bool EnvironmentBaker::Init()
@@ -97,7 +98,6 @@ namespace Spark::Resource
                       shader ? static_cast<int>(shader->GetStatus()) : -1);
             return false;
         }
-        LOG_INFO("[EnvironmentBaker] bake shader loaded.");
 
         // Reflected layout (asset-layer BuildShaderInputList) -> PipelineLayoutDescriptor.
         ShaderInputBuildResult built = BuildShaderInputList(*shader);
@@ -106,9 +106,6 @@ namespace Spark::Resource
             LOG_ERROR("[EnvironmentBaker] Bake shader produced no shader inputs.");
             return false;
         }
-        LOG_INFO("[EnvironmentBaker] reflected: buffers={}, images={}, samplers={}, constants={}, stageMask={}",
-                 built.list.m_buffers.size(), built.list.m_images.size(), built.list.m_samplers.size(),
-                 built.list.m_constants.size(), static_cast<uint32_t>(built.stageMask));
         m_layout = m_factory->CreatePipelineLayoutDescriptor();
         m_layout->AddShaderInputDescriptors(built.list, built.stageMask);
         m_layout->Finalize();
@@ -142,7 +139,6 @@ namespace Spark::Resource
             m_factory->CreateShaderStageFunction(RHI::ShaderStage::Compute);
         csFunc->SetByteCode(csBytecode->bytecode);
         csFunc->Finalize();
-        LOG_INFO("[EnvironmentBaker] compute PSO inputs built.");
 
         m_pso = m_factory->CreatePipelineState();
         RHI::PipelineStateDescriptorForDispatch psoDesc;
@@ -153,7 +149,6 @@ namespace Spark::Resource
             LOG_ERROR("[EnvironmentBaker] Compute PSO init failed.");
             return false;
         }
-        LOG_INFO("[EnvironmentBaker] compute PSO created.");
 
         // Own dedicated graphics queue + recorder + fence. Graphics queue runs the
         // compute dispatch + copies with no queue-class restrictions; the compute
@@ -382,7 +377,6 @@ namespace Spark::Resource
             RHI::ShaderInputCompiler& compiler = m_factory->AcquireShaderInputCompiler(*m_device);
             compiler.Compile(*m_bindings);
         }
-        LOG_INFO("[EnvironmentBaker] bindings compiled.");
 
         // ---- Readback buffers: one per face (offset 0, always aligned) ----
         // GetSubresourceLayouts writes by GLOBAL subresource index (mip + array*mipLevels),
@@ -395,10 +389,6 @@ namespace Spark::Resource
         cubeImg->GetSubresourceLayouts(
             RHI::ImageSubresourceRange(0, 0, 0, static_cast<uint16_t>(kNumCubeFaces - 1)),
             subresLayouts.data(), nullptr);
-        /*
-        LOG_INFO("[EnvironmentBaker] got cube subresource layouts (face0 row={}, img={}).",
-                 FaceLayout(0).m_bytesPerRow, FaceLayout(0).m_bytesPerImage);
-        */
 
         // Base-mip (mip 0) layout of cube face f.
         auto FaceLayout = [&](uint32_t f) -> const RHI::ImageSubresourceLayout&
@@ -423,12 +413,8 @@ namespace Spark::Resource
             }
         }
 
-        LOG_INFO("[EnvironmentBaker] readback buffers created.");
-
         // ---- Record: upload -> dispatch -> readback ----
-        // m_recorder->Reset();
         RHI::CommandList* cmd = m_recorder->GetCommandList();
-        LOG_INFO("[EnvironmentBaker] rec: cmd list open.");
 
         RHI::BufferBarrier stageBarrier = RHI::ConvertToCopyRead(*stageBuf);
         cmd->QueueBarrier(stageBarrier);
@@ -450,7 +436,6 @@ namespace Spark::Resource
             up.m_destinationOrigin    = RHI::Origin(0, 0, 0);
             cmd->Submit(RHI::CopyItem(up));
         }
-        LOG_INFO("[EnvironmentBaker] rec: equirect upload copy submitted.");
 
         // equirect -> shader read, cube -> shader write (UAV).
         RHI::ImageBarrier equirectReadBarrier = RHI::ConvertToImageShaderRead(*equirectImg);
@@ -459,10 +444,8 @@ namespace Spark::Resource
         cmd->QueueBarrier(cubeWriteBarrier);
         cmd->FlushBarriers();
 
-        LOG_INFO("[EnvironmentBaker] rec: upload+barriers done, binding dispatch.");
         cmd->SetPipelineState(*m_pso);
         cmd->BindShaderInputsForDispatch(*m_bindings);
-        LOG_INFO("[EnvironmentBaker] rec: dispatch inputs bound.");
         {
             RHI::DispatchItem di;
             di.m_arguments = RHI::DispatchArguments(
@@ -470,7 +453,6 @@ namespace Spark::Resource
             di.m_pipelineState = m_pso.get();
             cmd->Submit(di);
         }
-        LOG_INFO("[EnvironmentBaker] rec: dispatch submitted.");
 
         // cube -> copy read, then read each face back.
         RHI::ImageBarrier cubeReadBarrier = RHI::ConvertToImageCopyRead(*cubeImg);
@@ -493,7 +475,6 @@ namespace Spark::Resource
         }
 
         cmd->Close();
-        LOG_INFO("[EnvironmentBaker] commands recorded.");
 
         // ---- Submit + block ----
         // FlushCommands = Reset (advances the fence's pending value via Increment) ->
@@ -503,7 +484,6 @@ namespace Spark::Resource
         RHI::CommandList* lists[] = { cmd };
         m_queue->ExecuteCommands(lists);
         m_queue->FlushCommands(*m_fence);
-        LOG_INFO("[EnvironmentBaker] GPU finished, reading back.");
         m_recorder->Reset();
 
         // ---- Read back faces, de-pad rows into a tight, face-major buffer ----

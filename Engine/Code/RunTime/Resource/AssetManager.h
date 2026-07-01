@@ -47,6 +47,11 @@ namespace Spark::Resource
 
         void ReleaseAsset(const AssetId& id) override;
 
+        //! Opt-in, main-thread setup of the image builder's GPU EnvironmentBaker.
+        //! Call after Init() and AddSearchPath(), before any cubemap asset is requested
+        //! (see ImageAssetBuilder::InitEnvironmentBaker). 
+        bool InitEnvironmentBaker();
+
     private:
         Ptr<Asset> CreateAsset(const AssetId& id, AssetType type);
 

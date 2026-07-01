@@ -22,7 +22,15 @@ namespace Spark::Resource
     class AssetDescriptor : public Object
     {
     public:
+        AssetDescriptor() = default;
         ~AssetDescriptor() override = default;
+
+        // Object holds a non-copyable intrusive refcount, which would otherwise delete
+        // every descriptor's copy ctor and break AssetId::Of<T>(path, desc). Copying a
+        // descriptor yields a fresh, unreferenced object (the clone gets its own count),
+        // which is exactly what Of wants when it clones a caller's stack descriptor.
+        AssetDescriptor(const AssetDescriptor&) : Object() {}
+        AssetDescriptor& operator=(const AssetDescriptor&) { return *this; }
 
         virtual AssetHash Hash() const = 0;
 

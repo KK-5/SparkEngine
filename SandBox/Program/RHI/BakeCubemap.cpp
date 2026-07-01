@@ -1,9 +1,11 @@
-// BakeCubemap — standalone runtime verification of EnvironmentBaker.
+// BakeCubemap — standalone verification of the EnvironmentCubemap asset pipeline.
 //
-// Headless (no window / swapchain): init the DX12 RHI device + AssetManager, load
-// an equirectangular HDRI through the engine's ImageAssetLoader, run the compute
-// bake, and dump the six readback faces as PNG (RGBA16F -> Reinhard tonemap + gamma).
-// Eyeball the PNGs for direction correctness + seam continuity.
+// Headless (no window / swapchain): init the DX12 RHI device + AssetManager, then
+// LoadAsset<ImageAsset> an equirectangular HDRI with an EnvironmentCubemap descriptor.
+// This drives the real path — ImageAssetBuilder::Compile routes through the GPU
+// EnvironmentBaker and returns a 6-face cube ImageAssetData (arrayLayers == 6). We
+// verify the shape, then dump the six faces as PNG (RGBA16F -> Reinhard tonemap + gamma)
+// to eyeball direction correctness + seam continuity.
 
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
@@ -17,8 +19,6 @@
 #include <Resource/AssetManager.h>
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Image/ImageAsset.h>
-#include <Resource/Image/ImageAssetLoader.h>
-#include <Resource/Image/EnvironmentBaker.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
@@ -102,60 +102,70 @@ int main(int, char**)
         return 1;
     }
 
-    // --- AssetManager (the baker resolves its bake shader through this) ---
+    // --- AssetManager: search paths + baker up before requesting the cube asset ---
     auto assetManager = CreateSystem<Resource::SparkAssetManager>();
     assetManager->Init();
     assetManager->AddSearchPath(ENGINE_ASSET_DIR); // "Shaders/Image/EnvironmentBake.hlsl"
-    assetManager->AddSearchPath(SHADER_ASSET_DIR); // SandBox/Asset
-
-    // --- Load equirect HDRI through the engine loader (no raw stbi) ---
-    Resource::ImageAssetLoader loader;
-    loader.SetSearchPaths({ eastl::string(SHADER_ASSET_DIR) });
-    LOG_INFO("[BakeCubemap] loader search path: {}", SHADER_ASSET_DIR);
-    UniquePtr<Resource::AssetData> raw =
-        loader.Load(Resource::AssetId::Of<Resource::ImageAsset>("Image/Table_Defringed_4k2k.hdr"));
-    LOG_INFO("[BakeCubemap] loader.Load returned: {}", raw ? "non-null" : "NULL");
-    auto* equirect = static_cast<Resource::ImageAssetRawData*>(raw.get());
-    if (equirect)
+    assetManager->AddSearchPath(SHADER_ASSET_DIR); // SandBox/Asset (the HDRI)
+    if (!assetManager->InitEnvironmentBaker())
     {
-        LOG_INFO("[BakeCubemap] raw: {}x{}, pixelBytes={}",
-                 equirect->GetWidth(), equirect->GetHeight(), equirect->GetPixels().size());
-    }
-    if (!equirect || equirect->GetPixels().empty())
-    {
-        LOG_ERROR("[BakeCubemap] Failed to load equirect HDRI.");
+        LOG_ERROR("[BakeCubemap] InitEnvironmentBaker failed.");
         return 1;
     }
-    LOG_INFO("[BakeCubemap] Loaded equirect {}x{}, HDR={}",
-             equirect->GetWidth(), equirect->GetHeight(), equirect->IsHDR());
 
-    // --- Bake ---
-    Resource::EnvironmentBaker baker;
-    if (!baker.Init())
-    {
-        LOG_ERROR("[BakeCubemap] Baker init failed.");
-        return 1;
-    }
-    LOG_INFO("[BakeCubemap] baker.Init OK -> baking...");
+    // --- Drive the real pipeline: an EnvironmentCubemap image asset ---
+    // usage == EnvironmentCubemap routes Compile through the GPU baker; Linear + None
+    // keeps the HDR float data intact. Descriptor is part of the AssetId hash, so this
+    // is a distinct asset from the same .hdr loaded as a plain 2D texture.
     const uint32_t faceSize = 1024;
-    Resource::BakedCubemap cube = baker.Bake(*equirect, faceSize);
-    LOG_INFO("[BakeCubemap] Bake returned (valid={}).", cube.IsValid());
-    if (!cube.IsValid())
+    Resource::ImageAssetDescriptor cubeDesc;
+    cubeDesc.usage           = Resource::ImageUsage::EnvironmentCubemap;
+    cubeDesc.colorSpace      = Resource::ImageColorSpace::Linear;
+    cubeDesc.compression     = Resource::TextureCompression::None;
+    cubeDesc.cubemapFaceSize = faceSize;
+
+    // Go through the AssetManager interface: the concrete override
+    // LoadAsset(AssetId, AssetType) would otherwise name-hide the base LoadAsset<T>.
+    auto* am = Service<Resource::AssetManager>::Get();
+    Ptr<Resource::ImageAsset> image = am->LoadAsset<Resource::ImageAsset>(
+        Resource::AssetId::Of<Resource::ImageAsset>("Image/Table_Defringed_4k2k.hdr", cubeDesc));
+
+    if (!image || image->GetStatus() != Resource::AssetStatus::Ready)
     {
-        LOG_ERROR("[BakeCubemap] Bake produced no result.");
+        LOG_ERROR("[BakeCubemap] Cubemap asset failed to load/compile (status={}).",
+                  image ? static_cast<int>(image->GetStatus()) : -1);
         return 1;
     }
-    LOG_INFO("[BakeCubemap] Baked cube: {} faces @ {}px.", 6, cube.faceSize);
 
-    // --- Dump faces as tonemapped PNG ---
+    const Resource::ImageAssetData* data = image->GetImageData();
+    if (!data)
+    {
+        LOG_ERROR("[BakeCubemap] Cubemap asset has no image data.");
+        return 1;
+    }
+
+    // --- Verify the compiled shape ---
+    const size_t faceTexels     = static_cast<size_t>(faceSize) * faceSize;
+    const size_t faceByteStride = faceTexels * 8; // RGBA16F, tight
+    const size_t expectedBytes  = faceByteStride * 6;
+    LOG_INFO("[BakeCubemap] compiled cube: {}x{}, arrayLayers={}, mips={}, format={}, bytes={} (expect {})",
+             data->GetWidth(), data->GetHeight(), data->GetArrayLayers(), data->GetMipLevels(),
+             static_cast<int>(data->GetFormat()), data->GetTextureBytes().size(), expectedBytes);
+    if (data->GetArrayLayers() != 6 || data->GetWidth() != faceSize ||
+        data->GetTextureBytes().size() != expectedBytes)
+    {
+        LOG_ERROR("[BakeCubemap] Unexpected compiled cube shape.");
+        return 1;
+    }
+
+    // --- Dump faces as tonemapped PNG (face-major, RGBA16F) ---
     static const char* kFaceNames[6] = { "0_posX", "1_negX", "2_posY", "3_negY", "4_posZ", "5_negZ" };
-    const size_t faceTexels    = static_cast<size_t>(faceSize) * faceSize;
-    const size_t faceByteStride = faceTexels * 8; // RGBA16F
+    const uint8_t* faceBytes = data->GetTextureBytes().data();
 
     eastl::vector<uint8_t> rgba8(faceTexels * 4);
     for (uint32_t f = 0; f < 6; ++f)
     {
-        const auto* faceHalf = reinterpret_cast<const uint16_t*>(cube.faceBytes.data() + f * faceByteStride);
+        const auto* faceHalf = reinterpret_cast<const uint16_t*>(faceBytes + f * faceByteStride);
         for (size_t i = 0; i < faceTexels; ++i)
         {
             rgba8[i * 4 + 0] = ToneMapToByte(HalfToFloat(faceHalf[i * 4 + 0]));

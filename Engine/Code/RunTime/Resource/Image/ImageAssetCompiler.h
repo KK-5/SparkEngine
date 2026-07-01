@@ -7,6 +7,8 @@
 
 namespace Spark::Resource
 {
+    struct BakedCubemap;
+
     namespace VkFormatValue
     {
         constexpr uint32_t UNDEFINED                = 0;
@@ -36,6 +38,8 @@ namespace Spark::Resource
         ~ImageAssetCompiler() = default;
 
         UniquePtr<AssetData> Compile(const AssetId& id, AssetData& rawData);
+
+        UniquePtr<AssetData> AssembleCubemapData(BakedCubemap&& baked);
 
     private:
         static RHI::Format MapToRHIFormat(ImageFormat src, TextureCompression compression, ImageColorSpace colorSpace);

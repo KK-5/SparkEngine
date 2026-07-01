@@ -13,6 +13,13 @@ namespace Spark::Resource
         eastl::hash_combine(h, static_cast<size_t>(compression));
         eastl::hash_combine(h, static_cast<size_t>(colorSpace));
         eastl::hash_combine(h, static_cast<size_t>(maxMipLevels));
+        eastl::hash_combine(h, static_cast<size_t>(usage));
+        // faceSize only matters for the cubemap path; folding it unconditionally
+        // would make two otherwise-identical Texture2D descriptors hash apart.
+        if (usage == ImageUsage::EnvironmentCubemap)
+        {
+            eastl::hash_combine(h, static_cast<size_t>(cubemapFaceSize));
+        }
         return static_cast<AssetHash>(h);
     }
 

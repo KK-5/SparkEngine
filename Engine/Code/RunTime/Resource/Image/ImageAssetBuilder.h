@@ -5,6 +5,7 @@
 
 #include "ImageAssetLoader.h"
 #include "ImageAssetCompiler.h"
+#include "EnvironmentBaker.h"
 
 
 namespace Spark::Resource
@@ -29,11 +30,14 @@ namespace Spark::Resource
         void       Load(AssetBuildContext& ctx) override;
         void       Compile(AssetBuildContext& ctx) override;
 
+        bool InitEnvironmentBaker();
+
     private:
         void InitInternal() override;
         void ShutdownInternal() override;
 
         ImageAssetLoader   m_loader;
         ImageAssetCompiler m_compiler;
+        EnvironmentBaker   m_baker;
     };
 }
