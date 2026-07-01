@@ -593,15 +593,15 @@ namespace Spark::RHI::DX12
         }
         else if (myQueue == barrier.m_srcQueue)
         {
-            // Release: srcUsage → COMMON. Resource is now in a queue-agnostic
-            // state; m_queue records "the queue that just released it" so the
-            // next consumer's m_lastQueue check sees the right source side.
+            // Release half: srcUsage → COMMON on the releasing queue. Deliberately
+            // does NOT touch the tracked ResourceState — see the ImageBarrier
+            // overload for the full rationale (the release races its cross-queue
+            // acquire on another queue/thread and, landing last, would park the
+            // resource at a transit state the render graph then re-acquires).
             CommandListBase::QueueTransitionBarrier(
                 resource,
                 ConvertBufferAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
                 D3D12_RESOURCE_STATE_COMMON);
-            RHI::CommandList::SetResourceState(*barrier.m_buffer,
-                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown, myQueue, RHI::AttachmentStage::Any });
         }
         else
         {
@@ -644,13 +644,21 @@ namespace Spark::RHI::DX12
         }
         else if (myQueue == barrier.m_srcQueue)
         {
-            // Release: see BufferBarrier overload for rationale.
+            // Release half: srcUsage → COMMON on the releasing queue. Deliberately
+            // does NOT touch the tracked ResourceState. The release runs on a
+            // different queue/thread than the matching acquire (e.g. async upload's
+            // Copy queue vs the graphics acquire); writing the transit COMMON here
+            // races the acquire and, landing last, would leave the resource parked
+            // at {Uninitialized, srcQueue}. The render-graph compile then re-reads
+            // that as "still needs a cross-queue acquire" and re-emits a COMMON→target
+            // barrier onto an already-transitioned resource (D3D12 error #527). The
+            // destination queue's acquire is the sole authority for the post-handoff
+            // state; the source queue the acquire needs for its cross-queue detection
+            // is already carried by the pre-release tracked state.
             CommandListBase::QueueTransitionBarrier(
                 resource,
                 ConvertImageAttachmentState(barrier.m_srcUsage, barrier.m_srcAccess),
                 D3D12_RESOURCE_STATE_COMMON);
-            RHI::CommandList::SetResourceState(*barrier.m_image,
-                RHI::ResourceState{ RHI::AttachmentUsage::Uninitialized, RHI::AttachmentAccess::Unknown, myQueue, RHI::AttachmentStage::Any });
         }
         else
         {

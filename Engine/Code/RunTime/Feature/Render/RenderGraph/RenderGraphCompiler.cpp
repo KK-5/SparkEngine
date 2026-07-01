@@ -85,11 +85,20 @@ namespace
                 }
 
                 const RHI::ResourceState src = buf->m_buffer->GetResourceState();
-                const RHI::ResourceState dst = CompileResourceState(att);
+                RHI::ResourceState       dst = CompileResourceState(att);
 
                 const auto homeQueue = ResolveHomeQueue(
                     buf->m_buffer->GetDescriptor().m_sharedQueueMask);
                 const auto qi = static_cast<uint32_t>(homeQueue);
+                // Pin dst to the resource's steady (post-acquire) identity — its home
+                // queue and the attachment's shader stage. CompileResourceState only
+                // fills usage/access, leaving stage=Any / queue=default; without this
+                // the acquired src ({Shader, homeQueue, FragmentShader}) never equals
+                // dst and the steady-state guard below re-emits a redundant barrier
+                // every frame. Scoped here (not in CompileResourceState) so the
+                // transient per-pass paths keep their own comparison semantics.
+                dst.m_queue = homeQueue;
+                dst.m_stage = att.m_stage;
 
                 if (src == dst && src.m_queue == homeQueue)
                 {
@@ -153,11 +162,16 @@ namespace
                 }
 
                 const RHI::ResourceState src = img->m_image->GetResourceState();
-                const RHI::ResourceState dst = CompileResourceState(att);
+                RHI::ResourceState       dst = CompileResourceState(att);
 
                 const auto homeQueue = ResolveHomeQueue(
                     img->m_image->GetDescriptor().m_sharedQueueMask);
                 const auto qi = static_cast<uint32_t>(homeQueue);
+                // See the buffer path above: pin dst to the acquired identity (home
+                // queue + attachment stage) so the steady-state guard recognises the
+                // resource and stops re-emitting once the handoff has settled.
+                dst.m_queue = homeQueue;
+                dst.m_stage = att.m_stage;
 
                 if (src == dst && src.m_queue == homeQueue)
                 {
