@@ -1099,7 +1099,12 @@ namespace Spark::RHI::DX12
         samplerDesc.AddressV = ConvertAddressMode(state.m_addressV);
         samplerDesc.AddressW = ConvertAddressMode(state.m_addressW);
         ConvertBorderColor(state.m_borderColor, samplerDesc.BorderColor);
-        samplerDesc.ComparisonFunc = ConvertComparisonFunc(state.m_comparisonFunc);
+        // ComparisonFunc is only meaningful for comparison filters. For non-comparison
+        // samplers it must be NONE — any other value makes the D3D12 debug layer warn
+        // that the comparison func will be ignored (CREATE_SAMPLER_COMPARISON_FUNC_IGNORED).
+        samplerDesc.ComparisonFunc = (state.m_reductionType == RHI::ReductionType::Comparison)
+            ? ConvertComparisonFunc(state.m_comparisonFunc)
+            : D3D12_COMPARISON_FUNC_NONE;
         samplerDesc.Filter = filter;
         samplerDesc.MaxAnisotropy = uint8_t(state.m_anisotropyMax);
         samplerDesc.MaxLOD = uint8_t(state.m_mipLodMax);

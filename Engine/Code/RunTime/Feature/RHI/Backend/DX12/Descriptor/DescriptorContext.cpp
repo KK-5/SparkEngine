@@ -192,7 +192,8 @@ namespace Spark::RHI::DX12
         samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
         samplerDesc.MipLODBias = 0.0f;
         samplerDesc.MaxAnisotropy = 1;
-        samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        // Non-comparison sampler: NONE, else the debug layer warns the func is ignored.
+        samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NONE;
         m_D3D12Device->CreateSampler(&samplerDesc, GetCpuNativeHandle(m_nullSamplerDescriptor));
     }
 
