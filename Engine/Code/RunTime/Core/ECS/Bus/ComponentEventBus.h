@@ -19,10 +19,10 @@ namespace Spark
     public:
         virtual void OnComponentConstruct(Entity entity) {};
 
-        /// Dispatched from WorldContext::Repalce before registry state is replaced when ComponentEventMask::WillUpdate is set.
+        /// Dispatched from WorldContext::Replace before registry state is replaced when ComponentEventMask::WillUpdate is set.
         virtual void OnComponentWillUpdate(Entity entity) {};
 
-        /// Dispatched from WorldContext::Repalce after registry state is replaced when ComponentEventMask::Updated is set.
+        /// Dispatched from WorldContext::Replace after registry state is replaced when ComponentEventMask::Updated is set.
         virtual void OnComponentUpdated(Entity entity) {};
 
         virtual void OnComponentDestory(Entity entity) {};

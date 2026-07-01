@@ -207,13 +207,13 @@ namespace Spark
         }
 
         template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) == ComponentEventMask::None, int> = 0>
-        decltype(auto) Repalce(Entity entity, Args&&... args)
+        decltype(auto) Replace(Entity entity, Args&&... args)
         {
             return m_registry.replace<T>(entity, eastl::forward<Args>(args)...);
         }
 
         template<typename T, typename... Args, eastl::enable_if_t<(ComponentTraits<T>::componentEvents & (ComponentEventMask::WillUpdate | ComponentEventMask::Updated)) != ComponentEventMask::None, int> = 0>
-        decltype(auto) Repalce(Entity entity, Args&&... args)
+        decltype(auto) Replace(Entity entity, Args&&... args)
         {
             if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::WillUpdate) != ComponentEventMask::None)
             {

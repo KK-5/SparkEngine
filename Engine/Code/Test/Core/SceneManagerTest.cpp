@@ -184,7 +184,7 @@ TEST_F(SceneManagerTest, HierarchyComponentUpdate)
 
     Hierarchy newCom1;
     newCom1.parent = NullEntity;
-    context.Repalce<Hierarchy>(ent1, newCom1);
+    context.Replace<Hierarchy>(ent1, newCom1);
     EXPECT_EQ(scene->GetEntityCount(), 2);
     EXPECT_TRUE(scene->Contain(ent0));
     EXPECT_TRUE(scene->Contain(ent1));
@@ -204,7 +204,7 @@ TEST_F(SceneManagerTest, HierarchyComponentUpdate)
 
     Hierarchy newCom2;
     com2.parent = ent1;
-    context.Repalce<Hierarchy>(ent2, com2);
+    context.Replace<Hierarchy>(ent2, com2);
     EXPECT_EQ(scene->GetEntityCount(), 3);
     EXPECT_TRUE(scene->Contain(ent0));
     EXPECT_TRUE(scene->Contain(ent1));
@@ -214,7 +214,7 @@ TEST_F(SceneManagerTest, HierarchyComponentUpdate)
     CheckHierarchy(context, ent2, ent1, NullEntity, NullEntity, NullEntity);
 
     Hierarchy newerCom2;
-    context.Repalce<Hierarchy>(ent2, newerCom2);
+    context.Replace<Hierarchy>(ent2, newerCom2);
     EXPECT_EQ(scene->GetEntityCount(), 3);
     EXPECT_TRUE(scene->Contain(ent0));
     EXPECT_TRUE(scene->Contain(ent1));

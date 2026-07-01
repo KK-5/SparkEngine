@@ -102,7 +102,7 @@ namespace Spark
         }
 
         template<typename T, typename... Args>
-        decltype(auto) Repalce(Entity entity, Args&&... args)
+        decltype(auto) Replace(Entity entity, Args&&... args)
         {
             return m_registry.template replace<T>(entity, eastl::forward<Args>(args)...);
         }

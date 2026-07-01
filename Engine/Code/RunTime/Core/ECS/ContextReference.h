@@ -128,12 +128,12 @@ namespace Spark
         }
 
         template <typename T, typename... Args>
-        decltype(auto) Repalce(Entity entity, Args&&... args)
+        decltype(auto) Replace(Entity entity, Args&&... args)
         {
             static_assert(CanWriteComponentV<T>,
-                "ContextReference::Repalce<T>: write access required. Declare WriteComponent<T>, "
+                "ContextReference::Replace<T>: write access required. Declare WriteComponent<T>, "
                 "ReadWriteComponent<T>, WriteComponent<All>, or ReadWriteComponent<All>.");
-            return m_context.template Repalce<T>(entity, eastl::forward<Args>(args)...);
+            return m_context.template Replace<T>(entity, eastl::forward<Args>(args)...);
         }
 
         template <typename... T>

@@ -36,7 +36,7 @@ namespace Spark
             .Func<Overload<T&(Entity, const T&)>(&WorldContext::Add<T, const T&>)>("AddComponent")
             .Func<&WorldContext::AddOrReplace<T, const T&>>("AddOrReplaceComponent")
             .Func<&WorldContext::Remove<T>>("RemoveComponent")
-            .Func<&WorldContext::Repalce<T>>("ReplaceComponent");
+            .Func<&WorldContext::Replace<T, const T&>>("ReplaceComponent");
     }
     ;
 }

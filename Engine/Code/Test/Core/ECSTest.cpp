@@ -448,7 +448,7 @@ TEST(ECSTest, ComponentBus)
     EXPECT_FLOAT_EQ(handler.m_velocity.dy, 0.2f);
 
     context.AddOrReplace<Position>(ent1, 2.f, 2.f);
-    context.Repalce<Velocity>(ent1, 0.5f, 0.5f);
+    context.Replace<Velocity>(ent1, 0.5f, 0.5f);
     EXPECT_FLOAT_EQ(handler.m_position.x, 2.f);
     EXPECT_FLOAT_EQ(handler.m_position.y, 2.f);
     EXPECT_FLOAT_EQ(handler.m_velocity.dx, 0.5f);
