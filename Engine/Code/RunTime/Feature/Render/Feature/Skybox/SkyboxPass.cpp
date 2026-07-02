@@ -28,12 +28,13 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // Color-only: writes the existing SceneColor, no depth attachment in this first
-        // cut (there is no opaque geometry yet, so the LessEqual depth interaction is a
-        // no-op; it is added once geometry exists).
+        // Writes SceneColor and depth-tests (read-only) against SceneDepth from
+        // DepthPrePass, so the sky only fills pixels no opaque geometry claimed. The
+        // depth format must match the SceneDepth attachment DepthPrePass creates.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 1;
         rt.m_colorFormats[0]      = RHI::Format::R8G8B8A8_UNORM;
+        rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         // Empty input layout: the full-screen triangle is generated from SV_VertexID,
         // there is no vertex buffer.
@@ -42,9 +43,15 @@ namespace Spark::Render
         RHI::InputStreamLayout input = builder.End();
 
         RHI::RenderStates states;
-        states.m_depthStencilState.m_depth.m_enable   = 0; // no depth test/write (first cut)
-        states.m_depthStencilState.m_stencil.m_enable = 0;
-        states.m_rasterState.m_cullMode               = RHI::CullMode::None; // full-screen triangle
+        // Depth-test against SceneDepth but never write: the sky sits on the far plane
+        // (NDC z = 1) and must survive only where no nearer opaque depth was written.
+        // LessEqual (not Less) is required — the sky's z equals the depth clear value
+        // 1.0, so a strict Less would reject every sky pixel.
+        states.m_depthStencilState.m_depth.m_enable    = 1;
+        states.m_depthStencilState.m_depth.m_writeMask = RHI::DepthWriteMask::Zero;
+        states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::LessEqual;
+        states.m_depthStencilState.m_stencil.m_enable  = 0;
+        states.m_rasterState.m_cullMode                = RHI::CullMode::None; // full-screen triangle
 
         RenderPassConfig cfg;
         cfg.m_vertexShader       = shaderAsset;
@@ -82,6 +89,22 @@ namespace Spark::Render
 
                 builder.WriteImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
                     RHI::AttachmentId("SceneColor"), colorBind);
+
+                // Read-only depth test against DepthPrePass's SceneDepth: Load the existing
+                // depth to test against, Store it back unchanged. The sky never writes depth
+                // — that is enforced by AttachmentAccess::Read (ReadImageAttachment selects a
+                // READ_ONLY_DEPTH DSV), not by the store action, so PRESERVE/PRESERVE is the
+                // correct pairing. With the LessEqual / no-write render state this discards
+                // the sky wherever opaque geometry already wrote a nearer depth.
+                Render::ImageAttachmentBindInfo depthBind;
+                depthBind.m_slot  = RHI::InputName("SceneDepth");
+                depthBind.m_usage = RHI::AttachmentUsage::DepthStencil;
+                depthBind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
+                depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                builder.ReadImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
+                    RHI::AttachmentId("SceneDepth"), depthBind);
             })
             .Execute([](ExecuteWork& work, RenderGraphExecuter&)
             {

@@ -41,7 +41,8 @@ float2 DirectionToEquirectUV(float3 dir)
     dir = normalize(dir);
     float lon = atan2(dir.z, dir.x);          // [-PI, PI]
     float lat = asin(clamp(dir.y, -1.0, 1.0)); // [-PI/2, PI/2]
-    return float2(lon / TWO_PI + 0.5, 0.5 - lat / PI);
+
+    return float2(0.5 - lon / TWO_PI, 0.5 - lat / PI);
 }
 
 [numthreads(8, 8, 1)]
