@@ -62,7 +62,11 @@ namespace Spark::RHI::DX12
 
         void ReleaseHandle(DescriptorHandle& handle) override
         {
-            BasePool::DeAllocate(&handle);
+            // Queue the pool-owned stable handle, NOT &handle: the caller's DescriptorHandle
+            // (e.g. an ImageView's m_readDescriptor) is destroyed before the deferred collector
+            // reclaims it, so holding its address would dangle. &m_handlePool[index] is stable
+            // and is the same pointer CreateObject registered in m_objects (so erase matches too).
+            BasePool::DeAllocate(BasePool::GetFactory().GetPooledHandle(handle.m_index));
         }
 
         DescriptorTable AllocateTable(uint32_t count = 1) override

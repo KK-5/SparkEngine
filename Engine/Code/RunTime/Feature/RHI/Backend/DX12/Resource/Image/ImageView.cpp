@@ -93,6 +93,7 @@ namespace Spark::RHI::DX12
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::ShaderRead))
         {
             context.CreateShaderResourceView(image, viewDescriptor, m_readDescriptor, m_staticReadDescriptor);
+            LOG_INFO("[ImageView] Image {} Create SRV {}", GetResource().GetName().GetCStr(), m_readDescriptor.m_index);
         }
 
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::ShaderWrite))
@@ -121,7 +122,13 @@ namespace Spark::RHI::DX12
     {
         Device& device = static_cast<Device&>(GetDevice());
         DescriptorContext& context = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
-        
+
+        if (!m_readDescriptor.IsNull())
+        {
+            const uint32_t readIdx = m_readDescriptor.m_index;
+            LOG_INFO("[ImageView] Image {} Release SRV {}", GetResource().GetName().GetCStr(), readIdx);
+        }
+
         context.ReleaseDescriptor(m_readDescriptor);
         context.ReleaseDescriptor(m_readWriteDescriptor);
         context.ReleaseDescriptor(m_clearDescriptor);
@@ -131,5 +138,8 @@ namespace Spark::RHI::DX12
         context.ReleaseStaticDescriptor(m_staticReadDescriptor);
         context.ReleaseStaticDescriptor(m_staticReadWriteDescriptor);
         m_memory = nullptr;
+
+        m_readDescriptor = DescriptorHandle();
+        m_readWriteDescriptor = DescriptorHandle();
     }
 }

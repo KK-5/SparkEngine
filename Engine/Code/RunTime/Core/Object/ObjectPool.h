@@ -152,8 +152,14 @@ namespace Spark
         }
 
         //! Performs an object collection cycle. Objects which are collected can be reused by Allocate.
+        //! Held under m_mutex: the collector's collect callback mutates the same m_freeList /
+        //! m_objects / factory that Allocate touches, so the destroy path must serialize with
+        //! Allocate (they run on different threads once an off-loop system shares this pool).
+        //! Lock order is Pool::m_mutex -> Collector::m_mutex (taken inside m_collector.Collect);
+        //! DeAllocate only ever takes Collector::m_mutex, never the reverse, so no deadlock.
         void Collect()
         {
+            std::lock_guard<MutexType> lock(m_mutex);
             m_factory.BeginCollect();
             m_collector.Collect();
             m_factory.EndCollect();
@@ -162,6 +168,7 @@ namespace Spark
         //! Performs an object collection cycle that ignores the collect latency, processing all objects.
         void CollectForce()
         {
+            std::lock_guard<MutexType> lock(m_mutex);
             m_factory.BeginCollect();
             m_collector.Collect(true);
             m_factory.EndCollect();
@@ -174,6 +181,11 @@ namespace Spark
         }
 
         const ObjectFactoryType& GetFactory() const
+        {
+            return m_factory;
+        }
+
+        ObjectFactoryType& GetFactory()
         {
             return m_factory;
         }

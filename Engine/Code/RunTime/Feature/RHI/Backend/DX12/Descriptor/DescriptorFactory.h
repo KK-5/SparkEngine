@@ -32,6 +32,12 @@ namespace Spark::RHI::DX12
 
         bool IsRecycleObject(DescriptorHandle* handle);
 
+        //! Stable, pool-owned handle pointer for an index. m_handlePool is sized once in Init
+        //! and never reallocated, so this pointer is valid for the pool's whole lifetime —
+        //! unlike a caller's transient DescriptorHandle (e.g. an ImageView member), which the
+        //! deferred collector must NOT hold (it would dangle after the caller is destroyed).
+        DescriptorHandle* GetPooledHandle(uint32_t index) { return &m_handlePool[index]; }
+
         const Descriptor& GetDescriptor() const;
 
         D3D12_CPU_DESCRIPTOR_HANDLE GetD3D12CPUDescriptorHandle(const DescriptorHandle& handle) const;

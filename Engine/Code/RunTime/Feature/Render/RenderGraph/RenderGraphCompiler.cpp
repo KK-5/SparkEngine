@@ -1000,6 +1000,7 @@ namespace
 
                         RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos, life.m_firstStage };
                         RHI::Image* image = pool.CreateImage(info, fence);
+                        image->SetName(name);
                         ASSERT(image != nullptr,
                             "TransientResourcePool::CreateImage returned null for '{}'.",
                             name.GetCStr());
@@ -1019,6 +1020,7 @@ namespace
 
                         RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos, life.m_firstStage };
                         RHI::Buffer* buffer = pool.CreateBuffer(info, fence);
+                        buffer->SetName(name);
                         ASSERT(buffer != nullptr,
                             "TransientResourcePool::CreateBuffer returned null for '{}'.",
                             name.GetCStr());
