@@ -696,6 +696,10 @@ namespace Spark::RHI::DX12
         if (!descriptorHandle.IsNull())
         {
             GetPool(descriptorHandle.m_type, descriptorHandle.m_flags).ReleaseHandle(descriptorHandle);
+            // A released handle must become null: view objects are pooled and reused, and the
+            // creation path only re-allocates for handles that report IsNull(). Leaving the stale
+            // index here would make a reused view keep pointing at a reclaimed descriptor slot.
+            descriptorHandle = DescriptorHandle();
         }
     }
 
@@ -704,6 +708,7 @@ namespace Spark::RHI::DX12
         if (!handle.IsNull())
         {
             m_staticPool.ReleaseHandle(handle);
+            handle = DescriptorHandle();
         }
     }
 
@@ -714,7 +719,14 @@ namespace Spark::RHI::DX12
 
     void DescriptorContext::ReleaseDescriptorTable(DescriptorTable& table)
     {
-        GetPool(table.GetType(), table.GetFlags()).ReleaseTable(table);
+        if (!table.IsNull())
+        {
+            GetPool(table.GetType(), table.GetFlags()).ReleaseTable(table);
+            // Same reuse hazard as ReleaseDescriptor: holders like ShaderBindings decide whether
+            // to re-allocate based on IsValid(), so a released table must become null to force a
+            // fresh allocation instead of pointing at a reclaimed range.
+            table = DescriptorTable();
+        }
     }
 
     DescriptorPool& DescriptorContext::GetPool(D3D12_DESCRIPTOR_HEAP_TYPE type, D3D12_DESCRIPTOR_HEAP_FLAGS flags)
