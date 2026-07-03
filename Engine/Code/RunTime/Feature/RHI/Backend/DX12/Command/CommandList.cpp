@@ -978,6 +978,7 @@ namespace Spark::RHI::DX12
         // --- Depth-stencil attachment (optional) ------------------------------
         D3D12_RENDER_PASS_DEPTH_STENCIL_DESC depthStencil {};
         D3D12_RENDER_PASS_DEPTH_STENCIL_DESC* pDepthStencil = nullptr;
+        D3D12_RENDER_PASS_FLAGS renderPassFlags = D3D12_RENDER_PASS_FLAG_NONE;
 
         const auto* dsView = static_cast<const ImageView*>(info.m_depthStencilAttachment.m_view);
         if (dsView)
@@ -999,6 +1000,29 @@ namespace Spark::RHI::DX12
             depthStencil.StencilBeginningAccess = ConvertBeginningAccessStencil(dsFormat, dsLoadStore);
             depthStencil.StencilEndingAccess    = ConvertEndingAccessStencil(dsLoadStore);
             pDepthStencil = &depthStencil;
+
+            const bool stencilBeginNoAccess =
+                depthStencil.StencilBeginningAccess.Type == D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_NO_ACCESS;
+            const bool stencilEndNoAccess =
+                depthStencil.StencilEndingAccess.Type == D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
+
+            if (readOnlyDsv)
+            {
+                renderPassFlags |= D3D12_RENDER_PASS_FLAG_BIND_READ_ONLY_DEPTH;
+                if (!stencilBeginNoAccess)
+                {
+                    renderPassFlags |= D3D12_RENDER_PASS_FLAG_BIND_READ_ONLY_STENCIL;
+                }
+            }
+
+            if (RHI::Validation::isEnabled)
+            {
+                ASSERT(
+                    stencilBeginNoAccess == stencilEndNoAccess,
+                    "[CommandList] Depth-stencil attachment has mismatched stencil NO_ACCESS: "
+                    "begin and end stencil actions must both be None or both non-None. "
+                    "Fix the attachment's stencil load/store actions in the render graph.");
+            }
 
             SetSamplePositions(dsView->GetImage().GetDescriptor().m_multisampleState);
         }
@@ -1037,7 +1061,7 @@ namespace Spark::RHI::DX12
         }
 
         GetCommandList()->BeginRenderPass(
-            info.m_colorAttachmentCount, renderTargets, pDepthStencil, D3D12_RENDER_PASS_FLAG_NONE);
+            info.m_colorAttachmentCount, renderTargets, pDepthStencil, renderPassFlags);
     }
 
     void CommandList::EndRenderPass()

@@ -19,8 +19,8 @@ namespace Spark::RHI
             const ClearValue& clearValue = ClearValue(),
             AttachmentLoadAction loadAction = AttachmentLoadAction::Load,
             AttachmentStoreAction storeAction = AttachmentStoreAction::Store,
-            AttachmentLoadAction loadActionStencil = AttachmentLoadAction::Load,
-            AttachmentStoreAction storeActionStencil = AttachmentStoreAction::Store);
+            AttachmentLoadAction loadActionStencil = AttachmentLoadAction::None,
+            AttachmentStoreAction storeActionStencil = AttachmentStoreAction::None);
 
         bool operator==(const AttachmentLoadStoreAction& other) const;
             
@@ -34,9 +34,13 @@ namespace Spark::RHI
         AttachmentStoreAction m_storeAction = AttachmentStoreAction::Store;
 
         /// The stencil load action. Applies only to depth-stencil image attachments.
-        AttachmentLoadAction m_loadActionStencil = AttachmentLoadAction::Load;
+        /// Defaults to None (stencil untouched): most passes don't use stencil, so the
+        /// safe default is "not accessed". A pass that reads/writes stencil must set this
+        /// (and m_storeActionStencil) explicitly, and the format must have a stencil plane.
+        AttachmentLoadAction m_loadActionStencil = AttachmentLoadAction::None;
 
         /// The stencil store action. Applies only to depth-stencil image attachments.
-        AttachmentStoreAction m_storeActionStencil = AttachmentStoreAction::Store;
+        /// Defaults to None — see m_loadActionStencil.
+        AttachmentStoreAction m_storeActionStencil = AttachmentStoreAction::None;
     };
 }

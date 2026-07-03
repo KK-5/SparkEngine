@@ -102,6 +102,9 @@ namespace Spark::Render
                 depthBind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
                 depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                // Stencil actions default to None (SceneDepth is D32_FLOAT — no stencil
+                // plane), so the read-only depth DSV stays in DEPTH_READ without the
+                // backend synthesizing a stencil write (#538).
 
                 builder.ReadImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
                     RHI::AttachmentId("SceneDepth"), depthBind);
