@@ -1359,6 +1359,11 @@ namespace
                     startInstance  = 0;
                     objectBindings = direct.m_bindings;
                 },
+                [&](const NoInstanceBinding&)
+                {
+                    // Procedural draw: no per-object data. Defaults already hold
+                    // (startInstance = 0, objectBindings = Null, no idStream).
+                },
             }, d->m_instanceData);
 
             if (skip)

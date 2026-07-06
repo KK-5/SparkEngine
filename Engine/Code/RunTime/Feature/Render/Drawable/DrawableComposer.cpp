@@ -11,6 +11,7 @@
 #include <Mesh/Components.h>
 
 #include <Instance/InstanceSlot.h>
+#include <View/ViewTags.h>
 
 #include "Drawable.h"
 
@@ -57,6 +58,11 @@ namespace Spark::Render
                 [&](const DirectInstanceBinding& d2) -> bool
                 {
                     return d2.m_bindings != RHI::NullHandle && ctx.Has<DeadTag>(d2.m_bindings);
+                },
+                [&](const NoInstanceBinding&) -> bool
+                {
+                    // No per-object dependency to watch, so never reaped on this axis.
+                    return false;
                 },
             }, d.m_instanceData);
         }
@@ -169,6 +175,10 @@ namespace Spark::Render
 
             RHI::RHIHandle drawable = rhiCtx->CreateEntity();
             rhiCtx->Add<DrawableTag>(drawable);
+            // Placeholder culling stamp: no culling system yet, so every composed
+            // Drawable is visible to the main view. When culling lands it takes over
+            // the per-view set/clear of Visible<V> and this line goes away.
+            rhiCtx->Add<Visible<MainViewTag>>(drawable);
             rhiCtx->Add<Drawable>(drawable, ComposePersistent(
                 gpu, ref, instanceBindingEntity, idBufferEntity, idBufferByteCount));
             world->Add<WorldComposedTag>(wE);

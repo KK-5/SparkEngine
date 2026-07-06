@@ -87,6 +87,13 @@ namespace Spark::Render
         RHI::RHIHandle m_bindings = RHI::NullHandle;
     };
 
+    //! Per-object data provisioning — STRATEGY 0 (none). The draw has no per-object
+    //! data at all: no shared buffer, no per-draw SRG, no ID stream, StartInstance = 0.
+    //! Used by procedural draws (e.g. a full-screen skybox triangle) that still want to
+    //! flow through the single DrawRequest → DrawItem translation but carry no geometry
+    //! instancing. Listed first so a default-constructed Drawable provisions nothing.
+    struct NoInstanceBinding {};
+
     //! Per-object draw recipe assembled by a Drawable producer. The geometry +
     //! draw args + instance count are always populated together (single writer),
     //! so they live in one struct rather than separate components — every
@@ -117,6 +124,6 @@ namespace Spark::Render
         RHI::DrawArguments m_drawArgs;
         uint32_t           m_instanceCount = 1;
 
-        eastl::variant<SlotInstanceBinding, DirectInstanceBinding> m_instanceData;
+        eastl::variant<NoInstanceBinding, SlotInstanceBinding, DirectInstanceBinding> m_instanceData;
     };
 }

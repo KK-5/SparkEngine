@@ -21,6 +21,9 @@
 #include <Pass/PassTag.h>
 #include <Pass/PassAccess.h>
 
+#include <Drawable/Drawable.h>
+#include <Request/DrawRequest.h>
+
 #include <Shader/ShaderBindingsUtils.h>
 #include <View/ViewTags.h>
 
@@ -35,11 +38,24 @@ namespace Spark::Render
         {
             return;
         }
-        // The DrawItem carrier: a dedicated entity tagged for this pass. The cube
-        // ShaderBindings (space1) are created lazily in Process, once the pass has a
+
+        // DrawRequest carrier: a dedicated entity tagged for this pass. Its DrawItem is
+        // produced by CompileDrawRequests each frame, exactly like every other pass — the
+        // cube ShaderBindings (space1) are created lazily in Process, once the pass has a
         // reflected PassPipelineLayout.
         m_drawEntity = rhiCtx->CreateEntity();
         rhiCtx->Add<SPARK_PASS_TAG("SkyboxPass")>(m_drawEntity);
+
+        // Procedural Drawable: a vertex-less full-screen triangle (DrawLinear(3)) with no
+        // per-object data. It holds the Drawable COMPONENT but no DrawableTag, so the
+        // generic AssembleDrawRequests never sweeps it into other passes — this pass owns
+        // it, and CompileDrawRequests still resolves it via TryGet<Drawable>.
+        m_drawableEntity = rhiCtx->CreateEntity();
+        Drawable drawable;
+        drawable.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
+        drawable.m_instanceCount = 1;
+        drawable.m_instanceData  = NoInstanceBinding{};
+        rhiCtx->Add<Drawable>(m_drawableEntity, eastl::move(drawable));
     }
 
     void SkyboxProcessor::Shutdown()
@@ -52,6 +68,10 @@ namespace Spark::Render
         if (rhiCtx->Valid(m_drawEntity))
         {
             rhiCtx->Add<DeadTag>(m_drawEntity);
+        }
+        if (rhiCtx->Valid(m_drawableEntity))
+        {
+            rhiCtx->Add<DeadTag>(m_drawableEntity);
         }
         if (rhiCtx->Valid(m_cubeBindings))
         {
@@ -69,10 +89,12 @@ namespace Spark::Render
             return;
         }
 
-        // Build this frame's full-screen DrawItem, or nothing if any prerequisite (pass
-        // layout, environment cube, view bindings) isn't ready yet. Every "not ready" path
-        // is a plain `return {}`; the single commit-or-drop decision lives below.
-        auto BuildItem = [&]() -> eastl::optional<RHI::DrawItem>
+        // Build this frame's DrawRequest, or nothing if any prerequisite (pass layout,
+        // environment cube, view bindings) isn't ready. The request only REFERENCES the
+        // binding entities; the cube SRV/sampler content is updated here as a resource,
+        // change-detected, and the sky geometry/draw args come from the procedural
+        // Drawable. Every "not ready" path is a plain `return {}`.
+        auto BuildRequest = [&]() -> eastl::optional<DrawRequest>
         {
             // Lazily create the space1 cube bindings once the pass layout is reflected.
             if (m_cubeBindings == RHI::NullHandle)
@@ -84,8 +106,7 @@ namespace Spark::Render
                 }
             }
 
-            // Find the environment cube published by SkyboxSystem (world component; read
-            // directly like InstanceBindingSystem reads Mesh::MeshGPUComponent).
+            // Find the environment cube published by SkyboxSystem (world component).
             RHI::RHIHandle cubeHandle = RHI::NullHandle;
             world->GetView<Skybox::SkyboxGPUComponent>().each(
                 [&](Entity, const Skybox::SkyboxGPUComponent& gpu)
@@ -100,7 +121,6 @@ namespace Spark::Render
                 return {}; // no cube yet -> clear color shows
             }
 
-            // Cube SRV + sampler into space1.
             auto* imgComp = rhiCtx->TryGet<RHI::Components::Image>(cubeHandle);
             if (!imgComp || !imgComp->m_image)
             {
@@ -112,9 +132,24 @@ namespace Spark::Render
             {
                 return {};
             }
-            SetShaderImage(m_cubeBindings, RHI::InputName("g_SkyCube"), cubeView);
-            SetShaderSampler(m_cubeBindings, RHI::InputName("g_SkySampler"),
-                RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
+
+            // --- Resource-content updates on the space1 SRG, change-detected. Binding a
+            //     view marks the SRG dirty (forces a descriptor-table recompile), so only
+            //     do it when the value actually changes. ---
+            // Sampler is a compile-time constant: bind it exactly once.
+            if (!m_samplerApplied)
+            {
+                SetShaderSampler(m_cubeBindings, RHI::InputName("g_SkySampler"),
+                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
+                m_samplerApplied = true;
+            }
+            // Cube SRV: rebind only when the resolved view changes (skybox swap, or a
+            // same-handle image rebuild — comparing the view pointer catches both).
+            if (cubeView != m_appliedCubeView)
+            {
+                SetShaderImage(m_cubeBindings, RHI::InputName("g_SkyCube"), cubeView);
+                m_appliedCubeView = cubeView;
+            }
 
             // Shared view bindings (space0) — same entity DepthPre uses.
             RHI::RHIHandle viewBindingEntity = RHI::NullHandle;
@@ -125,42 +160,43 @@ namespace Spark::Render
                 return {};
             }
 
-            // Assemble the full-screen DrawItem: DrawLinear(3), view + cube SRGs, PSO left
-            // null (auto-bound by the executer). Bindings self-describe their space, so order
-            // is irrelevant.
-            RHI::DrawItem item;
-            item.m_drawArguments = RHI::DrawArguments(RHI::DrawLinear(3, 0));
+            // The request references binding ENTITIES (CompileDrawRequests resolves them
+            // to SRG pointers); it never touches their content. Bindings self-describe
+            // their space, so order is irrelevant. Draw args come from the Drawable.
+            DrawRequest req;
+            req.m_drawable = m_drawableEntity;
+            req.m_shaderBindings.push_back(viewBindingEntity);
+            req.m_shaderBindings.push_back(m_cubeBindings);
 
-            for (const RHI::RHIHandle bindingEntity : { viewBindingEntity, m_cubeBindings })
-            {
-                if (auto* sb = rhiCtx->TryGet<RHI::Components::ShaderBindings>(bindingEntity);
-                    sb && sb->m_bindings)
-                {
-                    item.m_shaderBindings.push_back(sb->m_bindings.get());
-                }
-            }
-            item.m_shaderBindingsCount = static_cast<uint8_t>(item.m_shaderBindings.size());
+            req.m_viewports.resize(1);
+            req.m_viewports[0]   = RHI::Viewport{ 0, static_cast<float>(renderSize.x), 0, static_cast<float>(renderSize.y) };
+            req.m_viewportsCount = 1;
+            req.m_scissors.resize(1);
+            req.m_scissors[0]    = RHI::Scissor{ 0, 0, renderSize.x, renderSize.y };
+            req.m_scissorsCount  = 1;
 
-            item.m_viewports.resize(1);
-            item.m_viewports[0]   = RHI::Viewport{ 0, static_cast<float>(renderSize.x), 0, static_cast<float>(renderSize.y) };
-            item.m_viewportsCount = 1;
-            item.m_scissors.resize(1);
-            item.m_scissors[0]    = RHI::Scissor{ 0, 0, renderSize.x, renderSize.y };
-            item.m_scissorsCount  = 1;
-
-            return item;
+            return req;
         };
 
-        // Commit or drop, exactly once: emit the fresh DrawItem, otherwise make sure a
-        // stale one from an earlier frame doesn't linger (it would sample a cube/bindings
-        // that may no longer be valid).
-        if (auto item = BuildItem())
+        // Commit or drop, exactly once. On drop, clear both the request and any DrawItem
+        // an earlier frame compiled: m_drawEntity is persistent (unlike mesh requests it
+        // is not destroyed each frame), so a stale full-screen draw would otherwise linger
+        // and sample a cube/bindings that may no longer be valid.
+        if (auto req = BuildRequest())
         {
-            rhiCtx->AddOrReplace<RHI::DrawItem>(m_drawEntity, eastl::move(*item));
+            rhiCtx->AddOrReplace<DrawRequest>(m_drawEntity, eastl::move(*req));
         }
-        else if (rhiCtx->Has<RHI::DrawItem>(m_drawEntity))
+        else
         {
-            rhiCtx->Remove<RHI::DrawItem>(m_drawEntity);
+            if (rhiCtx->Has<DrawRequest>(m_drawEntity))
+            {
+                rhiCtx->Remove<DrawRequest>(m_drawEntity);
+            }
+            if (rhiCtx->Has<RHI::DrawItem>(m_drawEntity))
+            {
+                rhiCtx->Remove<RHI::DrawItem>(m_drawEntity);
+            }
+            m_appliedCubeView = nullptr; // force a rebind when the cube returns
         }
     }
 }

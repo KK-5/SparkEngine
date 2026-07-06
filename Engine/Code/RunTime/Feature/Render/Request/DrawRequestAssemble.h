@@ -8,6 +8,7 @@
 
 #include <Drawable/Drawable.h>
 #include <Request/DrawRequest.h>
+#include <View/ViewTags.h>
 
 namespace Spark::Render
 {
@@ -16,8 +17,13 @@ namespace Spark::Render
     {
         auto& ctx = *RHI::RHIExecuteContext::Current();
 
-        // find-or-create: Drawables not yet associated with this Pass.
-        ctx.GetView<DrawableTag>(Exclude<DeadTag, PassTag>)
+        // find-or-create: Drawables visible to the main view and not yet associated
+        // with this Pass. Gating on Visible<MainViewTag> is the culling hook: only
+        // visible world geometry is assembled. Procedural draws (skybox, full-screen
+        // FX) carry no Visible<V> and manage their own DrawRequests, so they are
+        // excluded here by construction. (When multi-view passes appear this template
+        // gains a ViewTag parameter; today every pass is main-view.)
+        ctx.GetView<DrawableTag, Visible<MainViewTag>>(Exclude<DeadTag, PassTag>)
             .each([&](RHI::RHIHandle drawable)
         {
             RHI::RHIHandle request = ctx.CreateEntity();
