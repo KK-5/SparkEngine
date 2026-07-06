@@ -610,8 +610,8 @@ namespace Spark::RHI
                     // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT). Used for staging-buffer writes
                     // and the CopyBufferToImage descriptor.
                     const uint32_t dstRowPitch  = layout.m_bytesPerRow;
-                    const uint32_t dstTotalSize = layout.m_bytesPerImage;
                     const uint32_t numRows      = layout.m_rowCount;
+                    const uint32_t blockHeight  = layout.m_blockElementHeight; // texel rows per copy row (1, or 4 for BC)
 
                     // CPU-side layout (unaligned). ImageAsset stores mips tightly packed;
                     // we must not read past the end of each source row.
@@ -620,42 +620,84 @@ namespace Spark::RHI
                     const uint32_t srcRowPitch     = srcLayout.m_bytesPerRow;
                     const uint32_t srcBytesPerImage = srcLayout.m_bytesPerImage;
 
-                    // DX12 CopyTextureRegion requires the source buffer offset to be
-                    // aligned to TexturePlacement (512). Pad current offset up; previous
-                    // buffer uploads leave the packet at arbitrary alignment.
-                    uint32_t alignedOffset = AlignUp(packet->m_offset, RHI::Alignment::TexturePlacement);
-
-                    if (alignedOffset + dstTotalSize > m_descriptor.m_stagingSizeInBytes)
+                    // Split the subresource into horizontal row-bands, each sized to fit
+                    // the current staging packet; a band that fills the packet rotates to
+                    // a fresh one. When the whole subresource fits this is a single band ==
+                    // the previous behaviour. Chunking only engages for subresources larger
+                    // than staging, which are always full-block mips, so intermediate band
+                    // boundaries land on block rows (BC-safe). DX12 CopyTextureRegion needs
+                    // the source offset aligned to TexturePlacement (512); AlignUp handles
+                    // the arbitrary offset earlier uploads leave.
+                    if (layout.m_size.m_depth != 1)
                     {
-                        SubmitFramePacket();
-                        alignedOffset = 0;
+                        // The subresource loop copies one 2D slice; 3D depth-slicing is not
+                        // handled. No 3D upload path exists today — guard rather than corrupt.
+                        LOG_ERROR("[AsyncUploadSystem] 3D chunked image upload is not supported "
+                                  "(depth={}).", layout.m_size.m_depth);
+                        srcData += srcBytesPerImage;
+                        continue;
                     }
-                    packet->m_offset = alignedOffset;
-
-                    const uint8_t* srcRow = srcData;
-                    uint8_t* dstRow = packet->m_mappedPtr + packet->m_offset;
-                    for (uint32_t row = 0; row < numRows; ++row)
+                    if (dstRowPitch > m_descriptor.m_stagingSizeInBytes)
                     {
-                        memcpy(dstRow, srcRow, srcRowPitch);
-                        srcRow += srcRowPitch;
-                        dstRow += dstRowPitch;
+                        LOG_ERROR("[AsyncUploadSystem] Row pitch {} exceeds staging size {}; "
+                                  "cannot upload this subresource.",
+                                  dstRowPitch, m_descriptor.m_stagingSizeInBytes);
+                        srcData += srcBytesPerImage;
+                        continue;
+                    }
+
+                    uint32_t rowsCopied = 0;
+                    while (rowsCopied < numRows)
+                    {
+                        uint32_t alignedOffset = AlignUp(packet->m_offset, RHI::Alignment::TexturePlacement);
+                        uint32_t rowsFit = alignedOffset < m_descriptor.m_stagingSizeInBytes
+                            ? static_cast<uint32_t>((m_descriptor.m_stagingSizeInBytes - alignedOffset) / dstRowPitch)
+                            : 0;
+                        if (rowsFit == 0)
+                        {
+                            SubmitFramePacket(); // packet full — retire it and rotate
+                            alignedOffset = 0;   // a fresh packet is 512-aligned at offset 0
+                            rowsFit = static_cast<uint32_t>(m_descriptor.m_stagingSizeInBytes / dstRowPitch); // >= 1 (guarded above)
+                        }
+                        packet->m_offset = alignedOffset;
+
+                        const uint32_t bandRows = eastl::min(numRows - rowsCopied, rowsFit);
+
+                        // Tightly-packed source rows -> aligned staging rows.
+                        const uint8_t* srcRow = srcData + static_cast<size_t>(rowsCopied) * srcRowPitch;
+                        uint8_t*       dstRow = packet->m_mappedPtr + packet->m_offset;
+                        for (uint32_t row = 0; row < bandRows; ++row)
+                        {
+                            memcpy(dstRow, srcRow, srcRowPitch);
+                            srcRow += srcRowPitch;
+                            dstRow += dstRowPitch;
+                        }
+
+                        // Destination sub-region: a horizontal band of this subresource.
+                        // The final band clamps to the true texel height (edge of the mip).
+                        const uint32_t texelTop    = rowsCopied * blockHeight;
+                        const uint32_t texelHeight = eastl::min(bandRows * blockHeight, layout.m_size.m_height - texelTop);
+
+                        CopyBufferToImageDescriptor copyDesc;
+                        copyDesc.m_sourceBuffer           = packet->m_stagingBuffer.get();
+                        copyDesc.m_sourceOffset           = packet->m_offset;
+                        copyDesc.m_sourceBytesPerRow      = dstRowPitch;
+                        copyDesc.m_sourceBytesPerImage    = bandRows * dstRowPitch;
+                        copyDesc.m_sourceFormat           = upload.m_sourceFormat;
+                        copyDesc.m_sourceSize             = RHI::Size(layout.m_size.m_width, texelHeight, 1);
+                        copyDesc.m_destinationImage       = upload.m_targetImage;
+                        copyDesc.m_destinationSubresource = ImageSubresource(mipSlice, arraySlice);
+                        copyDesc.m_destinationOrigin      = RHI::Origin(
+                            upload.m_destinationOrigin.m_left,
+                            upload.m_destinationOrigin.m_top + texelTop,
+                            upload.m_destinationOrigin.m_front);
+
+                        cmdList->Submit(CopyItem{ copyDesc });
+
+                        packet->m_offset += bandRows * dstRowPitch;
+                        rowsCopied += bandRows;
                     }
                     srcData += srcBytesPerImage;
-
-                    CopyBufferToImageDescriptor copyDesc;
-                    copyDesc.m_sourceBuffer          = packet->m_stagingBuffer.get();
-                    copyDesc.m_sourceOffset          = packet->m_offset;
-                    copyDesc.m_sourceBytesPerRow     = dstRowPitch;
-                    copyDesc.m_sourceBytesPerImage   = dstTotalSize;
-                    copyDesc.m_sourceFormat          = upload.m_sourceFormat;
-                    copyDesc.m_sourceSize            = layout.m_size;
-                    copyDesc.m_destinationImage      = upload.m_targetImage;
-                    copyDesc.m_destinationSubresource = ImageSubresource(mipSlice, arraySlice);
-                    copyDesc.m_destinationOrigin     = upload.m_destinationOrigin;
-
-                    cmdList->Submit(CopyItem{ copyDesc });
-
-                    packet->m_offset += dstTotalSize;
                 }
             }
         }
