@@ -89,10 +89,13 @@ namespace Spark::SandBox
         ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[MSAAPassFeature] TriangleMVP.hlsl load failed.");
 
-        // Pass must exist before CreatePassShaderBindings can look it up by tag.
+        // The pass must exist before its per-pass SRG can be get-or-created by tag,
+        // so build the pass first. UpdateViewBindings then lazily creates + fills the
+        // space0 SRG (via SetPassShaderConstant) before BuildDrawRequest injects it
+        // by tag (AddShaderBindings).
         CreateVertexBuffer();
         CreatePasses();
-        CreateViewBindings();
+        UpdateViewBindings();
         BuildDrawRequest();
 
         TickBus::Handler::BusConnect();
@@ -113,32 +116,24 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
         // Order: DrawRequest (consumer) → Drawable → VB → ViewSRG.
-        destroyIfValid(m_drawItemEntity);
-        destroyIfValid(m_drawableEntity);
-        destroyIfValid(m_vbEntity);
-        // Destroying the binding entity releases the ShaderBindings it owns.
-        destroyIfValid(m_viewBindingsEntity);
+        destroyIfValid(m_drawItem);
+        destroyIfValid(m_drawable);
+        destroyIfValid(m_vertexBuffer);
+        // Per-pass SRGs hold no member handle now — destroy them by tag (just the
+        // space0 SRG here). Collected first: destroying inside the view iteration
+        // would invalidate it.
+        eastl::fixed_vector<Spark::RHI::RHIHandle, 4> srgEntities;
+        ctx.GetView<Spark::Render::PassShaderBindingsTag>().each(
+            [&](Spark::RHI::RHIHandle e) { srgEntities.push_back(e); });
+        for (Spark::RHI::RHIHandle e : srgEntities)
+        {
+            destroyIfValid(e);
+        }
     }
 
     void MSAAPassFeature::OnTick(float /*deltaTime*/)
     {
         UpdateViewBindings();
-    }
-
-    void MSAAPassFeature::CreateViewBindings()
-    {
-        auto& passCtx = *Spark::Render::PassExecuteContext::Current();
-        auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
-
-        m_viewBindingsEntity = Spark::Render::CreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
-            passCtx, rhiCtx, /*spaceId*/ 0);
-        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
-        {
-            LOG_ERROR("[MSAAPassFeature] CreatePassShaderBindings failed.");
-            return;
-        }
-        // No pass-level AttachShaderBindings: the binding flows into the draw via
-        // DrawRequest::m_shaderBindingEntities (see BuildDrawRequest).
     }
 
     void MSAAPassFeature::CreateVertexBuffer()
@@ -151,11 +146,11 @@ namespace Spark::SandBox
         vbDesc.m_byteCount = sizeof(g_triangleVertices);
         vbDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        m_vbEntity = Spark::RHI::CreateStaticBuffer(
+        m_vertexBuffer = Spark::RHI::CreateStaticBuffer(
             ctx, ObjectName("TriangleVB"), vbDesc);
         Spark::RHI::RequestBufferUpload(
-            ctx, m_vbEntity, g_triangleVertices, sizeof(g_triangleVertices));
-        Spark::Render::CreateStaticBufferAttachment(ctx, m_vbEntity,
+            ctx, m_vertexBuffer, g_triangleVertices, sizeof(g_triangleVertices));
+        Spark::Render::CreateStaticBufferAttachment(ctx, m_vertexBuffer,
             Spark::RHI::InputName("TriangleVB"),
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
@@ -271,13 +266,13 @@ namespace Spark::SandBox
     void MSAAPassFeature::BuildDrawRequest()
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        m_drawItemEntity = rhiCtx.CreateEntity();
-        m_drawableEntity = rhiCtx.CreateEntity();
+        m_drawItem = rhiCtx.CreateEntity();
+        m_drawable = rhiCtx.CreateEntity();
 
         Render::Drawable drawable;
         drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
         Render::VertexStreamSpec vertex;
-        vertex.m_buffer     = m_vbEntity;
+        vertex.m_buffer     = m_vertexBuffer;
         vertex.m_byteCount  = sizeof(g_triangleVertices);
         vertex.m_byteOffset = 0;
         vertex.m_byteStride = sizeof(TriangleVertex);
@@ -285,27 +280,20 @@ namespace Spark::SandBox
         drawable.m_streams.push_back(vertex);
         drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };
 
-        rhiCtx.Add<Render::Drawable>(m_drawableEntity, drawable);
+        rhiCtx.Add<Render::Drawable>(m_drawable, drawable);
 
         Render::DrawRequest req;
-        req.m_drawable = m_drawableEntity;
-        // space0 view/color binding: referenced by this draw (push, not pass-attach).
-        if (m_viewBindingsEntity != Spark::RHI::NullHandle)
-        {
-            req.m_shaderBindings.push_back(m_viewBindingsEntity);
-        }
+        req.m_drawable = m_drawable;
+        // space0 SRG injected by tag (get-or-created + filled in UpdateViewBindings,
+        // which ran before this in Init).
+        Render::AddShaderBindings<SPARK_PASS_TAG("ScenePass")>(req, rhiCtx);
 
-        rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
-        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
+        rhiCtx.Add<Render::DrawRequest>(m_drawItem, eastl::move(req));
+        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItem);
     }
 
     void MSAAPassFeature::UpdateViewBindings()
     {
-        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
-        {
-            return;
-        }
-
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
         if (windowSize.x <= 0 || windowSize.y <= 0)
@@ -328,7 +316,8 @@ namespace Spark::SandBox
             Math::Radians(45.f), aspect, 0.1f, 100.f);
         Math::Matrix4X4 mvp = proj * view * model;
 
-        Spark::Render::SetShaderConstant(m_viewBindingsEntity, Spark::RHI::InputName("g_MVP"), mvp);
+        Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
+            /*spaceId*/ 0, Spark::RHI::InputName("g_MVP"), mvp);
 
         m_colorPhase += 0.01f;
         Math::Vector3 colors[3];
@@ -341,7 +330,8 @@ namespace Spark::SandBox
                 sinf(phase + 4.0f) * 0.5f + 0.5f);
         }
 
-        Spark::Render::SetShaderConstant(m_viewBindingsEntity, Spark::RHI::InputName("g_Colors"), colors);
+        Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
+            /*spaceId*/ 0, Spark::RHI::InputName("g_Colors"), colors);
     }
 
 }

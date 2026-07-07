@@ -41,7 +41,6 @@ namespace Spark::SandBox
         }
 
     private:
-        void CreateViewBindings();
         void CreateVertexBuffer();
         void CreatePasses();
         void UpdateViewBindings();
@@ -49,19 +48,14 @@ namespace Spark::SandBox
         void LoadAsset();
         void CreateImage();
 
-        // Per-pass ShaderBindings entity. Lives in RHIContext (CompileShaderInputs
-        // discovers it, the entity owns the binding's Ptr); data is staged through
-        // the entity via Render::SetShaderXxx, no local Ptr<> needed.
-        Spark::RHI::RHIHandle m_viewBindingsEntity = Spark::RHI::NullHandle;
-
         // Vertex buffer (in RHIContext)
-        Spark::RHI::RHIHandle m_vbEntity        = Spark::RHI::NullHandle;
-        Spark::RHI::RHIHandle m_indexEntity     = Spark::RHI::NullHandle;
-        Spark::RHI::RHIHandle m_imageEntity     = Spark::RHI::NullHandle;
+        Spark::RHI::RHIHandle m_vertexBuffer    = Spark::RHI::NullHandle;
+        Spark::RHI::RHIHandle m_indexBuffer     = Spark::RHI::NullHandle;
+        Spark::RHI::RHIHandle m_baseColor       = Spark::RHI::NullHandle;
         Spark::RHI::ImageViewDescriptor m_baseColorViewDesc {};
 
-        Spark::RHI::RHIHandle m_drawItemEntity = Spark::RHI::NullHandle;
-        Spark::RHI::RHIHandle m_drawableEntity = Spark::RHI::NullHandle;
+        Spark::RHI::RHIHandle m_drawItem = Spark::RHI::NullHandle;
+        Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_shader;

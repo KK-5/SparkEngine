@@ -43,19 +43,19 @@ namespace Spark::Render
         // produced by CompileDrawRequests each frame, exactly like every other pass — the
         // cube ShaderBindings (space1) are created lazily in Process, once the pass has a
         // reflected PassPipelineLayout.
-        m_drawEntity = rhiCtx->CreateEntity();
-        rhiCtx->Add<SPARK_PASS_TAG("SkyboxPass")>(m_drawEntity);
+        m_drawRequest = rhiCtx->CreateEntity();
+        rhiCtx->Add<SPARK_PASS_TAG("SkyboxPass")>(m_drawRequest);
 
         // Procedural Drawable: a vertex-less full-screen triangle (DrawLinear(3)) with no
         // per-object data. It holds the Drawable COMPONENT but no DrawableTag, so the
         // generic AssembleDrawRequests never sweeps it into other passes — this pass owns
         // it, and CompileDrawRequests still resolves it via TryGet<Drawable>.
-        m_drawableEntity = rhiCtx->CreateEntity();
+        m_drawable = rhiCtx->CreateEntity();
         Drawable drawable;
         drawable.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
         drawable.m_instanceCount = 1;
         drawable.m_instanceData  = NoInstanceBinding{};
-        rhiCtx->Add<Drawable>(m_drawableEntity, eastl::move(drawable));
+        rhiCtx->Add<Drawable>(m_drawable, eastl::move(drawable));
     }
 
     void SkyboxProcessor::Shutdown()
@@ -65,18 +65,49 @@ namespace Spark::Render
         {
             return;
         }
-        if (rhiCtx->Valid(m_drawEntity))
+        if (rhiCtx->Valid(m_drawRequest))
         {
-            rhiCtx->Add<DeadTag>(m_drawEntity);
+            rhiCtx->Add<DeadTag>(m_drawRequest);
         }
-        if (rhiCtx->Valid(m_drawableEntity))
+        if (rhiCtx->Valid(m_drawable))
         {
-            rhiCtx->Add<DeadTag>(m_drawableEntity);
+            rhiCtx->Add<DeadTag>(m_drawable);
         }
-        if (rhiCtx->Valid(m_cubeBindings))
+    }
+
+    RHI::ImageView* SkyboxProcessor::GetCubeImageView()
+    {
+        auto& world = *WorldExecuteContext::Current();
+        auto& rhiCtx = *RHI::RHIExecuteContext::Current();
+
+        RHI::RHIHandle cubeHandle = RHI::NullHandle;
+        world.GetView<Skybox::SkyboxGPUComponent>().each(
+        [&](Entity, const Skybox::SkyboxGPUComponent& gpu)
         {
-            rhiCtx->Add<DeadTag>(m_cubeBindings);
+            if (gpu.m_cubemap != RHI::NullHandle)
+            {
+                cubeHandle = gpu.m_cubemap;
+            }
+        });
+
+        if (cubeHandle == RHI::NullHandle)
+        {
+            return nullptr;
         }
+
+        auto* imgComp = rhiCtx.TryGet<RHI::Components::Image>(cubeHandle);
+        if (!imgComp || !imgComp->m_image)
+        {
+            return nullptr;
+        }
+        RHI::ImageView* cubeView = RHI::GetOrCreateImageView(
+            rhiCtx, cubeHandle, *imgComp->m_image, RHI::ImageViewDescriptor::CreateCubemap());
+        if (!cubeView)
+        {
+            return nullptr;
+        }
+
+        return cubeView;
     }
 
     void SkyboxProcessor::Process(const Math::Vector2Int& renderSize)
@@ -96,66 +127,20 @@ namespace Spark::Render
         // Drawable. Every "not ready" path is a plain `return {}`.
         auto BuildRequest = [&]() -> eastl::optional<DrawRequest>
         {
-            // Lazily create the space1 cube bindings once the pass layout is reflected.
-            if (m_cubeBindings == RHI::NullHandle)
-            {
-                m_cubeBindings = CreatePassShaderBindings<SPARK_PASS_TAG("SkyboxPass")>(*passCtx, *rhiCtx, 1);
-                if (m_cubeBindings == RHI::NullHandle)
-                {
-                    return {}; // layout not ready yet; retry next frame
-                }
-            }
-
             // Find the environment cube published by SkyboxSystem (world component).
-            RHI::RHIHandle cubeHandle = RHI::NullHandle;
-            world->GetView<Skybox::SkyboxGPUComponent>().each(
-                [&](Entity, const Skybox::SkyboxGPUComponent& gpu)
-            {
-                if (gpu.m_cubemap != RHI::NullHandle)
-                {
-                    cubeHandle = gpu.m_cubemap;
-                }
-            });
-            if (cubeHandle == RHI::NullHandle)
-            {
-                return {}; // no cube yet -> clear color shows
-            }
+            RHI::ImageView* cubeView = GetCubeImageView();
 
-            auto* imgComp = rhiCtx->TryGet<RHI::Components::Image>(cubeHandle);
-            if (!imgComp || !imgComp->m_image)
-            {
-                return {};
-            }
-            RHI::ImageView* cubeView = RHI::GetOrCreateImageView(
-                *rhiCtx, cubeHandle, *imgComp->m_image, RHI::ImageViewDescriptor::CreateCubemap());
-            if (!cubeView)
-            {
-                return {};
-            }
-
-            // --- Resource-content updates on the space1 SRG, change-detected. Binding a
-            //     view marks the SRG dirty (forces a descriptor-table recompile), so only
-            //     do it when the value actually changes. ---
-            // Sampler is a compile-time constant: bind it exactly once.
+            // space1 cube SRG: get-or-created + bound entirely inside SetPassShaderXxx —
+            // no handle held here. Sampler applied once; the cube view's redundant
+            // re-binds are dropped by SetShaderImage's own change-detection. A false
+            // return means the pass layout isn't reflected yet, so retry next frame.
             if (!m_samplerApplied)
             {
-                SetShaderSampler(m_cubeBindings, RHI::InputName("g_SkySampler"),
+                m_samplerApplied = SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
+                    1, RHI::InputName("g_SkySampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
-                m_samplerApplied = true;
             }
-            // Cube SRV: rebind only when the resolved view changes (skybox swap, or a
-            // same-handle image rebuild — comparing the view pointer catches both).
-            if (cubeView != m_appliedCubeView)
-            {
-                SetShaderImage(m_cubeBindings, RHI::InputName("g_SkyCube"), cubeView);
-                m_appliedCubeView = cubeView;
-            }
-
-            // Shared view bindings (space0) — same entity DepthPre uses.
-            RHI::RHIHandle viewBindingEntity = RHI::NullHandle;
-            rhiCtx->GetView<MainViewTag, RHI::Components::ShaderBindings>().each(
-                [&](RHI::RHIHandle e, const RHI::Components::ShaderBindings&) { viewBindingEntity = e; });
-            if (viewBindingEntity == RHI::NullHandle)
+            if (!SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(1, RHI::InputName("g_SkyCube"), cubeView))
             {
                 return {};
             }
@@ -164,9 +149,15 @@ namespace Spark::Render
             // to SRG pointers); it never touches their content. Bindings self-describe
             // their space, so order is irrelevant. Draw args come from the Drawable.
             DrawRequest req;
-            req.m_drawable = m_drawableEntity;
-            req.m_shaderBindings.push_back(viewBindingEntity);
-            req.m_shaderBindings.push_back(m_cubeBindings);
+            req.m_drawable = m_drawable;
+            // Shared view (space0) + this pass's cube SRG (space1), both injected by
+            // tag. A zero view count means the view SRG isn't up yet; drop this frame.
+            // The cube SRG was just ensured above, so it appends ≥1.
+            if (AddShaderBindings<MainViewTag>(req, *rhiCtx) == 0)
+            {
+                return {};
+            }
+            AddShaderBindings<SPARK_PASS_TAG("SkyboxPass")>(req, *rhiCtx);
 
             req.m_viewports.resize(1);
             req.m_viewports[0]   = RHI::Viewport{ 0, static_cast<float>(renderSize.x), 0, static_cast<float>(renderSize.y) };
@@ -184,19 +175,18 @@ namespace Spark::Render
         // and sample a cube/bindings that may no longer be valid.
         if (auto req = BuildRequest())
         {
-            rhiCtx->AddOrReplace<DrawRequest>(m_drawEntity, eastl::move(*req));
+            rhiCtx->AddOrReplace<DrawRequest>(m_drawRequest, eastl::move(*req));
         }
         else
         {
-            if (rhiCtx->Has<DrawRequest>(m_drawEntity))
+            if (rhiCtx->Has<DrawRequest>(m_drawRequest))
             {
-                rhiCtx->Remove<DrawRequest>(m_drawEntity);
+                rhiCtx->Remove<DrawRequest>(m_drawRequest);
             }
-            if (rhiCtx->Has<RHI::DrawItem>(m_drawEntity))
+            if (rhiCtx->Has<RHI::DrawItem>(m_drawRequest))
             {
-                rhiCtx->Remove<RHI::DrawItem>(m_drawEntity);
+                rhiCtx->Remove<RHI::DrawItem>(m_drawRequest);
             }
-            m_appliedCubeView = nullptr; // force a rebind when the cube returns
         }
     }
 }

@@ -15,6 +15,7 @@
 #include <Drawable/Drawable.h>
 #include <Request/DrawRequest.h>
 #include <Request/DrawRequestAssemble.h>
+#include <Shader/ShaderBindingsUtils.h>
 #include <Resource/Shader/ShaderAsset.h>
 
 #include <View/ViewTags.h>
@@ -53,10 +54,7 @@ namespace Spark::Render
             return;
         }
 
-        RHIHandle viewBindingEntity = RHI::NullHandle;
-        rhiCtx->GetView<MainViewTag, RHI::Components::ShaderBindings>().each(
-            [&](RHIHandle e, const RHI::Components::ShaderBindings&) { viewBindingEntity = e; });
-        if (viewBindingEntity == RHI::NullHandle)
+        if (rhiCtx->GetView<MainViewTag, RHI::Components::ShaderBindings>().size_hint() == 0)
         {
             return;
         }
@@ -68,7 +66,7 @@ namespace Spark::Render
             .each([&](RHIHandle, DrawRequest& req)
         {
             req.m_shaderBindings.clear();
-            req.m_shaderBindings.push_back(viewBindingEntity);
+            AddShaderBindings<MainViewTag>(req, *rhiCtx);
 
             req.m_viewports.resize(1);
             req.m_viewports[0]   = RHI::Viewport{

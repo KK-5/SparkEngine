@@ -15,6 +15,7 @@
 #include <Pass/RenderPass.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
+#include <Pass/PassAccess.h>
 
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/Skybox/SkyboxPass.h>
@@ -167,6 +168,10 @@ namespace Spark::Render
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+
+        // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
+        // tag-owned). Reap them here alongside the other binding entities.
+        ReapPassShaderBindings(*RHI::RHIExecuteContext::Current());
 
         PassExecuteContext::Pop();
 

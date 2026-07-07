@@ -17,6 +17,11 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/Component/PassComponents.h>
+#include <Pass/Component/RHIComponents.h>
+
+#include <Shader/ShaderBindingsUtils.h>
+#include <CoreComponents/Tags.h>
+#include <EASTL/vector.h>
 
 namespace Spark::Render
 {
@@ -40,6 +45,8 @@ namespace Spark::Render
         return result;
     }
 
+    namespace Detail
+    {
     //! Allocate a ShaderBindings against the named pass's input layout and
     //! register it on the RHIContext so RenderGraphCompiler::CompileShaderInputs
     //! can find it. The entity is created with ShaderBindingsUpdateTag so the very
@@ -98,6 +105,129 @@ namespace Spark::Render
         rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(entity);
 
         return entity;
+    }
+    } // namespace Detail
+
+    //! Get-or-create the per-pass ShaderBindings identified by (PassTag, spaceId),
+    //! lazily creating it on first use. Wraps CreatePassShaderBindings but adds
+    //! ownership + reuse: the SRG entity is stamped with PassTag so it can be found
+    //! again on later frames, and an existing (PassTag, spaceId) entity is returned
+    //! as-is instead of re-created.
+    //!
+    //! This is the binding-access path for SAMPLING passes: a pass that samples an
+    //! upstream (often transient) attachment resolves its view during Compile
+    //! (FindPassAttachmentImageView) — a phase with no owning object to hold the SRG
+    //! handle, so the SRG is located by tag + space here rather than captured.
+    //! CreatePassShaderBindings, by contrast, stays a pure create for callers that
+    //! own and store the handle themselves (e.g. a Processor); its contract is left
+    //! unchanged so existing users (SkyboxProcessor) are unaffected.
+    //!
+    //! Uniqueness leans on ShaderBindings::GetSpaceId self-describing the HLSL space,
+    //! so no extra component is needed to disambiguate multiple per-pass SRGs. The
+    //! (PassTag, Components::ShaderBindings) view never collides with attachment
+    //! entities (which carry PassTag but no ShaderBindings). Returns NullHandle if
+    //! creation fails (e.g. a custom-pipeline pass has no PassPipelineLayout).
+    template<typename PassTagT>
+    RHIHandle GetOrCreatePassShaderBindings(
+        PassContext& passCtx, RHIContext& rhiCtx, uint32_t spaceId)
+    {
+        // Reuse: an SRG already owned by this pass at the requested space.
+        for (auto [entity, comp] : rhiCtx.GetView<PassTagT, RHI::Components::ShaderBindings>().each())
+        {
+            if (comp.m_bindings && comp.m_bindings->GetSpaceId() == spaceId)
+            {
+                return entity;
+            }
+        }
+
+        // Miss: delegate the create (Detail:: — the untagged create is internal now),
+        // then stamp PassTag (lookup key) + PassShaderBindingsTag (teardown handle).
+        RHIHandle entity = Detail::CreatePassShaderBindings<PassTagT>(passCtx, rhiCtx, spaceId);
+        if (entity != NullHandle)
+        {
+            rhiCtx.Add<PassTagT>(entity);
+            rhiCtx.Add<PassShaderBindingsTag>(entity);
+        }
+        return entity;
+    }
+
+    // ============================================================
+    // Per-pass shader-binding data injection. Fully encapsulated: callers never touch
+    // the SRG handle — the (PassTag, spaceId) SRG is get-or-created lazily and the
+    // value is staged into it. Returns false only when the SRG can't be created yet
+    // (pass layout not reflected), letting callers gate readiness. Pairs with
+    // AddShaderBindings<PassTag> (injects the SRG entity into a DrawRequest) to form
+    // the complete per-pass binding path.
+    // ============================================================
+
+    template<typename PassTag>
+    bool SetPassShaderImage(uint32_t spaceId, RHI::InputName input, const RHI::ImageView* view, uint32_t arrayIndex = 0)
+    {
+        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
+            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        if (srg == NullHandle)
+        {
+            return false;
+        }
+        SetShaderImage(srg, input, view, arrayIndex);
+        return true;
+    }
+
+    template<typename PassTag>
+    bool SetPassShaderSampler(uint32_t spaceId, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)
+    {
+        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
+            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        if (srg == NullHandle)
+        {
+            return false;
+        }
+        SetShaderSampler(srg, input, state, arrayIndex);
+        return true;
+    }
+
+    template<typename PassTag>
+    bool SetPassShaderBuffer(uint32_t spaceId, RHI::InputName input, const RHI::BufferView* view, uint32_t arrayIndex = 0)
+    {
+        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
+            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        if (srg == NullHandle)
+        {
+            return false;
+        }
+        SetShaderBuffer(srg, input, view, arrayIndex);
+        return true;
+    }
+
+    template<typename PassTag, typename T>
+    bool SetPassShaderConstant(uint32_t spaceId, RHI::InputName input, const T& value)
+    {
+        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
+            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        if (srg == NullHandle)
+        {
+            return false;
+        }
+        SetShaderConstant(srg, input, value);
+        return true;
+    }
+
+    //! Reap every per-pass ShaderBindings (created via GetOrCreatePassShaderBindings)
+    //! by its runtime PassShaderBindingsTag. Call once at pipeline / RenderSystem
+    //! teardown — per-pass SRGs are persistent and have no external owner, so this is
+    //! their single collection point, independent of the compile-time PassTag. Uses
+    //! DeadTag (same path as the view / instance SRGs) so the reap is uniform.
+    inline void ReapPassShaderBindings(RHIContext& ctx)
+    {
+        eastl::vector<RHIHandle> dead;
+        for (auto [entity, comp] : ctx.GetView<PassShaderBindingsTag, RHI::Components::ShaderBindings>().each())
+        {
+            dead.push_back(entity);
+        }
+        for (RHIHandle entity : dead)
+        {
+            ctx.Add<DeadTag>(entity);
+        }
     }
 
     //! Mark a ShaderBindings entity as dirty so RenderGraphCompiler::CompileShaderInputs

@@ -71,12 +71,14 @@ namespace Spark::SandBox
         m_viewport = viewport;
         m_scissor  = scissor;
 
-        // Pass must exist before CreatePassShaderBindings can look it up by tag.
+        // The pass must exist before its per-pass SRG can be get-or-created by tag,
+        // so build the pass first. UpdateViewBindings then lazily creates + fills the
+        // space0 SRG before BuildDrawRequest injects it by tag (AddShaderBindings).
         LoadAsset();
         CreateImage();
         CreateVertexBuffer();
         CreatePasses();
-        CreateViewBindings();
+        UpdateViewBindings();
 
         BuildDrawRequest();
 
@@ -98,13 +100,21 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
         // Order: DrawRequest (consumer) → Drawable → VB/IB/Image → ViewSRG.
-        destroyIfValid(m_drawItemEntity);
-        destroyIfValid(m_drawableEntity);
-        destroyIfValid(m_vbEntity);
-        destroyIfValid(m_indexEntity);
-        destroyIfValid(m_imageEntity);
-        // Destroying the binding entity releases the ShaderBindings it owns.
-        destroyIfValid(m_viewBindingsEntity);
+        destroyIfValid(m_drawItem);
+        destroyIfValid(m_drawable);
+        destroyIfValid(m_vertexBuffer);
+        destroyIfValid(m_indexBuffer);
+        destroyIfValid(m_baseColor);
+        // Per-pass SRGs hold no member handle now — destroy them by tag (just the
+        // space0 SRG here). Collected first: destroying inside the view iteration
+        // would invalidate it.
+        eastl::fixed_vector<Spark::RHI::RHIHandle, 4> srgEntities;
+        ctx.GetView<Spark::Render::PassShaderBindingsTag>().each(
+            [&](Spark::RHI::RHIHandle e) { srgEntities.push_back(e); });
+        for (Spark::RHI::RHIHandle e : srgEntities)
+        {
+            destroyIfValid(e);
+        }
     }
 
     void DrawCube::OnTick(float /*deltaTime*/)
@@ -134,22 +144,6 @@ namespace Spark::SandBox
         }
     }
 
-    void DrawCube::CreateViewBindings()
-    {
-        auto& passCtx = *Spark::Render::PassExecuteContext::Current();
-        auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
-
-        m_viewBindingsEntity = Spark::Render::CreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
-            passCtx, rhiCtx, /*spaceId*/ 0);
-        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
-        {
-            LOG_ERROR("[DrawCube] CreatePassShaderBindings failed.");
-            return;
-        }
-        // No pass-level AttachShaderBindings: the binding flows into the draw via
-        // DrawRequest::m_shaderBindingEntities (see BuildDrawRequest).
-    }
-
     void DrawCube::CreateVertexBuffer()
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
@@ -164,10 +158,10 @@ namespace Spark::SandBox
         vbDesc.m_byteCount = primitive.vertexBuffer.size();
         vbDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        m_vbEntity = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeVertex"), vbDesc);
+        m_vertexBuffer = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeVertex"), vbDesc);
         Spark::RHI::RequestBufferUpload(
-            ctx, m_vbEntity, primitive.vertexBuffer.data(), primitive.vertexBuffer.size());
-        Spark::Render::CreateStaticBufferAttachment(ctx, m_vbEntity,
+            ctx, m_vertexBuffer, primitive.vertexBuffer.data(), primitive.vertexBuffer.size());
+        Spark::Render::CreateStaticBufferAttachment(ctx, m_vertexBuffer,
             Spark::RHI::InputName("CubeVertex"),
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
@@ -179,10 +173,10 @@ namespace Spark::SandBox
         ibDesc.m_byteCount = primitive.indexBuffer.size();
         ibDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        m_indexEntity = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeIndex"), ibDesc);
+        m_indexBuffer = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeIndex"), ibDesc);
         Spark::RHI::RequestBufferUpload(
-            ctx, m_indexEntity, primitive.indexBuffer.data(), primitive.indexBuffer.size());
-        Spark::Render::CreateStaticBufferAttachment(ctx, m_indexEntity,
+            ctx, m_indexBuffer, primitive.indexBuffer.data(), primitive.indexBuffer.size());
+        Spark::Render::CreateStaticBufferAttachment(ctx, m_indexBuffer,
             Spark::RHI::InputName("CubeIndex"),
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
@@ -202,7 +196,7 @@ namespace Spark::SandBox
         desc.m_mipLevels = m_image->GetMipLevels();
         desc.m_bindFlags = RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite;
 
-        m_imageEntity = RHI::CreateStaticImage(
+        m_baseColor = RHI::CreateStaticImage(
             ctx,
             ObjectName("BaseColorImage"),
             desc,
@@ -212,7 +206,7 @@ namespace Spark::SandBox
 
         RHI::RequestImageUpload(
             ctx,
-            m_imageEntity,
+            m_baseColor,
             m_image->GetImageData()->GetTextureBytes().data(),
             m_image->GetImageData()->GetTextureBytes().size(),
             RHI::ImageSubresourceRange(desc),
@@ -222,7 +216,7 @@ namespace Spark::SandBox
 
         Render::CreateStaticImageAttachment(
             ctx,
-            m_imageEntity,
+            m_baseColor,
             Spark::RHI::InputName("BaseColorImage"),
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::Shader,
@@ -370,8 +364,8 @@ namespace Spark::SandBox
     void DrawCube::BuildDrawRequest()
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        m_drawItemEntity = rhiCtx.CreateEntity();
-        m_drawableEntity = rhiCtx.CreateEntity();
+        m_drawItem = rhiCtx.CreateEntity();
+        m_drawable = rhiCtx.CreateEntity();
 
         auto* mesh = m_model->GetModelData()->GetMesh(0);
         const Resource::Primitive& primitive = mesh->primitives[0];
@@ -379,40 +373,33 @@ namespace Spark::SandBox
         Render::Drawable drawable;
         drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawIndexed(0, primitive.indexCount, 0));
         Render::VertexStreamSpec vertex;
-        vertex.m_buffer     = m_vbEntity;
+        vertex.m_buffer     = m_vertexBuffer;
         vertex.m_byteCount  = static_cast<uint32_t>(primitive.vertexBuffer.size());
         vertex.m_byteOffset = 0;
         vertex.m_byteStride = primitive.layout.stride;
         vertex.m_inputSlot  = 0;
         drawable.m_streams.push_back(vertex);
 
-        drawable.m_indexBuffer = m_indexEntity;
+        drawable.m_indexBuffer = m_indexBuffer;
         drawable.m_indexInfo   = Render::IndexBufferInfo{
             0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat };
 
         drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };
 
-        rhiCtx.Add<Render::Drawable>(m_drawableEntity, drawable);
+        rhiCtx.Add<Render::Drawable>(m_drawable, drawable);
 
         Render::DrawRequest req;
-        req.m_drawable = m_drawableEntity;
-        // space0 view/model/material binding: referenced by this draw (push, not pass-attach).
-        if (m_viewBindingsEntity != Spark::RHI::NullHandle)
-        {
-            req.m_shaderBindings.push_back(m_viewBindingsEntity);
-        }
+        req.m_drawable = m_drawable;
+        // space0 SRG injected by tag (get-or-created + filled in UpdateViewBindings,
+        // which ran before this in Init).
+        Render::AddShaderBindings<SPARK_PASS_TAG("ScenePass")>(req, rhiCtx);
 
-        rhiCtx.Add<Render::DrawRequest>(m_drawItemEntity, eastl::move(req));
-        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItemEntity);
+        rhiCtx.Add<Render::DrawRequest>(m_drawItem, eastl::move(req));
+        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItem);
     }
 
     void DrawCube::UpdateViewBindings()
     {
-        if (m_viewBindingsEntity == Spark::RHI::NullHandle)
-        {
-            return;
-        }
-
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
         if (windowSize.x <= 0 || windowSize.y <= 0)
@@ -433,24 +420,36 @@ namespace Spark::SandBox
             Math::Vector3(0.f, 1.f, 0.f),    // up
             Math::Radians(45.f), aspect, 0.1f, 100.f);
 
-        // View owns view+proj and writes g_ViewProjection; the per-object model
-        // is the feature's and goes into g_Model separately.
-        Spark::Render::WriteViewConstants(camera, m_viewBindingsEntity);
-        Spark::Render::SetShaderConstant(m_viewBindingsEntity, Spark::RHI::InputName("g_Model"), model);
-
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        if (auto* imgComp = rhiCtx.TryGet<Spark::RHI::Components::Image>(m_imageEntity);
+
+        auto& passCtx = *Spark::Render::PassExecuteContext::Current();
+        Spark::RHI::RHIHandle viewBindings =
+            Spark::Render::GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(passCtx, rhiCtx, /*spaceId*/ 0);
+        if (viewBindings == Spark::RHI::NullHandle)
+        {
+            return;
+        }
+        Spark::Render::WriteViewConstants(camera, viewBindings);
+
+        // Per-object model / texture / sampler go through the pass-keyed setters
+        // (no handle needed — same space0 SRG, resolved by tag).
+        Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
+            /*spaceId*/ 0, Spark::RHI::InputName("g_Model"), model);
+
+        if (auto* imgComp = rhiCtx.TryGet<Spark::RHI::Components::Image>(m_baseColor);
             imgComp && imgComp->m_image)
         {
             auto* view = Spark::RHI::GetOrCreateImageView(
-                rhiCtx, m_imageEntity, *imgComp->m_image, m_baseColorViewDesc);
+                rhiCtx, m_baseColor, *imgComp->m_image, m_baseColorViewDesc);
             if (view)
             {
-                Spark::Render::SetShaderImage(m_viewBindingsEntity, Spark::RHI::InputName("g_Texture"), view);
+                Spark::Render::SetPassShaderImage<SPARK_PASS_TAG("ScenePass")>(
+                    /*spaceId*/ 0, Spark::RHI::InputName("g_Texture"), view);
             }
         }
 
-        Spark::Render::SetShaderSampler(m_viewBindingsEntity, Spark::RHI::InputName("g_Sampler"), m_samplerState);
+        Spark::Render::SetPassShaderSampler<SPARK_PASS_TAG("ScenePass")>(
+            /*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
     }
 
 }

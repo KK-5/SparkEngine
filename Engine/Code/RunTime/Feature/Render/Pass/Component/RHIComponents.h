@@ -173,6 +173,13 @@ namespace Spark::Render
     static_assert(eastl::is_default_constructible_v<BufferPassAttachment>);
 
     struct AttachmentCompilingTag {};
+
+    //! Runtime marker on every per-pass ShaderBindings entity created via
+    //! GetOrCreatePassShaderBindings. Lets teardown reap them all with a single
+    //! GetView<PassShaderBindingsTag>, independent of the compile-time PassTag they
+    //! also carry. Per-pass SRGs are persistent (built once, reused each frame) and
+    //! have no external owner, so this tag is their collection handle.
+    struct PassShaderBindingsTag {};
     /////////////////////////////////////////////////
 
     ///////////////////////////////////////////////

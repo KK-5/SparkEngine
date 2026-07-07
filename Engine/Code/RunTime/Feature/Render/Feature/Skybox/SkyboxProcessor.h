@@ -30,12 +30,15 @@ namespace Spark::Render
         void Process(const Math::Vector2Int& renderSize);
 
     private:
-        RHI::RHIHandle m_cubeBindings   = RHI::NullHandle; //!< space1 SRG (g_SkyCube + g_SkySampler)
-        RHI::RHIHandle m_drawableEntity = RHI::NullHandle; //!< procedural Drawable (component only, no DrawableTag)
-        RHI::RHIHandle m_drawEntity     = RHI::NullHandle; //!< SkyboxPassTag + the emitted DrawRequest
+        RHI::ImageView* GetCubeImageView();
 
-        // Change-detection for the space1 resource content: rebind only on change.
-        const RHI::ImageView* m_appliedCubeView = nullptr; //!< last cube view bound into space1
-        bool                  m_samplerApplied  = false;   //!< constant sampler applied once
+
+        RHI::RHIHandle m_drawable    = RHI::NullHandle; //!< procedural Drawable (component only, no DrawableTag)
+        RHI::RHIHandle m_drawRequest = RHI::NullHandle; //!< SkyboxPassTag + the emitted DrawRequest
+
+        // The space1 cube SRG is tag-owned (no member handle) — created and bound via
+        // SetPassShaderXxx, reaped centrally at teardown. The cube view's redundant
+        // re-binds are dropped inside SetShaderImage, so no cached view is needed here.
+        bool m_samplerApplied = false;   //!< constant sampler applied once
     };
 }
