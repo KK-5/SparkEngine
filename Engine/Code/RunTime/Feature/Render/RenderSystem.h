@@ -16,6 +16,7 @@
 #include "Feature/UI/UIProcessFeature.h"
 #include "Feature/DepthPre/DepthPreProcessor.h"
 #include "Feature/GBuffer/GBufferProcessor.h"
+#include "Feature/Lighting/LightingProcessor.h"
 #include "Feature/Skybox/SkyboxProcessor.h"
 #include "View/ViewBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
@@ -62,6 +63,7 @@ namespace Spark::Render
         UIProcessFeature m_uiProcessFeature;
         DepthPreProcessor m_depthPreProcessor;
         GBufferProcessor m_gbufferProcessor;
+        LightingProcessor m_lightingProcessor;
         SkyboxProcessor m_skyboxProcessor;
         ViewBindingSystem m_viewBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;

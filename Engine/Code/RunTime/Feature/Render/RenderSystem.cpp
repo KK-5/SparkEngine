@@ -19,6 +19,7 @@
 
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
+#include <Feature/Lighting/LightingPass.h>
 #include <Feature/Skybox/SkyboxPass.h>
 #include <Feature/UI/CopyFrameBufferPass.h>
 
@@ -109,6 +110,11 @@ namespace Spark::Render
         auto gbufferPassCfg = GBufferPass::DefaultConfig();
         GBufferPass::SetUp(passContext, gbufferPassCfg);
 
+        // Deferred lighting: samples the GBuffer, shades a hardcoded directional light
+        // into SceneColor. Runs after GBuffer, before Skybox (which fills discarded sky).
+        auto lightingPassCfg = LightingPass::DefaultConfig();
+        LightingPass::SetUp(passContext, lightingPassCfg);
+
         // Skybox samples the baked cube into SceneColor after depth pre, before the copy.
         auto skyboxPassCfg = SkyboxPass::DefaultConfig();
         SkyboxPass::SetUp(passContext, skyboxPassCfg);
@@ -145,6 +151,7 @@ namespace Spark::Render
 
         m_depthPreProcessor.Init();
         m_gbufferProcessor.Init();
+        m_lightingProcessor.Init();
         m_skyboxProcessor.Init();
     }
 
@@ -169,6 +176,7 @@ namespace Spark::Render
         TickBus::Handler::BusDisconnect();
 
         m_skyboxProcessor.Shutdown();
+        m_lightingProcessor.Shutdown();
         m_gbufferProcessor.Shutdown();
         m_depthPreProcessor.Shutdown();
 
@@ -222,6 +230,7 @@ namespace Spark::Render
         m_uiProcessFeature.Process();
         m_depthPreProcessor.Process(renderSize);
         m_gbufferProcessor.Process(renderSize);
+        m_lightingProcessor.Process(renderSize);
         m_skyboxProcessor.Process(renderSize);
 
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);

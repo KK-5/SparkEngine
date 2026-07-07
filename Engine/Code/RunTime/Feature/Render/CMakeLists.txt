@@ -8,6 +8,8 @@ set(SOURCES
     Feature/DepthPre/DepthPreProcessor.cpp
     Feature/GBuffer/GBufferPass.cpp
     Feature/GBuffer/GBufferProcessor.cpp
+    Feature/Lighting/LightingPass.cpp
+    Feature/Lighting/LightingProcessor.cpp
     Feature/Skybox/SkyboxPass.cpp
     Feature/Skybox/SkyboxProcessor.cpp
     Pass/PassAccess.cpp
