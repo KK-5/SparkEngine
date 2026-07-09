@@ -30,16 +30,14 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // Four color targets + read-only SceneDepth. The depth format must match the
-        // SceneDepth attachment DepthPrePass creates (D32_FLOAT). The 4th target
-        // (Position) is a TEMPORARY scaffold — see GBuffer.hlsl — dropped once lighting
-        // reconstructs world position from SceneDepth instead of reading it directly.
+        // Three color targets + read-only SceneDepth. The depth format must match the
+        // SceneDepth attachment DepthPrePass creates (D32_FLOAT). Lighting reconstructs
+        // world position from SceneDepth, so no position target is written.
         RHI::RenderTargetLayout rt;
-        rt.m_colorAttachmentCount = 4;
+        rt.m_colorAttachmentCount = 3;
         rt.m_colorFormats[0]      = RHI::Format::R8G8B8A8_UNORM;      // Albedo
         rt.m_colorFormats[1]      = RHI::Format::R16G16B16A16_FLOAT;  // Normal (world, raw)
         rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM;      // ORM
-        rt.m_colorFormats[3]      = RHI::Format::R16G16B16A16_FLOAT;  // Position (world) — temp
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         RHI::InputStreamLayout input;
@@ -120,11 +118,6 @@ namespace Spark::Render
                     RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f));
                 createColor("GBufferORM", RHI::Format::R8G8B8A8_UNORM,
                     RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f));
-                // TEMPORARY: world position target so lighting samples position with zero
-                // reconstruction. Cleared to 0 (w=0) — lighting keys off the Normal target
-                // for geometry coverage, so the position clear value is not load-bearing.
-                createColor("GBufferPosition", RHI::Format::R16G16B16A16_FLOAT,
-                    RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f));
 
                 // Read-only depth test against DepthPrePass's SceneDepth: Load the depth
                 // to test against, Store it back unchanged. ReadImageAttachment selects a

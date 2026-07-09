@@ -29,11 +29,17 @@ namespace Spark::Render
         };
 
         constexpr GBufferBinding s_gbufferBindings[] = {
-            { "GBufferAlbedo",   "g_Albedo"   },
-            { "GBufferNormal",   "g_Normal"   },
-            { "GBufferORM",      "g_ORM"      },
-            { "GBufferPosition", "g_Position" },
+            { "GBufferAlbedo", "g_Albedo" },
+            { "GBufferNormal", "g_Normal" },
+            { "GBufferORM",    "g_ORM"    },
         };
+
+        // SceneDepth is sampled (not the color GBuffer) to reconstruct world position.
+        // It is viewed as R32_FLOAT (the depth resource is R32_TYPELESS underneath, so a
+        // shader-read R32_FLOAT view is valid) and forced to a ShaderRead-only view so
+        // ImageView init does not also try to build a DSV at the R32_FLOAT override.
+        constexpr const char* s_depthSlot  = "SceneDepth";
+        constexpr const char* s_depthInput = "g_Depth";
     }
 
     RenderPassConfig LightingPass::DefaultConfig()
@@ -102,10 +108,10 @@ namespace Spark::Render
                 builder.WriteImageAttachment<SPARK_PASS_TAG("LightingPass")>(
                     RHI::AttachmentId("SceneColor"), colorBind);
 
-                // Read the four GBuffer targets as shader resources. Declaring them here
-                // makes the graph (a) order this pass after GBufferPass and (b) transition
-                // them from RenderTarget to shader-read before this pass runs. The actual
-                // view→SRG binding happens in the Compile hook below.
+                // Read the three GBuffer color targets as shader resources. Declaring them
+                // here makes the graph (a) order this pass after GBufferPass and (b)
+                // transition them from RenderTarget to shader-read before this pass runs.
+                // The actual view→SRG binding happens in the Compile hook below.
                 for (const auto& gb : s_gbufferBindings)
                 {
                     Render::ImageAttachmentBindInfo readBind;
@@ -118,6 +124,23 @@ namespace Spark::Render
                     builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
                         RHI::AttachmentId(gb.m_slot), readBind);
                 }
+
+                // Read SceneDepth as a shader resource to reconstruct world position.
+                // The R32_FLOAT override + ShaderRead-only view descriptor make the
+                // resolved view a plain SRV over the (typeless) depth resource; the graph
+                // transitions SceneDepth from read-only depth to shader-read for this pass
+                // (the skybox pass after transitions it back to read-only depth).
+                Render::ImageAttachmentBindInfo depthBind;
+                depthBind.m_slot  = RHI::InputName(s_depthSlot);
+                depthBind.m_usage = RHI::AttachmentUsage::Shader;
+                depthBind.m_stage = RHI::AttachmentStage::FragmentShader;
+                depthBind.m_view.m_overrideFormat    = RHI::Format::R32_FLOAT;
+                depthBind.m_view.m_overrideBindFlags = RHI::ImageBindFlags::ShaderRead;
+                depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
+                    RHI::AttachmentId(s_depthSlot), depthBind);
             })
             .Compile([](RenderGraphCompiler& compiler)
             {
@@ -138,6 +161,16 @@ namespace Spark::Render
                     }
                     SetPassShaderImage<SPARK_PASS_TAG("LightingPass")>(
                         1, RHI::InputName(gb.m_input), view);
+                }
+
+                // SceneDepth → g_Depth (t3). Resolved with the R32_FLOAT / ShaderRead view
+                // descriptor declared in Build, so this is the depth resource's SRV.
+                RHI::ImageView* depthView = FindPassAttachmentImageView<SPARK_PASS_TAG("LightingPass")>(
+                    rhiCtx, RHI::InputName(s_depthSlot), frameIndex);
+                if (depthView)
+                {
+                    SetPassShaderImage<SPARK_PASS_TAG("LightingPass")>(
+                        1, RHI::InputName(s_depthInput), depthView);
                 }
             })
             .Finalize()

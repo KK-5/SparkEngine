@@ -76,17 +76,6 @@ namespace Spark::Render
 
         auto BuildRequest = [&]() -> eastl::optional<DrawRequest>
         {
-            // Ensure this pass's space1 GBuffer SRG exists so AddShaderBindings can inject
-            // it now (before CompileDrawRequests). Its texture slots stay empty until the
-            // pass Compile hook fills them. NullHandle means the pass layout isn't reflected
-            // yet — drop this frame and retry.
-            RHIHandle srg = GetOrCreatePassShaderBindings<SPARK_PASS_TAG("LightingPass")>(
-                *passCtx, *rhiCtx, 1);
-            if (srg == NullHandle)
-            {
-                return {};
-            }
-
             DrawRequest req;
             req.m_drawable = m_drawable;
             // Shared view (space0): the shader reads g_InvView for the camera position.
