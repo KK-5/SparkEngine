@@ -9,10 +9,11 @@
     {
       "name": "windows-msvc-base",
       "hidden": true,
-      "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build",
-      "cacheVariables": {}
+      "cacheVariables": {
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5"
+      }
     },
     {
       "name": "windows-msvc-debug",
