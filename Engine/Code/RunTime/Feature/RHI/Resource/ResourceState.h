@@ -1,11 +1,13 @@
 /*
  * Modified by SparkEngine in 2025
- *  -- Vulkan-style resource state: (AttachmentUsage, AttachmentAccess) pair
- *     replaces D3D12-style bitmask enum. Backend derives native states from this.
+ *  -- Resource state described by an AccessFlags bitmask (set-valued, OR-able).
+ *     The backend derives native states/layouts from it (see ConvertBufferState /
+ *     ConvertImageState in the DX12 backend).
  */
 #pragma once
 
 #include <RHI/Attachment/AttachmentEnums.h>
+#include <RHI/Resource/AccessFlags.h>
 #include <RHI/HardwareQueue.h>
 
 namespace Spark::RHI
@@ -26,53 +28,25 @@ namespace Spark::RHI
         Image
     };
 
-    /*
-    DX12 Conversion
-        (AttachmentUsage, AttachmentAccess) -> D3D12_RESOURCE_STATES
-        ------------------------------------------------------------------
-        (InputAssembly, Read)  → VERTEX_AND_CONSTANT_BUFFER | INDEX_BUFFER
-        (Shader, Read)         → VCB | PIXEL_SR | NON_PIXEL_SR
-        (Shader, Write)        → UNORDERED_ACCESS
-        (Copy, Read)           → COPY_SOURCE
-        (Copy, Write)          → COPY_DEST
-        (DepthStencil, Read)   → DEPTH_READ
-        (DepthStencil, Write)  → DEPTH_WRITE
-        (RenderTarget, *)      → RENDER_TARGET
-        (Indirect, *)          → INDIRECT_ARGUMENT
-        (Uninitialized, *)     → COMMON
-    AttachmentStage is unused in DX12
-    */
-
     //! Snapshot of a resource's current synchronization state, owned by
-    //! `Resource::m_resourceState` and updated whenever a barrier is emitted
-    //! against the resource. Four orthogonal axes:
-    //!   - m_usage / m_access : Vulkan-style "what / read-or-write"
-    //!   - m_queue            : which queue most recently emitted a barrier
-    //!                          on this resource (= the queue that currently
-    //!                          "owns" it, cross-queue handoff sense)
-    //!   - m_stage            : pipeline stage at which the most recent
-    //!                          barrier was scheduled — fed back as srcStage
-    //!                          for the next barrier
+    //! `Resource::m_resourceState` and updated whenever a barrier is emitted.
+    //!   - m_access : set-valued AccessFlags ("how it is being accessed")
+    //!   - m_queue  : queue that most recently emitted a barrier on this
+    //!                resource (= its current owner, cross-queue handoff sense)
+    //!   - m_stage  : pipeline stage of the most recent barrier, fed back as
+    //!                srcStage for the next one
     //!
-    //! Update rule (uniform across all paths): after emitting a barrier,
-    //! `m_queue = GetHardwareQueueClass()` of the cmd list, `m_stage =
-    //! barrier.m_dstStage`, `m_usage / m_access = barrier.m_dst...`. For
-    //! cross-queue release (which transitions to COMMON), usage/access reset
-    //! and stage = Any.
-    //!
-    //! Make{Buffer,Image}Barrier helpers auto-populate srcUsage / srcAccess /
-    //! srcStage / srcQueue from this struct, so callers only fill the dst side.
+    //! Make{Buffer,Image}Barrier auto-populate srcAccess / srcStage / srcQueue
+    //! from this struct, so callers only fill the dst side.
     struct ResourceState
     {
-        AttachmentUsage    m_usage  = AttachmentUsage::Uninitialized;
-        AttachmentAccess   m_access = AttachmentAccess::Unknown;
+        AccessFlags        m_access = AccessFlags::None;
         HardwareQueueClass m_queue  = HardwareQueueClass::Graphics;
         AttachmentStage    m_stage  = AttachmentStage::Any;
 
         bool operator==(const ResourceState& other) const
         {
-            return m_usage  == other.m_usage
-                && m_access == other.m_access
+            return m_access == other.m_access
                 && m_queue  == other.m_queue
                 && m_stage  == other.m_stage;
         }
@@ -89,17 +63,15 @@ namespace Spark::RHI
     //!
     //! Vulkan backend: emits both halves with srcQueueFamilyIndex/dstQueueFamilyIndex
     //!     set, performs layout transition exactly as Vulkan spec requires.
-    //! DX12 backend: bridges through COMMON state — release side transitions
-    //!     srcUsage → COMMON, acquire side transitions COMMON → dstUsage.
+    //! DX12 backend: bridges through COMMON state -- release side transitions
+    //!     srcAccess -> COMMON, acquire side transitions COMMON -> dstAccess.
     //!
     //! Intra-queue is the common case: leave m_srcQueue == m_dstQueue (default).
     struct BufferBarrier
     {
         Buffer*            m_buffer    = nullptr;
-        AttachmentUsage    m_srcUsage  = AttachmentUsage::Uninitialized;
-        AttachmentUsage    m_dstUsage  = AttachmentUsage::Uninitialized;
-        AttachmentAccess   m_srcAccess = AttachmentAccess::Unknown;
-        AttachmentAccess   m_dstAccess = AttachmentAccess::Unknown;
+        AccessFlags        m_srcAccess = AccessFlags::None;
+        AccessFlags        m_dstAccess = AccessFlags::None;
         AttachmentStage    m_srcStage  = AttachmentStage::Any;
         AttachmentStage    m_dstStage  = AttachmentStage::Any;
         HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
@@ -109,10 +81,8 @@ namespace Spark::RHI
     struct ImageBarrier
     {
         Image*             m_image     = nullptr;
-        AttachmentUsage    m_srcUsage  = AttachmentUsage::Uninitialized;
-        AttachmentUsage    m_dstUsage  = AttachmentUsage::Uninitialized;
-        AttachmentAccess   m_srcAccess = AttachmentAccess::Unknown;
-        AttachmentAccess   m_dstAccess = AttachmentAccess::Unknown;
+        AccessFlags        m_srcAccess = AccessFlags::None;
+        AccessFlags        m_dstAccess = AccessFlags::None;
         AttachmentStage    m_srcStage  = AttachmentStage::Any;
         AttachmentStage    m_dstStage  = AttachmentStage::Any;
         HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
@@ -126,7 +96,7 @@ namespace Spark::RHI
     //! This is a memory-level concept, so Buffer/Image are not split into
     //! separate barrier types; instead m_typeBefore / m_typeAfter discriminate
     //! the concrete subtype the backend should static_cast to. Use the
-    //! MakeDeviceMemoryBarrier overloads below — they fill the type fields from
+    //! MakeDeviceMemoryBarrier overloads below -- they fill the type fields from
     //! the typed pointer arguments so callers cannot get them out of sync.
     //!
     //! Vulkan backend: emits a VkMemoryBarrier using m_srcStage / m_dstStage
@@ -148,20 +118,17 @@ namespace Spark::RHI
     };
 
     //! Construct a barrier whose src side is auto-populated from
-    //! `buffer.GetResourceState()` (usage / access / stage / queue). Caller
-    //! supplies the destination side. dstQueue stays at the BufferBarrier
-    //! struct default (Graphics) — callers crossing queues override it post-
-    //! construction.
+    //! `buffer.GetResourceState()` (access / stage / queue). Caller supplies the
+    //! dst side. dstQueue stays at the struct default (Graphics); callers crossing
+    //! queues override it post-construction.
     BufferBarrier MakeBufferBarrier(
         Buffer& buffer,
-        AttachmentUsage dstUsage,
-        AttachmentAccess dstAccess,
+        AccessFlags dstAccess,
         AttachmentStage dstStage = AttachmentStage::Any);
 
     ImageBarrier MakeImageBarrier(
         Image& image,
-        AttachmentUsage newUsage,
-        AttachmentAccess dstAccess,
+        AccessFlags dstAccess,
         AttachmentStage dstStage = AttachmentStage::Any);
 
     //! Device memory barrier factories. Type fields are filled from the typed

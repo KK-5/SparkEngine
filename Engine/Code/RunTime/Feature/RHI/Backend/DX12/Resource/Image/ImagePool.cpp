@@ -92,7 +92,7 @@ namespace Spark::RHI::DX12
         }
 
         const RHI::ResourceState resourceState = image->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertImageAttachmentState(resourceState.m_usage, resourceState.m_access);
+        D3D12_RESOURCE_STATES initialResourceState = ConvertImageState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
 
         ComPtr<D3D12MA::Allocation> allocation = nullptr;
         HRESULT result = m_d3dmaAllocator->CreateResource(

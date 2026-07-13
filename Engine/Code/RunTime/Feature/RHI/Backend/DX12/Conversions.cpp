@@ -1,6 +1,6 @@
 /*
  * Modified by SparkEngine in 2025
- *  -- ConvertBufferAttachmentState / ConvertImageAttachmentState: RHI usage/access to D3D12_RESOURCE_STATES.
+ *  -- ConvertBufferState / ConvertImageState: RHI AccessFlags to D3D12_RESOURCE_STATES.
  */
 
 #include "Conversions.h"
@@ -468,122 +468,99 @@ namespace Spark::RHI::DX12
         return D3D12_HEAP_TYPE_CUSTOM;
     }
 
-    D3D12_RESOURCE_STATES ConvertBufferAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access)
+    namespace
     {
-        const bool isWrite = CheckBitsAny(access, RHI::AttachmentAccess::Write);
+        using RHI::AccessFlags;
 
-        switch (usage)
+        constexpr AccessFlags k_bufferOnlyAccess =
+            AccessFlags::IndirectRead | AccessFlags::VertexIndexInput |
+            AccessFlags::ConstantBufferRead | AccessFlags::PredicationRead |
+            AccessFlags::AccelStructRead | AccessFlags::AccelStructWrite;
+
+        constexpr AccessFlags k_imageOnlyAccess =
+            AccessFlags::DepthStencilRead | AccessFlags::ColorAttachmentRead |
+            AccessFlags::ResolveRead | AccessFlags::ShadingRateRead |
+            AccessFlags::InputAttachmentRead | AccessFlags::ColorAttachmentWrite |
+            AccessFlags::DepthStencilWrite | AccessFlags::ResolveWrite |
+            AccessFlags::Present;
+
+        constexpr AccessFlags k_graphicsOnlyAccess =
+            AccessFlags::VertexIndexInput | AccessFlags::ConstantBufferRead |
+            AccessFlags::DepthStencilRead | AccessFlags::ColorAttachmentRead |
+            AccessFlags::ShadingRateRead | AccessFlags::ResolveRead |
+            AccessFlags::InputAttachmentRead | AccessFlags::ColorAttachmentWrite |
+            AccessFlags::DepthStencilWrite | AccessFlags::ResolveWrite |
+            AccessFlags::Present;
+
+        D3D12_RESOURCE_STATES ConvertAccessToStates(
+            AccessFlags                 access,
+            RHI::HardwareQueueClass     queue,
+            [[maybe_unused]] RHI::AttachmentStage stage)
         {
-        case RHI::AttachmentUsage::RenderTarget:
-            return D3D12_RESOURCE_STATE_RENDER_TARGET;
+            const bool graphics = (queue == RHI::HardwareQueueClass::Graphics);
 
-        case RHI::AttachmentUsage::DepthStencil:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_DEPTH_WRITE
-                : D3D12_RESOURCE_STATE_DEPTH_READ;
+            if (graphics == false)
+            {
+                ASSERT(!CheckBitsAny(access, k_graphicsOnlyAccess),
+                    "[RHI DX12] ConvertAccessToStates - graphics-only access bits 0x{:x} on queue {}.",
+                    static_cast<uint32_t>(access & k_graphicsOnlyAccess),
+                    static_cast<uint32_t>(queue));
+            }
 
-        case RHI::AttachmentUsage::Shader:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
-                : (D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
-                 | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
-                 | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            auto has = [access](AccessFlags bit) { return CheckBitsAny(access, bit); };
 
-        case RHI::AttachmentUsage::Copy:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_COPY_DEST
-                : D3D12_RESOURCE_STATE_COPY_SOURCE;
+            D3D12_RESOURCE_STATES s = D3D12_RESOURCE_STATE_COMMON;
 
-        case RHI::AttachmentUsage::InputAssembly:
-            return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
-                 | D3D12_RESOURCE_STATE_INDEX_BUFFER;
+            if (has(AccessFlags::IndirectRead))        { s |= D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT; }
+            if (has(AccessFlags::VertexIndexInput))    { s |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER | D3D12_RESOURCE_STATE_INDEX_BUFFER; }
+            if (has(AccessFlags::ConstantBufferRead))  { s |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER; }
+            if (has(AccessFlags::ShaderSampledRead))
+            {
+                s |= D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                if (graphics) { s |= D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE; }
+            }
+            if (has(AccessFlags::ShaderStorageRead))   { s |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS; }
+            if (has(AccessFlags::DepthStencilRead))    { s |= D3D12_RESOURCE_STATE_DEPTH_READ; }
+            if (has(AccessFlags::ColorAttachmentRead)) { s |= D3D12_RESOURCE_STATE_RENDER_TARGET; }
+            if (has(AccessFlags::TransferRead))        { s |= D3D12_RESOURCE_STATE_COPY_SOURCE; }
+            if (has(AccessFlags::ResolveRead))         { s |= D3D12_RESOURCE_STATE_RESOLVE_SOURCE; }
+            if (has(AccessFlags::PredicationRead))     { s |= D3D12_RESOURCE_STATE_PREDICATION; }
+            if (has(AccessFlags::ShadingRateRead))     { s |= D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE; }
+            if (has(AccessFlags::InputAttachmentRead))
+            {
+                if (graphics) { s |= D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE; }
+            }
+            if (has(AccessFlags::AccelStructRead))     { s |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE; }
 
-        case RHI::AttachmentUsage::Indirect:
-            return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+            if (has(AccessFlags::ShaderStorageWrite))  { s |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS; }
+            if (has(AccessFlags::ColorAttachmentWrite)){ s |= D3D12_RESOURCE_STATE_RENDER_TARGET; }
+            if (has(AccessFlags::DepthStencilWrite))   { s |= D3D12_RESOURCE_STATE_DEPTH_WRITE; }
+            if (has(AccessFlags::TransferWrite))       { s |= D3D12_RESOURCE_STATE_COPY_DEST; }
+            if (has(AccessFlags::ResolveWrite))        { s |= D3D12_RESOURCE_STATE_RESOLVE_DEST; }
+            if (has(AccessFlags::AccelStructWrite))    { s |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE; }
 
-        case RHI::AttachmentUsage::Predication:
-            return D3D12_RESOURCE_STATE_PREDICATION;
+            if (has(AccessFlags::Present))             { s |= D3D12_RESOURCE_STATE_PRESENT; }
 
-        case RHI::AttachmentUsage::Resolve:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_RESOLVE_DEST
-                : D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
-
-        case RHI::AttachmentUsage::ShadingRate:
-            return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
-        
-        case RHI::AttachmentUsage::Present:
-            return D3D12_RESOURCE_STATE_PRESENT;
-
-        case RHI::AttachmentUsage::RayTracingAccelerationStructure:
-            return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
-
-        case RHI::AttachmentUsage::SubpassInput:
-            return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-
-        case RHI::AttachmentUsage::Uninitialized:
-        default:
-            return D3D12_RESOURCE_STATE_COMMON;
+            return s;
         }
     }
 
-    D3D12_RESOURCE_STATES ConvertImageAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access)
+    D3D12_RESOURCE_STATES ConvertBufferState(
+        RHI::AccessFlags access, RHI::HardwareQueueClass queue, RHI::AttachmentStage stage)
     {
-        const bool isWrite = CheckBitsAny(access, RHI::AttachmentAccess::Write);
+        ASSERT(!CheckBitsAny(access, k_imageOnlyAccess),
+            "[RHI DX12] ConvertBufferState - image-only access bits 0x{:x} on a buffer.",
+            static_cast<uint32_t>(access & k_imageOnlyAccess));
+        return ConvertAccessToStates(access, queue, stage);
+    }
 
-        switch (usage)
-        {
-        case RHI::AttachmentUsage::RenderTarget:
-            return D3D12_RESOURCE_STATE_RENDER_TARGET;
-
-        case RHI::AttachmentUsage::DepthStencil:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_DEPTH_WRITE
-                : D3D12_RESOURCE_STATE_DEPTH_READ;
-
-        case RHI::AttachmentUsage::Shader:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
-                : (D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
-                 | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-
-        case RHI::AttachmentUsage::Copy:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_COPY_DEST
-                : D3D12_RESOURCE_STATE_COPY_SOURCE;
-
-        case RHI::AttachmentUsage::InputAssembly:
-            // Not applicable to textures; avoid VCB/IB states on images.
-            LOG_ERROR("[RHI DX12] ConvertImageAttachmentState - InputAssembly usage is not applicable to textures; return COMMON state.");
-            return D3D12_RESOURCE_STATE_COMMON;
-
-        case RHI::AttachmentUsage::Indirect:
-            return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
-
-        case RHI::AttachmentUsage::Predication:
-            return D3D12_RESOURCE_STATE_PREDICATION;
-
-        case RHI::AttachmentUsage::Resolve:
-            return isWrite
-                ? D3D12_RESOURCE_STATE_RESOLVE_DEST
-                : D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
-
-        case RHI::AttachmentUsage::ShadingRate:
-            return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
-
-        case RHI::AttachmentUsage::Present:
-            return D3D12_RESOURCE_STATE_PRESENT;
-
-        case RHI::AttachmentUsage::RayTracingAccelerationStructure:
-            return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
-
-        case RHI::AttachmentUsage::SubpassInput:
-            return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-
-        case RHI::AttachmentUsage::Uninitialized:
-        default:
-            return D3D12_RESOURCE_STATE_COMMON;
-        }
+    D3D12_RESOURCE_STATES ConvertImageState(
+        RHI::AccessFlags access, RHI::HardwareQueueClass queue, RHI::AttachmentStage stage)
+    {
+        ASSERT(!CheckBitsAny(access, k_bufferOnlyAccess),
+            "[RHI DX12] ConvertImageState - buffer-only access bits 0x{:x} on an image.",
+            static_cast<uint32_t>(access & k_bufferOnlyAccess));
+        return ConvertAccessToStates(access, queue, stage);
     }
 
     void ConvertBufferView(

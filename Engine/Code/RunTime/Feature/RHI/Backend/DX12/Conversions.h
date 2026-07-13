@@ -16,6 +16,7 @@
 #include <RHI/Command/ClearRequest.h>
 #include <RHI/MemoryEnums.h>
 #include <RHI/Resource/ResourceState.h>
+#include <RHI/Resource/AccessFlags.h>
 #include <RHI/Command/CommandList.h>
 
 #include "DX12.h"
@@ -61,9 +62,16 @@ namespace Spark::RHI::DX12
 
     D3D12_HEAP_TYPE ConvertHeapType(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess);
 
-    D3D12_RESOURCE_STATES ConvertBufferAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access);
+    // queue is the executing command list's queue (GetHardwareQueueClass), not the
+    // resource's ownership queue: it gates PIXEL_SHADER_RESOURCE, which is only valid
+    // on Graphics. Do not pass a barrier's m_dstQueue (defaults to Graphics intra-queue).
+    D3D12_RESOURCE_STATES ConvertBufferState(
+        RHI::AccessFlags access, RHI::HardwareQueueClass queue,
+        RHI::AttachmentStage stage = RHI::AttachmentStage::Any);
 
-    D3D12_RESOURCE_STATES ConvertImageAttachmentState(RHI::AttachmentUsage usage, RHI::AttachmentAccess access);
+    D3D12_RESOURCE_STATES ConvertImageState(
+        RHI::AccessFlags access, RHI::HardwareQueueClass queue,
+        RHI::AttachmentStage stage = RHI::AttachmentStage::Any);
 
     void ConvertBufferView(
         const Buffer& buffer,

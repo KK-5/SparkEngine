@@ -99,7 +99,7 @@ namespace Spark::RHI::DX12
 
         // D3D12_RESOURCE_STATES is D3D12_RESOURCE_STATE_COMMON by default
         const RHI::ResourceState resourceState = bufferBase.GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
+        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
         // Upload and Readback heap resource has a constant D3D12_RESOURCE_STATE
         if (allocDesc.HeapType == D3D12_HEAP_TYPE_UPLOAD)
         {

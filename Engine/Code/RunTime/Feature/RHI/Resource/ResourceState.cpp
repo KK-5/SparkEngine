@@ -11,130 +11,67 @@ namespace Spark::RHI
 {
     namespace
     {
-        bool IsBufferStateSupportedByBindFlags(const Buffer& buffer, AttachmentUsage usage, AttachmentAccess access)
+        // Each requested access bit must be permitted by the resource's creation
+        // bind flags. A bit that is not requested imposes no constraint.
+        bool IsBufferAccessSupported(const Buffer& buffer, AccessFlags access)
         {
             const BufferBindFlags bindFlags = buffer.GetDescriptor().m_bindFlags;
-            const bool wantsRead = CheckBitsAny(access, AttachmentAccess::Read);
-            const bool wantsWrite = CheckBitsAny(access, AttachmentAccess::Write);
-
-            switch (usage)
+            auto req = [&](AccessFlags bit, BufferBindFlags need)
             {
-            case AttachmentUsage::Uninitialized:
-                return true;
-            case AttachmentUsage::Copy:
-                if (wantsWrite)
-                {
-                    return CheckBitsAny(bindFlags, BufferBindFlags::CopyWrite);
-                }
-                if (wantsRead)
-                {
-                    return CheckBitsAny(bindFlags, BufferBindFlags::CopyRead);
-                }
-                return false;
-            case AttachmentUsage::Shader:
-                if (wantsRead && wantsWrite)
-                {
-                    return CheckBitsAll(bindFlags, BufferBindFlags::ShaderReadWrite);
-                }
-                if (wantsWrite)
-                {
-                    return CheckBitsAny(bindFlags, BufferBindFlags::ShaderWrite | BufferBindFlags::RayTracingScratchBuffer);
-                }
-                if (wantsRead)
-                {
-                    return CheckBitsAny(bindFlags,
-                        BufferBindFlags::ShaderRead
-                        | BufferBindFlags::Constant
-                        | BufferBindFlags::RayTracingShaderTable);
-                }
-                return false;
-            case AttachmentUsage::InputAssembly:
-                return wantsRead && !wantsWrite
-                    && CheckBitsAny(bindFlags, BufferBindFlags::InputAssembly | BufferBindFlags::DynamicInputAssembly);
-            case AttachmentUsage::Indirect:
-                return wantsRead && !wantsWrite
-                    && CheckBitsAny(bindFlags, BufferBindFlags::Indirect);
-            case AttachmentUsage::Predication:
-                return wantsRead && !wantsWrite
-                    && CheckBitsAny(bindFlags, BufferBindFlags::Predication);
-            case AttachmentUsage::RayTracingAccelerationStructure:
-                return wantsRead && !wantsWrite
-                    && CheckBitsAny(bindFlags, BufferBindFlags::RayTracingAccelerationStructure);
-            default:
-                return false;
-            }
+                return !CheckBitsAny(access, bit) || CheckBitsAny(bindFlags, need);
+            };
+
+            return req(AccessFlags::TransferRead,       BufferBindFlags::CopyRead)
+                && req(AccessFlags::TransferWrite,      BufferBindFlags::CopyWrite)
+                && req(AccessFlags::ShaderSampledRead,  BufferBindFlags::ShaderRead | BufferBindFlags::RayTracingShaderTable)
+                && req(AccessFlags::ConstantBufferRead, BufferBindFlags::Constant)
+                && req(AccessFlags::ShaderStorageRead,  BufferBindFlags::ShaderWrite | BufferBindFlags::RayTracingScratchBuffer)
+                && req(AccessFlags::ShaderStorageWrite, BufferBindFlags::ShaderWrite | BufferBindFlags::RayTracingScratchBuffer)
+                && req(AccessFlags::VertexIndexInput,   BufferBindFlags::InputAssembly | BufferBindFlags::DynamicInputAssembly)
+                && req(AccessFlags::IndirectRead,       BufferBindFlags::Indirect)
+                && req(AccessFlags::PredicationRead,    BufferBindFlags::Predication)
+                && req(AccessFlags::AccelStructRead,    BufferBindFlags::RayTracingAccelerationStructure)
+                && req(AccessFlags::AccelStructWrite,   BufferBindFlags::RayTracingAccelerationStructure);
         }
 
-        bool IsImageStateSupportedByBindFlags(const Image& image, AttachmentUsage usage, AttachmentAccess access)
+        bool IsImageAccessSupported(const Image& image, AccessFlags access)
         {
-            const ImageBindFlags bindFlags = image.GetDescriptor().m_bindFlags;
-            const bool wantsRead = CheckBitsAny(access, AttachmentAccess::Read);
-            const bool wantsWrite = CheckBitsAny(access, AttachmentAccess::Write);
-
-            switch (usage)
+            // Swap-chain present imposes no bind-flag constraint.
+            if (CheckBitsAny(access, AccessFlags::Present))
             {
-            case AttachmentUsage::Uninitialized:
                 return true;
-            case AttachmentUsage::RenderTarget:
-                return wantsWrite && CheckBitsAny(bindFlags, ImageBindFlags::Color);
-            case AttachmentUsage::DepthStencil:
-                if (wantsWrite)
-                {
-                    return CheckBitsAny(bindFlags, ImageBindFlags::DepthStencil);
-                }
-                if (wantsRead)
-                {
-                    return CheckBitsAny(bindFlags, ImageBindFlags::DepthStencil);
-                }
-                return false;
-            case AttachmentUsage::Shader:
-                if (wantsRead && wantsWrite)
-                {
-                    return CheckBitsAll(bindFlags, ImageBindFlags::ShaderReadWrite);
-                }
-                if (wantsWrite)
-                {
-                    return CheckBitsAny(bindFlags, ImageBindFlags::ShaderWrite);
-                }
-                if (wantsRead)
-                {
-                    return CheckBitsAny(bindFlags, ImageBindFlags::ShaderRead);
-                }
-                return false;
-            case AttachmentUsage::Copy:
-                if (wantsWrite)
-                {
-                    return CheckBitsAny(bindFlags, ImageBindFlags::CopyWrite);
-                }
-                if (wantsRead)
-                {
-                    return CheckBitsAny(bindFlags, ImageBindFlags::CopyRead);
-                }
-                return false;
-            case AttachmentUsage::ShadingRate:
-                return wantsRead && !wantsWrite
-                    && CheckBitsAny(bindFlags, ImageBindFlags::ShadingRate);
-            case AttachmentUsage::Present:
-                return true;
-            case AttachmentUsage::Resolve:
-                return CheckBitsAny(bindFlags, ImageBindFlags::Color);
-            default:
-                return false;
             }
+
+            const ImageBindFlags bindFlags = image.GetDescriptor().m_bindFlags;
+            auto req = [&](AccessFlags bit, ImageBindFlags need)
+            {
+                return !CheckBitsAny(access, bit) || CheckBitsAny(bindFlags, need);
+            };
+
+            return req(AccessFlags::ColorAttachmentWrite, ImageBindFlags::Color)
+                && req(AccessFlags::ColorAttachmentRead,  ImageBindFlags::Color)
+                && req(AccessFlags::DepthStencilRead,     ImageBindFlags::DepthStencil)
+                && req(AccessFlags::DepthStencilWrite,    ImageBindFlags::DepthStencil)
+                && req(AccessFlags::ShaderSampledRead,    ImageBindFlags::ShaderRead)
+                && req(AccessFlags::ShaderStorageRead,    ImageBindFlags::ShaderWrite)
+                && req(AccessFlags::ShaderStorageWrite,   ImageBindFlags::ShaderWrite)
+                && req(AccessFlags::TransferRead,         ImageBindFlags::CopyRead)
+                && req(AccessFlags::TransferWrite,        ImageBindFlags::CopyWrite)
+                && req(AccessFlags::ResolveRead,          ImageBindFlags::Color)
+                && req(AccessFlags::ResolveWrite,         ImageBindFlags::Color)
+                && req(AccessFlags::ShadingRateRead,      ImageBindFlags::ShadingRate)
+                && req(AccessFlags::InputAttachmentRead,  ImageBindFlags::ShaderRead);
         }
     }
 
     BufferBarrier MakeBufferBarrier(
         Buffer& buffer,
-        AttachmentUsage dstUsage,
-        AttachmentAccess dstAccess,
+        AccessFlags dstAccess,
         AttachmentStage dstStage)
     {
         const ResourceState srcState = buffer.GetResourceState();
         BufferBarrier barrier;
         barrier.m_buffer    = &buffer;
-        barrier.m_srcUsage  = srcState.m_usage;
-        barrier.m_dstUsage  = dstUsage;
         barrier.m_srcAccess = srcState.m_access;
         barrier.m_dstAccess = dstAccess;
         barrier.m_srcStage  = srcState.m_stage;
@@ -152,15 +89,12 @@ namespace Spark::RHI
 
     ImageBarrier MakeImageBarrier(
         Image& image,
-        AttachmentUsage newUsage,
-        AttachmentAccess dstAccess,
+        AccessFlags dstAccess,
         AttachmentStage dstStage)
     {
         const ResourceState srcState = image.GetResourceState();
         ImageBarrier barrier;
         barrier.m_image     = &image;
-        barrier.m_srcUsage  = srcState.m_usage;
-        barrier.m_dstUsage  = newUsage;
         barrier.m_srcAccess = srcState.m_access;
         barrier.m_dstAccess = dstAccess;
         barrier.m_srcStage  = srcState.m_stage;
@@ -227,103 +161,103 @@ namespace Spark::RHI
 
     BufferBarrier ConvertToCopyRead(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::Copy, AttachmentAccess::Read);
+        return MakeBufferBarrier(buffer, AccessFlags::TransferRead);
     }
 
     BufferBarrier ConvertToCopyWrite(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::Copy, AttachmentAccess::Write);
+        return MakeBufferBarrier(buffer, AccessFlags::TransferWrite);
     }
 
     BufferBarrier ConvertToShaderRead(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::Shader, AttachmentAccess::Read);
+        return MakeBufferBarrier(buffer, AccessFlags::ConstantBufferRead | AccessFlags::ShaderSampledRead);
     }
 
     BufferBarrier ConvertToShaderWrite(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::Shader, AttachmentAccess::Write);
+        return MakeBufferBarrier(buffer, AccessFlags::ShaderStorageWrite);
     }
 
     BufferBarrier ConvertToShaderReadWrite(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::Shader, AttachmentAccess::ReadWrite);
+        return MakeBufferBarrier(buffer, AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite);
     }
 
     BufferBarrier ConvertToInputAssembly(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::InputAssembly, AttachmentAccess::Read);
+        return MakeBufferBarrier(buffer, AccessFlags::VertexIndexInput);
     }
 
     BufferBarrier ConvertToIndirect(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::Indirect, AttachmentAccess::Read);
+        return MakeBufferBarrier(buffer, AccessFlags::IndirectRead);
     }
 
     BufferBarrier ConvertToPredication(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::Predication, AttachmentAccess::Read);
+        return MakeBufferBarrier(buffer, AccessFlags::PredicationRead);
     }
 
     BufferBarrier ConvertToRayTracingAccelerationStructure(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AttachmentUsage::RayTracingAccelerationStructure, AttachmentAccess::Read);
+        return MakeBufferBarrier(buffer, AccessFlags::AccelStructRead);
     }
 
     ImageBarrier ConvertToRenderTarget(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::RenderTarget, AttachmentAccess::Write);
+        return MakeImageBarrier(image, AccessFlags::ColorAttachmentWrite);
     }
 
     ImageBarrier ConvertToDepthStencilRead(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::DepthStencil, AttachmentAccess::Read);
+        return MakeImageBarrier(image, AccessFlags::DepthStencilRead);
     }
 
     ImageBarrier ConvertToDepthStencilWrite(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::DepthStencil, AttachmentAccess::Write);
+        return MakeImageBarrier(image, AccessFlags::DepthStencilWrite);
     }
 
     ImageBarrier ConvertToImageShaderRead(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::Shader, AttachmentAccess::Read);
+        return MakeImageBarrier(image, AccessFlags::ShaderSampledRead);
     }
 
     ImageBarrier ConvertToImageShaderWrite(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::Shader, AttachmentAccess::Write);
+        return MakeImageBarrier(image, AccessFlags::ShaderStorageWrite);
     }
 
     ImageBarrier ConvertToImageShaderReadWrite(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::Shader, AttachmentAccess::ReadWrite);
+        return MakeImageBarrier(image, AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite);
     }
 
     ImageBarrier ConvertToImageCopyRead(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::Copy, AttachmentAccess::Read);
+        return MakeImageBarrier(image, AccessFlags::TransferRead);
     }
 
     ImageBarrier ConvertToImageCopyWrite(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::Copy, AttachmentAccess::Write);
+        return MakeImageBarrier(image, AccessFlags::TransferWrite);
     }
 
     ImageBarrier ConvertToShadingRate(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::ShadingRate, AttachmentAccess::Read);
+        return MakeImageBarrier(image, AccessFlags::ShadingRateRead);
     }
 
     ImageBarrier ConvertToPresent(Image& image)
     {
-        return MakeImageBarrier(image, AttachmentUsage::Present, AttachmentAccess::Read);
+        return MakeImageBarrier(image, AccessFlags::Present);
     }
 
     namespace
     {
         //! Cross-queue ownership transfer requires the resource to be visible
-        //! on both src and dst queues — i.e. the descriptor's sharedQueueMask
+        //! on both src and dst queues -- i.e. the descriptor's sharedQueueMask
         //! must cover both bits. Returns true for intra-queue barriers.
         bool IsCrossQueueAllowed(
             HardwareQueueClassMask sharedMask,
@@ -349,13 +283,12 @@ namespace Spark::RHI
         }
 
         const Buffer& buffer = *barrier.m_buffer;
-        if (!IsBufferStateSupportedByBindFlags(buffer, barrier.m_dstUsage, barrier.m_dstAccess))
+        if (!IsBufferAccessSupported(buffer, barrier.m_dstAccess))
         {
             LOG_ERROR(
-                "[RHI] Invalid buffer barrier for '{}': bindFlags={}, requested dstState=(usage={}, access={}).",
+                "[RHI] Invalid buffer barrier for '{}': bindFlags=0x{:x}, requested dstAccess=0x{:x}.",
                 buffer.GetName().GetCStr(),
                 static_cast<uint32_t>(buffer.GetDescriptor().m_bindFlags),
-                static_cast<uint32_t>(barrier.m_dstUsage),
                 static_cast<uint32_t>(barrier.m_dstAccess));
             return false;
         }
@@ -383,13 +316,12 @@ namespace Spark::RHI
         }
 
         const Image& image = *barrier.m_image;
-        if (!IsImageStateSupportedByBindFlags(image, barrier.m_dstUsage, barrier.m_dstAccess))
+        if (!IsImageAccessSupported(image, barrier.m_dstAccess))
         {
             LOG_ERROR(
-                "[RHI] Invalid image barrier for '{}': bindFlags={}, requested dstState=(usage={}, access={}).",
+                "[RHI] Invalid image barrier for '{}': bindFlags=0x{:x}, requested dstAccess=0x{:x}.",
                 image.GetName().GetCStr(),
                 static_cast<uint32_t>(image.GetDescriptor().m_bindFlags),
-                static_cast<uint32_t>(barrier.m_dstUsage),
                 static_cast<uint32_t>(barrier.m_dstAccess));
             return false;
         }

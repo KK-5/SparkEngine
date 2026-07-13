@@ -192,8 +192,8 @@ for (auto& [resource, dstAccess] : desired) {
 
 ### Phase A — 只动 SparkRHI,用直接 barrier 验证
 
-1. 加 `AccessFlags` + `ToStates(access, queue, stage)` + `TranslateToAccess` + access-based `Validate*`(§2/§5/§6)。
-2. 翻转 `ResourceState` + `ImageBarrier`/`BufferBarrier` → `AccessFlags`;迁移 `ResourceState.cpp`(Make*/ConvertTo*/Validate*)、DX12 `CommandList`+`Conversions`、`AsyncUploadSystem`(§9)。
+1. 加 `AccessFlags` + `ConvertBufferState`/`ConvertImageState`(access→D3D12 态)+ access-based `Validate*`(§2/§5/§6)。`TranslateToAccess`(usage→AccessFlags)**不在此**——它只在 render graph 的 `CompileResourceState` 出现,归 Phase B。
+2. 翻转 `ResourceState` + `ImageBarrier`/`BufferBarrier` → `AccessFlags`;迁移 `ResourceState.cpp`(Make*/ConvertTo*/Validate*)、DX12 `CommandList`+`Conversions`、`AsyncUploadSystem`(§9)。`ConvertTo*` helper 直接写 `AccessFlags`,不经 usage。
 3. **此刻 SparkRender 故意编不过,不 build 它。** 只 `--target` 单独构建 `HelloTriangle`、`DrawShape`、RHI 单测(不走 ALL_BUILD)。验证:
    - 样例渲染正常 → `QueueBarrier → ToStates` + `Get/SetResourceState` 往返正确。
    - **上传路径**(样例加载纹理/buffer 触发 `AsyncUpload` 的 `ConvertToCopyWrite/Read`)。

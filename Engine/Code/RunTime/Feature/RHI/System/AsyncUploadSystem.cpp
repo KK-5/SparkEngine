@@ -58,14 +58,14 @@ namespace Spark::RHI
                 ctx.Remove<PendingBufferUpload>(handle);
                 return true;
             }
-            if (exclusive && curState.m_usage != AttachmentUsage::Uninitialized)
+            if (exclusive && curState.m_access != AccessFlags::None)
             {
                 LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
-                          "(usage={}). Exclusive resources cannot be re-uploaded — "
+                          "(access=0x{:x}). Exclusive resources cannot be re-uploaded -- "
                           "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
                           "re-uploadable resources.",
                           static_cast<uint32_t>(handle),
-                          static_cast<uint32_t>(curState.m_usage));
+                          static_cast<uint32_t>(curState.m_access));
                 ctx.Remove<UploadPendingTag>(handle);
                 ctx.Remove<PendingBufferUpload>(handle);
                 return true;
@@ -100,14 +100,14 @@ namespace Spark::RHI
                 ctx.Remove<PendingImageUpload>(handle);
                 return true;
             }
-            if (exclusive && curState.m_usage != AttachmentUsage::Uninitialized)
+            if (exclusive && curState.m_access != AccessFlags::None)
             {
                 LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
-                          "(usage={}). Exclusive resources cannot be re-uploaded — "
+                          "(access=0x{:x}). Exclusive resources cannot be re-uploaded -- "
                           "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
                           "re-uploadable resources.",
                           static_cast<uint32_t>(handle),
-                          static_cast<uint32_t>(curState.m_usage));
+                          static_cast<uint32_t>(curState.m_access));
                 ctx.Remove<UploadPendingTag>(handle);
                 ctx.Remove<PendingImageUpload>(handle);
                 return true;
@@ -336,10 +336,8 @@ namespace Spark::RHI
             //                Copy→COMMON in DX12; consumer pulls from there)
             BufferBarrier barrier;
             barrier.m_buffer    = target;
-            barrier.m_srcUsage  = AttachmentUsage::Copy;
-            barrier.m_srcAccess = AttachmentAccess::Write;
-            barrier.m_dstUsage  = AttachmentUsage::Uninitialized;
-            barrier.m_dstAccess = AttachmentAccess::Unknown;
+            barrier.m_srcAccess = AccessFlags::TransferWrite;
+            barrier.m_dstAccess = AccessFlags::None;
             barrier.m_srcStage  = AttachmentStage::Copy;
             barrier.m_dstStage  = AttachmentStage::Any;
             barrier.m_srcQueue  = HardwareQueueClass::Copy;
@@ -410,10 +408,8 @@ namespace Spark::RHI
             // See CompileBufferBarriers's release-barrier comment above.
             ImageBarrier barrier;
             barrier.m_image     = target;
-            barrier.m_srcUsage  = AttachmentUsage::Copy;
-            barrier.m_srcAccess = AttachmentAccess::Write;
-            barrier.m_dstUsage  = AttachmentUsage::Uninitialized;
-            barrier.m_dstAccess = AttachmentAccess::Unknown;
+            barrier.m_srcAccess = AccessFlags::TransferWrite;
+            barrier.m_dstAccess = AccessFlags::None;
             barrier.m_srcStage  = AttachmentStage::Copy;
             barrier.m_dstStage  = AttachmentStage::Any;
             barrier.m_srcQueue  = HardwareQueueClass::Copy;

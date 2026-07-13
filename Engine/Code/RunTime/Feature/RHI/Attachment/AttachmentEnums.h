@@ -10,6 +10,7 @@
 #include <Object/ObjectName.h>
 #include <Math/Bit.h>
 #include <RHI/Base.h>
+#include <RHI/Resource/AccessFlags.h>
 
 namespace Spark::RHI
 {
@@ -172,6 +173,14 @@ namespace Spark::RHI
     //! Modifies access to fit the constraints of the scope attachment usage. For example, a scope attachment
     //! with the usage 'Shader' and 'Write' access becomes a UAV under the hood, so it should be remapped to 'ReadWrite'.
     AttachmentAccess AdjustAccessBasedOnUsage(AttachmentAccess access, AttachmentUsage usage);
+
+    //! Translate a render-layer (usage, access) attachment description into the backend-agnostic
+    //! AccessFlags bitmask consumed by ResourceState / barriers. Folds in the normalization that
+    //! AdjustAccessBasedOnUsage used to do (RenderTarget/DepthStencil ReadWrite->Write, Shader
+    //! Write->ReadWrite UAV). Buffer and Image are split: a Shader read differs (buffers add
+    //! ConstantBufferRead for CBV/structured; images are SRV-only) and each rejects the other's usages.
+    AccessFlags ConvertBufferAccess(AttachmentUsage usage, AttachmentAccess access);
+    AccessFlags ConvertImageAccess(AttachmentUsage usage, AttachmentAccess access);
 
     //! Describes the action the hardware should use when loading an attachment prior to a scope.
     enum class AttachmentLoadAction : uint8_t

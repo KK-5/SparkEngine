@@ -358,7 +358,7 @@ namespace Spark::RHI::DX12
         }
 
         const RHI::ResourceState resourceState = image->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertImageAttachmentState(resourceState.m_usage, resourceState.m_access);
+        D3D12_RESOURCE_STATES initialResourceState = ConvertImageState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
 
         auto& newPlacement = bucket.m_placements.back();
 
@@ -571,7 +571,7 @@ namespace Spark::RHI::DX12
         SetResourceState(*buffer, RHI::ResourceState{});
 
         const RHI::ResourceState resourceState = buffer->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
+        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
 
         auto& newPlacement = bucket.m_placements.back();
 
@@ -696,7 +696,7 @@ namespace Spark::RHI::DX12
         }
 
         const RHI::ResourceState resourceState = image->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertImageAttachmentState(resourceState.m_usage, resourceState.m_access);
+        D3D12_RESOURCE_STATES initialResourceState = ConvertImageState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
 
         RHI::ResultCode result = InitResource(image.get(), [&]() -> RHI::ResultCode
         {
@@ -757,7 +757,7 @@ namespace Spark::RHI::DX12
         SetResourceState(*buffer, RHI::ResourceState{});
 
         const RHI::ResourceState resourceState = buffer->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferAttachmentState(resourceState.m_usage, resourceState.m_access);
+        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
 
         RHI::ResultCode result = InitResource(buffer.get(), [&]() -> RHI::ResultCode
         {
