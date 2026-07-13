@@ -33,6 +33,18 @@ namespace Spark::Render
 
 namespace
 {
+    // Buffer/Image overloads pick the matching usage->AccessFlags translation; a Shader
+    // read differs (buffers add ConstantBufferRead, images are SRV-only).
+    RHI::AccessFlags ConvertAttachmentAccess(const BufferPassAttachment& att)
+    {
+        return RHI::ConvertBufferAccess(att.m_usage, att.m_access);
+    }
+
+    RHI::AccessFlags ConvertAttachmentAccess(const ImagePassAttachment& att)
+    {
+        return RHI::ConvertImageAccess(att.m_usage, att.m_access);
+    }
+
     template <typename AttachmentT>
     RHI::ResourceState CompileResourceState(const AttachmentT& attachment)
     {
@@ -42,8 +54,7 @@ namespace
             "[RenderSystem] Attachment has unknown access.");
 
         RHI::ResourceState state;
-        state.m_usage  = attachment.m_usage;
-        state.m_access = RHI::AdjustAccessBasedOnUsage(attachment.m_access, attachment.m_usage);
+        state.m_access = ConvertAttachmentAccess(attachment);
         return state;
     }
 } // namespace
@@ -133,8 +144,6 @@ namespace
 
                 RHI::BufferBarrier b;
                 b.m_buffer    = buf->m_buffer.get();
-                b.m_srcUsage  = src.m_usage;
-                b.m_dstUsage  = dst.m_usage;
                 b.m_srcAccess = src.m_access;
                 b.m_dstAccess = dst.m_access;
                 b.m_srcStage  = src.m_stage;
@@ -203,20 +212,18 @@ namespace
                     }
                 }
 
-                // loadOp=Clear discards prior contents — force src to Uninitialized
+                // loadOp=Clear discards prior contents — force src to the "no access"
+                // state so the barrier transitions from COMMON.
                 RHI::ResourceState srcForBarrier = src;
                 if (att.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
                 {
-                    srcForBarrier.m_usage  = RHI::AttachmentUsage::Uninitialized;
-                    srcForBarrier.m_access = RHI::AttachmentAccess::Unknown;
+                    srcForBarrier.m_access = RHI::AccessFlags::None;
                 }
 
                 if (srcForBarrier != dst || src.m_queue != homeQueue)
                 {
                     RHI::ImageBarrier b;
                     b.m_image     = img->m_image.get();
-                    b.m_srcUsage  = srcForBarrier.m_usage;
-                    b.m_dstUsage  = dst.m_usage;
                     b.m_srcAccess = srcForBarrier.m_access;
                     b.m_dstAccess = dst.m_access;
                     b.m_srcStage  = src.m_stage;
@@ -477,8 +484,6 @@ namespace
                     RHI::Buffer* buffer = backingBuffer->m_buffer;
 
                     b.m_buffer    = buffer;
-                    b.m_srcUsage  = src.m_usage;
-                    b.m_dstUsage  = dst.m_usage;
                     b.m_srcAccess = src.m_access;
                     b.m_dstAccess = dst.m_access;
                     b.m_srcStage  = srcStage;
@@ -503,7 +508,7 @@ namespace
                     }
                 }
 
-                tracker.m_current = RHI::ResourceState{ dst.m_usage, dst.m_access, dstQueue, att.m_stage };
+                tracker.m_current = RHI::ResourceState{ dst.m_access, dstQueue, att.m_stage };
                 tracker.m_lastPass = pass;
             });
         }
@@ -559,8 +564,7 @@ namespace
                 // loadOp=Clear discards prior contents — let backend pick UNDEFINED for src layout.
                 if (att.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
                 {
-                    src.m_usage  = RHI::AttachmentUsage::Uninitialized;
-                    src.m_access = RHI::AttachmentAccess::Unknown;
+                    src.m_access = RHI::AccessFlags::None;
                 }
 
                 RHI::ImageBarrier b;
@@ -571,8 +575,6 @@ namespace
                     RHI::Image* image = backingImage->m_image;
 
                     b.m_image     = image;
-                    b.m_srcUsage  = src.m_usage;
-                    b.m_dstUsage  = dst.m_usage;
                     b.m_srcAccess = src.m_access;
                     b.m_dstAccess = dst.m_access;
                     b.m_srcStage  = srcStage;
@@ -596,7 +598,7 @@ namespace
                     }
                 }
 
-                tracker.m_current = RHI::ResourceState{ dst.m_usage, dst.m_access, dstQueue, att.m_stage };
+                tracker.m_current = RHI::ResourceState{ dst.m_access, dstQueue, att.m_stage };
                 tracker.m_lastPass = pass;
             });
         }

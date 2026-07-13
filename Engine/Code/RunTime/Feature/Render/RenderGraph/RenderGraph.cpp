@@ -444,7 +444,7 @@ namespace Spark::Render
                 }
 
                 const RHI::ResourceState cur = tracker->m_current;
-                if (cur.m_usage == RHI::AttachmentUsage::Present
+                if (cur.m_access == RHI::AccessFlags::Present
                     && cur.m_queue == RHI::HardwareQueueClass::Graphics)
                 {
                     return;
@@ -459,10 +459,8 @@ namespace Spark::Render
 
                 RHI::ImageBarrier b;
                 b.m_image     = backing->m_image;
-                b.m_srcUsage  = cur.m_usage;
-                b.m_dstUsage  = RHI::AttachmentUsage::Present;
                 b.m_srcAccess = cur.m_access;
-                b.m_dstAccess = RHI::AttachmentAccess::Read;
+                b.m_dstAccess = RHI::AccessFlags::Present;
                 b.m_srcStage  = cur.m_stage;
                 b.m_dstStage  = RHI::AttachmentStage::Any;
                 b.m_srcQueue  = cur.m_queue;

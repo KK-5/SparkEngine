@@ -60,10 +60,8 @@ namespace Spark::Render
                 // then return it to COPY_DEST for the copy below.
                 RHI::ImageBarrier toRT;
                 toRT.m_image     = copyDst;
-                toRT.m_srcUsage  = RHI::AttachmentUsage::Copy;
-                toRT.m_dstUsage  = RHI::AttachmentUsage::RenderTarget;
-                toRT.m_srcAccess = RHI::AttachmentAccess::Write;
-                toRT.m_dstAccess = RHI::AttachmentAccess::Write;
+                toRT.m_srcAccess = RHI::AccessFlags::TransferWrite;
+                toRT.m_dstAccess = RHI::AccessFlags::ColorAttachmentWrite;
                 toRT.m_srcStage  = RHI::AttachmentStage::Copy;
                 toRT.m_dstStage  = RHI::AttachmentStage::ColorAttachmentOutput;
                 toRT.m_srcQueue  = RHI::HardwareQueueClass::Graphics;
@@ -82,10 +80,8 @@ namespace Spark::Render
 
                 RHI::ImageBarrier toCopy;
                 toCopy.m_image     = copyDst;
-                toCopy.m_srcUsage  = RHI::AttachmentUsage::RenderTarget;
-                toCopy.m_dstUsage  = RHI::AttachmentUsage::Copy;
-                toCopy.m_srcAccess = RHI::AttachmentAccess::Write;
-                toCopy.m_dstAccess = RHI::AttachmentAccess::Write;
+                toCopy.m_srcAccess = RHI::AccessFlags::ColorAttachmentWrite;
+                toCopy.m_dstAccess = RHI::AccessFlags::TransferWrite;
                 toCopy.m_srcStage  = RHI::AttachmentStage::ColorAttachmentOutput;
                 toCopy.m_dstStage  = RHI::AttachmentStage::Copy;
                 toCopy.m_srcQueue  = RHI::HardwareQueueClass::Graphics;
