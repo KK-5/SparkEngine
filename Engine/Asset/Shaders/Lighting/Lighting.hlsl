@@ -9,9 +9,11 @@
 // un-project, divide by w. The per-pixel ndc.xy comes from the VS-passed uv, which
 // is exactly what the VS used to place SV_Position, so no manual y-flip is needed.
 //
-// Sky / uncovered pixels: the Normal target is cleared to 0, so a ~zero-length
-// normal means "no geometry here" — discard, leaving SceneColor at its clear value
-// for the skybox pass to fill afterwards.
+// Sky / uncovered pixels are culled by a read-only depth test instead of a shader
+// discard: the full-screen triangle sits at the far plane (z=1) and is depth-tested
+// Greater against SceneDepth, so only pixels with geometry (depth < 1) survive — the
+// rasterizer rejects the rest via early-Z. SceneColor keeps its clear value where
+// culled, for the skybox pass to fill afterwards.
 
 #include <Shaders/ViewBindings.hlsl>   // space0: g_InvViewProj, g_InvView
 
@@ -40,7 +42,9 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     // Full-screen triangle from SV_VertexID: NDC (-1,-1),(3,-1),(-1,3).
     float2 uv  = float2((vertexId << 1) & 2, vertexId & 2);
     VSOutput output;
-    output.position = float4(uv * 2.0 - 1.0, 0.0, 1.0);
+    // z = 1 (far plane): the read-only depth test (func Greater vs SceneDepth) then
+    // culls sky/uncovered pixels, where SceneDepth still holds the far clear value.
+    output.position = float4(uv * 2.0 - 1.0, 1.0, 1.0);
     output.uv       = uv;
     return output;
 }
@@ -93,12 +97,9 @@ float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy), 0);
 
+    // Every pixel reaching the PS has geometry — sky/uncovered pixels were already
+    // rejected by the read-only depth test (far-plane z=1, func Greater).
     float4 rawNormal = g_Normal.Load(px);
-    // No geometry wrote here (Normal cleared to 0) — leave it for the skybox.
-    if (dot(rawNormal.xyz, rawNormal.xyz) < 1e-4)
-    {
-        discard;
-    }
 
     float3 albedo = g_Albedo.Load(px).rgb;
     float3 orm    = g_ORM.Load(px).rgb;

@@ -55,11 +55,15 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // Single color target (SceneColor). No depth: this is a full-screen shading
-        // pass that reads the GBuffer, it does not depth-test.
+        // Single color target (SceneColor) + read-only SceneDepth. The full-screen
+        // triangle sits at the far plane (z=1) and is depth-tested Greater against
+        // SceneDepth: only pixels with geometry (depth < 1) survive, replacing the old
+        // shader discard and keeping early-Z. Depth is never written (writeMask Zero),
+        // so the DSV stays read-only and can coexist with the depth SRV.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 1;
         rt.m_colorFormats[0]      = RHI::Format::R8G8B8A8_UNORM;
+        rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         // Empty input layout: the full-screen triangle is generated from SV_VertexID.
         RHI::InputStreamLayoutBuilder builder;
@@ -67,9 +71,11 @@ namespace Spark::Render
         RHI::InputStreamLayout input = builder.End();
 
         RHI::RenderStates states;
-        states.m_depthStencilState.m_depth.m_enable   = 0;
-        states.m_depthStencilState.m_stencil.m_enable = 0;
-        states.m_rasterState.m_cullMode               = RHI::CullMode::None; // full-screen triangle
+        states.m_depthStencilState.m_depth.m_enable    = 1;
+        states.m_depthStencilState.m_depth.m_writeMask = RHI::DepthWriteMask::Zero;
+        states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::Greater;
+        states.m_depthStencilState.m_stencil.m_enable  = 0;
+        states.m_rasterState.m_cullMode                = RHI::CullMode::None; // full-screen triangle
 
         RenderPassConfig cfg;
         cfg.m_vertexShader       = shaderAsset;
@@ -141,6 +147,22 @@ namespace Spark::Render
 
                 builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
                     RHI::AttachmentId(s_depthSlot), depthBind);
+
+                // Also bind SceneDepth as a read-only depth-stencil attachment so the
+                // rasterizer depth-tests against it (far-plane z=1, func Greater) and culls
+                // sky/uncovered pixels before the PS. Same resource as the SRV above — the
+                // compiler folds both into one DepthStencilRead | ShaderSampledRead barrier.
+                // No view override: this resolves the resource's D32_FLOAT read-only DSV,
+                // distinct from the R32_FLOAT SRV above in the view cache.
+                Render::ImageAttachmentBindInfo depthTestBind;
+                depthTestBind.m_slot  = RHI::InputName("SceneDepthTest");
+                depthTestBind.m_usage = RHI::AttachmentUsage::DepthStencil;
+                depthTestBind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
+                depthTestBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                depthTestBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
+                    RHI::AttachmentId(s_depthSlot), depthTestBind);
             })
             .Compile([](RenderGraphCompiler& compiler)
             {
