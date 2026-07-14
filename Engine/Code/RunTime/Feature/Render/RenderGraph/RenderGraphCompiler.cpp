@@ -429,11 +429,9 @@ namespace
         };
 
         void CompileBufferBarriers(
-            Pass                        pass,
-            PassContext&                passContext,
-            RHIContext&                 context,
-            RHI::TransientResourcePool& pool,
-            PassBarriers&               out)
+            Pass          pass,
+            PassContext&  passContext,
+            RHIContext&   context)
         {
             ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
 
@@ -441,7 +439,7 @@ namespace
 
             auto view = context.GetView<BufferPassAttachment, AttachmentCompilingTag>(
                 Exclude<StaticImportTag>);
-            view.each([&](auto, const BufferPassAttachment& att)
+            view.each([&](RHIHandle attachmentEntity, const BufferPassAttachment& att)
             {
                 RHIHandle resource = att.m_buffer;
                 ASSERT(resource != NullHandle, "Buffer attachment has no resource entity.");
@@ -468,57 +466,27 @@ namespace
                         init.m_current.m_queue, dstQueue, passContext, context);
                     context.Add<ResourceStateTracker>(resource, init);
                 }
-                auto& tracker = context.Get<ResourceStateTracker>(resource);
+                const RHI::ResourceState src = context.Get<ResourceStateTracker>(resource).m_current;
 
-                const RHI::HardwareQueueClass srcQueue = tracker.m_current.m_queue;
-                const RHI::AttachmentStage    srcStage = tracker.m_current.m_stage;
-
-                RHI::ResourceState src = tracker.m_current;
-                RHI::ResourceState dst = CompileResourceState(att);
+                auto* backingBuffer = context.TryGet<BackingBuffer>(resource);
+                ASSERT(backingBuffer != nullptr, "Resource has no BackingBuffer.");
 
                 RHI::BufferBarrier b;
-                if (src != dst || srcQueue != dstQueue)
-                {
-                    auto* backingBuffer = context.TryGet<BackingBuffer>(resource);
-                    ASSERT(backingBuffer != nullptr, "Resource has no BackingBuffer.");
-                    RHI::Buffer* buffer = backingBuffer->m_buffer;
-
-                    b.m_buffer    = buffer;
-                    b.m_srcAccess = src.m_access;
-                    b.m_dstAccess = dst.m_access;
-                    b.m_srcStage  = srcStage;
-                    b.m_dstStage  = att.m_stage;
-                    b.m_srcQueue  = srcQueue;
-                    b.m_dstQueue  = dstQueue;
-                    out.m_preBuffer.push_back(b);
-                }
-
-                // Cross-queue: push the release half onto the previous-pass entity.
-                if (srcQueue != dstQueue && tracker.m_lastPass != NullPass)
-                {
-                    if (auto barriers = passContext.TryGet<PassBarriers>(tracker.m_lastPass))
-                    {
-                        barriers->m_postBuffer.push_back(b);
-                    }
-                    else
-                    {
-                        PassBarriers passBarriers;
-                        passBarriers.m_postBuffer.push_back(b);
-                        passContext.Add<PassBarriers>(tracker.m_lastPass, eastl::move(passBarriers));
-                    }
-                }
-
-                tracker.m_current = RHI::ResourceState{ dst.m_access, dstQueue, att.m_stage };
-                tracker.m_lastPass = pass;
+                b.m_buffer    = backingBuffer->m_buffer;
+                b.m_srcAccess = src.m_access;
+                b.m_dstAccess = CompileResourceState(att).m_access;
+                b.m_srcStage  = src.m_stage;
+                b.m_dstStage  = att.m_stage;
+                b.m_srcQueue  = src.m_queue;
+                b.m_dstQueue  = dstQueue;
+                context.Add<CompiledBufferBarrier>(attachmentEntity, CompiledBufferBarrier{ b });
             });
         }
 
         void CompileImageBarriers(
-            Pass                        pass,
-            PassContext&                passContext,
-            RHIContext&                 context,
-            RHI::TransientResourcePool& pool,
-            PassBarriers&               out)
+            Pass          pass,
+            PassContext&  passContext,
+            RHIContext&   context)
         {
             ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
 
@@ -526,7 +494,7 @@ namespace
 
             auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>(
                 Exclude<StaticImportTag>);
-            view.each([&](auto, const ImagePassAttachment& att)
+            view.each([&](RHIHandle attachmentEntity, const ImagePassAttachment& att)
             {
                 RHIHandle resource = att.m_image;
                 ASSERT(resource != NullHandle, "Image attachment has no resource entity.");
@@ -553,38 +521,64 @@ namespace
                         init.m_current.m_queue, dstQueue, passContext, context);
                     context.Add<ResourceStateTracker>(resource, init);
                 }
-                auto& tracker = context.Get<ResourceStateTracker>(resource);
+                const RHI::ResourceState src = context.Get<ResourceStateTracker>(resource).m_current;
 
-                const RHI::HardwareQueueClass srcQueue = tracker.m_current.m_queue;
-                const RHI::AttachmentStage    srcStage = tracker.m_current.m_stage;
-
-                RHI::ResourceState src = tracker.m_current;
-                RHI::ResourceState dst = CompileResourceState(att);
-
-                // loadOp=Clear discards prior contents — let backend pick UNDEFINED for src layout.
+                // loadOp=Clear discards prior contents — force src to no-access so the
+                // backend picks UNDEFINED for the src layout.
+                RHI::AccessFlags srcAccess = src.m_access;
                 if (att.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
                 {
-                    src.m_access = RHI::AccessFlags::None;
+                    srcAccess = RHI::AccessFlags::None;
                 }
+
+                auto* backingImage = context.TryGet<BackingImage>(resource);
+                ASSERT(backingImage != nullptr, "Resource has no BackingImage.");
 
                 RHI::ImageBarrier b;
-                if (src != dst || srcQueue != dstQueue)
+                b.m_image     = backingImage->m_image;
+                b.m_srcAccess = srcAccess;
+                b.m_dstAccess = CompileResourceState(att).m_access;
+                b.m_srcStage  = src.m_stage;
+                b.m_dstStage  = att.m_stage;
+                b.m_srcQueue  = src.m_queue;
+                b.m_dstQueue  = dstQueue;
+                context.Add<CompiledImageBarrier>(attachmentEntity, CompiledImageBarrier{ b });
+            });
+        }
+
+        void MergeImageBarriers(
+            Pass pass, PassContext& passContext, RHIContext& context, PassBarriers& out)
+        {
+            eastl::unordered_map<RHIHandle, size_t> indexOf;
+
+            context.GetView<ImagePassAttachment, CompiledImageBarrier>().each(
+                [&](auto, const ImagePassAttachment& att, const CompiledImageBarrier& cb)
+            {
+                const RHIHandle key = att.m_image;
+                auto it = indexOf.find(key);
+                if (it != indexOf.end())
                 {
-                    auto* backingImage = context.TryGet<BackingImage>(resource);
-                    ASSERT(backingImage != nullptr, "Resource has no BackingImage.");
-                    RHI::Image* image = backingImage->m_image;
-
-                    b.m_image     = image;
-                    b.m_srcAccess = src.m_access;
-                    b.m_dstAccess = dst.m_access;
-                    b.m_srcStage  = srcStage;
-                    b.m_dstStage  = att.m_stage;
-                    b.m_srcQueue  = srcQueue;
-                    b.m_dstQueue  = dstQueue;
-                    out.m_preImage.push_back(b);
+                    RHI::ImageBarrier& b = out.m_preImage[it->second];
+                    b.m_dstAccess |= cb.m_barrier.m_dstAccess;
+                    b.m_dstStage  |= cb.m_barrier.m_dstStage;
+                    ASSERT(!RHI::HasWrite(b.m_dstAccess)
+                        || b.m_dstAccess == (RHI::AccessFlags::ShaderStorageRead | RHI::AccessFlags::ShaderStorageWrite),
+                        "Image combined with conflicting read+write access in a single pass.");
                 }
+                else
+                {
+                    indexOf.emplace(key, out.m_preImage.size());
+                    out.m_preImage.push_back(cb.m_barrier);
+                }
+            });
 
-                if (srcQueue != dstQueue && tracker.m_lastPass != NullPass)
+            for (auto& [key, idx] : indexOf)
+            {
+                RHI::ImageBarrier& b = out.m_preImage[idx];
+                auto& tracker = context.Get<ResourceStateTracker>(key);
+
+                // Cross-queue: push the release half onto the previous-pass entity.
+                if (b.m_srcQueue != b.m_dstQueue && tracker.m_lastPass != NullPass)
                 {
                     if (auto barriers = passContext.TryGet<PassBarriers>(tracker.m_lastPass))
                     {
@@ -598,9 +592,83 @@ namespace
                     }
                 }
 
-                tracker.m_current = RHI::ResourceState{ dst.m_access, dstQueue, att.m_stage };
+                tracker.m_current  = RHI::ResourceState{ b.m_dstAccess, b.m_dstQueue, b.m_dstStage };
                 tracker.m_lastPass = pass;
+            }
+
+            // Drop no-ops (src == dst, same queue). A cross-queue barrier is kept even when
+            // access matches, to carry the QFOT.
+            out.m_preImage.erase(
+                eastl::remove_if(out.m_preImage.begin(), out.m_preImage.end(),
+                    [](const RHI::ImageBarrier& b) {
+                        return b.m_srcAccess == b.m_dstAccess
+                            && b.m_srcStage  == b.m_dstStage
+                            && b.m_srcQueue  == b.m_dstQueue;
+                    }),
+                out.m_preImage.end());
+
+            context.Clear<CompiledImageBarrier>();
+        }
+
+        void MergeBufferBarriers(
+            Pass pass, PassContext& passContext, RHIContext& context, PassBarriers& out)
+        {
+            eastl::unordered_map<RHIHandle, size_t> indexOf;
+
+            context.GetView<BufferPassAttachment, CompiledBufferBarrier>().each(
+                [&](auto, const BufferPassAttachment& att, const CompiledBufferBarrier& cb)
+            {
+                const RHIHandle key = att.m_buffer;
+                auto it = indexOf.find(key);
+                if (it != indexOf.end())
+                {
+                    RHI::BufferBarrier& b = out.m_preBuffer[it->second];
+                    b.m_dstAccess |= cb.m_barrier.m_dstAccess;
+                    b.m_dstStage  |= cb.m_barrier.m_dstStage;
+                    ASSERT(!RHI::HasWrite(b.m_dstAccess)
+                        || b.m_dstAccess == (RHI::AccessFlags::ShaderStorageRead | RHI::AccessFlags::ShaderStorageWrite),
+                        "Buffer combined with conflicting read+write access in a single pass.");
+                }
+                else
+                {
+                    indexOf.emplace(key, out.m_preBuffer.size());
+                    out.m_preBuffer.push_back(cb.m_barrier);
+                }
             });
+
+            for (auto& [key, idx] : indexOf)
+            {
+                RHI::BufferBarrier& b = out.m_preBuffer[idx];
+                auto& tracker = context.Get<ResourceStateTracker>(key);
+
+                if (b.m_srcQueue != b.m_dstQueue && tracker.m_lastPass != NullPass)
+                {
+                    if (auto barriers = passContext.TryGet<PassBarriers>(tracker.m_lastPass))
+                    {
+                        barriers->m_postBuffer.push_back(b);
+                    }
+                    else
+                    {
+                        PassBarriers passBarriers;
+                        passBarriers.m_postBuffer.push_back(b);
+                        passContext.Add<PassBarriers>(tracker.m_lastPass, eastl::move(passBarriers));
+                    }
+                }
+
+                tracker.m_current  = RHI::ResourceState{ b.m_dstAccess, b.m_dstQueue, b.m_dstStage };
+                tracker.m_lastPass = pass;
+            }
+
+            out.m_preBuffer.erase(
+                eastl::remove_if(out.m_preBuffer.begin(), out.m_preBuffer.end(),
+                    [](const RHI::BufferBarrier& b) {
+                        return b.m_srcAccess == b.m_dstAccess
+                            && b.m_srcStage  == b.m_dstStage
+                            && b.m_srcQueue  == b.m_dstQueue;
+                    }),
+                out.m_preBuffer.end());
+
+            context.Clear<CompiledBufferBarrier>();
         }
 
     } // namespace
@@ -615,8 +683,11 @@ namespace
 
         // Device memory barriers must be issued before state-transition barriers.
         CompileTransientDeviceMemoryBarriers(pass, passContext, pool, result);
-        CompileImageBarriers(pass, passContext, context, pool, result);
-        CompileBufferBarriers(pass, passContext, context, pool, result);
+
+        CompileImageBarriers(pass, passContext, context);
+        CompileBufferBarriers(pass, passContext, context);
+        MergeImageBarriers(pass, passContext, context, result);
+        MergeBufferBarriers(pass, passContext, context, result);
 
         passContext.AddOrReplace<PassBarriers>(pass, eastl::move(result));
     }

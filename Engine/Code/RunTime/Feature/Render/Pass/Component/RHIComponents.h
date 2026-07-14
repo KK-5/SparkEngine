@@ -92,6 +92,22 @@ namespace Spark::Render
         Pass               m_lastPass { NullPass };
     };
 
+    // Per-attachment compiled barrier: CompileImage/BufferBarriers emit one of these
+    // onto the Attachment entity, then the per-pass merge in CompileResourceBarriers
+    // folds all attachments referencing the same resource into a single barrier
+    // (combined-read AccessFlags OR). Lives on the Attachment (not the resource) so the
+    // merge recovers the resource entity via ImagePassAttachment::m_image /
+    // BufferPassAttachment::m_buffer. Per-pass lifetime: cleared once the merge consumes it.
+    struct CompiledImageBarrier
+    {
+        RHI::ImageBarrier m_barrier;
+    };
+
+    struct CompiledBufferBarrier
+    {
+        RHI::BufferBarrier m_barrier;
+    };
+
     ///////////////////////////////////////////////
 
     ///////////////////////////////////////////////
