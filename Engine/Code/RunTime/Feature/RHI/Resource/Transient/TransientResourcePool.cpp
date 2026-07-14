@@ -122,6 +122,14 @@ namespace Spark::RHI
         return m_descriptor;
     }
 
+    void TransientResourcePool::ShutdownResource(Resource* resource)
+    {
+        if (ValidateIsRegistered(resource))
+        {
+            Unregister(*resource);
+        }
+    }
+
     void TransientResourcePool::OnFrameBegin()
     {
         m_batchOpen = true;

@@ -25,7 +25,7 @@ namespace Spark::RHI
 
         uint32_t GetResourceCount() const;
 
-        void ShutdownResource(Resource* resource);
+        virtual void ShutdownResource(Resource* resource);
 
         virtual const ResourcePoolDescriptor& GetDescriptor() const = 0;
 
@@ -56,11 +56,14 @@ namespace Spark::RHI
         bool ValidateIsInitialized() const;
 
         bool ValidateNotProcessingFrame() const;
-    
+
+        // Detach a resource's pool back-pointer. Protected so pools whose resources are
+        // self-managed (e.g. TransientResourcePool) can override ShutdownResource to only
+        // detach without the device-initialized check / backend per-resource cleanup.
+        void Unregister(Resource& resource);
+
     private:
         void Register(Resource& resource);
-
-        void Unregister(Resource& resource);
 
         eastl::atomic<bool> m_isProcessingFrame = false;
     };

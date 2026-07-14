@@ -105,6 +105,14 @@ namespace Spark::RHI
 
         const TransientResourcePoolDescriptor& GetDescriptor() const override final;
 
+        //! Transient resources are self-managed: their backing memory is heap-level,
+        //! released as a whole by the backend's bucket teardown, not per-resource. So
+        //! destruction only detaches the pool back-pointer and skips both the device-
+        //! initialized check and the per-resource backend cleanup — this pool may already
+        //! be device-shut-down when a resource kept alive by the deferred object-pool
+        //! release is finally destroyed.
+        void ShutdownResource(Resource* resource) override;
+
     protected:
         TransientResourcePool() = default;
 
