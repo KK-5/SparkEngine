@@ -19,6 +19,7 @@
 #include <UI/ImGui/IconManager.h>
 #include <Mesh/MeshSystem.h>
 #include <Mesh/MeshResolver.h>
+#include <Material/MaterialSystem.h>
 #include <Skybox/SkyboxSystem.h>
 #include <Resource/Bus/AssetResolveBus.h>
 #include <Feature/Transform/TransformSystem.h>
@@ -72,6 +73,7 @@ namespace Spark
         SystemUniquePtr<UI::IconManager>             m_iconManager;
         SystemUniquePtr<Mesh::MeshSystem>            m_meshSystem;
         UniquePtr<Mesh::MeshResolver>                 m_meshResolver;
+        SystemUniquePtr<Material::MaterialSystem>    m_materialSystem;
         SystemUniquePtr<Skybox::SkyboxSystem>        m_skyboxSystem;
     };
 }

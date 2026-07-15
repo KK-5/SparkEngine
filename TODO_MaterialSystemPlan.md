@@ -25,7 +25,50 @@ the material system lands"）。材质系统的第一目标是让不同物体能
 
 ---
 
-## 一、材质实体层（已确认）
+## 实现进度（截至 2026-07）
+
+**已完成（编译通过，SparkEditor 可视验证）**：
+
+- **§一 材质实体层** —— `Feature/Material/`（`SparkMaterial` 模块，`Spark::Material` 命名
+  空间，与 `SparkMesh` **平级**：数据/实体层归 Material，Render 只做 GPU 绑定这一步）：
+  - `MaterialHandle`（强类型 entt handle）+ `MaterialContext = BasicContext<MaterialHandle>`
+    + `MaterialExecuteContext`（`MaterialSystem` Init 时 Push 一次）；
+  - 组件：`MaterialParams`、`MaterialComponent{MaterialHandle}`（挂 world primitive）、
+    `DefaultMaterialTag`；
+  - `CreateMaterial(mc, params)` 自由函数（非工厂）、`GetDefaultMaterial(mc)`（查 tag）；
+  - `MaterialSystem`（ISystem：持有 context、建默认材质并打 `DefaultMaterialTag`），在
+    `Engine.cpp` RenderSystem **之前** 创建。
+- **附录 C 编辑器反射** —— `Material/Reflect.h`（`MaterialParams` 字段反射 +
+  `MaterialComponent` → `MaterialRefElement`）；`UIElement.h` 加 `MaterialRefElement`；
+  ComponentView 抽出 `RenderFields`（字段循环复用）+ 加 `MaterialRefElement` 分支（跟随
+  引用内联展开材质属性、无效则回退默认材质）+ 非 world 组件 guard（跳过没有 world
+  `GetComponent` 的反射类型，如 `MaterialParams`）+ 组件子窗口改 `ImGuiChildFlags_AutoResizeY`
+  （原按字段数估算固定高度，内联展开会溢出/触发 SetCursorPos assert）。
+
+**已定的设计点（补充/修正下文原稿）**：
+
+- **AO → specular**：AO 是几何遮蔽（应来自贴图/烘焙，非材质标量常量），从 `MaterialParams`
+  移除；换成 `m_specular`（电介质 F0 缩放，默认 0.5 → F0 0.04），在 GBuffer 阶段算进 F0，
+  lighting 不受影响。
+- **base color 贴图入 `MaterialParams`**：`m_baseColorTexture` 为 `Resource::AssetId`（作者
+  引用；加载成 `Ptr<ImageAsset>` + 传 GPU 是阶段 2）。代价：`MaterialParams` 不再可裸
+  memcpy → §二 scatter 逐字段填 GPU struct + 解析纹理 index（GPU `MaterialData` 本就与 CPU
+  struct 不同布局）。
+- **"未设置" vs "显式引用默认" 保持可区分（不写回默认 handle）**：`MaterialComponent` 未设置
+  时保持 `NullMaterial`，消费侧（编辑器现在 / §二 GBuffer 之后）**实时解析回退默认材质**，
+  不把默认 handle 预填进组件。理由：悬空引用兜底本来就是刚需（§1.5，真实材质被删 → 引用
+  悬空 → 必须回退），预填默认属冗余、且会把"默认 handle"耦合进每条创建路径（含编辑器通用
+  `construct()` + `AddOrReplace`，那条拿不到运行期 handle，需额外 construct 钩子）；区分性
+  本身的收益（可切换默认 / 序列化 / prefab 继承覆盖）留待那些系统出现时。
+- **默认材质发现机制**：`DefaultMaterialTag` 标记 + `GetDefaultMaterial(mc)` 查询，数据驱动、
+  无工厂接口；§二 InstanceBindingSystem 解析 `materialIndex` 的回退复用同一机制。
+
+**下一步**：§二 GPU 绑定层（host `g_Materials` + MaterialBindingSystem 每帧 scatter +
+`InstanceData.materialIndex` + GBuffer 取值）。
+
+---
+
+## 一、材质实体层（已确认，已实现）
 
 核心思想：**材质数据本身是 ECS 里的一等公民（entity + component），不是某个 system
 私有拥有的对象**。没有"材质工厂对象"，registry（这里是独立的 MaterialContext）本身就是

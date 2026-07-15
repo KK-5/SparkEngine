@@ -11,6 +11,7 @@
 #include <Feature/Transform/Reflect.h>
 #include <Feature/Camera/Reflect.h>
 #include <Feature/Mesh/Reflect.h>
+#include <Feature/Material/Reflect.h>
 #include <Feature/Skybox/Reflect.h>
 
 namespace Spark
@@ -21,6 +22,7 @@ namespace Spark
         TypeRegistry::Register(Spark::Transform::Reflect);
         TypeRegistry::Register(Spark::Camera::Reflect);
         TypeRegistry::Register(Spark::Mesh::Reflect);
+        TypeRegistry::Register(Spark::Material::Reflect);
         TypeRegistry::Register(Spark::Skybox::Reflect);
         TypeRegistry::RegisterAll();
 
@@ -77,6 +79,12 @@ namespace Spark
         m_assetManager->AddSearchPath("Engine/Asset");
         m_assetManager->AssetRegistry();
         m_assetManager->InitEnvironmentBaker();
+
+        // Before RenderSystem: the material store must be pushed so the render-side
+        // GPU binding (later phase) and any consumer can resolve MaterialComponent
+        // references. No RHI/asset dependency for the entity layer itself.
+        m_materialSystem = CreateSystem<Material::MaterialSystem>();
+        m_materialSystem->Init();
 
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();

@@ -14,6 +14,9 @@
 #include <Math/Vector4.h>
 #include <Resource/AssetTypes.h>
 #include <Resource/Asset.h>
+#include <Material/MaterialContext.h>
+#include <Material/Components.h>
+#include <Material/MaterialUtils.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
 #include "UI/Bus/AssetEditBus.h"
@@ -379,8 +382,86 @@ namespace Editor
                 ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "EnumElement expect a enum value!");
             }
         }
+        else if(static_cast<MaterialRefElement*>(uiElement))
+        {
+            // entt may surface an enum-class field as its underlying integer (see the
+            // EnumElement note above), so accept either the exact handle type or an int.
+            Material::MaterialHandle handle = Material::NullMaterial;
+            bool gotHandle = false;
+            if (Material::MaterialHandle* h = fieldValue.try_cast<Material::MaterialHandle>())
+            {
+                handle = *h;
+                gotHandle = true;
+            }
+            else if (fieldValue.allow_cast<int>())
+            {
+                handle = static_cast<Material::MaterialHandle>(static_cast<uint32_t>(fieldValue.cast<int>()));
+                gotHandle = true;
+            }
+
+            if (gotHandle)
+            {
+                auto* matCtx = Material::MaterialExecuteContext::Current();
+                auto hasParams = [&](Material::MaterialHandle h)
+                {
+                    return matCtx && matCtx->Valid(h) && matCtx->Has<Material::MaterialParams>(h);
+                };
+
+                const bool explicitValid = hasParams(handle);
+
+                // Fall back to the default material when the reference is unset or
+                // dangling (§1.5), so the effective (shared) material is shown.
+                Material::MaterialHandle effective = handle;
+                bool usingDefault = false;
+                if (!explicitValid && matCtx)
+                {
+                    Material::MaterialHandle def = Material::GetDefaultMaterial(*matCtx);
+                    if (hasParams(def))
+                    {
+                        effective = def;
+                        usingDefault = true;
+                    }
+                }
+
+                // Reference slot (read-only for now — material picker is later work).
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                eastl::string buffer;
+                buffer.resize(64);
+                strcpy(buffer.data(), explicitValid ? "Material" : (usingDefault ? "Default" : "None"));
+                ImGui::BeginDisabled(true);
+                ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
+                ImGui::EndDisabled();
+
+                if (hasParams(effective))
+                {
+                    Material::MaterialParams& params = matCtx->Get<Material::MaterialParams>(effective);
+                    MetaType paramsType = TypeRegistry::GetContext().Resolve<Material::MaterialParams>();
+                    if (paramsType)
+                    {
+                        MetaAny paramsInstance = AnyCast(params);
+                        RenderFields(paramsType, paramsInstance, width);
+                    }
+                }
+            }
+            else
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "MaterialRefElement expect a MaterialHandle value!");
+            }
+        }
     }
-    
+
+    void ComponentView::RenderFields(const MetaType& type, MetaAny& instance, float width)
+    {
+        for (auto&& [id, data]: type.data())
+        {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 20);
+            DrawElement(type, id, data, instance, width);
+        }
+    }
+
     void ComponentView::DrawComponent(const Spark::MetaType component, Spark::MetaAny& instance)
     {
         float rounding = 5.f;
@@ -391,20 +472,9 @@ namespace Editor
 
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 5.0f);
         float childWidth = ImGui::GetContentRegionAvail().x - 10.0f;
-        float frameHeight = ImGui::GetFrameHeight();
-        size_t elemSize = 0;
-        for (auto it = component.data().begin(); it != component.data().end(); ++it)
-        {
-            elemSize++;
-        }
-
-        ImGuiStyle& style = ImGui::GetStyle();
-        float titleHeight = ImGui::GetTextLineHeight() + rounding * 2 + style.FramePadding.y * 2 + style.ItemSpacing.y; 
-        float elementHeight = ImGui::GetTextLineHeight() + style.FramePadding.y * 2 + style.ItemSpacing.y;
-        float totalHeight = titleHeight + (elemSize * elementHeight) + style.WindowPadding.y * 2;
 
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.18f, 0.18f, 1.f));
-        ImGui::BeginChild(component.name(), ImVec2(childWidth, state.isExpanded ? totalHeight : titleHeight), 0, 
+        ImGui::BeginChild(component.name(), ImVec2(childWidth, 0.0f), ImGuiChildFlags_AutoResizeY,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::PopStyleColor();
         
@@ -420,11 +490,7 @@ namespace Editor
             ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.45f, 0.45f, 0.45f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
-            for (auto&& [id, data]: component.data())
-            {
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 20);
-                DrawElement(component, id, data, instance, availableWidth);
-            }
+            RenderFields(component, instance, availableWidth);
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(2);
         }
@@ -434,6 +500,8 @@ namespace Editor
         }
 
         ImGui::PopStyleColor(3);
+
+        ImGui::Dummy(ImVec2(0.0f, rounding));
 
         ImGui::EndChild();
         ImGui::PopStyleVar(2);
@@ -509,6 +577,14 @@ namespace Editor
 
         for (MetaType& component: components)
         {
+            // Some reflected types are not world components (e.g. MaterialParams,
+            // which lives in the MaterialContext and is rendered inline via a
+            // MaterialRefElement). They have no world GetComponent — skip them here.
+            if (!component.func("GetComponent"_hs))
+            {
+                continue;
+            }
+
             MetaAny instancePtr = component.func("GetComponent"_hs).invoke({}, AnyCast(context), m_activeEntity);
             if(!(*instancePtr))
             {

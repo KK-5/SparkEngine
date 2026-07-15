@@ -24,6 +24,7 @@ namespace Editor
         };
 
         void DrawElement(const Spark::MetaType& component, Spark::TypeId fieldId, Spark::MetaData& data, Spark::MetaAny& instance, float width);
+        void RenderFields(const Spark::MetaType& type, Spark::MetaAny& instance, float width);
         void DrawComponent(const Spark::MetaType component, Spark::MetaAny& instance);
 
         eastl::unordered_map<Spark::TypeId, ComponentState> m_componentState;
