@@ -145,6 +145,7 @@ namespace Spark::Render
         // Processor setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_viewBindingSystem.Init(rhiCtxForInit);
+        m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
 
         m_drawableComposer.Init(rhiCtxForInit);
@@ -183,6 +184,7 @@ namespace Spark::Render
         m_drawableComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
@@ -223,6 +225,9 @@ namespace Spark::Render
         }
 
         m_viewBindingSystem.Update();
+        // Before InstanceBindingSystem: it reads the MaterialGPUSlot this writes to
+        // resolve InstanceData.m_materialIndex.
+        m_materialBindingSystem.Update(frameIndex);
         m_instanceBindingSystem.Update(frameIndex);
 
         m_drawableComposer.Update();

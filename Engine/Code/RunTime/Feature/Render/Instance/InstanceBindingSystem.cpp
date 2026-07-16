@@ -28,6 +28,9 @@
 #include <Mesh/Components.h>
 #include <Transform/Components.h>
 
+#include <Material/MaterialUtils.h>     // MaterialComponent / MaterialParams / GetDefaultMaterial (SparkMaterial)
+#include <MaterialBind/MaterialBinding.h>   // MaterialGPUSlot (Render)
+
 #include "InstanceSlot.h"
 
 namespace Spark::Render
@@ -244,14 +247,37 @@ namespace Spark::Render
         // Dense-order scatter. "slot == iteration index" keeps the layout
         // aligned with WorldTransformMatrix storage so this scatter can later
         // be replaced by one memcpy.
+        auto* matCtx = Material::MaterialExecuteContext::Current();
         uint32_t slot = 0;
         world->GetView<InstanceSlotRef, Transform::WorldTransformMatrix, Mesh::MeshGPUComponent>(
                   Exclude<DeadTag>)
-            .each([&](Entity, const InstanceSlotRef& ref,
+            .each([&](Entity e, const InstanceSlotRef& ref,
                       const Transform::WorldTransformMatrix& m, const Mesh::MeshGPUComponent&)
         {
-            m_instanceData[slot].m_model = m.m_worldMatrix;
-            table->m_slots[ref.m_id]     = slot;
+            // Resolve this renderable's material slot: MaterialComponent -> material
+            // handle (fall back to the default material when unset/dangling, §1.5) ->
+            // MaterialGPUSlot (written this frame by MaterialBindingSystem, ticked first).
+            uint32_t materialIndex = 0;
+            if (matCtx)
+            {
+                Material::MaterialHandle mh = Material::NullMaterial;
+                if (const auto* mc = world->TryGet<Material::MaterialComponent>(e))
+                {
+                    mh = mc->m_material;
+                }
+                if (!(matCtx->Valid(mh) && matCtx->Has<Material::MaterialParams>(mh)))
+                {
+                    mh = Material::GetDefaultMaterial(*matCtx);
+                }
+                if (const auto* gpuSlot = matCtx->TryGet<MaterialGPUSlot>(mh))
+                {
+                    materialIndex = gpuSlot->m_slot;
+                }
+            }
+
+            m_instanceData[slot].m_model         = m.m_worldMatrix;
+            m_instanceData[slot].m_materialIndex = materialIndex;
+            table->m_slots[ref.m_id]             = slot;
             ++slot;
         });
 

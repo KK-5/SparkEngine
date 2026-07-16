@@ -19,6 +19,7 @@
 
 #include <Shader/ShaderBindingsUtils.h>
 #include <View/ViewTags.h>
+#include <MaterialBind/MaterialBinding.h>
 
 namespace Spark::Render
 {
@@ -64,6 +65,7 @@ namespace Spark::Render
         {
             req.m_shaderBindings.clear();
             AddShaderBindings<MainViewTag>(req, *rhiCtx);
+            AddShaderBindings<MaterialBindingTag>(req, *rhiCtx);   // g_Materials @ space2
 
             req.m_viewports.resize(1);
             req.m_viewports[0]   = RHI::Viewport{

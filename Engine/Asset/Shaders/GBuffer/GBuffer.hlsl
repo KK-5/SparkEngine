@@ -1,11 +1,13 @@
 #include <Shaders/ViewBindings.hlsl>
 #include <Shaders/InstanceBindings.hlsl>
+#include <Shaders/MaterialBindings.hlsl>
 
-// Deferred geometry (base) pass. Per-instance model matrix comes from g_Instances
-// (space1), indexed by INSTANCE_INDEX (per-instance vertex stream). DepthPrePass
-// already wrote SceneDepth; this pass runs depth-equal and only fills the GBuffer
-// for the fragments that survive the early-Z test. Lighting reconstructs world
-// position from SceneDepth, so no position target is written here.
+// Deferred geometry (base) pass. Per-instance model matrix + material index come from
+// g_Instances (space1), indexed by INSTANCE_INDEX (per-instance vertex stream). The
+// material index selects a record in g_Materials (space2); the material's base color /
+// metallic / roughness fill the GBuffer here. DepthPrePass already wrote SceneDepth; this
+// pass runs depth-equal and only fills the GBuffer for fragments that survive early-Z.
+// Lighting reconstructs world position from SceneDepth, so no position target is written.
 struct VSInput
 {
     float3 position    : POSITION;        // slot 0, per-vertex
@@ -19,6 +21,7 @@ struct VSOutput
     float4 position    : SV_Position;
     float3 worldNormal : NORMAL;
     float2 uv          : TEXCOORD0;
+    nointerpolation uint materialIdx : MATERIAL_INDEX;   // per-instance, constant across the triangle
 };
 
 struct PSOutput
@@ -38,16 +41,19 @@ VSOutput VSMain(VSInput input)
     // inverse-transpose (revisit when the material/transform path formalizes).
     output.worldNormal = mul((float3x3)inst.Model, input.normal);
     output.uv = input.uv;
+    output.materialIdx = inst.MaterialIndex;
     return output;
 }
 
 PSOutput PSMain(VSOutput input)
 {
     PSOutput output;
-    // Hardcoded material until the material system lands: fixed base color, real
-    // world normal, fixed roughness/metallic. Lighting samples these three targets.
-    output.albedo = float4(0.8, 0.8, 0.8, 1.0);
+    // Material-driven base color / roughness / metallic (replaces the old hardcoded
+    // values). Occlusion stays 1 for now; specular is carried in g_Materials but not
+    // yet routed into the GBuffer (no F0 channel yet — a later step).
+    MaterialData mat = GetMaterialData(input.materialIdx);
+    output.albedo = float4(mat.BaseColor.rgb, 1.0);
     output.normal = float4(normalize(input.worldNormal), 0.0);
-    output.orm    = float4(1.0, 0.5, 0.0, 1.0);   // ao = 1, roughness = 0.5, metallic = 0
+    output.orm    = float4(1.0, mat.Roughness, mat.Metallic, 1.0);
     return output;
 }

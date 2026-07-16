@@ -20,6 +20,7 @@
 #include "Feature/Skybox/SkyboxProcessor.h"
 #include "View/ViewBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
+#include "MaterialBind/MaterialBindingSystem.h"
 #include "Drawable/DrawableComposer.h"
 
 namespace Spark::Render
@@ -66,6 +67,7 @@ namespace Spark::Render
         LightingProcessor m_lightingProcessor;
         SkyboxProcessor m_skyboxProcessor;
         ViewBindingSystem m_viewBindingSystem;
+        MaterialBindingSystem m_materialBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
         DrawableComposer m_drawableComposer;
 

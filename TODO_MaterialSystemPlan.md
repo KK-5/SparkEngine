@@ -44,6 +44,21 @@ the material system lands"）。材质系统的第一目标是让不同物体能
   引用内联展开材质属性、无效则回退默认材质）+ 非 world 组件 guard（跳过没有 world
   `GetComponent` 的反射类型，如 `MaterialParams`）+ 组件子窗口改 `ImGuiChildFlags_AutoResizeY`
   （原按字段数估算固定高度，内联展开会溢出/触发 SetCursorPos assert）。
+- **§二 GPU 绑定层（画面已生效）** —— Render 侧材质代码在 `Feature/Render/MaterialBind/`
+  （include `<MaterialBind/...>`，与 SparkMaterial 的 `<Material/...>` 分开避免前缀撞车）：
+  - `MaterialData`（GPU 镜像 struct，32B，`static_assert`）+ `MaterialData.hlsli` +
+    `MaterialBindings.hlsl`（space2 `StructuredBuffer<MaterialData> g_Materials`）+
+    `MaterialBindingsReflect.hlsl`（反射 host）；
+  - `MaterialGPUSlot`（挂材质实体，每帧重写）、`MaterialBindingTag`（挂 space2 SRG 实体）；
+  - `MaterialBindingSystem`（host per-frame `g_Materials`，每帧全量 scatter + `PendingBufferMap`，
+    对称 InstanceBindingSystem 但无 ID buffer/slot table），RenderSystem 里 **在
+    InstanceBindingSystem 之前** tick；
+  - `InstanceData.m_materialIndex`（64→80B）；InstanceBindingSystem scatter 里解析
+    `MaterialComponent`→handle→无效回退 `GetDefaultMaterial`→`MaterialGPUSlot`；
+  - GBuffer.hlsl `#include MaterialBindings.hlsl`、VSOutput `nointerpolation uint materialIdx`、
+    PS `GetMaterialData` 写 albedo/orm（occlusion 恒 1、**specular 暂不进 GBuffer**）；
+    GBufferProcessor `AddShaderBindings<MaterialBindingTag>` 注入。
+  - 验证：默认材质复现原外观；编辑器拖默认材质滑块，全体物体实时变（链路全通）。
 
 **已定的设计点（补充/修正下文原稿）**：
 
@@ -63,8 +78,10 @@ the material system lands"）。材质系统的第一目标是让不同物体能
 - **默认材质发现机制**：`DefaultMaterialTag` 标记 + `GetDefaultMaterial(mc)` 查询，数据驱动、
   无工厂接口；§二 InstanceBindingSystem 解析 `materialIndex` 的回退复用同一机制。
 
-**下一步**：§二 GPU 绑定层（host `g_Materials` + MaterialBindingSystem 每帧 scatter +
-`InstanceData.materialIndex` + GBuffer 取值）。
+**下一步候选（未定序）**：① per-object 不同材质（picker / 新建材质写回 `MaterialComponent.m_material`——
+现在全体物体都回退默认材质）；② specular 进 GBuffer（需 F0 通道方案）；③ 光源数据化
+（LightComponent + LightBindingSystem）；④ SceneColor 换 HDR（多光源前必须）；⑤ 纹理材质
+（附录 A，契约已锁：MB 只消费解析后 RHIHandle + 组件 index）。
 
 ---
 
@@ -311,21 +328,65 @@ output.orm    = float4(mat.ao, mat.roughness, mat.metallic, 1);   // 替换硬�
 
 ## 附录 A：纹理材质（阶段 2）—— 先 Texture2DArray，bindless 作升级路径
 
+### A.0 解析流程、驻留与组件归属（定稿，约束首版契约）
+
+首版没纹理，但这套契约现在就定死，保证阶段 2b 是**加法不是重构**。核心结论：
+
+**(1) 三层驻留互相独立，GPU 驻留 ≠ 资产引用计数**
+
+| 层 | 在哪 | owner | 驻留依据 |
+|---|---|---|---|
+| 磁盘 | 文件 | 文件系统 | 存在 |
+| **RAM** | CPU（`ImageAssetData` 字节） | 资产管理器 | `Ptr<Asset>` refcount |
+| **VRAM** | GPU（RHI::Image + SRV + 寻址） | **纹理 GPU 池** | **它自己的 GPU-usage 追踪** |
+
+`Ptr<Asset>` 的 refcount 只表示"在 RAM"，**不能当 GPU 驻留依据**。VRAM 那层自己数"哪些纹理被活跃材质用到"；上传时临时 `LoadAsset` 拿 CPU 字节 → 上传 → 可释放 CPU 那份。
+
+**(2) 引用驱动驻留（reference-driven residency）**：只有被**活着的材质引用到**的纹理才上传；引用归零可卸载。"用得到"靠引用判定，不枚举全库。可见性/mip 流式是很久以后的独立大工程。
+
+**(3) 上传在 FrameBegin 前置、跨帧；MaterialBindingSystem 只引用已驻留资源**：资源创建/上传在 `OnFrameBegin`（deferred `PendingImageInit`/`PendingImageUpload`），MB 在 tick（FrameBegin 之后）跑。所以 MB **绝不发起上传**——这一帧发起的上传这一帧用不了。纹理就绪有 warmup 延迟，未就绪时解析回退默认（白图）。
+
+**(4) 正确的解析边界是 `AssetId → RHIHandle（GPU 资源）`，不是 `AssetId → 标量 index`**：一个 AssetId 对应一个 **GPU 资源**（`RHI::Image` / 某 SubResource / 某 Tile）永远成立；对应"一个标量 index"在**流式 / 虚拟纹理**下会被打破（寻址变成 tile/page）。所以解析产出 **RHIHandle**（稳定锚点），寻址信息（array 层号 / bindless descriptor / tile 坐标）作为**挂在该 RHIHandle 上的组件**，随渲染模型演进只改那个组件，材质层与 MB 不动。
+
+**(5) 解析在 MB 之前（resolver），MB 只消费解析后的 GPU 句柄**：`AssetId → RHIHandle` 由一个 resolver 做一次（材质纹理引用变化时），MB **永不碰 AssetId、永不查资产层表**。这与 InstanceBindingSystem 读 `Mesh::MeshGPUComponent`（RHIHandle）而非 model AssetId 逐字对齐——mesh 的 `AssetId → GPU buffer RHIHandle` 也是 MeshResolver 在 InstanceBindingSystem 之前做的。
+
+**(6) `MaterialData` 仍在 MB 内打包（host 全量 scatter，§二）**：解析（→RHIHandle）在 MB 前；打包（params + 查到的 index → `MaterialData`）在 MB 内。因为 MB 本来就每帧遍历每个材质（dense slot 每帧重排 + 拼连续 buffer），内联打包零成本；提前缓存 `MaterialData` 反而要背"纹理 index 变化 → 反向失效引用材质"的跨实体 dirty 传播（正是 §二 否决的 device+dirty）。
+
+**(7) 组件归属**（SparkMaterial 数据层**不含任何 RHIHandle**，全部 GPU 件在 Render，靠给材质实体加组件叠上去）：
+
+| 组件 | 模块 | 内容 | 谁写 | 谁读 |
+|---|---|---|---|---|
+| `MaterialParams` | SparkMaterial | 标量 + `m_baseColorTexture`（AssetId，authored/可序列化） | 作者/编辑器 | resolver（拿 AssetId 去解析） |
+| `MaterialGPUTextures`（名可换） | Render | 解析后的纹理 **RHIHandle**（定长内联、每槽一个，无堆分配） | 纹理 resolver | MaterialBindingSystem |
+| `TextureIndex`（寻址） | Render | 挂在**纹理 RHIHandle（RHIContext 资源实体）**上：array 层号 / descriptor 号 / tile-page | 纹理 GPU 池 | MaterialBindingSystem |
+| `MaterialGPUSlot` | Render | 本帧材质在 `g_Materials` 的 slot | MaterialBindingSystem | InstanceBindingSystem |
+
+MB 的读法：`材质 → MaterialGPUTextures.m_baseColor(RHIHandle) → 该 RHIHandle 的 TextureIndex 组件 → MaterialData.texIndex`。**热路径全是 RHIHandle + 读组件，无 AssetId、无 map**。AssetId 只在 resolver 解析 + 纹理池去重（加载期）出现一次；且去重基本白送——AssetManager 已维护 `AssetId → Asset`。
+
+**(8) 纹理 GPU 池是持久 registry，不是 tick 兄弟系统**：它有 FrameBegin materialize 职责 + 跨帧稳定 index 状态（性质像 RHIResourceSystem，不是每帧 scatter 的消费者）。slot 稳定性与材质数据**相反**——纹理 index 注册一次持久（append-only + freelist），材质 slot 每帧重排（见 A.5）。
+
+**三层同构解析（无一层在热路径查 AssetId）**：
+
+| 层 | 稳定引用（存哪） | GPU index（哪来） | 谁解析 |
+|---|---|---|---|
+| renderable → material | `MaterialComponent{MaterialHandle}` | material 实体的 `MaterialGPUSlot` | InstanceBindingSystem |
+| material → texture | 材质的 `MaterialGPUTextures{RHIHandle}` | texture RHIHandle 的 `TextureIndex` | MaterialBindingSystem |
+
 ### B.1 三层对称结构
 
 材质引用纹理，和 renderable 引用材质完全同构——每层都是"CPU 引用资源 + 运行期解析成
 GPU index"：
 
-| 层 | CPU 引用 | GPU index（运行期解析） | 全局池 |
-|---|---|---|---|
-| renderable → material | `MaterialRef{MaterialHandle}` | `InstanceData.materialIndex` | material buffer |
-| material → texture | `MaterialTextures{Ptr<Image>...}` | `MaterialData.albedoTex...` | 纹理池（array 或 bindless heap） |
+> 组件与解析细节以 **A.0 为准**（本节是更早的概览，术语已被 A.0 收敛：`MaterialRef`→`MaterialComponent`；CPU 侧不再存 `Ptr<Image>`，而是 authored 的 `AssetId`（`MaterialParams`）+ 解析后的 `RHIHandle`（`MaterialGPUTextures`））。
 
-- CPU 侧材质存对纹理**资源**的引用（`Ptr<Resource::Image>` 强引用，或纹理 asset handle），
-  放在和 `MaterialParams` 分开的 component（如 `MaterialTextures`）；
-- GPU 侧 `MaterialData` 存纹理的 **index**（不是指针），由 MaterialBindingSystem 运行期从
-  纹理资源解析，和 materialIndex 一个套路；
-- 纹理上传是**纹理资源系统的职责**，材质只引用——没有"材质私有上传"，共享纹理只上传一次。
+| 层 | 稳定引用 | GPU index（运行期解析） | 全局池 |
+|---|---|---|---|
+| renderable → material | `MaterialComponent{MaterialHandle}` | `InstanceData.materialIndex` | material buffer |
+| material → texture | `MaterialGPUTextures{RHIHandle...}` | `MaterialData.texIndex...`（读 RHIHandle 的 `TextureIndex`） | 纹理池（array 或 bindless heap） |
+
+- CPU 侧材质：authored `AssetId`（`MaterialParams`）→ resolver 解析成 `RHIHandle`（`MaterialGPUTextures`，Render 层运行期组件）；
+- GPU 侧 `MaterialData` 存纹理的 **index**，MB 从**解析后的 RHIHandle 上的 `TextureIndex` 组件**读，和 materialIndex 一个套路；
+- 纹理上传是**纹理 GPU 池的职责**，材质只引用——没有"材质私有上传"，共享纹理只上传一次（A.0-(1)(2)(3)）。
 
 ### B.2 bindless 只限材质纹理，direct binding 共存
 

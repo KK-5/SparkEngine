@@ -6,7 +6,9 @@
 
 struct InstanceData
 {
-    float4x4 Model;   // object -> world
+    float4x4 Model;          // object -> world
+    uint     MaterialIndex;  // slot into g_Materials (space2)
+    uint3    _Pad;
 };
 
 #endif // SPARK_INSTANCE_DATA_HLSLI
