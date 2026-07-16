@@ -16,7 +16,6 @@
 #include <Resource/Asset.h>
 #include <Material/MaterialContext.h>
 #include <Material/Components.h>
-#include <Material/MaterialUtils.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
 #include "UI/Bus/AssetEditBus.h"
@@ -402,41 +401,27 @@ namespace Editor
             if (gotHandle)
             {
                 auto* matCtx = Material::MaterialExecuteContext::Current();
-                auto hasParams = [&](Material::MaterialHandle h)
-                {
-                    return matCtx && matCtx->Valid(h) && matCtx->Has<Material::MaterialParams>(h);
-                };
+                // Show the TRUE reference state. A MaterialComponent auto-creates a
+                // private material on add, so a valid handle is the norm; an invalid one
+                // (a dangling ref once material destruction lands) shows "None" rather
+                // than editing the shared default. The default-fallback for rendering
+                // lives in the renderer (InstanceBindingSystem), not here.
+                const bool valid = matCtx && matCtx->Valid(handle)
+                    && matCtx->Has<Material::MaterialParams>(handle);
 
-                const bool explicitValid = hasParams(handle);
-
-                // Fall back to the default material when the reference is unset or
-                // dangling (§1.5), so the effective (shared) material is shown.
-                Material::MaterialHandle effective = handle;
-                bool usingDefault = false;
-                if (!explicitValid && matCtx)
-                {
-                    Material::MaterialHandle def = Material::GetDefaultMaterial(*matCtx);
-                    if (hasParams(def))
-                    {
-                        effective = def;
-                        usingDefault = true;
-                    }
-                }
-
-                // Reference slot (read-only for now — material picker is later work).
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
                 eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
                 eastl::string buffer;
                 buffer.resize(64);
-                strcpy(buffer.data(), explicitValid ? "Material" : (usingDefault ? "Default" : "None"));
+                strcpy(buffer.data(), valid ? "Material" : "None");
                 ImGui::BeginDisabled(true);
                 ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
                 ImGui::EndDisabled();
 
-                if (hasParams(effective))
+                if (valid)
                 {
-                    Material::MaterialParams& params = matCtx->Get<Material::MaterialParams>(effective);
+                    Material::MaterialParams& params = matCtx->Get<Material::MaterialParams>(handle);
                     MetaType paramsType = TypeRegistry::GetContext().Resolve<Material::MaterialParams>();
                     if (paramsType)
                     {

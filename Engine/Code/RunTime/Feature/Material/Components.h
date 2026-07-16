@@ -31,10 +31,11 @@ namespace Spark::Material
 
 namespace Spark
 {
-    // Editable so it appears in the inspector's add-component list; no component
-    // events needed (the render-side binding reads it via a per-frame view).
+    // Editable so it appears in the inspector's add-component list. Create event so
+    // MaterialSystem can auto-create a private material on add (Remove/GC deferred —
+    // materials are not destroyed yet).
     SPARK_COMPONENT_TRAITS(Material::MaterialComponent,
         static constexpr bool editable = true;
-        static constexpr ComponentEventMask componentEvents = ComponentEventMask::None;
+        static constexpr ComponentEventMask componentEvents = ComponentEventMask::Create;
     )
 }
