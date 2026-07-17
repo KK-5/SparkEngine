@@ -59,6 +59,25 @@ the material system lands"）。材质系统的第一目标是让不同物体能
     PS `GetMaterialData` 写 albedo/orm（occlusion 恒 1、**specular 暂不进 GBuffer**）；
     GBufferProcessor `AddShaderBindings<MaterialBindingTag>` 注入。
   - 验证：默认材质复现原外观；编辑器拖默认材质滑块，全体物体实时变（链路全通）。
+- **per-object 私有材质（已验证）** —— `MaterialComponent` 开 `ComponentEventMask::Create`；
+  `MaterialSystem` 兼 `ComponentEventBus::Handler`，`OnComponentConstruct` 里对 `m_material`
+  为空的组件 `CreateMaterial`（拷默认材质当前参数）并回填。每物体独立材质，编辑互不影响；
+  编辑器 `MaterialRefElement` 去掉默认回退（只显真实引用：有效"Material"+内联参数 / 无效
+  "None"），悬空回退职责只留在 renderer（InstanceBindingSystem）。
+- **材质 GC（mark-sweep，generation 版，已实现）** —— 见 §1.5。`MaterialSystem` 兼
+  `TickBus::Handler`，`GetTickOrder = TICK_LAST + 1`（排在 `EntityReaper` 之后，死实体的
+  `MaterialComponent` 已移除 → 当帧回收其私有材质）：
+  - 标记位 = 挂材质实体的 `MaterialLiveMark{uint32_t m_gen}`（GC 内部组件），把"是否存活"
+    变成整数比较，**零哈希**；首次 mark 才插入组件，之后退化成纯写值、不动 pool 结构；
+  - `CollectGarbage`：`++m_gcGeneration` → **mark** 遍历 world `MaterialComponent` 对有效
+    handle + pin 默认材质 `AddOrReplace<MaterialLiveMark>(gen)` → **sweep** 遍历
+    `GetView<MaterialParams>()`，stamp 缺失/过期的收进 `eastl::vector`（非 set，全程无哈希），
+    循环后一次性 `DestoryEntity`（先收集后销毁，避免迭代中改结构失效 view）；
+  - 悬空引用 `Valid()` 过滤（渲染侧本就回退默认）；时序上 GC 在 `TICK_LAST+1`、
+    `MaterialBindingSystem`（TICK_DEFAULT）本帧已消费完 → 下帧全量重扫，无悬空 GPU slot。
+  - 调度：先**每帧扫**（材质量级小、扫描 O(实体+材质)），间隔/脏标记以后只动 `OnTick`
+    调用点、不碰算法。已知边界：只被局部 `MaterialHandle` 持有、未塞进任何组件的材质会被
+    回收——引擎内创建路径都同步回填组件，可接受。
 
 **已定的设计点（补充/修正下文原稿）**：
 
@@ -78,10 +97,10 @@ the material system lands"）。材质系统的第一目标是让不同物体能
 - **默认材质发现机制**：`DefaultMaterialTag` 标记 + `GetDefaultMaterial(mc)` 查询，数据驱动、
   无工厂接口；§二 InstanceBindingSystem 解析 `materialIndex` 的回退复用同一机制。
 
-**下一步候选（未定序）**：① per-object 不同材质（picker / 新建材质写回 `MaterialComponent.m_material`——
-现在全体物体都回退默认材质）；② specular 进 GBuffer（需 F0 通道方案）；③ 光源数据化
-（LightComponent + LightBindingSystem）；④ SceneColor 换 HDR（多光源前必须）；⑤ 纹理材质
-（附录 A，契约已锁：MB 只消费解析后 RHIHandle + 组件 index）。
+**下一步候选（未定序）**：① 材质共享（picker——把一个实体的 material handle 拷到另一个实体，
+asset-free 共享，验证 handle 复用 + GC 根扫描正确性）；② specular 进 GBuffer（需 F0 通道方案）；
+③ 光源数据化（LightComponent + LightBindingSystem）；④ SceneColor 换 HDR（多光源前必须）；
+⑤ 纹理材质（附录 A，契约已锁：MB 只消费解析后 RHIHandle + 组件 index）。
 
 ---
 
@@ -163,6 +182,14 @@ else { 回退默认材质 }
 **为什么 valid 校验是安全的**：entt 的 entity 是 id + version。材质销毁后即使 id 被
 新材质复用，version 也变了，旧 handle 对新材质 `valid()` 返回 false。所以 handle 天生
 防 ABA——比裸指针还安全（裸指针检测不了 ABA）。
+
+**回收机制：mark-sweep GC，不用引用计数（已实现）**。材质是运行期可变资源（编辑器在大量
+不受控站点原地改写句柄），引用计数要求每个 inc/dec 站点都对，且 `MaterialHandle` 是裸的
+版本化整数、无 RAII、`mc->m_material = h` 这种字段改写 entt 根本不发事件 → dec 抓不到；
+而 mark-sweep 对"怎么引用的"无所谓，只扫此刻实际被引用的。对比：不可变共享资产（纹理/模型）
+的 adopt/release 只在加载/卸载少数受控边界 → 用 asset refcount；材质则用扫描（这就是有
+"material instance"、无"texture/model instance"的根因）。实现细节见上文实现进度的"材质 GC"
+条目（generation 标记位、pin 默认、先收集后销毁、order = `TICK_LAST+1`）。
 
 ### 1.6 默认材质
 

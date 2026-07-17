@@ -1,5 +1,9 @@
 #include "MaterialSystem.h"
 
+#include <cstdint>
+
+#include <EASTL/vector.h>
+
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 #include <ECS/Common.h>
@@ -8,29 +12,29 @@
 
 namespace Spark::Material
 {
+    struct MaterialLiveMark
+    {
+        uint64_t m_gen = 0;
+    };
+
     void MaterialSystem::InitInternal()
     {
-        // Push the store first so any consumer (later phases: render sync, editor)
-        // reaches it via MaterialExecuteContext::Current(). Material's ExecuteContext
-        // stack is keyed on MaterialHandle, independent of the world/RHI stacks.
         MaterialExecuteContext::Push(m_context);
 
-        // Default params reproduce today's hardcoded GBuffer look (see MaterialParams
-        // defaults). Resident for the system's lifetime — the fallback that keeps
-        // "material deleted / unset" from ever breaking a draw.
         m_defaultMaterial = CreateMaterial(m_context, MaterialParams{});
         m_context.Add<DefaultMaterialTag>(m_defaultMaterial);
 
-        // Listen for MaterialComponent adds on world entities to auto-create a private
-        // material (see OnComponentConstruct).
         ComponentEventBus::Handler::BusConnect(GetTypeId<MaterialComponent>());
+
+        // Drive the garbage collector (see OnTick / CollectGarbage).
+        TickBus::Handler::BusConnect();
     }
 
     void MaterialSystem::ShutdownInternal()
     {
+        TickBus::Handler::BusDisconnect();
         ComponentEventBus::Handler::BusDisconnect();
         MaterialExecuteContext::Pop();
-        // m_context clears itself on destruction (BasicContext dtor).
     }
 
     void MaterialSystem::OnComponentConstruct(Entity entity)
@@ -49,13 +53,54 @@ namespace Spark::Material
             return;
         }
 
-        // Give the object its OWN private material, seeded from the default's current
-        // params so it looks unchanged the moment it is added. Editing it then affects
-        // only this object (per-object material). Lifecycle: persists for now — GC /
-        // destruction is deferred, so this material is never reclaimed yet.
         MaterialParams params = m_context.Has<MaterialParams>(m_defaultMaterial)
             ? m_context.Get<MaterialParams>(m_defaultMaterial)
             : MaterialParams{};
         mc->m_material = CreateMaterial(m_context, params);
+    }
+
+    void MaterialSystem::OnTick(float /*deltaTime*/)
+    {
+        CollectGarbage();
+    }
+
+    void MaterialSystem::CollectGarbage()
+    {
+        auto* world = WorldExecuteContext::Current();
+        if (!world)
+        {
+            return;
+        }
+
+        ++m_gcGeneration;
+
+        auto rootView = world->GetView<MaterialComponent>();
+        for (auto entity : rootView)
+        {
+            const MaterialHandle handle = world->Get<MaterialComponent>(entity).m_material;
+            if (m_context.Valid(handle))
+            {
+                m_context.AddOrReplace<MaterialLiveMark>(handle, m_gcGeneration);
+            }
+        }
+        if (m_context.Valid(m_defaultMaterial))
+        {
+            m_context.AddOrReplace<MaterialLiveMark>(m_defaultMaterial, m_gcGeneration);
+        }
+
+        eastl::vector<MaterialHandle> dead;
+        auto matView = m_context.GetView<MaterialParams>();
+        for (auto entity : matView)
+        {
+            const MaterialLiveMark* mark = m_context.TryGet<MaterialLiveMark>(entity);
+            if (mark == nullptr || mark->m_gen != m_gcGeneration)
+            {
+                dead.push_back(entity);
+            }
+        }
+        if (!dead.empty())
+        {
+            m_context.DestoryEntity(dead.begin(), dead.end());
+        }
     }
 }
