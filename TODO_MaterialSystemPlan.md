@@ -100,7 +100,7 @@ the material system lands"）。材质系统的第一目标是让不同物体能
 **下一步候选（未定序）**：① 材质共享（picker——把一个实体的 material handle 拷到另一个实体，
 asset-free 共享，验证 handle 复用 + GC 根扫描正确性）；② specular 进 GBuffer（需 F0 通道方案）；
 ③ 光源数据化（LightComponent + LightBindingSystem）；④ SceneColor 换 HDR（多光源前必须）；
-⑤ 纹理材质（附录 A，契约已锁：MB 只消费解析后 RHIHandle + 组件 index）。
+⑤ **【已选定为下一步，进行中】** 纹理材质（附录 A + **B.6 定稿**，已决 **bindless-direct + 仅 albedo**；契约已锁：MB 只消费解析后 RHIHandle/index）。
 
 ---
 
@@ -305,7 +305,7 @@ output.orm    = float4(mat.ao, mat.roughness, mat.metallic, 1);   // 替换硬�
 2. **GPU 绑定层**（第二章）：host per-frame g_Materials + MaterialBindingSystem 每帧
    scatter + MaterialGPUSlot + InstanceData.materialIndex + GBuffer 取值。验证：默认材质
    跑通，再手动加两个材质，物体显示不同 base color / roughness / metallic。
-3. **纹理材质**（见附录 A）：先 Texture2DArray 起步（现有 RHI 零改动，材质存 array 层号），
+3. **纹理材质**（见附录 A / **B.6**）：**已决直接走 bindless**（SM6.6 dynamic resources），首版仅 base color；下面的 Texture2DArray 起步方案**已否决**（同尺寸/同格式约束咬真实 glTF 资产，且 bindless 地基在本仓库比预期便宜）。原稿保留作背景——先 Texture2DArray 起步（现有 RHI 零改动，材质存 array 层号），
    GBuffer PS `Sample`；bindless 作为"任意规格 / 海量纹理"的升级路径（需 RHI 先支持 bindless
    descriptor array）。这时 Sample vs Load 的区别用上。
 4. **Material asset**：序列化、编辑器编辑、gltf 材质解析。
@@ -462,7 +462,7 @@ float3 albedo = g_Albedo.Sample(g_Samp, float3(uv, mat.albedoSlice)).rgb;
 分组 draw、draw 前把该材质纹理绑到 per-pass SRG（现有机制）——不限规格，但放弃该 pass 的
 GPU-driven 批处理（draw 数随材质数涨）。作为最后备选。
 
-### B.5 bindless 是一块独立的 RHI 前置工作（升级时才立项）
+### B.5 bindless 是一块独立的 RHI 前置工作（升级时才立项）〔**前提已过时 → 见 B.6**：地基在本仓库已 ~70% 就位，最后一公里用 SM6.6 极小〕
 
 bindless texture 不像 structured buffer 那样简单——区别在 index 索引的是 **descriptor**
 （资源的 GPU 视图）而非数据，需要 descriptor indexing 硬件/API 支持。现有 RHI 是 per-pass
@@ -484,6 +484,62 @@ descriptor_indexing 要统一到一个抽象下，本身是不小的 RHI 设计�
 是 descriptor（注册一次持久），slot 必须**稳定**（append-only + freelist）；材质是 host data
 buffer（每帧全量 scatter），slot **每帧重排**。`MaterialData` 里存的纹理 slot 是纹理的稳定
 slot，别和材质自己的每帧 slot 搞混。
+
+### B.6 现状更正 + SM6.6 定稿（2026-07，已决：bindless-direct + 仅 albedo）
+
+**决策**：纹理材质首版**直接走 bindless**（不走 Texture2DArray 过渡），通道只做 base color。
+因为 bindless 的地基在本仓库其实已 ~70% 就位（Atom 遗产），最后一公里用 SM6.6 极小——比先做
+Texture2DArray 再推倒更省，也绕开同尺寸/同格式约束。
+
+**现状更正（B.5 的"独立大立项"前提已过时）**：
+
+- DX12 后端已有 shader-visible CBV_SRV_UAV 堆的 **static 子区**（**同一张堆**，`DescriptorContext::m_staticPool`
+  从 `m_staticDescriptorOffset` 起 `InitPooledRange`）；**每个 image/buffer SRV 创建时自动往 static 区拷一份**
+  （`AllocateStaticDescriptor` / `CreateShaderResourceView`），`DescriptorPool` 分配出的 handle 就是**堆绝对索引**
+  （**无需加 offset**）。
+- RHI 抽象层已暴露 `RHI::ImageView::GetBindlessReadIndex()`（DX12 override 返回 static 描述符 `m_index`）——
+  **shader 要的 uint index 每个 ImageView 白送**。
+- `PipelineLayoutDescriptor` 有 `m_bindlessTable` / `m_unboundedArrayResourceTables` 槽（Atom 遗留）。
+- **断开处（非 bug）**：SRG 重写时（`ShaderResourceGroupCompiler` → `ShaderInputCompiler`）故意没接 bindless，
+  command list 不再绑 bindless 根表——是为让位主动拆的。static 堆 + `GetBindlessReadIndex()` 是**刻意留的
+  SM6.6-ready 残件，可信复用**。
+
+**走 SM6.6 dynamic resources（`ResourceDescriptorHeap[]`），不走 B.5 的无界表**：shader 里
+`ResourceDescriptorHeap[NonUniformResourceIndex(i)]` **无资源声明** → 反射不到 → `ShaderInputCompiler`
+**无需补 unbounded 分支**、`ShaderImageInput` **无需加 unbounded 标识 / UINT_MAX**（Atom 把 Unbounded
+独立成一套、代码近翻倍的样板从源头消失）。root sig 只需一个 flag、无 descriptor range / root 参数。
+
+**跨后端（不欠债）**：抽象仍是"每 view 一个 uint index + 一个全局 bindless 堆/space"，DX12/Vulkan 都成立
+（DX12 用 `ResourceDescriptorHeap`，Vulkan 用保留 set 的 unbounded array；DXC 的 `ResourceDescriptorHeap`
+可同时编到 SPIR-V，HLSL 源可不改）。差异只落在后端实现，符合 CLAUDE.md「looser backend drops what it
+doesn't need」。
+
+**最后一公里（RHI，极小）**：
+
+1. 设备探测补 `ResourceBindingTier`(≥Tier3) + 最高 SM(≥6.6) → 新增 `DeviceFeatures::m_bindless`
+   （`Device.cpp` 已 fetch `options`/`shaderModel`，只差读字段并保存）。
+2. root sig OR `D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED`（`PipelineLayout.cpp`
+   `rootSignatureDesc.Flags`，一行；`D3D12SerializeRootSignature` v1.0 就认）。
+3. 确认 graphics draw 前 `SetDescriptorHeaps` 绑的是含 static 区的那张堆。
+4. GBuffer shader 编到 `ps_6_6`。
+   —— `ShaderInputCompiler` 一行不动。
+
+**材质层接线（纯加法）**：
+
+1. 纹理 resolver：`MaterialParams.m_baseColorTexture(AssetId)` → 复用 `CreateStaticImage` /
+   `RequestImageUpload` 上传 + 按 AssetId 去重 → `GetOrCreateImageView` → `GetBindlessReadIndex()`
+   → 材质实体挂 `MaterialGPUTextures{ uint m_baseColor }`（Render 层组件）；跑在 MaterialBindingSystem 之前。
+2. `MaterialData.m_pad` → `m_baseColorTexIndex`（无图 = `ImageView::InvalidBindlessIndex`）；MB scatter 时
+   从 `MaterialGPUTextures` 填。32B 不变。
+3. GBuffer PS：静态 sampler（linear+wrap，root sig 烘）+
+   `if (idx != INVALID) albedo *= ResourceDescriptorHeap[NonUniformResourceIndex(idx)].Sample(samp, uv)`。
+4. 确认顶点 UV 已传到 GBuffer VSOutput。
+
+**动手顺序（每步可独立验证）**：① **RHI 最后一公里**那组 + **硬编码验证**（GBuffer 里直接采样某已知纹理的
+`GetBindlessReadIndex()`，把堆寻址 / flag / 绑定 / SM6.6 编译的风险前置消化）；② **材质层接线**那组；
+③ 编辑器挂 albedo AssetId 实时看图。
+
+**sampler**：首版直接 root sig 静态 sampler（linear+wrap），动态 `SamplerDescriptorHeap` 留待多 sampler 需求。
 
 ---
 

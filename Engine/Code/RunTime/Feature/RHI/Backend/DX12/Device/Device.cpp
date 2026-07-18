@@ -152,12 +152,25 @@ namespace Spark::RHI::DX12
         // DX12's tile resource implementation uses undefined swizzle tile layout which only requires tier 1
         m_features.m_tiledResource = options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_1;
 
-        // Check support of wive operation
+        // Probe the highest supported shader model. CheckFeatureSupport returns the
+        // highest supported <= the requested value, but yields E_INVALIDARG when the
+        // runtime doesn't recognise the requested enum, so probe high-to-low. (The old
+        // code seeded 6_0, so it could never report anything above 6_0 — which hid
+        // SM6.6 needed for bindless dynamic resources.)
         D3D12_FEATURE_DATA_SHADER_MODEL shaderModel;
-        shaderModel.HighestShaderModel = D3D_SHADER_MODEL_6_0;
-        if (FAILED(GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel))))
+        shaderModel.HighestShaderModel = D3D_SHADER_MODEL_6_6;
+        HRESULT shaderModelResult =
+            GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel));
+        while (shaderModelResult == E_INVALIDARG && shaderModel.HighestShaderModel > D3D_SHADER_MODEL_6_0)
+        {
+            shaderModel.HighestShaderModel = static_cast<D3D_SHADER_MODEL>(shaderModel.HighestShaderModel - 1);
+            shaderModelResult =
+                GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel));
+        }
+        if (FAILED(shaderModelResult))
         {
             LOG_WARN("[DX12 Device] Failed to check feature D3D12_FEATURE_SHADER_MODEL");
+            shaderModel.HighestShaderModel = D3D_SHADER_MODEL_6_0;
             m_features.m_waveOperation = false;
         }
         else
@@ -171,7 +184,20 @@ namespace Spark::RHI::DX12
 
         m_features.m_float16 = (options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT) != 0;
 
-        m_features.m_unboundedArrays = true;
+        // SM6.6 dynamic resources (ResourceDescriptorHeap) — the material-texture
+        // bindless path (TODO_MaterialSystemPlan.md B.6). Requires shader model >= 6.6
+        // and resource binding tier 3 (full-heap dynamic indexing). options was fetched
+        // above (D3D12_FEATURE_D3D12_OPTIONS).
+        m_features.m_bindless =
+            shaderModel.HighestShaderModel >= D3D_SHADER_MODEL_6_6 &&
+            options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3;
+        if (!m_features.m_bindless)
+        {
+            LOG_WARN("[DX12 Device] SM6.6 bindless unavailable (shader model {:#x}, resource binding tier {}); "
+                     "material textures will be unavailable.",
+                     static_cast<uint32_t>(shaderModel.HighestShaderModel),
+                     static_cast<uint32_t>(options.ResourceBindingTier));
+        }
 
         D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6;
         GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6, &options6, sizeof(options6));

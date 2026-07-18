@@ -1,18 +1,21 @@
 set(TARGET_NAME SparkRHI_DX12)
 
 # --- Minimum Windows SDK (DX12 backend only) ----------------------------------
-# Currently the backend uses no SDK feature newer than what ships everywhere, so
-# this check is disabled and the single 22H2-only symbol (D3D12_COMPARISON_FUNC_NONE)
-# is worked around via a fallback macro in DX12.h. Re-enable this block once a real
-# new-SDK feature is adopted (Enhanced Barriers, bindless / SM6.6, etc.).
-# set(SPARK_MIN_WINDOWS_SDK "10.0.22621.0")
-# if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION AND
-#    CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION VERSION_LESS SPARK_MIN_WINDOWS_SDK)
-#     message(FATAL_ERROR
-#         "Windows SDK ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION} is too old for "
-#         "SparkEngine's DX12 backend (requires >= ${SPARK_MIN_WINDOWS_SDK}, the "
-#         "Windows 11 22H2 SDK). Install a newer SDK via the Visual Studio Installer.")
-# endif()
+# The backend uses symbols that only exist in recent Windows SDK headers, e.g.
+# D3D12_RENDER_PASS_FLAG_BIND_READ_ONLY_DEPTH / _STENCIL (read-only DSV render
+# passes) and D3D12_COMPARISON_FUNC_NONE. These are header-only requirements --
+# the underlying runtime features are supported by the stock d3d12.dll on current
+# Win10/Win11, so no Agility SDK redist is needed. Gate on the current Windows 11
+# SDK, which ships all of them and remains back-compatible down to Win10.
+set(SPARK_MIN_WINDOWS_SDK "10.0.26100.0")
+if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION AND
+   CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION VERSION_LESS SPARK_MIN_WINDOWS_SDK)
+    message(FATAL_ERROR
+        "Windows SDK ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION} is too old for "
+        "SparkEngine's DX12 backend (requires >= ${SPARK_MIN_WINDOWS_SDK}). "
+        "Install it via the Visual Studio Installer (Individual components -> "
+        "'Windows 11 SDK (10.0.26100.0)').")
+endif()
 
 set(SOURCES
     3rdParty/D3D12MA/D3D12MemAlloc.cpp

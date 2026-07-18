@@ -65,11 +65,11 @@ namespace Spark::RHI
         //! Whether Ray Tracing supports CLAS structures.
         bool m_rayTracingClas = false;
 
-        //! Whether Unbounded Array support is available.
-        bool m_unboundedArrays = false;
-
-        //! Whether Unbounded Array support is simulated for Bindless Srg.
-        bool m_simulateBindlessUA = false;
+        //! Whether SM6.6 dynamic resources (HLSL ResourceDescriptorHeap) bindless is
+        //! usable: highest shader model >= 6.6 AND resource binding tier 3 (full-heap
+        //! dynamic indexing). Drives the material-texture bindless path — see
+        //! TODO_MaterialSystemPlan.md appendix B.6.
+        bool m_bindless = false;
 
         //! Whether PipelineLibrary related serialized data needs to be loaded/saved explicitly as drivers (like dx12/vk) do not support it internally
         bool m_isPsoCacheFileOperationsNeeded = true;

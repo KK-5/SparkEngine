@@ -9,17 +9,6 @@
 
 #include <cstdint>
 #include <d3d12.h>
-
-// D3D12_COMPARISON_FUNC_NONE (value 0) was added to the D3D12_COMPARISON_FUNC
-// enum in the Windows 11 22H2 SDK (10.0.22621). On older SDKs (<= 22000) the
-// symbol is missing and the DX12 backend fails to compile. Provide a fallback
-// so any installed SDK builds; the value is identical to the official one, and
-// non-comparison samplers ignore ComparisonFunc anyway. Remove once the minimum
-// SDK is raised for a real feature (Enhanced Barriers, bindless, etc.).
-#ifndef D3D12_COMPARISON_FUNC_NONE
-#define D3D12_COMPARISON_FUNC_NONE ((D3D12_COMPARISON_FUNC)0)
-#endif
-
 #include <dxgi1_6.h>
 #include <d3dcommon.h>
 #include <wrl.h>
