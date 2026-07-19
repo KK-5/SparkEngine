@@ -53,12 +53,12 @@ namespace Spark::RHI::DX12
 
     uint32_t BufferView::GetBindlessReadIndex() const
     {
-        return m_staticReadDescriptor.m_index;
+        return m_bindlessReadIndex;
     }
 
     uint32_t BufferView::GetBindlessReadWriteIndex() const
     {
-        return m_staticReadWriteDescriptor.m_index;
+        return m_bindlessReadWriteIndex;
     }
 
     uint64_t BufferView::GetDeviceAddress() const
@@ -85,12 +85,20 @@ namespace Spark::RHI::DX12
         if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::RayTracingAccelerationStructure))
         {
             descriptorContext.CreateShaderResourceView(buffer, viewDescriptor, m_readDescriptor, m_staticReadDescriptor);
+            if (!m_staticReadDescriptor.IsNull())
+            {
+                m_bindlessReadIndex = descriptorContext.GetStaticRegionOffset() + m_staticReadDescriptor.m_index;
+            }
         }
 
         if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::ShaderWrite))
         {
             descriptorContext.CreateUnorderedAccessView(
                 buffer, viewDescriptor, m_readWriteDescriptor, m_clearDescriptor, m_staticReadWriteDescriptor);
+            if (!m_staticReadWriteDescriptor.IsNull())
+            {
+                m_bindlessReadWriteIndex = descriptorContext.GetStaticRegionOffset() + m_staticReadWriteDescriptor.m_index;
+            }
         }
 
         if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::Constant))
