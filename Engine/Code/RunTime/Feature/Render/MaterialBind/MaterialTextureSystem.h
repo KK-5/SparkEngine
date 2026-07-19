@@ -19,12 +19,20 @@ namespace Spark::Render
     public:
         void Init(RHI::RHIContext& rhiCtx);
         void Update();
+        void CollectGarbage();
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
         RHI::RHIHandle EnsureResident(RHI::RHIContext& rhiCtx, const Resource::AssetId& id,
                                       const Ptr<Resource::ImageAsset>& img);
 
-        eastl::unordered_map<Resource::AssetId, RHI::RHIHandle> m_pool;
+        struct PoolEntry
+        {
+            RHI::RHIHandle m_handle = RHI::NullHandle;
+            uint32_t       m_gen    = 0;
+        };
+
+        eastl::unordered_map<Resource::AssetId, PoolEntry> m_pool;
+        uint32_t m_gcGeneration = 0;
     };
 }

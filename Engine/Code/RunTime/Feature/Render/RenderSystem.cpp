@@ -245,5 +245,9 @@ namespace Spark::Render
 
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
         m_swapChain->Present();
+
+        // End of frame: reclaim texture-pool entries no live material references anymore.
+        // Runs before the TICK_LAST+1 material sweep, so reclaim lags by one frame (fine).
+        m_materialTextureSystem.CollectGarbage();
     }
 }

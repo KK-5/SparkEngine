@@ -49,9 +49,14 @@ namespace Spark::Render
             if (params.m_baseColorTexture.IsValid())
             {
                 // Loading is the editor's job (mirrors SkyboxSystem): FindAsset the
-                // already-loaded asset, never LoadAsset here.
-                if (!params.m_baseColorImage)
+                // already-loaded asset, never LoadAsset here. Re-fetch whenever the cached
+                // image doesn't match the authored AssetId — the editor rewrites only
+                // m_baseColorTexture on a swap, so a stale m_baseColorImage would keep
+                // uploading the previous texture's data under the new handle.
+                if (!params.m_baseColorImage ||
+                    params.m_baseColorImage->GetAssetId() != params.m_baseColorTexture)
                 {
+                    params.m_baseColorImage.reset();
                     Ptr<Resource::Asset> found = assetManager->FindAsset(params.m_baseColorTexture);
                     if (found && found->GetAssetType() == Resource::AssetType::Image)
                     {
@@ -71,13 +76,53 @@ namespace Spark::Render
         });
     }
 
+    void MaterialTextureSystem::CollectGarbage()
+    {
+        auto* matCtx = Material::MaterialExecuteContext::Current();
+        auto* rhiCtx = RHI::RHIExecuteContext::Current();
+        if (!matCtx || !rhiCtx)
+        {
+            return;
+        }
+
+        ++m_gcGeneration;
+
+        matCtx->GetView<Material::MaterialParams>().each(
+            [&](Material::MaterialHandle, const Material::MaterialParams& params)
+        {
+            if (params.m_baseColorTexture.IsValid())
+            {
+                if (auto it = m_pool.find(params.m_baseColorTexture); it != m_pool.end())
+                {
+                    it->second.m_gen = m_gcGeneration;
+                }
+            }
+        });
+
+        for (auto it = m_pool.begin(); it != m_pool.end();)
+        {
+            if (it->second.m_gen != m_gcGeneration)
+            {
+                if (it->second.m_handle != RHI::NullHandle)
+                {
+                    rhiCtx->Add<DeadTag>(it->second.m_handle);
+                }
+                it = m_pool.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
     void MaterialTextureSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
         for (auto& entry : m_pool)
         {
-            if (entry.second != RHI::NullHandle)
+            if (entry.second.m_handle != RHI::NullHandle)
             {
-                rhiCtx.Add<DeadTag>(entry.second);
+                rhiCtx.Add<DeadTag>(entry.second.m_handle);
             }
         }
         m_pool.clear();
@@ -88,7 +133,7 @@ namespace Spark::Render
     {
         if (auto it = m_pool.find(id); it != m_pool.end())
         {
-            return it->second;
+            return it->second.m_handle;
         }
 
         const Resource::ImageAssetData* data = img->GetImageData();
@@ -118,7 +163,7 @@ namespace Spark::Render
             rhiCtx, tex, RHI::InputName(name),
             RHI::AttachmentAccess::Read, RHI::AttachmentUsage::Shader, RHI::AttachmentStage::FragmentShader);
 
-        m_pool.emplace(id, tex);
+        m_pool.emplace(id, PoolEntry{ tex, m_gcGeneration });
         return tex;
     }
 }
