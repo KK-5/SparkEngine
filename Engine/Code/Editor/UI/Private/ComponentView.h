@@ -29,5 +29,7 @@ namespace Editor
 
         eastl::unordered_map<Spark::TypeId, ComponentState> m_componentState;
         Spark::Entity m_activeEntity;
+
+        uint32_t m_editEntity = 0;
     };
 }

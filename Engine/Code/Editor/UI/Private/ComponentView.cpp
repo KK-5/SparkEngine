@@ -14,7 +14,6 @@
 #include <Math/Vector4.h>
 #include <Resource/AssetTypes.h>
 #include <Resource/Asset.h>
-#include <Material/MaterialContext.h>
 #include <Material/Components.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
@@ -334,7 +333,7 @@ namespace Editor
                         {
                             AssetEditBus::Broadcast(
                                 &AssetEditEvents::OnAssetDragToComponent,
-                                m_activeEntity, component.id(), fieldId,
+                                static_cast<Spark::Entity>(m_editEntity), component.id(), fieldId,
                                 asset->GetAssetId(), asset->GetAssetType());
                         }
                     }
@@ -400,14 +399,18 @@ namespace Editor
 
             if (gotHandle)
             {
-                auto* matCtx = Material::MaterialExecuteContext::Current();
-                // Show the TRUE reference state. A MaterialComponent auto-creates a
-                // private material on add, so a valid handle is the norm; an invalid one
-                // (a dangling ref once material destruction lands) shows "None" rather
-                // than editing the shared default. The default-fallback for rendering
-                // lives in the renderer (InstanceBindingSystem), not here.
-                const bool valid = matCtx && matCtx->Valid(handle)
-                    && matCtx->Has<Material::MaterialParams>(handle);
+                const uint32_t handleId = static_cast<uint32_t>(handle);
+                MetaType paramsType = TypeRegistry::GetContext().Resolve<Material::MaterialParams>();
+
+                bool valid = false;
+                if (paramsType)
+                {
+                    if (auto hasFn = paramsType.func("HasComponent"_hs))
+                    {
+                        MetaAny r = hasFn.invoke({}, handleId);
+                        valid = r && r.cast<bool>();
+                    }
+                }
 
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
@@ -421,12 +424,16 @@ namespace Editor
 
                 if (valid)
                 {
-                    Material::MaterialParams& params = matCtx->Get<Material::MaterialParams>(handle);
-                    MetaType paramsType = TypeRegistry::GetContext().Resolve<Material::MaterialParams>();
-                    if (paramsType)
+                    MetaAny paramsPtr = paramsType.func("GetComponent"_hs).invoke({}, handleId);
+                    if (paramsPtr && *paramsPtr)
                     {
-                        MetaAny paramsInstance = AnyCast(params);
+                        MetaAny paramsInstance = *paramsPtr;
+                        // Retarget the edit entity so an asset drop inside these inlined
+                        // fields resolves against the material handle, not the world entity.
+                        const uint32_t prev = m_editEntity;
+                        m_editEntity = handleId;
                         RenderFields(paramsType, paramsInstance, width);
+                        m_editEntity = prev;
                     }
                 }
             }
@@ -475,6 +482,8 @@ namespace Editor
             ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.45f, 0.45f, 0.45f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
+
+            m_editEntity = static_cast<uint32_t>(m_activeEntity);
             RenderFields(component, instance, availableWidth);
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(2);
@@ -544,7 +553,8 @@ namespace Editor
                 {
                     if (ImGui::Selectable(component.name())) {
                         MetaAny instance = component.construct();
-                        component.func("AddOrReplaceComponent"_hs).invoke({}, AnyCast(context), m_activeEntity, instance);
+                        component.func("AddOrReplaceComponent"_hs).invoke(
+                            {}, static_cast<uint32_t>(m_activeEntity), instance);
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::Spacing();
@@ -562,15 +572,21 @@ namespace Editor
 
         for (MetaType& component: components)
         {
-            // Some reflected types are not world components (e.g. MaterialParams,
-            // which lives in the MaterialContext and is rendered inline via a
-            // MaterialRefElement). They have no world GetComponent — skip them here.
+            // Only components that sit directly on world entities are listed here.
+            // Non-component reflected types have no GetComponent; non-world components
+            // (e.g. MaterialParams, reached indirectly and rendered inline via a
+            // MaterialRefElement) report IsWorldComponent == false — skip both.
             if (!component.func("GetComponent"_hs))
             {
                 continue;
             }
+            if (auto worldFn = component.func("IsWorldComponent"_hs);
+                worldFn && !worldFn.invoke({}).cast<bool>())
+            {
+                continue;
+            }
 
-            MetaAny instancePtr = component.func("GetComponent"_hs).invoke({}, AnyCast(context), m_activeEntity);
+            MetaAny instancePtr = component.func("GetComponent"_hs).invoke({}, static_cast<uint32_t>(m_activeEntity));
             if(!(*instancePtr))
             {
                 continue;

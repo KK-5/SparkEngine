@@ -56,13 +56,6 @@ namespace Editor
             }
         }
 
-        auto* world = WorldExecuteContext::Current();
-        if (!world)
-        {
-            LOG_ERROR("[ComponentAssetResolver] No WorldContext is active.");
-            return;
-        }
-
         MetaType component = TypeRegistry::GetContext().Resolve(componentType);
         if (!component)
         {
@@ -70,8 +63,10 @@ namespace Editor
             return;
         }
 
+        const uint32_t entityId = static_cast<uint32_t>(entity);
+
         // The entity may have lost the component (deleted) during the async gap.
-        MetaAny hasAny = component.func("HasComponent"_hs).invoke({}, AnyCast(*world), entity);
+        MetaAny hasAny = component.func("HasComponent"_hs).invoke({}, entityId);
         if (!hasAny || !hasAny.cast<bool>())
         {
             LOG_WARN("[ComponentAssetResolver] Entity no longer has component {}; skipping resolve.",
@@ -89,7 +84,7 @@ namespace Editor
         // Re-fetch the live component now (the instance was deliberately not stored),
         // write the id, then ReplaceComponent to fire OnComponentUpdated so the owning
         // system re-resolves and rebuilds its GPU resources.
-        MetaAny instancePtr = component.func("GetComponent"_hs).invoke({}, AnyCast(*world), entity);
+        MetaAny instancePtr = component.func("GetComponent"_hs).invoke({}, entityId);
         if (!instancePtr)
         {
             LOG_ERROR("[ComponentAssetResolver] GetComponent failed for component {}.", componentType);
@@ -98,7 +93,7 @@ namespace Editor
 
         MetaAny instance = *instancePtr;
         field.set(instance, assetId);
-        component.func("ReplaceComponent"_hs).invoke({}, AnyCast(*world), entity, instance);
+        component.func("ReplaceComponent"_hs).invoke({}, entityId, instance);
 
         LOG_INFO("[ComponentAssetResolver] Resolved asset '{}' into component {}.",
                  assetId.GetPath().c_str(), componentType);
