@@ -39,9 +39,11 @@ namespace Spark::Render
         RHI::InputStreamLayout input;
         RHI::InputStreamLayoutBuilder builder;
         builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
-        builder.AddBuffer()->Channel("POSITION", 0, Spark::RHI::Format::R32G32B32_FLOAT);
+        // Depth-only VS reads POSITION alone; it sits at offset 0, so no padding is
+        // needed for the trailing NORMAL/TANGENT/TEXCOORD the mesh interleaves.
+        builder.AddBuffer()->Channel("POSITION", 0, RHI::Format::R32G32B32_FLOAT);
         builder.AddBuffer(RHI::StreamStepFunction::PerInstance, 1)
-               ->Channel("INSTANCE_INDEX", 0, Spark::RHI::Format::R32_UINT);
+               ->Channel("INSTANCE_INDEX", 0, RHI::Format::R32_UINT);
         input = builder.End();
 
         RHI::RenderStates states;

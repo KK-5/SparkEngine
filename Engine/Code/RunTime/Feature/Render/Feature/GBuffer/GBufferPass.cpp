@@ -43,12 +43,15 @@ namespace Spark::Render
         RHI::InputStreamLayout input;
         RHI::InputStreamLayoutBuilder builder;
         builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
-        // Per-vertex geometry stream (slot 0). Assumes the mesh interleaves
-        // POSITION / NORMAL / TEXCOORD first; channel offsets auto-accumulate from
-        // the formats, while the per-draw vertex stride comes from the mesh itself.
+        // Layout mirrors the GBuffer VS inputs (POSITION / NORMAL / TEXCOORD), padded to
+        // align with the mesh's physical interleave: the mesh carries a 16-byte TANGENT
+        // between NORMAL and TEXCOORD that this VS doesn't read, so Padding skips it and
+        // TEXCOORD lands at its real offset (40). Passes align to the mesh; they don't
+        // declare fields they don't consume.
         builder.AddBuffer()
                ->Channel("POSITION", 0, RHI::Format::R32G32B32_FLOAT)
                ->Channel("NORMAL",   0, RHI::Format::R32G32B32_FLOAT)
+               ->Padding(16)
                ->Channel("TEXCOORD", 0, RHI::Format::R32G32_FLOAT);
         builder.AddBuffer(RHI::StreamStepFunction::PerInstance, 1)
                ->Channel("INSTANCE_INDEX", 0, RHI::Format::R32_UINT);
