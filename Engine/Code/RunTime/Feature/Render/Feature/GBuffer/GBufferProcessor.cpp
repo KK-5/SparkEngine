@@ -8,8 +8,11 @@
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
 
+#include <RHI/Resource/Sampler/SamplerState.h>
+
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
+#include <Pass/PassAccess.h>
 #include <Pass/Component/RHIComponents.h>
 
 #include <Drawable/Drawable.h>
@@ -60,12 +63,17 @@ namespace Spark::Render
 
         AssembleDrawRequests<SPARK_PASS_TAG("GBufferPass")>();
 
+        SetPassShaderSampler<SPARK_PASS_TAG("GBufferPass")>(
+            3, RHI::InputName("g_MatSampler"),
+            RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
+
         rhiCtx->GetView<SPARK_PASS_TAG("GBufferPass"), DrawRequest>(Exclude<DeadTag>)
             .each([&](RHIHandle, DrawRequest& req)
         {
             req.m_shaderBindings.clear();
             AddShaderBindings<MainViewTag>(req, *rhiCtx);
             AddShaderBindings<MaterialBindingTag>(req, *rhiCtx);   // g_Materials @ space2
+            AddShaderBindings<SPARK_PASS_TAG("GBufferPass")>(req, *rhiCtx);   // g_MatSampler @ space3
 
             req.m_viewports.resize(1);
             req.m_viewports[0]   = RHI::Viewport{

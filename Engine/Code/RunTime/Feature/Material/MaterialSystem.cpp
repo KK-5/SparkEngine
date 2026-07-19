@@ -10,6 +10,8 @@
 
 #include "MaterialUtils.h"
 
+#include <Resource/AssetManagerInterface.h>
+
 namespace Spark::Material
 {
     struct MaterialLiveMark
@@ -21,7 +23,10 @@ namespace Spark::Material
     {
         MaterialExecuteContext::Push(m_context);
 
-        m_defaultMaterial = CreateMaterial(m_context, MaterialParams{});
+        MaterialParams defaultParam{};
+        defaultParam.m_baseColorTexture = Service<Resource::AssetManager>::Get()->MakeAssetId("Image/Test/rusty_metal_04_diff_2k.jpg");
+        defaultParam.m_baseColorImage = Service<Resource::AssetManager>::Get()->LoadAsset<Resource::ImageAsset>(defaultParam.m_baseColorTexture);
+        m_defaultMaterial = CreateMaterial(m_context, defaultParam);
         m_context.Add<DefaultMaterialTag>(m_defaultMaterial);
 
         ComponentEventBus::Handler::BusConnect(GetTypeId<MaterialComponent>());

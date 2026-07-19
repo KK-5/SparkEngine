@@ -79,11 +79,6 @@ namespace Spark::RHI::DX12
         /// Returns the hash of the pipeline layout provided by the descriptor.
         size_t GetHash() const;
 
-        // New path
-        const RootParameterBinding& GetSpaceBinding(uint32_t spaceIndex) const;
-
-        size_t GetSpaceGroupCount() const;
-
         const SpaceCBVBinding&   GetSpaceCBVBinding(uint32_t spaceIndex) const;
         const SpaceTableBinding& GetSpaceTableBinding(uint32_t spaceIndex) const;
 
@@ -122,7 +117,6 @@ namespace Spark::RHI::DX12
         /// Tracks whether this pipeline layout has inline constants.
         bool m_hasRootConstants = false;
 
-        eastl::fixed_vector<RootParameterBinding, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceRootParams;
         eastl::fixed_vector<SpaceCBVBinding,       RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceCBVBindings;
         eastl::fixed_vector<SpaceTableBinding,     RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceTableBindings;
 

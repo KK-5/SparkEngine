@@ -145,6 +145,7 @@ namespace Spark::Render
         // Processor setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_viewBindingSystem.Init(rhiCtxForInit);
+        m_materialTextureSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
 
@@ -185,6 +186,7 @@ namespace Spark::Render
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_materialTextureSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
@@ -225,6 +227,9 @@ namespace Spark::Render
         }
 
         m_viewBindingSystem.Update();
+        // Before MaterialBindingSystem: resolves each material's base-color AssetId to a
+        // resident GPU texture (MaterialGPUTextures), which MB turns into a bindless index.
+        m_materialTextureSystem.Update();
         // Before InstanceBindingSystem: it reads the MaterialGPUSlot this writes to
         // resolve InstanceData.m_materialIndex.
         m_materialBindingSystem.Update(frameIndex);

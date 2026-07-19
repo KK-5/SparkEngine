@@ -248,7 +248,6 @@ namespace Spark::RHI::DX12
 
         const PipelineLayoutDescriptor* dx12Descriptor = static_cast<const PipelineLayoutDescriptor*>(&descriptor);
 
-        m_spaceRootParams.resize(descriptor.GetSpaceGroupCount());
         m_spaceCBVBindings.resize(descriptor.GetSpaceGroupCount());
         m_spaceTableBindings.resize(descriptor.GetSpaceGroupCount());
 
@@ -259,6 +258,15 @@ namespace Spark::RHI::DX12
 
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        // SM6.6 dynamic resources: let shaders index the shader-visible CBV_SRV_UAV heap
+        // directly via ResourceDescriptorHeap[i] — the material-texture bindless path
+        // (TODO_MaterialSystemPlan.md B.6). No descriptor range / root param needed; the
+        // flag alone opens heap-direct indexing. Free for pipelines that don't use it.
+        // Gated on device support so serialization can't fail on pre-SM6.6/tier<3 hardware.
+        if (device.GetFeatures().m_bindless)
+        {
+            rootSignatureDesc.Flags |= D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+        }
         rootSignatureDesc.NumParameters = static_cast<uint32_t>(parameters.size());
         rootSignatureDesc.pParameters = parameters.data();
         rootSignatureDesc.NumStaticSamplers = static_cast<uint32_t>(staticSamplers.size());
@@ -274,16 +282,6 @@ namespace Spark::RHI::DX12
         m_signature = rootSignature.Get();
         
         DeviceObject::Init(device);
-    }
-
-    const RootParameterBinding& PipelineLayout::GetSpaceBinding(uint32_t spaceIndex) const
-    {
-        return m_spaceRootParams[spaceIndex];
-    }
-
-    size_t PipelineLayout::GetSpaceGroupCount() const
-    {
-        return m_spaceRootParams.size();
     }
 
     const SpaceCBVBinding& PipelineLayout::GetSpaceCBVBinding(uint32_t spaceIndex) const

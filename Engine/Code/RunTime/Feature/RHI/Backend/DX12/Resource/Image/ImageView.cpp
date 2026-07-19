@@ -64,12 +64,12 @@ namespace Spark::RHI::DX12
 
     uint32_t ImageView::GetBindlessReadIndex() const
     {
-        return m_staticReadDescriptor.m_index;
+        return m_bindlessReadIndex;
     }
 
     uint32_t ImageView::GetBindlessReadWriteIndex() const
     {
-        return m_staticReadWriteDescriptor.m_index;
+        return m_bindlessReadWriteIndex;
     }
 
     RHI::ResultCode ImageView::InitInternal(RHI::Device& deviceBase, const RHI::Resource& resourceBase)
@@ -93,12 +93,20 @@ namespace Spark::RHI::DX12
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::ShaderRead))
         {
             context.CreateShaderResourceView(image, viewDescriptor, m_readDescriptor, m_staticReadDescriptor);
+            if (!m_staticReadDescriptor.IsNull())
+            {
+                m_bindlessReadIndex = context.GetStaticRegionOffset() + m_staticReadDescriptor.m_index;
+            }
         }
 
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::ShaderWrite))
         {
             context.CreateUnorderedAccessView(
                 image, viewDescriptor, m_readWriteDescriptor, m_clearDescriptor, m_staticReadWriteDescriptor);
+            if (!m_staticReadWriteDescriptor.IsNull())
+            {
+                m_bindlessReadWriteIndex = context.GetStaticRegionOffset() + m_staticReadWriteDescriptor.m_index;
+            }
         }
 
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::Color))

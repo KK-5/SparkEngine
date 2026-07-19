@@ -3,6 +3,7 @@
 #include <Math/Vector4.h>
 #include <ECS/ComponentTraits.h>
 #include <Resource/AssetTypes.h>
+#include <Resource/Image/ImageAsset.h>
 
 #include "MaterialHandle.h"
 
@@ -15,7 +16,8 @@ namespace Spark::Material
         float         m_roughness = 0.5f;
         float         m_specular  = 0.5f;   // dielectric F0 scale; 0.5 -> F0 0.04
 
-        Resource::AssetId m_baseColorTexture;
+        Resource::AssetId         m_baseColorTexture;
+        Ptr<Resource::ImageAsset> m_baseColorImage;
     };
 
     struct MaterialComponent

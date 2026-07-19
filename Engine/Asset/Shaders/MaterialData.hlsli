@@ -4,13 +4,16 @@
 #ifndef SPARK_MATERIAL_DATA_HLSLI
 #define SPARK_MATERIAL_DATA_HLSLI
 
+// "No texture" sentinel — mirrors Render::InvalidTextureIndex / RHI bindless -1.
+#define SPARK_INVALID_TEXTURE_INDEX 0xffffffffu
+
 struct MaterialData
 {
-    float4 BaseColor;   // rgb (+a reserved)
+    float4 BaseColor;         // rgb (+a reserved)
     float  Metallic;
     float  Roughness;
     float  Specular;
-    float  _Pad;
+    uint   BaseColorTexIndex; // SM6.6 bindless heap index, or SPARK_INVALID_TEXTURE_INDEX
 };
 
 #endif // SPARK_MATERIAL_DATA_HLSLI

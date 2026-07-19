@@ -26,11 +26,14 @@ namespace Spark::Resource
                 const char*      entry;
                 const char*      profile;
             };
+            // SM6.6 is the engine baseline (bindless dynamic resources —
+            // ResourceDescriptorHeap — needs it; see TODO_MaterialSystemPlan.md B.6).
+            // 6.6 is a superset of 6.0, so non-bindless shaders compile unchanged.
             static const Candidate kCandidates[] = {
-                { RHI::ShaderStage::Vertex,   "VSMain", "vs_6_0" },
-                { RHI::ShaderStage::Fragment, "PSMain", "ps_6_0" },
-                { RHI::ShaderStage::Geometry, "GSMain", "gs_6_0" },
-                { RHI::ShaderStage::Compute,  "CSMain", "cs_6_0" },
+                { RHI::ShaderStage::Vertex,   "VSMain", "vs_6_6" },
+                { RHI::ShaderStage::Fragment, "PSMain", "ps_6_6" },
+                { RHI::ShaderStage::Geometry, "GSMain", "gs_6_6" },
+                { RHI::ShaderStage::Compute,  "CSMain", "cs_6_6" },
             };
 
             eastl::vector<ShaderStageEntry> stages;

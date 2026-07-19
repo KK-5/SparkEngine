@@ -78,6 +78,27 @@ the material system lands"）。材质系统的第一目标是让不同物体能
   - 调度：先**每帧扫**（材质量级小、扫描 O(实体+材质)），间隔/脏标记以后只动 `OnTick`
     调用点、不碰算法。已知边界：只被局部 `MaterialHandle` 持有、未塞进任何组件的材质会被
     回收——引擎内创建路径都同步回填组件，可接受。
+- **bindless base-color 贴图（SM6.6 dynamic resources，已上屏验证）** —— 见 B.6/B.7：
+  - `MaterialParams` 加 `m_baseColorTexture`（`AssetId` 作者引用）+ `m_baseColorImage`
+    （`Ptr<ImageAsset>` RAM 驻留，RAII 引用计数）；数据层仍无 `RHIHandle`。
+  - `MaterialTextureSystem`（`Feature/Render/MaterialBind/`）—— resolver + 纹理池：扫
+    `MaterialContext`，`FindAsset`（非 Load）→ `EnsureResident`（`CreateStaticImage` +
+    `RequestImageUpload` + `CreateStaticImageAttachment`，pass-independent 静态导入）→ 写
+    `MaterialGPUTextures{RHIHandle}`；池 `AssetId → RHIHandle`。RenderSystem 里排在
+    `MaterialBindingSystem` **之前** tick。
+  - `MaterialBindingSystem` scatter 解析 `MaterialGPUTextures` → `ImageView`
+    `GetBindlessReadIndex()` → `MaterialData.m_baseColorTexIndex`（`InvalidTextureIndex`
+    哨兵）。契约兑现：MB 只消费解析后的 index，无 `AssetId`。
+  - GBuffer PS：`ResourceDescriptorHeap[NonUniformResourceIndex(idx)]` 采样 albedo，
+    per-pass 静态 `SamplerState`（space3）；root sig 仅需
+    `CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED` flag（`Device::m_bindless` gate）。
+  - shader profile 全量 `_6_0 → _6_6`。
+  - **RHI 修复**：`ImageView`/`BufferView` 的 `GetBindlessReadIndex()` 返回 **堆绝对索引**
+    （`GetStaticRegionOffset() + 池内 m_index`），此前返回池内 index 导致采样错位；死的
+    bindless-table 残件（`RootParameterBinding` / `m_staticTable` /
+    `GetBindlessGpuNativeHandle`）清除。
+  - **UV 修复**：GBufferPass input layout 用 `Padding(16)` 跳过 mesh 里 VS 不读的 TANGENT，
+    使 TEXCOORD 落到真实 offset 40；Pass 输入布局照 shader 声明写、不镜像 mesh 全属性。
 
 **已定的设计点（补充/修正下文原稿）**：
 
@@ -100,7 +121,8 @@ the material system lands"）。材质系统的第一目标是让不同物体能
 **下一步候选（未定序）**：① 材质共享（picker——把一个实体的 material handle 拷到另一个实体，
 asset-free 共享，验证 handle 复用 + GC 根扫描正确性）；② specular 进 GBuffer（需 F0 通道方案）；
 ③ 光源数据化（LightComponent + LightBindingSystem）；④ SceneColor 换 HDR（多光源前必须）；
-⑤ **【已选定为下一步，进行中】** 纹理材质（附录 A + **B.6 定稿**，已决 **bindless-direct + 仅 albedo**；契约已锁：MB 只消费解析后 RHIHandle/index）。
+⑤ ~~纹理材质（bindless-direct + 仅 albedo）~~ **【已完成，见上"已完成"块】**——首版 base color 已上屏；
+剩纹理 GC（mark-sweep，排材质 GC 之后）、多贴图通道（normal/orm）、编辑器拖拽设贴图。
 
 ---
 
@@ -499,7 +521,10 @@ Texture2DArray 再推倒更省，也绕开同尺寸/同格式约束。
   （**无需加 offset**）。
 - RHI 抽象层已暴露 `RHI::ImageView::GetBindlessReadIndex()`（DX12 override 返回 static 描述符 `m_index`）——
   **shader 要的 uint index 每个 ImageView 白送**。
-- `PipelineLayoutDescriptor` 有 `m_bindlessTable` / `m_unboundedArrayResourceTables` 槽（Atom 遗留）。
+- ~~`PipelineLayoutDescriptor` 有 `m_bindlessTable` / `m_unboundedArrayResourceTables` 槽（Atom 遗留）。~~
+  已清：SM6.6 heap-direct 不需要 bindless 根表，整个死的 `RootParameterBinding`（连同 `m_spaceRootParams` /
+  `GetSpaceBinding` / DX12 `GetSpaceGroupCount`）+ `DescriptorContext::m_staticTable` / `GetBindlessGpuNativeHandle()`
+  一并删除。活的绑定走 `SpaceCBVBinding` / `SpaceTableBinding`。
 - **断开处（非 bug）**：SRG 重写时（`ShaderResourceGroupCompiler` → `ShaderInputCompiler`）故意没接 bindless，
   command list 不再绑 bindless 根表——是为让位主动拆的。static 堆 + `GetBindlessReadIndex()` 是**刻意留的
   SM6.6-ready 残件，可信复用**。
@@ -540,6 +565,64 @@ doesn't need」。
 ③ 编辑器挂 albedo AssetId 实时看图。
 
 **sampler**：首版直接 root sig 静态 sampler（linear+wrap），动态 `SamplerDescriptorHeap` 留待多 sampler 需求。
+
+### B.7 Resolver / 纹理池 / GPU 回收定稿（2026-07，base color）
+
+承接 B.6，把 `MaterialParams.m_baseColorTexture` → GBuffer bindless 采样 之间的中间层定死。
+
+**MaterialParams 字段（SparkMaterial 数据层，仍 RHIHandle-free）**：
+
+- `Resource::AssetId m_baseColorTexture` —— authored / **序列化真值** + 反射字段（编辑器 asset picker 编的就是它）+ 池去重 key；反序列化后 Ptr 为空时它仍在。
+- `Ptr<Resource::ImageAsset> m_baseColorImage` —— 运行期 RAM pin（intrusive refcount），**不反射、不序列化**；由赋值方（编辑器 / gltf 导入）填，resolver 只**消费**、不 `LoadAsset`。
+- 二者不冗余：AssetId 在 Ptr 为空时仍需存在（authored-未加载 / 失败 / 反序列化中）；`Asset` 自带 `GetAssetId()`，Ptr 非空时以 AssetId 为准、一致。Ptr 是 `Object` 的 intrusive 引用计数（RAII），字段替换 / 材质销毁自动 dec。
+- **已知 RAM 债**：Ptr 挂 MaterialParams → CPU 字节随材质生命周期常驻，与 A.0-(1)「上传后释放 CPU 字节」轻微冲突。首版无 GPU 驻留 GC，用它当兜底 pin 可接受；等 GPU 驻留计数落地，pin 下沉到池 / 改 GPU 驱动，MaterialParams 退回只留 AssetId。
+
+**分层与放置**：
+
+- 纹理 resolver + 池在 **Render 层，独立系统 `MaterialTextureSystem`**（`Feature/Render/MaterialBind/`），tick 在 MaterialBindingSystem **之前**。
+- **不进 SparkMaterial 的 MaterialSystem**：它产 RHIHandle，违反 A.0-(7) 的 RHIHandle-free（硬约束）。
+- **不融进 MaterialBindingSystem**：池是**持久 registry**（跨帧稳定 index，A.0-(8)），MB 是**每帧全量 scatter**（slot 每帧重排），状态模型相反，融在一起混浊。
+- 对称先例：`MeshResolver`(AssetId→RHIHandle) ↔ `InstanceBindingSystem`(每帧 scatter)。纹理这条同构。
+
+**组件流**：
+
+```text
+MaterialParams{AssetId, Ptr<ImageAsset>}
+   ── MaterialTextureSystem ──▶ MaterialGPUTextures{ RHIHandle m_baseColor }   (Render 组件，挂材质实体)
+   ── MaterialBindingSystem ──▶ MaterialData.m_baseColorTexIndex
+```
+
+- `MaterialGPUTextures` 存 **RHIHandle 不存 index**（A.0-(4)：标量 index 表达不了流式/VT 寻址，RHI 资源 + 其组件才行）。
+- MB：`MaterialGPUTextures.m_baseColor`(RHIHandle) → `GetOrCreateImageView` → `GetBindlessReadIndex()` → `MaterialData.m_baseColorTexIndex`；RHIHandle 空 / view 未就绪 → `InvalidTextureIndex` 回退标量。**MB 保持 AssetId-free**（只碰 RHIHandle，与它读 `MeshGPUComponent` 而非 model AssetId 对齐）。
+
+**`EnsureResident`（池，按 AssetId 去重）**：
+
+```text
+RHIHandle EnsureResident(AssetId id, Ptr<ImageAsset> img):
+    若 id 已在池 → 返回其 RHIHandle
+    否则: CreateStaticImage + RequestImageUpload(用 img 字节)
+          + CreateStaticImageAttachment(Read, Shader, FragmentShader)
+          → 记录 id→RHIHandle → 返回
+```
+
+- 去重 key = AssetId（未来「同源多 GPU 编码」variant 才扩成 `(AssetId, variant)`，标准 PBR 贴图不需要）。
+- **同步交给 RG**：`CreateStaticImageAttachment` 挂在资源实体上 `m_pass = NullPass`，是 **pass 无关**的 static import；`CompileStaticResourceBarriers` 每帧自动补 upload→shader-read acquire + copy fence。bindless 纹理**不需注册进任何 pass**（我一度误以为要，实为望文生义——见 RHIComponents.h 的 static-import 注释）。
+
+**池 1:1 在流式 / VT 下仍成立（Q2）**：驻留是**每纹理聚合需求**、被所有引用材质共享，不是每材质分裂 GPU 资源——
+
+- Mip 流式：一纹理 = 一 RHI::Image，只是常驻 mip 集在变（所有用户需求的并集）；
+- 虚拟纹理：不同材质引用**同一逻辑纹理**（同一 page table）+ 共享物理 tile cache，tile 驻留聚合。
+
+所以「一 AssetId → 一稳定 RHIHandle 锚点」始终成立；变化的（常驻 mip 集 / tile page table / bindless index）是**挂锚点上的组件**——正是 A.0-(4) 锚 RHIHandle 而非标量 index 的理由。唯一 1:N = 同源不同 GPU 编码 → `(AssetId, variant)` key。
+
+**GPU 回收：纹理池 mark-sweep（对称材质 GC §1.5）**：
+
+- **RAM 与 GPU 独立回收**（A.0-(1)(2) 三层独立）：RAM 靠 `Ptr<ImageAsset>` refcount 自动（材质销毁 → MaterialParams 析构 → Ptr dec → 归零则 `Asset::Shutdown`→`ReleaseAsset`）；GPU 靠池**自己 mark-sweep**，不转发 RAM 信号、不新造 asset 释放事件（当前 `AssetBus` 只有 `OnAssetReady/Error` 且在 worker 线程，无释放事件）。
+- **mark**：遍历 MaterialContext 活材质的 `MaterialGPUTextures.m_baseColor`(RHIHandle)，标记对应池条目 gen；**sweep**：gen 过期条目 = 无活材质引用 → 收集 → 打 `DeadTag` / 销毁该 RHIHandle。
+- **为何非 refcount/event**：贴图引用会**变更**（编辑器换图 = `MaterialParams` 字段改写 / `MaterialGPUTextures` `AddOrReplace`），不干净触发 dec——同 §1.5 拒引用计数的理由；mark-sweep 对「怎么变的」无所谓。
+- **回收安全**：延迟释放（frames-in-flight）；bindless 槽随 ImageView 析构 `ReleaseStaticDescriptor` 自动回收；MB 每帧重解析 → 拿到 Invalid/新 index，无悬空采样。时序排在材质 GC 之后。
+
+**被否决的伪缺口**：~~一图对多 RHIHandle（流式/VT 破坏池）~~ —— 驻留每纹理聚合、RHIHandle 是稳定锚点、寻址差异走锚点组件（见上 Q2）。~~把 bindless 纹理注册成 GBuffer attachment 才有同步~~ —— static import 本就 pass 无关（`m_pass=NullPass`）。
 
 ---
 

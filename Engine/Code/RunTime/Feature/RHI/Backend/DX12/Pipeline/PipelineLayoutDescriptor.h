@@ -19,30 +19,6 @@ namespace Spark::RHI::DX12
     static const RootParameterIndex InvalidRootParameterIndex = static_cast<uint16_t>(eastl::numeric_limits<uint16_t>::max());
 
     /**
-     * Describes the root parameter binding for each component of a DX12 shader resource group.
-     */
-    class RootParameterBinding
-    {
-    public:
-        /// The root index of the SRG root constant buffer (if it exists).
-        RootParameterIndex m_constantBuffer;
-
-        /// The root index of the SRG resource descriptor table (if it exists).
-        RootParameterIndex m_resourceTable;
-
-        /// The root indices of the SRG unbounded array resource descriptor tables (if any).
-        /// TODO: This restriction should be lifted
-        static const uint32_t MaxUnboundedArrays = 2;
-        RootParameterIndex m_unboundedArrayResourceTables[MaxUnboundedArrays];
-
-        /// If unbounded arrays are present, the bindless parameter index refers to the root argument designated for the bindless table
-        RootParameterIndex m_bindlessTable;
-
-        /// The root index of the SRG sampler descriptor table (if it exists).
-        RootParameterIndex m_samplerTable;
-    };
-
-    /**
      * Describes root constant binding information.
      */
     struct RootConstantBinding

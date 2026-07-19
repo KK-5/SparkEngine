@@ -126,8 +126,9 @@ namespace Spark::RHI::DX12
         D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable descTable) const;
         D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandleForTable(DescriptorTable descTable) const;
 
-        //! Retrieve a descriptor handle to the start of the static region of the shader-visible CBV_SRV_UAV heap
-        D3D12_GPU_DESCRIPTOR_HANDLE GetBindlessGpuNativeHandle() const;
+        //! Heap-absolute index of the static region start. A static handle's pool-local
+        //! m_index plus this is its absolute slot — what SM6.6 ResourceDescriptorHeap[] needs.
+        uint32_t GetStaticRegionOffset() const { return m_staticDescriptorOffset; }
 
         //! Bind the DescriptorHeaps in this DescriptorContext to commandlist
         //! Use this method to ensure DescriptorHeaps cannot be accessed externally
@@ -189,9 +190,6 @@ namespace Spark::RHI::DX12
         // The static pool is a region of the shader-visible descriptor heap used to store descriptors that persist for the
         // lifetime of the resource view they reference
         DescriptorPool m_staticPool;
-
-        // This table binds the entire range of CBV_SRV_UAV descriptor handles in the shader visible heap
-        DescriptorTable m_staticTable;
 
         // Get the device from the RHI::Device that inherited from DeviceObject, so just hold the row pointer
         ID3D12DeviceX* m_D3D12Device;

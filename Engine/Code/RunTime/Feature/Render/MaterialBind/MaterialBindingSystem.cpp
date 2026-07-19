@@ -13,6 +13,8 @@
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
+#include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Resource/AssetManagerInterface.h>
@@ -31,6 +33,24 @@ namespace Spark::Render
     namespace
     {
         constexpr const char* MaterialBufferName = "g_Materials";
+
+        uint32_t ResolveBaseColorTexIndex(
+            RHI::RHIContext& rhiCtx, Material::MaterialContext& matCtx, Material::MaterialHandle h)
+        {
+            auto* tex = matCtx.TryGet<MaterialGPUTextures>(h);
+            if (!tex || tex->m_baseColor == RHI::NullHandle)
+            {
+                return InvalidTextureIndex;
+            }
+            auto* imgComp = rhiCtx.TryGet<RHI::Components::Image>(tex->m_baseColor);
+            if (!imgComp || !imgComp->m_image)
+            {
+                return InvalidTextureIndex;
+            }
+            RHI::ImageView* view = RHI::GetOrCreateImageView(
+                rhiCtx, tex->m_baseColor, *imgComp->m_image, RHI::ImageViewDescriptor{});
+            return view ? view->GetBindlessReadIndex() : InvalidTextureIndex;
+        }
     }
 
     void MaterialBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -168,11 +188,11 @@ namespace Spark::Render
             }
 
             MaterialData& d = m_materialData[slot];
-            d.m_baseColor = params.m_baseColor;
-            d.m_metallic  = params.m_metallic;
-            d.m_roughness = params.m_roughness;
-            d.m_specular  = params.m_specular;
-            d.m_pad       = 0.0f;
+            d.m_baseColor         = params.m_baseColor;
+            d.m_metallic          = params.m_metallic;
+            d.m_roughness         = params.m_roughness;
+            d.m_specular          = params.m_specular;
+            d.m_baseColorTexIndex = ResolveBaseColorTexIndex(*rhiCtx, *matCtx, h);
 
             matCtx->AddOrReplace<MaterialGPUSlot>(h, MaterialGPUSlot{ slot });
             ++slot;

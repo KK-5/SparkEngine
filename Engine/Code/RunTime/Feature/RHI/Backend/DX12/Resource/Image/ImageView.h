@@ -67,7 +67,12 @@ namespace Spark::RHI::DX12
         DescriptorHandle m_depthStencilReadDescriptor;
 
         DescriptorHandle m_staticReadDescriptor;
-        DescriptorHandle m_staticReadWriteDescriptor; 
+        DescriptorHandle m_staticReadWriteDescriptor;
+
+        // Heap-absolute bindless indices (static offset + pool-local), for SM6.6
+        // ResourceDescriptorHeap[]. Computed once at Init.
+        uint32_t m_bindlessReadIndex      = RHI::ImageView::InvalidBindlessIndex;
+        uint32_t m_bindlessReadWriteIndex = RHI::ImageView::InvalidBindlessIndex;
     };
 
 }

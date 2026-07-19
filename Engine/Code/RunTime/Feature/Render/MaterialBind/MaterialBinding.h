@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include <RHI/Context/RHIHandle.h>
+
 namespace Spark::Render
 {
     //! Per-material derived component, placed on the MATERIAL entity (MaterialContext):
@@ -13,6 +15,13 @@ namespace Spark::Render
     struct MaterialGPUSlot
     {
         uint32_t m_slot = 0;
+    };
+
+    //! Resolved base-color texture (GPU RHIHandle) on the material entity; written by
+    //! MaterialTextureSystem, read by MaterialBindingSystem. NullHandle = unresolved.
+    struct MaterialGPUTextures
+    {
+        RHI::RHIHandle m_baseColor = RHI::NullHandle;
     };
 
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
