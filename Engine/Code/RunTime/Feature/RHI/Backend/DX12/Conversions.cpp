@@ -560,6 +560,19 @@ namespace Spark::RHI::DX12
         ASSERT(!CheckBitsAny(access, k_bufferOnlyAccess),
             "[RHI DX12] ConvertImageState - buffer-only access bits 0x{:x} on an image.",
             static_cast<uint32_t>(access & k_bufferOnlyAccess));
+
+        // Copy queues only support the COMMON layout — a texture used on a copy queue
+        // must stay COMMON; the copy engine implicitly promotes COMMON->COPY_DEST/SOURCE
+        // for the transfer itself. Emitting COPY_DEST/SOURCE here yields a LEGACY_COPY_*
+        // layout, which the (stricter Win11) debug layer rejects on a COPY command list
+        // (#1334 INCOMPATIBLE_BARRIER_LAYOUT). Buffers are unaffected (no layout), so
+        // ConvertBufferState is left alone. Temporary until the backend moves to Enhanced
+        // Barriers (explicit layout axis, Vulkan-aligned), which removes this whole class.
+        if (queue == RHI::HardwareQueueClass::Copy)
+        {
+            return D3D12_RESOURCE_STATE_COMMON;
+        }
+
         return ConvertAccessToStates(access, queue, stage);
     }
 
