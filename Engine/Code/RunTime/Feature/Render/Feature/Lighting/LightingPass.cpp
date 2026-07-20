@@ -62,7 +62,9 @@ namespace Spark::Render
         // so the DSV stays read-only and can coexist with the depth SRV.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 1;
-        rt.m_colorFormats[0]      = RHI::Format::R8G8B8A8_UNORM;
+        // SceneColor is linear HDR; this pass writes raw radiance (tonemapping now
+        // happens in the final TonemapPass, not here). Must match DepthPrePass's format.
+        rt.m_colorFormats[0]      = RHI::Format::R16G16B16A16_FLOAT;
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         // Empty input layout: the full-screen triangle is generated from SV_VertexID.
@@ -102,17 +104,27 @@ namespace Spark::Render
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Build([](RenderGraphBuilder& builder)
             {
-                // Write SceneColor with Load: pixels this pass discards (sky) keep the
-                // DepthPrePass clear for the skybox to fill afterwards.
+                // Create SceneColor here: LightingPass is the first pass that produces
+                // scene color (linear HDR), so it owns the resource (DepthPrePass is now
+                // depth-only). Clear to the background color; pixels this pass depth-culls
+                // (sky) keep the clear for the skybox to fill afterwards. ShaderRead so the
+                // final TonemapPass can sample it.
+                auto colorDesc = RHI::ImageDescriptor::Create2D(
+                    RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
+                    builder.GetRenderSize().x,
+                    builder.GetRenderSize().y,
+                    RHI::Format::R16G16B16A16_FLOAT);
+
                 Render::ImageAttachmentBindInfo colorBind;
                 colorBind.m_slot  = RHI::InputName("SceneColor");
                 colorBind.m_usage = RHI::AttachmentUsage::RenderTarget;
                 colorBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                colorBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
+                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
                 colorBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.WriteImageAttachment<SPARK_PASS_TAG("LightingPass")>(
-                    RHI::AttachmentId("SceneColor"), colorBind);
+                builder.CreateImageAttachment<SPARK_PASS_TAG("LightingPass")>(
+                    RHI::AttachmentId("SceneColor"), colorDesc, colorBind, RHI::AttachmentAccess::Write);
 
                 // Read the three GBuffer color targets as shader resources. Declaring them
                 // here makes the graph (a) order this pass after GBufferPass and (b)

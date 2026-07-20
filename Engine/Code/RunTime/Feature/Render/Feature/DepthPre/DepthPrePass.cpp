@@ -31,9 +31,10 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
+        // Depth-only pass: no color attachment. SceneColor is created and owned by
+        // LightingPass (the first pass that produces scene color). NumRenderTargets = 0.
         RHI::RenderTargetLayout rt;
-        rt.m_colorAttachmentCount = 1;
-        rt.m_colorFormats[0] = RHI::Format::R8G8B8A8_UNORM;
+        rt.m_colorAttachmentCount = 0;
         rt.m_depthStencilFormat = RHI::Format::D32_FLOAT;
 
         RHI::InputStreamLayout input;
@@ -101,28 +102,6 @@ namespace Spark::Render
                     bind,
                     RHI::AttachmentAccess::Write
                 );
-
-                auto colorDesc = RHI::ImageDescriptor::Create2D(
-                    RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyRead,
-                    builder.GetRenderSize().x,
-                    builder.GetRenderSize().y,
-                    RHI::Format::R8G8B8A8_UNORM);
-
-                Render::ImageAttachmentBindInfo colorBind;
-                colorBind.m_slot  = RHI::InputName("SceneColor");
-                colorBind.m_usage = RHI::AttachmentUsage::RenderTarget;
-                colorBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
-                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                colorBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.CreateImageAttachment<SPARK_PASS_TAG("DepthPrePass")>(
-                    RHI::AttachmentId("SceneColor"),
-                    colorDesc,
-                    colorBind,
-                    RHI::AttachmentAccess::Write
-                );
-
             })
             .Execute([](ExecuteWork& work, RenderGraphExecuter&)
             {

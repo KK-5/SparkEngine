@@ -18,6 +18,7 @@
 #include "Feature/GBuffer/GBufferProcessor.h"
 #include "Feature/Lighting/LightingProcessor.h"
 #include "Feature/Skybox/SkyboxProcessor.h"
+#include "Feature/Tonemap/TonemapProcessor.h"
 #include "View/ViewBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
 #include "MaterialBind/MaterialTextureSystem.h"
@@ -67,6 +68,7 @@ namespace Spark::Render
         GBufferProcessor m_gbufferProcessor;
         LightingProcessor m_lightingProcessor;
         SkyboxProcessor m_skyboxProcessor;
+        TonemapProcessor m_tonemapProcessor;
         ViewBindingSystem m_viewBindingSystem;
         MaterialTextureSystem m_materialTextureSystem;
         MaterialBindingSystem m_materialBindingSystem;

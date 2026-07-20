@@ -42,6 +42,7 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     // Full-screen triangle from SV_VertexID: NDC (-1,-1),(3,-1),(-1,3).
     float2 uv  = float2((vertexId << 1) & 2, vertexId & 2);
     VSOutput output;
+    
     // z = 1 (far plane): the read-only depth test (func Greater vs SceneDepth) then
     // culls sky/uncovered pixels, where SceneDepth still holds the far clear value.
     output.position = float4(uv * 2.0 - 1.0, 1.0, 1.0);
@@ -78,12 +79,6 @@ float3 FresnelSchlick(float cosTheta, float3 F0)
     return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
 }
 
-float3 Tonemap(float3 hdr)
-{
-    float3 mapped = hdr / (hdr + 1.0);  // Reinhard
-    return pow(mapped, 1.0 / 2.2);      // linear -> sRGB-ish
-}
-
 float3 ReconstructWorldPos(float2 uv, float depth)
 {
     // ndc.xy matches the VS placement (position = float4(uv*2-1, ...)), depth is the
@@ -97,8 +92,6 @@ float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy), 0);
 
-    // Every pixel reaching the PS has geometry — sky/uncovered pixels were already
-    // rejected by the read-only depth test (far-plane z=1, func Greater).
     float4 rawNormal = g_Normal.Load(px);
 
     float3 albedo = g_Albedo.Load(px).rgb;
@@ -134,5 +127,5 @@ float4 PSMain(VSOutput input) : SV_Target0
     float3 color = (diffuse + specular) * radiance * NdotL;
     color += g_Ambient * albedo * ao;
 
-    return float4(Tonemap(color), 1.0);
+    return float4(color, 1.0);
 }

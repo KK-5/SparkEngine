@@ -21,7 +21,7 @@
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/Lighting/LightingPass.h>
 #include <Feature/Skybox/SkyboxPass.h>
-#include <Feature/UI/CopyFrameBufferPass.h>
+#include <Feature/Tonemap/TonemapPass.h>
 
 #include "../Window/IWindowSystem.h"
 #include "../UI/UIBaseSystem.h"
@@ -115,11 +115,15 @@ namespace Spark::Render
         auto lightingPassCfg = LightingPass::DefaultConfig();
         LightingPass::SetUp(passContext, lightingPassCfg);
 
-        // Skybox samples the baked cube into SceneColor after depth pre, before the copy.
+        // Skybox samples the baked cube into SceneColor (linear HDR) after depth pre.
         auto skyboxPassCfg = SkyboxPass::DefaultConfig();
         SkyboxPass::SetUp(passContext, skyboxPassCfg);
 
-        CopyFrameBufferPass::SetUp(passContext);
+        // Final tonemap: samples the HDR SceneColor, Reinhard + gamma, writes the LDR
+        // swap chain (which it now imports, replacing CopyFrameBufferPass). UIPass draws
+        // on top afterwards. CopyFrameBufferPass is kept in the tree but no longer wired.
+        auto tonemapPassCfg = TonemapPass::DefaultConfig();
+        TonemapPass::SetUp(passContext, tonemapPassCfg);
 
         SPARK_RENDER_PASS(passContext, "UIPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
@@ -155,6 +159,7 @@ namespace Spark::Render
         m_gbufferProcessor.Init();
         m_lightingProcessor.Init();
         m_skyboxProcessor.Init();
+        m_tonemapProcessor.Init();
     }
 
     void RenderSystem::InitInternal()
@@ -177,6 +182,7 @@ namespace Spark::Render
     {
         TickBus::Handler::BusDisconnect();
 
+        m_tonemapProcessor.Shutdown();
         m_skyboxProcessor.Shutdown();
         m_lightingProcessor.Shutdown();
         m_gbufferProcessor.Shutdown();
@@ -242,6 +248,7 @@ namespace Spark::Render
         m_gbufferProcessor.Process(renderSize);
         m_lightingProcessor.Process(renderSize);
         m_skyboxProcessor.Process(renderSize);
+        m_tonemapProcessor.Process(renderSize);
 
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
         m_swapChain->Present();

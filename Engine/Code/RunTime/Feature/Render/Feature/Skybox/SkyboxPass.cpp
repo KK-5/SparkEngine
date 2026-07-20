@@ -33,7 +33,9 @@ namespace Spark::Render
         // depth format must match the SceneDepth attachment DepthPrePass creates.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 1;
-        rt.m_colorFormats[0]      = RHI::Format::R8G8B8A8_UNORM;
+        // SceneColor is linear HDR; the sky writes raw radiance (tonemapping moved to
+        // the final TonemapPass). Must match DepthPrePass's SceneColor format.
+        rt.m_colorFormats[0]      = RHI::Format::R16G16B16A16_FLOAT;
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         // Empty input layout: the full-screen triangle is generated from SV_VertexID,

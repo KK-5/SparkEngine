@@ -11,8 +11,8 @@
 // world-space image of the view-space origin (mul(g_InvView, origin)). The cube is
 // sampled with the D3D TextureCube convention — the same basis the bake shader
 // (EnvironmentBake.hlsl) used — so Sample(dir) round-trips to the equirect texel with no
-// extra pairing. Finally tonemap (SceneColor is R8G8B8A8_UNORM, i.e. LDR); a dedicated
-// tonemap pass over SceneColor is a later refinement.
+// extra pairing. The raw sample is written as linear HDR into SceneColor (R16F); the
+// dedicated TonemapPass tonemaps the whole scene at the end.
 //
 // All view matrices come from the shared view tier (ViewBindings, space0), computed once
 // per frame by WriteViewConstants — the skybox never re-reads the camera. The cube +
@@ -53,15 +53,10 @@ float3 ReconstructWorldDir(float2 ndc)
     return normalize(farWorld.xyz - eye);
 }
 
-float3 Tonemap(float3 hdr)
-{
-    float3 mapped = hdr / (hdr + 1.0);  // Reinhard
-    return pow(mapped, 1.0 / 2.2);      // linear -> sRGB-ish
-}
-
 float4 PSMain(VSOutput input) : SV_Target0
 {
     float3 dir   = ReconstructWorldDir(input.ndc);
     float3 color = g_SkyCube.Sample(g_SkySampler, dir).rgb;
-    return float4(Tonemap(color), 1.0);
+
+    return float4(color, 1.0);
 }
