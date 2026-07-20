@@ -13,6 +13,7 @@
 #include <Feature/Mesh/Reflect.h>
 #include <Feature/Material/Reflect.h>
 #include <Feature/Skybox/Reflect.h>
+#include <Feature/Light/Reflect.h>
 
 namespace Spark
 {
@@ -24,6 +25,7 @@ namespace Spark
         TypeRegistry::Register(Spark::Mesh::Reflect);
         TypeRegistry::Register(Spark::Material::Reflect);
         TypeRegistry::Register(Spark::Skybox::Reflect);
+        TypeRegistry::Register(Spark::Light::Reflect);
         TypeRegistry::RegisterAll();
 
         m_worldCtxGuard = eastl::make_unique<WorldExecuteContextGuard>(m_worldContext);

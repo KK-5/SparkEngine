@@ -3,6 +3,8 @@
 #include <cstdint>
 
 #include <Math/Vector3.h>
+#include <Math/Vector4.h>
+#include <ECS/ComponentTraits.h>
 
 namespace Spark::Light
 {
@@ -19,7 +21,7 @@ namespace Spark::Light
     struct LightComponent
     {
         LightType     m_type      = LightType::Directional;
-        Math::Vector3 m_color     {1.0f, 1.0f, 1.0f};
+        Math::Vector4 m_color     {1.0f, 1.0f, 1.0f, 1.0f}; // authored via a color picker; alpha unused (render side takes rgb)
         float         m_intensity = 1.0f;
         float         m_range     = 10.0f;    // point/spot falloff radius (world units)
         float         m_innerConeDeg = 20.0f; // spot inner cone half-angle
@@ -43,4 +45,11 @@ namespace Spark::Light
         float         m_cosInner  = 1.0f;   // cos(inner cone), spot
         float         m_cosOuter  = 1.0f;   // cos(outer cone), spot
     };
+}
+
+namespace Spark
+{
+    SPARK_COMPONENT_TRAITS(Light::LightComponent,
+        static constexpr bool editable = true;
+    )
 }

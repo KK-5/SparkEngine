@@ -54,7 +54,7 @@ namespace Spark::Light
 
             LightComponent lc;
             lc.m_type      = LightType::Directional;
-            lc.m_color     = Math::Vector3(1.0f, 0.98f, 0.95f);
+            lc.m_color     = Math::Vector4(1.0f, 0.98f, 0.95f, 1.0f);
             lc.m_intensity = 3.0f;
             world->Add<LightComponent>(light, lc);
 
@@ -85,7 +85,7 @@ namespace Spark::Light
         {
             LightRenderData rd;
             rd.m_type           = lc.m_type;
-            rd.m_color          = lc.m_color;
+            rd.m_color          = Math::Vector3(lc.m_color); // authoring color is rgba; render side is rgb
             rd.m_intensity      = lc.m_intensity;
             rd.m_range          = lc.m_range;
             rd.m_worldDirection = ExtractForward(xform.m_worldMatrix);
