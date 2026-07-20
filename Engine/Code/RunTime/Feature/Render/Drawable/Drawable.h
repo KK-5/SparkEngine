@@ -60,7 +60,7 @@ namespace Spark::Render
     //! slot. Resolving the draw needs three coupled parts:
     //!  - m_sharedBindings : the global g_Instances ShaderBindings entity, which
     //!                       also hosts the InstanceSlotTable. Bound as a SRG
-    //!                       (space1) AND consulted for the slot → startInstance
+    //!                       (space4) AND consulted for the slot → startInstance
     //!                       mapping. Recorded per-Drawable so cascade reap
     //!                       reacts uniformly when the bindings entity rebuilds.
     //!  - m_slotRef        : stable id copy. The per-frame slot lookup

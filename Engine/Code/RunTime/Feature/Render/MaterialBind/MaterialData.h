@@ -12,7 +12,7 @@ namespace Spark::Render
     inline constexpr uint32_t InvalidTextureIndex = 0xFFFFFFFFu;
 
     //! Per-material GPU record, one element of the global g_Materials StructuredBuffer
-    //! (space2). HLSL mirror lives in MaterialData.hlsli — the two MUST stay
+    //! (space3). HLSL mirror lives in MaterialData.hlsli — the two MUST stay
     //! byte-for-byte identical (the static_assert below is the only automatic guard).
     //!
     //! Assembled each frame by MaterialBindingSystem from Material::MaterialParams.

@@ -7,8 +7,8 @@ namespace Spark::Render
 {
     //! Drives the deferred LightingPass each frame. Owns a procedural full-screen
     //! triangle drawable and a persistent draw-request carrier entity. Process builds
-    //! the request that references the shared view SRG (space0) and this pass's GBuffer
-    //! SRG (space1). The GBuffer SRG is get-or-created here (so it exists before
+    //! the request that references the shared view SRG (space1) and this pass's GBuffer
+    //! SRG (space2). The GBuffer SRG is get-or-created here (so it exists before
     //! CompileDrawRequests) but its texture slots are filled by LightingPass's Compile
     //! hook, once the GBuffer is materialized.
     class LightingProcessor

@@ -1,14 +1,14 @@
 // Per-view shader inputs (the "ViewBindings" group), reserved at register
-// space0. Shared engine header — any shader that needs camera/view data does:
+// space1. Shared engine header — any shader that needs camera/view data does:
 //     #include <ViewBindings.hlsl>
 // and the engine fills it via Render::WriteViewConstants(view, bindings).
 //
-// space0 is the lowest-frequency tier (view changes a few times per frame).
-// Per-material / per-object inputs must live in a HIGHER space than this.
+// Binding-space convention (by update frequency, low = stable): space0 per-scene,
+// space1 per-view, space2 per-pass, space3 per-material, space4 per-object.
 #ifndef SPARK_VIEW_BINDINGS_HLSL
 #define SPARK_VIEW_BINDINGS_HLSL
 
-cbuffer ViewBindings : register(b0, space0)
+cbuffer ViewBindings : register(b0, space1)
 {
     float4x4 g_ViewProjection;   // world -> clip (projection * view)
     float4x4 g_InvViewProj;      // clip  -> world (inverse of g_ViewProjection)

@@ -4,7 +4,7 @@
 // builder only compiles shaders that define a known entry point — so it cannot reflect
 // MaterialBindings.hlsl on its own. This file gives the group a dummy vertex entry that
 // reads g_Materials (so the binding survives optimization), purely so the engine can
-// reflect the space2 layout. It is NEVER used to render — only MaterialBindingSystem
+// reflect the space3 layout. It is NEVER used to render — only MaterialBindingSystem
 // loads it, and only for reflection.
 //
 // NOTE: the stage detector is a plain substring scan of the source, so this file

@@ -45,7 +45,7 @@ namespace Spark::Render
             return;
         }
 
-        // space0 / ViewBindings group, reflected from the host shader above.
+        // space1 / ViewBindings group, reflected from the host shader above.
         Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
@@ -69,7 +69,7 @@ namespace Spark::Render
         Ptr<RHI::ShaderBindings> viewBindings = factory->CreateShaderBindings();
         RHI::ShaderBindings::Descriptor desc;
         desc.m_layout  = layout;
-        desc.m_spaceId = 0;   // ViewBindings is reserved at space0.
+        desc.m_spaceId = 1;   // ViewBindings (per-view) is reserved at space1.
         if (viewBindings->Init(*device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[ViewBindingSystem] ShaderBindings::Init failed.");

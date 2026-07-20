@@ -1397,7 +1397,7 @@ namespace
             }
 
             // Per-object data provisioning. Each strategy resolves
-            // StartInstanceLocation, the per-object SRG (space1), and any extra
+            // StartInstanceLocation, the per-object SRG (space4), and any extra
             // per-instance vertex stream it needs. For the indexed strategy a
             // sentinel slot (UINT32_MAX) means the entity is being torn down —
             // skip the draw this frame.
@@ -1450,8 +1450,8 @@ namespace
             item.m_stencilRef       = req.m_stencilRef;
 
             // ShaderBindings: the request supplies externally-injected bindings
-            // (view space0, optional scene, …); the Drawable's provisioning
-            // strategy supplies the per-object binding (space1). Each SRG
+            // (view space1, optional scene space0, …); the Drawable's provisioning
+            // strategy supplies the per-object binding (space4). Each SRG
             // self-describes its space, so push order is irrelevant.
             for (const RHIHandle bindingEntity : req.m_shaderBindings)
             {

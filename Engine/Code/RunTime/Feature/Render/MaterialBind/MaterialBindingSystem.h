@@ -8,7 +8,7 @@
 
 namespace Spark::Render
 {
-    //! Owns the g_Materials StructuredBuffer (space2) + its ShaderBindings. Each frame
+    //! Owns the g_Materials StructuredBuffer (space3) + its ShaderBindings. Each frame
     //! it densely scatters every material's Material::MaterialParams into the current
     //! frame's g_Materials copy and stamps each material entity with its MaterialGPUSlot
     //! (the slot InstanceBindingSystem then bakes into InstanceData.m_materialIndex).
@@ -42,7 +42,7 @@ namespace Spark::Render
 
         // Shared resources, owned by their RHIContext entities (this system holds handles).
         RHI::RHIHandle m_buffer   = RHI::NullHandle;  // Components::BufferPerFrame — host StructuredBuffer<MaterialData>, N copies
-        RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Materials @ space2
+        RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Materials @ space3
 
         // CPU staging for g_Materials. Filled each frame, handed to the current frame's
         // copy via PendingBufferMap. Lives for the system's lifetime so the map source

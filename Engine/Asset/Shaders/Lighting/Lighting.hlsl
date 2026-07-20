@@ -15,12 +15,13 @@
 // rasterizer rejects the rest via early-Z. SceneColor keeps its clear value where
 // culled, for the skybox pass to fill afterwards.
 
-#include <Shaders/ViewBindings.hlsl>   // space0: g_InvViewProj, g_InvView
+#include <Shaders/ViewBindings.hlsl>   // space1: g_InvViewProj, g_InvView
 
-Texture2D g_Albedo : register(t0, space1);
-Texture2D g_Normal : register(t1, space1);
-Texture2D g_ORM    : register(t2, space1);
-Texture2D g_Depth  : register(t3, space1);   // SceneDepth, viewed as R32_FLOAT
+// Per-pass GBuffer SRVs (space2 = per-pass tier), bound by LightingPass's Compile hook.
+Texture2D g_Albedo : register(t0, space2);
+Texture2D g_Normal : register(t1, space2);
+Texture2D g_ORM    : register(t2, space2);
+Texture2D g_Depth  : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
 
 static const float PI = 3.14159265359;
 

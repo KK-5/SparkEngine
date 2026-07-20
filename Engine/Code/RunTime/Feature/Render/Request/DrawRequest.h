@@ -27,7 +27,7 @@ namespace Spark::Render
         RHI::RHIHandle m_drawable = RHI::NullHandle;
 
         //! ShaderBindings entities supplied externally for this draw — view
-        //! (space0) is the typical occupant; scene constants / other context
+        //! (space1) is the typical occupant; scene (space0) / other context
         //! can ride alongside. Each ShaderBindings self-describes its HLSL space
         //! (GetSpaceId), so order here is irrelevant. Per-object bindings come
         //! from the Drawable's m_instanceData instead. Injected each frame;

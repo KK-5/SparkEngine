@@ -78,13 +78,13 @@ namespace Spark::Render
         {
             DrawRequest req;
             req.m_drawable = m_drawable;
-            // Shared view (space0): the shader reads g_InvView for the camera position.
+            // Shared view (space1): the shader reads g_InvView for the camera position.
             // A zero view count means the view SRG isn't up yet; drop this frame.
             if (AddShaderBindings<MainViewTag>(req, *rhiCtx) == 0)
             {
                 return {};
             }
-            // This pass's GBuffer SRG (space1), just ensured above — appends 1.
+            // This pass's GBuffer SRG (space2), just ensured above — appends 1.
             AddShaderBindings<SPARK_PASS_TAG("LightingPass")>(req, *rhiCtx);
 
             req.m_viewports.resize(1);

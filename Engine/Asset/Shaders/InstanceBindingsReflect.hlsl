@@ -4,7 +4,7 @@
 // asset builder only compiles shaders that define a known entry point — so it
 // cannot reflect InstanceBindings.hlsl on its own. This file gives the group a
 // dummy vertex entry that reads g_Instances (so the binding survives
-// optimization), purely so the engine can reflect the space1 layout. It is NEVER
+// optimization), purely so the engine can reflect the space4 layout. It is NEVER
 // used to render — only InstanceBindingSystem loads it, and only for reflection.
 //
 // NOTE: the stage detector is a plain substring scan of the source, so this file

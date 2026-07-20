@@ -7,7 +7,7 @@
 struct InstanceData
 {
     float4x4 Model;          // object -> world
-    uint     MaterialIndex;  // slot into g_Materials (space2)
+    uint     MaterialIndex;  // slot into g_Materials (space3)
     uint3    _Pad;
 };
 

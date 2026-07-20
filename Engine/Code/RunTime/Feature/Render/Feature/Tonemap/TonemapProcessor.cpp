@@ -77,7 +77,7 @@ namespace Spark::Render
         {
             DrawRequest req;
             req.m_drawable = m_drawable;
-            // This pass's SceneColor SRG (space0), created lazily by TonemapPass's Compile
+            // This pass's SceneColor SRG (space2), created lazily by TonemapPass's Compile
             // hook (SetPassShaderImage). A zero count means it isn't up yet — the pass
             // layout isn't reflected / SceneColor not materialized — so drop this frame.
             if (AddShaderBindings<SPARK_PASS_TAG("TonemapPass")>(req, *rhiCtx) == 0)

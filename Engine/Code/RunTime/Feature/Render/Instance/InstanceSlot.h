@@ -23,7 +23,7 @@ namespace Spark::Render
         eastl::vector<uint32_t> m_slots;
     };
 
-    //! The single shared ShaderBindings entity carrying g_Instances (space1).
+    //! The single shared ShaderBindings entity carrying g_Instances (space4).
     struct InstanceBindingTag {};
 
     //! The single shared per-instance vertex stream ID buffer entity.

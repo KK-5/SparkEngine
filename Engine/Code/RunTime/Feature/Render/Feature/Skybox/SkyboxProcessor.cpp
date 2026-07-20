@@ -41,7 +41,7 @@ namespace Spark::Render
 
         // DrawRequest carrier: a dedicated entity tagged for this pass. Its DrawItem is
         // produced by CompileDrawRequests each frame, exactly like every other pass — the
-        // cube ShaderBindings (space1) are created lazily in Process, once the pass has a
+        // cube ShaderBindings (space2) are created lazily in Process, once the pass has a
         // reflected PassPipelineLayout.
         m_drawRequest = rhiCtx->CreateEntity();
         rhiCtx->Add<SPARK_PASS_TAG("SkyboxPass")>(m_drawRequest);
@@ -130,17 +130,17 @@ namespace Spark::Render
             // Find the environment cube published by SkyboxSystem (world component).
             RHI::ImageView* cubeView = GetCubeImageView();
 
-            // space1 cube SRG: get-or-created + bound entirely inside SetPassShaderXxx —
+            // space2 cube SRG: get-or-created + bound entirely inside SetPassShaderXxx —
             // no handle held here. Sampler applied once; the cube view's redundant
             // re-binds are dropped by SetShaderImage's own change-detection. A false
             // return means the pass layout isn't reflected yet, so retry next frame.
             if (!m_samplerApplied)
             {
                 m_samplerApplied = SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
-                    1, RHI::InputName("g_SkySampler"),
+                    2, RHI::InputName("g_SkySampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
             }
-            if (!SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(1, RHI::InputName("g_SkyCube"), cubeView))
+            if (!SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), cubeView))
             {
                 return {};
             }
@@ -150,7 +150,7 @@ namespace Spark::Render
             // their space, so order is irrelevant. Draw args come from the Drawable.
             DrawRequest req;
             req.m_drawable = m_drawable;
-            // Shared view (space0) + this pass's cube SRG (space1), both injected by
+            // Shared view (space1) + this pass's cube SRG (space2), both injected by
             // tag. A zero view count means the view SRG isn't up yet; drop this frame.
             // The cube SRG was just ensured above, so it appends ≥1.
             if (AddShaderBindings<MainViewTag>(req, *rhiCtx) == 0)

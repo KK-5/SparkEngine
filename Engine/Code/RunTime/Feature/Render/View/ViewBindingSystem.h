@@ -4,7 +4,7 @@
 
 namespace Spark::Render
 {
-    //! Per-view frequency system. Builds ONE shared ViewBindings (space0) entity —
+    //! Per-view frequency system. Builds ONE shared ViewBindings (space1) entity —
     //! its layout reflected straight from ViewBindings.hlsl — tags it MainViewTag,
     //! and refreshes g_ViewProjection from the camera each frame. Consumers fetch
     //! the single shared binding via GetView<MainViewTag, Components::ShaderBindings>,

@@ -59,7 +59,7 @@ namespace Spark::Render
         ASSERT(assetManager, "[MaterialBindingSystem] AssetManager is unregistered.");
 
         // MaterialBindingsReflect.hlsl is a reflection host (#includes MaterialBindings.hlsl
-        // + a dummy vertex entry reading g_Materials) so we can reflect the space2 layout
+        // + a dummy vertex entry reading g_Materials) so we can reflect the space3 layout
         // here — mirrors InstanceBindingSystem / InstanceBindingsReflect.hlsl.
         const Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/MaterialBindingsReflect.hlsl");
         if (!assetId.IsValid())
@@ -94,7 +94,7 @@ namespace Spark::Render
         Ptr<RHI::ShaderBindings> materialBindings = factory->CreateShaderBindings();
         RHI::ShaderBindings::Descriptor desc;
         desc.m_layout  = layout;
-        desc.m_spaceId = 2;   // MaterialBindings is reserved at space2.
+        desc.m_spaceId = 3;   // MaterialBindings (per-material) is reserved at space3.
         if (materialBindings->Init(*device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[MaterialBindingSystem] ShaderBindings::Init failed.");

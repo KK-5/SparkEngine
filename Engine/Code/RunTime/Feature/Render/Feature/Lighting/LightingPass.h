@@ -12,7 +12,7 @@ namespace Spark::Render
     //! light with a Cook-Torrance BRDF, writing SceneColor. Runs after GBufferPass
     //! and before SkyboxPass (which fills the pixels this pass discards).
     //!
-    //! The GBuffer views are bound to this pass's own space1 SRG in the .Compile()
+    //! The GBuffer views are bound to this pass's own space2 SRG in the .Compile()
     //! hook — the phase after transient resources are materialized but before shader
     //! inputs are compiled — via FindPassAttachmentImageView + SetPassShaderImage.
     //! The SRG itself is created and injected into the draw request by

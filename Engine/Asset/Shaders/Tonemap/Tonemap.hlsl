@@ -9,7 +9,8 @@
 // This pass replaces the old CopyFrameBufferPass hardware blit: once HDR→LDR needs a
 // shader, the tonemap draw can target the swap chain directly, so no separate copy.
 
-Texture2D<float4> g_SceneColor : register(t0, space0);
+// Per-pass input (space2 = per-pass tier), bound by TonemapPass's Compile hook.
+Texture2D<float4> g_SceneColor : register(t0, space2);
 
 struct VSOutput
 {

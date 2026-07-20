@@ -14,14 +14,15 @@
 // extra pairing. The raw sample is written as linear HDR into SceneColor (R16F); the
 // dedicated TonemapPass tonemaps the whole scene at the end.
 //
-// All view matrices come from the shared view tier (ViewBindings, space0), computed once
-// per frame by WriteViewConstants — the skybox never re-reads the camera. The cube +
-// sampler are this pass's own inputs, in the higher-frequency space1.
+// All view matrices come from the shared per-view tier (ViewBindings, space1), computed
+// once per frame by WriteViewConstants — the skybox never re-reads the camera. The cube +
+// sampler are this pass's own inputs, in the per-pass tier (space2).
 
-#include <Shaders/ViewBindings.hlsl>   // space0: g_ViewProjection, g_InvViewProj, g_View, g_InvView
+#include <Shaders/ViewBindings.hlsl>   // space1: g_ViewProjection, g_InvViewProj, g_View, g_InvView
 
-TextureCube  g_SkyCube    : register(t0, space1);
-SamplerState g_SkySampler : register(s0, space1);
+// Per-pass inputs (space2 = per-pass tier), bound by SkyboxProcessor.
+TextureCube  g_SkyCube    : register(t0, space2);
+SamplerState g_SkySampler : register(s0, space2);
 
 struct VSOutput
 {

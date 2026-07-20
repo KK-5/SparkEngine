@@ -6,7 +6,7 @@
 // LightingPass (the first pass that actually produces scene color), not here — this pass
 // used to write a depth visualization into SceneColor purely for early validation.
 //
-// Per-instance model matrix comes from the global g_Instances StructuredBuffer (space1),
+// Per-instance model matrix comes from the global g_Instances StructuredBuffer (space4),
 // indexed by InstanceIdx, delivered through a per-instance vertex stream filled by
 // InstanceBindingSystem. See TODO_InstanceBindingSystemPlan.md §2.5.
 struct VSInput

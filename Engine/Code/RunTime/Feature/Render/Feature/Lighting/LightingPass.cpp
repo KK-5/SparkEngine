@@ -180,7 +180,7 @@ namespace Spark::Render
             {
                 // Post-CompileTransientResources, pre-CompileShaderInputs: the GBuffer
                 // is materialized, so resolve each target's view and stage it into this
-                // pass's space1 SRG (created by LightingProcessor). SetPassShaderImage
+                // pass's space2 SRG (created by LightingProcessor). SetPassShaderImage
                 // marks the SRG dirty so CompileShaderInputs recompiles it with the views.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 const uint32_t frameIndex = compiler.GetFrameIndex();
@@ -194,7 +194,7 @@ namespace Spark::Render
                         continue;
                     }
                     SetPassShaderImage<SPARK_PASS_TAG("LightingPass")>(
-                        1, RHI::InputName(gb.m_input), view);
+                        2, RHI::InputName(gb.m_input), view);
                 }
 
                 // SceneDepth → g_Depth (t3). Resolved with the R32_FLOAT / ShaderRead view
@@ -204,7 +204,7 @@ namespace Spark::Render
                 if (depthView)
                 {
                     SetPassShaderImage<SPARK_PASS_TAG("LightingPass")>(
-                        1, RHI::InputName(s_depthInput), depthView);
+                        2, RHI::InputName(s_depthInput), depthView);
                 }
             })
             .Finalize()

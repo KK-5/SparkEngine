@@ -2,12 +2,12 @@
 #include <Shaders/InstanceBindings.hlsl>
 #include <Shaders/MaterialBindings.hlsl>
 
-// GBuffer per-pass sampler (space3), bound once by GBufferProcessor.
-SamplerState g_MatSampler : register(s0, space3);
+// GBuffer per-pass sampler (space2 = per-pass tier), bound once by GBufferProcessor.
+SamplerState g_MatSampler : register(s0, space2);
 
 // Deferred geometry (base) pass. Per-instance model matrix + material index come from
-// g_Instances (space1), indexed by INSTANCE_INDEX (per-instance vertex stream). The
-// material index selects a record in g_Materials (space2); the material's base color /
+// g_Instances (space4), indexed by INSTANCE_INDEX (per-instance vertex stream). The
+// material index selects a record in g_Materials (space3); the material's base color /
 // metallic / roughness fill the GBuffer here. DepthPrePass already wrote SceneDepth; this
 // pass runs depth-equal and only fills the GBuffer for fragments that survive early-Z.
 // Lighting reconstructs world position from SceneDepth, so no position target is written.

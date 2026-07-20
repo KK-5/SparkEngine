@@ -1,6 +1,7 @@
 // Per-material shader inputs (the "MaterialBindings" group), reserved at register
-// space2 — the per-material tier, one step above the per-instance space1
-// (InstanceBindings). Shared engine header — any shader that needs per-material data:
+// space3 — the per-material tier in the convention (space0 per-scene, space1 per-view,
+// space2 per-pass, space3 per-material, space4 per-object). Shared engine header — any
+// shader that needs per-material data:
 //     #include <Shaders/MaterialBindings.hlsl>
 // and the engine fills g_Materials via MaterialBindingSystem (one element per material
 // entity, per frame).
@@ -12,7 +13,7 @@
 
 #include "MaterialData.hlsli"
 
-StructuredBuffer<MaterialData> g_Materials : register(t0, space2);
+StructuredBuffer<MaterialData> g_Materials : register(t0, space3);
 
 // Abstraction seam: today materialIdx indexes g_Materials directly. If a future path
 // changes how the real record is found, only this body changes — passes stay untouched.

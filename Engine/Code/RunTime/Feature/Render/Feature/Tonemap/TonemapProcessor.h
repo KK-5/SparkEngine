@@ -7,7 +7,7 @@ namespace Spark::Render
 {
     //! Drives the final TonemapPass each frame. Owns a procedural full-screen triangle
     //! drawable and a persistent draw-request carrier entity. Process builds the request
-    //! that references this pass's SceneColor SRG (space0); the SRG's texture slot is
+    //! that references this pass's SceneColor SRG (space2); the SRG's texture slot is
     //! filled by TonemapPass's Compile hook once SceneColor is materialized. Unlike the
     //! lighting/skybox processors this pass needs no per-view SRG — it only samples
     //! SceneColor by pixel, no camera matrices.

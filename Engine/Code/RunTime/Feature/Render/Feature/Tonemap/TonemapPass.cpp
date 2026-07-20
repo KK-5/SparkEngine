@@ -110,9 +110,9 @@ namespace Spark::Render
             .Compile([](RenderGraphCompiler& compiler)
             {
                 // Post-CompileTransientResources, pre-CompileShaderInputs: SceneColor is
-                // materialized, so resolve its view and stage it into this pass's space0
-                // SRG (get-or-created by SetPassShaderImage). The full-screen triangle
-                // draw is built by TonemapProcessor.
+                // materialized, so resolve its view and stage it into this pass's space2
+                // (per-pass tier) SRG, get-or-created by SetPassShaderImage. The full-screen
+                // triangle draw is built by TonemapProcessor.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 const uint32_t frameIndex = compiler.GetFrameIndex();
 
@@ -120,7 +120,7 @@ namespace Spark::Render
                     rhiCtx, RHI::InputName("SceneColor"), frameIndex);
                 if (sceneColorView)
                 {
-                    SetPassShaderImage<SPARK_PASS_TAG("TonemapPass")>(0, RHI::InputName("g_SceneColor"), sceneColorView);
+                    SetPassShaderImage<SPARK_PASS_TAG("TonemapPass")>(2, RHI::InputName("g_SceneColor"), sceneColorView);
                 }
             })
             .Finalize()

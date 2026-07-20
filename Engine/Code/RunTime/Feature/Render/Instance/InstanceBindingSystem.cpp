@@ -47,7 +47,7 @@ namespace Spark::Render
 
         // InstanceBindings.hlsl is a pure StructuredBuffer header with no entry point;
         // InstanceBindingsReflect.hlsl is a reflection host that #includes it and adds a
-        // dummy vertex entry reading g_Instances, purely so we can reflect the space1
+        // dummy vertex entry reading g_Instances, purely so we can reflect the space4
         // layout here (mirrors ViewBindingSystem / ViewBindingsReflect.hlsl).
         const Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/InstanceBindingsReflect.hlsl");
         if (!assetId.IsValid())
@@ -85,7 +85,7 @@ namespace Spark::Render
         Ptr<RHI::ShaderBindings> instanceBindings = factory->CreateShaderBindings();
         RHI::ShaderBindings::Descriptor desc;
         desc.m_layout  = layout;
-        desc.m_spaceId = 1;   // InstanceBindings is reserved at space1.
+        desc.m_spaceId = 4;   // InstanceBindings (per-object) is reserved at space4.
         if (instanceBindings->Init(*device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[InstanceBindingSystem] ShaderBindings::Init failed.");

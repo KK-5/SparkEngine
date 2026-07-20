@@ -25,8 +25,8 @@ namespace Spark::Render
     };
 
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
-    //! g_Materials SRV at space2. GBufferProcessor discovers it via
+    //! g_Materials SRV at space3. GBufferProcessor discovers it via
     //! AddShaderBindings<MaterialBindingTag> and injects it into draw requests, exactly
-    //! like MainViewTag (space0 view) and InstanceBindingTag (space1 instance).
+    //! like MainViewTag (space1 view) and InstanceBindingTag (space4 object).
     struct MaterialBindingTag {};
 }

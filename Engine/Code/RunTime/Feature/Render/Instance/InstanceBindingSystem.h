@@ -8,7 +8,7 @@
 
 namespace Spark::Render
 {
-    //! Owns the g_Instances StructuredBuffer (space1) + its ShaderBindings,
+    //! Owns the g_Instances StructuredBuffer (space4) + its ShaderBindings,
     //! and the static per-instance ID vertex stream ([0..Capacity-1]) that
     //! delivers InstanceIndex via PER_INSTANCE_DATA + StartInstanceLocation
     //! (TODO_InstanceBindingSystemPlan.md §2.5).
@@ -57,7 +57,7 @@ namespace Spark::Render
         // Shared resources, owned by their RHIContext entities (this system holds only
         // handles + CPU staging buffers).
         RHI::RHIHandle m_bufferEntity   = RHI::NullHandle;  // Components::BufferPerFrame — host StructuredBuffer<InstanceData>, N copies
-        RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space1
+        RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
         RHI::RHIHandle m_idBufferEntity = RHI::NullHandle;  // Components::Buffer — per-instance vertex stream ([0..Capacity-1])
 
         // CPU staging for g_Instances. Filled each frame, then handed to the current
