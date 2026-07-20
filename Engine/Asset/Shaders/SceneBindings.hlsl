@@ -9,14 +9,7 @@
 #ifndef SPARK_SCENE_BINDINGS_HLSL
 #define SPARK_SCENE_BINDINGS_HLSL
 
-// Mirror of Render::LightData (SceneBind/LightData.h) — 64 bytes, keep in sync.
-struct LightData
-{
-    float3 direction; float intensity;   // dir/spot direction (world), radiant intensity
-    float3 color;     uint  type;        // rgb; 0=directional, 1=point, 2=spot
-    float3 position;  float invRange;    // point/spot world position, 1/range (0=dir)
-    float  cosInner;  float cosOuter; float pad0; float pad1;   // spot cone
-};
+#include "LightData.hlsli"
 
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
 

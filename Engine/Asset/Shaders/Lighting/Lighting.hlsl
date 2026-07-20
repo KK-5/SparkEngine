@@ -17,14 +17,14 @@
 
 #include <Shaders/ViewBindings.hlsl>    // space1: g_InvViewProj, g_InvView
 #include <Shaders/SceneBindings.hlsl>   // space0: g_Lights, g_LightCount
+#include <Shaders/Lib/BRDF.hlsli>       // Cook-Torrance surface response
+#include <Shaders/Lib/Lights.hlsli>     // per-light L + incident radiance
 
 // Per-pass GBuffer SRVs (space2 = per-pass tier), bound by LightingPass's Compile hook.
 Texture2D g_Albedo : register(t0, space2);
 Texture2D g_Normal : register(t1, space2);
 Texture2D g_ORM    : register(t2, space2);
 Texture2D g_Depth  : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
-
-static const float PI = 3.14159265359;
 
 // Flat ambient term until IBL lands (keeps back-facing surfaces off pure black).
 static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
@@ -48,35 +48,6 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     return output;
 }
 
-float DistributionGGX(float3 N, float3 H, float roughness)
-{
-    float a      = roughness * roughness;
-    float a2     = a * a;
-    float NdotH  = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-    float denom  = NdotH2 * (a2 - 1.0) + 1.0;
-    return a2 / max(PI * denom * denom, 1e-6);
-}
-
-float GeometrySchlickGGX(float NdotV, float roughness)
-{
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
-    return NdotV / (NdotV * (1.0 - k) + k);
-}
-
-float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
-}
-
-float3 FresnelSchlick(float cosTheta, float3 F0)
-{
-    return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
-}
-
 float3 ReconstructWorldPos(float2 uv, float depth)
 {
     // ndc.xy matches the VS placement (position = float4(uv*2-1, ...)), depth is the
@@ -84,26 +55,6 @@ float3 ReconstructWorldPos(float2 uv, float depth)
     float2 ndc = uv * 2.0 - 1.0;
     float4 worldH = mul(g_InvViewProj, float4(ndc, depth, 1.0));
     return worldH.xyz / worldH.w;
-}
-
-// Cook-Torrance BRDF for one light. L points toward the light; returns the outgoing
-// radiance factor (diffuse + specular) * NdotL, to be scaled by the light's radiance.
-float3 EvaluateBRDF(float3 N, float3 V, float3 L, float3 albedo, float roughness, float metallic, float3 F0)
-{
-    float3 H = normalize(V + L);
-
-    float  D = DistributionGGX(N, H, roughness);
-    float  G = GeometrySmith(N, V, L, roughness);
-    float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-
-    float  NdotV = max(dot(N, V), 0.0);
-    float  NdotL = max(dot(N, L), 0.0);
-    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 1e-4);
-
-    float3 kd = (1.0 - F) * (1.0 - metallic);
-    float3 diffuse = kd * albedo / PI;
-
-    return (diffuse + specular) * NdotL;
 }
 
 float4 PSMain(VSOutput input) : SV_Target0
@@ -128,14 +79,14 @@ float4 PSMain(VSOutput input) : SV_Target0
 
     float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
 
-    // Accumulate every scene light. Step 2: directional only — L is the negated shine
-    // direction; point/spot attenuation + cones are added to this loop later.
+    // Accumulate every scene light. EvaluateLight resolves L + incident radiance per
+    // light type (Lib/Lights.hlsli); this pass only glues that onto the BRDF.
     float3 color = float3(0.0, 0.0, 0.0);
     for (uint i = 0; i < g_LightCount; ++i)
     {
         LightData light = GetLight(i);
-        float3 L = normalize(-light.direction);
-        float3 radiance = light.color * light.intensity;
+        float3 L;
+        float3 radiance = EvaluateLight(light, worldPos, L);
         color += EvaluateBRDF(N, V, L, albedo, roughness, metallic, F0) * radiance;
     }
 
