@@ -55,6 +55,11 @@ namespace Spark::RHI::DX12
         pipelineLayout->Init(device, *descriptor.m_pipelineLayoutDescriptor);
         pipelineStateDesc.pRootSignature = pipelineLayout->Get();
 
+        // The vertex stage is mandatory (something must produce SV_Position). The
+        // geometry and pixel stages are optional: a graphics PSO with no PS is a valid,
+        // first-class depth-only pipeline (depth pre-pass / shadow map) in both DX12
+        // (PS = {nullptr,0}) and Vulkan. pipelineStateDesc is zero-initialized, so a
+        // skipped stage stays {} = "no shader" — no need to force a dummy PS.
         const ShaderStageFunction* vertexFunction = static_cast<const ShaderStageFunction*>(descriptor.m_vertexFunction.get());
         pipelineStateDesc.VS = D3D12BytecodeFromView(vertexFunction->GetByteCode());
         if (descriptor.m_geometryFunction)
@@ -62,8 +67,11 @@ namespace Spark::RHI::DX12
             const ShaderStageFunction* geometryFunction = static_cast<const ShaderStageFunction*>(descriptor.m_geometryFunction.get());
             pipelineStateDesc.GS = D3D12BytecodeFromView(geometryFunction->GetByteCode());
         }
-        const ShaderStageFunction* fragmentFunction = static_cast<const ShaderStageFunction*>(descriptor.m_fragmentFunction.get());
-        pipelineStateDesc.PS = D3D12BytecodeFromView(fragmentFunction->GetByteCode());
+        if (descriptor.m_fragmentFunction)
+        {
+            const ShaderStageFunction* fragmentFunction = static_cast<const ShaderStageFunction*>(descriptor.m_fragmentFunction.get());
+            pipelineStateDesc.PS = D3D12BytecodeFromView(fragmentFunction->GetByteCode());
+        }
 
         // RTV/DSV Format. Prefer the slim RenderTargetLayout when callers set it.
         // Legacy callers (examples, old subpass-era code) still populate
