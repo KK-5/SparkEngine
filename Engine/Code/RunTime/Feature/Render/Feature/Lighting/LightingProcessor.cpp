@@ -21,6 +21,7 @@
 
 #include <Shader/ShaderBindingsUtils.h>
 #include <View/ViewTags.h>
+#include <SceneBind/SceneBinding.h>
 
 namespace Spark::Render
 {
@@ -84,6 +85,10 @@ namespace Spark::Render
             {
                 return {};
             }
+            // Per-scene lights (space0). The SRG exists from SceneBindingSystem::Init, so
+            // this always appends; g_LightCount stays 0 until the buffer materializes, so
+            // the shader loop is safely empty during the warmup frame.
+            AddShaderBindings<MainSceneTag>(req, *rhiCtx);
             // This pass's GBuffer SRG (space2), just ensured above — appends 1.
             AddShaderBindings<SPARK_PASS_TAG("LightingPass")>(req, *rhiCtx);
 

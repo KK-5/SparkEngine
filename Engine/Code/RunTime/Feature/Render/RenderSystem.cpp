@@ -149,6 +149,7 @@ namespace Spark::Render
         // Processor setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_viewBindingSystem.Init(rhiCtxForInit);
+        m_sceneBindingSystem.Init(rhiCtxForInit);
         m_materialTextureSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
@@ -193,6 +194,7 @@ namespace Spark::Render
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialTextureSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
@@ -233,6 +235,9 @@ namespace Spark::Render
         }
 
         m_viewBindingSystem.Update();
+        // Per-scene lights: marshal the world's resolved LightRenderData into g_Lights.
+        // Independent of the other binding systems; consumed by LightingProcessor below.
+        m_sceneBindingSystem.Update(frameIndex);
         // Before MaterialBindingSystem: resolves each material's base-color AssetId to a
         // resident GPU texture (MaterialGPUTextures), which MB turns into a bindless index.
         m_materialTextureSystem.Update();

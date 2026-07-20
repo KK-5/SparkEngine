@@ -1,6 +1,6 @@
 // Lighting.hlsl — deferred lighting pass. Full-screen triangle that reads the
-// GBuffer (Albedo / Normal / ORM) plus SceneDepth per pixel and shades a single
-// hardcoded directional light with a Cook-Torrance BRDF, writing SceneColor.
+// GBuffer (Albedo / Normal / ORM) plus SceneDepth per pixel and shades the scene
+// lights (g_Lights, per-scene space0) with a Cook-Torrance BRDF, writing SceneColor.
 //
 // GBuffer color targets are sampled with Load (integer pixel fetch, point sampling)
 // — no sampler, no flip — the natural fit for a 1:1 full-res deferred read. World
@@ -15,7 +15,8 @@
 // rasterizer rejects the rest via early-Z. SceneColor keeps its clear value where
 // culled, for the skybox pass to fill afterwards.
 
-#include <Shaders/ViewBindings.hlsl>   // space1: g_InvViewProj, g_InvView
+#include <Shaders/ViewBindings.hlsl>    // space1: g_InvViewProj, g_InvView
+#include <Shaders/SceneBindings.hlsl>   // space0: g_Lights, g_LightCount
 
 // Per-pass GBuffer SRVs (space2 = per-pass tier), bound by LightingPass's Compile hook.
 Texture2D g_Albedo : register(t0, space2);
@@ -25,12 +26,8 @@ Texture2D g_Depth  : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
 
 static const float PI = 3.14159265359;
 
-// Hardcoded directional light until the light system lands. Direction points FROM
-// the light TO the scene; L below negates it to point toward the light.
-static const float3 g_LightDir     = normalize(float3(-0.5, -1.0, -0.3));
-static const float3 g_LightColor   = float3(1.0, 0.98, 0.95);
-static const float  g_LightIntensity = 3.0;
-static const float3 g_Ambient      = float3(0.03, 0.03, 0.03);
+// Flat ambient term until IBL lands (keeps back-facing surfaces off pure black).
+static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
 
 struct VSOutput
 {
@@ -89,6 +86,26 @@ float3 ReconstructWorldPos(float2 uv, float depth)
     return worldH.xyz / worldH.w;
 }
 
+// Cook-Torrance BRDF for one light. L points toward the light; returns the outgoing
+// radiance factor (diffuse + specular) * NdotL, to be scaled by the light's radiance.
+float3 EvaluateBRDF(float3 N, float3 V, float3 L, float3 albedo, float roughness, float metallic, float3 F0)
+{
+    float3 H = normalize(V + L);
+
+    float  D = DistributionGGX(N, H, roughness);
+    float  G = GeometrySmith(N, V, L, roughness);
+    float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    float  NdotV = max(dot(N, V), 0.0);
+    float  NdotL = max(dot(N, L), 0.0);
+    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 1e-4);
+
+    float3 kd = (1.0 - F) * (1.0 - metallic);
+    float3 diffuse = kd * albedo / PI;
+
+    return (diffuse + specular) * NdotL;
+}
+
 float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy), 0);
@@ -108,24 +125,20 @@ float4 PSMain(VSOutput input) : SV_Target0
     float3 N = normalize(rawNormal.xyz);
     float3 eye = mul(g_InvView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     float3 V = normalize(eye - worldPos);
-    float3 L = normalize(-g_LightDir);
-    float3 H = normalize(V + L);
 
     float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
 
-    float  D = DistributionGGX(N, H, roughness);
-    float  G = GeometrySmith(N, V, L, roughness);
-    float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+    // Accumulate every scene light. Step 2: directional only — L is the negated shine
+    // direction; point/spot attenuation + cones are added to this loop later.
+    float3 color = float3(0.0, 0.0, 0.0);
+    for (uint i = 0; i < g_LightCount; ++i)
+    {
+        LightData light = GetLight(i);
+        float3 L = normalize(-light.direction);
+        float3 radiance = light.color * light.intensity;
+        color += EvaluateBRDF(N, V, L, albedo, roughness, metallic, F0) * radiance;
+    }
 
-    float  NdotL = max(dot(N, L), 0.0);
-    float  NdotV = max(dot(N, V), 0.0);
-    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 1e-4);
-
-    float3 kd = (1.0 - F) * (1.0 - metallic);
-    float3 diffuse = kd * albedo / PI;
-
-    float3 radiance = g_LightColor * g_LightIntensity;
-    float3 color = (diffuse + specular) * radiance * NdotL;
     color += g_Ambient * albedo * ao;
 
     return float4(color, 1.0);

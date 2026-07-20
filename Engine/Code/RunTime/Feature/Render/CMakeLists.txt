@@ -22,6 +22,7 @@ set(SOURCES
     RenderGraph/RenderGraph.cpp
     RenderSystem.cpp
     View/ViewBindingSystem.cpp
+    SceneBind/SceneBindingSystem.cpp
     Instance/InstanceBindingSystem.cpp
     MaterialBind/MaterialTextureSystem.cpp
     MaterialBind/MaterialBindingSystem.cpp

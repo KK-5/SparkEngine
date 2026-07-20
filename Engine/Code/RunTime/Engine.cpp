@@ -86,6 +86,12 @@ namespace Spark
         m_materialSystem = CreateSystem<Material::MaterialSystem>();
         m_materialSystem->Init();
 
+        // Before RenderSystem: resolves each light's Transform into LightRenderData (which
+        // the render-side SceneBindingSystem marshals) and creates the default directional
+        // light. Ticks at TICK_PRE_RENDER, after TransformSystem.
+        m_lightSystem = CreateSystem<Light::LightSystem>();
+        m_lightSystem->Init();
+
         m_renderSystem = CreateSystem<Render::RenderSystem>();
         m_renderSystem->Init();
         m_renderSystem->SetUpDefaultPipeline();

@@ -20,6 +20,7 @@
 #include "Feature/Skybox/SkyboxProcessor.h"
 #include "Feature/Tonemap/TonemapProcessor.h"
 #include "View/ViewBindingSystem.h"
+#include "SceneBind/SceneBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
 #include "MaterialBind/MaterialTextureSystem.h"
 #include "MaterialBind/MaterialBindingSystem.h"
@@ -70,6 +71,7 @@ namespace Spark::Render
         SkyboxProcessor m_skyboxProcessor;
         TonemapProcessor m_tonemapProcessor;
         ViewBindingSystem m_viewBindingSystem;
+        SceneBindingSystem m_sceneBindingSystem;
         MaterialTextureSystem m_materialTextureSystem;
         MaterialBindingSystem m_materialBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;

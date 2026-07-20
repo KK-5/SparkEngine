@@ -20,6 +20,7 @@
 #include <Mesh/MeshSystem.h>
 #include <Mesh/MeshResolver.h>
 #include <Material/MaterialSystem.h>
+#include <Light/LightSystem.h>
 #include <Skybox/SkyboxSystem.h>
 #include <Resource/Bus/AssetResolveBus.h>
 #include <Feature/Transform/TransformSystem.h>
@@ -74,6 +75,7 @@ namespace Spark
         SystemUniquePtr<Mesh::MeshSystem>            m_meshSystem;
         UniquePtr<Mesh::MeshResolver>                 m_meshResolver;
         SystemUniquePtr<Material::MaterialSystem>    m_materialSystem;
+        SystemUniquePtr<Light::LightSystem>          m_lightSystem;
         SystemUniquePtr<Skybox::SkyboxSystem>        m_skyboxSystem;
     };
 }
