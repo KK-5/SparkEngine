@@ -20,6 +20,7 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/PassAccess.h>
+#include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
 
 #include <Drawable/Drawable.h>
 #include <Request/DrawRequest.h>
@@ -100,6 +101,21 @@ namespace Spark::Render
         {
             return nullptr;
         }
+
+        // Static-import barrier registration lives HERE (moved off SkyboxSystem to
+        // sever the feature→SparkRender reverse dependency): render registers the
+        // cube's upload→shader-read attachment at its sampling point. One-time via the
+        // Has-check; slot name is unused by the static-barrier path, so the resource's
+        // own ResourceName stands in.
+        if (!rhiCtx.Has<ImagePassAttachment>(cubeHandle))
+        {
+            CreateStaticImageAttachment(rhiCtx, cubeHandle,
+                rhiCtx.Get<RHI::ResourceName>(cubeHandle).m_name,
+                RHI::AttachmentAccess::Read,
+                RHI::AttachmentUsage::Shader,
+                RHI::AttachmentStage::FragmentShader);
+        }
+
         RHI::ImageView* cubeView = RHI::GetOrCreateImageView(
             rhiCtx, cubeHandle, *imgComp->m_image, RHI::ImageViewDescriptor::CreateCubemap());
         if (!cubeView)

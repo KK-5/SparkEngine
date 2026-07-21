@@ -8,6 +8,8 @@
 #include <RHI/Component/Component.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 
+#include <Pass/Component/RHIComponents.h>
+
 #include <Mesh/Components.h>
 
 #include <Instance/InstanceSlot.h>
@@ -171,6 +173,28 @@ namespace Spark::Render
             if (gpu.m_vertexBuffer == RHI::NullHandle)
             {
                 return;
+            }
+
+            // Static-import barrier registration lives HERE (moved off MeshSystem to
+            // sever the feature→SparkRender reverse dependency): render registers the
+            // VB/IB upload→InputAssembly attachment at the point it actually consumes
+            // the buffers. This find-or-create block is one-time per mesh
+            // (WorldComposedTag gate), so the attachment is registered exactly once —
+            // and only when the mesh becomes drawable, i.e. when the buffers are used.
+            // Slot name is unused by the static-barrier path, so the resource's own
+            // ResourceName stands in.
+            CreateStaticBufferAttachment(*rhiCtx, gpu.m_vertexBuffer,
+                rhiCtx->Get<RHI::ResourceName>(gpu.m_vertexBuffer).m_name,
+                RHI::AttachmentAccess::Read,
+                RHI::AttachmentUsage::InputAssembly,
+                RHI::AttachmentStage::VertexInput);
+            if (gpu.m_indexBindings != RHI::NullHandle)
+            {
+                CreateStaticBufferAttachment(*rhiCtx, gpu.m_indexBindings,
+                    rhiCtx->Get<RHI::ResourceName>(gpu.m_indexBindings).m_name,
+                    RHI::AttachmentAccess::Read,
+                    RHI::AttachmentUsage::InputAssembly,
+                    RHI::AttachmentStage::VertexInput);
             }
 
             RHI::RHIHandle drawable = rhiCtx->CreateEntity();

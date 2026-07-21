@@ -8,7 +8,6 @@
 #include <RHI/Component/Component.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/ResourceBuilder.h>
-#include <Pass/Component/RHIComponents.h>
 #include <Resource/Model/ModelAsset.h>
 
 #include <EASTL/string.h>
@@ -106,10 +105,10 @@ namespace Spark::Mesh
         // Unique suffix so per-entity ResourceNames don't collide as AttachmentIds.
         const eastl::string idSuffix = eastl::to_string(static_cast<uint32_t>(entity));
 
-        // Vertex buffer: static-import + InputAssembly/VertexInput attachment so the
-        // render graph's static-barrier compile emits the upload→VB barrier (and the
-        // copy→graphics fence). Without the attachment the graphics queue races the
-        // async upload.
+        // Vertex buffer: static-import create + upload only. The render-graph
+        // static-import attachment (which drives the upload→VB barrier + copy→graphics
+        // fence) is registered by the render-side consumer (DrawableComposer), not
+        // here — the feature produces the resource; render decides its usage.
         RHI::BufferDescriptor vbDesc;
         vbDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
         vbDesc.m_byteCount       = prim.vertexBuffer.size();
@@ -119,14 +118,9 @@ namespace Spark::Mesh
         RHI::RHIHandle vbEntity = RHI::CreateStaticBuffer(*rhiCtx, ObjectName(vbName), vbDesc);
         RHI::RequestBufferUpload(
             *rhiCtx, vbEntity, prim.vertexBuffer.data(), prim.vertexBuffer.size());
-        Render::CreateStaticBufferAttachment(*rhiCtx, vbEntity,
-            RHI::InputName(vbName),
-            RHI::AttachmentAccess::Read,
-            RHI::AttachmentUsage::InputAssembly,
-            RHI::AttachmentStage::VertexInput);
 
-        // Index buffer: same static-import + InputAssembly path (VertexInput stage
-        // covers both vertex fetch and index fetch).
+        // Index buffer: same static-import create + upload; attachment likewise
+        // registered by the render consumer (DrawableComposer).
         RHI::RHIHandle ibEntity = RHI::NullHandle;
         if (!prim.indexBuffer.empty())
         {
@@ -139,11 +133,6 @@ namespace Spark::Mesh
             ibEntity = RHI::CreateStaticBuffer(*rhiCtx, ObjectName(ibName), ibDesc);
             RHI::RequestBufferUpload(
                 *rhiCtx, ibEntity, prim.indexBuffer.data(), prim.indexBuffer.size());
-            Render::CreateStaticBufferAttachment(*rhiCtx, ibEntity,
-                RHI::InputName(ibName),
-                RHI::AttachmentAccess::Read,
-                RHI::AttachmentUsage::InputAssembly,
-                RHI::AttachmentStage::VertexInput);
         }
 
         // Build InputStreamLayout from VertexLayout

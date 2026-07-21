@@ -12,8 +12,6 @@
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/Image/ImageSubResource.h>
 
-#include <Pass/Component/RHIComponents.h>
-
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Image/ImageAsset.h>
 
@@ -142,17 +140,10 @@ namespace Spark::Skybox
             RHI::Origin(),
             asset->GetFormat());
 
-        // Sampled by the render-graph SkyboxPass — register the static-import
-        // attachment so the graph's static-barrier compile emits the
-        // upload→shader-read barrier (and the copy→graphics fence). Without it the
-        // graphics queue races the async upload (see DrawCube / MeshSystem).
-        Render::CreateStaticImageAttachment(
-            *rhiCtx, cubeEntity,
-            RHI::InputName(cubeName),
-            RHI::AttachmentAccess::Read,
-            RHI::AttachmentUsage::Shader,
-            RHI::AttachmentStage::FragmentShader);
-
+        // Create + upload only. The render-graph static-import attachment (which drives
+        // the upload→shader-read barrier + copy→graphics fence) is registered by the
+        // render-side consumer (SkyboxProcessor) at its sampling point — the feature
+        // produces the cube; render decides its usage.
         SkyboxGPUComponent gpuComp;
         gpuComp.m_cubemapAsset = asset;
         gpuComp.m_cubemap      = cubeEntity;
