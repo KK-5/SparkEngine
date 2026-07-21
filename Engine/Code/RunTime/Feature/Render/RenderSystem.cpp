@@ -150,7 +150,6 @@ namespace Spark::Render
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_viewBindingSystem.Init(rhiCtxForInit);
         m_sceneBindingSystem.Init(rhiCtxForInit);
-        m_materialTextureSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
 
@@ -193,7 +192,6 @@ namespace Spark::Render
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_materialTextureSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
@@ -238,9 +236,8 @@ namespace Spark::Render
         // Per-scene lights: marshal the world's resolved LightRenderData into g_Lights.
         // Independent of the other binding systems; consumed by LightingProcessor below.
         m_sceneBindingSystem.Update(frameIndex);
-        // Before MaterialBindingSystem: resolves each material's base-color AssetId to a
-        // resident GPU texture (MaterialGPUTextures), which MB turns into a bindless index.
-        m_materialTextureSystem.Update();
+        // MaterialGPUTextures is produced upstream by MaterialSystem (TICK_PRE_RENDER),
+        // so it's ready here; MaterialBindingSystem turns each into a bindless index.
         // Before InstanceBindingSystem: it reads the MaterialGPUSlot this writes to
         // resolve InstanceData.m_materialIndex.
         m_materialBindingSystem.Update(frameIndex);
@@ -257,9 +254,5 @@ namespace Spark::Render
 
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
         m_swapChain->Present();
-
-        // End of frame: reclaim texture-pool entries no live material references anymore.
-        // Runs before the TICK_LAST+1 material sweep, so reclaim lags by one frame (fine).
-        m_materialTextureSystem.CollectGarbage();
     }
 }

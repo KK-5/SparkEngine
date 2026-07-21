@@ -29,13 +29,18 @@ namespace Spark::Material
 
         ComponentEventBus::Handler::BusConnect(GetTypeId<MaterialComponent>());
 
-        // Drive the garbage collector (see OnTick / CollectGarbage).
+        // GPU texture production is part of the material system (mirrors MeshSystem
+        // owning its VB/IB production). Owned + driven here; render only consumes.
+        m_textureSystem.Init();
+
+        // Drive the texture producer + garbage collectors (see OnTick).
         TickBus::Handler::BusConnect();
     }
 
     void MaterialSystem::ShutdownInternal()
     {
         TickBus::Handler::BusDisconnect();
+        m_textureSystem.Shutdown();
         ComponentEventBus::Handler::BusDisconnect();
         MaterialExecuteContext::Pop();
     }
@@ -64,6 +69,8 @@ namespace Spark::Material
 
     void MaterialSystem::OnTick(float /*deltaTime*/)
     {
+        m_textureSystem.Update();
+        m_textureSystem.CollectGarbage();
         CollectGarbage();
     }
 

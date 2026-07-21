@@ -2,6 +2,7 @@ set(TARGET_NAME SparkMaterial)
 
 set(SOURCES
     MaterialSystem.cpp
+    MaterialTextureSystem.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -11,6 +12,7 @@ add_library(${TARGET_NAME} STATIC
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
+        SparkRHI
         SparkAssetManager
 )
 

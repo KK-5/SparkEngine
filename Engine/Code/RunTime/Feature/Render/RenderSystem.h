@@ -22,7 +22,6 @@
 #include "View/ViewBindingSystem.h"
 #include "SceneBind/SceneBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
-#include "MaterialBind/MaterialTextureSystem.h"
 #include "MaterialBind/MaterialBindingSystem.h"
 #include "Drawable/DrawableComposer.h"
 
@@ -72,7 +71,6 @@ namespace Spark::Render
         TonemapProcessor m_tonemapProcessor;
         ViewBindingSystem m_viewBindingSystem;
         SceneBindingSystem m_sceneBindingSystem;
-        MaterialTextureSystem m_materialTextureSystem;
         MaterialBindingSystem m_materialBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
         DrawableComposer m_drawableComposer;

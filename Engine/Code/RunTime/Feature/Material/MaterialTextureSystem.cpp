@@ -11,25 +11,22 @@
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/Image/ImageSubResource.h>
 
-#include <Pass/Component/RHIComponents.h>
-
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Image/ImageAsset.h>
 
-#include <Material/Components.h>
-#include <Material/MaterialContext.h>
+#include "Components.h"
+#include "MaterialContext.h"
+#include "MaterialGPUTextures.h"
 
-#include "MaterialBinding.h"
-
-namespace Spark::Render
+namespace Spark::Material
 {
-    void MaterialTextureSystem::Init(RHI::RHIContext&)
+    void MaterialTextureSystem::Init()
     {
     }
 
     void MaterialTextureSystem::Update()
     {
-        auto* matCtx = Material::MaterialExecuteContext::Current();
+        auto* matCtx = MaterialExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
         if (!matCtx || !rhiCtx)
         {
@@ -41,18 +38,13 @@ namespace Spark::Render
             return;
         }
 
-        matCtx->GetView<Material::MaterialParams>().each(
-            [&](Material::MaterialHandle h, Material::MaterialParams& params)
+        matCtx->GetView<MaterialParams>().each(
+            [&](MaterialHandle h, MaterialParams& params)
         {
             RHI::RHIHandle tex = RHI::NullHandle;
 
             if (params.m_baseColorTexture.IsValid())
             {
-                // Loading is the editor's job (mirrors SkyboxSystem): FindAsset the
-                // already-loaded asset, never LoadAsset here. Re-fetch whenever the cached
-                // image doesn't match the authored AssetId — the editor rewrites only
-                // m_baseColorTexture on a swap, so a stale m_baseColorImage would keep
-                // uploading the previous texture's data under the new handle.
                 if (!params.m_baseColorImage ||
                     params.m_baseColorImage->GetAssetId() != params.m_baseColorTexture)
                 {
@@ -78,7 +70,7 @@ namespace Spark::Render
 
     void MaterialTextureSystem::CollectGarbage()
     {
-        auto* matCtx = Material::MaterialExecuteContext::Current();
+        auto* matCtx = MaterialExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
         if (!matCtx || !rhiCtx)
         {
@@ -87,8 +79,8 @@ namespace Spark::Render
 
         ++m_gcGeneration;
 
-        matCtx->GetView<Material::MaterialParams>().each(
-            [&](Material::MaterialHandle, const Material::MaterialParams& params)
+        matCtx->GetView<MaterialParams>().each(
+            [&](MaterialHandle, const MaterialParams& params)
         {
             if (params.m_baseColorTexture.IsValid())
             {
@@ -116,13 +108,18 @@ namespace Spark::Render
         }
     }
 
-    void MaterialTextureSystem::Shutdown(RHI::RHIContext& rhiCtx)
+    void MaterialTextureSystem::Shutdown()
     {
+        auto* rhiCtx = RHI::RHIExecuteContext::Current();
+        if (!rhiCtx)
+        {
+            return;
+        }
         for (auto& entry : m_pool)
         {
             if (entry.second.m_handle != RHI::NullHandle)
             {
-                rhiCtx.Add<DeadTag>(entry.second.m_handle);
+                rhiCtx->Add<DeadTag>(entry.second.m_handle);
             }
         }
         m_pool.clear();
@@ -158,10 +155,6 @@ namespace Spark::Render
         RHI::RequestImageUpload(
             rhiCtx, tex, data->GetTextureBytes().data(), data->GetTextureBytes().size(),
             RHI::ImageSubresourceRange(desc), RHI::Origin(), img->GetFormat());
-
-        Render::CreateStaticImageAttachment(
-            rhiCtx, tex, RHI::InputName(name),
-            RHI::AttachmentAccess::Read, RHI::AttachmentUsage::Shader, RHI::AttachmentStage::FragmentShader);
 
         m_pool.emplace(id, PoolEntry{ tex, m_gcGeneration });
         return tex;

@@ -6,6 +6,7 @@
 
 #include "MaterialContext.h"
 #include "MaterialHandle.h"
+#include "MaterialTextureSystem.h"
 
 namespace Spark::Material
 {
@@ -34,7 +35,7 @@ namespace Spark::Material
         void OnTick(float deltaTime) override;
         unsigned int GetTickOrder() const override
         {
-            return static_cast<unsigned int>(TickOrder::TICK_LAST) + 1;
+            return static_cast<unsigned int>(TickOrder::TICK_PRE_RENDER);
         }
 
     private:
@@ -43,8 +44,9 @@ namespace Spark::Material
 
         void CollectGarbage();
 
-        MaterialContext m_context;
-        MaterialHandle  m_defaultMaterial{NullMaterial};
+        MaterialContext       m_context;
+        MaterialTextureSystem m_textureSystem;
+        MaterialHandle        m_defaultMaterial{NullMaterial};
 
         // Bumped each GC cycle; the epoch a material must carry to be considered live.
         uint64_t m_gcGeneration = 0;

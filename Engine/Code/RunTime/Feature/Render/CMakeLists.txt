@@ -24,7 +24,6 @@ set(SOURCES
     View/ViewBindingSystem.cpp
     SceneBind/SceneBindingSystem.cpp
     Instance/InstanceBindingSystem.cpp
-    MaterialBind/MaterialTextureSystem.cpp
     MaterialBind/MaterialBindingSystem.cpp
     Drawable/DrawableComposer.cpp
 )

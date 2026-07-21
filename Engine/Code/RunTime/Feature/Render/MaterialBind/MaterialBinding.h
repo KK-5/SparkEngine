@@ -17,13 +17,6 @@ namespace Spark::Render
         uint32_t m_slot = 0;
     };
 
-    //! Resolved base-color texture (GPU RHIHandle) on the material entity; written by
-    //! MaterialTextureSystem, read by MaterialBindingSystem. NullHandle = unresolved.
-    struct MaterialGPUTextures
-    {
-        RHI::RHIHandle m_baseColor = RHI::NullHandle;
-    };
-
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
     //! g_Materials SRV at space3. GBufferProcessor discovers it via
     //! AddShaderBindings<MaterialBindingTag> and injects it into draw requests, exactly
