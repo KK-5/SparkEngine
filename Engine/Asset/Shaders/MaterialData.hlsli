@@ -7,13 +7,22 @@
 // "No texture" sentinel — mirrors Render::InvalidTextureIndex / RHI bindless -1.
 #define SPARK_INVALID_TEXTURE_INDEX 0xffffffffu
 
+// Texture slots — mirror Material::MaterialTexSlot (order is the GPU contract).
+#define SPARK_MATERIAL_TEX_SLOT_COUNT   5
+#define SPARK_TEX_SLOT_BASE_COLOR       0
+#define SPARK_TEX_SLOT_METALLIC_ROUGH   1
+#define SPARK_TEX_SLOT_NORMAL           2
+#define SPARK_TEX_SLOT_OCCLUSION        3
+#define SPARK_TEX_SLOT_EMISSIVE         4
+
 struct MaterialData
 {
     float4 BaseColor;         // rgb (+a reserved)
     float  Metallic;
     float  Roughness;
     float  Specular;
-    uint   BaseColorTexIndex; // SM6.6 bindless heap index, or SPARK_INVALID_TEXTURE_INDEX
+
+    uint   TexIndices[SPARK_MATERIAL_TEX_SLOT_COUNT];
 };
 
 #endif // SPARK_MATERIAL_DATA_HLSLI

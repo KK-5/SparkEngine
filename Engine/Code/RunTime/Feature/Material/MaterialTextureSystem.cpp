@@ -16,7 +16,6 @@
 
 #include "Components.h"
 #include "MaterialContext.h"
-#include "MaterialGPUTextures.h"
 
 namespace Spark::Material
 {
@@ -41,30 +40,35 @@ namespace Spark::Material
         matCtx->GetView<MaterialParams>().each(
             [&](MaterialHandle h, MaterialParams& params)
         {
-            RHI::RHIHandle tex = RHI::NullHandle;
+            MaterialGPUTextures gpu;   // all slots default to NullHandle
 
-            if (params.m_baseColorTexture.IsValid())
+            for (size_t slot = 0; slot < MaterialTexSlotCount; ++slot)
             {
-                if (!params.m_baseColorImage ||
-                    params.m_baseColorImage->GetAssetId() != params.m_baseColorTexture)
+                MaterialTexture& t = params.m_textures[slot];
+                if (!t.m_assetId.IsValid())
                 {
-                    params.m_baseColorImage.reset();
-                    Ptr<Resource::Asset> found = assetManager->FindAsset(params.m_baseColorTexture);
+                    continue;
+                }
+
+                // Refresh the resolve cache if the authored asset id changed.
+                if (!t.m_image || t.m_image->GetAssetId() != t.m_assetId)
+                {
+                    t.m_image.reset();
+                    Ptr<Resource::Asset> found = assetManager->FindAsset(t.m_assetId);
                     if (found && found->GetAssetType() == Resource::AssetType::Image)
                     {
-                        params.m_baseColorImage = Ptr<Resource::ImageAsset>(
+                        t.m_image = Ptr<Resource::ImageAsset>(
                             static_cast<Resource::ImageAsset*>(found.get()));
                     }
                 }
 
-                if (params.m_baseColorImage &&
-                    params.m_baseColorImage->GetStatus() == Resource::AssetStatus::Ready)
+                if (t.m_image && t.m_image->GetStatus() == Resource::AssetStatus::Ready)
                 {
-                    tex = EnsureResident(*rhiCtx, params.m_baseColorTexture, params.m_baseColorImage);
+                    gpu.m_handles[slot] = EnsureResident(*rhiCtx, t.m_assetId, t.m_image);
                 }
             }
 
-            matCtx->AddOrReplace<MaterialGPUTextures>(h, MaterialGPUTextures{ tex });
+            matCtx->AddOrReplace<MaterialGPUTextures>(h, gpu);
         });
     }
 
@@ -82,11 +86,14 @@ namespace Spark::Material
         matCtx->GetView<MaterialParams>().each(
             [&](MaterialHandle, const MaterialParams& params)
         {
-            if (params.m_baseColorTexture.IsValid())
+            for (const MaterialTexture& t : params.m_textures)
             {
-                if (auto it = m_pool.find(params.m_baseColorTexture); it != m_pool.end())
+                if (t.m_assetId.IsValid())
                 {
-                    it->second.m_gen = m_gcGeneration;
+                    if (auto it = m_pool.find(t.m_assetId); it != m_pool.end())
+                    {
+                        it->second.m_gen = m_gcGeneration;
+                    }
                 }
             }
         });

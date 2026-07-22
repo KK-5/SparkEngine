@@ -53,6 +53,13 @@ namespace Spark
             return *this;
         }
 
+        template<auto Setter, auto Getter>
+        Reflector Data(const char* name)
+        {
+            m_reflector.data<Setter, Getter>(name);
+            return *this;
+        }
+
         template<auto FuncType>
         Reflector Func(const char* name)
         {

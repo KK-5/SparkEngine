@@ -25,7 +25,6 @@
 
 #include <Material/Components.h>
 #include <Material/MaterialContext.h>
-#include <Material/MaterialGPUTextures.h>
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
 
@@ -37,15 +36,21 @@ namespace Spark::Render
     {
         constexpr const char* MaterialBufferName = "g_Materials";
 
-        uint32_t ResolveBaseColorTexIndex(
-            RHI::RHIContext& rhiCtx, Material::MaterialContext& matCtx, Material::MaterialHandle h)
+        uint32_t ResolveTexIndex(
+            RHI::RHIContext& rhiCtx, Material::MaterialContext& matCtx,
+            Material::MaterialHandle h, size_t slot)
         {
             auto* tex = matCtx.TryGet<Material::MaterialGPUTextures>(h);
-            if (!tex || tex->m_baseColor == RHI::NullHandle)
+            if (!tex)
             {
                 return InvalidTextureIndex;
             }
-            auto* imgComp = rhiCtx.TryGet<RHI::Components::Image>(tex->m_baseColor);
+            const RHI::RHIHandle handle = tex->m_handles[slot];
+            if (handle == RHI::NullHandle)
+            {
+                return InvalidTextureIndex;
+            }
+            auto* imgComp = rhiCtx.TryGet<RHI::Components::Image>(handle);
             if (!imgComp || !imgComp->m_image)
             {
                 return InvalidTextureIndex;
@@ -53,20 +58,20 @@ namespace Spark::Render
 
             // Static-import barrier registration lives HERE (moved off
             // MaterialTextureSystem so the producer stops deciding usage): render
-            // registers the base-color texture's upload→shader-read attachment at its
+            // registers the texture's upload→shader-read attachment at its
             // resolve/sample point. One-time via the Has-check; slot name is unused by
             // the static-barrier path, so the resource's own ResourceName stands in.
-            if (!rhiCtx.Has<ImagePassAttachment>(tex->m_baseColor))
+            if (!rhiCtx.Has<ImagePassAttachment>(handle))
             {
-                CreateStaticImageAttachment(rhiCtx, tex->m_baseColor,
-                    rhiCtx.Get<RHI::ResourceName>(tex->m_baseColor).m_name,
+                CreateStaticImageAttachment(rhiCtx, handle,
+                    rhiCtx.Get<RHI::ResourceName>(handle).m_name,
                     RHI::AttachmentAccess::Read,
                     RHI::AttachmentUsage::Shader,
                     RHI::AttachmentStage::FragmentShader);
             }
 
             RHI::ImageView* view = RHI::GetOrCreateImageView(
-                rhiCtx, tex->m_baseColor, *imgComp->m_image, RHI::ImageViewDescriptor{});
+                rhiCtx, handle, *imgComp->m_image, RHI::ImageViewDescriptor{});
             return view ? view->GetBindlessReadIndex() : InvalidTextureIndex;
         }
     }
@@ -206,11 +211,14 @@ namespace Spark::Render
             }
 
             MaterialData& d = m_materialData[slot];
-            d.m_baseColor         = params.m_baseColor;
-            d.m_metallic          = params.m_metallic;
-            d.m_roughness         = params.m_roughness;
-            d.m_specular          = params.m_specular;
-            d.m_baseColorTexIndex = ResolveBaseColorTexIndex(*rhiCtx, *matCtx, h);
+            d.m_baseColor = params.m_baseColor;
+            d.m_metallic  = params.m_metallic;
+            d.m_roughness = params.m_roughness;
+            d.m_specular  = params.m_specular;
+            for (size_t texSlot = 0; texSlot < Material::MaterialTexSlotCount; ++texSlot)
+            {
+                d.m_texIndices[texSlot] = ResolveTexIndex(*rhiCtx, *matCtx, h, texSlot);
+            }
 
             matCtx->AddOrReplace<MaterialGPUSlot>(h, MaterialGPUSlot{ slot });
             ++slot;

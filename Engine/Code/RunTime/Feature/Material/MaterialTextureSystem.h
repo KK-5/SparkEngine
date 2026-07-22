@@ -9,13 +9,14 @@ namespace Spark::Resource { class ImageAsset; }
 
 namespace Spark::Material
 {
-    //! Persistent AssetId->RHIHandle base-color texture pool + per-frame resolver.
-    //! Reads each material's authored base-color AssetId, makes the GPU texture resident
-    //! (create + upload) and writes MaterialGPUTextures{RHIHandle} on the material entity.
+    //! Persistent AssetId->RHIHandle texture pool + per-frame resolver. Walks every
+    //! MaterialTexSlot of each material's MaterialParams::m_textures, makes each authored
+    //! texture resident (create + upload) and writes the resolved RHIHandles into
+    //! MaterialGPUTextures::m_handles[slot] on the material entity.
     //!
     //! Owned and driven by MaterialSystem (composition) — its tick runs BEFORE the render
     //! system, so MaterialGPUTextures is ready when render's MaterialBindingSystem turns
-    //! the RHIHandle into a bindless index. The static-import attachment (a render-graph
+    //! each RHIHandle into a bindless index. The static-import attachment (a render-graph
     //! usage concept) is registered by the render consumer, not here.
     class MaterialTextureSystem
     {

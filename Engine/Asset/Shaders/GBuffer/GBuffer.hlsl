@@ -56,9 +56,10 @@ PSOutput PSMain(VSOutput input)
     // yet routed into the GBuffer (no F0 channel yet — a later step).
     MaterialData mat = GetMaterialData(input.materialIdx);
     float3 albedo = mat.BaseColor.rgb;
-    if (mat.BaseColorTexIndex != SPARK_INVALID_TEXTURE_INDEX)
+    uint baseColorTexIndex = mat.TexIndices[SPARK_TEX_SLOT_BASE_COLOR];
+    if (baseColorTexIndex != SPARK_INVALID_TEXTURE_INDEX)
     {
-        Texture2D<float4> baseColorTex = ResourceDescriptorHeap[NonUniformResourceIndex(mat.BaseColorTexIndex)];
+        Texture2D<float4> baseColorTex = ResourceDescriptorHeap[NonUniformResourceIndex(baseColorTexIndex)];
         albedo *= baseColorTex.Sample(g_MatSampler, input.uv).rgb;
     }
     output.albedo = float4(albedo, 1.0);

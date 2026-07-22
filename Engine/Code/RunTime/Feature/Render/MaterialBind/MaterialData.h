@@ -4,11 +4,13 @@
 
 #include <Math/Vector4.h>
 
+#include <Material/Components.h>   // MaterialTexSlotCount / MaterialTexSlot
+
 namespace Spark::Render
 {
     //! Sentinel for "no texture" in MaterialData index fields. Matches
     //! RHI::ImageView::InvalidBindlessIndex (uint32_t(-1)); the GBuffer PS falls back
-    //! to the scalar base color when a material's index is this.
+    //! to the scalar factor when a material's slot index is this.
     inline constexpr uint32_t InvalidTextureIndex = 0xFFFFFFFFu;
 
     //! Per-material GPU record, one element of the global g_Materials StructuredBuffer
@@ -16,22 +18,34 @@ namespace Spark::Render
     //! byte-for-byte identical (the static_assert below is the only automatic guard).
     //!
     //! Assembled each frame by MaterialBindingSystem from Material::MaterialParams.
-    //! m_baseColorTexIndex is the SM6.6 bindless heap index of the resolved base-color
-    //! texture (sampled via ResourceDescriptorHeap[i] in the GBuffer PS), or
-    //! InvalidTextureIndex when the material has no base-color map — see
+    //! m_texIndices[slot] is the SM6.6 bindless heap index of the resolved texture for
+    //! that MaterialTexSlot (sampled via ResourceDescriptorHeap[i] in the GBuffer PS),
+    //! or InvalidTextureIndex when the material has no map in that slot — see
     //! TODO_MaterialSystemPlan.md appendix B.6.
     struct MaterialData
     {
-        Math::Vector4 m_baseColor{0.8f, 0.8f, 0.8f, 1.0f};       // rgb (+a reserved)
-        float         m_metallic          = 0.0f;
-        float         m_roughness         = 0.5f;
-        float         m_specular          = 0.5f;                // dielectric F0 scale
-        uint32_t      m_baseColorTexIndex = InvalidTextureIndex; // bindless idx, -> 32B
+        Math::Vector4 m_baseColor{0.8f, 0.8f, 0.8f, 1.0f};   // rgb (+a reserved)
+        float         m_metallic  = 0.0f;
+        float         m_roughness = 0.5f;
+        float         m_specular  = 0.5f;                    // dielectric F0 scale
+        // Bindless texture index per MaterialTexSlot; InvalidTextureIndex = no map.
+        uint32_t      m_texIndices[Material::MaterialTexSlotCount];
+
+        MaterialData()
+        {
+            for (uint32_t& idx : m_texIndices)
+            {
+                idx = InvalidTextureIndex;
+            }
+        }
     };
 
-    // 32B. StructuredBuffer elements are tightly C-packed (no cbuffer 16B rounding),
-    // so sizeof must match the HLSL struct in MaterialData.hlsli; add padding
-    // deliberately when introducing new fields.
-    static_assert(sizeof(MaterialData) == 32,
-        "MaterialData must stay 32 bytes to match MaterialData.hlsli.");
+    // StructuredBuffer elements are tightly C-packed (no cbuffer 16B rounding), so sizeof
+    // must match the HLSL struct in MaterialData.hlsli. 16 (baseColor) + 12 (3 floats) +
+    // 4*5 (indices) = 48. If this fires, a slot was added: bump SPARK_MATERIAL_TEX_SLOT_COUNT
+    // in MaterialData.hlsli to match MaterialTexSlot::Count and re-verify packing.
+    static_assert(Material::MaterialTexSlotCount == 5,
+        "MaterialData.hlsli hardcodes SPARK_MATERIAL_TEX_SLOT_COUNT=5; keep them in sync.");
+    static_assert(sizeof(MaterialData) == 48,
+        "MaterialData must stay 48 bytes to match MaterialData.hlsli.");
 }
