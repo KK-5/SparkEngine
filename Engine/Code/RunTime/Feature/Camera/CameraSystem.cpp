@@ -20,18 +20,14 @@ namespace Spark::Camera
     {
         auto& world = *WorldExecuteContext::Current();
 
+        // Resolve only the world->view transform here. Projection is built downstream in
+        // ViewBindingSystem, where the render-target aspect is known — this layer never
+        // touches the render surface (or UI).
         world.GetView<CameraComponent, Transform::WorldTransformMatrix>().each(
-            [&](Entity entity, const CameraComponent& camera, const Transform::WorldTransformMatrix& worldMatrix)
+            [&](Entity entity, const CameraComponent&, const Transform::WorldTransformMatrix& worldMatrix)
         {
             CameraViewMatrix matrices;
             matrices.m_viewMatrix = Math::Inverse(worldMatrix.m_worldMatrix);
-            matrices.m_projectionMatrix = Math::PerspectiveFov(
-                Math::Radians(camera.m_fov),
-                camera.m_aspectRatio,
-                camera.m_clipStart,
-                camera.m_clipEnd);
-            matrices.m_viewProjectionMatrix = matrices.m_projectionMatrix * matrices.m_viewMatrix;
-
             world.AddOrReplace<CameraViewMatrix>(entity, matrices);
         });
     }

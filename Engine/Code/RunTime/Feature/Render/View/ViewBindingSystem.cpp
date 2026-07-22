@@ -84,21 +84,28 @@ namespace Spark::Render
         rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(m_viewEntity);   // compile on the first frame
     }
 
-    void ViewBindingSystem::Update()
+    void ViewBindingSystem::Update(const Math::Vector2Int& renderSize)
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!world || !rhiCtx || m_viewEntity == RHI::NullHandle)
+        if (!world || !rhiCtx || m_viewEntity == RHI::NullHandle || renderSize.y <= 0)
         {
-            return;
+            return;   // guard renderSize.y: a minimized / zero framebuffer would divide by zero
         }
 
+        // Projection is built HERE, not in CameraSystem: aspect is a property of the render
+        // target, which the world layer doesn't know. The same camera drawn into a different
+        // extent gets a different projection for free.
+        const float aspect = static_cast<float>(renderSize.x) / static_cast<float>(renderSize.y);
+
         // Single main camera for now; multi-view will tag a binding per view type.
-        world->GetView<Camera::CameraViewMatrix>().each([&](Entity, const Camera::CameraViewMatrix& mats)
+        world->GetView<Camera::CameraComponent, Camera::CameraViewMatrix>().each(
+            [&](Entity, const Camera::CameraComponent& camera, const Camera::CameraViewMatrix& mats)
         {
             View view;
             view.m_worldToView = mats.m_viewMatrix;
-            view.m_viewToClip  = mats.m_projectionMatrix;
+            view.m_viewToClip  = Math::PerspectiveFov(
+                Math::Radians(camera.m_fov), aspect, camera.m_clipStart, camera.m_clipEnd);
             WriteViewConstants(view, m_viewEntity);   // stages data + marks dirty
         });
     }

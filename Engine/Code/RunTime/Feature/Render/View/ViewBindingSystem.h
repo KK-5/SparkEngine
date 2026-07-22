@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Math/Vector2.h>
 #include <RHI/Context/RHIContext.h>
 
 namespace Spark::Render
@@ -21,7 +22,7 @@ namespace Spark::Render
     {
     public:
         void Init(RHI::RHIContext& rhiCtx);
-        void Update();
+        void Update(const Math::Vector2Int& renderSize);
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:

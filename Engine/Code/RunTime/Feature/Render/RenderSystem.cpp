@@ -232,7 +232,7 @@ namespace Spark::Render
             );
         }
 
-        m_viewBindingSystem.Update();
+        m_viewBindingSystem.Update(renderSize);
         m_sceneBindingSystem.Update(frameIndex);
         // Order matters: MaterialBindingSystem writes each material's MaterialGPUSlot,
         // which InstanceBindingSystem reads to resolve InstanceData.m_materialIndex.
