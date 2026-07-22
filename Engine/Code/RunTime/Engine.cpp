@@ -104,8 +104,8 @@ namespace Spark
         m_meshSystem = CreateSystem<Mesh::MeshSystem>();
         m_meshSystem->Init();
 
-        m_meshResolver = eastl::make_unique<Mesh::MeshResolver>();
-        m_meshResolver->Init();
+        m_spawnResolver = eastl::make_unique<Spawn::ModelSpawnResolver>();
+        m_spawnResolver->Init();
 
         m_skyboxSystem = CreateSystem<Skybox::SkyboxSystem>();
         m_skyboxSystem->Init();

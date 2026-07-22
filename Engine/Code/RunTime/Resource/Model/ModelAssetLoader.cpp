@@ -606,6 +606,72 @@ namespace Spark::Resource
             result->m_rawImages.push_back(eastl::move(entry));
         }
 
+        // ---- Materials (factors now; texture image indices recorded for the Builder
+        //      to resolve into AssetIds once the image sub-assets are dispatched) ----
+
+        auto imageIndexOfTexture = [&](std::size_t textureIndex) -> int32_t
+        {
+            if (textureIndex >= gltf.textures.size())
+            {
+                return -1;
+            }
+            const auto& imgOpt = gltf.textures[textureIndex].imageIndex;
+            return imgOpt.has_value() ? static_cast<int32_t>(imgOpt.value()) : -1;
+        };
+
+        result->m_materials.reserve(gltf.materials.size());
+        result->m_materialTexRefs.reserve(gltf.materials.size());
+        for (const auto& src : gltf.materials)
+        {
+            Material out;
+            const auto& bcf = src.pbrData.baseColorFactor;
+            out.baseColorFactor = Math::Vector4(
+                static_cast<float>(bcf[0]), static_cast<float>(bcf[1]),
+                static_cast<float>(bcf[2]), static_cast<float>(bcf[3]));
+            out.metallicFactor  = static_cast<float>(src.pbrData.metallicFactor);
+            out.roughnessFactor = static_cast<float>(src.pbrData.roughnessFactor);
+            const auto& ef = src.emissiveFactor;
+            out.emissiveFactor = Math::Vector3(
+                static_cast<float>(ef[0]), static_cast<float>(ef[1]), static_cast<float>(ef[2]));
+            out.emissiveStrength   = static_cast<float>(src.emissiveStrength);
+            out.normalScale        = src.normalTexture.has_value()
+                ? static_cast<float>(src.normalTexture->scale) : 1.0f;
+            out.occlusionStrength  = src.occlusionTexture.has_value()
+                ? static_cast<float>(src.occlusionTexture->strength) : 1.0f;
+            out.alphaCutoff = static_cast<float>(src.alphaCutoff);
+            switch (src.alphaMode)
+            {
+            case fastgltf::AlphaMode::Mask:  out.alphaMode = AlphaMode::Mask;  break;
+            case fastgltf::AlphaMode::Blend: out.alphaMode = AlphaMode::Blend; break;
+            default:                         out.alphaMode = AlphaMode::Opaque; break;
+            }
+
+            MaterialTexRefs refs;
+            if (src.pbrData.baseColorTexture.has_value())
+            {
+                refs.baseColor = imageIndexOfTexture(src.pbrData.baseColorTexture->textureIndex);
+            }
+            if (src.pbrData.metallicRoughnessTexture.has_value())
+            {
+                refs.metallicRoughness = imageIndexOfTexture(src.pbrData.metallicRoughnessTexture->textureIndex);
+            }
+            if (src.normalTexture.has_value())
+            {
+                refs.normal = imageIndexOfTexture(src.normalTexture->textureIndex);
+            }
+            if (src.occlusionTexture.has_value())
+            {
+                refs.occlusion = imageIndexOfTexture(src.occlusionTexture->textureIndex);
+            }
+            if (src.emissiveTexture.has_value())
+            {
+                refs.emissive = imageIndexOfTexture(src.emissiveTexture->textureIndex);
+            }
+
+            result->m_materials.push_back(eastl::move(out));
+            result->m_materialTexRefs.push_back(refs);
+        }
+
         // ---- Global bounds ----
 
         result->m_bounds.min = Math::Vector3(eastl::numeric_limits<float>::max());
@@ -619,12 +685,13 @@ namespace Spark::Resource
             }
         }
 
-        LOG_INFO("[ModelAssetLoader] Loaded '{}': {} meshes, {} primitives, {} nodes, {} images",
+        LOG_INFO("[ModelAssetLoader] Loaded '{}': {} meshes, {} primitives, {} nodes, {} images, {} materials",
             result->m_resolvedPath.c_str(),
             result->GetMeshCount(),
             result->GetPrimitiveCount(),
             result->GetNodeCount(),
-            result->GetRawImageCount());
+            result->GetRawImageCount(),
+            result->GetMaterialCount());
 
         return result;
     }

@@ -1,13 +1,13 @@
-#include "MeshResolver.h"
+#include "ModelSpawnResolver.h"
 
 #include <ECS/ExecuteContext.h>
 #include <Resource/Model/ModelAsset.h>
 
-#include "MeshUtils.h"
+#include "SpawnModel.h"
 
-namespace Spark::Mesh
+namespace Spark::Spawn
 {
-    MeshResolver::~MeshResolver()
+    ModelSpawnResolver::~ModelSpawnResolver()
     {
         if (BusIsConnected())
         {
@@ -15,12 +15,12 @@ namespace Spark::Mesh
         }
     }
 
-    void MeshResolver::Init()
+    void ModelSpawnResolver::Init()
     {
         Resource::AssetResolveBus::Handler::BusConnect();
     }
 
-    void MeshResolver::ResolveModelAssetToScene(Ptr<Resource::ModelAsset> asset)
+    void ModelSpawnResolver::ResolveModelAssetToScene(Ptr<Resource::ModelAsset> asset)
     {
         if (!asset)
         {
@@ -33,6 +33,6 @@ namespace Spark::Mesh
             return;
         }
 
-        ExtractMeshToWorld(asset, *world);
+        SpawnModel(asset, *world);
     }
 }

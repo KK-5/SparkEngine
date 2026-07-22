@@ -197,7 +197,32 @@ namespace Spark::Resource
             DispatchImageSubAsset(ctx, eastl::move(subId), src, srcSize, eastl::move(extra));
         }
 
-        // 3. 主动释放内嵌图字节
+        // 3. 解析材质贴图引用 —— image 索引 → image 子资产 AssetId（此刻 m_imageAssetIds 就绪）。
+        //    factors 随 m_materials 已被 ModelAssetCompiler move 到 compiled；这里只把
+        //    raw.m_materialTexRefs 记录的每通道 image 索引解析成 Material::*ImageId（m_materialTexRefs
+        //    是 raw-only，compiler 不搬，所以仍在 raw 上、与 compiled.m_materials 下标对齐）。
+        auto resolveImageId = [&](int32_t imageIndex) -> AssetId
+        {
+            if (imageIndex >= 0 && static_cast<size_t>(imageIndex) < compiled.m_imageAssetIds.size())
+            {
+                return compiled.m_imageAssetIds[imageIndex];
+            }
+            return AssetId{};
+        };
+
+        for (size_t i = 0; i < compiled.m_materials.size() && i < raw.m_materialTexRefs.size(); ++i)
+        {
+            const MaterialTexRefs& refs = raw.m_materialTexRefs[i];
+            Material& mat = compiled.m_materials[i];
+            mat.baseColorImageId         = resolveImageId(refs.baseColor);
+            mat.metallicRoughnessImageId = resolveImageId(refs.metallicRoughness);
+            mat.normalImageId            = resolveImageId(refs.normal);
+            mat.occlusionImageId         = resolveImageId(refs.occlusion);
+            mat.emissiveImageId          = resolveImageId(refs.emissive);
+        }
+        raw.m_materialTexRefs.clear();
+
+        // 4. 主动释放内嵌图字节
         raw.m_rawImages.clear();
     }
 }

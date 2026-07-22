@@ -9,7 +9,7 @@
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Asset.h>
-#include <Mesh/MeshUtils.h>
+#include <Spawn/SpawnModel.h>
 #include <Resource/Bus/AssetResolveBus.h>
 
 namespace Editor
@@ -48,7 +48,7 @@ namespace Editor
         {
             LOG_INFO("[AssetHandler] Model asset '{}' is ready, extracting to world.", asset.GetName().GetCStr());
             Ptr<Resource::ModelAsset> model(const_cast<Resource::ModelAsset*>(&asset));
-            Mesh::ExtractMeshToWorld(model, *worldCtx);
+            Spawn::SpawnModel(model, *worldCtx);
             return;
         }
 

@@ -8,6 +8,7 @@ add_subdirectory(Feature/Transform)
 add_subdirectory(Feature/Camera)
 add_subdirectory(Feature/Mesh)
 add_subdirectory(Feature/Material)
+add_subdirectory(Feature/Spawn)
 add_subdirectory(Feature/Light)
 add_subdirectory(Feature/Skybox)
 add_subdirectory(Feature/RHI)
@@ -33,6 +34,7 @@ target_link_libraries(${TARGET_NAME}
         SparkCamera
         SparkMesh
         SparkMaterial
+        SparkSpawn
         SparkLight
         SparkSkybox
         SparkTransform

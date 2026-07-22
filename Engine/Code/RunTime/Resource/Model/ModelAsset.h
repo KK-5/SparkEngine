@@ -47,6 +47,9 @@ namespace Spark::Resource
         float           metallicFactor{1.0f};
         float           roughnessFactor{1.0f};
         Math::Vector3   emissiveFactor{0.0f, 0.0f, 0.0f};
+        float           emissiveStrength{1.0f};   // KHR_materials_emissive_strength
+        float           normalScale{1.0f};        // normalTexture.scale
+        float           occlusionStrength{1.0f};  // occlusionTexture.strength
         float           alphaCutoff{0.5f};
         AlphaMode       alphaMode{AlphaMode::Opaque};
 
@@ -55,6 +58,19 @@ namespace Spark::Resource
         AssetId metallicRoughnessImageId;
         AssetId emissiveImageId;
         AssetId occlusionImageId;
+    };
+
+    // Raw-stage parallel to m_materials: the glTF image index each texture channel
+    // points at (-1 = none). Loader fills it (image sub-assets don't exist yet);
+    // ModelAssetBuilder resolves each into the matching Material::*ImageId via
+    // m_imageAssetIds, then clears it. Not present on the compiled asset.
+    struct MaterialTexRefs
+    {
+        int32_t baseColor         = -1;
+        int32_t metallicRoughness = -1;
+        int32_t normal            = -1;
+        int32_t occlusion         = -1;
+        int32_t emissive          = -1;
     };
 
     // === Primitive ===
@@ -139,7 +155,8 @@ namespace Spark::Resource
         friend class ModelAssetBuilder;     // 派发完允许 clear + 写 m_imageAssetIds
 
         eastl::vector<Mesh>          m_meshes;
-        eastl::vector<Material>      m_materials;       // v1 不填充
+        eastl::vector<Material>      m_materials;         // factors: raw 填；贴图 AssetId: Builder 解析
+        eastl::vector<MaterialTexRefs> m_materialTexRefs; // 仅 raw 阶段非空，Builder 解析后 clear
         eastl::vector<Node>          m_nodes;
         eastl::vector<RawImageEntry> m_rawImages;       // 仅 raw 阶段非空
         eastl::vector<AssetId>       m_imageAssetIds;   // 仅 compiled 阶段非空，index 对齐 glTF images[]

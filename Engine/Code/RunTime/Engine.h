@@ -18,7 +18,7 @@
 #include <Resource/AssetManager.h>
 #include <UI/ImGui/IconManager.h>
 #include <Mesh/MeshSystem.h>
-#include <Mesh/MeshResolver.h>
+#include <Spawn/ModelSpawnResolver.h>
 #include <Material/MaterialSystem.h>
 #include <Light/LightSystem.h>
 #include <Skybox/SkyboxSystem.h>
@@ -73,7 +73,7 @@ namespace Spark
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<UI::IconManager>             m_iconManager;
         SystemUniquePtr<Mesh::MeshSystem>            m_meshSystem;
-        UniquePtr<Mesh::MeshResolver>                 m_meshResolver;
+        UniquePtr<Spawn::ModelSpawnResolver>          m_spawnResolver;
         SystemUniquePtr<Material::MaterialSystem>    m_materialSystem;
         SystemUniquePtr<Light::LightSystem>          m_lightSystem;
         SystemUniquePtr<Skybox::SkyboxSystem>        m_skyboxSystem;

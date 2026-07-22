@@ -1,7 +1,8 @@
-set(TARGET_NAME SparkMesh)
+set(TARGET_NAME SparkSpawn)
 
 set(SOURCES
-    MeshSystem.cpp
+    SpawnModel.cpp
+    ModelSpawnResolver.cpp
 )
 
 add_library(${TARGET_NAME} STATIC
@@ -11,8 +12,10 @@ add_library(${TARGET_NAME} STATIC
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
-        SparkRHI
         SparkAssetManager
+        SparkMesh
+        SparkMaterial
+        SparkTransform
 )
 
 target_include_directories(
