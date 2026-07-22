@@ -143,7 +143,7 @@ namespace Spark::Resource
         // 2. 图片子资产派发 —— 用 raw 端的 m_rawImages（compiledData 上恒为空），
         //    同时把对应 AssetId 写到 compiledData.m_imageAssetIds，index 对齐
         //    raw.m_rawImages / glTF images[]；无效槽位 push 默认 AssetId 占位。
-        auto& raw      = static_cast<ModelAssetData&>(*ctx.rawData);
+        auto& raw      = static_cast<ModelAssetRawData&>(*ctx.rawData);
         auto& compiled = static_cast<ModelAssetData&>(*ctx.compiledData);
 
         // glTF 父目录：外部图相对路径的解析基准
@@ -197,10 +197,8 @@ namespace Spark::Resource
             DispatchImageSubAsset(ctx, eastl::move(subId), src, srcSize, eastl::move(extra));
         }
 
-        // 3. 解析材质贴图引用 —— image 索引 → image 子资产 AssetId（此刻 m_imageAssetIds 就绪）。
-        //    factors 随 m_materials 已被 ModelAssetCompiler move 到 compiled；这里只把
-        //    raw.m_materialTexRefs 记录的每通道 image 索引解析成 Material::*ImageId（m_materialTexRefs
-        //    是 raw-only，compiler 不搬，所以仍在 raw 上、与 compiled.m_materials 下标对齐）。
+        // 3. 组装材质 —— 从 raw.m_rawMaterials（factors + glTF image 索引）产出 compiled.m_materials
+        //    （factors + 已解析的 image 子资产 AssetId）。此刻 m_imageAssetIds 就绪。
         auto resolveImageId = [&](int32_t imageIndex) -> AssetId
         {
             if (imageIndex >= 0 && static_cast<size_t>(imageIndex) < compiled.m_imageAssetIds.size())
@@ -210,19 +208,28 @@ namespace Spark::Resource
             return AssetId{};
         };
 
-        for (size_t i = 0; i < compiled.m_materials.size() && i < raw.m_materialTexRefs.size(); ++i)
+        compiled.m_materials.reserve(raw.m_rawMaterials.size());
+        for (const RawMaterial& rm : raw.m_rawMaterials)
         {
-            const MaterialTexRefs& refs = raw.m_materialTexRefs[i];
-            Material& mat = compiled.m_materials[i];
-            mat.baseColorImageId         = resolveImageId(refs.baseColor);
-            mat.metallicRoughnessImageId = resolveImageId(refs.metallicRoughness);
-            mat.normalImageId            = resolveImageId(refs.normal);
-            mat.occlusionImageId         = resolveImageId(refs.occlusion);
-            mat.emissiveImageId          = resolveImageId(refs.emissive);
+            Material mat;
+            mat.baseColorFactor   = rm.baseColorFactor;
+            mat.metallicFactor    = rm.metallicFactor;
+            mat.roughnessFactor   = rm.roughnessFactor;
+            mat.emissiveFactor    = rm.emissiveFactor;
+            mat.emissiveStrength  = rm.emissiveStrength;
+            mat.normalScale       = rm.normalScale;
+            mat.occlusionStrength = rm.occlusionStrength;
+            mat.alphaCutoff       = rm.alphaCutoff;
+            mat.alphaMode         = rm.alphaMode;
+            mat.baseColorImageId         = resolveImageId(rm.baseColorImage);
+            mat.metallicRoughnessImageId = resolveImageId(rm.metallicRoughnessImage);
+            mat.normalImageId            = resolveImageId(rm.normalImage);
+            mat.occlusionImageId         = resolveImageId(rm.occlusionImage);
+            mat.emissiveImageId          = resolveImageId(rm.emissiveImage);
+            compiled.m_materials.push_back(eastl::move(mat));
         }
-        raw.m_materialTexRefs.clear();
 
-        // 4. 主动释放内嵌图字节
+        // 4. 主动释放内嵌图字节（raw 随构建结束析构，这里提早释放）
         raw.m_rawImages.clear();
     }
 }

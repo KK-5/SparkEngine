@@ -41,6 +41,8 @@ namespace Spark::Resource
         Blend,
     };
 
+    //! Compiled material — factors plus the resolved image sub-asset AssetIds. Lives on
+    //! the final ModelAssetData; assembled by ModelAssetBuilder from a RawMaterial.
     struct Material
     {
         Math::Vector4   baseColorFactor{1.0f, 1.0f, 1.0f, 1.0f};
@@ -60,17 +62,27 @@ namespace Spark::Resource
         AssetId occlusionImageId;
     };
 
-    // Raw-stage parallel to m_materials: the glTF image index each texture channel
-    // points at (-1 = none). Loader fills it (image sub-assets don't exist yet);
-    // ModelAssetBuilder resolves each into the matching Material::*ImageId via
-    // m_imageAssetIds, then clears it. Not present on the compiled asset.
-    struct MaterialTexRefs
+    //! Raw material — same factors, but each texture channel is still the glTF image
+    //! index it points at (-1 = none), because image sub-assets don't exist yet at load
+    //! time. Lives only on ModelAssetRawData; ModelAssetBuilder resolves the indices to
+    //! AssetIds (via m_imageAssetIds) when it assembles the compiled Material.
+    struct RawMaterial
     {
-        int32_t baseColor         = -1;
-        int32_t metallicRoughness = -1;
-        int32_t normal            = -1;
-        int32_t occlusion         = -1;
-        int32_t emissive          = -1;
+        Math::Vector4   baseColorFactor{1.0f, 1.0f, 1.0f, 1.0f};
+        float           metallicFactor{1.0f};
+        float           roughnessFactor{1.0f};
+        Math::Vector3   emissiveFactor{0.0f, 0.0f, 0.0f};
+        float           emissiveStrength{1.0f};
+        float           normalScale{1.0f};
+        float           occlusionStrength{1.0f};
+        float           alphaCutoff{0.5f};
+        AlphaMode       alphaMode{AlphaMode::Opaque};
+
+        int32_t baseColorImage         = -1;
+        int32_t metallicRoughnessImage = -1;
+        int32_t normalImage            = -1;
+        int32_t occlusionImage         = -1;
+        int32_t emissiveImage          = -1;
     };
 
     // === Primitive ===
@@ -117,6 +129,46 @@ namespace Spark::Resource
 
     // === Pipeline data ===
 
+    //! Loader output — the raw, pre-compile intermediate. Holds un-optimized geometry,
+    //! raw materials (texture channels as glTF image indices), and the raw image entries
+    //! (bytes / URIs). ModelAssetCompiler consumes it to produce ModelAssetData; it is
+    //! never the asset's runtime data. Keeping raw-only fields off ModelAssetData is what
+    //! makes "a compiled asset can't carry half-baked raw state" a type guarantee.
+    class ModelAssetRawData : public AssetData
+    {
+    public:
+        const Math::AABB&    GetBounds()       const { return m_bounds; }
+        const eastl::string& GetResolvedPath() const { return m_resolvedPath; }
+
+        size_t      GetMeshCount()      const { return m_meshes.size(); }
+        const Mesh* GetMesh(size_t i)   const { return i < m_meshes.size() ? &m_meshes[i] : nullptr; }
+
+        size_t      GetNodeCount()      const { return m_nodes.size(); }
+        const Node* GetNode(size_t i)   const { return i < m_nodes.size() ? &m_nodes[i] : nullptr; }
+        size_t      GetMaterialCount()  const { return m_rawMaterials.size(); }
+
+        size_t               GetRawImageCount() const { return m_rawImages.size(); }
+        const RawImageEntry* GetRawImage(size_t i) const
+        {
+            return i < m_rawImages.size() ? &m_rawImages[i] : nullptr;
+        }
+
+    private:
+        friend class ModelAssetLoader;
+        friend class ModelAssetCompiler;
+        friend class ModelAssetBuilder;
+
+        eastl::vector<Mesh>          m_meshes;        // un-optimized geometry
+        eastl::vector<Node>          m_nodes;
+        eastl::vector<RawMaterial>   m_rawMaterials;  // factors + glTF image indices
+        eastl::vector<RawImageEntry> m_rawImages;     // embedded bytes / external URIs
+        Math::AABB                   m_bounds;
+        eastl::string                m_resolvedPath;
+    };
+
+    //! The compiled, runtime model asset (what ModelAsset holds). Optimized geometry,
+    //! resolved materials (image AssetIds), and the dispatched image sub-asset ids. Carries
+    //! no raw bytes — those live only on ModelAssetRawData.
     class ModelAssetData : public AssetData
     {
     public:
@@ -136,32 +188,21 @@ namespace Spark::Resource
         size_t          GetMaterialCount()      const { return m_materials.size(); }
         const Material* GetMaterial(size_t i)   const { return i < m_materials.size() ? &m_materials[i] : nullptr; }
 
-        // embed image
-        size_t               GetRawImageCount() const { return m_rawImages.size(); }
-        const RawImageEntry* GetRawImage(size_t i) const
-        {
-            return i < m_rawImages.size() ? &m_rawImages[i] : nullptr;
-        }
-
-        // Image sub-assets —— index 对齐 glTF images[]。Builder 派发后填充到
-        // compiledData 上；dispatch 失败 / 源不可用的槽位为默认构造的 AssetId
-        // （IsValid() == false），保持下标对齐供材质阶段 by-index 引用。
+        // Image sub-assets —— index 对齐 glTF images[]。Builder 派发后填充；dispatch 失败 /
+        // 源不可用的槽位为默认构造的 AssetId（IsValid() == false），保持下标对齐供材质 by-index 引用。
         size_t          GetImageAssetCount()      const { return m_imageAssetIds.size(); }
         const AssetId&  GetImageAssetId(size_t i) const { return m_imageAssetIds[i]; }
 
     private:
-        friend class ModelAssetLoader;
         friend class ModelAssetCompiler;
-        friend class ModelAssetBuilder;     // 派发完允许 clear + 写 m_imageAssetIds
+        friend class ModelAssetBuilder;     // 派发后写 m_imageAssetIds / m_materials
 
-        eastl::vector<Mesh>          m_meshes;
-        eastl::vector<Material>      m_materials;         // factors: raw 填；贴图 AssetId: Builder 解析
-        eastl::vector<MaterialTexRefs> m_materialTexRefs; // 仅 raw 阶段非空，Builder 解析后 clear
-        eastl::vector<Node>          m_nodes;
-        eastl::vector<RawImageEntry> m_rawImages;       // 仅 raw 阶段非空
-        eastl::vector<AssetId>       m_imageAssetIds;   // 仅 compiled 阶段非空，index 对齐 glTF images[]
-        Math::AABB                   m_bounds;
-        eastl::string                m_resolvedPath;
+        eastl::vector<Mesh>     m_meshes;         // optimized geometry
+        eastl::vector<Node>     m_nodes;
+        eastl::vector<Material> m_materials;      // factors + resolved image AssetIds
+        eastl::vector<AssetId>  m_imageAssetIds;  // index 对齐 glTF images[]
+        Math::AABB              m_bounds;
+        eastl::string           m_resolvedPath;
     };
 
     // === Asset ===

@@ -51,7 +51,7 @@ TEST(ModelAssetLoaderTest, LoadCubeGLB)
     auto data = loader.Load(id);
     ASSERT_NE(data, nullptr);
 
-    auto* modelData = static_cast<ModelAssetData*>(data.get());
+    auto* modelData = static_cast<ModelAssetRawData*>(data.get());
     EXPECT_FALSE(modelData->GetResolvedPath().empty());
 
     // Cube 至少有 1 个 mesh
@@ -116,7 +116,7 @@ TEST(ModelAssetLoaderTest, LoadCubeGLBHasNodes)
     auto data = loader.Load(id);
     ASSERT_NE(data, nullptr);
 
-    auto* modelData = static_cast<ModelAssetData*>(data.get());
+    auto* modelData = static_cast<ModelAssetRawData*>(data.get());
     EXPECT_GT(modelData->GetNodeCount(), 0u);
 
     // Root node 应该 parent == -1
@@ -142,7 +142,7 @@ TEST(ModelAssetCompilerTest, CompileCube)
     auto rawData = loader.Load(id);
     ASSERT_NE(rawData, nullptr);
 
-    auto* rawModel = static_cast<ModelAssetData*>(rawData.get());
+    auto* rawModel = static_cast<ModelAssetRawData*>(rawData.get());
     const size_t meshCountBefore  = rawModel->GetMeshCount();
     size_t primCountBefore = 0;
     for (size_t m = 0; m < meshCountBefore; ++m)
@@ -245,7 +245,7 @@ TEST(ModelAssetLoaderTest, LoadCubeTexturedGLB_HasEmbeddedImage)
     auto data = loader.Load(id);
     ASSERT_NE(data, nullptr);
 
-    auto* model = static_cast<ModelAssetData*>(data.get());
+    auto* model = static_cast<ModelAssetRawData*>(data.get());
     ASSERT_EQ(model->GetRawImageCount(), 1u);
 
     const RawImageEntry* entry = model->GetRawImage(0);
@@ -268,7 +268,7 @@ TEST(ModelAssetLoaderTest, LoadCubeTexturedGLTF_HasExternalImage)
     auto data = loader.Load(id);
     ASSERT_NE(data, nullptr);
 
-    auto* model = static_cast<ModelAssetData*>(data.get());
+    auto* model = static_cast<ModelAssetRawData*>(data.get());
     ASSERT_EQ(model->GetRawImageCount(), 1u);
 
     const RawImageEntry* entry = model->GetRawImage(0);
@@ -334,9 +334,11 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
     EXPECT_TRUE(imgAsset->IsReady());
 }
 
-// ===== Builder 派发完后 raw 端 m_rawImages 被清空 =====
+// ===== 编译资产携带解析后的内嵌材质 =====
+// （raw 图字节不在编译资产上，现在由类型保证：ModelAssetData 根本没有 raw 图字段，
+//   只有 ModelAssetRawData 才有——所以旧的运行时断言退化成编译期保证，这里改测材质。）
 
-TEST_F(ModelAssetTestFixture, CompiledModelDoesNotCarryRawImages)
+TEST_F(ModelAssetTestFixture, CompiledModelCarriesResolvedMaterials)
 {
     AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.glb");
     Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
@@ -345,8 +347,13 @@ TEST_F(ModelAssetTestFixture, CompiledModelDoesNotCarryRawImages)
     auto* modelData = modelAsset->GetData<ModelAssetData>();
     ASSERT_NE(modelData, nullptr);
 
-    // 运行时 ModelAssetData 上不携带原始图字节
-    EXPECT_EQ(modelData->GetRawImageCount(), 0u);
+    // 内嵌材质被填充，且 base-color 贴图引用解析到了已派发的 image 子资产。
+    ASSERT_GE(modelData->GetMaterialCount(), 1u);
+    ASSERT_GE(modelData->GetImageAssetCount(), 1u);
+    const Material* mat = modelData->GetMaterial(0);
+    ASSERT_NE(mat, nullptr);
+    EXPECT_TRUE(mat->baseColorImageId.IsValid());
+    EXPECT_EQ(mat->baseColorImageId, modelData->GetImageAssetId(0));
 }
 
 // ===== 同一外部图被多次加载应该 dedup =====

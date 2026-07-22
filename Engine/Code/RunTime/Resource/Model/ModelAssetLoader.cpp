@@ -325,7 +325,7 @@ namespace Spark::Resource
 
         fastgltf::Asset gltf = eastl::move(expected.get());
 
-        auto result = MakeUnique<ModelAssetData>();
+        auto result = MakeUnique<ModelAssetRawData>();
         result->m_resolvedPath = eastl::move(resolvedPath);
 
         // ---- Meshes & Primitives ----
@@ -619,11 +619,10 @@ namespace Spark::Resource
             return imgOpt.has_value() ? static_cast<int32_t>(imgOpt.value()) : -1;
         };
 
-        result->m_materials.reserve(gltf.materials.size());
-        result->m_materialTexRefs.reserve(gltf.materials.size());
+        result->m_rawMaterials.reserve(gltf.materials.size());
         for (const auto& src : gltf.materials)
         {
-            Material out;
+            RawMaterial out;
             const auto& bcf = src.pbrData.baseColorFactor;
             out.baseColorFactor = Math::Vector4(
                 static_cast<float>(bcf[0]), static_cast<float>(bcf[1]),
@@ -646,30 +645,28 @@ namespace Spark::Resource
             default:                         out.alphaMode = AlphaMode::Opaque; break;
             }
 
-            MaterialTexRefs refs;
             if (src.pbrData.baseColorTexture.has_value())
             {
-                refs.baseColor = imageIndexOfTexture(src.pbrData.baseColorTexture->textureIndex);
+                out.baseColorImage = imageIndexOfTexture(src.pbrData.baseColorTexture->textureIndex);
             }
             if (src.pbrData.metallicRoughnessTexture.has_value())
             {
-                refs.metallicRoughness = imageIndexOfTexture(src.pbrData.metallicRoughnessTexture->textureIndex);
+                out.metallicRoughnessImage = imageIndexOfTexture(src.pbrData.metallicRoughnessTexture->textureIndex);
             }
             if (src.normalTexture.has_value())
             {
-                refs.normal = imageIndexOfTexture(src.normalTexture->textureIndex);
+                out.normalImage = imageIndexOfTexture(src.normalTexture->textureIndex);
             }
             if (src.occlusionTexture.has_value())
             {
-                refs.occlusion = imageIndexOfTexture(src.occlusionTexture->textureIndex);
+                out.occlusionImage = imageIndexOfTexture(src.occlusionTexture->textureIndex);
             }
             if (src.emissiveTexture.has_value())
             {
-                refs.emissive = imageIndexOfTexture(src.emissiveTexture->textureIndex);
+                out.emissiveImage = imageIndexOfTexture(src.emissiveTexture->textureIndex);
             }
 
-            result->m_materials.push_back(eastl::move(out));
-            result->m_materialTexRefs.push_back(refs);
+            result->m_rawMaterials.push_back(out);
         }
 
         // ---- Global bounds ----
@@ -685,10 +682,9 @@ namespace Spark::Resource
             }
         }
 
-        LOG_INFO("[ModelAssetLoader] Loaded '{}': {} meshes, {} primitives, {} nodes, {} images, {} materials",
+        LOG_INFO("[ModelAssetLoader] Loaded '{}': {} meshes, {} nodes, {} images, {} materials",
             result->m_resolvedPath.c_str(),
             result->GetMeshCount(),
-            result->GetPrimitiveCount(),
             result->GetNodeCount(),
             result->GetRawImageCount(),
             result->GetMaterialCount());

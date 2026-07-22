@@ -295,13 +295,14 @@ namespace Spark::Resource
 
     UniquePtr<AssetData> ModelAssetCompiler::Compile(const AssetId& /*id*/, AssetData& rawData)
     {
-        auto& raw = static_cast<ModelAssetData&>(rawData);
+        auto& raw = static_cast<ModelAssetRawData&>(rawData);
 
+        // Geometry only. Materials + image sub-assets are assembled by ModelAssetBuilder
+        // (it owns image dispatch, which the material texture AssetIds depend on).
         auto result = MakeUnique<ModelAssetData>();
         result->m_resolvedPath = eastl::move(raw.m_resolvedPath);
         result->m_meshes       = eastl::move(raw.m_meshes);
         result->m_nodes        = eastl::move(raw.m_nodes);
-        result->m_materials    = eastl::move(raw.m_materials);
 
         size_t totalPrimitives  = 0;
         size_t tangentGenerated = 0;
