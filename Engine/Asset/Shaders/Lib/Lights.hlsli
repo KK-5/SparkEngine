@@ -19,10 +19,24 @@ float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
         return light.color * light.intensity;
     }
 
-    // TODO: point (type 1) — position-based L + distance attenuation (use light.invRange).
-    // TODO: spot  (type 2) — point falloff * cone term (light.cosInner / light.cosOuter).
-    L = normalize(-light.direction);
-    return light.color * light.intensity;
+    float3 toLight = light.position - worldPos;
+    float dist2 = dot(toLight, toLight);
+    float dist = sqrt(max(dist2, 1e-8));
+    L = toLight / dist;
+
+    float attenuation = 1.0 / max(dist2, 1e-4);
+    float t = dist * light.invRange;
+    float window = saturate(1 - t * t * t * t);
+    attenuation *= window * window;
+
+    if (light.type == 2)
+    {
+        float cosAngle = dot(light.direction, -L);
+        float cone     = saturate((cosAngle - light.cosOuter) / max(light.cosInner - light.cosOuter, 1e-4));
+        attenuation *= cone * cone;
+    }
+
+    return light.color * light.intensity * attenuation;
 }
 
 #endif // SPARK_LIB_LIGHTS_HLSLI
