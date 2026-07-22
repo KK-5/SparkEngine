@@ -374,14 +374,12 @@ namespace Spark::SandBox
         drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawIndexed(0, primitive.indexCount, 0));
         Render::VertexStreamSpec vertex;
         vertex.m_buffer     = m_vertexBuffer;
-        vertex.m_byteCount  = static_cast<uint32_t>(primitive.vertexBuffer.size());
-        vertex.m_byteOffset = 0;
-        vertex.m_byteStride = primitive.layout.stride;
+        vertex.m_vertexBufferInfo = Render::VertexBufferInfo{0, static_cast<uint32_t>(primitive.vertexBuffer.size()), primitive.layout.stride};
         vertex.m_inputSlot  = 0;
         drawable.m_streams.push_back(vertex);
 
-        drawable.m_indexBuffer = m_indexBuffer;
-        drawable.m_indexInfo   = Render::IndexBufferInfo{
+        drawable.m_index.m_indexBuffer = m_indexBuffer;
+        drawable.m_index.m_indexInfo   = Render::IndexBufferInfo{
             0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat };
 
         drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };

@@ -273,9 +273,7 @@ namespace Spark::SandBox
         drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
         Render::VertexStreamSpec vertex;
         vertex.m_buffer     = m_vertexBuffer;
-        vertex.m_byteCount  = sizeof(g_triangleVertices);
-        vertex.m_byteOffset = 0;
-        vertex.m_byteStride = sizeof(TriangleVertex);
+        vertex.m_vertexBufferInfo = Render::VertexBufferInfo{0, sizeof(g_triangleVertices), sizeof(TriangleVertex)};
         vertex.m_inputSlot  = 0;
         drawable.m_streams.push_back(vertex);
         drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };

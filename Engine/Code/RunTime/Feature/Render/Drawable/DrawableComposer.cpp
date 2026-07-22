@@ -33,7 +33,7 @@ namespace Spark::Render
                     return true;
                 }
             }
-            if (d.m_indexBuffer != RHI::NullHandle && ctx.Has<DeadTag>(d.m_indexBuffer))
+            if (d.m_index.m_indexBuffer != RHI::NullHandle && ctx.Has<DeadTag>(d.m_index.m_indexBuffer))
             {
                 return true;
             }
@@ -78,12 +78,12 @@ namespace Spark::Render
         {
             Drawable d;
             d.m_streams.push_back(VertexStreamSpec{
-                gpu.m_vertexBuffer, /*slot*/ 0, 0, gpu.m_vertexByteCount, gpu.m_vertexByteStride });
+                gpu.m_vertexBuffer, /*slot*/ 0, VertexBufferInfo{ 0, gpu.m_vertexByteCount, gpu.m_vertexByteStride } });
 
             if (gpu.m_indexBindings != RHI::NullHandle)
             {
-                d.m_indexBuffer = gpu.m_indexBindings;
-                d.m_indexInfo   = IndexBufferInfo{ 0, gpu.m_indexByteCount, gpu.m_indexFormat };
+                d.m_index.m_indexBuffer = gpu.m_indexBindings;
+                d.m_index.m_indexInfo   = IndexBufferInfo{ 0, gpu.m_indexByteCount, gpu.m_indexFormat };
                 d.m_drawArgs    = RHI::DrawArguments(RHI::DrawIndexed(0, gpu.m_indexCount, 0));
             }
             else
@@ -102,7 +102,7 @@ namespace Spark::Render
             slot.m_sharedBindings = instanceBindingEntity;
             slot.m_slotRef        = slotRef;
             slot.m_idStream       = VertexStreamSpec{
-                idBufferEntity, /*slot*/ 1, 0, idBufferBytes, sizeof(uint32_t) };
+                idBufferEntity, /*slot*/ 1, VertexBufferInfo{ 0, idBufferBytes, sizeof(uint32_t) } };
             d.m_instanceData = slot;
 
             return d;

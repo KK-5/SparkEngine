@@ -35,15 +35,19 @@ namespace Spark::Render
     //! the buffer reference and range.
     struct VertexStreamSpec
     {
-        RHI::RHIHandle m_buffer     = RHI::NullHandle;
-        uint32_t       m_inputSlot  = 0;
-        uint32_t       m_byteOffset = 0;
-        uint32_t       m_byteCount  = 0;
-        uint32_t       m_byteStride = 0;
+        RHI::RHIHandle   m_buffer     = RHI::NullHandle;
+        uint32_t         m_inputSlot  = 0;
+        VertexBufferInfo m_vertexBufferInfo;
+    };
+
+    struct IndexStreamSpec
+    {
+        RHI::RHIHandle  m_indexBuffer = RHI::NullHandle;
+        IndexBufferInfo m_indexInfo;
     };
 
     //! Marker for a composed Drawable. Lifecycle cascades through DeadTag from
-    //! referenced resource entities (Drawable.m_streams buffers, m_indexBuffer,
+    //! referenced resource entities (Drawable.m_streams buffers, m_index.m_indexBuffer,
     //! and the m_instanceData strategy's dependencies — shared bindings + ID
     //! stream, or the per-draw bindings) and from the InstanceSlotTable sentinel.
     struct DrawableTag {};
@@ -105,7 +109,8 @@ namespace Spark::Render
     //!                       0..N-1) is validated by VertexBufferView. The
     //!                       instance-ID stream is NOT here — it belongs to the
     //!                       SlotInstanceBinding strategy.
-    //!  - m_indexBuffer    : NullHandle ⟺ non-indexed draw.
+    //!  - m_index          : index buffer + range; m_index.m_indexBuffer is
+    //!                       NullHandle ⟺ non-indexed draw.
     //!  - m_drawArgs       : geometry-determined draw args (IndexCount /
     //!                       BaseVertex / StartIndex). StartInstanceLocation is
     //!                       resolved from m_instanceData each frame.
@@ -119,8 +124,7 @@ namespace Spark::Render
     struct Drawable
     {
         eastl::fixed_vector<VertexStreamSpec, RHI::Limits::Pipeline::StreamCountMax> m_streams;
-        RHI::RHIHandle     m_indexBuffer   = RHI::NullHandle;
-        IndexBufferInfo    m_indexInfo;
+        IndexStreamSpec    m_index;
         RHI::DrawArguments m_drawArgs;
         uint32_t           m_instanceCount = 1;
 

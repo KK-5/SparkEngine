@@ -233,13 +233,9 @@ namespace Spark::Render
         }
 
         m_viewBindingSystem.Update();
-        // Per-scene lights: marshal the world's resolved LightRenderData into g_Lights.
-        // Independent of the other binding systems; consumed by LightingProcessor below.
         m_sceneBindingSystem.Update(frameIndex);
-        // MaterialGPUTextures is produced upstream by MaterialSystem (TICK_PRE_RENDER),
-        // so it's ready here; MaterialBindingSystem turns each into a bindless index.
-        // Before InstanceBindingSystem: it reads the MaterialGPUSlot this writes to
-        // resolve InstanceData.m_materialIndex.
+        // Order matters: MaterialBindingSystem writes each material's MaterialGPUSlot,
+        // which InstanceBindingSystem reads to resolve InstanceData.m_materialIndex.
         m_materialBindingSystem.Update(frameIndex);
         m_instanceBindingSystem.Update(frameIndex);
 

@@ -1494,7 +1494,13 @@ namespace
                 }
                 item.m_vertexBufferView.SetVertexInputView(
                     s.m_inputSlot,
-                    RHI::VertexInputView(*buf->m_buffer, s.m_byteOffset, s.m_byteCount, s.m_byteStride));
+                    RHI::VertexInputView(
+                        *buf->m_buffer,
+                        s.m_vertexBufferInfo.m_byteOffset,
+                        s.m_vertexBufferInfo.m_byteCount,
+                        s.m_vertexBufferInfo.m_byteStride
+                    )
+                );
             };
             for (const auto& s : d->m_streams)
             {
@@ -1505,20 +1511,20 @@ namespace
                 setStream(*idStream);
             }
 
-            if (d->m_indexBuffer != NullHandle)
+            if (d->m_index.m_indexBuffer != NullHandle)
             {
-                if (auto* iBuf = context.TryGet<RHI::Components::Buffer>(d->m_indexBuffer))
+                if (auto* iBuf = context.TryGet<RHI::Components::Buffer>(d->m_index.m_indexBuffer))
                 {
                     item.m_indexBufferView = RHI::IndexBufferView(
                         *iBuf->m_buffer,
-                        d->m_indexInfo.m_byteOffset,
-                        d->m_indexInfo.m_byteCount,
-                        d->m_indexInfo.m_format);
+                        d->m_index.m_indexInfo.m_byteOffset,
+                        d->m_index.m_indexInfo.m_byteCount,
+                        d->m_index.m_indexInfo.m_format);
                 }
                 else
                 {
                     LOG_ERROR("[CompileDrawRequests] Index buffer entity {} unresolved.",
-                        static_cast<uint32_t>(d->m_indexBuffer));
+                        static_cast<uint32_t>(d->m_index.m_indexBuffer));
                 }
             }
 
