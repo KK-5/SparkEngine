@@ -17,7 +17,7 @@
 
 #include <Shaders/ViewBindings.hlsl>    // space1: g_InvViewProj, g_InvView
 #include <Shaders/SceneBindings.hlsl>   // space0: g_Lights, g_LightCount
-#include <Shaders/Lib/BRDF.hlsli>       // Cook-Torrance surface response
+#include <Shaders/Lib/BRDF/BRDF.hlsli>  // Cook-Torrance surface response
 #include <Shaders/Lib/Lights.hlsli>     // per-light L + incident radiance
 
 // Per-pass GBuffer SRVs (space2 = per-pass tier), bound by LightingPass's Compile hook.
@@ -70,7 +70,9 @@ float4 PSMain(VSOutput input) : SV_Target0
 
     float3 worldPos = ReconstructWorldPos(input.uv, depth);
 
-    float  roughness = orm.g;
+    // orm.g is glTF perceptual roughness; clamp the low end so the specular V term
+    // (0.5 / (GGXV + GGXL)) can't divide by zero on smooth surfaces at grazing angles.
+    float  perceptualRoughness = max(orm.g, 0.045);
     float  metallic  = orm.b;
     float  ao        = orm.r;
 
@@ -78,7 +80,10 @@ float4 PSMain(VSOutput input) : SV_Target0
     float3 eye = mul(g_InvView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     float3 V = normalize(eye - worldPos);
 
+    // Dielectrics get a fixed 4% F0 (reflectance 0.5); metals tint F0 with base color and
+    // have no diffuse. Material-driven reflectance (orm.a) lands in a later step.
     float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
+    float3 diffuseColor = (1.0 - metallic) * albedo;
 
     // Accumulate every scene light. EvaluateLight resolves L + incident radiance per
     // light type (Lib/Lights.hlsli); this pass only glues that onto the BRDF.
@@ -88,7 +93,7 @@ float4 PSMain(VSOutput input) : SV_Target0
         LightData light = GetLight(i);
         float3 L;
         float3 radiance = EvaluateLight(light, worldPos, L);
-        color += EvaluateBRDF(N, V, L, albedo, roughness, metallic, F0) * radiance;
+        color += EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness) * radiance;
     }
 
     color += g_Ambient * albedo * ao;
