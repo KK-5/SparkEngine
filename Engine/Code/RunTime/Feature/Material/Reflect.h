@@ -52,7 +52,7 @@ namespace Spark::Material
             .Data<&MaterialParams::m_metallic>("Metallic").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
             .Data<&MaterialParams::m_roughness>("Roughness").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
             .Data<&MaterialParams::m_specular>("Specular").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
-            .Data<&MaterialParams::m_emissive>("Emissive").Custom<Spark::Vec3Element>(0.f, 64.f, 0.01f, false)
+            .Data<&MaterialParams::m_emissive>("Emissive").Custom<Spark::ColorElement>(false)
             .Data<&MaterialParams::m_emissiveStrength>("Emissive Strength").Custom<Spark::FloatElement>(0.f, 100.f, 0.05f, false)
             .Data<&MaterialParams::m_normalScale>("Normal Scale").Custom<Spark::FloatSliderElement>(0.f, 2.f, 0.01f, false)
             .Data<&MaterialParams::m_occlusionStrength>("Occlusion Strength").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)

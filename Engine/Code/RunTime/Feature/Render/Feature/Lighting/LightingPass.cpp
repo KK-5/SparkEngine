@@ -29,9 +29,10 @@ namespace Spark::Render
         };
 
         constexpr GBufferBinding s_gbufferBindings[] = {
-            { "GBufferAlbedo", "g_Albedo" },
-            { "GBufferNormal", "g_Normal" },
-            { "GBufferORM",    "g_ORM"    },
+            { "GBufferAlbedo",   "g_Albedo"   },
+            { "GBufferNormal",   "g_Normal"   },
+            { "GBufferORM",      "g_ORM"      },
+            { "GBufferEmissive", "g_Emissive" },
         };
 
         // SceneDepth is sampled (not the color GBuffer) to reconstruct world position.

@@ -31,9 +31,10 @@ struct VSOutput
 
 struct PSOutput
 {
-    float4 albedo : SV_Target0;  // rgb base color
-    float4 normal : SV_Target1;  // xyz world-space normal, stored raw in [-1, 1]
-    float4 orm    : SV_Target2;  // r = occlusion, g = roughness, b = metallic
+    float4 albedo   : SV_Target0;  // rgb base color
+    float4 normal   : SV_Target1;  // xyz world-space normal, stored raw in [-1, 1]
+    float4 orm      : SV_Target2;  // r = occlusion, g = roughness, b = metallic
+    float4 emissive : SV_Target3;  // rgb HDR emissive, added directly in the lighting pass
 };
 
 VSOutput VSMain(VSInput input)
@@ -88,6 +89,9 @@ PSOutput PSMain(VSOutput input)
     {
         Texture2D<float4> normalTex = ResourceDescriptorHeap[NonUniformResourceIndex(normalTexIndex)];
         float3 nTS = normalTex.Sample(g_MatSampler, input.uv).xyz * 2.0 - 1.0;
+        // glTF normalScale scales the tangent XY (bump strength); z stays, final normalize
+        // below (via the world-space result) restores unit length.
+        nTS.xy *= mat.NormalScale;
 
         float3 T = normalize(input.worldTangent.xyz - dot(input.worldTangent.xyz, N) * N);
         float3 B = cross(N, T) * input.worldTangent.w;
@@ -95,8 +99,18 @@ PSOutput PSMain(VSOutput input)
         N = normalize(mul(nTS, TBN));
     }
 
-    output.albedo = float4(albedo, 1.0);
-    output.normal = float4(N, 0.0);
-    output.orm    = float4(occlusion, roughness, metallic, 1.0);
+    // Emissive: factor * strength, modulated by the emissive map (sRGB color) when present.
+    float3 emissive = mat.Emissive.rgb * mat.Emissive.a;
+    uint emissiveTexIndex = mat.TexIndices[SPARK_TEX_SLOT_EMISSIVE];
+    if (emissiveTexIndex != SPARK_INVALID_TEXTURE_INDEX)
+    {
+        Texture2D<float4> emissiveTex = ResourceDescriptorHeap[NonUniformResourceIndex(emissiveTexIndex)];
+        emissive *= emissiveTex.Sample(g_MatSampler, input.uv).rgb;
+    }
+
+    output.albedo   = float4(albedo, 1.0);
+    output.normal   = float4(N, 0.0);
+    output.orm      = float4(occlusion, roughness, metallic, 1.0);
+    output.emissive = float4(emissive, 1.0);
     return output;
 }

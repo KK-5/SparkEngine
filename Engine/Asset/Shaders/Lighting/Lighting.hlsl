@@ -21,10 +21,11 @@
 #include <Shaders/Lib/Lights.hlsli>     // per-light L + incident radiance
 
 // Per-pass GBuffer SRVs (space2 = per-pass tier), bound by LightingPass's Compile hook.
-Texture2D g_Albedo : register(t0, space2);
-Texture2D g_Normal : register(t1, space2);
-Texture2D g_ORM    : register(t2, space2);
-Texture2D g_Depth  : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D g_Albedo   : register(t0, space2);
+Texture2D g_Normal   : register(t1, space2);
+Texture2D g_ORM      : register(t2, space2);
+Texture2D g_Depth    : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D g_Emissive : register(t4, space2);   // GBuffer HDR emissive, added un-lit
 
 // Flat ambient term until IBL lands (keeps back-facing surfaces off pure black).
 static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
@@ -91,6 +92,10 @@ float4 PSMain(VSOutput input) : SV_Target0
     }
 
     color += g_Ambient * albedo * ao;
+
+    // Emissive is view-independent radiance the surface adds on its own — not lit, just
+    // added on top (so it glows even in shadow / with no lights).
+    color += g_Emissive.Load(px).rgb;
 
     return float4(color, 1.0);
 }

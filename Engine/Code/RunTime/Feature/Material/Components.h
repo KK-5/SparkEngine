@@ -51,7 +51,7 @@ namespace Spark::Material
         float         m_metallic          = 0.0f;            // metalness          (MetallicRoughness.b)
         float         m_roughness         = 0.5f;            // perceptual         (MetallicRoughness.g)
         float         m_specular          = 0.5f;            // dielectric F0 scale; 0.5 -> F0 0.04
-        Math::Vector3 m_emissive          = {0.0f, 0.0f, 0.0f}; // emissive color   (Emissive)
+        Math::Vector4 m_emissive          = {0.0f, 0.0f, 0.0f, 1.0f}; // rgb = emissive color; .a unused (Emissive)
         float         m_emissiveStrength  = 1.0f;            // HDR emissive multiplier
         float         m_normalScale       = 1.0f;            // tangent XY scale   (Normal)
         float         m_occlusionStrength = 1.0f;            // AO lerp strength   (Occlusion)

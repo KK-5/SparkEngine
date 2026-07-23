@@ -25,9 +25,11 @@ namespace Spark::Render
     struct MaterialData
     {
         Math::Vector4 m_baseColor{0.8f, 0.8f, 0.8f, 1.0f};   // rgb (+a reserved)
-        float         m_metallic  = 0.0f;
-        float         m_roughness = 0.5f;
-        float         m_specular  = 0.5f;                    // dielectric F0 scale
+        float         m_metallic    = 0.0f;
+        float         m_roughness   = 0.5f;
+        float         m_specular    = 0.5f;                  // dielectric F0 scale
+        float         m_normalScale = 1.0f;                  // tangent XY scale (Normal map)
+        Math::Vector4 m_emissive{0.0f, 0.0f, 0.0f, 1.0f};    // rgb = emissive factor, a = strength
         // Bindless texture index per MaterialTexSlot; InvalidTextureIndex = no map.
         uint32_t      m_texIndices[Material::MaterialTexSlotCount];
 
@@ -41,11 +43,11 @@ namespace Spark::Render
     };
 
     // StructuredBuffer elements are tightly C-packed (no cbuffer 16B rounding), so sizeof
-    // must match the HLSL struct in MaterialData.hlsli. 16 (baseColor) + 12 (3 floats) +
-    // 4*5 (indices) = 48. If this fires, a slot was added: bump SPARK_MATERIAL_TEX_SLOT_COUNT
-    // in MaterialData.hlsli to match MaterialTexSlot::Count and re-verify packing.
+    // must match the HLSL struct in MaterialData.hlsli. 16 (baseColor) + 16 (4 floats) +
+    // 16 (emissive) + 4*5 (indices) = 68. If this fires, a slot was added: bump
+    // SPARK_MATERIAL_TEX_SLOT_COUNT in MaterialData.hlsli to match MaterialTexSlot::Count.
     static_assert(Material::MaterialTexSlotCount == 5,
         "MaterialData.hlsli hardcodes SPARK_MATERIAL_TEX_SLOT_COUNT=5; keep them in sync.");
-    static_assert(sizeof(MaterialData) == 48,
-        "MaterialData must stay 48 bytes to match MaterialData.hlsli.");
+    static_assert(sizeof(MaterialData) == 68,
+        "MaterialData must stay 68 bytes to match MaterialData.hlsli.");
 }

@@ -57,7 +57,7 @@ namespace Spark::Spawn
             p.m_baseColor         = src.baseColorFactor;
             p.m_metallic          = src.metallicFactor;
             p.m_roughness         = src.roughnessFactor;
-            p.m_emissive          = src.emissiveFactor;
+            p.m_emissive          = Math::Vector4(src.emissiveFactor, 1.0f);
             p.m_emissiveStrength  = src.emissiveStrength;
             p.m_normalScale       = src.normalScale;
             p.m_occlusionStrength = src.occlusionStrength;

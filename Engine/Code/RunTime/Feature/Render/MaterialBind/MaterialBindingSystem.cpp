@@ -212,9 +212,11 @@ namespace Spark::Render
 
             MaterialData& d = m_materialData[slot];
             d.m_baseColor = params.m_baseColor;
-            d.m_metallic  = params.m_metallic;
-            d.m_roughness = params.m_roughness;
-            d.m_specular  = params.m_specular;
+            d.m_metallic    = params.m_metallic;
+            d.m_roughness   = params.m_roughness;
+            d.m_specular    = params.m_specular;
+            d.m_normalScale = params.m_normalScale;
+            d.m_emissive    = Math::Vector4(Math::Vector3(params.m_emissive), params.m_emissiveStrength);
             for (size_t texSlot = 0; texSlot < Material::MaterialTexSlotCount; ++texSlot)
             {
                 d.m_texIndices[texSlot] = ResolveTexIndex(*rhiCtx, *matCtx, h, texSlot);

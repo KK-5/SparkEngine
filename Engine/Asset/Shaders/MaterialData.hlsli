@@ -21,6 +21,8 @@ struct MaterialData
     float  Metallic;
     float  Roughness;
     float  Specular;
+    float  NormalScale;       // tangent XY scale for the normal map
+    float4 Emissive;          // rgb = emissive factor, a = strength
 
     uint   TexIndices[SPARK_MATERIAL_TEX_SLOT_COUNT];
 };
