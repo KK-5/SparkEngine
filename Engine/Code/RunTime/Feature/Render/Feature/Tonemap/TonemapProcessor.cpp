@@ -20,6 +20,7 @@
 #include <Request/DrawRequest.h>
 
 #include <Shader/ShaderBindingsUtils.h>
+#include <View/ViewTags.h>
 
 namespace Spark::Render
 {
@@ -81,6 +82,13 @@ namespace Spark::Render
             // hook (SetPassShaderImage). A zero count means it isn't up yet — the pass
             // layout isn't reflected / SceneColor not materialized — so drop this frame.
             if (AddShaderBindings<SPARK_PASS_TAG("TonemapPass")>(req, *rhiCtx) == 0)
+            {
+                return {};
+            }
+
+            // Shared view (space1): the tonemap shader reads g_Exposure from ViewBindings.
+            // A zero count means the view SRG isn't up yet; drop this frame.
+            if (AddShaderBindings<MainViewTag>(req, *rhiCtx) == 0)
             {
                 return {};
             }

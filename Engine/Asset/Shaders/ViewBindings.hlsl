@@ -14,6 +14,7 @@ cbuffer ViewBindings : register(b0, space1)
     float4x4 g_InvViewProj;      // clip  -> world (inverse of g_ViewProjection)
     float4x4 g_View;             // world -> view
     float4x4 g_InvView;          // view  -> world (mul by view origin -> camera world pos)
+    float    g_Exposure;         // linear pre-tonemap exposure multiplier; 1.0 = neutral
 };
 
 #endif // SPARK_VIEW_BINDINGS_HLSL

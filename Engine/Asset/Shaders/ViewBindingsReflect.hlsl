@@ -22,5 +22,5 @@ float4 VSMain(float3 pos : POSITION) : SV_Position
     float4 world = mul(g_InvViewProj, clip);
     float4 vpos  = mul(g_View, float4(pos, 1.0));
     float4 wpos  = mul(g_InvView, vpos);
-    return clip + (world + vpos + wpos) * 1e-6;
+    return clip + (world + vpos + wpos) * 1e-6 + g_Exposure * 1e-6;
 }
