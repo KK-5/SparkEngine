@@ -93,6 +93,17 @@ namespace Spark::Resource
         const AssetDescriptor* GetDescriptor() const  { return m_descriptor.get(); }
         bool                   IsValid() const        { return !m_path.empty() && m_hash != 0; }
 
+        /// Returns a new id with the same path + sub-label but a different descriptor.
+        /// The descriptor is part of the identity hash, so this yields a distinct asset
+        /// (e.g. the same image file re-tagged as a linear normal map). Used when a drop
+        /// target field dictates which usage-variant of a texture to bind.
+        AssetId WithDescriptor(Ptr<AssetDescriptor> descriptor) const
+        {
+            return AssetId(eastl::string_view(m_path.c_str(), m_path.size()),
+                           eastl::string_view(m_subLabel.c_str(), m_subLabel.size()),
+                           eastl::move(descriptor));
+        }
+
     private:
         AssetId(eastl::string_view path, eastl::string_view subLabel, Ptr<AssetDescriptor> descriptor)
             : m_path(path.data(), path.size())

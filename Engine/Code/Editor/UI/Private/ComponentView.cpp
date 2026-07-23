@@ -14,6 +14,7 @@
 #include <Math/Vector4.h>
 #include <Resource/AssetTypes.h>
 #include <Resource/Asset.h>
+#include <Resource/Image/ImageAsset.h>   // DescriptorForUsage / ImageUsage for texture slots
 #include <Material/Components.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
@@ -327,8 +328,7 @@ namespace Editor
                     {
                         auto* asset = *static_cast<Resource::Asset**>(payload->Data);
                         const bool typeOk = asset
-                            && (ui->expectType == 0
-                                || static_cast<uint32_t>(asset->GetAssetType()) == ui->expectType);
+                            && (ui->expectType == 0 || static_cast<uint32_t>(asset->GetAssetType()) == ui->expectType);
                         if (typeOk)
                         {
                             AssetEditBus::Broadcast(
@@ -344,6 +344,64 @@ namespace Editor
             {
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "AssetElement expect an AssetId value!");
+            }
+        }
+        else if(static_cast<TextureElement*>(uiElement))
+        {
+            TextureElement* ui = static_cast<TextureElement*>(uiElement);
+            if (Resource::AssetId* value = fieldValue.try_cast<Resource::AssetId>())
+            {
+                eastl::string display = value->IsValid() ? value->GetPath() : "None";
+                eastl::string buffer;
+                buffer.resize(256);
+                strcpy(buffer.data(), display.c_str());
+
+                float labelWidth = width * 0.3f;
+                float inputWidth = width * 0.7f;
+                eastl::string label = DrawLabel(labelWidth, inputWidth, name.data());
+                if (ui->readOnly) { ImGui::BeginDisabled(true); }
+                ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
+
+                // Drop an image here: re-tag its id with this slot's usage descriptor so the
+                // texture compiles with the right color space, then request the load. Usage is
+                // the asset's own semantic; the slot only picks which usage-variant to bind.
+                if (!ui->readOnly && ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ASSET_FILE"))
+                    {
+                        auto* asset = *static_cast<Resource::Asset**>(payload->Data);
+                        if (asset && asset->GetAssetType() == Resource::AssetType::Image)
+                        {
+                            Resource::AssetId usedId = asset->GetAssetId().WithDescriptor(
+                                Resource::ImageAsset::DescriptorForUsage(
+                                    static_cast<Resource::ImageUsage>(ui->usageHint)));
+                            AssetEditBus::Broadcast(
+                                &AssetEditEvents::OnAssetDragToComponent,
+                                static_cast<Spark::Entity>(m_editEntity), component.id(), fieldId,
+                                usedId, asset->GetAssetType());
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                // Clear the slot back to None — a direct field write (no async load), on the
+                // same commit path as the scalar editors (data.set -> ReplaceComponent).
+                if (!ui->readOnly && value->IsValid())
+                {
+                    eastl::string clearId = "Clear##";
+                    clearId.append(name.data(), name.size());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(clearId.c_str()))
+                    {
+                        data.set(instance, Resource::AssetId{});
+                    }
+                }
+                if (ui->readOnly) { ImGui::EndDisabled(); }
+            }
+            else
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "TextureElement expect an AssetId value!");
             }
         }
         else if(static_cast<EnumElement*>(uiElement))

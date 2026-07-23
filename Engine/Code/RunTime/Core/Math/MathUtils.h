@@ -221,6 +221,13 @@ namespace Spark::Math
         return Matrix3X3(m);
     }
 
+    /// Embeds a 3x3 linear matrix into the upper-left of a 4x4 (translation zero, w
+    /// row/column identity). Inverse of ToMatrix3X3 for the linear part.
+    inline Matrix4X4 ToMatrix4X4(const Matrix3X3& m)
+    {
+        return Matrix4X4(m);
+    }
+
     // ---- Quaternion Operations ----
 
     inline Quaternion QuaternionFromAxisAngle(const Vector3& axis, float angle)

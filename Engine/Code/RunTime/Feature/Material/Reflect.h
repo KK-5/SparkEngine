@@ -7,6 +7,7 @@
 #include <Serialization/MetaTypeTraits.h>
 
 #include <Resource/AssetTypes.h>
+#include <Resource/Image/ImageAsset.h>   // ImageUsage — per-slot texture load usage
 
 #include "Components.h"
 #include "MaterialContext.h"
@@ -32,7 +33,11 @@ namespace Spark::Material
 
     static void Reflect(Spark::ReflectContext& context)
     {
-        constexpr uint32_t kImageType = static_cast<uint32_t>(Resource::AssetType::Image);
+        // Per-slot texture usage — decides the color space the dropped image is compiled
+        // with (sRGB color vs linear data vs normal map). See TextureElement.
+        constexpr uint32_t kUsageColor  = static_cast<uint32_t>(Resource::ImageUsage::Texture2D);
+        constexpr uint32_t kUsageData   = static_cast<uint32_t>(Resource::ImageUsage::NoColorTexture2D);
+        constexpr uint32_t kUsageNormal = static_cast<uint32_t>(Resource::ImageUsage::NormalMap);
         // The material's authored parameters. NOT a world component — it lives on
         // material entities in the MaterialContext, reached indirectly (rendered inline
         // by MaterialRefElement when a primitive's MaterialComponent is inspected).
@@ -52,16 +57,19 @@ namespace Spark::Material
             .Data<&MaterialParams::m_normalScale>("Normal Scale").Custom<Spark::FloatSliderElement>(0.f, 2.f, 0.01f, false)
             .Data<&MaterialParams::m_occlusionStrength>("Occlusion Strength").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
             // Texture slots — one reflected field per MaterialTexSlot via getter/setter.
+            // TextureElement carries the slot's ImageUsage so a dropped image is loaded with
+            // the right color space (base color / emissive sRGB; MR / occlusion linear data;
+            // normal a linear normal map).
             .Data<&SetTexAsset<MaterialTexSlot::BaseColor>, &GetTexAsset<MaterialTexSlot::BaseColor>>("Base Color Map")
-                .Custom<Spark::AssetElement>(false, kImageType)
+                .Custom<Spark::TextureElement>(false, kUsageColor)
             .Data<&SetTexAsset<MaterialTexSlot::MetallicRoughness>, &GetTexAsset<MaterialTexSlot::MetallicRoughness>>("Metallic-Roughness Map")
-                .Custom<Spark::AssetElement>(false, kImageType)
+                .Custom<Spark::TextureElement>(false, kUsageData)
             .Data<&SetTexAsset<MaterialTexSlot::Normal>, &GetTexAsset<MaterialTexSlot::Normal>>("Normal Map")
-                .Custom<Spark::AssetElement>(false, kImageType)
+                .Custom<Spark::TextureElement>(false, kUsageNormal)
             .Data<&SetTexAsset<MaterialTexSlot::Occlusion>, &GetTexAsset<MaterialTexSlot::Occlusion>>("Occlusion Map")
-                .Custom<Spark::AssetElement>(false, kImageType)
+                .Custom<Spark::TextureElement>(false, kUsageData)
             .Data<&SetTexAsset<MaterialTexSlot::Emissive>, &GetTexAsset<MaterialTexSlot::Emissive>>("Emissive Map")
-                .Custom<Spark::AssetElement>(false, kImageType)
+                .Custom<Spark::TextureElement>(false, kUsageColor)
             ;
         Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, MaterialParams>(context);
 

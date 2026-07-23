@@ -48,24 +48,69 @@ namespace Spark::Resource
 
     // ---- ImageAsset ----
 
+    Ptr<AssetDescriptor> ImageAsset::DescriptorForUsage(ImageUsage usage)
+    {
+        switch (usage)
+        {
+        case ImageUsage::Texture2D:
+        {
+            // sRGB color 2D. Kept field-identical to the historical default descriptor so
+            // existing image sub-asset AssetIds (and their caches) do not shift.
+            static Ptr<AssetDescriptor> instance(new ImageAssetDescriptor{});
+            return instance;
+        }
+        case ImageUsage::NoColorTexture2D:
+        {
+            static Ptr<AssetDescriptor> instance = []
+            {
+                auto* desc = new ImageAssetDescriptor{};
+                desc->usage      = ImageUsage::NoColorTexture2D;
+                desc->colorSpace = ImageColorSpace::Linear;
+                return Ptr<AssetDescriptor>(desc);
+            }();
+            return instance;
+        }
+        case ImageUsage::NormalMap:
+        {
+            // Always linear; BC5 two-channel + z-reconstruct is a later optimization.
+            static Ptr<AssetDescriptor> instance = []
+            {
+                auto* desc = new ImageAssetDescriptor{};
+                desc->usage      = ImageUsage::NormalMap;
+                desc->colorSpace = ImageColorSpace::Linear;
+                return Ptr<AssetDescriptor>(desc);
+            }();
+            return instance;
+        }
+        case ImageUsage::EnvironmentCubemap:
+        {
+            static Ptr<AssetDescriptor> instance = []
+            {
+                auto* desc = new ImageAssetDescriptor{};
+                desc->usage           = ImageUsage::EnvironmentCubemap;
+                desc->colorSpace      = ImageColorSpace::Linear;
+                desc->compression     = TextureCompression::None;
+                desc->cubemapFaceSize = 0; // auto: derived from the source at compile
+                return Ptr<AssetDescriptor>(desc);
+            }();
+            return instance;
+        }
+        default:
+        {
+            static Ptr<AssetDescriptor> instance(new ImageAssetDescriptor{});
+            return instance;
+        }
+        }
+    }
+
     Ptr<AssetDescriptor> ImageAsset::DefaultDescriptor()
     {
-        static Ptr<AssetDescriptor> instance(new ImageAssetDescriptor{});
-        return instance;
+        return DescriptorForUsage(ImageUsage::Texture2D);
     }
 
     Ptr<AssetDescriptor> ImageAsset::DefaultHDRDescriptor()
     {
-        static Ptr<AssetDescriptor> instance = []
-        {
-            auto* desc = new ImageAssetDescriptor{};
-            desc->usage           = ImageUsage::EnvironmentCubemap;
-            desc->colorSpace      = ImageColorSpace::Linear;
-            desc->compression     = TextureCompression::None;
-            desc->cubemapFaceSize = 0; // auto: derived from the source at compile
-            return Ptr<AssetDescriptor>(desc);
-        }();
-        return instance;
+        return DescriptorForUsage(ImageUsage::EnvironmentCubemap);
     }
 
     ImageAsset::ImageAsset(AssetId id)

@@ -7,6 +7,7 @@
 struct InstanceData
 {
     float4x4 Model;          // object -> world
+    float4x4 NormalMatrix;   // inverse-transpose of Model; use (float3x3) for normals
     uint     MaterialIndex;  // slot into g_Materials (space3)
     uint3    _Pad;
 };

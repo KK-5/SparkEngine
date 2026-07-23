@@ -159,6 +159,16 @@ namespace Spark
         uint32_t expectType = 0;
     };
 
+    struct TextureElement
+    {
+        TextureElement() = default;
+        explicit TextureElement(bool _readOnly, uint32_t _usageHint = 0)
+            : readOnly(_readOnly), usageHint(_usageHint) {}
+        bool     readOnly = false;
+        //! static_cast<uint32_t>(Resource::ImageUsage). 0 == Texture2D (sRGB), the default.
+        uint32_t usageHint = 0;
+    };
+
     struct EnumElement
     {
         EnumElement() = default;

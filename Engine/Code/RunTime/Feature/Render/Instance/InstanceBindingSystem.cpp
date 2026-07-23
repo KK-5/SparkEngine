@@ -25,6 +25,8 @@
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticBufferAttachment + Attachment enums
 
+#include <Math/MathUtils.h>
+
 #include <Mesh/Components.h>
 #include <Transform/Components.h>
 
@@ -276,6 +278,12 @@ namespace Spark::Render
             }
 
             m_instanceData[slot].m_model         = m.m_worldMatrix;
+            // Normals need the inverse-transpose of the model's linear part to stay
+            // perpendicular under non-uniform scale (tangents do not — they keep the plain
+            // model matrix in the VS). Precomputed here so the VS avoids a per-vertex 3x3
+            // inverse; embedded in a 4x4 for a StructuredBuffer-safe layout (VS reads its 3x3).
+            m_instanceData[slot].m_normalMatrix  = Math::ToMatrix4X4(
+                Math::Transpose(Math::Inverse(Math::ToMatrix3X3(m.m_worldMatrix))));
             m_instanceData[slot].m_materialIndex = materialIndex;
             table->m_slots[ref.m_id]             = slot;
             ++slot;

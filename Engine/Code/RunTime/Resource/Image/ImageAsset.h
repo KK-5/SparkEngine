@@ -37,8 +37,13 @@ namespace Spark::Resource
 
     enum class ImageUsage : uint8_t
     {
-        Texture2D,
-        EnvironmentCubemap,
+        //! New values MUST be appended: the numeric value feeds ImageAssetDescriptor::Hash
+        //! (and thus AssetId identity); reordering would silently invalidate every cached
+        //! image sub-asset id.
+        Texture2D,          //!< sRGB color 2D (base color, emissive).
+        EnvironmentCubemap, //!< equirect source baked into a cube (linear).
+        NoColorTexture2D,   //!< non-color data 2D, linear (metallic-roughness, occlusion).
+        NormalMap,          //!< tangent-space normal map (always linear).
     };
 
     class ImageAssetDescriptor : public AssetDescriptor
@@ -145,6 +150,13 @@ namespace Spark::Resource
         //! usage == EnvironmentCubemap so registration/compile bakes them into a cube.
         //! Sibling of DefaultDescriptor; a distinct identity from the same file loaded 2D.
         static Ptr<AssetDescriptor> DefaultHDRDescriptor();
+
+        //! Canonical descriptor for a given usage — the single place that pins colorSpace
+        //! (and compression / bake path) per usage. Callers outside the model pipeline
+        //! (e.g. explicit texture registration) request an image by usage through this.
+        //! Returns a shared per-usage singleton; DefaultDescriptor/DefaultHDRDescriptor
+        //! are thin aliases over Texture2D / EnvironmentCubemap.
+        static Ptr<AssetDescriptor> DescriptorForUsage(ImageUsage usage);
 
         explicit ImageAsset(AssetId id);
 

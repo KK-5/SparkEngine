@@ -320,11 +320,15 @@ namespace Spark::Resource
     {
         auto& raw = static_cast<ImageAssetRawData&>(rawData);
 
-        // Descriptor 是 AssetId 的一部分。理论上 LoadAsset<ImageAsset> 路径下 Of<T> 工厂
-        // 保证非空；这里仍然兜底，防止低层 ctor 传 null 时崩。
         const auto* descPtr = static_cast<const ImageAssetDescriptor*>(id.GetDescriptor());
         const ImageAssetDescriptor fallback{};
         const ImageAssetDescriptor& desc = descPtr ? *descPtr : fallback;
+
+        // A normal map is tangent-space vector data — it must never be sRGB-decoded, or the
+        // vectors get gamma-distorted. DescriptorForUsage(NormalMap) already pins Linear;
+        // this catches any caller that hand-builds a NormalMap descriptor with sRGB.
+        ASSERT(desc.usage != ImageUsage::NormalMap || desc.colorSpace == ImageColorSpace::Linear,
+            "[ImageAssetCompiler] NormalMap image must be Linear, not sRGB");
 
         const uint32_t srcW = static_cast<uint32_t>(raw.GetWidth());
         const uint32_t srcH = static_cast<uint32_t>(raw.GetHeight());
@@ -424,8 +428,10 @@ namespace Spark::Resource
         result->m_format      = MapToRHIFormat(srcFormat, compression, desc.colorSpace);
 
         eastl::vector<uint8_t> ktx2Blob = SerializeToKtx2(*result);
-        LOG_INFO("[ImageAssetCompiler] {}: {}x{}, {} mips, payload {}B -> ktx2 {}B",
+        LOG_INFO("[ImageAssetCompiler] {}: {}x{}, {} mips, usage={} colorSpace={} format={}, payload {}B -> ktx2 {}B",
             raw.GetResolvedPath().c_str(), srcW, srcH, mipLevels,
+            static_cast<int>(desc.usage), static_cast<int>(desc.colorSpace),
+            static_cast<int>(result->m_format),
             result->m_textureBytes.size(), ktx2Blob.size());
 
         return result;

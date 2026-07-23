@@ -154,10 +154,36 @@ namespace Spark::Resource
             modelDir.assign(parent.c_str(), parent.size());
         }
 
+        // Per-image usage, driven by the material slot that references each image. glTF
+        // declares the slot (baseColorTexture / normalTexture / ...), so this reads a
+        // request — not an inference of the image's "true" nature. DescriptorForUsage then
+        // pins colorSpace per image at dispatch (base color / emissive → sRGB; MR /
+        // occlusion → linear; normal → linear normal map). Unreferenced images keep the
+        // sRGB Texture2D default, matching the historical behaviour (stable AssetIds).
+        // One image referenced by slots of differing usage is deliberately out of scope:
+        // that's a runtime / node-material concern; here we parse each image as requested.
+        eastl::vector<ImageUsage> imageUsages(raw.m_rawImages.size(), ImageUsage::Texture2D);
+        auto tagImageUsage = [&](int32_t imageIndex, ImageUsage usage)
+        {
+            if (imageIndex >= 0 && static_cast<size_t>(imageIndex) < imageUsages.size())
+            {
+                imageUsages[imageIndex] = usage;
+            }
+        };
+        for (const RawMaterial& rm : raw.m_rawMaterials)
+        {
+            tagImageUsage(rm.baseColorImage,         ImageUsage::Texture2D);
+            tagImageUsage(rm.emissiveImage,          ImageUsage::Texture2D);
+            tagImageUsage(rm.metallicRoughnessImage, ImageUsage::NoColorTexture2D);
+            tagImageUsage(rm.occlusionImage,         ImageUsage::NoColorTexture2D);
+            tagImageUsage(rm.normalImage,            ImageUsage::NormalMap);
+        }
+
         compiled.m_imageAssetIds.reserve(raw.m_rawImages.size());
         for (size_t i = 0; i < raw.m_rawImages.size(); ++i)
         {
             auto& entry = raw.m_rawImages[i];
+            const ImageUsage usage = imageUsages[i];
 
             // 空 entry（Loader 标记的不支持源）—— 占位保对齐，不派发
             if (entry.data.empty() && entry.externalUri.empty())
@@ -176,14 +202,16 @@ namespace Spark::Resource
                 eastl::string subLabel = MakeImageSubLabel(entry.name, i);
                 subId = AssetId::OfSub<ImageAsset>(
                     eastl::string_view(ctx.id.GetPath().c_str(), ctx.id.GetPath().size()),
-                    eastl::string_view(subLabel.c_str(), subLabel.size()));
+                    eastl::string_view(subLabel.c_str(), subLabel.size()),
+                    static_cast<const ImageAssetDescriptor&>(*ImageAsset::DescriptorForUsage(usage)));
                 src     = entry.data.data();
                 srcSize = entry.data.size();
             }
             else
             {
-                subId = AssetId::Of<ImageAsset>(
-                    eastl::string_view(entry.externalUri.c_str(), entry.externalUri.size()));
+                subId = AssetId::Of(
+                    eastl::string_view(entry.externalUri.c_str(), entry.externalUri.size()),
+                    ImageAsset::DescriptorForUsage(usage));
                 if (!modelDir.empty())
                 {
                     extra.push_back(modelDir);
