@@ -18,7 +18,7 @@
 float3 EvaluateBRDF(float3 N, float3 V, float3 L, float3 diffuseColor, float3 F0, float perceptualRoughness)
 {
     float3 H = normalize(V + L);
-    float NoV = abs(dot(N, V)) + 1e-5;
+    float NoV = max(abs(dot(N, V)), 1e-4);   // floor to avoid /0; must stay <= 1 or F_Schlick's pow() gets a negative base -> NaN
     float NoL = saturate(dot(N, L));
     float NoH = saturate(dot(N, H));
     float LoH = saturate(dot(L, H));
