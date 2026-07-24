@@ -23,5 +23,14 @@ namespace Spark::RHI
         GPU
     };
 
-    static const ValidationMode curValidationMode = ValidationMode::Verbose;
+    // Validation carries a real per-frame CPU cost (D3D12 debug layer validates every
+    // draw / barrier / resource op; Verbose also flushes all info messages each frame),
+    // so it must track the build config instead of being a hardcoded constant. Release
+    // ships with it off; Debug uses Enabled (not Verbose) to keep the info-spam cost down.
+    // For a clean perf A/B, temporarily force this to Disabled and rebuild.
+#if defined(NDEBUG)
+    static const ValidationMode curValidationMode = ValidationMode::Disabled;
+#else
+    static const ValidationMode curValidationMode = ValidationMode::Enabled;
+#endif
 }
