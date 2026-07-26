@@ -7,8 +7,6 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
-#include <Request/DrawRequest.h>
-
 namespace Spark::Render
 {
     //! Declarative data-injection helpers for ShaderBindings ENTITIES. Each takes a
@@ -130,28 +128,5 @@ namespace Spark::Render
         }
         sampler->SetState(arrayIndex, state);
         Detail::MarkShaderBindingsDirty(ctx, bindings);
-    }
-
-    //! Append every ShaderBindings ENTITY tagged BindingTag into req.m_shaderBindings,
-    //! returning how many were added. BindingTag is the binding's frequency / ownership
-    //! tag — MainViewTag for the shared per-view SRG, a PassTag for a pass's own
-    //! sampling SRG(s). All matches are appended (a pass may own several per-space
-    //! SRGs); bindings self-describe their HLSL space (GetSpaceId), so append order is
-    //! irrelevant. Per-object bindings are NOT handled here — they ride on the
-    //! Drawable's m_instanceData and are resolved by CompileDrawRequests.
-    //!
-    //! The return count lets callers gate on readiness (skip the draw until the view
-    //! SRG exists) without a separate lookup. Caller clears req.m_shaderBindings once
-    //! before the first append of the frame.
-    template<typename BindingTag>
-    size_t AddShaderBindings(DrawRequest& req, RHI::RHIContext& ctx)
-    {
-        size_t added = 0;
-        for (auto [entity, comp] : ctx.GetView<BindingTag, RHI::Components::ShaderBindings>().each())
-        {
-            req.m_shaderBindings.push_back(entity);
-            ++added;
-        }
-        return added;
     }
 }

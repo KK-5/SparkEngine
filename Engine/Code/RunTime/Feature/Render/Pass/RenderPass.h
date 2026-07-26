@@ -11,7 +11,6 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Pass/PassBuilder.h>   // RenderPassConfig, BuildPipelineLayoutFromShaders, shared components
-#include <Request/DrawRequest.h>
 #include <Drawable/DrawItemRoute.h>
 #include <Drawable/DrawItemBind.h>
 #include <RenderGraph/RenderGraphCompiler.h>

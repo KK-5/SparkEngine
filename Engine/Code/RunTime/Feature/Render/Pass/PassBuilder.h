@@ -64,9 +64,9 @@ namespace Spark::Render
 
 
     // RenderPassBuilder<PassTag> + SPARK_RENDER_PASS live in <Pass/RenderPass.h>.
-    // It installs slot-resolving Compile/Execute defaults (DrawRequest attachment
-    // injection + DrawItem submit), which pull the heavy PassAccess.h chain — kept
-    // out of this common header so only files that write render passes pay for it.
+    // It installs the default DrawItem submit (SubmitPassDrawItems<PassTag>), which
+    // pulls the heavy PassAccess.h chain — kept out of this common header so only
+    // files that write render passes pay for it.
 
     // ================================================================
     // ComputePassBuilder<PassTag>

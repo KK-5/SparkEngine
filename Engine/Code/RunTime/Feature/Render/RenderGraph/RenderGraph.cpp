@@ -156,7 +156,6 @@ namespace Spark::Render
         m_compiler.CompileTransientResources(*m_pool);
 
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
-        m_compiler.CompileDrawRequests(*m_device, context, m_pipelineLibrary.get());
 
         StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);
 

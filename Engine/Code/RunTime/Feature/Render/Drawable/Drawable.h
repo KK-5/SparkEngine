@@ -74,7 +74,7 @@ namespace Spark::Render
     //!                       reacts uniformly when the bindings entity rebuilds.
     //!  - m_slotRef        : stable id copy. The per-frame slot lookup
     //!                       (InstanceSlotTable.m_slots[m_id]) → StartInstanceLocation
-    //!                       happens at CompileDrawRequests time.
+    //!                       happens in BindPassDrawItems each frame.
     //!  - m_idStream       : the identity ID buffer ([0..Cap-1]) bound as a
     //!                       per-instance vertex stream — the only way to feed
     //!                       StartInstanceLocation into the VS (SV_InstanceID
@@ -98,9 +98,9 @@ namespace Spark::Render
 
     //! Per-object data provisioning — STRATEGY 0 (none). The draw has no per-object
     //! data at all: no shared buffer, no per-draw SRG, no ID stream, StartInstance = 0.
-    //! Used by procedural draws (e.g. a full-screen skybox triangle) that still want to
-    //! flow through the single DrawRequest → DrawItem translation but carry no geometry
-    //! instancing. Listed first so a default-constructed Drawable provisions nothing.
+    //! Used by procedural draws (e.g. a full-screen skybox triangle) that still flow
+    //! through the single DeriveDrawItems translation but carry no geometry instancing.
+    //! Listed first so a default-constructed Drawable provisions nothing.
     struct NoInstanceBinding {};
 
     //! Per-object draw recipe assembled by a Drawable producer. The geometry +
