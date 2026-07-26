@@ -45,10 +45,9 @@
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
-#include <Request/DrawRequest.h>
 #include <Drawable/Drawable.h>
-#include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
+#include <View/ViewTags.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -71,16 +70,13 @@ namespace Spark::SandBox
         m_viewport = viewport;
         m_scissor  = scissor;
 
-        // The pass must exist before its per-pass SRG can be get-or-created by tag,
-        // so build the pass first. UpdateViewBindings then lazily creates + fills the
-        // space0 SRG before BuildDrawRequest injects it by tag (AddShaderBindings).
         LoadAsset();
         CreateImage();
         CreateVertexBuffer();
         CreatePasses();
         UpdateViewBindings();
 
-        BuildDrawRequest();
+        BuildDrawable();
 
         TickBus::Handler::BusConnect();
         return true;
@@ -99,8 +95,22 @@ namespace Spark::SandBox
             }
             handle = Spark::RHI::NullHandle;
         };
-        // Order: DrawRequest (consumer) → Drawable → VB/IB/Image → ViewSRG.
-        destroyIfValid(m_drawItem);
+        // Order: derived DrawItems → Drawable → VB/IB/Image → ViewSRG.
+
+        if (m_drawable != Spark::RHI::NullHandle && ctx.Valid(m_drawable))
+        {
+            if (auto* derived = ctx.TryGet<Spark::Render::DerivedDrawItems>(m_drawable))
+            {
+                for (Spark::RHI::RHIHandle item : derived->m_items)
+                {
+                    if (item != Spark::RHI::NullHandle && ctx.Valid(item))
+                    {
+                        ctx.DestoryEntity(item);
+                    }
+                }
+            }
+        }
+        
         destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_indexBuffer);
@@ -274,6 +284,8 @@ namespace Spark::SandBox
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
             .ViewportScissor(m_viewport, m_scissor)
+            .Accepts<SPARK_PASS_TAG("ScenePass")>()
+            .Binds<Render::MainViewTag>()
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
             {
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
@@ -361,10 +373,9 @@ namespace Spark::SandBox
             .Finalize();
     }
 
-    void DrawCube::BuildDrawRequest()
+    void DrawCube::BuildDrawable()
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        m_drawItem = rhiCtx.CreateEntity();
         m_drawable = rhiCtx.CreateEntity();
 
         auto* mesh = m_model->GetModelData()->GetMesh(0);
@@ -382,18 +393,12 @@ namespace Spark::SandBox
         drawable.m_index.m_indexInfo   = Render::IndexBufferInfo{
             0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat };
 
-        drawable.m_instanceData = Render::DirectInstanceBinding{ RHI::NullHandle };
+        drawable.m_instanceData = Render::NoInstanceBinding{};
 
-        rhiCtx.Add<Render::Drawable>(m_drawable, drawable);
-
-        Render::DrawRequest req;
-        req.m_drawable = m_drawable;
-        // space0 SRG injected by tag (get-or-created + filled in UpdateViewBindings,
-        // which ran before this in Init).
-        Render::AddShaderBindings<SPARK_PASS_TAG("ScenePass")>(req, rhiCtx);
-
-        rhiCtx.Add<Render::DrawRequest>(m_drawItem, eastl::move(req));
-        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawItem);
+        rhiCtx.Add<Render::Drawable>(m_drawable, eastl::move(drawable));
+        rhiCtx.Add<Render::DrawableTag>(m_drawable);
+        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawable);
+        rhiCtx.Add<Render::DerivedDrawItems>(m_drawable, Render::DerivedDrawItems{});
     }
 
     void DrawCube::UpdateViewBindings()
@@ -422,7 +427,7 @@ namespace Spark::SandBox
 
         auto& passCtx = *Spark::Render::PassExecuteContext::Current();
         Spark::RHI::RHIHandle viewBindings =
-            Spark::Render::GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(passCtx, rhiCtx, /*spaceId*/ 0);
+            Spark::Render::GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(passCtx, rhiCtx, /*spaceId*/ 1);
         if (viewBindings == Spark::RHI::NullHandle)
         {
             return;

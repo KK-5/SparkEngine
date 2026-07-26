@@ -44,7 +44,7 @@ namespace Spark::SandBox
         void CreateVertexBuffer();
         void CreatePasses();
         void UpdateViewBindings();
-        void BuildDrawRequest();
+        void BuildDrawable();
         void LoadAsset();
         void CreateImage();
 
@@ -54,7 +54,6 @@ namespace Spark::SandBox
         Spark::RHI::RHIHandle m_baseColor       = Spark::RHI::NullHandle;
         Spark::RHI::ImageViewDescriptor m_baseColorViewDesc {};
 
-        Spark::RHI::RHIHandle m_drawItem = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         // Shader assets

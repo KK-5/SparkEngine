@@ -40,7 +40,7 @@ namespace Spark::SandBox
         void CreateTrianglePass();
         void CreateVertexBuffer();
         void UpdateViewBindings();
-        void BuildDrawRequest();
+        void BuildDrawable();
 
         // Vertex buffer (in RHIContext) + raw view entity used to import it as
         // a buffer attachment in the pass — the attachment path is how RG picks
@@ -48,7 +48,6 @@ namespace Spark::SandBox
         // barrier on the graphics queue.
         Spark::RHI::RHIHandle m_vertexBuffer     = Spark::RHI::NullHandle;
 
-        Spark::RHI::RHIHandle m_drawItem = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         // Shader assets

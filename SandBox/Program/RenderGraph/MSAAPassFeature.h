@@ -40,12 +40,11 @@ namespace Spark::SandBox
         void CreateVertexBuffer();
         void CreatePasses();
         void UpdateViewBindings();
-        void BuildDrawRequest();
+        void BuildDrawable();
 
         // Vertex buffer (in RHIContext)
         Spark::RHI::RHIHandle m_vertexBuffer     = Spark::RHI::NullHandle;
 
-        Spark::RHI::RHIHandle m_drawItem = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         // Shader assets
