@@ -87,10 +87,11 @@ namespace Spark::Transform
 
                 context.AddOrReplace<WorldTransformMatrix>(current, worldMatrix);
 
-                auto children = scene->GetChildren(current);
-                for (auto child : children)
+                Entity child = h->firstChild;
+                while(child != NullEntity)
                 {
                     stack.push_back(child);
+                    child = constContext.Has<Hierarchy>(child) ? constContext.Get<Hierarchy>(child).nextSibling : NullEntity;
                 }
             }
         }
