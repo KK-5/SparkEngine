@@ -10,6 +10,10 @@
 #include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>
 
+#include <Drawable/DrawTag.h>
+#include <View/ViewTags.h>
+#include <MaterialBind/MaterialBinding.h>
+
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
@@ -87,6 +91,8 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
+            .Accepts<OpaqueTag>()
+            .Binds<MainViewTag, MaterialBindingTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 const auto size = builder.GetRenderSize();

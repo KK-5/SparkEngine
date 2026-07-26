@@ -12,6 +12,8 @@
 
 #include <Pass/PassBuilder.h>   // RenderPassConfig, BuildPipelineLayoutFromShaders, shared components
 #include <Request/DrawRequest.h>
+#include <Drawable/DrawItemRoute.h>
+#include <Drawable/DrawItemBind.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
@@ -109,6 +111,31 @@ namespace Spark::Render
         RenderPassBuilder& CustomPipeline()
         {
             m_customPipeline = true;
+            return *this;
+        }
+
+        // ---- Draw-item routing ----
+        // Declare the Drawable classifications this pass consumes; DrawableComposer
+        // derives one DrawItem per accepted Drawable. Full-screen / procedural passes
+        // omit this.
+        template<typename... DrawTags>
+        RenderPassBuilder& Accepts()
+        {
+            m_route.m_accepts = &AcceptDrawTags<DrawTags...>;
+            m_route.m_marks   = &MarkPassTag<PassTag>;
+            m_hasRoute        = true;
+            return *this;
+        }
+
+        // Declare the shared SRGs (view / material / …, each a global singleton) this
+        // pass injects into its DrawItems every frame. Order-free — each SRG self-
+        // describes its HLSL space. The per-object SRG (space4) is baked at compose, and
+        // the pass's own per-pass SRG (space2) is auto-injected via PassTag — neither is
+        // listed here.
+        template<typename... BindingTags>
+        RenderPassBuilder& Binds()
+        {
+            m_route.m_bindPass = &BindPassDrawItems<PassTag, BindingTags...>;
             return *this;
         }
 
@@ -216,6 +243,11 @@ namespace Spark::Render
                 : ExecuteFunction(SubmitPassDrawItems<PassTag>);
             m_context->Add<PassFunctions>(pass, eastl::move(funcs));
 
+            if (m_hasRoute)
+            {
+                m_context->Add<DrawItemRoute>(pass, m_route);
+            }
+
             m_finalized = true;
             return pass;
         }
@@ -235,6 +267,9 @@ namespace Spark::Render
         RHI::HardwareQueueClass m_queue {};
         bool                    m_active            {true};
         bool                    m_customPipeline    {false};
+
+        DrawItemRoute           m_route {};
+        bool                    m_hasRoute          {false};
 
         PassShaders             m_shaders;
         PassPipelineState       m_pipelineState;

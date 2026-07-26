@@ -15,6 +15,8 @@
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
+#include <View/ViewTags.h>
+
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
@@ -73,6 +75,11 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
+            // Consume the procedural Drawable TonemapProcessor tags with this pass's own
+            // PassTag; bind the shared view SRG (space1) for g_Exposure. The SceneColor SRG
+            // (space2) is auto-injected by PassTag.
+            .Accepts<SPARK_PASS_TAG("TonemapPass")>()
+            .Binds<MainViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {
                 // Import the swap chain as this pass's color render target. TonemapPass is

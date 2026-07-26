@@ -1,25 +1,22 @@
 #pragma once
 
-#include <Math/Vector2.h>
 #include <RHI/Context/RHIHandle.h>
 
 namespace Spark::Render
 {
-    //! Drives the deferred LightingPass each frame. Owns a procedural full-screen
-    //! triangle drawable and a persistent draw-request carrier entity. Process builds
-    //! the request that references the shared view SRG (space1) and this pass's GBuffer
-    //! SRG (space2). The GBuffer SRG is get-or-created here (so it exists before
-    //! CompileDrawRequests) but its texture slots are filled by LightingPass's Compile
-    //! hook, once the GBuffer is materialized.
+    //! One-time setup for the deferred LightingPass. Creates the pass's procedural
+    //! full-screen Drawable — classified with LightingPass's own PassTag so the generic
+    //! DeriveDrawItems routes it to exactly this pass — and allocates its GBuffer SRG
+    //! (space2) up front so BindPassDrawItems can resolve it from frame one. Per-frame
+    //! binding + viewport are handled by BindPassDrawItems; the GBuffer texture slots by
+    //! LightingPass's Compile hook. No per-frame work, hence no Process/Shutdown: the
+    //! Drawable is reaped by DrawableComposer, the SRG by ReapPassShaderBindings.
     class LightingProcessor
     {
     public:
         void Init();
-        void Shutdown();
-        void Process(const Math::Vector2Int& renderSize);
 
     private:
-        RHI::RHIHandle m_drawRequest = RHI::NullHandle;
-        RHI::RHIHandle m_drawable    = RHI::NullHandle;
+        RHI::RHIHandle m_drawable = RHI::NullHandle;
     };
 }

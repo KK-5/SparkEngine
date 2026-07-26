@@ -9,6 +9,9 @@
 #include <Pass/PassContext.h>
 #include <Pass/RenderPass.h>
 
+#include <Drawable/DrawTag.h>
+#include <View/ViewTags.h>
+
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
@@ -79,6 +82,8 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
+            .Accepts<OpaqueTag>()
+            .Binds<MainViewTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 auto depthDesc = RHI::ImageDescriptor::Create2D(

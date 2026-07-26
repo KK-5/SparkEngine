@@ -1,21 +1,14 @@
 #include "SkyboxProcessor.h"
 
-#include <EASTL/optional.h>
-
-#include <ECS/Common.h>
 #include <ECS/WorldContext.h>
-#include <CoreComponents/Tags.h>
 
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
 #include <RHI/ResourceBuilder.h>
-#include <RHI/Command/DrawItem.h>
 #include <RHI/Command/DrawArguments.h>
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
-#include <RHI/Viewport/Viewport.h>
-#include <RHI/Scissor/Scissor.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
@@ -23,10 +16,6 @@
 #include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
 
 #include <Drawable/Drawable.h>
-#include <Request/DrawRequest.h>
-
-#include <Shader/ShaderBindingsUtils.h>
-#include <View/ViewTags.h>
 
 #include <Skybox/Components.h>
 
@@ -34,46 +23,30 @@ namespace Spark::Render
 {
     void SkyboxProcessor::Init()
     {
-        auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!rhiCtx)
+        auto* rhiCtx  = RHI::RHIExecuteContext::Current();
+        auto* passCtx = PassExecuteContext::Current();
+        if (!rhiCtx || !passCtx)
         {
             return;
         }
 
-        // DrawRequest carrier: a dedicated entity tagged for this pass. Its DrawItem is
-        // produced by CompileDrawRequests each frame, exactly like every other pass — the
-        // cube ShaderBindings (space2) are created lazily in Process, once the pass has a
-        // reflected PassPipelineLayout.
-        m_drawRequest = rhiCtx->CreateEntity();
-        rhiCtx->Add<SPARK_PASS_TAG("SkyboxPass")>(m_drawRequest);
-
-        // Procedural Drawable: a vertex-less full-screen triangle (DrawLinear(3)) with no
-        // per-object data. It holds the Drawable COMPONENT but no DrawableTag, so the
-        // generic AssembleDrawRequests never sweeps it into other passes — this pass owns
-        // it, and CompileDrawRequests still resolves it via TryGet<Drawable>.
+        // Procedural full-screen triangle (DrawLinear(3)), no per-object data. Classified
+        // with this pass's own PassTag: DeriveDrawItems routes it to exactly the SkyboxPass
+        // route (.Accepts<SkyboxPassTag>()) and no other pass. DerivedDrawItems is the
+        // reverse ref DrawableComposer teardown reaps through.
         m_drawable = rhiCtx->CreateEntity();
         Drawable drawable;
         drawable.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
         drawable.m_instanceCount = 1;
         drawable.m_instanceData  = NoInstanceBinding{};
         rhiCtx->Add<Drawable>(m_drawable, eastl::move(drawable));
-    }
+        rhiCtx->Add<DrawableTag>(m_drawable);
+        rhiCtx->Add<SPARK_PASS_TAG("SkyboxPass")>(m_drawable);
+        rhiCtx->Add<DerivedDrawItems>(m_drawable, DerivedDrawItems{});
 
-    void SkyboxProcessor::Shutdown()
-    {
-        auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!rhiCtx)
-        {
-            return;
-        }
-        if (rhiCtx->Valid(m_drawRequest))
-        {
-            rhiCtx->Add<DeadTag>(m_drawRequest);
-        }
-        if (rhiCtx->Valid(m_drawable))
-        {
-            rhiCtx->Add<DeadTag>(m_drawable);
-        }
+        // Allocate the cube SRG (space2) now so it exists before the OnTick bind loop
+        // (BindPassDrawItems resolves it by PassTag). Process fills its sampler/cube slots.
+        GetOrCreatePassShaderBindings<SPARK_PASS_TAG("SkyboxPass")>(*passCtx, *rhiCtx, 2);
     }
 
     RHI::ImageView* SkyboxProcessor::GetCubeImageView()
@@ -126,7 +99,7 @@ namespace Spark::Render
         return cubeView;
     }
 
-    void SkyboxProcessor::Process(const Math::Vector2Int& renderSize)
+    void SkyboxProcessor::Process()
     {
         auto* rhiCtx  = RHI::RHIExecuteContext::Current();
         auto* passCtx = PassExecuteContext::Current();
@@ -136,73 +109,18 @@ namespace Spark::Render
             return;
         }
 
-        // Build this frame's DrawRequest, or nothing if any prerequisite (pass layout,
-        // environment cube, view bindings) isn't ready. The request only REFERENCES the
-        // binding entities; the cube SRV/sampler content is updated here as a resource,
-        // change-detected, and the sky geometry/draw args come from the procedural
-        // Drawable. Every "not ready" path is a plain `return {}`.
-        auto BuildRequest = [&]() -> eastl::optional<DrawRequest>
+        // Refresh this pass's space2 cube SRG in place — BindPassDrawItems already baked its
+        // pointer onto the DrawItem. The cube is a static import, not a graph transient, so
+        // it is resolved here in OnTick rather than a Compile hook. Sampler applied once; the
+        // cube view's redundant re-binds are dropped by SetShaderImage's change-detection. No
+        // cube yet → g_SkyCube stays unbound and the sky renders black until it materializes.
+        RHI::ImageView* cubeView = GetCubeImageView();
+        if (!m_samplerApplied)
         {
-            // Find the environment cube published by SkyboxSystem (world component).
-            RHI::ImageView* cubeView = GetCubeImageView();
-
-            // space2 cube SRG: get-or-created + bound entirely inside SetPassShaderXxx —
-            // no handle held here. Sampler applied once; the cube view's redundant
-            // re-binds are dropped by SetShaderImage's own change-detection. A false
-            // return means the pass layout isn't reflected yet, so retry next frame.
-            if (!m_samplerApplied)
-            {
-                m_samplerApplied = SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
-                    2, RHI::InputName("g_SkySampler"),
-                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
-            }
-            if (!SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), cubeView))
-            {
-                return {};
-            }
-
-            // The request references binding ENTITIES (CompileDrawRequests resolves them
-            // to SRG pointers); it never touches their content. Bindings self-describe
-            // their space, so order is irrelevant. Draw args come from the Drawable.
-            DrawRequest req;
-            req.m_drawable = m_drawable;
-            // Shared view (space1) + this pass's cube SRG (space2), both injected by
-            // tag. A zero view count means the view SRG isn't up yet; drop this frame.
-            // The cube SRG was just ensured above, so it appends ≥1.
-            if (AddShaderBindings<MainViewTag>(req, *rhiCtx) == 0)
-            {
-                return {};
-            }
-            AddShaderBindings<SPARK_PASS_TAG("SkyboxPass")>(req, *rhiCtx);
-
-            req.m_viewports.resize(1);
-            req.m_viewports[0]   = RHI::Viewport{ 0, static_cast<float>(renderSize.x), 0, static_cast<float>(renderSize.y) };
-            req.m_viewportsCount = 1;
-            req.m_scissors.resize(1);
-            req.m_scissors[0]    = RHI::Scissor{ 0, 0, renderSize.x, renderSize.y };
-            req.m_scissorsCount  = 1;
-
-            return req;
-        };
-
-        // Commit or drop, exactly once. On drop, clear both the request and any DrawItem
-        // an earlier frame compiled: m_drawEntity is persistent (unlike mesh requests it
-        // is not destroyed each frame), so a stale full-screen draw would otherwise linger
-        // and sample a cube/bindings that may no longer be valid.
-        if (auto req = BuildRequest())
-        {
-            rhiCtx->AddOrReplace<DrawRequest>(m_drawRequest, eastl::move(*req));
+            m_samplerApplied = SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
+                2, RHI::InputName("g_SkySampler"),
+                RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
         }
-        else
-        {
-            if (rhiCtx->Has<DrawRequest>(m_drawRequest))
-            {
-                rhiCtx->Remove<DrawRequest>(m_drawRequest);
-            }
-            if (rhiCtx->Has<RHI::DrawItem>(m_drawRequest))
-            {
-                rhiCtx->Remove<RHI::DrawItem>(m_drawRequest);
-            }
-        }
+        SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), cubeView);
     }
 }

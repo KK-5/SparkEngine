@@ -12,6 +12,11 @@
 
 #include <Instance/InstanceSlot.h>
 
+namespace Spark::RHI
+{
+    class ShaderBindings;
+}
+
 namespace Spark::Render
 {
     //! Range descriptor for a vertex stream's slice of its buffer.
@@ -129,5 +134,42 @@ namespace Spark::Render
         uint32_t           m_instanceCount = 1;
 
         eastl::variant<NoInstanceBinding, SlotInstanceBinding, DirectInstanceBinding> m_instanceData;
+    };
+
+    //! Upper bound on DrawItems one Drawable derives (one per consuming pass). Single
+    //! digit today; headroom for shadow cascades. Inline, so it must never overflow.
+    inline constexpr size_t MaxPassesPerDrawable = 8;
+
+    //! Producer-side reverse reference to the DrawItems a Drawable derived, for cascade
+    //! teardown (and later culling propagation). The submit path never touches it —
+    //! DrawItems are self-contained. Present ⟺ composed Drawable (added empty at create).
+    struct DerivedDrawItems
+    {
+        eastl::fixed_vector<RHI::RHIHandle, MaxPassesPerDrawable> m_items;
+    };
+
+    //! Idempotency marker for the generic DrawItem-derivation step: present once a
+    //! Drawable has been routed through the passes and its DrawItems built. The
+    //! derivation view excludes it so each Drawable derives exactly once, regardless of
+    //! who produced it (world composer, procedural pass, …). Distinct from
+    //! DerivedDrawItems, which is added empty at create — that can't double as the
+    //! filter. Dies with the Drawable entity.
+    struct DrawItemsDerivedTag {};
+
+    //! Startinstance resolution key baked onto a DrawItem (indexed producers only) so
+    //! the submit path never reaches back to a producer. m_slotRef is stable for the
+    //! renderable's life; submit reads InstanceSlotTable.m_slots[m_slotRef] each frame.
+    struct DrawItemInstanceSlot
+    {
+        InstanceSlotRef m_slotRef;
+    };
+
+    //! Per-object SRG (space4), a PER-DRAW binding resolved from the Drawable's
+    //! provisioning at compose: shared g_Instances for indexed, the draw's own CBV for
+    //! direct, absent for procedural. Carried here (not a shared tag) because direct's
+    //! CBV is per-draw, not a singleton. The per-frame bind flow prepends it.
+    struct DrawItemObjectBinding
+    {
+        const RHI::ShaderBindings* m_objShaderBindings = nullptr;
     };
 }

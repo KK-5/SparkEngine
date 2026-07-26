@@ -15,6 +15,9 @@
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
+#include <View/ViewTags.h>
+#include <SceneBind/SceneBinding.h>
+
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
@@ -103,6 +106,8 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
+            .Accepts<SPARK_PASS_TAG("LightingPass")>()
+            .Binds<MainViewTag, MainSceneTag>()
             .Build([](RenderGraphBuilder& builder)
             {
                 // Create SceneColor here: LightingPass is the first pass that produces

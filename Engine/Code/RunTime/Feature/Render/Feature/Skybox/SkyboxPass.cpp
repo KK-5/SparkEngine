@@ -11,6 +11,8 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
+#include <View/ViewTags.h>
+
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
@@ -78,6 +80,8 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
+            .Accepts<SPARK_PASS_TAG("SkyboxPass")>()
+            .Binds<MainViewTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 // Write the existing SceneColor with Load so DepthPrePass's clear (and,

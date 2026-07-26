@@ -17,6 +17,8 @@
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassAccess.h>
 
+#include <Drawable/DrawItemRoute.h>
+
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/Lighting/LightingPass.h>
@@ -182,9 +184,8 @@ namespace Spark::Render
     {
         TickBus::Handler::BusDisconnect();
 
-        m_tonemapProcessor.Shutdown();
-        m_skyboxProcessor.Shutdown();
-        m_lightingProcessor.Shutdown();
+        // Lighting/Skybox/Tonemap own no teardown: their procedural Drawables are reaped by
+        // DrawableComposer (below) and their per-pass SRGs by ReapPassShaderBindings.
         m_gbufferProcessor.Shutdown();
         m_depthPreProcessor.Shutdown();
 
@@ -210,7 +211,8 @@ namespace Spark::Render
 
     void RenderSystem::OnTick(float deltaTime)
     {
-        auto& passContext = *PassExecuteContext::Current(); 
+        auto& passContext = *PassExecuteContext::Current();
+        auto& rhiCtx = *RHI::RHIExecuteContext::Current();
         
         const uint32_t frameIndex =m_swapChain->GetCurrentImageIndex();
 
@@ -240,13 +242,28 @@ namespace Spark::Render
         m_instanceBindingSystem.Update(frameIndex);
 
         m_drawableComposer.Update();
+        // Producer-agnostic DrawItem derivation: routes every not-yet-derived Drawable
+        // (world-composed or otherwise) through the passes that accept it.
+        m_drawableComposer.DeriveDrawItems();
+
+        // Per-frame DrawItem update: each pass's route rewrites its DrawItems' shared
+        // bindings, viewport, and startInstance (BindPassDrawItems). Passes without a
+        // route (procedural / full-screen) carry no m_bindPass and are skipped.
+        passContext.GetView<DrawItemRoute>().each([&](auto, const DrawItemRoute& route)
+        {
+            if (route.m_bindPass)
+            {
+                route.m_bindPass(rhiCtx, renderSize);
+            }
+        });
+
 
         m_uiProcessFeature.Process();
         m_depthPreProcessor.Process(renderSize);
         m_gbufferProcessor.Process(renderSize);
-        m_lightingProcessor.Process(renderSize);
-        m_skyboxProcessor.Process(renderSize);
-        m_tonemapProcessor.Process(renderSize);
+        // Lighting/Tonemap have no per-frame work (bindings via BindPassDrawItems, transient
+        // views via their Compile hooks). Skybox refreshes its static cube SRG in place.
+        m_skyboxProcessor.Process();
 
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
         m_swapChain->Present();
