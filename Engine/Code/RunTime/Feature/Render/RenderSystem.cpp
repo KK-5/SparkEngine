@@ -157,7 +157,6 @@ namespace Spark::Render
 
         m_drawableComposer.Init(rhiCtxForInit);
 
-        m_depthPreProcessor.Init();
         m_gbufferProcessor.Init();
         m_lightingProcessor.Init();
         m_skyboxProcessor.Init();
@@ -184,10 +183,8 @@ namespace Spark::Render
     {
         TickBus::Handler::BusDisconnect();
 
-        // Lighting/Skybox/Tonemap own no teardown: their procedural Drawables are reaped by
-        // DrawableComposer (below) and their per-pass SRGs by ReapPassShaderBindings.
-        m_gbufferProcessor.Shutdown();
-        m_depthPreProcessor.Shutdown();
+        // The feature processors own no teardown: procedural Drawables are reaped by
+        // DrawableComposer (below), per-pass SRGs by ReapPassShaderBindings.
 
         m_drawableComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
@@ -259,10 +256,9 @@ namespace Spark::Render
 
 
         m_uiProcessFeature.Process();
-        m_depthPreProcessor.Process(renderSize);
-        m_gbufferProcessor.Process(renderSize);
-        // Lighting/Tonemap have no per-frame work (bindings via BindPassDrawItems, transient
-        // views via their Compile hooks). Skybox refreshes its static cube SRG in place.
+        // DepthPre/GBuffer/Lighting/Tonemap have no per-frame work: their DrawItems are
+        // derived by DeriveDrawItems and filled by BindPassDrawItems (transient views via
+        // each pass's Compile hook). Skybox refreshes its static cube SRG in place.
         m_skyboxProcessor.Process();
 
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);

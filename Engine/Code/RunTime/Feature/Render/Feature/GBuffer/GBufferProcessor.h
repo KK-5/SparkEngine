@@ -1,24 +1,14 @@
 #pragma once
 
-#include <Math/Vector2.h>
-#include <RHI/Context/RHIContext.h>
-
 namespace Spark::Render
 {
-    class PassContext;
-
-    //! Maintains the GBufferPass draw list, mirroring DepthPreProcessor: DrawRequest
-    //! entities are retained 1:1 with Drawables (find-or-create + cascade reap via
-    //! AssembleDrawRequests<GBufferPassTag>). Each frame Process injects the shared
-    //! view binding (space1) by tag and sizes viewport/scissor to renderSize. The
-    //! same Drawables that feed DepthPrePass feed this pass — geometry / instancing
-    //! flow through the Drawable, so the two passes draw the same geometry twice
-    //! (depth prepass writes depth, GBuffer runs depth-equal and writes the MRT).
+    //! One-time setup for GBufferPass: creates its per-pass material sampler SRG (space2,
+    //! g_MatSampler) up front so BindPassDrawItems can auto-inject it by PassTag. The
+    //! GBuffer's DrawItems are derived from world Drawables (OpaqueTag) by DeriveDrawItems
+    //! and their bindings/viewport filled by BindPassDrawItems — no per-frame work here.
     class GBufferProcessor final
     {
     public:
         void Init();
-        void Shutdown();
-        void Process(const Math::Vector2Int& renderSize);
     };
 }

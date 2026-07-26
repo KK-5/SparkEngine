@@ -5,7 +5,6 @@ set(SOURCES
     Feature/UI/UIProcessFeature.cpp
     Feature/UI/CopyFrameBufferPass.cpp
     Feature/DepthPre/DepthPrePass.cpp
-    Feature/DepthPre/DepthPreProcessor.cpp
     Feature/GBuffer/GBufferPass.cpp
     Feature/GBuffer/GBufferProcessor.cpp
     Feature/Lighting/LightingPass.cpp

@@ -14,7 +14,6 @@
 
 #include "Feature/UI/RenderUI.h"
 #include "Feature/UI/UIProcessFeature.h"
-#include "Feature/DepthPre/DepthPreProcessor.h"
 #include "Feature/GBuffer/GBufferProcessor.h"
 #include "Feature/Lighting/LightingProcessor.h"
 #include "Feature/Skybox/SkyboxProcessor.h"
@@ -64,7 +63,6 @@ namespace Spark::Render
         
         RenderUI m_rednerUI;
         UIProcessFeature m_uiProcessFeature;
-        DepthPreProcessor m_depthPreProcessor;
         GBufferProcessor m_gbufferProcessor;
         LightingProcessor m_lightingProcessor;
         SkyboxProcessor m_skyboxProcessor;
