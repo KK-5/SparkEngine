@@ -20,18 +20,17 @@ namespace Spark::Resource
     {
         eastl::string MakeImageSubLabel(const eastl::string& name, size_t index)
         {
-            if (!name.empty())
-            {
-                return eastl::string("image/") + name;
-            }
             char buf[32];
             std::snprintf(buf, sizeof(buf), "image/%zu", index);
-            return eastl::string(buf);
+            eastl::string label(buf);
+            if (!name.empty())
+            {
+                label += "/";
+                label += name;
+            }
+            return label;
         }
 
-        /// 派发一张图片作为子资产。Builder 不依赖 SparkAssetManager —— 编排序列
-        /// 通过 AssetBuildBus / AssetBus / ctx.db 横向完成，与 SparkAssetManager::ProcessAsset
-        /// 的协议保持一致（协议固化在 Bus 接口本身）。
         void DispatchImageSubAsset(AssetBuildContext& parentCtx,
                                    AssetId subId,
                                    const uint8_t* sourceData,
@@ -41,7 +40,7 @@ namespace Spark::Resource
             ASSERT(parentCtx.db != nullptr,
                 "[ModelAssetBuilder] parent ctx.db not set; cannot dispatch sub-asset");
 
-            // 1. dedup —— 外部图被多个模型 / 同图被复用时直接命中
+            // 1. dedup
             if (parentCtx.db->Find(subId))
             {
                 return;
@@ -137,19 +136,14 @@ namespace Spark::Resource
             return;
         }
 
-        // 1. 几何编译
         ctx.compiledData = m_compiler.Compile(ctx.id, *ctx.rawData);
 
-        // 2. 图片子资产派发 —— 用 raw 端的 m_rawImages（compiledData 上恒为空），
-        //    同时把对应 AssetId 写到 compiledData.m_imageAssetIds，index 对齐
-        //    raw.m_rawImages / glTF images[]；无效槽位 push 默认 AssetId 占位。
         auto& raw      = static_cast<ModelAssetRawData&>(*ctx.rawData);
         auto& compiled = static_cast<ModelAssetData&>(*ctx.compiledData);
 
-        // glTF 父目录：外部图相对路径的解析基准
         eastl::string modelDir;
         {
-            auto parent = std::filesystem::path(raw.GetResolvedPath().c_str())
+            auto parent = std::filesystem::path(compiled.GetResolvedPath().c_str())
                 .parent_path().string();
             modelDir.assign(parent.c_str(), parent.size());
         }
@@ -185,7 +179,6 @@ namespace Spark::Resource
             auto& entry = raw.m_rawImages[i];
             const ImageUsage usage = imageUsages[i];
 
-            // 空 entry（Loader 标记的不支持源）—— 占位保对齐，不派发
             if (entry.data.empty() && entry.externalUri.empty())
             {
                 compiled.m_imageAssetIds.push_back(AssetId{});
@@ -218,15 +211,11 @@ namespace Spark::Resource
                 }
             }
 
-            // 先记录 AssetId（包含 dispatch 失败 / dedup 命中的情形：runtime 仍
-            // 能通过 Find 拿到现有或 Error 状态的 ImageAsset）
             compiled.m_imageAssetIds.push_back(subId);
 
             DispatchImageSubAsset(ctx, eastl::move(subId), src, srcSize, eastl::move(extra));
         }
 
-        // 3. 组装材质 —— 从 raw.m_rawMaterials（factors + glTF image 索引）产出 compiled.m_materials
-        //    （factors + 已解析的 image 子资产 AssetId）。此刻 m_imageAssetIds 就绪。
         auto resolveImageId = [&](int32_t imageIndex) -> AssetId
         {
             if (imageIndex >= 0 && static_cast<size_t>(imageIndex) < compiled.m_imageAssetIds.size())
@@ -257,7 +246,6 @@ namespace Spark::Resource
             compiled.m_materials.push_back(eastl::move(mat));
         }
 
-        // 4. 主动释放内嵌图字节（raw 随构建结束析构，这里提早释放）
         raw.m_rawImages.clear();
     }
 }

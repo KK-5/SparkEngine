@@ -397,9 +397,11 @@ namespace Spark::Resource
                 }
 
                 // ---- glTF (CCW front) → engine LH screen winding ----
-                // Diagnostic: only reverse triangle winding; leave positions/normals/
-                // tangents untouched to see if the model's face layout matches engine
-                // Y-up convention without any per-axis flip.
+                // Preemptive RH→LH winding swap. It pairs with the diag(1,1,-1) basis
+                // change applied to node world transforms below: that z→-z flip mirrors
+                // the geometry, and BakeNodeTransformIntoPrimitive undoes this swap for
+                // nodes whose final world determinant is negative, keeping front faces
+                // consistently wound after the handedness conversion.
                 for (size_t i = 0; i + 2 < indices.size(); i += 3)
                 {
                     const uint32_t tmp = indices[i + 1];
@@ -508,6 +510,20 @@ namespace Spark::Resource
         // transform is baked; subsequent references are warned and skipped.
         // Real instancing support requires duplicating mesh data per reference.
         {
+            // glTF is right-handed (Y-up, -Z forward); this engine is left-handed
+            // (glm::perspectiveLH_ZO / lookAtLH → +Z forward). The only difference is
+            // the Z axis handedness, so a diag(1,1,-1) basis change converts glTF space
+            // to engine space. Left-multiplying it onto the root world transform bakes
+            // z→-z into every vertex (positions via the matrix, normals via the normal
+            // matrix, tangents via the rotation part) and — because det(S) = -1 flips the
+            // sign of each node's world determinant — routes every node through
+            // BakeNodeTransformIntoPrimitive's mirror branch, which undoes the preemptive
+            // RH→LH winding swap and flips tangent.w. A node that was already mirrored in
+            // glTF (negative scale, e.g. this model's node 6) becomes non-mirrored under S
+            // and takes the other branch, so its winding stays correct too.
+            const Math::Matrix4X4 rhToLh =
+                Math::Scale(Math::Matrix4X4(1.0f), Math::Vector3(1.0f, 1.0f, -1.0f));
+
             // FlattenNodes guarantees children appear after their parent in
             // m_nodes, so a single forward pass can compose world transforms.
             eastl::vector<Math::Matrix4X4> worldTransforms(
@@ -523,7 +539,9 @@ namespace Spark::Resource
                 }
                 else
                 {
-                    worldTransforms[i] = node.localTransform;
+                    // Root: prepend the RH→LH basis change. Children inherit it through
+                    // their parent's world transform.
+                    worldTransforms[i] = rhToLh * node.localTransform;
                 }
             }
 
