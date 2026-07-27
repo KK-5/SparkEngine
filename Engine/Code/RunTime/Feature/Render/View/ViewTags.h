@@ -12,8 +12,8 @@ namespace Spark::Render
     //! culling for view V this frame. Visibility is inherently per-view, so this is
     //! templated on the view tag from the start.
     //!
-    //! Until a culling system exists, DrawableComposer stamps Visible<MainViewTag> on the
-    //! Drawables it produces and DeriveDrawItems on the DrawItems it derives ("no culling
+    //! Until a culling system exists, MeshDrawableComposer stamps Visible<MainViewTag> on
+    //! the Drawables it produces and DrawItemRouter on the DrawItems it derives ("no culling
     //! yet = everything visible"); the culling system will later own the set/clear.
     template <typename ViewTag>
     struct Visible {};

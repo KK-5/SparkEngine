@@ -22,7 +22,8 @@
 #include "SceneBind/SceneBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
 #include "MaterialBind/MaterialBindingSystem.h"
-#include "Drawable/DrawableComposer.h"
+#include "Drawable/MeshDrawableComposer.h"
+#include "Drawable/DrawItemRouter.h"
 
 namespace Spark::Render
 {
@@ -71,7 +72,8 @@ namespace Spark::Render
         SceneBindingSystem m_sceneBindingSystem;
         MaterialBindingSystem m_materialBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
-        DrawableComposer m_drawableComposer;
+        MeshDrawableComposer m_meshDrawableComposer;
+        DrawItemRouter       m_drawItemRouter;
 
         Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;

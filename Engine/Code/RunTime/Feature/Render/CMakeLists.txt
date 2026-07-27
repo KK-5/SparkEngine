@@ -24,7 +24,8 @@ set(SOURCES
     SceneBind/SceneBindingSystem.cpp
     Instance/InstanceBindingSystem.cpp
     MaterialBind/MaterialBindingSystem.cpp
-    Drawable/DrawableComposer.cpp
+    Drawable/MeshDrawableComposer.cpp
+    Drawable/DrawItemRouter.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

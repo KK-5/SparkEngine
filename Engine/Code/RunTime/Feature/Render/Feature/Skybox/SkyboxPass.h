@@ -11,7 +11,7 @@ namespace Spark::Render
     //! it into SceneColor. No geometry — the VS synthesizes a full-screen triangle from
     //! SV_VertexID (empty input layout), so the pass just declares the SceneColor write
     //! and submits whatever DrawItems are tagged for it — SkyboxProcessor creates a
-    //! procedural Drawable and DeriveDrawItems routes it here. Registered after
+    //! procedural Drawable and DrawItemRouter routes it here. Registered after
     //! DepthPrePass (which creates + clears SceneColor) and before CopyFrameBufferPass.
     struct SkyboxPass
     {

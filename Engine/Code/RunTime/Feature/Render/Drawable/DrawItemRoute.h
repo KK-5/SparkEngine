@@ -10,7 +10,7 @@ namespace Spark::Render
     //! Type-erased per-pass rule for deriving DrawItems from Drawables. A pass declares
     //! it via RenderPassBuilder::Accepts<DrawTags...>() at SetUp — where its PassTag and
     //! the consumed DrawTags are known — which freezes the two functions below into
-    //! pointers stored on the pass entity. DrawableComposer enumerates it at runtime.
+    //! pointers stored on the pass entity. DrawItemRouter enumerates it at runtime.
     struct DrawItemRoute
     {
         bool (*m_accepts)(RHI::RHIContext&, RHI::RHIHandle drawable); //!< carries all consumed DrawTags?

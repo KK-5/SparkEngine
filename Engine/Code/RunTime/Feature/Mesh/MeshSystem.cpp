@@ -107,7 +107,7 @@ namespace Spark::Mesh
 
         // Vertex buffer: static-import create + upload only. The render-graph
         // static-import attachment (which drives the upload→VB barrier + copy→graphics
-        // fence) is registered by the render-side consumer (DrawableComposer), not
+        // fence) is registered by the render-side consumer (MeshDrawableComposer), not
         // here — the feature produces the resource; render decides its usage.
         RHI::BufferDescriptor vbDesc;
         vbDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
@@ -120,7 +120,7 @@ namespace Spark::Mesh
             *rhiCtx, vbEntity, prim.vertexBuffer.data(), prim.vertexBuffer.size());
 
         // Index buffer: same static-import create + upload; attachment likewise
-        // registered by the render consumer (DrawableComposer).
+        // registered by the render consumer (MeshDrawableComposer).
         RHI::RHIHandle ibEntity = RHI::NullHandle;
         if (!prim.indexBuffer.empty())
         {

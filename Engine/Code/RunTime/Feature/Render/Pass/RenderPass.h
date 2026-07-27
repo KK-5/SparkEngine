@@ -114,7 +114,7 @@ namespace Spark::Render
         }
 
         // ---- Draw-item routing ----
-        // Declare the Drawable classifications this pass consumes; DrawableComposer
+        // Declare the Drawable classifications this pass consumes; DrawItemRouter
         // derives one DrawItem per accepted Drawable. Full-screen / procedural passes
         // omit this.
         template<typename... DrawTags>

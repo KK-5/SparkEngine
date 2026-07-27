@@ -57,7 +57,7 @@ namespace Spark::Render
     //! stream, or the per-draw bindings) and from the InstanceSlotTable sentinel.
     struct DrawableTag {};
 
-    //! Placed on a WORLD entity once DrawableComposer has produced its
+    //! Placed on a WORLD entity once MeshDrawableComposer has produced its
     //! Drawable. Filters the find-or-create predicate so already-composed
     //! entities are skipped. A system that invalidates the Drawable's
     //! resources (mesh swap etc.) is responsible for removing this tag so
@@ -99,7 +99,7 @@ namespace Spark::Render
     //! Per-object data provisioning — STRATEGY 0 (none). The draw has no per-object
     //! data at all: no shared buffer, no per-draw SRG, no ID stream, StartInstance = 0.
     //! Used by procedural draws (e.g. a full-screen skybox triangle) that still flow
-    //! through the single DeriveDrawItems translation but carry no geometry instancing.
+    //! through the single DrawItemRouter translation but carry no geometry instancing.
     //! Listed first so a default-constructed Drawable provisions nothing.
     struct NoInstanceBinding {};
 

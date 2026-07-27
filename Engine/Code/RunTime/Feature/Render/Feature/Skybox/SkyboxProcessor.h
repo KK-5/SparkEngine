@@ -10,7 +10,7 @@ namespace Spark::RHI
 namespace Spark::Render
 {
     //! Drives the SkyboxPass. Init creates the pass's procedural full-screen Drawable —
-    //! classified with SkyboxPass's own PassTag so DeriveDrawItems routes it to exactly
+    //! classified with SkyboxPass's own PassTag so DrawItemRouter routes it to exactly
     //! this pass — and allocates its cube SRG (space2). Unlike the lighting/tonemap
     //! processors it keeps a per-frame Process: the environment cube is a static import
     //! (published by SkyboxSystem as a world component), not a graph transient, so its
@@ -18,7 +18,7 @@ namespace Spark::Render
     //! bakes the SRG pointer onto the DrawItem; Process refreshes its content in place.
     //!
     //! No cube ready -> g_SkyCube stays unbound and the sky renders black until it
-    //! materializes. The Drawable is reaped by DrawableComposer, the SRG by
+    //! materializes. The Drawable is reaped by DrawItemRouter, the SRG by
     //! ReapPassShaderBindings — hence no Shutdown.
     class SkyboxProcessor final
     {

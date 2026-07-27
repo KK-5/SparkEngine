@@ -155,7 +155,8 @@ namespace Spark::Render
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
 
-        m_drawableComposer.Init(rhiCtxForInit);
+        m_meshDrawableComposer.Init(rhiCtxForInit);
+        m_drawItemRouter.Init(rhiCtxForInit);
 
         m_gbufferProcessor.Init();
         m_lightingProcessor.Init();
@@ -184,9 +185,10 @@ namespace Spark::Render
         TickBus::Handler::BusDisconnect();
 
         // The feature processors own no teardown: procedural Drawables are reaped by
-        // DrawableComposer (below), per-pass SRGs by ReapPassShaderBindings.
+        // DrawItemRouter (below), per-pass SRGs by ReapPassShaderBindings.
 
-        m_drawableComposer.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_drawItemRouter.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_meshDrawableComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -238,10 +240,12 @@ namespace Spark::Render
         m_materialBindingSystem.Update(frameIndex);
         m_instanceBindingSystem.Update(frameIndex);
 
-        m_drawableComposer.Update();
-        // Producer-agnostic DrawItem derivation: routes every not-yet-derived Drawable
-        // (world-composed or otherwise) through the passes that accept it.
-        m_drawableComposer.DeriveDrawItems();
+        // World → Drawable: find-or-create over renderable world entities.
+        m_meshDrawableComposer.Update();
+        // Producer-agnostic Drawable → DrawItem routing: reap dead-dependency Drawables,
+        // then route every not-yet-derived Drawable (world-composed or otherwise) through
+        // the passes that accept it.
+        m_drawItemRouter.Process();
 
         // Per-frame DrawItem update: each pass's route rewrites its DrawItems' shared
         // bindings, viewport, and startInstance (BindPassDrawItems). Passes without a
@@ -257,7 +261,7 @@ namespace Spark::Render
 
         m_uiProcessFeature.Process();
         // DepthPre/GBuffer/Lighting/Tonemap have no per-frame work: their DrawItems are
-        // derived by DeriveDrawItems and filled by BindPassDrawItems (transient views via
+        // derived by DrawItemRouter and filled by BindPassDrawItems (transient views via
         // each pass's Compile hook). Skybox refreshes its static cube SRG in place.
         m_skyboxProcessor.Process();
 

@@ -31,9 +31,9 @@ namespace Spark::Render
         }
 
         // Procedural full-screen triangle (DrawLinear(3)), no per-object data. Classified
-        // with this pass's own PassTag: DeriveDrawItems routes it to exactly the SkyboxPass
+        // with this pass's own PassTag: DrawItemRouter routes it to exactly the SkyboxPass
         // route (.Accepts<SkyboxPassTag>()) and no other pass. DerivedDrawItems is the
-        // reverse ref DrawableComposer teardown reaps through.
+        // reverse ref DrawItemRouter teardown reaps through.
         m_drawable = rhiCtx->CreateEntity();
         Drawable drawable;
         drawable.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
