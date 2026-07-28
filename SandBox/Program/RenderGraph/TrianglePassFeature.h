@@ -1,7 +1,11 @@
 #pragma once
 
 #include <Base.h>
+#include <Math/Vector3.h>
+#include <Math/Matrix4x4.h>
+#include <Math/MathUtils.h>
 #include <Tick/TickBus.h>
+
 #include <Pass/Pass.h>
 #include <RHI/Context/RHIHandle.h>
 #include <RHI/Viewport/Viewport.h>
@@ -39,7 +43,7 @@ namespace Spark::SandBox
     private:
         void CreateTrianglePass();
         void CreateVertexBuffer();
-        void UpdateViewBindings();
+        void Update();
         void BuildDrawable();
 
         // Vertex buffer (in RHIContext) + raw view entity used to import it as
@@ -52,6 +56,9 @@ namespace Spark::SandBox
 
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_shader;
+
+        Spark::Math::Matrix4X4 m_matrix;
+        Spark::Math::Vector3   m_colors[3];
 
         Spark::RHI::Viewport m_viewport;
         Spark::RHI::Scissor  m_scissor;

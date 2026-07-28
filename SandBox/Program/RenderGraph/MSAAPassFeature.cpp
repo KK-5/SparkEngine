@@ -92,7 +92,6 @@ namespace Spark::SandBox
         // SRG (via SetPassShaderConstant); BindPassDrawItems later injects it by PassTag.
         CreateVertexBuffer();
         CreatePasses();
-        UpdateViewBindings();
         BuildDrawable();
 
         TickBus::Handler::BusConnect();
@@ -142,7 +141,7 @@ namespace Spark::SandBox
 
     void MSAAPassFeature::OnTick(float /*deltaTime*/)
     {
-        UpdateViewBindings();
+        Update();
     }
 
     void MSAAPassFeature::CreateVertexBuffer()
@@ -228,6 +227,13 @@ namespace Spark::SandBox
                 // TriangleVB is StaticImportTag — attachment declared at creation.
                 // No per-frame build registration needed.
             })
+            .Compile([this](Spark::Render::RenderGraphCompiler& compiler)
+            {
+                Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
+                    /*spaceId*/ 0, Spark::RHI::InputName("g_MVP"), m_matrix);
+                Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
+                    /*spaceId*/ 0, Spark::RHI::InputName("g_Colors"), m_colors);
+            })
             .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
@@ -294,7 +300,7 @@ namespace Spark::SandBox
         rhiCtx.Add<Render::DerivedDrawItems>(m_drawable, Render::DerivedDrawItems{});
     }
 
-    void MSAAPassFeature::UpdateViewBindings()
+    void MSAAPassFeature::Update()
     {
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
@@ -316,24 +322,17 @@ namespace Spark::SandBox
             Math::Vector3(0.f, 1.f, 0.f));
         Math::Matrix4X4 proj = Math::PerspectiveFov(
             Math::Radians(45.f), aspect, 0.1f, 100.f);
-        Math::Matrix4X4 mvp = proj * view * model;
-
-        Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
-            /*spaceId*/ 0, Spark::RHI::InputName("g_MVP"), mvp);
+        m_matrix = proj * view * model;
 
         m_colorPhase += 0.01f;
-        Math::Vector3 colors[3];
         for (int i = 0; i < 3; ++i)
         {
             float phase = m_colorPhase + i * 2.0f;
-            colors[i] = Math::Vector3(
+            m_colors[i] = Math::Vector3(
                 sinf(phase) * 0.5f + 0.5f,
                 sinf(phase + 2.0f) * 0.5f + 0.5f,
                 sinf(phase + 4.0f) * 0.5f + 0.5f);
         }
-
-        Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
-            /*spaceId*/ 0, Spark::RHI::InputName("g_Colors"), colors);
     }
 
 }

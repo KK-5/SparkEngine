@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Base.h>
+#include <Math/Vector3.h>
+#include <Math/Matrix4x4.h>
 #include <Tick/TickBus.h>
 #include <Pass/Pass.h>
 #include <RHI/Context/RHIHandle.h>
@@ -39,7 +41,7 @@ namespace Spark::SandBox
     private:
         void CreateVertexBuffer();
         void CreatePasses();
-        void UpdateViewBindings();
+        void Update();
         void BuildDrawable();
 
         // Vertex buffer (in RHIContext)
@@ -49,6 +51,10 @@ namespace Spark::SandBox
 
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_shader;
+
+        // Per-frame CPU data computed in Update(), consumed by the pass Compile hook.
+        Spark::Math::Matrix4X4 m_matrix;
+        Spark::Math::Vector3   m_colors[3];
 
         Spark::RHI::Viewport m_viewport;
         Spark::RHI::Scissor  m_scissor;

@@ -45,6 +45,7 @@
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
+#include <RenderGraph/RenderGraphUtils.h>
 #include <Drawable/Drawable.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
@@ -74,7 +75,6 @@ namespace Spark::SandBox
         CreateImage();
         CreateVertexBuffer();
         CreatePasses();
-        UpdateViewBindings();
 
         BuildDrawable();
 
@@ -129,7 +129,7 @@ namespace Spark::SandBox
 
     void DrawCube::OnTick(float /*deltaTime*/)
     {
-        UpdateViewBindings();
+        Update();
     }
 
     void DrawCube::LoadAsset()
@@ -326,6 +326,41 @@ namespace Spark::SandBox
                 builder.CreateImageAttachment<SPARK_PASS_TAG("ScenePass")>(
                     RHI::AttachmentId("SceneDepth"), depthDesc, depthBind, RHI::AttachmentAccess::Write);
             })
+            .Compile([this](Spark::Render::RenderGraphCompiler& compiler)
+            {
+                auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
+                auto& passCtx = *Spark::Render::PassExecuteContext::Current();
+
+                // View constants (space1) travel the pass-shaderbinding path here, not the
+                // engine's shared ViewBindingSystem: get-or-create this pass's space1 SRG,
+                // then WriteViewConstants — same mechanism as SetPassShaderConstant.
+                Spark::RHI::RHIHandle viewBindings =
+                    Spark::Render::GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
+                        passCtx, rhiCtx, /*spaceId*/ 1);
+                if (viewBindings == Spark::RHI::NullHandle)
+                {
+                    return;
+                }
+                Spark::Render::WriteViewConstants(m_camera, viewBindings);
+
+                Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
+                    /*spaceId*/ 0, Spark::RHI::InputName("g_Model"), m_modelMatrix);
+
+                if (Spark::Render::IsResourceReady(rhiCtx, m_baseColor))
+                {
+                    auto image = rhiCtx.Get<RHI::Components::Image>(m_baseColor);
+                    auto* view = Spark::RHI::GetOrCreateImageView(
+                        rhiCtx, m_baseColor, *image.m_image, m_baseColorViewDesc);
+                    if (view)
+                    {
+                        Spark::Render::SetPassShaderImage<SPARK_PASS_TAG("ScenePass")>(
+                            /*spaceId*/ 0, Spark::RHI::InputName("g_Texture"), view);
+                    }
+                }
+
+                Spark::Render::SetPassShaderSampler<SPARK_PASS_TAG("ScenePass")>(
+                    /*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
+            })
             .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
@@ -401,7 +436,7 @@ namespace Spark::SandBox
         rhiCtx.Add<Render::DerivedDrawItems>(m_drawable, Render::DerivedDrawItems{});
     }
 
-    void DrawCube::UpdateViewBindings()
+    void DrawCube::Update()
     {
         auto* window = Service<Spark::Window::IWindowSystem>::Get();
         auto windowSize = window->GetWindowSize();
@@ -412,47 +447,16 @@ namespace Spark::SandBox
         float aspect = (float)windowSize.x / (float)windowSize.y;
 
         m_rotationAngle += 0.01f;
-        Math::Matrix4X4 model = Math::Rotate(
+        m_modelMatrix = Math::Rotate(
             Math::Matrix4X4Const::IDENTITY,
             m_rotationAngle,
             Math::Vector3(0.f, 1.f, 0.f));   // spin around world up
 
-        Render::View camera = Render::MakePerspectiveView(
+        m_camera = Render::MakePerspectiveView(
             Math::Vector3(0.f, 5.f, -5.f),   // eye
             Math::Vector3(0.f, 0.f, 0.f),    // target
             Math::Vector3(0.f, 1.f, 0.f),    // up
             Math::Radians(45.f), aspect, 0.1f, 100.f);
-
-        auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-
-        auto& passCtx = *Spark::Render::PassExecuteContext::Current();
-        Spark::RHI::RHIHandle viewBindings =
-            Spark::Render::GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(passCtx, rhiCtx, /*spaceId*/ 1);
-        if (viewBindings == Spark::RHI::NullHandle)
-        {
-            return;
-        }
-        Spark::Render::WriteViewConstants(camera, viewBindings);
-
-        // Per-object model / texture / sampler go through the pass-keyed setters
-        // (no handle needed — same space0 SRG, resolved by tag).
-        Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
-            /*spaceId*/ 0, Spark::RHI::InputName("g_Model"), model);
-
-        if (auto* imgComp = rhiCtx.TryGet<Spark::RHI::Components::Image>(m_baseColor);
-            imgComp && imgComp->m_image)
-        {
-            auto* view = Spark::RHI::GetOrCreateImageView(
-                rhiCtx, m_baseColor, *imgComp->m_image, m_baseColorViewDesc);
-            if (view)
-            {
-                Spark::Render::SetPassShaderImage<SPARK_PASS_TAG("ScenePass")>(
-                    /*spaceId*/ 0, Spark::RHI::InputName("g_Texture"), view);
-            }
-        }
-
-        Spark::Render::SetPassShaderSampler<SPARK_PASS_TAG("ScenePass")>(
-            /*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
     }
 
 }

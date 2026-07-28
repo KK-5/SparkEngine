@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Base.h>
+#include <Math/Matrix4x4.h>
 #include <Tick/TickBus.h>
 #include <Pass/Pass.h>
 #include <RHI/Context/RHIHandle.h>
@@ -8,6 +9,7 @@
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Viewport/Viewport.h>
 #include <RHI/Scissor/Scissor.h>
+#include <View/View.h>
 
 namespace Spark::RHI
 {
@@ -43,7 +45,7 @@ namespace Spark::SandBox
     private:
         void CreateVertexBuffer();
         void CreatePasses();
-        void UpdateViewBindings();
+        void Update();
         void BuildDrawable();
         void LoadAsset();
         void CreateImage();
@@ -64,6 +66,10 @@ namespace Spark::SandBox
 
         // Transform
         float m_rotationAngle = 0.f;
+
+        // Per-frame CPU data computed in Update(), consumed by the ScenePass Compile hook.
+        Spark::Math::Matrix4X4 m_modelMatrix;
+        Spark::Render::View    m_camera;
 
         // Pass-level viewport / scissor (stored here so CreatePasses can pick them up)
         Spark::RHI::Viewport m_viewport;
