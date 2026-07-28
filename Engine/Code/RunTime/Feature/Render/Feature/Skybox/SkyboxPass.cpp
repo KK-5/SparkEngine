@@ -144,27 +144,25 @@ namespace Spark::Render
             })
             .Compile([](RenderGraphCompiler& compiler)
             {
-                // Only when Build imported the cube this frame — mirrors Build's gate
-                // (active cube + IsResourceReady) so no unbound-slot lookup runs.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                RHI::RHIHandle cube = RHI::NullHandle;
-                rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
-                    [&](RHI::RHIHandle e) { cube = e; });
-                if (!IsResourceReady(rhiCtx, cube))
+                RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("SkyboxPass")>(
+                    rhiCtx, 
+                    RHI::InputName("SkyCube"), 
+                    compiler.GetFrameIndex()
+                );
+                if (!view)
                 {
                     return;
                 }
-                // Constant sky sampler — change-detected, so this per-frame set is a no-op
-                // after the first bind (all this pass's shader-resource binding lives here now).
+                // Bind the cube + its constant sampler together (sampler is change-detected,
+                // so the per-frame set is a no-op after the first bind). Gating both on the
+                // view keeps the space2 SRG all-or-nothing.
                 SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
-                    2, RHI::InputName("g_SkySampler"),
-                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
-                RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("SkyboxPass")>(
-                    rhiCtx, RHI::InputName("SkyCube"), compiler.GetFrameIndex());
-                if (view)
-                {
-                    SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), view);
-                }
+                    2, 
+                    RHI::InputName("g_SkySampler"),
+                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp)
+                );
+                SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), view);
             })
             .Execute([](ExecuteWork& work, RenderGraphExecuter&)
             {
