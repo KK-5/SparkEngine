@@ -18,6 +18,8 @@
 #include <View/ViewTags.h>
 #include <SceneBind/SceneBinding.h>
 
+#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
+
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
@@ -106,7 +108,7 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
-            .Accepts<SPARK_PASS_TAG("LightingPass")>()
+            .Accepts<FullScreenTriangleTag>()
             .Binds<MainViewTag, MainSceneTag>()
             .Build([](RenderGraphBuilder& builder)
             {
@@ -186,7 +188,7 @@ namespace Spark::Render
             {
                 // Post-CompileTransientResources, pre-CompileShaderInputs: the GBuffer
                 // is materialized, so resolve each target's view and stage it into this
-                // pass's space2 SRG (created by LightingProcessor). SetPassShaderImage
+                // pass's space2 SRG (auto-created by Finalize). SetPassShaderImage
                 // marks the SRG dirty so CompileShaderInputs recompiles it with the views.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 const uint32_t frameIndex = compiler.GetFrameIndex();

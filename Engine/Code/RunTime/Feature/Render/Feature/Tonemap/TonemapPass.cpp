@@ -11,6 +11,8 @@
 #include <Pass/RenderPass.h>
 #include <Pass/PassAccess.h>
 
+#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
+
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
@@ -75,10 +77,7 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
-            // Consume the procedural Drawable TonemapProcessor tags with this pass's own
-            // PassTag; bind the shared view SRG (space1) for g_Exposure. The SceneColor SRG
-            // (space2) is auto-injected by PassTag.
-            .Accepts<SPARK_PASS_TAG("TonemapPass")>()
+            .Accepts<FullScreenTriangleTag>()
             .Binds<MainViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {
@@ -118,8 +117,8 @@ namespace Spark::Render
             {
                 // Post-CompileTransientResources, pre-CompileShaderInputs: SceneColor is
                 // materialized, so resolve its view and stage it into this pass's space2
-                // (per-pass tier) SRG, get-or-created by SetPassShaderImage. The full-screen
-                // triangle draw is built by TonemapProcessor.
+                // (per-pass tier) SRG (auto-created by Finalize). The full-screen triangle
+                // DrawItem comes from the shared FullScreenTriangleTag Drawable.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 const uint32_t frameIndex = compiler.GetFrameIndex();
 

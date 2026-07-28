@@ -1,4 +1,5 @@
 #include "RenderGraphCompiler.h"
+#include "RenderGraphUtils.h"
 
 #include <EASTL/algorithm.h>
 #include <EASTL/bonus/overloaded.h>
@@ -30,34 +31,6 @@
 namespace Spark::Render
 {
 
-namespace
-{
-    // Buffer/Image overloads pick the matching usage->AccessFlags translation; a Shader
-    // read differs (buffers add ConstantBufferRead, images are SRV-only).
-    RHI::AccessFlags ConvertAttachmentAccess(const BufferPassAttachment& att)
-    {
-        return RHI::ConvertBufferAccess(att.m_usage, att.m_access);
-    }
-
-    RHI::AccessFlags ConvertAttachmentAccess(const ImagePassAttachment& att)
-    {
-        return RHI::ConvertImageAccess(att.m_usage, att.m_access);
-    }
-
-    template <typename AttachmentT>
-    RHI::ResourceState CompileResourceState(const AttachmentT& attachment)
-    {
-        ASSERT(attachment.m_usage != RHI::AttachmentUsage::Uninitialized,
-            "[RenderSystem] Attachment has uninitialized usage.");
-        ASSERT(attachment.m_access != RHI::AttachmentAccess::Unknown,
-            "[RenderSystem] Attachment has unknown access.");
-
-        RHI::ResourceState state;
-        state.m_access = ConvertAttachmentAccess(attachment);
-        return state;
-    }
-} // namespace
-
     void RenderGraphCompiler::Begin(uint32_t frameIndex)
     {
         m_frameIndex = frameIndex;
@@ -74,25 +47,48 @@ namespace
             return RHI::HardwareQueueClass::Graphics;
         };
 
+        // Collect the cross-queue upload fence-wait for `resource` onto its home queue's
+        // pre-barrier list, de-duplicated by (fence, value): several static resources
+        // uploaded in one batch share a single fence value, so the queue only waits once.
+        // No-op if the resource carries no PendingSync, or its fence already reached the
+        // value (the wait would be redundant — fence values are monotonic, so "done at
+        // compile" stays done through execute).
+        auto CollectFenceWait = [&context](RHIHandle resource, StaticPreBarriers& out)
+        {
+            auto* sync = context.TryGet<RHI::PendingSync>(resource);
+            if (!sync)
+            {
+                return;
+            }
+            if (sync->m_fence && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue)
+            {
+                return;
+            }
+            for (const auto& w : out.m_fenceWaits)
+            {
+                if (w.m_fence == sync->m_fence && w.m_fenceValue == sync->m_fenceValue)
+                {
+                    return; // already collected for this queue
+                }
+            }
+            out.m_fenceWaits.push_back(*sync);
+        };
+
         // Buffer static imports
         context.GetView<StaticImportTag, BufferPassAttachment>().each(
             [&](RHIHandle resource, const BufferPassAttachment& att) {
                 // StaticImportTag lives on the resource entity; the attachment is
                 // also on the resource entity (static imports are accessed via SRG
                 // bindings, not as pass attachments).
-                auto* buf = context.TryGet<Buffer>(resource);
-                if (!buf || !buf->m_buffer)
-                {
-                    return; // Resource not materialized yet
-                }
-                // Upload not yet submitted (PendingSync absent): the resource sits
-                // at its post-Init Uninitialized state, but advancing it now would
-                // race the eventual cross-queue copy. Defer the static barrier to
-                // a later frame when SubmitBatch has stamped PendingSync.
-                if (context.Has<RHI::UploadPendingTag>(resource))
+                // Materialized AND its one-time upload submitted — otherwise defer to a
+                // later frame. Advancing state before upload-submit would race the pending
+                // cross-queue copy. See IsResourceReady (RenderGraphUtils.h) for the full
+                // rationale (shared with the imported-resource pass path).
+                if (!IsResourceReady(context, resource))
                 {
                     return;
                 }
+                auto* buf = context.TryGet<Buffer>(resource);
 
                 const RHI::ResourceState src = buf->m_buffer->GetResourceState();
                 RHI::ResourceState       dst = CompileResourceState(att);
@@ -118,27 +114,7 @@ namespace
                 // Fence wait for cross-queue handoff from upload
                 if (src.m_queue != homeQueue)
                 {
-                    if (auto* sync = context.TryGet<RHI::PendingSync>(resource))
-                    {
-                        if (!(sync->m_fence
-                            && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue))
-                        {
-                            auto& waits = table[qi].m_fenceWaits;
-                            bool found = false;
-                            for (const auto& w : waits)
-                            {
-                                if (w.m_fence == sync->m_fence && w.m_fenceValue == sync->m_fenceValue)
-                                {
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if (!found)
-                            {
-                                waits.push_back(*sync);
-                            }
-                        }
-                    }
+                    CollectFenceWait(resource, table[qi]);
                 }
 
                 RHI::BufferBarrier b;
@@ -158,16 +134,12 @@ namespace
                 // StaticImportTag lives on the resource entity; the attachment is
                 // also on the resource entity (static imports are accessed via SRG
                 // bindings, not as pass attachments).
+                // Materialized AND upload submitted — see the buffer path above.
+                if (!IsResourceReady(context, resource))
+                {
+                    return;
+                }
                 auto* img = context.TryGet<Image>(resource);
-                if (!img || !img->m_image)
-                {
-                    return;
-                }
-                // See BufferPassAttachment path above for the rationale.
-                if (context.Has<RHI::UploadPendingTag>(resource))
-                {
-                    return;
-                }
 
                 const RHI::ResourceState src = img->m_image->GetResourceState();
                 RHI::ResourceState       dst = CompileResourceState(att);
@@ -188,27 +160,7 @@ namespace
 
                 if (src.m_queue != homeQueue)
                 {
-                    if (auto* sync = context.TryGet<RHI::PendingSync>(resource))
-                    {
-                        if (!(sync->m_fence
-                            && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue))
-                        {
-                            auto& waits = table[qi].m_fenceWaits;
-                            bool found = false;
-                            for (const auto& w : waits)
-                            {
-                                if (w.m_fence == sync->m_fence && w.m_fenceValue == sync->m_fenceValue)
-                                {
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if (!found)
-                            {
-                                waits.push_back(*sync);
-                            }
-                        }
-                    }
+                    CollectFenceWait(resource, table[qi]);
                 }
 
                 // loadOp=Clear discards prior contents — force src to the "no access"
@@ -689,104 +641,6 @@ namespace
         MergeBufferBarriers(pass, passContext, context, result);
 
         passContext.AddOrReplace<PassBarriers>(pass, eastl::move(result));
-    }
-
-    QueueBasedPasses RenderGraphCompiler::CompilePassCrossQueue(eastl::span<Pass> passes)
-    {
-        auto& passContext = *PassExecuteContext::Current();
-
-        QueueBasedPasses result;
-
-        // (dstQueue, srcQueue) → src 队列已同步到的最晚 timeline position
-        eastl::array<eastl::array<uint32_t, RHI::HardwareQueueClassCount>, RHI::HardwareQueueClassCount> syncedPositions;
-        for (auto& row : syncedPositions)
-        {
-            row.fill(RHI::InvalidTimelinePosition);
-        }
-
-        for(auto pass : passes)
-        {
-            ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pass).m_name.GetCStr());
-            const auto curQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
-            const auto queueIndex = static_cast<uint32_t>(curQueue);
-
-            result[queueIndex].push_back(pass);
-
-            if (!passContext.Has<PassPredecessors>(pass))
-            {
-                continue;
-            }
-
-            // 跨队列压缩: 每个源队列只留全局 timeline 最大的 pred。
-            // 全局 timeline 在每个队列子集上仍然单调递增,所以挑出来的"最晚 pred"和
-            // 用队列局部位置比较的结果一致。
-            // Fence value 使用 per-queue 单调递增计数器,不与每帧重置的 timeline 绑定。
-            eastl::array<Pass,     RHI::HardwareQueueClassCount> latestPred{ NullPass, NullPass, NullPass };
-            eastl::array<uint32_t, RHI::HardwareQueueClassCount> latestPos { 0, 0, 0 };
-
-            for (Pass pred: passContext.Get<PassPredecessors>(pass).m_preds)
-            {
-                ASSERT(passContext.Has<PassExecuteQueue>(pred), "The pass {} has not PassExecuteQueue", passContext.Get<PassName>(pred).m_name.GetCStr());
-                ASSERT(passContext.Has<PassGlobalTimeline>(pred), "The pass {} has not PassGlobalTimeline", passContext.Get<PassName>(pred).m_name.GetCStr());
-                const auto predQueue = passContext.Get<PassExecuteQueue>(pred).m_queue;
-                const auto predQueueIndex = static_cast<size_t>(predQueue);
-                const uint32_t predPos = passContext.Get<PassGlobalTimeline>(pred).m_position;
-                // 记录最晚的 pred pass
-                if (latestPred[predQueueIndex] == NullPass || predPos > latestPos[predQueueIndex])
-                {
-                    latestPred[predQueueIndex] = pred;
-                    latestPos[predQueueIndex] = predPos;
-                }
-            }
-
-            for (uint32_t queue = 0; queue < RHI::HardwareQueueClassCount; ++queue)
-            {
-                // 此队列无前驱依赖
-                if (latestPred[queue] == NullPass)
-                {
-                    continue;
-                }
-
-                // 同队列不需要同步 — GPU 按提交顺序串行执行
-                if (queue == queueIndex)
-                {
-                    continue;
-                }
-
-                // 此队列对的同步已被当前队列上更早的 pass 覆盖
-                {
-                    const uint32_t lastSynced = syncedPositions[queueIndex][queue];
-                    if (lastSynced != RHI::InvalidTimelinePosition && latestPos[queue] <= lastSynced)
-                    {
-                        continue;
-                    }
-                }
-                syncedPositions[queueIndex][queue] = latestPos[queue];
-
-                const auto queueSrc = static_cast<RHI::HardwareQueueClass>(queue);
-
-                // 每个 src queue 首次 signal 时递增计数器,后续 wait 复用同一个值
-                if (!passContext.Has<PassSyncSignal>(latestPred[queue]))
-                {
-                    const uint64_t value = ++m_crossQueueFenceValues[queue];
-                    passContext.Add<PassSyncSignal>(latestPred[queue], SyncOperation{ queueSrc, value });
-                }
-                const uint64_t value = passContext.Get<PassSyncSignal>(latestPred[queue]).m_signal.m_value;
-
-                if (passContext.Has<PassSyncWait>(pass))
-                {
-                    passContext.Get<PassSyncWait>(pass).m_waits.emplace_back(SyncOperation{ queueSrc, value });
-                }
-                else
-                {
-                    PassSyncWait wait;
-                    wait.m_waits.emplace_back(queueSrc, value);
-                    passContext.Add<PassSyncWait>(pass, wait);
-                }
-            }
-        }
-
-        return result;
     }
 
     QueueBasedPasses RenderGraphCompiler::CompilePassCrossQueue2(eastl::span<Pass> passes)

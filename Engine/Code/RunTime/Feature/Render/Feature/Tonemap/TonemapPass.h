@@ -14,7 +14,8 @@ namespace Spark::Render
     //! This pass replaces CopyFrameBufferPass: it now IMPORTS the swap chain (as its
     //! color render target) and UIPass draws on top of the tonemapped result afterwards.
     //! The SceneColor SRV is bound to this pass's own space2 SRG in the .Compile() hook
-    //! (once SceneColor is materialized); TonemapProcessor builds the draw request.
+    //! (once SceneColor is materialized). Its DrawItem comes from the shared full-screen
+    //! triangle (FullScreenTriangleTag); the space2 SRG is auto-created by Finalize.
     struct TonemapPass
     {
         static RenderPassConfig DefaultConfig();

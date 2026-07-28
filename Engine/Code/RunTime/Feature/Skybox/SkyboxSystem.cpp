@@ -128,7 +128,7 @@ namespace Spark::Skybox
         const eastl::string idSuffix = eastl::to_string(static_cast<uint32_t>(entity));
         const eastl::string cubeName = eastl::string("SkyboxCube_") + idSuffix;
 
-        RHI::RHIHandle cubeEntity = RHI::CreateStaticImage(
+        RHI::RHIHandle cubeEntity = RHI::CreateImportedImage(
             *rhiCtx, ObjectName(cubeName), desc,
             RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
 
@@ -140,10 +140,12 @@ namespace Spark::Skybox
             RHI::Origin(),
             asset->GetFormat());
 
-        // Create + upload only. The render-graph static-import attachment (which drives
-        // the upload→shader-read barrier + copy→graphics fence) is registered by the
-        // render-side consumer (SkyboxProcessor) at its sampling point — the feature
-        // produces the cube; render decides its usage.
+        // Designate this as the active skybox's cube so the render SkyboxPass imports it.
+        // Tagged at creation (materialization is not required to tag — SkyboxPass gates the
+        // import on the backing image itself). Singleton: clear any prior cube's tag first.
+        rhiCtx->Clear<ActiveSkyCubeTag>();
+        rhiCtx->Add<ActiveSkyCubeTag>(cubeEntity);
+
         SkyboxGPUComponent gpuComp;
         gpuComp.m_cubemapAsset = asset;
         gpuComp.m_cubemap      = cubeEntity;

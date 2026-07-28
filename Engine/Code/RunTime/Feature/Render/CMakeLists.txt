@@ -6,13 +6,9 @@ set(SOURCES
     Feature/UI/CopyFrameBufferPass.cpp
     Feature/DepthPre/DepthPrePass.cpp
     Feature/GBuffer/GBufferPass.cpp
-    Feature/GBuffer/GBufferProcessor.cpp
     Feature/Lighting/LightingPass.cpp
-    Feature/Lighting/LightingProcessor.cpp
     Feature/Skybox/SkyboxPass.cpp
-    Feature/Skybox/SkyboxProcessor.cpp
     Feature/Tonemap/TonemapPass.cpp
-    Feature/Tonemap/TonemapProcessor.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp

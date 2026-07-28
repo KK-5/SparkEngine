@@ -14,10 +14,6 @@
 
 #include "Feature/UI/RenderUI.h"
 #include "Feature/UI/UIProcessFeature.h"
-#include "Feature/GBuffer/GBufferProcessor.h"
-#include "Feature/Lighting/LightingProcessor.h"
-#include "Feature/Skybox/SkyboxProcessor.h"
-#include "Feature/Tonemap/TonemapProcessor.h"
 #include "View/ViewBindingSystem.h"
 #include "SceneBind/SceneBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
@@ -64,10 +60,6 @@ namespace Spark::Render
         
         RenderUI m_rednerUI;
         UIProcessFeature m_uiProcessFeature;
-        GBufferProcessor m_gbufferProcessor;
-        LightingProcessor m_lightingProcessor;
-        SkyboxProcessor m_skyboxProcessor;
-        TonemapProcessor m_tonemapProcessor;
         ViewBindingSystem m_viewBindingSystem;
         SceneBindingSystem m_sceneBindingSystem;
         MaterialBindingSystem m_materialBindingSystem;

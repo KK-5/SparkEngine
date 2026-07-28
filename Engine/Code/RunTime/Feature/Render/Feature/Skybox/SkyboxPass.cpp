@@ -4,16 +4,31 @@
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
+#include <RHI/Component/Component.h>
+#include <RHI/ResourceBuilder.h>
+#include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/Image/ImageViewDescriptor.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
+
+#include <ECS/Common.h>
+#include <CoreComponents/Tags.h>
 
 #include <Pass/PassContext.h>
+#include <Pass/PassTag.h>
+#include <Pass/PassAccess.h>
 #include <Pass/RenderPass.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
+#include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
+#include <RenderGraph/RenderGraphUtils.h>
 
 #include <View/ViewTags.h>
 
 #include <Resource/AssetManagerInterface.h>
+
+#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
+#include <Skybox/Components.h>   // Skybox::ActiveSkyCubeTag
 
 namespace Spark::Render
 {
@@ -80,12 +95,10 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
-            .Accepts<SPARK_PASS_TAG("SkyboxPass")>()
+            .Accepts<FullScreenTriangleTag>()
             .Binds<MainViewTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
-                // Write the existing SceneColor with Load so DepthPrePass's clear (and,
-                // later, opaque geometry) survives — the sky only fills untouched pixels.
                 Render::ImageAttachmentBindInfo colorBind;
                 colorBind.m_slot  = RHI::InputName("SceneColor");
                 colorBind.m_usage = RHI::AttachmentUsage::RenderTarget;
@@ -96,31 +109,65 @@ namespace Spark::Render
                 builder.WriteImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
                     RHI::AttachmentId("SceneColor"), colorBind);
 
-                // Read-only depth test against DepthPrePass's SceneDepth: Load the existing
-                // depth to test against, Store it back unchanged. The sky never writes depth
-                // — that is enforced by AttachmentAccess::Read (ReadImageAttachment selects a
-                // READ_ONLY_DEPTH DSV), not by the store action, so PRESERVE/PRESERVE is the
-                // correct pairing. With the LessEqual / no-write render state this discards
-                // the sky wherever opaque geometry already wrote a nearer depth.
                 Render::ImageAttachmentBindInfo depthBind;
                 depthBind.m_slot  = RHI::InputName("SceneDepth");
                 depthBind.m_usage = RHI::AttachmentUsage::DepthStencil;
                 depthBind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
                 depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-                // Stencil actions default to None (SceneDepth is D32_FLOAT — no stencil
-                // plane), so the read-only depth DSV stays in DEPTH_READ without the
-                // backend synthesizing a stencil write (#538).
 
                 builder.ReadImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
                     RHI::AttachmentId("SceneDepth"), depthBind);
+
+                // Import the active skybox cube (SkyboxSystem tags it ActiveSkyCubeTag at
+                // creation) once it is materialized AND its upload has been submitted — see
+                // IsResourceReady for why both are required. Not ready -> no import,
+                // g_SkyCube stays unbound, sky renders black for this frame.
+                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
+                RHI::RHIHandle cube = RHI::NullHandle;
+                rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
+                    [&](RHI::RHIHandle e) { cube = e; });
+                if (IsResourceReady(rhiCtx, cube))
+                {
+                    Render::ImportedImageAttachmentBindInfo cubeBind;
+                    cubeBind.m_slot           = RHI::InputName("SkyCube");
+                    cubeBind.m_image          = cube;
+                    cubeBind.m_viewDescriptor = RHI::ImageViewDescriptor::CreateCubemap();
+                    cubeBind.m_access         = RHI::AttachmentAccess::Read;
+                    cubeBind.m_usage          = RHI::AttachmentUsage::Shader;
+                    cubeBind.m_stage          = RHI::AttachmentStage::FragmentShader;
+                    cubeBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                    cubeBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                    builder.ImportImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
+                        RHI::AttachmentId("SkyCube"), cubeBind);
+                }
+            })
+            .Compile([](RenderGraphCompiler& compiler)
+            {
+                // Only when Build imported the cube this frame — mirrors Build's gate
+                // (active cube + IsResourceReady) so no unbound-slot lookup runs.
+                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
+                RHI::RHIHandle cube = RHI::NullHandle;
+                rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
+                    [&](RHI::RHIHandle e) { cube = e; });
+                if (!IsResourceReady(rhiCtx, cube))
+                {
+                    return;
+                }
+                // Constant sky sampler — change-detected, so this per-frame set is a no-op
+                // after the first bind (all this pass's shader-resource binding lives here now).
+                SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
+                    2, RHI::InputName("g_SkySampler"),
+                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
+                RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("SkyboxPass")>(
+                    rhiCtx, RHI::InputName("SkyCube"), compiler.GetFrameIndex());
+                if (view)
+                {
+                    SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), view);
+                }
             })
             .Execute([](ExecuteWork& work, RenderGraphExecuter&)
             {
-                // Data-driven: submit whatever DrawItems were tagged for this pass. The
-                // SkyboxProcessor builds a single full-screen DrawItem (Path B); the pass
-                // does not know or care how it was produced. PSO is auto-bound by the
-                // executer, so DrawItem.m_pipelineState is left null.
                 auto& rhi = *RHI::RHIExecuteContext::Current();
                 rhi.GetView<SPARK_PASS_TAG("SkyboxPass"), RHI::DrawItem>().each(
                 [&](RHI::RHIHandle, const RHI::DrawItem& item)

@@ -5,16 +5,19 @@
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>
+#include <Pass/PassAccess.h>
 
 #include <Drawable/DrawTag.h>
 #include <View/ViewTags.h>
 #include <MaterialBind/MaterialBinding.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
+#include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
 #include <Resource/AssetManagerInterface.h>
@@ -145,6 +148,16 @@ namespace Spark::Render
 
                 builder.ReadImageAttachment<SPARK_PASS_TAG("GBufferPass")>(
                     RHI::AttachmentId("SceneDepth"), depthBind);
+            })
+            .Compile([](RenderGraphCompiler&)
+            {
+                // Constant material sampler (linear/wrap) into this pass's space2 SRG (auto-
+                // created by Finalize). Change-detected, so this per-frame set is a no-op after
+                // the first bind; BindPassDrawItems auto-injects the SRG into the pass's
+                // DrawItems by PassTag. GBuffer's DrawItems come from world Drawables (OpaqueTag).
+                SetPassShaderSampler<SPARK_PASS_TAG("GBufferPass")>(
+                    kPerPassSpaceId, RHI::InputName("g_MatSampler"),
+                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
             })
             .Execute([](ExecuteWork& work, RenderGraphExecuter&)
             {

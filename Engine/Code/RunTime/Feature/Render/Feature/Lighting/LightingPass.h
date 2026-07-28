@@ -15,8 +15,9 @@ namespace Spark::Render
     //! The GBuffer views are bound to this pass's own space2 SRG in the .Compile()
     //! hook — the phase after transient resources are materialized but before shader
     //! inputs are compiled — via FindPassAttachmentImageView + SetPassShaderImage.
-    //! The SRG itself is created and injected into the draw request by
-    //! LightingProcessor during Process.
+    //! The SRG itself is auto-created by RenderPassBuilder::Finalize (the layout declares
+    //! space2) and injected into the pass's DrawItems by PassTag. Its DrawItem comes from
+    //! the shared full-screen-triangle Drawable (FullScreenTriangleTag).
     struct LightingPass
     {
         static RenderPassConfig DefaultConfig();

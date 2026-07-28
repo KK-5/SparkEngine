@@ -17,8 +17,8 @@ namespace Spark::Render
     //! is read through InstanceSlotTable on the bindings entity. See
     //! InstanceSlot.h for the contract.
     //!
-    //! Plain helper, not ISystem — owned by RenderSystem, ticked between
-    //! ViewBindingSystem and the Processors.
+    //! Plain helper, not ISystem — owned by RenderSystem, ticked after ViewBindingSystem
+    //! and before DrawItem derivation (MeshDrawableComposer / DrawItemRouter).
     class InstanceBindingSystem
     {
     public:

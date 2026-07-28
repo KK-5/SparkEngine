@@ -10,7 +10,8 @@
 #include <RHI/Command/CommandList.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Pass/PassBuilder.h>   // RenderPassConfig, BuildPipelineLayoutFromShaders, shared components
+#include <Pass/PassBuilder.h>
+#include <Pass/PassAccess.h>
 #include <Drawable/DrawItemRoute.h>
 #include <Drawable/DrawItemBind.h>
 #include <RenderGraph/RenderGraphCompiler.h>
@@ -18,6 +19,11 @@
 
 namespace Spark::Render
 {
+    //! HLSL space reserved for a pass's OWN per-pass ShaderBindings tier (g_SceneColor,
+    //! g_SkyCube, g_MatSampler, …). RenderPassBuilder::Finalize auto-creates this SRG when
+    //! the reflected layout declares it, so no pass processor has to allocate it.
+    inline constexpr uint32_t kPerPassSpaceId = 2;
+
     //! Default Execute body for a render pass. Submits every compiled DrawItem
     //! tagged with PassTag to the pass's command list, in pool order.
     template<typename PassTag>
@@ -224,7 +230,17 @@ namespace Spark::Render
                     m_name.GetCStr());
                 if (auto layout = BuildPipelineLayoutFromShaders(*factory, m_shaders))
                 {
+                    // Auto-create the per-pass (space2) SRG now that the layout is reflected,
+                    // but only when the shader actually declares that space. It must exist
+                    // before the per-frame bind loop (BindPassDrawItems resolves it by
+                    // PassTag), so creating it here removes that allocation from every pass
+                    // processor's Init. RHIExecuteContext is current during SetUp.
+                    const bool hasPerPassSpace = layout->FindSpaceGroupBySpaceId(kPerPassSpaceId) != nullptr;
                     m_context->Add<PassPipelineLayout>(pass, PassPipelineLayout{ eastl::move(layout) });
+                    if (hasPerPassSpace)
+                    {
+                        GetOrCreatePassShaderBindings<PassTag>(*m_context, *RHIExecuteContext::Current(), kPerPassSpaceId);
+                    }
                 }
             }
 

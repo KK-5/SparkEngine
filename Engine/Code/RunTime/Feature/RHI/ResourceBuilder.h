@@ -76,6 +76,20 @@ namespace Spark::RHI
         return entity;
     }
 
+    inline RHIHandle CreateImportedImage(
+        BasicContext<RHIHandle>& ctx,
+        ObjectName name,
+        const ImageDescriptor& desc,
+        HeapMemoryLevel heapLevel = HeapMemoryLevel::Device,
+        HostMemoryAccess hostAccess = HostMemoryAccess::Write)
+    {
+        RHIHandle entity = ctx.CreateEntity();
+        ctx.Add<ImportedTag>(entity);
+        ctx.Add<ResourceName>(entity, ResourceName{ name });
+        ctx.Add<PendingImageInit>(entity, PendingImageInit{ desc, heapLevel, hostAccess });
+        return entity;
+    }
+
     inline void RequestImageUpload(
         BasicContext<RHIHandle>& ctx,
         RHIHandle resourceEntity,

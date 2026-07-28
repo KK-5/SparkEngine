@@ -18,6 +18,10 @@
 #include <Pass/PassAccess.h>
 
 #include <Drawable/DrawItemRoute.h>
+#include <Drawable/Drawable.h>
+#include <Drawable/DrawTag.h>
+
+#include <RHI/Command/DrawArguments.h>
 
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
@@ -148,7 +152,7 @@ namespace Spark::Render
             })
             .Finalize();
 
-        // Processor setup
+        // Render-side helpers + shared resources setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_viewBindingSystem.Init(rhiCtxForInit);
         m_sceneBindingSystem.Init(rhiCtxForInit);
@@ -158,10 +162,17 @@ namespace Spark::Render
         m_meshDrawableComposer.Init(rhiCtxForInit);
         m_drawItemRouter.Init(rhiCtxForInit);
 
-        m_gbufferProcessor.Init();
-        m_lightingProcessor.Init();
-        m_skyboxProcessor.Init();
-        m_tonemapProcessor.Init();
+        {
+            RHI::RHIHandle fsTri = rhiCtxForInit.CreateEntity();
+            Drawable fsDrawable;
+            fsDrawable.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
+            fsDrawable.m_instanceCount = 1;
+            fsDrawable.m_instanceData  = NoInstanceBinding{};
+            rhiCtxForInit.Add<Drawable>(fsTri, eastl::move(fsDrawable));
+            rhiCtxForInit.Add<DrawableTag>(fsTri);
+            rhiCtxForInit.Add<FullScreenTriangleTag>(fsTri);
+            rhiCtxForInit.Add<DerivedDrawItems>(fsTri, DerivedDrawItems{});
+        }
     }
 
     void RenderSystem::InitInternal()
@@ -260,10 +271,6 @@ namespace Spark::Render
 
 
         m_uiProcessFeature.Process();
-        // DepthPre/GBuffer/Lighting/Tonemap have no per-frame work: their DrawItems are
-        // derived by DrawItemRouter and filled by BindPassDrawItems (transient views via
-        // each pass's Compile hook). Skybox refreshes its static cube SRG in place.
-        m_skyboxProcessor.Process();
 
         m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
         m_swapChain->Present();

@@ -34,6 +34,14 @@ namespace Spark::Skybox
         Ptr<Resource::ImageAsset> m_cubemapAsset;
         RHI::RHIHandle            m_cubemap = RHI::NullHandle;
     };
+
+    //! Placed on the RHIContext cube resource entity (SkyboxGPUComponent::m_cubemap) of the
+    //! ACTIVE skybox. SkyboxSystem tags it at creation; the render SkyboxPass reads it to
+    //! import the cube as its g_SkyCube shader-read attachment. Defined here (SparkSkybox),
+    //! NOT in SparkRender, so the feature can set it without a feature->render dependency —
+    //! the render pass reads it in the allowed render->feature direction. Singleton:
+    //! SkyboxSystem clears any prior cube's tag before tagging a newly built one.
+    struct ActiveSkyCubeTag {};
 }
 
 namespace Spark

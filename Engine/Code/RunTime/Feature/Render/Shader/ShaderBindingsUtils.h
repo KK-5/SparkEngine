@@ -126,6 +126,13 @@ namespace Spark::Render
             LOG_ERROR("[ShaderBindingsUtils] Sampler input '{}' not found.", input.GetCStr());
             return;
         }
+        // Change-detection (mirrors SetShaderImage): an unchanged sampler state must not
+        // re-dirty the SRG, so a per-frame re-set of a constant sampler is a no-op rather
+        // than forcing a redundant descriptor recompile every frame.
+        if (sampler->GetState(arrayIndex) == state)
+        {
+            return;
+        }
         sampler->SetState(arrayIndex, state);
         Detail::MarkShaderBindingsDirty(ctx, bindings);
     }

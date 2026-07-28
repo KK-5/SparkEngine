@@ -119,8 +119,9 @@ namespace Spark::Render
     //! (FindPassAttachmentImageView) — a phase with no owning object to hold the SRG
     //! handle, so the SRG is located by tag + space here rather than captured.
     //! CreatePassShaderBindings, by contrast, stays a pure create for callers that
-    //! own and store the handle themselves (e.g. a Processor); its contract is left
-    //! unchanged so existing users (SkyboxProcessor) are unaffected.
+    //! own and store the handle themselves; its contract is left unchanged. The get-or-
+    //! create form is what RenderPassBuilder::Finalize calls to auto-allocate a pass's
+    //! space2 SRG.
     //!
     //! Uniqueness leans on ShaderBindings::GetSpaceId self-describing the HLSL space,
     //! so no extra component is needed to disambiguate multiple per-pass SRGs. The

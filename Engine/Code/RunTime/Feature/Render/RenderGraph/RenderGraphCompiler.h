@@ -48,8 +48,6 @@ namespace Spark::Render
 
         void End();
 
-        QueueBasedPasses CompilePassCrossQueue(eastl::span<Pass> passes);
-
         // Successor-driven variant: signal emitted when processing the source pass.
         QueueBasedPasses CompilePassCrossQueue2(eastl::span<Pass> passes);
 

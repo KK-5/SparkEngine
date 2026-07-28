@@ -12,8 +12,8 @@ namespace Spark::Render
     //! so every pass's draws can reference one binding instead of each building its own.
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
-    //! RenderSystem::OnTick, sequenced BEFORE the Processors so the binding is
-    //! materialized and up to date before any draw references it.
+    //! RenderSystem::OnTick, sequenced BEFORE DrawItem derivation / pass execution so the
+    //! binding is materialized and up to date before any draw references it.
     //!
     //! Holds no Ptr to the bindings/layout: the binding entity owns the
     //! ShaderBindings (which in turn owns its layout), so m_viewEntity is the only
