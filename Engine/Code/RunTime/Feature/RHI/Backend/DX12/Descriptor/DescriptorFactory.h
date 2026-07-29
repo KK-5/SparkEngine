@@ -78,6 +78,24 @@ namespace Spark::RHI::DX12
 
         bool IsRecycleObject(DescriptorTable* table);
 
+        //! Stable, pool-owned table pointer for a heap offset — the counterpart of
+        //! DescriptorHandleFactory::GetPooledHandle, and required for the same reason: the
+        //! deferred collector must never hold a CALLER's DescriptorTable (e.g.
+        //! ShaderBindings::m_viewsDescriptorTable). That copy is nulled by
+        //! DescriptorContext::ReleaseDescriptorTable the moment release returns, and is
+        //! destroyed with its owner long before collection runs. m_tablePool is a node-based
+        //! unordered_map, so this address stays valid until DestoryObject erases the entry —
+        //! which is exactly when the collector is done with it.
+        //!
+        //! Returns nullptr for an offset this factory never handed out. Deliberately find()
+        //! and not operator[]: the latter would insert a default-constructed table, replacing
+        //! one bug with a subtler one.
+        DescriptorTable* GetPooledTable(size_t offset)
+        {
+            auto it = m_tablePool.find(offset);
+            return it != m_tablePool.end() ? &it->second : nullptr;
+        }
+
         const Descriptor& GetDescriptor() const;
 
         D3D12_CPU_DESCRIPTOR_HANDLE GetD3D12CPUDescriptorTable(const DescriptorTable& table) const;

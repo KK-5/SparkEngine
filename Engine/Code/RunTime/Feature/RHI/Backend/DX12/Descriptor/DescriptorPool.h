@@ -144,7 +144,16 @@ namespace Spark::RHI::DX12
 
         void ReleaseTable(DescriptorTable& table) override
         {
-            BasePool::DeAllocate(&table);
+            // Queue the pool-owned stable table, NOT &table — same hazard ReleaseHandle
+            // documents above. The caller's copy is nulled by
+            // DescriptorContext::ReleaseDescriptorTable as soon as this returns, and dies
+            // with its owner (e.g. ShaderBindings) well before the deferred collector runs,
+            // so &table would dangle and read back as a null offset. Look the pool's own
+            // object up by offset while the caller's copy is still valid.
+            if (DescriptorTable* pooled = BasePool::GetFactory().GetPooledTable(table.GetOffset().m_index))
+            {
+                BasePool::DeAllocate(pooled);
+            }
         }
 
         D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable table) const override
