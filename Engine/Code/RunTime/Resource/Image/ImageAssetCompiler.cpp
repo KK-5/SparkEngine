@@ -10,25 +10,6 @@ namespace Spark::Resource
 {
     namespace
     {
-        uint32_t ComputeMipLevels(uint32_t width, uint32_t height, uint32_t maxLevel)
-        {
-            uint32_t maxDim = eastl::max(width, height);
-            uint32_t fullMips = 1;
-
-            while (maxDim > 1)
-            {
-                maxDim >>= 1;
-                ++fullMips;
-            }
-
-            if (maxLevel == 0)
-            {
-                return fullMips;
-            }
-
-            return eastl::min(fullMips, maxLevel);
-        }
-
         stbir_pixel_layout PickPixelLayout(ImageFormat format)
         {
             switch (format)
@@ -343,7 +324,7 @@ namespace Spark::Resource
                 static_cast<int>(desc.compression), static_cast<int>(srcFormat), static_cast<int>(compression));
         }
         // Grenerate mip buffer
-        const uint32_t mipLevels = ComputeMipLevels(srcW, srcH, desc.maxMipLevels);
+        const uint32_t mipLevels = ImageAsset::ComputeMipLevels(srcW, srcH, desc.maxMipLevels);
 
         eastl::vector<uint8_t> uncompressed;
         eastl::vector<ImageMipRange> mips;
@@ -455,20 +436,25 @@ namespace Spark::Resource
         auto result = MakeUnique<ImageAssetData>();
         result->m_width       = baked.faceSize;
         result->m_height      = baked.faceSize;
-        result->m_mipLevels   = 1;
+        result->m_mipLevels   = baked.mipLevels;
         result->m_arrayLayers = kNumCubeFaces;
         result->m_format      = baked.format; // R16G16B16A16_FLOAT
         result->m_textureBytes = eastl::move(baked.faceBytes);
 
-        // m_mips is indexed by mip level only (no per-layer offset). The upload path
-        // does not read it (it recomputes each subresource via GetImageSubresourceLayout);
-        // it is only consulted by GetMipRange / SerializeToKtx2. One entry describing the
-        // base mip's per-face size is a correct placeholder until the multi-layer m_mips
-        // layout lands (M5).
+        // m_textureBytes is FACE-MAJOR, MIP-INNER ([f0m0][f0m1]...[f1m0]...), matching the
+        // order AsyncUploadSystem walks subresources in. That order is the only layout
+        // description the upload path needs -- it recomputes each subresource's tight
+        // extent via GetImageSubresourceLayout and never reads an offset table.
+        //
+        // m_mips, by contrast, is indexed by mip level ALONE (no layer dimension), so it
+        // cannot describe this buffer. Its only consumers are GetMipRange and
+        // SerializeToKtx2, both of which serve disk caching -- deliberately deferred to
+        // the engine-wide asset cache work, so a base-mip placeholder stays sufficient.
+        // Do not derive upload offsets from it.
         result->m_mips.push_back({0, perFaceBytes});
 
-        LOG_INFO("[ImageAssetCompiler] baked cubemap: {} faces @ {}px, {}B",
-            kNumCubeFaces, baked.faceSize, result->m_textureBytes.size());
+        LOG_INFO("[ImageAssetCompiler] baked cubemap: {} faces @ {}px, {} mips, {}B",
+            kNumCubeFaces, baked.faceSize, baked.mipLevels, result->m_textureBytes.size());
 
         return result;
     }

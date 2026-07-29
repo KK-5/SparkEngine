@@ -181,6 +181,54 @@ namespace Spark::Resource
             LOG_ERROR("[EnvironmentBaker] Compute PSO init failed.");
             return false;
         }
+        /////////////////////////////////////////////////////////////////
+        // Cube mips PSO
+        {
+            Ptr<ShaderAsset> cubeMapDownsampleShader = assetManager->LoadAsset<ShaderAsset>(
+                AssetId::Of<ShaderAsset>("Shaders/Image/CubemapDownsample.hlsl"));
+            if (!cubeMapDownsampleShader || cubeMapDownsampleShader->GetStatus() != AssetStatus::Ready)
+            {
+                LOG_ERROR("[EnvironmentBaker] Failed to load CubemapDownsample.hlsl (status={}).",
+                        cubeMapDownsampleShader ? static_cast<int>(cubeMapDownsampleShader->GetStatus()) : -1);
+                return false;
+            }
+
+            auto* shaderData = cubeMapDownsampleShader->GetShaderData();
+            const auto* csBytecode = shaderData
+                ? shaderData->GetStageBytecode(RHI::ShaderStage::Compute)
+                : nullptr;
+            if (!csBytecode)
+            {
+                LOG_ERROR("[EnvironmentBaker] Cube map down sample shader has no compute-stage bytecode "
+                        "(CSMain not detected/compiled?).");
+                return false;
+            }
+            Ptr<RHI::ShaderStageFunction> csFunc =
+                m_factory->CreateShaderStageFunction(RHI::ShaderStage::Compute);
+            csFunc->SetByteCode(csBytecode->bytecode);
+            csFunc->Finalize();
+
+            ShaderInputBuildResult built = BuildShaderInputList(*cubeMapDownsampleShader);
+            if (built.stageMask == RHI::ShaderStageMask::None)
+            {
+                LOG_ERROR("[EnvironmentBaker] Bake shader produced no shader inputs.");
+                return false;
+            }
+            m_cubeMipsLayout = m_factory->CreatePipelineLayoutDescriptor();
+            m_cubeMipsLayout->AddShaderInputDescriptors(built.list, built.stageMask);
+            m_cubeMipsLayout->Finalize();
+
+            m_cubeMipsPSO = m_factory->CreatePipelineState();
+            RHI::PipelineStateDescriptorForDispatch psoDesc;
+            psoDesc.m_computeFunction          = csFunc;
+            psoDesc.m_pipelineLayoutDescriptor = m_cubeMipsLayout;
+            if (m_cubeMipsPSO->Init(*m_device, psoDesc, m_pipelineLibrary.get()) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] Compute PSO init failed.");
+                return false;
+            }
+        }
+        /////////////////////////////////////////////////////////////////
 
         // Own dedicated graphics queue + recorder + fence. Graphics queue runs the
         // compute dispatch + copies with no queue-class restrictions; the compute
@@ -302,13 +350,14 @@ namespace Spark::Resource
         }
 
         Ptr<RHI::Image> cubeImg = m_factory->CreateImage();
+        const uint32_t cubeMipLevels = ImageAsset::ComputeMipLevels(faceSize, faceSize, 0);
         {
             RHI::ImageInitRequest req;
             req.m_image = cubeImg.get();
             req.m_descriptor = RHI::ImageDescriptor::CreateCubemap(
                 RHI::ImageBindFlags::ShaderWrite | RHI::ImageBindFlags::CopyRead,
                 faceSize, kCubeFormat);
-            req.m_descriptor.m_mipLevels = 1;
+            req.m_descriptor.m_mipLevels = cubeMipLevels;
             if (m_imagePool->InitImage(req) != RHI::ResultCode::Success)
             {
                 LOG_ERROR("[EnvironmentBaker] cube image init failed.");
@@ -391,6 +440,39 @@ namespace Spark::Resource
             }
         }
 
+        eastl::vector<Ptr<RHI::ImageView>> cubeMipViews;
+        cubeMipViews.resize(cubeMipLevels);
+        for (uint32_t mip = 0; mip < cubeMipLevels; ++mip)
+        {
+            cubeMipViews[mip] = m_factory->CreateImageView();
+            RHI::ImageViewDescriptor viewDesc;
+            viewDesc.m_mipSliceMin   = static_cast<uint16_t>(mip);
+            viewDesc.m_mipSliceMax   = static_cast<uint16_t>(mip);
+            viewDesc.m_arraySliceMin = 0;
+            viewDesc.m_arraySliceMax = static_cast<uint16_t>(kNumCubeFaces - 1);
+            viewDesc.m_overrideFormat = kCubeFormat;
+            if (cubeMipViews[mip]->Init(*cubeImg, viewDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] cube view init failed.");
+                return result;
+            }
+        }
+
+        eastl::vector<Ptr<RHI::ShaderBindings>> cubeMipBindings;
+        cubeMipBindings.resize(cubeMipLevels - 1);
+        for (auto& bindings: cubeMipBindings)
+        {
+            bindings = m_factory->CreateShaderBindings();
+            RHI::ShaderBindings::Descriptor bindingsDesc;
+            bindingsDesc.m_layout  = m_cubeMipsLayout;
+            bindingsDesc.m_spaceId = 0;
+            if (bindings->Init(*m_device, bindingsDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] ShaderBindings init failed.");
+                return result;
+            }
+        }
+
         // ---- Bind + compile ShaderBindings ----
         if (auto* in = m_bindings->FindImageInput(RHI::InputName("g_Equirect")))
         {
@@ -410,38 +492,66 @@ namespace Spark::Resource
             compiler.Compile(*m_bindings);
         }
 
-        // ---- Readback buffers: one per face (offset 0, always aligned) ----
+        {
+            for (uint32_t mip = 0; mip < cubeMipLevels - 1; ++mip)
+            {
+                if (auto* in = cubeMipBindings[mip]->FindImageInput(RHI::InputName("g_SrcMip")))
+                {
+                    in->SetView(0, cubeMipViews[mip].get());
+                }
+                if (auto* in = cubeMipBindings[mip]->FindImageInput(RHI::InputName("g_DstMip")))
+                {
+                    in->SetView(0, cubeMipViews[mip + 1].get());
+                }
+
+                RHI::ShaderInputCompiler& compiler = m_factory->AcquireShaderInputCompiler(*m_device);
+                compiler.Compile(*cubeMipBindings[mip]);
+            }
+        }
+
+        // ---- Readback buffers: one per (face, mip), each at offset 0 (always aligned) ----
         // GetSubresourceLayouts writes by GLOBAL subresource index (mip + array*mipLevels),
-        // so the output must span the full mip*face grid, and a face's base mip is fetched
-        // via GetImageSubresourceIndex rather than assuming index == face. Today mipLevels
-        // is 1 (index == face), but this stays correct once a mip chain is added (M4).
-        const uint16_t cubeMipLevels = cubeImg->GetDescriptor().m_mipLevels;
+        // so the output must span the full mip*face grid and every lookup goes through
+        // GetImageSubresourceIndex rather than assuming index == face.
         eastl::vector<RHI::ImageSubresourceLayout> subresLayouts(
             static_cast<size_t>(cubeMipLevels) * kNumCubeFaces);
         cubeImg->GetSubresourceLayouts(
-            RHI::ImageSubresourceRange(0, 0, 0, static_cast<uint16_t>(kNumCubeFaces - 1)),
+            RHI::ImageSubresourceRange(0, static_cast<uint16_t>(cubeMipLevels - 1), 0, static_cast<uint16_t>(kNumCubeFaces - 1)),
             subresLayouts.data(), nullptr);
 
-        // Base-mip (mip 0) layout of cube face f.
-        auto FaceLayout = [&](uint32_t f) -> const RHI::ImageSubresourceLayout&
+        // GPU-side (row-aligned) layout of cube face f at mip level `mip`.
+        auto FaceMipLayout = [&](uint32_t f, uint32_t mip) -> const RHI::ImageSubresourceLayout&
         {
-            return subresLayouts[RHI::GetImageSubresourceIndex(0, static_cast<uint16_t>(f), cubeMipLevels)];
+            return subresLayouts[RHI::GetImageSubresourceIndex(
+                static_cast<uint16_t>(mip),
+                static_cast<uint16_t>(f),
+                static_cast<uint16_t>(cubeMipLevels))];
         };
 
-        eastl::array<Ptr<RHI::Buffer>, kNumCubeFaces> readbackBufs{};
+        // Linear index into readbackBufs / the face-major, mip-inner byte order.
+        auto SubresIndex = [&](uint32_t f, uint32_t mip) -> size_t
+        {
+            return static_cast<size_t>(f) * cubeMipLevels + mip;
+        };
+
+        eastl::vector<Ptr<RHI::Buffer>> readbackBufs(static_cast<size_t>(kNumCubeFaces) * cubeMipLevels);
         for (uint32_t f = 0; f < kNumCubeFaces; ++f)
         {
-            readbackBufs[f] = m_factory->CreateBuffer();
-            RHI::BufferDescriptor desc;
-            desc.m_bindFlags = RHI::BufferBindFlags::CopyWrite;
-            desc.m_byteCount = FaceLayout(f).m_bytesPerImage;
-            RHI::BufferInitRequest req;
-            req.m_buffer = readbackBufs[f].get();
-            req.m_descriptor = desc;
-            if (m_readbackPool->InitBuffer(req) != RHI::ResultCode::Success)
+            for (uint32_t mip = 0; mip < cubeMipLevels; ++mip)
             {
-                LOG_ERROR("[EnvironmentBaker] readback buffer init failed.");
-                return result;
+                const size_t idx = SubresIndex(f, mip);
+                readbackBufs[idx] = m_factory->CreateBuffer();
+                RHI::BufferDescriptor desc;
+                desc.m_bindFlags = RHI::BufferBindFlags::CopyWrite;
+                desc.m_byteCount = FaceMipLayout(f, mip).m_bytesPerImage;
+                RHI::BufferInitRequest req;
+                req.m_buffer = readbackBufs[idx].get();
+                req.m_descriptor = desc;
+                if (m_readbackPool->InitBuffer(req) != RHI::ResultCode::Success)
+                {
+                    LOG_ERROR("[EnvironmentBaker] readback buffer init failed.");
+                    return result;
+                }
             }
         }
 
@@ -486,6 +596,23 @@ namespace Spark::Resource
             cmd->Submit(di);
         }
 
+        cmd->SetPipelineState(*m_cubeMipsPSO);
+        for (uint32_t mip = 0; mip < cubeMipLevels - 1; ++mip)
+        {
+            RHI::ImageBarrier uavBarrier = RHI::ConvertToImageShaderWrite(*cubeImg);
+            cmd->QueueBarrier(uavBarrier);
+            cmd->FlushBarriers();
+
+            cmd->BindShaderInputsForDispatch(*cubeMipBindings[mip]);
+
+            const uint32_t dstSize = eastl::max(1u, faceSize >> (mip + 1));
+            RHI::DispatchItem di;
+            di.m_arguments = RHI::DispatchArguments(
+                RHI::DispatchDirect(dstSize, dstSize, kNumCubeFaces, 8, 8, 1));
+            di.m_pipelineState = m_cubeMipsPSO.get();
+            cmd->Submit(di);
+        }
+
         // cube -> copy read, then read each face back.
         RHI::ImageBarrier cubeReadBarrier = RHI::ConvertToImageCopyRead(*cubeImg);
         cmd->QueueBarrier(cubeReadBarrier);
@@ -493,17 +620,21 @@ namespace Spark::Resource
 
         for (uint32_t f = 0; f < kNumCubeFaces; ++f)
         {
-            RHI::CopyImageToBufferDescriptor rb;
-            rb.m_sourceImage            = cubeImg.get();
-            rb.m_sourceSubresource      = RHI::ImageSubresource(0, static_cast<uint16_t>(f));
-            rb.m_sourceOrigin           = RHI::Origin(0, 0, 0);
-            rb.m_sourceSize             = FaceLayout(f).m_size;
-            rb.m_destinationBuffer      = readbackBufs[f].get();
-            rb.m_destinationOffset      = 0;
-            rb.m_destinationBytesPerRow = FaceLayout(f).m_bytesPerRow;
-            rb.m_destinationBytesPerImage = FaceLayout(f).m_bytesPerImage;
-            rb.m_destinationFormat      = kCubeFormat;
-            cmd->Submit(RHI::CopyItem(rb));
+            for (uint32_t mip = 0; mip < cubeMipLevels; ++mip)
+            {
+                RHI::CopyImageToBufferDescriptor rb;
+                rb.m_sourceImage            = cubeImg.get();
+                rb.m_sourceSubresource      = RHI::ImageSubresource(
+                    static_cast<uint16_t>(mip), static_cast<uint16_t>(f));
+                rb.m_sourceOrigin           = RHI::Origin(0, 0, 0);
+                rb.m_sourceSize             = FaceMipLayout(f, mip).m_size;
+                rb.m_destinationBuffer      = readbackBufs[SubresIndex(f, mip)].get();
+                rb.m_destinationOffset      = 0;
+                rb.m_destinationBytesPerRow = FaceMipLayout(f, mip).m_bytesPerRow;
+                rb.m_destinationBytesPerImage = FaceMipLayout(f, mip).m_bytesPerImage;
+                rb.m_destinationFormat      = kCubeFormat;
+                cmd->Submit(RHI::CopyItem(rb));
+            }
         }
 
         cmd->Close();
@@ -516,37 +647,59 @@ namespace Spark::Resource
         RHI::CommandList* lists[] = { cmd };
         m_queue->ExecuteCommands(lists);
         m_queue->FlushCommands(*m_fence);
+
         m_recorder->Reset();
 
-        // ---- Read back faces, de-pad rows into a tight, face-major buffer ----
-        const uint32_t tightRowBytes = faceSize * kCubeBytesPP;
-        result.faceSize = faceSize;
-        result.format   = kCubeFormat;
-        result.faceBytes.resize(static_cast<size_t>(tightRowBytes) * faceSize * kNumCubeFaces);
+        // ---- Read back every subresource, de-pad rows into a tight buffer ----
+        // Byte order is FACE-MAJOR, MIP-INNER: [f0m0][f0m1]...[f0mN][f1m0]... This is a
+        // hard contract with AsyncUploadSystem, which walks arraySlice outer / mipSlice
+        // inner and advances srcData by each subresource's TIGHT byte count -- it never
+        // reads an explicit offset table. Swapping these two loops still compiles, still
+        // runs, and silently produces face/mip-scrambled output.
+        result.faceSize  = faceSize;
+        result.mipLevels = cubeMipLevels;
+        result.format    = kCubeFormat;
+        size_t totalBytes = 0;
+        for (uint32_t mip = 0; mip < cubeMipLevels; ++mip)
+        {
+            const uint32_t s = eastl::max(1u, faceSize >> mip);
+            totalBytes += static_cast<size_t>(s) * s * kCubeBytesPP;
+        }
+        totalBytes *= kNumCubeFaces;
+        result.faceBytes.resize(totalBytes);
 
+        size_t dstOffset = 0;
         for (uint32_t f = 0; f < kNumCubeFaces; ++f)
         {
-            RHI::BufferMapRequest mapReq;
-            mapReq.m_buffer     = readbackBufs[f].get();
-            mapReq.m_byteOffset = 0;
-            mapReq.m_byteCount  = FaceLayout(f).m_bytesPerImage;
-            RHI::BufferMapResponse mapResp;
-            if (m_readbackPool->MapBuffer(mapReq, mapResp) != RHI::ResultCode::Success || !mapResp.m_data)
+            for (uint32_t mip = 0; mip < cubeMipLevels; ++mip)
             {
-                LOG_ERROR("[EnvironmentBaker] readback map failed.");
-                return BakedCubemap{};
-            }
+                const auto&    layout   = FaceMipLayout(f, mip);
+                const size_t   idx      = SubresIndex(f, mip);
+                const uint32_t mipSize  = eastl::max(1u, faceSize >> mip);
+                const uint32_t tightRow = mipSize * kCubeBytesPP;
 
-            const auto* srcBytes = static_cast<const uint8_t*>(mapResp.m_data);
-            const uint32_t alignedRowBytes = FaceLayout(f).m_bytesPerRow;
-            uint8_t* dstFace = result.faceBytes.data() + static_cast<size_t>(f) * tightRowBytes * faceSize;
-            for (uint32_t row = 0; row < faceSize; ++row)
-            {
-                memcpy(dstFace + static_cast<size_t>(row) * tightRowBytes,
-                       srcBytes + static_cast<size_t>(row) * alignedRowBytes,
-                       tightRowBytes);
+                RHI::BufferMapRequest mapReq;
+                mapReq.m_buffer     = readbackBufs[idx].get();
+                mapReq.m_byteOffset = 0;
+                mapReq.m_byteCount  = layout.m_bytesPerImage;
+                RHI::BufferMapResponse mapResp;
+                if (m_readbackPool->MapBuffer(mapReq, mapResp) != RHI::ResultCode::Success || !mapResp.m_data)
+                {
+                    LOG_ERROR("[EnvironmentBaker] readback map failed.");
+                    return BakedCubemap{};
+                }
+
+                const auto* srcBytes = static_cast<const uint8_t*>(mapResp.m_data);
+                for (uint32_t row = 0; row < layout.m_rowCount; ++row)
+                {
+                    memcpy(result.faceBytes.data() + dstOffset + row * tightRow,
+                        srcBytes + static_cast<size_t>(row) * layout.m_bytesPerRow,
+                        tightRow);
+                }
+                m_readbackPool->UnmapBuffer(*readbackBufs[idx]);
+
+                dstOffset += static_cast<size_t>(tightRow) * mipSize;
             }
-            m_readbackPool->UnmapBuffer(*readbackBufs[f]);
         }
 
         return result;

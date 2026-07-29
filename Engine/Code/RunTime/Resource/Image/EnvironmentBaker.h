@@ -30,6 +30,7 @@ namespace Spark::Resource
     struct BakedCubemap
     {
         uint32_t               faceSize = 0;
+        uint32_t               mipLevels = 1;
         RHI::Format            format   = RHI::Format::R16G16B16A16_FLOAT;
         eastl::vector<uint8_t> faceBytes;   // 6 * faceSize * faceSize * 8 bytes
 
@@ -85,6 +86,9 @@ namespace Spark::Resource
         Ptr<RHI::CommandQueue>             m_queue;
         Ptr<RHI::CommandRecorder>          m_recorder;
         Ptr<RHI::Fence>                    m_fence;
+
+        Ptr<RHI::PipelineState>            m_cubeMipsPSO;
+        Ptr<RHI::PipelineLayoutDescriptor> m_cubeMipsLayout;
 
         // Persistent resource allocators — the pools (not the factory) own the heaps
         // and deferred-release queues, so they must outlive every image/buffer they

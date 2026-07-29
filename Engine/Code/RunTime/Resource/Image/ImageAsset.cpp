@@ -103,6 +103,25 @@ namespace Spark::Resource
         }
     }
 
+    uint32_t ImageAsset::ComputeMipLevels(uint32_t width, uint32_t height, uint32_t maxLevel)
+    {
+        uint32_t maxDim = eastl::max(width, height);
+        uint32_t fullMips = 1;
+
+        while (maxDim > 1)
+        {
+            maxDim >>= 1;
+            ++fullMips;
+        }
+
+        if (maxLevel == 0)
+        {
+            return fullMips;
+        }
+
+        return eastl::min(fullMips, maxLevel);
+    }
+
     Ptr<AssetDescriptor> ImageAsset::DefaultDescriptor()
     {
         return DescriptorForUsage(ImageUsage::Texture2D);

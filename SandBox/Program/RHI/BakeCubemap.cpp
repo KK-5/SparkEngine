@@ -3,9 +3,26 @@
 // Headless (no window / swapchain): init the DX12 RHI device + AssetManager, then
 // LoadAsset<ImageAsset> an equirectangular HDRI with an EnvironmentCubemap descriptor.
 // This drives the real path — ImageAssetBuilder::Compile routes through the GPU
-// EnvironmentBaker and returns a 6-face cube ImageAssetData (arrayLayers == 6). We
-// verify the shape, then dump the six faces as PNG (RGBA16F -> Reinhard tonemap + gamma)
-// to eyeball direction correctness + seam continuity.
+// EnvironmentBaker and returns a 6-face cube ImageAssetData (arrayLayers == 6).
+//
+// Checks three things, in increasing order of how hard they are to catch elsewhere:
+//
+//  1. SHAPE (automatic, fails the run) — arrayLayers, faceSize, mip count and the exact
+//     total byte count of the full mip chain. If the chain never reached the asset layer
+//     (e.g. m_mipLevels still hardcoded to 1) the byte total is ~1/1.33 of expected and
+//     this exits non-zero.
+//
+//  2. MIP CONTENT (visual) — each face is dumped as a vertical mip strip: mip 0 on top,
+//     then each successive level below it, left-aligned. A correct chain reads as a
+//     smooth progressive blur. Uninitialised video memory shows up as noise/garbage in
+//     the lower levels, which is exactly what a missing UAV barrier between downsample
+//     dispatches produces.
+//
+//  3. BYTE ORDER (visual, and the whole reason this tool matters) — the dump walks the
+//     buffer FACE-MAJOR, MIP-INNER, the contract AsyncUploadSystem relies on. If the
+//     baker ever emits mip-major instead, nothing crashes and no assert fires; the strips
+//     just come out scrambled, with each "face" made of unrelated levels. That failure
+//     mode is otherwise invisible until it reaches the screen as a subtly wrong sky.
 
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
@@ -76,6 +93,25 @@ namespace
         const int   v      = static_cast<int>(gamma * 255.0f + 0.5f);
         return static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
     }
+
+    uint32_t FaceSizeAtMip(uint32_t faceSize, uint32_t mip)
+    {
+        const uint32_t s = faceSize >> mip;
+        return s > 0 ? s : 1u;
+    }
+
+    // Full chain down to 1x1 — mirrors ImageAsset::ComputeMipLevels(w, h, 0), which is
+    // what EnvironmentBaker sizes the cube with.
+    uint32_t ExpectedMipLevels(uint32_t faceSize)
+    {
+        uint32_t levels = 1;
+        while (faceSize > 1)
+        {
+            faceSize >>= 1;
+            ++levels;
+        }
+        return levels;
+    }
 }
 
 int main(int, char**)
@@ -145,40 +181,94 @@ int main(int, char**)
         return 1;
     }
 
-    // --- Verify the compiled shape ---
-    const size_t faceTexels     = static_cast<size_t>(faceSize) * faceSize;
-    const size_t faceByteStride = faceTexels * 8; // RGBA16F, tight
-    const size_t expectedBytes  = faceByteStride * 6;
-    LOG_INFO("[BakeCubemap] compiled cube: {}x{}, arrayLayers={}, mips={}, format={}, bytes={} (expect {})",
-             data->GetWidth(), data->GetHeight(), data->GetArrayLayers(), data->GetMipLevels(),
+    // --- Verify the compiled shape, including the full mip chain ---
+    // Every subresource is stored tightly (no row padding) and all six faces carry the
+    // same chain, so the total is just the per-face geometric series times six.
+    const uint32_t expectedMips = ExpectedMipLevels(faceSize);
+
+    size_t perFaceBytes = 0;
+    for (uint32_t mip = 0; mip < expectedMips; ++mip)
+    {
+        const size_t s = FaceSizeAtMip(faceSize, mip);
+        perFaceBytes += s * s * 8; // RGBA16F
+    }
+    const size_t expectedBytes = perFaceBytes * 6;
+
+    LOG_INFO("[BakeCubemap] compiled cube: {}x{}, arrayLayers={}, mips={} (expect {}), "
+             "format={}, bytes={} (expect {})",
+             data->GetWidth(), data->GetHeight(), data->GetArrayLayers(),
+             data->GetMipLevels(), expectedMips,
              static_cast<int>(data->GetFormat()), data->GetTextureBytes().size(), expectedBytes);
-    if (data->GetArrayLayers() != 6 || data->GetWidth() != faceSize ||
-        data->GetTextureBytes().size() != expectedBytes)
+
+    if (data->GetArrayLayers() != 6 || data->GetWidth() != faceSize)
     {
         LOG_ERROR("[BakeCubemap] Unexpected compiled cube shape.");
         return 1;
     }
+    if (data->GetMipLevels() != expectedMips)
+    {
+        LOG_ERROR("[BakeCubemap] Mip count is {}, expected {}. A count of 1 means the chain "
+                  "never reached the asset layer (check AssembleCubemapData).",
+                  data->GetMipLevels(), expectedMips);
+        return 1;
+    }
+    if (data->GetTextureBytes().size() != expectedBytes)
+    {
+        LOG_ERROR("[BakeCubemap] Payload is {}B, expected {}B — the mip chain is incomplete "
+                  "or the byte layout is not face-major/mip-inner.",
+                  data->GetTextureBytes().size(), expectedBytes);
+        return 1;
+    }
 
-    // --- Dump faces as tonemapped PNG (face-major, RGBA16F) ---
+    // --- Dump each face as a vertical mip strip (tonemapped PNG) ---
+    // Walk order is FACE-MAJOR, MIP-INNER — the same order AsyncUploadSystem consumes the
+    // buffer in. Reading it back the same way is what makes a mip-major regression visible.
     static const char* kFaceNames[6] = { "0_posX", "1_negX", "2_posY", "3_negY", "4_posZ", "5_negZ" };
-    const uint8_t* faceBytes = data->GetTextureBytes().data();
+    const uint8_t* cubeBytes = data->GetTextureBytes().data();
 
-    eastl::vector<uint8_t> rgba8(faceTexels * 4);
+    uint32_t stripHeight = 0;
+    for (uint32_t mip = 0; mip < expectedMips; ++mip)
+    {
+        stripHeight += FaceSizeAtMip(faceSize, mip);
+    }
+
+    // Strip canvas: mip 0 on top at full width, each level below left-aligned. The unused
+    // right-hand region stays at the memset value, giving the chain a visible staircase.
+    eastl::vector<uint8_t> strip(static_cast<size_t>(faceSize) * stripHeight * 4);
+
+    size_t srcOffset = 0;
     for (uint32_t f = 0; f < 6; ++f)
     {
-        const auto* faceHalf = reinterpret_cast<const uint16_t*>(faceBytes + f * faceByteStride);
-        for (size_t i = 0; i < faceTexels; ++i)
+        memset(strip.data(), 0, strip.size());
+
+        uint32_t dstY = 0;
+        for (uint32_t mip = 0; mip < expectedMips; ++mip)
         {
-            rgba8[i * 4 + 0] = ToneMapToByte(HalfToFloat(faceHalf[i * 4 + 0]));
-            rgba8[i * 4 + 1] = ToneMapToByte(HalfToFloat(faceHalf[i * 4 + 1]));
-            rgba8[i * 4 + 2] = ToneMapToByte(HalfToFloat(faceHalf[i * 4 + 2]));
-            rgba8[i * 4 + 3] = 255;
+            const uint32_t s = FaceSizeAtMip(faceSize, mip);
+            const auto* half = reinterpret_cast<const uint16_t*>(cubeBytes + srcOffset);
+
+            for (uint32_t y = 0; y < s; ++y)
+            {
+                for (uint32_t x = 0; x < s; ++x)
+                {
+                    const size_t si = (static_cast<size_t>(y) * s + x) * 4;
+                    const size_t di = (static_cast<size_t>(dstY + y) * faceSize + x) * 4;
+                    strip[di + 0] = ToneMapToByte(HalfToFloat(half[si + 0]));
+                    strip[di + 1] = ToneMapToByte(HalfToFloat(half[si + 1]));
+                    strip[di + 2] = ToneMapToByte(HalfToFloat(half[si + 2]));
+                    strip[di + 3] = 255;
+                }
+            }
+
+            srcOffset += static_cast<size_t>(s) * s * 8;
+            dstY      += s;
         }
+
         char path[128];
-        snprintf(path, sizeof(path), "bake_face_%s.png", kFaceNames[f]);
-        if (stbi_write_png(path, faceSize, faceSize, 4, rgba8.data(), faceSize * 4))
+        snprintf(path, sizeof(path), "bake_face_%s_mips.png", kFaceNames[f]);
+        if (stbi_write_png(path, faceSize, stripHeight, 4, strip.data(), faceSize * 4))
         {
-            LOG_INFO("[BakeCubemap] wrote {}", path);
+            LOG_INFO("[BakeCubemap] wrote {} ({}x{}, {} levels)", path, faceSize, stripHeight, expectedMips);
         }
         else
         {
@@ -186,6 +276,7 @@ int main(int, char**)
         }
     }
 
-    LOG_INFO("[BakeCubemap] Done.");
+    LOG_INFO("[BakeCubemap] Done. Each strip should read as a progressive blur top to "
+             "bottom; noise in the lower levels means a missing UAV barrier.");
     return 0;
 }

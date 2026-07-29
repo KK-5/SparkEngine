@@ -158,6 +158,8 @@ namespace Spark::Resource
         //! are thin aliases over Texture2D / EnvironmentCubemap.
         static Ptr<AssetDescriptor> DescriptorForUsage(ImageUsage usage);
 
+        static uint32_t ComputeMipLevels(uint32_t width, uint32_t height, uint32_t maxLevel);
+
         explicit ImageAsset(AssetId id);
 
         const ImageAssetData* GetImageData() const;
