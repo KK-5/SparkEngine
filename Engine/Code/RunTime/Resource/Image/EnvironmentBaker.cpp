@@ -307,7 +307,15 @@ namespace Spark::Resource
         return true;
     }
 
-    BakedCubemap EnvironmentBaker::Bake(const ImageAssetRawData& equirect, uint32_t faceSize)
+    BakedEnvironment EnvironmentBaker::Bake(const ImageAssetRawData& equirect, uint32_t faceSize)
+    {
+        BakedEnvironment env;
+        env.sky = BakeSky(equirect, faceSize);
+        // irradiance / prefiltered are produced in phase 3d — until then only sky is valid.
+        return env;
+    }
+
+    BakedCubemap EnvironmentBaker::BakeSky(const ImageAssetRawData& equirect, uint32_t faceSize)
     {
         BakedCubemap result;
 

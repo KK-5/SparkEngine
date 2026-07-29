@@ -76,14 +76,16 @@ namespace Spark::Resource
             const uint32_t faceSize = desc->cubemapFaceSize != 0
                 ? desc->cubemapFaceSize
                 : EnvironmentBaker::RecommendedFaceSize(raw.GetHeight());
-            BakedCubemap baked = m_baker.Bake(raw, faceSize);
-            if (!baked.IsValid())
+            BakedEnvironment env = m_baker.Bake(raw, faceSize);
+            if (!env.sky.IsValid())
             {
                 LOG_ERROR("[ImageAssetBuilder] EnvironmentBaker failed for {}",
                           ctx.id.GetPath().c_str());
                 return;
             }
-            ctx.compiledData = m_compiler.AssembleCubemapData(eastl::move(baked));
+            // Only the sky product is wired for now; irradiance / prefiltered become
+            // sub-assets in phase 4.
+            ctx.compiledData = m_compiler.AssembleCubemapData(eastl::move(env.sky));
             return;
         }
 

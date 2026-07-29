@@ -37,6 +37,23 @@ namespace Spark::Resource
         bool IsValid() const { return faceSize > 0 && !faceBytes.empty(); }
     };
 
+    //! All products of one environment bake. The three cubes share a single HDRI input, a
+    //! single GPU job, and a single invalidation moment, so they are produced and returned
+    //! together (decision 3). Each is a fully self-contained BakedCubemap — same shape
+    //! (6-face, RGBA16F), differing only in faceSize and mipLevels — so no per-product
+    //! struct is needed, only this aggregate.
+    struct BakedEnvironment
+    {
+        BakedCubemap sky;          //!< full mip chain; skybox sampling + prefilter's sampling source
+        BakedCubemap irradiance;   //!< 32^2 single mip; diffuse term
+        BakedCubemap prefiltered;  //!< mip N == roughness N/(mipLevels-1); specular term
+
+        bool IsValid() const
+        {
+            return sky.IsValid() && irradiance.IsValid() && prefiltered.IsValid();
+        }
+    };
+
     //! Equirectangular HDRI -> cubemap, on the COMPUTE pipeline, as an asset-processing
     //! step. A self-contained, blocking GPU job: it owns its own PSO / queue / recorder /
     //! fence, records upload + dispatch + readback, submits, and CPU-waits for the result.
@@ -64,9 +81,11 @@ namespace Spark::Resource
 
         bool IsInitialized() const { return m_initialized; }
 
-        //! Equirect raw (expects RGBAF32) -> faceSize^3 RGBA16F cubemap, read back to CPU.
-        //! Blocks until the GPU finishes. Returns an invalid result on failure.
-        BakedCubemap Bake(const ImageAssetRawData& equirect, uint32_t faceSize);
+        //! Equirect raw (expects RGBAF32) -> the full set of environment products, read
+        //! back to CPU. Blocks until the GPU finishes. Currently only the sky cube is
+        //! produced (BakedEnvironment::sky); irradiance / prefiltered are added in phase 3d.
+        //! Check the specific product you consume (e.g. result.sky.IsValid()).
+        BakedEnvironment Bake(const ImageAssetRawData& equirect, uint32_t faceSize);
 
         //! Recommended cube face resolution for an equirect source of the given height:
         //! equatorial texel density matches at ~H/2 (== W/4 for a 2:1 source), rounded to
@@ -75,6 +94,11 @@ namespace Spark::Resource
         static uint32_t RecommendedFaceSize(uint32_t equirectHeight);
 
     private:
+        //! Equirect -> faceSize^3 RGBA16F cubemap with a full mip chain, read back to CPU.
+        //! The sky product of a bake; irradiance / prefiltered (added in 3d) consume the
+        //! GPU-side cube this produces, so they will move into the same command stream.
+        BakedCubemap BakeSky(const ImageAssetRawData& equirect, uint32_t faceSize);
+
         bool m_initialized = false;
 
         RHI::Device*  m_device  = nullptr;

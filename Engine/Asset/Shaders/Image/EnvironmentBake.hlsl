@@ -12,27 +12,14 @@
 // Compute has no implicit pixel-quad derivatives, so the equirect sample uses
 // SampleLevel(..., 0) with an explicit LOD rather than Sample().
 
+#include <Shaders/Lib/Cubemap/CubemapUtils.hlsli>
+
 Texture2D<float4>        g_Equirect : register(t0, space0);
 SamplerState             g_Sampler  : register(s0, space0);
 RWTexture2DArray<float4> g_Cube     : register(u0, space0);
 
 static const float PI     = 3.14159265358979323846;
 static const float TWO_PI = 6.28318530717958647692;
-
-// Face f, with s,t in [-1,1] (horizontal, vertical across the face). Returns the
-// (un-normalized) world direction per the D3D cube face convention.
-float3 FaceDirection(uint face, float s, float t)
-{
-    switch (face)
-    {
-    case 0: return float3( 1.0,  -t,  -s); // +X
-    case 1: return float3(-1.0,  -t,   s); // -X
-    case 2: return float3(  s,  1.0,   t); // +Y
-    case 3: return float3(  s, -1.0,  -t); // -Y
-    case 4: return float3(  s,  -t,  1.0); // +Z
-    default:return float3( -s,  -t, -1.0); // -Z
-    }
-}
 
 // World direction → equirectangular UV. v=0 is the top (latitude +90°), matching
 // stbi_loadf's top-to-bottom row order for the source HDRI.
