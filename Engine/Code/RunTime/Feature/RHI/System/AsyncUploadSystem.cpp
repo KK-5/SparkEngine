@@ -584,15 +584,21 @@ namespace Spark::RHI
         }
 
         // Process image uploads
+        //
+        // Scratch for the per-subresource layouts, reused across uploads so the
+        // (potentially large) allocation happens at most once per batch.
+        eastl::vector<ImageSubresourceLayout> layouts;
+
         for (const auto& upload : batch.m_imageUploads)
         {
-            // Query per-subresource layouts from the Image. The layout
-            // already contains byte-aligned row pitch and image size for DX12.
-            ImageSubresourceLayout layouts[RHI::Limits::Image::MipCountMax];
-            upload.m_targetImage->GetSubresourceLayouts(upload.m_range, layouts, nullptr);
-
             const auto& imageDesc = upload.m_targetImage->GetDescriptor();
             const uint32_t mipLevels = imageDesc.m_mipLevels;
+
+            layouts.assign(
+                static_cast<size_t>(mipLevels) * imageDesc.m_arraySize,
+                ImageSubresourceLayout{});
+            upload.m_targetImage->GetSubresourceLayouts(upload.m_range, layouts.data(), nullptr);
+
             const uint8_t* srcData = static_cast<const uint8_t*>(upload.m_data);
 
             for (uint16_t arraySlice = upload.m_range.m_arraySliceMin; arraySlice <= upload.m_range.m_arraySliceMax; ++arraySlice)

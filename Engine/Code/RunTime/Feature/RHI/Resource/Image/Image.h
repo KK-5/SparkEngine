@@ -34,9 +34,11 @@ namespace Spark::RHI
         //!
         //!  @param subresourceRange The range of subresources in the image to consider when computing subresource layouts.
         //!  @param subresourceLayouts
-        //!      [Optional] If specified, fills the provided array with computed subresource layout results. The size of the
-        //!      array must be at least the number of subresources specified in the subresource range (number of mip slices *
-        //!      number of array slices).
+        //!      [Optional] If specified, fills the provided array with computed subresource layout results. Results are
+        //!      written by GLOBAL subresource index (mip + arraySlice * mipLevels, see GetImageSubresourceIndex), NOT
+        //!      packed into the range's own ordering. The array must therefore span the image's full mip*array grid
+        //!      (m_mipLevels * m_arraySize) — sizing it by the range's subresource count overflows whenever the range
+        //!      starts at a non-zero array slice.
         //!  @param totalSizeInBytes
         //!      [Optional] If specified, will be filled with the total size necessary to contain all subresources.
         void GetSubresourceLayouts(
