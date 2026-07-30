@@ -99,6 +99,8 @@ namespace Spark::Resource
         //! GPU-side cube this produces, so they will move into the same command stream.
         BakedCubemap BakeSky(const ImageAssetRawData& equirect, uint32_t faceSize);
 
+        BakedCubemap BakeIrradiance();
+
         bool m_initialized = false;
 
         RHI::Device*  m_device  = nullptr;

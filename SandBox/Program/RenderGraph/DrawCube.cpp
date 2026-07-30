@@ -331,35 +331,32 @@ namespace Spark::SandBox
                 auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
                 auto& passCtx = *Spark::Render::PassExecuteContext::Current();
 
+                using namespace Spark::Render;
+
                 // View constants (space1) travel the pass-shaderbinding path here, not the
                 // engine's shared ViewBindingSystem: get-or-create this pass's space1 SRG,
                 // then WriteViewConstants — same mechanism as SetPassShaderConstant.
-                Spark::RHI::RHIHandle viewBindings =
-                    Spark::Render::GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
-                        passCtx, rhiCtx, /*spaceId*/ 1);
+                Spark::RHI::RHIHandle viewBindings = GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
+                    passCtx, rhiCtx, /*spaceId*/ 1);
                 if (viewBindings == Spark::RHI::NullHandle)
                 {
                     return;
                 }
-                Spark::Render::WriteViewConstants(m_camera, viewBindings);
+                WriteViewConstants(m_camera, viewBindings);
 
-                Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
-                    /*spaceId*/ 0, Spark::RHI::InputName("g_Model"), m_modelMatrix);
+                SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(/*spaceId*/ 0, Spark::RHI::InputName("g_Model"), m_modelMatrix);
 
-                if (Spark::Render::IsResourceReady(rhiCtx, m_baseColor))
+                if (IsResourceReady(rhiCtx, m_baseColor))
                 {
                     auto image = rhiCtx.Get<RHI::Components::Image>(m_baseColor);
-                    auto* view = Spark::RHI::GetOrCreateImageView(
-                        rhiCtx, m_baseColor, *image.m_image, m_baseColorViewDesc);
+                    auto* view = Spark::RHI::GetOrCreateImageView(rhiCtx, m_baseColor, *image.m_image, m_baseColorViewDesc);
                     if (view)
                     {
-                        Spark::Render::SetPassShaderImage<SPARK_PASS_TAG("ScenePass")>(
-                            /*spaceId*/ 0, Spark::RHI::InputName("g_Texture"), view);
+                        SetPassShaderImage<SPARK_PASS_TAG("ScenePass")>(/*spaceId*/ 0, Spark::RHI::InputName("g_Texture"), view);
                     }
                 }
 
-                Spark::Render::SetPassShaderSampler<SPARK_PASS_TAG("ScenePass")>(
-                    /*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
+                SetPassShaderSampler<SPARK_PASS_TAG("ScenePass")>(/*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
             })
             .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
