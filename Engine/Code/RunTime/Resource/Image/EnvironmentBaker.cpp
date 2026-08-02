@@ -42,9 +42,16 @@ namespace Spark::Resource
 {
     namespace
     {
-        constexpr RHI::Format kCubeFormat   = RHI::Format::R16G16B16A16_FLOAT;
-        constexpr uint32_t    kCubeBytesPP  = 8; // RGBA16F
-        constexpr uint32_t    kNumCubeFaces = 6;
+        constexpr RHI::Format kCubeFormat     = RHI::Format::R16G16B16A16_FLOAT;
+        constexpr uint32_t    kCubeBytesPP    = 8; // RGBA16F
+        constexpr uint32_t    kNumCubeFaces   = 6;
+        constexpr uint32_t    kIrradianceSize = 32; // low-freq diffuse cube, single mip
+
+        // Specular prefilter: 128^2 with 5 roughness levels (0 / .25 / .5 / .75 / 1). Not a
+        // full chain -- roughness ~1 is near-uniform, so extra levels only waste bake time.
+        constexpr uint32_t    kPrefilterSize    = 128;
+        constexpr uint32_t    kPrefilterMips    = 5;
+        constexpr uint32_t    kPrefilterSamples = 1024;
 
         RHI::Format MapRawToRHIFormat(ImageFormat format)
         {
@@ -229,6 +236,100 @@ namespace Spark::Resource
             }
         }
         /////////////////////////////////////////////////////////////////
+        // Irradiance PSO (cosine-weighted diffuse convolution of the sky cube)
+        {
+            Ptr<ShaderAsset> irradianceShader = assetManager->LoadAsset<ShaderAsset>(
+                AssetId::Of<ShaderAsset>("Shaders/Image/IrradianceBake.hlsl"));
+            if (!irradianceShader || irradianceShader->GetStatus() != AssetStatus::Ready)
+            {
+                LOG_ERROR("[EnvironmentBaker] Failed to load IrradianceBake.hlsl (status={}).",
+                        irradianceShader ? static_cast<int>(irradianceShader->GetStatus()) : -1);
+                return false;
+            }
+
+            auto* shaderData = irradianceShader->GetShaderData();
+            const auto* csBytecode = shaderData
+                ? shaderData->GetStageBytecode(RHI::ShaderStage::Compute)
+                : nullptr;
+            if (!csBytecode)
+            {
+                LOG_ERROR("[EnvironmentBaker] Irradiance shader has no compute-stage bytecode "
+                        "(CSMain not detected/compiled?).");
+                return false;
+            }
+            Ptr<RHI::ShaderStageFunction> csFunc =
+                m_factory->CreateShaderStageFunction(RHI::ShaderStage::Compute);
+            csFunc->SetByteCode(csBytecode->bytecode);
+            csFunc->Finalize();
+
+            ShaderInputBuildResult built = BuildShaderInputList(*irradianceShader);
+            if (built.stageMask == RHI::ShaderStageMask::None)
+            {
+                LOG_ERROR("[EnvironmentBaker] Irradiance shader produced no shader inputs.");
+                return false;
+            }
+            m_irradianceLayout = m_factory->CreatePipelineLayoutDescriptor();
+            m_irradianceLayout->AddShaderInputDescriptors(built.list, built.stageMask);
+            m_irradianceLayout->Finalize();
+
+            m_irradiancePSO = m_factory->CreatePipelineState();
+            RHI::PipelineStateDescriptorForDispatch psoDesc;
+            psoDesc.m_computeFunction          = csFunc;
+            psoDesc.m_pipelineLayoutDescriptor = m_irradianceLayout;
+            if (m_irradiancePSO->Init(*m_device, psoDesc, m_pipelineLibrary.get()) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] Irradiance PSO init failed.");
+                return false;
+            }
+        }
+        /////////////////////////////////////////////////////////////////
+        // Prefilter PSO (GGX-prefiltered specular convolution of the sky cube)
+        {
+            Ptr<ShaderAsset> prefilterShader = assetManager->LoadAsset<ShaderAsset>(
+                AssetId::Of<ShaderAsset>("Shaders/Image/PrefilterBake.hlsl"));
+            if (!prefilterShader || prefilterShader->GetStatus() != AssetStatus::Ready)
+            {
+                LOG_ERROR("[EnvironmentBaker] Failed to load PrefilterBake.hlsl (status={}).",
+                        prefilterShader ? static_cast<int>(prefilterShader->GetStatus()) : -1);
+                return false;
+            }
+
+            auto* shaderData = prefilterShader->GetShaderData();
+            const auto* csBytecode = shaderData
+                ? shaderData->GetStageBytecode(RHI::ShaderStage::Compute)
+                : nullptr;
+            if (!csBytecode)
+            {
+                LOG_ERROR("[EnvironmentBaker] Prefilter shader has no compute-stage bytecode "
+                        "(CSMain not detected/compiled?).");
+                return false;
+            }
+            Ptr<RHI::ShaderStageFunction> csFunc =
+                m_factory->CreateShaderStageFunction(RHI::ShaderStage::Compute);
+            csFunc->SetByteCode(csBytecode->bytecode);
+            csFunc->Finalize();
+
+            ShaderInputBuildResult built = BuildShaderInputList(*prefilterShader);
+            if (built.stageMask == RHI::ShaderStageMask::None)
+            {
+                LOG_ERROR("[EnvironmentBaker] Prefilter shader produced no shader inputs.");
+                return false;
+            }
+            m_prefilterLayout = m_factory->CreatePipelineLayoutDescriptor();
+            m_prefilterLayout->AddShaderInputDescriptors(built.list, built.stageMask);
+            m_prefilterLayout->Finalize();
+
+            m_prefilterPSO = m_factory->CreatePipelineState();
+            RHI::PipelineStateDescriptorForDispatch psoDesc;
+            psoDesc.m_computeFunction          = csFunc;
+            psoDesc.m_pipelineLayoutDescriptor = m_prefilterLayout;
+            if (m_prefilterPSO->Init(*m_device, psoDesc, m_pipelineLibrary.get()) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] Prefilter PSO init failed.");
+                return false;
+            }
+        }
+        /////////////////////////////////////////////////////////////////
 
         // Own dedicated graphics queue + recorder + fence. Graphics queue runs the
         // compute dispatch + copies with no queue-class restrictions; the compute
@@ -310,12 +411,25 @@ namespace Spark::Resource
     BakedEnvironment EnvironmentBaker::Bake(const ImageAssetRawData& equirect, uint32_t faceSize)
     {
         BakedEnvironment env;
-        env.sky = BakeSky(equirect, faceSize);
-        // irradiance / prefiltered are produced in phase 3d — until then only sky is valid.
+
+        // Sky first: it hands back the live GPU cube (with its mip chain) so the follow-up
+        // convolutions sample it as an SRV — no CPU round-trip. Bake owns the Ptr, keeping
+        // the cube alive across BakeIrradiance / BakePrefilter.
+        Ptr<RHI::Image> skyCube;
+        uint32_t        skyMipLevels = 0;
+        env.sky = BakeSky(equirect, faceSize, skyCube, skyMipLevels);
+        if (!env.sky.IsValid() || !skyCube)
+        {
+            return env;
+        }
+
+        env.irradiance  = BakeIrradiance(*skyCube, skyMipLevels);
+        env.prefiltered = BakePrefilter(*skyCube, skyMipLevels);
         return env;
     }
 
-    BakedCubemap EnvironmentBaker::BakeSky(const ImageAssetRawData& equirect, uint32_t faceSize)
+    BakedCubemap EnvironmentBaker::BakeSky(const ImageAssetRawData& equirect, uint32_t faceSize,
+                                           Ptr<RHI::Image>& outCube, uint32_t& outMipLevels)
     {
         BakedCubemap result;
 
@@ -363,7 +477,8 @@ namespace Spark::Resource
             RHI::ImageInitRequest req;
             req.m_image = cubeImg.get();
             req.m_descriptor = RHI::ImageDescriptor::CreateCubemap(
-                RHI::ImageBindFlags::ShaderWrite | RHI::ImageBindFlags::CopyRead,
+                RHI::ImageBindFlags::ShaderWrite | RHI::ImageBindFlags::ShaderRead
+                | RHI::ImageBindFlags::CopyRead,
                 faceSize, kCubeFormat);
             req.m_descriptor.m_mipLevels = cubeMipLevels;
             if (m_imagePool->InitImage(req) != RHI::ResultCode::Success)
@@ -694,6 +809,437 @@ namespace Spark::Resource
                 if (m_readbackPool->MapBuffer(mapReq, mapResp) != RHI::ResultCode::Success || !mapResp.m_data)
                 {
                     LOG_ERROR("[EnvironmentBaker] readback map failed.");
+                    return BakedCubemap{};
+                }
+
+                const auto* srcBytes = static_cast<const uint8_t*>(mapResp.m_data);
+                for (uint32_t row = 0; row < layout.m_rowCount; ++row)
+                {
+                    memcpy(result.faceBytes.data() + dstOffset + row * tightRow,
+                        srcBytes + static_cast<size_t>(row) * layout.m_bytesPerRow,
+                        tightRow);
+                }
+                m_readbackPool->UnmapBuffer(*readbackBufs[idx]);
+
+                dstOffset += static_cast<size_t>(tightRow) * mipSize;
+            }
+        }
+
+        // Keep the GPU cube alive for the follow-up convolutions instead of releasing it.
+        outCube      = cubeImg;
+        outMipLevels = cubeMipLevels;
+        return result;
+    }
+
+    BakedCubemap EnvironmentBaker::BakeIrradiance(RHI::Image& srcCube, uint32_t srcMipLevels)
+    {
+        BakedCubemap result;
+
+        // ---- Irradiance cube (UAV target) + views ----
+        Ptr<RHI::Image> irrImg = m_factory->CreateImage();
+        {
+            RHI::ImageInitRequest req;
+            req.m_image = irrImg.get();
+            req.m_descriptor = RHI::ImageDescriptor::CreateCubemap(
+                RHI::ImageBindFlags::ShaderWrite | RHI::ImageBindFlags::CopyRead,
+                kIrradianceSize, kCubeFormat);
+            req.m_descriptor.m_mipLevels = 1;
+            if (m_imagePool->InitImage(req) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] irradiance image init failed.");
+                return result;
+            }
+        }
+
+        // Sky cube as a TextureCube SRV over its full mip chain.
+        Ptr<RHI::ImageView> srcView = m_factory->CreateImageView();
+        {
+            RHI::ImageViewDescriptor viewDesc = RHI::ImageViewDescriptor::CreateCubemap(
+                kCubeFormat, 0, static_cast<uint16_t>(srcMipLevels - 1));
+            if (srcView->Init(srcCube, viewDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] irradiance source view init failed.");
+                return result;
+            }
+        }
+
+        // Destination UAV: array-slice view, NOT CreateCubemap (a UAV sees raw array slices).
+        Ptr<RHI::ImageView> irrView = m_factory->CreateImageView();
+        {
+            RHI::ImageViewDescriptor viewDesc;
+            viewDesc.m_mipSliceMin    = 0;
+            viewDesc.m_mipSliceMax    = 0;
+            viewDesc.m_arraySliceMin  = 0;
+            viewDesc.m_arraySliceMax  = static_cast<uint16_t>(kNumCubeFaces - 1);
+            viewDesc.m_overrideFormat = kCubeFormat;
+            if (irrView->Init(*irrImg, viewDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] irradiance dest view init failed.");
+                return result;
+            }
+        }
+
+        // ---- Bindings ----
+        Ptr<RHI::ShaderBindings> bindings = m_factory->CreateShaderBindings();
+        {
+            RHI::ShaderBindings::Descriptor bindingsDesc;
+            bindingsDesc.m_layout  = m_irradianceLayout;
+            bindingsDesc.m_spaceId = 0;
+            if (bindings->Init(*m_device, bindingsDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] irradiance ShaderBindings init failed.");
+                return result;
+            }
+        }
+        if (auto* in = bindings->FindImageInput(RHI::InputName("g_SrcCube")))
+        {
+            in->SetView(0, srcView.get());
+        }
+        if (auto* in = bindings->FindSamplerInput(RHI::InputName("g_Sampler")))
+        {
+            // Trilinear for the shader's fractional srcLod; Clamp.
+            in->SetState(0, RHI::SamplerState::Create(
+                RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
+        }
+        if (auto* in = bindings->FindImageInput(RHI::InputName("g_Irradiance")))
+        {
+            in->SetView(0, irrView.get());
+        }
+        {
+            RHI::ShaderInputCompiler& compiler = m_factory->AcquireShaderInputCompiler(*m_device);
+            compiler.Compile(*bindings);
+        }
+
+        // ---- Readback buffers: one per face (single mip) ----
+        eastl::vector<RHI::ImageSubresourceLayout> subresLayouts(kNumCubeFaces);
+        irrImg->GetSubresourceLayouts(
+            RHI::ImageSubresourceRange(0, 0, 0, static_cast<uint16_t>(kNumCubeFaces - 1)),
+            subresLayouts.data(), nullptr);
+
+        eastl::vector<Ptr<RHI::Buffer>> readbackBufs(kNumCubeFaces);
+        for (uint32_t f = 0; f < kNumCubeFaces; ++f)
+        {
+            readbackBufs[f] = m_factory->CreateBuffer();
+            RHI::BufferDescriptor desc;
+            desc.m_bindFlags = RHI::BufferBindFlags::CopyWrite;
+            desc.m_byteCount = subresLayouts[f].m_bytesPerImage;
+            RHI::BufferInitRequest req;
+            req.m_buffer = readbackBufs[f].get();
+            req.m_descriptor = desc;
+            if (m_readbackPool->InitBuffer(req) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] irradiance readback buffer init failed.");
+                return result;
+            }
+        }
+
+        // ---- Record: src cube -> shader read, irradiance -> shader write, dispatch, read back ----
+        RHI::CommandList* cmd = m_recorder->GetCommandList();
+
+        RHI::ImageBarrier srcReadBarrier = RHI::ConvertToImageShaderRead(srcCube);
+        cmd->QueueBarrier(srcReadBarrier);
+        RHI::ImageBarrier irrWriteBarrier = RHI::ConvertToImageShaderWrite(*irrImg);
+        cmd->QueueBarrier(irrWriteBarrier);
+        cmd->FlushBarriers();
+
+        cmd->SetPipelineState(*m_irradiancePSO);
+        cmd->BindShaderInputsForDispatch(*bindings);
+        {
+            RHI::DispatchItem di;
+            di.m_arguments = RHI::DispatchArguments(
+                RHI::DispatchDirect(kIrradianceSize, kIrradianceSize, kNumCubeFaces, 8, 8, 1));
+            di.m_pipelineState = m_irradiancePSO.get();
+            cmd->Submit(di);
+        }
+
+        RHI::ImageBarrier irrReadBarrier = RHI::ConvertToImageCopyRead(*irrImg);
+        cmd->QueueBarrier(irrReadBarrier);
+        cmd->FlushBarriers();
+
+        for (uint32_t f = 0; f < kNumCubeFaces; ++f)
+        {
+            RHI::CopyImageToBufferDescriptor rb;
+            rb.m_sourceImage              = irrImg.get();
+            rb.m_sourceSubresource        = RHI::ImageSubresource(0, static_cast<uint16_t>(f));
+            rb.m_sourceOrigin             = RHI::Origin(0, 0, 0);
+            rb.m_sourceSize               = subresLayouts[f].m_size;
+            rb.m_destinationBuffer        = readbackBufs[f].get();
+            rb.m_destinationOffset        = 0;
+            rb.m_destinationBytesPerRow   = subresLayouts[f].m_bytesPerRow;
+            rb.m_destinationBytesPerImage = subresLayouts[f].m_bytesPerImage;
+            rb.m_destinationFormat        = kCubeFormat;
+            cmd->Submit(RHI::CopyItem(rb));
+        }
+
+        cmd->Close();
+
+        RHI::CommandList* lists[] = { cmd };
+        m_queue->ExecuteCommands(lists);
+        m_queue->FlushCommands(*m_fence);
+        m_recorder->Reset();
+
+        // ---- De-pad rows into a tight, face-major buffer (single mip) ----
+        result.faceSize  = kIrradianceSize;
+        result.mipLevels = 1;
+        result.format    = kCubeFormat;
+        const uint32_t tightRow = kIrradianceSize * kCubeBytesPP;
+        result.faceBytes.resize(static_cast<size_t>(tightRow) * kIrradianceSize * kNumCubeFaces);
+
+        size_t dstOffset = 0;
+        for (uint32_t f = 0; f < kNumCubeFaces; ++f)
+        {
+            const auto& layout = subresLayouts[f];
+
+            RHI::BufferMapRequest mapReq;
+            mapReq.m_buffer     = readbackBufs[f].get();
+            mapReq.m_byteOffset = 0;
+            mapReq.m_byteCount  = layout.m_bytesPerImage;
+            RHI::BufferMapResponse mapResp;
+            if (m_readbackPool->MapBuffer(mapReq, mapResp) != RHI::ResultCode::Success || !mapResp.m_data)
+            {
+                LOG_ERROR("[EnvironmentBaker] irradiance readback map failed.");
+                return BakedCubemap{};
+            }
+
+            const auto* srcBytes = static_cast<const uint8_t*>(mapResp.m_data);
+            for (uint32_t row = 0; row < layout.m_rowCount; ++row)
+            {
+                memcpy(result.faceBytes.data() + dstOffset + row * tightRow,
+                    srcBytes + static_cast<size_t>(row) * layout.m_bytesPerRow,
+                    tightRow);
+            }
+            m_readbackPool->UnmapBuffer(*readbackBufs[f]);
+
+            dstOffset += static_cast<size_t>(tightRow) * kIrradianceSize;
+        }
+
+        return result;
+    }
+
+    BakedCubemap EnvironmentBaker::BakePrefilter(RHI::Image& srcCube, uint32_t srcMipLevels)
+    {
+        BakedCubemap result;
+
+        // ---- Prefiltered cube (UAV target, one mip per roughness level) ----
+        Ptr<RHI::Image> prefImg = m_factory->CreateImage();
+        {
+            RHI::ImageInitRequest req;
+            req.m_image = prefImg.get();
+            req.m_descriptor = RHI::ImageDescriptor::CreateCubemap(
+                RHI::ImageBindFlags::ShaderWrite | RHI::ImageBindFlags::CopyRead,
+                kPrefilterSize, kCubeFormat);
+            req.m_descriptor.m_mipLevels = kPrefilterMips;
+            if (m_imagePool->InitImage(req) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] prefilter image init failed.");
+                return result;
+            }
+        }
+
+        // Sky cube as a TextureCube SRV; the shader picks a mip per sample by solid angle.
+        Ptr<RHI::ImageView> srcView = m_factory->CreateImageView();
+        {
+            RHI::ImageViewDescriptor viewDesc = RHI::ImageViewDescriptor::CreateCubemap(
+                kCubeFormat, 0, static_cast<uint16_t>(srcMipLevels - 1));
+            if (srcView->Init(srcCube, viewDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] prefilter source view init failed.");
+                return result;
+            }
+        }
+
+        // One UAV view + one ShaderBindings per mip: each mip is a distinct roughness, and a
+        // ShaderBindings instance holds a single data set (see 3a), so they cannot be shared.
+        eastl::vector<Ptr<RHI::ImageView>>      mipViews(kPrefilterMips);
+        eastl::vector<Ptr<RHI::ShaderBindings>> mipBindings(kPrefilterMips);
+        for (uint32_t mip = 0; mip < kPrefilterMips; ++mip)
+        {
+            mipViews[mip] = m_factory->CreateImageView();
+            {
+                RHI::ImageViewDescriptor viewDesc;
+                viewDesc.m_mipSliceMin    = static_cast<uint16_t>(mip);
+                viewDesc.m_mipSliceMax    = static_cast<uint16_t>(mip);
+                viewDesc.m_arraySliceMin  = 0;
+                viewDesc.m_arraySliceMax  = static_cast<uint16_t>(kNumCubeFaces - 1);
+                viewDesc.m_overrideFormat = kCubeFormat;
+                if (mipViews[mip]->Init(*prefImg, viewDesc) != RHI::ResultCode::Success)
+                {
+                    LOG_ERROR("[EnvironmentBaker] prefilter mip view init failed.");
+                    return result;
+                }
+            }
+
+            mipBindings[mip] = m_factory->CreateShaderBindings();
+            RHI::ShaderBindings::Descriptor bindingsDesc;
+            bindingsDesc.m_layout  = m_prefilterLayout;
+            bindingsDesc.m_spaceId = 0;
+            if (mipBindings[mip]->Init(*m_device, bindingsDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[EnvironmentBaker] prefilter ShaderBindings init failed.");
+                return result;
+            }
+
+            // roughness N/(mipLevels-1): mip 0 -> 0 (mirror), last -> 1.
+            const float    roughness   = kPrefilterMips > 1
+                ? static_cast<float>(mip) / static_cast<float>(kPrefilterMips - 1)
+                : 0.0f;
+            const uint32_t sampleCount = kPrefilterSamples;
+
+            if (auto* in = mipBindings[mip]->FindImageInput(RHI::InputName("g_SrcCube")))
+            {
+                in->SetView(0, srcView.get());
+            }
+            if (auto* in = mipBindings[mip]->FindSamplerInput(RHI::InputName("g_Sampler")))
+            {
+                in->SetState(0, RHI::SamplerState::Create(
+                    RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
+            }
+            if (auto* in = mipBindings[mip]->FindImageInput(RHI::InputName("g_Prefiltered")))
+            {
+                in->SetView(0, mipViews[mip].get());
+            }
+            // cbuffer members reflect as individual constants by variable name.
+            if (auto* in = mipBindings[mip]->FindConstantInput(RHI::InputName("g_Roughness")))
+            {
+                in->SetData(&roughness, sizeof(roughness));
+            }
+            if (auto* in = mipBindings[mip]->FindConstantInput(RHI::InputName("g_SampleCount")))
+            {
+                in->SetData(&sampleCount, sizeof(sampleCount));
+            }
+
+            RHI::ShaderInputCompiler& compiler = m_factory->AcquireShaderInputCompiler(*m_device);
+            compiler.Compile(*mipBindings[mip]);
+        }
+
+        // Readback buffers, one per (face, mip). GetSubresourceLayouts indexes globally
+        // (mip + array*mipLevels), so span the full grid and look up via GetImageSubresourceIndex.
+        eastl::vector<RHI::ImageSubresourceLayout> subresLayouts(
+            static_cast<size_t>(kPrefilterMips) * kNumCubeFaces);
+        prefImg->GetSubresourceLayouts(
+            RHI::ImageSubresourceRange(0, static_cast<uint16_t>(kPrefilterMips - 1),
+                                       0, static_cast<uint16_t>(kNumCubeFaces - 1)),
+            subresLayouts.data(), nullptr);
+
+        auto FaceMipLayout = [&](uint32_t f, uint32_t mip) -> const RHI::ImageSubresourceLayout&
+        {
+            return subresLayouts[RHI::GetImageSubresourceIndex(
+                static_cast<uint16_t>(mip), static_cast<uint16_t>(f),
+                static_cast<uint16_t>(kPrefilterMips))];
+        };
+        // Linear index into readbackBufs / the face-major, mip-inner byte order.
+        auto SubresIndex = [&](uint32_t f, uint32_t mip) -> size_t
+        {
+            return static_cast<size_t>(f) * kPrefilterMips + mip;
+        };
+
+        eastl::vector<Ptr<RHI::Buffer>> readbackBufs(
+            static_cast<size_t>(kNumCubeFaces) * kPrefilterMips);
+        for (uint32_t f = 0; f < kNumCubeFaces; ++f)
+        {
+            for (uint32_t mip = 0; mip < kPrefilterMips; ++mip)
+            {
+                const size_t idx = SubresIndex(f, mip);
+                readbackBufs[idx] = m_factory->CreateBuffer();
+                RHI::BufferDescriptor desc;
+                desc.m_bindFlags = RHI::BufferBindFlags::CopyWrite;
+                desc.m_byteCount = FaceMipLayout(f, mip).m_bytesPerImage;
+                RHI::BufferInitRequest req;
+                req.m_buffer = readbackBufs[idx].get();
+                req.m_descriptor = desc;
+                if (m_readbackPool->InitBuffer(req) != RHI::ResultCode::Success)
+                {
+                    LOG_ERROR("[EnvironmentBaker] prefilter readback buffer init failed.");
+                    return result;
+                }
+            }
+        }
+
+        // One dispatch per mip. Mips write disjoint subresources and only read the (read-only)
+        // src, so no inter-mip barrier is needed — unlike the sky chain where mip N reads N-1.
+        RHI::CommandList* cmd = m_recorder->GetCommandList();
+
+        RHI::ImageBarrier srcReadBarrier = RHI::ConvertToImageShaderRead(srcCube);
+        cmd->QueueBarrier(srcReadBarrier);
+        RHI::ImageBarrier prefWriteBarrier = RHI::ConvertToImageShaderWrite(*prefImg);
+        cmd->QueueBarrier(prefWriteBarrier);
+        cmd->FlushBarriers();
+
+        cmd->SetPipelineState(*m_prefilterPSO);
+        for (uint32_t mip = 0; mip < kPrefilterMips; ++mip)
+        {
+            cmd->BindShaderInputsForDispatch(*mipBindings[mip]);
+
+            const uint32_t dstSize = eastl::max(1u, kPrefilterSize >> mip);
+            RHI::DispatchItem di;
+            di.m_arguments = RHI::DispatchArguments(
+                RHI::DispatchDirect(dstSize, dstSize, kNumCubeFaces, 8, 8, 1));
+            di.m_pipelineState = m_prefilterPSO.get();
+            cmd->Submit(di);
+        }
+
+        RHI::ImageBarrier prefReadBarrier = RHI::ConvertToImageCopyRead(*prefImg);
+        cmd->QueueBarrier(prefReadBarrier);
+        cmd->FlushBarriers();
+
+        for (uint32_t f = 0; f < kNumCubeFaces; ++f)
+        {
+            for (uint32_t mip = 0; mip < kPrefilterMips; ++mip)
+            {
+                RHI::CopyImageToBufferDescriptor rb;
+                rb.m_sourceImage              = prefImg.get();
+                rb.m_sourceSubresource        = RHI::ImageSubresource(
+                    static_cast<uint16_t>(mip), static_cast<uint16_t>(f));
+                rb.m_sourceOrigin             = RHI::Origin(0, 0, 0);
+                rb.m_sourceSize               = FaceMipLayout(f, mip).m_size;
+                rb.m_destinationBuffer        = readbackBufs[SubresIndex(f, mip)].get();
+                rb.m_destinationOffset        = 0;
+                rb.m_destinationBytesPerRow   = FaceMipLayout(f, mip).m_bytesPerRow;
+                rb.m_destinationBytesPerImage = FaceMipLayout(f, mip).m_bytesPerImage;
+                rb.m_destinationFormat        = kCubeFormat;
+                cmd->Submit(RHI::CopyItem(rb));
+            }
+        }
+
+        cmd->Close();
+
+        RHI::CommandList* lists[] = { cmd };
+        m_queue->ExecuteCommands(lists);
+        m_queue->FlushCommands(*m_fence);
+        m_recorder->Reset();
+
+        // ---- De-pad rows into a tight, FACE-MAJOR, MIP-INNER buffer (same contract as
+        //      BakeSky: [f0m0][f0m1]...[f0mN][f1m0]...). ----
+        result.faceSize  = kPrefilterSize;
+        result.mipLevels = kPrefilterMips;
+        result.format    = kCubeFormat;
+        size_t totalBytes = 0;
+        for (uint32_t mip = 0; mip < kPrefilterMips; ++mip)
+        {
+            const uint32_t s = eastl::max(1u, kPrefilterSize >> mip);
+            totalBytes += static_cast<size_t>(s) * s * kCubeBytesPP;
+        }
+        totalBytes *= kNumCubeFaces;
+        result.faceBytes.resize(totalBytes);
+
+        size_t dstOffset = 0;
+        for (uint32_t f = 0; f < kNumCubeFaces; ++f)
+        {
+            for (uint32_t mip = 0; mip < kPrefilterMips; ++mip)
+            {
+                const auto&    layout   = FaceMipLayout(f, mip);
+                const size_t   idx      = SubresIndex(f, mip);
+                const uint32_t mipSize  = eastl::max(1u, kPrefilterSize >> mip);
+                const uint32_t tightRow = mipSize * kCubeBytesPP;
+
+                RHI::BufferMapRequest mapReq;
+                mapReq.m_buffer     = readbackBufs[idx].get();
+                mapReq.m_byteOffset = 0;
+                mapReq.m_byteCount  = layout.m_bytesPerImage;
+                RHI::BufferMapResponse mapResp;
+                if (m_readbackPool->MapBuffer(mapReq, mapResp) != RHI::ResultCode::Success || !mapResp.m_data)
+                {
+                    LOG_ERROR("[EnvironmentBaker] prefilter readback map failed.");
                     return BakedCubemap{};
                 }
 

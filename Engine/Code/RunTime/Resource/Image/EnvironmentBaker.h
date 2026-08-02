@@ -18,6 +18,7 @@ namespace Spark::RHI
     class ShaderBindings;
     class ImagePool;
     class BufferPool;
+    class Image;
 }
 
 namespace Spark::Resource
@@ -37,11 +38,8 @@ namespace Spark::Resource
         bool IsValid() const { return faceSize > 0 && !faceBytes.empty(); }
     };
 
-    //! All products of one environment bake. The three cubes share a single HDRI input, a
-    //! single GPU job, and a single invalidation moment, so they are produced and returned
-    //! together (decision 3). Each is a fully self-contained BakedCubemap — same shape
-    //! (6-face, RGBA16F), differing only in faceSize and mipLevels — so no per-product
-    //! struct is needed, only this aggregate.
+    //! All products of one environment bake — same HDRI input, GPU job, and invalidation,
+    //! so produced and returned together. Each is a self-contained BakedCubemap.
     struct BakedEnvironment
     {
         BakedCubemap sky;          //!< full mip chain; skybox sampling + prefilter's sampling source
@@ -81,10 +79,8 @@ namespace Spark::Resource
 
         bool IsInitialized() const { return m_initialized; }
 
-        //! Equirect raw (expects RGBAF32) -> the full set of environment products, read
-        //! back to CPU. Blocks until the GPU finishes. Currently only the sky cube is
-        //! produced (BakedEnvironment::sky); irradiance / prefiltered are added in phase 3d.
-        //! Check the specific product you consume (e.g. result.sky.IsValid()).
+        //! Equirect raw (expects RGBAF32) -> sky + irradiance + prefiltered cubes, read back
+        //! to CPU. Blocks until the GPU finishes.
         BakedEnvironment Bake(const ImageAssetRawData& equirect, uint32_t faceSize);
 
         //! Recommended cube face resolution for an equirect source of the given height:
@@ -94,12 +90,19 @@ namespace Spark::Resource
         static uint32_t RecommendedFaceSize(uint32_t equirectHeight);
 
     private:
-        //! Equirect -> faceSize^3 RGBA16F cubemap with a full mip chain, read back to CPU.
-        //! The sky product of a bake; irradiance / prefiltered (added in 3d) consume the
-        //! GPU-side cube this produces, so they will move into the same command stream.
-        BakedCubemap BakeSky(const ImageAssetRawData& equirect, uint32_t faceSize);
+        //! Equirect -> faceSize^3 RGBA16F cube with a full mip chain. Hands the live GPU
+        //! cube back in `outCube` (CopyRead) so the convolutions can sample it as an SRV
+        //! without a CPU round-trip; `outMipLevels` is its chain length.
+        BakedCubemap BakeSky(const ImageAssetRawData& equirect, uint32_t faceSize,
+                             Ptr<RHI::Image>& outCube, uint32_t& outMipLevels);
 
-        BakedCubemap BakeIrradiance();
+        //! Sky cube -> diffuse irradiance cube (kIrradianceSize^2, single mip). `srcCube`
+        //! must be a live GPU cube from BakeSky, sampled as a TextureCube SRV.
+        BakedCubemap BakeIrradiance(RHI::Image& srcCube, uint32_t srcMipLevels);
+
+        //! Sky cube -> GGX-prefiltered specular cube (kPrefilterSize^2, kPrefilterMips), one
+        //! roughness per mip. `srcCube` must be a live GPU cube from BakeSky.
+        BakedCubemap BakePrefilter(RHI::Image& srcCube, uint32_t srcMipLevels);
 
         bool m_initialized = false;
 
@@ -115,6 +118,12 @@ namespace Spark::Resource
 
         Ptr<RHI::PipelineState>            m_cubeMipsPSO;
         Ptr<RHI::PipelineLayoutDescriptor> m_cubeMipsLayout;
+
+        Ptr<RHI::PipelineState>            m_irradiancePSO;
+        Ptr<RHI::PipelineLayoutDescriptor> m_irradianceLayout;
+
+        Ptr<RHI::PipelineState>            m_prefilterPSO;
+        Ptr<RHI::PipelineLayoutDescriptor> m_prefilterLayout;
 
         // Persistent resource allocators — the pools (not the factory) own the heaps
         // and deferred-release queues, so they must outlive every image/buffer they
