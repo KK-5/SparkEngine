@@ -42,6 +42,14 @@ namespace Spark::RHI::DX12
             constantBufferCtx.CollectConstantBuffer(m_constantMemoryView);
         }
 
+        // Releasing frees the pool allocation but leaves the handle value, so these still
+        // report IsValid(). This object is pooled and recycled: a reused instance must look
+        // un-compiled (all three invalid) or the next Compile takes the "already compiled"
+        // path with a stale (zeroed) m_layoutHash and asserts.
+        m_viewsDescriptorTable    = {};
+        m_samplersDescriptorTable = {};
+        m_constantMemoryView      = {};
+
         for (auto& frame : m_compiledData)
         {
             frame = {};
