@@ -20,6 +20,13 @@ namespace Spark::Skybox
     struct SkyboxComponent
     {
         Resource::AssetId m_imageAssetId;
+
+        //! Multiplies the environment's radiance -- the visible sky AND both IBL terms,
+        //! which is what keeps them consistent: scaling incident radiance by k scales the
+        //! irradiance and prefiltered integrals by exactly k (both are linear in it), so
+        //! this is equivalent to re-baking a k-times brighter HDRI, with no re-bake.
+        //! Applied at sample time by the skybox and lighting shaders.
+        float m_intensity = 1.0f;
     };
 
     //! Resolved GPU side, written by SkyboxSystem (mirrors MeshGPUComponent).
@@ -28,11 +35,18 @@ namespace Spark::Skybox
     //!                     loaded environment asset; once the asset-layer bake lands
     //!                     it is the cubemap-form product — downstream is unchanged.
     //!  - m_cubemap      : the GPU texture the render SkyboxPass samples.
+    //!  - m_irradiance /
+    //!    m_prefiltered  : the environment bake's IBL products, uploaded as static
+    //!                     imports (no render-graph attachment — SceneBindingSystem
+    //!                     binds them into space0 and samples them every frame).
+    //!                     NullHandle when the asset carries no IBL products.
     //! No equirect, no bake state: the feature does not know a bake happened.
     struct SkyboxGPUComponent
     {
         Ptr<Resource::ImageAsset> m_cubemapAsset;
-        RHI::RHIHandle            m_cubemap = RHI::NullHandle;
+        RHI::RHIHandle            m_cubemap     = RHI::NullHandle;
+        RHI::RHIHandle            m_irradiance  = RHI::NullHandle;
+        RHI::RHIHandle            m_prefiltered = RHI::NullHandle;
     };
 
     //! Placed on the RHIContext cube resource entity (SkyboxGPUComponent::m_cubemap) of the
@@ -41,6 +55,12 @@ namespace Spark::Skybox
     //! NOT in SparkRender, so the feature can set it without a feature->render dependency —
     //! the render pass reads it in the allowed render->feature direction. Singleton:
     //! SkyboxSystem clears any prior cube's tag before tagging a newly built one.
+    //!
+    //! Also the answer to "which skybox is active" for consumers that need the whole set:
+    //! SceneBindingSystem finds the SkyboxGPUComponent whose m_cubemap carries this tag and
+    //! takes its IBL handles from that same component, so sky and environment lighting can
+    //! never come from two different HDRIs. The IBL images get no tag of their own -- they
+    //! are static imports bound straight into space0, never render-graph attachments.
     struct ActiveSkyCubeTag {};
 }
 
