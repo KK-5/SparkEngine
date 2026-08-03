@@ -193,10 +193,8 @@ namespace Spark::Resource
             if (!entry.data.empty())
             {
                 eastl::string subLabel = MakeImageSubLabel(entry.name, i);
-                subId = AssetId::OfSub<ImageAsset>(
-                    eastl::string_view(ctx.id.GetPath().c_str(), ctx.id.GetPath().size()),
-                    eastl::string_view(subLabel.c_str(), subLabel.size()),
-                    static_cast<const ImageAssetDescriptor&>(*ImageAsset::DescriptorForUsage(usage)));
+                subId = ImageAsset::MakeSubId(
+                    ctx.id, eastl::string_view(subLabel.c_str(), subLabel.size()), usage);
                 src     = entry.data.data();
                 srcSize = entry.data.size();
             }

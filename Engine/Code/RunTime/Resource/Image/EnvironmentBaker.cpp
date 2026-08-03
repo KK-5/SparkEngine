@@ -42,15 +42,9 @@ namespace Spark::Resource
 {
     namespace
     {
-        constexpr RHI::Format kCubeFormat     = RHI::Format::R16G16B16A16_FLOAT;
-        constexpr uint32_t    kCubeBytesPP    = 8; // RGBA16F
-        constexpr uint32_t    kNumCubeFaces   = 6;
-        constexpr uint32_t    kIrradianceSize = 32; // low-freq diffuse cube, single mip
-
-        // Specular prefilter: 128^2 with 5 roughness levels (0 / .25 / .5 / .75 / 1). Not a
-        // full chain -- roughness ~1 is near-uniform, so extra levels only waste bake time.
-        constexpr uint32_t    kPrefilterSize    = 128;
-        constexpr uint32_t    kPrefilterMips    = 5;
+        constexpr RHI::Format kCubeFormat   = RHI::Format::R16G16B16A16_FLOAT;
+        constexpr uint32_t    kCubeBytesPP  = 8; // RGBA16F
+        constexpr uint32_t    kNumCubeFaces = 6;
         constexpr uint32_t    kPrefilterSamples = 1024;
 
         RHI::Format MapRawToRHIFormat(ImageFormat format)

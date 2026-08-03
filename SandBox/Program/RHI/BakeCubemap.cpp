@@ -186,6 +186,69 @@ namespace
             }
         }
     }
+
+    //! Drives one HDRI through AssetManager: the sky cube is the top-level asset, and the
+    //! two IBL products hang off it as sub-assets, Ready and registered in the db.
+    bool VerifyAssetLayer(Resource::SparkAssetManager& assetManager, const Resource::AssetId& hdrId)
+    {
+        if (!assetManager.InitEnvironmentBaker())
+        {
+            LOG_ERROR("[BakeCubemap] asset layer: InitEnvironmentBaker failed.");
+            return false;
+        }
+
+        Ptr<Resource::Asset> asset = assetManager.LoadAsset(hdrId, Resource::AssetType::Image);
+        if (!asset || !asset->IsReady())
+        {
+            LOG_ERROR("[BakeCubemap] asset layer: the sky cube asset is not Ready.");
+            return false;
+        }
+
+        auto* sky = static_cast<Resource::ImageAsset*>(asset.get());
+        const Ptr<Resource::ImageAsset> irr = sky->GetIrradianceAsset();
+        const Ptr<Resource::ImageAsset> pre = sky->GetPrefilteredAsset();
+        if (!irr || !pre)
+        {
+            LOG_ERROR("[BakeCubemap] asset layer: the sky cube carries no IBL products.");
+            return false;
+        }
+
+        struct Expected { const char* name; const Resource::ImageAsset* asset;
+                          uint32_t size; uint32_t mips; };
+        const Expected expected[] = {
+            {"irradiance",  irr.get(), Resource::EnvironmentBaker::kIrradianceSize, 1},
+            {"prefiltered", pre.get(), Resource::EnvironmentBaker::kPrefilterSize,
+                            Resource::EnvironmentBaker::kPrefilterMips},
+        };
+
+        bool ok = true;
+        for (const Expected& e : expected)
+        {
+            const auto* data = e.asset->GetImageData();
+            const uint32_t layers = data ? data->GetArrayLayers() : 0;
+            LOG_INFO("[BakeCubemap] asset layer: {} = {}x{} x{} mips x{} layers, ready={}",
+                     e.name, e.asset->GetWidth(), e.asset->GetHeight(),
+                     e.asset->GetMipLevels(), layers, e.asset->IsReady());
+
+            if (!e.asset->IsReady() || static_cast<uint32_t>(e.asset->GetWidth()) != e.size
+                || e.asset->GetMipLevels() != e.mips || layers != 6)
+            {
+                LOG_ERROR("[BakeCubemap] asset layer: {} expected {}^2 x{} mips x6 layers.",
+                          e.name, e.size, e.mips);
+                ok = false;
+            }
+
+            // Must be the very instance in the db: otherwise resolving by id and going
+            // through the parent would hand out different objects.
+            if (assetManager.FindAsset(e.asset->GetAssetId()).get() != e.asset)
+            {
+                LOG_ERROR("[BakeCubemap] asset layer: {} is not the db-registered instance.",
+                          e.name);
+                ok = false;
+            }
+        }
+        return ok;
+    }
 }
 
 int main(int, char**)
@@ -259,6 +322,12 @@ int main(int, char**)
     DumpCubeStrips(env.sky, "bake_sky");
     DumpCubeStrips(env.irradiance, "bake_irr");
     DumpCubeStrips(env.prefiltered, "bake_pref");
+
+    // --- Asset layer: the bake above verifies the baker, this one verifies the plumbing ---
+    if (!VerifyAssetLayer(*assetManager, cubeId))
+    {
+        return 1;
+    }
 
     LOG_INFO("[BakeCubemap] Done. sky strips should read as a progressive blur top to "
              "bottom; irradiance strips should be a soft low-frequency ambient colour with "

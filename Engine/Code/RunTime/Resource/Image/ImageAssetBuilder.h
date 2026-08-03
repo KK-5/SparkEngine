@@ -36,6 +36,18 @@ namespace Spark::Resource
         void InitInternal() override;
         void ShutdownInternal() override;
 
+        //! Register an already-compiled sub-asset, skipping Load/Compile: the IBL products
+        //! have no source bytes, their data comes from the parent's bake. Always overwrites
+        //! an existing entry -- a re-processed parent means the HDRI changed.
+        //! Returns the db-owned asset, or null on failure.
+        Ptr<Asset> PublishSubAsset(AssetBuildContext& parentCtx, const AssetId& subId,
+                                   UniquePtr<AssetData> compiled);
+
+        //! Bakes the equirect raw, publishes irradiance / prefiltered as sub-assets, and
+        //! returns the sky cube's data holding refs to them.
+        UniquePtr<AssetData> CompileEnvironmentCubemap(AssetBuildContext& ctx,
+                                                       const ImageAssetDescriptor& desc);
+
         ImageAssetLoader   m_loader;
         ImageAssetCompiler m_compiler;
         EnvironmentBaker   m_baker;

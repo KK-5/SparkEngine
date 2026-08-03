@@ -3,6 +3,8 @@
 #include <EASTLEX/hash.h>
 #include <Log/ILogSystem.h>
 
+#include "EnvironmentBaker.h"
+
 namespace Spark::Resource
 {
     // ---- ImageAssetDescriptor ----
@@ -16,7 +18,7 @@ namespace Spark::Resource
         eastl::hash_combine(h, static_cast<size_t>(usage));
         // faceSize only matters for the cubemap path; folding it unconditionally
         // would make two otherwise-identical Texture2D descriptors hash apart.
-        if (usage == ImageUsage::EnvironmentCubemap)
+        if (IsCubemapUsage(usage))
         {
             eastl::hash_combine(h, static_cast<size_t>(cubemapFaceSize));
         }
@@ -24,6 +26,8 @@ namespace Spark::Resource
     }
 
     // ---- ImageAssetData ----
+
+    ImageAssetData::~ImageAssetData() = default;
 
     ImageAssetRawData::ImageAssetRawData(uint32_t width, uint32_t height, ImageFormat format,
                                    eastl::vector<uint8_t> pixels, eastl::string resolvedPath)
@@ -95,12 +99,56 @@ namespace Spark::Resource
             }();
             return instance;
         }
+        case ImageUsage::IrradianceCubemap:
+        {
+            // Nothing loads or compiles through these; the descriptor only records what the
+            // product is. faceSize is the baker's, so the id shifts if the bake shape does.
+            static Ptr<AssetDescriptor> instance = []
+            {
+                auto* desc = new ImageAssetDescriptor{};
+                desc->usage           = ImageUsage::IrradianceCubemap;
+                desc->colorSpace      = ImageColorSpace::Linear;
+                desc->compression     = TextureCompression::None;
+                desc->cubemapFaceSize = EnvironmentBaker::kIrradianceSize;
+                return Ptr<AssetDescriptor>(desc);
+            }();
+            return instance;
+        }
+        case ImageUsage::PrefilteredCubemap:
+        {
+            static Ptr<AssetDescriptor> instance = []
+            {
+                auto* desc = new ImageAssetDescriptor{};
+                desc->usage           = ImageUsage::PrefilteredCubemap;
+                desc->colorSpace      = ImageColorSpace::Linear;
+                desc->compression     = TextureCompression::None;
+                desc->cubemapFaceSize = EnvironmentBaker::kPrefilterSize;
+                desc->maxMipLevels    = EnvironmentBaker::kPrefilterMips;
+                return Ptr<AssetDescriptor>(desc);
+            }();
+            return instance;
+        }
         default:
         {
             static Ptr<AssetDescriptor> instance(new ImageAssetDescriptor{});
             return instance;
         }
         }
+    }
+
+    AssetId ImageAsset::MakeSubId(const AssetId& parentId, eastl::string_view subLabel,
+                                  ImageUsage usage)
+    {
+        // A sub-asset of a sub-asset would drop the parent's own subLabel and could collide.
+        ASSERT(!parentId.IsSubAsset(),
+            "[ImageAsset] MakeSubId: parent is itself a sub-asset ('{}'); the sub id would "
+            "lose its label", parentId.GetPath().c_str());
+
+        const eastl::string& parentPath = parentId.GetPath();
+        return AssetId::OfSub<ImageAsset>(
+            eastl::string_view(parentPath.c_str(), parentPath.size()),
+            subLabel,
+            static_cast<const ImageAssetDescriptor&>(*DescriptorForUsage(usage)));
     }
 
     uint32_t ImageAsset::ComputeMipLevels(uint32_t width, uint32_t height, uint32_t maxLevel)
@@ -139,6 +187,18 @@ namespace Spark::Resource
     const ImageAssetData* ImageAsset::GetImageData() const
     {
         return GetData<ImageAssetData>();
+    }
+
+    Ptr<ImageAsset> ImageAsset::GetIrradianceAsset() const
+    {
+        auto* data = GetImageData();
+        return data ? data->GetIrradianceAsset() : nullptr;
+    }
+
+    Ptr<ImageAsset> ImageAsset::GetPrefilteredAsset() const
+    {
+        auto* data = GetImageData();
+        return data ? data->GetPrefilteredAsset() : nullptr;
     }
 
     int ImageAsset::GetWidth() const

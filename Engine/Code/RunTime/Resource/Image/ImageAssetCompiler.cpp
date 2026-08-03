@@ -427,11 +427,12 @@ namespace Spark::Resource
             return nullptr;
         }
 
-        // RGBA16F, tight rows. Per-face byte size for the (single) base mip.
-        constexpr uint32_t kCubeBytesPP  = 8; // R16G16B16A16_FLOAT
+        // Tight rows, per-face bytes of the base mip. Block-compressed formats would need
+        // a per-block computation; every bake product is uncompressed today.
         constexpr uint32_t kNumCubeFaces = 6;
+        const uint32_t bytesPerPixel = RHI::GetFormatSize(baked.format);
         const uint64_t perFaceBytes =
-            static_cast<uint64_t>(baked.faceSize) * baked.faceSize * kCubeBytesPP;
+            static_cast<uint64_t>(baked.faceSize) * baked.faceSize * bytesPerPixel;
 
         auto result = MakeUnique<ImageAssetData>();
         result->m_width       = baked.faceSize;

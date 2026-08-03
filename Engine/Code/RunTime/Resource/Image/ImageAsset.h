@@ -10,6 +10,8 @@
 
 namespace Spark::Resource
 {
+    class ImageAsset;
+
     enum class ImageFormat : uint8_t
     {
         R8,
@@ -44,7 +46,19 @@ namespace Spark::Resource
         EnvironmentCubemap, //!< equirect source baked into a cube (linear).
         NoColorTexture2D,   //!< non-color data 2D, linear (metallic-roughness, occlusion).
         NormalMap,          //!< tangent-space normal map (always linear).
+
+        //! Derived-only: published already-compiled by the EnvironmentCubemap bake, never
+        //! loaded or compiled on their own (ImageAssetBuilder rejects that).
+        IrradianceCubemap,  //!< 32^2 single mip; diffuse term.
+        PrefilteredCubemap, //!< 128^2, mip N == roughness N/(mips-1); specular term.
     };
+
+    constexpr bool IsCubemapUsage(ImageUsage usage)
+    {
+        return usage == ImageUsage::EnvironmentCubemap
+            || usage == ImageUsage::IrradianceCubemap
+            || usage == ImageUsage::PrefilteredCubemap;
+    }
 
     class ImageAssetDescriptor : public AssetDescriptor
     {
@@ -102,6 +116,12 @@ namespace Spark::Resource
     {
     public:
         ImageAssetData() = default;
+        ~ImageAssetData() override;   // out-of-line: ImageAsset is incomplete here
+
+        //! The IBL cubes from the same environment bake. Null on every other image -- not an
+        //! error, but the "no IBL here" signal the lighting path gates on.
+        const Ptr<ImageAsset>& GetIrradianceAsset()  const { return m_irradiance; }
+        const Ptr<ImageAsset>& GetPrefilteredAsset() const { return m_prefiltered; }
 
         uint32_t          GetWidth()       const { return m_width; }
         uint32_t          GetHeight()      const { return m_height; }
@@ -128,6 +148,7 @@ namespace Spark::Resource
     private:
         friend class ImageAssetCompiler;
         friend class ImageAssetLoader;
+        friend class ImageAssetBuilder;
 
         uint32_t                     m_width{0};
         uint32_t                     m_height{0};
@@ -136,6 +157,11 @@ namespace Spark::Resource
         RHI::Format                  m_format{RHI::Format::R8G8B8A8_UNORM};
         eastl::vector<uint8_t>       m_textureBytes;
         eastl::vector<ImageMipRange> m_mips;
+
+        // Strong refs (not AssetIds) so the children cannot outlive-fail to resolve: a
+        // released id would read as "no IBL products". No cycle -- children never point back.
+        Ptr<ImageAsset>              m_irradiance;
+        Ptr<ImageAsset>              m_prefiltered;
     };
 
     class ImageAsset : public Asset
@@ -158,11 +184,19 @@ namespace Spark::Resource
         //! are thin aliases over Texture2D / EnvironmentCubemap.
         static Ptr<AssetDescriptor> DescriptorForUsage(ImageUsage usage);
 
+        //! The single place image sub-asset ids are built -- glTF's embedded images and an
+        //! environment bake's IBL products, separated only by subLabel namespace.
+        static AssetId MakeSubId(const AssetId& parentId, eastl::string_view subLabel, ImageUsage usage);
+
         static uint32_t ComputeMipLevels(uint32_t width, uint32_t height, uint32_t maxLevel);
 
         explicit ImageAsset(AssetId id);
 
         const ImageAssetData* GetImageData() const;
+
+        //! Null when there is no data yet, or no IBL products. See ImageAssetData.
+        Ptr<ImageAsset> GetIrradianceAsset()  const;
+        Ptr<ImageAsset> GetPrefilteredAsset() const;
 
         eastl::string_view GetPath() const;
 

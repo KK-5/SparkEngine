@@ -302,9 +302,10 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLB_DispatchesEmbeddedImage)
     EXPECT_EQ(imgAsset->GetAssetType(), AssetType::Image);
     EXPECT_TRUE(imgAsset->IsReady());
 
-    // 内嵌图的 subId 形态：(parentPath, "image/<name>")
+    // 内嵌图的 subId 形态：(parentPath, "image/<index>/<name>")。索引恒在前是为了去重
+    // ——glTF 允许多张图重名（或都为空名），只靠 name 会塌成同一个 AssetId。
     EXPECT_EQ(imgId.GetPath(), "CubeTextured.glb");
-    EXPECT_EQ(imgId.GetSubLabel(), "image/stone_wall_04_diff_1k");
+    EXPECT_EQ(imgId.GetSubLabel(), "image/0/stone_wall_04_diff_1k");
 }
 
 // ===== External image (.gltf) — Builder 派发 + m_imageAssetIds =====

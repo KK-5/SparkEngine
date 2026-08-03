@@ -62,6 +62,15 @@ namespace Spark::Resource
     class EnvironmentBaker
     {
     public:
+        //! Shape of the two derived IBL products. Public because ImageAsset's descriptors
+        //! reference them -- a descriptor and a bake disagreeing would fail nowhere.
+        static constexpr uint32_t kIrradianceSize = 32; //!< low-freq diffuse cube, single mip
+
+        //! 5 roughness levels (0 / .25 / .5 / .75 / 1), not a full chain -- roughness ~1 is
+        //! near-uniform, so extra levels only waste bake time.
+        static constexpr uint32_t kPrefilterSize = 128;
+        static constexpr uint32_t kPrefilterMips = 5;
+
         // ctor + dtor are out-of-line (defined where the RHI Ptr members are complete),
         // so value-holding this class (e.g. ImageAssetBuilder::m_baker) does not force
         // callers to see the full RHI types.
