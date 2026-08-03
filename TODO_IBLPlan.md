@@ -403,26 +403,74 @@ Karis 的简化 `N = V = R` 照常采用，代价是丢掉掠射角的各向异�
 
 ---
 
-## 阶段 4：多产物接入资产层
+## 阶段 4：多产物接入资产层 ✅ 已完成
 
-`ImageUsage`（`ImageAsset.h:42-47`）新增两个值——**必须追加在末尾**，该枚举的数值进
-`ImageAssetDescriptor::Hash`，重排会静默失效所有已缓存的 image sub-asset id：
+三个产物成为三个独立 `AssetId`：主资产是 sky cube，两张 IBL 图是它的子资产。
 
-```cpp
-IrradianceCubemap,   // 由 EnvironmentCubemap 烘焙派生
-PrefilteredCubemap,  // 同上，带 mip 链，每 mip 一个 roughness
-```
+### 与原计划的两处偏离
 
-`ImageAssetBuilder::Compile`（`ImageAssetBuilder.cpp:64-88`）的 EnvironmentCubemap 分支：
-主资产仍是 sky cube，之后按 `DispatchImageSubAsset` 的模式分发两个子资产
-（sub-label `"Irradiance"` / `"Prefiltered"`）。
+**1. 子资产不进 `Load`/`Compile`，直接发布已编译数据**（原计划：预置 `rawData` 走「直通分支」）
 
-⚠️ 子资产会**再次**进入 `ImageAssetBuilder::Compile`，若又落入 EnvironmentCubemap 分支就
-递归了。两个新 usage 需要走「直通」分支：rawData 已是烘好的 cube 数据，Compile 只做
-`AssembleCubemapData`。实现时确认是预置 `child.rawData` 后直接调 Compile（跳过 Load，
-`AssetBuildContext.h:26` 注释支持这种用法），还是走 `sourceData` 路径。
+直通分支需要一个只为满足 `Compile(ctx)` 签名而存在的 raw 载体——`BakedCubemap` 在父
+`Compile` 里已是最终形态，`AssembleCubemapData` 就是「编译」的全部内容，而父资产自己
+已经在直接调它。为了走完整的轨把成品拆回半成品再拼一次，不值得。
 
-**验收**：加载一个 HDRI → AssetManager 里出现 1 主 + 2 子共 3 个 image 资产，状态均 Ready。
+改为 `ImageAssetBuilder::PublishSubAsset`：`CreateAsset → InsertOrGet → SetDataReady →
+OnAssetReady`，四步。**递归风险随之从「需要小心处理的分支」变成结构上不可能。**
+
+⚠️ 与 `ModelAssetBuilder::DispatchImageSubAsset` 有一处必须不同：那个函数开头是
+`if (db->Find(subId)) return;`（已存在就跳过）。这里必须**覆盖**——父被重新 Process 只
+可能是 HDRI 变了，早退会留下旧 IBL 图配新天空。
+
+**2. 父→子的引用存 `Ptr<ImageAsset>` 而非 `AssetId`**（原计划未定）
+
+放在 `ImageAssetData` 上（不为此派生子类——本仓库全局无 `dynamic_cast`、`Object` 也没有
+type id，派生类会逼消费方引入一个没有失败模式的向下转型）。存强引用而非 id：id 对应的
+资产若被 `ReleaseAsset`，`FindAsset` 返回 null，**与「这张图没有 IBL 产物」完全同症状**，
+而后者正是阶段 5 的正常门控信号。无环——子不指回父。
+
+### 实际改动
+
+| 位置 | 内容 |
+|---|---|
+| `EnvironmentBaker.h` | `kIrradianceSize` / `kPrefilterSize` / `kPrefilterMips` 提为 public static constexpr，供 descriptor 引用（descriptor 与 bake 形状不一致不会在任何地方报错） |
+| `ImageAsset.h` | `ImageUsage` 末尾追加 `IrradianceCubemap` / `PrefilteredCubemap`；`IsCubemapUsage()` helper |
+| `ImageAsset.cpp` | `Hash()` 的 faceSize 折入条件 → `IsCubemapUsage`（不改现有两个 usage 的哈希值）；`DescriptorForUsage` 两个新 case |
+| `ImageAsset.h/.cpp` | `ImageAssetData` 两个 `Ptr<ImageAsset>` + 访问器，析构 out-of-line；`ImageAsset` 转发访问器 |
+| `ImageAsset.h/.cpp` | **`ImageAsset::MakeSubId(parentId, subLabel, usage)`** —— 图片子资产 id 构造的唯一入口，含 `!IsSubAsset()` 断言 |
+| `ImageAssetBuilder` | `PublishSubAsset` + `CompileEnvironmentCubemap`；`env.IsValid()` 三者全有才算成功 |
+| `ModelAssetBuilder.cpp` | 内嵌图那 4 行 `AssetId::OfSub` 换成 `MakeSubId`，id 值不变 |
+| `ImageAssetCompiler.cpp` | `perFaceBytes` 的 `kCubeBytesPP = 8` 换成 `RHI::GetFormatSize(baked.format)`——同一函数里 `m_format` 已是从该字段读的，写死等于给一个事实两个真相来源 |
+
+### 守卫：派生 usage 不得独立构建
+
+`Load` / `Compile` 开头各一道：usage 是派生值 → `LOG_ERROR` + return。
+
+这不是防御性洁癖。两个子 id 的 `path` 指向父 HDRI，所以对它们调 `LoadAsset` 会**成功**读到
+文件并解码，然后因 usage 不是 `EnvironmentCubemap` 落进通用 2D 分支，用一张「把 HDRI 当
+2D 编译」的图覆盖掉烘焙结果。整条路径没有任何一步会失败。
+
+### 顺序契约
+
+两个子资产在父 `Compile` 返回**之前**发布完毕。`ProcessAsset` 在 `Compile` 返回后才
+`SetDataReady(父)` + 广播，所以消费方看到 sky cube 变 Ready 时，两个子资产必然已 Ready ——
+阶段 5 不需要任何等待逻辑。
+
+### 验收结果
+
+`BakeCubemap.cpp` 扩了 `VerifyAssetLayer`（原先只驱动 baker，绕过资产层）：走
+`AssetManager::LoadAsset` 完整跑一遍，校验形状 + Ready + **父持有的实例就是 db 里注册的
+那个**（两者若分叉，按 id 解析和经父访问会拿到不同对象）。
+
+- 退出码 0：`irradiance = 32x32 x1 mips x6 layers, ready=true`、
+  `prefiltered = 128x128 x5 mips x6 layers, ready=true`
+- builder 日志：`sky 512^2 x10 mips, irradiance 32^2 x1, prefiltered 128^2 x5 (6 faces each)`
+- 全量 Debug 编译零错误零警告；`SparkAssetTest` 45/45
+
+> 顺带修了一个既有失败：`ModelAssetTests.cpp:307` 的 subLabel 期望值停留在 `1a0cfbb`
+> （2026-07-27，*glb subid dedup*）改格式之前的 `"image/<name>"`，实际已是
+> `"image/<index>/<name>"`。索引恒在前是去重所需（glTF 允许多图重名/空名），所以代码是
+> 对的、测试过期，改测试。
 
 ---
 
@@ -430,17 +478,45 @@ PrefilteredCubemap,  // 同上，带 mip 链，每 mip 一个 roughness
 
 ### 5a. Skybox feature 侧
 
-`Skybox/Components.h` 的 `SkyboxGPUComponent` 从一个 handle 扩到三个：
+### 5a. Skybox feature 侧 ✅ 已完成
 
-```cpp
-RHI::RHIHandle m_cubemap    = RHI::NullHandle;   // 已有
-RHI::RHIHandle m_irradiance = RHI::NullHandle;
-RHI::RHIHandle m_prefiltered = RHI::NullHandle;
-```
+`SkyboxGPUComponent` 从一个 handle 扩到三个（`m_cubemap` / `m_irradiance` /
+`m_prefiltered`）。`BuildGPUResources` 里建 desc + 建 image + upload 那段抽成匿名
+namespace 的 `CreateAndUploadImage(rhiCtx, asset, name, staticImport)`，调三次：sky 仍走
+`CreateImportedImage`，两张 IBL 走 **`CreateStaticImage`**（决策 2）。
 
-`SkyboxSystem::BuildGPUResources` 对两张新图用 **`CreateStaticImage`**（决策 2），
-并各打一个 active tag（沿用 `ActiveSkyCubeTag` 的单例模式：新建前先
-`rhiCtx->Clear<T>()`）。
+**偏离原计划：不给两张 IBL 图加 active tag。**`ActiveSkyCubeTag` 存在的理由是让
+`SkyboxPass` 找到 cube 做 **render graph import**；IBL 图走 `StaticImportTag`，不进
+render graph、没有 attachment 声明，不需要这个入口。而 `SceneBindingSystem` 本来就是
+直接读世界组件的（`world->GetView<Light::LightRenderData>()`），读 `SkyboxGPUComponent`
+是同一个模式——SparkRHI 把 `Feature/` 暴露成 include root，纯头文件组件不需要 link，
+**CMake 一行都不用改**。
+
+多 skybox 时的判别复用 `ActiveSkyCubeTag`：找 `m_cubemap` 带该 tag 的那个组件，三个
+资源从同一组件取，天空与环境光结构上不可能来自两个 HDRI。
+
+IBL 是**可选的**：`GetIrradianceAsset()` 为空则 handle 保持 `NullHandle`，光照回退常量
+ambient。取子资产不检查 Ready —— 阶段 4 的顺序契约保证父 Ready 时子必已 Ready。
+
+### 5a-2. 天空盒亮度参数 ✅ 已完成
+
+`SkyboxComponent` 加 `float m_intensity = 1.0f`（反射为 `FloatElement(0, 10, 0.01)`）。
+
+**为什么可以在采样时乘而不用重烘**：irradiance 与 prefiltered 都是入射辐亮度的**线性**
+积分，radiance × k ⟹ 两个积分精确地 × k。所以运行时一次乘法严格等价于用 k 倍亮的 HDRI
+重烘，不是近似。必须同时作用于**天空、diffuse、specular 三处**，否则会出现"调亮了天空
+但场景没变亮"这种极难定位的不一致。
+
+**顺带修的**：`OnComponentUpdated` 原本无条件 `Cleanup + Resolve`。亮度是可编辑字段，
+拖一次滑条会销毁重传三张 cube（sky 那张就有几十 MB）。加了短路：asset id 未变**且**资源
+已存在 → 直接返回。第二个条件不能省——「资产加载完成后上层重发 update」那条路径正是
+id 相同但资源尚未建立。
+
+> 色调（tint）不做：给照片来源的光重新上色没有物理依据，同样效果在已有的 `TonemapPass`
+> 里做更合适。旋转**留接缝不建**：它是三个里对内容制作最有价值的（对齐 HDRI 的太阳与
+> 方向光），运行时也便宜，但有个前置的内容管线问题——转了环境不转太阳灯就脱钩了；且它
+> 是唯一需要三个采样点方向严格一致的参数，逆矩阵搞反一处就会天空与光照朝向不一。接缝
+> 即 5b 的 `.Binds<MainSceneTag>()` 与具名的环境参数区域，届时是加法不是重构。
 
 ### 5b. SceneBindings
 
@@ -452,17 +528,30 @@ TextureCube  g_PrefilteredCube : register(t2, space0);
 SamplerState g_IBLSampler      : register(s0, space0);
 ```
 
-`SceneConstants` cbuffer 追加 `uint g_IBLPrefilteredMipCount;`（复用现有的
-`g_ScenePad0` 槽位）。
+`SceneConstants` cbuffer 追加 `uint g_IBLPrefilteredMipCount;` 与 `float g_EnvIntensity;`
+（复用现有的 `g_ScenePad0` / `g_ScenePad1` 槽位）。
+
+⚠️ **必须同步改 `SceneBindingsReflect.hlsl`**：那个反射宿主的注释自己写着，`VSMain` 同时
+引用 `g_Lights` 和 `g_LightCount` 是「so neither is optimized out of the reflected layout」。
+新加的 `TextureCube` / `SamplerState` 若不在 `VSMain` 里被真正采样，会被 DXC 从反射结果里
+剥掉 → `FindImageInput` 返回 null → 每帧刷 "Image input not found"、画面无 IBL。
+
+⚠️ `SkyboxPass` 目前只 `.Binds<MainViewTag>()`，**没有 space0**。`g_EnvIntensity` 要作用到
+天空盒必须给它补上 `MainSceneTag`（`LightingPass` 已经是 `<MainViewTag, MainSceneTag>`）。
+
+亮度从活跃 skybox 的 `SkyboxComponent::m_intensity` 读（5a-2），与两张图取自同一个组件。
 
 **`0` 同时是「IBL 未就绪」的门控信号**——这是必须的，不是可选优化：
 `SceneBindingSystem.cpp:154-158` 的注释说明了 CBV 未绑定会硬断言、SRV table 未绑定会被
 跳过。没有 skybox / 烘焙未完成时，shader 若无条件采样会读到脏描述符。门控让 shader
 回退到现在的常量 ambient，与 `g_LightCount` 恒写的处理是同一套路。
 
-`SceneBindingSystem` 加一个 IBL 更新步骤，形状照抄 `BindFrameLights`：
-从 RHIContext 找 active tag 的资源实体 → `GetOrCreateImageView` → `SetShaderImage`。
-mip count 恒写（未就绪时写 0）。
+`SceneBindingSystem` 加一个 IBL 更新步骤，形状照抄 `BindFrameLights`：遍历
+`SkyboxGPUComponent` 找 `m_cubemap` 带 `ActiveSkyCubeTag` 的那个 → `GetOrCreateImageView`
+→ `SetShaderImage`。mip count 恒写（未就绪时写 0）。
+
+mip count 读 `prefilteredAsset->GetMipLevels()` 而不是 `EnvironmentBaker::kPrefilterMips`
+—— 改了烘焙参数后重烘的资产自己带对的值。
 
 ### 5c. Lighting.hlsl
 
@@ -534,7 +623,7 @@ texel 变成系数）；shader 侧把 `SampleLevel` 换成 SH 求值；中间的
 | ~~字节顺序契约~~ | ✅ 阶段 3c 已落地并由 `BakeCubemap` 的条带图验证。契约本身仍然成立，3d 新增的两张图**同样要遵守** |
 | ~~SRG 多次 Compile 语义~~ | ✅ 已查清：ring 是 per-frame（`frameCountMax` 格），必须每 dispatch 一个实例。见 3a |
 | ~~cube 多 mip 上传未实测~~ | ✅ 已实跑验证 |
-| 子资产递归 | 阶段 4，两个新 usage 必须走直通分支 |
+| ~~子资产递归~~ | ✅ 不再存在：阶段 4 改为「发布已编译数据」，子资产根本不进 `Load`/`Compile`。取而代之的风险是**派生 usage 被独立加载**（会静默成功），已由 `Load`/`Compile` 的守卫挡住 |
 | ImageUsage 枚举顺序 | 数值进 `Hash()` → AssetId 身份，只能追加 |
 | 启动耗时 | prefilter 是阻塞式 CPU-wait（`EnvironmentBaker` 的设计前提），多 mip 多 dispatch 后启动会明显变慢。**本计划明确接受**——缓存归后续统一的资产缓存工作。3d 之后应实测一次，若过慢再决定是否提前做缓存 |
 | 采样数 vs 噪点 | 阶段 3d 新增。prefilter 的采样数、以及是否按 solid angle 选源 mip，直接决定高粗糙度层级的萤火虫噪点。这是 3b 做完整 mip 链的**全部动机**，3d 必须真的用上它 |
