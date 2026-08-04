@@ -14,6 +14,17 @@ HDR 天空盒已跑通：equirect HDRI → GPU compute 烘成 cubemap（`Environ
 
 ---
 
+## 状态
+
+**阶段 1 ~ 5 全部完成，IBL 已在画面上验证正常。**`Lighting.hlsl` 的常量 ambient 现在只是
+「没有环境时」的回退分支。
+
+剩下的都是可选的替换项，互不依赖、都以现有画面为基线：阶段 6（真 BRDF LUT 换掉解析近似）、
+阶段 6-b（diffuse 换球谐）。另有两项已知欠账不在本计划内：资产落盘缓存（每次启动重烘）、
+barrier 的 per-subresource range。
+
+---
+
 ## 核心决策
 
 ### 1. IBL 数据走 **scene 级（space0）**，不走 pass 级
@@ -87,8 +98,8 @@ BRDF LUT（DFG 积分）是与场景无关的常量表，可以外部获取。�
 ### 缺口（本计划要补的）
 
 1. ~~**`AsyncUploadSystem.cpp:591` 栈数组会溢出**~~ ✅ **已完成**（阶段 1）
-2. ~~**EnvironmentBaker 只写 mip 0**~~ ✅ **已完成**（阶段 3b）；**无 constant 传递**仍待补（3d 需要 roughness）
-3. **`SkyboxGPUComponent` 只有一个 handle**（`Skybox/Components.h:32`）
+2. ~~**EnvironmentBaker 只写 mip 0 / 无 constant 传递**~~ ✅ **已完成**（阶段 3b / 3d）
+3. ~~**`SkyboxGPUComponent` 只有一个 handle**~~ ✅ **已完成**（阶段 5a，扩到三个）
 
 ### 缺口（已知但**本计划不处理**，归入后续统一的资产缓存工作）
 
@@ -249,7 +260,12 @@ readback 循环已改为 face 外层、mip 内层，并在 `EnvironmentBaker.cpp
 逐级平滑模糊、无噪点（证明 UAV barrier 生效）；posX（会议室侧视）与 posY（天花板 + EXIT
 标志）内容截然不同（证明面索引没串）。上传侧也已实跑验证通过。
 
-### 3d. 多产物烘焙 —— **待实施**（设计已定，见下）
+### 3d. 多产物烘焙 ✅ 已完成
+
+三个 shader（`Cubemap.hlsli` / `IrradianceBake.hlsl` / `PrefilterBake.hlsl`）与
+`EnvironmentBaker` 的扩展均已落地。`BakeCubemap` 实测三张图的形状与字节总数精确匹配
+（`32²×1`、`128²×5`、sky 全链），阶段 5 出画面后效果正常，反向印证了两个卷积的正确性。
+下面保留原始设计说明。
 
 #### 数据格式（已定）
 
@@ -518,7 +534,7 @@ id 相同但资源尚未建立。
 > 是唯一需要三个采样点方向严格一致的参数，逆矩阵搞反一处就会天空与光照朝向不一。接缝
 > 即 5b 的 `.Binds<MainSceneTag>()` 与具名的环境参数区域，届时是加法不是重构。
 
-### 5b. SceneBindings
+### 5b. SceneBindings ✅ 已完成
 
 `Engine/Asset/Shaders/SceneBindings.hlsl` 新增：
 
@@ -546,29 +562,73 @@ SamplerState g_IBLSampler      : register(s0, space0);
 跳过。没有 skybox / 烘焙未完成时，shader 若无条件采样会读到脏描述符。门控让 shader
 回退到现在的常量 ambient，与 `g_LightCount` 恒写的处理是同一套路。
 
-`SceneBindingSystem` 加一个 IBL 更新步骤，形状照抄 `BindFrameLights`：遍历
-`SkyboxGPUComponent` 找 `m_cubemap` 带 `ActiveSkyCubeTag` 的那个 → `GetOrCreateImageView`
-→ `SetShaderImage`。mip count 恒写（未就绪时写 0）。
+`SceneBindingSystem::BindEnvironmentIBL()` 形状照抄 `BindFrameLights`：遍历
+`SkyboxGPUComponent` 找 `m_cubemap` 带 `ActiveSkyCubeTag` 的那个 → 从 `SkyboxComponent`
+读 intensity → 两张图**都** `IsResourceReady`（复用 `RenderGraphUtils.h` 里 `SkyboxPass`
+用的同一个就绪定义）才绑 → `GetOrCreateImageView` + `SetShaderImage`/`SetShaderSampler`。
+两个常量恒写。
 
-mip count 读 `prefilteredAsset->GetMipLevels()` 而不是 `EnvironmentBaker::kPrefilterMips`
-—— 改了烘焙参数后重烘的资产自己带对的值。
+mip count 取自 GPU image 的 `GetDescriptor().m_mipLevels`（它本就是从资产的 mip 数建的），
+不用 `EnvironmentBaker::kPrefilterMips` —— 改了烘焙参数重烘后不用改这里。
 
-### 5c. Lighting.hlsl
+**两张图必须同时就绪才绑**：只绑一张会让另一张的描述符槽位是脏的，而 mip count 已经在说
+"可以采样了"。
 
-替换 `Lighting.hlsl:31` 的常量 ambient：
+#### 反射自检（新增，非原计划）
 
-- diffuse：`g_IrradianceCube.SampleLevel(g_IBLSampler, N, 0) * diffuseColor * ao`
-- specular：`g_PrefilteredCube.SampleLevel(g_IBLSampler, reflect(-V, N),
-  perceptualRoughness * (g_IBLPrefilteredMipCount - 1))`，乘上
-  **`EnvBRDFApprox(NoV, perceptualRoughness, F0)`**（Lazarov 解析近似，见决策 4），
-  放进新文件 `Lib/BRDF/EnvBRDF.hlsli`
-- `g_IBLPrefilteredMipCount == 0` 时走原来的常量 ambient 分支
+上面那个「必须同步改 reflect host」的坑有个特别阴的性质：**常量被剥掉会每帧刷
+`Constant input not found`，而图像被剥掉是完全静默的**——图像只在有人要用时才绑，所以一张
+被丢掉的 cube 会一直沉默到有人纳闷 IBL 为什么没效果。
 
-sampler 用 `FilterMode::Linear` mip 过滤 + `AddressMode::Clamp`，且
-`m_mipLodMax` 要覆盖完整链（`SamplerState` 默认是 `MipCountMax`，OK）。
+所以 `Init` 末尾按名探测两个 cube + sampler，缺失就 `LOG_ERROR` 并指名要改哪个文件；同时
+补一行成功日志。那行日志不是装饰——验证时它立刻就有用了：没有它，「自检零报错」和
+「`Init` 提前 return 了」这两种情况**在日志上完全一样**（`Update` 会因
+`m_bindings == NullHandle` 静默早退）。
 
-**验收**：金属球在 HDRI 环境下出现随粗糙度变化的环境反射；粗糙面呈现方向性环境色而非
-均匀灰；无 skybox 的场景画面与改动前一致（门控回退生效）。
+### 5c. Lighting.hlsl ✅ 已完成
+
+新增 `Lib/BRDF/EnvBRDF.hlsli`（Lazarov 解析近似）；`Lighting.hlsl` 加 `EvaluateIBL()`，
+原来的常量 ambient 变成 `HasEnvironmentIBL()` 的二选一分支；`Skybox.hlsl` 乘
+`g_EnvIntensity`，`SkyboxPass` 补 `MainSceneTag`。
+
+sampler：`FilterMode::Linear` + `AddressMode::Clamp`（在 `SceneBindingSystem` 侧建）。
+
+#### π 约定 —— 全阶段最高风险的一行
+
+已查证本仓库的约定是确定的：`Fd_Lambert()` 返回 `1/π`，且直接光路径的 `Fd_Burley` 也把
+`1/π` 包在自己内部。**归一化住在 BRDF 库里，数据存纯物理量**，正是决策 3d-2 选的方案 A。
+irradiance cube 存的是 `E`，所以：
+
+```hlsl
+float3 diffuse = diffuseColor * Fd_Lambert() * irradiance;
+```
+
+漏掉 `Fd_Lambert()` 会让漫反射**整体亮 π 倍（≈3.14×）**，tonemap 之后读起来只是"稍微亮
+了点"，肉眼基本判定不了。shader 里压了一段注释写明这一点，并直说**那条注释就是唯一防线**。
+
+用 Lambert 而非 Burley：Burley 需要单条光线的 `L`（经 `LoH`），预积分环境没有单一入射方向。
+
+#### 另外两处与原计划不同
+
+- **用 `diffuseColor` 而不是 `albedo`**。原来的常量 ambient 乘的是 `albedo`，对 0.03 的
+  常数无所谓，对 IBL 是错的——金属没有漫反射。
+- **`ao` 乘在 diffuse 和 specular 两项上**。严格说 specular 需要独立的 specular occlusion
+  项（由 `NoV, ao, roughness` 推），但不乘会让金属表面的 AO 整个消失，比不严谨更难看。
+  留作后续细化。
+
+#### `Skybox.hlsl` 与 `SkyboxPass` 必须同时改
+
+加了 `#include <Shaders/SceneBindings.hlsl>`，space0 就进了天空盒的 pipeline layout；此时
+pass 若不绑 `MainSceneTag`，**CBV 未绑定是硬断言**。中间态会崩，不是顺序问题。
+（实现时 `SkyboxPass.cpp` 还需补 `#include <SceneBind/SceneBinding.h>` 才能拿到该 tag。）
+
+#### 验收结果
+
+**已实跑确认效果正常**（用户目视）：金属随粗糙度出现环境反射，功能正常。
+
+工程侧另外确认：全量编译零错误零警告；编辑器实跑 shader 全部编译通过（**DXC 是运行时编译
+的，C++ 构建发现不了 HLSL 错误**，所以这一步不能省）、零 assert、stderr 干净；无 skybox
+时走 `g_Ambient` 回退分支。
 
 ---
 
@@ -626,7 +686,10 @@ texel 变成系数）；shader 侧把 `SampleLevel` 换成 SH 求值；中间的
 | ~~子资产递归~~ | ✅ 不再存在：阶段 4 改为「发布已编译数据」，子资产根本不进 `Load`/`Compile`。取而代之的风险是**派生 usage 被独立加载**（会静默成功），已由 `Load`/`Compile` 的守卫挡住 |
 | ImageUsage 枚举顺序 | 数值进 `Hash()` → AssetId 身份，只能追加 |
 | 启动耗时 | prefilter 是阻塞式 CPU-wait（`EnvironmentBaker` 的设计前提），多 mip 多 dispatch 后启动会明显变慢。**本计划明确接受**——缓存归后续统一的资产缓存工作。3d 之后应实测一次，若过慢再决定是否提前做缓存 |
-| 采样数 vs 噪点 | 阶段 3d 新增。prefilter 的采样数、以及是否按 solid angle 选源 mip，直接决定高粗糙度层级的萤火虫噪点。这是 3b 做完整 mip 链的**全部动机**，3d 必须真的用上它 |
+| ~~采样数 vs 噪点~~ | ✅ 阶段 3d 已按 solid angle 选源 mip（1024 采样），阶段 5 画面无萤火虫噪点 |
+| ~~SceneBindings 反射被剥~~ | ✅ 阶段 5b 加了启动期自检。**图像被剥掉是完全静默的**（不像常量会每帧报错），所以这道自检不是冗余 |
+| specular occlusion | 阶段 5c 新增。`ao` 目前直接乘在 IBL specular 上，严格说需要由 `NoV, ao, roughness` 推导的独立项。不乘则金属上的 AO 完全消失，所以现状是两害相权 |
+| EnvBRDF 与本仓库 BRDF 不同源 | 阶段 5c 新增。Lazarov 近似拟合的是 UE4 的非 correlated Smith，而 `EvaluateBRDF` 用 `V_SmithGGXCorrelated`，IBL specular 与直接光 specular 存在系统性小偏差。阶段 6 的真 LUT 正是修这个 |
 
 ## 不在本计划范围
 
