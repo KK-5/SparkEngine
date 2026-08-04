@@ -15,6 +15,7 @@ protected:
         m_assetManager = CreateSystem<SparkAssetManager>();
         m_assetManager->Init();
         m_assetManager->AddSearchPath(IMAGE_ASSET_DIR);
+        m_assetManager->AddSearchPath(ENGINE_ASSET_DIR);   // the checked-in BRDF LUT
     }
 
     void TearDown() override
@@ -66,8 +67,9 @@ TEST(ImageAssetLoaderTest, LoadMissingFileReturnsNull)
     ImageAssetLoader loader;
     loader.SetSearchPaths(searchPaths);
 
+    bool isCompiled = false;
     AssetId id = AssetId::Of<ImageAsset>("non_existent.png");
-    EXPECT_EQ(loader.Load(id), nullptr);
+    EXPECT_EQ(loader.Load(id, isCompiled), nullptr);
 }
 
 TEST(ImageAssetLoaderTest, LoadJpegAsRGBA8)
@@ -78,9 +80,11 @@ TEST(ImageAssetLoaderTest, LoadJpegAsRGBA8)
     ImageAssetLoader loader;
     loader.SetSearchPaths(searchPaths);
 
+    bool isCompiled = false;
     AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_diff_2k.jpg");
-    auto data = loader.Load(id);
+    auto data = loader.Load(id, isCompiled);
     ASSERT_NE(data, nullptr);
+    ASSERT_FALSE(isCompiled);   // decoded source pixels, not a compiled payload
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
     EXPECT_EQ(imgData->GetFormat(), ImageFormat::RGBA8);
@@ -101,9 +105,11 @@ TEST(ImageAssetLoaderTest, LoadAoJpegAsR8)
     ImageAssetLoader loader;
     loader.SetSearchPaths(searchPaths);
 
+    bool isCompiled = false;
     AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_ao_2k.jpg");
-    auto data = loader.Load(id);
+    auto data = loader.Load(id, isCompiled);
     ASSERT_NE(data, nullptr);
+    ASSERT_FALSE(isCompiled);
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
     EXPECT_EQ(imgData->GetFormat(), ImageFormat::R8);
@@ -119,9 +125,11 @@ TEST(ImageAssetLoaderTest, LoadDisplacementPng)
     ImageAssetLoader loader;
     loader.SetSearchPaths(searchPaths);
 
+    bool isCompiled = false;
     AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_disp_2k.png");
-    auto data = loader.Load(id);
+    auto data = loader.Load(id, isCompiled);
     ASSERT_NE(data, nullptr);
+    ASSERT_FALSE(isCompiled);
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
     EXPECT_EQ(imgData->GetFormat(), ImageFormat::R8);
@@ -140,8 +148,9 @@ TEST(ImageAssetLoaderTest, ExrNotSupportedReturnsNull)
     ImageAssetLoader loader;
     loader.SetSearchPaths(searchPaths);
 
+    bool isCompiled = false;
     AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_rough_2k.exr");
-    EXPECT_EQ(loader.Load(id), nullptr);
+    EXPECT_EQ(loader.Load(id, isCompiled), nullptr);
 }
 
 
@@ -221,4 +230,32 @@ TEST_F(ImageAssetTestFixture, LoadJpegProducesBC3)
     // 最小 mip 也至少占一个 block
     const uint64_t lastMipBytes = imgData->GetMipRange(imgData->GetMipLevels() - 1).size;
     EXPECT_EQ(lastMipBytes, 16u);  // 1x1 mip → 1 block × 16 字节
+}
+
+// A .ktx2 is the already-compiled form: Load hands back finished data and the compile
+// stage is skipped entirely. The assertions that actually prove the skip are the mip
+// count and the format -- the default image descriptor asks for a full BCn/sRGB chain,
+// so running the compiler would produce 8 mips of BC3_UNORM_SRGB instead.
+TEST_F(ImageAssetTestFixture, Ktx2LoadsAsCompiledDataWithoutRecompiling)
+{
+    AssetId id = m_assetManager->MakeAssetId("Image/BRDFLut.ktx2");
+    ASSERT_TRUE(id.IsValid());
+
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
+    ASSERT_NE(asset, nullptr);
+    ASSERT_TRUE(asset->IsReady());
+
+    auto* imgData = asset->GetData<ImageAssetData>();
+    ASSERT_NE(imgData, nullptr);
+
+    EXPECT_EQ(imgData->GetWidth(),  128u);
+    EXPECT_EQ(imgData->GetHeight(), 128u);
+    EXPECT_EQ(imgData->GetMipLevels(),   1u);
+    EXPECT_EQ(imgData->GetArrayLayers(), 1u);
+    EXPECT_EQ(imgData->GetFormat(), RHI::Format::R16G16_FLOAT);
+
+    const uint64_t expectedBytes = 128ull * 128ull * 4ull;   // RG16F
+    EXPECT_EQ(imgData->GetTextureBytes().size(), expectedBytes);
+    EXPECT_EQ(imgData->GetMipRange(0).offset, 0u);
+    EXPECT_EQ(imgData->GetMipRange(0).size, expectedBytes);
 }

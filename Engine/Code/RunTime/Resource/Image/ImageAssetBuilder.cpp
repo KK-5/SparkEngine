@@ -70,8 +70,21 @@ namespace Spark::Resource
                 ctx.sourceData, ctx.sourceSize, ctx.id.GetSubLabel());
             return;
         }
+
         m_loader.SetSearchPaths(ctx.searchPaths);
-        ctx.rawData = m_loader.Load(ctx.id);
+
+        // Which slot the result lands in IS the signal: a payload that arrives already
+        // compiled goes straight to compiledData, and ProcessAsset then skips Compile.
+        bool isCompiled = false;
+        UniquePtr<AssetData> loaded = m_loader.Load(ctx.id, isCompiled);
+        if (isCompiled)
+        {
+            ctx.compiledData = eastl::move(loaded);
+        }
+        else
+        {
+            ctx.rawData = eastl::move(loaded);
+        }
     }
 
     bool ImageAssetBuilder::InitEnvironmentBaker()

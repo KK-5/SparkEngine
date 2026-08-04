@@ -47,6 +47,30 @@ if (BUILD_RHI_BAKECUBEMAP)
     )
 endif()
 
+option(BUILD_RHI_BRDFLUTGEN "Build RHI BRDFLutGen" ON)
+
+if (BUILD_RHI_BRDFLUTGEN)
+    set(TARGET_NAME BRDFLutGen)
+
+    # Headless compute tool — run by hand, writes Engine/Asset/Image/BRDFLut.ktx2.
+    add_executable(${TARGET_NAME} RHI/BRDFLutGen.cpp)
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        SparkCore
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+        stb
+        ktx
+    )
+endif()
+
 option(BUILD_RHI_DRAWSHAPE "Build RHI DrawShape" ON)
 
 if (BUILD_RHI_DRAWSHAPE)

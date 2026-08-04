@@ -8,12 +8,51 @@
 #include <stb_image.h>
 #include <nanosvg.h>
 #include <nanosvgrast.h>
+#include <ktx.h>
 
 #include <Base.h>
 #include <Log/ILogSystem.h>
 
 namespace Spark::Resource
 {
+    namespace
+    {
+        // Mirror of MapToVkFormat in ImageAssetCompiler.cpp. The two will merge when the
+        // asset cache gives reading and writing a shared home; until then keep them in
+        // step by hand. Unlisted formats are rejected, never guessed.
+        RHI::Format MapVkFormatToRHI(uint32_t vkFormat)
+        {
+            switch (vkFormat)
+            {
+                case 9:   return RHI::Format::R8_UNORM;
+                case 16:  return RHI::Format::R8G8_UNORM;
+                case 37:  return RHI::Format::R8G8B8A8_UNORM;
+                case 43:  return RHI::Format::R8G8B8A8_UNORM_SRGB;
+                case 83:  return RHI::Format::R16G16_FLOAT;
+                case 109: return RHI::Format::R32G32B32A32_FLOAT;
+                case 133: return RHI::Format::BC1_UNORM;
+                case 134: return RHI::Format::BC1_UNORM_SRGB;
+                case 137: return RHI::Format::BC3_UNORM;
+                case 138: return RHI::Format::BC3_UNORM_SRGB;
+                case 139: return RHI::Format::BC4_UNORM;
+                case 140: return RHI::Format::BC4_SNORM;
+                case 141: return RHI::Format::BC5_UNORM;
+                case 142: return RHI::Format::BC5_SNORM;
+                case 143: return RHI::Format::BC6H_UF16;
+                case 144: return RHI::Format::BC6H_SF16;
+                case 145: return RHI::Format::BC7_UNORM;
+                case 146: return RHI::Format::BC7_UNORM_SRGB;
+                default:  return RHI::Format::Unknown;
+            }
+        }
+    }
+
+    bool IsCompiledImagePath(eastl::string_view path)
+    {
+        constexpr eastl::string_view kExt = ".ktx2";
+        return path.size() > kExt.size()
+            && path.compare(path.size() - kExt.size(), kExt.size(), kExt) == 0;
+    }
 
 static UniquePtr<AssetData> DecodeSvg(
     const char* svgData, int w, int h, eastl::string&& resolvedPath)
@@ -114,13 +153,107 @@ static UniquePtr<AssetData> DecodeSvg(
         return ResolveAssetPath(id.GetPath(), m_searchPaths);
     }
 
-    UniquePtr<AssetData> ImageAssetLoader::Load(const AssetId& id)
+    UniquePtr<AssetData> ImageAssetLoader::LoadKtx2(const eastl::string& path)
     {
+        ktxTexture2*   tex = nullptr;
+        KTX_error_code res = ktxTexture2_CreateFromNamedFile(
+            path.c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &tex);
+        if (res != KTX_SUCCESS)
+        {
+            LOG_ERROR("[ImageAssetLoader] Failed to open KTX2 {}: {}", path.c_str(), static_cast<int>(res));
+            return nullptr;
+        }
+
+        // Cube / array containers are deliberately out of scope: KTX2 draws a numFaces vs
+        // numLayers distinction this engine's writer does not yet honour, so accepting them
+        // here would mean inventing a convention the write side disagrees with.
+        if (tex->numDimensions != 2 || tex->numLayers != 1 || tex->numFaces != 1
+            || tex->isArray || tex->isCubemap)
+        {
+            LOG_ERROR("[ImageAssetLoader] {}: only 2D single-layer KTX2 is supported "
+                      "(dims={}, layers={}, faces={}).",
+                      path.c_str(), tex->numDimensions, tex->numLayers, tex->numFaces);
+            ktxTexture_Destroy(ktxTexture(tex));
+            return nullptr;
+        }
+        if (tex->supercompressionScheme != KTX_SS_NONE)
+        {
+            LOG_ERROR("[ImageAssetLoader] {}: supercompressed KTX2 needs transcoding, "
+                      "which is not implemented.", path.c_str());
+            ktxTexture_Destroy(ktxTexture(tex));
+            return nullptr;
+        }
+
+        const RHI::Format format = MapVkFormatToRHI(tex->vkFormat);
+        if (format == RHI::Format::Unknown)
+        {
+            LOG_ERROR("[ImageAssetLoader] {}: no RHI::Format for vkFormat {}.",
+                      path.c_str(), tex->vkFormat);
+            ktxTexture_Destroy(ktxTexture(tex));
+            return nullptr;
+        }
+
+        auto result = MakeUnique<ImageAssetData>();
+        result->m_width       = tex->baseWidth;
+        result->m_height      = tex->baseHeight;
+        result->m_mipLevels   = tex->numLevels;
+        result->m_arrayLayers = 1;
+        result->m_format      = format;
+
+        // Level by level, ascending, tightly packed -- the order AsyncUploadSystem walks.
+        // Not a single memcpy of pData: KTX2 stores levels smallest-first and may pad
+        // between them.
+        uint64_t total = 0;
+        for (uint32_t level = 0; level < tex->numLevels; ++level)
+        {
+            total += ktxTexture_GetImageSize(ktxTexture(tex), level);
+        }
+        result->m_textureBytes.resize(total);
+        result->m_mips.reserve(tex->numLevels);
+
+        uint64_t dstOffset = 0;
+        for (uint32_t level = 0; level < tex->numLevels; ++level)
+        {
+            ktx_size_t srcOffset = 0;
+            res = ktxTexture_GetImageOffset(ktxTexture(tex), level, 0, 0, &srcOffset);
+            if (res != KTX_SUCCESS)
+            {
+                LOG_ERROR("[ImageAssetLoader] {}: GetImageOffset level {} failed: {}",
+                          path.c_str(), level, static_cast<int>(res));
+                ktxTexture_Destroy(ktxTexture(tex));
+                return nullptr;
+            }
+
+            const uint64_t levelBytes = ktxTexture_GetImageSize(ktxTexture(tex), level);
+            memcpy(result->m_textureBytes.data() + dstOffset, tex->pData + srcOffset, levelBytes);
+            result->m_mips.push_back({dstOffset, levelBytes});
+            dstOffset += levelBytes;
+        }
+
+        ktxTexture_Destroy(ktxTexture(tex));
+
+        LOG_INFO("[ImageAssetLoader] {}: {}x{}, {} mips, format={}, {}B (already compiled)",
+                 path.c_str(), result->m_width, result->m_height, result->m_mipLevels,
+                 static_cast<int>(result->m_format), result->m_textureBytes.size());
+        return result;
+    }
+
+    UniquePtr<AssetData> ImageAssetLoader::Load(const AssetId& id, bool& outIsCompiled)
+    {
+        outIsCompiled = false;
+
         eastl::string path = ResolvePath(id);
         if (path.empty())
         {
             LOG_ERROR("[ImageAssetLoader] Image file not found: {}", id.GetPath().c_str());
             return nullptr;
+        }
+
+        if (IsCompiledImagePath(path))
+        {
+            UniquePtr<AssetData> compiled = LoadKtx2(path);
+            outIsCompiled = compiled != nullptr;
+            return compiled;
         }
 
         // SVG: read file into string and rasterize via nanosvg

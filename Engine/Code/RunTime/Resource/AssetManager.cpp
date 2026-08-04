@@ -218,10 +218,12 @@ namespace Spark::Resource
             return AssetType::Model;
         }
 
+        // .ktx2 is the already-compiled form (see IsCompiledImagePath): same asset type,
+        // but it bypasses the compiler rather than feeding it.
         if (ext == ".png"  || ext == ".jpg" || ext == ".jpeg" ||
             ext == ".bmp"  || ext == ".tga" || ext == ".hdr" ||
             ext == ".psd"  || ext == ".gif" || ext == ".pic" ||
-            ext == ".pnm"  || ext == ".svg")
+            ext == ".pnm"  || ext == ".svg" || ext == ".ktx2")
         {
             return AssetType::Image;
         }
@@ -284,15 +286,26 @@ namespace Spark::Resource
 
         asset.SetStatus(AssetStatus::Loading);
         AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Load, ctx);
-        if (!ctx.rawData)
+        if (!ctx.rawData && !ctx.compiledData)
         {
             asset.SetStatus(AssetStatus::Error);
             AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetError, asset);
             return;
         }
 
-        asset.SetStatus(AssetStatus::Compiling);
-        AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Compile, ctx);
+        // Load can hand back a finished payload instead of a raw one -- an authored
+        // already-compiled file (a .ktx2 image), and later a cache hit. Compiling it again
+        // would re-process a finished product, so the whole stage is skipped.
+        //
+        // Note this also skips Compile's SIDE EFFECTS: CompileEnvironmentCubemap publishes
+        // the two IBL sub-assets from there, so caching a cubemap will have to cache its
+        // children too, not just its own payload.
+        if (!ctx.compiledData)
+        {
+            asset.SetStatus(AssetStatus::Compiling);
+            AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Compile, ctx);
+        }
+
         if (!ctx.compiledData)
         {
             asset.SetStatus(AssetStatus::Error);

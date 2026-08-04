@@ -5,6 +5,7 @@
 #include <Shaders/Lib/Cubemap/CubemapUtils.hlsli>
 #include <Shaders/Lib/Sample/Sample.hlsli>
 #include <Shaders/Lib/BRDF/Distribution.hlsli>
+#include <Shaders/Lib/BRDF/ImportanceSample.hlsli>
 
 TextureCube<float4>      g_SrcCube     : register(t0, space0);
 SamplerState             g_Sampler     : register(s0, space0);
@@ -15,26 +16,6 @@ cbuffer PrefilterParams : register(b0, space0)
     float g_Roughness;
     uint  g_SampleCount;
 };
-
-static const float TWO_PI = 6.28318530717958647692;
-
-float3 ImportanceSampleGGX(float2 xi, float3 N, float roughness)
-{
-    float a = roughness * roughness;
-    // Guard the a=0 mirror singularity: xi.y can round to exactly 1.0 -> 0/0 = NaN, which
-    // poisons the whole sum. max()/saturate keep cosThetaH finite (a=0 still gives H = N).
-    float denom = 1.0 + (a * a - 1.0) * xi.y;
-    float cosThetaH = sqrt(saturate((1.0 - xi.y) / max(denom, 1e-8)));
-    float sinThetaH = sqrt(saturate(1.0 - cosThetaH * cosThetaH));
-    float phi = TWO_PI * xi.x;
-    float3 tangentDir = float3(sinThetaH * cos(phi), sinThetaH * sin(phi), cosThetaH);
-
-    float3 up    = abs(N.z) < 0.999 ? float3(0, 0, 1) : float3(1, 0, 0);
-    float3 right = normalize(cross(up, N));
-    up           = normalize(cross(N, right));
-
-    return tangentDir.x * right + tangentDir.y * up + tangentDir.z * N;
-}
 
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)

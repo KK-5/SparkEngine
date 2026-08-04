@@ -300,10 +300,11 @@ int main(int, char**)
 
     Resource::ImageAssetLoader loader;
     loader.SetSearchPaths({ ENGINE_ASSET_DIR, SHADER_ASSET_DIR });
-    UniquePtr<Resource::AssetData> rawData = loader.Load(cubeId);
-    if (!rawData)
+    bool isCompiled = false;
+    UniquePtr<Resource::AssetData> rawData = loader.Load(cubeId, isCompiled);
+    if (!rawData || isCompiled)
     {
-        LOG_ERROR("[BakeCubemap] Failed to load the equirect HDRI.");
+        LOG_ERROR("[BakeCubemap] Failed to load the equirect HDRI as raw pixels.");
         return 1;
     }
     const auto& raw = static_cast<const Resource::ImageAssetRawData&>(*rawData);
