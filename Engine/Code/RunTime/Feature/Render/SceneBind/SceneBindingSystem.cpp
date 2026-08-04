@@ -19,6 +19,7 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Resource/AssetManagerInterface.h>
+#include <Resource/Image/ImageAsset.h>
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderBuilder.h>
 
@@ -31,6 +32,8 @@
 #include <Light/Components.h>
 #include <Skybox/Components.h>
 
+#include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
+
 #include "RenderGraph/RenderGraphUtils.h"
 #include "SceneBinding.h"
 
@@ -42,9 +45,13 @@ namespace Spark::Render
         constexpr const char* LightCountName       = "g_LightCount";
         constexpr const char* IrradianceCubeName   = "g_IrradianceCube";
         constexpr const char* PrefilteredCubeName  = "g_PrefilteredCube";
+        constexpr const char* BRDFLutName          = "g_BRDFLut";
         constexpr const char* IBLSamplerName       = "g_IBLSampler";
         constexpr const char* PrefilteredMipsName  = "g_IBLPrefilteredMipCount";
         constexpr const char* EnvIntensityName     = "g_EnvIntensity";
+
+        //! Baked offline by SandBox BRDFLutGen and checked in; see BRDFLutBake.hlsl.
+        constexpr const char* BRDFLutAssetPath     = "Image/BRDFLut.ktx2";
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -102,7 +109,7 @@ namespace Spark::Render
 
         // A constant dropped by DXC logs every frame, but a dropped image stays silent —
         // images are only bound when something needs them. Catch it once, here.
-        for (const char* name : {IrradianceCubeName, PrefilteredCubeName})
+        for (const char* name : {IrradianceCubeName, PrefilteredCubeName, BRDFLutName})
         {
             if (!sceneBindings->FindImageInput(RHI::InputName(name)))
             {
@@ -138,6 +145,49 @@ namespace Spark::Render
             rhiCtx.Add<RHI::PerFrameTag>(m_buffer);
             rhiCtx.Add<RHI::ResourceName>(m_buffer, RHI::ResourceName{ ObjectName("g_Lights") });
         }
+
+        CreateBRDFLut(rhiCtx);
+    }
+
+    void SceneBindingSystem::CreateBRDFLut(RHI::RHIContext& rhiCtx)
+    {
+        auto* assetManager = Service<Resource::AssetManager>::Get();
+        const Resource::AssetId id = assetManager->MakeAssetId(BRDFLutAssetPath);
+        if (!id.IsValid())
+        {
+            LOG_ERROR("[SceneBindingSystem] '{}' not found in any search path; IBL will fall "
+                      "back to constant ambient. Regenerate it with the BRDFLutGen tool.",
+                      BRDFLutAssetPath);
+            return;
+        }
+
+        // A .ktx2 is loaded already compiled, so this is a plain deserialize -- no mip
+        // generation, no BCn, and the RG16F format comes from the file rather than the
+        // descriptor.
+        Ptr<Resource::ImageAsset> lut = assetManager->LoadAsset<Resource::ImageAsset>(id);
+        const Resource::ImageAssetData* data = lut ? lut->GetImageData() : nullptr;
+        if (!lut || lut->GetStatus() != Resource::AssetStatus::Ready || !data
+            || data->GetTextureBytes().empty())
+        {
+            LOG_ERROR("[SceneBindingSystem] Failed to load the BRDF LUT '{}'.", BRDFLutAssetPath);
+            return;
+        }
+
+        RHI::ImageDescriptor desc = RHI::ImageDescriptor::Create2D(
+            RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite,
+            lut->GetWidth(), lut->GetHeight(), lut->GetFormat());
+        desc.m_mipLevels       = static_cast<uint16_t>(lut->GetMipLevels());
+        desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
+
+        // StaticImportTag: sampled every frame, never an attachment, so the compiler emits
+        // its one-time CopyDst->ShaderRead barrier -- same treatment as the IBL cubes.
+        m_brdfLut = RHI::CreateStaticImage(
+            rhiCtx, ObjectName("BRDFLut"), desc,
+            RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
+
+        RHI::RequestImageUpload(
+            rhiCtx, m_brdfLut, data->GetTextureBytes().data(), data->GetTextureBytes().size(),
+            RHI::ImageSubresourceRange(desc), RHI::Origin(), lut->GetFormat());
     }
 
     bool SceneBindingSystem::BindFrameLights(uint32_t frameIndex)
@@ -213,27 +263,53 @@ namespace Spark::Render
             return result;
         }
 
-        // Both or neither: a half-bound pair would leave one cube's descriptor slot stale
-        // while the mip count says "go ahead and sample".
+        // All or nothing: a partially bound set would leave some slot stale while the mip
+        // count says "go ahead and sample". The LUT joins the same gate -- without it the
+        // specular term has no F0 scale/bias to apply.
         if (!IsResourceReady(*rhiCtx, gpu->m_irradiance)
-            || !IsResourceReady(*rhiCtx, gpu->m_prefiltered))
+            || !IsResourceReady(*rhiCtx, gpu->m_prefiltered)
+            || !IsResourceReady(*rhiCtx, m_brdfLut))
         {
             return result;
         }
 
         auto* irradianceImage  = rhiCtx->TryGet<RHI::Components::Image>(gpu->m_irradiance);
         auto* prefilteredImage = rhiCtx->TryGet<RHI::Components::Image>(gpu->m_prefiltered);
-        if (!irradianceImage || !prefilteredImage)
+        auto* brdfLutImage     = rhiCtx->TryGet<RHI::Components::Image>(m_brdfLut);
+        if (!irradianceImage || !prefilteredImage || !brdfLutImage)
         {
             return result;
         }
+
+        // Register the upload->shader-read attachment at the SAMPLE POINT, like material
+        // textures do. The static-barrier compiler keys on ImagePassAttachment, not on
+        // StaticImportTag, so without this these images get neither the state transition
+        // nor the wait on the upload fence: they stay in CopyWrite on the copy queue and
+        // only read correctly because DX12 decays copy-queue resources to COMMON and
+        // re-promotes them on first shader read. Vulkan has neither behaviour.
+        auto RegisterStaticShaderRead = [&](RHI::RHIHandle handle)
+        {
+            if (!rhiCtx->Has<ImagePassAttachment>(handle))
+            {
+                CreateStaticImageAttachment(*rhiCtx, handle,
+                    rhiCtx->Get<RHI::ResourceName>(handle).m_name,
+                    RHI::AttachmentAccess::Read,
+                    RHI::AttachmentUsage::Shader,
+                    RHI::AttachmentStage::FragmentShader);
+            }
+        };
+        RegisterStaticShaderRead(gpu->m_irradiance);
+        RegisterStaticShaderRead(gpu->m_prefiltered);
+        RegisterStaticShaderRead(m_brdfLut);
 
         const RHI::ImageViewDescriptor cubeView = RHI::ImageViewDescriptor::CreateCubemap();
         RHI::ImageView* irradianceView = RHI::GetOrCreateImageView(
             *rhiCtx, gpu->m_irradiance, *irradianceImage->m_image, cubeView);
         RHI::ImageView* prefilteredView = RHI::GetOrCreateImageView(
             *rhiCtx, gpu->m_prefiltered, *prefilteredImage->m_image, cubeView);
-        if (!irradianceView || !prefilteredView)
+        RHI::ImageView* brdfLutView = RHI::GetOrCreateImageView(
+            *rhiCtx, m_brdfLut, *brdfLutImage->m_image, RHI::ImageViewDescriptor{});
+        if (!irradianceView || !prefilteredView || !brdfLutView)
         {
             return result;
         }
@@ -243,6 +319,7 @@ namespace Spark::Render
                                       RHI::AddressMode::Clamp));
         SetShaderImage(m_bindings, RHI::InputName(IrradianceCubeName), irradianceView);
         SetShaderImage(m_bindings, RHI::InputName(PrefilteredCubeName), prefilteredView);
+        SetShaderImage(m_bindings, RHI::InputName(BRDFLutName), brdfLutView);
 
         // From the live image, not a bake-time constant, so a re-bake at a different mip
         // count needs no change here.
@@ -317,8 +394,10 @@ namespace Spark::Render
     {
         if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
         if (m_buffer   != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_buffer); }
+        if (m_brdfLut  != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_brdfLut); }
 
         m_bindings = RHI::NullHandle;
         m_buffer   = RHI::NullHandle;
+        m_brdfLut  = RHI::NullHandle;
     }
 }

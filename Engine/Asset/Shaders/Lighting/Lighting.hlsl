@@ -50,7 +50,8 @@ float3 EvaluateIBL(float3 N, float3 V, float3 diffuseColor, float3 F0,
     float3 R   = reflect(-V, N);
     float  lod = RoughnessToLod(perceptualRoughness, g_IBLPrefilteredMipCount);
     float3 prefiltered = g_PrefilteredCube.SampleLevel(g_IBLSampler, R, lod).rgb;
-    float3 specular    = prefiltered * EnvBRDFApprox(F0, perceptualRoughness, NoV);
+    float3 specular    = prefiltered * EnvBRDFLut(g_BRDFLut, g_IBLSampler,
+                                                 F0, perceptualRoughness, NoV);
 
     // ao on specular too: strictly that needs a specular-occlusion term, but leaving it
     // unoccluded makes AO vanish entirely on metals.

@@ -46,12 +46,17 @@ namespace Spark::Render
         };
 
         //! Binds the active skybox's IBL cubes + sampler into space0 and reports the
-        //! matching constants. Stays at defaults until both images are ready.
+        //! matching constants. Stays at defaults until every image is ready.
         EnvironmentBinding BindEnvironmentIBL();
+
+        //! Loads the checked-in BRDF LUT and hands it to the GPU as a static image. Scene
+        //! independent, so it happens once at Init rather than following the skybox.
+        void CreateBRDFLut(RHI::RHIContext& rhiCtx);
 
         // Shared resources, owned by their RHIContext entities (this system holds handles).
         RHI::RHIHandle m_buffer   = RHI::NullHandle;  // Components::BufferPerFrame — host StructuredBuffer<LightData>, N copies
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Lights + SceneConstants @ space0
+        RHI::RHIHandle m_brdfLut  = RHI::NullHandle;  // static 2D RG16F DFG table, created once at Init
 
         // CPU staging for g_Lights. Filled each frame, handed to the current frame's copy
         // via PendingBufferMap. Lives for the system's lifetime so the map source stays

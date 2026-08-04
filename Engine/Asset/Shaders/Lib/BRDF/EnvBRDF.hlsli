@@ -3,17 +3,30 @@
 //
 //     specular = prefilteredRadiance * EnvBRDFApprox(F0, perceptualRoughness, NoV)
 //
-// Lazarov's analytic fit (Black Ops II, SIGGRAPH 2011) standing in for a pre-integrated
-// DFG table. Swapping in a real table later only changes this file's body.
 #ifndef SPARK_LIB_ENV_BRDF_HLSLI
 #define SPARK_LIB_ENV_BRDF_HLSLI
 
-//! perceptualRoughness, NOT the linear alpha that D_GGX / V_SmithGGXCorrelated take.
+//! Table lookup — the production path. The table is passed in rather than read from
+//! space0 so this stays a pure library (a BRDF header must not drag scene bindings into
+//! every shader that includes it); the caller supplies g_BRDFLut + g_IBLSampler.
 //!
-//! Known bias: fitted against UE4's non-height-correlated Smith + k = alpha/2 IBL remap,
-//! while EvaluateBRDF uses V_SmithGGXCorrelated — so IBL specular runs systematically a
-//! few percent off the direct-light specular beside it. A DFG table integrated against
-//! V_SmithGGXCorrelated is what would remove it.
+//! uv = (NoV, perceptualRoughness), matching BRDFLutBake.hlsl's texel-centre mapping.
+//! Both sides must agree and nothing fails if they do not.
+float3 EnvBRDFLut(Texture2D lut, SamplerState lutSampler,
+                  float3 F0, float perceptualRoughness, float NoV)
+{
+    float2 AB = lut.SampleLevel(lutSampler, float2(NoV, perceptualRoughness), 0.0).rg;
+    return F0 * AB.x + AB.y;
+}
+
+//! Lazarov's analytic fit (Black Ops II, SIGGRAPH 2011). NOT used for rendering — kept as
+//! the reference EnvBRDFLut is A/B'd against, since it is the only other implementation of
+//! this quantity in the tree.
+//!
+//! Do not quietly swap it back in: it is fitted against UE4's non-height-correlated Smith
+//! plus the k = alpha/2 IBL remap, while the table is integrated against this repo's
+//! V_SmithGGXCorrelated. Measured against the table it runs ~15-20% LOW at mid roughness
+//! and ~45% HIGH at roughness 1 — not a bias a constant could correct.
 float3 EnvBRDFApprox(float3 F0, float perceptualRoughness, float NoV)
 {
     const float4 c0 = float4(-1.0, -0.0275, -0.572,  0.022);

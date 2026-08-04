@@ -21,7 +21,8 @@ float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
     const float3 dir = float3(0.0, 1.0, 0.0);
     float3 env = g_IrradianceCube.SampleLevel(g_IBLSampler, dir, 0).rgb
                + g_PrefilteredCube.SampleLevel(g_IBLSampler, dir, 0).rgb;
-    float  envScalar = g_EnvIntensity + (float)g_IBLPrefilteredMipCount;
+    float2 dfg = g_BRDFLut.SampleLevel(g_IBLSampler, float2(1.0, 0.0), 0).rg;
+    float  envScalar = g_EnvIntensity + (float)g_IBLPrefilteredMipCount + dfg.x + dfg.y;
 
     return float4(l.direction + l.color + l.position + env,
                   l.intensity + w + envScalar) * 1e-6;

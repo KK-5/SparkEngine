@@ -18,6 +18,12 @@ StructuredBuffer<LightData> g_Lights : register(t0, space0);
 // explicit LOD.
 TextureCube  g_IrradianceCube  : register(t1, space0);
 TextureCube  g_PrefilteredCube : register(t2, space0);
+
+// Pre-integrated split-sum BRDF (DFG) table, baked offline by SandBox BRDFLutGen.
+// uv = (NoV, perceptualRoughness), .rg = (scale, bias) applied to F0. Scene-independent,
+// but it shares this group because it is bound once and read by every shading path.
+Texture2D    g_BRDFLut         : register(t3, space0);
+
 SamplerState g_IBLSampler      : register(s0, space0);
 
 cbuffer SceneConstants : register(b0, space0)
