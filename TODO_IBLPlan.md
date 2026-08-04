@@ -19,9 +19,12 @@ HDR 天空盒已跑通：equirect HDRI → GPU compute 烘成 cubemap（`Environ
 **阶段 1 ~ 5 全部完成，IBL 已在画面上验证正常。**`Lighting.hlsl` 的常量 ambient 现在只是
 「没有环境时」的回退分支。
 
-剩下的都是可选的替换项，互不依赖、都以现有画面为基线：阶段 6（真 BRDF LUT 换掉解析近似）、
-阶段 6-b（diffuse 换球谐）。另有两项已知欠账不在本计划内：资产落盘缓存（每次启动重烘）、
-barrier 的 per-subresource range。
+剩下的都是可选的替换项，互不依赖、都以现有画面为基线：**阶段 6（真 BRDF LUT，方案已定
+待实施）**、阶段 6-b（diffuse 换球谐，仍只有构想）。另有两项已知欠账不在本计划内：资产
+落盘缓存（每次启动重烘）、barrier 的 per-subresource range。
+
+> 阶段 6 的第 2 步（KTX2 读取路径）**同时是落盘缓存的第一块砖**——两件事在这里交汇，见
+> 阶段 6 的「关键结构点」。
 
 ---
 
@@ -77,6 +80,10 @@ BRDF LUT（DFG 积分）是与场景无关的常量表，可以外部获取。�
 所以**阶段 5 先用 Lazarov 解析近似**（`EnvBRDFApprox`，四五行 ALU、零资源依赖），把整条链
 跑通拿到正确画面做基线；**阶段 6 再换真 LUT**，此时有基线可以对比验证约定。这样 BRDF LUT
 从阻塞项变成可替换项，且阶段 5 不需要碰新的 ImageUsage / 资产加载路径 / scene 绑定槽位。
+
+> **后续修正**：上面这三条约定仍然成立（搜索时实测到两个最流行的来源 uv 轴是反的），但
+> 结论从"外部获取"改成了**自己烘**——阶段 3 之后引擎已有四个 compute bake，自己积分能让
+> 模型和精度两个陷阱直接消失。详见阶段 6。
 
 ---
 
@@ -665,14 +672,88 @@ texel 变成系数）；shader 侧把 `SampleLevel` 换成 SH 求值；中间的
 
 ---
 
-## 阶段 6（可选，后置）：换真 BRDF LUT
+## 阶段 6（可选，后置）：换真 BRDF LUT —— **方案已定，待实施**
 
-有了阶段 5 的正确画面做基线之后再做，此时可以对比验证约定是否搞错。
+有了阶段 5 的正确画面做基线之后再做，此时可以对比验证约定是否搞错。修的是风险表里那条
+「Lazarov 近似拟合的是 UE4 的非 correlated Smith，与本仓库 `V_SmithGGXCorrelated` 存在
+系统性偏差」。
 
-- 新增 `ImageUsage::BRDFLut`（追加在枚举末尾），或直接作为普通 2D 资产加载
-- 绑到 `space0` 的 `t3`
-- `EnvBRDF.hlsli` 里把解析近似替换为 LUT 采样（调用点不变）
-- 校验：与解析近似的差值应在几个百分点内；若差异明显，先怀疑 uv 约定和 v 轴方向
+### 决策 1：自己烘，不用外部 LUT
+
+写决策 4 时的判断（外部 LUT 有模型 / 精度 / uv 三个必须钉死的约定）**仍然成立，而且搜索时
+实测到了**：LearnOpenGL 的 `ibl_brdf_lut.png` 是 `X=NoV, Y=roughness`，而
+HectorMF/BRDFGenerator 是 `X=roughness, Y=NoV`——**两个最流行的来源轴是反的**，拿错了画面
+不崩、只会金属高光系统性偏暗。
+
+但情况和写决策 4 时不一样了：`EnvironmentBaker` 已经跑通四个 compute bake，而 BRDF LUT
+是其中最简单的一个（无源贴图、无 cubemap、无 per-mip 循环，一次 2D dispatch，约 40 行
+HLSL）。**用仓库现成的 `V_SmithGGXCorrelated` 积分，模型天然对齐**——三个陷阱一次消失，
+比"下载一张图再反复采样验证它的约定"工作量还小。
+
+### 决策 2：离线生成 + 签入文件，运行时只加载
+
+LUT 与场景无关，是数学常量，一个进程只需要一份、跨项目永不变。所以生成器放
+`SandBox/Program/RHI/`（与 `BakeCubemap` 并列），**手动跑一次**，把 `.ktx2` 签进
+`Engine/Asset/`。
+
+**运行时因此完全不需要烘焙代码**——`EnvironmentBaker` 不加第 5 个 PSO，启动不多一次
+dispatch。
+
+### 决策 3：不新增 `ImageUsage`，它就是一张普通 2D 资产
+
+曾考虑过给它一种新的图片资产类型。结论是不需要——它与现有资产的差别只有一条真正成立：
+**既没有源文件、也没有父资产**（irradiance / prefiltered 没有源文件，但它们借父 HDRI 的
+路径拿身份）。而一旦走"签入文件"这条路，它**有了自己的文件**，这条差别也消失了。
+
+格式也不是问题：`ImageFormat`（R8/RG8/RGBA8/RGBAF32）是**解码侧**枚举，只服务从图片文件
+解出来的路径；烘焙产物直接往 `ImageAssetData::m_format` 写 `RHI::Format`，LUT 同理写
+`R16G16_FLOAT`。
+
+> 反过来说，如果将来要加**更多生成型贴图**（默认白图 / 法线图 / 噪声图这类材质 fallback），
+> 那"生成资产"就有了第二个用例，届时值得建统一机制并把 LUT 收编。现在只有一个，不值得造。
+
+### 决策 4：容器用 KTX2
+
+**写入侧几乎现成**：`SerializeToKtx2` 已存在且被验证过（`ImageAssetCompiler.cpp` 每次编译
+都在生成 blob，只是拿来打印大小后丢掉）。它的已知缺陷（只写 layer 0 / face 0、`numFaces`
+写死 1）**全是 cube / 多层的问题**，而 LUT 是 2D 单层单面，正落在它做对的那一档。
+只差一个格式映射：`VkFormatValue` 里没有 `R16G16_SFLOAT`（Vulkan 枚举 83，实现时对头文件）。
+
+**读取侧要新建，但不是一次性投入**：`ImageAssetLoader` 只有 stb 和 SVG 两条路，读不了
+KTX2。而**落盘缓存本来就必须补这条路**（现在 `SerializeToKtx2` 的产物根本没人读）。LUT 会
+成为它的第一个消费者，而不是为它单开一条以后要废弃的路。
+
+**排除的选项**：
+
+| 容器 | 为什么不行 |
+|---|---|
+| Radiance `.hdr` | 零改动最诱人（`.hdr` 已在 `GetSupportAssetType`，`stbi_loadf` 直出 RGBAF32），但 **RGBE 是 RGB 共享一个指数**：A≈0.9 与 B≈0.02 同处一个 texel 时，B 只剩约 5 个量化级——比 8-bit PNG 还糟，正是决策 4 警告的那种断层 |
+| 16-bit PNG | 精度够（[0,1] 上 65536 级），但 `stbi_loadf` 读 16-bit PNG 内部走 8-bit 路径会截断，得改用 `stbi_load_16` 并新增 16-bit unorm 的 `ImageFormat`——工作量与 KTX2 相当、复用性低得多 |
+| 自定义 `.bin` | 读写各二十行最省事，但等于在 KTX2 之外另造一个容器 |
+
+### 关键结构点：KTX2 就是「已编译形式」
+
+加载一个 `.ktx2` **不应该再走 `ImageAssetCompiler::Compile`**（mip 生成 + BCn），那会把一张
+烘好的 RG16F 表当原图重新处理。正确形状是：识别 KTX2 → 直接反序列化成 `ImageAssetData`
+→ 跳过 Compile。
+
+**这恰好就是缓存要的形状**（磁盘上是编译产物、加载绕过编译），所以为 LUT 建的这一小块，
+缓存可以整段复用。副作用：走这条路之后，descriptor 里驱动编译的字段（compression /
+maxMipLevels / colorSpace）对该资产不再参与，格式由文件本身决定。
+
+### 三步（可分别验证）
+
+1. **生成器** `BRDFLutGen`（沙盒工具）：compute 积分 DFG → `SerializeToKtx2` → 写文件。
+   附带补 `R16G16_SFLOAT` 的格式映射。**跑完就能用 KTX2 查看器确认，不必等接入**
+2. **读取路径**：`ImageAssetLoader` 认 `.ktx2` → 反序列化 → `Compile` 直通
+3. **接入**：作为普通 2D 资产加载，绑到 `space0` 的 `t3`，`EnvBRDF.hlsli` 里把解析近似换成
+   查表（调用点不变）
+
+### 验收
+
+与解析近似的差值应在几个百分点内。**若差异明显，先怀疑 uv 约定和 v 轴方向**——自己烘虽然
+消掉了模型和精度两个陷阱，uv 约定仍然是生成器和 shader 两处必须一致的东西（和 roughness
+阶梯是同一类：两份独立代码，写反了不报错）。
 
 ---
 
