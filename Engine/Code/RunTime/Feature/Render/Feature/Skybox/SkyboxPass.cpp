@@ -23,6 +23,8 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <RenderGraph/RenderGraphUtils.h>
 
+#include <SceneBind/SceneBinding.h>
+
 #include <View/ViewTags.h>
 
 #include <Resource/AssetManagerInterface.h>
@@ -96,7 +98,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Accepts<FullScreenTriangleTag>()
-            .Binds<MainViewTag>()
+            .Binds<MainViewTag, MainSceneTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 Render::ImageAttachmentBindInfo colorBind;
@@ -121,8 +123,8 @@ namespace Spark::Render
 
                 // Import the active skybox cube (SkyboxSystem tags it ActiveSkyCubeTag at
                 // creation) once it is materialized AND its upload has been submitted — see
-                // IsResourceReady for why both are required. Not ready -> no import,
-                // g_SkyCube stays unbound, sky renders black for this frame.
+                // IsResourceReady for why both are required. No cube -> no import, and
+                // Compile below binds a null descriptor, so the sky reads black.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 RHI::RHIHandle cube = RHI::NullHandle;
                 rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
@@ -150,23 +152,29 @@ namespace Spark::Render
                     RHI::InputName("SkyCube"), 
                     compiler.GetFrameIndex()
                 );
-                if (!view)
-                {
-                    return;
-                }
-                // Bind the cube + its constant sampler together (sampler is change-detected,
-                // so the per-frame set is a no-op after the first bind). Gating both on the
-                // view keeps the space2 SRG all-or-nothing.
+                // A null view is bound, never skipped. Returning early here would leave the
+                // PREVIOUS frame's cube in the SRG: the sky would keep drawing an already
+                // deleted skybox, and the SRG's ConstPtr would pin its memory forever.
+                // ShaderInputCompiler substitutes a proper null descriptor, which reads as
+                // zero -- so an absent cube renders black, which is what this pass has
+                // always claimed to do.
                 SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
-                    2, 
+                    2,
                     RHI::InputName("g_SkySampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp)
                 );
                 SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), view);
             })
-            .Execute([](ExecuteWork& work, RenderGraphExecuter&)
+            .Execute([](ExecuteWork& work, RenderGraphExecuter& executer)
             {
                 auto& rhi = *RHI::RHIExecuteContext::Current();
+
+                if (!FindPassAttachmentImageView<SPARK_PASS_TAG("SkyboxPass")>(
+                        rhi, RHI::InputName("SkyCube"), executer.GetFrameIndex()))
+                {
+                    return;
+                }
+
                 rhi.GetView<SPARK_PASS_TAG("SkyboxPass"), RHI::DrawItem>().each(
                 [&](RHI::RHIHandle, const RHI::DrawItem& item)
                 {

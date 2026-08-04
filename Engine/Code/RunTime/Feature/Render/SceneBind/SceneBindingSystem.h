@@ -36,6 +36,19 @@ namespace Spark::Render
         //! false until the ECS materializes BufferPerFrame (one warmup frame after Init).
         bool BindFrameLights(uint32_t frameIndex);
 
+        struct EnvironmentBinding
+        {
+            //! 0 == no environment bound: the shader must not sample the cubes.
+            uint32_t m_prefilteredMipCount = 0;
+            //! Independent of the mip count — a skybox whose IBL is still uploading should
+            //! already tint the visible sky.
+            float    m_intensity = 1.0f;
+        };
+
+        //! Binds the active skybox's IBL cubes + sampler into space0 and reports the
+        //! matching constants. Stays at defaults until both images are ready.
+        EnvironmentBinding BindEnvironmentIBL();
+
         // Shared resources, owned by their RHIContext entities (this system holds handles).
         RHI::RHIHandle m_buffer   = RHI::NullHandle;  // Components::BufferPerFrame — host StructuredBuffer<LightData>, N copies
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Lights + SceneConstants @ space0

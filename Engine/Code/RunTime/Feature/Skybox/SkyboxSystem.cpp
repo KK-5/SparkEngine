@@ -225,6 +225,11 @@ namespace Spark::Skybox
 
         if (rhiCtx)
         {
+            if (rhiCtx->Has<ActiveSkyCubeTag>(gpuComp->m_cubemap))
+            {
+                rhiCtx->Clear<ActiveSkyCubeTag>();
+            }
+
             for (RHI::RHIHandle handle : {gpuComp->m_cubemap, gpuComp->m_irradiance,
                                           gpuComp->m_prefiltered})
             {

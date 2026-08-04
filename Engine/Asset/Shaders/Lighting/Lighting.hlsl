@@ -15,10 +15,11 @@
 // rasterizer rejects the rest via early-Z. SceneColor keeps its clear value where
 // culled, for the skybox pass to fill afterwards.
 
-#include <Shaders/ViewBindings.hlsl>    // space1: g_InvViewProj, g_InvView
-#include <Shaders/SceneBindings.hlsl>   // space0: g_Lights, g_LightCount
-#include <Shaders/Lib/BRDF/BRDF.hlsli>  // Cook-Torrance surface response
-#include <Shaders/Lib/Lights.hlsli>     // per-light L + incident radiance
+#include <Shaders/ViewBindings.hlsl>       // space1: g_InvViewProj, g_InvView
+#include <Shaders/SceneBindings.hlsl>      // space0: g_Lights, g_LightCount, environment IBL
+#include <Shaders/Lib/BRDF/BRDF.hlsli>     // Cook-Torrance surface response
+#include <Shaders/Lib/BRDF/EnvBRDF.hlsli>  // split-sum environment BRDF
+#include <Shaders/Lib/Lights.hlsli>        // per-light L + incident radiance
 
 // Per-pass GBuffer SRVs (space2 = per-pass tier), bound by LightingPass's Compile hook.
 Texture2D g_Albedo   : register(t0, space2);
@@ -27,8 +28,34 @@ Texture2D g_ORM      : register(t2, space2);
 Texture2D g_Depth    : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
 Texture2D g_Emissive : register(t4, space2);   // GBuffer HDR emissive, added un-lit
 
-// Flat ambient term until IBL lands (keeps back-facing surfaces off pure black).
+// Fallback for when no environment is bound (no skybox, or its bake is still uploading).
 static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
+
+// Image-based ambient: split-sum against the active skybox's baked environment.
+float3 EvaluateIBL(float3 N, float3 V, float3 diffuseColor, float3 F0,
+                   float perceptualRoughness, float ao)
+{
+    float NoV = max(abs(dot(N, V)), 1e-4);   // same floor EvaluateBRDF uses
+
+    // The cube stores E, not E/pi -- this engine keeps every 1/pi inside the BRDF library.
+    // DROPPING Fd_Lambert() MAKES DIFFUSE pi TIMES TOO BRIGHT, which after tonemapping
+    // reads as "slightly bright" and is effectively impossible to spot by eye.
+    // Lambert, not Burley: Burley needs a single light's L, which an integrated
+    // environment does not have.
+    float3 irradiance = g_IrradianceCube.SampleLevel(g_IBLSampler, N, 0.0).rgb;
+    float3 diffuse    = diffuseColor * Fd_Lambert() * irradiance;
+
+    // Explicit LOD: the mips are a roughness axis, so leaving mip selection to the
+    // hardware would shade every pixel at whatever roughness its derivatives imply.
+    float3 R   = reflect(-V, N);
+    float  lod = RoughnessToLod(perceptualRoughness, g_IBLPrefilteredMipCount);
+    float3 prefiltered = g_PrefilteredCube.SampleLevel(g_IBLSampler, R, lod).rgb;
+    float3 specular    = prefiltered * EnvBRDFApprox(F0, perceptualRoughness, NoV);
+
+    // ao on specular too: strictly that needs a specular-occlusion term, but leaving it
+    // unoccluded makes AO vanish entirely on metals.
+    return (diffuse + specular) * ao;
+}
 
 struct VSOutput
 {
@@ -72,7 +99,10 @@ float4 PSMain(VSOutput input) : SV_Target0
 
     // orm.g is glTF perceptual roughness; clamp the low end so the specular V term
     // (0.5 / (GGXV + GGXL)) can't divide by zero on smooth surfaces at grazing angles.
+    // IBL keeps the raw value: it never evaluates that term, and the floor would drag a
+    // mirror 0.045*(mipCount-1) off mip 0 — visible extra blur for no reason.
     float  perceptualRoughness = max(orm.g, 0.045);
+    float  iblRoughness        = saturate(orm.g);
     float  metallic  = orm.b;
     float  ao        = orm.r;
 
@@ -96,7 +126,15 @@ float4 PSMain(VSOutput input) : SV_Target0
         color += EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness) * radiance;
     }
 
-    color += g_Ambient * albedo * ao;
+    // g_EnvIntensity also scales the visible sky (Skybox.hlsl), so the two stay in step.
+    if (HasEnvironmentIBL())
+    {
+        color += EvaluateIBL(N, V, diffuseColor, F0, iblRoughness, ao) * g_EnvIntensity;
+    }
+    else
+    {
+        color += g_Ambient * albedo * ao;
+    }
 
     // Emissive is view-independent radiance the surface adds on its own — not lit, just
     // added on top (so it glows even in shadow / with no lights).

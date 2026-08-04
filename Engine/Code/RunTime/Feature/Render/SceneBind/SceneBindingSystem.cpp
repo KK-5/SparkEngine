@@ -24,16 +24,27 @@
 
 #include <Shader/ShaderBindingsUtils.h>
 
-#include <Light/Components.h>
+#include <RHI/Resource/Image/Image.h>
+#include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/Image/ImageViewDescriptor.h>
 
+#include <Light/Components.h>
+#include <Skybox/Components.h>
+
+#include "RenderGraph/RenderGraphUtils.h"
 #include "SceneBinding.h"
 
 namespace Spark::Render
 {
     namespace
     {
-        constexpr const char* LightBufferName = "g_Lights";
-        constexpr const char* LightCountName  = "g_LightCount";
+        constexpr const char* LightBufferName      = "g_Lights";
+        constexpr const char* LightCountName       = "g_LightCount";
+        constexpr const char* IrradianceCubeName   = "g_IrradianceCube";
+        constexpr const char* PrefilteredCubeName  = "g_PrefilteredCube";
+        constexpr const char* IBLSamplerName       = "g_IBLSampler";
+        constexpr const char* PrefilteredMipsName  = "g_IBLPrefilteredMipCount";
+        constexpr const char* EnvIntensityName     = "g_EnvIntensity";
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -89,6 +100,25 @@ namespace Spark::Render
             m_bindings, RHI::Components::ShaderBindings{ sceneBindings });
         rhiCtx.Add<MainSceneTag>(m_bindings);
 
+        // A constant dropped by DXC logs every frame, but a dropped image stays silent —
+        // images are only bound when something needs them. Catch it once, here.
+        for (const char* name : {IrradianceCubeName, PrefilteredCubeName})
+        {
+            if (!sceneBindings->FindImageInput(RHI::InputName(name)))
+            {
+                LOG_ERROR("[SceneBindingSystem] '{}' is missing from the reflected space0 "
+                          "layout — add a use of it to SceneBindingsReflect.hlsl.", name);
+            }
+        }
+        if (!sceneBindings->FindSamplerInput(RHI::InputName(IBLSamplerName)))
+        {
+            LOG_ERROR("[SceneBindingSystem] '{}' is missing from the reflected space0 "
+                      "layout — add a use of it to SceneBindingsReflect.hlsl.", IBLSamplerName);
+        }
+        // Marks the group live: every early return above is silent, and downstream just
+        // no-ops on a null binding handle.
+        LOG_INFO("[SceneBindingSystem] space0 layout reflected (lights + environment IBL).");
+
         // g_Lights: host-visible StructuredBuffer, PER-FRAME (PerFrameTag -> N copies) so
         // each frame writes its own copy without racing the GPU reading last frame's. Filled
         // each frame from m_lightData via PendingBufferMap. Materialized on the next frame
@@ -140,6 +170,85 @@ namespace Spark::Render
 
         SetShaderBuffer(m_bindings, RHI::InputName(LightBufferName), view);
         return true;
+    }
+
+    SceneBindingSystem::EnvironmentBinding SceneBindingSystem::BindEnvironmentIBL()
+    {
+        EnvironmentBinding result;
+
+        auto* world  = WorldExecuteContext::Current();
+        auto* rhiCtx = RHI::RHIExecuteContext::Current();
+        if (!world || !rhiCtx || m_bindings == RHI::NullHandle)
+        {
+            return result;
+        }
+
+        // Keyed off the same tag SkyboxPass imports by, so the visible sky and the
+        // environment lighting can never come from two different HDRIs.
+        Entity active = NullEntity;
+        world->GetView<Skybox::SkyboxGPUComponent>().each(
+            [&](Entity entity, const Skybox::SkyboxGPUComponent& gpu)
+        {
+            if (gpu.m_cubemap != RHI::NullHandle
+                && rhiCtx->Has<Skybox::ActiveSkyCubeTag>(gpu.m_cubemap))
+            {
+                active = entity;
+            }
+        });
+        if (active == NullEntity)
+        {
+            return result;
+        }
+
+        // Straight off the user-facing component: no GPU resource, so it applies from the
+        // first frame and costs no rebuild when the slider moves.
+        if (const auto* comp = world->TryGet<Skybox::SkyboxComponent>(active))
+        {
+            result.m_intensity = comp->m_intensity;
+        }
+
+        const auto* gpu = world->TryGet<Skybox::SkyboxGPUComponent>(active);
+        if (!gpu)
+        {
+            return result;
+        }
+
+        // Both or neither: a half-bound pair would leave one cube's descriptor slot stale
+        // while the mip count says "go ahead and sample".
+        if (!IsResourceReady(*rhiCtx, gpu->m_irradiance)
+            || !IsResourceReady(*rhiCtx, gpu->m_prefiltered))
+        {
+            return result;
+        }
+
+        auto* irradianceImage  = rhiCtx->TryGet<RHI::Components::Image>(gpu->m_irradiance);
+        auto* prefilteredImage = rhiCtx->TryGet<RHI::Components::Image>(gpu->m_prefiltered);
+        if (!irradianceImage || !prefilteredImage)
+        {
+            return result;
+        }
+
+        const RHI::ImageViewDescriptor cubeView = RHI::ImageViewDescriptor::CreateCubemap();
+        RHI::ImageView* irradianceView = RHI::GetOrCreateImageView(
+            *rhiCtx, gpu->m_irradiance, *irradianceImage->m_image, cubeView);
+        RHI::ImageView* prefilteredView = RHI::GetOrCreateImageView(
+            *rhiCtx, gpu->m_prefiltered, *prefilteredImage->m_image, cubeView);
+        if (!irradianceView || !prefilteredView)
+        {
+            return result;
+        }
+
+        SetShaderSampler(m_bindings, RHI::InputName(IBLSamplerName),
+            RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear,
+                                      RHI::AddressMode::Clamp));
+        SetShaderImage(m_bindings, RHI::InputName(IrradianceCubeName), irradianceView);
+        SetShaderImage(m_bindings, RHI::InputName(PrefilteredCubeName), prefilteredView);
+
+        // From the live image, not a bake-time constant, so a re-bake at a different mip
+        // count needs no change here.
+        result.m_prefilteredMipCount =
+            prefilteredImage->m_image->GetDescriptor().m_mipLevels;
+        return result;
     }
 
     void SceneBindingSystem::Update(uint32_t frameIndex)
@@ -196,6 +305,12 @@ namespace Spark::Render
         // frame (0 during warmup) so the CBV is always compiled; SetShaderConstant marks
         // the binding dirty. The shader loop is empty while count is 0.
         SetShaderConstant(m_bindings, RHI::InputName(LightCountName), slot);
+
+        // Same unconditional-write rule as g_LightCount; 0 mips is also the shader's gate,
+        // since the cubes share g_Lights' table and "unbound" there means stale, not null.
+        const EnvironmentBinding env = BindEnvironmentIBL();
+        SetShaderConstant(m_bindings, RHI::InputName(PrefilteredMipsName), env.m_prefilteredMipCount);
+        SetShaderConstant(m_bindings, RHI::InputName(EnvIntensityName), env.m_intensity);
     }
 
     void SceneBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
