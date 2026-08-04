@@ -123,8 +123,7 @@ namespace Spark::Render
         // Find-or-create: world entities that became renderable and not yet
         // composed. Producers that invalidate downstream resources must remove
         // WorldComposedTag themselves to trigger recomposition.
-        world->GetView<Mesh::MeshGPUComponent, InstanceSlotRef>(
-                  Exclude<DeadTag, WorldComposedTag>)
+        world->GetView<Mesh::MeshGPUComponent, InstanceSlotRef>(Exclude<DeadTag, WorldComposedTag>)
             .each([&](Entity wE, const Mesh::MeshGPUComponent& gpu, const InstanceSlotRef& ref)
         {
             if (gpu.m_vertexBuffer == RHI::NullHandle)
@@ -169,8 +168,8 @@ namespace Spark::Render
             rhiCtx->Add<Visible<MainViewTag>>(drawable);
             // Everything is opaque today; becomes a per-AlphaMode split later.
             rhiCtx->Add<OpaqueTag>(drawable);
-            rhiCtx->Add<Drawable>(drawable, ComposePersistent(
-                gpu, ref, instanceBindingEntity, idBufferEntity, idBufferByteCount));
+            rhiCtx->Add<Drawable>(drawable, 
+                ComposePersistent(gpu, ref, instanceBindingEntity, idBufferEntity, idBufferByteCount));
             rhiCtx->Add<DerivedDrawItems>(drawable, DerivedDrawItems{});
 
             // DrawItem derivation is deferred to DrawItemRouter — a producer-agnostic

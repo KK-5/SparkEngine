@@ -228,8 +228,7 @@ namespace Spark::Render
         // liveness check; if it hasn't materialized yet (warmup) there are no live
         // Drawables to reap anyway, so skip.
         RHI::RHIHandle instanceBindingEntity = RHI::NullHandle;
-        rhiCtx->GetView<InstanceBindingTag>().each(
-            [&](RHI::RHIHandle e) { instanceBindingEntity = e; });
+        rhiCtx->GetView<InstanceBindingTag>().each([&](RHI::RHIHandle e) { instanceBindingEntity = e; });
         const auto* slotTable = instanceBindingEntity != RHI::NullHandle
             ? rhiCtx->TryGet<InstanceSlotTable>(instanceBindingEntity)
             : nullptr;
@@ -266,10 +265,8 @@ namespace Spark::Render
             }
 
             DerivedDrawItems* derived = rhiCtx->TryGet<DerivedDrawItems>(drawable);
-            const SlotInstanceBinding* slot =
-                eastl::get_if<SlotInstanceBinding>(&composed.m_instanceData);
-            const RHI::ShaderBindings* perObjectBindings =
-                ResolvePerObjectBindings(*rhiCtx, composed);
+            const SlotInstanceBinding* slot = eastl::get_if<SlotInstanceBinding>(&composed.m_instanceData);
+            const RHI::ShaderBindings* perObjectBindings = ResolvePerObjectBindings(*rhiCtx, composed);
 
             // One DrawItem per pass that accepts this Drawable, with everything the
             // submit path needs baked on — no back-reference to the Drawable.
