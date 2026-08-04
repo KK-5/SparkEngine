@@ -1,6 +1,7 @@
-option(ShaderAssetTests "Shader Asset Tests" ON)
-option(ImageAssetTests  "Image Asset Tests"  ON)
-option(ModelAssetTests  "Model Asset Tests"  ON)
+option(ShaderAssetTests      "Shader Asset Tests"      ON)
+option(ImageAssetTests       "Image Asset Tests"       ON)
+option(ModelAssetTests       "Model Asset Tests"       ON)
+option(EnvironmentBakerTests "Environment Baker Tests" ON)
 
 
 set(TEST_SOURCES "")
@@ -14,6 +15,7 @@ endfunction(ADD_TEST_SOUECE)
 ADD_TEST_SOUECE(ShaderAssetTests "ShaderAssetTest.cpp")
 ADD_TEST_SOUECE(ImageAssetTests  "ImageAssetTests.cpp")
 ADD_TEST_SOUECE(ModelAssetTests  "ModelAssetTests.cpp")
+ADD_TEST_SOUECE(EnvironmentBakerTests "EnvironmentBakerTests.cpp")
 
 
 set(TARGET_NAME SparkAssetTest)

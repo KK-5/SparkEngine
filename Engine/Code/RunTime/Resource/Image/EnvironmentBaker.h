@@ -67,9 +67,41 @@ namespace Spark::Resource
         static constexpr uint32_t kIrradianceSize = 32; //!< low-freq diffuse cube, single mip
 
         //! 5 roughness levels (0 / .25 / .5 / .75 / 1), not a full chain -- roughness ~1 is
-        //! near-uniform, so extra levels only waste bake time.
-        static constexpr uint32_t kPrefilterSize = 128;
-        static constexpr uint32_t kPrefilterMips = 5;
+        //! near-uniform, so extra levels only waste bake time. The face size is set by the
+        //! mirror end: mip 0 is what a roughness-0 surface reflects, and 256^2 over a 90
+        //! degree face is 0.35 degrees per texel.
+        //!
+        //! A CEILING, not the size: the real one is min(this, sky cube face size), see
+        //! PrefilterFaceSize. The sky cube is the information ceiling, so a prefiltered cube
+        //! larger than it would only hold a magnified copy -- more memory and bake time for
+        //! no extra detail.
+        static constexpr uint32_t kPrefilterSizeMax = 256;
+        static constexpr uint32_t kPrefilterMips    = 5;
+
+        //! Actual prefiltered face size for a given sky cube face size.
+        static constexpr uint32_t PrefilterFaceSize(uint32_t skyFaceSize)
+        {
+            return skyFaceSize < kPrefilterSizeMax ? skyFaceSize : kPrefilterSizeMax;
+        }
+
+        //! Roughness stored at a given mip: 1 - sqrt(1 - mip/(mipCount-1)). Deliberately
+        //! NOT uniform -- the levels bunch up at low roughness, because the runtime blends
+        //! linearly between two neighbouring convolutions and halfway between a mirror and
+        //! a blurred level reads as a sharp image plus a halo, not an intermediate blur.
+        //! The same spacing also matches the mip chain's geometric resolution drop against
+        //! the GGX lobe's quadratic growth. Endpoints are unchanged: mip 0 is still a
+        //! perfect mirror, the last mip still roughness 1.
+        //!
+        //! MUST remain the exact inverse of RoughnessToLod in Shaders/SceneBindings.hlsl.
+        //! Those are two independent copies in two languages; if they drift apart nothing
+        //! fails -- every reflection simply comes out uniformly too sharp or too blurred.
+        static float LodToRoughness(uint32_t mip, uint32_t mipCount);
+
+        //! Mirror of the HLSL RoughnessToLod (Shaders/SceneBindings.hlsl), which is the one
+        //! the renderer actually uses. Has NO production caller here and is not dead code:
+        //! it exists so the round trip against LodToRoughness can be unit-tested, which is
+        //! the only automated guard on that inverse relationship.
+        static float RoughnessToLod(float perceptualRoughness, uint32_t mipCount);
 
         // ctor + dtor are out-of-line (defined where the RHI Ptr members are complete),
         // so value-holding this class (e.g. ImageAssetBuilder::m_baker) does not force
@@ -109,7 +141,7 @@ namespace Spark::Resource
         //! must be a live GPU cube from BakeSky, sampled as a TextureCube SRV.
         BakedCubemap BakeIrradiance(RHI::Image& srcCube, uint32_t srcMipLevels);
 
-        //! Sky cube -> GGX-prefiltered specular cube (kPrefilterSize^2, kPrefilterMips), one
+        //! Sky cube -> GGX-prefiltered specular cube (PrefilterFaceSize^2, kPrefilterMips), one
         //! roughness per mip. `srcCube` must be a live GPU cube from BakeSky.
         BakedCubemap BakePrefilter(RHI::Image& srcCube, uint32_t srcMipLevels);
 
@@ -146,4 +178,13 @@ namespace Spark::Resource
         // Destory before ImagePool/BufferPool
         Ptr<RHI::ShaderBindings>           m_bindings;
     };
+
+    // The cap only bites once kPrefilterSizeMax rises above RecommendedFaceSize's 256 floor,
+    // so no bake exercises it today. Pin the rule itself instead of waiting for that.
+    static_assert(EnvironmentBaker::PrefilterFaceSize(128) == 128,
+        "a sky cube smaller than the cap must cap the prefiltered cube to itself");
+    static_assert(EnvironmentBaker::PrefilterFaceSize(EnvironmentBaker::kPrefilterSizeMax)
+        == EnvironmentBaker::kPrefilterSizeMax, "equal sizes must pass through");
+    static_assert(EnvironmentBaker::PrefilterFaceSize(2048) == EnvironmentBaker::kPrefilterSizeMax,
+        "a larger sky cube must not raise the prefiltered cube above the cap");
 }

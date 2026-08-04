@@ -54,6 +54,13 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     g_SrcCube.GetDimensions(0, srcW, srcH, srcLevels);
     float srcTexelSolidAngle = 4 * PI / (6 * srcW * srcW);
 
+    // At roughness 0 the lobe is a delta: every sample lands on N, so the loop reduces to
+    // one tap per destination texel. Taking it from source mip 0 would decimate srcW ->
+    // width unfiltered and alias the bake itself; this is the band-limited source at the
+    // destination resolution. Blurry beats aliased — 128^2 cannot hold a 512^2 mirror
+    // either way.
+    float mirrorMip = log2(float(srcW) / float(width));
+
     float3 color = float3(0, 0, 0);
     float totalWeight = 0;
     for (uint i = 0u; i < g_SampleCount; ++i)
@@ -72,7 +79,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
         // Real branch, NOT a ternary: at roughness 0, D_GGX(NoH=1, 0) is 0/0 = NaN, and a
         // ternary still evaluates the dead branch (NaN*0 poisons the select -> black).
-        float mip = 0.0;
+        float mip = mirrorMip;
         if (g_Roughness > 0.0)
         {
             float pdf = D_GGX(NoH, g_Roughness * g_Roughness) * NoH / (4.0 * VoH) + 1e-4;

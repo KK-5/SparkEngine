@@ -122,7 +122,10 @@ namespace Spark::Resource
                 desc->usage           = ImageUsage::PrefilteredCubemap;
                 desc->colorSpace      = ImageColorSpace::Linear;
                 desc->compression     = TextureCompression::None;
-                desc->cubemapFaceSize = EnvironmentBaker::kPrefilterSize;
+                // 0 == derived at bake, same convention as EnvironmentCubemap: the real
+                // size is capped by the sky cube (EnvironmentBaker::PrefilterFaceSize), so
+                // no constant here could be true for every source.
+                desc->cubemapFaceSize = 0;
                 desc->maxMipLevels    = EnvironmentBaker::kPrefilterMips;
                 return Ptr<AssetDescriptor>(desc);
             }();

@@ -1,5 +1,7 @@
 #include "EnvironmentBaker.h"
 
+#include <cmath>
+
 #include <EASTL/array.h>
 
 #include <Log/ILogSystem.h>
@@ -62,6 +64,26 @@ namespace Spark::Resource
 
     EnvironmentBaker::EnvironmentBaker() = default;
     EnvironmentBaker::~EnvironmentBaker() = default;
+
+    float EnvironmentBaker::LodToRoughness(uint32_t mip, uint32_t mipCount)
+    {
+        if (mipCount <= 1)
+        {
+            return 0.0f;
+        }
+        const float x = static_cast<float>(mip) / static_cast<float>(mipCount - 1);
+        return 1.0f - std::sqrt(1.0f - x);
+    }
+
+    float EnvironmentBaker::RoughnessToLod(float perceptualRoughness, uint32_t mipCount)
+    {
+        if (mipCount <= 1)
+        {
+            return 0.0f;
+        }
+        const float t = 1.0f - perceptualRoughness;
+        return static_cast<float>(mipCount - 1) * (1.0f - t * t);
+    }
 
     uint32_t EnvironmentBaker::RecommendedFaceSize(uint32_t equirectHeight)
     {
@@ -1014,6 +1036,13 @@ namespace Spark::Resource
     {
         BakedCubemap result;
 
+        // Capped by the source: a prefiltered cube wider than the sky cube would store a
+        // magnified copy of it, and PrefilterBake's mirror mip (log2(src/dst)) would go
+        // negative and clamp to 0. Small HDRIs land here -- RecommendedFaceSize floors the
+        // sky cube at 256, which is also this cap's default.
+        const uint32_t prefilterSize =
+            PrefilterFaceSize(srcCube.GetDescriptor().m_size.m_width);
+
         // ---- Prefiltered cube (UAV target, one mip per roughness level) ----
         Ptr<RHI::Image> prefImg = m_factory->CreateImage();
         {
@@ -1021,7 +1050,7 @@ namespace Spark::Resource
             req.m_image = prefImg.get();
             req.m_descriptor = RHI::ImageDescriptor::CreateCubemap(
                 RHI::ImageBindFlags::ShaderWrite | RHI::ImageBindFlags::CopyRead,
-                kPrefilterSize, kCubeFormat);
+                prefilterSize, kCubeFormat);
             req.m_descriptor.m_mipLevels = kPrefilterMips;
             if (m_imagePool->InitImage(req) != RHI::ResultCode::Success)
             {
@@ -1073,11 +1102,11 @@ namespace Spark::Resource
                 return result;
             }
 
-            // roughness N/(mipLevels-1): mip 0 -> 0 (mirror), last -> 1.
-            const float    roughness   = kPrefilterMips > 1
-                ? static_cast<float>(mip) / static_cast<float>(kPrefilterMips - 1)
-                : 0.0f;
-            const uint32_t sampleCount = kPrefilterSamples;
+            const float    roughness   = LodToRoughness(mip, kPrefilterMips);
+            // Mip 0 is a delta lobe: every sample resolves to the same tap, so the whole
+            // sum collapses to one. Exactly equal, not an approximation -- and it is the
+            // level holding 75% of the chain's texels, so this is most of the bake.
+            const uint32_t sampleCount = roughness > 0.0f ? kPrefilterSamples : 1u;
 
             if (auto* in = mipBindings[mip]->FindImageInput(RHI::InputName("g_SrcCube")))
             {
@@ -1164,7 +1193,7 @@ namespace Spark::Resource
         {
             cmd->BindShaderInputsForDispatch(*mipBindings[mip]);
 
-            const uint32_t dstSize = eastl::max(1u, kPrefilterSize >> mip);
+            const uint32_t dstSize = eastl::max(1u, prefilterSize >> mip);
             RHI::DispatchItem di;
             di.m_arguments = RHI::DispatchArguments(
                 RHI::DispatchDirect(dstSize, dstSize, kNumCubeFaces, 8, 8, 1));
@@ -1204,13 +1233,13 @@ namespace Spark::Resource
 
         // ---- De-pad rows into a tight, FACE-MAJOR, MIP-INNER buffer (same contract as
         //      BakeSky: [f0m0][f0m1]...[f0mN][f1m0]...). ----
-        result.faceSize  = kPrefilterSize;
+        result.faceSize  = prefilterSize;
         result.mipLevels = kPrefilterMips;
         result.format    = kCubeFormat;
         size_t totalBytes = 0;
         for (uint32_t mip = 0; mip < kPrefilterMips; ++mip)
         {
-            const uint32_t s = eastl::max(1u, kPrefilterSize >> mip);
+            const uint32_t s = eastl::max(1u, prefilterSize >> mip);
             totalBytes += static_cast<size_t>(s) * s * kCubeBytesPP;
         }
         totalBytes *= kNumCubeFaces;
@@ -1223,7 +1252,7 @@ namespace Spark::Resource
             {
                 const auto&    layout   = FaceMipLayout(f, mip);
                 const size_t   idx      = SubresIndex(f, mip);
-                const uint32_t mipSize  = eastl::max(1u, kPrefilterSize >> mip);
+                const uint32_t mipSize  = eastl::max(1u, prefilterSize >> mip);
                 const uint32_t tightRow = mipSize * kCubeBytesPP;
 
                 RHI::BufferMapRequest mapReq;

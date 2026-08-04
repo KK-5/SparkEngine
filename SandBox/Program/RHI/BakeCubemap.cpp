@@ -213,11 +213,15 @@ namespace
             return false;
         }
 
+        // This path takes the auto face size (the descriptor's cubemapFaceSize is 0), so the
+        // prefiltered cap is measured against the sky cube the bake actually produced.
+        const uint32_t skyFaceSize = static_cast<uint32_t>(sky->GetWidth());
+
         struct Expected { const char* name; const Resource::ImageAsset* asset;
                           uint32_t size; uint32_t mips; };
         const Expected expected[] = {
             {"irradiance",  irr.get(), Resource::EnvironmentBaker::kIrradianceSize, 1},
-            {"prefiltered", pre.get(), Resource::EnvironmentBaker::kPrefilterSize,
+            {"prefiltered", pre.get(), Resource::EnvironmentBaker::PrefilterFaceSize(skyFaceSize),
                             Resource::EnvironmentBaker::kPrefilterMips},
         };
 
@@ -310,9 +314,12 @@ int main(int, char**)
 
     // --- Verify shapes ---
     bool ok = true;
+    // Shapes come from the baker's own constants: hardcoding them here just means this
+    // check goes stale the first time a bake parameter is tuned.
     ok &= VerifyCube(env.sky, faceSize, ExpectedMipLevels(faceSize), "sky");
-    ok &= VerifyCube(env.irradiance, 32, 1, "irradiance");
-    ok &= VerifyCube(env.prefiltered, 128, 5, "prefiltered");
+    ok &= VerifyCube(env.irradiance, Resource::EnvironmentBaker::kIrradianceSize, 1, "irradiance");
+    ok &= VerifyCube(env.prefiltered, Resource::EnvironmentBaker::PrefilterFaceSize(faceSize),
+                     Resource::EnvironmentBaker::kPrefilterMips, "prefiltered");
     if (!ok)
     {
         return 1;
