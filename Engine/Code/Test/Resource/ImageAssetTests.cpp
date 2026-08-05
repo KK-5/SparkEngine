@@ -97,9 +97,10 @@ TEST(ImageAssetLoaderTest, LoadJpegAsRGBA8)
     EXPECT_FALSE(imgData->GetResolvedPath().empty());
 }
 
-TEST(ImageAssetLoaderTest, LoadAoJpegAsR8)
+TEST(ImageAssetLoaderTest, LoadAoJpegAsRGBA8)
 {
-    // AO 贴图是单通道灰度 JPEG，预期 R8
+    // 单通道灰度 JPEG 也要解成 RGBA8：灰度是编码器的体积优化，不是通道数声明。
+    // 留成 R8 的话采样会得到 (r, 0, 0, 1)，纯白贴图会变成纯红。
     eastl::vector<eastl::string> searchPaths = { IMAGE_ASSET_DIR };
 
     ImageAssetLoader loader;
@@ -112,14 +113,23 @@ TEST(ImageAssetLoaderTest, LoadAoJpegAsR8)
     ASSERT_FALSE(isCompiled);
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
-    EXPECT_EQ(imgData->GetFormat(), ImageFormat::R8);
+    EXPECT_EQ(imgData->GetFormat(), ImageFormat::RGBA8);
     EXPECT_EQ(imgData->GetWidth(), 2048);
     EXPECT_EQ(imgData->GetHeight(), 2048);
+
+    // JPEG 的灰度展开在 stb 里是独立于 PNG 的一条代码路径，单独验
+    const auto& pixels = imgData->GetPixels();
+    for (size_t i = 0; i < pixels.size(); i += 4)
+    {
+        ASSERT_EQ(pixels[i + 1], pixels[i]);
+        ASSERT_EQ(pixels[i + 2], pixels[i]);
+        ASSERT_EQ(pixels[i + 3], 255);
+    }
 }
 
-TEST(ImageAssetLoaderTest, LoadDisplacementPng)
+TEST(ImageAssetLoaderTest, LoadDisplacementPngExpandsGrayscale)
 {
-    // Displacement 贴图通常是单通道灰度图，预期 R8
+    // 灰度 PNG 展开的语义是 R=G=B=gray, A=255
     eastl::vector<eastl::string> searchPaths = { IMAGE_ASSET_DIR };
 
     ImageAssetLoader loader;
@@ -132,13 +142,21 @@ TEST(ImageAssetLoaderTest, LoadDisplacementPng)
     ASSERT_FALSE(isCompiled);
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
-    EXPECT_EQ(imgData->GetFormat(), ImageFormat::R8);
+    EXPECT_EQ(imgData->GetFormat(), ImageFormat::RGBA8);
     EXPECT_GT(imgData->GetWidth(), 0);
     EXPECT_GT(imgData->GetHeight(), 0);
 
     const size_t expectedBytes = static_cast<size_t>(imgData->GetWidth())
                                * imgData->GetHeight() * imgData->GetBytesPerPixel();
-    EXPECT_EQ(imgData->GetPixels().size(), expectedBytes);
+    const auto& pixels = imgData->GetPixels();
+    ASSERT_EQ(pixels.size(), expectedBytes);
+
+    for (size_t i = 0; i < pixels.size(); i += 4)
+    {
+        ASSERT_EQ(pixels[i + 1], pixels[i]);
+        ASSERT_EQ(pixels[i + 2], pixels[i]);
+        ASSERT_EQ(pixels[i + 3], 255);
+    }
 }
 
 TEST(ImageAssetLoaderTest, ExrNotSupportedReturnsNull)

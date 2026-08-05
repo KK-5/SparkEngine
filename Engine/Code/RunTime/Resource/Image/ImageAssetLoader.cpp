@@ -80,32 +80,26 @@ static UniquePtr<AssetData> DecodeSvg(
     return MakeUnique<ImageAssetRawData>(
         rasterW, rasterH, ImageFormat::RGBA8, eastl::move(pixels), eastl::move(resolvedPath));
 }
-    static ImageFormat ChannelsToFormat(int channels)
-    {
-        switch (channels)
-        {
-        case 1:  return ImageFormat::R8;
-        case 2:  return ImageFormat::RG8;
-        default: return ImageFormat::RGBA8;
-        }
-    }
+    // Every LDR source decodes to 4 channels regardless of how it was encoded. A grayscale
+    // PNG/JPEG is the encoder's size optimization, not a claim that the image carries one
+    // channel -- keeping it at one would sample as (r, 0, 0, 1) and turn a white base color
+    // red. Channel count is a property of the slot the texture feeds, not of the file.
+    static constexpr int kLdrChannels = 4;
 
     static UniquePtr<AssetData> WrapLdrPixels(
-        uint8_t* data, int w, int h, int srcCh, int forceCh,
-        eastl::string&& resolvedPath)
+        uint8_t* data, int w, int h, eastl::string&& resolvedPath)
     {
         if (!data)
         {
             LOG_ERROR("Failed to decode LDR image: {} ({})", resolvedPath.c_str(), stbi_failure_reason());
             return nullptr;
         }
-        const int actualCh = (forceCh != 0) ? forceCh : srcCh;
-        const size_t byteCount = static_cast<size_t>(w) * h * actualCh;
+        const size_t byteCount = static_cast<size_t>(w) * h * kLdrChannels;
         eastl::vector<uint8_t> pixels(byteCount);
         memcpy(pixels.data(), data, byteCount);
         stbi_image_free(data);
         return MakeUnique<ImageAssetRawData>(
-            w, h, ChannelsToFormat(actualCh), eastl::move(pixels), eastl::move(resolvedPath));
+            w, h, ImageFormat::RGBA8, eastl::move(pixels), eastl::move(resolvedPath));
     }
 
     static UniquePtr<AssetData> WrapHdrPixels(
@@ -142,10 +136,8 @@ static UniquePtr<AssetData> DecodeSvg(
             return WrapHdrPixels(pixels, w, h, eastl::move(label));
         }
 
-        stbi_info_from_memory(buf, len, &w, &h, &srcCh);
-        const int force = (srcCh == 3) ? 4 : 0;
-        stbi_uc* pixels = stbi_load_from_memory(buf, len, &w, &h, &srcCh, force);
-        return WrapLdrPixels(pixels, w, h, srcCh, force, eastl::move(label));
+        stbi_uc* pixels = stbi_load_from_memory(buf, len, &w, &h, &srcCh, kLdrChannels);
+        return WrapLdrPixels(pixels, w, h, eastl::move(label));
     }
 
     eastl::string ImageAssetLoader::ResolvePath(const AssetId& id) const
@@ -286,9 +278,7 @@ static UniquePtr<AssetData> DecodeSvg(
             return WrapHdrPixels(pixels, w, h, eastl::move(path));
         }
 
-        stbi_info(path.c_str(), &w, &h, &srcCh);
-        const int force = (srcCh == 3) ? 4 : 0;
-        stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &srcCh, force);
-        return WrapLdrPixels(pixels, w, h, srcCh, force, eastl::move(path));
+        stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &srcCh, kLdrChannels);
+        return WrapLdrPixels(pixels, w, h, eastl::move(path));
     }
 }
