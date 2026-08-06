@@ -76,11 +76,16 @@ SRG 不与 View 同实体：ShaderBindings 实体是「一份不带语义的 sha
 ## 二、Pass 声明：两条正交的线
 
 ```cpp
-.Binds<MaterialBindingTag, MainSceneTag>()   // 全局唯一的共享 SRG，注入进 DrawItem
-.View<MainViewTag>()                 // 这个 pass 为哪一类 view 循环
+.Accepts<OpaqueTag>()                        // 变参：消费哪几类 Drawable
+.Binds<MaterialBindingTag, MainSceneTag>()   // 变参：注入哪些全局唯一的共享 SRG
+.RendersView<MainViewTag>()                  // 单个：这个 pass 为哪一类 view 循环
 ```
 
 `Binds<>` 机制**保留**，只把 view 这一类从参数列表里分离出去。
+
+`RendersView` 是**单参数、不是变参包**——一个 pass 同时为主视角和 shadow view 渲染讲不通（attachment、
+PSO、RT layout 全不同）。签名写死成单参数，让编译器替这条约束把关；单数名也让它和旁边两个变参声明
+一眼可辨。
 
 ### SRG 归属变化
 
@@ -128,27 +133,101 @@ per-view 排序、可切片的索引区间（`ExecuteWork::Item::m_draws` + `Set
 这轮推演留下三条与提交模型无关、无论 CPU 还是 GPU-driven 都成立的结论：
 
 - **提交顺序不变量**：提交顺序任意，任何 DrawItem 不得依赖前一个 DrawItem 建立的状态（今天成立——`Submit`
-  每次全量设 VB / stencil ref / 全部 shader bindings）。唯一例外是**循环外建立的状态**：view SRG、viewport、
-  PSO / root signature；对应的另一面是这些状态在循环内不得被改变。GPU-driven 下更强制：ExecuteIndirect
-  之前所有状态必须已经就位。
+  每次全量设 VB / stencil ref / 全部 shader bindings）。展开成完整的层级归属见 §三·六。
 - **(view, pass) 是真实的配对单位**。今天它是「循环的一轮」，GPU-driven 时它是一对 args / count buffer。
   挂点也已经现成——`DrawItemRoute`（`Drawable/DrawItemRoute.h:14`）就是每个 pass 一张类型擦除函数指针表，
-  `.View<ViewTag>()` 将来往里冻的是「生成/绑定 indirect args」，形状和 `.Accepts<>()` / `.Binds<>()` 一致。
+  `.RendersView<ViewTag>()` 将来往里冻的是「生成/绑定 indirect args」，形状和 `.Accepts<>()` / `.Binds<>()` 一致。
 - **真要排序，排的是列表不是 DrawItem**：DrawItem 很胖（多个 `fixed_vector`），per-view 拷贝会废掉
   `TODO_DrawItemPersistencePlan.md` 的骨架持久化。ECS 里的存储顺序全程不动。
 
 **什么时候回头做**：只有在 GPU 剔除落地之前场景先大到 CPU 剔除变紧急时。那时的最小形态也不是列表，而是每个
 drawable 一个按 view 槽位的位掩码（扫描时测一位）——建 mask 比建 N 个数组便宜，且不产生要丢弃的结构。
 
+## 三·六、DrawItem 完备性的作用域 = (pass, view)
+
+把 viewport 和 view SRG 提到循环外，等于 DrawItem 不再自包含。**曾纠结要不要为每个 view 各生成一份
+DrawItem 来恢复完备性**（数量 ×N，换取每个 DrawItem 绝对自足）。结论是**不为**。
+
+### 完备性从来不是绝对的
+
+DrawItem 今天就依赖外部状态：render target（`BeginRenderPass` 设的）、barrier（pass 级）。所以真正有用的
+不变量不是「DrawItem 绝对自包含」，而是「**同一作用域内的 DrawItem 之间互不依赖、可任意排序**」——
+作用域是 `(pass, view)`：
+
+| 层级 | 内容 | 建立时机 |
+|---|---|---|
+| **pass 级** | render target、barrier、root signature | `BeginRenderPass` 之前 |
+| **view 级** | view SRG (space1)、viewport / scissor | 每轮循环一次 |
+| **DrawItem 级** | PSO、几何（VB/IB）、per-object SRG、stencil ref | `Submit` 内 |
+
+循环内：任何 DrawItem 不得依赖前一个 DrawItem 建立的状态；view 级 / pass 级状态在循环内不得被改变。
+
+> **PSO 是 DrawItem 级，不是 pass 级。** `m_pipelineState` 字段已在，`CommandList.cpp:449-452` 的 `Submit`
+> 里就生效；`RenderGraphExecuter.cpp:282` 的 `ExecuteBindPSO` 只是 pass 级兜底。`TODO_DrawItemPersistencePlan.md`
+> 第四节写明每个骨架的 PSO 是「物体侧提示 + pass 的 RT layout」合成的——材质一旦有 shader 变体，
+> 同一 pass 内不同物体的 PSO 就不同。
+
+有了这张表，「完备性要不要保证」不再是个需要纠结的形容词，而是可检验的：新加一个状态时问「它属于哪一级」，
+答案唯一。
+
+### 为什么不走 per-view DrawItem
+
+**决定性论据：indirect 路线下 viewport 物理上进不了 DrawItem。** `D3D12_INDIRECT_ARGUMENT_TYPE` 的全部取值
+（DRAW / DRAW_INDEXED / DISPATCH / VERTEX_BUFFER_VIEW / INDEX_BUFFER_VIEW / CONSTANT / CONSTANT_BUFFER_VIEW /
+SHADER_RESOURCE_VIEW / UNORDERED_ACCESS_VIEW / DISPATCH_RAYS / DISPATCH_MESH）**不含 viewport / scissor**，
+Vulkan 同理。走 ExecuteIndirect 时 viewport 必须在调用之前设好——per-view 循环不是设计选择，是 API 约束。
+
+直接提交与 indirect 会长期并存，**让两条路结构一致**远比让其中一条「更完备」重要；否则同一引擎里两套心智模型。
+
+其余代价：
+
+- **DrawItem 很胖。** 按 `RHILimits.h` 实测算内联存储 ≈ 800B~1KB（`fixed_vector<Viewport,8>` 192B +
+  `fixed_vector<Scissor,8>` 128B + `fixed_vector<uint8_t,256>` 280B + …），正是
+  `TODO_DrawItemPersistencePlan.md` 开头说的「KB 级重值」。1000 Drawable × 16 shadow view ≈ 16MB 且每帧线性遍历。
+- **范围不止 viewport。** view SRG 同样在循环外，要完备就得两者一起烘进 DrawItem，即彻底的 per-view DrawItem。
+- **骨架会跟 view 生命周期绑定**（光源增删、分屏开关都要重建），与 `TODO_DrawItemPersistencePlan.md`
+  第五节「骨架锚在 Drawable」直接对撞。
+
+per-view DrawItem 唯一的表面优势「单一提交路径 / 多线程录制更简单」不成立：indirect 那边照样要分层，
+而按 `(pass, view)` 分段同样可并行，段内 DrawItem 照样互不依赖。
+
 ## 四、viewport 归属：从 per-draw 回到 view
 
 现在 viewport 有两个来源：`DrawItemBind.h:68-74` 每帧写进每个 DrawItem 的副本，和 `PassViewportState`
 （pass 注册时 `.ViewportScissor(...)` 传入）。**两个来源都去掉**，viewport 只来自 view。
 
-- DrawItem 侧删的是**那段每帧写入的代码**，不是 `RHI::DrawItem` 的 `m_viewports` / `m_viewportsCount`
-  字段——那是 RHI 层合法的 per-draw 覆盖能力，DX12 Submit 里 `m_viewportsCount != 0` 的分支保持原样。
-  渲染层不再使用它，`m_viewportsCount` 恒为 0。
-- `PassViewportState` 组件和 `.ViewportScissor(...)` builder 方法是真删。
+- `PassViewportState` 组件和 `.ViewportScissor(...)` builder 方法真删。
+- `DrawItemBind.h:68-74` 那段每帧写入真删。
+- **`RHI::DrawItem` 的 `m_viewports` / `m_viewportsCount` / `m_scissors` / `m_scissorsCount` 四个字段
+  连同 DX12 `Submit` 里的对应分支，也删**（理由见下）。
+
+### per-draw viewport 字段一并删掉
+
+查证过：除了 `DrawItemBind.h:68-74`（本来就要删）和 DX12 `Submit` 的读取，全仓库**没有其他消费者**——
+SandBox 的两个 RHI sample 也不用。
+
+两条理由，第二条更重要：
+
+- **占 1/3 空间且恒为 0。** `fixed_vector<Viewport,8>` 192B + `fixed_vector<Scissor,8>` 128B = 330B+，
+  而 DrawItem 总量才 ~800B-1KB。删掉直接砍掉三分之一，对每帧线性遍历的缓存行为是白拿的。
+- **留着等于留一个已知会咬人的陷阱。** `Submit` 里 per-draw viewport **优先级高于** command list 状态
+  （`CommandList.cpp:461-466`），只要有人往 `m_viewports` 写值，循环里按 view rect 设的那份就被静默覆盖。
+  字段还在，将来想给某个 pass 加特殊 viewport 的人会发现「这儿正好有个现成字段」，然后绕过 view 体系——
+  症状是那个 pass 的画面不跟 view 走，且只在多 view 时才暴露。删掉后这条路编译期就不通，只能去改 view。
+
+**加回来是加法**（字段 + `Submit` 一个分支，两处），真出现「同一 pass 内不同物体画到不同区域」的需求
+（图集烘焙一类）时再加，那时需求形状也清楚了，未必是现在这个 `fixed_vector<_, 8>` 的形状。容量 8 本来是给
+viewport array（配合 `SV_ViewportArrayIndex` 一次 draw 输出多区域）留的，那是个要连 PSO、shader 语义一起做的
+完整特性，缩成 1 个也用不了——所以没有「保留但缩容量」的中间态。
+
+**分两步做**，字段删除不必和渲染层改动同一个 commit：
+
+1. 删 `DrawItemBind.h:68-74` 的写入 + `PassViewportState`，让 `m_viewportsCount` 恒为 0，跑通 view 体系
+   —— 渲染层行为改动，可验证。
+2. 确认主视角和 shadow 都对之后，再删 `RHI::DrawItem` 的字段和 `Submit` 的分支 —— 纯 RHI 瘦身，零行为变化。
+
+不构成跨后端债（`CLAUDE.md` 的 "Never defer cross-backend correctness"）：DX12 和 Vulkan 都是「这个能力存在
+但引擎不用」，不是「先只管 DX12」。
 
 pass 那份实际上是两件事叠在一起，分开之后各自都有更好的归属：
 
@@ -157,6 +236,29 @@ pass 那份实际上是两件事叠在一起，分开之后各自都有更好的
   resize 不更新；今天没暴露是因为 DrawItem 那份副本每帧用实时 `renderSize` 盖掉了它。
   **所以删副本必须和这一条同时做**，否则窗口一不是 1920×1080 就错。
 - **区域指定** —— 归 View，循环里设一次。
+
+### 归属是二选一，没有中间地带
+
+| | 谁设 viewport |
+|---|---|
+| 声明 `.RendersView<>()` | 引擎，循环里按 view rect 设 |
+| 不声明 | pass 自己，在 `Execute` 里 |
+
+先例已经有了：`.CustomPipeline()` 就是「PSO 我自己管」的声明，UIPass 用了它就得自己 `SetPipelineState`。
+viewport 是同一件事的另一面，不是新规则。
+
+**删掉的是声明式捷径，不是能力**——`work.m_commandList->SetViewport(...)` 在 `Execute` 里一直可调，
+且比那条捷径更强（捷径是注册时快照、resize 不更新，本来就是坏的）。
+
+`PassViewportState` 该删的深层原因是它是个**半吊子中间态**：不是「引擎替你管」（不调
+`.ViewportScissor(...)` 就没有，`RenderGraphExecuter.cpp:265` 的 `TryGet` 静默跳过），也不是「你自己管」
+（在 execute 之前由 executer 设置，pass 作者在自己的 `Execute` 里看不到它发生过）。正是这种中间态
+制造「我以为引擎管了」的错觉。
+
+推论：**pass 没有对应 view 时循环 0 次、什么都不画，是正确行为**，不需要兜底。需要 viewport ⟺ 要光栅化
+⟺ 必须知道从哪个视角画 ⟺ 必须有 view；反过来不声明 view 的 pass（copy / compute / 自绘 UI）本来就不碰
+viewport。「既不声明 view、又要光栅化」的 pass 构造不出来，所以不存在「继承上一个 pass 残留 viewport
+然后静默画错」的场景。
 
 ### View 存归一化 rect，不存像素 Viewport
 
@@ -191,7 +293,7 @@ Atom 同样分层：一个 `RenderPipeline` 内可有多个 View，完全独立�
 
 ## 六、ShadowPass 在这个体系下的落点
 
-- 一个 `ShadowPass`（一个编译期 tag）、一张 shadow atlas、`.View<ShadowViewTag>()`。
+- 一个 `ShadowPass`（一个编译期 tag）、一张 shadow atlas、`.RendersView<ShadowViewTag>()`。
 - `.Accepts<ShadowCasterTag>()`——`Drawable/DrawTag.h:21` 的 `ShadowCasterTag` 已存在（"Not wired yet"），
   `TODO_DrawItemPersistencePlan.md` 第八节写明加 shadow 是「加一个分类 tag + 加一条映射 + 加一个 pass」。
 - `BeginRenderPass` 对整张 atlas 开一次、`loadAction = Clear` 清一次，循环只改 viewport/scissor + view SRG。
@@ -297,7 +399,7 @@ bias / atlas tile 分辨率 / normal offset 这类参数放 `LightComponent`（a
 ## 八、分步落地
 
 1. **View 实体化 + `MainViewTag` 语义提升。** 只有主视角一类，循环次数恒为 1；5 处
-   `.Binds<MainViewTag>()` 换成 `.View<MainViewTag>()`；删 `DrawItemBind.h:68-74` 的 viewport 写入。
+   `.Binds<MainViewTag>()` 换成 `.RendersView<MainViewTag>()`；删 `DrawItemBind.h:68-74` 的 viewport 写入。
    **行为零变化——纯重构，可单独验证主视角没画错。**
 2. **加 `ShadowViewTag` + `ShadowViewSystem` + `ShadowPass`**（方向光 + 聚光灯）。循环次数第一次 > 1。
 3. **点光源 6 面。**
