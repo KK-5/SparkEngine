@@ -73,15 +73,14 @@ SRG 不与 View 同实体：ShaderBindings 实体是「一份不带语义的 sha
 **生命周期**：view 实体销毁时，顺着 `ViewShaderBindings` 一并销毁它的 SRG 实体。SRG 池化（回收进空闲池
 而不是销毁）是后期优化，先不做。
 
-## 二、Pass 声明：两条正交的线
+## 二、Pass 声明
 
 ```cpp
 .Accepts<OpaqueTag>()                        // 变参：消费哪几类 Drawable
-.Binds<MaterialBindingTag, MainSceneTag>()   // 变参：注入哪些全局唯一的共享 SRG
-.RendersView<MainViewTag>()                  // 单个：这个 pass 为哪一类 view 循环
+.Binds<MaterialBindingTag, MainSceneTag>()   // 变参：这个 pass 要哪些共享 SRG
+.RendersView<MainViewTag>()                  // 单个：为哪一类 view 循环
+.SortBy<DrawSortMode::BackToFront>()         // 可选：组内排序策略，不写 = None
 ```
-
-`Binds<>` 机制**保留**，只把 view 这一类从参数列表里分离出去。
 
 `RendersView` 是**单参数、不是变参包**——一个 pass 同时为主视角和 shadow view 渲染讲不通（attachment、
 PSO、RT layout 全不同）。签名写死成单参数，让编译器替这条约束把关；单数名也让它和旁边两个变参声明
@@ -89,104 +88,339 @@ PSO、RT layout 全不同）。签名写死成单参数，让编译器替这条�
 
 ### SRG 归属变化
 
+`Binds<>` 的**语义**变了：从「把这些 SRG 塞进该 pass 每个 DrawItem 的 `m_shaderBindings`」变成
+「这个 pass 的 DrawList 要绑哪些 SRG」。声明写法不变，注入的落点从 per-draw 变成 per-list。
+
 | SRG | 现在 | 之后 |
 |---|---|---|
-| **view (space1)** | `ResolveSharedBinding<MainViewTag>` → 塞进每个 DrawItem | **移出**，execute 循环里每轮绑一次 |
-| per-pass (space2) | `ResolveSharedBinding<PassTag>`（`DrawItemBind.h:46`） | 不动，pass 自己的，与 view 无关 |
-| material (space3) / scene (space0) | `.Binds<>` 注入 | 不动，确实全局唯一 |
-| per-object (space4) | `DrawItemObjectBinding` | 不动 |
+| **view (space1)** | `ResolveSharedBinding<MainViewTag>` → 塞进每个 DrawItem | → **DrawList 字段**，每组绑一次 |
+| **per-pass (space2)** | `ResolveSharedBinding<PassTag>`（`DrawItemBind.h:46`） | → **DrawList**，每组绑一次 |
+| **material (space3) / scene (space0)** | `.Binds<>` → 塞进每个 DrawItem | → **DrawList**，每组绑一次 |
+| per-object (space4) | `DrawItemObjectBinding` | **不动**，真正 per-draw |
+
+现状是每个 DrawItem 的 `m_shaderBindings` 里装 4 个指针、其中 **3 个对全 pass 相同**，且
+`BindPassDrawItems` 每帧 `clear()` + 4 次 `push_back` 重建一遍。全部移到 DrawList 之后：
+
+- `fixed_vector<const ShaderBindings*, 8>` → 单指针（per-object 那一个）
+- 每帧的 clear + push_back **消失**，骨架这一项变成真只读
+- `Submit` 内从 4 次 `BindShaderInputsForDraw` 降到 1 次 —— M 个 draw 省 **3M 次**绑定调用
 
 ## 三、执行：所有 pass 统一成 per-view 循环
 
+概念上每个 pass 都是「为它声明的每个 view 各画一遍」：
+
 ```
 for view in GetView<ViewTag, View>:
-    BindShaderInputsForDraw(view 的 SRG)
-    SetViewport / SetScissor(view 的目标区域)
-    for item in GetView<PassTag, DrawItem>:
-        对该 view 可见？ -> Submit(item)
+    绑 view 的 SRG、设 view 的 viewport
+    提交对该 view 可见的 DrawItem
 ```
 
 **主视角 pass = 循环次数 1 的特例；分屏 = 2；shadow = N。shadow 不再是特殊路径。**
 
-DrawItem 保持 **per-(Drawable, pass)**，不下探到 view——下探会让骨架数 ×N（16 个投影光源 × 1000 Drawable =
-16000 骨架），且光源增删就要重建，直接废掉 `TODO_DrawItemPersistencePlan.md` 的骨架持久化。
-DrawItem 骨架在循环中**全程只读**，变的只是 command list 状态。
+这个循环的**实际载体是 DrawList**（§三·五）——「一轮循环」就是「一个 DrawList」，view 级状态是它的字段
+而不是循环变量。DrawItem 在其中**全程只读**，变的只是 command list 状态。
 
-> 对照 Atom：Atom 在 DrawItem 层面**也不 per-view 复制**——`RHI::DrawPacket` 拥有 per-(object, DrawListTag)
-> 的 DrawItem，`View::DrawList` 存的是 `DrawItemProperties{const DrawItem*, sortKey, depth}`，即指针+排序键。
-> 差异在 pass 层：Atom 的 `CascadedShadowmapsPass` / `ProjectedShadowmapsPass` 是 `ParentPass`，运行时
-> `CreateChildPassesInternal()` 按需创建 N 个 `ShadowmapPass` child，各自关联一个 `RPI::View`。它能这么做是
-> 因为 Pass 是运行时对象树。（此段为理解，未逐行核对源码。）
+DrawItem 不下探到 view：下探会让骨架数 ×N（16 个投影光源 × 1000 Drawable = 16000 份），且光源增删就要重建，
+直接废掉 `TODO_DrawItemPersistencePlan.md` 的骨架持久化。
 
-## 三·五、注：CPU DrawList 考虑过，暂缓
+> 对照 Atom：**view 维度上两边没有分歧**，都是共享 DrawItem + 列表存引用——`View::DrawList` 存的是
+> `DrawItemProperties{const DrawItem*, sortKey, depth}`。真正的分歧只在 pass 类型这一维（§三·五末）。
+> pass 层的差异是 Atom 的 `CascadedShadowmapsPass` / `ProjectedShadowmapsPass` 运行时
+> `CreateChildPassesInternal()` 创建 N 个 child pass、各自关联一个 `RPI::View`，因为它的 Pass 是运行时对象树。
+> （Atom 相关内容为理解，未逐行核对源码。）
 
-一度打算在 execute 之前加一层 per-view DrawList（每个 (view, pass) 一个 `{const DrawItem*, sortKey}` 数组，
-剔除/排序/切片都落在它上面），因为 execute 直接扫 ECS 有三个表达不了的东西：per-view 剔除的子集、
-per-view 排序、可切片的索引区间（`ExecuteWork::Item::m_draws` + `SetSubmitRange` 整套本来就预设了一个可索引
-的列表，今天却是 `{0, 1}` 占位、`SubmitPassDrawItems` 根本没读它）。
+## 三·五、DrawList 机制
 
-**结论是暂不做。** 提交模型的终点是 GPU-driven：compute 剔除 → 写 indirect args + count → 每个 (view, pass)
-一次 `ExecuteIndirect`，CPU 侧的 per-draw 记录归零。上面三条理由会被逐条拿走——剔除进 compute、排序本来就
-不做 CPU 侧（靠 Z-buffer / OIT）、一次 ExecuteIndirect 没有可切的区间。剩下的只是「每个 view 重扫一遍密集
-存储」，相对 `Submit` 本身可以忽略。所以 execute 保持扫 `GetView<PassTag, DrawItem>()`，只是放进 per-view 循环。
+### 结论反转：从「暂缓」到「必须做」
 
-这轮推演留下三条与提交模型无关、无论 CPU 还是 GPU-driven 都成立的结论：
+一度的结论是暂不做 CPU DrawList，理由是「execute 直接扫 ECS 表达不了的三件事（per-view 剔除子集、per-view
+排序、可切片区间）都会被 GPU-driven 逐条拿走」。
 
-- **提交顺序不变量**：提交顺序任意，任何 DrawItem 不得依赖前一个 DrawItem 建立的状态（今天成立——`Submit`
-  每次全量设 VB / stencil ref / 全部 shader bindings）。展开成完整的层级归属见 §三·六。
-- **(view, pass) 是真实的配对单位**。今天它是「循环的一轮」，GPU-driven 时它是一对 args / count buffer。
-  挂点也已经现成——`DrawItemRoute`（`Drawable/DrawItemRoute.h:14`）就是每个 pass 一张类型擦除函数指针表，
-  `.RendersView<ViewTag>()` 将来往里冻的是「生成/绑定 indirect args」，形状和 `.Accepts<>()` / `.Binds<>()` 一致。
-- **真要排序，排的是列表不是 DrawItem**：DrawItem 很胖（多个 `fixed_vector`），per-view 拷贝会废掉
-  `TODO_DrawItemPersistencePlan.md` 的骨架持久化。ECS 里的存储顺序全程不动。
+**这个前提破了。** 多出第四条 GPU-driven **拿不走**的：
 
-**什么时候回头做**：只有在 GPU 剔除落地之前场景先大到 CPU 剔除变紧急时。那时的最小形态也不是列表，而是每个
-drawable 一个按 view 槽位的位掩码（扫描时测一位）——建 mask 比建 N 个数组便宜，且不产生要丢弃的结构。
+> `ExecuteIndirect` 一次调用内**所有 draw 必须共享同一个 PSO**。`D3D12_INDIRECT_ARGUMENT_TYPE` 不含
+> 「换 PSO」这一项（Vulkan 要 `VK_NV_device_generated_commands` 那类扩展），所以**按 PSO 分组是硬约束**，
+> 不是 CPU 实现的产物。
 
-## 三·六、DrawItem 完备性的作用域 = (pass, view)
+分组这件事无论如何都得有地方做，那就是 DrawList。原先「(view, pass) 是配对单位」的说法也要修正为
+**(view, pass, PSO组)**。
 
-把 viewport 和 view SRG 提到循环外，等于 DrawItem 不再自包含。**曾纠结要不要为每个 view 各生成一份
-DrawItem 来恢复完备性**（数量 ×N，换取每个 DrawItem 绝对自足）。结论是**不为**。
+### DrawItem 退化成 per-object
 
-### 完备性从来不是绝对的
+`TODO_DrawItemPersistencePlan.md` 第一节给 per-pass DrawItem 的理由**只有一条**：
 
-DrawItem 今天就依赖外部状态：render target（`BeginRenderPass` 设的）、barrier（pass 级）。所以真正有用的
-不变量不是「DrawItem 绝对自包含」，而是「**同一作用域内的 DrawItem 之间互不依赖、可任意排序**」——
-作用域是 `(pass, view)`：
+> PSO per-pass 不同 → DrawItem 必须 per-pass 一个
 
-| 层级 | 内容 | 建立时机 |
+DrawList 按 PSO 分组之后，PSO 上升成组级状态，**这条唯一的理由消失**。逐字段检查后 DrawItem 里不再有任何
+pass 相关的东西：
+
+| 字段 | 归属 |
+|---|---|
+| VB / IB view、draw arguments、per-object SRG、startInstance | **物体** → 留在 DrawItem |
+| PSO | → DrawListEntry |
+| viewport / scissor、view SRG、共享 SRG | → DrawList |
+| stencil ref | pass 级 → DrawList |
+
+于是 **DrawItem 与 Drawable 变成 1:1**，应当是同一实体上的两个组件（render 层 `Drawable` + RHI 层 `DrawItem`），
+不再是独立实体。连带简化：
+
+- DrawItem 数量从 `Drawable × pass` 降到 `Drawable`
+- **`DrawItem` 上不再打 `PassTag`**，`DrawItemRoute::m_marks` 和 `MarkPassTag<PassTag>` 整个删除
+- `DerivedDrawItems` 反向引用不再需要（1:1，同实体）
+- `DrawItemRoute::m_accepts` 语义从「派生一个 DrawItem」变成「把这个 Drawable 收进我的 DrawList」
+- `BindPassDrawItems` 里剩下的 `startInstance` 更新不需要按 pass 分，改成一趟全局
+  `GetView<DrawItem, DrawItemInstanceSlot>()` 密集遍历
+
+「DrawItem 完备性」这场纠结也随之消失：DrawItem 里只剩物体数据、没有任何「怎么画」的状态，无所谓完备与否。
+
+### 数据结构
+
+```cpp
+struct DrawListKey
+{
+    RHIHandle                 m_view;   // view 实体；NullHandle = 该 pass 不按 view 分
+    const RHI::PipelineState* m_pso;    // 分组模式下组内一致；排序模式下为空
+};
+
+struct DrawListEntry
+{
+    RHIHandle                 m_item;     // DrawItem 实体，不存指针（见下）
+    const RHI::PipelineState* m_pso;      // (物体 × pass) 合成的结果
+    uint32_t                  m_sortKey;  // 每帧刷新
+};
+
+struct DrawList
+{
+    DrawListKey                    m_key;
+    RHI::Viewport                  m_viewport;   // view 的归一化 rect × attachment extent
+    RHI::Scissor                   m_scissor;
+    const RHI::ShaderBindings*     m_viewSrg;
+    eastl::vector<DrawListEntry>   m_entries;    // 成员：构建期维护，跟骨架同生命周期
+    eastl::vector<uint32_t>        m_order;      // 每帧：排序+剔除结果，size = 本帧可见数
+};
+```
+
+挂载：`PassDrawLists { eastl::vector<DrawList> }` 作为组件挂在 **pass 实体**上。不做成独立实体——DrawList 是
+pass 的执行计划不是资源，且 `BuildExecuteWorks` 要一次拿到某 pass 的全部 list 做负载估算。
+
+**PSO 落在 `DrawListEntry` 而非 DrawItem 或 DrawList**：PSO 是 `(物体, pass)` 的函数，而 entry 正好是
+`(物体, pass, view)` 的实例——DrawItem 太窄（不含 pass），DrawList 太宽（不含物体）。这个位置同时让排序模式
+（组内 PSO 不一致、逐个切换）能复用同一套结构。
+
+**存 `RHIHandle` 不存 `const DrawItem*`**：entt 组件存储是密集数组，移除任一 DrawItem 时末尾元素会 swap 进
+空位，**所有指向后方元素的裸指针当场失效且无信号**。而 DrawList 跨帧持久、骨架增删是常态。`RHIHandle` 带
+version 位可 `Valid()` 检测。先例是 `TODO_DrawItemPersistencePlan.md` 第五节的
+`DerivedDrawItems{fixed_vector<RHIHandle, N>}`，理由相同。
+
+**`m_entries` / `m_order` 分开**是关键：排序排的是 `m_order`，`m_entries` 全程不动，所以增删维护不会被排序
+打乱。而 `m_order` + 它的 size 正是 GPU-driven 的 **compacted index buffer + count buffer**，切换时语义不变。
+
+### 三个更新频率必须分开
+
+写错了就会退化成每帧重建：
+
+| 更新什么 | 触发 | 频率 | 动作 |
+|---|---|---|---|
+| **DrawList 集合** | view 增删（光源 / 相机） | 稀疏 | 建 / 删整个 list |
+| **`m_entries`** | 骨架增删（Drawable 增删） | 稀疏 | push / swap-erase |
+| **`m_order`** | 排序键、可见性 | **每帧** | 只重排索引 |
+| `m_viewport` / `m_viewSrg` | view 数据刷新 | 每帧 | 一个 list 一次，不是每 entry |
+
+稳态（无增删）下前两行**零成本**。可见性走旁路 mask / count，**不从 list 里删成员**——这条对齐 GPU 侧
+「组成员固定、count 变」的形态，是最容易写错的一项。
+
+### 分组：find-or-create，时机在 PSO 就绪之后
+
+`m_pipelineState` 要等 RenderGraph compile 阶段才合成（`RenderGraphCompiler.cpp:1097` 现在还是 pass 级
+`PassCompiledPSO`），所以分组**不能在 router 建骨架时顺手做**，但也不能每帧重做。用与 router 完全同构的
+Exclude 门控增量处理：
+
+```
+router 现在：  GetView<DrawableTag, Drawable>(Exclude<DeadTag, DrawItemsDerivedTag>)
+分组步骤：     GetView<RHI::DrawItem>(Exclude<DrawListedTag>)
+               → PSO 已就绪的插进对应 DrawList，打 DrawListedTag
+```
+
+稳态下这个 view 是空集。于是 DrawItem 上的 tag 从**编译期归属标记**（每 pass 一个 `PassTag`）减到
+**一个运行时状态标记**（`DrawListedTag`）。
+
+**销毁时的定位**：DrawItem 销毁要从所在 list 移除。不新增归属组件，直接遍历所有 pass 的 lists 做
+swap-erase——销毁是稀疏事件，6 个 pass × 几十个 list 的线性扫完全可接受。归属完全由「它出现在哪个 DrawList 里」
+表达。
+
+**现阶段 key 会退化**：PSO 仍是 pass 级，同一 pass 内 `m_pso` 恒定，实际只按 view 分组。这是正确的中间态——
+PSO 下放到物体侧提示 + 按 pass 合成之后（`TODO_DrawItemPersistencePlan.md` 第四节），同一字段自然产生多组，
+key 的结构和执行循环一个字不用改。
+
+### 排序：分组与排序正交，策略由 pass 声明
+
+两者是**正交的两个能力**，此前混为一谈过：
+
+| | 分组 | 排序 |
 |---|---|---|
-| **pass 级** | render target、barrier、root signature | `BeginRenderPass` 之前 |
-| **view 级** | view SRG (space1)、viewport / scissor | 每轮循环一次 |
-| **DrawItem 级** | PSO、几何（VB/IB）、per-object SRG、stencil ref | `Submit` 内 |
+| 键来自 | **状态共享需求**：PSO、view | **正确性 / 性能**：深度、材质 |
+| 何时确定 | 构建期 | **每帧**（深度是 view-dependent） |
+| GPU-driven 下 | 每组一对 args / count buffer | compute sort，或用 OIT 避开 |
 
-循环内：任何 DrawItem 不得依赖前一个 DrawItem 建立的状态；view 级 / pass 级状态在循环内不得被改变。
+**排序在 GPU-driven 下也存在**，只是执行者变成 compute——所以接口必须支持它，不能按「indirect 不需要排序」
+去设计。
 
-> **PSO 是 DrawItem 级，不是 pass 级。** `m_pipelineState` 字段已在，`CommandList.cpp:449-452` 的 `Submit`
-> 里就生效；`RenderGraphExecuter.cpp:282` 的 `ExecuteBindPSO` 只是 pass 级兜底。`TODO_DrawItemPersistencePlan.md`
-> 第四节写明每个骨架的 PSO 是「物体侧提示 + pass 的 RT layout」合成的——材质一旦有 shader 变体，
-> 同一 pass 内不同物体的 PSO 就不同。
+```cpp
+.Accepts<TransparentTag>()
+.RendersView<MainViewTag>()
+.SortBy<DrawSortMode::BackToFront>()   // 不写 = None
+```
 
-有了这张表，「完备性要不要保证」不再是个需要纠结的形容词，而是可检验的：新加一个状态时问「它属于哪一级」，
-答案唯一。
+**一个真冲突**：透明物体的深度排序与 PSO 分组互斥——一分组，跨组的深度顺序就断了。所以分组策略是 per-pass
+的选择，DrawList 有两种模式（同一套结构）：
 
-### 为什么不走 per-view DrawItem
+| 模式 | key 含 pso | entry 的 pso | 用于 |
+|---|---|---|---|
+| **分组** | 是（组内一致） | 冗余但一致 | opaque / shadow，可走 indirect |
+| **排序** | 否 | 逐个不同，提交时切换 | transparent，CPU 提交 |
 
-**决定性论据：indirect 路线下 viewport 物理上进不了 DrawItem。** `D3D12_INDIRECT_ARGUMENT_TYPE` 的全部取值
-（DRAW / DRAW_INDEXED / DISPATCH / VERTEX_BUFFER_VIEW / INDEX_BUFFER_VIEW / CONSTANT / CONSTANT_BUFFER_VIEW /
-SHADER_RESOURCE_VIEW / UNORDERED_ACCESS_VIEW / DISPATCH_RAYS / DISPATCH_MESH）**不含 viewport / scissor**，
-Vulkan 同理。走 ExecuteIndirect 时 viewport 必须在调用之前设好——per-view 循环不是设计选择，是 API 约束。
+排序模式走不了 indirect，但那是透明渲染的固有性质，OIT 之前绕不开。
 
-直接提交与 indirect 会长期并存，**让两条路结构一致**远比让其中一条「更完备」重要；否则同一引擎里两套心智模型。
+**sortKey 的来源是这里唯一的麻烦**：DrawItem 上没有空间信息，得走骨架的宿主引用拿 Drawable 的包围盒，再和
+`m_key.m_view` 的相机位置算距离——每帧随机访问宿主组件。所以 **opaque 默认 `None`**（PSO 分组已消掉状态切换，
+front-to-back 的 early-Z 收益要 profiling 说话），只有 transparent 付这个钱，而它数量本来就少。
 
-其余代价：
+### 执行：提交步骤上升到 executer
 
-- **DrawItem 很胖。** 按 `RHILimits.h` 实测算内联存储 ≈ 800B~1KB（`fixed_vector<Viewport,8>` 192B +
-  `fixed_vector<Scissor,8>` 128B + `fixed_vector<uint8_t,256>` 280B + …），正是
-  `TODO_DrawItemPersistencePlan.md` 开头说的「KB 级重值」。1000 Drawable × 16 shadow view ≈ 16MB 且每帧线性遍历。
-- **范围不止 viewport。** view SRG 同样在循环外，要完备就得两者一起烘进 DrawItem，即彻底的 per-view DrawItem。
-- **骨架会跟 view 生命周期绑定**（光源增删、分屏开关都要重建），与 `TODO_DrawItemPersistencePlan.md`
-  第五节「骨架锚在 Drawable」直接对撞。
+**这些状态设置命令不出现在任何 pass 的 execute 里**，而是 `RenderGraphExecuter` 的步骤，与
+`ExecutePreBarriers` / `ExecuteBeginRenderPass` 同级：
+
+```cpp
+// RenderGraphExecuter::Execute 内，与既有步骤并列
+ExecuteBindPSO / ExecutePreBarriers / ExecuteBeginRenderPass
+for each DrawList on this pass:          // 读 PassDrawLists 组件
+    ExecuteDrawListState(cmd, list);     // viewport / scissor / view SRG / 共享 SRG / PSO
+    ExecuteDrawListSubmit(cmd, list);    // 遍历 m_order 提交
+ExecuteEndRenderPass / ExecutePostBarriers
+```
+
+```cpp
+void ExecuteDrawListState(CommandList* cmd, const DrawList& list)
+{
+    cmd->SetViewport(list.m_viewport);
+    cmd->SetScissor(list.m_scissor);
+    cmd->BindShaderInputsForDraw(*list.m_viewSrg);
+    for (const auto* srg : list.m_sharedSrgs) { cmd->BindShaderInputsForDraw(*srg); }
+    if (分组模式) { cmd->SetPipelineState(*list.m_key.m_pso); }
+}
+
+void ExecuteDrawListSubmit(CommandList* cmd, const DrawList& list, RHIContext& ctx)
+{
+    for (uint32_t i : list.m_order)
+    {
+        const DrawListEntry& e = list.m_entries[i];
+        if (排序模式) { cmd->SetPipelineState(*e.m_pso); }
+        cmd->Submit(ctx.Get<RHI::DrawItem>(e.m_item));
+    }
+}
+```
+
+`ExecutePassViewportState`（`RenderGraphExecuter.cpp:263`，读 pass 级 `PassViewportState`）**被
+`ExecuteDrawListState` 取代**——viewport 从 pass 级升到 DrawList 级，读的组件换了，架构位置不变。
+
+外层按 `m_key` 排过序的话，相邻 list 只有 pso 不同时可跳过前几行（增量状态设置）。GPU-driven 时
+`ExecuteDrawListSubmit` 整个换成一次 `ExecuteIndirect`，`ExecuteDrawListState` 原样保留——**切换点收敛在
+executer 的一个私有步骤上**。
+
+### 声明式 pass 没有 `m_executeFunction`
+
+不是「有个默认实现」，是那个字段为空。`RenderPassBuilder::Finalize`（`Pass/RenderPass.h:256-258`）里
+这段要**删掉**：
+
+```cpp
+funcs.m_executeFunction = m_executeFunction
+    ? eastl::move(m_executeFunction)
+    : ExecuteFunction(SubmitPassDrawItems<PassTag>);   // ← 删
+```
+
+`RenderGraphExecuter::Execute` 里那句 `if (funcs.m_executeFunction)` 本来就是 null-check，天然支持空。
+`SubmitPassDrawItems<PassTag>` 随之删除。
+
+**为什么这不只是「省几行抄写」**：默认实现仍然把状态设置留在 execute 这一层，`.Binds<>()` 声明的 SRG 由框架
+自动绑、`.RendersView<>()` 声明的 viewport 却要在 execute 里手写命令——**同为声明，执行方式不对称**。读代码的
+人无从判断哪些命令框架已经发了、哪些要自己发，分界线只能靠记忆。
+
+上升到 executer 之后，对称性恢复，**每一条都是「声明 → 组件 → executer 读组件执行」**：
+
+| 声明 | 加什么组件 | 谁执行 |
+|---|---|---|
+| `.Accepts<>()` | `DrawItemRoute` | DrawItemRouter |
+| `.Binds<>()` | 共享 SRG 列表 | executer（`ExecuteDrawListState`） |
+| `.RendersView<>()` | view 类型 | executer（同上） |
+| `.SortBy<>()` | 排序策略 | 每帧排序步骤 |
+| attachment 声明 | `RenderPassBeginInfo` | executer（`ExecuteBeginRenderPass`） |
+| barrier 编译结果 | `PassBarriers` | executer（`ExecutePreBarriers`） |
+
+于是「哪些是框架做的、哪些要自己写」有了不需要记忆的答案：
+
+| pass 类型 | execute | 状态谁设 |
+|---|---|---|
+| **声明式**（绝大多数） | **不存在** | 框架全部 |
+| **`.CustomPipeline()`**（如 UIPass） | 自己写 | 自己全部 |
+
+**没有中间地带**——与 §四「viewport 归属二选一」是同一原则的两个面。这也和 Pass 的本质一致：pass 是一个实体，
+往上加组件塑形，`RenderPassBuilder` 只是简化加组件的流程，不构成另一层机制。
+
+### 状态归属：四层
+
+| 层级 | 内容 | 设置频率 |
+|---|---|---|
+| **pass** | render target、barrier、root signature | `BeginRenderPass` 前一次 |
+| **DrawList** | viewport / scissor、view SRG、共享 SRG（material / scene / instance）、stencil ref | 每组一次 |
+| **DrawListEntry** | PSO、sortKey | 分组模式整组一次；排序模式逐个 |
+| **DrawItem** | VB/IB view、draw arguments、per-object SRG、startInstance | 每 draw |
+
+新加一个状态时问「它属于哪一层」，答案唯一。**共享 SRG 的绑定次数从 M 次（每 draw 重绑）降到组数级别**是
+这个划分的直接收益。
+
+### 与 `ExecuteWork` 的结合
+
+`ExecuteWork::Item::m_draws` + `SetSubmitRange` 整套本来就预设了一个**可索引、可切片的 draw 列表**，
+`m_itemIndex` / `m_itemCount` 是「该 pass 被拆成第几段 / 共几段」。今天 `BuildExecuteWorks` 只能写死
+`{0, 1}`，因为没有那个列表可切。DrawList 正是缺的那一半：
+
+| | DrawList 提供 | ExecuteWork 提供 |
+|---|---|---|
+| 分组 / 排序 | key、`m_order` | — |
+| 切片 | 可索引的 entries | 按负载决定切点 |
+| 并行 | — | 每段一个 CommandList |
+
+结合后 `Item` 的自然形态是 `(DrawList, entryRange)` 而非 `(pass, drawRange)`。**更直接的收益是负载度量**：
+`BuildExecuteGroups` / `BuildExecuteWorks` 那两个 TODO 都写着「按负载」，而负载今天无从得知；有了 DrawList
+就是各 list 的 `m_order.size()` 之和。
+
+**但 pass 内部拆分现在做不了**：`RenderPassBeginInfo` 没有 suspend/resume 字段，一个 pass 的 draw 不能跨
+CommandList（Begin/End 必须在同一个里配对）。所以目前只有 **pass 之间合并**可做（Tonemap 这种只画一个全屏
+三角形的 pass 不必独占一个 CommandList）。见 §九。
+
+### 与 Atom 的分歧定位
+
+| 维度 | Atom | 本方案 |
+|---|---|---|
+| **pass 类型**（DrawListTag） | 每个一份 DrawItem | **共享一份** |
+| **view** | 共享（DrawList 存指针） | 共享（DrawList 存 handle） |
+| **PSO 落点** | DrawItem 里 | DrawListEntry 里 |
+
+**view 维度上两边从来没有分歧**，真正的分歧只有 pass 类型这一维，成因是**提交模型的终点不同**：
+
+- Atom 的 `View::DrawList` 是按 pass 类型**分类**，组内 PSO 可各不相同、提交时逐个切换。这在 CPU 逐 draw
+  提交下完全合理，换来**排序完全自由**。PSO 既然 per-draw 携带，就必须 per-(object, DrawListTag) 存一份。
+- 我们受 `ExecuteIndirect` 约束，**分组是硬性的**；分组一硬性，PSO 就上升成组级，DrawItem 里那份即冗余。
+
+次要因素：Atom 的 `DrawPacket` 是**打包**的——一个物体的所有 DrawListTag 的 DrawItem、SRG 指针数组、sortKey
+连续布局在一次分配的变长内存里，`DrawPacketBuilder::End()` 时才定大小、之后不可变。所以 per-pass 在 Atom 里
+的增量成本≈一次分配里多几个 slot，而 ECS 下同样的选择要付 N 个实体的开销。
+
+但**打包不解决遍历局部性**：它连续的方向是「一个物体的多个 tag」，而提交遍历的方向是「一个 tag 的多个物体」，
+两者垂直——Atom 提交时同样是跨 DrawPacket 的随机解引用。ECS 下我们的解引用至少都落在同一个密集数组内。
+真正解决它的是 GPU-driven（args buffer 连续、GPU 顺序读），不是 CPU 侧的内存布局技巧。
+
+ECS 只是次要便利（handle 是天然的共享引用、1:1 时可合成同一实体的两个组件），**不是** B 成立的原因。
 
 per-view DrawItem 唯一的表面优势「单一提交路径 / 多线程录制更简单」不成立：indirect 那边照样要分层，
 而按 `(pass, view)` 分段同样可并行，段内 DrawItem 照样互不依赖。
@@ -391,33 +625,64 @@ bias / atlas tile 分辨率 / normal offset 这类参数放 `LightComponent`（a
 
 ## 七、与 `TODO_DrawItemPersistencePlan.md` 的接缝
 
-该文档第十一节列的未决项「shadow cascade（一 pass 多 view）：DrawItem 是否要下探到 per-(Drawable, pass, view)」
-——**本方案的答案是不下探**，理由见第三节。`MaxPassesPerDrawable` 因此不需要为 shadow 留 view 维度的余量。
+本方案对那份文档的影响比「补充」大，有两处是**修订**：
 
-同节的「可见性过滤的具体接法」——本方案倾向 view mask（第八节），但不与 join 宿主 Drawable 的方案冲突。
+| 那份文档 | 本方案 |
+|---|---|
+| 第一节「PSO per-pass 不同 → DrawItem 必须 per-pass 一个」 | **修订**：PSO 移到 `DrawListEntry`，DrawItem 变 per-object（§三·五） |
+| 第十一节未决「shadow 是否下探到 per-(Drawable, pass, view)」 | **回答：不下探**（§三），`MaxPassesPerDrawable` 不需要为 shadow 留 view 余量 |
+| 第十一节未决「可见性过滤的具体接法」 | 倾向 view mask 走旁路，不改 list 成员（§三·五） |
+| 第十一节未决「排序放哪、是否跨帧缓存」 | 排 `m_order`、成员不动；策略 per-pass 声明（§三·五） |
+| 第四节「合成的 PSO 填进骨架 `m_pipelineState`」 | **落点改为** `DrawListEntry::m_pso`，流程不变 |
+| 第五节 `DerivedDrawItems` 反向引用 | DrawItem 与 Drawable 1:1 后**不再需要** |
+| 第十节「`AssembleDrawItems<PassTag, ClassTag, BindingTags...>`」 | 分组步骤取代它的一半；`m_marks` 删除 |
+
+第五节「骨架锚在 Drawable」这条核心**不变，而且更强**了——1:1 之后骨架就是 Drawable 实体上的一个组件。
 
 ## 八、分步落地
 
 1. **View 实体化 + `MainViewTag` 语义提升。** 只有主视角一类，循环次数恒为 1；5 处
-   `.Binds<MainViewTag>()` 换成 `.RendersView<MainViewTag>()`；删 `DrawItemBind.h:68-74` 的 viewport 写入。
+   `.Binds<MainViewTag>()` 换成 `.RendersView<MainViewTag>()`；删 `DrawItemBind.h:68-74` 的 viewport 写入
+   （必须与「默认全屏由 attachment extent 推导」同时做，见 §四）。
    **行为零变化——纯重构，可单独验证主视角没画错。**
-2. **加 `ShadowViewTag` + `ShadowViewSystem` + `ShadowPass`**（方向光 + 聚光灯）。循环次数第一次 > 1。
-3. **点光源 6 面。**
-4. **viewMask + culling 接入。**
+2. **DrawList 机制**（§三·五）：数据结构、分组步骤、**提交步骤上升到 executer**
+   （`ExecuteDrawListState` / `ExecuteDrawListSubmit` 取代 `ExecutePassViewportState`；删
+   `Finalize` 里的默认 `SubmitPassDrawItems<PassTag>`）。此时 PSO 仍是 pass 级、key 退化成只按 view 分，
+   但结构完整。同步做 DrawItem 的 per-object 化与 `PassTag` / `m_marks` 删除。
+3. **加 `ShadowViewTag` + `ShadowViewSystem` + `ShadowPass`**（方向光 + 聚光灯）。view 维度第一次 > 1。
+4. **点光源 6 面。**
+5. **`BuildExecuteWorks` 用 entry 数做 pass 间合并** —— 吃上 DrawList 的负载度量，无需动 RHI。
+6. **PSO 下放**（物体侧提示 + 按 pass 合成）→ PSO 分组第一次非平凡 → 才谈得上 indirect。
+7. **viewMask + culling 接入。**
 
-第 1 步做完，多视口的地基就已经在了；第 2 步 shadow 只是这个地基上的第一个非平凡用例。
+第 1 步做完多视口的地基就在了；第 2 步是提交模型的地基；第 3 步 shadow 是两者之上的第一个非平凡用例。
+
+**依赖顺序**：PSO 下放 → 材质 shader 变体 → PSO 分组有意义 → indirect。第 6 步的前置是材质变体
+（`TODO_MaterialSystemPlan.md`），它决定 PSO cache key 的形状，所以不能提前设计。
 
 ## 九、待定 / 未决
 
-- **per-view 排序。** 拟用 `uint64 m_viewMask`（bit v = 对该类型下第 v 个 view 可见）做可见性过滤，比 Atom
-  的 per-view DrawList 省掉每帧建 N 个数组。但 mask 只能表达「画不画」，**表达不了 per-view 深度排序**
-  （透明物体、opaque front-to-back）。真需要时再补 DrawList，mask 不挡路。
-- **View 的目标区域与 pass attachment 的对应。** 循环里要 `SetViewport(view 的区域)`，但 attachment 是 pass
-  声明的（`CreateImageAttachment<PassTag>`）、view 是跨 pass 的。倾向 View 只存归一化 rect，pass 在循环里乘上
-  自己 attachment 的实际尺寸（shadow atlas 的 tile 布局正好能这么表达），但未定。
-- **`Visible<ViewTag>` 与 viewMask 的关系。** 现有 `View/ViewTags.h` 的 `Visible<V>` 是 per-view-**type** 的标记，
-  多实例后语义需要重新定义（是退化成 mask，还是保留为类型级的粗筛）。
-- **View 实体的生命周期归属。** 主视角 view 由 `ViewBindingSystem` 建；shadow view 由 `ShadowViewSystem` 建。
-  光源消失时 view 实体的回收路径（`DeadTag` 级联）需要和现有 reap 机制对齐。
-- **N 个 view SRG 的每帧更新成本。** 每个 view 一个 space1 SRG，N ≤ 十几时可接受，但没有实测。若成为瓶颈，
-  退路是回到「一个 `g_Views` StructuredBuffer + 索引」，那时才需要 root constant（见背景节的半实现状态）。
+- **`startInstance` 的晚绑定缺口。** 它是 DrawItem 里唯一每帧变的字段。
+  `TODO_DrawItemPersistencePlan.md` 第三节要求「不写进骨架、提交前现取」，但 `Submit(const DrawItem&)` 是
+  按 const 引用读 `m_drawInstanceArgs.m_instanceOffset` 的。要真做到，得让 RHI 在提交时能接收它（多一个参数，
+  或 `DrawInstanceArguments` 单独传）；否则只能每帧写回。**这是「骨架只读」能否守住的最后一个缺口。**
+- **render pass 的 suspend / resume。** `RenderPassBeginInfo` 缺这个字段，导致一个 pass 的 draw 不能跨
+  CommandList，`BuildExecuteWorks` 的 pass 内拆分做不了。两个后端都有原生机制
+  （`D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS` / `VK_RENDERING_SUSPENDING_BIT`），且 TBDR 上还关系到 tile memory
+  能否跨 CommandList 保持——按「abstraction follows the stricter backend」这个字段本就该有。独立于本方案。
+- **`RHI::DrawItem` 的语义与命名。** 删掉 viewport / scissor / rootConstants 后它从「一次 draw call 的全部
+  参数」变成「物体部分的参数」，注释和字段需要重新审视一遍。
+- **`Visible<ViewTag>` 与 viewMask 的关系。** `View/ViewTags.h` 的 `Visible<V>` 是 per-view-**type** 的标记，
+  多实例后语义要重新定义（退化成 mask，还是保留为类型级粗筛）。
+- **View 实体的生命周期归属。** 主视角 view 由 `ViewBindingSystem` 建、shadow view 由 `ShadowViewSystem` 建；
+  光源消失时 view 实体与其 DrawList 的回收路径（`DeadTag` 级联）需与现有 reap 机制对齐。
+- **N 个 view SRG 的每帧更新成本。** 每个 view 一个 space1 SRG，N ≤ 十几时可接受但没实测。若成瓶颈，退路是
+  「一个 `g_Views` StructuredBuffer + 索引」，那时才需要 root constant（见背景节的半实现状态）。
+- **DrawList entries 的 arena 化。** 现在每个 DrawList 各持一个 `vector`。DrawList 数量上到几百（更多 view ×
+  更多 shader 变体）时，改成 pass 级一片连续 arena + `{begin, count}` 切片更优，且正是 GPU buffer 的形状。
+  成员访问一律走 `eastl::span` 就能让这个切换对调用方零改动。**现在不做**——几十个 list 的规模下不值得付
+  维护偏移的复杂度。
+- **CPU 侧遍历局部性。** `ctx.Get<DrawItem>(handle)` 是稀疏集查找 + 密集数组随机索引，M 次随机访问。粗算
+  1000 次 miss ≈ 0.03ms，量级上被 `Submit` 内的驱动开销盖过，且 GPU-driven 落地后这条路径整个消失。
+  **结论是不预先优化**（曾考虑的「帧内指针缓存」被否：省掉的那次稀疏查找访问的是 ~4KB 数组、大概率命中 L1，
+  收益接近噪声）。真要动，选项是让 `m_entries` 按组件存储顺序排（只对 `sortMode == None` 成立）或抽紧凑提交记录。
