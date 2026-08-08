@@ -154,7 +154,7 @@ namespace Spark::Render
 
         // Render-side helpers + shared resources setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
-        m_viewBindingSystem.Init(rhiCtxForInit);
+        m_viewBindingSystem.Init();
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);

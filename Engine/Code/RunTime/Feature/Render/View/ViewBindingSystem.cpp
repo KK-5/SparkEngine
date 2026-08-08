@@ -1,5 +1,7 @@
 #include "ViewBindingSystem.h"
 
+#include <EASTL/fixed_vector.h>
+
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <ECS/Common.h>
@@ -19,19 +21,32 @@
 #include <Feature/Camera/Components.h>
 
 #include "View.h"
+#include "ViewComponents.h"
 #include "ViewTags.h"
 
 namespace Spark::Render
 {
-    void ViewBindingSystem::Init(RHI::RHIContext& rhiCtx)
+    namespace
+    {
+        constexpr uint32_t kViewSpaceId = 1;   // ViewBindings (per-view) is reserved at space1.
+
+        void MarkDead(RHI::RHIContext& ctx, RHI::RHIHandle entity)
+        {
+            if (entity != RHI::NullHandle && !ctx.Has<DeadTag>(entity))
+            {
+                ctx.Add<DeadTag>(entity);
+            }
+        }
+    }
+
+    void ViewBindingSystem::Init()
     {
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "[ViewBindingSystem] AssetManager is unregistered.");
 
-        // ViewBindings.hlsl is a pure cbuffer header with no entry point, so the
-        // asset builder can't compile/reflect it alone. ViewBindingsReflect.hlsl is
-        // a reflection host: it #includes ViewBindings and adds a dummy vertex entry
-        // using g_ViewProjection, purely so we can reflect the group's layout here.
+        // ViewBindings.hlsl has no entry point and can't be compiled alone;
+        // ViewBindingsReflect.hlsl includes it and adds a dummy vertex entry so the
+        // space1 group's layout can be reflected here.
         const Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/ViewBindingsReflect.hlsl");
         if (!assetId.IsValid())
         {
@@ -45,7 +60,6 @@ namespace Spark::Render
             return;
         }
 
-        // space1 / ViewBindings group, reflected from the host shader above.
         Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
@@ -56,66 +70,117 @@ namespace Spark::Render
         auto* rhi = Service<RHI::RHIInterface>::Get();
         ASSERT(rhi, "[ViewBindingSystem] RHI::RHIInterface service not registered.");
         auto* factory = rhi->GetRHIFactory();
-        auto* device  = rhi->GetDevice();
-        ASSERT(factory && device, "[ViewBindingSystem] RHI factory or device is null.");
+        ASSERT(factory, "[ViewBindingSystem] RHI factory is null.");
 
-        // Built locally and handed to the entity below: the ShaderBindings owns its
-        // layout, and the entity's Components::ShaderBindings owns the ShaderBindings,
-        // so the system itself keeps no Ptr — the entity is the lifetime owner.
         Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
         layout->AddShaderInputDescriptors(built.list, built.stageMask);
         layout->Finalize();
+        m_viewLayout = eastl::move(layout);
+    }
 
-        Ptr<RHI::ShaderBindings> viewBindings = factory->CreateShaderBindings();
+    RHI::RHIHandle ViewBindingSystem::CreateView(RHI::RHIContext& rhiCtx)
+    {
+        auto* rhi = Service<RHI::RHIInterface>::Get();
+        ASSERT(rhi, "[ViewBindingSystem] RHI::RHIInterface service not registered.");
+        auto* factory = rhi->GetRHIFactory();
+        auto* device  = rhi->GetDevice();
+        ASSERT(factory && device, "[ViewBindingSystem] RHI factory or device is null.");
+
+        Ptr<RHI::ShaderBindings> shaderBindings = factory->CreateShaderBindings();
         RHI::ShaderBindings::Descriptor desc;
-        desc.m_layout  = layout;
-        desc.m_spaceId = 1;   // ViewBindings (per-view) is reserved at space1.
-        if (viewBindings->Init(*device, desc) != RHI::ResultCode::Success)
+        desc.m_layout  = m_viewLayout;
+        desc.m_spaceId = kViewSpaceId;
+        if (shaderBindings->Init(*device, desc) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[ViewBindingSystem] ShaderBindings::Init failed.");
-            return;
+            return RHI::NullHandle;
         }
 
-        // One shared binding entity, tagged so consumers can find it by type. The
-        // entity now owns the binding (and transitively its layout).
-        m_viewEntity = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(m_viewEntity, RHI::Components::ShaderBindings{ viewBindings });
-        rhiCtx.Add<MainViewTag>(m_viewEntity);
-        rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(m_viewEntity);   // compile on the first frame
+        RHI::RHIHandle bindingsEntity = rhiCtx.CreateEntity();
+        rhiCtx.Add<RHI::Components::ShaderBindings>(
+            bindingsEntity, RHI::Components::ShaderBindings{ shaderBindings });
+        rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(bindingsEntity);
+        // Transitional: keeps .Binds<MainViewTag>() resolving to these bindings. Dropped
+        // once passes declare .RendersView<MainViewTag>() instead.
+        rhiCtx.Add<MainViewTag>(bindingsEntity);
+
+        RHI::RHIHandle view = rhiCtx.CreateEntity();
+        rhiCtx.Add<MainViewTag>(view);
+        rhiCtx.Add<View>(view, View{});
+        rhiCtx.Add<ViewShaderBindings>(view, ViewShaderBindings{ bindingsEntity });
+        return view;
+    }
+
+    void ViewBindingSystem::DestroyView(RHI::RHIContext& rhiCtx, RHI::RHIHandle view)
+    {
+        if (auto* bindings = rhiCtx.TryGet<ViewShaderBindings>(view))
+        {
+            MarkDead(rhiCtx, bindings->m_bindings);
+        }
+        MarkDead(rhiCtx, view);
     }
 
     void ViewBindingSystem::Update(const Math::Vector2Int& renderSize)
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!world || !rhiCtx || m_viewEntity == RHI::NullHandle || renderSize.y <= 0)
+        if (!world || !rhiCtx || !m_viewLayout || renderSize.y <= 0)
         {
-            return;   // guard renderSize.y: a minimized / zero framebuffer would divide by zero
+            return;   // a minimized / zero framebuffer would divide by zero below
         }
 
-        // Projection is built HERE, not in CameraSystem: aspect is a property of the render
-        // target, which the world layer doesn't know. The same camera drawn into a different
-        // extent gets a different projection for free.
+        eastl::fixed_vector<Entity, 4> orphans;
+        world->GetView<MainViewRef>().each([&](Entity e, const MainViewRef& ref)
+        {
+            if (world->Has<DeadTag>(e) || !world->Has<Camera::CameraComponent>(e))
+            {
+                DestroyView(*rhiCtx, ref.m_view);
+                orphans.push_back(e);
+            }
+        });
+        for (Entity e : orphans)
+        {
+            world->Remove<MainViewRef>(e);
+        }
+
+        // Projection is built HERE, not in CameraSystem: aspect is a render-target
+        // property the world layer doesn't know.
         const float aspect = static_cast<float>(renderSize.x) / static_cast<float>(renderSize.y);
 
-        // Single main camera for now; multi-view will tag a binding per view type.
-        world->GetView<Camera::CameraComponent, Camera::CameraViewMatrix>().each(
-            [&](Entity, const Camera::CameraComponent& camera, const Camera::CameraViewMatrix& mats)
+        world->GetView<Camera::CameraComponent, Camera::CameraViewMatrix>(Exclude<DeadTag>).each(
+            [&](Entity e, const Camera::CameraComponent& camera, const Camera::CameraViewMatrix& mats)
         {
-            View view;
+            auto* ref = world->TryGet<MainViewRef>(e);
+            if (!ref)
+            {
+                const RHI::RHIHandle created = CreateView(*rhiCtx);
+                if (created == RHI::NullHandle)
+                {
+                    return;
+                }
+                ref = &world->Add<MainViewRef>(e, MainViewRef{ created });
+            }
+
+            View& view = rhiCtx->Get<View>(ref->m_view);
             view.m_worldToView = mats.m_viewMatrix;
             view.m_viewToClip  = Math::PerspectiveFov(
                 Math::Radians(camera.m_fov), aspect, camera.m_clipStart, camera.m_clipEnd);
-            WriteViewConstants(view, m_viewEntity);   // stages data + marks dirty
+            WriteViewConstants(view, rhiCtx->Get<ViewShaderBindings>(ref->m_view).m_bindings);
         });
     }
 
     void ViewBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        if (m_viewEntity != RHI::NullHandle)
+        rhiCtx.GetView<MainViewTag, ViewShaderBindings>().each(
+            [&](RHI::RHIHandle view, const ViewShaderBindings&)
         {
-            rhiCtx.Add<DeadTag>(m_viewEntity);
-            m_viewEntity = RHI::NullHandle;
+            DestroyView(rhiCtx, view);
+        });
+
+        // Strip the world-side refs so a re-init starts clean.
+        if (auto* world = WorldExecuteContext::Current())
+        {
+            world->Clear<MainViewRef>();
         }
     }
 }

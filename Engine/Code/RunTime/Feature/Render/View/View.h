@@ -9,6 +9,16 @@
 
 namespace Spark::Render
 {
+    //! Normalized, not pixels: one view feeds passes of different extents (half-res
+    //! post, a shadow atlas tile). Field order matches RHI::Viewport::GetScaled.
+    struct ViewRect
+    {
+        float m_minX = 0.0f;
+        float m_maxX = 1.0f;
+        float m_minY = 0.0f;
+        float m_maxY = 1.0f;
+    };
+
     //! Per-view camera data — pure data, usable directly as an ECS component on
     //! a view entity (multi-view later) or held by a feature. It owns ONLY the
     //! camera transforms (view + projection). Per-object model matrices and the
@@ -18,6 +28,8 @@ namespace Spark::Render
     {
         Math::Matrix4X4 m_worldToView = Math::Matrix4X4Const::IDENTITY;   // view matrix
         Math::Matrix4X4 m_viewToClip  = Math::Matrix4X4Const::IDENTITY;   // projection matrix
+
+        ViewRect m_rect {};
 
         //! Linear exposure multiplier applied before the tone curve in the tonemap pass.
         //! 1.0 = neutral (current behavior); a real EV100/auto-exposure source feeds this later.
@@ -57,12 +69,8 @@ namespace Spark::Render
     inline constexpr const char* InvViewConstantName           = "g_InvView";
     inline constexpr const char* ExposureConstantName          = "g_Exposure";
 
-    //! Write the View's per-view constants into the ViewBindings group on the given
-    //! ShaderBindings ENTITY: world->clip (g_ViewProjection) and world->view (g_View),
-    //! plus their inverses g_InvViewProj (clip->world) and g_InvView (view->world; its
-    //! translation is the camera world position). The inverses are computed once here so
-    //! consumers never re-read the camera. Built on the generic SetShaderConstant helper,
-    //! so it both stages the data and marks the binding dirty for the next compile.
+    //! Stage the per-view constants into the ViewBindings group of the given
+    //! ShaderBindings ENTITY; SetShaderConstant also marks it dirty for the next compile.
     inline void WriteViewConstants(const View& view, RHI::RHIHandle viewBindings)
     {
         const Math::Matrix4X4 worldToClip = view.GetWorldToClip();
