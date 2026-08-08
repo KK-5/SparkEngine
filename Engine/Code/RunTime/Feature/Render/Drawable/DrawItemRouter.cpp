@@ -13,7 +13,6 @@
 #include <Pass/PassContext.h>
 
 #include <Instance/InstanceSlot.h>
-#include <View/ViewTags.h>
 
 #include "Drawable.h"
 #include "DrawTag.h"
@@ -283,8 +282,6 @@ namespace Spark::Render
                 {
                     rhiCtx->Add<DrawItemObjectBinding>(drawItem, DrawItemObjectBinding{ perObjectBindings });
                 }
-                // Placeholder visibility — culling will own this add/remove later.
-                rhiCtx->Add<Visible<MainViewTag>>(drawItem);
                 if (slot)
                 {
                     rhiCtx->Add<DrawItemInstanceSlot>(drawItem, DrawItemInstanceSlot{ slot->m_slotRef });

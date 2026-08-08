@@ -12,7 +12,6 @@
 #include <Mesh/Components.h>
 
 #include <Instance/InstanceSlot.h>
-#include <View/ViewTags.h>
 
 #include "Drawable.h"
 #include "DrawTag.h"
@@ -162,10 +161,6 @@ namespace Spark::Render
 
             RHI::RHIHandle drawable = rhiCtx->CreateEntity();
             rhiCtx->Add<DrawableTag>(drawable);
-            // Placeholder culling stamp: no culling system yet, so every composed
-            // Drawable is visible to the main view. When culling lands it takes over
-            // the per-view set/clear of Visible<V> and this line goes away.
-            rhiCtx->Add<Visible<MainViewTag>>(drawable);
             // Everything is opaque today; becomes a per-AlphaMode split later.
             rhiCtx->Add<OpaqueTag>(drawable);
             rhiCtx->Add<Drawable>(drawable, 
