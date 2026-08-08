@@ -68,8 +68,8 @@ namespace Spark::Render
     //! (model matrix, …) lives in a shared GPU buffer; this draw occupies one
     //! slot. Resolving the draw needs three coupled parts:
     //!  - m_sharedBindings : the global g_Instances ShaderBindings entity, which
-    //!                       also hosts the InstanceSlotTable. Bound as a SRG
-    //!                       (space4) AND consulted for the slot → startInstance
+    //!                       also hosts the InstanceSlotTable. Bound at space4
+    //!                       AND consulted for the slot → startInstance
     //!                       mapping. Recorded per-Drawable so cascade reap
     //!                       reacts uniformly when the bindings entity rebuilds.
     //!  - m_slotRef        : stable id copy. The per-frame slot lookup
@@ -164,10 +164,10 @@ namespace Spark::Render
         InstanceSlotRef m_slotRef;
     };
 
-    //! Per-object SRG (space4), a PER-DRAW binding resolved from the Drawable's
-    //! provisioning at compose: shared g_Instances for indexed, the draw's own CBV for
-    //! direct, absent for procedural. Carried here (not a shared tag) because direct's
-    //! CBV is per-draw, not a singleton. The per-frame bind flow prepends it.
+    //! Per-object bindings (space4) resolved from the Drawable's provisioning at compose:
+    //! shared g_Instances for indexed, the draw's own CBV for direct, absent for
+    //! procedural. Carried here (not a shared tag) because direct's CBV is per-draw, not
+    //! a singleton — it is the only binding left on the DrawItem.
     struct DrawItemObjectBinding
     {
         const RHI::ShaderBindings* m_objShaderBindings = nullptr;

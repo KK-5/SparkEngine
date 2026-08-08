@@ -258,9 +258,9 @@ namespace Spark::Render
         // the passes that accept it.
         m_drawItemRouter.Process();
 
-        // Per-frame DrawItem update: each pass's route rewrites its DrawItems' shared
-        // bindings, viewport, and startInstance (BindPassDrawItems). Passes without a
-        // route (procedural / full-screen) carry no m_bindPass and are skipped.
+        // Per-frame: each pass's route resolves its shared bindings onto the pass entity
+        // and rewrites its DrawItems' viewport and startInstance. Passes without a route
+        // (procedural / full-screen) carry no m_bindPass and are skipped.
         passContext.GetView<DrawItemRoute>().each([&](auto, const DrawItemRoute& route)
         {
             if (route.m_bindPass)

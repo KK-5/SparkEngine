@@ -55,10 +55,9 @@ namespace Spark::Render
     //!
     //! Returns the binding ENTITY (RHIHandle) only — not the RHI::ShaderBindings
     //! Ptr. Stage data through the entity with the Render::SetShaderXxx helpers
-    //! (Shader/ShaderBindingsUtils.h), which also mark it dirty; BindPassDrawItems
-    //! injects the entity's SRG into the pass's DrawItems so the draw references it. The
-    //! entity owns the binding's lifetime (Components::ShaderBindings holds the Ptr),
-    //! so destroying the entity releases it.
+    //! (Shader/ShaderBindingsUtils.h), which also mark it dirty. The entity owns the
+    //! binding's lifetime (Components::ShaderBindings holds the Ptr), so destroying the
+    //! entity releases it.
     //!
     //! Returns NullHandle if the pass has no PassPipelineLayout (e.g.
     //! custom-pipeline pass), or if RHI services / Init fail.
@@ -154,11 +153,10 @@ namespace Spark::Render
 
     // ============================================================
     // Per-pass shader-binding data injection. Fully encapsulated: callers never touch
-    // the SRG handle — the (PassTag, spaceId) SRG is get-or-created lazily and the
-    // value is staged into it. Returns false only when the SRG can't be created yet
-    // (pass layout not reflected), letting callers gate readiness. BindPassDrawItems
-    // auto-injects this per-pass SRG into the pass's DrawItems by PassTag, completing
-    // the per-pass binding path.
+    // the entity — the (PassTag, spaceId) bindings are get-or-created lazily and the
+    // value is staged into them. Returns false only when they can't be created yet
+    // (pass layout not reflected), letting callers gate readiness. ResolvePassSharedBindings
+    // picks them up by PassTag, completing the per-pass binding path.
     // ============================================================
 
     template<typename PassTag>

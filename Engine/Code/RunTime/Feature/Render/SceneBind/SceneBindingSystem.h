@@ -13,7 +13,7 @@ namespace Spark::Render
     //! Light::LightRenderData into the current frame's g_Lights copy and writes g_LightCount
     //! — a pure field copy, no computation (direction/position were resolved upstream by
     //! LightSystem). Tags the binding entity MainSceneTag so a pass pulls it via
-    //! .Binds<MainSceneTag>() (BindPassDrawItems), exactly like the per-view group.
+    //! .Binds<MainSceneTag>(), exactly like the per-view group.
     //!
     //! Host per-frame + full re-scatter every frame, symmetric with MaterialBindingSystem
     //! (lights are few, KB-level). Plain helper, not ISystem — owned by RenderSystem, ticked

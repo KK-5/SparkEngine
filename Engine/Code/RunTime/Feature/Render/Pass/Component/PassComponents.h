@@ -132,6 +132,14 @@ namespace Spark::Render
         Ptr<RHI::PipelineState> m_pso;
     };
 
+    //! The pass's own per-pass bindings plus the shared ones it declares via .Binds<>(),
+    //! resolved once per frame and bound once before the pass's draws. They are identical
+    //! for every draw in the pass, so they live here and not on the DrawItem.
+    struct PassSharedBindings
+    {
+        eastl::fixed_vector<const RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_bindings;
+    };
+
     //! Forces PSO recompilation on next frame (set on shader hot-reload).
     struct PassPSODirtyTag
     {

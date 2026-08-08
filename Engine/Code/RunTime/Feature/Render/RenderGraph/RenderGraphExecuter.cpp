@@ -260,6 +260,38 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphExecuter::ExecuteBindShared(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
+    {
+        // No compiled PSO means no pipeline layout to resolve spaces against, and the bind
+        // would assert. Custom-pipeline passes land here too.
+        auto* pso = passContext.TryGet<PassCompiledPSO>(pass);
+        if (!pso || !pso->m_pso)
+        {
+            return;
+        }
+
+        auto* shared = passContext.TryGet<PassSharedBindings>(pass);
+        if (!shared)
+        {
+            return;
+        }
+
+        // Same discriminator the backend uses to pick the graphics vs compute root
+        // signature in SetPipelineState.
+        const bool isDispatch = pso->m_pso->GetType() == RHI::PipelineStateType::Dispatch;
+        for (const RHI::ShaderBindings* bindings : shared->m_bindings)
+        {
+            if (isDispatch)
+            {
+                commandList->BindShaderInputsForDispatch(*bindings);
+            }
+            else
+            {
+                commandList->BindShaderInputsForDraw(*bindings);
+            }
+        }
+    }
+
     void RenderGraphExecuter::ExecutePassViewportState(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
     {
         if (auto* vp = passContext.TryGet<PassViewportState>(pass))
@@ -280,6 +312,7 @@ namespace Spark::Render
             if (item.m_itemIndex == 0)
             {
                 ExecuteBindPSO(cmdList, item.m_pass, passContext);
+                ExecuteBindShared(cmdList, item.m_pass, passContext);
                 ExecutePassViewportState(cmdList, item.m_pass, passContext);
                 ExecutePreBarriers(cmdList, item.m_pass, passContext);
                 ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);

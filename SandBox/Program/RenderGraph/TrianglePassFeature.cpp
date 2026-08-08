@@ -82,9 +82,9 @@ namespace Spark::SandBox
         ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[TrianglePassFeature] TriangleMVP.hlsl load failed.");
 
-        // The pass must exist before its per-pass SRG can be get-or-created by tag, so
-        // build the pass first. UpdateViewBindings then lazily creates + fills the space0
-        // SRG (via SetPassShaderConstant); BindPassDrawItems later injects it by PassTag.
+        // The pass must exist before its per-pass bindings can be get-or-created by tag,
+        // so build the pass first. UpdateViewBindings then lazily creates + fills the
+        // space0 bindings (via SetPassShaderConstant).
         CreateVertexBuffer();
         CreateTrianglePass();
         BuildDrawable();

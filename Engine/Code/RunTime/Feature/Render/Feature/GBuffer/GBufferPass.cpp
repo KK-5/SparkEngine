@@ -151,10 +151,9 @@ namespace Spark::Render
             })
             .Compile([](RenderGraphCompiler&)
             {
-                // Constant material sampler (linear/wrap) into this pass's space2 SRG (auto-
-                // created by Finalize). Change-detected, so this per-frame set is a no-op after
-                // the first bind; BindPassDrawItems auto-injects the SRG into the pass's
-                // DrawItems by PassTag. GBuffer's DrawItems come from world Drawables (OpaqueTag).
+                // Constant material sampler (linear/wrap) into this pass's space2 bindings
+                // (auto-created by Finalize). Change-detected, so this per-frame set is a
+                // no-op after the first bind.
                 SetPassShaderSampler<SPARK_PASS_TAG("GBufferPass")>(
                     kPerPassSpaceId, RHI::InputName("g_MatSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));

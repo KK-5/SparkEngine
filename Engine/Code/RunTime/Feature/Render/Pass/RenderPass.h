@@ -132,11 +132,10 @@ namespace Spark::Render
             return *this;
         }
 
-        // Declare the shared SRGs (view / material / …, each a global singleton) this
-        // pass injects into its DrawItems every frame. Order-free — each SRG self-
-        // describes its HLSL space. The per-object SRG (space4) is baked at compose, and
-        // the pass's own per-pass SRG (space2) is auto-injected via PassTag — neither is
-        // listed here.
+        // Declare the shared bindings (view / material / …, each a global singleton) the
+        // executer binds once before this pass's draws. Order-free — each self-describes
+        // its HLSL space. The per-object group (space4) is baked at compose and the pass's
+        // own (space2) is resolved via PassTag — neither is listed here.
         template<typename... BindingTags>
         RenderPassBuilder& Binds()
         {
@@ -230,11 +229,11 @@ namespace Spark::Render
                     m_name.GetCStr());
                 if (auto layout = BuildPipelineLayoutFromShaders(*factory, m_shaders))
                 {
-                    // Auto-create the per-pass (space2) SRG now that the layout is reflected,
-                    // but only when the shader actually declares that space. It must exist
-                    // before the per-frame bind loop (BindPassDrawItems resolves it by
-                    // PassTag), so creating it here removes that allocation from every pass
-                    // processor's Init. RHIExecuteContext is current during SetUp.
+                    // Auto-create the per-pass (space2) bindings now that the layout is
+                    // reflected, but only when the shader actually declares that space. They
+                    // must exist before ResolvePassSharedBindings runs, so creating them here
+                    // removes that allocation from every pass processor's Init.
+                    // RHIExecuteContext is current during SetUp.
                     const bool hasPerPassSpace = layout->FindSpaceGroupBySpaceId(kPerPassSpaceId) != nullptr;
                     m_context->Add<PassPipelineLayout>(pass, PassPipelineLayout{ eastl::move(layout) });
                     if (hasPerPassSpace)

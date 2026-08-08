@@ -18,8 +18,7 @@ namespace Spark::Render
     };
 
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
-    //! g_Materials SRV at space3. A pass declares .Binds<MaterialBindingTag>() and
-    //! BindPassDrawItems injects it into that pass's DrawItems each frame, exactly like
-    //! MainViewTag (space1 view) and InstanceBindingTag (space4 object).
+    //! g_Materials SRV at space3. A pass declares .Binds<MaterialBindingTag>() and the
+    //! executer binds it once before the pass's draws, exactly like MainViewTag (space1).
     struct MaterialBindingTag {};
 }

@@ -91,6 +91,8 @@ namespace Spark::Render
 
         void ExecuteBindPSO(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
+        void ExecuteBindShared(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
+
         void ExecutePassViewportState(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
         void ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
