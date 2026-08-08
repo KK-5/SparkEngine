@@ -22,6 +22,7 @@ set(SOURCES
     MaterialBind/MaterialBindingSystem.cpp
     Drawable/MeshDrawableComposer.cpp
     Drawable/DrawItemRouter.cpp
+    Drawable/DrawList.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

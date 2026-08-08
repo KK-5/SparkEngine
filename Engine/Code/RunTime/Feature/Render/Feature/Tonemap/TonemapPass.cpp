@@ -79,6 +79,7 @@ namespace Spark::Render
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Accepts<FullScreenTriangleTag>()
             .Binds<MainViewTag>()
+            .RendersView<MainViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {
                 // Import the swap chain as this pass's color render target. TonemapPass is

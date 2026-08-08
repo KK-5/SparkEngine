@@ -110,6 +110,7 @@ namespace Spark::Render
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Accepts<FullScreenTriangleTag>()
             .Binds<MainViewTag, MainSceneTag>()
+            .RendersView<MainViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {
                 // Create SceneColor here: LightingPass is the first pass that produces

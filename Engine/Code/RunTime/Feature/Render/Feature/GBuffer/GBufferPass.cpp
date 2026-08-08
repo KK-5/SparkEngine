@@ -96,6 +96,7 @@ namespace Spark::Render
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Accepts<OpaqueTag>()
             .Binds<MainViewTag, MaterialBindingTag>()
+            .RendersView<MainViewTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 const auto size = builder.GetRenderSize();

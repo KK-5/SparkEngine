@@ -11,12 +11,13 @@
 
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassContext.h>
+#include <Pass/PassCapabilities.h>
 
 #include <Instance/InstanceSlot.h>
 
 #include "Drawable.h"
 #include "DrawTag.h"
-#include "DrawItemRoute.h"
+#include "DrawList.h"
 
 namespace Spark::Render
 {
@@ -269,14 +270,14 @@ namespace Spark::Render
 
             // One DrawItem per pass that accepts this Drawable, with everything the
             // submit path needs baked on — no back-reference to the Drawable.
-            passCtx->GetView<DrawItemRoute>().each([&](auto, const DrawItemRoute& route)
+            passCtx->GetView<PassCapabilities>().each([&](Pass pass, const PassCapabilities& caps)
             {
-                if (!route.m_accepts(*rhiCtx, drawable))
+                if (!caps.m_accepts(*rhiCtx, drawable))
                 {
                     return;
                 }
                 RHI::RHIHandle drawItem = rhiCtx->CreateEntity();
-                route.m_marks(*rhiCtx, drawItem);
+                caps.m_markDrawItem(*rhiCtx, drawItem);
                 rhiCtx->Add<RHI::DrawItem>(drawItem, BuildGeometryDrawItem(*rhiCtx, composed));
                 if (perObjectBindings)
                 {
@@ -290,10 +291,21 @@ namespace Spark::Render
                 {
                     derived->m_items.push_back(drawItem);
                 }
+                // The lists were reconciled before this frame's derivation, so they hold
+                // every older DrawItem and this is the only path that adds new ones.
+                if (auto* lists = passCtx->TryGet<PassDrawLists>(pass))
+                {
+                    for (DrawList& list : lists->m_lists)
+                    {
+                        DrawListInsert(list, drawItem, kSingleVariantId);
+                    }
+                }
             });
 
             rhiCtx->Add<DrawItemsDerivedTag>(drawable);
         });
+
+        ValidatePassDrawLists();
     }
 
     void DrawItemRouter::Shutdown(RHI::RHIContext& rhiCtx)

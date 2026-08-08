@@ -99,6 +99,7 @@ namespace Spark::Render
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Accepts<FullScreenTriangleTag>()
             .Binds<MainViewTag, MainSceneTag>()
+            .RendersView<MainViewTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 Render::ImageAttachmentBindInfo colorBind;

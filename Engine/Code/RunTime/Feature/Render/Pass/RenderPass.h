@@ -12,8 +12,7 @@
 
 #include <Pass/PassBuilder.h>
 #include <Pass/PassAccess.h>
-#include <Drawable/DrawItemRoute.h>
-#include <Drawable/DrawItemBind.h>
+#include <Pass/PassCapabilities.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
@@ -126,9 +125,9 @@ namespace Spark::Render
         template<typename... DrawTags>
         RenderPassBuilder& Accepts()
         {
-            m_route.m_accepts = &AcceptDrawTags<DrawTags...>;
-            m_route.m_marks   = &MarkPassTag<PassTag>;
-            m_hasRoute        = true;
+            m_capabilities.m_accepts      = &AcceptDrawTags<DrawTags...>;
+            m_capabilities.m_markDrawItem = &MarkPassTag<PassTag>;
+            m_hasCapabilities             = true;
             return *this;
         }
 
@@ -139,7 +138,20 @@ namespace Spark::Render
         template<typename... BindingTags>
         RenderPassBuilder& Binds()
         {
-            m_route.m_bindPass = &BindPassDrawItems<PassTag, BindingTags...>;
+            m_capabilities.m_updateBindings = &UpdatePassBindings<PassTag, BindingTags...>;
+            return *this;
+        }
+
+        // ---- Views ----
+        // Declare which TYPE of view this pass renders: one DrawList per live view
+        // instance of that type. A single tag, not a pack — one pass rendering both the
+        // main view and shadow views makes no sense (attachments, PSO and RT layout all
+        // differ), so the signature makes it impossible.
+        template<typename ViewTag>
+        RenderPassBuilder& RendersView()
+        {
+            m_capabilities.m_collectDrawListKeys = &CollectViewDrawListKeys<ViewTag>;
+            m_hasCapabilities                    = true;
             return *this;
         }
 
@@ -257,9 +269,10 @@ namespace Spark::Render
                 : ExecuteFunction(SubmitPassDrawItems<PassTag>);
             m_context->Add<PassFunctions>(pass, eastl::move(funcs));
 
-            if (m_hasRoute)
+            if (m_hasCapabilities)
             {
-                m_context->Add<DrawItemRoute>(pass, m_route);
+                m_capabilities.m_collectDrawItems = &CollectPassDrawItems<PassTag>;
+                m_context->Add<PassCapabilities>(pass, m_capabilities);
             }
 
             m_finalized = true;
@@ -282,8 +295,8 @@ namespace Spark::Render
         bool                    m_active            {true};
         bool                    m_customPipeline    {false};
 
-        DrawItemRoute           m_route {};
-        bool                    m_hasRoute          {false};
+        PassCapabilities        m_capabilities {};
+        bool                    m_hasCapabilities   {false};
 
         PassShaders             m_shaders;
         PassPipelineState       m_pipelineState;

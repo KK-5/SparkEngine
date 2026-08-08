@@ -17,7 +17,7 @@
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassAccess.h>
 
-#include <Drawable/DrawItemRoute.h>
+#include <Drawable/DrawList.h>
 #include <Drawable/Drawable.h>
 #include <Drawable/DrawTag.h>
 
@@ -253,19 +253,22 @@ namespace Spark::Render
 
         // World → Drawable: find-or-create over renderable world entities.
         m_meshDrawableComposer.Update();
+        // One DrawList per view per pass. Before the router: lists created here are
+        // filled by a full query, the router then adds this frame's new DrawItems.
+        BuildPassDrawLists();
         // Producer-agnostic Drawable → DrawItem routing: reap dead-dependency Drawables,
         // then route every not-yet-derived Drawable (world-composed or otherwise) through
         // the passes that accept it.
         m_drawItemRouter.Process();
 
-        // Per-frame: each pass's route resolves its shared bindings onto the pass entity
-        // and rewrites its DrawItems' viewport and startInstance. Passes without a route
-        // (procedural / full-screen) carry no m_bindPass and are skipped.
-        passContext.GetView<DrawItemRoute>().each([&](auto, const DrawItemRoute& route)
+        // Per-frame: each pass resolves its shared bindings onto the pass entity and
+        // rewrites its DrawItems' viewport and startInstance. A pass that declared no
+        // bindings carries no m_updateBindings and is skipped.
+        passContext.GetView<PassCapabilities>().each([&](auto, const PassCapabilities& caps)
         {
-            if (route.m_bindPass)
+            if (caps.m_updateBindings)
             {
-                route.m_bindPass(rhiCtx, renderSize);
+                caps.m_updateBindings(rhiCtx, renderSize);
             }
         });
 

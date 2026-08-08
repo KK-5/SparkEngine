@@ -74,7 +74,7 @@ namespace Spark::Render
     //!                       reacts uniformly when the bindings entity rebuilds.
     //!  - m_slotRef        : stable id copy. The per-frame slot lookup
     //!                       (InstanceSlotTable.m_slots[m_id]) → StartInstanceLocation
-    //!                       happens in BindPassDrawItems each frame.
+    //!                       happens in UpdatePassBindings each frame.
     //!  - m_idStream       : the identity ID buffer ([0..Cap-1]) bound as a
     //!                       per-instance vertex stream — the only way to feed
     //!                       StartInstanceLocation into the VS (SV_InstanceID

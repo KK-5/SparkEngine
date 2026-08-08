@@ -84,6 +84,7 @@ namespace Spark::Render
             .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Accepts<OpaqueTag>()
             .Binds<MainViewTag>()
+            .RendersView<MainViewTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
