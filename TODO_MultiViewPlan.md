@@ -512,7 +512,61 @@ LightingPass 需要 shadow 矩阵做采样——这是**查询 view 信息**，�
 bias / atlas tile 分辨率 / normal offset 这类参数放 `LightComponent`（authored data），
 不写死在渲染层——将来做序列化时白拿。
 
-## 六、待定 / 未决
+## 六、实现步骤
+
+行为改变集中在第 4 步，其余各步都能单独完成并验证。
+
+**0. 清掉 `Visible<V>`。** 删 `View/ViewTags.h:11-19` 的模板及 `DrawItemRouter.cpp:287`、
+`MeshDrawableComposer.cpp:168` 两处标记——没有任何地方读它。
+
+**1. View 实体化。**
+
+- `View` 加归一化 rect 字段（默认 `{0,0,1,1}`）；新增 `ViewShaderBindings`、`ViewSource`
+- `ViewBindingSystem` 的 `m_viewEntity` 单例改成按相机 find-or-create：建 view 实体 + 独立 SRG 实体，
+  写 `View` 组件；无对应来源的 view 打 `DeadTag` 并级联销毁 SRG 实体
+- **`MainViewTag` 暂时同时打在 view 实体和 SRG 实体上**——`ResolveSharedBinding` 用的是
+  `GetView<Tag, ShaderBindings>` 的 join，view 实体没有 `ShaderBindings` 组件不会被选中，旧路径照常工作，
+  而 `GetView<MainViewTag, View>()` 已经能拿到 view 实体
+
+本步仍只支持单相机（多相机会有多个 SRG 实体带同一 tag，`.Binds<>` 全注入、最后一个生效），第 4 步解除。
+验证：画面不变。
+
+**2. 共享 SRG 上移到 pass 级。** `.Binds<>()` 的产物从「写进每个 DrawItem」改成「解析进 pass 实体上的
+`PassSharedBindings`」；executer 加 `ExecuteBindShared(cmd, pass)`，位置在 `ExecuteBindPSO` 之后；
+`BindPassDrawItems` 里 `m_shaderBindings` 只留 per-object 那一个。view SRG 此时仍走 `.Binds<MainViewTag>()`，
+只是绑定位置从每 draw 变成每 pass，单 view 下等价。验证：画面不变，`m_shaderBindings.size() == 1`。
+
+**3. 建 DrawList，但不切执行。** `DrawList` / `DrawBatch` / `PassDrawLists` 数据结构；`.RendersView<Tag>()`
+声明；帧内「集合对账」步骤；router 里成员进出 list（PSO 仍是 pass 级，恒为一个 batch）。执行路径不动。
+验证：断言每个 list 的 `m_entries.size()` 等于 `GetView<PassTag, DrawItem>()` 的数量。
+
+**4. 执行切到 DrawList + viewport 归 view。** 行为会变，必须整体做完：
+
+- executer 换成 `for list → ExecuteDrawListState → for batch → 提交成员`
+- 删 `ExecutePassViewportState`、`PassViewportState`、`.ViewportScissor(...)`
+- 删 `DrawItemBind.h:68-74` 的 viewport 写入
+- 加「从 pass attachment 求 extent」的辅助（`RenderPassBeginInfo` 没有 render area，需从第一个 attachment 的
+  `ImageView → Image` 描述符取），`viewport = extent × view 的归一化 rect`
+- 删 `Finalize` 里的默认 `SubmitPassDrawItems<PassTag>` 及各 pass 的 `.Execute(...)` lambda
+  （GBuffer / DepthPre 的与默认实现一字不差；Skybox 那个就绪 gate 要另找落点）
+- 5 处 `.Binds<MainViewTag>()` 换成 `.RendersView<MainViewTag>()`；SRG 实体不再打 `MainViewTag`
+
+**验证重点是 resize**：把窗口调成非 1920×1080——这是删掉 per-draw viewport 副本后唯一会暴露的地方。
+
+**5. RHI 瘦身。** 删 `RHI::DrawItem` 的 `m_viewports` / `m_viewportsCount` / `m_scissors` /
+`m_scissorsCount` 与 DX12 `Submit` 里的对应分支，更新结构体注释。纯删除，零行为。
+
+**6. 多 view 实测。** 加第二个相机（或临时造 rect 为 `{0,0,0.5,1}` / `{0.5,0,1,1}` 的两个 view）验证 N=2：
+两个 list、各自的 SRG 与 viewport、同一批成员画两遍。**前五步都只是单 view 下的等价重构，这一步才真正验证
+多 view。**
+
+---
+
+**DrawItem per-object 化**（合并到 Drawable 实体、删 `DerivedDrawItems`、`startInstance` 改全局遍历）排在这
+六步之后：它与多 view 没有依赖关系，却要动 router、composer、instance binding 三处，混进来会让第 4 步的问题
+不好定位。
+
+## 七、待定 / 未决
 
 - **render pass 的 suspend / resume。** `RenderPassBeginInfo` 缺这个字段，导致一个 pass 的 draw 不能跨
   CommandList，`BuildExecuteWorks` 的 pass 内拆分做不了。两个后端都有原生机制
@@ -530,3 +584,97 @@ bias / atlas tile 分辨率 / normal offset 这类参数放 `LightComponent`（a
 - **剔除结果的形态。** 结果按 DrawList 存（per view 天然成立），`Visible<V>`（`View/ViewTags.h:11-19`）及其
   两处标记（`DrawItemRouter.cpp:287`、`MeshDrawableComposer.cpp:168`）删除——tag 是编译期的，表达不了
   per-view-instance，今天也没有任何地方读它。list 内用索引数组还是位掩码，等接剔除时定。
+
+## 八、修正：DrawList 去持久化
+
+第 3、4 步落地后的修正。**本节取代 §三·五 全部内容、§三「落点」里的执行片段、以及 §六 第 3 步。**
+
+### 结论
+
+DrawList 不持久化。每帧按 pass 查一次 DrawItem 得到一个帧内 vector，分组、切分、提交，用完丢弃。
+`DrawList` / `DrawBatch` / `DrawListKey` / `PassDrawLists` 这些类型不再存在。
+
+依据：DrawList 跨帧留存的只有**成员关系**一项——`m_viewport` / `m_scissor` / `m_viewBindings` /
+`DrawBatch::m_pso` 全部被 `CompileDrawListState` 每帧整体重写。为维护这一项付出的是分段插入/删除、
+集合对账、死条目回收，以及「对账必须早于 router」的时序约束。`GetView<PassTag, DrawItem>` 查询本身廉价，
+重建不比维护贵。
+
+### 唯一不可去掉的东西
+
+**一段按序号寻址、从切分决策活到录制结束的 draw 序列。** `ExecuteWork::Item` 用 `DrawRange` 切区间、
+`SetSubmitRange` / `ValidateSubmitIndex` 按序号校验，这是 pass 内并行录制的前提。它只要求帧内存活，
+不要求是 ECS 组件。
+
+### 形态
+
+per pass（executer 持有的帧内 scratch）：
+
+- `eastl::vector<RHI::RHIHandle> draws` —— 一次 `m_collectDrawItems` 查出
+- run 边界（同 `variantId` 的连续段），单 variant 时只有一段
+
+per replay（view）：只有一个 view 句柄。**没有剔除时所有 replay 共享同一份 draws，不复制。**
+
+`ExecuteWork::Item` = `(pass, replayIndex, runIndex, DrawRange)`。
+
+### 落点
+
+查询、分组、切分都在 `BuildExecuteTable` 里完成——它本来就在录制前按 pass 走一遍建 segment / group / work。
+
+时序上必须在 `DrawItemRouter` **之后**（原「早于 router」的约束反转，新顺序是自然的那个），
+`RenderSystem::OnTick` 里的 `BuildPassDrawLists()` 调用消失。
+
+`CollectPassDrawItems` 加 `Exclude<DeadTag>`：已标死但尚未销毁的 DrawItem（`RHIHandleClearSystem` 在
+`TICK_LAST - 1` 才销毁）不再多画一帧。
+
+### 编译态改为执行时解析
+
+`CompileDrawListState` 删除，三项就地取：
+
+| 项 | 来源 |
+|---|---|
+| PSO | `PassCompiledPSO`，`ExecuteBindPSO` 已在读 |
+| view bindings | view 实体 → `ViewShaderBindings` → `Components::ShaderBindings` |
+| viewport / scissor | `RenderPassBeginInfo` 第一个 attachment 的 ImageView → Image 描述符 extent，按 view rect 缩放 |
+
+`PassViewportState` 一并删除：它只有一个消费者，且对有 view 的 pass 每帧设完立刻被 list 覆盖。viewport 改为
+每 pass 一个局部值，无 replay 时直接用，有 replay 时缩放。
+
+两条约束：
+
+- **录制期间只读 ECS，不写。** viewport 必须是局部值，不能沿用现在的 `AddOrReplace<PassViewportState>`。
+- **pass 级 `ExecuteBindPSO` 必须保留**，且在 `ExecuteBindShared` 之前——`BindShaderInputsForDraw` 要用当前
+  PSO 的 layout 查 space。run 切换处的 `SetPipelineState` 在单 variant 下是重复绑定，有变体后才是真切换。
+
+### 删除清单
+
+`Drawable/DrawList.h` / `.cpp` 整个文件（`DrawList`、`DrawBatch`、`DrawListKey`、`PassDrawLists`、
+`DrawListInsert`、`DrawListRemoveAt`、`BuildPassDrawLists`）、`DeadDrawEntry` + `ReapDeadDrawEntries` +
+`ForEachWork`、`CompileDrawListState`、`PassViewportState`、`DrawItemRouter` 里的插入循环、
+`RenderSystem` 里的 `BuildPassDrawLists()`。
+
+第 4 步的执行侧保留：item 切分、录制游标、`SubmitDrawBatch`（`Finalize` 无条件装的默认 execute hook）、
+`ResolveDrawItems`（去掉死条目分支）。
+
+### 顺带解决的两件事
+
+- **`.RendersView<>()` 与容器的耦合消失。** 它只回答「重放几次、每次是哪个 view」，不再召唤容器。
+  不需要 view 的 pass（TonemapPass）可以不声明。
+- **一个 pass 下 N 条内容相同的 list 消失**（§三·五 的 per-view 拷贝形态作废）。
+
+### 剔除接入点（取代 §七 最后一条）
+
+剔除结果不进 draws 数组：
+
+- draws 数组旁并排一条 `objectIds`（每个 entry 的稠密对象索引），随 entry 一起移动
+- view 实体上挂一张按**对象索引**寻址的位图，剔除写
+- 提交时 `if (!visibility.Test(objectIds[i])) continue;`
+
+位图按对象索引而非数组位置寻址，所以数组重建、重排都不使它失效；剔除也不必顺着 `DerivedDrawItems`
+扇出到 DrawItem 粒度。前置条件是一套覆盖全部 Drawable 的稠密稳定对象索引——`InstanceSlotRef::m_id`
+是雏形，目前只覆盖索引化供给的对象。
+
+### 若将来重新引入持久化
+
+真正要的是**确定性顺序**，不是持久化本身：GPU-driven 的 indirect argument buffer 想增量更新时，
+只要每帧重建按稳定键排序，脏区间就精确可算。而 per-object 的重数据本来就在常驻的 `g_Instances` 里，
+DrawList 对 GPU 侧的贡献只是一串对象索引。
