@@ -304,8 +304,6 @@ namespace Spark::Render
 
             rhiCtx->Add<DrawItemsDerivedTag>(drawable);
         });
-
-        ValidatePassDrawLists();
     }
 
     void DrawItemRouter::Shutdown(RHI::RHIContext& rhiCtx)

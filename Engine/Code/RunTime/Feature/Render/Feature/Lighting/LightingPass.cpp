@@ -92,8 +92,6 @@ namespace Spark::Render
         cfg.m_inputLayout        = input;
         cfg.m_renderStates       = states;
 
-        cfg.m_viewport = RHI::Viewport(0.f, 1920.f, 0.f, 1080.f);
-        cfg.m_scissor  = RHI::Scissor(0, 0, 1920, 1080);
 
         return cfg;
     }
@@ -107,9 +105,8 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .ViewportScissor(cfg.m_viewport, cfg.m_scissor)
             .Accepts<FullScreenTriangleTag>()
-            .Binds<MainViewTag, MainSceneTag>()
+            .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {

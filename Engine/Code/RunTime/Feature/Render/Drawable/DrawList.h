@@ -72,8 +72,4 @@ namespace Spark::Render
     //! then inserts those into every list including the new one — the two paths cover
     //! disjoint sets, so nothing is inserted twice.
     void BuildPassDrawLists();
-
-    //! Step-3 verification: every list holds exactly the pass's DrawItems, and its
-    //! batches tile m_entries end to end. Goes away once the executer reads the lists.
-    void ValidatePassDrawLists();
 }

@@ -23,18 +23,6 @@ namespace Spark::Render
     //! the reflected layout declares it, so no pass processor has to allocate it.
     inline constexpr uint32_t kPerPassSpaceId = 2;
 
-    //! Default Execute body for a render pass. Submits every compiled DrawItem
-    //! tagged with PassTag to the pass's command list, in pool order.
-    template<typename PassTag>
-    void SubmitPassDrawItems(ExecuteWork& work, RenderGraphExecuter&)
-    {
-        auto& ctx = *RHI::RHIExecuteContext::Current();
-        ctx.GetView<PassTag, RHI::DrawItem>().each([&](RHIHandle, const RHI::DrawItem& item)
-        {
-            work.m_commandList->Submit(item);
-        });
-    }
-
     // ================================================================
     // RenderPassBuilder<PassTag> — chainable builder for graphics passes
     //
@@ -99,15 +87,6 @@ namespace Spark::Render
         RenderPassBuilder& RenderTargetLayout(const RHI::RenderTargetLayout& layout)
         {
             m_pipelineState.m_renderTargetLayout = layout;
-            return *this;
-        }
-
-        // ---- Viewport / Scissor ----
-        RenderPassBuilder& ViewportScissor(const RHI::Viewport& vp, const RHI::Scissor& scissor)
-        {
-            m_viewport = vp;
-            m_scissor  = scissor;
-            m_hasViewportScissor = true;
             return *this;
         }
 
@@ -221,9 +200,6 @@ namespace Spark::Render
             if (m_active)
                 m_context->Add<ActivePassTag>(pass);
 
-            if (m_hasViewportScissor)
-                m_context->Add<PassViewportState>(pass, PassViewportState{m_viewport, m_scissor});
-
             m_context->Add<PassShaders>(pass, m_shaders);
 
             if (m_customPipeline)
@@ -255,18 +231,15 @@ namespace Spark::Render
                 }
             }
 
-            // Install the slot-resolving defaults unless the caller overrode them.
-            // m_compileFunction has no engine-provided default: the only consumer
-            // was the now-removed AttachmentBinding flow, and per-pass binding
-            // population is a separate Binding system's responsibility. Passes
-            // that need a compile step opt in via .Compile(...). RenderGraph
-            // already null-checks before invoking, so an empty slot is fine.
+            // SubmitDrawBatch is a default VALUE, not a framework fallback: the executer
+            // only ever calls what PassFunctions holds, so a pass left without an execute
+            // hook records no draws at all.
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
             funcs.m_compileFunction = eastl::move(m_compileFunction);
             funcs.m_executeFunction = m_executeFunction
                 ? eastl::move(m_executeFunction)
-                : ExecuteFunction(SubmitPassDrawItems<PassTag>);
+                : ExecuteFunction(&SubmitDrawBatch);
             m_context->Add<PassFunctions>(pass, eastl::move(funcs));
 
             if (m_hasCapabilities)
@@ -300,10 +273,6 @@ namespace Spark::Render
 
         PassShaders             m_shaders;
         PassPipelineState       m_pipelineState;
-
-        RHI::Viewport           m_viewport {};
-        RHI::Scissor            m_scissor  {};
-        bool                    m_hasViewportScissor{false};
 
         BuildFunction           m_buildFunction;
         CompileFunction         m_compileFunction;

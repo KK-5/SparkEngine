@@ -81,6 +81,11 @@ namespace Spark::Render
         //! must already have materialized the transient resources.
         void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
 
+        //! Per-frame DrawList state, once the render targets exist (extent) and the PSO is
+        //! compiled: the full-target viewport every pass falls back to, and per list the
+        //! view's viewport / scissor / bindings plus each batch's PSO.
+        void CompileDrawListState(Pass pass, PassContext& passContext, RHIContext& context);
+
         //! Compile per-queue pre-frame fence-waits + acquire-barriers for all
         //! StaticImportTag attachments. Called once before the per-pass compile
         //! loop. Reads RHI resource state directly — after the first frame the

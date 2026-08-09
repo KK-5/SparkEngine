@@ -55,8 +55,6 @@ namespace Spark::Render
         RHI::InputStreamLayout     m_inputLayout {};
         RHI::RenderStates          m_renderStates {};
         RHI::RenderTargetLayout    m_renderTargetLayout {};
-        RHI::Viewport              m_viewport {};
-        RHI::Scissor               m_scissor {};
         RHI::MultisampleState      m_multisampleState {};
     };
     
@@ -64,8 +62,7 @@ namespace Spark::Render
 
 
     // RenderPassBuilder<PassTag> + SPARK_RENDER_PASS live in <Pass/RenderPass.h>.
-    // It installs the default DrawItem submit (SubmitPassDrawItems<PassTag>), which
-    // pulls the heavy PassAccess.h chain — kept out of this common header so only
+    // It pulls the heavy PassAccess.h chain — kept out of this common header so only
     // files that write render passes pay for it.
 
     // ================================================================

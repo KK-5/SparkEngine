@@ -9,6 +9,7 @@
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
 
+#include <Drawable/DrawList.h>
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <RenderGraph/RenderGraphCompiler.h>
@@ -19,6 +20,7 @@ namespace Spark::RHI
     class CommandList;
     class Device;
     class Factory;
+    struct DrawItem;
 }
 
 
@@ -30,19 +32,70 @@ namespace Spark::Render
         uint32_t m_endIndex   = 0;
     };
 
-    //! 一个 CommandList 的录制内容:若干 (pass, 区间) 按序录制。
+    //! Item::m_listIndex for a pass that has no DrawList (custom-pipeline, compute, copy,
+    //! or a pass that never declared .RendersView<>). Its single item exists only to drive
+    //! BeginRenderPass / EndRenderPass and its own execute hook.
+    inline constexpr uint16_t kNoDrawList = 0xFFFF;
+
+    //! An entry whose DrawItem was gone at submit time. Collected during recording and
+    //! applied after the frame — removing it mid-record would shift the batch ranges the
+    //! items were built from. Nothing mutates the lists while recording, so the index
+    //! stays valid until then.
+    struct DeadDrawEntry
+    {
+        Pass     m_pass;
+        uint16_t m_listIndex  = kNoDrawList;
+        uint32_t m_entryIndex = 0;
+    };
+
+    //! A live DrawItem plus the entry index it must be submitted with — the index is what
+    //! CommandList::ValidateSubmitIndex checks against the slice's SetSubmitRange.
+    struct ResolvedDraw
+    {
+        const RHI::DrawItem* m_item        = nullptr;
+        uint32_t             m_submitIndex = 0;
+    };
+
+    //! 一个 CommandList 的录制内容:若干 (pass, DrawList 的一个 batch 内的一段) 按序录制。
+    //!
+    //! An Item is pre-resolved down to a single batch, so recording needs no range
+    //! arithmetic: the list index changing means re-establish list state, the batch index
+    //! changing means re-bind the PSO, and m_draws goes straight to the pass's execute
+    //! hook. A split that crosses a batch boundary is simply two items.
     struct ExecuteWork
     {
         struct Item
         {
             Pass      m_pass;
+            uint16_t  m_listIndex  = kNoDrawList;
+            uint16_t  m_batchIndex = 0;
             DrawRange m_draws;
-            uint32_t  m_itemIndex = 0;
-            uint32_t  m_itemCount = 1;
+            uint32_t  m_itemIndex  = 0;   //!< which slice of its pass this is
+            uint32_t  m_itemCount  = 1;
         };
         eastl::vector<Item>    m_items;
         RHI::CommandList*      m_commandList = nullptr;
+
+        //! Recording cursor — what the execute hook is currently being asked to submit.
+        //! Null list / batch means the pass has no DrawLists (see kNoDrawList).
+        //! m_drawItems is the slice already resolved and validated by the executer, so a
+        //! hook never touches RHIContext nor deals with entries that died mid-frame.
+        Pass                        m_pass       {NullPass};
+        const DrawList*             m_drawList   = nullptr;
+        const DrawBatch*            m_drawBatch  = nullptr;
+        DrawRange                   m_draws;
+        uint16_t                    m_listIndex  = kNoDrawList;
+        eastl::vector<ResolvedDraw> m_drawItems;
+
+        //! Executer bookkeeping, not part of the hook contract.
+        eastl::vector<DeadDrawEntry> m_deadEntries;
     };
+
+    class RenderGraphExecuter;
+
+    //! The execute hook RenderPassBuilder installs when a pass declares none — an ordinary
+    //! ExecuteFunction, not a framework fallback.
+    void SubmitDrawBatch(ExecuteWork& work, RenderGraphExecuter&);
 
     //! 一组 Work 并行录制,GPU 按数组顺序执行,对应一次 ExecuteCommandLists。
     //! m_passes 由 BuildExecuteGroups 填充,m_works 由 BuildExecuteWorks 填充。
@@ -95,6 +148,30 @@ namespace Spark::Render
 
         void ExecutePassViewportState(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
+        //! Per-DrawList state: the view's viewport / scissor and its per-view bindings.
+        void ExecuteDrawListState(RHI::CommandList* commandList, const DrawList& list);
+
+        template<typename Fn>
+        void ForEachWork(Fn&& fn)
+        {
+            for (auto& queue : m_queueSegments)
+            {
+                for (auto& segment : queue)
+                {
+                    for (auto& group : segment.m_groups)
+                    {
+                        for (auto& work : group.m_works)
+                        {
+                            fn(work);
+                        }
+                    }
+                }
+            }
+        }
+
+        //! Apply the removals recorded during this frame's recording.
+        void ReapDeadDrawEntries(PassContext& passContext);
+
         void ExecutePreBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
 
         void ExecutePostBarriers(RHI::CommandList* commandList, Pass pass, PassContext& passContext);
@@ -114,6 +191,10 @@ namespace Spark::Render
 
         QueueSegments m_queueSegments;
         StaticPreBarrierTable m_staticPreBarriers;
+
+        //! This frame's dead entries, flattened out of the works so they can be ordered
+        //! across works before any removal runs.
+        eastl::vector<DeadDrawEntry> m_deadDrawEntries;
 
         uint32_t m_frameIndex { 0 };
     };

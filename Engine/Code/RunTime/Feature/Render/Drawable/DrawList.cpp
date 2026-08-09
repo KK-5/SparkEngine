@@ -44,21 +44,6 @@ namespace Spark::Render
             return false;
         }
 
-        void SweepDeadEntries(RHI::RHIContext& ctx, DrawList& list)
-        {
-            uint32_t i = 0;
-            while (i < list.m_entries.size())
-            {
-                const RHI::RHIHandle entry = list.m_entries[i];
-                if (ctx.Valid(entry) && ctx.TryGet<RHI::DrawItem>(entry))
-                {
-                    ++i;
-                    continue;
-                }
-                // Removal moves another entry into slot i, so i is not advanced.
-                DrawListRemoveAt(list, i);
-            }
-        }
     }
 
     void DrawListInsert(DrawList& list, RHI::RHIHandle entry, uint16_t variantId)
@@ -162,13 +147,6 @@ namespace Spark::Render
                 lists = &passCtx->Add<PassDrawLists>(pass);
             }
 
-            // Step 4 moves this into the execute loop, where the DrawItem component is
-            // fetched to submit anyway and the check is free.
-            for (DrawList& list : lists->m_lists)
-            {
-                SweepDeadEntries(*rhiCtx, list);
-            }
-
             keys.clear();
             caps.m_collectDrawListKeys(*rhiCtx, keys);
 
@@ -197,44 +175,4 @@ namespace Spark::Render
         });
     }
 
-    void ValidatePassDrawLists()
-    {
-        auto* passCtx = PassExecuteContext::Current();
-        auto* rhiCtx  = RHI::RHIExecuteContext::Current();
-        if (!passCtx || !rhiCtx)
-        {
-            return;
-        }
-
-        eastl::vector<RHI::RHIHandle> items;
-        passCtx->GetView<PassCapabilities, PassDrawLists>().each(
-            [&](Pass, const PassCapabilities& caps, const PassDrawLists& lists)
-        {
-            if (!caps.m_collectDrawItems)
-            {
-                return;
-            }
-            items.clear();
-            caps.m_collectDrawItems(*rhiCtx, items);
-
-            for (const DrawList& list : lists.m_lists)
-            {
-                ASSERT(list.m_entries.size() == items.size(),
-                    "[DrawList] Pass has {} DrawItems but its list holds {} entries.",
-                    static_cast<uint32_t>(items.size()), static_cast<uint32_t>(list.m_entries.size()));
-
-                uint32_t cursor = 0;
-                for (const DrawBatch& batch : list.m_batches)
-                {
-                    ASSERT(batch.m_begin == cursor,
-                        "[DrawList] Batch starts at {} but the previous one ended at {}.",
-                        batch.m_begin, cursor);
-                    cursor = batch.m_end;
-                }
-                ASSERT(cursor == static_cast<uint32_t>(list.m_entries.size()),
-                    "[DrawList] Batches cover {} entries out of {}.",
-                    cursor, static_cast<uint32_t>(list.m_entries.size()));
-            }
-        });
-    }
 }

@@ -100,10 +100,10 @@ namespace Spark::Render
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             bindingsEntity, RHI::Components::ShaderBindings{ shaderBindings });
         rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(bindingsEntity);
-        // Transitional: keeps .Binds<MainViewTag>() resolving to these bindings. Dropped
-        // once passes declare .RendersView<MainViewTag>() instead.
-        rhiCtx.Add<MainViewTag>(bindingsEntity);
 
+        // The bindings entity carries no view tag: that is what keeps a pass's .Binds<>()
+        // from ever resolving to it. Per-view bindings are reachable only through the view
+        // entity below, and are bound per DrawList.
         RHI::RHIHandle view = rhiCtx.CreateEntity();
         rhiCtx.Add<MainViewTag>(view);
         rhiCtx.Add<View>(view, View{});

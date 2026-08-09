@@ -1,5 +1,7 @@
 #include "RenderGraphExecuter.h"
 
+#include <EASTL/sort.h>
+
 #include <RHI/Command/CommandList.h>
 #include <RHI/Command/RenderPassBeginInfo.h>
 #include <RHI/Factory.h>
@@ -16,6 +18,10 @@ namespace Spark::Render
 
     void RenderGraphExecuter::End()
     {
+        // Before the works are dropped: entries found dead while recording. Deferred to
+        // here because removing one shifts the batch ranges the items were built from.
+        ReapDeadDrawEntries(*PassExecuteContext::Current());
+
         for (auto& queue : m_queueSegments)
         {
             queue.clear();
@@ -167,12 +173,48 @@ namespace Spark::Render
 
     void RenderGraphExecuter::BuildExecuteWorks(ExecuteGroup& group, const PassContext& passContext) const
     {
-        // TODO: 按负载合并/拆分 group 的 passes 到 ExecuteWork
-        // 当前默认: 每个 pass → 一个 Work → 一个 Item
+        // One Work per pass. Splitting a pass across Works is what the item shape exists
+        // for, but it stays disabled until RenderPassBeginInfo carries suspend / resume:
+        // a render pass's draws cannot cross CommandLists today. The load figure the
+        // split would key on is now available — the sum of the lists' entry counts.
         for (Pass pass : group.m_passes)
         {
             ExecuteWork work;
-            work.m_items.push_back({ pass, {0, 1}, 0, 1 });
+
+            if (const auto* lists = passContext.TryGet<PassDrawLists>(pass))
+            {
+                for (uint16_t li = 0; li < static_cast<uint16_t>(lists->m_lists.size()); ++li)
+                {
+                    const DrawList& list = lists->m_lists[li];
+                    for (uint16_t bi = 0; bi < static_cast<uint16_t>(list.m_batches.size()); ++bi)
+                    {
+                        const DrawBatch& batch = list.m_batches[bi];
+                        ExecuteWork::Item item;
+                        item.m_pass       = pass;
+                        item.m_listIndex  = li;
+                        item.m_batchIndex = bi;
+                        item.m_draws      = { batch.m_begin, batch.m_end };
+                        work.m_items.push_back(item);
+                    }
+                }
+            }
+
+            // A pass with nothing to draw still needs one item: BeginRenderPass carries
+            // its clears, and a pass without DrawLists submits through its own hook.
+            if (work.m_items.empty())
+            {
+                ExecuteWork::Item item;
+                item.m_pass = pass;
+                work.m_items.push_back(item);
+            }
+
+            const uint32_t count = static_cast<uint32_t>(work.m_items.size());
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                work.m_items[i].m_itemIndex = i;
+                work.m_items[i].m_itemCount = count;
+            }
+
             group.m_works.push_back(eastl::move(work));
         }
     }
@@ -301,11 +343,51 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphExecuter::ExecuteDrawListState(RHI::CommandList* commandList, const DrawList& list)
+    {
+        commandList->SetViewport(list.m_viewport);
+        commandList->SetScissor(list.m_scissor);
+        if (list.m_viewBindings)
+        {
+            commandList->BindShaderInputsForDraw(*list.m_viewBindings);
+        }
+    }
+
+    //! Fetch the slice's DrawItem components once, up front: an entry whose DrawItem is
+    //! gone is dropped here and queued for removal, so every hook — the default one and
+    //! any pass-authored replacement — only ever sees live draws.
+    static void ResolveDrawItems(ExecuteWork& work, const ExecuteWork::Item& item, const DrawList* list)
+    {
+        if (!list)
+        {
+            return;
+        }
+        auto& ctx = *RHI::RHIExecuteContext::Current();
+
+        const eastl::vector<RHI::RHIHandle>& entries = list->m_entries;
+        for (uint32_t i = item.m_draws.m_startIndex; i < item.m_draws.m_endIndex; ++i)
+        {
+            const RHI::RHIHandle entry = entries[i];
+            const RHI::DrawItem* drawItem = ctx.Valid(entry) ? ctx.TryGet<RHI::DrawItem>(entry) : nullptr;
+            if (!drawItem)
+            {
+                work.m_deadEntries.push_back(DeadDrawEntry{ item.m_pass, item.m_listIndex, i });
+                continue;
+            }
+            work.m_drawItems.push_back(ResolvedDraw{ drawItem, i });
+        }
+    }
+
     void RenderGraphExecuter::Execute(ExecuteWork& work, RHI::Factory& factory, RHI::Device& device, RHI::HardwareQueueClass queueClass, PassContext& passContext)
     {
         RHI::CommandList* cmdList = factory.CreateCommandList(device, queueClass);
         cmdList->Open();
         work.m_commandList = cmdList;
+
+        // A Work is a fresh CommandList, so no state carries in: both cursors start unset
+        // and the first item re-establishes everything.
+        uint16_t boundList  = kNoDrawList;
+        uint16_t boundBatch = 0xFFFF;
 
         for (auto& item : work.m_items)
         {
@@ -318,7 +400,39 @@ namespace Spark::Render
                 ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);
             }
 
+            const DrawList*  list  = nullptr;
+            const DrawBatch* batch = nullptr;
+            if (item.m_listIndex != kNoDrawList)
+            {
+                auto* lists = passContext.TryGet<PassDrawLists>(item.m_pass);
+                list  = &lists->m_lists[item.m_listIndex];
+                batch = &list->m_batches[item.m_batchIndex];
+
+                if (item.m_listIndex != boundList)
+                {
+                    ExecuteDrawListState(cmdList, *list);
+                    boundList  = item.m_listIndex;
+                    boundBatch = 0xFFFF;
+                }
+                if (item.m_batchIndex != boundBatch)
+                {
+                    if (batch->m_pso)
+                    {
+                        cmdList->SetPipelineState(*batch->m_pso);
+                    }
+                    boundBatch = item.m_batchIndex;
+                }
+            }
+
+            work.m_pass      = item.m_pass;
+            work.m_drawList  = list;
+            work.m_drawBatch = batch;
+            work.m_draws     = item.m_draws;
+            work.m_listIndex = item.m_listIndex;
+            work.m_drawItems.clear();
             cmdList->SetSubmitRange({ item.m_draws.m_startIndex, item.m_draws.m_endIndex });
+
+            ResolveDrawItems(work, item, list);
 
             const auto& funcs = passContext.Get<PassFunctions>(item.m_pass);
             if (funcs.m_executeFunction)
@@ -334,5 +448,56 @@ namespace Spark::Render
         }
 
         cmdList->Close();
+    }
+
+    void SubmitDrawBatch(ExecuteWork& work, RenderGraphExecuter&)
+    {
+        for (const ResolvedDraw& draw : work.m_drawItems)
+        {
+            work.m_commandList->Submit(*draw.m_item, draw.m_submitIndex);
+        }
+    }
+
+    void RenderGraphExecuter::ReapDeadDrawEntries(PassContext& passContext)
+    {
+        m_deadDrawEntries.clear();
+        ForEachWork([&](ExecuteWork& work)
+        {
+            m_deadDrawEntries.insert(
+                m_deadDrawEntries.end(), work.m_deadEntries.begin(), work.m_deadEntries.end());
+        });
+        if (m_deadDrawEntries.empty())
+        {
+            return;
+        }
+
+        // Descending within a list: DrawListRemoveAt only disturbs indices ABOVE the one
+        // removed, so every index still pending is untouched. One list's entries can come
+        // from several works, hence the sort spans all of them.
+        eastl::sort(m_deadDrawEntries.begin(), m_deadDrawEntries.end(),
+            [](const DeadDrawEntry& a, const DeadDrawEntry& b)
+        {
+            const uint32_t passA = static_cast<uint32_t>(a.m_pass);
+            const uint32_t passB = static_cast<uint32_t>(b.m_pass);
+            if (passA != passB)
+            {
+                return passA < passB;
+            }
+            if (a.m_listIndex != b.m_listIndex)
+            {
+                return a.m_listIndex < b.m_listIndex;
+            }
+            return a.m_entryIndex > b.m_entryIndex;
+        });
+
+        for (const DeadDrawEntry& dead : m_deadDrawEntries)
+        {
+            auto* lists = passContext.TryGet<PassDrawLists>(dead.m_pass);
+            if (!lists || dead.m_listIndex >= lists->m_lists.size())
+            {
+                continue;
+            }
+            DrawListRemoveAt(lists->m_lists[dead.m_listIndex], dead.m_entryIndex);
+        }
     }
 }

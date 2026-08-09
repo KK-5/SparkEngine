@@ -187,7 +187,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .ViewportScissor(m_viewport, m_scissor)
             .Accepts<SPARK_PASS_TAG("TrianglePass")>()
             .Binds<>()
             .Build([this](Spark::Render::RenderGraphBuilder& builder)

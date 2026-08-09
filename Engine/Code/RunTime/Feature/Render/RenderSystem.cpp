@@ -262,13 +262,13 @@ namespace Spark::Render
         m_drawItemRouter.Process();
 
         // Per-frame: each pass resolves its shared bindings onto the pass entity and
-        // rewrites its DrawItems' viewport and startInstance. A pass that declared no
-        // bindings carries no m_updateBindings and is skipped.
+        // rewrites its DrawItems' startInstance. A pass that declared no bindings carries
+        // no m_updateBindings and is skipped.
         passContext.GetView<PassCapabilities>().each([&](auto, const PassCapabilities& caps)
         {
             if (caps.m_updateBindings)
             {
-                caps.m_updateBindings(rhiCtx, renderSize);
+                caps.m_updateBindings(rhiCtx);
             }
         });
 

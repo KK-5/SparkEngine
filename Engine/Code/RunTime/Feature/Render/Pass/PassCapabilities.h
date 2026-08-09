@@ -42,7 +42,7 @@ namespace Spark::Render
 
         //! Per-frame refresh of everything the submit path reads: the pass's shared
         //! bindings and its DrawItems' mutable fields. (.Binds<BindingTags...>)
-        void (*m_updateBindings)(RHI::RHIContext&, const Math::Vector2Int& renderSize);
+        void (*m_updateBindings)(RHI::RHIContext&);
 
         //! The keys of the DrawLists this pass needs — one per live view instance of the
         //! type it renders. (.RendersView<ViewTag>)
@@ -107,10 +107,10 @@ namespace Spark::Render
     }
 
     //! Per-frame update for one pass: its shared bindings, then over each of its DrawItems
-    //! the mutable fields — own per-object bindings, viewport, and startInstance resolved
-    //! from the slot key. The DrawItem is read-only after this, at submit.
+    //! the mutable fields — own per-object bindings and the startInstance resolved from
+    //! its slot key. The DrawItem is read-only after this, at submit.
     template<typename PassTag, typename... BindingTags>
-    void UpdatePassBindings(RHI::RHIContext& ctx, const Math::Vector2Int& renderSize)
+    void UpdatePassBindings(RHI::RHIContext& ctx)
     {
         ResolvePassSharedBindings<PassTag, BindingTags...>(ctx);
 
@@ -128,14 +128,6 @@ namespace Spark::Render
                 item.m_shaderBindings.push_back(obj->m_objShaderBindings);
             }
             item.m_shaderBindingsCount = static_cast<uint8_t>(item.m_shaderBindings.size());
-
-            item.m_viewports.resize(1);
-            item.m_viewports[0] = RHI::Viewport{
-                0.f, static_cast<float>(renderSize.x), 0.f, static_cast<float>(renderSize.y) };
-            item.m_viewportsCount = 1;
-            item.m_scissors.resize(1);
-            item.m_scissors[0] = RHI::Scissor{ 0, 0, renderSize.x, renderSize.y };
-            item.m_scissorsCount = 1;
 
             if (auto* slot = ctx.TryGet<DrawItemInstanceSlot>(e); slot && slotTable)
             {

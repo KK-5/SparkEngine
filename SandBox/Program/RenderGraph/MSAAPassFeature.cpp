@@ -199,7 +199,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .ViewportScissor(m_viewport, m_scissor)
             .Accepts<SPARK_PASS_TAG("ScenePass")>()
             .Binds<>()
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)

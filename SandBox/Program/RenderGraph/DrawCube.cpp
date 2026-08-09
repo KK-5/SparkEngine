@@ -283,7 +283,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .ViewportScissor(m_viewport, m_scissor)
             .Accepts<SPARK_PASS_TAG("ScenePass")>()
             .Binds<Render::MainViewTag>()
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
@@ -375,7 +374,6 @@ namespace Spark::SandBox
         SPARK_RENDER_PASS(passContext, "ResolvePass")
             .Queue(Spark::RHI::HardwareQueueClass::Graphics)
             .CustomPipeline()
-            .ViewportScissor(m_viewport, m_scissor)
             .Build([this](Spark::Render::RenderGraphBuilder& builder)
             {
                 Render::ImageAttachmentBindInfo msaaBind;
