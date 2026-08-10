@@ -396,20 +396,87 @@ scissor 不单独存，从同一个 rect 推。深度范围（`m_minZ` / `m_maxZ
 
 ## 五、ShadowPass 在这个体系下的落点
 
+> §一~四 与 §八 均已落地。多 view 执行路径由 `SandBox/Program/RenderGraph/MultiView.cpp` 实测——
+> 一个 pass、四个 view、每 view 自己的 viewport/scissor 与 space1 SRG，示例代码里没有任何遍历 view 的
+> 录制循环。本节按落地后的实际形态重写过。
+
+### 已具备，接 shadow 不需要新机制
+
+| 项 | 依据 |
+|---|---|
+| 多 view 执行 | `BuildPassDrawTable` 每 view 一个 `DrawList`，`ExecuteDrawListState` 设 viewport/scissor + 绑 view SRG。N=16 与 N=4 是同一条码 |
+| depth-only pass | `ResolveTargetViewport`（`RenderGraphExecuter.cpp:33`）无 color attachment 时已回落到 depth attachment 取 extent |
+| depth 当 SRV 采样 | `LightingPass.cpp:157-167` 已在做：`m_overrideFormat = R32_FLOAT` + `m_overrideBindFlags = ShaderRead`。atlas 读法一字不差 |
+| pass 排序 + barrier | `RenderGraphBuilder::BuildGraph` 是真 topo sort。LightingPass 声明 `ReadImageAttachment("ShadowAtlas")` 即可，无需手工排序 |
+| atlas 清一次 + 每 tile scissor | BeginRenderPass 在 pass 级、viewport/scissor 在 DrawList 级，是结构给的，不需要额外约定 |
+| view 编码不管来源 | `ViewBindingSystem` 已是纯编码器（扫 `<View, ViewShaderBindings>` 全写），`ShadowViewSystem` 只负责生产 |
+| 未就绪 SRG 的 gate | `ResolveViewShaderBindings`（`RenderGraphExecuter.cpp:65`）已区分「没声明 space1」与「声明了但没编译」，后者跳过该 view |
+| 比较采样器 | `SamplerState` 的 `ReductionType::Comparison` + `m_comparisonFunc` |
+| `LightData` 扩展位 | `m_pad0` / `m_pad1` 两个 float 空位，拿 `m_pad0` 当 `m_shadowIndex`（-1 = 不投影）不动 64B 布局 |
+
+### 落地形态
+
 - 一个 `ShadowPass`（一个编译期 tag）、一张 shadow atlas、`.RendersView<ShadowViewTag>()`。
-- `.Accepts<ShadowCasterTag>()`——`Drawable/DrawTag.h:21` 的 `ShadowCasterTag` 已存在（"Not wired yet"），
-  `TODO_DrawItemPersistencePlan.md` 第八节写明加 shadow 是「加一个分类 tag + 加一条映射 + 加一个 pass」。
-- `BeginRenderPass` 对整张 atlas 开一次、`loadAction = Clear` 清一次，循环只改 viewport/scissor + view SRG。
-  N 个 pass 实例反而要 N 次 BeginRenderPass。
-- 每个 shadow view 一个 space1 SRG，走**统一的 view 路径**，不需要之前设想的
-  「index SRG + `g_ShadowViews` StructuredBuffer」技巧（那是 view 概念缺位时的绕道）。
-- **shadow 的 VS 必须 `#include "ViewBindings.hlsl"`**。space1 SRG 的布局是从 `ViewBindingsReflect.hlsl`
-  反射出来的（`View/ViewBindingSystem.cpp:35`），而绑定时用的是**当前 PSO 的** layout 去查 space；两边的
+- `.Accepts<ShadowCasterTag>()`——tag 已声明（`Drawable/DrawTag.h:21`），但 `MeshDrawableComposer.cpp:165`
+  目前只打 `OpaqueTag`，需要补上分类。
+- 每个 shadow view 一个 space1 SRG，走**统一的 view 路径**：`CreateViewEntity<ShadowViewTag>(rhiCtx)` 一行。
+  不需要之前设想的「index SRG + `g_ShadowViews` StructuredBuffer」技巧（那是 view 概念缺位时的绕道）。
+- **shadow 的 VS 必须 `#include <ViewBindings.hlsl>`**。space1 SRG 的布局是从 `ViewBindingsReflect.hlsl`
+  反射出来的（`View/ViewFactory.cpp:43`），而绑定时用的是**当前 PSO 的** layout 去查 space；两边的
   space1 组对不上，`Backend/DX12/Command/CommandList.cpp:205-209` 的
   `cbv.m_rootIndices.size() == cd.m_gpuConstantAddresses.size()` 断言会当场炸。
-- 新光源当帧创建的 view SRG，循环里要 gate 一下（未就绪就跳过该 view，代价是少一帧阴影，
-  而不是绑到未编译的 SRG）。`ShadowViewSystem::Update` 放在 `RenderSystem.cpp:247` 的
-  `m_viewBindingSystem.Update` 旁边，同帧的 `CompileShaderInputs` 就能扫到。
+- **`ShadowViewSystem` 放 `SparkRender/View/`**，与 `CameraViewSystem` 同构：读 world 的
+  `Light::LightRenderData`，写 RHIContext 的 view 实体。**这一条修正下文「shadow view 的产生」里
+  「放 World 侧（Light 模块）」的说法**——那句写在 View 实体化之前；`CreateViewEntity` 在 SparkRender，
+  Light 模块调它会形成反向依赖。`Update` 放在 `RenderSystem::OnTick` 的 `m_cameraViewSystem.Update`
+  旁边（两者都是生产者，都在 `m_viewBindingSystem.Update` 之前），同帧的 `CompileShaderInputs` 就能扫到。
+
+### 必须先定的四件事
+
+排在实现之前——前两条写错的症状都是间歇性的、事后极难定位。
+
+**1. shadow view → `g_ShadowViews` 槽位不能由迭代顺序决定。**
+
+`CollectViews`（`Pass/PassCapabilities.h:146`）走 entt view，顺序随实体增删变（`swap_and_pop` 会把末尾元素填进空洞）。
+渲染本身不在乎——tile 位置在 view 的 `m_rect` 里，谁先谁后都对。但 `LightData::m_shadowIndex` 指向的 buffer
+下标必须与光源稳定对应。**「遍历到第几个就写第几个槽」会在光源增删的那一帧把阴影贴到别的光源上**，只错一帧、
+随机复现。
+
+槽位是 view 实体上的一个组件（`ShadowViewSlot { uint32_t }`），`ShadowViewSystem` 分配，`SceneBindingSystem`
+按它写 buffer。它同时也是 tile 索引，与 `m_rect` 同源。
+
+**2. 剔除控制「这一帧提不提交」，不控制「建不建 view 实体」。**
+
+下文「哪些光源产生 shadow view」的六条判据，本质都是「这一帧这个 tile 不重画」。若实现成不建 view 实体，
+`Internal::CreateViewShaderBindings`（`View/ViewFactory.cpp:78`）就会每帧 create/destroy 一个 `ShaderBindings`
++ constant buffer。
+
+正确形态：**view 实体跟随光源的生命周期**（mark-and-sweep 的来源是光源，不是剔除结果），剔除另设 gate。
+`CollectViews` 今天只 `Exclude<DeadTag>`，需要多一层跳过条件——**这是本节唯一一处要动现有机制的地方**。
+
+**3. 单个 pass 不可拆的上界，shadow 正好是引爆它的负载。**
+
+ShadowPass 的 submit 数 = casters × views，1000 caster × 8 view = 8000 次提交，全在一对
+Begin/EndRenderPass 里。而 `BuildExecuteGroups` 明确「never break on an empty group」——单个超预算的 pass
+必须整体进一个 group、一个 Work、一个 CommandList，`kMaxSubmitsPerCommandList = 512` 对它**完全失效**。
+
+根因是 §七 第一条：`RenderPassBeginInfo`（`RHI/Command/RenderPassBeginInfo.h:52-71`）只有 attachment /
+VRS / layerCount / viewMask，没有 suspend / resume，一个 render pass 的 draw 不能跨 CommandList。
+
+主视角不会这么惨（GBuffer 是 1 view）。**这是多 view 落地之后唯一变得更尖锐的一条**，v1 两三盏灯可以背着走，
+但它决定了这套东西的天花板，应当在文档里记成已知上界而不是等 16 盏灯才发现。
+
+**4. §七 第二条「per-view SRG 还是 `g_Views` buffer」现在到期。**
+
+那条自己写着「触发点是 shadow 采样」——LightingPass 一次 draw 要读 N 个 shadow view，buffer 版本必然存在，
+于是同一份矩阵有两条 marshal 路径要保持同步。v1 接受重复不致命，但不决定就会两条路各自长大。
+
+### 缺的基础设施（与多 view 无关，但挡住正确的方向光阴影）
+
+- **场景包围盒。** 方向光的正交投影要覆盖场景，而 `LightRenderData` 只有方向/位置/强度/range，仓库里也没有
+  全局 AABB。v1 用「相机周围固定尺寸的正交盒」顶上，**明确记为占位**，否则大场景一上来就穿帮。
+- **`LightComponent` 的 authored shadow 参数。** 没有 `m_castShadow` / bias / normal offset / tile 分辨率。
+  它带 `SPARK_COMPONENT_TRAITS(..., editable = true)`，加字段会走反射/编辑器路径。
 
 ### atlas 的实现要点
 
@@ -462,7 +529,8 @@ texel step 要按**该 tile 的实际分辨率**算而不是 atlas 分辨率，t
 ### shadow view 的产生
 
 `ShadowViewSystem` 每帧从光源重算 shadow view 集合（增删光源只动 view 实体，不动任何 DrawItem 骨架）。
-放 World 侧（Light 模块），与 `LightSystem` 把 transform 解成 `LightRenderData` 是同一类工作；render 侧只 marshal。
+归属见上文「落地形态」：`SparkRender/View/`，与 `CameraViewSystem` 同构，读 world 的 `LightRenderData`、
+写 RHIContext 的 view 实体。**重算的来源是光源，不是剔除结果**（「必须先定的四件事」第 2 条）。
 
 | 光源 | view 数 | 投影 |
 |---|---|---|
@@ -556,9 +624,12 @@ bias / atlas tile 分辨率 / normal offset 这类参数放 `LightComponent`（a
 **5. RHI 瘦身。** 删 `RHI::DrawItem` 的 `m_viewports` / `m_viewportsCount` / `m_scissors` /
 `m_scissorsCount` 与 DX12 `Submit` 里的对应分支，更新结构体注释。纯删除，零行为。
 
-**6. 多 view 实测。** 加第二个相机（或临时造 rect 为 `{0,0,0.5,1}` / `{0.5,0,1,1}` 的两个 view）验证 N=2：
-两个 list、各自的 SRG 与 viewport、同一批成员画两遍。**前五步都只是单 view 下的等价重构，这一步才真正验证
-多 view。**
+**6. 多 view 实测。**（已完成）`SandBox/Program/RenderGraph/MultiView.cpp`：一个 pass、四个 view、2×2 铺满，
+每 view 自己的 viewport/scissor 与 space1 SRG，同一批成员画四遍。四个机位取 0/50/100/150 度而非 90 的倍数
+——立方体绕 Y 有 4 次对称，90 度间隔会让四格轮廓完全相同，只剩贴图能区分，失败模式看不出来。
+
+**前五步都只是单 view 下的等价重构，这一步才真正验证多 view。** 已验证的失败模式：四格相同 = 跨 DrawList
+没重绑 space1；互相溢出 = scissor 没生效或 rect 缩放错；只有一格 = `CollectViews` 只收到一个。
 
 ---
 
