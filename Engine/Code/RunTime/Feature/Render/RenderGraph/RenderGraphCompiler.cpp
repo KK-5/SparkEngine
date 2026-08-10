@@ -25,7 +25,6 @@
 #include <RHI/Pipeline/ShaderStages.h>
 
 #include <Drawable/Drawable.h>
-#include <Drawable/DrawList.h>
 #include <Instance/InstanceSlot.h>
 #include <Pass/Component/PassComponents.h>
 #include <View/View.h>
@@ -1085,79 +1084,6 @@ namespace Spark::Render
             "[RenderGraphCompiler] Render pass {} has no color or depth-stencil attachment.",
             passContext.Get<PassName>(pass).m_name.GetCStr());
         passContext.AddOrReplace<RHI::RenderPassBeginInfo>(pass, eastl::move(info));
-    }
-
-    void RenderGraphCompiler::CompileDrawListState(Pass pass, PassContext& passContext, RHIContext& context)
-    {
-        const auto* beginInfo = passContext.TryGet<RHI::RenderPassBeginInfo>(pass);
-        if (!beginInfo)
-        {
-            return;
-        }
-
-        // The render area is the attachments' own extent — RenderPassBeginInfo carries no
-        // render area, and a depth-only pass has no color attachment to read it from.
-        const RHI::ImageView* target = beginInfo->m_colorAttachmentCount > 0
-            ? beginInfo->m_colorAttachments[0].m_view
-            : beginInfo->m_depthStencilAttachment.m_view;
-        if (!target)
-        {
-            return;
-        }
-        const RHI::Size extent = target->GetImage().GetDescriptor().m_size.GetReducedMip(
-            target->GetDescriptor().m_mipSliceMin);
-
-        const RHI::Viewport fullViewport(
-            0.f, static_cast<float>(extent.m_width), 0.f, static_cast<float>(extent.m_height));
-        const RHI::Scissor fullScissor(
-            0, 0, static_cast<int32_t>(extent.m_width), static_cast<int32_t>(extent.m_height));
-
-        // Derived, never authored: a pass drawing without a view still gets the full
-        // target, and it follows a resize for free.
-        passContext.AddOrReplace<PassViewportState>(pass, PassViewportState{ fullViewport, fullScissor });
-
-        auto* lists = passContext.TryGet<PassDrawLists>(pass);
-        if (!lists)
-        {
-            return;
-        }
-
-        const auto* compiled = passContext.TryGet<PassCompiledPSO>(pass);
-        const RHI::PipelineState* pso = compiled ? compiled->m_pso.get() : nullptr;
-
-        for (DrawList& list : lists->m_lists)
-        {
-            list.m_viewport      = fullViewport;
-            list.m_scissor       = fullScissor;
-            list.m_viewBindings  = nullptr;
-
-            const RHI::RHIHandle viewEntity = list.m_key.m_view;
-            if (context.Valid(viewEntity))
-            {
-                if (const auto* view = context.TryGet<View>(viewEntity))
-                {
-                    list.m_viewport = fullViewport.GetScaled(
-                        view->m_rect.m_minX, view->m_rect.m_maxX, view->m_rect.m_minY, view->m_rect.m_maxY);
-                    list.m_scissor = RHI::Scissor(
-                        static_cast<int32_t>(list.m_viewport.m_minX),
-                        static_cast<int32_t>(list.m_viewport.m_minY),
-                        static_cast<int32_t>(list.m_viewport.m_maxX),
-                        static_cast<int32_t>(list.m_viewport.m_maxY));
-                }
-                if (const auto* bindings = context.TryGet<ViewShaderBindings>(viewEntity))
-                {
-                    if (const auto* comp = context.TryGet<RHI::Components::ShaderBindings>(bindings->m_bindings))
-                    {
-                        list.m_viewBindings = comp->m_bindings.get();
-                    }
-                }
-            }
-
-            for (DrawBatch& batch : list.m_batches)
-            {
-                batch.m_pso = pso;
-            }
-        }
     }
 
     void RenderGraphCompiler::CompilePipelineStates(

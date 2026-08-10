@@ -49,6 +49,8 @@
 #include <Drawable/Drawable.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
+#include <View/ViewComponents.h>
+#include <View/ViewFactory.h>
 
 #include <Window/IWindowSystem.h>
 
@@ -62,18 +64,10 @@ namespace Spark::SandBox
 
     bool DrawCube::Init()
     {
-        auto* window = Service<Spark::Window::IWindowSystem>::Get();
-        auto windowSize = window->GetWindowSize();
-        Spark::RHI::Viewport viewport(
-            0.f, (float)windowSize.x, 0.f, (float)windowSize.y);
-        Spark::RHI::Scissor scissor(
-            0, 0, (int32_t)windowSize.x, (int32_t)windowSize.y);
-        m_viewport = viewport;
-        m_scissor  = scissor;
-
         LoadAsset();
         CreateImage();
         CreateVertexBuffer();
+        CreateView();
         CreatePasses();
 
         BuildDrawable();
@@ -115,6 +109,16 @@ namespace Spark::SandBox
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_indexBuffer);
         destroyIfValid(m_baseColor);
+
+        // The view owns its SRG entity; drop that before the view itself.
+        if (m_view != Spark::RHI::NullHandle && ctx.Valid(m_view))
+        {
+            if (auto* bindings = ctx.TryGet<Spark::Render::ViewShaderBindings>(m_view))
+            {
+                destroyIfValid(bindings->m_bindings);
+            }
+        }
+        destroyIfValid(m_view);
         // Per-pass SRGs hold no member handle now — destroy them by tag (just the
         // space0 SRG here). Collected first: destroying inside the view iteration
         // would invalidate it.
@@ -239,6 +243,18 @@ namespace Spark::SandBox
             RHI::ImageViewDescriptor::Create(m_image->GetFormat(), 0, m_image->GetMipLevels() - 1);
     }
 
+    void DrawCube::CreateView()
+    {
+        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
+
+        // The standard view path: the view entity owns a space1 SRG, and the executer binds
+        // it once per DrawList. Usable because CubeTextured.hlsl includes ViewBindings.hlsl,
+        // so its space1 group matches the layout the SRG was built from — a shader declaring
+        // its own space1 could not take a view's SRG.
+        m_view = Spark::Render::CreateViewEntity<Spark::Render::MainViewTag>(ctx);
+        ASSERT(m_view != Spark::RHI::NullHandle, "[DrawCube] Failed to create the view.");
+    }
+
     void DrawCube::CreatePasses()
     {
         auto* mesh = m_model->GetModelData()->GetMesh(0);
@@ -284,7 +300,8 @@ namespace Spark::SandBox
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
             .Accepts<SPARK_PASS_TAG("ScenePass")>()
-            .Binds<Render::MainViewTag>()
+            .Binds<>()
+            .RendersView<Render::MainViewTag>()
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
             {
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
@@ -327,22 +344,11 @@ namespace Spark::SandBox
             })
             .Compile([this](Spark::Render::RenderGraphCompiler& compiler)
             {
-                auto& rhiCtx  = *Spark::RHI::RHIExecuteContext::Current();
-                auto& passCtx = *Spark::Render::PassExecuteContext::Current();
+                auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
 
                 using namespace Spark::Render;
 
-                // View constants (space1) travel the pass-shaderbinding path here, not the
-                // engine's shared ViewBindingSystem: get-or-create this pass's space1 SRG,
-                // then WriteViewConstants — same mechanism as SetPassShaderConstant.
-                Spark::RHI::RHIHandle viewBindings = GetOrCreatePassShaderBindings<SPARK_PASS_TAG("ScenePass")>(
-                    passCtx, rhiCtx, /*spaceId*/ 1);
-                if (viewBindings == Spark::RHI::NullHandle)
-                {
-                    return;
-                }
-                WriteViewConstants(m_camera, viewBindings);
-
+                // No space1 here: the view owns those constants and Update writes them.
                 SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(/*spaceId*/ 0, Spark::RHI::InputName("g_Model"), m_modelMatrix);
 
                 if (IsResourceReady(rhiCtx, m_baseColor))
@@ -357,14 +363,15 @@ namespace Spark::SandBox
 
                 SetPassShaderSampler<SPARK_PASS_TAG("ScenePass")>(/*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
             })
-            .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
+            .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                auto* cmdList = work.m_commandList;
-                auto& view = rhiCtx.GetView<SPARK_PASS_TAG("ScenePass"), RHI::DrawItem>();
-                view.each([&](RHI::RHIHandle handle, const RHI::DrawItem& drawItem) {
-                    cmdList->Submit(drawItem);
-                });
+                for (size_t i = 0; i < work.m_drawHandles.size(); ++i)
+                {
+                    work.m_commandList->Submit(
+                        rhiCtx.Get<RHI::DrawItem>(work.m_drawHandles[i]),
+                        work.m_submitBase + static_cast<uint32_t>(i));
+                }
             })
             .Finalize();
 
@@ -447,11 +454,16 @@ namespace Spark::SandBox
             m_rotationAngle,
             Math::Vector3(0.f, 1.f, 0.f));   // spin around world up
 
-        m_camera = Render::MakePerspectiveView(
+        // Only the View component: ViewBindingSystem stages every view into its own SRG, and
+        // the executer binds that per DrawList. Same role CameraViewSystem plays in the
+        // engine — a producer never touches the view constants.
+        auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
+        Render::View& view = rhiCtx.Get<Render::View>(m_view);
+        view.m_worldToView = Math::LookAt(
             Math::Vector3(0.f, 5.f, -5.f),   // eye
             Math::Vector3(0.f, 0.f, 0.f),    // target
-            Math::Vector3(0.f, 1.f, 0.f),    // up
-            Math::Radians(45.f), aspect, 0.1f, 100.f);
+            Math::Vector3(0.f, 1.f, 0.f));   // up
+        view.m_viewToClip = Math::PerspectiveFov(Math::Radians(45.f), aspect, 0.1f, 100.f);
     }
 
 }

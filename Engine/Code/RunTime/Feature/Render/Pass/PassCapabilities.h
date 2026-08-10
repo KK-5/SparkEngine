@@ -12,7 +12,6 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Drawable/Drawable.h>
-#include <Drawable/DrawList.h>
 #include <Instance/InstanceSlot.h>
 #include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
@@ -20,10 +19,14 @@
 
 namespace Spark::Render
 {
+    //! The views one pass renders. Sized for a shadow atlas's tile count so the collect
+    //! call needs no allocation; fixed_vector spills to the heap past that, only slower.
+    using ViewHandleList = eastl::fixed_vector<RHI::RHIHandle, 16>;
+
     //! What a pass can be asked to do, as a table of type-erased operations on the pass
     //! entity. Every entry is a template instantiation frozen at RenderPassBuilder::
     //! Finalize, where the pass's PassTag and its declared DrawTags / BindingTags /
-    //! ViewTag are all known; runtime code (DrawItemRouter, BuildPassDrawLists,
+    //! ViewTag are all known; runtime code (DrawItemRouter, RenderGraphExecuter,
     //! RenderSystem) then drives passes uniformly without knowing any of those types.
     //!
     //! Raw function pointers, not eastl::function: none of these own state. The
@@ -37,16 +40,16 @@ namespace Spark::Render
         bool (*m_accepts)(RHI::RHIContext&, RHI::RHIHandle drawable);
 
         //! Record on a freshly derived DrawItem that this pass consumes it. The stamped
-        //! PassTag is the authoritative membership record; DrawLists derive from it.
+        //! PassTag is what m_collectDrawItems locates the pass's draws by.
         void (*m_markDrawItem)(RHI::RHIContext&, RHI::RHIHandle drawItem);
 
         //! Per-frame refresh of everything the submit path reads: the pass's shared
         //! bindings and its DrawItems' mutable fields. (.Binds<BindingTags...>)
         void (*m_updateBindings)(RHI::RHIContext&);
 
-        //! The keys of the DrawLists this pass needs — one per live view instance of the
-        //! type it renders. (.RendersView<ViewTag>)
-        void (*m_collectDrawListKeys)(RHI::RHIContext&, eastl::vector<DrawListKey>&);
+        //! The live view instances of the type this pass renders — one DrawList each.
+        //! (.RendersView<ViewTag>)
+        void (*m_collectViews)(RHI::RHIContext&, ViewHandleList&);
 
         //! Every DrawItem this pass consumes, located by the PassTag m_markDrawItem
         //! stamps. Implied by the pass's identity, so Finalize always installs it.
@@ -138,21 +141,28 @@ namespace Spark::Render
         });
     }
 
-    // ---- m_collectDrawListKeys -------------------------------------------------
+    // ---- m_collectViews --------------------------------------------------------
 
     template<typename ViewTag>
-    void CollectViewDrawListKeys(RHI::RHIContext& ctx, eastl::vector<DrawListKey>& out)
+    void CollectViews(RHI::RHIContext& ctx, ViewHandleList& out)
     {
         ctx.GetView<ViewTag, View>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle view, const View&) { out.push_back(DrawListKey{ view }); });
+            [&](RHI::RHIHandle view, const View&) { out.push_back(view); });
     }
 
     // ---- m_collectDrawItems ----------------------------------------------------
 
+    //! Appends to out, which is the executer's shared per-frame arena — every pass's
+    //! draws lie end to end in it, so this must never clear.
+    //!
+    //! Excluding DeadTag is what keeps a DrawItem marked dead this frame from being drawn
+    //! one last time. The entity itself stays valid through recording: DrawItemRouter
+    //! marks at RenderSystem's TICK_DEFAULT and RHIHandleClearSystem only destroys at
+    //! TICK_LAST - 1, well after the render graph has executed.
     template<typename PassTag>
     void CollectPassDrawItems(RHI::RHIContext& ctx, eastl::vector<RHI::RHIHandle>& out)
     {
-        ctx.GetView<PassTag, RHI::DrawItem>().each(
+        ctx.GetView<PassTag, RHI::DrawItem>(Exclude<DeadTag>).each(
             [&](RHI::RHIHandle item, const RHI::DrawItem&) { out.push_back(item); });
     }
 }

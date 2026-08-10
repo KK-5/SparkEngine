@@ -8,8 +8,6 @@
 
 #include <Pass/Pass.h>
 #include <RHI/Context/RHIHandle.h>
-#include <RHI/Viewport/Viewport.h>
-#include <RHI/Scissor/Scissor.h>
 
 namespace Spark::RHI
 {
@@ -43,6 +41,7 @@ namespace Spark::SandBox
     private:
         void CreateTrianglePass();
         void CreateVertexBuffer();
+        void CreateView();
         void Update();
         void BuildDrawable();
 
@@ -54,14 +53,13 @@ namespace Spark::SandBox
 
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
+        Spark::RHI::RHIHandle m_view = Spark::RHI::NullHandle;
+
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_shader;
 
         Spark::Math::Matrix4X4 m_matrix;
         Spark::Math::Vector3   m_colors[3];
-
-        Spark::RHI::Viewport m_viewport;
-        Spark::RHI::Scissor  m_scissor;
 
         // Transform
         float m_rotationAngle = 0.f;

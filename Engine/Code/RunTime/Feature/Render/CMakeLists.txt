@@ -17,12 +17,13 @@ set(SOURCES
     RenderGraph/RenderGraph.cpp
     RenderSystem.cpp
     View/ViewBindingSystem.cpp
+    View/CameraViewSystem.cpp
+    View/ViewFactory.cpp
     SceneBind/SceneBindingSystem.cpp
     Instance/InstanceBindingSystem.cpp
     MaterialBind/MaterialBindingSystem.cpp
     Drawable/MeshDrawableComposer.cpp
     Drawable/DrawItemRouter.cpp
-    Drawable/DrawList.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

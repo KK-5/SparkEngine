@@ -17,7 +17,6 @@
 
 #include "Drawable.h"
 #include "DrawTag.h"
-#include "DrawList.h"
 
 namespace Spark::Render
 {
@@ -290,15 +289,6 @@ namespace Spark::Render
                 if (derived)
                 {
                     derived->m_items.push_back(drawItem);
-                }
-                // The lists were reconciled before this frame's derivation, so they hold
-                // every older DrawItem and this is the only path that adds new ones.
-                if (auto* lists = passCtx->TryGet<PassDrawLists>(pass))
-                {
-                    for (DrawList& list : lists->m_lists)
-                    {
-                        DrawListInsert(list, drawItem, kSingleVariantId);
-                    }
                 }
             });
 

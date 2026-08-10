@@ -39,6 +39,8 @@
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
+#include <View/View.h>
+#include <View/ViewTags.h>
 #include <Drawable/Drawable.h>
 
 #include <Window/IWindowSystem.h>
@@ -71,15 +73,6 @@ namespace Spark::SandBox
 
     bool MSAAPassFeature::Init()
     {
-        auto* window = Service<Spark::Window::IWindowSystem>::Get();
-        auto windowSize = window->GetWindowSize();
-        Spark::RHI::Viewport viewport(
-            0.f, (float)windowSize.x, 0.f, (float)windowSize.y);
-        Spark::RHI::Scissor scissor(
-            0, 0, (int32_t)windowSize.x, (int32_t)windowSize.y);
-        m_viewport = viewport;
-        m_scissor = scissor;
-
         auto assetManager = Service<Spark::Resource::AssetManager>::Get();
         ASSERT(assetManager, "[MSAAPassFeature] AssetManager service missing.");
         m_shader = assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
@@ -91,6 +84,7 @@ namespace Spark::SandBox
         // so build the pass first. UpdateViewBindings then lazily creates + fills the
         // space0 bindings (via SetPassShaderConstant).
         CreateVertexBuffer();
+        CreateView();
         CreatePasses();
         BuildDrawable();
 
@@ -127,6 +121,7 @@ namespace Spark::SandBox
         }
         destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
+        destroyIfValid(m_view);
         // Per-pass SRGs hold no member handle now — destroy them by tag (just the
         // space0 SRG here). Collected first: destroying inside the view iteration
         // would invalidate it.
@@ -165,6 +160,20 @@ namespace Spark::SandBox
             Spark::RHI::AttachmentStage::VertexInput);
     }
 
+    void MSAAPassFeature::CreateView()
+    {
+        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
+
+        // Built by hand because ViewBindingSystem find-or-creates from world cameras and this
+        // app has none. No ViewShaderBindings: TriangleMVP.hlsl declares no space1, so all
+        // this view supplies is the rect that becomes viewport / scissor — here scaled by the
+        // MSAA target's extent rather than the swap chain's, since that is ScenePass's
+        // attachment.
+        m_view = ctx.CreateEntity();
+        ctx.Add<Spark::Render::View>(m_view, Spark::Render::View{});
+        ctx.Add<Spark::Render::MainViewTag>(m_view);
+    }
+
     void MSAAPassFeature::CreatePasses()
     {
         Spark::RHI::InputStreamLayoutBuilder islBuilder;
@@ -201,6 +210,7 @@ namespace Spark::SandBox
             .RenderStates(renderStates)
             .Accepts<SPARK_PASS_TAG("ScenePass")>()
             .Binds<>()
+            .RendersView<Spark::Render::MainViewTag>()
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
             {
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
@@ -233,14 +243,18 @@ namespace Spark::SandBox
                 Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
                     /*spaceId*/ 0, Spark::RHI::InputName("g_Colors"), m_colors);
             })
-            .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
+            // Same as the default hook when .Execute() is omitted. Called once per
+            // state-homogeneous run, not once per pass — N views is N calls over the same
+            // draws — so submit work.m_drawHandles, never a fresh query.
+            .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                auto* cmdList = work.m_commandList;
-                auto& view = rhiCtx.GetView<SPARK_PASS_TAG("ScenePass"), RHI::DrawItem>();
-                view.each([&](RHI::RHIHandle handle, const RHI::DrawItem& drawItem) {
-                    cmdList->Submit(drawItem);
-                });
+                for (size_t i = 0; i < work.m_drawHandles.size(); ++i)
+                {
+                    work.m_commandList->Submit(
+                        rhiCtx.Get<RHI::DrawItem>(work.m_drawHandles[i]),
+                        work.m_submitBase + static_cast<uint32_t>(i));
+                }
             })
             .Finalize();
 

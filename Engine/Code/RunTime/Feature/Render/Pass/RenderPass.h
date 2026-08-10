@@ -126,11 +126,14 @@ namespace Spark::Render
         // instance of that type. A single tag, not a pack — one pass rendering both the
         // main view and shadow views makes no sense (attachments, PSO and RT layout all
         // differ), so the signature makes it impossible.
+        //
+        // Required of every pass that draws: viewport / scissor and the space1 bindings
+        // both come from the view, so a pass with draws and no view has neither.
         template<typename ViewTag>
         RenderPassBuilder& RendersView()
         {
-            m_capabilities.m_collectDrawListKeys = &CollectViewDrawListKeys<ViewTag>;
-            m_hasCapabilities                    = true;
+            m_capabilities.m_collectViews = &CollectViews<ViewTag>;
+            m_hasCapabilities             = true;
             return *this;
         }
 

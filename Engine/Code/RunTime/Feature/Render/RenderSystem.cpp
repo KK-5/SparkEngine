@@ -17,7 +17,6 @@
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassAccess.h>
 
-#include <Drawable/DrawList.h>
 #include <Drawable/Drawable.h>
 #include <Drawable/DrawTag.h>
 
@@ -154,7 +153,6 @@ namespace Spark::Render
 
         // Render-side helpers + shared resources setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
-        m_viewBindingSystem.Init();
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
@@ -204,7 +202,7 @@ namespace Spark::Render
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_cameraViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
         // tag-owned). Reap them here alongside the other binding entities.
@@ -244,7 +242,11 @@ namespace Spark::Render
             );
         }
 
-        m_viewBindingSystem.Update(renderSize);
+        // Produce this frame's views, then encode all of them in one place. A view created
+        // just now still gets picked up by CompileShaderInputs later in this same frame.
+        m_cameraViewSystem.Update(renderSize);
+        m_viewBindingSystem.Update(rhiCtx);
+
         m_sceneBindingSystem.Update(frameIndex);
         // Order matters: MaterialBindingSystem writes each material's MaterialGPUSlot,
         // which InstanceBindingSystem reads to resolve InstanceData.m_materialIndex.
@@ -253,9 +255,6 @@ namespace Spark::Render
 
         // World → Drawable: find-or-create over renderable world entities.
         m_meshDrawableComposer.Update();
-        // One DrawList per view per pass. Before the router: lists created here are
-        // filled by a full query, the router then adds this frame's new DrawItems.
-        BuildPassDrawLists();
         // Producer-agnostic Drawable → DrawItem routing: reap dead-dependency Drawables,
         // then route every not-yet-derived Drawable (world-composed or otherwise) through
         // the passes that accept it.

@@ -35,6 +35,7 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <View/View.h>
+#include <View/ViewTags.h>
 #include <Drawable/Drawable.h>
 
 #include <Window/IWindowSystem.h>
@@ -66,15 +67,6 @@ namespace Spark::SandBox
 
     bool TrianglePassFeature::Init()
     {
-        auto* window = Service<Spark::Window::IWindowSystem>::Get();
-        auto windowSize = window->GetWindowSize();
-        Spark::RHI::Viewport viewport(
-            0.f, (float)windowSize.x, 0.f, (float)windowSize.y);
-        Spark::RHI::Scissor scissor(
-            0, 0, (int32_t)windowSize.x, (int32_t)windowSize.y);
-        m_viewport = viewport;
-        m_scissor = scissor;
-
         auto assetManager = Service<Spark::Resource::AssetManager>::Get();
         ASSERT(assetManager, "[TrianglePassFeature] AssetManager service missing.");
         m_shader = assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
@@ -86,6 +78,7 @@ namespace Spark::SandBox
         // so build the pass first. UpdateViewBindings then lazily creates + fills the
         // space0 bindings (via SetPassShaderConstant).
         CreateVertexBuffer();
+        CreateView();
         CreateTrianglePass();
         BuildDrawable();
 
@@ -122,6 +115,7 @@ namespace Spark::SandBox
         }
         destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
+        destroyIfValid(m_view);
         // Per-pass SRGs hold no member handle now — destroy them by tag (just the
         // space0 SRG here). Collected first: destroying inside the view iteration
         // would invalidate it.
@@ -160,6 +154,18 @@ namespace Spark::SandBox
             Spark::RHI::AttachmentStage::VertexInput);
     }
 
+    void TrianglePassFeature::CreateView()
+    {
+        auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
+
+        // Built by hand because ViewBindingSystem find-or-creates from world cameras and this
+        // app has none. No ViewShaderBindings: TriangleMVP.hlsl declares no space1, so all
+        // this view supplies is the rect that becomes viewport / scissor.
+        m_view = ctx.CreateEntity();
+        ctx.Add<Spark::Render::View>(m_view, Spark::Render::View{});
+        ctx.Add<Spark::Render::MainViewTag>(m_view);
+    }
+
     void TrianglePassFeature::CreateTrianglePass()
     {
         Spark::RHI::InputStreamLayoutBuilder islBuilder;
@@ -189,6 +195,7 @@ namespace Spark::SandBox
             .RenderStates(renderStates)
             .Accepts<SPARK_PASS_TAG("TrianglePass")>()
             .Binds<>()
+            .RendersView<Spark::Render::MainViewTag>()
             .Build([this](Spark::Render::RenderGraphBuilder& builder)
             {
                 Spark::Render::ImportedImageAttachmentBindInfo colorBind;
@@ -219,16 +226,18 @@ namespace Spark::SandBox
                     m_matrix
                 );
             })
-            .Execute([this](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
+            // Same as the default hook when .Execute() is omitted. Called once per
+            // state-homogeneous run, not once per pass — N views is N calls over the same
+            // draws — so submit work.m_drawHandles, never a fresh query.
+            .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-                auto* commandList = work.m_commandList;
-
-                auto& view = rhiCtx.GetView<SPARK_PASS_TAG("TrianglePass"), Spark::RHI::DrawItem>();
-                view.each([&](Spark::RHI::RHIHandle handle, const Spark::RHI::DrawItem& drawItem){
-                    commandList->Submit(drawItem);
-                });
-
+                for (size_t i = 0; i < work.m_drawHandles.size(); ++i)
+                {
+                    work.m_commandList->Submit(
+                        rhiCtx.Get<Spark::RHI::DrawItem>(work.m_drawHandles[i]),
+                        work.m_submitBase + static_cast<uint32_t>(i));
+                }
             })
             .Finalize();
     }
@@ -276,6 +285,7 @@ namespace Spark::SandBox
             Math::Vector3(0.f, 1.f, 0.f),    // up
             Math::Radians(45.f), aspect, 0.1f, 100.f);
 
+        // Local, not stored on m_view — nothing reads it there; the MVP is a space0 constant.
         m_matrix = camera.GetWorldToClip() * model;
 
         m_colorPhase += 0.01f;

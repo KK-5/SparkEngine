@@ -7,8 +7,6 @@
 #include <RHI/Context/RHIHandle.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
-#include <RHI/Viewport/Viewport.h>
-#include <RHI/Scissor/Scissor.h>
 #include <View/View.h>
 
 namespace Spark::RHI
@@ -44,6 +42,7 @@ namespace Spark::SandBox
 
     private:
         void CreateVertexBuffer();
+        void CreateView();
         void CreatePasses();
         void Update();
         void BuildDrawable();
@@ -58,6 +57,9 @@ namespace Spark::SandBox
 
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
+        // Owns the camera and its space1 SRG; Update writes both.
+        Spark::RHI::RHIHandle m_view = Spark::RHI::NullHandle;
+
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_shader;
 
@@ -69,11 +71,6 @@ namespace Spark::SandBox
 
         // Per-frame CPU data computed in Update(), consumed by the ScenePass Compile hook.
         Spark::Math::Matrix4X4 m_modelMatrix;
-        Spark::Render::View    m_camera;
-
-        // Pass-level viewport / scissor (stored here so CreatePasses can pick them up)
-        Spark::RHI::Viewport m_viewport;
-        Spark::RHI::Scissor  m_scissor;
 
         // Sampler
         Spark::RHI::SamplerState m_samplerState = Spark::RHI::SamplerState::Create(

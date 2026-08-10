@@ -109,6 +109,7 @@ if (BUILD_RG_TRIANGLEPASS)
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
         ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
     )
 
     target_link_libraries(${TARGET_NAME}
@@ -137,6 +138,7 @@ if (BUILD_RG_DRAWCUBE)
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
         ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
     )
 
     target_link_libraries(${TARGET_NAME}
@@ -165,6 +167,7 @@ if (BUILD_RG_MSAAPASS)
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
         ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
     )
 
     target_link_libraries(${TARGET_NAME}

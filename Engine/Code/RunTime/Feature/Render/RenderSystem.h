@@ -15,6 +15,7 @@
 #include "Feature/UI/RenderUI.h"
 #include "Feature/UI/UIProcessFeature.h"
 #include "View/ViewBindingSystem.h"
+#include "View/CameraViewSystem.h"
 #include "SceneBind/SceneBindingSystem.h"
 #include "Instance/InstanceBindingSystem.h"
 #include "MaterialBind/MaterialBindingSystem.h"
@@ -60,6 +61,8 @@ namespace Spark::Render
         
         RenderUI m_rednerUI;
         UIProcessFeature m_uiProcessFeature;
+        // Producers first, then the one encoding step. A ShadowViewSystem joins the former.
+        CameraViewSystem  m_cameraViewSystem;
         ViewBindingSystem m_viewBindingSystem;
         SceneBindingSystem m_sceneBindingSystem;
         MaterialBindingSystem m_materialBindingSystem;

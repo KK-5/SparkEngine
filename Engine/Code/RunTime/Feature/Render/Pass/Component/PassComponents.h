@@ -146,15 +146,6 @@ namespace Spark::Render
     };
     //////////////////////////////
 
-    //! Pass-level viewport / scissor defaults. Set by user at pass registration,
-    //! applied by executer before draw submission. Per-draw DrawItem overrides
-    //! (non-zero m_viewportsCount / m_scissorsCount) take precedence.
-    struct PassViewportState
-    {
-        RHI::Viewport m_viewport;
-        RHI::Scissor  m_scissor;
-    };
-
     struct PassFunctions
     {
         eastl::function<void(RenderGraphBuilder&)> m_buildFunction;

@@ -10,7 +10,8 @@ namespace Spark::Render
     //!  2. asks every pass (PassCapabilities) which not-yet-derived Drawables it
     //!     accepts, building one DrawItem per accepting pass with everything the
     //!     submit path needs baked on — no back-reference to the Drawable — and
-    //!     inserting it into that pass's DrawLists.
+    //!     stamping it with that pass's PassTag, which is how the executer's
+    //!     per-frame query later locates it.
     //!
     //! Deliberately does NOT know who produced a Drawable: world-composed
     //! (MeshDrawableComposer) or procedural (a feature processor) both flow through

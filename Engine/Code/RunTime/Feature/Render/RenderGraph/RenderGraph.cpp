@@ -176,7 +176,6 @@ namespace Spark::Render
             if (passContext.Has<RenderPassTag>(pass))
             {
                 m_compiler.CompileRenderPassBeginInfo(pass, passContext, context);
-                m_compiler.CompileDrawListState(pass, passContext, context);
             }
 
             context.Clear<AttachmentCompilingTag>();
