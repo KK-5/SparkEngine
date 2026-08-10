@@ -100,8 +100,7 @@ namespace Spark::Render
         }
 
         RHI::RHIHandle entity = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(
-            entity, RHI::Components::ShaderBindings{ shaderBindings });
+        rhiCtx.Add<RHI::Components::ShaderBindings>(entity, RHI::Components::ShaderBindings{ shaderBindings });
         rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(entity);
         return entity;
     }
