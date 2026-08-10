@@ -411,8 +411,9 @@ scissor 不单独存，从同一个 rect 推。深度范围（`m_minZ` / `m_maxZ
 | atlas 清一次 + 每 tile scissor | BeginRenderPass 在 pass 级、viewport/scissor 在 DrawList 级，是结构给的，不需要额外约定 |
 | view 编码不管来源 | `ViewBindingSystem` 已是纯编码器（扫 `<View, ViewShaderBindings>` 全写），`ShadowViewSystem` 只负责生产 |
 | 未就绪 SRG 的 gate | `ResolveViewShaderBindings`（`RenderGraphExecuter.cpp:65`）已区分「没声明 space1」与「声明了但没编译」，后者跳过该 view |
-| 比较采样器 | `SamplerState` 的 `ReductionType::Comparison` + `m_comparisonFunc` |
-| `LightData` 扩展位 | `m_pad0` / `m_pad1` 两个 float 空位，拿 `m_pad0` 当 `m_shadowIndex`（-1 = 不投影）不动 64B 布局 |
+| 比较采样器 | `SamplerState` 的 `ReductionType::Comparison` + `m_comparisonFunc`（`RHI/Resource/Sampler/SamplerState.h:84-85`），DX12 转换已通（`Conversions.cpp:1095`） |
+| 深度 bias | `RasterState::m_depthBias` / `m_depthBiasClamp` / `m_depthBiasSlopeScale`（`RHI/Pipeline/RenderStates.h:90-92`） |
+| `LightData` 扩展位 | `m_pad0` / `m_pad1` 两个 float 空位。`m_pad0` 改成 `int32_t m_shadowIndex = -1`（-1 = 不投影），同宽，64B 布局不动 |
 
 ### 落地形态
 
@@ -420,78 +421,113 @@ scissor 不单独存，从同一个 rect 推。深度范围（`m_minZ` / `m_maxZ
 - `.Accepts<ShadowCasterTag>()`——tag 已声明（`Drawable/DrawTag.h:21`），但 `MeshDrawableComposer.cpp:165`
   目前只打 `OpaqueTag`，需要补上分类。
 - 每个 shadow view 一个 space1 SRG，走**统一的 view 路径**：`CreateViewEntity<ShadowViewTag>(rhiCtx)` 一行。
-  不需要之前设想的「index SRG + `g_ShadowViews` StructuredBuffer」技巧（那是 view 概念缺位时的绕道）。
+  渲染路径不依赖 `g_ShadowViews`——那个 buffer 只服务 LightingPass 的采样（「已定的决策」第 4 条）。
 - **shadow 的 VS 必须 `#include <ViewBindings.hlsl>`**。space1 SRG 的布局是从 `ViewBindingsReflect.hlsl`
   反射出来的（`View/ViewFactory.cpp:43`），而绑定时用的是**当前 PSO 的** layout 去查 space；两边的
   space1 组对不上，`Backend/DX12/Command/CommandList.cpp:205-209` 的
   `cbv.m_rootIndices.size() == cd.m_gpuConstantAddresses.size()` 断言会当场炸。
 - **`ShadowViewSystem` 放 `SparkRender/View/`**，与 `CameraViewSystem` 同构：读 world 的
-  `Light::LightRenderData`，写 RHIContext 的 view 实体。**这一条修正下文「shadow view 的产生」里
-  「放 World 侧（Light 模块）」的说法**——那句写在 View 实体化之前；`CreateViewEntity` 在 SparkRender，
-  Light 模块调它会形成反向依赖。`Update` 放在 `RenderSystem::OnTick` 的 `m_cameraViewSystem.Update`
+  `Light::LightRenderData`，写 RHIContext 的 view 实体。`CreateViewEntity` 在 SparkRender，放 Light
+  模块会形成反向依赖。`Update` 放在 `RenderSystem::OnTick` 的 `m_cameraViewSystem.Update`
   旁边（两者都是生产者，都在 `m_viewBindingSystem.Update` 之前），同帧的 `CompileShaderInputs` 就能扫到。
 
-### 必须先定的四件事
+### 已定的决策
 
-排在实现之前——前两条写错的症状都是间歇性的、事后极难定位。
+**1. tile 槽位由 `ShadowViewSlot` 定，不由迭代顺序定。**
 
-**1. shadow view → `g_ShadowViews` 槽位不能由迭代顺序决定。**
+`CollectViews`（`Pass/PassCapabilities.h:147`）走 entt view，顺序随实体增删变（`swap_and_pop` 会把末尾元素
+填进空洞）。渲染本身不在乎——tile 位置在 view 的 `m_rect` 里，谁先谁后都对。但 `LightData::m_shadowIndex`
+指向的 buffer 下标必须与光源稳定对应，否则光源增删的那一帧会把阴影贴到别的光源上，只错一帧、随机复现。
 
-`CollectViews`（`Pass/PassCapabilities.h:146`）走 entt view，顺序随实体增删变（`swap_and_pop` 会把末尾元素填进空洞）。
-渲染本身不在乎——tile 位置在 view 的 `m_rect` 里，谁先谁后都对。但 `LightData::m_shadowIndex` 指向的 buffer
-下标必须与光源稳定对应。**「遍历到第几个就写第几个槽」会在光源增删的那一帧把阴影贴到别的光源上**，只错一帧、
-随机复现。
+槽位是 view 实体上的组件 `ShadowViewSlot { uint32_t }`，`ShadowViewSystem` 分配。它同时是 tile 索引，
+与 `m_rect` 同源。
 
-槽位是 view 实体上的一个组件（`ShadowViewSlot { uint32_t }`），`ShadowViewSystem` 分配，`SceneBindingSystem`
-按它写 buffer。它同时也是 tile 索引，与 `m_rect` 同源。
+反向查找另设载体：`ShadowViewSystem` 在 **world 光源实体**上写 `LightShadowIndex { int32_t }`（-1 = 不投影）。
+`SceneBindingSystem::Update`（`SceneBindingSystem.cpp:350`）是按 `GetView<Light::LightRenderData>()` 的 entt
+顺序密集打包 `g_Lights` 的，slot 由迭代顺序决定，所以它必须能从光源实体直接读到 shadow 下标——在它现有那趟
+lambda 里 `TryGet` 一次即可，不走跨 context 的 view 实体。生命周期同 `MainViewRef`：mark-and-sweep 时一并
+`Remove`。
 
 **2. 剔除控制「这一帧提不提交」，不控制「建不建 view 实体」。**
 
-下文「哪些光源产生 shadow view」的六条判据，本质都是「这一帧这个 tile 不重画」。若实现成不建 view 实体，
+下文「哪些光源产生 shadow view」的判据本质都是「这一帧这个 tile 不重画」。若实现成不建 view 实体，
 `Internal::CreateViewShaderBindings`（`View/ViewFactory.cpp:78`）就会每帧 create/destroy 一个 `ShaderBindings`
 + constant buffer。
 
-正确形态：**view 实体跟随光源的生命周期**（mark-and-sweep 的来源是光源，不是剔除结果），剔除另设 gate。
-`CollectViews` 今天只 `Exclude<DeadTag>`，需要多一层跳过条件——**这是本节唯一一处要动现有机制的地方**。
+**view 实体跟随光源的生命周期**（mark-and-sweep 的来源是光源，不是剔除结果），剔除另设 gate：一个通用 tag
+`ViewInactiveTag`，`CollectViews` 改成 `Exclude<DeadTag, ViewInactiveTag>`。不引入 shadow 专属概念——编辑器
+视口隐藏、反射探针降频是同一件事，语义对所有 view 类型都成立。
 
-**3. 单个 pass 不可拆的上界，shadow 正好是引爆它的负载。**
+**3. bias 走 view 常量 + 采样端，slope-scale 只有一个全局值。**
 
-ShadowPass 的 submit 数 = casters × views，1000 caster × 8 view = 8000 次提交，全在一对
-Begin/EndRenderPass 里。而 `BuildExecuteGroups` 明确「never break on an empty group」——单个超预算的 pass
-必须整体进一个 group、一个 Work、一个 CommandList，`kMaxSubmitsPerCommandList = 512` 对它**完全失效**。
+`RasterState` 在 PSO 里，而 PSO 是 pass 级的（`PassCompiledPSO`，`BuildDrawBatches` 无条件填同一个），所以
+一个 ShadowPass 的所有 view 共用一份 slope-scale bias——方向光的正交和聚光灯的透视想要的值差得远。
+
+constant bias 与 normal offset 进 view 的 space1 常量、在采样端应用；slope-scale 作为 ShadowPass 的单一
+PSO 状态。**不为 per-view 光栅状态去做 PSO 变体**：DrawBatch 层理论上能承载，但今天一个 list 恒为一个 batch，
+拆开的代价远大于收益。
+
+**4. per-view SRG 与 `g_ShadowViews` 并存，不合并。**
+
+渲染路径继续用 per-view space1 SRG（一次只画一个 view，绑 CBV 最直接，不依赖 root constant）；LightingPass
+一次 draw 要读 N 个 shadow view，`g_ShadowViews` StructuredBuffer 必然存在。
+
+两者不是两份真相：**都从同一个 `View` 组件读**（`rhiCtx.Get<View>(v)`），是同一份数据的两次编码，不是两条
+各自算矩阵的 marshal 路径。合并 CBV 那条要补 `SetRootConstants`（`Backend/DX12/Command/CommandList.h:23`），
+属于独立收益，不与 shadow 捆绑。
+
+**5. atlas 是持久（imported）资源，不是 transient。**
+
+见下文「atlas 的实现要点」。
+
+### 已知上界：单个 pass 不可拆
+
+ShadowPass 的 submit 数 = casters × views，1000 caster × 8 view = 8000 次提交，全在一对 Begin/EndRenderPass
+里。而 `BuildExecuteGroups` 明确「never break on an empty group」——单个超预算的 pass 必须整体进一个 group、
+一个 Work、一个 CommandList，`kMaxSubmitsPerCommandList = 512` 对它**完全失效**。
 
 根因是 §七 第一条：`RenderPassBeginInfo`（`RHI/Command/RenderPassBeginInfo.h:52-71`）只有 attachment /
 VRS / layerCount / viewMask，没有 suspend / resume，一个 render pass 的 draw 不能跨 CommandList。
 
-主视角不会这么惨（GBuffer 是 1 view）。**这是多 view 落地之后唯一变得更尖锐的一条**，v1 两三盏灯可以背着走，
-但它决定了这套东西的天花板，应当在文档里记成已知上界而不是等 16 盏灯才发现。
+且 v1 没有 per-view 剔除，每个 caster 进每个 tile，没有任何降低的杠杆（§八「剔除接入点」的前置条件——覆盖
+全部 Drawable 的稠密稳定对象索引——尚不存在，`InstanceSlotRef::m_id` 只覆盖索引化供给的那部分）。
 
-**4. §七 第二条「per-view SRG 还是 `g_Views` buffer」现在到期。**
-
-那条自己写着「触发点是 shadow 采样」——LightingPass 一次 draw 要读 N 个 shadow view，buffer 版本必然存在，
-于是同一份矩阵有两条 marshal 路径要保持同步。v1 接受重复不致命，但不决定就会两条路各自长大。
+主视角不会这么惨（GBuffer 是 1 view）。v1 两三盏灯可以背着走，但它是这套东西的天花板。
 
 ### 缺的基础设施（与多 view 无关，但挡住正确的方向光阴影）
 
 - **场景包围盒。** 方向光的正交投影要覆盖场景，而 `LightRenderData` 只有方向/位置/强度/range，仓库里也没有
   全局 AABB。v1 用「相机周围固定尺寸的正交盒」顶上，**明确记为占位**，否则大场景一上来就穿帮。
-- **`LightComponent` 的 authored shadow 参数。** 没有 `m_castShadow` / bias / normal offset / tile 分辨率。
-  它带 `SPARK_COMPONENT_TRAITS(..., editable = true)`，加字段会走反射/编辑器路径。
+- **authored shadow 参数。** 没有 `m_castShadow` / bias / normal offset / tile 分辨率。要加**两处**：
+  `LightComponent`（`SPARK_COMPONENT_TRAITS(..., editable = true)`，加字段走反射/编辑器路径）和
+  `LightRenderData`，由 `LightSystem` 搬运——`ShadowViewSystem` 只读后者，与 `SceneBindingSystem` 一致。
 
 ### atlas 的实现要点
 
-**attachment**：和 DepthPrePass 同构，只是尺寸是自己的常量，**不能用 `builder.GetRenderSize()`**
-（那是 swap chain 尺寸）。`loadAction = Clear` 在 `BeginRenderPass` 发生、在循环之外，所以整张清一次；
-depth→SRV 的 barrier 也是整张一次，LightingPass 按 `AttachmentId("ShadowAtlas")` 读。
+**attachment 是持久（imported）资源，不是 transient。** 尺寸是自己的常量，**不能用
+`builder.GetRenderSize()`**（那是 swap chain 尺寸）。路径与 swap chain 同形：图像建一次，每帧 import 成
+attachment，而不是 `CreateImageAttachment` 建 transient；`ResourceStateTracker` 对 imported 资源按 `m_initial`
+起手，跨帧已支持。
+
+代价只是那块显存常驻不参与 transient 池 aliasing——atlas 从 ShadowPass 写到 LightingPass 读跨了大半帧，
+本来也没多少 alias 空间可省。收益是 tile 缓存（见「后续层级」）不需要改资源形态。
+
+`loadAction = Clear`，在 `BeginRenderPass` 发生、在 DrawList 循环之外，所以**整张每帧清一次**；depth→SRV 的
+barrier 也是整张一次，LightingPass 按 `AttachmentId("ShadowAtlas")` 读。
 
 **tile → 归一化 rect**：起步用固定的 2 的幂网格就够，归一化 rect × atlas 尺寸严格落在整数上。
+`ViewRect` 的字段序是 `(m_minX, m_maxX, m_minY, m_maxY)`（对齐 `Viewport::GetScaled` 的参数序），不是
+`(minX, minY, maxX, maxY)`：
 
 ```cpp
 constexpr uint32_t kGrid = 4;                     // 4×4 = 16 tile
 const uint32_t gx = slot % kGrid, gy = slot / kGrid;
 const float s = 1.0f / kGrid;
-view.m_rect = { gx * s, gy * s, (gx + 1) * s, (gy + 1) * s };
+view.m_rect = { gx * s, (gx + 1) * s, gy * s, (gy + 1) * s };
 ```
+
+tile 数与 `ViewHandleList` 的 `fixed_vector<RHIHandle, 16>`（`Pass/PassCapabilities.h:24`）一起定——一个点
+光源占 6 个 view，三盏点光就溢出到堆。
 
 将来要「方向光占 2×2 个 tile、远处点光源降到 1/4 tile」时才需要真正的矩形装箱器，rect 的表达不变。
 
@@ -519,18 +555,19 @@ shadowMatrix = m * view.GetWorldToClip();
 打进 `g_ShadowViews` 的是这个 `shadowMatrix`，不是裸的 worldToClip——tile 布局或 atlas 尺寸变了，
 shader 一个字不用改。
 
-**PCF 会跨 tile 采样**：边缘的 PCF taps 会采到隔壁 tile，表现为阴影边缘一圈错误硬边。两个办法一起上——
-渲染时 viewport/scissor 比 tile 内缩几像素留 border，采样时把 UV clamp 在内缩矩形里。另外 bias 和 PCF 的
-texel step 要按**该 tile 的实际分辨率**算而不是 atlas 分辨率，tile 大小不一时这是常见错误来源。
+**PCF 会跨 tile 采样**：边缘的 PCF taps 会采到隔壁 tile，表现为阴影边缘一圈错误硬边。渲染时比 tile 内缩
+几像素留 border，采样时把 UV clamp 在内缩矩形里。
 
-比较采样器 RHI 侧已具备：`SamplerState` 的 `ReductionType::Comparison` + `m_comparisonFunc`
-（`RHI/Resource/Sampler/SamplerState.h:84-85`）。
+**`View::m_rect` 存的就是内缩后的 rect**，viewport / scissor / `TileRemap` / 采样 clamp 四者全从它推，全程
+只有一个 rect。若只内缩 viewport 而 `TileRemap` 仍用满 tile rect，采样 UV 会整体偏移一个 border 宽度。
+
+bias 和 PCF 的 texel step 要按**该 tile 的实际分辨率**算而不是 atlas 分辨率，tile 大小不一时这是常见错误来源。
 
 ### shadow view 的产生
 
 `ShadowViewSystem` 每帧从光源重算 shadow view 集合（增删光源只动 view 实体，不动任何 DrawItem 骨架）。
 归属见上文「落地形态」：`SparkRender/View/`，与 `CameraViewSystem` 同构，读 world 的 `LightRenderData`、
-写 RHIContext 的 view 实体。**重算的来源是光源，不是剔除结果**（「必须先定的四件事」第 2 条）。
+写 RHIContext 的 view 实体。**重算的来源是光源，不是剔除结果**（「已定的决策」第 2 条）。
 
 | 光源 | view 数 | 投影 |
 |---|---|---|
@@ -553,18 +590,41 @@ texel step 要按**该 tile 的实际分辨率**算而不是 atlas 分辨率，t
    这是定量控制成本的主力。
 4. **预算封顶**：atlas 尺寸固定 → tile 数固定。按优先级（屏幕占比、距离、作者设的重要度）排序装满为止，
    剩下的退化成不投影。**保证最坏情况有上界**，与场景里有多少灯无关。
-5. **缓存**：静态光源 + 静态几何的 tile 画一次就不再重画；动态的也可降频（每 N 帧，或只在体积内有东西动过
-   时重画）。这才是「大量投影光源」可行的真正原因——每帧真正重画的 tile 通常是少数。
-6. **点光源按面剔除**：6 个面里只画与视锥相交的，常见是 2~3 个。
+5. **点光源按面剔除**：6 个面里只画与视锥相交的，常见是 2~3 个。
 
-这几条全部落在 `ShadowViewSystem` 的「建哪些 view 实体」这一步，不涉及任何机制改动。第 6 条尤其顺——一个面
-就是一个 view，面级剔除就是少建几个实体；第 5 条也自然：tile 内容没变就是这一帧不为该 view 提交，DrawList
-和成员都不动。
+这几条全部落在 `ShadowViewSystem` 的「建哪些 view 实体」这一步，不涉及任何机制改动。第 5 条尤其顺——一个面
+就是一个 view，面级剔除就是少建几个实体。
+
+#### 后续层级：tile 缓存
+
+**不进 v1。** 静态光源 + 静态几何的 tile 画一次不再重画、动态的降频重画，是「大量投影光源」可行的真正原因，
+但它是性能层级，不是功能完整性的一部分：方向光的 tile 内容每帧都变（级联跟着相机滑动），最贵的那盏灯吃不到；
+per-view 剔除对所有光源都生效、收益更通用，是它的前置而非替代。
+
+三个前置条件，互相独立：
+
+1. **`ImageClearRequest` 加 rect**（`RHI/Command/ClearRequest.h:33-38` 今天只有 clear value / flags /
+   image view）。缓存意味着 `loadAction = Load`，失效的 tile 要能单独清。两个后端原生都支持（DX12
+   `ClearDepthStencilView` 的 `NumRects/pRects`、Vulkan `vkCmdClearAttachments` 的 `VkClearRect`），但语义
+   得先定：Vulkan 的 `vkCmdClearAttachments` 必须在 render pass **内**、清当前绑定的 attachment，而
+   `vkCmdClearDepthStencilImage` 在 render pass **外**、收 subresource range 不收 rect；DX12 两种位置都行。
+   按「abstraction follows the stricter backend」，这是先定设计再写码的那一类。
+2. **失效判定。** tile 要在 caster 移动/增删、光源移动/改参、tile 被重分配、tile 分辨率变化时全部失效。需要
+   「光源体积内这一帧有没有东西动过」——那是变更检测，尚未落地。缺可靠失效的缓存产出的是残留错误阴影，
+   比慢难查得多。
+3. **tile→光源的跨帧稳定分配。** 已由「已定的决策」第 1 条的 `ShadowViewSlot` 提供。
+
+资源形态不在这个清单里：atlas 从一开始就是持久资源。
 
 ### Lighting 侧采样
 
-LightingPass 需要 shadow 矩阵做采样——这是**查询 view 信息**，不是渲染 view，仍需一个
+LightingPass 需要 shadow 矩阵做采样——这是**查询 view 信息**，不是渲染 view，需要一个
 `g_ShadowViews` StructuredBuffer 打包进 space0（和 `g_Lights` 一起，`SceneBindingSystem` marshal）。
+它与 per-view space1 SRG 并存，两者都从同一个 `View` 组件编码（「已定的决策」第 4 条）。
+
+atlas 本身按 `AttachmentId("ShadowAtlas")` 走 `ReadImageAttachment` + Compile 里
+`FindPassAttachmentImageView` → `SetPassShaderImage` 进 space2，与 LightingPass 现在读 SceneDepth
+一字不差；比较采样器走 `SetPassShaderSampler`（`Pass/PassAccess.h:176`）。
 
 每个条目携带（由上面的 atlas 要点决定）：
 
@@ -573,12 +633,94 @@ LightingPass 需要 shadow 矩阵做采样——这是**查询 view 信息**，�
 | `m_worldToShadowUV`（4×4） | 已预乘 tile 变换，`mul` 一次直接出 atlas UV |
 | tile 的 UV min / max（4 float） | 采样时 clamp，防 PCF 跨 tile |
 | tile 的 texel size | bias / PCF step 按该 tile 分辨率算，不是 atlas 分辨率 |
+| constant bias / normal offset | 「已定的决策」第 3 条：per-view 的 bias 在采样端应用 |
 
 `LightData`（`SceneBind/LightData.h`）有 `m_pad0` / `m_pad1` 两个 float 空位，`static_assert(sizeof == 64)`
-锁着布局——拿 `m_pad0` 当 `m_shadowIndex`（-1 = 不投影）**不用动 64B 布局**。
+锁着布局——`m_pad0` 改成 `int32_t m_shadowIndex = -1`，同宽，**不动 64B 布局**，HLSL 侧同步改成 `int`。
+值由 `SceneBindingSystem` 从光源实体的 `LightShadowIndex` 读（「已定的决策」第 1 条）。
 
-bias / atlas tile 分辨率 / normal offset 这类参数放 `LightComponent`（authored data），
-不写死在渲染层——将来做序列化时白拿。
+### 实现顺序
+
+行为改变只在第 5 步。第 3 步是第一次真正提交 draw，但屏幕上看不见，验证靠抓帧。
+
+**1. 数据与标记，无消费者。**（已完成）
+
+- `LightComponent` 加 `m_castShadow` / `m_shadowBias` / `m_shadowNormalOffset`，进反射；`LightRenderData` 加
+  同名镜像；`LightSystem` 搬运。
+- `MeshDrawableComposer` 在 `OpaqueTag` 旁边补打 `ShadowCasterTag`。
+- 新增 `ShadowViewTag`（`View/ViewTags.h`）、`ShadowViewSlot { uint32_t }` 与 `ShadowViewRefs`
+  （`View/ViewComponents.h`）。
+
+tile 分辨率字段推到第 6 步——v1 是固定网格，它是 atlas 尺寸 / kGrid 的推导值，真正的消费者是那一步的分辨率
+阶梯，届时才知道它该表达像素数还是等级。`ViewInactiveTag` 同理推到第 6 步，它唯一的消费者是 `CollectViews`
+的 `Exclude`。
+
+`LightShadowIndex` 并入 `ShadowViewRefs::m_index`：两者同一个 system 写、同时销毁，拆成两个组件只多一次
+ECS 查找和一处可能不同步的地方。
+
+**2. `ShadowViewSystem` 产生 view 实体，仍无 pass 消费。**（已完成）
+
+`SparkRender/View/`，与 `CameraViewSystem` 同构。每帧对 `m_castShadow` 的方向光 / 聚光灯 find-or-create view
+实体，分配 `ShadowViewSlot`，由槽位算 tile `m_rect`（内缩后的），算 `m_worldToView` / `m_viewToClip`，
+写 `ShadowViewRefs`；无对应光源的 view 打 `DeadTag`、级联销毁 SRG 并释放槽位。`Update` 挂在
+`RenderSystem::OnTick` 的 `m_cameraViewSystem.Update` 之后，`Shutdown` 同 `CameraViewSystem`。
+
+atlas 布局单独成头 `View/ShadowAtlasLayout.h`（2048 / 4×4 / 1 texel border / `ShadowTileRect`），放 `View/`
+而非 `Feature/Shadow/`，因为第 3、4 步都要读它，依赖方向与 DepthPrePass include `View/ViewTags.h` 一致。
+
+**`m_index` 直接等于第一个 view 的 `ShadowViewSlot`**：`g_ShadowViews` 按 tile 槽位寻址，容量 = tile 数，
+不另设紧凑索引。一个索引空间，`m_index` 天然稳定，代价是 buffer 里有未分配的空洞。
+
+方向光的正交盒 v1 用「相机位置周围固定边长 + 沿光方向回退」占位，相机位置从 `MainViewTag` view 的
+`Inverse(m_worldToView)[3]` 取——view 实体已经回答了「主相机是哪个」，不重复这个判断。正解是拟合视锥
+（用外接球而非 AABB，尺寸对相机旋转不变，才能配合 texel snapping 消抖动）+ 场景 AABB 定沿光方向的 near。
+
+atlas 满时优雅降级：分配失败就不建 `ShadowViewRefs`，该光源无阴影但不破坏别人的 tile，下一帧重试。
+
+验证是免费的：`ViewBindingSystem` 扫的是 `<View, ViewShaderBindings>`，与 view 类型 tag 无关，所以 shadow view
+一建出来就被编码，space1 SRG 非空即证明 view 实体、SRG、生命周期三条都对。
+
+**3. ShadowPass 画进 atlas，先不采样。**
+
+- atlas 是持久 Image 实体：`PendingImageInit`（`DepthStencil | ShaderRead`，D32_FLOAT，自己的常量尺寸）+
+  `ResourceName`。**不要用 `CreateStaticImage`**——它打 `StaticImportTag`，那是给「从不当 attachment」的
+  采样资源用的。
+- **Build 里必须 gate 资源就绪**：延迟创建要等一帧，而 `ImportImageAttachment` 断言 `BackingImage` 存在
+  （`RenderGraphBuilder.h:425-431`）。没就绪就整个 pass 不声明 attachment。
+- shader 直接复用 `Shaders/DepthPre/DepthPre.hlsl`——它已经是 `ViewBindings`(space1) +
+  `InstanceBindings`(space4) + `POSITION` / `INSTANCE_INDEX`，`mul(g_ViewProjection, worldPos)` 对光源视角
+  同样成立。差异全在 PSO：slope-scale bias、cull mode。
+- pass 声明 `.Accepts<ShadowCasterTag>().Binds<>().RendersView<ShadowViewTag>()`，`loadAction = Clear` /
+  `storeAction = Store`。
+
+验证靠抓帧看 atlas。失败模式：所有 tile 内容相同 = 跨 DrawList 没重绑 space1；tile 互相溢出 = scissor 没生效
+或 rect 缩放错；atlas 全空 = `ShadowCasterTag` 没打到 Drawable 上，或 Build 的就绪 gate 一直没放行。
+
+**4. `g_ShadowViews` + `m_shadowIndex`，shader 尚未使用。**
+
+`LightData::m_pad0` → `int32_t m_shadowIndex`，HLSL 镜像同步。`SceneBindingSystem` 新增 `g_ShadowViews`
+StructuredBuffer（与 `g_Lights` 同构的 per-frame + `PendingBufferInit` 路径），从 view 实体的 `View` 组件
+编码 `m_worldToShadowUV` / tile UV min-max / texel size；`m_shadowIndex` 从光源实体的 `LightShadowIndex` 读。
+
+验证：抓帧看 buffer 内容，矩阵与 tile 参数与第 2 步算出的一致。
+
+**5. LightingPass 采样，阴影出现。** 行为改变集中在这一步。
+
+`ReadImageAttachment("ShadowAtlas")`（`m_overrideFormat = R32_FLOAT` + `m_overrideBindFlags = ShaderRead`，
+与现在读 SceneDepth 一字不差）→ Compile 里 `FindPassAttachmentImageView` + `SetPassShaderImage` 进 space2，
+比较采样器走 `SetPassShaderSampler`；shader 里 `SampleCmp` + tile UV clamp + bias。
+
+**6. 投影判据与 gate。**
+
+作者标注（第 1 步已有 `m_castShadow`）、影响体积 × 视锥相交、屏幕占比、预算封顶，全落在 `ShadowViewSystem`
+的「建哪些 view 实体」和 gate 上。`CollectViews` 加 `Exclude<ViewInactiveTag>`。
+
+**v1 里 `ViewInactiveTag` 只能表达「这盏灯这一帧完全不投影」，且必须与 `LightShadowIndex = -1` 同帧同源
+设置。** 它不能表达「tile 内容没变所以跳过」——atlas 每帧整张 Clear，跳过的 tile 是清空值而不是上一帧内容，
+shader 只有在 `m_shadowIndex == -1` 完全不采样时才是对的。那条路属于「后续层级：tile 缓存」。
+
+**7. 点光源 6 面。** 独立的一块复杂度（cube 面选择 + 面级剔除 + tile UV 换算），前六步跑通后再上，
+混进来会分不清 bug 来源。
 
 ## 六、实现步骤
 
@@ -643,15 +785,11 @@ bias / atlas tile 分辨率 / normal offset 这类参数放 `LightComponent`（a
   CommandList，`BuildExecuteWorks` 的 pass 内拆分做不了。两个后端都有原生机制
   （`D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS` / `VK_RENDERING_SUSPENDING_BIT`），且 TBDR 上还关系到 tile memory
   能否跨 CommandList 保持——按「abstraction follows the stricter backend」这个字段本就该有。独立于本方案。
-- **view 数据的最终形态：per-view SRG，还是 `g_Views` 全量缓冲区 + 索引。** 现在按 per-view SRG 做——
-  渲染时同一时刻只有一个 view，绑 CBV 最直接，也不依赖 root constant。但 shadow 采样一落地，这份矩阵**必然
-  还会有一个 buffer 版本**（一次 draw 里要读 N 个 shadow view），届时 per-view SRG 就是同一份数据的第二次
-  编码——两条 marshal 路径要保持同步；再往后 GPU 剔除按索引读所有 view，buffer 只会更必然。
-  合并的唯一障碍是 root constant（得告诉 shader「当前是第几个 view」）：layout 侧已实现
+- **`g_Views` 全量缓冲区能否取代 per-view SRG。** 两者并存已定（§五「已定的决策」第 4 条），这里剩下的是
+  能否最终合并掉 CBV 这条路。障碍是 root constant（得告诉 shader「当前是第几个 view」）：layout 侧已实现
   （`Backend/DX12/Pipeline/PipelineLayout.cpp:44-57`），缺的是 CommandList 侧的设值路径
   （`Backend/DX12/Command/CommandList.h:23` "SetRootConstants removed"），补回来是一个虚函数加一次
-  `SetGraphicsRoot32BitConstants`。**触发点是 shadow 采样**——那时 buffer 必然存在，应当一并决定是否合并掉
-  CBV 这条路，而不是让两条路各自长大。
+  `SetGraphicsRoot32BitConstants`。真正的触发点是 GPU 剔除按索引读所有 view，不是 shadow。
 - **剔除结果的形态。** 结果按 DrawList 存（per view 天然成立），`Visible<V>`（`View/ViewTags.h:11-19`）及其
   两处标记（`DrawItemRouter.cpp:287`、`MeshDrawableComposer.cpp:168`）删除——tag 是编译期的，表达不了
   per-view-instance，今天也没有任何地方读它。list 内用索引数组还是位掩码，等接剔除时定。
