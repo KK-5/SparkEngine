@@ -7,6 +7,10 @@ namespace Spark::Render
     //! view INSTANCES of a type is a runtime property (one camera or two in split
     //! screen, N faces for shadows), so instances are entities carrying this tag and
     //! consumers enumerate them via GetView<MainViewTag, ...>.
-    //! Add ShadowViewTag / ReflectionViewTag etc. as more view types appear.
+    //! Add ReflectionViewTag etc. as more view types appear.
     struct MainViewTag {};
+
+    //! Every shadow-casting view: one per directional / spot light, six per point light.
+    //! The tile a given view owns is on the entity (ShadowViewSlot), not in the type.
+    struct ShadowViewTag {};
 }

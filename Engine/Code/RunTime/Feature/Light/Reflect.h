@@ -26,6 +26,9 @@ namespace Spark::Light
             .Data<&LightComponent::m_range>("Range").Custom<Spark::FloatElement>(0.f, 1000.f, 0.1f)
             .Data<&LightComponent::m_innerConeDeg>("Inner Cone").Custom<Spark::FloatElement>(0.f, 89.f, 0.5f)
             .Data<&LightComponent::m_outerConeDeg>("Outer Cone").Custom<Spark::FloatElement>(0.f, 90.f, 0.5f)
+            .Data<&LightComponent::m_castShadow>("Cast Shadow").Custom<Spark::BoolElement>()
+            .Data<&LightComponent::m_shadowBias>("Shadow Bias").Custom<Spark::FloatElement>(0.f, 0.1f, 0.0005f)
+            .Data<&LightComponent::m_shadowNormalOffset>("Shadow Normal Offset").Custom<Spark::FloatElement>(0.f, 1.f, 0.005f)
             ;
 
         Spark::ComponentOpertion<LightComponent>(context);

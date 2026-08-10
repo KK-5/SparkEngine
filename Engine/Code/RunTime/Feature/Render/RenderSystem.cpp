@@ -202,6 +202,7 @@ namespace Spark::Render
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
@@ -245,6 +246,8 @@ namespace Spark::Render
         // Produce this frame's views, then encode all of them in one place. A view created
         // just now still gets picked up by CompileShaderInputs later in this same frame.
         m_cameraViewSystem.Update(renderSize);
+        // After the camera views: a directional light's ortho box follows the main view.
+        m_shadowViewSystem.Update();
         m_viewBindingSystem.Update(rhiCtx);
 
         m_sceneBindingSystem.Update(frameIndex);

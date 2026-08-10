@@ -163,6 +163,9 @@ namespace Spark::Render
             rhiCtx->Add<DrawableTag>(drawable);
             // Everything is opaque today; becomes a per-AlphaMode split later.
             rhiCtx->Add<OpaqueTag>(drawable);
+            // Orthogonal to the shading dimension: every opaque mesh casts, until the mesh
+            // itself carries an authored flag.
+            rhiCtx->Add<ShadowCasterTag>(drawable);
             rhiCtx->Add<Drawable>(drawable, 
                 ComposePersistent(gpu, ref, instanceBindingEntity, idBufferEntity, idBufferByteCount));
             rhiCtx->Add<DerivedDrawItems>(drawable, DerivedDrawItems{});

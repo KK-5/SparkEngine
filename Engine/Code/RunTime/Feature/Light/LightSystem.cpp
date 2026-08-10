@@ -53,9 +53,10 @@ namespace Spark::Light
             world->Add<Transform::TransformComponent>(light, xform);
 
             LightComponent lc;
-            lc.m_type      = LightType::Directional;
-            lc.m_color     = Math::Vector4(1.0f, 0.98f, 0.95f, 1.0f);
-            lc.m_intensity = 3.0f;
+            lc.m_type       = LightType::Directional;
+            lc.m_color      = Math::Vector4(1.0f, 0.98f, 0.95f, 1.0f);
+            lc.m_intensity  = 3.0f;
+            lc.m_castShadow = true;
             world->Add<LightComponent>(light, lc);
 
             if (auto* scene = Service<IScene>::Get())
@@ -92,6 +93,10 @@ namespace Spark::Light
             rd.m_worldPosition  = ExtractPosition(xform.m_worldMatrix);
             rd.m_cosInner       = std::cos(Math::Radians(lc.m_innerConeDeg));
             rd.m_cosOuter       = std::cos(Math::Radians(lc.m_outerConeDeg));
+
+            rd.m_castShadow         = lc.m_castShadow;
+            rd.m_shadowBias         = lc.m_shadowBias;
+            rd.m_shadowNormalOffset = lc.m_shadowNormalOffset;
 
             world->AddOrReplace<LightRenderData>(entity, rd);
         });

@@ -18,6 +18,7 @@ set(SOURCES
     RenderSystem.cpp
     View/ViewBindingSystem.cpp
     View/CameraViewSystem.cpp
+    View/ShadowViewSystem.cpp
     View/ViewFactory.cpp
     SceneBind/SceneBindingSystem.cpp
     Instance/InstanceBindingSystem.cpp

@@ -26,6 +26,15 @@ namespace Spark::Light
         float         m_range     = 10.0f;    // point/spot falloff radius (world units)
         float         m_innerConeDeg = 20.0f; // spot inner cone half-angle
         float         m_outerConeDeg = 30.0f; // spot outer cone half-angle
+
+        bool          m_castShadow = false;
+        //! Depth-space constant offset applied at comparison time, and a world-space offset
+        //! along the surface normal applied to the sample position. Both are per-light
+        //! because the usable value scales with the light's frustum extent. Slope-scaled
+        //! bias is NOT here: it lives in the shadow pass's raster state, which is per-PSO
+        //! and therefore shared by every shadow view.
+        float         m_shadowBias         = 0.005f;
+        float         m_shadowNormalOffset = 0.0f;
     };
 
     //! Per-frame render-ready light state, produced by LightSystem from LightComponent +
@@ -44,6 +53,10 @@ namespace Spark::Light
         float         m_range     = 10.0f;
         float         m_cosInner  = 1.0f;   // cos(inner cone), spot
         float         m_cosOuter  = 1.0f;   // cos(outer cone), spot
+
+        bool          m_castShadow         = false;
+        float         m_shadowBias         = 0.005f;
+        float         m_shadowNormalOffset = 0.0f;
     };
 }
 
