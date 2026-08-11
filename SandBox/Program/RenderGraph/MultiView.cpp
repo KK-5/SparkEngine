@@ -443,7 +443,7 @@ namespace Spark::SandBox
             // the four silhouettes identical and only the texture telling them apart.
             const float orbit = Math::Radians(50.f) * static_cast<float>(i);
             view.m_worldToView = Math::LookAt(
-                Math::Vector3(sinf(orbit) * 6.f, 3.f, -cosf(orbit) * 6.f),
+                Math::Vector3(Math::Sin(orbit) * 6.f, 3.f, -Math::Cos(orbit) * 6.f),
                 Math::Vector3(0.f, 0.f, 0.f),
                 Math::Vector3(0.f, 1.f, 0.f));
 

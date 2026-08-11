@@ -1,7 +1,5 @@
 #include "ShadowViewSystem.h"
 
-#include <cmath>
-
 #include <EASTL/fixed_vector.h>
 
 #include <ECS/Common.h>
@@ -30,10 +28,15 @@ namespace Spark::Render
 
         constexpr float kSpotNearZ = 0.05f;
 
+        //! tan(fov/2) is degenerate at both endpoints of the authored cone. A numeric guard,
+        //! not a quality cap.
+        constexpr float kSpotMinHalfAngleDeg = 1.0f;
+        constexpr float kSpotMaxHalfAngleDeg = 89.0f;
+
         //! An up vector that is not parallel to dir, so LookAt stays well conditioned.
         Math::Vector3 StableUp(const Math::Vector3& dir)
         {
-            return (std::abs(dir.y) > 0.99f)
+            return (Math::Abs(dir.y) > 0.99f)
                 ? Math::Vector3(0.0f, 0.0f, 1.0f)
                 : Math::Vector3(0.0f, 1.0f, 0.0f);
         }
@@ -53,8 +56,7 @@ namespace Spark::Render
         {
             Math::Vector3 position(0.0f, 0.0f, 0.0f);
             bool found = false;
-            rhiCtx.GetView<MainViewTag, View>(Exclude<DeadTag>).each(
-                [&](RHI::RHIHandle, const View& view)
+            rhiCtx.GetView<MainViewTag, View>(Exclude<DeadTag>).each([&](RHI::RHIHandle, const View& view)
             {
                 if (!found)
                 {
@@ -82,12 +84,13 @@ namespace Spark::Render
         void WriteSpotView(View& view, const Light::LightRenderData& rd)
         {
             const Math::Vector3 dir = Math::Normalize(rd.m_worldDirection);
-            view.m_worldToView = Math::LookAt(
-                rd.m_worldPosition, rd.m_worldPosition + dir, StableUp(dir));
+            view.m_worldToView = Math::LookAt(rd.m_worldPosition, rd.m_worldPosition + dir, StableUp(dir));
 
             // m_cosOuter is the cosine of the HALF angle, so the full vertical fov is twice
             // its arccos. Square tile, hence aspect 1.
-            const float outerHalf = std::acos(Math::Clamp(rd.m_cosOuter, -1.0f, 1.0f));
+            const float outerHalf = Math::Clamp(
+                Math::Acos(Math::Clamp(rd.m_cosOuter, -1.0f, 1.0f)),
+                Math::Radians(kSpotMinHalfAngleDeg), Math::Radians(kSpotMaxHalfAngleDeg));
             const float farZ      = rd.m_range > kSpotNearZ ? rd.m_range : kSpotNearZ * 2.0f;
             view.m_viewToClip     = Math::PerspectiveFov(outerHalf * 2.0f, 1.0f, kSpotNearZ, farZ);
         }
@@ -132,8 +135,7 @@ namespace Spark::Render
 
         const Math::Vector3 focus = MainViewPosition(*rhiCtx);
 
-        world->GetView<Light::LightRenderData>(Exclude<DeadTag>).each(
-            [&](Entity e, const Light::LightRenderData& rd)
+        world->GetView<Light::LightRenderData>(Exclude<DeadTag>).each([&](Entity e, const Light::LightRenderData& rd)
         {
             if (!ProducesShadowView(rd))
             {
@@ -168,6 +170,8 @@ namespace Spark::Render
                 LOG_INFO("[ShadowViewSystem] Light {} took shadow tile {}.",
                     static_cast<uint32_t>(e), slot);
             }
+
+            ASSERT(refs->m_index >= 0, "[ShadowViewSystem] Light {} has shadow views but no tile.", static_cast<uint32_t>(e));
 
             View& view  = rhiCtx->Get<View>(refs->m_views[0]);
             view.m_rect = ShadowTileRect(static_cast<uint32_t>(refs->m_index));

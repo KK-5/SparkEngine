@@ -9,6 +9,7 @@
 #include <Log/SpdLogSystem.h>
 #include <Base.h>
 #include <Service/Service.h>
+#include <Math/MathUtils.h>
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Device/Device.h>
@@ -72,7 +73,7 @@ namespace
     uint8_t ToneMapToByte(float linear)
     {
         const float mapped = linear / (linear + 1.0f);      // Reinhard
-        const float gamma  = powf(mapped, 1.0f / 2.2f);     // to sRGB-ish
+        const float gamma  = Math::Pow(mapped, 1.0f / 2.2f);   // to sRGB-ish
         const int   v      = static_cast<int>(gamma * 255.0f + 0.5f);
         return static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
     }

@@ -17,6 +17,7 @@
 #include <glm/trigonometric.hpp>
 #include <glm/geometric.hpp>
 #include <glm/common.hpp>
+#include <glm/exponential.hpp>
 
 #include <cmath>
 
@@ -32,6 +33,21 @@ namespace Spark::Math
     inline float Degrees(float radians)
     {
         return glm::degrees(radians);
+    }
+
+    inline float Sin(float radians)
+    {
+        return glm::sin(radians);
+    }
+
+    inline float Cos(float radians)
+    {
+        return glm::cos(radians);
+    }
+
+    inline float Acos(float v)
+    {
+        return glm::acos(v);
     }
 
     // ---- Vector Operations ----
@@ -139,6 +155,21 @@ namespace Spark::Math
     inline Vector3 Abs(const Vector3& v)
     {
         return glm::abs(v);
+    }
+
+    inline float Abs(float v)
+    {
+        return glm::abs(v);
+    }
+
+    inline float Sqrt(float v)
+    {
+        return glm::sqrt(v);
+    }
+
+    inline float Pow(float base, float exponent)
+    {
+        return glm::pow(base, exponent);
     }
 
     inline Vector3 Floor(const Vector3& v)

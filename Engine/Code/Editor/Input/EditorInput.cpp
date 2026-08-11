@@ -131,8 +131,8 @@ namespace Editor
 
         float yawRad = Math::Radians(transform->m_rotation.y);
 
-        Math::Vector3 forward(std::sin(yawRad), 0.f, std::cos(yawRad));
-        Math::Vector3 right(std::cos(yawRad), 0.f, -std::sin(yawRad));
+        Math::Vector3 forward(Math::Sin(yawRad), 0.f, Math::Cos(yawRad));
+        Math::Vector3 right(Math::Cos(yawRad), 0.f, -Math::Sin(yawRad));
         Math::Vector3 up(0.f, 1.f, 0.f);
 
         Math::Vector3 movement(0.f);

@@ -293,9 +293,9 @@ namespace Spark::SandBox
         {
             float phase = m_colorPhase + i * 2.0f;
             m_colors[i] = Math::Vector3(
-                sinf(phase) * 0.5f + 0.5f,
-                sinf(phase + 2.0f) * 0.5f + 0.5f,
-                sinf(phase + 4.0f) * 0.5f + 0.5f);
+                Math::Sin(phase) * 0.5f + 0.5f,
+                Math::Sin(phase + 2.0f) * 0.5f + 0.5f,
+                Math::Sin(phase + 4.0f) * 0.5f + 0.5f);
         }
     }
 }

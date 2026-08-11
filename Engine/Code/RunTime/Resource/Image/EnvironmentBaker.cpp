@@ -1,10 +1,9 @@
 #include "EnvironmentBaker.h"
 
-#include <cmath>
-
 #include <EASTL/array.h>
 
 #include <Log/ILogSystem.h>
+#include <Math/MathUtils.h>
 #include <Service/Service.h>
 
 #include <RHI/RHIInterface.h>
@@ -72,7 +71,7 @@ namespace Spark::Resource
             return 0.0f;
         }
         const float x = static_cast<float>(mip) / static_cast<float>(mipCount - 1);
-        return 1.0f - std::sqrt(1.0f - x);
+        return 1.0f - Math::Sqrt(1.0f - x);
     }
 
     float EnvironmentBaker::RoughnessToLod(float perceptualRoughness, uint32_t mipCount)

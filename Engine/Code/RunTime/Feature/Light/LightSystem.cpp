@@ -91,8 +91,8 @@ namespace Spark::Light
             rd.m_range          = lc.m_range;
             rd.m_worldDirection = ExtractForward(xform.m_worldMatrix);
             rd.m_worldPosition  = ExtractPosition(xform.m_worldMatrix);
-            rd.m_cosInner       = std::cos(Math::Radians(lc.m_innerConeDeg));
-            rd.m_cosOuter       = std::cos(Math::Radians(lc.m_outerConeDeg));
+            rd.m_cosInner       = Math::Cos(Math::Radians(lc.m_innerConeDeg));
+            rd.m_cosOuter       = Math::Cos(Math::Radians(lc.m_outerConeDeg));
 
             rd.m_castShadow         = lc.m_castShadow;
             rd.m_shadowBias         = lc.m_shadowBias;
