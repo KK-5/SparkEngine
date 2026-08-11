@@ -26,10 +26,10 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "AssetManager is unregister.");
 
-        Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/DepthPre/DepthPre.hlsl");
+        Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/DepthOnly/DepthOnly.hlsl");
         if (!assetId.IsValid())
         {
-            LOG_ERROR("[DepthPrePass] Failed to loaded shader DepthPre.hlsl.");
+            LOG_ERROR("[DepthPrePass] Failed to loaded shader DepthOnly.hlsl.");
             return {};
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);

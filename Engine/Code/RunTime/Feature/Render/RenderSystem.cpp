@@ -25,6 +25,7 @@
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/Lighting/LightingPass.h>
+#include <Feature/Shadow/ShadowPass.h>
 #include <Feature/Skybox/SkyboxPass.h>
 #include <Feature/Tonemap/TonemapPass.h>
 
@@ -107,6 +108,9 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
+        auto shadowPassCfg = ShadowPass::DefaultConfig();
+        ShadowPass::SetUp(passContext, shadowPassCfg);
+
         auto depthPrePassCfg = DepthPrePass::DefaultConfig();
         DepthPrePass::SetUp(passContext, depthPrePassCfg);
 
@@ -156,6 +160,7 @@ namespace Spark::Render
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
+        m_shadowViewSystem.Init(rhiCtxForInit);
 
         m_meshDrawableComposer.Init(rhiCtxForInit);
         m_drawItemRouter.Init(rhiCtxForInit);

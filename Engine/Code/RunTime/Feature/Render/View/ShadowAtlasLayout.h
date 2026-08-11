@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include <RHI/Format.h>
+
 #include "View.h"
 
 namespace Spark::Render
@@ -17,8 +19,14 @@ namespace Spark::Render
     inline constexpr uint32_t kShadowTileCount       = kShadowTileGrid * kShadowTileGrid;
     inline constexpr uint32_t kShadowTileResolution  = kShadowAtlasResolution / kShadowTileGrid;
 
+    //! One resource, two views: D32 DSV for ShadowPass, R32_FLOAT SRV for LightingPass.
+    inline constexpr RHI::Format kShadowAtlasFormat = RHI::Format::D32_FLOAT;
+
     //! No tile free. Distinct from slot 0, which is a perfectly good tile.
     inline constexpr uint32_t kInvalidShadowSlot = ~0u;
+
+    //! The one atlas image, owned by ShadowViewSystem. How ShadowPass locates it.
+    struct ShadowAtlasTag {};
 
     //! Texels held back on each side of a tile: PCF taps at a tile's edge would otherwise
     //! reach into its neighbour. Tune together with the PCF kernel radius once sampling lands.

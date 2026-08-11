@@ -14,22 +14,28 @@ namespace Spark::Render
     //! the view's SRG is ViewBindingSystem's job, which does that for every view regardless
     //! of who produced it.
     //!
-    //! The atlas tile a view owns is allocated here and held for that view's whole lifetime.
-    //! It has to be: LightData::m_shadowIndex addresses g_ShadowViews by it, so a slot that
-    //! shifted when the light set changed would point one light's shadow at another light's
-    //! tile for a frame.
+    //! Owns the atlas image too — a tile index means nothing without the atlas it indexes.
+    //! ShadowPass finds it by ShadowAtlasTag.
+    //!
+    //! The tile a view owns is allocated here and held for that view's whole lifetime. It has
+    //! to be: LightData::m_shadowIndex addresses g_ShadowViews by it, so a slot that shifted
+    //! when the light set changed would point one light's shadow at another light's tile.
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced before the encoding step.
     class ShadowViewSystem
     {
     public:
+        void Init(RHI::RHIContext& rhiCtx);
         void Update();
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
         uint32_t AllocateSlot();
         void     ReleaseSlot(uint32_t slot);
+
+        //! Written by ShadowPass, read by LightingPass. Persistent, and deferred-init.
+        RHI::RHIHandle m_atlas = RHI::NullHandle;
 
         //! Occupied tiles. Outlives the frame, unlike everything else about a shadow view.
         eastl::bitset<kShadowTileCount> m_slots;

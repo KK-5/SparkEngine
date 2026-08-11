@@ -7,6 +7,7 @@ set(SOURCES
     Feature/DepthPre/DepthPrePass.cpp
     Feature/GBuffer/GBufferPass.cpp
     Feature/Lighting/LightingPass.cpp
+    Feature/Shadow/ShadowPass.cpp
     Feature/Skybox/SkyboxPass.cpp
     Feature/Tonemap/TonemapPass.cpp
     Pass/PassAccess.cpp

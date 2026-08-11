@@ -1,10 +1,8 @@
 #include <Shaders/ViewBindings.hlsl>
 #include <Shaders/InstanceBindings.hlsl>
 
-// Depth pre-pass: writes SceneDepth ONLY — no color target. The rasterizer writes depth
-// from SV_Position; the pixel shader outputs nothing. SceneColor is created and owned by
-// LightingPass (the first pass that actually produces scene color), not here — this pass
-// used to write a depth visualization into SceneColor purely for early validation.
+// Depth only, no color target. Shared by DepthPrePass and ShadowPass: the view is whatever
+// space1 holds, a camera's or a light's.
 //
 // Per-instance model matrix comes from the global g_Instances StructuredBuffer (space4),
 // indexed by InstanceIdx, delivered through a per-instance vertex stream filled by

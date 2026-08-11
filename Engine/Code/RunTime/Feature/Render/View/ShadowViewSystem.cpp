@@ -7,6 +7,10 @@
 #include <Log/ILogSystem.h>
 #include <Math/MathUtils.h>
 
+#include <RHI/HardwareQueue.h>
+#include <RHI/ResourceBuilder.h>
+#include <RHI/Resource/Image/ImageDescriptor.h>
+
 #include <Light/Components.h>
 
 #include "View.h"
@@ -94,6 +98,17 @@ namespace Spark::Render
             const float farZ      = rd.m_range > kSpotNearZ ? rd.m_range : kSpotNearZ * 2.0f;
             view.m_viewToClip     = Math::PerspectiveFov(outerHalf * 2.0f, 1.0f, kSpotNearZ, farZ);
         }
+    }
+
+    void ShadowViewSystem::Init(RHI::RHIContext& rhiCtx)
+    {
+        auto desc = RHI::ImageDescriptor::Create2D(
+            RHI::ImageBindFlags::DepthStencil | RHI::ImageBindFlags::ShaderRead,
+            kShadowAtlasResolution, kShadowAtlasResolution, kShadowAtlasFormat);
+        desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
+
+        m_atlas = RHI::CreateImportedImage(rhiCtx, ObjectName("ShadowAtlas"), desc);
+        rhiCtx.Add<ShadowAtlasTag>(m_atlas);
     }
 
     void ShadowViewSystem::Update()
@@ -193,6 +208,12 @@ namespace Spark::Render
         {
             DestroyViewEntity(rhiCtx, view);
         });
+        if (m_atlas != RHI::NullHandle && rhiCtx.Valid(m_atlas))
+        {
+            rhiCtx.DestoryEntity(m_atlas);
+        }
+        m_atlas = RHI::NullHandle;
+
         m_slots.reset();
         m_atlasFullLogged = false;
 
