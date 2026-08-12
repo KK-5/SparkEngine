@@ -172,6 +172,11 @@ namespace Spark::Math
         return glm::pow(base, exponent);
     }
 
+    inline float Floor(float v)
+    {
+        return glm::floor(v);
+    }
+
     inline Vector3 Floor(const Vector3& v)
     {
         return glm::floor(v);

@@ -25,8 +25,14 @@ namespace Spark::Render
 
         float           m_depthBias    = 0.0f;
         float           m_normalOffset = 0.0f;
-        float           m_pad0         = 0.0f;
-        float           m_pad1         = 0.0f;
+
+        //! PCF kernel radius in texels. Per view rather than global because the useful value
+        //! differs by projection: a perspective light's texels grow with distance, so a fixed
+        //! radius already widens the penumbra away from the light, while an orthographic
+        //! light's stay constant and need a wider kernel to hide the same aliasing.
+        //! Where PCSS would write its per-pixel radius.
+        float           m_pcfRadiusTexels = 1.0f;
+        float           m_pad1            = 0.0f;
     };
 
     static_assert(sizeof(ShadowViewData) == 96,

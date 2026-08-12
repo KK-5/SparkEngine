@@ -29,8 +29,14 @@ namespace Spark::Render
         //! camera rotation) and the pull-back derived from the scene bounds so that casters
         //! between the light and the viewer are not clipped away. Neither the authored shadow
         //! distance nor a scene AABB exists yet — see TODO_MultiViewPlan.md §五.
-        constexpr float kDirectionalHalfExtent = 30.0f;
+        constexpr float kDirectionalHalfExtent = 12.0f;
         constexpr float kDirectionalPullback   = 200.0f;
+
+        //! World size of one shadow texel for that box. The divisor is the tile's USABLE
+        //! span, not its resolution: the viewport is inset by the border, so that is what
+        //! NDC [-1,1] lands on.
+        constexpr float kDirectionalTexelSize =
+            2.0f * kDirectionalHalfExtent / static_cast<float>(kShadowTileUsableTexels);
 
         constexpr float kSpotNearZ = 0.05f;
 
@@ -73,14 +79,38 @@ namespace Spark::Render
             return position;
         }
 
+        //! Quantize the box origin to whole texels in the light's own frame. Without it the
+        //! texel grid slides continuously under static geometry as the camera moves and
+        //! shadow edges crawl. Only x/y are snapped — z runs along the light, where the grid
+        //! does not live.
+        //!
+        //! This works only because the box size is FIXED. A frustum-fitted box changes size
+        //! with camera rotation, leaving no constant grid to quantize against; that is why
+        //! fitting has to arrive together with its own stabilization (a bounding sphere),
+        //! not on top of this.
+        Math::Vector3 SnapToTexelGrid(
+            const Math::Vector3& focus, const Math::Vector3& dir, const Math::Vector3& up)
+        {
+            const Math::Matrix4X4 basis = Math::LookAt(Math::Vector3(0.0f, 0.0f, 0.0f), dir, up);
+
+            Math::Vector3 lightSpace = Math::Vector3(basis * Math::Vector4(focus, 1.0f));
+            lightSpace.x = Math::Floor(lightSpace.x / kDirectionalTexelSize) * kDirectionalTexelSize;
+            lightSpace.y = Math::Floor(lightSpace.y / kDirectionalTexelSize) * kDirectionalTexelSize;
+
+            return Math::Vector3(Math::Inverse(basis) * Math::Vector4(lightSpace, 1.0f));
+        }
+
         //! A directional light has no position, so the box's placement is chosen rather than
         //! read: it follows the camera, since that is the only region whose shadows are seen.
         //! The eye is pulled back along the light direction so that casters standing between
         //! the light and that region still fall inside the near plane.
-        void WriteDirectionalView(View& view, const Light::LightRenderData& rd, const Math::Vector3& focus)
+        void WriteDirectionalView(View& view, const Light::LightRenderData& rd, const Math::Vector3& cameraPos)
         {
-            const Math::Vector3 dir = Math::Normalize(rd.m_worldDirection);
-            view.m_worldToView = Math::LookAt(focus - dir * kDirectionalPullback, focus, StableUp(dir));
+            const Math::Vector3 dir   = Math::Normalize(rd.m_worldDirection);
+            const Math::Vector3 up    = StableUp(dir);
+            const Math::Vector3 focus = SnapToTexelGrid(cameraPos, dir, up);
+
+            view.m_worldToView = Math::LookAt(focus - dir * kDirectionalPullback, focus, up);
             view.m_viewToClip  = Math::OrthographicProjection(
                 -kDirectionalHalfExtent, kDirectionalHalfExtent,
                 -kDirectionalHalfExtent, kDirectionalHalfExtent,

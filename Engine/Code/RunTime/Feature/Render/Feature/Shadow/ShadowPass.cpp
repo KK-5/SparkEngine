@@ -44,14 +44,15 @@ namespace Spark::Render
                ->Channel("INSTANCE_INDEX", 0, RHI::Format::R32_UINT);
         RHI::InputStreamLayout input = builder.End();
 
-        // Bias stays zero until sampling lands and acne is visible. Slope-scaled bias is PSO
-        // state, so every view of this pass shares one value — see TODO_MultiViewPlan.md §五.
+        // Slope-scaled only; the constant term is applied per light at sample time
+        // (ShadowViewData::depthBias).
         RHI::RenderStates states;
         states.m_depthStencilState.m_depth.m_enable    = 1;
         states.m_depthStencilState.m_depth.m_writeMask = RHI::DepthWriteMask::All;
         states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::Less;
         states.m_depthStencilState.m_stencil.m_enable  = 0;
         states.m_rasterState.m_cullMode                = RHI::CullMode::Back;
+        states.m_rasterState.m_depthBiasSlopeScale     = 2.0f;
 
         RenderPassConfig cfg;
         cfg.m_vertexShader       = shaderAsset;

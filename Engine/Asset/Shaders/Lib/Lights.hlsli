@@ -17,6 +17,31 @@
 Texture2D              g_ShadowAtlas   : register(t5, space2);
 SamplerComparisonState g_ShadowSampler : register(s0, space2);
 
+//! Nine points on the unit disk, Vogel spiral. A square tap grid is anisotropic — a 45 degree
+//! edge gets a 41% wider ramp than an axis-aligned one — which reads as facets around a curved
+//! shadow rather than as softness.
+static const float2 kShadowDisk[9] =
+{
+    float2( 0.2357,  0.0000), float2(-0.3010,  0.2758), float2( 0.0461, -0.5250),
+    float2( 0.3792,  0.4951), float2(-0.6964, -0.1232), float2( 0.6592, -0.4202),
+    float2(-0.2206,  0.8207), float2(-0.4209, -0.8101), float2( 0.9128,  0.3336),
+};
+
+//! Fraction of the kernel that is lit. radiusTexels is a parameter rather than a constant
+//! because PCSS reuses this step as-is, with a radius its blocker search computes per pixel.
+float PCF(float2 uv, float z, float radiusTexels)
+{
+    const float step = radiusTexels * g_ShadowAtlasTexelSize;
+
+    float sum = 0.0;
+    [unroll]
+    for (int i = 0; i < 9; ++i)
+    {
+        sum += g_ShadowAtlas.SampleCmpLevelZero(g_ShadowSampler, uv + kShadowDisk[i] * step, z);
+    }
+    return sum * (1.0 / 9.0);
+}
+
 //! 1 = lit, 0 = fully shadowed. The tile transform is already inside worldToShadowUV, so
 //! nothing here knows the atlas layout.
 float SampleShadow(int shadowIndex, float3 worldPos, float3 N)
@@ -41,9 +66,9 @@ float SampleShadow(int shadowIndex, float3 worldPos, float3 N)
         return 1.0;
     }
 
-    // The tile is rendered inset by a texel, so the sampler's 2x2 footprint at the very edge
-    // reaches only into that border -- cleared to 1.0, which compares as lit.
-    return g_ShadowAtlas.SampleCmpLevelZero(g_ShadowSampler, uvz.xy, uvz.z - sv.depthBias);
+    // Taps reach 1.5 texels past the centre, which the tile's border absorbs -- it is never
+    // rendered into, so it holds the clear value and compares as lit.
+    return PCF(uvz.xy, uvz.z - sv.depthBias, sv.pcfRadiusTexels);
 }
 
 // Returns the incident radiance at worldPos for this light, already shadowed, and writes L

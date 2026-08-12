@@ -61,6 +61,10 @@ namespace Spark::Render
 
         //! Baked offline by SandBox BRDFLutGen and checked in; see BRDFLutBake.hlsl.
         constexpr const char* BRDFLutAssetPath     = "Image/BRDFLut.ktx2";
+
+        //! See ShadowViewData::m_pcfRadiusTexels for why these differ.
+        constexpr float kPcfRadiusOrthographic = 2.0f;
+        constexpr float kPcfRadiusPerspective  = 1.0f;
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -463,9 +467,12 @@ namespace Spark::Render
                 if (shadowViewsBound && d.m_shadowIndex >= 0
                     && d.m_shadowIndex < static_cast<int32_t>(kShadowTileCount))
                 {
-                    ShadowViewData& sv = m_shadowViewData[d.m_shadowIndex];
-                    sv.m_depthBias     = rd.m_shadowBias;
-                    sv.m_normalOffset  = rd.m_shadowNormalOffset;
+                    ShadowViewData& sv    = m_shadowViewData[d.m_shadowIndex];
+                    sv.m_depthBias        = rd.m_shadowBias;
+                    sv.m_normalOffset     = rd.m_shadowNormalOffset;
+                    sv.m_pcfRadiusTexels  = rd.m_type == Light::LightType::Directional
+                        ? kPcfRadiusOrthographic
+                        : kPcfRadiusPerspective;
                 }
                 ++slot;
             });
