@@ -476,13 +476,20 @@ namespace Spark::Render
                 }
                 const RHI::ResourceState src = context.Get<ResourceStateTracker>(resource).m_current;
 
-                // loadOp=Clear discards prior contents — force src to no-access so the
-                // backend picks UNDEFINED for the src layout.
-                RHI::AccessFlags srcAccess = src.m_access;
-                if (att.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
-                {
-                    srcAccess = RHI::AccessFlags::None;
-                }
+                // DISABLED until DX12 moves to enhanced barriers. loadOp=Clear discards prior
+                // contents, so the src layout may be UNDEFINED — legal in Vulkan and in
+                // D3D12_BARRIER_LAYOUT_UNDEFINED, but legacy ResourceBarrier has no such
+                // state: it reads no-access as COMMON, a real state, and rejects the
+                // transition when the resource is elsewhere. Only ever mattered for a
+                // resource whose tracked state survives the frame — transients and swap
+                // chain images are reset to a default ResourceState on creation.
+                //
+                // RHI::AccessFlags srcAccess = src.m_access;
+                // if (att.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
+                // {
+                //     srcAccess = RHI::AccessFlags::None;
+                // }
+                const RHI::AccessFlags srcAccess = src.m_access;
 
                 auto* backingImage = context.TryGet<BackingImage>(resource);
                 ASSERT(backingImage != nullptr, "Resource has no BackingImage.");
