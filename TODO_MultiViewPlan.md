@@ -680,7 +680,7 @@ atlas 满时优雅降级：分配失败就不建 `ShadowViewRefs`，该光源无
 验证是免费的：`ViewBindingSystem` 扫的是 `<View, ViewShaderBindings>`，与 view 类型 tag 无关，所以 shadow view
 一建出来就被编码，space1 SRG 非空即证明 view 实体、SRG、生命周期三条都对。
 
-**3. ShadowPass 画进 atlas，先不采样。**
+**3. ShadowPass 画进 atlas，先不采样。**（已完成）
 
 - atlas 是持久 Image 实体：`PendingImageInit`（`DepthStencil | ShaderRead`，D32_FLOAT，自己的常量尺寸）+
   `ResourceName`。**不要用 `CreateStaticImage`**——它打 `StaticImportTag`，那是给「从不当 attachment」的
@@ -696,7 +696,7 @@ atlas 满时优雅降级：分配失败就不建 `ShadowViewRefs`，该光源无
 验证靠抓帧看 atlas。失败模式：所有 tile 内容相同 = 跨 DrawList 没重绑 space1；tile 互相溢出 = scissor 没生效
 或 rect 缩放错；atlas 全空 = `ShadowCasterTag` 没打到 Drawable 上，或 Build 的就绪 gate 一直没放行。
 
-**4. `g_ShadowViews` + `m_shadowIndex`，shader 尚未使用。**
+**4. `g_ShadowViews` + `m_shadowIndex`，shader 尚未使用。**（已完成）
 
 `LightData::m_pad0` → `int32_t m_shadowIndex`，HLSL 镜像同步。`SceneBindingSystem` 新增 `g_ShadowViews`
 StructuredBuffer（与 `g_Lights` 同构的 per-frame + `PendingBufferInit` 路径），从 view 实体的 `View` 组件
@@ -704,11 +704,26 @@ StructuredBuffer（与 `g_Lights` 同构的 per-frame + `PendingBufferInit` 路�
 
 验证：抓帧看 buffer 内容，矩阵与 tile 参数与第 2 步算出的一致。
 
-**5. LightingPass 采样，阴影出现。** 行为改变集中在这一步。
+**5. LightingPass 采样，阴影出现。**（已完成）行为改变集中在这一步。
 
 `ReadImageAttachment("ShadowAtlas")`（`m_overrideFormat = R32_FLOAT` + `m_overrideBindFlags = ShaderRead`，
-与现在读 SceneDepth 一字不差）→ Compile 里 `FindPassAttachmentImageView` + `SetPassShaderImage` 进 space2，
-比较采样器走 `SetPassShaderSampler`；shader 里 `SampleCmp` + tile UV clamp + bias。
+与读 SceneDepth 一字不差）→ Compile 里 `FindPassAttachmentImageView` + `SetPassShaderImage` 进 space2，
+比较采样器走 `SetPassShaderSampler`。这条 `ReadImageAttachment` 同时是**第一次真正约束 ShadowPass 位置的边**
+——在此之前它和谁都不共享 attachment，拓扑排序把它放哪都对。
+
+落地时偏离了三处：
+
+- **范围外 reject，不 clamp。** 文档原来写 clamp，但那会让方向光盒子之外的点取到边缘 texel 的比较结果。
+  盒子外是「没有阴影信息」，应当返回 1。tile 边界的 PCF 溢出由内缩 1 texel 的 border 挡住——border 是 Clear
+  值 1.0，比较结果为受光，退化方向安全。
+- **就绪 gate 收在 `ShadowViewSystem::Update` 开头**（`IsResourceReady(m_atlas)`），不在 shader 里加常量。
+  预热期不发 tile，`m_shadowIndex` 恒为 -1，shader 里现成的判断就挡住了整条路，一个 gate 管三处。
+- **`SampleShadow` 折进 `Lib/Lights.hlsli` 的 `EvaluateLight`**，返回值直接是含阴影的辐射度。代价是那个库
+  不再只依赖记录布局——它现在读 `g_ShadowViews`(space0) 和自己声明的 atlas/sampler(space2)，包含它的
+  shader 必须让出 per-pass space 的 t5 / s0。文件头已改成声明这个契约。
+
+`m_shadowBias` 的单位是 **NDC 深度**（0..1 跨该光源的 near..far），所以同一个数值在方向光和聚光灯上差出一个
+数量级。v1 认了这一点，默认值降到 0.0005；换算成世界单位要等分辨率阶梯（那时 texel 的世界尺寸本来就要算）。
 
 **6. 投影判据与 gate。**
 
@@ -721,6 +736,67 @@ shader 只有在 `m_shadowIndex == -1` 完全不采样时才是对的。那条�
 
 **7. 点光源 6 面。** 独立的一块复杂度（cube 面选择 + 面级剔除 + tile UV 换算），前六步跑通后再上，
 混进来会分不清 bug 来源。
+
+### 质量：纹素密度是唯一的瓶颈
+
+前六步跑通后阴影可见但锯齿严重。逐项排查下来，**能改善边缘锯齿的只有纹素密度**——PCF 抽头数、bias、
+滤波方式都不改变台阶大小，一级台阶就是一个 texel。
+
+而两类光的密度由**完全不同的公式**决定：
+
+```
+方向光：  单位/texel = 2 · kDirectionalHalfExtent / texels
+聚光灯：  单位/texel = 2 · d · tan(outerHalf) / texels        (d = 距光源距离，最糟在 d = range)
+```
+
+实测（`texels = 510`，即 512 tile 内缩 1 texel 后）：
+
+| 光源 | 参数 | 单位/texel |
+|---|---|---|
+| 方向光 | halfExtent 30 | **0.118** |
+| 方向光 | halfExtent 12 | 0.047 |
+| 聚光灯 | 30° / range 10 | 0.023 |
+| 聚光灯 | 30° / range 50 | 0.113 |
+| 聚光灯 | 60° / range 20 | 0.136 |
+
+**结论：512² 的 tile 本身不是瓶颈。** 同样的 tile，默认参数的聚光灯边缘已经基本可用，而方向光差五倍
+——差在「60 个世界单位摊在一块 tile 上」这个**盒子的选择**，不在 tile 大小。聚光灯反过来，锥角和 range
+一大就迅速恶化，因为纹素被铺到了照不亮的远处。
+
+#### 这一轮做什么
+
+1. `kDirectionalHalfExtent` 30 → 12
+2. **texel snapping**：把盒子原点量化到整纹素，消掉相机移动时的边缘爬行
+3. `ShadowPass` 的 `m_depthBiasSlopeScale`（现在是 0）
+
+第 2 条的前提是**盒子尺寸恒定**——正因为这一轮不做视锥拟合、保留固定 extent，前提天然成立。
+
+密度够了之后 3×3 PCF 才有收益（在平均有效信息，而不是把马赛克糊开）。
+
+#### 明确不做，以及为什么
+
+| 不做 | 理由 |
+|---|---|
+| 方向光视锥拟合（外接球） | 被 clipmap 取代。做了要扔，还要调参 |
+| 级联 | 同上，直接等 clipmap |
+| 四叉树 tile 分配器 | 被 VSM 的 page 分配取代；而且 512² 已够用，判据未定前不该先写分配器 |
+
+分配器那条还有一层：如果要做，**判据是屏幕占比而不是光源类型**。「方向光独占 2×2 块」是按类型分配，
+一盏近处的广角聚光灯完全可能比远处的方向光更该拿大 tile。
+
+#### 哪些手段在 clipmap / VSM 之后仍然有效
+
+| 手段 | 之后 |
+|---|---|
+| **texel snapping** | **升级成必需**——clipmap 的 page 缓存靠它成立，不snapping 则每帧全部失效 |
+| **按屏幕占比定分辨率** | **升级成核心**——就是 VSM 的 page 等级选择 |
+| 聚光灯 near plane 收紧 | 原样有效（管深度精度，与横向密度无关，两者别混） |
+| slope-scaled bias | 原样有效，光栅状态 |
+| PCF | 有效，边界问题从 tile 变成 page |
+| 视锥拟合 / 级联 | 被取代 |
+
+`worldToShadowUV` 把布局预乘进矩阵、shader 完全不知道 tile 的做法也直接迁移——VSM 下变成预乘进虚拟地址
+空间，shader 多一次 page table 查找，调用方不动。
 
 ## 六、实现步骤
 
@@ -790,6 +866,16 @@ shader 只有在 `m_shadowIndex == -1` 完全不采样时才是对的。那条�
   （`Backend/DX12/Pipeline/PipelineLayout.cpp:44-57`），缺的是 CommandList 侧的设值路径
   （`Backend/DX12/Command/CommandList.h:23` "SetRootConstants removed"），补回来是一个虚函数加一次
   `SetGraphicsRoot32BitConstants`。真正的触发点是 GPU 剔除按索引读所有 view，不是 shadow。
+- **共享 space 的布局需要一份权威来源。** 描述符表的表内偏移是**追加式**的
+  （`PipelineLayout.cpp` 的 `OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND`），
+  `m_registerId` 只填 `BaseShaderRegister`、不决定第几格；而顺序来自
+  `AddShaderInputDescriptors` 固定的 buffer → image → sampler → constant 分桶。于是 SRG 的表（从反射宿主
+  建）和 PSO 的 root signature（从各消费者自己那份**被 DXC 裁剪过**的反射建）只要资源集合不同就整体错位
+  ——加 `g_ShadowViews` 时就是这样把 IBL 那三张图各挤后一格的，现象是「数据看起来对但读到了别人的」。
+  今天靠「所有消费者都引用全组资源」这个隐式约束撑着，加一次资源踩一次。
+  正解是 space0/1/3/4 的布局只有一份权威来源（反射宿主），PSO 组装时直接用它，而不是各自反射。
+  切换时要注意 **`ShaderVisibility` 不能沿用反射宿主的 stageMask**——那些宿主只有一个 `VSMain`，
+  照搬会让像素着色器读不到 space0。space2 是 per-pass、只有一个消费者，不受影响。
 - **剔除结果的形态。** 结果按 DrawList 存（per view 天然成立），`Visible<V>`（`View/ViewTags.h:11-19`）及其
   两处标记（`DrawItemRouter.cpp:287`、`MeshDrawableComposer.cpp:168`）删除——tag 是编译期的，表达不了
   per-view-instance，今天也没有任何地方读它。list 内用索引数组还是位掩码，等接剔除时定。
