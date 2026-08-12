@@ -13,6 +13,10 @@ namespace Spark
             : min(_min), max(_max), speed(_speed), format("%.3f"), readOnly(_readOnly)
         {}
 
+        FloatElement(float _min, float _max, float _speed, const char* _format, bool _readOnly = false)
+            : min(_min), max(_max), speed(_speed), format(_format), readOnly(_readOnly)
+        {}
+
         float min = 0.0f;
         float max = 1.0f;
         float speed = 0.1f;
@@ -25,6 +29,9 @@ namespace Spark
         FloatSliderElement() = default;
         FloatSliderElement(float _min, float _max, float _speed, bool _readOnly = false)
             : min(_min), max(_max), speed(_speed), format("%.3f"), readOnly(_readOnly)
+        {}
+        FloatSliderElement(float _min, float _max, float _speed, const char* _format, bool _readOnly = false)
+            : min(_min), max(_max), speed(_speed), format(_format), readOnly(_readOnly)
         {}
 
         float min = 0.0f;
