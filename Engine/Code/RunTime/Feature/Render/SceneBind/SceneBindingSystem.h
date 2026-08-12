@@ -5,6 +5,7 @@
 #include <RHI/Context/RHIContext.h>
 
 #include "LightData.h"
+#include "ShadowViewData.h"
 
 namespace Spark::Render
 {
@@ -36,6 +37,14 @@ namespace Spark::Render
         //! false until the ECS materializes BufferPerFrame (one warmup frame after Init).
         bool BindFrameLights(uint32_t frameIndex);
 
+        //! Same, for g_ShadowViews.
+        bool BindFrameShadowViews(uint32_t frameIndex);
+
+        //! Fills m_shadowViewData from the live shadow view entities, addressed by tile slot.
+        //! Unallocated slots stay zeroed. The authored bias is NOT written here — it lives on
+        //! the light, so the light loop adds it.
+        void PackShadowViews(RHI::RHIContext& rhiCtx);
+
         struct EnvironmentBinding
         {
             //! 0 == no environment bound: the shader must not sample the cubes.
@@ -57,10 +66,15 @@ namespace Spark::Render
         RHI::RHIHandle m_buffer   = RHI::NullHandle;  // Components::BufferPerFrame — host StructuredBuffer<LightData>, N copies
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Lights + SceneConstants @ space0
         RHI::RHIHandle m_brdfLut  = RHI::NullHandle;  // static 2D RG16F DFG table, created once at Init
+        RHI::RHIHandle m_shadowViewBuffer = RHI::NullHandle;  // host StructuredBuffer<ShadowViewData>, N copies
 
         // CPU staging for g_Lights. Filled each frame, handed to the current frame's copy
         // via PendingBufferMap. Lives for the system's lifetime so the map source stays
         // valid (PendingBufferMap contract, like MaterialBindingSystem::m_materialData).
         eastl::vector<LightData> m_lightData;
+
+        //! Same contract, sized to the atlas tile count rather than Capacity: the buffer is
+        //! addressed by tile slot.
+        eastl::vector<ShadowViewData> m_shadowViewData;
     };
 }

@@ -24,7 +24,7 @@ namespace Spark::Render
         float         m_invRange  = 0.0f;      // 1/range for attenuation (0 = directional)
         float         m_cosInner  = 1.0f;      // spot cone
         float         m_cosOuter  = 1.0f;
-        float         m_pad0      = 0.0f;
+        int32_t       m_shadowIndex = -1;      // g_ShadowViews tile slot; -1 = casts no shadow
         float         m_pad1      = 0.0f;
     };
 

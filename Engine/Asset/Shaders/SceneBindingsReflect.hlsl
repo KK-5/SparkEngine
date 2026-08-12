@@ -16,7 +16,12 @@
 float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
 {
     LightData l = GetLight(0);
-    float w = (float)g_LightCount;
+    float w = (float)g_LightCount + (float)l.shadowIndex;
+
+    ShadowViewData sv = GetShadowView(0);
+    float shadowScalar = mul(sv.worldToShadowUV, float4(0, 0, 0, 1)).x
+                       + sv.uvMinMax.x + sv.depthBias + sv.normalOffset
+                       + g_ShadowAtlasTexelSize;
 
     const float3 dir = float3(0.0, 1.0, 0.0);
     float3 env = g_IrradianceCube.SampleLevel(g_IBLSampler, dir, 0).rgb
@@ -25,5 +30,5 @@ float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
     float  envScalar = g_EnvIntensity + (float)g_IBLPrefilteredMipCount + dfg.x + dfg.y;
 
     return float4(l.direction + l.color + l.position + env,
-                  l.intensity + w + envScalar) * 1e-6;
+                  l.intensity + w + envScalar + shadowScalar) * 1e-6;
 }

@@ -10,8 +10,13 @@
 #define SPARK_SCENE_BINDINGS_HLSL
 
 #include "LightData.hlsli"
+#include "ShadowViewData.hlsli"
 
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
+
+// Indexed by LightData::shadowIndex, which is an atlas TILE SLOT — entries for unallocated
+// tiles are zeroed, so never read one without checking shadowIndex >= 0 first.
+StructuredBuffer<ShadowViewData> g_ShadowViews : register(t4, space0);
 
 // The active skybox's baked environment. g_PrefilteredCube's mips are a ROUGHNESS axis
 // (mip n == roughness n/(mipCount-1)), not a detail chain — always sample it with an
@@ -31,12 +36,17 @@ cbuffer SceneConstants : register(b0, space0)
     uint  g_LightCount;               // number of valid entries in g_Lights this frame
     uint  g_IBLPrefilteredMipCount;   // 0 == no environment bound; see HasEnvironmentIBL
     float g_EnvIntensity;             // SkyboxComponent::m_intensity, or 1 with no skybox
-    uint  g_ScenePad2;
+    float g_ShadowAtlasTexelSize;     // 1 / atlas resolution; the PCF step in atlas UV
 };
 
 LightData GetLight(uint i)
 {
     return g_Lights[i];
+}
+
+ShadowViewData GetShadowView(int i)
+{
+    return g_ShadowViews[i];
 }
 
 //! EVERY read of the two cubes must be gated on this: they share one descriptor table with

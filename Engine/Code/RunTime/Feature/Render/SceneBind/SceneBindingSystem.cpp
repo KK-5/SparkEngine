@@ -29,8 +29,15 @@
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 
+#include <ECS/Common.h>
+
 #include <Light/Components.h>
 #include <Skybox/Components.h>
+
+#include <View/View.h>
+#include <View/ViewTags.h>
+#include <View/ViewComponents.h>
+#include <View/ShadowAtlasLayout.h>
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
 
@@ -43,6 +50,8 @@ namespace Spark::Render
     {
         constexpr const char* LightBufferName      = "g_Lights";
         constexpr const char* LightCountName       = "g_LightCount";
+        constexpr const char* ShadowViewBufferName = "g_ShadowViews";
+        constexpr const char* ShadowTexelSizeName  = "g_ShadowAtlasTexelSize";
         constexpr const char* IrradianceCubeName   = "g_IrradianceCube";
         constexpr const char* PrefilteredCubeName  = "g_PrefilteredCube";
         constexpr const char* BRDFLutName          = "g_BRDFLut";
@@ -146,6 +155,25 @@ namespace Spark::Render
             rhiCtx.Add<RHI::ResourceName>(m_buffer, RHI::ResourceName{ ObjectName("g_Lights") });
         }
 
+        // g_ShadowViews: same per-frame host StructuredBuffer path as g_Lights, but sized to
+        // the atlas tile count — it is addressed by slot, not densely packed.
+        m_shadowViewData.resize(kShadowTileCount);
+        m_shadowViewBuffer = rhiCtx.CreateEntity();
+        {
+            RHI::BufferDescriptor bufDesc;
+            bufDesc.m_byteCount = static_cast<uint64_t>(kShadowTileCount) * sizeof(ShadowViewData);
+            bufDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyRead;
+
+            RHI::PendingBufferInit init;
+            init.m_descriptor       = bufDesc;
+            init.m_heapMemoryLevel  = RHI::HeapMemoryLevel::Host;
+            init.m_hostMemoryAccess = RHI::HostMemoryAccess::Write;
+            rhiCtx.Add<RHI::PendingBufferInit>(m_shadowViewBuffer, init);
+            rhiCtx.Add<RHI::PerFrameTag>(m_shadowViewBuffer);
+            rhiCtx.Add<RHI::ResourceName>(
+                m_shadowViewBuffer, RHI::ResourceName{ ObjectName("g_ShadowViews") });
+        }
+
         CreateBRDFLut(rhiCtx);
     }
 
@@ -220,6 +248,57 @@ namespace Spark::Render
 
         SetShaderBuffer(m_bindings, RHI::InputName(LightBufferName), view);
         return true;
+    }
+
+    bool SceneBindingSystem::BindFrameShadowViews(uint32_t frameIndex)
+    {
+        auto* rhiCtx = RHI::RHIExecuteContext::Current();
+        if (!rhiCtx || m_shadowViewBuffer == RHI::NullHandle || m_bindings == RHI::NullHandle)
+        {
+            return false;
+        }
+
+        auto* perFrame = rhiCtx->TryGet<RHI::Components::BufferPerFrame>(m_shadowViewBuffer);
+        if (!perFrame || !perFrame->m_buffers[frameIndex])
+        {
+            return false;
+        }
+        RHI::Buffer* buffer = perFrame->m_buffers[frameIndex].get();
+
+        const RHI::BufferViewDescriptor viewDesc =
+            RHI::BufferViewDescriptor::CreateStructured(0, kShadowTileCount, sizeof(ShadowViewData));
+        RHI::BufferView* view = RHI::GetOrCreateBufferViewPerFrame(
+            *rhiCtx, m_shadowViewBuffer, *buffer, viewDesc, frameIndex);
+        if (!view)
+        {
+            LOG_ERROR("[SceneBindingSystem] Failed to create g_ShadowViews structured SRV for frame {}.", frameIndex);
+            return false;
+        }
+
+        SetShaderBuffer(m_bindings, RHI::InputName(ShadowViewBufferName), view);
+        return true;
+    }
+
+    void SceneBindingSystem::PackShadowViews(RHI::RHIContext& rhiCtx)
+    {
+        for (ShadowViewData& d : m_shadowViewData)
+        {
+            d = ShadowViewData{};
+        }
+
+        rhiCtx.GetView<ShadowViewTag, View, ShadowViewSlot>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle, const View& view, const ShadowViewSlot& slot)
+        {
+            if (slot.m_slot >= kShadowTileCount)
+            {
+                return;
+            }
+
+            ShadowViewData& d = m_shadowViewData[slot.m_slot];
+            d.m_worldToShadowUV = MakeShadowUVRemap(view.m_rect) * view.GetWorldToClip();
+            d.m_uvMinMax = Math::Vector4(
+                view.m_rect.m_minX, view.m_rect.m_minY, view.m_rect.m_maxX, view.m_rect.m_maxY);
+        });
     }
 
     SceneBindingSystem::EnvironmentBinding SceneBindingSystem::BindEnvironmentIBL()
@@ -342,13 +421,21 @@ namespace Spark::Render
         // the warmup frame — so the SceneConstants CBV always has a compiled GPU address
         // when the SRG binds. The CBV bind is unguarded in CommandList (unlike the SRV
         // table, which is skipped when unbound), so a missing address trips a hard assert.
+        // Before the light loop: that loop adds each light's authored bias to the entry its
+        // m_shadowIndex points at, and PackShadowViews zeroes the array first.
+        const bool shadowViewsBound = BindFrameShadowViews(frameIndex);
+        if (shadowViewsBound)
+        {
+            PackShadowViews(*rhiCtx);
+        }
+
         uint32_t slot = 0;
         if (BindFrameLights(frameIndex))
         {
             // Dense marshal: every world LightRenderData -> g_Lights[slot]. Pure field copy
             // — direction/position were already resolved by LightSystem (compute vs write).
             world->GetView<Light::LightRenderData>().each(
-                [&](Entity, const Light::LightRenderData& rd)
+                [&](Entity entity, const Light::LightRenderData& rd)
             {
                 if (slot >= Capacity)
                 {
@@ -365,8 +452,21 @@ namespace Spark::Render
                 d.m_invRange   = rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f;
                 d.m_cosInner   = rd.m_cosInner;
                 d.m_cosOuter   = rd.m_cosOuter;
-                d.m_pad0       = 0.0f;
                 d.m_pad1       = 0.0f;
+
+                // Read from the light, not from the view entity: g_Lights is packed by
+                // iteration order while the tile slot is not, so this is the one place the
+                // two index spaces meet.
+                const auto* refs = world->TryGet<ShadowViewRefs>(entity);
+                d.m_shadowIndex  = refs ? refs->m_index : -1;
+
+                if (shadowViewsBound && d.m_shadowIndex >= 0
+                    && d.m_shadowIndex < static_cast<int32_t>(kShadowTileCount))
+                {
+                    ShadowViewData& sv = m_shadowViewData[d.m_shadowIndex];
+                    sv.m_depthBias     = rd.m_shadowBias;
+                    sv.m_normalOffset  = rd.m_shadowNormalOffset;
+                }
                 ++slot;
             });
 
@@ -377,6 +477,20 @@ namespace Spark::Render
                     RHI::PendingBufferMap{ m_lightData.data(), 0, static_cast<size_t>(slot) * sizeof(LightData) });
             }
         }
+
+        // After the light loop, which is what completes the entries.
+        if (shadowViewsBound)
+        {
+            rhiCtx->AddOrReplace<RHI::PendingBufferMap>(
+                m_shadowViewBuffer,
+                RHI::PendingBufferMap{ m_shadowViewData.data(), 0,
+                                       m_shadowViewData.size() * sizeof(ShadowViewData) });
+        }
+
+        // A per-scene constant, not a per-view one: an atlas texel is 1/resolution in UV
+        // whatever tile it falls in, and stays so when tiles stop being uniform.
+        SetShaderConstant(m_bindings, RHI::InputName(ShadowTexelSizeName),
+            1.0f / static_cast<float>(kShadowAtlasResolution));
 
         // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every
         // frame (0 during warmup) so the CBV is always compiled; SetShaderConstant marks
@@ -395,9 +509,11 @@ namespace Spark::Render
         if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
         if (m_buffer   != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_buffer); }
         if (m_brdfLut  != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_brdfLut); }
+        if (m_shadowViewBuffer != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_shadowViewBuffer); }
 
         m_bindings = RHI::NullHandle;
         m_buffer   = RHI::NullHandle;
         m_brdfLut  = RHI::NullHandle;
+        m_shadowViewBuffer = RHI::NullHandle;
     }
 }

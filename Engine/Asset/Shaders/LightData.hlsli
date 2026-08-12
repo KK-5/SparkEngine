@@ -10,7 +10,9 @@ struct LightData
     float3 direction; float intensity;   // dir/spot direction (world), radiant intensity
     float3 color;     uint  type;        // rgb; 0=directional, 1=point, 2=spot
     float3 position;  float invRange;    // point/spot world position, 1/range (0=dir)
-    float  cosInner;  float cosOuter; float pad0; float pad1;   // spot cone
+    float  cosInner;  float cosOuter;                 // spot cone
+    int    shadowIndex;                               // g_ShadowViews slot; -1 = no shadow
+    float  pad1;
 };
 
 #endif // SPARK_LIGHT_DATA_HLSLI

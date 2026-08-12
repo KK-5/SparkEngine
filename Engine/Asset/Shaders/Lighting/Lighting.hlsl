@@ -124,6 +124,16 @@ float4 PSMain(VSOutput input) : SV_Target0
         LightData light = GetLight(i);
         float3 L;
         float3 radiance = EvaluateLight(light, worldPos, L);
+
+        // TEMPORARY, replaced by the atlas SampleCmp. A group's descriptor table is packed
+        // positionally, so a shader that leaves g_ShadowViews untouched gets it pruned by DXC
+        // and every descriptor after it shifts. minU is in [0,1), so this term is always 1 —
+        // and it reads a buffer, so DXC cannot fold it away.
+        if (light.shadowIndex >= 0)
+        {
+            radiance *= step(0.0, GetShadowView(light.shadowIndex).uvMinMax.x);
+        }
+
         color += EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness) * radiance;
     }
 

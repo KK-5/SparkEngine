@@ -53,4 +53,21 @@ namespace Spark::Render
             static_cast<float>(gy + 1) * tile - border,
         };
     }
+
+    //! Clip -> atlas UV for one tile: the NDC-to-UV flip and the tile's scale/offset in one
+    //! matrix. Left-multiply a view's worldToClip to get world -> atlas UV.
+    //!
+    //! Only Y is flipped, and only here. The rect's minY/maxY are already in the downward-Y
+    //! space viewport and texture V share, so the tile step uses them as they are.
+    //! Z is left alone — LH_ZO clip depth is the 0..1 the comparison wants.
+    inline Math::Matrix4X4 MakeShadowUVRemap(const ViewRect& rect)
+    {
+        const float sx = rect.m_maxX - rect.m_minX;
+        const float sy = rect.m_maxY - rect.m_minY;
+
+        Math::Matrix4X4 m = Math::Matrix4X4Const::IDENTITY;
+        m[0][0] =  0.5f * sx;   m[3][0] = 0.5f * sx + rect.m_minX;
+        m[1][1] = -0.5f * sy;   m[3][1] = 0.5f * sy + rect.m_minY;
+        return m;
+    }
 }
