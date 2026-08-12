@@ -1,10 +1,13 @@
 #include "LightingPass.h"
 
+#include <CoreComponents/Tags.h>
+
 #include <RHI/HardwareQueue.h>
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
@@ -16,7 +19,10 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 
 #include <View/ViewTags.h>
+#include <View/ShadowAtlasLayout.h>
 #include <SceneBind/SceneBinding.h>
+
+#include <RenderGraph/RenderGraphUtils.h>
 
 #include <Drawable/DrawTag.h>    // FullScreenTriangleTag
 
@@ -46,6 +52,11 @@ namespace Spark::Render
         // ImageView init does not also try to build a DSV at the R32_FLOAT override.
         constexpr const char* s_depthSlot  = "SceneDepth";
         constexpr const char* s_depthInput = "g_Depth";
+
+        // Same R32_FLOAT-over-typeless-depth treatment as SceneDepth, one tile per light.
+        constexpr const char* s_shadowSlot    = "ShadowAtlasRead";
+        constexpr const char* s_shadowInput   = "g_ShadowAtlas";
+        constexpr const char* s_shadowSampler = "g_ShadowSampler";
     }
 
     RenderPassConfig LightingPass::DefaultConfig()
@@ -181,6 +192,32 @@ namespace Spark::Render
 
                 builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
                     RHI::AttachmentId(s_depthSlot), depthTestBind);
+
+                // Same readiness gate ShadowPass uses — it declares the atlas only once the
+                // image exists, and reading an attachment id nothing produced has no meaning.
+                // This declaration is also the edge that orders ShadowPass before this pass;
+                // until now the two shared no attachment and the topo sort was free to
+                // interleave them.
+                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
+                RHI::RHIHandle atlas = RHI::NullHandle;
+                rhiCtx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
+                    [&](RHI::RHIHandle e) { atlas = e; });
+                if (!IsResourceReady(rhiCtx, atlas))
+                {
+                    return;
+                }
+
+                Render::ImageAttachmentBindInfo shadowBind;
+                shadowBind.m_slot  = RHI::InputName(s_shadowSlot);
+                shadowBind.m_usage = RHI::AttachmentUsage::Shader;
+                shadowBind.m_stage = RHI::AttachmentStage::FragmentShader;
+                shadowBind.m_view.m_overrideFormat    = RHI::Format::R32_FLOAT;
+                shadowBind.m_view.m_overrideBindFlags = RHI::ImageBindFlags::ShaderRead;
+                shadowBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                shadowBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
+                    RHI::AttachmentId("ShadowAtlas"), shadowBind);
             })
             .Compile([](RenderGraphCompiler& compiler)
             {
@@ -212,6 +249,26 @@ namespace Spark::Render
                     SetPassShaderImage<SPARK_PASS_TAG("LightingPass")>(
                         2, RHI::InputName(s_depthInput), depthView);
                 }
+
+                // Null on the warmup frames Build declared no atlas. The shader does not need
+                // a separate gate for that: no atlas means ShadowViewSystem handed out no
+                // tiles, so every m_shadowIndex is -1 and the sampler is never reached.
+                RHI::ImageView* shadowView = FindPassAttachmentImageView<SPARK_PASS_TAG("LightingPass")>(
+                    rhiCtx, RHI::InputName(s_shadowSlot), frameIndex);
+                if (shadowView)
+                {
+                    SetPassShaderImage<SPARK_PASS_TAG("LightingPass")>(
+                        2, RHI::InputName(s_shadowInput), shadowView);
+                }
+
+                // Linear + Comparison is a free 2x2 PCF in the sampler. A wider kernel is
+                // additive on top and waits until the basics read correctly.
+                RHI::SamplerState shadowSampler = RHI::SamplerState::Create(
+                    RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp);
+                shadowSampler.m_reductionType  = RHI::ReductionType::Comparison;
+                shadowSampler.m_comparisonFunc = RHI::ComparisonFunc::LessEqual;
+                SetPassShaderSampler<SPARK_PASS_TAG("LightingPass")>(
+                    2, RHI::InputName(s_shadowSampler), shadowSampler);
             })
             .Finalize()
         ;

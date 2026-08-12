@@ -13,6 +13,8 @@
 
 #include <Light/Components.h>
 
+#include "RenderGraph/RenderGraphUtils.h"   // IsResourceReady
+
 #include "View.h"
 #include "ViewComponents.h"
 #include "ViewFactory.h"
@@ -116,6 +118,14 @@ namespace Spark::Render
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
         if (!world || !rhiCtx)
+        {
+            return;
+        }
+
+        // The single readiness gate for shadows. Holding tiles back until the atlas exists
+        // leaves every m_shadowIndex at -1, which is what the lighting shader already tests,
+        // so nothing downstream needs a second check for the warmup frames.
+        if (!IsResourceReady(*rhiCtx, m_atlas))
         {
             return;
         }

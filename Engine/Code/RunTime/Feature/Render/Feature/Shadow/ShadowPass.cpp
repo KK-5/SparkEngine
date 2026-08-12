@@ -1,5 +1,7 @@
 #include "ShadowPass.h"
 
+#include <CoreComponents/Tags.h>
+
 #include <RHI/HardwareQueue.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
@@ -12,22 +14,12 @@
 #include <View/ShadowAtlasLayout.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
+#include <RenderGraph/RenderGraphUtils.h>
 
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
 {
-    namespace
-    {
-        //! NullHandle before ShadowViewSystem::Init.
-        RHI::RHIHandle FindShadowAtlas(RHI::RHIContext& rhiCtx)
-        {
-            RHI::RHIHandle atlas = RHI::NullHandle;
-            rhiCtx.GetView<ShadowAtlasTag>().each([&](RHI::RHIHandle e) { atlas = e; });
-            return atlas;
-        }
-    }
-
     RenderPassConfig ShadowPass::DefaultConfig()
     {
         auto* assetManager = Service<Resource::AssetManager>::Get();
@@ -89,8 +81,10 @@ namespace Spark::Render
                 // Before the atlas exists ImportImageAttachment would assert. Declaring
                 // nothing leaves the pass without a RenderPassBeginInfo, which the executer
                 // skips.
-                const RHI::RHIHandle atlas = FindShadowAtlas(rhiCtx);
-                if (atlas == RHI::NullHandle || !rhiCtx.Has<RHI::Components::Image>(atlas))
+                RHI::RHIHandle atlas = RHI::NullHandle;
+                rhiCtx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
+                    [&](RHI::RHIHandle e) { atlas = e; });
+                if (!IsResourceReady(rhiCtx, atlas))
                 {
                     return;
                 }
