@@ -6,6 +6,7 @@ option(EBus_TESTS "EBus tests" OFF)
 option(SCENEMANAGER_TESTS "Scene manager tests" ON)
 option(EXECUTECONTEXT_TESTS "ExecuteContext tests" ON)
 option(WORLDCONTEXTREFERENCE_TESTS "WorldContextReference tests" ON)
+option(MATH_TESTS "Math tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -23,6 +24,7 @@ ADD_TEST_SOUECE(EBus_TESTS "EBusTest.cpp")
 ADD_TEST_SOUECE(SCENEMANAGER_TESTS "SceneManagerTest.cpp")
 ADD_TEST_SOUECE(EXECUTECONTEXT_TESTS "ExecuteContextTest.cpp")
 ADD_TEST_SOUECE(WORLDCONTEXTREFERENCE_TESTS "WorldContextReferenceTest.cpp")
+ADD_TEST_SOUECE(MATH_TESTS "MathTest.cpp")
 
 set(TARGET_NAME SparkCoreTest)
 

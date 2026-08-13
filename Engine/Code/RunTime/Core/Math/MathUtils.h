@@ -45,6 +45,11 @@ namespace Spark::Math
         return glm::cos(radians);
     }
 
+    inline float Tan(float radians)
+    {
+        return glm::tan(radians);
+    }
+
     inline float Acos(float v)
     {
         return glm::acos(v);
