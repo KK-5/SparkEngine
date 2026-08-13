@@ -28,15 +28,14 @@ namespace Spark::Render
     //! The one atlas image, owned by ShadowViewSystem. How ShadowPass locates it.
     struct ShadowAtlasTag {};
 
-    //! Texels held back on each side of a tile, so PCF taps at a tile's edge land here rather
-    //! than in the neighbour. Must cover the kernel's reach: a 3x3 at one texel spacing plus
-    //! the sampler's own 2x2 footprint reaches 1.5 texels.
-    inline constexpr uint32_t kShadowTileBorderTexels = 2;
+    //! One texel held back on each side of a tile. It absorbs the bilinear footprint of a tap
+    //! sitting exactly on the tile's edge, and nothing else: the PCF kernel clamps its own
+    //! taps into the tile (Lib/Lights.hlsli), so this does NOT scale with the kernel radius.
+    inline constexpr uint32_t kShadowTileBorderTexels = 1;
 
     //! Texels a tile's viewport actually spans. This — not the tile resolution — is what
     //! NDC [-1,1] maps onto, so it is the divisor for a texel's world size.
-    inline constexpr uint32_t kShadowTileUsableTexels =
-        kShadowTileResolution - 2 * kShadowTileBorderTexels;
+    inline constexpr uint32_t kShadowTileUsableTexels = kShadowTileResolution - 2 * kShadowTileBorderTexels;
 
     //! A tile's INSET rect. Viewport, scissor, the tile remap baked into the shadow matrix
     //! and the sampling clamp all derive from this one value, so a border that reached only

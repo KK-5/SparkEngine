@@ -29,7 +29,12 @@ static const float2 kShadowDisk[9] =
 
 //! Fraction of the kernel that is lit. radiusTexels is a parameter rather than a constant
 //! because PCSS reuses this step as-is, with a radius its blocker search computes per pixel.
-float PCF(float2 uv, float z, float radiusTexels)
+//!
+//! Every tap is clamped into the tile, so no radius can reach a neighbouring tile -- whose
+//! depth belongs to an unrelated light and compares to an arbitrary result. Clamping rather
+//! than a border sized to the kernel is also what survives VSM, where pages that are adjacent
+//! in virtual space are scattered in physical memory and no fixed border can bridge them.
+float PCF(float2 uv, float z, float radiusTexels, float4 uvMinMax)
 {
     const float step = radiusTexels * g_ShadowAtlasTexelSize;
 
@@ -37,7 +42,8 @@ float PCF(float2 uv, float z, float radiusTexels)
     [unroll]
     for (int i = 0; i < 9; ++i)
     {
-        sum += g_ShadowAtlas.SampleCmpLevelZero(g_ShadowSampler, uv + kShadowDisk[i] * step, z);
+        float2 tap = clamp(uv + kShadowDisk[i] * step, uvMinMax.xy, uvMinMax.zw);
+        sum += g_ShadowAtlas.SampleCmpLevelZero(g_ShadowSampler, tap, z);
     }
     return sum * (1.0 / 9.0);
 }
@@ -48,15 +54,11 @@ float SampleShadow(int shadowIndex, float3 worldPos, float3 N)
 {
     ShadowViewData sv = GetShadowView(shadowIndex);
 
-    // Along the normal, not the light: a surface at a grazing angle is the one whose depth
-    // spans a whole texel, and the offset has to grow with that span rather than with NoL.
     float3 p = worldPos + N * sv.normalOffset;
 
     float4 clip = mul(sv.worldToShadowUV, float4(p, 1.0));
     float3 uvz  = clip.xyz / clip.w;
 
-    // Outside the light's frustum there is no depth to compare against. Unlit is wrong here
-    // -- a directional box that does not cover the scene would shadow everything beyond it.
     if (uvz.z <= 0.0 || uvz.z >= 1.0)
     {
         return 1.0;
@@ -66,9 +68,7 @@ float SampleShadow(int shadowIndex, float3 worldPos, float3 N)
         return 1.0;
     }
 
-    // Taps reach 1.5 texels past the centre, which the tile's border absorbs -- it is never
-    // rendered into, so it holds the clear value and compares as lit.
-    return PCF(uvz.xy, uvz.z - sv.depthBias, sv.pcfRadiusTexels);
+    return PCF(uvz.xy, uvz.z - sv.depthBias, sv.pcfRadiusTexels, sv.uvMinMax);
 }
 
 // Returns the incident radiance at worldPos for this light, already shadowed, and writes L
