@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AABB.h"
 #include "MathUtils.h"
 #include "Matrix4x4.h"
 #include "Vector3.h"
@@ -13,8 +14,7 @@ namespace Spark::Math
         Vector4 planes[6];   // left, right, bottom, top, near, far
 
         //! LH_ZO ONLY. Clip z runs 0..w rather than -w..w, so the near plane is row 2 alone
-        //! and not row3 + row2 — the [-1,1] form puts it at roughly half the intended
-        //! distance, which only shows up when something is nearly touching the camera.
+        //! and not row3 + row2.
         static Frustum FromViewProjection(const Matrix4X4& viewProj)
         {
             const Vector4 r0 = Row(viewProj, 0);
@@ -30,8 +30,7 @@ namespace Spark::Math
             f.planes[4] = r2;
             f.planes[5] = r3 - r2;
 
-            // Normalizing is not cosmetic: it is what makes d a metric distance, which the
-            // sphere test compares a radius against.
+            // Makes d a metric distance, which the volume tests compare against a radius.
             for (Vector4& p : f.planes)
             {
                 const float len = Length(Vector3(p));
@@ -45,9 +44,28 @@ namespace Spark::Math
 
         bool IntersectsSphere(const Vector3& center, float radius) const
         {
-            for (const Vector4& p : planes)
+            for (const Vector4& plane : planes)
             {
-                if (Dot(Vector3(p), center) + p.w < -radius)
+                if (Dot(Vector3(plane), center) + plane.w < -radius)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        //! Dot(Abs(n), extents) is the box's support radius along n — the role radius plays
+        //! in the sphere test. Testing the eight corners instead would answer containment,
+        //! not intersection.
+        bool IntersectsAABB(const AABB& box) const
+        {
+            const Vector3 center  = box.Center();
+            const Vector3 extents = box.Extents();
+
+            for (const Vector4& plane : planes)
+            {
+                const Vector3 n = Vector3(plane);
+                if (Dot(n, center) + Dot(Abs(n), extents) + plane.w < 0.0f)
                 {
                     return false;
                 }
