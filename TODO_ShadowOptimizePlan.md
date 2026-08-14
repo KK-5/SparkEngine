@@ -126,55 +126,66 @@ m_normalOffsetCoeff = offsetTexels · texelWorldSize                → shader: 
 
 覆盖测试在 `Test/Core/MathTest.cpp`（`MATH_TESTS` 选项）。构型取「原点看 +Z、90° fov、正方形」，此时侧平面即 `z = |x|` / `z = |y|`，期望值可手算。`NearPlaneUsesZeroToOneConvention` 专钉上面第一条。
 
-**2. 光源体积。** `ShadowViewSystem.cpp` 匿名 namespace。
+**2. 光源体积。**（已完成）
 
-| 光源 | 体积 |
-|---|---|
-| 方向光 | 无界，跳过剔除，优先级恒为最高 |
-| 点光源 | 球 `(m_worldPosition, m_range)` |
-| 聚光灯 | 锥的最小外接球 |
+包围体在**上游产生并作为组件承载**，不在 `ShadowViewSystem` 里构造：
 
-锥（高 `h = range`，底半径 `R = h·tan(outerHalf)`）的最小外接球：
+| 组件 | 谁写 | 内容 |
+|---|---|---|
+| `Light::LightBounds` | `LightSystem::OnTick` | 点光源是 `(m_worldPosition, m_range)` 的球，聚光灯是锥的最小外接球。**方向光没有这个组件** |
+| `Render::ViewFrustum` | `CameraViewSystem::Update` | 写完 `m_viewToClip` 后随即 `Frustum::FromViewProjection` |
+
+`ViewFrustum` 挂在 **view 实体**而非世界相机实体：视锥需要投影，而投影在渲染层构建（aspect 是渲染目标属性）。同一个组件将来覆盖 shadow view 的面级剔除。
+
+各 view 生产者各写各的视锥，不做集中派生——`ShadowViewSystem` 读主视角视锥且跑在编码步骤之前，集中派生会晚一帧。
+
+`Math::Sphere::FromCone` 放 `Core/Math/`，锥（高 `h`，底半径 `R = h·tan(halfAngle)`）的最小外接球：
 
 ```
-R >= h:  center = apex + dir·h,  radius = R
-R <  h:  c = (h² + R²) / (2h),   center = apex + dir·c,  radius = c
+R >= h:  center = apex + axis·h,  radius = R
+R <  h:  d = (h² + R²) / (2h),    center = apex + axis·d,  radius = d
 ```
 
 不写锥-视锥精确相交，外接球够用。
 
-**3. 评分。** 排序键与丢弃阈值都用 NDC 下的投影半径，不换算像素——`ShadowViewSystem` 跑在 render graph 之前，拿不到 attachment extent。
+`m_range` 是径向截断而锥的 `height` 是轴向，径向 ≤ range ⇒ 轴向 ≤ range，所以这样传是从外侧包住照亮区域，方向安全。
+
+**3+4. 评分与 `Update` 重构。**（已完成，两步合并——评分函数与用它的循环分开评审看不出对错。）
+
+`ShadowViewSystem::Update` 从「遍历光源 → find-or-create → 立刻分配 tile，先到先得」改成：
+
+```
+gate（atlas 就绪）+ sweep（死光源 / 停止投影的光源）        不变
+ResolveMainView：eye、frustum、proj11、valid
+遍历投影光源：  视锥外 / 低于阈值 → Deactivate      幸存 → push 进候选
+sort（加权分降序）
+第 kShadowTileCount 名之后 → Deactivate     前 N 名 → Activate
+```
+
+评分用 NDC 下的投影半径，不换算像素——这里跑在 render graph 之前，拿不到 attachment extent：
 
 ```
 proj11    = mainView.m_viewToClip[1][1]        // 1/tan(fovY/2)
 ndcRadius = radius · proj11 / sqrt(d² - radius²)     // d² <= radius² 时相机在体积内，取最大值
 ```
 
-`kScoreEnter = 0.03`、`kScoreExit = 0.02`（约 1080p 下 20~30 像素高）。
+`kScoreEnter = 0.03`、`kScoreExit = 0.02`（约 1080p 下 20~30 像素高）、`kIncumbentBonus = 1.25`。
 
-**4. `ShadowViewSystem::Update` 重构。** 从「遍历光源 → find-or-create → 立刻分配 tile，先到先得」改成四段：
+**被剔除的光源当场 `Deactivate`，不进候选数组。** 「不在视锥内」逐个光源即可判定，无需全局信息；只有预算裁剪需要排名。候选数组因此只装幸存者，也不需要「已拒绝」的哨兵分数。归还的四件事全封在 `Deactivate` 里，两个调用点共用同一份不变量。
 
-```
-1. gate（atlas 就绪）+ sweep（死光源 / 停止投影的光源）        不变
-2. 采集主视角：eye、frustum、proj11
-3. 打分 → 排序 → 定胜负
-4. 落地：败者归还 tile、胜者补 tile、写 View
-```
+**先失活再激活，两个循环分开**，败者让出的格子当帧即可被胜者取用。
 
-第 3 段的候选筛选：
+方向光不需要任何特判：没有 `LightBounds` ⇒ `TryGet` 为空 ⇒ 分数恒为 `kScoreUnbounded`，视锥测试整段跳过。
 
-- 方向光直接进，分数最高
-- 其余先 `IntersectsSphere`，不相交则不进
-- 阈值带迟滞：持有 tile 的用 `kScoreExit`，未持有的用 `kScoreEnter`
-- 排序键 `score · (持有 ? kIncumbentBonus : 1)`，`kIncumbentBonus = 1.25`
+迟滞与占用加权只读 `ShadowViewRefs::m_index >= 0`，**不引入任何跨帧状态**。
 
-迟滞与占用加权只读 `ShadowViewRefs::m_index >= 0`，**不引入任何跨帧状态**。少了它们，预算边界上的光源逐帧闪烁。
+**view 实体在首次激活时创建，失活时保留**，只有 sweep 才销毁。大场景里多数投影光源可能永远轮不到 tile，提前给它们建 SRG + constant buffer 是纯浪费；失活即销毁则会变成每帧 create/destroy 抖动。
 
-第 4 段**先释放后分配**，败者让出的格子当帧即可被胜者取用。
+**5. `ViewInactiveTag`。**（已完成）`View/ViewTags.h` 新增，`CollectViews` 改为 `Exclude<DeadTag, ViewInactiveTag>`。通用 tag，不是 shadow 专属——编辑器视口隐藏、反射探针降频同理。
 
-view 实体的 find-or-create 与 tile 分配解耦：view 跟随光源生命周期，tile 跟随预算。现在 `AllocateSlot` 失败即不建 `ShadowViewRefs` 的提前退出要去掉。
+### 6a 未决
 
-**5. `ViewInactiveTag`。** `View/ViewTags.h` 新增，`CollectViews` 改为 `Exclude<DeadTag, ViewInactiveTag>`。通用 tag，不是 shadow 专属——编辑器视口隐藏、反射探针降频同理。
+`ViewBindingSystem` 扫 `<View, ViewShaderBindings>`，**失活的 view 仍被编码**——写常量 + 编译 shader 输入，而它这一帧不渲染。加 `Exclude<ViewInactiveTag>` 能省掉，但那是另一个系统的行为改变，且切换回激活时要确保编码不落后一帧。等剔除真的挡掉大量 view 再说。
 
 ### 决策
 
