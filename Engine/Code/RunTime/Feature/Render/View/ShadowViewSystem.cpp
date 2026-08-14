@@ -1,11 +1,14 @@
 #include "ShadowViewSystem.h"
 
 #include <EASTL/fixed_vector.h>
+#include <EASTL/sort.h>
 
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
+#include <Math/Frustum.h>
 #include <Math/MathUtils.h>
+#include <Math/Sphere.h>
 
 #include <RHI/HardwareQueue.h>
 #include <RHI/ResourceBuilder.h>
@@ -61,22 +64,80 @@ namespace Spark::Render
                  || rd.m_type == Light::LightType::Spot);
         }
 
-        //! Where the main camera is. The view entities already answer "which camera is the
-        //! main one" — split screen, editor viewports and all — so this system reads that
-        //! answer instead of forming its own. Origin during warmup, when no main view exists.
-        Math::Vector3 MainViewPosition(RHI::RHIContext& rhiCtx)
+        //! A light must clear kScoreEnter to take a tile but only kScoreExit to keep one, so
+        //! one hovering at the boundary does not flicker on and off.
+        constexpr float kScoreEnter = 0.03f;
+        constexpr float kScoreExit  = 0.02f;
+
+        //! Ranking bonus for a light that already holds a tile: a newcomer has to be clearly
+        //! more important to take it over, not a hair ahead.
+        constexpr float kIncumbentBonus = 1.25f;
+
+        //! Directional lights, and any light the camera stands inside.
+        constexpr float kScoreUnbounded = 1e9f;
+
+        struct MainViewInfo
         {
-            Math::Vector3 position(0.0f, 0.0f, 0.0f);
+            Math::Vector3 m_eye {0.0f, 0.0f, 0.0f};
+            Math::Frustum m_frustum {};
+            float         m_proj11 = 1.0f;   // 1 / tan(fovY / 2)
+
+            //! False during warmup and with no camera, and then nothing is culled: letting
+            //! through what should be rejected costs a tile, rejecting what should pass
+            //! loses a shadow.
+            bool          m_valid = false;
+        };
+
+        MainViewInfo ResolveMainView(RHI::RHIContext& rhiCtx)
+        {
+            MainViewInfo info;
             bool found = false;
-            rhiCtx.GetView<MainViewTag, View>(Exclude<DeadTag>).each([&](RHI::RHIHandle, const View& view)
+
+            rhiCtx.GetView<MainViewTag, View>(Exclude<DeadTag>).each(
+                [&](RHI::RHIHandle e, const View& view)
             {
-                if (!found)
+                if (found)
                 {
-                    position = Math::Vector3(Math::Inverse(view.m_worldToView)[3]);
-                    found    = true;
+                    return;
+                }
+                found = true;
+
+                info.m_eye    = Math::Vector3(Math::Inverse(view.m_worldToView)[3]);
+                info.m_proj11 = view.m_viewToClip[1][1];
+                if (const auto* frustum = rhiCtx.TryGet<ViewFrustum>(e))
+                {
+                    info.m_frustum = frustum->m_frustum;
+                    info.m_valid   = true;
                 }
             });
-            return position;
+            return info;
+        }
+
+        //! Radius of the light's bounding sphere projected into NDC. In NDC rather than
+        //! pixels because this runs before the render graph, with no attachment extent to
+        //! scale by.
+        float ScreenRadius(const Math::Sphere& sphere, const MainViewInfo& main)
+        {
+            const Math::Vector3 toCenter = sphere.center - main.m_eye;
+            const float d2 = Math::Dot(toCenter, toCenter);
+            const float r2 = sphere.radius * sphere.radius;
+            if (d2 <= r2)
+            {
+                return kScoreUnbounded;
+            }
+            return sphere.radius * main.m_proj11 / Math::Sqrt(d2 - r2);
+        }
+
+        struct Candidate
+        {
+            Entity m_light = NullEntity;
+            float  m_score = 0.0f;
+            bool   m_held  = false;
+        };
+
+        float RankOf(const Candidate& c)
+        {
+            return c.m_score * (c.m_held ? kIncumbentBonus : 1.0f);
         }
 
         //! Quantize the box origin to whole texels in the light's own frame. Without it the
@@ -188,57 +249,130 @@ namespace Spark::Render
             world->Remove<ShadowViewRefs>(e);
         }
 
-        const Math::Vector3 focus = MainViewPosition(*rhiCtx);
+        const MainViewInfo main = ResolveMainView(*rhiCtx);
 
-        world->GetView<Light::LightRenderData>(Exclude<DeadTag>).each([&](Entity e, const Light::LightRenderData& rd)
+        eastl::fixed_vector<Candidate, 32> candidates;
+        world->GetView<Light::LightRenderData>(Exclude<DeadTag>).each(
+            [&](Entity e, const Light::LightRenderData& rd)
         {
             if (!ProducesShadowView(rd))
             {
                 return;
             }
 
-            auto* refs = world->TryGet<ShadowViewRefs>(e);
-            if (!refs)
+            const auto* refs = world->TryGet<ShadowViewRefs>(e);
+            const bool  held = refs && refs->m_index >= 0;
+
+            // No LightBounds means unbounded influence, so nothing here can reject it.
+            float score = kScoreUnbounded;
+            if (const auto* bounds = world->TryGet<Light::LightBounds>(e); bounds && main.m_valid)
             {
-                const uint32_t slot = AllocateSlot();
-                if (slot == kInvalidShadowSlot)
+                if (!main.m_frustum.IntersectsSphere(bounds->m_sphere.center, bounds->m_sphere.radius))
                 {
-                    // Atlas full: this light casts no shadow. No ShadowViewRefs, so m_index
-                    // stays absent and the lighting shader samples no tile — degraded, not
-                    // wrong. Retried next frame, in case a tile frees up.
+                    Deactivate(*world, *rhiCtx, e);
                     return;
                 }
-
-                const RHI::RHIHandle created = CreateViewEntity<ShadowViewTag>(*rhiCtx);
-                if (created == RHI::NullHandle)
+                score = ScreenRadius(bounds->m_sphere, main);
+                if (score < (held ? kScoreExit : kScoreEnter))
                 {
-                    ReleaseSlot(slot);
+                    Deactivate(*world, *rhiCtx, e);
                     return;
                 }
-                rhiCtx->Add<ShadowViewSlot>(created, ShadowViewSlot{ slot });
-
-                ShadowViewRefs added;
-                added.m_views.push_back(created);
-                added.m_index = static_cast<int32_t>(slot);
-                refs = &world->Add<ShadowViewRefs>(e, eastl::move(added));
-
-                LOG_INFO("[ShadowViewSystem] Light {} took shadow tile {}.",
-                    static_cast<uint32_t>(e), slot);
             }
-
-            ASSERT(refs->m_index >= 0, "[ShadowViewSystem] Light {} has shadow views but no tile.", static_cast<uint32_t>(e));
-
-            View& view  = rhiCtx->Get<View>(refs->m_views[0]);
-            view.m_rect = ShadowTileRect(static_cast<uint32_t>(refs->m_index));
-            if (rd.m_type == Light::LightType::Directional)
-            {
-                WriteDirectionalView(view, rd, focus);
-            }
-            else
-            {
-                WriteSpotView(view, rd);
-            }
+            candidates.push_back(Candidate{ e, score, held });
         });
+
+        eastl::sort(candidates.begin(), candidates.end(),
+            [](const Candidate& a, const Candidate& b) { return RankOf(a) > RankOf(b); });
+
+        // Losers first: a tile handed back here is available to a winner below in the same
+        // frame.
+        for (size_t i = kShadowTileCount; i < candidates.size(); ++i)
+        {
+            Deactivate(*world, *rhiCtx, candidates[i].m_light);
+        }
+        const size_t winners = candidates.size() < kShadowTileCount ? candidates.size() : kShadowTileCount;
+        for (size_t i = 0; i < winners; ++i)
+        {
+            Activate(*world, *rhiCtx, candidates[i].m_light, main.m_eye);
+        }
+    }
+
+    void ShadowViewSystem::Activate(
+        WorldContext& world, RHI::RHIContext& rhiCtx, Entity light, const Math::Vector3& focus)
+    {
+        const auto* rd = world.TryGet<Light::LightRenderData>(light);
+        if (!rd)
+        {
+            return;
+        }
+
+        auto* refs = world.TryGet<ShadowViewRefs>(light);
+        if (!refs)
+        {
+            const RHI::RHIHandle created = CreateViewEntity<ShadowViewTag>(rhiCtx);
+            if (created == RHI::NullHandle)
+            {
+                return;
+            }
+            ShadowViewRefs added;
+            added.m_views.push_back(created);
+            refs = &world.Add<ShadowViewRefs>(light, eastl::move(added));
+        }
+
+        if (refs->m_index < 0)
+        {
+            const uint32_t slot = AllocateSlot();
+            if (slot == kInvalidShadowSlot)
+            {
+                return;
+            }
+            refs->m_index = static_cast<int32_t>(slot);
+
+            const RHI::RHIHandle view = refs->m_views[0];
+            rhiCtx.AddOrReplace<ShadowViewSlot>(view, ShadowViewSlot{ slot });
+            rhiCtx.Remove<ViewInactiveTag>(view);
+
+            LOG_INFO("[ShadowViewSystem] Light {} took shadow tile {}.",
+                static_cast<uint32_t>(light), slot);
+        }
+
+        View& view  = rhiCtx.Get<View>(refs->m_views[0]);
+        view.m_rect = ShadowTileRect(static_cast<uint32_t>(refs->m_index));
+        if (rd->m_type == Light::LightType::Directional)
+        {
+            WriteDirectionalView(view, *rd, focus);
+        }
+        else
+        {
+            WriteSpotView(view, *rd);
+        }
+    }
+
+    void ShadowViewSystem::Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light)
+    {
+        auto* refs = world.TryGet<ShadowViewRefs>(light);
+        if (!refs || refs->m_index < 0)
+        {
+            return;
+        }
+
+        for (RHI::RHIHandle v : refs->m_views)
+        {
+            if (const auto* slot = rhiCtx.TryGet<ShadowViewSlot>(v))
+            {
+                ReleaseSlot(slot->m_slot);
+            }
+            rhiCtx.Remove<ShadowViewSlot>(v);
+            if (!rhiCtx.Has<ViewInactiveTag>(v))
+            {
+                rhiCtx.Add<ViewInactiveTag>(v);
+            }
+        }
+        refs->m_index = -1;
+
+        LOG_INFO("[ShadowViewSystem] Light {} gave its shadow tile back.",
+            static_cast<uint32_t>(light));
     }
 
     void ShadowViewSystem::Shutdown(RHI::RHIContext& rhiCtx)

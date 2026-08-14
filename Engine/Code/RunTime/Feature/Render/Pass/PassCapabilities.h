@@ -146,7 +146,7 @@ namespace Spark::Render
     template<typename ViewTag>
     void CollectViews(RHI::RHIContext& ctx, ViewHandleList& out)
     {
-        ctx.GetView<ViewTag, View>(Exclude<DeadTag>).each(
+        ctx.GetView<ViewTag, View>(Exclude<DeadTag, ViewInactiveTag>).each(
             [&](RHI::RHIHandle view, const View&) { out.push_back(view); });
     }
 

@@ -2,6 +2,8 @@
 
 #include <EASTL/bitset.h>
 
+#include <ECS/WorldContext.h>
+#include <Math/Vector3.h>
 #include <RHI/Context/RHIContext.h>
 
 #include "ShadowAtlasLayout.h"
@@ -31,6 +33,16 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
+        //! Gives the light a tile if it lacks one, then refreshes its View. The view entity
+        //! is created on first activation and outlives any later deactivation.
+        void Activate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
+                      const Math::Vector3& focus);
+
+        //! Hands the tile back and stops the view from rendering. ShadowViewRefs::m_index
+        //! goes to -1 in the same call, which is what keeps the lighting shader from
+        //! sampling a tile that now belongs to someone else.
+        void Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light);
+
         uint32_t AllocateSlot();
         void     ReleaseSlot(uint32_t slot);
 
