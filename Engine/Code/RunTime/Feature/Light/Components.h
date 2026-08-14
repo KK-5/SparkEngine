@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include <Math/Sphere.h>
 #include <Math/Vector3.h>
 #include <Math/Vector4.h>
 #include <ECS/ComponentTraits.h>
@@ -57,6 +58,13 @@ namespace Spark::Light
         bool          m_castShadow         = true;
         float         m_shadowBias         = 0.0005f;
         float         m_shadowNormalOffset = 0.02f;
+    };
+
+    //! Bounding sphere of the light's region of influence. Directional lights are unbounded
+    //! and carry no such component.
+    struct LightBounds
+    {
+        Math::Sphere m_sphere;
     };
 }
 

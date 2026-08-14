@@ -2,10 +2,17 @@
 
 #include <EASTL/fixed_vector.h>
 
+#include <Math/Frustum.h>
 #include <RHI/Context/RHIHandle.h>
 
 namespace Spark::Render
 {
+    //! The view's culling volume, derived from its View.
+    struct ViewFrustum
+    {
+        Math::Frustum m_frustum;
+    };
+
     //! View entity -> its space1 ShaderBindings entity.
     struct ViewShaderBindings
     {

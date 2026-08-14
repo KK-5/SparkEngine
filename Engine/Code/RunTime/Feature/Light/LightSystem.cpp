@@ -28,6 +28,16 @@ namespace Spark::Light
         {
             return Math::Vector3(world[3]);
         }
+
+        Math::Sphere ResolveBounds(const LightRenderData& rd)
+        {
+            if (rd.m_type == LightType::Point)
+            {
+                return Math::Sphere{ rd.m_worldPosition, rd.m_range };
+            }
+            return Math::Sphere::FromCone(rd.m_worldPosition, rd.m_worldDirection, rd.m_range,
+                Math::Acos(Math::Clamp(rd.m_cosOuter, -1.0f, 1.0f)));
+        }
     }
 
     void LightSystem::InitInternal()
@@ -99,6 +109,15 @@ namespace Spark::Light
             rd.m_shadowNormalOffset = lc.m_shadowNormalOffset;
 
             world->AddOrReplace<LightRenderData>(entity, rd);
+
+            if (rd.m_type == LightType::Directional)
+            {
+                world->Remove<LightBounds>(entity);
+            }
+            else
+            {
+                world->AddOrReplace<LightBounds>(entity, LightBounds{ ResolveBounds(rd) });
+            }
         });
     }
 }

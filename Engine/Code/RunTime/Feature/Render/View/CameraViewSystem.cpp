@@ -57,8 +57,9 @@ namespace Spark::Render
 
             View& view = rhiCtx->Get<View>(ref->m_view);
             view.m_worldToView = mats.m_viewMatrix;
-            view.m_viewToClip  = Math::PerspectiveFov(
-                Math::Radians(camera.m_fov), aspect, camera.m_clipStart, camera.m_clipEnd);
+            view.m_viewToClip  = Math::PerspectiveFov(Math::Radians(camera.m_fov), aspect, camera.m_clipStart, camera.m_clipEnd);
+
+            rhiCtx->AddOrReplace<ViewFrustum>(ref->m_view, ViewFrustum{ Math::Frustum::FromViewProjection(view.GetWorldToClip()) });
         });
     }
 
