@@ -21,7 +21,10 @@ namespace Spark::Render
     //! the policy — which levels a light may actually ask for is decided just below.
     inline constexpr uint32_t kShadowAtlasMaxLevel = 4;
 
-    using ShadowAtlasAllocator = QuadTreeAllocator<kShadowAtlasMaxLevel>;
+    //! The tree the atlas is cut by. ShadowAtlasAllocator owns the one instance; this name is
+    //! spelled out here only for the handful of places that decode a tile id without holding
+    //! the allocator.
+    using ShadowTileTree = QuadTreeAllocator<kShadowAtlasMaxLevel>;
 
     //! The levels a light may be granted. Level 0 — the whole atlas to one light — is
     //! deliberately out of reach: no light is worth every other light's shadow. The finest
@@ -57,6 +60,10 @@ namespace Spark::Render
     //! Nothing free — from either allocator. Distinct from 0, a perfectly good tile and row.
     inline constexpr uint32_t kInvalidShadowSlot = ~0u;
 
+    //! No level: the light holds no tile, so there is nothing to be hysteretic about, and
+    //! nothing an allocation could be granted at.
+    inline constexpr uint32_t kNoShadowLevel = ~0u;
+
     //! The one atlas image, owned by ShadowViewSystem. How ShadowPass locates it.
     struct ShadowAtlasTag {};
 
@@ -84,7 +91,7 @@ namespace Spark::Render
     //! about either.
     inline ViewRect ShadowTileRect(uint32_t node)
     {
-        const ShadowAtlasAllocator::Block block = ShadowAtlasAllocator::Decode(node);
+        const ShadowTileTree::Block block = ShadowTileTree::Decode(node);
         const uint32_t gx = block.m_x;
         const uint32_t gy = block.m_y;
 

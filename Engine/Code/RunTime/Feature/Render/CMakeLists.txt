@@ -19,6 +19,7 @@ set(SOURCES
     RenderSystem.cpp
     View/ViewBindingSystem.cpp
     View/CameraViewSystem.cpp
+    View/ShadowAtlasAllocator.cpp
     View/ShadowViewSystem.cpp
     View/ViewFactory.cpp
     SceneBind/SceneBindingSystem.cpp

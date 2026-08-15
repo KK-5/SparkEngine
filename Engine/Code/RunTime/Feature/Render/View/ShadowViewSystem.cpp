@@ -134,9 +134,6 @@ namespace Spark::Render
         static_assert(ArraySize(kLevelDemote) > kShadowFinestLevel,
             "one demote threshold per level");
 
-        //! The light holds no tile, so there is no level to be hysteretic about.
-        constexpr uint32_t kNoLevel = ~0u;
-
         //! The level a score asks for outright, ignoring whatever the light holds now.
         //! kScoreMax saturates at the coarsest level by falling through the first test, so a
         //! directional light needs no branch of its own here either.
@@ -158,7 +155,7 @@ namespace Spark::Render
         uint32_t RequestedLevel(float score, uint32_t currentLevel)
         {
             const uint32_t wanted = LevelForScore(score);
-            if (currentLevel == kNoLevel || wanted < currentLevel)
+            if (currentLevel == kNoShadowLevel || wanted < currentLevel)
             {
                 // Holding nothing, or the score cleared the bar for a coarser tile outright.
                 return wanted;
@@ -316,13 +313,7 @@ namespace Spark::Render
 
     void ShadowViewSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        auto desc = RHI::ImageDescriptor::Create2D(
-            RHI::ImageBindFlags::DepthStencil | RHI::ImageBindFlags::ShaderRead,
-            kShadowAtlasResolution, kShadowAtlasResolution, kShadowAtlasFormat);
-        desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
-
-        m_atlas = RHI::CreateImportedImage(rhiCtx, ObjectName("ShadowAtlas"), desc);
-        rhiCtx.Add<ShadowAtlasTag>(m_atlas);
+        m_atlas.Init(rhiCtx);
     }
 
     void ShadowViewSystem::Update()
@@ -337,34 +328,29 @@ namespace Spark::Render
         // The single readiness gate for shadows. Holding tiles back until the atlas exists
         // leaves every m_shadowIndex at -1, which is what the lighting shader already tests,
         // so nothing downstream needs a second check for the warmup frames.
-        if (!IsResourceReady(*rhiCtx, m_atlas))
+        if (!IsResourceReady(*rhiCtx, m_atlas.Image()))
         {
             return;
         }
 
         // Sweep: a light that died, lost its render data or stopped casting hands its views
-        // and its tiles back.
+        // and its tiles back. So does one whose type changed, since the number of views was
+        // fixed when they were created — an author switching a light to Point in the editor
+        // would otherwise leave it with the single view it had as a directional.
         eastl::fixed_vector<Entity, 8> orphans;
         world->GetView<ShadowViewRefs>().each([&](Entity e, const ShadowViewRefs& refs)
         {
             const auto* rd = world->TryGet<Light::LightRenderData>(e);
-            if (!world->Has<DeadTag>(e) && rd && ProducesShadowView(*rd))
+            if (!world->Has<DeadTag>(e) && rd && ProducesShadowView(*rd)
+                && refs.m_views.size() == ShadowFaceCount(*rd))
             {
                 return;
             }
 
+            ReleaseAllocation(*rhiCtx, refs);
             for (RHI::RHIHandle v : refs.m_views)
             {
-                if (const auto* tile = rhiCtx->TryGet<ShadowAtlasTile>(v))
-                {
-                    ReleaseTile(tile->m_tile);
-                }
                 DestroyViewEntity(*rhiCtx, v);
-            }
-            if (refs.m_baseIndex >= 0)
-            {
-                ReleaseViewRows(static_cast<uint32_t>(refs.m_baseIndex),
-                    static_cast<uint32_t>(refs.m_views.size()));
             }
             LOG_INFO("[ShadowViewSystem] Light {} released {} shadow view(s).",
                 static_cast<uint32_t>(e), refs.m_views.size());
@@ -389,7 +375,7 @@ namespace Spark::Render
             const auto* refs      = world->TryGet<ShadowViewRefs>(e);
             const bool  holdsTile = refs && refs->m_baseIndex >= 0;
 
-            const uint32_t grantedLevel = holdsTile ? GrantedLevel(*rhiCtx, *refs) : kNoLevel;
+            const uint32_t grantedLevel = holdsTile ? GrantedLevel(*rhiCtx, *refs) : kNoShadowLevel;
 
             // No LightBounds means unbounded influence, so nothing here can reject it.
             float score = kScoreMax;
@@ -495,10 +481,10 @@ namespace Spark::Render
         {
             if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(view))
             {
-                return ShadowAtlasAllocator::Decode(tile->m_tile).m_level;
+                return ShadowAtlasAllocator::LevelOfTile(tile->m_tile);
             }
         }
-        return kNoLevel;
+        return kNoShadowLevel;
     }
 
     uint32_t ShadowViewSystem::HeldFaceMask(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
@@ -514,15 +500,31 @@ namespace Spark::Render
         return mask;
     }
 
-    void ShadowViewSystem::ReleaseHeldTiles(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
+    void ShadowViewSystem::ReleaseTilesKeepingRows(
+        RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
     {
         for (RHI::RHIHandle view : refs.m_views)
         {
             if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(view))
             {
-                ReleaseTile(tile->m_tile);
+                m_atlas.ReleaseTile(tile->m_tile);
             }
             rhiCtx.Remove<ShadowAtlasTile>(view);
+        }
+    }
+
+    void ShadowViewSystem::ReleaseAllocation(
+        RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
+    {
+        ReleaseTilesKeepingRows(rhiCtx, refs);
+        for (RHI::RHIHandle view : refs.m_views)
+        {
+            rhiCtx.Remove<ShadowViewIndex>(view);
+        }
+        if (refs.m_baseIndex >= 0)
+        {
+            m_atlas.ReleaseRows(static_cast<uint32_t>(refs.m_baseIndex),
+                static_cast<uint32_t>(refs.m_views.size()));
         }
     }
 
@@ -544,25 +546,25 @@ namespace Spark::Render
         const uint32_t faces = CountBitsSet(faceMask);
         uint32_t       tiles[kShadowCubeFaceCount] = {};
 
-        if (currentLevel != kNoLevel && level < currentLevel)
+        if (currentLevel != kNoShadowLevel && level < currentLevel)
         {
             // Promoting: allocate BEFORE releasing. The larger tiles may want the very space
             // the current ones sit in, in which case this fails and the light keeps what it
             // has — a missed promotion, not a lost shadow. Releasing first would make that
             // same case cost the light its tiles, and a light held down by a full atlas would
             // then release and re-acquire every single frame.
-            if (!AllocateTilesAt(level, faces, tiles))
+            if (!m_atlas.AllocateTilesAt(level, faces, tiles))
             {
                 return true;
             }
-            ReleaseHeldTiles(rhiCtx, refs);
+            ReleaseTilesKeepingRows(rhiCtx, refs);
         }
         else
         {
             // Demoting, or arriving, or only the face set moved: release first, since the
             // space wanted is most likely inside what is being given up.
-            ReleaseHeldTiles(rhiCtx, refs);
-            if (AllocateTilesOrFiner(level, faces, tiles) == kNoLevel)
+            ReleaseTilesKeepingRows(rhiCtx, refs);
+            if (m_atlas.AllocateTilesOrFiner(level, faces, tiles) == kNoShadowLevel)
             {
                 Deactivate(world, rhiCtx, light);
                 return false;
@@ -615,7 +617,7 @@ namespace Spark::Render
         // that face is holding a tile this frame.
         if (refs->m_baseIndex < 0)
         {
-            const uint32_t row = AllocateViewRows(faceCount);
+            const uint32_t row = m_atlas.AllocateRows(faceCount);
             if (row == kInvalidShadowSlot)
             {
                 return;
@@ -656,8 +658,7 @@ namespace Spark::Render
             switch (rd->m_type)
             {
             case Light::LightType::Directional:
-                WriteDirectionalView(view, *rd, focus,
-                    ShadowAtlasAllocator::Decode(tile->m_tile).m_level);
+                WriteDirectionalView(view, *rd, focus, ShadowAtlasAllocator::LevelOfTile(tile->m_tile));
                 break;
             case Light::LightType::Point:
                 WritePointFaceView(view, *rd, face);
@@ -677,21 +678,14 @@ namespace Spark::Render
             return;
         }
 
+        ReleaseAllocation(rhiCtx, *refs);
         for (RHI::RHIHandle v : refs->m_views)
         {
-            if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(v))
-            {
-                ReleaseTile(tile->m_tile);
-            }
-            rhiCtx.Remove<ShadowAtlasTile>(v);
-            rhiCtx.Remove<ShadowViewIndex>(v);
             if (!rhiCtx.Has<ViewInactiveTag>(v))
             {
                 rhiCtx.Add<ViewInactiveTag>(v);
             }
         }
-        ReleaseViewRows(static_cast<uint32_t>(refs->m_baseIndex),
-            static_cast<uint32_t>(refs->m_views.size()));
         refs->m_baseIndex = -1;
 
         LOG_INFO("[ShadowViewSystem] Light {} gave its shadow tile back.",
@@ -705,108 +699,12 @@ namespace Spark::Render
         {
             DestroyViewEntity(rhiCtx, view);
         });
-        if (m_atlas != RHI::NullHandle && rhiCtx.Valid(m_atlas))
-        {
-            rhiCtx.DestoryEntity(m_atlas);
-        }
-        m_atlas = RHI::NullHandle;
-
-        m_atlasAllocator.Reset();
-        m_viewRows.reset();
-        m_atlasFullLogged = false;
+        m_atlas.Shutdown(rhiCtx);
 
         // Strip the world-side refs so a re-init starts clean.
         if (auto* world = WorldExecuteContext::Current())
         {
             world->Clear<ShadowViewRefs>();
-        }
-    }
-
-    bool ShadowViewSystem::AllocateTilesAt(uint32_t level, uint32_t count, uint32_t* outTiles)
-    {
-        for (uint32_t i = 0; i < count; ++i)
-        {
-            const uint32_t node = m_atlasAllocator.Allocate(level);
-            if (node == ShadowAtlasAllocator::kInvalidNode)
-            {
-                for (uint32_t taken = 0; taken < i; ++taken)
-                {
-                    m_atlasAllocator.Free(outTiles[taken]);
-                }
-                return false;
-            }
-            outTiles[i] = node;
-        }
-        return true;
-    }
-
-    uint32_t ShadowViewSystem::AllocateTilesOrFiner(
-        uint32_t level, uint32_t count, uint32_t* outTiles)
-    {
-        // Down to the finest, so fragmentation is handled by the same rule as a tight budget:
-        // the tree can hold a free 512 while no 1024 can be cut out of it, and a light in that
-        // situation should get the 512 rather than nothing.
-        for (uint32_t l = level; l <= kShadowFinestLevel; ++l)
-        {
-            if (AllocateTilesAt(l, count, outTiles))
-            {
-                m_atlasFullLogged = false;
-                return l;
-            }
-        }
-
-        if (!m_atlasFullLogged)
-        {
-            LOG_WARN("[ShadowViewSystem] The shadow atlas cannot fit {} tile(s) at any level "
-                     "down to {}; further lights cast no shadow until space frees up.",
-                count, kShadowFinestLevel);
-            m_atlasFullLogged = true;
-        }
-        return kNoLevel;
-    }
-
-    void ShadowViewSystem::ReleaseTile(uint32_t tile)
-    {
-        m_atlasAllocator.Free(tile);
-        m_atlasFullLogged = false;
-    }
-
-    //! No warning of its own: rows are sized so that every tile can go to a different light
-    //! that culled all but one face, so the atlas runs out first and AllocateTile has already
-    //! said so.
-    uint32_t ShadowViewSystem::AllocateViewRows(uint32_t count)
-    {
-        if (count == 0 || count > kShadowViewCapacity)
-        {
-            return kInvalidShadowSlot;
-        }
-
-        uint32_t base = 0;
-        while (base + count <= kShadowViewCapacity)
-        {
-            uint32_t free = 0;
-            while (free < count && !m_viewRows.test(base + free))
-            {
-                ++free;
-            }
-            if (free == count)
-            {
-                for (uint32_t i = 0; i < count; ++i)
-                {
-                    m_viewRows.set(base + i);
-                }
-                return base;
-            }
-            base += free + 1;   // Row base + free is taken, so no run can start before it.
-        }
-        return kInvalidShadowSlot;
-    }
-
-    void ShadowViewSystem::ReleaseViewRows(uint32_t base, uint32_t count)
-    {
-        for (uint32_t i = 0; i < count && base + i < kShadowViewCapacity; ++i)
-        {
-            m_viewRows.set(base + i, false);
         }
     }
 }
