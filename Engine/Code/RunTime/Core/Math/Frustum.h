@@ -54,6 +54,31 @@ namespace Spark::Math
             return true;
         }
 
+        //! True when every point lies outside one single plane, which proves the hull is
+        //! separate. False does not prove the converse: a hull straddling two planes without
+        //! entering either passes.
+        bool RejectsHull(const Vector3* points, uint32_t count) const
+        {
+            if (count == 0)
+            {
+                return false;
+            }
+
+            for (const Vector4& plane : planes)
+            {
+                bool allOutside = true;
+                for (uint32_t i = 0; i < count && allOutside; ++i)
+                {
+                    allOutside = Dot(Vector3(plane), points[i]) + plane.w < 0.0f;
+                }
+                if (allOutside)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         //! Dot(Abs(n), extents) is the box's support radius along n — the role radius plays
         //! in the sphere test. Testing the eight corners instead would answer containment,
         //! not intersection.

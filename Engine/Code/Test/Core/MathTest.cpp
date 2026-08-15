@@ -118,6 +118,109 @@ TEST(FrustumTest, AABBEnclosingTheFrustum)
     EXPECT_TRUE(f.IntersectsAABB(MakeBox({-1000.0f, -1000.0f, -1000.0f}, {1000.0f, 1000.0f, 1000.0f})));
 }
 
+//! The five points of a cube-shadow face: apex plus the far cap's corners. A 90 degree
+//! pyramid of length h has a far cap of half-width h, so the corners sit at h along the axis
+//! and h along each of the other two.
+namespace
+{
+    void MakeFacePyramid(const Math::Vector3& apex, const Math::Vector3& axis,
+        const Math::Vector3& right, const Math::Vector3& up, float h, Math::Vector3 (&out)[5])
+    {
+        out[0] = apex;
+        out[1] = apex + (axis + right + up) * h;
+        out[2] = apex + (axis + right - up) * h;
+        out[3] = apex + (axis - right + up) * h;
+        out[4] = apex + (axis - right - up) * h;
+    }
+}
+
+TEST(FrustumTest, RejectsHullBehindTheNearPlane)
+{
+    const Math::Frustum f = MakeTestFrustum();
+
+    // Pointing away down -Z, so the whole pyramid sits behind the eye.
+    Math::Vector3 pyramid[5];
+    MakeFacePyramid({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f}, 10.0f, pyramid);
+
+    EXPECT_TRUE(f.RejectsHull(pyramid, 5));
+}
+
+TEST(FrustumTest, RejectsHullBeyondTheFarPlane)
+{
+    const Math::Frustum f = MakeTestFrustum();
+
+    Math::Vector3 pyramid[5];
+    MakeFacePyramid({0.0f, 0.0f, 200.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f}, 10.0f, pyramid);
+
+    EXPECT_TRUE(f.RejectsHull(pyramid, 5));
+}
+
+//! The side planes are z = |x| here, so a pyramid pushed far along +X clears the right one
+//! entirely. This is the case face culling actually lives on: the faces aimed away from what
+//! the camera can see.
+TEST(FrustumTest, RejectsHullOutsideASidePlane)
+{
+    const Math::Frustum f = MakeTestFrustum();
+
+    Math::Vector3 pyramid[5];
+    MakeFacePyramid({500.0f, 0.0f, 10.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f}, 10.0f, pyramid);
+
+    EXPECT_TRUE(f.RejectsHull(pyramid, 5));
+}
+
+TEST(FrustumTest, KeepsHullReachingIntoTheFrustum)
+{
+    const Math::Frustum f = MakeTestFrustum();
+
+    // Apex off to the side, but the cap opens across the view axis.
+    Math::Vector3 pyramid[5];
+    MakeFacePyramid({-30.0f, 0.0f, 50.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f}, 40.0f, pyramid);
+
+    EXPECT_FALSE(f.RejectsHull(pyramid, 5));
+}
+
+//! Two points, one past the left plane and one past the right, and no single plane holds
+//! both. Neither is anywhere near the frustum, yet the test declines to reject — that is the
+//! conservatism, and it is the direction that costs a tile instead of losing a shadow.
+TEST(FrustumTest, DeclinesToRejectWhenNoSinglePlaneSeparates)
+{
+    const Math::Frustum f = MakeTestFrustum();
+
+    const Math::Vector3 points[2] = { {-200.0f, 0.0f, 10.0f}, {200.0f, 0.0f, 10.0f} };
+
+    EXPECT_FALSE(ContainsPoint(f, points[0]));
+    EXPECT_FALSE(ContainsPoint(f, points[1]));
+    EXPECT_FALSE(f.RejectsHull(points, 2));
+}
+
+//! Same shape as AABBEnclosingTheFrustum: every point outside, none of them separable.
+TEST(FrustumTest, DeclinesToRejectAHullSwallowingTheFrustum)
+{
+    const Math::Frustum f = MakeTestFrustum();
+
+    const Math::Vector3 corners[8] = {
+        {-1000.0f, -1000.0f, -1000.0f}, { 1000.0f, -1000.0f, -1000.0f},
+        {-1000.0f,  1000.0f, -1000.0f}, { 1000.0f,  1000.0f, -1000.0f},
+        {-1000.0f, -1000.0f,  1000.0f}, { 1000.0f, -1000.0f,  1000.0f},
+        {-1000.0f,  1000.0f,  1000.0f}, { 1000.0f,  1000.0f,  1000.0f},
+    };
+
+    EXPECT_FALSE(f.RejectsHull(corners, 8));
+}
+
+//! No points is no proof of separation. Rejecting would silently drop whatever the caller
+//! failed to fill in.
+TEST(FrustumTest, EmptyHullIsNotRejected)
+{
+    const Math::Frustum f = MakeTestFrustum();
+
+    EXPECT_FALSE(f.RejectsHull(nullptr, 0));
+}
+
 namespace
 {
     constexpr float kConeHeight = 10.0f;
