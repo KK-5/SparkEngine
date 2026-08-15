@@ -2,22 +2,35 @@
 
 #include <cstdint>
 
+#include <Memory/QuadTreeAllocator.h>
 #include <RHI/Format.h>
 
 #include "View.h"
 
 namespace Spark::Render
 {
-    //! One shadow atlas split into a fixed power-of-two grid. Power-of-two, and the atlas a
-    //! multiple of it, so a tile's normalized rect times the atlas extent lands exactly on
+    //! One shadow atlas, cut into power-of-two square blocks. Power-of-two, and the atlas a
+    //! multiple of them, so a block's normalized rect times the atlas extent lands exactly on
     //! integers — no half-texel drift between the viewport and the sampled UVs.
-    //!
-    //! Tile count is the shadow budget: it bounds the cost regardless of how many lights the
-    //! scene has. Keep it in step with ViewHandleList's inline capacity (PassCapabilities.h).
     inline constexpr uint32_t kShadowAtlasResolution = 4096;
-    inline constexpr uint32_t kShadowTileGrid        = 4;   // 4x4
-    inline constexpr uint32_t kShadowTileCount       = kShadowTileGrid * kShadowTileGrid;
-    inline constexpr uint32_t kShadowTileResolution  = kShadowAtlasResolution / kShadowTileGrid;
+
+    //! Finest block the atlas can be cut into: 4096 >> 4 = 256 texels. It bounds the tree,
+    //! not the policy — which levels a light may actually ask for is decided elsewhere.
+    inline constexpr uint32_t kShadowAtlasMaxLevel = 4;
+
+    using ShadowAtlasAllocator = QuadTreeAllocator<kShadowAtlasMaxLevel>;
+
+    //! The one level handed out today, 4096 >> 2 = 1024 texels. Choosing it per light by
+    //! screen coverage is the resolution ladder, still to come.
+    inline constexpr uint32_t kShadowTileLevel      = 2;
+    inline constexpr uint32_t kShadowTileGrid       = 1u << kShadowTileLevel;
+    inline constexpr uint32_t kShadowTileResolution = kShadowAtlasResolution >> kShadowTileLevel;
+
+    //! The shadow budget while every light takes the same level: it bounds the cost
+    //! regardless of how many lights the scene has. Once levels vary this stops being a
+    //! count and becomes atlas area. Keep it in step with ViewHandleList's inline capacity
+    //! (PassCapabilities.h).
+    inline constexpr uint32_t kShadowTileCount = kShadowTileGrid * kShadowTileGrid;
 
     //! Rows in g_ShadowViews. A DIFFERENT quantity from the tile count, which it merely
     //! happens to equal today: a row is a matrix plus a rect, an atlas tile is space to
@@ -43,15 +56,21 @@ namespace Spark::Render
     //! NDC [-1,1] maps onto, so it is the divisor for a texel's world size.
     inline constexpr uint32_t kShadowTileUsableTexels = kShadowTileResolution - 2 * kShadowTileBorderTexels;
 
-    //! A tile's INSET rect. Viewport, scissor, the tile remap baked into the shadow matrix
-    //! and the sampling clamp all derive from this one value, so a border that reached only
-    //! some of them — which shifts every sampled UV by its width — cannot happen.
-    inline ViewRect ShadowTileRect(uint32_t tile)
+    //! An allocated block's INSET rect. Viewport, scissor, the tile remap baked into the
+    //! shadow matrix and the sampling clamp all derive from this one value, so a border that
+    //! reached only some of them — which shifts every sampled UV by its width — cannot happen.
+    //!
+    //! This is the whole of the shadow layer's knowledge of what a block MEANS. The allocator
+    //! deals in blocks and levels and has no opinion about borders or texels.
+    inline ViewRect ShadowTileRect(uint32_t node)
     {
-        const uint32_t gx = tile % kShadowTileGrid;
-        const uint32_t gy = tile / kShadowTileGrid;
+        const ShadowAtlasAllocator::Block block = ShadowAtlasAllocator::Decode(node);
+        const uint32_t gx = block.m_x;
+        const uint32_t gy = block.m_y;
 
-        constexpr float span   = 1.0f / static_cast<float>(kShadowTileGrid);
+        // Blocks of a coarser level are wider, so the span is no longer a constant. The
+        // border is: it is a fixed count of atlas texels whatever the block's size.
+        const float     span   = 1.0f / static_cast<float>(1u << block.m_level);
         constexpr float border = static_cast<float>(kShadowTileBorderTexels)
                                / static_cast<float>(kShadowAtlasResolution);
 

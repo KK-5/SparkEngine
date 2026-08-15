@@ -410,7 +410,7 @@ namespace Spark::Render
         }
         m_atlas = RHI::NullHandle;
 
-        m_tiles.reset();
+        m_blocks.Reset();
         m_viewRows.reset();
         m_atlasFullLogged = false;
 
@@ -423,13 +423,10 @@ namespace Spark::Render
 
     uint32_t ShadowViewSystem::AllocateTile()
     {
-        for (uint32_t i = 0; i < kShadowTileCount; ++i)
+        const uint32_t node = m_blocks.Allocate(kShadowTileLevel);
+        if (node != ShadowAtlasAllocator::kInvalidNode)
         {
-            if (!m_tiles.test(i))
-            {
-                m_tiles.set(i);
-                return i;
-            }
+            return node;
         }
 
         if (!m_atlasFullLogged)
@@ -443,11 +440,8 @@ namespace Spark::Render
 
     void ShadowViewSystem::ReleaseTile(uint32_t tile)
     {
-        if (tile < kShadowTileCount)
-        {
-            m_tiles.set(tile, false);
-            m_atlasFullLogged = false;
-        }
+        m_blocks.Free(tile);
+        m_atlasFullLogged = false;
     }
 
     //! No warning of its own: rows and tiles are equal in number and taken together, so the

@@ -53,9 +53,10 @@ namespace Spark::Render
         //! Written by ShadowPass, read by LightingPass. Persistent, and deferred-init.
         RHI::RHIHandle m_atlas = RHI::NullHandle;
 
-        //! Occupied tiles and rows. Outlive the frame, unlike everything else about a
-        //! shadow view.
-        eastl::bitset<kShadowTileCount>    m_tiles;
+        //! Occupied blocks and rows. Outlive the frame, unlike everything else about a
+        //! shadow view. Rows stay a flat bitset — they are all the same size and always
+        //! will be, which is the whole reason they are no longer the same number as a block.
+        ShadowAtlasAllocator               m_blocks;
         eastl::bitset<kShadowViewCapacity> m_viewRows;
 
         //! Keeps the "atlas full" warning to one line per episode: allocation is retried
