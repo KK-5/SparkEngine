@@ -14,7 +14,7 @@
 
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
 
-// Indexed by LightData::shadowIndex, which is an atlas TILE SLOT — entries for unallocated
+// Indexed by LightData::shadowIndex plus a cube face — entries for unallocated
 // tiles are zeroed, so never read one without checking shadowIndex >= 0 first.
 StructuredBuffer<ShadowViewData> g_ShadowViews : register(t4, space0);
 

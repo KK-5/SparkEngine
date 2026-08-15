@@ -456,18 +456,25 @@ namespace Spark::Render
                 d.m_invRange   = rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f;
                 d.m_cosInner   = rd.m_cosInner;
                 d.m_cosOuter   = rd.m_cosOuter;
-                d.m_pad1       = 0.0f;
 
                 // Read from the light, not from the view entity: g_Lights is packed by
-                // iteration order while the tile slot is not, so this is the one place the
-                // two index spaces meet.
-                const auto* refs = world->TryGet<ShadowViewRefs>(entity);
-                d.m_shadowIndex  = refs ? refs->m_baseIndex : -1;
+                // iteration order while the row is not, so this is the one place the two
+                // index spaces meet.
+                const auto* refs      = world->TryGet<ShadowViewRefs>(entity);
+                d.m_shadowIndex       = refs ? refs->m_baseIndex : -1;
+                d.m_shadowFaceCount   = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
 
-                if (shadowViewsBound && d.m_shadowIndex >= 0
-                    && d.m_shadowIndex < static_cast<int32_t>(kShadowViewCapacity))
+                // Every row the light owns, since the authored bias applies to all its faces
+                // and a face without a tile keeps its row inverted by PackShadowViews.
+                for (uint32_t face = 0; shadowViewsBound && d.m_shadowIndex >= 0
+                        && face < d.m_shadowFaceCount; ++face)
                 {
-                    ShadowViewData& sv    = m_shadowViewData[d.m_shadowIndex];
+                    const uint32_t row = static_cast<uint32_t>(d.m_shadowIndex) + face;
+                    if (row >= kShadowViewCapacity)
+                    {
+                        break;
+                    }
+                    ShadowViewData& sv    = m_shadowViewData[row];
                     sv.m_depthBias        = rd.m_shadowBias;
                     sv.m_normalOffset     = rd.m_shadowNormalOffset;
                     sv.m_pcfRadiusTexels  = rd.m_type == Light::LightType::Directional

@@ -48,6 +48,16 @@ float PCF(float2 uv, float z, float radiusTexels, float4 uvMinMax)
     return sum * (1.0 / 9.0);
 }
 
+//! face = axis * 2 + negative, for a vector pointing from the light at what it lights.
+//! ShadowViewSystem::CubeFaceDirection is the same encoding read the other way, and the two
+//! must agree — nothing else about a face is shared, its orientation included.
+uint CubeFaceIndex(float3 v)
+{
+    float3 a    = abs(v);
+    uint   axis = (a.x >= a.y && a.x >= a.z) ? 0 : (a.y >= a.z ? 1 : 2);
+    return axis * 2 + (v[axis] < 0.0 ? 1 : 0);
+}
+
 //! 1 = lit, 0 = fully shadowed. The tile transform is already inside worldToShadowUV, so
 //! nothing here knows the atlas layout.
 float SampleShadow(int shadowIndex, float3 worldPos, float3 N)
@@ -110,7 +120,12 @@ float3 EvaluateLight(LightData light, float3 worldPos, float3 N, out float3 L)
     // exists: ShadowViewSystem hands out no tile until then.
     if (light.shadowIndex >= 0)
     {
-        radiance *= SampleShadow(light.shadowIndex, worldPos, N);
+        int row = light.shadowIndex;
+        if (light.shadowFaceCount > 1)
+        {
+            row += int(CubeFaceIndex(worldPos - light.position));
+        }
+        radiance *= SampleShadow(row, worldPos, N);
     }
     return radiance;
 }

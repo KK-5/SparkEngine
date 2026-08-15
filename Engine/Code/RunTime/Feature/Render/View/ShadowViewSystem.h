@@ -7,6 +7,7 @@
 #include <RHI/Context/RHIContext.h>
 
 #include "ShadowAtlasLayout.h"
+#include "ViewComponents.h"
 
 namespace Spark::Render
 {
@@ -35,37 +36,44 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
-        //! Gives the light a tile at the requested level if it lacks one or is holding the
-        //! wrong size, then refreshes its View. The view entity is created on first
-        //! activation and outlives any later deactivation.
+        //! Gives the light's surviving faces tiles at the requested level, then refreshes
+        //! their Views. The view entities are created on first activation and outlive any
+        //! later deactivation.
         void Activate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
-                      uint32_t level, const Math::Vector3& focus);
+                      uint32_t level, uint32_t faceMask, const Math::Vector3& focus);
 
         //! Hands the tile and the row back and stops the view from rendering.
         //! ShadowViewRefs::m_baseIndex goes to -1 in the same call, which is what keeps the
         //! lighting shader from sampling a tile that now belongs to someone else.
         void Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light);
 
-        //! The level of the tile a view holds, or kNoLevel. The level is not stored: it is
-        //! recovered from the tile id, which is what keeps the resolution hysteresis free of
+        //! The level of the tiles a light holds, or kNoLevel. The level is not stored: it is
+        //! recovered from a tile id, which is what keeps the resolution hysteresis free of
         //! any state carried between frames.
-        static uint32_t GrantedLevel(RHI::RHIContext& rhiCtx, RHI::RHIHandle view);
+        static uint32_t GrantedLevel(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs);
 
-        //! Exchanges the tile a view holds for one of a different level, keeping its
-        //! g_ShadowViews row. Growing and shrinking are not symmetric — see the definition.
-        //! False only when the view was left holding nothing and has been deactivated; a
-        //! promotion that could not be afforded keeps the current tile and returns true.
-        bool ReallocateTile(WorldContext& world, RHI::RHIContext& rhiCtx, RHI::RHIHandle view,
-                            Entity light, uint32_t level);
+        //! Bit per face currently holding a tile.
+        static uint32_t HeldFaceMask(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs);
 
-        //! That level or nothing. For promotion, where keeping the smaller tile the light
-        //! already has beats releasing it for an allocation that may fail.
-        uint32_t AllocateTile(uint32_t level);
+        void ReleaseHeldTiles(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs);
 
-        //! That level, or the coarsest finer one available. A light that cannot have the size
-        //! it asked for takes a smaller tile rather than nothing, which is also what keeps one
-        //! light's allocation from depending on another light's score.
-        uint32_t AllocateTileOrFiner(uint32_t level);
+        //! Brings the light's tiles in line with a level and a face set, all of them or none.
+        //! Promoting and demoting are not symmetric — see the definition. False only when the
+        //! light was left holding nothing and has been deactivated; a promotion that could not
+        //! be afforded keeps the current tiles and returns true.
+        bool ReallocateTiles(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
+                             const ShadowViewRefs& refs, uint32_t level, uint32_t faceMask);
+
+        //! count tiles at exactly that level, or none — a partial set is rolled back. For
+        //! promotion, where keeping the smaller tiles the light already has beats releasing
+        //! them for an allocation that may fail.
+        bool AllocateTilesAt(uint32_t level, uint32_t count, uint32_t* outTiles);
+
+        //! That level, or the coarsest finer one that fits all count of them. Returns the
+        //! level granted, or kNoLevel. A light that cannot have the size it asked for takes
+        //! smaller tiles rather than none, which is also what keeps one light's allocation
+        //! from depending on another light's score.
+        uint32_t AllocateTilesOrFiner(uint32_t level, uint32_t count, uint32_t* outTiles);
 
         void     ReleaseTile(uint32_t tile);
 
