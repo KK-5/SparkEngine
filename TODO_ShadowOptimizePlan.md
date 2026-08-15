@@ -175,7 +175,7 @@ ndcRadius = radius · proj11 / sqrt(d² - radius²)     // d² <= radius² 时�
 
 **先失活再激活，两个循环分开**，败者让出的格子当帧即可被胜者取用。
 
-方向光不需要任何特判：没有 `LightBounds` ⇒ `TryGet` 为空 ⇒ 分数恒为 `kScoreUnbounded`，视锥测试整段跳过。
+方向光不需要任何特判：没有 `LightBounds` ⇒ `TryGet` 为空 ⇒ 分数恒为 `kScoreMax`，视锥测试整段跳过。
 
 迟滞与占用加权只读 `ShadowViewRefs::m_index >= 0`，**不引入任何跨帧状态**。
 
@@ -191,11 +191,11 @@ ndcRadius = radius · proj11 / sqrt(d² - radius²)     // d² <= radius² 时�
 
 **归还 tile，不保留。** 今天 atlas 每帧整张 Clear，归还没有残留问题；部分清除是 tile 缓存那一层的前置，不是归还的前置。
 
-**归还时 `ShadowViewRefs::m_index` 必须同帧置 -1。** `SceneBindingSystem` 当帧从它读，只要同源就不存在半拍错位；只打 `ViewInactiveTag` 而留着 `m_index`，那盏灯会去采一块当帧没画的 tile。
+**归还时 `ShadowViewRefs::m_baseIndex` 必须同帧置 -1。** `SceneBindingSystem` 当帧从它读，只要同源就不存在半拍错位；只打 `ViewInactiveTag` 而留着 `m_baseIndex`，那盏灯会去采一块当帧没画的 tile。
 
-**`ShadowViewSlot` 随 tile 一起摘除。** `PackShadowViews` 按 `slot.m_slot` 寻址，留着会让两个 view 写进同一下标，表现为某盏灯用了另一盏灯的矩阵。移除组件后该查询天然跳过。
+**`ShadowAtlasTile` / `ShadowViewIndex` 随归还一起摘除。** `PackShadowViews` 按 `row.m_index` 寻址，留着会让两个 view 写进同一下标，表现为某盏灯用了另一盏灯的矩阵。移除组件后该查询天然跳过。
 
-**`ShadowViewSlot` 的不变量从「跨帧稳定」降级为「同帧一致」。** 跨帧稳定只有 tile 缓存需要。
+**`ShadowViewIndex` 的不变量从「跨帧稳定」降级为「同帧一致」。** 跨帧稳定只有 tile 缓存需要。
 
 **主视角不存在时不剔除。** 预热帧与无相机时全部当作可见——安全方向是漏而非错杀。现有 `MainViewPosition` 扩成返回 `{eye, frustum, proj11, valid}`，`valid = false` 时跳过剔除只保留排序。
 
@@ -207,7 +207,7 @@ ndcRadius = radius · proj11 / sqrt(d² - radius²)     // d² <= radius² 时�
 | 镜头转开，远处的灯让出 tile 给近处的 | 评分 |
 | 阈值边界上缓慢推拉相机，阴影不逐帧闪烁 | 迟滞 |
 | 方向光永远有阴影 | 无界体积特判 |
-| 抓帧：任一 tile 至多被一个 view 写 | `ShadowViewSlot` 随 tile 摘除 |
+| 抓帧：任一 tile 至多被一个 view 写 | `ShadowAtlasTile` 随归还摘除 |
 
 灯不够时把 `kShadowTileCount` 临时调到 2 可复现全部路径。
 

@@ -160,12 +160,12 @@ namespace Spark::Render
         }
 
         // g_ShadowViews: same per-frame host StructuredBuffer path as g_Lights, but sized to
-        // the atlas tile count — it is addressed by slot, not densely packed.
-        m_shadowViewData.resize(kShadowTileCount);
+        // the row capacity — it is addressed by row, not densely packed.
+        m_shadowViewData.resize(kShadowViewCapacity);
         m_shadowViewBuffer = rhiCtx.CreateEntity();
         {
             RHI::BufferDescriptor bufDesc;
-            bufDesc.m_byteCount = static_cast<uint64_t>(kShadowTileCount) * sizeof(ShadowViewData);
+            bufDesc.m_byteCount = static_cast<uint64_t>(kShadowViewCapacity) * sizeof(ShadowViewData);
             bufDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyRead;
 
             RHI::PendingBufferInit init;
@@ -270,7 +270,7 @@ namespace Spark::Render
         RHI::Buffer* buffer = perFrame->m_buffers[frameIndex].get();
 
         const RHI::BufferViewDescriptor viewDesc =
-            RHI::BufferViewDescriptor::CreateStructured(0, kShadowTileCount, sizeof(ShadowViewData));
+            RHI::BufferViewDescriptor::CreateStructured(0, kShadowViewCapacity, sizeof(ShadowViewData));
         RHI::BufferView* view = RHI::GetOrCreateBufferViewPerFrame(
             *rhiCtx, m_shadowViewBuffer, *buffer, viewDesc, frameIndex);
         if (!view)
@@ -290,15 +290,15 @@ namespace Spark::Render
             d = ShadowViewData{};
         }
 
-        rhiCtx.GetView<ShadowViewTag, View, ShadowViewSlot>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle, const View& view, const ShadowViewSlot& slot)
+        rhiCtx.GetView<ShadowViewTag, View, ShadowViewIndex>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle, const View& view, const ShadowViewIndex& row)
         {
-            if (slot.m_slot >= kShadowTileCount)
+            if (row.m_index >= kShadowViewCapacity)
             {
                 return;
             }
 
-            ShadowViewData& d = m_shadowViewData[slot.m_slot];
+            ShadowViewData& d = m_shadowViewData[row.m_index];
             d.m_worldToShadowUV = MakeShadowUVRemap(view.m_rect) * view.GetWorldToClip();
             d.m_uvMinMax = Math::Vector4(
                 view.m_rect.m_minX, view.m_rect.m_minY, view.m_rect.m_maxX, view.m_rect.m_maxY);
@@ -462,10 +462,10 @@ namespace Spark::Render
                 // iteration order while the tile slot is not, so this is the one place the
                 // two index spaces meet.
                 const auto* refs = world->TryGet<ShadowViewRefs>(entity);
-                d.m_shadowIndex  = refs ? refs->m_index : -1;
+                d.m_shadowIndex  = refs ? refs->m_baseIndex : -1;
 
                 if (shadowViewsBound && d.m_shadowIndex >= 0
-                    && d.m_shadowIndex < static_cast<int32_t>(kShadowTileCount))
+                    && d.m_shadowIndex < static_cast<int32_t>(kShadowViewCapacity))
                 {
                     ShadowViewData& sv    = m_shadowViewData[d.m_shadowIndex];
                     sv.m_depthBias        = rd.m_shadowBias;

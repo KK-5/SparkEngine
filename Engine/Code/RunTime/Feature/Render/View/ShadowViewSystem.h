@@ -19,9 +19,11 @@ namespace Spark::Render
     //! Owns the atlas image too — a tile index means nothing without the atlas it indexes.
     //! ShadowPass finds it by ShadowAtlasTag.
     //!
-    //! The tile a view owns is allocated here and held for that view's whole lifetime. It has
-    //! to be: LightData::m_shadowIndex addresses g_ShadowViews by it, so a slot that shifted
-    //! when the light set changed would point one light's shadow at another light's tile.
+    //! Two allocators, deliberately separate. An atlas tile is space to rasterize into; a
+    //! g_ShadowViews row is where the matrices land. They are one number today only because
+    //! both are first-fit over equally sized bitsets and are taken and returned together —
+    //! nothing may rely on that, since a resolution ladder frees the tile side to become
+    //! variable-size while rows stay dense.
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced before the encoding step.
@@ -38,19 +40,23 @@ namespace Spark::Render
         void Activate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
                       const Math::Vector3& focus);
 
-        //! Hands the tile back and stops the view from rendering. ShadowViewRefs::m_index
-        //! goes to -1 in the same call, which is what keeps the lighting shader from
-        //! sampling a tile that now belongs to someone else.
+        //! Hands the tile and the row back and stops the view from rendering.
+        //! ShadowViewRefs::m_baseIndex goes to -1 in the same call, which is what keeps the
+        //! lighting shader from sampling a tile that now belongs to someone else.
         void Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light);
 
-        uint32_t AllocateSlot();
-        void     ReleaseSlot(uint32_t slot);
+        uint32_t AllocateTile();
+        void     ReleaseTile(uint32_t tile);
+        uint32_t AllocateViewIndex();
+        void     ReleaseViewIndex(uint32_t index);
 
         //! Written by ShadowPass, read by LightingPass. Persistent, and deferred-init.
         RHI::RHIHandle m_atlas = RHI::NullHandle;
 
-        //! Occupied tiles. Outlives the frame, unlike everything else about a shadow view.
-        eastl::bitset<kShadowTileCount> m_slots;
+        //! Occupied tiles and rows. Outlive the frame, unlike everything else about a
+        //! shadow view.
+        eastl::bitset<kShadowTileCount>    m_tiles;
+        eastl::bitset<kShadowViewCapacity> m_viewRows;
 
         //! Keeps the "atlas full" warning to one line per episode: allocation is retried
         //! every frame, so a light that does not fit would otherwise log forever.

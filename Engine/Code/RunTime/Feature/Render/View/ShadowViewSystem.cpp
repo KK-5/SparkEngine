@@ -73,8 +73,11 @@ namespace Spark::Render
         //! more important to take it over, not a hair ahead.
         constexpr float kIncumbentBonus = 1.25f;
 
-        //! Directional lights, and any light the camera stands inside.
-        constexpr float kScoreUnbounded = 1e9f;
+        //! Sentinel for lights whose screen radius cannot be derived from geometry: a
+        //! directional light has no bounding volume, and a camera standing inside a sphere
+        //! degenerates the tangent cone. Ranked like any other score, not exempt from the
+        //! budget.
+        constexpr float kScoreMax = 1e9f;
 
         struct MainViewInfo
         {
@@ -123,7 +126,7 @@ namespace Spark::Render
             const float r2 = sphere.radius * sphere.radius;
             if (d2 <= r2)
             {
-                return kScoreUnbounded;
+                return kScoreMax;
             }
             return sphere.radius * main.m_proj11 / Math::Sqrt(d2 - r2);
         }
@@ -234,9 +237,13 @@ namespace Spark::Render
 
             for (RHI::RHIHandle v : refs.m_views)
             {
-                if (const auto* slot = rhiCtx->TryGet<ShadowViewSlot>(v))
+                if (const auto* tile = rhiCtx->TryGet<ShadowAtlasTile>(v))
                 {
-                    ReleaseSlot(slot->m_slot);
+                    ReleaseTile(tile->m_tile);
+                }
+                if (const auto* row = rhiCtx->TryGet<ShadowViewIndex>(v))
+                {
+                    ReleaseViewIndex(row->m_index);
                 }
                 DestroyViewEntity(*rhiCtx, v);
             }
@@ -261,10 +268,10 @@ namespace Spark::Render
             }
 
             const auto* refs = world->TryGet<ShadowViewRefs>(e);
-            const bool  held = refs && refs->m_index >= 0;
+            const bool  held = refs && refs->m_baseIndex >= 0;
 
             // No LightBounds means unbounded influence, so nothing here can reject it.
-            float score = kScoreUnbounded;
+            float score = kScoreMax;
             if (const auto* bounds = world->TryGet<Light::LightBounds>(e); bounds && main.m_valid)
             {
                 if (!main.m_frustum.IntersectsSphere(bounds->m_sphere.center, bounds->m_sphere.radius))
@@ -320,25 +327,35 @@ namespace Spark::Render
             refs = &world.Add<ShadowViewRefs>(light, eastl::move(added));
         }
 
-        if (refs->m_index < 0)
+        // One view per light today. Point lights add five more faces and turn this into a
+        // loop — see TODO_ShadowOptimizePlan.md §七 step 3.
+        const RHI::RHIHandle viewHandle = refs->m_views[0];
+
+        if (refs->m_baseIndex < 0)
         {
-            const uint32_t slot = AllocateSlot();
-            if (slot == kInvalidShadowSlot)
+            const uint32_t tile = AllocateTile();
+            if (tile == kInvalidShadowSlot)
             {
                 return;
             }
-            refs->m_index = static_cast<int32_t>(slot);
+            const uint32_t row = AllocateViewIndex();
+            if (row == kInvalidShadowSlot)
+            {
+                ReleaseTile(tile);
+                return;
+            }
+            refs->m_baseIndex = static_cast<int32_t>(row);
 
-            const RHI::RHIHandle view = refs->m_views[0];
-            rhiCtx.AddOrReplace<ShadowViewSlot>(view, ShadowViewSlot{ slot });
-            rhiCtx.Remove<ViewInactiveTag>(view);
+            rhiCtx.AddOrReplace<ShadowAtlasTile>(viewHandle, ShadowAtlasTile{ tile });
+            rhiCtx.AddOrReplace<ShadowViewIndex>(viewHandle, ShadowViewIndex{ row });
+            rhiCtx.Remove<ViewInactiveTag>(viewHandle);
 
-            LOG_INFO("[ShadowViewSystem] Light {} took shadow tile {}.",
-                static_cast<uint32_t>(light), slot);
+            LOG_INFO("[ShadowViewSystem] Light {} took shadow tile {} (view row {}).",
+                static_cast<uint32_t>(light), tile, row);
         }
 
-        View& view  = rhiCtx.Get<View>(refs->m_views[0]);
-        view.m_rect = ShadowTileRect(static_cast<uint32_t>(refs->m_index));
+        View& view  = rhiCtx.Get<View>(viewHandle);
+        view.m_rect = ShadowTileRect(rhiCtx.Get<ShadowAtlasTile>(viewHandle).m_tile);
         if (rd->m_type == Light::LightType::Directional)
         {
             WriteDirectionalView(view, *rd, focus);
@@ -352,24 +369,29 @@ namespace Spark::Render
     void ShadowViewSystem::Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light)
     {
         auto* refs = world.TryGet<ShadowViewRefs>(light);
-        if (!refs || refs->m_index < 0)
+        if (!refs || refs->m_baseIndex < 0)
         {
             return;
         }
 
         for (RHI::RHIHandle v : refs->m_views)
         {
-            if (const auto* slot = rhiCtx.TryGet<ShadowViewSlot>(v))
+            if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(v))
             {
-                ReleaseSlot(slot->m_slot);
+                ReleaseTile(tile->m_tile);
             }
-            rhiCtx.Remove<ShadowViewSlot>(v);
+            if (const auto* row = rhiCtx.TryGet<ShadowViewIndex>(v))
+            {
+                ReleaseViewIndex(row->m_index);
+            }
+            rhiCtx.Remove<ShadowAtlasTile>(v);
+            rhiCtx.Remove<ShadowViewIndex>(v);
             if (!rhiCtx.Has<ViewInactiveTag>(v))
             {
                 rhiCtx.Add<ViewInactiveTag>(v);
             }
         }
-        refs->m_index = -1;
+        refs->m_baseIndex = -1;
 
         LOG_INFO("[ShadowViewSystem] Light {} gave its shadow tile back.",
             static_cast<uint32_t>(light));
@@ -388,7 +410,8 @@ namespace Spark::Render
         }
         m_atlas = RHI::NullHandle;
 
-        m_slots.reset();
+        m_tiles.reset();
+        m_viewRows.reset();
         m_atlasFullLogged = false;
 
         // Strip the world-side refs so a re-init starts clean.
@@ -398,13 +421,13 @@ namespace Spark::Render
         }
     }
 
-    uint32_t ShadowViewSystem::AllocateSlot()
+    uint32_t ShadowViewSystem::AllocateTile()
     {
         for (uint32_t i = 0; i < kShadowTileCount; ++i)
         {
-            if (!m_slots.test(i))
+            if (!m_tiles.test(i))
             {
-                m_slots.set(i);
+                m_tiles.set(i);
                 return i;
             }
         }
@@ -418,12 +441,35 @@ namespace Spark::Render
         return kInvalidShadowSlot;
     }
 
-    void ShadowViewSystem::ReleaseSlot(uint32_t slot)
+    void ShadowViewSystem::ReleaseTile(uint32_t tile)
     {
-        if (slot < kShadowTileCount)
+        if (tile < kShadowTileCount)
         {
-            m_slots.set(slot, false);
+            m_tiles.set(tile, false);
             m_atlasFullLogged = false;
+        }
+    }
+
+    //! No warning of its own: rows and tiles are equal in number and taken together, so the
+    //! atlas runs out first and AllocateTile has already said so.
+    uint32_t ShadowViewSystem::AllocateViewIndex()
+    {
+        for (uint32_t i = 0; i < kShadowViewCapacity; ++i)
+        {
+            if (!m_viewRows.test(i))
+            {
+                m_viewRows.set(i);
+                return i;
+            }
+        }
+        return kInvalidShadowSlot;
+    }
+
+    void ShadowViewSystem::ReleaseViewIndex(uint32_t index)
+    {
+        if (index < kShadowViewCapacity)
+        {
+            m_viewRows.set(index, false);
         }
     }
 }

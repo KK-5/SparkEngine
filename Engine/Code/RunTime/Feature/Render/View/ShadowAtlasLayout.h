@@ -19,10 +19,16 @@ namespace Spark::Render
     inline constexpr uint32_t kShadowTileCount       = kShadowTileGrid * kShadowTileGrid;
     inline constexpr uint32_t kShadowTileResolution  = kShadowAtlasResolution / kShadowTileGrid;
 
+    //! Rows in g_ShadowViews. A DIFFERENT quantity from the tile count, which it merely
+    //! happens to equal today: a row is a matrix plus a rect, an atlas tile is space to
+    //! rasterize into. A resolution ladder varies tile size without touching row size, and
+    //! a point light will take six rows for however many tiles its faces end up in.
+    inline constexpr uint32_t kShadowViewCapacity = kShadowTileCount;
+
     //! One resource, two views: D32 DSV for ShadowPass, R32_FLOAT SRV for LightingPass.
     inline constexpr RHI::Format kShadowAtlasFormat = RHI::Format::D32_FLOAT;
 
-    //! No tile free. Distinct from slot 0, which is a perfectly good tile.
+    //! Nothing free — from either allocator. Distinct from 0, a perfectly good tile and row.
     inline constexpr uint32_t kInvalidShadowSlot = ~0u;
 
     //! The one atlas image, owned by ShadowViewSystem. How ShadowPass locates it.
@@ -40,22 +46,22 @@ namespace Spark::Render
     //! A tile's INSET rect. Viewport, scissor, the tile remap baked into the shadow matrix
     //! and the sampling clamp all derive from this one value, so a border that reached only
     //! some of them — which shifts every sampled UV by its width — cannot happen.
-    inline ViewRect ShadowTileRect(uint32_t slot)
+    inline ViewRect ShadowTileRect(uint32_t tile)
     {
-        const uint32_t gx = slot % kShadowTileGrid;
-        const uint32_t gy = slot / kShadowTileGrid;
+        const uint32_t gx = tile % kShadowTileGrid;
+        const uint32_t gy = tile / kShadowTileGrid;
 
-        constexpr float tile   = 1.0f / static_cast<float>(kShadowTileGrid);
+        constexpr float span   = 1.0f / static_cast<float>(kShadowTileGrid);
         constexpr float border = static_cast<float>(kShadowTileBorderTexels)
                                / static_cast<float>(kShadowAtlasResolution);
 
         // Field order is (minX, maxX, minY, maxY) — it mirrors Viewport::GetScaled's
         // parameters, not the usual (min, min, max, max) corner pairing.
         return ViewRect{
-            static_cast<float>(gx)     * tile + border,
-            static_cast<float>(gx + 1) * tile - border,
-            static_cast<float>(gy)     * tile + border,
-            static_cast<float>(gy + 1) * tile - border,
+            static_cast<float>(gx)     * span + border,
+            static_cast<float>(gx + 1) * span - border,
+            static_cast<float>(gy)     * span + border,
+            static_cast<float>(gy + 1) * span - border,
         };
     }
 

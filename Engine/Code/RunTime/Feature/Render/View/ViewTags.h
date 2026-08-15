@@ -11,7 +11,7 @@ namespace Spark::Render
     struct MainViewTag {};
 
     //! Every shadow-casting view: one per directional / spot light, six per point light.
-    //! The tile a given view owns is on the entity (ShadowViewSlot), not in the type.
+    //! The tile a given view owns is on the entity (ShadowAtlasTile), not in the type.
     struct ShadowViewTag {};
 
     //! The view exists but must not be rendered this frame. Applies to any view type —
