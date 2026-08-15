@@ -9,34 +9,42 @@
 
 namespace Spark::Render
 {
-    //! One shadow atlas, cut into power-of-two square blocks. Power-of-two, and the atlas a
-    //! multiple of them, so a block's normalized rect times the atlas extent lands exactly on
+    //! One shadow atlas, cut into power-of-two square tiles. Power-of-two, and the atlas a
+    //! multiple of them, so a tile's normalized rect times the atlas extent lands exactly on
     //! integers — no half-texel drift between the viewport and the sampled UVs.
+    //!
+    //! "Tile" throughout this layer, "block" only inside QuadTreeAllocator: the allocator is
+    //! a tree over a square and knows nothing of atlases, borders or texels.
     inline constexpr uint32_t kShadowAtlasResolution = 4096;
 
-    //! Finest block the atlas can be cut into: 4096 >> 4 = 256 texels. It bounds the tree,
-    //! not the policy — which levels a light may actually ask for is decided elsewhere.
+    //! Finest tile the atlas can be cut into: 4096 >> 4 = 256 texels. It bounds the tree, not
+    //! the policy — which levels a light may actually ask for is decided just below.
     inline constexpr uint32_t kShadowAtlasMaxLevel = 4;
 
     using ShadowAtlasAllocator = QuadTreeAllocator<kShadowAtlasMaxLevel>;
 
-    //! The one level handed out today, 4096 >> 2 = 1024 texels. Choosing it per light by
-    //! screen coverage is the resolution ladder, still to come.
-    inline constexpr uint32_t kShadowTileLevel      = 2;
-    inline constexpr uint32_t kShadowTileGrid       = 1u << kShadowTileLevel;
-    inline constexpr uint32_t kShadowTileResolution = kShadowAtlasResolution >> kShadowTileLevel;
+    //! The levels a light may be granted. Level 0 — the whole atlas to one light — is
+    //! deliberately out of reach: no light is worth every other light's shadow. The finest
+    //! level bounds how many shadow views can exist at once, and so how many passes a frame
+    //! can be asked to render, which is why it stops short of the tree's depth.
+    inline constexpr uint32_t kShadowCoarsestLevel = 1;   // 4096 >> 1 = 2048 texels
+    inline constexpr uint32_t kShadowFinestLevel   = 3;   // 4096 >> 3 =  512 texels
 
-    //! The shadow budget while every light takes the same level: it bounds the cost
-    //! regardless of how many lights the scene has. Once levels vary this stops being a
-    //! count and becomes atlas area. Keep it in step with ViewHandleList's inline capacity
-    //! (PassCapabilities.h).
-    inline constexpr uint32_t kShadowTileCount = kShadowTileGrid * kShadowTileGrid;
+    //! The budget, counted in tiles of the finest level — 4^3 = 64 of them cover the atlas.
+    //! Area rather than a count of tiles, because a tile no longer has one size.
+    inline constexpr uint32_t kShadowBudgetUnits = 1u << (2 * kShadowFinestLevel);
 
-    //! Rows in g_ShadowViews. A DIFFERENT quantity from the tile count, which it merely
-    //! happens to equal today: a row is a matrix plus a rect, an atlas tile is space to
-    //! rasterize into. A resolution ladder varies tile size without touching row size, and
-    //! a point light will take six rows for however many tiles its faces end up in.
-    inline constexpr uint32_t kShadowViewCapacity = kShadowTileCount;
+    //! What one tile of a level costs against that budget. Each level up quadruples it.
+    inline constexpr uint32_t ShadowTileCost(uint32_t level)
+    {
+        return 1u << (2 * (kShadowFinestLevel - level));
+    }
+
+    //! Rows in g_ShadowViews. A DIFFERENT quantity from the tiles: a row is a matrix plus a
+    //! rect, a tile is space to rasterize into. The bound is the finest level — that is the
+    //! most views that can hold atlas space at once — and it is NOT the inline capacity of
+    //! ViewHandleList (PassCapabilities.h), which spills to the heap rather than being wrong.
+    inline constexpr uint32_t kShadowViewCapacity = kShadowBudgetUnits;
 
     //! One resource, two views: D32 DSV for ShadowPass, R32_FLOAT SRV for LightingPass.
     inline constexpr RHI::Format kShadowAtlasFormat = RHI::Format::D32_FLOAT;
@@ -50,26 +58,33 @@ namespace Spark::Render
     //! One texel held back on each side of a tile. It absorbs the bilinear footprint of a tap
     //! sitting exactly on the tile's edge, and nothing else: the PCF kernel clamps its own
     //! taps into the tile (Lib/Lights.hlsli), so this does NOT scale with the kernel radius.
+    //! A fixed count of texels whatever the tile's size.
     inline constexpr uint32_t kShadowTileBorderTexels = 1;
 
-    //! Texels a tile's viewport actually spans. This — not the tile resolution — is what
-    //! NDC [-1,1] maps onto, so it is the divisor for a texel's world size.
-    inline constexpr uint32_t kShadowTileUsableTexels = kShadowTileResolution - 2 * kShadowTileBorderTexels;
+    //! Texels a tile's viewport actually spans. This — not the tile resolution — is what NDC
+    //! [-1,1] maps onto, so it is the divisor for a texel's world size. Per level now that a
+    //! tile's size is not fixed: anything that snaps to the texel grid has to ask the level it
+    //! was actually granted, not a constant.
+    inline constexpr uint32_t ShadowUsableTexels(uint32_t level)
+    {
+        return (kShadowAtlasResolution >> level) - 2 * kShadowTileBorderTexels;
+    }
 
-    //! An allocated block's INSET rect. Viewport, scissor, the tile remap baked into the
-    //! shadow matrix and the sampling clamp all derive from this one value, so a border that
-    //! reached only some of them — which shifts every sampled UV by its width — cannot happen.
+    //! A tile's INSET rect. Viewport, scissor, the tile remap baked into the shadow matrix and
+    //! the sampling clamp all derive from this one value, so a border that reached only some
+    //! of them — which shifts every sampled UV by its width — cannot happen.
     //!
-    //! This is the whole of the shadow layer's knowledge of what a block MEANS. The allocator
-    //! deals in blocks and levels and has no opinion about borders or texels.
+    //! This is the whole of the shadow layer's knowledge of what an allocator block MEANS: a
+    //! level and a position, turned into a rect with a gutter. The allocator holds no opinion
+    //! about either.
     inline ViewRect ShadowTileRect(uint32_t node)
     {
         const ShadowAtlasAllocator::Block block = ShadowAtlasAllocator::Decode(node);
         const uint32_t gx = block.m_x;
         const uint32_t gy = block.m_y;
 
-        // Blocks of a coarser level are wider, so the span is no longer a constant. The
-        // border is: it is a fixed count of atlas texels whatever the block's size.
+        // Tiles of a coarser level are wider, so the span is no longer a constant. The border
+        // is: it is a fixed count of atlas texels whatever the tile's size.
         const float     span   = 1.0f / static_cast<float>(1u << block.m_level);
         constexpr float border = static_cast<float>(kShadowTileBorderTexels)
                                / static_cast<float>(kShadowAtlasResolution);

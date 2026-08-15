@@ -35,17 +35,38 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
-        //! Gives the light a tile if it lacks one, then refreshes its View. The view entity
-        //! is created on first activation and outlives any later deactivation.
+        //! Gives the light a tile at the requested level if it lacks one or is holding the
+        //! wrong size, then refreshes its View. The view entity is created on first
+        //! activation and outlives any later deactivation.
         void Activate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
-                      const Math::Vector3& focus);
+                      uint32_t level, const Math::Vector3& focus);
 
         //! Hands the tile and the row back and stops the view from rendering.
         //! ShadowViewRefs::m_baseIndex goes to -1 in the same call, which is what keeps the
         //! lighting shader from sampling a tile that now belongs to someone else.
         void Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light);
 
-        uint32_t AllocateTile();
+        //! The level of the tile a view holds, or kNoLevel. The level is not stored: it is
+        //! recovered from the tile id, which is what keeps the resolution hysteresis free of
+        //! any state carried between frames.
+        static uint32_t GrantedLevel(RHI::RHIContext& rhiCtx, RHI::RHIHandle view);
+
+        //! Exchanges the tile a view holds for one of a different level, keeping its
+        //! g_ShadowViews row. Growing and shrinking are not symmetric — see the definition.
+        //! False only when the view was left holding nothing and has been deactivated; a
+        //! promotion that could not be afforded keeps the current tile and returns true.
+        bool ReallocateTile(WorldContext& world, RHI::RHIContext& rhiCtx, RHI::RHIHandle view,
+                            Entity light, uint32_t level);
+
+        //! That level or nothing. For promotion, where keeping the smaller tile the light
+        //! already has beats releasing it for an allocation that may fail.
+        uint32_t AllocateTile(uint32_t level);
+
+        //! That level, or the coarsest finer one available. A light that cannot have the size
+        //! it asked for takes a smaller tile rather than nothing, which is also what keeps one
+        //! light's allocation from depending on another light's score.
+        uint32_t AllocateTileOrFiner(uint32_t level);
+
         void     ReleaseTile(uint32_t tile);
         uint32_t AllocateViewIndex();
         void     ReleaseViewIndex(uint32_t index);
@@ -53,10 +74,10 @@ namespace Spark::Render
         //! Written by ShadowPass, read by LightingPass. Persistent, and deferred-init.
         RHI::RHIHandle m_atlas = RHI::NullHandle;
 
-        //! Occupied blocks and rows. Outlive the frame, unlike everything else about a
-        //! shadow view. Rows stay a flat bitset — they are all the same size and always
-        //! will be, which is the whole reason they are no longer the same number as a block.
-        ShadowAtlasAllocator               m_blocks;
+        //! Occupied tiles and rows. Outlive the frame, unlike everything else about a shadow
+        //! view. Rows stay a flat bitset — they are all one size and always will be, which is
+        //! the whole reason they are no longer the same number as a tile.
+        ShadowAtlasAllocator               m_atlasAllocator;
         eastl::bitset<kShadowViewCapacity> m_viewRows;
 
         //! Keeps the "atlas full" warning to one line per episode: allocation is retried
