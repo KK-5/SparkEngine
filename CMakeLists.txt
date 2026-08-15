@@ -24,5 +24,18 @@ endif()
 add_compile_definitions(NOMINMAX)
 add_compile_definitions(MATH_BACKEND_GLM)
 
+if(MSVC)
+    # /Ob0 emits every inline function as its own COMDAT, and EASTL/entt are almost
+    # nothing but inline functions — a template-heavy TU runs out of the 65,279 COFF
+    # sections an object file can hold. Expanding them instead cuts the section count
+    # by more than half, and makes Debug several times faster. The cost is that those
+    # functions can no longer be stepped into; turn this off when that is what you need.
+    option(SPARK_DEBUG_INLINE "Expand inline functions in Debug builds" ON)
+    if(SPARK_DEBUG_INLINE)
+        # REPLACE, not append: "/Ob0 /Ob1" works but warns D9025 once per file.
+        string(REPLACE "/Ob0" "/Ob1" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+    endif()
+endif()
+
 add_subdirectory(Engine)
 add_subdirectory(SandBox)

@@ -16,6 +16,7 @@
 #include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
 #include <View/View.h>
+#include <View/ViewTags.h>
 
 namespace Spark::Render
 {
