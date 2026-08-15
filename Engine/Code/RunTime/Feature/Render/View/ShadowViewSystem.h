@@ -68,8 +68,11 @@ namespace Spark::Render
         uint32_t AllocateTileOrFiner(uint32_t level);
 
         void     ReleaseTile(uint32_t tile);
-        uint32_t AllocateViewIndex();
-        void     ReleaseViewIndex(uint32_t index);
+
+        //! Consecutive rows, so one light's faces are addressable from a single base index.
+        //! Returns the first, or kInvalidShadowSlot.
+        uint32_t AllocateViewRows(uint32_t count);
+        void     ReleaseViewRows(uint32_t base, uint32_t count);
 
         //! Written by ShadowPass, read by LightingPass. Persistent, and deferred-init.
         RHI::RHIHandle m_atlas = RHI::NullHandle;

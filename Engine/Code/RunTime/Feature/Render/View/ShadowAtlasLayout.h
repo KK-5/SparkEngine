@@ -40,11 +40,16 @@ namespace Spark::Render
         return 1u << (2 * (kShadowFinestLevel - level));
     }
 
+    inline constexpr uint32_t kShadowCubeFaceCount = 6;
+
     //! Rows in g_ShadowViews. A DIFFERENT quantity from the tiles: a row is a matrix plus a
-    //! rect, a tile is space to rasterize into. The bound is the finest level — that is the
-    //! most views that can hold atlas space at once — and it is NOT the inline capacity of
-    //! ViewHandleList (PassCapabilities.h), which spills to the heap rather than being wrong.
-    inline constexpr uint32_t kShadowViewCapacity = kShadowBudgetUnits;
+    //! rect, a tile is space to rasterize into. A light reserves a row per face whether or
+    //! not the face is granted a tile, so the bound is every tile going to a different light
+    //! that culled all but one of its faces.
+    //!
+    //! Not the inline capacity of ViewHandleList (PassCapabilities.h), which spills to the
+    //! heap rather than being wrong.
+    inline constexpr uint32_t kShadowViewCapacity = kShadowBudgetUnits * kShadowCubeFaceCount;
 
     //! One resource, two views: D32 DSV for ShadowPass, R32_FLOAT SRV for LightingPass.
     inline constexpr RHI::Format kShadowAtlasFormat = RHI::Format::D32_FLOAT;

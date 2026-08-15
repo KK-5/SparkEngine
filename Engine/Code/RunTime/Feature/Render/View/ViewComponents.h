@@ -58,6 +58,9 @@ namespace Spark::Render
     //! it out of RHIContext. Same lifetime as m_views, so one component rather than two.
     //! It is the FIRST of the light's rows: a point light's six faces will occupy a
     //! contiguous run, so one int still addresses them all.
+    //!
+    //! A view's position in m_views IS its face index, and stays so for the light's life:
+    //! a face culled this frame keeps its slot, inactive and holding no tile.
     struct ShadowViewRefs
     {
         eastl::fixed_vector<RHI::RHIHandle, 6> m_views;

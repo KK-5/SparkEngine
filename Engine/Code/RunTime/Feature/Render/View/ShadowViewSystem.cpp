@@ -312,11 +312,12 @@ namespace Spark::Render
                 {
                     ReleaseTile(tile->m_tile);
                 }
-                if (const auto* row = rhiCtx->TryGet<ShadowViewIndex>(v))
-                {
-                    ReleaseViewIndex(row->m_index);
-                }
                 DestroyViewEntity(*rhiCtx, v);
+            }
+            if (refs.m_baseIndex >= 0)
+            {
+                ReleaseViewRows(static_cast<uint32_t>(refs.m_baseIndex),
+                    static_cast<uint32_t>(refs.m_views.size()));
             }
             LOG_INFO("[ShadowViewSystem] Light {} released {} shadow view(s).",
                 static_cast<uint32_t>(e), refs.m_views.size());
@@ -505,7 +506,7 @@ namespace Spark::Render
             {
                 return;
             }
-            const uint32_t row = AllocateViewIndex();
+            const uint32_t row = AllocateViewRows(static_cast<uint32_t>(refs->m_views.size()));
             if (row == kInvalidShadowSlot)
             {
                 ReleaseTile(tile);
@@ -554,10 +555,6 @@ namespace Spark::Render
             {
                 ReleaseTile(tile->m_tile);
             }
-            if (const auto* row = rhiCtx.TryGet<ShadowViewIndex>(v))
-            {
-                ReleaseViewIndex(row->m_index);
-            }
             rhiCtx.Remove<ShadowAtlasTile>(v);
             rhiCtx.Remove<ShadowViewIndex>(v);
             if (!rhiCtx.Has<ViewInactiveTag>(v))
@@ -565,6 +562,8 @@ namespace Spark::Render
                 rhiCtx.Add<ViewInactiveTag>(v);
             }
         }
+        ReleaseViewRows(static_cast<uint32_t>(refs->m_baseIndex),
+            static_cast<uint32_t>(refs->m_views.size()));
         refs->m_baseIndex = -1;
 
         LOG_INFO("[ShadowViewSystem] Light {} gave its shadow tile back.",
@@ -630,26 +629,42 @@ namespace Spark::Render
         m_atlasFullLogged = false;
     }
 
-    //! No warning of its own: rows and tiles are equal in number and taken together, so the
-    //! atlas runs out first and AllocateTile has already said so.
-    uint32_t ShadowViewSystem::AllocateViewIndex()
+    //! No warning of its own: rows are sized so that every tile can go to a different light
+    //! that culled all but one face, so the atlas runs out first and AllocateTile has already
+    //! said so.
+    uint32_t ShadowViewSystem::AllocateViewRows(uint32_t count)
     {
-        for (uint32_t i = 0; i < kShadowViewCapacity; ++i)
+        if (count == 0 || count > kShadowViewCapacity)
         {
-            if (!m_viewRows.test(i))
+            return kInvalidShadowSlot;
+        }
+
+        uint32_t base = 0;
+        while (base + count <= kShadowViewCapacity)
+        {
+            uint32_t free = 0;
+            while (free < count && !m_viewRows.test(base + free))
             {
-                m_viewRows.set(i);
-                return i;
+                ++free;
             }
+            if (free == count)
+            {
+                for (uint32_t i = 0; i < count; ++i)
+                {
+                    m_viewRows.set(base + i);
+                }
+                return base;
+            }
+            base += free + 1;   // Row base + free is taken, so no run can start before it.
         }
         return kInvalidShadowSlot;
     }
 
-    void ShadowViewSystem::ReleaseViewIndex(uint32_t index)
+    void ShadowViewSystem::ReleaseViewRows(uint32_t base, uint32_t count)
     {
-        if (index < kShadowViewCapacity)
+        for (uint32_t i = 0; i < count && base + i < kShadowViewCapacity; ++i)
         {
-            m_viewRows.set(index, false);
+            m_viewRows.set(base + i, false);
         }
     }
 }

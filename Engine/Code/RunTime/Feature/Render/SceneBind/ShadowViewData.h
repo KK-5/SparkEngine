@@ -21,7 +21,11 @@ namespace Spark::Render
 
         //! (minU, minV, maxU, maxV) of the tile's inset rect. Sampling clamps to it so a PCF
         //! tap at the edge cannot reach the neighbouring tile.
-        Math::Vector4   m_uvMinMax {0.0f, 0.0f, 1.0f, 1.0f};
+        //!
+        //! Inverted by default, and deliberately: min above max is a rect no uv can fall
+        //! inside, so a row nobody has written reads as unshadowed without the shader
+        //! testing for it.
+        Math::Vector4   m_uvMinMax {1.0f, 1.0f, 0.0f, 0.0f};
 
         float           m_depthBias    = 0.0f;
         float           m_normalOffset = 0.0f;
