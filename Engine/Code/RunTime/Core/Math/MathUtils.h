@@ -55,6 +55,11 @@ namespace Spark::Math
         return glm::acos(v);
     }
 
+    inline float Atan(float v)
+    {
+        return glm::atan(v);
+    }
+
     // ---- Vector Operations ----
 
     inline float Dot(const Vector2& a, const Vector2& b)

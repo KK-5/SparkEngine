@@ -18,6 +18,12 @@ namespace Spark::Light
             .Data<LightType::Point>("Point")
             .Data<LightType::Spot>("Spot");
 
+        context.Reflect<ShadowFilterWidth>()
+            .Type("ShadowFilterWidth")
+            .Data<ShadowFilterWidth::W2>("2x2")
+            .Data<ShadowFilterWidth::W4>("4x4")
+            .Data<ShadowFilterWidth::W8>("8x8");
+
         context.Reflect<LightComponent>()
             .Type("Light").Custom<Spark::ComponentTraitsRuntime>(Spark::ComponentTraits<LightComponent>{})
             .Data<&LightComponent::m_type>("Type").Custom<Spark::EnumElement>()
@@ -28,7 +34,8 @@ namespace Spark::Light
             .Data<&LightComponent::m_outerConeDeg>("Outer Cone").Custom<Spark::FloatElement>(0.f, 90.f, 0.5f)
             .Data<&LightComponent::m_castShadow>("Cast Shadow").Custom<Spark::BoolElement>()
             .Data<&LightComponent::m_shadowBias>("Shadow Bias").Custom<Spark::FloatElement>(0.f, 0.01f, 0.0001f, "%.5f")
-            .Data<&LightComponent::m_shadowNormalOffset>("Shadow Normal Offset").Custom<Spark::FloatElement>(0.f, 0.5f, 0.001f, "%.4f")
+            .Data<&LightComponent::m_shadowNormalOffsetTexels>("Shadow Normal Offset").Custom<Spark::FloatElement>(0.f, 8.f, 0.1f, "%.1f")
+            .Data<&LightComponent::m_shadowFilterWidth>("Shadow Filter").Custom<Spark::EnumElement>()
             ;
 
         Spark::ComponentOpertion<LightComponent>(context);

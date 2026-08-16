@@ -298,16 +298,46 @@ namespace Spark::Render
             view.m_viewToClip     = Math::PerspectiveFov(outerHalf * 2.0f, 1.0f, kSpotNearZ, farZ);
         }
 
-        //! Exactly 90 degrees, so the six faces meet edge to edge with no overlap and no gap.
-        //! It is also the widest angle whose texels stay within a factor of two of uniform.
-        void WritePointFaceView(View& view, const Light::LightRenderData& rd, uint32_t face)
+        //! Wider than 90 degrees by enough that the 45 degree face edge lands `margin` texels
+        //! inside the tile instead of on its border. The strip between the two carries the
+        //! neighbouring face's content, so a filter tap that walks off the edge reads the
+        //! depth that direction really has rather than a clamped copy of the last texel —
+        //! which is what the seam across a cube's faces is.
+        //!
+        //! Shading still picks a face by the exact 90 degree rule, so the strip is only ever
+        //! read as filter footprint, never selected into.
+        //! A world offset displaces a lookup at the tile edge two ways at once: laterally, and
+        //! through the perspective divide on its depth component. The two draw on orthogonal
+        //! components of the normal, so the worst case over orientations is sec(halfFov) —
+        //! exactly this at 45 degrees, and 1.3% under it at the padded angle, which is 0.04
+        //! texels of margin.
+        constexpr float kNormalOffsetPerspectiveGain = 1.41421356f;
+
+        float PointFaceFov(const Light::LightRenderData& rd, uint32_t level)
+        {
+            // Both things that displace a lookup, since either one alone leaves the seam. Half
+            // the footprint is how far the filter reaches, bilinear widens every tap by half a
+            // texel more, and the normal offset moves the lookup before the filter even runs.
+            const float margin =
+                0.5f * static_cast<float>(Light::ShadowFilterFootprint(rd.m_shadowFilterWidth)) + 1.0f
+                + rd.m_shadowNormalOffsetTexels * kNormalOffsetPerspectiveGain;
+
+            // The 45 degree edge is to sit at NDC 1 - 2*margin/texels, and a direction at that
+            // angle maps to 1/tan(halfFov), which gives the half angle outright.
+            const float texels = static_cast<float>(ShadowUsableTexels(level));
+            const float inner  = Math::Clamp(texels - 2.0f * margin, 1.0f, texels);
+            return 2.0f * Math::Atan(texels / inner);
+        }
+
+        void WritePointFaceView(View& view, const Light::LightRenderData& rd, uint32_t face,
+            uint32_t level)
         {
             const Math::Vector3 dir = CubeFaceDirection(face);
             view.m_worldToView = Math::LookAt(
                 rd.m_worldPosition, rd.m_worldPosition + dir, StableUp(dir));
 
             const float farZ  = rd.m_range > kSpotNearZ ? rd.m_range : kSpotNearZ * 2.0f;
-            view.m_viewToClip = Math::PerspectiveFov(Math::Radians(90.0f), 1.0f, kSpotNearZ, farZ);
+            view.m_viewToClip = Math::PerspectiveFov(PointFaceFov(rd, level), 1.0f, kSpotNearZ, farZ);
         }
     }
 
@@ -655,13 +685,15 @@ namespace Spark::Render
             View& view  = rhiCtx.Get<View>(viewHandle);
             view.m_rect = ShadowTileRect(tile->m_tile);
 
+            const uint32_t tileLevel = ShadowAtlasAllocator::LevelOfTile(tile->m_tile);
+
             switch (rd->m_type)
             {
             case Light::LightType::Directional:
-                WriteDirectionalView(view, *rd, focus, ShadowAtlasAllocator::LevelOfTile(tile->m_tile));
+                WriteDirectionalView(view, *rd, focus, tileLevel);
                 break;
             case Light::LightType::Point:
-                WritePointFaceView(view, *rd, face);
+                WritePointFaceView(view, *rd, face, tileLevel);
                 break;
             default:
                 WriteSpotView(view, *rd);

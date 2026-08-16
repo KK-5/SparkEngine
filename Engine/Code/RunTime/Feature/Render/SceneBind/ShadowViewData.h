@@ -27,16 +27,25 @@ namespace Spark::Render
         //! testing for it.
         Math::Vector4   m_uvMinMax {1.0f, 1.0f, 0.0f, 0.0f};
 
-        float           m_depthBias    = 0.0f;
-        float           m_normalOffset = 0.0f;
+        float           m_depthBias = 0.0f;
 
-        //! PCF kernel radius in texels. Per view rather than global because the useful value
-        //! differs by projection: a perspective light's texels grow with distance, so a fixed
-        //! radius already widens the penumbra away from the light, while an orthographic
-        //! light's stay constant and need a wider kernel to hide the same aliasing.
-        //! Where PCSS would write its per-pixel radius.
-        float           m_pcfRadiusTexels = 1.0f;
-        float           m_pad1            = 0.0f;
+        //! In texels, and turned into world units by the field below. See
+        //! LightComponent::m_shadowNormalOffsetTexels for why the unit is not negotiable.
+        float           m_normalOffsetTexels = 0.0f;
+
+        //! Half the footprint authored as LightComponent::m_shadowFilterWidth, in texels.
+        //!
+        //! A half-width and not a tap pattern, which is what lets the filter be replaced
+        //! without touching anything outside PCF() in Lib/Lights.hlsli: the disk reads it as
+        //! its radius, a B-spline reconstruction as its kernel half-width. The same number
+        //! sizes the fov a point light's faces are padded by, so the two cannot drift.
+        float           m_pcfRadiusTexels = 2.0f;
+
+        //! World size of one shadow texel, per unit of clip w. A perspective light's texels
+        //! grow with distance and its w carries that distance; an orthographic light's do
+        //! not, and its w is 1 — so one multiply covers both and no projection type reaches
+        //! the shader.
+        float           m_texelWorldSizePerW = 0.0f;
     };
 
     static_assert(sizeof(ShadowViewData) == 96,

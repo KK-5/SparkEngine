@@ -20,7 +20,7 @@ float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
 
     ShadowViewData sv = GetShadowView(0);
     float shadowScalar = mul(sv.worldToShadowUV, float4(0, 0, 0, 1)).x
-                       + sv.uvMinMax.x + sv.depthBias + sv.normalOffset
+                       + sv.uvMinMax.x + sv.depthBias + sv.normalOffsetTexels
                        + g_ShadowAtlasTexelSize;
 
     const float3 dir = float3(0.0, 1.0, 0.0);

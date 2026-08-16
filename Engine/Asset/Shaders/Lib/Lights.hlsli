@@ -64,7 +64,11 @@ float SampleShadow(int shadowIndex, float3 worldPos, float3 N)
 {
     ShadowViewData sv = GetShadowView(shadowIndex);
 
-    float3 p = worldPos + N * sv.normalOffset;
+    // The offset is authored in texels, and a texel's world size scales with w. Taken at the
+    // unoffset position: the offset is a texel or two against a distance of many, and solving
+    // for the w it would itself produce buys nothing.
+    float w = mul(sv.worldToShadowUV, float4(worldPos, 1.0)).w;
+    float3 p = worldPos + N * (sv.normalOffsetTexels * sv.texelWorldSizePerW * w);
 
     float4 clip = mul(sv.worldToShadowUV, float4(p, 1.0));
     float3 uvz  = clip.xyz / clip.w;

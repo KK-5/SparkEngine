@@ -61,10 +61,6 @@ namespace Spark::Render
 
         //! Baked offline by SandBox BRDFLutGen and checked in; see BRDFLutBake.hlsl.
         constexpr const char* BRDFLutAssetPath     = "Image/BRDFLut.ktx2";
-
-        //! See ShadowViewData::m_pcfRadiusTexels for why these differ.
-        constexpr float kPcfRadiusOrthographic = 2.0f;
-        constexpr float kPcfRadiusPerspective  = 1.0f;
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -302,6 +298,15 @@ namespace Spark::Render
             d.m_worldToShadowUV = MakeShadowUVRemap(view.m_rect) * view.GetWorldToClip();
             d.m_uvMinMax = Math::Vector4(
                 view.m_rect.m_minX, view.m_rect.m_minY, view.m_rect.m_maxX, view.m_rect.m_maxY);
+
+            // [0][0] is 1/tan(halfFov) under a perspective projection and 1/halfExtent under
+            // an orthographic one, so this one expression is the world width NDC [-1,1] spans
+            // in either — divided by the texels it lands on, which the rect gives directly.
+            const float texels = (view.m_rect.m_maxX - view.m_rect.m_minX)
+                               * static_cast<float>(kShadowAtlasResolution);
+            const float scaleX = view.m_viewToClip[0][0];
+            d.m_texelWorldSizePerW =
+                (scaleX != 0.0f && texels > 0.0f) ? 2.0f / (scaleX * texels) : 0.0f;
         });
     }
 
@@ -474,12 +479,11 @@ namespace Spark::Render
                     {
                         break;
                     }
-                    ShadowViewData& sv    = m_shadowViewData[row];
-                    sv.m_depthBias        = rd.m_shadowBias;
-                    sv.m_normalOffset     = rd.m_shadowNormalOffset;
-                    sv.m_pcfRadiusTexels  = rd.m_type == Light::LightType::Directional
-                        ? kPcfRadiusOrthographic
-                        : kPcfRadiusPerspective;
+                    ShadowViewData& sv       = m_shadowViewData[row];
+                    sv.m_depthBias           = rd.m_shadowBias;
+                    sv.m_normalOffsetTexels  = rd.m_shadowNormalOffsetTexels;
+                    sv.m_pcfRadiusTexels     =
+                        0.5f * static_cast<float>(Light::ShadowFilterFootprint(rd.m_shadowFilterWidth));
                 }
                 ++slot;
             });

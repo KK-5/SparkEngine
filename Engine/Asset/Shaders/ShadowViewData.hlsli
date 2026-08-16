@@ -9,7 +9,7 @@ struct ShadowViewData
 {
     float4x4 worldToShadowUV;   // world -> atlas UV, tile transform folded in
     float4   uvMinMax;          // (minU, minV, maxU, maxV) of the tile's inset rect
-    float    depthBias; float normalOffset; float pcfRadiusTexels; float pad1;
+    float    depthBias; float normalOffsetTexels; float pcfRadiusTexels; float texelWorldSizePerW;
 };
 
 #endif // SPARK_SHADOW_VIEW_DATA_HLSLI
