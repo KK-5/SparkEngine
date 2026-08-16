@@ -109,11 +109,18 @@ namespace Spark::Render
         //! more important to take it over, not a hair ahead.
         constexpr float kIncumbentBonus = 1.25f;
 
-        //! Sentinel for lights whose screen radius cannot be derived from geometry: a
-        //! directional light has no bounding volume, and a camera standing inside a sphere
-        //! degenerates the tangent cone. Ranked like any other score, not exempt from the
-        //! budget.
-        constexpr float kScoreMax = 1e9f;
+        //! A directional light, which has no bounding volume to project and lights everything
+        //! there is. Nothing measurable competes with it. Ranked like any other score, not
+        //! exempt from the budget.
+        //!
+        //! NOT for a radius that merely could not be computed. A score decides how much of the
+        //! atlas a light is handed, so answering "unmeasurable" with "maximal" spends the
+        //! whole atlas on the one light whose size nobody knows.
+        constexpr float kScoreDirectional = 1e9f;
+
+        //! What a light covering the entire view scores. The unit is NDC half heights, so 1.0
+        //! IS the whole view — anything beyond it is off screen and buys no more detail.
+        constexpr float kScoreFullView = 1.0f;
 
         //! Screen radius, in NDC half heights, at which a light earns each level — indexed BY
         //! level, so entry [1] is what 2048 costs, and the finest level is free to anyone who
@@ -135,8 +142,8 @@ namespace Spark::Render
             "one demote threshold per level");
 
         //! The level a score asks for outright, ignoring whatever the light holds now.
-        //! kScoreMax saturates at the coarsest level by falling through the first test, so a
-        //! directional light needs no branch of its own here either.
+        //! kScoreDirectional saturates at the coarsest level by falling through the first
+        //! test, so a directional light needs no branch of its own here either.
         uint32_t LevelForScore(float score)
         {
             for (uint32_t level = kShadowCoarsestLevel; level < kShadowFinestLevel; ++level)
@@ -218,7 +225,9 @@ namespace Spark::Render
             const float r2 = sphere.radius * sphere.radius;
             if (d2 <= r2)
             {
-                return kScoreMax;
+                // Inside the sphere the tangent cone has no apex angle to measure, but the
+                // answer is not unknown: the light surrounds the viewer, so it covers the view.
+                return kScoreFullView;
             }
             return sphere.radius * main.m_proj11 / Math::Sqrt(d2 - r2);
         }
@@ -236,6 +245,10 @@ namespace Spark::Render
 
             //! Bit per face that survived culling. Bit 0 for a light with a single view.
             uint32_t m_faceMask = 1u;
+
+            //! Whether the budget could seat it. Not a prefix of the ranking: a light needing
+            //! six faces can be turned away while a single-face one below it still fits.
+            bool m_admitted = false;
         };
 
         float RankOf(const Candidate& c)
@@ -408,7 +421,7 @@ namespace Spark::Render
             const uint32_t grantedLevel = holdsTile ? GrantedLevel(*rhiCtx, *refs) : kNoShadowLevel;
 
             // No LightBounds means unbounded influence, so nothing here can reject it.
-            float score = kScoreMax;
+            float score = kScoreDirectional;
             if (const auto* bounds = world->TryGet<Light::LightBounds>(e); bounds && main.m_valid)
             {
                 if (!main.m_frustum.IntersectsSphere(bounds->m_sphere.center, bounds->m_sphere.radius))
@@ -462,19 +475,18 @@ namespace Spark::Render
         // at the size they asked for. Two things fall out of doing this before allocating
         // rather than during: the admitted set is known BEFORE any tile changes hands, which
         // is what lets the rejected lights be deactivated first and their space reused this
-        // same frame; and a light that does not fit is given a smaller tile rather than
-        // skipped, so no light's shadow hinges on another light's score.
+        // same frame; and a light that cannot be afforded is given a smaller tile rather than
+        // dropped, so a light loses its shadow only once even the finest tile is gone.
         //
         // The sum is optimistic — it ignores fragmentation, so the tiles may not actually cut
         // even when the area adds up. That error lands in the safe direction: allocation
         // reduces the level again, and no light is rejected that could have been served.
         uint32_t committedUnits = 0;
-        size_t   admittedCount  = 0;
-        for (; admittedCount < candidates.size(); ++admittedCount)
+        for (Candidate& candidate : candidates)
         {
-            const uint32_t faces = CountBitsSet(candidates[admittedCount].m_faceMask);
+            const uint32_t faces = CountBitsSet(candidate.m_faceMask);
 
-            uint32_t level = candidates[admittedCount].m_requestedLevel;
+            uint32_t level = candidate.m_requestedLevel;
             while (level <= kShadowFinestLevel
                 && committedUnits + faces * ShadowTileCost(level) > kShadowBudgetUnits)
             {
@@ -482,25 +494,32 @@ namespace Spark::Render
             }
             if (level > kShadowFinestLevel)
             {
-                // Not even the finest tile is left, and the finest is the atom — so nothing
-                // further down the ranking can fit either. Stopping here is exact rather than
-                // a heuristic, and it keeps the ranking monotone.
-                break;
+                // Skipped, not stopped at: what is left cannot seat THIS light's faces, and a
+                // light below asking for fewer of them may still be seated. Cost is faces
+                // times area, so it does not descend with the ranking.
+                continue;
             }
-            candidates[admittedCount].m_requestedLevel = level;
+            candidate.m_requestedLevel = level;
+            candidate.m_admitted       = true;
             committedUnits += faces * ShadowTileCost(level);
         }
 
         // Rejected first: a tile handed back here is available to an admitted light below in
         // the same frame.
-        for (size_t i = admittedCount; i < candidates.size(); ++i)
+        for (const Candidate& candidate : candidates)
         {
-            Deactivate(*world, *rhiCtx, candidates[i].m_light);
+            if (!candidate.m_admitted)
+            {
+                Deactivate(*world, *rhiCtx, candidate.m_light);
+            }
         }
-        for (size_t i = 0; i < admittedCount; ++i)
+        for (const Candidate& candidate : candidates)
         {
-            Activate(*world, *rhiCtx, candidates[i].m_light, candidates[i].m_requestedLevel,
-                candidates[i].m_faceMask, main.m_eye);
+            if (candidate.m_admitted)
+            {
+                Activate(*world, *rhiCtx, candidate.m_light, candidate.m_requestedLevel,
+                    candidate.m_faceMask, main.m_eye);
+            }
         }
     }
 

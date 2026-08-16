@@ -185,7 +185,7 @@ ndcRadius = radius · proj11 / sqrt(d² - radius²)     // d² <= radius² 时�
 
 **先失活再激活，两个循环分开**，败者让出的格子当帧即可被胜者取用。
 
-方向光不需要任何特判：没有 `LightBounds` ⇒ `TryGet` 为空 ⇒ 分数恒为 `kScoreMax`，视锥测试整段跳过。
+方向光不需要任何特判：没有 `LightBounds` ⇒ `TryGet` 为空 ⇒ 分数恒为 `kScoreDirectional`，视锥测试整段跳过。
 
 迟滞与占用加权只读 `ShadowViewRefs::m_index >= 0`，**不引入任何跨帧状态**。
 
@@ -274,7 +274,9 @@ r ≥ 0.25  → level 2 (1024²)
 
 **不需要任何新的跨帧状态**：当前档位从持有的 tile 反解（`Decode(node).m_level`）。6a 那条「不引入跨帧状态」的性质得以保持——状态就是那块地本身。
 
-方向光依然零特判：`kScoreMax` 在第一个测试就通过，自然饱和到最粗档。
+方向光依然零特判：`kScoreDirectional` 在第一个测试就通过，自然饱和到最粗档。
+
+相机进入光源包围球时 `ScreenRadius` 返回 `kScoreFullView`（1.0，NDC 半高的满屏值），**不是**哨兵。切锥在球内无顶角可测，但答案并非未知——光源包住了观察者，就是覆盖满屏。用哨兵回答「测不出来」会让这盏没人知道多大的光独吞整张图集。
 
 **3. 上下界。**（已完成）
 
