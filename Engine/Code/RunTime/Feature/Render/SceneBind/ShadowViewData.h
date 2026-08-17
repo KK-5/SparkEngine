@@ -9,7 +9,7 @@ namespace Spark::Render
 {
     //! One shadow view's sampling record, indexed by LightData::m_shadowIndex — which is the
     //! atlas tile slot, so this buffer has holes wherever a tile is unallocated. HLSL mirror
-    //! lives in ShadowViewData.hlsli; the two MUST stay byte-for-byte identical.
+    //! lives in Lib/Shadow/ShadowViewData.hlsli; the two MUST stay byte-for-byte identical.
     //!
     //! Assembled each frame by SceneBindingSystem from two sources: the geometry from the
     //! shadow view entity, the authored bias from the light.
@@ -36,10 +36,10 @@ namespace Spark::Render
         //! Half the footprint authored as LightComponent::m_shadowFilterWidth, in texels.
         //!
         //! A half-width and not a tap pattern, which is what lets the filter be replaced
-        //! without touching anything outside PCF() in Lib/Lights.hlsli: the disk reads it as
-        //! its radius, a B-spline reconstruction as its kernel half-width. The same number
-        //! sizes the fov a point light's faces are padded by, so the two cannot drift.
-        float           m_pcfRadiusTexels = 2.0f;
+        //! without touching anything outside Lib/Shadow: the bicubic reconstruction reads it
+        //! as its kernel half-width and picks the 4 / 9 / 16 tap variant from it. The same
+        //! number sizes the fov a point light's faces are padded by, so the two cannot drift.
+        float           m_pcfRadiusTexels = 2.5f;
 
         //! World size of one shadow texel, per unit of clip w. A perspective light's texels
         //! grow with distance and its w carries that distance; an orthographic light's do

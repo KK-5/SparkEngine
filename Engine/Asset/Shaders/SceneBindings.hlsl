@@ -10,7 +10,7 @@
 #define SPARK_SCENE_BINDINGS_HLSL
 
 #include "LightData.hlsli"
-#include "ShadowViewData.hlsli"
+#include <Shaders/Lib/Shadow/ShadowViewData.hlsli>
 
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
 

@@ -20,9 +20,9 @@ namespace Spark::Light
 
         context.Reflect<ShadowFilterWidth>()
             .Type("ShadowFilterWidth")
-            .Data<ShadowFilterWidth::W2>("2x2")
-            .Data<ShadowFilterWidth::W4>("4x4")
-            .Data<ShadowFilterWidth::W8>("8x8");
+            .Data<ShadowFilterWidth::W3>("3x3")
+            .Data<ShadowFilterWidth::W5>("5x5")
+            .Data<ShadowFilterWidth::W7>("7x7");
 
         context.Reflect<LightComponent>()
             .Type("Light").Custom<Spark::ComponentTraitsRuntime>(Spark::ComponentTraits<LightComponent>{})

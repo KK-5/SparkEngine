@@ -18,18 +18,19 @@ namespace Spark::Light
 
     //! Side of the texel footprint the shadow filter covers. An enum and not a float for two
     //! reasons: a point light's faces are rasterized with a fov padded to cover the widest
-    //! tap, so an unbounded radius would demand unbounded padding; and a reconstruction
-    //! kernel built out of bilinear fetches only widens by whole doublings.
+    //! tap, so an unbounded radius would demand unbounded padding; and the bicubic
+    //! reconstruction authors its tap offsets in whole texels, so it comes in these three
+    //! sizes and nothing in between.
     enum class ShadowFilterWidth : uint32_t
     {
-        W2 = 0,   // 2x2 texels
-        W4 = 1,   // 4x4
-        W8 = 2,   // 8x8
+        W3 = 0,   // 3x3 texels, 4 taps
+        W5 = 1,   // 5x5, 9 taps
+        W7 = 2,   // 7x7, 16 taps
     };
 
     inline uint32_t ShadowFilterFootprint(ShadowFilterWidth width)
     {
-        return 2u << static_cast<uint32_t>(width);
+        return 3u + 2u * static_cast<uint32_t>(width);
     }
 
     //! Authoring data for a light — NON-spatial only. Position and direction come from
@@ -58,7 +59,7 @@ namespace Spark::Light
         //! tile, so the fov it demands is a constant.
         float         m_shadowNormalOffsetTexels = 2.0f;
 
-        ShadowFilterWidth m_shadowFilterWidth = ShadowFilterWidth::W4;
+        ShadowFilterWidth m_shadowFilterWidth = ShadowFilterWidth::W5;
     };
 
     //! Per-frame render-ready light state, produced by LightSystem from LightComponent +
@@ -82,7 +83,7 @@ namespace Spark::Light
         float         m_shadowBias = 0.0005f;
         float         m_shadowNormalOffsetTexels = 2.0f;
 
-        ShadowFilterWidth m_shadowFilterWidth = ShadowFilterWidth::W4;
+        ShadowFilterWidth m_shadowFilterWidth = ShadowFilterWidth::W5;
     };
 
     //! Bounding sphere of the light's region of influence. Directional lights are unbounded

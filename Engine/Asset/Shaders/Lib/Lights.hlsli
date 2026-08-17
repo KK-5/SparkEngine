@@ -12,78 +12,13 @@
 
 #include <Shaders/LightData.hlsli>
 #include <Shaders/SceneBindings.hlsl>
+#include <Shaders/Lib/Shadow/ShadowSampling.hlsli>
 
-// Shadow atlas, one tile per shadow-casting light. Viewed as R32_FLOAT.
+// Shadow atlas, one tile per shadow-casting light. Viewed as R32_FLOAT. This declaration is
+// the whole of the shadow binding contract — Lib/Shadow/ takes both as arguments and holds
+// no opinion about where they live.
 Texture2D              g_ShadowAtlas   : register(t5, space2);
 SamplerComparisonState g_ShadowSampler : register(s0, space2);
-
-//! Nine points on the unit disk, Vogel spiral. A square tap grid is anisotropic — a 45 degree
-//! edge gets a 41% wider ramp than an axis-aligned one — which reads as facets around a curved
-//! shadow rather than as softness.
-static const float2 kShadowDisk[9] =
-{
-    float2( 0.2357,  0.0000), float2(-0.3010,  0.2758), float2( 0.0461, -0.5250),
-    float2( 0.3792,  0.4951), float2(-0.6964, -0.1232), float2( 0.6592, -0.4202),
-    float2(-0.2206,  0.8207), float2(-0.4209, -0.8101), float2( 0.9128,  0.3336),
-};
-
-//! Fraction of the kernel that is lit. radiusTexels is a parameter rather than a constant
-//! because PCSS reuses this step as-is, with a radius its blocker search computes per pixel.
-//!
-//! Every tap is clamped into the tile, so no radius can reach a neighbouring tile -- whose
-//! depth belongs to an unrelated light and compares to an arbitrary result. Clamping rather
-//! than a border sized to the kernel is also what survives VSM, where pages that are adjacent
-//! in virtual space are scattered in physical memory and no fixed border can bridge them.
-float PCF(float2 uv, float z, float radiusTexels, float4 uvMinMax)
-{
-    const float step = radiusTexels * g_ShadowAtlasTexelSize;
-
-    float sum = 0.0;
-    [unroll]
-    for (int i = 0; i < 9; ++i)
-    {
-        float2 tap = clamp(uv + kShadowDisk[i] * step, uvMinMax.xy, uvMinMax.zw);
-        sum += g_ShadowAtlas.SampleCmpLevelZero(g_ShadowSampler, tap, z);
-    }
-    return sum * (1.0 / 9.0);
-}
-
-//! face = axis * 2 + negative, for a vector pointing from the light at what it lights.
-//! ShadowViewSystem::CubeFaceDirection is the same encoding read the other way, and the two
-//! must agree — nothing else about a face is shared, its orientation included.
-uint CubeFaceIndex(float3 v)
-{
-    float3 a    = abs(v);
-    uint   axis = (a.x >= a.y && a.x >= a.z) ? 0 : (a.y >= a.z ? 1 : 2);
-    return axis * 2 + (v[axis] < 0.0 ? 1 : 0);
-}
-
-//! 1 = lit, 0 = fully shadowed. The tile transform is already inside worldToShadowUV, so
-//! nothing here knows the atlas layout.
-float SampleShadow(int shadowIndex, float3 worldPos, float3 N)
-{
-    ShadowViewData sv = GetShadowView(shadowIndex);
-
-    // The offset is authored in texels, and a texel's world size scales with w. Taken at the
-    // unoffset position: the offset is a texel or two against a distance of many, and solving
-    // for the w it would itself produce buys nothing.
-    float w = mul(sv.worldToShadowUV, float4(worldPos, 1.0)).w;
-    float3 p = worldPos + N * (sv.normalOffsetTexels * sv.texelWorldSizePerW * w);
-
-    float4 clip = mul(sv.worldToShadowUV, float4(p, 1.0));
-    float3 uvz  = clip.xyz / clip.w;
-
-    if (uvz.z <= 0.0 || uvz.z >= 1.0)
-    {
-        return 1.0;
-    }
-    if (any(uvz.xy < sv.uvMinMax.xy) || any(uvz.xy > sv.uvMinMax.zw))
-    {
-        return 1.0;
-    }
-
-    return PCF(uvz.xy, uvz.z - sv.depthBias, sv.pcfRadiusTexels, sv.uvMinMax);
-}
 
 // Returns the incident radiance at worldPos for this light, already shadowed, and writes L
 // (unit vector pointing from the surface toward the light). N is the shading normal, used
@@ -129,7 +64,8 @@ float3 EvaluateLight(LightData light, float3 worldPos, float3 N, out float3 L)
         {
             row += int(CubeFaceIndex(worldPos - light.position));
         }
-        radiance *= SampleShadow(row, worldPos, N);
+        radiance *= SampleShadow(GetShadowView(row), worldPos, N,
+                                 g_ShadowAtlas, g_ShadowSampler, g_ShadowAtlasTexelSize);
     }
     return radiance;
 }
