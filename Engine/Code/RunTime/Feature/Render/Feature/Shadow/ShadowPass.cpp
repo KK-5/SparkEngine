@@ -54,6 +54,17 @@ namespace Spark::Render
         states.m_rasterState.m_cullMode                = RHI::CullMode::Back;
         states.m_rasterState.m_depthBiasSlopeScale     = 2.0f;
 
+        // Depth pancaking. A directional light's near plane hugs the region it shadows, so a
+        // caster standing between the light and that region falls in front of it — and would
+        // be clipped away, taking its shadow with it. With clipping off the rasterizer keeps
+        // the triangle and clamps its depth to 0 instead: it still occludes, and against a
+        // receiver it is genuinely in front of. What it loses is depth ordering AMONG the
+        // pancaked casters, which no receiver inside the volume can observe.
+        //
+        // The alternative — pulling the near plane back far enough to contain them — costs
+        // depth range, which is the same currency the depth bias is denominated in.
+        states.m_rasterState.m_depthClipEnable         = 0;
+
         RenderPassConfig cfg;
         cfg.m_vertexShader       = shaderAsset;
         cfg.m_fragmentShader     = shaderAsset;

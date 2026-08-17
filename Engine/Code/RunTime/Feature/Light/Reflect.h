@@ -36,6 +36,7 @@ namespace Spark::Light
             .Data<&LightComponent::m_shadowBias>("Shadow Bias").Custom<Spark::FloatElement>(0.f, 0.01f, 0.0001f, "%.5f")
             .Data<&LightComponent::m_shadowNormalOffsetTexels>("Shadow Normal Offset").Custom<Spark::FloatElement>(0.f, 8.f, 0.1f, "%.1f")
             .Data<&LightComponent::m_shadowFilterWidth>("Shadow Filter").Custom<Spark::EnumElement>()
+            .Data<&LightComponent::m_shadowDistance>("Shadow Distance").Custom<Spark::FloatElement>(1.f, 500.f, 1.f, "%.1f")
             ;
 
         Spark::ComponentOpertion<LightComponent>(context);

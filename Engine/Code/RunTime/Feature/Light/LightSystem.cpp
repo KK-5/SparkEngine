@@ -108,6 +108,7 @@ namespace Spark::Light
             rd.m_shadowBias         = lc.m_shadowBias;
             rd.m_shadowNormalOffsetTexels = lc.m_shadowNormalOffsetTexels;
             rd.m_shadowFilterWidth        = lc.m_shadowFilterWidth;
+            rd.m_shadowDistance           = lc.m_shadowDistance;
 
             world->AddOrReplace<LightRenderData>(entity, rd);
 

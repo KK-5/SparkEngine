@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ECS/WorldContext.h>
+#include <Math/Sphere.h>
 #include <Math/Vector3.h>
 #include <RHI/Context/RHIContext.h>
 
@@ -31,8 +32,11 @@ namespace Spark::Render
         //! Gives the light's surviving faces tiles at the requested level, then refreshes
         //! their Views. The view entities are created on first activation and outlive any
         //! later deactivation.
+        //! `volume` is the world region the light's shadows must cover, and only a
+        //! directional light has one: every other type is bounded by its own range. Empty
+        //! for those, and ignored.
         void Activate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
-                      uint32_t level, uint32_t faceMask, const Math::Vector3& focus);
+                      uint32_t level, uint32_t faceMask, const Math::Sphere& volume);
 
         //! Hands the tile and the row back and stops the view from rendering.
         //! ShadowViewRefs::m_baseIndex goes to -1 in the same call, which is what keeps the

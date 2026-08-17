@@ -60,6 +60,12 @@ namespace Spark::Light
         float         m_shadowNormalOffsetTexels = 2.0f;
 
         ShadowFilterWidth m_shadowFilterWidth = ShadowFilterWidth::W5;
+
+        //! DIRECTIONAL ONLY: how far from the camera its shadows are drawn. A directional
+        //! light has no volume of its own, so this is the only thing bounding the region it
+        //! must cover — and it is the resolution dial too, since that region is spread over
+        //! one tile however large it is. Halving it doubles the texel density.
+        float         m_shadowDistance = 30.0f;
     };
 
     //! Per-frame render-ready light state, produced by LightSystem from LightComponent +
@@ -84,6 +90,7 @@ namespace Spark::Light
         float         m_shadowNormalOffsetTexels = 2.0f;
 
         ShadowFilterWidth m_shadowFilterWidth = ShadowFilterWidth::W5;
+        float         m_shadowDistance = 30.0f;
     };
 
     //! Bounding sphere of the light's region of influence. Directional lights are unbounded

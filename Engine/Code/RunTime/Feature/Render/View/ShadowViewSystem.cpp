@@ -28,23 +28,19 @@ namespace Spark::Render
 {
     namespace
     {
-        //! PLACEHOLDER, both of them. The ortho box should be fitted to the camera frustum
-        //! (a bounding sphere of the shadow-distance slice, so its size is invariant under
-        //! camera rotation) and the pull-back derived from the scene bounds so that casters
-        //! between the light and the viewer are not clipped away. Neither the authored shadow
-        //! distance nor a scene AABB exists yet — see TODO_MultiViewPlan.md §五.
-        constexpr float kDirectionalHalfExtent = 12.0f;
-        constexpr float kDirectionalPullback   = 200.0f;
-
-        //! World size of one shadow texel for that box. The divisor is the tile's USABLE
-        //! span, not its resolution: the viewport is inset by the border, so that is what
-        //! NDC [-1,1] lands on. Per level, since the tile a light is granted is no longer
-        //! one fixed size — snapping to a grid that does not match the texels it was
-        //! actually given puts the crawl straight back.
-        float DirectionalTexelSize(uint32_t level)
+        //! World size of one shadow texel of a directional light's box. The divisor is the
+        //! tile's USABLE span, not its resolution: the viewport is inset by the border, so
+        //! that is what NDC [-1,1] lands on. Per level, since the tile a light is granted is
+        //! no longer one fixed size — snapping to a grid that does not match the texels it
+        //! was actually given puts the crawl straight back.
+        float DirectionalTexelSize(float radius, uint32_t level)
         {
-            return 2.0f * kDirectionalHalfExtent / static_cast<float>(ShadowUsableTexels(level));
+            return 2.0f * radius / static_cast<float>(ShadowUsableTexels(level));
         }
+
+        //! A shadow distance below this is not worth a view. Also keeps the slice non-empty
+        //! when someone authors a distance inside the camera's own near plane.
+        constexpr float kMinShadowDistance = 1.0f;
 
         constexpr float kSpotNearZ = 0.05f;
 
@@ -181,8 +177,11 @@ namespace Spark::Render
         struct MainViewInfo
         {
             Math::Vector3 m_eye {0.0f, 0.0f, 0.0f};
+            Math::Vector3 m_forward {0.0f, 0.0f, 1.0f};
             Math::Frustum m_frustum {};
             float         m_proj11 = 1.0f;   // 1 / tan(fovY / 2)
+            float         m_aspect = 1.0f;
+            float         m_nearZ  = 0.1f;
 
             //! False during warmup and with no camera, and then nothing is culled: letting
             //! through what should be rejected costs a tile, rejecting what should pass
@@ -204,8 +203,25 @@ namespace Spark::Render
                 }
                 found = true;
 
-                info.m_eye    = Math::Vector3(Math::Inverse(view.m_worldToView)[3]);
-                info.m_proj11 = view.m_viewToClip[1][1];
+                const Math::Matrix4X4 viewToWorld = Math::Inverse(view.m_worldToView);
+                info.m_eye     = Math::Vector3(viewToWorld[3]);
+                info.m_forward = Math::Normalize(Math::Vector3(viewToWorld[2]));
+
+                // Read back rather than plumbed through: a View carries its matrices and
+                // nothing else, and every projection this engine builds is LH_ZO, where
+                // [0][0] and [1][1] are the reciprocal half-extents and the third column
+                // holds far/(far-near) and -near*far/(far-near).
+                const Math::Matrix4X4& proj = view.m_viewToClip;
+                info.m_proj11 = proj[1][1];
+                if (proj[0][0] != 0.0f)
+                {
+                    info.m_aspect = proj[1][1] / proj[0][0];
+                }
+                if (proj[2][2] != 0.0f)
+                {
+                    info.m_nearZ = -proj[3][2] / proj[2][2];
+                }
+
                 if (const auto* frustum = rhiCtx.TryGet<ViewFrustum>(e))
                 {
                     info.m_frustum = frustum->m_frustum;
@@ -213,6 +229,60 @@ namespace Spark::Render
                 }
             });
             return info;
+        }
+
+        //! Smallest sphere containing the camera frustum between its near plane and
+        //! shadowDistance. A SPHERE and not the slice's box, because a box fitted to the
+        //! frustum changes size as the camera rotates — and with it the texel size, leaving
+        //! SnapToTexelGrid no fixed grid to quantize against. A sphere containing a rotating
+        //! frustum is the same sphere.
+        //!
+        //! Its radius is a constant while fov, aspect and shadow distance are: only the
+        //! centre travels with the camera. A change to any of the three does resize it, and
+        //! the texel grid jumps once as it does.
+        Math::Sphere FrustumSliceSphere(const MainViewInfo& main, float shadowDistance)
+        {
+            const float n     = main.m_nearZ;
+            const float floor = n + kMinShadowDistance;
+            const float f     = shadowDistance > floor ? shadowDistance : floor;
+
+            // Half-diagonal of the slice per unit of depth: the corner directions are
+            // (±aspect*t, ±t, 1) with t = tan(fovY/2), so k is the length of their xy part.
+            const float t  = (main.m_proj11 != 0.0f) ? (1.0f / main.m_proj11) : 1.0f;
+            const float k2 = t * t * (1.0f + main.m_aspect * main.m_aspect);
+
+            float centerDist;
+            float radius;
+            if (k2 * (f + n) >= f - n)
+            {
+                // The slice flares faster than it is deep, so the far cap's corners already
+                // enclose the near ones and the sphere is that cap's circumcircle.
+                centerDist = f;
+                radius     = f * Math::Sqrt(k2);
+            }
+            else
+            {
+                // Equidistant from both caps' corners: solving |corner(n)| = |corner(f)| for
+                // a centre on the view axis.
+                const float d = f - n;
+                const float s = f + n;
+                centerDist    = 0.5f * s * (1.0f + k2);
+                radius        = 0.5f * Math::Sqrt(d * d + 2.0f * k2 * (f * f + n * n) + s * s * k2 * k2);
+            }
+
+            return Math::Sphere{ main.m_eye + main.m_forward * centerDist, radius };
+        }
+
+        //! The volume a light's shadows must cover. Only a directional light has one to
+        //! choose — every other type is bounded by its own range, and its view is built from
+        //! that instead.
+        Math::Sphere ShadowVolume(const Light::LightRenderData& rd, const MainViewInfo& main)
+        {
+            if (rd.m_type != Light::LightType::Directional)
+            {
+                return Math::Sphere{};
+            }
+            return FrustumSliceSphere(main, rd.m_shadowDistance);
         }
 
         //! Radius of the light's bounding sphere projected into NDC. In NDC rather than
@@ -261,10 +331,9 @@ namespace Spark::Render
         //! shadow edges crawl. Only x/y are snapped — z runs along the light, where the grid
         //! does not live.
         //!
-        //! This works only because the box size is FIXED. A frustum-fitted box changes size
-        //! with camera rotation, leaving no constant grid to quantize against; that is why
-        //! fitting has to arrive together with its own stabilization (a bounding sphere),
-        //! not on top of this.
+        //! This works only because the box size is fixed, which is exactly what fitting the
+        //! camera frustum with a SPHERE buys: a box fitted to the slice directly would
+        //! change size as the camera turns, leaving no constant grid to quantize against.
         Math::Vector3 SnapToTexelGrid(
             const Math::Vector3& focus, const Math::Vector3& dir, const Math::Vector3& up,
             float texelSize)
@@ -279,22 +348,28 @@ namespace Spark::Render
         }
 
         //! A directional light has no position, so the box's placement is chosen rather than
-        //! read: it follows the camera, since that is the only region whose shadows are seen.
-        //! The eye is pulled back along the light direction so that casters standing between
-        //! the light and that region still fall inside the near plane.
+        //! read: it wraps the sphere of camera frustum whose shadows are seen at all.
+        //!
+        //! ONE radius defines the whole view — the box is 2r across and 2r deep, and the eye
+        //! sits exactly on the sphere. Depth is not a free dimension to be padded: it is the
+        //! same 2r the xy extent is, which is what makes a bias in NDC depth and an offset in
+        //! texels the same currency (see ShadowViewData::m_depthBias). Anything that pushes
+        //! the eye further back to catch a caster stretches depth without stretching xy and
+        //! breaks that — casters in front of the near plane are handled by turning depth
+        //! clipping off in ShadowPass instead, which costs the depth range nothing.
         void WriteDirectionalView(View& view, const Light::LightRenderData& rd,
-            const Math::Vector3& cameraPos, uint32_t level)
+            const Math::Sphere& volume, uint32_t level)
         {
-            const Math::Vector3 dir   = Math::Normalize(rd.m_worldDirection);
-            const Math::Vector3 up    = StableUp(dir);
-            const Math::Vector3 focus =
-                SnapToTexelGrid(cameraPos, dir, up, DirectionalTexelSize(level));
+            const Math::Vector3 dir = Math::Normalize(rd.m_worldDirection);
+            const Math::Vector3 up  = StableUp(dir);
 
-            view.m_worldToView = Math::LookAt(focus - dir * kDirectionalPullback, focus, up);
+            const float texelSize = DirectionalTexelSize(volume.radius, level);
+            const Math::Vector3 center = SnapToTexelGrid(volume.center, dir, up, texelSize);
+
+            view.m_worldToView = Math::LookAt(center - dir * volume.radius, center, up);
             view.m_viewToClip  = Math::OrthographicProjection(
-                -kDirectionalHalfExtent, kDirectionalHalfExtent,
-                -kDirectionalHalfExtent, kDirectionalHalfExtent,
-                0.0f, kDirectionalPullback + kDirectionalHalfExtent);
+                -volume.radius, volume.radius, -volume.radius, volume.radius,
+                0.0f, 2.0f * volume.radius);
         }
 
         void WriteSpotView(View& view, const Light::LightRenderData& rd)
@@ -399,10 +474,7 @@ namespace Spark::Render
                 static_cast<uint32_t>(e), refs.m_views.size());
             orphans.push_back(e);
         });
-        for (Entity e : orphans)
-        {
-            world->Remove<ShadowViewRefs>(e);
-        }
+        world->Remove<ShadowViewRefs>(orphans.begin(), orphans.end());
 
         const MainViewInfo main = ResolveMainView(*rhiCtx);
 
@@ -515,11 +587,13 @@ namespace Spark::Render
         }
         for (const Candidate& candidate : candidates)
         {
-            if (candidate.m_admitted)
+            if (!candidate.m_admitted)
             {
-                Activate(*world, *rhiCtx, candidate.m_light, candidate.m_requestedLevel,
-                    candidate.m_faceMask, main.m_eye);
+                continue;
             }
+            const auto* rd = world->TryGet<Light::LightRenderData>(candidate.m_light);
+            Activate(*world, *rhiCtx, candidate.m_light, candidate.m_requestedLevel,
+                candidate.m_faceMask, rd ? ShadowVolume(*rd, main) : Math::Sphere{});
         }
     }
 
@@ -633,7 +707,7 @@ namespace Spark::Render
     }
 
     void ShadowViewSystem::Activate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
-        uint32_t level, uint32_t faceMask, const Math::Vector3& focus)
+        uint32_t level, uint32_t faceMask, const Math::Sphere& volume)
     {
         const auto* rd = world.TryGet<Light::LightRenderData>(light);
         if (!rd)
@@ -709,7 +783,7 @@ namespace Spark::Render
             switch (rd->m_type)
             {
             case Light::LightType::Directional:
-                WriteDirectionalView(view, *rd, focus, tileLevel);
+                WriteDirectionalView(view, *rd, volume, tileLevel);
                 break;
             case Light::LightType::Point:
                 WritePointFaceView(view, *rd, face, tileLevel);
