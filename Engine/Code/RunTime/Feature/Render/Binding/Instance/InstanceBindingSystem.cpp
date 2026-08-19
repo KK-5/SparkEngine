@@ -20,7 +20,7 @@
 #include <Math/MathUtils.h>
 
 #include <Material/MaterialUtils.h>         // MaterialComponent / MaterialParams / GetDefaultMaterial
-#include <MaterialBind/MaterialBinding.h>   // MaterialGPUSlot
+#include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
 
 namespace Spark::Render
 {
@@ -29,8 +29,10 @@ namespace Spark::Render
         constexpr const char* InstanceBufferName = "g_Instances";
 
         //! MaterialComponent -> material handle (falling back to the default material when
-        //! unset or dangling) -> MaterialGPUSlot, written this frame by
-        //! MaterialBindingSystem, which RenderSystem ticks first.
+        //! unset or dangling) -> its stable g_Materials slot. The slot is allocated once
+        //! by MaterialBindingSystem and does not move, so this reads whatever is there
+        //! rather than depending on a value written this same frame; a material whose
+        //! slot does not exist yet falls back to 0 for a frame.
         uint32_t ResolveMaterialIndex(
             WorldContext& world, Material::MaterialContext* matCtx, Entity e)
         {
@@ -48,9 +50,12 @@ namespace Spark::Render
             {
                 mh = Material::GetDefaultMaterial(*matCtx);
             }
-            if (const auto* gpuSlot = matCtx->TryGet<MaterialGPUSlot>(mh))
+            if (const auto* slotRef = matCtx->TryGet<MaterialSlotRef>(mh))
             {
-                return gpuSlot->m_slot;
+                if (slotRef->IsValid())
+                {
+                    return slotRef->m_id;
+                }
             }
             return 0;
         }

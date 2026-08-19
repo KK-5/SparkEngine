@@ -14,7 +14,7 @@
 
 #include <Drawable/DrawTag.h>
 #include <View/ViewTags.h>
-#include <MaterialBind/MaterialBinding.h>
+#include <Binding/Material/MaterialBinding.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>

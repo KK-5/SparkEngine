@@ -256,8 +256,10 @@ namespace Spark::Render
         m_viewBindingSystem.Update(rhiCtx);
 
         m_sceneBindingSystem.Update(frameIndex);
-        // Order matters: MaterialBindingSystem writes each material's MaterialGPUSlot,
-        // which InstanceBindingSystem reads to resolve InstanceData.m_materialIndex.
+        // MaterialBindingSystem stays first, but only so a material's slot exists before
+        // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
+        // stable now, not rewritten every frame, so this is a one-time ordering need —
+        // a material allocated later just falls back to slot 0 for one frame.
         m_materialBindingSystem.Update(frameIndex);
         m_instanceBindingSystem.Update(frameIndex);
 
