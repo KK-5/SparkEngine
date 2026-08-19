@@ -16,8 +16,8 @@
 |---|---|
 | `StagedArrayBuffer`(下层:buffer 管线) | **已落地** — `Binding/StagedArrayBuffer.h` |
 | `GlobalBuffer`(上层:稳定槽位) | **已落地** — `Binding/GlobalBuffer.h`,组合下层 |
-| `g_Instances` | **已落地并验证** — `Binding/Instance/`,旧 `Feature/Render/Instance/` 已从 CMake 摘掉但仍留在树上 |
-| `g_Materials` | **已落地并验证** — `Binding/Material/`,旧 `MaterialBind/` 同样已摘未删 |
+| `g_Instances` | **已落地并验证** — `Binding/Instance/`,旧实现已删 |
+| `g_Materials` | **已落地并验证** — `Binding/Material/`,旧实现已删 |
 | `g_Lights` / `g_ShadowViews` | **已落地,但不走稳定槽位** — `Binding/Scene/`,只用下层 `StagedArrayBuffer`,保持稠密迭代序。理由见第一节判据 |
 | `g_Views` | 未做,且与 `TODO_MultiViewPlan.md` 耦合,单独立项 |
 
@@ -349,7 +349,8 @@ Lights 那一行是本文最初判断错的地方,理由在第一节的判据。
 3. ~~**`PackLightData` 缺 `Exclude<DeadTag>`。**~~ **已修**。`EntityReaper` 在自己的 tick 里才销毁,所以标记
    死亡到真正销毁之间那盏灯还带着 `LightRenderData`,会继续照亮场景,且与 `ShadowViewSystem`(那边一直是排除的)
    对"这盏灯还在不在"判断不一致。
-4. **删除旧 `Feature/Render/Instance/` 和 `MaterialBind/`。** 都已从 CMake 摘掉但仍在树上,等新实现稳定后删。
+4. ~~**删除旧 `Feature/Render/Instance/` 和 `MaterialBind/`。**~~ **已删**,八个文件。随之消失的还有
+   `InstanceSlotTable`(间接表)和 `MaterialGPUSlot`(每帧回写的迭代序槽位)——两个概念在树上已无引用。
 5. **`g_Views`。** 单独立项,与 `TODO_MultiViewPlan.md` 耦合。
 
 > **「一个实体多个 `GlobalBufferSlotRef`」至今没有实例。** 原稿举的例子是「光源既占 `g_Lights` 又占 `g_Views`」,
