@@ -229,10 +229,15 @@ namespace Spark::Render
 
     uint32_t SceneBindingSystem::PackLightData(WorldContext& world, bool shadowViewsBound)
     {
-        // Dense marshal: every world LightRenderData -> m_lights[slot]. Pure field copy —
-        // direction/position were already resolved by LightSystem (compute vs write).
+        // Dense marshal: every live world LightRenderData -> m_lights[slot]. Pure field
+        // copy — direction/position were already resolved by LightSystem (compute vs write).
+        //
+        // DeadTag is excluded because EntityReaper destroys on its own tick, not at the
+        // kill site: between the two, the entity still carries LightRenderData. Without
+        // this the light keeps lighting the scene after deletion, and this loop disagrees
+        // with ShadowViewSystem — which does exclude it — about whether the light exists.
         uint32_t slot = 0;
-        world.GetView<Light::LightRenderData>().each(
+        world.GetView<Light::LightRenderData>(Exclude<DeadTag>).each(
             [&](Entity entity, const Light::LightRenderData& rd)
         {
             if (slot >= m_lights.Capacity())
