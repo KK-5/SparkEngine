@@ -253,7 +253,7 @@ namespace Spark::Render
         m_cameraViewSystem.Update(renderSize);
         // After the camera views: a directional light's ortho box follows the main view.
         m_shadowViewSystem.Update();
-        m_viewBindingSystem.Update(rhiCtx);
+        m_viewBindingSystem.Update();
 
         m_sceneBindingSystem.Update(frameIndex);
         // MaterialBindingSystem stays first, but only so a material's slot exists before

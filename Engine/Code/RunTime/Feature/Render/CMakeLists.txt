@@ -17,11 +17,11 @@ set(SOURCES
     RenderGraph/RenderGraphExecuter.cpp
     RenderGraph/RenderGraph.cpp
     RenderSystem.cpp
-    View/ViewBindingSystem.cpp
     View/CameraViewSystem.cpp
     View/ShadowAtlasAllocator.cpp
     View/ShadowViewSystem.cpp
     View/ViewFactory.cpp
+    Binding/View/ViewBindingSystem.cpp
     Binding/Scene/SceneBindingSystem.cpp
     Binding/Instance/InstanceBindingSystem.cpp
     Binding/Material/MaterialBindingSystem.cpp

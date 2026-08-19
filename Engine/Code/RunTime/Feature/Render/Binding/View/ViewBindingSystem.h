@@ -15,9 +15,12 @@ namespace Spark::Render
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced AFTER every view producer and before the graph runs,
     //! so a view created this frame is compiled in the same frame.
+    //!
+    //! Unlike the other binding systems it owns no buffer of its own: a view's constants go
+    //! straight into that view's own space1 group, so there is no array and no frameIndex.
     class ViewBindingSystem
     {
     public:
-        void Update(RHI::RHIContext& rhiCtx);
+        void Update();
     };
 }

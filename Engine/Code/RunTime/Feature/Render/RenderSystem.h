@@ -14,7 +14,7 @@
 
 #include "Feature/UI/RenderUI.h"
 #include "Feature/UI/UIProcessFeature.h"
-#include "View/ViewBindingSystem.h"
+#include "Binding/View/ViewBindingSystem.h"
 #include "View/CameraViewSystem.h"
 #include "View/ShadowViewSystem.h"
 #include "Binding/Scene/SceneBindingSystem.h"
