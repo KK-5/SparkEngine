@@ -23,7 +23,7 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <RenderGraph/RenderGraphUtils.h>
 
-#include <SceneBind/SceneBinding.h>
+#include <Binding/Scene/SceneBinding.h>
 
 #include <View/ViewTags.h>
 

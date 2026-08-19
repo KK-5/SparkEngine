@@ -1,6 +1,6 @@
 // One entry of the global g_ShadowViews StructuredBuffer (space0), indexed by
 // LightData::shadowIndex — the atlas tile slot, so the buffer has holes.
-// C++ mirror lives in Render/SceneBind/ShadowViewData.h — keep the two identical.
+// C++ mirror lives in Render/Binding/Scene/ShadowViewData.h — keep the two identical.
 #ifndef SPARK_SHADOW_VIEW_DATA_HLSLI
 #define SPARK_SHADOW_VIEW_DATA_HLSLI
 

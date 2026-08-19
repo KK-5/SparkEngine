@@ -7,16 +7,8 @@
 #include <CoreComponents/Tags.h>
 #include <ECS/BasicContext.h>
 #include <Log/ILogSystem.h>
-#include <Object/ObjectName.h>
 
-#include <RHI/Component/Component.h>
-#include <RHI/Context/RHIContext.h>
-#include <RHI/ResourceBuilder.h>
-#include <RHI/Resource/Buffer/Buffer.h>
-#include <RHI/Resource/Buffer/BufferView.h>
-#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
-
-#include <Shader/ShaderBindingsUtils.h>
+#include <Binding/StagedArrayBuffer.h>
 
 
 namespace Spark::Render
@@ -47,49 +39,30 @@ namespace Spark::Render
         }
     };
 
-    //! One global, shader-visible array: a host per-frame StructuredBuffer plus the CPU
-    //! mirror it is uploaded from. Sources are the components an entity must carry to own
-    //! a slot, Element is the GPU record.
+    //! A StagedArrayBuffer addressed by STABLE SLOT: this layer owns the allocator and
+    //! the occupancy versions, and stamps each source entity with its GlobalBufferSlotRef.
+    //! Sources are the components an entity must carry to own a slot, Element is the GPU
+    //! record.
     //!
-    //! Addressed by stable slot, so the array has holes and the upload spans [0, Size()).
-    //! The mirror is the one complete image, which is what lets every frame copy it whole:
-    //! a partial copy would leave each in-flight copy missing the changes made while it
-    //! was not the write target, and a stopped object would oscillate between its old and
-    //! new record with a period of frameCountMax.
+    //! Worth it only when something ELSE stores the index and needs it to outlive the
+    //! frame — a baked StartInstanceLocation (g_Instances), or an index living in another
+    //! GPU array (InstanceData::m_materialIndex -> g_Materials). An array the shader just
+    //! iterates gains nothing here and pays for the holes: use StagedArrayBuffer directly
+    //! and pack densely, as g_Lights does.
     //!
-    //! The owner creates the ShaderBindings entity (shader reflection, space id, its own
-    //! tags) and hands it in — this only binds the SRV onto it each frame.
+    //! Because slots are stable the array has holes, so the upload spans [0, Size()) and
+    //! the holes are copied bytes nobody indexes. They are NOT cleared — see
+    //! TODO_GlobalBufferUploadPlan.md §6.
     template<typename Tag, typename Element, typename... Sources>
     class GlobalBuffer
     {
     public:
-        struct Descriptor
-        {
-            uint32_t       m_capacity       = 0;
-            ObjectName     m_resourceName;
-            RHI::InputName m_inputName;
-            RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;
-        };
+        using Descriptor = typename StagedArrayBuffer<Element>::Descriptor;
 
         void Init(RHI::RHIContext& rhiCtx, const Descriptor& descriptor)
         {
-            m_descriptor = descriptor;
-            m_staging.resize(descriptor.m_capacity);
+            m_array.Init(rhiCtx, descriptor);
             m_versions.assign(descriptor.m_capacity, 0);
-
-            RHI::BufferDescriptor bufDesc;
-            bufDesc.m_byteCount = static_cast<uint64_t>(descriptor.m_capacity) * sizeof(Element);
-            bufDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyRead;
-
-            RHI::PendingBufferInit init;
-            init.m_descriptor       = bufDesc;
-            init.m_heapMemoryLevel  = RHI::HeapMemoryLevel::Host;
-            init.m_hostMemoryAccess = RHI::HostMemoryAccess::Write;
-
-            m_buffer = rhiCtx.CreateEntity();
-            rhiCtx.Add<RHI::PendingBufferInit>(m_buffer, init);
-            rhiCtx.Add<RHI::PerFrameTag>(m_buffer);
-            rhiCtx.Add<RHI::ResourceName>(m_buffer, RHI::ResourceName{ descriptor.m_resourceName });
         }
 
         //! Slots and allocator must clear together — a leftover slot would index into a
@@ -103,11 +76,7 @@ namespace Spark::Render
             m_freeIds.clear();
             m_nextFreshId = 0;
 
-            if (m_buffer != RHI::NullHandle)
-            {
-                rhiCtx.Add<DeadTag>(m_buffer);
-                m_buffer = RHI::NullHandle;
-            }
+            m_array.Shutdown(rhiCtx);
         }
 
         //! process: void(Entity, Element&, const Sources&...)
@@ -119,7 +88,7 @@ namespace Spark::Render
             // Nothing is allocated or encoded until the buffer materializes, so the first
             // successful frame still carries every entity: the mirror is complete by
             // construction, not by replaying the warmup frames.
-            if (!BindFrame(rhiCtx, frameIndex))
+            if (!m_array.BindFrame(rhiCtx, frameIndex))
             {
                 return;
             }
@@ -153,51 +122,16 @@ namespace Spark::Render
             ctx.template GetView<Slot, Sources...>(Exclude<DeadTag>).each(
                 [&](auto entity, const Slot& slot, const Sources&... sources)
             {
-                process(entity, m_staging[slot.m_id], sources...);
+                process(entity, m_array[slot.m_id], sources...);
             });
 
-            if (m_nextFreshId > 0)
-            {
-                rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
-                    m_buffer,
-                    RHI::PendingBufferMap{ m_staging.data(), 0,
-                                           static_cast<size_t>(m_nextFreshId) * sizeof(Element) });
-            }
+            m_array.Upload(rhiCtx, m_nextFreshId);
         }
 
         //! High-water mark. Every live slot is below it, so it is also the upload length.
         uint32_t Size() const { return m_nextFreshId; }
 
     private:
-        //! Re-points the SRV at this frame's copy. The descriptor encodes one buffer
-        //! address and the copies live at distinct addresses, so this runs every frame.
-        bool BindFrame(RHI::RHIContext& rhiCtx, uint32_t frameIndex)
-        {
-            if (m_buffer == RHI::NullHandle || m_descriptor.m_bindingsEntity == RHI::NullHandle)
-            {
-                return false;
-            }
-
-            auto* perFrame = rhiCtx.TryGet<RHI::Components::BufferPerFrame>(m_buffer);
-            if (!perFrame || !perFrame->m_buffers[frameIndex])
-            {
-                return false;
-            }
-
-            const RHI::BufferViewDescriptor viewDesc = RHI::BufferViewDescriptor::CreateStructured(0, m_descriptor.m_capacity, sizeof(Element));
-            RHI::BufferView* view = RHI::GetOrCreateBufferViewPerFrame(
-                rhiCtx, m_buffer, *perFrame->m_buffers[frameIndex], viewDesc, frameIndex);
-            if (!view)
-            {
-                LOG_ERROR("[GlobalBuffer] Failed to create structured SRV for '{}' frame {}.",
-                          m_descriptor.m_resourceName.GetCStr(), frameIndex);
-                return false;
-            }
-
-            SetShaderBuffer(m_descriptor.m_bindingsEntity, m_descriptor.m_inputName, view);
-            return true;
-        }
-
         //! Lowest free id first, so the live set packs toward 0 and the upload stays short.
         bool AllocateId(uint32_t& out)
         {
@@ -209,10 +143,10 @@ namespace Spark::Render
                 return true;
             }
 
-            if (m_nextFreshId >= m_descriptor.m_capacity)
+            if (m_nextFreshId >= m_array.Capacity())
             {
                 LOG_ERROR("[GlobalBuffer] '{}' capacity={} overflow; dropping entity.",
-                          m_descriptor.m_resourceName.GetCStr(), m_descriptor.m_capacity);
+                          m_array.Name().GetCStr(), m_array.Capacity());
                 return false;
             }
 
@@ -229,14 +163,12 @@ namespace Spark::Render
             eastl::push_heap(m_freeIds.begin(), m_freeIds.end(), eastl::greater<uint32_t>());
         }
 
-        Descriptor              m_descriptor;
-        eastl::vector<Element>  m_staging;
-        RHI::RHIHandle          m_buffer      = RHI::NullHandle;
-        uint32_t                m_nextFreshId = 0;
-        eastl::vector<uint32_t> m_freeIds;
+        StagedArrayBuffer<Element> m_array;
+        uint32_t                   m_nextFreshId = 0;
+        eastl::vector<uint32_t>    m_freeIds;
 
         //! Occupancy counter per id, referenced by every GlobalBufferSlotRef handed out.
         //! Never reallocated while references are live (fixed at Init).
-        eastl::vector<uint32_t> m_versions;
+        eastl::vector<uint32_t>    m_versions;
     };
 }

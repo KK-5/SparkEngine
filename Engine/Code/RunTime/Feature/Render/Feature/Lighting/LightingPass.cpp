@@ -20,7 +20,7 @@
 
 #include <View/ViewTags.h>
 #include <View/ShadowAtlasLayout.h>
-#include <SceneBind/SceneBinding.h>
+#include <Binding/Scene/SceneBinding.h>
 
 #include <RenderGraph/RenderGraphUtils.h>
 

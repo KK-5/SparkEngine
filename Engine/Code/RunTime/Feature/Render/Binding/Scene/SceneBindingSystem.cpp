@@ -13,9 +13,6 @@
 #include <RHI/Component/Component.h>
 #include <RHI/ResourceBuilder.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
-#include <RHI/Resource/Buffer/Buffer.h>
-#include <RHI/Resource/Buffer/BufferView.h>
-#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Resource/AssetManagerInterface.h>
@@ -135,43 +132,24 @@ namespace Spark::Render
         // no-ops on a null binding handle.
         LOG_INFO("[SceneBindingSystem] space0 layout reflected (lights + environment IBL).");
 
-        // g_Lights: host-visible StructuredBuffer, PER-FRAME (PerFrameTag -> N copies) so
-        // each frame writes its own copy without racing the GPU reading last frame's. Filled
-        // each frame from m_lightData via PendingBufferMap. Materialized on the next frame
-        // begin (deferred PendingBufferInit path, same as g_Materials).
-        m_lightData.resize(Capacity);
-        m_buffer = rhiCtx.CreateEntity();
+        // Both arrays land in the space0 group created above, so they share m_bindings and
+        // differ only by input name and capacity. Materialized on the next frame begin
+        // (deferred PendingBufferInit path, inside StagedArrayBuffer::Init).
         {
-            RHI::BufferDescriptor bufDesc;
-            bufDesc.m_byteCount = static_cast<uint64_t>(Capacity) * sizeof(LightData);
-            bufDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyRead;
-
-            RHI::PendingBufferInit init;
-            init.m_descriptor       = bufDesc;
-            init.m_heapMemoryLevel  = RHI::HeapMemoryLevel::Host;
-            init.m_hostMemoryAccess = RHI::HostMemoryAccess::Write;
-            rhiCtx.Add<RHI::PendingBufferInit>(m_buffer, init);
-            rhiCtx.Add<RHI::PerFrameTag>(m_buffer);
-            rhiCtx.Add<RHI::ResourceName>(m_buffer, RHI::ResourceName{ ObjectName("g_Lights") });
+            StagedArrayBuffer<LightData>::Descriptor lightDesc;
+            lightDesc.m_capacity       = Capacity;
+            lightDesc.m_resourceName   = ObjectName(LightBufferName);
+            lightDesc.m_inputName      = RHI::InputName(LightBufferName);
+            lightDesc.m_bindingsEntity = m_bindings;
+            m_lights.Init(rhiCtx, lightDesc);
         }
-
-        // g_ShadowViews: same per-frame host StructuredBuffer path as g_Lights, but sized to
-        // the row capacity — it is addressed by row, not densely packed.
-        m_shadowViewData.resize(kShadowViewCapacity);
-        m_shadowViewBuffer = rhiCtx.CreateEntity();
         {
-            RHI::BufferDescriptor bufDesc;
-            bufDesc.m_byteCount = static_cast<uint64_t>(kShadowViewCapacity) * sizeof(ShadowViewData);
-            bufDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyRead;
-
-            RHI::PendingBufferInit init;
-            init.m_descriptor       = bufDesc;
-            init.m_heapMemoryLevel  = RHI::HeapMemoryLevel::Host;
-            init.m_hostMemoryAccess = RHI::HostMemoryAccess::Write;
-            rhiCtx.Add<RHI::PendingBufferInit>(m_shadowViewBuffer, init);
-            rhiCtx.Add<RHI::PerFrameTag>(m_shadowViewBuffer);
-            rhiCtx.Add<RHI::ResourceName>(
-                m_shadowViewBuffer, RHI::ResourceName{ ObjectName("g_ShadowViews") });
+            StagedArrayBuffer<ShadowViewData>::Descriptor shadowDesc;
+            shadowDesc.m_capacity       = kShadowViewCapacity;
+            shadowDesc.m_resourceName   = ObjectName(ShadowViewBufferName);
+            shadowDesc.m_inputName      = RHI::InputName(ShadowViewBufferName);
+            shadowDesc.m_bindingsEntity = m_bindings;
+            m_shadowViews.Init(rhiCtx, shadowDesc);
         }
 
         CreateBRDFLut(rhiCtx);
@@ -218,72 +196,11 @@ namespace Spark::Render
             RHI::ImageSubresourceRange(desc), RHI::Origin(), lut->GetFormat());
     }
 
-    bool SceneBindingSystem::BindFrameLights(uint32_t frameIndex)
-    {
-        auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!rhiCtx || m_buffer == RHI::NullHandle || m_bindings == RHI::NullHandle)
-        {
-            return false;
-        }
-
-        // Wait for RHIResourceSystem to materialize the per-frame buffers (one frame after Init).
-        auto* perFrame = rhiCtx->TryGet<RHI::Components::BufferPerFrame>(m_buffer);
-        if (!perFrame || !perFrame->m_buffers[frameIndex])
-        {
-            return false;
-        }
-        RHI::Buffer* buffer = perFrame->m_buffers[frameIndex].get();
-
-        // Re-bind the SRV to THIS frame's copy (the N copies live at distinct addresses),
-        // one cheap descriptor recompile via the dirty mark — like g_Materials.
-        const RHI::BufferViewDescriptor viewDesc =
-            RHI::BufferViewDescriptor::CreateStructured(0, Capacity, sizeof(LightData));
-        RHI::BufferView* view = RHI::GetOrCreateBufferViewPerFrame(
-            *rhiCtx, m_buffer, *buffer, viewDesc, frameIndex);
-        if (!view)
-        {
-            LOG_ERROR("[SceneBindingSystem] Failed to create g_Lights structured SRV for frame {}.", frameIndex);
-            return false;
-        }
-
-        SetShaderBuffer(m_bindings, RHI::InputName(LightBufferName), view);
-        return true;
-    }
-
-    bool SceneBindingSystem::BindFrameShadowViews(uint32_t frameIndex)
-    {
-        auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!rhiCtx || m_shadowViewBuffer == RHI::NullHandle || m_bindings == RHI::NullHandle)
-        {
-            return false;
-        }
-
-        auto* perFrame = rhiCtx->TryGet<RHI::Components::BufferPerFrame>(m_shadowViewBuffer);
-        if (!perFrame || !perFrame->m_buffers[frameIndex])
-        {
-            return false;
-        }
-        RHI::Buffer* buffer = perFrame->m_buffers[frameIndex].get();
-
-        const RHI::BufferViewDescriptor viewDesc =
-            RHI::BufferViewDescriptor::CreateStructured(0, kShadowViewCapacity, sizeof(ShadowViewData));
-        RHI::BufferView* view = RHI::GetOrCreateBufferViewPerFrame(
-            *rhiCtx, m_shadowViewBuffer, *buffer, viewDesc, frameIndex);
-        if (!view)
-        {
-            LOG_ERROR("[SceneBindingSystem] Failed to create g_ShadowViews structured SRV for frame {}.", frameIndex);
-            return false;
-        }
-
-        SetShaderBuffer(m_bindings, RHI::InputName(ShadowViewBufferName), view);
-        return true;
-    }
-
     void SceneBindingSystem::PackShadowViews(RHI::RHIContext& rhiCtx)
     {
-        for (ShadowViewData& d : m_shadowViewData)
+        for (uint32_t row = 0; row < m_shadowViews.Capacity(); ++row)
         {
-            d = ShadowViewData{};
+            m_shadowViews[row] = ShadowViewData{};
         }
 
         rhiCtx.GetView<ShadowViewTag, View, ShadowViewIndex>(Exclude<DeadTag>).each(
@@ -294,7 +211,7 @@ namespace Spark::Render
                 return;
             }
 
-            ShadowViewData& d = m_shadowViewData[row.m_index];
+            ShadowViewData& d = m_shadowViews[row.m_index];
             d.m_worldToShadowUV = MakeShadowUVRemap(view.m_rect) * view.GetWorldToClip();
             d.m_uvMinMax = Math::Vector4(
                 view.m_rect.m_minX, view.m_rect.m_minY, view.m_rect.m_maxX, view.m_rect.m_maxY);
@@ -308,6 +225,60 @@ namespace Spark::Render
             d.m_texelWorldSizePerW =
                 (scaleX != 0.0f && texels > 0.0f) ? 2.0f / (scaleX * texels) : 0.0f;
         });
+    }
+
+    uint32_t SceneBindingSystem::PackLightData(WorldContext& world, bool shadowViewsBound)
+    {
+        // Dense marshal: every world LightRenderData -> m_lights[slot]. Pure field copy —
+        // direction/position were already resolved by LightSystem (compute vs write).
+        uint32_t slot = 0;
+        world.GetView<Light::LightRenderData>().each(
+            [&](Entity entity, const Light::LightRenderData& rd)
+        {
+            if (slot >= m_lights.Capacity())
+            {
+                LOG_ERROR("[SceneBindingSystem] Capacity={} overflow; dropping light.",
+                          m_lights.Capacity());
+                return;
+            }
+
+            LightData& d   = m_lights[slot];
+            d.m_direction  = rd.m_worldDirection;
+            d.m_intensity  = rd.m_intensity;
+            d.m_color      = rd.m_color;
+            d.m_type       = static_cast<uint32_t>(rd.m_type);
+            d.m_position   = rd.m_worldPosition;
+            d.m_invRange   = rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f;
+            d.m_cosInner   = rd.m_cosInner;
+            d.m_cosOuter   = rd.m_cosOuter;
+
+            // Read from the light, not from the view entity: g_Lights is packed by
+            // iteration order while the row is not, so this is the one place the two
+            // index spaces meet.
+            const auto* refs      = world.TryGet<ShadowViewRefs>(entity);
+            d.m_shadowIndex       = refs ? refs->m_baseIndex : -1;
+            d.m_shadowFaceCount   = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
+
+            // Every row the light owns, since the authored bias applies to all its faces
+            // and a face without a tile keeps its row inverted by PackShadowViews.
+            for (uint32_t face = 0; shadowViewsBound && d.m_shadowIndex >= 0
+                    && face < d.m_shadowFaceCount; ++face)
+            {
+                const uint32_t row = static_cast<uint32_t>(d.m_shadowIndex) + face;
+                if (row >= m_shadowViews.Capacity())
+                {
+                    break;
+                }
+                ShadowViewData& sv       = m_shadowViews[row];
+                sv.m_depthBias           = rd.m_shadowBias;
+                sv.m_normalOffsetTexels  = rd.m_shadowNormalOffsetTexels;
+                sv.m_pcfRadiusTexels     =
+                    0.5f * static_cast<float>(Light::ShadowFilterFootprint(rd.m_shadowFilterWidth));
+            }
+            ++slot;
+        });
+
+        return slot;
     }
 
     SceneBindingSystem::EnvironmentBinding SceneBindingSystem::BindEnvironmentIBL()
@@ -432,77 +403,23 @@ namespace Spark::Render
         // table, which is skipped when unbound), so a missing address trips a hard assert.
         // Before the light loop: that loop adds each light's authored bias to the entry its
         // m_shadowIndex points at, and PackShadowViews zeroes the array first.
-        const bool shadowViewsBound = BindFrameShadowViews(frameIndex);
+        const bool shadowViewsBound = m_shadowViews.BindFrame(*rhiCtx, frameIndex);
         if (shadowViewsBound)
         {
             PackShadowViews(*rhiCtx);
         }
 
-        uint32_t slot = 0;
-        if (BindFrameLights(frameIndex))
+        uint32_t lightCount = 0;
+        if (m_lights.BindFrame(*rhiCtx, frameIndex))
         {
-            // Dense marshal: every world LightRenderData -> g_Lights[slot]. Pure field copy
-            // — direction/position were already resolved by LightSystem (compute vs write).
-            world->GetView<Light::LightRenderData>().each(
-                [&](Entity entity, const Light::LightRenderData& rd)
-            {
-                if (slot >= Capacity)
-                {
-                    LOG_ERROR("[SceneBindingSystem] Capacity={} overflow; dropping light.", Capacity);
-                    return;
-                }
-
-                LightData& d   = m_lightData[slot];
-                d.m_direction  = rd.m_worldDirection;
-                d.m_intensity  = rd.m_intensity;
-                d.m_color      = rd.m_color;
-                d.m_type       = static_cast<uint32_t>(rd.m_type);
-                d.m_position   = rd.m_worldPosition;
-                d.m_invRange   = rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f;
-                d.m_cosInner   = rd.m_cosInner;
-                d.m_cosOuter   = rd.m_cosOuter;
-
-                // Read from the light, not from the view entity: g_Lights is packed by
-                // iteration order while the row is not, so this is the one place the two
-                // index spaces meet.
-                const auto* refs      = world->TryGet<ShadowViewRefs>(entity);
-                d.m_shadowIndex       = refs ? refs->m_baseIndex : -1;
-                d.m_shadowFaceCount   = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
-
-                // Every row the light owns, since the authored bias applies to all its faces
-                // and a face without a tile keeps its row inverted by PackShadowViews.
-                for (uint32_t face = 0; shadowViewsBound && d.m_shadowIndex >= 0
-                        && face < d.m_shadowFaceCount; ++face)
-                {
-                    const uint32_t row = static_cast<uint32_t>(d.m_shadowIndex) + face;
-                    if (row >= kShadowViewCapacity)
-                    {
-                        break;
-                    }
-                    ShadowViewData& sv       = m_shadowViewData[row];
-                    sv.m_depthBias           = rd.m_shadowBias;
-                    sv.m_normalOffsetTexels  = rd.m_shadowNormalOffsetTexels;
-                    sv.m_pcfRadiusTexels     =
-                        0.5f * static_cast<float>(Light::ShadowFilterFootprint(rd.m_shadowFilterWidth));
-                }
-                ++slot;
-            });
-
-            if (slot > 0)
-            {
-                rhiCtx->AddOrReplace<RHI::PendingBufferMap>(
-                    m_buffer,
-                    RHI::PendingBufferMap{ m_lightData.data(), 0, static_cast<size_t>(slot) * sizeof(LightData) });
-            }
+            lightCount = PackLightData(*world, shadowViewsBound);
+            m_lights.Upload(*rhiCtx, lightCount);
         }
 
         // After the light loop, which is what completes the entries.
         if (shadowViewsBound)
         {
-            rhiCtx->AddOrReplace<RHI::PendingBufferMap>(
-                m_shadowViewBuffer,
-                RHI::PendingBufferMap{ m_shadowViewData.data(), 0,
-                                       m_shadowViewData.size() * sizeof(ShadowViewData) });
+            m_shadowViews.Upload(*rhiCtx, m_shadowViews.Capacity());
         }
 
         // A per-scene constant, not a per-view one: an atlas texel is 1/resolution in UV
@@ -513,7 +430,7 @@ namespace Spark::Render
         // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every
         // frame (0 during warmup) so the CBV is always compiled; SetShaderConstant marks
         // the binding dirty. The shader loop is empty while count is 0.
-        SetShaderConstant(m_bindings, RHI::InputName(LightCountName), slot);
+        SetShaderConstant(m_bindings, RHI::InputName(LightCountName), lightCount);
 
         // Same unconditional-write rule as g_LightCount; 0 mips is also the shader's gate,
         // since the cubes share g_Lights' table and "unbound" there means stale, not null.
@@ -524,14 +441,13 @@ namespace Spark::Render
 
     void SceneBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
+        m_lights.Shutdown(rhiCtx);
+        m_shadowViews.Shutdown(rhiCtx);
+
         if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
-        if (m_buffer   != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_buffer); }
         if (m_brdfLut  != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_brdfLut); }
-        if (m_shadowViewBuffer != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_shadowViewBuffer); }
 
         m_bindings = RHI::NullHandle;
-        m_buffer   = RHI::NullHandle;
         m_brdfLut  = RHI::NullHandle;
-        m_shadowViewBuffer = RHI::NullHandle;
     }
 }

@@ -22,7 +22,7 @@ set(SOURCES
     View/ShadowAtlasAllocator.cpp
     View/ShadowViewSystem.cpp
     View/ViewFactory.cpp
-    SceneBind/SceneBindingSystem.cpp
+    Binding/Scene/SceneBindingSystem.cpp
     Binding/Instance/InstanceBindingSystem.cpp
     Binding/Material/MaterialBindingSystem.cpp
     Drawable/MeshDrawableComposer.cpp
