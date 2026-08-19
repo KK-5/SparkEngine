@@ -25,7 +25,6 @@
 #include <RHI/Pipeline/ShaderStages.h>
 
 #include <Drawable/Drawable.h>
-#include <Instance/InstanceSlot.h>
 #include <Pass/Component/PassComponents.h>
 #include <View/View.h>
 #include <View/ViewComponents.h>

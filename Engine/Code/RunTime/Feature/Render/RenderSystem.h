@@ -18,7 +18,7 @@
 #include "View/CameraViewSystem.h"
 #include "View/ShadowViewSystem.h"
 #include "SceneBind/SceneBindingSystem.h"
-#include "Instance/InstanceBindingSystem.h"
+#include "Binding/Instance/InstanceBindingSystem.h"
 #include "MaterialBind/MaterialBindingSystem.h"
 #include "Drawable/MeshDrawableComposer.h"
 #include "Drawable/DrawItemRouter.h"

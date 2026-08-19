@@ -13,8 +13,6 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassCapabilities.h>
 
-#include <Instance/InstanceSlot.h>
-
 #include "Drawable.h"
 #include "DrawTag.h"
 
@@ -22,10 +20,7 @@ namespace Spark::Render
 {
     namespace
     {
-        bool AnyDependencyDead(
-            RHI::RHIContext&         ctx,
-            const Drawable&          d,
-            const InstanceSlotTable& table)
+        bool AnyDependencyDead(RHI::RHIContext& ctx, const Drawable& d)
         {
             for (const auto& s : d.m_streams)
             {
@@ -51,12 +46,10 @@ namespace Spark::Render
                     {
                         return true;
                     }
-                    if (s.m_slotRef.m_id >= table.m_slots.size() ||
-                        table.m_slots[s.m_slotRef.m_id] == UINT32_MAX)
-                    {
-                        return true;
-                    }
-                    return false;
+                    // The slot ref carries its own occupancy version, so this catches both
+                    // "the renderable died" and "that index belongs to someone else now"
+                    // without the router knowing where instance slots come from.
+                    return !s.m_slotRef.IsValid();
                 },
                 [&](const DirectInstanceBinding& d2) -> bool
                 {
@@ -120,12 +113,20 @@ namespace Spark::Render
         }
 
         //! Geometry portion of a DrawItem: draw args + resolved vertex/index views.
-        //! startInstance is resolved per-frame at submit, so m_instanceOffset stays 0.
+        //! startInstance is baked here, not refreshed per frame: the slot does not move
+        //! for the renderable's life, and if it stops being the renderable's slot at all
+        //! the Drawable is reaped (AnyDependencyDead) along with this DrawItem.
         RHI::DrawItem BuildGeometryDrawItem(RHI::RHIContext& ctx, const Drawable& d)
         {
+            const uint32_t startInstance = eastl::visit(eastl::overloaded{
+                [](const SlotInstanceBinding& s)   -> uint32_t { return s.m_slotRef.m_id; },
+                [](const DirectInstanceBinding&)   -> uint32_t { return 0u; },
+                [](const NoInstanceBinding&)       -> uint32_t { return 0u; },
+            }, d.m_instanceData);
+
             RHI::DrawItem item;
             item.m_drawArguments    = d.m_drawArgs;
-            item.m_drawInstanceArgs = RHI::DrawInstanceArguments(d.m_instanceCount, 0);
+            item.m_drawInstanceArgs = RHI::DrawInstanceArguments(d.m_instanceCount, startInstance);
 
             auto setStream = [&](const VertexStreamSpec& s)
             {
@@ -223,27 +224,18 @@ namespace Spark::Render
         }
 
         // Cascade reap: dependency dead → reap the Drawable and the DrawItems it
-        // routed out. Needs the global instance slot table for the SlotInstanceBinding
-        // liveness check; if it hasn't materialized yet (warmup) there are no live
-        // Drawables to reap anyway, so skip.
-        RHI::RHIHandle instanceBindingEntity = RHI::NullHandle;
-        rhiCtx->GetView<InstanceBindingTag>().each([&](RHI::RHIHandle e) { instanceBindingEntity = e; });
-        const auto* slotTable = instanceBindingEntity != RHI::NullHandle
-            ? rhiCtx->TryGet<InstanceSlotTable>(instanceBindingEntity)
-            : nullptr;
-
-        if (slotTable)
+        // routed out. Every dependency is self-describing (resource entities carry
+        // DeadTag, the instance slot ref carries its own version), so this needs no
+        // handle to any producer.
+        rhiCtx->GetView<DrawableTag, Drawable>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle d, const Drawable& drawable)
         {
-            rhiCtx->GetView<DrawableTag, Drawable>(Exclude<DeadTag>).each(
-                [&](RHI::RHIHandle d, const Drawable& drawable)
+            if (AnyDependencyDead(*rhiCtx, drawable))
             {
-                if (AnyDependencyDead(*rhiCtx, drawable, *slotTable))
-                {
-                    rhiCtx->Add<DeadTag>(d);
-                    ReapDerivedDrawItems(*rhiCtx, d);
-                }
-            });
-        }
+                rhiCtx->Add<DeadTag>(d);
+                ReapDerivedDrawItems(*rhiCtx, d);
+            }
+        });
 
         // Derive: DrawItem routing needs the pass context. A warmup frame without it
         // just defers derivation — Drawables stay untagged and retry next frame.
@@ -264,7 +256,6 @@ namespace Spark::Render
             }
 
             DerivedDrawItems* derived = rhiCtx->TryGet<DerivedDrawItems>(drawable);
-            const SlotInstanceBinding* slot = eastl::get_if<SlotInstanceBinding>(&composed.m_instanceData);
             const RHI::ShaderBindings* perObjectBindings = ResolvePerObjectBindings(*rhiCtx, composed);
 
             // One DrawItem per pass that accepts this Drawable, with everything the
@@ -281,10 +272,6 @@ namespace Spark::Render
                 if (perObjectBindings)
                 {
                     rhiCtx->Add<DrawItemObjectBinding>(drawItem, DrawItemObjectBinding{ perObjectBindings });
-                }
-                if (slot)
-                {
-                    rhiCtx->Add<DrawItemInstanceSlot>(drawItem, DrawItemInstanceSlot{ slot->m_slotRef });
                 }
                 if (derived)
                 {

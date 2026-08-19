@@ -23,7 +23,7 @@ set(SOURCES
     View/ShadowViewSystem.cpp
     View/ViewFactory.cpp
     SceneBind/SceneBindingSystem.cpp
-    Instance/InstanceBindingSystem.cpp
+    Binding/Instance/InstanceBindingSystem.cpp
     MaterialBind/MaterialBindingSystem.cpp
     Drawable/MeshDrawableComposer.cpp
     Drawable/DrawItemRouter.cpp

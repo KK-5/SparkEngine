@@ -11,8 +11,6 @@
 
 #include <Mesh/Components.h>
 
-#include <Instance/InstanceSlot.h>
-
 #include "Drawable.h"
 #include "DrawTag.h"
 

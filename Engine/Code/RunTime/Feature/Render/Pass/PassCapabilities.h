@@ -12,7 +12,6 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Drawable/Drawable.h>
-#include <Instance/InstanceSlot.h>
 #include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
 #include <View/View.h>
@@ -111,18 +110,13 @@ namespace Spark::Render
     }
 
     //! Per-frame update for one pass: its shared bindings, then over each of its DrawItems
-    //! the mutable fields — own per-object bindings and the startInstance resolved from
-    //! its slot key. The DrawItem is read-only after this, at submit.
+    //! its own per-object bindings. The DrawItem is read-only after this, at submit.
+    //! startInstance is not here — it is baked at derive (BuildGeometryDrawItem), because
+    //! an instance slot does not move for the renderable's life.
     template<typename PassTag, typename... BindingTags>
     void UpdatePassBindings(RHI::RHIContext& ctx)
     {
         ResolvePassSharedBindings<PassTag, BindingTags...>(ctx);
-
-        const InstanceSlotTable* slotTable = nullptr;
-        for (auto [entity, table] : ctx.GetView<InstanceBindingTag, InstanceSlotTable>().each())
-        {
-            slotTable = &table;
-        }
 
         ctx.GetView<PassTag, RHI::DrawItem>().each([&](RHI::RHIHandle e, RHI::DrawItem& item)
         {
@@ -132,13 +126,6 @@ namespace Spark::Render
                 item.m_shaderBindings.push_back(obj->m_objShaderBindings);
             }
             item.m_shaderBindingsCount = static_cast<uint8_t>(item.m_shaderBindings.size());
-
-            if (auto* slot = ctx.TryGet<DrawItemInstanceSlot>(e); slot && slotTable)
-            {
-                const uint32_t id  = slot->m_slotRef.m_id;
-                const uint32_t val = (id < slotTable->m_slots.size()) ? slotTable->m_slots[id] : UINT32_MAX;
-                item.m_drawInstanceArgs.m_instanceOffset = (val == UINT32_MAX) ? 0u : val;
-            }
         });
     }
 

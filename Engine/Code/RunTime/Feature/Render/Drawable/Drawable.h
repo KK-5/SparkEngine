@@ -10,7 +10,7 @@
 #include <RHI/RHILimits.h>
 #include <RHI/Resource/Buffer/IndexBufferView.h>
 
-#include <Instance/InstanceSlot.h>
+#include <Binding/Instance/InstanceBinding.h>
 
 namespace Spark::RHI
 {
@@ -54,7 +54,7 @@ namespace Spark::Render
     //! Marker for a composed Drawable. Lifecycle cascades through DeadTag from
     //! referenced resource entities (Drawable.m_streams buffers, m_index.m_indexBuffer,
     //! and the m_instanceData strategy's dependencies — shared bindings + ID
-    //! stream, or the per-draw bindings) and from the InstanceSlotTable sentinel.
+    //! stream, or the per-draw bindings) and from its instance slot going stale.
     struct DrawableTag {};
 
     //! Placed on a WORLD entity once MeshDrawableComposer has produced its
@@ -67,14 +67,13 @@ namespace Spark::Render
     //! Per-object data provisioning — STRATEGY 1 (indexed). Per-object data
     //! (model matrix, …) lives in a shared GPU buffer; this draw occupies one
     //! slot. Resolving the draw needs three coupled parts:
-    //!  - m_sharedBindings : the global g_Instances ShaderBindings entity, which
-    //!                       also hosts the InstanceSlotTable. Bound at space4
-    //!                       AND consulted for the slot → startInstance
-    //!                       mapping. Recorded per-Drawable so cascade reap
-    //!                       reacts uniformly when the bindings entity rebuilds.
-    //!  - m_slotRef        : stable id copy. The per-frame slot lookup
-    //!                       (InstanceSlotTable.m_slots[m_id]) → StartInstanceLocation
-    //!                       happens in UpdatePassBindings each frame.
+    //!  - m_sharedBindings : the global g_Instances ShaderBindings entity, bound at
+    //!                       space4. Recorded per-Drawable so cascade reap reacts
+    //!                       uniformly when the bindings entity rebuilds.
+    //!  - m_slotRef        : a copy of the renderable's slot reference. m_id is the
+    //!                       GPU index, baked into the DrawItem's
+    //!                       StartInstanceLocation once at derive; IsValid() is the
+    //!                       cascade-reap signal for when that index stops being ours.
     //!  - m_idStream       : the identity ID buffer ([0..Cap-1]) bound as a
     //!                       per-instance vertex stream — the only way to feed
     //!                       StartInstanceLocation into the VS (SV_InstanceID
@@ -117,8 +116,8 @@ namespace Spark::Render
     //!  - m_index          : index buffer + range; m_index.m_indexBuffer is
     //!                       NullHandle ⟺ non-indexed draw.
     //!  - m_drawArgs       : geometry-determined draw args (IndexCount /
-    //!                       BaseVertex / StartIndex). StartInstanceLocation is
-    //!                       resolved from m_instanceData each frame.
+    //!                       BaseVertex / StartIndex). StartInstanceLocation comes
+    //!                       from m_instanceData, baked once at derive.
     //!  - m_instanceCount  : GPU instance count. Always 1 in the un-batched
     //!                       path; a future Batcher writes N for merged
     //!                       same-mesh draws.
@@ -155,14 +154,6 @@ namespace Spark::Render
     //! DerivedDrawItems, which is added empty at create — that can't double as the
     //! filter. Dies with the Drawable entity.
     struct DrawItemsDerivedTag {};
-
-    //! Startinstance resolution key baked onto a DrawItem (indexed producers only) so
-    //! the submit path never reaches back to a producer. m_slotRef is stable for the
-    //! renderable's life; submit reads InstanceSlotTable.m_slots[m_slotRef] each frame.
-    struct DrawItemInstanceSlot
-    {
-        InstanceSlotRef m_slotRef;
-    };
 
     //! Per-object bindings (space4) resolved from the Drawable's provisioning at compose:
     //! shared g_Instances for indexed, the draw's own CBV for direct, absent for
