@@ -36,7 +36,9 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
-#include <Drawable/Drawable.h>
+#include <Drawable/GeometrySpec.h>
+
+#include "SampleDrawTag.h"
 
 #include <Window/IWindowSystem.h>
 
@@ -80,7 +82,7 @@ namespace Spark::SandBox
         CreateVertexBuffer();
         CreateView();
         CreateTrianglePass();
-        BuildDrawable();
+        BuildGeometry();
 
         TickBus::Handler::BusConnect();
         return true;
@@ -100,19 +102,6 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
 
-        if (m_drawable != Spark::RHI::NullHandle && ctx.Valid(m_drawable))
-        {
-            if (auto* derived = ctx.TryGet<Spark::Render::DerivedDrawItems>(m_drawable))
-            {
-                for (Spark::RHI::RHIHandle item : derived->m_items)
-                {
-                    if (item != Spark::RHI::NullHandle && ctx.Valid(item))
-                    {
-                        ctx.DestoryEntity(item);
-                    }
-                }
-            }
-        }
         destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_view);
@@ -193,7 +182,7 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Accepts<SPARK_PASS_TAG("TrianglePass")>()
+            .Accepts<SampleDrawTag>()
             .Binds<>()
             .RendersView<Spark::Render::MainViewTag>()
             .Build([this](Spark::Render::RenderGraphBuilder& builder)
@@ -242,12 +231,12 @@ namespace Spark::SandBox
             .Finalize();
     }
 
-    void TrianglePassFeature::BuildDrawable()
+    void TrianglePassFeature::BuildGeometry()
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         m_drawable = rhiCtx.CreateEntity();
 
-        Render::Drawable drawable;
+        Render::GeometrySpec drawable;
         drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
         Render::VertexStreamSpec vertex;
         vertex.m_buffer = m_vertexBuffer;
@@ -256,10 +245,8 @@ namespace Spark::SandBox
         drawable.m_streams.push_back(vertex);
         drawable.m_instanceData = Render::NoInstanceBinding{};
 
-        rhiCtx.Add<Render::Drawable>(m_drawable, eastl::move(drawable));
-        rhiCtx.Add<Render::DrawableTag>(m_drawable);
-        rhiCtx.Add<SPARK_PASS_TAG("TrianglePass")>(m_drawable);
-        rhiCtx.Add<Render::DerivedDrawItems>(m_drawable, Render::DerivedDrawItems{});
+        rhiCtx.Add<Render::GeometrySpec>(m_drawable, eastl::move(drawable));
+        rhiCtx.Add<SampleDrawTag>(m_drawable);
     }
 
     void TrianglePassFeature::Update()

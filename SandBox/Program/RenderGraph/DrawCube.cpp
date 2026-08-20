@@ -46,7 +46,9 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <RenderGraph/RenderGraphUtils.h>
-#include <Drawable/Drawable.h>
+#include <Drawable/GeometrySpec.h>
+
+#include "SampleDrawTag.h"
 #include <View/View.h>
 #include <View/ViewTags.h>
 #include <View/ViewComponents.h>
@@ -70,7 +72,7 @@ namespace Spark::SandBox
         CreateView();
         CreatePasses();
 
-        BuildDrawable();
+        BuildGeometry();
 
         TickBus::Handler::BusConnect();
         return true;
@@ -89,22 +91,7 @@ namespace Spark::SandBox
             }
             handle = Spark::RHI::NullHandle;
         };
-        // Order: derived DrawItems → Drawable → VB/IB/Image → ViewSRG.
-
-        if (m_drawable != Spark::RHI::NullHandle && ctx.Valid(m_drawable))
-        {
-            if (auto* derived = ctx.TryGet<Spark::Render::DerivedDrawItems>(m_drawable))
-            {
-                for (Spark::RHI::RHIHandle item : derived->m_items)
-                {
-                    if (item != Spark::RHI::NullHandle && ctx.Valid(item))
-                    {
-                        ctx.DestoryEntity(item);
-                    }
-                }
-            }
-        }
-        
+        // Order: GeometrySpec → VB/IB/Image → ViewSRG.
         destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_indexBuffer);
@@ -299,7 +286,7 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Accepts<SPARK_PASS_TAG("ScenePass")>()
+            .Accepts<SampleDrawTag>()
             .Binds<>()
             .RendersView<Render::MainViewTag>()
             .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
@@ -410,7 +397,7 @@ namespace Spark::SandBox
             .Finalize();
     }
 
-    void DrawCube::BuildDrawable()
+    void DrawCube::BuildGeometry()
     {
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         m_drawable = rhiCtx.CreateEntity();
@@ -418,7 +405,7 @@ namespace Spark::SandBox
         auto* mesh = m_model->GetModelData()->GetMesh(0);
         const Resource::Primitive& primitive = mesh->primitives[0];
 
-        Render::Drawable drawable;
+        Render::GeometrySpec drawable;
         drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawIndexed(0, primitive.indexCount, 0));
         Render::VertexStreamSpec vertex;
         vertex.m_buffer     = m_vertexBuffer;
@@ -432,10 +419,8 @@ namespace Spark::SandBox
 
         drawable.m_instanceData = Render::NoInstanceBinding{};
 
-        rhiCtx.Add<Render::Drawable>(m_drawable, eastl::move(drawable));
-        rhiCtx.Add<Render::DrawableTag>(m_drawable);
-        rhiCtx.Add<SPARK_PASS_TAG("ScenePass")>(m_drawable);
-        rhiCtx.Add<Render::DerivedDrawItems>(m_drawable, Render::DerivedDrawItems{});
+        rhiCtx.Add<Render::GeometrySpec>(m_drawable, eastl::move(drawable));
+        rhiCtx.Add<SampleDrawTag>(m_drawable);
     }
 
     void DrawCube::Update()

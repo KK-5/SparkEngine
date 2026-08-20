@@ -181,6 +181,8 @@ namespace Spark::Render
             context.Clear<AttachmentCompilingTag>();
         }
 
+        m_compiler.CompilePassSharedBindings(passContext, context);
+
         m_compiler.CompileShaderInputs(*m_device, context);
 
         QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);

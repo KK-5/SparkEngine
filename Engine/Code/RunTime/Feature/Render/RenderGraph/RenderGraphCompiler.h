@@ -96,6 +96,11 @@ namespace Spark::Render
             RHI::PipelineLibrary* pipelineLibrary);
 
 
+        //! Resolves each pass's PassSharedBindings: its own space2 group plus every tag it
+        //! declared via .Binds<>. Must run after the per-pass compile hooks — sampling
+        //! passes create their SRG there, and resolving earlier would miss it for a frame.
+        void CompilePassSharedBindings(PassContext& passContext, RHIContext& context);
+
         //! Sweeps every entity carrying ShaderBindingsUpdateTag + Components::ShaderBindings,
         //! dispatches Compile on each, and clears the tag. User code (typically
         //! CreatePassShaderBindings + MarkShaderBindingsUpdate) drives the dirty bit.

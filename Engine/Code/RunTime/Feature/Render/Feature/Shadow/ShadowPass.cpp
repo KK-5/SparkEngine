@@ -11,6 +11,7 @@
 
 #include <Drawable/DrawTag.h>
 #include <View/ViewTags.h>
+#include <Binding/Instance/InstanceBinding.h>
 #include <View/ShadowAtlasLayout.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
@@ -84,7 +85,7 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .Accepts<ShadowCasterTag>()
-            .Binds<>()
+            .Binds<InstanceBindingTag>()
             .RendersView<ShadowViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {

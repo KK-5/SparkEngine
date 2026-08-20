@@ -98,8 +98,8 @@ namespace Spark::Render
         }
 
         // ---- Draw-item routing ----
-        // Declare the Drawable classifications this pass consumes; DrawItemRouter
-        // derives one DrawItem per accepted Drawable. Full-screen / procedural passes
+        // Declare the object classifications this pass consumes; DrawItemRouter stamps
+        // this pass's tag on every accepted GeometrySpec. Full-screen / procedural passes
         // omit this.
         template<typename... DrawTags>
         RenderPassBuilder& Accepts()
@@ -110,14 +110,14 @@ namespace Spark::Render
             return *this;
         }
 
-        // Declare the shared bindings (view / material / …, each a global singleton) the
-        // executer binds once before this pass's draws. Order-free — each self-describes
-        // its HLSL space. The per-object group (space4) is baked at compose and the pass's
-        // own (space2) is resolved via PassTag — neither is listed here.
+        // Declare the shared bindings (view / material / instance / …, each a global
+        // singleton) the executer binds once before this pass's draws. Order-free — each
+        // self-describes its HLSL space. The pass's own group (space2) is resolved via
+        // PassTag and is not listed here.
         template<typename... BindingTags>
         RenderPassBuilder& Binds()
         {
-            m_capabilities.m_updateBindings = &UpdatePassBindings<PassTag, BindingTags...>;
+            m_capabilities.m_resolveSharedBindings = &ResolvePassSharedBindings<PassTag, BindingTags...>;
             return *this;
         }
 

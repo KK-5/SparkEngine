@@ -17,7 +17,7 @@ namespace Spark::Render
     //! inputs are compiled — via FindPassAttachmentImageView + SetPassShaderImage.
     //! The SRG itself is auto-created by RenderPassBuilder::Finalize (the layout declares
     //! space2) and injected into the pass's DrawItems by PassTag. Its DrawItem comes from
-    //! the shared full-screen-triangle Drawable (FullScreenTriangleTag).
+    //! the shared full-screen-triangle spec (FullScreenTriangleTag).
     struct LightingPass
     {
         static RenderPassConfig DefaultConfig();

@@ -25,7 +25,7 @@ set(SOURCES
     Binding/Scene/SceneBindingSystem.cpp
     Binding/Instance/InstanceBindingSystem.cpp
     Binding/Material/MaterialBindingSystem.cpp
-    Drawable/MeshDrawableComposer.cpp
+    Drawable/MeshGeometryComposer.cpp
     Drawable/DrawItemRouter.cpp
 )
 

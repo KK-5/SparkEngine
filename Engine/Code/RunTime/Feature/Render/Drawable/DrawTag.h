@@ -2,8 +2,8 @@
 
 namespace Spark::Render
 {
-    //! Drawable classification tags — a property of the OBJECT that decides WHICH
-    //! passes consume it (each pass pulls via GetView<ClassTag, Drawable>). A property
+    //! Object classification tags — a property of the OBJECT that decides WHICH
+    //! passes consume it (each pass pulls via GetView<ClassTag, GeometrySpec>). A property
     //! that only changes the PSO within the same pass set (alpha-test discard, cull
     //! mode, …) is an object-side PSO hint, not a classification tag.
     //!
@@ -20,9 +20,9 @@ namespace Spark::Render
     //! Shadow dimension (optional, orthogonal). Routes to the shadow pass(es). Not wired yet.
     struct ShadowCasterTag {};
 
-    //! Procedural full-screen-triangle dimension. ONE shared Drawable (DrawLinear(3), no
-    //! geometry / no per-object data) carries this; every full-screen pass declares
-    //! .Accepts<FullScreenTriangleTag>(), so DrawItemRouter derives one DrawItem per such
-    //! pass from the single shared Drawable — no per-pass procedural Drawable needed.
+    //! Procedural full-screen-triangle dimension. ONE shared GeometrySpec (DrawLinear(3),
+    //! no geometry / no per-object data) carries this; every full-screen pass declares
+    //! .Accepts<FullScreenTriangleTag>() and stamps its tag on that one entity — no
+    //! per-pass procedural spec needed.
     struct FullScreenTriangleTag {};
 }

@@ -19,7 +19,7 @@ namespace Spark::Render
     //! the space4 SRG, the ID stream, and the per-renderable encode.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, ticked after ViewBindingSystem
-    //! and before DrawItem derivation (MeshDrawableComposer / DrawItemRouter).
+    //! and before DrawItem derivation (MeshGeometryComposer / DrawItemRouter).
     class InstanceBindingSystem
     {
     public:

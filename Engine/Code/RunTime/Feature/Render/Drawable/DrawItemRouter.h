@@ -4,29 +4,28 @@
 
 namespace Spark::Render
 {
-    //! Producer-agnostic Drawable → DrawItem router. Each frame Process():
-    //!  1. cascade-reaps Drawables whose referenced resources died (and the
-    //!     DrawItems they routed out), then
-    //!  2. asks every pass (PassCapabilities) which not-yet-derived Drawables it
-    //!     accepts, building one DrawItem per accepting pass with everything the
-    //!     submit path needs baked on — no back-reference to the Drawable — and
-    //!     stamping it with that pass's PassTag, which is how the executer's
-    //!     per-frame query later locates it.
+    //! Producer-agnostic GeometrySpec → DrawItem router. Each frame Process():
+    //!  1. cascade-reaps specs whose referenced resources died, then
+    //!  2. resolves each not-yet-derived spec into ONE RHI::DrawItem on the same entity,
+    //!     then stamps that entity with the PassTag of every pass (PassCapabilities) that
+    //!     accepts it — which is how the executer's per-frame query later locates it.
     //!
-    //! Deliberately does NOT know who produced a Drawable: world-composed
-    //! (MeshDrawableComposer) or procedural (a feature processor) both flow through
-    //! the same gate. Holds no internal state — the bridge is entirely in ECS
-    //! components (dependency refs + DrawItemsDerivedTag on the Drawable, DerivedDrawItems
-    //! as the reverse ref for teardown).
+    //! GeometrySpec and DrawItem are the unresolved and resolved forms of one object on
+    //! one entity, so there is no link to maintain in either direction: DrawItem present
+    //! ⟺ derived, and one DeadTag reaps both.
+    //!
+    //! Deliberately does NOT know who produced a spec: world-composed
+    //! (MeshGeometryComposer) or procedural (a feature processor) both flow through
+    //! the same gate. Holds no internal state.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, ticked after
-    //! MeshDrawableComposer and before the per-frame bind pass.
+    //! MeshGeometryComposer and before the per-frame bind pass.
     class DrawItemRouter
     {
     public:
         void Init(RHI::RHIContext& rhiCtx);
-        //! Reap dead-dependency Drawables, then derive DrawItems for every
-        //! not-yet-derived Drawable a pass accepts. Producer-agnostic.
+        //! Reap dead-dependency specs, then derive DrawItems for every
+        //! not-yet-derived spec a pass accepts. Producer-agnostic.
         void Process();
         void Shutdown(RHI::RHIContext& rhiCtx);
     };

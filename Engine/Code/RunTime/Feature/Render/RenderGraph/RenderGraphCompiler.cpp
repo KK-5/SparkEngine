@@ -24,8 +24,9 @@
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/ShaderStages.h>
 
-#include <Drawable/Drawable.h>
+#include <Drawable/GeometrySpec.h>
 #include <Pass/Component/PassComponents.h>
+#include <Pass/PassCapabilities.h>
 #include <View/View.h>
 #include <View/ViewComponents.h>
 
@@ -1214,6 +1215,17 @@ namespace Spark::Render
                 }
             });
         }
+    }
+
+    void RenderGraphCompiler::CompilePassSharedBindings(PassContext& passContext, RHIContext& context)
+    {
+        passContext.GetView<PassCapabilities>().each([&](Pass pass, const PassCapabilities& caps)
+        {
+            if (caps.m_resolveSharedBindings)
+            {
+                caps.m_resolveSharedBindings(context, passContext, pass);
+            }
+        });
     }
 
     void RenderGraphCompiler::CompileShaderInputs(RHI::Device& device, RHIContext& context)

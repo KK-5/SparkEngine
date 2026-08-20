@@ -1,4 +1,4 @@
-#include "DrawItemRouter.h"
+﻿#include "DrawItemRouter.h"
 
 #include <EASTL/bonus/overloaded.h>
 
@@ -13,14 +13,14 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassCapabilities.h>
 
-#include "Drawable.h"
+#include "GeometrySpec.h"
 #include "DrawTag.h"
 
 namespace Spark::Render
 {
     namespace
     {
-        bool AnyDependencyDead(RHI::RHIContext& ctx, const Drawable& d)
+        bool AnyDependencyDead(RHI::RHIContext& ctx, const GeometrySpec& d)
         {
             for (const auto& s : d.m_streams)
             {
@@ -38,10 +38,8 @@ namespace Spark::Render
             return eastl::visit(eastl::overloaded{
                 [&](const SlotInstanceBinding& s) -> bool
                 {
-                    if (s.m_sharedBindings != RHI::NullHandle && ctx.Has<DeadTag>(s.m_sharedBindings))
-                    {
-                        return true;
-                    }
+                    // The ID stream and the g_Instances bindings entity are created and
+                    // reaped together by InstanceBindingSystem, so this witnesses both.
                     if (s.m_idStream.m_buffer != RHI::NullHandle && ctx.Has<DeadTag>(s.m_idStream.m_buffer))
                     {
                         return true;
@@ -51,10 +49,6 @@ namespace Spark::Render
                     // without the router knowing where instance slots come from.
                     return !s.m_slotRef.IsValid();
                 },
-                [&](const DirectInstanceBinding& d2) -> bool
-                {
-                    return d2.m_bindings != RHI::NullHandle && ctx.Has<DeadTag>(d2.m_bindings);
-                },
                 [&](const NoInstanceBinding&) -> bool
                 {
                     // No per-object dependency to watch, so never reaped on this axis.
@@ -63,21 +57,16 @@ namespace Spark::Render
             }, d.m_instanceData);
         }
 
-        //! Derivation-side readiness, keyed on the Drawable itself (not its producer):
-        //! every geometry buffer view and the per-object SRG the DrawItem will bake must
-        //! have materialized. Producer-agnostic — a Drawable created anywhere passes the
-        //! same gate. Mirrors the deps AnyDependencyDead watches.
-        bool DrawableReadyToDerive(RHI::RHIContext& ctx, const Drawable& d)
+        //! Derivation-side readiness, keyed on the spec itself (not its producer): every
+        //! geometry buffer view the DrawItem will bake must have materialized.
+        //! Producer-agnostic — a GeometrySpec created anywhere passes the same gate.
+        //! Mirrors the deps AnyDependencyDead watches.
+        bool GeometryReadyToDerive(RHI::RHIContext& ctx, const GeometrySpec& d)
         {
             auto bufReady = [&](RHI::RHIHandle e) -> bool
             {
                 auto* buf = ctx.TryGet<RHI::Components::Buffer>(e);
                 return buf && buf->m_buffer;
-            };
-            auto srgReady = [&](RHI::RHIHandle e) -> bool
-            {
-                auto* sb = ctx.TryGet<RHI::Components::ShaderBindings>(e);
-                return sb && sb->m_bindings;
             };
 
             for (const auto& s : d.m_streams)
@@ -95,15 +84,7 @@ namespace Spark::Render
             return eastl::visit(eastl::overloaded{
                 [&](const SlotInstanceBinding& s) -> bool
                 {
-                    if (s.m_idStream.m_buffer != RHI::NullHandle && !bufReady(s.m_idStream.m_buffer))
-                    {
-                        return false;
-                    }
-                    return srgReady(s.m_sharedBindings);
-                },
-                [&](const DirectInstanceBinding& x) -> bool
-                {
-                    return srgReady(x.m_bindings);
+                    return s.m_idStream.m_buffer == RHI::NullHandle || bufReady(s.m_idStream.m_buffer);
                 },
                 [&](const NoInstanceBinding&) -> bool
                 {
@@ -115,12 +96,11 @@ namespace Spark::Render
         //! Geometry portion of a DrawItem: draw args + resolved vertex/index views.
         //! startInstance is baked here, not refreshed per frame: the slot does not move
         //! for the renderable's life, and if it stops being the renderable's slot at all
-        //! the Drawable is reaped (AnyDependencyDead) along with this DrawItem.
-        RHI::DrawItem BuildGeometryDrawItem(RHI::RHIContext& ctx, const Drawable& d)
+        //! the spec is reaped (AnyDependencyDead) along with this DrawItem.
+        RHI::DrawItem BuildGeometryDrawItem(RHI::RHIContext& ctx, const GeometrySpec& d)
         {
             const uint32_t startInstance = eastl::visit(eastl::overloaded{
                 [](const SlotInstanceBinding& s)   -> uint32_t { return s.m_slotRef.m_id; },
-                [](const DirectInstanceBinding&)   -> uint32_t { return 0u; },
                 [](const NoInstanceBinding&)       -> uint32_t { return 0u; },
             }, d.m_instanceData);
 
@@ -174,40 +154,6 @@ namespace Spark::Render
 
             return item;
         }
-
-        //! Per-object SRG (space4) for a Drawable: shared g_Instances for indexed
-        //! provisioning, the draw's own CBV for direct, none for procedural.
-        const RHI::ShaderBindings* ResolvePerObjectBindings(RHI::RHIContext& ctx, const Drawable& d)
-        {
-            const RHI::RHIHandle bindings = eastl::visit(eastl::overloaded{
-                [](const SlotInstanceBinding& s)   -> RHI::RHIHandle { return s.m_sharedBindings; },
-                [](const DirectInstanceBinding& x) -> RHI::RHIHandle { return x.m_bindings; },
-                [](const NoInstanceBinding&)       -> RHI::RHIHandle { return RHI::NullHandle; },
-            }, d.m_instanceData);
-            if (bindings == RHI::NullHandle)
-            {
-                return nullptr;
-            }
-            auto* sb = ctx.TryGet<RHI::Components::ShaderBindings>(bindings);
-            return (sb && sb->m_bindings) ? sb->m_bindings.get() : nullptr;
-        }
-
-        //! Reap the DrawItems a dying Drawable derived, via the reverse path (O(passes)).
-        void ReapDerivedDrawItems(RHI::RHIContext& ctx, RHI::RHIHandle drawable)
-        {
-            auto* derived = ctx.TryGet<DerivedDrawItems>(drawable);
-            if (!derived)
-            {
-                return;
-            }
-            for (RHI::RHIHandle item : derived->m_items)
-            {
-                if (item != RHI::NullHandle && !ctx.Has<DeadTag>(item))
-                {
-                    ctx.Add<DeadTag>(item);
-                }
-            }
-        }
     }
 
     void DrawItemRouter::Init(RHI::RHIContext& /*rhiCtx*/)
@@ -223,76 +169,60 @@ namespace Spark::Render
             return;
         }
 
-        // Cascade reap: dependency dead → reap the Drawable and the DrawItems it
-        // routed out. Every dependency is self-describing (resource entities carry
-        // DeadTag, the instance slot ref carries its own version), so this needs no
-        // handle to any producer.
-        rhiCtx->GetView<DrawableTag, Drawable>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle d, const Drawable& drawable)
+        // Cascade reap: dependency dead → reap the entity, which carries the DrawItem
+        // too. Every dependency is self-describing (resource entities carry DeadTag, the
+        // instance slot ref carries its own version), so this needs no handle to any
+        // producer.
+        rhiCtx->GetView<GeometrySpec>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle e, const GeometrySpec& spec)
         {
-            if (AnyDependencyDead(*rhiCtx, drawable))
+            if (AnyDependencyDead(*rhiCtx, spec))
             {
-                rhiCtx->Add<DeadTag>(d);
-                ReapDerivedDrawItems(*rhiCtx, d);
+                rhiCtx->Add<DeadTag>(e);
             }
         });
 
         // Derive: DrawItem routing needs the pass context. A warmup frame without it
-        // just defers derivation — Drawables stay untagged and retry next frame.
+        // just defers derivation — specs stay underived and retry next frame.
         auto* passCtx = PassExecuteContext::Current();
         if (!passCtx)
         {
             return;
         }
 
-        rhiCtx->GetView<DrawableTag, Drawable>(Exclude<DeadTag, DrawItemsDerivedTag>).each(
-            [&](RHI::RHIHandle drawable, const Drawable& composed)
+        // Excluding DrawItem is the idempotency filter: it lands on the same entity, so
+        // its presence means this spec is already derived.
+        rhiCtx->GetView<GeometrySpec>(Exclude<DeadTag, RHI::DrawItem>).each(
+            [&](RHI::RHIHandle e, const GeometrySpec& spec)
         {
-            // Deps (geometry buffers, per-object SRG) are created deferred; wait until
-            // they materialize before resolving views. No tag yet → retried next frame.
-            if (!DrawableReadyToDerive(*rhiCtx, composed))
+            // Geometry buffers are created deferred; wait until they materialize before
+            // resolving views. No DrawItem yet → retried next frame.
+            if (!GeometryReadyToDerive(*rhiCtx, spec))
             {
                 return;
             }
 
-            DerivedDrawItems* derived = rhiCtx->TryGet<DerivedDrawItems>(drawable);
-            const RHI::ShaderBindings* perObjectBindings = ResolvePerObjectBindings(*rhiCtx, composed);
+            // One DrawItem for the object, not one per pass: BuildGeometryDrawItem takes
+            // no pass parameter, so every accepting pass would get the same bytes.
+            // Unconditional, so a spec no pass accepts still counts as derived.
+            rhiCtx->Add<RHI::DrawItem>(e, BuildGeometryDrawItem(*rhiCtx, spec));
 
-            // One DrawItem per pass that accepts this Drawable, with everything the
-            // submit path needs baked on — no back-reference to the Drawable.
-            passCtx->GetView<PassCapabilities>().each([&](Pass pass, const PassCapabilities& caps)
+            passCtx->GetView<PassCapabilities>().each([&](Pass, const PassCapabilities& caps)
             {
-                if (!caps.m_accepts(*rhiCtx, drawable))
+                if (caps.m_accepts(*rhiCtx, e))
                 {
-                    return;
-                }
-                RHI::RHIHandle drawItem = rhiCtx->CreateEntity();
-                caps.m_markDrawItem(*rhiCtx, drawItem);
-                rhiCtx->Add<RHI::DrawItem>(drawItem, BuildGeometryDrawItem(*rhiCtx, composed));
-                if (perObjectBindings)
-                {
-                    rhiCtx->Add<DrawItemObjectBinding>(drawItem, DrawItemObjectBinding{ perObjectBindings });
-                }
-                if (derived)
-                {
-                    derived->m_items.push_back(drawItem);
+                    caps.m_markDrawItem(*rhiCtx, e);
                 }
             });
-
-            rhiCtx->Add<DrawItemsDerivedTag>(drawable);
         });
     }
 
     void DrawItemRouter::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        // Reap every live Drawable and the DrawItems it routed out, regardless of
-        // producer. MeshDrawableComposer::Shutdown separately clears its world-side
-        // WorldComposedTag so a re-init re-composes from a clean slate.
-        rhiCtx.GetView<DrawableTag>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle d)
-        {
-            rhiCtx.Add<DeadTag>(d);
-            ReapDerivedDrawItems(rhiCtx, d);
-        });
+        // Reap every live spec regardless of producer. MeshGeometryComposer::Shutdown
+        // separately clears its world-side WorldComposedTag so a re-init re-composes from
+        // a clean slate.
+        rhiCtx.GetView<GeometrySpec>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle d, const GeometrySpec&) { rhiCtx.Add<DeadTag>(d); });
     }
 }

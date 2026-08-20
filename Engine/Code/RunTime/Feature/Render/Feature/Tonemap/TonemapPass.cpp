@@ -116,7 +116,7 @@ namespace Spark::Render
                 // Post-CompileTransientResources, pre-CompileShaderInputs: SceneColor is
                 // materialized, so resolve its view and stage it into this pass's space2
                 // (per-pass tier) SRG (auto-created by Finalize). The full-screen triangle
-                // DrawItem comes from the shared FullScreenTriangleTag Drawable.
+                // DrawItem comes from the shared FullScreenTriangleTag entity.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 const uint32_t frameIndex = compiler.GetFrameIndex();
 

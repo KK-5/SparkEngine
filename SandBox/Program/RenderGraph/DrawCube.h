@@ -45,7 +45,7 @@ namespace Spark::SandBox
         void CreateView();
         void CreatePasses();
         void Update();
-        void BuildDrawable();
+        void BuildGeometry();
         void LoadAsset();
         void CreateImage();
 

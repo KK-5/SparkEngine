@@ -446,36 +446,10 @@ namespace Spark::RHI::DX12
         SetVertexBuffers(drawItem.m_vertexBufferView);
         SetStencilRef(drawItem.m_stencilRef);
 
-        if (drawItem.m_pipelineState)
-        {
-            SetPipelineState(*drawItem.m_pipelineState);
-        }
-
-        RHI::CommandListScissorState scissorState;
-        if (drawItem.m_scissorsCount)
-        {
-            scissorState = m_state.m_scissorState;
-            SetScissors(drawItem.m_scissors.data(), drawItem.m_scissorsCount);
-        }
-
-        RHI::CommandListViewportState viewportState;
-        if (drawItem.m_viewportsCount)
-        {
-            viewportState = m_state.m_viewportState;
-            SetViewports(drawItem.m_viewports.data(), drawItem.m_viewportsCount);
-        }
-
+        // Viewport / scissor come from the DrawList the executer already applied.
         CommitScissorState();
         CommitViewportState();
         CommitShadingRateState();
-
-        if (drawItem.m_shaderBindingsCount)
-        {
-            for (uint32_t i = 0; i < drawItem.m_shaderBindingsCount; ++i)
-            {
-                BindShaderInputsForDraw(*drawItem.m_shaderBindings[i]);
-            }
-        }
 
         switch (drawItem.m_drawArguments.m_type)
         {
@@ -521,19 +495,6 @@ namespace Spark::RHI::DX12
                 ASSERT(false, "Invalid draw type {}", static_cast<uint32_t>(drawItem.m_drawArguments.m_type));
                 break;
             }
-        }
-
-        // Restore prev viewport/scissor so a per-draw override is local to
-        // this Submit — subsequent count==0 draws inherit pass-default rather
-        // than this draw's override. Set() marks m_state dirty; the next
-        // draw's CommitXxxState() issues the GPU call before its draw.
-        if (scissorState.IsValid())
-        {
-            SetScissors(scissorState.m_states.data(), scissorState.m_states.size());
-        }
-        if (viewportState.IsValid())
-        {
-            SetViewports(viewportState.m_states.data(), viewportState.m_states.size());
         }
     }
 

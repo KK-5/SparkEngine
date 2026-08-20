@@ -43,7 +43,7 @@ namespace Spark::SandBox
         void CreateVertexBuffer();
         void CreateView();
         void Update();
-        void BuildDrawable();
+        void BuildGeometry();
 
         // Vertex buffer (in RHIContext) + raw view entity used to import it as
         // a buffer attachment in the pass — the attachment path is how RG picks

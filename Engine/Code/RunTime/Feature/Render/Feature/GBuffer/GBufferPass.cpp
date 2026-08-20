@@ -15,6 +15,7 @@
 #include <Drawable/DrawTag.h>
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
+#include <Binding/Instance/InstanceBinding.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
@@ -92,7 +93,7 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             .Accepts<OpaqueTag>()
-            .Binds<MaterialBindingTag>()
+            .Binds<MaterialBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
             .Build([&, cfg](RenderGraphBuilder& builder)
             {

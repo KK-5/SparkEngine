@@ -17,7 +17,7 @@
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassAccess.h>
 
-#include <Drawable/Drawable.h>
+#include <Drawable/GeometrySpec.h>
 #include <Drawable/DrawTag.h>
 
 #include <RHI/Command/DrawArguments.h>
@@ -162,19 +162,17 @@ namespace Spark::Render
         m_instanceBindingSystem.Init(rhiCtxForInit);
         m_shadowViewSystem.Init(rhiCtxForInit);
 
-        m_meshDrawableComposer.Init(rhiCtxForInit);
+        m_meshGeometryComposer.Init(rhiCtxForInit);
         m_drawItemRouter.Init(rhiCtxForInit);
 
         {
             RHI::RHIHandle fsTri = rhiCtxForInit.CreateEntity();
-            Drawable fsDrawable;
-            fsDrawable.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
-            fsDrawable.m_instanceCount = 1;
-            fsDrawable.m_instanceData  = NoInstanceBinding{};
-            rhiCtxForInit.Add<Drawable>(fsTri, eastl::move(fsDrawable));
-            rhiCtxForInit.Add<DrawableTag>(fsTri);
+            GeometrySpec fsSpec;
+            fsSpec.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
+            fsSpec.m_instanceCount = 1;
+            fsSpec.m_instanceData  = NoInstanceBinding{};
+            rhiCtxForInit.Add<GeometrySpec>(fsTri, eastl::move(fsSpec));
             rhiCtxForInit.Add<FullScreenTriangleTag>(fsTri);
-            rhiCtxForInit.Add<DerivedDrawItems>(fsTri, DerivedDrawItems{});
         }
     }
 
@@ -198,11 +196,11 @@ namespace Spark::Render
     {
         TickBus::Handler::BusDisconnect();
 
-        // The feature processors own no teardown: procedural Drawables are reaped by
+        // The feature processors own no teardown: procedural specs are reaped by
         // DrawItemRouter (below), per-pass SRGs by ReapPassShaderBindings.
 
         m_drawItemRouter.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_meshDrawableComposer.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_meshGeometryComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -263,24 +261,12 @@ namespace Spark::Render
         m_materialBindingSystem.Update(frameIndex);
         m_instanceBindingSystem.Update(frameIndex);
 
-        // World → Drawable: find-or-create over renderable world entities.
-        m_meshDrawableComposer.Update();
-        // Producer-agnostic Drawable → DrawItem routing: reap dead-dependency Drawables,
-        // then route every not-yet-derived Drawable (world-composed or otherwise) through
+        // World → GeometrySpec: find-or-create over renderable world entities.
+        m_meshGeometryComposer.Update();
+        // Producer-agnostic GeometrySpec → DrawItem routing: reap dead-dependency specs,
+        // then route every not-yet-derived spec (world-composed or otherwise) through
         // the passes that accept it.
         m_drawItemRouter.Process();
-
-        // Per-frame: each pass resolves its shared bindings onto the pass entity and
-        // rewrites its DrawItems' startInstance. A pass that declared no bindings carries
-        // no m_updateBindings and is skipped.
-        passContext.GetView<PassCapabilities>().each([&](auto, const PassCapabilities& caps)
-        {
-            if (caps.m_updateBindings)
-            {
-                caps.m_updateBindings(rhiCtx);
-            }
-        });
-
 
         m_uiProcessFeature.Process();
 

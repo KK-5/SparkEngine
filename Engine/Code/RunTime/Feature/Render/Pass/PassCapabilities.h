@@ -11,7 +11,7 @@
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Drawable/Drawable.h>
+#include <Drawable/GeometrySpec.h>
 #include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
 #include <View/View.h>
@@ -36,16 +36,17 @@ namespace Spark::Render
     //! file. A null entry means the pass never declared that capability.
     struct PassCapabilities
     {
-        //! Does this pass consume that Drawable? (.Accepts<DrawTags...>)
+        //! Does this pass consume that GeometrySpec? (.Accepts<DrawTags...>)
         bool (*m_accepts)(RHI::RHIContext&, RHI::RHIHandle drawable);
 
         //! Record on a freshly derived DrawItem that this pass consumes it. The stamped
         //! PassTag is what m_collectDrawItems locates the pass's draws by.
         void (*m_markDrawItem)(RHI::RHIContext&, RHI::RHIHandle drawItem);
 
-        //! Per-frame refresh of everything the submit path reads: the pass's shared
-        //! bindings and its DrawItems' mutable fields. (.Binds<BindingTags...>)
-        void (*m_updateBindings)(RHI::RHIContext&);
+        //! Per-frame resolve of the bindings the executer binds once per pass. Driven by
+        //! RenderGraphCompiler after the pass compile hooks, so an SRG created lazily in
+        //! Compile lands the same frame. (.Binds<BindingTags...>)
+        void (*m_resolveSharedBindings)(RHI::RHIContext&, PassContext&, Pass);
 
         //! The live view instances of the type this pass renders — one DrawList each.
         //! (.RendersView<ViewTag>)
@@ -72,7 +73,7 @@ namespace Spark::Render
         ctx.Add<PassTag>(drawItem);
     }
 
-    // ---- m_updateBindings ------------------------------------------------------
+    // ---- m_resolveSharedBindings -----------------------------------------------
 
     //! Append every ShaderBindings tagged BindingTag (a global singleton per tag) to out.
     template<typename BindingTag, size_t N>
@@ -95,38 +96,12 @@ namespace Spark::Render
     //! it is definitionally the pass's own, created by GetOrCreatePassShaderBindings which
     //! stamps PassTag + Components::ShaderBindings. A pass without one resolves to empty.
     template<typename PassTag, typename... BindingTags>
-    void ResolvePassSharedBindings(RHI::RHIContext& ctx)
+    void ResolvePassSharedBindings(RHI::RHIContext& ctx, PassContext& passCtx, Pass pass)
     {
-        auto* passCtx = PassExecuteContext::Current();
-        if (!passCtx)
-        {
-            return;
-        }
-
         PassSharedBindings shared;
         ResolveSharedBinding<PassTag>(ctx, shared.m_bindings);
         (ResolveSharedBinding<BindingTags>(ctx, shared.m_bindings), ...);
-        passCtx->AddOrReplace<PassSharedBindings>(FindPass<PassTag>(*passCtx), eastl::move(shared));
-    }
-
-    //! Per-frame update for one pass: its shared bindings, then over each of its DrawItems
-    //! its own per-object bindings. The DrawItem is read-only after this, at submit.
-    //! startInstance is not here — it is baked at derive (BuildGeometryDrawItem), because
-    //! an instance slot does not move for the renderable's life.
-    template<typename PassTag, typename... BindingTags>
-    void UpdatePassBindings(RHI::RHIContext& ctx)
-    {
-        ResolvePassSharedBindings<PassTag, BindingTags...>(ctx);
-
-        ctx.GetView<PassTag, RHI::DrawItem>().each([&](RHI::RHIHandle e, RHI::DrawItem& item)
-        {
-            item.m_shaderBindings.clear();
-            if (auto* obj = ctx.TryGet<DrawItemObjectBinding>(e); obj && obj->m_objShaderBindings)
-            {
-                item.m_shaderBindings.push_back(obj->m_objShaderBindings);
-            }
-            item.m_shaderBindingsCount = static_cast<uint8_t>(item.m_shaderBindings.size());
-        });
+        passCtx.AddOrReplace<PassSharedBindings>(pass, eastl::move(shared));
     }
 
     // ---- m_collectViews --------------------------------------------------------

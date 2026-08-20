@@ -12,11 +12,6 @@
 
 #include <Binding/Instance/InstanceBinding.h>
 
-namespace Spark::RHI
-{
-    class ShaderBindings;
-}
-
 namespace Spark::Render
 {
     //! Range descriptor for a vertex stream's slice of its buffer.
@@ -51,25 +46,17 @@ namespace Spark::Render
         IndexBufferInfo m_indexInfo;
     };
 
-    //! Marker for a composed Drawable. Lifecycle cascades through DeadTag from
-    //! referenced resource entities (Drawable.m_streams buffers, m_index.m_indexBuffer,
-    //! and the m_instanceData strategy's dependencies — shared bindings + ID
-    //! stream, or the per-draw bindings) and from its instance slot going stale.
-    struct DrawableTag {};
-
-    //! Placed on a WORLD entity once MeshDrawableComposer has produced its
-    //! Drawable. Filters the find-or-create predicate so already-composed
-    //! entities are skipped. A system that invalidates the Drawable's
-    //! resources (mesh swap etc.) is responsible for removing this tag so
-    //! the composer rebuilds next frame.
+    //! Placed on a WORLD entity once MeshGeometryComposer has produced its
+    //! GeometrySpec. Filters the find-or-create predicate so already-composed
+    //! entities are skipped. A system that invalidates the spec's resources
+    //! (mesh swap etc.) is responsible for removing this tag so the composer
+    //! rebuilds next frame.
     struct WorldComposedTag {};
 
     //! Per-object data provisioning — STRATEGY 1 (indexed). Per-object data
-    //! (model matrix, …) lives in a shared GPU buffer; this draw occupies one
-    //! slot. Resolving the draw needs three coupled parts:
-    //!  - m_sharedBindings : the global g_Instances ShaderBindings entity, bound at
-    //!                       space4. Recorded per-Drawable so cascade reap reacts
-    //!                       uniformly when the bindings entity rebuilds.
+    //! (model matrix, …) lives in the shared g_Instances buffer, bound at space4 by
+    //! every pass that declares .Binds<InstanceBindingTag>(); this draw occupies one
+    //! slot. Resolving the draw needs two coupled parts:
     //!  - m_slotRef        : a copy of the renderable's slot reference. m_id is the
     //!                       GPU index, baked into the DrawItem's
     //!                       StartInstanceLocation once at derive; IsValid() is the
@@ -80,33 +67,30 @@ namespace Spark::Render
     //!                       always starts at 0). Present only on this path.
     struct SlotInstanceBinding
     {
-        RHI::RHIHandle   m_sharedBindings = RHI::NullHandle;
         InstanceSlotRef  m_slotRef;
         VertexStreamSpec m_idStream;
-    };
-
-    //! Per-object data provisioning — STRATEGY 2 (direct). This draw carries its
-    //! own per-draw ShaderBindings (e.g. a small CBV holding the model matrix).
-    //! No shared buffer, no slot table, no ID stream; StartInstanceLocation = 0.
-    //! The right choice for a one-off / simple object that would rather upload
-    //! its data directly than route through the global instance buffer.
-    struct DirectInstanceBinding
-    {
-        RHI::RHIHandle m_bindings = RHI::NullHandle;
     };
 
     //! Per-object data provisioning — STRATEGY 0 (none). The draw has no per-object
     //! data at all: no shared buffer, no per-draw SRG, no ID stream, StartInstance = 0.
     //! Used by procedural draws (e.g. a full-screen skybox triangle) that still flow
     //! through the single DrawItemRouter translation but carry no geometry instancing.
-    //! Listed first so a default-constructed Drawable provisions nothing.
+    //! Listed first so a default-constructed GeometrySpec provisions nothing.
     struct NoInstanceBinding {};
 
-    //! Per-object draw recipe assembled by a Drawable producer. The geometry +
-    //! draw args + instance count are always populated together (single writer),
-    //! so they live in one struct rather than separate components — every
-    //! consumer reads them in lockstep and the split bought nothing but TryGet
-    //! noise.
+    //! Per-object geometry specification: buffers referenced by ENTITY HANDLE plus byte
+    //! ranges, draw args, and instance provisioning. All populated together (single
+    //! writer), so they live in one struct rather than separate components — every
+    //! consumer reads them in lockstep and the split bought nothing but TryGet noise.
+    //!
+    //! GeometrySpec and RHI::DrawItem are the unresolved and resolved forms of one object,
+    //! on one entity. The spec can be written before its resources exist and holds the
+    //! handles cascade reap follows; DrawItemRouter turns it into the DrawItem once every
+    //! referenced buffer materializes, so `DrawItem` present ⟺ already derived.
+    //!
+    //! Lifecycle cascades through DeadTag from the referenced resource entities
+    //! (m_streams buffers, m_index.m_indexBuffer, the m_instanceData strategy's ID stream)
+    //! and from its instance slot going stale.
     //!
     //!  - m_streams        : real geometry IA streams only (slot 0…), slots
     //!                       declared per entry; the layout contract (contiguous
@@ -123,44 +107,15 @@ namespace Spark::Render
     //!                       same-mesh draws.
     //!  - m_instanceData   : how this draw obtains its per-object data + GPU
     //!                       instance index. A union-like variant (no heap), so
-    //!                       Drawable stays a complete, self-contained recipe
+    //!                       GeometrySpec stays a complete, self-contained recipe
     //!                       without baking in the indexed-buffer assumption.
-    struct Drawable
+    struct GeometrySpec
     {
         eastl::fixed_vector<VertexStreamSpec, RHI::Limits::Pipeline::StreamCountMax> m_streams;
         IndexStreamSpec    m_index;
         RHI::DrawArguments m_drawArgs;
         uint32_t           m_instanceCount = 1;
 
-        eastl::variant<NoInstanceBinding, SlotInstanceBinding, DirectInstanceBinding> m_instanceData;
-    };
-
-    //! Upper bound on DrawItems one Drawable derives (one per consuming pass). Single
-    //! digit today; headroom for shadow cascades. Inline, so it must never overflow.
-    inline constexpr size_t MaxPassesPerDrawable = 8;
-
-    //! Producer-side reverse reference to the DrawItems a Drawable derived, for cascade
-    //! teardown (and later culling propagation). The submit path never touches it —
-    //! DrawItems are self-contained. Present ⟺ composed Drawable (added empty at create).
-    struct DerivedDrawItems
-    {
-        eastl::fixed_vector<RHI::RHIHandle, MaxPassesPerDrawable> m_items;
-    };
-
-    //! Idempotency marker for the generic DrawItem-derivation step: present once a
-    //! Drawable has been routed through the passes and its DrawItems built. The
-    //! derivation view excludes it so each Drawable derives exactly once, regardless of
-    //! who produced it (world composer, procedural pass, …). Distinct from
-    //! DerivedDrawItems, which is added empty at create — that can't double as the
-    //! filter. Dies with the Drawable entity.
-    struct DrawItemsDerivedTag {};
-
-    //! Per-object bindings (space4) resolved from the Drawable's provisioning at compose:
-    //! shared g_Instances for indexed, the draw's own CBV for direct, absent for
-    //! procedural. Carried here (not a shared tag) because direct's CBV is per-draw, not
-    //! a singleton — it is the only binding left on the DrawItem.
-    struct DrawItemObjectBinding
-    {
-        const RHI::ShaderBindings* m_objShaderBindings = nullptr;
+        eastl::variant<NoInstanceBinding, SlotInstanceBinding> m_instanceData;
     };
 }

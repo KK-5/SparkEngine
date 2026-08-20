@@ -1,4 +1,4 @@
-#include "MeshDrawableComposer.h"
+#include "MeshGeometryComposer.h"
 
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
@@ -11,21 +11,20 @@
 
 #include <Mesh/Components.h>
 
-#include "Drawable.h"
+#include "GeometrySpec.h"
 #include "DrawTag.h"
 
 namespace Spark::Render
 {
     namespace
     {
-        Drawable ComposePersistent(
+        GeometrySpec ComposePersistent(
             const Mesh::MeshGPUComponent& gpu,
             const InstanceSlotRef&        slotRef,
-            RHI::RHIHandle                instanceBindingEntity,
             RHI::RHIHandle                idBufferEntity,
             uint32_t                      idBufferBytes)
         {
-            Drawable d;
+            GeometrySpec d;
             d.m_streams.push_back(VertexStreamSpec{
                 gpu.m_vertexBuffer, /*slot*/ 0, VertexBufferInfo{ 0, gpu.m_vertexByteCount, gpu.m_vertexByteStride } });
 
@@ -45,12 +44,11 @@ namespace Spark::Render
 
             d.m_instanceCount = 1;
 
-            // Indexed provisioning: shared g_Instances SRG + slot + identity ID
-            // stream at slot 1 (per-instance, fed by StartInstanceLocation).
+            // Indexed provisioning: g_Instances slot + identity ID stream at slot 1
+            // (per-instance, fed by StartInstanceLocation).
             SlotInstanceBinding slot;
-            slot.m_sharedBindings = instanceBindingEntity;
-            slot.m_slotRef        = slotRef;
-            slot.m_idStream       = VertexStreamSpec{
+            slot.m_slotRef  = slotRef;
+            slot.m_idStream = VertexStreamSpec{
                 idBufferEntity, /*slot*/ 1, VertexBufferInfo{ 0, idBufferBytes, sizeof(uint32_t) } };
             d.m_instanceData = slot;
 
@@ -78,12 +76,12 @@ namespace Spark::Render
         }
     }
 
-    void MeshDrawableComposer::Init(RHI::RHIContext& /*rhiCtx*/)
+    void MeshGeometryComposer::Init(RHI::RHIContext& /*rhiCtx*/)
     {
         // Nothing to set up — composer is stateless and bridges via ECS tags.
     }
 
-    void MeshDrawableComposer::Update()
+    void MeshGeometryComposer::Update()
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
@@ -92,12 +90,8 @@ namespace Spark::Render
             return;
         }
 
-        // Refresh global resources every frame — Drawables that referenced an
+        // Refresh global resources every frame — specs that referenced an
         // older revision are caught by DrawItemRouter's cascade reap and rebuilt.
-        RHI::RHIHandle instanceBindingEntity = RHI::NullHandle;
-        rhiCtx->GetView<InstanceBindingTag>().each(
-            [&](RHI::RHIHandle e) { instanceBindingEntity = e; });
-
         RHI::RHIHandle idBufferEntity    = RHI::NullHandle;
         uint32_t       idBufferByteCount = 0;
         rhiCtx->GetView<InstanceIDBufferTag, RHI::Components::Buffer>().each(
@@ -109,9 +103,7 @@ namespace Spark::Render
                 : 0;
         });
 
-        if (instanceBindingEntity == RHI::NullHandle
-            || idBufferEntity == RHI::NullHandle
-            || idBufferByteCount == 0)
+        if (idBufferEntity == RHI::NullHandle || idBufferByteCount == 0)
         {
             // Warmup frame — globals not yet materialized.
             return;
@@ -157,27 +149,25 @@ namespace Spark::Render
                     RHI::AttachmentStage::VertexInput);
             }
 
-            RHI::RHIHandle drawable = rhiCtx->CreateEntity();
-            rhiCtx->Add<DrawableTag>(drawable);
+            RHI::RHIHandle spec = rhiCtx->CreateEntity();
             // Everything is opaque today; becomes a per-AlphaMode split later.
-            rhiCtx->Add<OpaqueTag>(drawable);
+            rhiCtx->Add<OpaqueTag>(spec);
             // Orthogonal to the shading dimension: every opaque mesh casts, until the mesh
             // itself carries an authored flag.
-            rhiCtx->Add<ShadowCasterTag>(drawable);
-            rhiCtx->Add<Drawable>(drawable, 
-                ComposePersistent(gpu, ref, instanceBindingEntity, idBufferEntity, idBufferByteCount));
-            rhiCtx->Add<DerivedDrawItems>(drawable, DerivedDrawItems{});
+            rhiCtx->Add<ShadowCasterTag>(spec);
+            rhiCtx->Add<GeometrySpec>(spec,
+                ComposePersistent(gpu, ref, idBufferEntity, idBufferByteCount));
 
             // DrawItem derivation is deferred to DrawItemRouter — a producer-agnostic
-            // step over every DrawableTag Drawable, not just world-composed ones.
+            // step over every GeometrySpec, not just world-composed ones.
             world->Add<WorldComposedTag>(wE);
         });
     }
 
-    void MeshDrawableComposer::Shutdown(RHI::RHIContext& /*rhiCtx*/)
+    void MeshGeometryComposer::Shutdown(RHI::RHIContext& /*rhiCtx*/)
     {
         // Strip WorldComposedTag so a re-init re-composes from a clean slate. The
-        // live Drawables themselves are reaped by DrawItemRouter::Shutdown (they are
+        // live specs themselves are reaped by DrawItemRouter::Shutdown (they are
         // producer-agnostic), so this composer only unwinds its own world-side tag.
         if (auto* world = WorldExecuteContext::Current())
         {
