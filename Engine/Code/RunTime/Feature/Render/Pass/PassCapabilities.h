@@ -40,21 +40,26 @@ namespace Spark::Render
         bool (*m_accepts)(RHI::RHIContext&, RHI::RHIHandle drawable);
 
         //! Record on a freshly derived DrawItem that this pass consumes it. The stamped
-        //! PassTag is what m_collectDrawItems locates the pass's draws by.
-        void (*m_markDrawItem)(RHI::RHIContext&, RHI::RHIHandle drawItem);
+        //! PassTag is what m_collectSubmitItems locates the pass's items by. Draw only —
+        //! copy / compute producers know their own pass and stamp it themselves.
+        void (*m_markSubmitItem)(RHI::RHIContext&, RHI::RHIHandle item);
 
         //! Per-frame resolve of the bindings the executer binds once per pass. Driven by
         //! RenderGraphCompiler after the pass compile hooks, so an SRG created lazily in
         //! Compile lands the same frame. (.Binds<BindingTags...>)
         void (*m_resolveSharedBindings)(RHI::RHIContext&, PassContext&, Pass);
 
-        //! The live view instances of the type this pass renders — one DrawList each.
-        //! (.RendersView<ViewTag>)
+        //! The live view instances of the type this pass renders — one batch each.
+        //! Null for a pass that renders no view (copy, and compute that needs no space1),
+        //! which then emits a single batch. (.RendersView<ViewTag>)
         void (*m_collectViews)(RHI::RHIContext&, ViewHandleList&);
 
-        //! Every DrawItem this pass consumes, located by the PassTag m_markDrawItem
-        //! stamps. Implied by the pass's identity, so Finalize always installs it.
-        void (*m_collectDrawItems)(RHI::RHIContext&, eastl::vector<RHI::RHIHandle>&);
+        //! Every submit item this pass consumes, located by the PassTag stamped on it.
+        //! Implied by the pass's identity, so Finalize always installs it. `view` is
+        //! NullHandle for a viewless pass, and ignored until per-view culling lands — but
+        //! it is in the signature now, because that is a change that would otherwise ripple.
+        void (*m_collectSubmitItems)(RHI::RHIContext&, PassContext&, Pass,
+                                     RHI::RHIHandle view, eastl::vector<RHI::RHIHandle>&);
     };
 
     // ---- m_accepts -------------------------------------------------------------
@@ -65,12 +70,12 @@ namespace Spark::Render
         return (ctx.Has<DrawTags>(drawable) && ...);
     }
 
-    // ---- m_markDrawItem --------------------------------------------------------
+    // ---- m_markSubmitItem ------------------------------------------------------
 
     template<typename PassTag>
-    void MarkPassTag(RHI::RHIContext& ctx, RHI::RHIHandle drawItem)
+    void MarkPassTag(RHI::RHIContext& ctx, RHI::RHIHandle item)
     {
-        ctx.Add<PassTag>(drawItem);
+        ctx.Add<PassTag>(item);
     }
 
     // ---- m_resolveSharedBindings -----------------------------------------------
@@ -113,19 +118,24 @@ namespace Spark::Render
             [&](RHI::RHIHandle view, const View&) { out.push_back(view); });
     }
 
-    // ---- m_collectDrawItems ----------------------------------------------------
+    // ---- m_collectSubmitItems --------------------------------------------------
 
-    //! Appends to out, which is the executer's shared per-frame arena — every pass's
-    //! draws lie end to end in it, so this must never clear.
+    //! Appends to out, which is the executer's shared per-frame arena — every pass's items
+    //! lie end to end in it, so this must never clear.
     //!
-    //! Excluding DeadTag is what keeps a DrawItem marked dead this frame from being drawn
+    //! The join on <PassTag, ItemT> is what makes the arena's type erasure safe: a wrongly
+    //! tagged entity of another item type simply is not in the result, so the hook that
+    //! reads it back as ItemT cannot be handed one.
+    //!
+    //! Excluding DeadTag is what keeps an item marked dead this frame from being submitted
     //! one last time. The entity itself stays valid through recording: DrawItemRouter
     //! marks at RenderSystem's TICK_DEFAULT and RHIHandleClearSystem only destroys at
     //! TICK_LAST - 1, well after the render graph has executed.
-    template<typename PassTag>
-    void CollectPassDrawItems(RHI::RHIContext& ctx, eastl::vector<RHI::RHIHandle>& out)
+    template<typename PassTag, typename ItemT>
+    void CollectPassItems(RHI::RHIContext& ctx, PassContext&, Pass, RHI::RHIHandle /*view*/,
+                          eastl::vector<RHI::RHIHandle>& out)
     {
-        ctx.GetView<PassTag, RHI::DrawItem>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle item, const RHI::DrawItem&) { out.push_back(item); });
+        ctx.GetView<PassTag, ItemT>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle item, const ItemT&) { out.push_back(item); });
     }
 }

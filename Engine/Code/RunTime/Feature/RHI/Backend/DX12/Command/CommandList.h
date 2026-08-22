@@ -19,8 +19,8 @@
  * Modified by SparkEngine in 2026
  *  -- Simplify ShaderResourceBindings: remove m_srgsBySlot (two-stage assign-then-pull
  *     replaced by direct bind), remove m_bindlessHeapLastIndex, remove m_hasRootConstants.
- *  -- Delete CommitShaderResources template; split into SetPipelineState (per-pass),
- *     SetShaderResourceForDraw/Dispatch (direct dedup+bind), SetRootConstants removed.
+ *  -- Delete CommitShaderResources template; split into SetPipelineState and
+ *     BindShaderInputsForDraw/Dispatch (direct dedup+bind), SetRootConstants removed.
  */
 
 #pragma once

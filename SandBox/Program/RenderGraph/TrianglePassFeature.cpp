@@ -217,14 +217,14 @@ namespace Spark::SandBox
             })
             // Same as the default hook when .Execute() is omitted. Called once per
             // state-homogeneous run, not once per pass — N views is N calls over the same
-            // draws — so submit work.m_drawHandles, never a fresh query.
+            // draws — so submit work.m_itemHandles, never a fresh query.
             .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-                for (size_t i = 0; i < work.m_drawHandles.size(); ++i)
+                for (size_t i = 0; i < work.m_itemHandles.size(); ++i)
                 {
                     work.m_commandList->Submit(
-                        rhiCtx.Get<Spark::RHI::DrawItem>(work.m_drawHandles[i]),
+                        rhiCtx.Get<Spark::RHI::DrawItem>(work.m_itemHandles[i]),
                         work.m_submitBase + static_cast<uint32_t>(i));
                 }
             })

@@ -353,10 +353,10 @@ namespace Spark::SandBox
             .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                for (size_t i = 0; i < work.m_drawHandles.size(); ++i)
+                for (size_t i = 0; i < work.m_itemHandles.size(); ++i)
                 {
                     work.m_commandList->Submit(
-                        rhiCtx.Get<RHI::DrawItem>(work.m_drawHandles[i]),
+                        rhiCtx.Get<RHI::DrawItem>(work.m_itemHandles[i]),
                         work.m_submitBase + static_cast<uint32_t>(i));
                 }
             })

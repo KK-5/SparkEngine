@@ -360,14 +360,14 @@ namespace Spark::SandBox
                     /*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
             })
             // Called once per state-homogeneous run, so four times here — once per view, each
-            // time over the same one draw. Submit work.m_drawHandles, never a fresh query.
+            // time over the same one draw. Submit work.m_itemHandles, never a fresh query.
             .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                for (size_t i = 0; i < work.m_drawHandles.size(); ++i)
+                for (size_t i = 0; i < work.m_itemHandles.size(); ++i)
                 {
                     work.m_commandList->Submit(
-                        rhiCtx.Get<RHI::DrawItem>(work.m_drawHandles[i]),
+                        rhiCtx.Get<RHI::DrawItem>(work.m_itemHandles[i]),
                         work.m_submitBase + static_cast<uint32_t>(i));
                 }
             })

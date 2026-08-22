@@ -10,12 +10,11 @@
  * Modified by SparkEngine in 2025
  *  -- Add QueueBarrier/FlushBarriers implementation, delegates to CommandListBase.
  * Modified by SparkEngine in 2026
- *  -- CommitShaderResources removed; Submit(DrawItem/DispatchItem) rewritten to call
- *     SetPipelineState / SetShaderResourceForDraw / SetShaderResourceForDispatch directly.
- *  -- SetShaderResourceForDraw/Dispatch: direct binding via srg->GetBindingSlot() →
- *     pipelineLayout->GetIndexBySlot() → m_srgsByIndex dedup → DX12 bind.
- *  -- SetPipelineState: unconditional PSO bind (no dedup), root signature update
- *     on layout change, SRG cache invalidation.
+ *  -- CommitShaderResources removed; the two-stage assign-then-pull of SRGs is gone.
+ *  -- BindShaderInputsForDraw/Dispatch: direct binding via b->GetSpaceId() →
+ *     pipelineLayout->FindSpaceIndexBySpaceId() → m_bindingsBySpace dedup → DX12 bind.
+ *  -- SetPipelineState: dedup on PSO identity, root signature update on layout change,
+ *     binding cache invalidation with it.
  */
 
 #include "CommandList.h"
@@ -111,6 +110,19 @@ namespace Spark::RHI::DX12
 
     void CommandList::SetPipelineState(const RHI::PipelineState& pipelineState)
     {
+        // Everything below is a function of the PSO alone — topology and sample positions
+        // come out of its own descriptor, and the root signature block keys on its layout —
+        // so re-binding the same one is a no-op. The render layer calls this once per submit
+        // batch (per view, and per variant once those land), which is why the dedup matters:
+        // the same pass PSO is otherwise re-issued for every batch it covers.
+        //
+        // Pointer identity is enough: Reset() wipes m_state when the list is acquired, so a
+        // PSO cannot be freed and another land at the same address within one recording.
+        if (m_state.m_pipelineState == &pipelineState)
+        {
+            return;
+        }
+
         const PipelineState& pso = static_cast<const PipelineState&>(pipelineState);
 
         if (!pso.IsInitialized())
@@ -417,11 +429,6 @@ namespace Spark::RHI::DX12
     {
         ValidateSubmitIndex(submitIndex);
 
-        if (dispatchItem.m_pipelineState)
-        {
-            SetPipelineState(*dispatchItem.m_pipelineState);
-        }
-
         switch (dispatchItem.m_arguments.m_type)
         {
         case RHI::DispatchType::Direct:
@@ -714,7 +721,6 @@ namespace Spark::RHI::DX12
 
     void CommandList::CommitViewportState()
     {
-        // [TODO] remove dirty check
         if (!m_state.m_viewportState.m_isDirty)
         {
             return;

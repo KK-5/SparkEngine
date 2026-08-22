@@ -12,8 +12,6 @@
 
 namespace Spark::RHI
 {
-    class PipelineState;
-
     constexpr uint32_t DivideAndRoundUp(uint32_t value, uint32_t alignment)
     {
         if (alignment == 0)
@@ -118,9 +116,6 @@ namespace Spark::RHI
 
         /// The number of inline constants bytes.
         uint8_t m_rootConstantSize = 0;
-
-        /// The pipeline state to bind.
-        const PipelineState* m_pipelineState = nullptr;
 
         /// Inline constants data.
         const uint8_t* m_rootConstants = nullptr;

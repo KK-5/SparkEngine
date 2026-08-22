@@ -83,6 +83,52 @@ namespace Spark::Render
             out = component->m_bindings.get();
             return true;
         }
+
+        //! Overflowing the cap means the pass declared two groups for one register space —
+        //! a build-time mistake, not a runtime condition.
+        void PushBinding(SubmitState& state, const RHI::ShaderBindings* bindings)
+        {
+            ASSERT(state.m_bindingCount < RHI::Limits::Pipeline::ShaderInputGroupCountMax,
+                "[RenderGraphExecuter] More binding groups than register spaces.");
+            if (state.m_bindingCount < RHI::Limits::Pipeline::ShaderInputGroupCountMax)
+            {
+                state.m_bindings[state.m_bindingCount++] = bindings;
+            }
+        }
+
+        //! Unconditional by design: the CommandList owns the dedup, because what a change
+        //! invalidates is backend knowledge (DX12 drops every root parameter with the root
+        //! signature; Vulkan keeps descriptor sets across compatible layouts).
+        void ApplySubmitState(RHI::CommandList* commandList, const SubmitState& state)
+        {
+            // Bindings sit under the PSO, not beside it: they resolve their space against its
+            // pipeline layout, and DX12 takes the root signature from it — so the bind must
+            // follow, and without a PSO there is nothing to bind against. A copy pass's state
+            // is empty on both counts.
+            if (state.m_pso)
+            {
+                commandList->SetPipelineState(*state.m_pso);
+
+                const bool isDispatch = state.m_pso->GetType() == RHI::PipelineStateType::Dispatch;
+                for (uint8_t i = 0; i < state.m_bindingCount; ++i)
+                {
+                    if (isDispatch)
+                    {
+                        commandList->BindShaderInputsForDispatch(*state.m_bindings[i]);
+                    }
+                    else
+                    {
+                        commandList->BindShaderInputsForDraw(*state.m_bindings[i]);
+                    }
+                }
+            }
+
+            if (state.m_hasViewport)
+            {
+                commandList->SetViewport(state.m_viewport);
+                commandList->SetScissor(state.m_scissor);
+            }
+        }
     }
 
     void RenderGraphExecuter::Begin(uint32_t frameIndex)
@@ -99,9 +145,8 @@ namespace Spark::Render
 
         // The draw table is frame-scoped; clear() keeps the capacity so a steady frame
         // allocates nothing.
-        m_draws.clear();
-        m_drawLists.clear();
-        m_drawBatches.clear();
+        m_submitItems.clear();
+        m_submitBatches.clear();
 
         // Per-resource compile-time state cursor. Lazy-init in CompileImage/BufferBarriers
         // expects a fresh slate each frame — imported resources start at m_initial,
@@ -172,16 +217,16 @@ namespace Spark::Render
         passContext.Clear<PassBarriers>();
         passContext.Clear<PassExternalFenceWaits>();
         passContext.Clear<RHI::RenderPassBeginInfo>();
-        // Mandatory, not just hygiene: the arenas a PassDrawTable indexes are rebuilt every
+        // Mandatory, not just hygiene: the arenas a PassSubmitTable indexes are rebuilt every
         // frame, so a stale one would send a pass into another pass's batches.
-        passContext.Clear<PassDrawTable>();
+        passContext.Clear<PassSubmitTable>();
     }
 
     void RenderGraphExecuter::BuildExecuteTable(const QueueBasedPasses& queueBasedPasses, PassContext& passContext)
     {
         // Content first, slicing after: both splitters below key on how much each pass has
-        // to draw, which is what BuildDrawTables produces.
-        BuildDrawTables(queueBasedPasses, passContext);
+        // to submit, which is what BuildSubmitTables produces.
+        BuildSubmitTables(queueBasedPasses, passContext);
 
         for (uint32_t i = 0; i < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++i)
         {
@@ -197,7 +242,7 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphExecuter::BuildDrawTables(const QueueBasedPasses& queueBasedPasses, PassContext& passContext)
+    void RenderGraphExecuter::BuildSubmitTables(const QueueBasedPasses& queueBasedPasses, PassContext& passContext)
     {
         auto* rhiContext = RHIExecuteContext::Current();
         if (!rhiContext)
@@ -205,101 +250,141 @@ namespace Spark::Render
             return;
         }
 
-        // Compute / Copy passes need only the one empty item BuildExecuteWorks gives them,
-        // to drive their barriers and their own hook. Nothing is built for them here.
-        const auto graphics = static_cast<uint32_t>(RHI::HardwareQueueClass::Graphics);
-        for (Pass pass : queueBasedPasses[graphics])
+        for (uint32_t i = 0; i < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++i)
         {
-            BuildPassDrawTable(pass, passContext, *rhiContext);
+            for (Pass pass : queueBasedPasses[i])
+            {
+                BuildPassSubmitTable(pass, passContext, *rhiContext);
+            }
         }
     }
 
-    void RenderGraphExecuter::BuildPassDrawTable(Pass pass, PassContext& passContext, RHIContext& rhiContext)
+    void RenderGraphExecuter::BuildPassSubmitTable(Pass pass, PassContext& passContext, RHIContext& rhiContext)
     {
         const auto* capabilities = passContext.TryGet<PassCapabilities>(pass);
-        if (!capabilities || !capabilities->m_collectDrawItems)
+        if (!capabilities || !capabilities->m_collectSubmitItems)
         {
             return;
         }
-
-        const uint32_t drawBegin  = static_cast<uint32_t>(m_draws.size());
-        const uint32_t batchBegin = static_cast<uint32_t>(m_drawBatches.size());
-
-        capabilities->m_collectDrawItems(rhiContext, m_draws);
-        const uint32_t drawCount = static_cast<uint32_t>(m_draws.size()) - drawBegin;
-
-        // Viewport and space1 both come from the view, so a pass with draws needs one.
-        ASSERT(drawCount == 0 || capabilities->m_collectViews,
-            "[RenderGraphExecuter] Pass {} has draws but declares no .RendersView<>().",
-            static_cast<uint32_t>(pass));
 
         RHI::Viewport targetViewport;
         RHI::Scissor  targetScissor;
-        uint32_t      submitCount = 0;
 
-        if (drawCount != 0 && capabilities->m_collectViews &&
-            ResolveTargetViewport(pass, passContext, targetViewport, targetScissor))
+        // A render pass needs a view — viewport and space1 both come from it — and needs a
+        // render area to scale that view's rect against. Checked before the collect, since
+        // items are gathered per view and a missing view would silently drop them.
+        // Copy / compute have neither and emit one viewless batch instead.
+        const bool isRenderPass = passContext.Has<RenderPassTag>(pass);
+        if (isRenderPass)
         {
-            ViewHandleList views;
-            capabilities->m_collectViews(rhiContext, views);
-
-            for (RHI::RHIHandle view : views)
+            ASSERT(capabilities->m_collectViews,
+                "[RenderGraphExecuter] Render pass {} declares no .RendersView<>().",
+                static_cast<uint32_t>(pass));
+            if (!capabilities->m_collectViews ||
+                !ResolveTargetViewport(pass, passContext, targetViewport, targetScissor))
             {
-                const RHI::ShaderBindings* viewShaderBindings = nullptr;
-                if (!ResolveViewShaderBindings(rhiContext, view, viewShaderBindings))
-                {
-                    // Skipping costs this view one frame; drawing it would be silently wrong.
-                    continue;
-                }
-
-                const auto& rect = rhiContext.Get<View>(view).m_rect;
-
-                DrawList list;
-                list.m_viewport = targetViewport.GetScaled(rect.m_minX, rect.m_maxX, rect.m_minY, rect.m_maxY);
-                list.m_scissor  = ScissorFromViewport(list.m_viewport);
-                list.m_viewShaderBindings = viewShaderBindings;
-
-                const uint32_t listIndex = static_cast<uint32_t>(m_drawLists.size());
-                m_drawLists.push_back(list);
-
-                submitCount = BuildDrawBatches(pass, passContext, listIndex, drawBegin, drawCount, submitCount);
+                return;
             }
         }
 
-        if (m_drawBatches.size() == batchBegin)
+        const uint32_t passBegin  = static_cast<uint32_t>(m_submitItems.size());
+        const uint32_t batchBegin = static_cast<uint32_t>(m_submitBatches.size());
+
+        // Resolved once; only space1 and the viewport differ per view.
+        const auto* compiled = passContext.TryGet<PassCompiledPSO>(pass);
+        const auto* shared   = passContext.TryGet<PassSharedBindings>(pass);
+
+        auto emitBatch = [&](RHI::RHIHandle view)
         {
-            // Nothing was produced: no draws, not a render pass, or no view was ready.
+            const RHI::ShaderBindings* viewShaderBindings = nullptr;
+            if (view != RHI::NullHandle &&
+                !ResolveViewShaderBindings(rhiContext, view, viewShaderBindings))
+            {
+                // Skipping costs this view one frame; drawing it would be silently wrong.
+                return;
+            }
+
+            // Per view, not once for the pass: the replay is expanded into the arena so each
+            // view owns its own stretch. That is what lets a later per-view cull hand back a
+            // different set here.
+            const uint32_t begin = static_cast<uint32_t>(m_submitItems.size());
+            capabilities->m_collectSubmitItems(rhiContext, passContext, pass, view, m_submitItems);
+            const uint32_t end = static_cast<uint32_t>(m_submitItems.size());
+            if (begin == end)
+            {
+                return;
+            }
+
+            SubmitState state;
+            state.m_pso = compiled ? compiled->m_pso.get() : nullptr;
+            if (state.m_pso)
+            {
+                if (shared)
+                {
+                    for (const RHI::ShaderBindings* b : shared->m_bindings)
+                    {
+                        PushBinding(state, b);
+                    }
+                }
+                if (viewShaderBindings)
+                {
+                    PushBinding(state, viewShaderBindings);
+                }
+            }
+
+            if (isRenderPass)
+            {
+                const auto& rect = rhiContext.Get<View>(view).m_rect;
+                state.m_viewport    = targetViewport.GetScaled(rect.m_minX, rect.m_maxX, rect.m_minY, rect.m_maxY);
+                state.m_scissor     = ScissorFromViewport(state.m_viewport);
+                state.m_hasViewport = true;
+            }
+
+            BuildSubmitBatches(state, begin, end);
+        };
+
+        if (!capabilities->m_collectViews)
+        {
+            emitBatch(RHI::NullHandle);
+        }
+        else
+        {
+            ViewHandleList views;
+            capabilities->m_collectViews(rhiContext, views);
+            for (RHI::RHIHandle view : views)
+            {
+                emitBatch(view);
+            }
+        }
+
+        if (m_submitBatches.size() == batchBegin)
+        {
+            // Nothing was produced: no items, not a render pass, or no view was ready.
             // Leave no orphan entries in the arena and register no table.
-            m_draws.resize(drawBegin);
+            m_submitItems.resize(passBegin);
             return;
         }
 
-        PassDrawTable table;
+        PassSubmitTable table;
         table.m_batchBegin  = batchBegin;
-        table.m_batchEnd    = static_cast<uint32_t>(m_drawBatches.size());
-        table.m_submitCount = submitCount;
-        passContext.AddOrReplace<PassDrawTable>(pass, table);
+        table.m_batchEnd    = static_cast<uint32_t>(m_submitBatches.size());
+        table.m_submitBegin = passBegin;
+        table.m_submitEnd   = static_cast<uint32_t>(m_submitItems.size());
+        passContext.AddOrReplace<PassSubmitTable>(pass, table);
     }
 
-    uint32_t RenderGraphExecuter::BuildDrawBatches(
-        Pass pass, const PassContext& passContext,
-        uint32_t listIndex, uint32_t drawBegin, uint32_t drawCount, uint32_t submitBegin)
+    void RenderGraphExecuter::BuildSubmitBatches(
+        const SubmitState& state, uint32_t submitBegin, uint32_t submitEnd)
     {
         // DrawItem carries no variant id yet, so the whole run is one batch. Once variants
-        // land this becomes a counting sort over the draws — histogram, prefix sum, scatter
-        // — and the prefix sum is exactly the batch boundaries. Nothing outside changes.
-        const auto* compiled = passContext.TryGet<PassCompiledPSO>(pass);
-
-        DrawBatch batch;
+        // land this becomes a counting sort over the items — histogram, prefix sum, scatter
+        // — and the prefix sum is exactly the batch boundaries; each batch then differs from
+        // its neighbours only in SubmitState::m_pso. Nothing outside changes.
+        SubmitBatch batch;
         batch.m_submitBegin = submitBegin;
-        batch.m_submitEnd   = submitBegin + drawCount;
-        batch.m_drawBegin   = drawBegin;
-        batch.m_listIndex   = listIndex;
-        batch.m_variantId   = kSingleVariantId;
-        batch.m_pso         = compiled ? compiled->m_pso.get() : nullptr;
-        m_drawBatches.push_back(batch);
-
-        return batch.m_submitEnd;
+        batch.m_submitEnd   = submitEnd;
+        batch.m_state       = state;
+        m_submitBatches.push_back(batch);
     }
 
     void RenderGraphExecuter::BuildSegments(
@@ -362,8 +447,8 @@ namespace Spark::Render
 
         for (Pass pass : segment.m_passes)
         {
-            const PassDrawTable* table = passContext.TryGet<PassDrawTable>(pass);
-            const uint32_t passSubmitCount = table ? table->m_submitCount : 0;
+            const PassSubmitTable* table = passContext.TryGet<PassSubmitTable>(pass);
+            const uint32_t passSubmitCount = table ? table->m_submitEnd - table->m_submitBegin : 0;
 
             // Never break on an empty group: a single pass over the whole budget still has to
             // go somewhere, and it cannot be split until RenderPassBeginInfo carries
@@ -394,7 +479,7 @@ namespace Spark::Render
         // RenderGraph records them serially today, so more Works would only mean more
         // CommandLists to create and submit.
         //
-        // Slicing ONE pass across several Works is what the item's submit range exists for,
+        // Splitting ONE pass across several Works is what the item's submit range exists for,
         // and that stays blocked until RenderPassBeginInfo carries suspend / resume: a render
         // pass's draws cannot cross CommandLists. m_itemIndex / m_itemCount would then have
         // to be numbered per pass across works rather than fixed at 0 / 1 here.
@@ -403,15 +488,15 @@ namespace Spark::Render
 
         for (Pass pass : group.m_passes)
         {
-            const PassDrawTable* table = passContext.TryGet<PassDrawTable>(pass);
+            const PassSubmitTable* table = passContext.TryGet<PassSubmitTable>(pass);
 
-            // A pass with nothing to draw still gets its item: BeginRenderPass carries its
+            // A pass with nothing to submit still gets its item: BeginRenderPass carries its
             // clears, and compute / copy / custom-pipeline passes submit through their own
             // hook. An empty submit range simply visits no batch and sets no state.
-            ExecuteWork::Item item;
+            ExecuteWorkItem item;
             item.m_pass        = pass;
-            item.m_submitBegin = 0;
-            item.m_submitEnd   = table ? table->m_submitCount : 0;
+            item.m_submitBegin = table ? table->m_submitBegin : 0;
+            item.m_submitEnd   = table ? table->m_submitEnd : 0;
             item.m_firstBatch  = table ? table->m_batchBegin : 0;
             item.m_batchEnd    = table ? table->m_batchEnd : 0;
             item.m_itemIndex   = 0;
@@ -497,116 +582,37 @@ namespace Spark::Render
         }
     }
 
-    //! Returns what it bound so the caller can seed its PSO cursor: the pass's batches carry
-    //! this same PipelineState, so without it the pass's first batch would re-bind it.
-    const RHI::PipelineState* RenderGraphExecuter::ExecuteBindPSO(
-        RHI::CommandList* commandList, Pass pass, PassContext& passContext)
-    {
-        if (auto* pso = passContext.TryGet<PassCompiledPSO>(pass))
-        {
-            commandList->SetPipelineState(*pso->m_pso);
-            return pso->m_pso.get();
-        }
-        return nullptr;
-    }
-
-    void RenderGraphExecuter::ExecuteBindShared(RHI::CommandList* commandList, Pass pass, PassContext& passContext)
-    {
-        // No compiled PSO means no pipeline layout to resolve spaces against, and the bind
-        // would assert. Custom-pipeline passes land here too.
-        auto* pso = passContext.TryGet<PassCompiledPSO>(pass);
-        if (!pso || !pso->m_pso)
-        {
-            return;
-        }
-
-        auto* shared = passContext.TryGet<PassSharedBindings>(pass);
-        if (!shared)
-        {
-            return;
-        }
-
-        // Same discriminator the backend uses to pick the graphics vs compute root
-        // signature in SetPipelineState.
-        const bool isDispatch = pso->m_pso->GetType() == RHI::PipelineStateType::Dispatch;
-        for (const RHI::ShaderBindings* bindings : shared->m_bindings)
-        {
-            if (isDispatch)
-            {
-                commandList->BindShaderInputsForDispatch(*bindings);
-            }
-            else
-            {
-                commandList->BindShaderInputsForDraw(*bindings);
-            }
-        }
-    }
-
-    void RenderGraphExecuter::ExecuteDrawListState(RHI::CommandList* commandList, const DrawList& list)
-    {
-        commandList->SetViewport(list.m_viewport);
-        commandList->SetScissor(list.m_scissor);
-        if (list.m_viewShaderBindings)
-        {
-            commandList->BindShaderInputsForDraw(*list.m_viewShaderBindings);
-        }
-    }
-
     void RenderGraphExecuter::Execute(ExecuteWork& work, RHI::Factory& factory, RHI::Device& device, RHI::HardwareQueueClass queueClass, PassContext& passContext)
     {
         RHI::CommandList* cmdList = factory.CreateCommandList(device, queueClass);
         cmdList->Open();
         work.m_commandList = cmdList;
 
-        // A Work is a fresh CommandList, so no state carries in: both cursors start unset and
-        // the first batch re-establishes everything. They then survive across items, which a
-        // Work holding several passes relies on — and safely so, because list indices are
-        // absolute into m_drawLists and so never repeat between passes.
-        constexpr uint32_t kNoList = 0xFFFFFFFF;
-        uint32_t boundList = kNoList;
-        const RHI::PipelineState* boundPSO = nullptr;
-
+        // No state cursor: ApplySubmitState runs for every batch and the CommandList
+        // collapses the repeats — which is also why a fresh one needs no special case.
         for (auto& item : work.m_items)
         {
             if (item.m_itemIndex == 0)
             {
-                boundPSO = ExecuteBindPSO(cmdList, item.m_pass, passContext);
-                ExecuteBindShared(cmdList, item.m_pass, passContext);
                 ExecutePreBarriers(cmdList, item.m_pass, passContext);
                 ExecuteBeginRenderPass(cmdList, item.m_pass, passContext);
             }
 
-            work.m_pass = item.m_pass;
             const auto& funcs = passContext.Get<PassFunctions>(item.m_pass);
 
-            // Walk the batches this slice covers. The slice is sized by load, so it may
-            // start and end mid-batch and may span several — each boundary crossed is a
-            // state change, and the hook is handed one state-homogeneous run at a time.
+            // The item is sized by load, so it may start and end mid-batch and span several;
+            // the hook is handed one state-homogeneous run at a time.
             for (uint32_t batchIndex = item.m_firstBatch; batchIndex < item.m_batchEnd; ++batchIndex)
             {
-                const DrawBatch& batch = m_drawBatches[batchIndex];
-                if (batch.m_submitBegin >= item.m_submitEnd)
-                {
-                    break;
-                }
+                const SubmitBatch& batch = m_submitBatches[batchIndex];
 
-                if (batch.m_listIndex != boundList)
-                {
-                    ExecuteDrawListState(cmdList, m_drawLists[batch.m_listIndex]);
-                    boundList = batch.m_listIndex;
-                }
-                if (batch.m_pso && batch.m_pso != boundPSO)
-                {
-                    cmdList->SetPipelineState(*batch.m_pso);
-                    boundPSO = batch.m_pso;
-                }
+                ApplySubmitState(cmdList, batch.m_state);
 
                 const uint32_t submitBegin = eastl::max(batch.m_submitBegin, item.m_submitBegin);
                 const uint32_t submitEnd   = eastl::min(batch.m_submitEnd, item.m_submitEnd);
-                const uint32_t drawBegin   = batch.m_drawBegin + (submitBegin - batch.m_submitBegin);
 
                 work.m_submitBase  = submitBegin;
-                work.m_drawHandles = eastl::span<const RHI::RHIHandle>(m_draws.data() + drawBegin, submitEnd - submitBegin);
+                work.m_itemHandles = eastl::span<const RHI::RHIHandle>(m_submitItems.data() + submitBegin, submitEnd - submitBegin);
                 cmdList->SetSubmitRange({ submitBegin, submitEnd });
 
                 if (funcs.m_executeFunction)
@@ -615,15 +621,14 @@ namespace Spark::Render
                 }
             }
 
-            // A pass that produced no batch at all — compute, copy, custom-pipeline — never
-            // enters the loop above, yet its hook is where all of its work lives. Keyed on
-            // the PASS having no batches, not on this slice covering none: an empty slice of
-            // a pass that does draw must NOT get an extra call, or a hook that does more than
-            // submit (CopyFrameBufferPass copies) would do its work twice.
+            // A pass that produced no batch — compute, copy, custom-pipeline — never enters
+            // the loop above, yet its hook is where all of its work lives. Keyed on the PASS
+            // having no batches, not on this item covering none: an extra call would make a
+            // hook that does more than submit (CopyFrameBufferPass copies) run twice.
             if (item.m_firstBatch == item.m_batchEnd)
             {
                 work.m_submitBase  = 0;
-                work.m_drawHandles = {};
+                work.m_itemHandles = {};
                 cmdList->SetSubmitRange({ 0, 0 });
 
                 if (funcs.m_executeFunction)
@@ -645,10 +650,10 @@ namespace Spark::Render
     void SubmitDrawBatch(ExecuteWork& work, RenderGraphExecuter&)
     {
         auto& rhiContext = *RHI::RHIExecuteContext::Current();
-        for (size_t i = 0; i < work.m_drawHandles.size(); ++i)
+        for (size_t i = 0; i < work.m_itemHandles.size(); ++i)
         {
             work.m_commandList->Submit(
-                rhiContext.Get<RHI::DrawItem>(work.m_drawHandles[i]),
+                rhiContext.Get<RHI::DrawItem>(work.m_itemHandles[i]),
                 work.m_submitBase + static_cast<uint32_t>(i));
         }
     }

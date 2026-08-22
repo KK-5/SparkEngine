@@ -36,6 +36,8 @@
 namespace Spark::RHI
 {
     class Image;
+    class PipelineState;
+
     //! Supported operations for rendering predication.
     enum class PredicationOp : uint32_t
     {

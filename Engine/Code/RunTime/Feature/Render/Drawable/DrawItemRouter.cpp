@@ -211,7 +211,7 @@ namespace Spark::Render
             {
                 if (caps.m_accepts(*rhiCtx, e))
                 {
-                    caps.m_markDrawItem(*rhiCtx, e);
+                    caps.m_markSubmitItem(*rhiCtx, e);
                 }
             });
         });

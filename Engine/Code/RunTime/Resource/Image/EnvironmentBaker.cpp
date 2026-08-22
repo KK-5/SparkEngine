@@ -730,7 +730,6 @@ namespace Spark::Resource
             RHI::DispatchItem di;
             di.m_arguments = RHI::DispatchArguments(
                 RHI::DispatchDirect(faceSize, faceSize, kNumCubeFaces, 8, 8, 1));
-            di.m_pipelineState = m_pso.get();
             cmd->Submit(di);
         }
 
@@ -747,7 +746,6 @@ namespace Spark::Resource
             RHI::DispatchItem di;
             di.m_arguments = RHI::DispatchArguments(
                 RHI::DispatchDirect(dstSize, dstSize, kNumCubeFaces, 8, 8, 1));
-            di.m_pipelineState = m_cubeMipsPSO.get();
             cmd->Submit(di);
         }
 
@@ -963,7 +961,6 @@ namespace Spark::Resource
             RHI::DispatchItem di;
             di.m_arguments = RHI::DispatchArguments(
                 RHI::DispatchDirect(kIrradianceSize, kIrradianceSize, kNumCubeFaces, 8, 8, 1));
-            di.m_pipelineState = m_irradiancePSO.get();
             cmd->Submit(di);
         }
 
@@ -1196,7 +1193,6 @@ namespace Spark::Resource
             RHI::DispatchItem di;
             di.m_arguments = RHI::DispatchArguments(
                 RHI::DispatchDirect(dstSize, dstSize, kNumCubeFaces, 8, 8, 1));
-            di.m_pipelineState = m_prefilterPSO.get();
             cmd->Submit(di);
         }
 

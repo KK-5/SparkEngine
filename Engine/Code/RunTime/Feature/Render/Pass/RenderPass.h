@@ -104,9 +104,9 @@ namespace Spark::Render
         template<typename... DrawTags>
         RenderPassBuilder& Accepts()
         {
-            m_capabilities.m_accepts      = &AcceptDrawTags<DrawTags...>;
-            m_capabilities.m_markDrawItem = &MarkPassTag<PassTag>;
-            m_hasCapabilities             = true;
+            m_capabilities.m_accepts        = &AcceptDrawTags<DrawTags...>;
+            m_capabilities.m_markSubmitItem = &MarkPassTag<PassTag>;
+            m_hasCapabilities               = true;
             return *this;
         }
 
@@ -247,7 +247,7 @@ namespace Spark::Render
 
             if (m_hasCapabilities)
             {
-                m_capabilities.m_collectDrawItems = &CollectPassDrawItems<PassTag>;
+                m_capabilities.m_collectSubmitItems = &CollectPassItems<PassTag, RHI::DrawItem>;
                 m_context->Add<PassCapabilities>(pass, m_capabilities);
             }
 

@@ -428,7 +428,6 @@ int main(int, char**)
     {
         RHI::DispatchItem di;
         di.m_arguments = RHI::DispatchArguments(RHI::DispatchDirect(kSize, kSize, 1, 8, 8, 1));
-        di.m_pipelineState = pso.get();
         cmd->Submit(di);
     }
 
