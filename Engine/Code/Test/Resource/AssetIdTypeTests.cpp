@@ -55,3 +55,35 @@ TEST(AssetIdTypeTest, DefaultIdHasNoType)
     EXPECT_EQ(id.GetAssetType(), AssetType::Unknown);
     EXPECT_FALSE(id.IsValid());
 }
+
+// operator== reads the fields rather than trusting the 32-bit digest, so these pin the
+// value semantics: same inputs compare equal, any differing field compares unequal.
+TEST(AssetIdEqualityTest, IdenticalInputsCompareEqual)
+{
+    EXPECT_EQ(AssetId::Of<ImageAsset>("test://Asset/a.png"),
+              AssetId::Of<ImageAsset>("test://Asset/a.png"));
+    EXPECT_EQ(AssetId::OfSub<ImageAsset>("test://Asset/a.glb", "image/3"),
+              AssetId::OfSub<ImageAsset>("test://Asset/a.glb", "image/3"));
+    EXPECT_EQ(AssetId(), AssetId());
+}
+
+TEST(AssetIdEqualityTest, EveryFieldSeparates)
+{
+    const AssetId base = AssetId::OfSub<ImageAsset>("test://Asset/a.glb", "image/3");
+
+    EXPECT_NE(base, AssetId::OfSub<ImageAsset>("test://Asset/b.glb", "image/3"));
+    EXPECT_NE(base, AssetId::OfSub<ImageAsset>("test://Asset/a.glb", "image/4"));
+    EXPECT_NE(base, AssetId::Of<ImageAsset>("test://Asset/a.glb"));
+
+    ImageAssetDescriptor desc;
+    desc.maxMipLevels = 4;
+    EXPECT_NE(base, AssetId::OfSub<ImageAsset>("test://Asset/a.glb", "image/3", desc));
+}
+
+TEST(AssetIdEqualityTest, NotEqualIsTheNegationOfEqual)
+{
+    const AssetId a = AssetId::Of<ImageAsset>("test://Asset/a.png");
+    const AssetId b = AssetId::Of<ModelAsset>("test://Asset/a.glb");
+    EXPECT_TRUE(a != b);
+    EXPECT_FALSE(a != a);
+}

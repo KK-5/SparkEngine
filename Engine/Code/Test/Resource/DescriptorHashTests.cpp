@@ -26,11 +26,10 @@ namespace
     }
 }
 
-// AssetId::operator== compares hashes alone, so two descriptors that hash alike are the
-// same descriptor as far as the engine is concerned. Before the type seed was folded in,
-// ModelAssetType::GLTF and ShaderBackend::SPIRV both hashed their bare value of 1 and
-// collided -- harmless only because their paths differ. A disk cache keyed on the id would
-// have made that permanent.
+// The descriptor hash is the one part of an AssetId that operator== still leaves to the
+// hash, so descriptors that hash alike are indistinguishable. Before the type seed was
+// folded in, ModelAssetType::GLTF and ShaderBackend::SPIRV both hashed their bare value
+// of 1 and collided.
 TEST(DescriptorHashTest, DescriptorsOfDifferentTypesDoNotCollide)
 {
     const auto all = AllCanonicalDescriptors();

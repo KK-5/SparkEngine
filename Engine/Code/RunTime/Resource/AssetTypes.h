@@ -22,11 +22,8 @@ namespace Spark::Resource
     };
 
     /// Per-asset-type compile-time configuration (compression, mip count, ...).
-    /// Concrete derived types provide field storage and implement Hash() over
-    /// those fields. Equals is hash-based: two descriptors are equal iff their
-    /// hashes are equal. In practice an AssetId never carries cross-type
-    /// descriptors against the same path, so cross-type hash collisions cannot
-    /// reach Equals.
+    /// Concrete derived types provide field storage and implement Hash() over those
+    /// fields. Hash() exists to feed AssetId's identity hash and has no other consumer.
     class AssetDescriptor : public Object
     {
     public:
@@ -41,8 +38,6 @@ namespace Spark::Resource
         AssetDescriptor& operator=(const AssetDescriptor&) { return *this; }
 
         virtual AssetHash Hash() const = 0;
-
-        bool Equals(const AssetDescriptor& other) const { return Hash() == other.Hash(); }
     };
 
     //! Fires when a path is not of the form `mount://relative`, or when a non-empty path
@@ -107,9 +102,19 @@ namespace Spark::Resource
             return AssetId(path, subLabel, type, eastl::move(descriptor));
         }
 
-        bool operator==(const AssetId& other) const { return m_hash == other.m_hash; }
-        bool operator!=(const AssetId& other) const { return m_hash != other.m_hash; }
-        bool operator<(const AssetId& other) const  { return m_hash < other.m_hash; }
+        //! m_hash is a 32-bit digest, so it is the cheap reject and never the verdict:
+        //! at ten thousand assets the odds of some pair colliding are around one percent,
+        //! and a cache keyed on the id would persist whichever asset lost. The descriptor
+        //! is left to the hash -- once path, sub-label and type all match by value, what
+        //! remains is one file's own handful of descriptor variants.
+        bool operator==(const AssetId& other) const
+        {
+            return m_hash     == other.m_hash
+                && m_type     == other.m_type
+                && m_path     == other.m_path
+                && m_subLabel == other.m_subLabel;
+        }
+        bool operator!=(const AssetId& other) const { return !(*this == other); }
 
         AssetHash              GetHash() const        { return m_hash; }
         const eastl::string&   GetPath() const        { return m_path; }

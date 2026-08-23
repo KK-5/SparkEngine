@@ -69,11 +69,13 @@ glTF 外部 URI 改为词法解析。
 3. **`AssetId` 的持久化形式是 JSON 复合对象。** 单一字符串仅作单向显示形式（log、Inspector 只读框），
    不用于解析。第一版不提供「全默认值退化成裸字符串」的短形式。
 4. **资产类型是身份的一部分，由 `AssetId` 携带。** 见阶段 0.b。
-5. **descriptor 按字段序列化，走反射。** 见阶段 0.c。
-6. **材质走子资产路线**（阶段 3）——glTF 内嵌材质由 `ModelAssetBuilder` publish 成
+5. **`AssetId::operator==` 比实值，`AssetHash` 保持 32 位。** 哈希只做桶索引与快速否定；
+   descriptor 仍由哈希覆盖。`operator<` 与 `AssetDescriptor::Equals` 删除。
+6. **descriptor 按字段序列化，走反射。** 见阶段 0.c。
+7. **材质走子资产路线**（阶段 3）——glTF 内嵌材质由 `ModelAssetBuilder` publish 成
    `model.glb:material/0`，不给 `.smat` 另起结构。
-7. **JSON 使用 vendor 的 `nlohmann/json.hpp` 单头文件。**
-8. **挂载表独立成 `Core/VFS/` 模块**，namespace `Spark`。接口 `FileSystem`，实现 `MountTable`，
+8. **JSON 使用 vendor 的 `nlohmann/json.hpp` 单头文件。**
+9. **挂载表独立成 `Core/VFS/` 模块**，namespace `Spark`。接口 `FileSystem`，实现 `MountTable`，
    系统 `VFSSystem`。
 
 ---
@@ -306,12 +308,6 @@ prefiltered 两个子资产。environment 的缓存项必须是三个 blob 的 b
 
 ## 待决
 
-**`AssetHash` 是 32 位，且 `AssetTypes.h:91` 的 `operator==` 只比哈希不比路径。** 两个选项，
-**阶段 1 之前必须定**（缓存把 id 当磁盘键，撞一次就是永久错数据）：
-
-- `AssetHash` 提到 64 位；
-- 或 `operator==` 退回比 `(path, subLabel, descHash)` 实值，哈希只做桶索引。
-
 **`DescriptorForUsage` 交出可变的共享单例。** 收紧办法是返回 `ConstPtr<AssetDescriptor>`，
 波及 `AssetId::Of` 的签名，单独一步做。
 
@@ -335,4 +331,4 @@ prefiltered 两个子资产。environment 的缓存项必须是三个 blob 的 b
 
 ## 下一步
 
-阶段 0.c，或先做只依赖已完成部分的阶段 1。两者之前都要先定「待决」里的 32 位哈希。
+阶段 0.c，或先做只依赖已完成部分的阶段 1。
