@@ -22,7 +22,9 @@
 glTF 外部 URI 改为词法解析。
 
 **阶段 0.b（`AssetId` 携带类型）已完成。** 类型现为身份的一部分，`Asset::m_type` 与
-`AssetBuildContext::type` 两个副本已删除。其余全部未开工。
+`AssetBuildContext::type` 两个副本已删除。
+
+**阶段 1（磁盘缓存）已定方案，未开工**，是当前的下一步。其余全部未开工。
 
 另有两项已随 0.a 落地：
 
@@ -110,7 +112,8 @@ Engine/Code/RunTime/Core/VFS/
 `GetPhysicalDirs` / `IterateDirectory`。`ToPhysical` 是查表不是搜索；`Mount` 拒绝物理目录相互
 包含的挂载点，因此至多一个挂载点能命中一个物理路径。
 
-阶段 1 会在同一接口上追加 `ReadFile` / `WriteFile` / `Exists`。
+阶段 1 会在同一接口上追加 `ReadFile` / `WriteFile` / `Exists` / `FileStamp`，并新增
+可写的 `cache://` 挂载。
 
 #### 挂载点
 
@@ -237,24 +240,88 @@ descriptor 自身不写类型标签——类型由 `AssetId` 的 `type` 字段�
 
 ## 阶段 1：磁盘 cook 缓存
 
-> 大致方向。依赖 0.b（catalog 需要类型）。
+> 已定方案，未开工。依赖 0.a、0.b。
 
-在 `AssetBuildContext` 上加两个字段（与已有的 `db` 同构）：预先算好的 `cacheKey` 和一个
-`AssetCache*`。Builder 在自己的 `Load` 开头试读缓存，命中就填 `ctx.compiledData`，走
-`AssetManager.cpp:281` 已有的契约，状态机不动。
+### 接入点
 
-- **key** = hash(`AssetId::GetHash()` + 源文件 mtime/size + per-type builder 版本号)。
-- **落盘**：`Cache/<hh>/<key>.blob`，blob 头部复写 key 的输入做自校验。
-- **实现顺序**：Image → Shader → Model。
+`AssetBuildBus` 加 `Serialize` / `Deserialize` 两个事件，缓存流程归 `AssetManager::ProcessAsset`：
 
-**⚠️ 硬约束：** 跳过 Compile 会跳掉它的副作用。环境立方图在 Compile 里 publish irradiance /
-prefiltered 两个子资产。environment 的缓存项必须是三个 blob 的 bundle，命中时由
-`ImageAssetBuilder` 整体重新 publish。同时 `AssembleCubemapData` 的 `m_mips` 现在只是 base-mip
-占位（描述不了 face-major 布局），做 cubemap 缓存时一并修。
+```
+命中 → Deserialize(ctx) 填 compiledData → Load 与 Compile 全跳过
+未命中 → Load → Compile → Serialize(ctx) → 写盘
+```
 
-**不做：** 内存驻留淘汰。只加一个手动 `PurgeUnreferenced()`。
+缓存**策略**（键怎么算、什么时候回写）在一处；builder 只负责自己的**格式**。
 
-**待细化：** 缓存目录是否做成 `cache://` 挂载；失效/清理入口；Model blob 格式。
+### 缓存键
+
+64 位，独立于 `AssetHash`——身份比较有实值兜底，缓存键没有。
+
+```
+key = H64(path, subLabel, type, descHash, sourceStamp, builderVersion)
+```
+
+`sourceStamp` = 源文件 mtime + size。shader 额外折进每个 include 依赖的 mtime
+（`ShaderAssetData::m_dependencies` 编译时已在记录）。
+
+`builderVersion` 是每类一个手写常量，改编译器时手动 bump，并折进构建配置——Debug 与 Release
+的引擎若产出不同 blob 不会串味。
+
+mtime 与 builderVersion 都是键的输入，所以源文件一改键就变、旧文件查不到：**过期不需要判定**。
+代价是孤儿文件累积，靠手动 `PurgeUnreferenced()` 清。
+
+### 落盘
+
+```
+Cache/
+    3f/  3fa9c2b81d4e6075.ktx2     图片
+    a7/  a72b0f4c19e6d385.blob     shader / model
+```
+
+仓库根 `Cache/`，进 `.gitignore`，挂成 `cache://`——缓存读写走 `FileSystem`，不另开物理路径通道。
+`AssetRegistry` 会遍历到它，`.blob` / `.ktx2` 之外的判定由 `GetSupportAssetType` 兜住。
+
+一级十六进制分片 = 256 个目录；文件名是键的十六进制。不建索引：存在性是一次 `Exists`，
+正确性由文件自身证明，要列举时扫目录。
+
+**载荷格式按类型定，不统一套壳：**
+
+| 类型 | 文件 | 说明 |
+|---|---|---|
+| Image | `.ktx2` | `SerializeToKtx2` / `LoadKtx2` 现成，且能直接用贴图查看器打开 |
+| Shader | `.blob` | backend + 每 stage 的 entryPoint/bytecode + `ShaderStageReflection` |
+| Model | `.blob` | mesh / node / material / bounds |
+
+文件内只存**身份四项**（path / subLabel / type / descHash）防键碰撞：图片放 libktx 的 KV 段
+（`ktxHashList_AddKVPair` / `ktxHashList_FindValue`），blob 放自定义头。一个 `CacheStamp`
+结构，两个编码器。
+
+写盘先写 `<key>.tmp` 再 rename，两类文件都要——否则写到一半崩溃会留下能骗过校验的截断文件。
+
+### 子资产
+
+环境立方图的 sky / irradiance / prefiltered 各有自己的 `AssetId`，因而各有自己的键、各是一个
+独立缓存项。父资产命中时 `Deserialize` 按子资产各自的键查到并 publish；**缺任何一个就整体当
+未命中重新烘**。
+
+### 实现步骤
+
+1. **骨架 + Image 2D。** `FileSystem` 加 `ReadFile` / `WriteFile` / `Exists` /
+   `FileStamp`；`cache://` 挂载；`Resource/Cache/AssetCache`（键、读写、原子写、`CacheStamp`）；
+   两个 bus 事件与 `ProcessAsset` 接入；`ImageAssetBuilder` 的 2D 路径直接接现成的 ktx2 两头；
+   `AssetTest` fixture 挂独立临时目录到 `cache://`。
+2. **Shader。** blob 格式 + include 依赖折进键。
+3. **Image cubemap。** `m_mips` 改成能描述 face-major 布局（现为 base-mip 占位）；
+   `SerializeToKtx2` 支持 `numFaces=6` 并遍历 face/layer，`LoadKtx2` 对应读回。
+4. **Model。** blob 格式；图片引用不写 `AssetId`，写重建所需的最小信息（外部 URI 字符串或
+   内嵌下标 + `ImageUsage`），加载时用 `MakeSubId` / `Of<ImageAsset>` 重建——因此 Model 缓存
+   不依赖 0.c。
+
+### 不做
+
+内存驻留淘汰、自动过期清理、后台异步写盘（worker 线程同步写）。
+
+**测试用独立缓存目录**：共用会让测试之间产生顺序依赖，陈旧缓存能掩盖真实的编译 bug。
 
 ---
 
@@ -321,7 +388,7 @@ prefiltered 两个子资产。environment 的缓存项必须是三个 blob 的 b
 ```
 阶段 0.a（VFS 挂载点 / 虚拟路径）✅
    └──► 阶段 0.b（AssetId 携带 AssetType）✅
-           ├──► 阶段 1（磁盘缓存）          ← catalog 需要类型
+           ├──► 阶段 1（磁盘缓存）          ← 键需要类型，已定方案
            └──► 阶段 0.c（反射序列化器 + descriptor 反射）
                    └──► 阶段 0.d（AssetId 复合形式）
                            ├──► 阶段 2（序列化器铺到组件）
@@ -331,4 +398,4 @@ prefiltered 两个子资产。environment 的缓存项必须是三个 blob 的 b
 
 ## 下一步
 
-阶段 0.c，或先做只依赖已完成部分的阶段 1。
+阶段 1 的实现步骤 1：缓存骨架 + Image 2D。
