@@ -1,10 +1,10 @@
 #include "CommonAssetLoader.h"
 
+#include <filesystem>
 #include <fstream>
 
-#include <Resource/AssetBuildContext.h>
-
 #include <Log/ILogSystem.h>
+#include <VFS/FileSystem.h>
 
 namespace Spark::Resource
 {
@@ -17,17 +17,7 @@ namespace Spark::Resource
 
     // ---- BinaryAssetLoader ----
 
-    eastl::string BinaryAssetLoader::ResolvePathStr(eastl::string_view path) const
-    {
-        return ResolveAssetPath(path, m_searchPaths);
-    }
-
-    eastl::string BinaryAssetLoader::ResolvePath(const AssetId& id) const
-    {
-        return ResolvePathStr(id.GetPath());
-    }
-
-    eastl::unique_ptr<AssetData> BinaryAssetLoader::ReadResolved(eastl::string resolvedPath) const
+    eastl::unique_ptr<AssetData> BinaryAssetLoader::LoadPhysicalFile(eastl::string resolvedPath) const
     {
         std::ifstream file(resolvedPath.c_str(), std::ios::binary | std::ios::ate);
         if (!file.is_open())
@@ -45,24 +35,14 @@ namespace Spark::Resource
         return eastl::make_unique<BinaryAssetData>(eastl::move(bytes), eastl::move(resolvedPath));
     }
 
-    eastl::unique_ptr<AssetData> BinaryAssetLoader::Load(const AssetId& id)
+    eastl::unique_ptr<AssetData> BinaryAssetLoader::Load(const AssetId& id,
+                                                        const FileSystem& fileSystem)
     {
-        eastl::string path = ResolvePath(id);
+        eastl::string path = fileSystem.ToPhysical(id.GetPath());
         if (path.empty())
         {
-            LOG_ERROR("Asset file not found: {}", id.GetPath().c_str());
             return nullptr;
         }
-        return ReadResolved(eastl::move(path));
-    }
-
-    eastl::unique_ptr<AssetData> BinaryAssetLoader::LoadFile(eastl::string_view path) const
-    {
-        eastl::string resolved = ResolvePathStr(path);
-        if (resolved.empty())
-        {
-            return nullptr;
-        }
-        return ReadResolved(eastl::move(resolved));
+        return LoadPhysicalFile(eastl::move(path));
     }
 }

@@ -37,6 +37,12 @@ namespace Spark::Resource
         bool Equals(const AssetDescriptor& other) const { return Hash() == other.Hash(); }
     };
 
+    //! Fires when a path is not of the form `mount://relative`. An AssetId built from a
+    //! bare path resolves to nothing, and would otherwise only surface as a load failure
+    //! far from the call site that made it. Defined out of line to keep the log headers
+    //! out of everything that includes this one.
+    void ValidateAssetPath(const eastl::string& path);
+
     class AssetId
     {
     public:
@@ -110,7 +116,9 @@ namespace Spark::Resource
             , m_subLabel(subLabel.data(), subLabel.size())
             , m_descriptor(eastl::move(descriptor))
             , m_hash(ComputeHash(m_path, m_subLabel, m_descriptor.get()))
-        {}
+        {
+            ValidateAssetPath(m_path);
+        }
 
         static AssetHash ComputeHash(const eastl::string& path, const eastl::string& subLabel,
                                      const AssetDescriptor* desc)

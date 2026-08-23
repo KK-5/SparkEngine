@@ -71,8 +71,7 @@ namespace Spark::Resource
     void ShaderAssetBuilder::Load(AssetBuildContext& ctx)
     {
         ASSERT(ctx.type == AssetType::Shader, "[ShaderAssetBuilder] ctx.type mismatch");
-        m_loader.SetSearchPaths(ctx.searchPaths);
-        ctx.rawData = m_loader.Load(ctx.id);
+        ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem);
     }
 
     void ShaderAssetBuilder::Compile(AssetBuildContext& ctx)
@@ -99,6 +98,6 @@ namespace Spark::Resource
         }
 
         ctx.compiledData = m_compiler.Compile(
-            ctx.id, *ctx.rawData, ctx.searchPaths, descriptor);
+            ctx.id, *ctx.rawData, *ctx.fileSystem, descriptor);
     }
 }

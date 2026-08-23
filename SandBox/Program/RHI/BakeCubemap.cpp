@@ -16,6 +16,7 @@
 #include <RHI/Backend/DX12/RHISystem.h>
 
 #include <Resource/AssetManager.h>
+#include <VFS/VFSSystem.h>
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Image/ImageAssetLoader.h>
@@ -280,11 +281,14 @@ int main(int, char**)
         return 1;
     }
 
-    // --- AssetManager: search paths so the baker's Init can resolve its compute shaders ---
+    // --- Mounts so the baker's Init can resolve its compute shaders ---
+    auto fileSystem = CreateSystem<VFSSystem>();
+    fileSystem->Init();
+    fileSystem->Mount("engine", ENGINE_ASSET_DIR);   // "engine://Shaders/Image/*.hlsl"
+    fileSystem->Mount("sandbox", SHADER_ASSET_DIR);  // SandBox/Asset (the HDRI)
+
     auto assetManager = CreateSystem<Resource::SparkAssetManager>();
     assetManager->Init();
-    assetManager->AddSearchPath(ENGINE_ASSET_DIR); // "Shaders/Image/*.hlsl"
-    assetManager->AddSearchPath(SHADER_ASSET_DIR); // SandBox/Asset (the HDRI)
 
     // --- Standalone baker: own its PSOs / queue / pools, drive Bake() directly ---
     Resource::EnvironmentBaker baker;
@@ -296,13 +300,12 @@ int main(int, char**)
 
     // --- Load the equirect HDRI as raw pixels (RGBAF32) --- 
     auto* am = Service<Resource::AssetManager>::Get();
-    // Resource::AssetId cubeId = am->MakeAssetId("Image/Table_Defringed_4k2k.hdr");
-    Resource::AssetId cubeId = am->MakeAssetId("Image/cobblestone_parish_road_2k.hdr");
+    // Resource::AssetId cubeId = am->MakeAssetId("engine://Image/Table_Defringed_4k2k.hdr");
+    Resource::AssetId cubeId = am->MakeAssetId("engine://Image/cobblestone_parish_road_2k.hdr");
 
     Resource::ImageAssetLoader loader;
-    loader.SetSearchPaths({ ENGINE_ASSET_DIR, SHADER_ASSET_DIR });
     bool isCompiled = false;
-    UniquePtr<Resource::AssetData> rawData = loader.Load(cubeId, isCompiled);
+    UniquePtr<Resource::AssetData> rawData = loader.Load(cubeId, *fileSystem, isCompiled);
     if (!rawData || isCompiled)
     {
         LOG_ERROR("[BakeCubemap] Failed to load the equirect HDRI as raw pixels.");

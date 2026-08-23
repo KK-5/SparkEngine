@@ -15,6 +15,7 @@
 #include <Resource/Asset.h>
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/AssetManager.h>
+#include <VFS/VFSSystem.h>
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderAssetCompiler.h>
 #include <Resource/Common/CommonAssetLoader.h>
@@ -60,6 +61,7 @@ namespace Spark::SandBox
         // 依赖成员声明顺序管理生命周期
         UniquePtr<ILogSystem> m_logger;
         SystemUniquePtr<Spark::RHI::RHIInterface> m_rhi;
+        SystemUniquePtr<Spark::VFSSystem>                   m_fileSystem;
         SystemUniquePtr<Spark::Resource::SparkAssetManager> m_assetManager;
 
         SystemUniquePtr<SimpleGlfwWindow> m_glfwWindow;
@@ -111,9 +113,12 @@ namespace Spark::SandBox
             LOG_ERROR("Get RHI Factory failed");
         }
 
+        m_fileSystem = CreateSystem<Spark::VFSSystem>();
+        m_fileSystem->Init();
+        m_fileSystem->Mount("sandbox", SHADER_ASSET_DIR);
+
         m_assetManager = CreateSystem<Spark::Resource::SparkAssetManager>();
         m_assetManager->Init();
-        m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
     }
 
     void HelloTriangle::CreateDevice()
@@ -228,7 +233,7 @@ namespace Spark::SandBox
         desc.m_renderStates.m_depthStencilState.m_stencil.m_enable = false;
 
         // shader
-        Resource::AssetId shaderId = Resource::AssetId::Of<Resource::ShaderAsset>("Shader/SimpleTriangle.hlsl");
+        Resource::AssetId shaderId = Resource::AssetId::Of<Resource::ShaderAsset>("sandbox://Shader/SimpleTriangle.hlsl");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
         Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);

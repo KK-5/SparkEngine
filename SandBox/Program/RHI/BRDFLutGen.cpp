@@ -43,6 +43,7 @@
 #include <RHI/Backend/DX12/RHISystem.h>
 
 #include <Resource/AssetManager.h>
+#include <VFS/VFSSystem.h>
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Shader/ShaderAsset.h>
@@ -155,7 +156,7 @@ namespace
     {
         auto* am = Service<Resource::AssetManager>::Get();
         Ptr<Resource::Asset> asset = am->LoadAsset(
-            am->MakeAssetId("Image/BRDFLut.ktx2"), Resource::AssetType::Image);
+            am->MakeAssetId("engine://Image/BRDFLut.ktx2"), Resource::AssetType::Image);
         if (!asset || !asset->IsReady())
         {
             LOG_ERROR("[BRDFLutGen] round trip: the LUT asset is not Ready.");
@@ -233,13 +234,16 @@ int main(int, char**)
     auto* device  = rhi->GetDevice();
 
     // --- AssetManager: only needed to resolve + compile the bake shader ---
+    auto fileSystem = CreateSystem<VFSSystem>();
+    fileSystem->Init();
+    fileSystem->Mount("engine", ENGINE_ASSET_DIR);
+
     auto assetManager = CreateSystem<Resource::SparkAssetManager>();
     assetManager->Init();
-    assetManager->AddSearchPath(ENGINE_ASSET_DIR);
 
     auto* am = Service<Resource::AssetManager>::Get();
     Ptr<Resource::ShaderAsset> shader = am->LoadAsset<Resource::ShaderAsset>(
-        Resource::AssetId::Of<Resource::ShaderAsset>("Shaders/Image/BRDFLutBake.hlsl"));
+        Resource::AssetId::Of<Resource::ShaderAsset>("engine://Shaders/Image/BRDFLutBake.hlsl"));
     if (!shader || shader->GetStatus() != Resource::AssetStatus::Ready)
     {
         LOG_ERROR("[BRDFLutGen] Failed to load BRDFLutBake.hlsl.");

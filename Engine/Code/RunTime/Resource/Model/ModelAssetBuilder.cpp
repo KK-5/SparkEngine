@@ -34,8 +34,7 @@ namespace Spark::Resource
         void DispatchImageSubAsset(AssetBuildContext& parentCtx,
                                    AssetId subId,
                                    const uint8_t* sourceData,
-                                   size_t sourceSize,
-                                   eastl::vector<eastl::string> extraSearchPaths)
+                                   size_t sourceSize)
         {
             ASSERT(parentCtx.db != nullptr,
                 "[ModelAssetBuilder] parent ctx.db not set; cannot dispatch sub-asset");
@@ -66,10 +65,6 @@ namespace Spark::Resource
             AssetBuildContext child = parentCtx.MakeChild(subId, AssetType::Image);
             child.sourceData = sourceData;
             child.sourceSize = sourceSize;
-            for (auto& p : extraSearchPaths)
-            {
-                child.searchPaths.insert(child.searchPaths.begin(), eastl::move(p));
-            }
 
             // 4. Load
             stored->SetStatus(AssetStatus::Loading);
@@ -124,8 +119,7 @@ namespace Spark::Resource
     void ModelAssetBuilder::Load(AssetBuildContext& ctx)
     {
         ASSERT(ctx.type == AssetType::Model, "[ModelAssetBuilder] ctx.type mismatch");
-        m_loader.SetSearchPaths(ctx.searchPaths);
-        ctx.rawData = m_loader.Load(ctx.id);
+        ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem);
     }
 
     void ModelAssetBuilder::Compile(AssetBuildContext& ctx)
@@ -140,13 +134,6 @@ namespace Spark::Resource
 
         auto& raw      = static_cast<ModelAssetRawData&>(*ctx.rawData);
         auto& compiled = static_cast<ModelAssetData&>(*ctx.compiledData);
-
-        eastl::string modelDir;
-        {
-            auto parent = std::filesystem::path(compiled.GetResolvedPath().c_str())
-                .parent_path().string();
-            modelDir.assign(parent.c_str(), parent.size());
-        }
 
         // Per-image usage, driven by the material slot that references each image. glTF
         // declares the slot (baseColorTexture / normalTexture / ...), so this reads a
@@ -188,7 +175,6 @@ namespace Spark::Resource
             AssetId subId;
             const uint8_t* src = nullptr;
             size_t srcSize = 0;
-            eastl::vector<eastl::string> extra;
 
             if (!entry.data.empty())
             {
@@ -200,18 +186,24 @@ namespace Spark::Resource
             }
             else
             {
-                subId = AssetId::Of(
-                    eastl::string_view(entry.externalUri.c_str(), entry.externalUri.size()),
-                    ImageAsset::DescriptorForUsage(usage));
-                if (!modelDir.empty())
+                // The URI is relative to the glTF file, so it resolves against the parent's
+                // virtual directory. Purely lexical -- no directory joins the search.
+                const eastl::string uri = ResolveSiblingVirtualPath(
+                    ctx.id.GetPath(),
+                    eastl::string_view(entry.externalUri.c_str(), entry.externalUri.size()));
+                if (uri.empty())
                 {
-                    extra.push_back(modelDir);
+                    compiled.m_imageAssetIds.push_back(AssetId{});
+                    continue;
                 }
+                subId = AssetId::Of(
+                    eastl::string_view(uri.c_str(), uri.size()),
+                    ImageAsset::DescriptorForUsage(usage));
             }
 
             compiled.m_imageAssetIds.push_back(subId);
 
-            DispatchImageSubAsset(ctx, eastl::move(subId), src, srcSize, eastl::move(extra));
+            DispatchImageSubAsset(ctx, eastl::move(subId), src, srcSize);
         }
 
         auto resolveImageId = [&](int32_t imageIndex) -> AssetId

@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <Resource/AssetManager.h>
+#include <VFS/MountTable.h>
+#include <VFS/VFSSystem.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Model/ModelAssetLoader.h>
@@ -9,21 +11,35 @@
 using namespace Spark;
 using namespace Spark::Resource;
 
+// Both mounts the Resource tests need. Kept non-overlapping: IMAGE_ASSET_DIR used to nest
+// inside ENGINE_ASSET_DIR, and MODEL_ASSET_DIR inside TEST_RESOURCE_DIR, which the mount
+// table now rejects.
+static void SetUpMounts(Spark::FileSystem& table)
+{
+    table.Mount("engine", ENGINE_ASSET_DIR);
+    table.Mount("test", TEST_RESOURCE_DIR);
+}
+
 class ModelAssetTestFixture : public ::testing::Test
 {
 protected:
     void SetUp() override
     {
+        m_vfs = CreateSystem<VFSSystem>();
+        m_vfs->Init();
+        SetUpMounts(*m_vfs);
+
         m_assetManager = CreateSystem<SparkAssetManager>();
         m_assetManager->Init();
-        m_assetManager->AddSearchPath(MODEL_ASSET_DIR);
     }
 
     void TearDown() override
     {
         m_assetManager.reset();
+        m_vfs.reset();
     }
 
+    SystemUniquePtr<VFSSystem>         m_vfs;
     SystemUniquePtr<SparkAssetManager> m_assetManager;
 };
 
@@ -31,24 +47,24 @@ protected:
 
 TEST(ModelAssetLoaderTest, LoadMissingFileReturnsNull)
 {
-    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ModelAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
-    AssetId id = AssetId::Of<ModelAsset>("non_existent.glb");
-    EXPECT_EQ(loader.Load(id), nullptr);
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/non_existent.glb");
+    EXPECT_EQ(loader.Load(id, fileSystem), nullptr);
 }
 
 TEST(ModelAssetLoaderTest, LoadCubeGLB)
 {
-    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ModelAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
-    AssetId id = AssetId::Of<ModelAsset>("Cube.glb");
-    auto data = loader.Load(id);
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
+    auto data = loader.Load(id, fileSystem);
     ASSERT_NE(data, nullptr);
 
     auto* modelData = static_cast<ModelAssetRawData*>(data.get());
@@ -107,13 +123,13 @@ TEST(ModelAssetLoaderTest, LoadCubeGLB)
 
 TEST(ModelAssetLoaderTest, LoadCubeGLBHasNodes)
 {
-    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ModelAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
-    AssetId id = AssetId::Of<ModelAsset>("Cube.glb");
-    auto data = loader.Load(id);
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
+    auto data = loader.Load(id, fileSystem);
     ASSERT_NE(data, nullptr);
 
     auto* modelData = static_cast<ModelAssetRawData*>(data.get());
@@ -133,13 +149,13 @@ TEST(ModelAssetLoaderTest, LoadCubeGLBHasNodes)
 
 TEST(ModelAssetCompilerTest, CompileCube)
 {
-    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ModelAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
-    AssetId id = AssetId::Of<ModelAsset>("Cube.glb");
-    auto rawData = loader.Load(id);
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
+    auto rawData = loader.Load(id, fileSystem);
     ASSERT_NE(rawData, nullptr);
 
     auto* rawModel = static_cast<ModelAssetRawData*>(rawData.get());
@@ -192,7 +208,7 @@ TEST(ModelAssetCompilerTest, CompileCube)
 
 TEST_F(ModelAssetTestFixture, LoadModelAssetSync)
 {
-    AssetId id = AssetId::Of<ModelAsset>("Cube.glb");
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Model);
 
     ASSERT_NE(asset, nullptr);
@@ -208,7 +224,7 @@ TEST_F(ModelAssetTestFixture, LoadModelAssetSync)
 
 TEST_F(ModelAssetTestFixture, LoadSameModelReturnsCached)
 {
-    AssetId id = AssetId::Of<ModelAsset>("Cube.glb");
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
     Ptr<Asset> asset1 = m_assetManager->LoadAsset(id, AssetType::Model);
     Ptr<Asset> asset2 = m_assetManager->LoadAsset(id, AssetType::Model);
 
@@ -218,7 +234,7 @@ TEST_F(ModelAssetTestFixture, LoadSameModelReturnsCached)
 
 TEST_F(ModelAssetTestFixture, LoadNonExistentModelReturnsError)
 {
-    AssetId id = AssetId::Of<ModelAsset>("non_existent.glb");
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/non_existent.glb");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Model);
 
     ASSERT_NE(asset, nullptr);
@@ -227,7 +243,7 @@ TEST_F(ModelAssetTestFixture, LoadNonExistentModelReturnsError)
 
 TEST_F(ModelAssetTestFixture, FindAssetBeforeLoadReturnsNull)
 {
-    AssetId id = AssetId::Of<ModelAsset>("Cube.glb");
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
     Ptr<Asset> asset = m_assetManager->FindAsset(id);
     EXPECT_EQ(asset, nullptr);
 }
@@ -236,13 +252,13 @@ TEST_F(ModelAssetTestFixture, FindAssetBeforeLoadReturnsNull)
 
 TEST(ModelAssetLoaderTest, LoadCubeTexturedGLB_HasEmbeddedImage)
 {
-    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ModelAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
-    AssetId id = AssetId::Of<ModelAsset>("CubeTextured.glb");
-    auto data = loader.Load(id);
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
+    auto data = loader.Load(id, fileSystem);
     ASSERT_NE(data, nullptr);
 
     auto* model = static_cast<ModelAssetRawData*>(data.get());
@@ -259,13 +275,13 @@ TEST(ModelAssetLoaderTest, LoadCubeTexturedGLB_HasEmbeddedImage)
 
 TEST(ModelAssetLoaderTest, LoadCubeTexturedGLTF_HasExternalImage)
 {
-    eastl::vector<eastl::string> searchPaths = { MODEL_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ModelAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
-    AssetId id = AssetId::Of<ModelAsset>("CubeTextured.gltf");
-    auto data = loader.Load(id);
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.gltf");
+    auto data = loader.Load(id, fileSystem);
     ASSERT_NE(data, nullptr);
 
     auto* model = static_cast<ModelAssetRawData*>(data.get());
@@ -282,7 +298,7 @@ TEST(ModelAssetLoaderTest, LoadCubeTexturedGLTF_HasExternalImage)
 
 TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLB_DispatchesEmbeddedImage)
 {
-    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.glb");
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
     Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
 
     ASSERT_NE(modelAsset, nullptr);
@@ -304,7 +320,7 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLB_DispatchesEmbeddedImage)
 
     // 内嵌图的 subId 形态：(parentPath, "image/<index>/<name>")。索引恒在前是为了去重
     // ——glTF 允许多张图重名（或都为空名），只靠 name 会塌成同一个 AssetId。
-    EXPECT_EQ(imgId.GetPath(), "CubeTextured.glb");
+    EXPECT_EQ(imgId.GetPath(), "test://Asset/CubeTextured.glb");
     EXPECT_EQ(imgId.GetSubLabel(), "image/0/stone_wall_04_diff_1k");
 }
 
@@ -312,7 +328,7 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLB_DispatchesEmbeddedImage)
 
 TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
 {
-    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.gltf");
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.gltf");
     Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
 
     ASSERT_NE(modelAsset, nullptr);
@@ -325,8 +341,8 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
     const AssetId& imgId = modelData->GetImageAssetId(0);
     EXPECT_TRUE(imgId.IsValid());
 
-    // 外部图：subId 用相对 URI（顶层 asset 不是 sub）
-    EXPECT_EQ(imgId.GetPath(), "Textures/stone_wall_04_diff_1k.jpg");
+    // 外部图不是 sub，用的是把 glTF 相对 URI 词法解析到父模型虚拟目录下的结果
+    EXPECT_EQ(imgId.GetPath(), "test://Asset/Textures/stone_wall_04_diff_1k.jpg");
     EXPECT_FALSE(imgId.IsSubAsset());
 
     Ptr<Asset> imgAsset = m_assetManager->FindAsset(imgId);
@@ -341,7 +357,7 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
 
 TEST_F(ModelAssetTestFixture, CompiledModelCarriesResolvedMaterials)
 {
-    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.glb");
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
     Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
     ASSERT_NE(modelAsset, nullptr);
 
@@ -361,7 +377,7 @@ TEST_F(ModelAssetTestFixture, CompiledModelCarriesResolvedMaterials)
 
 TEST_F(ModelAssetTestFixture, ExternalImageDedupAcrossModelLoads)
 {
-    AssetId modelId = AssetId::Of<ModelAsset>("CubeTextured.gltf");
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.gltf");
 
     Ptr<Asset> first  = m_assetManager->LoadAsset(modelId, AssetType::Model);
     Ptr<Asset> second = m_assetManager->LoadAsset(modelId, AssetType::Model);

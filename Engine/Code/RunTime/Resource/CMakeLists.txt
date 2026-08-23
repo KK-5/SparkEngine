@@ -2,6 +2,7 @@ set(TARGET_NAME SparkAssetManager)
 
 set(SOURCES
     Asset.cpp
+    AssetTypes.cpp
     AssetBuildContext.cpp
     AssetDataBase.cpp
     AssetManager.cpp

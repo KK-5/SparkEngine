@@ -3,6 +3,8 @@
 #include <EASTL/algorithm.h>
 
 #include <Log/ILogSystem.h>
+#include <Service/Service.h>
+#include <VFS/FileSystem.h>
 #include "AssetDataBase.h"
 #include "AssetBuildContext.h"
 #include "Bus/AssetBuildBus.h"
@@ -22,6 +24,10 @@ namespace Spark::Resource
 
     void SparkAssetManager::InitInternal()
     {
+        m_fileSystem = Service<FileSystem>::Get();
+        ASSERT(m_fileSystem, "[SparkAssetManager] No FileSystem registered. Create VFSSystem "
+                             "and mount before Init.");
+
         // 先起 DataBase（内部仓储）
         m_db = CreateSystem<AssetDataBase>();
         m_db->Init();
@@ -62,10 +68,7 @@ namespace Spark::Resource
             std::lock_guard lock(m_queueMutex);
             m_pendingQueue.swap(eastl::queue<Asset*>());
         }
-        {
-            std::lock_guard lock(m_searchPathsMutex);
-            m_searchPaths.clear();
-        }
+        m_fileSystem = nullptr;
         m_db.reset();
     }
 
@@ -172,28 +175,6 @@ namespace Spark::Resource
         m_cv.notify_one();
     }
 
-    void SparkAssetManager::AddSearchPath(eastl::string_view path)
-    {
-        std::lock_guard lock(m_searchPathsMutex);
-        m_searchPaths.emplace_back(path.data(), path.size());
-    }
-
-    void SparkAssetManager::RemoveSearchPath(eastl::string_view path)
-    {
-        std::lock_guard lock(m_searchPathsMutex);
-        eastl::string pathStr(path.data(), path.size());
-        auto it = eastl::find(m_searchPaths.begin(), m_searchPaths.end(), pathStr);
-        if (it != m_searchPaths.end())
-        {
-            m_searchPaths.erase(it);
-        }
-    }
-
-    eastl::vector<eastl::string> SparkAssetManager::GetSearchPathes() const
-    {
-        return m_searchPaths;
-    }
-
     AssetType SparkAssetManager::GetSupportAssetType(eastl::string_view file)
     {
         eastl::string_view ext;
@@ -249,12 +230,6 @@ namespace Spark::Resource
         return m_imageBuilder->InitEnvironmentBaker();
     }
 
-    eastl::vector<eastl::string> SparkAssetManager::SnapshotSearchPaths() const
-    {
-        std::lock_guard lock(m_searchPathsMutex);
-        return m_searchPaths;
-    }
-
     void SparkAssetManager::ProcessThread()
     {
         while (true)
@@ -278,11 +253,21 @@ namespace Spark::Resource
 
     void SparkAssetManager::ProcessAsset(Asset& asset)
     {
+        // The one check: every builder below dereferences ctx.fileSystem, so nothing is
+        // dispatched without one.
+        if (!m_fileSystem)
+        {
+            LOG_ERROR("[SparkAssetManager] No FileSystem; cannot process {}",
+                asset.GetAssetId().GetPath());
+            asset.SetStatus(AssetStatus::Error);
+            return;
+        }
+
         AssetBuildContext ctx;
-        ctx.id          = asset.GetAssetId();
-        ctx.type        = asset.GetAssetType();
-        ctx.searchPaths = SnapshotSearchPaths();
-        ctx.db          = m_db.get();
+        ctx.id         = asset.GetAssetId();
+        ctx.type       = asset.GetAssetType();
+        ctx.fileSystem = m_fileSystem;
+        ctx.db         = m_db.get();
 
         asset.SetStatus(AssetStatus::Loading);
         AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Load, ctx);
@@ -317,8 +302,9 @@ namespace Spark::Resource
         AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetReady, asset);
     }
 
-    AssetId SparkAssetManager::MakeAssetIdForType(eastl::string_view path, AssetType type)
+    AssetId SparkAssetManager::MakeAssetIdForType(eastl::string_view virtualPath, AssetType type)
     {
+        const eastl::string_view path = virtualPath;
         switch (type)
         {
             case AssetType::Image:
@@ -344,55 +330,57 @@ namespace Spark::Resource
         }
     }
 
-    AssetId SparkAssetManager::MakeAssetId(eastl::string_view path)
+    AssetId SparkAssetManager::MakeAssetId(eastl::string_view virtualPath)
     {
-        AssetType type = GetSupportAssetType(path);
+        AssetType type = GetSupportAssetType(virtualPath);
         if (type == AssetType::Unknown)
         {
             return AssetId();
         }
 
-        eastl::string resolved = ResolveAssetPath(path, SnapshotSearchPaths());
-        if (resolved.empty())
+        // Existence is still checked here, so a bad path fails at the call site that wrote
+        // it rather than at load -- the same place the old search-path lookup failed.
+        if (!m_fileSystem || m_fileSystem->ToPhysical(virtualPath).empty())
         {
-            LOG_ERROR("[SparkAssetManager] File not found in any search path: {}", path);
+            LOG_ERROR("[SparkAssetManager] Cannot resolve: {}", virtualPath);
             return AssetId();
         }
 
-        return MakeAssetIdForType(resolved, type);
+        return MakeAssetIdForType(virtualPath, type);
     }
 
     void SparkAssetManager::AssetRegistry()
     {
-        namespace fs = std::filesystem;
-
-        for (const auto& searchPath : m_searchPaths)
+        if (!m_fileSystem)
         {
-            std::error_code ec;
-            if (!fs::exists(searchPath.c_str(), ec) || !fs::is_directory(searchPath.c_str(), ec))
+            return;
+        }
+
+        for (const eastl::string& mount : m_fileSystem->GetMountNames())
+        {
+            eastl::string root = mount;
+            root += "://";
+
+            m_fileSystem->IterateDirectory(root, [this](eastl::string_view virtualPath)
             {
-                continue;
-            }
+                const AssetType type = GetSupportAssetType(virtualPath);
+                if (type == AssetType::Unknown)
+                {
+                    return;
+                }
 
-            for (auto it = fs::recursive_directory_iterator(searchPath.c_str(), ec),
-                      end = fs::recursive_directory_iterator();
-                 it != end; it.increment(ec))
-            {
-                if (ec) { break; }
-                if (it->is_directory(ec)) { continue; }
+                AssetId id = MakeAssetIdForType(virtualPath, type);
+                if (!id.IsValid() || m_db->Find(id))
+                {
+                    return;
+                }
 
-                eastl::string filePath(it->path().generic_string().c_str());
-                AssetId id = MakeAssetId(filePath);
-                if (!id.IsValid()) { continue; }
-                if (m_db->Find(id)) { continue; }
-
-                AssetType type = GetSupportAssetType(filePath);
                 Ptr<Asset> asset = CreateAsset(id, type);
                 if (asset)
                 {
                     m_db->InsertOrGet(id, asset);
                 }
-            }
+            });
         }
     }
 }

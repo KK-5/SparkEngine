@@ -57,7 +57,7 @@ namespace Spark::Render
         constexpr const char* EnvIntensityName     = "g_EnvIntensity";
 
         //! Baked offline by SandBox BRDFLutGen and checked in; see BRDFLutBake.hlsl.
-        constexpr const char* BRDFLutAssetPath     = "Image/BRDFLut.ktx2";
+        constexpr const char* BRDFLutAssetPath     = "engine://Image/BRDFLut.ktx2";
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -68,7 +68,7 @@ namespace Spark::Render
         // SceneBindingsReflect.hlsl is a reflection host (#includes SceneBindings.hlsl + a
         // dummy vertex entry reading g_Lights / g_LightCount) so we can reflect the space0
         // layout here — mirrors ViewBindingSystem / ViewBindingsReflect.hlsl.
-        const Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/SceneBindingsReflect.hlsl");
+        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/SceneBindingsReflect.hlsl");
         if (!assetId.IsValid())
         {
             LOG_ERROR("[SceneBindingSystem] Failed to resolve SceneBindingsReflect.hlsl asset id.");
@@ -161,7 +161,7 @@ namespace Spark::Render
         const Resource::AssetId id = assetManager->MakeAssetId(BRDFLutAssetPath);
         if (!id.IsValid())
         {
-            LOG_ERROR("[SceneBindingSystem] '{}' not found in any search path; IBL will fall "
+            LOG_ERROR("[SceneBindingSystem] '{}' could not be resolved; IBL will fall "
                       "back to constant ambient. Regenerate it with the BRDFLutGen tool.",
                       BRDFLutAssetPath);
             return;

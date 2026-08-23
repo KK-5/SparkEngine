@@ -28,7 +28,7 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "AssetManager is unregister.");
 
-        Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/Tonemap/Tonemap.hlsl");
+        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/Tonemap/Tonemap.hlsl");
         if (!assetId.IsValid())
         {
             LOG_ERROR("[TonemapPass] Failed to load shader Tonemap.hlsl.");

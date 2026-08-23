@@ -1,5 +1,8 @@
 #include "ShaderAssetCompiler.h"
 
+#include <filesystem>
+#include <VFS/FileSystem.h>
+
 #include <combaseapi.h>
 #include <d3d12shader.h>
 #include <dxcapi.h>
@@ -62,20 +65,18 @@ namespace Spark::Resource
             return std::wstring(s.begin(), s.end());
         }
 
-        //! DXC include handler that routes #include through the asset search
-        //! paths (same resolution as BinaryAssetLoader) and records each
-        //! included file as a build dependency. Quote-includes resolve relative
-        //! to the including file (DXC combines the path against the source name
-        //! we pass before calling LoadSource); angle / fallback includes resolve
-        //! against the -I search roots. Stack-owned for the duration of Compile.
+        //! DXC include handler. Quote-includes resolve relative to the including file (DXC
+        //! combines them against the source name before calling LoadSource); angle and
+        //! fallback includes are searched across the roots, first match winning. This is
+        //! the one consumer that searches rather than looks up: the name DXC hands over
+        //! carries no mount. Stack-owned for the duration of Compile.
         class ShaderIncludeHandler : public IDxcIncludeHandler
         {
         public:
-            ShaderIncludeHandler(IDxcUtils* utils, const eastl::vector<eastl::string>& searchPaths)
+            ShaderIncludeHandler(IDxcUtils* utils, eastl::vector<eastl::string> roots)
                 : m_utils(utils)
-            {
-                m_loader.SetSearchPaths(searchPaths);
-            }
+                , m_roots(eastl::move(roots))
+            {}
 
             HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR pFilename, IDxcBlob** ppIncludeSource) override
             {
@@ -87,7 +88,7 @@ namespace Spark::Resource
 
                 const eastl::string path = Normalize(pFilename);
 
-                auto data = m_loader.LoadFile(path);
+                auto data = Search(path);
                 if (!data)
                 {
                     return E_FAIL; // DXC turns this into an "include not found" diagnostic
@@ -132,6 +133,32 @@ namespace Spark::Resource
             ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
             ULONG STDMETHODCALLTYPE Release() override { return 1; }
 
+        private:
+            eastl::unique_ptr<AssetData> Search(const eastl::string& path) const
+            {
+                namespace fs = std::filesystem;
+
+                std::error_code ec;
+                if (fs::exists(path.c_str(), ec))
+                {
+                    const std::string direct = fs::path(path.c_str()).generic_string();
+                    return m_loader.LoadPhysicalFile(eastl::string(direct.c_str(), direct.size()));
+                }
+
+                for (const eastl::string& root : m_roots)
+                {
+                    const fs::path candidate = fs::path(root.c_str()) / path.c_str();
+                    if (fs::exists(candidate, ec))
+                    {
+                        const std::string found = candidate.generic_string();
+                        return m_loader.LoadPhysicalFile(eastl::string(found.c_str(), found.size()));
+                    }
+                }
+                return nullptr;
+            }
+
+        public:
+
             const eastl::vector<eastl::string>& GetDependencies() const { return m_dependencies; }
 
         private:
@@ -151,6 +178,7 @@ namespace Spark::Resource
             }
 
             IDxcUtils*                                  m_utils;
+            eastl::vector<eastl::string>                m_roots;
             BinaryAssetLoader                           m_loader;
             eastl::vector<eastl::unique_ptr<AssetData>> m_keepAlive;
             eastl::vector<eastl::string>                m_dependencies;
@@ -240,7 +268,7 @@ namespace Spark::Resource
     }
 
     eastl::unique_ptr<AssetData> ShaderAssetCompiler::Compile(const AssetId& id, AssetData& rawData,
-        const eastl::vector<eastl::string>& searchPaths,
+        const FileSystem& fileSystem,
         const ShaderDescriptor& descriptor)
     {
         if (!m_compiler || !m_utils)
@@ -260,10 +288,9 @@ namespace Spark::Resource
         result->SetBackend(descriptor.backend);
         result->SetSourcePath(binaryData.GetResolvedPath());
 
-        // #include resolution: search the asset roots plus the compiled shader's
-        // own directory, so both `#include "X"` (sibling) and root-relative
-        // includes resolve consistently with the asset system.
-        eastl::vector<eastl::string> includeSearch = searchPaths;
+        // Every mount root, plus the compiled shader's own directory, so that both
+        // `#include "X"` (sibling) and root-relative includes resolve.
+        eastl::vector<eastl::string> includeSearch = fileSystem.GetPhysicalDirs();
         {
             const eastl::string& resolved = binaryData.GetResolvedPath();
             const auto slash = resolved.find_last_of("/\\");
@@ -274,9 +301,10 @@ namespace Spark::Resource
         }
         ShaderIncludeHandler includeHandler(m_utils, includeSearch);
 
-        // Wide-string arg storage must outlive the Compile() calls below.
-        // Source name gives DXC the base dir for relative #include + diagnostics.
-        const std::wstring wSourceName = ToWide(id.GetPath());
+        // Wide-string arg storage must outlive the Compile() calls below. The source name
+        // must be the PHYSICAL path: DXC combines quote-includes against it before calling
+        // LoadSource, and a virtual path would send it looking for engine://... on disk.
+        const std::wstring wSourceName = ToWide(binaryData.GetResolvedPath());
         eastl::vector<std::wstring> wIncludeDirs;
         wIncludeDirs.reserve(includeSearch.size());
         for (const auto& dir : includeSearch)

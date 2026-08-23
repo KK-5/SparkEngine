@@ -41,7 +41,7 @@ namespace Spark::Render
             // ViewBindingsReflect.hlsl includes it and adds a dummy vertex entry so the
             // space1 group's layout can be reflected here.
             const Resource::AssetId assetId =
-                assetManager->MakeAssetId("Shaders/ViewBindingsReflect.hlsl");
+                assetManager->MakeAssetId("engine://Shaders/ViewBindingsReflect.hlsl");
             if (!assetId.IsValid())
             {
                 LOG_ERROR("[ViewFactory] Failed to resolve ViewBindingsReflect.hlsl asset id.");

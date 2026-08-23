@@ -10,6 +10,7 @@
 #include "Component/Reflect.h"
 
 #include <Resource/AssetManagerInterface.h>
+#include <VFS/FileSystem.h>
 
 
 namespace Editor
@@ -33,10 +34,13 @@ namespace Editor
 
         {
             using namespace Spark;
+            auto* fileSystem = Service<FileSystem>::Get();
+            ASSERT(fileSystem, "FileSystem is unregistered.");
+            fileSystem->Mount("project", "Project/Asset");
+            fileSystem->Mount("editor", "Engine/Code/Editor/Asset");
+
             auto* assetManager = Service<Resource::AssetManager>::Get();
             ASSERT(assetManager, "AssetManager is unregister.");
-            assetManager->AddSearchPath("Project/Asset");
-            assetManager->AddSearchPath("Engine/Code/Editor/Asset");
             assetManager->AssetRegistry();
         }
 

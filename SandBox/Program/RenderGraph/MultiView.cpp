@@ -136,12 +136,12 @@ namespace Spark::SandBox
         auto assetManager = Service<Spark::Resource::AssetManager>::Get();
         ASSERT(assetManager, "[MultiView] AssetManager service missing.");
         m_shader = assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
-            Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("Shader/CubeTextured.hlsl"));
+            Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("sandbox://Shader/CubeTextured.hlsl"));
         ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[MultiView] CubeTextured.hlsl load failed.");
 
         m_model = assetManager->LoadAsset<Resource::ModelAsset>(
-            Resource::AssetId::Of<Resource::ModelAsset>("Model/CubeTextured.glb"));
+            Resource::AssetId::Of<Resource::ModelAsset>("sandbox://Model/CubeTextured.glb"));
         ASSERT(m_model && m_model->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[MultiView] Model/CubeTextured.glb load failed.");
 

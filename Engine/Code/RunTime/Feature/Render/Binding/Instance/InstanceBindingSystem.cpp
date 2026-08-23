@@ -70,7 +70,7 @@ namespace Spark::Render
         // InstanceBindingsReflect.hlsl is a reflection host that #includes it and adds a
         // dummy vertex entry reading g_Instances, purely so we can reflect the space4
         // layout here (mirrors ViewBindingSystem / ViewBindingsReflect.hlsl).
-        const Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/InstanceBindingsReflect.hlsl");
+        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/InstanceBindingsReflect.hlsl");
         if (!assetId.IsValid())
         {
             LOG_ERROR("[InstanceBindingSystem] Failed to resolve InstanceBindingsReflect.hlsl asset id.");

@@ -30,7 +30,7 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "AssetManager is unregister.");
 
-        Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/GBuffer/GBuffer.hlsl");
+        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/GBuffer/GBuffer.hlsl");
         if (!assetId.IsValid())
         {
             LOG_ERROR("[GBufferPass] Failed to load shader GBuffer.hlsl.");

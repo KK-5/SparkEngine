@@ -38,10 +38,7 @@ target_link_libraries(${TARGET_NAME}
 
 target_compile_definitions(${TARGET_NAME}
     PRIVATE
-        SHADER_ASSET_DIR="${ENGINE_ASSET_DIR}"
-        IMAGE_ASSET_DIR="${ENGINE_ASSET_DIR}/Image/Test"
         ENGINE_ASSET_DIR="${ENGINE_ASSET_DIR}"
-        MODEL_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Asset"
         TEST_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

@@ -1,28 +1,43 @@
 #include <gtest/gtest.h>
 
 #include <Resource/AssetManager.h>
+#include <VFS/MountTable.h>
+#include <VFS/VFSSystem.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Image/ImageAssetLoader.h>
 
 using namespace Spark;
 using namespace Spark::Resource;
 
+// Both mounts the Resource tests need. Kept non-overlapping: IMAGE_ASSET_DIR used to nest
+// inside ENGINE_ASSET_DIR, and MODEL_ASSET_DIR inside TEST_RESOURCE_DIR, which the mount
+// table now rejects.
+static void SetUpMounts(Spark::FileSystem& table)
+{
+    table.Mount("engine", ENGINE_ASSET_DIR);
+    table.Mount("test", TEST_RESOURCE_DIR);
+}
+
 class ImageAssetTestFixture : public ::testing::Test
 {
 protected:
     void SetUp() override
     {
+        m_vfs = CreateSystem<VFSSystem>();
+        m_vfs->Init();
+        SetUpMounts(*m_vfs);
+
         m_assetManager = CreateSystem<SparkAssetManager>();
         m_assetManager->Init();
-        m_assetManager->AddSearchPath(IMAGE_ASSET_DIR);
-        m_assetManager->AddSearchPath(ENGINE_ASSET_DIR);   // the checked-in BRDF LUT
     }
 
     void TearDown() override
     {
         m_assetManager.reset();
+        m_vfs.reset();
     }
 
+    SystemUniquePtr<VFSSystem>          m_vfs;
     SystemUniquePtr<SparkAssetManager>  m_assetManager;
 };
 
@@ -62,27 +77,27 @@ TEST(ImageAssetRawDataTest, BytesPerPixelRGBAF32)
 
 TEST(ImageAssetLoaderTest, LoadMissingFileReturnsNull)
 {
-    eastl::vector<eastl::string> searchPaths = { IMAGE_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ImageAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
     bool isCompiled = false;
-    AssetId id = AssetId::Of<ImageAsset>("non_existent.png");
-    EXPECT_EQ(loader.Load(id, isCompiled), nullptr);
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/non_existent.png");
+    EXPECT_EQ(loader.Load(id, fileSystem, isCompiled), nullptr);
 }
 
 TEST(ImageAssetLoaderTest, LoadJpegAsRGBA8)
 {
     // JPEG 是 3 通道 RGB，Loader 应将其升级为 RGBA8
-    eastl::vector<eastl::string> searchPaths = { IMAGE_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ImageAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
     bool isCompiled = false;
-    AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_diff_2k.jpg");
-    auto data = loader.Load(id, isCompiled);
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
+    auto data = loader.Load(id, fileSystem, isCompiled);
     ASSERT_NE(data, nullptr);
     ASSERT_FALSE(isCompiled);   // decoded source pixels, not a compiled payload
 
@@ -101,14 +116,14 @@ TEST(ImageAssetLoaderTest, LoadAoJpegAsRGBA8)
 {
     // 单通道灰度 JPEG 也要解成 RGBA8：灰度是编码器的体积优化，不是通道数声明。
     // 留成 R8 的话采样会得到 (r, 0, 0, 1)，纯白贴图会变成纯红。
-    eastl::vector<eastl::string> searchPaths = { IMAGE_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ImageAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
     bool isCompiled = false;
-    AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_ao_2k.jpg");
-    auto data = loader.Load(id, isCompiled);
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_ao_2k.jpg");
+    auto data = loader.Load(id, fileSystem, isCompiled);
     ASSERT_NE(data, nullptr);
     ASSERT_FALSE(isCompiled);
 
@@ -130,14 +145,14 @@ TEST(ImageAssetLoaderTest, LoadAoJpegAsRGBA8)
 TEST(ImageAssetLoaderTest, LoadDisplacementPngExpandsGrayscale)
 {
     // 灰度 PNG 展开的语义是 R=G=B=gray, A=255
-    eastl::vector<eastl::string> searchPaths = { IMAGE_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ImageAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
     bool isCompiled = false;
-    AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_disp_2k.png");
-    auto data = loader.Load(id, isCompiled);
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_disp_2k.png");
+    auto data = loader.Load(id, fileSystem, isCompiled);
     ASSERT_NE(data, nullptr);
     ASSERT_FALSE(isCompiled);
 
@@ -161,21 +176,21 @@ TEST(ImageAssetLoaderTest, LoadDisplacementPngExpandsGrayscale)
 
 TEST(ImageAssetLoaderTest, ExrNotSupportedReturnsNull)
 {
-    eastl::vector<eastl::string> searchPaths = { IMAGE_ASSET_DIR };
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
 
     ImageAssetLoader loader;
-    loader.SetSearchPaths(searchPaths);
 
     bool isCompiled = false;
-    AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_rough_2k.exr");
-    EXPECT_EQ(loader.Load(id, isCompiled), nullptr);
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_rough_2k.exr");
+    EXPECT_EQ(loader.Load(id, fileSystem, isCompiled), nullptr);
 }
 
 
 TEST_F(ImageAssetTestFixture, LoadImageAssetSync)
 {
     // Loader + Compiler 由 AssetManager::Init() 默认注册，无需手动 register
-    AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_diff_2k.jpg");
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
 
     ASSERT_NE(asset, nullptr);
@@ -193,7 +208,7 @@ TEST_F(ImageAssetTestFixture, LoadImageAssetSync)
 
 TEST_F(ImageAssetTestFixture, LoadSameImageReturnsCached)
 {
-    AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_diff_2k.jpg");
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
     Ptr<Asset> asset1 = m_assetManager->LoadAsset(id, AssetType::Image);
     Ptr<Asset> asset2 = m_assetManager->LoadAsset(id, AssetType::Image);
 
@@ -203,7 +218,7 @@ TEST_F(ImageAssetTestFixture, LoadSameImageReturnsCached)
 
 TEST_F(ImageAssetTestFixture, LoadNonExistentImageReturnsError)
 {
-    AssetId id = AssetId::Of<ImageAsset>("non_existent.png");
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/non_existent.png");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
 
     ASSERT_NE(asset, nullptr);
@@ -213,7 +228,7 @@ TEST_F(ImageAssetTestFixture, LoadNonExistentImageReturnsError)
 TEST_F(ImageAssetTestFixture, LoadJpegProducesBC3)
 {
     // 验证整条 pipeline：JPG → decode → resize → BC3 编码 → KTX2 容器
-    AssetId id = AssetId::Of<ImageAsset>("rusty_metal_04_diff_2k.jpg");
+    AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
 
     ASSERT_NE(asset, nullptr);
@@ -256,7 +271,7 @@ TEST_F(ImageAssetTestFixture, LoadJpegProducesBC3)
 // so running the compiler would produce 8 mips of BC3_UNORM_SRGB instead.
 TEST_F(ImageAssetTestFixture, Ktx2LoadsAsCompiledDataWithoutRecompiling)
 {
-    AssetId id = m_assetManager->MakeAssetId("Image/BRDFLut.ktx2");
+    AssetId id = m_assetManager->MakeAssetId("engine://Image/BRDFLut.ktx2");
     ASSERT_TRUE(id.IsValid());
 
     Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);

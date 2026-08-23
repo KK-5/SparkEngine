@@ -72,7 +72,7 @@ namespace Spark::SandBox
         auto assetManager = Service<Spark::Resource::AssetManager>::Get();
         ASSERT(assetManager, "[TrianglePassFeature] AssetManager service missing.");
         m_shader = assetManager->LoadAsset<Spark::Resource::ShaderAsset>(
-            Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("Shader/TriangleMVP.hlsl"));
+            Spark::Resource::AssetId::Of<Spark::Resource::ShaderAsset>("sandbox://Shader/TriangleMVP.hlsl"));
         ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[TrianglePassFeature] TriangleMVP.hlsl load failed.");
 

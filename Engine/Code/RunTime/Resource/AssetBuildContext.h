@@ -11,6 +11,8 @@
 #include "AssetTypes.h"
 
 
+namespace Spark { class FileSystem; }
+
 namespace Spark::Resource
 {
     class AssetDataBase;
@@ -29,7 +31,7 @@ namespace Spark::Resource
         const uint8_t* sourceData = nullptr; ///< 非空时 Load 从内存解码（不读磁盘）
         size_t         sourceSize = 0;
 
-        eastl::vector<eastl::string> searchPaths;
+        const FileSystem*            fileSystem{nullptr};
         AssetDataBase*               db{nullptr};   ///< Builder 注册子资产用
 
         AssetBuildContext() = default;
@@ -38,12 +40,13 @@ namespace Spark::Resource
         AssetBuildContext(AssetBuildContext&&) = default;
         AssetBuildContext& operator=(AssetBuildContext&&) = default;
 
-        eastl::string ResolvePath(eastl::string_view relative) const;
+        eastl::string ResolvePath(eastl::string_view virtualPath) const;
 
         AssetBuildContext MakeChild(AssetId subId, AssetType subType) const;
     };
 
-    /// 统一路径解析：先检查 path 是否直接存在，再遍历 searchPaths 拼接查找
-    eastl::string ResolveAssetPath(eastl::string_view path,
-                                   const eastl::vector<eastl::string>& searchPaths);
+    //! Resolve `relative` against the directory of `virtualPath`, lexically. Used for a
+    //! glTF's external texture URIs, which are relative to the model file.
+    eastl::string ResolveSiblingVirtualPath(eastl::string_view virtualPath,
+                                            eastl::string_view relative);
 }

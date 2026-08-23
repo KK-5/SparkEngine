@@ -76,7 +76,7 @@ namespace Spark::Render
         // MaterialBindingsReflect.hlsl is a reflection host (#includes MaterialBindings.hlsl
         // + a dummy vertex entry reading g_Materials) so we can reflect the space3 layout
         // here — mirrors InstanceBindingSystem / InstanceBindingsReflect.hlsl.
-        const Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/MaterialBindingsReflect.hlsl");
+        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/MaterialBindingsReflect.hlsl");
         if (!assetId.IsValid())
         {
             LOG_ERROR("[MaterialBindingSystem] Failed to resolve MaterialBindingsReflect.hlsl asset id.");

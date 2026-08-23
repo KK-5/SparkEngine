@@ -39,7 +39,7 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "AssetManager is unregister.");
 
-        Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/Skybox/Skybox.hlsl");
+        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/Skybox/Skybox.hlsl");
         if (!assetId.IsValid())
         {
             LOG_ERROR("[SkyboxPass] Failed to load shader Skybox.hlsl.");

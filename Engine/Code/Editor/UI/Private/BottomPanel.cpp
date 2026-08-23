@@ -6,6 +6,7 @@
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <Resource/AssetManagerInterface.h>
+#include <VFS/FileSystem.h>
 #include <Feature/UI/ImGui/IconManagerInterface.h>
 
 
@@ -200,21 +201,33 @@ namespace Editor
             return;
         }
 
-        m_folderIconId  = iconMgr->OpenIcon("folder.svg");
-        m_fileIconId    = iconMgr->OpenIcon("plus-square.svg");
-        m_consoleIconId = iconMgr->OpenIcon("Console.svg");
-        m_assetsIconId  = iconMgr->OpenIcon("Assets.svg");
-        m_searchIconId  = iconMgr->OpenIcon("search.svg");
-        m_unloadIconId  = iconMgr->OpenIcon("unload.svg");
-        m_loadingIconId = iconMgr->OpenIcon("loading.svg");
+        m_folderIconId  = iconMgr->OpenIcon("editor://folder.svg");
+        m_fileIconId    = iconMgr->OpenIcon("editor://plus-square.svg");
+        m_consoleIconId = iconMgr->OpenIcon("editor://Console.svg");
+        m_assetsIconId  = iconMgr->OpenIcon("editor://Assets.svg");
+        m_searchIconId  = iconMgr->OpenIcon("editor://search.svg");
+        m_unloadIconId  = iconMgr->OpenIcon("editor://unload.svg");
+        m_loadingIconId = iconMgr->OpenIcon("editor://loading.svg");
     }
 
-    void BottomPanel::ScanDirectory(const eastl::string& path, AssetFolder& folder)
+    void BottomPanel::ScanDirectory(const eastl::string& virtualPath, AssetFolder& folder)
     {
         namespace fs = std::filesystem;
 
+        auto* fileSystem = Spark::Service<Spark::FileSystem>::Get();
+        if (!fileSystem) {
+            return;
+        }
+
+        // The tree is addressed entirely in virtual paths; the physical side appears only
+        // to enumerate one level, and never reaches an AssetId.
+        const eastl::string physicalDir = fileSystem->ToPhysical(virtualPath);
+        if (physicalDir.empty()) {
+            return;
+        }
+
         std::error_code ec;
-        fs::path dirPath(path.c_str());
+        fs::path dirPath(physicalDir.c_str());
 
         if (!fs::exists(dirPath, ec) || !fs::is_directory(dirPath, ec)) {
             return;
@@ -229,19 +242,24 @@ namespace Editor
 
             const fs::path& entryPath = it->path();
             eastl::string entryName(entryPath.filename().string().c_str());
-            eastl::string entryFullPath(entryPath.generic_string().c_str());
+
+            eastl::string entryVirtualPath = virtualPath;
+            if (!entryVirtualPath.empty() && entryVirtualPath.back() != '/') {
+                entryVirtualPath += '/';
+            }
+            entryVirtualPath += entryName;
 
             if (fs::is_directory(entryPath, ec)) {
                 AssetFolder subFolder;
                 subFolder.name = eastl::move(entryName);
-                subFolder.fullPath = entryFullPath;
-                ScanDirectory(entryFullPath, subFolder);
+                subFolder.fullPath = entryVirtualPath;
+                ScanDirectory(entryVirtualPath, subFolder);
                 folder.children.push_back(eastl::move(subFolder));
             } else {
                 auto* am = Spark::Service<Spark::Resource::AssetManager>::Get();
                 if (am)
                 {
-                    Spark::Resource::AssetId id = am->MakeAssetId(entryFullPath);
+                    Spark::Resource::AssetId id = am->MakeAssetId(entryVirtualPath);
                     if (id.IsValid() && am->FindAsset(id))
                     {
                         AssetEntry entry;
@@ -507,13 +525,13 @@ namespace Editor
             m_rootFolder.name = "Assets";
             m_selectedFolder = &m_rootFolder;
 
-            if (auto* am = Spark::Service<Spark::Resource::AssetManager>::Get()) {
-                for (const auto& searchPath : am->GetSearchPathes()) {
-                    AssetFolder searchRoot;
-                    searchRoot.name = searchPath;
-                    searchRoot.fullPath = searchPath;
-                    ScanDirectory(searchPath, searchRoot);
-                    m_rootFolder.children.push_back(eastl::move(searchRoot));
+            if (auto* fileSystem = Spark::Service<Spark::FileSystem>::Get()) {
+                for (const auto& mount : fileSystem->GetMountNames()) {
+                    AssetFolder mountRoot;
+                    mountRoot.name = mount;
+                    mountRoot.fullPath = mount + "://";
+                    ScanDirectory(mountRoot.fullPath, mountRoot);
+                    m_rootFolder.children.push_back(eastl::move(mountRoot));
                 }
             }
         }

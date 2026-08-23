@@ -31,6 +31,7 @@
 #include <Resource/Asset.h>
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/AssetManager.h>
+#include <VFS/VFSSystem.h>
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderAssetCompiler.h>
 #include <Resource/Common/CommonAssetLoader.h>
@@ -212,7 +213,7 @@ namespace Spark::SandBox
 
     void DrawShape::LoadImageAsset()
     {
-        Resource::AssetId imageId = Resource::AssetId::Of<Resource::ImageAsset>("Image/rusty_metal_04_diff_2k.jpg");
+        Resource::AssetId imageId = Resource::AssetId::Of<Resource::ImageAsset>("sandbox://Image/rusty_metal_04_diff_2k.jpg");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
         m_imageAsset = assetManager->LoadAsset<Resource::ImageAsset>(imageId);
@@ -394,7 +395,7 @@ namespace Spark::SandBox
         desc.m_renderStates.m_rasterState.m_cullMode = RHI::CullMode::Back;
 
         // Shader
-        Resource::AssetId shaderId = Resource::AssetId::Of<Resource::ShaderAsset>("Shader/DrawShape.hlsl");
+        Resource::AssetId shaderId = Resource::AssetId::Of<Resource::ShaderAsset>("sandbox://Shader/DrawShape.hlsl");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
         Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);
@@ -987,9 +988,12 @@ int main(int argc, char** argv)
     auto rhiSystem = CreateSystem<Spark::RHI::DX12::RHISystem>();
     rhiSystem->Init();
 
+    auto fileSystem = CreateSystem<Spark::VFSSystem>();
+    fileSystem->Init();
+    fileSystem->Mount("sandbox", SHADER_ASSET_DIR);
+
     auto assetManager = CreateSystem<Spark::Resource::SparkAssetManager>();
     assetManager->Init();
-    assetManager->AddSearchPath(SHADER_ASSET_DIR);
 
     Spark::SandBox::DrawShape app;
 

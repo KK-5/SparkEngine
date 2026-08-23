@@ -1,57 +1,43 @@
 #include "AssetBuildContext.h"
 
-#include <filesystem>
-
+#include <VFS/FileSystem.h>
 
 namespace Spark::Resource
 {
-    eastl::string ResolveAssetPath(eastl::string_view path,
-                                    const eastl::vector<eastl::string>& searchPaths)
+    eastl::string ResolveSiblingVirtualPath(eastl::string_view virtualPath,
+                                            eastl::string_view relative)
     {
-        namespace fs = std::filesystem;
-
-        if (path.empty())
+        if (relative.empty())
         {
             return {};
         }
 
-        // Check if path exists as-is (full / canonical path)
+        // Everything up to the last separator, keeping the mount prefix. find_last_of never
+        // reaches into "mount://" itself, since a mount name carries no '/'.
+        const size_t slash = virtualPath.find_last_of('/');
+        if (slash == eastl::string_view::npos)
         {
-            std::error_code ec;
-            if (fs::exists(path.data(), ec))
-            {
-                auto str = fs::path(path.data()).generic_string();
-                return eastl::string(str.c_str(), str.size());
-            }
+            return {};
         }
 
-        // Search through registered paths
-        for (const auto& sp : searchPaths)
-        {
-            fs::path full = fs::path(sp.c_str()) / path.data();
-            std::error_code ec;
-            if (fs::exists(full, ec))
-            {
-                auto str = full.generic_string();
-                return eastl::string(str.c_str(), str.size());
-            }
-        }
-        return {};
+        eastl::string out(virtualPath.data(), slash + 1);
+        out.append(relative.data(), relative.size());
+        return out;
     }
 
-    eastl::string AssetBuildContext::ResolvePath(eastl::string_view relative) const
+    eastl::string AssetBuildContext::ResolvePath(eastl::string_view virtualPath) const
     {
-        return ResolveAssetPath(relative, searchPaths);
+        return fileSystem ? fileSystem->ToPhysical(virtualPath) : eastl::string();
     }
 
     AssetBuildContext AssetBuildContext::MakeChild(AssetId subId, AssetType subType) const
     {
         AssetBuildContext child;
-        child.id          = eastl::move(subId);
-        child.type        = subType;
-        child.parentId    = id;
-        child.searchPaths = searchPaths;
-        child.db          = db;
+        child.id         = eastl::move(subId);
+        child.type       = subType;
+        child.parentId   = id;
+        child.fileSystem = fileSystem;
+        child.db         = db;
         return child;
     }
 }

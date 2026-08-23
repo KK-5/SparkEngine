@@ -3,6 +3,7 @@
 #include <filesystem>
 
 #include <Resource/AssetBuildContext.h>
+#include <VFS/FileSystem.h>
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
@@ -275,19 +276,9 @@ namespace Spark::Resource
 
     // ===== Public API =====
 
-    void ModelAssetLoader::SetSearchPaths(const eastl::vector<eastl::string>& searchPaths)
+    UniquePtr<AssetData> ModelAssetLoader::Load(const AssetId& id, const FileSystem& fileSystem)
     {
-        m_searchPaths = searchPaths;
-    }
-
-    eastl::string ModelAssetLoader::ResolvePath(const AssetId& id) const
-    {
-        return ResolveAssetPath(id.GetPath(), m_searchPaths);
-    }
-
-    UniquePtr<AssetData> ModelAssetLoader::Load(const AssetId& id)
-    {
-        eastl::string resolved = ResolvePath(id);
+        eastl::string resolved = fileSystem.ToPhysical(id.GetPath());
         if (resolved.empty())
         {
             LOG_ERROR("[ModelAssetLoader] Model file not found: {}", id.GetPath().c_str());

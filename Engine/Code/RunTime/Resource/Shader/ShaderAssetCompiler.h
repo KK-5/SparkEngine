@@ -9,6 +9,8 @@
 struct IDxcUtils;
 struct IDxcCompiler3;
 
+namespace Spark { class FileSystem; }
+
 namespace Spark::Resource
 {
     // ShaderStageEntry moved to ShaderAsset.h — it is compile config and now
@@ -24,7 +26,7 @@ namespace Spark::Resource
         //! the ShaderDescriptor. The compiler owns only the DXC tooling, so one
         //! instance can compile any shader (and is safe to reuse across shaders).
         eastl::unique_ptr<AssetData> Compile(const AssetId& id, AssetData& rawData,
-            const eastl::vector<eastl::string>& searchPaths,
+            const FileSystem& fileSystem,
             const ShaderDescriptor& descriptor);
 
     private:

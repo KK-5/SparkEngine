@@ -34,6 +34,10 @@ namespace Spark
         logConfig.m_showTimeStamp = true;
         m_logSystem = eastl::make_unique<SpdLogSystem>(logConfig);
 
+        m_vfs = CreateSystem<VFSSystem>();
+        m_vfs->Init();
+        m_vfs->Mount("engine", "Engine/Asset");
+
         m_entityReaper = CreateSystem<EntityReaper>();
         m_entityReaper->Init();
 
@@ -78,7 +82,6 @@ namespace Spark
         
         m_assetManager = CreateSystem<Resource::SparkAssetManager>();
         m_assetManager->Init();
-        m_assetManager->AddSearchPath("Engine/Asset");
         m_assetManager->AssetRegistry();
         m_assetManager->InitEnvironmentBaker();
 

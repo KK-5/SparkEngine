@@ -9,22 +9,18 @@
 
 namespace fastgltf { class GltfDataBuffer; }
 
+namespace Spark { class FileSystem; }
+
 namespace Spark::Resource
 {
     class ModelAssetLoader
     {
     public:
-        void SetSearchPaths(const eastl::vector<eastl::string>& searchPaths);
-
-        UniquePtr<AssetData> Load(const AssetId& id);
+        UniquePtr<AssetData> Load(const AssetId& id, const FileSystem& fileSystem);
 
     private:
-        eastl::string ResolvePath(const AssetId& id) const;
-
         UniquePtr<AssetData> LoadFromBuffer(class fastgltf::GltfDataBuffer& buf,
                                             eastl::string resolvedPath,
                                             const std::string& baseDir);
-
-        eastl::vector<eastl::string> m_searchPaths;
     };
 }

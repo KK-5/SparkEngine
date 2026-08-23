@@ -11,6 +11,8 @@
 #include "Asset.h"
 #include "AssetManagerInterface.h"
 
+namespace Spark { class FileSystem; }
+
 namespace Spark::Resource
 {
     class AssetDataBase;
@@ -35,20 +37,16 @@ namespace Spark::Resource
         Ptr<Asset> RequestAsset(const AssetId& id, AssetType type) override;
         Ptr<Asset> FindAsset(const AssetId& id) const override;
 
-        void AddSearchPath(eastl::string_view path) override;
-        void RemoveSearchPath(eastl::string_view path) override;
-        eastl::vector<eastl::string> GetSearchPathes() const override;
-
         AssetType GetSupportAssetType(eastl::string_view file) override;
 
-        AssetId MakeAssetId(eastl::string_view path) override;
+        AssetId MakeAssetId(eastl::string_view virtualPath) override;
 
         void AssetRegistry() override;
 
         void ReleaseAsset(const AssetId& id) override;
 
         //! Opt-in, main-thread setup of the image builder's GPU EnvironmentBaker.
-        //! Call after Init() and AddSearchPath(), before any cubemap asset is requested
+        //! Call after Init(), before any cubemap asset is requested
         //! (see ImageAssetBuilder::InitEnvironmentBaker). 
         bool InitEnvironmentBaker();
 
@@ -61,9 +59,7 @@ namespace Spark::Resource
 
         void ProcessThread();
 
-        /// 拷贝当前搜索路径，避免 worker 线程长持锁
-        eastl::vector<eastl::string> SnapshotSearchPaths() const;
-        AssetId MakeAssetIdForType(eastl::string_view path, AssetType type);
+        AssetId MakeAssetIdForType(eastl::string_view virtualPath, AssetType type);
 
         mutable std::mutex      m_queueMutex;     ///< 保护 pendingQueue
         std::condition_variable m_cv;
@@ -71,8 +67,8 @@ namespace Spark::Resource
         std::thread             m_processThread;
         eastl::queue<Asset*>    m_pendingQueue;
 
-        mutable std::mutex            m_searchPathsMutex;
-        eastl::vector<eastl::string>  m_searchPaths;
+        //! Resolved once at Init. Its own lock covers concurrent use from the worker thread.
+        const FileSystem* m_fileSystem{nullptr};
 
         SystemUniquePtr<AssetDataBase>       m_db;
 

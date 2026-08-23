@@ -145,7 +145,7 @@ namespace Spark::Resource
             return false;
         }
         Ptr<ShaderAsset> shader = assetManager->LoadAsset<ShaderAsset>(
-            AssetId::Of<ShaderAsset>("Shaders/Image/EnvironmentBake.hlsl"));
+            AssetId::Of<ShaderAsset>("engine://Shaders/Image/EnvironmentBake.hlsl"));
         if (!shader || shader->GetStatus() != AssetStatus::Ready)
         {
             LOG_ERROR("[EnvironmentBaker] Failed to load EnvironmentBake.hlsl (status={}).",
@@ -207,7 +207,7 @@ namespace Spark::Resource
         // Cube mips PSO
         {
             Ptr<ShaderAsset> cubeMapDownsampleShader = assetManager->LoadAsset<ShaderAsset>(
-                AssetId::Of<ShaderAsset>("Shaders/Image/CubemapDownsample.hlsl"));
+                AssetId::Of<ShaderAsset>("engine://Shaders/Image/CubemapDownsample.hlsl"));
             if (!cubeMapDownsampleShader || cubeMapDownsampleShader->GetStatus() != AssetStatus::Ready)
             {
                 LOG_ERROR("[EnvironmentBaker] Failed to load CubemapDownsample.hlsl (status={}).",
@@ -254,7 +254,7 @@ namespace Spark::Resource
         // Irradiance PSO (cosine-weighted diffuse convolution of the sky cube)
         {
             Ptr<ShaderAsset> irradianceShader = assetManager->LoadAsset<ShaderAsset>(
-                AssetId::Of<ShaderAsset>("Shaders/Image/IrradianceBake.hlsl"));
+                AssetId::Of<ShaderAsset>("engine://Shaders/Image/IrradianceBake.hlsl"));
             if (!irradianceShader || irradianceShader->GetStatus() != AssetStatus::Ready)
             {
                 LOG_ERROR("[EnvironmentBaker] Failed to load IrradianceBake.hlsl (status={}).",
@@ -301,7 +301,7 @@ namespace Spark::Resource
         // Prefilter PSO (GGX-prefiltered specular convolution of the sky cube)
         {
             Ptr<ShaderAsset> prefilterShader = assetManager->LoadAsset<ShaderAsset>(
-                AssetId::Of<ShaderAsset>("Shaders/Image/PrefilterBake.hlsl"));
+                AssetId::Of<ShaderAsset>("engine://Shaders/Image/PrefilterBake.hlsl"));
             if (!prefilterShader || prefilterShader->GetStatus() != AssetStatus::Ready)
             {
                 LOG_ERROR("[EnvironmentBaker] Failed to load PrefilterBake.hlsl (status={}).",

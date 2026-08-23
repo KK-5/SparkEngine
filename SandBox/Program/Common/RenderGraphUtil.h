@@ -5,6 +5,7 @@
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <Base.h>
+#include <VFS/VFSSystem.h>
 
 #include <Input/InputSystem.h>
 
@@ -28,6 +29,7 @@ namespace Spark::SandBox
 {
     struct RenderGraphSystems
     {
+        SystemUniquePtr<VFSSystem>                  m_vfs;
         SystemUniquePtr<SimpleGlfwWindow>           m_window;
         SystemUniquePtr<Input::InputSystem>         m_input;
         SystemUniquePtr<RHI::DX12::RHISystem>       m_rhi;
@@ -88,15 +90,17 @@ namespace Spark::SandBox
         sys.m_rhiResource = CreateSystem<RHI::RHIResourceSystem>();
         sys.m_rhiResource->Init();
 
-        // Asset manager
+        // Asset manager. engine:// is the same mount the editor uses, so engine-relative ids
+        // resolve -- notably "engine://Shaders/ViewBindingsReflect.hlsl", which ViewFactory
+        // reflects the space1 layout from. Without it a sample cannot build a view that owns
+        // a view SRG. Shared engine shader headers reach it the same way.
+        sys.m_vfs = CreateSystem<VFSSystem>();
+        sys.m_vfs->Init();
+        sys.m_vfs->Mount("sandbox", SHADER_ASSET_DIR);
+        sys.m_vfs->Mount("engine", ENGINE_ASSET_DIR);
+
         sys.m_assetManager = CreateSystem<Resource::SparkAssetManager>();
         sys.m_assetManager->Init();
-        sys.m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
-        // Same root the engine app uses, so engine-relative ids resolve — notably
-        // "Shaders/ViewBindingsReflect.hlsl", which ViewFactory reflects the space1 layout
-        // from. Without it a sample cannot build a view that owns a view SRG. Shared engine
-        // shader headers reach it the same way, as #include <Shaders/...>.
-        sys.m_assetManager->AddSearchPath(ENGINE_ASSET_DIR);
 
         // Renderer
         sys.m_render = CreateSystem<Render::RenderSystem>();

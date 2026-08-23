@@ -7,6 +7,7 @@
 #include <ECS/WorldContext.h>
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
+#include <VFS/VFSSystem.h>
 #include <SceneManager/SceneManager.h>
 #include <EntityReaper/EntityReaper.h>
 #include <Render/RenderSystem.h>
@@ -60,6 +61,7 @@ namespace Spark
         UniquePtr<WorldExecuteContextGuard>           m_worldCtxGuard;
 
         UniquePtr<SpdLogSystem>                      m_logSystem;
+        SystemUniquePtr<VFSSystem>                   m_vfs;
         SystemUniquePtr<Input::InputSystem>          m_inputSystem;
         SystemUniquePtr<SceneManager>                m_sceneManager;
         SystemUniquePtr<Transform::TransformSystem>  m_transformSystem;

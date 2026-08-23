@@ -29,13 +29,11 @@ namespace Spark::Resource
 
         virtual Ptr<Asset> FindAsset(const AssetId& id) const = 0;
 
-        virtual void AddSearchPath(eastl::string_view path) = 0;
-        virtual void RemoveSearchPath(eastl::string_view path) = 0;
-        virtual eastl::vector<eastl::string> GetSearchPathes() const = 0;
-
         virtual AssetType GetSupportAssetType(eastl::string_view file) = 0;
 
-        virtual AssetId MakeAssetId(eastl::string_view path) = 0;
+        //! Takes a virtual path (`mount://relative`). Mount points are registered on the
+        //! FileSystem service, not here.
+        virtual AssetId MakeAssetId(eastl::string_view virtualPath) = 0;
 
         virtual void AssetRegistry() = 0;
 

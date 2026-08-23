@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include <Resource/AssetBuildContext.h>
+#include <VFS/FileSystem.h>
 
 #include <stb_image.h>
 #include <nanosvg.h>
@@ -140,11 +141,6 @@ static UniquePtr<AssetData> DecodeSvg(
         return WrapLdrPixels(pixels, w, h, eastl::move(label));
     }
 
-    eastl::string ImageAssetLoader::ResolvePath(const AssetId& id) const
-    {
-        return ResolveAssetPath(id.GetPath(), m_searchPaths);
-    }
-
     UniquePtr<AssetData> ImageAssetLoader::LoadKtx2(const eastl::string& path)
     {
         ktxTexture2*   tex = nullptr;
@@ -230,11 +226,12 @@ static UniquePtr<AssetData> DecodeSvg(
         return result;
     }
 
-    UniquePtr<AssetData> ImageAssetLoader::Load(const AssetId& id, bool& outIsCompiled)
+    UniquePtr<AssetData> ImageAssetLoader::Load(const AssetId& id, const FileSystem& fileSystem,
+                                               bool& outIsCompiled)
     {
         outIsCompiled = false;
 
-        eastl::string path = ResolvePath(id);
+        eastl::string path = fileSystem.ToPhysical(id.GetPath());
         if (path.empty())
         {
             LOG_ERROR("[ImageAssetLoader] Image file not found: {}", id.GetPath().c_str());

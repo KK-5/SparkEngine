@@ -64,7 +64,7 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "AssetManager is unregister.");
 
-        Resource::AssetId assetId = assetManager->MakeAssetId("Shaders/Lighting/Lighting.hlsl");
+        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/Lighting/Lighting.hlsl");
         if (!assetId.IsValid())
         {
             LOG_ERROR("[LightingPass] Failed to load shader Lighting.hlsl.");
