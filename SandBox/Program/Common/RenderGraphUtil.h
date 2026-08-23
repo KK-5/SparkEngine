@@ -92,10 +92,10 @@ namespace Spark::SandBox
         sys.m_assetManager = CreateSystem<Resource::SparkAssetManager>();
         sys.m_assetManager->Init();
         sys.m_assetManager->AddSearchPath(SHADER_ASSET_DIR);
-        sys.m_assetManager->AddSearchPath(ENGINE_SHADER_DIR);   // shared engine shader headers (#include <...>)
         // Same root the engine app uses, so engine-relative ids resolve — notably
         // "Shaders/ViewBindingsReflect.hlsl", which ViewFactory reflects the space1 layout
-        // from. Without it a sample cannot build a view that owns a view SRG.
+        // from. Without it a sample cannot build a view that owns a view SRG. Shared engine
+        // shader headers reach it the same way, as #include <Shaders/...>.
         sys.m_assetManager->AddSearchPath(ENGINE_ASSET_DIR);
 
         // Renderer

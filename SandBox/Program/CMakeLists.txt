@@ -10,7 +10,6 @@ if (BUILD_RHI_HELLOTRIANGLE)
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
-        ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
     )
 
     target_link_libraries(${TARGET_NAME}
@@ -81,7 +80,6 @@ if (BUILD_RHI_DRAWSHAPE)
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
-        ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
     )
 
     target_link_libraries(${TARGET_NAME}
@@ -108,7 +106,6 @@ if (BUILD_RG_TRIANGLEPASS)
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
-        ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
         ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
     )
 
@@ -137,7 +134,6 @@ if (BUILD_RG_DRAWCUBE)
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
-        ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
         ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
     )
 
@@ -166,7 +162,6 @@ if (BUILD_RG_MULTIVIEW)
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
-        ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
         ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
     )
 
@@ -195,7 +190,6 @@ if (BUILD_RG_MSAAPASS)
     target_compile_definitions(${TARGET_NAME}
     PRIVATE
         SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
-        ENGINE_SHADER_DIR="${ENGINE_SHADER_DIR}"
         ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
     )
 

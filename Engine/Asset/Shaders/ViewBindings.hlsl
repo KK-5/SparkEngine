@@ -1,6 +1,6 @@
 // Per-view shader inputs (the "ViewBindings" group), reserved at register
 // space1. Shared engine header — any shader that needs camera/view data does:
-//     #include <ViewBindings.hlsl>
+//     #include <Shaders/ViewBindings.hlsl>
 // and the engine fills it via Render::WriteViewConstants(view, bindings).
 //
 // Binding-space convention (by update frequency, low = stable): space0 per-scene,
