@@ -8,6 +8,7 @@ option(EXECUTECONTEXT_TESTS "ExecuteContext tests" ON)
 option(WORLDCONTEXTREFERENCE_TESTS "WorldContextReference tests" ON)
 option(MATH_TESTS "Math tests" ON)
 option(QUADTREEALLOCATOR_TESTS "QuadTreeAllocator tests" ON)
+option(VFS_TESTS "VFS mount table tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -27,6 +28,7 @@ ADD_TEST_SOUECE(EXECUTECONTEXT_TESTS "ExecuteContextTest.cpp")
 ADD_TEST_SOUECE(WORLDCONTEXTREFERENCE_TESTS "WorldContextReferenceTest.cpp")
 ADD_TEST_SOUECE(MATH_TESTS "MathTest.cpp")
 ADD_TEST_SOUECE(QUADTREEALLOCATOR_TESTS "QuadTreeAllocatorTest.cpp")
+ADD_TEST_SOUECE(VFS_TESTS "VFSTest.cpp")
 
 set(TARGET_NAME SparkCoreTest)
 

@@ -10,6 +10,7 @@ set(CORE_SOURCES
     Reflection/TypeRegistry.cpp
     Object/Object.cpp
     Math/Interval.cpp
+    VFS/MountTable.cpp
 )
 
 # 显式列出所有头文件（用于IDE显示）
