@@ -172,16 +172,17 @@ m_vfs->Mount("engine", "Engine/Asset");     // 取代 m_assetManager->AddSearchP
 |---|---|---|---|
 | `engine://` | `Engine/Asset/` | Shaders、BRDFLut、Shaderball —— 引擎自带 | `Engine.cpp` |
 | `project://` | `Project/Asset/`（新建，仓库根，与 `Engine/`、`SandBox/` 平级） | 用户内容；将来的 `.smat` / `.scene` | `Editor.cpp` |
+| `editor://` | `Engine/Code/Editor/Asset/` | 编辑器 UI 图标（7 个 svg） | `Editor.cpp` |
 | `test://` | `Engine/Code/Test/Resource/Asset/` | 测试资产 | 各测试 |
 | `sandbox://` | `SandBox/Asset/` | SandBox 程序 | SandBox |
 
 要动的文件：
 
 - `Engine/Asset/*.glb`（除 `Shaderball.glb`）+ 4 张未跟踪 HDR → `Project/Asset/`
-- `Engine/Code/Editor/Asset/DECWood-redoak.cgfind.cn.glb` → `Project/Asset/`
+- `Engine/Code/Editor/Asset/DECWood-redoak.cgfind.cn.glb` → `Project/Asset/`；该目录余下的 7 个
+  svg 是编辑器自己的 UI 资源（`BottomPanel.cpp:203-209` 在用），留在原地作为 `editor://`
 - `Project/Asset/` 加 `.gitignore`，这些大文件不进 git
-- `Engine/Code/Editor/Asset/` 清空后不再挂载；`editor://` 等真有编辑器内置资源再加
-- 编辑器改挂 `engine` + `project`，不再挂测试资产目录（`Editor.cpp:38`）
+- 编辑器改挂 `project` + `editor`，不再挂测试资产目录（`Editor.cpp:38`）
 - CMake 宏（`ENGINE_ASSET_DIR` 等）保持绝对路径不变
 
 #### glTF 外部 URI 改为纯词法解析
@@ -212,12 +213,19 @@ engine://Models/chair.gltf  +  textures/wood.png
 **保留的例外**：`ShaderAssetCompiler` 给 DXC 的 include 目录列表（`ShaderAssetCompiler.cpp:74-77`、
 `:266`）走 `FileSystem::GetPhysicalDirs()`，保留遍历搜索语义。
 
-#### 实施顺序（每步都能编过）
+#### 实施顺序
 
 1. `Core/VFS/`（`FileSystem` + `MountTable` + `VFSSystem`）+ 单测。不动 `Resource/`。
-2. 约 15 个注册点改成命名 `Mount`；`Project/Asset/` 建目录、挪文件。
-3. Loader 从搜索列表翻到 `ToPhysical`，删掉 `AssetBuildContext::searchPaths`。
+2. `Project/Asset/` 建目录、挪文件、加 `.gitignore`，`Editor.cpp` 改挂载目录。不碰 VFS。
+3. VFSSystem 接入；`AssetBuildContext::searchPaths` 换成 `const FileSystem*`；loader 翻到
+   `ToPhysical`；约 33 个字面量路径调用点改虚拟路径；修 `ImageAssetTests` 的挂载重叠。
 4. glTF 外部 URI 改词法解析，删 `extraSearchPaths`。
+
+第 3 步不能再拆成「先改注册点、再翻 loader」：注册一旦移到 `Mount`，AssetManager 就不再有
+`searchPaths` 喂给 `AssetBuildContext`，而 loader 还在读它——编得过但跑不起来。
+
+第 3 步的 33 个调用点分布：编辑器图标 7（`OpenIcon("folder.svg")` 这类裸文件名同样依赖搜索
+语义）、引擎 shader 8、`EnvironmentBaker` 4、SandBox 12，另有约 15 处测试注册。
 
 ### 0.b　descriptor 可重建
 
@@ -237,7 +245,7 @@ descriptor 是身份的一部分，必须能 round-trip：同一张 `Wood.png` �
 
 ```json
 "m_modelAssetId": {
-    "path": "project://Furniture.glb",
+    "path": "project://Model/Furniture.glb",
     "sub":  "image/3",
     "desc": { "key": "NormalMap" }
 }

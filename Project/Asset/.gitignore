@@ -1,0 +1,15 @@
+# Imported source content -- large binaries stay out of the repository.
+# Authored files (.smat, .scene) are deliberately absent from this list: they belong in git.
+*.glb
+*.gltf
+*.bin
+*.hdr
+*.exr
+*.ktx2
+*.png
+*.jpg
+*.jpeg
+*.tga
+*.bmp
+*.psd
+*.crdownload
