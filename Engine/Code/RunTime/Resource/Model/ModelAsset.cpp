@@ -1,6 +1,7 @@
 #include "ModelAsset.h"
 
 #include <EASTLEX/hash.h>
+#include <HashString/HashString.h>
 
 namespace Spark::Resource
 {
@@ -8,7 +9,10 @@ namespace Spark::Resource
 
     AssetHash ModelAssetDescriptor::Hash() const
     {
-        size_t h = 0;
+        // Seeded with the descriptor's own type: without it a one-field hash collides with
+        // any other type's one-field hash (ModelAssetType::GLTF and ShaderBackend::SPIRV are
+        // both 1), and AssetId::operator== compares hashes alone.
+        size_t h = static_cast<size_t>(HashString("ModelAssetDescriptor").value());
         eastl::hash_combine(h, static_cast<size_t>(type));
         return static_cast<AssetHash>(h);
     }

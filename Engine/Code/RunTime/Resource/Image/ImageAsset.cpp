@@ -1,6 +1,7 @@
 #include "ImageAsset.h"
 
 #include <EASTLEX/hash.h>
+#include <HashString/HashString.h>
 #include <Log/ILogSystem.h>
 
 #include "EnvironmentBaker.h"
@@ -11,7 +12,7 @@ namespace Spark::Resource
 
     AssetHash ImageAssetDescriptor::Hash() const
     {
-        size_t h = 0;
+        size_t h = static_cast<size_t>(HashString("ImageAssetDescriptor").value());
         eastl::hash_combine(h, static_cast<size_t>(compression));
         eastl::hash_combine(h, static_cast<size_t>(colorSpace));
         eastl::hash_combine(h, static_cast<size_t>(maxMipLevels));

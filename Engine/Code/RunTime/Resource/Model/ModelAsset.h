@@ -18,6 +18,9 @@ namespace Spark::Resource
 {
     // === Per-instance compile configuration ===
 
+    //! Unknown is the sentinel for "no source format decided" and never reaches an
+    //! AssetId -- the format is picked from the extension when the id is built, before
+    //! anything is loaded, because the descriptor is part of the id.
     enum class ModelAssetType : uint8_t
     {
         Unknown = 0,
@@ -27,7 +30,7 @@ namespace Spark::Resource
     class ModelAssetDescriptor : public AssetDescriptor
     {
     public:
-        ModelAssetType type = ModelAssetType::Unknown;
+        ModelAssetType type = ModelAssetType::GLTF;
 
         AssetHash Hash() const override;
     };
