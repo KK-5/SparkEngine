@@ -38,7 +38,7 @@ namespace Spark::Resource
     }
 
     ModelAsset::ModelAsset(AssetId id)
-        : Asset(eastl::move(id), AssetType::Model)
+        : Asset(eastl::move(id))
     {}
 
     const ModelAssetData* ModelAsset::GetModelData() const

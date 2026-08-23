@@ -3,6 +3,7 @@ option(ImageAssetTests       "Image Asset Tests"       ON)
 option(ModelAssetTests       "Model Asset Tests"       ON)
 option(EnvironmentBakerTests "Environment Baker Tests" ON)
 option(DescriptorHashTests "Descriptor Hash Tests" ON)
+option(AssetIdTypeTests "AssetId Type Tests" ON)
 
 
 set(TEST_SOURCES "")
@@ -18,6 +19,7 @@ ADD_TEST_SOUECE(ImageAssetTests  "ImageAssetTests.cpp")
 ADD_TEST_SOUECE(ModelAssetTests  "ModelAssetTests.cpp")
 ADD_TEST_SOUECE(EnvironmentBakerTests "EnvironmentBakerTests.cpp")
 ADD_TEST_SOUECE(DescriptorHashTests "DescriptorHashTests.cpp")
+ADD_TEST_SOUECE(AssetIdTypeTests "AssetIdTypeTests.cpp")
 
 
 set(TARGET_NAME SparkAssetTest)

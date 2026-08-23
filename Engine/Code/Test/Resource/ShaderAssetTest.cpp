@@ -404,7 +404,7 @@ TEST_F(ShaderAssetTestFixture, BuildShaderInputListFromReflection)
 TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 {
     AssetId id = AssetId::Of<ShaderAsset>("engine://Shaders/Test/SimpleTriangle.hlsl");
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Shader);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset, nullptr);
     EXPECT_TRUE(asset->IsReady());
@@ -418,8 +418,8 @@ TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 TEST_F(ShaderAssetTestFixture, LoadSameAssetReturnsCached)
 {
     AssetId id = AssetId::Of<ShaderAsset>("engine://Shaders/Test/SimpleTriangle.hlsl");
-    Ptr<Asset> asset1 = m_assetManager->LoadAsset(id, AssetType::Shader);
-    Ptr<Asset> asset2 = m_assetManager->LoadAsset(id, AssetType::Shader);
+    Ptr<Asset> asset1 = m_assetManager->LoadAsset(id);
+    Ptr<Asset> asset2 = m_assetManager->LoadAsset(id);
 
     EXPECT_EQ(asset1.get(), asset2.get());
 }
@@ -434,7 +434,7 @@ TEST_F(ShaderAssetTestFixture, FindAssetBeforeLoadReturnsNull)
 TEST_F(ShaderAssetTestFixture, LoadNonExistentAssetReturnsError)
 {
     AssetId id = AssetId::Of<ShaderAsset>("engine://Shaders/NonExistent.hlsl");
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Shader);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset, nullptr);
     EXPECT_TRUE(asset->IsError());

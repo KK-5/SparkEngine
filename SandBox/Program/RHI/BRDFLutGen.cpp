@@ -156,7 +156,7 @@ namespace
     {
         auto* am = Service<Resource::AssetManager>::Get();
         Ptr<Resource::Asset> asset = am->LoadAsset(
-            am->MakeAssetId("engine://Image/BRDFLut.ktx2"), Resource::AssetType::Image);
+            am->MakeAssetId("engine://Image/BRDFLut.ktx2"));
         if (!asset || !asset->IsReady())
         {
             LOG_ERROR("[BRDFLutGen] round trip: the LUT asset is not Ready.");

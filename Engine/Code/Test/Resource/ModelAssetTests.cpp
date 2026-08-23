@@ -209,7 +209,7 @@ TEST(ModelAssetCompilerTest, CompileCube)
 TEST_F(ModelAssetTestFixture, LoadModelAssetSync)
 {
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Model);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset, nullptr);
     EXPECT_TRUE(asset->IsReady());
@@ -225,8 +225,8 @@ TEST_F(ModelAssetTestFixture, LoadModelAssetSync)
 TEST_F(ModelAssetTestFixture, LoadSameModelReturnsCached)
 {
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
-    Ptr<Asset> asset1 = m_assetManager->LoadAsset(id, AssetType::Model);
-    Ptr<Asset> asset2 = m_assetManager->LoadAsset(id, AssetType::Model);
+    Ptr<Asset> asset1 = m_assetManager->LoadAsset(id);
+    Ptr<Asset> asset2 = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset1, nullptr);
     EXPECT_EQ(asset1.get(), asset2.get());
@@ -235,7 +235,7 @@ TEST_F(ModelAssetTestFixture, LoadSameModelReturnsCached)
 TEST_F(ModelAssetTestFixture, LoadNonExistentModelReturnsError)
 {
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/non_existent.glb");
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Model);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset, nullptr);
     EXPECT_TRUE(asset->IsError());
@@ -299,7 +299,7 @@ TEST(ModelAssetLoaderTest, LoadCubeTexturedGLTF_HasExternalImage)
 TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLB_DispatchesEmbeddedImage)
 {
     AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
-    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId);
 
     ASSERT_NE(modelAsset, nullptr);
     EXPECT_TRUE(modelAsset->IsReady());
@@ -329,7 +329,7 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLB_DispatchesEmbeddedImage)
 TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
 {
     AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.gltf");
-    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId);
 
     ASSERT_NE(modelAsset, nullptr);
     EXPECT_TRUE(modelAsset->IsReady());
@@ -358,7 +358,7 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
 TEST_F(ModelAssetTestFixture, CompiledModelCarriesResolvedMaterials)
 {
     AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
-    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId, AssetType::Model);
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId);
     ASSERT_NE(modelAsset, nullptr);
 
     auto* modelData = modelAsset->GetData<ModelAssetData>();
@@ -379,8 +379,8 @@ TEST_F(ModelAssetTestFixture, ExternalImageDedupAcrossModelLoads)
 {
     AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.gltf");
 
-    Ptr<Asset> first  = m_assetManager->LoadAsset(modelId, AssetType::Model);
-    Ptr<Asset> second = m_assetManager->LoadAsset(modelId, AssetType::Model);
+    Ptr<Asset> first  = m_assetManager->LoadAsset(modelId);
+    Ptr<Asset> second = m_assetManager->LoadAsset(modelId);
     EXPECT_EQ(first.get(), second.get());  // model 本身已 dedup
 
     auto* modelData = first->GetData<ModelAssetData>();

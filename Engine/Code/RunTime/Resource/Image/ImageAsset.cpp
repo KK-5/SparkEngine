@@ -185,7 +185,7 @@ namespace Spark::Resource
     }
 
     ImageAsset::ImageAsset(AssetId id)
-        : Asset(eastl::move(id), AssetType::Image)
+        : Asset(eastl::move(id))
     {}
 
     const ImageAssetData* ImageAsset::GetImageData() const

@@ -21,11 +21,11 @@ namespace Spark::Resource
         virtual ~AssetManager() = default;
 
         /// 同步加载资产，阻塞直到 Ready 或 Error
-        virtual Ptr<Asset> LoadAsset(const AssetId& id, AssetType type) = 0;
+        virtual Ptr<Asset> LoadAsset(const AssetId& id) = 0;
 
         /// 异步请求加载，立即返回（状态为 Queued/Loading），完成后状态变为 Ready；
         /// 加载完成时触发 AssetBus 的 OnAssetReady 事件
-        virtual Ptr<Asset> RequestAsset(const AssetId& id, AssetType type) = 0;
+        virtual Ptr<Asset> RequestAsset(const AssetId& id) = 0;
 
         virtual Ptr<Asset> FindAsset(const AssetId& id) const = 0;
 
@@ -37,11 +37,14 @@ namespace Spark::Resource
 
         virtual void AssetRegistry() = 0;
 
+        //! Typed forms. The id already carries its type, so these only add the downcast --
+        //! and the check that the caller asked for the type the id actually names.
         template<typename T>
         Ptr<T> LoadAsset(const AssetId& id)
         {
             static_assert(eastl::is_base_of_v<Asset, T>, "T must derive from Asset");
-            Ptr<Asset> asset = LoadAsset(id, T::GetAssetTypeStatic());
+            ValidateAssetType(id, T::GetAssetTypeStatic());
+            Ptr<Asset> asset = LoadAsset(id);
             return Ptr<T>(static_cast<T*>(asset.get()));
         }
 
@@ -49,7 +52,8 @@ namespace Spark::Resource
         Ptr<T> RequestAsset(const AssetId& id)
         {
             static_assert(eastl::is_base_of_v<Asset, T>, "T must derive from Asset");
-            Ptr<Asset> asset = RequestAsset(id, T::GetAssetTypeStatic());
+            ValidateAssetType(id, T::GetAssetTypeStatic());
+            Ptr<Asset> asset = RequestAsset(id);
             return Ptr<T>(static_cast<T*>(asset.get()));
         }
 

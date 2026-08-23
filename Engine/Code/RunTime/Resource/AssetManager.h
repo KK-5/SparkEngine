@@ -33,8 +33,8 @@ namespace Spark::Resource
         HashString GetName() const override;
 
         // AssetManager
-        Ptr<Asset> LoadAsset(const AssetId& id, AssetType type) override;
-        Ptr<Asset> RequestAsset(const AssetId& id, AssetType type) override;
+        Ptr<Asset> LoadAsset(const AssetId& id) override;
+        Ptr<Asset> RequestAsset(const AssetId& id) override;
         Ptr<Asset> FindAsset(const AssetId& id) const override;
 
         AssetType GetSupportAssetType(eastl::string_view file) override;
@@ -51,7 +51,7 @@ namespace Spark::Resource
         bool InitEnvironmentBaker();
 
     private:
-        Ptr<Asset> CreateAsset(const AssetId& id, AssetType type);
+        Ptr<Asset> CreateAsset(const AssetId& id);
 
         void EnqueueForProcessing(Asset& asset);
 

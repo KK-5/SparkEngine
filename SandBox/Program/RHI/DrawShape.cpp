@@ -398,7 +398,7 @@ namespace Spark::SandBox
         Resource::AssetId shaderId = Resource::AssetId::Of<Resource::ShaderAsset>("sandbox://Shader/DrawShape.hlsl");
         auto assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "Asset Manager is Null.");
-        Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId, Resource::AssetType::Shader);
+        Ptr<Resource::Asset> assetBase = assetManager->LoadAsset(shaderId);
         if (assetBase->GetStatus() != Resource::AssetStatus::Ready)
         {
             LOG_ERROR("Load shader asset failed.");

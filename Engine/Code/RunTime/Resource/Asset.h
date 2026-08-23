@@ -29,13 +29,12 @@ namespace Spark::Resource
     public:
         virtual ~Asset() = default;
 
-        Asset(AssetId id, AssetType type)
+        explicit Asset(AssetId id)
             : m_id(eastl::move(id))
-            , m_type(type)
         {}
 
         const AssetId&  GetAssetId() const  { return m_id; }
-        AssetType       GetAssetType() const { return m_type; }
+        AssetType       GetAssetType() const { return m_id.GetAssetType(); }
         AssetStatus     GetStatus() const   { return m_status.load(eastl::memory_order_acquire); }
         bool            IsReady() const     { return GetStatus() == AssetStatus::Ready; }
         bool            IsError() const     { return GetStatus() == AssetStatus::Error; }
@@ -60,7 +59,6 @@ namespace Spark::Resource
 
     private:
         AssetId                              m_id;
-        AssetType                            m_type;
         eastl::atomic<AssetStatus>           m_status{AssetStatus::NotLoaded};
         eastl::unique_ptr<AssetData>         m_data;
     };

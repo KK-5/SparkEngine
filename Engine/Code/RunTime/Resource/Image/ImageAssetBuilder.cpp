@@ -54,7 +54,7 @@ namespace Spark::Resource
 
     void ImageAssetBuilder::Load(AssetBuildContext& ctx)
     {
-        ASSERT(ctx.type == AssetType::Image, "[ImageAssetBuilder] ctx.type mismatch");
+        ASSERT(ctx.id.GetAssetType() == AssetType::Image, "[ImageAssetBuilder] asset type mismatch");
 
         if (IsDerivedUsage(GetImageDescriptor(ctx.id)))
         {
@@ -92,7 +92,7 @@ namespace Spark::Resource
 
     void ImageAssetBuilder::Compile(AssetBuildContext& ctx)
     {
-        ASSERT(ctx.type == AssetType::Image, "[ImageAssetBuilder] ctx.type mismatch");
+        ASSERT(ctx.id.GetAssetType() == AssetType::Image, "[ImageAssetBuilder] asset type mismatch");
 
         const ImageAssetDescriptor* desc = GetImageDescriptor(ctx.id);
         if (IsDerivedUsage(desc))

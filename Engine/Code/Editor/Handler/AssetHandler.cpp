@@ -74,7 +74,7 @@ namespace Editor
         }
 
         LOG_INFO("[AssetHandler] Requesting async load for model asset '{}'.", asset.GetName().GetCStr());
-        Ptr<Resource::Asset> requested = am->RequestAsset(assetId, asset.GetAssetType());
+        Ptr<Resource::Asset> requested = am->RequestAsset(assetId);
         if (requested)
         {
             m_loadingAssets.push_back(assetId);
@@ -123,7 +123,7 @@ namespace Editor
 
         LOG_INFO("[AssetHandler] Requesting async load for asset '{}' (component field).",
                  assetId.GetPath().c_str());
-        Ptr<Resource::Asset> requested = am->RequestAsset(assetId, assetType);
+        Ptr<Resource::Asset> requested = am->RequestAsset(assetId);
         if (!requested)
         {
             LOG_ERROR("[AssetHandler] Failed to request asset '{}'.", assetId.GetPath().c_str());

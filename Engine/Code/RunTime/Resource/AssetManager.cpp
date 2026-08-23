@@ -82,14 +82,14 @@ namespace Spark::Resource
         return "AssetManager"_hs;
     }
 
-    Ptr<Asset> SparkAssetManager::CreateAsset(const AssetId& id, AssetType type)
+    Ptr<Asset> SparkAssetManager::CreateAsset(const AssetId& id)
     {
         Ptr<Asset> result;
-        AssetBuildBus::EventResult(result, type, &AssetBuildEvents::CreateAsset, id);
+        AssetBuildBus::EventResult(result, id.GetAssetType(), &AssetBuildEvents::CreateAsset, id);
         if (!result)
         {
             LOG_ERROR("[SparkAssetManager] No builder registered for AssetType {}",
-                static_cast<uint32_t>(type));
+                static_cast<uint32_t>(id.GetAssetType()));
         }
         return result;
     }
@@ -99,7 +99,7 @@ namespace Spark::Resource
         return m_db ? m_db->Find(id) : nullptr;
     }
 
-    Ptr<Asset> SparkAssetManager::LoadAsset(const AssetId& id, AssetType type)
+    Ptr<Asset> SparkAssetManager::LoadAsset(const AssetId& id)
     {
         Ptr<Asset> existing = m_db->Find(id);
         if (existing)
@@ -115,7 +115,7 @@ namespace Spark::Resource
             return existing;
         }
 
-        Ptr<Asset> created = CreateAsset(id, type);
+        Ptr<Asset> created = CreateAsset(id);
         if (!created)
         {
             return nullptr;
@@ -133,7 +133,7 @@ namespace Spark::Resource
         return stored;
     }
 
-    Ptr<Asset> SparkAssetManager::RequestAsset(const AssetId& id, AssetType type)
+    Ptr<Asset> SparkAssetManager::RequestAsset(const AssetId& id)
     {
         Ptr<Asset> existing = m_db->Find(id);
         if (existing)
@@ -149,7 +149,7 @@ namespace Spark::Resource
             return existing;
         }
 
-        Ptr<Asset> created = CreateAsset(id, type);
+        Ptr<Asset> created = CreateAsset(id);
         if (!created)
         {
             return nullptr;
@@ -263,18 +263,19 @@ namespace Spark::Resource
             return;
         }
 
+        const AssetType type = asset.GetAssetType();
+
         AssetBuildContext ctx;
         ctx.id         = asset.GetAssetId();
-        ctx.type       = asset.GetAssetType();
         ctx.fileSystem = m_fileSystem;
         ctx.db         = m_db.get();
 
         asset.SetStatus(AssetStatus::Loading);
-        AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Load, ctx);
+        AssetBuildBus::Event(type, &AssetBuildEvents::Load, ctx);
         if (!ctx.rawData && !ctx.compiledData)
         {
             asset.SetStatus(AssetStatus::Error);
-            AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetError, asset);
+            AssetBus::Event(type, &AssetBus::Events::OnAssetError, asset);
             return;
         }
 
@@ -288,18 +289,18 @@ namespace Spark::Resource
         if (!ctx.compiledData)
         {
             asset.SetStatus(AssetStatus::Compiling);
-            AssetBuildBus::Event(ctx.type, &AssetBuildEvents::Compile, ctx);
+            AssetBuildBus::Event(type, &AssetBuildEvents::Compile, ctx);
         }
 
         if (!ctx.compiledData)
         {
             asset.SetStatus(AssetStatus::Error);
-            AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetError, asset);
+            AssetBus::Event(type, &AssetBus::Events::OnAssetError, asset);
             return;
         }
 
         asset.SetDataReady(eastl::move(ctx.compiledData));
-        AssetBus::Event(ctx.type, &AssetBus::Events::OnAssetReady, asset);
+        AssetBus::Event(type, &AssetBus::Events::OnAssetReady, asset);
     }
 
     AssetId SparkAssetManager::MakeAssetIdForType(eastl::string_view virtualPath, AssetType type)
@@ -321,7 +322,7 @@ namespace Spark::Resource
                     c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
                 }
                 const bool isHdr = (ext == ".hdr");
-                return AssetId::Of(path,
+                return AssetId::Of(path, {}, AssetType::Image,
                     isHdr ? ImageAsset::DefaultHDRDescriptor() : ImageAsset::DefaultDescriptor());
             }
             case AssetType::Shader: return AssetId::Of<ShaderAsset>(path);
@@ -375,7 +376,7 @@ namespace Spark::Resource
                     return;
                 }
 
-                Ptr<Asset> asset = CreateAsset(id, type);
+                Ptr<Asset> asset = CreateAsset(id);
                 if (asset)
                 {
                     m_db->InsertOrGet(id, asset);

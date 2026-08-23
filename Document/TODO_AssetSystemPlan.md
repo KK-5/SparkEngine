@@ -1,7 +1,6 @@
 # 资产系统补齐计划（路径身份 / 磁盘缓存 / 材质资产 / 场景保存）
 
-> **阶段 0 已细化到可实施；阶段 1~4 仍是大致方向**，标了「待细化」的地方还没定，
-> 不要当成已决方案实现。
+> 标了「待细化」的地方还没定，不要当成已决方案实现。
 
 ## 背景
 
@@ -17,42 +16,46 @@
 
 ---
 
+## 状态
+
+**阶段 0.a 已完成。** `AssetId::m_path` 现在恒为虚拟路径，`searchPaths` 管道整条拆除，
+glTF 外部 URI 改为词法解析。
+
+**阶段 0.b（`AssetId` 携带类型）已完成。** 类型现为身份的一部分，`Asset::m_type` 与
+`AssetBuildContext::type` 两个副本已删除。其余全部未开工。
+
+另有两项已随 0.a 落地：
+
+- 三个 descriptor 的 `Hash()` 用 `HashString("XxxDescriptor")` 做种子，避免跨类型撞哈希。
+  `DescriptorHashTest` 守住这条。
+- `ModelAssetDescriptor::type` 默认值改为 `GLTF`。
+
+---
+
 ## 现状盘点
 
 ### 已经有的
 
-- **Load/Compile 之间的缓存缝**。`AssetManager.cpp:296-307`：Load 若直接给回 `ctx.compiledData`，
+- **Load/Compile 之间的缓存缝**。`AssetManager.cpp:281`：Load 若直接给回 `ctx.compiledData`，
   Compile 整段跳过。今天服务 `.ktx2`，将来服务 cache hit。
 - **图片的编解码两头**。`ImageAssetCompiler.cpp:411` 已经算出 ktx2 blob（只用来打了条 log 就扔了）；
-  `ImageAssetLoader.cpp:244` 已经能读 ktx2。
+  `ImageAssetLoader.cpp:241` 已经能读 ktx2。
 - **子资产机制**。`AssetId::OfSub` + `ImageAssetBuilder::PublishSubAsset`，glTF 内嵌图片和 IBL
   烘焙产物都走这条路。
-- **场景序列化所需的反射面**。`Reflection/Utility.h:86` 的 `ComponentOperation` 把 `HasComponent` /
-  `GetComponent` / `AddOrReplaceComponent` / `IsWorldComponent` 注册成了 context-free 的反射函数。
-  现有 7 个世界组件（Name / Transform / Mesh / Material / Camera / Light / Skybox）无需新增注册。
+- **反射系统在用**。组件、枚举（`Light/Reflect.h:15` 的 `LightType`）都已注册；
+  `Reflection/Utility.h:86` 的 `ComponentOperation` 把 `HasComponent` / `GetComponent` /
+  `AddOrReplaceComponent` / `IsWorldComponent` 注册成了 context-free 的反射函数，现有 7 个世界
+  组件无需新增注册。
 
-### 核心欠账：`AssetId::m_path` 同时存着三种不同的东西
-
-| 来源 | 存进 `AssetId` 的路径 | 例子 |
-|---|---|---|
-| 编辑器（`Editor.cpp:38`、`Engine.cpp:81` 传 CWD 相对目录） | CWD 相对 | `Engine/Asset/foo.png` |
-| 测试 / SandBox（CMake 宏是 `${ENGINE_ROOT_DIR}/Asset`） | 机器绝对路径 | `D:/SparkEngine/Engine/Asset/foo.png` |
-| glTF 外部贴图（`ModelAssetBuilder.cpp:203`） | 未解析的 glTF 相对 URI | `textures/wood.png` |
-
-第三种的可解析性依赖调用时的带外上下文——靠 `DispatchImageSubAsset` 把模型所在目录临时插进
-child 的搜索路径头部（`ModelAssetBuilder.cpp:69-72`）才成立，离开那个 context 即是死引用。
-
-同一个 `Engine/Asset/BRDFLut.ktx2`，编辑器与测试算出的 `AssetId` 不同。
-
-### 其余欠账
+### 欠账
 
 | 欠账 | 位置 | 说明 |
 |---|---|---|
-| descriptor 不可重建 | `Resource/AssetTypes.h` | `AssetDescriptor` 只暴露 `Hash()` |
+| descriptor 不可序列化 | `Resource/AssetTypes.h` | 见阶段 0.c |
 | 磁盘缓存 | 无 | 见阶段 1 |
 | 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset.cpp:17` 的 `Shutdown`→`ReleaseAsset` 够不着 |
 | 材质无资产形态 | `Feature/Material/` | 唯一创建点是 `SpawnModel.cpp:111` |
-| 三个平行的 CPU 材质结构 | `ModelAsset.h:46` / `Material/Components.h:45` | `Resource::Material` 与 `MaterialParams`，靠 `MaterialParamsFromModel` 搭桥 |
+| 三个平行的 CPU 材质结构 | `ModelAsset.h` / `Material/Components.h` | `Resource::Material` 与 `MaterialParams`，靠 `MaterialParamsFromModel` 搭桥 |
 | 无 JSON 库 | — | simdjson 作为 fastgltf 依赖存在，但只读 |
 | 场景序列化 | 无 | 见阶段 4 |
 
@@ -65,35 +68,33 @@ child 的搜索路径头部（`ModelAssetBuilder.cpp:69-72`）才成立，离开
 2. **虚拟路径 + 命名挂载点**，语法 `mount://relative`。见阶段 0.a。
 3. **`AssetId` 的持久化形式是 JSON 复合对象。** 单一字符串仅作单向显示形式（log、Inspector 只读框），
    不用于解析。第一版不提供「全默认值退化成裸字符串」的短形式。
-4. **材质走子资产路线**（阶段 3）——glTF 内嵌材质由 `ModelAssetBuilder` publish 成
+4. **资产类型是身份的一部分，由 `AssetId` 携带。** 见阶段 0.b。
+5. **descriptor 按字段序列化，走反射。** 见阶段 0.c。
+6. **材质走子资产路线**（阶段 3）——glTF 内嵌材质由 `ModelAssetBuilder` publish 成
    `model.glb:material/0`，不给 `.smat` 另起结构。
-5. **JSON 使用 vendor 的 `nlohmann/json.hpp` 单头文件。**
-6. **挂载表独立成 `Core/VFS/` 模块**，namespace `Spark`（与 `Core/SceneManager/` 的
-   `IScene` / `SceneManager` 同构，不设子命名空间）。接口 `FileSystem`，实现 `MountTable`，
+7. **JSON 使用 vendor 的 `nlohmann/json.hpp` 单头文件。**
+8. **挂载表独立成 `Core/VFS/` 模块**，namespace `Spark`。接口 `FileSystem`，实现 `MountTable`，
    系统 `VFSSystem`。
 
 ---
 
 ## 阶段 0：路径身份
 
-拆成三个子问题，依赖面不同：
-
 | 子问题 | 阶段 1 缓存 | 阶段 3 材质 | 阶段 4 场景 |
 |---|:--:|:--:|:--:|
-| 0.a 虚拟路径 + 挂载点 | ✅ | ✅ | ✅ |
-| 0.b descriptor 可重建 | ❌ 只需 `desc->Hash()`，已有 | ✅ | ✅ |
-| 0.c 复合存储形式 | ❌ | ✅ | ✅ |
+| 0.a 虚拟路径 + 挂载点 ✅ | ✅ | ✅ | ✅ |
+| 0.b `AssetId` 携带类型 ✅ | ✅ catalog 需要 | ✅ | ✅ |
+| 0.c descriptor 序列化 | ❌ 只需 `desc->Hash()`，已有 | ✅ | ✅ |
+| 0.d `AssetId` 复合形式 | ❌ | ✅ | ✅ |
 
-阶段 1 只依赖 0.a，可在 0.a 完成后立刻开工。
-
-### 0.a　VFS 挂载点
+### 0.a　VFS 挂载点 ✅ 已完成
 
 核心不变量：
 
 > **`AssetId::m_path` 永远是虚拟路径 `mount://relative`，不存在第二种形态。**
 > 物理路径只在真正读文件的那一刻出现，且只经过 `FileSystem` 一处。
 
-#### 模块结构
+#### 落地形态
 
 ```
 Engine/Code/RunTime/Core/VFS/
@@ -103,178 +104,151 @@ Engine/Code/RunTime/Core/VFS/
                                           public Service<FileSystem>::Handler
 ```
 
-三者分工：`FileSystem` 是能干什么，`MountTable` 是怎么实现的，`VFSSystem` 是谁持有它、
-什么时候起来。`MountTable` 是普通可构造对象，自身不注册 Service。
+`FileSystem` 接口：`Mount` / `Unmount` / `ToVirtual` / `ToPhysical` / `GetMountNames` /
+`GetPhysicalDirs` / `IterateDirectory`。`ToPhysical` 是查表不是搜索；`Mount` 拒绝物理目录相互
+包含的挂载点，因此至多一个挂载点能命中一个物理路径。
 
-#### 接口
+阶段 1 会在同一接口上追加 `ReadFile` / `WriteFile` / `Exists`。
 
-```cpp
-namespace Spark
-{
-    class FileSystem
-    {
-    public:
-        virtual ~FileSystem() = default;
+#### 挂载点
 
-        virtual void Mount(eastl::string_view name, eastl::string_view physicalDir) = 0;
-        virtual void Unmount(eastl::string_view name) = 0;
-
-        //! 物理/宽松路径 → 虚拟路径。最长前缀匹配所有挂载点。
-        //! 匹配不到：返回空串 + LOG_ERROR（报出物理路径与当前挂载表）。
-        virtual eastl::string ToVirtual(eastl::string_view physicalPath) const = 0;
-
-        //! 虚拟路径 → 物理路径。查表，不搜索。
-        virtual eastl::string ToPhysical(eastl::string_view virtualPath) const = 0;
-
-        //! 编辑器资产浏览器 / AssetRegistry —— 取到名字后全程走虚拟路径。
-        virtual eastl::vector<eastl::string> GetMountNames() const = 0;
-
-        //! 仅 DXC include。按挂载注册顺序返回，保留「先命中先赢」语义。
-        virtual eastl::vector<eastl::string> GetPhysicalDirs() const = 0;
-
-        //! 遍历一个挂载点，回调收到的是虚拟路径（相对部分直接拼到挂载名后，不走 ToVirtual）。
-        virtual void IterateDirectory(eastl::string_view virtualDir,
-                                      eastl::function<void(eastl::string_view)> visit) const = 0;
-
-        // 阶段 1 追加：ReadFile / WriteFile / Exists
-    };
-}
-```
-
-- `ToPhysical` 是查表，不遍历搜索。
-- 两个挂载点指向重叠的物理目录时，`Mount` 检测并报错。
-- `ToVirtual` 匹配失败时上游 `MakeAssetId` 返回无效 `AssetId`，与它今天找不到文件时的行为一致
-  （`AssetManager.cpp:356-360`）。
+| 挂载 | 物理目录 | 内容 |
+|---|---|---|
+| `engine://` | `Engine/Asset/` | Shaders、BRDFLut、Shaderball |
+| `project://` | `Project/Asset/` | 用户内容；将来的 `.smat` / `.scene` |
+| `editor://` | `Engine/Code/Editor/Asset/` | 编辑器 UI 图标（`BottomPanel.cpp:203-209` 在用） |
+| `test://` | `Engine/Code/Test/Resource/` | 测试资产 |
+| `sandbox://` | `SandBox/Asset/` | SandBox 程序 |
 
 #### 获取方式
 
 | 谁 | 怎么拿 |
 |---|---|
-| `SparkAssetManager`（`MakeAssetId` / `AssetRegistry`） | `Service<FileSystem>::Get()`，`InitInternal` 取一次存下并 ASSERT |
-| Builder / Loader / `ShaderAssetCompiler` | `AssetBuildContext::fileSystem`（`const FileSystem*`，与已有的 `db` 同构） |
+| `SparkAssetManager` | `Service<FileSystem>::Get()`，`InitInternal` 取一次存下并 ASSERT |
+| Loader / `ShaderAssetCompiler` | 按参数传入 `const FileSystem&`，三个 loader 均无状态 |
 | 编辑器资产浏览器 | `Service<FileSystem>::Get()` |
-| 阶段 1 缓存 / 阶段 4 场景保存 | `Service<FileSystem>::Get()` |
-| 单测 | 局部 `MountTable`，按 `const FileSystem*` 传入 |
+| 单测 | 局部 `MountTable`，按 `const FileSystem&` 传入 |
 
-`VFSSystem` 在 `Engine.cpp` 里紧跟 `SpdLogSystem` 之后创建，挂载点注册随之从 AssetManager 移走：
+#### 一并落地的
+
+- `AssetId` 构造时 `ASSERT` 路径含 `://`。
+- glTF 外部 URI 用 `ResolveSiblingVirtualPath` 对父模型的虚拟目录做词法解析；
+  `extraSearchPaths` 与 `AssetBuildContext::searchPaths` 删除。
+- DXC 的 source name 用**物理**路径（它拿这个去拼引号 include）。
+- 全仓库唯一保留搜索语义的地方是 `ShaderAssetCompiler` 的 include handler，走 `GetPhysicalDirs()`。
+- `AddSearchPath` / `RemoveSearchPath` / `GetSearchPathes` / `ResolveAssetPath` /
+  `SetSearchPaths` 全部删除。
+
+### 0.b　`AssetId` 携带 `AssetType` ✅ 已完成
+
+核心不变量：
+
+> **`AssetId` 的任何构造路径都必须显式给出类型**，形式可以是编译期的 `Of<T>`，
+> 也可以是运行期的 `AssetType` 实参。不存在「不给类型也能造出 id」的口子。
+
+类型是身份的属性，不是实例的属性——引用可以在没有实例的情况下大量存在（组件字段、场景文件、
+缓存 catalog、发行包）。
+
+#### 落地形态
+
+`AssetId` 的公开构造入口只剩五个，前四个由 `T::GetAssetTypeStatic()` 供型：
 
 ```cpp
-m_vfs = CreateSystem<VFSSystem>();
-m_vfs->Init();
-m_vfs->Mount("engine", "Engine/Asset");     // 取代 m_assetManager->AddSearchPath(...)
+Of<T>(path)                                    OfSub<T>(parentPath, subLabel)
+Of<T>(path, desc)                              OfSub<T>(parentPath, subLabel, desc)
+Of(path, subLabel, AssetType, Ptr<AssetDescriptor>)   // 反序列化 / 已备好的 descriptor Ptr
 ```
 
-`AssetManagerInterface.h` 上的 `AddSearchPath` / `RemoveSearchPath` / `GetSearchPathes` 三个删除。
+`WithDescriptor` 沿用原 id 的类型。descriptor 自身不带类型标签，因此换 descriptor 时的
+类型一致性不可校验——由「同一资产类型的 usage 变体」这一用法约束保证。
 
-#### 挂载点划分
+#### 一并落地的
 
-| 挂载 | 物理目录 | 内容 | 谁挂 |
-|---|---|---|---|
-| `engine://` | `Engine/Asset/` | Shaders、BRDFLut、Shaderball —— 引擎自带 | `Engine.cpp` |
-| `project://` | `Project/Asset/`（新建，仓库根，与 `Engine/`、`SandBox/` 平级） | 用户内容；将来的 `.smat` / `.scene` | `Editor.cpp` |
-| `editor://` | `Engine/Code/Editor/Asset/` | 编辑器 UI 图标（7 个 svg） | `Editor.cpp` |
-| `test://` | `Engine/Code/Test/Resource/Asset/` | 测试资产 | 各测试 |
-| `sandbox://` | `SandBox/Asset/` | SandBox 程序 | SandBox |
+- `AssetType` 折进 `ComputeHash`；`IsValid()` 要求类型非 `Unknown`。
+- `ValidateAssetId(path, type)` 取代 `ValidateAssetPath`，多断言一条「路径非空则类型非 Unknown」。
+- `Asset::m_type` 删除，`GetAssetType()` 委托 `m_id`；构造函数收成 `explicit Asset(AssetId)`。
+- `LoadAsset` / `RequestAsset` / `CreateAsset` 去掉类型参数；`AssetBuildContext::type` 与
+  `MakeChild` 的类型参数删除，builder 的 `ASSERT` 改看 `ctx.id.GetAssetType()`。
+- `LoadAsset<T>` / `RequestAsset<T>` 现在校验 id 的类型与 `T` 一致（`ValidateAssetType`，
+  与 `ValidateAssetId` 同样离线定义以免把日志头文件拖进 `AssetTypes.h`）。
+- `GetSupportAssetType`（扩展名嗅探）保留，但仅用于 import / 注册时回答「这个文件是什么」。
+  此后类型一路显式携带，不再有第二次推断。
+- `AssetIdTypeTests` 守住：`Of<T>` 供型、子资产类型与其路径扩展名不一致、类型区分同路径 id、
+  `WithDescriptor` 保型、默认 id 无类型。
 
-要动的文件：
+### 0.c　descriptor 反射序列化
 
-- `Engine/Asset/*.glb`（除 `Shaderball.glb`）+ 4 张未跟踪 HDR → `Project/Asset/`
-- `Engine/Code/Editor/Asset/DECWood-redoak.cgfind.cn.glb` → `Project/Asset/`；该目录余下的 7 个
-  svg 是编辑器自己的 UI 资源（`BottomPanel.cpp:203-209` 在用），留在原地作为 `editor://`
-- `Project/Asset/` 加 `.gitignore`，这些大文件不进 git
-- 编辑器改挂 `project` + `editor`，不再挂测试资产目录（`Editor.cpp:38`）
-- CMake 宏（`ENGINE_ASSET_DIR` 等）保持绝对路径不变
+descriptor 按字段序列化，能表达任意字段组合。
 
-#### glTF 外部 URI 改为纯词法解析
+#### 内容
 
-父模型的虚拟路径已知（`ctx.id.GetPath()`），子贴图 URI 相对于它：
+1. vendor `nlohmann/json.hpp`。
+2. `Core/Serialization/` 加 `SerializeValue(MetaAny, Writer&)` / `DeserializeValue`，
+   遍历 `MetaType::data()` 递归。
+3. 新建 `Resource/Reflect.h`，反射三个 descriptor 与它们的枚举（`TextureCompression` /
+   `ImageColorSpace` / `ImageUsage` / `ModelAssetType` / `ShaderBackend`）。枚举反射沿用
+   `Light/Reflect.h:15` 的写法。
+4. `AssetManager` 提供 `AssetIdToJson` / `AssetIdFromJson`：按 `id.GetAssetType()` switch 到具体
+   descriptor 类型，与已有的 `MakeAssetIdForType`（`AssetManager.cpp:305`）同构，放在一处。
+   两个方向都不查 DB、不依赖资产是否加载过。
 
+序列化形态，省略等于默认值的字段：
+
+```json
+"desc": { "usage": "NormalMap", "colorSpace": "Linear" }
 ```
-engine://Models/chair.gltf  +  textures/wood.png
-        → engine://Models/textures/wood.png
-```
 
-纯字符串拼接，不碰文件系统。`DispatchImageSubAsset` 的 `extraSearchPaths` 参数、
-`child.searchPaths.insert(...)`、以及 `MakeChild` 传 searchPaths 的必要性全部删除。
+descriptor 自身不写类型标签——类型由 `AssetId` 的 `type` 字段决定（见 0.d）。
 
-#### `searchPaths` 管道拆除
+**枚举存名字不存数值。**
 
-| 现在 | 之后 |
+#### 要补的机制点
+
+| 缺口 | 补法 |
 |---|---|
-| `AssetBuildContext::searchPaths` | 换成 `const FileSystem* fileSystem`（与已有的 `db` 指针同构） |
-| `ResolveAssetPath(path, searchPaths)` | 删除，由 `FileSystem::ToPhysical` 取代 |
-| `ImageAssetLoader` / `ModelAssetLoader` / `BinaryAssetLoader::SetSearchPaths` | 三个全删 |
-| `AddSearchPath` / `RemoveSearchPath` / `GetSearchPathes`（`AssetManagerInterface.h:32-34`） | 三个删除，挂载点注册移到 `VFSSystem` |
-| Loader 内部的 `ResolveAssetPath(id.GetPath(), m_searchPaths)` | → `ToPhysical(id.GetPath())`。`std::ifstream` 与第三方调用不动——`ktxTexture2_CreateFromNamedFile`、`stbi_load`、`fastgltf::GltfDataBuffer::FromPath` 及其 `baseDir` 都取物理路径 |
-| `AssetRegistry()` 的 `fs::recursive_directory_iterator`（`AssetManager.cpp:369-396`） | → `GetMountNames` + `IterateDirectory(mount://)`，直接产出虚拟路径 |
-| 编辑器资产浏览器（`BottomPanel.cpp:511-519`） | 树根名 = 挂载名，`fullPath` = 虚拟路径，枚举走 `IterateDirectory`；获取方式从 `Service<AssetManager>` 改为 `Service<FileSystem>` |
-| `SnapshotSearchPaths()`（`AssetManager.h:64`） | 删除 |
+| 枚举经 `cast` 后不再被识别为 enum（`ComponentView.cpp:409` 记录的 entt 行为） | 序列化器先存住 `MetaType` 再取值 |
 
-**保留的例外**：`ShaderAssetCompiler` 给 DXC 的 include 目录列表（`ShaderAssetCompiler.cpp:74-77`、
-`:266`）走 `FileSystem::GetPhysicalDirs()`，保留遍历搜索语义。
+`ImageAsset::DescriptorForUsage` 那 6 个单例不动。
 
-#### 实施顺序
+**待细化：** 容器类型（`eastl::vector` / `eastl::array`）怎么走 entt meta container；
+版本化与字段增删的兼容策略。
 
-1. `Core/VFS/`（`FileSystem` + `MountTable` + `VFSSystem`）+ 单测。不动 `Resource/`。
-2. `Project/Asset/` 建目录、挪文件、加 `.gitignore`，`Editor.cpp` 改挂载目录。不碰 VFS。
-3. VFSSystem 接入；`AssetBuildContext::searchPaths` 换成 `const FileSystem*`；loader 翻到
-   `ToPhysical`；约 33 个字面量路径调用点改虚拟路径；修 `ImageAssetTests` 的挂载重叠。
-4. glTF 外部 URI 改词法解析，删 `extraSearchPaths`。
-
-第 3 步不能再拆成「先改注册点、再翻 loader」：注册一旦移到 `Mount`，AssetManager 就不再有
-`searchPaths` 喂给 `AssetBuildContext`，而 loader 还在读它——编得过但跑不起来。
-
-第 3 步的 33 个调用点分布：编辑器图标 7（`OpenIcon("folder.svg")` 这类裸文件名同样依赖搜索
-语义）、引擎 shader 8、`EnvironmentBaker` 4、SandBox 12，另有约 15 处测试注册。
-
-### 0.b　descriptor 可重建
-
-descriptor 是身份的一部分，必须能 round-trip：同一张 `Wood.png` 拖到 Base Color 是
-`Texture2D`(sRGB)、拖到 Normal 是 `NormalMap`(Linear)、拖到 Occlusion 是
-`NoColorTexture2D`(Linear)——三个不同 `AssetId`、三份不同编译产物（`ComponentView.cpp:375`）。
-只存路径会让加载时退回默认的 `Texture2D`，法线贴图按 sRGB 解出来且不报错。
-
-方案：**规范 descriptor 表 + 短 key**。
-
-- `AssetDescriptor` 加虚函数 `DescriptorKey()` 返回短字符串。
-- 建 `(AssetType, key) → Ptr<AssetDescriptor>` 的规范表。Image 注册 6 个 usage
-  （`ImageAsset::DescriptorForUsage` 今天已经是这些单例）；Model / Shader 各注册一个 `default`。
-- 非规范 descriptor 的 round-trip 失败时报错。真需要时按决策 3 加子键升级。
-
-### 0.c　复合存储形式
+### 0.d　`AssetId` 复合形式
 
 ```json
 "m_modelAssetId": {
+    "type": "Image",
     "path": "project://Model/Furniture.glb",
     "sub":  "image/3",
-    "desc": { "key": "NormalMap" }
+    "desc": { "usage": "NormalMap" }
 }
 ```
 
-`AssetManager` 提供 `AssetIdToJson` / `AssetIdFromJson`，外加单向的 `AssetIdToDisplayString`。
+`type` 显式落盘：发行包里没有源文件，产物是 `.blob`，扩展名推断必然失效。
 
-**待细化：** 相对路径归一化规则（大小写、分隔符）；`sub` 为空、`desc` 为规范默认时是否省略键。
+外加单向的 `AssetIdToDisplayString`（log、Inspector 只读框）。
+
+**待细化：** 相对路径归一化规则——当前行为是 relative 段保留作者书写的大小写，因此在 Windows 上
+`engine://Foo.png` 与 `engine://foo.png` 是两个 id；`sub` / `desc` 为默认时是否省略键。
 
 ---
 
 ## 阶段 1：磁盘 cook 缓存
 
-> 大致方向。只依赖 0.a。
+> 大致方向。依赖 0.b（catalog 需要类型）。
 
 在 `AssetBuildContext` 上加两个字段（与已有的 `db` 同构）：预先算好的 `cacheKey` 和一个
 `AssetCache*`。Builder 在自己的 `Load` 开头试读缓存，命中就填 `ctx.compiledData`，走
-`AssetManager.cpp:296-307` 已有的契约，状态机不动。
+`AssetManager.cpp:281` 已有的契约，状态机不动。
 
 - **key** = hash(`AssetId::GetHash()` + 源文件 mtime/size + per-type builder 版本号)。
-  0.a 完成后 `GetHash()` 已经稳定，不需要文本形式。
 - **落盘**：`Cache/<hh>/<key>.blob`，blob 头部复写 key 的输入做自校验。
 - **实现顺序**：Image → Shader → Model。
 
 **⚠️ 硬约束：** 跳过 Compile 会跳掉它的副作用。环境立方图在 Compile 里 publish irradiance /
-prefiltered 两个子资产（`AssetManager.cpp:296`、`ImageAssetCompiler.cpp:452`）。environment 的
-缓存项必须是三个 blob 的 bundle，命中时由 `ImageAssetBuilder` 整体重新 publish。同时
-`AssembleCubemapData` 的 `m_mips` 现在只是 base-mip 占位（描述不了 face-major 布局），
-做 cubemap 缓存时一并修。
+prefiltered 两个子资产。environment 的缓存项必须是三个 blob 的 bundle，命中时由
+`ImageAssetBuilder` 整体重新 publish。同时 `AssembleCubemapData` 的 `m_mips` 现在只是 base-mip
+占位（描述不了 face-major 布局），做 cubemap 缓存时一并修。
 
 **不做：** 内存驻留淘汰。只加一个手动 `PurgeUnreferenced()`。
 
@@ -282,19 +256,14 @@ prefiltered 两个子资产（`AssetManager.cpp:296`、`ImageAssetCompiler.cpp:4
 
 ---
 
-## 阶段 2：反射驱动的序列化器
+## 阶段 2：把序列化器铺到组件
 
-> 大致方向。写一次给 `.smat`、`.scene`、以后的 prefab 共用。
+> 大致方向。序列化器本体在 0.c 已建好，这里是应用面。
 
-- vendor `nlohmann/json.hpp`。
-- `Core/Serialization/` 加 `SerializeValue(MetaAny, Writer&)` / `DeserializeValue`：遍历
-  `MetaType::data()` 递归，对少数 leaf 类型特判——`Math::Vector3/4`、`Matrix4X4`、
-  `eastl::string`、`Resource::AssetId`（走 0.c）、`Entity`、`MaterialHandle`。
-- 只序列化反射过的字段。`Serialization/MetaTypeTraits.h` 加一位 `Transient`（现在只有 `Editable`），
-  并给 `Mesh/Reflect.h:23-26` 的 `m_vertexCount` / `m_triangleCount` 打上。
-
-**待细化：** 容器类型（`eastl::vector` / `eastl::array`）怎么走 entt meta container；
-版本化与字段增删的兼容策略。
+- `Serialization/MetaTypeTraits.h` 加一位 `Transient`（现在只有 `Editable`），并给
+  `Mesh/Reflect.h:23-26` 的 `m_vertexCount` / `m_triangleCount` 打上——只读统计值，不该存。
+- 补齐 leaf 类型特判：`Math::Vector3/4`、`Matrix4X4`、`eastl::string`、`Resource::AssetId`
+  （走 0.d）、`Entity`、`MaterialHandle`。
 
 ---
 
@@ -337,31 +306,33 @@ prefiltered 两个子资产（`AssetManager.cpp:296`、`ImageAssetCompiler.cpp:4
 
 ## 待决
 
-**`AssetHash` 是 32 位的。** `AssetHash = ObjectName::Hash = entt::hashed_string::hash_type =
-uint32_t`；`AssetId::ComputeHash` 内部用 64 位 `hash_combine_raw` 之后 `static_cast` 截回 32 位。
-`AssetTypes.h:85` 的 `operator==` 是纯哈希比较，不比路径——两个资产哈希相撞即被静默视为同一个。
-持久化 id 并用它做磁盘缓存的键之后，撞一次的后果从「这次运行画错」变成「缓存里永久存着错数据」。
-
-两个选项，阶段 0 动这块时一并处理：
+**`AssetHash` 是 32 位，且 `AssetTypes.h:91` 的 `operator==` 只比哈希不比路径。** 两个选项，
+**阶段 1 之前必须定**（缓存把 id 当磁盘键，撞一次就是永久错数据）：
 
 - `AssetHash` 提到 64 位；
-- 或 `operator==` 退回比 `(path, subLabel, descHash)` 实值，哈希只做桶索引（需确认有无性能敏感的比较点）。
+- 或 `operator==` 退回比 `(path, subLabel, descHash)` 实值，哈希只做桶索引。
+
+**`DescriptorForUsage` 交出可变的共享单例。** 收紧办法是返回 `ConstPtr<AssetDescriptor>`，
+波及 `AssetId::Of` 的签名，单独一步做。
+
+**逐资产导入设置**（给某张贴图单独指定 mip 数 / 压缩格式）未排期。0.c 的字段级序列化能表达它，
+但配置存哪、谁编辑、和 usage 什么关系是独立的设计问题。
 
 ---
 
 ## 依赖关系
 
 ```
-阶段 0.a（VFS 挂载点 / 虚拟路径）
-   ├──► 阶段 1（磁盘缓存）          ← 只依赖 0.a，可并行开工
-   └──► 阶段 0.b（descriptor 可重建）
-           └──► 阶段 0.c（复合存储形式）
-                   └──► 阶段 2（序列化器 + JSON）
+阶段 0.a（VFS 挂载点 / 虚拟路径）✅
+   └──► 阶段 0.b（AssetId 携带 AssetType）✅
+           ├──► 阶段 1（磁盘缓存）          ← catalog 需要类型
+           └──► 阶段 0.c（反射序列化器 + descriptor 反射）
+                   └──► 阶段 0.d（AssetId 复合形式）
+                           ├──► 阶段 2（序列化器铺到组件）
                            └──► 阶段 3（材质资产）
                                    └──► 阶段 4（场景保存）
 ```
 
-## 状态
+## 下一步
 
-**全部未开始。** 下一步：`Core/VFS/`（`FileSystem` + `MountTable` + `VFSSystem`）+ 单测
-（阶段 0.a 第 1 步）。
+阶段 0.c，或先做只依赖已完成部分的阶段 1。两者之前都要先定「待决」里的 32 位哈希。

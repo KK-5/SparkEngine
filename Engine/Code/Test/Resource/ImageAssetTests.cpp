@@ -191,7 +191,7 @@ TEST_F(ImageAssetTestFixture, LoadImageAssetSync)
 {
     // Loader + Compiler 由 AssetManager::Init() 默认注册，无需手动 register
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset, nullptr);
     EXPECT_TRUE(asset->IsReady());
@@ -209,8 +209,8 @@ TEST_F(ImageAssetTestFixture, LoadImageAssetSync)
 TEST_F(ImageAssetTestFixture, LoadSameImageReturnsCached)
 {
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
-    Ptr<Asset> asset1 = m_assetManager->LoadAsset(id, AssetType::Image);
-    Ptr<Asset> asset2 = m_assetManager->LoadAsset(id, AssetType::Image);
+    Ptr<Asset> asset1 = m_assetManager->LoadAsset(id);
+    Ptr<Asset> asset2 = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset1, nullptr);
     EXPECT_EQ(asset1.get(), asset2.get());
@@ -219,7 +219,7 @@ TEST_F(ImageAssetTestFixture, LoadSameImageReturnsCached)
 TEST_F(ImageAssetTestFixture, LoadNonExistentImageReturnsError)
 {
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/non_existent.png");
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset, nullptr);
     EXPECT_TRUE(asset->IsError());
@@ -229,7 +229,7 @@ TEST_F(ImageAssetTestFixture, LoadJpegProducesBC3)
 {
     // 验证整条 pipeline：JPG → decode → resize → BC3 编码 → KTX2 容器
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
 
     ASSERT_NE(asset, nullptr);
     ASSERT_TRUE(asset->IsReady());
@@ -274,7 +274,7 @@ TEST_F(ImageAssetTestFixture, Ktx2LoadsAsCompiledDataWithoutRecompiling)
     AssetId id = m_assetManager->MakeAssetId("engine://Image/BRDFLut.ktx2");
     ASSERT_TRUE(id.IsValid());
 
-    Ptr<Asset> asset = m_assetManager->LoadAsset(id, AssetType::Image);
+    Ptr<Asset> asset = m_assetManager->LoadAsset(id);
     ASSERT_NE(asset, nullptr);
     ASSERT_TRUE(asset->IsReady());
 

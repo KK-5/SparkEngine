@@ -61,7 +61,7 @@ namespace Spark::Resource
     }
 
     ShaderAsset::ShaderAsset(AssetId id)
-        : Asset(eastl::move(id), AssetType::Shader)
+        : Asset(eastl::move(id))
     {}
 
     const ShaderAssetData* ShaderAsset::GetShaderData() const

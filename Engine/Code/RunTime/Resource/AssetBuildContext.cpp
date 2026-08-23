@@ -30,11 +30,10 @@ namespace Spark::Resource
         return fileSystem ? fileSystem->ToPhysical(virtualPath) : eastl::string();
     }
 
-    AssetBuildContext AssetBuildContext::MakeChild(AssetId subId, AssetType subType) const
+    AssetBuildContext AssetBuildContext::MakeChild(AssetId subId) const
     {
         AssetBuildContext child;
         child.id         = eastl::move(subId);
-        child.type       = subType;
         child.parentId   = id;
         child.fileSystem = fileSystem;
         child.db         = db;

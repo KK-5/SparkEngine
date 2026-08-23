@@ -21,7 +21,6 @@ namespace Spark::Resource
     {
     public:
         AssetId   id;
-        AssetType type{AssetType::Image};
 
         AssetId   parentId;
 
@@ -42,7 +41,7 @@ namespace Spark::Resource
 
         eastl::string ResolvePath(eastl::string_view virtualPath) const;
 
-        AssetBuildContext MakeChild(AssetId subId, AssetType subType) const;
+        AssetBuildContext MakeChild(AssetId subId) const;
     };
 
     //! Resolve `relative` against the directory of `virtualPath`, lexically. Used for a

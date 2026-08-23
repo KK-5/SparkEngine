@@ -199,7 +199,7 @@ namespace
             return false;
         }
 
-        Ptr<Resource::Asset> asset = assetManager.LoadAsset(hdrId, Resource::AssetType::Image);
+        Ptr<Resource::Asset> asset = assetManager.LoadAsset(hdrId);
         if (!asset || !asset->IsReady())
         {
             LOG_ERROR("[BakeCubemap] asset layer: the sky cube asset is not Ready.");

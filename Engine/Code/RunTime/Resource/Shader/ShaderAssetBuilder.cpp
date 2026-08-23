@@ -70,13 +70,13 @@ namespace Spark::Resource
 
     void ShaderAssetBuilder::Load(AssetBuildContext& ctx)
     {
-        ASSERT(ctx.type == AssetType::Shader, "[ShaderAssetBuilder] ctx.type mismatch");
+        ASSERT(ctx.id.GetAssetType() == AssetType::Shader, "[ShaderAssetBuilder] asset type mismatch");
         ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem);
     }
 
     void ShaderAssetBuilder::Compile(AssetBuildContext& ctx)
     {
-        ASSERT(ctx.type == AssetType::Shader, "[ShaderAssetBuilder] ctx.type mismatch");
+        ASSERT(ctx.id.GetAssetType() == AssetType::Shader, "[ShaderAssetBuilder] asset type mismatch");
         if (!ctx.rawData)
         {
             return;

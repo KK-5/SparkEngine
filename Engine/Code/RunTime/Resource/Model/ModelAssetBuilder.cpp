@@ -62,7 +62,7 @@ namespace Spark::Resource
             }
 
             // 3. child ctx
-            AssetBuildContext child = parentCtx.MakeChild(subId, AssetType::Image);
+            AssetBuildContext child = parentCtx.MakeChild(subId);
             child.sourceData = sourceData;
             child.sourceSize = sourceSize;
 
@@ -118,13 +118,13 @@ namespace Spark::Resource
 
     void ModelAssetBuilder::Load(AssetBuildContext& ctx)
     {
-        ASSERT(ctx.type == AssetType::Model, "[ModelAssetBuilder] ctx.type mismatch");
+        ASSERT(ctx.id.GetAssetType() == AssetType::Model, "[ModelAssetBuilder] asset type mismatch");
         ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem);
     }
 
     void ModelAssetBuilder::Compile(AssetBuildContext& ctx)
     {
-        ASSERT(ctx.type == AssetType::Model, "[ModelAssetBuilder] ctx.type mismatch");
+        ASSERT(ctx.id.GetAssetType() == AssetType::Model, "[ModelAssetBuilder] asset type mismatch");
         if (!ctx.rawData)
         {
             return;
@@ -197,7 +197,7 @@ namespace Spark::Resource
                     continue;
                 }
                 subId = AssetId::Of(
-                    eastl::string_view(uri.c_str(), uri.size()),
+                    eastl::string_view(uri.c_str(), uri.size()), {}, AssetType::Image,
                     ImageAsset::DescriptorForUsage(usage));
             }
 
