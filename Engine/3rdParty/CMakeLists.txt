@@ -54,6 +54,15 @@ if(NOT TARGET stb)
     target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
 endif()
 
+if(NOT TARGET nlohmann_json)
+    Message(STATUS "Import nlohmann/json")
+    # Header-only. Public headers may only include <nlohmann/json_fwd.hpp>; the 25k-line
+    # <nlohmann/json.hpp> belongs in .cpp files, so its compile cost stays bounded to the
+    # handful of translation units that actually serialize.
+    add_library(nlohmann_json INTERFACE)
+    target_include_directories(nlohmann_json INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/nlohmann/include)
+endif()
+
 if(NOT TARGET nanosvg)
     Message(STATUS "Import nanosvg")
     add_library(nanosvg STATIC nanosvg/nanosvg.cpp)
