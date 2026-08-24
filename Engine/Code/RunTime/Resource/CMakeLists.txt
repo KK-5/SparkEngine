@@ -4,6 +4,7 @@ set(SOURCES
     Asset.cpp
     AssetTypes.cpp
     AssetBuildContext.cpp
+    AssetDescriptorJson.cpp
     AssetDataBase.cpp
     AssetManager.cpp
     Common/CommonAssetLoader.cpp

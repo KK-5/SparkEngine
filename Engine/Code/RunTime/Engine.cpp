@@ -8,6 +8,8 @@
 #include <Reflection/TypeRegistry.h>
 #include <Reflect.h>
 
+#include <Resource/Reflect.h>
+
 #include <Feature/Transform/Reflect.h>
 #include <Feature/Camera/Reflect.h>
 #include <Feature/Mesh/Reflect.h>
@@ -20,6 +22,7 @@ namespace Spark
     void SparkEngine::SetUp()
     {
         TypeRegistry::Register(Spark::Reflect);
+        TypeRegistry::Register(Spark::Resource::Reflect);
         TypeRegistry::Register(Spark::Transform::Reflect);
         TypeRegistry::Register(Spark::Camera::Reflect);
         TypeRegistry::Register(Spark::Mesh::Reflect);
