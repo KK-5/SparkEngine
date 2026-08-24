@@ -14,6 +14,7 @@
 
 #include <HashString/HashString.h>
 
+#include "EASTLMeta.h"
 #include "RTTI.h"
 
 namespace Spark

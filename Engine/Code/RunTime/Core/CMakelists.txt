@@ -8,6 +8,7 @@ set(CORE_SOURCES
     Memory/PoolAllocator.cpp
     SceneManager/SceneManager.cpp
     Reflection/TypeRegistry.cpp
+    Serialization/JsonSerializer.cpp
     Object/Object.cpp
     Math/Interval.cpp
     VFS/MountTable.cpp
@@ -29,6 +30,7 @@ target_link_libraries(${TARGET_NAME}
         spdlog
         EASTL
         glm
+        nlohmann_json
 )
 
 # 设置包含目录
