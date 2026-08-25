@@ -27,7 +27,10 @@ glTF 外部 URI 改为词法解析。
 **阶段 0.c（descriptor 反射序列化）已完成。** JSON 库、EASTL 容器 traits、`MetaFieldTraits`、
 反射序列化器（13 例测试）、descriptor 反射与 JSON 两向函数（7 例测试）全部落地。
 
-**阶段 1（磁盘缓存）已定方案，未开工**，是当前的下一步；0.d 亦已解锁。
+**阶段 0.d（`AssetId` 复合形式）已完成。** 资产引用现在能写进文件、读回来变成一个可用的 `AssetId`——
+背景里那三笔债共享的前置至此全部到位，阶段 0 收尾。
+
+**阶段 1（磁盘缓存）已定方案，未开工**，是当前的下一步。
 阶段 1 的范围已收窄到**顶层 Image 2D**——shader、cubemap、model 分别被「通用依赖机制」与
 「子资产机制」挡住。前者只有方向（阶段 1 的待办 A），**后者已定方案**（见「子资产机制统一」一节，
 不依赖缓存，可独立开工）。
@@ -60,7 +63,7 @@ glTF 外部 URI 改为词法解析。
 
 | 欠账 | 位置 | 说明 |
 |---|---|---|
-| ~~descriptor 不可序列化~~ ✅ | `Resource/AssetDescriptorJson.h` | 阶段 0.c 已完成 |
+| ~~descriptor 不可序列化~~ ✅ | `Resource/AssetJsonSerializer.h` | 阶段 0.c 已完成 |
 | 磁盘缓存 | 无 | 见阶段 1（第一版只覆盖顶层 Image 2D） |
 | 无资产依赖机制 | 无 | `.hlsli` / `.gltf` 的 `.bin` 变了没人知道；`.hlsli` 甚至不是资产。见阶段 1 待办 A |
 | 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset.cpp:17` 的 `Shutdown`→`ReleaseAsset` 够不着 |
@@ -97,7 +100,7 @@ glTF 外部 URI 改为词法解析。
 | 0.a 虚拟路径 + 挂载点 ✅ | ✅ | ✅ | ✅ |
 | 0.b `AssetId` 携带类型 ✅ | ✅ catalog 需要 | ✅ | ✅ |
 | 0.c descriptor 序列化 ✅ | ✅ 键与戳都用 JSON | ✅ | ✅ |
-| 0.d `AssetId` 复合形式 | ❌ | ✅ | ✅ |
+| 0.d `AssetId` 复合形式 ✅ | ❌ | ✅ | ✅ |
 
 ### 0.a　VFS 挂载点 ✅ 已完成
 
@@ -315,7 +318,7 @@ entt 3.16 只特化了 `std::*` 的容器 traits。新建 `Core/Reflection/EASTL
 
 #### descriptor ↔ JSON ✅ 已完成
 
-`Resource/AssetDescriptorJson.h/.cpp`，`Spark::Resource` 的自由函数，不挂 `AssetManager`——场景加载与
+`Resource/AssetJsonSerializer.h/.cpp`，`Spark::Resource` 的自由函数，不挂 `AssetManager`——场景加载与
 材质加载都要用，却都不该经过一个系统单例，且两个方向都不查 DB、不依赖资产是否加载过：
 
 ```cpp
@@ -364,7 +367,7 @@ Ptr<AssetDescriptor> DescriptorFromJson(AssetType, const JsonValue&);
    非连续枚举值、嵌套、容器（含空 vector 与元素全默认）、默认省略、字段顺序断言、缺字段、
    未知字段、未知枚举名、JSON 类别不符、未标 `Serializable` 的字段被跳过、
    `eastl::vector` 被识别为序列容器。
-5. ✅ `Resource/Reflect.h` + `Resource/AssetDescriptorJson.h/.cpp` + `Engine.cpp` 注册。
+5. ✅ `Resource/Reflect.h` + `Resource/AssetJsonSerializer.h/.cpp` + `Engine.cpp` 注册。
 6. ✅ `SparkAssetTest` 加 `DescriptorSerializeTests.cpp` 7 例。**round-trip 判据是 JSON 相等**
    （`原始 → json1 → descriptor → json2`，断言 `json1 == json2`），不是 `Hash()` 相等——
    `ShaderDescriptor::Hash()` 只折 `backend`，`ImageAssetDescriptor::Hash()` 在非 cubemap usage 下
@@ -375,23 +378,63 @@ Ptr<AssetDescriptor> DescriptorFromJson(AssetType, const JsonValue&);
 `SparkAssetTest` 不跑 `Engine.cpp`，测试须自行 `TypeRegistry::Register(Resource::Reflect)` +
 `RegisterAll()`；`TypeRegistry` 是全局静态，只能调一次。
 
-### 0.d　`AssetId` 复合形式
+### 0.d　`AssetId` 复合形式 ✅ 已完成
 
 ```json
-"m_modelAssetId": {
-    "type": "Image",
-    "path": "project://Model/Furniture.glb",
-    "sub":  "image/3",
-    "desc": { "usage": "NormalMap" }
-}
+{"type":"Image","path":"project://Model/Furniture.glb","sub":"image/3",
+ "desc":{"colorSpace":"Linear","usage":"NormalMap"}}
 ```
 
 `type` 显式落盘：发行包里没有源文件，产物是 `.blob`，扩展名推断必然失效。
 
-外加单向的 `AssetIdToDisplayString`（log、Inspector 只读框）。
+#### 落地形态
 
-**待细化：** 相对路径归一化规则——当前行为是 relative 段保留作者书写的大小写，因此在 Windows 上
-`engine://Foo.png` 与 `engine://foo.png` 是两个 id；`sub` / `desc` 为默认时是否省略键。
+`Resource/AssetJsonSerializer.h/.cpp`（与 `Core/Serialization/JsonSerializer.h` 对称，格式与角色
+都在名字里；由 0.c 的 `AssetDescriptorJson` 更名而来，id 层与 descriptor 层
+同处一个文件，前者是后者唯一的调用者）：
+
+```cpp
+bool          AssetIdToJson(const AssetId& id, JsonValue& out);
+AssetId       AssetIdFromJson(const JsonValue& in);
+eastl::string AssetIdToDisplayString(const AssetId& id);   // 单向，log 与 Inspector 只读框
+```
+
+**写一半通用、一半显式。** `type` / `path` / `sub` 是 `Reflect<AssetId>()` 的反射字段，走通用遍历；
+`desc` 由 `AssetIdToJson` 用 `DescriptorToJson(desc, id.GetAssetType(), ...)` 补上——它的具体类型
+由 `type` 的**值**决定，字段遍历表达不了这种依赖，而调用方手里恰好有 `AssetType`。
+
+**读整体是显式的。** `AssetId` 不可变、哈希在构造时算，没法逐字段填，只能读出四项后
+`AssetId::Of(path, sub, type, desc)` 一次构造。这个不对称由类型本身决定。代价是键名在写侧来自反射、
+在读侧是手写的，round-trip 测试守这条。
+
+#### `Reflect<AssetId>()`
+
+三个字段一律 **by-value getter，无 setter**（`.Data<nullptr, &Getter>`）。理由是 `m_hash` 是
+`f(path, sub, type, desc)` 的派生值：entt 对任何非 const 成员都会无条件装上 setter
+（`factory.hpp:349` 附近），逐字段写入会留下一个哈希过期的 id，而 `operator==` 首先比的就是哈希、
+`AssetDataBase` 也按它做键。把成员改成 const 能关掉 setter，但那会删掉 `AssetId` 的拷贝赋值，
+`ComponentView.cpp:396` 等处在用。
+
+`m_descriptor` 与 `m_hash` 都不反射。
+
+#### 一并落地的
+
+- `AssetType` 反射（4 个值），于是 `"type":"Image"` 由序列化器的枚举分支产出，不写映射表。
+- `sub` / `desc` 的省略**不是新规则**，是 `WriteObject` 已有的「等于默认值就省略」的自然结果：
+  默认 `AssetId` 的 `sub` 为空串，顶层资产也为空串；`desc` 全默认时编码为 `{}`。
+- `ComponentView.cpp` 的 `AssetElement` 与 `TextureElement` 两处只读框改用 display string，
+  子资产贴图现在能看出是子资产。
+- `AssetIdSerializeTests` 7 例。其中两条守着最容易错的地方：**`desc` 键缺失必须造默认 descriptor
+  而不是留空**（空 descriptor 与默认 descriptor 哈希不同，留空会让 round-trip 后 `==` 失败）；
+  **同一文件的 NormalMap 变体与 Texture2D 变体必须编码不同**（descriptor 是身份的一部分，
+  丢掉 `desc` 会让两者静默坍缩成一个）。
+
+#### 已定案（原「待细化」）
+
+- **`sub` / `desc` 默认时省略键。** 与 descriptor 层同一条规则。
+- **相对路径不做大小写归一化**，移出 0.d。统一小写会在大小写敏感的文件系统上找不到文件；保留原样
+  则 Windows 上 `Foo.png` 与 `foo.png` 是两个 id，那属于引用方写错了，是 import / VFS 该管的事。
+  0.d 只保证「写进去什么、读出来什么」。
 
 ---
 
@@ -692,7 +735,11 @@ Image 用的事件。**不采用。**
 - 给该落盘的组件字段标 `MetaFieldTraits::Serializable`（0.c 已建）。`Mesh/Reflect.h:23-26` 的
   `m_vertexCount` / `m_triangleCount` 是从 model asset 算出的派生值，不标——存了会在磁盘上造出
   第二个真相来源，模型换了而场景文件没跟着变就是错的。
-- 补齐 leaf 类型特判：`Math::Vector3/4`、`Matrix4X4`、`Resource::AssetId`（走 0.d）、`Entity`、
+- **先补「类型自带编解码」的钩子**：序列化器在复合分支之前，先看这个 `MetaType` 上有没有注册一对
+  编解码函数，有就调。`Resource/Reflect.h` 为 `AssetId` 注册 `AssetIdToJson` / `AssetIdFromJson`，
+  `SparkCore` 里不出现 `Resource`。没有这个钩子，标了 `Serializable` 的 `AssetId` 字段会被通用遍历
+  走进去，产出缺 `desc` 的三项对象——语法完好、字段齐全，但法线贴图会静默变成 sRGB 颜色贴图。
+- 补齐 leaf 类型特判：`Math::Vector3/4`、`Matrix4X4`、`Entity`、
   `MaterialHandle`。
 - 「这个组件整体是否持久化」是类型级问题，归 `ComponentTraits`，与 `editable` 并列。零字段的 tag
   组件只有类型级能表达。阶段 4 做组件发现时才需要。
@@ -761,7 +808,7 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
    └──► 阶段 0.b（AssetId 携带 AssetType）✅
            └──► 阶段 0.c（反射序列化器 + descriptor 反射）✅
                    ├──► 阶段 1（磁盘缓存 / 顶层 Image 2D）← 键与戳要 descriptor JSON，已定方案
-                   └──► 阶段 0.d（AssetId 复合形式）      ← 已解锁
+                   └──► 阶段 0.d（AssetId 复合形式）✅
                            ├──► 阶段 2（序列化器铺到组件）
                            └──► 阶段 3（材质资产）
                                    └──► 阶段 4（场景保存）
@@ -773,9 +820,11 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
 
 ## 下一步
 
-0.c 完成后有两条路，互不依赖：
+阶段 0 已收尾，两条路互不依赖：
 
 - **阶段 1**：缓存骨架 + 顶层 Image 2D（已定方案，一步做完）。
 - **子资产机制统一**（已定方案）：不依赖缓存，可独立验证，是 cubemap / model 缓存与阶段 3 的前置。
-- **阶段 0.d**：`AssetId` 复合形式。descriptor 两向已经就绪，剩下的是 id 外层那四个键，
-  外加两条待细化（相对路径大小写归一化、`sub` / `desc` 默认时是否省略键）。
+
+阶段 2 也已解锁，但它的第一件事是「类型自带编解码」的钩子——组件里的 `AssetId` 字段若被标上
+`Serializable`，通用遍历会走进去、产出一个缺 `desc` 的三项对象。今天没有任何组件字段标了
+`Serializable`，这条路还够不着。
