@@ -295,6 +295,141 @@ TEST_F(IterateDirectoryTest, IgnoresUnknownMountAndMissingDirectory)
 }
 
 // ============================================================================
+// File IO. The asset cache is the reason these exist, so the cases are the ones
+// it depends on: whole-file round trips, overwrite, and an unstampable path.
+// ============================================================================
+
+class FileIOTest : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        m_root = fs::temp_directory_path() / "SparkVFSIOTest";
+
+        std::error_code ec;
+        fs::remove_all(m_root, ec);
+        fs::create_directories(m_root, ec);
+
+        m_table.Mount("cache", eastl::string(m_root.generic_string().c_str()));
+    }
+
+    void TearDown() override
+    {
+        std::error_code ec;
+        fs::remove_all(m_root, ec);
+    }
+
+    static eastl::vector<uint8_t> Bytes(std::initializer_list<uint8_t> values)
+    {
+        return eastl::vector<uint8_t>(values.begin(), values.end());
+    }
+
+    bool Write(const char* virtualPath, const eastl::vector<uint8_t>& data)
+    {
+        return m_table.WriteFile(virtualPath, data.data(), data.size());
+    }
+
+    fs::path   m_root;
+    MountTable m_table;
+};
+
+TEST_F(FileIOTest, WriteThenReadRoundTrips)
+{
+    const eastl::vector<uint8_t> written = Bytes({0xAB, 0x00, 0xFF, 0x10});
+    ASSERT_TRUE(Write("cache://3f/3fa9c2b81d4e6075.ktx2", written));
+
+    eastl::vector<uint8_t> read;
+    ASSERT_TRUE(m_table.ReadFile("cache://3f/3fa9c2b81d4e6075.ktx2", read));
+    EXPECT_EQ(read, written);
+}
+
+// The shard directory does not exist until the first entry lands in it.
+TEST_F(FileIOTest, WriteCreatesParentDirectories)
+{
+    ASSERT_FALSE(fs::exists(m_root / "3f"));
+    ASSERT_TRUE(Write("cache://3f/entry.ktx2", Bytes({1})));
+    EXPECT_TRUE(fs::is_directory(m_root / "3f"));
+}
+
+// No temporary may survive a completed write: the cache lists its directory to clear it.
+TEST_F(FileIOTest, WriteLeavesNoTemporary)
+{
+    ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({1, 2, 3})));
+
+    for (const auto& entry : fs::directory_iterator(m_root))
+    {
+        EXPECT_EQ(entry.path().extension().generic_string(), std::string(".ktx2"))
+            << entry.path().generic_string();
+    }
+}
+
+TEST_F(FileIOTest, WriteReplacesExistingContent)
+{
+    ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({1, 2, 3, 4, 5})));
+    ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({9})));
+
+    eastl::vector<uint8_t> read;
+    ASSERT_TRUE(m_table.ReadFile("cache://entry.ktx2", read));
+    EXPECT_EQ(read, Bytes({9}));
+}
+
+TEST_F(FileIOTest, EmptyFileRoundTrips)
+{
+    ASSERT_TRUE(m_table.WriteFile("cache://empty.ktx2", nullptr, 0));
+    EXPECT_TRUE(m_table.Exists("cache://empty.ktx2"));
+
+    eastl::vector<uint8_t> read = Bytes({7});
+    EXPECT_TRUE(m_table.ReadFile("cache://empty.ktx2", read));
+    EXPECT_TRUE(read.empty());
+}
+
+TEST_F(FileIOTest, ReadRejectsMissingFileAndUnknownMount)
+{
+    eastl::vector<uint8_t> read;
+    EXPECT_FALSE(m_table.ReadFile("cache://nothing.ktx2", read));
+    EXPECT_FALSE(m_table.ReadFile("nope://nothing.ktx2", read));
+    EXPECT_FALSE(m_table.WriteFile("nope://nothing.ktx2", read.data(), read.size()));
+}
+
+// A hit is decided by Exists alone, so a directory answering true would send a directory
+// path into ReadFile.
+TEST_F(FileIOTest, ExistsIsFalseForDirectoriesAndMissingPaths)
+{
+    ASSERT_TRUE(Write("cache://3f/entry.ktx2", Bytes({1})));
+
+    EXPECT_TRUE(m_table.Exists("cache://3f/entry.ktx2"));
+    EXPECT_FALSE(m_table.Exists("cache://3f"));
+    EXPECT_FALSE(m_table.Exists("cache://"));
+    EXPECT_FALSE(m_table.Exists("cache://missing.ktx2"));
+}
+
+TEST_F(FileIOTest, StampReportsSizeAndIsInvalidWithoutAFile)
+{
+    ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({1, 2, 3, 4})));
+
+    const FileStamp stamp = m_table.GetFileStamp("cache://entry.ktx2");
+    EXPECT_TRUE(stamp.IsValid());
+    EXPECT_EQ(stamp.m_size, 4u);
+
+    EXPECT_FALSE(m_table.GetFileStamp("cache://missing.ktx2").IsValid());
+    EXPECT_FALSE(m_table.GetFileStamp("cache://").IsValid());
+    EXPECT_FALSE(m_table.GetFileStamp("nope://entry.ktx2").IsValid());
+}
+
+// The key folds the stamp in, so a rewrite that changes the size has to be visible;
+// otherwise a rebuilt source would keep resolving to its stale entry.
+TEST_F(FileIOTest, StampChangesWithContent)
+{
+    ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({1, 2, 3, 4})));
+    const FileStamp before = m_table.GetFileStamp("cache://entry.ktx2");
+
+    ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({1, 2})));
+    const FileStamp after = m_table.GetFileStamp("cache://entry.ktx2");
+
+    EXPECT_NE(before.m_size, after.m_size);
+}
+
+// ============================================================================
 // VFSSystem registration and forwarding
 // ============================================================================
 

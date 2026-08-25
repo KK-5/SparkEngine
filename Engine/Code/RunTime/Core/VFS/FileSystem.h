@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <EASTL/functional.h>
 #include <EASTL/string.h>
 #include <EASTL/string_view.h>
@@ -7,6 +9,17 @@
 
 namespace Spark
 {
+    //! Enough of a file's state to tell "unchanged" from "rebuilt" without reading it.
+    //! Feeds the asset cache key, so a touched source yields a different key and the stale
+    //! entry simply becomes unreachable -- expiry never has to be decided.
+    struct FileStamp
+    {
+        uint64_t m_modifiedTime{0};   ///< seconds since the filesystem clock's epoch
+        uint64_t m_size{0};
+
+        bool IsValid() const { return m_modifiedTime != 0; }
+    };
+
     //! The single place an asset path is resolved. Virtual paths look like
     //! `mount://relative` (e.g. `engine://Shaders/GBuffer.hlsl`); the core invariant is that
     //! AssetId::m_path always holds one, so a physical path only ever appears at the moment
@@ -40,5 +53,30 @@ namespace Spark
         //! Recursive. The callback receives virtual paths valid only for that call.
         virtual void IterateDirectory(eastl::string_view virtualDir,
                                       eastl::function<void(eastl::string_view)> visit) const = 0;
+
+        //! Whole file into `out`, which is resized to the file's size. False on any failure,
+        //! including a short read -- a partial buffer would look like a truncated payload to
+        //! every caller downstream.
+        virtual bool ReadFile(eastl::string_view virtualPath,
+                              eastl::vector<uint8_t>& out) const = 0;
+
+        //! Atomic: writes a uniquely-suffixed temporary alongside the target and renames it
+        //! into place, creating parent directories as needed. Nothing else may write the
+        //! target concurrently, but two writers of the SAME target are safe -- each has its
+        //! own temporary, and whichever renames second simply replaces an identical file.
+        //!
+        //! Crash-safety is the point: a plain write that dies halfway leaves a truncated
+        //! file that still passes an existence check.
+        virtual bool WriteFile(eastl::string_view virtualPath,
+                               const uint8_t* data, size_t size) const = 0;
+
+        //! True only for an existing regular file. A directory answers false: every caller
+        //! here is asking "can I read this", not "is there something at this path".
+        virtual bool Exists(eastl::string_view virtualPath) const = 0;
+
+        //! An invalid stamp when the path names no readable file. Callers treat that as
+        //! "not cacheable" rather than as an error -- an unstampable source is exactly the
+        //! case a content-independent cache key cannot describe.
+        virtual FileStamp GetFileStamp(eastl::string_view virtualPath) const = 0;
     };
 }

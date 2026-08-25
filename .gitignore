@@ -3,4 +3,7 @@
 build/
 build_verify/
 bin/
+# Anchored: the cook cache is the repo-root Cache/ only. Unanchored, this would also
+# swallow Resource/Cache/, which is source.
+/Cache/
 imgui.ini

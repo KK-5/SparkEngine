@@ -27,6 +27,13 @@ namespace Spark
         void IterateDirectory(eastl::string_view virtualDir,
                               eastl::function<void(eastl::string_view)> visit) const override;
 
+        bool      ReadFile(eastl::string_view virtualPath,
+                           eastl::vector<uint8_t>& out) const override;
+        bool      WriteFile(eastl::string_view virtualPath,
+                            const uint8_t* data, size_t size) const override;
+        bool      Exists(eastl::string_view virtualPath) const override;
+        FileStamp GetFileStamp(eastl::string_view virtualPath) const override;
+
     private:
         struct Entry
         {

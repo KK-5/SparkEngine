@@ -46,3 +46,11 @@ target_include_directories(
     ${TARGET_NAME}
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../>
 )
+
+# Folded into every cook-cache key. A Debug and a Release engine can encode the same source
+# differently, and neither may read the other's entries; the generator expression keeps them
+# apart under the multi-config generators this project builds with.
+target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SPARK_CACHE_BUILD_TAG="$<CONFIG>"
+)

@@ -1,7 +1,11 @@
 #include "MountTable.h"
 
+#include <atomic>
 #include <filesystem>
+#include <fstream>
+#include <functional>
 #include <string>
+#include <thread>
 
 #include <EASTL/algorithm.h>
 
@@ -157,6 +161,23 @@ namespace Spark
             outMount    = virtualPath.substr(0, pos);
             outRelative = virtualPath.substr(pos + kSchemeLen);
             return true;
+        }
+
+        //! Unique per writer, so two threads writing the same target cannot truncate each
+        //! other's temporary. Both then rename over the same bytes, which is harmless.
+        std::filesystem::path MakeTempPath(const std::filesystem::path& target)
+        {
+            static std::atomic<uint64_t> counter{0};
+
+            std::string suffix = ".";
+            suffix += std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id()));
+            suffix += '-';
+            suffix += std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
+            suffix += ".tmp";
+
+            std::filesystem::path temp = target;
+            temp += suffix;
+            return temp;
         }
 
         eastl::string JoinPhysical(const eastl::string& dir, const eastl::string& relative)
@@ -446,5 +467,177 @@ namespace Spark
             virtualPath.append(entryRelative.c_str(), entryRelative.size());
             visit(eastl::string_view(virtualPath.c_str(), virtualPath.size()));
         }
+    }
+
+    bool MountTable::ReadFile(eastl::string_view virtualPath, eastl::vector<uint8_t>& out) const
+    {
+        namespace fs = std::filesystem;
+
+        const eastl::string physical = ToPhysical(virtualPath);
+        if (physical.empty())
+        {
+            return false;
+        }
+
+        const fs::path path(ToStd(physical));
+
+        std::error_code ec;
+        const auto size = fs::file_size(path, ec);
+        if (ec)
+        {
+            LOG_ERROR("[MountTable] ReadFile '{}': {}", Str(virtualPath).c_str(), ec.message().c_str());
+            return false;
+        }
+
+        std::ifstream file(path, std::ios::binary);
+        if (!file)
+        {
+            LOG_ERROR("[MountTable] ReadFile '{}': cannot open '{}'.",
+                Str(virtualPath).c_str(), physical.c_str());
+            return false;
+        }
+
+        out.resize(static_cast<size_t>(size));
+        if (size == 0)
+        {
+            return true;
+        }
+
+        file.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(size));
+        if (static_cast<uint64_t>(file.gcount()) != static_cast<uint64_t>(size))
+        {
+            LOG_ERROR("[MountTable] ReadFile '{}': short read ({} of {} bytes).",
+                Str(virtualPath).c_str(), static_cast<uint64_t>(file.gcount()),
+                static_cast<uint64_t>(size));
+            out.clear();
+            return false;
+        }
+        return true;
+    }
+
+    bool MountTable::WriteFile(eastl::string_view virtualPath,
+                               const uint8_t* data, size_t size) const
+    {
+        namespace fs = std::filesystem;
+
+        if (size != 0 && !data)
+        {
+            LOG_ERROR("[MountTable] WriteFile '{}': null data.", Str(virtualPath).c_str());
+            return false;
+        }
+
+        const eastl::string physical = ToPhysical(virtualPath);
+        if (physical.empty())
+        {
+            return false;
+        }
+
+        const fs::path target(ToStd(physical));
+
+        std::error_code ec;
+        fs::create_directories(target.parent_path(), ec);
+        if (ec)
+        {
+            LOG_ERROR("[MountTable] WriteFile '{}': cannot create '{}': {}",
+                Str(virtualPath).c_str(), target.parent_path().generic_string().c_str(),
+                ec.message().c_str());
+            return false;
+        }
+
+        const fs::path temp = MakeTempPath(target);
+        {
+            std::ofstream file(temp, std::ios::binary | std::ios::trunc);
+            if (!file)
+            {
+                LOG_ERROR("[MountTable] WriteFile '{}': cannot open '{}'.",
+                    Str(virtualPath).c_str(), temp.generic_string().c_str());
+                return false;
+            }
+            if (size != 0)
+            {
+                file.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+            }
+            file.close();
+            if (!file)
+            {
+                LOG_ERROR("[MountTable] WriteFile '{}': write failed.", Str(virtualPath).c_str());
+                fs::remove(temp, ec);
+                return false;
+            }
+        }
+
+        fs::rename(temp, target, ec);
+        if (!ec)
+        {
+            return true;
+        }
+
+        // Losing the rename to a concurrent writer of the same target is a success: the
+        // bytes are a pure function of the path, so whatever landed there is what this
+        // call would have written.
+        std::error_code existsEc;
+        const bool landed = fs::exists(target, existsEc);
+
+        std::error_code removeEc;
+        fs::remove(temp, removeEc);
+
+        if (!landed)
+        {
+            LOG_ERROR("[MountTable] WriteFile '{}': rename failed: {}",
+                Str(virtualPath).c_str(), ec.message().c_str());
+        }
+        return landed;
+    }
+
+    bool MountTable::Exists(eastl::string_view virtualPath) const
+    {
+        namespace fs = std::filesystem;
+
+        const eastl::string physical = ToPhysical(virtualPath);
+        if (physical.empty())
+        {
+            return false;
+        }
+
+        std::error_code ec;
+        return fs::is_regular_file(fs::path(ToStd(physical)), ec);
+    }
+
+    FileStamp MountTable::GetFileStamp(eastl::string_view virtualPath) const
+    {
+        namespace fs = std::filesystem;
+
+        const eastl::string physical = ToPhysical(virtualPath);
+        if (physical.empty())
+        {
+            return {};
+        }
+
+        const fs::path path(ToStd(physical));
+
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec))
+        {
+            return {};
+        }
+
+        const auto written = fs::last_write_time(path, ec);
+        if (ec)
+        {
+            return {};
+        }
+
+        const auto size = fs::file_size(path, ec);
+        if (ec)
+        {
+            return {};
+        }
+
+        FileStamp stamp;
+        // The epoch is implementation-defined, which is fine: the stamp is only ever
+        // compared against another stamp taken by this same build.
+        stamp.m_modifiedTime = static_cast<uint64_t>(written.time_since_epoch().count());
+        stamp.m_size         = static_cast<uint64_t>(size);
+        return stamp;
     }
 }

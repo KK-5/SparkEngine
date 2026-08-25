@@ -9,6 +9,7 @@
 #include <Reflect.h>
 
 #include <Resource/Reflect.h>
+#include <Resource/Cache/AssetCache.h>
 
 #include <Feature/Transform/Reflect.h>
 #include <Feature/Camera/Reflect.h>
@@ -40,6 +41,12 @@ namespace Spark
         m_vfs = CreateSystem<VFSSystem>();
         m_vfs->Init();
         m_vfs->Mount("engine", "Engine/Asset");
+
+        // The cook cache. Mounted here rather than alongside the editor's project/editor
+        // mounts because those happen after SetUp returns, by which time AssetManager has
+        // already decided whether a cache exists. The directory need not exist yet --
+        // WriteFile creates it.
+        m_vfs->Mount(Resource::kCacheMountName, "Cache");
 
         m_entityReaper = CreateSystem<EntityReaper>();
         m_entityReaper->Init();

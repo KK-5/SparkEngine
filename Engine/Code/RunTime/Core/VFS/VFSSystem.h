@@ -56,6 +56,27 @@ namespace Spark
             m_table.IterateDirectory(virtualDir, eastl::move(visit));
         }
 
+        bool ReadFile(eastl::string_view virtualPath, eastl::vector<uint8_t>& out) const override
+        {
+            return m_table.ReadFile(virtualPath, out);
+        }
+
+        bool WriteFile(eastl::string_view virtualPath,
+                       const uint8_t* data, size_t size) const override
+        {
+            return m_table.WriteFile(virtualPath, data, size);
+        }
+
+        bool Exists(eastl::string_view virtualPath) const override
+        {
+            return m_table.Exists(virtualPath);
+        }
+
+        FileStamp GetFileStamp(eastl::string_view virtualPath) const override
+        {
+            return m_table.GetFileStamp(virtualPath);
+        }
+
     private:
         void InitInternal() override {}
         void ShutdownInternal() override {}

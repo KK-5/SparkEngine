@@ -7,6 +7,7 @@
 #include <VFS/FileSystem.h>
 #include "AssetDataBase.h"
 #include "AssetBuildContext.h"
+#include "Cache/AssetCache.h"
 #include "Bus/AssetBuildBus.h"
 #include "Bus/AssetBus.h"
 #include <filesystem>
@@ -359,6 +360,14 @@ namespace Spark::Resource
 
         for (const eastl::string& mount : m_fileSystem->GetMountNames())
         {
+            // The cache holds build products of assets already registered from their source
+            // mounts. Walking it would register every `.ktx2` entry as an image asset of its
+            // own -- into a database that never evicts.
+            if (mount == kCacheMountName)
+            {
+                continue;
+            }
+
             eastl::string root = mount;
             root += "://";
 
