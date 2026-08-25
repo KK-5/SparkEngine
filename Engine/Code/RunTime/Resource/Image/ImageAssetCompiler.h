@@ -41,9 +41,14 @@ namespace Spark::Resource
 
         UniquePtr<AssetData> AssembleCubemapData(BakedCubemap&& baked);
 
+        //! ImageAssetData -> KTX2 bytes, with `identity` stored in the container's key/value
+        //! data for the reader to check. 2D single-face only: numFaces is written as 1, and
+        //! a bake product's m_mips is a base-mip placeholder this would slice with.
+        //! Empty on failure, which the caller reports as "declined to cache".
+        eastl::vector<uint8_t> SerializeToKtx2(const ImageAssetData& data,
+                                               eastl::string_view identity);
+
     private:
         static RHI::Format MapToRHIFormat(ImageFormat src, TextureCompression compression, ImageColorSpace colorSpace);
-
-        eastl::vector<uint8_t> SerializeToKtx2(const ImageAssetData& data);
     };
 }

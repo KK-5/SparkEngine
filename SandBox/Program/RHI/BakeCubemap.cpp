@@ -304,9 +304,8 @@ int main(int, char**)
     Resource::AssetId cubeId = am->MakeAssetId("engine://Image/cobblestone_parish_road_2k.hdr");
 
     Resource::ImageAssetLoader loader;
-    bool isCompiled = false;
-    UniquePtr<Resource::AssetData> rawData = loader.Load(cubeId, *fileSystem, isCompiled);
-    if (!rawData || isCompiled)
+    UniquePtr<Resource::AssetData> rawData = loader.LoadSource(cubeId, *fileSystem);
+    if (!rawData)
     {
         LOG_ERROR("[BakeCubemap] Failed to load the equirect HDRI as raw pixels.");
         return 1;

@@ -5,6 +5,7 @@
 #include <ktx.h>
 
 #include "EnvironmentBaker.h"
+#include "ImageAssetLoader.h"   // kImageIdentityKey
 
 namespace Spark::Resource
 {
@@ -235,7 +236,8 @@ namespace Spark::Resource
         }
     }
 
-    eastl::vector<uint8_t> ImageAssetCompiler::SerializeToKtx2(const ImageAssetData& data)
+    eastl::vector<uint8_t> ImageAssetCompiler::SerializeToKtx2(const ImageAssetData& data,
+                                                               eastl::string_view identity)
     {
         ktxTextureCreateInfo info{};
         info.vkFormat        = MapToVkFormat(data.GetFormat());
@@ -276,6 +278,22 @@ namespace Spark::Resource
             {
                 LOG_ERROR("[ImageAssetCompiler] SetImageFromMemory level {} failed: {}",
                     level, static_cast<int>(res));
+                ktxTexture_Destroy(ktxTexture(tex));
+                return {};
+            }
+        }
+
+        if (!identity.empty())
+        {
+            // Copied so the value is NUL-terminated: `identity` is a view and the length
+            // passed below counts that terminator, so writing straight from it would read
+            // one byte past the end.
+            const eastl::string value(identity.data(), identity.size());
+            res = ktxHashList_AddKVPair(&tex->kvDataHead, kImageIdentityKey,
+                static_cast<ktx_uint32_t>(value.size() + 1), value.c_str());
+            if (res != KTX_SUCCESS)
+            {
+                LOG_ERROR("[ImageAssetCompiler] AddKVPair failed: {}", static_cast<int>(res));
                 ktxTexture_Destroy(ktxTexture(tex));
                 return {};
             }
@@ -408,12 +426,11 @@ namespace Spark::Resource
         result->m_arrayLayers = 1;
         result->m_format      = MapToRHIFormat(srcFormat, compression, desc.colorSpace);
 
-        eastl::vector<uint8_t> ktx2Blob = SerializeToKtx2(*result);
-        LOG_INFO("[ImageAssetCompiler] {}: {}x{}, {} mips, usage={} colorSpace={} format={}, payload {}B -> ktx2 {}B",
+        LOG_INFO("[ImageAssetCompiler] {}: {}x{}, {} mips, usage={} colorSpace={} format={}, payload {}B",
             raw.GetResolvedPath().c_str(), srcW, srcH, mipLevels,
             static_cast<int>(desc.usage), static_cast<int>(desc.colorSpace),
             static_cast<int>(result->m_format),
-            result->m_textureBytes.size(), ktx2Blob.size());
+            result->m_textureBytes.size());
 
         return result;
     }

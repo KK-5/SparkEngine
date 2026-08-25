@@ -30,6 +30,11 @@ namespace Spark::Resource
         void       Load(AssetBuildContext& ctx) override;
         void       Compile(AssetBuildContext& ctx) override;
 
+        eastl::vector<uint8_t> Serialize(const AssetData& compiled,
+                                         eastl::string_view identity) override;
+        UniquePtr<AssetData>   Deserialize(const uint8_t* bytes, size_t size,
+                                           eastl::string_view identity) override;
+
         bool InitEnvironmentBaker();
 
     private:

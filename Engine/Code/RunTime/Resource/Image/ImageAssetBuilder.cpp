@@ -71,18 +71,37 @@ namespace Spark::Resource
             return;
         }
 
-        // Which slot the result lands in IS the signal: a payload that arrives already
-        // compiled goes straight to compiledData, and ProcessAsset then skips Compile.
-        bool isCompiled = false;
-        UniquePtr<AssetData> loaded = m_loader.Load(ctx.id, *ctx.fileSystem, isCompiled);
-        if (isCompiled)
+        // An authored .ktx2 is already a finished payload, so it goes to compiledData and
+        // ProcessAsset skips Compile. Which slot it lands in is decided here, by the only
+        // place that knows what the slots mean.
+        if (IsCompiledImagePath(ctx.id.GetPath()))
         {
-            ctx.compiledData = eastl::move(loaded);
+            ctx.compiledData = m_loader.LoadCompiled(ctx.id, *ctx.fileSystem);
         }
         else
         {
-            ctx.rawData = eastl::move(loaded);
+            ctx.rawData = m_loader.LoadSource(ctx.id, *ctx.fileSystem);
         }
+    }
+
+    eastl::vector<uint8_t> ImageAssetBuilder::Serialize(const AssetData& compiled,
+                                                        eastl::string_view identity)
+    {
+        const auto& image = static_cast<const ImageAssetData&>(compiled);
+
+        // No write side for cubes yet: SerializeToKtx2 hardcodes numFaces, and a bake
+        // product's m_mips describes only the base mip.
+        if (image.GetArrayLayers() != 1)
+        {
+            return {};
+        }
+        return m_compiler.SerializeToKtx2(image, identity);
+    }
+
+    UniquePtr<AssetData> ImageAssetBuilder::Deserialize(const uint8_t* bytes, size_t size,
+                                                        eastl::string_view identity)
+    {
+        return m_loader.LoadKtx2(bytes, size, "cache entry", identity);
     }
 
     bool ImageAssetBuilder::InitEnvironmentBaker()

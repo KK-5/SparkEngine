@@ -46,6 +46,31 @@ namespace Spark::Resource
                 default:  return RHI::Format::Unknown;
             }
         }
+
+        //! The identity a cache entry carries, against the one the reader expects. A miss
+        //! means the 64-bit key collided, so the entry belongs to a different asset.
+        bool IdentityMatches(ktxTexture2& tex, eastl::string_view expected)
+        {
+            ktx_uint32_t length = 0;
+            ktx_uint8_t* value  = nullptr;
+            if (ktxHashList_FindValue(&tex.kvDataHead, kImageIdentityKey, &length,
+                                      reinterpret_cast<void**>(&value)) != KTX_SUCCESS)
+            {
+                LOG_WARN("[ImageAssetLoader] Cache entry carries no identity.");
+                return false;
+            }
+
+            // Written with its terminator; compare the text alone.
+            const eastl::string_view stored(reinterpret_cast<const char*>(value),
+                                            length > 0 ? length - 1 : 0);
+            if (stored != expected)
+            {
+                LOG_WARN("[ImageAssetLoader] Cache entry belongs to another asset: {}",
+                    eastl::string(stored.data(), stored.size()).c_str());
+                return false;
+            }
+            return true;
+        }
     }
 
     bool IsCompiledImagePath(eastl::string_view path)
@@ -141,14 +166,25 @@ static UniquePtr<AssetData> DecodeSvg(
         return WrapLdrPixels(pixels, w, h, eastl::move(label));
     }
 
-    UniquePtr<AssetData> ImageAssetLoader::LoadKtx2(const eastl::string& path)
+    UniquePtr<AssetData> ImageAssetLoader::LoadKtx2(const uint8_t* bytes, size_t size,
+                                                    eastl::string_view label,
+                                                    eastl::string_view expectedIdentity)
     {
+        const eastl::string path(label.data(), label.size());
+
         ktxTexture2*   tex = nullptr;
-        KTX_error_code res = ktxTexture2_CreateFromNamedFile(
-            path.c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &tex);
+        KTX_error_code res = ktxTexture2_CreateFromMemory(
+            bytes, size, KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &tex);
         if (res != KTX_SUCCESS)
         {
             LOG_ERROR("[ImageAssetLoader] Failed to open KTX2 {}: {}", path.c_str(), static_cast<int>(res));
+            return nullptr;
+        }
+
+        // Cheapest rejection first, before any pixels are copied.
+        if (!expectedIdentity.empty() && !IdentityMatches(*tex, expectedIdentity))
+        {
+            ktxTexture_Destroy(ktxTexture(tex));
             return nullptr;
         }
 
@@ -226,23 +262,25 @@ static UniquePtr<AssetData> DecodeSvg(
         return result;
     }
 
-    UniquePtr<AssetData> ImageAssetLoader::Load(const AssetId& id, const FileSystem& fileSystem,
-                                               bool& outIsCompiled)
+    UniquePtr<AssetData> ImageAssetLoader::LoadCompiled(const AssetId& id,
+                                                        const FileSystem& fileSystem)
     {
-        outIsCompiled = false;
+        eastl::vector<uint8_t> bytes;
+        if (!fileSystem.ReadFile(id.GetPath(), bytes))
+        {
+            return nullptr;
+        }
+        return LoadKtx2(bytes.data(), bytes.size(), id.GetPath(), {});
+    }
 
+    UniquePtr<AssetData> ImageAssetLoader::LoadSource(const AssetId& id,
+                                                      const FileSystem& fileSystem)
+    {
         eastl::string path = fileSystem.ToPhysical(id.GetPath());
         if (path.empty())
         {
             LOG_ERROR("[ImageAssetLoader] Image file not found: {}", id.GetPath().c_str());
             return nullptr;
-        }
-
-        if (IsCompiledImagePath(path))
-        {
-            UniquePtr<AssetData> compiled = LoadKtx2(path);
-            outIsCompiled = compiled != nullptr;
-            return compiled;
         }
 
         // SVG: read file into string and rasterize via nanosvg
