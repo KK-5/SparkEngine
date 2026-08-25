@@ -5,6 +5,7 @@ option(EnvironmentBakerTests "Environment Baker Tests" ON)
 option(DescriptorHashTests "Descriptor Hash Tests" ON)
 option(AssetIdTypeTests "AssetId Type Tests" ON)
 option(DescriptorSerializeTests "Descriptor JSON Serialization Tests" ON)
+option(AssetIdSerializeTests "AssetId JSON Serialization Tests" ON)
 
 
 set(TEST_SOURCES "")
@@ -22,6 +23,7 @@ ADD_TEST_SOUECE(EnvironmentBakerTests "EnvironmentBakerTests.cpp")
 ADD_TEST_SOUECE(DescriptorHashTests "DescriptorHashTests.cpp")
 ADD_TEST_SOUECE(AssetIdTypeTests "AssetIdTypeTests.cpp")
 ADD_TEST_SOUECE(DescriptorSerializeTests "DescriptorSerializeTests.cpp")
+ADD_TEST_SOUECE(AssetIdSerializeTests "AssetIdSerializeTests.cpp")
 
 
 set(TARGET_NAME SparkAssetTest)

@@ -14,6 +14,7 @@
 #include <Math/Vector4.h>
 #include <Resource/AssetTypes.h>
 #include <Resource/Asset.h>
+#include <Resource/AssetJsonSerializer.h>          // AssetIdToDisplayString for the read-only slot
 #include <Resource/Image/ImageAsset.h>   // DescriptorForUsage / ImageUsage for texture slots
 #include <Material/Components.h>
 #include <Serialization/UIElement.h>
@@ -310,7 +311,7 @@ namespace Editor
             AssetElement* ui = static_cast<AssetElement*>(uiElement);
             if (Resource::AssetId* value = fieldValue.try_cast<Resource::AssetId>())
             {
-                eastl::string display = value->IsValid() ? value->GetPath() : "None";
+                eastl::string display = Resource::AssetIdToDisplayString(*value);
                 eastl::string buffer;
                 buffer.resize(256);
                 strcpy(buffer.data(), display.c_str());
@@ -351,7 +352,7 @@ namespace Editor
             TextureElement* ui = static_cast<TextureElement*>(uiElement);
             if (Resource::AssetId* value = fieldValue.try_cast<Resource::AssetId>())
             {
-                eastl::string display = value->IsValid() ? value->GetPath() : "None";
+                eastl::string display = Resource::AssetIdToDisplayString(*value);
                 eastl::string buffer;
                 buffer.resize(256);
                 strcpy(buffer.data(), display.c_str());

@@ -12,13 +12,42 @@
 
 namespace Spark::Resource
 {
-    //! Descriptor reflection, which is what lets an AssetId's descriptor be written to a
-    //! file and read back.
+    //! AssetId is immutable -- its hash is computed once, from the other four members --
+    //! so its parts are reflected as by-value getters with no setter. A member pointer
+    //! would always come with a setter (entt installs one for any non-const member), and
+    //! writing a part in isolation would leave the hash describing the previous value.
+    namespace AssetIdField
+    {
+        inline AssetType     Type(const AssetId& id) { return id.GetAssetType(); }
+        inline eastl::string Path(const AssetId& id) { return id.GetPath(); }
+        inline eastl::string Sub (const AssetId& id) { return id.GetSubLabel(); }
+    }
+
+    //! Descriptor and AssetId reflection, which is what lets an asset reference be written
+    //! to a file and read back.
     //!
     //! Every enumerator name here is the on-disk format: renaming one silently invalidates
     //! every file that already spells it. Add values, never rename or repurpose them.
     static void Reflect(Spark::ReflectContext& context)
     {
+        context.Reflect<AssetType>()
+            .Type("AssetType")
+            .Data<AssetType::Unknown>("Unknown")
+            .Data<AssetType::Shader>("Shader")
+            .Data<AssetType::Image>("Image")
+            .Data<AssetType::Model>("Model");
+
+        // The descriptor is deliberately absent: its concrete type follows from `type`,
+        // which no field walk can act on. AssetIdToJson appends it.
+        context.Reflect<AssetId>()
+            .Type("AssetId")
+            .Data<nullptr, &AssetIdField::Type>("type")
+                .Traits(MetaFieldTraits::Serializable)
+            .Data<nullptr, &AssetIdField::Path>("path")
+                .Traits(MetaFieldTraits::Serializable)
+            .Data<nullptr, &AssetIdField::Sub>("sub")
+                .Traits(MetaFieldTraits::Serializable);
+
         context.Reflect<TextureCompression>()
             .Type("TextureCompression")
             .Data<TextureCompression::None>("None")

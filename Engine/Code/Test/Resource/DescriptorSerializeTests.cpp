@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <Resource/AssetDescriptorJson.h>
+#include <Resource/AssetJsonSerializer.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Shader/ShaderAsset.h>
