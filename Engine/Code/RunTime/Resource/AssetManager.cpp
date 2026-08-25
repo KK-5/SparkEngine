@@ -29,6 +29,9 @@ namespace Spark::Resource
         ASSERT(m_fileSystem, "[SparkAssetManager] No FileSystem registered. Create VFSSystem "
                              "and mount before Init.");
 
+        // Reads the mount table once, so cache:// has to be mounted by now.
+        m_cache = MakeUnique<AssetCache>(*m_fileSystem);
+
         // 先起 DataBase（内部仓储）
         m_db = CreateSystem<AssetDataBase>();
         m_db->Init();
@@ -69,6 +72,7 @@ namespace Spark::Resource
             std::lock_guard lock(m_queueMutex);
             m_pendingQueue.swap(eastl::queue<Asset*>());
         }
+        m_cache.reset();
         m_fileSystem = nullptr;
         m_db.reset();
     }
@@ -272,6 +276,30 @@ namespace Spark::Resource
         ctx.db         = m_db.get();
 
         asset.SetStatus(AssetStatus::Loading);
+
+        // Not cacheable yields an empty entry that every call below declines, so the
+        // uncached case needs no second code path.
+        const CacheEntry entry = m_cache->EntryFor(ctx.id);
+        const eastl::string_view identity(entry.identity.c_str(), entry.identity.size());
+
+        eastl::vector<uint8_t> cached;
+        if (m_cache->Read(entry, cached))
+        {
+            UniquePtr<AssetData> restored;
+            AssetBuildBus::EventResult(restored, type, &AssetBuildEvents::Deserialize, cached.data(), cached.size(), identity);
+
+            if (restored)
+            {
+                asset.SetDataReady(eastl::move(restored));
+                AssetBus::Event(type, &AssetBus::Events::OnAssetReady, asset);
+                return;
+            }
+
+            // Nothing to clean up: the rebuild below writes back to this same path.
+            LOG_WARN("[SparkAssetManager] Rebuilding {}: its cache entry was rejected.",
+                asset.GetAssetId().GetPath());
+        }
+
         AssetBuildBus::Event(type, &AssetBuildEvents::Load, ctx);
         if (!ctx.rawData && !ctx.compiledData)
         {
@@ -280,17 +308,16 @@ namespace Spark::Resource
             return;
         }
 
-        // Load can hand back a finished payload instead of a raw one -- an authored
-        // already-compiled file (a .ktx2 image), and later a cache hit. Compiling it again
-        // would re-process a finished product, so the whole stage is skipped.
-        //
-        // Note this also skips Compile's SIDE EFFECTS: CompileEnvironmentCubemap publishes
-        // the two IBL sub-assets from there, so caching a cubemap will have to cache its
-        // children too, not just its own payload.
+        // Load can hand back a finished payload (an authored .ktx2), and compiling that
+        // would re-process a finished product. Skipping the stage also skips its SIDE
+        // EFFECTS: CompileEnvironmentCubemap publishes the IBL sub-assets from there, so
+        // caching a cubemap will have to cache its children too.
+        bool compiled = false;
         if (!ctx.compiledData)
         {
             asset.SetStatus(AssetStatus::Compiling);
             AssetBuildBus::Event(type, &AssetBuildEvents::Compile, ctx);
+            compiled = true;
         }
 
         if (!ctx.compiledData)
@@ -298,6 +325,15 @@ namespace Spark::Resource
             asset.SetStatus(AssetStatus::Error);
             AssetBus::Event(type, &AssetBus::Events::OnAssetError, asset);
             return;
+        }
+
+        // Only write back what Compile produced: a payload that arrived finished is already
+        // a file on disk, and next time the same Load path would win again.
+        if (compiled)
+        {
+            eastl::vector<uint8_t> cooked;
+            AssetBuildBus::EventResult(cooked, type, &AssetBuildEvents::Serialize, *ctx.compiledData, identity);
+            m_cache->Write(entry, cooked);
         }
 
         asset.SetDataReady(eastl::move(ctx.compiledData));
@@ -360,9 +396,8 @@ namespace Spark::Resource
 
         for (const eastl::string& mount : m_fileSystem->GetMountNames())
         {
-            // The cache holds build products of assets already registered from their source
-            // mounts. Walking it would register every `.ktx2` entry as an image asset of its
-            // own -- into a database that never evicts.
+            // Walking it would register every `.ktx2` entry as an image asset of its own,
+            // into a database that never evicts.
             if (mount == kCacheMountName)
             {
                 continue;

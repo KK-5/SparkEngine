@@ -295,8 +295,7 @@ TEST_F(IterateDirectoryTest, IgnoresUnknownMountAndMissingDirectory)
 }
 
 // ============================================================================
-// File IO. The asset cache is the reason these exist, so the cases are the ones
-// it depends on: whole-file round trips, overwrite, and an unstampable path.
+// File IO. Needs real files on disk.
 // ============================================================================
 
 class FileIOTest : public ::testing::Test
@@ -343,7 +342,6 @@ TEST_F(FileIOTest, WriteThenReadRoundTrips)
     EXPECT_EQ(read, written);
 }
 
-// The shard directory does not exist until the first entry lands in it.
 TEST_F(FileIOTest, WriteCreatesParentDirectories)
 {
     ASSERT_FALSE(fs::exists(m_root / "3f"));
@@ -351,7 +349,6 @@ TEST_F(FileIOTest, WriteCreatesParentDirectories)
     EXPECT_TRUE(fs::is_directory(m_root / "3f"));
 }
 
-// No temporary may survive a completed write: the cache lists its directory to clear it.
 TEST_F(FileIOTest, WriteLeavesNoTemporary)
 {
     ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({1, 2, 3})));
@@ -391,8 +388,8 @@ TEST_F(FileIOTest, ReadRejectsMissingFileAndUnknownMount)
     EXPECT_FALSE(m_table.WriteFile("nope://nothing.ktx2", read.data(), read.size()));
 }
 
-// A hit is decided by Exists alone, so a directory answering true would send a directory
-// path into ReadFile.
+// A cache hit is decided by Exists alone, so a directory answering true would send a
+// directory path into ReadFile.
 TEST_F(FileIOTest, ExistsIsFalseForDirectoriesAndMissingPaths)
 {
     ASSERT_TRUE(Write("cache://3f/entry.ktx2", Bytes({1})));
@@ -416,8 +413,6 @@ TEST_F(FileIOTest, StampReportsSizeAndIsInvalidWithoutAFile)
     EXPECT_FALSE(m_table.GetFileStamp("nope://entry.ktx2").IsValid());
 }
 
-// The key folds the stamp in, so a rewrite that changes the size has to be visible;
-// otherwise a rebuilt source would keep resolving to its stale entry.
 TEST_F(FileIOTest, StampChangesWithContent)
 {
     ASSERT_TRUE(Write("cache://entry.ktx2", Bytes({1, 2, 3, 4})));

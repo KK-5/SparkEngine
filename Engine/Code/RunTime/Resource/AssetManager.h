@@ -15,6 +15,7 @@ namespace Spark { class FileSystem; }
 
 namespace Spark::Resource
 {
+    class AssetCache;
     class AssetDataBase;
     class ImageAssetBuilder;
     class ShaderAssetBuilder;
@@ -69,6 +70,9 @@ namespace Spark::Resource
 
         //! Resolved once at Init. Its own lock covers concurrent use from the worker thread.
         const FileSystem* m_fileSystem{nullptr};
+
+        //! Stateless past construction, so ProcessAsset uses it from either thread.
+        UniquePtr<AssetCache> m_cache;
 
         SystemUniquePtr<AssetDataBase>       m_db;
 

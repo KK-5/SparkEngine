@@ -42,10 +42,8 @@ namespace Spark
         m_vfs->Init();
         m_vfs->Mount("engine", "Engine/Asset");
 
-        // The cook cache. Mounted here rather than alongside the editor's project/editor
-        // mounts because those happen after SetUp returns, by which time AssetManager has
-        // already decided whether a cache exists. The directory need not exist yet --
-        // WriteFile creates it.
+        // Not alongside the editor's mounts: those land after SetUp returns, by which time
+        // AssetManager has already decided whether a cache exists.
         m_vfs->Mount(Resource::kCacheMountName, "Cache");
 
         m_entityReaper = CreateSystem<EntityReaper>();

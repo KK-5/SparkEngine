@@ -163,8 +163,9 @@ namespace Spark
             return true;
         }
 
-        //! Unique per writer, so two threads writing the same target cannot truncate each
-        //! other's temporary. Both then rename over the same bytes, which is harmless.
+        //! Unique per writer: two threads writing one target must not share a temporary.
+        //! Alongside the target, never in the system temp -- a cross-volume rename is a
+        //! copy, and copies are not atomic.
         std::filesystem::path MakeTempPath(const std::filesystem::path& target)
         {
             static std::atomic<uint64_t> counter{0};
@@ -572,9 +573,8 @@ namespace Spark
             return true;
         }
 
-        // Losing the rename to a concurrent writer of the same target is a success: the
-        // bytes are a pure function of the path, so whatever landed there is what this
-        // call would have written.
+        // Losing the rename to a concurrent writer is a success: the bytes are a pure
+        // function of the path, so what landed is what this call would have written.
         std::error_code existsEc;
         const bool landed = fs::exists(target, existsEc);
 
@@ -633,9 +633,9 @@ namespace Spark
             return {};
         }
 
+        // Implementation-defined epoch, which is fine: a stamp is only ever compared with
+        // another taken by the same build.
         FileStamp stamp;
-        // The epoch is implementation-defined, which is fine: the stamp is only ever
-        // compared against another stamp taken by this same build.
         stamp.m_modifiedTime = static_cast<uint64_t>(written.time_since_epoch().count());
         stamp.m_size         = static_cast<uint64_t>(size);
         return stamp;

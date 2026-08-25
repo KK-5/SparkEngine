@@ -7,6 +7,8 @@ set(SOURCES
     AssetJsonSerializer.cpp
     AssetDataBase.cpp
     AssetManager.cpp
+    Cache/AssetCache.cpp
+    Cache/CacheFormat.cpp
     Common/CommonAssetLoader.cpp
     Shader/ShaderAsset.cpp
     Shader/ShaderAssetCompiler.cpp
