@@ -30,10 +30,10 @@ glTF 外部 URI 改为词法解析。
 **阶段 0.d（`AssetId` 复合形式）已完成。** 资产引用现在能写进文件、读回来变成一个可用的 `AssetId`——
 背景里那三笔债共享的前置至此全部到位，阶段 0 收尾。
 
-**阶段 1（磁盘缓存）已定方案，未开工**，是当前的下一步。
-阶段 1 的范围已收窄到**顶层 Image 2D**——shader、cubemap、model 分别被「通用依赖机制」与
-「子资产机制」挡住。前者只有方向（阶段 1 的待办 A），**后者已定方案**（见「子资产机制统一」一节，
-不依赖缓存，可独立开工）。
+**阶段 1（磁盘缓存）已完成**，范围为顶层 Image 2D。同一张图第二次加载不再解码 PNG/JPEG、
+不再跑 mip 与 BC 压缩，直接从 `Cache/` 读回。shader、cubemap、model 仍分别被「通用依赖机制」
+与「子资产机制」挡住：前者只有方向（阶段 1 的待办 A），**后者已定方案**（见「子资产机制统一」
+一节，不依赖缓存，可独立开工）。
 
 另有两项已随 0.a 落地：
 
@@ -47,10 +47,7 @@ glTF 外部 URI 改为词法解析。
 
 ### 已经有的
 
-- **Load/Compile 之间的缓存缝**。`AssetManager.cpp:281`：Load 若直接给回 `ctx.compiledData`，
-  Compile 整段跳过。今天服务 `.ktx2`，将来服务 cache hit。
-- **图片的编解码两头**。`ImageAssetCompiler.cpp:411` 已经算出 ktx2 blob（只用来打了条 log 就扔了）；
-  `ImageAssetLoader.cpp:241` 已经能读 ktx2。
+- **磁盘缓存 ✅**。见阶段 1。
 - **子资产机制（两套各写各的）**。`AssetId::OfSub` 是共用的，但发布路径有两条：
   `ImageAssetBuilder::PublishSubAsset`（总是覆盖）与 `ModelAssetBuilder::DispatchImageSubAsset`
   （已存在就跳过），且都不经过 `ProcessAsset`。统一方案见「子资产机制统一」一节。
@@ -64,7 +61,7 @@ glTF 外部 URI 改为词法解析。
 | 欠账 | 位置 | 说明 |
 |---|---|---|
 | ~~descriptor 不可序列化~~ ✅ | `Resource/AssetJsonSerializer.h` | 阶段 0.c 已完成 |
-| 磁盘缓存 | 无 | 见阶段 1（第一版只覆盖顶层 Image 2D） |
+| ~~磁盘缓存~~ ✅ | `Resource/Cache/` | 阶段 1 已完成，覆盖顶层 Image 2D |
 | 无资产依赖机制 | 无 | `.hlsli` / `.gltf` 的 `.bin` 变了没人知道；`.hlsli` 甚至不是资产。见阶段 1 待办 A |
 | 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset.cpp:17` 的 `Shutdown`→`ReleaseAsset` 够不着 |
 | 材质无资产形态 | `Feature/Material/` | 唯一创建点是 `SpawnModel.cpp:111` |
@@ -123,7 +120,7 @@ Engine/Code/RunTime/Core/VFS/
 `GetPhysicalDirs` / `IterateDirectory`。`ToPhysical` 是查表不是搜索；`Mount` 拒绝物理目录相互
 包含的挂载点，因此至多一个挂载点能命中一个物理路径。
 
-阶段 1 会在同一接口上追加 `ReadFile` / `WriteFile` / `Exists` / `FileStamp`，并新增
+阶段 1 已在同一接口上追加 `ReadFile` / `WriteFile` / `Exists` / `GetFileStamp`，并新增
 可写的 `cache://` 挂载。
 
 #### 挂载点
@@ -438,165 +435,146 @@ eastl::string AssetIdToDisplayString(const AssetId& id);   // 单向，log 与 I
 
 ---
 
-## 阶段 1：磁盘 cook 缓存
+## 阶段 1：磁盘 cook 缓存 ✅ 已完成
 
-> 已定方案，未开工。依赖 0.a、0.b、0.c（键与戳都要 descriptor 的 JSON）。
-
-### 范围：只做顶层 Image 2D
-
-第一版**只缓存输入等于自身路径那一个文件、且不产出子资产的资产**，今天就是顶层的 2D 图片。
-其余三类各被一条待办挡住，不在本阶段内：
+范围为**顶层 Image 2D**——输入等于自身路径那一个文件、且不产出子资产的资产。其余三类仍被挡住：
 
 | 类型 | 挡在哪 |
 |---|---|
-| Shader | 通用依赖机制（待办 A，只有方向）。19 个 `.hlsl` 里 16 个有 `#include`，剩下三个不值得单独做一步 |
+| Shader | 通用依赖机制（待办 A，只有方向）。19 个 `.hlsl` 里 16 个有 `#include` |
 | Image cubemap | 子资产机制（已定方案，见后文一节）。IBL 的 irradiance / prefiltered 是父的 bake 产物 |
 | Model | 子资产机制（内嵌贴图）；`.gltf` 另欠依赖机制（外部 `.bin` 进了编译产物） |
 
-**shader 是收益最小的一档**——实测下来全部重编也远不及一张图片的加载时间，所以它等依赖机制做完
-自然就能接上，不值得为它先造一套依赖存储。
-
-范围虽小，整条管线是通的：`cache://`、键、原子写、`CacheStamp`、两个 bus 事件、
-`Serialize` 返回 false 的退出口。后面三类都是往这条管线上挂。
-
-### 接入点
-
-`AssetBuildBus` 加 `Serialize` / `Deserialize` 两个事件，缓存流程归 `AssetManager::ProcessAsset`：
+### 落地形态
 
 ```
-命中 → Deserialize(ctx) 填 compiledData → Load 与 Compile 全跳过
-未命中 → Load → Compile → Serialize(ctx) → 写盘
+Engine/Code/RunTime/Resource/Cache/
+    CacheFormat.h/.cpp   每类型的落盘形态：{version, extension}
+    AssetCache.h/.cpp    CacheEntry、键、读写
 ```
 
-缓存**策略**（键怎么算、什么时候回写）在一处；builder 只负责自己的**格式**。
+`FileSystem` 追加 `ReadFile` / `WriteFile` / `Exists` / `GetFileStamp` 与 `FileStamp{mtime, size}`。
+`cache://` 在 `Engine.cpp` 挂到仓库根 `Cache/`，紧邻 `engine://`——编辑器的 `project` / `editor`
+两个挂载发生在 `SetUp()` 返回之后，那时 `AssetCache` 已经判断过挂载是否存在。
 
-### 缓存键
+`.gitignore` 写 `/Cache/`。**必须锚定**：不带前导 `/` 会连 `Resource/Cache/` 这个源码目录一起吞掉。
 
-64 位，独立于 `AssetHash`——身份比较有实值兜底，缓存键没有。
+### 键与身份
 
 ```
-key = H64(path, subLabel, type, H64(descJson), sourceStamp, builderVersion)
+canonical = AssetIdToJson(id).dump()
+key       = FNV1a64("SparkAssetCache" | $<CONFIG> | canonical | mtime | size | format.version)
 ```
 
-**descriptor 走 0.c 的 JSON，不用 `desc->Hash()`。** `AssetHash` 是 32 位有损摘要，且今天的三个
-`Hash()` 都不覆盖全部字段：`ShaderDescriptor::Hash()` 只折 `backend`（`stages` 不在里面），
-`ImageAssetDescriptor::Hash()` 在非 cubemap usage 下跳过 `cubemapFaceSize`。把它当键的输入，等于
-让两个真正不同的 descriptor 共用一个缓存条目——身份那边有实值兜底所以无害，缓存这边就是串味。
-`DescriptorToJson` 逐字段落，覆盖完整，且顺序确定（`ordered_json` + 反射注册顺序，见 0.c）。
+同一份 `canonical` 兼作两用：哈希成 `CacheEntry::path`，原文存进 `CacheEntry::identity`。
 
-`sourceStamp` = 源文件 mtime + size。**只有自身路径那一个文件**——这条正是本阶段范围的由来：
-输入不止一个文件的资产（shader 的 include、`.gltf` 的 `.bin`）无法把全部输入折进键，
-必须等依赖机制，见「待办」。
+descriptor 以序列化值入键，不用 `AssetDescriptor::Hash()`——后者是有损摘要且不覆盖全部字段，
+而缓存没有身份层那样的实值兜底。
 
-`builderVersion` 是每类一个手写常量，改编译器时手动 bump，并折进构建配置——Debug 与 Release
-的引擎若产出不同 blob 不会串味。
+`identity` 写进载荷内部（图片是 KTX2 的 KV 段，键 `SparkAssetIdentity`），读回时在拷贝任何像素
+之前整串比对。它防的是 64 位键碰撞——存实值不存摘要，因为精确比对的假阳性率是 0。
 
-mtime 与 builderVersion 都是键的输入，所以源文件一改键就变、旧文件查不到：**过期不需要判定**。
-这条成立的前提就是「输入只有一个文件」。
+`$<CONFIG>` 由 CMake 以 `SPARK_CACHE_BUILD_TAG` 传入，Debug 与 Release 的条目互不可见。
 
-代价是孤儿文件累积。**清理只能是整体清空**：源文件删掉之后它的缓存条目永远不可达，无从判断
-「未被引用」，所以这个 API 叫 `Clear()` 而不是 `PurgeUnreferenced()`。要做到真正可回收，得把
-`sourceStamp` 换成源文件的内容哈希，那是另一个决定（也顺带换来跨机器可复用——mtime 会被
-git checkout 刷掉，缓存不可分发）。
+mtime 与 version 都在键里，源文件一改键就变、旧条目不可达，**过期不需要判定**。代价是孤儿文件
+累积，清理只能整体清空——今天没有调用方，`Clear()` 未实现。
 
 ### 落盘
 
 ```
 Cache/
-    3f/  3fa9c2b81d4e6075.ktx2     图片
+    3f/  3fa9c2b81d4e6075.ktx2
 ```
 
-仓库根 `Cache/`，进 `.gitignore`，挂成 `cache://`——缓存读写走 `FileSystem`，不另开物理路径通道。
-`Mount` 不检查目录存在性，首次运行挂一个空目录即可，但 `WriteFile` 要负责 `create_directories`。
+一级十六进制分片 = 256 个目录，文件名是键的十六进制。不建索引：存在性是一次 `Exists`。
 
-**`cache://` 必须对 `AssetRegistry` 不可见。** `.ktx2` 就在 `GetSupportAssetType` 的图片扩展名表里，
-照现在的实现每个缓存文件都会被注册成一个 `cache://3f/….ktx2` 的 Image 资产塞进无淘汰的 DB。
+`WriteFile` 自身是原子的——写唯一后缀的 tmp 再 rename。tmp 必须与目标同目录（跨卷 rename 会退化
+成拷贝），后缀带线程 id + 计数（`ProcessAsset` 同时跑在 worker 与调用方线程）。rename 撞上已存在
+目标当作「别人写好了」。
 
-一级十六进制分片 = 256 个目录；文件名是键的十六进制。不建索引：存在性是一次 `Exists`，
-正确性由文件自身证明，要列举时扫目录。
+**`cache://` 对 `AssetRegistry` 不可见**：`.ktx2` 在 `GetSupportAssetType` 的图片扩展名表里，
+遍历它会把每个缓存条目注册成一个资产。
 
-**载荷格式按类型定，不统一套壳。** 本阶段只有一个：Image → `.ktx2`，`SerializeToKtx2` /
-`LoadKtx2` 现成，且能直接用贴图查看器打开。
+### 接入点
 
-文件内只存**身份四项**（path / subLabel / type / descriptor 的 JSON 原文）防键碰撞，放 libktx 的
-KV 段（`ktxHashList_AddKVPair` / `ktxHashList_FindValue`）。`CacheStamp` 结构本身与类型无关，
-将来别的类型用 blob 头编码同一个结构。
+`AssetBuildEvents` 加两个事件，**都不带 `AssetBuildContext`、也不带 `AssetId`**——格式不该够得着
+数据库和文件系统，而类型已经是总线地址：
 
-**四项都存实值，不存摘要。** 存摘要的那一项对碰撞是零价值的：摘要既然是键的输入，两个条目撞了键
-就说明它们的摘要相同，戳里再比一次必然通过。能查出碰撞的只有键的输入之外的信息，也就是实值本身。
-descriptor 的实值即 `DescriptorToJson` 的输出，与算键用的是同一份。
+```cpp
+virtual eastl::vector<uint8_t> Serialize(const AssetData& compiled, eastl::string_view identity);
+virtual UniquePtr<AssetData>   Deserialize(const uint8_t* bytes, size_t size,
+                                           eastl::string_view identity);
+```
 
-写盘先写 tmp 再 rename——否则写到一半崩溃会留下能骗过校验的截断文件。**tmp 名要带唯一后缀**：
-`ProcessAsset` 同时跑在 worker 线程和调用方线程（`LoadAsset` 是同步直调的），固定的 `<key>.tmp`
-会被两个同时 miss 的线程互相截断。rename 撞上已存在的目标，当作「别人已经写好了」，删 tmp 继续。
+空 vector / null 即拒绝，也是默认实现——Shader 与 Model 的 builder 一个字未改。
+`AssetBuildContext` 一个字段都没加。
 
-### 什么时候不写
+`ProcessAsset` 里：
 
-三条退出口，都走 `Serialize` 返回 false：
+```
+entry = m_cache->EntryFor(id)
+命中 → Deserialize → SetDataReady，Load 与 Compile 全跳过
+未命中 → Load → Compile → Serialize → Write
+```
 
-- **`Load` 直接给回 `compiledData` 时不写。** 授权的 `.ktx2` 走的就是这条（Compile 整段跳过），
-  回写等于把源文件原样复制进 `Cache/` 再也不读——下次还是同一条 Load 路径先命中。
-  规则：**只有真跑过 Compile 才回写。**
-- **子资产不写**（`id.IsSubAsset()`）。写成显式守卫而不是「反正走不到这儿」，否则将来有人从别的
-  路径把子资产喂进 `ProcessAsset`，会安静地写出一个没人能读回的条目。
-- **该类型还没接缓存就不写。** `AssetBuildEvents` 的两个新事件在 trait 里给默认实现（都返回
-  false），Shader / Model builder 在接上之前一个字都不用改。
+**不可缓存解析成一个空 `CacheEntry`，后面每个调用都自然拒绝**，所以未挂载缓存 / Shader / 子资产
+走的路径与接入前逐字节相同，没有第二条分支。三条不写的口子：只有真跑过 Compile 才回写
+（`compiled` 标志）、`EntryFor` 拒绝子资产与无戳源、builder 自己拒写。
 
-读侧对称：`Deserialize` 失败（截断、格式不认、身份戳不符）要删掉坏条目并干净退回 Load + Compile，
-不是报错终止。
+`Deserialize` 拒收后不删条目，只 `LOG_WARN` 并重建——键是纯函数，重建写回同一个 path，覆盖即修复。
 
-### 实现步骤
+命中不新增 `AssetStatus`，走 `Loading → Ready`。
 
-一步做完：`FileSystem` 加 `ReadFile` / `WriteFile` / `Exists` / `FileStamp`；`cache://` 挂载
-（要在 `SparkAssetManager::Init` **之前**，它在 `InitInternal` 里就把 `FileSystem` 取走存下了）；
-`Resource/Cache/AssetCache`（键、读写、原子写、`CacheStamp`）；两个 bus 事件与 `ProcessAsset`
-接入；`ImageAssetBuilder` 的 2D 路径接现成的 ktx2 两头。
+### Image 侧
 
-四个落到具体代码的点：
+- `SerializeToKtx2` 转公开并收 `identity`，在 `ktxTexture_WriteToMemory` 之前写 KV 段。
+  `identity` 是 view，须先拷进 `eastl::string` 再取 `c_str()`——按 `size() + 1` 直接从 view 读会越界。
+- `LoadKtx2` 改吃内存（`ktxTexture2_CreateFromMemory`），`expectedIdentity` 非空则校验。
+  授权 `.ktx2`、缓存条目、内嵌图片因此各自只打开一次文件。
+- **`ImageAssetLoader::Load` 的 `outIsCompiled` 出参删除**，拆成 `LoadSource` / `LoadCompiled`。
+  那个 bool 只是把「结果放哪个槽」运回给调用方，而 `IsCompiledImagePath` 是路径的纯函数，
+  builder 自己就能判。改后「调哪个函数」本身就是信号。
+- `Compile` 里那次只为打日志而整算一遍 ktx2 blob 的白算删掉。
+- cube 拒写：`GetArrayLayers() != 1`。`SerializeToKtx2` 写死 `numFaces = 1`，且烘焙产物的 `m_mips`
+  只描述 base mip。**此条无测试覆盖**——构造 cube payload 需要 GPU baker，`SparkAssetTest` 里没有
+  RHI device。
 
-- **`SerializeToKtx2` 要能带 KV 段**，戳必须在 `ktxTexture_WriteToMemory` 之前写进 `kvDataHead`；
-  它现在是 private，可见性也要动。
-- **读回只打开一次文件。** `LoadKtx2` 现在只吃路径（`ktxTexture2_CreateFromNamedFile`），而戳在
-  KV 段里、也得打开才能读。读文件 / 校验戳 / 解码要在同一次 `ktxTexture2_Create*` 里完成，别写成
-  「先 ReadFile 校验戳，再 LoadKtx2 重开一遍」。
-- **顺手删掉一次白算。** `ImageAssetCompiler` 现在每次编译都完整算一遍 ktx2 blob 只为在 log 里打个
-  字节数，然后扔掉。接上 `Serialize` 之后不动它就是每次算两遍。
-- **命中时的状态机**：`AssetStatus` 现在没有对应项，加一个或直接 `Loading → Ready`，定下来即可。
+### 测试
 
-**测试的缓存目录按 fixture 隔离。** `ImageAssetTests` / `ModelAssetTests` / `ShaderAssetTest` /
-`EnvironmentBakerTests` 在同一个 exe 里，各自新建 `VFSSystem` + `SparkAssetManager`。共用一个物理
-目录会让测试之间产生顺序依赖，陈旧缓存能掩盖真实的编译 bug。每个 fixture 一个唯一临时目录，
-TearDown 删干净。
+每个 `ImageAssetTestFixture` 用例一个独立临时缓存目录，TearDown 删干净；其余三个 Resource fixture
+不挂 `cache://`，顺带守住「未挂载时行为不变」。
+
+重建走 `Restart()`（销毁 manager 再建新的），**不能同时存在两个 `SparkAssetManager`**：
+`Service<AssetManager>::Register` 是先到先得，第二个静默不注册，于是它的资产析构时会经由
+`Asset::Shutdown` 打到第一个的数据库上，`AssetDataBase::Remove` 持锁 erase 触发同锁重入而死锁。
+
+用例：写出一个条目、第二次运行逐字节还原且不重写、条目截断后拒收并重建、KV 段身份被改一个字节后
+拒收、授权 `.ktx2` 不回写。另有 `CacheTests.cpp` 11 例覆盖 `EntryFor` 的四条不可缓存路径、
+usage 变体分属不同条目、改源文件后 `path` 变而 `identity` 不变。
 
 ### 不做
 
-内存驻留淘汰、自动过期清理、后台异步写盘。
-
-写盘落在哪个线程不作为约束：它只发生在 miss 上，而那条路径已经在付 PNG 解码 + mip + BC 压缩的钱，
-写几 MB 是噪声；且 `LoadAsset` 是主力路径，「只读不写」会让缓存基本填不满。
+内存驻留淘汰、自动过期清理、后台异步写盘、`Clear()`。
 
 ### 待办：解锁其余三类
 
-三条，都是独立机制，不属于本阶段。**B 已定方案，见下一节**；A、C 只有方向。
+三条，都是独立机制。**B 已定方案，见下一节**；A、C 只有方向。
 
 **A. 通用资产依赖机制（反向图）。** 一个文件变了，依赖它的所有资产失效重编。要点：
 
 - 依赖边**必须持久化**——缓存命中的资产不会被编译，边不会在本次会话里被重新发现，
   「编译完顺手建图」在冷启动全命中时是空的。
 - **不能挂在缓存条目里。** 依赖数据的消费者不止缓存（热重载、编辑器的「这张贴图被谁用了」、
-  打包时的可达性分析），存进 `CacheStamp` 就意味着这些都得穿过缓存去问。要做就做成通用的。
+  打包时的可达性分析），要做就做成通用的。
 - **`.hlsli` 要列为资产**（必做项）。它今天不是——`GetSupportAssetType` 只认 `.hlsl`，
-  `.hlsli` 没有 `AssetId`、不进 DB，「它变了」这件事没有主体。列为资产后它在图里就是一个正常节点，
-  不必另建一套「非资产源文件」的记录。
+  「它变了」这件事没有主体。
 - 配套的是**资产预加载**：启动时全量遍历，首次加载的编译并建图，已缓存的校验有效性。
-  今天「拖进场景才加载」是临时搭建的。
 
 **B. 子资产机制统一。** 已定方案，见下一节。**在它落地之前不允许再加第四个手写 publisher**
 ——阶段 3 的 glTF 材质子资产会是第三个。
 
 **C. Shader 缓存。** 挂在 A 之后。收益是三类里最小的一档：实测全部重编也远不及一张图片的加载
-时间。A 做完之后它基本是把 blob 格式（backend + 每 stage 的 entryPoint / bytecode /
-`ShaderStageReflection`）写出来的事。两个已知坑：
+时间。A 做完之后基本是把 blob 格式写出来的事。两个已知坑：
 
 - `ShaderAssetData::m_resolvedPath` 与依赖列表存的都是**物理**路径，落盘换目录就错。前者今天没有
   任何消费者，不写；后者转虚拟路径。
@@ -628,8 +606,7 @@ TearDown 删干净。
 - **内嵌** → 填 `sourceData` / `sourceSize`（`DispatchImageSubAsset` 今天填的就是这两个）
 - **派生** → 填 `compiledData`（`ProcessAsset` 已有规则：这个槽有值就跳过 Load 与 Compile）
 
-所以「派生 vs 内嵌」这个二分在机制里不存在，由**结果落进哪个槽**表达——与
-`ImageAssetBuilder::Load` 那句 "Which slot the result lands in IS the signal" 是同一条规则。
+所以「派生 vs 内嵌」这个二分在机制里不存在，由**结果落进哪个槽**表达。
 今天 `DispatchImageSubAsset` 就是 `MakeChild` 完立刻跑，改动只是**不跑，push 进去**。
 
 ### `AssetBuildContext` 的改动
@@ -793,8 +770,7 @@ Image 用的事件。**不采用。**
 shader id），要么承认 stages 不是配置而是编译期发现的产物（`[shader()]` 属性 / pragma），从 descriptor
 上摘掉。取决于「stage 的 authoring 来源」这个至今未定的问题。
 
-阶段 1 不再被这条卡住：缓存键走 descriptor 的 JSON，`stages` 天然进键，`Hash()` 覆盖不全影响不到
-缓存。这条仍是身份层的债，但不是阶段 1 的前置。
+缓存不受这条影响：键走 descriptor 的 JSON，`stages` 天然进键。这条仍是身份层的债。
 
 **逐资产导入设置**（给某张贴图单独指定 mip 数 / 压缩格式）未排期。0.c 的字段级序列化能表达它，
 但配置存哪、谁编辑、和 usage 什么关系是独立的设计问题。
@@ -807,7 +783,7 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
 阶段 0.a（VFS 挂载点 / 虚拟路径）✅
    └──► 阶段 0.b（AssetId 携带 AssetType）✅
            └──► 阶段 0.c（反射序列化器 + descriptor 反射）✅
-                   ├──► 阶段 1（磁盘缓存 / 顶层 Image 2D）← 键与戳要 descriptor JSON，已定方案
+                   ├──► 阶段 1（磁盘缓存 / 顶层 Image 2D）✅
                    └──► 阶段 0.d（AssetId 复合形式）✅
                            ├──► 阶段 2（序列化器铺到组件）
                            └──► 阶段 3（材质资产）
@@ -820,11 +796,10 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
 
 ## 下一步
 
-阶段 0 已收尾，两条路互不依赖：
+阶段 0 与阶段 1 已收尾。剩下的三条互不依赖：
 
-- **阶段 1**：缓存骨架 + 顶层 Image 2D（已定方案，一步做完）。
-- **子资产机制统一**（已定方案）：不依赖缓存，可独立验证，是 cubemap / model 缓存与阶段 3 的前置。
-
-阶段 2 也已解锁，但它的第一件事是「类型自带编解码」的钩子——组件里的 `AssetId` 字段若被标上
-`Serializable`，通用遍历会走进去、产出一个缺 `desc` 的三项对象。今天没有任何组件字段标了
-`Serializable`，这条路还够不着。
+- **子资产机制统一**（已定方案）：可独立验证，是 cubemap / model 缓存与阶段 3 的前置。
+- **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置。
+- **阶段 2**：第一件事是「类型自带编解码」的钩子——组件里的 `AssetId` 字段若被标上
+  `Serializable`，通用遍历会走进去、产出一个缺 `desc` 的三项对象。今天没有任何组件字段标了
+  `Serializable`，这条路还够不着。
