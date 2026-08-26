@@ -527,6 +527,10 @@ namespace Editor
 
             if (auto* fileSystem = Spark::Service<Spark::FileSystem>::Get()) {
                 for (const auto& mount : fileSystem->GetMountNames()) {
+                    if (mount == "cache")
+                    {
+                        continue;
+                    }
                     AssetFolder mountRoot;
                     mountRoot.name = mount;
                     mountRoot.fullPath = mount + "://";
