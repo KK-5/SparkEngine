@@ -35,7 +35,10 @@ namespace Spark::Resource
         /// 否则插入并返回 newAsset。
         Ptr<Asset> InsertOrGet(const AssetId& id, Ptr<Asset> newAsset);
 
-        void Remove(const AssetId& id);
+        //! Erases the entry only if it is still `self`. Two instances can exist for one id
+        //! -- a build creates one before knowing whether the id is registered -- and the
+        //! one that lost must not evict the one that won.
+        void Remove(const AssetId& id, const Asset* self);
 
     private:
         void InitInternal() override {}

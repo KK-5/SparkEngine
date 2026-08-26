@@ -66,6 +66,12 @@ namespace Spark::Resource
         //! so it has nothing to stamp), or an unstampable source.
         CacheEntry EntryFor(const AssetId& id) const;
 
+        //! What an asset's payload carries so a key collision cannot hand it another's
+        //! bytes. A root's comes back on its CacheEntry; a sub-asset has no entry of its
+        //! own, so its identity is recomputed from its id -- which is why the manifest
+        //! lists those ids. Empty if `id` names no asset.
+        static eastl::string IdentityFor(const AssetId& id);
+
         //! False on a miss, which is the ordinary first-run outcome and not an error. A unit
         //! missing its manifest, or any one payload, misses as a whole -- never partially.
         bool ReadUnit(const CacheEntry& entry, CacheUnit& out) const;

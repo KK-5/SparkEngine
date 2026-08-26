@@ -78,16 +78,8 @@ namespace Spark::Resource
     eastl::vector<uint8_t> ImageAssetBuilder::Serialize(const AssetData& compiled,
                                                         eastl::string_view identity)
     {
-        const auto& image = static_cast<const ImageAssetData&>(compiled);
-
-        // Every cube today is an environment bake's sky, and no KTX2 container carries the
-        // two sub-assets baked alongside it -- a hit would restore a sky with its IBL gone.
-        // Lifts once a cache entry can hold a whole build unit.
-        if (image.IsCubemap())
-        {
-            return {};
-        }
-        return m_compiler.SerializeToKtx2(image, identity);
+        return m_compiler.SerializeToKtx2(
+            static_cast<const ImageAssetData&>(compiled), identity);
     }
 
     UniquePtr<AssetData> ImageAssetBuilder::Deserialize(const uint8_t* bytes, size_t size,
@@ -123,110 +115,6 @@ namespace Spark::Resource
             return;
         }
 
-        // A bake makes three assets, and registering assets is this class's job -- which is
-        // the only reason it is spelled out here instead of inside the compiler's Compile.
-        if (desc && desc->usage == ImageUsage::EnvironmentCubemap)
-        {
-            ctx.compiledData = CompileEnvironmentCubemap(ctx, *desc);
-            return;
-        }
-
-        ctx.compiledData = m_compiler.Compile(ctx.id, *ctx.rawData);
-    }
-
-    UniquePtr<AssetData> ImageAssetBuilder::CompileEnvironmentCubemap(
-        AssetBuildContext& ctx, const ImageAssetDescriptor& desc)
-    {
-        BakedEnvironment env = m_compiler.BakeEnvironment(
-            ctx.id, static_cast<const ImageAssetRawData&>(*ctx.rawData), desc);
-
-        // All or nothing: a partial result would leave the lighting path unable to tell
-        // "no IBL here" from "IBL half-baked".
-        if (!env.IsValid())
-        {
-            LOG_ERROR("[ImageAssetBuilder] Environment bake failed for {}",
-                      ctx.id.GetPath().c_str());
-            return nullptr;
-        }
-
-        // Publish before returning: AssetManager marks this asset Ready only after Compile
-        // returns, so anyone seeing the sky cube go Ready finds both children already Ready.
-        Ptr<Asset> irradiance = PublishSubAsset(
-            ctx,
-            ImageAsset::MakeSubId(ctx.id, ImageAsset::kIrradianceSubLabel,
-                                  ImageUsage::IrradianceCubemap),
-            MakeUnique<ImageBakedRawData>(eastl::move(env.irradiance)));
-
-        Ptr<Asset> prefiltered = PublishSubAsset(
-            ctx,
-            ImageAsset::MakeSubId(ctx.id, ImageAsset::kPrefilteredSubLabel,
-                                  ImageUsage::PrefilteredCubemap),
-            MakeUnique<ImageBakedRawData>(eastl::move(env.prefiltered)));
-
-        if (!irradiance || !prefiltered)
-        {
-            LOG_ERROR("[ImageAssetBuilder] Failed to publish the IBL sub-assets of {}",
-                      ctx.id.GetPath().c_str());
-            return nullptr;
-        }
-
-        // The sky goes through the same Compile as its two children.
-        ImageBakedRawData skyRaw(eastl::move(env.sky));
-        UniquePtr<AssetData> skyData = m_compiler.Compile(ctx.id, skyRaw);
-        if (!skyData)
-        {
-            return nullptr;
-        }
-
-        const auto& sky = static_cast<const ImageAssetData&>(*skyData);
-        const auto& irr = static_cast<const ImageAsset&>(*irradiance);
-        const auto& pre = static_cast<const ImageAsset&>(*prefiltered);
-
-        LOG_INFO("[ImageAssetBuilder] Environment bake {}: sky {}^2 x{} mips, "
-                 "irradiance {}^2 x{}, prefiltered {}^2 x{} (6 faces each)",
-                 ctx.id.GetPath().c_str(),
-                 sky.GetWidth(), sky.GetMipLevels(),
-                 irr.GetWidth(), irr.GetMipLevels(),
-                 pre.GetWidth(), pre.GetMipLevels());
-
-        return skyData;
-    }
-
-    Ptr<Asset> ImageAssetBuilder::PublishSubAsset(AssetBuildContext& parentCtx,
-                                                  const AssetId& subId,
-                                                  UniquePtr<AssetData> rawData)
-    {
-        ASSERT(parentCtx.db != nullptr,
-            "[ImageAssetBuilder] parent ctx.db not set; cannot publish sub-asset");
-        if (!parentCtx.db || !rawData)
-        {
-            return nullptr;
-        }
-
-        // The ordinary Compile: what makes this a derived product is only the raw it gets.
-        AssetBuildContext child = parentCtx.MakeChild(subId);
-        child.rawData = eastl::move(rawData);
-        Compile(child);
-
-        UniquePtr<AssetData> compiled = eastl::move(child.compiledData);
-        if (!compiled)
-        {
-            return nullptr;
-        }
-
-        Ptr<Asset> created = CreateAsset(subId);
-        if (!created)
-        {
-            LOG_WARN("[ImageAssetBuilder] CreateAsset failed for sub-asset '{}'",
-                     subId.GetSubLabel().c_str());
-            return nullptr;
-        }
-
-        // On a re-process this returns the existing instance -- the one everyone already
-        // holds -- so that is the one to hand the fresh data to.
-        Ptr<Asset> stored = parentCtx.db->InsertOrGet(subId, created);
-        stored->SetDataReady(eastl::move(compiled));
-        AssetBus::Event(AssetType::Image, &AssetBus::Events::OnAssetReady, *stored);
-        return stored;
+        ctx.compiledData = m_compiler.Compile(ctx.id, *ctx.rawData, ctx.subAssets);
     }
 }

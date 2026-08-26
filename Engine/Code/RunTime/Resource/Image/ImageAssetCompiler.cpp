@@ -302,7 +302,8 @@ namespace Spark::Resource
         return blob;
     }
 
-    UniquePtr<AssetData> ImageAssetCompiler::Compile(const AssetId& id, AssetData& rawData)
+    UniquePtr<AssetData> ImageAssetCompiler::Compile(const AssetId& id, AssetData& rawData,
+                                                     eastl::vector<SubAssetEntry>& outSubAssets)
     {
         auto& raw = static_cast<ImageRawData&>(rawData);
         switch (raw.GetKind())
@@ -323,19 +324,30 @@ namespace Spark::Resource
             case ImageRawData::Kind::Pixels:
                 break;
         }
-        return CompilePixels(id, static_cast<ImageAssetRawData&>(raw));
+
+        auto& pixels = static_cast<ImageAssetRawData&>(raw);
+
+        const auto* desc = static_cast<const ImageAssetDescriptor*>(id.GetDescriptor());
+        if (desc && desc->usage == ImageUsage::EnvironmentCubemap)
+        {
+            return CompileEnvironmentCubemap(id, pixels, *desc, outSubAssets);
+        }
+
+        return CompilePixels(id, pixels);
     }
 
-    BakedEnvironment ImageAssetCompiler::BakeEnvironment(const AssetId& id,
-                                                          const ImageAssetRawData& equirect,
-                                                          const ImageAssetDescriptor& desc)
+    UniquePtr<AssetData> ImageAssetCompiler::CompileEnvironmentCubemap(
+        const AssetId& id,
+        const ImageAssetRawData& equirect,
+        const ImageAssetDescriptor& desc,
+        eastl::vector<SubAssetEntry>& outSubAssets)
     {
         if (!m_baker.IsInitialized())
         {
             LOG_ERROR("[ImageAssetCompiler] EnvironmentCubemap asset requested but the baker "
                       "is not initialized (call InitEnvironmentBaker during setup): {}",
                       id.GetPath().c_str());
-            return {};
+            return nullptr;
         }
 
         // cubemapFaceSize == 0 means auto: size the cube from the decoded source.
@@ -343,7 +355,44 @@ namespace Spark::Resource
             ? desc.cubemapFaceSize
             : EnvironmentBaker::RecommendedFaceSize(equirect.GetHeight());
 
-        return m_baker.Bake(equirect, faceSize);
+        BakedEnvironment env = m_baker.Bake(equirect, faceSize);
+
+        // All or nothing: a partial result would leave the lighting path unable to tell
+        // "no IBL here" from "IBL half-baked".
+        if (!env.IsValid())
+        {
+            LOG_ERROR("[ImageAssetCompiler] Environment bake failed for {}", id.GetPath().c_str());
+            return nullptr;
+        }
+
+        const uint32_t irradianceSize  = env.irradiance.faceSize;
+        const uint32_t prefilteredSize = env.prefiltered.faceSize;
+        const uint32_t prefilteredMips = env.prefiltered.mipLevels;
+
+        outSubAssets.push_back({
+            ImageAsset::MakeSubId(id, ImageAsset::kIrradianceSubLabel,
+                                  ImageUsage::IrradianceCubemap),
+            MakeUnique<ImageBakedRawData>(eastl::move(env.irradiance))});
+
+        outSubAssets.push_back({
+            ImageAsset::MakeSubId(id, ImageAsset::kPrefilteredSubLabel,
+                                  ImageUsage::PrefilteredCubemap),
+            MakeUnique<ImageBakedRawData>(eastl::move(env.prefiltered))});
+
+        UniquePtr<AssetData> skyData = AssembleCubemapData(eastl::move(env.sky));
+        if (!skyData)
+        {
+            return nullptr;
+        }
+
+        const auto& sky = static_cast<const ImageAssetData&>(*skyData);
+        LOG_INFO("[ImageAssetCompiler] Environment bake {}: sky {}^2 x{} mips, "
+                 "irradiance {}^2 x1, prefiltered {}^2 x{} (6 faces each)",
+                 id.GetPath().c_str(),
+                 sky.GetWidth(), sky.GetMipLevels(),
+                 irradianceSize, prefilteredSize, prefilteredMips);
+
+        return skyData;
     }
 
     UniquePtr<AssetData> ImageAssetCompiler::CompilePixels(const AssetId& id, ImageAssetRawData& raw)

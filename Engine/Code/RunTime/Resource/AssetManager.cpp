@@ -129,11 +129,10 @@ namespace Spark::Resource
         Ptr<Asset> stored = m_db->InsertOrGet(id, created);
         if (stored.get() != created.get())
         {
-            // 竞争失败：别人先注册，直接返回别人的
+            // Lost the race: someone registered first, hand back theirs.
             return stored;
         }
 
-        // 同步走完处理
         ProcessAsset(*stored);
         return stored;
     }
@@ -217,11 +216,11 @@ namespace Spark::Resource
         return AssetType::Unknown;
     }
 
-    void SparkAssetManager::ReleaseAsset(const AssetId& id)
+    void SparkAssetManager::ReleaseAsset(const AssetId& id, const Asset* self)
     {
         if (m_db)
         {
-            m_db->Remove(id);
+            m_db->Remove(id, self);
         }
     }
 
@@ -270,10 +269,26 @@ namespace Spark::Resource
 
         const AssetType type = asset.GetAssetType();
 
+        // A sub-asset has no source of its own: its bytes are inside its parent's file, and
+        // only that parent's Compile knows how to get them out. Every builder's Load would
+        // instead read the parent's file as if it were this asset -- a .glb decoded as an
+        // image -- so the failure is named here rather than left to look like a corrupt
+        // file. Its parent's build publishes it; to use one on its own, extract it into an
+        // asset of its own first.
+        if (asset.GetAssetId().IsSubAsset())
+        {
+            LOG_ERROR("[SparkAssetManager] '{}:{}' is a sub-asset and cannot be built on its "
+                      "own; it is published by the build of '{}'.",
+                asset.GetAssetId().GetPath(), asset.GetAssetId().GetSubLabel(),
+                asset.GetAssetId().GetPath());
+            asset.SetStatus(AssetStatus::Error);
+            AssetBus::Event(type, &AssetBus::Events::OnAssetError, asset);
+            return;
+        }
+
         AssetBuildContext ctx;
         ctx.id         = asset.GetAssetId();
         ctx.fileSystem = m_fileSystem;
-        ctx.db         = m_db.get();
 
         asset.SetStatus(AssetStatus::Loading);
 
@@ -289,21 +304,27 @@ namespace Spark::Resource
             AssetBuildBus::EventResult(restored, type, &AssetBuildEvents::Deserialize,
                 cached.root.data(), cached.root.size(), identity);
 
-            if (restored)
+            // One rejected payload rebuilds the whole unit: the entry was written as a
+            // whole, so a rebuild is the only thing that can put it back that way.
+            eastl::vector<PendingPublish> pending;
+            if (restored && RestoreSubAssets(cached, pending))
             {
+                for (PendingPublish& sub : pending)
+                {
+                    Publish(sub);
+                }
                 asset.SetDataReady(eastl::move(restored));
                 AssetBus::Event(type, &AssetBus::Events::OnAssetReady, asset);
                 return;
             }
 
-            // Nothing to clean up: the rebuild below writes back to this same path.
+            // Nothing to clean up: the rebuild below writes back to these same paths.
             LOG_WARN("[SparkAssetManager] Rebuilding {}: its cache entry was rejected.",
                 asset.GetAssetId().GetPath());
         }
 
         // No shortcut between the two stages: Load only produces raw, Compile only produces
-        // the payload. Nothing can skip Compile and with it the side effects that live
-        // there, such as an environment bake publishing its IBL sub-assets.
+        // the payload. Nothing can skip Compile and with it what is declared there.
         AssetBuildBus::Event(type, &AssetBuildEvents::Load, ctx);
         if (!ctx.rawData)
         {
@@ -321,16 +342,145 @@ namespace Spark::Resource
             return;
         }
 
+        // Build every declared sub-asset before publishing any of them: publishing cannot
+        // be taken back, so "one sub-asset failed" has to be answerable while nothing is
+        // visible yet.
+        eastl::vector<PendingPublish> pending;
+        if (!BuildSubAssets(ctx, pending))
+        {
+            asset.SetStatus(AssetStatus::Error);
+            AssetBus::Event(type, &AssetBus::Events::OnAssetError, asset);
+            return;
+        }
+
         // Whether this is worth storing was decided by EntryFor; a builder that declines
-        // says so with an empty blob. Sub-asset payloads join the unit once Compile can
-        // declare them.
+        // says so with an empty blob, and WriteUnit then stores nothing at all -- a unit
+        // missing one of its payloads would come back short.
         CacheUnit cooked;
         AssetBuildBus::EventResult(cooked.root, type, &AssetBuildEvents::Serialize,
             *ctx.compiledData, identity);
+        cooked.subs.reserve(pending.size());
+        for (PendingPublish& sub : pending)
+        {
+            const AssetId&      subId       = sub.asset->GetAssetId();
+            const eastl::string subIdentity = AssetCache::IdentityFor(subId);
+
+            CacheSubPayload payload;
+            payload.id = subId;
+            AssetBuildBus::EventResult(payload.bytes, subId.GetAssetType(),
+                &AssetBuildEvents::Serialize, *sub.data,
+                eastl::string_view(subIdentity.c_str(), subIdentity.size()));
+            cooked.subs.push_back(eastl::move(payload));
+        }
         m_cache->WriteUnit(entry, cooked);
+
+        // Nothing below can fail. Sub-assets first, so anyone woken by the root's Ready
+        // finds the whole unit there.
+        for (PendingPublish& sub : pending)
+        {
+            Publish(sub);
+        }
+
+        // Ordinary assets in their own files, loaded like any other. Before the root goes
+        // Ready for the same reason its sub-assets are.
+        for (const AssetId& dependency : ctx.dependencies)
+        {
+            LoadAsset(dependency);
+        }
 
         asset.SetDataReady(eastl::move(ctx.compiledData));
         AssetBus::Event(type, &AssetBus::Events::OnAssetReady, asset);
+    }
+
+    bool SparkAssetManager::RestoreSubAssets(CacheUnit& unit,
+                                             eastl::vector<PendingPublish>& out)
+    {
+        out.reserve(unit.subs.size());
+
+        for (CacheSubPayload& sub : unit.subs)
+        {
+            Ptr<Asset> created = CreateAsset(sub.id);
+            if (!created)
+            {
+                return false;
+            }
+
+            // Recomputed, not stored: a sub-asset's identity is a pure function of the id
+            // the manifest listed.
+            const eastl::string identity = AssetCache::IdentityFor(sub.id);
+
+            UniquePtr<AssetData> restored;
+            AssetBuildBus::EventResult(restored, sub.id.GetAssetType(),
+                &AssetBuildEvents::Deserialize, sub.bytes.data(), sub.bytes.size(),
+                eastl::string_view(identity.c_str(), identity.size()));
+            if (!restored)
+            {
+                return false;
+            }
+
+            out.push_back({eastl::move(created), eastl::move(restored)});
+        }
+
+        return true;
+    }
+
+    bool SparkAssetManager::BuildSubAssets(AssetBuildContext& ctx,
+                                           eastl::vector<PendingPublish>& out)
+    {
+        out.reserve(ctx.subAssets.size());
+
+        for (SubAssetEntry& sub : ctx.subAssets)
+        {
+            const AssetType subType = sub.id.GetAssetType();
+
+            // Created but not registered: a failure further down must leave nothing behind,
+            // and this is the only step of publishing that can fail.
+            Ptr<Asset> created = CreateAsset(sub.id);
+            if (!created)
+            {
+                return false;
+            }
+
+            AssetBuildContext child = ctx.MakeChild(sub.id);
+            child.rawData    = eastl::move(sub.rawData);
+            child.sourceData = sub.sourceData;
+            child.sourceSize = sub.sourceSize;
+
+            // Already-raw sub-assets skip Load; the rest read the bytes their parent points
+            // at. Either way Compile runs -- a sub-asset is not a payload arriving finished.
+            if (!child.rawData)
+            {
+                AssetBuildBus::Event(subType, &AssetBuildEvents::Load, child);
+                if (!child.rawData)
+                {
+                    LOG_ERROR("[SparkAssetManager] Sub-asset Load failed: {}:{}",
+                        sub.id.GetPath(), sub.id.GetSubLabel());
+                    return false;
+                }
+            }
+
+            AssetBuildBus::Event(subType, &AssetBuildEvents::Compile, child);
+            if (!child.compiledData)
+            {
+                LOG_ERROR("[SparkAssetManager] Sub-asset Compile failed: {}:{}",
+                    sub.id.GetPath(), sub.id.GetSubLabel());
+                return false;
+            }
+
+            out.push_back({eastl::move(created), eastl::move(child.compiledData)});
+        }
+
+        return true;
+    }
+
+    void SparkAssetManager::Publish(PendingPublish& entry)
+    {
+        // On a re-process this returns the instance everyone already holds, so that is the
+        // one to hand the fresh data to.
+        const AssetId& id = entry.asset->GetAssetId();
+        Ptr<Asset> stored = m_db->InsertOrGet(id, entry.asset);
+        stored->SetDataReady(eastl::move(entry.data));
+        AssetBus::Event(id.GetAssetType(), &AssetBus::Events::OnAssetReady, *stored);
     }
 
     AssetId SparkAssetManager::MakeAssetIdForType(eastl::string_view virtualPath, AssetType type)

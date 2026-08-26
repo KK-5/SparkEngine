@@ -152,15 +152,11 @@ namespace Spark::Resource
             return {};
         }
 
-        // The descriptor enters by serialized value, not by AssetDescriptor::Hash(): that
-        // is a lossy digest that today does not even cover every field, and unlike the
-        // identity hash a cache has no by-value comparison to fall back on.
-        JsonValue json;
-        if (!AssetIdToJson(id, json))
+        const eastl::string canonical = IdentityFor(id);
+        if (canonical.empty())
         {
             return {};
         }
-        const std::string canonical = json.dump();
 
         uint64_t key = kHashSeed;
         Fold(key, eastl::string_view("SparkAssetCache"));
@@ -172,8 +168,22 @@ namespace Spark::Resource
 
         CacheEntry entry;
         entry.path     = MakeEntryPath(key, format.extension);
-        entry.identity = eastl::string(canonical.c_str(), canonical.size());
+        entry.identity = canonical;
         return entry;
+    }
+
+    eastl::string AssetCache::IdentityFor(const AssetId& id)
+    {
+        // The descriptor enters by serialized value, not by AssetDescriptor::Hash(): that
+        // is a lossy digest that today does not even cover every field, and unlike the
+        // identity hash a cache has no by-value comparison to fall back on.
+        JsonValue json;
+        if (!AssetIdToJson(id, json))
+        {
+            return {};
+        }
+        const std::string canonical = json.dump();
+        return eastl::string(canonical.c_str(), canonical.size());
     }
 
     bool AssetCache::ReadUnit(const CacheEntry& entry, CacheUnit& out) const

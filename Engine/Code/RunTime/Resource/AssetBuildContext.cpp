@@ -34,9 +34,7 @@ namespace Spark::Resource
     {
         AssetBuildContext child;
         child.id         = eastl::move(subId);
-        child.parentId   = id;
         child.fileSystem = fileSystem;
-        child.db         = db;
         return child;
     }
 }

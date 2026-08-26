@@ -16,10 +16,20 @@ namespace Spark { class FileSystem; }
 namespace Spark::Resource
 {
     class AssetCache;
+    class AssetBuildContext;
     class AssetDataBase;
+    struct CacheUnit;
     class ImageAssetBuilder;
     class ShaderAssetBuilder;
     class ModelAssetBuilder;
+
+    //! A sub-asset that is built but not yet visible. Holding the Asset object rather than
+    //! just its id is what makes the second phase of publishing unable to fail.
+    struct PendingPublish
+    {
+        Ptr<Asset>           asset;
+        UniquePtr<AssetData> data;
+    };
 
     class SparkAssetManager final : public Service<AssetManager>::Handler
     {
@@ -44,7 +54,7 @@ namespace Spark::Resource
 
         void AssetRegistry() override;
 
-        void ReleaseAsset(const AssetId& id) override;
+        void ReleaseAsset(const AssetId& id, const Asset* self) override;
 
         //! Opt-in, main-thread setup of the image compiler's GPU EnvironmentBaker.
         //! Call after Init(), before any cubemap asset is requested
@@ -57,6 +67,19 @@ namespace Spark::Resource
         void EnqueueForProcessing(Asset& asset);
 
         void ProcessAsset(Asset& asset);
+
+        //! Compile every sub-asset the root declared, publishing none. False if any one of
+        //! them fails, which fails the whole unit: a sub-asset's bytes come from the root's
+        //! file, so "the root built but one sub-asset did not" is not a state worth having.
+        bool BuildSubAssets(AssetBuildContext& ctx, eastl::vector<PendingPublish>& out);
+
+        //! The same, from a cache hit instead of a build. False if any payload is rejected,
+        //! which sends the whole unit back to being rebuilt.
+        bool RestoreSubAssets(CacheUnit& unit, eastl::vector<PendingPublish>& out);
+
+        //! Register a built sub-asset and announce it. Cannot fail -- everything that could
+        //! already happened in BuildSubAssets.
+        void Publish(PendingPublish& entry);
 
         void ProcessThread();
 

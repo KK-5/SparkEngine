@@ -31,69 +31,6 @@ namespace Spark::Resource
             return label;
         }
 
-        void DispatchImageSubAsset(AssetBuildContext& parentCtx,
-                                   AssetId subId,
-                                   const uint8_t* sourceData,
-                                   size_t sourceSize)
-        {
-            ASSERT(parentCtx.db != nullptr,
-                "[ModelAssetBuilder] parent ctx.db not set; cannot dispatch sub-asset");
-
-            // 1. dedup
-            if (parentCtx.db->Find(subId))
-            {
-                return;
-            }
-
-            // 2. create + 抢注
-            Ptr<Asset> created;
-            AssetBuildBus::EventResult(created, AssetType::Image,
-                                       &AssetBuildEvents::CreateAsset, subId);
-            if (!created)
-            {
-                LOG_WARN("[ModelAssetBuilder] CreateAsset failed for image '{}'",
-                    subId.GetPath().c_str());
-                return;
-            }
-            Ptr<Asset> stored = parentCtx.db->InsertOrGet(subId, created);
-            if (stored.get() != created.get())
-            {
-                return;
-            }
-
-            // 3. child ctx
-            AssetBuildContext child = parentCtx.MakeChild(subId);
-            child.sourceData = sourceData;
-            child.sourceSize = sourceSize;
-
-            // 4. Load
-            stored->SetStatus(AssetStatus::Loading);
-            AssetBuildBus::Event(AssetType::Image, &AssetBuildEvents::Load, child);
-            if (!child.rawData)
-            {
-                stored->SetStatus(AssetStatus::Error);
-                AssetBus::Event(AssetType::Image, &AssetBus::Events::OnAssetError, *stored);
-                LOG_WARN("[ModelAssetBuilder] sub-asset Load failed: {}",
-                    subId.GetPath().c_str());
-                return;
-            }
-
-            // 5. Compile
-            stored->SetStatus(AssetStatus::Compiling);
-            AssetBuildBus::Event(AssetType::Image, &AssetBuildEvents::Compile, child);
-            if (!child.compiledData)
-            {
-                stored->SetStatus(AssetStatus::Error);
-                AssetBus::Event(AssetType::Image, &AssetBus::Events::OnAssetError, *stored);
-                LOG_WARN("[ModelAssetBuilder] sub-asset Compile failed: {}",
-                    subId.GetPath().c_str());
-                return;
-            }
-
-            // 6. Ready —— SetDataReady 内部置 status 为 Ready/Error
-            stored->SetDataReady(eastl::move(child.compiledData));
-            AssetBus::Event(AssetType::Image, &AssetBus::Events::OnAssetReady, *stored);
-        }
     }
 
     HashString ModelAssetBuilder::GetName() const
@@ -172,38 +109,41 @@ namespace Spark::Resource
                 continue;
             }
 
-            AssetId subId;
-            const uint8_t* src = nullptr;
-            size_t srcSize = 0;
-
             if (!entry.data.empty())
             {
+                // Embedded: the bytes are inside this file, so the image is a sub-asset of
+                // it. `sourceData` points into raw.m_rawImages, which stays alive for as
+                // long as ctx.rawData does -- past the publish that consumes it.
                 eastl::string subLabel = MakeImageSubLabel(entry.name, i);
-                subId = ImageAsset::MakeSubId(
+                AssetId subId = ImageAsset::MakeSubId(
                     ctx.id, eastl::string_view(subLabel.c_str(), subLabel.size()), usage);
-                src     = entry.data.data();
-                srcSize = entry.data.size();
+
+                compiled.m_imageAssetIds.push_back(subId);
+                ctx.subAssets.push_back(
+                    {eastl::move(subId), nullptr, entry.data.data(), entry.data.size()});
+                continue;
             }
-            else
+
+            // External: its own file, its own stamp, its own cache key. A dependency, not a
+            // sub-asset -- it is loaded as an ordinary asset in its own right.
+            //
+            // The URI is relative to the glTF file, so it resolves against the parent's
+            // virtual directory. Purely lexical -- no directory joins the search.
+            const eastl::string uri = ResolveSiblingVirtualPath(
+                ctx.id.GetPath(),
+                eastl::string_view(entry.externalUri.c_str(), entry.externalUri.size()));
+            if (uri.empty())
             {
-                // The URI is relative to the glTF file, so it resolves against the parent's
-                // virtual directory. Purely lexical -- no directory joins the search.
-                const eastl::string uri = ResolveSiblingVirtualPath(
-                    ctx.id.GetPath(),
-                    eastl::string_view(entry.externalUri.c_str(), entry.externalUri.size()));
-                if (uri.empty())
-                {
-                    compiled.m_imageAssetIds.push_back(AssetId{});
-                    continue;
-                }
-                subId = AssetId::Of(
-                    eastl::string_view(uri.c_str(), uri.size()), {}, AssetType::Image,
-                    ImageAsset::DescriptorForUsage(usage));
+                compiled.m_imageAssetIds.push_back(AssetId{});
+                continue;
             }
 
-            compiled.m_imageAssetIds.push_back(subId);
+            AssetId depId = AssetId::Of(
+                eastl::string_view(uri.c_str(), uri.size()), {}, AssetType::Image,
+                ImageAsset::DescriptorForUsage(usage));
 
-            DispatchImageSubAsset(ctx, eastl::move(subId), src, srcSize);
+            compiled.m_imageAssetIds.push_back(depId);
+            ctx.dependencies.push_back(eastl::move(depId));
         }
 
         auto resolveImageId = [&](int32_t imageIndex) -> AssetId
@@ -236,6 +176,7 @@ namespace Spark::Resource
             compiled.m_materials.push_back(eastl::move(mat));
         }
 
-        raw.m_rawImages.clear();
+        // m_rawImages is deliberately NOT cleared: the sub-asset declarations above point
+        // into it, and they are read after this returns.
     }
 }

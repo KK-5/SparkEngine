@@ -15,9 +15,13 @@
 #include <RHI/Device/Device.h>
 #include <RHI/Backend/DX12/RHISystem.h>
 
+#include <Reflection/TypeRegistry.h>
+
 #include <Resource/AssetManager.h>
 #include <VFS/VFSSystem.h>
 #include <Resource/AssetManagerInterface.h>
+#include <Resource/Reflect.h>
+#include <Resource/Cache/AssetCache.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Image/ImageAssetLoader.h>
 #include <Resource/Image/EnvironmentBaker.h>
@@ -30,6 +34,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <filesystem>
 
 using namespace Spark;
 
@@ -256,6 +261,68 @@ namespace
         }
         return ok;
     }
+
+    //! The unit cache end to end, which no gtest can reach: a bake is the only thing that
+    //! produces a multi-asset unit, and it needs a GPU. A second run must restore the sky
+    //! AND both IBL products from disk, with the baker never touched.
+    bool VerifyUnitCache(Spark::VFSSystem& fileSystem, const Resource::AssetId& hdrId,
+                         const std::filesystem::path& cacheDir)
+    {
+        size_t fileCount = 0;
+        std::error_code ec;
+        for (auto it = std::filesystem::recursive_directory_iterator(cacheDir, ec),
+                  end = std::filesystem::recursive_directory_iterator();
+             it != end; it.increment(ec))
+        {
+            if (!it->is_directory(ec))
+            {
+                ++fileCount;
+            }
+        }
+
+        // sky + irradiance + prefiltered payloads, plus the manifest.
+        LOG_INFO("[BakeCubemap] unit cache: {} files written", fileCount);
+        if (fileCount != 4)
+        {
+            LOG_ERROR("[BakeCubemap] unit cache: expected 4 files (3 payloads + manifest).");
+            return false;
+        }
+
+        // A fresh manager over the same cache, and deliberately NO InitEnvironmentBaker:
+        // if anything below reaches the bake path it fails instead of silently recomputing.
+        auto second = CreateSystem<Resource::SparkAssetManager>();
+        second->Init();
+
+        Ptr<Resource::Asset> asset = second->LoadAsset(hdrId);
+        if (!asset || !asset->IsReady())
+        {
+            LOG_ERROR("[BakeCubemap] unit cache: the sky cube did not come back from cache.");
+            return false;
+        }
+
+        auto* sky = static_cast<Resource::ImageAsset*>(asset.get());
+        const Ptr<Resource::ImageAsset> irr = sky->GetIrradianceAsset();
+        const Ptr<Resource::ImageAsset> pre = sky->GetPrefilteredAsset();
+        if (!irr || !pre || !irr->IsReady() || !pre->IsReady())
+        {
+            LOG_ERROR("[BakeCubemap] unit cache: the restored sky is missing its IBL products.");
+            return false;
+        }
+
+        LOG_INFO("[BakeCubemap] unit cache: restored sky {}^2 x{} mips, irradiance {}^2, "
+                 "prefiltered {}^2 x{} -- no bake",
+                 sky->GetWidth(), sky->GetMipLevels(), irr->GetWidth(),
+                 pre->GetWidth(), pre->GetMipLevels());
+
+        const auto* skyData = sky->GetImageData();
+        const auto* irrData = irr->GetImageData();
+        if (!skyData || !skyData->IsCubemap() || !irrData || !irrData->IsCubemap())
+        {
+            LOG_ERROR("[BakeCubemap] unit cache: a restored payload is not a cube.");
+            return false;
+        }
+        return true;
+    }
 }
 
 int main(int, char**)
@@ -263,6 +330,11 @@ int main(int, char**)
     LogConfig logConfig{};
     logConfig.m_showTimeStamp = true;
     UniquePtr<ILogSystem> logger = eastl::make_unique<SpdLogSystem>(logConfig);
+
+    // AssetId <-> JSON runs off reflection, and the cache's identity is that JSON.
+    // Register only queues; RegisterAll is what runs them.
+    TypeRegistry::Register(Spark::Resource::Reflect);
+    TypeRegistry::RegisterAll();
 
     // --- RHI device (headless) ---
     auto rhiSystem = CreateSystem<RHI::DX12::RHISystem>();
@@ -287,6 +359,15 @@ int main(int, char**)
     fileSystem->Init();
     fileSystem->Mount("engine", ENGINE_ASSET_DIR);   // "engine://Shaders/Image/*.hlsl"
     fileSystem->Mount("sandbox", SHADER_ASSET_DIR);  // SandBox/Asset (the HDRI)
+
+    // Its own empty cache directory, so the unit-cache check below measures this run.
+    const std::filesystem::path cacheDir =
+        std::filesystem::temp_directory_path() / "SparkBakeCubemapCache";
+    std::error_code cacheEc;
+    std::filesystem::remove_all(cacheDir, cacheEc);
+    std::filesystem::create_directories(cacheDir, cacheEc);
+    fileSystem->Mount(Resource::kCacheMountName,
+                      eastl::string(cacheDir.generic_string().c_str()));
 
     auto assetManager = CreateSystem<Resource::SparkAssetManager>();
     assetManager->Init();
@@ -337,6 +418,15 @@ int main(int, char**)
 
     // --- Asset layer: the bake above verifies the baker, this one verifies the plumbing ---
     if (!VerifyAssetLayer(*assetManager, cubeId))
+    {
+        return 1;
+    }
+
+    // --- Unit cache: the run above filled it, a second manager must restore all three ---
+    // Sequential, never two managers at once: Service<AssetManager> names only one, so a
+    // second live manager would tear this one's assets out of its database.
+    assetManager.reset();
+    if (!VerifyUnitCache(*fileSystem, cubeId, cacheDir))
     {
         return 1;
     }

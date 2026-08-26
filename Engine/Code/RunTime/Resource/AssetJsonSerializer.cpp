@@ -43,6 +43,17 @@ namespace Spark::Resource
             return false;
         }
 
+        // Without Resource::Reflect registered the two required fields simply do not appear,
+        // and the result reads back as no asset at all. Caught here rather than left to the
+        // reader: this feeds the cache's identity, where a silently degenerate value is the
+        // same for every asset and stops a key collision from being detectable.
+        if (!out.is_object() || out.find("type") == out.end() || out.find("path") == out.end())
+        {
+            LOG_ERROR("[AssetJsonSerializer] AssetId did not serialize; is "
+                      "TypeRegistry::Register(Resource::Reflect) missing?");
+            return false;
+        }
+
         JsonValue descriptor;
         if (id.GetDescriptor() != nullptr
             && DescriptorToJson(*id.GetDescriptor(), id.GetAssetType(), descriptor)

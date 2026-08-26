@@ -50,9 +50,13 @@ namespace Spark::Resource
         return it->second;
     }
 
-    void AssetDataBase::Remove(const AssetId& id)
+    void AssetDataBase::Remove(const AssetId& id, const Asset* self)
     {
         std::unique_lock lock(m_mutex);
-        m_assets.erase(id);
+        auto it = m_assets.find(id);
+        if (it != m_assets.end() && it->second.get() == self)
+        {
+            m_assets.erase(it);
+        }
     }
 }

@@ -58,6 +58,9 @@ namespace Spark::Resource
         }
 
     protected:
-        virtual void ReleaseAsset(const AssetId& id) = 0;
+        //! Drop `self` from the database as it is destroyed. Takes the instance, not just
+        //! the id: a build creates an asset before it knows whether one is already
+        //! registered under that id, and the loser of that race must not evict the winner.
+        virtual void ReleaseAsset(const AssetId& id, const Asset* self) = 0;
     };
 }

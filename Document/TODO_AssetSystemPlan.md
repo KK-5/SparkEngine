@@ -31,9 +31,14 @@ glTF 外部 URI 改为词法解析。
 背景里那三笔债共享的前置至此全部到位，阶段 0 收尾。
 
 **阶段 1（磁盘缓存）已完成**，范围为顶层 Image 2D。同一张图第二次加载不再解码 PNG/JPEG、
-不再跑 mip 与 BC 压缩，直接从 `Cache/` 读回。shader、cubemap、model 仍分别被「通用依赖机制」
-与「子资产机制」挡住：前者只有方向（阶段 1 的待办 A），**后者已定方案**（见「子资产机制统一」
-一节；它会把缓存条目从「一个文件」扩成「一个构建单元」，cubemap 随之解锁，model 仍欠依赖机制）。
+不再跑 mip 与 BC 压缩，直接从 `Cache/` 读回。
+
+**「Image 处理流程规整」已完成。** `Load` 只产 raw、`Compile` 只产成品，`.ktx2` 降为一种源格式，
+KTX2 读写支持 cube，`ImageAssetData` 用 `m_isCubemap` 说明自己而不再靠「层数 == 6」推断。
+
+**「子资产机制统一」已完成，cubemap 缓存随之生效。** 缓存条目从「一个文件」变成「一个构建单元」
+（payload 若干 + `.unit` 清单），两个手写 publisher 删除，发布收敛成 `ProcessAsset` 里的两阶段提交。
+shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.glb` model 只差一个二进制格式（待办 D）。
 
 另有两项已随 0.a 落地：
 
@@ -47,10 +52,9 @@ glTF 外部 URI 改为词法解析。
 
 ### 已经有的
 
-- **磁盘缓存 ✅**。见阶段 1。
-- **子资产机制（两套各写各的）**。`AssetId::OfSub` 是共用的，但发布路径有两条：
-  `ImageAssetBuilder::PublishSubAsset`（总是覆盖）与 `ModelAssetBuilder::DispatchImageSubAsset`
-  （已存在就跳过），且都不经过 `ProcessAsset`。统一方案见「子资产机制统一」一节。
+- **磁盘缓存 ✅**。见阶段 1。条目是一个构建单元，Image（含 cubemap）已覆盖。
+- **子资产机制 ✅**。声明归 `Compile`（`ctx.subAssets`），发布归 `ProcessAsset` 的两阶段提交，
+  构建与命中两条路共用。见「子资产机制统一」一节。
 - **反射系统在用**。组件、枚举（`Light/Reflect.h:15` 的 `LightType`）都已注册；
   `Reflection/Utility.h:86` 的 `ComponentOperation` 把 `HasComponent` / `GetComponent` /
   `AddOrReplaceComponent` / `IsWorldComponent` 注册成了 context-free 的反射函数，现有 7 个世界
@@ -63,7 +67,8 @@ glTF 外部 URI 改为词法解析。
 | ~~descriptor 不可序列化~~ ✅ | `Resource/AssetJsonSerializer.h` | 阶段 0.c 已完成 |
 | ~~磁盘缓存~~ ✅ | `Resource/Cache/` | 阶段 1 已完成，覆盖顶层 Image 2D |
 | 无资产依赖机制 | 无 | `.hlsli` / `.gltf` 的 `.bin` 变了没人知道；`.hlsli` 甚至不是资产。见阶段 1 待办 A |
-| 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset.cpp:17` 的 `Shutdown`→`ReleaseAsset` 够不着 |
+| 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset::Shutdown`→`ReleaseAsset` 够不着 |
+| 子资产提取未做 | 无 | 单独使用模型的一张贴图，正确做法是提取成独立资产。见「子被直接请求」一节 |
 | 材质无资产形态 | `Feature/Material/` | 唯一创建点是 `SpawnModel.cpp:111` |
 | 三个平行的 CPU 材质结构 | `ModelAsset.h` / `Material/Components.h` | `Resource::Material` 与 `MaterialParams`，靠 `MaterialParamsFromModel` 搭桥 |
 | ~~无 JSON 库~~ ✅ | `Core/Serialization/Json.h` | nlohmann 3.11.3 已 vendor（simdjson 虽在树内但只读，当不了写盘端） |
@@ -558,7 +563,7 @@ usage 变体分属不同条目、改源文件后 `path` 变而 `identity` 不变
 
 ### 待办：解锁其余三类
 
-三条，都是独立机制。**B 已定方案，见下一节**；A、C 只有方向。
+**B 已完成，cubemap 缓存随之生效**；A、C、D 只有方向。
 
 **A. 通用资产依赖机制（反向图）。** 一个文件变了，依赖它的所有资产失效重编。要点：
 
@@ -570,8 +575,7 @@ usage 变体分属不同条目、改源文件后 `path` 变而 `identity` 不变
   「它变了」这件事没有主体。
 - 配套的是**资产预加载**：启动时全量遍历，首次加载的编译并建图，已缓存的校验有效性。
 
-**B. 子资产机制统一。** 已定方案，见后面两节（前置「Image 处理流程规整」已完成）。**在它落地之前
-不允许再加第三个手写 publisher**——阶段 3 的 glTF 材质子资产就会是那第三个。
+**B. 子资产机制统一。** ✅ 已完成，见后面两节。cubemap 缓存已解锁；Model 缓存还欠 A。
 
 **C. Shader 缓存。** 挂在 A 之后。收益是三类里最小的一档：实测全部重编也远不及一张图片的加载
 时间。A 做完之后基本是把 blob 格式写出来的事。两个已知坑：
@@ -580,6 +584,21 @@ usage 变体分属不同条目、改源文件后 `path` 变而 `identity` 不变
   任何消费者，不写；后者转虚拟路径。
 - `m_stages` / `m_reflections` 是 `unordered_map`，按迭代顺序写盘则同一输入产出的字节不稳定。
   写前按 stage 枚举值排序。
+
+**D. Model 缓存。** B 已经把「子资产存不下」这条最结构性的障碍解掉。剩两件：
+
+- **`.gltf` 的外部 `.bin` 欠 A**：`EntryFor` 的键只戳一个文件，`.bin` 改了而 `.gltf` 没改就会命中
+  过期条目。**但 `.glb` 不受影响**，可以先只对它开——附带条件是 loader 要记下「这个 glb 有没有外部
+  buffer URI」（规范允许，少见），有就 `Serialize` 返回空拒写。
+- **`ModelAssetData` 没有序列化格式**，纯工作量。**不要存 glb**：glb 是源格式不是产物格式，
+  `Compile` 做的切线生成 + meshopt 三轮优化 + 交错打包在它里面表达不出来，读回来还得再烘一遍——
+  等于把刚删掉的 `compiled` 标志请回来，还多背一个 glTF 规范。自定扁平容器（count 前缀 + memcpy），
+  顶点/索引缓冲用 `meshopt_encodeVertexBuffer` / `encodeIndexBuffer` 压一遍（仓库里已经有），其余
+  字段裸字节。编码格式跨 meshoptimizer 版本可能变，把它折进 `CacheFormat::version`，升级时 bump
+  一次即可，不在容器里再管一层兼容。第一版可以先不上编码，跑通后再加，容器结构不变。
+- 外部 URI 贴图**不是**阻碍：模型 payload 里只有它们的 `AssetId`，图片自己有键有戳、独立失效。
+- 一个坑：`ModelAssetData::m_resolvedPath` 是**物理**路径（loader 要喂给 fastgltf），不能写进条目，
+  与 C 里那条同样处理。
 
 ---
 
@@ -679,19 +698,20 @@ subAssets     ← Compile 的第二个输出
 
 现状表里的第 6 条随第 3 步顺手统一，不单列。
 
-### 留给「子资产机制统一」的唯一一道口子
+### 曾留给「子资产机制统一」的一道口子（已撤）
 
-sky cube 现在序列化没有任何障碍，但 `ImageAssetBuilder::Serialize` 仍然对它返回空——**带子资产的
-payload 拒写**。理由不是格式，是缓存条目装不下一个完整构建单元：sky 一旦入缓存，命中时 bake 被跳过，
-两个 IBL 子资产就凭空消失。这正是下一节要解的问题，解完这道口子就撤。
+这三步做完后 sky cube 序列化已无障碍，但 `ImageAssetBuilder::Serialize` 一度仍对它返回空——理由不是
+格式，是当时的缓存条目装不下一个完整构建单元：sky 入了缓存，命中时 bake 被跳过，两个 IBL 子资产就
+凭空消失。下一节的第 4 步把条目扩成构建单元后，这条拒写已删除。
 
 ---
 
-## 子资产机制统一
+## 子资产机制统一 ✅ 已完成
 
-> 已定方案，未开工。**前置「Image 处理流程规整」已完成**。解锁：cubemap 缓存、阶段 3 材质子资产。
+> **cubemap 缓存已生效**，由 `BakeCubemap` 端到端校验（第二个 manager 不初始化 baker，
+> 走到烘焙即失败）。阶段 3 的材质子资产可以直接用这套，不必再加第三个手写 publisher。
 
-### 现状
+### 改造前的现状
 
 两条产出子资产的路径各写各的，且**都不经过 `ProcessAsset`**：
 
@@ -699,6 +719,8 @@ payload 拒写**。理由不是格式，是缓存条目装不下一个完整构�
 |---|---|---|---|---|
 | IBL | `ImageAssetBuilder::PublishSubAsset` | 成品（GPU bake 的结果） | 总是覆盖 | 全有或全无 |
 | glTF 内嵌图 | `ModelAssetBuilder::DispatchImageSubAsset` | 源字节（在 glb 里） | 已存在就跳过 | `LOG_WARN` 继续 |
+
+两个函数都已删除。
 
 ### 核心：一次构建的全部产物是一个「构建单元」
 
@@ -724,8 +746,10 @@ payload 拒写**。理由不是格式，是缓存条目装不下一个完整构�
 **2. 数据从哪来，由它落进哪个槽表达，不由类型表达。** 「父烘出来的成品」与「父文件里的一段源字节」
 不是两种机制，是同一个机制的两种输入。
 
-**3. 加载一个子，就是加载它所属的整个单元。** 请求 `model.glb:image/0` 即请求把这个模型建出来，
-再从中取走那张图。
+**3. 子资产不能被独立构建。** `ProcessAsset` 开头即拒绝 `IsSubAsset()` 的请求：它的源字节在父
+文件里，只有父的 `Compile` 知道怎么取出来；不拦的话每个 builder 的 `Load` 都会把父文件当成它自己
+的源读（`.glb` 被拿去解码成图片），报出来的错指向「文件损坏」而不是真实原因。要单独使用模型的一
+张贴图，正确做法是**把它提取成独立资产**，见后面「子被直接请求」一节。
 
 **4. 任何一个子失败，父就失败。** 没有可选的子，也就没有 `required` 这类开关。单元是原子，
 「一半成功」不是一个可表达的状态——缓存本来就必须整体不写（少一个 payload 下次命中就会给出残缺
@@ -759,7 +783,21 @@ eastl::vector<SubAssetEntry> subAssets;
 里已有的「父不能是子资产」断言对齐。
 
 同一次改动里 `AssetBuildContext` 减两个字段：`db`（两个 publisher 一走就没有使用者）与 `parentId`
-（全仓只有 `MakeChild` 写，没有任何地方读）。净减一个。
+（全仓只有 `MakeChild` 写，没有任何地方读）。
+
+**另加一个 `dependencies` 字段**（`eastl::vector<AssetId>`）：`.gltf` 的外部 URI 贴图有自己的
+文件、自己的戳、自己的缓存键，是依赖不是子资产，塞进单元就错了。发布段之后逐个 `LoadAsset`——
+它本来就是同步的，等价于删掉的 `DispatchImageSubAsset` 的内联行为，顺带让外部贴图走上完整的普通
+资产语义（从此有自己的缓存条目）。
+
+**命中路径不恢复 `dependencies`**：它只由 `Compile` 产出，而命中不跑 Compile。今天没有影响
+（Model 还不可缓存），Model 缓存落地前必须解决——依赖边的持久化属于待办 A。
+
+**落地时多改的一处**：`ImageAssetCompiler::Compile` 增加 `outSubAssets` 出参，环境烘焙整体从
+builder 移进 compiler。原文写的「声明归 builder」只在「**发布**归 `ProcessAsset`、builder 不碰
+`db`」这一半上成立；声明落在哪层是更小的取舍，而 bake 与声明是同一件事的两半，拆开要在两层之间倒手
+三个 `BakedCubemap`。代价是 compiler 从此依赖 `SubAssetEntry` 这个构建管线类型。`ModelAssetBuilder`
+保持在 builder 里声明——它的子 id 由材质槽的 usage 决定，那是在决定身份。
 
 ### 缓存条目从「一个文件」变成「一个单元」
 
@@ -799,70 +837,89 @@ cache://3f/3fa9c2b8.1.ktx2    子 1 的 payload
         AssetBus::Event(type, OnAssetReady, *asset)
 ```
 
-**产出与发布必须分开**，否则「任何一个子失败父就失败」做不到——发布一旦调用就收不回来。今天
-`CompileEnvironmentCubemap` 正是「产出即发布」：先 publish 两个子、再 `AssembleCubemapData(sky)`，
-sky 那步失败时两个子已经 Ready 躺在 db 里而父是 Error，注释写的「全有或全无」并未做到。两阶段提交
-把它变成结构性保证，顺带保住「子全部 Ready 之后父才 Ready」这条今天靠 publish 位置隐式维持的不变量。
+**产出与发布必须分开**，否则「任何一个子失败父就失败」做不到——发布一旦调用就收不回来。改造前的
+`CompileEnvironmentCubemap` 正是「产出即发布」：先 publish 两个子、再装配 sky，sky 那步失败时两个
+子已经 Ready 躺在 db 里而父是 Error，注释写的「全有或全无」并未做到。两阶段提交把它变成结构性保证，
+顺带保住「子全部 Ready 之后父才 Ready」这条原先靠 publish 写在哪一行隐式维持的不变量。
 
-今天的 `PublishSubAsset` 做的事是对的，位置错了——它在 builder 里，只有构建路径够得着。挪进
-`ProcessAsset` 之后两条产出路径共用。
+**`CreateAsset` 属于第一阶段。** 它是发布链路上唯一会失败的一步，先做掉，第二阶段就只剩不可能失败
+的操作。代价是一个 id 会短暂存在两个实例（新建的与库里既有的），由下面那条不变量兜住。
 
 **子不递归进 `ProcessAsset`。** 父子真正共享的是 `AssetBuildBus`（按类型分发的 Load / Compile）；
 `ProcessAsset` 在总线之上加的三样里，缓存对子是另一套，状态机无人观察，只剩事件。
 
 `.unit` 里存的子 `AssetId` 顺带解决了命中路径的 identity：每个子 payload 的 `Deserialize` 要的
-identity 就是它自己 AssetId 的 JSON，算得出来，不用额外存。
+identity 就是它自己 AssetId 的 JSON（`AssetCache::IdentityFor`），算得出来，不用额外存。
 
-### 子被直接请求：反向推出父
+### 连带修掉的两个不变量
 
-`LoadAsset(model.glb:image/0)` 而 db 里没有时：
+**1. `Asset::Shutdown` 只能删掉库里确实是自己的那一条。** 原来按 id 无条件 `erase`。两阶段提交下
+一个 id 可以短暂有两个实例——`InsertOrGet` 返回既有的那个，我们新建的副本析构时会把**已发布的那个**
+从库里删掉。签名改成 `ReleaseAsset(id, self)` / `Remove(id, self)`，实例不匹配就不删。
 
-```
-parentId = MakeAssetIdForType(id.GetPath(), GetSupportAssetType(path))
-LoadAsset(parentId)        整个单元被建或被命中
-return FindAsset(id)       子已在 db 中
-```
+**2. `AssetIdToJson` 序列化失败要报错。** 没注册 `Resource::Reflect` 时它静默返回 true、产出一个
+缺 `type`/`path` 的对象。后果不只是清单读不回来：`EntryFor` 的 identity 会对所有资产退化成同一个
+值，**缓存的键碰撞检测等于失效**。加了必填字段校验，失败模式从「静默错认」变成「缓存整个关掉」。
+（沙盒样例都没注册它，`BakeCubemap` 已补上。）
 
-`MakeAssetIdForType` 是路径的纯函数，`.glb → Model`、`.hdr → EnvironmentCubemap` 两条都给出父的
-精确 id。**前提是「一个文件对应一个规范顶层 id」**——今天成立；待决里的「逐资产导入设置」会打破它，
-届时需要别的答案，现在不为它留口子。
+### 子被直接请求：拒绝，并指向提取
 
-这条让阶段 3/4「场景文件直接引用 `model.glb:image/0`」从特殊情况变成普通情况。
+**子资产不能被独立构建**，`ProcessAsset` 开头即拒绝。理由见「四条语义」第 3 条。
 
-### 父怎么引用子：统一成 `AssetId`
+曾计划的「反向推出父」（从 `id.GetPath()` 推出父 id、加载整个单元、再取走子）**已否决**：
 
-`ImageAssetData` 那两个 `Ptr<ImageAsset>` 改成 `AssetId`，访问器查 DB，与 Model 的
-`m_imageAssetIds` 一致。构建单元保证「父在子必在」，`Ptr` 那点强引用价值随之消失。
+- **没有生产者。** 要知道 `Chair.glb` 里有个 `image/3`，必须先加载过它；材质里的子 id 来自
+  `ModelAssetData::m_imageAssetIds`，IBL 的来自父 id 推导。全仓没有一处拿子 id 去 `LoadAsset`。
+- **唯一成立的场景（引用持久化后父不在场）用它来解是错的**——为一张贴图把整个 glTF 的几何、全部
+  材质、全部贴图都拖进来，代价对引用者还不可见。
 
-`ImageAsset::GetIrradianceAsset()` / `GetPrefilteredAsset()` 仍返回 `Ptr<ImageAsset>`，DB 查询放在
-访问器内部，**消费者零改动**（`SkyboxSystem.cpp:190-201`、`BakeCubemap.cpp:210-211`）。
+正确答案是**子资产提取**：把那张贴图变成独立资产，有自己的文件、自己的戳、自己的缓存键，引用它的
+人付它自己的代价（Unity 的 Extract Textures、UE 导入拆子对象都是这个做法）。这是个加法功能，不与
+现有机制冲突，未开工。
+
+### 父怎么引用子：不存，现算
+
+`ImageAssetData` 的 `m_irradiance` / `m_prefiltered` 两个 `Ptr<ImageAsset>` **直接删掉**，没有改成
+`AssetId`——一个 bake 产物的 id 是父 id 的纯函数（`MakeSubId(父 id, 固定 subLabel, 固定 usage)`），
+存下来是冗余。存了反而在命中路径上多一个问题：那两个 id 不在 KTX2 里，`Deserialize` 恢复不出来，
+得往 KV 段再塞两个键。
+
+`ImageAsset::IrradianceId()` / `PrefilteredId()` 现算，`GetIrradianceAsset()` 拿它查库，签名不变，
+**消费者零改动**。两个 subLabel 常量提到 `ImageAsset` 上——它们是子资产身份的一半，改一个字就作废
+所有已缓存的单元。
 
 ### 外部 URI 贴图不属于这套
 
 `.gltf` 的外部贴图 id 是顶层 `AssetId::Of`，有自己的文件、自己的戳、自己的缓存键。它是**依赖**，
-不是子资产（对应 O3DE 的 job dependency）。`DispatchImageSubAsset` 今天把两者混在一条路上处理，
-拆开之后「重复时怎么办」这个问题对它自然消失：走普通资产语义。本次保持行为不变，归属留给待办 A。
+不是子资产（对应 O3DE 的 job dependency），走 `ctx.dependencies`。「重复时怎么办」这个问题对它
+自然消失：走普通资产语义。与改造前的差别是它从此有自己的缓存条目。
 
-### 统一的步骤
+### 统一的步骤（全部完成）
 
-0. 前置一节的三步先做完。
-1. `AssetCache` 会读写构建单元。可独立验证：写进去、读回来、缺一个 payload 要整体 miss。
-2. `AssetBuildContext::subAssets` + 发布段（含两阶段提交）；删 `PublishSubAsset` 与
-   `DispatchImageSubAsset`；删 `ctx.db` / `ctx.parentId`。此时行为与今天等价，发布集中到一处。
-3. 命中路径接上同一个发布段。**cubemap 缓存到这一步才真正生效**——读写两侧由前置备好。
-4. `ImageAssetData` 的两个 `Ptr` 改 `AssetId`。
-5. 反向推出父的路由。
+0. ✅ 前置一节的三步。
+1. ✅ `ImageAssetData` 的两个 `Ptr` 删掉，子 id 现算。**必须排在第 3 步之前**——声明阶段子资产的
+   `Asset` 对象还不存在，sky 拿不到 `Ptr` 可赋。
+2. ✅ `AssetCache` 读写构建单元；`CacheFormat` 的 image version `1 → 2`（条目布局变了，旧条目
+   必须整体失效）。`ProcessAsset` 同步切到单元 API，子列表为空，行为等价。
+3. ✅ `AssetBuildContext::subAssets` / `dependencies` + 两阶段发布段；删 `PublishSubAsset` 与
+   `DispatchImageSubAsset`；删 `ctx.db` / `ctx.parentId`；删 `raw.m_rawImages.clear()`
+   （`sourceData` 指进它，发布段在 Compile 返回之后才读）。
+4. ✅ 命中路径接上同一个发布段；撤掉 `ImageAssetBuilder::Serialize` 的拒写。**cubemap 缓存到这一步
+   生效。**
+5. ❌ 反向推出父——已否决，见上。改为一条拒绝守卫。
 
-`IsDerivedUsage` 那两个拒绝守卫保留——它们防的是「有人直接 `RequestAsset` 一个派生子资产」，
-仍然有效。
+`IsDerivedUsage` 那两个守卫保留。`Compile` 里那条仍可达（子资产若被声明成非 baked raw），
+`Load` 里那条现在被 `ProcessAsset` 的守卫挡在前面，留作防御。
 
 **本次不做：** Model 缓存（`CacheFormat` 里 Model 的 version 是 0，它还卡在 `.gltf` 的外部 `.bin`
-上，属于待办 A）、运行期父子关系表（构建单元下淘汰是整单元的）。
+上，属于待办 A）、运行期父子关系表（构建单元下淘汰是整单元的）、子资产提取。
 
-一个实现注意点：**`ModelAssetBuilder` 末尾的 `raw.m_rawImages.clear()` 要删掉。** `sourceData` 是
-非拥有指针，今天有效是因为 publish 发生在 Compile 内部、raw 还活着。发布推迟到 Compile 返回之后，
-`ctx.rawData` 仍活到 `ProcessAsset` 结束（没被 move 走），指针照样有效——但那句提前 clear 会让它
-悬空。删掉即可，内存随 ctx 一起释放。
+### 覆盖缺口
+
+- **「任一子失败 → 父失败且什么都不发布」没有测试。** 现有 fixture 里没有「内嵌图坏掉」的输入，
+  要造得手搓一个 glb（JSON chunk + BIN chunk）。正路径由 `AnEmbeddedImageGoesReadyBeforeItsModel`
+  （监听 `OnAssetReady` 顺序，断言图片先于模型）守着。
+- **cubemap 缓存只有 `BakeCubemap` 覆盖**，需要 GPU，进不了 `SparkAssetTest`。
 
 ---
 
@@ -952,17 +1009,16 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
 
 待办 A（通用依赖机制 + 预加载）── 只有方向 ──► shader 缓存
 
-Image 处理流程规整 ✅ ──► 子资产机制统一 ──┬──► cubemap 缓存（model 还欠待办 A）
-                                            └──► 阶段 3（材质子资产）
-                                                 ↑ 不统一就会多出第三个手写 publisher
+Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──► cubemap 缓存 ✅
+                                               ├──► Model 缓存（还欠待办 A + 二进制格式）
+                                               └──► 阶段 3（材质子资产，机制已就位）
 ```
 
 ## 下一步
 
-阶段 0、阶段 1、Image 处理流程规整已收尾。剩下的三条互不依赖：
+阶段 0、阶段 1、Image 处理流程规整、子资产机制统一均已收尾。剩下的互不依赖：
 
-- **子资产机制统一**（已定方案，前置已清）：cubemap 缓存与阶段 3 的前置；model 缓存还需要待办 A。
-- **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置。
+- **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置，也是 `.gltf` 缓存的前置。
 - **阶段 2**：第一件事是「类型自带编解码」的钩子——组件里的 `AssetId` 字段若被标上
   `Serializable`，通用遍历会走进去、产出一个缺 `desc` 的三项对象。今天没有任何组件字段标了
   `Serializable`，这条路还够不着。

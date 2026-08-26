@@ -18,7 +18,7 @@ namespace Spark::Resource
     {
         if (auto* manager = Service<AssetManager>::Get())
         {
-            manager->ReleaseAsset(m_id);
+            manager->ReleaseAsset(m_id, this);
         }
         delete this;
     }

@@ -9,10 +9,9 @@
 
 namespace Spark::Resource
 {
-    /// Image 资产的构建器，本身就是一个长生命周期 System：
-    /// - Init: 创建内部 Loader/Compiler 并 BusConnect 到 AssetType::Image
-    /// - Shutdown: BusDisconnect
-    /// 委托现有的 ImageAssetLoader / ImageAssetCompiler 完成实际 I/O 与编译。
+    //! Image's half of AssetBuildBus, and a long-lived System so it can hold the loader and
+    //! compiler that do the actual work. Its own job is asset lifecycle: which loader a path
+    //! calls for, which usage compiles how, and what sub-assets a build declares.
     class ImageAssetBuilder final : public ISystem,
                                     public AssetBuildBus::Handler
     {
@@ -39,18 +38,6 @@ namespace Spark::Resource
     private:
         void InitInternal() override;
         void ShutdownInternal() override;
-
-        //! Compile and register one sub-asset from a raw its parent produced. Skips Load
-        //! only -- an IBL product has no source bytes of its own. Always overwrites an
-        //! existing entry: a re-processed parent means the source changed. Returns the
-        //! db-owned asset, or null on failure.
-        Ptr<Asset> PublishSubAsset(AssetBuildContext& parentCtx, const AssetId& subId,
-                                   UniquePtr<AssetData> rawData);
-
-        //! Drives the compiler's bake, publishes irradiance / prefiltered as sub-assets, and
-        //! returns the sky cube's data holding refs to them.
-        UniquePtr<AssetData> CompileEnvironmentCubemap(AssetBuildContext& ctx,
-                                                       const ImageAssetDescriptor& desc);
 
         ImageAssetLoader   m_loader;
         ImageAssetCompiler m_compiler;

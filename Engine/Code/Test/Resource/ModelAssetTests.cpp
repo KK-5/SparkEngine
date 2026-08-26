@@ -3,6 +3,7 @@
 #include <Resource/AssetManager.h>
 #include <VFS/MountTable.h>
 #include <VFS/VFSSystem.h>
+#include <Resource/Bus/AssetBus.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Model/ModelAssetLoader.h>
@@ -371,6 +372,76 @@ TEST_F(ModelAssetTestFixture, CompiledModelCarriesResolvedMaterials)
     ASSERT_NE(mat, nullptr);
     EXPECT_TRUE(mat->baseColorImageId.IsValid());
     EXPECT_EQ(mat->baseColorImageId, modelData->GetImageAssetId(0));
+}
+
+// ===== Build unit: sub-assets become visible before the root =====
+
+namespace
+{
+    //! Records the order OnAssetReady fires in, for one asset type.
+    class ReadyOrderRecorder : public AssetBus::Handler
+    {
+    public:
+        ReadyOrderRecorder(AssetType type, eastl::vector<AssetId>& log)
+            : m_log(log)
+        {
+            BusConnect(type);
+        }
+
+        ~ReadyOrderRecorder() override
+        {
+            BusDisconnect();
+        }
+
+        void OnAssetReady(Asset& asset) override
+        {
+            m_log.push_back(asset.GetAssetId());
+        }
+
+    private:
+        eastl::vector<AssetId>& m_log;
+    };
+}
+
+//! What the two-phase publish buys: sub-assets are built while nothing is visible, then
+//! made visible before the root. Anyone woken by the model's Ready finds its images there.
+TEST_F(ModelAssetTestFixture, AnEmbeddedImageGoesReadyBeforeItsModel)
+{
+    eastl::vector<AssetId> order;
+    ReadyOrderRecorder images(AssetType::Image, order);
+    ReadyOrderRecorder models(AssetType::Model, order);
+
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId);
+    ASSERT_TRUE(modelAsset && modelAsset->IsReady());
+
+    auto* modelData = modelAsset->GetData<ModelAssetData>();
+    ASSERT_NE(modelData, nullptr);
+    ASSERT_EQ(modelData->GetImageAssetCount(), 1u);
+
+    ASSERT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], modelData->GetImageAssetId(0));
+    EXPECT_EQ(order[1], modelId);
+}
+
+//! A sub-asset is not independently buildable: its bytes are inside its parent's file. The
+//! ask is refused by name, rather than reaching a builder that would read the .glb as an
+//! image and report a corrupt file.
+TEST_F(ModelAssetTestFixture, ASubAssetCannotBeBuiltOnItsOwn)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
+    AssetId subId   = ImageAsset::MakeSubId(
+        modelId, "image/0/stone_wall_04_diff_1k", ImageUsage::Texture2D);
+
+    Ptr<Asset> asset = m_assetManager->LoadAsset(subId);
+    ASSERT_NE(asset, nullptr);
+    EXPECT_TRUE(asset->IsError());
+
+    // Loading the parent is what makes it, and it is the same id.
+    ASSERT_TRUE(m_assetManager->LoadAsset(modelId)->IsReady());
+    Ptr<Asset> published = m_assetManager->FindAsset(subId);
+    ASSERT_NE(published, nullptr);
+    EXPECT_TRUE(published->IsReady());
 }
 
 // ===== 同一外部图被多次加载应该 dedup =====
