@@ -232,14 +232,15 @@ namespace
         {
             const auto* data = e.asset->GetImageData();
             const uint32_t layers = data ? data->GetArrayLayers() : 0;
-            LOG_INFO("[BakeCubemap] asset layer: {} = {}x{} x{} mips x{} layers, ready={}",
+            const bool     isCube = data && data->IsCubemap();
+            LOG_INFO("[BakeCubemap] asset layer: {} = {}x{} x{} mips x{} slices, cube={}, ready={}",
                      e.name, e.asset->GetWidth(), e.asset->GetHeight(),
-                     e.asset->GetMipLevels(), layers, e.asset->IsReady());
+                     e.asset->GetMipLevels(), layers, isCube, e.asset->IsReady());
 
             if (!e.asset->IsReady() || static_cast<uint32_t>(e.asset->GetWidth()) != e.size
-                || e.asset->GetMipLevels() != e.mips || layers != 6)
+                || e.asset->GetMipLevels() != e.mips || layers != 6 || !isCube)
             {
-                LOG_ERROR("[BakeCubemap] asset layer: {} expected {}^2 x{} mips x6 layers.",
+                LOG_ERROR("[BakeCubemap] asset layer: {} expected {}^2 x{} mips x6 cube faces.",
                           e.name, e.size, e.mips);
                 ok = false;
             }

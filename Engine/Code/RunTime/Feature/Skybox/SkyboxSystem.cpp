@@ -36,9 +36,7 @@ namespace Spark::Skybox
                 return RHI::NullHandle;
             }
 
-            const bool isCube = data->GetArrayLayers() == RHI::ImageDescriptor::NumCubeMapSlices;
-
-            RHI::ImageDescriptor desc = isCube
+            RHI::ImageDescriptor desc = data->IsCubemap()
                 ? RHI::ImageDescriptor::CreateCubemap(
                       RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite,
                       asset.GetWidth(), asset.GetFormat())

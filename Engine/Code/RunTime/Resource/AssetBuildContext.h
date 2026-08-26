@@ -24,7 +24,7 @@ namespace Spark::Resource
 
         AssetId   parentId;
 
-        UniquePtr<AssetData> rawData;        ///< Load 输出 / Compile 输入；外部预置时跳过 Load
+        UniquePtr<AssetData> rawData;        ///< Load 输出 / Compile 输入
         UniquePtr<AssetData> compiledData;   ///< Compile 输出
 
         const uint8_t* sourceData = nullptr; ///< 非空时 Load 从内存解码（不读磁盘）

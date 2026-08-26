@@ -45,6 +45,13 @@ namespace Spark::Resource
             Fold(hash, &value, sizeof(value));
         }
 
+        bool HasExtension(eastl::string_view path, const char* extension)
+        {
+            const eastl::string_view ext(extension);
+            return path.size() > ext.size()
+                && path.compare(path.size() - ext.size(), ext.size(), ext.data()) == 0;
+        }
+
         eastl::string MakeEntryPath(uint64_t key, const char* extension)
         {
             char hex[17];
@@ -94,6 +101,13 @@ namespace Spark::Resource
 
         const CacheFormat format = GetCacheFormat(id.GetAssetType());
         if (format.version == 0)
+        {
+            return {};
+        }
+
+        // The source already IS this type's cooked form (an authored .ktx2). An entry would
+        // be a copy nothing reads: the source wins the next load either way.
+        if (HasExtension(id.GetPath(), format.extension))
         {
             return {};
         }

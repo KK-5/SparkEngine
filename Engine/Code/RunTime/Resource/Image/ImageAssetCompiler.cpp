@@ -6,6 +6,7 @@
 
 #include "EnvironmentBaker.h"
 #include "ImageAssetLoader.h"   // kImageIdentityKey
+#include "KtxFormatMap.h"
 
 namespace Spark::Resource
 {
@@ -199,58 +200,37 @@ namespace Spark::Resource
             }
         }
 
-        uint32_t MapToVkFormat(RHI::Format format)
-        {
-            switch (format)
-            {
-                // 未压缩
-                case RHI::Format::R8_UNORM:              return VkFormatValue::R8_UNORM;
-                case RHI::Format::R8G8_UNORM:            return VkFormatValue::R8G8_UNORM;
-                case RHI::Format::R8G8B8A8_UNORM:        return VkFormatValue::R8G8B8A8_UNORM;
-                case RHI::Format::R8G8B8A8_UNORM_SRGB:   return VkFormatValue::R8G8B8A8_SRGB;
-                case RHI::Format::R32G32B32A32_FLOAT:    return VkFormatValue::R32G32B32A32_SFLOAT;
-
-                // BC1 —— DX12 的 BC1_UNORM 等价 Vulkan 的 BC1_RGBA_UNORM_BLOCK
-                // （DXGI 不区分 RGB/RGBA，BC1 总是 4 通道带 1-bit alpha）
-                case RHI::Format::BC1_UNORM:             return VkFormatValue::BC1_RGBA_UNORM_BLOCK;
-                case RHI::Format::BC1_UNORM_SRGB:        return VkFormatValue::BC1_RGBA_SRGB_BLOCK;
-
-                case RHI::Format::BC3_UNORM:             return VkFormatValue::BC3_UNORM_BLOCK;
-                case RHI::Format::BC3_UNORM_SRGB:        return VkFormatValue::BC3_SRGB_BLOCK;
-
-                case RHI::Format::BC4_UNORM:             return VkFormatValue::BC4_UNORM_BLOCK;
-                case RHI::Format::BC4_SNORM:             return VkFormatValue::BC4_SNORM_BLOCK;
-
-                case RHI::Format::BC5_UNORM:             return VkFormatValue::BC5_UNORM_BLOCK;
-                case RHI::Format::BC5_SNORM:             return VkFormatValue::BC5_SNORM_BLOCK;
-
-                case RHI::Format::BC6H_UF16:             return VkFormatValue::BC6H_UFLOAT_BLOCK;
-                case RHI::Format::BC6H_SF16:             return VkFormatValue::BC6H_SFLOAT_BLOCK;
-
-                case RHI::Format::BC7_UNORM:             return VkFormatValue::BC7_UNORM_BLOCK;
-                case RHI::Format::BC7_UNORM_SRGB:        return VkFormatValue::BC7_SRGB_BLOCK;
-
-                default:
-                    return VkFormatValue::UNDEFINED;
-            }
-        }
     }
 
     eastl::vector<uint8_t> ImageAssetCompiler::SerializeToKtx2(const ImageAssetData& data,
                                                                eastl::string_view identity)
     {
+        // KTX2 splits into numFaces x numLayers what the asset keeps as one slice count.
+        // That split lives here and nowhere else.
+        constexpr uint32_t kNumCubeFaces = 6;
+        const uint32_t numFaces  = data.IsCubemap() ? kNumCubeFaces : 1;
+        const uint32_t numLayers = data.GetArrayLayers() / numFaces;
+
+        if (numLayers == 0 || numLayers * numFaces != data.GetArrayLayers())
+        {
+            LOG_ERROR("[ImageAssetCompiler] A cube must have a multiple of {} slices, got {}",
+                kNumCubeFaces, data.GetArrayLayers());
+            return {};
+        }
+
         ktxTextureCreateInfo info{};
-        info.vkFormat        = MapToVkFormat(data.GetFormat());
+        info.vkFormat        = ToVkFormat(data.GetFormat());
         info.baseWidth       = data.GetWidth();
         info.baseHeight      = data.GetHeight();
         info.baseDepth       = 1;
         info.numDimensions   = 2;
         info.numLevels       = data.GetMipLevels();
-        info.numLayers       = data.GetArrayLayers();
-        info.numFaces        = 1;
+        info.numLayers       = numLayers;
+        info.numFaces        = numFaces;
+        info.isArray         = numLayers > 1 ? KTX_TRUE : KTX_FALSE;
         info.generateMipmaps = KTX_FALSE;
 
-        if (info.vkFormat == VkFormatValue::UNDEFINED)
+        if (info.vkFormat == kVkFormatUndefined)
         {
             LOG_ERROR("[ImageAssetCompiler] No VkFormat mapping for RHI::Format {}",
                 static_cast<int>(data.GetFormat()));
@@ -265,21 +245,28 @@ namespace Spark::Resource
             return {};
         }
 
-        for (uint32_t level = 0; level < data.GetMipLevels(); ++level)
+        // slice = layer * 6 + face, D3D12's subresource order.
+        for (uint32_t layer = 0; layer < numLayers; ++layer)
         {
-            const ImageMipRange& mip = data.GetMipRange(level);
-            const uint8_t* src = data.m_textureBytes.data() + mip.offset;
-            res = ktxTexture_SetImageFromMemory(
-                ktxTexture(tex),
-                level, /*layer=*/ 0, /*face=*/ 0,
-                src,
-                static_cast<ktx_size_t>(mip.size));
-            if (res != KTX_SUCCESS)
+            for (uint32_t face = 0; face < numFaces; ++face)
             {
-                LOG_ERROR("[ImageAssetCompiler] SetImageFromMemory level {} failed: {}",
-                    level, static_cast<int>(res));
-                ktxTexture_Destroy(ktxTexture(tex));
-                return {};
+                const uint32_t slice = layer * numFaces + face;
+                for (uint32_t level = 0; level < data.GetMipLevels(); ++level)
+                {
+                    const ImageMipRange& sub = data.GetSubresourceRange(slice, level);
+                    res = ktxTexture_SetImageFromMemory(
+                        ktxTexture(tex),
+                        level, layer, face,
+                        data.m_textureBytes.data() + sub.offset,
+                        static_cast<ktx_size_t>(sub.size));
+                    if (res != KTX_SUCCESS)
+                    {
+                        LOG_ERROR("[ImageAssetCompiler] SetImageFromMemory slice {} level {} "
+                                  "failed: {}", slice, level, static_cast<int>(res));
+                        ktxTexture_Destroy(ktxTexture(tex));
+                        return {};
+                    }
+                }
             }
         }
 
@@ -317,8 +304,50 @@ namespace Spark::Resource
 
     UniquePtr<AssetData> ImageAssetCompiler::Compile(const AssetId& id, AssetData& rawData)
     {
-        auto& raw = static_cast<ImageAssetRawData&>(rawData);
+        auto& raw = static_cast<ImageRawData&>(rawData);
+        switch (raw.GetKind())
+        {
+            case ImageRawData::Kind::Baked:
+            {
+                return AssembleCubemapData(
+                    eastl::move(static_cast<ImageBakedRawData&>(raw).GetCube()));
+            }
+            case ImageRawData::Kind::Encoded:
+            {
+                const auto& encoded = static_cast<ImageEncodedRawData&>(raw);
+                return ImageAssetLoader::LoadKtx2(encoded.GetBytes().data(),
+                                                  encoded.GetBytes().size(),
+                                                  encoded.GetResolvedPath(),
+                                                  /*expectedIdentity=*/ {});
+            }
+            case ImageRawData::Kind::Pixels:
+                break;
+        }
+        return CompilePixels(id, static_cast<ImageAssetRawData&>(raw));
+    }
 
+    BakedEnvironment ImageAssetCompiler::BakeEnvironment(const AssetId& id,
+                                                          const ImageAssetRawData& equirect,
+                                                          const ImageAssetDescriptor& desc)
+    {
+        if (!m_baker.IsInitialized())
+        {
+            LOG_ERROR("[ImageAssetCompiler] EnvironmentCubemap asset requested but the baker "
+                      "is not initialized (call InitEnvironmentBaker during setup): {}",
+                      id.GetPath().c_str());
+            return {};
+        }
+
+        // cubemapFaceSize == 0 means auto: size the cube from the decoded source.
+        const uint32_t faceSize = desc.cubemapFaceSize != 0
+            ? desc.cubemapFaceSize
+            : EnvironmentBaker::RecommendedFaceSize(equirect.GetHeight());
+
+        return m_baker.Bake(equirect, faceSize);
+    }
+
+    UniquePtr<AssetData> ImageAssetCompiler::CompilePixels(const AssetId& id, ImageAssetRawData& raw)
+    {
         const auto* descPtr = static_cast<const ImageAssetDescriptor*>(id.GetDescriptor());
         const ImageAssetDescriptor fallback{};
         const ImageAssetDescriptor& desc = descPtr ? *descPtr : fallback;
@@ -424,6 +453,7 @@ namespace Spark::Resource
         result->m_height      = srcH;
         result->m_mipLevels   = mipLevels;
         result->m_arrayLayers = 1;
+        result->m_isCubemap   = 0;
         result->m_format      = MapToRHIFormat(srcFormat, compression, desc.colorSpace);
 
         LOG_INFO("[ImageAssetCompiler] {}: {}x{}, {} mips, usage={} colorSpace={} format={}, payload {}B",
@@ -444,32 +474,41 @@ namespace Spark::Resource
             return nullptr;
         }
 
-        // Tight rows, per-face bytes of the base mip. Block-compressed formats would need
-        // a per-block computation; every bake product is uncompressed today.
         constexpr uint32_t kNumCubeFaces = 6;
-        const uint32_t bytesPerPixel = RHI::GetFormatSize(baked.format);
-        const uint64_t perFaceBytes =
-            static_cast<uint64_t>(baked.faceSize) * baked.faceSize * bytesPerPixel;
 
         auto result = MakeUnique<ImageAssetData>();
         result->m_width       = baked.faceSize;
         result->m_height      = baked.faceSize;
         result->m_mipLevels   = baked.mipLevels;
         result->m_arrayLayers = kNumCubeFaces;
+        result->m_isCubemap   = 1;
         result->m_format      = baked.format; // R16G16B16A16_FLOAT
         result->m_textureBytes = eastl::move(baked.faceBytes);
 
-        // m_textureBytes is FACE-MAJOR, MIP-INNER ([f0m0][f0m1]...[f1m0]...), matching the
-        // order AsyncUploadSystem walks subresources in. That order is the only layout
-        // description the upload path needs -- it recomputes each subresource's tight
-        // extent via GetImageSubresourceLayout and never reads an offset table.
-        //
-        // m_mips, by contrast, is indexed by mip level ALONE (no layer dimension), so it
-        // cannot describe this buffer. Its only consumers are GetMipRange and
-        // SerializeToKtx2, both of which serve disk caching -- deliberately deferred to
-        // the engine-wide asset cache work, so a base-mip placeholder stays sufficient.
-        // Do not derive upload offsets from it.
-        result->m_mips.push_back({0, perFaceBytes});
+        // Face-major, mip-inner: how the baker packs its readback, and how
+        // GetImageSubresourceIndex numbers slices, so the table fills straight through.
+        // Extents come from the same GetImageSubresourceLayout the upload path uses.
+        result->m_mips.reserve(static_cast<size_t>(kNumCubeFaces) * baked.mipLevels);
+        uint64_t offset = 0;
+        for (uint32_t face = 0; face < kNumCubeFaces; ++face)
+        {
+            for (uint32_t mip = 0; mip < baked.mipLevels; ++mip)
+            {
+                const uint32_t extent = eastl::max(1u, baked.faceSize >> mip);
+                const uint64_t bytes = RHI::GetImageSubresourceLayout(
+                    RHI::Size(extent, extent, 1), baked.format).m_bytesPerImage;
+                result->m_mips.push_back({offset, bytes});
+                offset += bytes;
+            }
+        }
+
+        if (offset != result->m_textureBytes.size())
+        {
+            LOG_ERROR("[ImageAssetCompiler] AssembleCubemapData: baked payload is {}B but its "
+                      "{} faces x {} mips describe {}B.",
+                result->m_textureBytes.size(), kNumCubeFaces, baked.mipLevels, offset);
+            return nullptr;
+        }
 
         LOG_INFO("[ImageAssetCompiler] baked cubemap: {} faces @ {}px, {} mips, {}B",
             kNumCubeFaces, baked.faceSize, baked.mipLevels, result->m_textureBytes.size());

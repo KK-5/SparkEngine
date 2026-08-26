@@ -43,9 +43,9 @@ namespace Spark::Resource
         //! three feed the key, so a touched source addresses a different entry and staleness
         //! is never something anyone has to detect.
         //!
-        //! Not cacheable in four cases: no `cache://` mount, a type with no cache format, a
-        //! sub-asset (its bytes live in a parent file, so it has nothing to stamp), or an
-        //! unstampable source.
+        //! Not cacheable in five cases: no `cache://` mount, a type with no cache format, a
+        //! source that already is that format, a sub-asset (its bytes live in a parent file,
+        //! so it has nothing to stamp), or an unstampable source.
         CacheEntry EntryFor(const AssetId& id) const;
 
         //! False on a miss, which is the ordinary first-run outcome and not an error.

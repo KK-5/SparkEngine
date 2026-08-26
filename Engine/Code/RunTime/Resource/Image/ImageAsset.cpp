@@ -32,7 +32,8 @@ namespace Spark::Resource
 
     ImageAssetRawData::ImageAssetRawData(uint32_t width, uint32_t height, ImageFormat format,
                                    eastl::vector<uint8_t> pixels, eastl::string resolvedPath)
-        : m_width(width)
+        : ImageRawData(Kind::Pixels)
+        , m_width(width)
         , m_height(height)
         , m_format(format)
         , m_pixels(eastl::move(pixels))

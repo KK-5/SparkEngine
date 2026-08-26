@@ -17,6 +17,7 @@ set(SOURCES
     Image/ImageAsset.cpp
     Image/ImageAssetLoader.cpp
     Image/ImageAssetCompiler.cpp
+    Image/KtxFormatMap.cpp
     Image/ImageAssetBuilder.cpp
     Image/EnvironmentBaker.cpp
     Image/stb_impl.cpp

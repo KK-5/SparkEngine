@@ -104,7 +104,7 @@ namespace Spark::Resource
         static float RoughnessToLod(float perceptualRoughness, uint32_t mipCount);
 
         // ctor + dtor are out-of-line (defined where the RHI Ptr members are complete),
-        // so value-holding this class (e.g. ImageAssetBuilder::m_baker) does not force
+        // so value-holding this class (e.g. ImageAssetCompiler::m_baker) does not force
         // callers to see the full RHI types.
         EnvironmentBaker();
         ~EnvironmentBaker();

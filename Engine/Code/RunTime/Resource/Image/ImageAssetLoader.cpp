@@ -1,8 +1,5 @@
 #include "ImageAssetLoader.h"
 
-#include <cstdio>
-#include <filesystem>
-
 #include <Resource/AssetBuildContext.h>
 #include <VFS/FileSystem.h>
 
@@ -14,39 +11,12 @@
 #include <Base.h>
 #include <Log/ILogSystem.h>
 
+#include "KtxFormatMap.h"
+
 namespace Spark::Resource
 {
     namespace
     {
-        // Mirror of MapToVkFormat in ImageAssetCompiler.cpp. The two will merge when the
-        // asset cache gives reading and writing a shared home; until then keep them in
-        // step by hand. Unlisted formats are rejected, never guessed.
-        RHI::Format MapVkFormatToRHI(uint32_t vkFormat)
-        {
-            switch (vkFormat)
-            {
-                case 9:   return RHI::Format::R8_UNORM;
-                case 16:  return RHI::Format::R8G8_UNORM;
-                case 37:  return RHI::Format::R8G8B8A8_UNORM;
-                case 43:  return RHI::Format::R8G8B8A8_UNORM_SRGB;
-                case 83:  return RHI::Format::R16G16_FLOAT;
-                case 109: return RHI::Format::R32G32B32A32_FLOAT;
-                case 133: return RHI::Format::BC1_UNORM;
-                case 134: return RHI::Format::BC1_UNORM_SRGB;
-                case 137: return RHI::Format::BC3_UNORM;
-                case 138: return RHI::Format::BC3_UNORM_SRGB;
-                case 139: return RHI::Format::BC4_UNORM;
-                case 140: return RHI::Format::BC4_SNORM;
-                case 141: return RHI::Format::BC5_UNORM;
-                case 142: return RHI::Format::BC5_SNORM;
-                case 143: return RHI::Format::BC6H_UF16;
-                case 144: return RHI::Format::BC6H_SF16;
-                case 145: return RHI::Format::BC7_UNORM;
-                case 146: return RHI::Format::BC7_UNORM_SRGB;
-                default:  return RHI::Format::Unknown;
-            }
-        }
-
         //! The identity a cache entry carries, against the one the reader expects. A miss
         //! means the 64-bit key collided, so the entry belongs to a different asset.
         bool IdentityMatches(ktxTexture2& tex, eastl::string_view expected)
@@ -188,13 +158,14 @@ static UniquePtr<AssetData> DecodeSvg(
             return nullptr;
         }
 
-        // Cube / array containers are deliberately out of scope: KTX2 draws a numFaces vs
-        // numLayers distinction this engine's writer does not yet honour, so accepting them
-        // here would mean inventing a convention the write side disagrees with.
-        if (tex->numDimensions != 2 || tex->numLayers != 1 || tex->numFaces != 1
-            || tex->isArray || tex->isCubemap)
+        // Arrays stay out of scope until something produces one; accepting them would mean
+        // guessing at a slice order no writer has committed to.
+        constexpr uint32_t kNumCubeFaces = 6;
+        const bool isCube = tex->numFaces == kNumCubeFaces;
+        if (tex->numDimensions != 2 || tex->numLayers != 1 || tex->isArray
+            || (tex->numFaces != 1 && !isCube))
         {
-            LOG_ERROR("[ImageAssetLoader] {}: only 2D single-layer KTX2 is supported "
+            LOG_ERROR("[ImageAssetLoader] {}: only single-layer 2D or cube KTX2 is supported "
                       "(dims={}, layers={}, faces={}).",
                       path.c_str(), tex->numDimensions, tex->numLayers, tex->numFaces);
             ktxTexture_Destroy(ktxTexture(tex));
@@ -208,7 +179,7 @@ static UniquePtr<AssetData> DecodeSvg(
             return nullptr;
         }
 
-        const RHI::Format format = MapVkFormatToRHI(tex->vkFormat);
+        const RHI::Format format = FromVkFormat(tex->vkFormat);
         if (format == RHI::Format::Unknown)
         {
             LOG_ERROR("[ImageAssetLoader] {}: no RHI::Format for vkFormat {}.",
@@ -221,99 +192,85 @@ static UniquePtr<AssetData> DecodeSvg(
         result->m_width       = tex->baseWidth;
         result->m_height      = tex->baseHeight;
         result->m_mipLevels   = tex->numLevels;
-        result->m_arrayLayers = 1;
+        result->m_arrayLayers = tex->numFaces;
+        result->m_isCubemap   = isCube ? 1 : 0;
         result->m_format      = format;
 
-        // Level by level, ascending, tightly packed -- the order AsyncUploadSystem walks.
-        // Not a single memcpy of pData: KTX2 stores levels smallest-first and may pad
-        // between them.
+        // Repacked, not memcpy'd: KTX2 stores levels smallest-first, groups a level's faces
+        // together, and may pad between them.
         uint64_t total = 0;
         for (uint32_t level = 0; level < tex->numLevels; ++level)
         {
-            total += ktxTexture_GetImageSize(ktxTexture(tex), level);
+            total += ktxTexture_GetImageSize(ktxTexture(tex), level) * tex->numFaces;
         }
         result->m_textureBytes.resize(total);
-        result->m_mips.reserve(tex->numLevels);
+        result->m_mips.reserve(static_cast<size_t>(tex->numFaces) * tex->numLevels);
 
         uint64_t dstOffset = 0;
-        for (uint32_t level = 0; level < tex->numLevels; ++level)
+        for (uint32_t face = 0; face < tex->numFaces; ++face)
         {
-            ktx_size_t srcOffset = 0;
-            res = ktxTexture_GetImageOffset(ktxTexture(tex), level, 0, 0, &srcOffset);
-            if (res != KTX_SUCCESS)
+            for (uint32_t level = 0; level < tex->numLevels; ++level)
             {
-                LOG_ERROR("[ImageAssetLoader] {}: GetImageOffset level {} failed: {}",
-                          path.c_str(), level, static_cast<int>(res));
-                ktxTexture_Destroy(ktxTexture(tex));
-                return nullptr;
-            }
+                ktx_size_t srcOffset = 0;
+                res = ktxTexture_GetImageOffset(ktxTexture(tex), level, 0, face, &srcOffset);
+                if (res != KTX_SUCCESS)
+                {
+                    LOG_ERROR("[ImageAssetLoader] {}: GetImageOffset face {} level {} failed: {}",
+                              path.c_str(), face, level, static_cast<int>(res));
+                    ktxTexture_Destroy(ktxTexture(tex));
+                    return nullptr;
+                }
 
-            const uint64_t levelBytes = ktxTexture_GetImageSize(ktxTexture(tex), level);
-            memcpy(result->m_textureBytes.data() + dstOffset, tex->pData + srcOffset, levelBytes);
-            result->m_mips.push_back({dstOffset, levelBytes});
-            dstOffset += levelBytes;
+                const uint64_t levelBytes = ktxTexture_GetImageSize(ktxTexture(tex), level);
+                memcpy(result->m_textureBytes.data() + dstOffset, tex->pData + srcOffset, levelBytes);
+                result->m_mips.push_back({dstOffset, levelBytes});
+                dstOffset += levelBytes;
+            }
         }
 
         ktxTexture_Destroy(ktxTexture(tex));
 
-        LOG_INFO("[ImageAssetLoader] {}: {}x{}, {} mips, format={}, {}B (already compiled)",
+        LOG_INFO("[ImageAssetLoader] {}: {}x{}, {} mips, {} slices, cube={}, format={}, {}B "
+                 "(already compiled)",
                  path.c_str(), result->m_width, result->m_height, result->m_mipLevels,
+                 result->m_arrayLayers, result->IsCubemap(),
                  static_cast<int>(result->m_format), result->m_textureBytes.size());
         return result;
     }
 
-    UniquePtr<AssetData> ImageAssetLoader::LoadCompiled(const AssetId& id,
-                                                        const FileSystem& fileSystem)
+    UniquePtr<AssetData> ImageAssetLoader::LoadEncoded(const AssetId& id,
+                                                       const FileSystem& fileSystem)
     {
         eastl::vector<uint8_t> bytes;
         if (!fileSystem.ReadFile(id.GetPath(), bytes))
         {
             return nullptr;
         }
-        return LoadKtx2(bytes.data(), bytes.size(), id.GetPath(), {});
+        return MakeUnique<ImageEncodedRawData>(eastl::move(bytes), id.GetPath());
     }
 
     UniquePtr<AssetData> ImageAssetLoader::LoadSource(const AssetId& id,
                                                       const FileSystem& fileSystem)
     {
-        eastl::string path = fileSystem.ToPhysical(id.GetPath());
-        if (path.empty())
+        // Through the VFS like every other read, so the path a raw carries stays virtual.
+        eastl::vector<uint8_t> bytes;
+        if (!fileSystem.ReadFile(id.GetPath(), bytes) || bytes.empty())
         {
-            LOG_ERROR("[ImageAssetLoader] Image file not found: {}", id.GetPath().c_str());
+            LOG_ERROR("[ImageAssetLoader] Image file not readable: {}", id.GetPath().c_str());
             return nullptr;
         }
 
-        // SVG: read file into string and rasterize via nanosvg
-        if (path.size() > 4 && path.compare(path.size() - 4, 4, ".svg") == 0)
+        eastl::string path = id.GetPath();
+
+        // nanosvg parses in place and wants a NUL terminator, hence the copy.
+        constexpr eastl::string_view kSvgExt = ".svg";
+        if (path.size() > kSvgExt.size()
+            && path.compare(path.size() - kSvgExt.size(), kSvgExt.size(), kSvgExt.data()) == 0)
         {
-            std::error_code ec;
-            const auto fsize = std::filesystem::file_size(std::filesystem::path(path.c_str()), ec);
-            if (ec || fsize == 0)
-            {
-                LOG_ERROR("Failed to read SVG file: {}", path.c_str());
-                return nullptr;
-            }
-            eastl::string svgData(static_cast<size_t>(fsize) + 1, '\0');
-            FILE* f = fopen(path.c_str(), "rb");
-            if (!f)
-            {
-                LOG_ERROR("Failed to open SVG file: {}", path.c_str());
-                return nullptr;
-            }
-            fread(svgData.data(), 1, static_cast<size_t>(fsize), f);
-            fclose(f);
+            eastl::string svgData(reinterpret_cast<const char*>(bytes.data()), bytes.size());
             return DecodeSvg(svgData.c_str(), 0, 0, eastl::move(path));
         }
 
-        int w = 0, h = 0, srcCh = 0;
-
-        if (stbi_is_hdr(path.c_str()))
-        {
-            float* pixels = stbi_loadf(path.c_str(), &w, &h, &srcCh, 4);
-            return WrapHdrPixels(pixels, w, h, eastl::move(path));
-        }
-
-        stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &srcCh, kLdrChannels);
-        return WrapLdrPixels(pixels, w, h, eastl::move(path));
+        return DecodeFromMemory(bytes.data(), bytes.size(), path);
     }
 }

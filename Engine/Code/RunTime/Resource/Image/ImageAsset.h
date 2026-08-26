@@ -7,6 +7,9 @@
 #include <Resource/Asset.h>
 
 #include <RHI/Format.h>
+#include <RHI/Resource/Image/ImageSubResource.h>
+
+#include "ImageRawTypes.h"
 
 namespace Spark::Resource
 {
@@ -82,7 +85,7 @@ namespace Spark::Resource
         uint32_t height; 
     };
 
-    class ImageAssetRawData : public AssetData
+    class ImageAssetRawData : public ImageRawData
     {
     public:
         ImageAssetRawData(uint32_t width, uint32_t height, ImageFormat format,
@@ -126,13 +129,24 @@ namespace Spark::Resource
         uint32_t          GetWidth()       const { return m_width; }
         uint32_t          GetHeight()      const { return m_height; }
         uint32_t          GetMipLevels()   const { return m_mipLevels; }
+        //! Total slices, cube faces included: 6 for a cube, 6N for a cube array. Same
+        //! meaning as RHI::ImageDescriptor::m_arraySize.
         uint32_t          GetArrayLayers() const { return m_arrayLayers; }
+        //! Stated, never inferred: a 6-slice 2D array reads identically otherwise.
+        bool              IsCubemap()      const { return m_isCubemap != 0; }
         RHI::Format       GetFormat()      const { return m_format; }
 
-        const ImageMipRange& GetMipRange(uint32_t level) const { return m_mips[level]; }
+        const ImageMipRange& GetSubresourceRange(uint32_t arraySlice, uint32_t mipLevel) const
+        {
+            return m_mips[RHI::GetImageSubresourceIndex(mipLevel, arraySlice, m_mipLevels)];
+        }
+
+        //! Slice 0's chain -- the whole payload of a plain 2D image.
+        const ImageMipRange& GetMipRange(uint32_t level) const { return GetSubresourceRange(0, level); }
+
         const eastl::vector<uint8_t>& GetTextureBytes() const { return m_textureBytes; }
 
-        ImageMipDimensions GetMipDimensions(uint32_t level) const 
+        ImageMipDimensions GetMipDimensions(uint32_t level) const
         {
             return {
                 eastl::max(1u, m_width  >> level),
@@ -142,7 +156,7 @@ namespace Spark::Resource
 
         const uint8_t* GetMipBytes(uint32_t level) const
         {
-            return m_textureBytes.data() + m_mips[level].offset;
+            return m_textureBytes.data() + GetMipRange(level).offset;
         }
 
     private:
@@ -154,8 +168,11 @@ namespace Spark::Resource
         uint32_t                     m_height{0};
         uint32_t                     m_mipLevels{1};
         uint32_t                     m_arrayLayers{1};
+        uint32_t                     m_isCubemap{0};
         RHI::Format                  m_format{RHI::Format::R8G8B8A8_UNORM};
         eastl::vector<uint8_t>       m_textureBytes;
+
+        //! Slice-major, mip-inner: m_arrayLayers * m_mipLevels entries.
         eastl::vector<ImageMipRange> m_mips;
 
         // Strong refs (not AssetIds) so the children cannot outlive-fail to resolve: a

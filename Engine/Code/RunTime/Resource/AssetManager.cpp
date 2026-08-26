@@ -300,26 +300,19 @@ namespace Spark::Resource
                 asset.GetAssetId().GetPath());
         }
 
+        // No shortcut between the two stages: Load only produces raw, Compile only produces
+        // the payload. Nothing can skip Compile and with it the side effects that live
+        // there, such as an environment bake publishing its IBL sub-assets.
         AssetBuildBus::Event(type, &AssetBuildEvents::Load, ctx);
-        if (!ctx.rawData && !ctx.compiledData)
+        if (!ctx.rawData)
         {
             asset.SetStatus(AssetStatus::Error);
             AssetBus::Event(type, &AssetBus::Events::OnAssetError, asset);
             return;
         }
 
-        // Load can hand back a finished payload (an authored .ktx2), and compiling that
-        // would re-process a finished product. Skipping the stage also skips its SIDE
-        // EFFECTS: CompileEnvironmentCubemap publishes the IBL sub-assets from there, so
-        // caching a cubemap will have to cache its children too.
-        bool compiled = false;
-        if (!ctx.compiledData)
-        {
-            asset.SetStatus(AssetStatus::Compiling);
-            AssetBuildBus::Event(type, &AssetBuildEvents::Compile, ctx);
-            compiled = true;
-        }
-
+        asset.SetStatus(AssetStatus::Compiling);
+        AssetBuildBus::Event(type, &AssetBuildEvents::Compile, ctx);
         if (!ctx.compiledData)
         {
             asset.SetStatus(AssetStatus::Error);
@@ -327,14 +320,11 @@ namespace Spark::Resource
             return;
         }
 
-        // Only write back what Compile produced: a payload that arrived finished is already
-        // a file on disk, and next time the same Load path would win again.
-        if (compiled)
-        {
-            eastl::vector<uint8_t> cooked;
-            AssetBuildBus::EventResult(cooked, type, &AssetBuildEvents::Serialize, *ctx.compiledData, identity);
-            m_cache->Write(entry, cooked);
-        }
+        // Whether this is worth storing was decided by EntryFor; a builder that declines
+        // says so with an empty blob.
+        eastl::vector<uint8_t> cooked;
+        AssetBuildBus::EventResult(cooked, type, &AssetBuildEvents::Serialize, *ctx.compiledData, identity);
+        m_cache->Write(entry, cooked);
 
         asset.SetDataReady(eastl::move(ctx.compiledData));
         AssetBus::Event(type, &AssetBus::Events::OnAssetReady, asset);

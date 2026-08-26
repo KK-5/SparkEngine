@@ -138,6 +138,18 @@ TEST_F(AssetCacheTestFixture, SubAssetsAreNotCacheable)
     EXPECT_FALSE(cache.EntryFor(child).IsCacheable());
 }
 
+//! The rule is on the format's extension, not on ".ktx2" spelled out in the cache, so a
+//! second type that authors its own cooked form is covered for free.
+TEST_F(AssetCacheTestFixture, ASourceAlreadyInTheCacheFormatIsNotCacheable)
+{
+    const AssetCache cache(m_table);
+
+    WriteSource("Authored.ktx2", "ktx2 bytes");
+
+    EXPECT_FALSE(cache.EntryFor(ImageId("test://Authored.ktx2")).IsCacheable());
+    EXPECT_TRUE(cache.EntryFor(ImageId("test://Texture.png")).IsCacheable());
+}
+
 TEST_F(AssetCacheTestFixture, TypesWithoutACacheFormatAreNotCacheable)
 {
     const AssetCache cache(m_table);

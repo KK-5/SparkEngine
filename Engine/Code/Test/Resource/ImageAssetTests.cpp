@@ -12,6 +12,8 @@
 #include <Resource/Cache/AssetCache.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Image/ImageAssetLoader.h>
+#include <Resource/Image/ImageAssetCompiler.h>
+#include <Resource/Image/EnvironmentBaker.h>
 
 using namespace Spark;
 using namespace Spark::Resource;
@@ -310,10 +312,10 @@ TEST_F(ImageAssetTestFixture, LoadJpegProducesBC3)
     EXPECT_EQ(lastMipBytes, 16u);  // 1x1 mip → 1 block × 16 字节
 }
 
-// A .ktx2 is the already-compiled form: Load hands back finished data and the compile
-// stage is skipped entirely. The assertions that actually prove the skip are the mip
-// count and the format -- the default image descriptor asks for a full BCn/sRGB chain,
-// so running the compiler would produce 8 mips of BC3_UNORM_SRGB instead.
+// A .ktx2 is a source format whose Compile is a parse: Load hands back its bytes and the
+// compiler parses them rather than running the pixel path. The mip count and the format
+// are what prove it -- the default image descriptor asks for a full BCn/sRGB chain, so the
+// pixel path would produce 8 mips of BC3_UNORM_SRGB instead.
 TEST_F(ImageAssetTestFixture, Ktx2LoadsAsCompiledDataWithoutRecompiling)
 {
     AssetId id = m_assetManager->MakeAssetId("engine://Image/BRDFLut.ktx2");
@@ -338,6 +340,141 @@ TEST_F(ImageAssetTestFixture, Ktx2LoadsAsCompiledDataWithoutRecompiling)
     EXPECT_EQ(imgData->GetMipRange(0).size, expectedBytes);
 }
 
+
+// ============================================================================
+// Cubemap payloads
+//
+// BakedCubemap is a plain struct, so everything downstream of a real bake can be driven
+// from a hand-built payload -- the only cube coverage that needs no GPU.
+// ============================================================================
+
+namespace
+{
+    constexpr uint32_t kCubeBytesPerPixel = 8;   // R16G16B16A16_FLOAT
+
+    //! Every byte derived from its (face, mip, index), so a round trip that swaps or drops
+    //! a subresource cannot still compare equal.
+    BakedCubemap MakeTestCube(uint32_t faceSize, uint32_t mipLevels)
+    {
+        BakedCubemap cube;
+        cube.faceSize  = faceSize;
+        cube.mipLevels = mipLevels;
+        cube.format    = RHI::Format::R16G16B16A16_FLOAT;
+
+        for (uint32_t face = 0; face < 6; ++face)
+        {
+            for (uint32_t mip = 0; mip < mipLevels; ++mip)
+            {
+                const uint32_t extent = std::max(1u, faceSize >> mip);
+                const size_t   bytes  = static_cast<size_t>(extent) * extent * kCubeBytesPerPixel;
+                for (size_t i = 0; i < bytes; ++i)
+                {
+                    cube.faceBytes.push_back(static_cast<uint8_t>((face * 37 + mip * 11 + i) & 0xFF));
+                }
+            }
+        }
+        return cube;
+    }
+}
+
+//! Pinned here because the upload path recomputes extents instead of reading this table,
+//! so a wrong table shows up as garbled pixels rather than a failure.
+TEST(ImageCubemapTest, AssembledCubeIsFaceMajorAndMipInner)
+{
+    constexpr uint32_t kFaceSize = 8;
+    constexpr uint32_t kMips     = 3;   // 8, 4, 2
+
+    ImageAssetCompiler compiler;
+    UniquePtr<AssetData> assembled = compiler.AssembleCubemapData(MakeTestCube(kFaceSize, kMips));
+    ASSERT_NE(assembled, nullptr);
+
+    const auto& cube = static_cast<const ImageAssetData&>(*assembled);
+    EXPECT_TRUE(cube.IsCubemap());
+    EXPECT_EQ(cube.GetArrayLayers(), 6u);
+    EXPECT_EQ(cube.GetMipLevels(),   kMips);
+    EXPECT_EQ(cube.GetWidth(),       kFaceSize);
+    EXPECT_EQ(cube.GetHeight(),      kFaceSize);
+
+    const uint64_t faceChainBytes = (8ull * 8 + 4ull * 4 + 2ull * 2) * kCubeBytesPerPixel;
+    EXPECT_EQ(cube.GetTextureBytes().size(), faceChainBytes * 6);
+
+    uint64_t expectedOffset = 0;
+    for (uint32_t face = 0; face < 6; ++face)
+    {
+        for (uint32_t mip = 0; mip < kMips; ++mip)
+        {
+            const uint32_t extent = kFaceSize >> mip;
+            const ImageMipRange& range = cube.GetSubresourceRange(face, mip);
+            EXPECT_EQ(range.offset, expectedOffset) << "face " << face << " mip " << mip;
+            EXPECT_EQ(range.size,
+                static_cast<uint64_t>(extent) * extent * kCubeBytesPerPixel);
+            expectedOffset += range.size;
+        }
+    }
+
+    // Slice 0's chain is exactly one face, so the 2D alias still reads the +X face.
+    EXPECT_EQ(cube.GetSubresourceRange(1, 0).offset, faceChainBytes);
+    EXPECT_EQ(cube.GetMipRange(0).offset, 0u);
+}
+
+//! KTX2 groups a level's faces together, the engine packs slice-major. Both sides of that
+//! translation are ours, so only a round trip proves they agree.
+TEST(ImageCubemapTest, ACubeSurvivesAKtx2RoundTrip)
+{
+    constexpr uint32_t kFaceSize = 8;
+    constexpr uint32_t kMips     = 3;
+    constexpr const char* kIdentity = "cube-round-trip-identity";
+
+    ImageAssetCompiler compiler;
+    UniquePtr<AssetData> assembled = compiler.AssembleCubemapData(MakeTestCube(kFaceSize, kMips));
+    ASSERT_NE(assembled, nullptr);
+    const auto& original = static_cast<const ImageAssetData&>(*assembled);
+
+    const eastl::vector<uint8_t> blob = compiler.SerializeToKtx2(original, kIdentity);
+    ASSERT_FALSE(blob.empty());
+
+    ImageAssetLoader loader;
+    UniquePtr<AssetData> reloaded =
+        loader.LoadKtx2(blob.data(), blob.size(), "cube round trip", kIdentity);
+    ASSERT_NE(reloaded, nullptr);
+    const auto& restored = static_cast<const ImageAssetData&>(*reloaded);
+
+    EXPECT_TRUE(restored.IsCubemap());
+    EXPECT_EQ(restored.GetArrayLayers(), original.GetArrayLayers());
+    EXPECT_EQ(restored.GetMipLevels(),   original.GetMipLevels());
+    EXPECT_EQ(restored.GetWidth(),       original.GetWidth());
+    EXPECT_EQ(restored.GetHeight(),      original.GetHeight());
+    EXPECT_EQ(restored.GetFormat(),      original.GetFormat());
+    EXPECT_EQ(restored.GetTextureBytes(), original.GetTextureBytes());
+
+    for (uint32_t face = 0; face < 6; ++face)
+    {
+        for (uint32_t mip = 0; mip < kMips; ++mip)
+        {
+            EXPECT_EQ(restored.GetSubresourceRange(face, mip).offset,
+                      original.GetSubresourceRange(face, mip).offset)
+                << "face " << face << " mip " << mip;
+            EXPECT_EQ(restored.GetSubresourceRange(face, mip).size,
+                      original.GetSubresourceRange(face, mip).size);
+        }
+    }
+}
+
+//! The cube path must not have loosened the identity check the cache relies on.
+TEST(ImageCubemapTest, ACubeWithAForeignIdentityIsRejected)
+{
+    ImageAssetCompiler compiler;
+    UniquePtr<AssetData> assembled = compiler.AssembleCubemapData(MakeTestCube(4, 1));
+    ASSERT_NE(assembled, nullptr);
+
+    const eastl::vector<uint8_t> blob =
+        compiler.SerializeToKtx2(static_cast<const ImageAssetData&>(*assembled), "mine");
+    ASSERT_FALSE(blob.empty());
+
+    ImageAssetLoader loader;
+    EXPECT_EQ(loader.LoadKtx2(blob.data(), blob.size(), "cube identity", "someone else's"),
+              nullptr);
+}
 
 // ============================================================================
 // Cook cache

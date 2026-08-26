@@ -570,7 +570,7 @@ usage 变体分属不同条目、改源文件后 `path` 变而 `identity` 不变
   「它变了」这件事没有主体。
 - 配套的是**资产预加载**：启动时全量遍历，首次加载的编译并建图，已缓存的校验有效性。
 
-**B. 子资产机制统一。** 已定方案，见后面两节（前置是「Image 处理流程规整」）。**在它落地之前
+**B. 子资产机制统一。** 已定方案，见后面两节（前置「Image 处理流程规整」已完成）。**在它落地之前
 不允许再加第三个手写 publisher**——阶段 3 的 glTF 材质子资产就会是那第三个。
 
 **C. Shader 缓存。** 挂在 A 之后。收益是三类里最小的一档：实测全部重编也远不及一张图片的加载
@@ -583,9 +583,9 @@ usage 变体分属不同条目、改源文件后 `path` 变而 `identity` 不变
 
 ---
 
-## 前置：Image 处理流程规整
+## 前置：Image 处理流程规整 ✅ 已完成
 
-> 已定方案，未开工。「子资产机制统一」的前置——不先做，后者要为 Image 的几处特例一直开口子。
+> 三步全部落地。「子资产机制统一」的前置——不先做，后者要为 Image 的几处特例一直开口子。
 
 Image 是两条产出子资产的路径的共同类型（IBL 的 bake 产物、glTF 的内嵌图）。它今天有两处「凭空产出
 成品」和一处「数据结构描述不了自己」，子资产机制若先落地，就得逐条为它们开特例。
@@ -645,36 +645,51 @@ subAssets     ← Compile 的第二个输出
 | `Irradiance` / `Prefiltered` | baked faces | 装配 |
 | 其余 | 像素或 ktx2 字节 | compiler 的常规路径 |
 
-**usage 决定 raw 的类型**，所以不需要 RTTI 或类型 tag。守卫两条：`Load` 里的 `IsDerivedUsage`
-保留（派生子永不从磁盘读）；`Compile` 里那条改成「rawData 不是 baked 才报错」。
+守卫两条：`Load` 里的 `IsDerivedUsage` 保留（派生子永不从磁盘读）；`Compile` 里那条改成
+「rawData 不是 baked 才报错」。
+
+**落地时的修正**：原本写的是「usage 决定 raw 的类型，所以不需要 RTTI 或类型 tag」，这条不成立——
+表里第三行「像素或 ktx2 字节」同属 `Texture2D` usage，usage 分不开它们；而那条 baked 守卫本身
+就是一次类型判断。实现改为给 image 自己的 raw 加一个共同基类 `ImageRawData` 与 `Kind`
+（`Pixels` / `Encoded` / `Baked`）：**不动共享的 `AssetData`、不引入 RTTI**，分派由 raw 自述而不是
+由调用方从路径二次推导。`ImageAssetCompiler::Compile` 因此成为唯一 compile 入口，三个 Kind 分支齐平。
 
 ### 一个改不掉的约束
 
 **bake 挪不到 `Compile` 之后。** 三张图是同一个 GPU job 的产物，`BakeSky` 产出的活 GPU cube 直接
 喂给两个卷积当 SRV 采样，不走 CPU 往返。能挪的只有**装配**——而那正好就是脏的那部分。
 
-### 步骤
+### 步骤（三步均已完成）
 
-1. `ImageAssetData::m_mips` 改成按 subresource 索引（face-major / mip-inner，与 `m_textureBytes`
-   的实际布局一致）。`AsyncUploadSystem` 不受影响——它自己重算每个 subresource 的紧凑 extent，
-   从不读 offset 表。
-2. KTX2 读写支持 cube；两份 format 映射表合并。可独立验证：写进去、读回来。
+1. ✅ `ImageAssetData::m_mips` 改成按 subresource 索引（slice-major / mip-inner，与 `m_textureBytes`
+   的实际布局一致）。索引公式直接用 `RHI::GetImageSubresourceIndex`，不另写一份。
+   `AsyncUploadSystem` 不受影响——它自己重算每个 subresource 的紧凑 extent，从不读 offset 表。
+2. ✅ KTX2 读写支持 cube；两份 format 映射表合并（`KtxFormatMap`，并补上写侧缺的
+   `R16G16B16A16_SFLOAT = 97`——每个 bake 产物都是这个格式）。可独立验证：写进去、读回来。
    KTX2 与 libktx 本来就支持（`numFaces`、`SetImageFromMemory` 的 `face` 参数），我们两侧都是主动
    拒绝。但真正的缺口是 **`ImageAssetData` 说不出「我是 cube」**：它只有 `m_arrayLayers`，全引擎靠
    「层数 == 6」推断（`SkyboxSystem.cpp:39`），而写侧把它塞进了 `numLayers`——真写一个 cube 出来的
    会是 6 层 2D 数组。`Serialize` 拿不到 `AssetId`，问不到 descriptor，所以这个信息必须长在数据上：
-   **加 `m_faceCount`（1 或 6）与 `m_arrayLayers` 并列**（对上 KTX2 / Vulkan / DX12 的模型，`bool`
-   表达不了 cube array），随后那条「层数 == 6」的约定与它的歧义一起消失。
-3. 槽规则收紧：加两种 raw、`.ktx2` 走 Compile、`EntryFor` 第五条拒绝、删 `compiled` 标志、
+   **加 `m_isCubemap` 标志，`m_arrayLayers` 继续表示总切片数**（cube = 6，cube array = 6N）——
+   与 `RHI::ImageDescriptor` 的 `m_arraySize` + `m_isCubemap` 同一模型，也就是 DX12 与 Vulkan 的
+   模型。`numFaces` / `numLayers` 分开是 KTX2 容器自己的字段划分，在序列化边界上除一次即可
+   （`numFaces = isCubemap ? 6 : 1`），不渗进资产层。随后那条「层数 == 6」的约定与它的歧义一起消失。
+3. ✅ 槽规则收紧：加两种 raw、`.ktx2` 走 Compile、`EntryFor` 第五条拒绝、删 `compiled` 标志、
    `AssembleCubemapData` 移进 compiler 的 usage 分派。行为不变。
 
 现状表里的第 6 条随第 3 步顺手统一，不单列。
+
+### 留给「子资产机制统一」的唯一一道口子
+
+sky cube 现在序列化没有任何障碍，但 `ImageAssetBuilder::Serialize` 仍然对它返回空——**带子资产的
+payload 拒写**。理由不是格式，是缓存条目装不下一个完整构建单元：sky 一旦入缓存，命中时 bake 被跳过，
+两个 IBL 子资产就凭空消失。这正是下一节要解的问题，解完这道口子就撤。
 
 ---
 
 ## 子资产机制统一
 
-> 已定方案，未开工。**前置是「Image 处理流程规整」**。解锁：cubemap 缓存、阶段 3 材质子资产。
+> 已定方案，未开工。**前置「Image 处理流程规整」已完成**。解锁：cubemap 缓存、阶段 3 材质子资产。
 
 ### 现状
 
@@ -937,17 +952,16 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
 
 待办 A（通用依赖机制 + 预加载）── 只有方向 ──► shader 缓存
 
-Image 处理流程规整 ── 已定方案 ──► 子资产机制统一 ──┬──► cubemap 缓存（model 还欠待办 A）
-                                                     └──► 阶段 3（材质子资产）
-                                                          ↑ 不统一就会多出第三个手写 publisher
+Image 处理流程规整 ✅ ──► 子资产机制统一 ──┬──► cubemap 缓存（model 还欠待办 A）
+                                            └──► 阶段 3（材质子资产）
+                                                 ↑ 不统一就会多出第三个手写 publisher
 ```
 
 ## 下一步
 
-阶段 0 与阶段 1 已收尾。剩下的三条互不依赖：
+阶段 0、阶段 1、Image 处理流程规整已收尾。剩下的三条互不依赖：
 
-- **Image 处理流程规整 → 子资产机制统一**（都已定方案）：合起来是 cubemap 缓存与阶段 3 的前置；
-  model 缓存还需要待办 A。前置那三步不碰构建流程，可以先单独做掉。
+- **子资产机制统一**（已定方案，前置已清）：cubemap 缓存与阶段 3 的前置；model 缓存还需要待办 A。
 - **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置。
 - **阶段 2**：第一件事是「类型自带编解码」的钩子——组件里的 `AssetId` 字段若被标上
   `Serializable`，通用遍历会走进去、产出一个缺 `desc` 的三项对象。今天没有任何组件字段标了

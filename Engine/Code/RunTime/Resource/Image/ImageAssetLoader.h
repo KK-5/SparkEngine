@@ -21,30 +21,31 @@ namespace Spark::Resource
     //! namespace, and frozen -- renaming it strands every existing entry.
     constexpr const char* kImageIdentityKey = "SparkAssetIdentity";
 
-    //! Three entry points, separated by where the bytes come from. Which one the caller
-    //! picks is what says whether the result is raw or finished -- there is no out-param
-    //! reporting it back.
+    //! Bytes in, an ImageRawData out. Every entry point produces raw; what Compile then does
+    //! with it is decided by the raw's kind.
     class ImageAssetLoader
     {
     public:
         ImageAssetLoader() = default;
         ~ImageAssetLoader() = default;
 
-        //! An encoded source image -> ImageAssetRawData, still to be compiled.
+        //! An encoded source image -> ImageAssetRawData (decoded pixels).
         UniquePtr<AssetData> LoadSource(const AssetId& id, const FileSystem& fileSystem);
 
-        //! An authored .ktx2 -> ImageAssetData, already finished.
-        UniquePtr<AssetData> LoadCompiled(const AssetId& id, const FileSystem& fileSystem);
+        //! An authored .ktx2 -> ImageEncodedRawData (its bytes, unparsed).
+        UniquePtr<AssetData> LoadEncoded(const AssetId& id, const FileSystem& fileSystem);
 
-        //! KTX2 bytes -> ImageAssetData. 2D, single layer, single face, unsupercompressed
-        //! containers only; anything else is rejected rather than guessed at.
+        //! KTX2 bytes -> ImageAssetData, repacked slice-major / mip-inner. Single-layer 2D
+        //! or cube, unsupercompressed; anything else is rejected rather than guessed at.
+        //! Serves both a .ktx2's Compile and the cache's read side, so the two cannot
+        //! disagree about a layout.
         //!
         //! A non-empty `expectedIdentity` must equal the one stored in the container's
-        //! key/value data -- that is the cache read side. An authored file carries none and
-        //! passes an empty view. `label` only ever reaches log messages.
-        UniquePtr<AssetData> LoadKtx2(const uint8_t* bytes, size_t size,
-                                      eastl::string_view label,
-                                      eastl::string_view expectedIdentity);
+        //! key/value data, which is what catches a cache key collision. An authored file
+        //! carries none and passes an empty view. `label` only reaches log messages.
+        static UniquePtr<AssetData> LoadKtx2(const uint8_t* bytes, size_t size,
+                                             eastl::string_view label,
+                                             eastl::string_view expectedIdentity);
 
         static UniquePtr<AssetData> DecodeFromMemory(
             const uint8_t* bytes, size_t byteCount, eastl::string_view sourceLabel);

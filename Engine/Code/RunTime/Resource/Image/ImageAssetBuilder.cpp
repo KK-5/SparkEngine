@@ -71,17 +71,11 @@ namespace Spark::Resource
             return;
         }
 
-        // An authored .ktx2 is already a finished payload, so it goes to compiledData and
-        // ProcessAsset skips Compile. Which slot it lands in is decided here, by the only
-        // place that knows what the slots mean.
-        if (IsCompiledImagePath(ctx.id.GetPath()))
-        {
-            ctx.compiledData = m_loader.LoadCompiled(ctx.id, *ctx.fileSystem);
-        }
-        else
-        {
-            ctx.rawData = m_loader.LoadSource(ctx.id, *ctx.fileSystem);
-        }
+        // Both land in rawData: an authored .ktx2 is a source format like any other, and
+        // parsing it is its Compile.
+        ctx.rawData = IsCompiledImagePath(ctx.id.GetPath())
+            ? m_loader.LoadEncoded(ctx.id, *ctx.fileSystem)
+            : m_loader.LoadSource(ctx.id, *ctx.fileSystem);
     }
 
     eastl::vector<uint8_t> ImageAssetBuilder::Serialize(const AssetData& compiled,
@@ -89,9 +83,7 @@ namespace Spark::Resource
     {
         const auto& image = static_cast<const ImageAssetData&>(compiled);
 
-        // No write side for cubes yet: SerializeToKtx2 hardcodes numFaces, and a bake
-        // product's m_mips describes only the base mip.
-        if (image.GetArrayLayers() != 1)
+        if (image.GetIrradianceAsset() || image.GetPrefilteredAsset())
         {
             return {};
         }
@@ -106,15 +98,24 @@ namespace Spark::Resource
 
     bool ImageAssetBuilder::InitEnvironmentBaker()
     {
-        return m_baker.Init();
+        return m_compiler.InitEnvironmentBaker();
     }
 
     void ImageAssetBuilder::Compile(AssetBuildContext& ctx)
     {
         ASSERT(ctx.id.GetAssetType() == AssetType::Image, "[ImageAssetBuilder] asset type mismatch");
 
+        if (!ctx.rawData)
+        {
+            return;
+        }
+
         const ImageAssetDescriptor* desc = GetImageDescriptor(ctx.id);
-        if (IsDerivedUsage(desc))
+        const auto& raw = static_cast<const ImageRawData&>(*ctx.rawData);
+
+        // Any other raw means one was requested on its own; its AssetId points at the parent
+        // HDRI, so this would compile that file down the 2D path over the baked cube.
+        if (IsDerivedUsage(desc) && raw.GetKind() != ImageRawData::Kind::Baked)
         {
             LOG_ERROR("[ImageAssetBuilder] '{}' is a derived IBL product and cannot be "
                       "compiled on its own; it is published by its parent environment "
@@ -122,14 +123,8 @@ namespace Spark::Resource
             return;
         }
 
-        if (!ctx.rawData)
-        {
-            return;
-        }
-
-        // EnvironmentCubemap usage routes through the GPU baker: the equirect raw is
-        // baked into a 6-face cube and wrapped as a cube ImageAssetData. The default
-        // Texture2D path (mip-gen + optional BCn) is untouched.
+        // A bake makes three assets, and registering assets is this class's job -- which is
+        // the only reason it is spelled out here instead of inside the compiler's Compile.
         if (desc && desc->usage == ImageUsage::EnvironmentCubemap)
         {
             ctx.compiledData = CompileEnvironmentCubemap(ctx, *desc);
@@ -142,26 +137,14 @@ namespace Spark::Resource
     UniquePtr<AssetData> ImageAssetBuilder::CompileEnvironmentCubemap(
         AssetBuildContext& ctx, const ImageAssetDescriptor& desc)
     {
-        if (!m_baker.IsInitialized())
-        {
-            LOG_ERROR("[ImageAssetBuilder] EnvironmentCubemap asset requested but the "
-                      "baker is not initialized (call InitEnvironmentBaker during setup): {}",
-                      ctx.id.GetPath().c_str());
-            return nullptr;
-        }
+        BakedEnvironment env = m_compiler.BakeEnvironment(
+            ctx.id, static_cast<const ImageAssetRawData&>(*ctx.rawData), desc);
 
-        auto& raw = static_cast<ImageAssetRawData&>(*ctx.rawData);
-        // cubemapFaceSize == 0 means auto: size the cube from the decoded source.
-        const uint32_t faceSize = desc.cubemapFaceSize != 0
-            ? desc.cubemapFaceSize
-            : EnvironmentBaker::RecommendedFaceSize(raw.GetHeight());
-
-        BakedEnvironment env = m_baker.Bake(raw, faceSize);
         // All or nothing: a partial result would leave the lighting path unable to tell
         // "no IBL here" from "IBL half-baked".
         if (!env.IsValid())
         {
-            LOG_ERROR("[ImageAssetBuilder] EnvironmentBaker failed for {}",
+            LOG_ERROR("[ImageAssetBuilder] Environment bake failed for {}",
                       ctx.id.GetPath().c_str());
             return nullptr;
         }
@@ -171,12 +154,12 @@ namespace Spark::Resource
         Ptr<Asset> irradiance = PublishSubAsset(
             ctx,
             ImageAsset::MakeSubId(ctx.id, kIrradianceSubLabel, ImageUsage::IrradianceCubemap),
-            m_compiler.AssembleCubemapData(eastl::move(env.irradiance)));
+            MakeUnique<ImageBakedRawData>(eastl::move(env.irradiance)));
 
         Ptr<Asset> prefiltered = PublishSubAsset(
             ctx,
             ImageAsset::MakeSubId(ctx.id, kPrefilteredSubLabel, ImageUsage::PrefilteredCubemap),
-            m_compiler.AssembleCubemapData(eastl::move(env.prefiltered)));
+            MakeUnique<ImageBakedRawData>(eastl::move(env.prefiltered)));
 
         if (!irradiance || !prefiltered)
         {
@@ -185,7 +168,9 @@ namespace Spark::Resource
             return nullptr;
         }
 
-        UniquePtr<AssetData> skyData = m_compiler.AssembleCubemapData(eastl::move(env.sky));
+        // The sky goes through the same Compile as its two children.
+        ImageBakedRawData skyRaw(eastl::move(env.sky));
+        UniquePtr<AssetData> skyData = m_compiler.Compile(ctx.id, skyRaw);
         if (!skyData)
         {
             return nullptr;
@@ -209,11 +194,22 @@ namespace Spark::Resource
 
     Ptr<Asset> ImageAssetBuilder::PublishSubAsset(AssetBuildContext& parentCtx,
                                                   const AssetId& subId,
-                                                  UniquePtr<AssetData> compiled)
+                                                  UniquePtr<AssetData> rawData)
     {
         ASSERT(parentCtx.db != nullptr,
             "[ImageAssetBuilder] parent ctx.db not set; cannot publish sub-asset");
-        if (!parentCtx.db || !compiled)
+        if (!parentCtx.db || !rawData)
+        {
+            return nullptr;
+        }
+
+        // The ordinary Compile: what makes this a derived product is only the raw it gets.
+        AssetBuildContext child = parentCtx.MakeChild(subId);
+        child.rawData = eastl::move(rawData);
+        Compile(child);
+
+        UniquePtr<AssetData> compiled = eastl::move(child.compiledData);
+        if (!compiled)
         {
             return nullptr;
         }
