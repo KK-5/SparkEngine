@@ -119,12 +119,6 @@ namespace Spark::Resource
     {
     public:
         ImageAssetData() = default;
-        ~ImageAssetData() override;   // out-of-line: ImageAsset is incomplete here
-
-        //! The IBL cubes from the same environment bake. Null on every other image -- not an
-        //! error, but the "no IBL here" signal the lighting path gates on.
-        const Ptr<ImageAsset>& GetIrradianceAsset()  const { return m_irradiance; }
-        const Ptr<ImageAsset>& GetPrefilteredAsset() const { return m_prefiltered; }
 
         uint32_t          GetWidth()       const { return m_width; }
         uint32_t          GetHeight()      const { return m_height; }
@@ -174,11 +168,6 @@ namespace Spark::Resource
 
         //! Slice-major, mip-inner: m_arrayLayers * m_mipLevels entries.
         eastl::vector<ImageMipRange> m_mips;
-
-        // Strong refs (not AssetIds) so the children cannot outlive-fail to resolve: a
-        // released id would read as "no IBL products". No cycle -- children never point back.
-        Ptr<ImageAsset>              m_irradiance;
-        Ptr<ImageAsset>              m_prefiltered;
     };
 
     class ImageAsset : public Asset
@@ -205,13 +194,26 @@ namespace Spark::Resource
         //! environment bake's IBL products, separated only by subLabel namespace.
         static AssetId MakeSubId(const AssetId& parentId, eastl::string_view subLabel, ImageUsage usage);
 
+        //! The two labels an environment bake publishes under. Frozen: they are half of the
+        //! children's identity, so renaming one strands every cached unit built with it.
+        static constexpr const char* kIrradianceSubLabel  = "ibl/irradiance";
+        static constexpr const char* kPrefilteredSubLabel = "ibl/prefiltered";
+
+        //! This image's IBL children, whether it just baked them or was restored from cache:
+        //! a bake product's id is a pure function of its parent's, so nothing has to be
+        //! stored or serialized to find them again.
+        AssetId IrradianceId()  const;
+        AssetId PrefilteredId() const;
+
         static uint32_t ComputeMipLevels(uint32_t width, uint32_t height, uint32_t maxLevel);
 
         explicit ImageAsset(AssetId id);
 
         const ImageAssetData* GetImageData() const;
 
-        //! Null when there is no data yet, or no IBL products. See ImageAssetData.
+        //! Null on every image that is not an environment cubemap -- not an error, but the
+        //! "no IBL here" signal the lighting path gates on. A database lookup, so it answers
+        //! only once the bake's children have been published.
         Ptr<ImageAsset> GetIrradianceAsset()  const;
         Ptr<ImageAsset> GetPrefilteredAsset() const;
 

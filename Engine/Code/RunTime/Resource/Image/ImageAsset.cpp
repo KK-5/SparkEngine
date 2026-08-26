@@ -3,11 +3,44 @@
 #include <EASTLEX/hash.h>
 #include <HashString/HashString.h>
 #include <Log/ILogSystem.h>
+#include <Service/Service.h>
+
+#include <Resource/AssetManagerInterface.h>
 
 #include "EnvironmentBaker.h"
 
 namespace Spark::Resource
 {
+    namespace
+    {
+        //! Empty unless `parentId` is an environment cubemap: every other image would be
+        //! asking for children that no bake ever produced, and a sub-asset cannot parent one.
+        AssetId DerivedIblId(const AssetId& parentId, eastl::string_view subLabel, ImageUsage usage)
+        {
+            const auto* desc = static_cast<const ImageAssetDescriptor*>(parentId.GetDescriptor());
+            if (!desc || desc->usage != ImageUsage::EnvironmentCubemap || parentId.IsSubAsset())
+            {
+                return {};
+            }
+            return ImageAsset::MakeSubId(parentId, subLabel, usage);
+        }
+
+        Ptr<ImageAsset> FindImage(const AssetId& id)
+        {
+            if (!id.IsValid())
+            {
+                return nullptr;
+            }
+            auto* manager = Service<AssetManager>::Get();
+            if (!manager)
+            {
+                return nullptr;
+            }
+            Ptr<Asset> found = manager->FindAsset(id);
+            return Ptr<ImageAsset>(static_cast<ImageAsset*>(found.get()));
+        }
+    }
+
     // ---- ImageAssetDescriptor ----
 
     AssetHash ImageAssetDescriptor::Hash() const
@@ -27,8 +60,6 @@ namespace Spark::Resource
     }
 
     // ---- ImageAssetData ----
-
-    ImageAssetData::~ImageAssetData() = default;
 
     ImageAssetRawData::ImageAssetRawData(uint32_t width, uint32_t height, ImageFormat format,
                                    eastl::vector<uint8_t> pixels, eastl::string resolvedPath)
@@ -194,16 +225,24 @@ namespace Spark::Resource
         return GetData<ImageAssetData>();
     }
 
+    AssetId ImageAsset::IrradianceId() const
+    {
+        return DerivedIblId(GetAssetId(), kIrradianceSubLabel, ImageUsage::IrradianceCubemap);
+    }
+
+    AssetId ImageAsset::PrefilteredId() const
+    {
+        return DerivedIblId(GetAssetId(), kPrefilteredSubLabel, ImageUsage::PrefilteredCubemap);
+    }
+
     Ptr<ImageAsset> ImageAsset::GetIrradianceAsset() const
     {
-        auto* data = GetImageData();
-        return data ? data->GetIrradianceAsset() : nullptr;
+        return FindImage(IrradianceId());
     }
 
     Ptr<ImageAsset> ImageAsset::GetPrefilteredAsset() const
     {
-        auto* data = GetImageData();
-        return data ? data->GetPrefilteredAsset() : nullptr;
+        return FindImage(PrefilteredId());
     }
 
     int ImageAsset::GetWidth() const

@@ -477,6 +477,60 @@ TEST(ImageCubemapTest, ACubeWithAForeignIdentityIsRejected)
 }
 
 // ============================================================================
+// IBL child ids
+//
+// Derived, never stored: the build path and a future cache hit must name the same two
+// children, and nothing in the KTX2 payload says who they are.
+// ============================================================================
+
+namespace
+{
+    Ptr<ImageAsset> MakeImage(const char* path, ImageUsage usage)
+    {
+        return Ptr<ImageAsset>(new ImageAsset(
+            AssetId::Of(path, {}, AssetType::Image, ImageAsset::DescriptorForUsage(usage))));
+    }
+}
+
+TEST(ImageIblIdTest, AnEnvironmentCubemapDerivesItsTwoChildIds)
+{
+    constexpr const char* kPath = "engine://Image/sky.hdr";
+    Ptr<ImageAsset> sky = MakeImage(kPath, ImageUsage::EnvironmentCubemap);
+
+    const AssetId irradiance  = sky->IrradianceId();
+    const AssetId prefiltered = sky->PrefilteredId();
+
+    ASSERT_TRUE(irradiance.IsValid());
+    ASSERT_TRUE(prefiltered.IsValid());
+    EXPECT_TRUE(irradiance.IsSubAsset());
+    EXPECT_TRUE(prefiltered.IsSubAsset());
+    EXPECT_NE(irradiance, prefiltered);
+
+    // Same path as the parent -- a sub-asset's bytes live in the parent's file.
+    EXPECT_EQ(irradiance.GetPath(), sky->GetAssetId().GetPath());
+
+    // Exactly what the builder publishes under, so the two cannot drift apart.
+    EXPECT_EQ(irradiance, ImageAsset::MakeSubId(sky->GetAssetId(),
+        ImageAsset::kIrradianceSubLabel, ImageUsage::IrradianceCubemap));
+    EXPECT_EQ(prefiltered, ImageAsset::MakeSubId(sky->GetAssetId(),
+        ImageAsset::kPrefilteredSubLabel, ImageUsage::PrefilteredCubemap));
+
+    // A pure function of the parent id: a second instance of the same asset agrees.
+    EXPECT_EQ(irradiance, MakeImage(kPath, ImageUsage::EnvironmentCubemap)->IrradianceId());
+}
+
+//! Not an error -- this is the "no IBL here" answer the lighting path gates on.
+TEST(ImageIblIdTest, APlainTextureHasNoIblChildren)
+{
+    Ptr<ImageAsset> texture = MakeImage("engine://Image/albedo.png", ImageUsage::Texture2D);
+
+    EXPECT_FALSE(texture->IrradianceId().IsValid());
+    EXPECT_FALSE(texture->PrefilteredId().IsValid());
+    EXPECT_EQ(texture->GetIrradianceAsset(), nullptr);
+    EXPECT_EQ(texture->GetPrefilteredAsset(), nullptr);
+}
+
+// ============================================================================
 // Cook cache
 // ============================================================================
 

@@ -14,9 +14,6 @@ namespace Spark::Resource
 {
     namespace
     {
-        constexpr const char* kIrradianceSubLabel  = "ibl/irradiance";
-        constexpr const char* kPrefilteredSubLabel = "ibl/prefiltered";
-
         const ImageAssetDescriptor* GetImageDescriptor(const AssetId& id)
         {
             return static_cast<const ImageAssetDescriptor*>(id.GetDescriptor());
@@ -83,7 +80,10 @@ namespace Spark::Resource
     {
         const auto& image = static_cast<const ImageAssetData&>(compiled);
 
-        if (image.GetIrradianceAsset() || image.GetPrefilteredAsset())
+        // Every cube today is an environment bake's sky, and no KTX2 container carries the
+        // two sub-assets baked alongside it -- a hit would restore a sky with its IBL gone.
+        // Lifts once a cache entry can hold a whole build unit.
+        if (image.IsCubemap())
         {
             return {};
         }
@@ -153,12 +153,14 @@ namespace Spark::Resource
         // returns, so anyone seeing the sky cube go Ready finds both children already Ready.
         Ptr<Asset> irradiance = PublishSubAsset(
             ctx,
-            ImageAsset::MakeSubId(ctx.id, kIrradianceSubLabel, ImageUsage::IrradianceCubemap),
+            ImageAsset::MakeSubId(ctx.id, ImageAsset::kIrradianceSubLabel,
+                                  ImageUsage::IrradianceCubemap),
             MakeUnique<ImageBakedRawData>(eastl::move(env.irradiance)));
 
         Ptr<Asset> prefiltered = PublishSubAsset(
             ctx,
-            ImageAsset::MakeSubId(ctx.id, kPrefilteredSubLabel, ImageUsage::PrefilteredCubemap),
+            ImageAsset::MakeSubId(ctx.id, ImageAsset::kPrefilteredSubLabel,
+                                  ImageUsage::PrefilteredCubemap),
             MakeUnique<ImageBakedRawData>(eastl::move(env.prefiltered)));
 
         if (!irradiance || !prefiltered)
@@ -176,18 +178,16 @@ namespace Spark::Resource
             return nullptr;
         }
 
-        auto& sky = static_cast<ImageAssetData&>(*skyData);
-        sky.m_irradiance  = Ptr<ImageAsset>(static_cast<ImageAsset*>(irradiance.get()));
-        sky.m_prefiltered = Ptr<ImageAsset>(static_cast<ImageAsset*>(prefiltered.get()));
+        const auto& sky = static_cast<const ImageAssetData&>(*skyData);
+        const auto& irr = static_cast<const ImageAsset&>(*irradiance);
+        const auto& pre = static_cast<const ImageAsset&>(*prefiltered);
 
         LOG_INFO("[ImageAssetBuilder] Environment bake {}: sky {}^2 x{} mips, "
                  "irradiance {}^2 x{}, prefiltered {}^2 x{} (6 faces each)",
                  ctx.id.GetPath().c_str(),
                  sky.GetWidth(), sky.GetMipLevels(),
-                 sky.GetIrradianceAsset()->GetWidth(),
-                 sky.GetIrradianceAsset()->GetMipLevels(),
-                 sky.GetPrefilteredAsset()->GetWidth(),
-                 sky.GetPrefilteredAsset()->GetMipLevels());
+                 irr.GetWidth(), irr.GetMipLevels(),
+                 pre.GetWidth(), pre.GetMipLevels());
 
         return skyData;
     }
