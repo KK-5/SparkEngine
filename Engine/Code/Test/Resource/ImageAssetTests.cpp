@@ -74,6 +74,21 @@ protected:
         m_assetManager->Init();
     }
 
+    //! The payload files alone. Each entry also drops a `.unit` manifest beside them, which
+    //! is what makes the unit complete rather than part of what a builder produced.
+    eastl::vector<std::filesystem::path> PayloadEntries() const
+    {
+        eastl::vector<std::filesystem::path> found;
+        for (const std::filesystem::path& path : CacheEntries())
+        {
+            if (path.extension().generic_string() != ".unit")
+            {
+                found.push_back(path);
+            }
+        }
+        return found;
+    }
+
     //! Every file under the cache mount, shard directories walked.
     eastl::vector<std::filesystem::path> CacheEntries() const
     {
@@ -555,10 +570,13 @@ TEST_F(ImageAssetTestFixture, CompilingAnImageWritesOneCacheEntry)
     ASSERT_NE(asset, nullptr);
     ASSERT_TRUE(asset->IsReady());
 
-    const auto entries = CacheEntries();
-    ASSERT_EQ(entries.size(), 1u);
-    EXPECT_EQ(entries[0].extension().generic_string(), std::string(".ktx2"));
-    EXPECT_GT(std::filesystem::file_size(entries[0]), 0u);
+    const auto payloads = PayloadEntries();
+    ASSERT_EQ(payloads.size(), 1u);
+    EXPECT_EQ(payloads[0].extension().generic_string(), std::string(".ktx2"));
+    EXPECT_GT(std::filesystem::file_size(payloads[0]), 0u);
+
+    // Plus the manifest that marks the unit complete.
+    EXPECT_EQ(CacheEntries().size(), 2u);
 }
 
 //! The point of the whole phase: the second build reads the entry instead of decoding the
@@ -583,7 +601,7 @@ TEST_F(ImageAssetTestFixture, ASecondRunRestoresTheSamePayloadFromCache)
         format = cooked->GetFormat();
         pixels = cooked->GetTextureBytes();
     }
-    ASSERT_EQ(CacheEntries().size(), 1u);
+    ASSERT_EQ(PayloadEntries().size(), 1u);
 
     Restart();
 
@@ -600,7 +618,7 @@ TEST_F(ImageAssetTestFixture, ASecondRunRestoresTheSamePayloadFromCache)
     EXPECT_EQ(fromCache->GetTextureBytes(), pixels);
 
     // Still one entry: a hit must not write anything back.
-    EXPECT_EQ(CacheEntries().size(), 1u);
+    EXPECT_EQ(PayloadEntries().size(), 1u);
 }
 
 TEST_F(ImageAssetTestFixture, ATruncatedEntryIsRejectedAndRebuilt)
@@ -608,13 +626,13 @@ TEST_F(ImageAssetTestFixture, ATruncatedEntryIsRejectedAndRebuilt)
     const AssetId id = m_assetManager->MakeAssetId(kCachedImage);
     ASSERT_TRUE(m_assetManager->LoadAsset(id)->IsReady());
 
-    const auto entries = CacheEntries();
-    ASSERT_EQ(entries.size(), 1u);
-    const eastl::vector<uint8_t> intact = ReadAll(entries[0]);
+    const auto payloads = PayloadEntries();
+    ASSERT_EQ(payloads.size(), 1u);
+    const eastl::vector<uint8_t> intact = ReadAll(payloads[0]);
     ASSERT_GT(intact.size(), 1024u);
 
     {
-        std::ofstream truncate(entries[0], std::ios::binary | std::ios::trunc);
+        std::ofstream truncate(payloads[0], std::ios::binary | std::ios::trunc);
         truncate.write(reinterpret_cast<const char*>(intact.data()), 512);
     }
 
@@ -623,8 +641,8 @@ TEST_F(ImageAssetTestFixture, ATruncatedEntryIsRejectedAndRebuilt)
     ASSERT_TRUE(rebuilt && rebuilt->IsReady());
 
     // Rebuilt from source and written back over the same path, so the entry is whole again.
-    ASSERT_EQ(CacheEntries().size(), 1u);
-    EXPECT_EQ(ReadAll(entries[0]), intact);
+    ASSERT_EQ(PayloadEntries().size(), 1u);
+    EXPECT_EQ(ReadAll(payloads[0]), intact);
 }
 
 //! A key collision would land one asset on another's entry. The identity stored inside the
@@ -634,10 +652,10 @@ TEST_F(ImageAssetTestFixture, AnEntryWithAForeignIdentityIsRejected)
     const AssetId id = m_assetManager->MakeAssetId(kCachedImage);
     ASSERT_TRUE(m_assetManager->LoadAsset(id)->IsReady());
 
-    const auto entries = CacheEntries();
-    ASSERT_EQ(entries.size(), 1u);
+    const auto payloads = PayloadEntries();
+    ASSERT_EQ(payloads.size(), 1u);
 
-    const eastl::vector<uint8_t> intact = ReadAll(entries[0]);
+    const eastl::vector<uint8_t> intact = ReadAll(payloads[0]);
     eastl::vector<uint8_t>       forged = intact;
 
     const eastl::string_view needle("engine://Image/Test/");
@@ -648,7 +666,7 @@ TEST_F(ImageAssetTestFixture, AnEntryWithAForeignIdentityIsRejected)
     // container stays valid, so only the identity check can reject this.
     forged[static_cast<size_t>(found - forged.begin())] = 'X';
     {
-        std::ofstream rewrite(entries[0], std::ios::binary | std::ios::trunc);
+        std::ofstream rewrite(payloads[0], std::ios::binary | std::ios::trunc);
         rewrite.write(reinterpret_cast<const char*>(forged.data()), forged.size());
     }
 
@@ -657,7 +675,7 @@ TEST_F(ImageAssetTestFixture, AnEntryWithAForeignIdentityIsRejected)
     ASSERT_TRUE(rebuilt && rebuilt->IsReady());
 
     // Rebuilt from source, so the forged entry is gone.
-    EXPECT_EQ(ReadAll(entries[0]), intact);
+    EXPECT_EQ(ReadAll(payloads[0]), intact);
 }
 
 //! Its cooked form IS its source file, so caching it would copy that file and then never

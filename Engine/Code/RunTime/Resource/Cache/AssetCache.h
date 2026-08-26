@@ -31,6 +31,24 @@ namespace Spark::Resource
         bool IsCacheable() const { return !path.empty(); }
     };
 
+    //! One sub-asset's cooked bytes and the id naming them. Position is meaningful: entry N
+    //! lands at `<key>.N<ext>`, and the manifest is what maps the two back together.
+    struct CacheSubPayload
+    {
+        AssetId                id;
+        eastl::vector<uint8_t> bytes;
+    };
+
+    //! Everything one build produced. Read and written whole, because a sub-asset's source
+    //! bytes live inside the root's file: it has nothing of its own to stamp, so "the root
+    //! hit but a sub-asset is missing" must not be a reachable state.
+    struct CacheUnit
+    {
+        //! The asset EntryFor was asked about. The whole unit when `subs` is empty.
+        eastl::vector<uint8_t>         root;
+        eastl::vector<CacheSubPayload> subs;
+    };
+
     //! Cache policy in one place -- what the key is made of, where an entry lands. Builders
     //! own only their own format and never see a path or a key.
     class AssetCache
@@ -48,10 +66,13 @@ namespace Spark::Resource
         //! so it has nothing to stamp), or an unstampable source.
         CacheEntry EntryFor(const AssetId& id) const;
 
-        //! False on a miss, which is the ordinary first-run outcome and not an error.
-        bool Read(const CacheEntry& entry, eastl::vector<uint8_t>& out) const;
+        //! False on a miss, which is the ordinary first-run outcome and not an error. A unit
+        //! missing its manifest, or any one payload, misses as a whole -- never partially.
+        bool ReadUnit(const CacheEntry& entry, CacheUnit& out) const;
 
-        bool Write(const CacheEntry& entry, const eastl::vector<uint8_t>& blob) const;
+        //! Payloads first, manifest last: the manifest's presence is what marks the unit
+        //! complete, so an interrupted write leaves a miss rather than a truncated unit.
+        bool WriteUnit(const CacheEntry& entry, const CacheUnit& unit) const;
 
     private:
         const FileSystem& m_fileSystem;

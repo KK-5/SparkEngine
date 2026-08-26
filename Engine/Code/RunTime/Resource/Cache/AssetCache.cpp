@@ -66,6 +66,38 @@ namespace Spark::Resource
             path += extension;
             return path;
         }
+
+        //! Split `<stem>.<ext>`. The key is hex and the mount name carries no dot, so the
+        //! last dot is always the extension's.
+        size_t ExtensionDot(const eastl::string& path)
+        {
+            const size_t dot = path.rfind('.');
+            return dot == eastl::string::npos ? path.size() : dot;
+        }
+
+        //! `<stem>.<n><ext>` -- a sibling of the root payload, same format, same key.
+        eastl::string SubPayloadPath(const CacheEntry& entry, size_t index)
+        {
+            const size_t dot = ExtensionDot(entry.path);
+
+            char suffix[24];
+            snprintf(suffix, sizeof(suffix), ".%zu", index);
+
+            eastl::string path(entry.path.c_str(), dot);
+            path += suffix;
+            path.append(entry.path.c_str() + dot, entry.path.size() - dot);
+            return path;
+        }
+
+        eastl::string ManifestPath(const CacheEntry& entry)
+        {
+            eastl::string path(entry.path.c_str(), ExtensionDot(entry.path));
+            path += ".unit";
+            return path;
+        }
+
+        constexpr const char* kManifestIdentityKey = "identity";
+        constexpr const char* kManifestSubAssetsKey = "subAssets";
     }
 
     AssetCache::AssetCache(const FileSystem& fileSystem)
@@ -144,23 +176,119 @@ namespace Spark::Resource
         return entry;
     }
 
-    bool AssetCache::Read(const CacheEntry& entry, eastl::vector<uint8_t>& out) const
+    bool AssetCache::ReadUnit(const CacheEntry& entry, CacheUnit& out) const
     {
-        // Exists first: ReadFile logs a missing file as an error, and a cold cache misses
-        // on every asset.
-        if (!entry.IsCacheable() || !m_fileSystem.Exists(entry.path))
+        if (!entry.IsCacheable())
         {
             return false;
         }
-        return m_fileSystem.ReadFile(entry.path, out);
+
+        // Exists first: ReadFile logs a missing file as an error, and a cold cache misses
+        // on every asset. The manifest is written last, so its absence is the miss.
+        const eastl::string manifestPath = ManifestPath(entry);
+        eastl::vector<uint8_t> manifestBytes;
+        if (!m_fileSystem.Exists(manifestPath)
+            || !m_fileSystem.ReadFile(manifestPath, manifestBytes))
+        {
+            return false;
+        }
+
+        const JsonValue manifest = JsonValue::parse(
+            manifestBytes.begin(), manifestBytes.end(), nullptr, /*allow_exceptions=*/ false);
+        if (manifest.is_discarded() || !manifest.is_object())
+        {
+            LOG_WARN("[AssetCache] Unreadable manifest {}", manifestPath.c_str());
+            return false;
+        }
+
+        // Same collision defense the payloads carry, one level up: it covers the manifest
+        // itself, which has no format of its own to hide an identity in.
+        const auto identity = manifest.find(kManifestIdentityKey);
+        if (identity == manifest.end() || !identity->is_string()
+            || identity->get<std::string>() != std::string(entry.identity.c_str()))
+        {
+            LOG_WARN("[AssetCache] Manifest {} belongs to another asset.", manifestPath.c_str());
+            return false;
+        }
+
+        CacheUnit unit;
+        if (!m_fileSystem.Exists(entry.path) || !m_fileSystem.ReadFile(entry.path, unit.root))
+        {
+            LOG_WARN("[AssetCache] Unit {} has a manifest but no root payload.",
+                manifestPath.c_str());
+            return false;
+        }
+
+        const auto subs = manifest.find(kManifestSubAssetsKey);
+        if (subs != manifest.end() && subs->is_array())
+        {
+            unit.subs.reserve(subs->size());
+            for (const JsonValue& subJson : *subs)
+            {
+                CacheSubPayload sub;
+                sub.id = AssetIdFromJson(subJson);
+                if (!sub.id.IsValid())
+                {
+                    LOG_WARN("[AssetCache] Unit {} names a sub-asset it cannot resolve.",
+                        manifestPath.c_str());
+                    return false;
+                }
+
+                const eastl::string subPath = SubPayloadPath(entry, unit.subs.size());
+                if (!m_fileSystem.Exists(subPath) || !m_fileSystem.ReadFile(subPath, sub.bytes))
+                {
+                    LOG_WARN("[AssetCache] Unit {} is missing payload {}.",
+                        manifestPath.c_str(), subPath.c_str());
+                    return false;
+                }
+                unit.subs.push_back(eastl::move(sub));
+            }
+        }
+
+        out = eastl::move(unit);
+        return true;
     }
 
-    bool AssetCache::Write(const CacheEntry& entry, const eastl::vector<uint8_t>& blob) const
+    bool AssetCache::WriteUnit(const CacheEntry& entry, const CacheUnit& unit) const
     {
-        if (!entry.IsCacheable() || blob.empty())
+        if (!entry.IsCacheable() || unit.root.empty())
         {
             return false;
         }
-        return m_fileSystem.WriteFile(entry.path, blob.data(), blob.size());
+
+        JsonValue subIds = JsonValue::array();
+        for (const CacheSubPayload& sub : unit.subs)
+        {
+            // A sub with no bytes means its builder declined to serialize; the unit cannot
+            // be stored without it, so the whole write is off.
+            JsonValue subJson;
+            if (sub.bytes.empty() || !AssetIdToJson(sub.id, subJson))
+            {
+                return false;
+            }
+            subIds.push_back(eastl::move(subJson));
+        }
+
+        if (!m_fileSystem.WriteFile(entry.path, unit.root.data(), unit.root.size()))
+        {
+            return false;
+        }
+        for (size_t i = 0; i < unit.subs.size(); ++i)
+        {
+            const eastl::string subPath = SubPayloadPath(entry, i);
+            const eastl::vector<uint8_t>& bytes = unit.subs[i].bytes;
+            if (!m_fileSystem.WriteFile(subPath, bytes.data(), bytes.size()))
+            {
+                return false;
+            }
+        }
+
+        JsonValue manifest = JsonValue::object();
+        manifest[kManifestIdentityKey]  = std::string(entry.identity.c_str());
+        manifest[kManifestSubAssetsKey] = eastl::move(subIds);
+
+        const std::string text = manifest.dump();
+        return m_fileSystem.WriteFile(ManifestPath(entry),
+            reinterpret_cast<const uint8_t*>(text.data()), text.size());
     }
 }

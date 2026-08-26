@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+﻿#include <gtest/gtest.h>
 
 #include <filesystem>
 
@@ -175,8 +175,8 @@ TEST_F(AssetCacheTestFixture, ReadMissesBeforeAnythingIsWritten)
     const CacheEntry entry = cache.EntryFor(ImageId("test://Texture.png"));
     ASSERT_TRUE(entry.IsCacheable());
 
-    eastl::vector<uint8_t> blob;
-    EXPECT_FALSE(cache.Read(entry, blob));
+    CacheUnit unit;
+    EXPECT_FALSE(cache.ReadUnit(entry, unit));
 }
 
 TEST_F(AssetCacheTestFixture, WriteThenReadRoundTrips)
@@ -186,12 +186,14 @@ TEST_F(AssetCacheTestFixture, WriteThenReadRoundTrips)
     const CacheEntry entry = cache.EntryFor(ImageId("test://Texture.png"));
     ASSERT_TRUE(entry.IsCacheable());
 
-    const eastl::vector<uint8_t> written = {0x01, 0x02, 0x03};
-    ASSERT_TRUE(cache.Write(entry, written));
+    CacheUnit written;
+    written.root = {0x01, 0x02, 0x03};
+    ASSERT_TRUE(cache.WriteUnit(entry, written));
 
-    eastl::vector<uint8_t> read;
-    ASSERT_TRUE(cache.Read(entry, read));
-    EXPECT_EQ(read, written);
+    CacheUnit read;
+    ASSERT_TRUE(cache.ReadUnit(entry, read));
+    EXPECT_EQ(read.root, written.root);
+    EXPECT_TRUE(read.subs.empty());
 }
 
 //! How the sandbox programs and the other fixtures keep behaving as they did before.
@@ -205,14 +207,151 @@ TEST_F(AssetCacheTestFixture, AnUnmountedCacheDisablesEverything)
 
     EXPECT_FALSE(entry.IsCacheable());
 
-    eastl::vector<uint8_t> blob = {1};
-    EXPECT_FALSE(cache.Write(entry, blob));
-    EXPECT_FALSE(cache.Read(entry, blob));
+    CacheUnit unit;
+    unit.root = {1};
+    EXPECT_FALSE(cache.WriteUnit(entry, unit));
+    EXPECT_FALSE(cache.ReadUnit(entry, unit));
+}
+
+// ============================================================================
+// Build units
+// ============================================================================
+
+namespace
+{
+    //! A parent with two children, each carrying bytes that identify which one it is.
+    CacheUnit MakeUnit(const AssetId& parentId)
+    {
+        CacheUnit unit;
+        unit.root = {0xAA, 0xBB};
+        unit.subs.push_back({ImageAsset::MakeSubId(parentId, "image/0", ImageUsage::Texture2D),
+                             {0x00, 0x10, 0x20}});
+        unit.subs.push_back({ImageAsset::MakeSubId(parentId, "image/1", ImageUsage::NormalMap),
+                             {0x01, 0x11}});
+        return unit;
+    }
+
+    eastl::vector<fs::path> FilesUnder(const fs::path& root)
+    {
+        eastl::vector<fs::path> found;
+        std::error_code ec;
+        for (auto it = fs::recursive_directory_iterator(root, ec), end = fs::recursive_directory_iterator();
+             it != end; it.increment(ec))
+        {
+            if (!it->is_directory(ec))
+            {
+                found.push_back(it->path());
+            }
+        }
+        return found;
+    }
+}
+
+TEST_F(AssetCacheTestFixture, AUnitRoundTripsWithItsSubAssets)
+{
+    const AssetCache cache(m_table);
+    const AssetId    parentId = ImageId("test://Texture.png");
+    const CacheEntry entry    = cache.EntryFor(parentId);
+    ASSERT_TRUE(entry.IsCacheable());
+
+    const CacheUnit written = MakeUnit(parentId);
+    ASSERT_TRUE(cache.WriteUnit(entry, written));
+
+    CacheUnit read;
+    ASSERT_TRUE(cache.ReadUnit(entry, read));
+    EXPECT_EQ(read.root, written.root);
+    ASSERT_EQ(read.subs.size(), written.subs.size());
+    for (size_t i = 0; i < read.subs.size(); ++i)
+    {
+        EXPECT_EQ(read.subs[i].id,    written.subs[i].id)    << "sub " << i;
+        EXPECT_EQ(read.subs[i].bytes, written.subs[i].bytes) << "sub " << i;
+    }
+
+    // Parent payload + two sub payloads + the manifest.
+    EXPECT_EQ(FilesUnder(m_root / "Cache").size(), 4u);
+}
+
+//! The whole point of the manifest: a unit is atomic, so losing one payload must not
+//! surface as a parent that hit with a child quietly missing.
+TEST_F(AssetCacheTestFixture, AUnitMissingOnePayloadMissesEntirely)
+{
+    const AssetCache cache(m_table);
+    const AssetId    parentId = ImageId("test://Texture.png");
+    const CacheEntry entry    = cache.EntryFor(parentId);
+
+    ASSERT_TRUE(cache.WriteUnit(entry, MakeUnit(parentId)));
+
+    // Delete the second sub-asset's payload, leaving the manifest and everything else.
+    std::error_code ec;
+    for (const fs::path& file : FilesUnder(m_root / "Cache"))
+    {
+        if (file.filename().generic_string().find(".1.") != std::string::npos)
+        {
+            fs::remove(file, ec);
+        }
+    }
+
+    CacheUnit read;
+    EXPECT_FALSE(cache.ReadUnit(entry, read));
+}
+
+//! The manifest is written last, so an interrupted write is a miss, not a partial unit.
+TEST_F(AssetCacheTestFixture, PayloadsWithoutAManifestMiss)
+{
+    const AssetCache cache(m_table);
+    const AssetId    parentId = ImageId("test://Texture.png");
+    const CacheEntry entry    = cache.EntryFor(parentId);
+
+    ASSERT_TRUE(cache.WriteUnit(entry, MakeUnit(parentId)));
+
+    std::error_code ec;
+    for (const fs::path& file : FilesUnder(m_root / "Cache"))
+    {
+        if (file.extension().generic_string() == ".unit")
+        {
+            fs::remove(file, ec);
+        }
+    }
+
+    CacheUnit read;
+    EXPECT_FALSE(cache.ReadUnit(entry, read));
+}
+
+//! Same collision defense the payloads carry, one level up.
+TEST_F(AssetCacheTestFixture, AManifestBelongingToAnotherAssetIsRejected)
+{
+    const AssetCache cache(m_table);
+    const AssetId    parentId = ImageId("test://Texture.png");
+    CacheEntry       entry    = cache.EntryFor(parentId);
+
+    ASSERT_TRUE(cache.WriteUnit(entry, MakeUnit(parentId)));
+
+    // Same key, a different identity -- what a hash collision would look like.
+    entry.identity += " (not this one)";
+
+    CacheUnit read;
+    EXPECT_FALSE(cache.ReadUnit(entry, read));
+}
+
+//! A declined sub payload cannot be silently dropped: the unit would come back short.
+TEST_F(AssetCacheTestFixture, AUnitWithAnEmptySubPayloadIsNotWritten)
+{
+    const AssetCache cache(m_table);
+    const AssetId    parentId = ImageId("test://Texture.png");
+    const CacheEntry entry    = cache.EntryFor(parentId);
+
+    CacheUnit unit = MakeUnit(parentId);
+    unit.subs[1].bytes.clear();
+
+    EXPECT_FALSE(cache.WriteUnit(entry, unit));
+
+    CacheUnit read;
+    EXPECT_FALSE(cache.ReadUnit(entry, read));
 }
 
 TEST(CacheFormatTest, OnlyImageHasAFormatToday)
 {
-    EXPECT_EQ(GetCacheFormat(AssetType::Image).version, 1u);
+    EXPECT_EQ(GetCacheFormat(AssetType::Image).version, 2u);
     EXPECT_STREQ(GetCacheFormat(AssetType::Image).extension, ".ktx2");
 
     EXPECT_EQ(GetCacheFormat(AssetType::Shader).version, 0u);

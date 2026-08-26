@@ -282,11 +282,12 @@ namespace Spark::Resource
         const CacheEntry entry = m_cache->EntryFor(ctx.id);
         const eastl::string_view identity(entry.identity.c_str(), entry.identity.size());
 
-        eastl::vector<uint8_t> cached;
-        if (m_cache->Read(entry, cached))
+        CacheUnit cached;
+        if (m_cache->ReadUnit(entry, cached))
         {
             UniquePtr<AssetData> restored;
-            AssetBuildBus::EventResult(restored, type, &AssetBuildEvents::Deserialize, cached.data(), cached.size(), identity);
+            AssetBuildBus::EventResult(restored, type, &AssetBuildEvents::Deserialize,
+                cached.root.data(), cached.root.size(), identity);
 
             if (restored)
             {
@@ -321,10 +322,12 @@ namespace Spark::Resource
         }
 
         // Whether this is worth storing was decided by EntryFor; a builder that declines
-        // says so with an empty blob.
-        eastl::vector<uint8_t> cooked;
-        AssetBuildBus::EventResult(cooked, type, &AssetBuildEvents::Serialize, *ctx.compiledData, identity);
-        m_cache->Write(entry, cooked);
+        // says so with an empty blob. Sub-asset payloads join the unit once Compile can
+        // declare them.
+        CacheUnit cooked;
+        AssetBuildBus::EventResult(cooked.root, type, &AssetBuildEvents::Serialize,
+            *ctx.compiledData, identity);
+        m_cache->WriteUnit(entry, cooked);
 
         asset.SetDataReady(eastl::move(ctx.compiledData));
         AssetBus::Event(type, &AssetBus::Events::OnAssetReady, asset);

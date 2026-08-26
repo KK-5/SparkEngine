@@ -7,7 +7,7 @@ namespace Spark::Resource
         switch (type)
         {
         case AssetType::Image:
-            return {1, ".ktx2"};
+            return {2, ".ktx2"};
 
         // Shader waits on a dependency mechanism, Model on that plus the sub-asset
         // unification -- both have inputs the key cannot describe.
