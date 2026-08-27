@@ -40,6 +40,11 @@ KTX2 读写支持 cube，`ImageAssetData` 用 `m_isCubemap` 说明自己而不�
 （payload 若干 + `.unit` 清单），两个手写 publisher 删除，发布收敛成 `ProcessAsset` 里的两阶段提交。
 shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.glb` model 只差一个二进制格式（待办 D）。
 
+**阶段 2 与阶段 4 的设计已定，尚未动工。** 阶段 2 的机制（`Func` 钩子、分派链位置、`null` 语义、
+失败语义、数学类型走标记而非 codec）与阶段 4 的形态（entity-major、多上下文、entity 原值当键、
+storage-major 取数据）都已落到文档里。两件前置还没做：**去掉默认省略**（见「待决」）与**定下落盘的
+key 用什么名字**。
+
 另有两项已随 0.a 落地：
 
 - 三个 descriptor 的 `Hash()` 用 `HashString("XxxDescriptor")` 做种子，避免跨类型撞哈希。
@@ -92,6 +97,10 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 8. **JSON 使用 vendor 的 `nlohmann/json.hpp` 单头文件。**
 9. **挂载表独立成 `Core/VFS/` 模块**，namespace `Spark`。接口 `FileSystem`，实现 `MountTable`，
    系统 `VFSSystem`。
+10. **类型自带编解码的钩子 = 类型上一对反射 `Func`（`"ToJson"` / `"FromJson"`），查表放分派链最
+    前面，命中即终局。** 判据是「不能由字段遍历重建的类型」，不是「leaf 类型特判」。见阶段 2。
+11. **场景文件是 entity-major、多上下文；键直接用 entt 的 entity 原值**，不做重映射下标、不引入额外
+    id。取数据仍按 storage-major 遍历。见阶段 4。
 
 ---
 
@@ -285,6 +294,8 @@ bool DeserializeFromJson(const JsonValue& in, MetaAny& target);
 
 省略默认值是类类型序列化的固有行为，**逐层生效**，不做成开关：嵌套结构全默认时塌成 `{}`，父层再比
 一次又整个省掉，规则只有一条。不可默认构造的类型退化成全字段写出。
+
+> **「不做成开关」这条已被推翻。** 组件层不能省默认值，见「待决」的「去掉默认省略」。
 
 **字段顺序是确定的**：entt 用 `std::vector<meta_data_node>` 存字段，迭代即注册顺序；配上
 `ordered_json`，落盘顺序 == 反射注册顺序。测试可直接断言 `dump()` 字面量。
@@ -925,19 +936,117 @@ identity 就是它自己 AssetId 的 JSON（`AssetCache::IdentityFor`），算�
 
 ## 阶段 2：把序列化器铺到组件
 
-> 大致方向。序列化器本体在 0.c 已建好，这里是应用面。
+> 序列化器本体在 0.c 已建好，这里是应用面。**机制已定，字段清单与命名待定。**
 
-- 给该落盘的组件字段标 `MetaFieldTraits::Serializable`（0.c 已建）。`Mesh/Reflect.h:23-26` 的
-  `m_vertexCount` / `m_triangleCount` 是从 model asset 算出的派生值，不标——存了会在磁盘上造出
-  第二个真相来源，模型换了而场景文件没跟着变就是错的。
-- **先补「类型自带编解码」的钩子**：序列化器在复合分支之前，先看这个 `MetaType` 上有没有注册一对
-  编解码函数，有就调。`Resource/Reflect.h` 为 `AssetId` 注册 `AssetIdToJson` / `AssetIdFromJson`，
-  `SparkCore` 里不出现 `Resource`。没有这个钩子，标了 `Serializable` 的 `AssetId` 字段会被通用遍历
-  走进去，产出缺 `desc` 的三项对象——语法完好、字段齐全，但法线贴图会静默变成 sRGB 颜色贴图。
-- 补齐 leaf 类型特判：`Math::Vector3/4`、`Matrix4X4`、`Entity`、
-  `MaterialHandle`。
-- 「这个组件整体是否持久化」是类型级问题，归 `ComponentTraits`，与 `editable` 并列。零字段的 tag
-  组件只有类型级能表达。阶段 4 做组件发现时才需要。
+把六个 `Reflect.h` 的反射字段按类型清点一遍，通用遍历搞不定的只有 `AssetId`（`MeshComponent`、
+`SkyboxComponent`、`MaterialParams` ×5）与 `MaterialHandle`（`MaterialComponent` ×1）。其余
+标量 / 枚举 / `eastl::string` / 数学类型今天就能走通。
+
+### 钩子 = 类型上的一对反射 `Func`
+
+名为 `"ToJson"` / `"FromJson"`，注册走一个签名受编译期检查的 helper。判据不是「leaf 类型特判」，是：
+
+> **不能由字段遍历重建的类型，才需要钩子。**
+
+问一句「这个类型能不能靠逐个 `data.set()` 拼出来」，能就不用。`AssetId` 不能，两条**互相独立**的原因：
+
+1. **它不可变，没有 setter。** 三个字段全是 `.Data<nullptr, &Getter>`（`m_hash` 是
+   `f(path, sub, type, desc)` 的派生值，entt 对任何非 const 成员都会无条件装 setter，逐字段写会
+   留下哈希过期的 id）。于是 `ReadObject` 的「取副本 → 填 → `set()` 回去」在它身上没有落点，
+   **只能 `AssetId::Of(...)` 一次构造**。
+2. **`desc` 的具体类型由 `type` 的值决定**，字段遍历表达不了这种依赖。
+
+**不走旁表。** 曾考虑按 `TypeId` 索引的独立注册表，否掉：`Func` 是开放命名空间（`Custom` 是单槽、
+已被 `ComponentTraitsRuntime` / `UIElement` 占，类型级 `Traits` 是共享位掩码、`MetaTypeTraits` 在用），
+而 `ComponentOperation` 已经是「把自由函数挂到类型上」这个路子；旁表要多配一套生命周期。
+
+唯一的代价：`Func<&Fn>` 会对每个参数类型实例化 `internal::resolve<T>`，其中
+`std::is_default_constructible_v`（`node.hpp:282`）**要求完整类型**，所以注册那一行必须落在 `.cpp` 里。
+`Resource` 侧放 `AssetJsonSerializer.cpp`（本来就 include 了 `json.hpp`），`Reflect.h` 只调一行声明。
+
+### 查钩子放在分派链最前面
+
+不是原先写的「复合分支之前」。理由不是某个具体类型够不着，而是：**显式注册本身就是「我不走默认推断」
+的声明，它没有理由排在五条按形状猜的分支后面。** 规则于是只剩一句「注册了 codec 的类型完全接管」，
+不用记它跟内建分支的相对次序，将来加第六条内建分支也不用重想。
+
+不违反 0.c 的「枚举判定先于任何 cast」：查表是 `type.func(...)`，只用已抓下的 `type`，不碰 value、
+不做 cast。对没进过 `meta_factory` 的类型（`float` 等），`look_for`（`node.hpp:174`）第一句
+`if(node.details)` 即返回，开销可忽略。
+
+一条附带事实：entt 的 func 查找沿 `base` 上溯，所以反射了 `.Base<T>()` 的类型会继承 `T` 的 codec。
+今天没有这种反射继承关系，将来加时记得。
+
+### `null` = 未指定
+
+一条通用约定，不只对 `AssetId`：
+
+> **codec 对「未指定」一律编码为 `null`；`null` 解码回该类型的未指定值。**
+
+判断必须在 codec 内 —— 序列化器手里只有 `MetaAny`，问不出「这个值算不算空」。不在序列化器里统一拦
+`null`：那会把「未指定」等同于「默认构造」，还会让 `null` 落在 float 字段上时静默变成 0。
+**非 codec 类型上出现 `null` 视为格式错误。**
+
+`AssetId` 的两个包装：
+
+```cpp
+bool AssetIdToJsonField(const AssetId& id, JsonValue& out)
+{ if (!id.IsValid()) { out = nullptr; return true; } return AssetIdToJson(id, out); }
+
+bool AssetIdFromJsonField(const JsonValue& in, AssetId& target)
+{ if (in.is_null()) { target = {}; return true; } target = AssetIdFromJson(in); return target.IsValid(); }
+```
+
+`AssetIdToJson` / `AssetIdFromJson` 本身**一个字不动** —— 缓存的 identity 要它对无效 id 严格报错。
+读侧这层是必须的：`AssetIdFromJson` 今天在**失败时也返回默认 id**，包一层才能把「未指定」和
+「这段 JSON 是坏的」分开。
+
+组件里的空 `AssetId` 是常态（未赋值的模型槽、五个空贴图槽），所以这条不是边角料 —— 直接把
+`AssetIdToJson` 接上去，存一个默认材质会刷五条 ERROR 且整个组件判失败。
+
+### 钩子命中即终局
+
+失败 `LOG_ERROR` + false，**绝不回落到通用分派**。`null` 已经把「空」接走了，剩下的失败只有
+「反射没注册」和「数据损坏」，都不是可降级的东西。回落正是要防的那个失败模式：`AssetId` 掉回复合
+分支 → 缺 `desc` → 法线贴图静默变成 sRGB 颜色贴图。
+
+### 数学类型标 `Serializable`，不写 codec
+
+`Math::Vector2/3/4` + `Quaternion` 的分量加 `Traits`（13 行）。它们**能**逐字段重建，按上面的判据
+就不该用钩子。曾考虑 codec 产出 `[x,y,z]`，两条反对理由（项数不固定、往已有对象里读时逐分量合并）
+**都是默认省略造成的**，见「待决」那条；去掉之后 A 也永远写三项。
+
+原文列的 `Matrix4X4` 与 `Entity` **删除** —— 全仓没有任何这两个类型的反射字段（`Hierarchy` 压根
+没反射，`LocalTransformMatrix` / `WorldTransformMatrix` 是 `TransformComponent` 的派生值，
+`CameraComponent` 里也没有矩阵）。等第一个用例出现再加，加法是一行注册。
+
+（顺带查过一个可能的陷阱：`glm::vec3` 在本工程配置下是 `vec() = default`（`setup.hpp:855`），
+entt 的 `type.construct()` 用 `plain_type()` 值初始化（`any.hpp:135`），defaulted 而非 user-provided
+的默认构造会先零初始化，拿到的是确定的 `{0,0,0}` 而不是未初始化内存。）
+
+### 不标的
+
+`MeshComponent::m_vertexCount` / `m_triangleCount` 是从 model asset 算出的派生值——存了会在磁盘上
+造出第二个真相来源，模型换了而场景文件没跟着变就是错的。`m_modelAsset`（`Ptr`）与
+`MaterialTexture::m_image` 本来就没反射，不用管。
+
+`MaterialComponent::m_material` 阶段 2 先不标，见阶段 3 的「`MaterialHandle` 怎么落盘」。漏标的后果
+今天已经是响的（无枚举项的 `enum class` 走进枚举分支 → `WriteEnum` 找不到枚举项 → `LOG_WARN` +
+`ok = false`），不用额外加守卫。
+
+### 待定
+
+- **落盘的 key 用什么名字。** 组件 key 与字段 key 都来自反射注册名，而这些名字今天是**给 Inspector
+  看的显示名**（`"Mesh Index"`、`"Base Color Map"`）。一旦落盘就冻结成文件格式，跟枚举名同一条规则 ——
+  **改一个 Inspector 上的标签文字就废掉所有已存的场景文件**，而那是个看起来毫无风险的动作。三条路：
+  接受并冻结／字段名改成代码名、显示名另挂（挂进 `UIElement`，或由代码名推导）／加一个序列化专用名。
+  **这条卡在打标记之前** —— 打标记之前得先知道盘上的 key 是什么。
+- **`MaterialParams` 算阶段 2 还是阶段 3。** 它是唯一走 `Data<Set,Get>` 的字段，标了能让 setter
+  那条路（编辑器 drag-drop 在用）被序列化测试覆盖。
+- 完整字段清单、验收面（没有场景序列化器，阶段 2 的产物只能是单测里的组件 round-trip）、步骤拆分。
+
+「这个组件整体是否持久化」是类型级问题，归 `ComponentTraits`，与 `editable` 并列。零字段的 tag
+组件只有类型级能表达。阶段 4 才需要。
 
 ---
 
@@ -956,29 +1065,174 @@ identity 就是它自己 AssetId 的 JSON（`AssetCache::IdentityFor`），算�
 **待细化：** authored 材质结构最终落在哪个模块，以及 `MaterialParams` 里那个运行时的
 `Ptr<ImageAsset> m_image` 怎么摘干净；`alphaMode` / `alphaCutoff` 这类今天被丢弃的字段要不要收进来。
 
+### `MaterialHandle` 怎么落盘（未定）
+
+已确立的几点：
+
+- **它的语义是「一个材质」，句柄只是呈现形式。** 所以它该有 codec，编码的是材质本身而不是那个
+  `uint32_t`。存原始句柄值不行：材质是运行期创建的，下次启动创建顺序不同，同一个数字指向另一个材质
+  或悬空 —— 跟 entt 的 `Entity` 同一类问题。
+- **但材质是共享的**，而且是有意的：`SpawnModel.cpp:92` 明确让同一个 materialIndex 的 primitive
+  复用一个 `MaterialHandle`。把内容内联进每个 `MaterialComponent`，一个 50 primitive / 3 材质的模型
+  读回来会变成 50 个材质 —— 上传 50 条 GPU 材质记录，且改其中一个不再影响其他。
+- 所以 codec 编码的是**「material 上下文里的哪个实体」**，材质内容住在那个上下文里（阶段 4 的多上下文
+  形态）。写时**按 handle 去重、不按内容哈希**，共享关系逐字节保住。
+- **机制上零新东西**：`MaterialExecuteContext::Current()` 已由 `MaterialSystem::InitInternal` 推入
+  （`MaterialSystem.cpp:24`），`CreateMaterial` 是现成的自由函数，`OnComponentConstruct` 对已带值的
+  组件不覆盖（`PreSetMaterialIsNotOverwrittenOnAdd` 守着），所以「先加组件、再反序列化填 handle」
+  不会打架。
+- **`MaterialHandle` 是「实例」不是「资产」。** 材质的应用链是：材质资产 → 创建实例 → 实例被多个组件
+  引用；也可以创建多个实例各带不同参数。后半段今天已经成立（`MaterialContext` 里就是一堆实体），
+  **前半段「从材质资产创建实例」还不存在** —— 那正是本阶段要建的。
+- 因此**场景保存不依赖阶段 3**：改过参数、还没变成 `.smat` 的材质就是上下文里的一个实例，照样能存。
+  阶段 3 落地后表项可以升级成 asset 引用（将来还可以是 asset + overrides），**组件那一侧不用改**。
+
+未定的是表项在阶段 3 前后的形态，以及三件连带的事：常驻默认材质（带 `DefaultMaterialTag`）不该被
+复制一份出来、加载中途 mark-sweep GC 会扫掉还没被任何组件引用的材质、`MaterialParams` 自身怎么序列化。
+
 ---
 
 ## 阶段 4：场景保存
 
-> 大致方向。
+> **文件形态、键、遍历方式已定**，其余待细化。
 
 `SceneSerializer::Save/Load(path)`，由 MenuBar 调用，不进 AssetManager。
 
-- **实体 id 存重映射后的下标**（0..N-1），不是 entt 原始值。加载时先建 index → Entity 表，
-  再回填 parent 和所有 Entity 类型的字段。
-- **不序列化 `Hierarchy` 组件本身**（四个 entity handle，强顺序相关）。只存 `parent`，用数组顺序
-  表达兄弟次序，加载时走 `IScene::SetParent` 重建。
-- 组件发现：遍历 `ReflectContext::GetAllTypes()`，用反射函数 `IsWorldComponent` 过滤，调
-  `HasComponent` / `GetComponent`。
-- 顶层放一张 `"materials": [...]` 表，实体按下标引用。阶段 3 做完后表项基本都能退化成纯 asset 引用。
+### 文件形态：entity-major，多上下文
 
-**待细化：** 加载后 `MeshComponent::m_modelAsset` 那个 `Ptr` 谁来填。今天只有 `SpawnModel` 直接
-赋值。两条路：场景加载时同步 `RequestAsset`，或复用已有的 `AssetResolveBus::ResolveAssetToComponent`
-异步机制（编辑器侧的 `ComponentAssetResolver` 已经在跑）。
+场景存的是**两个 ECS 上下文**：`WorldContext`（实体 + 组件）与 `MaterialContext`（材质实例 +
+`MaterialParams`）。跨引用一条规则：**(上下文, 键)**。原先设想的「顶层一张 `materials` 表」是把第二个
+上下文写成了临时表，删掉。
+
+```json
+{ "contexts": {
+    "world": { "entities": [
+        {"e":0,     "parent":null, "components":{"Name":{"name":"Room"}}},
+        {"e":65537, "parent":0,    "components":{"Name":{"name":"Chair"}, "Material":4}} ] },
+    "material": { "entities": [
+        {"e":4, "components":{"MaterialParams":{...}}} ] } } }
+```
+
+**为什么 entity-major 而不是 storage-major。** storage-major 有实打实的优点 —— 它是内存里的真相、
+写盘不需要回答「这个实体有哪些组件」、读盘按段批量插入同一个 pool、未知组件类型整段跳过。entt 的
+`snapshot` 正是这么做的。决定因素是**场景会被实例化**：加载常常不是「恢复整个世界」，而是「把这些
+对象实例化进一个已有的世界」，那个操作的单位是实体。
+
+分界线不是「ECS 还是 OOP」，是**「世界快照，还是可实例化的创作产物」**。Bevy 是纯 ECS，内存里
+archetype 列存，`DynamicScene` 仍然选 entity-major，理由就是它的 scene 可以被 spawn 进已存在的世界、
+可以重复实例化；entt 的 `snapshot` 选 storage-major，因为它服务的是整世界存档与网络同步。
+（Unity / UE / Godot 一致 object-major，但它们本来就不是 ECS，那个先例的迁移性有限。）
+
+可读性**不是**理由 —— 美术看到不对只能报 bug，引擎开发者有 debugger 和日志。
+
+### 取数据仍按 storage-major
+
+遍历 `registry.storage()`（`registry.hpp:420`），每个 storage 是稠密的、只装真正拥有该组件的实体；
+收集成 `实体 → [类型]` 之后再按实体写出。开销是**组件实例总数**，不是 `实体数 × 注册类型数`。
+以 1000 实体 / 平均 3 组件 / 20 注册类型算，3000 次对 20000 次，而且后者每次还要过一次反射
+`HasComponent` 调用。entt 自己的 `registry::erase_if`（`registry.hpp:824`）就是这个模式。
+
+**不用 entt 的 `snapshot`**：它的类型是模板参数（编译期），要用就得有一份静态的世界组件清单，而组件
+是各模块 `Reflect.h` 各自注册的；它的布局是 storage-major；它的 archive 是流式协议且喂进去的值是静态
+类型的，绕过我们的反射序列化器（`AssetId` 的 codec、字段级 `Serializable` 全部失效）。它的价值在于
+示范了循环该怎么转，不在于直接用。
+
+一个接缝：`storage()` 给的 id 是 `type_hash<T>::value()`，而 `.Type("Transform")` 会把 meta 类型的
+`id` 改成**名字的哈希**（`factory.hpp:176`），`Resolve(TypeId)` 那条路（按 id 线性扫描，
+`resolve.hpp:60`）匹配不上。开场用 `GetAllTypes()` 建一张 `type.info().hash() → MetaType` 表
+（meta context 的 map 键始终是 type_info 哈希，`.Type()` 只改 `elem.id` 字段），之后 O(1) 查。
+
+`BasicContext` 要开一个受控的 `ForEachStorage`，不要把 `entt::registry` 整个漏出去。
+
+`IsWorldComponent` 的角色随之改变：**不再是发现组件的手段**（storage 遍历直接给出实体真正拥有的
+组件），只剩「该不该落盘」这个过滤职责，而那是类型级问题、归 `ComponentTraits`。
+
+### 键：直接用 entt 的 entity 原值
+
+**不做重映射下标，也不引入额外 id。** `Entity` 是 uint32（低 20 位 id + 高 12 位 version，
+`Entity.h:23`），registry 内唯一，天然满足**「显式写出、永不复用、允许空洞」**这三条 —— 而这三条正是
+稳定键的全部要求。`registry.create(hint)`（`registry.hpp:516`）在槽空闲时用给定值，所以能原值还原；
+entt 的 `snapshot_loader` 就是这么干的。要加的只有 `BasicContext::CreateEntity(Entity hint)` 一个重载。
+
+**为什么不能用数组下标（原文那条已推翻）。** 位置隐含的下标下，插入或删除一个实体会让后面所有实体的
+下标平移，**所有指向它们的引用逐个改值**。500 实体的场景删掉中间一个，diff 覆盖半个文件 —— 单人开发
+每天都会遇到，跟并发无关。合并时更糟：两个分支各自重写了同一批引用，git 解完文本冲突后得到一棵
+**静默挂错的树**（正确答案「两次平移的叠加」在两边的文本里都不存在）。
+
+用键之后这批改动**根本不产生**：`"parent":0` 里的 0 永远指同一个实体，前面插多少东西都不动它。
+
+**两条加载路径不冲突：**
+
+| | 值怎么处理 | 是否写回原文件 |
+|---|---|---|
+| 打开场景编辑 | 加载进空世界，`create(hint)` 原值还原 | 会 —— 键不变，diff 稳定 |
+| 实例化进已有世界 | 值可能被占；同一场景实例化两次必撞 → 重映射 | 不会 |
+
+需要重映射的不写回，需要写回的不重映射。那张 `文件键 → Entity` 表仍然存在，只是在「打开场景」这条路
+上是**恒等映射**。一套机制，一种情况下退化。
+
+`MaterialHandle` 同样用原值当键 —— 它也是 entt 实体，同一条规则。
+
+两个实现注意点：
+
+- **值里带 version。** 删掉一个实体再建，值会变（version+1）—— 那本来就是另一个实体，键跟着变是对的。
+- **还原必须在世界为空时做**，否则 `create(hint)` 会静默降级成「随便给一个」。加载路径要么保证空世界、
+  要么显式走重映射分支，不能让两者混在一起靠运气。
+
+**已知边界：并发编辑。** 两个分支各自 `create()` 会拿到同一个下一个值，合并后文件里出现重复键。但那是
+**响的**失败（加载时重复键 `LOG_ERROR` 拒收），不是无声的错树。要根治只能换成随机分配的独立 id，
+那时是加一个字段的事，不推翻结构。
+
+### id 与协作：一条背景结论
+
+讨论中差点把 id 归因错，记一笔：**稳定 id 不是为合并而生的，是为引用而生的** —— 跨文件引用、prefab
+覆盖寻址、撤销重做、热重载配对、增量保存。合并只是副作用，而且是个不完整的副作用。
+
+行业实践是**靠拆分解决协作，不靠合并**：Unity 专门做了懂格式的 `UnityYAMLMerge`，正因为普通 git merge
+不好使，团队实践是拆多场景 + prefab；UE 的 `.umap` 是二进制、走独占签出，World Partition 的动机之一
+就是让人不碰同一个文件；Godot 的 `.tscn` 可合并性被当作卖点，但推荐做法同样是场景实例化拆分。
+
+而「各自编辑不同 prefab、引擎负责无损组合」这条路**需要局部 id 空间**，两者不是二选一而是上下层。
+好消息是当前形态已经是那个骨架：**entity 原值就是文件局部的 id 空间**，实例化就是重映射进世界，两个
+prefab 各带各的值、天然不冲突。将来做 prefab 要加的是**覆盖数据**（「这个实例改了哪些字段」）与嵌套
+引用，不是重做键机制。
+
+### 仍待细化
+
+- **不序列化 `Hierarchy` 组件本身**（四个 entity handle）。只存 `parent`，兄弟次序由数组顺序表达，
+  加载走 `IScene::SetParent` 重建。`firstChild` / `prevSibling` / `nextSibling` 是 `parent` + 顺序的
+  派生值，存了是第二个真相来源。（键换成 entity 原值之后，原先「强顺序相关」那条顾虑弱了一半，但
+  「派生值」这条不变，结论不变。）
+- 加载后 `MeshComponent::m_modelAsset` 那个 `Ptr` 谁来填。今天只有 `SpawnModel` 直接赋值。两条路：
+  场景加载时同步 `RequestAsset`，或复用已有的 `AssetResolveBus::ResolveAssetToComponent` 异步机制
+  （编辑器侧的 `ComponentAssetResolver` 已经在跑）。
+- `MaterialHandle` 的 codec —— 见阶段 3 那一节。
 
 ---
 
 ## 待决
+
+**去掉默认省略。** 0.c 的 `WriteObject` 对等于默认值的字段省略键（`JsonSerializer.cpp:240-249`）。
+这条对 descriptor 尚可（字段少、默认值即导入策略），**对组件是错的**：
+
+- **默认值会变成文件语义的一部分。** 把 `MaterialParams::m_roughness` 的默认从 0.5 改成 0.4，所有旧
+  场景里「没写 roughness」的材质会**全部静默改变外观** —— 文件没变、代码改了一个数、画面变了。
+- **文件不自解释。** 看不出一个实体的完整状态，也分不清「作者没设」与「作者设成了正好等于默认的值」。
+- **每写一遍要序列化两遍**（造默认实例 + 完整序列化 + 逐字段比 `JsonValue`），且递归每一层都做。
+- 不可默认构造的类型退化成全写，同一份格式里两种行为。
+
+它买到的**只有文件体积**。文档原先把版本化记在它名下，那条站不住：版本化靠的是**读侧**的
+「缺字段 = 默认值」，写侧省不省与之无关。
+
+两个待定：
+
+- **范围。** 只关组件层（`SerializeToJson` 加一个 `JsonDefaults{Omit, Write}` 策略参数），还是连
+  descriptor / `AssetId` 一起。后者会改变 `AssetIdToJson` 的产出 → `AssetCache` 的 identity 字符串变
+  → **现有缓存条目全部失效**（能自愈，重建即可），且 `AssetIdSerializeTests` /
+  `DescriptorSerializeTests` 里断言 `dump()` 字面量的用例要改。`AssetId` 有了 codec 之后它的形态由
+  自己的函数决定，天然不受外层策略影响。
+- **顺序。** 应排在阶段 2「给组件字段打标记」**之前**。否则中间会写出 `{"y":1.5}` 这种半截向量，
+  阶段 2 的测试得按那个形态写、之后再改一遍。今天没有任何场景文件，所以只是省事，不是兼容问题。
 
 **`DescriptorForUsage` 交出可变的共享单例。** 收紧办法是返回 `ConstPtr<AssetDescriptor>`，
 波及 `AssetId::Of` 的签名，单独一步做。
@@ -1003,9 +1257,11 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
            └──► 阶段 0.c（反射序列化器 + descriptor 反射）✅
                    ├──► 阶段 1（磁盘缓存 / 顶层 Image 2D）✅
                    └──► 阶段 0.d（AssetId 复合形式）✅
-                           ├──► 阶段 2（序列化器铺到组件）
-                           └──► 阶段 3（材质资产）
-                                   └──► 阶段 4（场景保存）
+                           ├──► 阶段 2（序列化器铺到组件）──► 阶段 4（场景保存）
+                           └──► 阶段 3（材质资产）────────────► 阶段 4 的表项升级
+
+（阶段 4 不依赖阶段 3：没有 asset 背书的材质就是 material 上下文里的一个内联实例，
+  照样能存。阶段 3 落地后表项可以升级成 asset 引用，组件那一侧不用改。）
 
 待办 A（通用依赖机制 + 预加载）── 只有方向 ──► shader 缓存
 
@@ -1019,6 +1275,11 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 阶段 0、阶段 1、Image 处理流程规整、子资产机制统一均已收尾。剩下的互不依赖：
 
 - **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置，也是 `.gltf` 缓存的前置。
-- **阶段 2**：第一件事是「类型自带编解码」的钩子——组件里的 `AssetId` 字段若被标上
-  `Serializable`，通用遍历会走进去、产出一个缺 `desc` 的三项对象。今天没有任何组件字段标了
-  `Serializable`，这条路还够不着。
+- **阶段 2**：机制已定（`Func` 钩子 / 分派链最前面 / `null` = 未指定 / 命中即终局 / 数学类型标
+  `Serializable`）。动工前还有两件事要先落：**去掉默认省略**（见「待决」），以及**定下落盘的 key
+  用什么名字**——今天的反射名是给 Inspector 看的显示名，直接落盘等于把标签文字冻结成文件格式。
+  这两条都排在「给组件字段打标记」之前。
+
+  今天没有任何组件字段标了 `Serializable`，所以前面几步（钩子、codec、去省略）行为零变化，
+  可以独立提交、独立验证。
+- **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。
