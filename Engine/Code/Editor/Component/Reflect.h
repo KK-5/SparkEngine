@@ -23,7 +23,7 @@ namespace Editor
             .Data<&Position::y>("y").Custom<Spark::FloatElement>()
             .Data<&Position::z>("z").Custom<Spark::FloatElement>()
             ;
-        Spark::ComponentOpertion<Position>(context);
+        Spark::ComponentOperation<Position>(context);
 
         context.Reflect<EnumElem>()
             .Type("EnumElement")
@@ -47,7 +47,7 @@ namespace Editor
             .Data<&AllUIElement::colorElement>("ColorElement").Custom<ColorElement>()
             .Data<&AllUIElement::enumElement>("EnumElem").Custom<EnumElement>()
             ;
-        Spark::ComponentOpertion<AllUIElement>(context);
+        Spark::ComponentOperation<AllUIElement>(context);
     }
     
 } // namespace Editor

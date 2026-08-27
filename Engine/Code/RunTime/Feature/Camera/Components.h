@@ -7,13 +7,13 @@ namespace Spark::Camera
 {
     enum CameraType : uint32_t
     {
-        Prespective,
+        Perspective,
         Orthographic,
     };
 
     struct CameraComponent
     {
-        CameraType m_type         {CameraType::Prespective};
+        CameraType m_type         {CameraType::Perspective};
         float      m_fov          {75.f};   // vertical FOV, degrees
         float      m_clipStart    {0.01f};
         float      m_clipEnd      {1000.f};

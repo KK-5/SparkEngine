@@ -42,6 +42,6 @@ namespace Spark
         context.Reflect<Name>().Type("Name").Traits(MetaTypeTraits::Editable)
             .Data<&Name::name>("name").Custom<EditTextElement>();
             
-        ComponentOpertion<Name>(context);
+        ComponentOperation<Name>(context);
     }
 }

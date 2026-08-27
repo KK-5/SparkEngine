@@ -39,6 +39,6 @@ namespace Spark::Light
             .Data<&LightComponent::m_shadowDistance>("Shadow Distance").Custom<Spark::FloatElement>(1.f, 500.f, 1.f, "%.1f")
             ;
 
-        Spark::ComponentOpertion<LightComponent>(context);
+        Spark::ComponentOperation<LightComponent>(context);
     }
 }

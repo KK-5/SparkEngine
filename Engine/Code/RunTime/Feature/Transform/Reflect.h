@@ -19,6 +19,6 @@ namespace Spark::Transform
             .Data<&TransformComponent::m_scale>("Scale").Custom<Spark::Vec3Element>(-1000, 1000, 0.01)
             ;
 
-        Spark::ComponentOpertion<TransformComponent>(context);
+        Spark::ComponentOperation<TransformComponent>(context);
     }
 }

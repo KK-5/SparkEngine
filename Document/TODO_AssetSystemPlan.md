@@ -40,10 +40,10 @@ KTX2 读写支持 cube，`ImageAssetData` 用 `m_isCubemap` 说明自己而不�
 （payload 若干 + `.unit` 清单），两个手写 publisher 删除，发布收敛成 `ProcessAsset` 里的两阶段提交。
 shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.glb` model 只差一个二进制格式（待办 D）。
 
-**阶段 2 与阶段 4 的设计已定，尚未动工。** 阶段 2 的机制（`Func` 钩子、分派链位置、`null` 语义、
-失败语义、数学类型走标记而非 codec）与阶段 4 的形态（entity-major、多上下文、entity 原值当键、
-storage-major 取数据）都已落到文档里。两件前置还没做：**去掉默认省略**（见「待决」）与**定下落盘的
-key 用什么名字**。
+**阶段 2 与阶段 4 的设计已定，尚未动工。** 阶段 2 的机制（`JsonOperation`、分派链位置、`null` 语义、
+失败语义、数学类型走标记而非 `JsonOperation`）与阶段 4 的形态（storage-major、多上下文、entity 原值
+当键、读写同构）都已落到文档里。落盘 key 已定为反射注册名（一名两用，见阶段 2）。两件前置还没
+做：**去掉默认省略**（见「待决」）与**冻结前把那批名字校对一遍**。
 
 另有两项已随 0.a 落地：
 
@@ -97,10 +97,14 @@ key 用什么名字**。
 8. **JSON 使用 vendor 的 `nlohmann/json.hpp` 单头文件。**
 9. **挂载表独立成 `Core/VFS/` 模块**，namespace `Spark`。接口 `FileSystem`，实现 `MountTable`，
    系统 `VFSSystem`。
-10. **类型自带编解码的钩子 = 类型上一对反射 `Func`（`"ToJson"` / `"FromJson"`），查表放分派链最
-    前面，命中即终局。** 判据是「不能由字段遍历重建的类型」，不是「leaf 类型特判」。见阶段 2。
-11. **场景文件是 entity-major、多上下文；键直接用 entt 的 entity 原值**，不做重映射下标、不引入额外
-    id。取数据仍按 storage-major 遍历。见阶段 4。
+10. **类型自带编解码 = 类型上一个反射 `Func`（`"JsonOperation"`），返回一张装两个裸函数指针的表；
+    查表放分派链最前面，命中即终局。** 判据是「不能由字段遍历重建的类型」，不是「leaf 类型特判」。
+    见阶段 2。
+11. **场景文件是 storage-major、多上下文；键直接用 entt 的 entity 原值**，不做重映射下标、不引入额外
+    id。落盘布局与内存布局同构，遍历 `storage()` 即写出。见阶段 4。
+12. **落盘的 key 就是反射注册名，一名两用。** 组件 key 取 `.Type(...)`、字段 key 取 `.Data(...)`，
+    也就是今天 Inspector 上显示的那个标签。不另设序列化专用名，也不由代码名推导——**名字必须显式
+    指定**。规则与枚举名一致：**一经落盘即冻结**。见阶段 2。
 
 ---
 
@@ -942,11 +946,11 @@ identity 就是它自己 AssetId 的 JSON（`AssetCache::IdentityFor`），算�
 `SkyboxComponent`、`MaterialParams` ×5）与 `MaterialHandle`（`MaterialComponent` ×1）。其余
 标量 / 枚举 / `eastl::string` / 数学类型今天就能走通。
 
-### 钩子 = 类型上的一对反射 `Func`
+### `JsonOperation` = 类型上的一个反射 `Func`
 
-名为 `"ToJson"` / `"FromJson"`，注册走一个签名受编译期检查的 helper。判据不是「leaf 类型特判」，是：
+判据不是「leaf 类型特判」，是：
 
-> **不能由字段遍历重建的类型，才需要钩子。**
+> **不能由字段遍历重建的类型，才需要它。**
 
 问一句「这个类型能不能靠逐个 `data.set()` 拼出来」，能就不用。`AssetId` 不能，两条**互相独立**的原因：
 
@@ -956,36 +960,118 @@ identity 就是它自己 AssetId 的 JSON（`AssetCache::IdentityFor`），算�
    **只能 `AssetId::Of(...)` 一次构造**。
 2. **`desc` 的具体类型由 `type` 的值决定**，字段遍历表达不了这种依赖。
 
+#### 形态
+
+```cpp
+// Core/Serialization/JsonSerializer.h
+struct JsonOperation
+{
+    bool (*toJson)(const MetaAny& value, JsonValue& out);
+    bool (*fromJson)(const JsonValue& in, MetaAny& target);
+};
+
+template<typename T, auto To, auto From>
+void ReflectJsonOperation(ReflectContext& context);
+```
+
+注册器内部由一个 helper 生成两个类型擦除适配器（`T` 在那里是编译期已知的，藏进 detail 命名空间，
+与 `ReflectDetail` 同样的做法），注册成**一个**名为 `"JsonOperation"` 的 `Func`，其返回值就是这张表：
+
+```cpp
+static bool ToJson(const MetaAny& value, JsonValue& out)
+{
+    const T* typed = value.try_cast<T>();
+    return typed != nullptr && To(*typed, out);
+}
+```
+
+调用点：
+
+```cpp
+Spark::ReflectJsonOperation<AssetId, &AssetIdToJsonField, &AssetIdFromJsonField>(context);
+```
+
+序列化器一次无参 `invoke` 取表，之后走裸函数指针：
+
+```cpp
+if (auto fn = type.func(kJsonOperationId))
+{
+    MetaAny got = fn.invoke({});
+    if (const JsonOperation* op = got.try_cast<JsonOperation>())
+    {
+        return op->toJson(value, out);
+    }
+}
+```
+
+#### 为什么是「一个 `Func` 返回函数指针表」，不是「两个 `Func` 各自 `invoke`」
+
+三条，第一条是决定性的：
+
+- **出参会静默丢失。** [meta.hpp:1032](../Engine/3rdParty/entt/src/entt/meta/meta.hpp#L1032) 的
+  `invoke(instance, Args&&...)` 把每个实参包成 `meta_any{*ctx, std::forward<Args>(args)}` ——
+  **值构造**。写成 `fn.invoke({}, value, out)`，函数写在 `out` 的副本上，调用方的 `out` 一个字
+  没变，**不报错、不返回 false**。必须记得 `entt::forward_as_meta(out)`。这与 0.c 已经踩过的坑
+  （`DeserializeFromJson` 的 `target` 为什么必须取引用）是同一个。走函数指针则 `JsonValue&` 一路
+  真引用传到底，坑不存在。
+- **签名错了只有运行期知道。** 形参顺序写反照样编译通过，表现为「这个类型的 `JsonOperation` 好像
+  没生效」。
+  走 helper 则 `To(*typed, out)` 那行当场不编译。
+- **每次读写都在编组。** 实参数组构造 + 逐个 `allow_cast` + 返回值裹 `meta_any`，而这条路在分派链
+  最前面、每个字段每次读写都走。
+
+**表里是裸函数指针，不是 `eastl::function`。** `meta_any` 内部持有 `entt::any`
+（[meta.hpp:637](../Engine/3rdParty/entt/src/entt/meta/meta.hpp#L637)），而
+`entt::any = basic_any<sizeof(double[2]), ...>`（[core/fwd.hpp:25-32](../Engine/3rdParty/entt/src/entt/core/fwd.hpp#L25-L32)）
+—— **SBO 16 字节**。两个函数指针正好 16 字节、零分配；单个 `eastl::function` 的 SSO 缓冲就已经是
+`2 * sizeof(void*)`（[function.h:24](../Engine/3rdParty/EASTL/include/EASTL/internal/function.h#L24)），
+两个必然溢出，于是每次取表都变成一次堆分配。而这个注册形态天然无状态（`To` / `From` 是非类型模板
+参数，没有能捕获的东西），`eastl::function` 的类型擦除买不到任何东西。
+
+#### 名字与旁表
+
+叫 `JsonOperation` 而不是 `JsonCodec`：它里面一行逻辑都没有，是入口表不是编解码器；而
+[Utility.h:86-97](../Engine/Code/RunTime/Core/Reflection/Utility.h#L86-L97) 的 `ComponentOperation`
+已经为「把一组自由函数注册成类型上的反射 `Func`、让调用方 context-free 地调」这件事定下了词。
+这是第二次用同一个套路，就用同一个词。
+
 **不走旁表。** 曾考虑按 `TypeId` 索引的独立注册表，否掉：`Func` 是开放命名空间（`Custom` 是单槽、
 已被 `ComponentTraitsRuntime` / `UIElement` 占，类型级 `Traits` 是共享位掩码、`MetaTypeTraits` 在用），
-而 `ComponentOperation` 已经是「把自由函数挂到类型上」这个路子；旁表要多配一套生命周期。
+而 `ComponentOperation` 已经是这个路子；旁表要多配一套生命周期。
 
-唯一的代价：`Func<&Fn>` 会对每个参数类型实例化 `internal::resolve<T>`，其中
-`std::is_default_constructible_v`（`node.hpp:282`）**要求完整类型**，所以注册那一行必须落在 `.cpp` 里。
-`Resource` 侧放 `AssetJsonSerializer.cpp`（本来就 include 了 `json.hpp`），`Reflect.h` 只调一行声明。
+> **原先「注册那一行必须落在 `.cpp` 里」的约束消失了。** 那条的根因是 `Func<&Fn>` 会对每个**形参**
+> 类型实例化 `internal::resolve<T>`，其中 `std::is_default_constructible_v`（`node.hpp:282`）要求完整
+> 类型，于是 `resolve<JsonValue>` 逼着注册行下沉。改成返回表之后，注册的那个函数**无参**、返回
+> `JsonOperation`，只实例化 `resolve<JsonOperation>`；`JsonValue` 仅以函数指针类型出现，`json_fwd.hpp`
+> 就够。对 `AssetId` 这条收益是零——`AssetIdToJsonField` 的定义本来就要 `json.hpp`、本来就在
+> `AssetJsonSerializer.cpp`——但它对后来的类型不再是一条硬约束。
 
-### 查钩子放在分派链最前面
+### 查表放在分派链最前面
 
 不是原先写的「复合分支之前」。理由不是某个具体类型够不着，而是：**显式注册本身就是「我不走默认推断」
-的声明，它没有理由排在五条按形状猜的分支后面。** 规则于是只剩一句「注册了 codec 的类型完全接管」，
-不用记它跟内建分支的相对次序，将来加第六条内建分支也不用重想。
+的声明，它没有理由排在五条按形状猜的分支后面。** 规则于是只剩一句「注册了 `JsonOperation` 的类型完全
+接管」，不用记它跟内建分支的相对次序，将来加第六条内建分支也不用重想。
 
 不违反 0.c 的「枚举判定先于任何 cast」：查表是 `type.func(...)`，只用已抓下的 `type`，不碰 value、
 不做 cast。对没进过 `meta_factory` 的类型（`float` 等），`look_for`（`node.hpp:174`）第一句
 `if(node.details)` 即返回，开销可忽略。
 
-一条附带事实：entt 的 func 查找沿 `base` 上溯，所以反射了 `.Base<T>()` 的类型会继承 `T` 的 codec。
-今天没有这种反射继承关系，将来加时记得。
+一条附带事实：entt 的 func 查找沿 `base` 上溯，所以反射了 `.Base<T>()` 的类型会继承 `T` 的
+`JsonOperation`。今天没有这种反射继承关系，将来加时记得。
 
 ### `null` = 未指定
 
 一条通用约定，不只对 `AssetId`：
 
-> **codec 对「未指定」一律编码为 `null`；`null` 解码回该类型的未指定值。**
+> **`JsonOperation` 对「未指定」一律编码为 `null`；`null` 解码回该类型的未指定值。**
 
-判断必须在 codec 内 —— 序列化器手里只有 `MetaAny`，问不出「这个值算不算空」。不在序列化器里统一拦
-`null`：那会把「未指定」等同于「默认构造」，还会让 `null` 落在 float 字段上时静默变成 0。
-**非 codec 类型上出现 `null` 视为格式错误。**
+判断必须在 `JsonOperation` 内 —— 序列化器手里只有 `MetaAny`，问不出「这个值算不算空」。不在序列化器
+里统一拦 `null`：那会把「未指定」等同于「默认构造」，还会让 `null` 落在 float 字段上时静默变成 0。
+**没有 `JsonOperation` 的类型上出现 `null` 视为格式错误。**
+
+这条**不用写代码**：`DeserializeFromJson` 的每个分支今天已经先验 JSON 类别——算术
+`is_number()`（`JsonSerializer.cpp:65`）、字符串与枚举 `is_string()`、序列 `is_array()`、复合
+`is_object()`，全部 `LOG_ERROR` + false。`null` 落在其中任何一条上都已经是错误。现状即所需。
 
 `AssetId` 的两个包装：
 
@@ -1004,17 +1090,21 @@ bool AssetIdFromJsonField(const JsonValue& in, AssetId& target)
 组件里的空 `AssetId` 是常态（未赋值的模型槽、五个空贴图槽），所以这条不是边角料 —— 直接把
 `AssetIdToJson` 接上去，存一个默认材质会刷五条 ERROR 且整个组件判失败。
 
-### 钩子命中即终局
+### 命中即终局
 
 失败 `LOG_ERROR` + false，**绝不回落到通用分派**。`null` 已经把「空」接走了，剩下的失败只有
 「反射没注册」和「数据损坏」，都不是可降级的东西。回落正是要防的那个失败模式：`AssetId` 掉回复合
 分支 → 缺 `desc` → 法线贴图静默变成 sRGB 颜色贴图。
 
-### 数学类型标 `Serializable`，不写 codec
+### 数学类型标 `Serializable`，不给 `JsonOperation`
 
-`Math::Vector2/3/4` + `Quaternion` 的分量加 `Traits`（13 行）。它们**能**逐字段重建，按上面的判据
-就不该用钩子。曾考虑 codec 产出 `[x,y,z]`，两条反对理由（项数不固定、往已有对象里读时逐分量合并）
+`Math::Vector3` / `Vector4` 的分量加 `Traits`。它们**能**逐字段重建，按上面的判据就不该走
+`JsonOperation`。曾考虑让它产出 `[x,y,z]`，两条反对理由（项数不固定、往已有对象里读时逐分量合并）
 **都是默认省略造成的**，见「待决」那条；去掉之后 A 也永远写三项。
+
+原文列的 `Vector2` 与 `Quaternion` 一并推迟——全仓没有用到它们的反射字段（`TransformComponent`
+的 `m_rotation` 是欧拉角 `Vector3`；`m_baseColor` / `m_emissive` 是 `Vector4`）。理由与下面删掉
+`Matrix4X4` / `Entity` 的一样。
 
 原文列的 `Matrix4X4` 与 `Entity` **删除** —— 全仓没有任何这两个类型的反射字段（`Hierarchy` 压根
 没反射，`LocalTransformMatrix` / `WorldTransformMatrix` 是 `TransformComponent` 的派生值，
@@ -1034,13 +1124,34 @@ entt 的 `type.construct()` 用 `plain_type()` 值初始化（`any.hpp:135`）�
 今天已经是响的（无枚举项的 `enum class` 走进枚举分支 → `WriteEnum` 找不到枚举项 → `LOG_WARN` +
 `ok = false`），不用额外加守卫。
 
+### 落盘的 key = 反射注册名
+
+组件 key 取 `.Type(...)`、字段 key 取 `.Data(...)`，与今天 Inspector 上的标签是**同一个字符串**。
+不加序列化专用名，也不从代码名推导标签——**名字必须显式指定**。
+
+否掉「另设一个序列化名」的理由与 `JsonOperation` 那里否掉旁表的一样：字段级两个可用槽都被占了
+（`Custom` 归 `UIElement`，类型级 `Traits` 是位掩码存不下字符串），要塞第三个字符串就得让 `Reflector`
+自己维护一张 `(类型 id, 字段 id) → 名字` 的旁表，比那张还细一层。
+
+代价明写在这里：**改一个 Inspector 标签就是改文件格式**，与枚举名同一条规则。随之固定的还有几处
+名与实的错位——`"Near"` / `"Far"` 对应的是 `m_clipStart` / `m_clipEnd`，`m_innerConeDeg` 的单位不在
+key 里。接受。
+
+编辑器侧一个字不用改：`data.name()` 在全仓的唯一消费者就是 `ComponentView` 画标签，没有任何地方
+按名字查字段（entt 的查找走 `hashed_string::value(name)` 算出的 id）。
+
+#### 于是多一条前置：打标记之前把这批名字校对一遍
+
+从打标记那一刻起它们就是文件格式，改不动了。已知三处：
+
+| 名字 | 处置 |
+|---|---|
+| ~~`CameraType::Prespective`~~ ✅ | 拼错，且 C++ 枚举标识符本身就是错的。已改为 `Perspective`（枚举值 + 默认值 + 反射名） |
+| `MaterialComponent` → `"Material"`，`MaterialParams` → `"MaterialParams"` | 一个删后缀一个留后缀。组件 key 的取名规则要先统一 |
+| `ShadowFilterWidth` 的 `"3x3"` / `"5x5"` / `"7x7"` | 在这条规则下自洽，保留 |
+
 ### 待定
 
-- **落盘的 key 用什么名字。** 组件 key 与字段 key 都来自反射注册名，而这些名字今天是**给 Inspector
-  看的显示名**（`"Mesh Index"`、`"Base Color Map"`）。一旦落盘就冻结成文件格式，跟枚举名同一条规则 ——
-  **改一个 Inspector 上的标签文字就废掉所有已存的场景文件**，而那是个看起来毫无风险的动作。三条路：
-  接受并冻结／字段名改成代码名、显示名另挂（挂进 `UIElement`，或由代码名推导）／加一个序列化专用名。
-  **这条卡在打标记之前** —— 打标记之前得先知道盘上的 key 是什么。
 - **`MaterialParams` 算阶段 2 还是阶段 3。** 它是唯一走 `Data<Set,Get>` 的字段，标了能让 setter
   那条路（编辑器 drag-drop 在用）被序列化测试覆盖。
 - 完整字段清单、验收面（没有场景序列化器，阶段 2 的产物只能是单测里的组件 round-trip）、步骤拆分。
@@ -1069,13 +1180,13 @@ entt 的 `type.construct()` 用 `plain_type()` 值初始化（`any.hpp:135`）�
 
 已确立的几点：
 
-- **它的语义是「一个材质」，句柄只是呈现形式。** 所以它该有 codec，编码的是材质本身而不是那个
+- **它的语义是「一个材质」，句柄只是呈现形式。** 所以它该有 `JsonOperation`，编码的是材质本身而不是那个
   `uint32_t`。存原始句柄值不行：材质是运行期创建的，下次启动创建顺序不同，同一个数字指向另一个材质
   或悬空 —— 跟 entt 的 `Entity` 同一类问题。
 - **但材质是共享的**，而且是有意的：`SpawnModel.cpp:92` 明确让同一个 materialIndex 的 primitive
   复用一个 `MaterialHandle`。把内容内联进每个 `MaterialComponent`，一个 50 primitive / 3 材质的模型
   读回来会变成 50 个材质 —— 上传 50 条 GPU 材质记录，且改其中一个不再影响其他。
-- 所以 codec 编码的是**「material 上下文里的哪个实体」**，材质内容住在那个上下文里（阶段 4 的多上下文
+- 所以它编码的是**「material 上下文里的哪个实体」**，材质内容住在那个上下文里（阶段 4 的多上下文
   形态）。写时**按 handle 去重、不按内容哈希**，共享关系逐字节保住。
 - **机制上零新东西**：`MaterialExecuteContext::Current()` 已由 `MaterialSystem::InitInternal` 推入
   （`MaterialSystem.cpp:24`），`CreateMaterial` 是现成的自由函数，`OnComponentConstruct` 对已带值的
@@ -1098,44 +1209,92 @@ entt 的 `type.construct()` 用 `plain_type()` 值初始化（`any.hpp:135`）�
 
 `SceneSerializer::Save/Load(path)`，由 MenuBar 调用，不进 AssetManager。
 
-### 文件形态：entity-major，多上下文
+### 文件形态：storage-major，多上下文
 
 场景存的是**两个 ECS 上下文**：`WorldContext`（实体 + 组件）与 `MaterialContext`（材质实例 +
-`MaterialParams`）。跨引用一条规则：**(上下文, 键)**。原先设想的「顶层一张 `materials` 表」是把第二个
-上下文写成了临时表，删掉。
+`MaterialParams`）。跨引用一条规则：**(上下文, 键)**。
 
 ```json
 { "contexts": {
-    "world": { "entities": [
-        {"e":0,     "parent":null, "components":{"Name":{"name":"Room"}}},
-        {"e":65537, "parent":0,    "components":{"Name":{"name":"Chair"}, "Material":4}} ] },
-    "material": { "entities": [
-        {"e":4, "components":{"MaterialParams":{...}}} ] } } }
+    "world": {
+      "entities": [0, 65537, 65538],
+      "parents":  {"65537": 0, "65538": 0},
+      "components": {
+        "TransformComponent": {"0":{...}, "65537":{...}, "65538":{...}},
+        "MeshComponent":      {"65537":{...}, "65538":{...}},
+        "MaterialComponent":  {"65537":{"Material":4}, "65538":{"Material":4}} } },
+    "material": {
+      "entities": [4],
+      "components": {
+        "MaterialParams": {"4":{...}} } } } }
 ```
 
-**为什么 entity-major 而不是 storage-major。** storage-major 有实打实的优点 —— 它是内存里的真相、
-写盘不需要回答「这个实体有哪些组件」、读盘按段批量插入同一个 pool、未知组件类型整段跳过。entt 的
-`snapshot` 正是这么做的。决定因素是**场景会被实例化**：加载常常不是「恢复整个世界」，而是「把这些
-对象实例化进一个已有的世界」，那个操作的单位是实体。
+**`entities` 清单是显式的，不从各段的键并集推。** 两个理由：一个不带任何组件的实体（纯层级节点）
+推不出来；加载必须先把全部实体建完再挂组件（组件里有 entity 引用），有清单就是一趟扫描，没有就要
+先并集一遍。
 
-分界线不是「ECS 还是 OOP」，是**「世界快照，还是可实例化的创作产物」**。Bevy 是纯 ECS，内存里
-archetype 列存，`DynamicScene` 仍然选 entity-major，理由就是它的 scene 可以被 spawn 进已存在的世界、
-可以重复实例化；entt 的 `snapshot` 选 storage-major，因为它服务的是整世界存档与网络同步。
-（Unity / UE / Godot 一致 object-major，但它们本来就不是 ECS，那个先例的迁移性有限。）
+**`parents` 单独成段。** 它不是组件——`Hierarchy` 本身不序列化（见「仍待细化」）——而 storage-major
+下没有「实体对象」这个容器可以挂它，所以它得有自己的位置。
+
+#### 为什么翻掉了 entity-major
+
+原先写的决定因素是「场景会被实例化，那个操作的单位是实体」。**这条站不住**：实例化的实质是 merge
+——建 `旧键 → 新 Entity` 映射、翻译内部引用——而这两步在两种布局下**完全相同**。entity-major 不解决
+merge，只在「枚举文件里有哪些实体」和「建实体 + 挂组件」两头稍顺一点，而前者已被显式 `entities`
+清单抹平。
+
+真正的账：
+
+| | storage-major | entity-major |
+|---|---|---|
+| 与内存布局的关系 | **同构** —— storage 段即 storage | 打散再重组 |
+| 写盘 | 遍历 `storage()` 直接写段 | 需要一次 `实体 → [类型]` 的中间聚合 |
+| 文件体积 | 类型名每段一次 | 类型名每实体一次（叠加「去掉默认省略」后差距明显） |
+| material 上下文 | 天然是表 | 给单组件、无层级、不被实例化的实体套两层空信封 |
+| 未知组件类型 | 整段可跳过 | 散在各实体里 |
+| prefab 实例 | 顶层另开一个结构 | 与普通实体并列在同一数组 |
+
+最后一行是 entity-major 唯一没被抹掉的赢面，但两边都是「文件里有两种结构」，只差挨不挨着，
+撑不起一个格式决策。
+
+**曾列进理由、后来撤掉的两条**，记下来免得重提：
+
+- **diff 局部性**（改一个实体的三个组件，entity-major 下 diff 集中在一处）。这是观感，而观感就是
+  可读性，本节末尾已经排除。它与「数组下标当键」那条不是一类——后者是**正确性**问题（git 解完文本
+  冲突得到一棵静默挂错的树），这条不是。
+- **prefab override 与场景布局同构**。它依赖 prefab 是 live 的（见后面一节），而好处仅仅是少维护
+  一套寻址逻辑。
+
+分界线也不是「世界快照 vs 可实例化的创作产物」——那个二分是拿 Bevy `DynamicScene` 与 entt `snapshot`
+的先例套上来的，但它们的差异来自各自的宿主框架，不来自这条分界。
 
 可读性**不是**理由 —— 美术看到不对只能报 bug，引擎开发者有 debugger 和日志。
 
-### 取数据仍按 storage-major
+### 读写都按 storage-major，没有中间聚合
 
-遍历 `registry.storage()`（`registry.hpp:420`），每个 storage 是稠密的、只装真正拥有该组件的实体；
-收集成 `实体 → [类型]` 之后再按实体写出。开销是**组件实例总数**，不是 `实体数 × 注册类型数`。
-以 1000 实体 / 平均 3 组件 / 20 注册类型算，3000 次对 20000 次，而且后者每次还要过一次反射
-`HasComponent` 调用。entt 自己的 `registry::erase_if`（`registry.hpp:824`）就是这个模式。
+遍历 `registry.storage()`（`registry.hpp:420`），每个 storage 是稠密的、只装真正拥有该组件的实体，
+**遍历即写出**。开销是**组件实例总数**，不是 `实体数 × 注册类型数`。以 1000 实体 / 平均 3 组件 /
+20 注册类型算，3000 次对 20000 次，而且后者每次还要过一次反射 `HasComponent` 调用。entt 自己的
+`registry::erase_if`（`registry.hpp:824`）就是这个模式。
+
+（entity-major 时这里还要把结果收集成 `实体 → [类型]` 再按实体写出——用一个 map 把已经排好的数据
+打散再重组。那一步现在不存在。）
 
 **不用 entt 的 `snapshot`**：它的类型是模板参数（编译期），要用就得有一份静态的世界组件清单，而组件
-是各模块 `Reflect.h` 各自注册的；它的布局是 storage-major；它的 archive 是流式协议且喂进去的值是静态
-类型的，绕过我们的反射序列化器（`AssetId` 的 codec、字段级 `Serializable` 全部失效）。它的价值在于
-示范了循环该怎么转，不在于直接用。
+是各模块 `Reflect.h` 各自注册的；它的 archive 是流式协议且喂进去的值是静态类型的，绕过我们的反射
+序列化器（`AssetId` 的 `JsonOperation`、字段级 `Serializable` 全部失效）。它的价值在于示范了循环该
+怎么转，不在于直接用。（原先还列了「它的布局是 storage-major」这条反对理由——现在我们也是，作废。）
+
+#### 留着不做：组件值去重
+
+大量同构实体（1000 棵树）的 `MeshComponent` 内容逐字相同，storage-major 下能顺手压掉：
+
+```json
+"MeshComponent": { "values": [ {...} ], "entities": {"0":0, "65537":0, "65538":0} }
+```
+
+一张值表 + 实体到值下标的映射。**第一版不做**，直接 `{"0":{...}, "65537":{...}}`；将来要压时读侧认
+两种形态即可，写侧换个编码，纯加法。（entity-major 下做不了——组件散在各实体里，没有放值表的地方。）
 
 一个接缝：`storage()` 给的 id 是 `type_hash<T>::value()`，而 `.Type("Transform")` 会把 meta 类型的
 `id` 改成**名字的哈希**（`factory.hpp:176`），`Resolve(TypeId)` 那条路（按 id 线性扫描，
@@ -1159,7 +1318,7 @@ entt 的 `snapshot_loader` 就是这么干的。要加的只有 `BasicContext::C
 每天都会遇到，跟并发无关。合并时更糟：两个分支各自重写了同一批引用，git 解完文本冲突后得到一棵
 **静默挂错的树**（正确答案「两次平移的叠加」在两边的文本里都不存在）。
 
-用键之后这批改动**根本不产生**：`"parent":0` 里的 0 永远指同一个实体，前面插多少东西都不动它。
+用键之后这批改动**根本不产生**：`parents` 段里那个 `0` 永远指同一个实体，前面插多少东西都不动它。
 
 **两条加载路径不冲突：**
 
@@ -1197,6 +1356,22 @@ entt 的 `snapshot_loader` 就是这么干的。要加的只有 `BasicContext::C
 prefab 各带各的值、天然不冲突。将来做 prefab 要加的是**覆盖数据**（「这个实例改了哪些字段」）与嵌套
 引用，不是重做键机制。
 
+### prefab：flatten 还是 live（未定，不阻塞本阶段）
+
+讨论中发现这个从没定过，记一笔：
+
+- **flatten** —— prefab 是生成器，实例化即展开、断开链接，场景里存的就是普通实体。**今天
+  `SpawnModel` 就是这个。** 相比现状增量很小：无非是能保存任意实体组合而不只是一个 glb。
+- **live** —— 场景里存「原型引用 + 这个实例哪里不一样」，加载 = 原型内容 + 差异。改原型能传播到所有
+  已有实例，这才是 prefab 的核心价值。Unity / UE（Blueprint 实例）/ Godot 都走这条。
+
+live 的代价：三方语义（原型改了 + 实例也改了怎么合）、孤儿（原型删掉的部件正好被某个实例覆盖了）、
+编辑器要表达 override 状态、嵌套 prefab 的覆盖穿透。
+
+**不影响本阶段的格式选择** —— 两种布局都容纳得下 prefab 实例，storage-major 下顶层另开一个结构即可。
+它决定的是阶段 4 之后要不要长出 override 数据，而 override 的寻址是 `(原型内实体键, 组件, 字段)`，
+那个「原型内实体键」的骨架已经在了（见上一节）。
+
 ### 仍待细化
 
 - **不序列化 `Hierarchy` 组件本身**（四个 entity handle）。只存 `parent`，兄弟次序由数组顺序表达，
@@ -1206,7 +1381,7 @@ prefab 各带各的值、天然不冲突。将来做 prefab 要加的是**覆盖
 - 加载后 `MeshComponent::m_modelAsset` 那个 `Ptr` 谁来填。今天只有 `SpawnModel` 直接赋值。两条路：
   场景加载时同步 `RequestAsset`，或复用已有的 `AssetResolveBus::ResolveAssetToComponent` 异步机制
   （编辑器侧的 `ComponentAssetResolver` 已经在跑）。
-- `MaterialHandle` 的 codec —— 见阶段 3 那一节。
+- `MaterialHandle` 的 `JsonOperation` —— 见阶段 3 那一节。
 
 ---
 
@@ -1229,7 +1404,7 @@ prefab 各带各的值、天然不冲突。将来做 prefab 要加的是**覆盖
 - **范围。** 只关组件层（`SerializeToJson` 加一个 `JsonDefaults{Omit, Write}` 策略参数），还是连
   descriptor / `AssetId` 一起。后者会改变 `AssetIdToJson` 的产出 → `AssetCache` 的 identity 字符串变
   → **现有缓存条目全部失效**（能自愈，重建即可），且 `AssetIdSerializeTests` /
-  `DescriptorSerializeTests` 里断言 `dump()` 字面量的用例要改。`AssetId` 有了 codec 之后它的形态由
+  `DescriptorSerializeTests` 里断言 `dump()` 字面量的用例要改。`AssetId` 有了 `JsonOperation` 之后它的形态由
   自己的函数决定，天然不受外层策略影响。
 - **顺序。** 应排在阶段 2「给组件字段打标记」**之前**。否则中间会写出 `{"y":1.5}` 这种半截向量，
   阶段 2 的测试得按那个形态写、之后再改一遍。今天没有任何场景文件，所以只是省事，不是兼容问题。
@@ -1275,11 +1450,11 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 阶段 0、阶段 1、Image 处理流程规整、子资产机制统一均已收尾。剩下的互不依赖：
 
 - **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置，也是 `.gltf` 缓存的前置。
-- **阶段 2**：机制已定（`Func` 钩子 / 分派链最前面 / `null` = 未指定 / 命中即终局 / 数学类型标
-  `Serializable`）。动工前还有两件事要先落：**去掉默认省略**（见「待决」），以及**定下落盘的 key
-  用什么名字**——今天的反射名是给 Inspector 看的显示名，直接落盘等于把标签文字冻结成文件格式。
+- **阶段 2**：机制已定（`JsonOperation` / 分派链最前面 / `null` = 未指定 / 命中即终局 / 数学类型标
+  `Serializable` / 落盘 key = 反射注册名）。动工前还有两件事要先落：**去掉默认省略**（见「待决」），
+  以及**把要落盘的那批名字校对一遍**——一名两用，标记打下去它们就冻结成文件格式了。
   这两条都排在「给组件字段打标记」之前。
 
-  今天没有任何组件字段标了 `Serializable`，所以前面几步（钩子、codec、去省略）行为零变化，
+  今天没有任何组件字段标了 `Serializable`，所以前面几步（`JsonOperation`、去省略）行为零变化，
   可以独立提交、独立验证。
 - **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。

@@ -14,7 +14,7 @@ namespace Spark::Camera
     {
         context.Reflect<CameraType>()
             .Type("CameraType")
-            .Data<CameraType::Prespective>("Prespective")
+            .Data<CameraType::Perspective>("Perspective")
             .Data<CameraType::Orthographic>("Orthographic");
 
         context.Reflect<CameraComponent>()
@@ -25,6 +25,6 @@ namespace Spark::Camera
             .Data<&CameraComponent::m_clipEnd>("Far").Custom<Spark::FloatElement>(1.f, 100000.f, 10.f)
             ;
 
-        Spark::ComponentOpertion<CameraComponent>(context);
+        Spark::ComponentOperation<CameraComponent>(context);
     }
 }

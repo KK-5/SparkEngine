@@ -96,9 +96,11 @@ namespace Spark
             .Func<&ReflectDetail::IsWorldComponentFn<IsWorld>>("IsWorldComponent");
     }
 
-    // Backward-compatible shorthand: a plain world component.
+    // Shorthand for a plain world component. Overloads the form above rather than
+    // colliding with it: CtxExec/E/T there are neither defaulted nor deducible from the
+    // sole ReflectContext& argument, so an explicit ComponentOperation<T> matches only this.
     template<typename T>
-    void ComponentOpertion(ReflectContext& context)
+    void ComponentOperation(ReflectContext& context)
     {
         ComponentOperation<WorldExecuteContext, Entity, T, true>(context);
     }

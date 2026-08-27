@@ -20,6 +20,6 @@ namespace Spark::Skybox
                 .Custom<Spark::FloatElement>(0.f, 10.f, 0.01f)
             ;
 
-        Spark::ComponentOpertion<SkyboxComponent>(context);
+        Spark::ComponentOperation<SkyboxComponent>(context);
     }
 }

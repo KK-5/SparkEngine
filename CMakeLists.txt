@@ -37,5 +37,10 @@ if(MSVC)
     endif()
 endif()
 
+# Must be here, not only in Engine/: enable_testing() generates CTestTestfile.cmake for
+# the calling directory downwards, so calling it solely in Engine/ leaves the build root
+# without one and `ctest --test-dir build` reports "No tests were found".
+enable_testing()
+
 add_subdirectory(Engine)
 add_subdirectory(SandBox)

@@ -26,6 +26,6 @@ namespace Spark::Mesh
                 .Custom<Spark::UIntElement>(0, static_cast<uint32_t>(-1), 1, true)
             ;
 
-        Spark::ComponentOpertion<MeshComponent>(context);
+        Spark::ComponentOperation<MeshComponent>(context);
     }
 }

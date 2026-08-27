@@ -82,6 +82,6 @@ namespace Spark::Material
             .Data<&MaterialComponent::m_material>("Material").Custom<Spark::MaterialRefElement>(false)
             ;
 
-        Spark::ComponentOpertion<MaterialComponent>(context);
+        Spark::ComponentOperation<MaterialComponent>(context);
     }
 }
