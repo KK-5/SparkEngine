@@ -31,21 +31,26 @@ namespace
     }
 }
 
-TEST(DescriptorSerializeTests, DefaultDescriptorsEncodeToEmptyObject)
+TEST(DescriptorSerializeTests, DefaultDescriptorsAreWrittenInFull)
 {
+    // A descriptor is part of an AssetId, and an AssetId is an identity. Were defaults
+    // omitted, changing one in code would silently repoint every reference already on disk
+    // -- and every cache key derived from one -- at a different compiled product.
     const ImageAssetDescriptor image;
     const ModelAssetDescriptor model;
     const ShaderDescriptor     shader;
 
     JsonValue encoded;
     ASSERT_TRUE(DescriptorToJson(image, AssetType::Image, encoded));
-    EXPECT_EQ(encoded.dump(), "{}");
+    EXPECT_EQ(encoded.dump(),
+        R"({"compression":"BC3_RGBA","colorSpace":"sRGB","maxMipLevels":0,)"
+        R"("usage":"Texture2D","cubemapFaceSize":0})");
 
     ASSERT_TRUE(DescriptorToJson(model, AssetType::Model, encoded));
-    EXPECT_EQ(encoded.dump(), "{}");
+    EXPECT_EQ(encoded.dump(), R"({"type":"GLTF"})");
 
     ASSERT_TRUE(DescriptorToJson(shader, AssetType::Shader, encoded));
-    EXPECT_EQ(encoded.dump(), "{}");
+    EXPECT_EQ(encoded.dump(), R"({"backend":"DXIL","stages":[]})");
 }
 
 TEST(DescriptorSerializeTests, ImageDescriptorRoundTrips)

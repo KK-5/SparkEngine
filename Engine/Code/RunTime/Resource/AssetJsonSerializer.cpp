@@ -36,28 +36,33 @@ namespace Spark::Resource
             return false;
         }
 
-        // type, path and sub come off the reflected fields; `sub` drops out on its own when
-        // it matches a default id's, which is what a top-level asset has.
-        if (!SerializeToJson(TypeRegistry::GetContext().Resolve<AssetId>().from_void(&id), out))
+        // Written key by key rather than walked off reflected fields: handing the whole id
+        // to SerializeToJson would land back on AssetId's own JsonOperation. AssetType is a
+        // sub-part, so it still goes through the dispatcher and keeps its reflected name.
+        const MetaType typeMeta = TypeRegistry::GetContext().Resolve<AssetType>();
+        const AssetType type = id.GetAssetType();
+        JsonValue typeJson;
+        if (!typeMeta || !SerializeToJson(typeMeta.from_void(&type), typeJson))
         {
-            return false;
-        }
-
-        // Without Resource::Reflect registered the two required fields simply do not appear,
-        // and the result reads back as no asset at all. Caught here rather than left to the
-        // reader: this feeds the cache's identity, where a silently degenerate value is the
-        // same for every asset and stops a key collision from being detectable.
-        if (!out.is_object() || out.find("type") == out.end() || out.find("path") == out.end())
-        {
-            LOG_ERROR("[AssetJsonSerializer] AssetId did not serialize; is "
+            LOG_ERROR("[AssetJsonSerializer] AssetType did not serialize; is "
                       "TypeRegistry::Register(Resource::Reflect) missing?");
             return false;
         }
 
+        const eastl::string path = id.GetPath();
+        out = JsonValue::object();
+        out["type"] = eastl::move(typeJson);
+        out["path"] = std::string(path.c_str(), path.size());
+
+        if (id.IsSubAsset())
+        {
+            const eastl::string sub = id.GetSubLabel();
+            out["sub"] = std::string(sub.c_str(), sub.size());
+        }
+
         JsonValue descriptor;
         if (id.GetDescriptor() != nullptr
-            && DescriptorToJson(*id.GetDescriptor(), id.GetAssetType(), descriptor)
-            && !descriptor.empty())
+            && DescriptorToJson(*id.GetDescriptor(), id.GetAssetType(), descriptor))
         {
             out["desc"] = eastl::move(descriptor);
         }
@@ -107,6 +112,27 @@ namespace Spark::Resource
         return AssetId::Of(eastl::string_view(path.c_str(), path.size()),
                            eastl::string_view(sub.c_str(), sub.size()),
                            type, eastl::move(descriptor));
+    }
+
+    bool AssetIdToJsonField(const AssetId& id, JsonValue& out)
+    {
+        if (!id.IsValid())
+        {
+            out = nullptr;
+            return true;
+        }
+        return AssetIdToJson(id, out);
+    }
+
+    bool AssetIdFromJsonField(const JsonValue& in, AssetId& target)
+    {
+        if (in.is_null())
+        {
+            target = {};
+            return true;
+        }
+        target = AssetIdFromJson(in);
+        return target.IsValid();
     }
 
     eastl::string AssetIdToDisplayString(const AssetId& id)

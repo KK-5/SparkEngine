@@ -94,17 +94,24 @@ namespace
     };
 }
 
-TEST_F(JsonSerializerTest, DefaultsAreOmitted)
+TEST_F(JsonSerializerTest, DefaultsAreWritten)
 {
+    // A field is never dropped for happening to equal a default: changing a default in
+    // code would otherwise restate what files already on disk mean.
     const Config config;
-    EXPECT_EQ(Encode(config).dump(), "{}");
+    EXPECT_EQ(Encode(config).dump(),
+        R"({"season":"Spring","bigUnsigned":0,"bigSigned":0,"plainLong":0,"tiny":0,)"
+        R"("scale":1.0,"name":"","main":{"entry":"","order":0,"optional":false},"stages":[]})");
 }
 
 TEST_F(JsonSerializerTest, UnmarkedFieldIsSkipped)
 {
     Config config;
     config.derived = 4096;
-    EXPECT_EQ(Encode(config).dump(), "{}");
+
+    const JsonValue json = Encode(config);
+    EXPECT_FALSE(json.contains("derived"));
+    EXPECT_TRUE(json.contains("season"));
 }
 
 TEST_F(JsonSerializerTest, IntegerExtremesSurviveRoundTrip)
@@ -127,7 +134,7 @@ TEST_F(JsonSerializerTest, EnumIsStoredByName)
 {
     Config config;
     config.season = Season::Winter;
-    EXPECT_EQ(Encode(config).dump(), R"({"season":"Winter"})");
+    EXPECT_EQ(Encode(config)["season"], "Winter");
 
     Config decoded;
     ASSERT_TRUE(Decode(Encode(config), decoded));
@@ -141,7 +148,9 @@ TEST_F(JsonSerializerTest, FieldOrderFollowsRegistration)
     config.season = Season::Summer;
     config.scale  = 2.0f;
 
-    EXPECT_EQ(Encode(config).dump(), R"({"season":"Summer","scale":2.0,"name":"hello"})");
+    EXPECT_EQ(Encode(config).dump(),
+        R"({"season":"Summer","bigUnsigned":0,"bigSigned":0,"plainLong":0,"tiny":0,)"
+        R"("scale":2.0,"name":"hello","main":{"entry":"","order":0,"optional":false},"stages":[]})");
 }
 
 TEST_F(JsonSerializerTest, NestedStructRoundTrips)
@@ -151,9 +160,8 @@ TEST_F(JsonSerializerTest, NestedStructRoundTrips)
     config.main.order    = 7;
     config.main.optional = true;
 
-    // Only the fields that differ from a default Stage are written.
-    EXPECT_EQ(Encode(config).dump(),
-        R"({"main":{"entry":"VSMain","order":7,"optional":true}})");
+    EXPECT_EQ(Encode(config)["main"].dump(),
+        R"({"entry":"VSMain","order":7,"optional":true})");
 
     Config decoded;
     ASSERT_TRUE(Decode(Encode(config), decoded));
@@ -169,9 +177,11 @@ TEST_F(JsonSerializerTest, VectorRoundTrips)
     config.stages.push_back(Stage{});
     config.stages.push_back(Stage{"PSMain", 2, true});
 
-    // The all-default element collapses to {} but keeps its slot.
-    EXPECT_EQ(Encode(config).dump(),
-        R"({"stages":[{"entry":"VSMain","order":1},{},{"entry":"PSMain","order":2,"optional":true}]})");
+    // The all-default element keeps its slot, written out in full like any other.
+    EXPECT_EQ(Encode(config)["stages"].dump(),
+        R"([{"entry":"VSMain","order":1,"optional":false},)"
+        R"({"entry":"","order":0,"optional":false},)"
+        R"({"entry":"PSMain","order":2,"optional":true}])");
 
     Config decoded;
     ASSERT_TRUE(Decode(Encode(config), decoded));
@@ -252,4 +262,153 @@ TEST_F(JsonSerializerTest, VectorIsRecognizedAsSequenceContainer)
     // Guards the eastl::vector meta traits: without the specialization this reports false
     // and the field would silently encode as an empty object instead of an array.
     EXPECT_TRUE(m_context.Resolve<eastl::vector<Stage>>().is_sequence_container());
+}
+
+// ---- JsonOperation ------------------------------------------------------------------
+
+namespace
+{
+    //! Reflected fields AND an operation, the same shape AssetId has: the two entry points
+    //! must produce different things, and the operation must be reachable from a field.
+    struct Ref
+    {
+        eastl::string name;
+        int32_t       index = 0;
+    };
+
+    //! A single string, which no field walk could ever produce -- that is what makes the
+    //! assertions below able to tell which path ran.
+    bool RefToJson(const Ref& ref, JsonValue& out)
+    {
+        if (ref.name.empty())
+        {
+            out = nullptr;
+            return true;
+        }
+        out = std::string(ref.name.c_str(), ref.name.size()) + "#" + std::to_string(ref.index);
+        return true;
+    }
+
+    bool RefFromJson(const JsonValue& in, Ref& target)
+    {
+        if (in.is_null())
+        {
+            target = Ref{};
+            return true;
+        }
+        if (!in.is_string())
+        {
+            return false;
+        }
+        const std::string text  = in.get<std::string>();
+        const size_t      split = text.find('#');
+        if (split == std::string::npos)
+        {
+            return false;
+        }
+        target.name.assign(text.c_str(), split);
+        target.index = std::stoi(text.substr(split + 1));
+        return true;
+    }
+
+    struct Holder
+    {
+        Ref           primary;
+        eastl::string label;
+    };
+
+    class JsonOperationTest : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            // Brings in Stage, which the no-operation case below leans on.
+            Reflect(m_context);
+
+            m_context.Reflect<Ref>()
+                .Type("Ref")
+                .Data<&Ref::name>("name").Traits(MetaFieldTraits::Serializable)
+                .Data<&Ref::index>("index").Traits(MetaFieldTraits::Serializable);
+            ReflectJsonOperation<Ref, &RefToJson, &RefFromJson>(m_context);
+
+            m_context.Reflect<Holder>()
+                .Type("Holder")
+                .Data<&Holder::primary>("primary").Traits(MetaFieldTraits::Serializable)
+                .Data<&Holder::label>("label").Traits(MetaFieldTraits::Serializable);
+        }
+
+        ReflectContext m_context;
+    };
+}
+
+TEST_F(JsonOperationTest, TakesOverAtTopLevel)
+{
+    const Ref ref{"alpha", 3};
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Ref>().from_void(&ref), json));
+    EXPECT_EQ(json.dump(), R"("alpha#3")");
+}
+
+TEST_F(JsonOperationTest, TakesOverForAField)
+{
+    const Holder holder{Ref{"alpha", 3}, "outer"};
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Holder>().from_void(&holder), json));
+    EXPECT_EQ(json.dump(), R"({"primary":"alpha#3","label":"outer"})");
+}
+
+TEST_F(JsonOperationTest, RoundTripsThroughAField)
+{
+    const Holder original{Ref{"alpha", 3}, "outer"};
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Holder>().from_void(&original), json));
+
+    Holder decoded;
+    MetaAny target = m_context.Resolve<Holder>().from_void(&decoded);
+    ASSERT_TRUE(DeserializeFromJson(json, target));
+
+    EXPECT_EQ(decoded.primary.name, "alpha");
+    EXPECT_EQ(decoded.primary.index, 3);
+    EXPECT_EQ(decoded.label, "outer");
+}
+
+TEST_F(JsonOperationTest, UnsetEncodesAsNullAndReadsBackUnset)
+{
+    JsonValue json;
+    const Ref unset;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Ref>().from_void(&unset), json));
+    EXPECT_TRUE(json.is_null());
+
+    Ref decoded{"leftover", 7};
+    MetaAny target = m_context.Resolve<Ref>().from_void(&decoded);
+    ASSERT_TRUE(DeserializeFromJson(json, target));
+    EXPECT_TRUE(decoded.name.empty());
+    EXPECT_EQ(decoded.index, 0);
+}
+
+TEST_F(JsonOperationTest, FailureDoesNotFallBackToTheGenericDispatch)
+{
+    // Falling back is the failure mode being guarded against: a value that reached the
+    // object branch would come back missing whatever only the operation knows how to
+    // carry -- for an AssetId, its descriptor.
+    Ref decoded{"kept", 5};
+    MetaAny target = m_context.Resolve<Ref>().from_void(&decoded);
+
+    JsonValue json = 42;   // neither a string nor null, so RefFromJson rejects it
+    EXPECT_FALSE(DeserializeFromJson(json, target));
+    EXPECT_EQ(decoded.name, "kept");
+    EXPECT_EQ(decoded.index, 5);
+}
+
+TEST_F(JsonOperationTest, TypeWithoutAnOperationIsUnaffected)
+{
+    // The lookup runs ahead of every built-in branch, so it must be invisible to types
+    // that never registered one.
+    JsonValue json;
+    const Stage stage{"main", 2, true};
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Stage>().from_void(&stage), json));
+    EXPECT_EQ(json.dump(), R"({"entry":"main","order":2,"optional":true})");
 }

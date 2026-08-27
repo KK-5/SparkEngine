@@ -26,6 +26,26 @@ namespace Spark
             return name ? name : "<unnamed>";
         }
 
+        //! Copies the pair out: try_cast points into the meta_any invoke returned.
+        bool FindJsonOperation(const MetaType& type, JsonOperation& out)
+        {
+            MetaFunc found = type.func(kJsonOperationId);
+            if (!found)
+            {
+                return false;
+            }
+
+            MetaAny returned = found.invoke({});
+            const JsonOperation* op = returned.try_cast<JsonOperation>();
+            if (op == nullptr || op->toJson == nullptr || op->fromJson == nullptr)
+            {
+                LOG_ERROR("[JsonSerializer] {} registered a malformed JsonOperation.", TypeName(type));
+                return false;
+            }
+            out = *op;
+            return true;
+        }
+
         // ---- arithmetic leaves ----------------------------------------------------
         //
         // The table below names the fundamental types, not the fixed-width aliases:
@@ -214,11 +234,6 @@ namespace Spark
         {
             out = JsonValue::object();
 
-            // Defaults are encoded and compared as JSON subtrees rather than as values:
-            // entt only generates a comparison for equality-comparable types, so a nested
-            // struct or a vector field would always claim to differ and never be omitted.
-            MetaAny defaults = type.construct();
-
             bool ok = true;
             for (auto&& [id, data] : type.data())
             {
@@ -235,17 +250,6 @@ namespace Spark
                         TypeName(type), data.name());
                     ok = false;
                     continue;
-                }
-
-                if (defaults)
-                {
-                    MetaAny defaultField = data.get(defaults);
-                    JsonValue defaultEncoded;
-                    if (defaultField && SerializeToJson(defaultField, defaultEncoded)
-                        && defaultEncoded == encoded)
-                    {
-                        continue;
-                    }
                 }
 
                 out[data.name()] = std::move(encoded);
@@ -298,6 +302,21 @@ namespace Spark
             return false;
         }
 
+        // Ahead of the built-in branches: an explicit registration has no reason to queue
+        // behind the shape guesses. Reads only `type`, so the enum rule below still holds.
+        // A failure never falls through -- falling back is the bug being guarded against.
+        JsonOperation operation;
+        if (FindJsonOperation(type, operation))
+        {
+            if (!operation.toJson(value, out))
+            {
+                LOG_ERROR("[JsonSerializer] {}'s JsonOperation could not encode the value.",
+                    TypeName(type));
+                return false;
+            }
+            return true;
+        }
+
         if (type.is_enum())
         {
             return WriteEnum(type, value, out);
@@ -336,6 +355,18 @@ namespace Spark
         if (!type)
         {
             return false;
+        }
+
+        JsonOperation operation;
+        if (FindJsonOperation(type, operation))
+        {
+            if (!operation.fromJson(in, target))
+            {
+                LOG_ERROR("[JsonSerializer] {}'s JsonOperation could not decode the value.",
+                    TypeName(type));
+                return false;
+            }
+            return true;
         }
 
         if (type.is_enum())

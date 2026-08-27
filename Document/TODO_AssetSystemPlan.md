@@ -42,8 +42,10 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 
 **阶段 2 与阶段 4 的设计已定，尚未动工。** 阶段 2 的机制（`JsonOperation`、分派链位置、`null` 语义、
 失败语义、数学类型走标记而非 `JsonOperation`）与阶段 4 的形态（storage-major、多上下文、entity 原值
-当键、读写同构）都已落到文档里。落盘 key 已定为反射注册名（一名两用，见阶段 2）。两件前置还没
-做：**去掉默认省略**（见「待决」）与**冻结前把那批名字校对一遍**。
+当键、读写同构）都已落到文档里。落盘 key 已定为反射注册名（一名两用，见阶段 2）。
+
+**阶段 2 前三步已完成**：`CameraType::Prespective` 的拼写、`JsonOperation`、默认值一律写出。剩下
+一件前置：**冻结前把那批要落盘的名字校对一遍**。之后就是给 37 个字段打标记。
 
 另有两项已随 0.a 落地：
 
@@ -292,14 +294,9 @@ bool DeserializeFromJson(const JsonValue& in, MetaAny& target);
 - **写回一律 `data.set()`，不原地改。** entt 的 data 默认 policy 是 `as_is`（`factory.hpp:319`），
   `data.get(instance)` 对成员字段返回副本。反序列化是「取副本 → 递归填 → set 回去」，容器同理。
   这与仓库现有的反射写约定（`set()` + `ReplaceComponent`）一致。
-- **「省略默认值」比较序列化结果，不用 `meta_any::operator==`。** entt 只对 equality-comparable 的
-  类型生成 compare，`ShaderStageEntry` 与 `eastl::vector` 都没有 `operator==`，一律判成「不等于默认」
-  于是永不省略。改为 `type.construct()` 造默认实例、序列化一遍、逐字段比 `JsonValue`，相等则 erase。
-
-省略默认值是类类型序列化的固有行为，**逐层生效**，不做成开关：嵌套结构全默认时塌成 `{}`，父层再比
-一次又整个省掉，规则只有一条。不可默认构造的类型退化成全字段写出。
-
-> **「不做成开关」这条已被推翻。** 组件层不能省默认值，见「待决」的「去掉默认省略」。
+> **「省略默认值」整条已在阶段 2 删除**，见「默认值一律写出」。0.c 当时的实现（`type.construct()`
+> 造默认实例、序列化一遍、逐字段比 `JsonValue`，相等则 erase）连同它的那条坑（不能用
+> `meta_any::operator==`，entt 只对 equality-comparable 的类型生成 compare）一起作废。
 
 **字段顺序是确定的**：entt 用 `std::vector<meta_data_node>` 存字段，迭代即注册顺序；配上
 `ordered_json`，落盘顺序 == 反射注册顺序。测试可直接断言 `dump()` 字面量。
@@ -416,29 +413,38 @@ AssetId       AssetIdFromJson(const JsonValue& in);
 eastl::string AssetIdToDisplayString(const AssetId& id);   // 单向，log 与 Inspector 只读框
 ```
 
-**写一半通用、一半显式。** `type` / `path` / `sub` 是 `Reflect<AssetId>()` 的反射字段，走通用遍历；
-`desc` 由 `AssetIdToJson` 用 `DescriptorToJson(desc, id.GetAssetType(), ...)` 补上——它的具体类型
-由 `type` 的**值**决定，字段遍历表达不了这种依赖，而调用方手里恰好有 `AssetType`。
+**两个方向都是显式的。** 四个键由 `AssetIdToJson` / `AssetIdFromJson` 自己写，不走字段遍历。
+`AssetId` 不可变、哈希在构造时算，读侧没有逐字段写入的落点，只能读出四项后
+`AssetId::Of(path, sub, type, desc)` 一次构造；写侧原本是走反射字段遍历的，阶段 2 给 `AssetId` 加了
+`JsonOperation` 之后改成对称的显式写法，理由见下。
 
-**读整体是显式的。** `AssetId` 不可变、哈希在构造时算，没法逐字段填，只能读出四项后
-`AssetId::Of(path, sub, type, desc)` 一次构造。这个不对称由类型本身决定。代价是键名在写侧来自反射、
-在读侧是手写的，round-trip 测试守这条。
+**只有 `AssetType` 的枚举名仍来自反射** —— `AssetIdToJson` 对它单独调一次 `SerializeToJson`，
+所以 `"type":"Image"` 由序列化器的枚举分支产出，不写映射表。这是「把子部分交回分派器」的合法用法。
 
-#### `Reflect<AssetId>()`
+#### 写侧为什么不再走字段遍历（阶段 2 的修正）
 
-三个字段一律 **by-value getter，无 setter**（`.Data<nullptr, &Getter>`）。理由是 `m_hash` 是
-`f(path, sub, type, desc)` 的派生值：entt 对任何非 const 成员都会无条件装上 setter
-（`factory.hpp:349` 附近），逐字段写入会留下一个哈希过期的 id，而 `operator==` 首先比的就是哈希、
-`AssetDataBase` 也按它做键。把成员改成 const 能关掉 setter，但那会删掉 `AssetId` 的拷贝赋值，
-`ComponentView.cpp:396` 等处在用。
+原方案里 `type` / `path` / `sub` 是 `Reflect<AssetId>()` 的三个 by-value getter 字段，`AssetIdToJson`
+把整个 id 交给 `SerializeToJson` 走通用遍历。阶段 2 给 `AssetId` 注册 `JsonOperation` 之后这条路
+**成环**：分派器查到 operation → 调 `AssetIdToJsonField` → `AssetIdToJson` → 又交回分派器 → 栈溢出。
 
-`m_descriptor` 与 `m_hash` 都不反射。
+错的一方是 `AssetIdToJson`，不是分派器。分派器查 operation 就是重载决议，而一个 operation 声明了
+「我完全负责这个类型的编码」之后又把自己的值交回去，等同于在 `operator<<(Foo)` 里写 `os << foo`。
+**规则一条**：operation 可以把**子部分**交回分派器，不能把自己的值交回去。
+
+于是三个 `.Data<nullptr, &Getter>` 与 `AssetIdField` 那三个 getter 一并删除——写侧不再需要它们，
+读侧从来没用过，编辑器只用 display string、从不展开 `AssetId` 的字段。`Reflect<AssetId>()` 只剩
+`.Type("AssetId")` 与 operation 注册。
+
+曾经为这个环开过一个 `SerializeFieldsToJson`（只做字段遍历、跳过 operation 的公开入口），**已删除**：
+它对任何带 operation 的类型误用都会静默产出错编码，正是 `desc` 丢失那个失败模式，而它偏偏是 public 的。
+
+顺带一个好处：`sub` 的省略从「蹭 `WriteObject` 的默认省略」变成 `if (id.IsSubAsset())` 这个明确判断，
+于是 `AssetId` 的编码**不再受任何全局策略影响**。它是身份，缓存 identity 与场景文件必须是同一串字节。
 
 #### 一并落地的
 
-- `AssetType` 反射（4 个值），于是 `"type":"Image"` 由序列化器的枚举分支产出，不写映射表。
-- `sub` / `desc` 的省略**不是新规则**，是 `WriteObject` 已有的「等于默认值就省略」的自然结果：
-  默认 `AssetId` 的 `sub` 为空串，顶层资产也为空串；`desc` 全默认时编码为 `{}`。
+- `AssetType` 反射（4 个值）。
+- `desc` 全默认时 `DescriptorToJson` 编码为 `{}`，`AssetIdToJson` 判空后不写这个键。
 - `ComponentView.cpp` 的 `AssetElement` 与 `TextureElement` 两处只读框改用 display string，
   子资产贴图现在能看出是子资产。
 - `AssetIdSerializeTests` 7 例。其中两条守着最容易错的地方：**`desc` 键缺失必须造默认 descriptor
@@ -1004,6 +1010,20 @@ if (auto fn = type.func(kJsonOperationId))
 }
 ```
 
+#### 一条规则：可以交出子部分，不能交出自己
+
+`SerializeToJson` 是**分派器**，查 operation 就是重载决议。于是约束和 `operator<<` 完全同构：
+
+> **operation 完全负责 T 的编码。它可以把子部分交回分派器，不能把自己的值交回去。**
+
+`AssetId` 的 operation 对 `AssetType` 调 `SerializeToJson`（子部分，合法，枚举名因此仍来自反射），
+但四个键自己写；把整个 id 交回去就等于 `os << *this`。
+
+**不为这条加护栏**（递归检测、报错日志、编译期检查都考虑过并否掉）：它和「在拷贝构造里写
+`Foo(other)`」「在 `operator==` 里比 `*this == other`」是同一类错误，语言本身天天有这个风险。为它
+单独建一套机制，那个不对称本身就说明不该建。**更不提供任何「借用通用编码处理自己」的入口** ——
+一度存在的 `SerializeFieldsToJson` 已删，见 0.d。
+
 #### 为什么是「一个 `Func` 返回函数指针表」，不是「两个 `Func` 各自 `invoke`」
 
 三条，第一条是决定性的：
@@ -1096,11 +1116,40 @@ bool AssetIdFromJsonField(const JsonValue& in, AssetId& target)
 「反射没注册」和「数据损坏」，都不是可降级的东西。回落正是要防的那个失败模式：`AssetId` 掉回复合
 分支 → 缺 `desc` → 法线贴图静默变成 sRGB 颜色贴图。
 
+### 默认值一律写出 ✅ 已完成
+
+`WriteObject` 里那段「等于默认值就省略」**已删除**，不做成开关。反射注册且标了 `Serializable` 的
+字段，一律写出。
+
+去掉它的理由：
+
+- **默认值会变成文件语义的一部分。** 把 `MaterialParams::m_roughness` 的默认从 0.5 改成 0.4，所有旧
+  场景里「没写 roughness」的材质会**全部静默改变外观** —— 文件没变、代码改了一个数、画面变了。
+  **descriptor 这条更重**：它是 `AssetId` 的一部分，而 `AssetId` 是身份，默认值一动，磁盘上所有旧
+  引用和由它派生的所有缓存键会指向另一个编译产物。
+- **文件不自解释。** 分不清「作者没设」与「作者设成了正好等于默认的值」。
+- **每写一遍要序列化两遍**（造默认实例 + 完整递归序列化 + 逐字段比 `JsonValue`），嵌套每层都做。
+- 不可默认构造的类型退化成全写，同一份格式里两种行为；去掉之后这个特例消失。
+
+它买到的**只有文件体积**，实测一个普通贴图引用从 48 字节变 158 字节，整个场景文件量级是几十 KB
+—— 在 JSON 这种格式里不值一提。版本化不靠它：那靠的是**读侧**的「缺键 = 保留现值」。
+
+**不做成 `JsonDefaults{Omit, Write}` 开关**（一度是计划）：两套行为要各自测、策略参数要线程化到整条
+递归、每个调用方都得想传哪个，而省下的那几十 KB 撑不起这些。
+
+一并落地的：
+
+- `AssetIdToJson` 里 `!descriptor.empty()` 那个条件删除 —— **`desc` 键从此总是写**。要保留「全默认
+  就不写」得构造默认实例来比较，正是删掉的那个东西。`sub` 不受影响，它是 `IsSubAsset()` 判断。
+- **现有缓存条目一次性全部失效**（identity 字符串变了，自愈重建）。
+- 三个测试文件里断言 `dump()` 字面量的用例更新，`DefaultsAreOmitted` 改为 `DefaultsAreWritten`、
+  `DefaultDescriptorsEncodeToEmptyObject` 改为 `DefaultDescriptorsAreWrittenInFull`。
+
 ### 数学类型标 `Serializable`，不给 `JsonOperation`
 
 `Math::Vector3` / `Vector4` 的分量加 `Traits`。它们**能**逐字段重建，按上面的判据就不该走
 `JsonOperation`。曾考虑让它产出 `[x,y,z]`，两条反对理由（项数不固定、往已有对象里读时逐分量合并）
-**都是默认省略造成的**，见「待决」那条；去掉之后 A 也永远写三项。
+**都是默认省略造成的**，而默认省略已经删掉，通用遍历现在也永远写三项。
 
 原文列的 `Vector2` 与 `Quaternion` 一并推迟——全仓没有用到它们的反射字段（`TransformComponent`
 的 `m_rotation` 是欧拉角 `Vector3`；`m_baseColor` / `m_emissive` 是 `Vector4`）。理由与下面删掉
@@ -1180,9 +1229,14 @@ key 里。接受。
 
 已确立的几点：
 
-- **它的语义是「一个材质」，句柄只是呈现形式。** 所以它该有 `JsonOperation`，编码的是材质本身而不是那个
-  `uint32_t`。存原始句柄值不行：材质是运行期创建的，下次启动创建顺序不同，同一个数字指向另一个材质
-  或悬空 —— 跟 entt 的 `Entity` 同一类问题。
+- **它的语义是「一个材质」，句柄只是呈现形式。** 编码的是「material 上下文里的哪个实体」而不是那个
+  `uint32_t` 的运行期值：材质是运行期创建的，下次启动创建顺序不同，同一个数字指向另一个材质或悬空
+  —— 跟 entt 的 `Entity` 同一类问题。
+- **但它不该用 `JsonOperation`**（原文写的是该用，已推翻）。重映射要的那张 `文件键 → handle` 表在
+  **场景加载器**手里，而 operation 的签名是 `bool(const JsonValue&, T&)`，拿不到任何上下文；硬要用就得
+  塞一个 thread_local 的「当前重映射表」。正确形态是**字段级标记 + 加载后的重映射 pass**：
+  `MetaFieldTraits` 加一位 `EntityRef`，值照常写成数字，场景加载器在所有实体建完之后翻译一遍。
+  声明式、没有用户代码、拿得到上下文。`Entity` 类型的字段将来同理。
 - **但材质是共享的**，而且是有意的：`SpawnModel.cpp:92` 明确让同一个 materialIndex 的 primitive
   复用一个 `MaterialHandle`。把内容内联进每个 `MaterialComponent`，一个 50 primitive / 3 材质的模型
   读回来会变成 50 个材质 —— 上传 50 条 GPU 材质记录，且改其中一个不再影响其他。
@@ -1249,7 +1303,7 @@ merge，只在「枚举文件里有哪些实体」和「建实体 + 挂组件」
 |---|---|---|
 | 与内存布局的关系 | **同构** —— storage 段即 storage | 打散再重组 |
 | 写盘 | 遍历 `storage()` 直接写段 | 需要一次 `实体 → [类型]` 的中间聚合 |
-| 文件体积 | 类型名每段一次 | 类型名每实体一次（叠加「去掉默认省略」后差距明显） |
+| 文件体积 | 类型名每段一次 | 类型名每实体一次（默认值一律写出，差距更明显） |
 | material 上下文 | 天然是表 | 给单组件、无层级、不被实例化的实体套两层空信封 |
 | 未知组件类型 | 整段可跳过 | 散在各实体里 |
 | prefab 实例 | 顶层另开一个结构 | 与普通实体并列在同一数组 |
@@ -1381,33 +1435,11 @@ live 的代价：三方语义（原型改了 + 实例也改了怎么合）、孤
 - 加载后 `MeshComponent::m_modelAsset` 那个 `Ptr` 谁来填。今天只有 `SpawnModel` 直接赋值。两条路：
   场景加载时同步 `RequestAsset`，或复用已有的 `AssetResolveBus::ResolveAssetToComponent` 异步机制
   （编辑器侧的 `ComponentAssetResolver` 已经在跑）。
-- `MaterialHandle` 的 `JsonOperation` —— 见阶段 3 那一节。
+- `MaterialHandle` 的重映射 pass 与 `MetaFieldTraits::EntityRef` —— 见阶段 3 那一节。
 
 ---
 
 ## 待决
-
-**去掉默认省略。** 0.c 的 `WriteObject` 对等于默认值的字段省略键（`JsonSerializer.cpp:240-249`）。
-这条对 descriptor 尚可（字段少、默认值即导入策略），**对组件是错的**：
-
-- **默认值会变成文件语义的一部分。** 把 `MaterialParams::m_roughness` 的默认从 0.5 改成 0.4，所有旧
-  场景里「没写 roughness」的材质会**全部静默改变外观** —— 文件没变、代码改了一个数、画面变了。
-- **文件不自解释。** 看不出一个实体的完整状态，也分不清「作者没设」与「作者设成了正好等于默认的值」。
-- **每写一遍要序列化两遍**（造默认实例 + 完整序列化 + 逐字段比 `JsonValue`），且递归每一层都做。
-- 不可默认构造的类型退化成全写，同一份格式里两种行为。
-
-它买到的**只有文件体积**。文档原先把版本化记在它名下，那条站不住：版本化靠的是**读侧**的
-「缺字段 = 默认值」，写侧省不省与之无关。
-
-两个待定：
-
-- **范围。** 只关组件层（`SerializeToJson` 加一个 `JsonDefaults{Omit, Write}` 策略参数），还是连
-  descriptor / `AssetId` 一起。后者会改变 `AssetIdToJson` 的产出 → `AssetCache` 的 identity 字符串变
-  → **现有缓存条目全部失效**（能自愈，重建即可），且 `AssetIdSerializeTests` /
-  `DescriptorSerializeTests` 里断言 `dump()` 字面量的用例要改。`AssetId` 有了 `JsonOperation` 之后它的形态由
-  自己的函数决定，天然不受外层策略影响。
-- **顺序。** 应排在阶段 2「给组件字段打标记」**之前**。否则中间会写出 `{"y":1.5}` 这种半截向量，
-  阶段 2 的测试得按那个形态写、之后再改一遍。今天没有任何场景文件，所以只是省事，不是兼容问题。
 
 **`DescriptorForUsage` 交出可变的共享单例。** 收紧办法是返回 `ConstPtr<AssetDescriptor>`，
 波及 `AssetId::Of` 的签名，单独一步做。
@@ -1450,11 +1482,10 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 阶段 0、阶段 1、Image 处理流程规整、子资产机制统一均已收尾。剩下的互不依赖：
 
 - **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置，也是 `.gltf` 缓存的前置。
-- **阶段 2**：机制已定（`JsonOperation` / 分派链最前面 / `null` = 未指定 / 命中即终局 / 数学类型标
-  `Serializable` / 落盘 key = 反射注册名）。动工前还有两件事要先落：**去掉默认省略**（见「待决」），
-  以及**把要落盘的那批名字校对一遍**——一名两用，标记打下去它们就冻结成文件格式了。
-  这两条都排在「给组件字段打标记」之前。
+- **阶段 2**：前三步已完成（拼写校正、`JsonOperation`、默认值一律写出）。还剩一件前置：
+  **把要落盘的那批名字校对一遍**——一名两用，标记打下去它们就冻结成文件格式了。
+  这条排在「给组件字段打标记」之前。
 
-  今天没有任何组件字段标了 `Serializable`，所以前面几步（`JsonOperation`、去省略）行为零变化，
+  今天没有任何组件字段标了 `Serializable`，所以前面几步行为零变化，
   可以独立提交、独立验证。
 - **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。

@@ -2,27 +2,18 @@
 
 #include <Reflection/ReflectContext.h>
 #include <Reflection/TypeRegistry.h>
+#include <Serialization/JsonSerializer.h>
 #include <Serialization/MetaFieldTraits.h>
 
 #include <RHI/Pipeline/ShaderStages.h>
 
+#include "AssetJsonSerializer.h"
 #include "Image/ImageAsset.h"
 #include "Model/ModelAsset.h"
 #include "Shader/ShaderAsset.h"
 
 namespace Spark::Resource
 {
-    //! AssetId is immutable -- its hash is computed once, from the other four members --
-    //! so its parts are reflected as by-value getters with no setter. A member pointer
-    //! would always come with a setter (entt installs one for any non-const member), and
-    //! writing a part in isolation would leave the hash describing the previous value.
-    namespace AssetIdField
-    {
-        inline AssetType     Type(const AssetId& id) { return id.GetAssetType(); }
-        inline eastl::string Path(const AssetId& id) { return id.GetPath(); }
-        inline eastl::string Sub (const AssetId& id) { return id.GetSubLabel(); }
-    }
-
     //! Descriptor and AssetId reflection, which is what lets an asset reference be written
     //! to a file and read back.
     //!
@@ -37,16 +28,11 @@ namespace Spark::Resource
             .Data<AssetType::Image>("Image")
             .Data<AssetType::Model>("Model");
 
-        // The descriptor is deliberately absent: its concrete type follows from `type`,
-        // which no field walk can act on. AssetIdToJson appends it.
-        context.Reflect<AssetId>()
-            .Type("AssetId")
-            .Data<nullptr, &AssetIdField::Type>("type")
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<nullptr, &AssetIdField::Path>("path")
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<nullptr, &AssetIdField::Sub>("sub")
-                .Traits(MetaFieldTraits::Serializable);
+        // No reflected fields -- the operation owns the whole encoding. A field walk cannot
+        // rebuild an AssetId: it is immutable, and `desc`'s concrete type follows from the
+        // VALUE of `type`.
+        context.Reflect<AssetId>().Type("AssetId");
+        Spark::ReflectJsonOperation<AssetId, &AssetIdToJsonField, &AssetIdFromJsonField>(context);
 
         context.Reflect<TextureCompression>()
             .Type("TextureCompression")

@@ -25,6 +25,12 @@ namespace Spark::Resource
     //! Returns a default (invalid) AssetId if `type` or `path` is missing or unreadable.
     AssetId AssetIdFromJson(const JsonValue& in);
 
+    //! AssetId's JsonOperation. One difference from the two above: an unset id is `null`
+    //! rather than an error -- empty slots are the norm in a component. The read side needs
+    //! a wrapper too, since AssetIdFromJson returns a default id on failure as well.
+    bool AssetIdToJsonField(const AssetId& id, JsonValue& out);
+    bool AssetIdFromJsonField(const JsonValue& in, AssetId& target);
+
     //! One-way, for logs and read-only inspector fields. Two ids that differ only in their
     //! descriptor -- the same texture as a normal map and as colour -- read alike here.
     eastl::string AssetIdToDisplayString(const AssetId& id);
