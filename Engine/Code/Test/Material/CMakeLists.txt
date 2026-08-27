@@ -1,4 +1,5 @@
 option(MaterialSystemTests "Material system tests" ON)
+option(MaterialSerializeTests "Material reflection/JSON serialization tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -9,6 +10,7 @@ function(ADD_TEST_SOUECE TEST_OPTION TEST_SOURCE_FILE)
 endfunction(ADD_TEST_SOUECE)
 
 ADD_TEST_SOUECE(MaterialSystemTests "MaterialSystemTest.cpp")
+ADD_TEST_SOUECE(MaterialSerializeTests "MaterialSerializeTest.cpp")
 
 set(TARGET_NAME SparkMaterialTest)
 

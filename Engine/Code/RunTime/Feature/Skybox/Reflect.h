@@ -4,6 +4,7 @@
 #include <Reflection/TypeRegistry.h>
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
+#include <Serialization/MetaFieldTraits.h>
 #include <Serialization/MetaTypeTraits.h>
 
 #include "Components.h"
@@ -16,8 +17,10 @@ namespace Spark::Skybox
             .Type("Skybox").Custom<ComponentTraitsRuntime>(ComponentTraits<SkyboxComponent>{})
             .Data<&SkyboxComponent::m_imageAssetId>("Image Asset")
                 .Custom<Spark::AssetElement>(false, static_cast<uint32_t>(Resource::AssetType::Image))
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&SkyboxComponent::m_intensity>("Intensity")
                 .Custom<Spark::FloatElement>(0.f, 10.f, 0.01f)
+                .Traits(MetaFieldTraits::Serializable)
             ;
 
         Spark::ComponentOperation<SkyboxComponent>(context);

@@ -44,8 +44,9 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 失败语义、数学类型走标记而非 `JsonOperation`）与阶段 4 的形态（storage-major、多上下文、entity 原值
 当键、读写同构）都已落到文档里。落盘 key 已定为反射注册名（一名两用，见阶段 2）。
 
-**阶段 2 前三步已完成**：`CameraType::Prespective` 的拼写、`JsonOperation`、默认值一律写出。剩下
-一件前置：**冻结前把那批要落盘的名字校对一遍**。之后就是给 37 个字段打标记。
+**阶段 2 的四件前置全部完成**：拼写校正、`JsonOperation`、默认值一律写出、名字校对（7 个字段改名，
+组件 key 规则冻结为「类名去掉 `Component` 后缀」）。剩下的就是给 37 个字段打 `Serializable`，以及
+给那六个还没有测试目标的组件找个地方做 round-trip。
 
 另有两项已随 0.a 落地：
 
@@ -1189,15 +1190,39 @@ key 里。接受。
 编辑器侧一个字不用改：`data.name()` 在全仓的唯一消费者就是 `ComponentView` 画标签，没有任何地方
 按名字查字段（entt 的查找走 `hashed_string::value(name)` 算出的 id）。
 
-#### 于是多一条前置：打标记之前把这批名字校对一遍
+#### 冻结前的名字校对 ✅ 已完成
 
-从打标记那一刻起它们就是文件格式，改不动了。已知三处：
+从打标记那一刻起这批名字就是文件格式。校对结果：
 
-| 名字 | 处置 |
-|---|---|
-| ~~`CameraType::Prespective`~~ ✅ | 拼错，且 C++ 枚举标识符本身就是错的。已改为 `Perspective`（枚举值 + 默认值 + 反射名） |
-| `MaterialComponent` → `"Material"`，`MaterialParams` → `"MaterialParams"` | 一个删后缀一个留后缀。组件 key 的取名规则要先统一 |
-| `ShadowFilterWidth` 的 `"3x3"` / `"5x5"` / `"7x7"` | 在这条规则下自洽，保留 |
+**已改（7 个字段 + 1 个枚举值）**
+
+| 原名 | 新名 | 为什么 |
+|---|---|---|
+| `Prespective` | `Perspective` | 拼错，C++ 枚举标识符本身也错 |
+| `"Near"` / `"Far"` | `"Clip Start"` / `"Clip End"` | 与成员 `m_clipStart` / `m_clipEnd` 零对应，看文件推不回代码 |
+| `"Inner Cone"` / `"Outer Cone"` | `"Inner Cone Degrees"` / `"Outer Cone Degrees"` | **单位丢了**。将来换弧度，文件里所有值的含义静默改变且无标记 |
+| `"Shadow Normal Offset"` | `"Shadow Normal Offset Texels"` | 同上，丢的是 texels |
+| `"Metallic-Roughness Map"` | `"Metallic Roughness Map"` | 全仓唯一用连字符分词的 key |
+| `Name` 的 `"name"` | `"Value"` | 全仓唯一小写字段名，且落盘是 `{"Name":{"name":...}}` 叠字 |
+
+前四条是同一类错误：**成员名里的限定词（单位、语义）在反射名里被当成「显示啰嗦」删掉了**。作为
+Inspector 标签删得对，作为文件格式删错了。这是一名两用的固有张力，加字段时要记得往文件格式那边靠。
+
+**保留**：`"FOV"`（公认缩写）、`"Rotation"`（欧拉角用度是行业惯例，`TransformSystem.cpp:33` 转弧度）、
+`"Range"`（世界单位是长度字段的默认假设）、`ShadowFilterWidth` 的 `"3x3"/"5x5"/"7x7"`（滤波核尺寸的
+表示法不会变）、`"Type"`（有组件名限定，不歧义）、`"Image Asset"/"Model Asset"`（类型就是 `AssetId`，
+Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外层 Title Case 混排可以接受）。
+
+#### 组件 key 的规则（已冻结）
+
+> **类名去掉 `Component` 后缀。**
+
+`Transform` / `Camera` / `Light` / `Skybox` / `Mesh` / `Material` / `Name`；`MaterialParams` 没有那个
+后缀所以保持全名。
+
+唯一遗留：`MaterialComponent` 的字段 `m_material` 也叫 `"Material"`，落盘会是
+`{"Material":{"Material":4}}`。该字段阶段 2 不标（留给阶段 3），到时把字段名改成 `"Handle"` 即可，
+不阻塞现在。
 
 ### 待定
 
@@ -1482,9 +1507,8 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 阶段 0、阶段 1、Image 处理流程规整、子资产机制统一均已收尾。剩下的互不依赖：
 
 - **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置，也是 `.gltf` 缓存的前置。
-- **阶段 2**：前三步已完成（拼写校正、`JsonOperation`、默认值一律写出）。还剩一件前置：
-  **把要落盘的那批名字校对一遍**——一名两用，标记打下去它们就冻结成文件格式了。
-  这条排在「给组件字段打标记」之前。
+- **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对）。剩下打标记
+  与 round-trip 测试。
 
   今天没有任何组件字段标了 `Serializable`，所以前面几步行为零变化，
   可以独立提交、独立验证。

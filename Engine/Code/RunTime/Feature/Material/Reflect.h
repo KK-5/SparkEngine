@@ -4,6 +4,7 @@
 #include <Reflection/TypeRegistry.h>
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
+#include <Serialization/MetaFieldTraits.h>
 #include <Serialization/MetaTypeTraits.h>
 
 #include <Resource/AssetTypes.h>
@@ -49,27 +50,40 @@ namespace Spark::Material
             .Type("MaterialParams")
             // Scalar / color factors.
             .Data<&MaterialParams::m_baseColor>("Base Color").Custom<Spark::ColorElement>(false)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&MaterialParams::m_metallic>("Metallic").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&MaterialParams::m_roughness>("Roughness").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&MaterialParams::m_specular>("Specular").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&MaterialParams::m_emissive>("Emissive").Custom<Spark::ColorElement>(false)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&MaterialParams::m_emissiveStrength>("Emissive Strength").Custom<Spark::FloatElement>(0.f, 100.f, 0.05f, false)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&MaterialParams::m_normalScale>("Normal Scale").Custom<Spark::FloatSliderElement>(0.f, 2.f, 0.01f, false)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&MaterialParams::m_occlusionStrength>("Occlusion Strength").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+                .Traits(MetaFieldTraits::Serializable)
             // Texture slots — one reflected field per MaterialTexSlot via getter/setter.
             // TextureElement carries the slot's ImageUsage so a dropped image is loaded with
             // the right color space (base color / emissive sRGB; MR / occlusion linear data;
             // normal a linear normal map).
             .Data<&SetTexAsset<MaterialTexSlot::BaseColor>, &GetTexAsset<MaterialTexSlot::BaseColor>>("Base Color Map")
                 .Custom<Spark::TextureElement>(false, kUsageColor)
-            .Data<&SetTexAsset<MaterialTexSlot::MetallicRoughness>, &GetTexAsset<MaterialTexSlot::MetallicRoughness>>("Metallic-Roughness Map")
+                .Traits(MetaFieldTraits::Serializable)
+            .Data<&SetTexAsset<MaterialTexSlot::MetallicRoughness>, &GetTexAsset<MaterialTexSlot::MetallicRoughness>>("Metallic Roughness Map")
                 .Custom<Spark::TextureElement>(false, kUsageData)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&SetTexAsset<MaterialTexSlot::Normal>, &GetTexAsset<MaterialTexSlot::Normal>>("Normal Map")
                 .Custom<Spark::TextureElement>(false, kUsageNormal)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&SetTexAsset<MaterialTexSlot::Occlusion>, &GetTexAsset<MaterialTexSlot::Occlusion>>("Occlusion Map")
                 .Custom<Spark::TextureElement>(false, kUsageData)
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&SetTexAsset<MaterialTexSlot::Emissive>, &GetTexAsset<MaterialTexSlot::Emissive>>("Emissive Map")
                 .Custom<Spark::TextureElement>(false, kUsageColor)
+                .Traits(MetaFieldTraits::Serializable)
             ;
         Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, MaterialParams>(context);
 

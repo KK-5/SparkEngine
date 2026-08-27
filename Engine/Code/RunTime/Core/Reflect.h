@@ -10,6 +10,7 @@
 #include "Math/Vector4.h"
 #include "Math/Quaternion.h"
 #include "Serialization/UIElement.h"
+#include "Serialization/MetaFieldTraits.h"
 #include "Serialization/MetaTypeTraits.h"
 
 namespace Spark
@@ -17,30 +18,34 @@ namespace Spark
     static void Reflect(ReflectContext& context)
     {
 
+        // Components are marked even where no field uses them yet (Vector2, Quaternion):
+        // an unmarked one is still a class, so it would take the object branch, find no
+        // serializable field and quietly encode as {}.
         context.Reflect<Math::Vector2>().Type("Vector2")
-            .Data<&Math::Vector2::x>("x")
-            .Data<&Math::Vector2::y>("y");
+            .Data<&Math::Vector2::x>("x").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Vector2::y>("y").Traits(MetaFieldTraits::Serializable);
 
         context.Reflect<Math::Vector3>().Type("Vector3")
-            .Data<&Math::Vector3::x>("x")
-            .Data<&Math::Vector3::y>("y")
-            .Data<&Math::Vector3::z>("z");
+            .Data<&Math::Vector3::x>("x").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Vector3::y>("y").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Vector3::z>("z").Traits(MetaFieldTraits::Serializable);
 
         context.Reflect<Math::Vector4>().Type("Vector4")
-            .Data<&Math::Vector4::x>("x")
-            .Data<&Math::Vector4::y>("y")
-            .Data<&Math::Vector4::z>("z")
-            .Data<&Math::Vector4::w>("w");
+            .Data<&Math::Vector4::x>("x").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Vector4::y>("y").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Vector4::z>("z").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Vector4::w>("w").Traits(MetaFieldTraits::Serializable);
 
         context.Reflect<Math::Quaternion>().Type("Quaternion")
-            .Data<&Math::Quaternion::x>("x")
-            .Data<&Math::Quaternion::y>("y")
-            .Data<&Math::Quaternion::z>("z")
-            .Data<&Math::Quaternion::w>("w");
+            .Data<&Math::Quaternion::x>("x").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Quaternion::y>("y").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Quaternion::z>("z").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Quaternion::w>("w").Traits(MetaFieldTraits::Serializable);
 
 
         context.Reflect<Name>().Type("Name").Traits(MetaTypeTraits::Editable)
-            .Data<&Name::name>("name").Custom<EditTextElement>();
+            .Data<&Name::name>("Value").Custom<EditTextElement>()
+                .Traits(MetaFieldTraits::Serializable);
             
         ComponentOperation<Name>(context);
     }
