@@ -40,6 +40,11 @@ KTX2 读写支持 cube，`ImageAssetData` 用 `m_isCubemap` 说明自己而不�
 （payload 若干 + `.unit` 清单），两个手写 publisher 删除，发布收敛成 `ProcessAsset` 里的两阶段提交。
 shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.glb` model 只差一个二进制格式（待办 D）。
 
+**阶段 3 定下了使用流程、数据模型与 `.smat` 的形态 / 产生方式**：八条编辑器用户流程与两个互不重叠的
+编辑表面（材质窗口改材质、Component View 的材质槽改覆盖）；材质数据跨 World 与 MaterialContext 的
+组件布局——覆盖挂世界实体、MaterialContext 只剩有主的材质、材质 GC 随之删除；`shadingModel` /
+`state` / `properties` 三个顶层键；手写优先、导出即原地转换。剩下的是属性名定稿与实现细节。
+
 **阶段 2 与阶段 4 的设计已定，尚未动工。** 阶段 2 的机制（`JsonOperation`、分派链位置、`null` 语义、
 失败语义、数学类型走标记而非 `JsonOperation`）与阶段 4 的形态（storage-major、多上下文、entity 原值
 当键、读写同构）都已落到文档里。落盘 key 已定为反射注册名（一名两用，见阶段 2）。
@@ -1237,48 +1242,405 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 ## 阶段 3：材质资产
 
-> 大致方向。
+> **使用流程、数据模型、`.smat` 的形态与产生方式已定**（下四节），其余仍是大致方向。
 
-- 新增 `AssetType::Material`，扩展名 `.smat`。Loader 直接给回 `compiledData`，不设 Compile 阶段。
+- 新增 `AssetType::Material`（**枚举末尾追加**——`AssetType` 折进 `AssetId::ComputeHash`），扩展名 `.smat`。
 - `ModelAssetBuilder` 把 glTF 内嵌材质 publish 成子资产（`model.glb:material/0`），与内嵌图片
   子资产同一条路。`Resource::Material` 的中间态与 `MaterialParamsFromModel` 随之拆除。
-- glTF 材质只读，在 Inspector 里改它走 **Extract to `.smat`**（Save As）。
-- `MaterialSystem` 加一张 `AssetId → MaterialHandle` 表，同一材质资产被多个实体引用时共享一个 handle。
-- 材质实体加 `MaterialSourceAsset { AssetId }` 组件标记来源。
-- 编辑器：Inspector 的 Save / Save As、资产浏览器新建 `.smat`、`.smat` 拖到 `MaterialComponent`。
 
-**待细化：** authored 材质结构最终落在哪个模块，以及 `MaterialParams` 里那个运行时的
-`Ptr<ImageAsset> m_image` 怎么摘干净；`alphaMode` / `alphaCutoff` 这类今天被丢弃的字段要不要收进来。
+原「待细化」的三条已定：
 
-### `MaterialHandle` 怎么落盘（未定）
+| 问题 | 结论 |
+|---|---|
+| authored 结构落哪个模块 | **`Resource/Material/`**——`ModelAssetBuilder` 与 `MaterialAssetBuilder` 都要构造它，两个都在资产层，`SparkAssetManager` 不能依赖 Feature 层 |
+| `Ptr<ImageAsset> m_image` 怎么摘 | 并进 `MaterialTextureSystem::m_pool`（它本来就按 `AssetId` 索引）。`MaterialTexture` 这个 struct 消失，贴图槽变成 `array<AssetId, N>` |
+| `Load` / `Compile` 怎么分 | `Load` 只把字节读进来（`Encoded` raw），`Compile` 解 JSON 出参数。与 `.ktx2` 走 `ImageEncodedRawData` 同构 |
 
-已确立的几点：
+第二条让 `StandardPBRParams` 成为**纯 authored 结构**——序列化时不再有「哪些字段是运行期的」这个
+问题；顺带修掉 `MaterialTextureSystem::Update` 每帧在写 authored 数据这件事。
 
-- **它的语义是「一个材质」，句柄只是呈现形式。** 编码的是「material 上下文里的哪个实体」而不是那个
-  `uint32_t` 的运行期值：材质是运行期创建的，下次启动创建顺序不同，同一个数字指向另一个材质或悬空
-  —— 跟 entt 的 `Entity` 同一类问题。
-- **但它不该用 `JsonOperation`**（原文写的是该用，已推翻）。重映射要的那张 `文件键 → handle` 表在
-  **场景加载器**手里，而 operation 的签名是 `bool(const JsonValue&, T&)`，拿不到任何上下文；硬要用就得
-  塞一个 thread_local 的「当前重映射表」。正确形态是**字段级标记 + 加载后的重映射 pass**：
-  `MetaFieldTraits` 加一位 `EntityRef`，值照常写成数字，场景加载器在所有实体建完之后翻译一遍。
-  声明式、没有用户代码、拿得到上下文。`Entity` 类型的字段将来同理。
-- **但材质是共享的**，而且是有意的：`SpawnModel.cpp:92` 明确让同一个 materialIndex 的 primitive
-  复用一个 `MaterialHandle`。把内容内联进每个 `MaterialComponent`，一个 50 primitive / 3 材质的模型
-  读回来会变成 50 个材质 —— 上传 50 条 GPU 材质记录，且改其中一个不再影响其他。
-- 所以它编码的是**「material 上下文里的哪个实体」**，材质内容住在那个上下文里（阶段 4 的多上下文
-  形态）。写时**按 handle 去重、不按内容哈希**，共享关系逐字节保住。
-- **机制上零新东西**：`MaterialExecuteContext::Current()` 已由 `MaterialSystem::InitInternal` 推入
-  （`MaterialSystem.cpp:24`），`CreateMaterial` 是现成的自由函数，`OnComponentConstruct` 对已带值的
-  组件不覆盖（`PreSetMaterialIsNotOverwrittenOnAdd` 守着），所以「先加组件、再反序列化填 handle」
-  不会打架。
-- **`MaterialHandle` 是「实例」不是「资产」。** 材质的应用链是：材质资产 → 创建实例 → 实例被多个组件
-  引用；也可以创建多个实例各带不同参数。后半段今天已经成立（`MaterialContext` 里就是一堆实体），
-  **前半段「从材质资产创建实例」还不存在** —— 那正是本阶段要建的。
-- 因此**场景保存不依赖阶段 3**：改过参数、还没变成 `.smat` 的材质就是上下文里的一个实例，照样能存。
-  阶段 3 落地后表项可以升级成 asset 引用（将来还可以是 asset + overrides），**组件那一侧不用改**。
+### 使用流程 ✅ 已定
 
-未定的是表项在阶段 3 前后的形态，以及三件连带的事：常驻默认材质（带 `DefaultMaterialTag`）不该被
-复制一份出来、加载中途 mark-sweep GC 会扫掉还没被任何组件引用的材质、`MaterialParams` 自身怎么序列化。
+> 以编辑器用户的视角写，只说「用户做什么、看到什么」。数据模型在下一节。
+
+今天材质只有一个来源：拖一个模型进场景。glTF 的材质变成运行期的共享实例，关掉编辑器就没了。
+下面八条是材质资产做完之后该成立的全部用户故事。
+
+| # | 流程 | 用户看到 | 今天 |
+|---|---|---|:--:|
+| 1 | 调整模型带进来的材质 | 在材质窗口里改；**所有共用它的对象一起变**；存不回 glb，只能导出 | ⚠️ 今天在 Component View 内联改，入口要搬 |
+| 2 | 导出成材质资产 | Browser 里出现 `.smat`；画面不变，共享关系不变 | ❌ |
+| 3 | 把材质用到别的对象 | 从 Browser 拖 `.smat` 到材质槽 | ❌ |
+| 4 | 编辑一个 `.smat` | 同一个材质窗口，可 Save | ❌ **必做** |
+| 5 | 只改这一个对象 | 这个对象从此跟别人不一样，删掉覆盖就恢复 | ❌ |
+| 6 | 从零新建材质 | Browser 右键新建 | ❌ 优先级最低 |
+| 7 | 存场景、重开、一切还原 | 含**共享关系原样还原** | ❌ 依赖阶段 4 |
+| 8 | `.smat` 被删掉 | 退回默认材质，不崩，有提示 | ❌ |
+
+**面板名以代码为准**：`Inspector` 是**实体列表**（`EntityList` 表格），改参数的面板是
+**Component View**，资产浏览器是 **Browser**（`BottomPanel`）。
+
+#### 两个编辑表面，互不重叠
+
+**改材质与改单个对象，在两个不同的窗口里。** 这是刻意的：两者混在同一个面板上，用户看不出自己正在
+改的是所有人共用的那一份、还是只影响眼前这个对象——Unity 那个经典的「我只改了一个物体，怎么全变了」
+就是这么来的。分开之后这个歧义**结构上不存在**，不必靠 UI 提示去缓解。
+
+| 表面 | 改什么 | 影响 |
+|---|---|---|
+| **材质窗口**（新） | 材质本身 | 所有引用它的对象 |
+| **Component View 的材质槽** | 这个对象的覆盖 | 只有这一个对象 |
+
+Component View 上的材质槽因此**只有引用、没有参数**：
+
+```
+Material
+  └ 材质        [project://Material/Wood.smat]   [打开]     ← 引用，拖放目标
+  └ 本对象覆盖   (无)                             [创建]
+```
+
+有覆盖时下半部分展开成那份参数、可编辑。`MaterialRefElement` 的含义随之从「内联展开被引用材质的
+字段」变成「显示材质身份 + 打开按钮 + 拖放目标」。
+
+**材质窗口的主入口是材质槽上的「打开」按钮**，不是 Browser 的选中状态。原因是模型带进来的材质
+（`Chair.glb:material/0`）是子资产、不是文件，**Browser 里选不中它**，而它恰恰是今天唯一的材质来源。
+Browser 双击 `.smat` 是第二个入口。
+
+这顺带绕开一个前置：流程 4 原本被「Component View 要支持选中资产」这个还不存在的编辑器能力挡住，
+改成由显式动作打开窗口之后不再需要它。
+
+**v1 不做预览**，就是一个参数面板。字段渲染那套机器现成——`ComponentView::RenderFields` 就是遍历
+反射字段画 UI，材质窗口只是把目标换成材质实体的 `StandardPBRParams`。真正新增的是窗口自己的状态：
+当前打开的是哪个材质、dirty 标记、Save / 导出按钮。
+
+三条要点：
+
+- **dirty 与 Save 归材质窗口**，不在对象面板上。glb 子资产背书的材质存不回去，它的窗口只有导出、
+  没有 Save。
+- **流程 2 在内嵌贴图的模型上第一版拒绝**，理由与替代路径见「`.smat` 怎么产生」。
+- **流程 7 的「共享关系原样还原」是验收标准**：原来 50 个 primitive 共用 3 个材质，读回来仍是 3 个，
+  不是 50 个。
+
+**待答（都不影响格式）：** 材质窗口上要不要显示「被 N 个对象使用」（原本是用来警告「你正在改所有
+人」的，两个表面分开之后不再必需，但仍有用）；`.smat` 被外部修改要不要热重载（倾向不要——该和贴图 /
+模型一起整体做）；改完参数何时写盘（倾向显式 Save）。
+
+### 数据模型 ✅ 已定
+
+三个概念，跨两个上下文：
+
+| 组件 | 住在 | 含义 |
+|---|---|---|
+| `MaterialComponent { MaterialHandle }` | World | 这个对象用哪个材质。**共享**，多个对象指同一个 |
+| `MaterialSource { AssetId }` | MaterialContext | 这个材质来自哪个资产 |
+| `StandardPBRParams` | MaterialContext | 这个材质的参数 |
+| `StandardPBROverride` | World | 这个对象对材质的覆盖 |
+
+**解析规则一条：先看世界实体有没有覆盖，没有才取材质实体的。**
+
+`StandardPBROverride` 是一个薄包装，持有的就是同一个 `StandardPBRParams`，字段不重复。之所以不能
+直接把 `StandardPBRParams` 挂到世界实体上：`ComponentOperation` 是一类型一绑定，同一个类型不能同时
+声明「我住 MaterialContext」和「我住 World」。这是实现层约束推出来的形态，换别的解法也行。
+
+#### 一个资产一个实例
+
+`MaterialSystem` 持一张 `AssetId → MaterialHandle` 表，同一个材质资产在一个 MaterialContext 里只有
+一个实例。改这个材质，所有引用它的对象一起变——这正是流程 1、3、4 建立起来的预期。
+
+想让某个对象不一样，走覆盖（流程 5），**不是再造一个实例**。
+
+#### MaterialContext 里只剩两种东西
+
+| 谁 | 谁持有 |
+|---|---|
+| 资产背书的材质，一个资产一个 | 那张表 |
+| 默认材质（`DefaultMaterialTag`） | `MaterialSystem` |
+
+**没有匿名创建的材质实体了**，每一个都有明确的所有者。glTF 材质也在其中——它的 `MaterialSource`
+指向子资产 `Chair.glb:material/0`，与 `.smat` 走同一条路，不需要任何特例。「glTF 材质可改不可存」
+因此从一条人为规定变成机制的自然结果：改的是本地那份，存不回 glb，只能走流程 2。
+
+#### 由此消失的：材质 GC
+
+`MaterialSystem::CollectGarbage`、`MaterialLiveMark`、`m_gcGeneration` 全部删除。
+
+那套每帧两次全量遍历的 mark-sweep 存在的唯一原因，是材质实体被匿名创建而无人负责销毁——加 Material
+组件造一个、`SpawnModel` 每个 glTF 材质造一个，销毁点零个，只能反过来每帧问「还有没有人引用你」。
+所有者明确之后扫无可扫；覆盖挂在世界实体上，实体销毁时 entt 自动带走。
+
+顺带消掉一个时序陷阱：原设计下「已从 `.smat` 建好、但还没有任何对象引用」的材质会被下一帧扫掉，
+而场景加载期间这个窗口必然出现。
+
+材质实例因此变得和资产一样长寿（加载过就一直在）。这不是新泄漏，与「内存驻留无淘汰」这条已知欠账
+一致；将来做资产淘汰时材质实例跟着走，仍是显式销毁，不必把 mark-sweep 请回来。
+
+`MaterialTextureSystem` 自己那个 GC 不受影响——它管的是 GPU 贴图常驻，是另一回事。
+
+#### 覆盖是全量的
+
+组件级 fallback 是有无之分，不是字段之分：实体一旦挂了覆盖就完全遮蔽材质，**此后材质资产再改也
+不影响它**。
+
+所以这不是 UE 的 MaterialInstance（继承 + 局部覆盖，父改了未覆盖项跟着变）——那需要每个字段带一位
+「是否被覆盖」，纯 struct 表达不了，留给 `.smat` 的 `parent` 那一步一起做。
+
+流程 5 因此简单到没有记账：**加覆盖组件 = 分歧，删覆盖组件 = 恢复。** `MaterialComponent` 全程不动，
+「原来用的是哪个材质」这个信息从来没丢过。
+
+#### 换 shading model 时，不匹配的覆盖被移除
+
+把一个对象的材质换成另一个 shading model 的材质之后，它身上那个覆盖组件的类型就对不上了。
+**规则：移除不匹配的覆盖并提示用户。**
+
+今天只有一个 shading model，撞不到这条；但既然为多模型设计了，规则现在写下来，将来不用回头补。
+零代码。
+
+#### 代价：材质缓冲有两个来源
+
+今天 GPU 材质缓冲按材质实体填（`GlobalBuffer<Materials, MaterialData, ...>` 遍历 MaterialContext），
+槽位是 MaterialContext 里的 `MaterialSlotRef`，`ResolveMaterialIndex` 走
+`MaterialComponent → MaterialHandle → MaterialSlotRef`。
+
+带覆盖的世界实体也需要自己的一条 GPU 记录和一个槽位，于是 `MaterialBindingSystem` 要管两个
+population，`ResolveMaterialIndex` 先看实体自己的槽、再回落到材质的槽。**这是本方案唯一实打实的
+新增复杂度。**
+
+「一千个对象共用一个材质只上传一份」不是这里买到的——GPU 记录本来就按材质实体算，共享本身已经
+给了这条。
+
+#### 场景落盘没有特例
+
+material 上下文按阶段 4 的规则原样写出：storage-major、entity 原值当键、组件 key 与字段 key 都是
+反射注册名。
+
+```json
+"material": {
+  "StandardPBRParams": { "12": { "Base Color": [0.8,0.8,0.8,1.0], "Metallic": 0.0, ... } },
+  "MaterialSource":    { "12": { "Asset": {"type":"Material","path":"project://Material/Wood.smat"} } }
+}
+```
+
+- **「引用资产」还是「场景自有」由带没带 `MaterialSource` 表达**，不需要额外的键。
+- **「每种材质参数不一样」由带哪个参数组件表达。** 将来出现别的 shading model，材质带的是另一个
+  参数组件，两种材质在同一上下文里共存——异构实体是 ECS 的原生能力，不用为它设计任何东西。老场景
+  里的 `StandardPBRParams` 继续存在、继续读得回来，是加法不是替换。
+- 有 `MaterialSource` 时参数是**缓存**不是冗余：场景加载不必等资产读完才有画面；`.smat` 缺失时
+  （流程 8）还能降级显示上次的样子。
+
+### `.smat` 的形态 ✅ 已定
+
+JSON，三个顶层键：
+
+```json
+{
+  "shadingModel": "StandardPBR",
+
+  "state": {
+    "Alpha Mode": "Opaque",
+    "Alpha Cutoff": 0.5
+  },
+
+  "properties": {
+    "Base Color":         [0.8, 0.8, 0.8, 1.0],
+    "Metallic":           0.0,
+    "Roughness":          0.5,
+    "Specular":           0.5,
+    "Emissive Color":     [0.0, 0.0, 0.0, 1.0],
+    "Emissive Strength":  1.0,
+    "Normal Scale":       1.0,
+    "Occlusion Strength": 1.0,
+
+    "Base Color Map":         {"type":"Image","path":"project://Texture/Wood_BC.png"},
+    "Metallic Roughness Map": {"type":"Image","path":"project://Texture/Wood_MR.png",
+                               "desc":{"colorSpace":"Linear","usage":"NoColorTexture2D"}},
+    "Normal Map":             null,
+    "Occlusion Map":          null,
+    "Emissive Map":           null
+  }
+}
+```
+
+**顶层三个键是手写的**（与 `AssetIdToJson` 同类，不走字段遍历），lowerCamel，与 0.c / 0.d 的
+`path` / `sub` / `desc` / `colorSpace` 一致。`state` 与 `properties` **里面**的键是反射注册名，
+也就是 Inspector 上的标签——阶段 2 的「一名两用」。
+
+#### `shadingModel`：谁来解释下面这些值
+
+今天只有 `"StandardPBR"` 一个值，反射成枚举，**名字一经落盘即冻结**。
+
+它是「任意参数材质」的接缝：将来出现自定义 shader 材质时，这个键指向另一个模型，`properties` 装那个
+模型声明的任意属性——**文件形状不变，变的只是解释器**，老文件继续走固定 struct 的快路径。加宽方式是
+值从字符串变成 `AssetId` 复合对象，读侧接受两种形态：字符串 = 内置模型名，对象 = 资产引用。
+
+**属性名属于 shading model，不属于某个 C++ struct。** 今天它恰好等于反射字段名，将来若 bag 化则
+来自模型声明，文件不用改。
+
+#### `state` 与 `properties` 分开
+
+判据是消费者不同：
+
+| | 谁消费 |
+|---|---|
+| `properties` | 材质的常量缓冲 + 贴图绑定 |
+| `state` | PSO / 渲染路径的选择 |
+
+分家是因为**把一个键从 `properties` 挪到 `state` 属于格式破坏**——现在分对就永远不用挪。
+
+`alphaMode` / `alphaCutoff` 收进 `state`，原「这类被丢弃的字段要不要收进来」的待细化就此关闭。两者
+今天都没有消费者，收它们是为了不丢 glTF 的信息——`MaterialParamsFromModel` 今天正在丢。
+
+#### `properties` 是平坦对象，贴图和标量混在一起
+
+贴图就是一个类型为 `AssetId` 的属性。
+
+- 值是 0.d 的 `AssetId` 复合对象。usage / colorSpace 已经在 `desc` 里，不另外声明；`desc`
+  全默认时省略（sRGB `Texture2D` 是默认，所以 base color 贴图通常没有 `desc`）。
+- **无贴图写 `null`，不是省略键。** 阶段 2 定了 `null` = 未指定、且默认值一律写出，所以属性永远
+  全部在文件里——diff 稳定、文件自解释，也不靠「缺键」表达「没有贴图」这个明确语义。
+- 不分组。Inspector 的分组是 UI 的事，需要时由模型声明携带，文件保持平坦。
+
+#### 刻意不写的
+
+| 不写 | 为什么 |
+|---|---|
+| `"type": "Material"` | 类型由扩展名与请求它的 `AssetId` 给出 |
+| 版本号 | 0.c 的三条规则覆盖增删字段。真出现「同名字段语义变了」再在顶层加 `"v"` |
+| 材质名 | 文件名就是名字 |
+| 依赖列表 | 从 `properties` 的贴图引用现算。先例见「父怎么引用子：不存，现算」 |
+| 编译产物 / GPU 布局 | `.smat` 是源，不是 cook 产物 |
+
+#### 预留但现在不写
+
+材质实例（父材质 + 覆盖）的形态是顶层加 `"parent": {AssetId}`。它一旦出现，`properties` 的含义从
+「完整值」变成「相对父的覆盖」，「默认值一律写出」对实例不再适用。这是加法：没有 `parent` 就是独立
+材质，规则不变。
+
+#### 属性名定稿 ✅ 已定
+
+`state` / `properties` 里的键 = 反射注册名 = 面板上的标签，**一经落盘即冻结**。大小写随仓库既有的
+25 个已注册字段：**Title Case + 空格**（"Clip Start" / "Inner Cone Degrees" / "Cast Shadow"）。
+
+| 位置 | 名字 | 来源 / 说明 |
+|---|---|---|
+| `state` | `Alpha Mode` | glTF；值与它同源，见下 |
+| `state` | `Alpha Cutoff` | glTF `alphaCutoff` |
+| `properties` | `Base Color` | glTF / UE 同名 |
+| `properties` | `Metallic` | glTF / UE / Unity 一致 |
+| `properties` | `Roughness` | glTF / UE 一致 |
+| `properties` | `Specular` | UE 的介电 F0 缩放（0.5 → F0 0.04） |
+| `properties` | `Emissive Color` | **由 `Emissive` 改名** |
+| `properties` | `Emissive Strength` | `KHR_materials_emissive_strength` |
+| `properties` | `Normal Scale` | glTF `normalTexture.scale` |
+| `properties` | `Occlusion Strength` | glTF `occlusionTexture.strength` |
+| `properties` | `Base Color Map` | |
+| `properties` | `Metallic Roughness Map` | |
+| `properties` | `Normal Map` | |
+| `properties` | `Occlusion Map` | |
+| `properties` | `Emissive Map` | |
+
+**唯一的改名 `Emissive` → `Emissive Color`**：它是个颜色，而旁边就是 `Emissive Strength`；另一个颜色
+因子 `Base Color` 把 Color 写出来了；裸的 `Emissive` 与 `Emissive Map` 并排时像是后者的开关。UE 同名。
+
+**`Specular` 保留**——Metallic / Roughness / Specular 是一个自然三元组，只给第三个加限定词会破掉
+节奏，而这个字段的语义就是 UE 的。老的 spec/gloss 工作流里这个词指一张高光颜色贴图（Blender 因此把
+自己那个改成了 `Specular IOR Level`），歧义留在代码注释里说明。
+
+**`Normal Scale` 与 `Occlusion Strength` 一个 Scale 一个 Strength**，看着不齐，但那是 glTF 的原词，
+统一成 Strength 会同时偏离 glTF 和 Unity。
+
+**贴图槽用 `… Map`**，不跟仓库里 `Model Asset` / `Image Asset` 那种 `… Asset`：那两个是「这个组件用的
+那个资产」、只有一个；材质的贴图是众多输入之一，`Map` 是这个领域的通用词。
+
+一起冻住的还有 `AlphaMode` 的三个枚举值——落盘写名字不写数值：
+
+```
+Opaque / Mask / Blend
+```
+
+glTF 规范里是全大写，这里跟仓库现有枚举反射的 PascalCase 一致。
+
+#### 改名的代价与后路
+
+冻结的精确对象是 `.Data<...>("这个字符串")` 里的字符串，**不是 C++ 成员名**——`m_roughness` 想怎么改
+怎么改。加字段、删字段、调顺序、改滑条范围都安全，由 0.c 的三条规则覆盖。
+
+**属性名不进任何持久化的哈希。** `AssetId::ComputeHash` 折的是 path / subLabel / type / descriptor，
+缓存键折的是 id 的 JSON，两处都不碰文件内容；entt 内部会把注册名哈希成运行期 id，但那不落盘。所以
+文件里的属性名是**明文**，改名后用脚本重写 JSON 键即可迁移，场景文件同理。
+
+三条要记的：
+
+- **改名不会报错，会静默丢字段。** 旧键未知被忽略、新键缺失取默认，两条规则各自都正确工作，合起来
+  就是那个值悄悄回到默认。没有版本标记，所以「忘了迁移」不会被发现。
+- **材质作为 glTF 子资产时，属性名在模型的缓存 payload 里**，而 identity 校验不覆盖它。改名时要
+  **bump `GetCacheFormat(AssetType::Model).version`**，整批单元作废重建。
+- **文件流出之后跑不到脚本。** 仓库里的 fixture 随时能改，用户工程里的 `.smat` 与别人保存的场景不行。
+
+所以「冻结」的含义是**改名从一次编辑变成一次需要协调的迁移**，不是「从此不能动」。真到那天，比脚本
+更便宜的是字段级别名（读时新旧两个键都认、写时只写新的），它是那三条规则的自然延伸，随时能加，
+现在不做。
+
+### `.smat` 怎么产生 ✅ 已定
+
+三步，按这个顺序。
+
+**1. 手写。** 第一批 `.smat` 手写，放 `test://`，直接当 `SparkAssetTest` 的输入。先建读侧、拿手写
+文件当 fixture；写侧随后由 round-trip 验证——**判据是 JSON 相等**（读手写文件 → 写出 → 再读 →
+断言两次 JSON 相等），与阶段 0.c 同一套，不用 `Hash()`。
+
+**2. 从 glTF 材质导出。** Inspector 上一个按钮，把 glb / gltf 带进来的材质变成 `.smat`。
+
+**语义是原地转换**：写文件 → 注册资产 → 把**这个材质实体**的来源从 `model.glb:material/0` 换成
+`project://Foo.smat`。共享关系一个字节不动，画面不变。glTF 材质因此是「可改不可存」——改动改的是
+运行期实例，只是存不回 glb。
+
+连带两件事，都是有意的：
+
+- **`AssetId → MaterialHandle` 表里旧键删、新键加。** 于是那个 glb 子资产从此没有共享实例了。
+- **再拖一次同一个 glb，会新建一个实例，用的是 glb 里的原始参数，不是导出的 `.smat`。**
+  导出是「派生出一个新资产」，不是「改写源模型」。用户可能预期相反，所以写在这里。
+
+**内嵌贴图的槽第一版明确拒绝导出。** 内嵌贴图是子资产，而子资产不能被独立加载（`ProcessAsset` 开头
+即拒，见「子被直接请求：拒绝，并指向提取」）。导出出来的 `.smat` 若引用 `model.glb:image/3`：
+
+| 什么时候 | 结果 |
+|---|---|
+| 导出的那次会话 | ✅ 正常——glb 已加载、子资产已发布，`LoadAsset` 命中 Ready 直接返回 |
+| 下次启动，只加载这个 `.smat` | ❌ 落到 `ProcessAsset` 被拒，贴图全丢，材质退化成纯 factor |
+
+正确答案是**子资产提取**（把内嵌贴图落成独立文件），独立功能、单独排期。在它到位之前，导出遇到
+子资产槽就明确报错并说明原因，**不能默默写进去**；提取做完后把这条拒绝换成调用即可。
+
+外部贴图的 `.gltf` 不受影响——它的贴图本来就是顶层资产。
+
+**3. 资产浏览器新建 `.smat`。** 把默认材质写出去，没有子资产问题。不急，排在导出之后。
+
+**材质编辑器不在本阶段**：它要编辑的东西（一个 shading model 有哪些属性、怎么连线、怎么生成 shader）
+依赖「模型声明从哪来」这个未决问题。
+
+### `MaterialHandle` 怎么落盘
+
+`MaterialComponent::m_material` 编码的是「material 上下文里的哪个实体」，不是那个 `uint32_t` 的运行期
+值——材质是运行期创建的，下次启动创建顺序不同，同一个数字会指向另一个材质或悬空，与 entt 的 `Entity`
+同一类问题。
+
+**形态是字段级标记 + 加载后的重映射 pass**：`MetaFieldTraits` 加一位 `EntityRef`，值照常写成数字，
+场景加载器在所有实体建完之后翻译一遍。不走 `JsonOperation`——重映射要的那张「文件键 → handle」表在
+场景加载器手里，而 operation 的签名 `bool(const JsonValue&, T&)` 拿不到任何上下文。`Entity` 类型的
+字段将来同理。
+
+**写时按 handle 去重，不按内容哈希**，共享关系逐字节保住：一个 50 primitive / 3 材质的模型读回来
+仍是 3 个材质（流程 7 的验收标准）。
+
+机制上零新东西：`MaterialExecuteContext::Current()` 已由 `MaterialSystem::InitInternal` 推入
+（`MaterialSystem.cpp:24`），`OnComponentConstruct` 对已带值的组件不覆盖
+（`PreSetMaterialIsNotOverwrittenOnAdd` 守着），所以「先加组件、再反序列化填 handle」不会打架。
+
+**场景保存不依赖阶段 3**：没有资产背书的材质就是 material 上下文里一个不带 `MaterialSource` 的实体，
+照样能存。阶段 3 落地后它多带一个 `MaterialSource`，组件那一侧不用改。
+
+**仍未定：** 常驻默认材质（带 `DefaultMaterialTag`）不该被场景文件复制一份出来——加载时怎么认出
+「这条就是默认材质」还没定。
 
 ---
 
