@@ -9,6 +9,7 @@
 
 #include "AssetJsonSerializer.h"
 #include "Image/ImageAsset.h"
+#include "Material/MaterialAsset.h"
 #include "Material/Reflect.h"
 #include "Model/ModelAsset.h"
 #include "Shader/ShaderAsset.h"
@@ -27,7 +28,8 @@ namespace Spark::Resource
             .Data<AssetType::Unknown>("Unknown")
             .Data<AssetType::Shader>("Shader")
             .Data<AssetType::Image>("Image")
-            .Data<AssetType::Model>("Model");
+            .Data<AssetType::Model>("Model")
+            .Data<AssetType::Material>("Material");
 
         // No reflected fields -- the operation owns the whole encoding. A field walk cannot
         // rebuild an AssetId: it is immutable, and `desc`'s concrete type follows from the
@@ -98,6 +100,11 @@ namespace Spark::Resource
             .Type("ModelAssetDescriptor")
             .Data<&ModelAssetDescriptor::type>("type")
                 .Traits(MetaFieldTraits::Serializable);
+
+        // No fields: a material has no per-reference compile config. Reflected anyway
+        // because DescriptorToJson resolves it by type, and `{}` is the encoding.
+        context.Reflect<MaterialAssetDescriptor>()
+            .Type("MaterialAssetDescriptor");
 
         context.Reflect<ShaderStageEntry>()
             .Type("ShaderStageEntry")

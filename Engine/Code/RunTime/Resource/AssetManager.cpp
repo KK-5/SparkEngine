@@ -13,6 +13,7 @@
 #include <filesystem>
 #include "Image/ImageAssetBuilder.h"
 #include "Image/ImageAsset.h"
+#include "Material/MaterialAsset.h"
 #include "Shader/ShaderAssetBuilder.h"
 #include "Shader/ShaderAsset.h"
 #include "Model/ModelAssetBuilder.h"
@@ -201,6 +202,11 @@ namespace Spark::Resource
         if (ext == ".gltf" || ext == ".glb")
         {
             return AssetType::Model;
+        }
+
+        if (ext == ".smat")
+        {
+            return AssetType::Material;
         }
 
         // .ktx2 is the already-compiled form (see IsCompiledImagePath): same asset type,
@@ -505,9 +511,10 @@ namespace Spark::Resource
                 return AssetId::Of(path, {}, AssetType::Image,
                     isHdr ? ImageAsset::DefaultHDRDescriptor() : ImageAsset::DefaultDescriptor());
             }
-            case AssetType::Shader: return AssetId::Of<ShaderAsset>(path);
-            case AssetType::Model:  return AssetId::Of<ModelAsset>(path);
-            default:                return AssetId();
+            case AssetType::Shader:   return AssetId::Of<ShaderAsset>(path);
+            case AssetType::Model:    return AssetId::Of<ModelAsset>(path);
+            case AssetType::Material: return AssetId::Of<MaterialAsset>(path);
+            default:                  return AssetId();
         }
     }
 

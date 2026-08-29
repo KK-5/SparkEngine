@@ -9,6 +9,7 @@
 #include <Serialization/JsonSerializer.h>
 
 #include "Image/ImageAsset.h"
+#include "Material/MaterialAsset.h"
 #include "Model/ModelAsset.h"
 #include "Shader/ShaderAsset.h"
 
@@ -174,6 +175,11 @@ namespace Spark::Resource
             const auto& typed = static_cast<const ShaderDescriptor&>(descriptor);
             return SerializeToJson(context.Resolve<ShaderDescriptor>().from_void(&typed), out);
         }
+        case AssetType::Material:
+        {
+            const auto& typed = static_cast<const MaterialAssetDescriptor&>(descriptor);
+            return SerializeToJson(context.Resolve<MaterialAssetDescriptor>().from_void(&typed), out);
+        }
         default:
             LOG_ERROR("[AssetJsonSerializer] No descriptor for asset type {}.",
                 static_cast<uint32_t>(type));
@@ -210,6 +216,14 @@ namespace Spark::Resource
             auto* typed = new ShaderDescriptor{};
             Ptr<AssetDescriptor> descriptor(typed);
             MetaAny target = context.Resolve<ShaderDescriptor>().from_void(typed);
+            DeserializeFromJson(in, target);
+            return descriptor;
+        }
+        case AssetType::Material:
+        {
+            auto* typed = new MaterialAssetDescriptor{};
+            Ptr<AssetDescriptor> descriptor(typed);
+            MetaAny target = context.Resolve<MaterialAssetDescriptor>().from_void(typed);
             DeserializeFromJson(in, target);
             return descriptor;
         }

@@ -4,6 +4,7 @@
 
 #include <Resource/AssetJsonSerializer.h>
 #include <Resource/Image/ImageAsset.h>
+#include <Resource/Material/MaterialAsset.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Shader/ShaderAsset.h>
 
@@ -51,6 +52,27 @@ TEST(DescriptorSerializeTests, DefaultDescriptorsAreWrittenInFull)
 
     ASSERT_TRUE(DescriptorToJson(shader, AssetType::Shader, encoded));
     EXPECT_EQ(encoded.dump(), R"({"backend":"DXIL","stages":[]})");
+
+    // A material has no per-reference compile config, so `{}` is the whole encoding --
+    // and it is written, not skipped, because every id carries a descriptor.
+    const MaterialAssetDescriptor material;
+    ASSERT_TRUE(DescriptorToJson(material, AssetType::Material, encoded));
+    EXPECT_EQ(encoded.dump(), R"({})");
+}
+
+TEST(DescriptorSerializeTests, MaterialDescriptorRoundTrips)
+{
+    const MaterialAssetDescriptor material;
+    EXPECT_EQ(RoundTrip(material, AssetType::Material).dump(), R"({})");
+
+    // Empty, but still a fresh instance -- the shared singleton must not be handed out
+    // for something a caller may hold on to.
+    Ptr<AssetDescriptor> decoded = DescriptorFromJson(AssetType::Material, JsonValue::object());
+    ASSERT_TRUE(decoded);
+    EXPECT_NE(decoded.get(), MaterialAsset::DefaultDescriptor().get());
+
+    // Seeded with its own type name, so it does not collide with another empty descriptor.
+    EXPECT_EQ(decoded->Hash(), MaterialAsset::DefaultDescriptor()->Hash());
 }
 
 TEST(DescriptorSerializeTests, ImageDescriptorRoundTrips)

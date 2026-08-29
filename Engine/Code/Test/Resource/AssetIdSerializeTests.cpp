@@ -8,6 +8,7 @@
 
 #include <Resource/AssetJsonSerializer.h>
 #include <Resource/Image/ImageAsset.h>
+#include <Resource/Material/MaterialAsset.h>
 #include <Resource/Model/ModelAsset.h>
 
 using namespace Spark;
@@ -40,6 +41,24 @@ TEST(AssetIdSerializeTests, TopLevelIdRoundTrips)
     EXPECT_EQ(decoded, id);
     EXPECT_EQ(decoded.GetHash(), id.GetHash());
     EXPECT_EQ(decoded.GetAssetType(), AssetType::Model);
+}
+
+TEST(AssetIdSerializeTests, MaterialIdRoundTrips)
+{
+    const AssetId id = AssetId::Of<MaterialAsset>("test://Material/Wood.smat");
+
+    JsonValue json;
+    ASSERT_TRUE(AssetIdToJson(id, json));
+
+    // An empty `desc` is still written: absent would mean "no descriptor", which hashes
+    // differently from the default one every material id actually carries.
+    EXPECT_EQ(json.dump(),
+        R"({"type":"Material","path":"test://Material/Wood.smat","desc":{}})");
+
+    const AssetId decoded = AssetIdFromJson(json);
+    EXPECT_EQ(decoded, id);
+    EXPECT_EQ(decoded.GetHash(), id.GetHash());
+    EXPECT_EQ(decoded.GetAssetType(), AssetType::Material);
 }
 
 TEST(AssetIdSerializeTests, SubAssetWithDescriptorRoundTrips)
@@ -110,9 +129,11 @@ TEST(AssetIdSerializeTests, MalformedJsonYieldsInvalidId)
     missingPath["type"] = "Model";
     EXPECT_FALSE(AssetIdFromJson(missingPath).IsValid());
 
+    // Deliberately a name no build will ever have: naming a type we merely have not added
+    // yet makes this case expire the day we add it, as "Material" did.
     JsonValue unknownType = JsonValue::object();
-    unknownType["type"] = "Material";   // not an AssetType this build knows
-    unknownType["path"] = "test://Asset/Wood.smat";
+    unknownType["type"] = "NotAnAssetType";
+    unknownType["path"] = "test://Asset/Whatever.bin";
     EXPECT_FALSE(AssetIdFromJson(unknownType).IsValid());
 
     EXPECT_FALSE(AssetIdFromJson(JsonValue("just a string")).IsValid());

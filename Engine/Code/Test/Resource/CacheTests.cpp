@@ -7,6 +7,7 @@
 #include <Resource/Cache/AssetCache.h>
 #include <Resource/Cache/CacheFormat.h>
 #include <Resource/Image/ImageAsset.h>
+#include <Resource/Material/MaterialAsset.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Shader/ShaderAsset.h>
 
@@ -156,9 +157,11 @@ TEST_F(AssetCacheTestFixture, TypesWithoutACacheFormatAreNotCacheable)
 
     WriteSource("Thing.hlsl", "// shader");
     WriteSource("Thing.glb", "glb");
+    WriteSource("Thing.smat", "{}");
 
     EXPECT_FALSE(cache.EntryFor(AssetId::Of<ShaderAsset>("test://Thing.hlsl")).IsCacheable());
     EXPECT_FALSE(cache.EntryFor(AssetId::Of<ModelAsset>("test://Thing.glb")).IsCacheable());
+    EXPECT_FALSE(cache.EntryFor(AssetId::Of<MaterialAsset>("test://Thing.smat")).IsCacheable());
 }
 
 TEST_F(AssetCacheTestFixture, MissingSourceIsNotCacheable)
@@ -356,5 +359,6 @@ TEST(CacheFormatTest, OnlyImageHasAFormatToday)
 
     EXPECT_EQ(GetCacheFormat(AssetType::Shader).version, 0u);
     EXPECT_EQ(GetCacheFormat(AssetType::Model).version, 0u);
+    EXPECT_EQ(GetCacheFormat(AssetType::Material).version, 0u);
     EXPECT_EQ(GetCacheFormat(AssetType::Unknown).version, 0u);
 }

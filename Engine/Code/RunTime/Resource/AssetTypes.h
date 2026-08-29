@@ -13,12 +13,15 @@ namespace Spark::Resource
 {
     using AssetHash = ObjectName::Hash;
 
+    //! Append only: the value folds into AssetId::ComputeHash, so inserting one in the
+    //! middle repoints every id already written to a file or a cache key.
     enum class AssetType : uint32_t
     {
         Unknown,
         Shader,
         Image,
         Model,
+        Material,
     };
 
     /// Per-asset-type compile-time configuration (compression, mip count, ...).
