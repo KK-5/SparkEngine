@@ -19,7 +19,7 @@
 
 #include <Math/MathUtils.h>
 
-#include <Material/MaterialUtils.h>         // MaterialComponent / MaterialParams / GetDefaultMaterial
+#include <Material/MaterialUtils.h>         // MaterialComponent / StandardPBR / GetDefaultMaterial
 #include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
 
 namespace Spark::Render
@@ -46,7 +46,7 @@ namespace Spark::Render
             {
                 mh = mc->m_material;
             }
-            if (!(matCtx->Valid(mh) && matCtx->Has<Material::MaterialParams>(mh)))
+            if (!(matCtx->Valid(mh) && matCtx->Has<Resource::StandardPBR>(mh)))
             {
                 mh = Material::GetDefaultMaterial(*matCtx);
             }

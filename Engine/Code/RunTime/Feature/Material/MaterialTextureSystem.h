@@ -10,7 +10,7 @@ namespace Spark::Resource { class ImageAsset; }
 namespace Spark::Material
 {
     //! Persistent AssetId->RHIHandle texture pool + per-frame resolver. Walks every
-    //! MaterialTexSlot of each material's MaterialParams::m_textures, makes each authored
+    //! slot of each material's Resource::StandardPBR::m_textures, makes each authored
     //! texture resident (create + upload) and writes the resolved RHIHandles into
     //! MaterialGPUTextures::m_handles[slot] on the material entity.
     //!
@@ -27,6 +27,7 @@ namespace Spark::Material
         void Shutdown();
 
     private:
+        //! Callers must have missed m_pool first: this creates and uploads unconditionally.
         RHI::RHIHandle EnsureResident(RHI::RHIContext& rhiCtx, const Resource::AssetId& id,
                                       const Ptr<Resource::ImageAsset>& img);
 

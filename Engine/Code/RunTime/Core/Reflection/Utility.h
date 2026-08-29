@@ -82,7 +82,7 @@ namespace Spark
     // context-free at the reflection boundary — the editor invokes them with just
     // (entity[, value]) and never touches a context. IsWorld tags whether the component
     // sits directly on world entities (so the inspector lists it at top level) or is
-    // reached indirectly (rendered inline, e.g. MaterialParams).
+    // reached indirectly (rendered inline, e.g. StandardPBR).
     template<typename CtxExec, typename E, typename T, bool IsWorld = false>
     void ComponentOperation(ReflectContext& context)
     {

@@ -5,10 +5,10 @@
 
 namespace Spark::Material
 {
-    inline MaterialHandle CreateMaterial(MaterialContext& mc, const MaterialParams& params)
+    inline MaterialHandle CreateMaterial(MaterialContext& mc, const Resource::StandardPBR& params)
     {
         MaterialHandle h = mc.CreateEntity();
-        mc.Add<MaterialParams>(h, params);
+        mc.Add<Resource::StandardPBR>(h, params);
         return h;
     }
 

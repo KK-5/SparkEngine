@@ -9,8 +9,8 @@
 namespace Spark::Render
 {
     //! Owns the g_Materials array (space3) + its ShaderBindings. Every material entity
-    //! carrying Material::MaterialParams gets a stable slot, and its
-    //! Material::MaterialParams are encoded into that slot's g_Materials record.
+    //! carrying Resource::StandardPBR gets a stable slot, and its parameters are encoded
+    //! into that slot's g_Materials record.
     //!
     //! Slot allocation, encoding and upload are all GlobalBuffer's; this only supplies
     //! the space3 SRG and the per-material encode. Materials are few (KB-level), so the
@@ -32,7 +32,7 @@ namespace Spark::Render
         //! (rendering is not blocked). 1024 * 68B = 68 KB per frame copy.
         static constexpr uint32_t Capacity = 1024;
 
-        GlobalBuffer<Materials, MaterialData, Material::MaterialParams> m_materials;
+        GlobalBuffer<Materials, MaterialData, Resource::StandardPBR> m_materials;
 
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Materials @ space3
     };

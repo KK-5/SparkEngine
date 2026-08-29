@@ -13,38 +13,38 @@ using namespace Spark::Material;
 
 namespace
 {
-    constexpr size_t kBaseColorSlot = static_cast<size_t>(MaterialTexSlot::BaseColor);
+    constexpr size_t kBaseColorSlot = static_cast<size_t>(Resource::MaterialTexSlot::BaseColor);
 
-    //! MaterialParams is the widest real component available here: plain scalars, a Vector4,
+    //! Resource::StandardPBR is the widest real component available here: plain scalars, a Vector4,
     //! an AssetId (which goes through its JsonOperation) and the only Data<Set,Get> fields
     //! in the repo. The mechanism itself is covered by JsonSerializerTest's local types --
     //! this is the check that it holds on an actual component.
-    MaterialParams MakeParams()
+    Resource::StandardPBR MakeParams()
     {
-        MaterialParams params;
+        Resource::StandardPBR params;
         params.m_baseColor        = {0.2f, 0.4f, 0.6f, 1.0f};
         params.m_metallic         = 0.75f;
         params.m_roughness        = 0.25f;
         params.m_emissiveStrength = 3.5f;
-        params.m_textures[kBaseColorSlot].m_assetId =
+        params.m_textures[kBaseColorSlot] =
             Resource::AssetId::Of<Resource::ImageAsset>("test://Texture/Wood.png");
         return params;
     }
 
-    MetaType ParamsType() { return TypeRegistry::GetContext().Resolve<MaterialParams>(); }
+    MetaType ParamsType() { return TypeRegistry::GetContext().Resolve<Resource::StandardPBR>(); }
 }
 
 TEST(MaterialSerializeTest, ParamsRoundTrip)
 {
-    const MaterialParams params = MakeParams();
-    const MetaType       type   = ParamsType();
+    const Resource::StandardPBR params = MakeParams();
+    const MetaType    type   = ParamsType();
     ASSERT_TRUE(type);
 
     JsonValue json;
     ASSERT_TRUE(SerializeToJson(type.from_void(&params), json));
 
-    MaterialParams decoded;
-    MetaAny        target = type.from_void(&decoded);
+    Resource::StandardPBR decoded;
+    MetaAny     target = type.from_void(&decoded);
     ASSERT_TRUE(DeserializeFromJson(json, target));
 
     EXPECT_FLOAT_EQ(decoded.m_baseColor.x, 0.2f);
@@ -55,21 +55,26 @@ TEST(MaterialSerializeTest, ParamsRoundTrip)
 
     // The slot is written through the reflected setter, the same path the editor's
     // drag-drop uses.
-    EXPECT_EQ(decoded.m_textures[kBaseColorSlot].m_assetId,
-              params.m_textures[kBaseColorSlot].m_assetId);
-    EXPECT_EQ(decoded.m_textures[kBaseColorSlot].m_assetId.GetHash(),
-              params.m_textures[kBaseColorSlot].m_assetId.GetHash());
+    EXPECT_EQ(decoded.m_textures[kBaseColorSlot],
+              params.m_textures[kBaseColorSlot]);
+    EXPECT_EQ(decoded.m_textures[kBaseColorSlot].GetHash(),
+              params.m_textures[kBaseColorSlot].GetHash());
 }
 
 TEST(MaterialSerializeTest, ShapeOnDisk)
 {
-    const MaterialParams params = MakeParams();
+    const Resource::StandardPBR params = MakeParams();
 
     JsonValue json;
     ASSERT_TRUE(SerializeToJson(ParamsType().from_void(&params), json));
 
     // Every field is present, defaults included -- Specular was never touched.
     EXPECT_TRUE(json.contains("Specular"));
+
+    // The colour factor spells Color out: it sits next to Emissive Strength, and a bare
+    // "Emissive" beside "Emissive Map" reads as that map's on/off switch.
+    EXPECT_TRUE(json.contains("Emissive Color"));
+    EXPECT_FALSE(json.contains("Emissive"));
 
     // Math types are walked field by field, not handed to a codec.
     EXPECT_FLOAT_EQ(json["Base Color"]["x"].get<float>(), 0.2f);
@@ -87,17 +92,17 @@ TEST(MaterialSerializeTest, DefaultParamsSurviveARoundTrip)
 {
     // The all-empty case: five null slots and nothing but defaults. Encoding it must not
     // fail, and it must come back unchanged.
-    const MaterialParams params;
-    const MetaType       type = ParamsType();
+    const Resource::StandardPBR params;
+    const MetaType    type = ParamsType();
 
     JsonValue json;
     ASSERT_TRUE(SerializeToJson(type.from_void(&params), json));
 
-    MaterialParams decoded = MakeParams();
-    MetaAny        target  = type.from_void(&decoded);
+    Resource::StandardPBR decoded = MakeParams();
+    MetaAny     target  = type.from_void(&decoded);
     ASSERT_TRUE(DeserializeFromJson(json, target));
 
     EXPECT_FLOAT_EQ(decoded.m_roughness, params.m_roughness);
     EXPECT_FLOAT_EQ(decoded.m_baseColor.x, params.m_baseColor.x);
-    EXPECT_FALSE(decoded.m_textures[kBaseColorSlot].m_assetId.IsValid());
+    EXPECT_FALSE(decoded.m_textures[kBaseColorSlot].IsValid());
 }

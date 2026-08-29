@@ -37,35 +37,38 @@ namespace Spark::Material
             return;
         }
 
-        matCtx->GetView<MaterialParams>().each(
-            [&](MaterialHandle h, MaterialParams& params)
+        matCtx->GetView<Resource::StandardPBR>().each(
+            [&](MaterialHandle h, const Resource::StandardPBR& params)
         {
             MaterialGPUTextures gpu;   // all slots default to NullHandle
 
-            for (size_t slot = 0; slot < MaterialTexSlotCount; ++slot)
+            for (size_t slot = 0; slot < Resource::MaterialTexSlotCount; ++slot)
             {
-                MaterialTexture& t = params.m_textures[slot];
-                if (!t.m_assetId.IsValid())
+                const Resource::AssetId& id = params.m_textures[slot];
+                if (!id.IsValid())
                 {
                     continue;
                 }
 
-                // Refresh the resolve cache if the authored asset id changed.
-                if (!t.m_image || t.m_image->GetAssetId() != t.m_assetId)
+                // The pool IS the resolve cache: a resident texture answers from here
+                // without touching the asset database. Only a slot that is not resident
+                // yet pays for a lookup, and only until its asset reaches Ready.
+                if (auto it = m_pool.find(id); it != m_pool.end())
                 {
-                    t.m_image.reset();
-                    Ptr<Resource::Asset> found = assetManager->FindAsset(t.m_assetId);
-                    if (found && found->GetAssetType() == Resource::AssetType::Image)
-                    {
-                        t.m_image = Ptr<Resource::ImageAsset>(
-                            static_cast<Resource::ImageAsset*>(found.get()));
-                    }
+                    gpu.m_handles[slot] = it->second.m_handle;
+                    continue;
                 }
 
-                if (t.m_image && t.m_image->GetStatus() == Resource::AssetStatus::Ready)
+                Ptr<Resource::Asset> found = assetManager->FindAsset(id);
+                if (!found
+                    || found->GetAssetType() != Resource::AssetType::Image
+                    || found->GetStatus() != Resource::AssetStatus::Ready)
                 {
-                    gpu.m_handles[slot] = EnsureResident(*rhiCtx, t.m_assetId, t.m_image);
+                    continue;
                 }
+
+                gpu.m_handles[slot] = EnsureResident(*rhiCtx, id,
+                    Ptr<Resource::ImageAsset>(static_cast<Resource::ImageAsset*>(found.get())));
             }
 
             matCtx->AddOrReplace<MaterialGPUTextures>(h, gpu);
@@ -83,14 +86,14 @@ namespace Spark::Material
 
         ++m_gcGeneration;
 
-        matCtx->GetView<MaterialParams>().each(
-            [&](MaterialHandle, const MaterialParams& params)
+        matCtx->GetView<Resource::StandardPBR>().each(
+            [&](MaterialHandle, const Resource::StandardPBR& params)
         {
-            for (const MaterialTexture& t : params.m_textures)
+            for (const Resource::AssetId& id : params.m_textures)
             {
-                if (t.m_assetId.IsValid())
+                if (id.IsValid())
                 {
-                    if (auto it = m_pool.find(t.m_assetId); it != m_pool.end())
+                    if (auto it = m_pool.find(id); it != m_pool.end())
                     {
                         it->second.m_gen = m_gcGeneration;
                     }
@@ -135,11 +138,6 @@ namespace Spark::Material
     RHI::RHIHandle MaterialTextureSystem::EnsureResident(
         RHI::RHIContext& rhiCtx, const Resource::AssetId& id, const Ptr<Resource::ImageAsset>& img)
     {
-        if (auto it = m_pool.find(id); it != m_pool.end())
-        {
-            return it->second.m_handle;
-        }
-
         const Resource::ImageAssetData* data = img->GetImageData();
         if (!data || data->GetTextureBytes().empty())
         {

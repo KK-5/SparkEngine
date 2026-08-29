@@ -459,7 +459,7 @@ namespace Editor
             if (gotHandle)
             {
                 const uint32_t handleId = static_cast<uint32_t>(handle);
-                MetaType paramsType = TypeRegistry::GetContext().Resolve<Material::MaterialParams>();
+                MetaType paramsType = TypeRegistry::GetContext().Resolve<Resource::StandardPBR>();
 
                 bool valid = false;
                 if (paramsType)
@@ -633,7 +633,7 @@ namespace Editor
         {
             // Only components that sit directly on world entities are listed here.
             // Non-component reflected types have no GetComponent; non-world components
-            // (e.g. MaterialParams, reached indirectly and rendered inline via a
+            // (e.g. StandardPBR, reached indirectly and rendered inline via a
             // MaterialRefElement) report IsWorldComponent == false — skip both.
             if (!component.func("GetComponent"_hs))
             {

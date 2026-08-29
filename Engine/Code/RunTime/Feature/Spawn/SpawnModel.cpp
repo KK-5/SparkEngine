@@ -47,13 +47,13 @@ namespace Spark::Spawn
             rotation = Math::QuaternionToEuler(Math::QuaternionFromMatrix3X3(rotMat));
         }
 
-        //! Map a model's embedded material to authored MaterialParams. Factors → scalar
+        //! Map a model's embedded material to authored StandardPBR. Factors → scalar
         //! inputs; the 5 texture image AssetIds → their MaterialTexSlot. m_specular has no
         //! glTF counterpart (kept at default); alphaMode/alphaCutoff are render state and
-        //! not part of MaterialParams yet, so they are dropped here.
-        Material::MaterialParams MaterialParamsFromModel(const Resource::Material& src)
+        //! not part of StandardPBR yet, so they are dropped here.
+        Resource::StandardPBR StandardPBRFromModel(const Resource::Material& src)
         {
-            Material::MaterialParams p;
+            Resource::StandardPBR p;
             p.m_baseColor         = src.baseColorFactor;
             p.m_metallic          = src.metallicFactor;
             p.m_roughness         = src.roughnessFactor;
@@ -62,12 +62,12 @@ namespace Spark::Spawn
             p.m_normalScale       = src.normalScale;
             p.m_occlusionStrength = src.occlusionStrength;
 
-            using Slot = Material::MaterialTexSlot;
+            using Slot = Resource::MaterialTexSlot;
             auto set = [&](Slot slot, const Resource::AssetId& id)
             {
                 if (id.IsValid())
                 {
-                    p.m_textures[static_cast<size_t>(slot)].m_assetId = id;
+                    p.m_textures[static_cast<size_t>(slot)] = id;
                 }
             };
             set(Slot::BaseColor,         src.baseColorImageId);
@@ -108,7 +108,7 @@ namespace Spark::Spawn
                 if (const Resource::Material* src = modelData->GetMaterial(materialIndex))
                 {
                     materials[materialIndex] =
-                        Material::CreateMaterial(*matCtx, MaterialParamsFromModel(*src));
+                        Material::CreateMaterial(*matCtx, StandardPBRFromModel(*src));
                 }
             }
             return materials[materialIndex];

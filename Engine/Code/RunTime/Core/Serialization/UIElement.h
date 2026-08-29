@@ -187,7 +187,7 @@ namespace Spark
     //! rendered by following the reference and expanding the target's reflected
     //! fields inline — as opposed to AssetElement, which only shows a reference slot.
     //! First user: a MaterialComponent's MaterialHandle, expanded to the referenced
-    //! material's MaterialParams. Kept as a bare marker (no handle type) to avoid a
+    //! material's StandardPBR. Kept as a bare marker (no handle type) to avoid a
     //! Core -> Material dependency; the editor branch knows how to resolve it.
     struct MaterialRefElement
     {

@@ -9,6 +9,7 @@
 
 #include "AssetJsonSerializer.h"
 #include "Image/ImageAsset.h"
+#include "Material/Reflect.h"
 #include "Model/ModelAsset.h"
 #include "Shader/ShaderAsset.h"
 
@@ -113,5 +114,9 @@ namespace Spark::Resource
                 .Traits(MetaFieldTraits::Serializable)
             .Data<&ShaderDescriptor::stages>("stages")
                 .Traits(MetaFieldTraits::Serializable);
+
+        // Not a descriptor: the authored payload of a `.smat`, reflected here because the
+        // asset layer both reads and writes it. See Material/Reflect.h.
+        ReflectStandardPBR(context);
     }
 }

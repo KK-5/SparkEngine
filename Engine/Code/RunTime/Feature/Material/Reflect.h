@@ -4,93 +4,29 @@
 #include <Reflection/TypeRegistry.h>
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
-#include <Serialization/MetaFieldTraits.h>
 #include <Serialization/MetaTypeTraits.h>
-
-#include <Resource/AssetTypes.h>
-#include <Resource/Image/ImageAsset.h>   // ImageUsage — per-slot texture load usage
 
 #include "Components.h"
 #include "MaterialContext.h"
 
 namespace Spark::Material
 {
-    //! Per-slot texture accessors. The texture asset ids live in MaterialParams::m_textures
-    //! (an eastl::array indexed by MaterialTexSlot), so they have no &Class::member pointer
-    //! to reflect directly — these getter/setter pairs expose each slot as its own reflected
-    //! field, reusing the editor's AssetElement + drag-drop path (which writes via the
-    //! reflected field's setter). Adding a channel = add one Data<Set,Get> line below.
-    template<MaterialTexSlot Slot>
-    Resource::AssetId GetTexAsset(const MaterialParams& params)
-    {
-        return params.m_textures[static_cast<size_t>(Slot)].m_assetId;
-    }
-
-    template<MaterialTexSlot Slot>
-    void SetTexAsset(MaterialParams& params, Resource::AssetId id)
-    {
-        params.m_textures[static_cast<size_t>(Slot)].m_assetId = id;
-    }
-
     static void Reflect(Spark::ReflectContext& context)
     {
-        // Per-slot texture usage — decides the color space the dropped image is compiled
-        // with (sRGB color vs linear data vs normal map). See TextureElement.
-        constexpr uint32_t kUsageColor  = static_cast<uint32_t>(Resource::ImageUsage::Texture2D);
-        constexpr uint32_t kUsageData   = static_cast<uint32_t>(Resource::ImageUsage::NoColorTexture2D);
-        constexpr uint32_t kUsageNormal = static_cast<uint32_t>(Resource::ImageUsage::NormalMap);
-        // The material's authored parameters. NOT a world component — it lives on
-        // material entities in the MaterialContext, reached indirectly (rendered inline
-        // by MaterialRefElement when a primitive's MaterialComponent is inspected).
-        // ComponentOperation binds it to the MaterialContext with IsWorld=false, so the
-        // editor's HasComponent/GetComponent/ReplaceComponent resolve MaterialContext
-        // internally (no context ever reaches the editor) and the inspector does not list
-        // it as a standalone world component.
-        context.Reflect<MaterialParams>()
-            .Type("MaterialParams")
-            // Scalar / color factors.
-            .Data<&MaterialParams::m_baseColor>("Base Color").Custom<Spark::ColorElement>(false)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&MaterialParams::m_metallic>("Metallic").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&MaterialParams::m_roughness>("Roughness").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&MaterialParams::m_specular>("Specular").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&MaterialParams::m_emissive>("Emissive").Custom<Spark::ColorElement>(false)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&MaterialParams::m_emissiveStrength>("Emissive Strength").Custom<Spark::FloatElement>(0.f, 100.f, 0.05f, false)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&MaterialParams::m_normalScale>("Normal Scale").Custom<Spark::FloatSliderElement>(0.f, 2.f, 0.01f, false)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&MaterialParams::m_occlusionStrength>("Occlusion Strength").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
-                .Traits(MetaFieldTraits::Serializable)
-            // Texture slots — one reflected field per MaterialTexSlot via getter/setter.
-            // TextureElement carries the slot's ImageUsage so a dropped image is loaded with
-            // the right color space (base color / emissive sRGB; MR / occlusion linear data;
-            // normal a linear normal map).
-            .Data<&SetTexAsset<MaterialTexSlot::BaseColor>, &GetTexAsset<MaterialTexSlot::BaseColor>>("Base Color Map")
-                .Custom<Spark::TextureElement>(false, kUsageColor)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::MetallicRoughness>, &GetTexAsset<MaterialTexSlot::MetallicRoughness>>("Metallic Roughness Map")
-                .Custom<Spark::TextureElement>(false, kUsageData)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::Normal>, &GetTexAsset<MaterialTexSlot::Normal>>("Normal Map")
-                .Custom<Spark::TextureElement>(false, kUsageNormal)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::Occlusion>, &GetTexAsset<MaterialTexSlot::Occlusion>>("Occlusion Map")
-                .Custom<Spark::TextureElement>(false, kUsageData)
-                .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::Emissive>, &GetTexAsset<MaterialTexSlot::Emissive>>("Emissive Map")
-                .Custom<Spark::TextureElement>(false, kUsageColor)
-                .Traits(MetaFieldTraits::Serializable)
-            ;
-        Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, MaterialParams>(context);
+        // StandardPBR's fields are reflected by the asset layer (Resource/Material/Reflect.h);
+        // what belongs here is the binding that makes it a component. NOT a world component —
+        // it lives on material entities in the MaterialContext, reached indirectly (rendered
+        // inline by MaterialRefElement when a primitive's MaterialComponent is inspected).
+        // ComponentOperation binds it with IsWorld=false, so the editor's
+        // HasComponent/GetComponent/ReplaceComponent resolve MaterialContext internally (no
+        // context ever reaches the editor) and the inspector does not list it as a standalone
+        // world component.
+        Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, Resource::StandardPBR>(context);
 
         // The world-side reference held by a primitive entity. A normal editable
         // world component; its single MaterialHandle field uses MaterialRefElement so
         // the editor follows the reference into the MaterialContext and renders the
-        // referenced MaterialParams inline (recursive field expansion).
+        // referenced StandardPBR inline (recursive field expansion).
         context.Reflect<MaterialComponent>()
             .Type("Material").Custom<ComponentTraitsRuntime>(ComponentTraits<MaterialComponent>{})
             .Data<&MaterialComponent::m_material>("Material").Custom<Spark::MaterialRefElement>(false)

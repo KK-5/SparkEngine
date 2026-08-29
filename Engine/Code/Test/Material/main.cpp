@@ -17,7 +17,7 @@ int main(int argc, char **argv)
 {
     // TypeRegistry is a global that can only be filled once, so this belongs here rather
     // than in a fixture. Core brings the math types, Resource brings AssetId and its
-    // JsonOperation -- MaterialParams needs both.
+    // JsonOperation -- StandardPBR needs both.
     TypeRegistry::Register(Spark::Reflect);
     TypeRegistry::Register(Resource::Reflect);
     TypeRegistry::Register(Material::Reflect);

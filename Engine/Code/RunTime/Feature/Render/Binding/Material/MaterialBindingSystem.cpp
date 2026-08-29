@@ -124,7 +124,7 @@ namespace Spark::Render
             m_bindings, RHI::Components::ShaderBindings{ materialBindings });
         rhiCtx.Add<MaterialBindingTag>(m_bindings);
 
-        GlobalBuffer<Materials, MaterialData, Material::MaterialParams>::Descriptor bufferDesc;
+        GlobalBuffer<Materials, MaterialData, Resource::StandardPBR>::Descriptor bufferDesc;
         bufferDesc.m_capacity       = Capacity;
         bufferDesc.m_resourceName   = ObjectName(MaterialBufferName);
         bufferDesc.m_inputName      = RHI::InputName(MaterialBufferName);
@@ -142,7 +142,7 @@ namespace Spark::Render
         }
 
         m_materials.Update(*matCtx, *rhiCtx, frameIndex,
-            [&](Material::MaterialHandle h, MaterialData& d, const Material::MaterialParams& params)
+            [&](Material::MaterialHandle h, MaterialData& d, const Resource::StandardPBR& params)
         {
             d.m_baseColor   = params.m_baseColor;
             d.m_metallic    = params.m_metallic;
@@ -150,7 +150,7 @@ namespace Spark::Render
             d.m_specular    = params.m_specular;
             d.m_normalScale = params.m_normalScale;
             d.m_emissive    = Math::Vector4(Math::Vector3(params.m_emissive), params.m_emissiveStrength);
-            for (size_t texSlot = 0; texSlot < Material::MaterialTexSlotCount; ++texSlot)
+            for (size_t texSlot = 0; texSlot < Resource::MaterialTexSlotCount; ++texSlot)
             {
                 d.m_texIndices[texSlot] = ResolveTexIndex(*rhiCtx, *matCtx, h, texSlot);
             }

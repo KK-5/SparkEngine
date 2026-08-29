@@ -23,7 +23,7 @@ namespace Spark::Material
     {
         MaterialExecuteContext::Push(m_context);
 
-        MaterialParams defaultParam{};
+        Resource::StandardPBR defaultParam{};
         m_defaultMaterial = CreateMaterial(m_context, defaultParam);
         m_context.Add<DefaultMaterialTag>(m_defaultMaterial);
 
@@ -61,9 +61,9 @@ namespace Spark::Material
             return;
         }
 
-        MaterialParams params = m_context.Has<MaterialParams>(m_defaultMaterial)
-            ? m_context.Get<MaterialParams>(m_defaultMaterial)
-            : MaterialParams{};
+        Resource::StandardPBR params = m_context.Has<Resource::StandardPBR>(m_defaultMaterial)
+            ? m_context.Get<Resource::StandardPBR>(m_defaultMaterial)
+            : Resource::StandardPBR{};
         mc->m_material = CreateMaterial(m_context, params);
     }
 
@@ -99,7 +99,7 @@ namespace Spark::Material
         }
 
         eastl::vector<MaterialHandle> dead;
-        auto matView = m_context.GetView<MaterialParams>();
+        auto matView = m_context.GetView<Resource::StandardPBR>();
         for (auto entity : matView)
         {
             const MaterialLiveMark* mark = m_context.TryGet<MaterialLiveMark>(entity);

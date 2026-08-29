@@ -21,22 +21,22 @@ protected:
 
 TEST_F(MaterialContextTest, CreateMaterialGivesValidHandleWithStoredParams)
 {
-    MaterialParams params{};
+    Resource::StandardPBR params{};
     params.m_metallic = 1.0f;
     params.m_roughness = 0.25f;
 
     const MaterialHandle h = CreateMaterial(mc, params);
 
     ASSERT_TRUE(mc.Valid(h));
-    ASSERT_TRUE(mc.Has<MaterialParams>(h));
-    EXPECT_FLOAT_EQ(mc.Get<MaterialParams>(h).m_metallic, 1.0f);
-    EXPECT_FLOAT_EQ(mc.Get<MaterialParams>(h).m_roughness, 0.25f);
+    ASSERT_TRUE(mc.Has<Resource::StandardPBR>(h));
+    EXPECT_FLOAT_EQ(mc.Get<Resource::StandardPBR>(h).m_metallic, 1.0f);
+    EXPECT_FLOAT_EQ(mc.Get<Resource::StandardPBR>(h).m_roughness, 0.25f);
 }
 
 TEST_F(MaterialContextTest, DistinctCreatesGiveDistinctHandles)
 {
-    const MaterialHandle a = CreateMaterial(mc, MaterialParams{});
-    const MaterialHandle b = CreateMaterial(mc, MaterialParams{});
+    const MaterialHandle a = CreateMaterial(mc, Resource::StandardPBR{});
+    const MaterialHandle b = CreateMaterial(mc, Resource::StandardPBR{});
     EXPECT_NE(a, b);
 }
 
@@ -47,7 +47,7 @@ TEST_F(MaterialContextTest, NullMaterialIsInvalid)
 
 TEST_F(MaterialContextTest, DestroyInvalidatesHandleAndIsABASafe)
 {
-    const MaterialHandle h = CreateMaterial(mc, MaterialParams{});
+    const MaterialHandle h = CreateMaterial(mc, Resource::StandardPBR{});
     ASSERT_TRUE(mc.Valid(h));
 
     mc.DestoryEntity(h);
@@ -55,7 +55,7 @@ TEST_F(MaterialContextTest, DestroyInvalidatesHandleAndIsABASafe)
 
     // Recreating may recycle the same id, but the version differs — the stale
     // handle must never validate against the new material (ABA safety).
-    const MaterialHandle reused = CreateMaterial(mc, MaterialParams{});
+    const MaterialHandle reused = CreateMaterial(mc, Resource::StandardPBR{});
     EXPECT_TRUE(mc.Valid(reused));
     EXPECT_FALSE(mc.Valid(h));
 }
@@ -104,7 +104,7 @@ protected:
 
     MaterialHandle MatOf(Entity e) { return world.Get<MaterialComponent>(e).m_material; }
     void           Gc() { sys.OnTick(0.0f); }
-    bool           Alive(MaterialHandle h) { return mat->Valid(h) && mat->Has<MaterialParams>(h); }
+    bool           Alive(MaterialHandle h) { return mat->Valid(h) && mat->Has<Resource::StandardPBR>(h); }
 };
 
 // --- lifecycle / default -----------------------------------------------------
@@ -130,7 +130,7 @@ TEST_F(MaterialSystemTest, DefaultMaterialIsResidentAndTagged)
 
 TEST_F(MaterialSystemTest, DefaultMaterialCarriesDefaultParams)
 {
-    const MaterialParams& p = mat->Get<MaterialParams>(sys.GetDefaultMaterial());
+    const Resource::StandardPBR& p = mat->Get<Resource::StandardPBR>(sys.GetDefaultMaterial());
     EXPECT_FLOAT_EQ(p.m_baseColor.x, 0.8f);
     EXPECT_FLOAT_EQ(p.m_baseColor.y, 0.8f);
     EXPECT_FLOAT_EQ(p.m_baseColor.z, 0.8f);
@@ -156,10 +156,10 @@ TEST_F(MaterialSystemTest, AutoCreateSeedsFromCurrentDefaultParams)
 {
     // Edit the default before adding the object — the new private material copies
     // the default's *current* params, not the compile-time defaults.
-    mat->Get<MaterialParams>(sys.GetDefaultMaterial()).m_roughness = 0.9f;
+    mat->Get<Resource::StandardPBR>(sys.GetDefaultMaterial()).m_roughness = 0.9f;
 
     const MaterialHandle m = MatOf(Object());
-    EXPECT_FLOAT_EQ(mat->Get<MaterialParams>(m).m_roughness, 0.9f);
+    EXPECT_FLOAT_EQ(mat->Get<Resource::StandardPBR>(m).m_roughness, 0.9f);
 }
 
 TEST_F(MaterialSystemTest, PerObjectMaterialsAreIndependentCopies)
@@ -168,16 +168,16 @@ TEST_F(MaterialSystemTest, PerObjectMaterialsAreIndependentCopies)
     const MaterialHandle b = MatOf(Object());
     ASSERT_NE(a, b);
 
-    mat->Get<MaterialParams>(a).m_metallic = 1.0f;
+    mat->Get<Resource::StandardPBR>(a).m_metallic = 1.0f;
 
     // Editing a's copy touches neither b nor the default.
-    EXPECT_FLOAT_EQ(mat->Get<MaterialParams>(b).m_metallic, 0.0f);
-    EXPECT_FLOAT_EQ(mat->Get<MaterialParams>(sys.GetDefaultMaterial()).m_metallic, 0.0f);
+    EXPECT_FLOAT_EQ(mat->Get<Resource::StandardPBR>(b).m_metallic, 0.0f);
+    EXPECT_FLOAT_EQ(mat->Get<Resource::StandardPBR>(sys.GetDefaultMaterial()).m_metallic, 0.0f);
 }
 
 TEST_F(MaterialSystemTest, PreSetMaterialIsNotOverwrittenOnAdd)
 {
-    const MaterialHandle h = CreateMaterial(*mat, MaterialParams{});
+    const MaterialHandle h = CreateMaterial(*mat, Resource::StandardPBR{});
 
     const Entity e = world.CreateEntity();
     world.Add<MaterialComponent>(e, MaterialComponent{h});   // already carries a material
@@ -217,7 +217,7 @@ TEST_F(MaterialSystemTest, GcReclaimsOrphanNeverAssignedToAComponent)
 {
     // Known boundary: a material held only by a local handle, never referenced by
     // any MaterialComponent, is not reachable from a root and gets collected.
-    const MaterialHandle h = CreateMaterial(*mat, MaterialParams{});
+    const MaterialHandle h = CreateMaterial(*mat, Resource::StandardPBR{});
     ASSERT_TRUE(Alive(h));
 
     Gc();
