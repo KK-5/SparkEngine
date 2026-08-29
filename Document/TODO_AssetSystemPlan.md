@@ -1256,7 +1256,7 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 | `Ptr<ImageAsset> m_image` 怎么摘 | 并进 `MaterialTextureSystem::m_pool`（它本来就按 `AssetId` 索引）。`MaterialTexture` 这个 struct 消失，贴图槽变成 `array<AssetId, N>` |
 | `Load` / `Compile` 怎么分 | `Load` 只把字节读进来（`Encoded` raw），`Compile` 解 JSON 出参数。与 `.ktx2` 走 `ImageEncodedRawData` 同构 |
 
-第二条让 `StandardPBRParams` 成为**纯 authored 结构**——序列化时不再有「哪些字段是运行期的」这个
+第二条让 `StandardPBR` 成为**纯 authored 结构**——序列化时不再有「哪些字段是运行期的」这个
 问题；顺带修掉 `MaterialTextureSystem::Update` 每帧在写 authored 数据这件事。
 
 ### 使用流程 ✅ 已定
@@ -1310,7 +1310,7 @@ Browser 双击 `.smat` 是第二个入口。
 改成由显式动作打开窗口之后不再需要它。
 
 **v1 不做预览**，就是一个参数面板。字段渲染那套机器现成——`ComponentView::RenderFields` 就是遍历
-反射字段画 UI，材质窗口只是把目标换成材质实体的 `StandardPBRParams`。真正新增的是窗口自己的状态：
+反射字段画 UI，材质窗口只是把目标换成材质实体的 `StandardPBR`。真正新增的是窗口自己的状态：
 当前打开的是哪个材质、dirty 标记、Save / 导出按钮。
 
 三条要点：
@@ -1333,13 +1333,13 @@ Browser 双击 `.smat` 是第二个入口。
 |---|---|---|
 | `MaterialComponent { MaterialHandle }` | World | 这个对象用哪个材质。**共享**，多个对象指同一个 |
 | `MaterialSource { AssetId }` | MaterialContext | 这个材质来自哪个资产 |
-| `StandardPBRParams` | MaterialContext | 这个材质的参数 |
+| `StandardPBR` | MaterialContext | 这个材质的参数 |
 | `StandardPBROverride` | World | 这个对象对材质的覆盖 |
 
 **解析规则一条：先看世界实体有没有覆盖，没有才取材质实体的。**
 
-`StandardPBROverride` 是一个薄包装，持有的就是同一个 `StandardPBRParams`，字段不重复。之所以不能
-直接把 `StandardPBRParams` 挂到世界实体上：`ComponentOperation` 是一类型一绑定，同一个类型不能同时
+`StandardPBROverride` 是一个薄包装，持有的就是同一个 `StandardPBR`，字段不重复。之所以不能
+直接把 `StandardPBR` 挂到世界实体上：`ComponentOperation` 是一类型一绑定，同一个类型不能同时
 声明「我住 MaterialContext」和「我住 World」。这是实现层约束推出来的形态，换别的解法也行。
 
 #### 一个资产一个实例
@@ -1415,15 +1415,15 @@ material 上下文按阶段 4 的规则原样写出：storage-major、entity 原
 
 ```json
 "material": {
-  "StandardPBRParams": { "12": { "Base Color": [0.8,0.8,0.8,1.0], "Metallic": 0.0, ... } },
-  "MaterialSource":    { "12": { "Asset": {"type":"Material","path":"project://Material/Wood.smat"} } }
+  "StandardPBR":    { "12": { "Base Color": {"x":0.8,"y":0.8,"z":0.8,"w":1.0}, "Metallic": 0.0, ... } },
+  "MaterialSource": { "12": { "Asset": {"type":"Material","path":"project://Material/Wood.smat"} } }
 }
 ```
 
 - **「引用资产」还是「场景自有」由带没带 `MaterialSource` 表达**，不需要额外的键。
 - **「每种材质参数不一样」由带哪个参数组件表达。** 将来出现别的 shading model，材质带的是另一个
   参数组件，两种材质在同一上下文里共存——异构实体是 ECS 的原生能力，不用为它设计任何东西。老场景
-  里的 `StandardPBRParams` 继续存在、继续读得回来，是加法不是替换。
+  里的 `StandardPBR` 继续存在、继续读得回来，是加法不是替换。
 - 有 `MaterialSource` 时参数是**缓存**不是冗余：场景加载不必等资产读完才有画面；`.smat` 缺失时
   （流程 8）还能降级显示上次的样子。
 
@@ -1441,11 +1441,11 @@ JSON，三个顶层键：
   },
 
   "properties": {
-    "Base Color":         [0.8, 0.8, 0.8, 1.0],
+    "Base Color":         {"x": 0.8, "y": 0.8, "z": 0.8, "w": 1.0},
     "Metallic":           0.0,
     "Roughness":          0.5,
     "Specular":           0.5,
-    "Emissive Color":     [0.0, 0.0, 0.0, 1.0],
+    "Emissive Color":     {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
     "Emissive Strength":  1.0,
     "Normal Scale":       1.0,
     "Occlusion Strength": 1.0,
@@ -1466,7 +1466,11 @@ JSON，三个顶层键：
 
 #### `shadingModel`：谁来解释下面这些值
 
-今天只有 `"StandardPBR"` 一个值，反射成枚举，**名字一经落盘即冻结**。
+今天只有 `"StandardPBR"` 一个值，**名字一经落盘即冻结**。
+
+它与参数组件的反射注册名**是同一个字符串**（参数组件就叫 `StandardPBR`，见数据模型一节），于是读侧
+可以拿这个值直接 `Resolve` 出参数组件的 `MetaType`，不必另建一个 `ShadingModel` 枚举再手写一张
+枚举值→类型的映射。这是「一名两用」的又一次应用。要不要真这么做留到读侧落地时定。
 
 它是「任意参数材质」的接缝：将来出现自定义 shader 材质时，这个键指向另一个模型，`properties` 装那个
 模型声明的任意属性——**文件形状不变，变的只是解释器**，老文件继续走固定 struct 的快路径。加宽方式是
@@ -1495,6 +1499,9 @@ JSON，三个顶层键：
 
 - 值是 0.d 的 `AssetId` 复合对象。usage / colorSpace 已经在 `desc` 里，不另外声明；`desc`
   全默认时省略（sRGB `Texture2D` 是默认，所以 base color 贴图通常没有 `desc`）。
+- **颜色是 object，不是数组。** 阶段 2 定了数学类型标 `Serializable` 而不给 `JsonOperation`，
+  `Vector4` 因此走通用字段遍历，落盘形态是 `{"x":…,"y":…,"z":…,"w":…}`。写成 `[r,g,b,a]` 的
+  手写文件会在读侧的复合分支上直接判类别不符。
 - **无贴图写 `null`，不是省略键。** 阶段 2 定了 `null` = 未指定、且默认值一律写出，所以属性永远
   全部在文件里——diff 稳定、文件自解释，也不靠「缺键」表达「没有贴图」这个明确语义。
 - 不分组。Inspector 的分组是 UI 的事，需要时由模型声明携带，文件保持平坦。
@@ -1869,9 +1876,7 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 阶段 0、阶段 1、Image 处理流程规整、子资产机制统一均已收尾。剩下的互不依赖：
 
 - **待办 A：通用依赖机制 + 预加载**（只有方向）：shader 缓存的前置，也是 `.gltf` 缓存的前置。
-- **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对）。剩下打标记
-  与 round-trip 测试。
-
-  今天没有任何组件字段标了 `Serializable`，所以前面几步行为零变化，
-  可以独立提交、独立验证。
+- **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对），打标记也已
+  落地（六个 `Reflect.h` 共 36 个字段 + `Core/Reflect.h` 的数学分量）。剩下的是给那几个还没有测试
+  目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
 - **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。
