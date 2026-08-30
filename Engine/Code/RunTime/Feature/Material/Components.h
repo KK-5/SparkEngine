@@ -26,6 +26,16 @@ namespace Spark::Material
         Resource::AssetId m_id;
     };
 
+    //! One object's own parameters, shadowing the material it references. Derives rather
+    //! than wraps so it needs no accessors of its own; the distinct type is what lets it
+    //! bind to the World while StandardPBR stays bound to the MaterialContext.
+    //!
+    //! Shadowing is total: once present, the referenced material's parameters no longer
+    //! reach this object at all.
+    struct StandardPBROverride : Resource::StandardPBR
+    {
+    };
+
     //! Resolved per-channel GPU textures (RHIHandles) on the material entity, one per
     //! MaterialTexSlot. Written by MaterialTextureSystem (owned by MaterialSystem), read
     //! by render's MaterialBindingSystem to resolve each bindless index. NullHandle in a
@@ -53,4 +63,8 @@ namespace Spark
     SPARK_COMPONENT_TRAITS(Material::MaterialComponent,
         static constexpr bool editable = true;
     )
+
+    // Deliberately NOT editable: an override means nothing without a material to shadow,
+    // so it is created from the material slot's own button, never from the generic list.
+    SPARK_COMPONENT_TRAITS(Material::StandardPBROverride)
 }

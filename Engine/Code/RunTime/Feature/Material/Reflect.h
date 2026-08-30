@@ -6,6 +6,8 @@
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
 
+#include <Resource/Material/Reflect.h>
+
 #include "Components.h"
 #include "MaterialContext.h"
 
@@ -33,5 +35,15 @@ namespace Spark::Material
             ;
 
         Spark::ComponentOperation<MaterialComponent>(context);
+
+        // Same field layout as StandardPBR, registered on this type because entt's field
+        // range does not visit a base. The name breaks the "class name minus Component"
+        // key rule on purpose (see TODO_AssetSystemPlan.md's frozen rule) — it reads as
+        // two words in the inspector.
+        Resource::ReflectStandardPBRFields<StandardPBROverride>(context, "StandardPBR Override");
+        context.Reflect<StandardPBROverride>()
+            .Custom<ComponentTraitsRuntime>(ComponentTraits<StandardPBROverride>{});
+
+        Spark::ComponentOperation<StandardPBROverride>(context);
     }
 }

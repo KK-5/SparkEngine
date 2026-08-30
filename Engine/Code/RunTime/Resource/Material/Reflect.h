@@ -37,14 +37,18 @@ namespace Spark::Resource
     //! to reflect directly — these getter/setter pairs expose each slot as its own reflected
     //! field, reusing the editor's AssetElement + drag-drop path (which writes via the
     //! reflected field's setter). Adding a channel = add one Data<Set,Get> line below.
-    template<MaterialTexSlot Slot>
-    AssetId GetTexAsset(const StandardPBR& params)
+    //!
+    //! Params is the concrete type being reflected, not always StandardPBR: entt resolves a
+    //! free accessor against the exact type it is registered on, so a type deriving from
+    //! StandardPBR needs its own instantiation.
+    template<typename Params, MaterialTexSlot Slot>
+    AssetId GetTexAsset(const Params& params)
     {
         return params.m_textures[static_cast<size_t>(Slot)];
     }
 
-    template<MaterialTexSlot Slot>
-    void SetTexAsset(StandardPBR& params, AssetId id)
+    template<typename Params, MaterialTexSlot Slot>
+    void SetTexAsset(Params& params, AssetId id)
     {
         params.m_textures[static_cast<size_t>(Slot)] = id;
     }
@@ -57,7 +61,12 @@ namespace Spark::Resource
     //! Every name below is on-disk format — the `.smat` `properties` keys and the scene
     //! file's field keys are these strings. Renaming one silently drops the value from
     //! every file that already spells it.
-    static void ReflectStandardPBR(Spark::ReflectContext& context)
+    //!
+    //! Templated because StandardPBR is not the only type with this layout: a per-object
+    //! override carries the same fields under its own type name, and entt's field range
+    //! does not visit a base class, so it needs them registered on itself.
+    template<typename Params>
+    void ReflectStandardPBRFields(Spark::ReflectContext& context, const char* typeName)
     {
         // Per-slot texture usage — decides the color space the dropped image is compiled
         // with (sRGB color vs linear data vs normal map). See TextureElement.
@@ -65,44 +74,51 @@ namespace Spark::Resource
         constexpr uint32_t kUsageData   = static_cast<uint32_t>(ImageUsage::NoColorTexture2D);
         constexpr uint32_t kUsageNormal = static_cast<uint32_t>(ImageUsage::NormalMap);
 
-        context.Reflect<StandardPBR>()
-            .Type("StandardPBR")
+        using Slot = MaterialTexSlot;
+
+        context.Reflect<Params>()
+            .Type(typeName)
             // Scalar / color factors.
-            .Data<&StandardPBR::m_baseColor>("Base Color").Custom<Spark::ColorElement>(false)
+            .Data<&Params::m_baseColor>("Base Color").Custom<Spark::ColorElement>(false)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&StandardPBR::m_metallic>("Metallic").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+            .Data<&Params::m_metallic>("Metallic").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&StandardPBR::m_roughness>("Roughness").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+            .Data<&Params::m_roughness>("Roughness").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&StandardPBR::m_specular>("Specular").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+            .Data<&Params::m_specular>("Specular").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&StandardPBR::m_emissive>("Emissive Color").Custom<Spark::ColorElement>(false)
+            .Data<&Params::m_emissive>("Emissive Color").Custom<Spark::ColorElement>(false)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&StandardPBR::m_emissiveStrength>("Emissive Strength").Custom<Spark::FloatElement>(0.f, 100.f, 0.05f, false)
+            .Data<&Params::m_emissiveStrength>("Emissive Strength").Custom<Spark::FloatElement>(0.f, 100.f, 0.05f, false)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&StandardPBR::m_normalScale>("Normal Scale").Custom<Spark::FloatSliderElement>(0.f, 2.f, 0.01f, false)
+            .Data<&Params::m_normalScale>("Normal Scale").Custom<Spark::FloatSliderElement>(0.f, 2.f, 0.01f, false)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&StandardPBR::m_occlusionStrength>("Occlusion Strength").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+            .Data<&Params::m_occlusionStrength>("Occlusion Strength").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
                 .Traits(MetaFieldTraits::Serializable)
             // Texture slots — one reflected field per MaterialTexSlot via getter/setter.
             // TextureElement carries the slot's ImageUsage so a dropped image is loaded with
             // the right color space (base color / emissive sRGB; MR / occlusion linear data;
             // normal a linear normal map).
-            .Data<&SetTexAsset<MaterialTexSlot::BaseColor>, &GetTexAsset<MaterialTexSlot::BaseColor>>("Base Color Map")
+            .Data<&SetTexAsset<Params, Slot::BaseColor>, &GetTexAsset<Params, Slot::BaseColor>>("Base Color Map")
                 .Custom<Spark::TextureElement>(false, kUsageColor)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::MetallicRoughness>, &GetTexAsset<MaterialTexSlot::MetallicRoughness>>("Metallic Roughness Map")
+            .Data<&SetTexAsset<Params, Slot::MetallicRoughness>, &GetTexAsset<Params, Slot::MetallicRoughness>>("Metallic Roughness Map")
                 .Custom<Spark::TextureElement>(false, kUsageData)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::Normal>, &GetTexAsset<MaterialTexSlot::Normal>>("Normal Map")
+            .Data<&SetTexAsset<Params, Slot::Normal>, &GetTexAsset<Params, Slot::Normal>>("Normal Map")
                 .Custom<Spark::TextureElement>(false, kUsageNormal)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::Occlusion>, &GetTexAsset<MaterialTexSlot::Occlusion>>("Occlusion Map")
+            .Data<&SetTexAsset<Params, Slot::Occlusion>, &GetTexAsset<Params, Slot::Occlusion>>("Occlusion Map")
                 .Custom<Spark::TextureElement>(false, kUsageData)
                 .Traits(MetaFieldTraits::Serializable)
-            .Data<&SetTexAsset<MaterialTexSlot::Emissive>, &GetTexAsset<MaterialTexSlot::Emissive>>("Emissive Map")
+            .Data<&SetTexAsset<Params, Slot::Emissive>, &GetTexAsset<Params, Slot::Emissive>>("Emissive Map")
                 .Custom<Spark::TextureElement>(false, kUsageColor)
                 .Traits(MetaFieldTraits::Serializable)
             ;
+    }
+
+    static void ReflectStandardPBR(Spark::ReflectContext& context)
+    {
+        ReflectStandardPBRFields<StandardPBR>(context, "StandardPBR");
     }
 }

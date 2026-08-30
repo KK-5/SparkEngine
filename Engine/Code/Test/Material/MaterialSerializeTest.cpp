@@ -89,6 +89,56 @@ TEST(MaterialSerializeTest, ShapeOnDisk)
     EXPECT_TRUE(json["Emissive Map"].is_null());
 }
 
+// The override derives from StandardPBR, and entt's field range does not visit a base --
+// so these check that its own registration really carries the whole layout, and that
+// reading and writing land on the derived instance.
+TEST(MaterialSerializeTest, OverrideCarriesTheWholeParamsLayout)
+{
+    const MetaType overrideType = TypeRegistry::GetContext().Resolve<StandardPBROverride>();
+    ASSERT_TRUE(overrideType);
+
+    size_t fields = 0;
+    for (auto&& [id, data] : overrideType.data())
+    {
+        (void)id;
+        (void)data;
+        ++fields;
+    }
+
+    size_t paramsFields = 0;
+    for (auto&& [id, data] : ParamsType().data())
+    {
+        (void)id;
+        (void)data;
+        ++paramsFields;
+    }
+
+    EXPECT_EQ(fields, paramsFields);
+    EXPECT_GT(fields, 0u);
+}
+
+TEST(MaterialSerializeTest, OverrideRoundTrip)
+{
+    StandardPBROverride params;
+    static_cast<Resource::StandardPBR&>(params) = MakeParams();
+
+    const MetaType type = TypeRegistry::GetContext().Resolve<StandardPBROverride>();
+    ASSERT_TRUE(type);
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(type.from_void(&params), json));
+    EXPECT_TRUE(json.contains("Specular"));
+    EXPECT_EQ(json["Base Color Map"]["path"], "test://Texture/Wood.png");
+
+    StandardPBROverride decoded;
+    MetaAny target = type.from_void(&decoded);
+    ASSERT_TRUE(DeserializeFromJson(json, target));
+
+    EXPECT_FLOAT_EQ(decoded.m_metallic, 0.75f);
+    EXPECT_FLOAT_EQ(decoded.m_baseColor.b, 0.6f);
+    EXPECT_EQ(decoded.m_textures[kBaseColorSlot], params.m_textures[kBaseColorSlot]);
+}
+
 TEST(MaterialSerializeTest, DefaultParamsSurviveARoundTrip)
 {
     // The all-empty case: five null slots and nothing but defaults. Encoding it must not

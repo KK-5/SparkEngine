@@ -1235,6 +1235,10 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 `{"Material":{"Material":4}}`。该字段阶段 2 不标（留给阶段 3），到时把字段名改成 `"Handle"` 即可，
 不阻塞现在。
 
+**已开的例外一个**：`StandardPBROverride` 的 key 是 `"StandardPBR Override"`，按规则本该是原样类名。
+拆词是为了 Inspector 标题可读；不叫 `"Override Material"` 是因为那读起来像 UE 的 `Override Materials`
+（替换整个材质槽数组），而它覆盖的是参数。
+
 ### 待定
 
 - **`MaterialParams` 算阶段 2 还是阶段 3。** 它是唯一走 `Data<Set,Get>` 的字段，标了能让 setter
