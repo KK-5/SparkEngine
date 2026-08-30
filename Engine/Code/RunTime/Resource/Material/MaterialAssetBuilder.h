@@ -2,17 +2,14 @@
 
 #include <ECS/ISystem.h>
 #include <Resource/Bus/AssetBuildBus.h>
-#include <Resource/Common/CommonAssetLoader.h>
 
 #include "MaterialAssetCompiler.h"
+#include "MaterialAssetLoader.h"
 
 namespace Spark::Resource
 {
-    //! Material's half of AssetBuildBus. Load is a plain byte read -- a `.smat` is text,
-    //! so the shared BinaryAssetLoader is the whole of it -- and Compile is the parse.
-    //!
-    //! Serialize / Deserialize are deliberately not overridden: a material has no cache
-    //! format (GetCacheFormat says so), and the base class already declines.
+    //! Material's half of AssetBuildBus. Serialize / Deserialize are deliberately not
+    //! overridden: a material has no cache format, and the base class already declines.
     class MaterialAssetBuilder final : public ISystem,
                                        public AssetBuildBus::Handler
     {
@@ -33,7 +30,7 @@ namespace Spark::Resource
         void InitInternal() override;
         void ShutdownInternal() override;
 
-        BinaryAssetLoader     m_loader;
+        MaterialAssetLoader   m_loader;
         MaterialAssetCompiler m_compiler;
     };
 }

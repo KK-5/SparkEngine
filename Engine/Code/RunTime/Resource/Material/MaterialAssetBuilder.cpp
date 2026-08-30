@@ -4,6 +4,7 @@
 #include <Resource/AssetBuildContext.h>
 
 #include "MaterialAsset.h"
+#include "MaterialRawTypes.h"
 
 namespace Spark::Resource
 {
@@ -41,17 +42,14 @@ namespace Spark::Resource
             return;
         }
 
-        const auto& bytes = static_cast<BinaryAssetData&>(*ctx.rawData).GetBytes();
-
-        UniquePtr<AssetData> compiled = m_compiler.Compile(ctx.id, bytes.data(), bytes.size());
+        UniquePtr<AssetData> compiled =
+            m_compiler.Compile(ctx.id, static_cast<MaterialRawData&>(*ctx.rawData));
         if (!compiled)
         {
             return;
         }
 
-        // Each texture is a file of its own with its own stamp and its own cache key, so
-        // it is a dependency rather than a sub-asset -- the same treatment a glTF's
-        // external URIs get. ProcessAsset loads them before this material goes Ready.
+        // A texture in a file of its own has its own stamp and cache key: a dependency.
         const StandardPBR& params = static_cast<MaterialAssetData&>(*compiled).GetParams();
         for (const AssetId& texture : params.m_textures)
         {
@@ -60,12 +58,14 @@ namespace Spark::Resource
                 continue;
             }
 
-            // A sub-asset cannot be loaded on its own -- its bytes live inside its parent's
-            // file. Naming one here would otherwise fail deep inside ProcessAsset, pointing
-            // at the parent model rather than at the material that asked for it. Extracting
-            // the texture into an asset of its own is the way to reference it.
             if (texture.IsSubAsset())
             {
+                // Same root: already a member of this unit.
+                if (texture.GetPath() == ctx.id.GetPath())
+                {
+                    continue;
+                }
+
                 LOG_ERROR("[MaterialAssetBuilder] '{}' references sub-asset '{}:{}'. A "
                           "sub-asset cannot be loaded on its own; extract it into an asset "
                           "of its own first.",

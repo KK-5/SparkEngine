@@ -5,6 +5,7 @@
 #include <VFS/VFSSystem.h>
 #include <Resource/Bus/AssetBus.h>
 #include <Resource/Image/ImageAsset.h>
+#include <Resource/Material/MaterialAsset.h>
 #include <Resource/Model/ModelAsset.h>
 #include <Resource/Model/ModelAssetLoader.h>
 #include <Resource/Model/ModelAssetCompiler.h>
@@ -372,6 +373,79 @@ TEST_F(ModelAssetTestFixture, CompiledModelCarriesResolvedMaterials)
     ASSERT_NE(mat, nullptr);
     EXPECT_TRUE(mat->baseColorImageId.IsValid());
     EXPECT_EQ(mat->baseColorImageId, modelData->GetImageAssetId(0));
+}
+
+// ===== 每个 glTF 材质发布成一个材质子资产 =====
+
+TEST_F(ModelAssetTestFixture, EveryEmbeddedMaterialBecomesASubAsset)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId);
+    ASSERT_NE(modelAsset, nullptr);
+
+    auto* modelData = modelAsset->GetData<ModelAssetData>();
+    ASSERT_NE(modelData, nullptr);
+    ASSERT_GE(modelData->GetMaterialCount(), 1u);
+    ASSERT_EQ(modelData->GetMaterialAssetCount(), modelData->GetMaterialCount());
+
+    for (size_t i = 0; i < modelData->GetMaterialAssetCount(); ++i)
+    {
+        const AssetId& id = modelData->GetMaterialAssetId(i);
+        EXPECT_TRUE(id.IsValid()) << "material " << i;
+        EXPECT_TRUE(id.IsSubAsset()) << "material " << i;
+        EXPECT_EQ(id.GetPath(), modelId.GetPath());
+        EXPECT_EQ(id.GetAssetType(), AssetType::Material);
+
+        Ptr<Asset> published = m_assetManager->FindAsset(id);
+        ASSERT_NE(published, nullptr) << "material " << i;
+        EXPECT_EQ(published->GetStatus(), AssetStatus::Ready) << "material " << i;
+    }
+}
+
+TEST_F(ModelAssetTestFixture, AMaterialSubAssetCarriesTheGltfMaterial)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
+    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId);
+    ASSERT_NE(modelAsset, nullptr);
+
+    auto* modelData = modelAsset->GetData<ModelAssetData>();
+    ASSERT_NE(modelData, nullptr);
+    ASSERT_GE(modelData->GetMaterialCount(), 1u);
+
+    const Material* source = modelData->GetMaterial(0);
+    ASSERT_NE(source, nullptr);
+
+    Ptr<Asset> published = m_assetManager->FindAsset(modelData->GetMaterialAssetId(0));
+    ASSERT_NE(published, nullptr);
+    const auto* material = static_cast<MaterialAsset*>(published.get())->GetMaterialData();
+    ASSERT_NE(material, nullptr);
+
+    const StandardPBR& params = material->GetParams();
+    EXPECT_FLOAT_EQ(params.m_baseColor.r, source->baseColorFactor.r);
+    EXPECT_FLOAT_EQ(params.m_baseColor.a, source->baseColorFactor.a);
+    EXPECT_FLOAT_EQ(params.m_metallic, source->metallicFactor);
+    EXPECT_FLOAT_EQ(params.m_roughness, source->roughnessFactor);
+    EXPECT_FLOAT_EQ(params.m_emissive.r, source->emissiveFactor.x);
+    EXPECT_FLOAT_EQ(params.m_normalScale, source->normalScale);
+    EXPECT_FLOAT_EQ(params.m_occlusionStrength, source->occlusionStrength);
+
+    using Slot = MaterialTexSlot;
+    EXPECT_EQ(params.m_textures[static_cast<size_t>(Slot::BaseColor)], source->baseColorImageId);
+    EXPECT_EQ(params.m_textures[static_cast<size_t>(Slot::Normal)], source->normalImageId);
+
+    EXPECT_EQ(material->GetState().m_alphaMode, source->alphaMode);
+    EXPECT_FLOAT_EQ(material->GetState().m_alphaCutoff, source->alphaCutoff);
+    EXPECT_EQ(material->GetState().m_doubleSided, source->doubleSided);
+}
+
+TEST_F(ModelAssetTestFixture, AMaterialSubAssetCannotBeBuiltOnItsOwn)
+{
+    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
+    Ptr<Asset> orphan = m_assetManager->LoadAsset(
+        MaterialAsset::MakeSubId(modelId, "material/0"));
+
+    ASSERT_NE(orphan, nullptr);
+    EXPECT_EQ(orphan->GetStatus(), AssetStatus::Error);
 }
 
 // ===== Build unit: sub-assets become visible before the root =====

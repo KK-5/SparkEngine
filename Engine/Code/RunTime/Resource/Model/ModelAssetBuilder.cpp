@@ -10,6 +10,8 @@
 #include <Resource/Bus/AssetBuildBus.h>
 #include <Resource/Bus/AssetBus.h>
 #include <Resource/Image/ImageAsset.h>
+#include <Resource/Material/MaterialAsset.h>
+#include <Resource/Material/MaterialRawTypes.h>
 
 #include "ModelAsset.h"
 
@@ -18,10 +20,11 @@ namespace Spark::Resource
 {
     namespace
     {
-        eastl::string MakeImageSubLabel(const eastl::string& name, size_t index)
+        //! Half of every sub-asset's identity: renaming strands every reference to it.
+        eastl::string MakeSubLabel(const char* kind, const eastl::string& name, size_t index)
         {
             char buf[32];
-            std::snprintf(buf, sizeof(buf), "image/%zu", index);
+            std::snprintf(buf, sizeof(buf), "%s/%zu", kind, index);
             eastl::string label(buf);
             if (!name.empty())
             {
@@ -31,6 +34,32 @@ namespace Spark::Resource
             return label;
         }
 
+        //! Owned on return: AssetData deletes its copy constructor and declares no move.
+        UniquePtr<MaterialDecodedRawData> MakeMaterialRaw(const Material& src)
+        {
+            StandardPBR params;
+            params.m_baseColor         = src.baseColorFactor;
+            params.m_metallic          = src.metallicFactor;
+            params.m_roughness         = src.roughnessFactor;
+            params.m_emissive          = Math::Vector4(src.emissiveFactor, 1.0f);
+            params.m_emissiveStrength  = src.emissiveStrength;
+            params.m_normalScale       = src.normalScale;
+            params.m_occlusionStrength = src.occlusionStrength;
+
+            using Slot = MaterialTexSlot;
+            params.m_textures[static_cast<size_t>(Slot::BaseColor)]         = src.baseColorImageId;
+            params.m_textures[static_cast<size_t>(Slot::MetallicRoughness)] = src.metallicRoughnessImageId;
+            params.m_textures[static_cast<size_t>(Slot::Normal)]            = src.normalImageId;
+            params.m_textures[static_cast<size_t>(Slot::Occlusion)]         = src.occlusionImageId;
+            params.m_textures[static_cast<size_t>(Slot::Emissive)]          = src.emissiveImageId;
+
+            MaterialState state;
+            state.m_alphaMode   = src.alphaMode;
+            state.m_alphaCutoff = src.alphaCutoff;
+            state.m_doubleSided = src.doubleSided;
+
+            return MakeUnique<MaterialDecodedRawData>(eastl::move(params), state);
+        }
     }
 
     HashString ModelAssetBuilder::GetName() const
@@ -114,7 +143,7 @@ namespace Spark::Resource
                 // Embedded: the bytes are inside this file, so the image is a sub-asset of
                 // it. `sourceData` points into raw.m_rawImages, which stays alive for as
                 // long as ctx.rawData does -- past the publish that consumes it.
-                eastl::string subLabel = MakeImageSubLabel(entry.name, i);
+                eastl::string subLabel = MakeSubLabel("image", entry.name, i);
                 AssetId subId = ImageAsset::MakeSubId(
                     ctx.id, eastl::string_view(subLabel.c_str(), subLabel.size()), usage);
 
@@ -159,6 +188,7 @@ namespace Spark::Resource
         for (const RawMaterial& rm : raw.m_rawMaterials)
         {
             Material mat;
+            mat.doubleSided       = rm.doubleSided;
             mat.baseColorFactor   = rm.baseColorFactor;
             mat.metallicFactor    = rm.metallicFactor;
             mat.roughnessFactor   = rm.roughnessFactor;
@@ -174,6 +204,21 @@ namespace Spark::Resource
             mat.occlusionImageId         = resolveImageId(rm.occlusionImage);
             mat.emissiveImageId          = resolveImageId(rm.emissiveImage);
             compiled.m_materials.push_back(eastl::move(mat));
+        }
+
+        // Handed over decoded, not as bytes: in a glTF a material is structure.
+        compiled.m_materialAssetIds.reserve(compiled.m_materials.size());
+        for (size_t i = 0; i < compiled.m_materials.size(); ++i)
+        {
+            const eastl::string subLabel =
+                MakeSubLabel("material", raw.m_rawMaterials[i].name, i);
+            AssetId subId = MaterialAsset::MakeSubId(
+                ctx.id, eastl::string_view(subLabel.c_str(), subLabel.size()));
+
+            compiled.m_materialAssetIds.push_back(subId);
+            ctx.subAssets.push_back(
+                {eastl::move(subId),
+                 MakeMaterialRaw(compiled.m_materials[i]), nullptr, 0});
         }
 
         // m_rawImages is deliberately NOT cleared: the sub-asset declarations above point

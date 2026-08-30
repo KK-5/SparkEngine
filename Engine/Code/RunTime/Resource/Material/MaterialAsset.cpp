@@ -1,6 +1,7 @@
 #include "MaterialAsset.h"
 
 #include <HashString/HashString.h>
+#include <Log/ILogSystem.h>
 
 namespace Spark::Resource
 {
@@ -16,6 +17,18 @@ namespace Spark::Resource
     {
         static Ptr<AssetDescriptor> instance(new MaterialAssetDescriptor{});
         return instance;
+    }
+
+    AssetId MaterialAsset::MakeSubId(const AssetId& parentId, eastl::string_view subLabel)
+    {
+        // A sub-asset of a sub-asset would drop the parent's own subLabel and could collide.
+        ASSERT(!parentId.IsSubAsset(),
+            "[MaterialAsset] MakeSubId: parent is itself a sub-asset ('{}'); the sub id "
+            "would lose its label", parentId.GetPath().c_str());
+
+        const eastl::string& parentPath = parentId.GetPath();
+        return AssetId::OfSub<MaterialAsset>(
+            eastl::string_view(parentPath.c_str(), parentPath.size()), subLabel);
     }
 
     MaterialAsset::MaterialAsset(AssetId id)

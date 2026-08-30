@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/string_view.h>
+
 #include <Base.h>
 
 #include <Resource/Asset.h>
@@ -50,6 +52,9 @@ namespace Spark::Resource
         static Ptr<AssetDescriptor> DefaultDescriptor();
 
         explicit MaterialAsset(AssetId id);
+
+        //! `Chair.glb:material/0`. The label is half of the child's identity: frozen.
+        static AssetId MakeSubId(const AssetId& parentId, eastl::string_view subLabel);
 
         const MaterialAssetData* GetMaterialData() const;
     };

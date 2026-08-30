@@ -478,6 +478,15 @@ namespace Spark::Resource
                 return false;
             }
 
+            // A unit's dependencies are the union of its members'.
+            ctx.dependencies.insert(ctx.dependencies.end(),
+                child.dependencies.begin(), child.dependencies.end());
+
+            ASSERT(child.subAssets.empty(),
+                "[SparkAssetManager] '{}:{}' declared sub-assets of its own; a build unit is "
+                "flat and this would be silently discarded",
+                sub.id.GetPath().c_str(), sub.id.GetSubLabel().c_str());
+
             out.push_back({eastl::move(created), eastl::move(child.compiledData)});
         }
 

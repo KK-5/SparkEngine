@@ -632,6 +632,7 @@ namespace Spark::Resource
         for (const auto& src : gltf.materials)
         {
             RawMaterial out;
+            out.name = src.name.empty() ? eastl::string() : eastl::string(src.name.c_str());
             const auto& bcf = src.pbrData.baseColorFactor;
             out.baseColorFactor = Math::Vector4(
                 static_cast<float>(bcf[0]), static_cast<float>(bcf[1]),
@@ -647,6 +648,7 @@ namespace Spark::Resource
             out.occlusionStrength  = src.occlusionTexture.has_value()
                 ? static_cast<float>(src.occlusionTexture->strength) : 1.0f;
             out.alphaCutoff = static_cast<float>(src.alphaCutoff);
+            out.doubleSided = src.doubleSided;
             switch (src.alphaMode)
             {
             case fastgltf::AlphaMode::Mask:  out.alphaMode = AlphaMode::Mask;  break;

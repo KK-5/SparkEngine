@@ -51,6 +51,7 @@ namespace Spark::Resource
         float           occlusionStrength{1.0f};  // occlusionTexture.strength
         float           alphaCutoff{0.5f};
         AlphaMode       alphaMode{AlphaMode::Opaque};
+        bool            doubleSided{false};
 
         AssetId baseColorImageId;
         AssetId normalImageId;
@@ -74,6 +75,9 @@ namespace Spark::Resource
         float           occlusionStrength{1.0f};
         float           alphaCutoff{0.5f};
         AlphaMode       alphaMode{AlphaMode::Opaque};
+        bool            doubleSided{false};
+
+        eastl::string   name;   ///< glTF material.name；用于子资产 subLabel；空时回落到索引
 
         int32_t baseColorImage         = -1;
         int32_t metallicRoughnessImage = -1;
@@ -190,6 +194,10 @@ namespace Spark::Resource
         size_t          GetImageAssetCount()      const { return m_imageAssetIds.size(); }
         const AssetId&  GetImageAssetId(size_t i) const { return m_imageAssetIds[i]; }
 
+        // Material sub-assets —— index 对齐 materials[]。
+        size_t          GetMaterialAssetCount()      const { return m_materialAssetIds.size(); }
+        const AssetId&  GetMaterialAssetId(size_t i) const { return m_materialAssetIds[i]; }
+
     private:
         friend class ModelAssetCompiler;
         friend class ModelAssetBuilder;     // 派发后写 m_imageAssetIds / m_materials
@@ -197,7 +205,8 @@ namespace Spark::Resource
         eastl::vector<Mesh>     m_meshes;         // optimized geometry
         eastl::vector<Node>     m_nodes;
         eastl::vector<Material> m_materials;      // factors + resolved image AssetIds
-        eastl::vector<AssetId>  m_imageAssetIds;  // index 对齐 glTF images[]
+        eastl::vector<AssetId>  m_imageAssetIds;     // index 对齐 glTF images[]
+        eastl::vector<AssetId>  m_materialAssetIds;  // index 对齐 materials[]
         Math::AABB              m_bounds;
         eastl::string           m_resolvedPath;
     };

@@ -11,6 +11,7 @@
 #include <Serialization/JsonSerializer.h>
 
 #include "MaterialAsset.h"
+#include "MaterialRawTypes.h"
 
 namespace Spark::Resource
 {
@@ -97,15 +98,28 @@ namespace Spark::Resource
     }
 
     UniquePtr<AssetData> MaterialAssetCompiler::Compile(
-        const AssetId& id, const uint8_t* bytes, size_t size) const
+        const AssetId& id, const MaterialRawData& raw) const
     {
-        if (bytes == nullptr || size == 0)
+        // Already the values -- a parent pulled this out of its own file. Nothing to parse.
+        if (raw.GetKind() == MaterialRawData::Kind::Decoded)
+        {
+            const auto& decoded = static_cast<const MaterialDecodedRawData&>(raw);
+            auto data = MakeUnique<MaterialAssetData>();
+            data->m_params = decoded.GetParams();
+            data->m_state  = decoded.GetState();
+            return data;
+        }
+
+        const eastl::vector<uint8_t>& bytes =
+            static_cast<const MaterialEncodedRawData&>(raw).GetBytes();
+        if (bytes.empty())
         {
             LOG_ERROR("[MaterialAssetCompiler] '{}' is empty.", id.GetPath().c_str());
             return nullptr;
         }
 
-        const JsonValue root = JsonValue::parse(bytes, bytes + size, nullptr, false);
+        const JsonValue root = JsonValue::parse(bytes.data(), bytes.data() + bytes.size(),
+                                                nullptr, false);
         if (root.is_discarded() || !root.is_object())
         {
             LOG_ERROR("[MaterialAssetCompiler] '{}' is not a JSON object.", id.GetPath().c_str());
