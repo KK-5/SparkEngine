@@ -28,11 +28,13 @@ namespace Spark::Render
     {
         constexpr const char* InstanceBufferName = "g_Instances";
 
-        //! MaterialComponent -> material handle (falling back to the default material when
-        //! unset or dangling) -> its stable g_Materials slot. The slot is allocated once
-        //! by MaterialBindingSystem and does not move, so this reads whatever is there
-        //! rather than depending on a value written this same frame; a material whose
-        //! slot does not exist yet falls back to 0 for a frame.
+        //! Material handle -> its stable g_Materials slot. The material an object overrides
+        //! wins over the one it references; both are ordinary material entities by now.
+        //! Falls back to the default material when unset or dangling.
+        //!
+        //! The slot is allocated once by MaterialBindingSystem and does not move, so this
+        //! reads whatever is there rather than depending on a value written this same
+        //! frame; a material whose slot does not exist yet falls back to 0 for a frame.
         uint32_t ResolveMaterialIndex(
             WorldContext& world, Material::MaterialContext* matCtx, Entity e)
         {
@@ -42,7 +44,11 @@ namespace Spark::Render
             }
 
             Material::MaterialHandle mh = Material::NullMaterial;
-            if (const auto* mc = world.TryGet<Material::MaterialComponent>(e))
+            if (const auto* ref = world.TryGet<MaterialOverrideRef>(e))
+            {
+                mh = ref->m_material;
+            }
+            else if (const auto* mc = world.TryGet<Material::MaterialComponent>(e))
             {
                 mh = mc->m_material;
             }

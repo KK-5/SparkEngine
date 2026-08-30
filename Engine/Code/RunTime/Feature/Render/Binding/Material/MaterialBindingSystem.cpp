@@ -18,7 +18,13 @@
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderBuilder.h>
 
+#include <EASTL/fixed_vector.h>
+
+#include <ECS/ExecuteContext.h>
+#include <ECS/WorldContext.h>
+
 #include <Material/MaterialContext.h>
+#include <Material/MaterialUtils.h>
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
 
@@ -130,6 +136,91 @@ namespace Spark::Render
         bufferDesc.m_inputName      = RHI::InputName(MaterialBufferName);
         bufferDesc.m_bindingsEntity = m_bindings;
         m_materials.Init(rhiCtx, bufferDesc);
+
+        EntityEventBus::Handler::BusConnect();
+    }
+
+    void MaterialBindingSystem::OnEntityDestory(Entity entity)
+    {
+        auto* world  = WorldExecuteContext::Current();
+        auto* matCtx = Material::MaterialExecuteContext::Current();
+        if (!world || !matCtx)
+        {
+            return;
+        }
+
+        // Read-only on the world: this fires from inside DestoryEntity, which is walking
+        // the registry's storage. The mark lands in the material context instead.
+        if (const auto* ref = world->TryGet<MaterialOverrideRef>(entity))
+        {
+            if (matCtx->Valid(ref->m_material))
+            {
+                matCtx->AddOrReplace<DeadTag>(ref->m_material);
+            }
+        }
+    }
+
+    void SyncOverrideMaterials()
+    {
+        auto* world  = WorldExecuteContext::Current();
+        auto* matCtx = Material::MaterialExecuteContext::Current();
+        if (!world || !matCtx)
+        {
+            return;
+        }
+
+        world->GetView<Material::StandardPBROverride>().each(
+            [&](Entity entity, const Material::StandardPBROverride& params)
+        {
+            auto* ref = world->TryGet<MaterialOverrideRef>(entity);
+            if (!ref || !matCtx->Valid(ref->m_material))
+            {
+                const Material::MaterialHandle h = Material::CreateMaterial(*matCtx, params);
+                world->AddOrReplace<MaterialOverrideRef>(entity, MaterialOverrideRef{h});
+                return;
+            }
+
+            // Rewritten every frame rather than tracked: it is one 68-byte copy per
+            // override, and it makes an edit -- to the override or to the material it
+            // shadows -- need no notification at all.
+            matCtx->Get<Resource::StandardPBR>(ref->m_material) = params;
+        });
+
+        // Collected first: the link is the pool being iterated, and this repo does not
+        // write into one (see GlobalBuffer::Update).
+        eastl::fixed_vector<Entity, 8> stale;
+        world->GetView<MaterialOverrideRef>(Exclude<Material::StandardPBROverride>).each(
+            [&](Entity entity, const MaterialOverrideRef& ref)
+        {
+            if (matCtx->Valid(ref.m_material))
+            {
+                matCtx->AddOrReplace<DeadTag>(ref.m_material);
+            }
+            stale.push_back(entity);
+        });
+        for (Entity entity : stale)
+        {
+            world->Remove<MaterialOverrideRef>(entity);
+        }
+    }
+
+    void ReapDeadMaterials()
+    {
+        auto* matCtx = Material::MaterialExecuteContext::Current();
+        if (!matCtx)
+        {
+            return;
+        }
+
+        eastl::vector<Material::MaterialHandle> dead;
+        for (Material::MaterialHandle h : matCtx->GetView<DeadTag>())
+        {
+            dead.push_back(h);
+        }
+        if (!dead.empty())
+        {
+            matCtx->DestoryEntity(dead.begin(), dead.end());
+        }
     }
 
     void MaterialBindingSystem::Update(uint32_t frameIndex)
@@ -140,6 +231,8 @@ namespace Spark::Render
         {
             return;
         }
+
+        SyncOverrideMaterials();
 
         m_materials.Update(*matCtx, *rhiCtx, frameIndex,
             [&](Material::MaterialHandle h, MaterialData& d, const Resource::StandardPBR& params)
@@ -155,10 +248,21 @@ namespace Spark::Render
                 d.m_texIndices[texSlot] = ResolveTexIndex(*rhiCtx, *matCtx, h, texSlot);
             }
         });
+
+        ReapDeadMaterials();
     }
 
     void MaterialBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
+        EntityEventBus::Handler::BusDisconnect();
+
+        // The links outlive this system otherwise, naming material entities that are
+        // about to stop existing.
+        if (auto* world = WorldExecuteContext::Current())
+        {
+            world->Clear<MaterialOverrideRef>();
+        }
+
         if (auto* matCtx = Material::MaterialExecuteContext::Current())
         {
             m_materials.Shutdown(*matCtx, rhiCtx);
