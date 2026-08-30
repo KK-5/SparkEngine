@@ -40,6 +40,12 @@ KTX2 读写支持 cube，`ImageAssetData` 用 `m_isCubemap` 说明自己而不�
 （payload 若干 + `.unit` 清单），两个手写 publisher 删除，发布收敛成 `ProcessAsset` 里的两阶段提交。
 shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.glb` model 只差一个二进制格式（待办 D）。
 
+**阶段 3 的资产层已落地**：`AssetType::Material` 与 `.smat` 扩展名、空的 `MaterialAssetDescriptor`、
+`Resource/Material/` 下的 `StandardPBR` / `MaterialState` / 读侧（loader 复用 `BinaryAssetLoader`、
+compiler 解三个顶层键、builder 把贴图交给 `ctx.dependencies`）。`shadingModel` 的校验就是拿它去
+`Resolve` 参数组件的类型，未知名字判 Error 而不回落。运行期那半（`MaterialSource`、一个资产一个实例、
+覆盖、编辑器）尚未动工。
+
 **阶段 3 定下了使用流程、数据模型与 `.smat` 的形态 / 产生方式**：八条编辑器用户流程与两个互不重叠的
 编辑表面（材质窗口改材质、Component View 的材质槽改覆盖）；材质数据跨 World 与 MaterialContext 的
 组件布局——覆盖挂世界实体、MaterialContext 只剩有主的材质、材质 GC 随之删除；`shadingModel` /
@@ -82,8 +88,8 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 | 无资产依赖机制 | 无 | `.hlsli` / `.gltf` 的 `.bin` 变了没人知道；`.hlsli` 甚至不是资产。见阶段 1 待办 A |
 | 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset::Shutdown`→`ReleaseAsset` 够不着 |
 | 子资产提取未做 | 无 | 单独使用模型的一张贴图，正确做法是提取成独立资产。见「子被直接请求」一节 |
-| 材质无资产形态 | `Feature/Material/` | 唯一创建点是 `SpawnModel.cpp:111` |
-| 三个平行的 CPU 材质结构 | `ModelAsset.h` / `Material/Components.h` | `Resource::Material` 与 `MaterialParams`，靠 `MaterialParamsFromModel` 搭桥 |
+| 材质无运行期资产形态 | `Feature/Material/` | `.smat` 读得出来了，但没有 `MaterialSource`，唯一的材质创建点仍是 `SpawnModel.cpp` |
+| 两个平行的 CPU 材质结构 | `ModelAsset.h` / `Resource/Material/StandardPBR.h` | `Resource::Material` 与 `StandardPBR`，靠 `StandardPBRFromModel` 搭桥；随 glTF 材质变子资产一起拆 |
 | ~~无 JSON 库~~ ✅ | `Core/Serialization/Json.h` | nlohmann 3.11.3 已 vendor（simdjson 虽在树内但只读，当不了写盘端） |
 | 场景序列化 | 无 | 见阶段 4 |
 
@@ -1415,7 +1421,7 @@ material 上下文按阶段 4 的规则原样写出：storage-major、entity 原
 
 ```json
 "material": {
-  "StandardPBR":    { "12": { "Base Color": {"x":0.8,"y":0.8,"z":0.8,"w":1.0}, "Metallic": 0.0, ... } },
+  "StandardPBR":    { "12": { "Base Color": {"r":0.8,"g":0.8,"b":0.8,"a":1.0}, "Metallic": 0.0, ... } },
   "MaterialSource": { "12": { "Asset": {"type":"Material","path":"project://Material/Wood.smat"} } }
 }
 ```
@@ -1437,15 +1443,16 @@ JSON，三个顶层键：
 
   "state": {
     "Alpha Mode": "Opaque",
-    "Alpha Cutoff": 0.5
+    "Alpha Cutoff": 0.5,
+    "Double Sided": false
   },
 
   "properties": {
-    "Base Color":         {"x": 0.8, "y": 0.8, "z": 0.8, "w": 1.0},
+    "Base Color":         {"r": 0.8, "g": 0.8, "b": 0.8, "a": 1.0},
     "Metallic":           0.0,
     "Roughness":          0.5,
     "Specular":           0.5,
-    "Emissive Color":     {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+    "Emissive Color":     {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0},
     "Emissive Strength":  1.0,
     "Normal Scale":       1.0,
     "Occlusion Strength": 1.0,
@@ -1499,9 +1506,11 @@ JSON，三个顶层键：
 
 - 值是 0.d 的 `AssetId` 复合对象。usage / colorSpace 已经在 `desc` 里，不另外声明；`desc`
   全默认时省略（sRGB `Texture2D` 是默认，所以 base color 贴图通常没有 `desc`）。
-- **颜色是 object，不是数组。** 阶段 2 定了数学类型标 `Serializable` 而不给 `JsonOperation`，
-  `Vector4` 因此走通用字段遍历，落盘形态是 `{"x":…,"y":…,"z":…,"w":…}`。写成 `[r,g,b,a]` 的
-  手写文件会在读侧的复合分支上直接判类别不符。
+- **颜色是 object，不是数组，键是 `r`/`g`/`b`/`a`。** 阶段 2 定了数学类型标 `Serializable` 而不给
+  `JsonOperation`，所以颜色走通用字段遍历、落盘是一个对象；写成 `[r,g,b,a]` 的手写文件会在读侧的
+  复合分支上直接判类别不符。键之所以是 rgba 而不是 xyzw，是因为 `Math::Color` 是一个**独立类型**
+  而不再是 `Vector4` 的别名——反射按 C++ 类型索引，别名只能借用 `Vector4` 的字段名，颜色就会在每
+  个文件里把自己拼成 x/y/z/w。
 - **无贴图写 `null`，不是省略键。** 阶段 2 定了 `null` = 未指定、且默认值一律写出，所以属性永远
   全部在文件里——diff 稳定、文件自解释，也不靠「缺键」表达「没有贴图」这个明确语义。
 - 不分组。Inspector 的分组是 UI 的事，需要时由模型声明携带，文件保持平坦。
@@ -1531,6 +1540,7 @@ JSON，三个顶层键：
 |---|---|---|
 | `state` | `Alpha Mode` | glTF；值与它同源，见下 |
 | `state` | `Alpha Cutoff` | glTF `alphaCutoff` |
+| `state` | `Double Sided` | glTF `doubleSided`。**不是 `Cull Mode`**：剔除哪一面是渲染器的约定，而作者表述的是「这个面有两面」；存成 `RHI::CullMode` 还会把 RHI 的枚举名钉进文件格式 |
 | `properties` | `Base Color` | glTF / UE 同名 |
 | `properties` | `Metallic` | glTF / UE / Unity 一致 |
 | `properties` | `Roughness` | glTF / UE 一致 |
@@ -1544,6 +1554,10 @@ JSON，三个顶层键：
 | `properties` | `Normal Map` | |
 | `properties` | `Occlusion Map` | |
 | `properties` | `Emissive Map` | |
+
+`state` 收的三个字段，恰好就是 glTF 材质在 PBR 参数之外 authored 的全部。判据不是「是不是 PSO 字段」
+——按那个判据 `RasterState` 的九个字段全该进来——而是**这个值是材质作者写的，还是 pass 决定的**：
+填充模式、深度偏移、深度测试、MSAA 都是 pass 的；混合与深度写入由 `Alpha Mode` 推出，不另外 authored。
 
 **唯一的改名 `Emissive` → `Emissive Color`**：它是个颜色，而旁边就是 `Emissive Strength`；另一个颜色
 因子 `Base Color` 把 Color 写出来了；裸的 `Emissive` 与 `Emissive Map` 并排时像是后者的开关。UE 同名。
@@ -1879,4 +1893,7 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 - **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对），打标记也已
   落地（六个 `Reflect.h` 共 36 个字段 + `Core/Reflect.h` 的数学分量）。剩下的是给那几个还没有测试
   目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
+- **阶段 3**：资产层已落地（见「状态」）。剩下的是运行期那半，按依赖排序：`MaterialSource` + 一个
+  资产一个实例 + 删材质 GC → glTF 材质变子资产 → 覆盖（含 `GlobalBuffer` 的第二个 population 与
+  slot 回收）→ 编辑器（材质窗口、材质槽、Browser 刷新与 `.smat` 注册）。
 - **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。
