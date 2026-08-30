@@ -22,6 +22,7 @@ namespace Spark::Resource
     class ImageAssetBuilder;
     class ShaderAssetBuilder;
     class ModelAssetBuilder;
+    class MaterialAssetBuilder;
 
     //! A sub-asset that is built but not yet visible. Holding the Asset object rather than
     //! just its id is what makes the second phase of publishing unable to fail.
@@ -102,5 +103,6 @@ namespace Spark::Resource
         SystemUniquePtr<ImageAssetBuilder>   m_imageBuilder;
         SystemUniquePtr<ShaderAssetBuilder>  m_shaderBuilder;
         SystemUniquePtr<ModelAssetBuilder>   m_modelBuilder;
+        SystemUniquePtr<MaterialAssetBuilder> m_materialBuilder;
     };
 }

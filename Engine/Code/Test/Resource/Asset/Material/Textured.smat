@@ -1,0 +1,9 @@
+{
+  "shadingModel": "StandardPBR",
+
+  "properties": {
+    "Base Color Map": {"type":"Image","path":"test://Asset/Textures/stone_wall_04_diff_1k.jpg"},
+    "Normal Map":     {"type":"Image","path":"test://Asset/Textures/stone_wall_04_diff_1k.jpg",
+                       "desc":{"colorSpace":"Linear","usage":"NormalMap"}}
+  }
+}

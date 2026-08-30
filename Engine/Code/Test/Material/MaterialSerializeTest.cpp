@@ -47,8 +47,8 @@ TEST(MaterialSerializeTest, ParamsRoundTrip)
     MetaAny     target = type.from_void(&decoded);
     ASSERT_TRUE(DeserializeFromJson(json, target));
 
-    EXPECT_FLOAT_EQ(decoded.m_baseColor.x, 0.2f);
-    EXPECT_FLOAT_EQ(decoded.m_baseColor.w, 1.0f);
+    EXPECT_FLOAT_EQ(decoded.m_baseColor.r, 0.2f);
+    EXPECT_FLOAT_EQ(decoded.m_baseColor.a, 1.0f);
     EXPECT_FLOAT_EQ(decoded.m_metallic, 0.75f);
     EXPECT_FLOAT_EQ(decoded.m_roughness, 0.25f);
     EXPECT_FLOAT_EQ(decoded.m_emissiveStrength, 3.5f);
@@ -76,9 +76,10 @@ TEST(MaterialSerializeTest, ShapeOnDisk)
     EXPECT_TRUE(json.contains("Emissive Color"));
     EXPECT_FALSE(json.contains("Emissive"));
 
-    // Math types are walked field by field, not handed to a codec.
-    EXPECT_FLOAT_EQ(json["Base Color"]["x"].get<float>(), 0.2f);
-    EXPECT_FLOAT_EQ(json["Base Color"]["w"].get<float>(), 1.0f);
+    // Math types are walked field by field, not handed to a codec -- and a colour is
+    // its own type, so it spells itself r/g/b/a rather than borrowing Vector4's names.
+    EXPECT_FLOAT_EQ(json["Base Color"]["r"].get<float>(), 0.2f);
+    EXPECT_FLOAT_EQ(json["Base Color"]["a"].get<float>(), 1.0f);
 
     // An assigned slot is a composite AssetId; an unassigned one is null rather than an
     // error, which is what keeps a default material from failing to save.
@@ -103,6 +104,6 @@ TEST(MaterialSerializeTest, DefaultParamsSurviveARoundTrip)
     ASSERT_TRUE(DeserializeFromJson(json, target));
 
     EXPECT_FLOAT_EQ(decoded.m_roughness, params.m_roughness);
-    EXPECT_FLOAT_EQ(decoded.m_baseColor.x, params.m_baseColor.x);
+    EXPECT_FLOAT_EQ(decoded.m_baseColor.r, params.m_baseColor.r);
     EXPECT_FALSE(decoded.m_textures[kBaseColorSlot].IsValid());
 }

@@ -4,7 +4,7 @@
 
 #include <EASTL/array.h>
 
-#include <Math/Vector4.h>
+#include <Math/Color.h>
 
 #include <Resource/AssetTypes.h>
 
@@ -41,11 +41,11 @@ namespace Spark::Resource
         // Scalar / color inputs — packed into the GPU MaterialData struct. Each pairs
         // with a texture slot below (the map modulates / overrides the factor); the
         // factor is also the fallback used when the slot has no map.
-        Math::Vector4 m_baseColor         = {0.8f, 0.8f, 0.8f, 1.0f};   // rgba; .a = alpha  (BaseColor)
+        Math::Color   m_baseColor         = {0.8f, 0.8f, 0.8f, 1.0f};   // rgba; .a = alpha  (BaseColor)
         float         m_metallic          = 0.0f;            // metalness          (MetallicRoughness.b)
         float         m_roughness         = 0.5f;            // perceptual         (MetallicRoughness.g)
         float         m_specular          = 0.5f;            // dielectric F0 scale; 0.5 -> F0 0.04
-        Math::Vector4 m_emissive          = {0.0f, 0.0f, 0.0f, 1.0f}; // rgb = emissive color; .a unused (Emissive)
+        Math::Color   m_emissive          = {0.0f, 0.0f, 0.0f, 1.0f}; // rgb = emissive color; .a unused (Emissive)
         float         m_emissiveStrength  = 1.0f;            // HDR emissive multiplier
         float         m_normalScale       = 1.0f;            // tangent XY scale   (Normal)
         float         m_occlusionStrength = 1.0f;            // AO lerp strength   (Occlusion)

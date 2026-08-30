@@ -122,8 +122,9 @@ namespace Spark::Resource
             .Data<&ShaderDescriptor::stages>("stages")
                 .Traits(MetaFieldTraits::Serializable);
 
-        // Not a descriptor: the authored payload of a `.smat`, reflected here because the
+        // Not descriptors: the authored payload of a `.smat`, reflected here because the
         // asset layer both reads and writes it. See Material/Reflect.h.
+        ReflectMaterialState(context);
         ReflectStandardPBR(context);
     }
 }

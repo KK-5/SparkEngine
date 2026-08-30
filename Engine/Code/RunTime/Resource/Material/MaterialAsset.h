@@ -5,6 +5,7 @@
 #include <Resource/Asset.h>
 #include <Resource/AssetTypes.h>
 
+#include "MaterialState.h"
 #include "StandardPBR.h"
 
 namespace Spark::Resource
@@ -29,13 +30,15 @@ namespace Spark::Resource
     class MaterialAssetData : public AssetData
     {
     public:
-        const StandardPBR& GetParams() const { return m_params; }
+        const StandardPBR&   GetParams() const { return m_params; }
+        const MaterialState& GetState()  const { return m_state; }
 
     private:
         friend class MaterialAssetCompiler;
         friend class MaterialAssetBuilder;
 
-        StandardPBR m_params;
+        StandardPBR   m_params;
+        MaterialState m_state;
     };
 
     class MaterialAsset : public Asset

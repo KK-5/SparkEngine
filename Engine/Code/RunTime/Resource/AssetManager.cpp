@@ -14,6 +14,7 @@
 #include "Image/ImageAssetBuilder.h"
 #include "Image/ImageAsset.h"
 #include "Material/MaterialAsset.h"
+#include "Material/MaterialAssetBuilder.h"
 #include "Shader/ShaderAssetBuilder.h"
 #include "Shader/ShaderAsset.h"
 #include "Model/ModelAssetBuilder.h"
@@ -47,6 +48,9 @@ namespace Spark::Resource
         m_modelBuilder = CreateSystem<ModelAssetBuilder>();
         m_modelBuilder->Init();
 
+        m_materialBuilder = CreateSystem<MaterialAssetBuilder>();
+        m_materialBuilder->Init();
+
         m_shutdown = false;
         m_processThread = std::thread(&SparkAssetManager::ProcessThread, this);
     }
@@ -65,6 +69,7 @@ namespace Spark::Resource
         }
 
         // 反向顺序释放：Builders（断开 Bus） → DataBase
+        m_materialBuilder.reset();
         m_modelBuilder.reset();
         m_shaderBuilder.reset();
         m_imageBuilder.reset();

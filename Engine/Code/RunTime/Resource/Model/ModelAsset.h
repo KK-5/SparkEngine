@@ -9,6 +9,7 @@
 
 #include <Resource/Asset.h>
 #include <Resource/AssetTypes.h>
+#include <Resource/Material/MaterialState.h>   // AlphaMode
 
 #include <RHI/Resource/Buffer/IndexBufferView.h>
 
@@ -36,13 +37,6 @@ namespace Spark::Resource
     };
 
     // === Material ===
-
-    enum class AlphaMode : uint8_t
-    {
-        Opaque,
-        Mask,
-        Blend,
-    };
 
     //! Compiled material — factors plus the resolved image sub-asset AssetIds. Lives on
     //! the final ModelAssetData; assembled by ModelAssetBuilder from a RawMaterial.

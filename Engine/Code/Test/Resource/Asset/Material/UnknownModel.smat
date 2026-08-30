@@ -1,0 +1,7 @@
+{
+  "shadingModel": "Foo",
+
+  "properties": {
+    "Roughness": 0.9
+  }
+}

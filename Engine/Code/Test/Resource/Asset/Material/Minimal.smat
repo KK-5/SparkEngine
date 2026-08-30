@@ -1,0 +1,7 @@
+{
+  "shadingModel": "StandardPBR",
+
+  "properties": {
+    "Roughnes": 0.9
+  }
+}

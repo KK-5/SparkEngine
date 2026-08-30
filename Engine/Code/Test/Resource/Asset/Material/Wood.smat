@@ -1,0 +1,26 @@
+{
+  "shadingModel": "StandardPBR",
+
+  "state": {
+    "Alpha Mode": "Mask",
+    "Alpha Cutoff": 0.25,
+    "Double Sided": true
+  },
+
+  "properties": {
+    "Base Color":         {"r": 0.6, "g": 0.4, "b": 0.2, "a": 1.0},
+    "Metallic":           0.1,
+    "Roughness":          0.8,
+    "Specular":           0.5,
+    "Emissive Color":     {"r": 1.0, "g": 0.5, "b": 0.0, "a": 1.0},
+    "Emissive Strength":  2.0,
+    "Normal Scale":       1.5,
+    "Occlusion Strength": 0.75,
+
+    "Base Color Map":         null,
+    "Metallic Roughness Map": null,
+    "Normal Map":             null,
+    "Occlusion Map":          null,
+    "Emissive Map":           null
+  }
+}

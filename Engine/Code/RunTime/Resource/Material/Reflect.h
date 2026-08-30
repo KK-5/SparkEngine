@@ -6,10 +6,32 @@
 
 #include <Resource/Image/ImageAsset.h>   // ImageUsage — per-slot texture load usage
 
+#include "MaterialState.h"
 #include "StandardPBR.h"
 
 namespace Spark::Resource
 {
+    //! The `state` half of a `.smat`. Same rule as the properties below: every name here
+    //! is on-disk format, AlphaMode's enumerator names included.
+    static void ReflectMaterialState(Spark::ReflectContext& context)
+    {
+        context.Reflect<AlphaMode>()
+            .Type("AlphaMode")
+            .Data<AlphaMode::Opaque>("Opaque")
+            .Data<AlphaMode::Mask>("Mask")
+            .Data<AlphaMode::Blend>("Blend");
+
+        context.Reflect<MaterialState>()
+            .Type("MaterialState")
+            .Data<&MaterialState::m_alphaMode>("Alpha Mode").Custom<Spark::EnumElement>(false)
+                .Traits(MetaFieldTraits::Serializable)
+            .Data<&MaterialState::m_alphaCutoff>("Alpha Cutoff").Custom<Spark::FloatSliderElement>(0.f, 1.f, 0.01f, false)
+                .Traits(MetaFieldTraits::Serializable)
+            .Data<&MaterialState::m_doubleSided>("Double Sided").Custom<Spark::BoolElement>(false)
+                .Traits(MetaFieldTraits::Serializable)
+            ;
+    }
+
     //! Per-slot texture accessors. The texture asset ids live in StandardPBR::m_textures
     //! (an eastl::array indexed by MaterialTexSlot), so they have no &Class::member pointer
     //! to reflect directly — these getter/setter pairs expose each slot as its own reflected
