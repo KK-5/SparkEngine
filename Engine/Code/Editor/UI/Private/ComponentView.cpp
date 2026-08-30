@@ -9,6 +9,7 @@
 #include <ECS/ComponentTraits.h>
 #include <Reflection/TypeRegistry.h>
 #include <CoreComponents/Tags.h>
+#include <Math/Color.h>
 #include <Math/Vector2.h>
 #include <Math/Vector3.h>
 #include <Math/Vector4.h>
@@ -286,7 +287,7 @@ namespace Editor
         else if(static_cast<ColorElement*>(uiElement))
         {
             ColorElement* ui = static_cast<ColorElement*>(uiElement);
-            if (Math::Vector4* value = fieldValue.try_cast<Math::Vector4>())
+            if (Math::Color* value = fieldValue.try_cast<Math::Color>())
             {
                 float labelWidth = width * 0.3f;
                 float inputWidth = width * 0.7f;
@@ -295,15 +296,15 @@ namespace Editor
                 if (ui->readOnly) { ImGui::BeginDisabled(true); }
                 if (ImGui::ColorEdit4(label.c_str(), inputValue))
                 {
-                    Math::Vector4 vec4(inputValue[0], inputValue[1], inputValue[2], inputValue[3]);
-                    data.set(instance, vec4);
+                    Math::Color edited(inputValue[0], inputValue[1], inputValue[2], inputValue[3]);
+                    data.set(instance, edited);
                 }
                 if (ui->readOnly) { ImGui::EndDisabled(); }
             }
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "ColorElement expect a Vector4 value!");
+                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "ColorElement expect a Color value!");
             }
         }
         else if(static_cast<AssetElement*>(uiElement))

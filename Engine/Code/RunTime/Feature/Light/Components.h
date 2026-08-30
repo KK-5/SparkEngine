@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include <Math/Color.h>
 #include <Math/Sphere.h>
 #include <Math/Vector3.h>
 #include <Math/Vector4.h>
@@ -39,7 +40,7 @@ namespace Spark::Light
     struct LightComponent
     {
         LightType     m_type      = LightType::Directional;
-        Math::Vector4 m_color     {1.0f, 1.0f, 1.0f, 1.0f}; // authored via a color picker; alpha unused (render side takes rgb)
+        Math::Color   m_color     {1.0f, 1.0f, 1.0f, 1.0f}; // authored via a color picker; alpha unused (render side takes rgb)
         float         m_intensity = 1.0f;
         float         m_range     = 10.0f;    // point/spot falloff radius (world units)
         float         m_innerConeDeg = 20.0f; // spot inner cone half-angle

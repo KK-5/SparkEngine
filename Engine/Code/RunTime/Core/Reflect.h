@@ -5,6 +5,7 @@
 #include "HashString/HashString.h"
 #include "CoreComponents/Name.h"
 #include "ECS/WorldContext.h"
+#include "Math/Color.h"
 #include "Math/Vector2.h"
 #include "Math/Vector3.h"
 #include "Math/Vector4.h"
@@ -35,6 +36,14 @@ namespace Spark
             .Data<&Math::Vector4::y>("y").Traits(MetaFieldTraits::Serializable)
             .Data<&Math::Vector4::z>("z").Traits(MetaFieldTraits::Serializable)
             .Data<&Math::Vector4::w>("w").Traits(MetaFieldTraits::Serializable);
+
+        // A colour writes itself r/g/b/a. It derives from Vector4's underlying type but is
+        // a type of its own, which is the whole reason it can carry different field names.
+        context.Reflect<Math::Color>().Type("Color")
+            .Data<&Math::Color::r>("r").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Color::g>("g").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Color::b>("b").Traits(MetaFieldTraits::Serializable)
+            .Data<&Math::Color::a>("a").Traits(MetaFieldTraits::Serializable);
 
         context.Reflect<Math::Quaternion>().Type("Quaternion")
             .Data<&Math::Quaternion::x>("x").Traits(MetaFieldTraits::Serializable)
