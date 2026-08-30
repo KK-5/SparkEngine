@@ -7,7 +7,7 @@
 资产系统的骨架是齐的——`AssetId` → `AssetDataBase` → worker 线程 → 按 `AssetType` 走
 `AssetBuildBus` 的 Load/Compile。欠的是三笔债：
 
-1. **材质不是资产**——`MaterialParams` 只活在运行时的 `MaterialContext` 里，没名字、没文件、
+1. **材质不是资产**——`StandardPBR` 只活在运行时的 `MaterialContext` 里，没名字、没文件、
    不能跨场景共享，Inspector 里改完退出就没了。
 2. **没有磁盘缓存**——每次启动重解 PNG、重跑 BC 压缩、重跑 DXC、重解 glTF + meshopt、重烘 HDRI。
 3. **场景存不了**——`MenuBar.cpp:24-32` 三个菜单项都是 `LOG_INFO` 空壳。
@@ -41,10 +41,15 @@ KTX2 读写支持 cube，`ImageAssetData` 用 `m_isCubemap` 说明自己而不�
 shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.glb` model 只差一个二进制格式（待办 D）。
 
 **阶段 3 的资产层已落地**：`AssetType::Material` 与 `.smat` 扩展名、空的 `MaterialAssetDescriptor`、
-`Resource/Material/` 下的 `StandardPBR` / `MaterialState` / 读侧（loader 复用 `BinaryAssetLoader`、
-compiler 解三个顶层键、builder 把贴图交给 `ctx.dependencies`）。`shadingModel` 的校验就是拿它去
-`Resolve` 参数组件的类型，未知名字判 Error 而不回落。运行期那半（`MaterialSource`、一个资产一个实例、
-覆盖、编辑器）尚未动工。
+`Resource/Material/` 下的 `StandardPBR` / `MaterialState` / 读侧（`MaterialAssetLoader` 产
+`MaterialEncodedRawData`、compiler 解三个顶层键、builder 把贴图交给 `ctx.dependencies`）。
+`shadingModel` 的校验就是拿它去 `Resolve` 参数组件的类型，未知名字判 Error 而不回落。
+
+**阶段 3 的运行期已落地**：glTF 材质变子资产、`MaterialAssetRef` + 一个资产一个实例、材质 GC 删除、
+覆盖、以及覆盖的编辑器入口。剩下的是编辑器的另外那半（材质窗口、Browser 刷新与 `.smat` 注册、
+右键新建）。三处实现与原方案不同，已就地改写本文：组件名是 `MaterialAssetRef` 不是 `MaterialSource`；
+覆盖用继承而非薄包装（约束不是 `ComponentOperation`，是 entt 的字段枚举不穿基类）；**材质缓冲没有
+第二个 population**——覆盖在绑定时被合成成材质实体，`GlobalBuffer` 一行未改。
 
 **阶段 3 定下了使用流程、数据模型与 `.smat` 的形态 / 产生方式**：八条编辑器用户流程与两个互不重叠的
 编辑表面（材质窗口改材质、Component View 的材质槽改覆盖）；材质数据跨 World 与 MaterialContext 的
@@ -88,8 +93,8 @@ compiler 解三个顶层键、builder 把贴图交给 `ctx.dependencies`）。`s
 | 无资产依赖机制 | 无 | `.hlsli` / `.gltf` 的 `.bin` 变了没人知道；`.hlsli` 甚至不是资产。见阶段 1 待办 A |
 | 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset::Shutdown`→`ReleaseAsset` 够不着 |
 | 子资产提取未做 | 无 | 单独使用模型的一张贴图，正确做法是提取成独立资产。见「子被直接请求」一节 |
-| 材质无运行期资产形态 | `Feature/Material/` | `.smat` 读得出来了，但没有 `MaterialSource`，唯一的材质创建点仍是 `SpawnModel.cpp` |
-| 两个平行的 CPU 材质结构 | `ModelAsset.h` / `Resource/Material/StandardPBR.h` | `Resource::Material` 与 `StandardPBR`，靠 `StandardPBRFromModel` 搭桥；随 glTF 材质变子资产一起拆 |
+| ~~材质无运行期资产形态~~ ✅ | `Feature/Material/` | `MaterialAssetRef` + `Material::Resolve` 已落地，一个资产一个实例 |
+| ~~两个平行的 CPU 材质结构~~ ✅ | `ModelAsset.h` | `Resource::Material` 降为 `ModelAssetBuilder` 的 TU 内中间物（`ResolvedMaterial`），`StandardPBRFromModel` 删除 |
 | ~~无 JSON 库~~ ✅ | `Core/Serialization/Json.h` | nlohmann 3.11.3 已 vendor（simdjson 虽在树内但只读，当不了写盘端） |
 | 场景序列化 | 无 | 见阶段 4 |
 
@@ -961,7 +966,7 @@ identity 就是它自己 AssetId 的 JSON（`AssetCache::IdentityFor`），算�
 > 序列化器本体在 0.c 已建好，这里是应用面。**机制已定，字段清单与命名待定。**
 
 把六个 `Reflect.h` 的反射字段按类型清点一遍，通用遍历搞不定的只有 `AssetId`（`MeshComponent`、
-`SkyboxComponent`、`MaterialParams` ×5）与 `MaterialHandle`（`MaterialComponent` ×1）。其余
+`SkyboxComponent`、`StandardPBR` ×5）与 `MaterialHandle`（`MaterialComponent` ×1）。其余
 标量 / 枚举 / `eastl::string` / 数学类型今天就能走通。
 
 ### `JsonOperation` = 类型上的一个反射 `Func`
@@ -1135,7 +1140,7 @@ bool AssetIdFromJsonField(const JsonValue& in, AssetId& target)
 
 去掉它的理由：
 
-- **默认值会变成文件语义的一部分。** 把 `MaterialParams::m_roughness` 的默认从 0.5 改成 0.4，所有旧
+- **默认值会变成文件语义的一部分。** 把 `StandardPBR::m_roughness` 的默认从 0.5 改成 0.4，所有旧
   场景里「没写 roughness」的材质会**全部静默改变外观** —— 文件没变、代码改了一个数、画面变了。
   **descriptor 这条更重**：它是 `AssetId` 的一部分，而 `AssetId` 是身份，默认值一动，磁盘上所有旧
   引用和由它派生的所有缓存键会指向另一个编译产物。
@@ -1228,7 +1233,7 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 > **类名去掉 `Component` 后缀。**
 
-`Transform` / `Camera` / `Light` / `Skybox` / `Mesh` / `Material` / `Name`；`MaterialParams` 没有那个
+`Transform` / `Camera` / `Light` / `Skybox` / `Mesh` / `Material` / `Name`；`StandardPBR` 没有那个
 后缀所以保持全名。
 
 唯一遗留：`MaterialComponent` 的字段 `m_material` 也叫 `"Material"`，落盘会是
@@ -1241,7 +1246,7 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 ### 待定
 
-- **`MaterialParams` 算阶段 2 还是阶段 3。** 它是唯一走 `Data<Set,Get>` 的字段，标了能让 setter
+- **`StandardPBR` 算阶段 2 还是阶段 3。** 它是唯一走 `Data<Set,Get>` 的字段，标了能让 setter
   那条路（编辑器 drag-drop 在用）被序列化测试覆盖。
 - 完整字段清单、验收面（没有场景序列化器，阶段 2 的产物只能是单测里的组件 round-trip）、步骤拆分。
 
@@ -1254,9 +1259,11 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 > **使用流程、数据模型、`.smat` 的形态与产生方式已定**（下四节），其余仍是大致方向。
 
-- 新增 `AssetType::Material`（**枚举末尾追加**——`AssetType` 折进 `AssetId::ComputeHash`），扩展名 `.smat`。
+- 新增 `AssetType::Material`（**枚举末尾追加**——`AssetType` 折进 `AssetId::ComputeHash`），扩展名 `.smat`。✅
 - `ModelAssetBuilder` 把 glTF 内嵌材质 publish 成子资产（`model.glb:material/0`），与内嵌图片
-  子资产同一条路。`Resource::Material` 的中间态与 `MaterialParamsFromModel` 随之拆除。
+  子资产同一条路。✅ 一并落地的：raw 分 `Encoded` / `Decoded` 两种（`.smat` 是字节，glTF 材质是
+  结构，编译器按 kind 分派）；`Resource::Material` 降为 builder 的 TU 内中间物 `ResolvedMaterial`；
+  构建单元是**平的**——子资产的依赖并进根的，子资产再声明子资产直接断言。
 
 原「待细化」的三条已定：
 
@@ -1342,35 +1349,50 @@ Browser 双击 `.smat` 是第二个入口。
 | 组件 | 住在 | 含义 |
 |---|---|---|
 | `MaterialComponent { MaterialHandle }` | World | 这个对象用哪个材质。**共享**，多个对象指同一个 |
-| `MaterialSource { AssetId }` | MaterialContext | 这个材质来自哪个资产 |
+| `MaterialAssetRef { AssetId }` | MaterialContext | 这个材质来自哪个资产 |
 | `StandardPBR` | MaterialContext | 这个材质的参数 |
 | `StandardPBROverride` | World | 这个对象对材质的覆盖 |
 
 **解析规则一条：先看世界实体有没有覆盖，没有才取材质实体的。**
 
-`StandardPBROverride` 是一个薄包装，持有的就是同一个 `StandardPBR`，字段不重复。之所以不能
-直接把 `StandardPBR` 挂到世界实体上：`ComponentOperation` 是一类型一绑定，同一个类型不能同时
-声明「我住 MaterialContext」和「我住 World」。这是实现层约束推出来的形态，换别的解法也行。
+`StandardPBROverride` **继承** `Resource::StandardPBR`，是一个只为拿到独立类型身份的空派生类，
+字段不重复。要独立类型是因为 `ComponentOperation` 一类型一绑定，同一个类型不能同时声明「我住
+MaterialContext」和「我住 World」。
+
+但**继承本身不够**：entt 的字段枚举 `data()` 只列类型自己那张表，不穿基类（只有按 id 查的
+`data(id)` 才穿，见 `meta.hpp`），而序列化器和 inspector 用的都是枚举版。所以派生类型必须把 13 个
+字段**注册在自己身上**——只 `.Base<StandardPBR>()` 会让它落盘成 `{}`、inspector 一片空白。字段表
+因此写成 `ReflectStandardPBRFields<Params>` 模板，两个类型各实例化一次，源码不重复、注册表里两份。
+`MaterialSerializeTest` 用「字段数与 `StandardPBR` 相等」钉住这条。
 
 #### 一个资产一个实例
 
-`MaterialSystem` 持一张 `AssetId → MaterialHandle` 表，同一个材质资产在一个 MaterialContext 里只有
-一个实例。改这个材质，所有引用它的对象一起变——这正是流程 1、3、4 建立起来的预期。
+`Material::Resolve(mc, id)` 是唯一入口，同一个材质资产在一个 MaterialContext 里只有一个实例——
+它扫 `MaterialAssetRef` 视图认人，没有就取资产、建实体。解析只发生在 spawn / 赋值时，不在帧内；
+将来嫌线性扫描慢，换成表只动函数体，调用点不用改。
 
-想让某个对象不一样，走覆盖（流程 5），**不是再造一个实例**。
+子资产 id 只能 `FindAsset`（父的构建已经发布过它，而 `ProcessAsset` 开头就拒绝单独构建子资产），
+独立 `.smat` 才走 `LoadAsset`。
+
+改这个材质，所有引用它的对象一起变——这正是流程 1、3、4 建立起来的预期。想让某个对象不一样，
+走覆盖（流程 5），**不是再造一个实例**。
 
 #### MaterialContext 里只剩两种东西
 
 | 谁 | 谁持有 |
 |---|---|
-| 资产背书的材质，一个资产一个 | 那张表 |
+| 资产背书的材质，一个资产一个 | `MaterialAssetRef` 自己 |
 | 默认材质（`DefaultMaterialTag`） | `MaterialSystem` |
+| 覆盖合成出来的材质 | 那个世界实体的 `MaterialOverrideRef` |
 
-**没有匿名创建的材质实体了**，每一个都有明确的所有者。glTF 材质也在其中——它的 `MaterialSource`
+**没有匿名创建的材质实体了**，每一个都有明确的所有者。glTF 材质也在其中——它的 `MaterialAssetRef`
 指向子资产 `Chair.glb:material/0`，与 `.smat` 走同一条路，不需要任何特例。「glTF 材质可改不可存」
 因此从一条人为规定变成机制的自然结果：改的是本地那份，存不回 glb，只能走流程 2。
 
-#### 由此消失的：材质 GC
+第三类是实现覆盖时新增的，只活在 `MaterialBindingSystem` 里，不反射、不落盘，见下面「覆盖到了
+GPU 就是材质」。
+
+#### 由此消失的：材质 GC ✅ 已完成
 
 `MaterialSystem::CollectGarbage`、`MaterialLiveMark`、`m_gcGeneration` 全部删除。
 
@@ -1405,15 +1427,37 @@ Browser 双击 `.smat` 是第二个入口。
 今天只有一个 shading model，撞不到这条；但既然为多模型设计了，规则现在写下来，将来不用回头补。
 零代码。
 
-#### 代价：材质缓冲有两个来源
+#### 覆盖到了 GPU 就是材质（原「代价：材质缓冲有两个来源」，已推翻）
 
-今天 GPU 材质缓冲按材质实体填（`GlobalBuffer<Materials, MaterialData, ...>` 遍历 MaterialContext），
-槽位是 MaterialContext 里的 `MaterialSlotRef`，`ResolveMaterialIndex` 走
-`MaterialComponent → MaterialHandle → MaterialSlotRef`。
+原方案说：带覆盖的世界实体要自己一条 GPU 记录和一个槽位，于是 `MaterialBindingSystem` 管两个
+population、`ResolveMaterialIndex` 先看实体自己的槽——并把这称作「本方案唯一实打实的新增复杂度」。
 
-带覆盖的世界实体也需要自己的一条 GPU 记录和一个槽位，于是 `MaterialBindingSystem` 要管两个
-population，`ResolveMaterialIndex` 先看实体自己的槽、再回落到材质的槽。**这是本方案唯一实打实的
-新增复杂度。**
+**没有两个 population。** 覆盖是上层的概念，到了 GPU 那一层就该被抹掉：对 shader 来说，一个覆盖
+就是产生了一个新材质。所以 `MaterialBindingSystem` 在编码前把每个带 `StandardPBROverride` 的世界
+实体**合成成一个材质实体**，之后一切照旧——`GlobalBuffer` 一行未改，`MaterialTextureSystem` 一行
+未改，`ResolveMaterialIndex` 只是换个 handle 取。那笔"唯一的新增复杂度"没有发生。
+
+合成实体与世界实体之间靠 `Render::MaterialOverrideRef` 连着。它**故意不反射**——inspector 和场景
+序列化都只遍历反射类型，不注册就是两头都进不去，所以"上层不可见"是物理保证而不是约定。类型声明
+也放在 `Feature/Render/Binding/Material/` 里，不出现在 SparkMaterial。
+
+参数每帧整份重写，不做脏标记：一个覆盖 68 字节，换来"改覆盖"和"改被遮蔽的那个材质"都不需要任何
+通知。
+
+生命周期三条，都不是 GC：
+
+| 情况 | 谁发现 |
+|---|---|
+| 覆盖组件被删（实体还在） | `GetView<MaterialOverrideRef>(Exclude<StandardPBROverride>)` |
+| 世界实体被销毁 | `EntityEventBus::OnEntityDestory` —— 覆盖和链接跟着实体一起没了，世界侧再没有东西记得那个合成实体 |
+| 组件新增 / 修改 | 不需要发现，每帧 find-or-create + 整份重写 |
+
+销毁分两段夹住编码：**先打 `DeadTag`，编码后再真销毁**。因为 `GlobalBuffer` 回收槽的条件是实体同时
+带着 slot ref 和 `DeadTag`，直接销毁会让那个槽永久泄漏。`OnEntityDestory` 里只读 world、只写
+MaterialContext——它是在 `DestoryEntity` 遍历 registry 存储的过程中触发的，回头改 world 是重入。
+
+**一帧延迟：** 合成实体在渲染期创建，`MaterialGPUTextures` 要等下一帧 `TICK_PRE_RENDER` 才写上，
+所以带贴图的覆盖第一帧贴图为空。与「没有 RHI 资源保证本帧可用」这条既有约定一致。
 
 「一千个对象共用一个材质只上传一份」不是这里买到的——GPU 记录本来就按材质实体算，共享本身已经
 给了这条。
@@ -1425,17 +1469,19 @@ material 上下文按阶段 4 的规则原样写出：storage-major、entity 原
 
 ```json
 "material": {
-  "StandardPBR":    { "12": { "Base Color": {"r":0.8,"g":0.8,"b":0.8,"a":1.0}, "Metallic": 0.0, ... } },
-  "MaterialSource": { "12": { "Asset": {"type":"Material","path":"project://Material/Wood.smat"} } }
+  "StandardPBR":      { "12": { "Base Color": {"r":0.8,"g":0.8,"b":0.8,"a":1.0}, "Metallic": 0.0, ... } },
+  "MaterialAssetRef": { "12": { "Asset": {"type":"Material","path":"project://Material/Wood.smat"} } }
 }
 ```
 
-- **「引用资产」还是「场景自有」由带没带 `MaterialSource` 表达**，不需要额外的键。
+- **「引用资产」还是「场景自有」由带没带 `MaterialAssetRef` 表达**，不需要额外的键。
 - **「每种材质参数不一样」由带哪个参数组件表达。** 将来出现别的 shading model，材质带的是另一个
   参数组件，两种材质在同一上下文里共存——异构实体是 ECS 的原生能力，不用为它设计任何东西。老场景
   里的 `StandardPBR` 继续存在、继续读得回来，是加法不是替换。
-- 有 `MaterialSource` 时参数是**缓存**不是冗余：场景加载不必等资产读完才有画面；`.smat` 缺失时
+- 有 `MaterialAssetRef` 时参数是**缓存**不是冗余：场景加载不必等资产读完才有画面；`.smat` 缺失时
   （流程 8）还能降级显示上次的样子。
+- 覆盖合成出来的材质实体**不在这里**——它不反射，落盘的是世界实体上那个 `StandardPBR Override`，
+  下次加载重新合成。
 
 ### `.smat` 的形态 ✅ 已定
 
@@ -1502,7 +1548,8 @@ JSON，三个顶层键：
 分家是因为**把一个键从 `properties` 挪到 `state` 属于格式破坏**——现在分对就永远不用挪。
 
 `alphaMode` / `alphaCutoff` 收进 `state`，原「这类被丢弃的字段要不要收进来」的待细化就此关闭。两者
-今天都没有消费者，收它们是为了不丢 glTF 的信息——`MaterialParamsFromModel` 今天正在丢。
+今天都没有消费者，收它们是为了不丢 glTF 的信息——当时那条 `StandardPBRFromModel` 正在丢，现在
+glTF 材质走子资产，`MaterialState` 一路带到材质实体上。
 
 #### `properties` 是平坦对象，贴图和标量混在一起
 
@@ -1657,12 +1704,12 @@ glTF 规范里是全大写，这里跟仓库现有枚举反射的 PascalCase 一
 **写时按 handle 去重，不按内容哈希**，共享关系逐字节保住：一个 50 primitive / 3 材质的模型读回来
 仍是 3 个材质（流程 7 的验收标准）。
 
-机制上零新东西：`MaterialExecuteContext::Current()` 已由 `MaterialSystem::InitInternal` 推入
-（`MaterialSystem.cpp:24`），`OnComponentConstruct` 对已带值的组件不覆盖
-（`PreSetMaterialIsNotOverwrittenOnAdd` 守着），所以「先加组件、再反序列化填 handle」不会打架。
+机制上零新东西：`MaterialExecuteContext::Current()` 已由 `MaterialSystem::InitInternal` 推入。
+「先加组件、再反序列化填 handle」也不会打架——阶段 3 落地后 `MaterialComponent` 不再有任何构造
+回调，加上去就是 `NullMaterial`，没有东西会去覆盖反序列化填进来的值。
 
-**场景保存不依赖阶段 3**：没有资产背书的材质就是 material 上下文里一个不带 `MaterialSource` 的实体，
-照样能存。阶段 3 落地后它多带一个 `MaterialSource`，组件那一侧不用改。
+**场景保存不依赖阶段 3**：没有资产背书的材质就是 material 上下文里一个不带 `MaterialAssetRef` 的
+实体，照样能存。阶段 3 落地后它多带一个 `MaterialAssetRef`，组件那一侧不用改。
 
 **仍未定：** 常驻默认材质（带 `DefaultMaterialTag`）不该被场景文件复制一份出来——加载时怎么认出
 「这条就是默认材质」还没定。
@@ -1678,7 +1725,7 @@ glTF 规范里是全大写，这里跟仓库现有枚举反射的 PascalCase 一
 ### 文件形态：storage-major，多上下文
 
 场景存的是**两个 ECS 上下文**：`WorldContext`（实体 + 组件）与 `MaterialContext`（材质实例 +
-`MaterialParams`）。跨引用一条规则：**(上下文, 键)**。
+`StandardPBR`）。跨引用一条规则：**(上下文, 键)**。
 
 ```json
 { "contexts": {
@@ -1692,7 +1739,7 @@ glTF 规范里是全大写，这里跟仓库现有枚举反射的 PascalCase 一
     "material": {
       "entities": [4],
       "components": {
-        "MaterialParams": {"4":{...}} } } } }
+        "StandardPBR": {"4":{...}} } } } }
 ```
 
 **`entities` 清单是显式的，不从各段的键并集推。** 两个理由：一个不带任何组件的实体（纯层级节点）
@@ -1897,7 +1944,11 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 - **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对），打标记也已
   落地（六个 `Reflect.h` 共 36 个字段 + `Core/Reflect.h` 的数学分量）。剩下的是给那几个还没有测试
   目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
-- **阶段 3**：资产层已落地（见「状态」）。剩下的是运行期那半，按依赖排序：`MaterialSource` + 一个
-  资产一个实例 + 删材质 GC → glTF 材质变子资产 → 覆盖（含 `GlobalBuffer` 的第二个 population 与
-  slot 回收）→ 编辑器（材质窗口、材质槽、Browser 刷新与 `.smat` 注册）。
+- **阶段 3**：资产层与运行期都已落地（见「状态」）。剩下的是编辑器的另外那半：材质窗口、Browser
+  刷新与 `.smat` 注册、右键新建 `.smat`、从 glTF 材质导出 `.smat`（流程 2，内嵌贴图的槽拒绝导出，
+  等子资产提取）。材质槽的覆盖按钮已随覆盖一起做掉。
+- **随阶段 3 记下的一笔债**：材质子资产没有 `Serialize`，而缓存单元里**任何一个 payload 为空就整个
+  单元不落盘**（`AssetCache::WriteUnit`）。今天不发作，因为 `AssetType::Model` 本来就不可缓存；等
+  Model 转可缓存那一步，得先给 `MaterialAssetBuilder` 补上 `Serialize` / `Deserialize`——独立 `.smat`
+  该不该有缓存条目，和它在单元里能不能被序列化，是两件事。
 - **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。
