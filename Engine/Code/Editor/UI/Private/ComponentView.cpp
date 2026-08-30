@@ -28,6 +28,63 @@ namespace Editor
 {
     using namespace Spark;
 
+    namespace
+    {
+        //! The only way to create a StandardPBROverride — which is why it is kept out of
+        //! the add-component list. Returns whether the entity carries one after the click.
+        //!
+        //! `materialParams` is what the object renders with now; the new override starts
+        //! as a copy of it, so adding one changes nothing on screen. It only stops the
+        //! object following the material it references.
+        bool DrawOverrideToggle(uint32_t entityId, const MetaAny& materialParams)
+        {
+            MetaType type = TypeRegistry::GetContext().Resolve<Material::StandardPBROverride>();
+            if (!type)
+            {
+                return false;
+            }
+
+            bool has = false;
+            if (auto hasFn = type.func("HasComponent"_hs))
+            {
+                MetaAny r = hasFn.invoke({}, entityId);
+                has = r && r.cast<bool>();
+            }
+
+            if (has)
+            {
+                if (ImGui::SmallButton("Revert"))
+                {
+                    type.func("RemoveComponent"_hs).invoke({}, entityId);
+                    return false;
+                }
+                return true;
+            }
+
+            if (!ImGui::SmallButton("Override"))
+            {
+                return false;
+            }
+
+            MetaAny seed = type.construct();
+            if (!seed)
+            {
+                return false;
+            }
+            if (materialParams)
+            {
+                MetaAny current = *materialParams;
+                if (const auto* src = current.try_cast<Resource::StandardPBR>())
+                {
+                    static_cast<Resource::StandardPBR&>(
+                        seed.cast<Material::StandardPBROverride&>()) = *src;
+                }
+            }
+            type.func("AddOrReplaceComponent"_hs).invoke({}, entityId, seed);
+            return true;
+        }
+    }
+
     void ComponentView::DrawElement(const MetaType& component, TypeId fieldId, MetaData& data, MetaAny& instance, float width)
     {
         eastl::string_view name = data.name();
@@ -482,19 +539,27 @@ namespace Editor
                 ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
                 ImGui::EndDisabled();
 
-                if (valid)
+                MetaAny paramsPtr = valid
+                    ? paramsType.func("GetComponent"_hs).invoke({}, handleId)
+                    : MetaAny{};
+
+                ImGui::SameLine();
+                const bool overridden =
+                    DrawOverrideToggle(static_cast<uint32_t>(m_activeEntity), paramsPtr);
+
+                // An override shadows the material completely, so the material's own
+                // fields are not what this object renders with — they belong to whoever
+                // else references it. The override's component section shows the values
+                // that are in effect.
+                if (paramsPtr && *paramsPtr && !overridden)
                 {
-                    MetaAny paramsPtr = paramsType.func("GetComponent"_hs).invoke({}, handleId);
-                    if (paramsPtr && *paramsPtr)
-                    {
-                        MetaAny paramsInstance = *paramsPtr;
-                        // Retarget the edit entity so an asset drop inside these inlined
-                        // fields resolves against the material handle, not the world entity.
-                        const uint32_t prev = m_editEntity;
-                        m_editEntity = handleId;
-                        RenderFields(paramsType, paramsInstance, width);
-                        m_editEntity = prev;
-                    }
+                    MetaAny paramsInstance = *paramsPtr;
+                    // Retarget the edit entity so an asset drop inside these inlined
+                    // fields resolves against the material handle, not the world entity.
+                    const uint32_t prev = m_editEntity;
+                    m_editEntity = handleId;
+                    RenderFields(paramsType, paramsInstance, width);
+                    m_editEntity = prev;
                 }
             }
             else
