@@ -1,0 +1,14 @@
+{
+  "shadingModel": "StandardPBR",
+
+  "state": {
+    "Alpha Mode": "Mask",
+    "Alpha Cutoff": 0.25,
+    "Double Sided": true
+  },
+
+  "properties": {
+    "Metallic":  0.375,
+    "Roughness": 0.125
+  }
+}

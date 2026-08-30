@@ -6,6 +6,11 @@
 #include <Material/MaterialSystem.h>
 #include <Material/MaterialUtils.h>
 
+#include <Resource/AssetManager.h>
+#include <Resource/Material/MaterialAsset.h>
+#include <VFS/MountTable.h>
+#include <VFS/VFSSystem.h>
+
 using namespace Spark;
 using namespace Spark::Material;
 
@@ -65,6 +70,80 @@ TEST_F(MaterialContextTest, GetDefaultMaterialOnEmptyContextIsNull)
     // No DefaultMaterialTag registered yet — the helper reports NullMaterial
     // rather than a bogus handle.
     EXPECT_EQ(GetDefaultMaterial(mc), NullMaterial);
+}
+
+// =============================================================================
+// Resolve — AssetId to material entity. What makes one asset exactly one entity,
+// and what happens when the asset cannot be read.
+// =============================================================================
+class MaterialResolveTest : public ::testing::Test
+{
+protected:
+    MaterialContext mc;
+
+    void SetUp() override
+    {
+        m_vfs = CreateSystem<VFSSystem>();
+        m_vfs->Init();
+        m_vfs->Mount("test", TEST_MATERIAL_DIR);
+
+        m_assetManager = CreateSystem<Resource::SparkAssetManager>();
+        m_assetManager->Init();
+    }
+
+    void TearDown() override
+    {
+        m_assetManager.reset();
+        m_vfs.reset();
+    }
+
+    static Resource::AssetId Id(const char* virtualPath)
+    {
+        return Resource::AssetId::Of<Resource::MaterialAsset>(virtualPath);
+    }
+
+    SystemUniquePtr<VFSSystem>                   m_vfs;
+    SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
+};
+
+TEST_F(MaterialResolveTest, TheSameAssetAlwaysGivesTheSameEntity)
+{
+    const MaterialHandle a = Resolve(mc, Id("test://Asset/Resolve.smat"));
+    const MaterialHandle b = Resolve(mc, Id("test://Asset/Resolve.smat"));
+
+    ASSERT_NE(a, NullMaterial);
+    EXPECT_EQ(a, b);
+    EXPECT_EQ(mc.GetView<Resource::StandardPBR>().size(), 1u);
+}
+
+TEST_F(MaterialResolveTest, DistinctAssetsGiveDistinctEntities)
+{
+    const MaterialHandle a = Resolve(mc, Id("test://Asset/Resolve.smat"));
+    const MaterialHandle b = Resolve(mc, Id("test://Asset/Other.smat"));
+
+    ASSERT_NE(a, NullMaterial);
+    ASSERT_NE(b, NullMaterial);
+    EXPECT_NE(a, b);
+}
+
+TEST_F(MaterialResolveTest, TheEntityCarriesTheAssetsParamsStateAndId)
+{
+    const Resource::AssetId  id = Id("test://Asset/Resolve.smat");
+    const MaterialHandle     h  = Resolve(mc, id);
+    ASSERT_NE(h, NullMaterial);
+
+    EXPECT_FLOAT_EQ(mc.Get<Resource::StandardPBR>(h).m_metallic, 0.375f);
+    EXPECT_FLOAT_EQ(mc.Get<Resource::StandardPBR>(h).m_roughness, 0.125f);
+    EXPECT_EQ(mc.Get<Resource::MaterialState>(h).m_alphaMode, Resource::AlphaMode::Mask);
+    EXPECT_TRUE(mc.Get<Resource::MaterialState>(h).m_doubleSided);
+    EXPECT_EQ(mc.Get<MaterialAssetRef>(h).m_id, id);
+}
+
+TEST_F(MaterialResolveTest, AnUnreadableAssetCreatesNothing)
+{
+    EXPECT_EQ(Resolve(mc, Resource::AssetId{}), NullMaterial);
+    EXPECT_EQ(Resolve(mc, Id("test://Asset/Missing.smat")), NullMaterial);
+    EXPECT_EQ(mc.GetView<Resource::StandardPBR>().size(), 0u);
 }
 
 // =============================================================================

@@ -29,6 +29,11 @@ target_link_libraries(${TARGET_NAME}
         gmock_main
 )
 
+target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        TEST_MATERIAL_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
 # 添加为CTest测试
 add_test(NAME SparkMaterialTest
     COMMAND $<TARGET_FILE:${TARGET_NAME}>

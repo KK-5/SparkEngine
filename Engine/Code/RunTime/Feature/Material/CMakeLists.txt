@@ -3,6 +3,7 @@ set(TARGET_NAME SparkMaterial)
 set(SOURCES
     MaterialSystem.cpp
     MaterialTextureSystem.cpp
+    MaterialUtils.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

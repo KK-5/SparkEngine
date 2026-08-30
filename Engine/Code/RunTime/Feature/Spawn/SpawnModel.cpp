@@ -47,36 +47,6 @@ namespace Spark::Spawn
             rotation = Math::QuaternionToEuler(Math::QuaternionFromMatrix3X3(rotMat));
         }
 
-        //! Map a model's embedded material to authored StandardPBR. Factors → scalar
-        //! inputs; the 5 texture image AssetIds → their MaterialTexSlot. m_specular has no
-        //! glTF counterpart (kept at default); alphaMode/alphaCutoff are render state and
-        //! not part of StandardPBR yet, so they are dropped here.
-        Resource::StandardPBR StandardPBRFromModel(const Resource::Material& src)
-        {
-            Resource::StandardPBR p;
-            p.m_baseColor         = src.baseColorFactor;
-            p.m_metallic          = src.metallicFactor;
-            p.m_roughness         = src.roughnessFactor;
-            p.m_emissive          = Math::Vector4(src.emissiveFactor, 1.0f);
-            p.m_emissiveStrength  = src.emissiveStrength;
-            p.m_normalScale       = src.normalScale;
-            p.m_occlusionStrength = src.occlusionStrength;
-
-            using Slot = Resource::MaterialTexSlot;
-            auto set = [&](Slot slot, const Resource::AssetId& id)
-            {
-                if (id.IsValid())
-                {
-                    p.m_textures[static_cast<size_t>(slot)] = id;
-                }
-            };
-            set(Slot::BaseColor,         src.baseColorImageId);
-            set(Slot::MetallicRoughness, src.metallicRoughnessImageId);
-            set(Slot::Normal,            src.normalImageId);
-            set(Slot::Occlusion,         src.occlusionImageId);
-            set(Slot::Emissive,          src.emissiveImageId);
-            return p;
-        }
     }
 
     void SpawnModel(Ptr<Resource::ModelAsset> model, WorldContext& context)
@@ -89,29 +59,17 @@ namespace Spark::Spawn
 
         IScene* scene = Service<IScene>::Get();
 
-        // One shared material per model material, created lazily on first use so
-        // primitives referencing the same materialIndex reuse a single MaterialHandle.
         auto* matCtx = Material::MaterialExecuteContext::Current();
-        eastl::vector<Material::MaterialHandle> materials(
-            modelData->GetMaterialCount(), Material::NullMaterial);
 
         auto materialFor = [&](uint32_t materialIndex) -> Material::MaterialHandle
         {
             if (!matCtx
                 || materialIndex == Resource::Primitive::kInvalidMaterialIndex
-                || materialIndex >= materials.size())
+                || materialIndex >= modelData->GetMaterialAssetCount())
             {
                 return Material::NullMaterial;
             }
-            if (materials[materialIndex] == Material::NullMaterial)
-            {
-                if (const Resource::Material* src = modelData->GetMaterial(materialIndex))
-                {
-                    materials[materialIndex] =
-                        Material::CreateMaterial(*matCtx, StandardPBRFromModel(*src));
-                }
-            }
-            return materials[materialIndex];
+            return Material::Resolve(*matCtx, modelData->GetMaterialAssetId(materialIndex));
         };
 
         const size_t nodeCount = modelData->GetNodeCount();
@@ -167,8 +125,6 @@ namespace Spark::Spawn
                 meshComp.m_primitiveIndex = static_cast<uint32_t>(p);
                 context.Add<Mesh::MeshComponent>(primEntity, meshComp);
 
-                // Material comes entirely from the MaterialComponent — seeded here from
-                // the model's embedded material, shared across primitives by materialIndex.
                 const Material::MaterialHandle mat = materialFor(mesh->primitives[p].materialIndex);
                 if (mat != Material::NullMaterial)
                 {

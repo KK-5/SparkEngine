@@ -19,6 +19,13 @@ namespace Spark::Material
         MaterialHandle m_material{NullMaterial};
     };
 
+    //! The material asset a material entity was instantiated from. Resolve() keys on it
+    //! to keep one entity per asset; the resident default material carries none.
+    struct MaterialAssetRef
+    {
+        Resource::AssetId m_id;
+    };
+
     //! Resolved per-channel GPU textures (RHIHandles) on the material entity, one per
     //! MaterialTexSlot. Written by MaterialTextureSystem (owned by MaterialSystem), read
     //! by render's MaterialBindingSystem to resolve each bindless index. NullHandle in a

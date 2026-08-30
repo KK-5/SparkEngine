@@ -1,0 +1,7 @@
+{
+  "shadingModel": "StandardPBR",
+
+  "properties": {
+    "Metallic": 0.875
+  }
+}
