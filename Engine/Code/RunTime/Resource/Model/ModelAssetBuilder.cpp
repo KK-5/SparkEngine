@@ -34,8 +34,30 @@ namespace Spark::Resource
             return label;
         }
 
+        //! A RawMaterial with its image indices resolved to sub-asset ids — the last shape
+        //! the glTF material takes before it becomes a material asset of its own.
+        struct ResolvedMaterial
+        {
+            Math::Vector4   baseColorFactor{1.0f, 1.0f, 1.0f, 1.0f};
+            float           metallicFactor{1.0f};
+            float           roughnessFactor{1.0f};
+            Math::Vector3   emissiveFactor{0.0f, 0.0f, 0.0f};
+            float           emissiveStrength{1.0f};   // KHR_materials_emissive_strength
+            float           normalScale{1.0f};        // normalTexture.scale
+            float           occlusionStrength{1.0f};  // occlusionTexture.strength
+            float           alphaCutoff{0.5f};
+            AlphaMode       alphaMode{AlphaMode::Opaque};
+            bool            doubleSided{false};
+
+            AssetId baseColorImageId;
+            AssetId normalImageId;
+            AssetId metallicRoughnessImageId;
+            AssetId emissiveImageId;
+            AssetId occlusionImageId;
+        };
+
         //! Owned on return: AssetData deletes its copy constructor and declares no move.
-        UniquePtr<MaterialDecodedRawData> MakeMaterialRaw(const Material& src)
+        UniquePtr<MaterialDecodedRawData> MakeMaterialRaw(const ResolvedMaterial& src)
         {
             StandardPBR params;
             params.m_baseColor         = src.baseColorFactor;
@@ -184,10 +206,13 @@ namespace Spark::Resource
             return AssetId{};
         };
 
-        compiled.m_materials.reserve(raw.m_rawMaterials.size());
-        for (const RawMaterial& rm : raw.m_rawMaterials)
+        // Handed over decoded, not as bytes: in a glTF a material is structure.
+        compiled.m_materialAssetIds.reserve(raw.m_rawMaterials.size());
+        for (size_t i = 0; i < raw.m_rawMaterials.size(); ++i)
         {
-            Material mat;
+            const RawMaterial& rm = raw.m_rawMaterials[i];
+
+            ResolvedMaterial mat;
             mat.doubleSided       = rm.doubleSided;
             mat.baseColorFactor   = rm.baseColorFactor;
             mat.metallicFactor    = rm.metallicFactor;
@@ -203,22 +228,14 @@ namespace Spark::Resource
             mat.normalImageId            = resolveImageId(rm.normalImage);
             mat.occlusionImageId         = resolveImageId(rm.occlusionImage);
             mat.emissiveImageId          = resolveImageId(rm.emissiveImage);
-            compiled.m_materials.push_back(eastl::move(mat));
-        }
 
-        // Handed over decoded, not as bytes: in a glTF a material is structure.
-        compiled.m_materialAssetIds.reserve(compiled.m_materials.size());
-        for (size_t i = 0; i < compiled.m_materials.size(); ++i)
-        {
-            const eastl::string subLabel =
-                MakeSubLabel("material", raw.m_rawMaterials[i].name, i);
+            const eastl::string subLabel = MakeSubLabel("material", rm.name, i);
             AssetId subId = MaterialAsset::MakeSubId(
                 ctx.id, eastl::string_view(subLabel.c_str(), subLabel.size()));
 
             compiled.m_materialAssetIds.push_back(subId);
             ctx.subAssets.push_back(
-                {eastl::move(subId),
-                 MakeMaterialRaw(compiled.m_materials[i]), nullptr, 0});
+                {eastl::move(subId), MakeMaterialRaw(mat), nullptr, 0});
         }
 
         // m_rawImages is deliberately NOT cleared: the sub-asset declarations above point

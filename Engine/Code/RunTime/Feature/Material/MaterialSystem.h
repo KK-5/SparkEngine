@@ -1,7 +1,6 @@
 #pragma once
 
 #include <ECS/ISystem.h>
-#include <ECS/Bus/ComponentEventBus.h>
 #include <Tick/TickBus.h>
 
 #include "MaterialContext.h"
@@ -15,12 +14,11 @@ namespace Spark::Material
     //! MaterialExecuteContext::Current(), and creates + holds the always-present
     //! default material that stale/unset MaterialComponent references fall back to.
     //!
-    //! User materials are created with the free CreateMaterial(); this system exposes
-    //! no create/update API on purpose, keeping materials data-driven (the registry
-    //! is the container, every system accesses it equally). Symmetric to how the
-    //! engine owns the WorldContext and systems merely consume it.
+    //! User materials come from Resolve() / CreateMaterial(); this system exposes no
+    //! create/update API on purpose, keeping materials data-driven (the registry is
+    //! the container, every system accesses it equally). Symmetric to how the engine
+    //! owns the WorldContext and systems merely consume it.
     class MaterialSystem final : public ISystem,
-                                 public ComponentEventBus::Handler,
                                  public TickBus::Handler
     {
     public:
@@ -29,8 +27,6 @@ namespace Spark::Material
 
         //! The resident fallback material. Always valid for the system's lifetime.
         MaterialHandle GetDefaultMaterial() const { return m_defaultMaterial; }
-
-        void OnComponentConstruct(Entity entity) override;
 
         void OnTick(float deltaTime) override;
         unsigned int GetTickOrder() const override
@@ -42,13 +38,8 @@ namespace Spark::Material
         void InitInternal() override;
         void ShutdownInternal() override;
 
-        void CollectGarbage();
-
         MaterialContext       m_context;
         MaterialTextureSystem m_textureSystem;
         MaterialHandle        m_defaultMaterial{NullMaterial};
-
-        // Bumped each GC cycle; the epoch a material must carry to be considered live.
-        uint64_t m_gcGeneration = 0;
     };
 }

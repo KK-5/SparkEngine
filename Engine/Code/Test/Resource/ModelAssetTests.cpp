@@ -353,28 +353,6 @@ TEST_F(ModelAssetTestFixture, LoadCubeTexturedGLTF_DispatchesExternalImage)
     EXPECT_TRUE(imgAsset->IsReady());
 }
 
-// ===== 编译资产携带解析后的内嵌材质 =====
-// （raw 图字节不在编译资产上，现在由类型保证：ModelAssetData 根本没有 raw 图字段，
-//   只有 ModelAssetRawData 才有——所以旧的运行时断言退化成编译期保证，这里改测材质。）
-
-TEST_F(ModelAssetTestFixture, CompiledModelCarriesResolvedMaterials)
-{
-    AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
-    Ptr<Asset> modelAsset = m_assetManager->LoadAsset(modelId);
-    ASSERT_NE(modelAsset, nullptr);
-
-    auto* modelData = modelAsset->GetData<ModelAssetData>();
-    ASSERT_NE(modelData, nullptr);
-
-    // 内嵌材质被填充，且 base-color 贴图引用解析到了已派发的 image 子资产。
-    ASSERT_GE(modelData->GetMaterialCount(), 1u);
-    ASSERT_GE(modelData->GetImageAssetCount(), 1u);
-    const Material* mat = modelData->GetMaterial(0);
-    ASSERT_NE(mat, nullptr);
-    EXPECT_TRUE(mat->baseColorImageId.IsValid());
-    EXPECT_EQ(mat->baseColorImageId, modelData->GetImageAssetId(0));
-}
-
 // ===== 每个 glTF 材质发布成一个材质子资产 =====
 
 TEST_F(ModelAssetTestFixture, EveryEmbeddedMaterialBecomesASubAsset)
@@ -385,8 +363,7 @@ TEST_F(ModelAssetTestFixture, EveryEmbeddedMaterialBecomesASubAsset)
 
     auto* modelData = modelAsset->GetData<ModelAssetData>();
     ASSERT_NE(modelData, nullptr);
-    ASSERT_GE(modelData->GetMaterialCount(), 1u);
-    ASSERT_EQ(modelData->GetMaterialAssetCount(), modelData->GetMaterialCount());
+    ASSERT_GE(modelData->GetMaterialAssetCount(), 1u);
 
     for (size_t i = 0; i < modelData->GetMaterialAssetCount(); ++i)
     {
@@ -402,6 +379,9 @@ TEST_F(ModelAssetTestFixture, EveryEmbeddedMaterialBecomesASubAsset)
     }
 }
 
+//! CubeTextured.glb 只有一个材质，其 glTF 原文为：
+//! {"doubleSided":true, "name":"Material", "pbrMetallicRoughness":{
+//!   "baseColorTexture":{"index":0}, "metallicFactor":0, "roughnessFactor":0.5}}
 TEST_F(ModelAssetTestFixture, AMaterialSubAssetCarriesTheGltfMaterial)
 {
     AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
@@ -410,10 +390,7 @@ TEST_F(ModelAssetTestFixture, AMaterialSubAssetCarriesTheGltfMaterial)
 
     auto* modelData = modelAsset->GetData<ModelAssetData>();
     ASSERT_NE(modelData, nullptr);
-    ASSERT_GE(modelData->GetMaterialCount(), 1u);
-
-    const Material* source = modelData->GetMaterial(0);
-    ASSERT_NE(source, nullptr);
+    ASSERT_GE(modelData->GetImageAssetCount(), 1u);
 
     Ptr<Asset> published = m_assetManager->FindAsset(modelData->GetMaterialAssetId(0));
     ASSERT_NE(published, nullptr);
@@ -421,21 +398,20 @@ TEST_F(ModelAssetTestFixture, AMaterialSubAssetCarriesTheGltfMaterial)
     ASSERT_NE(material, nullptr);
 
     const StandardPBR& params = material->GetParams();
-    EXPECT_FLOAT_EQ(params.m_baseColor.r, source->baseColorFactor.r);
-    EXPECT_FLOAT_EQ(params.m_baseColor.a, source->baseColorFactor.a);
-    EXPECT_FLOAT_EQ(params.m_metallic, source->metallicFactor);
-    EXPECT_FLOAT_EQ(params.m_roughness, source->roughnessFactor);
-    EXPECT_FLOAT_EQ(params.m_emissive.r, source->emissiveFactor.x);
-    EXPECT_FLOAT_EQ(params.m_normalScale, source->normalScale);
-    EXPECT_FLOAT_EQ(params.m_occlusionStrength, source->occlusionStrength);
+    EXPECT_FLOAT_EQ(params.m_metallic, 0.0f);
+    EXPECT_FLOAT_EQ(params.m_roughness, 0.5f);
+    EXPECT_FLOAT_EQ(params.m_baseColor.r, 1.0f);   // baseColorFactor 缺省
+    EXPECT_FLOAT_EQ(params.m_baseColor.a, 1.0f);
 
+    // baseColorTexture 的 glTF image 索引解析成了已派发的 image 子资产。
     using Slot = MaterialTexSlot;
-    EXPECT_EQ(params.m_textures[static_cast<size_t>(Slot::BaseColor)], source->baseColorImageId);
-    EXPECT_EQ(params.m_textures[static_cast<size_t>(Slot::Normal)], source->normalImageId);
+    EXPECT_EQ(params.m_textures[static_cast<size_t>(Slot::BaseColor)],
+              modelData->GetImageAssetId(0));
+    EXPECT_FALSE(params.m_textures[static_cast<size_t>(Slot::Normal)].IsValid());
 
-    EXPECT_EQ(material->GetState().m_alphaMode, source->alphaMode);
-    EXPECT_FLOAT_EQ(material->GetState().m_alphaCutoff, source->alphaCutoff);
-    EXPECT_EQ(material->GetState().m_doubleSided, source->doubleSided);
+    EXPECT_EQ(material->GetState().m_alphaMode, AlphaMode::Opaque);
+    EXPECT_FLOAT_EQ(material->GetState().m_alphaCutoff, 0.5f);
+    EXPECT_TRUE(material->GetState().m_doubleSided);
 }
 
 TEST_F(ModelAssetTestFixture, AMaterialSubAssetCannotBeBuiltOnItsOwn)

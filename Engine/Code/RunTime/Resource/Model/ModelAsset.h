@@ -38,32 +38,10 @@ namespace Spark::Resource
 
     // === Material ===
 
-    //! Compiled material — factors plus the resolved image sub-asset AssetIds. Lives on
-    //! the final ModelAssetData; assembled by ModelAssetBuilder from a RawMaterial.
-    struct Material
-    {
-        Math::Vector4   baseColorFactor{1.0f, 1.0f, 1.0f, 1.0f};
-        float           metallicFactor{1.0f};
-        float           roughnessFactor{1.0f};
-        Math::Vector3   emissiveFactor{0.0f, 0.0f, 0.0f};
-        float           emissiveStrength{1.0f};   // KHR_materials_emissive_strength
-        float           normalScale{1.0f};        // normalTexture.scale
-        float           occlusionStrength{1.0f};  // occlusionTexture.strength
-        float           alphaCutoff{0.5f};
-        AlphaMode       alphaMode{AlphaMode::Opaque};
-        bool            doubleSided{false};
-
-        AssetId baseColorImageId;
-        AssetId normalImageId;
-        AssetId metallicRoughnessImageId;
-        AssetId emissiveImageId;
-        AssetId occlusionImageId;
-    };
-
-    //! Raw material — same factors, but each texture channel is still the glTF image
-    //! index it points at (-1 = none), because image sub-assets don't exist yet at load
-    //! time. Lives only on ModelAssetRawData; ModelAssetBuilder resolves the indices to
-    //! AssetIds (via m_imageAssetIds) when it assembles the compiled Material.
+    //! Raw material — factors plus, for each texture channel, the glTF image index it
+    //! points at (-1 = none), because image sub-assets don't exist yet at load time.
+    //! Lives only on ModelAssetRawData; ModelAssetBuilder resolves the indices to
+    //! AssetIds and hands the result to the material sub-asset.
     struct RawMaterial
     {
         Math::Vector4   baseColorFactor{1.0f, 1.0f, 1.0f, 1.0f};
@@ -185,10 +163,6 @@ namespace Spark::Resource
         size_t      GetNodeCount()      const { return m_nodes.size(); }
         const Node* GetNode(size_t i)   const { return i < m_nodes.size() ? &m_nodes[i] : nullptr; }
 
-        // Material
-        size_t          GetMaterialCount()      const { return m_materials.size(); }
-        const Material* GetMaterial(size_t i)   const { return i < m_materials.size() ? &m_materials[i] : nullptr; }
-
         // Image sub-assets —— index 对齐 glTF images[]。Builder 派发后填充；dispatch 失败 /
         // 源不可用的槽位为默认构造的 AssetId（IsValid() == false），保持下标对齐供材质 by-index 引用。
         size_t          GetImageAssetCount()      const { return m_imageAssetIds.size(); }
@@ -200,11 +174,10 @@ namespace Spark::Resource
 
     private:
         friend class ModelAssetCompiler;
-        friend class ModelAssetBuilder;     // 派发后写 m_imageAssetIds / m_materials
+        friend class ModelAssetBuilder;     // 派发后写 m_imageAssetIds / m_materialAssetIds
 
         eastl::vector<Mesh>     m_meshes;         // optimized geometry
         eastl::vector<Node>     m_nodes;
-        eastl::vector<Material> m_materials;      // factors + resolved image AssetIds
         eastl::vector<AssetId>  m_imageAssetIds;     // index 对齐 glTF images[]
         eastl::vector<AssetId>  m_materialAssetIds;  // index 对齐 materials[]
         Math::AABB              m_bounds;
