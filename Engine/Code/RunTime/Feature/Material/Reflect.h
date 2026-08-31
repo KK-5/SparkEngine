@@ -25,6 +25,27 @@ namespace Spark::Material
         // world component.
         Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, Resource::StandardPBR>(context);
 
+        // The other half of what a material entity carries, bound the same way and for the
+        // same reason: the material window edits these three and writing a `.smat` reads
+        // them. Also IsWorld=false — state belongs to a material, never to an object.
+        Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, Resource::MaterialState>(context);
+
+        // Which asset a material entity came from. Reflected so the editor reads it through
+        // the same (type, entity) addressing as everything else instead of reaching for a
+        // MaterialContext, and because stage 4 writes it into the scene file as a component
+        // of the material context. "Asset" is on-disk format once that lands.
+        //
+        // Read-only in the inspector: retargeting a material entity at another asset is not
+        // an edit that makes sense -- pointing an OBJECT at another material is, and that is
+        // the world-side MaterialComponent below.
+        context.Reflect<MaterialAssetRef>()
+            .Type("MaterialAssetRef")
+            .Data<&MaterialAssetRef::m_id>("Asset")
+                .Custom<Spark::AssetElement>(true, static_cast<uint32_t>(Resource::AssetType::Material))
+                .Traits(MetaFieldTraits::Serializable);
+
+        Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, MaterialAssetRef>(context);
+
         // The world-side reference held by a primitive entity. A normal editable
         // world component; its single MaterialHandle field uses MaterialRefElement so
         // the editor follows the reference into the MaterialContext and renders the
