@@ -3,6 +3,9 @@
 #include <Resource/AssetManager.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Material/MaterialAsset.h>
+#include <Resource/Material/MaterialAssetCompiler.h>
+#include <Resource/Material/MaterialAssetWriter.h>
+#include <Resource/Material/MaterialRawTypes.h>
 #include <VFS/MountTable.h>
 #include <VFS/VFSSystem.h>
 
@@ -158,4 +161,102 @@ TEST_F(MaterialAssetTestFixture, AMissingFileIsAnError)
     Ptr<MaterialAsset> material = Load("test://Asset/Material/NoSuchThing.smat");
     ASSERT_TRUE(material);
     EXPECT_EQ(material->GetStatus(), AssetStatus::Error);
+}
+
+//! The write side. Straight back through the compiler rather than through a file: what is
+//! under test is the format, and a temporary on disk would only add a way to fail.
+TEST_F(MaterialAssetTestFixture, WritingAMaterialBackRoundTrips)
+{
+    for (const char* path : {"test://Asset/Material/Wood.smat",
+                             "test://Asset/Material/Textured.smat"})
+    {
+        Ptr<MaterialAsset> material = Load(path);
+        ASSERT_TRUE(material) << path;
+        ASSERT_EQ(material->GetStatus(), AssetStatus::Ready) << path;
+
+        const MaterialAssetData* first = material->GetMaterialData();
+        ASSERT_TRUE(first) << path;
+
+        const eastl::vector<uint8_t> written = WriteMaterialAsset(*first);
+        ASSERT_FALSE(written.empty()) << path;
+
+        UniquePtr<AssetData> reread = MaterialAssetCompiler{}.Compile(
+            AssetId::Of<MaterialAsset>(path), MaterialEncodedRawData(written));
+        ASSERT_TRUE(reread) << path;
+
+        // Bytes, not a parsed document: the assertion says nothing about which format the
+        // writer chose, only that a second pass produces the same file.
+        EXPECT_EQ(written, WriteMaterialAsset(static_cast<const MaterialAssetData&>(*reread)))
+            << path;
+    }
+}
+
+//! Every authored value reaches the file. The round trip above cannot see this on its own:
+//! a field the writer omits comes back as its default, and if it started at the default the
+//! two passes still agree. So every field here is set AWAY from its default -- omitting one
+//! then shows up as a value that changed.
+TEST_F(MaterialAssetTestFixture, NoAuthoredValueIsLostOnTheWayOut)
+{
+    StandardPBR params;
+    params.m_baseColor         = {0.11f, 0.22f, 0.33f, 0.44f};
+    params.m_metallic          = 0.15f;
+    params.m_roughness         = 0.25f;
+    params.m_specular          = 0.35f;
+    params.m_emissive          = {0.55f, 0.66f, 0.77f, 0.88f};
+    params.m_emissiveStrength  = 3.5f;
+    params.m_normalScale       = 1.25f;
+    params.m_occlusionStrength = 0.45f;
+
+    // A distinct id per slot, so writing the same one into every slot fails too. These paths
+    // never have to exist: only the writer and the compiler run here, and neither loads a
+    // texture -- that is the builder's half.
+    const char* texturePaths[MaterialTexSlotCount] = {
+        "test://Slot/A.png", "test://Slot/B.png", "test://Slot/C.png",
+        "test://Slot/D.png", "test://Slot/E.png",
+    };
+    for (size_t slot = 0; slot < MaterialTexSlotCount; ++slot)
+    {
+        params.m_textures[slot] = AssetId::Of(texturePaths[slot], {}, AssetType::Image,
+                                              ImageAsset::DescriptorForUsage(ImageUsage::Texture2D));
+    }
+
+    MaterialState state;
+    state.m_alphaMode   = AlphaMode::Blend;
+    state.m_alphaCutoff = 0.375f;
+    state.m_doubleSided = true;
+
+    const eastl::vector<uint8_t> written = WriteMaterialAsset(MaterialAssetData(params, state));
+    ASSERT_FALSE(written.empty());
+
+    UniquePtr<AssetData> reread = MaterialAssetCompiler{}.Compile(
+        AssetId::Of<MaterialAsset>("test://Asset/Material/Written.smat"),
+        MaterialEncodedRawData(written));
+    ASSERT_TRUE(reread);
+
+    const StandardPBR&   back      = static_cast<const MaterialAssetData&>(*reread).GetParams();
+    const MaterialState& backState = static_cast<const MaterialAssetData&>(*reread).GetState();
+
+    EXPECT_FLOAT_EQ(back.m_baseColor.r, params.m_baseColor.r);
+    EXPECT_FLOAT_EQ(back.m_baseColor.g, params.m_baseColor.g);
+    EXPECT_FLOAT_EQ(back.m_baseColor.b, params.m_baseColor.b);
+    EXPECT_FLOAT_EQ(back.m_baseColor.a, params.m_baseColor.a);
+    EXPECT_FLOAT_EQ(back.m_metallic, params.m_metallic);
+    EXPECT_FLOAT_EQ(back.m_roughness, params.m_roughness);
+    EXPECT_FLOAT_EQ(back.m_specular, params.m_specular);
+    EXPECT_FLOAT_EQ(back.m_emissive.r, params.m_emissive.r);
+    EXPECT_FLOAT_EQ(back.m_emissive.g, params.m_emissive.g);
+    EXPECT_FLOAT_EQ(back.m_emissive.b, params.m_emissive.b);
+    EXPECT_FLOAT_EQ(back.m_emissive.a, params.m_emissive.a);
+    EXPECT_FLOAT_EQ(back.m_emissiveStrength, params.m_emissiveStrength);
+    EXPECT_FLOAT_EQ(back.m_normalScale, params.m_normalScale);
+    EXPECT_FLOAT_EQ(back.m_occlusionStrength, params.m_occlusionStrength);
+
+    for (size_t slot = 0; slot < MaterialTexSlotCount; ++slot)
+    {
+        EXPECT_EQ(back.m_textures[slot], params.m_textures[slot]) << "slot " << slot;
+    }
+
+    EXPECT_EQ(backState.m_alphaMode, state.m_alphaMode);
+    EXPECT_FLOAT_EQ(backState.m_alphaCutoff, state.m_alphaCutoff);
+    EXPECT_EQ(backState.m_doubleSided, state.m_doubleSided);
 }

@@ -11,20 +11,13 @@
 #include <Serialization/JsonSerializer.h>
 
 #include "MaterialAsset.h"
+#include "MaterialFormat.h"
 #include "MaterialRawTypes.h"
 
 namespace Spark::Resource
 {
     namespace
     {
-        //! The three top-level keys are written and read by hand, lowerCamel like `path` /
-        //! `sub` / `desc`. What lives INSIDE state and properties are reflected names, and
-        //! those are handed back to the serializer -- an operation may pass its sub-parts
-        //! to the dispatcher, just not itself.
-        constexpr const char* kShadingModelKey = "shadingModel";
-        constexpr const char* kStateKey        = "state";
-        constexpr const char* kPropertiesKey   = "properties";
-
         //! The shading model names the type that interprets `properties`, and that name is
         //! the type's reflected name -- so validating it IS resolving it, and there is no
         //! enum or name table to keep in step.
@@ -36,7 +29,7 @@ namespace Spark::Resource
         //! of a file we cannot re-issue.
         bool ShadingModelIsSupported(const JsonValue& root, const AssetId& id)
         {
-            const auto entry = root.find(kShadingModelKey);
+            const auto entry = root.find(kMaterialShadingModelKey);
             if (entry == root.end())
             {
                 return true;
@@ -45,7 +38,7 @@ namespace Spark::Resource
             if (!entry->is_string())
             {
                 LOG_ERROR("[MaterialAssetCompiler] '{}': {} must be a string, got {}.",
-                    id.GetPath().c_str(), kShadingModelKey, entry->type_name());
+                    id.GetPath().c_str(), kMaterialShadingModelKey, entry->type_name());
                 return false;
             }
 
@@ -140,8 +133,8 @@ namespace Spark::Resource
         MetaAny state      = context.Resolve<MaterialState>().from_void(&data->m_state);
         MetaAny properties = context.Resolve<StandardPBR>().from_void(&data->m_params);
 
-        if (!ReadSection(root, kStateKey, state, id)
-            || !ReadSection(root, kPropertiesKey, properties, id))
+        if (!ReadSection(root, kMaterialStateKey, state, id)
+            || !ReadSection(root, kMaterialPropertiesKey, properties, id))
         {
             return nullptr;
         }

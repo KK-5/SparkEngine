@@ -32,6 +32,15 @@ namespace Spark::Resource
     class MaterialAssetData : public AssetData
     {
     public:
+        MaterialAssetData() = default;
+
+        //! For a material assembled outside a build -- the editor writing a brand new
+        //! `.smat`, or one whose values come off a material entity rather than off a file.
+        MaterialAssetData(StandardPBR params, MaterialState state)
+            : m_params(eastl::move(params))
+            , m_state(state)
+        {}
+
         const StandardPBR&   GetParams() const { return m_params; }
         const MaterialState& GetState()  const { return m_state; }
 

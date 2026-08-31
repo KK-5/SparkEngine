@@ -22,6 +22,7 @@ set(SOURCES
     Image/EnvironmentBaker.cpp
     Image/stb_impl.cpp
     Material/MaterialAsset.cpp
+    Material/MaterialAssetWriter.cpp
     Material/MaterialAssetLoader.cpp
     Material/MaterialAssetCompiler.cpp
     Material/MaterialAssetBuilder.cpp
