@@ -56,6 +56,11 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 组件布局——覆盖挂世界实体、MaterialContext 只剩有主的材质、材质 GC 随之删除；`shadingModel` /
 `state` / `properties` 三个顶层键；手写优先、导出即原地转换。剩下的是属性名定稿与实现细节。
 
+**阶段 3 的 `.smat` 写侧与材质槽已落地**：`WriteMaterialAsset` 是 `Loader` + `Compiler` 的逆，
+**不上 `AssetBuildBus`**（理由见「`.smat` 怎么产生」）；材质槽删掉内联展开，改成身份 + 图标按钮两行。
+编辑器的字段渲染机器抽成了 `FieldWidgets`，因为材质窗口是它的第二个消费者。剩下的是材质窗口本身
+（方案已定，见「材质窗口」一节）、Browser 刷新与右键新建、导出。
+
 **阶段 2 与阶段 4 的设计已定，尚未动工。** 阶段 2 的机制（`JsonOperation`、分派链位置、`null` 语义、
 失败语义、数学类型走标记而非 `JsonOperation`）与阶段 4 的形态（storage-major、多上下文、entity 原值
 当键、读写同构）都已落到文档里。落盘 key 已定为反射注册名（一名两用，见阶段 2）。
@@ -1299,20 +1304,29 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 流程 7 属于阶段 4，不在这里。
 
 **一、Browser 认 `.smat`。** 纯接线，是 2、3、6 的共同前置：没有它，导出和新建出来的文件在界面上
-看不见，也没有东西可以拖进材质槽。
+看不见，也没有东西可以拖进材质槽。`.smat` 已经在 `GetSupportAssetType` 里，`AssetRegistry` 启动时
+就会注册；真正缺的是**树只建一次**（`BottomPanel::m_treeBuilt`），新写出来的文件看不见。方案：
+`AssetEditBus` 加 `OnAssetCreated(AssetId)`，`BottomPanel` 收到就标记树待重建，工具栏再加一个手动
+Refresh。重建时按 `fullPath` 找回选中目录——`m_selectedFolder` / `m_selectedAsset` 是指向树内部的
+裸指针，必须先重置。
 
 **二、材质窗口。** 一次覆盖流程 1 和 4，是最大的一件。v1 就是参数面板、不做预览（见下面「两个编辑
-表面」）。**落地时必须同时结清一笔账**：`MaterialRefElement` 现在在没有覆盖时仍然内联展开被引用材质
-的字段，那是覆盖那一步的过渡形态——当时把内联砍掉会让「改模型带进来的材质」彻底断掉一段时间。窗口
-一旦存在，内联展开就该整个删掉，换成「身份 + 打开按钮 + 拖放目标」，即上面那个槽的形状。
+表面」）。前置已全部落地（`FieldWidgets`、`MaterialState` 的组件绑定、`MaterialEditBus`、材质槽的
+新形态），窗口本身的方案见「材质窗口」一节。
 
-**三、导出 `.smat`（流程 2）。** 依赖窗口，按钮在那儿。内嵌贴图的槽第一版**明确报错拒绝**，不能默默
-写进去——写进去的 `.smat` 下次单独加载时贴图会全丢（子资产不能独立加载），理由与替代路径见
-「`.smat` 怎么产生」。
+~~**落地时必须同时结清一笔账**：`MaterialRefElement` 的内联展开~~ ✅ **已删除**。原计划要求它和窗口
+同一步落地，实际是先删的——窗口不存在的这段时间里，改模型带进来的材质没有入口。这个空窗是刻意接受
+的，因为材质槽的新形态本身要先验证。
+
+**三、导出 `.smat`（流程 2）。** 依赖窗口，按钮在那儿。字节从哪来已经有了（`WriteMaterialAsset`），
+缺的是按钮与「原地转换」那几步。内嵌贴图的槽第一版**明确报错拒绝**，不能默默写进去——写进去的
+`.smat` 下次单独加载时贴图会全丢（子资产不能独立加载），理由与替代路径见「`.smat` 怎么产生」。
+**目标目录未定**：材质窗口拿不到 Browser 的选中目录，要么固定 `project://Material/` 只填文件名，
+要么给完整虚拟路径的输入框。
 
 **四、右键新建（流程 6）。** 优先级最低。
 
-流程 8 缺的那句提示可以顺手放进任意一步。
+流程 8 缺的那句提示已经顺手做掉了：材质槽在引用解析不出来时显示 `(none)`。
 
 **面板名以代码为准**：`Inspector` 是**实体列表**（`EntityList` 表格），改参数的面板是
 **Component View**，资产浏览器是 **Browser**（`BottomPanel`）。
@@ -1328,20 +1342,27 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 | **材质窗口**（新） | 材质本身 | 所有引用它的对象 |
 | **Component View 的材质槽** | 这个对象的覆盖 | 只有这一个对象 |
 
-Component View 上的材质槽因此**只有引用、没有参数**：
+Component View 上的材质槽因此**只有引用、没有参数**。✅ 已落地，形态是两行，动作是**框内右侧的图标**
+（Blender 的做法，和贴图槽的清除图标同一套构件）：
 
 ```
 Material
-  └ 材质        [project://Material/Wood.smat]   [打开]     ← 引用，拖放目标
-  └ 本对象覆盖   (无)                             [创建]
+  └ Material   [project://Material/Wood.smat ✎]      ← ✎ 打开材质编辑器
+  └ Override   [(none)                       ⊟]      ← ⊟ 创建覆盖 / ↰ 撤销覆盖
 ```
 
-有覆盖时下半部分展开成那份参数、可编辑。`MaterialRefElement` 的含义随之从「内联展开被引用材质的
-字段」变成「显示材质身份 + 打开按钮 + 拖放目标」。
+**内联展开已整个删除**，`MaterialRefElement` 的含义从「内联展开被引用材质的字段」变成「显示材质身份
++ 打开按钮」。覆盖的参数不在这两行里——它作为 `StandardPBR Override` 组件在下面独立成节，那才是这个
+对象实际渲染用的值。
 
-**今天是过渡形态**：没有覆盖时仍然内联展开材质的字段——材质窗口还不存在，此刻砍掉内联等于让流程 1
-断掉。有覆盖时已经收起来了，因为那些字段不是这个对象渲染用的值，摆在这里可编辑会改到别人身上而
-这个对象纹丝不动。窗口落地时把内联整个删掉。
+身份分三种，都是用户需要区分开的：资产路径 / `(scene material)`（常驻默认材质，将来还有场景自有的）
+/ `(none)`。最后一种就是流程 8 那句提示——`.smat` 被删掉后引用解析不出来，对象在静悄悄地用默认材质
+渲染，槽上得说出来。
+
+**拖放还没做**（流程 3）。它不能走 `OnAssetDragToComponent` 那条异步路：那条是「把 `AssetId` 写进
+字段」，而这里字段是 `MaterialHandle`，`field.set` 类型对不上会静默失败。正确做法是 `Material::Resolve`
+拿 handle 直接写——`Resolve` 本来就是文档定的唯一赋值入口，内部 `LoadAsset` 同步，`.smat` 只是一次
+JSON 解析。
 
 **材质窗口的主入口是材质槽上的「打开」按钮**，不是 Browser 的选中状态。原因是模型带进来的材质
 （`Chair.glb:material/0`）是子资产、不是文件，**Browser 里选不中它**，而它恰恰是今天唯一的材质来源。
@@ -1365,6 +1386,79 @@ Browser 双击 `.smat` 是第二个入口。
 **待答（都不影响格式）：** 材质窗口上要不要显示「被 N 个对象使用」（原本是用来警告「你正在改所有
 人」的，两个表面分开之后不再必需，但仍有用）；`.smat` 被外部修改要不要热重载（倾向不要——该和贴图 /
 模型一起整体做）；改完参数何时写盘（倾向显式 Save）。
+
+### 材质窗口 ✅ 方案已定，未动工
+
+**独立浮动窗口，不进 DockBuilder**，`m_open` 默认 false、`Draw()` 开头即返回。原方案是和 Component
+View 并列成 tab，那要去掉那个 dock node 的 `NoTabBar`、改动现有布局；浮动窗口一行布局代码都不用改，
+而 docking 是开着的，用户想把它拖去常驻随时可以。**非模态**——材质编辑必须能一边调参数一边看场景。
+
+打开走 `MaterialEditBus::OpenMaterialEditor(MaterialHandle)`，Single handler。**传 handle 不传
+`AssetId`**：窗口编辑的是 MaterialContext 里的那个实例，不是磁盘上的文件——glTF 材质根本没有文件。
+handle 能反查出 `MaterialAssetRef`，反过来则要再 Resolve 一次。
+
+两个发送方：材质槽上的 ✎（主入口，因为 glTF 带进来的材质是子资产，**Browser 里选不中它**），以及
+Browser 双击 `.smat`（第二入口，随 Browser 那一步做）。
+
+窗口内容：
+
+```
+Material        [project://Material/Wood.smat]     ← 只读，与材质槽同一个身份文本
+Shading Model   StandardPBR                        ← 取 paramsType.name()，不是字面量
+
+▼ Properties    DrawFieldWidgets(StandardPBR,  GetComponent(handleId), handleId)
+▼ State         DrawFieldWidgets(MaterialState, GetComponent(handleId), handleId)
+```
+
+四个必须踩准的点：
+
+- **标题写成 `"Material Editor - Wood.smat###MaterialEditor"`。** `###` 后面是 ImGui 的窗口 id，前面
+  才是显示文本。不这样做的话每换一个材质就是一个「新窗口」，位置、大小、停靠状态全部重来。
+- **`editEntity` 传 `handleId`。** 于是往窗口里拖贴图走的是和原来内联展开完全同一条路：广播
+  `OnAssetDragToComponent(handleId, StandardPBR, fieldId, …)`，`ComponentAssetResolver` 经
+  `ComponentOperation` 解析到 MaterialContext。零新机制。
+- **每帧先验目标还在不在**（有没有 `StandardPBR`），失效显示一行提示而不是照常取组件——覆盖合成出来
+  的材质实体是会被销毁的。
+- `Begin` 返回 false 也要配对 `End`。
+
+**Shading Model 是纯文本，不是选择器。** 今天只有一个值，摆一组只有一项的按钮会让人以为能选。等真有
+第二个 shading model 再换。
+
+**v1 不做**：预览、Save / 导出按钮、`已修改` 标记。dirty 要等有 Save 才有消费者——`DrawFieldWidget`
+已经返回「这一帧改没改」，接上去就是一行。
+
+### 编辑器的字段渲染机器 ✅ 已完成
+
+`ComponentView::DrawElement` 那条 15 支的 `UIElement` → ImGui 控件链搬进
+`Editor/UI/Private/FieldWidgets.h/.cpp`，理由只有一条：**材质窗口是它的第二个消费者**。留在 ComponentView
+的只有 `MaterialRefElement` 那一支——材质引用是引用不是值，怎么处理它属于持有对象的那个面板。
+
+导出的构件（材质槽和贴图槽从此共用同一套）：
+
+| | |
+|---|---|
+| `DrawFieldLabel(width, label)` | 两栏布局，比例 0.38 / 0.62 只存在于一个常量 |
+| `FieldInputWidth(width)` | 留给控件的宽度。行里要放别的东西就从这里减 |
+| `BoxText(value, boxWidth, elided)` | 只读框的文本：省略号截断 + 终止符 |
+| `BoxIconSlot()` / `DrawBoxIconButton(...)` | 框内右对齐的图标按钮 |
+| `DrawFieldWidget(...)` / `DrawFieldWidgets(...)` | 一个字段 / 一个类型的全部字段 |
+
+搬运时顺带修掉的，和一处新增：
+
+- **`ImGui::Text(label)` → `TextUnformatted`。** 字段名是数据不是格式串，名字里带 `%` 就是未定义行为。
+- **标签放不下时用省略号 + tooltip，不再被控件盖住。** `Text` 不受 `SetNextItemWidth` 约束，它照原长
+  画出去，然后被下一个控件的 `FrameBg` 硬切在字符中间且不留任何提示。只读框里的长值同理。
+- **`SameLine(labelWidth)` 是绝对坐标，而字段有缩进**，所以标签区实际少了缩进那么宽。改成
+  `SameLine(rowStart + labelWidth)`。
+- **`buffer.resize(256)` + `strcpy` 会越界**，display string 超过 255 字符就写到缓冲区外。
+- **图标必须按路径缓存**：`IconManager::OpenIcon` 每次调用都新建一个世界实体和一张 GPU 图，每帧调用
+  等于每帧泄漏一份。
+- **框内图标按钮要 `SetNextItemAllowOverlap()`**：hover 框时框已经占住 `g.HoveredId`，后声明的
+  `InvisibleButton` 在 `ItemHoverable` 里被拒，于是永远点不中。开启之后还白捡一条——鼠标在图标上时框
+  的 `IsItemHovered` 返回 false，两个 tooltip 自动互斥。
+- **`DrawFieldWidget` 返回「这一帧改没改」**（新增，ComponentView 用不上）。`AssetElement` /
+  `TextureElement` 的拖放放行也算改——字段要等资产异步加载完才写入，但「用户做了一次编辑」已经发生，
+  否则往材质窗口拖一张贴图不会置脏，Save 会漏掉它。
 
 ### 数据模型 ✅ 已定
 
@@ -1680,9 +1774,51 @@ glTF 规范里是全大写，这里跟仓库现有枚举反射的 PascalCase 一
 
 三步，按这个顺序。
 
-**1. 手写。** 第一批 `.smat` 手写，放 `test://`，直接当 `SparkAssetTest` 的输入。先建读侧、拿手写
-文件当 fixture；写侧随后由 round-trip 验证——**判据是 JSON 相等**（读手写文件 → 写出 → 再读 →
-断言两次 JSON 相等），与阶段 0.c 同一套，不用 `Hash()`。
+**1. 手写。** ✅ 第一批 `.smat` 手写，放 `test://`，直接当 `SparkAssetTest` 的输入。先建读侧、拿手写
+文件当 fixture；写侧随后由 round-trip 验证。
+
+#### 写侧的形态 ✅ 已完成
+
+```cpp
+// Resource/Material/MaterialAssetWriter.h —— 自由函数，不是类
+eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data);
+```
+
+资产层由此对称：`Loader` 字节→raw，`Compiler` raw→`AssetData`，`WriteMaterialAsset` `AssetData`→字节。
+三个顶层键的常量收进 `MaterialFormat.h` 给读写两侧共用——那里只有三个字符串，不含 `JsonValue`。
+
+**格式不出现在接口上。** 初版叫 `MaterialToJson`、出参是 `JsonValue&`，等于把格式钉进了公共头：换格式
+会波及每个调用点，尽管真正要改的只有解析那几十行。现在 JSON 只活在两个 `.cpp` 里，调用方只交换字节。
+（`.smat` 是 JSON 这件事本身仍是本阶段的既定决策，见「`.smat` 的形态」。）
+
+**不上 `AssetBuildBus`。** 曾想加一个与 `Serialize` / `Deserialize` 并列的 `WriteSource`，让编辑器只认
+`AssetManager::SaveAsset` 而不认识任何具体 writer。否掉的理由是那个类比不成立：**缓存是通用流程**——
+`ProcessAsset` 对每个类型都走缓存那条路，所以每个类型都必须回答「你能不能被缓存」；而写回源文件不是
+任何通用流程的一环，`ProcessAsset` 永远不会调它。给总线加一个核心流程从不调用、且只有一个实现者的虚
+函数，就是为一个用例造机制。
+
+**而且第二个用例不存在**：编辑器里被编辑、然后要写回去的资产今天只有材质。Image 和 Model 是导入进来
+的（编辑器里根本没有改它们的界面），Shader 是文本、用外部编辑器改，写回 glb 这件事本节下面已经否掉。
+真出现第二个可写回的类型，那时再抽到总线——是加法，不是重构。
+
+**一笔明说的债：覆盖保存后 DB 里那份 `MaterialAssetData` 会变旧**，而 `LoadAsset` 命中 Ready 直接返回
+旧的、不会重读。今天不发作：材质窗口改的是 MaterialContext 里的组件，那才是渲染真正用的值；`Resolve`
+一个资产一个实例，已有实例就不再问 asset 要数据；材质实体又和资产一样长寿。只有「材质实体被销毁后
+重新 Resolve」才会看到旧值，而那条路今天不存在。要修它需要的是「源变了，重建这个资产」——那是待办 A
+（依赖机制 + 热重载）的最小形态，不在这一步造半成品。
+
+`MaterialAssetData` 因此加了公开构造 `(StandardPBR, MaterialState)`：新建默认材质、以及下面那个值比对
+测试，都要凭空造一个。
+
+#### 测试判据 ✅ 已完成
+
+两例，都**与格式无关**：
+
+- **round-trip 判字节相等**（读手写文件 → 写出 → 用 compiler 读回 → 再写出 → 两串字节相等）。原方案
+  写的是「JSON 相等」，改成字节之后测试里不再出现 nlohmann。
+- **每个字段都设成非默认值再比对。** round-trip 单独抓不到「写侧漏了一个字段」——漏掉的字段读回来是
+  默认值，而它本来就是默认值时两遍还是一致。把每个字段都推离默认值，漏写就表现为一个变了的值。这才是
+  「默认值一律写出」真正要守的东西。
 
 **2. 从 glTF 材质导出。** Inspector 上一个按钮，把 glb / gltf 带进来的材质变成 `.smat`。
 
@@ -1968,9 +2104,10 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 - **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对），打标记也已
   落地（六个 `Reflect.h` 共 36 个字段 + `Core/Reflect.h` 的数学分量）。剩下的是给那几个还没有测试
   目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
-- **阶段 3**：资产层与运行期都已落地（见「状态」）。剩下的四件全在编辑器，按依赖排：Browser 认
-  `.smat` → 材质窗口（含删掉材质槽的内联展开）→ 导出 `.smat` → 右键新建。清单与理由见「使用流程」
-  下的「剩下的四件事」。材质槽的覆盖按钮已随覆盖一起做掉。
+- **阶段 3**：资产层、运行期、`.smat` 写侧、编辑器的字段渲染机器、材质槽的新形态都已落地（见
+  「状态」）。**下一件是材质窗口本身**——方案已定（见「材质窗口」），前置全部就位，剩的是
+  `MaterialWindow.h/.cpp` 与 `EditorUI` 三行接线。之后是 Browser 刷新与右键新建、导出。清单与理由见
+  「使用流程」下的「剩下的四件事」。导出的目标目录仍未定。
 - **随阶段 3 记下的一笔债**：材质子资产没有 `Serialize`，而缓存单元里**任何一个 payload 为空就整个
   单元不落盘**（`AssetCache::WriteUnit`）。今天不发作，因为 `AssetType::Model` 本来就不可缓存；等
   Model 转可缓存那一步，得先给 `MaterialAssetBuilder` 补上 `Serialize` / `Deserialize`——独立 `.smat`
