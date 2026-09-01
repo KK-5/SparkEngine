@@ -14,8 +14,6 @@ ADD_TEST_SOUECE(MaterialSerializeTests "MaterialSerializeTest.cpp")
 
 set(TARGET_NAME SparkMaterialTest)
 
-Message(STATUS ${TEST_SOURCES})
-
 add_executable(${TARGET_NAME}
     ${TEST_SOURCES}
     main.cpp

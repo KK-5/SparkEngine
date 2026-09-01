@@ -14,8 +14,6 @@ ADD_TEST_SOUECE(MATERIALOVERRIDE_TESTS "MaterialOverrideTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 
-Message(STATUS ${TEST_SOURCES})
-
 add_executable(${TARGET_NAME}
     ${TEST_SOURCES}
     main.cpp

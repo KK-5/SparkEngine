@@ -14,9 +14,22 @@ if (NOT TARGET simdjson::simdjson)
         set(SIMDJSON_HEADER_FILE "${SIMDJSON_DL_DIR}/simdjson.h")
         set(SIMDJSON_SOURCE_FILE "${SIMDJSON_DL_DIR}/simdjson.cpp")
 
+        # A failed file(DOWNLOAD) still leaves a (truncated or empty) file behind. The next
+        # configure would then take the "already downloaded" branch and fail forever on a
+        # corrupt file, so check the status and delete the partial download on failure.
+        function(download_simdjson_file url destination)
+            file(DOWNLOAD "${url}" "${destination}" STATUS SIMDJSON_DL_STATUS SHOW_PROGRESS)
+            list(GET SIMDJSON_DL_STATUS 0 SIMDJSON_DL_CODE)
+            if (NOT SIMDJSON_DL_CODE EQUAL 0)
+                list(GET SIMDJSON_DL_STATUS 1 SIMDJSON_DL_MESSAGE)
+                file(REMOVE "${destination}")
+                message(FATAL_ERROR "fastgltf: Failed to download ${url}: ${SIMDJSON_DL_MESSAGE}")
+            endif ()
+        endfunction ()
+
         macro(download_simdjson)
-            file(DOWNLOAD "https://raw.githubusercontent.com/simdjson/simdjson/v${SIMDJSON_TARGET_VERSION}/singleheader/simdjson.h" ${SIMDJSON_HEADER_FILE})
-            file(DOWNLOAD "https://raw.githubusercontent.com/simdjson/simdjson/v${SIMDJSON_TARGET_VERSION}/singleheader/simdjson.cpp" ${SIMDJSON_SOURCE_FILE})
+            download_simdjson_file("https://raw.githubusercontent.com/simdjson/simdjson/v${SIMDJSON_TARGET_VERSION}/singleheader/simdjson.h" ${SIMDJSON_HEADER_FILE})
+            download_simdjson_file("https://raw.githubusercontent.com/simdjson/simdjson/v${SIMDJSON_TARGET_VERSION}/singleheader/simdjson.cpp" ${SIMDJSON_SOURCE_FILE})
         endmacro ()
 
         if (EXISTS ${SIMDJSON_HEADER_FILE})
@@ -26,10 +39,11 @@ if (NOT TARGET simdjson::simdjson)
             message(STATUS "fastgltf: Found simdjson (Version ${SIMDJSON_HEADER_VERSION})")
 
             if (SIMDJSON_HEADER_VERSION STREQUAL "")
-                message(FATAL_ERROR "fastgltf: Failed to download simdjson")
-            endif ()
-
-            if (SIMDJSON_HEADER_VERSION VERSION_LESS SIMDJSON_TARGET_VERSION)
+                # No version define means the file on disk is a leftover partial download.
+                # Re-fetch it rather than failing every configure from here on.
+                message(STATUS "fastgltf: simdjson header is corrupt, re-downloading...")
+                download_simdjson()
+            elseif (SIMDJSON_HEADER_VERSION VERSION_LESS SIMDJSON_TARGET_VERSION)
                 message(STATUS "fastgltf: simdjson outdated, downloading...")
                 download_simdjson()
             endif ()

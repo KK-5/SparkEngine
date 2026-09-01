@@ -34,9 +34,6 @@ ADD_TEST_SOUECE(JSONSERIALIZER_TESTS "JsonSerializerTest.cpp")
 
 set(TARGET_NAME SparkCoreTest)
 
-Message(STATUS "These source files will be add to tests.")
-Message(STATUS ${TEST_SOURCES})
-
 add_executable(${TARGET_NAME}
     ${TEST_SOURCES}
     test_main.cpp

@@ -15,6 +15,10 @@ endif()
 
 if(NOT TARGET EASTL)
     Message(STATUS "Import eastl")
+    # EASTL's own CMakeLists pulls EABase via FetchContent from GitHub. Point it at the
+    # vendored copy instead so configuring never needs the network. EASTL is left untouched
+    # so it stays trivial to update.
+    set(FETCHCONTENT_SOURCE_DIR_EABASE "${CMAKE_CURRENT_SOURCE_DIR}/EABase" CACHE PATH "" FORCE)
     add_subdirectory(EASTL)
     target_compile_definitions(EASTL PUBLIC EASTL_STD_ITERATOR_CATEGORY_ENABLED=1)
     set_target_properties(EASTL PROPERTIES FOLDER ${THIRD_PARTY_FOLDER}/EASTL)

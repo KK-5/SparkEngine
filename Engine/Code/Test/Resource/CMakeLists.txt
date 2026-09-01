@@ -32,8 +32,6 @@ ADD_TEST_SOUECE(AssetCacheTests "CacheTests.cpp")
 
 set(TARGET_NAME SparkAssetTest)
 
-Message(STATUS ${TEST_SOURCES})
-
 add_executable(${TARGET_NAME}
     ${TEST_SOURCES}
     main.cpp

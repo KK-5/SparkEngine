@@ -172,6 +172,20 @@ function( create_version_header dest_path target )
 
     set( version_h_output ${PROJECT_SOURCE_DIR}/${dest_path}/version.h)
 
+    # This vendored copy of KTX-Software does not ship the mkversion shell script, and the
+    # generated version.h is checked in next to the sources instead. Use that file as-is:
+    # regenerating it would need both bash and the upstream git tags, neither of which
+    # exists here, and every reconfigure would otherwise re-run a command that must fail.
+    if(NOT EXISTS ${PROJECT_SOURCE_DIR}/mkversion)
+        if(NOT EXISTS ${version_h_output})
+            message(FATAL_ERROR "KTX: neither mkversion nor a prebuilt ${version_h_output} is present")
+        endif()
+        add_custom_target( ${target}_version )
+        add_dependencies( ${target} ${target}_version )
+        target_sources( ${target} PRIVATE ${version_h_output} )
+        return()
+    endif()
+
     if(CMAKE_HOST_WIN32)
         add_custom_command(
             OUTPUT ${version_h_output}
