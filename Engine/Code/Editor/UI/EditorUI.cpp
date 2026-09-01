@@ -22,6 +22,7 @@ namespace Editor
         m_sceneView = eastl::make_unique<SceneView>();
         m_inspector = eastl::make_unique<Inspector>();
         m_componentView = eastl::make_unique<ComponentView>();
+        m_materialWindow = eastl::make_unique<MaterialWindow>();
 
         Spark::Input::InputEventBus::Handler::BusConnect(Spark::Input::InputBusId::EditorUI);
     }
@@ -101,6 +102,7 @@ namespace Editor
         m_sceneView->Draw();
         m_inspector->Draw();
         m_componentView->Draw();
+        m_materialWindow->Draw();
     }
 
     Math::Vector2Int EditorUI::GetFrameBufferSize() const
@@ -129,16 +131,12 @@ namespace Editor
 
     bool EditorUI::WantCaptureMouse() const
     {
-        ImGuiWindow* window = ImGui::FindWindowByName("Scene View");
-        if (window && window->DockNode)
+        // The scene is drawn into an imgui window too, so io.WantCaptureMouse is true over it
+        // as well. That window is the single exception -- and whether the cursor is really on
+        // it, rather than on something floating above it, is imgui's answer to give.
+        if (m_sceneView->IsHovered())
         {
-            ImVec2 dockPos  = window->DockNode->Pos;
-            ImVec2 dockSize = window->DockNode->Size;
-            if (m_lastMouseX >= dockPos.x && m_lastMouseX <= dockPos.x + dockSize.x &&
-                m_lastMouseY >= dockPos.y && m_lastMouseY <= dockPos.y + dockSize.y)
-            {
-                return false;
-            }
+            return false;
         }
         return ImGui::GetIO().WantCaptureMouse;
     }
@@ -202,9 +200,6 @@ namespace Editor
 
     void EditorUI::OnMouseCursorPosEvent(Spark::Input::MouseCursorPosEvent event)
     {
-        m_lastMouseX = event.xPos;
-        m_lastMouseY = event.yPos;
-
         ImGuiIO& io = ImGui::GetIO();
         io.AddMousePosEvent(event.xPos, event.yPos);
     }

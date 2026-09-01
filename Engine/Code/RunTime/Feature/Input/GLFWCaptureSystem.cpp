@@ -55,13 +55,27 @@ namespace Spark::Input
                 event.yPos = static_cast<float>(y);
             }
 
-            if (auto ui = Service<UI::UIBaseSystem>::Get())
+            // A press is routed to one side or the other. A release goes to BOTH, always:
+            // losing a press only means an interaction never starts, while losing a release
+            // leaves whoever saw the press believing the button is still down forever. The
+            // two costs are not symmetric, and the answer can differ between the press and
+            // the release of the same click -- the cursor moves in between.
+            const bool released = (event.state == InputState::Release);
+
+            if (!released)
             {
-                if (ui->WantCaptureMouse())
+                if (auto ui = Service<UI::UIBaseSystem>::Get())
                 {
-                    InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseButtonEvent, event);
-                    return;
+                    if (ui->WantCaptureMouse())
+                    {
+                        InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseButtonEvent, event);
+                        return;
+                    }
                 }
+            }
+            else
+            {
+                InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnMouseButtonEvent, event);
             }
 
             InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnMouseButtonEvent, event);
@@ -132,15 +146,18 @@ namespace Spark::Input
             event.state  = s_inputStateMap[action];
             event.mode   = s_inputModMap.find(mods) != s_inputModMap.end() ? s_inputModMap[mods] : InputMode::Invalid;
 
+            // Keyboard routing asks about the keyboard. Asking WantCaptureMouse instead made
+            // it depend on where the cursor happened to be, so typing into a field while the
+            // cursor sat over the scene drove the camera at the same time.
             if (auto ui = Service<UI::UIBaseSystem>::Get())
             {
-                if (ui->WantCaptureMouse())
+                if (ui->WantCaptureKeyboard())
                 {
                     InputEventBus::Event(InputBusId::EditorUI, &InputEventBus::Events::OnKeyboardEvent, event);
                     return;
                 }
             }
-           
+
             InputEventBus::Event(InputBusId::Editor, &InputEventBus::Events::OnKeyboardEvent, event);
         });
     }

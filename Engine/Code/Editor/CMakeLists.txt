@@ -7,7 +7,10 @@ add_executable(${TARGET_NAME}
     UI/Private/SceneView.cpp
     UI/Private/Inspector.cpp
     UI/Private/ComponentView.cpp
+    UI/Private/EditorTheme.cpp
     UI/Private/FieldWidgets.cpp
+    UI/Private/MaterialUI.cpp
+    UI/Private/MaterialWindow.cpp
     Handler/AssetHandler.cpp
     Handler/ComponentAssetResolver.cpp
     UI/EditorWindow.cpp

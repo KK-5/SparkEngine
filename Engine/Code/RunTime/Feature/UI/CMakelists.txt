@@ -12,7 +12,7 @@ add_library(${TARGET_NAME} STATIC
 
 target_compile_definitions(${TARGET_NAME}
     PRIVATE
-        SPARK_UI_FONT_DIR="${THIRD_PARTY_DIR}/imgui/misc/fonts"
+        SPARK_UI_FONT_DIR="${ENGINE_ASSET_DIR}/Font"
 )
 
 target_link_libraries(${TARGET_NAME}

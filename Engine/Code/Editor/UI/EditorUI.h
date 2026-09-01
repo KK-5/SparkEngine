@@ -19,6 +19,7 @@
 #include "Private/SceneView.h"
 #include "Private/Inspector.h"
 #include "Private/ComponentView.h"
+#include "Private/MaterialWindow.h"
 
 namespace Editor
 {
@@ -47,13 +48,15 @@ namespace Editor
         void SetupDefaultLayout(ImGuiID dockspaceId);
 
         bool m_dockLayoutInit;
-        float m_lastMouseX = 0.0f;
-        float m_lastMouseY = 0.0f;
 
         eastl::unique_ptr<MenuBar>       m_menuBar;
         eastl::unique_ptr<BottomPanel>   m_bottomPanel;
         eastl::unique_ptr<SceneView>     m_sceneView;
         eastl::unique_ptr<Inspector>     m_inspector;
         eastl::unique_ptr<ComponentView> m_componentView;
+
+        //! Not in SetupDefaultLayout: it is free-floating and starts closed, opened from the
+        //! material slot's edit icon.
+        eastl::unique_ptr<MaterialWindow> m_materialWindow;
     };
 }

@@ -1290,10 +1290,10 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 | # | 流程 | 用户看到 | 今天 |
 |---|---|---|:--:|
-| 1 | 调整模型带进来的材质 | 在材质窗口里改；**所有共用它的对象一起变**；存不回 glb，只能导出 | ⚠️ 今天在 Component View 内联改，入口要搬 |
-| 2 | 导出成材质资产 | Browser 里出现 `.smat`；画面不变，共享关系不变 | ❌ |
+| 1 | 调整模型带进来的材质 | 在材质窗口里改；**所有共用它的对象一起变**；存不回 glb，只能导出 | ✅ 改已成立（材质槽 ✎ 打开窗口），导出见 2 |
+| 2 | 导出成材质资产 | Browser 里出现 `.smat`；画面不变，共享关系不变 | ❌ **下一件之二**（按钮已在底栏，没接线） |
 | 3 | 把材质用到别的对象 | 从 Browser 拖 `.smat` 到材质槽 | ❌ |
-| 4 | 编辑一个 `.smat` | 同一个材质窗口，可 Save | ❌ **必做** |
+| 4 | 编辑一个 `.smat` | 同一个材质窗口，可 Save | ⚠️ 编辑已成立（同一个窗口），Save 随 2 |
 | 5 | 只改这一个对象 | 这个对象从此跟别人不一样，删掉覆盖就恢复 | ✅ |
 | 6 | 从零新建材质 | Browser 右键新建 | ❌ 优先级最低 |
 | 7 | 存场景、重开、一切还原 | 含**共享关系原样还原** | ❌ 依赖阶段 4 |
@@ -1310,9 +1310,8 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 Refresh。重建时按 `fullPath` 找回选中目录——`m_selectedFolder` / `m_selectedAsset` 是指向树内部的
 裸指针，必须先重置。
 
-**二、材质窗口。** 一次覆盖流程 1 和 4，是最大的一件。v1 就是参数面板、不做预览（见下面「两个编辑
-表面」）。前置已全部落地（`FieldWidgets`、`MaterialState` 的组件绑定、`MaterialEditBus`、材质槽的
-新形态），窗口本身的方案见「材质窗口」一节。
+~~**二、材质窗口。**~~ ✅ **已落地**。一次覆盖流程 1 和 4。参数面板可用，预览区留了位置但没有内容。
+详见「材质窗口」一节。
 
 ~~**落地时必须同时结清一笔账**：`MaterialRefElement` 的内联展开~~ ✅ **已删除**。原计划要求它和窗口
 同一步落地，实际是先删的——窗口不存在的这段时间里，改模型带进来的材质没有入口。这个空窗是刻意接受
@@ -1387,7 +1386,7 @@ Browser 双击 `.smat` 是第二个入口。
 人」的，两个表面分开之后不再必需，但仍有用）；`.smat` 被外部修改要不要热重载（倾向不要——该和贴图 /
 模型一起整体做）；改完参数何时写盘（倾向显式 Save）。
 
-### 材质窗口 ✅ 方案已定，未动工
+### 材质窗口 ✅ 已落地
 
 **独立浮动窗口，不进 DockBuilder**，`m_open` 默认 false、`Draw()` 开头即返回。原方案是和 Component
 View 并列成 tab，那要去掉那个 dock node 的 `NoTabBar`、改动现有布局；浮动窗口一行布局代码都不用改，
@@ -1400,32 +1399,122 @@ handle 能反查出 `MaterialAssetRef`，反过来则要再 Resolve 一次。
 两个发送方：材质槽上的 ✎（主入口，因为 glTF 带进来的材质是子资产，**Browser 里选不中它**），以及
 Browser 双击 `.smat`（第二入口，随 Browser 那一步做）。
 
-窗口内容：
+布局照一张设计稿做（`Document/` 外，由 HTML mockup 给出真值），两栏：
 
 ```
-Material        [project://Material/Wood.smat]     ← 只读，与材质槽同一个身份文本
-Shading Model   StandardPBR                        ← 取 paramsType.name()，不是字面量
-
-▼ Properties    DrawFieldWidgets(StandardPBR,  GetComponent(handleId), handleId)
-▼ State         DrawFieldWidgets(MaterialState, GetComponent(handleId), handleId)
+● Material Editor  engine://…/material/0  [Modified]                    ✕   ← 自绘标题栏
+┌──────────────────────────────┬────────────────────────────────────┐
+│ Sphere Cylinder Plane │ Studio HDRI    │ Properties                 │   ← 左：形状 + 环境
+│                                        │ SHADING MODEL   1/5 Textures│
+│            （预览留空）                │ [ Standard PBR          ▼ ] │
+│                                        │ ──────────────────────────  │
+│ Shading Model · Standard PBR           │ PROPERTIES                  │
+│ Blend Mode · Opaque                    │   …StandardPBR 的字段…      │
+│                                        │ STATE                       │
+│                                        │   …MaterialState 的字段…    │
+├────────────────────────────────────────┴────────────────────────────┤
+│ engine://…/material/0        [Cancel] [Apply] [Save & Close]        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-四个必须踩准的点：
+字段仍然是 `DrawFieldWidgets(type, GetComponent(handleId), handleId)`，反射出什么画什么——**没有分组、
+没有标量与贴图配对、没有滑条**，那些要给反射加元信息（分组名、range、配对），推迟到真需要时再说。
 
-- **标题写成 `"Material Editor - Wood.smat###MaterialEditor"`。** `###` 后面是 ImGui 的窗口 id，前面
-  才是显示文本。不这样做的话每换一个材质就是一个「新窗口」，位置、大小、停靠状态全部重来。
-- **`editEntity` 传 `handleId`。** 于是往窗口里拖贴图走的是和原来内联展开完全同一条路：广播
+**已经踩准的点：**
+
+- **`editEntity` 传 `handleId`。** 往窗口里拖贴图走的是和原来内联展开完全同一条路：广播
   `OnAssetDragToComponent(handleId, StandardPBR, fieldId, …)`，`ComponentAssetResolver` 经
   `ComponentOperation` 解析到 MaterialContext。零新机制。
 - **每帧先验目标还在不在**（有没有 `StandardPBR`），失效显示一行提示而不是照常取组件——覆盖合成出来
   的材质实体是会被销毁的。
 - `Begin` 返回 false 也要配对 `End`。
+- **窗口 id 固定为 `"MaterialEditor"`**。原方案是 `"… - Wood.smat###MaterialEditor"`，自绘标题栏之后
+  显示文本不再经过窗口名，`###` 那一半也就不需要了；材质名画在标题栏里。
 
-**Shading Model 是纯文本，不是选择器。** 今天只有一个值，摆一组只有一项的按钮会让人以为能选。等真有
-第二个 shading model 再换。
+**Shading Model 改成了 Combo（只有一项）**，推翻了原来「纯文本，不摆只有一项的选择器」的判断——设计稿
+按可选设计，一个禁不掉的下拉比一行死文本更能说明「这里将来能选」。**纯 UI 层的枚举**：`.smat` 里
+`shadingModel` 仍写参数类型的反射名，资产格式一个字节没动。
 
-**v1 不做**：预览、Save / 导出按钮、`已修改` 标记。dirty 要等有 Save 才有消费者——`DrawFieldWidget`
-已经返回「这一帧改没改」，接上去就是一行。
+**四处 ImGui 陷阱，都踩过一遍：**
+
+- **自绘标题栏要自己实现拖动**：整条铺 `InvisibleButton`，`IsItemActive()` 时 `SetWindowPos += MouseDelta`。
+  并且那个按钮必须 `SetNextItemAllowOverlap()`，否则它占住 hovered id，后提交的 ✕ 永远点不到。
+- **`SetCursorScreenPos` 撑不大窗口**。用 drawlist 画的标题栏 / 底栏后面必须补一个 `Dummy` 把边界撑
+  出来，否则 `End()` 直接断言（`ErrorCheckUsingSetCursorPosToExtendParentBoundaries`）。
+- **无边框 child 的水平 padding 会被丢掉**。主题里 `ChildBorderSize = 0`，于是 `WindowPadding.x` 被
+  吞、`.y` 留着，表现是「块内的东西全部贴左边、但下面用 `Indent` 的那些没事」。要 `AlwaysUseWindowPadding`。
+- **一行里的 item 按顶端对齐**。药丸的 `FramePadding.y` 一旦和旁边的文字不同，矮的那个就吊在行顶。
+  统一给一个 `rowHeight`，文字用手算的居中偏移，不能靠 `AlignTextToFramePadding`（它只按样式里的
+  `FramePadding.y` 偏移）。
+
+**已做但没接功能**：底栏 `Cancel` / `Apply` / `Save & Close` 三个按钮只有外观。`Apply` 与 `Save` 等
+导出（第三件事），`Cancel` 等一份进窗口时的快照——`StandardPBR` + `MaterialState` 都是纯值结构，拷一份
+很便宜，但今天编辑是**直写**的，没有暂存层。
+
+**`Modified` 徽章亮了就不灭**：由 `DrawFieldWidgets` 的返回值点亮，只在窗口切到另一个材质时清。没有
+保存流程，也就没有清它的时机。
+
+**仍然不做**：预览（要一个离屏 pass + 相机 + 球 mesh，是渲染层的工作量，不是 UI 的）、`Stats` 页
+（没有可显示的量）、遮罩（材质编辑要一边看场景）。
+
+### 编辑器主题与字体 ✅ 已落地
+
+`Editor/UI/Private/EditorTheme.h/.cpp`：一张色表 + `Theme::Scoped`（push/pop 整套 `ImGuiCol_` 与
+`StyleVar`）+ `Theme::ScopedFont`。目前**只作用于材质窗口**，其它面板还是 ImGui 默认深色；将来推成
+全局就是把同一张表搬进 `SparkImGui` 的 style 设置，所以表放在这里而不是那个窗口里面。
+
+两件当时判断错、后来靠设计稿的真值纠正的事，记下来免得再犯：
+
+- **边框和文字都是分级的**，不是一种。边框三级（窗口 / 面板间 / 块间），文字五级（标题 / 值 / 字段名 /
+  次要 / 分节头）。第一版把它们各压成一级，结果整个面板「平」，看不出层次——这不是配色偏差，是层级
+  丢失。
+- **从截图取色不可靠**。第一版十几个色值全是肉眼取的，拿到 HTML 之后没有一个是对的。
+
+字体（`Engine/Asset/Font/`，SIL OFL，随仓库分发）：
+
+| 文件 | 用途 |
+|---|---|
+| `Barlow-Regular.ttf` | `Fonts[0]`，默认字体，整个编辑器 |
+| `Barlow-SemiBold.ttf` | 窗口标题、tab、强调按钮 |
+| `JetBrainsMono-Regular.ttf` | 资产名、路径、数值、分节头 |
+
+原来的 Karla 18px 不再加载（它是 imgui 自带的示例字体，不是谁选的）。`SPARK_UI_FONT_DIR` 从
+`3rdParty/imgui/misc/fonts` 改指 `${ENGINE_ASSET_DIR}/Font`，按角色取字体走 `Spark::UI::Fonts::{UI,Bold,Mono}()`。
+
+- **imgui 1.92 起字号是动态的**，`PushFont(font, size)` 按需烘焙。所以是**一个字重一个文件**，不必为
+  每个字号重复加载——1.92 之前要。
+- **缩放走 `Theme::kScale` 而不是 `style.FontScaleDpi`**。后者是全局的，会连带放大还没换主题的面板；
+  而且字号和间距必须用**同一个**系数，只缩其中一半的布局是散的。今天是常量 `1.25`（编辑器目标显示器
+  的缩放），诚实的来源是显示器的 content scale。
+- **别下可变字体**。`Barlow[wght].ttf` 这种方括号命名的文件 stb_truetype 不认可变轴，加载后只渲染默认
+  实例，SemiBold 会和 Regular 一模一样。要 `static/` 里带明确字重名的那些。
+- **小字号没有 hinting**。用的是 imgui 默认的 stb_truetype，11px 会比浏览器里糊。imgui 自带 FreeType
+  后端（`misc/freetype/imgui_freetype.cpp` 已在），但 FreeType 库本身不在 `3rdParty/`。目前判断可接受，
+  真嫌糊再引。
+
+**做不到、已接受的**：`letter-spacing`（分节头的字距）、`box-shadow`（窗口投影）、径向渐变（预览区背景
+只能是平色）。
+
+### 编辑器的输入路由 ✅ 已修
+
+跟材质窗口同期修的三个缺陷，本质都是「UI 先拦截、UI 不要的才给场景」这条规则没有被正确实现：
+
+- **键盘按鼠标的位置路由**。`CaptureKeyboardEvent` 问的是 `WantCaptureMouse()`，于是在输入框里打字时
+  只要光标恰好在场景上，相机就跟着动。改成问 `WantCaptureKeyboard()`。
+- **`io.ConfigNavCaptureKeyboard` 默认开着**，而 `io.NavActive` 只要有任何 imgui 窗口持有焦点就是 true
+  （不是「用户正在导航」）——于是 `WantCaptureKeyboard` 恒为真，WASD 永远到不了相机。关掉它之后，只有
+  真正在编辑控件时才为真。
+- **「鼠标是否在场景内」原来用矩形判断**，矩形不知道自己上面盖着什么，浮在场景上的材质窗口因此拦不住
+  事件。改成让 imgui 回答：场景窗口去掉 `NoMouseInputs`（带这个 flag 的窗口会被 `FindHoveredWindow`
+  跳过，imgui 根本不可能把它算作 hovered），改用 `IsWindowHovered`。视口里放 `Dummy` 而不是
+  `InvisibleButton`——按钮会成为 active id，而 active id 会让 `IsWindowHovered` 返回 false，正好在用户
+  按下鼠标要转相机的那一刻把相机切断。
+- **按下与松开分开路由会卡住状态**。press 判给场景、release 判给 UI（中间光标移出去了），
+  `m_mouseLeftHeld` 就永远是 true，之后每次移动都在转相机。现在 press 仍二选一，**release 无条件送达
+  双方**——丢一个 press 只是某次交互没开始，丢一个 release 是永久错误状态，两者代价不对称。
+
+**已知未修**：dock 分隔条的命中区向内延伸到 Scene View 矩形里几个像素，在那几像素上按下会判给场景而
+不是分隔条。状态不会再残留，但归属仍然抖动。
 
 ### 编辑器的字段渲染机器 ✅ 已完成
 
@@ -2104,10 +2193,10 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 - **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对），打标记也已
   落地（六个 `Reflect.h` 共 36 个字段 + `Core/Reflect.h` 的数学分量）。剩下的是给那几个还没有测试
   目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
-- **阶段 3**：资产层、运行期、`.smat` 写侧、编辑器的字段渲染机器、材质槽的新形态都已落地（见
-  「状态」）。**下一件是材质窗口本身**——方案已定（见「材质窗口」），前置全部就位，剩的是
-  `MaterialWindow.h/.cpp` 与 `EditorUI` 三行接线。之后是 Browser 刷新与右键新建、导出。清单与理由见
-  「使用流程」下的「剩下的四件事」。导出的目标目录仍未定。
+- **阶段 3**：资产层、运行期、`.smat` 写侧、字段渲染机器、材质槽的新形态、**材质窗口**都已落地（见
+  「状态」）。**下一件是 Browser 认 `.smat`**——它是导出与右键新建的共同前置，没有它写出来的文件在
+  界面上看不见。之后是导出（按钮位置已经在底栏了，缺的是接线），最后是右键新建。清单与理由见
+  「使用流程」下的「剩下的四件事」。**导出的目标目录仍未定。**
 - **随阶段 3 记下的一笔债**：材质子资产没有 `Serialize`，而缓存单元里**任何一个 payload 为空就整个
   单元不落盘**（`AssetCache::WriteUnit`）。今天不发作，因为 `AssetType::Model` 本来就不可缓存；等
   Model 转可缓存那一步，得先给 `MaterialAssetBuilder` 补上 `Serialize` / `Deserialize`——独立 `.smat`

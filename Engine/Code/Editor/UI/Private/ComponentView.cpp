@@ -9,11 +9,11 @@
 #include <Reflection/TypeRegistry.h>
 #include <CoreComponents/Tags.h>
 #include <Material/Components.h>
-#include <Resource/AssetJsonSerializer.h>   // AssetIdToDisplayString for the material slot
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaTypeTraits.h>
 
 #include "FieldWidgets.h"
+#include "MaterialUI.h"
 #include "UI/Bus/MaterialEditBus.h"
 
 namespace Editor
@@ -75,41 +75,6 @@ namespace Editor
             {
                 type.func("RemoveComponent"_hs).invoke({}, entityId);
             }
-        }
-
-        //! What a material slot shows in place of parameters. Three cases, all of them
-        //! something the user needs told apart: the asset it came from, "no asset backs
-        //! this one" (the resident default, or one a scene will own outright), and a
-        //! reference that resolves to nothing -- a `.smat` that was deleted lands here,
-        //! and the object is quietly rendering with the default material.
-        eastl::string MaterialIdentity(uint32_t handleId, bool valid)
-        {
-            if (!valid)
-            {
-                return "(none)";
-            }
-
-            MetaType refType = TypeRegistry::GetContext().Resolve<Material::MaterialAssetRef>();
-            if (refType)
-            {
-                if (auto hasFn = refType.func("HasComponent"_hs))
-                {
-                    MetaAny has = hasFn.invoke({}, handleId);
-                    if (has && has.cast<bool>())
-                    {
-                        MetaAny refPtr = refType.func("GetComponent"_hs).invoke({}, handleId);
-                        if (refPtr)
-                        {
-                            MetaAny ref = *refPtr;
-                            if (const auto* typed = ref.try_cast<Material::MaterialAssetRef>())
-                            {
-                                return Resource::AssetIdToDisplayString(typed->m_id);
-                            }
-                        }
-                    }
-                }
-            }
-            return "(scene material)";
         }
 
         //! One row of the material slot: label, read-only box, and the row's action as an
@@ -181,19 +146,8 @@ namespace Editor
             return;
         }
 
-        const uint32_t  handleId = static_cast<uint32_t>(handle);
-        ReflectContext& reflect  = TypeRegistry::GetContext();
-        MetaType        paramsType = reflect.Resolve<Resource::StandardPBR>();
-
-        bool valid = false;
-        if (paramsType)
-        {
-            if (auto hasFn = paramsType.func("HasComponent"_hs))
-            {
-                MetaAny r = hasFn.invoke({}, handleId);
-                valid = r && r.cast<bool>();
-            }
-        }
+        const uint32_t handleId = static_cast<uint32_t>(handle);
+        const bool     valid    = MaterialExists(handleId);
 
         // Identity only -- no parameters. Editing the material and editing this one object
         // are two separate surfaces on purpose: mixed into one panel, nothing tells the user
@@ -223,7 +177,8 @@ namespace Editor
             }
             else
             {
-                MetaAny paramsPtr = paramsType.func("GetComponent"_hs).invoke({}, handleId);
+                MetaType paramsType = TypeRegistry::GetContext().Resolve<Resource::StandardPBR>();
+                MetaAny  paramsPtr  = paramsType.func("GetComponent"_hs).invoke({}, handleId);
                 AddOverride(entityId, paramsPtr);
             }
         }
