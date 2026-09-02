@@ -168,6 +168,10 @@ namespace Spark::Render
 
     void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex, const Math::Vector2Int& renderSize)
     {
+        // Publish this frame's in-flight slot before anything can read it. Handlers on
+        // FrameEventBus take it from the Device, and the bus orders them arbitrarily.
+        m_device->BeginFrame(frameIndex);
+
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
         m_commandQueueContext.Begin();
 

@@ -37,12 +37,10 @@ namespace Spark::RHI
     private:
         void CreateBuffers(RHIContext& ctx, Device& device);
         void CreateImages(RHIContext& ctx, Device& device);
-        void ProcessBufferMaps(RHIContext& ctx);
+        void ProcessBufferMaps(RHIContext& ctx, Device& device);
 
         BufferPool* SelectBufferPool(const PendingBufferInit& init) const;
         ImagePool*  SelectImagePool(const PendingImageInit& init) const;
-
-        uint32_t m_frameIndex = 0;
 
         Ptr<BufferPool> m_devicePlacedBufferPool;
         Ptr<BufferPool> m_deviceCommittedBufferPool;

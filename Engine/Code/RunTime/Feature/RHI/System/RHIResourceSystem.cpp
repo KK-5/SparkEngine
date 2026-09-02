@@ -125,12 +125,10 @@ namespace Spark::RHI
 
         CreateBuffers(ctx, *device);
         CreateImages(ctx, *device);
-        ProcessBufferMaps(ctx);
+        ProcessBufferMaps(ctx, *device);
         // Views are no longer materialized as entities — consumers resolve them on
         // demand from each resource's view cache via GetOrCreateImageView /
         // GetOrCreateImageViewPerFrame (see ResourceBuilder.h).
-
-        m_frameIndex = (m_frameIndex + 1) % device->GetDescriptor().m_frameCountMax;
     }
 
     BufferPool* RHIResourceSystem::SelectBufferPool(const PendingBufferInit& init) const
@@ -304,7 +302,7 @@ namespace Spark::RHI
 
     }
 
-    void RHIResourceSystem::ProcessBufferMaps(RHIContext& ctx)
+    void RHIResourceSystem::ProcessBufferMaps(RHIContext& ctx, Device& device)
     {
         auto process = [&](RHIHandle handle, RHI::Buffer& buffer, const PendingBufferMap& mapReq)
         {
@@ -349,13 +347,17 @@ namespace Spark::RHI
 
         // Per-frame buffers: Components::BufferPerFrame + PendingBufferMap
         // Writes only to the current frame's buffer, consistent with the
-        // per-frame model where each frame targets a distinct copy.
+        // per-frame model where each frame targets a distinct copy. The slot comes
+        // from the Device — the same one the consumer bound its SRV to. A private
+        // counter here would only have to agree with that one, and a swap chain
+        // resize rewinding the source is exactly how the two came apart.
         {
+            const uint32_t frameIndex = device.GetFrameIndex();
             auto view = ctx.GetView<Components::BufferPerFrame, PendingBufferMap>();
             view.each([&](RHIHandle handle, const Components::BufferPerFrame& perFrame,
                           const PendingBufferMap& mapReq)
             {
-                process(handle, *perFrame.m_buffers[m_frameIndex], mapReq);
+                process(handle, *perFrame.m_buffers[frameIndex], mapReq);
                 ctx.Remove<PendingBufferMap>(handle);
             });
         }

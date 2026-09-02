@@ -34,6 +34,18 @@ namespace Spark::RHI
         //! Returns a union of all capabilities of a specific format.
         FormatCapabilities GetFormatCapabilities(Format format) const;
 
+        //! The in-flight slot every per-frame resource is indexed by this frame:
+        //! the copy the CPU may write and the one the frame's commands will read.
+        //! ONE counter for the whole engine — a second one that merely advances at
+        //! the same rate is not equivalent, since anything that rewinds one of them
+        //! (SwapChain::Resize does) offsets the two permanently.
+        uint32_t GetFrameIndex() const { return m_frameIndex; }
+
+        //! Declares the slot for the frame about to be recorded. Call once per frame,
+        //! before RHI::FrameEventBus broadcasts OnFrameBegin — handlers read the index
+        //! from there and the bus gives them no ordering among themselves.
+        void BeginFrame(uint32_t frameIndex);
+
     protected:
         DeviceFeatures m_features;
         DeviceLimits m_limits;
@@ -61,5 +73,6 @@ namespace Spark::RHI
 
         Ptr<PhysicalDevice> m_physicalDevice;
         bool m_isInFrame = false;
+        uint32_t m_frameIndex = 0;
     };
 }
