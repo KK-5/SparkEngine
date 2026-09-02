@@ -58,8 +58,16 @@ namespace Spark::Render
         bool InitRHIData();
         bool InitRenderUI();
 
+        void SyncSwapChainToWindow();
+
         Ptr<RHI::SwapChain> m_swapChain;
-        
+
+        //! Compared against the window size each frame. Deliberately the size we
+        //! requested, not the descriptor's — that holds the native size the backend
+        //! granted, and a backend that clamps it (Vulkan, against
+        //! VkSurfaceCapabilities) would then disagree with the window every frame.
+        Math::Vector2Int m_requestedSwapChainSize {0, 0};
+
         RenderUI m_rednerUI;
         UIProcessFeature m_uiProcessFeature;
         // Producers first, then the one encoding step, which serves all of them.

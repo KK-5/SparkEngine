@@ -60,16 +60,10 @@ namespace Spark::Render
     {
         ASSERT(m_device != nullptr, "[RenderGraph] ImportSwapChain called before Init.");
 
-        const uint32_t imageCount = swapChain.GetImageCount();
         auto& context = *RHIExecuteContext::Current();
 
         m_swapchainResource = context.CreateEntity();
-        SwapChainImages swapChainImages;
-        for (uint32_t i = 0; i < imageCount; ++i)
-        {
-            swapChainImages.images[i] = swapChain.GetImage(i);
-        }
-        context.Add<SwapChainImages>(m_swapchainResource, eastl::move(swapChainImages));
+        RefreshSwapChainImages(swapChain, context);
         context.Add<ImportedTag>(m_swapchainResource);
         context.Add<RHI::PerFrameTag>(m_swapchainResource);
         context.Add<ResourceName>(m_swapchainResource, ObjectName{"SwapChain"});
@@ -83,6 +77,74 @@ namespace Spark::Render
         return true;
     }
 
+    void RenderGraph::RefreshSwapChainImages(RHI::SwapChain& swapChain, RHIContext& context)
+    {
+        ASSERT(m_swapchainResource != NullHandle,
+            "[RenderGraph] RefreshSwapChainImages called without a swap chain resource entity.");
+
+        const uint32_t imageCount = swapChain.GetImageCount();
+        ASSERT(imageCount <= RHI::Limits::Device::FrameCountMax,
+            "[RenderGraph] Swap chain has {} images, more than FrameCountMax.", imageCount);
+
+        // Value-initialized so slots past imageCount stay null instead of holding
+        // back buffers from before a resize.
+        SwapChainImages swapChainImages {};
+        for (uint32_t i = 0; i < imageCount; ++i)
+        {
+            swapChainImages.images[i] = swapChain.GetImage(i);
+        }
+        context.AddOrReplace<SwapChainImages>(m_swapchainResource, eastl::move(swapChainImages));
+    }
+
+    void RenderGraph::WaitForGpuIdle()
+    {
+        for (uint32_t i = 0; i < RHI::HardwareQueueClassCount; ++i)
+        {
+            m_commandQueueContext.GetCommandQueue(static_cast<RHI::HardwareQueueClass>(i)).WaitForIdle();
+        }
+    }
+
+    bool RenderGraph::ResizeSwapChain(RHI::SwapChain& swapChain, const Math::Vector2Int& size)
+    {
+        ASSERT(m_device != nullptr, "[RenderGraph] ResizeSwapChain called before Init.");
+
+        if (size.x <= 0 || size.y <= 0)
+        {
+            return false;
+        }
+
+        if (m_swapchainResource == NullHandle)
+        {
+            LOG_ERROR("[RenderGraph] ResizeSwapChain called before ImportSwapChain.");
+            return false;
+        }
+
+        auto& context = *RHIExecuteContext::Current();
+
+        // SwapChain::Resize releases the back buffers outright (no deferred release),
+        // and ResizeBuffers refuses to run while any reference is outstanding. All
+        // queues, not just Graphics: an image can end the frame on Compute or Copy.
+        WaitForGpuIdle();
+
+        // The cached per-frame views were built over the old images; drop them so the
+        // next frame rebuilds them lazily.
+        context.Remove<RHI::Components::ImageViewCachePerFrame>(m_swapchainResource);
+        context.Remove<BackingImage>(m_swapchainResource);
+
+        RHI::SwapChainDimensions dimensions = swapChain.GetDescriptor().m_dimensions;
+        dimensions.m_imageWidth  = static_cast<uint32_t>(size.x);
+        dimensions.m_imageHeight = static_cast<uint32_t>(size.y);
+
+        if (swapChain.Resize(dimensions) != RHI::ResultCode::Success)
+        {
+            LOG_ERROR("[RenderGraph] Swap chain resize to {}x{} failed.", size.x, size.y);
+            return false;
+        }
+
+        RefreshSwapChainImages(swapChain, context);
+        return true;
+    }
+
     void RenderGraph::Shutdown()
     {
         if (m_device == nullptr)
@@ -92,12 +154,8 @@ namespace Spark::Render
 
         // Drain the GPU before releasing anything the in-flight command lists
         // could still reference (swap chain views, transient pool allocations,
-        // PSOs in the pipeline library, etc.). RHI::CommandQueueContext doesn't
-        // expose a single WaitForIdle, so walk the queues we own.
-        for (uint32_t i = 0; i < RHI::HardwareQueueClassCount; ++i)
-        {
-            m_commandQueueContext.GetCommandQueue(static_cast<RHI::HardwareQueueClass>(i)).WaitForIdle();
-        }
+        // PSOs in the pipeline library, etc.).
+        WaitForGpuIdle();
 
         auto& context = *RHIExecuteContext::Current();
         if (m_swapchainResource != NullHandle && context.Valid(m_swapchainResource))

@@ -90,8 +90,37 @@ namespace Spark::Render
             LOG_ERROR("[RenderSystem] Create swap chain failed!");
             return false;
         }
+        m_requestedSwapChainSize = windowSize;
 
         return true;
+    }
+
+    void RenderSystem::SyncSwapChainToWindow()
+    {
+        auto* window = Service<Window::IWindowSystem>::Get();
+        if (!window || !m_swapChain)
+        {
+            return;
+        }
+
+        const Math::Vector2Int windowSize = window->GetWindowSize();
+        if (windowSize.x <= 0 || windowSize.y <= 0)
+        {
+            // Minimized: keep rendering into the swap chain as it is. Presenting to a
+            // minimized window is legal, whereas skipping the frame would leave ImGui's
+            // frame open — ImGui::Render only runs inside the graph, from UIPass.
+            return;
+        }
+
+        if (windowSize == m_requestedSwapChainSize)
+        {
+            return;
+        }
+
+        if (m_renderGraph.ResizeSwapChain(*m_swapChain, windowSize))
+        {
+            m_requestedSwapChainSize = windowSize;
+        }
     }
 
     bool RenderSystem::InitRenderUI()
@@ -225,7 +254,10 @@ namespace Spark::Render
     {
         auto& passContext = *PassExecuteContext::Current();
         auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-        
+
+        // Must stay ahead of frameIndex: a resize rewinds the current image index to 0.
+        SyncSwapChainToWindow();
+
         const uint32_t frameIndex =m_swapChain->GetCurrentImageIndex();
 
         // Driver decides the render-output resolution and hands it to the graph,

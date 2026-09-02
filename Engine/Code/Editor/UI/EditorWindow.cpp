@@ -101,6 +101,7 @@ namespace Editor
 
     Spark::Math::Vector2Int EditorWindow::GetWindowSize()
     {
+        glfwGetWindowSize(m_window, &m_width, &m_height);
         return { m_width, m_height };
     }
 

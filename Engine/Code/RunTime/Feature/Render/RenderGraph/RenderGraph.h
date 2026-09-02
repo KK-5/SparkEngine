@@ -32,6 +32,11 @@ namespace Spark::Render
         //! Must run after Init, and requires RHIExecuteContext to be pushed by the caller.
         bool ImportSwapChain(RHI::SwapChain& swapChain);
 
+        //! Resize the imported swap chain and re-point the resource entity at the new
+        //! back buffers. Drains every queue, so frame-boundary only — never between
+        //! Build and Execute. Returns false (swap chain untouched) on failure.
+        bool ResizeSwapChain(RHI::SwapChain& swapChain, const Math::Vector2Int& size);
+
         void Shutdown();
 
         //! renderSize is the render-output resolution for this frame (see
@@ -48,6 +53,10 @@ namespace Spark::Render
         RHIHandle GetSwapchainResource() const { return m_swapchainResource; }
 
     private:
+        void RefreshSwapChainImages(RHI::SwapChain& swapChain, RHIContext& context);
+
+        void WaitForGpuIdle();
+
         //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame /
         //! SwapChainImages on resource entities) and refresh BackingImage /
         //! BackingBuffer from m_xxx[frameIndex]. Views are not refreshed here — they
