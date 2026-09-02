@@ -12,6 +12,7 @@ set(CORE_SOURCES
     Object/Object.cpp
     Math/Interval.cpp
     VFS/MountTable.cpp
+    VFS/FileSystemMonitor.cpp
 )
 
 # 显式列出所有头文件（用于IDE显示）
@@ -31,6 +32,8 @@ target_link_libraries(${TARGET_NAME}
         EASTL
         glm
         nlohmann_json
+    PRIVATE
+        SparkPlatform   # FileSystemMonitor's OS half
 )
 
 # 设置包含目录

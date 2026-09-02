@@ -8,6 +8,10 @@
 #include <Resource/AssetManagerInterface.h>
 #include <VFS/FileSystem.h>
 #include <Feature/UI/ImGui/IconManagerInterface.h>
+#include <Feature/Material/MaterialContext.h>
+#include <Feature/Material/MaterialUtils.h>
+
+#include "UI/Bus/MaterialEditBus.h"
 
 
 namespace
@@ -30,6 +34,42 @@ namespace
 
 namespace Editor
 {
+    BottomPanel::BottomPanel()
+    {
+        Spark::FileEventBus::Handler::BusConnect();
+    }
+
+    BottomPanel::~BottomPanel()
+    {
+        if (BusIsConnected())
+        {
+            BusDisconnect();
+        }
+    }
+
+    void BottomPanel::OnFileAdded(eastl::string virtualPath)
+    {
+        // Or saving a note next to the textures would walk every mount.
+        auto* assetManager = Spark::Service<Spark::Resource::AssetManager>::Get();
+        if (!assetManager || assetManager->GetSupportAssetType(virtualPath)
+                                 == Spark::Resource::AssetType::Unknown)
+        {
+            return;
+        }
+        m_treeBuilt = false;
+    }
+
+    void BottomPanel::OnFileRemoved(eastl::string virtualPath)
+    {
+        // Unfiltered, unlike additions: what type it WAS can no longer be asked.
+        (void)virtualPath;
+        m_treeBuilt = false;
+    }
+
+    void BottomPanel::OnFileWatchOverflow()
+    {
+        m_treeBuilt = false;
+    }
 
     void BottomPanel::Draw()
     {
@@ -344,6 +384,9 @@ namespace Editor
                     m_selectedAsset = &asset;
                     m_selectedFolder = nullptr;
                 }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    OpenAsset(asset);
+                }
 
                 ImGui::PopStyleColor(3);
                 ImGui::TreePop();
@@ -467,6 +510,10 @@ namespace Editor
                 snprintf(dragId, sizeof(dragId), "##drag_%p", static_cast<const void*>(assetEntry));
                 ImGui::SetCursorScreenPos(cellPos);
                 ImGui::InvisibleButton(dragId, ImVec2(cellW, cellH));
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                {
+                    OpenAsset(*assetEntry);
+                }
                 if (ImGui::BeginDragDropSource())
                 {
                     if (!m_dragAsset)
@@ -515,29 +562,127 @@ namespace Editor
         ImGui::EndChild();
     }
 
+    const BottomPanel::AssetFolder* BottomPanel::FindFolder(const AssetFolder& folder,
+                                                            const eastl::string& fullPath) const
+    {
+        if (folder.fullPath == fullPath)
+        {
+            return &folder;
+        }
+        for (const AssetFolder& child : folder.children)
+        {
+            if (const AssetFolder* found = FindFolder(child, fullPath))
+            {
+                return found;
+            }
+        }
+        return nullptr;
+    }
+
+    void BottomPanel::FindAsset(const AssetFolder& folder, const Spark::Resource::AssetId& id,
+                                const AssetFolder*& outFolder, const AssetEntry*& outEntry) const
+    {
+        for (const AssetEntry& entry : folder.assets)
+        {
+            if (entry.id == id)
+            {
+                outFolder = &folder;
+                outEntry  = &entry;
+                return;
+            }
+        }
+        for (const AssetFolder& child : folder.children)
+        {
+            FindAsset(child, id, outFolder, outEntry);
+            if (outEntry)
+            {
+                return;
+            }
+        }
+    }
+
+    void BottomPanel::RebuildTree()
+    {
+        m_treeBuilt = true;
+        LoadIcons();
+
+        // Read and cleared before the vectors they point into are destroyed.
+        const eastl::string     keepFolder = m_selectedFolder ? m_selectedFolder->fullPath
+                                                              : eastl::string();
+        const Spark::Resource::AssetId keepAsset = m_selectedAsset ? m_selectedAsset->id
+                                                                   : Spark::Resource::AssetId();
+        m_selectedFolder = nullptr;
+        m_selectedAsset  = nullptr;
+        m_rootFolder     = AssetFolder{};
+
+        // ScanDirectory only lists what the database knows.
+        if (auto* assetManager = Spark::Service<Spark::Resource::AssetManager>::Get())
+        {
+            assetManager->AssetRegistry();
+        }
+
+        m_rootFolder.name = "Assets";
+
+        if (auto* fileSystem = Spark::Service<Spark::FileSystem>::Get()) {
+            for (const auto& mount : fileSystem->GetMountNames()) {
+                if (mount == "cache")
+                {
+                    continue;
+                }
+                AssetFolder mountRoot;
+                mountRoot.name = mount;
+                mountRoot.fullPath = mount + "://";
+                ScanDirectory(mountRoot.fullPath, mountRoot);
+                m_rootFolder.children.push_back(eastl::move(mountRoot));
+            }
+        }
+
+        if (keepAsset.IsValid())
+        {
+            const AssetFolder* owner = nullptr;
+            FindAsset(m_rootFolder, keepAsset, owner, m_selectedAsset);
+        }
+        if (!m_selectedAsset && !keepFolder.empty())
+        {
+            m_selectedFolder = FindFolder(m_rootFolder, keepFolder);
+        }
+        if (!m_selectedAsset && !m_selectedFolder)
+        {
+            m_selectedFolder = &m_rootFolder;
+        }
+    }
+
+    void BottomPanel::OpenAsset(const AssetEntry& entry)
+    {
+        using namespace Spark;
+
+        if (entry.type != Resource::AssetType::Material)
+        {
+            return;
+        }
+
+        auto* context = Material::MaterialExecuteContext::Current();
+        if (!context)
+        {
+            return;
+        }
+
+        // Resolve, never a fresh entity: it keys on MaterialAssetRef, so this lands on the
+        // same material the objects using the asset already render with.
+        const Material::MaterialHandle handle = Material::Resolve(*context, entry.id);
+        if (handle == Material::NullMaterial)
+        {
+            LOG_WARN("[BottomPanel] Cannot open material {}", entry.id.GetPath().c_str());
+            return;
+        }
+
+        MaterialEditBus::Broadcast(&MaterialEditEvents::OpenMaterialEditor, handle);
+    }
+
     void BottomPanel::DrawAssets()
     {
         if (!m_treeBuilt) {
-            m_treeBuilt = true;
-
-            LoadIcons();
-
-            m_rootFolder.name = "Assets";
-            m_selectedFolder = &m_rootFolder;
-
-            if (auto* fileSystem = Spark::Service<Spark::FileSystem>::Get()) {
-                for (const auto& mount : fileSystem->GetMountNames()) {
-                    if (mount == "cache")
-                    {
-                        continue;
-                    }
-                    AssetFolder mountRoot;
-                    mountRoot.name = mount;
-                    mountRoot.fullPath = mount + "://";
-                    ScanDirectory(mountRoot.fullPath, mountRoot);
-                    m_rootFolder.children.push_back(eastl::move(mountRoot));
-                }
-            }
+            RebuildTree();
         }
 
         // ---- 顶部工具栏 ----

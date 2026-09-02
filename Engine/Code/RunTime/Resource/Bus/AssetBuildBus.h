@@ -22,6 +22,11 @@ namespace Spark::Resource
 
         using BusIdType = AssetType;
 
+        //! The main thread (LoadAsset, RegisterFile) and the asset worker dispatch this at
+        //! once. Builders connect before the worker starts and disconnect after it joins,
+        //! which is the condition this asks for.
+        static constexpr bool LocklessDispatch = true;
+
         virtual Ptr<Asset> CreateAsset(const AssetId& id) = 0;
         virtual void       Load(AssetBuildContext& ctx) = 0;
         virtual void       Compile(AssetBuildContext& ctx) = 0;

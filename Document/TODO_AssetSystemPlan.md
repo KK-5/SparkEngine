@@ -1303,19 +1303,13 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 流程 7 属于阶段 4，不在这里。
 
-**一、Browser 认 `.smat`。** 纯接线，是 2、3、6 的共同前置：没有它，导出和新建出来的文件在界面上
-看不见，也没有东西可以拖进材质槽。`.smat` 已经在 `GetSupportAssetType` 里，`AssetRegistry` 启动时
-就会注册；真正缺的是**树只建一次**（`BottomPanel::m_treeBuilt`），新写出来的文件看不见。方案：
-`AssetEditBus` 加 `OnAssetCreated(AssetId)`，`BottomPanel` 收到就标记树待重建，工具栏再加一个手动
-Refresh。重建时按 `fullPath` 找回选中目录——`m_selectedFolder` / `m_selectedAsset` 是指向树内部的
-裸指针，必须先重置。
+~~**一、Browser 认 `.smat`。**~~ ✅ **已落地**，做成了通用的文件监视——详见「文件监视」一节。`.smat`
+本身一直是被认的（`GetSupportAssetType` + `AssetRegistry`），缺的只是「树只建一次」。
 
 ~~**二、材质窗口。**~~ ✅ **已落地**。一次覆盖流程 1 和 4。参数面板可用，预览区留了位置但没有内容。
 详见「材质窗口」一节。
 
-~~**落地时必须同时结清一笔账**：`MaterialRefElement` 的内联展开~~ ✅ **已删除**。原计划要求它和窗口
-同一步落地，实际是先删的——窗口不存在的这段时间里，改模型带进来的材质没有入口。这个空窗是刻意接受
-的，因为材质槽的新形态本身要先验证。
+`MaterialRefElement` 的内联展开 ✅ **已删除**，它的含义变成「显示材质身份 + 打开按钮」。
 
 **三、导出 `.smat`（流程 2）。** 依赖窗口，按钮在那儿。字节从哪来已经有了（`WriteMaterialAsset`），
 缺的是按钮与「原地转换」那几步。内嵌贴图的槽第一版**明确报错拒绝**，不能默默写进去——写进去的
@@ -1323,7 +1317,11 @@ Refresh。重建时按 `fullPath` 找回选中目录——`m_selectedFolder` / `
 **目标目录未定**：材质窗口拿不到 Browser 的选中目录，要么固定 `project://Material/` 只填文件名，
 要么给完整虚拟路径的输入框。
 
-**四、右键新建（流程 6）。** 优先级最低。
+**四、右键新建（流程 6）。** 优先级最低，且和第三件共用同一套东西（定目录、造默认参数的材质、写字节、
+注册），两件一起设计比分开定省事。
+
+**流程 3（拖 `.smat` 到材质槽）现在不被任何东西挡着**，是下一件。Browser 的拖拽源（`DRAG_ASSET_FILE`）
+和落地动作（`Material::Resolve` → handle）都已经在了，材质槽加一个 `BeginDragDropTarget` 即可。
 
 流程 8 缺的那句提示已经顺手做掉了：材质槽在引用解析不出来时显示 `(none)`。
 
@@ -1388,9 +1386,8 @@ Browser 双击 `.smat` 是第二个入口。
 
 ### 材质窗口 ✅ 已落地
 
-**独立浮动窗口，不进 DockBuilder**，`m_open` 默认 false、`Draw()` 开头即返回。原方案是和 Component
-View 并列成 tab，那要去掉那个 dock node 的 `NoTabBar`、改动现有布局；浮动窗口一行布局代码都不用改，
-而 docking 是开着的，用户想把它拖去常驻随时可以。**非模态**——材质编辑必须能一边调参数一边看场景。
+**独立浮动窗口，不进 DockBuilder**，`m_open` 默认 false、`Draw()` 开头即返回。docking 是开着的，用户
+想把它拖去常驻随时可以。**非模态**——材质编辑必须能一边调参数一边看场景。
 
 打开走 `MaterialEditBus::OpenMaterialEditor(MaterialHandle)`，Single handler。**传 handle 不传
 `AssetId`**：窗口编辑的是 MaterialContext 里的那个实例，不是磁盘上的文件——glTF 材质根本没有文件。
@@ -1428,12 +1425,11 @@ Browser 双击 `.smat`（第二入口，随 Browser 那一步做）。
 - **每帧先验目标还在不在**（有没有 `StandardPBR`），失效显示一行提示而不是照常取组件——覆盖合成出来
   的材质实体是会被销毁的。
 - `Begin` 返回 false 也要配对 `End`。
-- **窗口 id 固定为 `"MaterialEditor"`**。原方案是 `"… - Wood.smat###MaterialEditor"`，自绘标题栏之后
-  显示文本不再经过窗口名，`###` 那一半也就不需要了；材质名画在标题栏里。
+- **窗口 id 固定为 `"MaterialEditor"`**，不带材质名。显示文本走自绘标题栏，不经过窗口名，所以不需要
+  `###` 那套分隔。
 
-**Shading Model 改成了 Combo（只有一项）**，推翻了原来「纯文本，不摆只有一项的选择器」的判断——设计稿
-按可选设计，一个禁不掉的下拉比一行死文本更能说明「这里将来能选」。**纯 UI 层的枚举**：`.smat` 里
-`shadingModel` 仍写参数类型的反射名，资产格式一个字节没动。
+**Shading Model 是一个只有一项的 Combo**，不是死文本——它更能说明「这里将来能选」。**纯 UI 层的枚举**：
+`.smat` 里 `shadingModel` 仍写参数类型的反射名，资产格式一个字节没动。
 
 **四处 ImGui 陷阱，都踩过一遍：**
 
@@ -1457,18 +1453,68 @@ Browser 双击 `.smat`（第二入口，随 Browser 那一步做）。
 **仍然不做**：预览（要一个离屏 pass + 相机 + 球 mesh，是渲染层的工作量，不是 UI 的）、`Stats` 页
 （没有可显示的量）、遮罩（材质编辑要一边看场景）。
 
+### 文件监视 ✅ 已落地
+
+挂载目录里出现新文件，资产库和 Browser 自己就知道了，不需要任何人通知。三层：
+
+```
+DirectoryChangeReader     Platform/Windows/RunTime/Core/VFS/   ReadDirectoryChangesW，无策略
+FileSystemMonitor         Core/VFS/    一个线程等所有 watch，线程内去抖 200ms
+FileEventBus              Core/VFS/    EnableEventQueue；ExecuteQueuedEvents 在 SparkEngine::Run
+   ├─ SparkAssetManager   RegisterFile（启动遍历与 watcher 通知共用同一段）
+   └─ BottomPanel         置 m_treeBuilt = false，下次 DrawAssets 重建
+```
+
+**两个消费者各连文件事件，不串成一条链。** Browser 的兴趣集比 AssetManager **大**：它还要知道**删除**
+（树是遍历磁盘建的，文件没了自然消失，流程 8 的一半白送），而资产库这一步不处理删除（db 从不驱逐）。
+把 Browser 挂在「资产注册成功」后面，删除就永远传不到它。
+
+**顺序无关是刻意的**：两个 handler 谁先谁后都不影响结果——Browser 只置脏标记、真正重建在之后的
+`DrawAssets`，而 `RebuildTree` 自己会先调一次 `AssetRegistry()`。
+
+#### 必须踩准的点
+
+- **单线程等 N 个句柄**，不是一个 mount 一个线程。`WaitForMultipleObjects` 一次能等 64 个，而
+  `ReadDirectoryChangesW` 是 overlapped I/O——线程停在内核等待上，**不扫描、空闲 0 CPU**。
+- **stop 事件放索引 0**：`WaitForMultipleObjects` 返回**最小**的已触发索引，变更风暴中途要求停止才能
+  立刻生效。
+- **去抖放在工作线程**，不是主线程。一次保存产生多个通知；放在工作线程就不需要主线程每帧 `Poll`，
+  `VFSSystem` 也不必变成 `TickBus::Handler`。没有待处理项时 `INFINITE` 睡死。
+- **`Close()` 里 `CancelIoEx` 之后必须等**（`GetOverlappedResult(wait=TRUE)`）。内核持有缓冲区和
+  `OVERLAPPED` 的裸指针，不等就是往已释放内存里写——偶发、极难查。
+- **溢出 = 读到 0 字节**，不是"没变化"。内核丢了一批说不出名字的变更，唯一正确反应是全量重扫。
+- **`cache://` 不监视**（`Mount(..., false)`），否则每次烘焙都是自激。这个 flag 只在 `VFSSystem` 上，
+  没进 `FileSystem` 接口——`MountTable` 是纯路径表，不该携带一个它永远不看的参数。
+- **引擎自己写的文件到达时是 `RENAMED_NEW_NAME` 不是 `ADDED`**，因为 `WriteFile` 是临时文件 + rename
+  的原子写。副作用是好的：收到通知时内容必然完整。
+- **`RebuildTree` 的选中项按值抄出来再清空**。`m_selectedFolder` / `m_selectedAsset` 指进正在被销毁的
+  vector。
+
+#### 一笔顺带还掉的债：两条总线的多线程安全
+
+`AssetBuildBus` 与 `AssetBus` 都加了 `static constexpr bool LocklessDispatch = true`。
+
+两条总线都会被两个线程同时派发（主线程 `LoadAsset` → `ProcessAsset`，worker `ProcessThread` →
+`ProcessAsset`），而在默认的 `NullMutex` 下 `EBusCallstackStorage` 走 `<C, false>` 特化——**派发调用栈
+是一个共享裸指针，不是 `thread_local`**。文件监视又新增了两条自发触发的主线程派发
+（`OnFileAdded` → `RegisterFile` → `CreateAsset`、`RebuildTree` → `AssetRegistry()`），撞车窗口从
+「用户主动加载时」扩大到「任何文件出现时」。
+
+`LocklessDispatch` 让 `ContextMutexType` 变成 `std::shared_mutex`：调用栈变 `thread_local`、
+connect/disconnect 上真锁，**而 `DispatchLockGuard` 仍是 `NullLockGuard`，派发不串行**——`Compile` 一个
+glTF 能拿几秒，串行化会直接卡住主线程。
+
+**它换来的不变量**：不能在派发进行中连接/断开 handler。今天成立（builder 在 worker 启动前连接、join
+之后断开；`AssetHandler` 在编辑器 setup/teardown），但谁想动态挂 handler 就破了。
+
 ### 编辑器主题与字体 ✅ 已落地
 
 `Editor/UI/Private/EditorTheme.h/.cpp`：一张色表 + `Theme::Scoped`（push/pop 整套 `ImGuiCol_` 与
 `StyleVar`）+ `Theme::ScopedFont`。目前**只作用于材质窗口**，其它面板还是 ImGui 默认深色；将来推成
 全局就是把同一张表搬进 `SparkImGui` 的 style 设置，所以表放在这里而不是那个窗口里面。
 
-两件当时判断错、后来靠设计稿的真值纠正的事，记下来免得再犯：
-
-- **边框和文字都是分级的**，不是一种。边框三级（窗口 / 面板间 / 块间），文字五级（标题 / 值 / 字段名 /
-  次要 / 分节头）。第一版把它们各压成一级，结果整个面板「平」，看不出层次——这不是配色偏差，是层级
-  丢失。
-- **从截图取色不可靠**。第一版十几个色值全是肉眼取的，拿到 HTML 之后没有一个是对的。
+**边框和文字都是分级的**，不是一种：边框三级（窗口 / 面板间 / 块间），文字五级（标题 / 值 / 字段名 /
+次要 / 分节头）。压成一级面板就「平」了，看不出层次——这是层级丢失，不是配色偏差。
 
 字体（`Engine/Asset/Font/`，SIL OFL，随仓库分发）：
 
@@ -2193,10 +2239,13 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 - **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对），打标记也已
   落地（六个 `Reflect.h` 共 36 个字段 + `Core/Reflect.h` 的数学分量）。剩下的是给那几个还没有测试
   目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
-- **阶段 3**：资产层、运行期、`.smat` 写侧、字段渲染机器、材质槽的新形态、**材质窗口**都已落地（见
-  「状态」）。**下一件是 Browser 认 `.smat`**——它是导出与右键新建的共同前置，没有它写出来的文件在
-  界面上看不见。之后是导出（按钮位置已经在底栏了，缺的是接线），最后是右键新建。清单与理由见
-  「使用流程」下的「剩下的四件事」。**导出的目标目录仍未定。**
+- **阶段 3**：资产层、运行期、`.smat` 写侧、字段渲染机器、材质槽的新形态、材质窗口、**Browser 认
+  `.smat`（做成了文件监视）** 都已落地（见「状态」）。**下一件是流程 3——拖 `.smat` 到材质槽**，
+  它不被任何东西挡着。之后是导出和右键新建，两件共用一套东西、应当一起设计；**导出的目标目录仍未定**。
+  清单与理由见「使用流程」下的「剩下的四件事」。
+- **文件监视顺带把待办 A 的一半基础设施建好了**：`OnFileModified` 已经在到达，只是没人接。热重载现在
+  差的是依赖边，不是"怎么知道文件变了"。但**不要**为材质单独接一个热重载——那正是待办 A 要解决的
+  "改一个 `.hlsli` 该重建谁"，开一个只服务单一类型的特例会把这个问题埋掉。
 - **随阶段 3 记下的一笔债**：材质子资产没有 `Serialize`，而缓存单元里**任何一个 payload 为空就整个
   单元不落盘**（`AssetCache::WriteUnit`）。今天不发作，因为 `AssetType::Model` 本来就不可缓存；等
   Model 转可缓存那一步，得先给 `MaterialAssetBuilder` 补上 `Serialize` / `Deserialize`——独立 `.smat`

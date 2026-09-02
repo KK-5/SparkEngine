@@ -11,10 +11,10 @@ namespace Spark::Resource
 {
     class Asset;
 
-    // NOTE: AssetBus events are dispatched from the AssetManager worker thread
-    // (see AssetManager::ProcessThread). Handlers MUST NOT perform write
-    // operations on ECS contexts (WorldContext, RHIContext, etc.) — reading is
-    // unsafe too unless the owning system has explicit synchronization in place.
+    // NOTE: AssetBus events are dispatched from whichever thread drove the processing —
+    // the AssetManager worker (ProcessThread) or the caller of LoadAsset. Handlers MUST
+    // NOT perform write operations on ECS contexts (WorldContext, RHIContext, etc.) —
+    // reading is unsafe too unless the owning system has explicit synchronization in place.
     // To mutate ECS state in response to asset events, use AssetResolveBus
     // instead, which has EnableEventQueue = true and fires handlers on the main
     // thread after ExecuteQueuedEvents().
@@ -24,6 +24,10 @@ namespace Spark::Resource
         static const EBusAddressPolicy AddressPolicy = EBusAddressPolicy::ById;
 
         using BusIdType = AssetType;
+
+        //! Both threads above can be dispatching at once. Handlers connect at editor setup
+        //! and disconnect at teardown, never mid-dispatch.
+        static constexpr bool LocklessDispatch = true;
 
         // These fire on the AssetManager worker thread.
         virtual void OnAssetReady(Asset& asset) {}

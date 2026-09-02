@@ -6,6 +6,7 @@
 #include <ECS/ExecuteContext.h>
 #include <ECS/Common.h>
 #include <Reflection/TypeRegistry.h>
+#include <VFS/FileEventBus.h>
 #include <Reflect.h>
 
 #include <Resource/Reflect.h>
@@ -43,8 +44,9 @@ namespace Spark
         m_vfs->Mount("engine", "Engine/Asset");
 
         // Not alongside the editor's mounts: those land after SetUp returns, by which time
-        // AssetManager has already decided whether a cache exists.
-        m_vfs->Mount(Resource::kCacheMountName, "Cache");
+        // AssetManager has already decided whether a cache exists. Unwatched -- every event
+        // would be our own cook coming back.
+        m_vfs->Mount(Resource::kCacheMountName, "Cache", false);
 
         m_entityReaper = CreateSystem<EntityReaper>();
         m_entityReaper->Init();
@@ -153,6 +155,8 @@ namespace Spark
         {
             // Fetch asset resolve request
             Resource::AssetResolveBus::ExecuteQueuedEvents();
+
+            FileEventBus::ExecuteQueuedEvents();
 
 
             float deltaTime = CalculDeltaTime();
