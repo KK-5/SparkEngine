@@ -1303,23 +1303,13 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 流程 7 属于阶段 4，不在这里。
 
-~~**一、Browser 认 `.smat`。**~~ ✅ **已落地**，但做成的东西比原计划大得多——详见「文件监视」一节。
-
-原计划是「`AssetEditBus` 加 `OnAssetCreated`，导出时广播，再加一个手动 Refresh 按钮」。这条被推翻了：
-**目录变化应该由操作系统告诉我们，不是由写文件的那段代码顺手通知**。前者对编辑器外面拷进来的文件同样
-成立，后者只对我们自己写的文件成立，而「把一个 `.smat` 拷进资产目录」恰恰是最自然的用法。
-
-于是 `OnAssetCreated` 没有加，**Refresh 按钮也没有**——它唯一的理由本来是兜住 watcher 溢出，而溢出
-本来就走 `OnFileWatchOverflow` 自动重扫了，留一个手动按钮是拿已经自动处理的情况去论证一个多余控件。
-
-`.smat` 本身其实一直是被认的（`GetSupportAssetType` + `AssetRegistry`），真正缺的只是「树只建一次」。
+~~**一、Browser 认 `.smat`。**~~ ✅ **已落地**，做成了通用的文件监视——详见「文件监视」一节。`.smat`
+本身一直是被认的（`GetSupportAssetType` + `AssetRegistry`），缺的只是「树只建一次」。
 
 ~~**二、材质窗口。**~~ ✅ **已落地**。一次覆盖流程 1 和 4。参数面板可用，预览区留了位置但没有内容。
 详见「材质窗口」一节。
 
-~~**落地时必须同时结清一笔账**：`MaterialRefElement` 的内联展开~~ ✅ **已删除**。原计划要求它和窗口
-同一步落地，实际是先删的——窗口不存在的这段时间里，改模型带进来的材质没有入口。这个空窗是刻意接受
-的，因为材质槽的新形态本身要先验证。
+`MaterialRefElement` 的内联展开 ✅ **已删除**，它的含义变成「显示材质身份 + 打开按钮」。
 
 **三、导出 `.smat`（流程 2）。** 依赖窗口，按钮在那儿。字节从哪来已经有了（`WriteMaterialAsset`），
 缺的是按钮与「原地转换」那几步。内嵌贴图的槽第一版**明确报错拒绝**，不能默默写进去——写进去的
@@ -1396,9 +1386,8 @@ Browser 双击 `.smat` 是第二个入口。
 
 ### 材质窗口 ✅ 已落地
 
-**独立浮动窗口，不进 DockBuilder**，`m_open` 默认 false、`Draw()` 开头即返回。原方案是和 Component
-View 并列成 tab，那要去掉那个 dock node 的 `NoTabBar`、改动现有布局；浮动窗口一行布局代码都不用改，
-而 docking 是开着的，用户想把它拖去常驻随时可以。**非模态**——材质编辑必须能一边调参数一边看场景。
+**独立浮动窗口，不进 DockBuilder**，`m_open` 默认 false、`Draw()` 开头即返回。docking 是开着的，用户
+想把它拖去常驻随时可以。**非模态**——材质编辑必须能一边调参数一边看场景。
 
 打开走 `MaterialEditBus::OpenMaterialEditor(MaterialHandle)`，Single handler。**传 handle 不传
 `AssetId`**：窗口编辑的是 MaterialContext 里的那个实例，不是磁盘上的文件——glTF 材质根本没有文件。
@@ -1436,12 +1425,11 @@ Browser 双击 `.smat`（第二入口，随 Browser 那一步做）。
 - **每帧先验目标还在不在**（有没有 `StandardPBR`），失效显示一行提示而不是照常取组件——覆盖合成出来
   的材质实体是会被销毁的。
 - `Begin` 返回 false 也要配对 `End`。
-- **窗口 id 固定为 `"MaterialEditor"`**。原方案是 `"… - Wood.smat###MaterialEditor"`，自绘标题栏之后
-  显示文本不再经过窗口名，`###` 那一半也就不需要了；材质名画在标题栏里。
+- **窗口 id 固定为 `"MaterialEditor"`**，不带材质名。显示文本走自绘标题栏，不经过窗口名，所以不需要
+  `###` 那套分隔。
 
-**Shading Model 改成了 Combo（只有一项）**，推翻了原来「纯文本，不摆只有一项的选择器」的判断——设计稿
-按可选设计，一个禁不掉的下拉比一行死文本更能说明「这里将来能选」。**纯 UI 层的枚举**：`.smat` 里
-`shadingModel` 仍写参数类型的反射名，资产格式一个字节没动。
+**Shading Model 是一个只有一项的 Combo**，不是死文本——它更能说明「这里将来能选」。**纯 UI 层的枚举**：
+`.smat` 里 `shadingModel` 仍写参数类型的反射名，资产格式一个字节没动。
 
 **四处 ImGui 陷阱，都踩过一遍：**
 
@@ -1477,15 +1465,12 @@ FileEventBus              Core/VFS/    EnableEventQueue；ExecuteQueuedEvents �
    └─ BottomPanel         置 m_treeBuilt = false，下次 DrawAssets 重建
 ```
 
-**两个消费者各连各的，不串成一条链。** 一度想让 Browser 改听「资产注册成功」，被否掉了：Browser 的
-兴趣集比 AssetManager **大**——它还要知道**删除**（树是遍历磁盘建的，文件没了自然消失，流程 8 的一半
-白送），而资产库这一步根本不处理删除（db 从不驱逐）。走「资产注册成功」这条，删除永远传不到它。
+**两个消费者各连文件事件，不串成一条链。** Browser 的兴趣集比 AssetManager **大**：它还要知道**删除**
+（树是遍历磁盘建的，文件没了自然消失，流程 8 的一半白送），而资产库这一步不处理删除（db 从不驱逐）。
+把 Browser 挂在「资产注册成功」后面，删除就永远传不到它。
 
-顺带也否掉了「往 `AssetBus` 加一个 `OnAssetRegistry`」：`AssetBus` 是 `ById`（按 `AssetType`）分址的，
-而 Browser 要的是**所有类型**，两者拧着。今天也没有第二个消费者，为不存在的消费者先摆事件不划算。
-
-**顺序无关是刻意的**：两个 handler 在同一条事件上谁先谁后都不影响结果——Browser 只置脏标记、真正重建
-在之后的 `DrawAssets`，而 `RebuildTree` 自己会先调一次 `AssetRegistry()`。
+**顺序无关是刻意的**：两个 handler 谁先谁后都不影响结果——Browser 只置脏标记、真正重建在之后的
+`DrawAssets`，而 `RebuildTree` 自己会先调一次 `AssetRegistry()`。
 
 #### 必须踩准的点
 
@@ -1507,20 +1492,20 @@ FileEventBus              Core/VFS/    EnableEventQueue；ExecuteQueuedEvents �
 
 #### 一笔顺带还掉的债：两条总线的多线程安全
 
-查线程冲突时发现的，**不是这次改出来的，但被这次放大了**：`AssetBuildBus` 和 `AssetBus` 都没声明
-`MutexType`，吃默认的 `NullMutex`，于是 `EBusCallstackStorage` 走 `<C, false>` 特化——**派发调用栈是
-一个共享的裸指针，不是 `thread_local`**。而这两条总线本来就被两个线程同时派发（主线程 `LoadAsset` →
-`ProcessAsset`，worker `ProcessThread` → `ProcessAsset`）。
+`AssetBuildBus` 与 `AssetBus` 都加了 `static constexpr bool LocklessDispatch = true`。
 
-这次新增的 `OnFileAdded` → `RegisterFile` → `CreateAsset` 和 `RebuildTree` → `AssetRegistry()` 是**自发
-触发**的主线程派发，撞车窗口从「用户主动加载时」扩大到「任何文件出现时」。
+两条总线都会被两个线程同时派发（主线程 `LoadAsset` → `ProcessAsset`，worker `ProcessThread` →
+`ProcessAsset`），而在默认的 `NullMutex` 下 `EBusCallstackStorage` 走 `<C, false>` 特化——**派发调用栈
+是一个共享裸指针，不是 `thread_local`**。文件监视又新增了两条自发触发的主线程派发
+（`OnFileAdded` → `RegisterFile` → `CreateAsset`、`RebuildTree` → `AssetRegistry()`），撞车窗口从
+「用户主动加载时」扩大到「任何文件出现时」。
 
-修法是两条总线各加一行 `static constexpr bool LocklessDispatch = true`。它让 `ContextMutexType` 变成
-`std::shared_mutex`，于是调用栈变 `thread_local`、connect/disconnect 上真锁，**而 `DispatchLockGuard`
-是 `NullLockGuard`——派发不串行**。这点很关键：`Compile` 一个 glTF 能拿几秒，串行化会直接卡住主线程。
+`LocklessDispatch` 让 `ContextMutexType` 变成 `std::shared_mutex`：调用栈变 `thread_local`、
+connect/disconnect 上真锁，**而 `DispatchLockGuard` 仍是 `NullLockGuard`，派发不串行**——`Compile` 一个
+glTF 能拿几秒，串行化会直接卡住主线程。
 
 **它换来的不变量**：不能在派发进行中连接/断开 handler。今天成立（builder 在 worker 启动前连接、join
-之后断开；`AssetHandler` 在编辑器 setup/teardown），但这是新的约束，谁想动态挂 handler 就破了。
+之后断开；`AssetHandler` 在编辑器 setup/teardown），但谁想动态挂 handler 就破了。
 
 ### 编辑器主题与字体 ✅ 已落地
 
@@ -1528,12 +1513,8 @@ FileEventBus              Core/VFS/    EnableEventQueue；ExecuteQueuedEvents �
 `StyleVar`）+ `Theme::ScopedFont`。目前**只作用于材质窗口**，其它面板还是 ImGui 默认深色；将来推成
 全局就是把同一张表搬进 `SparkImGui` 的 style 设置，所以表放在这里而不是那个窗口里面。
 
-两件当时判断错、后来靠设计稿的真值纠正的事，记下来免得再犯：
-
-- **边框和文字都是分级的**，不是一种。边框三级（窗口 / 面板间 / 块间），文字五级（标题 / 值 / 字段名 /
-  次要 / 分节头）。第一版把它们各压成一级，结果整个面板「平」，看不出层次——这不是配色偏差，是层级
-  丢失。
-- **从截图取色不可靠**。第一版十几个色值全是肉眼取的，拿到 HTML 之后没有一个是对的。
+**边框和文字都是分级的**，不是一种：边框三级（窗口 / 面板间 / 块间），文字五级（标题 / 值 / 字段名 /
+次要 / 分节头）。压成一级面板就「平」了，看不出层次——这是层级丢失，不是配色偏差。
 
 字体（`Engine/Asset/Font/`，SIL OFL，随仓库分发）：
 
