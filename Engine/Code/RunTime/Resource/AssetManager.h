@@ -8,6 +8,8 @@
 #include <condition_variable>
 
 #include <Service/Service.h>
+#include <VFS/FileEventBus.h>
+
 #include "Asset.h"
 #include "AssetManagerInterface.h"
 
@@ -32,7 +34,8 @@ namespace Spark::Resource
         UniquePtr<AssetData> data;
     };
 
-    class SparkAssetManager final : public Service<AssetManager>::Handler
+    class SparkAssetManager final : public Service<AssetManager>::Handler,
+                                    public FileEventBus::Handler
     {
     public:
         SparkAssetManager();
@@ -57,12 +60,21 @@ namespace Spark::Resource
 
         void ReleaseAsset(const AssetId& id, const Asset* self) override;
 
+        // Modified and Removed are deliberately not handled: reloading a changed asset
+        // needs dependency edges that do not exist yet, and the database never evicts.
+        void OnFileAdded(eastl::string virtualPath) override;
+        void OnFileWatchOverflow() override;
+
         //! Opt-in, main-thread setup of the image compiler's GPU EnvironmentBaker.
         //! Call after Init(), before any cubemap asset is requested
         //! (see ImageAssetBuilder::InitEnvironmentBaker). 
         bool InitEnvironmentBaker();
 
     private:
+        //! One file into the database, if its extension names an asset type we build and it
+        //! is not already there. Shared by the startup walk and the watcher.
+        bool RegisterFile(eastl::string_view virtualPath);
+
         Ptr<Asset> CreateAsset(const AssetId& id);
 
         void EnqueueForProcessing(Asset& asset);

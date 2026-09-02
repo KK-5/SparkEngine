@@ -53,10 +53,18 @@ namespace Spark::Resource
 
         m_shutdown = false;
         m_processThread = std::thread(&SparkAssetManager::ProcessThread, this);
+
+        // After the builders: CreateAsset wants one registered for the type.
+        FileEventBus::Handler::BusConnect();
     }
 
     void SparkAssetManager::ShutdownInternal()
     {
+        if (FileEventBus::Handler::BusIsConnected())
+        {
+            FileEventBus::Handler::BusDisconnect();
+        }
+
         {
             std::lock_guard lock(m_queueMutex);
             m_shutdown = true;
@@ -551,6 +559,30 @@ namespace Spark::Resource
         return MakeAssetIdForType(virtualPath, type);
     }
 
+    bool SparkAssetManager::RegisterFile(eastl::string_view virtualPath)
+    {
+        const AssetType type = GetSupportAssetType(virtualPath);
+        if (type == AssetType::Unknown)
+        {
+            return false;
+        }
+
+        AssetId id = MakeAssetIdForType(virtualPath, type);
+        if (!id.IsValid() || m_db->Find(id))
+        {
+            return false;
+        }
+
+        Ptr<Asset> asset = CreateAsset(id);
+        if (!asset)
+        {
+            return false;
+        }
+
+        m_db->InsertOrGet(id, asset);
+        return true;
+    }
+
     void SparkAssetManager::AssetRegistry()
     {
         if (!m_fileSystem)
@@ -572,24 +604,18 @@ namespace Spark::Resource
 
             m_fileSystem->IterateDirectory(root, [this](eastl::string_view virtualPath)
             {
-                const AssetType type = GetSupportAssetType(virtualPath);
-                if (type == AssetType::Unknown)
-                {
-                    return;
-                }
-
-                AssetId id = MakeAssetIdForType(virtualPath, type);
-                if (!id.IsValid() || m_db->Find(id))
-                {
-                    return;
-                }
-
-                Ptr<Asset> asset = CreateAsset(id);
-                if (asset)
-                {
-                    m_db->InsertOrGet(id, asset);
-                }
+                RegisterFile(virtualPath);
             });
         }
+    }
+
+    void SparkAssetManager::OnFileAdded(eastl::string virtualPath)
+    {
+        RegisterFile(virtualPath);
+    }
+
+    void SparkAssetManager::OnFileWatchOverflow()
+    {
+        AssetRegistry();
     }
 }

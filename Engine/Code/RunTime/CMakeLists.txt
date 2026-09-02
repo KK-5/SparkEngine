@@ -1,8 +1,8 @@
 set(TARGET_NAME SparkRuntime)
 
+add_subdirectory(Platform)   # header-only; Core links it
 add_subdirectory(Core)
 add_subdirectory(Resource)
-add_subdirectory(Platform)
 add_subdirectory(Feature/Input)
 add_subdirectory(Feature/Transform)
 add_subdirectory(Feature/Camera)

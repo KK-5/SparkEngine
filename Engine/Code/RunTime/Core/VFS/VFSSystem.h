@@ -3,6 +3,7 @@
 #include <ECS/ISystem.h>
 #include <Service/Service.h>
 
+#include "FileSystemMonitor.h"
 #include "MountTable.h"
 
 namespace Spark
@@ -22,11 +23,23 @@ namespace Spark
 
         void Mount(eastl::string_view name, eastl::string_view physicalDir) override
         {
+            Mount(name, physicalDir, true);
+        }
+
+        //! `watch` false leaves the tree unmonitored -- for one holding generated output,
+        //! where every event would be our own writes coming back.
+        void Mount(eastl::string_view name, eastl::string_view physicalDir, bool watch)
+        {
             m_table.Mount(name, physicalDir);
+            if (watch)
+            {
+                m_monitor.Watch(name, physicalDir);
+            }
         }
 
         void Unmount(eastl::string_view name) override
         {
+            m_monitor.Unwatch(name);
             m_table.Unmount(name);
         }
 
@@ -79,8 +92,10 @@ namespace Spark
 
     private:
         void InitInternal() override {}
-        void ShutdownInternal() override {}
 
-        MountTable m_table;
+        void ShutdownInternal() override { m_monitor.Stop(); }
+
+        MountTable        m_table;
+        FileSystemMonitor m_monitor;
     };
 }

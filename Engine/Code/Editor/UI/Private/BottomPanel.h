@@ -4,13 +4,23 @@
 #include <EASTL/vector.h>
 
 #include <Resource/Asset.h>
+#include <VFS/FileEventBus.h>
 
 namespace Editor
 {
-    class BottomPanel final
+    class BottomPanel final : public Spark::FileEventBus::Handler
     {
     public:
+        BottomPanel();
+        ~BottomPanel() override;
+
         void Draw();
+
+        // All three only mark the tree stale; the rebuild happens in the next DrawAssets,
+        // so none of them depends on running before or after AssetManager's handler.
+        void OnFileAdded(eastl::string virtualPath) override;
+        void OnFileRemoved(eastl::string virtualPath) override;
+        void OnFileWatchOverflow() override;
 
         enum class Tab
         {
@@ -42,6 +52,18 @@ namespace Editor
         void ScanDirectory(const eastl::string& path, AssetFolder& folder);
         void DrawFolderTree(const AssetFolder& folder);
         void DrawAssetList();
+
+        //! Throws the tree away and walks the mounts again. Selection is carried across by
+        //! VALUE: m_selectedFolder and m_selectedAsset point into the vectors being rebuilt.
+        void RebuildTree();
+
+        const AssetFolder* FindFolder(const AssetFolder& folder, const eastl::string& fullPath) const;
+
+        void FindAsset(const AssetFolder& folder, const Spark::Resource::AssetId& id,
+                       const AssetFolder*& outFolder, const AssetEntry*& outEntry) const;
+
+        //! Double-click. Only materials do anything so far.
+        void OpenAsset(const AssetEntry& entry);
 
         AssetFolder          m_rootFolder;
         const AssetFolder*   m_selectedFolder = nullptr;
