@@ -60,4 +60,14 @@ namespace Spark::Material
         mc.Add<MaterialAssetRef>(h, MaterialAssetRef{id});
         return h;
     }
+
+    MaterialHandle MaterialFromAssetId(const Resource::AssetId& id)
+    {
+        MaterialContext* mc = MaterialExecuteContext::Current();
+        if (!mc)
+        {
+            return NullMaterial;
+        }
+        return Resolve(*mc, id);
+    }
 }

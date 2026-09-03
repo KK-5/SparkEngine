@@ -47,6 +47,17 @@ namespace Editor
             Spark::TypeId              fieldId,
             Spark::Resource::AssetId   assetId,
             Spark::Resource::AssetType assetType) {}
+
+        //! A material asset was dropped onto a material reference field (Component View's
+        //! material slot). Same async handling as above; what differs is the terminal --
+        //! the field holds a MaterialHandle, so the id is resolved into a material entity
+        //! before it is written. Sent separately because the drop site is the only place
+        //! that knows the field's kind.
+        virtual void OnMaterialDragToComponent(
+            Spark::Entity            entity,
+            Spark::TypeId            componentType,
+            Spark::TypeId            fieldId,
+            Spark::Resource::AssetId assetId) {}
     };
 
     using AssetEditBus = Spark::EBus<AssetEditEvents>;

@@ -10,6 +10,8 @@
 
 #include <UI/Bus/AssetEditBus.h>
 
+#include "FieldWidgets.h"
+
 namespace Editor
 {
     using namespace Spark;
@@ -48,27 +50,22 @@ namespace Editor
         // user pressed the mouse to rotate it.
         ImGui::Dummy(viewportSize);
         ImGui::PushStyleColor(ImGuiCol_DragDropTarget, IM_COL32(0, 0, 0, 0));
-        if (ImGui::BeginDragDropTarget())
+        // Unknown: the scene takes any asset and decides per type below.
+        if (const Resource::Asset* asset = AcceptAssetDrop(Resource::AssetType::Unknown))
         {
-            auto* payload = ImGui::AcceptDragDropPayload("DRAG_ASSET_FILE");
-            if (payload)
+            LOG_INFO("[SceneView] Accept asset {}", asset->GetAssetId().GetPath().c_str());
+            switch (asset->GetAssetType())
             {
-                auto* asset = *static_cast<Resource::Asset**>(payload->Data);
-                LOG_INFO("[SceneView] Accept asset {}", asset->GetAssetId().GetPath().c_str());
-                switch (asset->GetAssetType())
-                {
-                case Resource::AssetType::Model:
-                {
-                    auto* modelAsset = static_cast<Resource::ModelAsset*>(asset);
-                    AssetEditBus::Broadcast(&AssetEditBus::Events::OnModelAssetDragToScene, *modelAsset);
-                    break;
-                }
-                
-                default:
-                    break;
-                }
+            case Resource::AssetType::Model:
+            {
+                const auto* modelAsset = static_cast<const Resource::ModelAsset*>(asset);
+                AssetEditBus::Broadcast(&AssetEditBus::Events::OnModelAssetDragToScene, *modelAsset);
+                break;
             }
-            ImGui::EndDragDropTarget();
+
+            default:
+                break;
+            }
         }
         ImGui::PopStyleColor();
         ImGui::End();

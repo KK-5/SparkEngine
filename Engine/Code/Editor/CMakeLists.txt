@@ -10,6 +10,7 @@ add_executable(${TARGET_NAME}
     UI/Private/EditorTheme.cpp
     UI/Private/FieldWidgets.cpp
     UI/Private/MaterialUI.cpp
+    UI/Private/MaterialSlot.cpp
     UI/Private/MaterialWindow.cpp
     Handler/AssetHandler.cpp
     Handler/ComponentAssetResolver.cpp

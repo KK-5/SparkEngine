@@ -21,10 +21,14 @@ namespace Editor
         AssetEditBus::Handler::BusConnect();
 
         // MultiHandler: observe Ready/Error for every asset type a component field
-        // might accept. Model is needed for drag-to-scene; Image for skybox / textures.
-        // Extend this list as more asset types become droppable.
+        // might accept. Model is needed for drag-to-scene; Image for skybox / textures;
+        // Material for the material slot.
+        //
+        // This subscription exists only to wait, so it goes away together with the pending
+        // tracks below once asset preloading guarantees a dropped asset is already Ready.
         Resource::AssetBus::MultiHandler::BusConnect(Resource::AssetType::Model);
         Resource::AssetBus::MultiHandler::BusConnect(Resource::AssetType::Image);
+        Resource::AssetBus::MultiHandler::BusConnect(Resource::AssetType::Material);
     }
 
     AssetHandler::~AssetHandler()
@@ -92,8 +96,26 @@ namespace Editor
         Spark::Resource::AssetId   assetId,
         Spark::Resource::AssetType assetType)
     {
+        QueueComponentBind(
+            PendingComponentBind{ assetId, entity, componentType, fieldId, assetType, BindKind::AssetId });
+    }
+
+    void AssetHandler::OnMaterialDragToComponent(
+        Spark::Entity            entity,
+        Spark::TypeId            componentType,
+        Spark::TypeId            fieldId,
+        Spark::Resource::AssetId assetId)
+    {
+        QueueComponentBind(PendingComponentBind{
+            assetId, entity, componentType, fieldId, Spark::Resource::AssetType::Material,
+            BindKind::Material });
+    }
+
+    void AssetHandler::QueueComponentBind(PendingComponentBind bind)
+    {
         using namespace Spark;
 
+        const Resource::AssetId assetId = bind.assetId;
         if (!assetId.IsValid())
         {
             return;
@@ -101,7 +123,7 @@ namespace Editor
 
         // Record identity first so the bind is matched whether the asset is already
         // ready, still loading, or has to be requested fresh.
-        m_pendingBinds.push_back(PendingComponentBind{ assetId, entity, componentType, fieldId, assetType });
+        m_pendingBinds.push_back(bind);
 
         auto* am = Service<Resource::AssetManager>::Get();
         if (!am)
@@ -183,9 +205,18 @@ namespace Editor
         {
             if (it->assetId == assetId)
             {
-                Resource::AssetResolveBus::QueueBroadcast(
-                    &Resource::AssetResolveBusTraits::ResolveAssetToComponent,
-                    it->entity, it->componentType, it->fieldId, it->assetId, it->assetType);
+                if (it->kind == BindKind::Material)
+                {
+                    Resource::AssetResolveBus::QueueBroadcast(
+                        &Resource::AssetResolveBusTraits::ResolveMaterialToComponent,
+                        it->entity, it->componentType, it->fieldId, it->assetId);
+                }
+                else
+                {
+                    Resource::AssetResolveBus::QueueBroadcast(
+                        &Resource::AssetResolveBusTraits::ResolveAssetToComponent,
+                        it->entity, it->componentType, it->fieldId, it->assetId, it->assetType);
+                }
                 it = m_pendingBinds.erase(it);
             }
             else

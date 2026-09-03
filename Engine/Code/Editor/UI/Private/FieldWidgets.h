@@ -5,9 +5,27 @@
 #include <EASTL/string.h>
 
 #include <Reflection/RTTI.h>
+#include <Resource/AssetTypes.h>
+
+namespace Spark::Resource
+{
+    class Asset;
+}
 
 namespace Editor
 {
+    //! The asset dropped on the item submitted just before this call, or nullptr if there
+    //! is no drop this frame or the payload is not of `expected`. AssetType::Unknown takes
+    //! any type. Opens and closes the drop target itself.
+    //!
+    //! Must follow its target item immediately -- ImGui derives the drop target from the
+    //! last item submitted.
+    //!
+    //! This is the only place that knows the payload carries a raw Asset*: AssetId has
+    //! non-trivial members and ImGui copies payloads with memcpy, so a pointer is the only
+    //! thing that can travel in one.
+    const Spark::Resource::Asset* AcceptAssetDrop(Spark::Resource::AssetType expected);
+
     //! The two-column layout every field shares: label on the left, widget on the right.
     //! Returns the "##label" ImGui id for the widget that follows. Exported because the
     //! material slot in Component View draws its own rows and has to line up with these.
@@ -46,10 +64,8 @@ namespace Editor
     //! puts identity on AssetEditBus, and the write lands later, once the asset is loaded,
     //! through whatever context the owning component type is bound to. `editEntity` is a raw
     //! uint32 for the same reason the reflected component ops take one -- it may be a world
-    //! Entity or a MaterialHandle, and nothing here needs to know which.
-    //!
-    //! MaterialRefElement is deliberately NOT handled: a material reference is a reference,
-    //! not a value, and what to do with one belongs to the panel that owns the object.
+    //! Entity or a MaterialHandle, and nothing here needs to know which. The exception is
+    //! MaterialRefElement (see MaterialSlot.h), which only appears on world components.
     bool DrawFieldWidget(const Spark::MetaType& owner, Spark::TypeId fieldId,
                          Spark::MetaData& data, Spark::MetaAny& instance,
                          float width, uint32_t editEntity);

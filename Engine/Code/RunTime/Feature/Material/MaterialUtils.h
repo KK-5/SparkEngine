@@ -22,6 +22,12 @@ namespace Spark::Material
     //! callers fall back to the default material for that frame.
     MaterialHandle Resolve(MaterialContext& mc, const Resource::AssetId& id);
 
+    //! Resolve through the ambient MaterialContext. Assigning a material by asset id is
+    //! something the editor does, and it addresses ECS state by (type, entity) alone --
+    //! Current() stays on this side of the boundary so no caller has to hold a context.
+    //! NullMaterial when there is no context or the asset is not usable yet.
+    MaterialHandle MaterialFromAssetId(const Resource::AssetId& id);
+
     //! The resident default material (marked by DefaultMaterialTag), or NullMaterial
     //! if none is registered yet. The fallback for unset/dangling references.
     inline MaterialHandle GetDefaultMaterial(MaterialContext& mc)

@@ -15,11 +15,30 @@
 #include <Service/Service.h>
 #include <Feature/UI/ImGui/IconManagerInterface.h>
 
+#include "MaterialSlot.h"
 #include "UI/Bus/AssetEditBus.h"
 
 namespace Editor
 {
     using namespace Spark;
+
+    const Resource::Asset* AcceptAssetDrop(Resource::AssetType expected)
+    {
+        const Resource::Asset* dropped = nullptr;
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ASSET_FILE"))
+            {
+                auto* asset = *static_cast<Resource::Asset**>(payload->Data);
+                if (asset && (expected == Resource::AssetType::Unknown || asset->GetAssetType() == expected))
+                {
+                    dropped = asset;
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        return dropped;
+    }
 
     namespace
     {
@@ -451,26 +470,20 @@ namespace Editor
                     ImGui::SetTooltip("%s", display.c_str());
                 }
 
-                if (!ui->readOnly && ImGui::BeginDragDropTarget())
+                if (!ui->readOnly)
                 {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ASSET_FILE"))
+                    if (const Resource::Asset* asset =
+                            AcceptAssetDrop(static_cast<Resource::AssetType>(ui->expectType)))
                     {
-                        auto* asset = *static_cast<Resource::Asset**>(payload->Data);
-                        const bool typeOk = asset
-                            && (ui->expectType == 0 || static_cast<uint32_t>(asset->GetAssetType()) == ui->expectType);
-                        if (typeOk)
-                        {
-                            AssetEditBus::Broadcast(
-                                &AssetEditEvents::OnAssetDragToComponent,
-                                static_cast<Spark::Entity>(editEntity), owner.id(), fieldId,
-                                asset->GetAssetId(), asset->GetAssetType());
-                            // The field itself is written later, once the asset is loaded.
-                            // Reported as a change anyway: what the caller tracks with this
-                            // is "the user edited something", and that already happened.
-                            changed = true;
-                        }
+                        AssetEditBus::Broadcast(
+                            &AssetEditEvents::OnAssetDragToComponent,
+                            static_cast<Spark::Entity>(editEntity), owner.id(), fieldId,
+                            asset->GetAssetId(), asset->GetAssetType());
+                        // The field itself is written later, once the asset is loaded.
+                        // Reported as a change anyway: what the caller tracks with this
+                        // is "the user edited something", and that already happened.
+                        changed = true;
                     }
-                    ImGui::EndDragDropTarget();
                 }
             }
             else
@@ -510,24 +523,19 @@ namespace Editor
                 // Drop an image here: re-tag its id with this slot's usage descriptor so the
                 // texture compiles with the right color space, then request the load. Usage is
                 // the asset's own semantic; the slot only picks which usage-variant to bind.
-                if (!ui->readOnly && ImGui::BeginDragDropTarget())
+                if (!ui->readOnly)
                 {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ASSET_FILE"))
+                    if (const Resource::Asset* asset = AcceptAssetDrop(Resource::AssetType::Image))
                     {
-                        auto* asset = *static_cast<Resource::Asset**>(payload->Data);
-                        if (asset && asset->GetAssetType() == Resource::AssetType::Image)
-                        {
-                            Resource::AssetId usedId = asset->GetAssetId().WithDescriptor(
-                                Resource::ImageAsset::DescriptorForUsage(
-                                    static_cast<Resource::ImageUsage>(ui->usageHint)));
-                            AssetEditBus::Broadcast(
-                                &AssetEditEvents::OnAssetDragToComponent,
-                                static_cast<Spark::Entity>(editEntity), owner.id(), fieldId,
-                                usedId, asset->GetAssetType());
-                            changed = true;
-                        }
+                        Resource::AssetId usedId = asset->GetAssetId().WithDescriptor(
+                            Resource::ImageAsset::DescriptorForUsage(
+                                static_cast<Resource::ImageUsage>(ui->usageHint)));
+                        AssetEditBus::Broadcast(
+                            &AssetEditEvents::OnAssetDragToComponent,
+                            static_cast<Spark::Entity>(editEntity), owner.id(), fieldId,
+                            usedId, asset->GetAssetType());
+                        changed = true;
                     }
-                    ImGui::EndDragDropTarget();
                 }
 
                 // Clear the slot back to None — a direct field write (no async load), on the
@@ -590,6 +598,12 @@ namespace Editor
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "EnumElement expect a enum value!");
             }
+        }
+        else if (static_cast<MaterialRefElement*>(uiElement))
+        {
+            // The one element that is a reference rather than a value, and the only one big
+            // enough to live in its own file.
+            changed = DrawMaterialSlot(owner, fieldId, data, instance, width, editEntity);
         }
 
         return changed;
