@@ -69,6 +69,10 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 组件 key 规则冻结为「类名去掉 `Component` 后缀」）。剩下的就是给 37 个字段打 `Serializable`，以及
 给那六个还没有测试目标的组件找个地方做 round-trip。
 
+**新增一节「资产预加载与编辑器的加载契约」，方案已定、尚未动工。** 加载编排归资产模块，编辑器只读
+状态 + 解析已 `Ready` 的资产；启动同步预加载（欢迎页）+ 运行中后台导入。阶段 3 的流程 3 是第一个
+受益者，它走 `OnAssetDragToComponent` 那条既有路。
+
 另有两项已随 0.a 落地：
 
 - 三个 descriptor 的 `Hash()` 用 `HashString("XxxDescriptor")` 做种子，避免跨类型撞哈希。
@@ -96,7 +100,7 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 | ~~descriptor 不可序列化~~ ✅ | `Resource/AssetJsonSerializer.h` | 阶段 0.c 已完成 |
 | ~~磁盘缓存~~ ✅ | `Resource/Cache/` | 阶段 1 已完成，覆盖顶层 Image 2D |
 | 无资产依赖机制 | 无 | `.hlsli` / `.gltf` 的 `.bin` 变了没人知道；`.hlsli` 甚至不是资产。见阶段 1 待办 A |
-| 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset::Shutdown`→`ReleaseAsset` 够不着 |
+| 内存驻留无淘汰 | `AssetDataBase.h` | map 持强 `Ptr<Asset>`，refcount 永不归零，`Asset::Shutdown`→`ReleaseAsset` 够不着。第二个症状是同步预加载没有上界，见「资产预加载」一节的第一笔债 |
 | 子资产提取未做 | 无 | 单独使用模型的一张贴图，正确做法是提取成独立资产。见「子被直接请求」一节 |
 | ~~材质无运行期资产形态~~ ✅ | `Feature/Material/` | `MaterialAssetRef` + `Material::Resolve` 已落地，一个资产一个实例 |
 | ~~两个平行的 CPU 材质结构~~ ✅ | `ModelAsset.h` | `Resource::Material` 降为 `ModelAssetBuilder` 的 TU 内中间物（`ResolvedMaterial`），`StandardPBRFromModel` 删除 |
@@ -1260,6 +1264,96 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 
 ---
 
+## 资产预加载与编辑器的加载契约
+
+> 方案已定，尚未动工。它不属于任何一个阶段——是资产系统本身的一次修正，阶段 3 的流程 3 是第一个
+> 受益者。
+
+**加载编排属于资产模块，不属于编辑器的某个 handler。** 今天 `AssetHandler` 在做引擎级的策略决定
+（「拖了才加载」），于是同一个资产从 Browser 双击、从拖放、从场景加载三条路进来时的加载时机各不相同，
+只有拖放这条有 pending 状态机兜着。
+
+### 契约
+
+编辑器侧两句：
+
+- **读状态**（`Ready` / `Loading` / `Error`），不参与加载编排——不 `RequestAsset`、不追
+  `OnAssetReady`、不记 pending。
+- **只解析已经 `Ready` 的资产。** 「解析」= 把资产变成场景里的东西：spawn 一个模型、写进组件字段、
+  `Resolve` 成材质实体。三者的共同点就是定义——**主线程、当帧完成、不等任何东西**。需要等的就说明
+  它不属于这一侧。
+
+契约面只有一个状态位。「可用」与「内存驻留」的分离是资产模块内部的事，外部看不见，所以将来把内部
+改成「导入完就丢、用时再取」不波及编辑器一行。
+
+### 两个阶段
+
+| | 何时 | 形态 | 判据 |
+|---|---|---|---|
+| **启动预加载** | 挂载与注册之后，场景加载与各系统 `Init` 之前 | 欢迎页，阻塞用户 | 屏幕上还没有东西，没人被打断 |
+| **运行中导入** | 文件监视报告新文件 | 后台，Browser 显示三态 | 用户正在干活，阻塞不可接受 |
+
+不对称的判据是**有没有一个用户正在交互中**，不是权宜。两半合起来把不变量补全，中间没有缝：启动后
+一切 `Ready`；运行中新进来的在 `Loading` 期间由入口挡住。
+
+底子都在了：`AssetRegistry()` 已经在启动时全量遍历注册，`OnFileAdded → RegisterFile` 已经在跑。
+两半各自差的都是「注册完顺手入队」这一步。
+
+### 入口各自挡，写入点断言
+
+Browser 对非 `Ready` 的资产不开拖拽源。「能拖的一定可用」由机制保证，不靠每个使用点记得检查——
+使用点会越来越多（拖放、右键、菜单、将来的脚本）。Browser 的三种缩略图今天已经在模拟这三态，
+这一侧不是新建，是把「模拟」变成「就是」。
+
+### 五条约束
+
+1. **「同步」是阻塞用户，不是阻塞线程。** 欢迎页存在的意义就是这段时间可以吃满 CPU。今天只有一个
+   worker（`AssetManager.cpp:55` 的 `m_processThread`），主线程 for 循环、或全部入队交给那一个线程，
+   冷启动都是单线程跑完所有 BC 压缩 + DXC + meshopt。形状是：**全部入队 → 主线程泵欢迎页（进度 +
+   窗口消息）直到队列排空**。线程池不是现在必须，但同步预加载把「单 worker」从一个无所谓的选择变成
+   冷启动时间的直接决定项。
+2. **欢迎页自己的依赖必须在预加载之外。** 它要在资产还没加载时渲染，而它需要 RHI device + swapchain
+   + 字体 + 图标。字体走 imgui 直读文件（`SPARK_UI_FONT_DIR`），不经资产系统；**图标走
+   `IconManager::OpenIcon` → 资产系统**。所以欢迎页不用图标，或者有一个极小的 bootstrap 集排在
+   预加载之前。
+3. **启动顺序被钉死。** 预加载夹在「挂载 + 注册」与「场景加载 + 系统 Init」之间。而编辑器的
+   `project` / `editor` 两个挂载今天发生在 `SetUp()` 返回**之后**（见阶段 1 的缓存挂载一节），
+   这个顺序要重排。
+4. **失败不阻塞启动。** `Error` 记下继续，欢迎页末尾给一个失败计数。一个坏文件不能把编辑器堵在
+   欢迎页上。
+5. **同步阶段今天的范围是「所有挂载的文件」。** 当前工程量下成立，伸缩极限见下面第一笔债。
+
+### 连带消失的
+
+判据是**删代码不是搬代码**——照做之后这些东西若一个都没少、只是换了个地方，说明方向判错了：
+
+- `AssetHandler` 的两条 pending 轨道（`m_loadingAssets` / `m_pendingBinds`）、`OnAssetReady` /
+  `OnAssetError` 的分发、`DropPending*` 全部失去存在理由，`AssetHandler` 会缩到接近于零。
+- `ComponentAssetResolver` 里那几处「异步间隙中实体可能已经没了」的防御降级成断言。
+- `AssetResolveBus` 要重新问一遍它还剩什么——它的两个事件都是为了**把写入从 worker 线程排队到
+  主线程**而存在的（头文件注释自己写着这个理由）。是否整条消失，取决于
+  `ResolveModelAssetToScene` 还有没有别的发送方，未查。
+
+### 两笔债
+
+**一、驻留不淘汰与冷启动无上界是同一笔债的两个症状。** 前者让内存一路涨，后者让同步阶段没有上界。
+资产量上来之后，同步阶段要收缩成「扫描 + 校验缓存有效性」，payload 退回按需加载——那就是「可用 /
+驻留」的分离。它被状态位挡住，修它不波及编辑器，所以可以推迟；但会被这两个症状里先到的那个逼出来，
+不能一直推。
+
+**二、`Error` 是不是死态。** 文件改了应该重新导入，`OnFileModified` 今天已经在到达、没人接。这属于
+资产模块，和待办 A 是同一件事，但它决定了 Browser 的 `Error` 态是「等你改文件」还是「永久失败」。
+
+### Browser 侧不需要新机制
+
+`BottomPanel.cpp:465-490` 每帧都在读活状态（`FindAsset` + `GetStatus()`，四态：`NotLoaded` /
+`Loading` / `Compiling` / 其余），所以预加载的进度会自动反映到缩略图上，不依赖文件事件重建树。
+
+但它**从不触发加载**——今天几乎所有资产停在 `NotLoaded`。于是「非 `Ready` 不给拖」这条守卫
+**只能跟着预加载走，不能提前**：现在加等于整个 Browser 都拖不动。
+
+---
+
 ## 阶段 3：材质资产
 
 > **使用流程、数据模型、`.smat` 的形态与产生方式已定**（下四节），其余仍是大致方向。
@@ -1320,8 +1414,21 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
 **四、右键新建（流程 6）。** 优先级最低，且和第三件共用同一套东西（定目录、造默认参数的材质、写字节、
 注册），两件一起设计比分开定省事。
 
-**流程 3（拖 `.smat` 到材质槽）现在不被任何东西挡着**，是下一件。Browser 的拖拽源（`DRAG_ASSET_FILE`）
-和落地动作（`Material::Resolve` → handle）都已经在了，材质槽加一个 `BeginDragDropTarget` 即可。
+**流程 3（拖 `.smat` 到材质槽）是下一件。** Browser 的拖拽源（`DRAG_ASSET_FILE`）和落地动作
+（`Material::Resolve` → handle）都已经在了，材质槽加一个 `BeginDragDropTarget` 即可。**放置之后是否
+还需要等**，取决于「资产预加载与编辑器的加载契约」那一节：预加载落地后拖到的资产一定 `Ready`，写入
+当帧完成，`AssetHandler` 那套 pending 不再参与。**但流程 3 不等它**——两者的代码不重叠，流程 3 复用
+既有的异步编排而不增加它，预加载落地时删的是那套编排，不是这里写的东西。
+
+一个漏了很难查的点：`AssetHandler` 今天只 `BusConnect` 了 `Model` 与 `Image` 两个 `AssetType`，
+**没有 `Material`**。不补上，pending bind 永远等不到 `OnAssetReady`，拖放静默无效。这一行是整个
+流程 3 里**唯一纯为异步而写、注定被预加载删掉**的东西，写的时候就在注释里标明它与 pending 轨道
+同生共死。
+
+**顺带该做的一次去重**：`BeginDragDropTarget` + payload 解包 + 判空 + 类型过滤这六行今天有四份
+（`SceneView`、`AssetElement`、`TextureElement`，再加材质槽）。抽成一个 `AcceptAssetDrop(expected)`，
+也让「payload 里是裸 `Asset*`」这件事只有一个知情点——`AssetId` 带 `Ptr` 成员，进不了 ImGui 那个
+memcpy 的 payload，所以裸指针是被逼出来的，不是随手写的。
 
 流程 8 缺的那句提示已经顺手做掉了：材质槽在引用解析不出来时显示 `(none)`。
 
@@ -1356,10 +1463,27 @@ Material
 / `(none)`。最后一种就是流程 8 那句提示——`.smat` 被删掉后引用解析不出来，对象在静悄悄地用默认材质
 渲染，槽上得说出来。
 
-**拖放还没做**（流程 3）。它不能走 `OnAssetDragToComponent` 那条异步路：那条是「把 `AssetId` 写进
-字段」，而这里字段是 `MaterialHandle`，`field.set` 类型对不上会静默失败。正确做法是 `Material::Resolve`
-拿 handle 直接写——`Resolve` 本来就是文档定的唯一赋值入口，内部 `LoadAsset` 同步，`.smat` 只是一次
-JSON 解析。
+**拖放还没做**（流程 3）。它**走 `OnAssetDragToComponent` 那条既有路**——那条路就是为「一个资产被
+拖到某个组件的某个字段上」建的，材质槽的放置代码与 `AssetElement` 那段逐字相同，只有类型过滤换成
+`Material`。
+
+**唯一的新设计点在终点**：那条路的写入是 `field.set(instance, assetId)`，而材质引用字段装的是
+`MaterialHandle`，类型对不上会静默失败，缺一次 `AssetId → MaterialHandle` 的翻译
+（`Material::Resolve`）。
+
+**翻译挂在 `MaterialHandle` 类型上的一个反射 `Func`**，resolver 查表、类型无关。与
+`ComponentOperation` 同形——op 自己去拿 `MaterialExecuteContext::Current()`，context 不出现在
+编辑器里。
+
+挂在类型上有两条理由：`Resolve` 要一个真的 `MaterialContext&`，而编辑器至今从不碰 context（所有
+ECS 访问都走反射 op）；以及这个 `Func` 今天被异步终点调、预加载落地后被放置点直接调，两边共用同一
+个函数，`ComponentAssetResolver` 被删或降级时它一行不动。
+
+落地前确认 entt 对 `enum class` 字段的 `data.type()` 给的是枚举自己的节点而不是底层整型
+（`ComponentView.cpp:136` 记着它会把枚举的**值**降成 int）。
+
+**放置点只管广播。** 「已经 Ready 就立即解析」这个快路径在下游（`AssetHandler.cpp:114-121`），
+不在 UI 层重复一份。
 
 **材质窗口的主入口是材质槽上的「打开」按钮**，不是 Browser 的选中状态。原因是模型带进来的材质
 （`Chair.glb:material/0`）是子资产、不是文件，**Browser 里选不中它**，而它恰恰是今天唯一的材质来源。
@@ -2225,6 +2349,10 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
   照样能存。阶段 3 落地后表项可以升级成 asset 引用，组件那一侧不用改。）
 
 待办 A（通用依赖机制 + 预加载）── 只有方向 ──► shader 缓存
+   └──► 与「资产预加载与编辑器的加载契约」共用同一次启动遍历
+
+阶段 3 的流程 3（拖 .smat 到材质槽）──► 资产预加载与编辑器的加载契约（已定，未动工）
+  （流程 3 不依赖它：复用既有异步编排，预加载落地后等待自动消失、代码不动）
 
 Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──► cubemap 缓存 ✅
                                                ├──► Model 缓存（还欠待办 A + 二进制格式）
@@ -2239,9 +2367,12 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
 - **阶段 2**：四件前置全部完成（拼写校正、`JsonOperation`、默认值一律写出、名字校对），打标记也已
   落地（六个 `Reflect.h` 共 36 个字段 + `Core/Reflect.h` 的数学分量）。剩下的是给那几个还没有测试
   目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
+- **资产预加载与编辑器的加载契约**（新增一节，方案已定、未动工）。排在流程 3 之后。判据是删代码
+  不是搬代码。
 - **阶段 3**：资产层、运行期、`.smat` 写侧、字段渲染机器、材质槽的新形态、材质窗口、**Browser 认
   `.smat`（做成了文件监视）** 都已落地（见「状态」）。**下一件是流程 3——拖 `.smat` 到材质槽**，
-  它不被任何东西挡着。之后是导出和右键新建，两件共用一套东西、应当一起设计；**导出的目标目录仍未定**。
+  走 `OnAssetDragToComponent` 那条既有路，唯一未定的是 `AssetId → MaterialHandle` 的翻译挂在哪。
+  之后是导出和右键新建，两件共用一套东西、应当一起设计；**导出的目标目录仍未定**。
   清单与理由见「使用流程」下的「剩下的四件事」。
 - **文件监视顺带把待办 A 的一半基础设施建好了**：`OnFileModified` 已经在到达，只是没人接。热重载现在
   差的是依赖边，不是"怎么知道文件变了"。但**不要**为材质单独接一个热重载——那正是待办 A 要解决的
