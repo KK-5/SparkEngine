@@ -56,21 +56,27 @@ namespace Editor::Theme
     inline constexpr ImU32 kCloseHovBg   = IM_COL32(0x3A, 0x20, 0x20, 0xFF);
     inline constexpr ImU32 kCloseHovText = IM_COL32(0xE0, 0x73, 0x6A, 0xFF);
 
-    //! Every length in this theme is a mockup pixel, and the mockup is drawn at 100%. This
-    //! is the factor that puts it on the screen it is actually viewed at.
+    //! Every length in this theme is a mockup pixel; these two turn one into a screen pixel.
+    //!
+    //! kScale is the monitor's -- what the OS asks every application to scale by. A constant
+    //! until there is a reason for it not to be; the honest source is the monitor's content
+    //! scale.
+    //!
+    //! kDesignCorrection is the mockup's. Its type runs about a sixth under desktop
+    //! convention (11.5px field labels against VS Code's 13px UI), so obeying the monitor
+    //! alone lands short. A property of the drawing, not a user preference -- recorded once
+    //! here rather than restated in fifty lengths.
     //!
     //! Deliberately NOT ImGui's style.FontScaleDpi: that one is global, so it would also
     //! enlarge the panels still drawing at the old size and there would be no single place
     //! left that says how big this window is. One factor, applied to text and to spacing
     //! alike -- if only one of the two scaled, the layout would come apart.
-    //!
-    //! A constant until there is a reason for it not to be; the honest source is the
-    //! monitor's content scale.
-    inline constexpr float kScale = 1.25f;
+    inline constexpr float kScale            = 1.25f;
+    inline constexpr float kDesignCorrection = 1.16f;
 
     constexpr float Px(float value)
     {
-        return value * kScale;
+        return value * kScale * kDesignCorrection;
     }
 
     // Type sizes, in mockup pixels. Pass them to ScopedFont, which scales them.
