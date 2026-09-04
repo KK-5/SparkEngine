@@ -102,7 +102,6 @@ namespace Spark::UI
 
     void SparkImGui::EndFrame()
     {
-        Service<Window::IWindowSystem>::Get()->SwapBuffer();
     }
 
     eastl::any SparkImGui::RenderUI()

@@ -20,15 +20,14 @@ namespace Spark::SandBox
             return;
         }
 
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
         m_window = glfwCreateWindow(m_width, m_height, m_title.c_str(), nullptr, nullptr);
         if (!m_window) {
             LOG_ERROR("[SimpleGlfwWindow] glfwCreateWindow failed!");
             glfwTerminate();
             return;
         }
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwMakeContextCurrent(m_window);
-        glfwSwapInterval(1);
     }
 
     void SimpleGlfwWindow::ShutdownInternal()

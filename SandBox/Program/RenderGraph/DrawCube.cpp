@@ -271,9 +271,6 @@ namespace Spark::SandBox
         renderStates.m_rasterState.m_cullMode                = Spark::RHI::CullMode::Back;
         renderStates.m_multisampleState = RHI::MultisampleState(4, 0);
 
-        auto* window = Service<Spark::Window::IWindowSystem>::Get();
-        auto windowSize = window->GetWindowSize();
-
         auto& passContext = *Spark::Render::PassExecuteContext::Current();
 
         // ================================================================
@@ -289,11 +286,13 @@ namespace Spark::SandBox
             .Accepts<SampleDrawTag>()
             .Binds<>()
             .RendersView<Render::MainViewTag>()
-            .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
+            .Build([this](Spark::Render::RenderGraphBuilder& builder)
             {
+                const auto renderSize = builder.GetRenderSize();
+
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                    windowSize.x, windowSize.y,
+                    renderSize.x, renderSize.y,
                     RHI::Format::R8G8B8A8_UNORM
                 );
                 imageDesc.m_multisampleState = RHI::MultisampleState(4, 0);
@@ -312,7 +311,7 @@ namespace Spark::SandBox
 
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil,
-                    windowSize.x, windowSize.y,
+                    renderSize.x, renderSize.y,
                     RHI::Format::D32_FLOAT
                 );
                 depthDesc.m_multisampleState = RHI::MultisampleState(4, 0);

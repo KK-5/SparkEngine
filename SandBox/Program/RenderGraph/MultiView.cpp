@@ -284,9 +284,6 @@ namespace Spark::SandBox
         renderStates.m_depthStencilState.m_stencil.m_enable  = 0;
         renderStates.m_rasterState.m_cullMode                = Spark::RHI::CullMode::Back;
 
-        auto* window = Service<Spark::Window::IWindowSystem>::Get();
-        auto windowSize = window->GetWindowSize();
-
         auto& passContext = *Spark::Render::PassExecuteContext::Current();
 
         // One render pass for all four panels. Clear and depth are full-target and happen once
@@ -301,8 +298,10 @@ namespace Spark::SandBox
             .Accepts<SampleDrawTag>()
             .Binds<>()
             .RendersView<Render::MainViewTag>()
-            .Build([this, windowSize](Spark::Render::RenderGraphBuilder& builder)
+            .Build([this](Spark::Render::RenderGraphBuilder& builder)
             {
+                const auto renderSize = builder.GetRenderSize();
+
                 Spark::Render::ImportedImageAttachmentBindInfo colorBind;
                 colorBind.m_slot   = Spark::RHI::InputName("ColorOutput");
                 colorBind.m_image  = builder.GetCurrentSwapChainResource();
@@ -318,7 +317,7 @@ namespace Spark::SandBox
 
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil,
-                    windowSize.x, windowSize.y,
+                    renderSize.x, renderSize.y,
                     RHI::Format::D32_FLOAT
                 );
 
