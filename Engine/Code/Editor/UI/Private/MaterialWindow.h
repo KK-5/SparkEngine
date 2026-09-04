@@ -41,10 +41,9 @@ namespace Editor
         bool                            m_open      = false;
         bool                            m_focusNext = false;
 
-        //! Edited since the last write to disk. Editing goes straight through to the
-        //! material, so this is not "unflushed changes" -- it means the material and the
-        //! `.smat` behind it have drifted apart. Save / Save As are what close that gap,
-        //! and so are what clear this.
+        //! Edited since the last write to disk -- not "unflushed changes" (editing is
+        //! write-through), but "the material and its `.smat` have drifted apart". Save /
+        //! Save As close that gap and clear this.
         bool                            m_dirty = false;
 
         //! Which preview shape the (not yet implemented) preview would show.

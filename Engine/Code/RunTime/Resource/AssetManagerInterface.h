@@ -37,6 +37,12 @@ namespace Spark::Resource
 
         virtual void AssetRegistry() = 0;
 
+        //! Bytes at a path, as an asset loadable before this returns -- registration cannot
+        //! wait for the file watcher when an editor action needs the result this frame.
+        //! Overwriting is normal. Invalid id on failure, reason logged.
+        virtual AssetId WriteAssetFile(eastl::string_view virtualPath,
+                                       const uint8_t* data, size_t size) = 0;
+
         //! Typed forms. The id already carries its type, so these only add the downcast --
         //! and the check that the caller asked for the type the id actually names.
         template<typename T>

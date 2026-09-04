@@ -4,10 +4,50 @@
 
 #include <EASTL/string.h>
 
+#include <Reflection/TypeRegistry.h>
 #include <Resource/AssetTypes.h>
+#include <Resource/Material/MaterialState.h>
+#include <Resource/Material/StandardPBR.h>
 
 namespace Editor
 {
+    //! A copy of one of a material entity's components, through the reflected ops -- the
+    //! editor addresses ECS state by (type, entity) and never holds a context.
+    template <typename T>
+    bool ReadMaterialComponent(uint32_t handleId, T& out)
+    {
+        Spark::MetaType type = Spark::TypeRegistry::GetContext().Resolve<T>();
+        if (!type)
+        {
+            return false;
+        }
+        auto getFn = type.func("GetComponent"_hs);
+        if (!getFn)
+        {
+            return false;
+        }
+
+        Spark::MetaAny ptr = getFn.invoke({}, handleId);
+        if (!ptr || !(*ptr))
+        {
+            return false;
+        }
+
+        Spark::MetaAny instance = *ptr;
+        if (const T* value = instance.try_cast<T>())
+        {
+            out = *value;
+            return true;
+        }
+        return false;
+    }
+
+    //! The two components a `.smat` is made of. Hands them back rather than the
+    //! MaterialAssetData they go into: AssetData is neither copyable nor movable, so the
+    //! caller builds one on the spot.
+    bool ReadMaterialValues(uint32_t handleId, Spark::Resource::StandardPBR& params,
+                            Spark::Resource::MaterialState& state);
+
     //! Whether a material entity is still there -- i.e. still carries StandardPBR. A handle
     //! is ABA-safe, but material entities CAN be destroyed (the ones an override is composed
     //! into are), so anything holding one across frames has to ask rather than assume.

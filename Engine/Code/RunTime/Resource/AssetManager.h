@@ -58,6 +58,8 @@ namespace Spark::Resource
 
         void AssetRegistry() override;
 
+        AssetId WriteAssetFile(eastl::string_view virtualPath, const uint8_t* data, size_t size) override;
+
         void ReleaseAsset(const AssetId& id, const Asset* self) override;
 
         // Modified and Removed are deliberately not handled: reloading a changed asset

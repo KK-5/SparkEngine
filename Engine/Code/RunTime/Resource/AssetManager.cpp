@@ -609,6 +609,36 @@ namespace Spark::Resource
         }
     }
 
+    AssetId SparkAssetManager::WriteAssetFile(eastl::string_view virtualPath,
+                                              const uint8_t* data, size_t size)
+    {
+        if (!m_fileSystem)
+        {
+            return AssetId();
+        }
+
+        // Before the write: a file we cannot register is one nothing can ever load.
+        const AssetType type = GetSupportAssetType(virtualPath);
+        if (type == AssetType::Unknown)
+        {
+            LOG_ERROR("[SparkAssetManager] '{}' has no extension we build; not written.",
+                      virtualPath);
+            return AssetId();
+        }
+
+        if (!m_fileSystem->WriteFile(virtualPath, data, size))
+        {
+            LOG_ERROR("[SparkAssetManager] Could not write '{}'.", virtualPath);
+            return AssetId();
+        }
+
+        // False means "already registered", which is what overwriting looks like -- the id
+        // is what says this worked.
+        RegisterFile(virtualPath);
+
+        return MakeAssetIdForType(virtualPath, type);
+    }
+
     void SparkAssetManager::OnFileAdded(eastl::string virtualPath)
     {
         RegisterFile(virtualPath);

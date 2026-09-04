@@ -23,6 +23,7 @@ set(SOURCES
     Image/stb_impl.cpp
     Material/MaterialAsset.cpp
     Material/MaterialAssetWriter.cpp
+    Material/MaterialAssetSaver.cpp
     Material/MaterialAssetLoader.cpp
     Material/MaterialAssetCompiler.cpp
     Material/MaterialAssetBuilder.cpp

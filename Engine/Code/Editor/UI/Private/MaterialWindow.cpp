@@ -47,38 +47,6 @@ namespace Editor
 
         constexpr const char* kPreviewShapes[] = {"Sphere", "Cylinder", "Plane"};
 
-        //! Reads a copy of one of the material entity's components, for the rows that only
-        //! display one. Goes through the reflected ops like every other ECS access here, so
-        //! the window addresses state by (type, entity) and nothing else.
-        template <typename T>
-        bool ReadComponent(uint32_t handleId, T& out)
-        {
-            MetaType type = TypeRegistry::GetContext().Resolve<T>();
-            if (!type)
-            {
-                return false;
-            }
-            auto getFn = type.func("GetComponent"_hs);
-            if (!getFn)
-            {
-                return false;
-            }
-
-            MetaAny ptr = getFn.invoke({}, handleId);
-            if (!ptr || !(*ptr))
-            {
-                return false;
-            }
-
-            MetaAny instance = *ptr;
-            if (const T* value = instance.try_cast<T>())
-            {
-                out = *value;
-                return true;
-            }
-            return false;
-        }
-
         const char* AlphaModeName(Resource::AlphaMode mode)
         {
             switch (mode)
@@ -221,9 +189,8 @@ namespace Editor
         const bool          exists   = MaterialExists(handleId);
         const eastl::string identity = MaterialIdentity(handleId, exists);
 
-        // Save writes back to the file that backs this material, so it needs one. A
-        // sub-asset id names a material inside a model, which is not a file we can write --
-        // that material is editable but not saveable, and Save As is its way out.
+        // Save needs a file to write back to. A sub-asset id names a material inside a
+        // model, which is not one -- editable but not saveable, and Save As is its way out.
         Resource::AssetId backing;
         const bool        canSave =
             exists && TryGetMaterialAsset(handleId, backing) && !backing.IsSubAsset();
@@ -231,7 +198,7 @@ namespace Editor
         // The title bar's dot is the material's own base colour, not a status light.
         ImU32                 swatch = Theme::kTextFaint;
         Resource::StandardPBR params;
-        if (ReadComponent(handleId, params))
+        if (ReadMaterialComponent(handleId, params))
         {
             swatch = ImGui::ColorConvertFloat4ToU32(
                 ImVec4(params.m_baseColor.r, params.m_baseColor.g, params.m_baseColor.b, 1.f));
@@ -506,7 +473,7 @@ namespace Editor
         }
 
         Resource::MaterialState state;
-        const bool              hasState = ReadComponent(handleId, state);
+        const bool              hasState = ReadMaterialComponent(handleId, state);
 
         const eastl::string shading = eastl::string("Shading Model  ·  ") + kShadingModels[0];
         const eastl::string blend   = eastl::string("Blend Mode  ·  ")
@@ -575,7 +542,7 @@ namespace Editor
         {
             Resource::StandardPBR params;
             int                   used = 0;
-            if (ReadComponent(handleId, params))
+            if (ReadMaterialComponent(handleId, params))
             {
                 for (const Resource::AssetId& id: params.m_textures)
                 {

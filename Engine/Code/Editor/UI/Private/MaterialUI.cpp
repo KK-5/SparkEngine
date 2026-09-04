@@ -25,6 +25,13 @@ namespace Editor
         return r && r.cast<bool>();
     }
 
+    bool ReadMaterialValues(uint32_t handleId, Resource::StandardPBR& params,
+                            Resource::MaterialState& state)
+    {
+        return ReadMaterialComponent(handleId, params)
+            && ReadMaterialComponent(handleId, state);
+    }
+
     bool TryGetMaterialAsset(uint32_t handleId, Resource::AssetId& out)
     {
         MetaType refType = TypeRegistry::GetContext().Resolve<Material::MaterialAssetRef>();
