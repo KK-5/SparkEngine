@@ -25,6 +25,40 @@ namespace Editor
         return r && r.cast<bool>();
     }
 
+    bool TryGetMaterialAsset(uint32_t handleId, Resource::AssetId& out)
+    {
+        MetaType refType = TypeRegistry::GetContext().Resolve<Material::MaterialAssetRef>();
+        if (!refType)
+        {
+            return false;
+        }
+
+        auto hasFn = refType.func("HasComponent"_hs);
+        if (!hasFn)
+        {
+            return false;
+        }
+        MetaAny has = hasFn.invoke({}, handleId);
+        if (!has || !has.cast<bool>())
+        {
+            return false;
+        }
+
+        MetaAny refPtr = refType.func("GetComponent"_hs).invoke({}, handleId);
+        if (!refPtr)
+        {
+            return false;
+        }
+
+        MetaAny ref = *refPtr;
+        if (const auto* typed = ref.try_cast<Material::MaterialAssetRef>())
+        {
+            out = typed->m_id;
+            return true;
+        }
+        return false;
+    }
+
     eastl::string MaterialIdentity(uint32_t handleId, bool exists)
     {
         if (!exists)
@@ -32,25 +66,10 @@ namespace Editor
             return "(none)";
         }
 
-        MetaType refType = TypeRegistry::GetContext().Resolve<Material::MaterialAssetRef>();
-        if (refType)
+        Resource::AssetId id;
+        if (TryGetMaterialAsset(handleId, id))
         {
-            if (auto hasFn = refType.func("HasComponent"_hs))
-            {
-                MetaAny has = hasFn.invoke({}, handleId);
-                if (has && has.cast<bool>())
-                {
-                    MetaAny refPtr = refType.func("GetComponent"_hs).invoke({}, handleId);
-                    if (refPtr)
-                    {
-                        MetaAny ref = *refPtr;
-                        if (const auto* typed = ref.try_cast<Material::MaterialAssetRef>())
-                        {
-                            return Resource::AssetIdToDisplayString(typed->m_id);
-                        }
-                    }
-                }
-            }
+            return Resource::AssetIdToDisplayString(id);
         }
         return "(scene material)";
     }

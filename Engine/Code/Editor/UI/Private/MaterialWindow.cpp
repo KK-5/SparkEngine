@@ -221,6 +221,13 @@ namespace Editor
         const bool          exists   = MaterialExists(handleId);
         const eastl::string identity = MaterialIdentity(handleId, exists);
 
+        // Save writes back to the file that backs this material, so it needs one. A
+        // sub-asset id names a material inside a model, which is not a file we can write --
+        // that material is editable but not saveable, and Save As is its way out.
+        Resource::AssetId backing;
+        const bool        canSave =
+            exists && TryGetMaterialAsset(handleId, backing) && !backing.IsSubAsset();
+
         // The title bar's dot is the material's own base colour, not a status light.
         ImU32                 swatch = Theme::kTextFaint;
         Resource::StandardPBR params;
@@ -297,7 +304,7 @@ namespace Editor
                 ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + bodyHeight));
             }
 
-            DrawFooter(width, exists ? identity : eastl::string("-"));
+            DrawFooter(width, exists ? identity : eastl::string("-"), canSave);
         }
         ImGui::End();
     }
@@ -623,7 +630,7 @@ namespace Editor
         ImGui::EndChild();   // ##PropertyPanel
     }
 
-    void MaterialWindow::DrawFooter(float width, const eastl::string& path)
+    void MaterialWindow::DrawFooter(float width, const eastl::string& path, bool canSave)
     {
         ImDrawList*  draw = ImGui::GetWindowDrawList();
         const ImVec2 p0   = ImGui::GetCursorScreenPos();
@@ -641,14 +648,15 @@ namespace Editor
         }
 
         // Laid out from the right edge inwards, so the one filled button keeps the corner.
-        // None of them are wired: Apply and Save wait on `.smat` export, Cancel on a
-        // snapshot to restore -- editing writes straight through today.
+        // None of them are wired yet -- all three wait on the write path.
         struct FooterButton
         {
             const char* label;
             bool        accent;
+            bool        enabled;
         };
-        const FooterButton buttons[] = {{"Save & Close", true}, {"Apply", false}, {"Cancel", false}};
+        const FooterButton buttons[] = {
+            {"Save", true, canSave}, {"Save As\xE2\x80\xA6", false, true}, {"Revert", false, true}};
 
         float x = p1.x - kPad;
         for (const FooterButton& button: buttons)
@@ -660,6 +668,8 @@ namespace Editor
             const float buttonWidth = ImGui::CalcTextSize(button.label).x
                                     + ImGui::GetStyle().FramePadding.x * 2.f + extra;
             x -= buttonWidth;
+
+            ImGui::BeginDisabled(!button.enabled);
 
             ImGui::SetCursorScreenPos(
                 ImVec2(x, p0.y + (kFooterHeight - ImGui::GetFrameHeight()) * 0.5f));
@@ -683,6 +693,7 @@ namespace Editor
             }
             ImGui::Button(button.label, ImVec2(buttonWidth, 0.f));
             ImGui::PopStyleColor(5);
+            ImGui::EndDisabled();
 
             x -= Theme::Px(9.f);
         }

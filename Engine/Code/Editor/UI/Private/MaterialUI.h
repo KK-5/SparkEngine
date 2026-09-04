@@ -4,6 +4,8 @@
 
 #include <EASTL/string.h>
 
+#include <Resource/AssetTypes.h>
+
 namespace Editor
 {
     //! Whether a material entity is still there -- i.e. still carries StandardPBR. A handle
@@ -13,6 +15,10 @@ namespace Editor
     //! Takes the handle as a raw uint32 like the reflected component ops do, and answers
     //! through them, so the editor keeps addressing ECS state by (type, entity) alone.
     bool MaterialExists(uint32_t handleId);
+
+    //! The asset backing a material entity, if one does. False for the resident default
+    //! material and for anything else no asset created -- those carry no MaterialAssetRef.
+    bool TryGetMaterialAsset(uint32_t handleId, Spark::Resource::AssetId& out);
 
     //! A material entity's asset identity as text. Three cases, all of them something the
     //! user needs told apart: the asset it came from, "(scene material)" for one no asset

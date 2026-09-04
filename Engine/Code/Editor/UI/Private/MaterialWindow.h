@@ -35,15 +35,16 @@ namespace Editor
         void DrawTitleBar(float width, const eastl::string& name, ImU32 swatch);
         void DrawPreviewPanel(uint32_t handleId, const ImVec2& size);
         void DrawPropertyPanel(uint32_t handleId, const ImVec2& size);
-        void DrawFooter(float width, const eastl::string& path);
+        void DrawFooter(float width, const eastl::string& path, bool canSave);
 
         Spark::Material::MaterialHandle m_target{Spark::Material::NullMaterial};
         bool                            m_open      = false;
         bool                            m_focusNext = false;
 
-        //! Set by any edit, never cleared: editing writes straight through to the material,
-        //! so there is nothing a save could flush and nothing to clear this on. It marks
-        //! "this material is no longer what its asset says", which stays true.
+        //! Edited since the last write to disk. Editing goes straight through to the
+        //! material, so this is not "unflushed changes" -- it means the material and the
+        //! `.smat` behind it have drifted apart. Save / Save As are what close that gap,
+        //! and so are what clear this.
         bool                            m_dirty = false;
 
         //! Which preview shape the (not yet implemented) preview would show.
