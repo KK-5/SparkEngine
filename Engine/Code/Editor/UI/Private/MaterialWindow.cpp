@@ -25,6 +25,16 @@ namespace Editor
         // the same reason the font sizes do -- half a scaled layout is a broken one.
         constexpr float kTitleHeight  = Theme::Px(34.f);
         constexpr float kFooterHeight = Theme::Px(42.f);
+
+        //! The header band both panels open with — the preview's toolbar row and the
+        //! property panel's tab strip. One number for both: the two bands meet at the
+        //! divider, so any difference between them reads as a misaligned window.
+        //!
+        //! The design gives the tab strip 28 and lets the toolbar row come out of its own
+        //! padding (6 + 20 + 6 = 32). Four pixels apart is invisible in the mockup, where
+        //! the toolbar's rule is #1c1f24 on #16181c; it is not invisible here. Taking 28
+        //! for both means the toolbar row (20 tall) sits centred with 4 above and below.
+        constexpr float kHeaderHeight = Theme::Px(28.f);
         constexpr float kPanelWidth   = Theme::Px(320.f);   // the property column
         constexpr float kPad          = Theme::Px(12.f);
         constexpr float kBlockPadY    = Theme::Px(11.f);
@@ -385,14 +395,29 @@ namespace Editor
         // WindowPadding.x for a child that draws no border, and this theme's children draw
         // none. The vertical half is kept either way, which is what makes the omission read
         // as "everything is flush left" rather than "padding is off".
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Px(10.f), Theme::Px(6.f)));
+        // Vertical padding is zero: the header band is kHeaderHeight tall by decree and the
+        // row centres itself in it, and the viewport below has to reach the panel's bottom
+        // edge. Horizontal padding stays -- it is what keeps the pills off the edge.
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(Theme::Px(10.f), 0.f));
         ImGui::BeginChild("##Preview", size, ImGuiChildFlags_AlwaysUseWindowPadding,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::PopStyleVar();
 
-        // One height for everything on the toolbar row, taken before the first item.
-        const float rowTop    = ImGui::GetCursorPosY();
+        // Same fill as the property panel's tab strip, so the two bands read as one bar
+        // across the window. Equal geometry is not enough on its own: a filled band ends in
+        // a dark-to-light step, a bare hairline on the panel colour ends in a soft one, and
+        // the eye puts the soft edge lower even when both sit on the same pixel row.
+        {
+            const ImVec2 bandMin = ImGui::GetWindowPos();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                bandMin, ImVec2(bandMin.x + ImGui::GetWindowSize().x, bandMin.y + kHeaderHeight),
+                Theme::kFooterBg);
+        }
+
+        // One height for everything on the toolbar row, centred in the header band.
         const float rowHeight = ImGui::GetFrameHeight();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (kHeaderHeight - rowHeight) * 0.5f);
+        const float rowTop = ImGui::GetCursorPosY();
 
         for (int i = 0; i < IM_ARRAYSIZE(kPreviewShapes); ++i)
         {
@@ -442,12 +467,28 @@ namespace Editor
         // The viewport's place, held but not filled: rendering a material into it is a pass
         // of its own, not a widget. Flat, where the mockup has a radial gradient -- ImDrawList
         // has no radial fill, and faking one with rings costs more than the look is worth.
-        ImDrawList*  draw = ImGui::GetWindowDrawList();
+        // Closed at kHeaderHeight rather than wherever the row's items left the cursor:
+        // that position carries ItemSpacing and whatever the tallest item measured, none of
+        // which the property panel's strip knows about.
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        ImGui::SetCursorScreenPos(
+            ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetWindowPos().y + kHeaderHeight));
+
         const ImVec2 p    = ImGui::GetCursorScreenPos();
         const ImVec2 area = ImGui::GetContentRegionAvail();
-        draw->AddLine(ImVec2(p.x - Theme::Px(10.f), p.y - Theme::Px(3.f)),
-                      ImVec2(p.x + area.x + Theme::Px(10.f), p.y - Theme::Px(3.f)),
-                      Theme::kBorderInner);
+
+        // The item that pairs with the SetCursorScreenPos above. Moving the cursor sets
+        // DC.IsSetPos, only submitting an item clears it, and EndChild asserts if it is
+        // still set -- everything below here paints through the draw list and would leave
+        // it set. It doubles as what tells the child how tall its contents are, which
+        // painting alone never does. Same shape as the footer's closing Dummy.
+        ImGui::Dummy(area);
+
+        // Spans the panel edge to edge: p.x sits inside the horizontal padding, so both
+        // ends give it back. kBorderPanel, not kBorderInner -- it is the same edge the tab
+        // strip closes with on the other side of the divider, so it is the same line.
+        draw->AddLine(ImVec2(p.x - Theme::Px(10.f), p.y),
+                      ImVec2(p.x + area.x + Theme::Px(10.f), p.y), Theme::kBorderPanel);
         draw->AddRectFilled(p, ImVec2(p.x + area.x, p.y + area.y), Theme::kPreviewBg);
 
         {
@@ -496,13 +537,14 @@ namespace Editor
 
             ImDrawList*  draw = ImGui::GetWindowDrawList();
             const ImVec2 p    = ImGui::GetCursorScreenPos();
-            tabHeight         = ImGui::GetTextLineHeight() + Theme::Px(12.f);
+            tabHeight         = kHeaderHeight;
 
             draw->AddRectFilled(p, ImVec2(p.x + panelWidth, p.y + tabHeight), Theme::kFooterBg);
             draw->AddLine(ImVec2(p.x, p.y + tabHeight), ImVec2(p.x + panelWidth, p.y + tabHeight),
                           Theme::kBorderPanel);
 
-            ImGui::SetCursorScreenPos(ImVec2(p.x + kPad, p.y + Theme::Px(6.f)));
+            ImGui::SetCursorScreenPos(
+                ImVec2(p.x + kPad, p.y + (tabHeight - ImGui::GetTextLineHeight()) * 0.5f));
             TintedText(Theme::kTextStrong, "Properties");
 
             const ImVec2 min = ImGui::GetItemRectMin();
