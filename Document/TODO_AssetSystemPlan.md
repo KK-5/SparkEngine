@@ -2079,6 +2079,12 @@ eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data);
 的（编辑器里根本没有改它们的界面），Shader 是文本、用外部编辑器改，写回 glb 这件事本节下面已经否掉。
 真出现第二个可写回的类型，那时再抽到总线——是加法，不是重构。
 
+> ⚠️ **上面这个结论后来被推翻了一半，见 `TODO_AssetSerializationLayering.md`。** 事实判断仍成立
+> （`ProcessAsset` 确实不调它，第二个实现者今天确实没有），但那份方案指出总线是 **per-type 行为的
+> 分派表**而不是流水线，且这一步买到的是**对外表面收口**而非通用性。届时 `SaveMaterialAsset` 会拆成
+> 总线钩子 + `AssetManager::SaveAsset`，`WriteMaterialAsset` 变成材质的 `Serialize` 实现。
+> 那个重构与本阶段解耦、单独排期；本节描述的形态是在它到来前的过渡形态。
+
 **一笔明说的债：覆盖保存后 DB 里那份 `MaterialAssetData` 会变旧**，而 `LoadAsset` 命中 Ready 直接返回
 旧的、不会重读。今天不发作：材质窗口改的是 MaterialContext 里的组件，那才是渲染真正用的值；`Resolve`
 一个资产一个实例，已有实例就不再问 asset 要数据；材质实体又和资产一样长寿。只有「材质实体被销毁后
