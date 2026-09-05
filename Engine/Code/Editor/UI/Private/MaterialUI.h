@@ -42,6 +42,31 @@ namespace Editor
         return false;
     }
 
+    //! The reverse of ReadMaterialComponent, through the same reflected ops.
+    template <typename T>
+    bool WriteMaterialComponent(uint32_t handleId, const T& value)
+    {
+        Spark::MetaType type = Spark::TypeRegistry::GetContext().Resolve<T>();
+        if (!type)
+        {
+            return false;
+        }
+        auto setFn = type.func("AddOrReplaceComponent"_hs);
+        if (!setFn)
+        {
+            return false;
+        }
+
+        Spark::MetaAny instance = type.construct();
+        if (!instance)
+        {
+            return false;
+        }
+        instance.cast<T&>() = value;
+
+        return static_cast<bool>(setFn.invoke({}, handleId, instance));
+    }
+
     //! The two components a `.smat` is made of. Hands them back rather than the
     //! MaterialAssetData they go into: AssetData is neither copyable nor movable, so the
     //! caller builds one on the spot.

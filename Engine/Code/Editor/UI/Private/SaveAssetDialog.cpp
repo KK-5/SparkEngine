@@ -4,8 +4,10 @@
 
 #include <EASTL/algorithm.h>
 
+#include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <VFS/FileSystem.h>
+#include <Resource/AssetManagerInterface.h>
 #include <Feature/UI/ImGui/IconManagerInterface.h>
 
 #include "EditorTheme.h"
@@ -34,6 +36,7 @@ namespace Editor
         constexpr float kHeaderHeight = Theme::Px(21.f);
         constexpr float kRowHeight    = Theme::Px(22.f);
         constexpr float kIndent       = Theme::Px(15.f);
+        constexpr float kCaretWidth   = Theme::Px(11.f);
         constexpr float kPad          = Theme::Px(12.f);
         constexpr float kCloseSize    = Theme::Px(24.f);
         constexpr float kIconSize     = Theme::Px(12.f);
@@ -149,10 +152,20 @@ namespace Editor
 
     void SaveAssetDialog::OpenSaveAssetDialog(const SaveAssetRequest& request)
     {
-        m_request    = request;
-        m_open       = true;
-        m_openPopup  = true;
-        m_focusName  = true;
+        // Modal, so no user action can produce a second request; a script or an async
+        // handler can, and taking it would leave the first requester's asset unwritten.
+        if (m_open)
+        {
+            LOG_WARN("[SaveAssetDialog] '{}' arrived while '{}' is still open; ignored.",
+                     request.m_title.c_str(), m_request.m_title.c_str());
+            return;
+        }
+
+        m_request     = request;
+        m_open        = true;
+        m_openPopup   = true;
+        m_focusName   = true;
+        m_saveFailed  = false;
 
         m_nameBuf.assign(kNameCapacity, '\0');
         const size_t length = eastl::min(request.m_defaultName.size(), kNameCapacity - 1);
@@ -246,6 +259,7 @@ namespace Editor
     void SaveAssetDialog::SetCurrentDirectory(const eastl::string& virtualDir)
     {
         m_currentDir = virtualDir;
+        m_saveFailed = false;
         ReadCurrentDirectory();
 
         // Open the way down to it, or the row the dialog starts on is not on screen.
@@ -308,15 +322,35 @@ namespace Editor
 
     void SaveAssetDialog::Confirm()
     {
-        const eastl::string path = FullPath();
+        auto* assetManager = Service<Resource::AssetManager>::Get();
+        if (!assetManager || !m_request.m_asset)
+        {
+            LOG_ERROR("[SaveAssetDialog] Nothing to save to '{}'.", FullPath().c_str());
+            m_saveFailed = true;
+            return;
+        }
+
+        // Whoever asked for this hears about it on AssetBus, so nothing goes back from
+        // here. A refusal stays on screen: closing would look like it worked.
+        if (!assetManager->SaveAsset(*m_request.m_asset, FullPath()).IsValid())
+        {
+            m_saveFailed = true;
+            return;
+        }
+
         Close();
-        SaveAssetDialogBus::Broadcast(&SaveAssetDialogEvents::OnSaveAssetConfirmed, path);
     }
 
     void SaveAssetDialog::Close()
     {
-        m_open = false;
+        m_open    = false;
+        m_request = SaveAssetRequest{};   // the asset was kept alive only for this
         ImGui::CloseCurrentPopup();
+    }
+
+    bool SaveAssetDialog::CanSave() const
+    {
+        return NameIsValid(m_nameBuf.data()) && !NameIsTaken();
     }
 
     void SaveAssetDialog::Draw()
@@ -361,41 +395,47 @@ namespace Editor
 
         if (ImGui::BeginPopupModal(kPopupId, nullptr, flags))
         {
-            Theme::ScopedFont body(Theme::Face::UI, Theme::kSizeBody);
-
-            const float width = ImGui::GetContentRegionAvail().x;
-
-            DrawTitleBar(width);
-            DrawPathRow(width);
-
-            const float bodyHeight = ImGui::GetContentRegionAvail().y - kNameHeight - kFooterHeight;
-            if (bodyHeight > 0.f)
+            // The font is popped before EndPopup: one still pushed there is an unbalanced
+            // stack, and imgui recovers from it instead of drawing.
             {
-                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                Theme::ScopedFont body(Theme::Face::UI, Theme::kSizeBody);
 
-                DrawTree(ImVec2(kTreeWidth, bodyHeight));
+                const float width = ImGui::GetContentRegionAvail().x;
 
-                ImGui::GetWindowDrawList()->AddLine(
-                    ImVec2(origin.x + kTreeWidth + 0.5f, origin.y),
-                    ImVec2(origin.x + kTreeWidth + 0.5f, origin.y + bodyHeight),
-                    Theme::kBorderPanel);
+                DrawTitleBar(width);
+                DrawPathRow(width);
 
-                ImGui::SetCursorScreenPos(ImVec2(origin.x + kTreeWidth + 1.f, origin.y));
-                DrawFileList(ImVec2(width - kTreeWidth - 1.f, bodyHeight));
+                const float bodyHeight =
+                    ImGui::GetContentRegionAvail().y - kNameHeight - kFooterHeight;
+                if (bodyHeight > 0.f)
+                {
+                    const ImVec2 origin = ImGui::GetCursorScreenPos();
 
-                ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + bodyHeight));
-            }
+                    DrawTree(ImVec2(kTreeWidth, bodyHeight));
 
-            DrawNameRow(width);
-            DrawFooter(width);
+                    ImGui::GetWindowDrawList()->AddLine(
+                        ImVec2(origin.x + kTreeWidth + 0.5f, origin.y),
+                        ImVec2(origin.x + kTreeWidth + 0.5f, origin.y + bodyHeight),
+                        Theme::kBorderPanel);
 
-            // Enter outside the name field. Inside it the field reports the key itself,
-            // since it swallows what it has focus on.
-            if (m_open && !ImGui::IsAnyItemActive()
-                && (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
-                && NameIsValid(m_nameBuf.data()) && !NameIsTaken())
-            {
-                Confirm();
+                    ImGui::SetCursorScreenPos(ImVec2(origin.x + kTreeWidth + 1.f, origin.y));
+                    DrawFileList(ImVec2(width - kTreeWidth - 1.f, bodyHeight));
+
+                    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + bodyHeight));
+                }
+
+                DrawNameRow(width);
+                DrawFooter(width);
+
+                // Enter outside the name field. Inside it the field reports the key itself,
+                // since it swallows what it has focus on.
+                if (m_open && !ImGui::IsAnyItemActive()
+                    && (ImGui::IsKeyPressed(ImGuiKey_Enter)
+                        || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
+                    && CanSave())
+                {
+                    Confirm();
+                }
             }
 
             ImGui::EndPopup();
@@ -490,8 +530,6 @@ namespace Editor
             folder = icons->RequestIconId(m_folderIconId);
         }
 
-        Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeLabel);
-
         for (const Directory& directory: m_tree)
         {
             if (!IsVisible(directory))
@@ -499,69 +537,77 @@ namespace Editor
                 continue;
             }
 
+            // Per row, so the font is popped before EndChild -- one still pushed there is
+            // an unbalanced stack, and imgui recovers from it instead of drawing.
+            Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeLabel);
+
             ImGui::PushID(directory.m_path.c_str());
-
-            const float indent = Theme::Px(5.f) + directory.m_depth * kIndent;
-            ImGui::SetCursorPosX(indent);
-
-            // The caret is its own item so that hitting it toggles without also moving
-            // the selection -- one row, two answers.
-            const float caret = Theme::Px(11.f);
-            ImGui::InvisibleButton("##Caret", ImVec2(caret, kRowHeight));
-            if (directory.m_hasChildren)
-            {
-                if (ImGui::IsItemClicked())
-                {
-                    ToggleExpanded(directory.m_path);
-                }
-
-                const ImVec2 min  = ImGui::GetItemRectMin();
-                const float  half = kRowHeight * 0.5f;
-                const float  arm  = Theme::Px(3.5f);
-                const ImU32  tint = ImGui::IsItemHovered() ? Theme::kTextLabel : Theme::kTextDimmer;
-
-                if (IsExpanded(directory.m_path))
-                {
-                    ImGui::GetWindowDrawList()->AddTriangleFilled(
-                        ImVec2(min.x, min.y + half - arm), ImVec2(min.x + arm * 2.f, min.y + half - arm),
-                        ImVec2(min.x + arm, min.y + half + arm), tint);
-                }
-                else
-                {
-                    ImGui::GetWindowDrawList()->AddTriangleFilled(
-                        ImVec2(min.x, min.y + half - arm), ImVec2(min.x + arm * 2.f, min.y + half),
-                        ImVec2(min.x, min.y + half + arm), tint);
-                }
-            }
-
-            ImGui::SameLine(0.f, Theme::Px(4.f));
 
             const bool selected = directory.m_path == m_currentDir;
 
+            // The whole row is the selectable, so the highlight starts at the same edge on
+            // every row; the caret and the icon are painted on top of it at fixed columns.
+            // Submitted first and allowed to overlap, so the caret laid over it takes the
+            // hover instead.
+            ImGui::SetCursorPosX(0.f);
+            ImGui::SetNextItemAllowOverlap();
             ImGui::PushStyleColor(ImGuiCol_Header, kTreeSelected);
-            ImGui::PushStyleColor(ImGuiCol_Text, selected ? Theme::kTextStrong : Theme::kTextLabel);
-            if (ImGui::Selectable("##Row", selected, ImGuiSelectableFlags_AllowOverlap,
+            if (ImGui::Selectable("##Row", selected, 0,
                                   ImVec2(ImGui::GetContentRegionAvail().x, kRowHeight)))
             {
                 SetCurrentDirectory(directory.m_path);
             }
+            ImGui::PopStyleColor();
 
             const ImVec2 rowMin = ImGui::GetItemRectMin();
-            float        textX  = rowMin.x + Theme::Px(3.f);
+
+            const float caretX = rowMin.x + kPad + directory.m_depth * kIndent;
+            const float iconX  = caretX + kCaretWidth + Theme::Px(4.f);
+            const float textX  = iconX + kIconSize + Theme::Px(7.f);
+
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+
+            if (directory.m_hasChildren)
+            {
+                // Same top and height as the row, so this item leaves the cursor exactly
+                // where the row's own did -- putting it back by hand would move the cursor
+                // past the last item, which is what EndChild refuses.
+                ImGui::SetCursorScreenPos(ImVec2(caretX, rowMin.y));
+                if (ImGui::InvisibleButton("##Caret", ImVec2(kCaretWidth, kRowHeight)))
+                {
+                    ToggleExpanded(directory.m_path);
+                }
+
+                const float mid  = rowMin.y + kRowHeight * 0.5f;
+                const float arm  = Theme::Px(3.5f);
+                const float left = caretX + (kCaretWidth - arm * 2.f) * 0.5f;
+                const ImU32 tint = ImGui::IsItemHovered() ? Theme::kTextLabel : Theme::kTextDimmer;
+
+                if (IsExpanded(directory.m_path))
+                {
+                    draw->AddTriangleFilled(ImVec2(left, mid - arm * 0.5f),
+                                            ImVec2(left + arm * 2.f, mid - arm * 0.5f),
+                                            ImVec2(left + arm, mid + arm), tint);
+                }
+                else
+                {
+                    draw->AddTriangleFilled(ImVec2(left, mid - arm),
+                                            ImVec2(left + arm * 1.5f, mid),
+                                            ImVec2(left, mid + arm), tint);
+                }
+            }
 
             if (folder != ImTextureID_Invalid)
             {
                 const float iconY = rowMin.y + (kRowHeight - kIconSize) * 0.5f;
-                ImGui::GetWindowDrawList()->AddImage(
-                    folder, ImVec2(textX, iconY), ImVec2(textX + kIconSize, iconY + kIconSize));
-                textX += kIconSize + Theme::Px(6.f);
+                draw->AddImage(folder, ImVec2(iconX, iconY),
+                               ImVec2(iconX + kIconSize, iconY + kIconSize));
             }
 
-            ImGui::GetWindowDrawList()->AddText(
-                ImVec2(textX, rowMin.y + (kRowHeight - ImGui::GetTextLineHeight()) * 0.5f),
-                selected ? Theme::kTextStrong : Theme::kTextLabel, directory.m_name.c_str());
+            draw->AddText(ImVec2(textX, rowMin.y + (kRowHeight - ImGui::GetTextLineHeight()) * 0.5f),
+                          selected ? Theme::kTextStrong : Theme::kTextLabel,
+                          directory.m_name.c_str());
 
-            ImGui::PopStyleColor(2);
             ImGui::PopID();
         }
 
@@ -578,20 +624,21 @@ namespace Editor
 
         ImGui::BeginChild("##FileRows", ImVec2(0.f, ImGui::GetContentRegionAvail().y), false);
 
-        Theme::ScopedFont font(Theme::Face::Mono, Theme::kSizeMono);
-
         const eastl::string current = FileName();
 
         for (const eastl::string& file: m_files)
         {
+            Theme::ScopedFont font(Theme::Face::Mono, Theme::kSizeMono);
+
             ImGui::PushID(file.c_str());
-            ImGui::SetCursorPosX(Theme::Px(7.f));
+            ImGui::SetCursorPosX(0.f);
 
             const bool selected = file == current;
 
+            // Full width like the tree's rows, so both panes highlight to the same edges.
             ImGui::PushStyleColor(ImGuiCol_Header, kRowSelected);
             if (ImGui::Selectable("##File", selected, 0,
-                                  ImVec2(ImGui::GetContentRegionAvail().x - Theme::Px(7.f), kRowHeight)))
+                                  ImVec2(ImGui::GetContentRegionAvail().x, kRowHeight)))
             {
                 // Fills the name field: picking an existing file is how a user says "this
                 // one", and the clash message then explains why Save is off.
@@ -603,7 +650,7 @@ namespace Editor
 
             const ImVec2 rowMin = ImGui::GetItemRectMin();
             ImGui::GetWindowDrawList()->AddText(
-                ImVec2(rowMin.x + Theme::Px(6.f),
+                ImVec2(rowMin.x + kPad,
                        rowMin.y + (kRowHeight - ImGui::GetTextLineHeight()) * 0.5f),
                 selected ? Theme::kTextStrong : Theme::kTextDim, file.c_str());
 
@@ -650,9 +697,13 @@ namespace Editor
 
             ImGui::SetNextItemWidth(width - ImGui::GetCursorPosX() - extensionWidth
                                     - kPad - Theme::Px(9.f));
-            if (ImGui::InputText("##Name", m_nameBuf.data(), m_nameBuf.size(),
-                                 ImGuiInputTextFlags_EnterReturnsTrue)
-                && NameIsValid(m_nameBuf.data()) && !NameIsTaken())
+            const bool entered = ImGui::InputText("##Name", m_nameBuf.data(), m_nameBuf.size(),
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+            if (ImGui::IsItemEdited())
+            {
+                m_saveFailed = false;
+            }
+            if (entered && CanSave())
             {
                 Confirm();
             }
@@ -667,15 +718,35 @@ namespace Editor
         ImGui::SetCursorPos(ImVec2(kPad, ImGui::GetCursorPosY() + Theme::Px(7.f)));
         {
             Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeLabel);
+
+            const char* message = nullptr;
+            ImU32       color   = Theme::kCloseHovText;
+
             if (!NameIsValid(m_nameBuf.data()))
             {
-                TintedText(Theme::kCloseHovText,
-                           "A name may hold letters, digits and underscores, and cannot "
-                           "start with a digit.");
+                message = "A name may hold letters, digits and underscores, and cannot "
+                          "start with a digit.";
             }
             else if (NameIsTaken())
             {
-                TintedText(Theme::kDirty, "An asset of this name is already here.");
+                message = "An asset of this name is already here.";
+                color   = Theme::kDirty;
+            }
+            else if (m_saveFailed)
+            {
+                // Why is in the log: the reason is the asset type's, and only it knows one.
+                message = "Could not be saved -- see the console.";
+            }
+
+            // An item either way: a cursor moved past the last one does not grow the child,
+            // and EndChild says so.
+            if (message)
+            {
+                TintedText(color, message);
+            }
+            else
+            {
+                ImGui::Dummy(ImVec2(0.f, ImGui::GetTextLineHeight()));
             }
         }
 
@@ -698,7 +769,7 @@ namespace Editor
                           Theme::kTextDimmer, FullPath().c_str());
         }
 
-        const bool canSave = NameIsValid(m_nameBuf.data()) && !NameIsTaken();
+        const bool canSave = CanSave();
 
         struct FooterButton
         {

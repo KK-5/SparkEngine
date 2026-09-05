@@ -62,6 +62,7 @@ namespace Editor
         eastl::string FileName() const;   ///< the name field plus the extension
         eastl::string FullPath() const;
         bool          NameIsTaken() const;
+        bool          CanSave() const;
 
         SaveAssetRequest m_request;
 
@@ -70,6 +71,10 @@ namespace Editor
         bool m_open      = false;
         bool m_openPopup = false;
         bool m_focusName = false;
+
+        //! The last Save was refused or failed. Cleared by anything that changes what
+        //! would be written, since that is what makes trying again worthwhile.
+        bool m_saveFailed = false;
 
         eastl::vector<Directory>     m_tree;
         eastl::vector<eastl::string> m_expanded;

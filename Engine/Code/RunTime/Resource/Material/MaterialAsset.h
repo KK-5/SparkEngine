@@ -12,6 +12,9 @@
 
 namespace Spark::Resource
 {
+    //! What makes a file a material, for the type lookup and for anyone naming a new one.
+    inline constexpr const char* kMaterialExtension = ".smat";
+
     //! Deliberately empty. A descriptor is the REFERRING side's compile choice and folds
     //! into AssetId's identity hash -- usage picks how an image is compiled, backend picks
     //! which bytecode a shader becomes. A material has no such choice: what it is made of

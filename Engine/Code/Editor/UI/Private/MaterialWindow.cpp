@@ -6,8 +6,14 @@
 #include <imgui.h>
 
 #include <Reflection/TypeRegistry.h>
+#include <Service/Service.h>
+#include <Resource/AssetManagerInterface.h>
+#include <Resource/Material/MaterialAsset.h>
 #include <Resource/Material/MaterialState.h>
 #include <Resource/Material/StandardPBR.h>
+#include <Feature/Material/Components.h>
+
+#include "UI/Bus/SaveAssetDialogBus.h"
 
 #include "EditorTheme.h"
 #include "FieldWidgets.h"
@@ -160,13 +166,18 @@ namespace Editor
     MaterialWindow::MaterialWindow()
     {
         MaterialEditBus::Handler::BusConnect();
+        Resource::AssetBus::Handler::BusConnect(Resource::AssetType::Material);
     }
 
     MaterialWindow::~MaterialWindow()
     {
-        if (BusIsConnected())
+        if (MaterialEditBus::Handler::BusIsConnected())
         {
-            BusDisconnect();
+            MaterialEditBus::Handler::BusDisconnect();
+        }
+        if (Resource::AssetBus::Handler::BusIsConnected())
+        {
+            Resource::AssetBus::Handler::BusDisconnect();
         }
     }
 
@@ -176,6 +187,134 @@ namespace Editor
         m_open      = true;
         m_focusNext = true;
         m_dirty     = false;
+        m_saving    = false;
+
+        TakeSnapshot(static_cast<uint32_t>(handle));
+    }
+
+    void MaterialWindow::OnAssetSaved(const Resource::AssetId& id)
+    {
+        if (!m_saving)
+        {
+            return;
+        }
+        m_saving = false;
+
+        const uint32_t handleId = static_cast<uint32_t>(m_target);
+        if (!MaterialExists(handleId))
+        {
+            return;
+        }
+
+        // Save As is an in-place conversion: this material entity, its sharing and the
+        // picture stay as they are, and only what backs it changes. Save writes the same
+        // id back, so both actions are this one line.
+        WriteMaterialComponent(handleId, Material::MaterialAssetRef{id});
+
+        TakeSnapshot(handleId);
+        m_dirty = false;
+    }
+
+    void MaterialWindow::TakeSnapshot(uint32_t handleId)
+    {
+        ReadMaterialValues(handleId, m_snapshotParams, m_snapshotState);
+    }
+
+    Ptr<Resource::Asset> MaterialWindow::AssetToSave(uint32_t handleId,
+                                                     const Ptr<Resource::Asset>& existing) const
+    {
+        Resource::StandardPBR   params;
+        Resource::MaterialState state;
+        if (!ReadMaterialValues(handleId, params, state))
+        {
+            return nullptr;
+        }
+
+        // No path yet for a new one, so no id: SaveAsset takes the type from the extension.
+        Ptr<Resource::Asset> asset =
+            existing ? existing : Ptr<Resource::Asset>(new Resource::MaterialAsset(Resource::AssetId()));
+
+        asset->SetDataReady(MakeUnique<Resource::MaterialAssetData>(params, state));
+        return asset;
+    }
+
+    void MaterialWindow::Save()
+    {
+        auto* assetManager = Service<Resource::AssetManager>::Get();
+        Resource::AssetId backing;
+        if (!assetManager || !TryGetMaterialAsset(static_cast<uint32_t>(m_target), backing))
+        {
+            return;
+        }
+
+        Ptr<Resource::Asset> asset =
+            AssetToSave(static_cast<uint32_t>(m_target), assetManager->FindAsset(backing));
+        if (!asset)
+        {
+            return;
+        }
+
+        m_saving = true;
+        if (!assetManager->SaveAsset(*asset, backing.GetPath()).IsValid())
+        {
+            m_saving = false;
+        }
+    }
+
+    void MaterialWindow::SaveAs()
+    {
+        Ptr<Resource::Asset> asset = AssetToSave(static_cast<uint32_t>(m_target), nullptr);
+        if (!asset)
+        {
+            return;
+        }
+
+        SaveAssetRequest request;
+        request.m_asset     = eastl::move(asset);
+        request.m_title     = "Save Material As";
+        request.m_extension = Resource::kMaterialExtension;
+
+        Resource::AssetId backing;
+        if (TryGetMaterialAsset(static_cast<uint32_t>(m_target), backing))
+        {
+            const eastl::string& path  = backing.GetPath();
+            const size_t         slash = path.rfind('/');
+            if (slash != eastl::string::npos)
+            {
+                request.m_defaultDir  = path.substr(0, slash);
+                request.m_defaultName = path.substr(slash + 1);
+            }
+        }
+        if (request.m_defaultName.empty())
+        {
+            request.m_defaultName = "NewMaterial";
+        }
+        else
+        {
+            const size_t dot = request.m_defaultName.rfind('.');
+            if (dot != eastl::string::npos)
+            {
+                request.m_defaultName.resize(dot);
+            }
+        }
+
+        // Set before the dialog opens rather than on confirm: the answer comes back as an
+        // asset event, and this window has no other way to know the event is its own.
+        m_saving = true;
+        SaveAssetDialogBus::Broadcast(&SaveAssetDialogEvents::OpenSaveAssetDialog, request);
+    }
+
+    void MaterialWindow::Revert()
+    {
+        const uint32_t handleId = static_cast<uint32_t>(m_target);
+        if (!MaterialExists(handleId))
+        {
+            return;
+        }
+
+        WriteMaterialComponent(handleId, m_snapshotParams);
+        WriteMaterialComponent(handleId, m_snapshotState);
+        m_dirty = false;
     }
 
     void MaterialWindow::Draw()
@@ -616,14 +755,23 @@ namespace Editor
 
         // Laid out from the right edge inwards, so the one filled button keeps the corner.
         // None of them are wired yet -- all three wait on the write path.
+        enum class FooterAction
+        {
+            Save,
+            SaveAs,
+            Revert
+        };
         struct FooterButton
         {
-            const char* label;
-            bool        accent;
-            bool        enabled;
+            const char*  label;
+            FooterAction action;
+            bool         accent;
+            bool         enabled;
         };
         const FooterButton buttons[] = {
-            {"Save", true, canSave}, {"Save As\xE2\x80\xA6", false, true}, {"Revert", false, true}};
+            {"Save", FooterAction::Save, true, canSave},
+            {"Save As\xE2\x80\xA6", FooterAction::SaveAs, false, true},
+            {"Revert", FooterAction::Revert, false, true}};
 
         float x = p1.x - kPad;
         for (const FooterButton& button: buttons)
@@ -658,7 +806,15 @@ namespace Editor
                 ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextLabel);
                 ImGui::PushStyleColor(ImGuiCol_Border, Theme::kBorderWindow);
             }
-            ImGui::Button(button.label, ImVec2(buttonWidth, 0.f));
+            if (ImGui::Button(button.label, ImVec2(buttonWidth, 0.f)))
+            {
+                switch (button.action)
+                {
+                case FooterAction::Save:   Save();   break;
+                case FooterAction::SaveAs: SaveAs(); break;
+                case FooterAction::Revert: Revert(); break;
+                }
+            }
             ImGui::PopStyleColor(5);
             ImGui::EndDisabled();
 

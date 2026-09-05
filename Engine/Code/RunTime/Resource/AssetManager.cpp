@@ -217,7 +217,7 @@ namespace Spark::Resource
             return AssetType::Model;
         }
 
-        if (ext == ".smat")
+        if (ext == kMaterialExtension)
         {
             return AssetType::Material;
         }
