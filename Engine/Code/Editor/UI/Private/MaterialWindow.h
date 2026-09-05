@@ -10,6 +10,7 @@
 #include <Resource/Material/StandardPBR.h>
 
 #include "UI/Bus/MaterialEditBus.h"
+#include "UI/Bus/SaveAssetDialogBus.h"
 
 namespace Editor
 {
@@ -50,11 +51,26 @@ namespace Editor
         Spark::Ptr<Spark::Resource::Asset> AssetToSave(
             uint32_t handleId, const Spark::Ptr<Spark::Resource::Asset>& existing) const;
 
+        //! Everything but the name, which the two callers disagree on. The directory is
+        //! the current material's, so a new one lands beside the one being looked at.
+        SaveAssetRequest MakeSaveRequest(Spark::Ptr<Spark::Resource::Asset> asset,
+                                         const char* title) const;
+
         void Save();
         void SaveAs();
+        void NewMaterial();
         void Revert();
 
         void TakeSnapshot(uint32_t handleId);
+
+        //! What the dialog is open for, since the two answers to a save differ: Save and
+        //! Save As point this material at the file, New opens the material the file makes.
+        enum class Pending
+        {
+            None,
+            Save,
+            New
+        };
 
         Spark::Material::MaterialHandle m_target{Spark::Material::NullMaterial};
         bool                            m_open      = false;
@@ -65,10 +81,9 @@ namespace Editor
         //! Save As close that gap and clear this.
         bool                            m_dirty = false;
 
-        //! A save of this material is in flight -- pressed Save, or the dialog is open on
-        //! its behalf. What makes the next OnAssetSaved this window's own, which for Save
-        //! As is the only way to learn the id it should now carry.
-        bool                            m_saving = false;
+        //! What makes the next OnAssetSaved this window's own -- for Save As and New the
+        //! only way to learn the id the file was written under.
+        Pending                         m_pending = Pending::None;
 
         //! Where Revert goes back to: the values as they were opened, or as the last save
         //! left them.

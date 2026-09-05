@@ -12,6 +12,7 @@
 #include <Resource/Material/MaterialState.h>
 #include <Resource/Material/StandardPBR.h>
 #include <Feature/Material/Components.h>
+#include <Feature/Material/MaterialUtils.h>
 
 #include "UI/Bus/SaveAssetDialogBus.h"
 
@@ -52,6 +53,8 @@ namespace Editor
         constexpr const char* kShadingModels[] = {"Standard PBR"};
 
         constexpr const char* kPreviewShapes[] = {"Sphere", "Cylinder", "Plane"};
+
+        constexpr const char* kNewMaterialName = "NewMaterial";
 
         const char* AlphaModeName(Resource::AlphaMode mode)
         {
@@ -187,21 +190,30 @@ namespace Editor
         m_open      = true;
         m_focusNext = true;
         m_dirty     = false;
-        m_saving    = false;
+        m_pending   = Pending::None;
 
         TakeSnapshot(static_cast<uint32_t>(handle));
     }
 
     void MaterialWindow::OnAssetSaved(const Resource::AssetId& id)
     {
-        if (!m_saving)
+        const Pending pending = m_pending;
+        m_pending = Pending::None;
+
+        if (pending == Pending::New)
         {
+            // Resolve builds the material entity from the file that now exists; opening it
+            // is what "create and open" means, and the material being edited is untouched.
+            const Material::MaterialHandle created = Material::MaterialFromAssetId(id);
+            if (created != Material::NullMaterial)
+            {
+                OpenMaterialEditor(created);
+            }
             return;
         }
-        m_saving = false;
 
         const uint32_t handleId = static_cast<uint32_t>(m_target);
-        if (!MaterialExists(handleId))
+        if (pending != Pending::Save || !MaterialExists(handleId))
         {
             return;
         }
@@ -254,24 +266,19 @@ namespace Editor
             return;
         }
 
-        m_saving = true;
+        m_pending = Pending::Save;
         if (!assetManager->SaveAsset(*asset, backing.GetPath()).IsValid())
         {
-            m_saving = false;
+            m_pending = Pending::None;
         }
     }
 
-    void MaterialWindow::SaveAs()
+    SaveAssetRequest MaterialWindow::MakeSaveRequest(Ptr<Resource::Asset> asset,
+                                                     const char* title) const
     {
-        Ptr<Resource::Asset> asset = AssetToSave(static_cast<uint32_t>(m_target), nullptr);
-        if (!asset)
-        {
-            return;
-        }
-
         SaveAssetRequest request;
         request.m_asset     = eastl::move(asset);
-        request.m_title     = "Save Material As";
+        request.m_title     = title;
         request.m_extension = Resource::kMaterialExtension;
 
         Resource::AssetId backing;
@@ -283,24 +290,49 @@ namespace Editor
             {
                 request.m_defaultDir  = path.substr(0, slash);
                 request.m_defaultName = path.substr(slash + 1);
+
+                const size_t dot = request.m_defaultName.rfind('.');
+                if (dot != eastl::string::npos)
+                {
+                    request.m_defaultName.resize(dot);
+                }
             }
         }
+        return request;
+    }
+
+    void MaterialWindow::SaveAs()
+    {
+        Ptr<Resource::Asset> asset = AssetToSave(static_cast<uint32_t>(m_target), nullptr);
+        if (!asset)
+        {
+            return;
+        }
+
+        SaveAssetRequest request = MakeSaveRequest(eastl::move(asset), "Save Material As");
         if (request.m_defaultName.empty())
         {
-            request.m_defaultName = "NewMaterial";
-        }
-        else
-        {
-            const size_t dot = request.m_defaultName.rfind('.');
-            if (dot != eastl::string::npos)
-            {
-                request.m_defaultName.resize(dot);
-            }
+            request.m_defaultName = kNewMaterialName;
         }
 
         // Set before the dialog opens rather than on confirm: the answer comes back as an
         // asset event, and this window has no other way to know the event is its own.
-        m_saving = true;
+        m_pending = Pending::Save;
+        SaveAssetDialogBus::Broadcast(&SaveAssetDialogEvents::OpenSaveAssetDialog, request);
+    }
+
+    void MaterialWindow::NewMaterial()
+    {
+        // Default values, not the ones on screen: New makes a material, it does not copy
+        // the open one -- that is what Save As is.
+        Ptr<Resource::Asset> asset(new Resource::MaterialAsset(Resource::AssetId()));
+        asset->SetDataReady(MakeUnique<Resource::MaterialAssetData>(Resource::StandardPBR{},
+                                                                    Resource::MaterialState{}));
+
+        SaveAssetRequest request = MakeSaveRequest(eastl::move(asset), "New Material");
+        request.m_defaultName = kNewMaterialName;
+
+        m_pending = Pending::New;
         SaveAssetDialogBus::Broadcast(&SaveAssetDialogEvents::OpenSaveAssetDialog, request);
     }
 
@@ -440,8 +472,34 @@ namespace Editor
         }
 
         const float closeMargin = Theme::Px(6.f);
-        ImGui::SetCursorScreenPos(
-            ImVec2(p1.x - closeMargin - kCloseSize, p0.y + (kTitleHeight - kCloseSize) * 0.5f));
+        const float closeX      = p1.x - closeMargin - kCloseSize;
+
+        // In the title bar rather than beside Save: it makes a different material, while
+        // those three act on the one open.
+        {
+            Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeLabel);
+
+            const char*  label    = "+ New";
+            const ImVec2 textSize = ImGui::CalcTextSize(label);
+            const float  padX     = Theme::Px(9.f);
+            const float  height   = Theme::Px(21.f);
+            const float  width    = textSize.x + padX * 2.f;
+            const ImVec2 pos(closeX - Theme::Px(6.f) - width, p0.y + (kTitleHeight - height) * 0.5f);
+
+            ImGui::SetCursorScreenPos(pos);
+            if (ImGui::InvisibleButton("##New", ImVec2(width, height)))
+            {
+                NewMaterial();
+            }
+
+            const bool hovered = ImGui::IsItemHovered();
+            draw->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height),
+                                hovered ? Theme::kAccent : Theme::kButtonHov, Theme::Px(3.f));
+            draw->AddText(ImVec2(pos.x + padX, pos.y + (height - textSize.y) * 0.5f),
+                          hovered ? Theme::kOnAccent : Theme::kTextLabel, label);
+        }
+
+        ImGui::SetCursorScreenPos(ImVec2(closeX, p0.y + (kTitleHeight - kCloseSize) * 0.5f));
         if (ImGui::InvisibleButton("##Close", ImVec2(kCloseSize, kCloseSize)))
         {
             m_open = false;
