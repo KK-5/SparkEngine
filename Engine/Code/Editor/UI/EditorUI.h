@@ -20,6 +20,7 @@
 #include "Private/Inspector.h"
 #include "Private/ComponentView.h"
 #include "Private/MaterialWindow.h"
+#include "Private/SaveAssetDialog.h"
 
 namespace Editor
 {
@@ -58,5 +59,8 @@ namespace Editor
         //! Not in SetupDefaultLayout: it is free-floating and starts closed, opened from the
         //! material slot's edit icon.
         eastl::unique_ptr<MaterialWindow> m_materialWindow;
+
+        //! Drawn last: it is modal, so it belongs over whatever asked for it.
+        eastl::unique_ptr<SaveAssetDialog> m_saveAssetDialog;
     };
 }
