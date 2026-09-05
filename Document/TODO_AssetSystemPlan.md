@@ -70,15 +70,18 @@ shader 与 `.gltf` model 仍被「通用依赖机制」挡住（待办 A），`.
 **阶段 3 的流程 3（拖 `.smat` 到材质槽）已落地**，走 `OnAssetDragToComponent` 那条既有路，新增的
 只是第二个终点。`MaterialRefElement` 同时降为 `FieldWidgets` 的一个普通分支。
 
-**阶段 3 的写盘路径已落地，尚未接线。** 三段各就各位：`AssetManager::WriteAssetFile`（字节→已注册的
-资产，写和注册是一次调用，因为注册不能等文件监视）、`SaveMaterialAsset`（值 + 路径 → `AssetId`，接缝
-定在值这一层而不是字节，好让将来的子资产提取插得进去；内嵌贴图今天返回 `EmbeddedTexture` 拒绝）、
-编辑器侧的 `ReadMaterialValues`。底栏三个按钮改名到位、`Save` 的禁用态生效（无 `.smat` 背书、或背书
-的是子资产时变灰）。**但三个按钮还没有点击行为，写盘路径没有任何调用者。**
-这条路的分层将来会变，见 `TODO_AssetSerializationLayering.md`——那是另一次单独排期的重构，不阻塞本阶段。
+**阶段 3 的保存已落地**：`Save` / `Save As` / `New` / `Revert` 都成立。保存走
+`AssetManager::SaveAsset`——边界对象是 `Asset` 而不是值，形态与理由见「保存走资产，不走值」。
+`TODO_AssetSerializationLayering.md` 的 B 随之提前落地：保存对话框必须按类型分派，而分派表正是那次
+重构要建的东西，原先「与本阶段解耦、单独排期」的安排作废。
 
-**剩下的是把它接起来 + 目录选择器 + `New`。** 目录选择器是编辑器自己的而不是系统对话框；
-`New` 按钮的位置仍未定。
+**保存对话框**（「目录选择器」一节）：模态、走 `SaveAssetDialogBus`、只列 `project://`、左目录树右
+同扩展名文件列表；它自己调 `SaveAsset`，发起方靠 `AssetBus::OnAssetSaved` 得知结果。`New` 在材质
+窗口标题栏右端——它做的是另一个材质，底栏那三个作用于当前这个。
+
+**`FileSystem::ListDirectory` 取代了 `IterateDirectory`**：一层、含目录。选择器要的「本级子目录 +
+本级 `.smat`」它才答得出来，`AssetRegistry` 的递归改在调用点自己压栈，Browser 建树也跟着换过去——
+编辑器里最后一处直接摸物理路径的代码没了。
 
 **新增一节「资产预加载与编辑器的加载契约」，方案已定、尚未动工。** 加载编排归资产模块，编辑器只读
 状态 + 解析已 `Ready` 的资产；启动同步预加载（欢迎页）+ 运行中后台导入。
@@ -173,8 +176,11 @@ Engine/Code/RunTime/Core/VFS/
 ```
 
 `FileSystem` 接口：`Mount` / `Unmount` / `ToVirtual` / `ToPhysical` / `GetMountNames` /
-`GetPhysicalDirs` / `IterateDirectory`。`ToPhysical` 是查表不是搜索；`Mount` 拒绝物理目录相互
+`GetPhysicalDirs` / `ListDirectory`。`ToPhysical` 是查表不是搜索；`Mount` 拒绝物理目录相互
 包含的挂载点，因此至多一个挂载点能命中一个物理路径。
+
+`ListDirectory` 是一层、含目录（原先是递归且只给文件的 `IterateDirectory`）：递归能由它加一个栈
+写出来，反过来不行——递归的文件遍历既说不出「一层到哪儿为止」，也报不出一个不含文件的目录。
 
 阶段 1 已在同一接口上追加 `ReadFile` / `WriteFile` / `Exists` / `GetFileStamp`，并新增
 可写的 `cache://` 挂载。
@@ -1395,36 +1401,31 @@ Browser 对非 `Ready` 的资产不开拖拽源。「能拖的一定可用」由
 | # | 流程 | 用户看到 | 今天 |
 |---|---|---|:--:|
 | 1 | 调整模型带进来的材质 | 在材质窗口里改；**所有共用它的对象一起变**；存不回 glb，只能导出 | ✅ 改已成立（材质槽 ✎ 打开窗口），导出见 2 |
-| 2 | 导出成材质资产 | Browser 里出现 `.smat`；画面不变，共享关系不变 | ⚠️ **下一件**：写盘路径已通，缺按钮接线 + 目录选择器 |
+| 2 | 导出成材质资产 | Browser 里出现 `.smat`；画面不变，共享关系不变 | ✅ |
 | 3 | 把材质用到别的对象 | 从 Browser 拖 `.smat` 到材质槽 | ✅ |
-| 4 | 编辑一个 `.smat` | 同一个材质窗口，可 Save | ⚠️ 编辑已成立（同一个窗口），Save 随 2 |
+| 4 | 编辑一个 `.smat` | 同一个材质窗口，可 Save | ✅ |
 | 5 | 只改这一个对象 | 这个对象从此跟别人不一样，删掉覆盖就恢复 | ✅ |
-| 6 | 从零新建材质 | 材质编辑器里一个 `New` 按钮 | ❌ 随 2；还缺「窗口能空开」，按钮位置待定 |
+| 6 | 从零新建材质 | 材质编辑器里一个 `New` 按钮 | ⚠️ 功能成立；入口只有一个——窗口关着时够不着（见「空开」） |
 | 7 | 存场景、重开、一切还原 | 含**共享关系原样还原** | ❌ 依赖阶段 4 |
-| 8 | `.smat` 被删掉 | 退回默认材质，不崩，有提示 | ⚠️ 不崩、退回默认已成立（`Resolve` 给 `NullMaterial`，消费端回落默认材质），缺提示 |
+| 8 | `.smat` 被删掉 | 退回默认材质，不崩，有提示 | ✅ `Resolve` 给 `NullMaterial`，消费端回落默认材质，材质槽显示 `(none)` |
 
 #### 剩下的事
 
-流程 7 属于阶段 4，不在这里。
+流程 7 属于阶段 4，不在这里。其余七条都成立，参与的东西各有一节：Browser 认 `.smat` 走的是通用的
+「文件监视」；材质窗口一次覆盖流程 1 和 4（预览区留了位置但没有内容）；拖放走 `OnAssetDragToComponent`
+那条既有路；保存见「保存走资产，不走值」，选路径见「目录选择器」。
 
-~~**Browser 认 `.smat`。**~~ ✅ **已落地**，做成了通用的文件监视——详见「文件监视」一节。`.smat`
-本身一直是被认的（`GetSupportAssetType` + `AssetRegistry`），缺的只是「树只建一次」。
+**流程 6 只差一个入口**：`New` 在材质窗口的标题栏里，所以窗口关着时够不着。要的是「材质窗口能空开」
+加一条 `Window > Material Editor` 菜单，顺带解决「窗口关了怎么再打开」这个今天也没有答案的问题。
 
-~~**材质窗口。**~~ ✅ **已落地**。一次覆盖流程 1 和 4。参数面板可用，预览区留了位置但没有内容。
-详见「材质窗口」一节。
+**阶段 3 剩下的债，都是明说过的**：
 
-`MaterialRefElement` 的内联展开 ✅ **已删除**，它的含义变成「显示材质身份 + 打开按钮」。
-
-~~**拖 `.smat` 到材质槽（流程 3）。**~~ ✅ **已落地**，走 `OnAssetDragToComponent` 那条既有路，
-详见下面「拖放」一节。
-
-~~**写盘路径。**~~ ✅ **已落地，未接线**——`WriteAssetFile` + `SaveMaterialAsset` + `ReadMaterialValues`
-三段齐了，没有调用者。详见「`.smat` 怎么产生」的「写盘路径的三段」。
-
-**剩下的是三件**（流程 2 与 6）：把底栏三个按钮接到那条路上（含 `Revert` 的快照）、目录选择器、
-`New`（前提是材质窗口能空开）。三个动作共用一条路径，只有最后一步分叉。`New` 按钮放哪未定。
-
-流程 8 缺的那句提示已经顺手做掉了：材质槽在引用解析不出来时显示 `(none)`。
+- 材质没有 `Deserialize`，所以模型的缓存单元里恢复不了材质子资产（`Serialize` 因此显式拒绝缓存那一
+  侧）。等 Model 转可缓存时一起答，欠的理由是它拿不到编译器要的 `AssetId`。
+- 内嵌贴图的报错只做到「不默默写进去」：对话框说一句「见 Console」，具体是哪个槽在日志里。真正的
+  答案是子资产提取，单独排期。
+- `.smat` 被外部改了不会重载——待办 A（依赖机制）的题目，不为材质开单类型特例。
+- 编辑器这一侧没有自动化测试；资产层有（`MaterialSaveTestFixture`）。
 
 **面板名以代码为准**：`Inspector` 是**实体列表**（`EntityList` 表格），改参数的面板是
 **Component View**，资产浏览器是 **Browser**（`BottomPanel`）。
@@ -1576,17 +1577,19 @@ Browser 双击 `.smat`（第二入口，随 Browser 那一步做）。
 **仍然不做**：预览（要一个离屏 pass + 相机 + 球 mesh，是渲染层的工作量，不是 UI 的）、`Stats` 页
 （没有可显示的量）、遮罩（材质编辑要一边看场景）。
 
-#### 底栏 ⚠️ 名字与禁用态已落地，点击未接线
+#### 底栏 ✅ 已落地
 
 ```
 <身份路径>                              [ Revert ]  [ Save As… ]  [ Save ]
 ```
 
-三个按钮已改成这三个名字（原来是 `Save & Close` / `Apply` / `Cancel`），右起布局所以 `Save` 占住
-右下角。**`Save` 的禁用态已生效**：无 `MaterialAssetRef`、或它的 id 是子资产时变灰——后者是
-「glTF 材质可改不可存」的直接后果，`Chair.glb:material/0` 指的是模型里的一段，没有可写的目标。
+右起布局，所以 `Save` 占住右下角。**`Save` 在无 `MaterialAssetRef`、或它的 id 是子资产时变灰**——
+后者是「glTF 材质可改不可存」的直接后果，`Chair.glb:material/0` 指的是模型里的一段，没有可写的目标。
 
-**点击行为还没有**，接线随写盘那一族一起做（见「`.smat` 怎么产生」）。
+三个动作的共同前半段是「把组件的值写进一个资产」：`Save` 写进背书它的那个，`Save As` / `New` 写进
+一个临时资产再交给对话框。存完之后的事（改 `MaterialAssetRef`、清 `Modified`、刷快照）也在材质窗口
+这一侧——它靠 `OnAssetSaved` 得知，而**要做什么取决于是谁发起的**：`Save` / `Save As` 让当前材质改指
+那个文件，`New` 打开那个文件做出来的新材质。
 
 **编辑保持直写，没有暂存层。** 因此原设计里的 `Apply` 取消——材质编辑就是一个视觉反馈循环，拖
 roughness 看着场景一起变是这个窗口存在的意义，也是它非模态的理由。暂存换来的「先看再落地」在这里
@@ -2079,6 +2082,7 @@ eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data);
 
 资产层由此对称：`Loader` 字节→raw，`Compiler` raw→`AssetData`，`WriteMaterialAsset` `AssetData`→字节。
 三个顶层键的常量收进 `MaterialFormat.h` 给读写两侧共用——那里只有三个字符串，不含 `JsonValue`。
+它没有 owner 也没有状态，所以仍是自由函数；上总线的是 `MaterialAssetBuilder::Serialize`，转调它。
 
 **格式不出现在接口上。** 初版叫 `MaterialToJson`、出参是 `JsonValue&`，等于把格式钉进了公共头：换格式
 会波及每个调用点，尽管真正要改的只有解析那几十行。现在 JSON 只活在两个 `.cpp` 里，调用方只交换字节。
@@ -2094,17 +2098,19 @@ eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data);
 的（编辑器里根本没有改它们的界面），Shader 是文本、用外部编辑器改，写回 glb 这件事本节下面已经否掉。
 真出现第二个可写回的类型，那时再抽到总线——是加法，不是重构。
 
-> ⚠️ **上面这个结论后来被推翻了一半，见 `TODO_AssetSerializationLayering.md`。** 事实判断仍成立
-> （`ProcessAsset` 确实不调它，第二个实现者今天确实没有），但那份方案指出总线是 **per-type 行为的
-> 分派表**而不是流水线，且这一步买到的是**对外表面收口**而非通用性。届时 `SaveMaterialAsset` 会拆成
-> 总线钩子 + `AssetManager::SaveAsset`，`WriteMaterialAsset` 变成材质的 `Serialize` 实现。
-> 那个重构与本阶段解耦、单独排期；本节描述的形态是在它到来前的过渡形态。
+> ⚠️ **这个结论已被推翻，见下一节「保存走资产，不走值」与 `TODO_AssetSerializationLayering.md`。**
+> 事实判断仍成立（`ProcessAsset` 确实不调它），但「没有通用流程会调它」不再成立：**保存对话框
+> 就是那个通用流程**——它不认识任何具体类型，确认之后只能按类型分派。总线是 per-type 行为的分派
+> 表，不是流水线。`SaveMaterialAsset` 因此删除，拆成总线钩子 + `AssetManager::SaveAsset`，
+> `WriteMaterialAsset` 变成材质的 `Serialize` 实现。
 
 **一笔明说的债：覆盖保存后 DB 里那份 `MaterialAssetData` 会变旧**，而 `LoadAsset` 命中 Ready 直接返回
 旧的、不会重读。今天不发作：材质窗口改的是 MaterialContext 里的组件，那才是渲染真正用的值；`Resolve`
 一个资产一个实例，已有实例就不再问 asset 要数据；材质实体又和资产一样长寿。只有「材质实体被销毁后
-重新 Resolve」才会看到旧值，而那条路今天不存在。要修它需要的是「源变了，重建这个资产」——那是待办 A
-（依赖机制 + 热重载）的最小形态，不在这一步造半成品。
+重新 Resolve」才会看到旧值，而那条路今天不存在。
+
+> ✅ **这笔债由下一节的「原地保存」还掉**：保存的第一步就是把组件的值写回资产，所以存完之后 DB 里
+> 那份是新的。另存那条不涉及它（换了个身份）。
 
 `MaterialAssetData` 因此加了公开构造 `(StandardPBR, MaterialState)`：新建默认材质、以及下面那个值比对
 测试，都要凭空造一个。
@@ -2122,46 +2128,74 @@ eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data);
 **2. 从材质编辑器写出。** 三个动作共用一条路径，只有最后一步分叉：
 
 ```
-选目录 + 文件名 → SaveMaterialAsset → ┬ Save As：这个材质实体改指新路径
-                                      ├ New：新建材质实体，窗口切过去
-                                      └ Save：无（写回原路径）
+组件的值 → 资产 → 选目录 + 文件名 → SaveAsset → ┬ Save As：这个材质实体改指新路径
+                                                ├ New：新建材质实体，窗口切过去
+                                                └ Save：无（写回原路径，不开对话框）
 ```
 
-##### 写盘路径的三段 ✅ 已落地，未接线
+##### 保存走资产，不走值 ✅ 已落地
+
+第一版的三段是「材质实体 → 值 → 字节 → 文件」，中间那段是材质专有的自由函数
+`SaveMaterialAsset(值, 路径)`。**这个形状撑不住保存对话框**：对话框对所有类型通用，它手里只有一条
+路径，没有任何办法把「要存的东西」变成字节；一旦让它认识 `SaveMaterialAsset`，它就成了材质保存
+对话框，复用没了。
+
+而「要存的东西」也做不成一个通用载荷：今天它只有一个样本（一个材质实体句柄），
+`AssetType + uint32_t`、`void*` + 类型标签、类型擦除的动作对象——随便定哪种都是为一个用例造抽象，
+而第二个类型来的时候多半不合身。
+
+**边界对象是 `Asset` 本身。** 数据流本来就是三层：
+
+```
+文件  ──►  Asset 对象  ──►  运行期组件
+```
+
+Asset 是权威副本，组件是它的运行期投影（`Resolve` 那一步的拷贝）。保存因此永远是「先把组件的值
+放回资产，再把资产写成文件」：
+
+| | 资产从哪来 |
+|---|---|
+| `Save`（原地） | 资产就在手边，把组件的值写回它 |
+| `Save As` | 现造一个**临时资产**装组件的值 |
+| `New` | 现造一个**临时资产**装默认值 |
+
+两条路交出来的都是一个 `Ptr<Asset>`，**对话框只认识它**——引用计数的，能跨帧持有（从打开到用户
+确认好几帧），而裸 `AssetData` 既不可拷也不可移，存不住。组件→资产这一步是材质专有的，但它发生在
+进入通用流程**之前**，留在材质窗口那一侧，不需要任何抽象。
+
+两段：
 
 ```cpp
-// 编辑器：材质实体 → 值
+// 编辑器：材质实体 → 值 → 资产
 bool ReadMaterialValues(uint32_t handleId, StandardPBR& params, MaterialState& state);
+//   asset.SetDataReady(MakeUnique<MaterialAssetData>(params, state))
 
-// Resource/Material/MaterialAssetSaver.h：值 + 路径 → 已注册的资产
-MaterialSaveResult SaveMaterialAsset(const MaterialAssetData& data,
-                                     eastl::string_view virtualPath, AssetId& out);
-
-// AssetManager 接口：字节 + 路径 → 已注册的资产
-AssetId WriteAssetFile(eastl::string_view virtualPath, const uint8_t* data, size_t size);
+// AssetManager 接口，保存的唯一入口
+//   扩展名定类型 → PrepareToSave（校验；将来是子资产提取）→ Serialize → 写文件 → OnAssetSaved
+AssetId SaveAsset(const Asset& asset, eastl::string_view virtualPath);
 ```
 
-**接缝定在「值」这一层，不是「字节」。** 曾想让编辑器自己调 `WriteMaterialAsset` 拿字节、再调
-`WriteAssetFile`，但**子资产提取要插在这两步中间**——它会写出若干贴图文件、注册它们、把
-`m_textures` 里的子资产 id 换成新的顶层 id。编辑器一旦捏着「值→字节」那一行，就成了「提取必须
-插进来的那个位置」的持有者，那天要改的就是编辑器。现在编辑器给「值 + 路径」、拿回「id 或一个
-原因」，拒绝换成提取那天它一个字节不动。
+**类型由扩展名定，不由资产的 `AssetId` 定**：临时资产在选定路径前 id 还无效、`GetAssetType()` 是
+`Unknown`。而且扩展名本来就是文件类型的答案，顺带挡住「把材质存成 `.png`」。
 
-**失败用错误码不用字符串。** `MaterialSaveResult` 三个值：`Ok` / `EmbeddedTexture` / `Failed`。
-资产模块返回一句面向用户的英文散文等于把 UI 的措辞写在了下面（不能本地化、测试只能比对字符串），
-所以细节一律走 `LOG_ERROR`（内嵌贴图那条会记下是哪个槽、哪个 id），怎么显示是编辑器的事。
-`EmbeddedTexture` 单列一个值而不是并进 `Failed`，是因为它是**唯一一个用户能采取行动的结果**，
-而文档要求「明确报错并说明原因」；提取落地后这个值随之消失。
+`WriteAssetFile` 转成私有：直接写字节会绕过钩子和格式，那样材质那条拒绝就一文不值。
+`MaterialAssetSaver.{h,cpp}` 与 `MaterialSaveResult` 删除，失败＝返回无效 `AssetId`。
+**子资产提取要插的位置没有变**，只是从「值→字节之间」变成了 `PrepareToSave` 里——它拿得到可变的
+`AssetData`，正是提取改写 `m_textures` 里 id 所需要的（写兄弟文件的入口到时候作为参数加上）。
+编辑器那天仍然一个字节不用改。
 
-**`ReadMaterialValues` 交出两个组件而不是 `MaterialAssetData`**，因为 `AssetData` 显式删掉了拷贝
-构造与拷贝赋值（多态基类，靠 `UniquePtr` 持有），声明它们又抑制了隐式移动，于是那个类型既不可拷
-也不可移、赋不进 out 参数。调用方就地 `MaterialAssetData data(params, state)`——那个双参构造本来
-就是为这个加的。
+**失败只打日志。** 原因写在 `LOG_ERROR`（内嵌贴图那条记下是哪个槽、哪个 id）。发起方失败时什么都
+不做——身份不变、`Modified` 继续亮着、目标不换——所以它不需要知道原因；需要知道的是用户。对话框不关，
+消息行说一句「见 Console」，具体原因不进界面。代价明说：本节后面「明确报错并说明原因」这一版只做到
+了「不默默写进去」的那一半，补齐它的是子资产提取。
 
-> 这三段的**分层将来会变**：`SaveMaterialAsset` 会拆成总线钩子 + `AssetManager::SaveAsset`，
-> `WriteMaterialAsset` 变成材质的 `Serialize` 实现，`MaterialAssetSaver.h` 消失。
-> 见 `TODO_AssetSerializationLayering.md`，那是单独排期的重构，不阻塞本阶段。
-> `WriteAssetFile` 是唯一在两个世界里都不变的那一段。
+**`ReadMaterialValues` 交出两个组件而不是 `MaterialAssetData`**，因为后者显式删掉了拷贝构造与拷贝
+赋值（多态基类，靠 `UniquePtr` 持有），声明它们又抑制了隐式移动。调用方就地
+`MakeUnique<MaterialAssetData>(params, state)` 塞进资产——那个双参构造本来就是为这个加的。
+
+> 这一步把 `TODO_AssetSerializationLayering.md` 的 **B 整条落地**（钩子上总线、材质覆写检查、
+> `AssetManager::SaveAsset`、`WriteAssetFile` 转私有），外加 A 的一条
+> （`MaterialAssetBuilder::Serialize`）。identity 那一串与缓存不动。
 
 **`Save As` 的语义是原地转换**：写文件 → 注册资产 → 把**这个材质实体**的来源换成新路径。共享关系
 一个字节不动，画面不变。glTF 材质因此是「可改不可存」——改动改的是运行期实例，只是存不回 glb。
@@ -2180,24 +2214,35 @@ AssetId WriteAssetFile(eastl::string_view virtualPath, const uint8_t* data, size
 的样子，所以判成败的是返回的 `AssetId` 而不是它。扩展名检查放在写之前——一个注册不进来的文件是谁也
 加载不了的。
 
-#### 目录选择器 ✅ 已定
+#### 目录选择器 ✅ 已落地
 
 **编辑器自己的资产选择器，不是系统文件对话框。** `AssetId::m_path` 恒为 `mount://relative`，而系统
 对话框返回物理路径，用户完全可以选到挂载点之外——那就成了「用一个能给出非法答案的控件，再靠校验把
 非法答案挡回去」。编辑器自己的选择器只能落在挂载点里，这个失败模式结构上不存在。
 
-需要的东西就这些：挂载点列表、当前目录的**子目录**列表 + 面包屑 + 上一级、文件名输入框（扩展名固定
-`.smat`）、确认 / 取消。同目录已有的 `.smat` 灰着列出——否则用户看不见自己正在重名。
+`Editor/UI/Private/SaveAssetDialog.{h,cpp}`，**模态**——选路径是一个有终点的动作，背后没有需要
+一边看一边改的东西（材质窗口非模态正是因为反过来）。五段：标题栏 / 路径行 / 左目录树 + 右文件列表 /
+文件名输入 + 校验行 / 底栏（完整虚拟路径 + Cancel + Save）。
 
-- **不复用 `BottomPanel` 的树**：那棵树带着资产、缩略图、拖拽源、选中状态，抽出来比用
-  `FileSystem::IterateDirectory` 现建一个目录列表还贵。列表也比树更接近文件对话框的通行形态。
+- **只列 `project://`**。引擎和编辑器自己的资产随构建发布，不是放用户内容的地方。
+- **左边是目录树**（打开时扫一次，展开箭头是独立 item，点它只切展开不改选中），右边是当前目录里
+  **同扩展名**的文件，只显示名字。同目录已有的 `.smat` 必须看得见，否则用户看不见自己正在重名。
+- **不复用 `BottomPanel` 的树**：那棵树带着资产、缩略图、拖拽源、选中状态，抽出来比自己扫一遍贵。
+  两边现在共用的是 `FileSystem::ListDirectory`——一层、含目录，正是这个选择器逼出来的 API。
 - **重名直接拒绝并提示**，不做覆盖确认：覆盖一个 `.smat` 会让所有引用它的对象一起变，这个后果比一次
-  「换个名字」重得多。
+  「换个名字」重得多。提示占住的位置就是将来放「勾选以覆盖」的地方。
+- **名字限 `^[A-Za-z_][A-Za-z0-9_]*$`**，比文件系统严：一个在路径里、日志里、将来生成的代码里都
+  一样的名字，少一层编码问题。
 - **不支持新建文件夹。** 那属于 Browser 的文件操作能力（它今天也没有重命名、移动、删除），单独给
   写盘开一个入口会让文件操作分散在两处。
 
-签名是 **（标题、扩展名、默认目录）→ 虚拟路径**，够 `Save As` / `New` / 将来 Browser 的新建用，
-不为通用性再多设计什么。
+**接口走 `SaveAssetDialogBus`**，材质窗口不认识这个类：命令 `OpenSaveAssetDialog(SaveAssetRequest)`
+（`HandlerPolicy::Single`——只有一个对话框，连第二个直接断言）。请求里带的是标题、扩展名、默认目录、
+默认文件名，加上**要保存的那个 `Ptr<Asset>`**（见上一节）。
+
+确认之后对话框自己调 `AssetManager::SaveAsset`，发起方靠资产层的保存通知知道结果——所以对话框不认识
+发起方，发起方也不认识对话框。**同一时刻只能有一个未决请求**：模态挡得住 UI 发起的第二个，挡不住
+非 UI 的（脚本、异步 handler），所以对话框自己拒绝重入并 `LOG_WARN`，把这个不变量变成代码保证的。
 
 **内嵌贴图的槽第一版明确拒绝导出。** 内嵌贴图是子资产，而子资产不能被独立加载（`ProcessAsset` 开头
 即拒，见「子被直接请求：拒绝，并指向提取」）。导出出来的 `.smat` 若引用 `model.glb:image/3`：
@@ -2212,17 +2257,18 @@ AssetId WriteAssetFile(eastl::string_view virtualPath, const uint8_t* data, size
 
 外部贴图的 `.gltf` 不受影响——它的贴图本来就是顶层资产。
 
-**3. 从零新建（流程 6）。** 一个 `New` 按钮，**在材质编辑器里，不在 Browser 的右键菜单里**：新建
-出来的材质必然要接着调参数，创建即打开比「Browser 新建完再回头双击」少一步。把默认材质写出去，没有
-子资产问题。
+**3. 从零新建（流程 6）✅。** 一个 `New` 按钮，**在材质编辑器里，不在 Browser 的右键菜单里**：新建
+出来的材质必然要接着调参数，创建即打开比「Browser 新建完再回头双击」少一步。写出去的是**默认值**，
+不是屏幕上那些——拷贝当前材质是 `Save As`；也因此没有子资产问题。
 
-`New` **不与底栏三个按钮并排**，位置待定。
+按钮在**标题栏右端**，不与底栏三个并排：它做的是另一个材质，那三个作用于当前这个。存完之后
+`Resolve` 出材质实体、窗口切过去，正在编辑的那个一个字节不动。
+
+⚠️ **入口只有这一个**：窗口关着时够不着 `New`。要的是**材质编辑器能空开**——它今天的两个入口都是
+「已经有一个材质」（材质槽的 ✎、Browser 双击 `.smat`）。菜单里加一条 `Window > Material Editor`，
+顺带解决「窗口关了怎么再打开」这个今天也没有答案的问题。
 
 Browser 将来要加新建，就是同一条路径多带一个默认目录（右键时选中的那个），不必另设计。
-
-前提是**材质编辑器要能空开**——它今天的两个入口都是「已经有一个材质」（材质槽的 ✎、Browser 双击
-`.smat`）。菜单里加一条 `Window > Material Editor`，顺带解决「窗口关了怎么再打开」这个今天也没有
-答案的问题。
 
 **节点式材质编辑不在本阶段**：它要编辑的东西（一个 shading model 有哪些属性、怎么连线、怎么生成
 shader）依赖「模型声明从哪来」这个未决问题。
@@ -2487,22 +2533,17 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
   目标的组件找个地方做 round-trip——今天只有 `MaterialSerializeTest` 一处。
 - **资产预加载与编辑器的加载契约**（新增一节，方案已定、未动工）。排在流程 3 之后。判据是删代码
   不是搬代码。
-- **阶段 3**：资产层、运行期、`.smat` 写侧、字段渲染机器、材质槽、材质窗口、Browser 认 `.smat`、
-  拖 `.smat` 到材质槽、**写盘路径**都已落地（见「状态」）。**下一件是把写盘接起来**，三件：
-  ① 底栏三个按钮的点击行为 + 一份 `Revert` 快照；② 目录选择器（`FileSystem` 今天只有递归且只访问
-  文件的 `IterateDirectory`，选择器要的「本级子目录 + 本级 `.smat`」得先补一个非递归列举）；
-  ③ `New`，前提是材质窗口能空开（`Window > Material Editor`），按钮位置仍未定。
-  形态见「`.smat` 怎么产生」与「材质窗口」的底栏一节。
+- **阶段 3 ✅**：八条流程里除了流程 7（属于阶段 4），全部成立——资产层、运行期、材质槽、材质窗口、
+  Browser、拖放、保存对话框、`Save` / `Save As` / `New` / `Revert`。**剩下一个入口**：`New` 只在窗口
+  开着时够得着，要材质窗口能空开 + `Window > Material Editor`。债见该节「剩下的事」。
 - **文件监视顺带把待办 A 的一半基础设施建好了**：`OnFileModified` 已经在到达，只是没人接。热重载现在
   差的是依赖边，不是"怎么知道文件变了"。但**不要**为材质单独接一个热重载——那正是待办 A 要解决的
   "改一个 `.hlsli` 该重建谁"，开一个只服务单一类型的特例会把这个问题埋掉。
-- **随阶段 3 记下的一笔债**：材质子资产没有 `Serialize`，而缓存单元里**任何一个 payload 为空就整个
-  单元不落盘**（`AssetCache::WriteUnit`）。今天不发作，因为 `AssetType::Model` 本来就不可缓存；等
-  Model 转可缓存那一步，得先给 `MaterialAssetBuilder` 补上 `Serialize` / `Deserialize`——独立 `.smat`
-  该不该有缓存条目，和它在单元里能不能被序列化，是两件事。
-  **这笔债由 `TODO_AssetSerializationLayering.md` 的第一件事一并还掉**：那份方案把序列化从缓存上解绑，
-  材质实现 `Serialize` 正是其中一步，而 `GetCacheFormat` 仍然是「要不要缓存」的唯一决定者。
-- **`TODO_AssetSerializationLayering.md`（新文档，方案已定、未动工）**：`Serialize` / `Deserialize` 去掉
-  `identity`、写源文件上总线 + `AssetManager::SaveAsset`、缓存维持现状。与阶段 3 解耦，动的是已有测试
-  覆盖的缓存子系统。
+- **材质的 `Deserialize` 仍然欠着**：`Serialize` 有了（保存用），但缺了另一半，模型的缓存单元里就
+  恢复不了材质子资产——所以 `Serialize` 在收到 identity（缓存在问）时显式拒绝，行为与它存在之前一致。
+  等 Model 转可缓存那一步一起答；欠的理由是读一个 `.smat` 需要编译器解析贴图路径用的 `AssetId`，而
+  `Deserialize` 的签名故意没有。`GetCacheFormat` 仍然是「要不要缓存」的唯一决定者（材质继续不缓存）。
+- **`TODO_AssetSerializationLayering.md`**：B 已随阶段 3 落地，A 只做了材质的 `Serialize`。剩下的
+  ——`Serialize` / `Deserialize` 去掉 `identity`、Image 管线与缓存验身——仍未动工，动的是已有测试
+  覆盖的缓存子系统，单独排期。
 - **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。

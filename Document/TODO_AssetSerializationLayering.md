@@ -2,9 +2,18 @@
 
 ## 状态
 
-**方案已定，未动工。** 与材质资产（`TODO_AssetSystemPlan.md` 阶段 3）解耦，可单独排期。
+**B 已落地**，随 `TODO_AssetSystemPlan.md` 阶段 3 的材质保存一起做——保存对话框必须按类型分派，这
+正是那个钩子存在的理由（见「与已有决策的关系」）。原先「与阶段 3 解耦、单独排期」的判断不成立：不是
+阶段 3 等这个重构，是它的 B 部分成了阶段 3 的前提。
 
-材质保存这条线按**当前实现**继续走（见「过渡形态」一节），不等这个重构。
+- **A**：只做了 `MaterialAssetBuilder::Serialize`，而且它**在收到 identity 时拒绝**——缺 `Deserialize`
+  的那一半，写出去的缓存单元没人能恢复。去掉 `identity` 那一串（Image 管线、`AssetCache` 验身、
+  `GetCacheFormat(Image)` 版本号）**未动**。
+- **B ✅**：`PrepareToSave` 上总线（材质覆写内嵌贴图检查）、`AssetManager::SaveAsset`、
+  `WriteAssetFile` 转私有、`MaterialAssetSaver` 删除、`AssetBus::OnAssetSaved`。
+- **C**：未动。
+
+「过渡形态」一节作废：`MaterialAssetSaver` 不经过渡直接删掉了。
 
 ---
 
@@ -37,6 +46,43 @@ virtual UniquePtr<AssetData>   Deserialize(const uint8_t* bytes, size_t size, ea
    塞条目的操作**。每种资产都这么来一下，`AssetManager` 作为「唯一的门」就名存实亡了。
 
 ---
+
+## 三层数据流（保存的形状由它决定）
+
+```
+文件  ──①──►  Asset 对象  ──②──►  运行期组件
+```
+
+- **① 文件 → Asset**：资产系统的事（加载；将来的热重载让它自动发生）。
+- **② Asset → 组件**：`Resolve` 那一步的**拷贝**——材质实体拿到值的副本，此后两份各走各的。
+- **绝大多数运行期逻辑改的是组件**，材质窗口也是（渲染读的就是组件）。
+
+**Asset 是权威副本，组件是它的运行期投影。** 所以保存永远是「先把组件的值放回资产，再把资产写成
+文件」，不是「把组件直接写成文件」：
+
+| 保存形态 | 资产从哪来 |
+|---|---|
+| 原地保存（`Save`） | 资产就在手边，把组件的值写回它 |
+| 另存 / 新建（`Save As` / `New`） | 现造一个**临时资产**装组件的值 |
+
+两条路交出来的都是一个 `Asset`，于是**保存对话框只需要认识 `Asset`**——不需要认识材质、场景或
+任何具体类型，也不需要为「要存的东西」发明一个通用载荷。那个载荷是这套设计绕开的东西：它今天
+只有一个样本（材质实体句柄），怎么定都是在为一个用例造抽象，而第二个类型来的时候多半不合身。
+
+组件→资产这一步确实是 per-type 的（要认识 `StandardPBR` / `MaterialState`），但它发生在**进入
+通用流程之前**，留在发起方那一侧，不需要任何抽象。`Asset::SetDataReady` 就是它的落点，
+`MaterialAssetData(StandardPBR, MaterialState)` 那个公开构造本来就是为它加的。
+
+两处后果，实施时记住：
+
+- **原地保存里，组件写回资产发生在写盘之前**。写盘失败时 DB 里那份比文件新——那是正确状态
+  （一个未落盘的资产），不是 bug。顺带把 `TODO_AssetSystemPlan.md` 记的那笔「覆盖保存后 DB 里
+  那份 `MaterialAssetData` 会变旧」的债还掉了：原地保存之后它是新的。
+- **另存之后 DB 里会有两份**：`WriteAssetFile` 内部的 `RegisterFile` 给新路径建了一个
+  `NotLoaded` 的资产对象，而临时资产才装着正确的值。第一版丢掉临时的，下次 `Resolve` 从文件读
+  （另存后活的材质实体本来就在，没人会立刻去读它）。真正的「文件写完即同步到 Asset 对象」是
+  ① 那一格的事，落地时它的位置就在 `SaveAsset` 里——把数据直接发布给刚注册的那个实例，省掉一次
+  磁盘往返。
 
 ## 核心划分
 
@@ -88,12 +134,12 @@ payload 里那一份能多挡的只有「manifest 和 payload 对不上」，而
 AssetBuildBus   ── 资产模块内部的 per-type 行为表，外部不可见
   CreateAsset / Load / Compile        构建
   Serialize / Deserialize             格式（不带 identity）
-  <写源文件的钩子>                     合法性判断，将来是提取
+  PrepareToSave                       合法性判断，将来是提取
 
 AssetManager    ── 唯一对外的门
   LoadAsset / RequestAsset / FindAsset / ...
-  WriteAssetFile(path, bytes) → AssetId       字节 → 已注册的资产（已实现）
-  SaveAsset(type, data, path) → AssetId       组合好的动作，编辑器只调这个
+  SaveAsset(const Asset&, path) → AssetId     保存的唯一入口
+  （WriteAssetFile 私有：绕过它就绕过了钩子和格式）
 
 AssetCache      ── 内部的一个用途，策略集中在这里
   = Serialize + identity + 键 + cache:// 落位
@@ -127,12 +173,37 @@ AssetCache      ── 内部的一个用途，策略集中在这里
 
 ### B. 写源文件上总线 + `AssetManager::SaveAsset`
 
-- 总线加一个每类型可覆写的钩子。**名字待定**：`CanSave` 太弱——将来提取要在这一步**写出
-  额外的贴图文件并注册**，是有副作用的，名字和签名要容得下那个未来（`PrepareSourceWrite`
-  之类，并且要能拿到 `AssetManager` 来写兄弟文件）。
-- 多数类型接受默认「可以写」，材质覆写一个检查。
-- `AssetManager::SaveAsset(type, data, path)` = 钩子 → `Serialize` → `WriteAssetFile`。
-- `Serialize` 随之**收成内部**：只有 `AssetCache` 和 `SaveAsset` 调它，都在模块内。
+- 钩子叫 **`PrepareToSave(AssetData&, virtualPath) → bool`**。不叫 `CanSave`：提取将来要在这一步
+  **写出贴图文件并改写 id**，是有副作用的，所以数据是可变的。写兄弟文件要的入口还不存在
+  （`WriteAssetFile` 是私有的），到时候作为参数加在这里。
+- **钩子只做校验/准备，不产出字节**，字节仍归 `Serialize`。分开是因为将来提取要改的是前者，格式要
+  改的是后者。
+- 多数类型接受默认「可以写」，材质覆写一个检查（内嵌贴图）。
+- `AssetManager::SaveAsset(const Asset&, path)` = 扩展名定类型 → 钩子 → `Serialize` → 写文件。
+  **它是唯一入口**：`WriteAssetFile` 转成私有，因为直接写字节会绕过前两步，那样材质那条拒绝就一文
+  不值。`Serialize` 也随之收成内部——只有 `AssetCache` 和 `SaveAsset` 调它。
+
+**保存成功广播一条 `AssetBus::OnAssetSaved(AssetId)`**（按类型寻址）。执行者是对话框，它不认识发起
+方，所以发起方只能靠通知知道「存成了」，而它确实有事要做：材质窗口要改 `MaterialAssetRef`、清
+`Modified`、刷 `Revert` 快照，`New` 那条则是把新文件 `Resolve` 出来并切过去。
+
+三点定死：
+
+- **载体是 `WriteAssetFile` 那个咽喉，不是 `FileEventBus`。** 文件监视报告不了失败（拒绝、写盘失败
+  都不产生文件事件）、延迟 200ms（而原地转换要同帧生效，这正是 `WriteAssetFile` 把写和注册合成一次
+  调用要绕开的东西）、说的是「文件变了」而不是「我发起的那次成了」（外部编辑器改同一个文件长得一样，
+  而那是热重载的题目），并且没开监视的挂载点上无声失效。
+- **只报成功。** 失败时发起方什么都不做，不需要被通知；用户要看的原因在日志里。
+- **取消不产生任何事件**，理由同上——什么都没发生。
+
+**签名为什么是 `(const Asset&, path)` 而不是原先写的 `(type, data, path)`**：
+
+- `type` 不用传——**扩展名决定文件类型**，`GetSupportAssetType(path)` 就是答案，顺带挡住
+  「把材质存成 `.png`」。临时资产在选定路径前 `AssetId` 还无效、`GetAssetType()` 是 `Unknown`，
+  按资产自己的类型分派反而断在这里。
+- 传 `Asset` 而不是 `AssetData`，是因为保存对话框要**跨帧持有**它（从打开到用户确认好几帧）。
+  `Ptr<Asset>` 是引用计数的；`AssetData` 显式删了拷贝构造，连隐式移动也一并没了，既不能存也
+  不能传。
 
 ### C. 缓存维持现状
 
@@ -170,37 +241,38 @@ per-type 的东西可填**，不成立。
 
 ---
 
-## 未决
+## 未决（已定）
 
-**具体的失败原因怎么传到 UI。** 现在 `MaterialSaveResult::EmbeddedTexture` 能让编辑器说出
-「这个材质用了内嵌贴图」，而 `TODO_AssetSystemPlan.md` 要求「明确报错并说明原因」。检查藏到
-总线后面之后，`SaveAsset` 只能返回通用的 `{Ok, Rejected, Failed}`，具体原因在日志里。
+**具体的失败原因怎么传到 UI**——**取第一条：只打日志**，不给总线契约加原因码。
 
-两条路，做的时候定：接受「无法保存，详见日志」（和「错误信息统一走日志、怎么显示是编辑器的
-事」这条原则一致），或者在总线契约上带一个小的原因码。
+`SaveAsset` 失败时发起方什么都不做（身份不变、`Modified` 继续亮着、目标不换），所以它不需要
+知道为什么；需要知道的是用户，而用户看的是 Console。原因写在 `LOG_ERROR` 里（内嵌贴图那条记下
+是哪个槽、哪个 id）。
+
+代价说清楚：内嵌贴图那种情况，界面上不会有一句话解释，`TODO_AssetSystemPlan.md` 要求的「明确
+报错并说明原因」这一版只做到了「不默默写进去」的那一半。这是已知的临时状态——等错误显示在
+对话框里长出来（它就在按下 Save 的地方），或者子资产提取落地把这条拒绝整个换掉。
 
 ---
 
-## 过渡形态（当前实现）
+## 材质保存的最终形态
 
-材质保存已经按下面这个形状落地，**本重构到来前不改**：
-
-| 现在 | 重构后 |
+| 谁 | 做什么 |
 |---|---|
-| `Resource/Material/MaterialAssetSaver.h` 的自由函数 `SaveMaterialAsset` | 消失；拆成总线钩子 + `AssetManager::SaveAsset` |
-| `MaterialSaveResult` 三值枚举 | 变成通用的 `{Ok, Rejected, Failed}`（或带原因码） |
-| `WriteMaterialAsset` 自由函数，`SaveMaterialAsset` 调 | 变成 `MaterialAssetBuilder::Serialize` 的实现 |
-| 内嵌贴图检查在 `MaterialAssetSaver.cpp` 的静态函数里 | 移到总线钩子的材质实现里 |
-| `AssetManager::WriteAssetFile` | **不变**，两个世界里都是那个通用原语 |
+| `MaterialAssetBuilder::Serialize` | `MaterialAssetData` → `.smat` 字节（转调 `WriteMaterialAsset`）；带 identity 时拒绝 |
+| `MaterialAssetBuilder::PrepareToSave` | 内嵌贴图即拒绝，原因进日志 |
+| `AssetManager::SaveAsset` | 扩展名定类型 → 钩子 → `Serialize` → 写文件 → `OnAssetSaved` |
+| 材质窗口 | 两头的 per-type 活：存之前把组件读进资产（原地）或临时资产（另存/新建），存之后改 `MaterialAssetRef`、清 `Modified`、刷快照，或把新建的那个打开 |
 
-编辑器侧的调用点只有材质窗口的 Save / Save As / New 三处，届时一起改。
+`MaterialAssetSaver` 与 `MaterialSaveResult` 已删除；失败＝`SaveAsset` 返回无效 `AssetId`。
 
 ---
 
 ## 影响面
 
-动的是**已经在跑、有测试覆盖**的缓存子系统（`SparkAssetTest` 的 CacheTests）。改完要跑：
+**剩下的 A** 动的是已经在跑、有测试覆盖的缓存子系统（`SparkAssetTest` 的 CacheTests）。改完要跑：
 
 - `ctest --test-dir build -C Debug`（四个套件）
-- 重点看 CacheTests 与 `MaterialAssetTests`（round-trip 判字节相等、每字段非默认值比对）
+- 重点看 CacheTests 与 `MaterialAssetTests`（round-trip 判字节相等、每字段非默认值比对、
+  `MaterialSaveTestFixture` 的七条）
 - 手动验一次冷/热缓存：删掉 `cache://` 后首次启动重建，第二次启动命中
