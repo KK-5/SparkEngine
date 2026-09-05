@@ -4,6 +4,7 @@
 #include <Resource/AssetBuildContext.h>
 
 #include "MaterialAsset.h"
+#include "MaterialAssetWriter.h"
 #include "MaterialRawTypes.h"
 
 namespace Spark::Resource
@@ -78,5 +79,44 @@ namespace Spark::Resource
         }
 
         ctx.compiledData = eastl::move(compiled);
+    }
+
+    eastl::vector<uint8_t> MaterialAssetBuilder::Serialize(const AssetData& compiled,
+                                                           eastl::string_view identity)
+    {
+        // An identity means the cache is asking -- a material sub-asset in some model's
+        // unit. Without Deserialize that payload could never be read back, and a unit that
+        // cannot be restored is worse than no unit.
+        if (!identity.empty())
+        {
+            return {};
+        }
+
+        return WriteMaterialAsset(static_cast<const MaterialAssetData&>(compiled));
+    }
+
+    bool MaterialAssetBuilder::PrepareToSave(AssetData& data, eastl::string_view virtualPath)
+    {
+        const StandardPBR& params = static_cast<MaterialAssetData&>(data).GetParams();
+
+        for (size_t slot = 0; slot < params.m_textures.size(); ++slot)
+        {
+            const AssetId& texture = params.m_textures[slot];
+            if (!texture.IsValid() || !texture.IsSubAsset())
+            {
+                continue;
+            }
+
+            // The file would work this session and lose its textures on the next, when
+            // ProcessAsset refuses to build a sub-asset alone.
+            LOG_ERROR("[MaterialAssetBuilder] Texture slot {} holds '{}:{}', which lives "
+                      "inside a model file and cannot be loaded on its own. Writing '{}' "
+                      "would produce a material that loses its textures on the next run.",
+                slot, texture.GetPath().c_str(), texture.GetSubLabel().c_str(),
+                eastl::string(virtualPath.data(), virtualPath.size()).c_str());
+            return false;
+        }
+
+        return true;
     }
 }

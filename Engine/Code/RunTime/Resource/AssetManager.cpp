@@ -654,7 +654,53 @@ namespace Spark::Resource
         // is what says this worked.
         RegisterFile(virtualPath);
 
-        return MakeAssetIdForType(virtualPath, type);
+        const AssetId id = MakeAssetIdForType(virtualPath, type);
+
+        // Every save passes through here, so the notification belongs here and not in
+        // SaveAsset. Success only: a failed save leaves nothing to undo.
+        AssetBus::Event(type, &AssetBusTraits::OnAssetSaved, id);
+
+        return id;
+    }
+
+    AssetId SparkAssetManager::SaveAsset(const Asset& asset, eastl::string_view virtualPath)
+    {
+        const AssetType type = GetSupportAssetType(virtualPath);
+        if (type == AssetType::Unknown)
+        {
+            LOG_ERROR("[SparkAssetManager] '{}' has no extension we build; not saved.",
+                      virtualPath);
+            return AssetId();
+        }
+
+        AssetData* data = asset.GetData<AssetData>();
+        if (!data)
+        {
+            LOG_ERROR("[SparkAssetManager] Nothing to save to '{}': the asset holds no data.",
+                      virtualPath);
+            return AssetId();
+        }
+
+        // No handler leaves it false, which is the answer we want.
+        bool prepared = false;
+        AssetBuildBus::EventResult(prepared, type, &AssetBuildEvents::PrepareToSave,
+                                   *data, virtualPath);
+        if (!prepared)
+        {
+            return AssetId();
+        }
+
+        eastl::vector<uint8_t> bytes;
+        AssetBuildBus::EventResult(bytes, type, &AssetBuildEvents::Serialize, *data,
+                                   eastl::string_view());
+        if (bytes.empty())
+        {
+            LOG_ERROR("[SparkAssetManager] AssetType {} produced no bytes for '{}'.",
+                      static_cast<uint32_t>(type), virtualPath);
+            return AssetId();
+        }
+
+        return WriteAssetFile(virtualPath, bytes.data(), bytes.size());
     }
 
     void SparkAssetManager::OnFileAdded(eastl::string virtualPath)

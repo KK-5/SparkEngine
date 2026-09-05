@@ -58,7 +58,7 @@ namespace Spark::Resource
 
         void AssetRegistry() override;
 
-        AssetId WriteAssetFile(eastl::string_view virtualPath, const uint8_t* data, size_t size) override;
+        AssetId SaveAsset(const Asset& asset, eastl::string_view virtualPath) override;
 
         void ReleaseAsset(const AssetId& id, const Asset* self) override;
 
@@ -73,6 +73,10 @@ namespace Spark::Resource
         bool InitEnvironmentBaker();
 
     private:
+        //! Bytes at a path, registered. SaveAsset's last step, and private because on its
+        //! own it is a way past the type's veto and its format.
+        AssetId WriteAssetFile(eastl::string_view virtualPath, const uint8_t* data, size_t size);
+
         //! One file into the database, if its extension names an asset type we build and it
         //! is not already there. Shared by the startup walk and the watcher.
         bool RegisterFile(eastl::string_view virtualPath);

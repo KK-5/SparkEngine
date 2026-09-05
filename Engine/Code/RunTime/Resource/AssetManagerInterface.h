@@ -37,11 +37,17 @@ namespace Spark::Resource
 
         virtual void AssetRegistry() = 0;
 
-        //! Bytes at a path, as an asset loadable before this returns -- registration cannot
-        //! wait for the file watcher when an editor action needs the result this frame.
-        //! Overwriting is normal. Invalid id on failure, reason logged.
-        virtual AssetId WriteAssetFile(eastl::string_view virtualPath,
-                                       const uint8_t* data, size_t size) = 0;
+        //! An asset as a source file at `virtualPath`, loadable before this returns --
+        //! registration cannot wait for the file watcher when an editor action needs the
+        //! result this frame. Overwriting is normal. Invalid id on failure, reason logged.
+        //!
+        //! The only way in: writing bytes straight to a path would skip the type's own
+        //! veto (PrepareToSave) and its format (Serialize), which is exactly what a
+        //! material's refusal to save an embedded texture would then be worth.
+        //!
+        //! The extension decides the type, not the asset's id -- an asset built to be saved
+        //! has no path yet, and the extension is what a reader goes by anyway.
+        virtual AssetId SaveAsset(const Asset& asset, eastl::string_view virtualPath) = 0;
 
         //! Typed forms. The id already carries its type, so these only add the downcast --
         //! and the check that the caller asked for the type the id actually names.

@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <filesystem>
+
 #include <Resource/AssetManager.h>
+#include <Resource/Bus/AssetBus.h>
+#include <Resource/Bus/AssetBuildBus.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Material/MaterialAsset.h>
 #include <Resource/Material/MaterialAssetCompiler.h>
@@ -259,4 +263,175 @@ TEST_F(MaterialAssetTestFixture, NoAuthoredValueIsLostOnTheWayOut)
     EXPECT_EQ(backState.m_alphaMode, state.m_alphaMode);
     EXPECT_FLOAT_EQ(backState.m_alphaCutoff, state.m_alphaCutoff);
     EXPECT_EQ(backState.m_doubleSided, state.m_doubleSided);
+}
+
+// ============================================================================
+// Saving through the manager. Needs a writable mount.
+// ============================================================================
+
+//! SaveAsset end to end: PrepareToSave → Serialize → WriteAssetFile → OnAssetSaved.
+//! Material is the only type that answers the first with anything but "go ahead".
+class MaterialSaveTestFixture : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        m_root = std::filesystem::temp_directory_path()
+               / "SparkMaterialSave"
+               / ::testing::UnitTest::GetInstance()->current_test_info()->name();
+
+        std::error_code ec;
+        std::filesystem::remove_all(m_root, ec);
+        std::filesystem::create_directories(m_root, ec);
+
+        m_vfs = CreateSystem<VFSSystem>();
+        m_vfs->Init();
+        m_vfs->Mount("test", TEST_RESOURCE_DIR);
+
+        // Not watched: every event would be this test's own writes coming back.
+        m_vfs->Mount("save", eastl::string(m_root.generic_string().c_str()), false);
+
+        m_assetManager = CreateSystem<SparkAssetManager>();
+        m_assetManager->Init();
+    }
+
+    void TearDown() override
+    {
+        m_assetManager.reset();
+        m_vfs.reset();
+
+        std::error_code ec;
+        std::filesystem::remove_all(m_root, ec);
+    }
+
+    //! A material that exists only to be saved -- no path, so no id and no database entry.
+    //! The shape the editor builds for Save As and New.
+    Ptr<MaterialAsset> Unregistered(const StandardPBR& params, const MaterialState& state = {})
+    {
+        Ptr<MaterialAsset> asset(new MaterialAsset(AssetId()));
+        asset->SetDataReady(MakeUnique<MaterialAssetData>(params, state));
+        return asset;
+    }
+
+    AssetManager& Manager() { return *m_assetManager; }
+
+    std::filesystem::path              m_root;
+    SystemUniquePtr<VFSSystem>         m_vfs;
+    SystemUniquePtr<SparkAssetManager> m_assetManager;
+};
+
+TEST_F(MaterialSaveTestFixture, ASavedMaterialReadsBackWithItsValues)
+{
+    StandardPBR params;
+    params.m_baseColor = {0.2f, 0.4f, 0.6f, 1.0f};
+    params.m_roughness = 0.375f;
+
+    MaterialState state;
+    state.m_doubleSided = true;
+
+    const AssetId id = Manager().SaveAsset(*Unregistered(params, state), "save://Wood.smat");
+    ASSERT_TRUE(id.IsValid());
+    EXPECT_EQ(id, AssetId::Of<MaterialAsset>("save://Wood.smat"));
+
+    // Registered by the time SaveAsset returned: an editor action cannot wait for the
+    // file watcher.
+    ASSERT_TRUE(Manager().FindAsset(id));
+
+    Ptr<MaterialAsset> reread = Manager().LoadAsset<MaterialAsset>(id);
+    ASSERT_TRUE(reread);
+    ASSERT_EQ(reread->GetStatus(), AssetStatus::Ready);
+
+    const MaterialAssetData* data = reread->GetMaterialData();
+    ASSERT_TRUE(data);
+    EXPECT_FLOAT_EQ(data->GetParams().m_baseColor.b, 0.6f);
+    EXPECT_FLOAT_EQ(data->GetParams().m_roughness, 0.375f);
+    EXPECT_TRUE(data->GetState().m_doubleSided);
+}
+
+TEST_F(MaterialSaveTestFixture, SavingAnnouncesTheIdOnTheAssetBus)
+{
+    struct Listener : public AssetBus::Handler
+    {
+        void OnAssetSaved(const AssetId& id) override { m_saved.push_back(id); }
+        eastl::vector<AssetId> m_saved;
+    };
+
+    Listener listener;
+    listener.BusConnect(AssetType::Material);
+
+    const AssetId id = Manager().SaveAsset(*Unregistered(StandardPBR{}), "save://Announced.smat");
+    ASSERT_TRUE(id.IsValid());
+
+    ASSERT_EQ(listener.m_saved.size(), 1u);
+    EXPECT_EQ(listener.m_saved[0], id);
+
+    listener.BusDisconnect();
+}
+
+TEST_F(MaterialSaveTestFixture, ATextureThatLivesInsideAModelRefusesTheSave)
+{
+    StandardPBR params;
+    params.m_textures[kBaseColor] = MaterialAsset::MakeSubId(
+        AssetId::Of("test://Asset/Model/Chair.glb", {}, AssetType::Model, nullptr), "image/3");
+
+    const AssetId id = Manager().SaveAsset(*Unregistered(params), "save://Embedded.smat");
+    EXPECT_FALSE(id.IsValid());
+
+    // Nothing is written, not even a truncated file.
+    EXPECT_FALSE(std::filesystem::exists(m_root / "Embedded.smat"));
+}
+
+TEST_F(MaterialSaveTestFixture, AnExtensionNothingBuildsIsRefused)
+{
+    const AssetId id = Manager().SaveAsset(*Unregistered(StandardPBR{}), "save://Wood.txt");
+    EXPECT_FALSE(id.IsValid());
+    EXPECT_FALSE(std::filesystem::exists(m_root / "Wood.txt"));
+}
+
+TEST_F(MaterialSaveTestFixture, AnAssetHoldingNoDataIsRefused)
+{
+    Ptr<MaterialAsset> empty(new MaterialAsset(AssetId()));
+
+    const AssetId id = Manager().SaveAsset(*empty, "save://Empty.smat");
+    EXPECT_FALSE(id.IsValid());
+    EXPECT_FALSE(std::filesystem::exists(m_root / "Empty.smat"));
+}
+
+TEST_F(MaterialSaveTestFixture, SavingOverAnExistingMaterialKeepsItsId)
+{
+    StandardPBR first;
+    first.m_roughness = 0.25f;
+    const AssetId id = Manager().SaveAsset(*Unregistered(first), "save://Twice.smat");
+    ASSERT_TRUE(id.IsValid());
+
+    StandardPBR second;
+    second.m_roughness = 0.75f;
+    EXPECT_EQ(Manager().SaveAsset(*Unregistered(second), "save://Twice.smat"), id);
+
+    // The file is the new one; the entry the first save registered is not asked to notice.
+    UniquePtr<AssetData> onDisk;
+    {
+        eastl::vector<uint8_t> bytes;
+        ASSERT_TRUE(Spark::Service<Spark::FileSystem>::Get()->ReadFile("save://Twice.smat", bytes));
+        onDisk = MaterialAssetCompiler{}.Compile(id, MaterialEncodedRawData(bytes));
+    }
+    ASSERT_TRUE(onDisk);
+    EXPECT_FLOAT_EQ(static_cast<const MaterialAssetData&>(*onDisk).GetParams().m_roughness, 0.75f);
+}
+
+//! Having a format is not the same as being cacheable: a material payload in some model's
+//! unit would be written and never read back, since Deserialize is still declined.
+TEST_F(MaterialSaveTestFixture, TheCacheGetsNoMaterialPayload)
+{
+    MaterialAssetData data(StandardPBR{}, MaterialState{});
+
+    eastl::vector<uint8_t> forTheCache;
+    AssetBuildBus::EventResult(forTheCache, AssetType::Material, &AssetBuildEvents::Serialize,
+                               data, eastl::string_view("material:0"));
+    EXPECT_TRUE(forTheCache.empty());
+
+    eastl::vector<uint8_t> forAFile;
+    AssetBuildBus::EventResult(forAFile, AssetType::Material, &AssetBuildEvents::Serialize,
+                               data, eastl::string_view());
+    EXPECT_FALSE(forAFile.empty());
 }
