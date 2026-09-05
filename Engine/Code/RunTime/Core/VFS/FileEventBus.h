@@ -22,6 +22,10 @@ namespace Spark
 
         using MutexType = std::mutex;
 
+        //! Guards the queue, which MutexType does not: the monitor thread pushes while the
+        //! main thread drains. Defaults to NullMutex.
+        using EventQueueMutexType = std::mutex;
+
         virtual void OnFileAdded(eastl::string virtualPath) {}
         virtual void OnFileModified(eastl::string virtualPath) {}
         virtual void OnFileRemoved(eastl::string virtualPath) {}

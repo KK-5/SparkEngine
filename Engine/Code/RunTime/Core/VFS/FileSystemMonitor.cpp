@@ -78,22 +78,30 @@ namespace Spark
             }
         }
 
+        // A running thread reads m_watches while it opens its readers, so it has to be
+        // joined before the vector grows. Restart()'s own Stop() would come too late.
+        Stop();
+
         m_watches.push_back(WatchEntry{eastl::string(mount), eastl::string(physicalDir)});
         Restart();
     }
 
     void FileSystemMonitor::Unwatch(eastl::string_view mount)
     {
-        const size_t before = m_watches.size();
-        m_watches.erase(
-            eastl::remove_if(m_watches.begin(), m_watches.end(),
-                             [&](const WatchEntry& e) { return e.m_mount == mount; }),
-            m_watches.end());
+        const auto match = [&](const WatchEntry& e) { return e.m_mount == mount; };
 
-        if (m_watches.size() != before)
+        // Tested before stopping, so unwatching what was never watched leaves the running
+        // thread alone.
+        if (eastl::find_if(m_watches.begin(), m_watches.end(), match) == m_watches.end())
         {
-            Restart();
+            return;
         }
+
+        Stop();   // Same reason as Watch: the thread must be gone before m_watches moves.
+
+        m_watches.erase(eastl::remove_if(m_watches.begin(), m_watches.end(), match),
+                        m_watches.end());
+        Restart();
     }
 
 #if !defined(_WIN32)
