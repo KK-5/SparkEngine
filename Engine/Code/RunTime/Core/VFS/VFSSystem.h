@@ -63,10 +63,12 @@ namespace Spark
             return m_table.GetPhysicalDirs();
         }
 
-        void IterateDirectory(eastl::string_view virtualDir,
-                              eastl::function<void(eastl::string_view)> visit) const override
+        void ListDirectory(
+            eastl::string_view virtualDir,
+            eastl::function<void(eastl::string_view virtualPath, bool isDirectory)> visit)
+            const override
         {
-            m_table.IterateDirectory(virtualDir, eastl::move(visit));
+            m_table.ListDirectory(virtualDir, eastl::move(visit));
         }
 
         bool ReadFile(eastl::string_view virtualPath, eastl::vector<uint8_t>& out) const override

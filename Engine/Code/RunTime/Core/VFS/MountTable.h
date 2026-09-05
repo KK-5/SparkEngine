@@ -24,8 +24,10 @@ namespace Spark
         eastl::vector<eastl::string> GetMountNames() const override;
         eastl::vector<eastl::string> GetPhysicalDirs() const override;
 
-        void IterateDirectory(eastl::string_view virtualDir,
-                              eastl::function<void(eastl::string_view)> visit) const override;
+        void ListDirectory(
+            eastl::string_view virtualDir,
+            eastl::function<void(eastl::string_view virtualPath, bool isDirectory)> visit)
+            const override;
 
         bool      ReadFile(eastl::string_view virtualPath,
                            eastl::vector<uint8_t>& out) const override;

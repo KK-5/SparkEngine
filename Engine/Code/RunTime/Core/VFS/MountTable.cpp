@@ -384,8 +384,9 @@ namespace Spark
         return out;
     }
 
-    void MountTable::IterateDirectory(eastl::string_view virtualDir,
-                                      eastl::function<void(eastl::string_view)> visit) const
+    void MountTable::ListDirectory(
+        eastl::string_view virtualDir,
+        eastl::function<void(eastl::string_view virtualPath, bool isDirectory)> visit) const
     {
         namespace fs = std::filesystem;
 
@@ -430,32 +431,30 @@ namespace Spark
         std::error_code ec;
         if (!fs::is_directory(fs::path(ToStd(physicalRoot)), ec))
         {
-            LOG_WARN("[MountTable] IterateDirectory '{}': '{}' is not a directory.",
+            LOG_WARN("[MountTable] ListDirectory '{}': '{}' is not a directory.",
                 Str(virtualDir).c_str(), physicalRoot.c_str());
             return;
         }
 
-        // Concatenating the mount name with the walk-relative part avoids a per-file
-        // ToVirtual, and with it any chance of the round trip disagreeing.
+        // Concatenating the mount name with the entry's mount-relative part avoids a
+        // per-entry ToVirtual, and with it any chance of the round trip disagreeing.
         eastl::string prefix = Str(mount);
         prefix += kScheme;
 
         const fs::path mountPath(ToStd(mountDir));
 
-        for (auto it = fs::recursive_directory_iterator(fs::path(ToStd(physicalRoot)), ec),
-                  end = fs::recursive_directory_iterator();
+        for (auto it = fs::directory_iterator(fs::path(ToStd(physicalRoot)), ec),
+                  end = fs::directory_iterator();
              it != end; it.increment(ec))
         {
             if (ec)
             {
-                LOG_WARN("[MountTable] IterateDirectory '{}' stopped: {}",
+                LOG_WARN("[MountTable] ListDirectory '{}' stopped: {}",
                     Str(virtualDir).c_str(), ec.message().c_str());
                 break;
             }
-            if (it->is_directory(ec))
-            {
-                continue;
-            }
+
+            const bool isDirectory = it->is_directory(ec);
 
             const std::string entryRelative =
                 it->path().lexically_relative(mountPath).generic_string();
@@ -466,7 +465,7 @@ namespace Spark
 
             eastl::string virtualPath = prefix;
             virtualPath.append(entryRelative.c_str(), entryRelative.size());
-            visit(eastl::string_view(virtualPath.c_str(), virtualPath.size()));
+            visit(eastl::string_view(virtualPath.c_str(), virtualPath.size()), isDirectory);
         }
     }
 

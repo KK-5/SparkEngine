@@ -48,9 +48,13 @@ namespace Spark
         //! than look one up -- DXC #include resolution being the only one today.
         virtual eastl::vector<eastl::string> GetPhysicalDirs() const = 0;
 
-        //! Recursive. The callback receives virtual paths valid only for that call.
-        virtual void IterateDirectory(eastl::string_view virtualDir,
-                                      eastl::function<void(eastl::string_view)> visit) const = 0;
+        //! One level, directories included. The virtual paths are valid only for that call.
+        //!
+        //! The primitive: a recursive walk is this plus a stack at the call site, while a
+        //! recursive files-only visit cannot express one level, nor name an empty directory.
+        virtual void ListDirectory(
+            eastl::string_view virtualDir,
+            eastl::function<void(eastl::string_view virtualPath, bool isDirectory)> visit) const = 0;
 
         //! Whole file into `out`. False on any failure including a short read: a partial
         //! buffer is indistinguishable from a truncated payload downstream.

@@ -1,6 +1,5 @@
 #include "BottomPanel.h"
 
-#include <filesystem>
 #include <imgui.h>
 
 #include <Log/ILogSystem.h>
@@ -252,64 +251,39 @@ namespace Editor
 
     void BottomPanel::ScanDirectory(const eastl::string& virtualPath, AssetFolder& folder)
     {
-        namespace fs = std::filesystem;
-
         auto* fileSystem = Spark::Service<Spark::FileSystem>::Get();
         if (!fileSystem) {
             return;
         }
 
-        // The tree is addressed entirely in virtual paths; the physical side appears only
-        // to enumerate one level, and never reaches an AssetId.
-        const eastl::string physicalDir = fileSystem->ToPhysical(virtualPath);
-        if (physicalDir.empty()) {
-            return;
-        }
+        auto* am = Spark::Service<Spark::Resource::AssetManager>::Get();
 
-        std::error_code ec;
-        fs::path dirPath(physicalDir.c_str());
+        fileSystem->ListDirectory(virtualPath,
+            [&](eastl::string_view path, bool isDirectory)
+        {
+            eastl::string entryVirtualPath(path.data(), path.size());
 
-        if (!fs::exists(dirPath, ec) || !fs::is_directory(dirPath, ec)) {
-            return;
-        }
+            const size_t slash = entryVirtualPath.rfind('/');
+            eastl::string entryName = (slash == eastl::string::npos)
+                                    ? entryVirtualPath
+                                    : entryVirtualPath.substr(slash + 1);
 
-        fs::directory_iterator it(dirPath, ec);
-        fs::directory_iterator end;
-        for (; it != end; it.increment(ec)) {
-            if (ec) {
-                break;
-            }
-
-            const fs::path& entryPath = it->path();
-            eastl::string entryName(entryPath.filename().string().c_str());
-
-            eastl::string entryVirtualPath = virtualPath;
-            if (!entryVirtualPath.empty() && entryVirtualPath.back() != '/') {
-                entryVirtualPath += '/';
-            }
-            entryVirtualPath += entryName;
-
-            if (fs::is_directory(entryPath, ec)) {
+            if (isDirectory) {
                 AssetFolder subFolder;
                 subFolder.name = eastl::move(entryName);
                 subFolder.fullPath = entryVirtualPath;
                 ScanDirectory(entryVirtualPath, subFolder);
                 folder.children.push_back(eastl::move(subFolder));
-            } else {
-                auto* am = Spark::Service<Spark::Resource::AssetManager>::Get();
-                if (am)
-                {
-                    Spark::Resource::AssetId id = am->MakeAssetId(entryVirtualPath);
-                    if (id.IsValid() && am->FindAsset(id))
-                    {
-                        AssetEntry entry;
-                        entry.id = id;
-                        entry.type = am->GetSupportAssetType(entryName);
-                        folder.assets.push_back(eastl::move(entry));
-                    }
+            } else if (am) {
+                Spark::Resource::AssetId id = am->MakeAssetId(entryVirtualPath);
+                if (id.IsValid() && am->FindAsset(id)) {
+                    AssetEntry entry;
+                    entry.id = id;
+                    entry.type = am->GetSupportAssetType(entryName);
+                    folder.assets.push_back(eastl::move(entry));
                 }
             }
-        }
+        });
     }
 
     void BottomPanel::DrawFolderTree(const AssetFolder& folder)

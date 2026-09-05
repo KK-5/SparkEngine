@@ -206,10 +206,10 @@ TEST(MountTableValidation, AllowsSiblingDirectories)
 }
 
 // ============================================================================
-// IterateDirectory. Needs real files on disk.
+// ListDirectory. Needs real files on disk.
 // ============================================================================
 
-class IterateDirectoryTest : public ::testing::Test
+class ListDirectoryTest : public ::testing::Test
 {
 protected:
     void SetUp() override
@@ -220,6 +220,9 @@ protected:
         fs::remove_all(m_root, ec);
         fs::create_directories(m_root / "Shaders" / "Lib", ec);
         fs::create_directories(m_root / "Image", ec);
+
+        // The entry a files-only walk cannot report.
+        fs::create_directories(m_root / "Empty", ec);
 
         Touch(m_root / "Shaderball.glb");
         Touch(m_root / "Shaders" / "GBuffer.hlsl");
@@ -241,24 +244,101 @@ protected:
         file << "x";
     }
 
+    //! Sorted, a directory rendered with a trailing slash so an expectation says which
+    //! kind it expects.
     eastl::vector<eastl::string> Collect(const char* virtualDir)
     {
         eastl::vector<eastl::string> found;
-        m_table.IterateDirectory(virtualDir, [&](eastl::string_view path)
+        m_table.ListDirectory(virtualDir, [&](eastl::string_view path, bool isDirectory)
         {
-            found.push_back(eastl::string(path.data(), path.size()));
+            eastl::string entry(path.data(), path.size());
+            if (isDirectory)
+            {
+                entry += '/';
+            }
+            found.push_back(eastl::move(entry));
         });
         eastl::sort(found.begin(), found.end());
         return found;
+    }
+
+    //! Every file under `virtualDir`, walked at the call site the way AssetRegistry does.
+    eastl::vector<eastl::string> CollectRecursively(const char* virtualDir)
+    {
+        eastl::vector<eastl::string> files;
+        eastl::vector<eastl::string> pending{eastl::string(virtualDir)};
+
+        while (!pending.empty())
+        {
+            const eastl::string dir = eastl::move(pending.back());
+            pending.pop_back();
+
+            m_table.ListDirectory(dir, [&](eastl::string_view path, bool isDirectory)
+            {
+                eastl::string entry(path.data(), path.size());
+                if (isDirectory)
+                {
+                    pending.push_back(eastl::move(entry));
+                }
+                else
+                {
+                    files.push_back(eastl::move(entry));
+                }
+            });
+        }
+
+        eastl::sort(files.begin(), files.end());
+        return files;
     }
 
     fs::path   m_root;
     MountTable m_table;
 };
 
-TEST_F(IterateDirectoryTest, YieldsVirtualPathsForEveryFileRecursively)
+TEST_F(ListDirectoryTest, YieldsOneLevelWithDirectoriesMarked)
 {
     const auto found = Collect("engine://");
+
+    ASSERT_EQ(found.size(), 4u);
+    EXPECT_EQ(found[0], "engine://Empty/");
+    EXPECT_EQ(found[1], "engine://Image/");
+    EXPECT_EQ(found[2], "engine://Shaderball.glb");
+    EXPECT_EQ(found[3], "engine://Shaders/");
+}
+
+// A directory holding no files is still a place a save dialog must be able to offer.
+TEST_F(ListDirectoryTest, NamesADirectoryThatHoldsNothing)
+{
+    EXPECT_TRUE(Collect("engine://Empty").empty());
+
+    const auto found = Collect("engine://");
+    EXPECT_NE(eastl::find(found.begin(), found.end(), eastl::string("engine://Empty/")),
+              found.end());
+}
+
+TEST_F(ListDirectoryTest, StopsAtOneLevel)
+{
+    const auto found = Collect("engine://Shaders");
+
+    ASSERT_EQ(found.size(), 2u);
+    EXPECT_EQ(found[0], "engine://Shaders/GBuffer.hlsl");
+    EXPECT_EQ(found[1], "engine://Shaders/Lib/");
+}
+
+// AssetRegistry depends on nothing more than this round trip holding.
+TEST_F(ListDirectoryTest, EveryYieldedPathResolvesBack)
+{
+    for (const eastl::string& virtualPath : CollectRecursively("engine://"))
+    {
+        const eastl::string physical = m_table.ToPhysical(virtualPath);
+        ASSERT_FALSE(physical.empty()) << virtualPath.c_str();
+        EXPECT_TRUE(fs::exists(fs::path(physical.c_str()))) << physical.c_str();
+    }
+}
+
+TEST_F(ListDirectoryTest, ACallSiteWalkFindsEveryFile)
+{
+    const auto found = CollectRecursively("engine://");
 
     ASSERT_EQ(found.size(), 4u);
     EXPECT_EQ(found[0], "engine://Image/BRDFLut.ktx2");
@@ -267,27 +347,7 @@ TEST_F(IterateDirectoryTest, YieldsVirtualPathsForEveryFileRecursively)
     EXPECT_EQ(found[3], "engine://Shaders/Lib/BRDF.hlsli");
 }
 
-// AssetRegistry depends on nothing more than this round trip holding.
-TEST_F(IterateDirectoryTest, EveryYieldedPathResolvesBack)
-{
-    for (const eastl::string& virtualPath : Collect("engine://"))
-    {
-        const eastl::string physical = m_table.ToPhysical(virtualPath);
-        ASSERT_FALSE(physical.empty()) << virtualPath.c_str();
-        EXPECT_TRUE(fs::exists(fs::path(physical.c_str()))) << physical.c_str();
-    }
-}
-
-TEST_F(IterateDirectoryTest, ScopesToASubdirectory)
-{
-    const auto found = Collect("engine://Shaders");
-
-    ASSERT_EQ(found.size(), 2u);
-    EXPECT_EQ(found[0], "engine://Shaders/GBuffer.hlsl");
-    EXPECT_EQ(found[1], "engine://Shaders/Lib/BRDF.hlsli");
-}
-
-TEST_F(IterateDirectoryTest, IgnoresUnknownMountAndMissingDirectory)
+TEST_F(ListDirectoryTest, IgnoresUnknownMountAndMissingDirectory)
 {
     EXPECT_TRUE(Collect("nope://").empty());
     EXPECT_TRUE(Collect("engine://DoesNotExist").empty());

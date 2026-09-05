@@ -590,6 +590,9 @@ namespace Spark::Resource
             return;
         }
 
+        // A stack rather than recursion: nothing bounds an asset tree's depth.
+        eastl::vector<eastl::string> pending;
+
         for (const eastl::string& mount : m_fileSystem->GetMountNames())
         {
             // Walking it would register every `.ktx2` entry as an image asset of its own,
@@ -601,11 +604,26 @@ namespace Spark::Resource
 
             eastl::string root = mount;
             root += "://";
+            pending.push_back(eastl::move(root));
 
-            m_fileSystem->IterateDirectory(root, [this](eastl::string_view virtualPath)
+            while (!pending.empty())
             {
-                RegisterFile(virtualPath);
-            });
+                const eastl::string dir = eastl::move(pending.back());
+                pending.pop_back();
+
+                m_fileSystem->ListDirectory(dir,
+                    [this, &pending](eastl::string_view virtualPath, bool isDirectory)
+                {
+                    if (isDirectory)
+                    {
+                        pending.push_back(eastl::string(virtualPath.data(), virtualPath.size()));
+                    }
+                    else
+                    {
+                        RegisterFile(virtualPath);
+                    }
+                });
+            }
         }
     }
 
