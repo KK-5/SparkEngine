@@ -291,9 +291,10 @@ enum class MetaFieldTraits : uint8_t
 
 用法 `.Data<&ImageAssetDescriptor::usage>("usage").Traits(MetaFieldTraits::Serializable)`。
 
-- **不加进 `MetaTypeTraits`**——那个类型正在被 `ComponentTraits` 取代，现有三处用法全是类型级。
+- **不加进 `MetaTypeTraits`**——它是类型级的，而这里要标的是字段。（阶段 4 给它加了
+  `Persistent`，那个才是类型级问题。）
 - **不加进 `ComponentTraits`**——它以类型为键，且继承 `entt::component_traits`（ECS storage 配置），
-  descriptor 不是组件。「组件整体是否持久化」这个类型级问题才归它，阶段 4 再加。
+  descriptor 不是组件。阶段 4 之后它只留编译期消费的 `componentEvents`。
 - **字段级只能走 `Traits` 不能走 `Custom`**——entt 的 `custom` 是单槽赋值，字段的那个槽已被
   `UIElement` 占用；`traits` 是 `|=` 位掩码，可累加。
 
@@ -1098,8 +1099,9 @@ if (auto fn = type.func(kJsonOperationId))
 这是第二次用同一个套路，就用同一个词。
 
 **不走旁表。** 曾考虑按 `TypeId` 索引的独立注册表，否掉：`Func` 是开放命名空间（`Custom` 是单槽、
-已被 `ComponentTraitsRuntime` / `UIElement` 占，类型级 `Traits` 是共享位掩码、`MetaTypeTraits` 在用），
-而 `ComponentOperation` 已经是这个路子；旁表要多配一套生命周期。
+字段那个已被 `UIElement` 占，类型那个留给将来真需要运行时对象的功能；`Traits` 是共享位掩码，类型级
+被 `MetaTypeTraits` 占、字段级被 `MetaFieldTraits` 占），而 `ComponentOperation` 已经是这个路子；
+旁表要多配一套生命周期。
 
 > **原先「注册那一行必须落在 `.cpp` 里」的约束消失了。** 那条的根因是 `Func<&Fn>` 会对每个**形参**
 > 类型实例化 `internal::resolve<T>`，其中 `std::is_default_constructible_v`（`node.hpp:282`）要求完整
@@ -1197,9 +1199,15 @@ bool AssetIdFromJsonField(const JsonValue& in, AssetId& target)
 的 `m_rotation` 是欧拉角 `Vector3`；`m_baseColor` / `m_emissive` 是 `Vector4`）。理由与下面删掉
 `Matrix4X4` / `Entity` 的一样。
 
-原文列的 `Matrix4X4` 与 `Entity` **删除** —— 全仓没有任何这两个类型的反射字段（`Hierarchy` 压根
-没反射，`LocalTransformMatrix` / `WorldTransformMatrix` 是 `TransformComponent` 的派生值，
-`CameraComponent` 里也没有矩阵）。等第一个用例出现再加，加法是一行注册。
+原文列的 `Matrix4X4` 与 `Entity` **删除**，但两者的理由不同：
+
+- `Matrix4X4` 全仓没有反射字段（`LocalTransformMatrix` / `WorldTransformMatrix` 是
+  `TransformComponent` 的派生值，`CameraComponent` 里也没有矩阵）。等第一个用例出现再加，加法是
+  一行注册。
+- `Entity` **永远不会需要**：阶段 4 反射 `Hierarchy` 之后它有了四个反射字段，但 entity 引用走的是
+  字段级 `MetaFieldTraits::EntityRef`，在 `WriteObject` / `ReadObject` 里按原值编解码、根本不进
+  分派器（理由见阶段 4「`Hierarchy` 照常序列化」与阶段 3「`MaterialHandle` 怎么落盘」）。类型级的
+  注册对它没有落点——重映射要的那张表在场景加载器手里。
 
 （顺带查过一个可能的陷阱：`glm::vec3` 在本工程配置下是 `vec() = default`（`setup.hpp:855`），
 entt 的 `type.construct()` 用 `plain_type()` 值初始化（`any.hpp:135`），defaulted 而非 user-provided
@@ -1275,8 +1283,9 @@ Id 后缀冗余）、数学分量 `x/y/z/w` 小写（GLSL/HLSL 惯例，与外�
   那条路（编辑器 drag-drop 在用）被序列化测试覆盖。
 - 完整字段清单、验收面（没有场景序列化器，阶段 2 的产物只能是单测里的组件 round-trip）、步骤拆分。
 
-「这个组件整体是否持久化」是类型级问题，归 `ComponentTraits`，与 `editable` 并列。零字段的 tag
-组件只有类型级能表达。阶段 4 才需要。
+「这个组件整体是否持久化」是类型级问题，归**反射的 `Traits` 位掩码**（`MetaTypeTraits::Persistent`），
+与 `Editable` 并列——不是 `ComponentTraits<T>`，那里只留编译期消费的 `componentEvents`。零字段的 tag
+组件只有类型级能表达。阶段 4 才需要，形态见该阶段「哪些组件落盘：类型级 `Traits`」。
 
 ---
 
@@ -2279,10 +2288,13 @@ shader）依赖「模型声明从哪来」这个未决问题。
 值——材质是运行期创建的，下次启动创建顺序不同，同一个数字会指向另一个材质或悬空，与 entt 的 `Entity`
 同一类问题。
 
-**形态是字段级标记 + 加载后的重映射 pass**：`MetaFieldTraits` 加一位 `EntityRef`，值照常写成数字，
-场景加载器在所有实体建完之后翻译一遍。不走 `JsonOperation`——重映射要的那张「文件键 → handle」表在
-场景加载器手里，而 operation 的签名 `bool(const JsonValue&, T&)` 拿不到任何上下文。`Entity` 类型的
-字段将来同理。
+**形态是字段级标记 + 加载后的重映射**：`MetaFieldTraits` 加一位 `EntityRef`，值照常写成数字。
+不走 `JsonOperation`——重映射要的那份映射在加载流程手里，而 operation 的签名
+`bool(const JsonValue&, T&)` 拿不到任何上下文。`Entity` 类型的字段同理（阶段 4 反射 `Hierarchy` 之后
+就有四个）。
+
+编解码的落点见阶段 4「仍待细化」；**重映射本身是 merge 之上的加法**（见 `TODO_ContextMerge.md`
+「扩展点 a」），选哪份映射由字段的类型决定，不由所在上下文决定。
 
 **写时按 handle 去重，不按内容哈希**，共享关系逐字节保住：一个 50 primitive / 3 材质的模型读回来
 仍是 3 个材质（流程 7 的验收标准）。
@@ -2294,16 +2306,206 @@ shader）依赖「模型声明从哪来」这个未决问题。
 **场景保存不依赖阶段 3**：没有资产背书的材质就是 material 上下文里一个不带 `MaterialAssetRef` 的
 实体，照样能存。阶段 3 落地后它多带一个 `MaterialAssetRef`，组件那一侧不用改。
 
-**仍未定：** 常驻默认材质（带 `DefaultMaterialTag`）不该被场景文件复制一份出来——加载时怎么认出
-「这条就是默认材质」还没定。
+**默认材质：写侧跳过，读侧不用认。** 常驻默认材质（带 `DefaultMaterialTag`）不该被场景文件复制一份
+出来，但这不是「加载时怎么认出它」的问题——写侧遇到该实体直接跳过，指向它的槽写 `null`，文件里
+就永远没有它。读侧也不需要特判：`NullMaterial` 与任何失效句柄在消费端本来就落到默认材质上
+（`InstanceBindingSystem.cpp:55-58`），逐值等价。全仓也没有一处把默认材质句柄显式写进
+`MaterialComponent`。
+
+---
+
+## 资源回收：`DeadTag` 的职责，与世界侧的缺口
+
+> 独立于各阶段。设计阶段 4 的「清空世界」时撞出来的，但它今天已经在漏——清空只是把它放大三个
+> 数量级。
+
+### 规则：不拥有生命周期，就不能靠观测
+
+> **持有一个句柄，就要负责它的刷新与销毁；不满足这条就不该持有。**
+
+一份「按别人的实体索引的状态」同样是持有。它不拥有那个实体的生命周期，于是回收只有两条路：
+**被所有者告知**，或者干脆不持有（每次现算）。**「自己盯着某个标记」不是第三条路** —— 观测窗口
+的开合取决于时序，而时序是全局的，会被任何人的改动挪走。
+
+本节的 bug 就是这条的违反：`GlobalBuffer` 持有一份按世界实体索引的 slot id，却靠看见 `DeadTag`
+来回收。下面的方案 A 是把它改成「由所有者告知」。
+
+同一条规则也定了阶段 4 里编辑器相机的处理：给它编辑态 tag **不是为了躲开清空，是所有权声明**
+——`EditorInputSystem` 建它、独占它的生命周期（Init 建、清空不动、Shutdown 销毁），它才有资格把
+`m_editorCamera` 存成成员。
+
+### `DeadTag` 有两个职责，只有一个成立
+
+| 用法 | 要求 | |
+|---|---|---|
+| 可见性过滤 `Exclude<DeadTag>` | 观测者在标记之后跑就跳过，晚一帧只是多画一帧 | 幂等，与时序无关——**成立** |
+| 回收触发 `GetView<Slot, DeadTag>` → `FreeId` | **恰好一次观测** | 过滤器给不了这个——**不成立** |
+
+`GlobalBuffer` 分配的 slot id 只在一处归还（`GlobalBuffer.h:99`），条件是实体**戴着 `DeadTag` 被
+某次 `Update` 看见过**。
+
+### 「逻辑都在 Render Tick 之前」这条纪律救不了它
+
+RHI 上下文里这条成立：`RHIHandleClearSystem` 在 `TICK_LAST-1`、`EntityReaper` 在 `TICK_LAST`，
+刚好让 RHI 侧的 `DeadTag` 活过一帧，`DrawItemRouter` 下一帧一定看得见。**这个次序是它能正确回收的
+前提，今天没有任何地方说明，容易被顺手整理掉——要补一句注释。**
+
+世界上下文里做不到，而且不是纪律问题：**编辑器 UI 画在 render pass 里**（`RenderUI` → `DrawUI` →
+`MenuBar::Draw` / `Inspector`），于是编辑器发起的一切结构性修改天然发生在这一帧所有世界侧观测者
+之后。
+
+| 帧 N | |
+|---|---|
+| `RenderSystem::OnTick`（TICK_DEFAULT） | `m_instanceBindingSystem.Update()`——`FreeId` 那一趟在这里（`RenderSystem.cpp:294`） |
+| 同一次 OnTick，执行 render graph | `RenderUI` → UI 里打 `DeadTag`（`Inspector.cpp:199/209`） |
+| `EntityReaper`（TICK_LAST） | 直接销毁 |
+
+下一帧的 `Update` 已经找不到这个实体，`FreeId` 永不执行。只要 UI 还是一个 render pass，
+「把逻辑放到 render 之前」就不是一个可选项。
+
+### 坏的只有世界侧
+
+material 侧是对的：打标（`MaterialBindingSystem.cpp:158/197`）与收割（`:216-222`）在同一个函数里、
+有明确先后，`MaterialBinding.h:27` 的注释写明 "Must run AFTER the encode"——它自己闭合了窗口，
+不依赖 tick order。
+
+坏的只有 `InstanceBindingSystem`：打标者是 UI、收割者是 `EntityReaper`、观测者是
+`GlobalBuffer::Update`，分属三个 tick 位置，没人负责闭合窗口。
+
+**今天的后果**：`Inspector` 每删一个实体漏一个 slot id。`Instances` 的 Capacity 是 65536，且
+`m_array.Upload(rhiCtx, m_nextFreshId)` 用的是水位线，泄漏还会让每帧上传的范围单调变大。清空一个
+1000 实体的场景就是一次漏 1000 个。
+
+### 推论：`DeadTag` 只是可见性过滤器
+
+> **`DeadTag` 只是可见性过滤器，不是生命周期事件。** 任何「实体死了要归还的外部资源」，回收必须挂
+> 在销毁事件（或所有权）上，不能靠 `GetView<X, DeadTag>` 恰好看见一次。
+
+`DrawItemRouter` 的 `Has<DeadTag>(buffer)` 不违反这条——它问的是「这个依赖死了没」，幂等，晚一帧
+只是晚一帧回收。
+
+### 方案
+
+**A（推荐）：回收挂组件销毁事件。** `GlobalBufferSlotRef<Tag>` 本身就是实体上的组件。给它
+`componentEvents = Remove`，`Init` 里 `RegisterEventOnEntityRemove<Slot>()`，`OnComponentDestory`
+里 `FreeId`，删掉 `GetView<Slot, DeadTag>` 那一趟。
+
+- 与 tick order 完全无关：谁杀的、什么时候杀、在哪个 tick 位置，都无所谓。
+- 是本仓已有的惯用法——`MeshSystem` 释放 VB/IB 走的就是这条（`RegisterEventOnEntityRemove<MeshComponent>`）。
+- 失败模式从「间歇、看时序、大部分时候像没事」变成「忘了注册就一次都不回收」：启动期的一次性
+  要求，可以断言，不是每帧的时序赌博。
+
+一个限制：**只有 `BasicContext<Entity>` 那份全特化会派发 `ComponentEventBus`，泛型
+`BasicContext<E>` 不派发。** 所以 A 只对世界侧可用；material 侧保持现状（它本来就是对的），等两份
+`BasicContext` 的分歧收掉再统一。
+
+**B：分配器自持 `entity → id` 表，每帧扫无效实体。** 不需要任何注册、事件或时序，漏掉一帧只是晚
+一帧回收；两个上下文一套代码。代价是一张侧表（slot 不再是 ECS 原生存储）+ 每帧 O(已分配) 的扫描
+（与已有的 encode pass 同量级）。如果认为「opt-in 注册」本身就是那个不健壮的来源，选 B。
+
+**C：RAII（析构即归还）—— 否决。** 看起来最强（entt 保证跑析构，不需要任何人配合），但
+`GeometrySpec::m_slotRef` 是**按值持有一份拷贝**（`GeometrySpec.h:70`），而那份拷贝正是
+`DrawItemRouter` 检测过期的手段。做 RAII 必须把类型改成 move-only，得先拆成「拥有者组件」+
+「弱引用值」两个类型，改动大一个量级。
+
+### 同一条规则的下一个应用：资产引用计数（只有方向）
+
+`MaterialTextureSystem::CollectGarbage` 是同一个反模式抬高一层——**定期扫描「还有没有人引用」，
+而不是被告知「少了一个引用」**。定期与每帧扫描都不稳定，也正是「没释放干净」那类问题的温床。
+
+方向是**由组件事件维护一份资产引用索引**：`Create` 时把该组件所有反射出的 `AssetId` 字段 `++`，
+`WillUpdate` 拿改前的值 `--`、`Updated` 新值 `++`，`Remove` / 实体销毁 `--`。`AssetId` 字段全部反射
+过，所以这一份是通用的，不必逐类型手写；`SceneManager` 用同一组事件维护层级索引已经是这个套路。
+**资产的加载与释放是低频事件，与 EBus 天然契合**——把资源管理塞进每帧逻辑才是问题本身。
+
+三条前置 / 代价，动工时再定：
+
+- **F 是前置**：只有 `BasicContext<Entity>` 那份全特化派发 `ComponentEventBus`，而 `StandardPBR` 在
+  material 上下文。这多半就是它至今没被优化掉的结构性原因。
+- 就地 `comp->m_id = x` 而不走 `Replace` / `AddOrReplace` 会静默失准，要先查一遍并定成规矩。
+- merge 的 Move 按设计不发事件，索引要在 Notify 阶段一起更新。
+
+它回答的是「**引用**归零」，不是「可以立刻释放」——正被上传租用的还不能动。租约是另一套机制
+（见阶段 4「`MeshComponent` 存 id」），两者不能合并。这正是「可用 / 驻留」那条分离。
+
+### 与阶段 4 的关系
+
+改完之后，清空世界的两条路——直接 `DestoryEntity`、或打 `DeadTag` 交给 `EntityReaper`——**都正确**，
+因为回收不再依赖有没有人看见标记。阶段 4 选后者：不引入第二条销毁路径，与 `Inspector` 的删除同路。
+
+---
+
+## 上下文合并（Merge）
+
+> **机制本身已独立成文档：`TODO_ContextMerge.md`。** 这里只留它与本计划的关系。
+
+阶段 4 的加载走这条路。它不是为场景保存新造的原语——文档在选布局时就已经认定
+**「实例化的实质是 merge——建映射、翻译内部引用」**，只是当时用它来论证布局无关，没有把它建出来。
+`SpawnModel` 今天是一份手写的 merge；prefab 实例化、复制粘贴、编辑器 undo 都是同一个操作。
+
+与本计划相关的三点：
+
+- **搬的是指定的组件类型，不是整个上下文。** 全量的类型表归使用者——场景加载自己维护那份表
+  （用反射或别的手段都行），机制不管。
+- **机制本体只依赖 entt，不依赖反射系统。**
+- **组件里的实体引用重映射**（`MaterialComponent::m_material`、`Hierarchy` 的四个字段）**是 merge
+  之上的加法**，不在基础机制里。阶段 4 需要它，见 `TODO_ContextMerge.md` 的「扩展点 a」——那里也
+  记着一条：列出组件类型之后，这一步可以做成 `ComponentTraits` 上的编译期成员指针列表，从而同样
+  不依赖反射。
+
+### 为什么只做 level 也要这个形状
+
+场景是 level，加载新场景清掉旧的，世界侧于是永远是恒等映射——看起来不需要 merge。但：
+
+- **material 上下文不是场景私有的，也不该是。** `m_defaultMaterial` 是 `MaterialSystem` 自己建自己
+  持有的；带 `MaterialAssetRef` 的实体是**某个资产的运行期实例**，生命周期跟着资产走，同一个
+  `.smat` 在两个场景里就该是同一个实体，材质窗口正在编辑的那个也不该因为换场景而消失。而且没有
+  材质 GC，谁都不知道哪些材质「属于」正在关闭的那个场景。所以它每次加载都非空，**按字段类型选表
+  那套跑不掉**。
+- **事件控制。** 直接往活世界里反序列化，就得给事件系统开「加载期间闭嘴」的特例；建进临时上下文
+  再统一通知，这个特例不存在。
+
+代价只有一个临时上下文的构造和一次组件搬运，1000 实体量级可以忽略。而 prefab / `SpawnModel` 以后
+接进来时只需要换一个建表策略，不需要第二条加载路径。
 
 ---
 
 ## 阶段 4：场景保存
 
-> **文件形态、键、遍历方式已定**，其余待细化。
+> **形态、键、遍历方式、模块划线、清空、`Hierarchy`、`EntityRef`、`MeshComponent` 均已定。**
+> 加载路径见「上下文合并」。
 
 `SceneSerializer::Save/Load(path)`，由 MenuBar 调用，不进 AssetManager。
+
+### 模块划线 ✅ 已定
+
+原来的问题：`SceneSerializer` 要同时碰 `WorldContext`（`SparkCore`，最底层）与 `MaterialContext`
+（`SparkMaterial`，Feature 层），而 Core 不能反向依赖 Feature。
+
+merge 之后这件事分成两半，只有一半需要具体类型：
+
+- **通用的那半完全不认识任何具体上下文**——反射驱动的 storage 遍历、组件 ⇄ JSON、merge 机制本体
+  （见 `TODO_ContextMerge.md`，它连反射都不依赖）。它只依赖反射与 JSON，两者都在
+  Core；material 的身份策略是从 `SparkMaterial` 注册进来的，不是它写死的。
+- **需要具体类型的只剩一点**：读到 `"world"` / `"material"` 段名时，该建哪一种临时上下文、往哪个活
+  上下文里合。
+
+于是按这条线划：
+
+| | 放什么 |
+|---|---|
+| **`SparkCore`** | merge 机制本体 + 通用的上下文 ⇄ JSON。与「场景」无关，prefab、复制粘贴、测试都能用 |
+| **新的小 Feature 模块** | 「场景」这个概念：文件格式、段名、哪些上下文参与、`Save` / `Load` 入口 |
+
+**允许认识 `MaterialContext` 的是上面那层，而它本来就该认识**——「一个场景由哪些上下文组成」是场景的
+定义，不是序列化机制的知识。
+
+先例是 `SparkSpawn`：`SpawnModel` 同时碰 World、Material 与 `IScene`，链 `SparkCore` +
+`SparkAssetManager` + `SparkMesh` + `SparkMaterial` + `SparkTransform`。
+
+**否掉的替代：让上下文自注册段名。** 那样序列化器一个具体名字都不认识、可以整个待在 Core。但要为一个
+大小是 2 的集合建一套注册表 + 初始化顺序依赖，换来的只是把一行 include 挪个位置。真出现第三个上下文
+再说，那时是加法。
 
 ### 文件形态：storage-major，多上下文
 
@@ -2314,23 +2516,22 @@ shader）依赖「模型声明从哪来」这个未决问题。
 { "contexts": {
     "world": {
       "entities": [0, 65537, 65538],
-      "parents":  {"65537": 0, "65538": 0},
       "components": {
-        "TransformComponent": {"0":{...}, "65537":{...}, "65538":{...}},
-        "MeshComponent":      {"65537":{...}, "65538":{...}},
-        "MaterialComponent":  {"65537":{"Material":4}, "65538":{"Material":4}} } },
+        "Hierarchy": {"0":{...}, "65537":{...}, "65538":{...}},
+        "Transform": {"0":{...}, "65537":{...}, "65538":{...}},
+        "Mesh":      {"65537":{...}, "65538":{...}},
+        "Material":  {"65537":{"Handle":4}, "65538":{"Handle":4}} } },
     "material": {
       "entities": [4],
       "components": {
         "StandardPBR": {"4":{...}} } } } }
 ```
 
-**`entities` 清单是显式的，不从各段的键并集推。** 两个理由：一个不带任何组件的实体（纯层级节点）
-推不出来；加载必须先把全部实体建完再挂组件（组件里有 entity 引用），有清单就是一趟扫描，没有就要
-先并集一遍。
+**`entities` 清单是显式的，不从各段的键并集推。** 两个理由：一个不带任何组件的实体（`CreateEntity()`
+建完还没挂东西的）推不出来；加载必须先把全部实体建完再挂组件（组件里有 entity 引用），有清单就是
+一趟扫描，没有就要先并集一遍。
 
-**`parents` 单独成段。** 它不是组件——`Hierarchy` 本身不序列化（见「仍待细化」）——而 storage-major
-下没有「实体对象」这个容器可以挂它，所以它得有自己的位置。
+**没有 `parents` 这样的顶层段。** `Hierarchy` 就是一个普通组件段，见「`Hierarchy` 照常序列化」。
 
 #### 为什么翻掉了 entity-major
 
@@ -2400,7 +2601,93 @@ merge，只在「枚举文件里有哪些实体」和「建实体 + 挂组件」
 `BasicContext` 要开一个受控的 `ForEachStorage`，不要把 `entt::registry` 整个漏出去。
 
 `IsWorldComponent` 的角色随之改变：**不再是发现组件的手段**（storage 遍历直接给出实体真正拥有的
-组件），只剩「该不该落盘」这个过滤职责，而那是类型级问题、归 `ComponentTraits`。
+组件），只剩「该不该落盘」这个过滤职责，而那是类型级问题——见下一节。
+
+### 哪些组件落盘：类型级 `Traits` ✅ 已定
+
+「没反射」本身就挡掉了绝大部分：`MeshGPUComponent`、`MaterialGPUTextures`、`LocalTransformMatrix` /
+`WorldTransformMatrix`、`GlobalBufferSlotRef`、`MaterialOverrideRef`，以及全部 tag（`SelectTag` /
+`ActiveTag` / `DeadTag` / `Renaming` / `HierarchyRootTag` / `DefaultMaterialTag`）——一个都进不来。
+
+剩下的用**类型级反射位掩码**表达：
+
+```cpp
+enum class MetaTypeTraits : uint8_t
+{
+    None       = 0,
+    Editable   = 1 << 0,   // Inspector 的加组件列表列它
+    Persistent = 1 << 1,   // 进场景文件
+};
+```
+
+```cpp
+context.Reflect<TransformComponent>()
+    .Type("Transform").Traits(MetaTypeTraits::Editable | MetaTypeTraits::Persistent)
+    .Data<&TransformComponent::m_position>("Position")...
+```
+
+opt-in，理由与字段级 `Serializable` 同一条：反射首先是给 Inspector 用的，不 opt-in 的话每个为了显示
+而反射的组件都会静默变成文件格式的一部分。
+
+**开 `Persistent` 的类型**：世界侧 `Name` / `Hierarchy` / `Transform` / `Camera` / `Light` / `Mesh` /
+`Skybox` / `MaterialComponent` / `StandardPBROverride`；material 上下文 `StandardPBR` /
+`MaterialState` / `MaterialAssetRef`。
+
+读侧同一判据：段名解析不出反射类型、或类型没有 `Persistent` → 整段跳过 + `LOG_WARN`。
+
+#### 为什么不从「有没有 `Serializable` 字段」推
+
+一度考虑过省掉类型级这一位。否掉：`Serializable` 是**字段级、格式无关**的标记，今天同时服务
+descriptor JSON、`.smat` 与场景——`Resource::StandardPBR` 的字段标它是因为要写 `.smat`，不是因为它
+是场景状态。拿它推导「这个组件属不属于场景」，就是让一个标记干第二份工作。
+
+两位分开之后四种组合都有意义，不存在「打架」：
+
+| | 字段无 `Serializable` | 字段有 `Serializable` |
+|---|---|---|
+| 类型无 `Persistent` | 纯 Inspector 组件 | 字段服务别的格式，组件不是场景状态 |
+| 类型有 `Persistent` | **零字段 tag**（类型本身就是数据） | 普通场景组件 |
+
+写出 `{}` 不是 bug，那正是零字段 tag 的表示法。而零字段 tag（`StaticTag` / `HiddenTag` 之类）在场景
+状态里很常见，先建一个表达不了它的机制，第一个出现时就要 retrofit。
+
+#### 连带：类型级元数据的归属定死
+
+> **每个标志只住一处，由消费者决定住哪：编译期消费的进 `ComponentTraits<T>`，反射消费的进
+> `.Traits()`。**
+
+| 标志 | 唯一消费者 | 归属 |
+|---|---|---|
+| `componentEvents` | 只有编译期——`WorldContext.h` 里全是 SFINAE 与 `if constexpr` | `ComponentTraits<T>`，**不反射** |
+| `editable` | 只有反射——全仓唯一读取点 `ComponentView.cpp:112` | `.Traits(MetaTypeTraits::Editable)` |
+| `persistent` | 只有反射——序列化器手上只有 `MetaType` | `.Traits(MetaTypeTraits::Persistent)` |
+
+`ComponentEventMask` **不进反射，也进不去**：`.Traits()` 是运行时注册调用，而它的消费者是模板实参
+推导。两边都写就是第二个真相来源。分开反而更清楚——一个是 C++ 侧的调度配置，一个是反射侧的元数据。
+
+于是 `ComponentTraitsRuntime` 失去存在理由：它携带的 `events` 从来没有被反射读过一次，全部作用是把
+一个 `bool` 运进反射，而那正是位掩码的活。**做法是停止挂载，不是删除**——移除 8 处
+`.Custom<ComponentTraitsRuntime>(ComponentTraits<T>{})`，`ComponentView.cpp:110-114` 那个查两个地方
+的 `if` 塌成单路；类型定义留在 `ComponentTraits.h` 里不动，类型级 `Custom` 槽腾给将来真需要运行时
+对象的功能（默认值工厂、图标、分类字符串之类）。
+
+一笔明写的债：`ComponentTraits<T>::editable` 与 `.Traits(Editable)` 会并存一段时间，前者成为死数据，
+清理单独排期。另外 `MetaFieldTraits.h` 里那句「`MetaTypeTraits` … on its way out in favour of
+`ComponentTraits`」要反过来写。
+
+#### 三个 entt 的实现事实
+
+- **`.Traits()` 是 `|=`，累加不覆盖**（`factory.hpp:103-111`），可以分几次写。
+- **`.Traits()` / `.Custom()` 作用于「最近创建的 meta 对象」**：`.Type()` 把 bucket 重置到类型，
+  `.Data()` / `.Func()` 把它移到那个成员。**类型级 traits 必须紧跟 `.Type()`**——写在某个 `.Data()`
+  之后会静默挂到那个字段上，不报错。
+- 用户 traits 存在 `meta_traits`（uint32）的高位，内部保留低位，还剩约 22 位；但**每个元素只有一个
+  用户 traits 值**，所以类型级只能有一个枚举，`MetaTypeTraits` 就是它。
+
+#### 写侧不止类型过滤
+
+「遍历即写出」要连着这条读：还有两个 per-entity 例外——默认材质实体（见阶段 3）与带编辑态 tag 的
+实体（见「清空世界」）都跳过。
 
 ### 键：直接用 entt 的 entity 原值
 
@@ -2414,7 +2701,8 @@ entt 的 `snapshot_loader` 就是这么干的。要加的只有 `BasicContext::C
 每天都会遇到，跟并发无关。合并时更糟：两个分支各自重写了同一批引用，git 解完文本冲突后得到一棵
 **静默挂错的树**（正确答案「两次平移的叠加」在两边的文本里都不存在）。
 
-用键之后这批改动**根本不产生**：`parents` 段里那个 `0` 永远指同一个实体，前面插多少东西都不动它。
+用键之后这批改动**根本不产生**：`Hierarchy` 段里那个 `"Parent": 0` 永远指同一个实体，前面插多少
+东西都不动它。
 
 **两条加载路径不冲突：**
 
@@ -2468,16 +2756,132 @@ live 的代价：三方语义（原型改了 + 实例也改了怎么合）、孤
 它决定的是阶段 4 之后要不要长出 override 数据，而 override 的寻址是 `(原型内实体键, 组件, 字段)`，
 那个「原型内实体键」的骨架已经在了（见上一节）。
 
-### 仍待细化
+### `Hierarchy` 照常序列化 ✅ 已定
 
-- **不序列化 `Hierarchy` 组件本身**（四个 entity handle）。只存 `parent`，兄弟次序由数组顺序表达，
-  加载走 `IScene::SetParent` 重建。`firstChild` / `prevSibling` / `nextSibling` 是 `parent` + 顺序的
-  派生值，存了是第二个真相来源。（键换成 entity 原值之后，原先「强顺序相关」那条顾虑弱了一半，但
-  「派生值」这条不变，结论不变。）
-- 加载后 `MeshComponent::m_modelAsset` 那个 `Ptr` 谁来填。今天只有 `SpawnModel` 直接赋值。两条路：
-  场景加载时同步 `RequestAsset`，或复用已有的 `AssetResolveBus::ResolveAssetToComponent` 异步机制
-  （编辑器侧的 `ComponentAssetResolver` 已经在跑）。
-- `MaterialHandle` 的重映射 pass 与 `MetaFieldTraits::EntityRef` —— 见阶段 3 那一节。
+**四个字段全部反射、全部落盘**，`Hierarchy` 就是一个普通组件段。原方案（只存 `parent`、兄弟次序
+由数组顺序表达、加载走 `IScene::SetParent` 重建）**已推翻**。
+
+推翻的理由不是「绕」，是那条「`firstChild` / `prevSibling` / `nextSibling` 是派生值」站不住：
+**`parent` 单独不足以还原树**——兄弟次序必须存在某处，原方案把它藏进了 `entities` 数组的顺序。
+第二个真相来源并没有消失，只是从一个**显式字段**挪进了一个**隐式约定**（数组必须父在子前、同父的
+兄弟必须按序且不被别的实体打散），而这套约定没有任何东西校验。与本节否掉「数组下标当键」的理由
+同类：位置隐含语义。
+
+更根本的一条：选 storage-major 的头号理由是「与内存布局同构 —— storage 段即 storage」。不反射
+`Hierarchy` 是整个方案里唯一一处违背它的地方，为了一个不是组件的东西在顶层另开一段。
+
+随之消失的：`parents` 顶层段；`entities` 数组顺序的语义负担（退回成纯粹的「有哪些实体」）；
+`SetParent` 不给 `prevSibling` 时插**第一个**孩子导致的倒序陷阱（`SceneManager.cpp:282`）；
+「根实体」与「根本没进场景树的实体」的歧义——有没有 `Hierarchy` 组件就是答案，`parent == NullEntity`
+就是根，与内存语义逐字一致；加载器对 `Service<IScene>` 的依赖。
+
+**曾以为的代价（摘总线）不存在了。** `SceneManager` 挂在 `Hierarchy` 的 `ComponentEventBus` 上，
+`OnComponentConstruct` 先跑 `Valid()`，而 `Valid()` 要求每个邻居**已经在场景里**
+（`SceneManager.cpp:318-340`）并交叉校验链表首尾一致。逐个挂组件时 `nextSibling` 必然指向还没建的
+实体 → `Valid` 失败 → 刚写进去的 `Hierarchy` 被删掉（`SceneManager.cpp:573-577`）。
+
+这是「一边挂组件一边发事件」造成的，而 merge 的 Notify 阶段本来就把事件推到**所有组件落地之后**
+统一补发（见「上下文合并」）。等整棵树都在了再广播，`Valid()` 自然成立。不需要摘总线，也不需要
+任何「加载期间请大家闭嘴」的开关。
+
+`HierarchyRootTag` 仍然不落盘：它是 `parent == NullEntity` 的派生值（这条才是真派生），由加载器
+在 Notify 之前补。
+
+**不注册 `ComponentOperation<Hierarchy>`。** 理由是 `ComponentView` 的显示循环只看 `GetComponent` +
+`IsWorldComponent`、不看 `editable`（`ComponentView.cpp:133-151`），注册了就会在 Inspector 里露出
+四个可改的裸句柄，那是邀请用户把树改坏。（把显示循环改成看 `editable` 不行：`StandardPBROverride`
+是故意「不可添加但要显示」的。）不注册也不产生特例——merge 的 Move 走的是类型擦除的
+`sparse_set::push`，本来就不经过 `ComponentOperation`；写侧同样通用，storage 遍历照样捡到它，
+四个字段按 `EntityRef` 规则编码。
+
+组件 key 是 `"Hierarchy"`（本来就没有 `Component` 后缀）；字段 key 定为 `"Parent"` /
+`"First Child"` / `"Prev Sibling"` / `"Next Sibling"`，与冻结的命名规则一致，从此是文件格式。
+
+### 清空世界 ✅ 已定
+
+Open Scene 与 New Scene 的第一步。难点不在删实体，在于**世界不是场景私有的**——它是一个全局
+上下文，各系统从启动起就往里写。
+
+**清空 = 全清，除带编辑态 tag 的实体。** 今天世界里有两个不属于任何场景文件的常驻实体，处理方式
+不同：
+
+- **默认平行光**（`LightSystem::InitInternal`）—— **删掉**。它是场景系统未完成时为了「空世界不是
+  黑的」加的权宜。留着的话每个加载的场景都会白得一盏不在文件里的光：文件说没有光，世界里有光，
+  第二个真相来源。
+- **编辑器相机**（`EditorInputSystem::FindOrCreateEditorCamera`）—— **打编辑态 tag，写侧跳过、
+  清空跳过**。理由是所有权（见「资源回收」的规则一节），不是「躲开清空」。顺带解决两件事：它不再
+  被存进场景文件（视口相机是编辑器状态不是场景内容，Unity / UE 同样如此）；`FindOrCreate` 也不再
+  会在场景自带相机时抢错人——它的 `view.each` 不 `break`，取的是最后一个。
+
+于是 **New Scene = 空世界 + 编辑器相机**，不需要默认场景模板。
+
+**清空的方式：给所有实体（除编辑态 tag）打 `DeadTag`，交给 `EntityReaper`。** 不引入第二条销毁
+路径，与 `Inspector` 的删除同路。前置是「资源回收」那一节——否则清一个 1000 实体的场景一次漏
+1000 个 slot id。
+
+**不能用 `WorldContext::Clear()`**：它走 `m_registry.clear()`，不派发 `ComponentEventBus`，于是
+`MeshSystem::CleanupGPUResources` 不跑，VB/IB 的 RHI 实体拿不到 `DeadTag`，直接漏。
+
+**清空因此是跨帧的**（`EntityReaper` 在 `TICK_LAST` 收），所以 Open Scene 是编辑器侧的一个两帧
+命令：帧 N 标记，帧 N+1 加载。**这个状态机在编辑器侧，不在序列化器里** —— `LoadScene` 本身仍然是
+一趟直线、返回 bool（见预加载那条依赖边）。
+
+**不需要 `OnWorldReset` 之类的复位总线。** 全仓跨帧持 `Entity` 的成员只有两个：`m_editorCamera`
+已由 tag 变成独占所有权、不被清；`ComponentView::m_activeEntity` 是每帧从 `GetView<ActiveTag>()`
+重新推导的缓存，推导不出就早退（`ComponentView.cpp:77-84`）。选中态（`ActiveTag` / `SelectTag`）、
+层级、GPU 资源全部是组件，随实体销毁自清理。
+
+### `EntityRef` 的编解码 ✅ 已定
+
+落在 `WriteObject` / `ReadObject` 的字段循环里，按 `uint32` 原值编解码、**不进分派器**——只有那里
+能看见 `MetaData`（`SerializeToJson(value, out)` 手上只有一个 `MetaAny`，它不知道这个值来自哪个
+字段），而且它天然排在 enum 分支之前：`Entity` 与 `MaterialHandle` 是没有枚举项的 `enum class`，
+走进 `WriteEnum` 会 `LOG_WARN` + false。
+
+空与悬空**一律写 `null`**，判据是 `!Valid(handle)` 而不是 `== Null`——消费端本来就把两者一视同仁
+（`InstanceBindingSystem.cpp:55-58`），文件里也就不会留一个没有意义的数字。沿用阶段 2「未指定 =
+`null`」那条。读侧 `null` → 空句柄；**「值在文件里但映射查不到」是另一回事**，那是坏文件，
+`LOG_WARN` + 空句柄，与 `AssetIdFromJsonField` 把「未指定」和「数据坏了」分开是同一个设计。
+
+`MaterialComponent::m_material` 在这一步标 `Serializable | EntityRef`，字段名同时改成 `"Handle"`
+（阶段 2 冻结组件 key 时留的尾巴，避免 `{"Material":{"Material":4}}` 叠字）。
+
+**重映射不在这里**，是 merge 之上的加法（见 `TODO_ContextMerge.md`「扩展点 a」）。
+
+一个边界：entt 的 enum ↔ 算术转换经过 `double`（`node.hpp:289-290`），对 32 位句柄精确，但句柄变
+64 位时会静默丢精度。
+
+### `MeshComponent` 存 id，不存 `Ptr` ✅ 已定
+
+`Ptr<ModelAsset> m_modelAsset` 删掉，只留 `m_modelAssetId`。原先「加载后谁来填那个 `Ptr`」的待办
+随之消失——组件变成纯数据，场景加载与 merge 都不需要为它开特例。
+
+`Ptr` 今天的账：三个读取点全在 `MeshSystem::OnComponentConstruct` 一次调用里
+（`MeshSystem.cpp:41/46/53`），一个写入点在 `SpawnModel.cpp:123`。它没有反射，任何通用机制都够不
+着；而 `m_modelAsset->GetAssetId() == m_modelAssetId` 这个不变量没有任何东西维护——它本来就是第二个
+真相来源。
+
+**它也不是「谁引用了这个资产」的答案。** 引用是 `AssetId`：是数据、反射得到、落得了盘。`Ptr` 表达的
+是「payload 要驻留」，而且答案是错的——`MeshComponent` 只在建 VB/IB 那一段需要模型数据，`Ptr` 却把
+整份 CPU 顶点数据钉到实体的一辈子。今天资产不淘汰所以看不出来，「可用 / 驻留分离」那笔债一开始还
+就会撞上。
+
+改动：
+
+- `OnComponentConstruct` 改成 `FindAsset(m_modelAssetId)` → 查 `Ready` → 建。`FindAsset` 是
+  `m_db->Find(id)` 一次查找，与紧随其后的建 VB/IB + 上传差几个数量级。
+- **没 `Ready` 时的重试**：MeshSystem 自己订 `AssetBus::MultiHandler(Model)`，`Ready` 时重建匹配
+  `m_modelAssetId` 的实体。这就是原先设想的 `MeshAssetResolver`，现在是 MeshSystem 自己的职责，
+  不必新开一个类；顺带修掉今天的洞——`.gltf` 还在加载时被引用，除了 `AssetHandler` 那条 pending
+  轨道没有第二条路。**预加载落地后这条会退化消失**：契约保证构造时资产必然 `Ready`，与
+  `AssetHandler` 的两条 pending 轨道同一批清掉，符合那一节「删代码不是搬代码」的判据。
+- **上传期间的 keep-alive 要补上。** `PendingBufferUpload` 持的是借指针（`Component.h:131-136`，
+  注释写明 "Must outlive the async upload"），源数据是 `ModelAssetData` 里的顶点 / 索引数组，所以
+  租期跨帧、不是一次函数调用。正确的持有者是**还在用那块内存的那个东西**：让 pending upload 这一侧
+  带一个 owning 引用，上传完成、清掉 pending 组件时一起析构——组件即作用域，RAII。这同时把
+  `StagedArrayBuffer` 那种「靠成员活得够久」的隐式契约变成显式的。
+- `SpawnModel` 少一行。顺带 `MeshComponent` 变回 trivially copyable，merge 的 `push` 那条路更干净
+  （好处，不是理由）。
 
 ---
 
@@ -2517,6 +2921,20 @@ shader id），要么承认 stages 不是配置而是编译期发现的产物（
 
 阶段 3 的流程 3（拖 .smat 到材质槽）✅ ──► 资产预加载与编辑器的加载契约（已定，未动工）
   （流程 3 复用既有异步编排，预加载落地后等待自动消失、代码不动）
+                                              └──► 阶段 4（场景保存）
+
+（阶段 4 依赖预加载：场景加载就是那份契约里的「解析」——主线程、当帧完成、不等任何东西。而 glTF
+  材质是子资产，父模型没被构建过就 `Resolve` 不出来（子被直接请求会被拒绝，反推父已否决），
+  所以场景加载必须站在「一切已 Ready」这个前提上，靠预加载的全量遍历（约束 5）给。不先做它，
+  就只能在 `LoadScene` 里临时塞一段阻塞 `LoadAsset` 的模型预载，是搬代码。）
+
+上下文合并（Merge，见 TODO_ContextMerge.md）──► 阶段 4 的加载
+   （也是 SpawnModel、prefab 实例化、复制粘贴、编辑器 undo 的同一个原语，只是它们今天各自手写）
+
+资源回收（`DeadTag` 职责收窄 + 世界侧 GlobalBuffer 改事件驱动）──► 阶段 4 的「清空世界」
+
+（不改也能写完阶段 4，但清空一个 1000 实体的场景会一次漏 1000 个 slot id。它是独立 bug，
+  今天 `Inspector` 删实体就在漏，只是一次一个。）
 
 Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──► cubemap 缓存 ✅
                                                ├──► Model 缓存（还欠待办 A + 二进制格式）
@@ -2543,7 +2961,14 @@ Image 处理流程规整 ✅ ──► 子资产机制统一 ✅ ──┬──
   恢复不了材质子资产——所以 `Serialize` 在收到 identity（缓存在问）时显式拒绝，行为与它存在之前一致。
   等 Model 转可缓存那一步一起答；欠的理由是读一个 `.smat` 需要编译器解析贴图路径用的 `AssetId`，而
   `Deserialize` 的签名故意没有。`GetCacheFormat` 仍然是「要不要缓存」的唯一决定者（材质继续不缓存）。
+- **上下文合并**（已独立成 `TODO_ContextMerge.md`，机制已定、未动工）：阶段 4 的加载路径。它不只
+  服务场景——`SpawnModel` 今天是一份手写的 merge，prefab / 复制粘贴 / undo 接进来只需换一组模式。
+  阶段 4 额外需要它的「扩展点 a」（组件里的实体引用重映射）。
+- **资产回收**（新增一节，方案已定、未动工）：`DeadTag` 的职责收窄为可见性过滤，世界侧
+  `GlobalBuffer` 的 slot 回收改挂组件销毁事件。独立 bug，今天 `Inspector` 删实体就在漏 slot id；
+  阶段 4 的清空会把它放大三个数量级。
 - **`TODO_AssetSerializationLayering.md`**：B 已随阶段 3 落地，A 只做了材质的 `Serialize`。剩下的
   ——`Serialize` / `Deserialize` 去掉 `identity`、Image 管线与缓存验身——仍未动工，动的是已有测试
   覆盖的缓存子系统，单独排期。
-- **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节），但它依赖阶段 2 与阶段 3。
+- **阶段 4** 的文件形态、键与遍历方式已随阶段 2 的讨论定下（见该节）。前置是阶段 2 与资产预加载
+  （阶段 3 已完成）。
