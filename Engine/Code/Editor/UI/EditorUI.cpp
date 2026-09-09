@@ -24,6 +24,7 @@ namespace Editor
         m_componentView = eastl::make_unique<ComponentView>();
         m_materialWindow = eastl::make_unique<MaterialWindow>();
         m_saveAssetDialog = eastl::make_unique<SaveAssetDialog>();
+        m_welcomeScreen = eastl::make_unique<WelcomeScreen>();
 
         Spark::Input::InputEventBus::Handler::BusConnect(Spark::Input::InputBusId::EditorUI);
     }
@@ -72,6 +73,13 @@ namespace Editor
 
     void EditorUI::DrawUI()
     {
+        // Every panel below reads assets; the preload this drives is what makes that safe.
+        if (!m_welcomeScreen->IsDismissed())
+        {
+            m_welcomeScreen->Draw();
+            return;
+        }
+
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);

@@ -29,6 +29,10 @@ namespace Spark::Resource
 
         virtual Ptr<Asset> FindAsset(const AssetId& id) const = 0;
 
+        //! Registered assets that can be loaded on their own. Sub-assets are left out --
+        //! ProcessAsset refuses to build one, so requesting it only produces an error.
+        virtual eastl::vector<AssetId> GetRegisteredAssetIds() const = 0;
+
         virtual AssetType GetSupportAssetType(eastl::string_view file) = 0;
 
         //! Takes a virtual path (`mount://relative`). Mount points are registered on the

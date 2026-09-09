@@ -118,6 +118,26 @@ namespace Spark::Resource
         return m_db ? m_db->Find(id) : nullptr;
     }
 
+    eastl::vector<AssetId> SparkAssetManager::GetRegisteredAssetIds() const
+    {
+        eastl::vector<AssetId> ids;
+        if (!m_db)
+        {
+            return ids;
+        }
+
+        const eastl::vector<Ptr<Asset>> assets = m_db->Snapshot();
+        ids.reserve(assets.size());
+        for (const Ptr<Asset>& asset : assets)
+        {
+            if (!asset->GetAssetId().IsSubAsset())
+            {
+                ids.push_back(asset->GetAssetId());
+            }
+        }
+        return ids;
+    }
+
     Ptr<Asset> SparkAssetManager::LoadAsset(const AssetId& id)
     {
         Ptr<Asset> existing = m_db->Find(id);

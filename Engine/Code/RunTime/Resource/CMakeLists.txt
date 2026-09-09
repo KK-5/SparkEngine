@@ -6,6 +6,7 @@ set(SOURCES
     AssetBuildContext.cpp
     AssetJsonSerializer.cpp
     AssetDataBase.cpp
+    AssetLoadBatch.cpp
     AssetManager.cpp
     Cache/AssetCache.cpp
     Cache/CacheFormat.cpp

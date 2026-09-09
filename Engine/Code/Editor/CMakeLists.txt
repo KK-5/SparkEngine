@@ -13,6 +13,7 @@ add_executable(${TARGET_NAME}
     UI/Private/MaterialSlot.cpp
     UI/Private/MaterialWindow.cpp
     UI/Private/SaveAssetDialog.cpp
+    UI/Private/WelcomeScreen.cpp
     Handler/AssetHandler.cpp
     Handler/ComponentAssetResolver.cpp
     UI/EditorWindow.cpp

@@ -7,6 +7,7 @@
 
 #include "UI/EditorWindow.h"
 #include "UI/EditorUI.h"
+#include "UI/Private/WelcomeScreen.h"
 #include "Component/Reflect.h"
 
 #include <Resource/AssetManagerInterface.h>
@@ -20,7 +21,11 @@ namespace Editor
         Spark::TypeRegistry::Register(Editor::Reflect);
         Spark::TypeRegistry::RegisterAll();
 
-        m_editorWindow = Spark::CreateSystem<Spark::Window::GlfwWindow>(1920, 1080, "SparkEditor");
+        // The welcome screen is what the editor opens on, so it is what the window is
+        // sized for; it resizes to the editor's own size when dismissed.
+        const Spark::Math::Vector2Int windowSize = WelcomeScreen::WindowSize();
+        m_editorWindow = Spark::CreateSystem<Spark::Window::GlfwWindow>(
+            windowSize.x, windowSize.y, "SparkEditor");
         m_editorWindow->Init();
 
         m_runtimeEngine = eastl::make_unique<Spark::SparkEngine>();
