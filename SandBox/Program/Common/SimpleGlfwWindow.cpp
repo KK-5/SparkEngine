@@ -67,6 +67,18 @@ namespace Spark::SandBox
         return { m_width, m_height };
     }
 
+    void SimpleGlfwWindow::SetWindowSize(const Math::Vector2Int& size)
+    {
+        if (!m_window || size.x <= 0 || size.y <= 0)
+        {
+            return;
+        }
+
+        glfwSetWindowSize(m_window, size.x, size.y);
+        m_width  = size.x;
+        m_height = size.y;
+    }
+
     void* SimpleGlfwWindow::GetNativeHandle() const
     {
         return GetNativeWindowHandle(m_window);
