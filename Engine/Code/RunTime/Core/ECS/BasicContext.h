@@ -59,6 +59,13 @@ namespace Spark
             return entity;
         }
 
+        /// @brief Create an entity at the given identifier. When the slot is already taken the
+        /// registry silently picks another one, so always use the returned value.
+        Entity CreateEntity(Entity hint)
+        {
+            return m_registry.create(hint);
+        }
+
         template<typename It>
         void CreateEntity(It first, It last)
         {
@@ -79,6 +86,16 @@ namespace Spark
         bool Valid(Entity entity) const noexcept
         {
             return m_registry.valid(entity);
+        }
+
+        /// @brief The live entity occupying the same identifier slot as hint, regardless of version.
+        /// Valid() answers identity (slot + version), this answers occupancy (slot only) — which is
+        /// what CreateEntity(hint) collides on.
+        Entity EntityAt(Entity hint) const noexcept
+        {
+            using Traits = entt::entt_traits<EntityType>;
+            const Entity candidate = Traits::construct(entt::to_entity(hint), m_registry.current(hint));
+            return m_registry.valid(candidate) ? candidate : Entity{entt::null};
         }
 
         // Add Component
@@ -189,6 +206,20 @@ namespace Spark
         decltype(auto) GetView(entt::exclude_t<Exclude...> excludes = entt::exclude_t{}) const
         {
             return eastl::as_const(m_registry).template view<Component...>(excludes);
+        }
+
+        /// @brief Direct access to a component storage. Creates it when missing.
+        template<typename T>
+        decltype(auto) GetStorage()
+        {
+            return m_registry.template storage<T>();
+        }
+
+        /// @brief Returns nullptr when the storage does not exist — the const overload only looks up.
+        template<typename T>
+        decltype(auto) GetStorage() const
+        {
+            return eastl::as_const(m_registry).template storage<T>();
         }
 
         // Reserved extension points. BasicContext itself does not dispatch bus events.

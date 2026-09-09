@@ -99,6 +99,16 @@ namespace Spark
             return m_context.CreateEntity(name);
         }
 
+        Entity CreateEntity(Entity hint)
+        {
+            return m_context.CreateEntity(hint);
+        }
+
+        Entity EntityAt(Entity hint) const noexcept
+        {
+            return m_context.EntityAt(hint);
+        }
+
         void DestoryEntity(Entity entity)
         {
             m_context.DestoryEntity(entity);
@@ -218,6 +228,23 @@ namespace Spark
             static_assert(CanWriteAllV<Component...>,
                 "ContextReference::GetView<T...>: mutable view requires write access for all requested components.");
             return m_context.template GetView<Component...>(excludes);
+        }
+
+        template <typename T>
+        decltype(auto) GetStorage()
+        {
+            static_assert(CanWriteComponentV<T>,
+                "ContextReference::GetStorage<T>: write access required. Declare WriteComponent<T>, "
+                "ReadWriteComponent<T>, WriteComponent<All>, or ReadWriteComponent<All>.");
+            return m_context.template GetStorage<T>();
+        }
+
+        template <typename T>
+        decltype(auto) GetStorage() const
+        {
+            static_assert(CanReadComponentV<T>,
+                "ContextReference::GetStorage<T> const: read access required.");
+            return m_context.template GetStorage<T>();
         }
 
         ContextType& GetContext() noexcept
