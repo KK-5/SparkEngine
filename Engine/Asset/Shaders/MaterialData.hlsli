@@ -1,5 +1,5 @@
 // Single definition source for the per-material GPU record. Any shader needing
-// per-material data includes this (directly or via MaterialBindings.hlsl).
+// per-material data includes this (directly or via MaterialBindings.hlsli).
 // C++ mirror lives in Render/Binding/Material/MaterialData.h — keep the two identical.
 #ifndef SPARK_MATERIAL_DATA_HLSLI
 #define SPARK_MATERIAL_DATA_HLSLI

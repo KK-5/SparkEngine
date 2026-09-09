@@ -1,5 +1,5 @@
 // Single definition source for the per-instance GPU record. Any shader needing
-// per-instance data includes this (directly or via InstanceBindings.hlsl).
+// per-instance data includes this (directly or via InstanceBindings.hlsli).
 // C++ mirror lives in Render/Instance/InstanceData.h — keep the two identical.
 #ifndef SPARK_INSTANCE_DATA_HLSLI
 #define SPARK_INSTANCE_DATA_HLSLI

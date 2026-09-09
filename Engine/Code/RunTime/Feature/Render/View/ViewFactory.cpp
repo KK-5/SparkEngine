@@ -37,7 +37,7 @@ namespace Spark::Render
             auto* assetManager = Service<Resource::AssetManager>::Get();
             ASSERT(assetManager, "[ViewFactory] AssetManager is unregistered.");
 
-            // ViewBindings.hlsl has no entry point and cannot be compiled alone;
+            // ViewBindings.hlsli has no entry point and cannot be compiled alone;
             // ViewBindingsReflect.hlsl includes it and adds a dummy vertex entry so the
             // space1 group's layout can be reflected here.
             const Resource::AssetId assetId =
@@ -58,7 +58,7 @@ namespace Spark::Render
             Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
             if (built.stageMask == RHI::ShaderStageMask::None)
             {
-                LOG_ERROR("[ViewFactory] ViewBindings.hlsl produced no shader inputs.");
+                LOG_ERROR("[ViewFactory] ViewBindings.hlsli produced no shader inputs.");
                 return s_layout;
             }
 

@@ -18,8 +18,8 @@
 // once per frame by WriteViewConstants — the skybox never re-reads the camera. The cube +
 // sampler are this pass's own inputs, in the per-pass tier (space2).
 
-#include <Shaders/ViewBindings.hlsl>    // space1: g_ViewProjection, g_InvViewProj, g_View, g_InvView
-#include <Shaders/SceneBindings.hlsl>   // space0: g_EnvIntensity
+#include <Shaders/ViewBindings.hlsli>    // space1: g_ViewProjection, g_InvViewProj, g_View, g_InvView
+#include <Shaders/SceneBindings.hlsli>   // space0: g_EnvIntensity
 
 // Per-pass inputs (space2 = per-pass tier), bound by SkyboxProcessor.
 TextureCube  g_SkyCube    : register(t0, space2);

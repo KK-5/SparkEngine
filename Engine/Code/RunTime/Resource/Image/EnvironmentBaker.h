@@ -92,12 +92,12 @@ namespace Spark::Resource
         //! the GGX lobe's quadratic growth. Endpoints are unchanged: mip 0 is still a
         //! perfect mirror, the last mip still roughness 1.
         //!
-        //! MUST remain the exact inverse of RoughnessToLod in Shaders/SceneBindings.hlsl.
+        //! MUST remain the exact inverse of RoughnessToLod in Shaders/SceneBindings.hlsli.
         //! Those are two independent copies in two languages; if they drift apart nothing
         //! fails -- every reflection simply comes out uniformly too sharp or too blurred.
         static float LodToRoughness(uint32_t mip, uint32_t mipCount);
 
-        //! Mirror of the HLSL RoughnessToLod (Shaders/SceneBindings.hlsl), which is the one
+        //! Mirror of the HLSL RoughnessToLod (Shaders/SceneBindings.hlsli), which is the one
         //! the renderer actually uses. Has NO production caller here and is not dead code:
         //! it exists so the round trip against LodToRoughness can be unit-tested, which is
         //! the only automated guard on that inverse relationship.

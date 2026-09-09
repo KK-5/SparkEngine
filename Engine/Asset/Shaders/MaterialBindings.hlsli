@@ -2,7 +2,7 @@
 // space3 — the per-material tier in the convention (space0 per-scene, space1 per-view,
 // space2 per-pass, space3 per-material, space4 per-object). Shared engine header — any
 // shader that needs per-material data:
-//     #include <Shaders/MaterialBindings.hlsl>
+//     #include <Shaders/MaterialBindings.hlsli>
 // and the engine fills g_Materials via MaterialBindingSystem (one element per material
 // entity, per frame).
 //

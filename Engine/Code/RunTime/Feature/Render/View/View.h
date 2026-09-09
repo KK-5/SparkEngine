@@ -60,7 +60,7 @@ namespace Spark::Render
     }
 
     //! Reserved engine name for the per-view world->clip constant. Shaders pull
-    //! it in via `#include "ViewBindings.hlsl"` (declares `float4x4
+    //! it in via `#include "ViewBindings.hlsli"` (declares `float4x4
     //! g_ViewProjection;` in the ViewBindings group at space1). This is a
     //! convention, mirroring Atom's hardcoded view-constant names.
     inline constexpr const char* ViewProjectionConstantName    = "g_ViewProjection";

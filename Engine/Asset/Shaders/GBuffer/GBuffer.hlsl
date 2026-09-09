@@ -1,6 +1,6 @@
-#include <Shaders/ViewBindings.hlsl>
-#include <Shaders/InstanceBindings.hlsl>
-#include <Shaders/MaterialBindings.hlsl>
+#include <Shaders/ViewBindings.hlsli>
+#include <Shaders/InstanceBindings.hlsli>
+#include <Shaders/MaterialBindings.hlsli>
 
 // GBuffer per-pass sampler (space2 = per-pass tier), bound once by GBufferProcessor.
 SamplerState g_MatSampler : register(s0, space2);

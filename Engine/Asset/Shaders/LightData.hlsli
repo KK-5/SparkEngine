@@ -1,5 +1,5 @@
 // Single definition source for the per-light GPU record. Any shader needing a light
-// record includes this (directly, or via SceneBindings.hlsl / Lib/Lights.hlsli).
+// record includes this (directly, or via SceneBindings.hlsli / Lib/Lights.hlsli).
 // C++ mirror lives in Render/Binding/Scene/LightData.h — keep the two identical.
 #ifndef SPARK_LIGHT_DATA_HLSLI
 #define SPARK_LIGHT_DATA_HLSLI

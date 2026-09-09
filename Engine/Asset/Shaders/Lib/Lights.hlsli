@@ -11,7 +11,7 @@
 #define SPARK_LIB_LIGHTS_HLSLI
 
 #include <Shaders/LightData.hlsli>
-#include <Shaders/SceneBindings.hlsl>
+#include <Shaders/SceneBindings.hlsli>
 #include <Shaders/Lib/Shadow/ShadowSampling.hlsli>
 
 // Shadow atlas, one tile per shadow-casting light. Viewed as R32_FLOAT. This declaration is

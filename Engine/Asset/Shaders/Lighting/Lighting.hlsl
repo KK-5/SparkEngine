@@ -15,8 +15,8 @@
 // rasterizer rejects the rest via early-Z. SceneColor keeps its clear value where
 // culled, for the skybox pass to fill afterwards.
 
-#include <Shaders/ViewBindings.hlsl>       // space1: g_InvViewProj, g_InvView
-#include <Shaders/SceneBindings.hlsl>      // space0: g_Lights, g_LightCount, environment IBL
+#include <Shaders/ViewBindings.hlsli>       // space1: g_InvViewProj, g_InvView
+#include <Shaders/SceneBindings.hlsli>      // space0: g_Lights, g_LightCount, environment IBL
 #include <Shaders/Lib/BRDF/BRDF.hlsli>     // Cook-Torrance surface response
 #include <Shaders/Lib/BRDF/EnvBRDF.hlsli>  // split-sum environment BRDF
 #include <Shaders/Lib/Lights.hlsli>        // per-light L + incident radiance
