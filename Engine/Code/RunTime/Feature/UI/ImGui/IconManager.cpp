@@ -32,6 +32,11 @@ namespace Spark::UI
             return {};
         }
 
+        // MakeAssetId hands back the registry's sRGB identity; the UI target does no
+        // linear->sRGB encode, so an sRGB source would arrive decoded and stay linear.
+        assetId = assetId.WithDescriptor(
+            Resource::ImageAsset::DescriptorForUsage(Resource::ImageUsage::UI));
+
         Ptr<Resource::ImageAsset> imageAsset =
             assetMgr->LoadAsset<Resource::ImageAsset>(assetId);
 
