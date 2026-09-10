@@ -148,7 +148,8 @@ if (!ctx.Valid(hint)) { e = ctx.CreateEntity(hint); }   // 错，e 不一定等�
 在自己那侧写了 `ENTT_ASSERT(entity == entt)`）。
 
 第三件今天还不存在：派发逻辑硬编码在 `WorldContext` 的 `Add` / `AddOrReplace` / `Replace` 重载里
-（泛型的 `BasicContext<E>::Add` 本来就是静默的）。它跟着事件策略轴一起做，**不为 merge 单开机制**。
+（泛型的 `BasicContext<E>::Add` 本来就是静默的）。它跟着 `TODO_ContextAccess.md` 一起做，
+**不为 merge 单开机制**。
 在那之前 merge 直接吃上下文；之后 target 参数换成 `ContextReference<WorldContext, MergeTraits>`，
 把「写全部组件 + 不立即派发」声明出来。
 
@@ -440,7 +441,8 @@ Core/ECS/Merge/ContextMerge.h
 - **源是 `StagingContext<E>`，一个和活上下文不同的类型。** 不能当目标、不进 `ExecuteContext` 栈、
   可写。方向和「不许自合并」因此是编译期的。
 - **merge 要的三件事都不是特权。** 建实体按编号、直取 storage 是上下文的公开能力（门控在
-  `ContextReference` 的 Traits 上）；不立即派发事件是事件策略轴的一个取值。不为 merge 开旁路。
+  `ContextReference` 的 Traits 上）；不立即派发事件是 `TODO_ContextAccess.md` 那个轴的一个取值。
+  不为 merge 开旁路。
 - **重映射用两个临时组件，不建表。** 映射本来就是恒等 + 少数例外，只记例外。两个组件都在目标侧，
   所以 `Copy` 的 `const` 源不受影响，handler 也看得见。merge 在通知相位结束时自己清掉。
 - **世界 → 暂存是单独的 `Extract`**，不是 merge 的一个模式。
@@ -574,7 +576,8 @@ for (Entity e : entities):
 
 - **层级链表要从 `SceneManager` 抽成不挑上下文类型的自由函数**——只有 `SpawnModel` 改走暂存时才
   需要，不挡前四步。
-- **事件策略轴**——在它落地前，merge 的静默插入靠直接 `GetStorage<T>().emplace()`（泛型
+- **事件策略轴（`TODO_ContextAccess.md`）**——在它落地前，merge 的静默插入靠直接
+  `GetStorage<T>().emplace()`（泛型
   `BasicContext` 本来就静默，`WorldContext` 走 storage 也绕开了它的 `Add` 重载），不额外开机制。
 
 ### 再往后（要 undo 时再做）
