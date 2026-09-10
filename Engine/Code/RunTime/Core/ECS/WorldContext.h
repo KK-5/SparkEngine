@@ -42,11 +42,9 @@ namespace Spark
     }
 
     template<>
-    class BasicContext<Entity> final
+    class BasicContext<Entity> final : public ContextStorage<Entity>
     {
     public:
-        using Entity = Spark::Entity;
-
         BasicContext() = default;
         ~BasicContext() noexcept
         {
@@ -141,21 +139,6 @@ namespace Spark
             }
 
             m_registry.destroy(first, last);
-        }
-
-        bool Valid(Entity entity) const noexcept
-        {
-            return m_registry.valid(entity);
-        }
-
-        /// @brief The live entity occupying the same identifier slot as hint, regardless of version.
-        /// Valid() answers identity (slot + version), this answers occupancy (slot only) — which is
-        /// what CreateEntity(hint) collides on.
-        Entity EntityAt(Entity hint) const noexcept
-        {
-            using Traits = entt::entt_traits<Entity>;
-            const Entity candidate = Traits::construct(entt::to_entity(hint), m_registry.current(hint));
-            return m_registry.valid(candidate) ? candidate : NullEntity;
         }
 
         //////////////////////////////////////////
@@ -258,30 +241,6 @@ namespace Spark
         }
         //////////////////////////////////////////
         
-        template<typename... T>
-        decltype(auto) Get(Entity entity) const
-        {
-            return eastl::as_const(m_registry).get<T...>(entity);
-        }
-
-        template<typename... T>
-        decltype(auto) Get(Entity entity)
-        {
-            return m_registry.get<T...>(entity);
-        }
-
-        template<typename... T>
-        decltype(auto) TryGet(Entity entity) const
-        {
-            return eastl::as_const(m_registry).try_get<T...>(entity);
-        }
-
-        template<typename... T>
-        decltype(auto) TryGet(Entity entity)
-        {
-            return m_registry.try_get<T...>(entity);
-        }
-
         //////////////////////////////////////////
         // Remove Component
         template<typename Type, typename... Other, eastl::enable_if_t<Internal::AnyComponentTraitsRemoveEvent<Type, Other...>::value, int> = 0>
@@ -313,62 +272,6 @@ namespace Spark
             return m_registry.remove<Type, Other..., It>(first, last);
         }
         //////////////////////////////////////////
-
-        template<typename T>
-        bool Has(Entity entity) const
-        {
-            return m_registry.any_of<T>(entity);
-        }
-        
-        template<typename... T>
-        bool HasAny(Entity entity) const
-        {
-            return m_registry.any_of<T...>(entity);
-        }
-
-        template<typename... T>
-        bool HasAll(Entity entity) const
-        {
-            return m_registry.all_of<T...>(entity);
-        }
-
-        template<typename Owned, typename... Component, typename... Exclude>
-        decltype(auto) CreateGroup(entt::get_t<Component...> gets = entt::get_t{}, 
-            entt::exclude_t<Exclude...> excludes = entt::exclude_t{}) {
-            return m_registry.group<Owned>(gets, excludes);
-        }
-
-        template<typename Owned, typename... Component, typename... Exclude>
-        decltype(auto) CreateGroup(entt::get_t<Component...> gets = entt::get_t{}, 
-            entt::exclude_t<Exclude...> excludes = entt::exclude_t{}) const {
-            return eastl::as_const(m_registry).group<Owned>(gets, excludes);
-        }
-
-        template<typename... Component, typename... Exclude>
-        decltype(auto) GetView(entt::exclude_t<Exclude...> excludes = entt::exclude_t{}) {
-            return m_registry.view<Component...>(excludes);
-        }
-
-        template<typename... Component, typename... Exclude>
-        decltype(auto) GetView(entt::exclude_t<Exclude...> excludes = entt::exclude_t{}) const {
-            return eastl::as_const(m_registry).view<Component...>(excludes);
-        }
-
-
-        /// @brief Direct access to a component storage. Creates it when missing.
-        /// Writing through it bypasses this context's bus dispatch — the caller owns that contract.
-        template<typename T>
-        decltype(auto) GetStorage()
-        {
-            return m_registry.storage<T>();
-        }
-
-        /// @brief Returns nullptr when the storage does not exist — the const overload only looks up.
-        template<typename T>
-        decltype(auto) GetStorage() const
-        {
-            return eastl::as_const(m_registry).storage<T>();
-        }
 
         /// @brief Explicitly opt in component destroy events when an entity is destroyed.
         /// This does NOT replace/remove the existing Remove() path behavior.
@@ -448,7 +351,6 @@ namespace Spark
             (DispatchComponentRemoveBusForStorageIf<Cs>(), ...);
         }
 
-        entt::basic_registry<Entity> m_registry{};
         eastl::unordered_set<TypeId> m_entityRemoveEvents{};
     };
 

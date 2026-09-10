@@ -175,15 +175,15 @@ static void Reflect(ReflectContext& context)
     context.Reflect<TestName>()
         .Type("TestName")
         .Data<&TestName::name>("TestName::name"_hs, "name")
-        .Func<&WorldContext::Has<TestName>>("HasComponent")
-        .Func<Overload<TestName*(Entity)>(&WorldContext::TryGet<TestName>)>("GetComponent");
+        .Func<&ContextStorage<Entity>::Has<TestName>>("HasComponent")
+        .Func<Overload<TestName*(Entity)>(&ContextStorage<Entity>::TryGet<TestName>)>("GetComponent");
     
     context.Reflect<Position>()
         .Type("Position")
         .Data<&Position::x>("Position::x"_hs, "x")
         .Data<&Position::y>("Position::y"_hs, "y")
-        .Func<&WorldContext::Has<Position>>("HasComponent")
-        .Func<Overload<Position*(Entity)>(&WorldContext::TryGet<Position>)>("GetComponent");
+        .Func<&ContextStorage<Entity>::Has<Position>>("HasComponent")
+        .Func<Overload<Position*(Entity)>(&ContextStorage<Entity>::TryGet<Position>)>("GetComponent");
 }
 
 bool Com(const MetaType& first, const MetaType& second)
@@ -205,6 +205,8 @@ TEST(ReflectionTest, TypeRegistry)
     EXPECT_EQ(context.Resolve<Position>().info(), GetTypeInfo<Position>());
 
     WorldContext world;
+    // The reflected accessors are declared by ContextStorage, so that is what the instance holds.
+    ContextStorage<Entity>& storage = world;
     Entity ent = world.CreateEntity();
     world.Add<TestName>(ent, "TestEntity");
     Entity ent2 = world.CreateEntity();
@@ -212,8 +214,8 @@ TEST(ReflectionTest, TypeRegistry)
     EXPECT_EQ(world.Get<TestName>(ent).name, "TestEntity");
     MetaFunc query = context.Resolve<TestName>().func("HasComponent"_hs);
     // 这里构造了一个TestName的对象作为第一个参数
-    EXPECT_TRUE(query.invoke({}, AnyCast(world), ent));
-    MetaAny com = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(world), ent);
+    EXPECT_TRUE(query.invoke({}, AnyCast(storage), ent));
+    MetaAny com = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(storage), ent);
     EXPECT_TRUE(com);
     EXPECT_TRUE(com.try_cast<TestName*>());
     EXPECT_EQ(com.cast<TestName*>()->name, "TestEntity");
@@ -221,7 +223,7 @@ TEST(ReflectionTest, TypeRegistry)
     MetaAny value = name.get(*com);
     EXPECT_TRUE(value.try_cast<eastl::string>());
 
-    MetaAny nullCom = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(world), ent2);
+    MetaAny nullCom = context.Resolve<TestName>().func("GetComponent"_hs).invoke({}, AnyCast(storage), ent2);
     auto test = world.TryGet<TestName>(ent2);
     EXPECT_FALSE(test);
     EXPECT_EQ(nullCom.cast<TestName*>(), nullptr);
