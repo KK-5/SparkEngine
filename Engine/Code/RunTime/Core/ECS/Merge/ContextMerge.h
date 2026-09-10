@@ -172,6 +172,44 @@ namespace Spark
             }
         }
 
+        /// Extract's own transfer: identifiers are restored verbatim into an empty staging context,
+        /// so there is no mapping to consult.
+        template<typename T, MergeMatch Match, typename... Ts, typename E, typename Source>
+        void ExtractFor(StagingContext<E>& staging, const Source& source)
+        {
+            const auto* pool = MergeSourceStorage<T>(source);
+            if (pool == nullptr)
+            {
+                return;
+            }
+
+            auto& destination = staging.template GetStorage<T>();
+            auto& identifiers = staging.template GetStorage<E>();
+            const typename entt::basic_registry<E>::common_type& sourceIdentifiers = *pool;
+
+            for (E entity : sourceIdentifiers)
+            {
+                if (!MergeMatches<Match, Ts...>(source, entity))
+                {
+                    continue;
+                }
+
+                if (!staging.Valid(entity))
+                {
+                    identifiers.generate(entity);
+                }
+
+                if constexpr (std::tuple_size_v<decltype(pool->get_as_tuple(E{}))> == 0u)
+                {
+                    destination.emplace(entity);
+                }
+                else
+                {
+                    destination.emplace(entity, pool->get(entity));
+                }
+            }
+        }
+
         /// A context that dispatches nothing has nothing to repair. WorldContext overloads this.
         template<typename... Ts, typename E>
         void OnExternalWrite(BasicContext<E>&, eastl::span<const E>)
@@ -252,5 +290,36 @@ namespace Spark
     {
         static_assert(sizeof...(Ts) > 0, "Merge needs at least one component type.");
         return Internal::MergeInternal<Match, Mapping, true, Ts...>(target, source);
+    }
+
+    /// @brief Copy the components of the listed types from a staging context into a live one.
+    ///
+    /// The source stays intact and can be merged again -- this is how a prefab is instantiated more
+    /// than once. Component types that cannot be copied fail to compile here rather than dropping
+    /// data at runtime.
+    template<MergeMatch Match, MergeMapping Mapping, typename... Ts, typename E>
+    MergeResult<E> Merge(MergeContextT<E>& target, const StagingContext<E>& source)
+    {
+        static_assert(sizeof...(Ts) > 0, "Merge needs at least one component type.");
+        return Internal::MergeInternal<Match, Mapping, false, Ts...>(target, source);
+    }
+
+    /// @brief Copy the components of the listed types out of a live context into a fresh staging one.
+    ///
+    /// The reverse direction of a Merge, and a separate operation because the source is the live
+    /// side here. Both of merge's hard parts fall away: the staging context is empty so every
+    /// identifier is restored verbatim, and nothing observes it so there is nobody to notify.
+    template<MergeMatch Match, typename... Ts, typename Source>
+    auto Extract(const Source& source) -> StagingContext<typename Source::Entity>
+    {
+        using E = typename Source::Entity;
+
+        static_assert(sizeof...(Ts) > 0, "Extract needs at least one component type.");
+        static_assert(eastl::is_same<Source, MergeContextT<E>>::value,
+            "Extract reads a live context. Its result is the staging one.");
+
+        StagingContext<E> staging;
+        (Internal::ExtractFor<Ts, Match, Ts...>(staging, source), ...);
+        return staging;
     }
 }

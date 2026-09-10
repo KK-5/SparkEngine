@@ -276,19 +276,16 @@ EntityEventBus::Broadcast(OnEntitiesCreate, entities);
 ```
 Merge<Match, Mapping, Ts...>(target, source)
 │
-├─ 建实体  参与者  Any : for each T: for (E s : srcReg.storage<T>()) if (未处理) Create(s);
-│                   All : for (E s : srcReg.view<Ts...>())                      Create(s);
+├─ 建实体  对每个 T： for (E s : T 的源 storage)
+│              Any 全收，All 要 HasAll<Ts...>(s)；已处理过的跳过
 │
 │          Create(s)  Remap    : t = tgtReg.create(s);
 │                                if (t != s) { Add<MergedTo>(tgt.EntityAt(s), t); }
 │                                Add<MergedFrom>(t, s);
 │                     Identity : t = s，要求 tgtReg.valid(s)，否则跳过并 LOG_ERROR
 │
-├─ 搬运    对每个 T： auto& dst = tgtReg.storage<T>();      // 缺就建
-│             Any : for (E s : srcReg.storage<T>())
-│                       dst.emplace(Forward(s), [move|copy] src.get(s));
-│             All : for (E s : srcReg.view<Ts...>())
-│                       dst.emplace(Forward(s), [move|copy] src.get(s));
+├─ 搬运    对每个 T： 同一个遍历，同一个匹配判定
+│              dst.emplace(Forward(s), [move|copy] src.get(s));
 │
 ├─ 通知    OnExternalWrite<Ts...>(target, 新实体)  // 每个 T 一次批量事件，全部搬完之后才开始
 │          广播期间 target 必须是 current——handler 靠 WorldExecuteContext::Current() 找上下文
@@ -298,8 +295,9 @@ Merge<Match, Mapping, Ts...>(target, source)
 └─ 销毁    Move：source 随右值引用的所有权消失（元素已被掏空，正好）
 ```
 
-两种 Match 的差别只在**遍历什么**：`Any` 遍历 `T` 的 storage（里面每个实体都参与了本次合并），
-`All` 遍历那个 view（正好挡掉缺别的组件的实体）。建实体和搬运两步用同一个遍历，形状一致。
+两个相位遍历的东西完全一样：`T` 的源 storage，加一个 `MergeMatches` 判定（`Any` 恒真，`All` 是
+`HasAll<Ts...>`）。各 `T` storage 里满足 `HasAll` 的并集就是 `view<Ts...>`，所以和用 view 等价，但
+两个相位形状一致，`Ts` 也不用展开两遍。
 
 `Forward` **只对参与了本次合并的源实体有意义**——它对没参与的实体会退回恒等，而不是报空。上面两种
 遍历都保证了这一点，别在别处拿它去问任意实体。
@@ -397,15 +395,18 @@ template<MergeMatch Match, MergeMapping Mapping, typename... Ts, typename E>
 MergeResult<E> Merge(MergeContextT<E>& target, const StagingContext<E>& source);
 
 // 世界 → 暂存
-template<MergeMatch Match, typename... Ts, typename E>
-StagingContext<E> Extract(const MergeContextT<E>& source);
+template<MergeMatch Match, typename... Ts, typename Source>
+auto Extract(const Source& source) -> StagingContext<typename Source::Entity>;
 ```
 
 `Extract` 三个轴里只有 `Match`：映射恒等（暂存是空的，`create(hint)` 原样还原），源必然是拷贝
 （世界要保持完整）。`All` 的第一个真实用户大概率在这里——「把既有 `Transform` 又有 `Mesh` 的实体
 抽成一个 prefab」。
 
-`E` 从**源**推出来，目标那个 `MergeContextT<E>&` 是非推导语境但已经无所谓了。所以
+`Extract` 的源没有 `StagingContext<E>` 可推，所以它推导整个 `Source`，用 `static_assert` 限定成活
+上下文。（为此 `BasicContext<Entity>` 特化补了主模板一直有的 `using Entity`。）
+
+`Merge` 的 `E` 从**源**推出来，目标那个 `MergeContextT<E>&` 是非推导语境但已经无所谓了。所以
 `Merge<Any, Remap, Transform, Mesh>(world, eastl::move(staging))` 这样是能推的，
 两个上下文类也不必为此补统一的实体别名。
 
@@ -512,8 +513,9 @@ bool AlreadyCreated(const MergeContextT<E>& target, E s)
         && target.Get<MergedFrom<E>>(t).source == s;
 }
 
-// ③ 建实体
-E t = target.CreateEntity(s);
+// ③ 建实体。走实体 storage 而不是 CreateEntity(hint)，后者在 WorldContext 上会逐个发
+//    OnEntityCreate，而这一批要留到最后一次性宣布。entt 自己的 snapshot loader 也是这么建的。
+E t = target.GetStorage<E>().generate(s);
 if (t != s) { target.Add<MergedTo<E>>(target.EntityAt(s), MergedTo<E>{t}); }
 target.Add<MergedFrom<E>>(t, MergedFrom<E>{s});
 ```

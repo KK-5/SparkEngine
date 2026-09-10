@@ -515,3 +515,95 @@ TEST_F(MergeSceneTest, AddEntitiesStillBehaves)
         EXPECT_TRUE(world.Has<HierarchyRootTag>(entity));
     }
 }
+
+TEST(MergeTest, CopyLeavesTheSourceIntact)
+{
+    WorldContext world;
+    StagingContext<Entity> prefab;
+
+    Entity source = prefab.CreateEntity();
+    prefab.Add<MergeTestPosition>(source, MergeTestPosition{1.0f, 2.0f});
+
+    auto first = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, prefab);
+
+    ASSERT_EQ(first.created.size(), 1u);
+    ASSERT_TRUE(prefab.Has<MergeTestPosition>(source));
+    ASSERT_EQ(prefab.Get<MergeTestPosition>(source).x, 1.0f);
+
+    // A prefab source is instantiated more than once.
+    auto second = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, prefab);
+
+    ASSERT_EQ(second.created.size(), 1u);
+    ASSERT_NE(second.created[0], first.created[0]);
+    ASSERT_EQ(world.Get<MergeTestPosition>(first.created[0]).x, 1.0f);
+    ASSERT_EQ(world.Get<MergeTestPosition>(second.created[0]).x, 1.0f);
+}
+
+TEST(MergeTest, ExtractCopiesOutOfTheWorld)
+{
+    WorldContext world;
+
+    Entity a = world.CreateEntity();
+    Entity b = world.CreateEntity();
+    world.Add<MergeTestPosition>(a, MergeTestPosition{1.0f, 2.0f});
+    world.Add<MergeTestPosition>(b, MergeTestPosition{3.0f, 4.0f});
+
+    auto staging = Extract<MergeMatch::Any, MergeTestPosition>(world);
+
+    // The staging context was empty, so every identifier came across verbatim.
+    ASSERT_TRUE(staging.Valid(a));
+    ASSERT_TRUE(staging.Valid(b));
+    ASSERT_EQ(staging.Get<MergeTestPosition>(a).x, 1.0f);
+    ASSERT_EQ(staging.Get<MergeTestPosition>(b).x, 3.0f);
+
+    // And the world kept everything.
+    ASSERT_EQ(world.Get<MergeTestPosition>(a).x, 1.0f);
+    ASSERT_EQ(world.GetView<MergeTestPosition>().size(), 2u);
+}
+
+TEST(MergeTest, ExtractIgnoresTypesAbsentFromTheWorld)
+{
+    WorldContext world;
+
+    Entity entity = world.CreateEntity();
+    world.Add<MergeTestPosition>(entity, MergeTestPosition{1.0f, 2.0f});
+
+    auto staging = Extract<MergeMatch::Any, MergeTestPosition, MergeTestTag>(world);
+
+    ASSERT_TRUE(staging.Has<MergeTestPosition>(entity));
+    ASSERT_FALSE(staging.Has<MergeTestTag>(entity));
+}
+
+TEST(MergeTest, ExtractAllSkipsPartialEntities)
+{
+    WorldContext world;
+
+    Entity both = world.CreateEntity();
+    Entity partial = world.CreateEntity();
+    world.Add<MergeTestPosition>(both, MergeTestPosition{1.0f, 1.0f});
+    world.Add<MergeTestVelocity>(both, MergeTestVelocity{2.0f, 2.0f});
+    world.Add<MergeTestPosition>(partial, MergeTestPosition{9.0f, 9.0f});
+
+    auto staging = Extract<MergeMatch::All, MergeTestPosition, MergeTestVelocity>(world);
+
+    ASSERT_TRUE(staging.Valid(both));
+    ASSERT_FALSE(staging.Valid(partial));
+    ASSERT_EQ(staging.GetView<MergeTestPosition>().size(), 1u);
+}
+
+TEST(MergeTest, ExtractThenMergeRoundTrips)
+{
+    WorldContext world;
+
+    Entity original = world.CreateEntity();
+    world.Add<MergeTestPosition>(original, MergeTestPosition{5.0f, 6.0f});
+
+    // Copy to the clipboard, then paste: every identifier collides, so the paste lands elsewhere.
+    auto clipboard = Extract<MergeMatch::Any, MergeTestPosition>(world);
+    auto pasted = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(clipboard));
+
+    ASSERT_EQ(pasted.created.size(), 1u);
+    ASSERT_NE(pasted.created[0], original);
+    ASSERT_EQ(world.Get<MergeTestPosition>(pasted.created[0]).x, 5.0f);
+    ASSERT_EQ(world.Get<MergeTestPosition>(original).x, 5.0f);
+}

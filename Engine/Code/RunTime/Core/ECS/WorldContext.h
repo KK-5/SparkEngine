@@ -45,6 +45,8 @@ namespace Spark
     class BasicContext<Entity> final
     {
     public:
+        using Entity = Spark::Entity;
+
         BasicContext() = default;
         ~BasicContext() noexcept
         {
