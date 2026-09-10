@@ -53,6 +53,8 @@ namespace Spark
         size_t GetDepth(Entity entity) const override;
         eastl::vector<eastl::pair<Entity, unsigned int>> GetEntityTree() const override;
         void SetParent(Entity entity, Entity parent, Entity prevSibling = NullEntity) override;
+        void SetParent(ContextStorage<Entity>& storage, Entity entity, Entity parent,
+            Entity prevSibling = NullEntity) override;
         void PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func) override;
         ///////////////////////////////////////////
 
@@ -69,15 +71,16 @@ namespace Spark
         /// @brief Remove entity hierarchy from the hierarchies, the functon will not trigger any Hierarchy component update event
         ///        or update m_childrenMap and m_roots
         /// @param hierarchy The Hierarchy component of the entity, the param is not a entity, because the entity has been updated or destoryed 
-        void RemoveEntityInternal(const Hierarchy& hierarchy);
+        void RemoveEntityInternal(ContextStorage<Entity>& context, const Hierarchy& hierarchy);
 
         /// @brief Add entity hierarchy to the hierarchies, the functon will not trigger any Hierarchy component update event
         ///        or update m_childrenMap and m_roots
         /// @param entity 
-        void AddEntityInternal(Entity entity);
+        void AddEntityInternal(ContextStorage<Entity>& context, Entity entity);
 
-        bool Valid(const Hierarchy& hierarchy) const;
+        bool Valid(const ContextStorage<Entity>& context, const Hierarchy& hierarchy) const;
 
-        void ForEachChild(const Hierarchy& hierarchy, eastl::function<void(Entity)> func);
+        void ForEachChild(const ContextStorage<Entity>& context, const Hierarchy& hierarchy,
+            eastl::function<void(Entity)> func);
     };
 }

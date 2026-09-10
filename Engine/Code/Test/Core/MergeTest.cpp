@@ -5,6 +5,7 @@
 #include <ECS/Common.h>
 #include <ECS/Entity.h>
 #include <ECS/WorldContext.h>
+#include <ECS/ContextStorage.h>
 #include <ECS/StagingContext.h>
 #include <ECS/Merge/ContextMerge.h>
 #include <Service/Service.h>
@@ -606,4 +607,78 @@ TEST(MergeTest, ExtractThenMergeRoundTrips)
     ASSERT_NE(pasted.created[0], original);
     ASSERT_EQ(world.Get<MergeTestPosition>(pasted.created[0]).x, 5.0f);
     ASSERT_EQ(world.Get<MergeTestPosition>(original).x, 5.0f);
+}
+
+TEST_F(MergeSceneTest, SetParentBuildsATreeInStaging)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    StagingContext<Entity> staging;
+    Entity root = staging.CreateEntity();
+    Entity first = staging.CreateEntity();
+    Entity second = staging.CreateEntity();
+
+    // Nothing watches a staging context, so SetParent has to finish the job itself.
+    scene->SetParent(staging, first, root);
+    scene->SetParent(staging, second, root);
+
+    // Prepends, same as the world overload does when no prevSibling is given.
+    EXPECT_EQ(staging.Get<Hierarchy>(root).firstChild, second);
+    EXPECT_EQ(staging.Get<Hierarchy>(second).nextSibling, first);
+    EXPECT_EQ(staging.Get<Hierarchy>(first).prevSibling, second);
+    EXPECT_EQ(staging.Get<Hierarchy>(first).parent, root);
+
+    // A staging context carries no root tags; the world adds them on arrival.
+    EXPECT_FALSE(staging.Has<HierarchyRootTag>(root));
+
+    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+
+    ASSERT_EQ(result.created.size(), 3u);
+    EXPECT_EQ(world.Get<Hierarchy>(root).firstChild, second);
+    EXPECT_EQ(world.Get<Hierarchy>(second).nextSibling, first);
+    EXPECT_EQ(world.Get<Hierarchy>(first).parent, root);
+    EXPECT_TRUE(world.Has<HierarchyRootTag>(root));
+    EXPECT_FALSE(world.Has<HierarchyRootTag>(first));
+    EXPECT_EQ(scene->GetEntityCount(), 3u);
+}
+
+TEST_F(MergeSceneTest, SetParentOnStagingMovesAnExistingChild)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    StagingContext<Entity> staging;
+    Entity firstParent = staging.CreateEntity();
+    Entity secondParent = staging.CreateEntity();
+    Entity child = staging.CreateEntity();
+
+    scene->SetParent(staging, child, firstParent);
+    scene->SetParent(staging, child, secondParent);
+
+    EXPECT_EQ(staging.Get<Hierarchy>(child).parent, secondParent);
+    EXPECT_EQ(staging.Get<Hierarchy>(secondParent).firstChild, child);
+    EXPECT_EQ(staging.Get<Hierarchy>(firstParent).firstChild, NullEntity);
+}
+
+TEST_F(MergeSceneTest, SetParentOnStagingRejectsAForeignPrevSibling)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    StagingContext<Entity> staging;
+    Entity parentA = staging.CreateEntity();
+    Entity parentB = staging.CreateEntity();
+    Entity childOfB = staging.CreateEntity();
+    Entity newcomer = staging.CreateEntity();
+
+    scene->SetParent(staging, childOfB, parentB);
+
+    // childOfB belongs to parentB, so it cannot be a sibling under parentA.
+    scene->SetParent(staging, newcomer, parentA, childOfB);
+
+    EXPECT_FALSE(staging.Has<Hierarchy>(newcomer));
+    EXPECT_EQ(staging.Get<Hierarchy>(parentA).firstChild, NullEntity);
+    EXPECT_EQ(staging.Get<Hierarchy>(parentB).firstChild, childOfB);
+    EXPECT_EQ(staging.Get<Hierarchy>(childOfB).nextSibling, NullEntity);
 }

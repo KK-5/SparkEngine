@@ -7,6 +7,8 @@
 #include <EASTL/set.h>
 #include <EASTL/functional.h>
 
+#include <ECS/ContextStorage.h>
+
 namespace Spark
 {
 
@@ -52,6 +54,14 @@ namespace Spark
         /// @param parent The new parent
         /// @param prevSibling The previous sibling of this entity, if it not be assigned, the entity will be set to the first child of the parent
         virtual void SetParent(Entity entity, Entity parent, Entity prevSibling = NullEntity) = 0;
+
+        /// @brief SetParent on a given storage rather than the ambient world.
+        ///
+        /// Does the whole job -- unlinks the entity from wherever it was, then links it in -- because
+        /// a storage has no listeners to finish it, and for the same reason notifies nobody.
+        /// This is how a producer builds a consistent tree in a staging context.
+        virtual void SetParent(ContextStorage<Entity>& storage, Entity entity, Entity parent,
+            Entity prevSibling = NullEntity) = 0;
 
         virtual void PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func) = 0;
     };

@@ -295,6 +295,52 @@ namespace Spark
         }
     }
 
+    void SceneManager::SetParent(ContextStorage<Entity>& storage, Entity entity, Entity parent,
+        Entity prevSibling)
+    {
+        if (entity == NullEntity || parent == NullEntity)
+        {
+            LOG_ERROR("[SceneManager] SetParent: entity or parent is null");
+            return;
+        }
+
+        if (!storage.Has<Hierarchy>(parent))
+        {
+            storage.Add<Hierarchy>(parent);
+        }
+        if (prevSibling != NullEntity && !storage.Has<Hierarchy>(prevSibling))
+        {
+            storage.Add<Hierarchy>(prevSibling);
+        }
+
+        // No listener will finish the job on a storage, so both halves happen here: out of the old
+        // position first, then into the new one.
+        if (storage.Has<Hierarchy>(entity))
+        {
+            const Hierarchy old = storage.Get<Hierarchy>(entity);
+            RemoveEntityInternal(storage, old);
+        }
+
+        Hierarchy hierarchy;
+        hierarchy.parent = parent;
+        hierarchy.prevSibling = prevSibling;
+        hierarchy.nextSibling = prevSibling != NullEntity
+            ? storage.Get<Hierarchy>(prevSibling).nextSibling
+            : storage.Get<Hierarchy>(parent).firstChild;
+
+        // The world path pays for this check through the event it shares with hand-authored
+        // Hierarchy components. Here it is the only thing standing between a caller's bad argument
+        // -- a prevSibling that is not a child of parent -- and a corrupted list.
+        if (!Valid(storage, hierarchy))
+        {
+            LOG_ERROR("[SceneManager] SetParent: hierarchy is invalid, the entity was not attached");
+            return;
+        }
+
+        storage.AddOrReplace<Hierarchy>(entity, hierarchy);
+        AddEntityInternal(storage, entity);
+    }
+
     void SceneManager::PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func)
     {
         eastl::stack<Entity> traversalStack;
@@ -314,33 +360,32 @@ namespace Spark
         }
     }
 
-    bool SceneManager::Valid(const Hierarchy& hierarchy) const
+    bool SceneManager::Valid(const ContextStorage<Entity>& context, const Hierarchy& hierarchy) const
     {
-        if (hierarchy.parent != NullEntity && !Contain(hierarchy.parent))
+        if (hierarchy.parent != NullEntity && !context.Has<Hierarchy>(hierarchy.parent))
         {
             LOG_ERROR("[SceneManager] Valid: Entity has parent but the parent entity is not in scene.");
             return false;
         }
 
-        if (hierarchy.prevSibling != NullEntity && !Contain(hierarchy.prevSibling))
+        if (hierarchy.prevSibling != NullEntity && !context.Has<Hierarchy>(hierarchy.prevSibling))
         {
             LOG_ERROR("[SceneManager] Valid: Entity has prevSibling but the prevSibling entity is not in scene.");
             return false;
         }
 
-        if (hierarchy.nextSibling != NullEntity && !Contain(hierarchy.nextSibling))
+        if (hierarchy.nextSibling != NullEntity && !context.Has<Hierarchy>(hierarchy.nextSibling))
         {
             LOG_ERROR("[SceneManager] Valid: Entity has nextSibling but the nextSibling entity is not in scene.");
             return false;
         }
 
-        if (hierarchy.firstChild != NullEntity && !Contain(hierarchy.firstChild))
+        if (hierarchy.firstChild != NullEntity && !context.Has<Hierarchy>(hierarchy.firstChild))
         {
             LOG_ERROR("[SceneManager] Valid: Entity has firstChild but the firstChild entity is not in scene.");
             return false;
         }
 
-        auto& context = *WorldExecuteContext::Current();
         if (hierarchy.nextSibling != NullEntity || hierarchy.prevSibling != NullEntity)
         { 
             if (hierarchy.parent == NullEntity)
@@ -409,9 +454,9 @@ namespace Spark
         return true;
     }
 
-    void SceneManager::ForEachChild(const Hierarchy& hierarchy, eastl::function<void(Entity entity)> func)
+    void SceneManager::ForEachChild(const ContextStorage<Entity>& context, const Hierarchy& hierarchy,
+        eastl::function<void(Entity entity)> func)
     {
-        auto& context = *WorldExecuteContext::Current();
         Entity cur = hierarchy.firstChild;
         while(cur != NullEntity && context.Has<Hierarchy>(cur))
         {
@@ -420,14 +465,13 @@ namespace Spark
         }
     }
 
-    void SceneManager::RemoveEntityInternal(const Hierarchy& hierarchy)
+    void SceneManager::RemoveEntityInternal(ContextStorage<Entity>& context, const Hierarchy& hierarchy)
     {
         Entity parent = hierarchy.parent;
         Entity prevSibling = hierarchy.prevSibling;
         Entity nextSibling = hierarchy.nextSibling;
         Entity firstChild = hierarchy.firstChild;
 
-        auto& context = *WorldExecuteContext::Current();
         if (parent != NullEntity)
         {
             if (prevSibling == NullEntity)
@@ -442,7 +486,7 @@ namespace Spark
         Entity first = cur;
         Entity last = cur;
         bool isFirst = true;
-        ForEachChild(hierarchy, [&](Entity child){
+        ForEachChild(context, hierarchy, [&](Entity child){
             auto& curHier = context.Get<Hierarchy>(child);
             if (isFirst && parent != NullEntity)
             {
@@ -494,9 +538,8 @@ namespace Spark
         }
     }
 
-    void SceneManager::AddEntityInternal(Entity entity)
+    void SceneManager::AddEntityInternal(ContextStorage<Entity>& context, Entity entity)
     {
-        auto& context = *WorldExecuteContext::Current();
         const auto hier = context.Get<Hierarchy>(entity);
 
         Entity parent = hier.parent;
@@ -542,7 +585,7 @@ namespace Spark
         }
 
         bool isFirst = true;
-        ForEachChild(hier, [&](Entity child){
+        ForEachChild(context, hier, [&](Entity child){
             auto& curHier = context.Get<Hierarchy>(child);
             curHier.parent = entity;
             if (context.Has<HierarchyRootTag>(child))
@@ -569,7 +612,7 @@ namespace Spark
     {
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
-        if (!Valid(hier))
+        if (!Valid(context, hier))
         {
             LOG_ERROR("[SceneManager] OnComponentConstruct: Hierarchy is invalid, will remove the hierarchy");
             ComponentEventBus::Handler::BusDisconnect();
@@ -578,7 +621,7 @@ namespace Spark
             return;
         }
         
-        AddEntityInternal(entity);
+        AddEntityInternal(context, entity);
 
         if (hier.parent == NullEntity && !context.Has<HierarchyRootTag>(entity))
         {
@@ -599,7 +642,7 @@ namespace Spark
             const bool parentInBatch = hier.parent != NullEntity && context.Has<MergedFrom<Entity>>(hier.parent);
             if (!parentInBatch)
             {
-                if (!Valid(hier))
+                if (!Valid(context, hier))
                 {
                     LOG_ERROR("[SceneManager] OnComponentsConstruct: Hierarchy is invalid, will remove the hierarchy");
                     ComponentEventBus::Handler::BusDisconnect();
@@ -608,7 +651,7 @@ namespace Spark
                     continue;
                 }
 
-                AddEntityInternal(entity);
+                AddEntityInternal(context, entity);
             }
 
             if (hier.parent == NullEntity && !context.Has<HierarchyRootTag>(entity))
@@ -623,14 +666,14 @@ namespace Spark
         auto& context = *WorldExecuteContext::Current();
         const auto& oldHier = context.Get<Hierarchy>(entity);
 
-        RemoveEntityInternal(oldHier);
+        RemoveEntityInternal(context, oldHier);
     }
 
     void SceneManager::OnComponentUpdated(Entity entity)
     {
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
-        if (!Valid(hier))
+        if (!Valid(context, hier))
         {
             LOG_ERROR("[SceneManager] OnComponentUpdated: Hierarchy is invalid, will remove the hierarchy");
             ComponentEventBus::Handler::BusDisconnect();
@@ -639,7 +682,7 @@ namespace Spark
             return;
         }
 
-        AddEntityInternal(entity);
+        AddEntityInternal(context, entity);
         if (hier.parent == NullEntity && !context.Has<HierarchyRootTag>(entity))
         {
             context.Add<HierarchyRootTag>(entity);
@@ -650,7 +693,7 @@ namespace Spark
     {
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
-        RemoveEntityInternal(hier);
+        RemoveEntityInternal(context, hier);
         
         if (context.Has<HierarchyRootTag>(entity))
         {

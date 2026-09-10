@@ -266,6 +266,9 @@ EntityEventBus::Broadcast(OnEntitiesCreate, entities);
 `SceneManager` 的批量 handler **不是纯对账**：粘贴到某个已有父节点下时，批的根的 `parent` 指向
 批外的实体。职责精确地说是「**批内引用当作已成立的真相，批边界上的引用才做真正的链入**」。
 
+（`TODO_HierarchyFlush.md` 落地后这条耦合消失：幂等的 flush 对已经自洽的那批本来就是空操作，
+`Has<MergedFrom>` 不再需要。）
+
 `Identity` 模式下还要区分「原来没有 → Construct」和「原来有 → WillUpdate / Updated」，所以
 搬运时得记一份「哪些是新构造的」，并且 `WillUpdate` / `Updated` 也要有批量版。这不是新语义——
 `WorldContext::AddOrReplace` 现在就是这么干的，只是从单个实体变成一批。跟 `Identity` 一起做。
