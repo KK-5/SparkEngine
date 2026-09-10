@@ -171,3 +171,34 @@ TEST(DescriptorSerializeTests, UnknownAssetTypeYieldsNothing)
     JsonValue encoded;
     EXPECT_FALSE(DescriptorToJson(image, AssetType::Unknown, encoded));
 }
+
+//! An ImageUsage that is not reflected encodes as nothing, which drops `usage` from the
+//! descriptor JSON -- and that JSON is the cache identity, so the asset silently stops
+//! being cacheable.
+//!
+//! Walks the whole underlying range rather than a hand-kept list, which would need
+//! updating by the same person who just forgot to update Reflect.h. A value with no case
+//! in DescriptorForUsage falls through to the default and comes back tagged as something
+//! else, which is how an unused enumerator is told from a real usage.
+TEST(DescriptorSerializeTests, EveryImageUsageEncodes)
+{
+    int checked = 0;
+    for (int raw = 0; raw <= 255; ++raw)
+    {
+        const ImageUsage usage = static_cast<ImageUsage>(raw);
+
+        const Ptr<AssetDescriptor> descriptor = ImageAsset::DescriptorForUsage(usage);
+        ASSERT_TRUE(descriptor);
+        if (static_cast<const ImageAssetDescriptor&>(*descriptor).usage != usage)
+        {
+            continue;
+        }
+        ++checked;
+
+        JsonValue encoded;
+        EXPECT_TRUE(DescriptorToJson(*descriptor, AssetType::Image, encoded)) << "usage " << raw;
+        EXPECT_TRUE(encoded.contains("usage")) << "usage " << raw;
+    }
+
+    EXPECT_EQ(checked, 7);
+}

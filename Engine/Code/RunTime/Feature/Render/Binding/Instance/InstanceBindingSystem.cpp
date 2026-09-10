@@ -72,7 +72,7 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "[InstanceBindingSystem] AssetManager is unregistered.");
 
-        // InstanceBindings.hlsl is a pure StructuredBuffer header with no entry point;
+        // InstanceBindings.hlsli is a pure StructuredBuffer header with no entry point;
         // InstanceBindingsReflect.hlsl is a reflection host that #includes it and adds a
         // dummy vertex entry reading g_Instances, purely so we can reflect the space4
         // layout here (mirrors ViewBindingSystem / ViewBindingsReflect.hlsl).
@@ -92,7 +92,7 @@ namespace Spark::Render
         Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
-            LOG_ERROR("[InstanceBindingSystem] InstanceBindings.hlsl produced no shader inputs.");
+            LOG_ERROR("[InstanceBindingSystem] InstanceBindings.hlsli produced no shader inputs.");
             return;
         }
 

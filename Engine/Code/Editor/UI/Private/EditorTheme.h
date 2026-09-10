@@ -17,6 +17,8 @@
 namespace Editor::Theme
 {
     // Surfaces, darkest to lightest.
+    inline constexpr ImU32 kWelcomeBg    = IM_COL32(0x0D, 0x0E, 0x10, 0xFF);
+    inline constexpr ImU32 kWelcomePanel = IM_COL32(0x10, 0x12, 0x16, 0xFF);
     inline constexpr ImU32 kFooterBg  = IM_COL32(0x14, 0x16, 0x19, 0xFF);   // also the tab strip
     inline constexpr ImU32 kWindowBg  = IM_COL32(0x16, 0x18, 0x1C, 0xFF);
     inline constexpr ImU32 kBlockBg   = IM_COL32(0x19, 0x1D, 0x21, 0xFF);   // a raised block

@@ -52,6 +52,8 @@ namespace Spark::Resource
         Ptr<Asset> RequestAsset(const AssetId& id) override;
         Ptr<Asset> FindAsset(const AssetId& id) const override;
 
+        eastl::vector<AssetId> GetRegisteredAssetIds() const override;
+
         AssetType GetSupportAssetType(eastl::string_view file) override;
 
         AssetId MakeAssetId(eastl::string_view virtualPath) override;

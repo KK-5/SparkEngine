@@ -54,6 +54,11 @@ namespace Spark::Resource
         //! loaded or compiled on their own (ImageAssetBuilder rejects that).
         IrradianceCubemap,  //!< 32^2 single mip; diffuse term.
         PrefilteredCubemap, //!< 128^2, mip N == roughness N/(mips-1); specular term.
+
+        //! Drawn by the UI, whose target is R8G8B8A8_UNORM -- no linear->sRGB encode on the
+        //! way out, so an sRGB format would be decoded on sample and written out linear.
+        //! Belongs with the 2D usages; it is last only because the enum is append-only.
+        UI,
     };
 
     constexpr bool IsCubemapUsage(ImageUsage usage)

@@ -1,17 +1,17 @@
 // Reflection host for the SceneBindings group.
 //
-// SceneBindings.hlsl is a pure resource/cbuffer header with no entry point, so the asset
+// SceneBindings.hlsli is a pure resource/cbuffer header with no entry point, so the asset
 // builder cannot compile/reflect it alone. This file gives the group a dummy vertex entry
 // that references EVERY resource and constant in it, purely so SceneBindingSystem can
 // reflect the space0 layout. It is NEVER used to render.
 //
 // "Every" is load-bearing: DXC drops whatever the entry point does not touch, and a dropped
-// resource reflects as absent. Adding a resource to SceneBindings.hlsl without adding a use
+// resource reflects as absent. Adding a resource to SceneBindings.hlsli without adding a use
 // here is a silent no-op — no compile error anywhere.
 //
 // NOTE: the stage detector is a plain substring scan of the source, so this comment
 // deliberately avoids spelling out the other entry-point names.
-#include <Shaders/SceneBindings.hlsl>
+#include <Shaders/SceneBindings.hlsli>
 
 float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
 {

@@ -23,7 +23,7 @@ namespace Spark::Render
     //! space1 SRG entity. NullHandle if the SRG could not be created.
     //!
     //! A pass can only bind that SRG if its own shader declares the same space1 group, i.e.
-    //! it includes ViewBindings.hlsl — binding resolves the space against the CURRENT PSO's
+    //! it includes ViewBindings.hlsli — binding resolves the space against the CURRENT PSO's
     //! layout, and a mismatch asserts inside BindShaderInputsForDraw.
     template<typename ViewTag>
     RHI::RHIHandle CreateViewEntity(RHI::RHIContext& rhiCtx)

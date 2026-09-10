@@ -65,7 +65,7 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "[SceneBindingSystem] AssetManager is unregistered.");
 
-        // SceneBindingsReflect.hlsl is a reflection host (#includes SceneBindings.hlsl + a
+        // SceneBindingsReflect.hlsl is a reflection host (#includes SceneBindings.hlsli + a
         // dummy vertex entry reading g_Lights / g_LightCount) so we can reflect the space0
         // layout here — mirrors ViewBindingSystem / ViewBindingsReflect.hlsl.
         const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/SceneBindingsReflect.hlsl");
@@ -84,7 +84,7 @@ namespace Spark::Render
         Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
-            LOG_ERROR("[SceneBindingSystem] SceneBindings.hlsl produced no shader inputs.");
+            LOG_ERROR("[SceneBindingSystem] SceneBindings.hlsli produced no shader inputs.");
             return;
         }
 

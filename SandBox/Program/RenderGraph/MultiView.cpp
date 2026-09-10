@@ -246,7 +246,7 @@ namespace Spark::SandBox
 
         // Four independent view instances, all carrying MainViewTag — that tag is the whole
         // link to the pass, which collects by it. Usable because CubeTextured.hlsl includes
-        // ViewBindings.hlsl, so its space1 group matches the layout each view's SRG was built
+        // ViewBindings.hlsli, so its space1 group matches the layout each view's SRG was built
         // from; a shader declaring its own space1 could not take a view's SRG.
         for (uint32_t i = 0; i < kViewCount; ++i)
         {

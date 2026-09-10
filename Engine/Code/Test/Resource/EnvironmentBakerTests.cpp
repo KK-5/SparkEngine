@@ -7,7 +7,7 @@ using namespace Spark::Resource;
 
 // The prefiltered cube's roughness ladder is defined twice, in two languages:
 // EnvironmentBaker::LodToRoughness (bake) and RoughnessToLod in
-// Engine/Asset/Shaders/SceneBindings.hlsl (render). Nothing fails if they drift apart --
+// Engine/Asset/Shaders/SceneBindings.hlsli (render). Nothing fails if they drift apart --
 // reflections just come out uniformly too sharp or too blurred, which is not a symptom
 // that points anywhere. EnvironmentBaker::RoughnessToLod mirrors the HLSL one purely so
 // the inverse relationship can be pinned here.

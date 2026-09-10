@@ -93,7 +93,9 @@ namespace Spark::Resource
         if (descriptor.stages.empty())
         {
             LOG_ERROR("[ShaderAssetBuilder] No known shader entry point "
-                "(VSMain/PSMain/GSMain/CSMain) found in '{}'.", ctx.id.GetPath().c_str());
+                "(VSMain/PSMain/GSMain/CSMain) found in '{}'. A file meant to be #included "
+                "belongs in a .hlsli, which is not registered as an asset.",
+                ctx.id.GetPath().c_str());
             return;
         }
 

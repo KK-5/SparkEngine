@@ -1,4 +1,4 @@
-#include <Shaders/ViewBindings.hlsl>
+#include <Shaders/ViewBindings.hlsli>
 
 Texture2D    g_Texture : register(t0, space0);
 SamplerState g_Sampler : register(s0, space0);

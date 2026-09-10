@@ -1,5 +1,5 @@
-#include <Shaders/ViewBindings.hlsl>
-#include <Shaders/InstanceBindings.hlsl>
+#include <Shaders/ViewBindings.hlsli>
+#include <Shaders/InstanceBindings.hlsli>
 
 // Depth only, no color target. Shared by DepthPrePass and ShadowPass: the view is whatever
 // space1 holds, a camera's or a light's.

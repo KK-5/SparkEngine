@@ -8,6 +8,7 @@ option(AssetIdTypeTests "AssetId Type Tests" ON)
 option(DescriptorSerializeTests "Descriptor JSON Serialization Tests" ON)
 option(AssetIdSerializeTests "AssetId JSON Serialization Tests" ON)
 option(AssetCacheTests "Asset Cook Cache Tests" ON)
+option(AssetLoadBatchTests "Asset Load Batch Tests" ON)
 
 
 set(TEST_SOURCES "")
@@ -28,6 +29,7 @@ ADD_TEST_SOUECE(AssetIdTypeTests "AssetIdTypeTests.cpp")
 ADD_TEST_SOUECE(DescriptorSerializeTests "DescriptorSerializeTests.cpp")
 ADD_TEST_SOUECE(AssetIdSerializeTests "AssetIdSerializeTests.cpp")
 ADD_TEST_SOUECE(AssetCacheTests "CacheTests.cpp")
+ADD_TEST_SOUECE(AssetLoadBatchTests "AssetLoadBatchTests.cpp")
 
 
 set(TARGET_NAME SparkAssetTest)

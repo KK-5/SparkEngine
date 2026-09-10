@@ -235,7 +235,7 @@ namespace Spark::SandBox
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
 
         // The standard view path: the view entity owns a space1 SRG, and the executer binds
-        // it once per DrawList. Usable because CubeTextured.hlsl includes ViewBindings.hlsl,
+        // it once per DrawList. Usable because CubeTextured.hlsl includes ViewBindings.hlsli,
         // so its space1 group matches the layout the SRG was built from — a shader declaring
         // its own space1 could not take a view's SRG.
         m_view = Spark::Render::CreateViewEntity<Spark::Render::MainViewTag>(ctx);

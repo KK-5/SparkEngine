@@ -21,6 +21,7 @@
 #include "Private/ComponentView.h"
 #include "Private/MaterialWindow.h"
 #include "Private/SaveAssetDialog.h"
+#include "Private/WelcomeScreen.h"
 
 namespace Editor
 {
@@ -62,5 +63,8 @@ namespace Editor
 
         //! Drawn last: it is modal, so it belongs over whatever asked for it.
         eastl::unique_ptr<SaveAssetDialog> m_saveAssetDialog;
+
+        //! Drawn INSTEAD of everything above until dismissed; owns the startup preload.
+        eastl::unique_ptr<WelcomeScreen> m_welcomeScreen;
     };
 }

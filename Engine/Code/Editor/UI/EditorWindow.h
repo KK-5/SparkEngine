@@ -31,6 +31,7 @@ namespace Editor
 
         Spark::Math::Vector2Int GetWindowSize() override;
         Spark::Math::Vector2Int GetWindowPos() override;
+        void                    SetWindowSize(const Spark::Math::Vector2Int& size) override;
 
         void* GetNativeHandle() const override;
         void* GetWindowHandle() const override;

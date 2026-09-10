@@ -36,6 +36,9 @@ namespace Spark::Window
 
         virtual Math::Vector2Int GetWindowSize() = 0;
         virtual Math::Vector2Int GetWindowPos()  = 0;
+
+        //! Resize the client area, re-centre, and clamp to the monitor's work area.
+        virtual void SetWindowSize(const Math::Vector2Int& size) = 0;
         virtual void*                 GetNativeHandle() const = 0;
         virtual void*                 GetWindowHandle() const = 0;
 

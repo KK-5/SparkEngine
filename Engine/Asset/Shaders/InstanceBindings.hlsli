@@ -1,6 +1,6 @@
 // Per-instance shader inputs (the "InstanceBindings" group), reserved at register
 // space4. Shared engine header — any shader that needs per-instance data does:
-//     #include <Shaders/InstanceBindings.hlsl>
+//     #include <Shaders/InstanceBindings.hlsli>
 // and the engine fills g_Instances via InstanceBindingSystem (one element per
 // renderable entity, per frame).
 //

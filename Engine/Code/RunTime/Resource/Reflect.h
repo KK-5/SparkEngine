@@ -59,7 +59,8 @@ namespace Spark::Resource
             .Data<ImageUsage::NoColorTexture2D>("NoColorTexture2D")
             .Data<ImageUsage::NormalMap>("NormalMap")
             .Data<ImageUsage::IrradianceCubemap>("IrradianceCubemap")
-            .Data<ImageUsage::PrefilteredCubemap>("PrefilteredCubemap");
+            .Data<ImageUsage::PrefilteredCubemap>("PrefilteredCubemap")
+            .Data<ImageUsage::UI>("UI");
 
         context.Reflect<ModelAssetType>()
             .Type("ModelAssetType")

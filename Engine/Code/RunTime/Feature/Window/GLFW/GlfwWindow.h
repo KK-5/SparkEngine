@@ -29,6 +29,7 @@ namespace Spark::Window
 
         Math::Vector2Int GetWindowSize() override;
         Math::Vector2Int GetWindowPos() override;
+        void             SetWindowSize(const Math::Vector2Int& size) override;
 
         void* GetNativeHandle() const override;
         void* GetWindowHandle() const override;

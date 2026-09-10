@@ -79,7 +79,7 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "[MaterialBindingSystem] AssetManager is unregistered.");
 
-        // MaterialBindingsReflect.hlsl is a reflection host (#includes MaterialBindings.hlsl
+        // MaterialBindingsReflect.hlsl is a reflection host (#includes MaterialBindings.hlsli
         // + a dummy vertex entry reading g_Materials) so we can reflect the space3 layout
         // here — mirrors InstanceBindingSystem / InstanceBindingsReflect.hlsl.
         const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/MaterialBindingsReflect.hlsl");
@@ -98,7 +98,7 @@ namespace Spark::Render
         Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
-            LOG_ERROR("[MaterialBindingSystem] MaterialBindings.hlsl produced no shader inputs.");
+            LOG_ERROR("[MaterialBindingSystem] MaterialBindings.hlsli produced no shader inputs.");
             return;
         }
 

@@ -119,6 +119,20 @@ namespace Spark::Resource
             }();
             return instance;
         }
+        case ImageUsage::UI:
+        {
+            // Uncompressed too: there are a handful of these and BC3 blocking shows on a
+            // photograph behind text.
+            static Ptr<AssetDescriptor> instance = []
+            {
+                auto* desc = new ImageAssetDescriptor{};
+                desc->usage       = ImageUsage::UI;
+                desc->colorSpace  = ImageColorSpace::Linear;
+                desc->compression = TextureCompression::None;
+                return Ptr<AssetDescriptor>(desc);
+            }();
+            return instance;
+        }
         case ImageUsage::EnvironmentCubemap:
         {
             static Ptr<AssetDescriptor> instance = []

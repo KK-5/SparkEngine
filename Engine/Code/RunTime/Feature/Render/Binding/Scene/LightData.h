@@ -7,7 +7,7 @@
 namespace Spark::Render
 {
     //! Per-light GPU record, one element of the global g_Lights StructuredBuffer (space0).
-    //! HLSL mirror lives in SceneBindings.hlsl — the two MUST stay byte-for-byte identical
+    //! HLSL mirror lives in SceneBindings.hlsli — the two MUST stay byte-for-byte identical
     //! (the static_assert below is the only automatic guard).
     //!
     //! Assembled each frame by SceneBindingSystem from Light::LightRenderData — a pure
@@ -33,7 +33,7 @@ namespace Spark::Render
     };
 
     // 64B. StructuredBuffer elements are tightly C-packed, so sizeof must match the HLSL
-    // struct in SceneBindings.hlsl; add padding deliberately when introducing new fields.
+    // struct in SceneBindings.hlsli; add padding deliberately when introducing new fields.
     static_assert(sizeof(LightData) == 64,
-        "LightData must stay 64 bytes to match SceneBindings.hlsl.");
+        "LightData must stay 64 bytes to match SceneBindings.hlsli.");
 }
