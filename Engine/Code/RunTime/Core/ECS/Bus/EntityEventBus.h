@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/optional.h>
+#include <EASTL/span.h>
 
 #include <EBus/EBus.h>
 
@@ -18,6 +19,16 @@ namespace Spark
 
     public:
         virtual void OnEntityCreate(Entity entity) = 0;
+
+        /// Dispatched when a batch of entities appears at once.
+        /// The span is only valid for the duration of the call, so this event cannot be queued.
+        virtual void OnEntitiesCreate(eastl::span<const Entity> entities)
+        {
+            for (Entity entity : entities)
+            {
+                OnEntityCreate(entity);
+            }
+        }
 
         virtual void OnEntityDestory(Entity entity) = 0;
     };

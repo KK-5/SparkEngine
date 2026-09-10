@@ -5,6 +5,8 @@
 #include <EASTL/unordered_set.h>
 #include <EASTL/unique_ptr.h>
 #include <EASTL/algorithm.h>
+#include <EASTL/span.h>
+#include <EASTL/vector.h>
 
 #include <entt/entt.hpp>
 
@@ -180,10 +182,10 @@ namespace Spark
         void Add(It first, It last, const T& value)
         {
             m_registry.insert(first, last, value);
-            eastl::for_each(first, last, [&](auto entity)
-            {
-                ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentConstruct, entity);
-            });
+
+            eastl::vector<Entity> entities(first, last);
+            ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentsConstruct,
+                eastl::span<const Entity>(entities.data(), entities.size()));
         }
         //////////////////////////////////////////
 

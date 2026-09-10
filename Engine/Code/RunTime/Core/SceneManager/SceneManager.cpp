@@ -8,6 +8,7 @@
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 #include <ECS/Common.h>
+#include <ECS/Merge/MergeComponents.h>
 #include <Reflection/RTTI.h>
 
 namespace Spark
@@ -582,6 +583,38 @@ namespace Spark
         if (hier.parent == NullEntity && !context.Has<HierarchyRootTag>(entity))
         {
             context.Add<HierarchyRootTag>(entity);
+        }
+    }
+
+    void SceneManager::OnComponentsConstruct(eastl::span<const Entity> entities)
+    {
+        auto& context = *WorldExecuteContext::Current();
+
+        for (Entity entity : entities)
+        {
+            const auto& hier = context.Get<Hierarchy>(entity);
+
+            // References inside the batch already form a consistent tree; only edges that leave it
+            // need linking in. An entity carrying MergedFrom is one of the arrivals.
+            const bool parentInBatch = hier.parent != NullEntity && context.Has<MergedFrom<Entity>>(hier.parent);
+            if (!parentInBatch)
+            {
+                if (!Valid(hier))
+                {
+                    LOG_ERROR("[SceneManager] OnComponentsConstruct: Hierarchy is invalid, will remove the hierarchy");
+                    ComponentEventBus::Handler::BusDisconnect();
+                    context.Remove<Hierarchy>(entity);
+                    ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
+                    continue;
+                }
+
+                AddEntityInternal(entity);
+            }
+
+            if (hier.parent == NullEntity && !context.Has<HierarchyRootTag>(entity))
+            {
+                context.Add<HierarchyRootTag>(entity);
+            }
         }
     }
 

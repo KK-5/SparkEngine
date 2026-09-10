@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/functional.h>
+#include <EASTL/span.h>
 #include <EASTL/unordered_set.h>
 #include <EASTL/set.h>
 #include <EASTL/queue.h>
@@ -58,6 +59,7 @@ namespace Spark
         ///////////////////////////////////////////
         // ComponentEventBus
         void OnComponentConstruct(Entity entity) override;
+        void OnComponentsConstruct(eastl::span<const Entity> entities) override;
         void OnComponentWillUpdate(Entity entity) override;
         void OnComponentUpdated(Entity entity) override;
         void OnComponentDestory(Entity entity) override;

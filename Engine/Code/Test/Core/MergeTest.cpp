@@ -2,10 +2,17 @@
 
 #include <entt/entt.hpp>
 
+#include <ECS/Common.h>
 #include <ECS/Entity.h>
 #include <ECS/WorldContext.h>
 #include <ECS/StagingContext.h>
 #include <ECS/Merge/ContextMerge.h>
+#include <Service/Service.h>
+#include <SceneManager/Component/HierarchyComponent.h>
+#include <SceneManager/IScene.h>
+#include <SceneManager/SceneManager.h>
+
+#include <EASTL/array.h>
 
 using namespace Spark;
 
@@ -15,6 +22,16 @@ namespace
     {
         float x;
         float y;
+    };
+
+    struct MergeTestVelocity
+    {
+        float dx;
+        float dy;
+    };
+
+    struct MergeTestTag
+    {
     };
 
     /// Destroy and recreate the same slot until its version has moved on.
@@ -28,6 +45,13 @@ namespace
         }
         return current;
     }
+}
+
+namespace Spark
+{
+    SPARK_COMPONENT_TRAITS(MergeTestVelocity,
+        static constexpr ComponentEventMask componentEvents = ComponentEventMask::Create;
+    )
 }
 
 TEST(MergeTest, EntityAtEmptySlot)
@@ -155,19 +179,6 @@ TEST(MergeTest, StagingContextIsMovable)
 
     ASSERT_TRUE(moved.Valid(entity));
     ASSERT_EQ(moved.Get<MergeTestPosition>(entity).y, 4.0f);
-}
-
-namespace
-{
-    struct MergeTestVelocity
-    {
-        float dx;
-        float dy;
-    };
-
-    struct MergeTestTag
-    {
-    };
 }
 
 TEST(MergeTest, MergeIntoEmptyTargetKeepsIdentifiers)
@@ -311,4 +322,196 @@ TEST(MergeTest, MergeClearsItsBookkeeping)
 
     ASSERT_EQ(world.GetView<MergedFrom<Entity>>().size(), 0u);
     ASSERT_EQ(world.GetView<MergedTo<Entity>>().size(), 0u);
+}
+
+namespace
+{
+    /// Counts what reaches a handler, and whether the whole batch was already in place when it did.
+    class MergeProbe : public ComponentEventBus::Handler
+    {
+    public:
+        explicit MergeProbe(TypeId typeId)
+        {
+            ComponentEventBus::Handler::BusConnect(typeId);
+        }
+
+        ~MergeProbe() override
+        {
+            ComponentEventBus::Handler::BusDisconnect();
+        }
+
+        void OnComponentConstruct(Entity) override
+        {
+            ++singleCalls;
+        }
+
+        void OnComponentsConstruct(eastl::span<const Entity> entities) override
+        {
+            ++batchCalls;
+            for (Entity entity : entities)
+            {
+                seen.push_back(entity);
+            }
+        }
+
+        uint32_t singleCalls = 0;
+        uint32_t batchCalls = 0;
+        eastl::vector<Entity> seen;
+    };
+}
+
+TEST(MergeTest, MergeAnnouncesOneBatchPerType)
+{
+    WorldContext world;
+    WorldExecuteContext::Push(world);
+    MergeProbe probe(GetTypeId<MergeTestVelocity>());
+
+    StagingContext<Entity> staging;
+    Entity withBoth = staging.CreateEntity();
+    Entity positionOnly = staging.CreateEntity();
+    staging.Add<MergeTestPosition>(withBoth, MergeTestPosition{1.0f, 1.0f});
+    staging.Add<MergeTestVelocity>(withBoth, MergeTestVelocity{2.0f, 2.0f});
+    staging.Add<MergeTestPosition>(positionOnly, MergeTestPosition{3.0f, 3.0f});
+
+    Merge<MergeMatch::Any, MergeMapping::Remap,
+          MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging));
+
+    // One event for the type, carrying only the entity that actually has it.
+    EXPECT_EQ(probe.batchCalls, 1u);
+    EXPECT_EQ(probe.singleCalls, 0u);
+    ASSERT_EQ(probe.seen.size(), 1u);
+    EXPECT_EQ(probe.seen[0], withBoth);
+
+    WorldExecuteContext::Pop();
+}
+
+TEST(MergeTest, MergeAnnouncesAfterEverythingMoved)
+{
+    WorldContext world;
+    WorldExecuteContext::Push(world);
+
+    class Probe : public ComponentEventBus::Handler
+    {
+    public:
+        Probe()
+        {
+            ComponentEventBus::Handler::BusConnect(GetTypeId<MergeTestVelocity>());
+        }
+
+        ~Probe() override
+        {
+            ComponentEventBus::Handler::BusDisconnect();
+        }
+
+        void OnComponentsConstruct(eastl::span<const Entity> entities) override
+        {
+            auto& context = *WorldExecuteContext::Current();
+            for (Entity entity : entities)
+            {
+                // The other type has to be there already, and so has the mapping.
+                allPresent = allPresent && context.Has<MergeTestPosition>(entity);
+                mappingVisible = mappingVisible && context.Has<MergedFrom<Entity>>(entity);
+            }
+        }
+
+        bool allPresent = true;
+        bool mappingVisible = true;
+    } probe;
+
+    StagingContext<Entity> staging;
+    Entity entity = staging.CreateEntity();
+    staging.Add<MergeTestPosition>(entity, MergeTestPosition{1.0f, 1.0f});
+    staging.Add<MergeTestVelocity>(entity, MergeTestVelocity{2.0f, 2.0f});
+
+    Merge<MergeMatch::Any, MergeMapping::Remap,
+          MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging));
+
+    EXPECT_TRUE(probe.allPresent);
+    EXPECT_TRUE(probe.mappingVisible);
+
+    WorldExecuteContext::Pop();
+}
+
+class MergeSceneTest : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        WorldExecuteContext::Push(world);
+        sceneManager = CreateSystem<SceneManager>();
+        sceneManager->Init();
+    }
+
+    void TearDown() override
+    {
+        sceneManager.reset();
+        WorldExecuteContext::Pop();
+        world.Clear();
+    }
+
+    SystemUniquePtr<SceneManager> sceneManager;
+    WorldContext world;
+};
+
+TEST_F(MergeSceneTest, MergePreservesAnAlreadyLinkedTree)
+{
+    StagingContext<Entity> staging;
+
+    // Authored the way a scene file would be: the links are already consistent.
+    Entity parent = staging.CreateEntity();
+    Entity child = staging.CreateEntity();
+    staging.Add<Hierarchy>(parent, Hierarchy{NullEntity, child, NullEntity, NullEntity});
+    staging.Add<Hierarchy>(child, Hierarchy{parent, NullEntity, NullEntity, NullEntity});
+
+    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+
+    // Dispatching one Construct per entity would have failed validation on the child and dropped
+    // its Hierarchy.
+    ASSERT_EQ(result.created.size(), 2u);
+    ASSERT_TRUE(world.Has<Hierarchy>(parent));
+    ASSERT_TRUE(world.Has<Hierarchy>(child));
+    EXPECT_EQ(world.Get<Hierarchy>(parent).firstChild, child);
+    EXPECT_EQ(world.Get<Hierarchy>(child).parent, parent);
+
+    // The root of the batch is the only root, and it is tagged.
+    EXPECT_TRUE(world.Has<HierarchyRootTag>(parent));
+    EXPECT_FALSE(world.Has<HierarchyRootTag>(child));
+}
+
+TEST_F(MergeSceneTest, MergeLinksTheBatchRootUnderAnExistingParent)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    Entity host = world.CreateEntity();
+    scene->AddEntity(host);
+
+    StagingContext<Entity> staging;
+    Entity incoming = staging.CreateEntity();
+    // Points at an entity outside the batch: a boundary edge that must be linked in for real.
+    staging.Add<Hierarchy>(incoming, Hierarchy{host, NullEntity, NullEntity, NullEntity});
+
+    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+
+    ASSERT_EQ(result.created.size(), 1u);
+    const Entity merged = result.created[0];
+    EXPECT_EQ(world.Get<Hierarchy>(host).firstChild, merged);
+    EXPECT_EQ(world.Get<Hierarchy>(merged).parent, host);
+    EXPECT_FALSE(world.Has<HierarchyRootTag>(merged));
+}
+
+TEST_F(MergeSceneTest, AddEntitiesStillBehaves)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    eastl::array<Entity, 3> entities;
+    world.CreateEntity(entities.begin(), entities.end());
+    scene->AddEntities(eastl::span<Entity>(entities.data(), entities.size()));
+
+    EXPECT_EQ(scene->GetEntityCount(), 3u);
+    for (Entity entity : entities)
+    {
+        EXPECT_TRUE(world.Has<HierarchyRootTag>(entity));
+    }
 }

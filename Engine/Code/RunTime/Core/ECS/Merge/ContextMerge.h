@@ -12,6 +12,7 @@
 #include "../BasicContext.h"
 #include "../ExecuteContext.h"
 #include "../StagingContext.h"
+#include "../WorldContext.h"
 #include "MergeComponents.h"
 
 namespace Spark
@@ -175,6 +176,51 @@ namespace Spark
         template<typename... Ts, typename E>
         void OnExternalWrite(BasicContext<E>&, eastl::span<const E>)
         {
+        }
+
+        /// One event per component type, carrying only the entities that actually carry it.
+        template<typename T>
+        void DispatchBatchConstruct(WorldContext& target, eastl::span<const Entity> entities,
+            eastl::vector<Entity>& scratch)
+        {
+            if constexpr ((ComponentTraits<T>::componentEvents & ComponentEventMask::Create) != ComponentEventMask::None)
+            {
+                const auto& pool = target.template GetStorage<T>();
+
+                scratch.clear();
+                for (Entity entity : entities)
+                {
+                    if (pool.contains(entity))
+                    {
+                        scratch.push_back(entity);
+                    }
+                }
+
+                if (!scratch.empty())
+                {
+                    ComponentEventBus::Event(GetTypeId<T>(), &ComponentEventBus::Events::OnComponentsConstruct,
+                        eastl::span<const Entity>(scratch.data(), scratch.size()));
+                }
+            }
+        }
+
+        /// Handlers reach their context through WorldExecuteContext::Current(), so the target has to
+        /// be the current one while they run.
+        template<typename... Ts>
+        void OnExternalWrite(WorldContext& target, eastl::span<const Entity> entities)
+        {
+            if (entities.empty())
+            {
+                return;
+            }
+
+            ExecuteContextGuard<Entity> guard(target);
+
+            EntityEventBus::Broadcast(&EntityEventBus::Events::OnEntitiesCreate, entities);
+
+            eastl::vector<Entity> scratch;
+            scratch.reserve(entities.size());
+            (DispatchBatchConstruct<Ts>(target, entities, scratch), ...);
         }
 
         template<MergeMatch Match, MergeMapping Mapping, bool Move, typename... Ts, typename Target, typename Source>
