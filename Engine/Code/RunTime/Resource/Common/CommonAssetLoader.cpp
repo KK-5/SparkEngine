@@ -17,12 +17,21 @@ namespace Spark::Resource
 
     // ---- BinaryAssetLoader ----
 
-    eastl::unique_ptr<AssetData> BinaryAssetLoader::LoadPhysicalFile(eastl::string resolvedPath) const
+    eastl::unique_ptr<AssetData> BinaryAssetLoader::LoadPhysicalFile(eastl::string resolvedPath,
+                                                                     LoadFailure* failure) const
     {
         std::ifstream file(resolvedPath.c_str(), std::ios::binary | std::ios::ate);
         if (!file.is_open())
         {
-            LOG_ERROR("Failed to open asset file: {}", resolvedPath.c_str());
+            if (failure)
+            {
+                // Absent or held apart is the caller's to tell: only it has the file system.
+                *failure = LoadFailure::Missing;
+            }
+            else
+            {
+                LOG_ERROR("Failed to open asset file: {}", resolvedPath.c_str());
+            }
             return nullptr;
         }
 
@@ -36,13 +45,21 @@ namespace Spark::Resource
     }
 
     eastl::unique_ptr<AssetData> BinaryAssetLoader::Load(const AssetId& id,
-                                                        const FileSystem& fileSystem)
+                                                        const FileSystem& fileSystem,
+                                                        LoadFailure& failure)
     {
         eastl::string path = fileSystem.ToPhysical(id.GetPath());
         if (path.empty())
         {
+            failure = LoadFailure::Missing;
             return nullptr;
         }
-        return LoadPhysicalFile(eastl::move(path));
+
+        eastl::unique_ptr<AssetData> data = LoadPhysicalFile(eastl::move(path), &failure);
+        if (!data && fileSystem.Exists(id.GetPath()))
+        {
+            failure = LoadFailure::Unavailable;
+        }
+        return data;
     }
 }

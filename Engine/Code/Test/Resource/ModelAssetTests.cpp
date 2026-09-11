@@ -55,7 +55,9 @@ TEST(ModelAssetLoaderTest, LoadMissingFileReturnsNull)
     ModelAssetLoader loader;
 
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/non_existent.glb");
-    EXPECT_EQ(loader.Load(id, fileSystem), nullptr);
+    LoadFailure failure = LoadFailure::Invalid;
+    EXPECT_EQ(loader.Load(id, fileSystem, failure), nullptr);
+    EXPECT_EQ(failure, LoadFailure::Missing);
 }
 
 TEST(ModelAssetLoaderTest, LoadCubeGLB)
@@ -66,7 +68,8 @@ TEST(ModelAssetLoaderTest, LoadCubeGLB)
     ModelAssetLoader loader;
 
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
-    auto data = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.Load(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* modelData = static_cast<ModelAssetRawData*>(data.get());
@@ -131,7 +134,8 @@ TEST(ModelAssetLoaderTest, LoadCubeGLBHasNodes)
     ModelAssetLoader loader;
 
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
-    auto data = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.Load(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* modelData = static_cast<ModelAssetRawData*>(data.get());
@@ -157,7 +161,8 @@ TEST(ModelAssetCompilerTest, CompileCube)
     ModelAssetLoader loader;
 
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
-    auto rawData = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto rawData = loader.Load(id, fileSystem, failure);
     ASSERT_NE(rawData, nullptr);
 
     auto* rawModel = static_cast<ModelAssetRawData*>(rawData.get());
@@ -260,7 +265,8 @@ TEST(ModelAssetLoaderTest, LoadCubeTexturedGLB_HasEmbeddedImage)
     ModelAssetLoader loader;
 
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
-    auto data = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.Load(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* model = static_cast<ModelAssetRawData*>(data.get());
@@ -283,7 +289,8 @@ TEST(ModelAssetLoaderTest, LoadCubeTexturedGLTF_HasExternalImage)
     ModelAssetLoader loader;
 
     AssetId id = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.gltf");
-    auto data = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.Load(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* model = static_cast<ModelAssetRawData*>(data.get());

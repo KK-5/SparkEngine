@@ -10,12 +10,14 @@
 namespace Spark::Resource
 {
     UniquePtr<AssetData> MaterialAssetLoader::Load(const AssetId& id,
-                                                  const FileSystem& fileSystem) const
+                                                  const FileSystem& fileSystem,
+                                                  LoadFailure& failure) const
     {
         eastl::vector<uint8_t> bytes;
         if (!fileSystem.ReadFile(id.GetPath(), bytes))
         {
-            LOG_ERROR("[MaterialAssetLoader] Failed to read '{}'.", id.GetPath().c_str());
+            failure = fileSystem.Exists(id.GetPath()) ? LoadFailure::Unavailable
+                                                      : LoadFailure::Missing;
             return nullptr;
         }
 

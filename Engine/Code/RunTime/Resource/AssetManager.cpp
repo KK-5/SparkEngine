@@ -367,6 +367,20 @@ namespace Spark::Resource
         AssetBuildBus::Event(type, &AssetBuildEvents::Load, ctx);
         if (!ctx.rawData)
         {
+            // Unavailable is not a verdict on the file, so neither the status nor the bus
+            // records one: back to NotLoaded, which is what the writer's next change event
+            // picks up. A file announced while it is still being copied lands here.
+            if (ctx.failure == LoadFailure::Unavailable)
+            {
+                asset.SetStatus(AssetStatus::NotLoaded);
+                return;
+            }
+
+            if (ctx.failure == LoadFailure::Missing)
+            {
+                LOG_ERROR("[SparkAssetManager] No file at '{}'.",
+                    asset.GetAssetId().GetPath());
+            }
             asset.SetStatus(AssetStatus::Error);
             AssetBus::Event(type, &AssetBus::Events::OnAssetError, asset);
             return;
@@ -725,11 +739,52 @@ namespace Spark::Resource
 
     void SparkAssetManager::OnFileAdded(eastl::string virtualPath)
     {
+        // Registered AND requested: a registered asset is loaded or on its way, which is
+        // what lets a drop target read one instead of waiting for it. The startup walk
+        // deliberately does not request -- there the caller decides when loading begins.
         RegisterFile(virtualPath);
+        OnFileModified(eastl::move(virtualPath));
+    }
+
+    void SparkAssetManager::OnFileModified(eastl::string virtualPath)
+    {
+        // A backstop under FileSystemMonitor's debounce, which cannot promise a file is
+        // readable: the writer may hold the handle past its last write. So an asset that
+        // has not built yet is (re)started from here. One that DID build is left alone --
+        // reloading it needs dependency edges that do not exist yet.
+        const AssetType type = GetSupportAssetType(virtualPath);
+        if (type == AssetType::Unknown)
+        {
+            return;
+        }
+
+        // Still empty means still arriving. Spares the build queue a pass that would end in
+        // Unavailable anyway; it is not what makes that case safe.
+        if (!m_fileSystem || m_fileSystem->GetFileStamp(virtualPath).m_size == 0)
+        {
+            return;
+        }
+
+        const AssetId id = MakeAssetIdForType(virtualPath, type);
+        Ptr<Asset> asset = id.IsValid() ? m_db->Find(id) : nullptr;
+        if (asset && (asset->GetStatus() == AssetStatus::NotLoaded || asset->IsError()))
+        {
+            RequestAsset(id);
+        }
     }
 
     void SparkAssetManager::OnFileWatchOverflow()
     {
         AssetRegistry();
+
+        // Events were lost, so the walk above is the only news of those files. Catching up
+        // is per asset rather than per path: which of them are new is exactly what was lost.
+        for (const Ptr<Asset>& asset : m_db->Snapshot())
+        {
+            if (asset->GetStatus() == AssetStatus::NotLoaded && !asset->GetAssetId().IsSubAsset())
+            {
+                RequestAsset(asset->GetAssetId());
+            }
+        }
     }
 }

@@ -107,7 +107,7 @@ namespace Spark::Resource
     void ModelAssetBuilder::Load(AssetBuildContext& ctx)
     {
         ASSERT(ctx.id.GetAssetType() == AssetType::Model, "[ModelAssetBuilder] asset type mismatch");
-        ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem);
+        ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem, ctx.failure);
     }
 
     void ModelAssetBuilder::Compile(AssetBuildContext& ctx)

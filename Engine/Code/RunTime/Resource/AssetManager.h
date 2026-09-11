@@ -64,9 +64,11 @@ namespace Spark::Resource
 
         void ReleaseAsset(const AssetId& id, const Asset* self) override;
 
-        // Modified and Removed are deliberately not handled: reloading a changed asset
-        // needs dependency edges that do not exist yet, and the database never evicts.
+        // Removed is deliberately not handled: the database never evicts. Modified does not
+        // reload an asset that built either -- that needs dependency edges which do not
+        // exist yet -- it only retries one that failed, see the definition.
         void OnFileAdded(eastl::string virtualPath) override;
+        void OnFileModified(eastl::string virtualPath) override;
         void OnFileWatchOverflow() override;
 
         //! Opt-in, main-thread setup of the image compiler's GPU EnvironmentBaker.

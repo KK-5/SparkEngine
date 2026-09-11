@@ -20,13 +20,9 @@ namespace Editor
 
         AssetEditBus::Handler::BusConnect();
 
-        // MultiHandler: observe Ready/Error for every asset type a component field
-        // might accept. Model is needed for drag-to-scene; Image for skybox / textures;
-        // Material for the material slot.
-        //
-        // This subscription exists only to wait, so it goes away together with the pending
-        // tracks below once asset preloading guarantees a dropped asset is already Ready.
-        Resource::AssetBus::MultiHandler::BusConnect(Resource::AssetType::Model);
+        // Only the two types a component field can still be waiting on. A texture slot
+        // re-tags the id it was handed with its own usage, so that identity was never
+        // preloaded -- see OnAssetDragToComponent.
         Resource::AssetBus::MultiHandler::BusConnect(Resource::AssetType::Image);
         Resource::AssetBus::MultiHandler::BusConnect(Resource::AssetType::Material);
     }
@@ -48,45 +44,17 @@ namespace Editor
             return;
         }
 
-        if (asset.IsReady())
+        // A model in the browser was registered, and a registered asset is preloaded or
+        // requested the moment it appears -- so there is nothing to wait for here.
+        if (!asset.IsReady())
         {
-            LOG_INFO("[AssetHandler] Model asset '{}' is ready, extracting to world.", asset.GetName().GetCStr());
-            Ptr<Resource::ModelAsset> model(const_cast<Resource::ModelAsset*>(&asset));
-            Spawn::SpawnModel(model, *worldCtx);
+            LOG_ERROR("[AssetHandler] Model asset '{}' is not ready; nothing spawned.",
+                      asset.GetAssetId().GetPath().c_str());
             return;
         }
 
-        const Resource::AssetId& assetId = asset.GetAssetId();
-        if (eastl::find(m_loadingAssets.begin(), m_loadingAssets.end(), assetId) != m_loadingAssets.end())
-        {
-            LOG_INFO("[AssetHandler] Model asset '{}' is already queued for loading.", asset.GetName().GetCStr());
-            return;
-        }
-
-        if (asset.IsLoading())
-        {
-            LOG_INFO("[AssetHandler] Model asset '{}' is loading, tracking for completion.", asset.GetName().GetCStr());
-            m_loadingAssets.push_back(assetId);
-            return;
-        }
-
-        auto* am = Service<Resource::AssetManager>::Get();
-        if (!am)
-        {
-            LOG_ERROR("[AssetHandler] AssetManager service is unavailable.");
-            return;
-        }
-
-        LOG_INFO("[AssetHandler] Requesting async load for model asset '{}'.", asset.GetName().GetCStr());
-        Ptr<Resource::Asset> requested = am->RequestAsset(assetId);
-        if (requested)
-        {
-            m_loadingAssets.push_back(assetId);
-        }
-        else
-        {
-            LOG_ERROR("[AssetHandler] Failed to request model asset '{}'.", asset.GetName().GetCStr());
-        }
+        Ptr<Resource::ModelAsset> model(const_cast<Resource::ModelAsset*>(&asset));
+        Spawn::SpawnModel(model, *worldCtx);
     }
 
     void AssetHandler::OnAssetDragToComponent(
@@ -155,46 +123,12 @@ namespace Editor
 
     void AssetHandler::OnAssetReady(Spark::Resource::Asset& asset)
     {
-        // Fan out to every track; each ignores assets it isn't waiting on.
-        ResolvePendingScene(asset);
         ResolvePendingBinds(asset.GetAssetId());
     }
 
     void AssetHandler::OnAssetError(Spark::Resource::Asset& asset)
     {
-        const Spark::Resource::AssetId& assetId = asset.GetAssetId();
-        DropPendingScene(assetId);
-        DropPendingBinds(assetId);
-    }
-
-    void AssetHandler::ResolvePendingScene(Spark::Resource::Asset& asset)
-    {
-        using namespace Spark;
-
-        const Resource::AssetId& assetId = asset.GetAssetId();
-        auto it = eastl::find(m_loadingAssets.begin(), m_loadingAssets.end(), assetId);
-        if (it == m_loadingAssets.end())
-        {
-            return;
-        }
-
-        LOG_INFO("[AssetHandler] Model asset '{}' ready, queuing scene resolve.", asset.GetName().GetCStr());
-        Ptr<Resource::ModelAsset> model(static_cast<Resource::ModelAsset*>(&asset));
-        Resource::AssetResolveBus::QueueBroadcast(
-            &Resource::AssetResolveBusTraits::ResolveModelAssetToScene, eastl::move(model));
-        m_loadingAssets.erase(it);
-    }
-
-    void AssetHandler::DropPendingScene(const Spark::Resource::AssetId& assetId)
-    {
-        using namespace Spark;
-
-        auto it = eastl::find(m_loadingAssets.begin(), m_loadingAssets.end(), assetId);
-        if (it != m_loadingAssets.end())
-        {
-            LOG_ERROR("[AssetHandler] Model asset '{}' failed to load.", assetId.GetPath().c_str());
-            m_loadingAssets.erase(it);
-        }
+        DropPendingBinds(asset.GetAssetId());
     }
 
     void AssetHandler::ResolvePendingBinds(const Spark::Resource::AssetId& assetId)

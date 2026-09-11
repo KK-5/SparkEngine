@@ -14,6 +14,7 @@ namespace Spark::Resource
     class MaterialAssetLoader
     {
     public:
-        UniquePtr<AssetData> Load(const AssetId& id, const FileSystem& fileSystem) const;
+        UniquePtr<AssetData> Load(const AssetId& id, const FileSystem& fileSystem,
+                                  LoadFailure& failure) const;
     };
 }

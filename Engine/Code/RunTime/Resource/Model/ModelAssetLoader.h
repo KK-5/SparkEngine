@@ -16,7 +16,8 @@ namespace Spark::Resource
     class ModelAssetLoader
     {
     public:
-        UniquePtr<AssetData> Load(const AssetId& id, const FileSystem& fileSystem);
+        UniquePtr<AssetData> Load(const AssetId& id, const FileSystem& fileSystem,
+                                  LoadFailure& failure);
 
     private:
         UniquePtr<AssetData> LoadFromBuffer(class fastgltf::GltfDataBuffer& buf,

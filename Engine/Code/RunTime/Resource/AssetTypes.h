@@ -189,6 +189,17 @@ namespace Spark::Resource
         Ready,              ///< Asset is loaded and ready for use.
         Error,              ///< Asset attempted to load, but it or a strict dependency failed.
     };
+
+    //! Why a Load produced nothing, and with it whether the failure is final. Only
+    //! Unavailable is not: the file is there and its bytes could not be had, most often
+    //! because a writer still holds one announced the instant it appeared. That asset is
+    //! left unloaded for a later attempt; the other two fail it.
+    enum class LoadFailure : uint32_t
+    {
+        Invalid,            ///< the bytes were read, and they are not this asset
+        Missing,            ///< there is no such file
+        Unavailable,        ///< the file is there, and its bytes could not be had
+    };
 }
 
 namespace eastl

@@ -38,6 +38,7 @@ namespace Editor
         void OnAssetError(Spark::Resource::Asset& asset) override;
 
     private:
+
         //! Which terminal a bind resolves to. Chosen at drop time and consumed once the
         //! asset turns Ready, so it has to be carried: the drop site is the only place
         //! that knows whether the target field holds an asset id or a material reference.
@@ -62,13 +63,9 @@ namespace Editor
 
         void QueueComponentBind(PendingComponentBind bind);
 
-        void ResolvePendingScene(Spark::Resource::Asset& asset);
-        void DropPendingScene(const Spark::Resource::AssetId& assetId);
-
         void ResolvePendingBinds(const Spark::Resource::AssetId& assetId);
         void DropPendingBinds(const Spark::Resource::AssetId& assetId);
 
-        eastl::vector<Spark::Resource::AssetId> m_loadingAssets;
-        eastl::vector<PendingComponentBind>     m_pendingBinds;
+        eastl::vector<PendingComponentBind> m_pendingBinds;
     };
 }

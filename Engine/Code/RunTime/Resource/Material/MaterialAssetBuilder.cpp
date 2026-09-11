@@ -32,7 +32,7 @@ namespace Spark::Resource
     void MaterialAssetBuilder::Load(AssetBuildContext& ctx)
     {
         ASSERT(ctx.id.GetAssetType() == AssetType::Material, "[MaterialAssetBuilder] asset type mismatch");
-        ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem);
+        ctx.rawData = m_loader.Load(ctx.id, *ctx.fileSystem, ctx.failure);
     }
 
     void MaterialAssetBuilder::Compile(AssetBuildContext& ctx)

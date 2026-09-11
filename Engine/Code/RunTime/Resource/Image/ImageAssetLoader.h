@@ -30,10 +30,12 @@ namespace Spark::Resource
         ~ImageAssetLoader() = default;
 
         //! An encoded source image -> ImageAssetRawData (decoded pixels).
-        UniquePtr<AssetData> LoadSource(const AssetId& id, const FileSystem& fileSystem);
+        UniquePtr<AssetData> LoadSource(const AssetId& id, const FileSystem& fileSystem,
+                                        LoadFailure& failure);
 
         //! An authored .ktx2 -> ImageEncodedRawData (its bytes, unparsed).
-        UniquePtr<AssetData> LoadEncoded(const AssetId& id, const FileSystem& fileSystem);
+        UniquePtr<AssetData> LoadEncoded(const AssetId& id, const FileSystem& fileSystem,
+                                         LoadFailure& failure);
 
         //! KTX2 bytes -> ImageAssetData, repacked slice-major / mip-inner. Single-layer 2D
         //! or cube, unsupercompressed; anything else is rejected rather than guessed at.

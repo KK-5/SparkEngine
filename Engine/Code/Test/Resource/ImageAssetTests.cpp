@@ -153,7 +153,9 @@ TEST(ImageAssetLoaderTest, LoadMissingFileReturnsNull)
     ImageAssetLoader loader;
 
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/non_existent.png");
-    EXPECT_EQ(loader.LoadSource(id, fileSystem), nullptr);
+    LoadFailure failure = LoadFailure::Invalid;
+    EXPECT_EQ(loader.LoadSource(id, fileSystem, failure), nullptr);
+    EXPECT_EQ(failure, LoadFailure::Missing);
 }
 
 TEST(ImageAssetLoaderTest, LoadJpegAsRGBA8)
@@ -165,7 +167,8 @@ TEST(ImageAssetLoaderTest, LoadJpegAsRGBA8)
     ImageAssetLoader loader;
 
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_diff_2k.jpg");
-    auto data = loader.LoadSource(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.LoadSource(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
@@ -189,7 +192,8 @@ TEST(ImageAssetLoaderTest, LoadAoJpegAsRGBA8)
     ImageAssetLoader loader;
 
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_ao_2k.jpg");
-    auto data = loader.LoadSource(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.LoadSource(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
@@ -216,7 +220,8 @@ TEST(ImageAssetLoaderTest, LoadDisplacementPngExpandsGrayscale)
     ImageAssetLoader loader;
 
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_disp_2k.png");
-    auto data = loader.LoadSource(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.LoadSource(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* imgData = static_cast<ImageAssetRawData*>(data.get());
@@ -245,7 +250,10 @@ TEST(ImageAssetLoaderTest, ExrNotSupportedReturnsNull)
     ImageAssetLoader loader;
 
     AssetId id = AssetId::Of<ImageAsset>("engine://Image/Test/rusty_metal_04_rough_2k.exr");
-    EXPECT_EQ(loader.LoadSource(id, fileSystem), nullptr);
+    // Read fine, decoded as nothing: a verdict on the contents, not on the moment.
+    LoadFailure failure = LoadFailure::Unavailable;
+    EXPECT_EQ(loader.LoadSource(id, fileSystem, failure), nullptr);
+    EXPECT_EQ(failure, LoadFailure::Invalid);
 }
 
 

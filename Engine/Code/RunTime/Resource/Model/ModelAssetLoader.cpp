@@ -276,20 +276,30 @@ namespace Spark::Resource
 
     // ===== Public API =====
 
-    UniquePtr<AssetData> ModelAssetLoader::Load(const AssetId& id, const FileSystem& fileSystem)
+    UniquePtr<AssetData> ModelAssetLoader::Load(const AssetId& id, const FileSystem& fileSystem,
+                                                LoadFailure& failure)
     {
         eastl::string resolved = fileSystem.ToPhysical(id.GetPath());
         if (resolved.empty())
         {
-            LOG_ERROR("[ModelAssetLoader] Model file not found: {}", id.GetPath().c_str());
+            failure = LoadFailure::Missing;
             return nullptr;
         }
 
         std::string baseDir = std::filesystem::path(resolved.c_str()).parent_path().string();
 
+        // InvalidPath is the one error FromPath raises before reading a byte: sizing or
+        // opening the file failed. A half-written glTF gets past it and fails to parse.
         auto bufResult = fastgltf::GltfDataBuffer::FromPath(resolved.c_str());
         if (bufResult.error() != fastgltf::Error::None)
         {
+            if (bufResult.error() == fastgltf::Error::InvalidPath)
+            {
+                failure = fileSystem.Exists(id.GetPath()) ? LoadFailure::Unavailable
+                                                          : LoadFailure::Missing;
+                return nullptr;
+            }
+            failure = LoadFailure::Invalid;
             LOG_ERROR("[ModelAssetLoader] Failed to open GLTF file '{}': {}",
                 resolved.c_str(), fastgltf::getErrorMessage(bufResult.error()));
             return nullptr;

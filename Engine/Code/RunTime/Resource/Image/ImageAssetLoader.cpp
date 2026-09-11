@@ -239,24 +239,31 @@ static UniquePtr<AssetData> DecodeSvg(
     }
 
     UniquePtr<AssetData> ImageAssetLoader::LoadEncoded(const AssetId& id,
-                                                       const FileSystem& fileSystem)
+                                                       const FileSystem& fileSystem,
+                                                       LoadFailure& failure)
     {
         eastl::vector<uint8_t> bytes;
         if (!fileSystem.ReadFile(id.GetPath(), bytes))
         {
+            failure = fileSystem.Exists(id.GetPath()) ? LoadFailure::Unavailable
+                                                      : LoadFailure::Missing;
             return nullptr;
         }
         return MakeUnique<ImageEncodedRawData>(eastl::move(bytes), id.GetPath());
     }
 
     UniquePtr<AssetData> ImageAssetLoader::LoadSource(const AssetId& id,
-                                                      const FileSystem& fileSystem)
+                                                      const FileSystem& fileSystem,
+                                                      LoadFailure& failure)
     {
         // Through the VFS like every other read, so the path a raw carries stays virtual.
+        // No bytes yet counts as unreadable: a file that exists and is empty is one still
+        // arriving, not one to decode.
         eastl::vector<uint8_t> bytes;
         if (!fileSystem.ReadFile(id.GetPath(), bytes) || bytes.empty())
         {
-            LOG_ERROR("[ImageAssetLoader] Image file not readable: {}", id.GetPath().c_str());
+            failure = fileSystem.Exists(id.GetPath()) ? LoadFailure::Unavailable
+                                                      : LoadFailure::Missing;
             return nullptr;
         }
 
@@ -264,13 +271,23 @@ static UniquePtr<AssetData> DecodeSvg(
 
         // nanosvg parses in place and wants a NUL terminator, hence the copy.
         constexpr eastl::string_view kSvgExt = ".svg";
+        UniquePtr<AssetData> data;
         if (path.size() > kSvgExt.size()
             && path.compare(path.size() - kSvgExt.size(), kSvgExt.size(), kSvgExt.data()) == 0)
         {
             eastl::string svgData(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-            return DecodeSvg(svgData.c_str(), 0, 0, eastl::move(path));
+            data = DecodeSvg(svgData.c_str(), 0, 0, eastl::move(path));
+        }
+        else
+        {
+            data = DecodeFromMemory(bytes.data(), bytes.size(), path);
         }
 
-        return DecodeFromMemory(bytes.data(), bytes.size(), path);
+        // Said rather than left to the caller's initial value: the decoders have logged why.
+        if (!data)
+        {
+            failure = LoadFailure::Invalid;
+        }
+        return data;
     }
 }

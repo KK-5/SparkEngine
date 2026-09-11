@@ -151,7 +151,8 @@ TEST_F(ShaderAssetTestFixture, BinaryLoaderLoadsFile)
     BinaryAssetLoader loader;
 
     AssetId id = AssetId::Of<ShaderAsset>("engine://Shaders/Test/SimpleTriangle.hlsl");
-    auto data = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.Load(id, fileSystem, failure);
     ASSERT_NE(data, nullptr);
 
     auto* binaryData = static_cast<BinaryAssetData*>(data.get());
@@ -167,7 +168,8 @@ TEST_F(ShaderAssetTestFixture, BinaryLoaderReturnsNullForMissing)
     BinaryAssetLoader loader;
 
     AssetId id = AssetId::Of<ShaderAsset>("engine://Shaders/NonExistent.hlsl");
-    auto data = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto data = loader.Load(id, fileSystem, failure);
     EXPECT_EQ(data, nullptr);
 }
 
@@ -179,7 +181,8 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLToDXIL)
 
     BinaryAssetLoader loader;
     AssetId id = AssetId::Of<ShaderAsset>("engine://Shaders/Test/SimpleTriangle.hlsl");
-    auto rawData = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto rawData = loader.Load(id, fileSystem, failure);
     ASSERT_NE(rawData, nullptr);
 
     // 用 Compiler 编译
@@ -219,7 +222,8 @@ TEST_F(ShaderAssetTestFixture, CompileHLSLReflection)
 
     BinaryAssetLoader loader;
     AssetId id = AssetId::Of<ShaderAsset>("test://Asset/Shaders/ReflectionTest.hlsl");
-    auto rawData = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto rawData = loader.Load(id, fileSystem, failure);
     ASSERT_NE(rawData, nullptr);
 
     ShaderAssetCompiler compiler;
@@ -330,7 +334,8 @@ TEST_F(ShaderAssetTestFixture, BuildShaderInputListFromReflection)
 
     BinaryAssetLoader loader;
     AssetId id = AssetId::Of<ShaderAsset>("test://Asset/Shaders/ReflectionTest.hlsl");
-    auto rawData = loader.Load(id, fileSystem);
+    LoadFailure failure = LoadFailure::Invalid;
+    auto rawData = loader.Load(id, fileSystem, failure);
     ASSERT_NE(rawData, nullptr);
 
     ShaderAssetCompiler compiler;

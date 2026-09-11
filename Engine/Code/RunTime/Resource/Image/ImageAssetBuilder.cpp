@@ -71,8 +71,8 @@ namespace Spark::Resource
         // Both land in rawData: an authored .ktx2 is a source format like any other, and
         // parsing it is its Compile.
         ctx.rawData = IsCompiledImagePath(ctx.id.GetPath())
-            ? m_loader.LoadEncoded(ctx.id, *ctx.fileSystem)
-            : m_loader.LoadSource(ctx.id, *ctx.fileSystem);
+            ? m_loader.LoadEncoded(ctx.id, *ctx.fileSystem, ctx.failure)
+            : m_loader.LoadSource(ctx.id, *ctx.fileSystem, ctx.failure);
     }
 
     eastl::vector<uint8_t> ImageAssetBuilder::Serialize(const AssetData& compiled,

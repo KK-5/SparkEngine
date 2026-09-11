@@ -30,10 +30,13 @@ namespace Spark::Resource
         BinaryAssetLoader() = default;
         ~BinaryAssetLoader() = default;
 
-        eastl::unique_ptr<AssetData> Load(const AssetId& id, const FileSystem& fileSystem);
+        eastl::unique_ptr<AssetData> Load(const AssetId& id, const FileSystem& fileSystem,
+                                          LoadFailure& failure);
 
         //! Reads a path that is already physical. The shader #include handler needs this:
         //! DXC hands over a bare name carrying no mount, so it does its own search first.
-        eastl::unique_ptr<AssetData> LoadPhysicalFile(eastl::string physicalPath) const;
+        //! It has nobody to report a reason to, hence the optional out.
+        eastl::unique_ptr<AssetData> LoadPhysicalFile(eastl::string physicalPath,
+                                                      LoadFailure* failure = nullptr) const;
     };
 }

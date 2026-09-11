@@ -38,6 +38,10 @@ namespace Spark::Resource
         UniquePtr<AssetData> rawData;        ///< Load's output, Compile's input
         UniquePtr<AssetData> compiledData;   ///< Compile's output
 
+        //! Read only when Load left `rawData` null. Invalid means the loader has logged a
+        //! reason of its own; the other two are reported here instead.
+        LoadFailure failure{LoadFailure::Invalid};
+
         //! Compile's second output. A builder declares; ProcessAsset publishes. Only the
         //! layer holding the root's status and its cache entry can draw the transaction
         //! boundary "these sub-assets and this root, all or none".
