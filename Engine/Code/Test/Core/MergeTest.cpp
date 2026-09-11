@@ -14,6 +14,7 @@
 #include <SceneManager/SceneManager.h>
 #include <CoreComponents/Name.h>
 
+#include <EASTL/algorithm.h>
 #include <EASTL/array.h>
 
 using namespace Spark;
@@ -36,6 +37,11 @@ namespace
     {
     };
 
+    struct MergeTestLink
+    {
+        Entity target{NullEntity};
+    };
+
     /// Destroy and recreate the same slot until its version has moved on.
     Entity BumpVersion(WorldContext& context, Entity entity, uint32_t times)
     {
@@ -53,6 +59,10 @@ namespace Spark
 {
     SPARK_COMPONENT_TRAITS(MergeTestVelocity,
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::Create;
+    )
+
+    SPARK_COMPONENT_TRAITS(MergeTestLink,
+        static constexpr auto entityRefs = EntityRefs<&MergeTestLink::target>;
     )
 }
 
@@ -812,4 +822,95 @@ TEST_F(MergeSceneTest, MergeAModelShapedTree)
     EXPECT_TRUE(world.Has<HierarchyRootTag>(root));
     EXPECT_FALSE(world.Has<HierarchyRootTag>(child));
     EXPECT_FALSE(world.Has<HierarchyRootTag>(leaf));
+}
+
+TEST(MergeTest, TranslateRewritesAReferenceToAParticipant)
+{
+    WorldContext world;
+    world.CreateEntity();
+    world.CreateEntity();
+
+    StagingContext<Entity> staging;
+    Entity head = staging.CreateEntity();
+    Entity tail = staging.CreateEntity();
+    staging.Add<MergeTestLink>(head, MergeTestLink{tail});
+    staging.Add<MergeTestLink>(tail, MergeTestLink{NullEntity});
+
+    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(
+        world, eastl::move(staging));
+
+    ASSERT_EQ(result.created.size(), 2u);
+    const Entity first = result.created[0];
+    const Entity second = result.created[1];
+    ASSERT_NE(first, head);
+
+    // Whichever of the two is the head, its reference names the other one.
+    const Entity linked = world.Get<MergeTestLink>(first).target != NullEntity ? first : second;
+    const Entity other = linked == first ? second : first;
+    EXPECT_EQ(world.Get<MergeTestLink>(linked).target, other);
+    EXPECT_EQ(world.Get<MergeTestLink>(other).target, NullEntity);
+}
+
+TEST(MergeTest, TranslateDropsAReferenceToANonParticipant)
+{
+    WorldContext world;
+    StagingContext<Entity> staging;
+
+    Entity head = staging.CreateEntity();
+    Entity outsider = staging.CreateEntity();
+    staging.Add<MergeTestLink>(head, MergeTestLink{outsider});
+    // The outsider carries nothing that is being merged, so it never reaches the world.
+    staging.Add<MergeTestPosition>(outsider, MergeTestPosition{1.0f, 2.0f});
+
+    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(
+        world, eastl::move(staging));
+
+    ASSERT_EQ(result.created.size(), 1u);
+    EXPECT_EQ(world.Get<MergeTestLink>(result.created[0]).target, NullEntity);
+}
+
+TEST(MergeTest, CopyInstantiatesAPrefabWithItsOwnReferences)
+{
+    WorldContext world;
+    StagingContext<Entity> prefab;
+
+    Entity head = prefab.CreateEntity();
+    Entity tail = prefab.CreateEntity();
+    prefab.Add<MergeTestLink>(head, MergeTestLink{tail});
+    prefab.Add<MergeTestLink>(tail, MergeTestLink{NullEntity});
+
+    auto first = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(world, prefab);
+    auto second = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(world, prefab);
+
+    ASSERT_EQ(first.created.size(), 2u);
+    ASSERT_EQ(second.created.size(), 2u);
+
+    // Translation happens on the copy that landed, so the prefab can be instantiated again.
+    EXPECT_EQ(prefab.Get<MergeTestLink>(head).target, tail);
+
+    auto pointsInsideItself = [&](const MergeResult<Entity>& instance)
+    {
+        size_t linkCount = 0;
+        for (Entity entity : instance.created)
+        {
+            const Entity target = world.Get<MergeTestLink>(entity).target;
+            if (target == NullEntity)
+            {
+                continue;
+            }
+            ++linkCount;
+            EXPECT_NE(eastl::find(instance.created.begin(), instance.created.end(), target),
+                instance.created.end());
+        }
+        EXPECT_EQ(linkCount, 1u);
+    };
+
+    pointsInsideItself(first);
+    pointsInsideItself(second);
+
+    for (Entity entity : second.created)
+    {
+        EXPECT_EQ(eastl::find(first.created.begin(), first.created.end(), entity),
+            first.created.end());
+    }
 }

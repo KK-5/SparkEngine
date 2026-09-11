@@ -42,6 +42,12 @@ Merge<MergeMatch::Any, MergeMapping::Remap,
 今天全仓的持有者逐个对得上——`EditorInputSystem::m_editorCamera`（世界=目标）、
 `MaterialSystem::m_defaultMaterial`（material=目标）——没有一个持有源侧编号。
 
+**暂存里 `E` 类型的实体引用，一律是暂存自己的编号。** 合并时它们被改写成落地后的编号。所以
+「把这批挂到世界里某个已有实体下」写不进暂存，要合并之后拿 `MergeResult` 去接。
+
+按类型划界，不按字段：`MaterialComponent` 里的 `MaterialHandle` 是另一个上下文的编号，
+`Merge<..., Entity>` 看不见它，原样搬过去。
+
 **自合并按类型就不可能。** 活上下文不能出现在源的位置，`Merge(world, world)` 连编译都过不去
 （插入会让正在遍历的 storage 重分配）。需要「原地复制」时走两趟：`Extract`（世界 → 暂存），
 `Merge`（暂存 → 世界）。顺带把「剪贴板」这个东西白送了。
@@ -197,6 +203,30 @@ Entity Forward(Entity s)
 `MergeResult` 因此只剩**本次新建的目标实体名单**——通知相位本来就要建，白送；调用方粘贴后要选中
 它们，而那时组件已经清了。
 
+#### 组件里的引用跟着改写
+
+组件落进目标之后立刻按 `Forward` 改写它声明的实体引用。改的是**目标侧那一份**，所以 `Copy` 的
+`const` 源不受影响，同一份暂存能反复实例化。
+
+「哪几个字段是实体引用」由组件自己声明，编译期，成员指针，不走反射：
+
+```cpp
+SPARK_COMPONENT_TRAITS(Hierarchy,
+    static constexpr auto entityRefs = EntityRefs<
+        &Hierarchy::parent, &Hierarchy::firstChild,
+        &Hierarchy::prevSibling, &Hierarchy::nextSibling>;
+)
+```
+
+`GetEntityRefs<E>(component)` 把这些字段作为指针交出来，怎么用是调用方的事——merge 改写，悬空清理
+只读，编辑器画拾取器。**统一的是声明，不是处理。** 字段的类型决定查哪个上下文，所以不需要第二个轴。
+
+指向**没参加这次合并**的实体的引用丢弃并报错，不保留原编号：保留等于指向目标里一个毫不相干的实体，
+静默指错比断开严重。
+
+两处已知边界：组件漏声明就静默不翻译，编译期检不出；容器字段（`eastl::vector<Entity>`）会被跳过，
+接缝在 `Collect` 的 `if constexpr` 里。
+
 ### 4. 批量构造事件 + `OnExternalWrite<Ts...>` 钩子
 
 **为什么非有不可。** 搬运直写 storage，绕过了目标的事件派发——**merge 破坏了目标的事件契约就
@@ -339,7 +369,6 @@ Merge<Match, Mapping, Ts...>(target, source)
 ## 不属于这个机制的
 
 - **全量合并的类型表。** 谁想要全量，谁自己维护类型表。
-- **组件里的实体引用重映射。** 见下，是加法。
 - **身份策略**（「目标里已经有这个东西了」，比如材质按资产 id 去重）。是加法。
 - **自合并。** 按类型就不可能。
 - **id / version / 空闲链表的逐字还原。** `StagingContext` 不保证这个。
@@ -349,25 +378,13 @@ Merge<Match, Mapping, Ts...>(target, source)
 
 ## 扩展点
 
-四个，都是往上加，不改上面三个机制：
+三个，都是往上加，不改上面的机制：
 
-**a. 组件里的实体引用（Translate）。** 搬完之后在**目标里**改引用，用的就是 `Forward`——字段里存的
-是源编号，要的正是正向查找。放在目标侧的原因是 `Copy` 模式的源是 `const`，改不了。它需要一样基础版
-没有的东西：`Forward` 要能**按实体类型 TypeId 找到对应的那一对组件**（查哪个上下文由字段的类型决定，
-不由「在遍历哪个上下文」决定）。
-
-「哪几个偏移是句柄」这件事必须有人告诉它。两条路：走反射（字段级标记），或者做成
-`ComponentTraits<T>` 上的编译期成员指针列表——**后者让 Translate 也不依赖反射**，而且更快。列出
-`Ts` 之后这条路才是通的。定的时候再选。
-
-这份 traits 顺带兜住批量构造事件的默认展开：一旦 `T` 声明了实体引用字段，编译期就不给它默认展开，
-逼 handler 自己写批量版。带引用的组件正是逐个补发会出事的那一类，两件事该共用同一份 traits。
-
-**b. 身份策略。** 「目标已经有它的对应物」是 merge 判断不了的——判据由上下文的所有者定义（材质用
+**a. 身份策略。** 「目标已经有它的对应物」是 merge 判断不了的——判据由上下文的所有者定义（材质用
 资产 id）。这一条只替换建实体那步的循环体，返回 `{目标编号, 搬不搬}`。它本质上是第三种映射，
 落地时就是 `MergeMapping::Resolve`；基础版的两个值是它的退化情形。
 
-**c. 显式实体列表。** 复制粘贴要的是「这几个选中的实体」，不是「所有带 Transform 的实体」。
+**b. 显式实体列表。** 复制粘贴要的是「这几个选中的实体」，不是「所有带 Transform 的实体」。
 
 ```cpp
 Merge<...>(target, source, eastl::span<const E> only);   // 缺省 = 源里全部
@@ -375,8 +392,9 @@ Merge<...>(target, source, eastl::span<const E> only);   // 缺省 = 源里全�
 
 在 Match 筛完之后多一次过滤，零成本。建实体那步的形状要留着它。
 
-**d. 多上下文一起合并。** a 落地后才需要：跨类型引用要求「所有实体都建完之前不能开始任何
-Translate」，于是相位要能分开调。基础版只有两步且无跨上下文依赖，一个函数就够。
+**c. 多上下文一起合并。** 跨上下文的引用（暂存里的 `MaterialHandle` 指向同在暂存里的材质实体）
+要求「所有上下文的实体都建完之前不能开始任何改写」，于是相位要能分开调。现在两个相位串在一个函数
+里，只管单上下文。
 
 ---
 
@@ -577,8 +595,9 @@ for (Entity e : entities):
 
 ### 这四步之外的两处依赖
 
-- **层级链表要从 `SceneManager` 抽成不挑上下文类型的自由函数**——只有 `SpawnModel` 改走暂存时才
-  需要，不挡前四步。
+- **层级操作要能指名作用在哪个 storage 上**——`SceneManager` 的内部链表逻辑加一个接收者参数即可，
+  仍然私有；对外多一个 `SetParent(storage, ...)` 重载。只有 `SpawnModel` 改走暂存时才需要，
+  不挡前四步。
 - **事件策略轴（`TODO_ContextAccess.md`）**——在它落地前，merge 的静默插入靠直接
   `GetStorage<T>().emplace()`（泛型
   `BasicContext` 本来就静默，`WorldContext` 走 storage 也绕开了它的 `Add` 重载），不额外开机制。
