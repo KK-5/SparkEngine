@@ -2,7 +2,7 @@
 
 #include <Log/ILogSystem.h>
 #include <ECS/ExecuteContext.h>
-#include <SceneManager/SceneManager.h>
+#include <Hierarchy/HierarchyManager.h>
 
 #include <Feature/Camera/Components.h>
 #include <Feature/Transform/Components.h>
@@ -47,7 +47,7 @@ namespace Editor
         m_editorCamera = world.CreateEntity("EditorCamera");
         world.Add<Transform::TransformComponent>(m_editorCamera, Transform::TransformComponent{});
         world.Add<Camera::CameraComponent>(m_editorCamera, Camera::CameraComponent{});
-        Service<IScene>::Get()->AddEntity(m_editorCamera);
+        Service<IHierarchy>::Get()->AddEntity(m_editorCamera);
         LOG_INFO("[EditorInput] Created editor camera entity.");
     }
 

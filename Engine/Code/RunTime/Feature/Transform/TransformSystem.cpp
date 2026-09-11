@@ -6,7 +6,7 @@
 #include <ECS/ExecuteContext.h>
 #include <Math/MathUtils.h>
 #include <Log/ILogSystem.h>
-#include <SceneManager/IScene.h>
+#include <Hierarchy/IHierarchy.h>
 
 namespace Spark::Transform
 {
@@ -47,10 +47,10 @@ namespace Spark::Transform
         });
 
         
-        auto* scene = Service<IScene>::Get();
-        ASSERT(scene, "IScene is unregister.");
+        auto* hierarchy = Service<IHierarchy>::Get();
+        ASSERT(hierarchy, "IHierarchy is unregister.");
 
-        auto roots = scene->GetRootEntities();
+        auto roots = hierarchy->GetRootEntities();
         eastl::vector<Entity> stack;
         for(Entity root: roots)
         {

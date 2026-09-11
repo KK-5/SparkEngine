@@ -6,7 +6,7 @@
 #include <ECS/ExecuteContext.h>
 #include <Service/Service.h>
 #include <Math/MathUtils.h>
-#include <SceneManager/IScene.h>
+#include <Hierarchy/IHierarchy.h>
 
 #include <Transform/Components.h>
 
@@ -69,9 +69,9 @@ namespace Spark::Light
             lc.m_castShadow = true;
             world->Add<LightComponent>(light, lc);
 
-            if (auto* scene = Service<IScene>::Get())
+            if (auto* hierarchy = Service<IHierarchy>::Get())
             {
-                scene->AddEntity(light);
+                hierarchy->AddEntity(light);
             }
         }
 

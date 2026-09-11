@@ -10,17 +10,17 @@
 #include <ECS/Bus/ComponentEventBus.h>
 #include <ECS/Common.h>
 
-#include "IScene.h"
-#include "Component/HierarchyComponent.h"
+#include "IHierarchy.h"
+#include "HierarchyComponent.h"
 
 namespace Spark
 {
-    class SceneManager final : public ISystem,
-                               public Service<IScene>::Handler,
+    class HierarchyManager final : public ISystem,
+                               public Service<IHierarchy>::Handler,
                                public ComponentEventBus::Handler
     {
     public:
-        SceneManager() = default;
+        HierarchyManager() = default;
 
         ///////////////////////////////////////////
         // ISystem
@@ -33,12 +33,12 @@ namespace Spark
 
         HashString GetName() const override
         {
-            return "SceneManager"_hs;
+            return "HierarchyManager"_hs;
         }
         ///////////////////////////////////////////
 
         ///////////////////////////////////////////
-        // IScene
+        // IHierarchy
         size_t GetEntityCount() const override;
         void AddEntity(Entity entity) override;
         void AddEntities(eastl::span<Entity> entities) override;

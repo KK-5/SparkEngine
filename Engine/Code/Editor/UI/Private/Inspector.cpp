@@ -8,8 +8,8 @@
 #include <ECS/Common.h>
 #include <CoreComponents/Name.h>
 #include <Service/Service.h>
-#include <SceneManager/Component/HierarchyComponent.h>
-#include <SceneManager/IScene.h>
+#include <Hierarchy/HierarchyComponent.h>
+#include <Hierarchy/IHierarchy.h>
 #include <Log/ILogSystem.h>
 #include <CoreComponents/Tags.h>
 #include "../../Component/Tags.h"
@@ -125,7 +125,7 @@ namespace Editor
 
     void Inspector::DrawEntityMenu(Entity entity)
     {
-        auto scene = Spark::Service<IScene>::Get();
+        auto hierarchy = Spark::Service<IHierarchy>::Get();
         auto& context = *WorldExecuteContext::Current();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.f), "Entity");
         ImGui::Spacing();
@@ -134,7 +134,7 @@ namespace Editor
         if (ImGui::MenuItem("Create Sub Entity"))
         {
             Entity subEntity = context.CreateEntity();
-            scene->SetParent(subEntity, entity);
+            hierarchy->SetParent(subEntity, entity);
         }
         ImGui::Spacing();
         if (ImGui::MenuItem("Copy Entity"))
@@ -179,7 +179,7 @@ namespace Editor
             {
                 context.Remove<SelectTag>(ent);
             }
-            scene->PatchEntityHierarchy(entity, [&](Entity ent){
+            hierarchy->PatchEntityHierarchy(entity, [&](Entity ent){
                 if (!context.Has<SelectTag>(ent))
                 {
                     context.Add<SelectTag>(ent);
@@ -203,7 +203,7 @@ namespace Editor
         ImGui::Spacing();
         if (ImGui::MenuItem("Delete Hierarchy"))
         {
-            scene->PatchEntityHierarchy(entity, [&](Entity ent){
+            hierarchy->PatchEntityHierarchy(entity, [&](Entity ent){
                 if (!context.Has<DeadTag>(ent))
                 {
                     context.Add<DeadTag>(ent);
@@ -230,7 +230,7 @@ namespace Editor
         if (ImGui::Button(" + "))
         {
             Entity entity = context.CreateEntity();
-            Spark::Service<IScene>::Get()->AddEntity(entity);
+            Spark::Service<IHierarchy>::Get()->AddEntity(entity);
             eastl::string name = "Entity[" + eastl::to_string(uint32_t(entity)) + "]";
             context.AddOrReplace<Name>(entity, name);
         }
@@ -240,13 +240,13 @@ namespace Editor
 
     void Inspector::Draw()
     {
-        if (!Spark::Service<IScene>::Get())
+        if (!Spark::Service<IHierarchy>::Get())
         {
-            LOG_ERROR("[Inspector] Draw: IScene is null!");
+            LOG_ERROR("[Inspector] Draw: IHierarchy is null!");
             return;
         }
 
-        IScene* scene = Spark::Service<IScene>::Get();
+        IHierarchy* hierarchy = Spark::Service<IHierarchy>::Get();
         auto& context = *WorldExecuteContext::Current();
 
         ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
@@ -292,7 +292,7 @@ namespace Editor
                 return context.Get<Name>(ent1).name < context.Get<Name>(ent2).name;
             };
 
-            eastl::vector<Entity> roots = scene->GetRootEntities();
+            eastl::vector<Entity> roots = hierarchy->GetRootEntities();
             eastl::stack<eastl::pair<Entity, int32_t>> stack;
             // eastl::stack底层默认用vector，用unique_ptr方式容器扩容时意外析构
             eastl::stack<eastl::unique_ptr<EntityNode>> nodeStack;
@@ -312,7 +312,7 @@ namespace Editor
                     nodeStack.emplace(eastl::make_unique<EntityNode>(cur));
                     if (nodeStack.top()->IsOpen())
                     {
-                        eastl::vector<Entity> children = scene->GetChildren(cur);
+                        eastl::vector<Entity> children = hierarchy->GetChildren(cur);
                         for (auto it = children.rbegin(); it != children.rend(); ++it)
                         {
                             stack.emplace(*it, curDepth + 1);

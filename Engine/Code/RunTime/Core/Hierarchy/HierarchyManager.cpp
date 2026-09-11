@@ -1,4 +1,4 @@
-#include "SceneManager.h"
+#include "HierarchyManager.h"
 
 #include <EASTL/stack.h>
 #include <EASTL/sort.h>
@@ -13,31 +13,31 @@
 
 namespace Spark
 {
-    void SceneManager::InitInternal()
+    void HierarchyManager::InitInternal()
     {
         auto& context = *WorldExecuteContext::Current();
         context.RegisterEventOnEntityRemove<Hierarchy>();
         ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
     }
 
-    void SceneManager::ShutdownInternal()
+    void HierarchyManager::ShutdownInternal()
     {
         ComponentEventBus::Handler::BusDisconnect(GetTypeId<Hierarchy>());
     }
 
-    size_t SceneManager::GetEntityCount() const
+    size_t HierarchyManager::GetEntityCount() const
     {
         auto& context = *WorldExecuteContext::Current();
         auto view = context.GetView<Hierarchy>();
         return view.size();
     }
 
-    void SceneManager::AddEntity(Entity entity)
+    void HierarchyManager::AddEntity(Entity entity)
     {
         auto& context = *WorldExecuteContext::Current();
         if (entity == NullEntity)
         {
-            LOG_ERROR("[SceneManager] AddEntity: entity is null");
+            LOG_ERROR("[HierarchyManager] AddEntity: entity is null");
             return;
         }
 
@@ -47,13 +47,13 @@ namespace Spark
         }
     }
 
-    void SceneManager::AddEntities(eastl::span<Entity> entities)
+    void HierarchyManager::AddEntities(eastl::span<Entity> entities)
     {
         for (const auto ent: entities)
         {
             if (ent == NullEntity)
             {
-                LOG_ERROR("[SceneManager] AddEntities: Thera is a null entity in input entities");
+                LOG_ERROR("[HierarchyManager] AddEntities: Thera is a null entity in input entities");
                 return;
             }
         }
@@ -61,11 +61,11 @@ namespace Spark
         context.Add<Hierarchy>(entities.begin(), entities.end(), Hierarchy{});
     }
 
-    void SceneManager::RemoveEntity(Entity entity)
+    void HierarchyManager::RemoveEntity(Entity entity)
     {
         if (entity == NullEntity)
         {
-            LOG_ERROR("[SceneManager] RemoveEntity: entity is null");
+            LOG_ERROR("[HierarchyManager] RemoveEntity: entity is null");
             return;
         }
 
@@ -76,13 +76,13 @@ namespace Spark
         }
     }
 
-    void SceneManager::RemoveEntities(eastl::span<Entity> entities)
+    void HierarchyManager::RemoveEntities(eastl::span<Entity> entities)
     {
         for (const auto ent: entities)
         {
             if (ent == NullEntity)
             {
-                LOG_ERROR("[SceneManager] RemoveEntities: Thera is a null entity in input entities");
+                LOG_ERROR("[HierarchyManager] RemoveEntities: Thera is a null entity in input entities");
                 return;
             }
         }
@@ -91,11 +91,11 @@ namespace Spark
         context.Remove<Hierarchy>(entities.begin(), entities.end());
     }
 
-    bool SceneManager::Contain(Entity entity) const
+    bool HierarchyManager::Contain(Entity entity) const
     {
         if (entity == NullEntity)
         {
-            LOG_ERROR("[SceneManager] Contain: entity is null");
+            LOG_ERROR("[HierarchyManager] Contain: entity is null");
             return false;
         }
 
@@ -103,7 +103,7 @@ namespace Spark
         return context.Has<Hierarchy>(entity);
     }
 
-    eastl::vector<Entity> SceneManager::GetHierarchyPath(Entity entity) const
+    eastl::vector<Entity> HierarchyManager::GetHierarchyPath(Entity entity) const
     {
         eastl::vector<Entity> ancestors;
 
@@ -124,7 +124,7 @@ namespace Spark
         return ancestors;
     }
 
-    bool SceneManager::IsAncestor(Entity entity, Entity ancestor) const
+    bool HierarchyManager::IsAncestor(Entity entity, Entity ancestor) const
     {
         auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
@@ -145,7 +145,7 @@ namespace Spark
         return false;
     }
 
-    Entity SceneManager::GetEntityRoot(Entity entity) const
+    Entity HierarchyManager::GetEntityRoot(Entity entity) const
     {
         auto& context = *WorldExecuteContext::Current();
         Entity cur = entity;
@@ -163,7 +163,7 @@ namespace Spark
         return cur;
     }
 
-    eastl::vector<Entity> SceneManager::GetRootEntities() const
+    eastl::vector<Entity> HierarchyManager::GetRootEntities() const
     {
         auto& context = *WorldExecuteContext::Current();
         auto roots = context.GetView<HierarchyRootTag>();
@@ -171,7 +171,7 @@ namespace Spark
         return eastl::vector<Entity>(roots.begin(), roots.end());
     }
 
-    eastl::vector<Entity> SceneManager::GetChildren(Entity entity) const
+    eastl::vector<Entity> HierarchyManager::GetChildren(Entity entity) const
     {
         auto& context = *WorldExecuteContext::Current();
 
@@ -192,7 +192,7 @@ namespace Spark
         return children;
     }
 
-    size_t SceneManager::GetDepth(Entity entity) const
+    size_t HierarchyManager::GetDepth(Entity entity) const
     {
         size_t depth = 0;
 
@@ -212,7 +212,7 @@ namespace Spark
         return depth;
     }
 
-    eastl::vector<eastl::pair<Entity, unsigned int>> SceneManager::GetEntityTree() const
+    eastl::vector<eastl::pair<Entity, unsigned int>> HierarchyManager::GetEntityTree() const
     {
         eastl::vector<eastl::pair<Entity, unsigned int>> result;
         eastl::vector<Entity> roots = GetRootEntities();
@@ -242,17 +242,17 @@ namespace Spark
 
         if (result.size() != count)
         {
-            LOG_ERROR("[SceneManager] An error has occurred in entity hierarchy.");
+            LOG_ERROR("[HierarchyManager] An error has occurred in entity hierarchy.");
         }
 
         return result;
     }
 
-    void SceneManager::SetParent(Entity entity, Entity parent, Entity prevSibling)
+    void HierarchyManager::SetParent(Entity entity, Entity parent, Entity prevSibling)
     {
         if (entity == NullEntity || parent == NullEntity)
         {
-            LOG_ERROR("[SceneManager] SetParent: entity or parent is null");
+            LOG_ERROR("[HierarchyManager] SetParent: entity or parent is null");
             return;
         }
 
@@ -295,12 +295,12 @@ namespace Spark
         }
     }
 
-    void SceneManager::SetParent(ContextStorage<Entity>& storage, Entity entity, Entity parent,
+    void HierarchyManager::SetParent(ContextStorage<Entity>& storage, Entity entity, Entity parent,
         Entity prevSibling)
     {
         if (entity == NullEntity || parent == NullEntity)
         {
-            LOG_ERROR("[SceneManager] SetParent: entity or parent is null");
+            LOG_ERROR("[HierarchyManager] SetParent: entity or parent is null");
             return;
         }
 
@@ -337,7 +337,7 @@ namespace Spark
         // -- a prevSibling that is not a child of parent -- and a corrupted list.
         if (!Valid(storage, hierarchy))
         {
-            LOG_ERROR("[SceneManager] SetParent: hierarchy is invalid, the entity was not attached");
+            LOG_ERROR("[HierarchyManager] SetParent: hierarchy is invalid, the entity was not attached");
             return;
         }
 
@@ -345,7 +345,7 @@ namespace Spark
         AddEntityInternal(storage, entity);
     }
 
-    void SceneManager::PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func)
+    void HierarchyManager::PatchEntityHierarchy(Entity entity, eastl::function<void(Entity)> func)
     {
         eastl::stack<Entity> traversalStack;
         traversalStack.emplace(entity);
@@ -364,29 +364,29 @@ namespace Spark
         }
     }
 
-    bool SceneManager::Valid(const ContextStorage<Entity>& context, const Hierarchy& hierarchy) const
+    bool HierarchyManager::Valid(const ContextStorage<Entity>& context, const Hierarchy& hierarchy) const
     {
         if (hierarchy.parent != NullEntity && !context.Has<Hierarchy>(hierarchy.parent))
         {
-            LOG_ERROR("[SceneManager] Valid: Entity has parent but the parent entity is not in scene.");
+            LOG_ERROR("[HierarchyManager] Valid: Entity has parent but the parent entity has no Hierarchy.");
             return false;
         }
 
         if (hierarchy.prevSibling != NullEntity && !context.Has<Hierarchy>(hierarchy.prevSibling))
         {
-            LOG_ERROR("[SceneManager] Valid: Entity has prevSibling but the prevSibling entity is not in scene.");
+            LOG_ERROR("[HierarchyManager] Valid: Entity has prevSibling but the prevSibling entity has no Hierarchy.");
             return false;
         }
 
         if (hierarchy.nextSibling != NullEntity && !context.Has<Hierarchy>(hierarchy.nextSibling))
         {
-            LOG_ERROR("[SceneManager] Valid: Entity has nextSibling but the nextSibling entity is not in scene.");
+            LOG_ERROR("[HierarchyManager] Valid: Entity has nextSibling but the nextSibling entity has no Hierarchy.");
             return false;
         }
 
         if (hierarchy.firstChild != NullEntity && !context.Has<Hierarchy>(hierarchy.firstChild))
         {
-            LOG_ERROR("[SceneManager] Valid: Entity has firstChild but the firstChild entity is not in scene.");
+            LOG_ERROR("[HierarchyManager] Valid: Entity has firstChild but the firstChild entity has no Hierarchy.");
             return false;
         }
 
@@ -394,7 +394,7 @@ namespace Spark
         { 
             if (hierarchy.parent == NullEntity)
             {
-                LOG_ERROR("[SceneManager] Valid: Entity has sibling but it does not has a parent.");
+                LOG_ERROR("[HierarchyManager] Valid: Entity has sibling but it does not has a parent.");
                 return false;
             }
 
@@ -403,13 +403,13 @@ namespace Spark
                 Entity siblingParent = context.Get<Hierarchy>(hierarchy.prevSibling).parent;
                 if (siblingParent != hierarchy.parent)
                 {
-                    LOG_ERROR("[SceneManager] Valid: Entity and its previous sibling has a different parent.");
+                    LOG_ERROR("[HierarchyManager] Valid: Entity and its previous sibling has a different parent.");
                     return false;
                 }
                 Entity next = context.Get<Hierarchy>(hierarchy.prevSibling).nextSibling;
                 if (next != hierarchy.nextSibling)
                 {
-                    LOG_ERROR("[SceneManager] Valid: The previous sibling has a next entity and it is different from the nextSibling in this Hierarchy.");
+                    LOG_ERROR("[HierarchyManager] Valid: The previous sibling has a next entity and it is different from the nextSibling in this Hierarchy.");
                     return false;
                 }
             }
@@ -419,13 +419,13 @@ namespace Spark
                 Entity siblingParent = context.Get<Hierarchy>(hierarchy.nextSibling).parent;
                 if (siblingParent != hierarchy.parent)
                 {
-                    LOG_ERROR("[SceneManager] Valid: Entity and its next sibling has a different parent.");
+                    LOG_ERROR("[HierarchyManager] Valid: Entity and its next sibling has a different parent.");
                     return false;
                 }
                 Entity prev = context.Get<Hierarchy>(hierarchy.nextSibling).prevSibling;
                 if (prev != hierarchy.prevSibling)
                 {
-                    LOG_ERROR("[SceneManager] Valid: The next sibling has a previous entity and it is different from the prevSibling in this Hierarchy.");
+                    LOG_ERROR("[HierarchyManager] Valid: The next sibling has a previous entity and it is different from the prevSibling in this Hierarchy.");
                     return false;
                 }
             }
@@ -436,7 +436,7 @@ namespace Spark
                 Entity prev = context.Get<Hierarchy>(hierarchy.nextSibling).prevSibling;
                 if (next != prev)
                 {
-                    LOG_ERROR("[SceneManager] Valid: Hierarchy both set prevSibling and nextSibling but they are not adjacent now.");
+                    LOG_ERROR("[HierarchyManager] Valid: Hierarchy both set prevSibling and nextSibling but they are not adjacent now.");
                     return false;
                 }
             }
@@ -447,7 +447,7 @@ namespace Spark
             {
                 if (context.Get<Hierarchy>(hierarchy.parent).firstChild != NullEntity)
                 {
-                    LOG_ERROR("[SceneManager] Valid: The parent entity already has child, "
+                    LOG_ERROR("[HierarchyManager] Valid: The parent entity already has child, "
                         "but Hierarchy have not specified the insertion position for this entity."
                         "(Both prevSibling and nextSibling are null)");
                     return false;
@@ -458,7 +458,7 @@ namespace Spark
         return true;
     }
 
-    void SceneManager::ForEachChild(const ContextStorage<Entity>& context, const Hierarchy& hierarchy,
+    void HierarchyManager::ForEachChild(const ContextStorage<Entity>& context, const Hierarchy& hierarchy,
         eastl::function<void(Entity entity)> func)
     {
         Entity cur = hierarchy.firstChild;
@@ -469,7 +469,7 @@ namespace Spark
         }
     }
 
-    void SceneManager::RemoveEntityInternal(ContextStorage<Entity>& context, const Hierarchy& hierarchy)
+    void HierarchyManager::RemoveEntityInternal(ContextStorage<Entity>& context, const Hierarchy& hierarchy)
     {
         Entity parent = hierarchy.parent;
         Entity prevSibling = hierarchy.prevSibling;
@@ -542,7 +542,7 @@ namespace Spark
         }
     }
 
-    void SceneManager::AddEntityInternal(ContextStorage<Entity>& context, Entity entity)
+    void HierarchyManager::AddEntityInternal(ContextStorage<Entity>& context, Entity entity)
     {
         const auto hier = context.Get<Hierarchy>(entity);
 
@@ -612,13 +612,13 @@ namespace Spark
         });
     }
 
-    void SceneManager::OnComponentConstruct(Entity entity)
+    void HierarchyManager::OnComponentConstruct(Entity entity)
     {
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
         if (!Valid(context, hier))
         {
-            LOG_ERROR("[SceneManager] OnComponentConstruct: Hierarchy is invalid, will remove the hierarchy");
+            LOG_ERROR("[HierarchyManager] OnComponentConstruct: Hierarchy is invalid, will remove the hierarchy");
             ComponentEventBus::Handler::BusDisconnect();
             context.Remove<Hierarchy>(entity);
             ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
@@ -633,7 +633,7 @@ namespace Spark
         }
     }
 
-    void SceneManager::OnComponentsConstruct(eastl::span<const Entity> entities)
+    void HierarchyManager::OnComponentsConstruct(eastl::span<const Entity> entities)
     {
         auto& context = *WorldExecuteContext::Current();
 
@@ -648,7 +648,7 @@ namespace Spark
             {
                 if (!Valid(context, hier))
                 {
-                    LOG_ERROR("[SceneManager] OnComponentsConstruct: Hierarchy is invalid, will remove the hierarchy");
+                    LOG_ERROR("[HierarchyManager] OnComponentsConstruct: Hierarchy is invalid, will remove the hierarchy");
                     ComponentEventBus::Handler::BusDisconnect();
                     context.Remove<Hierarchy>(entity);
                     ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
@@ -665,7 +665,7 @@ namespace Spark
         }
     }
 
-    void SceneManager::OnComponentWillUpdate(Entity entity)
+    void HierarchyManager::OnComponentWillUpdate(Entity entity)
     {
         auto& context = *WorldExecuteContext::Current();
         const auto& oldHier = context.Get<Hierarchy>(entity);
@@ -673,13 +673,13 @@ namespace Spark
         RemoveEntityInternal(context, oldHier);
     }
 
-    void SceneManager::OnComponentUpdated(Entity entity)
+    void HierarchyManager::OnComponentUpdated(Entity entity)
     {
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);
         if (!Valid(context, hier))
         {
-            LOG_ERROR("[SceneManager] OnComponentUpdated: Hierarchy is invalid, will remove the hierarchy");
+            LOG_ERROR("[HierarchyManager] OnComponentUpdated: Hierarchy is invalid, will remove the hierarchy");
             ComponentEventBus::Handler::BusDisconnect();
             context.Remove<Hierarchy>(entity);
             ComponentEventBus::Handler::BusConnect(GetTypeId<Hierarchy>());
@@ -693,7 +693,7 @@ namespace Spark
         }
     }
 
-    void SceneManager::OnComponentDestory(Entity entity)
+    void HierarchyManager::OnComponentDestory(Entity entity)
     {
         auto& context = *WorldExecuteContext::Current();
         const auto& hier = context.Get<Hierarchy>(entity);

@@ -7,7 +7,7 @@
 #include <ECS/ExecuteContext.h>
 #include <ECS/Common.h>
 #include <CoreComponents/Name.h>
-#include <SceneManager/IScene.h>
+#include <Hierarchy/IHierarchy.h>
 #include <Service/Service.h>
 #include "../../Component/Position.h"
 
@@ -53,11 +53,11 @@ namespace Editor
                     Entity entt2 = context.CreateEntity("Sub1 Entity ");
                     Entity entt3 = context.CreateEntity("Sub2 Entity ");
                     //context.Add<Name>(entt);
-                    if (auto scene = Service<IScene>::Get())
+                    if (auto hierarchy = Service<IHierarchy>::Get())
                     {
                         //scene->AddEntity(entt);
-                        scene->SetParent(entt2, entt);
-                        scene->SetParent(entt3, entt2);
+                        hierarchy->SetParent(entt2, entt);
+                        hierarchy->SetParent(entt3, entt2);
                         Position p;
                         p.x = 0.6;
                         p.y = 6.5;

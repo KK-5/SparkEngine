@@ -8,13 +8,13 @@
 #include <Service/Service.h>
 #include <Log/ILogSystem.h>
 
-#include <SceneManager/Component/HierarchyComponent.h>
-#include <SceneManager/IScene.h>
-#include <SceneManager/SceneManager.h>
+#include <Hierarchy/HierarchyComponent.h>
+#include <Hierarchy/IHierarchy.h>
+#include <Hierarchy/HierarchyManager.h>
 
 using namespace Spark;
 
-class SceneManagerTest : public ::testing::Test
+class HierarchyManagerTest : public ::testing::Test
 {
 protected:
     static void SetUpTestSuite() {
@@ -27,17 +27,17 @@ protected:
 
     void SetUp() override {
         WorldExecuteContext::Push(context);
-        sceneManager = CreateSystem<SceneManager>();
-        sceneManager->Init();
+        hierarchyManager = CreateSystem<HierarchyManager>();
+        hierarchyManager->Init();
     }
 
     void TearDown() override {
-        sceneManager.reset();
+        hierarchyManager.reset();
         WorldExecuteContext::Pop();
         context.Clear();
     }
 
-    SystemUniquePtr<SceneManager> sceneManager;
+    SystemUniquePtr<HierarchyManager> hierarchyManager;
     WorldContext context;
 };
 
@@ -52,48 +52,48 @@ void CheckHierarchy(WorldContext& context, Entity entity, Entity p, Entity f, En
 }
 
 
-TEST_F(SceneManagerTest, AddAndRemove)
+TEST_F(HierarchyManagerTest, AddAndRemove)
 {
     eastl::array<Entity, 3> entities;
     context.CreateEntity(entities.begin(), entities.end());
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
-    EXPECT_EQ(scene->GetEntityCount(), 0);
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
+    EXPECT_EQ(hierarchy->GetEntityCount(), 0);
 
-    scene->AddEntity(entities[0]);
-    scene->AddEntity(entities[1]);
-    scene->AddEntity(entities[2]);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
+    hierarchy->AddEntity(entities[0]);
+    hierarchy->AddEntity(entities[1]);
+    hierarchy->AddEntity(entities[2]);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
 
-    scene->RemoveEntity(entities[0]);
-    EXPECT_EQ(scene->GetEntityCount(), 2);
+    hierarchy->RemoveEntity(entities[0]);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 2);
 
     context.DestoryEntity(entities[1]);
     context.DestoryEntity(entities[2]);
-    EXPECT_EQ(scene->GetEntityCount(), 0);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 0);
 }
 
-TEST_F(SceneManagerTest, Contian)
+TEST_F(HierarchyManagerTest, Contian)
 {
     auto ent = context.CreateEntity();
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
 
-    EXPECT_FALSE(scene->Contain(ent));
+    EXPECT_FALSE(hierarchy->Contain(ent));
 
-    scene->AddEntity(ent);
-    EXPECT_TRUE(scene->Contain(ent));
+    hierarchy->AddEntity(ent);
+    EXPECT_TRUE(hierarchy->Contain(ent));
 
-    scene->RemoveEntity(ent);
-    EXPECT_FALSE(scene->Contain(ent));
+    hierarchy->RemoveEntity(ent);
+    EXPECT_FALSE(hierarchy->Contain(ent));
 }
 
-TEST_F(SceneManagerTest, HierarchyComponentConstruct)
+TEST_F(HierarchyManagerTest, HierarchyComponentConstruct)
 {
     eastl::array<Entity, 3> entities;
     context.CreateEntity(entities.begin(), entities.end());
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
     auto ent0 = entities[0];
     auto ent1 = entities[1];
     auto ent2 = entities[2];
@@ -102,9 +102,9 @@ TEST_F(SceneManagerTest, HierarchyComponentConstruct)
     Hierarchy invalid;
     invalid.parent = ent0;
     context.Add<Hierarchy>(ent1, invalid);
-    EXPECT_EQ(scene->GetEntityCount(), 0);
-    EXPECT_FALSE(scene->Contain(ent0));
-    EXPECT_FALSE(scene->Contain(ent1));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 0);
+    EXPECT_FALSE(hierarchy->Contain(ent0));
+    EXPECT_FALSE(hierarchy->Contain(ent1));
     context.Remove<Hierarchy>(ent1);
 
     // valid component
@@ -113,9 +113,9 @@ TEST_F(SceneManagerTest, HierarchyComponentConstruct)
     Hierarchy com1;
     com1.parent = ent0;
     context.Add<Hierarchy>(ent1, com1);
-    EXPECT_EQ(scene->GetEntityCount(), 2);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 2);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
     CheckHierarchy(context, ent0, NullEntity, ent1, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, ent0, NullEntity, NullEntity, NullEntity);
 
@@ -123,50 +123,50 @@ TEST_F(SceneManagerTest, HierarchyComponentConstruct)
     Hierarchy invalidCom2;
     invalidCom2.parent = ent0;
     context.Add<Hierarchy>(ent2, invalidCom2);
-    EXPECT_EQ(scene->GetEntityCount(), 2);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_FALSE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 2);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_FALSE(hierarchy->Contain(ent2));
     context.Remove<Hierarchy>(ent2);
 
     Hierarchy com2;
     com2.parent = ent0;
     com2.nextSibling = ent1;
     context.Add<Hierarchy>(ent2, com2);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_TRUE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
     CheckHierarchy(context, ent0, NullEntity, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, ent0, NullEntity, ent2, NullEntity);
     CheckHierarchy(context, ent2, ent0, NullEntity, NullEntity, ent1);
 
     context.Remove<Hierarchy>(ent2);
-    EXPECT_EQ(scene->GetEntityCount(), 2);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_FALSE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 2);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_FALSE(hierarchy->Contain(ent2));
     CheckHierarchy(context, ent0, NullEntity, ent1, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, ent0, NullEntity, NullEntity, NullEntity);
 
     com2.parent = ent1;
     com2.nextSibling = NullEntity;
     context.Add<Hierarchy>(ent2, com2);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_TRUE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
     CheckHierarchy(context, ent0, NullEntity, ent1, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, ent0, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent1, NullEntity, NullEntity, NullEntity);
 }
 
-TEST_F(SceneManagerTest, HierarchyComponentUpdate)
+TEST_F(HierarchyManagerTest, HierarchyComponentUpdate)
 {
     eastl::array<Entity, 3> entities;
     context.CreateEntity(entities.begin(), entities.end());
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
     auto ent0 = entities[0];
     auto ent1 = entities[1];
     auto ent2 = entities[2];
@@ -176,28 +176,28 @@ TEST_F(SceneManagerTest, HierarchyComponentUpdate)
     Hierarchy com1;
     com1.parent = ent0;
     context.Add<Hierarchy>(ent1, com1);
-    EXPECT_EQ(scene->GetEntityCount(), 2);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 2);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
     CheckHierarchy(context, ent0, NullEntity, ent1, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, ent0, NullEntity, NullEntity, NullEntity);
 
     Hierarchy newCom1;
     newCom1.parent = NullEntity;
     context.Replace<Hierarchy>(ent1, newCom1);
-    EXPECT_EQ(scene->GetEntityCount(), 2);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 2);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
     CheckHierarchy(context, ent0, NullEntity, NullEntity, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, NullEntity, NullEntity, NullEntity, NullEntity);
 
     Hierarchy com2;
     com2.parent = ent0;
     context.Add<Hierarchy>(ent2, com2);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_TRUE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
     CheckHierarchy(context, ent0, NullEntity, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, NullEntity, NullEntity, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent0, NullEntity, NullEntity, NullEntity);
@@ -205,31 +205,31 @@ TEST_F(SceneManagerTest, HierarchyComponentUpdate)
     Hierarchy newCom2;
     com2.parent = ent1;
     context.Replace<Hierarchy>(ent2, com2);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_TRUE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
     CheckHierarchy(context, ent0, NullEntity, NullEntity, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, NullEntity, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent1, NullEntity, NullEntity, NullEntity);
 
     Hierarchy newerCom2;
     context.Replace<Hierarchy>(ent2, newerCom2);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_TRUE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
     CheckHierarchy(context, ent0, NullEntity, NullEntity, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, NullEntity, NullEntity, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, NullEntity, NullEntity, NullEntity, NullEntity);
 }
 
-TEST_F(SceneManagerTest, HierarchyComponentDestory)
+TEST_F(HierarchyManagerTest, HierarchyComponentDestory)
 {
     eastl::array<Entity, 4> entities;
     context.CreateEntity(entities.begin(), entities.end());
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
     auto ent0 = entities[0];
     auto ent1 = entities[1];
     auto ent2 = entities[2];
@@ -247,71 +247,71 @@ TEST_F(SceneManagerTest, HierarchyComponentDestory)
     com3.parent = ent1;
     com3.prevSibling = ent2;
     context.Add<Hierarchy>(ent3, com3);
-    EXPECT_EQ(scene->GetEntityCount(), 4);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_TRUE(scene->Contain(ent2));
-    EXPECT_TRUE(scene->Contain(ent3));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 4);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
+    EXPECT_TRUE(hierarchy->Contain(ent3));
     CheckHierarchy(context, ent0, NullEntity, ent1, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, ent0, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent1, NullEntity, NullEntity, ent3);
     CheckHierarchy(context, ent3, ent1, NullEntity, ent2, NullEntity);
 
     context.Remove<Hierarchy>(ent1);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent2));
-    EXPECT_TRUE(scene->Contain(ent3));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
+    EXPECT_TRUE(hierarchy->Contain(ent3));
     CheckHierarchy(context, ent0, NullEntity, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent0, NullEntity, NullEntity, ent3);
     CheckHierarchy(context, ent3, ent0, NullEntity, ent2, NullEntity);
 
     context.Remove<Hierarchy>(ent3);
-    EXPECT_EQ(scene->GetEntityCount(), 2);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent2));
+    EXPECT_EQ(hierarchy->GetEntityCount(), 2);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
     CheckHierarchy(context, ent0, NullEntity, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent0, NullEntity, NullEntity, NullEntity);
 }
 
-TEST_F(SceneManagerTest, SetParent)
+TEST_F(HierarchyManagerTest, SetParent)
 {
     eastl::array<Entity, 4> entities;
     context.CreateEntity(entities.begin(), entities.end());
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
     auto ent0 = entities[0];
     auto ent1 = entities[1];
     auto ent2 = entities[2];
     auto ent3 = entities[3];
 
-    scene->SetParent(ent1, ent0);
-    scene->SetParent(ent2, ent1);
-    scene->SetParent(ent3, ent1);
-    EXPECT_EQ(scene->GetEntityCount(), 4);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent1));
-    EXPECT_TRUE(scene->Contain(ent2));
-    EXPECT_TRUE(scene->Contain(ent3));
+    hierarchy->SetParent(ent1, ent0);
+    hierarchy->SetParent(ent2, ent1);
+    hierarchy->SetParent(ent3, ent1);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 4);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent1));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
+    EXPECT_TRUE(hierarchy->Contain(ent3));
     CheckHierarchy(context, ent0, NullEntity, ent1, NullEntity, NullEntity);
     CheckHierarchy(context, ent1, ent0, ent3, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent1, NullEntity, ent3, NullEntity);
     CheckHierarchy(context, ent3, ent1, NullEntity, NullEntity, ent2);
 
-    scene->RemoveEntity(ent1);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent2));
-    EXPECT_TRUE(scene->Contain(ent3));
+    hierarchy->RemoveEntity(ent1);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
+    EXPECT_TRUE(hierarchy->Contain(ent3));
     CheckHierarchy(context, ent0, NullEntity, ent3, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent0, NullEntity, ent3, NullEntity);
     CheckHierarchy(context, ent3, ent0, NullEntity, NullEntity, ent2);
 
-    scene->SetParent(ent3, ent2);
-    EXPECT_EQ(scene->GetEntityCount(), 3);
-    EXPECT_TRUE(scene->Contain(ent0));
-    EXPECT_TRUE(scene->Contain(ent2));
-    EXPECT_TRUE(scene->Contain(ent3));
+    hierarchy->SetParent(ent3, ent2);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3);
+    EXPECT_TRUE(hierarchy->Contain(ent0));
+    EXPECT_TRUE(hierarchy->Contain(ent2));
+    EXPECT_TRUE(hierarchy->Contain(ent3));
     CheckHierarchy(context, ent0, NullEntity, ent2, NullEntity, NullEntity);
     CheckHierarchy(context, ent2, ent0, ent3, NullEntity, NullEntity);
     CheckHierarchy(context, ent3, ent2, NullEntity, NullEntity, NullEntity);
@@ -327,74 +327,74 @@ TEST_F(SceneManagerTest, SetParent)
  *     / | \   | \
  *    4  5  6  7  8
  */
-TEST_F(SceneManagerTest, Query)
+TEST_F(HierarchyManagerTest, Query)
 {
     eastl::array<Entity, 12> ents;
     context.CreateEntity(ents.begin(), ents.end());
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
     
-    scene->SetParent(ents[2], ents[1]);
-    scene->SetParent(ents[3], ents[1], ents[2]);
-    scene->SetParent(ents[4], ents[2]);
-    scene->SetParent(ents[5], ents[2], ents[4]);
-    scene->SetParent(ents[6], ents[2], ents[5]);
-    scene->SetParent(ents[7], ents[3]);
-    scene->SetParent(ents[8], ents[3], ents[7]);
-    scene->SetParent(ents[10], ents[9]);
-    scene->AddEntity(ents[0]);
-    scene->AddEntity(ents[11]);
+    hierarchy->SetParent(ents[2], ents[1]);
+    hierarchy->SetParent(ents[3], ents[1], ents[2]);
+    hierarchy->SetParent(ents[4], ents[2]);
+    hierarchy->SetParent(ents[5], ents[2], ents[4]);
+    hierarchy->SetParent(ents[6], ents[2], ents[5]);
+    hierarchy->SetParent(ents[7], ents[3]);
+    hierarchy->SetParent(ents[8], ents[3], ents[7]);
+    hierarchy->SetParent(ents[10], ents[9]);
+    hierarchy->AddEntity(ents[0]);
+    hierarchy->AddEntity(ents[11]);
 
-    EXPECT_EQ(scene->GetEntityCount(), 12);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 12);
 
-    eastl::vector<Entity> path = scene->GetHierarchyPath(ents[4]);
+    eastl::vector<Entity> path = hierarchy->GetHierarchyPath(ents[4]);
     EXPECT_EQ(path.size(), 2);
     EXPECT_EQ(path[0], ents[1]);
     EXPECT_EQ(path[1], ents[2]);
-    eastl::vector<Entity> path2 = scene->GetHierarchyPath(ents[8]);
+    eastl::vector<Entity> path2 = hierarchy->GetHierarchyPath(ents[8]);
     EXPECT_EQ(path2.size(), 2);
     EXPECT_EQ(path2[0], ents[1]);
     EXPECT_EQ(path2[1], ents[3]);
 
-    EXPECT_TRUE(scene->IsAncestor(ents[5], ents[1]));
-    EXPECT_TRUE(scene->IsAncestor(ents[7], ents[3]));
-    EXPECT_TRUE(scene->IsAncestor(ents[10], ents[9]));
-    EXPECT_FALSE(scene->IsAncestor(ents[11], ents[0]));
-    EXPECT_FALSE(scene->IsAncestor(ents[7], ents[2]));
+    EXPECT_TRUE(hierarchy->IsAncestor(ents[5], ents[1]));
+    EXPECT_TRUE(hierarchy->IsAncestor(ents[7], ents[3]));
+    EXPECT_TRUE(hierarchy->IsAncestor(ents[10], ents[9]));
+    EXPECT_FALSE(hierarchy->IsAncestor(ents[11], ents[0]));
+    EXPECT_FALSE(hierarchy->IsAncestor(ents[7], ents[2]));
 
-    EXPECT_EQ(scene->GetEntityRoot(ents[5]), ents[1]);
-    EXPECT_EQ(scene->GetEntityRoot(ents[6]), ents[1]);
-    EXPECT_EQ(scene->GetEntityRoot(ents[10]), ents[9]);
-    EXPECT_EQ(scene->GetEntityRoot(ents[11]), ents[11]);
+    EXPECT_EQ(hierarchy->GetEntityRoot(ents[5]), ents[1]);
+    EXPECT_EQ(hierarchy->GetEntityRoot(ents[6]), ents[1]);
+    EXPECT_EQ(hierarchy->GetEntityRoot(ents[10]), ents[9]);
+    EXPECT_EQ(hierarchy->GetEntityRoot(ents[11]), ents[11]);
 
-    eastl::vector<Entity> roots = scene->GetRootEntities();
+    eastl::vector<Entity> roots = hierarchy->GetRootEntities();
     EXPECT_EQ(roots.size(), 4);
     //EXPECT_TRUE(roots.contains(ents[1]));
     //EXPECT_TRUE(roots.contains(ents[9]));
     //EXPECT_TRUE(roots.contains(ents[11]));
     //EXPECT_TRUE(roots.contains(ents[0]));
 
-    eastl::vector<Entity> children = scene->GetChildren(ents[1]);
+    eastl::vector<Entity> children = hierarchy->GetChildren(ents[1]);
     ASSERT_EQ(children.size(), 2);
     EXPECT_EQ(children[0], ents[2]);
     EXPECT_EQ(children[1], ents[3]);
-    eastl::vector<Entity> children2 = scene->GetChildren(ents[2]);
+    eastl::vector<Entity> children2 = hierarchy->GetChildren(ents[2]);
     ASSERT_EQ(children2.size(), 3);
     EXPECT_EQ(children2[0], ents[4]);
     EXPECT_EQ(children2[1], ents[5]);
     EXPECT_EQ(children2[2], ents[6]);
-    eastl::vector<Entity> children3 = scene->GetChildren(ents[9]);
+    eastl::vector<Entity> children3 = hierarchy->GetChildren(ents[9]);
     ASSERT_EQ(children3.size(), 1);
     EXPECT_EQ(children3[0], ents[10]);
-    eastl::vector<Entity> empty = scene->GetChildren(ents[11]);
+    eastl::vector<Entity> empty = hierarchy->GetChildren(ents[11]);
     ASSERT_EQ(empty.size(), 0);
 
-    EXPECT_EQ(scene->GetDepth(ents[0]), 0);
-    EXPECT_EQ(scene->GetDepth(ents[1]), 0);
-    EXPECT_EQ(scene->GetDepth(ents[2]), 1);
-    EXPECT_EQ(scene->GetDepth(ents[7]), 2);
+    EXPECT_EQ(hierarchy->GetDepth(ents[0]), 0);
+    EXPECT_EQ(hierarchy->GetDepth(ents[1]), 0);
+    EXPECT_EQ(hierarchy->GetDepth(ents[2]), 1);
+    EXPECT_EQ(hierarchy->GetDepth(ents[7]), 2);
 
-    eastl::vector<eastl::pair<Entity, uint32_t>> tree = scene->GetEntityTree();
+    eastl::vector<eastl::pair<Entity, uint32_t>> tree = hierarchy->GetEntityTree();
     ASSERT_EQ(tree.size(), 12);
 
     auto GetSpace = [](uint32_t num)
@@ -414,22 +414,22 @@ TEST_F(SceneManagerTest, Query)
     }
 }
 
-TEST_F(SceneManagerTest, Patch)
+TEST_F(HierarchyManagerTest, Patch)
 {
     eastl::array<Entity, 4> entities;
     context.CreateEntity(entities.begin(), entities.end());
-    ASSERT_TRUE(Service<IScene>::Get());
-    auto scene = Service<IScene>::Get();
+    ASSERT_TRUE(Service<IHierarchy>::Get());
+    auto hierarchy = Service<IHierarchy>::Get();
     auto ent0 = entities[0];
     auto ent1 = entities[1];
     auto ent2 = entities[2];
     auto ent3 = entities[3];
 
-    scene->SetParent(ent1, ent0);
-    scene->SetParent(ent2, ent1);
-    scene->SetParent(ent3, ent1);
+    hierarchy->SetParent(ent1, ent0);
+    hierarchy->SetParent(ent2, ent1);
+    hierarchy->SetParent(ent3, ent1);
 
-    scene->PatchEntityHierarchy(ent1, [&](Entity entity){
+    hierarchy->PatchEntityHierarchy(ent1, [&](Entity entity){
         context.Add<Name>(entity, eastl::to_string(uint32_t(entity)));
     });
 

@@ -1,7 +1,7 @@
 #include <ECS/ISystem.h>
 #include <ECS/SystemTraits.h>
 #include <ECS/Common.h>
-#include <SceneManager/Component/HierarchyComponent.h>
+#include <Hierarchy/HierarchyComponent.h>
 #include <Tick/TickBus.h>
 
 #include "Components.h"

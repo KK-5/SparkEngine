@@ -8,7 +8,7 @@
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <VFS/VFSSystem.h>
-#include <SceneManager/SceneManager.h>
+#include <Hierarchy/HierarchyManager.h>
 #include <EntityReaper/EntityReaper.h>
 #include <Render/RenderSystem.h>
 #include <Input/InputSystem.h>
@@ -63,7 +63,7 @@ namespace Spark
         UniquePtr<SpdLogSystem>                      m_logSystem;
         SystemUniquePtr<VFSSystem>                   m_vfs;
         SystemUniquePtr<Input::InputSystem>          m_inputSystem;
-        SystemUniquePtr<SceneManager>                m_sceneManager;
+        SystemUniquePtr<HierarchyManager>                m_hierarchyManager;
         SystemUniquePtr<Transform::TransformSystem>  m_transformSystem;
         SystemUniquePtr<Camera::CameraSystem>        m_cameraSystem;
         SystemUniquePtr<EntityReaper>                m_entityReaper;

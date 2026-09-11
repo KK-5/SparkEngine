@@ -6,7 +6,7 @@ set(CORE_SOURCES
     Log/SpdLogSystem.cpp
     Memory/Memory.cpp
     Memory/PoolAllocator.cpp
-    SceneManager/SceneManager.cpp
+    Hierarchy/HierarchyManager.cpp
     Reflection/TypeRegistry.cpp
     Serialization/EntityJson.cpp
     Serialization/JsonSerializer.cpp

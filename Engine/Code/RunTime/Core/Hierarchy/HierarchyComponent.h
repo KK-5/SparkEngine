@@ -13,7 +13,7 @@ namespace Spark
     /// If you provide incorrect information, this information will be reported to the Scene for ignoring, 
     /// but the component will not be modified or removed.
     ///
-    /// It is recommended to use the interfaces provided in IScene, as they automatically manage 
+    /// It is recommended to use the interfaces provided in IHierarchy, as they automatically manage 
     /// the Hierarchy component.
     struct Hierarchy
     {

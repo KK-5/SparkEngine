@@ -4,9 +4,9 @@
 #include <ECS/ExecuteContext.h>
 #include <ECS/Merge/ContextMerge.h>
 #include <CoreComponents/Name.h>
-#include <SceneManager/Component/HierarchyComponent.h>
+#include <Hierarchy/HierarchyComponent.h>
 #include <Math/MathUtils.h>
-#include <SceneManager/IScene.h>
+#include <Hierarchy/IHierarchy.h>
 #include <Service/Service.h>
 
 #include <Transform/Components.h>
@@ -62,7 +62,7 @@ namespace Spark::Spawn
             return staging;
         }
 
-        IScene* scene = Service<IScene>::Get();
+        IHierarchy* hierarchy = Service<IHierarchy>::Get();
 
         auto* matCtx = Material::MaterialExecuteContext::Current();
 
@@ -102,7 +102,7 @@ namespace Spark::Spawn
             staging.Add<Transform::TransformComponent>(nodeEntity, transformComp);
             nodeEntities[i] = nodeEntity;
 
-            if (scene)
+            if (hierarchy)
             {
                 // The world learns about these entities once, when the batch is merged.
                 staging.Add<Hierarchy>(nodeEntity);
@@ -140,15 +140,15 @@ namespace Spark::Spawn
                         primEntity, Material::MaterialComponent{ mat });
                 }
 
-                if (scene)
+                if (hierarchy)
                 {
-                    scene->SetParent(staging, primEntity, nodeEntity);
+                    hierarchy->SetParent(staging, primEntity, nodeEntity);
                 }
             }
         }
 
         // Second pass: wire up node-to-node parent relationships
-        if (scene)
+        if (hierarchy)
         {
             for (size_t i = 0; i < nodeCount; ++i)
             {
@@ -162,7 +162,7 @@ namespace Spark::Spawn
                 Entity parentEntity = nodeEntities[static_cast<size_t>(node->parent)];
                 if (childEntity != NullEntity && parentEntity != NullEntity)
                 {
-                    scene->SetParent(staging, childEntity, parentEntity);
+                    hierarchy->SetParent(staging, childEntity, parentEntity);
                 }
             }
         }

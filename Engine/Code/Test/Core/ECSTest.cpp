@@ -12,7 +12,7 @@
 #include <Service/Service.h>
 #include <Log/ILogSystem.h>
 #include <CoreComponents/Name.h>
-#include <SceneManager/Component/HierarchyComponent.h>
+#include <Hierarchy/HierarchyComponent.h>
 
 #include <iostream>
 

@@ -9,9 +9,9 @@
 #include <ECS/StagingContext.h>
 #include <ECS/Merge/ContextMerge.h>
 #include <Service/Service.h>
-#include <SceneManager/Component/HierarchyComponent.h>
-#include <SceneManager/IScene.h>
-#include <SceneManager/SceneManager.h>
+#include <Hierarchy/HierarchyComponent.h>
+#include <Hierarchy/IHierarchy.h>
+#include <Hierarchy/HierarchyManager.h>
 #include <CoreComponents/Name.h>
 
 #include <EASTL/algorithm.h>
@@ -450,18 +450,18 @@ protected:
     void SetUp() override
     {
         WorldExecuteContext::Push(world);
-        sceneManager = CreateSystem<SceneManager>();
-        sceneManager->Init();
+        hierarchyManager = CreateSystem<HierarchyManager>();
+        hierarchyManager->Init();
     }
 
     void TearDown() override
     {
-        sceneManager.reset();
+        hierarchyManager.reset();
         WorldExecuteContext::Pop();
         world.Clear();
     }
 
-    SystemUniquePtr<SceneManager> sceneManager;
+    SystemUniquePtr<HierarchyManager> hierarchyManager;
     WorldContext world;
 };
 
@@ -492,11 +492,11 @@ TEST_F(MergeSceneTest, MergePreservesAnAlreadyLinkedTree)
 
 TEST_F(MergeSceneTest, TheBatchIsLinkedUnderAnExistingParentAfterTheMerge)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     Entity host = world.CreateEntity();
-    scene->AddEntity(host);
+    hierarchy->AddEntity(host);
 
     StagingContext<Entity> staging;
     Entity incoming = staging.CreateEntity();
@@ -509,7 +509,7 @@ TEST_F(MergeSceneTest, TheBatchIsLinkedUnderAnExistingParentAfterTheMerge)
     EXPECT_TRUE(world.Has<HierarchyRootTag>(merged));
 
     // A live entity cannot be named from inside staging, so the boundary edge is made here.
-    scene->SetParent(merged, host);
+    hierarchy->SetParent(merged, host);
 
     EXPECT_EQ(world.Get<Hierarchy>(host).firstChild, merged);
     EXPECT_EQ(world.Get<Hierarchy>(merged).parent, host);
@@ -518,14 +518,14 @@ TEST_F(MergeSceneTest, TheBatchIsLinkedUnderAnExistingParentAfterTheMerge)
 
 TEST_F(MergeSceneTest, AddEntitiesStillBehaves)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     eastl::array<Entity, 3> entities;
     world.CreateEntity(entities.begin(), entities.end());
-    scene->AddEntities(eastl::span<Entity>(entities.data(), entities.size()));
+    hierarchy->AddEntities(eastl::span<Entity>(entities.data(), entities.size()));
 
-    EXPECT_EQ(scene->GetEntityCount(), 3u);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3u);
     for (Entity entity : entities)
     {
         EXPECT_TRUE(world.Has<HierarchyRootTag>(entity));
@@ -626,8 +626,8 @@ TEST(MergeTest, ExtractThenMergeRoundTrips)
 
 TEST_F(MergeSceneTest, SetParentBuildsATreeInStaging)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     StagingContext<Entity> staging;
     Entity root = staging.CreateEntity();
@@ -635,8 +635,8 @@ TEST_F(MergeSceneTest, SetParentBuildsATreeInStaging)
     Entity second = staging.CreateEntity();
 
     // Nothing watches a staging context, so SetParent has to finish the job itself.
-    scene->SetParent(staging, first, root);
-    scene->SetParent(staging, second, root);
+    hierarchy->SetParent(staging, first, root);
+    hierarchy->SetParent(staging, second, root);
 
     // Prepends, same as the world overload does when no prevSibling is given.
     EXPECT_EQ(staging.Get<Hierarchy>(root).firstChild, second);
@@ -655,21 +655,21 @@ TEST_F(MergeSceneTest, SetParentBuildsATreeInStaging)
     EXPECT_EQ(world.Get<Hierarchy>(first).parent, root);
     EXPECT_TRUE(world.Has<HierarchyRootTag>(root));
     EXPECT_FALSE(world.Has<HierarchyRootTag>(first));
-    EXPECT_EQ(scene->GetEntityCount(), 3u);
+    EXPECT_EQ(hierarchy->GetEntityCount(), 3u);
 }
 
 TEST_F(MergeSceneTest, SetParentOnStagingMovesAnExistingChild)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     StagingContext<Entity> staging;
     Entity firstParent = staging.CreateEntity();
     Entity secondParent = staging.CreateEntity();
     Entity child = staging.CreateEntity();
 
-    scene->SetParent(staging, child, firstParent);
-    scene->SetParent(staging, child, secondParent);
+    hierarchy->SetParent(staging, child, firstParent);
+    hierarchy->SetParent(staging, child, secondParent);
 
     EXPECT_EQ(staging.Get<Hierarchy>(child).parent, secondParent);
     EXPECT_EQ(staging.Get<Hierarchy>(secondParent).firstChild, child);
@@ -678,8 +678,8 @@ TEST_F(MergeSceneTest, SetParentOnStagingMovesAnExistingChild)
 
 TEST_F(MergeSceneTest, SetParentOnStagingRejectsAForeignPrevSibling)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     StagingContext<Entity> staging;
     Entity parentA = staging.CreateEntity();
@@ -687,10 +687,10 @@ TEST_F(MergeSceneTest, SetParentOnStagingRejectsAForeignPrevSibling)
     Entity childOfB = staging.CreateEntity();
     Entity newcomer = staging.CreateEntity();
 
-    scene->SetParent(staging, childOfB, parentB);
+    hierarchy->SetParent(staging, childOfB, parentB);
 
     // childOfB belongs to parentB, so it cannot be a sibling under parentA.
-    scene->SetParent(staging, newcomer, parentA, childOfB);
+    hierarchy->SetParent(staging, newcomer, parentA, childOfB);
 
     EXPECT_FALSE(staging.Has<Hierarchy>(newcomer));
     EXPECT_EQ(staging.Get<Hierarchy>(parentA).firstChild, NullEntity);
@@ -735,16 +735,16 @@ TEST_F(MergeSceneTest, MergeATreeIntoANonEmptyWorld)
 
 TEST_F(MergeSceneTest, ReparentingKeepsExistingChildrenInStaging)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     StagingContext<Entity> staging;
     Entity root = staging.CreateEntity();
     Entity node = staging.CreateEntity();
     Entity prim = staging.CreateEntity();
 
-    scene->SetParent(staging, prim, node);
-    scene->SetParent(staging, node, root);
+    hierarchy->SetParent(staging, prim, node);
+    hierarchy->SetParent(staging, node, root);
 
     EXPECT_EQ(staging.Get<Hierarchy>(node).firstChild, prim);
     EXPECT_EQ(staging.Get<Hierarchy>(prim).parent, node);
@@ -752,18 +752,18 @@ TEST_F(MergeSceneTest, ReparentingKeepsExistingChildrenInStaging)
 
 TEST_F(MergeSceneTest, ReparentingKeepsExistingChildrenInTheWorld)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     Entity root = world.CreateEntity();
     Entity node = world.CreateEntity();
     Entity prim = world.CreateEntity();
-    scene->AddEntity(root);
-    scene->AddEntity(node);
-    scene->AddEntity(prim);
+    hierarchy->AddEntity(root);
+    hierarchy->AddEntity(node);
+    hierarchy->AddEntity(prim);
 
-    scene->SetParent(prim, node);
-    scene->SetParent(node, root);
+    hierarchy->SetParent(prim, node);
+    hierarchy->SetParent(node, root);
 
     EXPECT_EQ(world.Get<Hierarchy>(node).firstChild, prim);
     EXPECT_EQ(world.Get<Hierarchy>(prim).parent, node);
@@ -773,8 +773,8 @@ TEST_F(MergeSceneTest, ReparentingKeepsExistingChildrenInTheWorld)
 // the same two passes -- primitives first, node-to-node links after.
 TEST_F(MergeSceneTest, MergeAModelShapedTree)
 {
-    auto* scene = Service<IScene>::Get();
-    ASSERT_TRUE(scene);
+    auto* hierarchy = Service<IHierarchy>::Get();
+    ASSERT_TRUE(hierarchy);
 
     world.CreateEntity();
 
@@ -788,8 +788,8 @@ TEST_F(MergeSceneTest, MergeAModelShapedTree)
     staging.Add<Hierarchy>(rootNode);
     staging.Add<Hierarchy>(childNode);
 
-    scene->SetParent(staging, prim, childNode);
-    scene->SetParent(staging, childNode, rootNode);
+    hierarchy->SetParent(staging, prim, childNode);
+    hierarchy->SetParent(staging, childNode, rootNode);
 
     auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Name, Hierarchy>(
         world, eastl::move(staging));

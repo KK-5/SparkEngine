@@ -12,18 +12,18 @@
 namespace Spark
 {
 
-    class IScene
+    class IHierarchy
     {
     public:
         virtual size_t GetEntityCount() const = 0;
 
-        /// @brief Add an entity to the scene(Add a Hierarchy component to the entity)
+        /// @brief Put an entity into the hierarchy (give it a Hierarchy component)
         /// @param entity 
         virtual void AddEntity(Entity entity) = 0;
 
         virtual void AddEntities(eastl::span<Entity> entities) = 0;
 
-        /// @brief Remove an entity from the scene (Remove Hierarchy component on the entity)
+        /// @brief Take an entity out of the hierarchy (remove its Hierarchy component)
         /// @param entity 
         virtual void RemoveEntity(Entity entity) = 0;
 
@@ -43,7 +43,7 @@ namespace Spark
 
         virtual size_t GetDepth(Entity entity) const = 0;
 
-        /// @brief Get DFS tree of all entities in scene
+        /// @brief Get DFS tree of every entity in the hierarchy
         /// @return pair.first -- entity
         ///         pair.second -- entity's depth
         virtual eastl::vector<eastl::pair<Entity, uint32_t>> GetEntityTree() const = 0;

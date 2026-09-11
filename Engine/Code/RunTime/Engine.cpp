@@ -51,8 +51,8 @@ namespace Spark
         m_entityReaper = CreateSystem<EntityReaper>();
         m_entityReaper->Init();
 
-        m_sceneManager = CreateSystem<SceneManager>();
-        m_sceneManager->Init();
+        m_hierarchyManager = CreateSystem<HierarchyManager>();
+        m_hierarchyManager->Init();
 
         m_transformSystem = CreateSystem<Transform::TransformSystem>();
         m_transformSystem->Init();
