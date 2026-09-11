@@ -8,6 +8,7 @@ set(CORE_SOURCES
     Memory/PoolAllocator.cpp
     SceneManager/SceneManager.cpp
     Reflection/TypeRegistry.cpp
+    Serialization/EntityJson.cpp
     Serialization/JsonSerializer.cpp
     Object/Object.cpp
     Math/Interval.cpp

@@ -105,19 +105,49 @@ context.Reflect<Resource::StandardPBR>().Traits(ComponentTraits<Resource::Standa
 成立的依据仍是 `bucket{parent}`：新建的 factory 从类型级开始。**规则因此是「紧跟 `.Type()`，
 或自成一句」，不是「只能紧跟 `.Type()`」**——类型的反射链在下层模块时，后者是唯一的写法。
 
-## Step 2　实体句柄的 `JsonOperation`
+## Step 2　实体句柄的 `JsonOperation` ✅ 已完成
 
-1. Core 注册 `Entity` 的一对：`toJson` 写 `uint32` 原值，空/悬空写 `null`；`fromJson` 反之，`null` → 空句柄。
-2. `SparkMaterial` 注册 `MaterialHandle` 的一对，形状相同。
-3. `MaterialComponent::m_material` 标 `Serializable`，字段 key 改 `"Handle"`（避免 `{"Material":{"Material":4}}` 叠字）。
+1. `Core/Serialization/EntityJson.h` / `.cpp`：编码本体是一份，`EntityToJsonField<E>` /
+   `EntityFromJsonField<E>` 是模板，两个上下文的句柄类型共用，**不可能分叉成两种落盘形式**。
+   函数体落在 `.cpp` 里：`Json.h` 只前置声明 `JsonValue`，头文件碰不得它的成员，所以模板那一层
+   只做 `static_cast` 和空值判断，真正接触 JSON 的是 `SerializeDetail::HandleToJson` /
+   `HandleFromJson`。
+2. Core 注册 `Entity` 的一对，`SparkMaterial` 注册 `MaterialHandle` 的一对 —— 后者正落在
+   「material 的身份策略从 `SparkMaterial` 注册进来」那条划线上。两个类型都补了反射名
+   （`.Type("Entity")` / `.Type("MaterialHandle")`），否则诊断日志里是 `<unnamed>`；名字只改
+   `elem.id`，不影响 Step 3 那张按 `type.info().hash()` 建的表。
+3. `MaterialComponent::m_material` 加 `Serializable`。
 
-**「悬空写 null」需要一个上下文，而 `toJson` 只拿到 `MetaAny`。** 做法：场景模块在写/读期间压一个作用域
-守卫（含 `bool(*isValid)(uint32)`），`JsonOperation` 有就查、没有就退回「只判 `== Null`」。与
-`ExecuteContext` 的线程局部栈同一个惯用法，Core 仍然不认识任何具体上下文。
+读侧三分，与 `AssetIdFromJsonField` 同一套判据：`null` = 未指定 → 空句柄 + true；无符号数 → 解码；
+其它类型 = 坏文件 → `LOG_WARN` + false（`JsonOperation` 失败不回落到通用分派）。
 
-读侧「值在文件里但映射查不到」是坏文件：`LOG_WARN` + 空句柄，与「未指定 = `null`」分开。
+判据：`JsonSerializerTest` 六例 + `MaterialSerializeTest` 两例，全绿。
 
-判据：`JsonSerializerTest` 加一例——带句柄字段的结构体 round-trip，空句柄回来仍是空。
+### 三处推翻了原计划
+
+**一、不做 `!Valid(handle)`，只编码哨兵值。** 阶段 4 原文要求「空与悬空一律写 `null`，判据是
+`!Valid(handle)` 而不是 `== Null`」，依据是消费端把两者一视同仁
+（`InstanceBindingSystem.cpp:55`）。**那是渲染期的兜底**（句柄坏了这一帧也得画出来），不能反推
+文件该这么写。
+
+这个仓库里实体引用都有明确的维护者——`Hierarchy` 的四个字段由 `SceneManager::OnComponentDestory`
+在销毁时补链（`SceneManager.cpp:696`），材质实体在阶段 3 删掉 GC 之后不会被销毁。**所以活世界里
+出现悬空引用 = 维护者有 bug，序列化器把它静默改写成 `null` 是在销毁证据**：存盘看着正常，重载
+之后行为又变一次。序列化器照实写，加载时 `MergeTranslate` 自会丢弃并 `LOG_ERROR`。
+
+顺带作废了中间那版方案——「用 `WorldExecuteContext::Current()` 取上下文来验」：`Current()` 给的是
+环境里恰好压在栈顶的世界，不是正在被写的容器。序列化暂存上下文时（prefab、复制粘贴）里面的编号
+在活世界里全都无效，**每个引用都会被静默写成 `null`**；而且 `s_current` 是 `static inline`、不是
+`thread_local`（`ExecuteContext.h:50`——`CLAUDE.md` 里「thread-local context stack」的说法与代码
+不符）。
+
+**二、不新增 `MetaFieldTraits::EntityRef`**（已在本文前面记过），区分依据是字段类型。
+
+**三、`MaterialComponent::m_material` 的字段名不改。** 阶段 4 要求改成 `"Handle"` 以避开
+`{"Material":{"Material":4}}` 的叠字。但 `DrawMaterialSlot` 拿 `data.name()` 当材质槽那一行的
+标签（`MaterialSlot.cpp:167`），改完 Inspector 里会显示 "Handle" ——说的是存储形式，不是这一行的
+含义。**按阶段 4 自己那条判据**（「可读性不是理由——引擎开发者有 debugger 和日志」），一名两用的
+两头冲突时让步的该是不被人读的那一头。叠字没有歧义成本：两个 `Material` 在不同层级上。
 
 ## Step 3　`Hierarchy` 反射 + 写侧
 
@@ -133,6 +163,14 @@ context.Reflect<Resource::StandardPBR>().Traits(ComponentTraits<Resource::Standa
 5. `SceneSerializer::Save(path)`：遍历两个上下文写 storage-major；per-entity 两个例外——默认材质实体、
    带编辑态 tag 的实体。
 6. MenuBar 的 `Save Scene` 接上，**第一版固定路径** `project://Scenes/Scene.scene`。
+
+**待决：保存与收割的时序。** `Inspector` 删实体只打 `DeadTag`，`EntityReaper` 到 `TICK_LAST` 才
+销毁，而链接修补挂在销毁事件上。在这之间保存（MenuBar 与 Inspector 画在同一个 UI pass 里，够得着），
+那个实体还活着、还挂在树上，会被当成正常实体写进文件。`Valid()` 遮不掉它——它那时确实有效。解法在
+时序：保存命令排在收割之后，或保存前先跑一次收割。动工时定。
+
+**若那时仍想让文件干净**：写侧自己压一个带 `isValid` 的作用域守卫，名字来自它正在遍历的那个容器
+（不是环境）。那是纯加法，而且只有到这一步才有正确的容器可用——见 Step 2 的「三处推翻」。
 
 判据：新建 `Test/Scene` 目标，建实体 + 层级 + 材质 → `Save` → 比对 JSON 文本。**格式在这一步冻结。**
 

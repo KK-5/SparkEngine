@@ -3,6 +3,8 @@
 #include <Reflection/ReflectContext.h>
 #include <Reflection/TypeRegistry.h>
 #include <Reflection/Utility.h>
+#include <Serialization/EntityJson.h>
+#include <Serialization/JsonSerializer.h>
 #include <Serialization/UIElement.h>
 
 #include <Resource/Material/Reflect.h>
@@ -14,6 +16,13 @@ namespace Spark::Material
 {
     static void Reflect(Spark::ReflectContext& context)
     {
+        // Same pair Core registers for Entity: a material entity is addressed the same
+        // way, and the scene file writes both.
+        context.Reflect<MaterialHandle>().Type("MaterialHandle");
+        Spark::ReflectJsonOperation<MaterialHandle,
+            &Spark::EntityToJsonField<MaterialHandle>,
+            &Spark::EntityFromJsonField<MaterialHandle>>(context);
+
         // StandardPBR's fields are reflected by the asset layer (Resource/Material/Reflect.h);
         // what belongs here is the binding that makes it a component. NOT a world component —
         // it lives on material entities in the MaterialContext, reached indirectly (rendered
@@ -59,6 +68,7 @@ namespace Spark::Material
         context.Reflect<MaterialComponent>()
             .Type("Material").Traits(ComponentTraits<MaterialComponent>::flags)
             .Data<&MaterialComponent::m_material>("Material").Custom<Spark::MaterialRefElement>(false)
+                .Traits(MetaFieldTraits::Serializable)
             ;
 
         Spark::ComponentOperation<MaterialComponent>(context);

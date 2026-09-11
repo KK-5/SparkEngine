@@ -10,6 +10,8 @@
 #include "Math/Vector3.h"
 #include "Math/Vector4.h"
 #include "Math/Quaternion.h"
+#include "Serialization/EntityJson.h"
+#include "Serialization/JsonSerializer.h"
 #include "Serialization/UIElement.h"
 #include "Serialization/MetaFieldTraits.h"
 
@@ -17,6 +19,11 @@ namespace Spark
 {
     static void Reflect(ReflectContext& context)
     {
+        // Named so diagnostics can say which type refused a value; it is part of the
+        // on-disk format now, and an unnamed meta type logs as <unnamed>.
+        context.Reflect<Entity>().Type("Entity");
+        ReflectJsonOperation<Entity, &EntityToJsonField<Entity>, &EntityFromJsonField<Entity>>(context);
+
 
         // Components are marked even where no field uses them yet (Vector2, Quaternion):
         // an unmarked one is still a class, so it would take the object branch, find no

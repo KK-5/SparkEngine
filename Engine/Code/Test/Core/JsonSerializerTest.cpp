@@ -5,7 +5,10 @@
 #include <EASTL/string.h>
 #include <EASTL/vector.h>
 
+#include <ECS/Entity.h>
+#include <ECS/WorldContext.h>
 #include <Reflection/ReflectContext.h>
+#include <Serialization/EntityJson.h>
 #include <Serialization/JsonSerializer.h>
 #include <Serialization/MetaFieldTraits.h>
 
@@ -411,4 +414,102 @@ TEST_F(JsonOperationTest, TypeWithoutAnOperationIsUnaffected)
     const Stage stage{"main", 2, true};
     ASSERT_TRUE(SerializeToJson(m_context.Resolve<Stage>().from_void(&stage), json));
     EXPECT_EQ(json.dump(), R"({"entry":"main","order":2,"optional":true})");
+}
+
+namespace
+{
+    struct Link
+    {
+        Entity        target = NullEntity;
+        eastl::string label;
+    };
+
+    class EntityJsonTest : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            ReflectJsonOperation<Entity, &EntityToJsonField<Entity>, &EntityFromJsonField<Entity>>(m_context);
+
+            m_context.Reflect<Link>()
+                .Type("Link")
+                .Data<&Link::target>("target").Traits(MetaFieldTraits::Serializable)
+                .Data<&Link::label>("label").Traits(MetaFieldTraits::Serializable);
+        }
+
+        ReflectContext m_context;
+    };
+}
+
+TEST_F(EntityJsonTest, IdentifierIsWrittenRaw)
+{
+    // Version included: the value IS the identifier, and two entities sharing a slot
+    // differ only there.
+    const Link link{static_cast<Entity>(65537u), "child"};
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Link>().from_void(&link), json));
+    EXPECT_EQ(json.dump(), R"({"target":65537,"label":"child"})");
+}
+
+TEST_F(EntityJsonTest, UnsetIsNull)
+{
+    const Link link{NullEntity, "root"};
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Link>().from_void(&link), json));
+    EXPECT_EQ(json.dump(), R"({"target":null,"label":"root"})");
+}
+
+TEST_F(EntityJsonTest, RoundTrips)
+{
+    const Link original{static_cast<Entity>(65537u), "child"};
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Link>().from_void(&original), json));
+
+    Link    decoded;
+    MetaAny target = m_context.Resolve<Link>().from_void(&decoded);
+    ASSERT_TRUE(DeserializeFromJson(json, target));
+
+    EXPECT_EQ(decoded.target, original.target);
+    EXPECT_EQ(decoded.label, "child");
+}
+
+TEST_F(EntityJsonTest, NullRoundTripsToUnset)
+{
+    Link    decoded{static_cast<Entity>(7u), {}};
+    MetaAny target = m_context.Resolve<Link>().from_void(&decoded);
+
+    const JsonValue json = JsonValue::parse(R"({"target":null})");
+    ASSERT_TRUE(DeserializeFromJson(json, target));
+    EXPECT_EQ(decoded.target, NullEntity);
+}
+
+TEST_F(EntityJsonTest, ADestroyedEntityIsStillWrittenOut)
+{
+    // The serializer does not ask whether a reference still names a live entity. Its
+    // owner is what keeps it correct; rewriting a broken one here would hide that bug
+    // and make the reload behave differently from the session that saved it.
+    WorldContext world;
+    const Entity entity = world.CreateEntity();
+    world.DestoryEntity(entity);
+    ASSERT_FALSE(world.Valid(entity));
+
+    ExecuteContextGuard<Entity> guard(world);
+
+    const Link link{entity, "stale"};
+    JsonValue  json;
+    ASSERT_TRUE(SerializeToJson(m_context.Resolve<Link>().from_void(&link), json));
+    EXPECT_EQ(json["target"].get<uint32_t>(), static_cast<uint32_t>(entity));
+}
+
+TEST_F(EntityJsonTest, ABadValueIsRejectedWithoutTouchingTheField)
+{
+    Link    decoded{static_cast<Entity>(7u), {}};
+    MetaAny target = m_context.Resolve<Link>().from_void(&decoded);
+
+    const JsonValue json = JsonValue::parse(R"({"target":"65537"})");
+    EXPECT_FALSE(DeserializeFromJson(json, target));
+    EXPECT_EQ(decoded.target, static_cast<Entity>(7u));
 }

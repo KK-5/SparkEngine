@@ -157,3 +157,32 @@ TEST(MaterialSerializeTest, DefaultParamsSurviveARoundTrip)
     EXPECT_FLOAT_EQ(decoded.m_baseColor.r, params.m_baseColor.r);
     EXPECT_FALSE(decoded.m_textures[kBaseColorSlot].IsValid());
 }
+
+TEST(MaterialSerializeTest, MaterialComponentRoundTrips)
+{
+    // The world-side half: a reference to a material entity, encoded by MaterialHandle's
+    // JsonOperation rather than walked as a field.
+    const MetaType type = TypeRegistry::GetContext().Resolve<MaterialComponent>();
+    ASSERT_TRUE(type);
+
+    const MaterialComponent component{static_cast<MaterialHandle>(65537u)};
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(type.from_void(&component), json));
+    EXPECT_EQ(json.dump(), R"({"Material":65537})");
+
+    MaterialComponent decoded;
+    MetaAny           target = type.from_void(&decoded);
+    ASSERT_TRUE(DeserializeFromJson(json, target));
+    EXPECT_EQ(decoded.m_material, component.m_material);
+}
+
+TEST(MaterialSerializeTest, AnObjectWithNoMaterialWritesNull)
+{
+    const MaterialComponent component;   // NullMaterial
+
+    JsonValue json;
+    ASSERT_TRUE(SerializeToJson(
+        TypeRegistry::GetContext().Resolve<MaterialComponent>().from_void(&component), json));
+    EXPECT_TRUE(json["Material"].is_null());
+}
