@@ -3,8 +3,11 @@
 #include <EASTL/string.h>
 #include <EASTL/string_view.h>
 #include <EASTL/utility.h>
+#include <EASTL/vector.h>
 
 #include <entt/entt.hpp>
+
+#include <Reflection/RTTI.h>
 
 #include "CoreComponents/Name.h"
 
@@ -28,6 +31,16 @@ namespace Spark
     {
     public:
         using Entity = EntityType;
+
+        /// @brief A component storage with its type erased. The only entt type this class
+        /// hands out, and the reason GetStorages() can exist without exposing the registry.
+        using ComponentStorage = typename entt::basic_registry<EntityType>::common_type;
+
+        struct StorageEntry
+        {
+            TypeId                  type;
+            const ComponentStorage* storage;
+        };
 
         ContextStorage(const ContextStorage&) = delete;
         ContextStorage& operator=(const ContextStorage&) = delete;
@@ -220,6 +233,45 @@ namespace Spark
         decltype(auto) GetStorage() const
         {
             return eastl::as_const(m_registry).template storage<T>();
+        }
+
+        /// @brief Every component storage, type-erased, for a reflection-driven walk --
+        /// today only the scene writer. Business code that wants one component should name
+        /// it: GetStorage<T>() is that path, and being explicit is the point.
+        ///
+        /// A snapshot rather than a callback or a view: the caller decides the order (the
+        /// registry's own is the order storages happened to be created in, which is no
+        /// basis for a file), and nothing it does during the walk can invalidate what it
+        /// already holds. The entity storage is not in here -- see GetEntities().
+        eastl::vector<StorageEntry> GetStorages() const
+        {
+            eastl::vector<StorageEntry> result;
+            for (auto&& [id, storage] : eastl::as_const(m_registry).storage())
+            {
+                if (id != entt::type_hash<EntityType>::value())
+                {
+                    result.push_back({id, &storage});
+                }
+            }
+            return result;
+        }
+
+        /// @brief Every live entity. Goes through each(): the entity storage keeps destroyed
+        /// identifiers in its packed array for reuse, so iterating it directly yields them too.
+        eastl::vector<Entity> GetEntities() const
+        {
+            eastl::vector<Entity> result;
+            const auto* storage = eastl::as_const(m_registry).template storage<EntityType>();
+            if (storage != nullptr)
+            {
+                result.reserve(storage->free_list());
+                // each() hands out extended tuples, one element wide for the entity storage.
+                for (auto [entity] : storage->each())
+                {
+                    result.push_back(entity);
+                }
+            }
+            return result;
         }
 
         // Public and non-virtual on purpose. Nobody deletes a context through this type, so the

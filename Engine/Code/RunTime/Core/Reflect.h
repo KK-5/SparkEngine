@@ -3,6 +3,7 @@
 #include "Reflection/ReflectContext.h"
 #include "Reflection/Utility.h"
 #include "HashString/HashString.h"
+#include "Hierarchy/HierarchyComponent.h"
 #include "CoreComponents/Name.h"
 #include "ECS/WorldContext.h"
 #include "Math/Color.h"
@@ -63,5 +64,14 @@ namespace Spark
                 .Traits(MetaFieldTraits::Serializable);
             
         ComponentOperation<Name>(context);
+
+        // No ComponentOperation: it would put four editable raw handles in the inspector,
+        // an invitation to break the tree -- IHierarchy is how a tree is edited. Without
+        // GetComponent the inspector does not list it at all.
+        context.Reflect<Hierarchy>().Type("Hierarchy").Traits(ComponentTraits<Hierarchy>::flags)
+            .Data<&Hierarchy::parent>("Parent").Traits(MetaFieldTraits::Serializable)
+            .Data<&Hierarchy::firstChild>("First Child").Traits(MetaFieldTraits::Serializable)
+            .Data<&Hierarchy::prevSibling>("Prev Sibling").Traits(MetaFieldTraits::Serializable)
+            .Data<&Hierarchy::nextSibling>("Next Sibling").Traits(MetaFieldTraits::Serializable);
     }
 }

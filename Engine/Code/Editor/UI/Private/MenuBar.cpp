@@ -10,6 +10,7 @@
 #include <Hierarchy/IHierarchy.h>
 #include <Service/Service.h>
 #include "../../Component/Position.h"
+#include <Scene/SceneSerializer.h>
 
 namespace Editor
 {
@@ -28,7 +29,12 @@ namespace Editor
                     LOG_INFO("Opening scene...");
                 }
                 if (ImGui::MenuItem("Save Scene")) {
-                    LOG_INFO("Scene saved");
+                    // Fixed until the path picker is split out of the asset save dialog.
+                    constexpr const char* kScenePath = "project://Scenes/Scene.scene";
+                    if (Spark::Scene::SaveScene(kScenePath))
+                    {
+                        LOG_INFO("[MenuBar] Scene saved to {}.", kScenePath);
+                    }
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) {

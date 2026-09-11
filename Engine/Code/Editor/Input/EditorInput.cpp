@@ -7,6 +7,7 @@
 #include <Feature/Camera/Components.h>
 #include <Feature/Transform/Components.h>
 #include <Math/MathUtils.h>
+#include <CoreComponents/Tags.h>
 
 namespace Editor
 {
@@ -45,6 +46,7 @@ namespace Editor
         }
 
         m_editorCamera = world.CreateEntity("EditorCamera");
+        world.Add<SystemOwnedTag>(m_editorCamera);
         world.Add<Transform::TransformComponent>(m_editorCamera, Transform::TransformComponent{});
         world.Add<Camera::CameraComponent>(m_editorCamera, Camera::CameraComponent{});
         Service<IHierarchy>::Get()->AddEntity(m_editorCamera);

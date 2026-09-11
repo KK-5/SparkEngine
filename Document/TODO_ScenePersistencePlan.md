@@ -16,7 +16,7 @@
 | 资产预加载 | ✅ `AssetLoadBatch` + 欢迎页；`GetRegisteredAssetIds`（`AssetManager.cpp:121`）滤掉子资产、父 Ready 即子可解析 |
 | 资源回收（`DeadTag` 职责收窄） | ❌ **推迟，见文末待办**。阶段 4 的清空先接受漏 slot |
 
-阶段 4 自身要写的（都是加法）：类型级 flags、`ForEachStorage`、`Hierarchy` 反射、实体句柄编解码、
+阶段 4 自身要写的（都是加法）：类型级 flags、`GetStorages` / `GetEntities`、`Hierarchy` 反射、实体句柄编解码、
 场景模块、清空世界、`MeshComponent` 去 `Ptr`。
 
 ## 对阶段 4 的两处修正
@@ -149,39 +149,72 @@ context.Reflect<Resource::StandardPBR>().Traits(ComponentTraits<Resource::Standa
 含义。**按阶段 4 自己那条判据**（「可读性不是理由——引擎开发者有 debugger 和日志」），一名两用的
 两头冲突时让步的该是不被人读的那一头。叠字没有歧义成本：两个 `Material` 在不同层级上。
 
-## Step 3　`Hierarchy` 反射 + 写侧
+## Step 3　`Hierarchy` 反射 + 写侧 ✅ 已完成
 
-1. `Hierarchy` 四个字段全反射、全标 `Serializable`，类型标 `Persistent`，字段 key 为
-   `"Parent"` / `"First Child"` / `"Prev Sibling"` / `"Next Sibling"`，**不注册** `ComponentOperation`
-   （否则 Inspector 露出四个可改的裸句柄）。`entityRefs` 已经列着这四个成员指针，不用动。
-2. `ContextStorage` 开受控的 `ForEachStorage(fn(TypeId, common_type&))`，不把 `entt::registry` 漏出去。
-3. 开场用 `GetAllTypes()` 建 `type.info().hash() → MetaType` 表——`.Type("X")` 改掉的是 `elem.id`，
-   `Resolve(TypeId)` 那条线性扫描匹配不上 storage 给的 `type_hash`。
-4. 新模块 `Engine/Code/RunTime/Feature/SceneIO/`，target `SparkSceneIO`，链 `SparkCore + SparkMaterial`
-   （CMake 照 `Feature/Spawn/CMakeLists.txt`）。**刻意不叫 `SparkScene`**：Core 已有 `SceneManager` /
-   `IScene`，那是层级管理，撞名会一直误导。
-5. `SceneSerializer::Save(path)`：遍历两个上下文写 storage-major；per-entity 两个例外——默认材质实体、
-   带编辑态 tag 的实体。
-6. MenuBar 的 `Save Scene` 接上，**第一版固定路径** `project://Scenes/Scene.scene`。
+1. `Hierarchy` 四个字段全反射、全标 `Serializable`，字段 key 为 `"Parent"` / `"First Child"` /
+   `"Prev Sibling"` / `"Next Sibling"`。**不注册** `ComponentOperation`——否则 Inspector 露出四个可改的
+   裸句柄；没有 `GetComponent`，`ComponentView` 连列都不列它。`entityRefs` 早已列着这四个成员指针。
+2. `ContextStorage` 开两个**快照**：`GetStorages()`（类型擦除，不含实体存储）与 `GetEntities()`
+   （走 `each()`——实体存储把已销毁的编号留在 packed 数组里待复用，直接迭代会吐出来）。只给 const 版。
+3. 开场用 `GetAllTypes()` 建 `type.info().hash() → MetaType` 表，只收 `Persistent`——`.Type("X")`
+   改掉的是 `elem.id`，`Resolve(TypeId)` 匹配不上 storage 给的 `type_hash`。
+4. 新模块 `Feature/Scene/`，target `SparkScene`，链 `SparkCore + SparkMaterial`，由 `SparkRuntime`
+   PUBLIC 链入。名字是先把 Core 的 `SceneManager` / `IScene` 改名成 `HierarchyManager` / `IHierarchy`
+   腾出来的（`3686c45`）——`IScene` 的每个方法都是 `Hierarchy` 操作。
+5. 接口两半：`WriteScene(world, materials, JsonValue&)` 是纯函数，收 `const ContextStorage<E>&`，
+   **暂存上下文照样能写**；`SaveScene(path)` 是边缘，全仓唯一取环境上下文的地方，VFS 原子写盘，
+   `dump(2)` 与 `.smat` 一致。**有组件编码失败就整个不写**：一个看着完整、实际丢了东西的文件比没存更糟。
+6. MenuBar 的 `Save Scene` 接上，固定路径 `project://Scenes/Scene.scene`。
 
-**待决：保存与收割的时序。** `Inspector` 删实体只打 `DeadTag`，`EntityReaper` 到 `TICK_LAST` 才
-销毁，而链接修补挂在销毁事件上。在这之间保存（MenuBar 与 Inspector 画在同一个 UI pass 里，够得着），
-那个实体还活着、还挂在树上，会被当成正常实体写进文件。`Valid()` 遮不掉它——它那时确实有效。解法在
-时序：保存命令排在收割之后，或保存前先跑一次收割。动工时定。
+判据：`SparkSceneTest` 三例（形态、已销毁实体不列出、同一场景同一文本），五个测试目标全绿。
 
-**若那时仍想让文件干净**：写侧自己压一个带 `isValid` 的作用域守卫，名字来自它正在遍历的那个容器
-（不是环境）。那是纯加法，而且只有到这一步才有正确的容器可用——见 Step 2 的「三处推翻」。
+### 与计划的出入
 
-判据：新建 `Test/Scene` 目标，建实体 + 层级 + 材质 → `Save` → 比对 JSON 文本。**格式在这一步冻结。**
+**枚举给快照，不给回调。** 原计划是 `ForEachStorage(fn)`。硬理由是**确定性**：`registry::storage()`
+迭代的是 `pools`，顺序 = storage 的创建顺序，即运行期历史；组件存储是 swap-and-pop，删一个实体就会让
+packed 序抖动。文件要稳定，序列化器本来就必须物化再排序（段按类型名、实体按值），回调什么也不省。快照
+还顺带关掉了回调的风险——遍历期间新建一个组件类型会让 `pools` 扩容。业务代码要某个组件仍走
+`GetStorage<T>()`，显式声明类型是那条正路。
+
+**两个 per-entity 例外收成一个 `SystemOwnedTag`**（`Core/CoreComponents/Tags.h`）。原计划按
+`DefaultMaterialTag` 与 `EditorOnlyTag` 分别跳过：前者另有含义（`GetDefaultMaterial` 靠它发现），拿来
+判落盘是让一个标记干第二份工作；后者太窄，用在默认材质上明显不对。两者的共同点是**生命周期归某个
+系统、不归场景**——「资源回收」一节已给编辑器相机定过这个性质（所有权声明）。按事实命名，写侧跳过与
+清空跳过都从同一条推出；按后果命名（`NoSaveTag`），清空那一侧就得另找依据。`MaterialSystem` 与
+`EditorInputSystem` 在建实体时各打一个。
+
+**文件确定性是显式要求**，由 `SameSceneSameText` 锁住：同一个场景以相反顺序构建，文本逐字相同。空段
+不写出——段存在 ⇔ 有实体带这个组件。
+
+**零字段组件写 `{}`**：storage 的 `value()` 对它返回 `nullptr`，没有实例可遍历，类型本身就是数据。
+
+写时验证仍不做：写侧现在确实攥着容器，但照实写的理由（见 Step 2「三处推翻」）不因此改变。
+
+### 留给 Step 4 的
+
+- **`DeadTag` 时序**：`Inspector` 删实体只打 `DeadTag`，`EntityReaper` 到 `TICK_LAST` 才销毁，而链接
+  修补挂在销毁事件上。删除后、收割前保存，那个实体仍被当成正常实体写进文件。不能靠跳过 `DeadTag`
+  实体解决——父与兄弟的链接还指着它，加载时被丢弃，兄弟链断掉；也不能就地收割——保存发生在 UI pass
+  里，而 UI pass 是 render graph 执行的一部分。随 Step 4 的两帧命令一起解决。
+- **`FindOrCreateEditorCamera` 仍会抢错人**：查找分支取任意一个带 Camera + Transform 的实体，只有新建
+  的那个打了 `SystemOwnedTag`。改成按 tag 找，属于 Step 4 的所有权收尾。
+
+### 顺带发现：`StagingContext` 意外是个聚合
+
+`StagingContext() = default;` 在首次声明处默认化，不算用户提供的构造函数；C++17 又允许聚合带公开基类。
+于是 `StagingContext<E>{}` 走聚合初始化，要在调用点直接构造 `protected` 的 `ContextStorage` 基类 →
+C2512；`StagingContext<E> x;` 不受影响。测试里避开了这个写法。根治是把默认构造改成用户提供的
+（`StagingContext() {}`）；C++20 起用户声明的构造函数即不再是聚合。**未改，待定。**
 
 ## Step 4　读侧 + 清空世界
 
 1. `Load(path)`：JSON → `StagingContext<Entity>` / `StagingContext<MaterialHandle>` → `Merge`。
    段名 → 建哪种 staging、合进哪个活上下文，这两个分支就是模块划线里「需要具体类型的那一点」。
 2. 先按 `entities` 清单 `CreateEntity(hint)` 建全，再挂组件；`HierarchyRootTag` 在 Notify 之前补。
-3. 清空 = 除编辑态 tag 外全打 `DeadTag`，交 `EntityReaper`。Open Scene 因此是编辑器侧的两帧命令
+3. 清空 = 除 `SystemOwnedTag` 外全打 `DeadTag`，交 `EntityReaper`。Open Scene 因此是编辑器侧的两帧命令
    （帧 N 标记、帧 N+1 加载），`LoadScene` 本身仍是一趟直线返回 bool。
-4. `EditorInputSystem` 的相机打编辑态 tag；删掉 `LightSystem.cpp:59` 的默认平行光。
+4. 删掉 `LightSystem.cpp:59` 的默认平行光；`FindOrCreateEditorCamera` 改成按 `SystemOwnedTag` 找
+   （tag 本身已在 Step 3 打上）。
 
 `MergeMapping::Identity` 目前是 "Not implemented yet"，**不需要**：空世界下 `Remap` 的
 `generate(source)` 本来就还原原值。
