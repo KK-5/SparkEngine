@@ -12,6 +12,7 @@
 #include <SceneManager/Component/HierarchyComponent.h>
 #include <SceneManager/IScene.h>
 #include <SceneManager/SceneManager.h>
+#include <CoreComponents/Name.h>
 
 #include <EASTL/array.h>
 
@@ -479,7 +480,7 @@ TEST_F(MergeSceneTest, MergePreservesAnAlreadyLinkedTree)
     EXPECT_FALSE(world.Has<HierarchyRootTag>(child));
 }
 
-TEST_F(MergeSceneTest, MergeLinksTheBatchRootUnderAnExistingParent)
+TEST_F(MergeSceneTest, TheBatchIsLinkedUnderAnExistingParentAfterTheMerge)
 {
     auto* scene = Service<IScene>::Get();
     ASSERT_TRUE(scene);
@@ -489,13 +490,17 @@ TEST_F(MergeSceneTest, MergeLinksTheBatchRootUnderAnExistingParent)
 
     StagingContext<Entity> staging;
     Entity incoming = staging.CreateEntity();
-    // Points at an entity outside the batch: a boundary edge that must be linked in for real.
-    staging.Add<Hierarchy>(incoming, Hierarchy{host, NullEntity, NullEntity, NullEntity});
+    staging.Add<Hierarchy>(incoming);
 
     auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
 
     ASSERT_EQ(result.created.size(), 1u);
     const Entity merged = result.created[0];
+    EXPECT_TRUE(world.Has<HierarchyRootTag>(merged));
+
+    // A live entity cannot be named from inside staging, so the boundary edge is made here.
+    scene->SetParent(merged, host);
+
     EXPECT_EQ(world.Get<Hierarchy>(host).firstChild, merged);
     EXPECT_EQ(world.Get<Hierarchy>(merged).parent, host);
     EXPECT_FALSE(world.Has<HierarchyRootTag>(merged));
@@ -681,4 +686,130 @@ TEST_F(MergeSceneTest, SetParentOnStagingRejectsAForeignPrevSibling)
     EXPECT_EQ(staging.Get<Hierarchy>(parentA).firstChild, NullEntity);
     EXPECT_EQ(staging.Get<Hierarchy>(parentB).firstChild, childOfB);
     EXPECT_EQ(staging.Get<Hierarchy>(childOfB).nextSibling, NullEntity);
+}
+
+TEST_F(MergeSceneTest, MergeATreeIntoANonEmptyWorld)
+{
+    // Something already occupies the identifiers the staging tree will ask for.
+    world.CreateEntity();
+    world.CreateEntity();
+
+    StagingContext<Entity> staging;
+    Entity parent = staging.CreateEntity();
+    Entity child = staging.CreateEntity();
+    staging.Add<Hierarchy>(parent, Hierarchy{NullEntity, child, NullEntity, NullEntity});
+    staging.Add<Hierarchy>(child, Hierarchy{parent, NullEntity, NullEntity, NullEntity});
+
+    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+
+    ASSERT_EQ(result.created.size(), 2u);
+    const Entity first = result.created[0];
+    const Entity second = result.created[1];
+    EXPECT_NE(first, parent);
+    EXPECT_NE(second, parent);
+
+    // Untranslated links name entities that are not in the scene, and validation drops the
+    // component on arrival -- so surviving at all is most of the point.
+    ASSERT_TRUE(world.Has<Hierarchy>(first));
+    ASSERT_TRUE(world.Has<Hierarchy>(second));
+
+    // Merge promises no ordering, so the two are told apart by shape.
+    const Entity root = world.Get<Hierarchy>(first).parent == NullEntity ? first : second;
+    const Entity leaf = root == first ? second : first;
+
+    EXPECT_EQ(world.Get<Hierarchy>(root).firstChild, leaf);
+    EXPECT_EQ(world.Get<Hierarchy>(leaf).parent, root);
+    EXPECT_TRUE(world.Has<HierarchyRootTag>(root));
+    EXPECT_FALSE(world.Has<HierarchyRootTag>(leaf));
+}
+
+TEST_F(MergeSceneTest, ReparentingKeepsExistingChildrenInStaging)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    StagingContext<Entity> staging;
+    Entity root = staging.CreateEntity();
+    Entity node = staging.CreateEntity();
+    Entity prim = staging.CreateEntity();
+
+    scene->SetParent(staging, prim, node);
+    scene->SetParent(staging, node, root);
+
+    EXPECT_EQ(staging.Get<Hierarchy>(node).firstChild, prim);
+    EXPECT_EQ(staging.Get<Hierarchy>(prim).parent, node);
+}
+
+TEST_F(MergeSceneTest, ReparentingKeepsExistingChildrenInTheWorld)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    Entity root = world.CreateEntity();
+    Entity node = world.CreateEntity();
+    Entity prim = world.CreateEntity();
+    scene->AddEntity(root);
+    scene->AddEntity(node);
+    scene->AddEntity(prim);
+
+    scene->SetParent(prim, node);
+    scene->SetParent(node, root);
+
+    EXPECT_EQ(world.Get<Hierarchy>(node).firstChild, prim);
+    EXPECT_EQ(world.Get<Hierarchy>(prim).parent, node);
+}
+
+// The shape SpawnModel builds: a node tree whose leaves are the primitives of a mesh, authored in
+// the same two passes -- primitives first, node-to-node links after.
+TEST_F(MergeSceneTest, MergeAModelShapedTree)
+{
+    auto* scene = Service<IScene>::Get();
+    ASSERT_TRUE(scene);
+
+    world.CreateEntity();
+
+    StagingContext<Entity> staging;
+    Entity rootNode = staging.CreateEntity();
+    Entity childNode = staging.CreateEntity();
+    Entity prim = staging.CreateEntity();
+    staging.Add<Name>(rootNode, eastl::string("root"));
+    staging.Add<Name>(childNode, eastl::string("child"));
+    staging.Add<Name>(prim, eastl::string("prim"));
+    staging.Add<Hierarchy>(rootNode);
+    staging.Add<Hierarchy>(childNode);
+
+    scene->SetParent(staging, prim, childNode);
+    scene->SetParent(staging, childNode, rootNode);
+
+    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Name, Hierarchy>(
+        world, eastl::move(staging));
+    ASSERT_EQ(result.created.size(), 3u);
+
+    auto byName = [&](const char* name)
+    {
+        for (Entity entity : result.created)
+        {
+            if (world.Has<Name>(entity) && world.Get<Name>(entity).name == name)
+            {
+                return entity;
+            }
+        }
+        return NullEntity;
+    };
+
+    const Entity root = byName("root");
+    const Entity child = byName("child");
+    const Entity leaf = byName("prim");
+    ASSERT_NE(root, NullEntity);
+    ASSERT_NE(child, NullEntity);
+    ASSERT_NE(leaf, NullEntity);
+
+    EXPECT_EQ(world.Get<Hierarchy>(root).firstChild, child);
+    EXPECT_EQ(world.Get<Hierarchy>(child).parent, root);
+    EXPECT_EQ(world.Get<Hierarchy>(child).firstChild, leaf);
+    EXPECT_EQ(world.Get<Hierarchy>(leaf).parent, child);
+
+    EXPECT_TRUE(world.Has<HierarchyRootTag>(root));
+    EXPECT_FALSE(world.Has<HierarchyRootTag>(child));
+    EXPECT_FALSE(world.Has<HierarchyRootTag>(leaf));
 }

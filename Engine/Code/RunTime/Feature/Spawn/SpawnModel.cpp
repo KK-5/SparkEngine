@@ -2,6 +2,9 @@
 
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
+#include <ECS/Merge/ContextMerge.h>
+#include <CoreComponents/Name.h>
+#include <SceneManager/Component/HierarchyComponent.h>
 #include <Math/MathUtils.h>
 #include <SceneManager/IScene.h>
 #include <Service/Service.h>
@@ -49,12 +52,14 @@ namespace Spark::Spawn
 
     }
 
-    void SpawnModel(Ptr<Resource::ModelAsset> model, WorldContext& context)
+    StagingContext<Entity> BuildModelStaging(Ptr<Resource::ModelAsset> model)
     {
+        StagingContext<Entity> staging;
+
         const Resource::ModelAssetData* modelData = model->GetModelData();
         if (!modelData)
         {
-            return;
+            return staging;
         }
 
         IScene* scene = Service<IScene>::Get();
@@ -92,13 +97,15 @@ namespace Spark::Spawn
             transformComp.m_rotation = rotation;
             transformComp.m_scale = scale;
 
-            Entity nodeEntity = context.CreateEntity(node->name);
-            context.Add<Transform::TransformComponent>(nodeEntity, transformComp);
+            Entity nodeEntity = staging.CreateEntity();
+            staging.Add<Name>(nodeEntity, eastl::string(node->name));
+            staging.Add<Transform::TransformComponent>(nodeEntity, transformComp);
             nodeEntities[i] = nodeEntity;
 
             if (scene)
             {
-                scene->AddEntity(nodeEntity);
+                // The world learns about these entities once, when the batch is merged.
+                staging.Add<Hierarchy>(nodeEntity);
             }
 
             if (node->meshIndex < 0)
@@ -116,25 +123,26 @@ namespace Spark::Spawn
             for (size_t p = 0; p < primCount; ++p)
             {
                 eastl::string primName = p == 0 ?  mesh->name : mesh->name + "." + eastl::to_string(p);
-                Entity primEntity = context.CreateEntity(primName);
+                Entity primEntity = staging.CreateEntity();
+                staging.Add<Name>(primEntity, primName);
 
                 Mesh::MeshComponent meshComp;
                 meshComp.m_modelAssetId = model->GetAssetId();
                 meshComp.m_modelAsset = model;
                 meshComp.m_meshIndex = static_cast<uint32_t>(node->meshIndex);
                 meshComp.m_primitiveIndex = static_cast<uint32_t>(p);
-                context.Add<Mesh::MeshComponent>(primEntity, meshComp);
+                staging.Add<Mesh::MeshComponent>(primEntity, meshComp);
 
                 const Material::MaterialHandle mat = materialFor(mesh->primitives[p].materialIndex);
                 if (mat != Material::NullMaterial)
                 {
-                    context.Add<Material::MaterialComponent>(
+                    staging.Add<Material::MaterialComponent>(
                         primEntity, Material::MaterialComponent{ mat });
                 }
 
                 if (scene)
                 {
-                    scene->SetParent(primEntity, nodeEntity);
+                    scene->SetParent(staging, primEntity, nodeEntity);
                 }
             }
         }
@@ -154,9 +162,26 @@ namespace Spark::Spawn
                 Entity parentEntity = nodeEntities[static_cast<size_t>(node->parent)];
                 if (childEntity != NullEntity && parentEntity != NullEntity)
                 {
-                    scene->SetParent(childEntity, parentEntity);
+                    scene->SetParent(staging, childEntity, parentEntity);
                 }
             }
         }
+
+        return staging;
+    }
+
+    void SpawnModel(Ptr<Resource::ModelAsset> model, WorldContext& context)
+    {
+        if (!model)
+        {
+            return;
+        }
+
+        Merge<MergeMatch::Any, MergeMapping::Remap,
+              Name,
+              Transform::TransformComponent,
+              Mesh::MeshComponent,
+              Material::MaterialComponent,
+              Hierarchy>(context, BuildModelStaging(model));
     }
 }

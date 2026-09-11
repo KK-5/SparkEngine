@@ -9,7 +9,10 @@
 
 #include <entt/entt.hpp>
 
+#include <Log/ILogSystem.h>
+
 #include "../BasicContext.h"
+#include "../ComponentTraits.h"
 #include "../ExecuteContext.h"
 #include "../StagingContext.h"
 #include "../WorldContext.h"
@@ -67,6 +70,34 @@ namespace Spark
             return target.Valid(created)
                 && target.template Has<MergedFrom<E>>(created)
                 && target.template Get<MergedFrom<E>>(created).source == source;
+        }
+
+        /// Rewrites the entity references a component declares, in place, after it has landed in
+        /// the target.
+        ///
+        /// A reference of type E names a source entity. If that entity did not take part, nothing
+        /// in the target answers to it: keeping the identifier would silently name an unrelated
+        /// live entity, so the reference is dropped instead.
+        template<typename E, typename T>
+        void MergeTranslate(const MergeContextT<E>& target, T& component)
+        {
+            for (E* ref : GetEntityRefs<E>(component))
+            {
+                if (*ref == E{entt::null})
+                {
+                    continue;
+                }
+
+                if (MergeAlreadyCreated<E>(target, *ref))
+                {
+                    *ref = MergeForward<E>(target, *ref);
+                }
+                else
+                {
+                    LOG_ERROR("[Merge] Dropped a reference to a source entity that did not take part.");
+                    *ref = E{entt::null};
+                }
+            }
         }
 
         /// Never creates the storage: a type absent from the source is simply not merged.
@@ -163,11 +194,11 @@ namespace Spark
                 }
                 else if constexpr (Move)
                 {
-                    destination.emplace(mapped, eastl::move(pool->get(entity)));
+                    MergeTranslate<E>(target, destination.emplace(mapped, eastl::move(pool->get(entity))));
                 }
                 else
                 {
-                    destination.emplace(mapped, pool->get(entity));
+                    MergeTranslate<E>(target, destination.emplace(mapped, pool->get(entity)));
                 }
             }
         }

@@ -5,6 +5,7 @@
 #include <Math/Bit.h>
 
 #include "Entity.h"
+#include "EntityRefs.h"
 
 namespace Spark
 {
@@ -42,6 +43,7 @@ namespace Spark
     {
         static constexpr bool editable = false;
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::None;
+        static constexpr auto entityRefs = EntityRefs<>;
     };
 
     /// Primary template; entity type is Spark::Entity via ComponentTraitsBase defaults.
@@ -54,6 +56,18 @@ namespace Spark
             return {this->editable, this->componentEvents};
         }
     };
+
+    /// @brief Pointers to the fields of one component that reference an entity of type E.
+    ///
+    /// Empty unless the component declares them; a const component yields const pointers.
+    /// E picks the context, so a MaterialHandle field is not reachable through
+    /// GetEntityRefs<Entity>. The caller decides what to do with them.
+    template<typename E, typename Component>
+    constexpr auto GetEntityRefs(Component& component)
+    {
+        using Traits = ComponentTraits<eastl::remove_cv_t<Component>>;
+        return Traits::entityRefs.template Collect<E>(component);
+    }
 
     /// Convenience macro for full specialization of ComponentTraits.
     /// Inherits ComponentTraitsBase automatically so you only write the overrides.

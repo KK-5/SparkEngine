@@ -12,6 +12,7 @@
 #include <Service/Service.h>
 #include <Log/ILogSystem.h>
 #include <CoreComponents/Name.h>
+#include <SceneManager/Component/HierarchyComponent.h>
 
 #include <iostream>
 
@@ -517,4 +518,80 @@ TEST(ECSTest, DestoryEntityWithRegisterEventsOnEntityRemove)
     EXPECT_FLOAT_EQ(handler.m_position.y, 0.f);
     EXPECT_FLOAT_EQ(handler.m_velocity.dx, 0.f);
     EXPECT_FLOAT_EQ(handler.m_velocity.dy, 0.f);
+}
+
+namespace
+{
+    enum class OtherHandle : uint32_t {};
+
+    struct Link
+    {
+        Entity      target{NullEntity};
+        float       weight{0.f};
+        Entity      fallback{NullEntity};
+        OtherHandle resource{};
+    };
+
+    struct Untagged
+    {
+        Entity target{NullEntity};
+    };
+}
+
+namespace Spark
+{
+    SPARK_COMPONENT_TRAITS(Link,
+        static constexpr auto entityRefs = EntityRefs<&Link::target, &Link::fallback, &Link::resource>;
+    )
+}
+
+TEST(EntityRefsTest, AComponentThatDeclaresNothingHasNoRefs)
+{
+    Untagged component;
+    EXPECT_EQ(GetEntityRefs<Entity>(component).size(), 0u);
+}
+
+TEST(EntityRefsTest, TheFieldTypeSelectsTheContext)
+{
+    Link component;
+    EXPECT_EQ(GetEntityRefs<Entity>(component).size(), 2u);
+    EXPECT_EQ(GetEntityRefs<OtherHandle>(component).size(), 1u);
+}
+
+TEST(EntityRefsTest, RefsPointAtTheFieldsThemselves)
+{
+    Link component;
+    component.target = static_cast<Entity>(7);
+    component.fallback = static_cast<Entity>(9);
+
+    auto refs = GetEntityRefs<Entity>(component);
+    EXPECT_EQ(refs.begin()[0], &component.target);
+    EXPECT_EQ(refs.begin()[1], &component.fallback);
+
+    for (Entity* ref : refs)
+    {
+        *ref = static_cast<Entity>(1);
+    }
+    EXPECT_EQ(component.target, static_cast<Entity>(1));
+    EXPECT_EQ(component.fallback, static_cast<Entity>(1));
+    EXPECT_FLOAT_EQ(component.weight, 0.f);
+}
+
+TEST(EntityRefsTest, HierarchyDeclaresItsFourLinks)
+{
+    Hierarchy hierarchy{static_cast<Entity>(1), static_cast<Entity>(2),
+                        static_cast<Entity>(3), static_cast<Entity>(4)};
+
+    eastl::vector<Entity> seen;
+    for (Entity* ref : GetEntityRefs<Entity>(hierarchy))
+    {
+        seen.push_back(*ref);
+    }
+    EXPECT_EQ(seen.size(), 4u);
+
+    const Hierarchy& readOnly = hierarchy;
+    for (const Entity* ref : GetEntityRefs<Entity>(readOnly))
+    {
+        EXPECT_NE(*ref, NullEntity);
+    }
 }

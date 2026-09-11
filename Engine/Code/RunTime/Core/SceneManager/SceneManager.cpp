@@ -315,13 +315,17 @@ namespace Spark
 
         // No listener will finish the job on a storage, so both halves happen here: out of the old
         // position first, then into the new one.
+        //
+        // The entity keeps its own firstChild across the move: RemoveEntityInternal lifts the
+        // children out and only AddEntityInternal puts them back, and it finds them through that
+        // field.
+        Hierarchy hierarchy;
         if (storage.Has<Hierarchy>(entity))
         {
-            const Hierarchy old = storage.Get<Hierarchy>(entity);
-            RemoveEntityInternal(storage, old);
+            hierarchy = storage.Get<Hierarchy>(entity);
+            RemoveEntityInternal(storage, hierarchy);
         }
 
-        Hierarchy hierarchy;
         hierarchy.parent = parent;
         hierarchy.prevSibling = prevSibling;
         hierarchy.nextSibling = prevSibling != NullEntity
