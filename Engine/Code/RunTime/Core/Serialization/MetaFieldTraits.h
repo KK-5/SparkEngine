@@ -8,9 +8,9 @@ namespace Spark
 {
     //! Per-field reflection traits, attached with .Data<&T::field>("Name").Traits(...).
     //!
-    //! Distinct from MetaTypeTraits, which is type-level and on its way out in favour of
-    //! ComponentTraits. Field-level metadata cannot ride on Custom either: entt keeps a
-    //! single custom slot per element, and a field's is already taken by its UIElement.
+    //! Distinct from ComponentFlags, which is type-level and declared in ComponentTraits.
+    //! Field-level metadata cannot ride on Custom either: entt keeps a single custom slot
+    //! per element, and a field's is already taken by its UIElement.
     enum class MetaFieldTraits : uint8_t
     {
         None         = 0,

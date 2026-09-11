@@ -67,7 +67,7 @@ namespace Spark::Skybox
 namespace Spark
 {
     SPARK_COMPONENT_TRAITS(Skybox::SkyboxComponent,
-        static constexpr bool editable = true;
+        static constexpr ComponentFlags flags = ComponentFlags::Editable | ComponentFlags::Persistent;
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
     )
 }

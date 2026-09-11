@@ -27,6 +27,6 @@ namespace Spark::Transform
 namespace Spark
 {
     SPARK_COMPONENT_TRAITS(Transform::TransformComponent,
-        static constexpr bool editable = true;
+        static constexpr ComponentFlags flags = ComponentFlags::Editable | ComponentFlags::Persistent;
     )
 }

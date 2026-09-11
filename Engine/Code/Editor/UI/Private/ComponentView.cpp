@@ -8,7 +8,7 @@
 #include <ECS/ComponentTraits.h>
 #include <Reflection/TypeRegistry.h>
 #include <CoreComponents/Tags.h>
-#include <Serialization/MetaTypeTraits.h>
+#include <ECS/ComponentTraits.h>
 
 #include "FieldWidgets.h"
 
@@ -108,10 +108,7 @@ namespace Editor
         {
             for (MetaType& component: components)
             {
-                if (static_cast<uint8_t>(component.traits<MetaTypeTraits>()) & static_cast<uint8_t>(MetaTypeTraits::Editable) ||
-                    static_cast<ComponentTraitsRuntime*>(component.custom()) && 
-                    static_cast<ComponentTraitsRuntime*>(component.custom())->editable
-                )
+                if (HasComponentFlag(component.traits<ComponentFlags>(), ComponentFlags::Editable))
                 {
                     if (ImGui::Selectable(component.name())) {
                         MetaAny instance = component.construct();

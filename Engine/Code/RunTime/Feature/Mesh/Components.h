@@ -43,7 +43,7 @@ namespace Spark::Mesh
 namespace Spark
 {
     SPARK_COMPONENT_TRAITS(Mesh::MeshComponent,
-        static constexpr bool editable = true;
+        static constexpr ComponentFlags flags = ComponentFlags::Editable | ComponentFlags::Persistent;
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
     )
 }

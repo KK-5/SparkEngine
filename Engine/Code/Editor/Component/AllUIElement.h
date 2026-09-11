@@ -4,6 +4,7 @@
 #include <Math/Vector2.h>
 #include <Math/Vector3.h>
 #include <Math/Vector4.h>
+#include <ECS/ComponentTraits.h>
 
 namespace Editor
 {
@@ -29,4 +30,11 @@ namespace Editor
         EnumElem enumElement {EnumElem::Three};
     };
     
+}
+
+namespace Spark
+{
+    SPARK_COMPONENT_TRAITS(Editor::AllUIElement,
+        static constexpr ComponentFlags flags = ComponentFlags::Editable;
+    )
 }

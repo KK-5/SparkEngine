@@ -105,6 +105,6 @@ namespace Spark::Light
 namespace Spark
 {
     SPARK_COMPONENT_TRAITS(Light::LightComponent,
-        static constexpr bool editable = true;
+        static constexpr ComponentFlags flags = ComponentFlags::Editable | ComponentFlags::Persistent;
     )
 }

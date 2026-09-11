@@ -5,7 +5,6 @@
 #include <Reflection/Utility.h>
 #include <ECS/WorldContext.h>
 #include <Serialization/UIElement.h>
-#include <Serialization/MetaTypeTraits.h>
 #include "Position.h"
 #include "AllUIElement.h"
 
@@ -18,7 +17,7 @@ namespace Editor
         using Spark::WorldContext;
 
         context.Reflect<Position>()
-            .Type("Position").Traits(Spark::MetaTypeTraits::Editable)
+            .Type("Position").Traits(Spark::ComponentTraits<Position>::flags)
             .Data<&Position::x>("x").Custom<Spark::FloatElement>()
             .Data<&Position::y>("y").Custom<Spark::FloatElement>()
             .Data<&Position::z>("z").Custom<Spark::FloatElement>()
@@ -34,7 +33,7 @@ namespace Editor
         using namespace Spark;
         
         context.Reflect<AllUIElement>()
-            .Type("AllUIElement").Traits(MetaTypeTraits::Editable)
+            .Type("AllUIElement").Traits(ComponentTraits<AllUIElement>::flags)
             .Data<&AllUIElement::editString>("EditString").Custom<EditTextElement>()
             .Data<&AllUIElement::readonlyString>("ReadonlyString").Custom<ReadonlyTextElement>()
             .Data<&AllUIElement::floatElement>("FloatElement").Custom<FloatElement>(0.f, 20.f, 1.f)

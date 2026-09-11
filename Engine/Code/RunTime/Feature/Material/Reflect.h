@@ -4,7 +4,6 @@
 #include <Reflection/TypeRegistry.h>
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
-#include <Serialization/MetaTypeTraits.h>
 
 #include <Resource/Material/Reflect.h>
 
@@ -25,10 +24,17 @@ namespace Spark::Material
         // world component.
         Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, Resource::StandardPBR>(context);
 
+        // Mounted here and not beside the fields: Resource/ reflects the asset data and
+        // knows nothing about ECS, while "it is a component of the material context" is
+        // this module's statement. A fresh Reflect<T>() starts at type level, so this
+        // stands alone safely.
+        context.Reflect<Resource::StandardPBR>().Traits(ComponentTraits<Resource::StandardPBR>::flags);
+
         // The other half of what a material entity carries, bound the same way and for the
         // same reason: the material window edits these three and writing a `.smat` reads
         // them. Also IsWorld=false — state belongs to a material, never to an object.
         Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, Resource::MaterialState>(context);
+        context.Reflect<Resource::MaterialState>().Traits(ComponentTraits<Resource::MaterialState>::flags);
 
         // Which asset a material entity came from. Reflected so the editor reads it through
         // the same (type, entity) addressing as everything else instead of reaching for a
@@ -39,7 +45,7 @@ namespace Spark::Material
         // an edit that makes sense -- pointing an OBJECT at another material is, and that is
         // the world-side MaterialComponent below.
         context.Reflect<MaterialAssetRef>()
-            .Type("MaterialAssetRef")
+            .Type("MaterialAssetRef").Traits(ComponentTraits<MaterialAssetRef>::flags)
             .Data<&MaterialAssetRef::m_id>("Asset")
                 .Custom<Spark::AssetElement>(true, static_cast<uint32_t>(Resource::AssetType::Material))
                 .Traits(MetaFieldTraits::Serializable);
@@ -51,7 +57,7 @@ namespace Spark::Material
         // the editor follows the reference into the MaterialContext and renders the
         // referenced StandardPBR inline (recursive field expansion).
         context.Reflect<MaterialComponent>()
-            .Type("Material").Custom<ComponentTraitsRuntime>(ComponentTraits<MaterialComponent>{})
+            .Type("Material").Traits(ComponentTraits<MaterialComponent>::flags)
             .Data<&MaterialComponent::m_material>("Material").Custom<Spark::MaterialRefElement>(false)
             ;
 
@@ -63,7 +69,7 @@ namespace Spark::Material
         // two words in the inspector.
         Resource::ReflectStandardPBRFields<StandardPBROverride>(context, "StandardPBR Override");
         context.Reflect<StandardPBROverride>()
-            .Custom<ComponentTraitsRuntime>(ComponentTraits<StandardPBROverride>{});
+            .Traits(ComponentTraits<StandardPBROverride>::flags);
 
         Spark::ComponentOperation<StandardPBROverride>(context);
     }

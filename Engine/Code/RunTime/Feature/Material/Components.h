@@ -8,6 +8,7 @@
 #include <Math/Vector4.h>
 #include <ECS/ComponentTraits.h>
 #include <RHI/Context/RHIHandle.h>
+#include <Resource/Material/MaterialState.h>
 #include <Resource/Material/StandardPBR.h>
 
 #include "MaterialHandle.h"
@@ -61,10 +62,38 @@ namespace Spark
 {
     // Editable so it appears in the inspector's add-component list.
     SPARK_COMPONENT_TRAITS(Material::MaterialComponent,
-        static constexpr bool editable = true;
+        static constexpr ComponentFlags flags = ComponentFlags::Editable | ComponentFlags::Persistent;
     )
 
     // Deliberately NOT editable: an override means nothing without a material to shadow,
     // so it is created from the material slot's own button, never from the generic list.
-    SPARK_COMPONENT_TRAITS(Material::StandardPBROverride)
+    SPARK_COMPONENT_TRAITS(Material::StandardPBROverride,
+        static constexpr ComponentFlags flags = ComponentFlags::Persistent;
+    )
+
+    // The three components of a MATERIAL entity, hence the explicit entity type and the
+    // hand-written form -- SPARK_COMPONENT_TRAITS only covers the default one. They say
+    // Persistent and nothing else: the material window edits them, not the inspector's
+    // add-component list.
+    //
+    // Declared here rather than beside the types: StandardPBR and MaterialState are asset
+    // data in Resource/, which has no business knowing about ECS. "It is also a component"
+    // is knowledge of this module, which is where ComponentOperation registers them too.
+    template<>
+    struct ComponentTraits<Resource::StandardPBR> : ComponentTraitsBase<Resource::StandardPBR, Material::MaterialHandle>
+    {
+        static constexpr ComponentFlags flags = ComponentFlags::Persistent;
+    };
+
+    template<>
+    struct ComponentTraits<Resource::MaterialState> : ComponentTraitsBase<Resource::MaterialState, Material::MaterialHandle>
+    {
+        static constexpr ComponentFlags flags = ComponentFlags::Persistent;
+    };
+
+    template<>
+    struct ComponentTraits<Material::MaterialAssetRef> : ComponentTraitsBase<Material::MaterialAssetRef, Material::MaterialHandle>
+    {
+        static constexpr ComponentFlags flags = ComponentFlags::Persistent;
+    };
 }

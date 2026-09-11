@@ -5,7 +5,6 @@
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaFieldTraits.h>
-#include <Serialization/MetaTypeTraits.h>
 
 #include "Components.h"
 
@@ -14,7 +13,7 @@ namespace Spark::Mesh
     static void Reflect(Spark::ReflectContext& context)
     {
         context.Reflect<MeshComponent>()
-            .Type("Mesh").Custom<ComponentTraitsRuntime>(ComponentTraits<MeshComponent>{})
+            .Type("Mesh").Traits(ComponentTraits<MeshComponent>::flags)
             .Data<&MeshComponent::m_modelAssetId>("Model Asset")
                 .Custom<Spark::AssetElement>(true)
                 .Traits(MetaFieldTraits::Serializable)

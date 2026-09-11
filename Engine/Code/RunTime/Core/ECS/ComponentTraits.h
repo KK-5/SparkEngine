@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <EASTL/type_traits.h>
 #include <entt/entt.hpp>
 #include <Math/Bit.h>
@@ -30,18 +32,30 @@ namespace Spark
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::ComponentEventMask, uint32_t);
 
 
-    struct ComponentTraitsRuntime 
+    //! Type-level reflection flags, mounted with .Traits(ComponentTraits<T>::flags).
+    //!
+    //! A single enum for all of them: entt keeps ONE user traits value per element (the
+    //! high bits of one uint32), so a second type-level enum would share those bits.
+    enum class ComponentFlags : uint8_t
     {
-        bool                editable = false;
-        ComponentEventMask  events   = ComponentEventMask::None;
+        None       = 0,
+        Editable   = 1 << 0,   //!< the inspector's add-component list offers it
+        Persistent = 1 << 1,   //!< it goes into the scene file
     };
+
+    DEFINE_ENUM_BITWISE_OPERATORS(Spark::ComponentFlags, uint8_t);
+
+    constexpr bool HasComponentFlag(ComponentFlags flags, ComponentFlags query)
+    {
+        return (flags & query) == query;
+    }
     
     /// Inherits EnTT storage traits and holds Spark defaults. Fully specialize ComponentTraits by
     /// inheriting this type and overriding only the members you need (others stay at defaults).
     template<typename T, typename EntityType = Spark::Entity>
     struct ComponentTraitsBase : public entt::component_traits<T, EntityType>
     {
-        static constexpr bool editable = false;
+        static constexpr ComponentFlags flags = ComponentFlags::None;
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::None;
         static constexpr auto entityRefs = EntityRefs<>;
     };
@@ -51,10 +65,6 @@ namespace Spark
     template<typename T>
     struct ComponentTraits : public ComponentTraitsBase<T>
     {
-        constexpr operator ComponentTraitsRuntime() const
-        {
-            return {this->editable, this->componentEvents};
-        }
     };
 
     /// @brief Pointers to the fields of one component that reference an entity of type E.
@@ -74,18 +84,18 @@ namespace Spark
     ///
     /// Usage:
     ///   SPARK_COMPONENT_TRAITS(MyComponent,
-    ///       static constexpr bool editable = true;
+    ///       static constexpr ComponentFlags flags = ComponentFlags::Editable;
     ///       static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
     ///   )
+    ///
+    /// Only for components of the default entity type. A component of another context
+    /// specializes by hand on ComponentTraitsBase<T, ThatEntity> -- see the material ones
+    /// in Feature/Material/Components.h.
 #define SPARK_COMPONENT_TRAITS(ComponentType, ...)                      \
     template<>                                                          \
     struct ComponentTraits<ComponentType> : ComponentTraitsBase<ComponentType> \
     {                                                                   \
         __VA_ARGS__                                                     \
-        constexpr operator ComponentTraitsRuntime() const               \
-        {                                                               \
-            return {editable, componentEvents};                         \
-        }                                                               \
     };
 
 }

@@ -5,7 +5,6 @@
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaFieldTraits.h>
-#include <Serialization/MetaTypeTraits.h>
 
 #include "Components.h"
 
@@ -26,7 +25,7 @@ namespace Spark::Light
             .Data<ShadowFilterWidth::W7>("7x7");
 
         context.Reflect<LightComponent>()
-            .Type("Light").Custom<Spark::ComponentTraitsRuntime>(Spark::ComponentTraits<LightComponent>{})
+            .Type("Light").Traits(ComponentTraits<LightComponent>::flags)
             .Data<&LightComponent::m_type>("Type").Custom<Spark::EnumElement>()
                 .Traits(MetaFieldTraits::Serializable)
             .Data<&LightComponent::m_color>("Color").Custom<Spark::ColorElement>()

@@ -3,6 +3,8 @@
 #include <EASTL/string.h>
 #include <EASTL/string_view.h>
 
+#include <ECS/ComponentTraits.h>
+
 struct Name
 {
     Name() = default;
@@ -10,3 +12,10 @@ struct Name
     
     eastl::string name;
 };
+
+namespace Spark
+{
+    SPARK_COMPONENT_TRAITS(::Name,
+        static constexpr ComponentFlags flags = ComponentFlags::Editable | ComponentFlags::Persistent;
+    )
+}

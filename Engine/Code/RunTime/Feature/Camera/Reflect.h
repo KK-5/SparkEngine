@@ -5,7 +5,6 @@
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaFieldTraits.h>
-#include <Serialization/MetaTypeTraits.h>
 
 #include "Components.h"
 
@@ -19,7 +18,7 @@ namespace Spark::Camera
             .Data<CameraType::Orthographic>("Orthographic");
 
         context.Reflect<CameraComponent>()
-            .Type("Camera").Custom<Spark::ComponentTraitsRuntime>(Spark::ComponentTraits<CameraComponent>{})
+            .Type("Camera").Traits(ComponentTraits<CameraComponent>::flags)
             .Data<&CameraComponent::m_type>("Type").Custom<Spark::EnumElement>()
                 .Traits(MetaFieldTraits::Serializable)
             .Data<&CameraComponent::m_fov>("FOV").Custom<Spark::FloatElement>(1.f, 179.f, 1.f)

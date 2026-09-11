@@ -32,6 +32,6 @@ namespace Spark::Camera
 namespace Spark
 {
     SPARK_COMPONENT_TRAITS(Camera::CameraComponent,
-        static constexpr bool editable = true;
+        static constexpr ComponentFlags flags = ComponentFlags::Editable | ComponentFlags::Persistent;
     )
 }

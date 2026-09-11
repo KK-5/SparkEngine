@@ -12,7 +12,6 @@
 #include "Math/Quaternion.h"
 #include "Serialization/UIElement.h"
 #include "Serialization/MetaFieldTraits.h"
-#include "Serialization/MetaTypeTraits.h"
 
 namespace Spark
 {
@@ -52,7 +51,7 @@ namespace Spark
             .Data<&Math::Quaternion::w>("w").Traits(MetaFieldTraits::Serializable);
 
 
-        context.Reflect<Name>().Type("Name").Traits(MetaTypeTraits::Editable)
+        context.Reflect<Name>().Type("Name").Traits(ComponentTraits<Name>::flags)
             .Data<&Name::name>("Value").Custom<EditTextElement>()
                 .Traits(MetaFieldTraits::Serializable);
             

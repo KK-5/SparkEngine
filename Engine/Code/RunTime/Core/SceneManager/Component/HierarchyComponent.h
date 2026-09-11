@@ -24,6 +24,7 @@ namespace Spark
     };
 
     SPARK_COMPONENT_TRAITS(Hierarchy,
+        static constexpr ComponentFlags flags = ComponentFlags::Persistent;
         static constexpr ComponentEventMask componentEvents = ComponentEventMask::All;
         static constexpr auto entityRefs = EntityRefs<&Hierarchy::parent, &Hierarchy::firstChild, &Hierarchy::prevSibling, &Hierarchy::nextSibling>;
     )
