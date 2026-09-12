@@ -2,12 +2,11 @@
 
 #include <Log/ILogSystem.h>
 #include <ECS/ExecuteContext.h>
-#include <Hierarchy/HierarchyManager.h>
+#include <Hierarchy/HierarchyComponent.h>
 
 #include <Feature/Camera/Components.h>
 #include <Feature/Transform/Components.h>
 #include <Math/MathUtils.h>
-#include <CoreComponents/Tags.h>
 
 namespace Editor
 {
@@ -34,7 +33,10 @@ namespace Editor
     {
         auto& world = *WorldExecuteContext::Current();
 
-        auto view = world.GetView<Camera::CameraComponent, Transform::TransformComponent>();
+        // The one camera outside the scene graph is this one: the viewport camera is the
+        // editor's own furniture, so it is neither saved nor cleared with the scene.
+        auto view = world.GetView<Camera::CameraComponent, Transform::TransformComponent>(
+            Exclude<Hierarchy>);
         view.each([&](Entity entity, const Camera::CameraComponent&, const Transform::TransformComponent&)
         {
             m_editorCamera = entity;
@@ -46,10 +48,8 @@ namespace Editor
         }
 
         m_editorCamera = world.CreateEntity("EditorCamera");
-        world.Add<SystemOwnedTag>(m_editorCamera);
         world.Add<Transform::TransformComponent>(m_editorCamera, Transform::TransformComponent{});
         world.Add<Camera::CameraComponent>(m_editorCamera, Camera::CameraComponent{});
-        Service<IHierarchy>::Get()->AddEntity(m_editorCamera);
         LOG_INFO("[EditorInput] Created editor camera entity.");
     }
 

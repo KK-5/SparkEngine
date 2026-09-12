@@ -11,14 +11,15 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
 
-#include <CoreComponents/Tags.h>
 #include <ECS/WorldContext.h>
+#include <Hierarchy/HierarchyComponent.h>
 #include <Log/ILogSystem.h>
 #include <Reflection/TypeRegistry.h>
 #include <Serialization/JsonSerializer.h>
 #include <Service/Service.h>
 #include <VFS/FileSystem.h>
 
+#include <Material/Components.h>
 #include <Material/MaterialContext.h>
 
 namespace Spark::Scene
@@ -60,21 +61,35 @@ namespace Spark::Scene
             return entities;
         }
 
-        template<typename E>
+        //! Membership is a fact the entity carries: in the scene graph (world), or holding an
+        //! asset identity (materials). Nothing has to remember to exclude the furniture a
+        //! system builds for itself, and the written set is closed under its own references --
+        //! a Hierarchy link cannot point outside it.
+        template<typename Membership, typename E>
         bool WriteContext(const ContextStorage<E>& context, const TypeTable& types, JsonValue& out)
         {
             using Storage = typename ContextStorage<E>::ComponentStorage;
 
-            const auto* systemOwned = context.template GetStorage<SystemOwnedTag>();
-            const auto  saved = [systemOwned](E entity)
+            // Held as the erased base: a typed storage iterates its values, the base its entities.
+            const Storage* members = context.template GetStorage<Membership>();
+            const auto     inScene = [members](E entity)
             {
                 // A tombstone is the hole an in-place-delete storage leaves behind.
                 return entity != E{entt::tombstone}
-                    && !(systemOwned != nullptr && systemOwned->contains(entity));
+                    && members != nullptr && members->contains(entity);
             };
 
+            eastl::vector<E> live;
+            if (members != nullptr)
+            {
+                for (E entity : *members)
+                {
+                    live.push_back(entity);
+                }
+            }
+
             JsonValue entities = JsonValue::array();
-            for (E entity : SortedKept(context.GetEntities(), saved))
+            for (E entity : SortedKept(eastl::move(live), inScene))
             {
                 entities.push_back(Raw(entity));
             }
@@ -110,7 +125,7 @@ namespace Spark::Scene
                 }
 
                 JsonValue values = JsonValue::object();
-                for (E entity : SortedKept(eastl::move(holders), saved))
+                for (E entity : SortedKept(eastl::move(holders), inScene))
                 {
                     // A component with no fields has no instance to walk: the type is the data.
                     JsonValue value = JsonValue::object();
@@ -147,8 +162,9 @@ namespace Spark::Scene
         const TypeTable types = PersistentTypes();
 
         JsonValue  contexts   = JsonValue::object();
-        const bool worldOk    = WriteContext(world, types, contexts["world"]);
-        const bool materialOk = WriteContext(materials, types, contexts["material"]);
+        const bool worldOk    = WriteContext<Hierarchy>(world, types, contexts["world"]);
+        const bool materialOk =
+            WriteContext<Material::MaterialAssetRef>(materials, types, contexts["material"]);
 
         out = JsonValue::object();
         out["contexts"] = std::move(contexts);

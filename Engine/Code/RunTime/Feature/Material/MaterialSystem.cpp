@@ -1,7 +1,6 @@
 #include "MaterialSystem.h"
 
 #include "MaterialUtils.h"
-#include <CoreComponents/Tags.h>
 
 namespace Spark::Material
 {
@@ -11,7 +10,6 @@ namespace Spark::Material
 
         m_defaultMaterial = CreateMaterial(m_context, Resource::StandardPBR{});
         m_context.Add<DefaultMaterialTag>(m_defaultMaterial);
-        m_context.Add<SystemOwnedTag>(m_defaultMaterial);
 
         // GPU texture production is part of the material system (mirrors MeshSystem
         // owning its VB/IB production). Owned + driven here; render only consumes.

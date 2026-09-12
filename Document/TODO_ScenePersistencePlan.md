@@ -181,7 +181,7 @@ packed 序抖动。文件要稳定，序列化器本来就必须物化再排序�
 判落盘是让一个标记干第二份工作；后者太窄，用在默认材质上明显不对。两者的共同点是**生命周期归某个
 系统、不归场景**——「资源回收」一节已给编辑器相机定过这个性质（所有权声明）。按事实命名，写侧跳过与
 清空跳过都从同一条推出；按后果命名（`NoSaveTag`），清空那一侧就得另找依据。`MaterialSystem` 与
-`EditorInputSystem` 在建实体时各打一个。
+`EditorInputSystem` 在建实体时各打一个。**这一条已被下面的「对 Step 3 的修正」推翻。**
 
 **文件确定性是显式要求**，由 `SameSceneSameText` 锁住：同一个场景以相反顺序构建，文本逐字相同。空段
 不写出——段存在 ⇔ 有实体带这个组件。
@@ -196,8 +196,8 @@ packed 序抖动。文件要稳定，序列化器本来就必须物化再排序�
   修补挂在销毁事件上。删除后、收割前保存，那个实体仍被当成正常实体写进文件。不能靠跳过 `DeadTag`
   实体解决——父与兄弟的链接还指着它，加载时被丢弃，兄弟链断掉；也不能就地收割——保存发生在 UI pass
   里，而 UI pass 是 render graph 执行的一部分。随 Step 4 的两帧命令一起解决。
-- **`FindOrCreateEditorCamera` 仍会抢错人**：查找分支取任意一个带 Camera + Transform 的实体，只有新建
-  的那个打了 `SystemOwnedTag`。改成按 tag 找，属于 Step 4 的所有权收尾。
+- ~~**`FindOrCreateEditorCamera` 仍会抢错人**~~：已随下节的判据改动一并解决，查找分支改成
+  `Exclude<Hierarchy>`。
 
 ### 顺带发现：`StagingContext` 意外是个聚合
 
@@ -206,15 +206,57 @@ packed 序抖动。文件要稳定，序列化器本来就必须物化再排序�
 C2512；`StagingContext<E> x;` 不受影响。测试里避开了这个写法。根治是把默认构造改成用户提供的
 （`StagingContext() {}`）；C++20 起用户声明的构造函数即不再是聚合。**未改，待定。**
 
+## 对 Step 3 的修正：成员资格是实体自己带的事实 ✅ 已完成
+
+`SystemOwnedTag` 删除。判据换成实体自带的事实：
+
+- 世界：**进场景 ⇔ 有 `Hierarchy`**（在场景图里）
+- 材质：**进场景 ⇔ 有 `MaterialAssetRef`**（有资产身份）
+
+推翻的理由不是命名口味，是两条硬的：
+
+**一、要打标的那一侧是个开放集合。** 落地当天就漏了一个：`IconManager` 每个图标建一个世界实体（只挂
+`IconComponent`，自己在 Shutdown 里收走），没人记得给它打标。第一份存盘因此有 25 个实体、段只覆盖 16
+个，剩下 9 个是裸 id 的幽灵。系统会越来越多，而「场景内容」的入口是封闭的少数几处——声明该放在封闭的
+那一侧。
+
+**二、跳过法会写出指向集合外的链接。** 打标跳过是「从全体里减去几个」，被减掉的实体仍可能被写出去的
+`Hierarchy` 链接指着（把物体挂到编辑器相机下即是）。而「带 `Hierarchy` 才写」写出去的正是场景图的闭包，
+`HierarchyManager` 维护的不变量保证链接不出集合——**判据与引用完整性成了同一件事**，不用两套论证。这
+也是 Godot 的模型（节点有 `owner` 才进 `PackedScene`）。
+
+材质侧同理：`Resolve` 是唯一产生「被世界引用得到的材质」的路径，而它一定挂 `MaterialAssetRef`
+（`MaterialUtils.cpp:59`）。没有 AssetRef 的恰好是两类系统持有物——默认材质，以及
+`MaterialBindingSystem` 每帧从 `StandardPBROverride` 合成、用完即弃的那些（`MaterialOverrideRef` 不
+persistent，覆盖数据本身存在世界侧，加载后照样重建）。所以「材质全部进」不成立，而默认材质不进也不欠
+什么：没有任何 `MaterialComponent` 指向它，它只是渲染期兜底。
+
+落地：
+
+1. `WriteContext<Membership, E>` 收成员存储当实体集合；成员存储以**擦除基类**持有——typed storage 迭代
+   的是值，基类迭代的才是实体。
+2. `ContextStorage::GetEntities()` 删除（唯一调用者没了）。清空走 `GetView<Hierarchy>`，读侧从 JSON 建。
+3. 编辑器相机不再 `AddEntity` 进层级，`FindOrCreateEditorCamera` 的查找分支改成 `Exclude<Hierarchy>`
+   ——「不在场景图里的那个相机」就是它。`TransformSystem` 对无 `Hierarchy` 实体走 local=world
+   （`TransformSystem.cpp:43-47`），世界矩阵不受影响。**可见变化：相机不再出现在大纲里**（Unity/Unreal
+   的视口相机同样不在）。
+4. `IconManager` 一个字不用改。
+
+**由此多出一条约定**：代码建的实体想被保存，必须进层级（`IHierarchy::AddEntity` / `SetParent`）。这条
+是自描述的——把东西放进场景图，本来就是在声明它属于这个场景。
+
+`LightSystem.cpp:59` 的默认平行光在新判据下**仍会进文件**（它调了 `AddEntity`，确实是场景内容），按原
+计划由 Step 4 删除。
+
 ## Step 4　读侧 + 清空世界
 
 1. `Load(path)`：JSON → `StagingContext<Entity>` / `StagingContext<MaterialHandle>` → `Merge`。
    段名 → 建哪种 staging、合进哪个活上下文，这两个分支就是模块划线里「需要具体类型的那一点」。
 2. 先按 `entities` 清单 `CreateEntity(hint)` 建全，再挂组件；`HierarchyRootTag` 在 Notify 之前补。
-3. 清空 = 除 `SystemOwnedTag` 外全打 `DeadTag`，交 `EntityReaper`。Open Scene 因此是编辑器侧的两帧命令
-   （帧 N 标记、帧 N+1 加载），`LoadScene` 本身仍是一趟直线返回 bool。
-4. 删掉 `LightSystem.cpp:59` 的默认平行光；`FindOrCreateEditorCamera` 改成按 `SystemOwnedTag` 找
-   （tag 本身已在 Step 3 打上）。
+3. 清空 = 给带 `Hierarchy` 的世界实体与带 `MaterialAssetRef` 的材质实体打 `DeadTag`，交 `EntityReaper`
+   ——与写侧同一个判据。Open Scene 因此是编辑器侧的两帧命令（帧 N 标记、帧 N+1 加载），`LoadScene`
+   本身仍是一趟直线返回 bool。
+4. 删掉 `LightSystem.cpp:59` 的默认平行光（相机那半条已提前完成，见「对 Step 3 的修正」）。
 
 `MergeMapping::Identity` 目前是 "Not implemented yet"，**不需要**：空世界下 `Remap` 的
 `generate(source)` 本来就还原原值。
@@ -244,7 +286,7 @@ C2512；`StagingContext<E> x;` 不受影响。测试里避开了这个写法。�
 
 倾向的解法：Open Scene 的标记帧里由 `EditorInputSystem` 自己收回相机，加载完成后 `FindOrCreate` 重建。
 所有权说法不破（所有者决定何时收回何时重建），恒等映射保住，也不用引入被否掉的 `OnWorldReset` 总线——
-两边都在编辑器侧，直接调用即可。**Step 4 动工前定。**
+两边都在编辑器侧，直接调用即可。**Step 4 动工前定。**相机脱离场景图不解决这一条：它照样占着 id 1。
 
 **Persistent 忘了挂载的失败模式。** 特化里写了 `Persistent` 但 `Reflect.h` 忘了链首那一句 → 静默不落盘。
 可选的堵法：场景保存第一趟校验「有 `AddComponent` 却 `flags == None`」并 `LOG_WARN`。等落盘跑通再定。

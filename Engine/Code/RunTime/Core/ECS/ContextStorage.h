@@ -242,7 +242,8 @@ namespace Spark
         /// A snapshot rather than a callback or a view: the caller decides the order (the
         /// registry's own is the order storages happened to be created in, which is no
         /// basis for a file), and nothing it does during the walk can invalidate what it
-        /// already holds. The entity storage is not in here -- see GetEntities().
+        /// already holds. The entity storage is not in here: an entity the scene cares about is
+        /// found through the component that says so, not by enumerating the registry.
         eastl::vector<StorageEntry> GetStorages() const
         {
             eastl::vector<StorageEntry> result;
@@ -251,24 +252,6 @@ namespace Spark
                 if (id != entt::type_hash<EntityType>::value())
                 {
                     result.push_back({id, &storage});
-                }
-            }
-            return result;
-        }
-
-        /// @brief Every live entity. Goes through each(): the entity storage keeps destroyed
-        /// identifiers in its packed array for reuse, so iterating it directly yields them too.
-        eastl::vector<Entity> GetEntities() const
-        {
-            eastl::vector<Entity> result;
-            const auto* storage = eastl::as_const(m_registry).template storage<EntityType>();
-            if (storage != nullptr)
-            {
-                result.reserve(storage->free_list());
-                // each() hands out extended tuples, one element wide for the entity storage.
-                for (auto [entity] : storage->each())
-                {
-                    result.push_back(entity);
                 }
             }
             return result;

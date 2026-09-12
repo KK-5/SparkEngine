@@ -14,7 +14,7 @@ namespace Spark::Camera
     struct CameraComponent
     {
         CameraType m_type         {CameraType::Perspective};
-        float      m_fov          {75.f};   // vertical FOV, degrees
+        float      m_fov          {60.f};   // vertical FOV, degrees
         float      m_clipStart    {0.01f};
         float      m_clipEnd      {1000.f};
     };
