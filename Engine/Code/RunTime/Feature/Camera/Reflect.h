@@ -5,6 +5,7 @@
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaFieldTraits.h>
+#include <ECS/ComponentRuntime.h>
 
 #include "Components.h"
 
@@ -30,5 +31,6 @@ namespace Spark::Camera
             ;
 
         Spark::ComponentOperation<CameraComponent>(context);
+        Spark::ComponentRuntime<CameraComponent>(context);
     }
 }

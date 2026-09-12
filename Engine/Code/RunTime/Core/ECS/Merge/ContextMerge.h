@@ -11,6 +11,8 @@
 
 #include <Log/ILogSystem.h>
 
+#include <Reflection/TypeRegistry.h>
+
 #include "../BasicContext.h"
 #include "../ComponentTraits.h"
 #include "../ExecuteContext.h"
@@ -37,10 +39,16 @@ namespace Spark
     template<typename EntityType>
     using MergeContextT = typename ContextTraits<EntityType>::ContextType;
 
-    template<typename EntityType>
-    struct MergeResult
+    /// What to do with the records a merge leaves in the target: MergedFrom on every entity it
+    /// created, MergedTo wherever an identifier had to move.
+    ///
+    /// They ARE the answer to "what landed" and "where did this source go", so a caller that
+    /// still has questions -- a second context to translate against, say -- keeps them and clears
+    /// them itself. Merging again while they stand would read two batches as one.
+    enum class MergeRecords
     {
-        eastl::vector<EntityType> created;
+        Clear,
+        Keep
     };
 
     namespace Internal
@@ -131,7 +139,7 @@ namespace Spark
         /// Creates the target entity through the entity storage rather than CreateEntity, so no
         /// per-entity event is dispatched -- the batch is announced once, after everything moved.
         template<typename E>
-        void MergeCreateEntity(MergeContextT<E>& target, E source, MergeResult<E>& result)
+        void MergeCreateEntity(MergeContextT<E>& target, E source)
         {
             const E created = target.template GetStorage<E>().generate(source);
             if (created != source)
@@ -139,12 +147,13 @@ namespace Spark
                 target.template Add<MergedTo<E>>(target.EntityAt(source), MergedTo<E>{created});
             }
             target.template Add<MergedFrom<E>>(created, MergedFrom<E>{source});
-            result.created.push_back(created);
         }
 
-        template<typename T, MergeMatch Match, typename... Ts, typename Target, typename Source, typename E>
-        void MergeCreateFor(Target& target, Source& source, MergeResult<E>& result)
+        template<typename T, MergeMatch Match, typename... Ts, typename Target, typename Source>
+        void MergeCreateFor(Target& target, Source& source)
         {
+            using E = typename eastl::remove_const<Source>::type::Entity;
+
             auto* pool = MergeSourceStorage<T>(source);
             if (pool == nullptr)
             {
@@ -163,7 +172,7 @@ namespace Spark
                 {
                     continue;
                 }
-                MergeCreateEntity<E>(target, entity, result);
+                MergeCreateEntity<E>(target, entity);
             }
         }
 
@@ -241,9 +250,33 @@ namespace Spark
             }
         }
 
+        /// The entities a merge just created -- the record it left on each of them. Answerable
+        /// until the records are cleared.
+        template<typename E, typename Target>
+        eastl::vector<E> MergedBatch(Target& target)
+        {
+            eastl::vector<E> entities;
+            for (E entity : target.template GetView<MergedFrom<E>>())
+            {
+                entities.push_back(entity);
+            }
+            return entities;
+        }
+
+        /// Records a previous merge kept and never cleared would read as part of this batch.
+        template<typename E, typename Target>
+        void DropStaleRecords(Target& target)
+        {
+            if (!MergedBatch<E>(target).empty())
+            {
+                LOG_ERROR("[Merge] The previous merge kept its records and never cleared them.");
+                target.template Clear<MergedFrom<E>, MergedTo<E>>();
+            }
+        }
+
         /// A context that dispatches nothing has nothing to repair. WorldContext overloads this.
         template<typename... Ts, typename E>
-        void OnExternalWrite(BasicContext<E>&, eastl::span<const E>)
+        void OnExternalWrite(BasicContext<E>&)
         {
         }
 
@@ -276,8 +309,9 @@ namespace Spark
         /// Handlers reach their context through WorldExecuteContext::Current(), so the target has to
         /// be the current one while they run.
         template<typename... Ts>
-        void OnExternalWrite(WorldContext& target, eastl::span<const Entity> entities)
+        void OnExternalWrite(WorldContext& target)
         {
+            const eastl::vector<Entity> entities = MergedBatch<Entity>(target);
             if (entities.empty())
             {
                 return;
@@ -285,31 +319,196 @@ namespace Spark
 
             ExecuteContextGuard<Entity> guard(target);
 
-            EntityEventBus::Broadcast(&EntityEventBus::Events::OnEntitiesCreate, entities);
+            EntityEventBus::Broadcast(&EntityEventBus::Events::OnEntitiesCreate,
+                eastl::span<const Entity>(entities.data(), entities.size()));
 
             eastl::vector<Entity> scratch;
             scratch.reserve(entities.size());
-            (DispatchBatchConstruct<Ts>(target, entities, scratch), ...);
+            (DispatchBatchConstruct<Ts>(target,
+                eastl::span<const Entity>(entities.data(), entities.size()), scratch), ...);
         }
 
         template<MergeMatch Match, MergeMapping Mapping, bool Move, typename... Ts, typename Target, typename Source>
-        auto MergeInternal(Target& target, Source& source)
-            -> MergeResult<typename eastl::remove_const<Source>::type::Entity>
+        void MergeInternal(Target& target, Source& source, MergeRecords records)
         {
             using E = typename eastl::remove_const<Source>::type::Entity;
 
             static_assert(Mapping == MergeMapping::Remap,
                 "MergeMapping::Identity is not implemented yet -- it lands with undo.");
 
-            MergeResult<E> result;
+            DropStaleRecords<E>(target);
 
-            (MergeCreateFor<Ts, Match, Ts...>(target, source, result), ...);
+            (MergeCreateFor<Ts, Match, Ts...>(target, source), ...);
             (MergeTransferFor<Ts, Match, Move, Ts...>(target, source), ...);
 
-            OnExternalWrite<Ts...>(target, eastl::span<const E>(result.created.data(), result.created.size()));
+            OnExternalWrite<Ts...>(target);
 
-            target.template Clear<MergedFrom<E>, MergedTo<E>>();
-            return result;
+            if (records == MergeRecords::Clear)
+            {
+                target.template Clear<MergedFrom<E>, MergedTo<E>>();
+            }
+        }
+
+        //! One segment of a runtime merge: a component type and the target storage it landed in.
+        //! Which of the batch carries it is asked of the storage, exactly as the typed form does.
+        template<typename E>
+        struct MergeSegment
+        {
+            TypeId                                                 type;
+            const typename entt::basic_registry<E>::common_type*   storage;
+        };
+
+        template<typename E>
+        void OnExternalWriteRuntime(BasicContext<E>&, const eastl::vector<MergeSegment<E>>&)
+        {
+        }
+
+        inline void OnExternalWriteRuntime(WorldContext& target,
+            const eastl::vector<MergeSegment<Entity>>& segments)
+        {
+            const eastl::vector<Entity> entities = MergedBatch<Entity>(target);
+            if (entities.empty())
+            {
+                return;
+            }
+
+            ExecuteContextGuard<Entity> guard(target);
+
+            EntityEventBus::Broadcast(&EntityEventBus::Events::OnEntitiesCreate,
+                eastl::span<const Entity>(entities.data(), entities.size()));
+
+            // componentEvents is not consulted: the bus is keyed by TypeId, so announcing a
+            // type nobody listens to costs one empty broadcast -- cheaper than mirroring the
+            // mask into reflection for the sake of skipping it.
+            eastl::vector<Entity> scratch;
+            scratch.reserve(entities.size());
+            for (const MergeSegment<Entity>& segment : segments)
+            {
+                scratch.clear();
+                for (Entity entity : entities)
+                {
+                    if (segment.storage->contains(entity))
+                    {
+                        scratch.push_back(entity);
+                    }
+                }
+
+                if (!scratch.empty())
+                {
+                    ComponentEventBus::Event(segment.type, &ComponentEventBus::Events::OnComponentsConstruct,
+                        eastl::span<const Entity>(scratch.data(), scratch.size()));
+                }
+            }
+        }
+
+        //! Does any reflected field of this type name an entity of E? Asked once per segment,
+        //! so a type without references pays nothing per component.
+        template<typename E>
+        bool HasReflectedEntityRefs(const MetaType& type)
+        {
+            for (auto&& [id, data] : type.data())
+            {
+                if (data.type().info() == GetTypeInfo<E>())
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        //! The runtime counterpart of MergeTranslate. A field whose TYPE is E is a reference --
+        //! the rule the encoder already uses -- so nothing has to be marked a second time.
+        template<typename E>
+        void MergeTranslateReflected(const MergeContextT<E>& target, const MetaType& type, void* component)
+        {
+            MetaAny handle = type.from_void(component);
+            if (!handle)
+            {
+                return;
+            }
+
+            for (auto&& [id, data] : type.data())
+            {
+                if (data.type().info() != GetTypeInfo<E>())
+                {
+                    continue;
+                }
+
+                MetaAny field = data.get(handle);
+                const E source = field ? field.cast<E>() : E{entt::null};
+                if (source == E{entt::null})
+                {
+                    continue;
+                }
+
+                if (MergeAlreadyCreated<E>(target, source))
+                {
+                    data.set(handle, MergeForward<E>(target, source));
+                }
+                else
+                {
+                    LOG_ERROR("[Merge] Dropped a reference to a source entity that did not take part.");
+                    data.set(handle, E{entt::null});
+                }
+            }
+        }
+
+        template<typename E>
+        void MergeRuntime(MergeContextT<E>& target, StagingContext<E>& source, MergeRecords records)
+        {
+            DropStaleRecords<E>(target);
+
+            const auto storages = source.GetStorages();
+
+            // Every identifier the source carries anything for takes part. All of them are
+            // created before anything moves, which is what makes a reference inside the batch
+            // resolvable while its component lands.
+            for (const auto& entry : storages)
+            {
+                for (E entity : *entry.storage)
+                {
+                    if (!MergeAlreadyCreated<E>(target, entity))
+                    {
+                        MergeCreateEntity<E>(target, entity);
+                    }
+                }
+            }
+
+            eastl::vector<MergeSegment<E>> segments;
+            for (const auto& entry : storages)
+            {
+                const MetaType type = TypeRegistry::GetContext().Resolve(entry.storage->type());
+                auto* destination = RuntimeComponentStorage<E>(type, target);
+                if (destination == nullptr)
+                {
+                    LOG_ERROR("[Merge] {} takes no runtime data; its components are dropped.",
+                        entry.storage->type().name());
+                    continue;
+                }
+
+                const bool translate = HasReflectedEntityRefs<E>(type);
+
+                for (E entity : *entry.storage)
+                {
+                    const E mapped = MergeForward<E>(target, entity);
+                    destination->push(mapped, entry.storage->value(entity));
+                    if (translate)
+                    {
+                        if (void* landed = destination->value(mapped); landed != nullptr)
+                        {
+                            MergeTranslateReflected<E>(target, type, landed);
+                        }
+                    }
+                }
+                segments.push_back({entry.type, destination});
+            }
+
+            OnExternalWriteRuntime(target, segments);
+
+            if (records == MergeRecords::Clear)
+            {
+                target.template Clear<MergedFrom<E>, MergedTo<E>>();
+            }
         }
     }
 
@@ -317,10 +516,11 @@ namespace Spark
     ///
     /// The source is moved out of and dies with the call.
     template<MergeMatch Match, MergeMapping Mapping, typename... Ts, typename E>
-    MergeResult<E> Merge(MergeContextT<E>& target, StagingContext<E>&& source)
+    void Merge(MergeContextT<E>& target, StagingContext<E>&& source,
+        MergeRecords records = MergeRecords::Clear)
     {
         static_assert(sizeof...(Ts) > 0, "Merge needs at least one component type.");
-        return Internal::MergeInternal<Match, Mapping, true, Ts...>(target, source);
+        Internal::MergeInternal<Match, Mapping, true, Ts...>(target, source, records);
     }
 
     /// @brief Copy the components of the listed types from a staging context into a live one.
@@ -329,10 +529,45 @@ namespace Spark
     /// than once. Component types that cannot be copied fail to compile here rather than dropping
     /// data at runtime.
     template<MergeMatch Match, MergeMapping Mapping, typename... Ts, typename E>
-    MergeResult<E> Merge(MergeContextT<E>& target, const StagingContext<E>& source)
+    void Merge(MergeContextT<E>& target, const StagingContext<E>& source,
+        MergeRecords records = MergeRecords::Clear)
     {
         static_assert(sizeof...(Ts) > 0, "Merge needs at least one component type.");
-        return Internal::MergeInternal<Match, Mapping, false, Ts...>(target, source);
+        Internal::MergeInternal<Match, Mapping, false, Ts...>(target, source, records);
+    }
+
+    /// @brief Move a staging context into a live one with no compile-time type list: what takes
+    /// part is whatever the source holds.
+    ///
+    /// The form for data that arrived as bytes -- a scene file, a script, the network. Three
+    /// differences from the typed form, all forced by erasure:
+    ///   - every source type must be reflected and registered with ComponentRuntime<T>;
+    ///   - components are copied, not moved: the erased storage takes an opaque element;
+    ///   - the match is Any, since a condition across types cannot be spelled at runtime.
+    template<typename E>
+    void Merge(MergeContextT<E>& target, StagingContext<E>&& source,
+        MergeRecords records = MergeRecords::Clear)
+    {
+        Internal::MergeRuntime<E>(target, source, records);
+    }
+
+    /// @brief Drop the records a Keep merge left behind. The next merge into this context needs
+    /// them gone, or it would read the two batches as one.
+    template<typename Context>
+    void ClearMergeRecords(Context& target)
+    {
+        using E = typename Context::Entity;
+        target.template Clear<MergedFrom<E>, MergedTo<E>>();
+    }
+
+    /// @brief Where a source identifier landed, or null when it took no part in the batch.
+    /// Only answerable while the records stand -- which is what MergeRecords::Keep is for.
+    template<typename E>
+    E MergedEntity(const MergeContextT<E>& target, E source)
+    {
+        return Internal::MergeAlreadyCreated<E>(target, source)
+            ? Internal::MergeForward<E>(target, source)
+            : E{entt::null};
     }
 
     /// @brief Copy the components of the listed types out of a live context into a fresh staging one.

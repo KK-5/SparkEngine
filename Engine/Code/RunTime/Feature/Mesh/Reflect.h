@@ -5,6 +5,7 @@
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaFieldTraits.h>
+#include <ECS/ComponentRuntime.h>
 
 #include "Components.h"
 
@@ -32,5 +33,6 @@ namespace Spark::Mesh
             ;
 
         Spark::ComponentOperation<MeshComponent>(context);
+        Spark::ComponentRuntime<MeshComponent>(context);
     }
 }

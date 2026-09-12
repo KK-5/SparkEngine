@@ -5,6 +5,7 @@
 #include <Reflection/Utility.h>
 #include <Serialization/UIElement.h>
 #include <Serialization/MetaFieldTraits.h>
+#include <ECS/ComponentRuntime.h>
 
 #include "Components.h"
 
@@ -51,5 +52,6 @@ namespace Spark::Light
             ;
 
         Spark::ComponentOperation<LightComponent>(context);
+        Spark::ComponentRuntime<LightComponent>(context);
     }
 }

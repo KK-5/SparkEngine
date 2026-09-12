@@ -13,6 +13,8 @@
 #include <Hierarchy/IHierarchy.h>
 #include <Hierarchy/HierarchyManager.h>
 #include <CoreComponents/Name.h>
+#include <ECS/ComponentRuntime.h>
+#include <Reflection/TypeRegistry.h>
 
 #include <EASTL/algorithm.h>
 #include <EASTL/array.h>
@@ -43,6 +45,21 @@ namespace
     };
 
     /// Destroy and recreate the same slot until its version has moved on.
+    //! The batch a merge just landed, read from the records it keeps when asked to.
+    template<typename Context>
+    eastl::vector<typename Context::Entity> MergedBatch(Context& context)
+    {
+        using E = typename Context::Entity;
+
+        eastl::vector<E> entities;
+        for (E entity : context.template GetView<MergedFrom<E>>())
+        {
+            entities.push_back(entity);
+        }
+        ClearMergeRecords(context);
+        return entities;
+    }
+
     Entity BumpVersion(WorldContext& context, Entity entity, uint32_t times)
     {
         Entity current = entity;
@@ -203,11 +220,12 @@ TEST(MergeTest, MergeIntoEmptyTargetKeepsIdentifiers)
     staging.Add<MergeTestPosition>(a, MergeTestPosition{1.0f, 2.0f});
     staging.Add<MergeTestPosition>(b, MergeTestPosition{3.0f, 4.0f});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
     // The target was empty, so every hint was honoured. created is in storage order, which is not
     // insertion order -- the merge promises no ordering.
-    ASSERT_EQ(result.created.size(), 2u);
+    ASSERT_EQ(result.size(), 2u);
     ASSERT_TRUE(world.Valid(a));
     ASSERT_TRUE(world.Valid(b));
     ASSERT_EQ(world.Get<MergeTestPosition>(a).x, 1.0f);
@@ -224,11 +242,12 @@ TEST(MergeTest, MergeRenumbersOnCollision)
     ASSERT_EQ(entt::to_entity(source), entt::to_entity(occupant));
     staging.Add<MergeTestPosition>(source, MergeTestPosition{5.0f, 6.0f});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 1u);
-    ASSERT_NE(result.created[0], source);
-    ASSERT_EQ(world.Get<MergeTestPosition>(result.created[0]).x, 5.0f);
+    ASSERT_EQ(result.size(), 1u);
+    ASSERT_NE(result[0], source);
+    ASSERT_EQ(world.Get<MergeTestPosition>(result[0]).x, 5.0f);
 
     // The occupant kept its identifier and gained nothing.
     ASSERT_TRUE(world.Valid(occupant));
@@ -246,14 +265,15 @@ TEST(MergeTest, MergeCollidesAcrossVersions)
     ASSERT_FALSE(world.Valid(source));
     staging.Add<MergeTestPosition>(source, MergeTestPosition{7.0f, 8.0f});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
     // Identity said the slot was free, occupancy said otherwise -- the component must not land on
     // the occupant.
-    ASSERT_EQ(result.created.size(), 1u);
-    ASSERT_NE(result.created[0], source);
+    ASSERT_EQ(result.size(), 1u);
+    ASSERT_NE(result[0], source);
     ASSERT_FALSE(world.Has<MergeTestPosition>(occupant));
-    ASSERT_EQ(world.Get<MergeTestPosition>(result.created[0]).x, 7.0f);
+    ASSERT_EQ(world.Get<MergeTestPosition>(result[0]).x, 7.0f);
 }
 
 TEST(MergeTest, MergeVisitsAnEntityOnceAcrossTypes)
@@ -265,12 +285,13 @@ TEST(MergeTest, MergeVisitsAnEntityOnceAcrossTypes)
     staging.Add<MergeTestPosition>(both, MergeTestPosition{1.0f, 1.0f});
     staging.Add<MergeTestVelocity>(both, MergeTestVelocity{2.0f, 2.0f});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap,
-                        MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap,
+                        MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 1u);
-    ASSERT_TRUE(world.Has<MergeTestPosition>(result.created[0]));
-    ASSERT_TRUE(world.Has<MergeTestVelocity>(result.created[0]));
+    ASSERT_EQ(result.size(), 1u);
+    ASSERT_TRUE(world.Has<MergeTestPosition>(result[0]));
+    ASSERT_TRUE(world.Has<MergeTestVelocity>(result[0]));
 }
 
 TEST(MergeTest, MergeAllSkipsPartialEntities)
@@ -284,11 +305,12 @@ TEST(MergeTest, MergeAllSkipsPartialEntities)
     staging.Add<MergeTestVelocity>(both, MergeTestVelocity{2.0f, 2.0f});
     staging.Add<MergeTestPosition>(partial, MergeTestPosition{9.0f, 9.0f});
 
-    auto result = Merge<MergeMatch::All, MergeMapping::Remap,
-                        MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging));
+    Merge<MergeMatch::All, MergeMapping::Remap,
+                        MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 1u);
-    ASSERT_EQ(world.Get<MergeTestPosition>(result.created[0]).x, 1.0f);
+    ASSERT_EQ(result.size(), 1u);
+    ASSERT_EQ(world.Get<MergeTestPosition>(result[0]).x, 1.0f);
     ASSERT_EQ(world.GetView<MergeTestPosition>().size(), 1u);
 }
 
@@ -300,10 +322,11 @@ TEST(MergeTest, MergeCarriesTagComponents)
     Entity entity = staging.CreateEntity();
     staging.Add<MergeTestTag>(entity);
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestTag>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestTag>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 1u);
-    ASSERT_TRUE(world.Has<MergeTestTag>(result.created[0]));
+    ASSERT_EQ(result.size(), 1u);
+    ASSERT_TRUE(world.Has<MergeTestTag>(result[0]));
 }
 
 TEST(MergeTest, MergeIgnoresTypesAbsentFromSource)
@@ -314,11 +337,12 @@ TEST(MergeTest, MergeIgnoresTypesAbsentFromSource)
     Entity entity = staging.CreateEntity();
     staging.Add<MergeTestPosition>(entity, MergeTestPosition{1.0f, 2.0f});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap,
-                        MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap,
+                        MergeTestPosition, MergeTestVelocity>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 1u);
-    ASSERT_FALSE(world.Has<MergeTestVelocity>(result.created[0]));
+    ASSERT_EQ(result.size(), 1u);
+    ASSERT_FALSE(world.Has<MergeTestVelocity>(result[0]));
 }
 
 TEST(MergeTest, MergeClearsItsBookkeeping)
@@ -475,11 +499,12 @@ TEST_F(MergeSceneTest, MergePreservesAnAlreadyLinkedTree)
     staging.Add<Hierarchy>(parent, Hierarchy{NullEntity, child, NullEntity, NullEntity});
     staging.Add<Hierarchy>(child, Hierarchy{parent, NullEntity, NullEntity, NullEntity});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
     // Dispatching one Construct per entity would have failed validation on the child and dropped
     // its Hierarchy.
-    ASSERT_EQ(result.created.size(), 2u);
+    ASSERT_EQ(result.size(), 2u);
     ASSERT_TRUE(world.Has<Hierarchy>(parent));
     ASSERT_TRUE(world.Has<Hierarchy>(child));
     EXPECT_EQ(world.Get<Hierarchy>(parent).firstChild, child);
@@ -502,10 +527,11 @@ TEST_F(MergeSceneTest, TheBatchIsLinkedUnderAnExistingParentAfterTheMerge)
     Entity incoming = staging.CreateEntity();
     staging.Add<Hierarchy>(incoming);
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 1u);
-    const Entity merged = result.created[0];
+    ASSERT_EQ(result.size(), 1u);
+    const Entity merged = result[0];
     EXPECT_TRUE(world.Has<HierarchyRootTag>(merged));
 
     // A live entity cannot be named from inside staging, so the boundary edge is made here.
@@ -540,19 +566,21 @@ TEST(MergeTest, CopyLeavesTheSourceIntact)
     Entity source = prefab.CreateEntity();
     prefab.Add<MergeTestPosition>(source, MergeTestPosition{1.0f, 2.0f});
 
-    auto first = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, prefab);
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, prefab, MergeRecords::Keep);
+    const auto first = MergedBatch(world);
 
-    ASSERT_EQ(first.created.size(), 1u);
+    ASSERT_EQ(first.size(), 1u);
     ASSERT_TRUE(prefab.Has<MergeTestPosition>(source));
     ASSERT_EQ(prefab.Get<MergeTestPosition>(source).x, 1.0f);
 
     // A prefab source is instantiated more than once.
-    auto second = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, prefab);
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, prefab, MergeRecords::Keep);
+    const auto second = MergedBatch(world);
 
-    ASSERT_EQ(second.created.size(), 1u);
-    ASSERT_NE(second.created[0], first.created[0]);
-    ASSERT_EQ(world.Get<MergeTestPosition>(first.created[0]).x, 1.0f);
-    ASSERT_EQ(world.Get<MergeTestPosition>(second.created[0]).x, 1.0f);
+    ASSERT_EQ(second.size(), 1u);
+    ASSERT_NE(second[0], first[0]);
+    ASSERT_EQ(world.Get<MergeTestPosition>(first[0]).x, 1.0f);
+    ASSERT_EQ(world.Get<MergeTestPosition>(second[0]).x, 1.0f);
 }
 
 TEST(MergeTest, ExtractCopiesOutOfTheWorld)
@@ -616,11 +644,12 @@ TEST(MergeTest, ExtractThenMergeRoundTrips)
 
     // Copy to the clipboard, then paste: every identifier collides, so the paste lands elsewhere.
     auto clipboard = Extract<MergeMatch::Any, MergeTestPosition>(world);
-    auto pasted = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(clipboard));
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestPosition>(world, eastl::move(clipboard), MergeRecords::Keep);
+    const auto pasted = MergedBatch(world);
 
-    ASSERT_EQ(pasted.created.size(), 1u);
-    ASSERT_NE(pasted.created[0], original);
-    ASSERT_EQ(world.Get<MergeTestPosition>(pasted.created[0]).x, 5.0f);
+    ASSERT_EQ(pasted.size(), 1u);
+    ASSERT_NE(pasted[0], original);
+    ASSERT_EQ(world.Get<MergeTestPosition>(pasted[0]).x, 5.0f);
     ASSERT_EQ(world.Get<MergeTestPosition>(original).x, 5.0f);
 }
 
@@ -647,9 +676,10 @@ TEST_F(MergeSceneTest, SetParentBuildsATreeInStaging)
     // A staging context carries no root tags; the world adds them on arrival.
     EXPECT_FALSE(staging.Has<HierarchyRootTag>(root));
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 3u);
+    ASSERT_EQ(result.size(), 3u);
     EXPECT_EQ(world.Get<Hierarchy>(root).firstChild, second);
     EXPECT_EQ(world.Get<Hierarchy>(second).nextSibling, first);
     EXPECT_EQ(world.Get<Hierarchy>(first).parent, root);
@@ -710,11 +740,12 @@ TEST_F(MergeSceneTest, MergeATreeIntoANonEmptyWorld)
     staging.Add<Hierarchy>(parent, Hierarchy{NullEntity, child, NullEntity, NullEntity});
     staging.Add<Hierarchy>(child, Hierarchy{parent, NullEntity, NullEntity, NullEntity});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, Hierarchy>(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 2u);
-    const Entity first = result.created[0];
-    const Entity second = result.created[1];
+    ASSERT_EQ(result.size(), 2u);
+    const Entity first = result[0];
+    const Entity second = result[1];
     EXPECT_NE(first, parent);
     EXPECT_NE(second, parent);
 
@@ -791,13 +822,14 @@ TEST_F(MergeSceneTest, MergeAModelShapedTree)
     hierarchy->SetParent(staging, prim, childNode);
     hierarchy->SetParent(staging, childNode, rootNode);
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, Name, Hierarchy>(
-        world, eastl::move(staging));
-    ASSERT_EQ(result.created.size(), 3u);
+    Merge<MergeMatch::Any, MergeMapping::Remap, Name, Hierarchy>(
+        world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
+    ASSERT_EQ(result.size(), 3u);
 
     auto byName = [&](const char* name)
     {
-        for (Entity entity : result.created)
+        for (Entity entity : result)
         {
             if (world.Has<Name>(entity) && world.Get<Name>(entity).name == name)
             {
@@ -836,12 +868,13 @@ TEST(MergeTest, TranslateRewritesAReferenceToAParticipant)
     staging.Add<MergeTestLink>(head, MergeTestLink{tail});
     staging.Add<MergeTestLink>(tail, MergeTestLink{NullEntity});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(
-        world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(
+        world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 2u);
-    const Entity first = result.created[0];
-    const Entity second = result.created[1];
+    ASSERT_EQ(result.size(), 2u);
+    const Entity first = result[0];
+    const Entity second = result[1];
     ASSERT_NE(first, head);
 
     // Whichever of the two is the head, its reference names the other one.
@@ -862,11 +895,12 @@ TEST(MergeTest, TranslateDropsAReferenceToANonParticipant)
     // The outsider carries nothing that is being merged, so it never reaches the world.
     staging.Add<MergeTestPosition>(outsider, MergeTestPosition{1.0f, 2.0f});
 
-    auto result = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(
-        world, eastl::move(staging));
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(
+        world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
 
-    ASSERT_EQ(result.created.size(), 1u);
-    EXPECT_EQ(world.Get<MergeTestLink>(result.created[0]).target, NullEntity);
+    ASSERT_EQ(result.size(), 1u);
+    EXPECT_EQ(world.Get<MergeTestLink>(result[0]).target, NullEntity);
 }
 
 TEST(MergeTest, CopyInstantiatesAPrefabWithItsOwnReferences)
@@ -879,19 +913,21 @@ TEST(MergeTest, CopyInstantiatesAPrefabWithItsOwnReferences)
     prefab.Add<MergeTestLink>(head, MergeTestLink{tail});
     prefab.Add<MergeTestLink>(tail, MergeTestLink{NullEntity});
 
-    auto first = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(world, prefab);
-    auto second = Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(world, prefab);
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(world, prefab, MergeRecords::Keep);
+    const auto first = MergedBatch(world);
+    Merge<MergeMatch::Any, MergeMapping::Remap, MergeTestLink>(world, prefab, MergeRecords::Keep);
+    const auto second = MergedBatch(world);
 
-    ASSERT_EQ(first.created.size(), 2u);
-    ASSERT_EQ(second.created.size(), 2u);
+    ASSERT_EQ(first.size(), 2u);
+    ASSERT_EQ(second.size(), 2u);
 
     // Translation happens on the copy that landed, so the prefab can be instantiated again.
     EXPECT_EQ(prefab.Get<MergeTestLink>(head).target, tail);
 
-    auto pointsInsideItself = [&](const MergeResult<Entity>& instance)
+    auto pointsInsideItself = [&](const eastl::vector<Entity>& instance)
     {
         size_t linkCount = 0;
-        for (Entity entity : instance.created)
+        for (Entity entity : instance)
         {
             const Entity target = world.Get<MergeTestLink>(entity).target;
             if (target == NullEntity)
@@ -899,8 +935,8 @@ TEST(MergeTest, CopyInstantiatesAPrefabWithItsOwnReferences)
                 continue;
             }
             ++linkCount;
-            EXPECT_NE(eastl::find(instance.created.begin(), instance.created.end(), target),
-                instance.created.end());
+            EXPECT_NE(eastl::find(instance.begin(), instance.end(), target),
+                instance.end());
         }
         EXPECT_EQ(linkCount, 1u);
     };
@@ -908,9 +944,270 @@ TEST(MergeTest, CopyInstantiatesAPrefabWithItsOwnReferences)
     pointsInsideItself(first);
     pointsInsideItself(second);
 
-    for (Entity entity : second.created)
+    for (Entity entity : second)
     {
-        EXPECT_EQ(eastl::find(first.created.begin(), first.created.end(), entity),
-            first.created.end());
+        EXPECT_EQ(eastl::find(first.begin(), first.end(), entity),
+            first.end());
     }
+}
+
+namespace
+{
+    //! The runtime path reads the reflected type, so these tests have to register one. The
+    //! global context is filled once and reused by every test in this file.
+    void RegisterRuntimeTestTypes()
+    {
+        static bool registered = false;
+        if (registered)
+        {
+            return;
+        }
+        registered = true;
+
+        ReflectContext& context = TypeRegistry::GetContext();
+        context.Reflect<MergeTestPosition>().Type("MergeTestPosition")
+            .Data<&MergeTestPosition::x>("x")
+            .Data<&MergeTestPosition::y>("y");
+        ComponentRuntime<MergeTestPosition>(context);
+
+        context.Reflect<MergeTestTag>().Type("MergeTestTag");
+        ComponentRuntime<MergeTestTag>(context);
+
+        context.Reflect<MergeTestLink>().Type("MergeTestLink")
+            .Data<&MergeTestLink::target>("Target");
+        ComponentRuntime<MergeTestLink>(context);
+
+        // Reflected but never registered for runtime data: the merge has to drop it.
+        context.Reflect<MergeTestVelocity>().Type("MergeTestVelocity")
+            .Data<&MergeTestVelocity::dx>("dx")
+            .Data<&MergeTestVelocity::dy>("dy");
+    }
+
+    MetaAny MakeValue(const MetaType& type)
+    {
+        return type.construct();
+    }
+}
+
+TEST(RuntimeMergeTest, TakesItsTypesFromTheSource)
+{
+    RegisterRuntimeTestTypes();
+
+    StagingContext<Entity> staging;
+    const Entity first  = staging.CreateEntity();
+    const Entity second = staging.CreateEntity();
+    staging.Add<MergeTestPosition>(first, MergeTestPosition{1.f, 2.f});
+    staging.Add<MergeTestTag>(second);
+
+    WorldContext world;
+    Merge(world, eastl::move(staging), MergeRecords::Keep);
+
+    // The target was empty, so both identifiers were kept.
+    EXPECT_EQ(MergedEntity(world, first), first);
+    EXPECT_EQ(MergedEntity(world, second), second);
+
+    const auto batch = MergedBatch(world);
+    EXPECT_EQ(batch.size(), 2u);
+    ASSERT_TRUE(world.Valid(first));
+    ASSERT_TRUE(world.Valid(second));
+    EXPECT_EQ(world.Get<MergeTestPosition>(first).x, 1.f);
+    EXPECT_TRUE(world.Has<MergeTestTag>(second));
+}
+
+TEST(RuntimeMergeTest, RenumbersAndTranslatesReferences)
+{
+    RegisterRuntimeTestTypes();
+
+    // The identifiers the batch wants are taken, so every one of them moves.
+    WorldContext world;
+    eastl::array<Entity, 4> occupants{};
+    for (Entity& occupant : occupants)
+    {
+        occupant = world.CreateEntity();
+    }
+
+    StagingContext<Entity> staging;
+    const Entity head = staging.CreateEntity(occupants[1]);
+    const Entity tail = staging.CreateEntity(occupants[2]);
+    staging.Add<MergeTestLink>(head, MergeTestLink{tail});
+    staging.Add<MergeTestLink>(tail, MergeTestLink{NullEntity});
+
+    Merge(world, eastl::move(staging), MergeRecords::Keep);
+
+    // The records answer where each source identifier went.
+    const Entity landedHead = MergedEntity(world, head);
+    const Entity landedTail = MergedEntity(world, tail);
+    EXPECT_EQ(MergedBatch(world).size(), 2u);
+
+    EXPECT_NE(landedHead, head);
+    EXPECT_NE(landedTail, tail);
+    EXPECT_EQ(world.Get<MergeTestLink>(landedHead).target, landedTail);
+    EXPECT_EQ(world.Get<MergeTestLink>(landedTail).target, NullEntity);
+}
+
+TEST(RuntimeMergeTest, DropsAReferenceThatLeavesTheBatch)
+{
+    RegisterRuntimeTestTypes();
+
+    // The outsider has to sit on an identifier the batch never mentions -- a staging entity
+    // that happens to share an identifier with it would be part of the batch, not outside it.
+    WorldContext world;
+    eastl::array<Entity, 8> filler{};
+    for (Entity& entity : filler)
+    {
+        entity = world.CreateEntity();
+    }
+    const Entity outsider = filler[7];
+
+    StagingContext<Entity> staging;
+    const Entity linker = staging.CreateEntity();
+    staging.Add<MergeTestLink>(linker, MergeTestLink{outsider});
+
+    Merge(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
+
+    ASSERT_EQ(result.size(), 1u);
+    EXPECT_EQ(world.Get<MergeTestLink>(result[0]).target, NullEntity);
+}
+
+TEST(RuntimeMergeTest, DropsAComponentWithNoRuntimeBinding)
+{
+    RegisterRuntimeTestTypes();
+
+    StagingContext<Entity> staging;
+    const Entity entity = staging.CreateEntity();
+    staging.Add<MergeTestPosition>(entity, MergeTestPosition{3.f, 4.f});
+    staging.Add<MergeTestVelocity>(entity, MergeTestVelocity{5.f, 6.f});
+
+    WorldContext world;
+    Merge(world, eastl::move(staging), MergeRecords::Keep);
+    const auto result = MergedBatch(world);
+
+    ASSERT_EQ(result.size(), 1u);
+    EXPECT_TRUE(world.Has<MergeTestPosition>(entity));
+    EXPECT_FALSE(world.Has<MergeTestVelocity>(entity));
+}
+
+TEST(RuntimeAddTest, AddsAComponentDescribedAtRuntime)
+{
+    RegisterRuntimeTestTypes();
+
+    const MetaType type = TypeRegistry::GetContext().Resolve<MergeTestPosition>();
+    MetaAny value = MakeValue(type);
+    ASSERT_TRUE(value);
+    value.cast<MergeTestPosition&>().x = 7.f;
+
+    StagingContext<Entity> staging;
+    const Entity entity = staging.CreateEntity();
+
+    EXPECT_TRUE(staging.Add(entity, value));
+    ASSERT_TRUE(staging.Has<MergeTestPosition>(entity));
+    EXPECT_EQ(staging.Get<MergeTestPosition>(entity).x, 7.f);
+
+    // A zero-field component is the type itself; there is no instance to copy.
+    const MetaType tagType = TypeRegistry::GetContext().Resolve<MergeTestTag>();
+    EXPECT_TRUE(staging.Add(entity, MakeValue(tagType)));
+    EXPECT_TRUE(staging.Has<MergeTestTag>(entity));
+}
+
+TEST(RuntimeAddTest, RefusesWhatItCannotPlace)
+{
+    RegisterRuntimeTestTypes();
+
+    StagingContext<Entity> staging;
+    const Entity entity = staging.CreateEntity();
+
+    const MetaType type = TypeRegistry::GetContext().Resolve<MergeTestPosition>();
+    EXPECT_TRUE(staging.Add(entity, MakeValue(type)));
+    // Twice is undefined for entt, so it has to be refused here.
+    EXPECT_FALSE(staging.Add(entity, MakeValue(type)));
+
+    // Reflected, but never registered for runtime data.
+    const MetaType unbound = TypeRegistry::GetContext().Resolve<MergeTestVelocity>();
+    EXPECT_FALSE(staging.Add(entity, MakeValue(unbound)));
+
+    // No such entity.
+    StagingContext<Entity> empty;
+    EXPECT_FALSE(empty.Add(entity, MakeValue(type)));
+
+    EXPECT_FALSE(staging.Add(entity, MetaAny{}));
+}
+
+namespace
+{
+    //! A second context, so the runtime path is exercised where nothing observes the target
+    //! and the component belongs to another entity type than the world's.
+    enum class MergeTestHandle : uint32_t
+    {
+    };
+
+    struct MergeTestSlot
+    {
+        MergeTestHandle next{MergeTestHandle{entt::null}};
+        int32_t         value{0};
+    };
+}
+
+namespace Spark
+{
+    template<>
+    struct EntityTraits<MergeTestHandle>
+    {
+        using value_type = MergeTestHandle;
+        using entity_type = uint32_t;
+        using version_type = uint16_t;
+
+        static constexpr entity_type entity_mask = 0xFFFFF;
+        static constexpr entity_type version_mask = 0xFFF;
+    };
+
+    template<>
+    struct ComponentTraits<MergeTestSlot> : ComponentTraitsBase<MergeTestSlot, MergeTestHandle>
+    {
+        static constexpr auto entityRefs = EntityRefs<&MergeTestSlot::next>;
+    };
+}
+
+namespace entt
+{
+    template<>
+    struct entt_traits<MergeTestHandle> : basic_entt_traits<Spark::EntityTraits<MergeTestHandle>>
+    {
+        using base_type = basic_entt_traits<Spark::EntityTraits<MergeTestHandle>>;
+        static constexpr std::size_t page_size = ENTT_SPARSE_PAGE;
+    };
+}
+
+TEST(RuntimeMergeTest, WorksInAContextOfAnotherEntityType)
+{
+    static bool registered = false;
+    if (!registered)
+    {
+        registered = true;
+        ReflectContext& context = TypeRegistry::GetContext();
+        context.Reflect<MergeTestSlot>().Type("MergeTestSlot")
+            .Data<&MergeTestSlot::next>("Next")
+            .Data<&MergeTestSlot::value>("Value");
+        ComponentRuntime<MergeTestSlot>(context);
+    }
+
+    BasicContext<MergeTestHandle> live;
+    const MergeTestHandle occupant = live.CreateEntity();
+
+    StagingContext<MergeTestHandle> staging;
+    const MergeTestHandle first  = staging.CreateEntity(occupant);
+    const MergeTestHandle second = staging.CreateEntity();
+    staging.Add<MergeTestSlot>(first, MergeTestSlot{second, 1});
+    staging.Add<MergeTestSlot>(second, MergeTestSlot{MergeTestHandle{entt::null}, 2});
+
+    Merge(live, eastl::move(staging), MergeRecords::Keep);
+
+    const MergeTestHandle landedFirst  = MergedEntity(live, first);
+    const MergeTestHandle landedSecond = MergedEntity(live, second);
+    EXPECT_EQ(MergedBatch(live).size(), 2u);
+
+    // The occupied identifier moved, the free one was kept, and the reference followed.
+    EXPECT_NE(landedFirst, first);
+    EXPECT_EQ(landedSecond, second);
+    EXPECT_EQ(live.Get<MergeTestSlot>(landedFirst).next, landedSecond);
 }

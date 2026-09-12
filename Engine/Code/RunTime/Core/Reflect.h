@@ -15,6 +15,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/UIElement.h"
 #include "Serialization/MetaFieldTraits.h"
+#include "ECS/ComponentRuntime.h"
 
 namespace Spark
 {
@@ -64,6 +65,7 @@ namespace Spark
                 .Traits(MetaFieldTraits::Serializable);
             
         ComponentOperation<Name>(context);
+        ComponentRuntime<Name>(context);
 
         // No ComponentOperation: it would put four editable raw handles in the inspector,
         // an invitation to break the tree -- IHierarchy is how a tree is edited. Without
@@ -73,5 +75,7 @@ namespace Spark
             .Data<&Hierarchy::firstChild>("First Child").Traits(MetaFieldTraits::Serializable)
             .Data<&Hierarchy::prevSibling>("Prev Sibling").Traits(MetaFieldTraits::Serializable)
             .Data<&Hierarchy::nextSibling>("Next Sibling").Traits(MetaFieldTraits::Serializable);
+
+        ComponentRuntime<Hierarchy>(context);
     }
 }

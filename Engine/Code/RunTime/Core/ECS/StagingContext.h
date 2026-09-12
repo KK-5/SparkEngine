@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Log/ILogSystem.h>
+
+#include "ComponentRuntime.h"
 #include "ContextStorage.h"
 
 namespace Spark
@@ -31,5 +34,46 @@ namespace Spark
 
         StagingContext(const StagingContext&) = delete;
         StagingContext& operator=(const StagingContext&) = delete;
+
+        using ContextStorage<EntityType>::Add;
+
+        /// @brief A component described at runtime. The value carries its own type, and that
+        /// type carries the only thing that cannot be worked out here: how to build its storage.
+        ///
+        /// The value is copied in and nothing is dispatched, as with every write to a staging
+        /// context -- Merge announces the batch later.
+        bool Add(EntityType entity, const MetaAny& value)
+        {
+            if (!value)
+            {
+                LOG_ERROR("[StagingContext] An empty value names no component type.");
+                return false;
+            }
+
+            auto* storage = RuntimeComponentStorage<EntityType>(value.type(), *this);
+            if (storage == nullptr)
+            {
+                LOG_ERROR("[StagingContext] {} takes no runtime data in this context.",
+                    value.type().info().name());
+                return false;
+            }
+
+            if (!this->Valid(entity))
+            {
+                LOG_ERROR("[StagingContext] Entity {} does not exist.", static_cast<uint32_t>(entity));
+                return false;
+            }
+
+            // entt leaves a repeated push undefined.
+            if (storage->contains(entity))
+            {
+                LOG_ERROR("[StagingContext] Entity {} already carries {}.",
+                    static_cast<uint32_t>(entity), value.type().info().name());
+                return false;
+            }
+
+            storage->push(entity, value.base().data());
+            return true;
+        }
     };
 }

@@ -6,6 +6,7 @@
 #include <Serialization/EntityJson.h>
 #include <Serialization/JsonSerializer.h>
 #include <Serialization/UIElement.h>
+#include <ECS/ComponentRuntime.h>
 
 #include <Resource/Material/Reflect.h>
 
@@ -38,12 +39,14 @@ namespace Spark::Material
         // this module's statement. A fresh Reflect<T>() starts at type level, so this
         // stands alone safely.
         context.Reflect<Resource::StandardPBR>().Traits(ComponentTraits<Resource::StandardPBR>::flags);
+        Spark::ComponentRuntime<Resource::StandardPBR>(context);
 
         // The other half of what a material entity carries, bound the same way and for the
         // same reason: the material window edits these three and writing a `.smat` reads
         // them. Also IsWorld=false — state belongs to a material, never to an object.
         Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, Resource::MaterialState>(context);
         context.Reflect<Resource::MaterialState>().Traits(ComponentTraits<Resource::MaterialState>::flags);
+        Spark::ComponentRuntime<Resource::MaterialState>(context);
 
         // Which asset a material entity came from. Reflected so the editor reads it through
         // the same (type, entity) addressing as everything else instead of reaching for a
@@ -60,6 +63,7 @@ namespace Spark::Material
                 .Traits(MetaFieldTraits::Serializable);
 
         Spark::ComponentOperation<MaterialExecuteContext, MaterialHandle, MaterialAssetRef>(context);
+        Spark::ComponentRuntime<MaterialAssetRef>(context);
 
         // The world-side reference held by a primitive entity. A normal editable
         // world component; its single MaterialHandle field uses MaterialRefElement so
@@ -72,6 +76,7 @@ namespace Spark::Material
             ;
 
         Spark::ComponentOperation<MaterialComponent>(context);
+        Spark::ComponentRuntime<MaterialComponent>(context);
 
         // Same field layout as StandardPBR, registered on this type because entt's field
         // range does not visit a base. The name breaks the "class name minus Component"
@@ -82,5 +87,6 @@ namespace Spark::Material
             .Traits(ComponentTraits<StandardPBROverride>::flags);
 
         Spark::ComponentOperation<StandardPBROverride>(context);
+        Spark::ComponentRuntime<StandardPBROverride>(context);
     }
 }
