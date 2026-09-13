@@ -3,7 +3,9 @@
 > 设计见 `TODO_AssetSystemPlan.md`「阶段 4：场景保存」与 `TODO_ContextMerge.md`。**本文只管落地顺序、
 > 每步的判据与踩坑点**，不重复设计论证。
 >
-> 有两处推翻了阶段 4 的原设计，见「对阶段 4 的两处修正」——那两节应以本文为准。
+> 有两处推翻了阶段 4 的原设计，见「对阶段 4 的两处修正」——那两节应以本文为准。落地过程中又推翻了本文
+> 自己的两处：Step 3 的 `SystemOwnedTag`（见「对 Step 3 的修正」）与 Step 4 的「staging → Merge 由调用方
+> 列类型」（见 Step 4）。已完成的步骤都按实际落地重写过。
 
 ## 前置盘点
 
@@ -14,10 +16,10 @@
 | 上下文合并（含实体引用重写、批量事件补发、`Extract`） | ✅ `Core/ECS/Merge/`、`MergeTest` |
 | 键原值还原 | ✅ `ContextStorage.h:64` 的 `CreateEntity(hint)` 与 `EntityAt` |
 | 资产预加载 | ✅ `AssetLoadBatch` + 欢迎页；`GetRegisteredAssetIds`（`AssetManager.cpp:121`）滤掉子资产、父 Ready 即子可解析 |
-| 资源回收（`DeadTag` 职责收窄） | ❌ **推迟，见文末待办**。阶段 4 的清空先接受漏 slot |
+| 资源回收（`DeadTag` 职责收窄） | ❌ **推迟，见文末待办**。清空直接销毁，slot id 漏得更明显 |
 
-阶段 4 自身要写的（都是加法）：类型级 flags、`GetStorages` / `GetEntities`、`Hierarchy` 反射、实体句柄编解码、
-场景模块、清空世界、`MeshComponent` 去 `Ptr`。
+阶段 4 自身要写的：类型级 flags、`GetStorages`、`Hierarchy` 反射、实体句柄编解码、场景模块、运行期数据
+入口（`ComponentRuntime` + 运行期 `Merge`）、清空世界、`MeshComponent` 去 `Ptr`。
 
 ## 对阶段 4 的两处修正
 
@@ -192,10 +194,9 @@ packed 序抖动。文件要稳定，序列化器本来就必须物化再排序�
 
 ### 留给 Step 4 的
 
-- **`DeadTag` 时序**：`Inspector` 删实体只打 `DeadTag`，`EntityReaper` 到 `TICK_LAST` 才销毁，而链接
-  修补挂在销毁事件上。删除后、收割前保存，那个实体仍被当成正常实体写进文件。不能靠跳过 `DeadTag`
-  实体解决——父与兄弟的链接还指着它，加载时被丢弃，兄弟链断掉；也不能就地收割——保存发生在 UI pass
-  里，而 UI pass 是 render graph 执行的一部分。随 Step 4 的两帧命令一起解决。
+- ~~**`DeadTag` 时序**~~：已解决，但不是靠两帧命令。这个引擎一帧只有一次 `TickBus::Broadcast`，渲染发生
+  在 `RenderSystem::OnTick`（`TICK_DEFAULT`）里，而 `EntityReaper` 在 `TICK_LAST`——**同一帧的更晚位置**。
+  保存排到 `TICK_LAST + 1` 执行即可：那时本帧的删除已被收割、链接已被修补。
 - ~~**`FindOrCreateEditorCamera` 仍会抢错人**~~：已随下节的判据改动一并解决，查找分支改成
   `Exclude<Hierarchy>`。
 
@@ -248,27 +249,82 @@ persistent，覆盖数据本身存在世界侧，加载后照样重建）。所�
 `LightSystem.cpp:59` 的默认平行光在新判据下**仍会进文件**（它调了 `AddEntity`，确实是场景内容），按原
 计划由 Step 4 删除。
 
-## Step 4　读侧 + 清空世界
+## Step 4　读侧 + 清空世界 ✅ 已完成
 
-1. `Load(path)`：JSON → `StagingContext<Entity>` / `StagingContext<MaterialHandle>` → `Merge`。
-   段名 → 建哪种 staging、合进哪个活上下文，这两个分支就是模块划线里「需要具体类型的那一点」。
-2. 先按 `entities` 清单 `CreateEntity(hint)` 建全，再挂组件；`HierarchyRootTag` 在 Notify 之前补。
-3. 清空 = 给带 `Hierarchy` 的世界实体与带 `MaterialAssetRef` 的材质实体打 `DeadTag`，交 `EntityReaper`
-   ——与写侧同一个判据。Open Scene 因此是编辑器侧的两帧命令（帧 N 标记、帧 N+1 加载），`LoadScene`
-   本身仍是一趟直线返回 bool。
-4. 删掉 `LightSystem.cpp:59` 的默认平行光（相机那半条已提前完成，见「对 Step 3 的修正」）。
+原计划的第 1 条（「JSON → StagingContext → Merge」）在落地时**走不通**：`Merge<Match, Mapping, Ts...>`
+的组件类型是模板参数，而读侧的类型来自文件；`SparkScene` 也不该认识 Transform/Mesh/Light。修正后的形状
+分两层。
 
-`MergeMapping::Identity` 目前是 "Not implemented yet"，**不需要**：空世界下 `Remap` 的
-`generate(source)` 本来就还原原值。
+### 一、ECS：运行期数据入口
 
-## Step 5　`MeshComponent` 去 `Ptr`
+一个类型擦成 TypeId 之后，**唯一要不回来的是它的存储**——entt 用元素类型构造 `basic_storage`，
+`registry.storage(id)` 只查不建（`entt.hpp:40074`）。所以每类型注册**一个**函数，其余全部擦除：
 
-预加载之后这条干净了：删 `m_modelAsset`（`Feature/Mesh/Components.h:16`），`OnComponentConstruct`
-（`MeshSystem.cpp:41/46/53`）改 `FindAsset(m_modelAssetId)` + 断言 Ready，**阶段 4 里那段
-`AssetBus::MultiHandler` 重试直接不写**——它是为无预加载时期设计的过渡。`SpawnModel.cpp:131` 少一行。
+- `ComponentRuntime<T>(context)`（`Reflection/Utility.h` 旁的 `ECS/ComponentRuntime.h`）注册
+  `"ComponentStorage"` 一个 meta func，E 由 `ComponentTraits<T>::entity_type` 推出；顺带
+  `static_assert` 挡住不可拷贝的组件（entt 的 `push` 对它们是静默不插入），并核对
+  `entityRefs` 与反射字段的镜像。
+- `StagingContext<E>::Add(entity, const MetaAny&)`：经 `RuntimeComponentStorage` 调那个 meta func 拿到
+  存储 → `push(entity, value.base().data())`。
+  **只开在暂存容器上**——运行期来的数据只能先落进没人观察的地方，再由 Merge 按协议送进活世界。
+- `Merge(target, StagingContext<E>&&)` 运行期重载：合什么由**源里有什么**决定。建实体、`MergedFrom`/
+  `MergedTo` 记账、批量通知、清账的顺序与模板版一字不差；差别只有三条，都是擦除逼出来的——只支持
+  `MergeMatch::Any`、拷贝而非移动、要求类型已反射并注册。
 
-`PendingBufferUpload` 持的是借指针（`Component.h:131-136`），源数据是 `ModelAssetData` 的顶点/索引数组，
-租期跨帧：让 pending 这一侧带一个 owning 引用，清掉 pending 组件时一起析构。
+**引用重写按字段类型**（`data.type().info() == GetTypeInfo<E>()`），与 Step 2 编码侧「区分依据是字段的
+类型」同源，不需要第二处标记。代价说清楚：它看得见的是**反射过的**字段，而 `entityRefs` 声明的是组件的
+全部引用成员——两者今天重合，注册时核对一次，不合就 `LOG_WARN`。编译期那条 `Merge<Ts...>` 不动，仍走
+成员指针，也不依赖反射是否注册。
+
+### 二、`MergeResult` 删除
+
+`MergedFrom`/`MergedTo` 存在的意义就是「记账即上下文里的组件」，再返回一份 `created` / `renumbered`
+拷贝是第二种表示。改为 `MergeRecords::{Clear, Keep}`：默认照旧清账，需要继续提问的调用方自己留着，用
+`target.GetView<MergedFrom<E>>()` 问「建了哪些」、`MergedEntity(target, source)` 问「它落到哪」，
+用完 `ClearMergeRecords`。下一次合并前若记账还在，`DropStaleRecords` 报错并丢弃——两批不能读成一批。
+
+### 三、Scene：读侧
+
+`StageScene`（文件 → 两个 staging）与 `MergeScene`（staging → 活上下文）分开，于是：
+
+- **两半都立完才开始合**，坏文件时两个活上下文一个字节没动——写侧「有一个编码失败就整个不写」的对称面。
+- **材质先合，并 `MergeRecords::Keep`**；世界 staging 里类型为 `MaterialHandle` 的字段按材质的记账翻译，
+  然后才合世界。世界那趟的翻译只认 `Entity` 类型的字段，跨上下文这一步只能在这里做，而且在 staging 里做
+  ——事件还没发出去，世界侧从头看到的就是对的值。**这是原计划完全没有的一条**：材质上下文同样会改号
+  （默认材质常驻、占着低位 id）。
+- 段名 → `Resolve(HashString::value(name))` 直查（`.Type("X")` 改的就是 meta id）。未知段名 `LOG_WARN`
+  跳过；id 解析失败、组件解码失败、组件挂到清单外的实体上，都是坏文件 → 整个不合。
+- `HierarchyRootTag` 不用补：批量 `OnComponentsConstruct` 里 `HierarchyManager` 自己按 `parent == Null`
+  打上。
+
+### 四、清空与编辑器命令
+
+**清空直接销毁，不打 `DeadTag`。** `DeadTag` 是过滤器，不是工作队列；靠它触发回收动作，等于每加一条逻辑
+都要先想「会不会影响回收」。安全性来自 `DestoryEntity(first, last)` 的实现——它先把整个范围的销毁事件发
+完再统一销毁，所以链接修补时被指向的实体都还活着，一整棵树按任意顺序清都不会踩空。
+
+**菜单只记意图。** 菜单回调跑在 `RenderUI::Render(commandList)` 里，也就是渲染通道正在录制命令时；在那里
+销毁或新建上千个实体是在渲染中途抽数据。`SceneCommandSystem`（tick 序 `TICK_LAST + 1`）在**同一帧**执行：
+那时 `EntityReaper` 已经收割完本帧的删除、`HierarchyManager` 已经修补完链接，所以保存写出去的场景读回来
+就是它自己——原计划记着的「`DeadTag` 时序」问题由此消失，而且不需要跨帧命令。
+
+`OpenScene` 先立后清：文件坏掉时你手上的场景不动。
+
+`MergeMapping::Identity` 仍然不需要：空位下 `generate(source)` 本来就还原原值。
+
+## Step 5　`MeshComponent` 去 `Ptr` ✅ 已完成
+
+删 `m_modelAsset`，`OnComponentConstruct` 改 `FindAsset<ModelAsset>(m_modelAssetId)`（`AssetManagerInterface`
+补了一个与 `LoadAsset<T>` 同形的类型化 `FindAsset<T>`），`SpawnModel.cpp:131` 少一行。`AssetBus` 重试没写。
+
+**这条是被实机问题逼出来的，值得记**：场景能打开、天空盒正常，但网格不显示。原因正是组件里那个借指针——
+它没反射也没落盘，于是从文件读回来的 `MeshComponent` 有正确的资产 id 却没有指针，`OnComponentConstruct`
+一句 `if (!m_modelAsset) return;` **完全静默**地退出。一个组件带着有效 id 却建不出资源必须出声，现在两条
+失败路径各自 `LOG_ERROR` 带资产路径与实体编号。
+
+`PendingBufferUpload` 的借指针**不用加 owning 引用**：查清楚了，源数据的所有权在资产数据库
+（`AssetDataBase::m_assets` 持强引用，注释明说 never evicts），真有驱逐/卸载时再做，那时理由才是实的。
+依赖写在发起上传的那一行。
 
 ## Step 6　（可选）路径选择器泛化
 
@@ -278,25 +334,28 @@ persistent，覆盖数据本身存在世界侧，加载后照样重建）。所�
 
 ---
 
-## 两个未定
+## 两个未定 —— 都已定
 
-**编辑器相机与恒等映射冲突。** 阶段 4 说「还原必须在世界为空时做」，又说编辑器相机常驻不清。相机大概率
-占着低位 id，场景文件里的同一个 id 一撞就走 remap：引用会被正确翻译，但**写回时键漂移**，正是选原值当键
-要避免的 diff 抖动。
+**编辑器相机与恒等映射冲突：接受 remap。** 倾向过的解法（Open Scene 时收回相机再重建）解决不了问题：
+主要占位者不是相机，而是图标实体，而且它们的数量随会话变化（`FieldWidgets`、`SaveAssetDialog` 会按需再
+建）。所以键漂移接受，改号时引用由 `MergedTo` 正确翻译，材质侧同理。
 
-倾向的解法：Open Scene 的标记帧里由 `EditorInputSystem` 自己收回相机，加载完成后 `FindOrCreate` 重建。
-所有权说法不破（所有者决定何时收回何时重建），恒等映射保住，也不用引入被否掉的 `OnWorldReset` 总线——
-两边都在编辑器侧，直接调用即可。**Step 4 动工前定。**相机脱离场景图不解决这一条：它照样占着 id 1。
-
-**Persistent 忘了挂载的失败模式。** 特化里写了 `Persistent` 但 `Reflect.h` 忘了链首那一句 → 静默不落盘。
-可选的堵法：场景保存第一趟校验「有 `AddComponent` 却 `flags == None`」并 `LOG_WARN`。等落盘跑通再定。
+**`Persistent` 忘了挂载：加载入口校验。** `CheckPersistentTypesCanBeRead()` 在 `ReadScene` 开头扫一遍
+「有 `Persistent` 却没有 `ComponentStorage` 函数」并 `LOG_ERROR`。写读侧测试时它当场抓到一个真货
+（`SceneTest::Marker`），成本是一次 O(类型数) 的遍历。
 
 ## 记下的待办
 
 **资源回收要通用化，不只服务 `InstanceBindingSystem`。** `GlobalBuffer.h:99` 今天靠
 `GetView<Slot, DeadTag>` 恰好看见一次来归还 slot id，而 `DeadTag` 只是可见性过滤器（论证见
-`TODO_AssetSystemPlan.md`「资源回收」）。原计划的方案 A（挂组件销毁事件）只对世界侧可用——泛型
-`BasicContext<E>` 不派发 `ComponentEventBus`，material 侧够不着，所以它是个局部解。
+`TODO_AssetSystemPlan.md`「资源回收」）。**清空改成直接销毁之后，这条路彻底不触发**：每次 Open/New
+Scene 漏掉与场景实体数相同的 slot id，容量 65536，漏满之后新物体拿不到 slot 就静默不画。
 
-要的是一套两个上下文通用的机制。**单独设计，不进本计划**；在那之前，Step 4 的清空会把今天已有的泄漏
-（`Inspector` 每删一个实体漏一个 slot id）放大到一次一千。
+这不是直销带来的新问题，是它把旧问题摆到了明处——靠过滤器触发回收动作，意味着每加一条逻辑都要先想
+「会不会影响回收」。世界侧的修法今天就可用（把归还挂到 `InstanceSlotRef` 的组件销毁事件上），材质侧要等
+两个上下文通用的机制。**单独设计，不进本计划。**
+
+**`StagingContext` 意外是个聚合**（见 Step 3 的「顺带发现」）：`StagingContext<E>{}` 会走聚合初始化并撞上
+`protected` 基类 → C2512。根治是把默认构造改成用户提供的（`StagingContext() {}`）。**未改，待定。**
+
+**路径写死。** Save / Open 都是 `project://Scenes/Scene.scene`，等 Step 6 的路径选择器。
