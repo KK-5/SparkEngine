@@ -6,7 +6,6 @@
 #include <ECS/ExecuteContext.h>
 #include <Service/Service.h>
 #include <Math/MathUtils.h>
-#include <Hierarchy/IHierarchy.h>
 
 #include <Transform/Components.h>
 
@@ -42,39 +41,8 @@ namespace Spark::Light
 
     void LightSystem::InitInternal()
     {
-        auto* world = WorldExecuteContext::Current();
-        if (world)
-        {
-            // Default directional light reproducing the previously hardcoded one in
-            // Lighting.hlsl: shines along normalize(-0.5,-1,-0.3), warm white, intensity 3.
-            // Orient the transform so its forward (Z column) equals that direction: a
-            // look-rotation, stored back as the Euler angles TransformComponent expects
-            // (degrees; TransformSystem re-applies radians()).
-            const Math::Vector3 dir = Math::Normalize(Math::Vector3(-0.5f, -1.0f, -0.3f));
-            const Math::Quaternion rot = Math::QuaternionLookAt(dir, Math::Vector3(0.0f, 1.0f, 0.0f));
-            const Math::Vector3 eulerRad = Math::QuaternionToEuler(rot);
-            const Math::Vector3 eulerDeg{
-                Math::Degrees(eulerRad.x), Math::Degrees(eulerRad.y), Math::Degrees(eulerRad.z) };
-
-            Entity light = world->CreateEntity("DirectionalLight");
-
-            Transform::TransformComponent xform;
-            xform.m_rotation = eulerDeg;
-            world->Add<Transform::TransformComponent>(light, xform);
-
-            LightComponent lc;
-            lc.m_type       = LightType::Directional;
-            lc.m_color      = Math::Vector4(1.0f, 0.98f, 0.95f, 1.0f);
-            lc.m_intensity  = 3.0f;
-            lc.m_castShadow = true;
-            world->Add<LightComponent>(light, lc);
-
-            if (auto* hierarchy = Service<IHierarchy>::Get())
-            {
-                hierarchy->AddEntity(light);
-            }
-        }
-
+        // No default light: what lights a scene is what the scene file says. An empty world
+        // is dark, which is the honest picture of an empty world.
         TickBus::Handler::BusConnect();
     }
 

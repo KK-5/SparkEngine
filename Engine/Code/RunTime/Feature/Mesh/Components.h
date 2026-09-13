@@ -12,8 +12,7 @@ namespace Spark::Mesh
 {
     struct MeshComponent
     {
-        Resource::AssetId  m_modelAssetId;
-        Ptr<Resource::ModelAsset> m_modelAsset;
+        Resource::AssetId m_modelAssetId;
         uint32_t m_meshIndex      = 0;
         uint32_t m_primitiveIndex = 0;
 

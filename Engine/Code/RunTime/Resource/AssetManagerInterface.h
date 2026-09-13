@@ -65,6 +65,15 @@ namespace Spark::Resource
         }
 
         template<typename T>
+        Ptr<T> FindAsset(const AssetId& id) const
+        {
+            static_assert(eastl::is_base_of_v<Asset, T>, "T must derive from Asset");
+            ValidateAssetType(id, T::GetAssetTypeStatic());
+            Ptr<Asset> asset = FindAsset(id);
+            return Ptr<T>(static_cast<T*>(asset.get()));
+        }
+
+        template<typename T>
         Ptr<T> RequestAsset(const AssetId& id)
         {
             static_assert(eastl::is_base_of_v<Asset, T>, "T must derive from Asset");

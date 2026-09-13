@@ -128,7 +128,6 @@ namespace Spark::Spawn
 
                 Mesh::MeshComponent meshComp;
                 meshComp.m_modelAssetId = model->GetAssetId();
-                meshComp.m_modelAsset = model;
                 meshComp.m_meshIndex = static_cast<uint32_t>(node->meshIndex);
                 meshComp.m_primitiveIndex = static_cast<uint32_t>(p);
                 staging.Add<Mesh::MeshComponent>(primEntity, meshComp);

@@ -8,7 +8,9 @@
 #include <RHI/Component/Component.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/ResourceBuilder.h>
+#include <Resource/AssetManagerInterface.h>
 #include <Resource/Model/ModelAsset.h>
+#include <Service/Service.h>
 
 #include <EASTL/string.h>
 
@@ -38,19 +40,33 @@ namespace Spark::Mesh
         auto ctx = WorldExecuteContext::CurrentReference<SystemTraits>();
 
         auto* meshComp = ctx.TryGet<MeshComponent>(entity);
-        if (!meshComp || !meshComp->m_modelAsset)
+        if (!meshComp)
         {
             return;
         }
 
-        if (!meshComp->m_modelAsset->IsReady())
+        // The component names its model and nothing more: an asset pointer on it would be a
+        // second truth, and one that no file can carry -- a mesh read back from a scene had
+        // only the id. Assets are preloaded, so a miss here is worth saying out loud.
+        auto* assetManager = Service<Resource::AssetManager>::Get();
+        Ptr<Resource::ModelAsset> model = assetManager != nullptr
+            ? assetManager->FindAsset<Resource::ModelAsset>(meshComp->m_modelAssetId)
+            : nullptr;
+        if (!model)
         {
-            LOG_WARN("[MeshSystem] Model asset not ready, skipping GPU build: {}",
-                      meshComp->m_modelAssetId.GetPath().c_str());
+            LOG_ERROR("[MeshSystem] No model asset for {}; entity {} stays without geometry.",
+                meshComp->m_modelAssetId.GetPath().c_str(), static_cast<uint32_t>(entity));
             return;
         }
 
-        BuildGPUResources(entity, *meshComp->m_modelAsset);
+        if (!model->IsReady())
+        {
+            LOG_ERROR("[MeshSystem] Model asset not ready: {}; entity {} stays without geometry.",
+                meshComp->m_modelAssetId.GetPath().c_str(), static_cast<uint32_t>(entity));
+            return;
+        }
+
+        BuildGPUResources(entity, *model);
     }
 
     void MeshSystem::OnComponentUpdated(Entity entity)
@@ -101,6 +117,10 @@ namespace Spark::Mesh
             LOG_ERROR("[MeshSystem] Primitive has no vertex data.");
             return;
         }
+
+        // The upload borrows the asset's vertex/index arrays and the copy can be several
+        // frames out (PendingBufferUpload). What keeps them alive is the asset database: it
+        // holds the only reference that matters and never evicts.
 
         // Unique suffix so per-entity ResourceNames don't collide as AttachmentIds.
         const eastl::string idSuffix = eastl::to_string(static_cast<uint32_t>(entity));
