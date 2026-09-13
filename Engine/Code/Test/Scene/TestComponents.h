@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include <ECS/ComponentRuntime.h>
 #include <ECS/ComponentTraits.h>
 #include <Reflection/ReflectContext.h>
 #include <Serialization/MetaFieldTraits.h>
@@ -33,5 +34,6 @@ namespace SceneTest
             .Data<&Scratch::value>("Value").Traits(Spark::MetaFieldTraits::Serializable);
 
         context.Reflect<Marker>().Type("Marker").Traits(Spark::ComponentTraits<Marker>::flags);
+        Spark::ComponentRuntime<Marker>(context);
     }
 }

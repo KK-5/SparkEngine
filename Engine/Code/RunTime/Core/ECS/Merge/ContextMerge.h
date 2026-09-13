@@ -560,6 +560,20 @@ namespace Spark
         target.template Clear<MergedFrom<E>, MergedTo<E>>();
     }
 
+    /// @brief Rewrite one component's references of type E against another context's merge
+    /// records, dropping those that took no part.
+    ///
+    /// The cross-context case: a world component naming a material the material merge moved.
+    /// Within one context a merge does this itself.
+    template<typename E>
+    void TranslateMergedRefs(const MergeContextT<E>& mapping, const MetaType& type, void* component)
+    {
+        if (Internal::HasReflectedEntityRefs<E>(type))
+        {
+            Internal::MergeTranslateReflected<E>(mapping, type, component);
+        }
+    }
+
     /// @brief Where a source identifier landed, or null when it took no part in the batch.
     /// Only answerable while the records stand -- which is what MergeRecords::Keep is for.
     template<typename E>

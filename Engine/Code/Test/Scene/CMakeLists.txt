@@ -1,6 +1,7 @@
 set(TARGET_NAME SparkSceneTest)
 
 add_executable(${TARGET_NAME}
+    SceneReadTest.cpp
     SceneWriteTest.cpp
     main.cpp
 )

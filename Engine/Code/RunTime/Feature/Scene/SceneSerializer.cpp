@@ -11,10 +11,14 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
 
+#include <CoreComponents/Tags.h>
 #include <ECS/WorldContext.h>
+#include <ECS/Merge/ContextMerge.h>
+#include <ECS/StagingContext.h>
 #include <Hierarchy/HierarchyComponent.h>
 #include <Log/ILogSystem.h>
 #include <Reflection/TypeRegistry.h>
+#include <HashString/HashString.h>
 #include <Serialization/JsonSerializer.h>
 #include <Service/Service.h>
 #include <VFS/FileSystem.h>
@@ -153,6 +157,129 @@ namespace Spark::Scene
             out["components"] = std::move(components);
             return complete;
         }
+
+        //! A component that goes into the file has to be able to come back out of one. The two
+        //! are declared apart -- Persistent on the traits, the runtime binding on the meta type --
+        //! so say which type would be read back as nothing.
+        void CheckPersistentTypesCanBeRead()
+        {
+            for (const MetaType& type : TypeRegistry::GetContext().GetAllTypes())
+            {
+                if (HasComponentFlag(type.traits<ComponentFlags>(), ComponentFlags::Persistent)
+                    && !type.func("ComponentStorage"_hs))
+                {
+                    LOG_ERROR("[SceneSerializer] {} is Persistent but takes no runtime data; "
+                              "it is written and never read back.", type.info().name());
+                }
+            }
+        }
+
+        //! A key in the file is an identifier written as itself.
+        template<typename E>
+        bool ReadHandle(const std::string& key, E& out)
+        {
+            char*             end   = nullptr;
+            const unsigned long raw = std::strtoul(key.c_str(), &end, 10);
+            if (end == key.c_str() || *end != '\0')
+            {
+                return false;
+            }
+            out = static_cast<E>(static_cast<uint32_t>(raw));
+            return true;
+        }
+
+        //! One context's half of the file into a staging context. Nothing live is touched here:
+        //! a file that fails half way has to leave both contexts as they were.
+        template<typename E>
+        bool ReadContext(const JsonValue& in, StagingContext<E>& staging)
+        {
+            const auto entities = in.find("entities");
+            if (entities == in.end() || !entities->is_array())
+            {
+                LOG_ERROR("[SceneSerializer] A context needs an entities array.");
+                return false;
+            }
+
+            // Every identifier first: a component can only be attached to an entity that exists,
+            // and the list is what says which identifiers this scene owns.
+            for (const JsonValue& entry : *entities)
+            {
+                if (!entry.is_number_unsigned())
+                {
+                    LOG_ERROR("[SceneSerializer] An entity identifier is an unsigned number.");
+                    return false;
+                }
+                staging.CreateEntity(static_cast<E>(entry.get<uint32_t>()));
+            }
+
+            const auto components = in.find("components");
+            if (components == in.end())
+            {
+                return true;
+            }
+
+            for (const auto& segment : components->items())
+            {
+                // The segment name is the reflected type name, which .Type() made the meta id.
+                const MetaType type = TypeRegistry::GetContext().Resolve(
+                    HashString::value(segment.key().c_str()));
+                if (!type)
+                {
+                    LOG_WARN("[SceneSerializer] No type named {}; its components are skipped.",
+                        segment.key());
+                    continue;
+                }
+
+                for (const auto& item : segment.value().items())
+                {
+                    E entity{};
+                    if (!ReadHandle(item.key(), entity))
+                    {
+                        LOG_ERROR("[SceneSerializer] {} is not an entity identifier.", item.key());
+                        return false;
+                    }
+
+                    MetaAny instance = type.construct();
+                    if (!instance || !DeserializeFromJson(item.value(), instance))
+                    {
+                        LOG_ERROR("[SceneSerializer] {} on entity {} could not be decoded.",
+                            segment.key(), item.key());
+                        return false;
+                    }
+
+                    if (!staging.Add(entity, instance))
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        //! Material handles in the world half name identifiers from the file, and the material
+        //! merge may have moved them. Their own merge will not do it: it rewrites references of
+        //! its own entity type, and a MaterialHandle is not one.
+        void TranslateMaterialRefs(const Material::MaterialContext& materials,
+                                   StagingContext<Entity>& world)
+        {
+            for (const auto& entry : world.GetStorages())
+            {
+                const MetaType type = TypeRegistry::GetContext().Resolve(entry.storage->type());
+                auto* storage = type ? RuntimeComponentStorage<Entity>(type, world) : nullptr;
+                if (storage == nullptr)
+                {
+                    continue;
+                }
+
+                for (Entity entity : *storage)
+                {
+                    if (void* component = storage->value(entity); component != nullptr)
+                    {
+                        TranslateMergedRefs<Material::MaterialHandle>(materials, type, component);
+                    }
+                }
+            }
+        }
     }
 
     bool WriteScene(const ContextStorage<Entity>& world,
@@ -196,5 +323,89 @@ namespace Spark::Scene
         const std::string text = json.dump(2);
         return fileSystem->WriteFile(virtualPath,
             reinterpret_cast<const uint8_t*>(text.data()), text.size());
+    }
+
+    bool ReadScene(const JsonValue& in, WorldContext& world, Material::MaterialContext& materials)
+    {
+        const auto contexts = in.find("contexts");
+        if (contexts == in.end() || !contexts->is_object())
+        {
+            LOG_ERROR("[SceneSerializer] A scene needs a contexts object.");
+            return false;
+        }
+
+        // Both halves are decoded before either is merged, so a file that turns out to be bad
+        // leaves the live contexts untouched -- the reading half of "nothing is written unless
+        // every component encoded".
+        CheckPersistentTypesCanBeRead();
+
+        StagingContext<Material::MaterialHandle> materialStaging;
+        StagingContext<Entity>                   worldStaging;
+
+        const auto material = contexts->find("material");
+        if (material != contexts->end() && !ReadContext(*material, materialStaging))
+        {
+            return false;
+        }
+
+        const auto section = contexts->find("world");
+        if (section != contexts->end() && !ReadContext(*section, worldStaging))
+        {
+            return false;
+        }
+
+        // Materials first, and their records are kept: the world half names them by the
+        // identifiers the file used, which this merge may have moved.
+        Merge(materials, eastl::move(materialStaging), MergeRecords::Keep);
+        TranslateMaterialRefs(materials, worldStaging);
+        Merge(world, eastl::move(worldStaging));
+        ClearMergeRecords(materials);
+        return true;
+    }
+
+    bool LoadScene(eastl::string_view virtualPath)
+    {
+        auto* world      = WorldExecuteContext::Current();
+        auto* materials  = Material::MaterialExecuteContext::Current();
+        auto* fileSystem = Service<FileSystem>::Get();
+        const eastl::string path(virtualPath);
+        if (world == nullptr || materials == nullptr || fileSystem == nullptr)
+        {
+            LOG_ERROR("[SceneSerializer] {} not loaded: no world, material context or file system.",
+                path.c_str());
+            return false;
+        }
+
+        eastl::vector<uint8_t> bytes;
+        if (!fileSystem->ReadFile(virtualPath, bytes))
+        {
+            LOG_ERROR("[SceneSerializer] {} could not be read.", path.c_str());
+            return false;
+        }
+
+        const JsonValue json = JsonValue::parse(bytes.begin(), bytes.end(), nullptr, false);
+        if (json.is_discarded())
+        {
+            LOG_ERROR("[SceneSerializer] {} is not valid JSON.", path.c_str());
+            return false;
+        }
+
+        return ReadScene(json, *world, *materials);
+    }
+
+    void ClearScene(WorldContext& world, Material::MaterialContext& materials)
+    {
+        for (Entity entity : world.GetView<Hierarchy>(Exclude<DeadTag>))
+        {
+            world.Add<DeadTag>(entity);
+        }
+
+        // The material context has no reaper, and nothing observes a material entity's death.
+        eastl::vector<Material::MaterialHandle> dead;
+        for (Material::MaterialHandle handle : materials.GetView<Material::MaterialAssetRef>())
+        {
+            dead.push_back(handle);
+        }
+        materials.DestoryEntity(dead.begin(), dead.end());
     }
 }
