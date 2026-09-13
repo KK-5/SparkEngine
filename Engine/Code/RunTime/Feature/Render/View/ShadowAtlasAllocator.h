@@ -1,16 +1,15 @@
 #pragma once
 
-#include <EASTL/bitset.h>
-
 #include <RHI/Context/RHIContext.h>
 
-#include "ShadowAtlasLayout.h"
+#include "ShadowPools.h"
 
 namespace Spark::Render
 {
-    //! The shadow atlas image and the two things handed out against it: tiles to rasterize
+    //! The shadow atlas image and the two pools handed out against it: tiles to rasterize
     //! into, and g_ShadowViews rows to describe them. The image is here because a tile id
-    //! means nothing without it.
+    //! means nothing without it, and because a pool may hold no GPU resource — its ids come
+    //! back from handle destructors.
     //!
     //! Tiles and rows are separate on purpose and have different lifetimes — a light keeps
     //! its rows while its tiles change level and face set — so they are separate calls.
@@ -27,32 +26,26 @@ namespace Spark::Render
         //! callers still have to check it is live before handing out any space.
         RHI::RHIHandle Image() const { return m_image; }
 
-        //! count tiles at exactly that level, or none — a partial set is rolled back.
-        bool AllocateTilesAt(uint32_t level, uint32_t count, uint32_t* outTiles);
+        bool AllocateTilesAt(uint32_t level, uint32_t count, ShadowTileList& out)
+        {
+            return m_tiles->AllocateAt(level, count, out);
+        }
 
-        //! That level, or the coarsest finer one that fits all count of them. Returns the
-        //! level granted, or kNoShadowLevel.
-        uint32_t AllocateTilesOrFiner(uint32_t level, uint32_t count, uint32_t* outTiles);
+        uint32_t AllocateTilesOrFiner(uint32_t level, uint32_t count, ShadowTileList& out)
+        {
+            return m_tiles->AllocateOrFiner(level, count, out);
+        }
 
-        void ReleaseTile(uint32_t tile);
+        ShadowViewRows AllocateRows(uint32_t count) { return m_rows->Allocate(count); }
 
         static uint32_t LevelOfTile(uint32_t tile)
         {
             return ShadowTileTree::Decode(tile).m_level;
         }
 
-        //! Consecutive rows, so one light's faces are addressable from a single base index.
-        //! Returns the first, or kInvalidShadowSlot.
-        uint32_t AllocateRows(uint32_t count);
-        void     ReleaseRows(uint32_t base, uint32_t count);
-
     private:
-        RHI::RHIHandle                     m_image = RHI::NullHandle;
-        ShadowTileTree                     m_tiles;
-        eastl::bitset<kShadowViewCapacity> m_rows;
-
-        //! Keeps the "atlas full" warning to one line per episode: allocation is retried
-        //! every frame, so a light that does not fit would otherwise log forever.
-        bool m_fullLogged = false;
+        RHI::RHIHandle      m_image = RHI::NullHandle;
+        Ptr<ShadowTilePool> m_tiles{ new ShadowTilePool() };
+        Ptr<ShadowRowPool>  m_rows { new ShadowRowPool() };
     };
 }

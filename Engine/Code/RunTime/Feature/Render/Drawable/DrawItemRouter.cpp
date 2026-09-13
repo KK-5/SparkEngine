@@ -100,7 +100,7 @@ namespace Spark::Render
         RHI::DrawItem BuildGeometryDrawItem(RHI::RHIContext& ctx, const GeometrySpec& d)
         {
             const uint32_t startInstance = eastl::visit(eastl::overloaded{
-                [](const SlotInstanceBinding& s)   -> uint32_t { return s.m_slotRef.m_id; },
+                [](const SlotInstanceBinding& s)   -> uint32_t { return s.m_slotRef.Get(); },
                 [](const NoInstanceBinding&)       -> uint32_t { return 0u; },
             }, d.m_instanceData);
 

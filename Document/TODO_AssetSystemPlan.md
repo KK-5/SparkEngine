@@ -2317,7 +2317,7 @@ shader）依赖「模型声明从哪来」这个未决问题。
 ## 资源回收：`DeadTag` 的职责，与世界侧的缺口
 
 > 独立于各阶段。设计阶段 4 的「清空世界」时撞出来的，但它今天已经在漏——清空只是把它放大三个
-> 数量级。
+> 数量级。**已落地**，见本节末；落地方案与下面推荐的 A 不同，那一段说明了为什么。
 
 ### 规则：不拥有生命周期，就不能靠观测
 
@@ -2384,29 +2384,78 @@ material 侧是对的：打标（`MaterialBindingSystem.cpp:158/197`）与收割
 `DrawItemRouter` 的 `Has<DeadTag>(buffer)` 不违反这条——它问的是「这个依赖死了没」，幂等，晚一帧
 只是晚一帧回收。
 
-### 方案
+### 已落地：引用计数句柄，而不是事件
 
-**A（推荐）：回收挂组件销毁事件。** `GlobalBufferSlotRef<Tag>` 本身就是实体上的组件。给它
-`componentEvents = Remove`，`Init` 里 `RegisterEventOnEntityRemove<Slot>()`，`OnComponentDestory`
-里 `FreeId`，删掉 `GetView<Slot, DeadTag>` 那一趟。
+先做了普查，**坏的不是一处是四处，而且分属三个上下文**：
 
-- 与 tick order 完全无关：谁杀的、什么时候杀、在哪个 tick 位置，都无所谓。
-- 是本仓已有的惯用法——`MeshSystem` 释放 VB/IB 走的就是这条（`RegisterEventOnEntityRemove<MeshComponent>`）。
-- 失败模式从「间歇、看时序、大部分时候像没事」变成「忘了注册就一次都不回收」：启动期的一次性
-  要求，可以断言，不是每帧的时序赌博。
+| 组件 | 借来的东西 | 原来靠什么归还 |
+|---|---|---|
+| `GlobalBufferSlotRef<Instances>`（世界） | g_Instances 槽 | `GetView<Slot, DeadTag>` |
+| `GlobalBufferSlotRef<Materials>`（材质） | g_Materials 槽 | 同上 |
+| `ShadowAtlasTile`（RHI） | atlas 瓦片 | `ReleaseTilesKeepingRows` 手动调 |
+| g_ShadowViews 的行（RHI） | 连续 N 行 | `ReleaseAllocation` 手动调 |
 
-一个限制：**只有 `BasicContext<Entity>` 那份全特化会派发 `ComponentEventBus`，泛型
-`BasicContext<E>` 不派发。** 所以 A 只对世界侧可用；material 侧保持现状（它本来就是对的），等两份
-`BasicContext` 的分歧收掉再统一。
+四处同一个形状：**组件持有一个键，键空间归别人所有，归还写在某个系统的执行流里**。谁绕过那条执行
+流销毁实体，谁就漏。
 
-**B：分配器自持 `entity → id` 表，每帧扫无效实体。** 不需要任何注册、事件或时序，漏掉一帧只是晚
-一帧回收；两个上下文一套代码。代价是一张侧表（slot 不再是 ECS 原生存储）+ 每帧 O(已分配) 的扫描
-（与已有的 encode pass 同量级）。如果认为「opt-in 注册」本身就是那个不健壮的来源，选 B。
+**A 没有采用，C 的否决理由对、结论错。**
 
-**C：RAII（析构即归还）—— 否决。** 看起来最强（entt 保证跑析构，不需要任何人配合），但
-`GeometrySpec::m_slotRef` 是**按值持有一份拷贝**（`GeometrySpec.h:70`），而那份拷贝正是
-`DrawItemRouter` 检测过期的手段。做 RAII 必须把类型改成 move-only，得先拆成「拥有者组件」+
-「弱引用值」两个类型，改动大一个量级。
+A 的限制是它自己写下的那条：只有 `BasicContext<Entity>` 派发 `ComponentEventBus`，而四处里三处不在
+世界上下文。要覆盖它们，得先把总线按实体类型模板化、把派发下沉到泛型 `BasicContext<E>`——为一件纯
+回收的事引入一套跨上下文的事件基建。
+
+C 说 RAII 要把类型改成 move-only、拆成「拥有者 + 弱引用」两个类型。**拆分是对的，move-only 不是。**
+析构函数绑的是「对象生命期结束」，要绑的是「实体不再持有这份资源」；两者只有在独占所有权下才重合，
+这才逼出 move-only。**加一层引用计数，四个触发时机自己就分开了**：
+
+| 触发 | 计数 | 结果 |
+|---|---|---|
+| 组件离开 storage | 1 → 0 | 归还 |
+| `GeometrySpec` 里的拷贝死掉 | 2 → 1 | 不还 |
+| 临时量拷进 storage 后死掉 | 2 → 1 | 不还 |
+| entt swap-and-pop 的移动 | 不变 | 不还 |
+
+这里引用计数**不是为了共享**（槽的持有者只有一个），**是为了让析构函数在拷贝下仍然正确**。
+
+而「拥有者 / 观察者」的拆分与析构函数无关，它本来就成立：`GeometrySpec` 手里那份拷贝的唯一用途就是
+**察觉所有权结束**，它一参与所有权就永远察觉不到——槽不还 → 世代不变 → `IsValid()` 恒真 → 级联回收
+不触发 → 拷贝不死 → 槽不还。今天那一个类型里混着强弱两种语义，只是因为当时没有任何一方真的拥有槽。
+
+**落地的东西**（都在 `SparkRender` 内，不进 Core——这个机制强绑「池分配」这个概念）：
+
+- `Handle/HandlePool.h`：`HandlePool<Pool>` + `SharedHandle` + `WeakHandle`。派生池只管怎么挑 id，
+  计数、占用世代与回收时机归基类；外部拿不到任何手动增减计数的入口，派生池只有 `MakeHandle` 和
+  `Free` 两个接触点。
+- `Binding/SlotPool.h`：`SlotPool<Tag>`（free list，最小可用优先）、`SlotRef` / `SlotWeakRef`。
+- `View/ShadowPools.h`：`ShadowTilePool`（四叉树）、`ShadowRowPool`（bitset 连续块；**块长记在池里**，
+  所以句柄仍是单个 id，和瓦片同形）。
+
+**两条规矩**写在 `HandlePool` 头上：
+
+1. 池是引用计数对象，**只准装 CPU 状态**——`Free` 跑在析构里，那时任何上下文都可能正在拆。所以 GPU
+   数组留在 `GlobalBuffer`，atlas image 留在 `ShadowAtlasAllocator`。
+2. `Free` **只准写池自己的内存**。需要环境的后果记进池自己的队列，由池的系统在确定的 tick 点排空
+   （DX12 后端的 `QueueForRelease` 已是这个形状）。
+
+**跟着消失的**：`GetView<Slot, DeadTag>` 那一趟、`AllocateId` / `FreeId` / `m_versions`、
+`ShadowAtlasAllocator::ReleaseTile` / `ReleaseRows` 两个公开方法、哨兵 `kInvalidShadowSlot`、
+`ShadowViewRefs::m_baseIndex` 那个要记得写回 -1 的字段，以及 `MaterialBinding.h` 上「`ReapDeadMaterials`
+必须在 encode 之后跑」那条时序约束——它存在的全部理由就是让回收能被看见。瓦片的批量分配**回滚也变
+免费**：失败时丢掉已拿到的句柄即可。
+
+**两件有意没做的**：
+
+- **纹理池（`MaterialTextureSystem::CollectGarbage`）不纳入。** 它的键是 `AssetId`——自带标识与状态、
+  不回收、多对一共享，塞进「定容下标池」要为它开一串特例。等它和 `MaterialContext` 合成一个
+  `AssetContext` 时再一起想；下一节的方向仍然成立。
+- **线程安全没做。** 今天分配与回收都在单线程。`HandlePool` 注释写了改法：若只有引用的增减跨线程，
+  两个字段原子化（递减 `acq_rel`）、`IsLive` 收成只看世代即可；若分配也上 worker，每个池就得自己
+  加锁，基类帮不上。
+
+**剩下的唯一缺口**：实体活着但丢了某个 Source 时（`MeshSystem.cpp:209` 会摘掉 `MeshGPUComponent`），
+`SlotRef` 组件不会被移除，槽位一直归它。有界——一个活实体最多占一个，实体一死就还，而且那个下标没有
+任何人索引。补法是 `Update` 里加一趟 `GetView<Slot>()` + `HasAll<Sources...>` 的移除。**未做，待定**：
+它是分配策略问题（实体在什么条件下该继续持有一个槽），不是回收时机问题。
 
 ### 同一条规则的下一个应用：资产引用计数（只有方向）
 
@@ -2431,7 +2480,8 @@ material 侧是对的：打标（`MaterialBindingSystem.cpp:158/197`）与收割
 ### 与阶段 4 的关系
 
 改完之后，清空世界的两条路——直接 `DestoryEntity`、或打 `DeadTag` 交给 `EntityReaper`——**都正确**，
-因为回收不再依赖有没有人看见标记。阶段 4 选后者：不引入第二条销毁路径，与 `Inspector` 的删除同路。
+因为回收不再依赖有没有人看见标记。**阶段 4 选了前者**：`DeadTag` 是过滤器不是工作队列，而
+`DestoryEntity(first, last)` 先发完整个范围的销毁事件再销毁，整棵树一次销毁与顺序无关。
 
 ---
 

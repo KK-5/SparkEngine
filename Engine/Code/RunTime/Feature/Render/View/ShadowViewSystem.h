@@ -39,7 +39,7 @@ namespace Spark::Render
                       uint32_t level, uint32_t faceMask, const Math::Sphere& volume);
 
         //! Hands the tile and the row back and stops the view from rendering.
-        //! ShadowViewRefs::m_baseIndex goes to -1 in the same call, which is what keeps the
+        //! ShadowViewRefs::m_rows goes empty in the same call, which is what keeps the
         //! lighting shader from sampling a tile that now belongs to someone else.
         void Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light);
 
@@ -57,7 +57,7 @@ namespace Spark::Render
 
         //! Everything the light holds. The two callers differ only in what they then do to
         //! the view entities.
-        void ReleaseAllocation(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs);
+        void ReleaseAllocation(RHI::RHIContext& rhiCtx, ShadowViewRefs& refs);
 
         //! Brings the light's tiles in line with a level and a face set, all of them or none.
         //! Promoting and demoting are not symmetric — see the definition. False only when the

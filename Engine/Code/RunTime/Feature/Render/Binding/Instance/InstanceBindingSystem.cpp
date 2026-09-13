@@ -60,7 +60,7 @@ namespace Spark::Render
             {
                 if (slotRef->IsValid())
                 {
-                    return slotRef->m_id;
+                    return slotRef->Get();
                 }
             }
             return 0;

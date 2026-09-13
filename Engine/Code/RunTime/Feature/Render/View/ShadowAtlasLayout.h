@@ -57,9 +57,6 @@ namespace Spark::Render
     //! One resource, two views: D32 DSV for ShadowPass, R32_FLOAT SRV for LightingPass.
     inline constexpr RHI::Format kShadowAtlasFormat = RHI::Format::D32_FLOAT;
 
-    //! Nothing free — from either allocator. Distinct from 0, a perfectly good tile and row.
-    inline constexpr uint32_t kInvalidShadowSlot = ~0u;
-
     //! No level: the light holds no tile, so there is nothing to be hysteretic about, and
     //! nothing an allocation could be granted at.
     inline constexpr uint32_t kNoShadowLevel = ~0u;

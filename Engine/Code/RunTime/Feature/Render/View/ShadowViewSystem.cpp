@@ -456,7 +456,7 @@ namespace Spark::Render
         // fixed when they were created — an author switching a light to Point in the editor
         // would otherwise leave it with the single view it had as a directional.
         eastl::fixed_vector<Entity, 8> orphans;
-        world->GetView<ShadowViewRefs>().each([&](Entity e, const ShadowViewRefs& refs)
+        world->GetView<ShadowViewRefs>().each([&](Entity e, ShadowViewRefs& refs)
         {
             const auto* rd = world->TryGet<Light::LightRenderData>(e);
             if (!world->Has<DeadTag>(e) && rd && ProducesShadowView(*rd)
@@ -488,7 +488,7 @@ namespace Spark::Render
             }
 
             const auto* refs      = world->TryGet<ShadowViewRefs>(e);
-            const bool  holdsTile = refs && refs->m_baseIndex >= 0;
+            const bool  holdsTile = refs && refs->m_rows.IsValid();
 
             const uint32_t grantedLevel = holdsTile ? GrantedLevel(*rhiCtx, *refs) : kNoShadowLevel;
 
@@ -604,7 +604,7 @@ namespace Spark::Render
         {
             if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(view))
             {
-                return ShadowAtlasAllocator::LevelOfTile(tile->m_tile);
+                return ShadowAtlasAllocator::LevelOfTile(tile->Get());
             }
         }
         return kNoShadowLevel;
@@ -628,27 +628,19 @@ namespace Spark::Render
     {
         for (RHI::RHIHandle view : refs.m_views)
         {
-            if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(view))
-            {
-                m_atlas.ReleaseTile(tile->m_tile);
-            }
             rhiCtx.Remove<ShadowAtlasTile>(view);
         }
     }
 
     void ShadowViewSystem::ReleaseAllocation(
-        RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
+        RHI::RHIContext& rhiCtx, ShadowViewRefs& refs)
     {
         ReleaseTilesKeepingRows(rhiCtx, refs);
         for (RHI::RHIHandle view : refs.m_views)
         {
             rhiCtx.Remove<ShadowViewIndex>(view);
         }
-        if (refs.m_baseIndex >= 0)
-        {
-            m_atlas.ReleaseRows(static_cast<uint32_t>(refs.m_baseIndex),
-                static_cast<uint32_t>(refs.m_views.size()));
-        }
+        refs.m_rows.Reset();
     }
 
     //! Every surviving face gets a tile of one level, or none of them does. A cube missing a
@@ -667,7 +659,7 @@ namespace Spark::Render
         }
 
         const uint32_t faces = CountBitsSet(faceMask);
-        uint32_t       tiles[kShadowCubeFaceCount] = {};
+        ShadowTileList tiles;
 
         if (currentLevel != kNoShadowLevel && level < currentLevel)
         {
@@ -700,7 +692,7 @@ namespace Spark::Render
             if (CheckBit(faceMask, face))
             {
                 rhiCtx.AddOrReplace<ShadowAtlasTile>(
-                    refs.m_views[face], ShadowAtlasTile{ tiles[next++] });
+                    refs.m_views[face], eastl::move(tiles[next++]));
             }
         }
         return true;
@@ -738,14 +730,14 @@ namespace Spark::Render
 
         // Rows come first and all at once, so a face index addresses its row whether or not
         // that face is holding a tile this frame.
-        if (refs->m_baseIndex < 0)
+        if (!refs->m_rows.IsValid())
         {
-            const uint32_t row = m_atlas.AllocateRows(faceCount);
-            if (row == kInvalidShadowSlot)
+            refs->m_rows = m_atlas.AllocateRows(faceCount);
+            if (!refs->m_rows.IsValid())
             {
                 return;
             }
-            refs->m_baseIndex = static_cast<int32_t>(row);
+            const uint32_t row = refs->m_rows.Get();
             for (uint32_t face = 0; face < faceCount; ++face)
             {
                 rhiCtx.AddOrReplace<ShadowViewIndex>(
@@ -776,9 +768,9 @@ namespace Spark::Render
             rhiCtx.Remove<ViewInactiveTag>(viewHandle);
 
             View& view  = rhiCtx.Get<View>(viewHandle);
-            view.m_rect = ShadowTileRect(tile->m_tile);
+            view.m_rect = ShadowTileRect(tile->Get());
 
-            const uint32_t tileLevel = ShadowAtlasAllocator::LevelOfTile(tile->m_tile);
+            const uint32_t tileLevel = ShadowAtlasAllocator::LevelOfTile(tile->Get());
 
             switch (rd->m_type)
             {
@@ -798,7 +790,7 @@ namespace Spark::Render
     void ShadowViewSystem::Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light)
     {
         auto* refs = world.TryGet<ShadowViewRefs>(light);
-        if (!refs || refs->m_baseIndex < 0)
+        if (!refs || !refs->m_rows.IsValid())
         {
             return;
         }
@@ -811,7 +803,6 @@ namespace Spark::Render
                 rhiCtx.Add<ViewInactiveTag>(v);
             }
         }
-        refs->m_baseIndex = -1;
 
         LOG_INFO("[ShadowViewSystem] Light {} gave its shadow tile back.",
             static_cast<uint32_t>(light));

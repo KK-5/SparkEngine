@@ -24,19 +24,16 @@ namespace Spark::Render
     //! execute contexts; MaterialBindingSystem only decides when they run.
     void SyncOverrideMaterials();
 
-    //! Destroys every material entity wearing DeadTag. Must run AFTER the encode:
-    //! GlobalBuffer reclaims a slot by seeing the entity carry both its slot ref and the
-    //! tag, so the entity has to survive one pass wearing it.
+    //! Destroys every material entity wearing DeadTag.
     void ReapDeadMaterials();
 
     //! Names the g_Materials array (space3) for GlobalBuffer and its slot refs.
     struct Materials {};
 
-    //! A material's reference to its g_Materials slot, on the MATERIAL entity. m_id is
-    //! the GPU index directly and does not move for the material's life, so a consumer
-    //! resolves it once per encode instead of reading a slot rewritten every frame.
-    //! IsValid() is what tells a stale copy apart from a live one.
-    using MaterialSlotRef = GlobalBufferSlotRef<Materials>;
+    //! A material's g_Materials slot, on the MATERIAL entity. Get() is the GPU index
+    //! directly and does not move for the material's life, so a consumer resolves it
+    //! once per encode instead of reading a slot rewritten every frame.
+    using MaterialSlotRef = SlotRef<Materials>;
 
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
     //! g_Materials SRV at space3. A pass declares .Binds<MaterialBindingTag>() and the

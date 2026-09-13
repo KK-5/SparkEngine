@@ -57,18 +57,20 @@ namespace Spark::Render
     //! (model matrix, …) lives in the shared g_Instances buffer, bound at space4 by
     //! every pass that declares .Binds<InstanceBindingTag>(); this draw occupies one
     //! slot. Resolving the draw needs two coupled parts:
-    //!  - m_slotRef        : a copy of the renderable's slot reference. m_id is the
+    //!  - m_slotRef        : a weak reference to the renderable's slot. Get() is the
     //!                       GPU index, baked into the DrawItem's
     //!                       StartInstanceLocation once at derive; IsValid() is the
     //!                       cascade-reap signal for when that index stops being ours.
+    //!                       Weak on purpose: an owning copy would hold the slot open
+    //!                       and that signal would never fire.
     //!  - m_idStream       : the identity ID buffer ([0..Cap-1]) bound as a
     //!                       per-instance vertex stream — the only way to feed
     //!                       StartInstanceLocation into the VS (SV_InstanceID
     //!                       always starts at 0). Present only on this path.
     struct SlotInstanceBinding
     {
-        InstanceSlotRef  m_slotRef;
-        VertexStreamSpec m_idStream;
+        InstanceSlotWeakRef m_slotRef;
+        VertexStreamSpec    m_idStream;
     };
 
     //! Per-object data provisioning — STRATEGY 0 (none). The draw has no per-object

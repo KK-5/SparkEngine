@@ -1,5 +1,7 @@
 option(SHADOWATLAS_TESTS "Shadow atlas allocator tests" ON)
 option(MATERIALOVERRIDE_TESTS "Per-object material override synthesis tests" ON)
+option(HANDLEPOOL_TESTS "Reference-counted id pool tests" ON)
+option(SLOTPOOL_TESTS "Stable-slot pool tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -11,6 +13,8 @@ endfunction(ADD_TEST_SOUECE)
 
 ADD_TEST_SOUECE(SHADOWATLAS_TESTS "ShadowAtlasAllocatorTest.cpp")
 ADD_TEST_SOUECE(MATERIALOVERRIDE_TESTS "MaterialOverrideTest.cpp")
+ADD_TEST_SOUECE(HANDLEPOOL_TESTS "HandlePoolTest.cpp")
+ADD_TEST_SOUECE(SLOTPOOL_TESTS "SlotPoolTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

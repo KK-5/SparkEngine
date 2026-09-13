@@ -5,6 +5,8 @@
 #include <Math/Frustum.h>
 #include <RHI/Context/RHIHandle.h>
 
+#include "ShadowPools.h"
+
 namespace Spark::Render
 {
     //! The view's culling volume, derived from its View.
@@ -28,18 +30,6 @@ namespace Spark::Render
         RHI::RHIHandle m_view = RHI::NullHandle;
     };
 
-    //! The allocator's record of where in the atlas a shadow view rasterizes. Opaque —
-    //! nothing outside ShadowViewSystem may derive anything from the value, least of all an
-    //! array index. The rect it produced lives on View::m_rect.
-    //!
-    //! It equals ShadowViewIndex today only because both allocators are first-fit over
-    //! equally sized bitsets and move in lockstep. A resolution ladder makes this an
-    //! allocator node rather than a cell of a fixed grid, and the two part ways.
-    struct ShadowAtlasTile
-    {
-        uint32_t m_tile = 0;
-    };
-
     //! Which row of g_ShadowViews holds this view's ShadowViewData. The only number
     //! PackShadowViews may address by, and consistent within a frame: LightData::m_shadowIndex
     //! is read from the light in that same pass, so a row that moved mid-frame would point one
@@ -53,10 +43,10 @@ namespace Spark::Render
     //! Source -> the ShadowViewTag view entities it produced. Lives on the WORLD light
     //! entity like MainViewRef, but N per source (six for a point light's cube faces).
     //!
-    //! m_baseIndex rides along because SceneBindingSystem packs g_Lights by iteration order
-    //! and needs the light's g_ShadowViews row during that same pass — reading it here keeps
-    //! it out of RHIContext. Same lifetime as m_views, so one component rather than two.
-    //! It is the FIRST of the light's rows: a point light's six faces will occupy a
+    //! m_rows rides along because SceneBindingSystem packs g_Lights by iteration order and
+    //! needs the light's g_ShadowViews row during that same pass — reading it here keeps it
+    //! out of RHIContext. Same lifetime as m_views, so one component rather than two. It
+    //! addresses the FIRST of the light's rows: a point light's six faces occupy a
     //! contiguous run, so one int still addresses them all.
     //!
     //! A view's position in m_views IS its face index, and stays so for the light's life:
@@ -64,6 +54,13 @@ namespace Spark::Render
     struct ShadowViewRefs
     {
         eastl::fixed_vector<RHI::RHIHandle, 6> m_views;
-        int32_t                                m_baseIndex = -1;   // -1 = casts no shadow
+        ShadowViewRows                         m_rows;
+
+        //! -1 when the light holds no rows, which is what the shader reads as "casts no
+        //! shadow".
+        int32_t BaseIndex() const
+        {
+            return m_rows.IsValid() ? static_cast<int32_t>(m_rows.Get()) : -1;
+        }
     };
 }

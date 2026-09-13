@@ -16,7 +16,7 @@
 | 上下文合并（含实体引用重写、批量事件补发、`Extract`） | ✅ `Core/ECS/Merge/`、`MergeTest` |
 | 键原值还原 | ✅ `ContextStorage.h:64` 的 `CreateEntity(hint)` 与 `EntityAt` |
 | 资产预加载 | ✅ `AssetLoadBatch` + 欢迎页；`GetRegisteredAssetIds`（`AssetManager.cpp:121`）滤掉子资产、父 Ready 即子可解析 |
-| 资源回收（`DeadTag` 职责收窄） | ❌ **推迟，见文末待办**。清空直接销毁，slot id 漏得更明显 |
+| 资源回收（`DeadTag` 职责收窄） | ✅ 事后补上：引用计数句柄，见 `TODO_AssetSystemPlan.md`「资源回收」 |
 
 阶段 4 自身要写的：类型级 flags、`GetStorages`、`Hierarchy` 反射、实体句柄编解码、场景模块、运行期数据
 入口（`ComponentRuntime` + 运行期 `Merge`）、清空世界、`MeshComponent` 去 `Ptr`。
@@ -346,14 +346,14 @@ persistent，覆盖数据本身存在世界侧，加载后照样重建）。所�
 
 ## 记下的待办
 
-**资源回收要通用化，不只服务 `InstanceBindingSystem`。** `GlobalBuffer.h:99` 今天靠
-`GetView<Slot, DeadTag>` 恰好看见一次来归还 slot id，而 `DeadTag` 只是可见性过滤器（论证见
-`TODO_AssetSystemPlan.md`「资源回收」）。**清空改成直接销毁之后，这条路彻底不触发**：每次 Open/New
-Scene 漏掉与场景实体数相同的 slot id，容量 65536，漏满之后新物体拿不到 slot 就静默不画。
+**资源回收已通用化。** 原文写的是「`GlobalBuffer.h:99` 靠 `GetView<Slot, DeadTag>` 恰好看见一次来
+归还 slot id，清空改成直销之后这条路彻底不触发」——属实，每次 Open/New Scene 漏掉与场景实体数相同的
+slot id。
 
-这不是直销带来的新问题，是它把旧问题摆到了明处——靠过滤器触发回收动作，意味着每加一条逻辑都要先想
-「会不会影响回收」。世界侧的修法今天就可用（把归还挂到 `InstanceSlotRef` 的组件销毁事件上），材质侧要等
-两个上下文通用的机制。**单独设计，不进本计划。**
+已解决，但**不是**按当时设想的「挂组件销毁事件」。普查发现同一个形状有四处、分属三个上下文，而事件
+只有 `BasicContext<Entity>` 派发。落地的是引用计数句柄（`Handle/HandlePool.h` + `SlotPool` +
+`ShadowTilePool` / `ShadowRowPool`）：最后一个 `SharedHandle` 析构即归还，与谁销毁、在哪个 tick 销毁
+无关，三个上下文一套代码。完整记录在 `TODO_AssetSystemPlan.md`「资源回收」一节末。
 
 **`StagingContext` 意外是个聚合**（见 Step 3 的「顺带发现」）：`StagingContext<E>{}` 会走聚合初始化并撞上
 `protected` 基类 → C2512。根治是把默认构造改成用户提供的（`StagingContext() {}`）。**未改，待定。**

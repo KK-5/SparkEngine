@@ -47,7 +47,7 @@ namespace Spark::Render
             // Indexed provisioning: g_Instances slot + identity ID stream at slot 1
             // (per-instance, fed by StartInstanceLocation).
             SlotInstanceBinding slot;
-            slot.m_slotRef  = slotRef;
+            slot.m_slotRef  = slotRef.Weak();
             slot.m_idStream = VertexStreamSpec{
                 idBufferEntity, /*slot*/ 1, VertexBufferInfo{ 0, idBufferBytes, sizeof(uint32_t) } };
             d.m_instanceData = slot;

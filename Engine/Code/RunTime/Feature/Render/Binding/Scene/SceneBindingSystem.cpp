@@ -261,7 +261,7 @@ namespace Spark::Render
             // iteration order while the row is not, so this is the one place the two
             // index spaces meet.
             const auto* refs      = world.TryGet<ShadowViewRefs>(entity);
-            d.m_shadowIndex       = refs ? refs->m_baseIndex : -1;
+            d.m_shadowIndex       = refs ? refs->BaseIndex() : -1;
             d.m_shadowFaceCount   = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
 
             // Every row the light owns, since the authored bias applies to all its faces
