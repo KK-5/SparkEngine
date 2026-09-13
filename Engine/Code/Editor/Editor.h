@@ -5,6 +5,7 @@
 #include <Engine.h>
 
 #include "Input/EditorInput.h"
+#include "Scene/SceneCommands.h"
 
 #include "Handler/AssetHandler.h"
 #include "Handler/ComponentAssetResolver.h"
@@ -22,6 +23,7 @@ namespace Editor
         Spark::UniquePtr<Spark::SparkEngine>                 m_runtimeEngine;
         Spark::SystemUniquePtr<Spark::Window::IWindowSystem> m_editorWindow;
         Spark::SystemUniquePtr<EditorInputSystem>            m_editorInput;
+        Spark::SystemUniquePtr<SceneCommandSystem>           m_sceneCommands;
         Spark::SystemUniquePtr<Spark::UI::UIBaseSystem>      m_editorUI;
         Spark::UniquePtr<AssetHandler>                       m_assetHandler;
         Spark::UniquePtr<ComponentAssetResolver>             m_componentAssetResolver;

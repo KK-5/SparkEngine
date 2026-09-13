@@ -37,6 +37,9 @@ namespace Editor
         m_editorInput = Spark::CreateSystem<EditorInputSystem>();
         m_editorInput->Init();
 
+        m_sceneCommands = Spark::CreateSystem<SceneCommandSystem>();
+        m_sceneCommands->Init();
+
         {
             using namespace Spark;
             auto* fileSystem = Service<FileSystem>::Get();

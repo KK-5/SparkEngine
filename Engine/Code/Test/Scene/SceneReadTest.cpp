@@ -5,7 +5,6 @@
 #include <nlohmann/json.hpp>
 
 #include <CoreComponents/Name.h>
-#include <CoreComponents/Tags.h>
 #include <ECS/Common.h>
 #include <ECS/ExecuteContext.h>
 #include <ECS/WorldContext.h>
@@ -56,13 +55,6 @@ namespace
             return handle;
         }
 
-        //! What EntityReaper does at the end of a frame.
-        void Reap()
-        {
-            auto view = world.GetView<DeadTag>();
-            world.DestoryEntity(view.begin(), view.end());
-        }
-
         JsonValue Write()
         {
             JsonValue json;
@@ -98,7 +90,6 @@ TEST_F(SceneReadTest, AScenePutBackIsTheSameScene)
     const JsonValue before = Write();
 
     Scene::ClearScene(world, materials);
-    Reap();
     ASSERT_FALSE(world.Valid(root));
     ASSERT_FALSE(world.Valid(child));
 
@@ -126,7 +117,6 @@ TEST_F(SceneReadTest, AMaterialThatMovedTakesItsReferencesWithIt)
     const JsonValue file = Write();
 
     Scene::ClearScene(world, materials);
-    Reap();
 
     // Something a system owns now sits on the identifier the file's material wants, the way a
     // resident default material would.
@@ -196,8 +186,8 @@ TEST_F(SceneReadTest, ClearingTakesTheSceneAndLeavesTheRest)
 
     Scene::ClearScene(world, materials);
 
-    EXPECT_TRUE(world.Has<DeadTag>(inScene));
-    EXPECT_FALSE(world.Has<DeadTag>(icon));
+    EXPECT_FALSE(world.Valid(inScene));
+    EXPECT_TRUE(world.Valid(icon));
     EXPECT_FALSE(materials.Valid(asset));
     EXPECT_TRUE(materials.Valid(resident));
 }

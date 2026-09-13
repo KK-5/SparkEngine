@@ -19,6 +19,7 @@ add_executable(${TARGET_NAME}
     UI/EditorWindow.cpp
     UI/EditorUI.cpp
     Input/EditorInput.cpp
+    Scene/SceneCommands.cpp
     Editor.cpp
     main.cpp
 )

@@ -10,7 +10,7 @@
 #include <Hierarchy/IHierarchy.h>
 #include <Service/Service.h>
 #include "../../Component/Position.h"
-#include <Scene/SceneSerializer.h>
+#include "../../Scene/SceneCommands.h"
 
 namespace Editor
 {
@@ -22,19 +22,21 @@ namespace Editor
 
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("New Scene")) {
-                    LOG_INFO("Creating new scene...");
+                // Asked for here, done after the frame: this callback runs inside the UI pass,
+                // which is the render graph with a command list open.
+                auto* scene = Service<ISceneCommands>::Get();
+
+                // Fixed until the path picker is split out of the asset save dialog.
+                constexpr const char* kScenePath = "project://Scenes/Scene.scene";
+
+                if (ImGui::MenuItem("New Scene") && scene) {
+                    scene->New();
                 }
-                if (ImGui::MenuItem("Open Scene")) {
-                    LOG_INFO("Opening scene...");
+                if (ImGui::MenuItem("Open Scene") && scene) {
+                    scene->Open(kScenePath);
                 }
-                if (ImGui::MenuItem("Save Scene")) {
-                    // Fixed until the path picker is split out of the asset save dialog.
-                    constexpr const char* kScenePath = "project://Scenes/Scene.scene";
-                    if (Spark::Scene::SaveScene(kScenePath))
-                    {
-                        LOG_INFO("[MenuBar] Scene saved to {}.", kScenePath);
-                    }
+                if (ImGui::MenuItem("Save Scene") && scene) {
+                    scene->Save(kScenePath);
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) {

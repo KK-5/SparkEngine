@@ -29,15 +29,17 @@ namespace Spark::Scene
     //! The two contexts a scene file describes, merged into the live ones. Identifiers are kept
     //! where they are free and remapped where they are not, references following either way.
     //!
-    //! Nothing is merged unless the whole file decoded: a scene half in the world is worse than
+    //! Nothing is merged unless the whole file was read: a scene half in the world is worse than
     //! a scene that refused to load.
     bool ReadScene(const JsonValue& in, WorldContext& world, Material::MaterialContext& materials);
 
-    //! The scene at `virtualPath`, into the live contexts.
-    bool LoadScene(eastl::string_view virtualPath);
+    //! The scene at `virtualPath` in place of the one that is open: staged in full first, and
+    //! only then does the current scene go. A file that turns out to be bad leaves what you had.
+    bool OpenScene(eastl::string_view virtualPath);
 
     //! Take the scene out of the live contexts: what belongs to it by the same rule the writer
-    //! uses. World entities are marked for the reaper; material entities have no reaper and go
-    //! at once. What a system owns -- the editor camera, icons, the default material -- stays.
+    //! uses. What a system owns -- the editor camera, icons, the default material -- stays.
+    //!
+    //! Destroys outright, so call it where touching the world is safe.
     void ClearScene(WorldContext& world, Material::MaterialContext& materials);
 }

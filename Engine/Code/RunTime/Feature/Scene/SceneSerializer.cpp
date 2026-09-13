@@ -191,7 +191,7 @@ namespace Spark::Scene
         //! One context's half of the file into a staging context. Nothing live is touched here:
         //! a file that fails half way has to leave both contexts as they were.
         template<typename E>
-        bool ReadContext(const JsonValue& in, StagingContext<E>& staging)
+        bool StageContext(const JsonValue& in, StagingContext<E>& staging)
         {
             const auto entities = in.find("entities");
             if (entities == in.end() || !entities->is_array())
@@ -325,80 +325,127 @@ namespace Spark::Scene
             reinterpret_cast<const uint8_t*>(text.data()), text.size());
     }
 
+    namespace
+    {
+        //! Both halves of the file into staging contexts. Kept apart from merging them so a
+        //! caller can find out the file is bad while the scene it would replace still stands.
+        bool StageScene(const JsonValue& in, StagingContext<Entity>& world,
+                         StagingContext<Material::MaterialHandle>& materials)
+        {
+            const auto contexts = in.find("contexts");
+            if (contexts == in.end() || !contexts->is_object())
+            {
+                LOG_ERROR("[SceneSerializer] A scene needs a contexts object.");
+                return false;
+            }
+
+            CheckPersistentTypesCanBeRead();
+
+            const auto material = contexts->find("material");
+            if (material != contexts->end() && !StageContext(*material, materials))
+            {
+                return false;
+            }
+
+            const auto section = contexts->find("world");
+            return section == contexts->end() || StageContext(*section, world);
+        }
+
+        void MergeScene(StagingContext<Entity>&& worldStaging,
+                        StagingContext<Material::MaterialHandle>&& materialStaging,
+                        WorldContext& world, Material::MaterialContext& materials)
+        {
+            // Materials first, and their records are kept: the world half names them by the
+            // identifiers the file used, which this merge may have moved.
+            Merge(materials, eastl::move(materialStaging), MergeRecords::Keep);
+            TranslateMaterialRefs(materials, worldStaging);
+            Merge(world, eastl::move(worldStaging));
+            ClearMergeRecords(materials);
+        }
+
+        //! The file at `virtualPath`, or a discarded value when there is none to speak of.
+        JsonValue ReadSceneFile(eastl::string_view virtualPath)
+        {
+            auto* fileSystem = Service<FileSystem>::Get();
+            const eastl::string path(virtualPath);
+            if (fileSystem == nullptr)
+            {
+                LOG_ERROR("[SceneSerializer] {} not read: no file system.", path.c_str());
+                return JsonValue(JsonValue::value_t::discarded);
+            }
+
+            eastl::vector<uint8_t> bytes;
+            if (!fileSystem->ReadFile(virtualPath, bytes))
+            {
+                LOG_ERROR("[SceneSerializer] {} could not be read.", path.c_str());
+                return JsonValue(JsonValue::value_t::discarded);
+            }
+
+            JsonValue json = JsonValue::parse(bytes.begin(), bytes.end(), nullptr, false);
+            if (json.is_discarded())
+            {
+                LOG_ERROR("[SceneSerializer] {} is not valid JSON.", path.c_str());
+            }
+            return json;
+        }
+    }
+
     bool ReadScene(const JsonValue& in, WorldContext& world, Material::MaterialContext& materials)
     {
-        const auto contexts = in.find("contexts");
-        if (contexts == in.end() || !contexts->is_object())
-        {
-            LOG_ERROR("[SceneSerializer] A scene needs a contexts object.");
-            return false;
-        }
-
-        // Both halves are decoded before either is merged, so a file that turns out to be bad
-        // leaves the live contexts untouched -- the reading half of "nothing is written unless
-        // every component encoded".
-        CheckPersistentTypesCanBeRead();
-
-        StagingContext<Material::MaterialHandle> materialStaging;
         StagingContext<Entity>                   worldStaging;
-
-        const auto material = contexts->find("material");
-        if (material != contexts->end() && !ReadContext(*material, materialStaging))
+        StagingContext<Material::MaterialHandle> materialStaging;
+        if (!StageScene(in, worldStaging, materialStaging))
         {
             return false;
         }
 
-        const auto section = contexts->find("world");
-        if (section != contexts->end() && !ReadContext(*section, worldStaging))
-        {
-            return false;
-        }
-
-        // Materials first, and their records are kept: the world half names them by the
-        // identifiers the file used, which this merge may have moved.
-        Merge(materials, eastl::move(materialStaging), MergeRecords::Keep);
-        TranslateMaterialRefs(materials, worldStaging);
-        Merge(world, eastl::move(worldStaging));
-        ClearMergeRecords(materials);
+        MergeScene(eastl::move(worldStaging), eastl::move(materialStaging), world, materials);
         return true;
     }
 
-    bool LoadScene(eastl::string_view virtualPath)
+    bool OpenScene(eastl::string_view virtualPath)
     {
-        auto* world      = WorldExecuteContext::Current();
-        auto* materials  = Material::MaterialExecuteContext::Current();
-        auto* fileSystem = Service<FileSystem>::Get();
+        auto* world     = WorldExecuteContext::Current();
+        auto* materials = Material::MaterialExecuteContext::Current();
         const eastl::string path(virtualPath);
-        if (world == nullptr || materials == nullptr || fileSystem == nullptr)
+        if (world == nullptr || materials == nullptr)
         {
-            LOG_ERROR("[SceneSerializer] {} not loaded: no world, material context or file system.",
-                path.c_str());
+            LOG_ERROR("[SceneSerializer] {} not opened: no world or material context.", path.c_str());
             return false;
         }
 
-        eastl::vector<uint8_t> bytes;
-        if (!fileSystem->ReadFile(virtualPath, bytes))
-        {
-            LOG_ERROR("[SceneSerializer] {} could not be read.", path.c_str());
-            return false;
-        }
-
-        const JsonValue json = JsonValue::parse(bytes.begin(), bytes.end(), nullptr, false);
+        const JsonValue json = ReadSceneFile(virtualPath);
         if (json.is_discarded())
         {
-            LOG_ERROR("[SceneSerializer] {} is not valid JSON.", path.c_str());
             return false;
         }
 
-        return ReadScene(json, *world, *materials);
+        // Staged before the open scene is touched: a file that fails here costs nothing.
+        StagingContext<Entity>                   worldStaging;
+        StagingContext<Material::MaterialHandle> materialStaging;
+        if (!StageScene(json, worldStaging, materialStaging))
+        {
+            LOG_ERROR("[SceneSerializer] {} not opened; the scene is unchanged.", path.c_str());
+            return false;
+        }
+
+        ClearScene(*world, *materials);
+        MergeScene(eastl::move(worldStaging), eastl::move(materialStaging), *world, *materials);
+        return true;
     }
 
     void ClearScene(WorldContext& world, Material::MaterialContext& materials)
     {
-        for (Entity entity : world.GetView<Hierarchy>(Exclude<DeadTag>))
+        // Destroyed outright, not marked: DeadTag is a filter, and anything that had to run
+        // between the mark and the destruction would be a second thing to keep in step.
+        // DestoryEntity announces the whole range before destroying any of it, so the links
+        // being patched still name live entities.
+        eastl::vector<Entity> scene;
+        for (Entity entity : world.GetView<Hierarchy>())
         {
-            world.Add<DeadTag>(entity);
+            scene.push_back(entity);
         }
+        world.DestoryEntity(scene.begin(), scene.end());
 
         // The material context has no reaper, and nothing observes a material entity's death.
         eastl::vector<Material::MaterialHandle> dead;
