@@ -12,6 +12,8 @@
 
 #include "UI/Bus/MaterialEditBus.h"
 
+#include "EditorTheme.h"
+
 
 namespace
 {
@@ -73,23 +75,23 @@ namespace Editor
     void BottomPanel::Draw()
     {
         ImGuiWindowFlags flags = ImGuiWindowFlags_None;
-        flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground;
+        flags |= ImGuiWindowFlags_NoTitleBar;
 
         ImGui::Begin("Browser", nullptr, flags);
 
         LoadIcons();
 
-        // ---- Tab bar ----
         {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             ImVec2 barStart = ImGui::GetCursorScreenPos();
-            float  barH = 26;
-            float  tabH = 22;
-            float  tabPadX = 14;
+            const float barW    = ImGui::GetContentRegionAvail().x;
+            const float barH    = Theme::Px(28.f);
+            const float tabH    = barH;
+            const float tabPadX = Theme::Px(14.f);
 
-            dl->AddRectFilled(barStart,
-                ImVec2(barStart.x + ImGui::GetContentRegionAvail().x, barStart.y + barH),
-                IM_COL32(35, 35, 35, 255));
+            dl->AddRectFilled(barStart, ImVec2(barStart.x + barW, barStart.y + barH), Theme::kFooterBg);
+            dl->AddLine(ImVec2(barStart.x, barStart.y + barH - 1.f),
+                        ImVec2(barStart.x + barW, barStart.y + barH - 1.f), Theme::kBorderPanel);
 
             auto* iconMgr = Spark::Service<Spark::UI::IconManagerInterface>::Get();
 
@@ -99,12 +101,16 @@ namespace Editor
                 {"Assets",  "##TabAssets",  Tab::ASSETS,  m_assetsIconId},
             };
 
-            const float iconSize = 16;
-            const float iconGap  = 6;
-            float x = barStart.x + 8;
-            float y = barStart.y + (barH - tabH) * 0.5f;
+            const float iconSize = Theme::Px(12.f);
+            const float iconGap  = Theme::Px(6.f);
+            float x = barStart.x;
+            float y = barStart.y;
 
             for (auto& t : tabs) {
+                const bool sel = (currentTab == t.tab);
+                // Measured and painted under the same face, or the label outgrows its tab.
+                Theme::ScopedFont font(sel ? Theme::Face::Bold : Theme::Face::UI, Theme::kSizeBody);
+
                 ImTextureID icon = ImTextureID_Invalid;
                 if (iconMgr && t.iconId.IsValid()) {
                     icon = iconMgr->RequestIconId(t.iconId);
@@ -119,16 +125,11 @@ namespace Editor
                 ImVec2 tabMin(x, y);
                 ImVec2 tabMax(x + w, y + tabH);
 
-                bool sel     = (currentTab == t.tab);
                 bool hovered = ImGui::IsMouseHoveringRect(tabMin, tabMax);
-                bool held    = hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left);
 
-                ImU32 bg = 0;
-                if (held || sel)      { bg = IM_COL32(66, 150, 250, 128); }
-                else if (hovered)     { bg = IM_COL32(65, 65, 65, 255); }
-
-                if (bg != 0) {
-                    dl->AddRectFilled(tabMin, tabMax, bg, 4);
+                if (sel) {
+                    dl->AddRectFilled(tabMin, tabMax, Theme::kWindowBg);
+                    dl->AddRectFilled(ImVec2(tabMin.x, tabMax.y - Theme::Px(2.f)), tabMax, Theme::kAccent);
                 }
 
                 float contentX = tabMin.x + tabPadX;
@@ -138,29 +139,30 @@ namespace Editor
                     contentX += iconSize + iconGap;
                 }
 
+                ImU32 textColor = Theme::kTextDim;
+                if (sel)          { textColor = Theme::kTextStrong; }
+                else if (hovered) { textColor = Theme::kTextLabel; }
+
                 ImVec2 textPos(contentX, tabMin.y + (tabH - textSize.y) * 0.5f);
-                dl->AddText(textPos, IM_COL32(220, 220, 220, 255), t.name);
+                dl->AddText(textPos, textColor, t.name);
 
                 ImGui::SetCursorScreenPos(tabMin);
                 if (ImGui::InvisibleButton(t.id, ImVec2(w, tabH))) {
                     currentTab = t.tab;
                 }
 
-                x += w + 8;
+                x += w;
             }
 
             ImGui::SetCursorScreenPos(ImVec2(barStart.x, barStart.y + barH));
         }
 
-        ImGui::Separator();
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(35, 35, 35, 255));
         if (currentTab == Tab::CONSILE)
         {
             DrawConsole();
         } else {
             DrawAssets();
         }
-        ImGui::PopStyleColor();
 
         ImGui::End();
     }
@@ -173,40 +175,32 @@ namespace Editor
         ImGui::Separator();
         ImGui::BeginChild("ConsoleLog", ImVec2(0, 0), true);
 
-        auto GetLogColor = [](const std::string& log) -> ImVec4
+        auto GetLogColor = [](const std::string& log) -> ImU32
         {
             if (log.find("[trace]") != std::string::npos)
             {
-                return ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                return Theme::kTextFaint;
             }
             else if (log.find("[debug]") != std::string::npos)
             {
-                return ImVec4(0.3f, 0.8f, 1.0f, 1.0f);
-            }
-            else if (log.find("[info]") != std::string::npos)
-            {
-                return ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                return Theme::kTextDim;
             }
             else if (log.find("[warning]") != std::string::npos)
             {
-                return ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
+                return Theme::kWarning;
             }
-            else if (log.find("[error]") != std::string::npos)
+            else if (log.find("[error]") != std::string::npos
+                  || log.find("[critical]") != std::string::npos)
             {
-                return ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+                return Theme::kError;
             }
-            else if (log.find("[critical]") != std::string::npos)
-            {
-                return ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-            }
-            else
-            {
-                return ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-            }
+            return Theme::kTextLabel;
         };
 
         if (auto logger = Service<ILogSystem>::Get())
         {
+            // Popped before EndChild, which asserts on a font still pushed inside the child.
+            Theme::ScopedFont font(Theme::Face::Mono, Theme::kSizeMono);
             auto logs = logger->GetLogs();
             for (const auto& log : logs) {
                 ImGui::PushStyleColor(ImGuiCol_Text, GetLogColor(log));
@@ -310,12 +304,6 @@ namespace Editor
         // Reserve space for icon to the left of TreeNodeEx
         ImGui::SetCursorPosX(lineStart.x + 8);
 
-        bool isSelected = (m_selectedFolder == &folder);
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-            isSelected ? IM_COL32(66, 150, 250, 128) : IM_COL32(65, 65, 65, 255));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(66, 150, 250, 128));
-        ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(66, 150, 250, 128));
-
         bool open = ImGui::TreeNodeEx(folder.name.c_str(), flags);
 
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
@@ -341,15 +329,9 @@ namespace Editor
                 ImGuiTreeNodeFlags fileFlags = ImGuiTreeNodeFlags_Leaf
                                              | ImGuiTreeNodeFlags_SpanFullWidth;
 
-                bool fileIsSelected = (m_selectedAsset == &asset);
-                if (fileIsSelected) {
+                if (m_selectedAsset == &asset) {
                     fileFlags |= ImGuiTreeNodeFlags_Selected;
                 }
-
-                ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-                    fileIsSelected ? IM_COL32(66, 150, 250, 128) : IM_COL32(65, 65, 65, 255));
-                ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(66, 150, 250, 128));
-                ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(66, 150, 250, 128));
 
                 eastl::string displayName = GetAssetDisplayName(asset.id);
                 ImGui::TreeNodeEx(displayName.c_str(), fileFlags);
@@ -362,12 +344,10 @@ namespace Editor
                     OpenAsset(asset);
                 }
 
-                ImGui::PopStyleColor(3);
                 ImGui::TreePop();
             }
             ImGui::TreePop();
         }
-         ImGui::PopStyleColor(3);
     }
 
     void BottomPanel::DrawAssetList()
@@ -396,8 +376,8 @@ namespace Editor
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
-        const float cellW     = 80;
-        const float thumbSize = 56;
+        const float cellW     = Theme::Px(88.f);
+        const float thumbSize = Theme::Px(56.f);
         const float cellH     = thumbSize + 4 + ImGui::GetTextLineHeight() + 8;
         const float availableW = ImGui::GetContentRegionAvail().x;
         const int   cols = eastl::max(1, (int)(availableW / cellW));
@@ -476,7 +456,7 @@ namespace Editor
             ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
             ImVec2 textPos(cellPos.x + (cellW - textSize.x) * 0.5f,
                            thumbMax.y + 4);
-            dl->AddText(textPos, IM_COL32(200, 200, 200, 255), label.c_str());
+            dl->AddText(textPos, Theme::kTextLabel, label.c_str());
 
             if (assetEntry)
             {
@@ -664,20 +644,20 @@ namespace Editor
         ImGui::BeginChild("AssetToolbar", ImVec2(0, toolbarHeight), false,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-        // ---- 搜索框 ----
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(26, 4));
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(65, 65, 65, 255));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(65, 65, 65, 255));
-        ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(120, 120, 120, 255));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
+        const float searchIconSize = Theme::Px(12.f);
+        const float searchIconPad  = Theme::Px(7.f);
+
+        // Left padding leaves room for the icon painted over the frame.
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                            ImVec2(searchIconPad * 2.f + searchIconSize, ImGui::GetStyle().FramePadding.y));
+        ImGui::PushStyleColor(ImGuiCol_TextDisabled, Theme::kTextFaint);
 
         if (m_filterBuf.empty()) {
             m_filterBuf.resize(128, '\0');
         }
 
         ImVec2 inputPos = ImGui::GetCursorScreenPos();
-        float  inputW = 220;
+        float  inputW = Theme::Px(220.f);
         ImGui::SetNextItemWidth(inputW);
         ImGui::SetNextItemShortcut(ImGuiKey_F | ImGuiMod_Ctrl);
         ImGui::InputTextWithHint("##filter", "Search...", m_filterBuf.data(), m_filterBuf.size());
@@ -693,19 +673,20 @@ namespace Editor
         if (searchIcon != ImTextureID_Invalid) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             float inputH = ImGui::GetFrameHeight();
-            ImVec2 iconPos(inputPos.x + 6, inputPos.y + (inputH - 16) * 0.5f);
-            dl->AddImage(searchIcon, iconPos, ImVec2(iconPos.x + 16, iconPos.y + 16));
+            ImVec2 iconPos(inputPos.x + searchIconPad, inputPos.y + (inputH - searchIconSize) * 0.5f);
+            dl->AddImage(searchIcon, iconPos, ImVec2(iconPos.x + searchIconSize, iconPos.y + searchIconSize));
         }
 
-        ImGui::PopStyleVar(3);
-        ImGui::PopStyleColor(3);
-
-        ImGui::SameLine();
-        ImGui::TextUnformatted("|");
-        ImGui::SameLine();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
 
         if (m_selectedFolder != nullptr) {
+            Theme::ScopedFont font(Theme::Face::Mono, Theme::kSizeMono);
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextDimmer);
             ImGui::TextUnformatted(m_selectedFolder->fullPath.c_str());
+            ImGui::PopStyleColor();
         }
 
         ImGui::EndChild();
@@ -728,7 +709,7 @@ namespace Editor
         float  lineH = ImGui::GetContentRegionAvail().y;
         drawList->AddLine(ImVec2(cursor.x, cursor.y),
                           ImVec2(cursor.x, cursor.y + lineH),
-                          IM_COL32(80, 80, 80, 255), 1.0f);
+                          Theme::kBorderInner, 1.0f);
         ImGui::SetCursorScreenPos(ImVec2(cursor.x + 4, cursor.y));
 
         ImGui::BeginChild("AssetContent", ImVec2(0, 0), false);

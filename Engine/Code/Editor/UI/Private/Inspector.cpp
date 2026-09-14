@@ -14,6 +14,8 @@
 #include <CoreComponents/Tags.h>
 #include "../../Component/Tags.h"
 
+#include "EditorTheme.h"
+
 namespace Editor
 {
     using namespace Spark;
@@ -36,11 +38,6 @@ namespace Editor
         if (context.Has<SelectTag>(entity))
         {
             flags |= ImGuiTreeNodeFlags_Selected;
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.26f, 0.59f, 0.98f, 0.5f));
-        }
-        else
-        {
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(65, 65, 65, 255));
         }
 
         eastl::string name;
@@ -86,8 +83,6 @@ namespace Editor
             m_isOpen = ImGui::TreeNodeEx(dispalyName.c_str(), flags);
         }
 
-        ImGui::PopStyleColor();
-
         // click entity
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
         {
@@ -127,7 +122,7 @@ namespace Editor
     {
         auto hierarchy = Spark::Service<IHierarchy>::Get();
         auto& context = *WorldExecuteContext::Current();
-        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.f), "Entity");
+        ImGui::TextDisabled("Entity");
         ImGui::Spacing();
         ImGui::Separator();
 
@@ -224,9 +219,9 @@ namespace Editor
     void Inspector::DrawTools()
     {
         auto& context = *WorldExecuteContext::Current();
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.18f, 0.f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
+        ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Theme::kButtonHov);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, Theme::kButtonHov);
         if (ImGui::Button(" + "))
         {
             Entity entity = context.CreateEntity();
@@ -249,29 +244,21 @@ namespace Editor
         IHierarchy* hierarchy = Spark::Service<IHierarchy>::Get();
         auto& context = *WorldExecuteContext::Current();
 
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
         ImGui::Begin("Inspector", nullptr, ImGuiWindowFlags_NoTitleBar);
         ImVec2 windowSize = ImGui::GetContentRegionAvail();
-        float toolHeight = 25.f;
+        float toolHeight = Theme::Px(28.f);
 
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(50, 50, 50, 255));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, Theme::kFooterBg);
         ImGui::BeginChild("InspectorTools", ImVec2(windowSize.x, toolHeight), false, ImGuiWindowFlags_NoTitleBar);
         DrawTools();
         ImGui::EndChild();
         ImGui::PopStyleColor();
 
         float height = windowSize.y - toolHeight;
-        float rowHeight = 25.f;
+        float rowHeight = Theme::Px(22.f);
         uint32_t rowTotalCount = uint32_t(height / rowHeight) + 1;
         uint32_t curRowCount = 0;
 
-        //ImGui::Separator();
-
-        ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, IM_COL32(50, 50, 50, 255));
-        ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, IM_COL32(35, 35, 35, 255));
-        ImGui::PushStyleColor(ImGuiCol_TableRowBg, IM_COL32(40, 40, 40, 255));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.26f, 0.59f, 0.98f, 0.5f));
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.26f, 0.59f, 0.98f, 0.5f));
         if (ImGui::BeginTable("EntityList", 1, 
             ImGuiTableFlags_RowBg
             ))
@@ -345,9 +332,7 @@ namespace Editor
 
             ImGui::EndTable();
         }
-        ImGui::PopStyleColor(5);
 
         ImGui::End();
-        ImGui::PopStyleColor();
     }
 }

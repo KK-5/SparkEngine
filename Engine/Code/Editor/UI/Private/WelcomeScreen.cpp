@@ -9,7 +9,11 @@
 #include <Resource/AssetManagerInterface.h>
 #include <Feature/UI/ImGui/IconManagerInterface.h>
 
+#include <GLFW/glfw3.h>
+
 #include "EditorTheme.h"
+#include "WindowButtons.h"
+#include "WindowChrome.h"
 
 namespace Editor
 {
@@ -17,9 +21,13 @@ namespace Editor
 
     namespace
     {
-        // Mockup pixels; Theme::Px puts them on this screen.
-        constexpr float kDesignWidth  = 1440.f;
-        constexpr float kDesignHeight = 900.f;
+        // Mockup pixels; Theme::Px puts them on this screen. Smaller than the mockup's
+        // 1440x900 page, which at 125% outgrows a laptop screen; the column keeps its width.
+        constexpr float kDesignWidth  = 1200.f;
+        constexpr float kDesignHeight = 750.f;
+
+        //! The strip the window is dragged by, and the height of its buttons.
+        constexpr float kCaptionHeight = Theme::Px(34.f);
 
         //! What the window becomes on the way out. Next to the design size rather than in
         //! Editor.cpp: this screen performs the handover, and the two only mean anything
@@ -146,7 +154,7 @@ namespace Editor
                                          | ImGuiWindowFlags_NoDocking;
 
         Theme::Scoped theme;
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, Theme::kWelcomeBg);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, Theme::kAppBg);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
 
@@ -163,6 +171,7 @@ namespace Editor
             DrawRightPane(ImVec2(origin.x + columnWidth, origin.y),
                           ImVec2(size.x - columnWidth, size.y));
             DrawLeftColumn(origin, ImVec2(columnWidth, size.y));
+            DrawCaption(origin, size.x);
         }
 
         ImGui::End();
@@ -195,8 +204,31 @@ namespace Editor
 
         if (auto* window = Service<Window::IWindowSystem>::Get())
         {
-            window->SetWindowSize(kEditorWindowSize);
+            // Before sizing: changing the style re-fits the frame around the current client.
+            glfwSetWindowAttrib(static_cast<GLFWwindow*>(window->GetWindowHandle()),
+                                GLFW_RESIZABLE, GLFW_TRUE);
+            window->SetWindowSize(m_windowChrome.WindowSizeFor(kEditorWindowSize));
         }
+    }
+
+    void WelcomeScreen::DrawCaption(const ImVec2& origin, float width)
+    {
+        const float buttonsWidth = WindowButtonsWidth(false);
+
+        WindowChrome::Caption caption;
+        caption.m_height   = origin.y + kCaptionHeight;
+        caption.m_dragMinX = origin.x;
+        caption.m_dragMaxX = origin.x + width - buttonsWidth;
+        m_windowChrome.SetCaption(caption);
+
+        // The buttons sit on the image; a shade keeps their glyphs readable against a bright sky.
+        const float right = origin.x + width;
+        ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
+            ImVec2(right - buttonsWidth * 2.f, origin.y), ImVec2(right, origin.y + kCaptionHeight),
+            IM_COL32(0x0D, 0x0E, 0x10, 0x00), IM_COL32(0x0D, 0x0E, 0x10, 0xB3),
+            IM_COL32(0x0D, 0x0E, 0x10, 0xB3), IM_COL32(0x0D, 0x0E, 0x10, 0x00));
+
+        DrawWindowButtons(right, origin.y, kCaptionHeight, false);
     }
 
     void WelcomeScreen::LoadImages()
@@ -517,7 +549,7 @@ namespace Editor
         }
         else
         {
-            draw->AddRectFilled(origin, end, Theme::kWelcomeBg);
+            draw->AddRectFilled(origin, end, Theme::kAppBg);
         }
 
         // Part of the design, not a stand-in for a missing image: they are what keeps the

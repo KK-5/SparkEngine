@@ -14,11 +14,15 @@ namespace Editor
     //! What the editor opens on: which project is loaded, and how far the asset preload has
     //! got. EditorUI draws this INSTEAD of the dockspace until it is dismissed, which is
     //! what keeps a panel from touching an asset that is still being built.
+    class WindowChrome;
+
     class WelcomeScreen final
     {
     public:
-        //! The window is created at this size, so Editor::Init needs it before any UI
-        //! exists. The mockup's own, which is what puts the column split on 596/1440.
+        explicit WelcomeScreen(WindowChrome& windowChrome) : m_windowChrome(windowChrome) {}
+
+        //! The client size the window is created at, so Editor::Init needs it before any UI
+        //! exists.
         static Spark::Math::Vector2Int WindowSize();
 
         void Draw();
@@ -43,9 +47,14 @@ namespace Editor
         void DrawLeftColumn(const ImVec2& origin, const ImVec2& size);
         void DrawRightPane(const ImVec2& origin, const ImVec2& size);
 
+        //! The drag strip across the top, and minimize / close over the image.
+        void DrawCaption(const ImVec2& origin, float width);
+
         //! Bottom-anchored, so it takes its own top rather than the flowing cursor.
         void DrawPreload(const ImVec2& origin, float width);
         void DrawActions(const ImVec2& origin, float width, bool complete);
+
+        WindowChrome& m_windowChrome;
 
         Spark::UniquePtr<Spark::Resource::AssetLoadBatch> m_batch;
 

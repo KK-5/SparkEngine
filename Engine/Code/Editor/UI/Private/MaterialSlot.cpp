@@ -7,6 +7,7 @@
 #include <Resource/Asset.h>
 #include <Resource/AssetTypes.h>
 
+#include "EditorTheme.h"
 #include "FieldWidgets.h"
 #include "MaterialUI.h"
 #include "UI/Bus/AssetEditBus.h"
@@ -150,7 +151,7 @@ namespace Editor
         if (!gotHandle)
         {
             ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "MaterialRefElement expect a MaterialHandle value!");
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "MaterialRefElement expect a MaterialHandle value!");
             return false;
         }
 

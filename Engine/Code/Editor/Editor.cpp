@@ -28,10 +28,16 @@ namespace Editor
             windowSize.x, windowSize.y, "SparkEditor");
         m_editorWindow->Init();
 
+        // A fixed-size splash until dismissed: no resize edges, and no double-click maximize.
+        glfwSetWindowAttrib(static_cast<GLFWwindow*>(m_editorWindow->GetWindowHandle()),
+                            GLFW_RESIZABLE, GLFW_FALSE);
+        m_windowChrome.Install(m_editorWindow->GetNativeHandle());
+        m_editorWindow->SetWindowSize(m_windowChrome.WindowSizeFor(windowSize));
+
         m_runtimeEngine = eastl::make_unique<Spark::SparkEngine>();
         m_runtimeEngine->SetUp();
 
-        m_editorUI = Spark::CreateSystem<EditorUI>();
+        m_editorUI = Spark::CreateSystem<EditorUI>(m_windowChrome);
         m_editorUI->Init();
 
         m_editorInput = Spark::CreateSystem<EditorInputSystem>();

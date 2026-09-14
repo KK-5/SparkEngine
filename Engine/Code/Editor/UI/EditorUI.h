@@ -22,6 +22,7 @@
 #include "Private/MaterialWindow.h"
 #include "Private/SaveAssetDialog.h"
 #include "Private/WelcomeScreen.h"
+#include "Private/WindowChrome.h"
 
 namespace Editor
 {
@@ -29,6 +30,8 @@ namespace Editor
                      public Spark::Input::InputEventBus::Handler
     {
     public:
+        explicit EditorUI(WindowChrome& windowChrome) : m_windowChrome(windowChrome) {}
+
         // SparkImGui
         void InitInternal() override;
         void ShutdownInternal() override;
@@ -51,6 +54,10 @@ namespace Editor
 
         bool m_dockLayoutInit;
 
+        //! Kept across frames where the viewport collapses (minimized), since a zero-sized
+        //! scene target is not creatable.
+        mutable Spark::Math::Vector2Int m_lastFrameBufferSize {1024, 576};
+
         eastl::unique_ptr<MenuBar>       m_menuBar;
         eastl::unique_ptr<BottomPanel>   m_bottomPanel;
         eastl::unique_ptr<SceneView>     m_sceneView;
@@ -66,5 +73,8 @@ namespace Editor
 
         //! Drawn INSTEAD of everything above until dismissed; owns the startup preload.
         eastl::unique_ptr<WelcomeScreen> m_welcomeScreen;
+
+        //! Owned by SparkEditor, which installs it as soon as the window exists.
+        WindowChrome& m_windowChrome;
     };
 }

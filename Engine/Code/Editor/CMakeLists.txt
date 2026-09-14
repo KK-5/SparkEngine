@@ -14,6 +14,8 @@ add_executable(${TARGET_NAME}
     UI/Private/MaterialWindow.cpp
     UI/Private/SaveAssetDialog.cpp
     UI/Private/WelcomeScreen.cpp
+    UI/Private/WindowButtons.cpp
+    UI/Private/WindowChrome.cpp
     Handler/AssetHandler.cpp
     Handler/ComponentAssetResolver.cpp
     UI/EditorWindow.cpp
@@ -30,6 +32,11 @@ target_link_libraries(${TARGET_NAME}
         ImGui
         SparkRuntime
 )
+
+if(WIN32)
+    # SetWindowSubclass, for WindowChrome.
+    target_link_libraries(${TARGET_NAME} PRIVATE comctl32)
+endif()
 
 target_include_directories(
   ${TARGET_NAME}

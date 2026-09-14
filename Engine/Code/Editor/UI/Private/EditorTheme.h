@@ -6,18 +6,14 @@
 //!
 //! The values are the mockup's own, not sampled from a picture of it. Three greys of border
 //! and five of text is not over-specification -- it is what makes a panel read as layered
-//! rather than flat, and collapsing them to one of each is exactly what made the first pass
-//! look wrong.
+//! rather than flat.
 //!
-//! Applied per-window today (see Scoped) rather than to ImGui's global style, because only
-//! the material editor is drawn to this palette so far and a half-themed editor reads worse
-//! than an untouched one. Promoting it later is a matter of moving these same values into
-//! SparkImGui's style setup -- which is why the table lives here rather than inside the one
-//! window that currently uses it.
+//! Apply() writes it into ImGui's global style once; Scoped layers the floating-window shape
+//! (material editor, dialogs) on top.
 namespace Editor::Theme
 {
     // Surfaces, darkest to lightest.
-    inline constexpr ImU32 kWelcomeBg    = IM_COL32(0x0D, 0x0E, 0x10, 0xFF);
+    inline constexpr ImU32 kAppBg        = IM_COL32(0x0D, 0x0E, 0x10, 0xFF);   // behind and between panels
     inline constexpr ImU32 kWelcomePanel = IM_COL32(0x10, 0x12, 0x16, 0xFF);
     inline constexpr ImU32 kFooterBg  = IM_COL32(0x14, 0x16, 0x19, 0xFF);   // also the tab strip
     inline constexpr ImU32 kWindowBg  = IM_COL32(0x16, 0x18, 0x1C, 0xFF);
@@ -39,6 +35,8 @@ namespace Editor::Theme
     inline constexpr ImU32 kTextFaint  = IM_COL32(0x56, 0x5D, 0x66, 0xFF);  // section headers
 
     inline constexpr ImU32 kFrameBg     = IM_COL32(0x11, 0x13, 0x16, 0xFF);
+    inline constexpr ImU32 kFrameBgHov  = IM_COL32(0x16, 0x19, 0x1D, 0xFF);
+    inline constexpr ImU32 kFrameBgAct  = IM_COL32(0x1B, 0x1E, 0x23, 0xFF);
     inline constexpr ImU32 kFrameBorder = IM_COL32(0x23, 0x27, 0x2D, 0xFF);
     inline constexpr ImU32 kDivider     = IM_COL32(0x24, 0x28, 0x2E, 0xFF);  // short vertical rules
 
@@ -50,6 +48,7 @@ namespace Editor::Theme
     inline constexpr ImU32 kAccent    = IM_COL32(0x7F, 0xD6, 0xC2, 0xFF);
     inline constexpr ImU32 kAccentHov = IM_COL32(0xA8, 0xE6, 0xD8, 0xFF);
     inline constexpr ImU32 kOnAccent  = IM_COL32(0x0D, 0x0E, 0x10, 0xFF);
+    inline constexpr ImU32 kSelection = IM_COL32(0x7F, 0xD6, 0xC2, 0x1F);   // a selected row
 
     //! "Modified" is a badge, not a word: amber on a 10%-alpha wash of itself.
     inline constexpr ImU32 kDirty   = IM_COL32(0xE0, 0xA3, 0x5E, 0xFF);
@@ -57,6 +56,11 @@ namespace Editor::Theme
 
     inline constexpr ImU32 kCloseHovBg   = IM_COL32(0x3A, 0x20, 0x20, 0xFF);
     inline constexpr ImU32 kCloseHovText = IM_COL32(0xE0, 0x73, 0x6A, 0xFF);
+
+    inline constexpr ImU32 kWarning = IM_COL32(0xD9, 0xB0, 0x6A, 0xFF);
+    inline constexpr ImU32 kError   = IM_COL32(0xE0, 0x73, 0x6A, 0xFF);
+
+    inline constexpr ImU32 kModalDim = IM_COL32(0x05, 0x06, 0x08, 0xB3);
 
     //! Every length in this theme is a mockup pixel; these two turn one into a screen pixel.
     //!
@@ -69,10 +73,8 @@ namespace Editor::Theme
     //! alone lands short. A property of the drawing, not a user preference -- recorded once
     //! here rather than restated in fifty lengths.
     //!
-    //! Deliberately NOT ImGui's style.FontScaleDpi: that one is global, so it would also
-    //! enlarge the panels still drawing at the old size and there would be no single place
-    //! left that says how big this window is. One factor, applied to text and to spacing
-    //! alike -- if only one of the two scaled, the layout would come apart.
+    //! One factor for text and spacing alike, applied by Px() rather than style.FontScaleDpi,
+    //! which would scale every PushFont size a second time.
     inline constexpr float kScale            = 1.25f;
     inline constexpr float kDesignCorrection = 1.16f;
 
@@ -82,6 +84,7 @@ namespace Editor::Theme
     }
 
     // Type sizes, in mockup pixels. Pass them to ScopedFont, which scales them.
+    inline constexpr float kSizeMenu   = 13.f;    // top menu labels; the mockup page's base size
     inline constexpr float kSizeTitle  = 12.5f;   // the window's name
     inline constexpr float kSizeBody   = 12.f;    // buttons, running text
     inline constexpr float kSizeLabel  = 11.5f;   // field names, tabs
@@ -113,9 +116,12 @@ namespace Editor::Theme
         ScopedFont& operator=(const ScopedFont&) = delete;
     };
 
-    //! Pushes the palette and the matching rounding / spacing, pops it on scope exit.
-    //! Construct it BEFORE ImGui::Begin -- window background, padding and rounding are read
-    //! there, not at the first widget.
+    //! Writes the palette, metrics and default font size into ImGui's global style. Call once,
+    //! after the ImGui context exists.
+    void Apply();
+
+    //! What a floating window differs from a docked panel by. Construct it BEFORE
+    //! ImGui::Begin -- window background, padding and rounding are read there.
     class Scoped final
     {
     public:

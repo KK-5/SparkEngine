@@ -15,6 +15,7 @@
 #include <Service/Service.h>
 #include <Feature/UI/ImGui/IconManagerInterface.h>
 
+#include "EditorTheme.h"
 #include "MaterialSlot.h"
 #include "UI/Bus/AssetEditBus.h"
 
@@ -151,10 +152,10 @@ namespace Editor
         const ImTextureID icon = Icon(iconPath);
         if (icon != ImTextureID_Invalid)
         {
-            ImU32 tint = IM_COL32(90, 90, 90, 255);          // disabled
+            ImU32 tint = Theme::kTextFaint;
             if (enabled)
             {
-                tint = hovered ? IM_COL32(255, 255, 255, 255) : IM_COL32(170, 170, 170, 255);
+                tint = hovered ? Theme::kTextStrong : Theme::kTextLabel;
             }
             ImGui::GetWindowDrawList()->AddImage(icon, iconMin, iconMax,
                 ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), tint);
@@ -181,7 +182,9 @@ namespace Editor
         ImGui::AlignTextToFramePadding();
         // Unformatted: a field name is data, not a format string, and one containing '%'
         // would otherwise read arguments that were never passed.
+        ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextLabel);
         ImGui::TextUnformatted(shortened.empty() ? label : shortened.c_str());
+        ImGui::PopStyleColor();
         if (!shortened.empty() && ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("%s", label);
@@ -220,7 +223,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "EditTextElement expect a string value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "EditTextElement expect a string value!");
             }
         }
         else if (static_cast<ReadonlyTextElement*>(uiElement))
@@ -232,14 +235,14 @@ namespace Editor
                 buffer.resize(ui->maxLength);
                 strcpy(buffer.data(), value->data());
                 eastl::string label = DrawFieldLabel(width, name);
-                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, Theme::kBlockBg);
                 ImGui::InputText(label.c_str(), buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
                 ImGui::PopStyleColor();
             }
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "ReadonlyTextElement expect a string value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "ReadonlyTextElement expect a string value!");
             }
         }
         else if (static_cast<FloatElement*>(uiElement))
@@ -259,7 +262,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "FloatElement expect a float value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "FloatElement expect a float value!");
             }
         }
         else if (static_cast<FloatSliderElement*>(uiElement))
@@ -279,7 +282,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "FloatElement expect a float value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "FloatElement expect a float value!");
             }
         }
         else if (static_cast<IntElement*>(uiElement))
@@ -299,7 +302,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "IntElement expect a int value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "IntElement expect a int value!");
             }
         }
         else if (static_cast<IntSliderElement*>(uiElement))
@@ -319,7 +322,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "IntSliderElement expect a int value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "IntSliderElement expect a int value!");
             }
         }
         else if (static_cast<UIntElement*>(uiElement))
@@ -339,7 +342,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "UIntElement expect a uint32_t value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "UIntElement expect a uint32_t value!");
             }
         }
         else if (static_cast<UIntSliderElement*>(uiElement))
@@ -359,7 +362,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "UIntSliderElement expect a uint32_t value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "UIntSliderElement expect a uint32_t value!");
             }
         }
         else if (static_cast<BoolElement*>(uiElement))
@@ -379,7 +382,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "BoolElement expect a bool value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "BoolElement expect a bool value!");
             }
         }
         else if (static_cast<Vec2Element*>(uiElement))
@@ -401,7 +404,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "Vec2Element expect a Vector2 value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "Vec2Element expect a Vector2 value!");
             }
         }
         else if (static_cast<Vec3Element*>(uiElement))
@@ -423,7 +426,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "Vec3Element expect a Vector3 value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "Vec3Element expect a Vector3 value!");
             }
         }
         else if (static_cast<ColorElement*>(uiElement))
@@ -445,7 +448,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "ColorElement expect a Color value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "ColorElement expect a Color value!");
             }
         }
         else if (static_cast<AssetElement*>(uiElement))
@@ -489,7 +492,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "AssetElement expect an AssetId value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "AssetElement expect an AssetId value!");
             }
         }
         else if (static_cast<TextureElement*>(uiElement))
@@ -563,7 +566,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "TextureElement expect an AssetId value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "TextureElement expect an AssetId value!");
             }
         }
         else if (static_cast<EnumElement*>(uiElement))
@@ -596,7 +599,7 @@ namespace Editor
             else
             {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "EnumElement expect a enum value!");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::kError), "EnumElement expect a enum value!");
             }
         }
         else if (static_cast<MaterialRefElement*>(uiElement))

@@ -8,6 +8,8 @@
 
 #include <Render/Feature/UI/RenderUIInterface.h>
 
+#include "Private/EditorTheme.h"
+
 namespace Editor
 {
     using namespace Spark;
@@ -15,6 +17,7 @@ namespace Editor
     void EditorUI::InitInternal()
     {
         Spark::UI::SparkImGui::InitInternal();
+        Theme::Apply();
 
         m_dockLayoutInit = false;
         m_menuBar = eastl::make_unique<MenuBar>();
@@ -24,7 +27,7 @@ namespace Editor
         m_componentView = eastl::make_unique<ComponentView>();
         m_materialWindow = eastl::make_unique<MaterialWindow>();
         m_saveAssetDialog = eastl::make_unique<SaveAssetDialog>();
-        m_welcomeScreen = eastl::make_unique<WelcomeScreen>();
+        m_welcomeScreen = eastl::make_unique<WelcomeScreen>(m_windowChrome);
 
         Spark::Input::InputEventBus::Handler::BusConnect(Spark::Input::InputBusId::EditorUI);
     }
@@ -92,16 +95,21 @@ namespace Editor
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        // Read at Begin for the menu bar's height and at BeginMenuBar for its text: the
+        // mockup's bar is 30 tall, the style's frame is 20.
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(Theme::Px(10.f), Theme::Px(9.f)));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0,0,0,0));
         ImGui::Begin("Main Window", nullptr, window_flags);
-        
 
-        m_menuBar->Draw();
-        
-        // DockSpace
+        m_menuBar->Draw(m_windowChrome);
+        ImGui::PopStyleVar();
+
+        // The splitters between docked panels paint with Separator; this makes them the gap.
+        ImGui::PushStyleColor(ImGuiCol_Separator, Theme::kAppBg);
         ImGuiID dockspaceId = ImGui::GetID("DockSpace");
         ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode | ImGuiDockNodeFlags_AutoHideTabBar);
         SetupDefaultLayout(dockspaceId);
+        ImGui::PopStyleColor();
 
         ImGui::End();
         ImGui::PopStyleVar(3);
@@ -120,11 +128,15 @@ namespace Editor
         ImGuiWindow* window = ImGui::FindWindowByName("Scene View");
         if (window && window->DockNode)
         {
-            ImVec2 dockSize = window->DockNode->Size;
-            return Math::Vector2Int(static_cast<int>(dockSize.x), static_cast<int>(dockSize.y));
+            const Math::Vector2Int size(static_cast<int>(window->DockNode->Size.x),
+                                        static_cast<int>(window->DockNode->Size.y));
+            if (size.x > 0 && size.y > 0)
+            {
+                m_lastFrameBufferSize = size;
+            }
         }
 
-        return Math::Vector2Int(1024, 576);
+        return m_lastFrameBufferSize;
     }
 
     Math::Vector2Int EditorUI::GetFrameBufferPos() const

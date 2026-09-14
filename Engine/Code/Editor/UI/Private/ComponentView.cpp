@@ -10,6 +10,7 @@
 #include <CoreComponents/Tags.h>
 #include <ECS/ComponentTraits.h>
 
+#include "EditorTheme.h"
 #include "FieldWidgets.h"
 
 namespace Editor
@@ -18,57 +19,45 @@ namespace Editor
 
     void ComponentView::DrawComponent(const Spark::MetaType component, Spark::MetaAny& instance)
     {
-        float rounding = 5.f;
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, rounding);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.f, 3.f));
-
         ComponentState& state = m_componentState.at(component.id());
 
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 5.0f);
-        float childWidth = ImGui::GetContentRegionAvail().x - 10.0f;
+        float childWidth = ImGui::GetContentRegionAvail().x;
 
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.18f, 0.18f, 1.f));
         ImGui::BeginChild(component.name(), ImVec2(childWidth, 0.0f), ImGuiChildFlags_AutoResizeY,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::PopStyleColor();
-        
-        // 标题栏
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + rounding);
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.18f, 0.18f, 0.18f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.18f, 0.18f, 0.18f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.18f, 0.18f, 0.18f, 1.f));
-        if (ImGui::CollapsingHeader(component.name(), nullptr, ImGuiTreeNodeFlags_DefaultOpen)) {
-            state.isExpanded = true;
 
+        ImGui::PushStyleColor(ImGuiCol_Header, Theme::kBlockBg);
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Theme::kButtonHov);
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, Theme::kBlockBg);
+        ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextStrong);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+        bool expanded = false;
+        {
+            Theme::ScopedFont font(Theme::Face::Bold, Theme::kSizeBody);
+            expanded = ImGui::CollapsingHeader(component.name(), nullptr, ImGuiTreeNodeFlags_DefaultOpen);
+        }
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(4);
+
+        state.isExpanded = expanded;
+        if (expanded)
+        {
             float availableWidth = childWidth - (25.f);
-            ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.45f, 0.45f, 0.45f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
-
             DrawFieldWidgets(component, instance, availableWidth,
                              static_cast<uint32_t>(m_activeEntity));
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor(2);
-        }
-        else
-        {
-            state.isExpanded = false;
         }
 
-        ImGui::PopStyleColor(3);
-
-        ImGui::Dummy(ImVec2(0.0f, rounding));
+        ImGui::Dummy(ImVec2(0.0f, Theme::Px(3.f)));
+        const ImVec2 rule = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine(rule, ImVec2(rule.x + childWidth, rule.y), Theme::kBorderInner);
+        ImGui::Dummy(ImVec2(childWidth, 1.f));
 
         ImGui::EndChild();
-        ImGui::PopStyleVar(2);
     }
 
     void ComponentView::Draw()
     {
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(35, 35, 35, 255));
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
         ImGui::Begin("Component View");
 
         ReflectContext& reflectContext = TypeRegistry::GetContext();
@@ -78,33 +67,25 @@ namespace Editor
         if (activeView.size() != 1)
         {
             ImGui::End();
-            ImGui::PopStyleColor(4);
             return;
         }
         m_activeEntity = activeView.front();
 
         ImVec2 windowSize = ImGui::GetContentRegionAvail();
-        float toolHeight = 25.f;
+        float toolHeight = Theme::Px(28.f);
 
         eastl::vector<MetaType> components = reflectContext.GetAllTypes();
         ImGui::BeginChild("ComponentTools", ImVec2(windowSize.x, toolHeight), false, ImGuiWindowFlags_NoTitleBar);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.18f, 0.f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
+        ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Theme::kButtonHov);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, Theme::kButtonHov);
         if (ImGui::Button(" + "))
         {
             ImGui::OpenPopup("ComponentSelect");
         }
         ImGui::PopStyleColor(3);
 
-
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 12));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 6));
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 4));
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.18f, 0.18f, 0.18f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.38f, 0.38f, 0.38f, 1.f));
-        if (ImGui::BeginPopupContextItem("ComponentSelect", ImGuiWindowFlags_NoResize)) 
+        if (ImGui::BeginPopupContextItem("ComponentSelect", ImGuiWindowFlags_NoResize))
         {
             for (MetaType& component: components)
             {
@@ -122,8 +103,6 @@ namespace Editor
 
             ImGui::EndPopup();
         }
-        ImGui::PopStyleColor(3);
-        ImGui::PopStyleVar(3);
         ImGui::EndChild();
 
         ImGui::Separator();
@@ -160,6 +139,5 @@ namespace Editor
         }
 
         ImGui::End();
-        ImGui::PopStyleColor(4);
     }
 }

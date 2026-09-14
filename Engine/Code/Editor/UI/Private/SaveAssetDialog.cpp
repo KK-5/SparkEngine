@@ -43,7 +43,6 @@ namespace Editor
 
         //! A selected file row. The tree's own selection is the accent wash below.
         constexpr ImU32 kRowSelected = IM_COL32(0x1E, 0x23, 0x28, 0xFF);
-        constexpr ImU32 kTreeSelected = IM_COL32(0x7F, 0xD6, 0xC2, 0x1F);
 
         constexpr size_t kNameCapacity = 128;
 
@@ -551,7 +550,7 @@ namespace Editor
             // hover instead.
             ImGui::SetCursorPosX(0.f);
             ImGui::SetNextItemAllowOverlap();
-            ImGui::PushStyleColor(ImGuiCol_Header, kTreeSelected);
+            ImGui::PushStyleColor(ImGuiCol_Header, Theme::kSelection);
             if (ImGui::Selectable("##Row", selected, 0,
                                   ImVec2(ImGui::GetContentRegionAvail().x, kRowHeight)))
             {
