@@ -1,5 +1,6 @@
 #pragma once
 
+#include <EASTL/string_view.h>
 #include <EASTL/vector.h>
 
 namespace Spark::Resource
@@ -16,5 +17,7 @@ namespace Spark::Resource
     //! stably, and "no texture" is an explicit null rather than an absent key.
     //!
     //! The format lives entirely in the .cpp -- callers exchange bytes.
-    eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data);
+    //! A non-empty `identity` makes it a cache entry instead of a `.smat`.
+    eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data,
+                                              eastl::string_view identity = {});
 }

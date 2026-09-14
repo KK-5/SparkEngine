@@ -156,11 +156,9 @@ TEST_F(AssetCacheTestFixture, TypesWithoutACacheFormatAreNotCacheable)
     const AssetCache cache(m_table);
 
     WriteSource("Thing.hlsl", "// shader");
-    WriteSource("Thing.glb", "glb");
     WriteSource("Thing.smat", "{}");
 
     EXPECT_FALSE(cache.EntryFor(AssetId::Of<ShaderAsset>("test://Thing.hlsl")).IsCacheable());
-    EXPECT_FALSE(cache.EntryFor(AssetId::Of<ModelAsset>("test://Thing.glb")).IsCacheable());
     EXPECT_FALSE(cache.EntryFor(AssetId::Of<MaterialAsset>("test://Thing.smat")).IsCacheable());
 }
 
@@ -352,13 +350,15 @@ TEST_F(AssetCacheTestFixture, AUnitWithAnEmptySubPayloadIsNotWritten)
     EXPECT_FALSE(cache.ReadUnit(entry, read));
 }
 
-TEST(CacheFormatTest, OnlyImageHasAFormatToday)
+TEST(CacheFormatTest, ImageAndModelHaveAFormatToday)
 {
     EXPECT_EQ(GetCacheFormat(AssetType::Image).version, 2u);
     EXPECT_STREQ(GetCacheFormat(AssetType::Image).extension, ".ktx2");
 
+    EXPECT_EQ(GetCacheFormat(AssetType::Model).version, 1u);
+    EXPECT_STREQ(GetCacheFormat(AssetType::Model).extension, ".smdl");
+
     EXPECT_EQ(GetCacheFormat(AssetType::Shader).version, 0u);
-    EXPECT_EQ(GetCacheFormat(AssetType::Model).version, 0u);
     EXPECT_EQ(GetCacheFormat(AssetType::Material).version, 0u);
     EXPECT_EQ(GetCacheFormat(AssetType::Unknown).version, 0u);
 }

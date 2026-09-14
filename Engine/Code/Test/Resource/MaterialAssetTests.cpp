@@ -419,19 +419,28 @@ TEST_F(MaterialSaveTestFixture, SavingOverAnExistingMaterialKeepsItsId)
     EXPECT_FLOAT_EQ(static_cast<const MaterialAssetData&>(*onDisk).GetParams().m_roughness, 0.75f);
 }
 
-//! Having a format is not the same as being cacheable: a material payload in some model's
-//! unit would be written and never read back, since Deserialize is still declined.
-TEST_F(MaterialSaveTestFixture, TheCacheGetsNoMaterialPayload)
+//! A model's unit carries its material sub-assets, so the cache half has to read back.
+TEST_F(MaterialSaveTestFixture, ACachePayloadRoundTripsUnderItsIdentity)
 {
-    MaterialAssetData data(StandardPBR{}, MaterialState{});
+    StandardPBR params;
+    params.m_roughness = 0.25f;
+    MaterialAssetData data(params, MaterialState{});
 
     eastl::vector<uint8_t> forTheCache;
     AssetBuildBus::EventResult(forTheCache, AssetType::Material, &AssetBuildEvents::Serialize,
                                data, eastl::string_view("material:0"));
-    EXPECT_TRUE(forTheCache.empty());
+    ASSERT_FALSE(forTheCache.empty());
 
-    eastl::vector<uint8_t> forAFile;
-    AssetBuildBus::EventResult(forAFile, AssetType::Material, &AssetBuildEvents::Serialize,
-                               data, eastl::string_view());
-    EXPECT_FALSE(forAFile.empty());
+    UniquePtr<AssetData> restored;
+    AssetBuildBus::EventResult(restored, AssetType::Material, &AssetBuildEvents::Deserialize,
+                               forTheCache.data(), forTheCache.size(),
+                               eastl::string_view("material:0"));
+    ASSERT_TRUE(restored);
+    EXPECT_FLOAT_EQ(static_cast<const MaterialAssetData&>(*restored).GetParams().m_roughness, 0.25f);
+
+    UniquePtr<AssetData> foreign;
+    AssetBuildBus::EventResult(foreign, AssetType::Material, &AssetBuildEvents::Deserialize,
+                               forTheCache.data(), forTheCache.size(),
+                               eastl::string_view("material:1"));
+    EXPECT_FALSE(foreign);
 }

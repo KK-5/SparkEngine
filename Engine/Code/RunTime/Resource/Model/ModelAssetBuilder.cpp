@@ -14,6 +14,7 @@
 #include <Resource/Material/MaterialRawTypes.h>
 
 #include "ModelAsset.h"
+#include "ModelAssetFormat.h"
 
 
 namespace Spark::Resource
@@ -240,5 +241,17 @@ namespace Spark::Resource
 
         // m_rawImages is deliberately NOT cleared: the sub-asset declarations above point
         // into it, and they are read after this returns.
+    }
+
+    eastl::vector<uint8_t> ModelAssetBuilder::Serialize(const AssetData& compiled,
+                                                        eastl::string_view identity)
+    {
+        return ModelAssetFormat::Write(static_cast<const ModelAssetData&>(compiled), identity);
+    }
+
+    UniquePtr<AssetData> ModelAssetBuilder::Deserialize(const uint8_t* bytes, size_t size,
+                                                        eastl::string_view identity)
+    {
+        return ModelAssetFormat::Read(bytes, size, identity);
     }
 }

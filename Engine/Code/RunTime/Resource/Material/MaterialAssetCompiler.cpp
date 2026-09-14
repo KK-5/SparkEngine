@@ -141,4 +141,26 @@ namespace Spark::Resource
 
         return data;
     }
+
+    UniquePtr<AssetData> MaterialAssetCompiler::ReadCacheEntry(
+        const uint8_t* bytes, size_t size, eastl::string_view identity) const
+    {
+        const JsonValue root = JsonValue::parse(bytes, bytes + size, nullptr, false);
+        if (root.is_discarded() || !root.is_object())
+        {
+            LOG_WARN("[MaterialAssetCompiler] Unreadable cache entry.");
+            return nullptr;
+        }
+
+        const auto stored = root.find(kMaterialIdentityKey);
+        if (stored == root.end() || !stored->is_string()
+            || stored->get<std::string>() != std::string(identity.data(), identity.size()))
+        {
+            LOG_WARN("[MaterialAssetCompiler] Cache entry belongs to another asset.");
+            return nullptr;
+        }
+
+        const MaterialEncodedRawData raw(eastl::vector<uint8_t>(bytes, bytes + size));
+        return Compile(AssetId{}, raw);
+    }
 }

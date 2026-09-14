@@ -14,7 +14,8 @@
 
 namespace Spark::Resource
 {
-    eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data)
+    eastl::vector<uint8_t> WriteMaterialAsset(const MaterialAssetData& data,
+                                              eastl::string_view identity)
     {
         ReflectContext& context    = TypeRegistry::GetContext();
         const MetaType  paramsType = context.Resolve<StandardPBR>();
@@ -43,8 +44,13 @@ namespace Spark::Resource
         root[kMaterialStateKey]        = eastl::move(state);
         root[kMaterialPropertiesKey]   = eastl::move(properties);
 
+        if (!identity.empty())
+        {
+            root[kMaterialIdentityKey] = std::string(identity.data(), identity.size());
+        }
+
         // Indented: a `.smat` is hand-written and hand-read at least as often as generated.
-        const std::string text = root.dump(2);
+        const std::string text = identity.empty() ? root.dump(2) : root.dump();
         const auto* bytes = reinterpret_cast<const uint8_t*>(text.data());
         return eastl::vector<uint8_t>(bytes, bytes + text.size());
     }

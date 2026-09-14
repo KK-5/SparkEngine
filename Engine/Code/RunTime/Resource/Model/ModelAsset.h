@@ -175,6 +175,7 @@ namespace Spark::Resource
     private:
         friend class ModelAssetCompiler;
         friend class ModelAssetBuilder;     // 派发后写 m_imageAssetIds / m_materialAssetIds
+        friend class ModelAssetFormat;
 
         eastl::vector<Mesh>     m_meshes;         // optimized geometry
         eastl::vector<Node>     m_nodes;

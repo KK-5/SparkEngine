@@ -84,15 +84,13 @@ namespace Spark::Resource
     eastl::vector<uint8_t> MaterialAssetBuilder::Serialize(const AssetData& compiled,
                                                            eastl::string_view identity)
     {
-        // An identity means the cache is asking -- a material sub-asset in some model's
-        // unit. Without Deserialize that payload could never be read back, and a unit that
-        // cannot be restored is worse than no unit.
-        if (!identity.empty())
-        {
-            return {};
-        }
+        return WriteMaterialAsset(static_cast<const MaterialAssetData&>(compiled), identity);
+    }
 
-        return WriteMaterialAsset(static_cast<const MaterialAssetData&>(compiled));
+    UniquePtr<AssetData> MaterialAssetBuilder::Deserialize(const uint8_t* bytes, size_t size,
+                                                           eastl::string_view identity)
+    {
+        return m_compiler.ReadCacheEntry(bytes, size, identity);
     }
 
     bool MaterialAssetBuilder::PrepareToSave(AssetData& data, eastl::string_view virtualPath)

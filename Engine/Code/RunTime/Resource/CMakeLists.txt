@@ -30,6 +30,7 @@ set(SOURCES
     Model/ModelAsset.cpp
     Model/ModelAssetLoader.cpp
     Model/ModelAssetCompiler.cpp
+    Model/ModelAssetFormat.cpp
     Model/ModelAssetBuilder.cpp
 )
 

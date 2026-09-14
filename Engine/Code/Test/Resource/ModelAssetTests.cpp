@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
+#include <filesystem>
+
 #include <Resource/AssetManager.h>
 #include <VFS/MountTable.h>
 #include <VFS/VFSSystem.h>
 #include <Resource/Bus/AssetBus.h>
+#include <Resource/Cache/AssetCache.h>
 #include <Resource/Image/ImageAsset.h>
 #include <Resource/Material/MaterialAsset.h>
 #include <Resource/Model/ModelAsset.h>
@@ -517,4 +520,138 @@ TEST_F(ModelAssetTestFixture, ExternalImageDedupAcrossModelLoads)
     Ptr<Asset> imgA = m_assetManager->FindAsset(imgId);
     Ptr<Asset> imgB = m_assetManager->FindAsset(imgId);
     EXPECT_EQ(imgA.get(), imgB.get());     // image 也指向同一实例
+}
+
+// ===== Cook cache =====
+
+class ModelCacheTestFixture : public ModelAssetTestFixture
+{
+protected:
+    void SetUp() override
+    {
+        m_cacheDir = std::filesystem::temp_directory_path()
+                   / "SparkModelCache"
+                   / ::testing::UnitTest::GetInstance()->current_test_info()->name();
+
+        std::error_code ec;
+        std::filesystem::remove_all(m_cacheDir, ec);
+        std::filesystem::create_directories(m_cacheDir, ec);
+
+        m_vfs = CreateSystem<VFSSystem>();
+        m_vfs->Init();
+        SetUpMounts(*m_vfs);
+        m_vfs->Mount(kCacheMountName, eastl::string(m_cacheDir.generic_string().c_str()));
+
+        m_assetManager = CreateSystem<SparkAssetManager>();
+        m_assetManager->Init();
+    }
+
+    void TearDown() override
+    {
+        ModelAssetTestFixture::TearDown();
+
+        std::error_code ec;
+        std::filesystem::remove_all(m_cacheDir, ec);
+    }
+
+    void Restart()
+    {
+        m_assetManager.reset();
+        m_assetManager = CreateSystem<SparkAssetManager>();
+        m_assetManager->Init();
+    }
+
+    size_t CacheFileCount() const
+    {
+        size_t count = 0;
+        std::error_code ec;
+        for (auto it = std::filesystem::recursive_directory_iterator(m_cacheDir, ec),
+                  end = std::filesystem::recursive_directory_iterator();
+             it != end; it.increment(ec))
+        {
+            if (!it->is_directory(ec))
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    std::filesystem::path m_cacheDir;
+};
+
+TEST_F(ModelCacheTestFixture, ASecondRunRestoresTheGlbUnitFromCache)
+{
+    const AssetId modelId = AssetId::Of<ModelAsset>("test://Asset/CubeTextured.glb");
+
+    size_t                 meshCount = 0, nodeCount = 0;
+    eastl::vector<uint8_t> vertices, indices;
+    uint32_t               indexCount = 0, stride = 0;
+    Math::AABB             bounds;
+    AssetId                imageId, materialId;
+    StandardPBR            params;
+    {
+        Ptr<Asset> first = m_assetManager->LoadAsset(modelId);
+        ASSERT_TRUE(first && first->IsReady());
+        const auto* cooked = first->GetData<ModelAssetData>();
+        ASSERT_NE(cooked, nullptr);
+        ASSERT_GE(cooked->GetMeshCount(), 1u);
+        ASSERT_GE(cooked->GetImageAssetCount(), 1u);
+        ASSERT_GE(cooked->GetMaterialAssetCount(), 1u);
+
+        meshCount = cooked->GetMeshCount();
+        nodeCount = cooked->GetNodeCount();
+        const Primitive& prim = cooked->GetMesh(0)->primitives[0];
+        vertices   = prim.vertexBuffer;
+        indices    = prim.indexBuffer;
+        indexCount = prim.indexCount;
+        stride     = prim.layout.stride;
+        bounds     = cooked->GetBounds();
+        imageId    = cooked->GetImageAssetId(0);
+        materialId = cooked->GetMaterialAssetId(0);
+
+        Ptr<Asset> material = m_assetManager->FindAsset(materialId);
+        ASSERT_NE(material, nullptr);
+        params = static_cast<MaterialAsset*>(material.get())->GetMaterialData()->GetParams();
+    }
+
+    // Model + image + material payloads, plus the manifest.
+    const size_t written = CacheFileCount();
+    ASSERT_EQ(written, 4u);
+
+    Restart();
+
+    Ptr<Asset> restored = m_assetManager->LoadAsset(modelId);
+    ASSERT_TRUE(restored && restored->IsReady());
+    const auto* fromCache = restored->GetData<ModelAssetData>();
+    ASSERT_NE(fromCache, nullptr);
+
+    EXPECT_EQ(fromCache->GetMeshCount(), meshCount);
+    EXPECT_EQ(fromCache->GetNodeCount(), nodeCount);
+    const Primitive& prim = fromCache->GetMesh(0)->primitives[0];
+    EXPECT_EQ(prim.vertexBuffer, vertices);
+    EXPECT_EQ(prim.indexBuffer, indices);
+    EXPECT_EQ(prim.indexCount, indexCount);
+    EXPECT_EQ(prim.layout.stride, stride);
+    EXPECT_EQ(fromCache->GetBounds().min, bounds.min);
+    EXPECT_EQ(fromCache->GetBounds().max, bounds.max);
+    EXPECT_EQ(fromCache->GetImageAssetId(0), imageId);
+    EXPECT_EQ(fromCache->GetMaterialAssetId(0), materialId);
+
+    Ptr<Asset> image = m_assetManager->FindAsset(imageId);
+    ASSERT_NE(image, nullptr);
+    EXPECT_TRUE(image->IsReady());
+
+    Ptr<Asset> material = m_assetManager->FindAsset(materialId);
+    ASSERT_NE(material, nullptr);
+    ASSERT_TRUE(material->IsReady());
+    const StandardPBR& restoredParams =
+        static_cast<MaterialAsset*>(material.get())->GetMaterialData()->GetParams();
+    EXPECT_FLOAT_EQ(restoredParams.m_metallic, params.m_metallic);
+    EXPECT_FLOAT_EQ(restoredParams.m_roughness, params.m_roughness);
+    using Slot = MaterialTexSlot;
+    EXPECT_EQ(restoredParams.m_textures[static_cast<size_t>(Slot::BaseColor)], imageId);
+
+    // A hit writes nothing back.
+    EXPECT_EQ(CacheFileCount(), written);
 }

@@ -13,4 +13,7 @@ namespace Spark::Resource
     inline constexpr const char* kMaterialShadingModelKey = "shadingModel";
     inline constexpr const char* kMaterialStateKey        = "state";
     inline constexpr const char* kMaterialPropertiesKey   = "properties";
+
+    //! Cache entries only: a model's material sub-asset carries the cache's identity here.
+    inline constexpr const char* kMaterialIdentityKey     = "identity";
 }
