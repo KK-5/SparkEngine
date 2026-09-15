@@ -208,18 +208,19 @@ namespace Spark::Render
                 info.m_forward = Math::Normalize(Math::Vector3(viewToWorld[2]));
 
                 // Read back rather than plumbed through: a View carries its matrices and
-                // nothing else, and every projection this engine builds is LH_ZO, where
-                // [0][0] and [1][1] are the reciprocal half-extents and the third column
-                // holds far/(far-near) and -near*far/(far-near).
+                // nothing else, and every projection this engine builds is LH_ZO reversed-Z,
+                // where [0][0] and [1][1] are the reciprocal half-extents and the third column
+                // holds -near/(far-near) and near*far/(far-near). NDC z is 1 at the near plane,
+                // so near = [3][2] / (1 - [2][2]).
                 const Math::Matrix4X4& proj = view.m_viewToClip;
                 info.m_proj11 = proj[1][1];
                 if (proj[0][0] != 0.0f)
                 {
                     info.m_aspect = proj[1][1] / proj[0][0];
                 }
-                if (proj[2][2] != 0.0f)
+                if (proj[2][2] != 1.0f)
                 {
-                    info.m_nearZ = -proj[3][2] / proj[2][2];
+                    info.m_nearZ = proj[3][2] / (1.0f - proj[2][2]);
                 }
 
                 if (const auto* frustum = rhiCtx.TryGet<ViewFrustum>(e))

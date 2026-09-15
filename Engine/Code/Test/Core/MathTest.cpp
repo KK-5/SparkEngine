@@ -286,6 +286,26 @@ TEST(SphereTest, ConeWithNoHeightIsDegenerate)
     EXPECT_FLOAT_EQ(s.radius, 0.0f);
 }
 
+TEST(ProjectionTest, ReversedZMapsNearToOneAndFarToZero)
+{
+    auto ndcZ = [](const Math::Matrix4X4& proj, float viewZ)
+    {
+        const Math::Vector4 clip = proj * Math::Vector4(0.0f, 0.0f, viewZ, 1.0f);
+        return clip.z / clip.w;
+    };
+
+    const Math::Matrix4X4 persp = Math::PerspectiveFov(Math::Radians(90.0f), 1.0f, kNear, kFar);
+    EXPECT_NEAR(ndcZ(persp, kNear), 1.0f, 1e-5f);
+    EXPECT_NEAR(ndcZ(persp, kFar),  0.0f, 1e-5f);
+
+    // Read-back ShadowViewSystem relies on.
+    EXPECT_NEAR(persp[3][2] / (1.0f - persp[2][2]), kNear, 1e-4f);
+
+    const Math::Matrix4X4 ortho = Math::OrthographicProjection(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 50.0f);
+    EXPECT_NEAR(ndcZ(ortho, 0.0f),  1.0f, 1e-5f);
+    EXPECT_NEAR(ndcZ(ortho, 50.0f), 0.0f, 1e-5f);
+}
+
 TEST(FrustumTest, OrthographicProjection)
 {
     const Math::Matrix4X4 view = Math::LookAt(

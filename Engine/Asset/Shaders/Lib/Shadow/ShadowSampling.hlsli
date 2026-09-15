@@ -43,7 +43,7 @@ float SampleShadow(ShadowViewData sv, float3 worldPos, float3 N,
 
     ShadowFilterInput input;
     input.uv           = uvz.xy;
-    input.z            = uvz.z - sv.depthBias;
+    input.z            = uvz.z + sv.depthBias;   // reversed-Z: toward the light is +z
     input.atlasSize    = 1.0 / invAtlasSize;
     input.invAtlasSize = invAtlasSize;
 

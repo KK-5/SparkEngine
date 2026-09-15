@@ -390,7 +390,7 @@ namespace Spark::SandBox
         desc.m_renderStates = RHI::RenderStates();
         desc.m_renderStates.m_depthStencilState.m_depth.m_enable = 1;
         desc.m_renderStates.m_depthStencilState.m_depth.m_writeMask = RHI::DepthWriteMask::All;
-        desc.m_renderStates.m_depthStencilState.m_depth.m_func = RHI::ComparisonFunc::Less;
+        desc.m_renderStates.m_depthStencilState.m_depth.m_func = RHI::ComparisonFunc::Greater;
         desc.m_renderStates.m_depthStencilState.m_stencil.m_enable = 0;
         desc.m_renderStates.m_rasterState.m_cullMode = RHI::CullMode::Back;
 
@@ -667,7 +667,7 @@ namespace Spark::SandBox
             RHI::Format::D32_FLOAT);
         depthDesc.m_imageDescriptor = depthImageDesc;
         depthDesc.m_hasOptimizedClearValue = true;
-        depthDesc.m_optimizedClearValue = RHI::ClearValue::CreateDepth(1.f);
+        depthDesc.m_optimizedClearValue = RHI::ClearValue::CreateDepth(0.f);
         desc.m_attachments.push_back(depthDesc);
 
         res = m_rtContext.Resize(desc);
@@ -740,7 +740,7 @@ namespace Spark::SandBox
             RHI::Format::D32_FLOAT);
         depthDesc.m_imageDescriptor = depthImageDesc;
         depthDesc.m_hasOptimizedClearValue = true;
-        depthDesc.m_optimizedClearValue = RHI::ClearValue::CreateDepth(1.f);
+        depthDesc.m_optimizedClearValue = RHI::ClearValue::CreateDepth(0.f);
         desc.m_attachments.push_back(depthDesc);
 
         m_rtContext.Init(*m_device, *m_depthImagePool, desc);
@@ -868,7 +868,7 @@ namespace Spark::SandBox
         RHI::RenderPassDepthStencilAttachment depthStencil;
         depthStencil.m_view = m_rtContext.GetDepthStencilView();
         depthStencil.m_loadStoreAction = RHI::AttachmentLoadStoreAction(
-            RHI::ClearValue::CreateDepth(1.f),
+            RHI::ClearValue::CreateDepth(0.f),
             RHI::AttachmentLoadAction::Clear,
             RHI::AttachmentStoreAction::Store,
             RHI::AttachmentLoadAction::DontCare,

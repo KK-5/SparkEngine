@@ -73,8 +73,8 @@ namespace Spark::Render
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
         // Single color target (SceneColor) + read-only SceneDepth. The full-screen
-        // triangle sits at the far plane (z=1) and is depth-tested Greater against
-        // SceneDepth: only pixels with geometry (depth < 1) survive, replacing the old
+        // triangle sits at the far plane (z=0, reversed-Z) and is depth-tested Less against
+        // SceneDepth: only pixels with geometry (depth > 0) survive, replacing the old
         // shader discard and keeping early-Z. Depth is never written (writeMask Zero),
         // so the DSV stays read-only and can coexist with the depth SRV.
         RHI::RenderTargetLayout rt;
@@ -92,7 +92,7 @@ namespace Spark::Render
         RHI::RenderStates states;
         states.m_depthStencilState.m_depth.m_enable    = 1;
         states.m_depthStencilState.m_depth.m_writeMask = RHI::DepthWriteMask::Zero;
-        states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::Greater;
+        states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::Less;
         states.m_depthStencilState.m_stencil.m_enable  = 0;
         states.m_rasterState.m_cullMode                = RHI::CullMode::None; // full-screen triangle
 
@@ -178,7 +178,7 @@ namespace Spark::Render
                     RHI::AttachmentId(s_depthSlot), depthBind);
 
                 // Also bind SceneDepth as a read-only depth-stencil attachment so the
-                // rasterizer depth-tests against it (far-plane z=1, func Greater) and culls
+                // rasterizer depth-tests against it (far-plane z=0, func Less) and culls
                 // sky/uncovered pixels before the PS. Same resource as the SRV above — the
                 // compiler folds both into one DepthStencilRead | ShaderSampledRead barrier.
                 // No view override: this resolves the resource's D32_FLOAT read-only DSV,
@@ -266,7 +266,8 @@ namespace Spark::Render
                 RHI::SamplerState shadowSampler = RHI::SamplerState::Create(
                     RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp);
                 shadowSampler.m_reductionType  = RHI::ReductionType::Comparison;
-                shadowSampler.m_comparisonFunc = RHI::ComparisonFunc::LessEqual;
+                // Reversed-Z: lit when the receiver is at or nearer than the stored occluder.
+                shadowSampler.m_comparisonFunc = RHI::ComparisonFunc::GreaterEqual;
                 SetPassShaderSampler<SPARK_PASS_TAG("LightingPass")>(
                     2, RHI::InputName(s_shadowSampler), shadowSampler);
             })

@@ -10,8 +10,8 @@
 // is exactly what the VS used to place SV_Position, so no manual y-flip is needed.
 //
 // Sky / uncovered pixels are culled by a read-only depth test instead of a shader
-// discard: the full-screen triangle sits at the far plane (z=1) and is depth-tested
-// Greater against SceneDepth, so only pixels with geometry (depth < 1) survive — the
+// discard: the full-screen triangle sits at the far plane (z=0, reversed-Z) and is depth-tested
+// Less against SceneDepth, so only pixels with geometry (depth > 0) survive — the
 // rasterizer rejects the rest via early-Z. SceneColor keeps its clear value where
 // culled, for the skybox pass to fill afterwards.
 
@@ -72,9 +72,9 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     float2 uv  = float2((vertexId << 1) & 2, vertexId & 2);
     VSOutput output;
     
-    // z = 1 (far plane): the read-only depth test (func Greater vs SceneDepth) then
-    // culls sky/uncovered pixels, where SceneDepth still holds the far clear value.
-    output.position = float4(uv * 2.0 - 1.0, 1.0, 1.0);
+    // z = 0 (far plane, reversed-Z): the read-only depth test (func Less vs SceneDepth)
+    // then culls sky/uncovered pixels, where SceneDepth still holds the far clear value.
+    output.position = float4(uv * 2.0 - 1.0, 0.0, 1.0);
     output.uv       = uv;
     return output;
 }

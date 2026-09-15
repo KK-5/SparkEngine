@@ -65,12 +65,12 @@ namespace Spark::Render
 
         RHI::RenderStates states;
         // Depth-test against SceneDepth but never write: the sky sits on the far plane
-        // (NDC z = 1) and must survive only where no nearer opaque depth was written.
-        // LessEqual (not Less) is required — the sky's z equals the depth clear value
-        // 1.0, so a strict Less would reject every sky pixel.
+        // (NDC z = 0, reversed-Z) and must survive only where no nearer opaque depth was
+        // written. GreaterEqual (not Greater) is required — the sky's z equals the depth
+        // clear value 0.0, so a strict Greater would reject every sky pixel.
         states.m_depthStencilState.m_depth.m_enable    = 1;
         states.m_depthStencilState.m_depth.m_writeMask = RHI::DepthWriteMask::Zero;
-        states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::LessEqual;
+        states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::GreaterEqual;
         states.m_depthStencilState.m_stencil.m_enable  = 0;
         states.m_rasterState.m_cullMode                = RHI::CullMode::None; // full-screen triangle
 

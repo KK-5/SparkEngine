@@ -197,16 +197,18 @@ namespace Spark::Math
         return glm::ceil(v);
     }
 
-    // ---- Matrix Construction (LH_ZO convention) ----
+    // ---- Matrix Construction (LH_ZO convention, reversed-Z: near -> 1, far -> 0) ----
 
+    //! Near/far swapped into glm rather than flipping z afterwards, which would lose
+    //! precision computing 1 - f/(f-n).
     inline Matrix4X4 PerspectiveFov(float fovY, float aspect, float zNear, float zFar)
     {
-        return glm::perspectiveLH_ZO(fovY, aspect, zNear, zFar);
+        return glm::perspectiveLH_ZO(fovY, aspect, zFar, zNear);
     }
 
     inline Matrix4X4 OrthographicProjection(float left, float right, float bottom, float top, float zNear, float zFar)
     {
-        return glm::orthoLH_ZO(left, right, bottom, top, zNear, zFar);
+        return glm::orthoLH_ZO(left, right, bottom, top, zFar, zNear);
     }
 
     inline Matrix4X4 LookAt(const Vector3& eye, const Vector3& center, const Vector3& up)

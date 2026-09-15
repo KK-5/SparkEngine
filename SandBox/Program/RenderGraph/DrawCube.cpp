@@ -266,7 +266,7 @@ namespace Spark::SandBox
         Spark::RHI::RenderStates renderStates;
         renderStates.m_depthStencilState.m_depth.m_enable    = 1;
         renderStates.m_depthStencilState.m_depth.m_writeMask = Spark::RHI::DepthWriteMask::All;
-        renderStates.m_depthStencilState.m_depth.m_func      = Spark::RHI::ComparisonFunc::Less;
+        renderStates.m_depthStencilState.m_depth.m_func      = Spark::RHI::ComparisonFunc::Greater;
         renderStates.m_depthStencilState.m_stencil.m_enable  = 0;
         renderStates.m_rasterState.m_cullMode                = Spark::RHI::CullMode::Back;
         renderStates.m_multisampleState = RHI::MultisampleState(4, 0);
@@ -321,7 +321,7 @@ namespace Spark::SandBox
                 depthBind.m_usage  = Spark::RHI::AttachmentUsage::DepthStencil;
                 depthBind.m_stage  = Spark::RHI::AttachmentStage::EarlyFragmentTest |
                                      Spark::RHI::AttachmentStage::LateFragmentTest;
-                depthBind.m_action.m_clearValue  = Spark::RHI::ClearValue::CreateDepth(1.0f);
+                depthBind.m_action.m_clearValue  = Spark::RHI::ClearValue::CreateDepth(0.0f);
                 depthBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
                 depthBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::DontCare;
 

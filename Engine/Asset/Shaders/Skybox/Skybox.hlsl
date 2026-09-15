@@ -1,10 +1,10 @@
 // Skybox.hlsl — full-screen triangle sampling a baked environment cubemap.
 //
 // No vertex input: the VS synthesizes a full-screen triangle from SV_VertexID and
-// places it on the far plane. The clip space is left-handed, zero-to-one depth
-// (glm::perspectiveLH_ZO), so the far plane is NDC z = 1 — emitted as z = w. With the
-// pass depth test LessEqual and SceneDepth cleared to 1.0, the sky only survives where
-// no opaque geometry wrote a nearer depth (today there is none, so it fills the frame).
+// places it on the far plane. The clip space is left-handed, zero-to-one, reversed-Z
+// (Math::PerspectiveFov), so the far plane is NDC z = 0. With the pass depth test
+// GreaterEqual and SceneDepth cleared to 0.0, the sky only survives where no opaque
+// geometry wrote a nearer depth.
 //
 // The PS reconstructs the per-pixel world-space view ray as (far-plane point - camera
 // position): the far point is un-projected via g_InvViewProj, the camera position is the
@@ -38,7 +38,7 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     float2 ndc = uv * 2.0 - 1.0;
 
     VSOutput output;
-    output.position = float4(ndc, 1.0, 1.0);  // z = w -> NDC z = 1 (far plane)
+    output.position = float4(ndc, 0.0, 1.0);  // NDC z = 0 (far plane, reversed-Z)
     output.ndc      = ndc;
     return output;
 }
@@ -49,8 +49,8 @@ float3 ReconstructWorldDir(float2 ndc)
     // extracted convention-safely via mul rather than indexing a column).
     float3 eye = mul(g_InvView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
 
-    // Far-plane (z=1) clip point un-projected to world; the ray is far - eye.
-    float4 farWorld = mul(g_InvViewProj, float4(ndc, 1.0, 1.0));
+    // Far-plane (z=0, reversed-Z) clip point un-projected to world; the ray is far - eye.
+    float4 farWorld = mul(g_InvViewProj, float4(ndc, 0.0, 1.0));
     farWorld /= farWorld.w;
     return normalize(farWorld.xyz - eye);
 }

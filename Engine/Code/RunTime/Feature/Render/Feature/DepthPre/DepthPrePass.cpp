@@ -54,7 +54,7 @@ namespace Spark::Render
         RHI::RenderStates states;
         states.m_depthStencilState.m_depth.m_enable    = 1;
         states.m_depthStencilState.m_depth.m_writeMask = Spark::RHI::DepthWriteMask::All;
-        states.m_depthStencilState.m_depth.m_func      = Spark::RHI::ComparisonFunc::Less;
+        states.m_depthStencilState.m_depth.m_func      = Spark::RHI::ComparisonFunc::Greater;
         states.m_depthStencilState.m_stencil.m_enable  = 0;
         states.m_rasterState.m_cullMode                = Spark::RHI::CullMode::Back;
 
@@ -96,7 +96,7 @@ namespace Spark::Render
                 bind.m_slot  = RHI::InputName("OutputDepth");
                 bind.m_usage = RHI::AttachmentUsage::DepthStencil;
                 bind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
-                bind.m_action.m_clearValue  = RHI::ClearValue::CreateDepth(1.0f);
+                bind.m_action.m_clearValue  = RHI::ClearValue::CreateDepth(0.0f);
                 bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
                 bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
