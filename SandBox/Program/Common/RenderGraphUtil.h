@@ -5,6 +5,8 @@
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <Base.h>
+#include <Reflect.h>
+#include <Reflection/TypeRegistry.h>
 #include <VFS/VFSSystem.h>
 
 #include <Input/InputSystem.h>
@@ -19,6 +21,7 @@
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/AssetManager.h>
 #include <Resource/Common/CommonAssetLoader.h>
+#include <Resource/Reflect.h>
 
 #include <RenderSystem.h>
 #include <Pass/PassContext.h>
@@ -45,6 +48,11 @@ namespace Spark::SandBox
         using namespace Spark;
 
         RenderGraphSystems sys;
+
+        // Asset ids are cached as JSON, which runs off reflection.
+        TypeRegistry::Register(Spark::Reflect);
+        TypeRegistry::Register(Spark::Resource::Reflect);
+        TypeRegistry::RegisterAll();
 
         // Logger
         LogConfig logConfig{};
