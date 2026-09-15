@@ -24,7 +24,7 @@ namespace Spark::Light
         eastl::vector<HashString> Request() const override { return {}; }
         HashString GetName() const override { return "LightSystem"; }
 
-        void OnTick(float deltaTime) override;
+        void OnTick(const FrameTime& time) override;
         unsigned int GetTickOrder() const override
         {
             return static_cast<unsigned int>(TickOrder::TICK_PRE_RENDER);

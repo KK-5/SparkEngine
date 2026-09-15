@@ -250,7 +250,7 @@ namespace Spark::Render
         m_renderGraph.Shutdown();
     }
 
-    void RenderSystem::OnTick(float deltaTime)
+    void RenderSystem::OnTick(const FrameTime& /*time*/)
     {
         auto& passContext = *PassExecuteContext::Current();
         auto& rhiCtx = *RHI::RHIExecuteContext::Current();

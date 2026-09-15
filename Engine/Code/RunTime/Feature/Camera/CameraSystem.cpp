@@ -16,7 +16,7 @@ namespace Spark::Camera
         TickBus::Handler::BusDisconnect();
     }
 
-    void CameraSystem::OnTick(float deltaTime)
+    void CameraSystem::OnTick(const FrameTime& /*time*/)
     {
         auto& world = *WorldExecuteContext::Current();
 

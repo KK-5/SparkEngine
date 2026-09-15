@@ -123,7 +123,7 @@ namespace Spark::SandBox
         }
     }
 
-    void MSAAPassFeature::OnTick(float /*deltaTime*/)
+    void MSAAPassFeature::OnTick(const FrameTime& /*time*/)
     {
         Update();
     }
@@ -350,7 +350,7 @@ int main(int, char**)
 
     while (!sys.m_window->ShouldClose())
     {
-        TickBus::Broadcast(&TickBus::Events::OnTick, 0.f);
+        TickBus::Broadcast(&TickBus::Events::OnTick, FrameTime{});
     }
 
     feature.Shutdown();

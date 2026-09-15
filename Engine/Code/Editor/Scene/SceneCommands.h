@@ -36,7 +36,7 @@ namespace Editor
         Spark::HashString GetName() const override { return "SceneCommandSystem"; }
 
         // TickBus
-        void OnTick(float deltaTime) override;
+        void OnTick(const Spark::FrameTime& time) override;
         unsigned int GetTickOrder() const override;
 
         // ISceneCommands

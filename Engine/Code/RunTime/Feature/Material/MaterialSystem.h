@@ -28,7 +28,7 @@ namespace Spark::Material
         //! The resident fallback material. Always valid for the system's lifetime.
         MaterialHandle GetDefaultMaterial() const { return m_defaultMaterial; }
 
-        void OnTick(float deltaTime) override;
+        void OnTick(const FrameTime& time) override;
         unsigned int GetTickOrder() const override
         {
             return static_cast<unsigned int>(TickOrder::TICK_PRE_RENDER);

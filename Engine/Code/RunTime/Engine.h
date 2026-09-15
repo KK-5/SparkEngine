@@ -4,6 +4,7 @@
 #include <EASTL/functional.h>
 
 #include <Base.h>
+#include <Tick/FrameTime.h>
 #include <ECS/WorldContext.h>
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
@@ -49,10 +50,11 @@ namespace Spark
 
     protected:
         unsigned int CalculFPS(float deltaTime);
-        float        CalculDeltaTime();
+        void         AdvanceFrameTime();
 
     private:
         eastl::chrono::steady_clock::time_point m_lastTickTime {eastl::chrono::steady_clock::now()};
+        FrameTime    m_frameTime  {};
         unsigned int m_fps  {0};
         bool         m_quit       {false};
         bool         m_initialized{false};

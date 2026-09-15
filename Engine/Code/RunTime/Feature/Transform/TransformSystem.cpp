@@ -21,7 +21,7 @@ namespace Spark::Transform
     }
     
 
-    void TransformSystem::OnTick(float deltaTime)
+    void TransformSystem::OnTick(const FrameTime& /*time*/)
     {
         const auto constContext = WorldExecuteContext::CurrentReference<SystemTraits>();
         auto context = WorldExecuteContext::CurrentReference<SystemTraits>();

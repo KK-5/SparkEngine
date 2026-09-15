@@ -22,7 +22,7 @@ namespace Editor
         TickBus::Handler::BusDisconnect();
     }
 
-    void SceneCommandSystem::OnTick(float)
+    void SceneCommandSystem::OnTick(const Spark::FrameTime& /*time*/)
     {
         if (!m_save.empty())
         {

@@ -126,7 +126,7 @@ namespace Spark::SandBox
         }
     }
 
-    void MultiView::OnTick(float /*deltaTime*/)
+    void MultiView::OnTick(const FrameTime& /*time*/)
     {
         Update();
     }
@@ -455,7 +455,7 @@ int main(int, char**)
 
     while (!sys.m_window->ShouldClose())
     {
-        TickBus::Broadcast(&TickBus::Events::OnTick, 0.f);
+        TickBus::Broadcast(&TickBus::Events::OnTick, FrameTime{});
     }
 
     feature.Shutdown();

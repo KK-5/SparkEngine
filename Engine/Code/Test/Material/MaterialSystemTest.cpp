@@ -224,7 +224,7 @@ TEST_F(MaterialSystemTest, AMaterialWithNoReferrerIsNotCollected)
 {
     const MaterialHandle h = CreateMaterial(*mat, Resource::StandardPBR{});
 
-    sys.OnTick(0.0f);
+    sys.OnTick(FrameTime{});
     EXPECT_TRUE(Alive(h));
     EXPECT_TRUE(Alive(sys.GetDefaultMaterial()));
 }

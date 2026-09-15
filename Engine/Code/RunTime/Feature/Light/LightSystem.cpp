@@ -51,7 +51,7 @@ namespace Spark::Light
         TickBus::Handler::BusDisconnect();
     }
 
-    void LightSystem::OnTick(float /*deltaTime*/)
+    void LightSystem::OnTick(const FrameTime& /*time*/)
     {
         auto* world = WorldExecuteContext::Current();
         if (!world)

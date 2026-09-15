@@ -159,21 +159,32 @@ namespace Spark
             FileEventBus::ExecuteQueuedEvents();
 
 
-            float deltaTime = CalculDeltaTime();
-            TickBus::Broadcast(&TickBus::Events::OnTick, deltaTime);
+            AdvanceFrameTime();
+            TickBus::Broadcast(&TickBus::Events::OnTick, m_frameTime);
         }
     }
 
-    float SparkEngine::CalculDeltaTime()
+    void SparkEngine::AdvanceFrameTime()
     {
-        float deltaTime {0};
-        {
-            using namespace eastl::chrono;
-            steady_clock::time_point now = steady_clock::now();
-            duration<float> span = now - m_lastTickTime;
-            deltaTime = span.count();
-            m_lastTickTime = now;
-        }
-        return deltaTime;
+        //! A breakpoint or a load hitch must not arrive as one huge game step.
+        constexpr double kMaxGameDeltaTime = 0.1;
+
+        using namespace eastl::chrono;
+        const steady_clock::time_point now = steady_clock::now();
+        const double realDelta = duration<double>(now - m_lastTickTime).count();
+        m_lastTickTime = now;
+
+        const double gameDelta = realDelta < kMaxGameDeltaTime ? realDelta : kMaxGameDeltaTime;
+
+        FrameTime& t = m_frameTime;
+        ++t.m_frameNumber;
+
+        t.m_prevRealTime  = t.m_realTime;
+        t.m_realTime     += realDelta;
+        t.m_realDeltaTime = static_cast<float>(realDelta);
+
+        t.m_prevGameTime  = t.m_gameTime;
+        t.m_gameTime     += gameDelta;
+        t.m_deltaTime     = static_cast<float>(gameDelta);
     }
 }

@@ -37,7 +37,7 @@ namespace Spark::Transform
         }
 
         // TickBus
-        void OnTick(float deltaTime) override;
+        void OnTick(const FrameTime& time) override;
 
         inline unsigned int GetTickOrder() const override
         {

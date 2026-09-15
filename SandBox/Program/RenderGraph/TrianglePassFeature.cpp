@@ -117,7 +117,7 @@ namespace Spark::SandBox
         }
     }
 
-    void TrianglePassFeature::OnTick(float /*deltaTime*/)
+    void TrianglePassFeature::OnTick(const FrameTime& /*time*/)
     {
         Update();
     }
@@ -302,7 +302,7 @@ int main(int, char**)
 
     while (!sys.m_window->ShouldClose())
     {
-        TickBus::Broadcast(&TickBus::Events::OnTick, 0.f);
+        TickBus::Broadcast(&TickBus::Events::OnTick, FrameTime{});
     }
 
     feature.Shutdown();

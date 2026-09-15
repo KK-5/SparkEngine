@@ -30,7 +30,7 @@ namespace Spark::Input
         }
 
         // TickBus
-        void OnTick(float deltaTime) override;
+        void OnTick(const FrameTime& time) override;
 
         inline unsigned int GetTickOrder() const override
         {
@@ -40,4 +40,4 @@ namespace Spark::Input
     private:
         SystemUniquePtr<InputCaptureSystem> m_capturer;
     };
-}
+}

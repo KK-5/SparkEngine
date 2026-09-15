@@ -27,7 +27,7 @@ namespace Editor
         }
 
         // TickBus
-        void OnTick(float deltaTime) override;
+        void OnTick(const Spark::FrameTime& time) override;
 
         inline unsigned int GetTickOrder() const override
         {

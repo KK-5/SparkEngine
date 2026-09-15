@@ -34,7 +34,7 @@ namespace Spark::SandBox
         void Shutdown();
 
         // TickBus
-        void OnTick(float deltaTime) override;
+        void OnTick(const FrameTime& time) override;
         unsigned int GetTickOrder() const override
         {
             return static_cast<unsigned int>(Spark::RenderSystemTickOrder) - 1;

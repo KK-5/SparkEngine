@@ -4,6 +4,7 @@
 
 #include <EBus/EBus.h>
 
+#include "FrameTime.h"
 #include "TickOrder.h"
 
 namespace Spark
@@ -26,7 +27,7 @@ namespace Spark
         TickEvents() = default;
         virtual ~TickEvents() = default;
         
-        virtual void         OnTick(float deltaTime) = 0;
+        virtual void         OnTick(const FrameTime& time) = 0;
         virtual unsigned int GetTickOrder() const
         {
             return static_cast<unsigned int>(TickOrder::TICK_DEFAULT);

@@ -48,7 +48,7 @@ namespace Spark::UI
             TickHandlerFrameStart(UIBaseSystem& UISystem);
             ~TickHandlerFrameStart();
 
-            void OnTick(float deltaTime) override;
+            void OnTick(const FrameTime& time) override;
 
             inline unsigned int GetTickOrder() const override
             {
@@ -64,7 +64,7 @@ namespace Spark::UI
             TickHandlerAfterInput(UIBaseSystem& UISystem);
             ~TickHandlerAfterInput();
 
-            void OnTick(float deltaTime) override;
+            void OnTick(const FrameTime& time) override;
 
             inline unsigned int GetTickOrder() const override
             {
@@ -80,7 +80,7 @@ namespace Spark::UI
             TickHandlerFrameEnd(UIBaseSystem& UISystem);
             ~TickHandlerFrameEnd();
 
-            void OnTick(float deltaTime) override;
+            void OnTick(const FrameTime& time) override;
 
             inline unsigned int GetTickOrder() const override
             {
@@ -94,4 +94,4 @@ namespace Spark::UI
         eastl::unique_ptr<TickHandlerAfterInput> m_tickHandlerAfterInput;
         eastl::unique_ptr<TickHandlerFrameEnd>   m_tickHandlerFrameEnd;
     };
-}
+}

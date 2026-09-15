@@ -35,7 +35,7 @@ namespace Spark
         }
 
         // TickBus
-        void OnTick(float deltaTime) override
+        void OnTick(const FrameTime& /*time*/) override
         {
             auto curContext = WorldExecuteContext::Current();
             auto view = curContext->GetView<DeadTag>();

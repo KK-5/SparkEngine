@@ -112,7 +112,7 @@ namespace Editor
         }
     }
 
-    void EditorInputSystem::OnTick(float deltaTime)
+    void EditorInputSystem::OnTick(const Spark::FrameTime& time)
     {
         if (m_editorCamera == NullEntity)
         {
@@ -150,6 +150,6 @@ namespace Editor
             movement = Math::Normalize(movement);
         }
 
-        transform->m_position += movement * (m_moveSpeed * deltaTime);
+        transform->m_position += movement * (m_moveSpeed * time.m_realDeltaTime);
     }
 }

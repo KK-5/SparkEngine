@@ -25,7 +25,7 @@ namespace Spark::Material
         MaterialExecuteContext::Pop();
     }
 
-    void MaterialSystem::OnTick(float /*deltaTime*/)
+    void MaterialSystem::OnTick(const FrameTime& /*time*/)
     {
         m_textureSystem.Update();
         m_textureSystem.CollectGarbage();

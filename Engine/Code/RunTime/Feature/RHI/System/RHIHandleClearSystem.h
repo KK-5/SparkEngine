@@ -32,7 +32,7 @@ namespace Spark::RHI
             TickBus::Handler::BusDisconnect();
         }
 
-        void OnTick(float /*deltaTime*/) override
+        void OnTick(const FrameTime& /*time*/) override
         {
             auto* rhiCtx = RHIExecuteContext::Current();
             if (!rhiCtx)
