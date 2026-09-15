@@ -1,29 +1,24 @@
 #include <Shaders/ViewBindings.hlsli>
-#include <Shaders/InstanceBindings.hlsli>
+#include <Shaders/Material/MaterialTemplate.hlsli>
+#include <Shaders/VertexFactory/LocalVertexFactory.hlsli>
 
 // Depth only, no color target. Shared by DepthPrePass and ShadowPass: the view is whatever
-// space1 holds, a camera's or a light's.
-//
-// Per-instance model matrix comes from the global g_Instances StructuredBuffer (space4),
-// indexed by InstanceIdx, delivered through a per-instance vertex stream filled by
-// InstanceBindingSystem. See TODO_InstanceBindingSystemPlan.md §2.5.
-struct VSInput
-{
-    float3 position    : POSITION;        // slot 0, per-vertex
-    uint   instanceIdx : INSTANCE_INDEX;  // slot 1, per-instance
-};
+// space1 holds, a camera's or a light's. GBuffer.hlsl depth-tests Equal against this, so both
+// place the vertex through the same vertex factory and material calls.
 
 struct VSOutput
 {
-    precise float4 position : SV_Position;
+    precise float4 Position : SV_Position;
 };
 
-VSOutput VSMain(VSInput input)
+VSOutput VSMain(PositionOnlyVertexFactoryInput input)
 {
+    precise float4 worldPosition = VertexFactoryGetWorldPosition(input);
+    MaterialVertexParameters vertexParameters = GetMaterialVertexParameters(input, worldPosition.xyz);
+    worldPosition.xyz += GetMaterialWorldPositionOffset(vertexParameters);
+
     VSOutput output;
-    InstanceData inst = GetInstanceData(input.instanceIdx);
-    float4 worldPos = mul(inst.Model, float4(input.position, 1.0));
-    output.position = mul(g_ViewProjection, worldPos);
+    output.Position = mul(g_ViewProjection, worldPosition);
     return output;
 }
 
