@@ -12,7 +12,7 @@ add_executable(${TARGET_NAME}
     UI/Private/MaterialUI.cpp
     UI/Private/MaterialSlot.cpp
     UI/Private/MaterialWindow.cpp
-    UI/Private/SaveAssetDialog.cpp
+    UI/Private/FileDialog.cpp
     UI/Private/WelcomeScreen.cpp
     UI/Private/WindowButtons.cpp
     UI/Private/WindowChrome.cpp

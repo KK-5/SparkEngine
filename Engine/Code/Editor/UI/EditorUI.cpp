@@ -26,7 +26,7 @@ namespace Editor
         m_inspector = eastl::make_unique<Inspector>();
         m_componentView = eastl::make_unique<ComponentView>();
         m_materialWindow = eastl::make_unique<MaterialWindow>();
-        m_saveAssetDialog = eastl::make_unique<SaveAssetDialog>();
+        m_fileDialog = eastl::make_unique<FileDialog>();
         m_welcomeScreen = eastl::make_unique<WelcomeScreen>(m_windowChrome);
 
         Spark::Input::InputEventBus::Handler::BusConnect(Spark::Input::InputBusId::EditorUI);
@@ -120,7 +120,7 @@ namespace Editor
         m_inspector->Draw();
         m_componentView->Draw();
         m_materialWindow->Draw();
-        m_saveAssetDialog->Draw();
+        m_fileDialog->Draw();
     }
 
     Math::Vector2Int EditorUI::GetFrameBufferSize() const

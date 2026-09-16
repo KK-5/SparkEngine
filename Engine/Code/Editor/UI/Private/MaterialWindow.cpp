@@ -14,7 +14,7 @@
 #include <Feature/Material/Components.h>
 #include <Feature/Material/MaterialUtils.h>
 
-#include "UI/Bus/SaveAssetDialogBus.h"
+#include "UI/Bus/FileDialogBus.h"
 
 #include "EditorTheme.h"
 #include "FieldWidgets.h"
@@ -273,12 +273,13 @@ namespace Editor
         }
     }
 
-    SaveAssetRequest MaterialWindow::MakeSaveRequest(Ptr<Resource::Asset> asset,
+    FileDialogRequest MaterialWindow::MakeSaveRequest(Ptr<Resource::Asset> asset,
                                                      const char* title) const
     {
-        SaveAssetRequest request;
+        FileDialogRequest request;
         request.m_asset     = eastl::move(asset);
         request.m_title     = title;
+        request.m_subtitle  = "Material";
         request.m_extension = Resource::kMaterialExtension;
 
         Resource::AssetId backing;
@@ -309,7 +310,7 @@ namespace Editor
             return;
         }
 
-        SaveAssetRequest request = MakeSaveRequest(eastl::move(asset), "Save Material As");
+        FileDialogRequest request = MakeSaveRequest(eastl::move(asset), "Save Material As");
         if (request.m_defaultName.empty())
         {
             request.m_defaultName = kNewMaterialName;
@@ -318,7 +319,7 @@ namespace Editor
         // Set before the dialog opens rather than on confirm: the answer comes back as an
         // asset event, and this window has no other way to know the event is its own.
         m_pending = Pending::Save;
-        SaveAssetDialogBus::Broadcast(&SaveAssetDialogEvents::OpenSaveAssetDialog, request);
+        FileDialogBus::Broadcast(&FileDialogEvents::OpenFileDialog, request);
     }
 
     void MaterialWindow::NewMaterial()
@@ -329,11 +330,11 @@ namespace Editor
         asset->SetDataReady(MakeUnique<Resource::MaterialAssetData>(Resource::StandardPBR{},
                                                                     Resource::MaterialState{}));
 
-        SaveAssetRequest request = MakeSaveRequest(eastl::move(asset), "New Material");
+        FileDialogRequest request = MakeSaveRequest(eastl::move(asset), "New Material");
         request.m_defaultName = kNewMaterialName;
 
         m_pending = Pending::New;
-        SaveAssetDialogBus::Broadcast(&SaveAssetDialogEvents::OpenSaveAssetDialog, request);
+        FileDialogBus::Broadcast(&FileDialogEvents::OpenFileDialog, request);
     }
 
     void MaterialWindow::Revert()
@@ -842,16 +843,25 @@ namespace Editor
                                     + ImGui::GetStyle().FramePadding.x * 2.f + extra;
             x -= buttonWidth;
 
+            const ImVec2 min(x, p0.y + (kFooterHeight - ImGui::GetFrameHeight()) * 0.5f);
+            const ImVec2 max(x + buttonWidth, min.y + ImGui::GetFrameHeight());
+
+            // An outlined button highlights by its border and its text, and ImGui has one
+            // border colour per frame -- so the state has to be known before the button is
+            // submitted rather than read back from it.
+            const bool hovered = button.enabled && ImGui::IsMouseHoveringRect(min, max);
+
             ImGui::BeginDisabled(!button.enabled);
 
-            ImGui::SetCursorScreenPos(
-                ImVec2(x, p0.y + (kFooterHeight - ImGui::GetFrameHeight()) * 0.5f));
+            ImGui::SetCursorScreenPos(min);
             if (button.accent)
             {
-                ImGui::PushStyleColor(ImGuiCol_Button, Theme::kAccent);
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                                      button.enabled ? Theme::kAccent : Theme::kButtonOff);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Theme::kAccentHov);
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, Theme::kAccent);
-                ImGui::PushStyleColor(ImGuiCol_Text, Theme::kOnAccent);
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      button.enabled ? Theme::kOnAccent : Theme::kTextFaint);
                 ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
             }
             else
@@ -861,8 +871,9 @@ namespace Editor
                 ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 0, 0, 0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(0, 0, 0, 0));
-                ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextLabel);
-                ImGui::PushStyleColor(ImGuiCol_Border, Theme::kBorderWindow);
+                ImGui::PushStyleColor(ImGuiCol_Text, hovered ? Theme::kText : Theme::kTextLabel);
+                ImGui::PushStyleColor(ImGuiCol_Border,
+                                      hovered ? Theme::kBorderHover : Theme::kBorderWindow);
             }
             if (ImGui::Button(button.label, ImVec2(buttonWidth, 0.f)))
             {

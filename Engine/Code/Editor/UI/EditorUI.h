@@ -20,7 +20,7 @@
 #include "Private/Inspector.h"
 #include "Private/ComponentView.h"
 #include "Private/MaterialWindow.h"
-#include "Private/SaveAssetDialog.h"
+#include "Private/FileDialog.h"
 #include "Private/WelcomeScreen.h"
 #include "Private/WindowChrome.h"
 
@@ -69,7 +69,7 @@ namespace Editor
         eastl::unique_ptr<MaterialWindow> m_materialWindow;
 
         //! Drawn last: it is modal, so it belongs over whatever asked for it.
-        eastl::unique_ptr<SaveAssetDialog> m_saveAssetDialog;
+        eastl::unique_ptr<FileDialog> m_fileDialog;
 
         //! Drawn INSTEAD of everything above until dismissed; owns the startup preload.
         eastl::unique_ptr<WelcomeScreen> m_welcomeScreen;

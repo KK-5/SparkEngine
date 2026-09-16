@@ -16,6 +16,7 @@
 #include <Feature/Window/IWindowSystem.h>
 #include "../../Component/Position.h"
 #include "../../Scene/SceneCommands.h"
+#include "UI/Bus/FileDialogBus.h"
 
 #include "EditorTheme.h"
 #include "WindowButtons.h"
@@ -29,6 +30,10 @@ namespace Editor
     {
         constexpr const char* kLogoPath = "editor://APP-Icon.svg";
 
+        constexpr const char* kSceneExtension = ".scene";
+        constexpr const char* kSceneDir       = "project://Scenes";
+        constexpr const char* kNewSceneName   = "NewScene";
+
         constexpr float kLogoSize  = Theme::Px(15.f);
         constexpr float kBrandGap  = Theme::Px(7.f);
         constexpr float kBrandPadR = Theme::Px(14.f);
@@ -39,15 +44,113 @@ namespace Editor
             return window ? static_cast<GLFWwindow*>(window->GetWindowHandle()) : nullptr;
         }
 
-        //! Styles only the label in the bar; the items inside keep the default text and size.
+        constexpr float kMenuMinWidth = Theme::Px(208.f);
+        constexpr float kRowHeight    = Theme::Px(22.f);
+        constexpr float kRowPadX      = Theme::Px(12.f);
+        constexpr float kRowGap       = Theme::Px(16.f);   // label to accelerator
+
+        //! Styles the label in the bar, and the popup it opens. Close with EndTopMenu.
         bool BeginTopMenu(const char* label)
         {
+            // Read by the popup's own Begin, inside BeginMenu.
+            ImGui::SetNextWindowSizeConstraints(ImVec2(kMenuMinWidth, 0.f), ImVec2(FLT_MAX, FLT_MAX));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, Theme::Px(4.f)));
+            ImGui::PushStyleColor(ImGuiCol_Border, Theme::kBorderPopup);
+
             ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextLabel);
             ImGui::PushFont(Spark::UI::Fonts::UI(), Theme::Px(Theme::kSizeMenu));
             const bool open = ImGui::BeginMenu(label);
             ImGui::PopFont();
             ImGui::PopStyleColor();
+
+            if (open)
+            {
+                // Inside the popup only: in the bar, ItemSpacing.x is what pads a menu's
+                // label and separates it from the next one.
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.f, 0.f));
+            }
+            else
+            {
+                ImGui::PopStyleColor();
+                ImGui::PopStyleVar();
+            }
             return open;
+        }
+
+        void EndTopMenu()
+        {
+            ImGui::PopStyleVar();
+            ImGui::EndMenu();
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+        }
+
+        //! One row: label left, accelerator right in mono. Painted rather than left to
+        //! MenuItem, which draws both in the one current font.
+        bool MenuRow(const char* label, const char* shortcut = nullptr, bool enabled = true)
+        {
+            float labelWidth    = 0.f;
+            float shortcutWidth = 0.f;
+            {
+                Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeBody);
+                labelWidth = ImGui::CalcTextSize(label).x;
+            }
+            if (shortcut)
+            {
+                Theme::ScopedFont font(Theme::Face::Mono, Theme::kSizeShortcut);
+                shortcutWidth = ImGui::CalcTextSize(shortcut).x + kRowGap;
+            }
+
+            // The measured width grows the auto-sized popup; SpanAvailWidth keeps the
+            // highlight the popup's full width whatever that comes out as.
+            const float width = kRowPadX * 2.f + labelWidth + shortcutWidth;
+
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Theme::kMenuHov);
+            ImGui::PushID(label);
+            const bool clicked = ImGui::Selectable("##Row", false,
+                enabled ? ImGuiSelectableFlags_SpanAvailWidth
+                        : ImGuiSelectableFlags_SpanAvailWidth | ImGuiSelectableFlags_Disabled,
+                ImVec2(width, kRowHeight));
+            ImGui::PopID();
+            ImGui::PopStyleColor();
+
+            const ImVec2 min = ImGui::GetItemRectMin();
+            const ImVec2 max = ImGui::GetItemRectMax();
+            const bool   hovered = enabled && ImGui::IsItemHovered();
+
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            {
+                Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeBody);
+                ImU32 color = Theme::kTextFaint;
+                if (enabled)
+                {
+                    color = hovered ? Theme::kTextStrong : Theme::kTextItem;
+                }
+                draw->AddText(ImVec2(min.x + kRowPadX, (min.y + max.y - ImGui::GetFontSize()) * 0.5f),
+                              color, label);
+            }
+            if (shortcut)
+            {
+                Theme::ScopedFont font(Theme::Face::Mono, Theme::kSizeShortcut);
+                const float x = max.x - kRowPadX - ImGui::CalcTextSize(shortcut).x;
+                draw->AddText(ImVec2(x, (min.y + max.y - ImGui::GetFontSize()) * 0.5f),
+                              Theme::kTextDimmer, shortcut);
+            }
+            return clicked && enabled;
+        }
+
+        void MenuSeparator()
+        {
+            const float pad = Theme::Px(4.f);
+            ImGui::Dummy(ImVec2(0.f, pad));
+
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float  width = ImGui::GetWindowWidth();
+            ImGui::GetWindowDrawList()->AddLine(
+                ImVec2(ImGui::GetWindowPos().x, p.y), ImVec2(ImGui::GetWindowPos().x + width, p.y),
+                Theme::kBorderWindow);
+
+            ImGui::Dummy(ImVec2(0.f, pad + 1.f));
         }
     }
 
@@ -77,6 +180,62 @@ namespace Editor
         }
 
         ImGui::EndMenuBar();
+    }
+
+    void MenuBar::OpenScene()
+    {
+        FileDialogRequest request;
+        request.m_mode         = FileDialogMode::Open;
+        request.m_title        = "Open Scene";
+        request.m_subtitle     = "Scene";
+        request.m_extension    = kSceneExtension;
+        request.m_defaultDir   = kSceneDir;
+        request.m_confirmLabel = "Open";
+        request.m_onConfirm    = [this](const eastl::string& path)
+        {
+            // Asked for here, done after the frame: this runs inside the UI pass, which is
+            // the render graph with a command list open.
+            if (auto* scene = Service<ISceneCommands>::Get())
+            {
+                scene->Open(path);
+            }
+            m_scenePath = path;
+            return true;
+        };
+
+        FileDialogBus::Broadcast(&FileDialogEvents::OpenFileDialog, request);
+    }
+
+    void MenuBar::SaveScene(bool askForPath)
+    {
+        if (!askForPath)
+        {
+            if (auto* scene = Service<ISceneCommands>::Get())
+            {
+                scene->Save(m_scenePath);
+            }
+            return;
+        }
+
+        FileDialogRequest request;
+        request.m_mode         = FileDialogMode::Save;
+        request.m_title        = "Save Scene As";
+        request.m_subtitle     = "Scene";
+        request.m_extension    = kSceneExtension;
+        request.m_defaultDir   = kSceneDir;
+        request.m_defaultName  = kNewSceneName;
+        request.m_confirmLabel = "Save";
+        request.m_onConfirm    = [this](const eastl::string& path)
+        {
+            if (auto* scene = Service<ISceneCommands>::Get())
+            {
+                scene->Save(path);
+            }
+            m_scenePath = path;
+            return true;
+        };
+
+        FileDialogBus::Broadcast(&FileDialogEvents::OpenFileDialog, request);
     }
 
     void MenuBar::DrawBrand(float top, float height)
@@ -120,44 +279,50 @@ namespace Editor
     {
         auto& context = *WorldExecuteContext::Current();
 
+        // Routed globally, so the accelerators the rows advertise also work with every menu
+        // closed.
+        bool newScene  = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_N, ImGuiInputFlags_RouteGlobal);
+        bool openScene = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, ImGuiInputFlags_RouteGlobal);
+        bool saveScene = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
+        bool saveSAs   = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
+
         if (BeginTopMenu("File")) {
-            // Asked for here, done after the frame: this callback runs inside the UI pass,
-            // which is the render graph with a command list open.
-            auto* scene = Service<ISceneCommands>::Get();
-
-            // Fixed until the path picker is split out of the asset save dialog.
-            constexpr const char* kScenePath = "project://Scenes/Scene.scene";
-
-            if (ImGui::MenuItem("New Scene") && scene) {
-                scene->New();
-            }
-            if (ImGui::MenuItem("Open Scene") && scene) {
-                scene->Open(kScenePath);
-            }
-            if (ImGui::MenuItem("Save Scene") && scene) {
-                scene->Save(kScenePath);
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) {
+            newScene  |= MenuRow("New Scene", "Ctrl+N");
+            openScene |= MenuRow("Open...", "Ctrl+O");
+            saveScene |= MenuRow("Save", "Ctrl+S");
+            saveSAs   |= MenuRow("Save As...", "Ctrl+Shift+S");
+            MenuSeparator();
+            if (MenuRow("Exit", "Alt+F4")) {
                 if (GLFWwindow* window = NativeWindow()) {
                     glfwSetWindowShouldClose(window, GLFW_TRUE);
                 }
             }
-            ImGui::EndMenu();
+            EndTopMenu();
         }
 
+        if (newScene) {
+            if (auto* scene = Service<ISceneCommands>::Get()) {
+                scene->New();
+            }
+            // The new scene has no file, so its first Save asks for one.
+            m_scenePath.clear();
+        }
+        if (openScene) { OpenScene(); }
+        if (saveScene) { SaveScene(m_scenePath.empty()); }
+        if (saveSAs)   { SaveScene(true); }
+
         if (BeginTopMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {}
-            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, false)) {}  // 禁用
-            ImGui::Separator();
-            if (ImGui::MenuItem("Cut", "Ctrl+X")) {}
-            if (ImGui::MenuItem("Copy", "Ctrl+C")) {}
-            if (ImGui::MenuItem("Paste", "Ctrl+V")) {}
-            ImGui::EndMenu();
+            MenuRow("Undo", "Ctrl+Z");
+            MenuRow("Redo", "Ctrl+Y", false);
+            MenuSeparator();
+            MenuRow("Cut", "Ctrl+X");
+            MenuRow("Copy", "Ctrl+C");
+            MenuRow("Paste", "Ctrl+V");
+            EndTopMenu();
         }
 
         if (BeginTopMenu("GameObject")) {
-            if (ImGui::MenuItem("Create Empty")) {
+            if (MenuRow("Create Empty")) {
                 Entity entt = context.CreateEntity("Parent Entity ");
                 Entity entt2 = context.CreateEntity("Sub1 Entity ");
                 Entity entt3 = context.CreateEntity("Sub2 Entity ");
@@ -175,15 +340,15 @@ namespace Editor
                     LOG_INFO("Created new GameObject");
                 }
             }
-            if (ImGui::MenuItem("Create Cube")) {
+            if (MenuRow("Create Cube")) {
                 LOG_INFO("Created Cube");
             }
-            ImGui::EndMenu();
+            EndTopMenu();
         }
 
         if (BeginTopMenu("Window")) {
-            //ImGui::MenuItem("Demo Window", NULL, &show_demo_window);
-            ImGui::EndMenu();
+            //MenuRow("Demo Window");
+            EndTopMenu();
         }
     }
 }

@@ -10,7 +10,7 @@
 #include <Resource/Material/StandardPBR.h>
 
 #include "UI/Bus/MaterialEditBus.h"
-#include "UI/Bus/SaveAssetDialogBus.h"
+#include "UI/Bus/FileDialogBus.h"
 
 namespace Editor
 {
@@ -53,7 +53,7 @@ namespace Editor
 
         //! Everything but the name, which the two callers disagree on. The directory is
         //! the current material's, so a new one lands beside the one being looked at.
-        SaveAssetRequest MakeSaveRequest(Spark::Ptr<Spark::Resource::Asset> asset,
+        FileDialogRequest MakeSaveRequest(Spark::Ptr<Spark::Resource::Asset> asset,
                                          const char* title) const;
 
         void Save();

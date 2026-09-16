@@ -22,6 +22,8 @@ namespace Editor::Theme
     inline constexpr ImU32 kTitleBg   = IM_COL32(0x1C, 0x20, 0x25, 0xFF);
 
     // Borders, by how far apart the two things they separate are.
+    inline constexpr ImU32 kBorderHover  = IM_COL32(0x3A, 0x40, 0x48, 0xFF);  // an outlined button under the cursor
+    inline constexpr ImU32 kBorderPopup  = IM_COL32(0x2F, 0x35, 0x3C, 0xFF);
     inline constexpr ImU32 kBorderWindow = IM_COL32(0x2A, 0x2F, 0x36, 0xFF);
     inline constexpr ImU32 kBorderPanel  = IM_COL32(0x20, 0x23, 0x29, 0xFF);
     inline constexpr ImU32 kBorderInner  = IM_COL32(0x1C, 0x1F, 0x24, 0xFF);
@@ -29,6 +31,7 @@ namespace Editor::Theme
     // Text, brightest to faintest.
     inline constexpr ImU32 kTextStrong = IM_COL32(0xEE, 0xF2, 0xF5, 0xFF);  // headings
     inline constexpr ImU32 kText       = IM_COL32(0xE2, 0xE6, 0xEA, 0xFF);  // values
+    inline constexpr ImU32 kTextItem   = IM_COL32(0xC3, 0xC9, 0xD1, 0xFF);  // menu rows, buttons
     inline constexpr ImU32 kTextLabel  = IM_COL32(0xA7, 0xAD, 0xB7, 0xFF);  // field names
     inline constexpr ImU32 kTextDim    = IM_COL32(0x7A, 0x82, 0x8D, 0xFF);
     inline constexpr ImU32 kTextDimmer = IM_COL32(0x6B, 0x72, 0x80, 0xFF);
@@ -41,7 +44,9 @@ namespace Editor::Theme
     inline constexpr ImU32 kDivider     = IM_COL32(0x24, 0x28, 0x2E, 0xFF);  // short vertical rules
 
     inline constexpr ImU32 kButton    = IM_COL32(0x1A, 0x1D, 0x21, 0xFF);
+    inline constexpr ImU32 kButtonOff  = IM_COL32(0x22, 0x26, 0x2C, 0xFF);  // an accent button with nothing to do
     inline constexpr ImU32 kButtonHov = IM_COL32(0x26, 0x2B, 0x31, 0xFF);   // also "selected"
+    inline constexpr ImU32 kMenuHov   = IM_COL32(0x2A, 0x31, 0x38, 0xFF);   // a menu row under the cursor
     inline constexpr ImU32 kScrollbar = IM_COL32(0x2A, 0x2D, 0x32, 0xFF);
 
     //! Teal, not green -- and what sits ON it is dark, not white.
@@ -89,6 +94,7 @@ namespace Editor::Theme
     inline constexpr float kSizeBody   = 12.f;    // buttons, running text
     inline constexpr float kSizeLabel  = 11.5f;   // field names, tabs
     inline constexpr float kSizeMono   = 11.f;    // asset names, paths, values
+    inline constexpr float kSizeShortcut = 10.5f; // the accelerator beside a menu row
     inline constexpr float kSizeHeader = 10.f;    // SHADING MODEL and friends
 
     //! Which typeface, by role. An enum rather than an ImFont* so the palette header does

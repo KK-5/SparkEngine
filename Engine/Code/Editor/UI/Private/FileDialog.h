@@ -6,11 +6,12 @@
 
 #include <Resource/AssetTypes.h>
 
-#include "UI/Bus/SaveAssetDialogBus.h"
+#include "UI/Bus/FileDialogBus.h"
 
 namespace Editor
 {
-    //! Names a file that does not exist yet, somewhere under a mount.
+    //! Picks a file under a mount: one that does not exist yet (Save), or one that does
+    //! (Open).
     //!
     //! The editor's own picker rather than the system dialog: AssetId::m_path is always
     //! `mount://relative`, and a native one hands back physical paths the user is free to
@@ -19,16 +20,16 @@ namespace Editor
     //!
     //! Modal, unlike the material window: picking a path is an action with an end, and
     //! nothing behind it needs watching while it runs.
-    class SaveAssetDialog final : public SaveAssetDialogBus::Handler
+    class FileDialog final : public FileDialogBus::Handler
     {
     public:
-        SaveAssetDialog();
-        ~SaveAssetDialog() override;
+        FileDialog();
+        ~FileDialog() override;
 
         void Draw();
 
-        // SaveAssetDialogBus
-        void OpenSaveAssetDialog(const SaveAssetRequest& request) override;
+        // FileDialogBus
+        void OpenFileDialog(const FileDialogRequest& request) override;
 
     private:
         //! One row of the left pane. Flattened rather than nested: the tree is drawn as a
@@ -62,9 +63,9 @@ namespace Editor
         eastl::string FileName() const;   ///< the name field plus the extension
         eastl::string FullPath() const;
         bool          NameIsTaken() const;
-        bool          CanSave() const;
+        bool          CanConfirm() const;
 
-        SaveAssetRequest m_request;
+        FileDialogRequest m_request;
 
         //! Open covers the frames the popup is up; the flag is what makes the one
         //! ImGui::OpenPopup call happen inside Draw, where the id stack is the popup's own.

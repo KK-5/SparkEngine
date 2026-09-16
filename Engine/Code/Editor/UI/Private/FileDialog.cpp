@@ -1,4 +1,4 @@
-#include "SaveAssetDialog.h"
+#include "FileDialog.h"
 
 #include <cstring>
 
@@ -18,7 +18,7 @@ namespace Editor
 
     namespace
     {
-        constexpr const char* kPopupId = "SaveAssetDialog";
+        constexpr const char* kPopupId = "FileDialog";
 
         //! Only the project mount. The engine's and the editor's own assets ship with the
         //! build; a place to save user content is not what they are.
@@ -135,13 +135,13 @@ namespace Editor
         }
     }
 
-    SaveAssetDialog::SaveAssetDialog()
+    FileDialog::FileDialog()
     {
-        SaveAssetDialogBus::Handler::BusConnect();
+        FileDialogBus::Handler::BusConnect();
         m_nameBuf.resize(kNameCapacity, '\0');
     }
 
-    SaveAssetDialog::~SaveAssetDialog()
+    FileDialog::~FileDialog()
     {
         if (BusIsConnected())
         {
@@ -149,13 +149,13 @@ namespace Editor
         }
     }
 
-    void SaveAssetDialog::OpenSaveAssetDialog(const SaveAssetRequest& request)
+    void FileDialog::OpenFileDialog(const FileDialogRequest& request)
     {
         // Modal, so no user action can produce a second request; a script or an async
         // handler can, and taking it would leave the first requester's asset unwritten.
         if (m_open)
         {
-            LOG_WARN("[SaveAssetDialog] '{}' arrived while '{}' is still open; ignored.",
+            LOG_WARN("[FileDialog] '{}' arrived while '{}' is still open; ignored.",
                      request.m_title.c_str(), m_request.m_title.c_str());
             return;
         }
@@ -182,7 +182,7 @@ namespace Editor
         SetCurrentDirectory(known ? request.m_defaultDir : eastl::string(kRoot));
     }
 
-    void SaveAssetDialog::ScanTree()
+    void FileDialog::ScanTree()
     {
         m_tree.clear();
         m_expanded.clear();
@@ -203,7 +203,7 @@ namespace Editor
         m_expanded.push_back(kRoot);
     }
 
-    void SaveAssetDialog::ScanInto(const eastl::string& virtualDir, int depth)
+    void FileDialog::ScanInto(const eastl::string& virtualDir, int depth)
     {
         auto* fileSystem = Service<FileSystem>::Get();
         if (!fileSystem)
@@ -236,7 +236,7 @@ namespace Editor
         });
     }
 
-    void SaveAssetDialog::ReadCurrentDirectory()
+    void FileDialog::ReadCurrentDirectory()
     {
         m_files.clear();
 
@@ -255,7 +255,7 @@ namespace Editor
         });
     }
 
-    void SaveAssetDialog::SetCurrentDirectory(const eastl::string& virtualDir)
+    void FileDialog::SetCurrentDirectory(const eastl::string& virtualDir)
     {
         m_currentDir = virtualDir;
         m_saveFailed = false;
@@ -271,12 +271,12 @@ namespace Editor
         }
     }
 
-    bool SaveAssetDialog::IsExpanded(const eastl::string& path) const
+    bool FileDialog::IsExpanded(const eastl::string& path) const
     {
         return eastl::find(m_expanded.begin(), m_expanded.end(), path) != m_expanded.end();
     }
 
-    void SaveAssetDialog::ToggleExpanded(const eastl::string& path)
+    void FileDialog::ToggleExpanded(const eastl::string& path)
     {
         auto it = eastl::find(m_expanded.begin(), m_expanded.end(), path);
         if (it == m_expanded.end())
@@ -289,7 +289,7 @@ namespace Editor
         }
     }
 
-    bool SaveAssetDialog::IsVisible(const Directory& directory) const
+    bool FileDialog::IsVisible(const Directory& directory) const
     {
         for (eastl::string dir = ParentDir(directory.m_path); !dir.empty(); dir = ParentDir(dir))
         {
@@ -301,30 +301,41 @@ namespace Editor
         return true;
     }
 
-    eastl::string SaveAssetDialog::FileName() const
+    eastl::string FileDialog::FileName() const
     {
         eastl::string name = m_nameBuf.data();
         name += m_request.m_extension;
         return name;
     }
 
-    eastl::string SaveAssetDialog::FullPath() const
+    eastl::string FileDialog::FullPath() const
     {
         return JoinDir(m_currentDir, FileName());
     }
 
-    bool SaveAssetDialog::NameIsTaken() const
+    bool FileDialog::NameIsTaken() const
     {
         const eastl::string name = FileName();
         return eastl::find(m_files.begin(), m_files.end(), name) != m_files.end();
     }
 
-    void SaveAssetDialog::Confirm()
+    void FileDialog::Confirm()
     {
+        if (m_request.m_onConfirm)
+        {
+            if (!m_request.m_onConfirm(FullPath()))
+            {
+                m_saveFailed = true;
+                return;
+            }
+            Close();
+            return;
+        }
+
         auto* assetManager = Service<Resource::AssetManager>::Get();
         if (!assetManager || !m_request.m_asset)
         {
-            LOG_ERROR("[SaveAssetDialog] Nothing to save to '{}'.", FullPath().c_str());
+            LOG_ERROR("[FileDialog] Nothing to save to '{}'.", FullPath().c_str());
             m_saveFailed = true;
             return;
         }
@@ -340,19 +351,23 @@ namespace Editor
         Close();
     }
 
-    void SaveAssetDialog::Close()
+    void FileDialog::Close()
     {
         m_open    = false;
-        m_request = SaveAssetRequest{};   // the asset was kept alive only for this
+        m_request = FileDialogRequest{};   // the asset was kept alive only for this
         ImGui::CloseCurrentPopup();
     }
 
-    bool SaveAssetDialog::CanSave() const
+    bool FileDialog::CanConfirm() const
     {
-        return NameIsValid(m_nameBuf.data()) && !NameIsTaken();
+        if (!NameIsValid(m_nameBuf.data()))
+        {
+            return false;
+        }
+        return (m_request.m_mode == FileDialogMode::Open) ? NameIsTaken() : !NameIsTaken();
     }
 
-    void SaveAssetDialog::Draw()
+    void FileDialog::Draw()
     {
         if (!m_open)
         {
@@ -431,7 +446,7 @@ namespace Editor
                 if (m_open && !ImGui::IsAnyItemActive()
                     && (ImGui::IsKeyPressed(ImGuiKey_Enter)
                         || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
-                    && CanSave())
+                    && CanConfirm())
                 {
                     Confirm();
                 }
@@ -448,7 +463,7 @@ namespace Editor
         ImGui::PopStyleColor();
     }
 
-    void SaveAssetDialog::DrawTitleBar(float width)
+    void FileDialog::DrawTitleBar(float width)
     {
         ImDrawList*  draw = ImGui::GetWindowDrawList();
         const ImVec2 p0   = ImGui::GetCursorScreenPos();
@@ -458,10 +473,18 @@ namespace Editor
                             ImDrawFlags_RoundCornersTop);
         draw->AddLine(ImVec2(p0.x, p1.y), ImVec2(p1.x, p1.y), Theme::kBorderWindow);
 
+        float x = p0.x + kPad;
         {
             Theme::ScopedFont font(Theme::Face::Bold, Theme::kSizeTitle);
-            draw->AddText(ImVec2(p0.x + kPad, p0.y + (kTitleHeight - ImGui::GetTextLineHeight()) * 0.5f),
+            draw->AddText(ImVec2(x, p0.y + (kTitleHeight - ImGui::GetTextLineHeight()) * 0.5f),
                           Theme::kTextStrong, m_request.m_title.c_str());
+            x += ImGui::CalcTextSize(m_request.m_title.c_str()).x + Theme::Px(10.f);
+        }
+        if (!m_request.m_subtitle.empty())
+        {
+            Theme::ScopedFont font(Theme::Face::Mono, Theme::kSizeMono);
+            draw->AddText(ImVec2(x, p0.y + (kTitleHeight - ImGui::GetTextLineHeight()) * 0.5f),
+                          Theme::kTextDim, m_request.m_subtitle.c_str());
         }
 
         const float closeMargin = Theme::Px(6.f);
@@ -492,7 +515,7 @@ namespace Editor
         ImGui::Dummy(ImVec2(width, kTitleHeight));
     }
 
-    void SaveAssetDialog::DrawPathRow(float width)
+    void FileDialog::DrawPathRow(float width)
     {
         ImDrawList*  draw = ImGui::GetWindowDrawList();
         const ImVec2 p0   = ImGui::GetCursorScreenPos();
@@ -514,7 +537,7 @@ namespace Editor
         ImGui::Dummy(ImVec2(width, kPathHeight));
     }
 
-    void SaveAssetDialog::DrawTree(const ImVec2& size)
+    void FileDialog::DrawTree(const ImVec2& size)
     {
         ImGui::BeginChild("##TreePane", size, false,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -614,7 +637,7 @@ namespace Editor
         ImGui::EndChild();
     }
 
-    void SaveAssetDialog::DrawFileList(const ImVec2& size)
+    void FileDialog::DrawFileList(const ImVec2& size)
     {
         ImGui::BeginChild("##FilePane", size, false,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -661,7 +684,7 @@ namespace Editor
         ImGui::EndChild();
     }
 
-    void SaveAssetDialog::DrawNameRow(float width)
+    void FileDialog::DrawNameRow(float width)
     {
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
         ImGui::GetWindowDrawList()->AddLine(p0, ImVec2(p0.x + width, p0.y), Theme::kBorderPanel);
@@ -675,7 +698,8 @@ namespace Editor
         {
             Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeLabel);
             ImGui::AlignTextToFramePadding();
-            TintedText(Theme::kTextDim, "Name");
+            TintedText(Theme::kTextDim,
+                       m_request.m_mode == FileDialogMode::Open ? "File" : "Name");
         }
         ImGui::SameLine(0.f, Theme::Px(9.f));
 
@@ -702,7 +726,7 @@ namespace Editor
             {
                 m_saveFailed = false;
             }
-            if (entered && CanSave())
+            if (entered && CanConfirm())
             {
                 Confirm();
             }
@@ -718,23 +742,29 @@ namespace Editor
         {
             Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeLabel);
 
+            const bool  opening = m_request.m_mode == FileDialogMode::Open;
             const char* message = nullptr;
-            ImU32       color   = Theme::kCloseHovText;
+            ImU32       color   = Theme::kError;
 
             if (!NameIsValid(m_nameBuf.data()))
             {
                 message = "A name may hold letters, digits and underscores, and cannot "
                           "start with a digit.";
             }
-            else if (NameIsTaken())
+            else if (opening && !NameIsTaken())
             {
-                message = "An asset of this name is already here.";
+                message = "No file of this name is here.";
+            }
+            else if (!opening && NameIsTaken())
+            {
+                message = "A file of this name is already here.";
                 color   = Theme::kDirty;
             }
             else if (m_saveFailed)
             {
-                // Why is in the log: the reason is the asset type's, and only it knows one.
-                message = "Could not be saved -- see the console.";
+                // Why is in the log: the reason belongs to whoever does the work.
+                message = opening ? "Could not be opened -- see the console."
+                                  : "Could not be saved -- see the console.";
             }
 
             // An item either way: a cursor moved past the last one does not grow the child,
@@ -752,7 +782,7 @@ namespace Editor
         ImGui::EndChild();
     }
 
-    void SaveAssetDialog::DrawFooter(float width)
+    void FileDialog::DrawFooter(float width)
     {
         ImDrawList*  draw = ImGui::GetWindowDrawList();
         const ImVec2 p0   = ImGui::GetCursorScreenPos();
@@ -768,7 +798,9 @@ namespace Editor
                           Theme::kTextDimmer, FullPath().c_str());
         }
 
-        const bool canSave = CanSave();
+        const bool  canConfirm   = CanConfirm();
+        const char* confirmLabel = m_request.m_confirmLabel.empty()
+                                 ? "Save" : m_request.m_confirmLabel.c_str();
 
         struct FooterButton
         {
@@ -776,7 +808,7 @@ namespace Editor
             bool        accent;
             bool        enabled;
         };
-        const FooterButton buttons[] = {{"Save", true, canSave}, {"Cancel", false, true}};
+        const FooterButton buttons[] = {{confirmLabel, true, canConfirm}, {"Cancel", false, true}};
 
         float x = p1.x - kPad;
         for (const FooterButton& button: buttons)
@@ -789,16 +821,25 @@ namespace Editor
                                     + ImGui::GetStyle().FramePadding.x * 2.f + extra;
             x -= buttonWidth;
 
+            const ImVec2 min(x, p0.y + (kFooterHeight - ImGui::GetFrameHeight()) * 0.5f);
+            const ImVec2 max(x + buttonWidth, min.y + ImGui::GetFrameHeight());
+
+            // An outlined button highlights by its border and its text, and ImGui has one
+            // border colour per frame -- so the state has to be known before the button is
+            // submitted rather than read back from it.
+            const bool hovered = button.enabled && ImGui::IsMouseHoveringRect(min, max);
+
             ImGui::BeginDisabled(!button.enabled);
 
-            ImGui::SetCursorScreenPos(
-                ImVec2(x, p0.y + (kFooterHeight - ImGui::GetFrameHeight()) * 0.5f));
+            ImGui::SetCursorScreenPos(min);
             if (button.accent)
             {
-                ImGui::PushStyleColor(ImGuiCol_Button, Theme::kAccent);
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                                      button.enabled ? Theme::kAccent : Theme::kButtonOff);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Theme::kAccentHov);
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, Theme::kAccent);
-                ImGui::PushStyleColor(ImGuiCol_Text, Theme::kOnAccent);
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      button.enabled ? Theme::kOnAccent : Theme::kTextFaint);
                 ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
             }
             else
@@ -806,8 +847,9 @@ namespace Editor
                 ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 0, 0, 0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(0, 0, 0, 0));
-                ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextLabel);
-                ImGui::PushStyleColor(ImGuiCol_Border, Theme::kBorderWindow);
+                ImGui::PushStyleColor(ImGuiCol_Text, hovered ? Theme::kText : Theme::kTextLabel);
+                ImGui::PushStyleColor(ImGuiCol_Border,
+                                      hovered ? Theme::kBorderHover : Theme::kBorderWindow);
             }
 
             if (ImGui::Button(button.label, ImVec2(buttonWidth, 0.f)))
