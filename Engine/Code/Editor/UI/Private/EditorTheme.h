@@ -15,6 +15,7 @@ namespace Editor::Theme
     // Surfaces, darkest to lightest.
     inline constexpr ImU32 kAppBg        = IM_COL32(0x0D, 0x0E, 0x10, 0xFF);   // behind and between panels
     inline constexpr ImU32 kWelcomePanel = IM_COL32(0x10, 0x12, 0x16, 0xFF);
+    inline constexpr ImU32 kBarBg     = IM_COL32(0x11, 0x13, 0x16, 0xFF);   // toolbar and status bar
     inline constexpr ImU32 kFooterBg  = IM_COL32(0x14, 0x16, 0x19, 0xFF);   // also the tab strip
     inline constexpr ImU32 kWindowBg  = IM_COL32(0x16, 0x18, 0x1C, 0xFF);
     inline constexpr ImU32 kBlockBg   = IM_COL32(0x19, 0x1D, 0x21, 0xFF);   // a raised block
@@ -53,7 +54,9 @@ namespace Editor::Theme
     inline constexpr ImU32 kAccent    = IM_COL32(0x7F, 0xD6, 0xC2, 0xFF);
     inline constexpr ImU32 kAccentHov = IM_COL32(0xA8, 0xE6, 0xD8, 0xFF);
     inline constexpr ImU32 kOnAccent  = IM_COL32(0x0D, 0x0E, 0x10, 0xFF);
-    inline constexpr ImU32 kSelection = IM_COL32(0x7F, 0xD6, 0xC2, 0x1F);   // a selected row
+    inline constexpr ImU32 kSelection  = IM_COL32(0x7F, 0xD6, 0xC2, 0x1F);  // a selected row
+    inline constexpr ImU32 kAccentWash = IM_COL32(0x7F, 0xD6, 0xC2, 0x1A);  // a toggle that is on
+    inline constexpr ImU32 kAccentEdge = IM_COL32(0x7F, 0xD6, 0xC2, 0x66);  // and its border
 
     //! "Modified" is a badge, not a word: amber on a 10%-alpha wash of itself.
     inline constexpr ImU32 kDirty   = IM_COL32(0xE0, 0xA3, 0x5E, 0xFF);
@@ -96,6 +99,25 @@ namespace Editor::Theme
     inline constexpr float kSizeMono   = 11.f;    // asset names, paths, values
     inline constexpr float kSizeShortcut = 10.5f; // the accelerator beside a menu row
     inline constexpr float kSizeHeader = 10.f;    // SHADING MODEL and friends
+
+    //! How long a hover takes to arrive. Long enough to read as motion, short enough that a
+    //! click never waits for it.
+    inline constexpr float kFadeSeconds = 0.09f;
+
+    //! 0 at rest, 1 fully lit, eased in between -- what a hover or a toggle blends its
+    //! colours with. `id` keys the stored value; the last item's id is the usual one.
+    float Fade(ImGuiID id, bool on, float seconds = kFadeSeconds);
+
+    //! `t` of the way from `from` to `to`.
+    ImU32 Blend(ImU32 from, ImU32 to, float t);
+
+    //! A whole-pixel position. Text painted on a half pixel comes out blurred, which reads
+    //! as a flat, lifeless row.
+    inline ImVec2 Snap(const ImVec2& position)
+    {
+        return ImVec2(static_cast<float>(static_cast<int>(position.x)),
+                      static_cast<float>(static_cast<int>(position.y)));
+    }
 
     //! Which typeface, by role. An enum rather than an ImFont* so the palette header does
     //! not have to reach into the UI system to be included.

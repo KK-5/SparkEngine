@@ -21,6 +21,7 @@ namespace Editor
 
         m_dockLayoutInit = false;
         m_menuBar = eastl::make_unique<MenuBar>();
+        m_toolbar = eastl::make_unique<Toolbar>();
         m_bottomPanel = eastl::make_unique<BottomPanel>();
         m_sceneView = eastl::make_unique<SceneView>();
         m_inspector = eastl::make_unique<Inspector>();
@@ -103,6 +104,8 @@ namespace Editor
 
         m_menuBar->Draw(m_windowChrome);
         ImGui::PopStyleVar();
+
+        m_toolbar->Draw();
 
         // The splitters between docked panels paint with Separator; this makes them the gap.
         ImGui::PushStyleColor(ImGuiCol_Separator, Theme::kAppBg);

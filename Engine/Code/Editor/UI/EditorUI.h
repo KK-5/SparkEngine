@@ -15,6 +15,7 @@
 #include <Feature/Input/Bus/InputEventBus.h>
 
 #include "Private/MenuBar.h"
+#include "Private/Toolbar.h"
 #include "Private/BottomPanel.h"
 #include "Private/SceneView.h"
 #include "Private/Inspector.h"
@@ -59,6 +60,7 @@ namespace Editor
         mutable Spark::Math::Vector2Int m_lastFrameBufferSize {1024, 576};
 
         eastl::unique_ptr<MenuBar>       m_menuBar;
+        eastl::unique_ptr<Toolbar>       m_toolbar;
         eastl::unique_ptr<BottomPanel>   m_bottomPanel;
         eastl::unique_ptr<SceneView>     m_sceneView;
         eastl::unique_ptr<Inspector>     m_inspector;

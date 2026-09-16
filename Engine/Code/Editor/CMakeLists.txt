@@ -13,6 +13,7 @@ add_executable(${TARGET_NAME}
     UI/Private/MaterialSlot.cpp
     UI/Private/MaterialWindow.cpp
     UI/Private/FileDialog.cpp
+    UI/Private/Toolbar.cpp
     UI/Private/WelcomeScreen.cpp
     UI/Private/WindowButtons.cpp
     UI/Private/WindowChrome.cpp

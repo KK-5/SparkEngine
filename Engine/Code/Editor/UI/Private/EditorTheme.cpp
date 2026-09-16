@@ -36,6 +36,31 @@ namespace Editor::Theme
         }
     }
 
+    float Fade(ImGuiID id, bool on, float seconds)
+    {
+        // ImGui's own per-window storage, so nothing here has to be cleaned up when a window
+        // or a widget goes away.
+        ImGuiStorage* storage = ImGui::GetStateStorage();
+
+        float value = storage->GetFloat(id, on ? 1.f : 0.f);
+        const float step = (seconds > 0.f) ? ImGui::GetIO().DeltaTime / seconds : 1.f;
+
+        value += on ? step : -step;
+        value = (value < 0.f) ? 0.f : (value > 1.f ? 1.f : value);
+        storage->SetFloat(id, value);
+
+        return value * value * (3.f - 2.f * value);   // smoothstep
+    }
+
+    ImU32 Blend(ImU32 from, ImU32 to, float t)
+    {
+        const ImVec4 a = ImGui::ColorConvertU32ToFloat4(from);
+        const ImVec4 b = ImGui::ColorConvertU32ToFloat4(to);
+        return ImGui::ColorConvertFloat4ToU32(
+            ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                   a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t));
+    }
+
     ScopedFont::ScopedFont(Face face, float size)
     {
         // A null font means "keep the current one" -- the case before the UI system has
