@@ -38,15 +38,16 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // Three color targets + read-only SceneDepth. The depth format must match the
+        // Five color targets + read-only SceneDepth. The depth format must match the
         // SceneDepth attachment DepthPrePass creates (D32_FLOAT). Lighting reconstructs
         // world position from SceneDepth, so no position target is written.
         RHI::RenderTargetLayout rt;
-        rt.m_colorAttachmentCount = 4;
+        rt.m_colorAttachmentCount = 5;
         rt.m_colorFormats[0]      = RHI::Format::R8G8B8A8_UNORM;      // Albedo
         rt.m_colorFormats[1]      = RHI::Format::R16G16B16A16_FLOAT;  // Normal (world, raw)
         rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM;      // ORM
         rt.m_colorFormats[3]      = RHI::Format::R11G11B10_FLOAT;     // Emissive (HDR)
+        rt.m_colorFormats[4]      = RHI::Format::R16G16_FLOAT;        // Velocity (NDC)
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         RHI::InputStreamLayout input;
@@ -128,6 +129,9 @@ namespace Spark::Render
                 // HDR emissive; cleared to black so non-emissive / sky pixels add nothing.
                 createColor("GBufferEmissive", RHI::Format::R11G11B10_FLOAT,
                     RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f));
+                // kVelocityUnwritten in Lib/Velocity.hlsli: marks pixels no geometry covered.
+                createColor("Velocity", RHI::Format::R16G16_FLOAT,
+                    RHI::ClearValue::CreateVector4Float(65504.f, 65504.f, 0.f, 0.f));
 
                 // Read-only depth test against DepthPrePass's SceneDepth: Load the depth
                 // to test against, Store it back unchanged. ReadImageAttachment selects a

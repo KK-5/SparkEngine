@@ -28,6 +28,7 @@
 #include <Feature/Shadow/ShadowPass.h>
 #include <Feature/Skybox/SkyboxPass.h>
 #include <Feature/Tonemap/TonemapPass.h>
+#include <Feature/Velocity/VelocityResolvePass.h>
 
 #include "../Window/IWindowSystem.h"
 #include "../UI/UIBaseSystem.h"
@@ -147,6 +148,9 @@ namespace Spark::Render
         // Albedo/Normal/ORM MRT for the deferred lighting pass to sample.
         auto gbufferPassCfg = GBufferPass::DefaultConfig();
         GBufferPass::SetUp(passContext, gbufferPassCfg);
+
+        auto velocityResolvePassCfg = VelocityResolvePass::DefaultConfig();
+        VelocityResolvePass::SetUp(passContext, velocityResolvePassCfg);
 
         // Deferred lighting: samples the GBuffer, shades a hardcoded directional light
         // into SceneColor. Runs after GBuffer, before Skybox (which fills discarded sky).

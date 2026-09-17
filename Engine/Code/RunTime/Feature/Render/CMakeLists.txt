@@ -10,6 +10,7 @@ set(SOURCES
     Feature/Shadow/ShadowPass.cpp
     Feature/Skybox/SkyboxPass.cpp
     Feature/Tonemap/TonemapPass.cpp
+    Feature/Velocity/VelocityResolvePass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
