@@ -13,8 +13,8 @@
 #include <Resource/Image/ImageAsset.h>   // DescriptorForUsage / ImageUsage for texture slots
 #include <Serialization/UIElement.h>
 #include <Service/Service.h>
-#include <Feature/UI/ImGui/IconManagerInterface.h>
 
+#include "EditorIcons.h"
 #include "EditorTheme.h"
 #include "MaterialSlot.h"
 #include "UI/Bus/AssetEditBus.h"
@@ -70,31 +70,6 @@ namespace Editor
             return cut + "...";
         }
 
-        //! An icon by virtual path. Opened once and remembered, and retried while the id is
-        //! invalid: OpenIcon creates a world entity and a GPU image every call, so asking
-        //! per frame would leak one of each per frame -- and a field can be drawn before the
-        //! icon manager has anything to hand back, so a bad id must not be remembered.
-        ImTextureID Icon(const char* path)
-        {
-            auto* iconManager = Service<UI::IconManagerInterface>::Get();
-            if (!iconManager)
-            {
-                return ImTextureID_Invalid;
-            }
-
-            static eastl::unordered_map<eastl::string, Resource::AssetId> s_icons;
-
-            Resource::AssetId& id = s_icons[path];
-            if (!id.IsValid())
-            {
-                id = iconManager->OpenIcon(path);
-                if (!id.IsValid())
-                {
-                    return ImTextureID_Invalid;
-                }
-            }
-            return iconManager->RequestIconId(id);
-        }
     }
 
     float FieldInputWidth(float width)
@@ -122,7 +97,7 @@ namespace Editor
         return ImGui::GetFrameHeight();
     }
 
-    bool DrawBoxIconButton(const char* id, const char* iconPath, const char* tooltip,
+    bool DrawBoxIconButton(const char* id, Icons::Icon whichIcon, const char* tooltip,
                            bool enabled)
     {
         // Taken before the InvisibleButton below, which becomes the last item.
@@ -149,7 +124,7 @@ namespace Editor
             ImGui::SetCursorScreenPos(rowEnd);
         }
 
-        const ImTextureID icon = Icon(iconPath);
+        const ImTextureID icon = Icons::Get(whichIcon);
         if (icon != ImTextureID_Invalid)
         {
             ImU32 tint = Theme::kTextFaint;
@@ -547,7 +522,7 @@ namespace Editor
                 {
                     eastl::string clearId = "##Clear";
                     clearId += name;
-                    if (DrawBoxIconButton(clearId.c_str(), "editor://x-square.svg", "Clear"))
+                    if (DrawBoxIconButton(clearId.c_str(), Icons::Icon::Clear, "Clear"))
                     {
                         data.set(instance, Resource::AssetId{});
                         changed = true;

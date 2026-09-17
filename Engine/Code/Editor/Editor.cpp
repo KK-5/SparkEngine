@@ -7,6 +7,7 @@
 
 #include "UI/EditorWindow.h"
 #include "UI/EditorUI.h"
+#include "UI/Private/EditorIcons.h"
 #include "UI/Private/WelcomeScreen.h"
 #include "Component/Reflect.h"
 
@@ -56,6 +57,10 @@ namespace Editor
             auto* assetManager = Service<Resource::AssetManager>::Get();
             ASSERT(assetManager, "AssetManager is unregister.");
             assetManager->AssetRegistry();
+
+            // Here rather than with the rest of the UI's setup: every icon lives under the
+            // mount two lines up, and opening one before that mount exists fails.
+            Icons::Load();
         }
 
         m_assetHandler = Spark::MakeUnique<AssetHandler>();

@@ -32,8 +32,6 @@ namespace Editor
         void DrawConsole();
         void DrawAssets();
 
-        void LoadIcons();
-
         // ---- asset browser ----
         struct AssetEntry
         {
@@ -74,15 +72,5 @@ namespace Editor
         Spark::ConstPtr<Spark::Resource::Asset>   m_dragAsset = nullptr;
 
         Tab currentTab = Tab::CONSILE;
-
-        // Icon resources
-        bool                     m_iconsLoaded = false;
-        Spark::Resource::AssetId m_folderIconId;
-        Spark::Resource::AssetId m_fileIconId;
-        Spark::Resource::AssetId m_consoleIconId;
-        Spark::Resource::AssetId m_assetsIconId;
-        Spark::Resource::AssetId m_searchIconId;
-        Spark::Resource::AssetId m_unloadIconId;
-        Spark::Resource::AssetId m_loadingIconId;
     };
 }

@@ -89,7 +89,7 @@ namespace Editor
         //! `acceptDrop` names the asset type the box takes; Unknown means the row takes no
         //! drop at all.
         SlotRowResult DrawSlotRow(const char* label, const eastl::string& text, float width,
-                                  const char* iconPath, const char* tooltip, bool enabled,
+                                  Icons::Icon icon, const char* tooltip, bool enabled,
                                   Resource::AssetType acceptDrop = Resource::AssetType::Unknown)
         {
             bool          elided = false;
@@ -117,7 +117,7 @@ namespace Editor
 
             eastl::string iconId = "##Icon";
             iconId += label;
-            result.iconPressed = DrawBoxIconButton(iconId.c_str(), iconPath, tooltip, enabled);
+            result.iconPressed = DrawBoxIconButton(iconId.c_str(), icon, tooltip, enabled);
 
             if (textHovered)
             {
@@ -167,7 +167,7 @@ namespace Editor
         // the override row below is the second.
         const SlotRowResult materialRow =
             DrawSlotRow(data.name(), MaterialIdentity(handleId, valid), width,
-                        "editor://edit.svg", "Edit this material", valid,
+                        Icons::Icon::Edit, "Edit this material", valid,
                         Resource::AssetType::Material);
 
         if (materialRow.iconPressed)
@@ -194,7 +194,7 @@ namespace Editor
         // and this element draws two.
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 20);
         if (DrawSlotRow("Override", has ? "(this object only)" : "(none)", width,
-                        has ? "editor://revert.svg" : "editor://override.svg",
+                        has ? Icons::Icon::Revert : Icons::Icon::Override,
                         has ? "Revert to the material" : "Override on this object only",
                         valid).iconPressed)
         {

@@ -11,6 +11,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include "EditorIcons.h"
 #include "EditorTheme.h"
 #include "WindowButtons.h"
 #include "WindowChrome.h"
@@ -61,7 +62,6 @@ namespace Editor
         constexpr float kSizeRecent   = 13.5f;
         constexpr float kSizeMonoTiny = 10.5f;
 
-        constexpr const char* kLogoPath       = "editor://APP-Icon.svg";
         constexpr const char* kBackgroundPath = "editor://Welcome/Background.png";
         constexpr const char* kProjectMount   = "project://";
 
@@ -187,7 +187,7 @@ namespace Editor
         }
         m_started = true;
 
-        LoadImages();
+        LoadBackground();
         ReadProject();
         StartPreload();
     }
@@ -231,7 +231,7 @@ namespace Editor
         DrawWindowButtons(right, origin.y, kCaptionHeight, false);
     }
 
-    void WelcomeScreen::LoadImages()
+    void WelcomeScreen::LoadBackground()
     {
         auto* icons = Service<UI::IconManagerInterface>::Get();
         if (!icons)
@@ -239,8 +239,6 @@ namespace Editor
             LOG_ERROR("[WelcomeScreen] No IconManager; this screen will draw without art.");
             return;
         }
-
-        m_logoId = icons->OpenIcon(kLogoPath);
 
         const auto* fileSystem = Service<FileSystem>::Get();
         if (fileSystem && fileSystem->Exists(kBackgroundPath))
@@ -287,7 +285,7 @@ namespace Editor
         const float right = end.x - kPadLeft;
         float       y     = origin.y + kPadTop;
 
-        const ImTextureID logo = Texture(m_logoId);
+        const ImTextureID logo = Icons::Get(Icons::Icon::App);
         if (logo != ImTextureID_Invalid)
         {
             draw->AddImage(logo, ImVec2(left, y), ImVec2(left + kLogoSize, y + kLogoSize));

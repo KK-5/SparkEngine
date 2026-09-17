@@ -11,13 +11,13 @@
 #include <CoreComponents/Name.h>
 #include <Hierarchy/IHierarchy.h>
 #include <Service/Service.h>
-#include <Feature/UI/ImGui/IconManagerInterface.h>
 #include <Feature/UI/ImGui/SparkImGui.h>
 #include <Feature/Window/IWindowSystem.h>
 #include "../../Component/Position.h"
 #include "../../Scene/SceneCommands.h"
 #include "UI/Bus/FileDialogBus.h"
 
+#include "EditorIcons.h"
 #include "EditorTheme.h"
 #include "WindowButtons.h"
 #include "WindowChrome.h"
@@ -28,7 +28,6 @@ namespace Editor
 
     namespace
     {
-        constexpr const char* kLogoPath = "editor://APP-Icon.svg";
 
         constexpr const char* kSceneExtension = ".scene";
         constexpr const char* kSceneDir       = "project://Scenes";
@@ -240,24 +239,15 @@ namespace Editor
 
     void MenuBar::DrawBrand(float top, float height)
     {
-        auto* icons = Service<UI::IconManagerInterface>::Get();
-        if (icons && !m_logoId.IsValid())
-        {
-            m_logoId = icons->OpenIcon(kLogoPath);
-        }
-
         ImDrawList*  draw   = ImGui::GetWindowDrawList();
         const ImVec2 origin = ImGui::GetCursorScreenPos();
         float        x      = origin.x;
 
-        if (icons && m_logoId.IsValid())
+        const ImTextureID logo = Icons::Get(Icons::Icon::App);
+        if (logo != ImTextureID_Invalid)
         {
-            const ImTextureID logo = icons->RequestIconId(m_logoId);
-            if (logo != ImTextureID_Invalid)
-            {
-                const float y = top + (height - kLogoSize) * 0.5f;
-                draw->AddImage(logo, ImVec2(x, y), ImVec2(x + kLogoSize, y + kLogoSize));
-            }
+            const float y = top + (height - kLogoSize) * 0.5f;
+            draw->AddImage(logo, ImVec2(x, y), ImVec2(x + kLogoSize, y + kLogoSize));
         }
         x += kLogoSize + kBrandGap;
 

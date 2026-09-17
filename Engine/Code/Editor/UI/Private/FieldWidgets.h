@@ -7,6 +7,8 @@
 #include <Reflection/RTTI.h>
 #include <Resource/AssetTypes.h>
 
+#include "EditorIcons.h"
+
 namespace Spark::Resource
 {
     class Asset;
@@ -53,8 +55,7 @@ namespace Editor
     //! that widget: hovering the box makes the box the hovered id, and a later item over the
     //! same pixels is refused hover unless the one underneath opted into being overlapped.
     //!
-    //! `iconPath` is a virtual path (`editor://x-square.svg`); it is opened once and kept.
-    bool DrawBoxIconButton(const char* id, const char* iconPath, const char* tooltip,
+    bool DrawBoxIconButton(const char* id, Icons::Icon whichIcon, const char* tooltip,
                            bool enabled = true);
 
     //! Draws one reflected field with the widget its UIElement names, committing an edit

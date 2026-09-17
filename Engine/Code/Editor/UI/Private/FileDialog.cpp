@@ -8,8 +8,8 @@
 #include <Service/Service.h>
 #include <VFS/FileSystem.h>
 #include <Resource/AssetManagerInterface.h>
-#include <Feature/UI/ImGui/IconManagerInterface.h>
 
+#include "EditorIcons.h"
 #include "EditorTheme.h"
 
 namespace Editor
@@ -374,15 +374,6 @@ namespace Editor
             return;
         }
 
-        if (!m_iconLoaded)
-        {
-            m_iconLoaded = true;
-            if (auto* icons = Service<UI::IconManagerInterface>::Get())
-            {
-                m_folderIconId = icons->OpenIcon("editor://folder.svg");
-            }
-        }
-
         // Before Begin: window background, padding and rounding are read there. PopupBg is
         // the theme's raised block, and this window is not one.
         Theme::Scoped theme;
@@ -546,11 +537,7 @@ namespace Editor
 
         ImGui::BeginChild("##TreeRows", ImVec2(0.f, ImGui::GetContentRegionAvail().y), false);
 
-        ImTextureID folder = ImTextureID_Invalid;
-        if (auto* icons = Service<UI::IconManagerInterface>::Get(); icons && m_folderIconId.IsValid())
-        {
-            folder = icons->RequestIconId(m_folderIconId);
-        }
+        const ImTextureID folder = Icons::Get(Icons::Icon::Folder);
 
         for (const Directory& directory: m_tree)
         {

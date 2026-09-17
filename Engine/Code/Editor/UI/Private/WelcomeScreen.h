@@ -36,7 +36,7 @@ namespace Editor
 
         //! Before the batch exists: OpenIcon loads synchronously, and an id the batch had
         //! already queued would come back not-ready.
-        void LoadImages();
+        void LoadBackground();
 
         void ReadProject();
         void StartPreload();
@@ -58,7 +58,6 @@ namespace Editor
 
         Spark::UniquePtr<Spark::Resource::AssetLoadBatch> m_batch;
 
-        Spark::Resource::AssetId m_logoId;
         Spark::Resource::AssetId m_backgroundId;
 
         eastl::string m_projectName;

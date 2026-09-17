@@ -8,6 +8,7 @@ add_executable(${TARGET_NAME}
     UI/Private/Inspector.cpp
     UI/Private/ComponentView.cpp
     UI/Private/EditorTheme.cpp
+    UI/Private/EditorIcons.cpp
     UI/Private/FieldWidgets.cpp
     UI/Private/MaterialUI.cpp
     UI/Private/MaterialSlot.cpp

@@ -6,17 +6,38 @@
 #include <Service/Service.h>
 #include <Resource/AssetManagerInterface.h>
 #include <VFS/FileSystem.h>
-#include <Feature/UI/ImGui/IconManagerInterface.h>
 #include <Feature/Material/MaterialContext.h>
 #include <Feature/Material/MaterialUtils.h>
 
 #include "UI/Bus/MaterialEditBus.h"
 
+#include "EditorIcons.h"
 #include "EditorTheme.h"
 
 
 namespace
 {
+    //! Mounts the browser does not show: a tool's own storage rather than the project's
+    //! content. `cache` is generated, `editor` holds this editor's own icons -- neither is
+    //! something to put in a scene, and the icons are only ever dropped on a texture slot
+    //! by mistake.
+    //!
+    //! `engine` deliberately stays visible: its shaders, fonts and default meshes are shared
+    //! content a project really does reference.
+    constexpr const char* kHiddenMounts[] = {"cache", "editor"};
+
+    bool IsHiddenMount(const eastl::string& mount)
+    {
+        for (const char* hidden: kHiddenMounts)
+        {
+            if (mount == hidden)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     eastl::string GetAssetDisplayName(const Spark::Resource::AssetId& id)
     {
         const auto& path = id.GetPath();
@@ -79,7 +100,6 @@ namespace Editor
 
         ImGui::Begin("Browser", nullptr, flags);
 
-        LoadIcons();
 
         {
             ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -93,12 +113,10 @@ namespace Editor
             dl->AddLine(ImVec2(barStart.x, barStart.y + barH - 1.f),
                         ImVec2(barStart.x + barW, barStart.y + barH - 1.f), Theme::kBorderPanel);
 
-            auto* iconMgr = Spark::Service<Spark::UI::IconManagerInterface>::Get();
-
-            struct TabDef { const char* name; const char* id; Tab tab; Spark::Resource::AssetId iconId; };
+            struct TabDef { const char* name; const char* id; Tab tab; Icons::Icon icon; };
             TabDef tabs[] = {
-                {"Console", "##TabConsole", Tab::CONSILE, m_consoleIconId},
-                {"Assets",  "##TabAssets",  Tab::ASSETS,  m_assetsIconId},
+                {"Console", "##TabConsole", Tab::CONSILE, Icons::Icon::Console},
+                {"Assets",  "##TabAssets",  Tab::ASSETS,  Icons::Icon::Assets},
             };
 
             const float iconSize = Theme::Px(12.f);
@@ -111,10 +129,7 @@ namespace Editor
                 // Measured and painted under the same face, or the label outgrows its tab.
                 Theme::ScopedFont font(sel ? Theme::Face::Bold : Theme::Face::UI, Theme::kSizeBody);
 
-                ImTextureID icon = ImTextureID_Invalid;
-                if (iconMgr && t.iconId.IsValid()) {
-                    icon = iconMgr->RequestIconId(t.iconId);
-                }
+                const ImTextureID icon = Icons::Get(t.icon);
 
                 ImVec2 textSize = ImGui::CalcTextSize(t.name);
                 bool   hasIcon  = (icon != ImTextureID_Invalid);
@@ -220,29 +235,6 @@ namespace Editor
     // Asset Browser
     // ============================================================================
 
-    void BottomPanel::LoadIcons()
-    {
-        if (m_iconsLoaded)
-        {
-            return;
-        }
-        m_iconsLoaded = true;
-
-        auto* iconMgr = Spark::Service<Spark::UI::IconManagerInterface>::Get();
-        if (!iconMgr)
-        {
-            return;
-        }
-
-        m_folderIconId  = iconMgr->OpenIcon("editor://folder.svg");
-        m_fileIconId    = iconMgr->OpenIcon("editor://plus-square.svg");
-        m_consoleIconId = iconMgr->OpenIcon("editor://Console.svg");
-        m_assetsIconId  = iconMgr->OpenIcon("editor://Assets.svg");
-        m_searchIconId  = iconMgr->OpenIcon("editor://search.svg");
-        m_unloadIconId  = iconMgr->OpenIcon("editor://unload.svg");
-        m_loadingIconId = iconMgr->OpenIcon("editor://loading.svg");
-    }
-
     void BottomPanel::ScanDirectory(const eastl::string& virtualPath, AssetFolder& folder)
     {
         auto* fileSystem = Spark::Service<Spark::FileSystem>::Get();
@@ -293,12 +285,7 @@ namespace Editor
             flags |= ImGuiTreeNodeFlags_Selected;
         }
 
-        auto* iconMgr = Spark::Service<Spark::UI::IconManagerInterface>::Get();
-        ImTextureID folderIcon = ImTextureID_Invalid;
-        if (iconMgr && m_folderIconId.IsValid())
-        {
-            folderIcon = iconMgr->RequestIconId(m_folderIconId);
-        }
+        const ImTextureID folderIcon = Icons::Get(Icons::Icon::Folder);
 
         ImVec2 lineStart = ImGui::GetCursorScreenPos();
         // Reserve space for icon to the left of TreeNodeEx
@@ -360,19 +347,9 @@ namespace Editor
         ImGui::BeginChild("AssetFiles", ImVec2(0, 0), false,
                           ImGuiWindowFlags_NoScrollWithMouse);
 
-        auto* iconMgr = Spark::Service<Spark::UI::IconManagerInterface>::Get();
-        ImTextureID folderIcon = ImTextureID_Invalid;
-        ImTextureID unloadIcon = ImTextureID_Invalid;
-        ImTextureID loadingIcon = ImTextureID_Invalid;
-        if (iconMgr && m_folderIconId.IsValid()) {
-            folderIcon = iconMgr->RequestIconId(m_folderIconId);
-        }
-        if (iconMgr && m_unloadIconId.IsValid()) {
-            unloadIcon = iconMgr->RequestIconId(m_unloadIconId);
-        }
-        if (iconMgr && m_loadingIconId.IsValid()) {
-            loadingIcon = iconMgr->RequestIconId(m_loadingIconId);
-        }
+        const ImTextureID folderIcon  = Icons::Get(Icons::Icon::Folder);
+        const ImTextureID unloadIcon  = Icons::Get(Icons::Icon::Unload);
+        const ImTextureID loadingIcon = Icons::Get(Icons::Icon::Loading);
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
@@ -558,7 +535,6 @@ namespace Editor
     void BottomPanel::RebuildTree()
     {
         m_treeBuilt = true;
-        LoadIcons();
 
         // Read and cleared before the vectors they point into are destroyed.
         const eastl::string     keepFolder = m_selectedFolder ? m_selectedFolder->fullPath
@@ -579,7 +555,7 @@ namespace Editor
 
         if (auto* fileSystem = Spark::Service<Spark::FileSystem>::Get()) {
             for (const auto& mount : fileSystem->GetMountNames()) {
-                if (mount == "cache")
+                if (IsHiddenMount(mount))
                 {
                     continue;
                 }
@@ -663,13 +639,7 @@ namespace Editor
         ImGui::InputTextWithHint("##filter", "Search...", m_filterBuf.data(), m_filterBuf.size());
 
         // 搜索图标（画在输入框左侧上方）
-        ImTextureID searchIcon = ImTextureID_Invalid;
-        {
-            auto* imgr = Spark::Service<Spark::UI::IconManagerInterface>::Get();
-            if (imgr && m_searchIconId.IsValid()) {
-                searchIcon = imgr->RequestIconId(m_searchIconId);
-            }
-        }
+        const ImTextureID searchIcon = Icons::Get(Icons::Icon::Search);
         if (searchIcon != ImTextureID_Invalid) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             float inputH = ImGui::GetFrameHeight();

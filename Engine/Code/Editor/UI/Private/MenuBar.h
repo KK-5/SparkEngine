@@ -22,8 +22,6 @@ namespace Editor
         void OpenScene();
         void SaveScene(bool askForPath);
 
-        Spark::Resource::AssetId m_logoId;
-
         //! Empty until a scene has been given a file, which is what makes Save ask for one.
         eastl::string m_scenePath;
     };

@@ -82,8 +82,5 @@ namespace Editor
         eastl::vector<eastl::string> m_files;   ///< names in the current directory
         eastl::string                m_currentDir;
         eastl::vector<char>          m_nameBuf;
-
-        Spark::Resource::AssetId m_folderIconId;
-        bool                     m_iconLoaded = false;
     };
 }
