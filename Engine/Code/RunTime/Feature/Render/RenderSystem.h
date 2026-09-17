@@ -68,6 +68,9 @@ namespace Spark::Render
         //! VkSurfaceCapabilities) would then disagree with the window every frame.
         Math::Vector2Int m_requestedSwapChainSize {0, 0};
 
+        //! Camera view jitter. Off until TAA consumes it; moves to PostProcessSettings later.
+        bool m_temporalJitterEnabled {false};
+
         RenderUI m_rednerUI;
         UIProcessFeature m_uiProcessFeature;
         // Producers first, then the one encoding step, which serves all of them.

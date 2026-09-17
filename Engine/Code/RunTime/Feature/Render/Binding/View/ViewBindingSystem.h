@@ -1,6 +1,7 @@
 #pragma once
 
 #include <RHI/Context/RHIContext.h>
+#include <Tick/FrameTime.h>
 
 namespace Spark::Render
 {
@@ -18,9 +19,11 @@ namespace Spark::Render
     //!
     //! Unlike the other binding systems it owns no buffer of its own: a view's constants go
     //! straight into that view's own space1 group, so there is no array and no frameIndex.
+    //!
+    //! Also the one place a ViewHistory rolls forward, so no producer tracks last frame.
     class ViewBindingSystem
     {
     public:
-        void Update();
+        void Update(const FrameTime& time);
     };
 }

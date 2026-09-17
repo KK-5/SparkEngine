@@ -14,7 +14,24 @@
 
 namespace Spark::Render
 {
-    void CameraViewSystem::Update(const Math::Vector2Int& renderSize)
+    namespace
+    {
+        constexpr uint32_t kJitterSampleCount = 8;
+
+        //! Halton(2,3) in [-0.5, 0.5) pixels, converted to NDC. Starts at index 1: index 0 is
+        //! the pixel centre in both bases. Pixel y runs down and NDC y up, hence the sign.
+        Math::Vector2 TemporalJitter(uint64_t frameNumber, const Math::Vector2Int& size)
+        {
+            const uint32_t index = static_cast<uint32_t>(frameNumber % kJitterSampleCount) + 1;
+            const float    x     = Math::Halton(index, 2) - 0.5f;
+            const float    y     = Math::Halton(index, 3) - 0.5f;
+            return Math::Vector2(
+                 2.0f * x / static_cast<float>(size.x),
+                -2.0f * y / static_cast<float>(size.y));
+        }
+    }
+
+    void CameraViewSystem::Update(const Math::Vector2Int& renderSize, const FrameTime& time, bool jitterEnabled)
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
@@ -52,12 +69,15 @@ namespace Spark::Render
                 {
                     return;
                 }
+                rhiCtx->Add<ViewHistory>(created);
                 ref = &world->Add<MainViewRef>(e, MainViewRef{ created });
             }
 
             View& view = rhiCtx->Get<View>(ref->m_view);
             view.m_worldToView = mats.m_viewMatrix;
             view.m_viewToClip  = Math::PerspectiveFov(Math::Radians(camera.m_fov), aspect, camera.m_clipStart, camera.m_clipEnd);
+            view.m_bufferSize  = renderSize;
+            view.m_jitter      = jitterEnabled ? TemporalJitter(time.m_frameNumber, renderSize) : Math::Vector2(0.0f, 0.0f);
 
             rhiCtx->AddOrReplace<ViewFrustum>(ref->m_view, ViewFrustum{ Math::Frustum::FromViewProjection(view.GetWorldToClip()) });
         });

@@ -250,7 +250,7 @@ namespace Spark::Render
         m_renderGraph.Shutdown();
     }
 
-    void RenderSystem::OnTick(const FrameTime& /*time*/)
+    void RenderSystem::OnTick(const FrameTime& time)
     {
         auto& passContext = *PassExecuteContext::Current();
         auto& rhiCtx = *RHI::RHIExecuteContext::Current();
@@ -280,12 +280,12 @@ namespace Spark::Render
 
         // Produce this frame's views, then encode all of them in one place. A view created
         // just now still gets picked up by CompileShaderInputs later in this same frame.
-        m_cameraViewSystem.Update(renderSize);
+        m_cameraViewSystem.Update(renderSize, time, m_temporalJitterEnabled);
         // After the camera views: a directional light's ortho box follows the main view.
         m_shadowViewSystem.Update();
-        m_viewBindingSystem.Update();
+        m_viewBindingSystem.Update(time);
 
-        m_sceneBindingSystem.Update(frameIndex);
+        m_sceneBindingSystem.Update(frameIndex, time);
         // MaterialBindingSystem stays first, but only so a material's slot exists before
         // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
         // stable now, not rewritten every frame, so this is a one-time ordering need —

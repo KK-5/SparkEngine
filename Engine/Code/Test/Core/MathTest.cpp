@@ -306,6 +306,54 @@ TEST(ProjectionTest, ReversedZMapsNearToOneAndFarToZero)
     EXPECT_NEAR(ndcZ(ortho, 50.0f), 0.0f, 1e-5f);
 }
 
+TEST(ProjectionTest, JitterShiftsNdcExactlyAndKeepsDepth)
+{
+    const Math::Vector2 jitter(0.01f, -0.02f);
+    const Math::Vector4 p(3.0f, -2.0f, 40.0f, 1.0f);
+
+    for (const Math::Matrix4X4& proj : {
+             Math::PerspectiveFov(Math::Radians(60.0f), 1.5f, kNear, kFar),
+             Math::OrthographicProjection(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 50.0f) })
+    {
+        const Math::Vector4 plain    = proj * p;
+        const Math::Vector4 jittered = Math::JitterProjection(proj, jitter) * p;
+
+        EXPECT_NEAR(jittered.x / jittered.w - plain.x / plain.w, jitter.x, 1e-5f);
+        EXPECT_NEAR(jittered.y / jittered.w - plain.y / plain.w, jitter.y, 1e-5f);
+        EXPECT_FLOAT_EQ(jittered.z / jittered.w, plain.z / plain.w);
+    }
+}
+
+TEST(ProjectionTest, DeviceZRoundTripsToViewZ)
+{
+    auto roundTrip = [](const Math::Matrix4X4& proj, float viewZ)
+    {
+        const Math::Vector4 clip = proj * Math::Vector4(0.0f, 0.0f, viewZ, 1.0f);
+        return Math::ConvertFromDeviceZ(Math::DeviceZToViewZParams(proj), clip.z / clip.w);
+    };
+
+    const Math::Matrix4X4 persp = Math::PerspectiveFov(Math::Radians(90.0f), 1.0f, kNear, kFar);
+    EXPECT_NEAR(roundTrip(persp, kNear), kNear, 1e-4f);
+    EXPECT_NEAR(roundTrip(persp, 37.0f), 37.0f, 1e-2f);
+    EXPECT_NEAR(roundTrip(persp, kFar),  kFar,  1e-1f);
+
+    const Math::Matrix4X4 ortho = Math::OrthographicProjection(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 50.0f);
+    EXPECT_NEAR(roundTrip(ortho, 0.0f),  0.0f,  1e-4f);
+    EXPECT_NEAR(roundTrip(ortho, 12.5f), 12.5f, 1e-4f);
+    EXPECT_NEAR(roundTrip(ortho, 50.0f), 50.0f, 1e-4f);
+}
+
+TEST(MathTest, HaltonSequence)
+{
+    EXPECT_FLOAT_EQ(Math::Halton(0, 2), 0.0f);
+    EXPECT_FLOAT_EQ(Math::Halton(1, 2), 0.5f);
+    EXPECT_FLOAT_EQ(Math::Halton(2, 2), 0.25f);
+    EXPECT_FLOAT_EQ(Math::Halton(3, 2), 0.75f);
+    EXPECT_FLOAT_EQ(Math::Halton(1, 3), 1.0f / 3.0f);
+    EXPECT_FLOAT_EQ(Math::Halton(2, 3), 2.0f / 3.0f);
+    EXPECT_FLOAT_EQ(Math::Halton(3, 3), 1.0f / 9.0f);
+}
+
 TEST(FrustumTest, OrthographicProjection)
 {
     const Math::Matrix4X4 view = Math::LookAt(

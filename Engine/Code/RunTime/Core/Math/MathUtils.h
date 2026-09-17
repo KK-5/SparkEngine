@@ -211,6 +211,46 @@ namespace Spark::Math
         return glm::orthoLH_ZO(left, right, bottom, top, zFar, zNear);
     }
 
+    //! Offsets clip xy by jitter * w, i.e. NDC by exactly jitter, leaving depth alone.
+    //! Valid for perspective and orthographic projections alike.
+    inline Matrix4X4 JitterProjection(const Matrix4X4& viewToClip, const Vector2& jitterNdc)
+    {
+        Matrix4X4 offset = Matrix4X4Const::IDENTITY;
+        offset[3][0] = jitterNdc.x;
+        offset[3][1] = jitterNdc.y;
+        return offset * viewToClip;
+    }
+
+    //! What it takes to undo a projection's depth: (m22, m32, isPerspective, 0).
+    //! Perspective: viewZ = m32 / (deviceZ - m22). Orthographic: viewZ = (deviceZ - m32) / m22.
+    inline Vector4 DeviceZToViewZParams(const Matrix4X4& viewToClip)
+    {
+        const bool perspective = viewToClip[2][3] != 0.0f;
+        return Vector4(viewToClip[2][2], viewToClip[3][2], perspective ? 1.0f : 0.0f, 0.0f);
+    }
+
+    //! CPU mirror of ConvertFromDeviceZ in ViewBindings.hlsli.
+    inline float ConvertFromDeviceZ(const Vector4& params, float deviceZ)
+    {
+        return params.z > 0.5f
+            ? params.y / (deviceZ - params.x)
+            : (deviceZ - params.y) / params.x;
+    }
+
+    //! Radical inverse of index in the given base, in [0, 1). index 0 yields 0.
+    inline float Halton(uint32_t index, uint32_t base)
+    {
+        float result   = 0.0f;
+        float fraction = 1.0f;
+        while (index > 0)
+        {
+            fraction /= static_cast<float>(base);
+            result   += fraction * static_cast<float>(index % base);
+            index    /= base;
+        }
+        return result;
+    }
+
     inline Matrix4X4 LookAt(const Vector3& eye, const Vector3& center, const Vector3& up)
     {
         return glm::lookAtLH(eye, center, up);

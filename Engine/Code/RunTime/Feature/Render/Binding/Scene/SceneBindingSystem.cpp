@@ -55,6 +55,10 @@ namespace Spark::Render
         constexpr const char* IBLSamplerName       = "g_IBLSampler";
         constexpr const char* PrefilteredMipsName  = "g_IBLPrefilteredMipCount";
         constexpr const char* EnvIntensityName     = "g_EnvIntensity";
+        constexpr const char* FrameNumberName      = "g_SceneFrameNumber";
+        constexpr const char* GameTimeName         = "g_SceneGameTime";
+        constexpr const char* PrevGameTimeName     = "g_ScenePrevGameTime";
+        constexpr const char* DeltaTimeName        = "g_SceneDeltaTime";
 
         //! Baked offline by SandBox BRDFLutGen and checked in; see BRDFLutBake.hlsl.
         constexpr const char* BRDFLutAssetPath     = "engine://Image/BRDFLut.ktx2";
@@ -392,7 +396,7 @@ namespace Spark::Render
         return result;
     }
 
-    void SceneBindingSystem::Update(uint32_t frameIndex)
+    void SceneBindingSystem::Update(uint32_t frameIndex, const FrameTime& time)
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
@@ -442,6 +446,16 @@ namespace Spark::Render
         const EnvironmentBinding env = BindEnvironmentIBL();
         SetShaderConstant(m_bindings, RHI::InputName(PrefilteredMipsName), env.m_prefilteredMipCount);
         SetShaderConstant(m_bindings, RHI::InputName(EnvIntensityName), env.m_intensity);
+
+        // Doubles on the CPU so they stay exact across a long session; the shader only ever
+        // needs the low bits, so the narrowing is deliberate.
+        SetShaderConstant(m_bindings, RHI::InputName(FrameNumberName),
+            static_cast<uint32_t>(time.m_frameNumber));
+        SetShaderConstant(m_bindings, RHI::InputName(GameTimeName),
+            static_cast<float>(time.m_gameTime));
+        SetShaderConstant(m_bindings, RHI::InputName(PrevGameTimeName),
+            static_cast<float>(time.m_prevGameTime));
+        SetShaderConstant(m_bindings, RHI::InputName(DeltaTimeName), time.m_deltaTime);
     }
 
     void SceneBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)

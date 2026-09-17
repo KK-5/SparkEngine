@@ -769,7 +769,8 @@ namespace Spark::Render
             rhiCtx.Remove<ViewInactiveTag>(viewHandle);
 
             View& view  = rhiCtx.Get<View>(viewHandle);
-            view.m_rect = ShadowTileRect(tile->Get());
+            view.m_rect       = ShadowTileRect(tile->Get());
+            view.m_bufferSize = Math::Vector2Int(kShadowAtlasResolution, kShadowAtlasResolution);
 
             const uint32_t tileLevel = ShadowAtlasAllocator::LevelOfTile(tile->Get());
 

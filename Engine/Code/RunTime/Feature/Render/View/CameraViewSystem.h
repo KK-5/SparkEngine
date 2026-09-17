@@ -2,6 +2,7 @@
 
 #include <Math/Vector2.h>
 #include <RHI/Context/RHIContext.h>
+#include <Tick/FrameTime.h>
 
 namespace Spark::Render
 {
@@ -14,10 +15,13 @@ namespace Spark::Render
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced before the encoding step.
+    //!
+    //! Camera views run temporal passes, so each opts into a ViewHistory and, with jitter
+    //! enabled, takes one sub-pixel offset per frame.
     class CameraViewSystem
     {
     public:
-        void Update(const Math::Vector2Int& renderSize);
+        void Update(const Math::Vector2Int& renderSize, const FrameTime& time, bool jitterEnabled);
         void Shutdown(RHI::RHIContext& rhiCtx);
     };
 }

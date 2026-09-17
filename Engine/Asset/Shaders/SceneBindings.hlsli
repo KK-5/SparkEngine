@@ -37,6 +37,15 @@ cbuffer SceneConstants : register(b0, space0)
     uint  g_IBLPrefilteredMipCount;   // 0 == no environment bound; see HasEnvironmentIBL
     float g_EnvIntensity;             // SkyboxComponent::m_intensity, or 1 with no skybox
     float g_ShadowAtlasTexelSize;     // 1 / atlas resolution; the PCF step in atlas UV
+
+    // Engine clock (Core FrameTime), also mirrored into ViewBindings for shaders that bind
+    // only the per-view group. Both copies come from the same source and always agree; the
+    // g_Scene prefix is only here because cbuffer members share one global namespace, so a
+    // shader including both headers would otherwise see a redefinition.
+    uint  g_SceneFrameNumber;
+    float g_SceneGameTime;            // seconds; stops under pause, stretches under time scale
+    float g_ScenePrevGameTime;
+    float g_SceneDeltaTime;           // game time step
 };
 
 LightData GetLight(uint i)

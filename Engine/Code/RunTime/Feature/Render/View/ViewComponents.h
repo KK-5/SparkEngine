@@ -3,6 +3,8 @@
 #include <EASTL/fixed_vector.h>
 
 #include <Math/Frustum.h>
+#include <Math/Matrix4x4.h>
+#include <Math/Vector2.h>
 #include <RHI/Context/RHIHandle.h>
 
 #include "ShadowPools.h"
@@ -20,6 +22,21 @@ namespace Spark::Render
     {
         RHI::RHIHandle m_bindings = RHI::NullHandle;
     };
+
+    //! The previous frame's View, for views that run temporal passes. Its producer adds it
+    //! invalid to opt in; ViewBindingSystem alone fills and rolls it. A view without one
+    //! encodes its previous frame as the current one.
+    struct ViewHistory
+    {
+        Math::Matrix4X4 m_worldToView = Math::Matrix4X4Const::IDENTITY;
+        Math::Matrix4X4 m_viewToClip  = Math::Matrix4X4Const::IDENTITY;
+        Math::Vector2   m_jitter {0.0f, 0.0f};
+        bool            m_valid = false;
+    };
+
+    //! Discards the view's history this frame: a camera cut or a teleport, where last
+    //! frame's matrices would read as motion.
+    struct ViewHistoryResetTag {};
 
     //! Source -> the MainViewTag view entity it produced. Lives on the WORLD entity (a
     //! camera today), like InstanceSlotRef. Named after the view TYPE, not the source:

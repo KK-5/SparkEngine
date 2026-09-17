@@ -1,11 +1,9 @@
 #pragma once
 
 #include <Math/Matrix4x4.h>
+#include <Math/Vector2.h>
 #include <Math/Vector3.h>
 #include <Math/MathUtils.h>
-
-#include <Log/ILogSystem.h>
-#include <Shader/ShaderBindingsUtils.h>
 
 namespace Spark::Render
 {
@@ -27,9 +25,16 @@ namespace Spark::Render
     struct View
     {
         Math::Matrix4X4 m_worldToView = Math::Matrix4X4Const::IDENTITY;   // view matrix
-        Math::Matrix4X4 m_viewToClip  = Math::Matrix4X4Const::IDENTITY;   // projection matrix
+        Math::Matrix4X4 m_viewToClip  = Math::Matrix4X4Const::IDENTITY;   // projection matrix, never jittered
+
+        //! Sub-pixel offset in NDC applied only where the view rasterizes; culling and
+        //! anything reading m_viewToClip see the unjittered projection.
+        Math::Vector2 m_jitter {0.0f, 0.0f};
 
         ViewRect m_rect {};
+
+        //! Pixel size of the target m_rect is a fraction of. Zero when the producer never said.
+        Math::Vector2Int m_bufferSize {0, 0};
 
         //! Linear exposure multiplier applied before the tone curve in the tonemap pass.
         //! 1.0 = neutral (current behavior); a real EV100/auto-exposure source feeds this later.
@@ -40,6 +45,11 @@ namespace Spark::Render
         //! per-object model matrix on the caller side when the shader expects a
         //! pre-combined MVP.
         Math::Matrix4X4 GetWorldToClip() const { return m_viewToClip * m_worldToView; }
+
+        Math::Matrix4X4 GetJitteredWorldToClip() const
+        {
+            return Math::JitterProjection(m_viewToClip, m_jitter) * m_worldToView;
+        }
     };
 
     //! Build a perspective View from camera parameters. fovYRadians is the
@@ -59,26 +69,4 @@ namespace Spark::Render
         return view;
     }
 
-    //! Reserved engine name for the per-view world->clip constant. Shaders pull
-    //! it in via `#include "ViewBindings.hlsli"` (declares `float4x4
-    //! g_ViewProjection;` in the ViewBindings group at space1). This is a
-    //! convention, mirroring Atom's hardcoded view-constant names.
-    inline constexpr const char* ViewProjectionConstantName    = "g_ViewProjection";
-    inline constexpr const char* InvViewProjectionConstantName = "g_InvViewProj";
-    inline constexpr const char* ViewConstantName              = "g_View";
-    inline constexpr const char* InvViewConstantName           = "g_InvView";
-    inline constexpr const char* ExposureConstantName          = "g_Exposure";
-
-    //! Stage the per-view constants into the ViewBindings group of the given
-    //! ShaderBindings ENTITY; SetShaderConstant also marks it dirty for the next compile.
-    inline void WriteViewConstants(const View& view, RHI::RHIHandle viewBindings)
-    {
-        const Math::Matrix4X4 worldToClip = view.GetWorldToClip();
-        const Math::Matrix4X4 worldToView = view.m_worldToView;
-        SetShaderConstant(viewBindings, RHI::InputName(ViewProjectionConstantName),    worldToClip);
-        SetShaderConstant(viewBindings, RHI::InputName(InvViewProjectionConstantName), Math::Inverse(worldToClip));
-        SetShaderConstant(viewBindings, RHI::InputName(ViewConstantName),              worldToView);
-        SetShaderConstant(viewBindings, RHI::InputName(InvViewConstantName),           Math::Inverse(worldToView));
-        SetShaderConstant(viewBindings, RHI::InputName(ExposureConstantName),          view.m_exposure);
-    }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ECS/WorldContext.h>
+#include <Tick/FrameTime.h>
 
 #include <RHI/Context/RHIContext.h>
 
@@ -32,7 +33,7 @@ namespace Spark::Render
         void Init(RHI::RHIContext& rhiCtx);
         //! frameIndex is the in-flight slot (swap-chain image index), picking this frame's
         //! g_Lights copy — same frame-index contract as MaterialBindingSystem.
-        void Update(uint32_t frameIndex);
+        void Update(uint32_t frameIndex, const FrameTime& time);
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:

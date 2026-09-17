@@ -29,6 +29,9 @@ float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
     float2 dfg = g_BRDFLut.SampleLevel(g_IBLSampler, float2(1.0, 0.0), 0).rg;
     float  envScalar = g_EnvIntensity + (float)g_IBLPrefilteredMipCount + dfg.x + dfg.y;
 
+    float  timeScalar = (float)g_SceneFrameNumber + g_SceneGameTime
+                      + g_ScenePrevGameTime + g_SceneDeltaTime;
+
     return float4(l.direction + l.color + l.position + env,
-                  l.intensity + w + envScalar + shadowScalar) * 1e-6;
+                  l.intensity + w + envScalar + shadowScalar + timeScalar) * 1e-6;
 }
