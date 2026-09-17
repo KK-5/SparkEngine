@@ -334,7 +334,16 @@ namespace Spark::Render
 
             if (isRenderPass)
             {
-                const auto& rect = rhiContext.Get<View>(view).m_rect;
+                const View& viewData = rhiContext.Get<View>(view);
+                ASSERT(viewData.m_bufferSize == Math::Vector2Int(0, 0)
+                    || (viewData.m_bufferSize.x == static_cast<int>(targetViewport.m_maxX)
+                        && viewData.m_bufferSize.y == static_cast<int>(targetViewport.m_maxY)),
+                    "[RenderGraphExecuter] Pass {} targets {}x{}, but its view's rect is a fraction of {}x{}.",
+                    static_cast<uint32_t>(pass),
+                    static_cast<int>(targetViewport.m_maxX), static_cast<int>(targetViewport.m_maxY),
+                    viewData.m_bufferSize.x, viewData.m_bufferSize.y);
+
+                const auto& rect = viewData.m_rect;
                 state.m_viewport    = targetViewport.GetScaled(rect.m_minX, rect.m_maxX, rect.m_minY, rect.m_maxY);
                 state.m_scissor     = ScissorFromViewport(state.m_viewport);
                 state.m_hasViewport = true;

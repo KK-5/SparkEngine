@@ -1,5 +1,7 @@
 #include "ViewBindingSystem.h"
 
+#include <cmath>
+
 #include <EASTL/fixed_vector.h>
 
 #include <CoreComponents/Tags.h>
@@ -45,6 +47,9 @@ namespace Spark::Render
 
             SetShaderConstant(bindings, RHI::InputName("g_TemporalAAJitter"),
                 Math::Vector4(view.m_jitter.x, view.m_jitter.y, previous.m_jitter.x, previous.m_jitter.y));
+            // Rounded: a fraction times the buffer size can land a hair off a whole pixel.
+            SetShaderConstant(bindings, RHI::InputName("g_ViewRectMin"), Math::Vector4(
+                std::round(bufferWidth * view.m_rect.m_minX), std::round(bufferHeight * view.m_rect.m_minY), 0.0f, 0.0f));
             SetShaderConstant(bindings, RHI::InputName("g_ViewSizeAndInvSize"),   SizeAndInvSize(viewWidth, viewHeight));
             SetShaderConstant(bindings, RHI::InputName("g_BufferSizeAndInvSize"), SizeAndInvSize(bufferWidth, bufferHeight));
             SetShaderConstant(bindings, RHI::InputName("g_InvDeviceZToViewZ"),

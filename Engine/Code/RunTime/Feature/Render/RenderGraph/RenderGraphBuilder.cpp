@@ -6,10 +6,12 @@
 namespace Spark::Render
 {
 
-    void RenderGraphBuilder::Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource, const Math::Vector2Int& renderSize)
+    void RenderGraphBuilder::Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
+                                   const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize)
     {
         m_frameIndex = frameIndex;
         m_renderSize = renderSize;
+        m_outputSize = outputSize;
         m_curSwapChainResource = swapChainResource;
     }
 

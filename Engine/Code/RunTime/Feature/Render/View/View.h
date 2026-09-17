@@ -31,9 +31,11 @@ namespace Spark::Render
         //! anything reading m_viewToClip see the unjittered projection.
         Math::Vector2 m_jitter {0.0f, 0.0f};
 
+        //! The part of its passes' render target this view draws into, as a fraction of it.
         ViewRect m_rect {};
 
-        //! Pixel size of the target m_rect is a fraction of. Zero when the producer never said.
+        //! Pixel size of that render target. Every pass rendering this view must target exactly
+        //! this size, which the executer validates. Zero when the producer never said.
         Math::Vector2Int m_bufferSize {0, 0};
 
         //! Linear exposure multiplier applied before the tone curve in the tonemap pass.

@@ -25,7 +25,7 @@ float4 VSMain(float3 pos : POSITION) : SV_Position
     float4 noAA  = mul(g_ViewProjectionNoAA, float4(pos, 1.0));
     float4 prev  = mul(g_PrevViewProjection, float4(pos, 1.0));
     float4 c2p   = mul(g_ClipToPrevClip, clip);
-    float4 v4    = g_TemporalAAJitter + g_ViewSizeAndInvSize + g_BufferSizeAndInvSize + g_InvDeviceZToViewZ;
+    float4 v4    = g_TemporalAAJitter + g_ViewRectMin + g_ViewSizeAndInvSize + g_BufferSizeAndInvSize + g_InvDeviceZToViewZ;
     float  s     = g_Exposure + (float)g_FrameNumber + g_GameTime + g_PrevGameTime + g_DeltaTime;
     return clip + (world + vpos + wpos + noAA + prev + c2p + v4) * 1e-6 + s * 1e-6;
 }

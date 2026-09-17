@@ -39,11 +39,10 @@ namespace Spark::Render
 
         void Shutdown();
 
-        //! renderSize is the render-output resolution for this frame (see
-        //! RenderGraphBuilder::GetRenderSize). The caller (driver) decides where
-        //! it comes from — window size, editor viewport, etc. — and the graph
-        //! threads it to Build callbacks via the builder.
-        void ExecutePipeline(PassContext& passContext, uint32_t frameIndex, const Math::Vector2Int& renderSize);
+        //! See RenderGraphBuilder::GetRenderSize / GetOutputSize. The caller (driver)
+        //! decides where they come from and the graph threads them to Build callbacks.
+        void ExecutePipeline(PassContext& passContext, uint32_t frameIndex,
+                             const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize);
 
         RHI::CommandQueue& GetCommandQueue(RHI::HardwareQueueClass queueClass)
         {

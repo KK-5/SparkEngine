@@ -260,27 +260,21 @@ namespace Spark::Render
 
         const uint32_t frameIndex =m_swapChain->GetCurrentImageIndex();
 
-        // Driver decides the render-output resolution and hands it to the graph,
-        // which threads it to Build callbacks via the builder. Today that's the
-        // window size; an editor would feed its viewport panel size here instead.
-        // const Math::Vector2Int renderSize = Service<Window::IWindowSystem>::Get()->GetWindowSize();
+        // Output is where the scene is displayed inside the swap chain: the editor viewport
+        // panel, or the whole swap chain.
+        const Math::Vector2Int swapChainSize(
+            m_swapChain->GetDescriptor().m_dimensions.m_imageWidth,
+            m_swapChain->GetDescriptor().m_dimensions.m_imageHeight);
         auto* ui = Service<UI::UIBaseSystem>::Get();
-        Math::Vector2Int renderSize;
-        if (ui)
-        {
-            renderSize = ui->GetFrameBufferSize();
-        }
-        else
-        {
-            renderSize = Math::Vector2Int(
-                m_swapChain->GetDescriptor().m_dimensions.m_imageWidth,
-                m_swapChain->GetDescriptor().m_dimensions.m_imageHeight
-            );
-        }
+        const Math::Vector2Int outputOrigin = ui ? ui->GetFrameBufferPos()  : Math::Vector2Int(0, 0);
+        const Math::Vector2Int outputSize   = ui ? ui->GetFrameBufferSize() : swapChainSize;
+        // Screen percentage goes here. Must stay 1:1 until a temporal upscaler sits between
+        // SceneColor and Tonemap, which reads its input pixel for pixel.
+        const Math::Vector2Int renderSize = outputSize;
 
         // Produce this frame's views, then encode all of them in one place. A view created
         // just now still gets picked up by CompileShaderInputs later in this same frame.
-        m_cameraViewSystem.Update(renderSize, time, m_temporalJitterEnabled);
+        m_cameraViewSystem.Update(renderSize, outputOrigin, outputSize, swapChainSize, time, m_temporalJitterEnabled);
         // After the camera views: a directional light's ortho box follows the main view.
         m_shadowViewSystem.Update();
         m_viewBindingSystem.Update(time);
@@ -302,7 +296,7 @@ namespace Spark::Render
 
         m_uiProcessFeature.Process();
 
-        m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize);
+        m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize, outputSize);
         m_swapChain->Present();
     }
 }

@@ -47,6 +47,12 @@ namespace Spark::Render
         RHI::RHIHandle m_view = RHI::NullHandle;
     };
 
+    //! Source -> the OutputViewTag view entity it produced, beside MainViewRef.
+    struct OutputViewRef
+    {
+        RHI::RHIHandle m_view = RHI::NullHandle;
+    };
+
     //! Which row of g_ShadowViews holds this view's ShadowViewData. The only number
     //! PackShadowViews may address by, and consistent within a frame: LightData::m_shadowIndex
     //! is read from the light in that same pass, so a row that moved mid-frame would point one

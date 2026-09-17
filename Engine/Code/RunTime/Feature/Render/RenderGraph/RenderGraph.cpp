@@ -166,7 +166,8 @@ namespace Spark::Render
 
     }
 
-    void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex, const Math::Vector2Int& renderSize)
+    void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex,
+                                      const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize)
     {
         // Publish this frame's in-flight slot before anything can read it. Handlers on
         // FrameEventBus take it from the Device, and the bus orders them arbitrarily.
@@ -188,7 +189,7 @@ namespace Spark::Render
         // Iterate passes in declaration order so that attachment version
         // tracking (LookupLatestVersion / BumpVersion) converges deterministically
         // regardless of entt's pool order.
-        m_builder.Begin(frameIndex, m_swapchainResource, renderSize);
+        m_builder.Begin(frameIndex, m_swapchainResource, renderSize, outputSize);
         for (Pass pass : passContext.GetPassesInDeclOrder())
         {
             if (!passContext.Has<ActivePassTag>(pass))

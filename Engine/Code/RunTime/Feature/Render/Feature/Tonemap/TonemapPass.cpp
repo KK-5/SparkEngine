@@ -76,7 +76,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Accepts<FullScreenTriangleTag>()
             .Binds<>()
-            .RendersView<MainViewTag>()
+            .RendersView<OutputViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {
                 // Import the swap chain as this pass's color render target. TonemapPass is

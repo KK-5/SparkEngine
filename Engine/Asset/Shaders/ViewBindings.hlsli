@@ -19,6 +19,7 @@ cbuffer ViewBindings : register(b0, space1)
     float4x4 g_ClipToPrevClip;       // unjittered clip -> previous frame's unjittered clip
 
     float4   g_TemporalAAJitter;     // NDC offsets: xy this frame, zw previous frame
+    float4   g_ViewRectMin;          // xy: view rect origin in pixels of the buffer
     float4   g_ViewSizeAndInvSize;   // view rect in pixels: w, h, 1/w, 1/h
     float4   g_BufferSizeAndInvSize; // target the rect is part of: w, h, 1/w, 1/h
     float4   g_InvDeviceZToViewZ;    // see ConvertFromDeviceZ

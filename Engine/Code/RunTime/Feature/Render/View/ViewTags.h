@@ -10,6 +10,10 @@ namespace Spark::Render
     //! Add ReflectionViewTag etc. as more view types appear.
     struct MainViewTag {};
 
+    //! Where a main view's image lands in the displayed target (swap chain): the editor
+    //! viewport panel, or the whole window. Passes writing that target render this type.
+    struct OutputViewTag {};
+
     //! Every shadow-casting view: one per directional / spot light, six per point light.
     //! The tile a given view owns is on the entity (ShadowAtlasTile), not in the type.
     struct ShadowViewTag {};

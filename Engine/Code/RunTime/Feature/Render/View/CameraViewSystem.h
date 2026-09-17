@@ -21,7 +21,12 @@ namespace Spark::Render
     class CameraViewSystem
     {
     public:
-        void Update(const Math::Vector2Int& renderSize, const FrameTime& time, bool jitterEnabled);
+        //! outputOrigin / outputSize place the image inside the displayed target of size
+        //! outputBufferSize. Aspect follows outputSize: renderSize is it scaled and rounded per axis.
+        void Update(const Math::Vector2Int& renderSize,
+                    const Math::Vector2Int& outputOrigin, const Math::Vector2Int& outputSize,
+                    const Math::Vector2Int& outputBufferSize,
+                    const FrameTime& time, bool jitterEnabled);
         void Shutdown(RHI::RHIContext& rhiCtx);
     };
 }

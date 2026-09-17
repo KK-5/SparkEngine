@@ -157,14 +157,17 @@ namespace Spark::Render
 
         uint32_t GetFrameIndex() const { return m_frameIndex; }
 
-        //! Current render-output resolution for this frame, seeded by the driver
-        //! via Begin. This is the region the pipeline renders into (swap chain
-        //! size for a fullscreen game, editor viewport panel size in-editor) — it
-        //! is NOT necessarily the swap chain. Build callbacks size transient
-        //! attachments against this value, re-read every frame, so resize works
-        //! without rebuilding the pass. NOTE: single render output for now;
-        //! becomes per-view-keyed when multi-view lands.
+        //! Internal scene resolution for this frame, seeded by the driver via Begin: what
+        //! every pass before the temporal upscaler sizes its targets against. Output size
+        //! scaled by the screen percentage. Re-read every frame, so resize works without
+        //! rebuilding the pass. NOTE: single view for now; becomes per-view-keyed when
+        //! multi-view lands.
         Math::Vector2Int GetRenderSize() const { return m_renderSize; }
+
+        //! Resolution the scene is finally displayed at (swap chain size for a fullscreen
+        //! game, editor viewport panel size in-editor) — NOT necessarily the swap chain.
+        //! The temporal upscaler's output and everything after it use this.
+        Math::Vector2Int GetOutputSize() const { return m_outputSize; }
 
         RHI::RHIHandle GetCurrentSwapChainResource() const { return m_curSwapChainResource; }
 
@@ -179,7 +182,8 @@ namespace Spark::Render
 
         eastl::vector<Pass> TopoSort();
 
-        void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource, const Math::Vector2Int& renderSize);
+        void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
+                   const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize);
 
         eastl::vector<Pass> End();
 
@@ -262,9 +266,9 @@ namespace Spark::Render
 
         uint32_t m_frameIndex { 0 };
 
-        // Render-output resolution for the current frame; seeded by Begin, read
-        // by Build callbacks via GetRenderSize. Frame-scoped input, not state.
+        // Frame-scoped inputs seeded by Begin, not state.
         Math::Vector2Int m_renderSize { 0, 0 };
+        Math::Vector2Int m_outputSize { 0, 0 };
 
         RHI::RHIHandle m_curSwapChainResource;
     };
