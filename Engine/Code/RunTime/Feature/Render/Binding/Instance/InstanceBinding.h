@@ -18,6 +18,13 @@ namespace Spark::Render
     //! allocated, and noticing that the renderable let it go is the whole point.
     using InstanceSlotWeakRef = SlotWeakRef<Instances>;
 
+    //! The model matrix a renderable was encoded with last frame, on the WORLD entity.
+    //! Absent means no history: the previous transform is taken as the current one.
+    struct InstanceHistory
+    {
+        Math::Matrix4X4 m_model{Math::Matrix4X4Const::IDENTITY};
+    };
+
     //! The single shared ShaderBindings entity carrying g_Instances (space4).
     struct InstanceBindingTag {};
 

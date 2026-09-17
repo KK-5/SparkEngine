@@ -31,7 +31,7 @@ namespace Spark::Render
 
     private:
         //! Fixed upper bound. Overflow logs an error and drops the surplus entities
-        //! (rendering is not blocked). At Model-only size this is 9 MB (g_Instances) +
+        //! (rendering is not blocked). At 208 B per instance this is 13 MB (g_Instances) +
         //! 256 KB (ID buffer).
         static constexpr uint32_t Capacity = 65536;
 

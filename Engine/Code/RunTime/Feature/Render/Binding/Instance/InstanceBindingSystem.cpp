@@ -177,7 +177,9 @@ namespace Spark::Render
             [&](Entity e, InstanceData& out,
                 const Transform::WorldTransformMatrix& m, const Mesh::MeshGPUComponent&)
         {
-            out.m_model = m.m_worldMatrix;
+            const auto* history = world->TryGet<InstanceHistory>(e);
+            out.m_model     = m.m_worldMatrix;
+            out.m_prevModel = history ? history->m_model : m.m_worldMatrix;
             // Normals need the inverse-transpose of the model's linear part to stay
             // perpendicular under non-uniform scale (tangents do not — they keep the plain
             // model matrix in the VS). Precomputed here so the VS avoids a per-vertex 3x3
@@ -185,6 +187,18 @@ namespace Spark::Render
             out.m_normalMatrix = Math::ToMatrix4X4(
                 Math::Transpose(Math::Inverse(Math::ToMatrix3X3(m.m_worldMatrix))));
             out.m_materialIndex = ResolveMaterialIndex(*world, matCtx, e);
+        });
+
+        // Only encoded renderables hold a slot, so history starts on the frame they were first written.
+        world->GetView<InstanceHistory, Transform::WorldTransformMatrix>(Exclude<DeadTag>).each(
+            [](Entity, InstanceHistory& history, const Transform::WorldTransformMatrix& m)
+        {
+            history.m_model = m.m_worldMatrix;
+        });
+        world->GetView<InstanceSlotRef, Transform::WorldTransformMatrix>(Exclude<InstanceHistory, DeadTag>).each(
+            [&](Entity e, const InstanceSlotRef&, const Transform::WorldTransformMatrix& m)
+        {
+            world->Add<InstanceHistory>(e, InstanceHistory{ m.m_worldMatrix });
         });
     }
 

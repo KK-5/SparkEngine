@@ -59,10 +59,9 @@ float4 VertexFactoryGetWorldPosition(PositionOnlyVertexFactoryInput input)
     return TransformLocalToWorld(GetInstanceData(input.InstanceIndex), input.Position);
 }
 
-//! Current position until InstanceData carries the previous transform.
 float4 VertexFactoryGetPreviousWorldPosition(VertexFactoryInput input, VertexFactoryIntermediates intermediates)
 {
-    return VertexFactoryGetWorldPosition(input, intermediates);
+    return mul(intermediates.Instance.PrevModel, float4(input.Position, 1.0));
 }
 
 MaterialVertexParameters GetMaterialVertexParameters(
