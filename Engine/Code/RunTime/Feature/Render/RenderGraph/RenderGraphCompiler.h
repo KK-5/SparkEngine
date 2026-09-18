@@ -12,6 +12,7 @@ namespace Spark::RHI
 {
     class Device;
     class TransientResourcePool;
+    class ImagePool;
     class ImageView;
     class BufferView;
     class PipelineLibrary;
@@ -58,6 +59,20 @@ namespace Spark::Render
         //! sealed and ready for GetDeviceMemoryBarriers queries during per-pass
         //! barrier compilation.
         void CompileTransientResources(RHI::TransientResourcePool& pool);
+
+        //! Resolve every image name some pass reads a previous frame of. For each such
+        //! name it owns a ping-pong pair allocated from `pool`, points this frame's
+        //! attachments at the Current entity and the previous-frame ones at the Previous
+        //! entity, and drops the transient entity the producing pass declared — so the
+        //! image never enters the transient pool or its aliasing sweep.
+        //!
+        //! Must run before CompileTransientResources: it consumes the descriptor the
+        //! producer declared and removes that name from the transient set.
+        void CompilePersistentImages(RHI::ImagePool& pool);
+
+        //! Trade the Current / Previous tags of every persistent image pair. Called after
+        //! execute: what this frame produced is what next frame reads as history.
+        static void AdvancePersistentImages(RHIContext& context);
 
 
         //! Compile all barriers for a single pass. Must be called in topo-sort

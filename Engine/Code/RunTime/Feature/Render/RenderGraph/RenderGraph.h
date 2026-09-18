@@ -16,6 +16,7 @@ namespace Spark::RHI
     class Device;
     class SwapChain;
     class TransientResourcePool;
+    class ImagePool;
 }
 
 
@@ -80,6 +81,9 @@ namespace Spark::Render
 
         Ptr<RHI::Device>          m_device;
         Ptr<RHI::TransientResourcePool> m_pool;
+        //! Backs images kept across frames. A separate pool because the transient one
+        //! aliases heap memory by intra-frame lifetime, which is exactly what these must not do.
+        Ptr<RHI::ImagePool>             m_persistentImagePool;
         Ptr<RHI::PipelineLibrary>       m_pipelineLibrary;
         RHI::CommandQueueContext  m_commandQueueContext;
         RHI::FenceSet             m_crossQueueFences;

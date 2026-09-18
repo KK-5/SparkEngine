@@ -9,6 +9,7 @@
 #include <RHI/Command/CommandList.h>
 #include <RHI/SwapChain/SwapChain.h>
 #include <RHI/Bus/FrameEventBus.h>
+#include <RHI/Resource/Image/ImagePool.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Pipeline/PipelineLibrary.h>
 
@@ -40,6 +41,22 @@ namespace Spark::Render
         {
             LOG_ERROR("[RenderGraph] TransientResourcePool initialize failed.");
             return false;
+        }
+
+        m_persistentImagePool = factory.CreateImagePool();
+        ASSERT(m_persistentImagePool != nullptr, "[RenderGraph] Factory::CreateImagePool returned null.");
+        {
+            // Superset of what a kept image may be declared with: the pool validates that
+            // each image's flags are contained here.
+            RHI::ImagePoolDescriptor poolDesc;
+            poolDesc.m_bindFlags = RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil
+                                 | RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::ShaderWrite
+                                 | RHI::ImageBindFlags::CopyRead | RHI::ImageBindFlags::CopyWrite;
+            if (m_persistentImagePool->Init(device, poolDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[RenderGraph] Persistent image pool initialize failed.");
+                return false;
+            }
         }
 
         m_pipelineLibrary = factory.CreatePipelineLibrary();
@@ -164,6 +181,14 @@ namespace Spark::Render
             m_swapchainResource = NullHandle;
         }
 
+        // Persistent images outlive every frame, so nothing else reaps them.
+        eastl::vector<RHIHandle> persistentImages;
+        context.GetView<PersistentImageTag>().each(
+            [&](RHIHandle entity) { persistentImages.push_back(entity); });
+        for (RHIHandle entity : persistentImages)
+        {
+            context.DestoryEntity(entity);
+        }
     }
 
     void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex,
@@ -216,6 +241,10 @@ namespace Spark::Render
         // on demand from each resource's view cache. A ShaderBindings that samples a
         // transient image must obtain its view (FindPassAttachmentImageView) before
         // CompileShaderInputs so the descriptor is compiled with it.
+        // Before the transient stage: it takes the kept names out of the transient set and
+        // resolves their attachments itself.
+        m_compiler.CompilePersistentImages(*m_persistentImagePool);
+
         m_compiler.CompileTransientResources(*m_pool);
 
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
@@ -442,6 +471,9 @@ namespace Spark::Render
 
         m_executer.End();
         ////////////////////////////////////////////////
+
+        // After execute: what this frame produced is what next frame reads as history.
+        RenderGraphCompiler::AdvancePersistentImages(context);
 
         m_commandQueueContext.End();
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);

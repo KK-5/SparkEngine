@@ -140,6 +140,18 @@ namespace Spark::Render
             const RHI::AttachmentId&        name,
             const ImageAttachmentBindInfo&  bind);
 
+        // ============================================================
+        // ReadPrevious* — read the copy of an attachment produced one frame ago.
+        // A separate resource from this frame's same-named one, so it imposes no
+        // ordering: declaring it never constrains where this frame's producer runs.
+        // The resource is resolved by the persistent-resource compile stage, not here.
+        // ============================================================
+
+        template<typename PassTag>
+        AttachmentId ReadPreviousImageAttachment(
+            const RHI::AttachmentId&        name,
+            const ImageAttachmentBindInfo&  bind);
+
         template<typename PassTag>
         AttachmentId ReadBufferAttachment(
             const RHI::AttachmentId&        name,
@@ -208,10 +220,10 @@ namespace Spark::Render
         // Takes the attachment by value: resolves an imported resource link (m_image/
         // m_buffer) at declaration time when it was not set by the caller.
         template<typename PassTag>
-        void RegisterBufferAttachment(BufferPassAttachment attachment);
+        RHIHandle RegisterBufferAttachment(BufferPassAttachment attachment);
 
         template<typename PassTag>
-        void RegisterImageAttachment(ImagePassAttachment attachment);
+        RHIHandle RegisterImageAttachment(ImagePassAttachment attachment);
 
         // Resolve an attachment name to an imported resource entity (ImportedTag).
         // Imported resources exist from import time (before any Build), so the link is
@@ -220,11 +232,22 @@ namespace Spark::Render
         // CompileTransientResources.
         static RHIHandle FindImportedResourceByName(const RHI::AttachmentId& name);
 
+        // Counterpart for transient resources, which exist from the Create that declared
+        // them. Used to link a history read to the resource it mirrors.
+        static RHIHandle FindTransientImageByName(const RHI::AttachmentId& name);
+
+        // The pair of entities a kept name resolves to, created on the first frame it is
+        // read. They outlive every frame, so this finds an existing pair most of the time.
+        static PersistentImagePair FindOrCreatePersistentPair(const RHI::AttachmentId& name);
+
         // Materialize a transient resource entity in RHIContext: TransientTag,
-        // ResourceName, plus the resource descriptor.
+        // ResourceName, the resource descriptor, and the clear value it was declared
+        // with — everything needed to create the resource, without consulting the
+        // attachments that reference it.
         RHIHandle CreateTransientImageResource(
             const RHI::AttachmentId&    name,
-            const RHI::ImageDescriptor& desc);
+            const RHI::ImageDescriptor& desc,
+            const RHI::ClearValue*      clearValue);
 
         RHIHandle CreateTransientBufferResource(
             const RHI::AttachmentId&     name,
@@ -327,11 +350,57 @@ namespace Spark::Render
         return result;
     }
 
-    template<typename PassTag>
-    void RenderGraphBuilder::RegisterBufferAttachment(BufferPassAttachment attachment)
+    inline RHIHandle RenderGraphBuilder::FindTransientImageByName(const RHI::AttachmentId& name)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
-        if (attachment.m_buffer == NullHandle)
+        RHIHandle result = NullHandle;
+        rhiContext.GetView<TransientTag, ResourceName, RHI::ImageDescriptor>().each(
+            [&](RHIHandle resource, const ResourceName& rn, const RHI::ImageDescriptor&)
+            {
+                if (rn.m_name == name) { result = resource; }
+            });
+        return result;
+    }
+
+    inline PersistentImagePair RenderGraphBuilder::FindOrCreatePersistentPair(const RHI::AttachmentId& name)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+
+        PersistentImagePair pair;
+        rhiContext.GetView<PersistentImageTag, ResourceName>().each(
+            [&](RHIHandle resource, const ResourceName& rn)
+            {
+                if (rn.m_name != name) { return; }
+                (rhiContext.Has<HistoryCurrentTag>(resource) ? pair.m_current : pair.m_previous) = resource;
+            });
+
+        if (pair.m_current != NullHandle && pair.m_previous != NullHandle)
+        {
+            return pair;
+        }
+
+        ASSERT(pair.m_current == NullHandle && pair.m_previous == NullHandle,
+            "Persistent image '{}' has half a pair.", name.GetCStr());
+
+        pair.m_current  = rhiContext.CreateEntity();
+        pair.m_previous = rhiContext.CreateEntity();
+        for (RHIHandle resource : { pair.m_current, pair.m_previous })
+        {
+            rhiContext.Add<PersistentImageTag>(resource);
+            rhiContext.Add<ResourceName>(resource, ResourceName{ name });
+        }
+        rhiContext.Add<HistoryCurrentTag>(pair.m_current);
+        rhiContext.Add<HistoryPreviousTag>(pair.m_previous);
+        // No image behind it yet; compile allocates and marks it invalid until produced.
+        return pair;
+    }
+
+    template<typename PassTag>
+    RHIHandle RenderGraphBuilder::RegisterBufferAttachment(BufferPassAttachment attachment)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        // An earlier frame's copy never resolves against this frame's resources.
+        if (attachment.m_buffer == NullHandle && attachment.m_attachmentId.m_frameOffset == 0)
         {
             attachment.m_buffer = FindImportedResourceByName(attachment.m_attachmentId.m_id);
         }
@@ -340,13 +409,14 @@ namespace Spark::Render
         rhiContext.Add<PassTag>(attachmentHandle);
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass, attachment.m_access);
+        return attachmentHandle;
     }
 
     template<typename PassTag>
-    void RenderGraphBuilder::RegisterImageAttachment(ImagePassAttachment attachment)
+    RHIHandle RenderGraphBuilder::RegisterImageAttachment(ImagePassAttachment attachment)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
-        if (attachment.m_image == NullHandle)
+        if (attachment.m_image == NullHandle && attachment.m_attachmentId.m_frameOffset == 0)
         {
             attachment.m_image = FindImportedResourceByName(attachment.m_attachmentId.m_id);
         }
@@ -356,16 +426,22 @@ namespace Spark::Render
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass,
             NormalizeImageAccess(attachment.m_access, attachment.m_action));
+        return attachmentHandle;
     }
 
     inline RHIHandle RenderGraphBuilder::CreateTransientImageResource(
         const RHI::AttachmentId&    name,
-        const RHI::ImageDescriptor& desc)
+        const RHI::ImageDescriptor& desc,
+        const RHI::ClearValue*      clearValue)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
         RHIHandle resource = rhiContext.CreateEntity();
         rhiContext.Add<TransientTag>(resource);
         rhiContext.Add<ResourceName>(resource, ResourceName{ name });
+        if (clearValue != nullptr)
+        {
+            rhiContext.Add<RHI::ClearValue>(resource, *clearValue);
+        }
         rhiContext.Add<RHI::ImageDescriptor>(resource, desc);
         return resource;
     }
@@ -524,7 +600,9 @@ namespace Spark::Render
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
-        RHIHandle resource = CreateTransientImageResource(name, desc);
+        RHIHandle resource = CreateTransientImageResource(
+            name, desc,
+            bind.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear ? &bind.m_action.m_clearValue : nullptr);
 
         ImagePassAttachment a;
         a.m_attachmentId      = AttachmentId{ name, 0 };
@@ -666,6 +744,58 @@ namespace Spark::Render
         a.m_viewDescriptor  = bind.m_view;
         a.m_pass            = m_currentPass;
         RegisterImageAttachment<PassTag>(a);
+        return a.m_attachmentId;
+    }
+
+    // ============================================================
+    // ReadPreviousImageAttachment
+    // ============================================================
+
+    template<typename PassTag>
+    AttachmentId RenderGraphBuilder::ReadPreviousImageAttachment(
+        const RHI::AttachmentId&        name,
+        const ImageAttachmentBindInfo&  bind)
+    {
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(m_currentPass != NullPass,
+                "BeginPass must be called before declaring attachments.");
+            ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
+        }
+
+        // Declaring the name comes first, as it does for every other Read*. So the resource
+        // this history mirrors is already known here: mark it, and compile is handed the
+        // set of images to keep rather than searching for it.
+        auto& rhiContext = *RHIExecuteContext::Current();
+        const RHIHandle declared = FindTransientImageByName(name);
+        ASSERT(declared != NullHandle,
+            "Previous-frame read of '{}' before any pass created it as a transient image. "
+            "Declare the producing pass first.",
+            name.GetCStr());
+        PersistentImagePair pair;
+        if (declared != NullHandle)
+        {
+            pair = FindOrCreatePersistentPair(name);
+            rhiContext.AddOrReplace<KeepAcrossFramesTag>(declared);
+            rhiContext.AddOrReplace<PersistentImagePair>(declared, pair);
+        }
+
+        // Version 0 with no m_latestVersions bump: nothing writes the previous frame's copy.
+        // The use entry lands under a key of its own, so BuildGraph sees readers and no
+        // writer and emits no edge — it still registers the pass as a node.
+        ImagePassAttachment a;
+        a.m_attachmentId    = AttachmentId{ name, 0, 1 };
+        a.m_slotName        = bind.m_slot;
+        a.m_access          = RHI::AttachmentAccess::Read;
+        a.m_usage           = bind.m_usage;
+        a.m_stage           = bind.m_stage;
+        a.m_action          = bind.m_action;
+        a.m_viewDescriptor  = bind.m_view;
+        a.m_pass            = m_currentPass;
+        a.m_image           = pair.m_previous;   // known here, like an import
+
+        const RHIHandle handle = RegisterImageAttachment<PassTag>(a);
+        rhiContext.Add<PreviousFrameTag>(handle);
         return a.m_attachmentId;
     }
 

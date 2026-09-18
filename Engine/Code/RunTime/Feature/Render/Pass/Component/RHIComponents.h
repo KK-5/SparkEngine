@@ -116,10 +116,15 @@ namespace Spark::Render
     {
         RHI::AttachmentId m_id;
         uint32_t m_version {0};
+        //! 0 = produced this frame; N = the copy produced N frames ago. Keeps a history
+        //! read from colliding with this frame's resource of the same name.
+        uint32_t m_frameOffset {0};
 
         bool operator==(const AttachmentId& other) const
         {
-            return m_id == other.m_id && m_version == other.m_version;
+            return m_id == other.m_id
+                && m_version == other.m_version
+                && m_frameOffset == other.m_frameOffset;
         }
 
         bool operator!=(const AttachmentId& other) const
@@ -129,7 +134,7 @@ namespace Spark::Render
 
         AttachmentId Next() const
         {
-            return AttachmentId{m_id, m_version + 1};
+            return AttachmentId{m_id, m_version + 1, m_frameOffset};
         }
 
         bool IsValid() const
@@ -189,6 +194,40 @@ namespace Spark::Render
     static_assert(eastl::is_default_constructible_v<BufferPassAttachment>);
 
     struct AttachmentCompilingTag {};
+
+    //! On an attachment whose resource was produced in an earlier frame. Resolved by the
+    //! persistent-resource flow, so the transient flow skips it — it is neither allocated
+    //! from the transient pool nor eligible for aliasing.
+    struct PreviousFrameTag {};
+
+    //! On the transient resource entity a pass declared this frame, when some other pass
+    //! reads an earlier frame of that name. Put there at declaration time, so compile is
+    //! handed the set of images to keep instead of searching for it.
+    struct KeepAcrossFramesTag {};
+
+    //! Alongside KeepAcrossFramesTag: the ping-pong pair that name resolves to. Two images,
+    //! so exactly one frame of history — reading further back means a longer ring. The
+    //! entities are created with the tag (identity is a build-time fact); their images are
+    //! allocated at compile.
+    struct PersistentImagePair
+    {
+        RHIHandle m_current  {NullHandle};
+        RHIHandle m_previous {NullHandle};
+    };
+
+    //! Resource-entity tags for an image kept across frames. Two entities per kept name
+    //! hold the ping-pong pair; the tags trade places at frame end, so the one written
+    //! this frame becomes next frame's history without copying anything.
+    //!
+    //! Deliberately NOT ImportedTag: these entities carry the same ResourceName as the
+    //! frame's own resource of that name, and the builder resolves bare-name reads
+    //! against ImportedTag entities (FindImportedResourceByName) — they would collide.
+    struct PersistentImageTag {};
+    struct HistoryCurrentTag {};
+    struct HistoryPreviousTag {};
+    //! On the Previous entity while its content has never been produced: first frame of
+    //! its life, or the frame after a reallocation. Consumers must fall back.
+    struct HistoryInvalidTag {};
 
     //! Runtime marker on every per-pass ShaderBindings entity created via
     //! GetOrCreatePassShaderBindings. Lets teardown reap them all with a single
@@ -263,6 +302,7 @@ namespace eastl
         {
             size_t h = hash<Spark::ObjectName>{}(id.m_id);
             hash_combine(h, id.m_version);
+            hash_combine(h, id.m_frameOffset);
             return h;
         }
     };
