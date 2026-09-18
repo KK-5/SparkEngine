@@ -38,6 +38,12 @@ namespace Spark::Render
         //! this size, which the executer validates. Zero when the producer never said.
         Math::Vector2Int m_bufferSize {0, 0};
 
+        //! Where this view's pixels are read from when its passes sample images of another
+        //! target, e.g. an output view reading SceneColor. Zero size means the view reads its own
+        //! target, so the input region is m_rect of m_bufferSize.
+        ViewRect         m_inputRect {};
+        Math::Vector2Int m_inputBufferSize {0, 0};
+
         //! Linear exposure multiplier applied before the tone curve in the tonemap pass.
         //! 1.0 = neutral (current behavior); a real EV100/auto-exposure source feeds this later.
         float m_exposure = 1.0f;

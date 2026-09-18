@@ -25,7 +25,7 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    int3 px = int3(int2(input.position.xy - g_ViewRectMin.xy), 0);
+    int3 px = int3(int2(input.position.xy), 0);   // inputs share this pass's target
 
     float2 velocity = g_Velocity.Load(px).xy;
     if (!IsVelocityWritten(velocity))

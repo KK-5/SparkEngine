@@ -50,6 +50,12 @@ namespace Spark::Render
             // Rounded: a fraction times the buffer size can land a hair off a whole pixel.
             SetShaderConstant(bindings, RHI::InputName("g_ViewRectMin"), Math::Vector4(
                 std::round(bufferWidth * view.m_rect.m_minX), std::round(bufferHeight * view.m_rect.m_minY), 0.0f, 0.0f));
+            const bool ownInput = view.m_inputBufferSize == Math::Vector2Int(0, 0);
+            const ViewRect& inputRect = ownInput ? view.m_rect : view.m_inputRect;
+            const float inputWidth  = ownInput ? bufferWidth  : static_cast<float>(view.m_inputBufferSize.x);
+            const float inputHeight = ownInput ? bufferHeight : static_cast<float>(view.m_inputBufferSize.y);
+            SetShaderConstant(bindings, RHI::InputName("g_InputViewRectMin"), Math::Vector4(
+                std::round(inputWidth * inputRect.m_minX), std::round(inputHeight * inputRect.m_minY), 0.0f, 0.0f));
             SetShaderConstant(bindings, RHI::InputName("g_ViewSizeAndInvSize"),   SizeAndInvSize(viewWidth, viewHeight));
             SetShaderConstant(bindings, RHI::InputName("g_BufferSizeAndInvSize"), SizeAndInvSize(bufferWidth, bufferHeight));
             SetShaderConstant(bindings, RHI::InputName("g_InvDeviceZToViewZ"),

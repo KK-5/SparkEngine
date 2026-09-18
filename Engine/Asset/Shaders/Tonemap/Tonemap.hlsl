@@ -54,7 +54,7 @@ float3 OETF(float3 linearColor)
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    int3 px = int3(int2(input.position.xy - g_ViewRectMin.xy), 0);
+    int3 px = int3(int2(input.position.xy - g_ViewRectMin.xy + g_InputViewRectMin.xy), 0);
     float3 hdr = g_SceneColor.Load(px).rgb;
 
     hdr *= g_Exposure;                 // (1) exposure: linear scale before the tone curve

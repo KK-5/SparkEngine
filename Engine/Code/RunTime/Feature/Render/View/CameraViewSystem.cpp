@@ -111,8 +111,10 @@ namespace Spark::Render
             // Same camera, placed in the displayed target instead of the render targets.
             View& output = rhiCtx->Get<View>(outputRef->m_view);
             output = view;
-            output.m_jitter      = Math::Vector2(0.0f, 0.0f);
-            output.m_bufferSize  = outputBufferSize;
+            output.m_jitter          = Math::Vector2(0.0f, 0.0f);
+            output.m_inputRect       = view.m_rect;
+            output.m_inputBufferSize = view.m_bufferSize;
+            output.m_bufferSize      = outputBufferSize;
             output.m_rect.m_minX = static_cast<float>(outputOrigin.x) / outputBufferSize.x;
             output.m_rect.m_maxX = static_cast<float>(outputOrigin.x + outputSize.x) / outputBufferSize.x;
             output.m_rect.m_minY = static_cast<float>(outputOrigin.y) / outputBufferSize.y;

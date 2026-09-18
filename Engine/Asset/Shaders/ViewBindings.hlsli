@@ -20,6 +20,7 @@ cbuffer ViewBindings : register(b0, space1)
 
     float4   g_TemporalAAJitter;     // NDC offsets: xy this frame, zw previous frame
     float4   g_ViewRectMin;          // xy: view rect origin in pixels of the buffer
+    float4   g_InputViewRectMin;     // xy: origin of the region read from input images, in their pixels
     float4   g_ViewSizeAndInvSize;   // view rect in pixels: w, h, 1/w, 1/h
     float4   g_BufferSizeAndInvSize; // target the rect is part of: w, h, 1/w, 1/h
     float4   g_InvDeviceZToViewZ;    // see ConvertFromDeviceZ
