@@ -38,6 +38,17 @@ namespace Spark::Render
     //! frame's matrices would read as motion.
     struct ViewHistoryResetTag {};
 
+    //! The view runs temporal AA: its source's TemporalAAComponent, validated. Written by
+    //! CameraViewSystem; TemporalAAPass and TonemapPass read it.
+    struct ViewTemporalAA
+    {
+        float    m_currentFrameWeight = 1.0f / 16.0f;
+        float    m_motionFrameWeight  = 0.25f;
+        float    m_varianceClipGamma  = 1.25f;
+        float    m_filterSize         = 1.0f;
+        uint32_t m_jitterSamples      = 8;
+    };
+
     //! Source -> the MainViewTag view entity it produced. Lives on the WORLD entity (a
     //! camera today), like InstanceSlotRef. Named after the view TYPE, not the source:
     //! one camera can later source several types (a planar reflection view is derived

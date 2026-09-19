@@ -19,6 +19,8 @@
 
 #include <View/ViewTags.h>
 
+#include <Feature/TemporalAA/TemporalAAPass.h>
+
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
@@ -97,10 +99,12 @@ namespace Spark::Render
                 builder.ImportImageAttachment<SPARK_PASS_TAG("TonemapPass")>(
                     RHI::AttachmentId("SwapChain"), swapBind);
 
-                // Read the HDR SceneColor as a shader resource. Declaring it here orders
-                // this pass after the lighting/skybox writers and transitions SceneColor
-                // from RenderTarget to shader-read before this pass runs. The view→SRG
-                // binding happens in the Compile hook below.
+                // Read the HDR scene color as a shader resource: TemporalAAPass's output when it
+                // runs, SceneColor otherwise. Declaring it here orders this pass after its
+                // writer and transitions it to shader-read before this pass runs. The slot
+                // stays "SceneColor" either way; the view→SRG binding happens in the Compile
+                // hook below.
+                const bool temporalAA = TemporalAAPass::FindMainViewSettings(*RHI::RHIExecuteContext::Current()) != nullptr;
                 Render::ImageAttachmentBindInfo readBind;
                 readBind.m_slot  = RHI::InputName("SceneColor");
                 readBind.m_usage = RHI::AttachmentUsage::Shader;
@@ -109,7 +113,7 @@ namespace Spark::Render
                 readBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 builder.ReadImageAttachment<SPARK_PASS_TAG("TonemapPass")>(
-                    RHI::AttachmentId("SceneColor"), readBind);
+                    RHI::AttachmentId(temporalAA ? "TemporalAA" : "SceneColor"), readBind);
             })
             .Compile([](RenderGraphCompiler& compiler)
             {

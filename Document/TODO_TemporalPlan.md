@@ -20,8 +20,8 @@
 | 4 | InstanceData `m_prevModel` | 已完成 |
 | 5 | 渲染 / 输出分辨率分离 | 已完成（含输出视图，修复场景未对齐编辑器面板） |
 | 6 | Velocity | 已实现，待验证 |
-| 7 | 跨帧保留的图资源 | 已按"图资源每帧新建、存储池化"重写，尚无调用方，未验证 |
-| 8 | `ITemporalUpscaler` + TAA | 未开始 |
+| 7 | 跨帧保留的图资源 | 已完成（"图资源每帧新建、存储池化"；由 TAA 验证） |
+| 8 | TAA | 已完成（组件配置、specular AA 配套；`ITemporalUpscaler` 推迟） |
 
 ---
 
@@ -45,7 +45,7 @@ TAA 取邻域最近深度、`ConvertFromDeviceZ` 等 UE shader 默认 reversed-Z
 
 ### 4. Jitter 与 TAA 开关联动
 
-TAA 关闭时不施加 jitter，画面与现在一致。
+TAA 关闭时不施加 jitter，画面与现在一致。开关即相机上 `TemporalAAComponent` 的有无（步骤 8）。
 
 ### 5. history 由图的池化图提供，不复用 `ImagePerFrame`
 
@@ -300,38 +300,77 @@ shader，所以标志放在 ViewBindings 里，消费者写成 `historyWeight = 
 
 ### 当前状态
 
-机制已落地，Debug 全量构建通过。**还没有任何 Pass 调用**，整条路径一次没跑过。
+第一个消费者 TAA 已接上，整条路径在编辑器中跑通（见步骤 8）。关闭时暴露了池的销毁顺序问题：`ImagePool` 的析构不清空
+延迟释放队列，`RenderGraph::Shutdown` 现显式调用 `Shutdown()`；其余见步骤 8「已知债务」。
 
-**验证**：等第一个消费者（TAA）接上后一起验证 —— 窗口反复缩放、TAA 反复开关后池化图数量回到稳定值、无泄漏、无
-validation 报错；首帧与缩放后一帧 `IsPreviousFrameMissing` 为真；RenderDoc 中两张池化图逐帧交替。
+**待验证**：窗口反复缩放、TAA 反复开关后池化图数量回到稳定值；RenderDoc 中两张池化图逐帧交替；validation 零报错。
 
 ---
 
-## 八、`ITemporalUpscaler` + TAA
+## 八、TAA
 
-**接口**：输入 SceneColor、SceneDepth、`ResolvedVelocity`、上一帧 history，渲染尺寸与输出尺寸；输出 TAA 后的 SceneColor 与
-本帧 history。插在 Skybox 之后、Tonemap 之前，Tonemap 改读其输出。
+`ITemporalUpscaler` 接口不在本步抽象：只有一个实现时接口形状只能靠猜，等 TAAU 或外部 upscaler（DLAA/DLSS）成为第二个实现
+时再抽。
 
-**TAA 实现**：按 UE4 `TemporalAA.usf` 的算法结构移植，不逐 include 照搬：
+### Pass
 
-- 3×3 邻域取最近深度处的 `ResolvedVelocity`（膨胀属于 TAA 自身，不放进 Resolve，外部 upscaler 自己做）。
-- Catmull-Rom 采样 history；重投影落在屏幕外则丢弃 history。
-- YCoCg 空间邻域 min/max 裁剪 history。
-- 亮度加权混合抑制闪烁；混合系数随速度调整响应。
-- history 无效时直接输出当前帧。
+`TemporalAAPass`：Skybox 之后、Tonemap 之前的全屏图形 Pass，`RendersView<MainViewTag>`。
 
-**Pass 形态**：UE4 TAA 的输出即 history，因此只写本帧 history 一张图，Tonemap 直接读它，不额外建输出 RT。先做成
-全屏图形 Pass（MRT 单目标），不把 compute pass 进图（I3，P3）提前。
+- `Create("TemporalAA")`（RGBA16F，渲染尺寸），随后 `ReadPrevious("TemporalAA")`。输出即下一帧的 history，不另建输出 RT。
+- 读 `SceneColor`、`SceneDepth`（R32_FLOAT 视图）、`ResolvedVelocity`。
+- Compile：绑定图与线性采样器；per-pass cbuffer 写 `g_TemporalAAHistoryValid`（来自 `IsPreviousFrameMissing`）与组件参数。
+- `TonemapPass` 在 TAA 开启时读 `TemporalAA`，否则读 `SceneColor`，slot 不变。
 
-**开关**：临时放在 RenderSystem 层，P3 的 PostProcessSettings 就位后迁移；与 jitter 联动。
+先做全屏 PS，不把 compute pass 进图（I3）提前。shader 主体是只依赖像素坐标的 `TemporalAA(int2 px)`，将来加 CS 入口即可。
 
-**验证**：
+### 算法（`Shaders/TemporalAA/TemporalAA.hlsl`）
 
-- 静止相机下几何边缘无锯齿、无抖动。
-- 快速平移 / 旋转无明显拖影；运动物体边缘无残影。
-- 镜头切换、窗口缩放时历史正确重置，无一帧错误画面。
-- TAA 关闭时画面与步骤 1–7 完成后一致。
-- DX12 validation 零警告。
+按 UE4 `TemporalAA.usf` 的结构精简：
+
+1. 3×3 邻域先按亮度压缩 HDR（`c / (1 + luma)`），转 YCoCg。
+2. 当前样本按 jitter 重建到无 jitter 像素中心：Blackman-Harris 的高斯近似 `exp(-2.29 d²)` 加权，`d = offset - jitter`（像素，y 向下）。
+3. 速度取邻域最近深度处（reversed-Z 取最大）的 `ResolvedVelocity`；`prevUV = uv - velocity * (0.5, -0.5)`。
+4. history 用 Catmull-Rom 5 tap 采样，方差裁剪（`mean ± γσ`，与 min/max 取交）后沿指向盒中心方向 clip。
+5. 混合系数在静止 / 运动权重间随运动像素数插值。
+6. history 无效或重投影出屏时 select 当前帧（不用乘法，history 可能是 NaN）；最后滤掉 NaN/Inf。
+
+### 配置：`TemporalAAComponent`
+
+放在 `Feature/AntiAliasing/`，挂在**相机**上，存在即开启。
+
+- **不属于后处理**：它改变投影（jitter），输出的是重建后的场景颜色，曝光、Bloom、调色等美术效果作用在它之后；参数是画质取舍，
+  不是美术意图。后处理体积（以后 `Feature/PostProcess/`）的值可以混合，AA 方法决定管线结构，不能混合，因此也不挂在体积上。
+- **挂在相机上**：TAA 的 history、jitter、速度都按 view 组织。
+- 参数：`m_currentFrameWeight`（1/16）、`m_motionFrameWeight`（0.25）、`m_varianceClipGamma`（1.25）、`m_filterSize`（1.0）、
+  `m_jitterSamples`（4/8/16，默认 8）。
+- `CameraViewSystem` 把组件校验后写成主 view 的 `ViewTemporalAA`，并据此决定 jitter；Pass 只读 `ViewTemporalAA`。
+- 编辑器相机创建时默认挂上。它不在场景层级里，inspector 选不到；设置入口等视口设置面板。
+
+### 配套：specular AA
+
+细高光（高曲率、亚像素几何上的低粗糙度 GGX）在 jitter 下时有时无，邻域裁剪会反复清掉积累的 history，表现为闪烁。在源头预过滤：
+`GBuffer.hlsl` 用 `Lib/SpecularAA.hlsli`（Tokuyoshi 2017）按法线的屏幕空间导数加大粗糙度。必须在 GBuffer PS 做：导数要跨同一个
+表面，全屏 Pass 读 GBuffer 时相邻纹素可能属于不同物体。函数工作在 α²，GBuffer 存 perceptual roughness，进出各做一次换算。
+
+### 已知债务
+
+- **关闭顺序**：系统按 `SparkEngine` 成员声明逆序析构，`RHIResourceSystem` 的统一清理晚于 `RenderSystem`。RenderGraph 持有的
+  `ImagePool` 先于引用它图的 SRG 销毁，D3D12MA 报未释放分配。临时补丁：`ReapPassShaderBindings` 直接销毁 per-pass SRG（不走
+  `DeadTag`）。正解是按 Init 逆序关闭、关闭前全局等待 GPU 空闲，另行处理。
+- 多相机 / 多主 view：只取第一个主 view 的设置，与步骤 7 的单 view 限制一致。
+- 镜头切换失效（`g_CameraCut`）未做，尚无 `ViewHistoryResetTag` 的产生者。
+
+### 后续方向
+
+1. compute pass 进图（I3），TAA 改 CS。
+2. TAAU：history 放输出分辨率，解除 Tonemap 的 1:1 约束。
+3. 抽 `ITemporalUpscaler`，接 DLAA/DLSS（Streamline）作为 RTX 上的可选实现，自研 TAA 保留为回退。
+4. 吸收 TSR/FSR2 的深度遮挡检测与细特征保护。
+
+### 验证
+
+已确认：静止边缘无锯齿、无跳动；运动无明显拖影；细高光闪烁经 specular AA 后基本消失；关闭程序无断言。
+待确认：RenderDoc 中池化图逐帧交替、窗口反复缩放后池化图数量回到稳定值、DX12 validation 零警告。
 
 ---
 

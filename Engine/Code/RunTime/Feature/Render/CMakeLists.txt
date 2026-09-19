@@ -11,6 +11,7 @@ set(SOURCES
     Feature/Skybox/SkyboxPass.cpp
     Feature/Tonemap/TonemapPass.cpp
     Feature/Velocity/VelocityResolvePass.cpp
+    Feature/TemporalAA/TemporalAAPass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
@@ -42,6 +43,7 @@ target_link_libraries(${TARGET_NAME}
         SparkUI
     PUBLIC
         SparkCamera
+        SparkAntiAliasing
         SparkCore
         SparkRHI
         opengl32

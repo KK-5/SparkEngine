@@ -214,8 +214,12 @@ namespace Spark::Render
     //! Reap every per-pass ShaderBindings (created via GetOrCreatePassShaderBindings)
     //! by its runtime PassShaderBindingsTag. Call once at pipeline / RenderSystem
     //! teardown — per-pass SRGs are persistent and have no external owner, so this is
-    //! their single collection point, independent of the compile-time PassTag. Uses
-    //! DeadTag (same path as the view / instance SRGs) so the reap is uniform.
+    //! their single collection point, independent of the compile-time PassTag.
+    //!
+    //! Destroyed here rather than tagged DeadTag like the view / instance SRGs: no tick
+    //! follows teardown to reap DeadTag, so they would outlive RenderSystem, and their
+    //! views hold images the render graph's pools own. Must run before
+    //! RenderGraph::Shutdown releases those pools.
     inline void ReapPassShaderBindings(RHIContext& ctx)
     {
         eastl::vector<RHIHandle> dead;
@@ -225,7 +229,7 @@ namespace Spark::Render
         }
         for (RHIHandle entity : dead)
         {
-            ctx.Add<DeadTag>(entity);
+            ctx.DestoryEntity(entity);
         }
     }
 

@@ -5,6 +5,7 @@
 #include <Hierarchy/HierarchyComponent.h>
 
 #include <Feature/Camera/Components.h>
+#include <Feature/AntiAliasing/Components.h>
 #include <Feature/Transform/Components.h>
 #include <Math/MathUtils.h>
 
@@ -50,6 +51,7 @@ namespace Editor
         m_editorCamera = world.CreateEntity("EditorCamera");
         world.Add<Transform::TransformComponent>(m_editorCamera, Transform::TransformComponent{});
         world.Add<Camera::CameraComponent>(m_editorCamera, Camera::CameraComponent{});
+        world.Add<AntiAliasing::TemporalAAComponent>(m_editorCamera, AntiAliasing::TemporalAAComponent{});
         LOG_INFO("[EditorInput] Created editor camera entity.");
     }
 

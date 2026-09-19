@@ -191,6 +191,11 @@ namespace Spark::Render
             context.DestoryEntity(entity);
         }
         m_builder.m_imagePool = nullptr;
+
+        // The images just released wait in the pool's deferred release queue, which only
+        // drains at frame end. No frame follows, and the pool's destructor does not flush
+        // it; Shutdown does, before its allocator goes. The GPU is already idle.
+        m_imagePool->Shutdown();
     }
 
     void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex,

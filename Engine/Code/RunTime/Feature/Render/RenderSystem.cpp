@@ -29,6 +29,7 @@
 #include <Feature/Skybox/SkyboxPass.h>
 #include <Feature/Tonemap/TonemapPass.h>
 #include <Feature/Velocity/VelocityResolvePass.h>
+#include <Feature/TemporalAA/TemporalAAPass.h>
 
 #include "../Window/IWindowSystem.h"
 #include "../UI/UIBaseSystem.h"
@@ -161,6 +162,10 @@ namespace Spark::Render
         auto skyboxPassCfg = SkyboxPass::DefaultConfig();
         SkyboxPass::SetUp(passContext, skyboxPassCfg);
 
+        // After everything that writes SceneColor; TonemapPass reads its output when enabled.
+        auto temporalAAPassCfg = TemporalAAPass::DefaultConfig();
+        TemporalAAPass::SetUp(passContext, temporalAAPassCfg);
+
         // Final tonemap: samples the HDR SceneColor, Reinhard + gamma, writes the LDR
         // swap chain (which it now imports, replacing CopyFrameBufferPass). UIPass draws
         // on top afterwards. CopyFrameBufferPass is kept in the tree but no longer wired.
@@ -278,7 +283,7 @@ namespace Spark::Render
 
         // Produce this frame's views, then encode all of them in one place. A view created
         // just now still gets picked up by CompileShaderInputs later in this same frame.
-        m_cameraViewSystem.Update(renderSize, outputOrigin, outputSize, swapChainSize, time, m_temporalJitterEnabled);
+        m_cameraViewSystem.Update(renderSize, outputOrigin, outputSize, swapChainSize, time);
         // After the camera views: a directional light's ortho box follows the main view.
         m_shadowViewSystem.Update();
         m_viewBindingSystem.Update(time);

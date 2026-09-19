@@ -6,6 +6,7 @@
 #include <CoreComponents/Tags.h>
 
 #include <Feature/Camera/Components.h>
+#include <Feature/AntiAliasing/Components.h>
 
 #include "View.h"
 #include "ViewComponents.h"
@@ -16,18 +17,37 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr uint32_t kJitterSampleCount = 8;
-
         //! Halton(2,3) in [-0.5, 0.5) pixels, converted to NDC. Starts at index 1: index 0 is
         //! the pixel centre in both bases. Pixel y runs down and NDC y up, hence the sign.
-        Math::Vector2 TemporalJitter(uint64_t frameNumber, const Math::Vector2Int& size)
+        Math::Vector2 TemporalJitter(uint64_t frameNumber, uint32_t sampleCount, const Math::Vector2Int& size)
         {
-            const uint32_t index = static_cast<uint32_t>(frameNumber % kJitterSampleCount) + 1;
+            const uint32_t index = static_cast<uint32_t>(frameNumber % sampleCount) + 1;
             const float    x     = Math::Halton(index, 2) - 0.5f;
             const float    y     = Math::Halton(index, 3) - 0.5f;
             return Math::Vector2(
                  2.0f * x / static_cast<float>(size.x),
                 -2.0f * y / static_cast<float>(size.y));
+        }
+
+        ViewTemporalAA ValidateTemporalAA(const AntiAliasing::TemporalAAComponent& c)
+        {
+            ViewTemporalAA v;
+            v.m_currentFrameWeight = Math::Clamp(c.m_currentFrameWeight, 0.02f, 0.5f);
+            v.m_motionFrameWeight  = Math::Clamp(c.m_motionFrameWeight, v.m_currentFrameWeight, 1.0f);
+            v.m_varianceClipGamma  = Math::Clamp(c.m_varianceClipGamma, 0.75f, 2.0f);
+            v.m_filterSize         = Math::Clamp(c.m_filterSize, 0.5f, 2.0f);
+            switch (c.m_jitterSamples)
+            {
+            case AntiAliasing::TemporalAAJitterSamples::Four:
+            case AntiAliasing::TemporalAAJitterSamples::Eight:
+            case AntiAliasing::TemporalAAJitterSamples::Sixteen:
+                v.m_jitterSamples = static_cast<uint32_t>(c.m_jitterSamples);
+                break;
+            default:
+                v.m_jitterSamples = 8;
+                break;
+            }
+            return v;
         }
 
         template<typename Ref>
@@ -67,7 +87,7 @@ namespace Spark::Render
     void CameraViewSystem::Update(const Math::Vector2Int& renderSize,
                                   const Math::Vector2Int& outputOrigin, const Math::Vector2Int& outputSize,
                                   const Math::Vector2Int& outputBufferSize,
-                                  const FrameTime& time, bool jitterEnabled)
+                                  const FrameTime& time)
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
@@ -104,7 +124,19 @@ namespace Spark::Render
             view.m_worldToView = mats.m_viewMatrix;
             view.m_viewToClip  = Math::PerspectiveFov(Math::Radians(camera.m_fov), aspect, camera.m_clipStart, camera.m_clipEnd);
             view.m_bufferSize  = renderSize;
-            view.m_jitter      = jitterEnabled ? TemporalJitter(time.m_frameNumber, renderSize) : Math::Vector2(0.0f, 0.0f);
+            view.m_jitter      = Math::Vector2(0.0f, 0.0f);
+
+            // Jitter only pays off with something accumulating it.
+            if (const auto* taa = world->TryGet<AntiAliasing::TemporalAAComponent>(e))
+            {
+                const ViewTemporalAA validated = ValidateTemporalAA(*taa);
+                view.m_jitter = TemporalJitter(time.m_frameNumber, validated.m_jitterSamples, renderSize);
+                rhiCtx->AddOrReplace<ViewTemporalAA>(mainRef->m_view, validated);
+            }
+            else if (rhiCtx->Has<ViewTemporalAA>(mainRef->m_view))
+            {
+                rhiCtx->Remove<ViewTemporalAA>(mainRef->m_view);
+            }
 
             rhiCtx->AddOrReplace<ViewFrustum>(mainRef->m_view, ViewFrustum{ Math::Frustum::FromViewProjection(view.GetWorldToClip()) });
 

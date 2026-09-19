@@ -16,8 +16,8 @@ namespace Spark::Render
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced before the encoding step.
     //!
-    //! Camera views run temporal passes, so each opts into a ViewHistory and, with jitter
-    //! enabled, takes one sub-pixel offset per frame.
+    //! Camera views run temporal passes, so each opts into a ViewHistory. A camera with a
+    //! TemporalAAComponent also gives its view ViewTemporalAA and a sub-pixel jitter per frame.
     class CameraViewSystem
     {
     public:
@@ -26,7 +26,7 @@ namespace Spark::Render
         void Update(const Math::Vector2Int& renderSize,
                     const Math::Vector2Int& outputOrigin, const Math::Vector2Int& outputSize,
                     const Math::Vector2Int& outputBufferSize,
-                    const FrameTime& time, bool jitterEnabled);
+                    const FrameTime& time);
         void Shutdown(RHI::RHIContext& rhiCtx);
     };
 }

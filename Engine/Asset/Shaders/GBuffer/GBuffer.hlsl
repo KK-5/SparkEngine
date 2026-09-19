@@ -2,6 +2,7 @@
 #include <Shaders/Material/MaterialTemplate.hlsli>
 #include <Shaders/VertexFactory/LocalVertexFactory.hlsli>
 #include <Shaders/Lib/Velocity.hlsli>
+#include <Shaders/Lib/SpecularAA.hlsli>
 
 // Deferred base pass. Geometry comes from the vertex factory and the surface from the material
 // template; this file places the vertex and encodes the GBuffer. It depth-tests Equal against
@@ -64,6 +65,13 @@ PSOutput PSMain(VSOutput input)
 
     PixelMaterialInputs inputs;
     CalcMaterialParameters(parameters, inputs, g_MatSampler);
+
+    // Here, not in the lighting pass: the derivatives must span one surface, and neighbouring
+    // GBuffer texels may belong to different objects. The filter works on alpha^2; the GBuffer
+    // stores perceptual roughness, whose square is alpha.
+    float roughnessA2 = inputs.Roughness * inputs.Roughness;
+    roughnessA2 *= roughnessA2;
+    inputs.Roughness = sqrt(sqrt(CalculateSpecularAA(parameters.WorldNormal, roughnessA2)));
 
     PSOutput output = EncodeGBuffer(parameters, inputs);
     output.velocity = float4(CalcVelocity(input.ClipPosition, input.PrevClipPosition), 0.0, 0.0);
