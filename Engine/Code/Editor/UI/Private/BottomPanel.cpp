@@ -38,6 +38,21 @@ namespace
         return false;
     }
 
+    //! Stands in for a thumbnail until assets have one.
+    Editor::Icons::Icon AssetIcon(Spark::Resource::AssetType type)
+    {
+        using Spark::Resource::AssetType;
+        using Editor::Icons::Icon;
+
+        switch (type)
+        {
+        case AssetType::Image:    return Icon::Image;
+        case AssetType::Model:    return Icon::Mesh;
+        case AssetType::Material: return Icon::Material;
+        default:                  return Icon::Folder;   // no icon for shaders yet
+        }
+    }
+
     eastl::string GetAssetDisplayName(const Spark::Resource::AssetId& id)
     {
         const auto& path = id.GetPath();
@@ -285,8 +300,6 @@ namespace Editor
             flags |= ImGuiTreeNodeFlags_Selected;
         }
 
-        const ImTextureID folderIcon = Icons::Get(Icons::Icon::Folder);
-
         ImVec2 lineStart = ImGui::GetCursorScreenPos();
         // Reserve space for icon to the left of TreeNodeEx
         ImGui::SetCursorPosX(lineStart.x + 8);
@@ -299,6 +312,7 @@ namespace Editor
         }
 
         // Draw icon after TreeNodeEx so hover highlight doesn't cover it
+        const ImTextureID folderIcon = Icons::Get(open ? Icons::Icon::FolderOpen : Icons::Icon::Folder);
         if (folderIcon != ImTextureID_Invalid)
         {
             float textH = ImGui::GetTextLineHeight();
@@ -415,8 +429,9 @@ namespace Editor
                     }
                     else
                     {
-                        if (folderIcon != ImTextureID_Invalid) {
-                            dl->AddImage(folderIcon, thumbMin, thumbMax);
+                        const ImTextureID icon = Icons::Get(AssetIcon(assetEntry->type));
+                        if (icon != ImTextureID_Invalid) {
+                            dl->AddImage(icon, thumbMin, thumbMax);
                         }
                     }
                 }
@@ -455,7 +470,7 @@ namespace Editor
 
                     const Spark::Resource::Asset* rawPtr = m_dragAsset.get();
                     ImGui::SetDragDropPayload("DRAG_ASSET_FILE", &rawPtr, sizeof(rawPtr));
-                    ImGui::Image(folderIcon, ImVec2(thumbSize, thumbSize));
+                    ImGui::Image(Icons::Get(AssetIcon(assetEntry->type)), ImVec2(thumbSize, thumbSize));
                     ImGui::Text("%s", name.c_str());
                     ImGui::EndDragDropSource();
                 }

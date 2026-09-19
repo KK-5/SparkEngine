@@ -27,16 +27,9 @@ namespace Editor
         //! Concentric with the well around it: the outer radius less the padding between.
         constexpr float kInnerRounding = kRounding - kWellPad;
 
-        //! Whole pixels. A list is exactly as tall as its rows, and a fraction left over is
-        //! enough for ImGui to decide the content overflows and grow a scrollbar.
-        constexpr float Whole(float value)
-        {
-            return static_cast<float>(static_cast<int>(value));
-        }
-
         // A dropdown row: a mark column, the label, and an optional shortcut at the right.
-        constexpr float kRowH     = Whole(Theme::Px(24.f));
-        constexpr float kListPadY = Whole(Theme::Px(4.f));
+        constexpr float kRowH     = Theme::Whole(Theme::Px(24.f));
+        constexpr float kListPadY = Theme::Whole(Theme::Px(4.f));
         constexpr float kRowPadX  = Theme::Px(9.f);
         constexpr float kMarkSide = Theme::Px(12.f);
         constexpr float kMarkRoom = Theme::Px(26.f);   // pad + mark + a gap before the label

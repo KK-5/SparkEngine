@@ -44,16 +44,26 @@ namespace Editor
         }
 
         constexpr float kMenuMinWidth = Theme::Px(208.f);
-        constexpr float kRowHeight    = Theme::Px(22.f);
+        // Every height inside a menu is whole: BeginMenu's popup takes no NoScrollbar flag.
+        constexpr float kRowHeight    = Theme::Whole(Theme::Px(22.f));
+        constexpr float kMenuPadY     = Theme::Whole(Theme::Px(4.f));
         constexpr float kRowPadX      = Theme::Px(12.f);
         constexpr float kRowGap       = Theme::Px(16.f);   // label to accelerator
+        constexpr float kIconSize     = Theme::Px(13.f);
+        constexpr float kIconGutter   = kIconSize + Theme::Px(8.f);
+
+        //! Whether the open menu keeps an icon column. Per menu, so every label in it lines
+        //! up whether or not its own row has an icon.
+        bool s_iconGutter = false;
 
         //! Styles the label in the bar, and the popup it opens. Close with EndTopMenu.
-        bool BeginTopMenu(const char* label)
+        bool BeginTopMenu(const char* label, bool iconGutter = false)
         {
+            s_iconGutter = iconGutter;
+
             // Read by the popup's own Begin, inside BeginMenu.
             ImGui::SetNextWindowSizeConstraints(ImVec2(kMenuMinWidth, 0.f), ImVec2(FLT_MAX, FLT_MAX));
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, Theme::Px(4.f)));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, kMenuPadY));
             ImGui::PushStyleColor(ImGuiCol_Border, Theme::kBorderPopup);
 
             ImGui::PushStyleColor(ImGuiCol_Text, Theme::kTextLabel);
@@ -84,10 +94,14 @@ namespace Editor
             ImGui::PopStyleVar();
         }
 
-        //! One row: label left, accelerator right in mono. Painted rather than left to
-        //! MenuItem, which draws both in the one current font.
-        bool MenuRow(const char* label, const char* shortcut = nullptr, bool enabled = true)
+        //! One row: icon, label, accelerator right in mono. Painted rather than left to
+        //! MenuItem, which draws them all in the one current font. `icon` is drawn only in a
+        //! menu opened with an icon gutter.
+        bool MenuRow(const char* label, const char* shortcut = nullptr, bool enabled = true,
+                     const Icons::Icon* icon = nullptr)
         {
+            const float gutter = s_iconGutter ? kIconGutter : 0.f;
+
             float labelWidth    = 0.f;
             float shortcutWidth = 0.f;
             {
@@ -102,7 +116,7 @@ namespace Editor
 
             // The measured width grows the auto-sized popup; SpanAvailWidth keeps the
             // highlight the popup's full width whatever that comes out as.
-            const float width = kRowPadX * 2.f + labelWidth + shortcutWidth;
+            const float width = kRowPadX * 2.f + gutter + labelWidth + shortcutWidth;
 
             ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Theme::kMenuHov);
             ImGui::PushID(label);
@@ -118,6 +132,22 @@ namespace Editor
             const bool   hovered = enabled && ImGui::IsItemHovered();
 
             ImDrawList* draw = ImGui::GetWindowDrawList();
+            if (s_iconGutter && icon)
+            {
+                const ImTextureID texture = Icons::Get(*icon);
+                if (texture != ImTextureID_Invalid)
+                {
+                    // A step dimmer than the label, so the column reads as a margin.
+                    ImU32 tint = Theme::kTextFaint;
+                    if (enabled)
+                    {
+                        tint = hovered ? Theme::kTextStrong : Theme::kTextDim;
+                    }
+                    const ImVec2 at(min.x + kRowPadX, (min.y + max.y - kIconSize) * 0.5f);
+                    draw->AddImage(texture, at, ImVec2(at.x + kIconSize, at.y + kIconSize),
+                                   ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), tint);
+                }
+            }
             {
                 Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeBody);
                 ImU32 color = Theme::kTextFaint;
@@ -125,7 +155,8 @@ namespace Editor
                 {
                     color = hovered ? Theme::kTextStrong : Theme::kTextItem;
                 }
-                draw->AddText(ImVec2(min.x + kRowPadX, (min.y + max.y - ImGui::GetFontSize()) * 0.5f),
+                draw->AddText(ImVec2(min.x + kRowPadX + gutter,
+                                     (min.y + max.y - ImGui::GetFontSize()) * 0.5f),
                               color, label);
             }
             if (shortcut)
@@ -140,7 +171,7 @@ namespace Editor
 
         void MenuSeparator()
         {
-            const float pad = Theme::Px(4.f);
+            const float pad = kMenuPadY;
             ImGui::Dummy(ImVec2(0.f, pad));
 
             const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -276,13 +307,18 @@ namespace Editor
         bool saveScene = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
         bool saveSAs   = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
 
-        if (BeginTopMenu("File")) {
-            newScene  |= MenuRow("New Scene", "Ctrl+N");
-            openScene |= MenuRow("Open...", "Ctrl+O");
-            saveScene |= MenuRow("Save", "Ctrl+S");
+        if (BeginTopMenu("File", true)) {
+            constexpr Icons::Icon kNew  = Icons::Icon::NewScene;
+            constexpr Icons::Icon kOpen = Icons::Icon::OpenScene;
+            constexpr Icons::Icon kSave = Icons::Icon::Save;
+            constexpr Icons::Icon kExit = Icons::Icon::Exit;
+
+            newScene  |= MenuRow("New Scene", "Ctrl+N", true, &kNew);
+            openScene |= MenuRow("Open...", "Ctrl+O", true, &kOpen);
+            saveScene |= MenuRow("Save", "Ctrl+S", true, &kSave);
             saveSAs   |= MenuRow("Save As...", "Ctrl+Shift+S");
             MenuSeparator();
-            if (MenuRow("Exit", "Alt+F4")) {
+            if (MenuRow("Exit", "Alt+F4", true, &kExit)) {
                 if (GLFWwindow* window = NativeWindow()) {
                     glfwSetWindowShouldClose(window, GLFW_TRUE);
                 }

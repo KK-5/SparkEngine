@@ -111,6 +111,13 @@ namespace Editor::Theme
     //! `t` of the way from `from` to `to`.
     ImU32 Blend(ImU32 from, ImU32 to, float t);
 
+    //! Whole pixels. An auto-sized popup is floored to whole pixels, so content a fraction
+    //! taller than that grows a scrollbar -- give its row heights and padding in these.
+    constexpr float Whole(float value)
+    {
+        return static_cast<float>(static_cast<int>(value));
+    }
+
     //! A whole-pixel position. Text painted on a half pixel comes out blurred, which reads
     //! as a flat, lifeless row.
     inline ImVec2 Snap(const ImVec2& position)

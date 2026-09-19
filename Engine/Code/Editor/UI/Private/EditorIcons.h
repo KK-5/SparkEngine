@@ -20,6 +20,14 @@ namespace Editor::Icons
     {
         App,        // the logo, in the menu bar and on the welcome screen
         Folder,
+        FolderOpen,
+        Image,
+        Mesh,
+        Material,
+        NewScene,
+        OpenScene,
+        Save,
+        Exit,
         Console,
         Assets,
         Search,

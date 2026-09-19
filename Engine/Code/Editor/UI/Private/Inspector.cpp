@@ -254,14 +254,9 @@ namespace Editor
         ImGui::EndChild();
         ImGui::PopStyleColor();
 
-        float height = windowSize.y - toolHeight;
         float rowHeight = Theme::Px(22.f);
-        uint32_t rowTotalCount = uint32_t(height / rowHeight) + 1;
-        uint32_t curRowCount = 0;
 
-        if (ImGui::BeginTable("EntityList", 1, 
-            ImGuiTableFlags_RowBg
-            ))
+        if (ImGui::BeginTable("EntityList", 1))
         {
             ImGui::TableSetupColumn("Entities", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHeaderWidth);
             auto DefaultSort = [&context](Entity ent1, Entity ent2)
@@ -293,7 +288,6 @@ namespace Editor
                     stack.pop();
 
                     ImGui::TableNextRow(ImGuiTableRowFlags_None, rowHeight);
-                    curRowCount++;
 
                     ImGui::TableSetColumnIndex(0);
                     nodeStack.emplace(eastl::make_unique<EntityNode>(cur));
@@ -322,12 +316,6 @@ namespace Editor
                         ImGui::EndPopup();
                     }
                 }
-            }
-
-            while(curRowCount < rowTotalCount)
-            {
-                ImGui::TableNextRow(ImGuiTableRowFlags_None, rowHeight);
-                curRowCount++;
             }
 
             ImGui::EndTable();
