@@ -17,6 +17,7 @@ set(SOURCES
     RenderGraph/RenderGraphCompiler.cpp
     RenderGraph/RenderGraphExecuter.cpp
     RenderGraph/RenderGraph.cpp
+    RenderGraph/PooledImage.cpp
     RenderSystem.cpp
     View/CameraViewSystem.cpp
     View/ShadowAtlasAllocator.cpp

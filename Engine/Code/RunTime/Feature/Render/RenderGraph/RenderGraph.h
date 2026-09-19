@@ -78,12 +78,16 @@ namespace Spark::Render
         //! barrier (srcQueue=producer, dstQueue=Graphics) on the transition cmd list.
         void SubmitSwapChainPresentTransition(RHIContext& ctx, RHI::Factory& factory);
 
+        //! Hand this frame's extracted images to the next frame as PreviousFrameOf, and
+        //! destroy pooled images nothing touched this frame. Runs before the executer
+        //! destroys the transient resources that carry ExtractedImage.
+        void ExtractImages(RHIContext& context);
 
         Ptr<RHI::Device>          m_device;
         Ptr<RHI::TransientResourcePool> m_pool;
-        //! Backs images kept across frames. A separate pool because the transient one
-        //! aliases heap memory by intra-frame lifetime, which is exactly what these must not do.
-        Ptr<RHI::ImagePool>             m_persistentImagePool;
+        //! Backs pooled images, which outlive the frame. Separate from the transient pool,
+        //! which aliases heap memory by intra-frame lifetime.
+        Ptr<RHI::ImagePool>             m_imagePool;
         Ptr<RHI::PipelineLibrary>       m_pipelineLibrary;
         RHI::CommandQueueContext  m_commandQueueContext;
         RHI::FenceSet             m_crossQueueFences;

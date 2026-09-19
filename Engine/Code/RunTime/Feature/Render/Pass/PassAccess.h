@@ -323,6 +323,24 @@ namespace Spark::Render
         return result;
     }
 
+    //! Whether a ReadPreviousImageAttachment slot has no previous frame to read (first
+    //! frame, a descriptor change, a reader resuming). Its image is bound regardless, with
+    //! undefined content — select it away rather than weighting it, as it may hold NaN.
+    template<typename PassTag>
+    bool IsPreviousFrameMissing(RHIContext& rhiCtx, RHI::InputName slot)
+    {
+        for (auto [handle, attachment] : rhiCtx.GetView<PassTag, ImagePassAttachment, PreviousFrameTag>().each())
+        {
+            if (attachment.m_slotName == slot)
+            {
+                return rhiCtx.Has<PreviousFrameMissingTag>(handle);
+            }
+        }
+
+        LOG_ERROR("[IsPreviousFrameMissing] No previous-frame attachment in slot {}.", slot.GetCStr());
+        return true;
+    }
+
     template<typename PassTag>
     RHI::Buffer* FindPassAttachmentBuffer(RHIContext& rhiCtx, RHI::InputName slot)
     {

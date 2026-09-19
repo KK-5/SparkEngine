@@ -1,5 +1,6 @@
 #include "RenderGraphCompiler.h"
 #include "RenderGraphUtils.h"
+#include "PooledImage.h"
 
 #include <EASTL/algorithm.h>
 #include <EASTL/bonus/overloaded.h>
@@ -760,136 +761,22 @@ namespace Spark::Render
         return result;
     }
 
-    namespace
-    {
-
-        //! Only what forces a reallocation — a differing clear value or queue mask does not.
-        bool SameImageStorage(const RHI::ImageDescriptor& a, const RHI::ImageDescriptor& b)
-        {
-            return a.m_size      == b.m_size
-                && a.m_format    == b.m_format
-                && a.m_bindFlags == b.m_bindFlags
-                && a.m_dimension == b.m_dimension
-                && a.m_arraySize == b.m_arraySize
-                && a.m_mipLevels == b.m_mipLevels
-                && a.m_isCubemap == b.m_isCubemap;
-        }
-
-        //! Give the entity a fresh image from the pool, replacing whatever it held. The old
-        //! image's last reference drops here; the pool defers its release by frameCountMax.
-        void AllocatePersistentImage(
-            RHIContext&                 ctx,
-            RHIHandle                   entity,
-            RHI::ImagePool&             pool,
-            const RHI::ImageDescriptor& desc,
-            const RHI::ClearValue*      optimizedClearValue,
-            const ObjectName&           debugName)
-        {
-            auto* factory = Service<RHI::Factory>::Get();
-            ASSERT(factory != nullptr, "RHI::Factory service is not registered.");
-
-            Ptr<RHI::Image> image = factory->CreateImage();
-            image->SetName(debugName);
-
-            RHI::ImageInitRequest request;
-            request.m_image               = image.get();
-            request.m_descriptor          = desc;
-            request.m_optimizedClearValue = optimizedClearValue;
-            const RHI::ResultCode result = pool.InitImage(request);
-            ASSERT(result == RHI::ResultCode::Success,
-                "[RenderGraphCompiler] Failed to allocate persistent image '{}'.", debugName.GetCStr());
-
-            // Cached views point at the image being replaced.
-            if (ctx.Has<RHI::Components::ImageViewCache>(entity))
-            {
-                ctx.Remove<RHI::Components::ImageViewCache>(entity);
-            }
-
-            ctx.AddOrReplace<RHI::ImageDescriptor>(entity, desc);
-            ctx.AddOrReplace<BackingImage>(entity, BackingImage{ image.get() });
-            ctx.AddOrReplace<Image>(entity, Image{ eastl::move(image) });
-        }
-    }
-
-    void RenderGraphCompiler::CompilePersistentImages(RHI::ImagePool& pool)
+    void RenderGraphCompiler::CompileExtractedImages(RHI::ImagePool& pool)
     {
         auto& ctx = *RHIExecuteContext::Current();
 
-        // The builder marked these when a pass declared a read of an earlier frame, and
-        // resolved the pair each name maps to. Taken out of the view first: the loop
-        // destroys entities, which the view cannot tolerate.
-        eastl::vector<RHIHandle> keptResources;
-        ctx.GetView<TransientTag, KeepAcrossFramesTag, PersistentImagePair>().each(
-            [&](RHIHandle resource, const PersistentImagePair&) { keptResources.push_back(resource); });
-
-        for (const RHIHandle declaredResource : keptResources)
+        // Attachments already point at these resources (CompileTransientResources links by
+        // name); only the backing differs — a pooled image that outlives the frame.
+        for (auto [resource, extracted] : ctx.GetView<TransientTag, ExtractedImage>().each())
         {
-            const RHI::AttachmentId   name = ctx.Get<ResourceName>(declaredResource).m_name;
-            const PersistentImagePair pair = ctx.Get<PersistentImagePair>(declaredResource);
+            // Copies: acquiring may add to the ImageDescriptor / BackingImage storages.
+            const RHI::ImageDescriptor desc = ctx.Get<RHI::ImageDescriptor>(resource);
+            const RHI::AttachmentId    name = ctx.Get<ResourceName>(resource).m_name;
+            extracted.m_pooledImage = AcquirePooledImage(
+                ctx, pool, desc, ctx.TryGet<RHI::ClearValue>(resource), name);
 
-            // The producer only had to ask for what it writes; reading it back is a shader read.
-            RHI::ImageDescriptor desc = ctx.Get<RHI::ImageDescriptor>(declaredResource);
-            desc.m_bindFlags |= RHI::ImageBindFlags::ShaderRead;
-
-            const auto* currentDesc = ctx.TryGet<RHI::ImageDescriptor>(pair.m_current);
-            const bool  needsImages = currentDesc == nullptr || !SameImageStorage(*currentDesc, desc);
-
-            if (needsImages)
-            {
-                // Two debug names so the pair is distinguishable in a capture; they stay with
-                // the entity, so the same image keeps its name as the tags rotate past it.
-                const RHI::ClearValue* clearValue = ctx.TryGet<RHI::ClearValue>(declaredResource);
-                const eastl::string base(name.GetCStr());
-                AllocatePersistentImage(ctx, pair.m_current,  pool, desc, clearValue, ObjectName{ base + "#0" });
-                AllocatePersistentImage(ctx, pair.m_previous, pool, desc, clearValue, ObjectName{ base + "#1" });
-                if (!ctx.Has<HistoryInvalidTag>(pair.m_previous))
-                {
-                    ctx.Add<HistoryInvalidTag>(pair.m_previous);
-                }
-            }
-
-            // Point this frame's references at the Current entity. Only compile sees them all:
-            // a pass declared after the history read may also read this name. The history
-            // reference itself was already resolved at build.
-            ctx.GetView<ImagePassAttachment>(Exclude<StaticImportTag, PreviousFrameTag>).each(
-                [&](RHIHandle, ImagePassAttachment& a)
-                {
-                    if (a.m_attachmentId.m_id == name)
-                    {
-                        a.m_image = pair.m_current;
-                    }
-                });
-
-            // Dropping the transient entity takes the name out of the transient set, so the
-            // image is neither pool-allocated nor given a lifetime interval to alias against.
-            ctx.DestoryEntity(declaredResource);
-        }
-    }
-
-    void RenderGraphCompiler::AdvancePersistentImages(RHIContext& context)
-    {
-        eastl::vector<RHIHandle> currents;
-        eastl::vector<RHIHandle> previouses;
-        context.GetView<PersistentImageTag>().each(
-            [&](RHIHandle entity)
-            {
-                (context.Has<HistoryCurrentTag>(entity) ? currents : previouses).push_back(entity);
-            });
-
-        for (RHIHandle entity : currents)
-        {
-            context.Remove<HistoryCurrentTag>(entity);
-            context.Add<HistoryPreviousTag>(entity);
-            // It was produced this frame, so as history it is now valid.
-            if (context.Has<HistoryInvalidTag>(entity))
-            {
-                context.Remove<HistoryInvalidTag>(entity);
-            }
-        }
-        for (RHIHandle entity : previouses)
-        {
-            context.Remove<HistoryPreviousTag>(entity);
-            context.Add<HistoryCurrentTag>(entity);
+            const BackingImage backing = ctx.Get<BackingImage>(extracted.m_pooledImage);
+            ctx.Add<BackingImage>(resource, backing);
         }
     }
 
@@ -930,6 +817,13 @@ namespace Spark::Render
 
                 const RHIHandle resource = it->second;
                 a.m_image = resource;   // primary link for Read/Write/Create attachments
+
+                // Backed by a pooled image (CompileExtractedImages): no transient allocation,
+                // no aliasing.
+                if (rhiContext.Has<ExtractedImage>(resource))
+                {
+                    return;
+                }
 
                 ASSERT(passContext.Has<PassGlobalTimeline>(a.m_pass),
                     "Transient image attachment {}'s pass has no PassGlobalTimeline.",

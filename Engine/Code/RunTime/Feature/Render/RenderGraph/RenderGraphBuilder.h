@@ -12,6 +12,13 @@
 #include <Pass/PassContext.h>
 #include <RHI/Context/RHIContext.h>
 
+#include "PooledImage.h"
+
+namespace Spark::RHI
+{
+    class ImagePool;
+}
+
 namespace Spark::Render
 {
     //! Per-call binding info for a transient image attachment (Create / Read /
@@ -142,9 +149,11 @@ namespace Spark::Render
 
         // ============================================================
         // ReadPrevious* — read the copy of an attachment produced one frame ago.
-        // A separate resource from this frame's same-named one, so it imposes no
-        // ordering: declaring it never constrains where this frame's producer runs.
-        // The resource is resolved by the persistent-resource compile stage, not here.
+        // Imports a pooled image, a separate resource from this frame's same-named
+        // one, so it imposes no ordering on this frame's producer. Also marks this
+        // frame's resource for extraction, so the next frame can read it back.
+        // The name must already be declared this frame, as for every Read*.
+        // Execute checks IsPreviousFrameMissing before trusting the content.
         // ============================================================
 
         template<typename PassTag>
@@ -233,12 +242,11 @@ namespace Spark::Render
         static RHIHandle FindImportedResourceByName(const RHI::AttachmentId& name);
 
         // Counterpart for transient resources, which exist from the Create that declared
-        // them. Used to link a history read to the resource it mirrors.
+        // them. Used to link a previous-frame read to the resource it mirrors.
         static RHIHandle FindTransientImageByName(const RHI::AttachmentId& name);
 
-        // The pair of entities a kept name resolves to, created on the first frame it is
-        // read. They outlive every frame, so this finds an existing pair most of the time.
-        static PersistentImagePair FindOrCreatePersistentPair(const RHI::AttachmentId& name);
+        // The pooled image holding last frame's `name`, or NullHandle.
+        static RHIHandle FindPreviousFrameImage(const RHI::AttachmentId& name);
 
         // Materialize a transient resource entity in RHIContext: TransientTag,
         // ResourceName, the resource descriptor, and the clear value it was declared
@@ -294,6 +302,9 @@ namespace Spark::Render
         Math::Vector2Int m_outputSize { 0, 0 };
 
         RHI::RHIHandle m_curSwapChainResource;
+
+        // Owned by RenderGraph; stand-ins for a missing previous frame come from here.
+        RHI::ImagePool* m_imagePool { nullptr };
     };
 
     template<typename PassTag, typename ComponentT>
@@ -341,58 +352,40 @@ namespace Spark::Render
     inline RHIHandle RenderGraphBuilder::FindImportedResourceByName(const RHI::AttachmentId& name)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
-        RHIHandle result = NullHandle;
-        rhiContext.GetView<ImportedTag, ResourceName>().each(
-            [&](RHIHandle resource, const ResourceName& rn)
+        for (auto [resource, rn] : rhiContext.GetView<ImportedTag, ResourceName>().each())
+        {
+            if (rn.m_name == name)
             {
-                if (rn.m_name == name) { result = resource; }
-            });
-        return result;
+                return resource;
+            }
+        }
+        return NullHandle;
     }
 
     inline RHIHandle RenderGraphBuilder::FindTransientImageByName(const RHI::AttachmentId& name)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
-        RHIHandle result = NullHandle;
-        rhiContext.GetView<TransientTag, ResourceName, RHI::ImageDescriptor>().each(
-            [&](RHIHandle resource, const ResourceName& rn, const RHI::ImageDescriptor&)
+        for (auto [resource, rn, desc] : rhiContext.GetView<TransientTag, ResourceName, RHI::ImageDescriptor>().each())
+        {
+            if (rn.m_name == name)
             {
-                if (rn.m_name == name) { result = resource; }
-            });
-        return result;
+                return resource;
+            }
+        }
+        return NullHandle;
     }
 
-    inline PersistentImagePair RenderGraphBuilder::FindOrCreatePersistentPair(const RHI::AttachmentId& name)
+    inline RHIHandle RenderGraphBuilder::FindPreviousFrameImage(const RHI::AttachmentId& name)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
-
-        PersistentImagePair pair;
-        rhiContext.GetView<PersistentImageTag, ResourceName>().each(
-            [&](RHIHandle resource, const ResourceName& rn)
+        for (auto [pooled, of] : rhiContext.GetView<PooledImageTag, PreviousFrameOf>().each())
+        {
+            if (of.m_name == name)
             {
-                if (rn.m_name != name) { return; }
-                (rhiContext.Has<HistoryCurrentTag>(resource) ? pair.m_current : pair.m_previous) = resource;
-            });
-
-        if (pair.m_current != NullHandle && pair.m_previous != NullHandle)
-        {
-            return pair;
+                return pooled;
+            }
         }
-
-        ASSERT(pair.m_current == NullHandle && pair.m_previous == NullHandle,
-            "Persistent image '{}' has half a pair.", name.GetCStr());
-
-        pair.m_current  = rhiContext.CreateEntity();
-        pair.m_previous = rhiContext.CreateEntity();
-        for (RHIHandle resource : { pair.m_current, pair.m_previous })
-        {
-            rhiContext.Add<PersistentImageTag>(resource);
-            rhiContext.Add<ResourceName>(resource, ResourceName{ name });
-        }
-        rhiContext.Add<HistoryCurrentTag>(pair.m_current);
-        rhiContext.Add<HistoryPreviousTag>(pair.m_previous);
-        // No image behind it yet; compile allocates and marks it invalid until produced.
-        return pair;
+        return NullHandle;
     }
 
     template<typename PassTag>
@@ -763,28 +756,47 @@ namespace Spark::Render
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
-        // Declaring the name comes first, as it does for every other Read*. So the resource
-        // this history mirrors is already known here: mark it, and compile is handed the
-        // set of images to keep rather than searching for it.
+        const AttachmentId id{ name, 0, 1 };
+
         auto& rhiContext = *RHIExecuteContext::Current();
         const RHIHandle declared = FindTransientImageByName(name);
         ASSERT(declared != NullHandle,
             "Previous-frame read of '{}' before any pass created it as a transient image. "
             "Declare the producing pass first.",
             name.GetCStr());
-        PersistentImagePair pair;
-        if (declared != NullHandle)
+        if (declared == NullHandle)
         {
-            pair = FindOrCreatePersistentPair(name);
-            rhiContext.AddOrReplace<KeepAcrossFramesTag>(declared);
-            rhiContext.AddOrReplace<PersistentImagePair>(declared, pair);
+            return id;
         }
 
-        // Version 0 with no m_latestVersions bump: nothing writes the previous frame's copy.
-        // The use entry lands under a key of its own, so BuildGraph sees readers and no
-        // writer and emits no edge — it still registers the pass as a node.
+        // This frame's resource is read back next frame, whatever its producer asked for.
+        auto& desc = rhiContext.Get<RHI::ImageDescriptor>(declared);
+        desc.m_bindFlags |= RHI::ImageBindFlags::ShaderRead;
+        rhiContext.AddOrReplace<ExtractedImage>(declared);
+
+        RHIHandle previous = FindPreviousFrameImage(name);
+        if (previous != NullHandle && !IsSameImageStorage(rhiContext.Get<RHI::ImageDescriptor>(previous), desc))
+        {
+            rhiContext.Remove<PreviousFrameOf>(previous);
+            previous = NullHandle;
+        }
+
+        // A real previous frame is never Active; one that is, is an earlier reader's stand-in.
+        const bool missing = previous == NullHandle || rhiContext.Has<PooledImageActiveTag>(previous);
+        if (previous == NullHandle)
+        {
+            ASSERT(m_imagePool != nullptr, "[RenderGraphBuilder] No image pool for previous-frame reads.");
+            previous = AcquirePooledImage(rhiContext, *m_imagePool, desc,
+                rhiContext.TryGet<RHI::ClearValue>(declared), name);
+            // Other readers of this name this frame share the stand-in.
+            rhiContext.Add<PreviousFrameOf>(previous, PreviousFrameOf{ name });
+        }
+
+        // No m_latestVersions bump: nothing writes the previous frame's copy. The use
+        // entry lands under a key of its own, so BuildGraph sees readers and no writer
+        // and emits no edge — it still registers the pass as a node.
         ImagePassAttachment a;
-        a.m_attachmentId    = AttachmentId{ name, 0, 1 };
+        a.m_attachmentId    = id;
         a.m_slotName        = bind.m_slot;
         a.m_access          = RHI::AttachmentAccess::Read;
         a.m_usage           = bind.m_usage;
@@ -792,11 +804,15 @@ namespace Spark::Render
         a.m_action          = bind.m_action;
         a.m_viewDescriptor  = bind.m_view;
         a.m_pass            = m_currentPass;
-        a.m_image           = pair.m_previous;   // known here, like an import
+        a.m_image           = previous;   // known here, like an import
 
         const RHIHandle handle = RegisterImageAttachment<PassTag>(a);
         rhiContext.Add<PreviousFrameTag>(handle);
-        return a.m_attachmentId;
+        if (missing)
+        {
+            rhiContext.Add<PreviousFrameMissingTag>(handle);
+        }
+        return id;
     }
 
     // ============================================================

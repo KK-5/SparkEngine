@@ -20,7 +20,7 @@
 | 4 | InstanceData `m_prevModel` | 已完成 |
 | 5 | 渲染 / 输出分辨率分离 | 已完成（含输出视图，修复场景未对齐编辑器面板） |
 | 6 | Velocity | 已实现，待验证 |
-| 7 | 跨帧保留的图资源 | 机制已实现，尚无调用方，未验证 |
+| 7 | 跨帧保留的图资源 | 已按"图资源每帧新建、存储池化"重写，尚无调用方，未验证 |
 | 8 | `ITemporalUpscaler` + TAA | 未开始 |
 
 ---
@@ -47,10 +47,10 @@ TAA 取邻域最近深度、`ConvertFromDeviceZ` 等 UE shader 默认 reversed-Z
 
 TAA 关闭时不施加 jitter，画面与现在一致。
 
-### 5. history 用两张 image 乒乓交换，不复用 `ImagePerFrame`
+### 5. history 由图的池化图提供，不复用 `ImagePerFrame`
 
 `ImagePerFrame` 按 `frameIndex`（swap chain 图像索引）轮换，`frameCountMax = 3` 时取到的是三帧前的内容，语义不是
-"上一帧"。
+"上一帧"。机制见步骤 7。
 
 ---
 
@@ -213,82 +213,97 @@ RG16F 存原始值，不压缩。
 
 ## 七、跨帧保留的图资源（I0）
 
-**形态：借鉴 UE 的提取（extraction），不是"为某个 Pass 维护一份历史"，而是"让图里某个资源的生命期延续到下一帧"。**
-TAA 历史、上一帧 SceneColor（SSR/SSGI）、上一帧深度与 HZB 都是同一个机制。
+**形态：借鉴 UE 的提取（extraction）。图资源每帧新建，只有存储跨帧。** 帧内所有资源都是普通资源；帧末把需要的
+资源的存储提取出去，下一帧作为导入资源读回。TAA 历史、上一帧 SceneColor（SSR/SSGI）、上一帧深度与 HZB 都是同一个机制。
+
+第一版实现把"跨帧的存储"做成了图资源实体本身（每个名字一对实体，帧末交换 tag），与生产者声明的瞬态实体是两个身份，
+编译期只能全量遍历 attachment 把 `m_image` 改指过去；另有"生产者必须先声明才能挂上 pair"、帧末无条件轮换等补丁。
+根源都是把"帧内身份"与"跨帧存储"放在了同一个实体上，已按下文重写。
 
 ### 声明：由读取者提出
 
 ```cpp
 builder.ReadPreviousImageAttachment<PassTag>("SceneColor", bind);
+// Execute 期
+if (IsPreviousFrameMissing<PassTag>(rhiCtx, slot)) { /* 历史权重取 0，用 select 而不是乘法 */ }
 ```
 
-一个调用表达两件事：引入上一帧的版本（若可用），并要求本帧的同名资源保留到下一帧。创建者（如 LightingPass）不需要知道谁读它
-的历史。所有 Build 在编译之前完成，编译器据此决定分配方式。
+一个调用表达两件事：导入上一帧的该名字资源，并要求本帧的同名资源在帧末被提取。名字必须在本帧已声明（与所有 `Read*`
+一致），因此读取时已知本帧描述符。创建者不需要知道谁读它的上一帧。
 
-**已知缺口**：乒乓对一旦建立就永久存在，帧末轮换对所有对无条件执行。读取者停几帧后回来，读到的是几帧前的陈旧内容，而不是
-"没有历史"。原设计以为"请求不连续则保留不连续"会自动成立，实际不成立 —— 请求停止后生产者写的是普通瞬态图，乒乓对照转不误。
-需要给对加上"上次被请求的帧号"，超期即标 `HistoryInvalidTag` 并回收。等第一个消费者接上后一起做。
+### 身份：附件标识带帧偏移
 
-### 身份：附件标识增加帧偏移维度
+`(名字, 版本, 帧偏移)`。上一帧的读取身份为 `(A, 0, 1)`，不登记 `m_latestVersions`，与本帧 `A` 的使用记录互不相干，
+建图时不产生边。帧偏移目前只有 0 / 1。
 
-`(名字, 帧偏移, 版本)`。帧偏移 0 为本帧，1 为上一帧；上一帧的版本按定义只读。不使用字符串后缀（无法校验、会与用户命名冲突、
-回看多帧要拼字符串）。建图时的依赖边必须比较完整身份，否则会在创建者与读取者之间连出错误的边。
+### 存储：池化图（`PooledImageTag` 实体）
 
-### 资源：RenderGraph 持有 ImagePool，两个实体轮换
+RenderGraph 持有一个 `ImagePool`（committed，释放按 `frameCountMax` 延迟），池化图从这里分配。池就是一组实体，
+状态全部用组件表达：
 
-- 被保留的资源**不带** `TransientTag`，也**不用** `ImportedTag`：历史实体与本帧同名资源共用 `ResourceName`，而 builder 的
-  `FindImportedResourceByName` 按 `ImportedTag` + 名字解析裸名字读取，挂上去会撞名。改用独立的 `PersistentImageTag`。
-- 从 RenderGraph 自己的 `ImagePool` 分配（committed，自带按 `frameCountMax` 的延迟回收），不参与别名分配，因此不影响 transient 池。
-- 每个被保留的名字对应两个持久实体，分别带 `HistoryCurrentTag` / `HistoryPreviousTag`，帧末交换：上一帧用完的那张成为下一帧的写入
-  目标，乒乓与复用同时得到，不需要额外的备用图管理。
-- **BindFlags 自动补齐**：创建者只知道本帧用法（可能只有 `Color`），读取请求所需的 `ShaderRead` 由编译期在创建前合并进描述符。
-
-### Build 定身份，Compile 定创建
-
-这是实现时调整最大的一处。原设计把找生产者、建历史实体、取 clear value 都放在编译期，结果是编译期反复按名字扫全表。正确的划分是：
-
-| 阶段 | 职责 | 落点 |
+| 组件 | 挂在 | 含义 |
 |---|---|---|
-| Build | 资源的身份与创建描述 | `KeepAcrossFramesTag`、`PersistentImagePair`、`ResourceName`、`ImageDescriptor`、`ClearValue` 全部挂在那个瞬态资源实体上 |
-| Compile | 按描述创建资源，并重写引用 | 一个视图取出被保留的资源，比较描述符决定是否分配，把本帧同名引用指向 Current，销毁瞬态实体 |
+| `PooledImageTag` | 池化实体 | 一张物理图；另有 `Image`、`ImageDescriptor`、`BackingImage`。**一个实体终身对应一张图**，`BackingImage` 与 view cache 永不过期 |
+| `PooledImageActiveTag` | 池化实体 | 本帧已被取用（缺失时的替身，或提取目标），帧末清除 |
+| `PreviousFrameOf{ name }` | 池化实体 | 内容是上一帧的 `name` |
+| `ExtractedImage{ pooledImage }` | 本帧瞬态资源实体 | 帧末提取。Build 挂上，Compile 填入 |
+| `PreviousFrameTag` / `PreviousFrameMissingTag` | 读上一帧的 attachment | 上一帧读取 / 没有上一帧内容 |
 
-两个连带结论：
+池化实体不挂 `ResourceName`：它作为导入资源进入图，若带名字会被裸名字 `Read` 经 `FindImportedResourceByName` 解析到。
 
-- **跨帧读同样要求名字先声明**。原设计特意绕开这条规则，理由是"生产者的 Build 可能还没跑"。这个理由站不住——builder 的每个
-  `Read*` 都走 `LookupLatestVersion`，本来就会断言名字未声明，单独给跨帧读开例外反而不一致。既然生产者必然先声明，声明时就能把
-  历史实体定下来，跨帧附件的 `m_image` 当场填好，和 `ImportImageAttachment` 同一个路子。
-- **只有"把本帧同名引用指向 Current"留在编译期**。晚于跨帧读声明的其他 Pass 也可能读这个名字，完整的引用集合只有 Build 全跑完
-  才数得全。`m_image` 是 attachment 指向真实资源的唯一链接，屏障、RenderPassBeginInfo、着色器绑定、执行期按 slot 取资源全走它，
-  不重定向就会拿到悬空句柄或 `NullHandle`。
+空闲 = `PooledImageTag` 且不带 `PreviousFrameOf`、`PooledImageActiveTag`。取用（`AcquirePooledImage`）先找描述符
+相同的空闲实体，没有才分配。
 
-帧偏移目前**直接断言等于 1**，不去算什么上界：乒乓对就是两张图，偏移的上限等于这个结构的容量，要回看更远是把对换成环，两者一起改。
+### 流程
 
-### 失效分两级
+| 阶段 | 做什么 |
+|---|---|
+| Build `ReadPrevious("A")` | 本帧 `A` 的描述符补 `ShaderRead`，挂 `ExtractedImage`。找 `PreviousFrameOf{A}`：描述符不符则摘掉它的 `PreviousFrameOf`；找不到就取一张空闲图作替身，当场挂 `PreviousFrameOf{A}`（同帧其他读取方共用）并标 missing。以 `(A, 0, 1)` 导入 |
+| Compile `CompileTransientResources` | 照常按名字把 `A` 的 attachment 接到 `A` 的瞬态实体；带 `ExtractedImage` 的跳过生命期累加，不进 transient 池、不参与别名 |
+| Compile `CompileExtractedImages` | 为每个 `ExtractedImage` 取一张空闲池化图作写入目标，其图写入 `A` 的 `BackingImage` |
+| 帧末 `ExtractImages`（在 executer `End` 销毁瞬态实体之前） | ① 销毁本帧既无 `PreviousFrameOf` 也未 Active 的池化实体 ② 清除全部 `PreviousFrameOf` ③ 每个提取目标挂 `PreviousFrameOf{A}` ④ 清除全部 Active |
+
+没有拷贝，也没有引用重写。稳定状态每个被提取的名字两张图：帧末一张成为 `PreviousFrameOf`，另一张回到空闲，下一帧
+立刻被取为写入目标——乒乓是池复用的结果，不是结构。替身判定：真正的上一帧图永远不是 Active，找到的 `PreviousFrameOf`
+若是 Active，就是本帧更早读取方取的替身。
+
+资源状态天然连续：本帧 `A` 与下一帧的导入实体是两个图资源，但背后是同一个 `RHI::Image`，首次访问的屏障都从
+`Image::GetResourceState()` 起算。
+
+### 回收
+
+"一整帧没被碰过"即回收（上表 ①），不需要闲置帧数参数：稳定状态下空闲图下一帧必被取走，留下一整帧的只可能是描述符
+已过期（窗口缩放）或读取方已停用。GPU 安全由 `ImagePool` 的延迟释放保证。读取方停一帧：其图保留一帧，回来时被复用、
+历史无效；停两帧以上则释放。
+
+### 失效
 
 | 级别 | 触发 | 处理 |
 |---|---|---|
-| 资源级 | 描述符变化（缩放）、首次分配 | Previous 实体带 `HistoryInvalidTag`，产出过一帧后由帧末轮换摘除 |
-| 视图级 | 镜头切换（`ViewHistoryResetTag`） | ViewBindings 增加 `g_CameraCut`，逐 view 生效 |
+| 资源级 | 首次读取、描述符变化、读取方恢复 | 读取的 attachment 带 `PreviousFrameMissingTag`，执行期 `IsPreviousFrameMissing` 查询 |
+| 视图级 | 镜头切换（`ViewHistoryResetTag`） | ViewBindings 增加 `g_CameraCut`，逐 view 生效（未做） |
 
-视图级不能让整张图失效：多个 view 共享同一张图，各占一块 rect，左半屏切镜头时右半屏的历史仍然有效。逐 view 执行的地方是 shader，
-所以标志放在 ViewBindings 里，消费者写成 `historyWeight *= 1 - g_CameraCut`（uniform 常量，不产生发散）。UE 的 `bCameraCut`
-是同一件事，只是它的后处理 Pass 按 view 实例化，标志作为 pass 参数传入。
+视图级不能让整张图失效：多个 view 共享同一张图，各占一块 rect，左半屏切镜头时右半屏的历史仍然有效。逐 view 执行的地方是
+shader，所以标志放在 ViewBindings 里，消费者写成 `historyWeight = g_CameraCut ? 0 : historyWeight`。
 
-`ViewHistoryResetTag` 的存活期改为整帧：由 `RenderSystem::OnTick` 在 `ExecutePipeline` 之后统一移除，CPU 侧消费者（自动曝光、
-流送、NRD 参数）在帧内任何位置都能读到。目前还没有生产者，来源在世界层（切换相机、瞬移、加载场景）。
+`ViewHistoryResetTag` 的存活期改为整帧：由 `RenderSystem::OnTick` 在 `ExecutePipeline` 之后统一移除。目前还没有生产者，
+来源在世界层（切换相机、瞬移、加载场景）。
 
 ### 暂不处理
 
-多个 view 各自拥有不同尺寸的独立目标时，附件身份还要再加一个 view 维度，`GetRenderSize()` 与保留资源的键都按 view 区分。这与 builder
-目前只有一个 `renderSize` 是同一个限制，届时一起改。共享目标的左右分屏不需要这一步。
+- 池化图的描述符只取生产者声明 + `ShaderRead`，队列掩码不随实际使用累加；跨帧、跨队列的 fence 等待（`PendingSync`）
+  只覆盖 `ImportedTag`。在历史资源进入 async compute 之前补上。
+- 回看多帧：帧偏移 > 1。
+- 多个 view 各自拥有不同尺寸的独立目标时，附件身份还要再加一个 view 维度，与 builder 目前只有一个 `renderSize` 是同一个
+  限制，届时一起改。共享目标的左右分屏不需要这一步。
+- 替身图在 Build 期分配 RHI 资源。从 Pass 看它就是一个已有的导入资源，分配是池内细节。
 
 ### 当前状态
 
-机制已落地：`ReadPreviousImageAttachment`、`CompilePersistentImages`、`AdvancePersistentImages`、RenderGraph 持有的 `ImagePool`。
-但**还没有任何 Pass 调用它**，`CompilePersistentImages` 每帧在第一步就返回，整条路径一次没跑过。别名屏障那里编译期会向 transient
-池查询，持久图不在池子的记录里，这一条只有真跑起来才知道。视图级失效（`g_CameraCut` / `ViewHistoryResetTag`）也还没做。
+机制已落地，Debug 全量构建通过。**还没有任何 Pass 调用**，整条路径一次没跑过。
 
-**验证**：等第一个消费者（TAA）接上后一起验证 —— 窗口反复缩放、TAA 反复开关后无泄漏、无 validation 报错；历史无效帧输出当前帧。
+**验证**：等第一个消费者（TAA）接上后一起验证 —— 窗口反复缩放、TAA 反复开关后池化图数量回到稳定值、无泄漏、无
+validation 报错；首帧与缩放后一帧 `IsPreviousFrameMissing` 为真；RenderDoc 中两张池化图逐帧交替。
 
 ---
 

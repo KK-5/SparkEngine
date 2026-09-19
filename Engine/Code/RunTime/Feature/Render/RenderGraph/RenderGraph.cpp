@@ -43,21 +43,22 @@ namespace Spark::Render
             return false;
         }
 
-        m_persistentImagePool = factory.CreateImagePool();
-        ASSERT(m_persistentImagePool != nullptr, "[RenderGraph] Factory::CreateImagePool returned null.");
+        m_imagePool = factory.CreateImagePool();
+        ASSERT(m_imagePool != nullptr, "[RenderGraph] Factory::CreateImagePool returned null.");
         {
-            // Superset of what a kept image may be declared with: the pool validates that
+            // Superset of what a pooled image may be declared with: the pool validates that
             // each image's flags are contained here.
             RHI::ImagePoolDescriptor poolDesc;
             poolDesc.m_bindFlags = RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil
                                  | RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::ShaderWrite
                                  | RHI::ImageBindFlags::CopyRead | RHI::ImageBindFlags::CopyWrite;
-            if (m_persistentImagePool->Init(device, poolDesc) != RHI::ResultCode::Success)
+            if (m_imagePool->Init(device, poolDesc) != RHI::ResultCode::Success)
             {
-                LOG_ERROR("[RenderGraph] Persistent image pool initialize failed.");
+                LOG_ERROR("[RenderGraph] Image pool initialize failed.");
                 return false;
             }
         }
+        m_builder.m_imagePool = m_imagePool.get();
 
         m_pipelineLibrary = factory.CreatePipelineLibrary();
         ASSERT(m_pipelineLibrary != nullptr, "[RenderGraph] Factory::CreatePipelineLibrary returned null.");
@@ -181,14 +182,15 @@ namespace Spark::Render
             m_swapchainResource = NullHandle;
         }
 
-        // Persistent images outlive every frame, so nothing else reaps them.
-        eastl::vector<RHIHandle> persistentImages;
-        context.GetView<PersistentImageTag>().each(
-            [&](RHIHandle entity) { persistentImages.push_back(entity); });
-        for (RHIHandle entity : persistentImages)
+        // Pooled images outlive every frame, so nothing else reaps them.
+        eastl::vector<RHIHandle> pooledImages;
+        context.GetView<PooledImageTag>().each(
+            [&](RHIHandle entity) { pooledImages.push_back(entity); });
+        for (RHIHandle entity : pooledImages)
         {
             context.DestoryEntity(entity);
         }
+        m_builder.m_imagePool = nullptr;
     }
 
     void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex,
@@ -241,11 +243,11 @@ namespace Spark::Render
         // on demand from each resource's view cache. A ShaderBindings that samples a
         // transient image must obtain its view (FindPassAttachmentImageView) before
         // CompileShaderInputs so the descriptor is compiled with it.
-        // Before the transient stage: it takes the kept names out of the transient set and
-        // resolves their attachments itself.
-        m_compiler.CompilePersistentImages(*m_persistentImagePool);
-
         m_compiler.CompileTransientResources(*m_pool);
+
+        // After the transient stage, which links the extracted resources' attachments and
+        // leaves them out of the pool.
+        m_compiler.CompileExtractedImages(*m_imagePool);
 
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
 
@@ -469,11 +471,11 @@ namespace Spark::Render
                 });
         }
 
+        // Before End, which destroys the transient resources carrying ExtractedImage.
+        ExtractImages(context);
+
         m_executer.End();
         ////////////////////////////////////////////////
-
-        // After execute: what this frame produced is what next frame reads as history.
-        RenderGraphCompiler::AdvancePersistentImages(context);
 
         m_commandQueueContext.End();
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
@@ -600,5 +602,31 @@ namespace Spark::Render
         cmd->FlushBarriers();
         cmd->Close();
         gfxQueue.ExecuteCommands({ &cmd, 1 });
+    }
+
+    void RenderGraph::ExtractImages(RHIContext& context)
+    {
+        // Neither read as a previous frame nor taken this frame. In steady state every
+        // idle image is taken the next frame, so one left untouched for a whole frame
+        // will not be: its descriptor went stale, or its reader stopped. The pool defers
+        // the actual release past in-flight frames.
+        eastl::vector<RHIHandle> untouched;
+        context.GetView<PooledImageTag>(Exclude<PreviousFrameOf, PooledImageActiveTag>).each(
+            [&](RHIHandle pooled) { untouched.push_back(pooled); });
+        for (RHIHandle pooled : untouched)
+        {
+            context.DestoryEntity(pooled);
+        }
+
+        // Only what was produced this frame is next frame's previous frame; a name no one
+        // read this frame has none.
+        context.Clear<PreviousFrameOf>();
+        context.GetView<TransientTag, ExtractedImage, ResourceName>().each(
+            [&](RHIHandle, const ExtractedImage& extracted, const ResourceName& rn)
+            {
+                context.Add<PreviousFrameOf>(extracted.m_pooledImage, PreviousFrameOf{ rn.m_name });
+            });
+
+        context.Clear<PooledImageActiveTag>();
     }
 }
