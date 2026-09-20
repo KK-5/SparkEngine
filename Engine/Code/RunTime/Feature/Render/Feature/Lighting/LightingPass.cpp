@@ -43,7 +43,6 @@ namespace Spark::Render
             { "GBufferNormal",    "g_GBufferNormal"    },
             { "GBufferSurface",   "g_GBufferSurface"   },
             { "GBufferBaseColor", "g_GBufferBaseColor" },
-            { "GBufferEmissive",  "g_Emissive"         },
         };
 
         // SceneDepth is sampled (not the color GBuffer) to reconstruct world position.
@@ -72,15 +71,13 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // Single color target (SceneColor) + read-only SceneDepth. The full-screen
-        // triangle sits at the far plane (z=0, reversed-Z) and is depth-tested Less against
-        // SceneDepth: only pixels with geometry (depth > 0) survive, replacing the old
-        // shader discard and keeping early-Z. Depth is never written (writeMask Zero),
-        // so the DSV stays read-only and can coexist with the depth SRV.
+        // Single color target (SceneColor, owned by GBufferPass) + read-only SceneDepth.
+        // The full-screen triangle sits at the far plane (z=0, reversed-Z) and is
+        // depth-tested Less against SceneDepth, so only pixels with geometry survive.
+        // Depth is never written (writeMask Zero), so the DSV stays read-only and can
+        // coexist with the depth SRV.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 1;
-        // SceneColor is linear HDR; this pass writes raw radiance (tonemapping now
-        // happens in the final TonemapPass, not here). Must match DepthPrePass's format.
         rt.m_colorFormats[0]      = RHI::Format::R16G16B16A16_FLOAT;
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
@@ -95,6 +92,18 @@ namespace Spark::Render
         states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::Less;
         states.m_depthStencilState.m_stencil.m_enable  = 0;
         states.m_rasterState.m_cullMode                = RHI::CullMode::None; // full-screen triangle
+
+        // Additive: SceneColor already holds the emissive GBufferPass wrote, and the other
+        // lighting passes blend onto the same target. Alpha keeps the destination — nothing
+        // reads it, and summing it would only confuse a capture.
+        auto& blend = states.m_blendState.m_targets[0];
+        blend.m_enable          = 1;
+        blend.m_blendSource     = RHI::BlendFactor::One;
+        blend.m_blendDest       = RHI::BlendFactor::One;
+        blend.m_blendOp         = RHI::BlendOp::Add;
+        blend.m_blendAlphaSource = RHI::BlendFactor::Zero;
+        blend.m_blendAlphaDest   = RHI::BlendFactor::One;
+        blend.m_blendAlphaOp     = RHI::BlendOp::Add;
 
         RenderPassConfig cfg;
         cfg.m_vertexShader       = shaderAsset;
@@ -121,27 +130,17 @@ namespace Spark::Render
             .RendersView<MainViewTag>()
             .Build([](RenderGraphBuilder& builder)
             {
-                // Create SceneColor here: LightingPass is the first pass that produces
-                // scene color (linear HDR), so it owns the resource (DepthPrePass is now
-                // depth-only). Clear to the background color; pixels this pass depth-culls
-                // (sky) keep the clear for the skybox to fill afterwards. ShaderRead so the
-                // final TonemapPass can sample it.
-                auto colorDesc = RHI::ImageDescriptor::Create2D(
-                    RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                    builder.GetRenderSize().x,
-                    builder.GetRenderSize().y,
-                    RHI::Format::R16G16B16A16_FLOAT);
-
+                // GBufferPass owns SceneColor and left the emissive in it; this pass
+                // blends its lighting on top, so the contents are loaded, not cleared.
                 Render::ImageAttachmentBindInfo colorBind;
                 colorBind.m_slot  = RHI::InputName("SceneColor");
                 colorBind.m_usage = RHI::AttachmentUsage::RenderTarget;
                 colorBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
-                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 colorBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.CreateImageAttachment<SPARK_PASS_TAG("LightingPass")>(
-                    RHI::AttachmentId("SceneColor"), colorDesc, colorBind, RHI::AttachmentAccess::Write);
+                builder.WriteImageAttachment<SPARK_PASS_TAG("LightingPass")>(
+                    RHI::AttachmentId("SceneColor"), colorBind);
 
                 // Read the GBuffer color targets as shader resources. Declaring them
                 // here makes the graph (a) order this pass after GBufferPass and (b)

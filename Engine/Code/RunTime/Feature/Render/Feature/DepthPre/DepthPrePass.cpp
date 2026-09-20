@@ -36,7 +36,7 @@ namespace Spark::Render
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
         // Depth-only pass: no color attachment. SceneColor is created and owned by
-        // LightingPass (the first pass that produces scene color). NumRenderTargets = 0.
+        // GBufferPass (the first pass that produces scene radiance). NumRenderTargets = 0.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 0;
         rt.m_depthStencilFormat = RHI::Format::D32_FLOAT;

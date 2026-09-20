@@ -44,10 +44,10 @@ namespace Spark::Render
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 5;
         // Layout and channel assignment: Shaders/Lib/DeferredShadingCommon.hlsli.
-        rt.m_colorFormats[0]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferNormal
-        rt.m_colorFormats[1]      = RHI::Format::R8G8B8A8_UNORM;      // GBufferSurface
-        rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM_SRGB; // GBufferBaseColor
-        rt.m_colorFormats[3]      = RHI::Format::R11G11B10_FLOAT;     // Emissive (HDR)
+        rt.m_colorFormats[0]      = RHI::Format::R16G16B16A16_FLOAT;  // SceneColor (emissive)
+        rt.m_colorFormats[1]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferNormal
+        rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM;      // GBufferSurface
+        rt.m_colorFormats[3]      = RHI::Format::R8G8B8A8_UNORM_SRGB; // GBufferBaseColor
         rt.m_colorFormats[4]      = RHI::Format::R16G16_FLOAT;        // Velocity (NDC)
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
@@ -121,6 +121,13 @@ namespace Spark::Render
                         RHI::AttachmentId(id), desc, bind, RHI::AttachmentAccess::Write);
                 };
 
+                // This pass owns SceneColor: it is the first to produce scene radiance
+                // (the material's emissive), and every lighting pass after it blends on
+                // top. The clear happens at BeginRenderPass whatever the depth test does,
+                // so sky pixels keep it for the skybox to overwrite.
+                createColor("SceneColor", RHI::Format::R16G16B16A16_FLOAT,
+                    RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f));
+
                 // Every pass that reads these depth-tests the sky away, so the clear values
                 // only have to decode to something sane in a capture: +Z normal, Unlit,
                 // black unoccluded base color.
@@ -130,9 +137,6 @@ namespace Spark::Render
                     RHI::ClearValue::CreateVector4Float(0.f, 0.5f, 1.f, 0.f));
                 createColor("GBufferBaseColor", RHI::Format::R8G8B8A8_UNORM_SRGB,
                     RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f));
-                // HDR emissive; cleared to black so non-emissive / sky pixels add nothing.
-                createColor("GBufferEmissive", RHI::Format::R11G11B10_FLOAT,
-                    RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f));
                 // kVelocityUnwritten in Lib/Velocity.hlsli: marks pixels no geometry covered.
                 createColor("Velocity", RHI::Format::R16G16_FLOAT,
                     RHI::ClearValue::CreateVector4Float(65504.f, 65504.f, 0.f, 0.f));

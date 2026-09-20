@@ -21,11 +21,11 @@ struct VSOutput
 
 struct PSOutput
 {
-    float4 normal    : SV_Target0;  // GBufferNormal,    see Lib/DeferredShadingCommon.hlsli
-    float4 surface   : SV_Target1;  // GBufferSurface
-    float4 baseColor : SV_Target2;  // GBufferBaseColor
-    float4 emissive  : SV_Target3;  // rgb HDR emissive, added directly in the lighting pass
-    float4 velocity  : SV_Target4;  // rg NDC motion, see Lib/Velocity.hlsli
+    float4 sceneColor : SV_Target0;  // emissive; the lighting passes blend onto it
+    float4 normal     : SV_Target1;  // GBufferNormal, see Lib/DeferredShadingCommon.hlsli
+    float4 surface    : SV_Target2;  // GBufferSurface
+    float4 baseColor  : SV_Target3;  // GBufferBaseColor
+    float4 velocity   : SV_Target4;  // rg NDC motion, see Lib/Velocity.hlsli
 };
 
 VSOutput VSMain(VertexFactoryInput input)
@@ -58,7 +58,7 @@ PSOutput EncodeGBuffer(MaterialPixelParameters parameters, PixelMaterialInputs i
     output.surface   = float4(inputs.Metallic, inputs.Specular, inputs.Roughness,
                               EncodeShadingModel(SHADINGMODELID_DEFAULT_LIT, 0));
     output.baseColor = float4(inputs.BaseColor, inputs.AmbientOcclusion);
-    output.emissive  = float4(inputs.EmissiveColor, 1.0);
+    output.sceneColor = float4(inputs.EmissiveColor, 1.0);
     return output;
 }
 
