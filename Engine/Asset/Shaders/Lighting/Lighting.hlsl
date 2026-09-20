@@ -106,5 +106,5 @@ float4 PSMain(VSOutput input) : SV_Target0
     }
 
     // Alpha is held by the blend state, so what is written here never lands.
-    return float4(color, 0.0);
+    return float4(color * g_PreExposure, 0.0);
 }

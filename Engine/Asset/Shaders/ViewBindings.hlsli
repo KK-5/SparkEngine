@@ -26,6 +26,13 @@ cbuffer ViewBindings : register(b0, space1)
     float4   g_InvDeviceZToViewZ;    // see ConvertFromDeviceZ
 
     float    g_Exposure;             // linear pre-tonemap exposure multiplier; 1.0 = neutral
+
+    // Encoding scale, not an artistic one: every shader that writes SceneColor multiplies
+    // by it and Tonemap divides it back out, to sit the scene's magnitudes in a good part
+    // of FP16's range. Fixed at 1 until EyeAdaptation drives it.
+    float    g_PreExposure;
+    float    g_OneOverPreExposure;
+
     uint     g_FrameNumber;
     float    g_GameTime;             // seconds; stops under pause, stretches under time scale
     float    g_PrevGameTime;

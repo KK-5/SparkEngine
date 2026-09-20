@@ -55,7 +55,8 @@ float3 OETF(float3 linearColor)
 float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy - g_ViewRectMin.xy + g_InputViewRectMin.xy), 0);
-    float3 hdr = g_SceneColor.Load(px).rgb;
+    // Out of the PreExposure domain first; g_Exposure is the artistic scale, this is not.
+    float3 hdr = g_SceneColor.Load(px).rgb * g_OneOverPreExposure;
 
     hdr *= g_Exposure;                 // (1) exposure: linear scale before the tone curve
     float3 mapped = ToneCurve(hdr);    // (2) tone curve

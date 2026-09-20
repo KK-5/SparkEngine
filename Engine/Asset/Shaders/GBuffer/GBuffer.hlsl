@@ -58,7 +58,7 @@ PSOutput EncodeGBuffer(MaterialPixelParameters parameters, PixelMaterialInputs i
     output.surface   = float4(inputs.Metallic, inputs.Specular, inputs.Roughness,
                               EncodeShadingModel(SHADINGMODELID_DEFAULT_LIT, 0));
     output.baseColor = float4(inputs.BaseColor, inputs.AmbientOcclusion);
-    output.sceneColor = float4(inputs.EmissiveColor, 1.0);
+    output.sceneColor = float4(inputs.EmissiveColor * g_PreExposure, 1.0);
     return output;
 }
 

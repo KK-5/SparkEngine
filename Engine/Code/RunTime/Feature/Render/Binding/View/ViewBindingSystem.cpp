@@ -62,6 +62,13 @@ namespace Spark::Render
                 Math::DeviceZToViewZParams(view.m_viewToClip));
 
             SetShaderConstant(bindings, RHI::InputName("g_Exposure"),     view.m_exposure);
+
+            // P3's EyeAdaptation writes this from last frame's measured exposure; until
+            // then it is 1, so the multiply and divide cancel exactly.
+            constexpr float preExposure = 1.0f;
+            SetShaderConstant(bindings, RHI::InputName("g_PreExposure"),        preExposure);
+            SetShaderConstant(bindings, RHI::InputName("g_OneOverPreExposure"), 1.0f / preExposure);
+
             SetShaderConstant(bindings, RHI::InputName("g_FrameNumber"),  static_cast<uint32_t>(time.m_frameNumber));
             SetShaderConstant(bindings, RHI::InputName("g_GameTime"),     static_cast<float>(time.m_gameTime));
             SetShaderConstant(bindings, RHI::InputName("g_PrevGameTime"), static_cast<float>(time.m_prevGameTime));

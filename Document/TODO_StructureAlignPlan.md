@@ -324,7 +324,12 @@ IBL 路径反而不要它。保持在各自的消费点。
 - 除的地方：`Tonemap.hlsl` 第一行，`hdr *= g_OneOverPreExposure`。它与已有的 `g_Exposure` 是两件事——
   PreExposure 是编码尺度（把 FP16 的有效范围挪到场景亮度上），`g_Exposure` 是美术意图。
 
-`TemporalAA.hlsl` 不需要改：它的输入输出都在 PreExposure 域内，比值运算对尺度不敏感。
+`TemporalAA.hlsl` 不需要改，但**不是因为它对尺度不敏感**——它的 `ToPerceptual`（`c / (1 + luma)`）依赖绝对量级。
+不改是因为它本来就该工作在 pre-exposed 域里：UE 同样把 TAA 放在这个位置，PreExposure 的作用之一正是把场景
+量级挪到这个加权函数生效的区间。
+
+`GBufferPass` 里 SceneColor 的 clear 值是唯一一处没乘 PreExposure 的 SceneColor 写入。它只在没有天空盒时可见，
+今天 PreExposure 恒 1 所以无影响，但 P3 驱动它之后必须一起缩放，否则回退背景会偏。代码里已标注。
 
 这两个乘除落在哪一段、和 `g_Exposure` 的分工，见 §五。
 

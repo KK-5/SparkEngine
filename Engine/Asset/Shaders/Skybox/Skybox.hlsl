@@ -62,5 +62,5 @@ float4 PSMain(VSOutput input) : SV_Target0
 
     // Same factor the deferred lighting applies to both IBL terms — scaling only one would
     // decouple the visible sky from the light it casts.
-    return float4(color * g_EnvIntensity, 1.0);
+    return float4(color * g_EnvIntensity * g_PreExposure, 1.0);
 }

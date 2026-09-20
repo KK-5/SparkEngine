@@ -125,6 +125,11 @@ namespace Spark::Render
                 // (the material's emissive), and every lighting pass after it blends on
                 // top. The clear happens at BeginRenderPass whatever the depth test does,
                 // so sky pixels keep it for the skybox to overwrite.
+                //
+                // The clear is the one SceneColor write not scaled by PreExposure. It only
+                // shows with no skybox, and PreExposure is 1 today -- but it has to be
+                // scaled too once P3's EyeAdaptation drives it, or the fallback background
+                // comes out wrong.
                 createColor("SceneColor", RHI::Format::R16G16B16A16_FLOAT,
                     RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f));
 
