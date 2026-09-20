@@ -40,10 +40,10 @@ namespace Spark::Render
         };
 
         constexpr GBufferBinding s_gbufferBindings[] = {
-            { "GBufferAlbedo",   "g_Albedo"   },
-            { "GBufferNormal",   "g_Normal"   },
-            { "GBufferORM",      "g_ORM"      },
-            { "GBufferEmissive", "g_Emissive" },
+            { "GBufferNormal",    "g_GBufferNormal"    },
+            { "GBufferSurface",   "g_GBufferSurface"   },
+            { "GBufferBaseColor", "g_GBufferBaseColor" },
+            { "GBufferEmissive",  "g_Emissive"         },
         };
 
         // SceneDepth is sampled (not the color GBuffer) to reconstruct world position.
@@ -143,7 +143,7 @@ namespace Spark::Render
                 builder.CreateImageAttachment<SPARK_PASS_TAG("LightingPass")>(
                     RHI::AttachmentId("SceneColor"), colorDesc, colorBind, RHI::AttachmentAccess::Write);
 
-                // Read the three GBuffer color targets as shader resources. Declaring them
+                // Read the GBuffer color targets as shader resources. Declaring them
                 // here makes the graph (a) order this pass after GBufferPass and (b)
                 // transition them from RenderTarget to shader-read before this pass runs.
                 // The actual view→SRG binding happens in the Compile hook below.

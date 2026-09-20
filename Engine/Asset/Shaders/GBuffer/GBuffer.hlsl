@@ -1,4 +1,5 @@
 #include <Shaders/ViewBindings.hlsli>
+#include <Shaders/Lib/DeferredShadingCommon.hlsli>
 #include <Shaders/Material/MaterialTemplate.hlsli>
 #include <Shaders/VertexFactory/LocalVertexFactory.hlsli>
 #include <Shaders/Lib/Velocity.hlsli>
@@ -20,11 +21,11 @@ struct VSOutput
 
 struct PSOutput
 {
-    float4 albedo   : SV_Target0;  // rgb base color
-    float4 normal   : SV_Target1;  // xyz world-space normal, stored raw in [-1, 1]
-    float4 orm      : SV_Target2;  // r = occlusion, g = roughness, b = metallic
-    float4 emissive : SV_Target3;  // rgb HDR emissive, added directly in the lighting pass
-    float4 velocity : SV_Target4;  // rg NDC motion, see Lib/Velocity.hlsli
+    float4 normal    : SV_Target0;  // GBufferNormal,    see Lib/DeferredShadingCommon.hlsli
+    float4 surface   : SV_Target1;  // GBufferSurface
+    float4 baseColor : SV_Target2;  // GBufferBaseColor
+    float4 emissive  : SV_Target3;  // rgb HDR emissive, added directly in the lighting pass
+    float4 velocity  : SV_Target4;  // rg NDC motion, see Lib/Velocity.hlsli
 };
 
 VSOutput VSMain(VertexFactoryInput input)
@@ -52,10 +53,12 @@ VSOutput VSMain(VertexFactoryInput input)
 PSOutput EncodeGBuffer(MaterialPixelParameters parameters, PixelMaterialInputs inputs)
 {
     PSOutput output = (PSOutput)0;
-    output.albedo   = float4(inputs.BaseColor, 1.0);
-    output.normal   = float4(parameters.WorldNormal, 0.0);
-    output.orm      = float4(inputs.AmbientOcclusion, inputs.Roughness, inputs.Metallic, 1.0);
-    output.emissive = float4(inputs.EmissiveColor, 1.0);
+    // normal.a is PerObjectGBufferData in UE; nothing produces it here yet.
+    output.normal    = float4(EncodeNormal(parameters.WorldNormal), 0.0);
+    output.surface   = float4(inputs.Metallic, inputs.Specular, inputs.Roughness,
+                              EncodeShadingModel(SHADINGMODELID_DEFAULT_LIT, 0));
+    output.baseColor = float4(inputs.BaseColor, inputs.AmbientOcclusion);
+    output.emissive  = float4(inputs.EmissiveColor, 1.0);
     return output;
 }
 

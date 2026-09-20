@@ -43,9 +43,10 @@ namespace Spark::Render
         // world position from SceneDepth, so no position target is written.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 5;
-        rt.m_colorFormats[0]      = RHI::Format::R8G8B8A8_UNORM;      // Albedo
-        rt.m_colorFormats[1]      = RHI::Format::R16G16B16A16_FLOAT;  // Normal (world, raw)
-        rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM;      // ORM
+        // Layout and channel assignment: Shaders/Lib/DeferredShadingCommon.hlsli.
+        rt.m_colorFormats[0]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferNormal
+        rt.m_colorFormats[1]      = RHI::Format::R8G8B8A8_UNORM;      // GBufferSurface
+        rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM_SRGB; // GBufferBaseColor
         rt.m_colorFormats[3]      = RHI::Format::R11G11B10_FLOAT;     // Emissive (HDR)
         rt.m_colorFormats[4]      = RHI::Format::R16G16_FLOAT;        // Velocity (NDC)
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
@@ -120,11 +121,14 @@ namespace Spark::Render
                         RHI::AttachmentId(id), desc, bind, RHI::AttachmentAccess::Write);
                 };
 
-                createColor("GBufferAlbedo", RHI::Format::R8G8B8A8_UNORM,
-                    RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f));
-                createColor("GBufferNormal", RHI::Format::R16G16B16A16_FLOAT,
-                    RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f));
-                createColor("GBufferORM", RHI::Format::R8G8B8A8_UNORM,
+                // Every pass that reads these depth-tests the sky away, so the clear values
+                // only have to decode to something sane in a capture: +Z normal, Unlit,
+                // black unoccluded base color.
+                createColor("GBufferNormal", RHI::Format::R10G10B10A2_UNORM,
+                    RHI::ClearValue::CreateVector4Float(0.5f, 0.5f, 1.f, 0.f));
+                createColor("GBufferSurface", RHI::Format::R8G8B8A8_UNORM,
+                    RHI::ClearValue::CreateVector4Float(0.f, 0.5f, 1.f, 0.f));
+                createColor("GBufferBaseColor", RHI::Format::R8G8B8A8_UNORM_SRGB,
                     RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f));
                 // HDR emissive; cleared to black so non-emissive / sky pixels add nothing.
                 createColor("GBufferEmissive", RHI::Format::R11G11B10_FLOAT,

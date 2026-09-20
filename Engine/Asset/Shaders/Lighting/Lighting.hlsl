@@ -1,6 +1,6 @@
-// Lighting.hlsl — deferred lighting pass. Full-screen triangle that reads the
-// GBuffer (Albedo / Normal / ORM) plus SceneDepth per pixel and shades the scene
-// lights (g_Lights, per-scene space0) with a Cook-Torrance BRDF, writing SceneColor.
+// Lighting.hlsl — deferred lighting pass. Full-screen triangle that decodes the
+// GBuffer plus SceneDepth per pixel and shades the scene lights (g_Lights, per-scene
+// space0) with a Cook-Torrance BRDF, writing SceneColor.
 //
 // GBuffer color targets are sampled with Load (integer pixel fetch, point sampling)
 // — no sampler, no flip — the natural fit for a 1:1 full-res deferred read. World
@@ -17,16 +17,17 @@
 
 #include <Shaders/ViewBindings.hlsli>       // space1: g_InvViewProj, g_InvView
 #include <Shaders/SceneBindings.hlsli>      // space0: g_Lights, g_LightCount, environment IBL
+#include <Shaders/Lib/DeferredShadingCommon.hlsli>  // GBufferData / GetGBufferData
 #include <Shaders/Lib/BRDF/BRDF.hlsli>     // Cook-Torrance surface response
 #include <Shaders/Lib/BRDF/EnvBRDF.hlsli>  // split-sum environment BRDF
 #include <Shaders/Lib/Lights.hlsli>        // per-light L + incident radiance
 
 // Per-pass GBuffer SRVs (space2 = per-pass tier), bound by LightingPass's Compile hook.
-Texture2D g_Albedo   : register(t0, space2);
-Texture2D g_Normal   : register(t1, space2);
-Texture2D g_ORM      : register(t2, space2);
-Texture2D g_Depth    : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
-Texture2D g_Emissive : register(t4, space2);   // GBuffer HDR emissive, added un-lit
+Texture2D g_GBufferNormal    : register(t0, space2);
+Texture2D g_GBufferSurface   : register(t1, space2);
+Texture2D g_GBufferBaseColor : register(t2, space2);
+Texture2D g_Depth            : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D g_Emissive         : register(t4, space2);   // GBuffer HDR emissive, added un-lit
 
 // t5 / s0 of this space belong to the shadow atlas pair Lib/Lights.hlsli declares.
 
@@ -90,33 +91,27 @@ float3 ReconstructWorldPos(float2 uv, float depth)
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    int3 px = int3(int2(input.position.xy), 0);
+    int2 px = int2(input.position.xy);
 
-    float4 rawNormal = g_Normal.Load(px);
+    GBufferData gbuffer = GetGBufferData(
+        g_GBufferNormal, g_GBufferSurface, g_GBufferBaseColor, g_Depth, px);
 
-    float3 albedo = g_Albedo.Load(px).rgb;
-    float3 orm    = g_ORM.Load(px).rgb;
-    float  depth  = g_Depth.Load(px).r;
+    float3 worldPos = ReconstructWorldPos(input.uv, gbuffer.Depth);
 
-    float3 worldPos = ReconstructWorldPos(input.uv, depth);
+    // Clamp the low end so the specular V term (0.5 / (GGXV + GGXL)) can't divide by zero
+    // on smooth surfaces at grazing angles. IBL keeps the raw value: it never evaluates
+    // that term, and the floor would drag a mirror 0.045*(mipCount-1) off mip 0 — visible
+    // extra blur for no reason.
+    float  perceptualRoughness = max(gbuffer.Roughness, 0.045);
+    float  iblRoughness        = saturate(gbuffer.Roughness);
+    float  ao                  = gbuffer.GBufferAO;
 
-    // orm.g is glTF perceptual roughness; clamp the low end so the specular V term
-    // (0.5 / (GGXV + GGXL)) can't divide by zero on smooth surfaces at grazing angles.
-    // IBL keeps the raw value: it never evaluates that term, and the floor would drag a
-    // mirror 0.045*(mipCount-1) off mip 0 — visible extra blur for no reason.
-    float  perceptualRoughness = max(orm.g, 0.045);
-    float  iblRoughness        = saturate(orm.g);
-    float  metallic  = orm.b;
-    float  ao        = orm.r;
-
-    float3 N = normalize(rawNormal.xyz);
+    float3 N = normalize(gbuffer.WorldNormal);
     float3 eye = mul(g_InvView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     float3 V = normalize(eye - worldPos);
 
-    // Dielectrics get a fixed 4% F0 (reflectance 0.5); metals tint F0 with base color and
-    // have no diffuse. Material-driven reflectance (orm.a) lands in a later step.
-    float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
-    float3 diffuseColor = (1.0 - metallic) * albedo;
+    float3 F0 = gbuffer.SpecularColor;
+    float3 diffuseColor = gbuffer.DiffuseColor;
 
     // Accumulate every scene light. EvaluateLight resolves L + incident radiance per
     // light type (Lib/Lights.hlsli); this pass only glues that onto the BRDF.
@@ -136,12 +131,12 @@ float4 PSMain(VSOutput input) : SV_Target0
     }
     else
     {
-        color += g_Ambient * albedo * ao;
+        color += g_Ambient * gbuffer.BaseColor * ao;
     }
 
     // Emissive is view-independent radiance the surface adds on its own — not lit, just
     // added on top (so it glows even in shadow / with no lights).
-    color += g_Emissive.Load(px).rgb;
+    color += g_Emissive.Load(int3(px, 0)).rgb;
 
     return float4(color, 1.0);
 }
