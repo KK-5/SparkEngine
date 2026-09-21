@@ -685,8 +685,7 @@ namespace Spark::RHI::DX12
         const bool bIsMsaa = imageDescriptor.m_multisampleState.m_samples > 1;
         const bool bIsCubemap = imageViewDescriptor.m_isCubemap != 0;
 
-        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
-        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+        const uint32_t ArraySize = RHI::GetArraySliceCount(imageDescriptor, imageViewDescriptor);
 
         ASSERT(imageViewDescriptor.m_mipSliceMax < imageDescriptor.m_mipLevels,
             "ImageViewDescriptor specifies a mipSliceMax of [{}], which must be strictly smaller than the mip level count [{}].",
@@ -783,8 +782,7 @@ namespace Spark::RHI::DX12
         unorderedAccessView.Format = GetUAVFormat(ConvertImageViewFormat(image, imageViewDescriptor));
 
         const bool bIsArray = imageDescriptor.m_arraySize > 1 || imageViewDescriptor.m_isArray;;
-        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
-        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+        const uint32_t ArraySize = RHI::GetArraySliceCount(imageDescriptor, imageViewDescriptor);
 
         switch (imageDescriptor.m_dimension)
         {
@@ -848,8 +846,7 @@ namespace Spark::RHI::DX12
         const bool bIsArray = imageDescriptor.m_arraySize > 1 || imageViewDescriptor.m_isArray;
         const bool bIsMsaa = imageDescriptor.m_multisampleState.m_samples > 1;
 
-        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
-        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+        const uint32_t ArraySize = RHI::GetArraySliceCount(imageDescriptor, imageViewDescriptor);
 
         switch (imageDescriptor.m_dimension)
         {
@@ -929,8 +926,7 @@ namespace Spark::RHI::DX12
         const bool bIsArray = imageDescriptor.m_arraySize > 1 || imageViewDescriptor.m_isArray;;
         const bool bIsMsaa = imageDescriptor.m_multisampleState.m_samples > 1;
 
-        uint32_t ArraySize = (imageViewDescriptor.m_arraySliceMax - imageViewDescriptor.m_arraySliceMin) + 1;
-        ArraySize = eastl::min<uint32_t>(ArraySize, imageDescriptor.m_arraySize);
+        const uint32_t ArraySize = RHI::GetArraySliceCount(imageDescriptor, imageViewDescriptor);
 
         switch (imageDescriptor.m_dimension)
         {

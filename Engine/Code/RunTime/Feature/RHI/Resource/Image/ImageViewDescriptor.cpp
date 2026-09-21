@@ -1,6 +1,10 @@
 #include "ImageViewDescriptor.h"
 
+#include <EASTL/algorithm.h>
+
 #include <Math/Interval.h>
+
+#include "ImageDescriptor.h"
 
 namespace Spark::RHI
 {
@@ -141,5 +145,17 @@ namespace Spark::RHI
     bool ImageViewDescriptor::operator!=(const ImageViewDescriptor& other) const
     {
         return !operator==(other);
+    }
+
+    uint32_t GetArraySliceCount(const ImageDescriptor& image, const ImageViewDescriptor& view)
+    {
+        if (view.m_arraySliceMin >= image.m_arraySize)
+        {
+            return 1;
+        }
+        const uint32_t remaining = static_cast<uint32_t>(image.m_arraySize - view.m_arraySliceMin);
+        const uint32_t requested =
+            static_cast<uint32_t>(view.m_arraySliceMax - view.m_arraySliceMin) + 1;
+        return eastl::min(requested, remaining);
     }
 }

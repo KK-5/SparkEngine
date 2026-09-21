@@ -7,6 +7,8 @@
 
 namespace Spark::RHI
 {
+    struct ImageDescriptor;
+
     //! Image views map to a range of mips / array slices in an image.
     struct ImageViewDescriptor
     {
@@ -105,6 +107,16 @@ namespace Spark::RHI
         /// This is needed because a texture array can have 1 layer only.
         uint32_t m_isArray = 0;            
     };
+
+    //! Array slices the view covers over this image. m_arraySliceMax defaults to
+    //! HighestSliceIndex ("to the end"), so the span has to be clamped against what is left
+    //! ABOVE the first slice: clamping against the whole array would let a view starting at
+    //! slice 2 of 4 claim four slices and run off the end.
+    //!
+    //! Every backend view descriptor and the render graph's layer count derive from this one
+    //! function -- computed apart, they could disagree, and a DX12 RTV covering four layers
+    //! while Vulkan renders one is silent.
+    uint32_t GetArraySliceCount(const ImageDescriptor& image, const ImageViewDescriptor& view);
 
     struct ImageViewDescriptoHasher {
         size_t operator()(const ImageViewDescriptor& descriptor) const {
