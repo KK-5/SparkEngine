@@ -371,6 +371,10 @@ P4 接上 GTAO 时删掉常量、把声明改成无条件 `Read`。材质 AO（`
 新 Pass `ShadowProjectionPass`，位置在 GBuffer 之后、Lights 之前，`RendersView<MainViewTag>`。
 
 - 输出 `ShadowMask`：`Texture2DArray`、`R8G8B8A8_UNORM`、渲染尺寸，`arraySize = min(⌈投影灯数 / 4⌉, 4)`。
+- **视图必须显式设 `ImageViewDescriptor::m_isArray = 1`。** DX12 的视图维度由
+  `arraySize > 1 || m_isArray` 决定（`Conversions.cpp`，SRV/UAV/RTV/DSV 四处同款），而 1~4 盏投影灯时
+  `arraySize` 恰好是 1——不设这个标志，SRV 会被建成 `TEXTURE2D`，与 shader 里 `Texture2DArray` 的声明不匹配，
+  debug layer 报错、行为未定义。也就是灯少的常见情形反而先炸。`m_isArray` 存在的理由正是"array 可以只有一层"。
 - 一个 instanced draw，`instanceCount = arraySize`，VS 输出 `SV_RenderTargetArrayIndex = SV_InstanceID`。
   **不画全屏三角形，画一个贴合本 slice 四盏灯屏幕包围盒并集的 quad**：VS 用 `SV_InstanceID` 从一个小 buffer
   取该并集，直接算出四角。`SetScissors` 是命令列表状态、由 executer 按 view 设，`DrawItem` 不带 scissor，

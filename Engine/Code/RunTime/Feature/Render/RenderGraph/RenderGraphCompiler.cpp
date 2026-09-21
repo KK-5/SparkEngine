@@ -1059,6 +1059,17 @@ namespace Spark::Render
                 context, att.m_image, *backImage->m_image, att.m_viewDescriptor);
         };
 
+        auto viewLayerCount = [&context](const ImagePassAttachment& att) -> uint32_t
+        {
+            const auto* backImage = context.TryGet<BackingImage>(att.m_image);
+            if (!backImage || !backImage->m_image)
+            {
+                return 1;
+            }
+            return RHI::GetArraySliceCount(backImage->m_image->GetDescriptor(), att.m_viewDescriptor);
+        };
+        uint32_t maxLayerCount = 1;
+
         auto view = context.GetView<ImagePassAttachment, AttachmentCompilingTag>();
         view.each([&](auto, const ImagePassAttachment& att)
         {
@@ -1080,6 +1091,7 @@ namespace Spark::Render
                 color.m_loadStoreAction = att.m_action;
                 colorSlotToIndex[att.m_slotName] = info.m_colorAttachmentCount;
                 ++info.m_colorAttachmentCount;
+                maxLayerCount = eastl::max(maxLayerCount, viewLayerCount(att));
                 hasAny = true;
             }
             else if (att.m_usage == RHI::AttachmentUsage::DepthStencil)
@@ -1089,9 +1101,16 @@ namespace Spark::Render
                 info.m_depthStencilAttachment.m_view = imageView;
                 info.m_depthStencilAttachment.m_access = att.m_access;
                 info.m_depthStencilAttachment.m_loadStoreAction = att.m_action;
+                maxLayerCount = eastl::max(maxLayerCount, viewLayerCount(att));
                 hasAny = true;
             }
         });
+
+        // Vulkan renders exactly this many layers and ignores the views' own extents, so
+        // leaving it at 1 would silently drop every slice but the first; DX12 infers it from
+        // the RTV instead. Taking the max lets a mismatched set hit validation rather than
+        // quietly under-render.
+        info.m_layerCount = maxLayerCount;
 
         view.each([&](auto, const ImagePassAttachment& att)
         {

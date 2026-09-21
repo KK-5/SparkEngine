@@ -59,6 +59,12 @@ namespace Spark::RHI
         //! The type of support for subpass inputs of render target attachments.
         //SubpassInputSupportType m_subpassInputSupport = SubpassInputSupportType::None;
 
+        //! Whether a vertex shader can write SV_RenderTargetArrayIndex / SV_ViewportArrayIndex
+        //! without a geometry shader to amplify. Layered rendering -- one instanced draw
+        //! covering several array slices -- needs it. DX12 exposes it as
+        //! VPAndRTArrayIndexFromAnyShaderFeedingRasterizer..., Vulkan as shaderOutputLayer.
+        bool m_layeredRenderingFromVertexShader = false;
+
         //! Whether Ray Tracing support is available.
         bool m_rayTracing = false;
 
