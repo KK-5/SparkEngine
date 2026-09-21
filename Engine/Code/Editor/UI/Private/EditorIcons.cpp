@@ -23,6 +23,24 @@ namespace Editor::Icons
             "editor://open-scene.svg",
             "editor://save.svg",
             "editor://exit.svg",
+
+            "editor://tool-select.svg",
+            "editor://tool-move.svg",
+            "editor://tool-rotate.svg",
+            "editor://tool-scale.svg",
+            "editor://space-world.svg",
+            "editor://space-local.svg",
+            "editor://view-lit.svg",
+            "editor://view-unlit.svg",
+            "editor://view-wireframe.svg",
+            "editor://view-normal.svg",
+            "editor://view-occlusion.svg",
+            "editor://view-complexity.svg",
+            "editor://show-grid.svg",
+            "editor://show-collision.svg",
+            "editor://show-icons.svg",
+            "editor://stats.svg",
+
             "editor://Console.svg",
             "editor://Assets.svg",
             "editor://search.svg",
@@ -65,6 +83,13 @@ namespace Editor::Icons
 
     ImTextureID Get(Icon icon)
     {
+        // Count is how a caller says "no icon here", so a row can keep the column without
+        // filling it.
+        if (static_cast<int>(icon) < 0 || static_cast<int>(icon) >= kCount)
+        {
+            return ImTextureID_Invalid;
+        }
+
         auto* manager = Spark::Service<Spark::UI::IconManagerInterface>::Get();
         if (!manager)
         {
