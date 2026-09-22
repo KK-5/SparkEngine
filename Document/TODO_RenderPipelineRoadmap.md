@@ -217,7 +217,7 @@ z=0 并用 `Less`。UE 的 `ConvertFromDeviceZ` 及 TAA、大量屏幕空间 sha
 | I3 | Compute pass 进图（ReadWrite attachment 已支持，尚无用例） | Histogram / Bloom | P3 |
 | I4 | per-subresource barrier（IBL 计划里记录的欠账） | HZB 逐 mip 生成 | P4 |
 | I5 | 按材质 PSO 变体 + BlendMode（见 `TODO_PerDrawPSOVariant.md`），变体范围包含 VS 与 InputLayout（为 I10 留位） | Masked | P5 |
-| I6 | View 上的 PostProcessSettings（对应 `FinalPostProcessSettings`） | 曝光 / Bloom 参数 | P3 |
+| I6 | 后处理参数：世界侧组件 → `CameraViewSystem` 校验 → View 上的渲染侧组件，presence 即开关。**不是一个 `PostProcessSettings` 大结构体** | TAA 参数 | ✅ P1（`Feature/AntiAliasing/`），后续功能照用 |
 | I7 | RHI 光追：加速结构对象与绑定类型、BLAS 输入缓冲用途位、build/update/compaction、实例结构、能力检测、SM6.5 / `SPV_KHR_ray_query` 编译 | RT 阴影 | P6 |
 | I8 | 光追场景：BLAS 跟随 mesh 几何生命周期、TLAS 每帧更新、TLAS InstanceID = InstanceBinding slot；BLAS 的输入不限于静态顶点缓冲，可以是 compute 生成的缓冲（动态 BLAS，对应 `FRayTracingDynamicGeometryUpdate`） | RT 阴影 | P6 |
 | I9 | 几何记录表（instance → 顶点/索引缓冲 bindless 索引、属性布局）+ 命中点着色库 | 主光线调试视图 | P7 |
@@ -302,7 +302,7 @@ P1、P2 互不依赖，可并行。P3 / P4 / P5 之间互不依赖。
 
 详细计划：`TODO_PostProcessPlan.md`。**范围只有 Bloom 与 Tonemap**，曝光整条分支已推迟（见 §五）。
 
-1. I6：PostProcessSettings 挂 View，收 Bloom、Look 与手调曝光。
+1. 参数组件：`BloomComponent`、`ColorGradingComponent`，照 `Feature/AntiAliasing/` 的模式（I6 的机制 P1 已建好）。
 2. I3：SceneDownsample 链，引擎第一个 compute pass（每级独立纹理，不依赖 I4）。
 3. Bloom：Jimenez dual-filter 沿链上采样累加（不用 UE4 高斯，理由见计划 D4）。
 4. Tonemap 换 **AgX + Look**，合入 Bloom。分级即 Look 的 ASC CDL，内联不建 CombineLUTs。

@@ -3,7 +3,7 @@
 路线图 P3 的落地计划。总览与阶段依赖见 `TODO_RenderPipelineRoadmap.md`。
 
 P3 做两件事：**Bloom** 和**换掉色调曲线**。同时这是引擎第一次在渲染图里跑 compute（I3），以及第一次给 View
-挂后处理参数（I6）。
+挂 Bloom 与分级参数。
 
 **曝光整条分支（直方图、EyeAdaptation、PreExposure）不在 P3**，见下方「推迟的部分」。曝光沿用手调常量。
 
@@ -13,7 +13,7 @@ P3 做两件事：**Bloom** 和**换掉色调曲线**。同时这是引擎第一
 
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| 1 | I6：`PostProcessSettings` 挂 View（Bloom + Look + 手调曝光） | — | 未开始 |
+| 1 | 参数组件：`BloomComponent` 与 `ColorGradingComponent`（照 AntiAliasing 的模式） | — | 未开始 |
 | 2 | I3：SceneDownsample 链（第一个 compute pass） | 1 | 未开始 |
 | 3 | Bloom（dual-filter，沿降采样链上采样累加） | 2 | 未开始 |
 | 4 | Tonemap 换 AgX + Look，合入 Bloom | 1、3 | 未开始 |
@@ -179,21 +179,41 @@ Look 的默认值要给一组"把 AgX 从灰拉回来"的基准，**不能留单
 
 ---
 
-## 三、PostProcessSettings（I6）
+## 三、参数组件（I6）
 
-挂在 View 上，形状参照 UE 的 `FPostProcessSettings` 但**只收本阶段真的有消费者的字段**。没有消费者的字段
-不进结构——那是在给未来的自己留一堆不知道对不对的默认值。
+**不做一个 `PostProcessSettings` 大结构体，一个功能一组组件。** 代码库里已有完整先例——`Feature/AntiAliasing/`
+的 TAA 参数——照着做即可：
 
-| 组 | 字段 |
-|---|---|
-| 曝光 | `m_exposure`（手调，从 `View::m_exposure` 搬过来） |
-| Bloom | `m_bloomIntensity`、`m_bloomThreshold` |
-| Look（ASC CDL） | `m_slope`、`m_offset`、`m_power`、`m_saturation` |
+```
+Feature/<Name>/Components.h    <Name>Component   世界侧，作者编辑，SPARK_COMPONENT_TRAITS
+Feature/<Name>/Reflect.h       编辑器反射
+Render/View/ViewComponents.h   View<Name>        渲染侧，校验过的副本
+CameraViewSystem.cpp           有组件→AddOrReplace，没有→Remove
+<Name>Pass.cpp                 GetView<MainViewTag, View<Name>> 取不到就 Build 里 return
+```
 
-曝光组到自动曝光那一轮再扩（`m_method`、min/max 亮度、百分位、speed up/down、曝光补偿）。
+**组件在不在，就是功能开不开。** 大结构体要靠 `m_bloomEnabled` 这类 bool 表达的东西，在 ECS 里是免费的；
+反过来，一个 Pass 读一个大结构体就等于声明依赖全部后处理参数，加一个字段所有 Pass 重编译。UE 的
+`FPostProcessSettings` 是两百来个字段配一排 `bOverride_` 的单体，那正是不照抄的东西——它长成那样是为了
+后处理体积之间的混合，而混合逐组件做同样成立。
 
-哪些进 `ViewBindings` cbuffer、哪些进各 Pass 自己的 space2，按消费者数量分：`m_exposure` 已经在 View 组里
-（`g_Exposure`），保持不动；Look 与 Bloom 强度只有 Tonemap 读，进 Tonemap 的 space2。
+**I6 其实已经完成了**：路线图把它列成待建的基础设施，但 P1 做 TAA 时这套机制就建好了。P3 不建机制，只用。
+
+### P3 要加的两组
+
+| 组件 | 字段 | 门控 |
+|---|---|---|
+| `Bloom::BloomComponent` → `ViewBloom` | `m_intensity`、`m_threshold` | **是**。没有组件就没有降采样链、没有 Bloom pass、Tonemap 不加。默认零开销 |
+| `ColorGrading::ColorGradingComponent` → `ViewColorGrading` | ASC CDL：`m_slope`、`m_offset`、`m_power`、`m_saturation` | **否**，见下 |
+
+**Look 不能靠"组件缺席"关掉。** D1 说过 AgX 开箱偏灰，Look 是这条方案的一半——缺席时退回单位值就是把
+"AgX 不能看"的那一面直接端上来。所以：`ViewColorGrading` 的**成员默认值就是那组基准 Look**，TonemapPass
+取不到组件时用一个默认构造的副本。组件的默认值与之相同，所以挂上组件在调之前什么也不改变。这样"组件在不在"
+仍然是有意义的（这台相机有没有自定义分级），而画面永远不会掉进未分级的 AgX。
+
+**曝光不动**：`View::m_exposure` 保持现状。它跟上面两组不同——每个 View 都必须有一个曝光值，presence 门控
+对它没有意义；而它要长出来的那些字段（method、min/max、百分位、speed up/down）属于推迟掉的曝光分支。
+到那一轮再决定它是留在 `View` 上还是变成 `ExposureComponent`。
 
 ---
 
@@ -201,7 +221,7 @@ Look 的默认值要给一组"把 AgX 从灰拉回来"的基准，**不能留单
 
 | 步骤 | 文件 |
 |---|---|
-| 1 | 新增 `View/PostProcessSettings.h`；`View.h` 的 `m_exposure` 搬进去；`ViewComponents.h` 加组件；`CameraViewSystem.cpp` 填充 |
+| 1 | 新增 `Feature/Bloom/{Components,Reflect}.h`、`Feature/ColorGrading/{Components,Reflect}.h`；`ViewComponents.h` 加 `ViewBloom` / `ViewColorGrading`；`CameraViewSystem.cpp` 加两处校验与 AddOrReplace/Remove。`View::m_exposure` 不动 |
 | 2 | 新增 `Feature/PostProcess/SceneDownsamplePass.{h,cpp}` + `Shaders/PostProcess/SceneDownsample.hlsl`（CS） |
 | 3 | 新增 `Feature/PostProcess/BloomPass.{h,cpp}` + `Shaders/PostProcess/Bloom.hlsl`（CS，下采样与上采样两个入口） |
 | 4 | `Tonemap.hlsl` 换 `ToneCurve`、加 Look 与 Bloom 合成；`TonemapPass.cpp` 加 Bloom 输入与 space2 常量 |
