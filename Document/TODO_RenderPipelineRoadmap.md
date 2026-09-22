@@ -26,7 +26,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 |---|---|---|
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
-| P3 | 后处理主干（自动曝光 / Bloom / Tonemap） | 计划已定，见 `TODO_PostProcessPlan.md` |
+| P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | 计划已定，见 `TODO_PostProcessPlan.md` |
 | P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 未开始 |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
@@ -126,7 +126,7 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 ✅ TemporalAA（以后 TSR/DLSS/FSR 走同一位置）           ITemporalUpscaler
 ☐  MotionBlur                                          MotionBlur                      P9
 ☐  SceneDownsample                                     FSceneDownsampleChain           P3
-☐  Histogram → EyeAdaptation                           EyeAdaptation                   P3
+—  Histogram → EyeAdaptation                           EyeAdaptation              随物理灯光
 ☐  Bloom                                               Bloom                           P3
 ◐  Tonemap (AgX + Look + bloom + exposure)              Tonemap                         P3
 —  FXAA                                                FXAA                            不做
@@ -300,20 +300,17 @@ P1、P2 互不依赖，可并行。P3 / P4 / P5 之间互不依赖。
 
 ### P3 后处理主干
 
-详细计划：`TODO_PostProcessPlan.md`。
+详细计划：`TODO_PostProcessPlan.md`。**范围只有 Bloom 与 Tonemap**，曝光整条分支已推迟（见 §五）。
 
-1. I6：PostProcessSettings 挂 View，取代 `View::m_exposure`。
+1. I6：PostProcessSettings 挂 View，收 Bloom、Look 与手调曝光。
 2. I3：SceneDownsample 链，引擎第一个 compute pass（每级独立纹理，不依赖 I4）。
-3. Histogram + EyeAdaptation（直方图取百分位，不用平均亮度），1×1 结果走 I0 持久。
-4. Bloom：Jimenez dual-filter，复用降采样链（不用 UE4 高斯，理由见计划 D4）。
-5. Tonemap 换 **AgX + Look**，合入 bloom 与自动曝光。分级即 Look 的 ASC CDL，内联不建 CombineLUTs。
-6. `PreExposure` 接自动曝光，含 TAA 的 `PreExposureCorrection`。
+3. Bloom：Jimenez dual-filter 沿链上采样累加（不用 UE4 高斯，理由见计划 D4）。
+4. Tonemap 换 **AgX + Look**，合入 Bloom。分级即 Look 的 ASC CDL，内联不建 CombineLUTs。
 
 不做 FXAA（TAA 关闭时的低配路径，我们没有这个场景）。色调曲线不用 UE 的 `FilmToneMap`：它在链条最末端，
 下游无消费者，不属于要对齐的帧结构 / 数据契约 / 插件点三层中的任何一层，而 AgX 解掉了 ACES 系的色相偏移。
 
-**验证**：亮灯进画面时曝光不被拽走（直方图相对平均亮度的唯一理由）；Bloom 只作用于高亮；PreExposure 生效
-后画面与它固定为 1 时一致。
+**验证**：Bloom 只作用于高亮；AgX + Look 的观感要留时间调默认值；亮饱和色不偏色相。
 
 ### P4 屏幕空间效果
 
@@ -396,6 +393,7 @@ LightGrid（分簇光源）只留接缝：前向着色的灯光遍历封装成�
 | DBuffer Decals / CustomDepth | 帧结构中留位置，不排期 |
 | LightGrid 分簇光源 | 灯多到逐灯循环成为瓶颈时。届时直接做分簇，不经过逐灯光体积 + stencil 那一步 |
 | GPU 剔除 + indirect draw | 植被等实例数上万、每 Drawable 一个 DrawItem 撑不住时 |
+| 自动曝光 + PreExposure | **与物理灯光单位一起做**。自动曝光的收益要物理单位才兑现：现在灯光 intensity 是对着 `exposure = 1.0` 凑出来的数，不是物理量，手调场景里自动曝光收益为零。PreExposure 更是一个像素都不改，它防的是 FP16 指数溢出，而我们还没有会溢出的内容。决策 D2/D3 已定，到时直接用 |
 
 ---
 
