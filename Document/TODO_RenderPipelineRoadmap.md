@@ -26,7 +26,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 |---|---|---|
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
-| P3 | 后处理主干（自动曝光 / Bloom / Tonemap） | 进行中 |
+| P3 | 后处理主干（自动曝光 / Bloom / Tonemap） | 计划已定，见 `TODO_PostProcessPlan.md` |
 | P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 未开始 |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
@@ -128,8 +128,8 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 ☐  SceneDownsample                                     FSceneDownsampleChain           P3
 ☐  Histogram → EyeAdaptation                           EyeAdaptation                   P3
 ☐  Bloom                                               Bloom                           P3
-◐  Tonemap (bloom + exposure + LUT + vignette + grain) Tonemap + CombineLUTs           P3
-☐  FXAA (可选)                                          FXAA                            P3
+◐  Tonemap (AgX + Look + bloom + exposure)              Tonemap                         P3
+—  FXAA                                                FXAA                            不做
 ✅ UI
 ```
 
@@ -300,15 +300,20 @@ P1、P2 互不依赖，可并行。P3 / P4 / P5 之间互不依赖。
 
 ### P3 后处理主干
 
-1. I6：PostProcessSettings 挂 View。
-2. I3：首个 compute pass 进图。
-3. SceneDownsample 链（每级独立纹理，不依赖 I4）。
-4. Histogram + EyeAdaptation，结果存 View 持久资源，下一帧写入 `PreExposure`。
-5. Bloom（UE 高斯 Bloom 起步）。
-6. Tonemap 换 UE filmic 曲线，合入 bloom、曝光、暗角、颗粒；CombineLUTs 生成颜色分级 LUT。
-7. FXAA（可选，TAA 关闭时的低配路径）。
+详细计划：`TODO_PostProcessPlan.md`。
 
-**验证**：明暗场景切换时曝光平滑适应；Bloom 只作用于高亮；PreExposure 生效后画面与固定曝光一致。
+1. I6：PostProcessSettings 挂 View，取代 `View::m_exposure`。
+2. I3：SceneDownsample 链，引擎第一个 compute pass（每级独立纹理，不依赖 I4）。
+3. Histogram + EyeAdaptation（直方图取百分位，不用平均亮度），1×1 结果走 I0 持久。
+4. Bloom：Jimenez dual-filter，复用降采样链（不用 UE4 高斯，理由见计划 D4）。
+5. Tonemap 换 **AgX + Look**，合入 bloom 与自动曝光。分级即 Look 的 ASC CDL，内联不建 CombineLUTs。
+6. `PreExposure` 接自动曝光，含 TAA 的 `PreExposureCorrection`。
+
+不做 FXAA（TAA 关闭时的低配路径，我们没有这个场景）。色调曲线不用 UE 的 `FilmToneMap`：它在链条最末端，
+下游无消费者，不属于要对齐的帧结构 / 数据契约 / 插件点三层中的任何一层，而 AgX 解掉了 ACES 系的色相偏移。
+
+**验证**：亮灯进画面时曝光不被拽走（直方图相对平均亮度的唯一理由）；Bloom 只作用于高亮；PreExposure 生效
+后画面与它固定为 1 时一致。
 
 ### P4 屏幕空间效果
 
@@ -429,6 +434,7 @@ LightGrid（分簇光源）只留接缝：前向着色的灯光遍历封装成�
 ## 关联文档
 
 - `TODO_StructureAlignPlan.md` —— P2
+- `TODO_PostProcessPlan.md` —— P3
 - `TODO_PerDrawPSOVariant.md` —— I5
 - `TODO_DrawItemPersistencePlan.md` §八 —— P5 透明分类
 - `TODO_ShadowOptimizePlan.md` —— P2 阴影拆分时注意其中 bias 量纲的待办
