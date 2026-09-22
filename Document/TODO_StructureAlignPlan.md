@@ -12,18 +12,31 @@ GBuffer 是 Albedo / Normal / ORM / Emissive 四张自定义布局，没有 `Sha
 
 ---
 
-## 状态
+## 状态　✅ 全部完成
 
 | 步骤 | 内容 | 状态 |
 |---|---|---|
-| 1 | GBuffer 布局重排 + `GetGBufferData()` | 未开始 |
-| 2 | SceneColor 创建者移到 GBufferPass，Emissive 并入 | 未开始 |
-| 3 | PreExposure | 未开始 |
-| 前置 | RHI：`m_layerCount` 写入 + array 渲染能力位（步骤 5 的前提） | 未开始 |
-| 4 | LightingPass 拆为 Lights / IndirectDiffuse / Reflections | 未开始 |
-| 5 | ShadowProjection → `ShadowMask` | 未开始 |
+| 1 | GBuffer 布局重排 + `GetGBufferData()` | ✅ `53b0493` |
+| 2 | SceneColor 创建者移到 GBufferPass，Emissive 并入 | ✅ `de73789` |
+| 3 | PreExposure | ✅ `2bc98e9` |
+| 前置 | RHI：`m_layerCount` 写入 + array 渲染能力位（步骤 5 的前提） | ✅ `cf1faf1`、`c2bc3f2` |
+| 5 | ShadowProjection → `ShadowMask` | ✅ `d4ec437`、`f19e4b1` |
+| 4 | LightingPass 拆为 Lights / IndirectDiffuse / Reflections | ✅ `5940ac0` |
 
-执行顺序 1 → 2 → 3 → 前置 → 5 → 4，逐文件清单见 §六。
+实际执行顺序 1 → 2 → 3 → 前置 → 5 → 4，逐文件清单见 §六。每步都由人工看画面确认。
+
+**与计划的两处偏离**：
+
+- **没有 `DeferredLightingCommon.h`**，三个光照 Pass 各写各的声明与配置。这些声明以后要改成反射驱动、由配置
+  文件输入，届时 C++ 里这一层整体消失，所以现在抽公共层抽的是一个注定要删的东西，重复反而保得住每个 Pass
+  的自足。
+- **AO 输入没有接常量白图**，两个消费 Pass 只乘材质自带的 `GBufferAO`，不声明 `g_AmbientOcclusion`
+  也不加 `g_AmbientOcclusionValid` 门控常量。P4 接 GTAO 时这两个 shader 本来就要改，提前埋只是在 space2
+  留一个永远悬空的槽位。
+
+**新立的一条约束**：Pass 声明的每个 space2 资源，shader 必须真的读进输出。DXC 会删掉入口点没触到的资源，
+删掉后反射里就没有它，C++ 侧按名字绑定即告失败（`[ShaderBindingsUtils] Image input 'x' not found`）。
+`DecodeGBufferData`（不带深度的重载）就是为此从 `GetGBufferData` 里拆出来的。
 
 ---
 

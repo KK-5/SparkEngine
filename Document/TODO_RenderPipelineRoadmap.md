@@ -2,8 +2,8 @@
 
 ## 背景与目标
 
-延迟管线雏形已跑通：Shadow → DepthPre → GBuffer(+Velocity) → VelocityResolve → Lighting（直接光 +
-split-sum IBL）→ Skybox → TemporalAA → Tonemap → UI。本文档规划从雏形走到一条功能完整的
+延迟管线已跑通并完成结构对齐：Shadow → DepthPre → GBuffer(+Velocity) → VelocityResolve → ShadowProjection →
+Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap → UI。本文档规划从这里走到一条功能完整的
 **光栅化 + ray query 混合管线**。
 
 **对齐 UE 是硬目标**，理由是以后能把 UE 的渲染算法原样抄进来。对齐分三层，缺一层抄算法时就要写转换层：
@@ -25,8 +25,8 @@ split-sum IBL）→ Skybox → TemporalAA → Tonemap → UI。本文档规划�
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
-| P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | 计划已定，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
-| P3 | 后处理主干（自动曝光 / Bloom / Tonemap） | 未开始 |
+| P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
+| P3 | 后处理主干（自动曝光 / Bloom / Tonemap） | 进行中 |
 | P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 未开始 |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
@@ -45,7 +45,7 @@ split-sum IBL）→ Skybox → TemporalAA → Tonemap → UI。本文档规划�
 
 | 信号 | 消费方 | 来源 |
 |---|---|---|
-| `ShadowMask`（每盏有阴影的灯一张） | Lights | ShadowProjection（光栅 atlas）/ RayTracingShadows |
+| `ShadowMask`（每灯一个通道，4 灯打包一个 array slice） | Lights | ShadowProjection（光栅 atlas）/ RayTracingShadows |
 | `AmbientOcclusion` | IndirectDiffuse、Reflections | GTAO / RTAO |
 | `DiffuseIndirect` | IndirectDiffuse | 无（天光 SH/IBL）/ DDGI / 以后 SSGI、Lumen |
 | `Reflections` | Reflections | 预滤波 cube / SSR / 以后 RT 反射 |
@@ -104,13 +104,13 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 ◐  DepthPrePass → SceneDepth                           PrePass                    ✅rev-Z P5(Masked)
 ☐  HZB                                                 BuildHZB                        P4
 —  DBuffer Decals / CustomDepth
-◐  GBufferPass → GBufferA-D + Velocity + SceneColor    BasePass                   ✅Velocity P2
+✅ GBufferPass → Normal/Surface/BaseColor + Vel + Color BasePass                       (D 待第二着色模型)
 ── Lighting ─────────────────────────────────────────────────────────────────────────────
 ☐  AmbientOcclusion → AmbientOcclusion                 GTAO / RTAO                     P4 P6
-☐  ShadowProjection / RTShadows → ShadowMask[light]    RenderShadowProjections         P2 P6
-◐  Lights (shadowed: per light; simple: batched)       RenderLights                    P2
-☐  IndirectDiffuse (sky/IBL | DDGI) × AO               RenderDiffuseIndirectAndAO      P2 P8
-☐  Reflections (SSR ∪ prefiltered cube) × EnvBRDF      RenderDeferredReflections...    P2 P4
+◐  ShadowProjection / RTShadows → ShadowMask[light]    RenderShadowProjections     ✅光栅 P6
+✅ Lights (一个全屏 draw 循环所有灯)                    RenderLights
+◐  IndirectDiffuse (sky/IBL | DDGI) × AO               RenderDiffuseIndirectAndAO   ✅IBL P4 P8
+◐  Reflections (SSR ∪ prefiltered cube) × EnvBRDF      RenderDeferredReflections... ✅cube P4
 ✅ Skybox                                              Sky / SkyAtmosphere
 —  VolumetricCloud                                     RenderVolumetricCloud
 —  SingleLayerWater (折射水下 SceneColor + 吸收散射)     RenderSingleLayerWater
@@ -133,7 +133,7 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 ✅ UI
 ```
 
-现有 Pass 名保留（DepthPrePass / GBufferPass / LightingPass 等），对齐的是职责和数据，不强求改名。
+现有 Pass 名保留（DepthPrePass / GBufferPass 等），对齐的是职责和数据，不强求改名。
 
 ---
 
@@ -181,17 +181,21 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 
 ### GBuffer 布局（P2）
 
-| RT | UE 内容 | 格式（UE） | 现状对照 |
-|---|---|---|---|
-| SceneColor (MRT0) | 自发光 + 预计算间接光 | RGBA16F | 现 Emissive 单独一张 R11G11B10，改为直接写 SceneColor |
-| GBufferA | 世界法线、PerObjectGBufferData | R10G10B10A2 | 现 Normal RGBA16F |
-| GBufferB | Metallic、Specular、Roughness、ShadingModelID | RGBA8 | 现 ORM；Specular 至今未进 GBuffer，这里一并解决 |
-| GBufferC | BaseColor、GenericAO | RGBA8 (sRGB) | 现 Albedo + ORM.r |
-| GBufferD | CustomData（按 ShadingModel 解释） | RGBA8 | 无，先预留 |
-| Velocity | 屏幕空间运动向量 | RG16F 起步 | 无（P1 新增） |
+已落地。名字用语义名而非 UE 的字母，`GBufferData` 的**字段名**与 `FGBufferData` 保持一致——那才是抄 shader 时
+被引用的东西。
 
-SceneColor 的创建者从 LightingPass 改为 GBufferPass。GBuffer 解码集中到一个对应 `DeferredShadingCommon.ush` 的
-`GetGBufferData()`，所有消费方（Lights / IndirectDiffuse / Reflections / SSR / GTAO）共用。
+| MRT | 本引擎 | 内容 | 格式 | UE 对应 |
+|---|---|---|---|---|
+| 0 | SceneColor | 自发光；光照 Pass 往上 additive | RGBA16F | SceneColor |
+| 1 | GBufferNormal | 世界法线 `N*0.5+0.5`、a 预留 | R10G10B10A2 | GBufferA |
+| 2 | GBufferSurface | Metallic、Specular、Roughness、ShadingModelID | RGBA8 | GBufferB |
+| 3 | GBufferBaseColor | BaseColor、GenericAO | RGBA8_SRGB | GBufferC |
+| 4 | Velocity | 屏幕空间运动向量 | RG16F | Velocity |
+| 5 | —— | CustomData，等第二个着色模型 | RGBA8 | GBufferD |
+
+SceneColor 的创建者是 GBufferPass。解码集中在 `Lib/DeferredShadingCommon.hlsli`（对应
+`DeferredShadingCommon.ush`）：`GetGBufferData()` 与不取深度的 `DecodeGBufferData()`，纹理作为参数传入，
+所有消费方（Lights / IndirectDiffuse / Reflections / 以后 SSR、GTAO）共用。
 
 ### 深度（P1）
 
@@ -267,20 +271,32 @@ P1、P2 互不依赖，可并行。P3 / P4 / P5 之间互不依赖。
   等 GPU 空闲，独立处理。
 - TAA 是全屏 PS；I3（compute pass 进图）落地后改 CS。
 
-### P2 结构对齐
+### P2 结构对齐　✅ 已完成
 
-详细计划：`TODO_StructureAlignPlan.md`。
+详细计划与决策记录：`TODO_StructureAlignPlan.md`。
 
 1. GBuffer 按 §二布局重排，Emissive 改写 SceneColor，`GetGBufferData()` 统一解码，加 `ShadingModelID`
    （先只有 DefaultLit）与 Specular。
 2. PreExposure：所有写 SceneColor 的 shader 乘 `View.PreExposure`，Tonemap 除回。P3 之前固定为 1。
-3. LightingPass 拆为 Lights / IndirectDiffuse / Reflections 三个 Pass，AO 输入先接常量白图。
-4. 阴影拆分：ShadowProjection 把 atlas 投影成每灯 `ShadowMask`，Lights 仍是一个全屏 draw 循环所有灯。
-   逐灯绘制不做：全屏 additive 的逐灯是 N 倍 GBuffer 访存，UE 的逐灯与光体积 + stencil 是捆在一起的，
-   而灯数成为瓶颈时要建的是分簇 LightGrid 而非光体积（`TODO_StructureAlignPlan.md` D5）。
-   灯光组件加阴影方式字段，`ShadowViewSystem` 只为光栅阴影的灯分配 tile。
+3. LightingPass 拆为 Lights / IndirectDiffuse / Reflections 三个 Pass，三者 additive 叠进同一张 SceneColor。
+   AO 只用材质自带的 `GBufferAO`，屏幕空间 AO 的接入整体留给 P4。
+4. 阴影拆分：ShadowProjection 把 atlas 投影成 `ShadowMask`（4 灯打包一个 array slice），Lights 仍是一个全屏
+   draw 循环所有灯。逐灯绘制不做（`TODO_StructureAlignPlan.md` D5）。
+   前置：RHI 补 `m_layerCount` 写入与从 VS 写 `SV_RenderTargetArrayIndex` 的能力位。
 
-**验证**：每一步前后截图对比。除 Specular（原先隐含 0.5）外应逐像素一致；DX12 validation 零警告。
+**验证**：每步人工看画面确认。DX12 validation 零警告仍待确认。
+
+**带入后续阶段的遗留**：
+
+- **共享绑定组的 space0 布局缺陷**——Pass 的描述符表偏移来自它自己的反射，而共享组按组的顺序写描述符，
+  只引用部分 space0 的 shader 会让空缺之后的槽位整体错位。现用 `SceneBindings.hlsli` 里的
+  `SpaceZeroKeepAlive()` 绕过（每个 shader 强行引用全部 space0 资源）。正解是让组拥有的 space 由组描述布局，
+  改点在 `PassBuilder.h` 的 `BuildPipelineLayoutFromShaders` 加一处初始化顺序调整，不动 PSO 与 DX12 后端。
+- `SkyboxPass` 只引用 `g_EnvIntensity`、不引用任何 space0 SRV，**疑似同一问题但未验证**。测法：改天空盒组件
+  的 intensity，看天空亮度跟不跟。
+- ShadowProjection 是全屏 draw，**没有按灯包围盒收缩**。等 P4/P5 的光源剔除到位后自然补上。
+- 灯光组件的"阴影方式"字段没加，`ShadowViewSystem` 仍为所有投影灯分配 atlas tile。P6 接 RT 阴影时要做。
+- 屏幕空间 AO 的声明与 `AmbientOcclusion` 信号纹理不存在，P4 与 GTAO 一起建。
 
 ### P3 后处理主干
 
@@ -399,8 +415,12 @@ LightGrid（分簇光源）只留接缝：前向着色的灯光遍历封装成�
 
 - ~~Translated world space~~：已定，暂不采用，ViewBindings 字段按 UE 命名（`TODO_TemporalPlan.md` 核心决策 2）。
 - ~~Velocity 写入位置~~：已定，GBufferPass MRT、所有物体都写（`TODO_TemporalPlan.md` 核心决策 3）。
-- **GBufferA 法线编码**：UE 默认直接存 `N*0.5+0.5`；是否改八面体编码。
-- **有阴影灯很多时的 ShadowMask 开销**：逐灯全屏绘制的上限在哪，何时需要打包多灯 mask 或引入 tiled 方案。
+- ~~GBufferA 法线编码~~：已定，`R10G10B10A2` 直存 `N*0.5+0.5`（`TODO_StructureAlignPlan.md` D1）。
+  **复查点在 P4**：做 SSR 时用低粗糙度大平面实测，出条带就换八面体——只换 `EncodeNormal` / `DecodeNormal` 两个
+  函数体，无调用点改动。
+- **ShadowMask 的容量与开销**：现在是 16 盏投影灯封顶（4 slice × 4 灯），1080p 31.6 MiB、4K 127 MiB，且投影是
+  全屏 draw 不带收缩。上限触及或 4K 成为目标时，靠分簇把槽位从全局灯号改为簇内灯号（`O(N)` → `O(K)`）。
+- **共享绑定组的布局权威**：见 P2 遗留第一条。这是 P2 唯一没修掉的结构性问题。
 - **NRD 许可证**：商用前确认条款。
 - **Vulkan 后端的光追实现时机**：I7 接口必须 Vulkan 语义正确，Vulkan 实现是否与 DX12 同步落地。
 
