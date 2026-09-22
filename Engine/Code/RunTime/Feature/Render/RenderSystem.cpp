@@ -25,7 +25,9 @@
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
-#include <Feature/Lighting/LightingPass.h>
+#include <Feature/Lighting/LightsPass.h>
+#include <Feature/Lighting/IndirectDiffusePass.h>
+#include <Feature/Lighting/ReflectionsPass.h>
 #include <Feature/Shadow/ShadowPass.h>
 #include <Feature/Skybox/SkyboxPass.h>
 #include <Feature/Tonemap/TonemapPass.h>
@@ -159,10 +161,18 @@ namespace Spark::Render
         auto shadowProjectionCfg = ShadowProjectionPass::DefaultConfig();
         ShadowProjectionPass::SetUp(passContext, shadowProjectionCfg);
 
-        // Deferred lighting: samples the GBuffer and blends the scene lights into
-        // SceneColor. After GBuffer, before Skybox (which fills the sky it depth-culls).
-        auto lightingPassCfg = LightingPass::DefaultConfig();
-        LightingPass::SetUp(passContext, lightingPassCfg);
+        // Deferred lighting, one pass per signal so each can be replaced on its own -- direct
+        // light, indirect diffuse (later DDGI), reflections (later SSR). All three blend
+        // additively into SceneColor, so this order is only for reading. After GBuffer,
+        // before Skybox (which fills the sky they depth-cull).
+        auto lightsPassCfg = LightsPass::DefaultConfig();
+        LightsPass::SetUp(passContext, lightsPassCfg);
+
+        auto indirectDiffuseCfg = IndirectDiffusePass::DefaultConfig();
+        IndirectDiffusePass::SetUp(passContext, indirectDiffuseCfg);
+
+        auto reflectionsCfg = ReflectionsPass::DefaultConfig();
+        ReflectionsPass::SetUp(passContext, reflectionsCfg);
 
         // Skybox samples the baked cube into SceneColor (linear HDR) after depth pre.
         auto skyboxPassCfg = SkyboxPass::DefaultConfig();

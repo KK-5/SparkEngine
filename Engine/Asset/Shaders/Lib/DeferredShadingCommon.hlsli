@@ -48,9 +48,12 @@ void DecodeShadingModel(float encoded, out uint shadingModelId, out uint selecti
     selectiveOutputMask = packed >> 4;
 }
 
-GBufferData GetGBufferData(
+//! Everything but Depth, which is left 0. For view-independent consumers: DXC drops a
+//! texture the entry point never reads, and a dropped texture reflects as absent, so a pass
+//! that does not need depth must not ask for it.
+GBufferData DecodeGBufferData(
     Texture2D gbufferNormal, Texture2D gbufferSurface, Texture2D gbufferBaseColor,
-    Texture2D sceneDepth, int2 pixelPos)
+    int2 pixelPos)
 {
     int3 px = int3(pixelPos, 0);
 
@@ -67,11 +70,21 @@ GBufferData GetGBufferData(
     gbuffer.Roughness   = surfaceSample.b;
     DecodeShadingModel(surfaceSample.a, gbuffer.ShadingModelID, gbuffer.SelectiveOutputMask);
     gbuffer.CustomData  = float4(0.0, 0.0, 0.0, 0.0);
-    gbuffer.Depth       = sceneDepth.Load(px).r;
+    gbuffer.Depth       = 0.0;
 
     // Metals have no diffuse and tint F0 with base color; dielectrics keep a flat F0.
     gbuffer.DiffuseColor  = gbuffer.BaseColor * (1.0 - gbuffer.Metallic);
     gbuffer.SpecularColor = lerp(0.08 * gbuffer.Specular, gbuffer.BaseColor, gbuffer.Metallic);
+    return gbuffer;
+}
+
+GBufferData GetGBufferData(
+    Texture2D gbufferNormal, Texture2D gbufferSurface, Texture2D gbufferBaseColor,
+    Texture2D sceneDepth, int2 pixelPos)
+{
+    GBufferData gbuffer = DecodeGBufferData(gbufferNormal, gbufferSurface, gbufferBaseColor,
+                                            pixelPos);
+    gbuffer.Depth = sceneDepth.Load(int3(pixelPos, 0)).r;
     return gbuffer;
 }
 

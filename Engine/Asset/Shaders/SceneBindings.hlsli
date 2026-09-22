@@ -66,6 +66,24 @@ bool HasEnvironmentIBL()
     return g_IBLPrefilteredMipCount > 0;
 }
 
+//! WORKAROUND, not shading. A pass's space0 table offsets come from its OWN reflection,
+//! while the group writes its descriptors in the GROUP's order, so a shader referencing only
+//! part of space0 shifts every slot past the gap -- g_IrradianceCube starts reading g_Lights.
+//! Every shader binding this group adds the result to its output so its reflection is
+//! complete. Delete this and its call sites together with the real fix: a group-owned space's
+//! layout must come from the group. See TODO_StructureAlignPlan.md.
+float SpaceZeroKeepAlive()
+{
+    float keep = GetShadowView(0).uvMinMax.x + (float)g_Lights[0].type;
+    if (HasEnvironmentIBL())
+    {
+        keep += g_IrradianceCube.SampleLevel(g_IBLSampler, float3(0, 1, 0), 0).r
+              + g_PrefilteredCube.SampleLevel(g_IBLSampler, float3(0, 1, 0), 0).r
+              + g_BRDFLut.SampleLevel(g_IBLSampler, float2(1, 0), 0).r;
+    }
+    return keep * 1e-30;
+}
+
 //! Mip to sample g_PrefilteredCube at for a given roughness. The ladder is deliberately
 //! non-uniform (levels bunch up at low roughness), so this is NOT
 //! perceptualRoughness * (mipCount - 1).
