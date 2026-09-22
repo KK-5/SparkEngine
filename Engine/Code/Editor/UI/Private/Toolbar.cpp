@@ -6,6 +6,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include "EditorIcons.h"
 #include "EditorTheme.h"
 
 namespace Editor
@@ -23,6 +24,22 @@ namespace Editor
         constexpr float kRounding = Theme::Px(4.f);
         constexpr float kWellPad  = Theme::Px(2.f);
         constexpr float kCaretW   = Theme::Px(7.f);
+        constexpr float kIcon     = Theme::Px(14.f);   // on the bar
+        constexpr float kRowIcon  = Theme::Px(15.f);   // in a list
+
+        //! An icon painted into a box, tinted -- the art is white, so the tint is the colour.
+        void DrawIcon(ImDrawList* draw, Icons::Icon icon, const ImVec2& center, float size,
+                      ImU32 color)
+        {
+            const ImTextureID texture = Icons::Get(icon);
+            if (texture == ImTextureID_Invalid)
+            {
+                return;
+            }
+            const ImVec2 min = Theme::Snap(ImVec2(center.x - size * 0.5f, center.y - size * 0.5f));
+            draw->AddImage(texture, min, ImVec2(min.x + size, min.y + size),
+                           ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), color);
+        }
 
         //! Concentric with the well around it: the outer radius less the padding between.
         constexpr float kInnerRounding = kRounding - kWellPad;
@@ -31,8 +48,8 @@ namespace Editor
         constexpr float kRowH     = Theme::Whole(Theme::Px(24.f));
         constexpr float kListPadY = Theme::Whole(Theme::Px(4.f));
         constexpr float kRowPadX  = Theme::Px(9.f);
-        constexpr float kMarkSide = Theme::Px(12.f);
-        constexpr float kMarkRoom = Theme::Px(26.f);   // pad + mark + a gap before the label
+        constexpr float kMarkSide = Theme::Px(12.f);   // the checkbox at a row's right
+        constexpr float kMarkRoom = Theme::Px(33.f);   // pad + icon + a gap before the label
         constexpr float kRowGap   = Theme::Px(18.f);
 
         //! Named after a delay, or the bar flashes a box at every cursor that crosses it. The
@@ -95,13 +112,15 @@ namespace Editor
         }
 
         //! One choice of a segmented group -- the accent fills it when it is the live one.
-        bool Segment(const char* id, const char* label, bool selected, float& x, float centerY,
-                     const char* tooltip)
+        bool Segment(const char* id, Icons::Icon icon, const char* label, bool selected, float& x,
+                     float centerY, const char* tooltip)
         {
             Theme::ScopedFont font(selected ? Theme::Face::Bold : Theme::Face::UI, Theme::kSizeLabel);
 
+            const float gap = Theme::Px(6.f);
             const ImVec2 min(x, centerY - kItemH * 0.5f);
-            const ImVec2 max(x + ImGui::CalcTextSize(label).x + kItemPadX * 2.f, min.y + kItemH);
+            const ImVec2 max(x + kIcon + gap + ImGui::CalcTextSize(label).x + kItemPadX * 2.f,
+                             min.y + kItemH);
 
             const State state = Hit(id, min, max, tooltip);
             // A second track, so the accent slides in when the choice changes rather than
@@ -113,8 +132,14 @@ namespace Editor
             const ImU32 live = state.m_held ? Theme::kAccentHov : Theme::kAccent;
             draw->AddRectFilled(min, max, Theme::Blend(rest, live, chosen), kInnerRounding);
 
-            const ImU32 text = Theme::Blend(Theme::kTextDim, Theme::kTextItem, state.m_lit);
-            CenteredText(draw, min, max, Theme::Blend(text, Theme::kOnAccent, chosen), label);
+            const ImU32 text  = Theme::Blend(Theme::kTextDim, Theme::kTextItem, state.m_lit);
+            const ImU32 color = Theme::Blend(text, Theme::kOnAccent, chosen);
+
+            DrawIcon(draw, icon, ImVec2(min.x + kItemPadX + kIcon * 0.5f, (min.y + max.y) * 0.5f),
+                     kIcon, color);
+            draw->AddText(Theme::Snap(ImVec2(min.x + kItemPadX + kIcon + gap,
+                                             (min.y + max.y - ImGui::GetFontSize()) * 0.5f)),
+                          color, label);
 
             x = max.x;
             return state.m_pressed;
@@ -247,24 +272,41 @@ namespace Editor
             Check,
         };
 
+        //! What the list is a list of. A caption rather than a row: it names the group the
+        //! chip no longer has room to name itself.
+        void ListHeader(const char* text)
+        {
+            Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeMono);
+
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float  height = Theme::Whole(Theme::Px(24.f));
+            ImGui::Dummy(ImVec2(0.f, height));
+
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            draw->AddText(Theme::Snap(ImVec2(at.x + kRowPadX,
+                                             at.y + (height - ImGui::GetFontSize()) * 0.5f - 1.f)),
+                          Theme::kTextDimmer, text);
+
+            const float y = at.y + height - 1.f;
+            draw->AddLine(ImVec2(ImGui::GetWindowPos().x, y),
+                          ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth(), y),
+                          Theme::kButtonHov);
+        }
+
         //! One row of a list. A Check row leaves the list open -- these come in groups and are
-        //! nearly always toggled more than one at a time.
-        bool ListRow(const char* label, bool marked, Mark mark, const char* shortcut,
+        //! nearly always toggled more than one at a time, and it carries its box at the right
+        //! so the icon column stays the icon column.
+        bool ListRow(Icons::Icon icon, const char* label, bool marked, Mark mark,
                      const char* tooltip)
         {
             Theme::ScopedFont font(Theme::Face::UI, Theme::kSizeLabel);
 
-            float shortcutWidth = 0.f;
-            if (shortcut)
-            {
-                Theme::ScopedFont mono(Theme::Face::Mono, Theme::kSizeShortcut);
-                shortcutWidth = ImGui::CalcTextSize(shortcut).x + kRowGap;
-            }
-
             ImGuiSelectableFlags flags = ImGuiSelectableFlags_SpanAvailWidth;
+            float                tail  = 0.f;
             if (mark == Mark::Check)
             {
                 flags |= ImGuiSelectableFlags_NoAutoClosePopups;
+                tail = kRowGap + kMarkSide;
             }
 
             // Only a Dot row fills: a checkbox already says what it is, and four filled rows
@@ -272,12 +314,12 @@ namespace Editor
             const bool filled = marked && mark == Mark::Dot;
 
             ImGui::PushID(label);
-            ImGui::PushStyleColor(ImGuiCol_Header, Theme::kButtonHov);
+            ImGui::PushStyleColor(ImGuiCol_Header, Theme::kSelection);
             ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Theme::kMenuHov);
             ImGui::PushStyleColor(ImGuiCol_HeaderActive, Theme::kMenuHov);
             const bool pressed = ImGui::Selectable(
                 "##row", filled, flags,
-                ImVec2(kMarkRoom + ImGui::CalcTextSize(label).x + shortcutWidth + kRowPadX, kRowH));
+                ImVec2(kMarkRoom + ImGui::CalcTextSize(label).x + tail + kRowPadX, kRowH));
             ImGui::PopStyleColor(3);
             ImGui::PopID();
 
@@ -288,20 +330,16 @@ namespace Editor
             const float  cy   = (min.y + max.y) * 0.5f;
             ImDrawList*  draw = ImGui::GetWindowDrawList();
 
-            // Dot and box share a centre, so the two kinds of list line up with each other.
-            const ImVec2 boxMin(min.x + kRowPadX, cy - kMarkSide * 0.5f);
-            const ImVec2 boxMax(boxMin.x + kMarkSide, boxMin.y + kMarkSide);
+            const ImU32 color = marked ? Theme::kTextStrong : Theme::kTextLabel;
+            DrawIcon(draw, icon, ImVec2(min.x + kRowPadX + kRowIcon * 0.5f, cy), kRowIcon, color);
+            draw->AddText(Theme::Snap(ImVec2(min.x + kMarkRoom, cy - ImGui::GetFontSize() * 0.5f)),
+                          color, label);
 
-            if (mark == Mark::Dot)
+            if (mark == Mark::Check)
             {
-                if (marked)
-                {
-                    draw->AddCircleFilled(ImVec2((boxMin.x + boxMax.x) * 0.5f, cy), Theme::Px(2.5f),
-                                          Theme::kAccent);
-                }
-            }
-            else
-            {
+                const ImVec2 boxMin(max.x - kRowPadX - kMarkSide, cy - kMarkSide * 0.5f);
+                const ImVec2 boxMax(boxMin.x + kMarkSide, boxMin.y + kMarkSide);
+
                 draw->AddRectFilled(boxMin, boxMax, marked ? Theme::kAccent : IM_COL32(0, 0, 0, 0),
                                     Theme::Px(2.f));
                 draw->AddRect(boxMin, boxMax, marked ? Theme::kAccent : Theme::kBorderHover,
@@ -316,21 +354,13 @@ namespace Editor
                 }
             }
 
-            draw->AddText(Theme::Snap(ImVec2(min.x + kMarkRoom, cy - ImGui::GetFontSize() * 0.5f)),
-                          marked ? Theme::kTextStrong : Theme::kTextItem, label);
-
-            if (shortcut)
-            {
-                Theme::ScopedFont mono(Theme::Face::Mono, Theme::kSizeShortcut);
-                draw->AddText(Theme::Snap(ImVec2(max.x - kRowPadX - ImGui::CalcTextSize(shortcut).x,
-                                                 cy - ImGui::GetFontSize() * 0.5f)),
-                              Theme::kTextDimmer, shortcut);
-            }
-
             return pressed;
         }
 
         constexpr int         kToolCount             = 4;
+        constexpr Icons::Icon kToolIcons[kToolCount] = {
+            Icons::Icon::ToolSelect, Icons::Icon::ToolMove,
+            Icons::Icon::ToolRotate, Icons::Icon::ToolScale};
         constexpr const char* kToolNames[kToolCount] = {"Select", "Move", "Rotate", "Scale"};
         constexpr const char* kToolHints[kToolCount] = {"Pick entities in the viewport",
                                                         "Drag the gizmo's arrows to move",
@@ -338,15 +368,24 @@ namespace Editor
                                                         "Drag the gizmo's handles to scale"};
 
         constexpr int         kSpaceCount              = 2;
+        constexpr Icons::Icon kSpaceIcons[kSpaceCount] = {Icons::Icon::SpaceWorld,
+                                                          Icons::Icon::SpaceLocal};
         constexpr const char* kSpaceNames[kSpaceCount] = {"World", "Local"};
         constexpr const char* kSpaceHints[kSpaceCount] = {"Transforms follow the world axes",
                                                           "Transforms follow the entity's own axes"};
 
         constexpr int         kViewModeCount                 = 6;
+        constexpr Icons::Icon kViewModeIcons[kViewModeCount] = {
+            Icons::Icon::ViewLit,       Icons::Icon::ViewUnlit,
+            Icons::Icon::ViewWireframe, Icons::Icon::ViewNormal,
+            Icons::Icon::ViewOcclusion, Icons::Icon::ViewComplexity};
         constexpr const char* kViewModeNames[kViewModeCount] = {"Lit",     "Unlit",     "Wireframe",
                                                                 "Normals", "Occlusion", "Complexity"};
 
         constexpr int         kOverlayCount                = 4;
+        constexpr Icons::Icon kOverlayIcons[kOverlayCount] = {
+            Icons::Icon::ShowGrid, Icons::Icon::ShowCollision,
+            Icons::Icon::ShowIcons, Icons::Icon::ShowStats};
         constexpr const char* kOverlayNames[kOverlayCount] = {"Grid", "Collision", "Icons", "Stats"};
         constexpr const char* kOverlayHints[kOverlayCount] = {
             "Ground grid", "Collision shapes", "Light and camera icons",
@@ -382,14 +421,14 @@ namespace Editor
             float wellWidth = 0.f;
             for (const char* name: kToolNames)
             {
-                wellWidth += LabelWidth(name) + kItemPadX * 2.f;
+                wellWidth += LabelWidth(name) + kIcon + Theme::Px(6.f) + kItemPadX * 2.f;
             }
             SegmentWell(x, centerY, wellWidth);
 
             for (int i = 0; i < kToolCount; ++i)
             {
-                if (Segment(kToolNames[i], kToolNames[i], static_cast<int>(m_tool) == i, x, centerY,
-                            kToolHints[i]))
+                if (Segment(kToolNames[i], kToolIcons[i], kToolNames[i],
+                            static_cast<int>(m_tool) == i, x, centerY, kToolHints[i]))
                 {
                     m_tool = static_cast<Tool>(i);
                 }
@@ -419,17 +458,19 @@ namespace Editor
         x += kGap;
         Divider(x, centerY);
 
-        // Every choice on this bar is the same shape: a dim word, then a chip that opens a
-        // list. The anchor is taken before the chip advances x past itself.
-        const auto field = [&](const char* id, const char* label, const char* value,
+        // Every choice on this bar is the same shape: an icon, the live value, a caret. The
+        // icon says which choice it is, which is what the dim word beside it used to do.
+        const auto field = [&](const char* id, Icons::Icon icon, const char* value,
                                const char* const* options, int count, const char* tooltip,
                                ImVec2& anchor) -> bool
         {
-            FieldLabel(x, centerY, label);
             anchor = ImVec2(x, centerY + kItemH * 0.5f + Theme::Px(3.f));
 
-            const bool opened = Chip(id, value, 0.f, true, x, centerY, tooltip, nullptr,
+            ImVec2     glyph;
+            const bool opened = Chip(id, value, kIcon, true, x, centerY, tooltip, &glyph,
                                      WidestLabel(options, count));
+            DrawIcon(draw, icon, glyph, kIcon, Theme::kTextItem);
+
             x += kFieldGap;
             return opened;
         };
@@ -438,16 +479,18 @@ namespace Editor
 
         {
             const int space = static_cast<int>(m_space);
-            if (field("##Space", "Space", kSpaceNames[space], kSpaceNames, kSpaceCount,
+            if (field("##Space", kSpaceIcons[space], kSpaceNames[space], kSpaceNames, kSpaceCount,
                       "Which axes the gizmo follows", anchor))
             {
                 ImGui::OpenPopup("##SpaceList");
             }
-            if (BeginList("##SpaceList", anchor, Theme::Px(150.f)))
+            if (BeginList("##SpaceList", anchor, Theme::Px(172.f)))
             {
+                ListHeader("Space");
                 for (int i = 0; i < kSpaceCount; ++i)
                 {
-                    if (ListRow(kSpaceNames[i], i == space, Mark::Dot, nullptr, kSpaceHints[i]))
+                    if (ListRow(kSpaceIcons[i], kSpaceNames[i], i == space, Mark::Dot,
+                                kSpaceHints[i]))
                     {
                         m_space = static_cast<Space>(i);
                     }
@@ -458,16 +501,18 @@ namespace Editor
 
         {
             const int mode = static_cast<int>(m_viewMode);
-            if (field("##View", "View", kViewModeNames[mode], kViewModeNames, kViewModeCount,
-                      "What the viewport shades with", anchor))
+            if (field("##View", kViewModeIcons[mode], kViewModeNames[mode], kViewModeNames,
+                      kViewModeCount, "What the viewport shades with", anchor))
             {
                 ImGui::OpenPopup("##ViewList");
             }
-            if (BeginList("##ViewList", anchor, Theme::Px(140.f)))
+            if (BeginList("##ViewList", anchor, Theme::Px(160.f)))
             {
+                ListHeader("View Mode");
                 for (int i = 0; i < kViewModeCount; ++i)
                 {
-                    if (ListRow(kViewModeNames[i], i == mode, Mark::Dot, nullptr, nullptr))
+                    if (ListRow(kViewModeIcons[i], kViewModeNames[i], i == mode, Mark::Dot,
+                                nullptr))
                     {
                         m_viewMode = static_cast<ViewMode>(i);
                     }
@@ -487,20 +532,23 @@ namespace Editor
             }
 
             // A count, not a list of names: the chip says how many are on, the list says which.
-            char summary[16];
-            snprintf(summary, sizeof(summary), "%d / %d", on, kOverlayCount);
-            const char* widest[] = {"0 / 0"};
+            // It keeps its word, since a count alone names nothing.
+            char summary[24];
+            snprintf(summary, sizeof(summary), "Show %d / %d", on, kOverlayCount);
+            const char* widest[] = {"Show 0 / 0"};
 
-            if (field("##Show", "Show", summary, widest, 1, "What the viewport draws on top",
-                      anchor))
+            if (field("##Show", Icons::Icon::ShowGrid, summary, widest, 1,
+                      "What the viewport draws on top", anchor))
             {
                 ImGui::OpenPopup("##ShowList");
             }
-            if (BeginList("##ShowList", anchor, Theme::Px(150.f)))
+            if (BeginList("##ShowList", anchor, Theme::Px(168.f)))
             {
+                ListHeader("Show");
                 for (int i = 0; i < kOverlayCount; ++i)
                 {
-                    if (ListRow(kOverlayNames[i], *flags[i], Mark::Check, nullptr, kOverlayHints[i]))
+                    if (ListRow(kOverlayIcons[i], kOverlayNames[i], *flags[i], Mark::Check,
+                                kOverlayHints[i]))
                     {
                         *flags[i] = !*flags[i];
                     }
@@ -523,16 +571,25 @@ namespace Editor
                 }
             }
 
-            if (field("##Speed", "Camera", kSpeedNames[speed], kSpeedNames, kSpeedCount,
-                      "How fast the viewport camera flies", anchor))
+            // The one field that keeps its word: there is no icon that says "how fast".
+            FieldLabel(x, centerY, "Camera");
+            anchor = ImVec2(x, centerY + kItemH * 0.5f + Theme::Px(3.f));
+
+            if (Chip("##Speed", kSpeedNames[speed], 0.f, true, x, centerY,
+                     "How fast the viewport camera flies", nullptr,
+                     WidestLabel(kSpeedNames, kSpeedCount)))
             {
                 ImGui::OpenPopup("##SpeedList");
             }
-            if (BeginList("##SpeedList", anchor, Theme::Px(132.f)))
+            if (BeginList("##SpeedList", anchor, Theme::Px(150.f)))
             {
+                ListHeader("Camera Speed");
                 for (int i = 0; i < kSpeedCount; ++i)
                 {
-                    if (ListRow(kSpeedNames[i], i == speed, Mark::Dot, nullptr, nullptr))
+                    // No icon of its own: the column stays, so the rows line up with the
+                    // other lists.
+                    if (ListRow(Icons::Icon::Count, kSpeedNames[i], i == speed, Mark::Dot,
+                                nullptr))
                     {
                         m_cameraSpeed = kSpeeds[i];
                     }
