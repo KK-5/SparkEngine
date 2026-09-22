@@ -11,12 +11,13 @@
 #include <Shaders/Lib/BRDF/BRDF.hlsli>
 #include <Shaders/Lib/BRDF/EnvBRDF.hlsli>
 #include <Shaders/Lib/Lights.hlsli>
+#include <Shaders/Lib/Shadow/ShadowMask.hlsli>
 
-// Per-pass tier. t4 is free; t5 / s0 belong to the shadow atlas Lib/Lights.hlsli declares.
-Texture2D g_GBufferNormal    : register(t0, space2);
-Texture2D g_GBufferSurface   : register(t1, space2);
-Texture2D g_GBufferBaseColor : register(t2, space2);
-Texture2D g_Depth            : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D      g_GBufferNormal    : register(t0, space2);
+Texture2D      g_GBufferSurface   : register(t1, space2);
+Texture2D      g_GBufferBaseColor : register(t2, space2);
+Texture2D      g_Depth            : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2DArray g_ShadowMask       : register(t4, space2);
 
 // Used when no environment is bound (no skybox, or its bake is still uploading).
 static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
@@ -84,12 +85,18 @@ float4 PSMain(VSOutput input) : SV_Target0
     float3 eye = mul(g_InvView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     float3 V = normalize(eye - worldPos);
 
+    int2 px = int2(input.position.xy);
+
     float3 color = float3(0.0, 0.0, 0.0);
     for (uint i = 0; i < g_LightCount; ++i)
     {
         LightData light = GetLight(i);
         float3 L;
-        float3 radiance = EvaluateLight(light, worldPos, N, L);
+        float3 radiance = EvaluateLight(light, worldPos, L);
+        if (light.shadowMaskIndex >= 0)
+        {
+            radiance *= SampleShadowMask(g_ShadowMask, px, light.shadowMaskIndex);
+        }
         color += EvaluateBRDF(N, V, L, gbuffer.DiffuseColor, gbuffer.SpecularColor,
                               perceptualRoughness) * radiance;
     }
@@ -104,6 +111,16 @@ float4 PSMain(VSOutput input) : SV_Target0
     {
         color += g_Ambient * gbuffer.BaseColor * gbuffer.GBufferAO;
     }
+
+    // WORKAROUND, not shading. A pass's descriptor-table offsets come from its OWN
+    // reflection, while a shared group's descriptors are written in the GROUP's order, so a
+    // pass referencing only part of space0 shifts every slot past the gap. Dropping the
+    // shadow sampling from here dropped g_ShadowViews with it, and g_IrradianceCube started
+    // reading the light buffer. Touching it keeps this shader's space0 layout complete.
+    //
+    // Delete this only together with the real fix -- a group-owned space's layout must come
+    // from the group, not from the pass. See TODO_StructureAlignPlan.md.
+    color += GetShadowView(0).uvMinMax.x * 1e-30;
 
     // Alpha is held by the blend state, so what is written here never lands.
     return float4(color * g_PreExposure, 0.0);

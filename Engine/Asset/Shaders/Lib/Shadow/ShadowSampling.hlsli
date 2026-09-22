@@ -1,7 +1,10 @@
 // Turns a shadow view record plus a world position into a visibility factor. Nothing here is
-// bound either: the atlas, its comparison sampler and the atlas texel size all arrive as
-// arguments, so a forward pass, a debug visualiser and the deferred lighting pass can share
-// this without agreeing on a register.
+// bound: the atlas, its comparison sampler and the atlas texel size all arrive as arguments,
+// so every caller owns its own registers.
+//
+// Deferred shading reaches this through ShadowProjection, which resolves it into the
+// ShadowMask once per frame. Forward shading will call it directly: a screen-space mask is
+// computed at the opaque depth, so it holds the wrong value for a translucent surface.
 #ifndef SPARK_LIB_SHADOW_SAMPLING_HLSLI
 #define SPARK_LIB_SHADOW_SAMPLING_HLSLI
 

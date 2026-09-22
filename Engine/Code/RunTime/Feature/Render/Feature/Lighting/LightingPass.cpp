@@ -19,7 +19,7 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 
 #include <View/ViewTags.h>
-#include <View/ShadowAtlasLayout.h>
+#include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Binding/Scene/SceneBinding.h>
 
 #include <RenderGraph/RenderGraphUtils.h>
@@ -52,10 +52,10 @@ namespace Spark::Render
         constexpr const char* s_depthSlot  = "SceneDepth";
         constexpr const char* s_depthInput = "g_Depth";
 
-        // Same R32_FLOAT-over-typeless-depth treatment as SceneDepth, one tile per light.
-        constexpr const char* s_shadowSlot    = "ShadowAtlasRead";
-        constexpr const char* s_shadowInput   = "g_ShadowAtlas";
-        constexpr const char* s_shadowSampler = "g_ShadowSampler";
+        // Screen-space visibility, produced by ShadowProjectionPass. Point-sampled 1:1 like
+        // the GBuffer, so no sampler.
+        constexpr const char* s_maskSlot  = "ShadowMask";
+        constexpr const char* s_maskInput = "g_ShadowMask";
     }
 
     RenderPassConfig LightingPass::DefaultConfig()
@@ -192,31 +192,26 @@ namespace Spark::Render
                 builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
                     RHI::AttachmentId(s_depthSlot), depthTestBind);
 
-                // Same readiness gate ShadowPass uses — it declares the atlas only once the
-                // image exists, and reading an attachment id nothing produced has no meaning.
-                // This declaration is also the edge that orders ShadowPass before this pass;
-                // until now the two shared no attachment and the topo sort was free to
-                // interleave them.
+                // Declared only once ShadowProjectionPass has produced it: with no shadowed
+                // lights there is no mask, and every m_shadowMaskIndex is -1, so the shader
+                // never reaches the sampler. This declaration is also the edge that orders
+                // the projection before this pass.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                RHI::RHIHandle atlas = RHI::NullHandle;
-                rhiCtx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
-                    [&](RHI::RHIHandle e) { atlas = e; });
-                if (!IsResourceReady(rhiCtx, atlas))
+                if (ShadowMaskSliceCount(rhiCtx) == 0)
                 {
                     return;
                 }
 
-                Render::ImageAttachmentBindInfo shadowBind;
-                shadowBind.m_slot  = RHI::InputName(s_shadowSlot);
-                shadowBind.m_usage = RHI::AttachmentUsage::Shader;
-                shadowBind.m_stage = RHI::AttachmentStage::FragmentShader;
-                shadowBind.m_view.m_overrideFormat    = RHI::Format::R32_FLOAT;
-                shadowBind.m_view.m_overrideBindFlags = RHI::ImageBindFlags::ShaderRead;
-                shadowBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                shadowBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                Render::ImageAttachmentBindInfo maskBind;
+                maskBind.m_slot  = RHI::InputName(s_maskSlot);
+                maskBind.m_usage = RHI::AttachmentUsage::Shader;
+                maskBind.m_stage = RHI::AttachmentStage::FragmentShader;
+                maskBind.m_view.m_isArray = 1;
+                maskBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                maskBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 builder.ReadImageAttachment<SPARK_PASS_TAG("LightingPass")>(
-                    RHI::AttachmentId("ShadowAtlas"), shadowBind);
+                    RHI::AttachmentId(s_maskSlot), maskBind);
             })
             .Compile([](RenderGraphCompiler& compiler)
             {
@@ -249,26 +244,15 @@ namespace Spark::Render
                         2, RHI::InputName(s_depthInput), depthView);
                 }
 
-                // Null on the warmup frames Build declared no atlas. The shader does not need
-                // a separate gate for that: no atlas means ShadowViewSystem handed out no
-                // tiles, so every m_shadowIndex is -1 and the sampler is never reached.
-                RHI::ImageView* shadowView = FindPassAttachmentImageView<SPARK_PASS_TAG("LightingPass")>(
-                    rhiCtx, RHI::InputName(s_shadowSlot), frameIndex);
-                if (shadowView)
+                // Null on the frames Build declared no mask; every m_shadowMaskIndex is then
+                // -1, so the shader never reaches it.
+                RHI::ImageView* maskView = FindPassAttachmentImageView<SPARK_PASS_TAG("LightingPass")>(
+                    rhiCtx, RHI::InputName(s_maskSlot), frameIndex);
+                if (maskView)
                 {
                     SetPassShaderImage<SPARK_PASS_TAG("LightingPass")>(
-                        2, RHI::InputName(s_shadowInput), shadowView);
+                        2, RHI::InputName(s_maskInput), maskView);
                 }
-
-                // Linear + Comparison is a free 2x2 PCF in the sampler. A wider kernel is
-                // additive on top and waits until the basics read correctly.
-                RHI::SamplerState shadowSampler = RHI::SamplerState::Create(
-                    RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp);
-                shadowSampler.m_reductionType  = RHI::ReductionType::Comparison;
-                // Reversed-Z: lit when the receiver is at or nearer than the stored occluder.
-                shadowSampler.m_comparisonFunc = RHI::ComparisonFunc::GreaterEqual;
-                SetPassShaderSampler<SPARK_PASS_TAG("LightingPass")>(
-                    2, RHI::InputName(s_shadowSampler), shadowSampler);
             })
             .Finalize()
         ;

@@ -6,6 +6,7 @@ set(SOURCES
     Feature/UI/CopyFrameBufferPass.cpp
     Feature/DepthPre/DepthPrePass.cpp
     Feature/GBuffer/GBufferPass.cpp
+    Feature/ShadowProjection/ShadowProjectionPass.cpp
     Feature/Lighting/LightingPass.cpp
     Feature/Shadow/ShadowPass.cpp
     Feature/Skybox/SkyboxPass.cpp
@@ -24,6 +25,7 @@ set(SOURCES
     View/ShadowAtlasAllocator.cpp
     View/ShadowPools.cpp
     View/ShadowViewSystem.cpp
+    View/ShadowMaskSystem.cpp
     View/ViewFactory.cpp
     Binding/View/ViewBindingSystem.cpp
     Binding/Scene/SceneBindingSystem.cpp

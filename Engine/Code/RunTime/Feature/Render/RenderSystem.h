@@ -17,6 +17,7 @@
 #include "Binding/View/ViewBindingSystem.h"
 #include "View/CameraViewSystem.h"
 #include "View/ShadowViewSystem.h"
+#include "View/ShadowMaskSystem.h"
 #include "Binding/Scene/SceneBindingSystem.h"
 #include "Binding/Instance/InstanceBindingSystem.h"
 #include "Binding/Material/MaterialBindingSystem.h"
@@ -73,6 +74,7 @@ namespace Spark::Render
         // Producers first, then the one encoding step, which serves all of them.
         CameraViewSystem  m_cameraViewSystem;
         ShadowViewSystem  m_shadowViewSystem;
+        ShadowMaskSystem  m_shadowMaskSystem;
         ViewBindingSystem m_viewBindingSystem;
         SceneBindingSystem m_sceneBindingSystem;
         MaterialBindingSystem m_materialBindingSystem;
@@ -83,4 +85,4 @@ namespace Spark::Render
         Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;
     };
-}
+}

@@ -35,6 +35,7 @@
 #include <View/ViewTags.h>
 #include <View/ViewComponents.h>
 #include <View/ShadowAtlasLayout.h>
+#include <View/ShadowMaskLayout.h>
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
 
@@ -267,6 +268,9 @@ namespace Spark::Render
             const auto* refs      = world.TryGet<ShadowViewRefs>(entity);
             d.m_shadowIndex       = refs ? refs->BaseIndex() : -1;
             d.m_shadowFaceCount   = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
+
+            const auto* maskSlot  = world.TryGet<ShadowMaskSlot>(entity);
+            d.m_shadowMaskIndex   = maskSlot ? static_cast<int32_t>(maskSlot->m_index) : -1;
 
             // Every row the light owns, since the authored bias applies to all its faces
             // and a face without a tile keeps its row inverted by PackShadowViews.

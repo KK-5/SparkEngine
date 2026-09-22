@@ -30,10 +30,18 @@ namespace Spark::Render
         //! adds a face index to m_shadowIndex; a face with no tile this frame still owns its
         //! row, which reads as unshadowed.
         uint32_t      m_shadowFaceCount = 1;
+
+        //! ShadowMask slot, granted per frame by ShadowMaskSystem; -1 = sample no mask.
+        //! A different index space from m_shadowIndex: that one addresses an atlas row, this
+        //! one is dense across the lights that were granted a mask.
+        int32_t       m_shadowMaskIndex = -1;
+
+        //! To the next 16B boundary, and where the next field goes.
+        uint32_t      m_padding[3] = {};
     };
 
-    // 64B. StructuredBuffer elements are tightly C-packed, so sizeof must match the HLSL
+    // 80B. StructuredBuffer elements are tightly C-packed, so sizeof must match the HLSL
     // struct in SceneBindings.hlsli; add padding deliberately when introducing new fields.
-    static_assert(sizeof(LightData) == 64,
-        "LightData must stay 64 bytes to match SceneBindings.hlsli.");
+    static_assert(sizeof(LightData) == 80,
+        "LightData must stay 80 bytes to match SceneBindings.hlsli.");
 }

@@ -598,6 +598,26 @@ mask 还没有生产者时摘掉它，中间会有一次"全场无阴影"的状�
 
 ## 未决
 
+- **共享绑定组的 space 布局应由组拥有，而不是各 pass 自己反射**（本阶段发现，已用绕过挡住）。
+
+  一个 pass 的描述符表偏移来自它自己的反射（`PassBuilder.h` 的 `BuildPipelineLayoutFromShaders`），
+  而共享组的描述符是按**组的**顺序写进堆的。反射把资源按类型分组（先 buffer 后 image，见
+  `PipelineLayoutDescriptor` 的 `m_bufferDescs` / `m_imageDescs`），DX12 侧每个区间又是
+  `OFFSET_APPEND`，所以一个只引用 space0 子集的 pass 会让缺口之后的所有槽位整体前移。
+
+  步骤 5 把阴影采样从 `Lighting.hlsl` 摘掉，连带丢了 `g_ShadowViews`（t4，StructuredBuffer），于是
+  `g_IrradianceCube` 读到了光源缓冲——表现为 IBL 静默失效。**当前用 `Lighting.hlsl` 里一处对
+  `GetShadowView(0)` 的无用引用绕过**，注释在原地。
+
+  正解：pass 声明 `.Binds<Tag>()` 时，该 space 的条目取自组的布局而非 pass 的反射。改动集中在
+  `BuildPipelineLayoutFromShaders` 一处，加一张 spaceId → 组布局的注册表；PSO、
+  `PipelineLayout::BuildSpaceGroupResources`、DX12 后端都不用动。前置条件是把绑定系统的 `Init` 提到
+  `SetUpDefaultPipeline` 声明 pass 之前——现在它们在之后，组的布局那时还不存在。
+
+  顺带值得查：`SkyboxPass` 也 `Binds<MainSceneTag>()`，但只引用了 `g_EnvIntensity`，一个 space0 的 SRV
+  都没碰。它是否已经在读错的描述符，没有验证过。
+
+
 - **`SelectiveOutputMask` 的语义**：UE 用它标记"这个像素不写某些 GBuffer 通道"，与延迟贴花、
   `PRECOMPUTED_IRRADIANCE` 等特性绑定。P2 只留位，等第二个 ShadingModel 或贴花出现时再定它的位分配。
 - **`PerObjectGBufferData`（GBufferNormal.a）**：UE 存的是 per-object 的阴影/贴花接收标志。当前没有对应概念，

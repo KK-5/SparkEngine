@@ -24,6 +24,7 @@
 
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
+#include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Feature/Lighting/LightingPass.h>
 #include <Feature/Shadow/ShadowPass.h>
 #include <Feature/Skybox/SkyboxPass.h>
@@ -153,8 +154,13 @@ namespace Spark::Render
         auto velocityResolvePassCfg = VelocityResolvePass::DefaultConfig();
         VelocityResolvePass::SetUp(passContext, velocityResolvePassCfg);
 
-        // Deferred lighting: samples the GBuffer, shades a hardcoded directional light
-        // into SceneColor. Runs after GBuffer, before Skybox (which fills discarded sky).
+        // Resolves the shadow atlas into ShadowMask, the screen-space visibility signal
+        // the lighting reads instead of sampling the atlas itself.
+        auto shadowProjectionCfg = ShadowProjectionPass::DefaultConfig();
+        ShadowProjectionPass::SetUp(passContext, shadowProjectionCfg);
+
+        // Deferred lighting: samples the GBuffer and blends the scene lights into
+        // SceneColor. After GBuffer, before Skybox (which fills the sky it depth-culls).
         auto lightingPassCfg = LightingPass::DefaultConfig();
         LightingPass::SetUp(passContext, lightingPassCfg);
 
@@ -199,6 +205,7 @@ namespace Spark::Render
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
         m_shadowViewSystem.Init(rhiCtxForInit);
+        m_shadowMaskSystem.Init(rhiCtxForInit);
 
         m_meshGeometryComposer.Init(rhiCtxForInit);
         m_drawItemRouter.Init(rhiCtxForInit);
@@ -243,6 +250,7 @@ namespace Spark::Render
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
@@ -286,6 +294,9 @@ namespace Spark::Render
         m_cameraViewSystem.Update(renderSize, outputOrigin, outputSize, swapChainSize, time);
         // After the camera views: a directional light's ortho box follows the main view.
         m_shadowViewSystem.Update();
+        // After the tiles are granted, before SceneBindingSystem marshals the slot it hands
+        // each light into LightData.
+        m_shadowMaskSystem.Update();
         m_viewBindingSystem.Update(time);
 
         m_sceneBindingSystem.Update(frameIndex, time);
