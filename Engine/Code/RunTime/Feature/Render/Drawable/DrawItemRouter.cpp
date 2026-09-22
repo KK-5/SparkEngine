@@ -209,7 +209,7 @@ namespace Spark::Render
 
             passCtx->GetView<PassCapabilities>().each([&](Pass, const PassCapabilities& caps)
             {
-                if (caps.m_accepts(*rhiCtx, e))
+                if (caps.m_accepts && caps.m_accepts(*rhiCtx, e))
                 {
                     caps.m_markSubmitItem(*rhiCtx, e);
                 }
