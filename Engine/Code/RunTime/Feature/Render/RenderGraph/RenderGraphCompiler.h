@@ -65,6 +65,13 @@ namespace Spark::Render
         //! attachments and leaves them out of the transient pool.
         void CompileExtractedImages(RHI::ImagePool& pool);
 
+        //! Put the Scope and ScopeAttachment storages in stream order: Scopes by (pass topo
+        //! position, index in pass); attachments by (their Scope, resource), so each Scope's
+        //! attachments are contiguous and those of one resource adjacent. Needs every attachment
+        //! linked to its resource, so runs after CompileTransientResources /
+        //! CompileExtractedImages. Nothing may add or remove either component afterwards.
+        void SortScopes(PassContext& passContext, RHIContext& context);
+
 
         //! Compile all barriers for a single pass. Must be called in topo-sort
         //! order so that cross-queue Release/Acquire pairs are written to the
@@ -117,5 +124,7 @@ namespace Spark::Render
         eastl::array<uint64_t, RHI::HardwareQueueClassCount> m_crossQueueFenceValues{1, 1, 1};
 
         uint32_t m_frameIndex { 0 };
+
+        static constexpr bool s_scopeOrderValidation { true };
     };
 }

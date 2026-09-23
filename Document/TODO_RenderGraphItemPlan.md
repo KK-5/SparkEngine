@@ -256,25 +256,31 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 ### Scope 与归属关系的实体表示
 
 ```cpp
-struct Scope         { Pass m_pass; uint32_t m_index; };   // 身份 + pass 内次序
-struct ScopeMember   { RHIHandle m_scope; };               // attachment、单个 item、选择共用
-struct ItemSelection { void (*m_collect)(RHIContext&, RHIHandle view, eastl::vector<RHIHandle>& arena); };
+struct Scope           { Pass m_pass; uint32_t m_index; };   // 身份 + pass 内次序
+struct ScopeAttachment { RHIHandle m_scope; };               // attachment 所属的 Scope
+struct ScopeItem       { RHIHandle m_scope; };               // 单个 item、选择所属的 Scope
+struct ItemSelection   { void (*m_collect)(RHIContext&, RHIHandle view, eastl::vector<RHIHandle>& arena); };
 ```
 
 ```
 PassContext（静态）       RHIContext（每帧）                             RHIContext（持久）
 Pass ◄── Scope::m_pass ── Scope 实体
-                            ▲ ScopeMember
-          ┌─────────────────┼──────────────────────┐
-     attachment 实体    单个 item 实体          选择实体 ──查询──► 场景 DrawItem
-     ImagePassAttachment DrawItem / Dispatch… ItemSelection      （带 DrawTag，不带 PassTag）
+                            ▲                 ▲
+            ScopeAttachment │                 │ ScopeItem
+                            │       ┌─────────┴────────────┐
+     attachment 实体 ───────┘   单个 item 实体          选择实体 ──查询──► 场景 DrawItem
+     ImagePassAttachment        DrawItem / Dispatch…  ItemSelection      （带 DrawTag，不带 PassTag）
 ```
+
+- **attachment 与 item 用两个组件**：没有哪一步同时遍历两者——事件与括号只看 attachment，body 只看 item 与选择，
+  执行器只回到 attachment。合用一个组件只会让排序多出"有没有资源"一级，并要约定 item 排在段尾。
 
 - **Scope 在 RHIContext，不在 PassContext**：它的子实体都在 RHIContext，引用都是 `RHIHandle`；`Pass` 的实体掩码
   只有 8 位且没有版本号，是为少量静态实体设计的。
 - **引用一律子指向父**，Scope 不持有子列表。
 - `m_collect` 由 `Select<Tags...>()` 模板实例化，写法同今天 `PassCapabilities` 里的函数指针。
-- **每帧清空规则**：`Scope`、`ScopeMember` 只出现在每帧实体上，帧末销毁带有它们的实体即可。场景 item 永远不带它们。
+- **每帧清空规则**：`Scope`、`ScopeAttachment`、`ScopeItem` 只出现在每帧实体上，帧末销毁带有它们的实体即可。场景
+  item 永远不带它们。
 
 ### 编译产物放在哪里
 
@@ -293,7 +299,7 @@ Pass ◄── Scope::m_pass ── Scope 实体
 
 完整状态 = Scope 这部分 + 当前视图这部分，不存快照。Work 从任何位置开始，重新应用这两部分即可。
 
-### lowering：排序两次，线性扫描两遍
+### lowering：排序，线性扫描两遍
 
 每一步只读三样东西：Scope 的子实体、pass 的静态数据（编译好的 PSO、队列、视图类型、`Binds`、静态 sampler）、
 资源上的追踪器。除 arena 外没有别的全局结构。依赖图仍建在 pass 上：声明 attachment 时经 Scope 知道所属 pass，
@@ -302,11 +308,13 @@ Pass ◄── Scope::m_pass ── Scope 实体
 **第 0 步：排序。**
 
 - **Scope 存储**按（pass 拓扑位置，Scope 序号）排序。
-- **ScopeMember 存储**按（pass 拓扑位置，Scope 序号，资源）排序；item 与选择没有资源，排在各自 Scope 的最后。
+- **ScopeAttachment 存储**按（pass 拓扑位置，Scope 序号，资源）排序。
+- **ScopeItem 存储**按（pass 拓扑位置，Scope 序号）排序；Scope 内的 item 无序，不需要更细的键。
 
-`ScopeMember` 是所有子实体唯一共有的组件，对它排一次序，每个 Scope 的 attachment、item、选择就连成一段；同一段里
-访问同一资源的 attachment 彼此相邻，按资源合并只看相邻元素，不需要 map。今天逐 pass 打 / 清
-`AttachmentCompilingTag` 的循环随之删除。
+排序后每个 Scope 的 attachment、item 各自连成一段；同一段里访问同一资源的 attachment 彼此相邻，按资源合并只看
+相邻元素，不需要 map。今天逐 pass 打 / 清 `AttachmentCompilingTag` 的循环随之删除。
+
+没有声明任何 attachment 的 pass 不进图，它的 Scope 在建图后即销毁，所以进入排序的 Scope 都有拓扑位置。
 
 **第 1 遍：瞬态资源。** 遍历 attachment 得到每个瞬态资源的首末使用位置，分配并写好 backing。与今天相同，生命周期
 的单位可以细到 Scope（见「独立推进」）。必须单独成一遍：下一遍写绑定要用到视图与它们的 bindless 索引。
@@ -315,10 +323,11 @@ Pass ◄── Scope::m_pass ── Scope 实体
 
 ```
 for scope in Scope 存储（已排序）:
-    pass     = scope.m_pass
-    children = ScopeMember 存储里属于 scope 的一段
+    pass        = scope.m_pass
+    attachments = ScopeAttachment 存储里属于 scope 的一段
+    items       = ScopeItem 存储里属于 scope 的一段
 
-    // 事件：按资源遍历 children 里的 attachment（相邻的已合并）
+    // 事件：按资源遍历 attachments（相邻的已合并）
     for 资源 r:
         t = r 上的追踪器
         首次触碰: t = 初始状态; 若有外部 fence → scope 的 wait
@@ -330,7 +339,7 @@ for scope in Scope 存储（已排序）:
         t = { 新状态, scope, 本 attachment }
 
     // 括号（图形 pass）
-    scope.BeginInfo = 由 children 里的渲染目标 / 深度 attachment 构建
+    scope.BeginInfo = 由 attachments 里的渲染目标 / 深度 attachment 构建
 
     // 状态（Scope 这部分）
     scope.state = { pass 的 PSO, pass 的共享绑定, pass 的 space2,
@@ -341,8 +350,8 @@ for scope in Scope 存储（已排序）:
     begin = arena.size()
     for view in (pass 的就绪视图, 或 {无}):
         若有 view: arena += view 句柄
-        arena += children 里的单个 item
-        for 选择 sel in children: sel.m_collect(view, arena)   // 逐视图剔除挂在这里
+        arena += items 里的单个 item
+        for 选择 sel in items: sel.m_collect(view, arena)   // 逐视图剔除挂在这里
     scope.body = { begin, arena.size() }
 ```
 
@@ -355,9 +364,9 @@ for scope in Scope 存储（已排序）:
 
 | 一遍 | 读 | 写 |
 |---|---|---|
-| 0：排序 | Scope、ScopeMember | 两个存储的顺序 |
+| 0：排序 | Scope、ScopeAttachment、ScopeItem | 三个存储的顺序 |
 | 1：瞬态资源 | attachment | 资源的 backing |
-| 2：逐 Scope | children、pass 静态数据、追踪器 | attachment 上的 acquire / release；Scope 上的 wait、signal、BeginInfo、state、body；arena |
+| 2：逐 Scope | attachments、items、pass 静态数据、追踪器 | attachment 上的 acquire / release；Scope 上的 wait、signal、BeginInfo、state、body；arena |
 
 **顺带的校验**：合并相邻 attachment 时发现同一资源两种用法即报错（今天 `MergeImageBarriers` 的断言挪到这里）；
 "图形 pass 只有一个 Scope"由签名保证；"事件不落在括号内"因此自动成立。
@@ -365,16 +374,17 @@ for scope in Scope 存储（已排序）:
 **entt 的约束**（3.16，`registry.sort<T>(compare)` 原地重排紧凑数组并同步稀疏数组，按 `begin()`→`end()` 遍历
 即为比较函数的升序）：
 
-- 被 owning group 拥有的存储不能排序——`Scope`、`ScopeMember` 不进任何 owning group。
-- in_place 删除策略的存储有墓碑时不能排序——两者可平凡移动、不声明 `in_place_delete`，走默认的 swap_and_pop。
-- 多组件 view 由最小的存储驱动迭代，不一定按排好的顺序走——lowering 只遍历单个存储、按实体 `TryGet` 其他组件，
-  或用 `view.use<ScopeMember>()` 指定驱动存储。
-- 排序后该存储不能再增删，否则顺序被打乱——lowering 期间 `Scope`、`ScopeMember` 不增删；给子实体添加别的组件不受影响。
+- 被 owning group 拥有的存储不能排序——`Scope`、`ScopeAttachment`、`ScopeItem` 不进任何 owning group。
+- in_place 删除策略的存储有墓碑时不能排序——三者可平凡移动、不声明 `in_place_delete`，走默认的 swap_and_pop。
+- 多组件 view 由最小的存储驱动迭代，不一定按排好的顺序走——lowering 只遍历单个存储（`GetStorage<T>().each()`）、
+  按实体 `TryGet` 其他组件，或用 `view.use<ScopeAttachment>()` 指定驱动存储。
+- 排序后该存储不能再增删，否则顺序被打乱——lowering 期间三者都不增删；给 attachment、item 添加别的组件不受影响。
 
 ### 流 = 排好序的 Scope + arena
 
-- **Scope 存储即流的顺序**（第 0 步已排好）。执行器按队列遍历，跳过其他队列的 Scope；ScopeMember 存储按同一顺序
-  排好，执行器同步推进两者，像归并一样一起往前走，Scope 不持有子列表，也不记下标。
+- **Scope 存储即流的顺序**（第 0 步已排好）。执行器按队列遍历，跳过其他队列的 Scope；ScopeAttachment 存储按同一顺序
+  排好，执行器同步推进两者，像归并一样一起往前走，Scope 不持有 attachment 列表，也不记下标。执行器不回到 item：
+  它们已在 lowering 时写进 arena。
 - **Scope 的 body 是 arena 里的一段**：`ScopeBody { begin, end }`。lowering 展开 Scope 时，每个视图**先写入该
   视图的句柄，再写它的 item**：
 
@@ -397,7 +407,7 @@ for scope in Scope 存储（已排序）:
   大量无法 GPU-driven 的 CPU draw（CPU 排序的大量透明物体、编辑器调试绘制）。
 - **不透明工作**：Scope 上挂 execute hook 的引用，代替 body；执行后状态缓存失效。
 - **静态导入资源保持现有路径，不进 Scope**：它们（顶点缓冲、采样纹理等）用途确定且唯一，attachment 挂在资源实体
-  本身、不带 `ScopeMember`，由 `CompileStaticResourceBarriers` 按队列一次性处理，状态直接读 RHI 资源、不经追踪器。执行器
+  本身、不带 `ScopeAttachment`，由 `CompileStaticResourceBarriers` 按队列一次性处理，状态直接读 RHI 资源、不经追踪器。执行器
   在每个队列的第一个 Scope 之前执行它的预屏障（外部 fence wait 在最前）。
 - 今天执行器的 `PassBarriers`、`SubmitBatch`、`PassSubmitTable`、`ExecuteWorkItem`、`QueueSegment` /
   `ExecuteGroup` 全部由此取代，`BuildSegments` / `BuildExecuteGroups` / `BuildExecuteWorks` 随之删除。
@@ -451,7 +461,7 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 
 ### 声明
 
-1. **Scope 实体与归属**：`Scope`、`ScopeMember`；attachment、单个 item、选择都挂 `ScopeMember`。
+1. **Scope 实体与归属**：`Scope`、`ScopeAttachment`、`ScopeItem`；attachment 挂 `ScopeAttachment`，单个 item、选择挂 `ScopeItem`。
 2. **pass 声明改造**：单一动态回调；创建与访问分开；render pass 回调拿唯一 Scope，compute / copy 可开多个；
    attachment 声明绑定目标；删除 `.Compile()`，`.CustomPipeline()` + `.Execute()` 合成 `.Opaque()`。
 3. **选择**：`Select<DrawTags...>()` 与 `ItemSelection`；`.Accepts<>()` 移除。
@@ -460,7 +470,7 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 
 ### 编译
 
-5. **屏障以 Scope 为单位编译**：ScopeMember 存储排序后线性遍历，追踪器改为 `m_lastScope` + 上一个 attachment，
+5. **屏障以 Scope 为单位编译**：ScopeAttachment 存储排序后线性遍历，追踪器改为 `m_lastScope` + 上一个 attachment，
    删除 `AttachmentCompilingTag` 循环；屏障写在引起它的 attachment 上，release 写在生产方 attachment 上。判据统一为
    "状态不同或至少一方是写"——今天 `Merge*Barriers` 丢弃 src == dst 的屏障，相邻两个 pass 以 storage 写同一资源
    时没有任何屏障，这一条随之修正。
@@ -500,10 +510,10 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 按"契合 ECS、数据驱动、设计自然、可扩展"四条评估后，概念层（pass 是描述 / 流是执行、Scope、数据放在引起它的
 实体上、单一屏障判据、选择即查询）站得住，问题集中在机械层。以下三处优先回看：
 
-- **排序 + 同步推进的不变量横跨编译与执行。** 第 0 步排好的 ScopeMember 存储顺序要一直保持到执行器同步遍历结束，中间
+- **排序 + 同步推进的不变量横跨编译与执行。** 第 0 步排好的 ScopeAttachment 存储顺序要一直保持到执行器同步遍历结束，中间
   不能增删；为此列了四条 entt 约束，说明它依赖的是存储布局而不是数据本身。比较函数还要跨 registry 跳三级
-  （`ScopeMember` → `Scope` → pass → `PassGlobalTimeline`）。执行器回到子实体，只因为屏障挂在 attachment 上。
-  **关键问题：执行器是否必须回到子实体？** 若它只需 Scope 与 arena，排序就退回 lowering 内部的实现细节，跨阶段
+  （`ScopeAttachment` → `Scope` → pass → `PassGlobalTimeline`）。执行器回到 attachment，只因为屏障挂在 attachment 上。
+  **关键问题：执行器是否必须回到 attachment？** 若它只需 Scope 与 arena，排序就退回 lowering 内部的实现细节，跨阶段
   不变量随之消失。
 - **版本解析依赖 pass 的注册顺序。** 按名字读到的是"在它之前声明的 pass 写出的最新版本"，调换两个 pass 的注册
   顺序语义就变。这是今天已有的隐式依赖，Scope 之间的读写也建立在它上面，分量更重了。

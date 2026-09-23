@@ -254,6 +254,9 @@ namespace Spark::Render
         // leaves them out of the pool.
         m_compiler.CompileExtractedImages(*m_imagePool);
 
+        // After the two above, which link every attachment to its resource.
+        m_compiler.SortScopes(passContext, context);
+
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
 
         StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);

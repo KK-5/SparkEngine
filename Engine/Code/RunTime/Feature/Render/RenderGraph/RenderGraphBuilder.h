@@ -404,7 +404,7 @@ namespace Spark::Render
         RHIHandle attachmentHandle = rhiContext.CreateEntity();
         rhiContext.Add<BufferPassAttachment>(attachmentHandle, attachment);
         rhiContext.Add<PassTag>(attachmentHandle);
-        rhiContext.Add<ScopeMember>(attachmentHandle, ScopeMember{ m_currentScope });
+        rhiContext.Add<ScopeAttachment>(attachmentHandle, ScopeAttachment{ m_currentScope });
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass, attachment.m_access);
         return attachmentHandle;
@@ -421,7 +421,7 @@ namespace Spark::Render
         RHIHandle attachmentHandle = rhiContext.CreateEntity();
         rhiContext.Add<ImagePassAttachment>(attachmentHandle, attachment);
         rhiContext.Add<PassTag>(attachmentHandle);
-        rhiContext.Add<ScopeMember>(attachmentHandle, ScopeMember{ m_currentScope });
+        rhiContext.Add<ScopeAttachment>(attachmentHandle, ScopeAttachment{ m_currentScope });
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass,
             NormalizeImageAccess(attachment.m_access, attachment.m_action));

@@ -225,6 +225,27 @@ namespace Spark::Render
         BuildGraph();
         eastl::vector<Pass> passes = TopoSort();
 
+        // A pass that declared nothing is not in the graph and never runs, so its Scope has no
+        // place in the stream. Any declaration would have made the pass a node, so such a
+        // Scope has no attachments either.
+        {
+            auto& rhiContext  = *RHIExecuteContext::Current();
+            auto& passContext = *PassExecuteContext::Current();
+
+            eastl::vector<RHIHandle> orphanScopes;
+            for (auto [handle, scope] : rhiContext.GetView<Scope>().each())
+            {
+                if (!passContext.Has<PassGlobalTimeline>(scope.m_pass))
+                {
+                    orphanScopes.push_back(handle);
+                }
+            }
+            for (RHIHandle handle : orphanScopes)
+            {
+                rhiContext.DestoryEntity(handle);
+            }
+        }
+
         // Frame-scoped state: cleared at frame end, not next frame's start —
         // so a missed Begin() can't drag stale data forward.
         m_graph.clear();

@@ -28,6 +28,7 @@
 
 #include <Drawable/GeometrySpec.h>
 #include <Pass/Component/PassComponents.h>
+#include <Pass/Component/ScopeComponents.h>
 #include <Pass/PassCapabilities.h>
 #include <View/View.h>
 #include <View/ViewComponents.h>
@@ -777,6 +778,116 @@ namespace Spark::Render
 
             const BackingImage backing = ctx.Get<BackingImage>(extracted.m_pooledImage);
             ctx.Add<BackingImage>(resource, backing);
+        }
+    }
+
+    namespace
+    {
+        struct ScopeOrderKey
+        {
+            uint32_t m_passPosition = 0;
+            uint32_t m_scopeIndex   = 0;
+
+            bool operator<(const ScopeOrderKey& other) const
+            {
+                if (m_passPosition != other.m_passPosition)
+                {
+                    return m_passPosition < other.m_passPosition;
+                }
+                return m_scopeIndex < other.m_scopeIndex;
+            }
+
+            bool operator==(const ScopeOrderKey& other) const
+            {
+                return m_passPosition == other.m_passPosition && m_scopeIndex == other.m_scopeIndex;
+            }
+        };
+
+        struct ScopeAttachmentOrderKey
+        {
+            ScopeOrderKey m_scope;
+            //! Only groups the attachments of one resource together; the value means nothing.
+            RHIHandle     m_resource = NullHandle;
+
+            bool operator<(const ScopeAttachmentOrderKey& other) const
+            {
+                if (!(m_scope == other.m_scope))
+                {
+                    return m_scope < other.m_scope;
+                }
+                return entt::to_integral(m_resource) < entt::to_integral(other.m_resource);
+            }
+        };
+
+        ScopeOrderKey MakeScopeOrderKey(const Scope& scope, const PassContext& passContext)
+        {
+            return ScopeOrderKey{ passContext.Get<PassGlobalTimeline>(scope.m_pass).m_position, scope.m_index };
+        }
+
+        ScopeAttachmentOrderKey MakeScopeAttachmentOrderKey(
+            RHIHandle attachment, const RHIContext& context, const PassContext& passContext)
+        {
+            const RHIHandle scope = context.Get<ScopeAttachment>(attachment).m_scope;
+
+            ScopeAttachmentOrderKey key;
+            key.m_scope = MakeScopeOrderKey(context.Get<Scope>(scope), passContext);
+            if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
+            {
+                key.m_resource = image->m_image;
+            }
+            else if (const auto* buffer = context.TryGet<BufferPassAttachment>(attachment))
+            {
+                key.m_resource = buffer->m_buffer;
+            }
+            return key;
+        }
+    }
+
+    void RenderGraphCompiler::SortScopes(PassContext& passContext, RHIContext& context)
+    {
+        context.Sort<Scope>([&](const Scope& lhs, const Scope& rhs)
+        {
+            return MakeScopeOrderKey(lhs, passContext) < MakeScopeOrderKey(rhs, passContext);
+        });
+
+        // By entity, not component: the key lives on the Scope and the attachment.
+        context.Sort<ScopeAttachment>([&](RHIHandle lhs, RHIHandle rhs)
+        {
+            return MakeScopeAttachmentOrderKey(lhs, context, passContext)
+                 < MakeScopeAttachmentOrderKey(rhs, context, passContext);
+        });
+
+        if constexpr (s_scopeOrderValidation)
+        {
+            // What later stages walk the two storages in lockstep on: attachments ascend, and
+            // the Scopes they name appear in Scope storage order.
+            auto scopes  = context.GetStorage<Scope>().each();
+            auto scopeIt = scopes.begin();
+
+            bool                    hasPrevious = false;
+            ScopeAttachmentOrderKey previous;
+            for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
+            {
+                const ScopeAttachmentOrderKey key = MakeScopeAttachmentOrderKey(attachment, context, passContext);
+                ASSERT(key.m_resource != NullHandle,
+                    "[RenderGraphCompiler] A Scope attachment is not linked to its resource.");
+                ASSERT(!hasPrevious || !(key < previous),
+                    "[RenderGraphCompiler] ScopeAttachment storage is out of order after sorting.");
+                previous    = key;
+                hasPrevious = true;
+
+                while (scopeIt != scopes.end())
+                {
+                    auto [scope, data] = *scopeIt;
+                    if (scope == link.m_scope)
+                    {
+                        break;
+                    }
+                    ++scopeIt;
+                }
+                ASSERT(scopeIt != scopes.end(),
+                    "[RenderGraphCompiler] A ScopeAttachment names a Scope that is out of order, or not in the stream.");
+            }
         }
     }
 
