@@ -293,6 +293,8 @@ Pass ◄── Scope::m_pass ── Scope 实体
 | 屏障 | 引起它的 attachment | 屏障由一次访问引起，按资源合并后一条屏障对应一个 attachment；今天的 `CompiledImageBarrier` 已是如此 |
 | 跨队列 release | 生产方的 attachment | 由生产方这次访问之后紧跟另一队列的访问引起 |
 | 跨队列 wait / signal | Scope | 发生在 Scope 边界，每个队列至多一个 |
+| 外部 fence wait | 首次触碰资源的 attachment | 由这次首次访问引起 |
+| 颜色输出编号 | 渲染目标 attachment（`ColorAttachmentIndex`） | 声明时决定，存储按资源排序后不能再靠顺序推 |
 | 随 pass 变的状态：PSO、space2、pass 共享绑定 | Scope | lowering 把 pass 的信息写到 Scope 上，执行器因此不必认识 pass |
 | 随 Scope 变的状态：root constant（bindless 索引 + 标量） | Scope | 本来就属于它 |
 | 随视图变的状态：viewport、space1 | View 实体 | 本来就在那里 |
@@ -459,6 +461,13 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 
 ## 需要完成的事
 
+### 前置
+
+0. **root constant 端到端**：「绑定」一节假定已具备，实际没有——`DispatchItem::m_rootConstants` 只有字段，DX12
+   `Submit` 不读；RHI `CommandList` 无设置接口；反射不产出 root constant 布局（`SetRootConstantsLayout` 零调用者）。
+   需要：跨后端的 shader 约定（DX12 root constants / Vulkan push constant，占用哪个 space 实现时再定）、反射识别、
+   DX12 root 参数、`CommandList::SetRootConstants`。只卡第 7 条的 root constant 部分与第 17 条。
+
 ### 声明
 
 1. **Scope 实体与归属**：`Scope`、`ScopeAttachment`、`ScopeItem`；attachment 挂 `ScopeAttachment`，单个 item、选择挂 `ScopeItem`。
@@ -470,8 +479,8 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 
 ### 编译
 
-5. **屏障以 Scope 为单位编译**：ScopeAttachment 存储排序后线性遍历，追踪器改为 `m_lastScope` + 上一个 attachment，
-   删除 `AttachmentCompilingTag` 循环；屏障写在引起它的 attachment 上，release 写在生产方 attachment 上。判据统一为
+5. **屏障以 Scope 为单位编译**：ScopeAttachment 存储排序后线性遍历，追踪器记上一个 attachment（Scope 从它的
+   `ScopeAttachment` 读），删除 `AttachmentCompilingTag` 循环；屏障写在引起它的 attachment 上，release 写在生产方 attachment 上。判据统一为
    "状态不同或至少一方是写"——今天 `Merge*Barriers` 丢弃 src == dst 的屏障，相邻两个 pass 以 storage 写同一资源
    时没有任何屏障，这一条随之修正。
 6. **跨队列同步由资源追踪推出**：wait / signal 写到 Scope 上，删除 `CompilePassCrossQueue2`。
@@ -502,6 +511,64 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 18. **子资源屏障**：`ImageBarrier` 带子资源范围（DX12 展开成逐子资源的屏障）、合并按范围重叠、追踪器按子资源区间、
     同一 Scope 读写重叠子资源时报错。等到有链改用 mip 链（HZB）时再做。
 19. **瞬态生命周期按流位置计算**：取代 pass 位置，链的各级可能因此互相别名。
+
+---
+
+## 落地进展
+
+每一步结束引擎照常出图；旧实现不删、只停止调用，最后统一清理。
+
+| 段 | 内容 | 条目 | 状态 |
+|---|---|---|---|
+| A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | A1–A3 完成，A4 待做 |
+| B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13–16 | |
+| C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | |
+| D | Bloom | 17 | |
+
+### A 已完成
+
+| 提交 | 内容 |
+|---|---|
+| `11f3b31` | `Scope` / `ScopeAttachment` 实体；`ContextStorage::Sort` 及锁定 entt 迭代顺序的测试 |
+| `ab7587a` | `SortScopes`；没声明 attachment 的 pass 不进图，其 Scope 建图后销毁 |
+| `b1bd158` | 屏障按 Scope 编译，`Pre*` / `Post*Barrier` 挂在 attachment 上；新判据只多出 SceneColor 四条写后写 |
+| `dbe1855` | `RenderPassBeginInfo` 挂在 Scope 上；颜色编号改为声明时写入的 `ColorAttachmentIndex` |
+| `e83b1da` | `ScopeWait` / `ScopeSignal` / `ExternalWait`；fence 值按流顺序两阶段分配 |
+
+过渡适配（A4 后删）：`CollectPassBarriers`、`CollectPassBeginInfo`、`CollectPassSync`、`SplitPassesByQueue`。
+
+**未验证**：现有 pass 全在 Graphics 队列，跨队列路径没有运行时覆盖，第一个 compute pass 接入时补验。
+
+### A4 方案
+
+- **A4a lowering 产出，不消费**：`ScopeState`（从 pass 抄 PSO 与共享绑定的指针）、`ScopeBody { begin, end }`；body
+  按就绪视图展开进 arena，视图句柄在前、item 在后，item 仍用旧的 `m_collectSubmitItems` 收集。过滤规则照搬
+  `BuildPassSubmitTable`。验收：逐 pass 对比新 body 与旧 `SubmitBatch` 的 item 序列。
+- **A4b 新执行器**：每队列按序遍历 Scope，同步推进 `ScopeAttachment` 游标。wait / 外部 wait 前切、signal 后切，
+  认 `WorkStartTag`；别名屏障在 pass 第一个 Scope 开头向 pool 取；body 里带 `View` 的句柄应用 viewport 与 space1，
+  其余提交。`RenderPassBuilder` 不再默认装 `SubmitDrawBatch`：无 hook 的 Scope 由执行器提交，有 hook 的是不透明
+  工作，按"每个视图段调一次、空 body 调一次"调用，Skybox / UI / copy 不必改。
+- **A4c 清理**：删除所有已不被调用的函数、组件与适配。
+
+待定（括号内为倾向）：arena 归属（执行器持有，lowering 经参数写入）；`ScopeState` 抄指针还是执行器读 pass
+（抄）；不透明工作后的状态失效，RHI 缺接口（暂不做，UI 目前是最后一个 pass）。
+
+### 落地中确定、原方案没写到的
+
+- **颜色编号必须显式**：旧代码靠两次 entt 逆序遍历抵消得到声明顺序，按资源排序后不再成立。
+- **signal 值按生产方的流顺序分配**：扫描时按消费方发现顺序分配会让同一队列的值倒退，所以先记录生产方，再按流
+  顺序统一赋值。
+- **别名屏障不挂 attachment**：一个资源可能对应多条，挂上去需要容器；数据本在 pool 里，执行时按 pass 位置取。
+- **外部 fence wait 挂在首次触碰的 attachment 上**，不放 Scope 上的列表。
+- **不引入事件 arena**：屏障会永久存在，把它们抄进 arena 是另建记录，违背"数据放在引起它的实体上"。
+
+### B / C 开工前要定的
+
+- `.Constant` 也按反射落到 space2 cbuffer（TemporalAA 每帧写 space2 标量），与 `.Bind` 对称。
+- space2 本帧没被 attachment 绑定的槽由 lowering 统一写 null（Skybox 注释说明了不写的后果）。
+- `ComputePassBuilder` 与 render pass 一样自动创建 space2 SRG。
+- 用到 bindless 的 pass 断言设备支持（root signature 的直接索引标志受 `m_bindless` 控制）。
+- Skybox 的 Execute 只是条件绘制，改为 Build 里条件 `Draw`；不透明工作只剩 UI。
 
 ---
 
