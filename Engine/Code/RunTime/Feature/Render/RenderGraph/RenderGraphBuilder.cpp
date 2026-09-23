@@ -27,13 +27,15 @@ namespace Spark::Render
         auto& rhiContext = *RHIExecuteContext::Current();
         m_currentScope = rhiContext.CreateEntity();
         rhiContext.Add<Scope>(m_currentScope, Scope{ pass, 0 });
+        m_currentColorCount = 0;
     }
 
     void RenderGraphBuilder::EndPass()
     {
         ASSERT(m_currentPass != NullPass, "EndPass called without an active pass scope.");
-        m_currentPass  = NullPass;
-        m_currentScope = NullHandle;
+        m_currentPass       = NullPass;
+        m_currentScope      = NullHandle;
+        m_currentColorCount = 0;
     }
 
     void RenderGraphBuilder::TouchNode(Pass pass)

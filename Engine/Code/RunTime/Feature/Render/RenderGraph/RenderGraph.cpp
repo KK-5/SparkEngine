@@ -263,26 +263,17 @@ namespace Spark::Render
 
         for (auto pass : passes)
         {
-            ASSERT(passContext.Has<PassAttachmentMarker>(pass),
-                "The Pass {} has not PassAttachmentMarker", passContext.Get<PassName>(pass).m_name.GetCStr());
-            passContext.Get<PassAttachmentMarker>(pass).m_markFn(context);
-
             auto& func = passContext.Get<PassFunctions>(pass);
             if (func.m_compileFunction)
             {
                 func.m_compileFunction(m_compiler);
             }
-
-            if (passContext.Has<RenderPassTag>(pass))
-            {
-                m_compiler.CompileRenderPassBeginInfo(pass, passContext, context);
-            }
-
-            context.Clear<AttachmentCompilingTag>();
         }
 
         m_compiler.CompileScopeBarriers(passContext, context);
+        m_compiler.CompileScopeBeginInfo(passContext, context);
         m_compiler.CollectPassBarriers(passes, passContext, context, *m_pool);
+        m_compiler.CollectPassBeginInfo(passContext, context);
 
         m_compiler.CompilePassSharedBindings(passContext, context);
 

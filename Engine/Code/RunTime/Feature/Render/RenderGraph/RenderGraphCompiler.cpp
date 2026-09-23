@@ -1073,6 +1073,192 @@ namespace Spark::Render
         }
     }
 
+    namespace
+    {
+        //! The attachment's view from its resource's view cache: per-frame resources (swap
+        //! chain, ImagePerFrame) resolve this frame's slot.
+        RHI::ImageView* ResolveAttachmentView(
+            RHIContext& context, const ImagePassAttachment& att, uint32_t frameIndex)
+        {
+            auto* backImage = context.TryGet<BackingImage>(att.m_image);
+            if (!backImage || !backImage->m_image)
+            {
+                return nullptr;
+            }
+            if (context.Has<RHI::PerFrameTag>(att.m_image))
+            {
+                return RHI::GetOrCreateImageViewPerFrame(
+                    context, att.m_image, *backImage->m_image, att.m_viewDescriptor, frameIndex);
+            }
+            return RHI::GetOrCreateImageView(context, att.m_image, *backImage->m_image, att.m_viewDescriptor);
+        }
+
+        uint32_t AttachmentLayerCount(const RHIContext& context, const ImagePassAttachment& att)
+        {
+            const auto* backImage = context.TryGet<BackingImage>(att.m_image);
+            if (!backImage || !backImage->m_image)
+            {
+                return 1;
+            }
+            return RHI::GetArraySliceCount(backImage->m_image->GetDescriptor(), att.m_viewDescriptor);
+        }
+
+        template<typename Iterator>
+        RHI::RenderPassBeginInfo BuildScopeBeginInfo(
+            Iterator begin, Iterator end, Pass pass,
+            const PassContext& passContext, RHIContext& context, uint32_t frameIndex)
+        {
+            const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
+
+            RHI::RenderPassBeginInfo info;
+            eastl::array<RHI::InputName, RHI::Limits::Pipeline::AttachmentColorCountMax> colorSlots {};
+            uint32_t colorCount    = 0;
+            uint32_t maxLayerCount = 1;
+            bool     hasAny        = false;
+
+            for (Iterator it = begin; it != end; ++it)
+            {
+                auto [attachment, link] = *it;
+                const auto* att = context.TryGet<ImagePassAttachment>(attachment);
+                if (!att)
+                {
+                    continue;
+                }
+
+                if (att->m_usage == RHI::AttachmentUsage::RenderTarget)
+                {
+                    const uint32_t index = context.Get<ColorAttachmentIndex>(attachment).m_index;
+                    ASSERT(index < RHI::Limits::Pipeline::AttachmentColorCountMax,
+                        "[RenderGraphCompiler] Too many color attachments on pass {}.", passName);
+
+                    RHI::ImageView* view = ResolveAttachmentView(context, *att, frameIndex);
+                    ASSERT(view != nullptr,
+                        "[RenderGraphCompiler] Attachment {}'s view could not be resolved from its resource view cache.",
+                        att->m_attachmentId.m_id.GetCStr());
+
+                    auto& color = info.m_colorAttachments[index];
+                    color.m_view            = view;
+                    color.m_loadStoreAction = att->m_action;
+                    colorSlots[index]       = att->m_slotName;
+                    colorCount              = eastl::max(colorCount, index + 1);
+                    maxLayerCount           = eastl::max(maxLayerCount, AttachmentLayerCount(context, *att));
+                    hasAny                  = true;
+                }
+                else if (att->m_usage == RHI::AttachmentUsage::DepthStencil)
+                {
+                    ASSERT(info.m_depthStencilAttachment.m_view == nullptr,
+                        "[RenderGraphCompiler] Pass {} has more than one depth-stencil attachment.", passName);
+
+                    RHI::ImageView* view = ResolveAttachmentView(context, *att, frameIndex);
+                    ASSERT(view != nullptr,
+                        "[RenderGraphCompiler] Attachment {}'s view could not be resolved from its resource view cache.",
+                        att->m_attachmentId.m_id.GetCStr());
+
+                    info.m_depthStencilAttachment.m_view            = view;
+                    info.m_depthStencilAttachment.m_access          = att->m_access;
+                    info.m_depthStencilAttachment.m_loadStoreAction = att->m_action;
+                    maxLayerCount = eastl::max(maxLayerCount, AttachmentLayerCount(context, *att));
+                    hasAny        = true;
+                }
+            }
+
+            info.m_colorAttachmentCount = colorCount;
+            for (uint32_t i = 0; i < colorCount; ++i)
+            {
+                ASSERT(info.m_colorAttachments[i].m_view != nullptr,
+                    "[RenderGraphCompiler] Pass {} has no color attachment at index {}.", passName, i);
+            }
+
+            if (const auto* pipelineState = passContext.TryGet<PassPipelineState>(pass);
+                pipelineState && !passContext.Has<CustomPipelinePassTag>(pass))
+            {
+                ASSERT(colorCount == pipelineState->m_renderTargetLayout.m_colorAttachmentCount,
+                    "[RenderGraphCompiler] Pass {} declares {} color attachments, its RenderTargetLayout {}.",
+                    passName, colorCount, pipelineState->m_renderTargetLayout.m_colorAttachmentCount);
+            }
+
+            // Vulkan renders exactly this many layers and ignores the views' own extents, so
+            // leaving it at 1 would silently drop every slice but the first; DX12 infers it from
+            // the RTV instead. Taking the max lets a mismatched set hit validation rather than
+            // quietly under-render.
+            info.m_layerCount = maxLayerCount;
+
+            for (Iterator it = begin; it != end; ++it)
+            {
+                auto [attachment, link] = *it;
+                const auto* att = context.TryGet<ImagePassAttachment>(attachment);
+                if (!att || att->m_usage != RHI::AttachmentUsage::Resolve)
+                {
+                    continue;
+                }
+
+                RHI::ImageView* resolved = ResolveAttachmentView(context, *att, frameIndex);
+                ASSERT(resolved != nullptr,
+                    "[RenderGraphCompiler] Resolve attachment {}'s view could not be resolved from its resource view cache.",
+                    att->m_attachmentId.m_id.GetCStr());
+
+                uint32_t source = colorCount;
+                for (uint32_t i = 0; i < colorCount; ++i)
+                {
+                    if (colorSlots[i] == att->m_resolveSourceSlot)
+                    {
+                        source = i;
+                        break;
+                    }
+                }
+                ASSERT(source < colorCount,
+                    "[RenderGraphCompiler] Resolve attachment slot '{}' references unknown RenderTarget slot '{}'.",
+                    att->m_slotName.GetCStr(), att->m_resolveSourceSlot.GetCStr());
+                if (source < colorCount)
+                {
+                    info.m_colorAttachments[source].m_resolveView = resolved;
+                }
+            }
+
+            ASSERT(hasAny,
+                "[RenderGraphCompiler] Render pass {} has no color or depth-stencil attachment.", passName);
+            return info;
+        }
+    }
+
+    void RenderGraphCompiler::CompileScopeBeginInfo(PassContext& passContext, RHIContext& context)
+    {
+        // Each Scope's attachments are contiguous (SortScopes): cut the storage into those runs.
+        auto scopeOf = [](const auto& element)
+        {
+            auto [attachment, link] = element;
+            return link.m_scope;
+        };
+
+        auto attachments = context.GetStorage<ScopeAttachment>().each();
+        for (auto it = attachments.begin(); it != attachments.end();)
+        {
+            const RHIHandle scope = scopeOf(*it);
+
+            auto runEnd = it;
+            while (runEnd != attachments.end() && scopeOf(*runEnd) == scope)
+            {
+                ++runEnd;
+            }
+
+            const Pass pass = context.Get<Scope>(scope).m_pass;
+            if (passContext.Has<RenderPassTag>(pass))
+            {
+                context.Add<RHI::RenderPassBeginInfo>(scope,
+                    BuildScopeBeginInfo(it, runEnd, pass, passContext, context, m_frameIndex));
+            }
+            it = runEnd;
+        }
+    }
+
+    void RenderGraphCompiler::CollectPassBeginInfo(PassContext& passContext, RHIContext& context)
+    {
+        for (auto [scope, data, info] : context.GetView<Scope, RHI::RenderPassBeginInfo>().each())
+        {
+            passContext.AddOrReplace<RHI::RenderPassBeginInfo>(data.m_pass, info);
+        }
+    }
+
     void RenderGraphCompiler::CompileTransientResources(RHI::TransientResourcePool& pool)
     {
         auto& rhiContext  = *RHIExecuteContext::Current();

@@ -223,6 +223,14 @@ namespace Spark::Render
 
     struct AttachmentCompilingTag {};
 
+    //! On a RenderTarget attachment: its color output index, the order it was declared in its
+    //! Scope. The pass's RenderTargetLayout gives each index a format, so this must be
+    //! explicit — the attachment storage is sorted by resource.
+    struct ColorAttachmentIndex
+    {
+        uint32_t m_index = 0;
+    };
+
     //! On an attachment reading the previous frame's copy of a name. Its resource is a
     //! pooled image, so the transient flow skips it.
     struct PreviousFrameTag {};

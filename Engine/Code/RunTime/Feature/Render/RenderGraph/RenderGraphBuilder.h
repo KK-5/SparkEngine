@@ -292,6 +292,9 @@ namespace Spark::Render
         //! The one Scope every pass has until passes can declare more.
         RHIHandle m_currentScope {NullHandle};
 
+        //! RenderTarget attachments declared in m_currentScope so far: the next one's index.
+        uint32_t m_currentColorCount {0};
+
         eastl::unordered_map<Pass, PassNode> m_graph;
 
         eastl::unordered_map<AttachmentId, eastl::vector<AttachmentEntry>> m_attachmentUses;
@@ -422,6 +425,10 @@ namespace Spark::Render
         rhiContext.Add<ImagePassAttachment>(attachmentHandle, attachment);
         rhiContext.Add<PassTag>(attachmentHandle);
         rhiContext.Add<ScopeAttachment>(attachmentHandle, ScopeAttachment{ m_currentScope });
+        if (attachment.m_usage == RHI::AttachmentUsage::RenderTarget)
+        {
+            rhiContext.Add<ColorAttachmentIndex>(attachmentHandle, ColorAttachmentIndex{ m_currentColorCount++ });
+        }
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass,
             NormalizeImageAccess(attachment.m_access, attachment.m_action));

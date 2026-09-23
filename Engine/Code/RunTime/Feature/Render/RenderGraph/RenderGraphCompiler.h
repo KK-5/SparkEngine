@@ -79,6 +79,15 @@ namespace Spark::Render
         //! backend's call. Runs after SortScopes.
         void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
 
+        //! Build each render pass Scope's RHI::RenderPassBeginInfo from its attachments and put it
+        //! on the Scope. Colors go by ColorAttachmentIndex, not storage order. Runs after
+        //! SortScopes.
+        void CompileScopeBeginInfo(PassContext& passContext, RHIContext& context);
+
+        //! Transitional, until the executer walks Scopes: copies each Scope's BeginInfo onto its
+        //! pass, where the executer still reads it.
+        void CollectPassBeginInfo(PassContext& passContext, RHIContext& context);
+
         //! Transitional, until the executer walks Scopes: gathers the barriers on each pass's
         //! attachments, plus its transient aliasing barriers, into the PassBarriers the
         //! executer still reads.
