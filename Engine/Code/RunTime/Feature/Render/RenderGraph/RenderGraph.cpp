@@ -273,8 +273,6 @@ namespace Spark::Render
                 func.m_compileFunction(m_compiler);
             }
 
-            m_compiler.CompileResourceBarriers(pass, passContext, context, *m_pool);
-
             if (passContext.Has<RenderPassTag>(pass))
             {
                 m_compiler.CompileRenderPassBeginInfo(pass, passContext, context);
@@ -282,6 +280,9 @@ namespace Spark::Render
 
             context.Clear<AttachmentCompilingTag>();
         }
+
+        m_compiler.CompileScopeBarriers(passContext, context);
+        m_compiler.CollectPassBarriers(passes, passContext, context, *m_pool);
 
         m_compiler.CompilePassSharedBindings(passContext, context);
 

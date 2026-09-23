@@ -90,6 +90,9 @@ namespace Spark::Render
     {
         RHI::ResourceState m_current {};
         Pass               m_lastPass { NullPass };
+        //! The attachment that last used the resource — where a cross-queue release goes.
+        //! Its Scope is read off its ScopeAttachment. NullHandle means first touch.
+        RHIHandle          m_lastAttachment { NullHandle };
     };
 
     // Per-attachment compiled barrier: CompileImage/BufferBarriers emit one of these
@@ -104,6 +107,31 @@ namespace Spark::Render
     };
 
     struct CompiledBufferBarrier
+    {
+        RHI::BufferBarrier m_barrier;
+    };
+
+    //! The barrier an attachment's access needs before it runs. On the first attachment of its
+    //! resource within a Scope, carrying the merged access of all of them. Per-frame, gone with
+    //! the attachment.
+    struct PreImageBarrier
+    {
+        RHI::ImageBarrier m_barrier;
+    };
+
+    struct PreBufferBarrier
+    {
+        RHI::BufferBarrier m_barrier;
+    };
+
+    //! The release half of a cross-queue transfer, on the producer's attachment: the next
+    //! access to its resource is on another queue.
+    struct PostImageBarrier
+    {
+        RHI::ImageBarrier m_barrier;
+    };
+
+    struct PostBufferBarrier
     {
         RHI::BufferBarrier m_barrier;
     };

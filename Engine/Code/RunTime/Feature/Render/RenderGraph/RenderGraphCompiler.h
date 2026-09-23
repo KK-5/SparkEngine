@@ -72,6 +72,22 @@ namespace Spark::Render
         //! CompileExtractedImages. Nothing may add or remove either component afterwards.
         void SortScopes(PassContext& passContext, RHIContext& context);
 
+        //! Walk the sorted attachments once, Scope by Scope, and put on them the barriers their
+        //! accesses need: Pre*Barrier on the first attachment of each (Scope, resource) group,
+        //! Post*Barrier (cross-queue release) on the producer's attachment. A barrier is needed
+        //! when the state differs or either side writes; dropping same-state ones is the
+        //! backend's call. Runs after SortScopes.
+        void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
+
+        //! Transitional, until the executer walks Scopes: gathers the barriers on each pass's
+        //! attachments, plus its transient aliasing barriers, into the PassBarriers the
+        //! executer still reads.
+        void CollectPassBarriers(
+            eastl::span<const Pass>     passes,
+            PassContext&                passContext,
+            RHIContext&                 context,
+            RHI::TransientResourcePool& pool);
+
 
         //! Compile all barriers for a single pass. Must be called in topo-sort
         //! order so that cross-queue Release/Acquire pairs are written to the

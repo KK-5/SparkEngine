@@ -891,6 +891,188 @@ namespace Spark::Render
         }
     }
 
+    namespace
+    {
+        //! One resource's attachments within one Scope, merged into a single access.
+        struct ScopeResourceAccess
+        {
+            RHIHandle            m_scope      = NullHandle;
+            RHIHandle            m_resource   = NullHandle;
+            RHIHandle            m_attachment = NullHandle;   //!< the first of them; carries the barrier
+            bool                 m_isImage    = false;
+            RHI::AccessFlags     m_access     = RHI::AccessFlags::None;
+            RHI::AttachmentStage m_stage      = RHI::AttachmentStage::Any;
+        };
+
+        void CompileScopeResourceBarrier(
+            const ScopeResourceAccess& access, PassContext& passContext, RHIContext& context)
+        {
+            const Pass pass = context.Get<Scope>(access.m_scope).m_pass;
+            ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue",
+                passContext.Get<PassName>(pass).m_name.GetCStr());
+            const RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
+
+            const auto* backingImage  = access.m_isImage ? context.TryGet<BackingImage>(access.m_resource) : nullptr;
+            const auto* backingBuffer = access.m_isImage ? nullptr : context.TryGet<BackingBuffer>(access.m_resource);
+            ASSERT(access.m_isImage ? backingImage != nullptr : backingBuffer != nullptr,
+                "Resource {} has no backing.",
+                context.Has<ResourceName>(access.m_resource)
+                    ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
+                    : "[Unnamed]");
+
+            if (context.Has<ImportedTag>(access.m_resource))
+            {
+                const RHI::HardwareQueueClassMask mask = access.m_isImage
+                    ? backingImage->m_image->GetDescriptor().m_sharedQueueMask
+                    : backingBuffer->m_buffer->GetDescriptor().m_sharedQueueMask;
+                ValidateExclusiveHomeQueue(mask, dstQueue,
+                    context.Has<ResourceName>(access.m_resource)
+                        ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
+                        : "[Unnamed]");
+            }
+
+            auto* tracker = context.TryGet<ResourceStateTracker>(access.m_resource);
+            if (!tracker)
+            {
+                ResourceStateTracker init;
+                init.m_current = GetResourceInitialState(access.m_resource, context);
+                CompilePassExternalFenceWait(pass, access.m_resource,
+                    init.m_current.m_queue, dstQueue, passContext, context);
+                tracker = &context.Add<ResourceStateTracker>(access.m_resource, init);
+            }
+
+            const RHI::ResourceState src = tracker->m_current;
+            const RHI::ResourceState dst { access.m_access, dstQueue, access.m_stage };
+
+            // Same state with a write on either side is still an execution / memory dependency
+            // (a UAV barrier on DX12); whether it costs anything is the backend's call.
+            if (src != dst || RHI::HasWrite(src.m_access) || RHI::HasWrite(dst.m_access))
+            {
+                const bool release = src.m_queue != dstQueue && tracker->m_lastAttachment != NullHandle;
+                if (access.m_isImage)
+                {
+                    RHI::ImageBarrier b;
+                    b.m_image     = backingImage->m_image;
+                    b.m_srcAccess = src.m_access;
+                    b.m_dstAccess = dst.m_access;
+                    b.m_srcStage  = src.m_stage;
+                    b.m_dstStage  = dst.m_stage;
+                    b.m_srcQueue  = src.m_queue;
+                    b.m_dstQueue  = dstQueue;
+                    context.Add<PreImageBarrier>(access.m_attachment, PreImageBarrier{ b });
+                    if (release)
+                    {
+                        context.Add<PostImageBarrier>(tracker->m_lastAttachment, PostImageBarrier{ b });
+                    }
+                }
+                else
+                {
+                    RHI::BufferBarrier b;
+                    b.m_buffer    = backingBuffer->m_buffer;
+                    b.m_srcAccess = src.m_access;
+                    b.m_dstAccess = dst.m_access;
+                    b.m_srcStage  = src.m_stage;
+                    b.m_dstStage  = dst.m_stage;
+                    b.m_srcQueue  = src.m_queue;
+                    b.m_dstQueue  = dstQueue;
+                    context.Add<PreBufferBarrier>(access.m_attachment, PreBufferBarrier{ b });
+                    if (release)
+                    {
+                        context.Add<PostBufferBarrier>(tracker->m_lastAttachment, PostBufferBarrier{ b });
+                    }
+                }
+            }
+
+            tracker->m_current        = dst;
+            tracker->m_lastAttachment = access.m_attachment;
+        }
+    }
+
+    void RenderGraphCompiler::CompileScopeBarriers(PassContext& passContext, RHIContext& context)
+    {
+        // SortScopes made one resource's attachments within a Scope adjacent: merge them into
+        // one access, and compile it when the next attachment starts another group.
+        ScopeResourceAccess group;
+        for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
+        {
+            ScopeResourceAccess current;
+            current.m_scope      = link.m_scope;
+            current.m_attachment = attachment;
+            if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
+            {
+                current.m_resource = image->m_image;
+                current.m_isImage  = true;
+                current.m_access   = CompileResourceState(*image).m_access;
+                current.m_stage    = image->m_stage;
+            }
+            else
+            {
+                const auto& buffer = context.Get<BufferPassAttachment>(attachment);
+                current.m_resource = buffer.m_buffer;
+                current.m_access   = CompileResourceState(buffer).m_access;
+                current.m_stage    = buffer.m_stage;
+            }
+
+            if (group.m_attachment != NullHandle
+                && group.m_scope == current.m_scope
+                && group.m_resource == current.m_resource)
+            {
+                group.m_access |= current.m_access;
+                group.m_stage  |= current.m_stage;
+                ASSERT(!RHI::HasWrite(group.m_access)
+                    || group.m_access == (RHI::AccessFlags::ShaderStorageRead | RHI::AccessFlags::ShaderStorageWrite),
+                    "Resource combined with conflicting read+write access in a single Scope.");
+                continue;
+            }
+
+            if (group.m_attachment != NullHandle)
+            {
+                CompileScopeResourceBarrier(group, passContext, context);
+            }
+            group = current;
+        }
+
+        if (group.m_attachment != NullHandle)
+        {
+            CompileScopeResourceBarrier(group, passContext, context);
+        }
+    }
+
+    void RenderGraphCompiler::CollectPassBarriers(
+        eastl::span<const Pass>     passes,
+        PassContext&                passContext,
+        RHIContext&                 context,
+        RHI::TransientResourcePool& pool)
+    {
+        for (Pass pass : passes)
+        {
+            PassBarriers barriers;
+            CompileTransientDeviceMemoryBarriers(pass, passContext, pool, barriers);
+            passContext.AddOrReplace<PassBarriers>(pass, eastl::move(barriers));
+        }
+
+        for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
+        {
+            PassBarriers& barriers = passContext.Get<PassBarriers>(context.Get<Scope>(link.m_scope).m_pass);
+            if (const auto* b = context.TryGet<PreImageBarrier>(attachment))
+            {
+                barriers.m_preImage.push_back(b->m_barrier);
+            }
+            if (const auto* b = context.TryGet<PreBufferBarrier>(attachment))
+            {
+                barriers.m_preBuffer.push_back(b->m_barrier);
+            }
+            if (const auto* b = context.TryGet<PostImageBarrier>(attachment))
+            {
+                barriers.m_postImage.push_back(b->m_barrier);
+            }
+            if (const auto* b = context.TryGet<PostBufferBarrier>(attachment))
+            {
+                barriers.m_postBuffer.push_back(b->m_barrier);
+            }
+        }
+    }
+
     void RenderGraphCompiler::CompileTransientResources(RHI::TransientResourcePool& pool)
     {
         auto& rhiContext  = *RHIExecuteContext::Current();
