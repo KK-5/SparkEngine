@@ -79,6 +79,18 @@ namespace Spark::Render
         //! backend's call. Runs after SortScopes.
         void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
 
+        //! Turn the cross-queue waits CompileScopeBarriers recorded into fence values: walks
+        //! Scopes in stream order, gives each ScopeSignal its queue's next value, and resolves
+        //! each ScopeWait to its producers' values, dropping any an earlier wait already covers.
+        void CompileScopeSync(PassContext& passContext, RHIContext& context);
+
+        //! Transitional, until the executer walks Scopes: copies Scope waits / signals and the
+        //! attachments' external waits onto the passes, where BuildSegments still reads them.
+        void CollectPassSync(PassContext& passContext, RHIContext& context);
+
+        //! Transitional: the per-queue pass lists CompilePassCrossQueue2 used to return.
+        QueueBasedPasses SplitPassesByQueue(eastl::span<const Pass> passes, const PassContext& passContext);
+
         //! Build each render pass Scope's RHI::RenderPassBeginInfo from its attachments and put it
         //! on the Scope. Colors go by ColorAttachmentIndex, not storage order. Runs after
         //! SortScopes.

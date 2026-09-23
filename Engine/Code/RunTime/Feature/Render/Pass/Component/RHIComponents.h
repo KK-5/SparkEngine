@@ -136,6 +136,13 @@ namespace Spark::Render
         RHI::BufferBarrier m_barrier;
     };
 
+    //! On the attachment that first touched an imported resource another system left pending
+    //! on another queue (e.g. an upload): its queue waits for that fence before the Scope runs.
+    struct ExternalWait
+    {
+        RHI::PendingSync m_sync;
+    };
+
     ///////////////////////////////////////////////
 
     ///////////////////////////////////////////////

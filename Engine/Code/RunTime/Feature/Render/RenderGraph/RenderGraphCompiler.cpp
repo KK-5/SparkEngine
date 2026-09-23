@@ -904,6 +904,61 @@ namespace Spark::Render
             RHI::AttachmentStage m_stage      = RHI::AttachmentStage::Any;
         };
 
+        //! The fence an imported resource's first access must wait for: another system left it
+        //! pending on another queue (e.g. an upload) and the fence has not been reached yet.
+        const RHI::PendingSync* FindExternalWait(
+            RHIHandle               resource,
+            RHI::HardwareQueueClass srcQueue,
+            RHI::HardwareQueueClass dstQueue,
+            const RHIContext&       context)
+        {
+            if (srcQueue == dstQueue || !context.Has<ImportedTag>(resource))
+            {
+                return nullptr;
+            }
+            const auto* sync = context.TryGet<RHI::PendingSync>(resource);
+            if (!sync)
+            {
+                return nullptr;
+            }
+            // Fence values are monotonic, so reached at compile stays reached through execute.
+            if (sync->m_fence != nullptr && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue)
+            {
+                return nullptr;
+            }
+            return sync;
+        }
+
+        //! The consumer Scope waits for the producer Scope on srcQueue. Only the latest producer
+        //! per source queue is kept: waiting for it covers every earlier signal on that queue.
+        //! Values are assigned later, in stream order (CompileScopeSync).
+        void RecordCrossQueueWait(
+            RHIHandle               consumer,
+            RHIHandle               producer,
+            RHI::HardwareQueueClass srcQueue,
+            const PassContext&      passContext,
+            RHIContext&             context)
+        {
+            if (!context.Has<ScopeSignal>(producer))
+            {
+                context.Add<ScopeSignal>(producer);
+            }
+
+            auto* wait = context.TryGet<ScopeWait>(consumer);
+            if (!wait)
+            {
+                wait = &context.Add<ScopeWait>(consumer);
+            }
+
+            RHIHandle& latest = wait->m_producer[static_cast<uint32_t>(srcQueue)];
+            if (latest == NullHandle
+                || MakeScopeOrderKey(context.Get<Scope>(latest), passContext)
+                     < MakeScopeOrderKey(context.Get<Scope>(producer), passContext))
+            {
+                latest = producer;
+            }
+        }
+
         void CompileScopeResourceBarrier(
             const ScopeResourceAccess& access, PassContext& passContext, RHIContext& context)
         {
@@ -936,8 +991,11 @@ namespace Spark::Render
             {
                 ResourceStateTracker init;
                 init.m_current = GetResourceInitialState(access.m_resource, context);
-                CompilePassExternalFenceWait(pass, access.m_resource,
-                    init.m_current.m_queue, dstQueue, passContext, context);
+                if (const RHI::PendingSync* sync = FindExternalWait(
+                        access.m_resource, init.m_current.m_queue, dstQueue, context))
+                {
+                    context.Add<ExternalWait>(access.m_attachment, ExternalWait{ *sync });
+                }
                 tracker = &context.Add<ResourceStateTracker>(access.m_resource, init);
             }
 
@@ -980,6 +1038,13 @@ namespace Spark::Render
                     {
                         context.Add<PostBufferBarrier>(tracker->m_lastAttachment, PostBufferBarrier{ b });
                     }
+                }
+
+                if (release)
+                {
+                    RecordCrossQueueWait(access.m_scope,
+                        context.Get<ScopeAttachment>(tracker->m_lastAttachment).m_scope,
+                        src.m_queue, passContext, context);
                 }
             }
 
@@ -1257,6 +1322,112 @@ namespace Spark::Render
         {
             passContext.AddOrReplace<RHI::RenderPassBeginInfo>(data.m_pass, info);
         }
+    }
+
+    void RenderGraphCompiler::CompileScopeSync(PassContext& passContext, RHIContext& context)
+    {
+        // [waiting queue][source queue]: the highest value already waited for. A later wait on
+        // a value no higher is redundant — the timeline has passed it.
+        eastl::array<eastl::array<uint64_t, RHI::HardwareQueueClassCount>, RHI::HardwareQueueClassCount> waited {};
+
+        // In stream order, so a producer's value is assigned before any consumer reads it and
+        // each queue's values rise in the order its Scopes are submitted.
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            const auto queueIndex = static_cast<uint32_t>(passContext.Get<PassExecuteQueue>(data.m_pass).m_queue);
+
+            if (auto* wait = context.TryGet<ScopeWait>(scope))
+            {
+                for (uint32_t source = 0; source < RHI::HardwareQueueClassCount; ++source)
+                {
+                    wait->m_value[source] = 0;
+                    if (wait->m_producer[source] == NullHandle)
+                    {
+                        continue;
+                    }
+
+                    const uint64_t value = context.Get<ScopeSignal>(wait->m_producer[source]).m_value;
+                    ASSERT(value != 0,
+                        "[RenderGraphCompiler] A Scope waits for a producer that comes after it in the stream.");
+                    if (value <= waited[queueIndex][source])
+                    {
+                        continue;
+                    }
+                    waited[queueIndex][source] = value;
+                    wait->m_value[source]      = value;
+                }
+            }
+
+            if (auto* signal = context.TryGet<ScopeSignal>(scope))
+            {
+                signal->m_value = ++m_crossQueueFenceValues[queueIndex];
+            }
+        }
+    }
+
+    void RenderGraphCompiler::CollectPassSync(PassContext& passContext, RHIContext& context)
+    {
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            const RHI::HardwareQueueClass queue = passContext.Get<PassExecuteQueue>(data.m_pass).m_queue;
+
+            if (const auto* wait = context.TryGet<ScopeWait>(scope))
+            {
+                for (uint32_t source = 0; source < RHI::HardwareQueueClassCount; ++source)
+                {
+                    if (wait->m_value[source] == 0)
+                    {
+                        continue;
+                    }
+                    const SyncOperation op{ static_cast<RHI::HardwareQueueClass>(source), wait->m_value[source] };
+                    if (auto* passWait = passContext.TryGet<PassSyncWait>(data.m_pass))
+                    {
+                        passWait->m_waits.push_back(op);
+                    }
+                    else
+                    {
+                        PassSyncWait passWaitNew;
+                        passWaitNew.m_waits.push_back(op);
+                        passContext.Add<PassSyncWait>(data.m_pass, eastl::move(passWaitNew));
+                    }
+                }
+            }
+
+            if (const auto* signal = context.TryGet<ScopeSignal>(scope))
+            {
+                passContext.AddOrReplace<PassSyncSignal>(data.m_pass, PassSyncSignal{ SyncOperation{ queue, signal->m_value } });
+            }
+        }
+
+        for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
+        {
+            const auto* external = context.TryGet<ExternalWait>(attachment);
+            if (!external)
+            {
+                continue;
+            }
+            const Pass pass = context.Get<Scope>(link.m_scope).m_pass;
+            if (auto* waits = passContext.TryGet<PassExternalFenceWaits>(pass))
+            {
+                waits->m_waits.push_back(external->m_sync);
+            }
+            else
+            {
+                PassExternalFenceWaits waitsNew;
+                waitsNew.m_waits.push_back(external->m_sync);
+                passContext.Add<PassExternalFenceWaits>(pass, eastl::move(waitsNew));
+            }
+        }
+    }
+
+    QueueBasedPasses RenderGraphCompiler::SplitPassesByQueue(eastl::span<const Pass> passes, const PassContext& passContext)
+    {
+        QueueBasedPasses result;
+        for (Pass pass : passes)
+        {
+            result[static_cast<uint32_t>(passContext.Get<PassExecuteQueue>(pass).m_queue)].push_back(pass);
+        }
+        return result;
     }
 
     void RenderGraphCompiler::CompileTransientResources(RHI::TransientResourcePool& pool)

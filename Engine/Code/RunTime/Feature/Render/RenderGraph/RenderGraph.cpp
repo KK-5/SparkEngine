@@ -271,15 +271,17 @@ namespace Spark::Render
         }
 
         m_compiler.CompileScopeBarriers(passContext, context);
+        m_compiler.CompileScopeSync(passContext, context);
         m_compiler.CompileScopeBeginInfo(passContext, context);
         m_compiler.CollectPassBarriers(passes, passContext, context, *m_pool);
+        m_compiler.CollectPassSync(passContext, context);
         m_compiler.CollectPassBeginInfo(passContext, context);
 
         m_compiler.CompilePassSharedBindings(passContext, context);
 
         m_compiler.CompileShaderInputs(*m_device, context);
 
-        QueueBasedPasses queueBasedPasses = m_compiler.CompilePassCrossQueue2(passes);
+        QueueBasedPasses queueBasedPasses = m_compiler.SplitPassesByQueue(passes, passContext);
 
         m_compiler.End();
         ////////////////////////////////////////////////

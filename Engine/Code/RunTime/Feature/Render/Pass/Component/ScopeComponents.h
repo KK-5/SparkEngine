@@ -3,6 +3,7 @@
 #include <EASTL/type_traits.h>
 
 #include <RHI/Context/RHIContext.h>
+#include <RHI/HardwareQueue.h>
 #include <Pass/Pass.h>
 
 namespace Spark::Render
@@ -22,6 +23,25 @@ namespace Spark::Render
     struct ScopeAttachment
     {
         RHI::RHIHandle m_scope {RHI::NullHandle};
+    };
+
+    //! On a Scope whose access to some resource follows one on another queue: per source queue,
+    //! the latest producer Scope it must wait for, and the fence value that works out to.
+    //! CompileScopeBarriers fills m_producer, CompileScopeSync the values in stream order.
+    //! A zero value means no wait on that queue — none needed, or an earlier wait covers it.
+    static_assert(RHI::HardwareQueueClassCount == 3, "ScopeWait's initializer lists one producer per queue.");
+
+    struct ScopeWait
+    {
+        RHI::RHIHandle m_producer[RHI::HardwareQueueClassCount] { RHI::NullHandle, RHI::NullHandle, RHI::NullHandle };
+        uint64_t       m_value[RHI::HardwareQueueClassCount] {};
+    };
+
+    //! On a Scope another queue waits for. The value is its queue's next fence value, assigned
+    //! by CompileScopeSync in stream order so each queue signals monotonically.
+    struct ScopeSignal
+    {
+        uint64_t m_value = 0;
     };
 
     // Lowering sorts these storages, which entt refuses on an in_place_delete storage holding
