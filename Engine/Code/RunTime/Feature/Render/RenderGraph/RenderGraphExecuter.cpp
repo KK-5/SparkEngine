@@ -10,6 +10,7 @@
 
 #include <Pass/PassCapabilities.h>
 #include <Pass/Component/PassComponents.h>
+#include <Pass/Component/ScopeComponents.h>
 #include <View/View.h>
 #include <View/ViewComponents.h>
 
@@ -184,6 +185,16 @@ namespace Spark::Render
             rhiContext.GetView<BufferPassAttachment>(Exclude<StaticImportTag>).each(
                 [&](RHIHandle h, const BufferPassAttachment&) { attachmentHandles.push_back(h); });
             for (RHIHandle h : attachmentHandles)
+            {
+                rhiContext.DestoryEntity(h);
+            }
+
+            // Rebuilt every frame by the builder; their members (the attachments above)
+            // carried ScopeMember and are gone with them.
+            eastl::vector<RHIHandle> scopeHandles;
+            rhiContext.GetView<Scope>().each(
+                [&](RHIHandle h, const Scope&) { scopeHandles.push_back(h); });
+            for (RHIHandle h : scopeHandles)
             {
                 rhiContext.DestoryEntity(h);
             }

@@ -146,6 +146,69 @@ TEST(ECSTest, ViewAndGroup)
     ASSERT_FLOAT_EQ(wordContext.Get<Position>(ent3).y, 3.8f);
 }
 
+struct SortKey
+{
+    int value;
+};
+
+struct SortPayload
+{
+    int value;
+};
+
+TEST(ECSTest, SortedStorageIteratesInAscendingOrder)
+{
+    WorldContext context;
+
+    const int keys[] = { 3, 1, 4, 0, 2 };
+    for (int key : keys)
+    {
+        context.Add<SortKey>(context.CreateEntity(), key);
+    }
+
+    context.Sort<SortKey>([](const SortKey& lhs, const SortKey& rhs) { return lhs.value < rhs.value; });
+
+    eastl::vector<int> visited;
+    for (auto [entity, key] : context.GetStorage<SortKey>().each())
+    {
+        visited.push_back(key.value);
+    }
+    ASSERT_EQ(visited, (eastl::vector<int>{ 0, 1, 2, 3, 4 }));
+
+    visited.clear();
+    context.GetView<SortKey>().each([&](const SortKey& key) { visited.push_back(key.value); });
+    ASSERT_EQ(visited, (eastl::vector<int>{ 0, 1, 2, 3, 4 }));
+}
+
+TEST(ECSTest, ViewDrivenBySortedStorageFollowsItsOrder)
+{
+    WorldContext context;
+
+    // SortPayload is the smaller storage, so it would drive the view by default.
+    const int keys[] = { 3, 1, 4, 0, 2 };
+    for (int key : keys)
+    {
+        Entity entity = context.CreateEntity();
+        context.Add<SortKey>(entity, key);
+        if (key % 2 == 0)
+        {
+            context.Add<SortPayload>(entity, key);
+        }
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        context.Add<SortKey>(context.CreateEntity(), 10 + i);
+    }
+
+    context.Sort<SortKey>([](const SortKey& lhs, const SortKey& rhs) { return lhs.value < rhs.value; });
+
+    eastl::vector<int> visited;
+    auto view = context.GetView<SortKey, SortPayload>();
+    view.use<SortKey>();
+    view.each([&](const SortKey& key, const SortPayload&) { visited.push_back(key.value); });
+    ASSERT_EQ(visited, (eastl::vector<int>{ 0, 2, 4 }));
+}
+
 TEST(ECSTest, Tag)
 {
     WorldContext wordContext;

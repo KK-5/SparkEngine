@@ -21,12 +21,19 @@ namespace Spark::Render
         ASSERT(m_currentPass == NullPass,
             "BeginPass called while another pass scope is still active.");
         m_currentPass = pass;
+
+        // Created even if the pass declares nothing: a Scope without attachments still has
+        // its place in the stream.
+        auto& rhiContext = *RHIExecuteContext::Current();
+        m_currentScope = rhiContext.CreateEntity();
+        rhiContext.Add<Scope>(m_currentScope, Scope{ pass, 0 });
     }
 
     void RenderGraphBuilder::EndPass()
     {
         ASSERT(m_currentPass != NullPass, "EndPass called without an active pass scope.");
-        m_currentPass = NullPass;
+        m_currentPass  = NullPass;
+        m_currentScope = NullHandle;
     }
 
     void RenderGraphBuilder::TouchNode(Pass pass)
@@ -223,7 +230,8 @@ namespace Spark::Render
         m_graph.clear();
         m_attachmentUses.clear();
         m_latestVersions.clear();
-        m_currentPass = NullPass;
+        m_currentPass  = NullPass;
+        m_currentScope = NullHandle;
 
         return passes;
     }

@@ -9,6 +9,7 @@
 
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
 #include <Pass/Component/RHIComponents.h>
+#include <Pass/Component/ScopeComponents.h>
 #include <Pass/PassContext.h>
 #include <RHI/Context/RHIContext.h>
 
@@ -288,6 +289,9 @@ namespace Spark::Render
 
         Pass m_currentPass {NullPass};
 
+        //! The one Scope every pass has until passes can declare more.
+        RHIHandle m_currentScope {NullHandle};
+
         eastl::unordered_map<Pass, PassNode> m_graph;
 
         eastl::unordered_map<AttachmentId, eastl::vector<AttachmentEntry>> m_attachmentUses;
@@ -400,6 +404,7 @@ namespace Spark::Render
         RHIHandle attachmentHandle = rhiContext.CreateEntity();
         rhiContext.Add<BufferPassAttachment>(attachmentHandle, attachment);
         rhiContext.Add<PassTag>(attachmentHandle);
+        rhiContext.Add<ScopeMember>(attachmentHandle, ScopeMember{ m_currentScope });
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass, attachment.m_access);
         return attachmentHandle;
@@ -416,6 +421,7 @@ namespace Spark::Render
         RHIHandle attachmentHandle = rhiContext.CreateEntity();
         rhiContext.Add<ImagePassAttachment>(attachmentHandle, attachment);
         rhiContext.Add<PassTag>(attachmentHandle);
+        rhiContext.Add<ScopeMember>(attachmentHandle, ScopeMember{ m_currentScope });
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass,
             NormalizeImageAccess(attachment.m_access, attachment.m_action));

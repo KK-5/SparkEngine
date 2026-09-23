@@ -235,6 +235,17 @@ namespace Spark
             return eastl::as_const(m_registry).template storage<T>();
         }
 
+        /// @brief Reorder T's storage in place: iterating it, or a view driven by it, then visits
+        /// entities in ascending compare order. compare takes two entities or two const T&.
+        ///
+        /// The order holds only until T is next added or removed. Not allowed on a storage owned
+        /// by a group, or on an in_place_delete storage that holds tombstones.
+        template<typename T, typename Compare>
+        void Sort(Compare compare)
+        {
+            m_registry.template sort<T>(eastl::move(compare));
+        }
+
         /// @brief Every component storage, type-erased, for a reflection-driven walk --
         /// today only the scene writer. Business code that wants one component should name
         /// it: GetStorage<T>() is that path, and being explicit is the point.
