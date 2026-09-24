@@ -725,7 +725,7 @@ namespace Spark::Render
     void RenderGraphExecuter::ExecuteScopes(
         PassContext& passContext, RHIContext& rhiContext,
         RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues,
-        RHI::FenceSet& crossQueueFences, const RHI::TransientResourcePool& pool)
+        RHI::FenceSet& crossQueueFences)
     {
         m_queueActive = {};
         eastl::array<RHI::CommandList*, RHI::HardwareQueueClassCount> recording {};
@@ -812,20 +812,13 @@ namespace Spark::Render
                 ExecuteStaticPreBarriers(commandList, queueIndex);
             }
 
-            // Aliasing barriers are keyed on pass position, so they open the pass's first Scope.
-            if (data.m_index == 0)
-            {
-                m_aliasingBarriers.clear();
-                pool.GetDeviceMemoryBarriers(
-                    passContext.Get<PassGlobalTimeline>(data.m_pass).m_position, m_aliasingBarriers);
-                for (const auto& barrier : m_aliasingBarriers)
-                {
-                    commandList->QueueBarrier(barrier);
-                }
-            }
             for (auto it = runBegin; it != runEnd; ++it)
             {
                 const RHIHandle handle = std::get<0>(*it);
+                if (const auto* barrier = rhiContext.TryGet<PreAliasingBarrier>(handle))
+                {
+                    commandList->QueueBarrier(barrier->m_barrier);
+                }
                 if (const auto* barrier = rhiContext.TryGet<PreImageBarrier>(handle))
                 {
                     commandList->QueueBarrier(barrier->m_barrier);

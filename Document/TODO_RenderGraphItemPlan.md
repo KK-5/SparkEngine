@@ -568,6 +568,9 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
   执行段新路径约 1.85ms、旧路径约 1.41ms，这 0.4ms 与 item 数无关，而与 Scope 数有关。可疑点之一：
   编译阶段的 `CollectPassBarriers` 仍在查询 `GetDeviceMemoryBarriers`，新执行器在执行段又查一次。但 Scope 数不随网格增加，所以这一点解释不了带网格场景的差距。
 - **A4c 清理**：删除所有已不被调用的函数、组件与适配。
+  - `TransientResourcePool` 的别名屏障改按资源查询：`GetAliasingBarrier(const Resource&, DeviceMemoryBarrier&)`
+    取代按位置的 `GetDeviceMemoryBarriers`。资源每帧只放置一次，位置由资源决定，不必作键；编译期
+    `AttachAliasingBarrier` 随之不再需要 pass 位置与暂存数组。
 
 待定（括号内为倾向）：不透明工作后的状态失效，RHI 缺接口（暂不做，UI 目前是最后一个 pass）。
 
@@ -576,7 +579,9 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 - **颜色编号必须显式**：旧代码靠两次 entt 逆序遍历抵消得到声明顺序，按资源排序后不再成立。
 - **signal 值按生产方的流顺序分配**：扫描时按消费方发现顺序分配会让同一队列的值倒退，所以先记录生产方，再按流
   顺序统一赋值。
-- **别名屏障不挂 attachment**：一个资源可能对应多条，挂上去需要容器；数据本在 pool 里，执行时按 pass 位置取。
+- **别名屏障挂在首次触碰 transient 资源的 attachment 上**（`PreAliasingBarrier`），编译期从 pool 取，执行器不再碰
+  pool。每个资源至多一条：资源每帧只放置一次；若将来一个资源压在多个旧资源上，合成一条即可（DX12 的 before
+  可为空，Vulkan 只需要内存依赖）。
 - **外部 fence wait 挂在首次触碰的 attachment 上**，不放 Scope 上的列表。
 - **不引入事件表**：屏障会永久存在，把它们抄进提交表是另建记录，违背"数据放在引起它的实体上"。
 

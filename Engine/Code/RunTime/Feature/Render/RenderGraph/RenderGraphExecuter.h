@@ -206,7 +206,7 @@ namespace Spark::Render
         void ExecuteScopes(
             PassContext& passContext, RHIContext& rhiContext,
             RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues,
-            RHI::FenceSet& crossQueueFences, const RHI::TransientResourcePool& pool);
+            RHI::FenceSet& crossQueueFences);
 
         //! Whether the queue received any work this frame.
         bool IsQueueActive(uint32_t queueIndex) const;
@@ -229,7 +229,6 @@ namespace Spark::Render
         eastl::vector<RHI::RHIHandle> m_submitList;
 
         eastl::array<bool, RHI::HardwareQueueClassCount> m_queueActive {};
-        eastl::vector<RHI::DeviceMemoryBarrier>           m_aliasingBarriers;
 
         static constexpr bool s_scopeSubmitValidation { true };
 

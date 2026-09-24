@@ -270,7 +270,7 @@ namespace Spark::Render
             }
         }
 
-        m_compiler.CompileScopeBarriers(passContext, context);
+        m_compiler.CompileScopeBarriers(passContext, context, *m_pool);
         m_compiler.CompileScopeSync(passContext, context);
         m_compiler.CompileScopeBeginInfo(passContext, context);
         m_compiler.CollectPassBarriers(passes, passContext, context, *m_pool);
@@ -303,7 +303,7 @@ namespace Spark::Render
         if constexpr (RenderGraphExecuter::s_scopeExecution)
         {
             m_executer.ExecuteScopes(passContext, context, *factory, *m_device,
-                m_commandQueueContext, m_crossQueueFences, *m_pool);
+                m_commandQueueContext, m_crossQueueFences);
         }
         else
         {

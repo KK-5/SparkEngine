@@ -74,10 +74,12 @@ namespace Spark::Render
 
         //! Walk the sorted attachments once, Scope by Scope, and put on them the barriers their
         //! accesses need: Pre*Barrier on the first attachment of each (Scope, resource) group,
-        //! Post*Barrier (cross-queue release) on the producer's attachment. A barrier is needed
-        //! when the state differs or either side writes; dropping same-state ones is the
-        //! backend's call. Runs after SortScopes.
-        void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
+        //! Post*Barrier (cross-queue release) on the producer's attachment, PreAliasingBarrier on
+        //! the one first touching a transient resource that `pool` placed over another's memory.
+        //! A barrier is needed when the state differs or either side writes; dropping same-state
+        //! ones is the backend's call. Runs after SortScopes.
+        void CompileScopeBarriers(
+            PassContext& passContext, RHIContext& context, const RHI::TransientResourcePool& pool);
 
         //! Turn the cross-queue waits CompileScopeBarriers recorded into fence values: walks
         //! Scopes in stream order, gives each ScopeSignal its queue's next value, and resolves
@@ -173,6 +175,8 @@ namespace Spark::Render
         eastl::array<uint64_t, RHI::HardwareQueueClassCount> m_crossQueueFenceValues{1, 1, 1};
 
         uint32_t m_frameIndex { 0 };
+
+        eastl::vector<RHI::DeviceMemoryBarrier> m_aliasingScratch;
 
         static constexpr bool s_scopeOrderValidation { true };
     };

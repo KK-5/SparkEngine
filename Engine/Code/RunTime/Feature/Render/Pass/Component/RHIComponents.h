@@ -124,6 +124,13 @@ namespace Spark::Render
         RHI::BufferBarrier m_barrier;
     };
 
+    //! On the attachment that first touches a transient resource placed over another's memory:
+    //! the aliasing barrier handing that memory over. Goes before the attachment's Pre*Barrier.
+    struct PreAliasingBarrier
+    {
+        RHI::DeviceMemoryBarrier m_barrier;
+    };
+
     //! The release half of a cross-queue transfer, on the producer's attachment: the next
     //! access to its resource is on another queue.
     struct PostImageBarrier

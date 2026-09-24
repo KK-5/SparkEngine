@@ -959,8 +959,33 @@ namespace Spark::Render
             }
         }
 
+        //! A transient resource is placed at the position of its first pass, so the aliasing
+        //! barrier into its memory, if any, is among that position's.
+        void AttachAliasingBarrier(
+            const ScopeResourceAccess&               access,
+            RHI::Resource*                           resource,
+            uint32_t                                 position,
+            const RHI::TransientResourcePool&        pool,
+            eastl::vector<RHI::DeviceMemoryBarrier>& scratch,
+            RHIContext&                              context)
+        {
+            pool.GetDeviceMemoryBarriers(position, scratch);
+            for (const auto& barrier : scratch)
+            {
+                if (barrier.m_resourceAfter == resource)
+                {
+                    context.Add<PreAliasingBarrier>(access.m_attachment, PreAliasingBarrier{ barrier });
+                    return;
+                }
+            }
+        }
+
         void CompileScopeResourceBarrier(
-            const ScopeResourceAccess& access, PassContext& passContext, RHIContext& context)
+            const ScopeResourceAccess&               access,
+            PassContext&                             passContext,
+            RHIContext&                              context,
+            const RHI::TransientResourcePool&        pool,
+            eastl::vector<RHI::DeviceMemoryBarrier>& aliasingScratch)
         {
             const Pass pass = context.Get<Scope>(access.m_scope).m_pass;
             ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue",
@@ -995,6 +1020,14 @@ namespace Spark::Render
                         access.m_resource, init.m_current.m_queue, dstQueue, context))
                 {
                     context.Add<ExternalWait>(access.m_attachment, ExternalWait{ *sync });
+                }
+                if (context.Has<TransientTag>(access.m_resource))
+                {
+                    RHI::Resource* resource = access.m_isImage
+                        ? static_cast<RHI::Resource*>(backingImage->m_image)
+                        : static_cast<RHI::Resource*>(backingBuffer->m_buffer);
+                    AttachAliasingBarrier(access, resource,
+                        passContext.Get<PassGlobalTimeline>(pass).m_position, pool, aliasingScratch, context);
                 }
                 tracker = &context.Add<ResourceStateTracker>(access.m_resource, init);
             }
@@ -1053,7 +1086,8 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphCompiler::CompileScopeBarriers(PassContext& passContext, RHIContext& context)
+    void RenderGraphCompiler::CompileScopeBarriers(
+        PassContext& passContext, RHIContext& context, const RHI::TransientResourcePool& pool)
     {
         // SortScopes made one resource's attachments within a Scope adjacent: merge them into
         // one access, and compile it when the next attachment starts another group.
@@ -1092,14 +1126,14 @@ namespace Spark::Render
 
             if (group.m_attachment != NullHandle)
             {
-                CompileScopeResourceBarrier(group, passContext, context);
+                CompileScopeResourceBarrier(group, passContext, context, pool, m_aliasingScratch);
             }
             group = current;
         }
 
         if (group.m_attachment != NullHandle)
         {
-            CompileScopeResourceBarrier(group, passContext, context);
+            CompileScopeResourceBarrier(group, passContext, context, pool, m_aliasingScratch);
         }
     }
 
