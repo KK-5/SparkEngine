@@ -109,6 +109,68 @@ namespace Spark::Render
             }
             ASSERT(false, "[RenderGraphExecuter] Submit list entry {} is neither a view nor an item.", submitIndex);
         }
+
+        //! Every fence the Scope waits for before it runs: its producers' on other queues, then
+        //! the external ones on the attachments that first touch a resource.
+        template<typename Visit>
+        void ForEachScopeWait(
+            RHIContext& rhiContext, RHIHandle scope, eastl::span<const RHIHandle> attachments, Visit&& visit)
+        {
+            if (const auto* wait = rhiContext.TryGet<ScopeWait>(scope))
+            {
+                for (const RHI::PendingSync& sync : wait->m_sync)
+                {
+                    if (sync.m_fence)
+                    {
+                        visit(sync);
+                    }
+                }
+            }
+            for (RHIHandle attachment : attachments)
+            {
+                if (const auto* external = rhiContext.TryGet<ExternalWait>(attachment))
+                {
+                    visit(external->m_sync);
+                }
+            }
+        }
+
+        void QueueScopePreBarriers(
+            RHI::CommandList* commandList, RHIContext& rhiContext, eastl::span<const RHIHandle> attachments)
+        {
+            for (RHIHandle attachment : attachments)
+            {
+                // A resource's memory is handed over before its state changes.
+                if (const auto* barrier = rhiContext.TryGet<PreAliasingBarrier>(attachment))
+                {
+                    commandList->QueueBarrier(barrier->m_barrier);
+                }
+                if (const auto* barrier = rhiContext.TryGet<PreImageBarrier>(attachment))
+                {
+                    commandList->QueueBarrier(barrier->m_barrier);
+                }
+                if (const auto* barrier = rhiContext.TryGet<PreBufferBarrier>(attachment))
+                {
+                    commandList->QueueBarrier(barrier->m_barrier);
+                }
+            }
+        }
+
+        void QueueScopePostBarriers(
+            RHI::CommandList* commandList, RHIContext& rhiContext, eastl::span<const RHIHandle> attachments)
+        {
+            for (RHIHandle attachment : attachments)
+            {
+                if (const auto* barrier = rhiContext.TryGet<PostImageBarrier>(attachment))
+                {
+                    commandList->QueueBarrier(barrier->m_barrier);
+                }
+                if (const auto* barrier = rhiContext.TryGet<PostBufferBarrier>(attachment))
+                {
+                    commandList->QueueBarrier(barrier->m_barrier);
+                }
+            }
+        }
     }
 
     void RenderGraphExecuter::Begin(uint32_t frameIndex)
@@ -773,19 +835,9 @@ namespace Spark::Render
             }
         }
 
-        // SortScopes laid out each Scope's attachments contiguously, in Scope order, so one
-        // cursor walks them alongside the Scopes.
-        auto attachments = rhiContext.GetStorage<ScopeAttachment>().each();
-        auto attachment  = attachments.begin();
-
         for (auto [scope, data] : rhiContext.GetStorage<Scope>().each())
         {
-            const auto runBegin = attachment;
-            while (attachment != attachments.end() && std::get<1>(*attachment).m_scope == scope)
-            {
-                ++attachment;
-            }
-            const auto runEnd = attachment;
+            const eastl::span<const RHIHandle> attachments = GetScopeAttachments(rhiContext, scope);
 
             const auto queueClass = data.m_queue;
             auto&      queue      = queues.GetCommandQueue(queueClass);
@@ -796,142 +848,21 @@ namespace Spark::Render
             }
 
             // A wait holds back only what is submitted after it, so what came before goes first.
-            auto wait = [&](RHI::Fence& fence, uint64_t value)
+            ForEachScopeWait(rhiContext, scope, attachments, [&](const RHI::PendingSync& sync)
             {
                 submit(queueClass);
-                queue.Wait(fence, value);
-            };
-            if (const auto* scopeWait = rhiContext.TryGet<ScopeWait>(scope))
-            {
-                for (const RHI::PendingSync& sync : scopeWait->m_sync)
-                {
-                    if (sync.m_fence)
-                    {
-                        wait(*sync.m_fence, sync.m_fenceValue);
-                    }
-                }
-            }
-            for (auto it = runBegin; it != runEnd; ++it)
-            {
-                if (const auto* external = rhiContext.TryGet<ExternalWait>(std::get<0>(*it)))
-                {
-                    wait(*external->m_sync.m_fence, external->m_sync.m_fenceValue);
-                }
-            }
+                queue.Wait(*sync.m_fence, sync.m_fenceValue);
+            });
 
             RHI::CommandList* commandList = open(queueClass);
 
-            for (auto it = runBegin; it != runEnd; ++it)
-            {
-                const RHIHandle handle = std::get<0>(*it);
-                if (const auto* barrier = rhiContext.TryGet<PreAliasingBarrier>(handle))
-                {
-                    commandList->QueueBarrier(barrier->m_barrier);
-                }
-                if (const auto* barrier = rhiContext.TryGet<PreImageBarrier>(handle))
-                {
-                    commandList->QueueBarrier(barrier->m_barrier);
-                }
-                if (const auto* barrier = rhiContext.TryGet<PreBufferBarrier>(handle))
-                {
-                    commandList->QueueBarrier(barrier->m_barrier);
-                }
-            }
+            QueueScopePreBarriers(commandList, rhiContext, attachments);
             commandList->FlushBarriers();
 
-            RHI::Viewport targetViewport;
-            RHI::Scissor  targetScissor;
-            bool          hasTarget = false;
-            const auto*   beginInfo = rhiContext.TryGet<RHI::RenderPassBeginInfo>(scope);
-            if (beginInfo)
-            {
-                commandList->BeginRenderPass(*beginInfo);
-                hasTarget = ResolveTargetViewport(*beginInfo, targetViewport, targetScissor);
-            }
-
-            const auto& state = rhiContext.Get<ScopeState>(scope);
-            if (state.m_pso)
-            {
-                commandList->SetPipelineState(*state.m_pso);
-                for (uint8_t i = 0; i < state.m_bindingCount; ++i)
-                {
-                    BindShaderInputs(commandList, *state.m_pso, *state.m_bindings[i]);
-                }
-            }
-
-            const auto& range   = rhiContext.Get<ScopeSubmitRange>(scope);
-            const auto* execute = rhiContext.TryGet<ScopeExecute>(scope);
-            commandList->SetSubmitRange({ range.m_begin, range.m_end });
-
-            ExecuteWork work;
-            work.m_commandList = commandList;
-            auto submitSegment = [&](uint32_t begin, uint32_t end)
-            {
-                if (execute)
-                {
-                    work.m_submitBase  = begin;
-                    work.m_itemHandles = eastl::span<const RHIHandle>(m_submitList.data() + begin, end - begin);
-                    (*execute->m_execute)(work, *this);
-                    return;
-                }
-                for (uint32_t i = begin; i < end; ++i)
-                {
-                    SubmitItem(commandList, rhiContext, m_submitList[i], i);
-                }
-            };
-
-            // A view handle closes the segment before it and sets up the one after it.
-            uint32_t segmentBegin = range.m_begin;
-            for (uint32_t i = range.m_begin; i < range.m_end; ++i)
-            {
-                const RHIHandle handle = m_submitList[i];
-                const View*     view   = rhiContext.TryGet<View>(handle);
-                if (!view)
-                {
-                    continue;
-                }
-
-                if (i != range.m_begin)
-                {
-                    submitSegment(segmentBegin, i);
-                }
-
-                if (hasTarget)
-                {
-                    const auto&         rect     = view->m_rect;
-                    const RHI::Viewport viewport = targetViewport.GetScaled(rect.m_minX, rect.m_maxX, rect.m_minY, rect.m_maxY);
-                    commandList->SetViewport(viewport);
-                    commandList->SetScissor(ScissorFromViewport(viewport));
-                }
-
-                const RHI::ShaderBindings* viewBindings = nullptr;
-                if (state.m_pso && ResolveViewShaderBindings(rhiContext, handle, viewBindings) && viewBindings)
-                {
-                    BindShaderInputs(commandList, *state.m_pso, *viewBindings);
-                }
-
-                segmentBegin = i + 1;
-            }
-            submitSegment(segmentBegin, range.m_end);
-
-            if (beginInfo)
-            {
-                commandList->EndRenderPass();
-            }
+            RecordScope(commandList, rhiContext, scope);
 
             // Flushed together with whatever comes next on this CommandList.
-            for (auto it = runBegin; it != runEnd; ++it)
-            {
-                const RHIHandle handle = std::get<0>(*it);
-                if (const auto* barrier = rhiContext.TryGet<PostImageBarrier>(handle))
-                {
-                    commandList->QueueBarrier(barrier->m_barrier);
-                }
-                if (const auto* barrier = rhiContext.TryGet<PostBufferBarrier>(handle))
-                {
-                    commandList->QueueBarrier(barrier->m_barrier);
-                }
-            }
+            QueueScopePostBarriers(commandList, rhiContext, attachments);
 
             if (const auto* signal = rhiContext.TryGet<ScopeSignal>(scope))
             {
@@ -940,13 +871,100 @@ namespace Spark::Render
             }
         }
 
-        ASSERT(attachment == attachments.end(),
-            "[RenderGraphExecuter] ScopeAttachment storage is out of step with the Scope storage.");
-
         for (uint32_t i = 0; i < RHI::HardwareQueueClassCount; ++i)
         {
             submit(static_cast<RHI::HardwareQueueClass>(i));
         }
+    }
+
+    void RenderGraphExecuter::RecordScope(RHI::CommandList* commandList, RHIContext& rhiContext, RHIHandle scope)
+    {
+        const auto* beginInfo = rhiContext.TryGet<RHI::RenderPassBeginInfo>(scope);
+        if (beginInfo)
+        {
+            commandList->BeginRenderPass(*beginInfo);
+        }
+
+        const auto& state = rhiContext.Get<ScopeState>(scope);
+        if (state.m_pso)
+        {
+            commandList->SetPipelineState(*state.m_pso);
+            for (uint8_t i = 0; i < state.m_bindingCount; ++i)
+            {
+                BindShaderInputs(commandList, *state.m_pso, *state.m_bindings[i]);
+            }
+        }
+
+        SubmitScopeRange(commandList, rhiContext, scope, state, beginInfo);
+
+        if (beginInfo)
+        {
+            commandList->EndRenderPass();
+        }
+    }
+
+    void RenderGraphExecuter::SubmitScopeRange(
+        RHI::CommandList* commandList, RHIContext& rhiContext, RHIHandle scope,
+        const ScopeState& state, const RHI::RenderPassBeginInfo* beginInfo)
+    {
+        RHI::Viewport targetViewport;
+        RHI::Scissor  targetScissor;
+        const bool    hasTarget = beginInfo && ResolveTargetViewport(*beginInfo, targetViewport, targetScissor);
+
+        const auto& range   = rhiContext.Get<ScopeSubmitRange>(scope);
+        const auto* execute = rhiContext.TryGet<ScopeExecute>(scope);
+        commandList->SetSubmitRange({ range.m_begin, range.m_end });
+
+        ExecuteWork work;
+        work.m_commandList = commandList;
+        auto submitSegment = [&](uint32_t begin, uint32_t end)
+        {
+            if (execute)
+            {
+                work.m_submitBase  = begin;
+                work.m_itemHandles = eastl::span<const RHIHandle>(m_submitList.data() + begin, end - begin);
+                (*execute->m_execute)(work, *this);
+                return;
+            }
+            for (uint32_t i = begin; i < end; ++i)
+            {
+                SubmitItem(commandList, rhiContext, m_submitList[i], i);
+            }
+        };
+
+        // A view handle closes the segment before it and sets up the one after it.
+        uint32_t segmentBegin = range.m_begin;
+        for (uint32_t i = range.m_begin; i < range.m_end; ++i)
+        {
+            const RHIHandle handle = m_submitList[i];
+            const View*     view   = rhiContext.TryGet<View>(handle);
+            if (!view)
+            {
+                continue;
+            }
+
+            if (i != range.m_begin)
+            {
+                submitSegment(segmentBegin, i);
+            }
+
+            if (hasTarget)
+            {
+                const auto&         rect     = view->m_rect;
+                const RHI::Viewport viewport = targetViewport.GetScaled(rect.m_minX, rect.m_maxX, rect.m_minY, rect.m_maxY);
+                commandList->SetViewport(viewport);
+                commandList->SetScissor(ScissorFromViewport(viewport));
+            }
+
+            const RHI::ShaderBindings* viewBindings = nullptr;
+            if (state.m_pso && ResolveViewShaderBindings(rhiContext, handle, viewBindings) && viewBindings)
+            {
+                BindShaderInputs(commandList, *state.m_pso, *viewBindings);
+            }
+
+            segmentBegin = i + 1;
+        }
+        submitSegment(segmentBegin, range.m_end);
     }
 
     bool RenderGraphExecuter::IsQueueActive(uint32_t queueIndex) const

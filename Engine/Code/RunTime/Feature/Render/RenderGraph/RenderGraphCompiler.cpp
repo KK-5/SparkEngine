@@ -890,6 +890,32 @@ namespace Spark::Render
                     "[RenderGraphCompiler] A ScopeAttachment names a Scope that is out of order, or not in the stream.");
             }
         }
+
+        // Each Scope's attachments now sit contiguously in the packed array: record where, so
+        // they can be reached without walking every Scope before.
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            context.Add<ScopeAttachmentRange>(scope);
+        }
+
+        auto&            attachments = context.GetStorage<ScopeAttachment>();
+        const RHIHandle* packed      = attachments.data();
+        const auto       count       = static_cast<uint32_t>(attachments.size());
+        for (uint32_t begin = 0; begin < count;)
+        {
+            const RHIHandle scope = attachments.get(packed[begin]).m_scope;
+            uint32_t        end   = begin + 1;
+            while (end < count && attachments.get(packed[end]).m_scope == scope)
+            {
+                ++end;
+            }
+
+            ScopeAttachmentRange& range = context.Get<ScopeAttachmentRange>(scope);
+            ASSERT(range.m_begin == range.m_end,
+                "[RenderGraphCompiler] A Scope's attachments are not contiguous after sorting.");
+            range = ScopeAttachmentRange{ begin, end };
+            begin = end;
+        }
     }
 
     void RenderGraphCompiler::CompileActiveQueues(RHIContext& context)
@@ -1211,9 +1237,8 @@ namespace Spark::Render
             return RHI::GetArraySliceCount(backImage->m_image->GetDescriptor(), att.m_viewDescriptor);
         }
 
-        template<typename Iterator>
         RHI::RenderPassBeginInfo BuildScopeBeginInfo(
-            Iterator begin, Iterator end, Pass pass,
+            eastl::span<const RHIHandle> attachments, Pass pass,
             const PassContext& passContext, RHIContext& context, uint32_t frameIndex)
         {
             const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
@@ -1224,9 +1249,8 @@ namespace Spark::Render
             uint32_t maxLayerCount = 1;
             bool     hasAny        = false;
 
-            for (Iterator it = begin; it != end; ++it)
+            for (RHIHandle attachment : attachments)
             {
-                auto [attachment, link] = *it;
                 const auto* att = context.TryGet<ImagePassAttachment>(attachment);
                 if (!att)
                 {
@@ -1291,9 +1315,8 @@ namespace Spark::Render
             // quietly under-render.
             info.m_layerCount = maxLayerCount;
 
-            for (Iterator it = begin; it != end; ++it)
+            for (RHIHandle attachment : attachments)
             {
-                auto [attachment, link] = *it;
                 const auto* att = context.TryGet<ImagePassAttachment>(attachment);
                 if (!att || att->m_usage != RHI::AttachmentUsage::Resolve)
                 {
@@ -1331,31 +1354,15 @@ namespace Spark::Render
 
     void RenderGraphCompiler::CompileScopeBeginInfo(PassContext& passContext, RHIContext& context)
     {
-        // Each Scope's attachments are contiguous (SortScopes): cut the storage into those runs.
-        auto scopeOf = [](const auto& element)
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
-            auto [attachment, link] = element;
-            return link.m_scope;
-        };
-
-        auto attachments = context.GetStorage<ScopeAttachment>().each();
-        for (auto it = attachments.begin(); it != attachments.end();)
-        {
-            const RHIHandle scope = scopeOf(*it);
-
-            auto runEnd = it;
-            while (runEnd != attachments.end() && scopeOf(*runEnd) == scope)
+            const eastl::span<const RHIHandle> attachments = GetScopeAttachments(context, scope);
+            if (attachments.empty() || !passContext.Has<RenderPassTag>(data.m_pass))
             {
-                ++runEnd;
+                continue;
             }
-
-            const Pass pass = context.Get<Scope>(scope).m_pass;
-            if (passContext.Has<RenderPassTag>(pass))
-            {
-                context.Add<RHI::RenderPassBeginInfo>(scope,
-                    BuildScopeBeginInfo(it, runEnd, pass, passContext, context, m_frameIndex));
-            }
-            it = runEnd;
+            context.Add<RHI::RenderPassBeginInfo>(scope,
+                BuildScopeBeginInfo(attachments, data.m_pass, passContext, context, m_frameIndex));
         }
     }
 

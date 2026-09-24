@@ -28,6 +28,7 @@ namespace Spark::RHI
     class PipelineState;
     class ShaderBindings;
     struct DrawItem;
+    struct RenderPassBeginInfo;
 }
 
 
@@ -125,6 +126,7 @@ namespace Spark::Render
     };
 
     class RenderGraphExecuter;
+    struct ScopeState;
 
     //! Submits the DrawItems handed to a hook, for hooks that only decide whether to draw.
     void SubmitDrawBatch(ExecuteWork& work, RenderGraphExecuter&);
@@ -206,6 +208,16 @@ namespace Spark::Render
         void ExecuteScopes(
             RHIContext& rhiContext, RHI::HardwareQueueClassMask activeQueues,
             RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues);
+
+        //! A Scope's own work, between its barriers: its render pass if it has one, its state,
+        //! and its submit range.
+        void RecordScope(RHI::CommandList* commandList, RHIContext& rhiContext, RHIHandle scope);
+
+        //! Walk the Scope's submit range: each view handle sets viewport and space1 for the items
+        //! after it, which go to the Scope's hook if it has one, else are submitted one by one.
+        void SubmitScopeRange(
+            RHI::CommandList* commandList, RHIContext& rhiContext, RHIHandle scope,
+            const ScopeState& state, const RHI::RenderPassBeginInfo* beginInfo);
 
         //! Whether the queue received any work this frame.
         bool IsQueueActive(uint32_t queueIndex) const;

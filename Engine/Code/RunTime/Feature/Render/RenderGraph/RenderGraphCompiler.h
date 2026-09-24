@@ -68,9 +68,10 @@ namespace Spark::Render
 
         //! Put the Scope and ScopeAttachment storages in stream order: Scopes by (pass topo
         //! position, index in pass); attachments by (their Scope, resource), so each Scope's
-        //! attachments are contiguous and those of one resource adjacent. Needs every attachment
-        //! linked to its resource, so runs after CompileTransientResources /
-        //! CompileExtractedImages. Nothing may add or remove either component afterwards.
+        //! attachments are contiguous and those of one resource adjacent; each Scope records where
+        //! its run is in ScopeAttachmentRange. Needs every attachment linked to its resource, so
+        //! runs after CompileTransientResources / CompileExtractedImages. Nothing may add or
+        //! remove either component afterwards.
         void SortScopes(PassContext& passContext, RHIContext& context);
 
         //! The queues this frame's Scopes run on, into m_activeQueues: the executer opens each

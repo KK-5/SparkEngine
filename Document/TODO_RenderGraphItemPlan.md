@@ -592,6 +592,10 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 - `ComputePassBuilder` 与 render pass 一样自动创建 space2 SRG。
 - 用到 bindless 的 pass 断言设备支持（root signature 的直接索引标志受 `m_bindless` 控制）。
 - Skybox 的 Execute 只是条件绘制，改为 Build 里条件 `Draw`；不透明工作只剩 UI。
+- 执行时不再逐条判断条目：现在提交区间里每个条目都要 `TryGet<View>`，再按 DrawItem / DispatchItem / CopyItem
+  依次试，随 draw 数线性增长。视图边界由 lowering 给出，条目类型由 Scope 决定，ScopeItem 设计时一并定。
+  按 Scope / attachment 的 TryGet 数量固定，不必处理；真成问题时在 `ContextStorage` 里按类型序号缓存存储指针，
+  不改调用方。
 
 ---
 
@@ -605,6 +609,8 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
   （`ScopeAttachment` → `Scope` → pass → `PassGlobalTimeline`）。执行器回到 attachment，只因为屏障挂在 attachment 上。
   **关键问题：执行器是否必须回到 attachment？** 若它只需 Scope 与提交表，排序就退回 lowering 内部的实现细节，跨阶段
   不变量随之消失。
+  已缓解：`SortScopes` 把每个 Scope 的区间记为 `ScopeAttachmentRange`，执行器与 `CompileScopeBeginInfo` 按 Scope
+  直接取，不再同步推进游标；剩下的不变量是"排序后不增删 `ScopeAttachment`"。
 - **版本解析依赖 pass 的注册顺序。** 按名字读到的是"在它之前声明的 pass 写出的最新版本"，调换两个 pass 的注册
   顺序语义就变。这是今天已有的隐式依赖，Scope 之间的读写也建立在它上面，分量更重了。
 - **`.Bind(name)` 的双重去处。** 同一写法由反射决定落到 space2 还是 root constant，两种机制藏在一个名字后面，出错

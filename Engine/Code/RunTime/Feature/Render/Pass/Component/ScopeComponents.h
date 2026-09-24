@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/functional.h>
+#include <EASTL/span.h>
 #include <EASTL/type_traits.h>
 
 #include <RHI/Component/Component.h>
@@ -38,6 +39,22 @@ namespace Spark::Render
     {
         RHI::RHIHandle m_scope {RHI::NullHandle};
     };
+
+    //! On every Scope: where its attachments sit in the ScopeAttachment storage's packed array,
+    //! contiguous since SortScopes, which records it. Within the range only one resource's
+    //! attachments being adjacent is guaranteed, not their order.
+    struct ScopeAttachmentRange
+    {
+        uint32_t m_begin = 0;
+        uint32_t m_end   = 0;
+    };
+
+    //! The Scope's attachments. Valid from SortScopes to the end of the frame.
+    inline eastl::span<const RHI::RHIHandle> GetScopeAttachments(RHI::RHIContext& context, RHI::RHIHandle scope)
+    {
+        const ScopeAttachmentRange& range = context.Get<ScopeAttachmentRange>(scope);
+        return { context.GetStorage<ScopeAttachment>().data() + range.m_begin, range.m_end - range.m_begin };
+    }
 
     //! On a Scope whose access to some resource follows one on another queue: per source queue,
     //! the latest producer Scope it must wait for, and the fence and value that works out to.
