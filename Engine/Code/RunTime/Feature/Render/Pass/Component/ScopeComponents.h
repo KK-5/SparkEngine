@@ -26,8 +26,9 @@ namespace Spark::Render
     //! and items live.
     struct Scope
     {
-        Pass     m_pass {NullPass};
-        uint32_t m_index {0};   //!< order within m_pass
+        Pass                    m_pass {NullPass};
+        uint32_t                m_index {0};   //!< order within m_pass
+        RHI::HardwareQueueClass m_queue {RHI::HardwareQueueClass::Graphics};
     };
 
     //! On every attachment, naming the Scope it belongs to. Links point from attachment to

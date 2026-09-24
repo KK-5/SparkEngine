@@ -24,9 +24,10 @@ namespace Spark::Render
 
         // Created even if the pass declares nothing: a Scope without attachments still has
         // its place in the stream.
-        auto& rhiContext = *RHIExecuteContext::Current();
+        auto& rhiContext  = *RHIExecuteContext::Current();
+        auto& passContext = *PassExecuteContext::Current();
         m_currentScope = rhiContext.CreateEntity();
-        rhiContext.Add<Scope>(m_currentScope, Scope{ pass, 0 });
+        rhiContext.Add<Scope>(m_currentScope, Scope{ pass, 0, passContext.Get<PassExecuteQueue>(pass).m_queue });
         m_currentColorCount = 0;
     }
 

@@ -723,11 +723,22 @@ namespace Spark::Render
     }
 
     void RenderGraphExecuter::ExecuteScopes(
-        PassContext& passContext, RHIContext& rhiContext,
+        RHIContext& rhiContext, RHI::HardwareQueueClassMask activeQueues,
         RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues)
     {
-        m_queueActive = {};
+        m_activeQueues = activeQueues;
         eastl::array<RHI::CommandList*, RHI::HardwareQueueClassCount> recording {};
+
+        auto open = [&](RHI::HardwareQueueClass queueClass)
+        {
+            RHI::CommandList*& commandList = recording[static_cast<uint32_t>(queueClass)];
+            if (!commandList)
+            {
+                commandList = factory.CreateCommandList(device, queueClass);
+                commandList->Open();
+            }
+            return commandList;
+        };
 
         auto submit = [&](RHI::HardwareQueueClass queueClass)
         {
@@ -741,6 +752,26 @@ namespace Spark::Render
             queues.GetCommandQueue(queueClass).ExecuteCommands({ &commandList, 1 });
             commandList = nullptr;
         };
+
+        // Static imports settle before anything else on their queue.
+        for (uint32_t queueIndex = 0; queueIndex < RHI::HardwareQueueClassCount; ++queueIndex)
+        {
+            const auto queueClass = static_cast<RHI::HardwareQueueClass>(queueIndex);
+            if (!IsQueueActive(queueIndex))
+            {
+                continue;
+            }
+
+            const StaticPreBarriers& staticPre = m_staticPreBarriers[queueIndex];
+            for (const auto& sync : staticPre.m_fenceWaits)
+            {
+                queues.GetCommandQueue(queueClass).Wait(*sync.m_fence, sync.m_fenceValue);
+            }
+            if (!staticPre.m_imageBarriers.empty() || !staticPre.m_bufferBarriers.empty())
+            {
+                ExecuteStaticPreBarriers(open(queueClass), queueIndex);
+            }
+        }
 
         // SortScopes laid out each Scope's attachments contiguously, in Scope order, so one
         // cursor walks them alongside the Scopes.
@@ -756,19 +787,8 @@ namespace Spark::Render
             }
             const auto runEnd = attachment;
 
-            const auto queueClass = passContext.Get<PassExecuteQueue>(data.m_pass).m_queue;
-            const auto queueIndex = static_cast<uint32_t>(queueClass);
+            const auto queueClass = data.m_queue;
             auto&      queue      = queues.GetCommandQueue(queueClass);
-
-            const bool firstOnQueue = !m_queueActive[queueIndex];
-            if (firstOnQueue)
-            {
-                m_queueActive[queueIndex] = true;
-                for (const auto& sync : m_staticPreBarriers[queueIndex].m_fenceWaits)
-                {
-                    queue.Wait(*sync.m_fence, sync.m_fenceValue);
-                }
-            }
 
             if (rhiContext.Has<WorkStartTag>(scope))
             {
@@ -799,16 +819,7 @@ namespace Spark::Render
                 }
             }
 
-            RHI::CommandList*& commandList = recording[queueIndex];
-            if (!commandList)
-            {
-                commandList = factory.CreateCommandList(device, queueClass);
-                commandList->Open();
-            }
-            if (firstOnQueue)
-            {
-                ExecuteStaticPreBarriers(commandList, queueIndex);
-            }
+            RHI::CommandList* commandList = open(queueClass);
 
             for (auto it = runBegin; it != runEnd; ++it)
             {
@@ -942,7 +953,8 @@ namespace Spark::Render
     {
         if constexpr (s_scopeExecution)
         {
-            return m_queueActive[queueIndex];
+            return CheckBitsAny(m_activeQueues,
+                RHI::GetHardwareQueueClassMask(static_cast<RHI::HardwareQueueClass>(queueIndex)));
         }
         else
         {

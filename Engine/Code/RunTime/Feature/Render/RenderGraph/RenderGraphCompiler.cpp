@@ -892,6 +892,15 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphCompiler::CompileActiveQueues(RHIContext& context)
+    {
+        m_activeQueues = RHI::HardwareQueueClassMask::None;
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            m_activeQueues |= RHI::GetHardwareQueueClassMask(data.m_queue);
+        }
+    }
+
     namespace
     {
         //! One resource's attachments within one Scope, merged into a single access.
@@ -988,10 +997,9 @@ namespace Spark::Render
             const RHI::TransientResourcePool&        pool,
             eastl::vector<RHI::DeviceMemoryBarrier>& aliasingScratch)
         {
-            const Pass pass = context.Get<Scope>(access.m_scope).m_pass;
-            ASSERT(passContext.Has<PassExecuteQueue>(pass), "The pass {} has not PassExecuteQueue",
-                passContext.Get<PassName>(pass).m_name.GetCStr());
-            const RHI::HardwareQueueClass dstQueue = passContext.Get<PassExecuteQueue>(pass).m_queue;
+            const Scope&                  scope    = context.Get<Scope>(access.m_scope);
+            const Pass                    pass     = scope.m_pass;
+            const RHI::HardwareQueueClass dstQueue = scope.m_queue;
 
             const auto* backingImage  = access.m_isImage ? context.TryGet<BackingImage>(access.m_resource) : nullptr;
             const auto* backingBuffer = access.m_isImage ? nullptr : context.TryGet<BackingBuffer>(access.m_resource);
@@ -1370,7 +1378,7 @@ namespace Spark::Render
         // each queue's values rise in the order its Scopes are submitted.
         for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
-            const auto queueIndex = static_cast<uint32_t>(passContext.Get<PassExecuteQueue>(data.m_pass).m_queue);
+            const auto queueIndex = static_cast<uint32_t>(data.m_queue);
 
             if (auto* wait = context.TryGet<ScopeWait>(scope))
             {

@@ -256,6 +256,7 @@ namespace Spark::Render
 
         // After the two above, which link every attachment to its resource.
         m_compiler.SortScopes(passContext, context);
+        m_compiler.CompileActiveQueues(context);
 
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
 
@@ -302,7 +303,7 @@ namespace Spark::Render
 
         if constexpr (RenderGraphExecuter::s_scopeExecution)
         {
-            m_executer.ExecuteScopes(passContext, context, *factory, *m_device, m_commandQueueContext);
+            m_executer.ExecuteScopes(context, m_compiler.m_activeQueues, *factory, *m_device, m_commandQueueContext);
         }
         else
         {

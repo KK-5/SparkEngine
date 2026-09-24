@@ -73,6 +73,10 @@ namespace Spark::Render
         //! CompileExtractedImages. Nothing may add or remove either component afterwards.
         void SortScopes(PassContext& passContext, RHIContext& context);
 
+        //! The queues this frame's Scopes run on, into m_activeQueues: the executer opens each
+        //! of them before the first Scope, and the frame end stamps only those.
+        void CompileActiveQueues(RHIContext& context);
+
         //! Walk the sorted attachments once, Scope by Scope, and put on them the barriers their
         //! accesses need: Pre*Barrier on the first attachment of each (Scope, resource) group,
         //! Post*Barrier (cross-queue release) on the producer's attachment, PreAliasingBarrier on
@@ -179,6 +183,8 @@ namespace Spark::Render
         uint32_t m_frameIndex { 0 };
 
         eastl::vector<RHI::DeviceMemoryBarrier> m_aliasingScratch;
+
+        RHI::HardwareQueueClassMask m_activeQueues { RHI::HardwareQueueClassMask::None };
 
         static constexpr bool s_scopeOrderValidation { true };
     };

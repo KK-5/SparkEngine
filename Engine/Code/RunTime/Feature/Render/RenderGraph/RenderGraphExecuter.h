@@ -200,11 +200,11 @@ namespace Spark::Render
 
         void SetStaticPreBarriers(StaticPreBarrierTable&& table) { m_staticPreBarriers = eastl::move(table); }
 
-        //! Records and submits every Scope in stream order. Each queue keeps one CommandList
-        //! open, submitted before a Scope that waits or carries WorkStartTag, and after one
-        //! that signals.
+        //! Records and submits every Scope in stream order. Each of activeQueues is opened first
+        //! with its static-import waits and barriers, then keeps one CommandList open, submitted
+        //! before a Scope that waits or carries WorkStartTag, and after one that signals.
         void ExecuteScopes(
-            PassContext& passContext, RHIContext& rhiContext,
+            RHIContext& rhiContext, RHI::HardwareQueueClassMask activeQueues,
             RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues);
 
         //! Whether the queue received any work this frame.
@@ -227,7 +227,7 @@ namespace Spark::Render
         //! it are submitted under, or an item.
         eastl::vector<RHI::RHIHandle> m_submitList;
 
-        eastl::array<bool, RHI::HardwareQueueClassCount> m_queueActive {};
+        RHI::HardwareQueueClassMask m_activeQueues { RHI::HardwareQueueClassMask::None };
 
         static constexpr bool s_scopeSubmitValidation { true };
 
