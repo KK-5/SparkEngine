@@ -1,4 +1,5 @@
 #include "RenderGraphExecuter.h"
+#include "RenderGraphUtils.h"
 
 #include <EASTL/algorithm.h>
 
@@ -18,71 +19,11 @@ namespace Spark::Render
 {
     namespace
     {
-        //! The full-target viewport / scissor, which every view's rect is scaled against.
-        //! RenderPassBeginInfo carries no render area and a depth-only pass has no color
-        //! attachment, so the extent comes from the first attachment that exists.
-        //! False means this is not a render pass — nothing should set a viewport on it.
-        bool ResolveTargetViewport(
-            Pass pass, const PassContext& passContext, RHI::Viewport& viewport, RHI::Scissor& scissor)
-        {
-            const auto* beginInfo = passContext.TryGet<RHI::RenderPassBeginInfo>(pass);
-            if (!beginInfo)
-            {
-                return false;
-            }
-
-            const RHI::ImageView* target = beginInfo->m_colorAttachmentCount > 0
-                ? beginInfo->m_colorAttachments[0].m_view
-                : beginInfo->m_depthStencilAttachment.m_view;
-            if (!target)
-            {
-                return false;
-            }
-
-            const RHI::Size extent = target->GetImage().GetDescriptor().m_size.GetReducedMip(
-                target->GetDescriptor().m_mipSliceMin);
-
-            viewport = RHI::Viewport(
-                0.f, static_cast<float>(extent.m_width), 0.f, static_cast<float>(extent.m_height));
-            scissor = RHI::Scissor(
-                0, 0, static_cast<int32_t>(extent.m_width), static_cast<int32_t>(extent.m_height));
-            return true;
-        }
-
         RHI::Scissor ScissorFromViewport(const RHI::Viewport& viewport)
         {
             return RHI::Scissor(
                 static_cast<int32_t>(viewport.m_minX), static_cast<int32_t>(viewport.m_minY),
                 static_cast<int32_t>(viewport.m_maxX), static_cast<int32_t>(viewport.m_maxY));
-        }
-
-        //! A view's space1 SRG, if it declares one. The ViewShaderBindings component IS the
-        //! declaration, which is what separates the two nulls:
-        //!  - no component      -> the view binds no space1 at all (a pass whose shader has
-        //!                         none still wants that view's viewport). Usable, out stays null.
-        //!  - component, no SRG -> declared but not compiled yet, e.g. a view created this
-        //!                         frame. NOT usable — drawing would leave space1 holding the
-        //!                         previous pass's descriptors.
-        bool ResolveViewShaderBindings(
-            RHIContext& rhiContext, RHI::RHIHandle view, const RHI::ShaderBindings*& out)
-        {
-            out = nullptr;
-
-            const auto* viewBindings = rhiContext.TryGet<ViewShaderBindings>(view);
-            if (!viewBindings)
-            {
-                return true;
-            }
-
-            const auto* component =
-                rhiContext.TryGet<RHI::Components::ShaderBindings>(viewBindings->m_bindings);
-            if (!component || !component->m_bindings)
-            {
-                return false;
-            }
-
-            out = component->m_bindings.get();
-            return true;
         }
 
         //! Overflowing the cap means the pass declared two groups for one register space —
@@ -148,6 +89,7 @@ namespace Spark::Render
         // allocates nothing.
         m_submitItems.clear();
         m_submitBatches.clear();
+        m_submitList.clear();
 
         // Per-resource compile-time state cursor. Lazy-init in CompileImage/BufferBarriers
         // expects a fresh slate each frame — imported resources start at m_initial,
@@ -291,8 +233,9 @@ namespace Spark::Render
             ASSERT(capabilities->m_collectViews,
                 "[RenderGraphExecuter] Render pass {} declares no .RendersView<>().",
                 static_cast<uint32_t>(pass));
-            if (!capabilities->m_collectViews ||
-                !ResolveTargetViewport(pass, passContext, targetViewport, targetScissor))
+            const auto* beginInfo = passContext.TryGet<RHI::RenderPassBeginInfo>(pass);
+            if (!capabilities->m_collectViews || !beginInfo ||
+                !ResolveTargetViewport(*beginInfo, targetViewport, targetScissor))
             {
                 return;
             }
@@ -391,6 +334,75 @@ namespace Spark::Render
         table.m_submitBegin = passBegin;
         table.m_submitEnd   = static_cast<uint32_t>(m_submitItems.size());
         passContext.AddOrReplace<PassSubmitTable>(pass, table);
+    }
+
+    void RenderGraphExecuter::ValidateScopeSubmitRanges(PassContext& passContext, RHIContext& rhiContext) const
+    {
+        if constexpr (!s_scopeSubmitValidation)
+        {
+            return;
+        }
+
+        auto sameViewport = [](const RHI::Viewport& lhs, const RHI::Viewport& rhs)
+        {
+            return lhs.m_minX == rhs.m_minX && lhs.m_maxX == rhs.m_maxX
+                && lhs.m_minY == rhs.m_minY && lhs.m_maxY == rhs.m_maxY
+                && lhs.m_minZ == rhs.m_minZ && lhs.m_maxZ == rhs.m_maxZ;
+        };
+
+        for (auto [scope, data] : rhiContext.GetStorage<Scope>().each())
+        {
+            const char* passName = passContext.Get<PassName>(data.m_pass).m_name.GetCStr();
+            const auto& range    = rhiContext.Get<ScopeSubmitRange>(scope);
+            const auto* table    = passContext.TryGet<PassSubmitTable>(data.m_pass);
+
+            uint32_t item     = table ? table->m_submitBegin : 0;
+            uint32_t itemEnd  = table ? table->m_submitEnd : 0;
+            uint32_t batch    = table ? table->m_batchBegin : 0;
+            uint32_t batchEnd = table ? table->m_batchEnd : 0;
+
+            RHI::Viewport targetViewport;
+            RHI::Scissor  targetScissor;
+            const auto* beginInfo = rhiContext.TryGet<RHI::RenderPassBeginInfo>(scope);
+            const bool hasTarget  = passContext.Has<RenderPassTag>(data.m_pass) && beginInfo
+                && ResolveTargetViewport(*beginInfo, targetViewport, targetScissor);
+
+            // An old batch is one non-empty view segment; empty segments had none.
+            RHIHandle view        = NullHandle;
+            bool      segmentOpen = false;
+            for (uint32_t i = range.m_begin; i < range.m_end; ++i)
+            {
+                const RHIHandle handle = m_submitList[i];
+                if (rhiContext.Has<View>(handle))
+                {
+                    view        = handle;
+                    segmentOpen = false;
+                    continue;
+                }
+
+                if (!segmentOpen)
+                {
+                    ASSERT(batch < batchEnd && m_submitBatches[batch].m_submitBegin == item,
+                        "[RenderGraphExecuter] Pass {}: a view segment has no matching SubmitBatch.", passName);
+                    if (hasTarget && batch < batchEnd)
+                    {
+                        const auto& rect = rhiContext.Get<View>(view).m_rect;
+                        ASSERT(sameViewport(m_submitBatches[batch].m_state.m_viewport,
+                                   targetViewport.GetScaled(rect.m_minX, rect.m_maxX, rect.m_minY, rect.m_maxY)),
+                            "[RenderGraphExecuter] Pass {}: a view segment's viewport differs from its SubmitBatch's.", passName);
+                    }
+                    ++batch;
+                    segmentOpen = true;
+                }
+
+                ASSERT(item < itemEnd && m_submitItems[item] == handle,
+                    "[RenderGraphExecuter] Pass {}: the submit range's items differ from the SubmitBatches'.", passName);
+                ++item;
+            }
+
+            ASSERT(item == itemEnd && batch == batchEnd,
+                "[RenderGraphExecuter] Pass {}: the SubmitBatches hold items the submit range lacks.", passName);
+        }
     }
 
     void RenderGraphExecuter::BuildSubmitBatches(

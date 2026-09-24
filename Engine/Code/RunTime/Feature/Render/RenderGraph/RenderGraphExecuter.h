@@ -198,11 +198,24 @@ namespace Spark::Render
 
         void SetStaticPreBarriers(StaticPreBarrierTable&& table) { m_staticPreBarriers = eastl::move(table); }
 
+        eastl::vector<RHI::RHIHandle>& GetSubmitList() { return m_submitList; }
+
+        //! Transitional, until the executer walks Scopes: checks that each Scope's submit range
+        //! holds exactly the items and view order of its pass's old SubmitBatches.
+        void ValidateScopeSubmitRanges(PassContext& passContext, RHIContext& rhiContext) const;
+
         QueueSegments m_queueSegments;
         StaticPreBarrierTable m_staticPreBarriers;
 
         eastl::vector<RHI::RHIHandle> m_submitItems;
         eastl::vector<SubmitBatch>    m_submitBatches;
+
+        //! This frame's submit sequence, written by lowering: each Scope's ScopeSubmitRange is a
+        //! stretch of it. A handle is either a view, whose viewport and space1 the items after
+        //! it are submitted under, or an item.
+        eastl::vector<RHI::RHIHandle> m_submitList;
+
+        static constexpr bool s_scopeSubmitValidation { true };
 
         uint32_t m_frameIndex { 0 };
     };

@@ -62,7 +62,7 @@ GPU 看到的是一条命令流，pass 从来不在里面。
 - **声明期**只有 pass 与 Scope（以及它们之下的 attachment、item）。
 - **编译期**，pass 是**图节点**（依赖边、拓扑排序、队列分配、瞬态生命周期）；**lowering** 把每个 pass 降级成
   有序的 Scope，编译产物写在 Scope 与 attachment 上。
-- **执行期**只有排好序的 Scope 与 arena，执行器只解释这条流，不再认识 pass。
+- **执行期**只有排好序的 Scope 与提交表，执行器只解释这条流，不再认识 pass。
 
 pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，不再影响屏障放在哪、绑定怎么建、Work 怎么切。
 
@@ -259,7 +259,7 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 struct Scope           { Pass m_pass; uint32_t m_index; };   // 身份 + pass 内次序
 struct ScopeAttachment { RHIHandle m_scope; };               // attachment 所属的 Scope
 struct ScopeItem       { RHIHandle m_scope; };               // 单个 item、选择所属的 Scope
-struct ItemSelection   { void (*m_collect)(RHIContext&, RHIHandle view, eastl::vector<RHIHandle>& arena); };
+struct ItemSelection   { void (*m_collect)(RHIContext&, RHIHandle view, eastl::vector<RHIHandle>& submitList); };
 ```
 
 ```
@@ -272,7 +272,7 @@ Pass ◄── Scope::m_pass ── Scope 实体
      ImagePassAttachment        DrawItem / Dispatch…  ItemSelection      （带 DrawTag，不带 PassTag）
 ```
 
-- **attachment 与 item 用两个组件**：没有哪一步同时遍历两者——事件与括号只看 attachment，body 只看 item 与选择，
+- **attachment 与 item 用两个组件**：没有哪一步同时遍历两者——事件与括号只看 attachment，提交区间只看 item 与选择，
   执行器只回到 attachment。合用一个组件只会让排序多出"有没有资源"一级，并要约定 item 排在段尾。
 
 - **Scope 在 RHIContext，不在 PassContext**：它的子实体都在 RHIContext，引用都是 `RHIHandle`；`Pass` 的实体掩码
@@ -289,7 +289,7 @@ Pass ◄── Scope::m_pass ── Scope 实体
 
 | 产物 | 放在 | 理由 |
 |---|---|---|
-| 括号（`RenderPassBeginInfo`） | Scope | 图形 pass 恰好一个 Scope，一一对应；Begin 在 body 前、End 在 body 后，由 Scope 隐含 |
+| 括号（`RenderPassBeginInfo`） | Scope | 图形 pass 恰好一个 Scope，一一对应；Begin 在提交区间前、End 在其后，由 Scope 隐含 |
 | 屏障 | 引起它的 attachment | 屏障由一次访问引起，按资源合并后一条屏障对应一个 attachment；今天的 `CompiledImageBarrier` 已是如此 |
 | 跨队列 release | 生产方的 attachment | 由生产方这次访问之后紧跟另一队列的访问引起 |
 | 跨队列 wait / signal | Scope | 发生在 Scope 边界，每个队列至多一个 |
@@ -304,7 +304,7 @@ Pass ◄── Scope::m_pass ── Scope 实体
 ### lowering：排序，线性扫描两遍
 
 每一步只读三样东西：Scope 的子实体、pass 的静态数据（编译好的 PSO、队列、视图类型、`Binds`、静态 sampler）、
-资源上的追踪器。除 arena 外没有别的全局结构。依赖图仍建在 pass 上：声明 attachment 时经 Scope 知道所属 pass，
+资源上的追踪器。除提交表外没有别的全局结构。依赖图仍建在 pass 上：声明 attachment 时经 Scope 知道所属 pass，
 照样记入 `m_attachmentUses`，pass 读自己写的版本产生的自环忽略。
 
 **第 0 步：排序。**
@@ -348,13 +348,13 @@ for scope in Scope 存储（已排序）:
                     root constant = 绑定到常量字段的 attachment 的 bindless 索引 + .Constant 的标量 }
     绑定到 space2 的 attachment 视图 + pass 的静态 sampler → 写进 pass 的 space2（同槽不同视图即报错）
 
-    // body
-    begin = arena.size()
+    // 提交区间
+    begin = submitList.size()
     for view in (pass 的就绪视图, 或 {无}):
-        若有 view: arena += view 句柄
-        arena += items 里的单个 item
-        for 选择 sel in items: sel.m_collect(view, arena)   // 逐视图剔除挂在这里
-    scope.body = { begin, arena.size() }
+        若有 view: submitList += view 句柄             // 后面没有 item 也照写
+        submitList += items 里的单个 item
+        for 选择 sel in items: sel.m_collect(view, submitList)   // 逐视图剔除挂在这里
+    scope.submitRange = { begin, submitList.size() }
 ```
 
 - **写几乎全是局部的**：只写当前 Scope 与它的子实体。唯一例外是跨队列时回填上一个生产方的 release 与 signal——
@@ -368,7 +368,7 @@ for scope in Scope 存储（已排序）:
 |---|---|---|
 | 0：排序 | Scope、ScopeAttachment、ScopeItem | 三个存储的顺序 |
 | 1：瞬态资源 | attachment | 资源的 backing |
-| 2：逐 Scope | attachments、items、pass 静态数据、追踪器 | attachment 上的 acquire / release；Scope 上的 wait、signal、BeginInfo、state、body；arena |
+| 2：逐 Scope | attachments、items、pass 静态数据、追踪器 | attachment 上的 acquire / release；Scope 上的 wait、signal、BeginInfo、state、submitRange；提交表 |
 
 **顺带的校验**：合并相邻 attachment 时发现同一资源两种用法即报错（今天 `MergeImageBarriers` 的断言挪到这里）；
 "图形 pass 只有一个 Scope"由签名保证；"事件不落在括号内"因此自动成立。
@@ -382,22 +382,23 @@ for scope in Scope 存储（已排序）:
   按实体 `TryGet` 其他组件，或用 `view.use<ScopeAttachment>()` 指定驱动存储。
 - 排序后该存储不能再增删，否则顺序被打乱——lowering 期间三者都不增删；给 attachment、item 添加别的组件不受影响。
 
-### 流 = 排好序的 Scope + arena
+### 流 = 排好序的 Scope + 提交表
 
 - **Scope 存储即流的顺序**（第 0 步已排好）。执行器按队列遍历，跳过其他队列的 Scope；ScopeAttachment 存储按同一顺序
   排好，执行器同步推进两者，像归并一样一起往前走，Scope 不持有 attachment 列表，也不记下标。执行器不回到 item：
-  它们已在 lowering 时写进 arena。
-- **Scope 的 body 是 arena 里的一段**：`ScopeBody { begin, end }`。lowering 展开 Scope 时，每个视图**先写入该
-  视图的句柄，再写它的 item**：
+  它们已在 lowering 时写进提交表。
+- **Scope 的提交区间是提交表里的一段**：`ScopeSubmitRange { begin, end }`，提交表 `m_submitList` 由执行器持有、
+  lowering 经参数写入。lowering 展开 Scope 时，每个就绪视图**先写入该视图的句柄，再写它的 item**：
 
   ```
-  arena: … | view0 | item item item … | view1 | item item … | …
-            └──────────── Scope S: ScopeBody { begin, end } ────────────┘
+  提交表: … | view0 | item item item … | view1 | item item … | …
+             └──────── Scope S: ScopeSubmitRange { begin, end } ────────┘
   ```
 
-  视图句柄就是 arena 这条流上的一个状态标注，和"标注挂在位置上"、"一个句柄是什么由它的组件决定"是同一条规则。
-  viewless 的 Scope（compute、copy）没有视图句柄。
-- **所有 item 都进 arena**，单个 item 也是——图形 pass 的单个 item（全屏三角形）按视图重放，同样多次出现。
+  视图句柄就是提交表这条流上的一个状态标注，和"标注挂在位置上"、"一个句柄是什么由它的组件决定"是同一条规则。
+  viewless 的 Scope（compute、copy）没有视图句柄。**没有 item 的视图也照写句柄**：不撤回，不依赖 CPU 知道 item
+  个数——GPU-driven 时本来就不知道；代价只是几次幂等的状态设置。不透明 hook 因此必须接受空的视图段。
+- **所有 item 都进提交表**，单个 item 也是——图形 pass 的单个 item（全屏三角形）按视图重放，同样多次出现。
 - **选择在 lowering 时按视图展开**，命中的 item 写在该视图句柄之后；逐视图剔除挂在这一步。
 - **提交只在同步点切分**：每个队列在相邻两个同步点之间录成一个 CommandList，带 wait 的 Scope 之前、带 signal 的
   Scope 之后切出一次提交。今天 `ExecuteGroup` / `ExecuteWork` 还叠着两件事——多线程并行录制（按负载把 draw 分给
@@ -405,9 +406,9 @@ for scope in Scope 存储（已排序）:
   最终目标 GPU-driven 下一帧只剩几百条命令，单线程录制远低于 1ms，帧间流水线也已盖住提前提交想省的空隙。
 - **`WorkStart` 作为接缝保留**：Scope 上可以带一个切点标签，执行器遇到它就换一个 CommandList；按预算打标签的
   逻辑不建。图形 Scope 内部不能切（括号），所以切点只落在 Scope 边界；render pass 支持 suspend / resume 后需要
-  Scope 内的切点，届时切点作为一种标注句柄写进 arena。**重新考虑的条件**：profiling 显示录制成为瓶颈，或出现
+  Scope 内的切点，届时切点作为一种标注句柄写进提交表。**重新考虑的条件**：profiling 显示录制成为瓶颈，或出现
   大量无法 GPU-driven 的 CPU draw（CPU 排序的大量透明物体、编辑器调试绘制）。
-- **不透明工作**：Scope 上挂 execute hook 的引用，代替 body；执行后状态缓存失效。
+- **不透明工作**：Scope 上挂 execute hook 的引用，代替提交区间；执行后状态缓存失效。
 - **静态导入资源保持现有路径，不进 Scope**：它们（顶点缓冲、采样纹理等）用途确定且唯一，attachment 挂在资源实体
   本身、不带 `ScopeAttachment`，由 `CompileStaticResourceBarriers` 按队列一次性处理，状态直接读 RHI 资源、不经追踪器。执行器
   在每个队列的第一个 Scope 之前执行它的预屏障（外部 fence wait 在最前）。
@@ -420,12 +421,12 @@ for scope in Scope 存储（已排序）:
 for each Scope（按序）:
     上一个 Scope 收尾: [End] → 它的 attachment 上的 release → signal
     wait → 本 Scope 的 attachment 上的屏障 → [Begin] → 应用 Scope 的状态
-    for each arena[body.begin, body.end):
+    for each submitList[range.begin, range.end):
         视图句柄 → 应用它的 viewport、space1
         其他     → 提交 item
 ```
 
-"闭括号 → 事件 → 开括号 → 状态 → item"写在这个固定两层的循环里。零 item 的 Scope body 为空，屏障与 Begin / End
+"闭括号 → 事件 → 开括号 → 状态 → item"写在这个固定两层的循环里。零 item 的 Scope 提交区间为空，屏障与 Begin / End
 照常执行，清屏不受影响。
 
 ### 三个例子的降级
@@ -435,18 +436,20 @@ for each Scope（按序）:
 Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.0
   attachment: 屏障 × k               attachment: 该 Scope 的屏障        attachment: 屏障
   BeginInfo, PSO, space2             PSO, space2, 该 Scope 的 root const  BeginInfo
-  body: | v0 | items | v1 | items    body: | dispatch item             execute hook
+  提交: | v0 | items | v1 | items    提交: | dispatch item             execute hook
 ```
 
-### 唯一的非 ECS 结构：arena
+### 唯一的非 ECS 结构：提交表
 
-item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用一次），出现次数与 item 实体是多对一。每次出现建
-一个实体意味着每帧上千个实体的增删，所以保留 arena（今天的 `m_submitItems`）作为"出现 → item"的映射，里面
-夹着作为状态标注的视图句柄。
+提交表是**一个 Scope 按视图排好序的提交序列**：推导不出来的内容（CPU 逐视图剔除的结果、以后 CPU 排序的透明物体）
+只能存下来，而同一 DrawItem 被多个 pass、多个视图各提交一次，每次出现建一个实体意味着每帧上千个实体的增删。
 
-- **代价**：执行时每个条目多一次"是不是视图"的判断，一次稀疏集查找，相对 Submit 可忽略。
-- **ExecuteIndirect 不受影响**：两个视图句柄之间的 item 连续，一个状态区间就是一次间接调用。
-- **会改主意的条件**：arena 要直接上传给 GPU 当纯 item 列表时，夹在里面的视图句柄得先剔掉——届时改为 lowering
+- **执行器按条目的组件分派**：`View` 是状态标注，其余按 DrawItem / DispatchItem / CopyItem 提交——"种类由组件决定"。
+- **代价**：每个条目多一次"是不是视图"的判断，一次稀疏集查找，相对 Submit 可忽略。
+- **GPU-driven 后变短，形状不变**：间接绘制也只是一种单个 item（引用剔除输出的 attachment），提交表从"每视图上千
+  个 DrawItem"变成"每视图若干个间接绘制"；仍由 CPU 处理的 draw 照旧。它的 GPU 端后继是剔除 pass 输出的间接参数
+  缓冲，一条普通的图资源依赖。
+- **会改主意的条件**：提交表要直接上传给 GPU 当纯 item 列表时，夹在里面的视图句柄得先剔掉——届时改为 lowering
   另记视图边界。
 
 ### 单个 item 的生命周期：每帧重建
@@ -486,16 +489,16 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 6. **跨队列同步由资源追踪推出**：wait / signal 写到 Scope 上，删除 `CompilePassCrossQueue2`。
 7. **绑定分流**：`.Bind` 按反射布局落到 pass 的 space2 或 root constant（bindless 索引）；`.Constant` 写 root
    constant；Scope 的 root constant 由执行器在应用 Scope 状态时设置；space2 同槽不同视图的校验。
-8. **lowering**：第 0 步排序与第 2 遍；把 PSO、绑定、`RenderPassBeginInfo` 写到 Scope 上；按视图展开 body 进
-   arena（视图句柄分隔）；`BasicContext` 补 storage 排序的封装，以及单存储遍历 / 指定驱动存储的 view 写法。
+8. **lowering**：第 0 步排序与第 2 遍；把 PSO、绑定、`RenderPassBeginInfo` 写到 Scope 上；按视图展开提交区间进
+   提交表（视图句柄分隔）；`BasicContext` 补 storage 排序的封装，以及单存储遍历 / 指定驱动存储的 view 写法。
 9. **提交切分**：只在同步点切，由 Scope 上的 wait / signal 直接决定；`WorkStart` 只留接缝（执行器认它），负载切分
    不实现。
 
 ### 执行
 
 10. **执行器改为遍历 Scope**：删除 `PassBarriers` / `SubmitBatch` / `PassSubmitTable` / `ExecuteWorkItem` /
-   `QueueSegment` / `ExecuteGroup` 等表，执行循环只认 Scope、attachment 与 arena。
-11. **dispatch 提交路径**：`DispatchItem` 作为单个 item 进 arena。
+   `QueueSegment` / `ExecuteGroup` 等表，执行循环只认 Scope、attachment 与提交表。
+11. **dispatch 提交路径**：`DispatchItem` 作为单个 item 进提交表。
 12. **不透明工作**：Scope 上的 execute hook，执行后状态缓存失效。
 
 ### 迁移（验证用例）
@@ -520,7 +523,7 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 
 | 段 | 内容 | 条目 | 状态 |
 |---|---|---|---|
-| A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | A1–A3 完成，A4 待做 |
+| A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | A1–A3、A4a 完成，A4b 待做 |
 | B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13–16 | |
 | C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | |
 | D | Bloom | 17 | |
@@ -541,17 +544,20 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 
 ### A4 方案
 
-- **A4a lowering 产出，不消费**：`ScopeState`（从 pass 抄 PSO 与共享绑定的指针）、`ScopeBody { begin, end }`；body
-  按就绪视图展开进 arena，视图句柄在前、item 在后，item 仍用旧的 `m_collectSubmitItems` 收集。过滤规则照搬
-  `BuildPassSubmitTable`。验收：逐 pass 对比新 body 与旧 `SubmitBatch` 的 item 序列。
+- **A4a lowering 产出，不消费（已完成，未提交）**：`CompileScopeState` 从 pass 抄 PSO 与共享绑定的指针
+  （`ScopeState`）；`CompileScopeSubmitRanges` 把每个 Scope 按就绪视图展开进执行器的提交表（`ScopeSubmitRange`），
+  视图句柄在前、item 在后，item 仍用旧的 `m_collectSubmitItems` 收集，过滤规则照搬 `BuildPassSubmitTable`，但空的
+  视图段不撤回。`ResolveTargetViewport`（改为收 `RenderPassBeginInfo`）与 `ResolveViewShaderBindings` 移到
+  `RenderGraphUtils.h`。验收：`ValidateScopeSubmitRanges`（`s_scopeSubmitValidation`，A4c 删）逐 pass 对比新区间
+  与旧 `SubmitBatch`——剔掉视图句柄后 item 逐个相等，非空视图段与 batch 一一对应且 viewport 相同。已在空场景
+  （全屏 pass、空视图段、单个阴影视图）运行无断言；**带网格的场景、多个阴影视图尚未覆盖**。
 - **A4b 新执行器**：每队列按序遍历 Scope，同步推进 `ScopeAttachment` 游标。wait / 外部 wait 前切、signal 后切，
-  认 `WorkStartTag`；别名屏障在 pass 第一个 Scope 开头向 pool 取；body 里带 `View` 的句柄应用 viewport 与 space1，
+  认 `WorkStartTag`；别名屏障在 pass 第一个 Scope 开头向 pool 取；提交区间里带 `View` 的句柄应用 viewport 与 space1，
   其余提交。`RenderPassBuilder` 不再默认装 `SubmitDrawBatch`：无 hook 的 Scope 由执行器提交，有 hook 的是不透明
-  工作，按"每个视图段调一次、空 body 调一次"调用，Skybox / UI / copy 不必改。
+  工作，按"每个视图段调一次（含空段）、空区间调一次"调用，Skybox / UI / copy 不必改。
 - **A4c 清理**：删除所有已不被调用的函数、组件与适配。
 
-待定（括号内为倾向）：arena 归属（执行器持有，lowering 经参数写入）；`ScopeState` 抄指针还是执行器读 pass
-（抄）；不透明工作后的状态失效，RHI 缺接口（暂不做，UI 目前是最后一个 pass）。
+待定（括号内为倾向）：不透明工作后的状态失效，RHI 缺接口（暂不做，UI 目前是最后一个 pass）。
 
 ### 落地中确定、原方案没写到的
 
@@ -560,7 +566,7 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
   顺序统一赋值。
 - **别名屏障不挂 attachment**：一个资源可能对应多条，挂上去需要容器；数据本在 pool 里，执行时按 pass 位置取。
 - **外部 fence wait 挂在首次触碰的 attachment 上**，不放 Scope 上的列表。
-- **不引入事件 arena**：屏障会永久存在，把它们抄进 arena 是另建记录，违背"数据放在引起它的实体上"。
+- **不引入事件表**：屏障会永久存在，把它们抄进提交表是另建记录，违背"数据放在引起它的实体上"。
 
 ### B / C 开工前要定的
 
@@ -580,20 +586,20 @@ item 在流里出现多次（同一 DrawItem 被多个 pass、多个视图各用
 - **排序 + 同步推进的不变量横跨编译与执行。** 第 0 步排好的 ScopeAttachment 存储顺序要一直保持到执行器同步遍历结束，中间
   不能增删；为此列了四条 entt 约束，说明它依赖的是存储布局而不是数据本身。比较函数还要跨 registry 跳三级
   （`ScopeAttachment` → `Scope` → pass → `PassGlobalTimeline`）。执行器回到 attachment，只因为屏障挂在 attachment 上。
-  **关键问题：执行器是否必须回到 attachment？** 若它只需 Scope 与 arena，排序就退回 lowering 内部的实现细节，跨阶段
+  **关键问题：执行器是否必须回到 attachment？** 若它只需 Scope 与提交表，排序就退回 lowering 内部的实现细节，跨阶段
   不变量随之消失。
 - **版本解析依赖 pass 的注册顺序。** 按名字读到的是"在它之前声明的 pass 写出的最新版本"，调换两个 pass 的注册
   顺序语义就变。这是今天已有的隐式依赖，Scope 之间的读写也建立在它上面，分量更重了。
 - **`.Bind(name)` 的双重去处。** 同一写法由反射决定落到 space2 还是 root constant，两种机制藏在一个名字后面，出错
   要到编译期才暴露。可考虑声明侧显式区分（如 `.Bind` 与 `.BindIndex`），代价是作者要多知道一件事。
 
-另有两处评估为可接受：arena（容器 + 下标、混着视图句柄）是过渡形态，GPU-driven 后大概率消失；残留的函数指针
+另有两处评估为可接受：提交表（容器 + 下标、混着视图句柄）GPU-driven 后变短但形状不变；残留的函数指针
 （`ItemSelection::m_collect`、不透明 hook、`m_collectViews`、`m_resolveSharedBindings`）已少。每帧全量重建与
 排序排除了"图不变就复用编译结果"的增量优化，现在不需要，若以后要做会成为障碍。
 
 ## 未决
 
-- **PSO 变体**：一个视图段内按变体再切，变体切换同样是状态标注，可像视图句柄一样写进 arena。等变体落地再定。
+- **PSO 变体**：一个视图段内按变体再切，变体切换同样是状态标注，可像视图句柄一样写进提交表。等变体落地再定。
 - **多视图下 Scope 与视图的展开顺序**：只影响"有多个 Scope 又按视图重放"的 compute pass（每个视图一条 Bloom
   链），与"多视图各有附件时按视图实例化 pass"一起等真实用例。
 - **不透明工作的比例**：若大量工作无法表达为 item，流的大部分成为不透明工作，本模型的收益大幅缩水。拷贝已可

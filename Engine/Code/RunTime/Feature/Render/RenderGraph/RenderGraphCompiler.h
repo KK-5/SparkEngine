@@ -151,6 +151,18 @@ namespace Spark::Render
         //! passes create their SRG there, and resolving earlier would miss it for a frame.
         void CompilePassSharedBindings(PassContext& passContext, RHIContext& context);
 
+        //! Put on each Scope the submit state its pass decides (ScopeState): the compiled PSO
+        //! and, when there is one, the pass's shared bindings. Runs after CompilePipelineStates
+        //! and CompilePassSharedBindings.
+        void CompileScopeState(PassContext& passContext, RHIContext& context);
+
+        //! Lay each Scope's submissions out in submitList and record its ScopeSubmitRange: per
+        //! ready view, the view's handle then the items the pass collects for it; items only for
+        //! a pass that renders no view. A render pass whose BeginInfo gives no target extent
+        //! submits nothing. Runs after CompileScopeBeginInfo.
+        void CompileScopeSubmitRanges(
+            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList);
+
         //! Sweeps every entity carrying ShaderBindingsUpdateTag + Components::ShaderBindings,
         //! dispatches Compile on each, and clears the tag. User code (typically
         //! CreatePassShaderBindings + MarkShaderBindingsUpdate) drives the dirty bit.

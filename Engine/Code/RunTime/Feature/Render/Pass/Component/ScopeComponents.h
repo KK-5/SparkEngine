@@ -4,7 +4,14 @@
 
 #include <RHI/Context/RHIContext.h>
 #include <RHI/HardwareQueue.h>
+#include <RHI/RHILimits.h>
 #include <Pass/Pass.h>
+
+namespace Spark::RHI
+{
+    class PipelineState;
+    class ShaderBindings;
+}
 
 namespace Spark::Render
 {
@@ -42,6 +49,26 @@ namespace Spark::Render
     struct ScopeSignal
     {
         uint64_t m_value = 0;
+    };
+
+    //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once
+    //! for the whole Scope (the pass's own space2 and those it declared via .Binds). Copied from
+    //! the pass by lowering, so the executer never reads a pass. Viewport and space1 come from
+    //! the view handles in the Scope's submit range.
+    struct ScopeState
+    {
+        const RHI::PipelineState*  m_pso = nullptr;
+        const RHI::ShaderBindings* m_bindings[RHI::Limits::Pipeline::ShaderInputGroupCountMax] {};
+        uint8_t                    m_bindingCount = 0;
+    };
+
+    //! The Scope's stretch of the executer's submit list: per ready view, the view's handle and
+    //! then the items submitted under it; a viewless Scope has items only. A view gets its
+    //! handle even when no item follows — nothing assumes the CPU knows how many there are.
+    struct ScopeSubmitRange
+    {
+        uint32_t m_begin = 0;
+        uint32_t m_end   = 0;
     };
 
     // Lowering sorts these storages, which entt refuses on an in_place_delete storage holding

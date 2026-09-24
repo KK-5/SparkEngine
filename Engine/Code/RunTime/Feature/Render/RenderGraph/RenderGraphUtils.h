@@ -3,8 +3,15 @@
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Attachment/AttachmentEnums.h>
+#include <RHI/Command/RenderPassBeginInfo.h>
+#include <RHI/Resource/Image/Image.h>
+#include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
+#include <RHI/Scissor/Scissor.h>
+#include <RHI/Viewport/Viewport.h>
 
 #include <Pass/Component/RHIComponents.h>
+#include <View/ViewComponents.h>
 
 //! Free-function utilities shared across the render graph (compiler + passes).
 //! Keep these render-graph-scoped and dependency-light: they consume RHI-level
@@ -78,5 +85,58 @@ namespace Spark::Render
         RHI::ResourceState state;
         state.m_access = ConvertAttachmentAccess(attachment);
         return state;
+    }
+
+    //! The full-target viewport / scissor, which every view's rect is scaled against.
+    //! RenderPassBeginInfo carries no render area and a depth-only pass has no color
+    //! attachment, so the extent comes from the first attachment that exists.
+    inline bool ResolveTargetViewport(
+        const RHI::RenderPassBeginInfo& beginInfo, RHI::Viewport& viewport, RHI::Scissor& scissor)
+    {
+        const RHI::ImageView* target = beginInfo.m_colorAttachmentCount > 0
+            ? beginInfo.m_colorAttachments[0].m_view
+            : beginInfo.m_depthStencilAttachment.m_view;
+        if (!target)
+        {
+            return false;
+        }
+
+        const RHI::Size extent = target->GetImage().GetDescriptor().m_size.GetReducedMip(
+            target->GetDescriptor().m_mipSliceMin);
+
+        viewport = RHI::Viewport(
+            0.f, static_cast<float>(extent.m_width), 0.f, static_cast<float>(extent.m_height));
+        scissor = RHI::Scissor(
+            0, 0, static_cast<int32_t>(extent.m_width), static_cast<int32_t>(extent.m_height));
+        return true;
+    }
+
+    //! A view's space1 SRG, if it declares one. The ViewShaderBindings component IS the
+    //! declaration, which is what separates the two nulls:
+    //!  - no component      -> the view binds no space1 at all (a pass whose shader has
+    //!                         none still wants that view's viewport). Usable, out stays null.
+    //!  - component, no SRG -> declared but not compiled yet, e.g. a view created this
+    //!                         frame. NOT usable — drawing would leave space1 holding the
+    //!                         previous pass's descriptors.
+    inline bool ResolveViewShaderBindings(
+        RHI::RHIContext& rhiContext, RHI::RHIHandle view, const RHI::ShaderBindings*& out)
+    {
+        out = nullptr;
+
+        const auto* viewBindings = rhiContext.TryGet<ViewShaderBindings>(view);
+        if (!viewBindings)
+        {
+            return true;
+        }
+
+        const auto* component =
+            rhiContext.TryGet<RHI::Components::ShaderBindings>(viewBindings->m_bindings);
+        if (!component || !component->m_bindings)
+        {
+            return false;
+        }
+
+        out = component->m_bindings.get();
+        return true;
     }
 }

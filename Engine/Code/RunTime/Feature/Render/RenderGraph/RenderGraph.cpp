@@ -279,6 +279,9 @@ namespace Spark::Render
 
         m_compiler.CompilePassSharedBindings(passContext, context);
 
+        m_compiler.CompileScopeState(passContext, context);
+        m_compiler.CompileScopeSubmitRanges(passContext, context, m_executer.GetSubmitList());
+
         m_compiler.CompileShaderInputs(*m_device, context);
 
         QueueBasedPasses queueBasedPasses = m_compiler.SplitPassesByQueue(passes, passContext);
@@ -292,6 +295,7 @@ namespace Spark::Render
 
         m_executer.SetStaticPreBarriers(eastl::move(staticPreBarriers));
         m_executer.BuildExecuteTable(queueBasedPasses, passContext);
+        m_executer.ValidateScopeSubmitRanges(passContext, context);
 
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");

@@ -1365,6 +1365,114 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphCompiler::CompileScopeState(PassContext& passContext, RHIContext& context)
+    {
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            ScopeState state;
+            if (const auto* compiled = passContext.TryGet<PassCompiledPSO>(data.m_pass))
+            {
+                state.m_pso = compiled->m_pso.get();
+            }
+
+            // Bindings resolve their space against the PSO's layout: without one there is
+            // nothing to bind them against.
+            const auto* shared = passContext.TryGet<PassSharedBindings>(data.m_pass);
+            if (state.m_pso && shared)
+            {
+                for (const RHI::ShaderBindings* bindings : shared->m_bindings)
+                {
+                    state.m_bindings[state.m_bindingCount++] = bindings;
+                }
+            }
+
+            context.Add<ScopeState>(scope, state);
+        }
+    }
+
+    namespace
+    {
+        void AppendScopeSubmissions(
+            Pass pass, const RHI::RenderPassBeginInfo* beginInfo,
+            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+        {
+            const auto* capabilities = passContext.TryGet<PassCapabilities>(pass);
+            if (!capabilities || !capabilities->m_collectSubmitItems)
+            {
+                return;
+            }
+
+            if (!capabilities->m_collectViews)
+            {
+                ASSERT(!passContext.Has<RenderPassTag>(pass),
+                    "[RenderGraphCompiler] Render pass {} declares no .RendersView<>().",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
+                if (!passContext.Has<RenderPassTag>(pass))
+                {
+                    capabilities->m_collectSubmitItems(context, passContext, pass, NullHandle, submitList);
+                }
+                return;
+            }
+
+            // A render pass scales each view's rect against its target, so without a target
+            // extent it has nothing to draw into.
+            RHI::Viewport targetViewport;
+            RHI::Scissor  targetScissor;
+            const bool isRenderPass = passContext.Has<RenderPassTag>(pass);
+            if (isRenderPass && (!beginInfo || !ResolveTargetViewport(*beginInfo, targetViewport, targetScissor)))
+            {
+                return;
+            }
+
+            ViewHandleList views;
+            capabilities->m_collectViews(context, views);
+            for (RHIHandle view : views)
+            {
+                // Skipping costs this view one frame; drawing it would be silently wrong.
+                const RHI::ShaderBindings* viewBindings = nullptr;
+                if (!ResolveViewShaderBindings(context, view, viewBindings))
+                {
+                    continue;
+                }
+
+                if (isRenderPass)
+                {
+                    const View& viewData = context.Get<View>(view);
+                    ASSERT(viewData.m_bufferSize == Math::Vector2Int(0, 0)
+                        || (viewData.m_bufferSize.x == static_cast<int>(targetViewport.m_maxX)
+                            && viewData.m_bufferSize.y == static_cast<int>(targetViewport.m_maxY)),
+                        "[RenderGraphCompiler] Pass {} targets {}x{}, but its view's rect is a fraction of {}x{}.",
+                        passContext.Get<PassName>(pass).m_name.GetCStr(),
+                        static_cast<int>(targetViewport.m_maxX), static_cast<int>(targetViewport.m_maxY),
+                        viewData.m_bufferSize.x, viewData.m_bufferSize.y);
+                }
+
+                submitList.push_back(view);
+                capabilities->m_collectSubmitItems(context, passContext, pass, view, submitList);
+            }
+        }
+    }
+
+    void RenderGraphCompiler::CompileScopeSubmitRanges(
+        PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+    {
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            // Items are still collected per pass, so a second Scope would receive them again.
+            ASSERT(data.m_index == 0,
+                "[RenderGraphCompiler] Pass {} has more than one Scope; its items cannot be split between them yet.",
+                passContext.Get<PassName>(data.m_pass).m_name.GetCStr());
+
+            ScopeSubmitRange range;
+            range.m_begin = static_cast<uint32_t>(submitList.size());
+            AppendScopeSubmissions(data.m_pass, context.TryGet<RHI::RenderPassBeginInfo>(scope),
+                passContext, context, submitList);
+            range.m_end = static_cast<uint32_t>(submitList.size());
+
+            context.Add<ScopeSubmitRange>(scope, range);
+        }
+    }
+
     void RenderGraphCompiler::CollectPassSync(PassContext& passContext, RHIContext& context)
     {
         for (auto [scope, data] : context.GetStorage<Scope>().each())
