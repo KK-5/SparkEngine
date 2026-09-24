@@ -97,14 +97,14 @@ namespace Spark::RHI
         m_batchOpen = false;
     }
 
-    void TransientResourcePool::GetDeviceMemoryBarriers(uint32_t timelinePosition, eastl::vector<DeviceMemoryBarrier>& out) const
+    bool TransientResourcePool::GetAliasingBarrier(const Resource& resource, DeviceMemoryBarrier& out) const
     {
         if (!ValidateIsInitialized() || !ValidateBatchSealed())
         {
-            return;
+            return false;
         }
 
-        GetDeviceMemoryBarriersInternal(timelinePosition, out);
+        return GetAliasingBarrierInternal(resource, out);
     }
 
     TransientResourcePoolStats TransientResourcePool::GetStats() const
@@ -209,7 +209,7 @@ namespace Spark::RHI
         {
             if (m_batchOpen)
             {
-                LOG_ERROR("[TransientResourcePool] {} GetDeviceMemoryBarriers requires the batch to be sealed (call Seal() after the last Create*/Discard).",
+                LOG_ERROR("[TransientResourcePool] {} GetAliasingBarrier requires the batch to be sealed (call Seal() after the last Create*/Discard).",
                           GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
                 return false;
             }

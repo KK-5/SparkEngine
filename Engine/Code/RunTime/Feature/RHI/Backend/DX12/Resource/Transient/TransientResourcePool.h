@@ -51,9 +51,7 @@ namespace Spark::RHI::DX12
 
         void DiscardInternal(RHI::Buffer* buffer, const RHI::TransientAllocationFence& discardFence) override;
 
-        void GetDeviceMemoryBarriersInternal(
-            uint32_t timelinePosition,
-            eastl::vector<RHI::DeviceMemoryBarrier>& out) const override;
+        bool GetAliasingBarrierInternal(const RHI::Resource& resource, RHI::DeviceMemoryBarrier& out) const override;
 
         void OnFrameBeginInternal() override;
 
@@ -78,7 +76,7 @@ namespace Spark::RHI::DX12
         };
 
         // 一帧一个 bucket。引擎 frames-in-flight fence 保证轮回到目标槽时它上一次的
-        // GPU 消费已完成。DeviceMemoryBarrier 也按槽存，避免跨帧 timeline position 撞 key。
+        // GPU 消费已完成。别名屏障也按槽存，随槽一起清。
         struct HeapBucket
         {
             Ptr<D3D12MA::Allocation>   m_heap;
@@ -88,7 +86,8 @@ namespace Spark::RHI::DX12
             // 每条 alias 链的链尾索引；一条链 = 一个 offset
             eastl::vector<uint32_t>    m_chainTails;
 
-            eastl::unordered_map<uint32_t, eastl::vector<RHI::DeviceMemoryBarrier>> m_deviceMemoryBarriers;
+            // 每个放在旧链尾上的资源一条，按资源查：资源每帧只放置一次。
+            eastl::unordered_map<const RHI::Resource*, RHI::DeviceMemoryBarrier> m_aliasingBarriers;
 
             // 跨槽轮回复用 ID3D12Resource：harvest 时按 (offset, descHash) 入 cache，
             // 下次轮到本槽时 Create*Internal 命中即可跳过 CreateAliasingResource。

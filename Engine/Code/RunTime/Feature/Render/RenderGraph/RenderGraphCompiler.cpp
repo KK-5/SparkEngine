@@ -554,37 +554,13 @@ namespace Spark::Render
             }
         }
 
-        //! A transient resource is placed at the position of its first pass, so the aliasing
-        //! barrier into its memory, if any, is among that position's.
-        void AttachAliasingBarrier(
-            const ScopeResourceAccess&               access,
-            RHI::Resource*                           resource,
-            uint32_t                                 position,
-            const RHI::TransientResourcePool&        pool,
-            eastl::vector<RHI::DeviceMemoryBarrier>& scratch,
-            RHIContext&                              context)
-        {
-            pool.GetDeviceMemoryBarriers(position, scratch);
-            for (const auto& barrier : scratch)
-            {
-                if (barrier.m_resourceAfter == resource)
-                {
-                    context.Add<PreAliasingBarrier>(access.m_attachment, PreAliasingBarrier{ barrier });
-                    return;
-                }
-            }
-        }
-
         void CompileScopeResourceBarrier(
-            const ScopeResourceAccess&               access,
-            PassContext&                             passContext,
-            RHIContext&                              context,
-            const RHI::TransientResourcePool&        pool,
-            eastl::vector<RHI::DeviceMemoryBarrier>& aliasingScratch)
+            const ScopeResourceAccess&        access,
+            PassContext&                      passContext,
+            RHIContext&                       context,
+            const RHI::TransientResourcePool& pool)
         {
-            const Scope&                  scope    = context.Get<Scope>(access.m_scope);
-            const Pass                    pass     = scope.m_pass;
-            const RHI::HardwareQueueClass dstQueue = scope.m_queue;
+            const RHI::HardwareQueueClass dstQueue = context.Get<Scope>(access.m_scope).m_queue;
 
             const auto* backingImage  = access.m_isImage ? context.TryGet<BackingImage>(access.m_resource) : nullptr;
             const auto* backingBuffer = access.m_isImage ? nullptr : context.TryGet<BackingBuffer>(access.m_resource);
@@ -615,13 +591,15 @@ namespace Spark::Render
                 {
                     context.Add<ExternalWait>(access.m_attachment, ExternalWait{ *sync });
                 }
-                if (context.Has<TransientTag>(access.m_resource))
+                // A transient resource's first touch is where the pool placed it.
+                RHI::DeviceMemoryBarrier aliasing;
+                if (context.Has<TransientTag>(access.m_resource)
+                    && pool.GetAliasingBarrier(access.m_isImage
+                            ? static_cast<const RHI::Resource&>(*backingImage->m_image)
+                            : static_cast<const RHI::Resource&>(*backingBuffer->m_buffer),
+                        aliasing))
                 {
-                    RHI::Resource* resource = access.m_isImage
-                        ? static_cast<RHI::Resource*>(backingImage->m_image)
-                        : static_cast<RHI::Resource*>(backingBuffer->m_buffer);
-                    AttachAliasingBarrier(access, resource,
-                        passContext.Get<PassGlobalTimeline>(pass).m_position, pool, aliasingScratch, context);
+                    context.Add<PreAliasingBarrier>(access.m_attachment, PreAliasingBarrier{ aliasing });
                 }
                 tracker = &context.Add<ResourceStateTracker>(access.m_resource, init);
             }
@@ -720,14 +698,14 @@ namespace Spark::Render
 
             if (group.m_attachment != NullHandle)
             {
-                CompileScopeResourceBarrier(group, passContext, context, pool, m_aliasingScratch);
+                CompileScopeResourceBarrier(group, passContext, context, pool);
             }
             group = current;
         }
 
         if (group.m_attachment != NullHandle)
         {
-            CompileScopeResourceBarrier(group, passContext, context, pool, m_aliasingScratch);
+            CompileScopeResourceBarrier(group, passContext, context, pool);
         }
     }
 

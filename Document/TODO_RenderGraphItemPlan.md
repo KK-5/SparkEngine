@@ -522,55 +522,29 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 ## 落地进展
 
-每一步结束引擎照常出图；旧实现不删、只停止调用，最后统一清理。
+每一步结束引擎照常出图。
 
 | 段 | 内容 | 条目 | 状态 |
 |---|---|---|---|
-| A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | A1–A4b 完成（A4b 帧率问题待查），A4c 待做 |
+| A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | 完成 |
 | B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13–16 | |
 | C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | |
 | D | Bloom | 17 | |
 
-### A 已完成
+### 执行侧现状
 
-| 提交 | 内容 |
-|---|---|
-| `11f3b31` | `Scope` / `ScopeAttachment` 实体；`ContextStorage::Sort` 及锁定 entt 迭代顺序的测试 |
-| `ab7587a` | `SortScopes`；没声明 attachment 的 pass 不进图，其 Scope 建图后销毁 |
-| `b1bd158` | 屏障按 Scope 编译，`Pre*` / `Post*Barrier` 挂在 attachment 上；新判据只多出 SceneColor 四条写后写 |
-| `dbe1855` | `RenderPassBeginInfo` 挂在 Scope 上；颜色编号改为声明时写入的 `ColorAttachmentIndex` |
-| `e83b1da` | `ScopeWait` / `ScopeSignal` / `ExternalWait`；fence 值按流顺序两阶段分配 |
-| `6d01d72` | A4a：`ScopeState`、`ScopeSubmitRange` 与提交表，旧路径对照校验 |
-
-过渡适配（A4 后删）：`CollectPassBarriers`、`CollectPassBeginInfo`、`CollectPassSync`、`SplitPassesByQueue`。
+- **编译**：`SortScopes`（排序，记下每个 Scope 的 `ScopeAttachmentRange`）→ `CompileActiveQueues` →
+  `CompileScopeBarriers`（`Pre*` / `Post*` / `PreAliasingBarrier`、`ExternalWait`，记下跨队列生产方）→
+  `CompileScopeSync`（按流顺序分配 fence 值，写成 `PendingSync`）→ `CompileScopeBeginInfo` → `CompileScopeState` →
+  `CompileScopeSubmitRanges`。
+- **执行**：`ExecuteScopes` 先为每个有工作的队列做静态导入的等待与屏障，再按流顺序逐个 Scope：等待（先提交已录的）
+  → Pre 屏障 → `RecordScope`（BeginRenderPass、`ScopeState`、`SubmitScopeRange`、EndRenderPass）→ Post 屏障（随下次
+  Flush）→ signal（先提交）。执行器只读 Scope 及其 attachment 上的组件，不碰 pass、pool 与 `FenceSet`。
 
 **未验证**：现有 pass 全在 Graphics 队列，跨队列路径没有运行时覆盖，第一个 compute pass 接入时补验。
 
-### A4 方案
-
-- **A4a lowering 产出，不消费**：`CompileScopeState` 从 pass 抄 PSO 与共享绑定的指针
-  （`ScopeState`）；`CompileScopeSubmitRanges` 把每个 Scope 按就绪视图展开进执行器的提交表（`ScopeSubmitRange`），
-  视图句柄在前、item 在后，item 仍用旧的 `m_collectSubmitItems` 收集，过滤规则照搬 `BuildPassSubmitTable`，但空的
-  视图段不撤回。`ResolveTargetViewport`（改为收 `RenderPassBeginInfo`）与 `ResolveViewShaderBindings` 移到
-  `RenderGraphUtils.h`。验收：`ValidateScopeSubmitRanges`（`s_scopeSubmitValidation`，A4c 删）逐 pass 对比新区间
-  与旧 `SubmitBatch`——剔掉视图句柄后 item 逐个相等，非空视图段与 batch 一一对应且 viewport 相同。已在空场景
-  （全屏 pass、空视图段、单个阴影视图）运行无断言；**带网格的场景、多个阴影视图尚未覆盖**。
-- **A4b 新执行器**：`ExecuteScopes` 按流顺序遍历全部 Scope，同步推进 `ScopeAttachment` 游标，
-  每个队列各开一个 CommandList。wait / 外部 wait 前切、signal 后切，认 `WorkStartTag`（只有接缝，无人添加）；
-  别名屏障在 pass 第一个 Scope 开头向 pool 取；release 屏障只入队，随同一 CommandList 上的下一次 Flush 一起提交。
-  提交区间里带 `View` 的句柄应用 viewport 与 space1（有 PSO 才绑），其余按组件（DrawItem / DispatchItem / CopyItem）
-  提交，下标即提交表中的位置。hook 引用由 lowering 写成 Scope 上的 `ScopeExecute`；`RenderPassBuilder` 不再默认装
-  `SubmitDrawBatch`，有 hook 的 Scope 按"每个视图段调一次（含空段）、空区间调一次"调用，Skybox / UI / copy 未改。
-  队列与别名屏障用的 pass 位置直接从 pass 读。`s_scopeExecution`（A4c 删）可切回旧执行器对照，旧 `Execute` 为此
-  在无 hook 时回退到 `SubmitDrawBatch`；帧末的"队列本帧是否有工作"改由 `IsQueueActive` 回答。验收：新旧两条
-  路径在空场景各运行 40 秒，D3D12 debug layer（遇错中断）与断言均未触发；带网格的场景画面正确。
-  **帧率问题待查**：带网格的场景里新路径帧率明显低于旧路径，原因未定位。空场景（每帧 6 次 Submit）的对照：
-  执行段新路径约 1.85ms、旧路径约 1.41ms，这 0.4ms 与 item 数无关，而与 Scope 数有关。可疑点之一：
-  编译阶段的 `CollectPassBarriers` 仍在查询 `GetDeviceMemoryBarriers`，新执行器在执行段又查一次。但 Scope 数不随网格增加，所以这一点解释不了带网格场景的差距。
-- **A4c 清理**：删除所有已不被调用的函数、组件与适配。
-  - `TransientResourcePool` 的别名屏障改按资源查询：`GetAliasingBarrier(const Resource&, DeviceMemoryBarrier&)`
-    取代按位置的 `GetDeviceMemoryBarriers`。资源每帧只放置一次，位置由资源决定，不必作键；编译期
-    `AttachAliasingBarrier` 随之不再需要 pass 位置与暂存数组。
+**帧率待查**：A4b 时带网格的场景新路径帧率低于旧路径，配置较差的机器上尤其明显（五六十帧降到十几帧）。推测是 Debug
+构建下按条目的 `TryGet` 被慢 CPU 放大（见"B / C 开工前要定的"最后一条），未经测量；旧路径已删，先在 Release 下复测。
 
 待定（括号内为倾向）：不透明工作后的状态失效，RHI 缺接口（暂不做，UI 目前是最后一个 pass）。
 

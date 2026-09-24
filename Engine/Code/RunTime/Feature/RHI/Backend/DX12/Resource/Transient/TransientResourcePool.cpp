@@ -192,7 +192,7 @@ namespace Spark::RHI::DX12
             }
         }
 
-        bucket.m_deviceMemoryBarriers.clear();
+        bucket.m_aliasingBarriers.clear();
         bucket.m_placements.clear();
         bucket.m_chainTails.clear();
         if (bucket.m_offsetBlock)
@@ -222,7 +222,7 @@ namespace Spark::RHI::DX12
         }
         bucket.m_resourceCache.clear();
 
-        bucket.m_deviceMemoryBarriers.clear();
+        bucket.m_aliasingBarriers.clear();
         bucket.m_placements.clear();
         bucket.m_chainTails.clear();
         bucket.m_committedFallbacks.clear();
@@ -277,6 +277,9 @@ namespace Spark::RHI::DX12
 
         const uint32_t newIndex = static_cast<uint32_t>(bucket.m_placements.size());
 
+        // Filled while placing over a chain tail; recorded only once the resource exists.
+        RHI::DeviceMemoryBarrier aliasingBarrier;
+
         if (bestChainSlot != InvalidPlacementIndex)
         {
             const uint32_t prevTailIdx = bucket.m_chainTails[bestChainSlot];
@@ -284,6 +287,12 @@ namespace Spark::RHI::DX12
 
             const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
             const RHI::AttachmentStage dstStage = allocFence.m_stage;
+
+            // Before the push_back below, which may move prevTail.
+            aliasingBarrier.m_resourceBefore = prevTail.m_resource.get();
+            aliasingBarrier.m_typeBefore     = prevTail.m_resourceType;
+            aliasingBarrier.m_srcStage       = srcStage;
+            aliasingBarrier.m_dstStage       = dstStage;
 
             Placement newPlacement;
             newPlacement.m_offset = prevTail.m_offset;
@@ -298,13 +307,6 @@ namespace Spark::RHI::DX12
             // push_back 后 prevTail 引用可能失效，必须用 index 重新拿
             bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
             bucket.m_chainTails[bestChainSlot] = newIndex;
-
-            RHI::DeviceMemoryBarrier barrier;
-            barrier.m_resourceBefore = prevTail.m_resource.get();
-            barrier.m_typeBefore     = prevTail.m_resourceType;
-            barrier.m_srcStage       = srcStage;
-            barrier.m_dstStage       = dstStage;
-            bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].push_back(barrier);
         }
         else
         {
@@ -426,16 +428,6 @@ namespace Spark::RHI::DX12
                 const uint32_t prevTailIdx = bucket.m_placements.back().m_aliasedFrom;
                 bucket.m_placements[prevTailIdx].m_aliasedTo = InvalidPlacementIndex;
                 bucket.m_chainTails[bestChainSlot] = prevTailIdx;
-
-                auto barrierIt = bucket.m_deviceMemoryBarriers.find(allocFence.m_timelinePosition);
-                if (barrierIt != bucket.m_deviceMemoryBarriers.end() && !barrierIt->second.empty())
-                {
-                    barrierIt->second.pop_back();
-                    if (barrierIt->second.empty())
-                    {
-                        bucket.m_deviceMemoryBarriers.erase(barrierIt);
-                    }
-                }
             }
             else
             {
@@ -456,9 +448,9 @@ namespace Spark::RHI::DX12
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            auto& curBarrier = bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].back();
-            curBarrier.m_resourceAfter = image.get();
-            curBarrier.m_typeAfter = resourceType;
+            aliasingBarrier.m_resourceAfter = image.get();
+            aliasingBarrier.m_typeAfter     = resourceType;
+            bucket.m_aliasingBarriers.emplace(image.get(), aliasingBarrier);
         }
 
         return image.get();
@@ -498,6 +490,9 @@ namespace Spark::RHI::DX12
 
         const uint32_t newIndex = static_cast<uint32_t>(bucket.m_placements.size());
 
+        // Filled while placing over a chain tail; recorded only once the resource exists.
+        RHI::DeviceMemoryBarrier aliasingBarrier;
+
         if (bestChainSlot != InvalidPlacementIndex)
         {
             const uint32_t prevTailIdx = bucket.m_chainTails[bestChainSlot];
@@ -505,6 +500,12 @@ namespace Spark::RHI::DX12
 
             const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
             const RHI::AttachmentStage dstStage = allocFence.m_stage;
+
+            // Before the push_back below, which may move prevTail.
+            aliasingBarrier.m_resourceBefore = prevTail.m_resource.get();
+            aliasingBarrier.m_typeBefore     = prevTail.m_resourceType;
+            aliasingBarrier.m_srcStage       = srcStage;
+            aliasingBarrier.m_dstStage       = dstStage;
 
             Placement newPlacement;
             newPlacement.m_offset = prevTail.m_offset;
@@ -519,13 +520,6 @@ namespace Spark::RHI::DX12
             // push_back 后 prevTail 引用可能失效，必须用 index 重新拿
             bucket.m_placements[prevTailIdx].m_aliasedTo = newIndex;
             bucket.m_chainTails[bestChainSlot] = newIndex;
-
-            RHI::DeviceMemoryBarrier barrier;
-            barrier.m_resourceBefore = prevTail.m_resource.get();
-            barrier.m_typeBefore     = prevTail.m_resourceType;
-            barrier.m_srcStage       = srcStage;
-            barrier.m_dstStage       = dstStage;
-            bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].push_back(barrier);
         }
         else
         {
@@ -636,16 +630,6 @@ namespace Spark::RHI::DX12
                 const uint32_t prevTailIdx = bucket.m_placements.back().m_aliasedFrom;
                 bucket.m_placements[prevTailIdx].m_aliasedTo = InvalidPlacementIndex;
                 bucket.m_chainTails[bestChainSlot] = prevTailIdx;
-
-                auto barrierIt = bucket.m_deviceMemoryBarriers.find(allocFence.m_timelinePosition);
-                if (barrierIt != bucket.m_deviceMemoryBarriers.end() && !barrierIt->second.empty())
-                {
-                    barrierIt->second.pop_back();
-                    if (barrierIt->second.empty())
-                    {
-                        bucket.m_deviceMemoryBarriers.erase(barrierIt);
-                    }
-                }
             }
             else
             {
@@ -666,9 +650,9 @@ namespace Spark::RHI::DX12
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
-            auto& curBarrier = bucket.m_deviceMemoryBarriers[allocFence.m_timelinePosition].back();
-            curBarrier.m_resourceAfter = buffer.get();
-            curBarrier.m_typeAfter = resourceType;
+            aliasingBarrier.m_resourceAfter = buffer.get();
+            aliasingBarrier.m_typeAfter     = resourceType;
+            bucket.m_aliasingBarriers.emplace(buffer.get(), aliasingBarrier);
         }
 
         return buffer.get();
@@ -801,16 +785,16 @@ namespace Spark::RHI::DX12
         return buffer.get();
     }
 
-    void TransientResourcePool::GetDeviceMemoryBarriersInternal(uint32_t timelinePosition, eastl::vector<RHI::DeviceMemoryBarrier>& out) const
+    bool TransientResourcePool::GetAliasingBarrierInternal(const RHI::Resource& resource, RHI::DeviceMemoryBarrier& out) const
     {
         const HeapBucket& bucket = CurrentBucket();
-        auto it = bucket.m_deviceMemoryBarriers.find(timelinePosition);
-        if (it != bucket.m_deviceMemoryBarriers.end())
+        auto it = bucket.m_aliasingBarriers.find(&resource);
+        if (it == bucket.m_aliasingBarriers.end())
         {
-            out = it->second;
-            return;
+            return false;
         }
-        out = {};
+        out = it->second;
+        return true;
     }
 
     void TransientResourcePool::DiscardInternal(RHI::Image* image, const RHI::TransientAllocationFence& discardFence)
