@@ -12,6 +12,7 @@
 
 #include <RHI/Factory.h>
 #include <RHI/ResourceBuilder.h>
+#include <RHI/Command/CommandQueueContext.h>
 #include <RHI/Device/Device.h>
 #include <RHI/Fence/Fence.h>
 #include <RHI/Pipeline/PipelineState.h>
@@ -1358,7 +1359,8 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphCompiler::CompileScopeSync(PassContext& passContext, RHIContext& context)
+    void RenderGraphCompiler::CompileScopeSync(
+        PassContext& passContext, RHIContext& context, RHI::FenceSet& crossQueueFences)
     {
         // [waiting queue][source queue]: the highest value already waited for. A later wait on
         // a value no higher is redundant — the timeline has passed it.
@@ -1374,26 +1376,27 @@ namespace Spark::Render
             {
                 for (uint32_t source = 0; source < RHI::HardwareQueueClassCount; ++source)
                 {
-                    wait->m_value[source] = 0;
+                    wait->m_sync[source] = {};
                     if (wait->m_producer[source] == NullHandle)
                     {
                         continue;
                     }
 
-                    const uint64_t value = context.Get<ScopeSignal>(wait->m_producer[source]).m_value;
-                    ASSERT(value != 0,
+                    const ScopeSignal& signal = context.Get<ScopeSignal>(wait->m_producer[source]);
+                    ASSERT(signal.m_value != 0,
                         "[RenderGraphCompiler] A Scope waits for a producer that comes after it in the stream.");
-                    if (value <= waited[queueIndex][source])
+                    if (signal.m_value <= waited[queueIndex][source])
                     {
                         continue;
                     }
-                    waited[queueIndex][source] = value;
-                    wait->m_value[source]      = value;
+                    waited[queueIndex][source] = signal.m_value;
+                    wait->m_sync[source]       = RHI::PendingSync{ signal.m_fence, signal.m_value };
                 }
             }
 
             if (auto* signal = context.TryGet<ScopeSignal>(scope))
             {
+                signal->m_fence = &crossQueueFences.GetFence(static_cast<RHI::HardwareQueueClass>(queueIndex));
                 signal->m_value = ++m_crossQueueFenceValues[queueIndex];
             }
         }
@@ -1523,11 +1526,11 @@ namespace Spark::Render
             {
                 for (uint32_t source = 0; source < RHI::HardwareQueueClassCount; ++source)
                 {
-                    if (wait->m_value[source] == 0)
+                    if (wait->m_sync[source].m_fence == nullptr)
                     {
                         continue;
                     }
-                    const SyncOperation op{ static_cast<RHI::HardwareQueueClass>(source), wait->m_value[source] };
+                    const SyncOperation op{ static_cast<RHI::HardwareQueueClass>(source), wait->m_sync[source].m_fenceValue };
                     if (auto* passWait = passContext.TryGet<PassSyncWait>(data.m_pass))
                     {
                         passWait->m_waits.push_back(op);

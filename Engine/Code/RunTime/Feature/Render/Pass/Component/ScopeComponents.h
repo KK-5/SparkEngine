@@ -3,6 +3,7 @@
 #include <EASTL/functional.h>
 #include <EASTL/type_traits.h>
 
+#include <RHI/Component/Component.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
@@ -10,6 +11,7 @@
 
 namespace Spark::RHI
 {
+    class Fence;
     class PipelineState;
     class ShaderBindings;
 }
@@ -37,22 +39,23 @@ namespace Spark::Render
     };
 
     //! On a Scope whose access to some resource follows one on another queue: per source queue,
-    //! the latest producer Scope it must wait for, and the fence value that works out to.
-    //! CompileScopeBarriers fills m_producer, CompileScopeSync the values in stream order.
-    //! A zero value means no wait on that queue — none needed, or an earlier wait covers it.
+    //! the latest producer Scope it must wait for, and the fence and value that works out to.
+    //! CompileScopeBarriers fills m_producer, CompileScopeSync the syncs in stream order.
+    //! A null fence means no wait on that queue — none needed, or an earlier wait covers it.
     static_assert(RHI::HardwareQueueClassCount == 3, "ScopeWait's initializer lists one producer per queue.");
 
     struct ScopeWait
     {
-        RHI::RHIHandle m_producer[RHI::HardwareQueueClassCount] { RHI::NullHandle, RHI::NullHandle, RHI::NullHandle };
-        uint64_t       m_value[RHI::HardwareQueueClassCount] {};
+        RHI::RHIHandle   m_producer[RHI::HardwareQueueClassCount] { RHI::NullHandle, RHI::NullHandle, RHI::NullHandle };
+        RHI::PendingSync m_sync[RHI::HardwareQueueClassCount] {};
     };
 
-    //! On a Scope another queue waits for. The value is its queue's next fence value, assigned
+    //! On a Scope another queue waits for: its queue's cross-queue fence and next value, assigned
     //! by CompileScopeSync in stream order so each queue signals monotonically.
     struct ScopeSignal
     {
-        uint64_t m_value = 0;
+        RHI::Fence* m_fence = nullptr;
+        uint64_t    m_value = 0;
     };
 
     //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once

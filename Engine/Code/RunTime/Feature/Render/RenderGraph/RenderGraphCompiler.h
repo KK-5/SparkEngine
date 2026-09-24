@@ -11,6 +11,7 @@
 namespace Spark::RHI
 {
     class Device;
+    class FenceSet;
     class TransientResourcePool;
     class ImagePool;
     class ImageView;
@@ -81,10 +82,11 @@ namespace Spark::Render
         void CompileScopeBarriers(
             PassContext& passContext, RHIContext& context, const RHI::TransientResourcePool& pool);
 
-        //! Turn the cross-queue waits CompileScopeBarriers recorded into fence values: walks
-        //! Scopes in stream order, gives each ScopeSignal its queue's next value, and resolves
-        //! each ScopeWait to its producers' values, dropping any an earlier wait already covers.
-        void CompileScopeSync(PassContext& passContext, RHIContext& context);
+        //! Turn the cross-queue waits CompileScopeBarriers recorded into fences and values: walks
+        //! Scopes in stream order, gives each ScopeSignal its queue's fence in crossQueueFences
+        //! and next value, and resolves each ScopeWait to its producers' signals, dropping any an
+        //! earlier wait already covers.
+        void CompileScopeSync(PassContext& passContext, RHIContext& context, RHI::FenceSet& crossQueueFences);
 
         //! Transitional, until the executer walks Scopes: copies Scope waits / signals and the
         //! attachments' external waits onto the passes, where BuildSegments still reads them.

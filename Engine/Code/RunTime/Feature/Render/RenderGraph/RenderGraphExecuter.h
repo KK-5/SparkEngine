@@ -205,8 +205,7 @@ namespace Spark::Render
         //! that signals.
         void ExecuteScopes(
             PassContext& passContext, RHIContext& rhiContext,
-            RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues,
-            RHI::FenceSet& crossQueueFences);
+            RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues);
 
         //! Whether the queue received any work this frame.
         bool IsQueueActive(uint32_t queueIndex) const;

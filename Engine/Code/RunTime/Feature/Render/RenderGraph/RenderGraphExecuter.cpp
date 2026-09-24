@@ -724,8 +724,7 @@ namespace Spark::Render
 
     void RenderGraphExecuter::ExecuteScopes(
         PassContext& passContext, RHIContext& rhiContext,
-        RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues,
-        RHI::FenceSet& crossQueueFences)
+        RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues)
     {
         m_queueActive = {};
         eastl::array<RHI::CommandList*, RHI::HardwareQueueClassCount> recording {};
@@ -784,12 +783,11 @@ namespace Spark::Render
             };
             if (const auto* scopeWait = rhiContext.TryGet<ScopeWait>(scope))
             {
-                for (uint32_t source = 0; source < RHI::HardwareQueueClassCount; ++source)
+                for (const RHI::PendingSync& sync : scopeWait->m_sync)
                 {
-                    if (scopeWait->m_value[source] != 0)
+                    if (sync.m_fence)
                     {
-                        wait(crossQueueFences.GetFence(static_cast<RHI::HardwareQueueClass>(source)),
-                            scopeWait->m_value[source]);
+                        wait(*sync.m_fence, sync.m_fenceValue);
                     }
                 }
             }
@@ -927,7 +925,7 @@ namespace Spark::Render
             if (const auto* signal = rhiContext.TryGet<ScopeSignal>(scope))
             {
                 submit(queueClass);
-                queue.Signal(crossQueueFences.GetFence(queueClass), signal->m_value);
+                queue.Signal(*signal->m_fence, signal->m_value);
             }
         }
 
