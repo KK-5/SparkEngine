@@ -384,7 +384,7 @@ for scope in Scope 存储（已排序）:
 
 ### 流 = 排好序的 Scope + 提交表
 
-- **Scope 存储即流的顺序**（第 0 步已排好）。执行器按队列遍历，跳过其他队列的 Scope；ScopeAttachment 存储按同一顺序
+- **Scope 存储即流的顺序**（第 0 步已排好）。执行器按流顺序遍历全部 Scope，每个队列各开一个 CommandList；ScopeAttachment 存储按同一顺序
   排好，执行器同步推进两者，像归并一样一起往前走，Scope 不持有 attachment 列表，也不记下标。执行器不回到 item：
   它们已在 lowering 时写进提交表。
 - **Scope 的提交区间是提交表里的一段**：`ScopeSubmitRange { begin, end }`，提交表 `m_submitList` 由执行器持有、
@@ -404,6 +404,9 @@ for scope in Scope 存储（已排序）:
   Scope 之后切出一次提交。今天 `ExecuteGroup` / `ExecuteWork` 还叠着两件事——多线程并行录制（按负载把 draw 分给
   多个 CommandList）与提前提交（录完一段先交给 GPU）——**这次都不实现**：多线程录制尚未就绪，现状本就是单线程；
   最终目标 GPU-driven 下一帧只剩几百条命令，单线程录制远低于 1ms，帧间流水线也已盖住提前提交想省的空隙。
+- **跨队列顺序由 fence 在 GPU 上保证**：fence 带值（Vulkan 对应 timeline semaphore），wait 可以先于 signal 提交，
+  CPU 端只需同一队列内有序。多线程时拆成三步：按流顺序切分出录制单元（串行）；并行录制，按流顺序排优先级；
+  各队列按自己的单元顺序提交，互不等待。单线程的执行器就是三步合一：按流顺序录制，切出一段就交给它的队列。
 - **`WorkStart` 作为接缝保留**：Scope 上可以带一个切点标签，执行器遇到它就换一个 CommandList；按预算打标签的
   逻辑不建。图形 Scope 内部不能切（括号），所以切点只落在 Scope 边界；render pass 支持 suspend / resume 后需要
   Scope 内的切点，届时切点作为一种标注句柄写进提交表。**重新考虑的条件**：profiling 显示录制成为瓶颈，或出现
@@ -523,7 +526,7 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 | 段 | 内容 | 条目 | 状态 |
 |---|---|---|---|
-| A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | A1–A3、A4a 完成，A4b 待做 |
+| A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | A1–A4b 完成（A4b 帧率问题待查），A4c 待做 |
 | B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13–16 | |
 | C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | |
 | D | Bloom | 17 | |
@@ -537,6 +540,7 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 | `b1bd158` | 屏障按 Scope 编译，`Pre*` / `Post*Barrier` 挂在 attachment 上；新判据只多出 SceneColor 四条写后写 |
 | `dbe1855` | `RenderPassBeginInfo` 挂在 Scope 上；颜色编号改为声明时写入的 `ColorAttachmentIndex` |
 | `e83b1da` | `ScopeWait` / `ScopeSignal` / `ExternalWait`；fence 值按流顺序两阶段分配 |
+| `6d01d72` | A4a：`ScopeState`、`ScopeSubmitRange` 与提交表，旧路径对照校验 |
 
 过渡适配（A4 后删）：`CollectPassBarriers`、`CollectPassBeginInfo`、`CollectPassSync`、`SplitPassesByQueue`。
 
@@ -544,17 +548,25 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 ### A4 方案
 
-- **A4a lowering 产出，不消费（已完成，未提交）**：`CompileScopeState` 从 pass 抄 PSO 与共享绑定的指针
+- **A4a lowering 产出，不消费**：`CompileScopeState` 从 pass 抄 PSO 与共享绑定的指针
   （`ScopeState`）；`CompileScopeSubmitRanges` 把每个 Scope 按就绪视图展开进执行器的提交表（`ScopeSubmitRange`），
   视图句柄在前、item 在后，item 仍用旧的 `m_collectSubmitItems` 收集，过滤规则照搬 `BuildPassSubmitTable`，但空的
   视图段不撤回。`ResolveTargetViewport`（改为收 `RenderPassBeginInfo`）与 `ResolveViewShaderBindings` 移到
   `RenderGraphUtils.h`。验收：`ValidateScopeSubmitRanges`（`s_scopeSubmitValidation`，A4c 删）逐 pass 对比新区间
   与旧 `SubmitBatch`——剔掉视图句柄后 item 逐个相等，非空视图段与 batch 一一对应且 viewport 相同。已在空场景
   （全屏 pass、空视图段、单个阴影视图）运行无断言；**带网格的场景、多个阴影视图尚未覆盖**。
-- **A4b 新执行器**：每队列按序遍历 Scope，同步推进 `ScopeAttachment` 游标。wait / 外部 wait 前切、signal 后切，
-  认 `WorkStartTag`；别名屏障在 pass 第一个 Scope 开头向 pool 取；提交区间里带 `View` 的句柄应用 viewport 与 space1，
-  其余提交。`RenderPassBuilder` 不再默认装 `SubmitDrawBatch`：无 hook 的 Scope 由执行器提交，有 hook 的是不透明
-  工作，按"每个视图段调一次（含空段）、空区间调一次"调用，Skybox / UI / copy 不必改。
+- **A4b 新执行器**：`ExecuteScopes` 按流顺序遍历全部 Scope，同步推进 `ScopeAttachment` 游标，
+  每个队列各开一个 CommandList。wait / 外部 wait 前切、signal 后切，认 `WorkStartTag`（只有接缝，无人添加）；
+  别名屏障在 pass 第一个 Scope 开头向 pool 取；release 屏障只入队，随同一 CommandList 上的下一次 Flush 一起提交。
+  提交区间里带 `View` 的句柄应用 viewport 与 space1（有 PSO 才绑），其余按组件（DrawItem / DispatchItem / CopyItem）
+  提交，下标即提交表中的位置。hook 引用由 lowering 写成 Scope 上的 `ScopeExecute`；`RenderPassBuilder` 不再默认装
+  `SubmitDrawBatch`，有 hook 的 Scope 按"每个视图段调一次（含空段）、空区间调一次"调用，Skybox / UI / copy 未改。
+  队列与别名屏障用的 pass 位置直接从 pass 读。`s_scopeExecution`（A4c 删）可切回旧执行器对照，旧 `Execute` 为此
+  在无 hook 时回退到 `SubmitDrawBatch`；帧末的"队列本帧是否有工作"改由 `IsQueueActive` 回答。验收：新旧两条
+  路径在空场景各运行 40 秒，D3D12 debug layer（遇错中断）与断言均未触发；带网格的场景画面正确。
+  **帧率问题待查**：带网格的场景里新路径帧率明显低于旧路径，原因未定位。空场景（每帧 6 次 Submit）的对照：
+  执行段新路径约 1.85ms、旧路径约 1.41ms，这 0.4ms 与 item 数无关，而与 Scope 数有关。可疑点之一：
+  编译阶段的 `CollectPassBarriers` 仍在查询 `GetDeviceMemoryBarriers`，新执行器在执行段又查一次。但 Scope 数不随网格增加，所以这一点解释不了带网格场景的差距。
 - **A4c 清理**：删除所有已不被调用的函数、组件与适配。
 
 待定（括号内为倾向）：不透明工作后的状态失效，RHI 缺接口（暂不做，UI 目前是最后一个 pass）。

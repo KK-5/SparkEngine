@@ -20,8 +20,11 @@
 namespace Spark::RHI
 {
     class CommandList;
+    class CommandQueueContext;
     class Device;
     class Factory;
+    class FenceSet;
+    class TransientResourcePool;
     class PipelineState;
     class ShaderBindings;
     struct DrawItem;
@@ -123,8 +126,7 @@ namespace Spark::Render
 
     class RenderGraphExecuter;
 
-    //! The execute hook RenderPassBuilder installs when a pass declares none — an ordinary
-    //! ExecuteFunction, not a framework fallback.
+    //! Submits the DrawItems handed to a hook, for hooks that only decide whether to draw.
     void SubmitDrawBatch(ExecuteWork& work, RenderGraphExecuter&);
 
     //! 一组 Work 并行录制,GPU 按数组顺序执行,对应一次 ExecuteCommandLists。
@@ -198,6 +200,17 @@ namespace Spark::Render
 
         void SetStaticPreBarriers(StaticPreBarrierTable&& table) { m_staticPreBarriers = eastl::move(table); }
 
+        //! Records and submits every Scope in stream order. Each queue keeps one CommandList
+        //! open, submitted before a Scope that waits or carries WorkStartTag, and after one
+        //! that signals.
+        void ExecuteScopes(
+            PassContext& passContext, RHIContext& rhiContext,
+            RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues,
+            RHI::FenceSet& crossQueueFences, const RHI::TransientResourcePool& pool);
+
+        //! Whether the queue received any work this frame.
+        bool IsQueueActive(uint32_t queueIndex) const;
+
         eastl::vector<RHI::RHIHandle>& GetSubmitList() { return m_submitList; }
 
         //! Transitional, until the executer walks Scopes: checks that each Scope's submit range
@@ -215,7 +228,13 @@ namespace Spark::Render
         //! it are submitted under, or an item.
         eastl::vector<RHI::RHIHandle> m_submitList;
 
+        eastl::array<bool, RHI::HardwareQueueClassCount> m_queueActive {};
+        eastl::vector<RHI::DeviceMemoryBarrier>           m_aliasingBarriers;
+
         static constexpr bool s_scopeSubmitValidation { true };
+
+        //! Transitional: false runs the old pass-based executer instead.
+        static constexpr bool s_scopeExecution { true };
 
         uint32_t m_frameIndex { 0 };
     };

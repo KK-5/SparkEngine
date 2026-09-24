@@ -300,64 +300,72 @@ namespace Spark::Render
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
-        auto& queueSegments = m_executer.GetQueueSegments();
-
-        for (uint32_t qi = 0; qi < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++qi)
+        if constexpr (RenderGraphExecuter::s_scopeExecution)
         {
-            auto& segments = queueSegments[qi];
-            if (segments.empty())
-            {
-                continue;
-            }
+            m_executer.ExecuteScopes(passContext, context, *factory, *m_device,
+                m_commandQueueContext, m_crossQueueFences, *m_pool);
+        }
+        else
+        {
+            auto& queueSegments = m_executer.GetQueueSegments();
 
-            const auto queueClass = static_cast<RHI::HardwareQueueClass>(qi);
-            auto& queue = m_commandQueueContext.GetCommandQueue(queueClass);
-
-            // Static-resource pre-frame barriers — only first frame when
-            // resources transition from upload state to steady state.
-            if (!m_executer.m_staticPreBarriers[qi].IsEmpty())
+            for (uint32_t qi = 0; qi < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++qi)
             {
-                for (auto& sync : m_executer.m_staticPreBarriers[qi].m_fenceWaits)
+                auto& segments = queueSegments[qi];
+                if (segments.empty())
                 {
-                    queue.Wait(*sync.m_fence, sync.m_fenceValue);
+                    continue;
                 }
 
-                auto* preCmdList = factory->CreateCommandList(*m_device, queueClass);
-                preCmdList->Open();
-                m_executer.ExecuteStaticPreBarriers(preCmdList, qi);
-                preCmdList->Close();
+                const auto queueClass = static_cast<RHI::HardwareQueueClass>(qi);
+                auto& queue = m_commandQueueContext.GetCommandQueue(queueClass);
 
-                queue.ExecuteCommands({ &preCmdList, 1 });
-            }
-
-            for (auto& segment : segments)
-            {
-                for (const auto& wait : segment.m_waits)
+                // Static-resource pre-frame barriers — only first frame when
+                // resources transition from upload state to steady state.
+                if (!m_executer.m_staticPreBarriers[qi].IsEmpty())
                 {
-                    queue.Wait(m_crossQueueFences.GetFence(wait.m_queue), wait.m_value);
-                }
-
-                for (const auto& wait : segment.m_externalWaits)
-                {
-                    queue.Wait(*wait.m_fence, wait.m_fenceValue);
-                }
-
-                for (auto& group : segment.m_groups)
-                {
-                    eastl::vector<RHI::CommandList*> cmdLists;
-
-                    for (auto& work : group.m_works)
+                    for (auto& sync : m_executer.m_staticPreBarriers[qi].m_fenceWaits)
                     {
-                        m_executer.Execute(work, *factory, *m_device, queueClass, passContext);
-                        cmdLists.push_back(work.m_commandList);
+                        queue.Wait(*sync.m_fence, sync.m_fenceValue);
                     }
 
-                    queue.ExecuteCommands(cmdLists);
+                    auto* preCmdList = factory->CreateCommandList(*m_device, queueClass);
+                    preCmdList->Open();
+                    m_executer.ExecuteStaticPreBarriers(preCmdList, qi);
+                    preCmdList->Close();
+
+                    queue.ExecuteCommands({ &preCmdList, 1 });
                 }
 
-                if (segment.m_signal)
+                for (auto& segment : segments)
                 {
-                    queue.Signal(m_crossQueueFences.GetFence(segment.m_signal->m_queue), segment.m_signal->m_value);
+                    for (const auto& wait : segment.m_waits)
+                    {
+                        queue.Wait(m_crossQueueFences.GetFence(wait.m_queue), wait.m_value);
+                    }
+
+                    for (const auto& wait : segment.m_externalWaits)
+                    {
+                        queue.Wait(*wait.m_fence, wait.m_fenceValue);
+                    }
+
+                    for (auto& group : segment.m_groups)
+                    {
+                        eastl::vector<RHI::CommandList*> cmdLists;
+
+                        for (auto& work : group.m_works)
+                        {
+                            m_executer.Execute(work, *factory, *m_device, queueClass, passContext);
+                            cmdLists.push_back(work.m_commandList);
+                        }
+
+                        queue.ExecuteCommands(cmdLists);
+                    }
+
+                    if (segment.m_signal)
+                    {
+                        queue.Signal(m_crossQueueFences.GetFence(segment.m_signal->m_queue), segment.m_signal->m_value);
+                    }
                 }
             }
         }
@@ -379,7 +387,7 @@ namespace Spark::Render
         // sharing one counter is safe.
         for (uint32_t qi = 0; qi < static_cast<uint32_t>(RHI::HardwareQueueClass::Count); ++qi)
         {
-            if (queueSegments[qi].empty())
+            if (!m_executer.IsQueueActive(qi))
             {
                 continue;
             }
@@ -452,7 +460,7 @@ namespace Spark::Render
                     const auto homeQueue = ResolveHomeQueue(
                         backing.m_image->GetDescriptor().m_sharedQueueMask);
                     const auto qi = static_cast<uint32_t>(homeQueue);
-                    if (queueSegments[qi].empty()) { return; }
+                    if (!m_executer.IsQueueActive(qi)) { return; }
 
                     RHI::PendingSync sync;
                     sync.m_fence      = &m_crossQueueFences.GetFence(homeQueue);
@@ -468,7 +476,7 @@ namespace Spark::Render
                     const auto homeQueue = ResolveHomeQueue(
                         backing.m_buffer->GetDescriptor().m_sharedQueueMask);
                     const auto qi = static_cast<uint32_t>(homeQueue);
-                    if (queueSegments[qi].empty()) { return; }
+                    if (!m_executer.IsQueueActive(qi)) { return; }
 
                     RHI::PendingSync sync;
                     sync.m_fence      = &m_crossQueueFences.GetFence(homeQueue);

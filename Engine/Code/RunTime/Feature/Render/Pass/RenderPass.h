@@ -234,15 +234,11 @@ namespace Spark::Render
                 }
             }
 
-            // SubmitDrawBatch is a default VALUE, not a framework fallback: the executer
-            // only ever calls what PassFunctions holds, so a pass left without an execute
-            // hook records no draws at all.
+            // No default hook: the executer submits a hookless Scope's items itself.
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
             funcs.m_compileFunction = eastl::move(m_compileFunction);
-            funcs.m_executeFunction = m_executeFunction
-                ? eastl::move(m_executeFunction)
-                : ExecuteFunction(&SubmitDrawBatch);
+            funcs.m_executeFunction = eastl::move(m_executeFunction);
             m_context->Add<PassFunctions>(pass, eastl::move(funcs));
 
             if (m_hasCapabilities)

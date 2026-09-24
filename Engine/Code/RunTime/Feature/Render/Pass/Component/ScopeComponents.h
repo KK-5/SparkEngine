@@ -1,5 +1,6 @@
 #pragma once
 
+#include <EASTL/functional.h>
 #include <EASTL/type_traits.h>
 
 #include <RHI/Context/RHIContext.h>
@@ -15,6 +16,9 @@ namespace Spark::RHI
 
 namespace Spark::Render
 {
+    struct ExecuteWork;
+    class RenderGraphExecuter;
+
     //! An ordered stretch of a pass: within it items do not depend on each other and each
     //! resource is used one way. A per-frame entity in RHIContext, where all its attachments
     //! and items live.
@@ -53,8 +57,8 @@ namespace Spark::Render
 
     //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once
     //! for the whole Scope (the pass's own space2 and those it declared via .Binds). Copied from
-    //! the pass by lowering, so the executer never reads a pass. Viewport and space1 come from
-    //! the view handles in the Scope's submit range.
+    //! the pass by lowering. Viewport and space1 come from the view handles in the Scope's
+    //! submit range.
     struct ScopeState
     {
         const RHI::PipelineState*  m_pso = nullptr;
@@ -70,6 +74,17 @@ namespace Spark::Render
         uint32_t m_begin = 0;
         uint32_t m_end   = 0;
     };
+
+    //! On a Scope whose work is opaque: the executer hands its submit range to this hook once
+    //! per view segment (empty ones included), or once if the range is empty, instead of
+    //! submitting the items itself. Points into the pass's PassFunctions.
+    struct ScopeExecute
+    {
+        const eastl::function<void(ExecuteWork&, RenderGraphExecuter&)>* m_execute = nullptr;
+    };
+
+    //! On a Scope that starts a new CommandList. Nothing adds it yet.
+    struct WorkStartTag {};
 
     // Lowering sorts these storages, which entt refuses on an in_place_delete storage holding
     // tombstones — a trivially movable type keeps the default swap-and-pop policy.

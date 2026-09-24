@@ -1387,6 +1387,12 @@ namespace Spark::Render
             }
 
             context.Add<ScopeState>(scope, state);
+
+            const auto& execute = passContext.Get<PassFunctions>(data.m_pass).m_executeFunction;
+            if (execute)
+            {
+                context.Add<ScopeExecute>(scope, ScopeExecute{ &execute });
+            }
         }
     }
 
