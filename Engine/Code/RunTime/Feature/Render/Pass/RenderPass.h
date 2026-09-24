@@ -198,7 +198,6 @@ namespace Spark::Render
             m_context->Add<PassName>(pass, PassName{m_name});
             m_context->Add<RenderPassTag>(pass);
             m_context->Add<PassExecuteQueue>(pass, PassExecuteQueue{m_queue});
-            m_context->Add<PassAttachmentMarker>(pass, MarkPassAttachmentCompiling<PassTag>());
 
             if (m_active)
                 m_context->Add<ActivePassTag>(pass);

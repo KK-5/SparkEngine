@@ -155,7 +155,6 @@ namespace Spark::Render
             // A copy pass never owns an engine PSO; tag it so the PSO compiler skips it.
             m_context->Add<CustomPipelinePassTag>(pass);
             m_context->Add<PassExecuteQueue>(pass, PassExecuteQueue{m_queue});
-            m_context->Add<PassAttachmentMarker>(pass, MarkPassAttachmentCompiling<PassTag>());
 
             if (m_active)
                 m_context->Add<ActivePassTag>(pass);

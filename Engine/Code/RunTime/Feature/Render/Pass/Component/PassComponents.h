@@ -67,13 +67,6 @@ namespace Spark::Render
     {
     };
 
-    //! Tags pass entities that are synthesized by the compiler each frame
-    //! (currently: final-transition sink passes from CompileFinalTransitionBarrier).
-    //! Executer.End walks this view to destroy these entities so they don't leak.
-    struct SinkPassTag
-    {
-    };
-
     ////////////////////////////////////////////////////
     struct PassName
     {
@@ -152,93 +145,4 @@ namespace Spark::Render
         eastl::function<void(RenderGraphCompiler&)> m_compileFunction;
         eastl::function<void(ExecuteWork&, RenderGraphExecuter&)> m_executeFunction;
     };
-
-    // External fence waits that must be issued on the GPU queue before this
-    // pass's pre-barriers. Populated by barrier compiler on first-touch of a
-    // cross-queue resource carrying PendingSync (e.g. upload fence).
-    struct PassExternalFenceWaits
-    {
-        eastl::vector<RHI::PendingSync> m_waits;
-    };
-
-    // Compiled barriers for a single pass. Filled by CompileImageBarriers /
-    // CompileBufferBarriers, consumed by execute. Per-frame, cleared at frame end.
-    struct PassBarriers
-    {
-        eastl::vector<RHI::ImageBarrier>  m_preImage;
-        eastl::vector<RHI::BufferBarrier> m_preBuffer;
-        eastl::vector<RHI::ImageBarrier>  m_postImage;
-        eastl::vector<RHI::BufferBarrier> m_postBuffer;
-        
-        //!  Must be issued before the state-transition barriers above so that the heap
-        //! range ownership transfer happens before any layout/state work.
-        eastl::vector<RHI::DeviceMemoryBarrier>  m_preDeviceMemory;
-    };
-
-    /////////////////////////////////////////////////////
-    // Sync cross queue component. Process per pass, so it has container.
-    // Clean every frame
-    struct PassPredecessors
-    {
-        eastl::vector<Pass> m_preds;
-    };
-
-    struct PassSuccessors
-    {
-        eastl::vector<Pass> m_succs;
-    };
-
-    struct SyncOperation
-    {
-        SyncOperation() = default;
-        SyncOperation(RHI::HardwareQueueClass queue, uint64_t value)
-            : m_queue(queue), m_value(value)
-        {
-        }
-
-        RHI::HardwareQueueClass m_queue;  // 所属队列,wait 时是源,signal 时是己方
-        uint64_t                m_value;
-    };
-
-    struct PassSyncWait
-    {
-        eastl::vector<SyncOperation> m_waits;
-    };
-
-    struct PassSyncSignal
-    {
-        SyncOperation m_signal;
-    };
-    /////////////////////////////////////////////////////
-
-    // Lives on a Pass entity. Engine invokes m_markFn during the compile phase to
-    // tag this pass's PassAttachments with AttachmentCompilingTag, so engine-level
-    // barrier compilation can iterate them without scanning all attachments.
-    struct PassAttachmentMarker
-    {
-        void (*m_markFn)(RHIContext&) = nullptr;
-    };
-
-    template <typename PassTagT>
-    PassAttachmentMarker MarkPassAttachmentCompiling()
-    {
-        PassAttachmentMarker result;
-
-        result.m_markFn = [](RHIContext& ctx)
-        {
-            ctx.GetView<ImagePassAttachment, PassTagT>().each(
-                [&ctx](auto handle, const ImagePassAttachment&)
-                {
-                    ctx.Add<AttachmentCompilingTag>(handle);
-                });
-
-            ctx.GetView<BufferPassAttachment, PassTagT>().each(
-                [&ctx](auto handle, const BufferPassAttachment&)
-                {
-                    ctx.Add<AttachmentCompilingTag>(handle);
-                });
-        };
-
-        return result;
-    }
 }

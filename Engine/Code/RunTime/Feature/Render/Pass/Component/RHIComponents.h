@@ -84,31 +84,12 @@ namespace Spark::Render
     // Lives on Resource entities; seeded lazily on first touch, cleared at end of frame.
     // m_current is the full post-barrier state (usage + access + queue + stage) — read
     // it for both srcQueue and srcStage when constructing the next barrier.
-    // m_lastPass is kept only to know which pass entity to push the cross-queue release
-    // (m_postBuffer / m_postImage) onto; NullPass means first touch (no producer yet).
     struct ResourceStateTracker
     {
         RHI::ResourceState m_current {};
-        Pass               m_lastPass { NullPass };
         //! The attachment that last used the resource — where a cross-queue release goes.
         //! Its Scope is read off its ScopeAttachment. NullHandle means first touch.
         RHIHandle          m_lastAttachment { NullHandle };
-    };
-
-    // Per-attachment compiled barrier: CompileImage/BufferBarriers emit one of these
-    // onto the Attachment entity, then the per-pass merge in CompileResourceBarriers
-    // folds all attachments referencing the same resource into a single barrier
-    // (combined-read AccessFlags OR). Lives on the Attachment (not the resource) so the
-    // merge recovers the resource entity via ImagePassAttachment::m_image /
-    // BufferPassAttachment::m_buffer. Per-pass lifetime: cleared once the merge consumes it.
-    struct CompiledImageBarrier
-    {
-        RHI::ImageBarrier m_barrier;
-    };
-
-    struct CompiledBufferBarrier
-    {
-        RHI::BufferBarrier m_barrier;
     };
 
     //! The barrier an attachment's access needs before it runs. On the first attachment of its
@@ -234,8 +215,6 @@ namespace Spark::Render
 #endif
     static_assert(eastl::is_default_constructible_v<ImagePassAttachment>);
     static_assert(eastl::is_default_constructible_v<BufferPassAttachment>);
-
-    struct AttachmentCompilingTag {};
 
     //! On a RenderTarget attachment: its color output index, the order it was declared in its
     //! Scope. The pass's RenderTargetLayout gives each index a format, so this must be

@@ -245,7 +245,7 @@ namespace Spark::RHI
 
         // Submitted upload entities carry PendingSync with the upload fence.
         // The RG barrier compiler consumes PendingSync on first cross-queue
-        // touch → PassExternalFenceWaits → executer emits queue.Wait before
+        // touch → ExternalWait on that attachment → executer emits queue.Wait before
         // the acquire barrier. No CPU-side poll step needed.
         SubmitBatch(ctx);
     }

@@ -58,29 +58,6 @@ namespace Spark::Render
         if (inserted)
         {
             ++m_graph[to].inDegree;
-
-            // Add PassPredecessors and PassSuccessors for compiling
-            auto& passContext = *PassExecuteContext::Current();
-
-            auto pred = passContext.TryGet<PassPredecessors>(to);
-            if (pred)
-            {
-                pred->m_preds.push_back(from);
-            }
-            else
-            {
-                passContext.Add<PassPredecessors>(to, PassPredecessors{ {from} });
-            }
-
-            auto suc = passContext.TryGet<PassSuccessors>(from);
-            if (suc)
-            {
-                suc->m_succs.push_back(to);
-            }
-            else
-            {
-                passContext.Add<PassSuccessors>(from, PassSuccessors{ {to} });
-            }
         }
     }
 

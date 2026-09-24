@@ -58,8 +58,8 @@ namespace Spark::RHI
     //! identical (srcQueue, dstQueue): once on the src queue's command list
     //! (release) and once on the dst queue's command list (acquire). The
     //! happens-before between release and acquire is provided externally by
-    //! a timeline-semaphore signal/wait pair (see PassSyncSignal/PassSyncWait
-    //! in the render layer); the barrier itself only describes the transfer.
+    //! a timeline-semaphore signal/wait pair issued by the caller between the
+    //! two submissions; the barrier itself only describes the transfer.
     //!
     //! Vulkan backend: emits both halves with srcQueueFamilyIndex/dstQueueFamilyIndex
     //!     set, performs layout transition exactly as Vulkan spec requires.

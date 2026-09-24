@@ -22,18 +22,14 @@ namespace Spark::RHI
 namespace Spark::Render
 {
 
-    using QueueBasedPasses = eastl::array<eastl::vector<Pass>, static_cast<size_t>(RHI::HardwareQueueClass::Count)>;
-
     // Per-queue pre-frame barriers for static resources (StaticImportTag).
-    // Compiled once before the per-pass compile loop, executed before any pass
-    // work on each queue. Empty after the first frame when resources reach steady state.
+    // Compiled once before the per-pass compile hooks, executed before any Scope
+    // on each queue. Empty after the first frame when resources reach steady state.
     struct StaticPreBarriers
     {
         eastl::vector<RHI::PendingSync>  m_fenceWaits;
         eastl::vector<RHI::ImageBarrier> m_imageBarriers;
         eastl::vector<RHI::BufferBarrier> m_bufferBarriers;
-
-        bool IsEmpty() const { return m_fenceWaits.empty() && m_imageBarriers.empty() && m_bufferBarriers.empty(); }
     };
 
     using StaticPreBarrierTable = eastl::array<StaticPreBarriers, static_cast<size_t>(RHI::HardwareQueueClass::Count)>;
@@ -49,9 +45,6 @@ namespace Spark::Render
         void Begin(uint32_t frameIndex);
 
         void End();
-
-        // Successor-driven variant: signal emitted when processing the source pass.
-        QueueBasedPasses CompilePassCrossQueue2(eastl::span<Pass> passes);
 
         //! Allocate transient images/buffers from the pool, materialize their
         //! views, and write the backing pointers / view handles back onto the
@@ -78,6 +71,11 @@ namespace Spark::Render
         //! of them before the first Scope, and the frame end stamps only those.
         void CompileActiveQueues(RHIContext& context);
 
+        bool IsQueueActive(RHI::HardwareQueueClass queue) const
+        {
+            return CheckBitsAny(m_activeQueues, RHI::GetHardwareQueueClassMask(queue));
+        }
+
         //! Walk the sorted attachments once, Scope by Scope, and put on them the barriers their
         //! accesses need: Pre*Barrier on the first attachment of each (Scope, resource) group,
         //! Post*Barrier (cross-queue release) on the producer's attachment, PreAliasingBarrier on
@@ -93,56 +91,14 @@ namespace Spark::Render
         //! earlier wait already covers.
         void CompileScopeSync(PassContext& passContext, RHIContext& context, RHI::FenceSet& crossQueueFences);
 
-        //! Transitional, until the executer walks Scopes: copies Scope waits / signals and the
-        //! attachments' external waits onto the passes, where BuildSegments still reads them.
-        void CollectPassSync(PassContext& passContext, RHIContext& context);
-
-        //! Transitional: the per-queue pass lists CompilePassCrossQueue2 used to return.
-        QueueBasedPasses SplitPassesByQueue(eastl::span<const Pass> passes, const PassContext& passContext);
-
         //! Build each render pass Scope's RHI::RenderPassBeginInfo from its attachments and put it
         //! on the Scope. Colors go by ColorAttachmentIndex, not storage order. Runs after
         //! SortScopes.
         void CompileScopeBeginInfo(PassContext& passContext, RHIContext& context);
 
-        //! Transitional, until the executer walks Scopes: copies each Scope's BeginInfo onto its
-        //! pass, where the executer still reads it.
-        void CollectPassBeginInfo(PassContext& passContext, RHIContext& context);
-
-        //! Transitional, until the executer walks Scopes: gathers the barriers on each pass's
-        //! attachments, plus its transient aliasing barriers, into the PassBarriers the
-        //! executer still reads.
-        void CollectPassBarriers(
-            eastl::span<const Pass>     passes,
-            PassContext&                passContext,
-            RHIContext&                 context,
-            RHI::TransientResourcePool& pool);
-
-
-        //! Compile all barriers for a single pass. Must be called in topo-sort
-        //! order so that cross-queue Release/Acquire pairs are written to the
-        //! correct upstream passes. Emits aliasing barriers first (heap
-        //! ownership transfer), then image barriers (including cross-queue
-        //! Acquire for the current pass), then buffer barriers. Result is
-        //! stored as PassBarriers on the pass entity in PassContext.
-        void CompileResourceBarriers(
-            Pass                        pass,
-            PassContext&                passContext,
-            RHIContext&                 context,
-            RHI::TransientResourcePool& pool);
-
-        //! Translate this pass's ImagePassAttachments (the ones tagged with
-        //! AttachmentCompilingTag) into a RHI::RenderPassBeginInfo component on the
-        //! pass entity. Each attachment's view is resolved from its resource's view
-        //! cache (single-frame ImageViewCache or per-frame ImageViewCachePerFrame)
-        //! keyed by the attachment's view descriptor. Caller must have run the
-        //! per-pass attachment tagging step first, and CompileTransientResources
-        //! must already have materialized the transient resources.
-        void CompileRenderPassBeginInfo(Pass pass, PassContext& passContext, RHIContext& context);
-
         //! Compile per-queue pre-frame fence-waits + acquire-barriers for all
         //! StaticImportTag attachments. Called once before the per-pass compile
-        //! loop. Reads RHI resource state directly — after the first frame the
+        //! hooks. Reads RHI resource state directly — after the first frame the
         //! resource is in its steady state and the resulting barrier lists are empty.
         StaticPreBarrierTable CompileStaticResourceBarriers(RHIContext& context);
 
