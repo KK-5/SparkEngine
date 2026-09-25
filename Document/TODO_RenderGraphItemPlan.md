@@ -134,10 +134,10 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 
 - **"场景事实还是算法结构"只回答 item 由谁产出，不再决定 pass 怎样消费它。** 作者只需回答"这个 item 是已有的
   还是我造的"——这是归属问题，不是路由问题。
-- **选择就是查询。** 今天 router 往场景 item 上打的 PassTag，只是 `AcceptDrawTags` 这个谓词结果的缓存：派生
+- **选择就是查询。** 原先 router 往场景 item 上打的 PassTag，只是 `AcceptDrawTags` 这个谓词结果的缓存：派生
   本身是无条件的，`m_accepts` 只检查 DrawTag。"pass X 选择此 item"等价于"此 item 带着 X 要的 DrawTag"。
 - **场景 DrawItem 继续共享、继续持久。** DrawItem 与 pass 无关（PSO 是 Scope 上的状态），同一网格给 DepthPre、
-  GBuffer、Shadow 的字节完全相同。每帧重新声明的只是选择本身，一个集合一个实体。持久化语义（派生一次、依赖
+  GBuffer、Shadow 的字节完全相同。每帧重新声明的只是选择本身，记在 Scope 上。持久化语义（派生一次、依赖
   死亡时回收）不能丢——每帧重新翻译是 `TODO_DrawItemPersistencePlan.md` 当初要治的瓶颈。
 - **算法性 item 不再伪造上游产物。** 为全屏三角形建一个 `GeometrySpec` 实体让 router 派生、再让多个 pass
   Accept，是为了走统一路径而伪造的；`ShadowMaskSystem` 与 `ShadowProjectionPass` 各自算一遍 slice 数，也是缺少
@@ -312,19 +312,21 @@ API 为何不自己归类：驱动在录制屏障时看不到后续用途，D3D1
 ```cpp
 struct Scope           { Pass m_pass; uint32_t m_index; };   // 身份 + pass 内次序
 struct ScopeAttachment { RHIHandle m_scope; };               // attachment 所属的 Scope
-struct ScopeItem       { RHIHandle m_scope; };               // 单个 item、选择所属的 Scope
-struct ItemSelection   { void (*m_collect)(RHIContext&, RHIHandle view, eastl::vector<RHIHandle>& submitList); };
+struct ScopeItem       { RHIHandle m_scope; };               // 单个 item 所属的 Scope
+struct ScopeSelections { eastl::fixed_vector<Collect, 4> m_collects; };  // 在 Scope 上，一个选择一个查询
 ```
 
 ```
-PassContext（静态）       RHIContext（每帧）                             RHIContext（持久）
-Pass ◄── Scope::m_pass ── Scope 实体
-                            ▲                 ▲
+PassContext（静态）       RHIContext（每帧）                                 RHIContext（持久）
+Pass ◄── Scope::m_pass ── Scope 实体（ScopeSelections）────查询────► 场景 DrawItem
+                            ▲                 ▲                      （带 DrawTag，不带 PassTag）
             ScopeAttachment │                 │ ScopeItem
-                            │       ┌─────────┴────────────┐
-     attachment 实体 ───────┘   单个 item 实体          选择实体 ──查询──► 场景 DrawItem
-     ImagePassAttachment        DrawItem / Dispatch…  ItemSelection      （带 DrawTag，不带 PassTag）
+                            │                 │
+     attachment 实体 ───────┘            单个 item 实体
+     ImagePassAttachment                 DrawItem / Dispatch…
 ```
+
+- **选择是 Scope 上的组件，不是实体**：选择没有自己的数据，也不参与排序，做成实体只多一次排序和一个区间。
 
 - **attachment 与 item 用两个组件**：没有哪一步同时遍历两者——事件与括号只看 attachment，提交区间只看 item 与选择，
   执行器只回到 attachment。合用一个组件只会让排序多出"有没有资源"一级，并要约定 item 排在段尾。
@@ -515,7 +517,7 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 - **与所引用的资源同生同灭**：单个 item 引用的多是瞬态附件，它们本来就每帧重新声明。
 - **句柄只在本帧有效**，任何东西不得跨帧持有。
 - **挂在 item 上的 GPU 对象随 item 一起销毁即可**：引擎所有 GPU 对象都是延迟释放的。
-- 规模：每帧新增的实体只有 Scope、单个 item、选择，数十个量级。
+- 规模：每帧新增的实体只有 Scope 与单个 item，数十个量级。
 
 ---
 
@@ -530,10 +532,10 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 ### 声明
 
-1. **Scope 实体与归属**：`Scope`、`ScopeAttachment`、`ScopeItem`；attachment 挂 `ScopeAttachment`，单个 item、选择挂 `ScopeItem`。
+1. **Scope 实体与归属**：`Scope`、`ScopeAttachment`、`ScopeItem`；attachment 挂 `ScopeAttachment`，单个 item 挂 `ScopeItem`，选择记在 Scope 的 `ScopeSelections` 上。
 2. **pass 声明改造**：单一动态回调；创建与访问分开；回调拿声明器开 Scope，声明器与 Scope 按 pass 类型分三种；访问按角色声明；
    attachment 声明绑定目标；删除 `.Compile()` 与 `.CustomPipeline()`，`.Execute()` 只留给不透明工作。
-3. **选择**：Scope 上的 `Accepts<DrawTags...>()` 与 `ItemSelection`；静态链上的 `.Accepts<>()` 移除。
+3. **选择**：Scope 上的 `Accepts<DrawTags...>()` 与 `ScopeSelections`；静态链上的 `.Accepts<>()` 移除。
 4. **router 只做派生**：不再打 PassTag；`PassCapabilities` 删去 `m_accepts` / `m_markSubmitItem` /
    `m_collectSubmitItems`。
 
@@ -594,7 +596,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 | B2 | 共享核心 + render / compute 的声明器与 Scope；按角色声明访问；Scope 按需创建 | DepthPre | 完成 |
 | B3 | `.Bind` / `Sampler` / `Constant`（全落 space2）；`CompileScopeBindings`；未绑定槽写 null；stage 无来源报错；`Import` / `ReadPrevious` | 全屏 pass、GBuffer，删 `.Compile` | 完成 |
 | B4 | `ScopeItem` 与 `ScopeItemRange`；render Scope 的 `Draw`（`Dispatch` 随 C，`Copy` 随第一个 copy pass）；提交区间带上 Scope 自己的 item；删 `SubmitDrawBatch` | 全屏 pass；删全屏三角形实体；Skybox 迁移、改条件 `Draw` | 完成 |
-| B5 | Scope 上的 `Accepts<>` 与 `ItemSelection`；router 不打 PassTag | DepthPre、GBuffer、Shadow | |
+| B5 | Scope 上的 `Accepts<>` 与 `ScopeSelections`；router 不打 PassTag，删静态 `.Accepts` | DepthPre、GBuffer、Shadow | 完成 |
 | B6 | ShadowProjection 收回 draw | ShadowProjection | |
 | B7 | `.Execute` 按 Scope 调用；删 `.CustomPipeline()` | UI | |
 | B8 | 删旧访问 API、`.Compile`、带 PassTag 的查找与 `SetPassShader*`；改回 `.Build` | — | |
@@ -664,7 +666,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
   要到编译期才暴露。可考虑声明侧显式区分（如 `.Bind` 与 `.BindIndex`），代价是作者要多知道一件事。
 
 另有两处评估为可接受：提交表（容器 + 下标、混着视图句柄）GPU-driven 后变短但形状不变；残留的函数指针
-（`ItemSelection::m_collect`、不透明 hook、`m_collectViews`、`m_resolveSharedBindings`）已少。每帧全量重建与
+（`ScopeSelections` 的查询、不透明 hook、`m_collectViews`、`m_resolveSharedBindings`）已少。每帧全量重建与
 排序排除了"图不变就复用编译结果"的增量优化，现在不需要，若以后要做会成为障碍。
 
 **建图的每帧分配。** `RenderGraphBuilder` 的 `m_attachmentUses`（每个 key 一个节点加一个 vector）、`BuildGraph` 里每个

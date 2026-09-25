@@ -10,8 +10,6 @@
 #include <RHI/Command/DrawItem.h>
 
 #include <Pass/Component/RHIComponents.h>
-#include <Pass/PassContext.h>
-#include <Pass/PassCapabilities.h>
 
 #include "GeometrySpec.h"
 #include "DrawTag.h"
@@ -182,14 +180,6 @@ namespace Spark::Render
             }
         });
 
-        // Derive: DrawItem routing needs the pass context. A warmup frame without it
-        // just defers derivation — specs stay underived and retry next frame.
-        auto* passCtx = PassExecuteContext::Current();
-        if (!passCtx)
-        {
-            return;
-        }
-
         // Excluding DrawItem is the idempotency filter: it lands on the same entity, so
         // its presence means this spec is already derived.
         rhiCtx->GetView<GeometrySpec>(Exclude<DeadTag, RHI::DrawItem>).each(
@@ -203,17 +193,8 @@ namespace Spark::Render
             }
 
             // One DrawItem for the object, not one per pass: BuildGeometryDrawItem takes
-            // no pass parameter, so every accepting pass would get the same bytes.
-            // Unconditional, so a spec no pass accepts still counts as derived.
+            // no pass parameter, so every Scope selecting it would get the same bytes.
             rhiCtx->Add<RHI::DrawItem>(e, BuildGeometryDrawItem(*rhiCtx, spec));
-
-            passCtx->GetView<PassCapabilities>().each([&](Pass, const PassCapabilities& caps)
-            {
-                if (caps.m_accepts && caps.m_accepts(*rhiCtx, e))
-                {
-                    caps.m_markSubmitItem(*rhiCtx, e);
-                }
-            });
         });
     }
 

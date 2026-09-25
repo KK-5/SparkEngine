@@ -28,9 +28,9 @@ namespace Spark::Render
 
     //! What a pass can be asked to do, as a table of type-erased operations on the pass
     //! entity. Every entry is a template instantiation frozen at RenderPassBuilder::
-    //! Finalize, where the pass's PassTag and its declared DrawTags / BindingTags /
-    //! ViewTag are all known; runtime code (DrawItemRouter, RenderGraphExecuter,
-    //! RenderSystem) then drives passes uniformly without knowing any of those types.
+    //! Finalize, where the pass's PassTag and its declared BindingTags / ViewTag are
+    //! all known; the render graph then drives passes uniformly without knowing any of
+    //! those types.
     //!
     //! Raw function pointers, not eastl::function: none of these own state. The
     //! capturing-callback tier is PassFunctions (the user's Build / Compile / Execute).
@@ -39,14 +39,6 @@ namespace Spark::Render
     //! file. A null entry means the pass never declared that capability.
     struct PassCapabilities
     {
-        //! Does this pass consume that GeometrySpec? (.Accepts<DrawTags...>)
-        bool (*m_accepts)(RHI::RHIContext&, RHI::RHIHandle drawable);
-
-        //! Record on a freshly derived DrawItem that this pass consumes it. The stamped
-        //! PassTag is what m_collectSubmitItems locates the pass's items by. Draw only —
-        //! copy / compute producers know their own pass and stamp it themselves.
-        void (*m_markSubmitItem)(RHI::RHIContext&, RHI::RHIHandle item);
-
         //! Append the shared bindings this pass declared, bound once per Scope after the
         //! pass's own (PassBindings). (.Binds<BindingTags...>)
         void (*m_resolveSharedBindings)(RHI::RHIContext&, ShaderBindingsList&);
@@ -56,29 +48,13 @@ namespace Spark::Render
         //! which then emits a single batch. (.RendersView<ViewTag>)
         void (*m_collectViews)(RHI::RHIContext&, ViewHandleList&);
 
-        //! Every submit item this pass consumes, located by the PassTag stamped on it.
+        //! Every submit item stamped with this pass's PassTag by the item's producer.
         //! Implied by the pass's identity, so Finalize always installs it. `view` is
         //! NullHandle for a viewless pass, and ignored until per-view culling lands — but
         //! it is in the signature now, because that is a change that would otherwise ripple.
         void (*m_collectSubmitItems)(RHI::RHIContext&, PassContext&, Pass,
                                      RHI::RHIHandle view, eastl::vector<RHI::RHIHandle>&);
     };
-
-    // ---- m_accepts -------------------------------------------------------------
-
-    template<typename... DrawTags>
-    bool AcceptDrawTags(RHI::RHIContext& ctx, RHI::RHIHandle drawable)
-    {
-        return (ctx.Has<DrawTags>(drawable) && ...);
-    }
-
-    // ---- m_markSubmitItem ------------------------------------------------------
-
-    template<typename PassTag>
-    void MarkPassTag(RHI::RHIContext& ctx, RHI::RHIHandle item)
-    {
-        ctx.Add<PassTag>(item);
-    }
 
     // ---- m_resolveSharedBindings -----------------------------------------------
 

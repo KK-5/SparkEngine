@@ -3,7 +3,7 @@
 namespace Spark::Render
 {
     //! Object classification tags — a property of the OBJECT that decides WHICH
-    //! passes consume it (each pass pulls via GetView<ClassTag, GeometrySpec>). A property
+    //! passes consume it (a Scope selects it via Accepts<ClassTag>()). A property
     //! that only changes the PSO within the same pass set (alpha-test discard, cull
     //! mode, …) is an object-side PSO hint, not a classification tag.
     //!
@@ -17,6 +17,6 @@ namespace Spark::Render
     //! Shading dimension (exclusive) — alpha-blended, forward-shaded. Not wired yet.
     struct TransparentTag {};
 
-    //! Shadow dimension (optional, orthogonal). Routes to the shadow pass(es). Not wired yet.
+    //! Shadow dimension (optional, orthogonal). Routes to the shadow pass(es).
     struct ShadowCasterTag {};
 }

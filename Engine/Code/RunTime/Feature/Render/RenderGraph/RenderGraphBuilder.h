@@ -267,6 +267,9 @@ namespace Spark::Render
         //! DrawItem. It lives for the frame.
         RHIHandle AddScopeItem(RHIHandle scope);
 
+        //! A set of scene items `scope` selects: `collect` appends its members under a view.
+        void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);
+
         //! The current pass's pipeline layout, reflected from its shaders.
         const RHI::PipelineLayoutDescriptor& CurrentPassLayout() const;
 

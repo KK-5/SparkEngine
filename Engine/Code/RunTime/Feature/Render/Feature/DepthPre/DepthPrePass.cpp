@@ -80,7 +80,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<OpaqueTag>()
             .Binds<InstanceBindingTag>()
             .RendersView<MainViewTag>()
             .BuildScopes([cfg](RenderPassScopes& p)
@@ -100,6 +99,7 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), clear);
+                s.Accepts<OpaqueTag>();
             })
             .Finalize();
     }

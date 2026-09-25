@@ -1058,14 +1058,21 @@ namespace Spark::Render
 
     namespace
     {
-        //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those its
-        //! pass collects through a static .Accepts.
+        //! Under `view` (NullHandle for a viewless pass): the Scope's own items, those it
+        //! selects, then those stamped with its pass's PassTag.
         void AppendItems(
             RHIHandle scope, Pass pass, RHIHandle view, const PassCapabilities& capabilities,
             PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
             const eastl::span<const RHIHandle> items = GetScopeItems(context, scope);
             submitList.insert(submitList.end(), items.begin(), items.end());
+            if (const auto* selections = context.TryGet<ScopeSelections>(scope))
+            {
+                for (ScopeSelections::Collect collect : selections->m_collects)
+                {
+                    collect(context, view, submitList);
+                }
+            }
             capabilities.m_collectSubmitItems(context, passContext, pass, view, submitList);
         }
 
@@ -1135,14 +1142,6 @@ namespace Spark::Render
     {
         for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
-            // Items a pass collects through a static .Accepts would land in each of its Scopes.
-            ASSERT(data.m_index == 0
-                    || !passContext.Has<PassCapabilities>(data.m_pass)
-                    || passContext.Get<PassCapabilities>(data.m_pass).m_accepts == nullptr,
-                "[RenderGraphCompiler] Pass {} has more than one Scope and a static .Accepts; "
-                "its items cannot be split between them.",
-                passContext.Get<PassName>(data.m_pass).m_name.GetCStr());
-
             ScopeSubmitRange range;
             range.m_begin = static_cast<uint32_t>(submitList.size());
             AppendScopeSubmissions(scope, data.m_pass, context.TryGet<RHI::RenderPassBeginInfo>(scope),

@@ -20,7 +20,7 @@ namespace Spark::Render
     //! One instance per mask slice, each writing the four lights packed into it, selected by
     //! SV_RenderTargetArrayIndex. The draw comes from ShadowMaskSystem, which owns its
     //! DrawItem outright -- its instance count follows the light set, so there is nothing to
-    //! derive once -- and this pass therefore declares no .Accepts<>().
+    //! derive once -- and stamps it with this pass's PassTag.
     struct ShadowProjectionPass
     {
         static RenderPassConfig DefaultConfig();

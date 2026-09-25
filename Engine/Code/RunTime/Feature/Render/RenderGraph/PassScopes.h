@@ -3,15 +3,28 @@
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
 #include <RHI/Command/DrawArguments.h>
+#include <RHI/Command/DrawItem.h>
 #include <RHI/Format.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
 #include <EASTL/type_traits.h>
+#include <EASTL/vector.h>
+
+#include <CoreComponents/Tags.h>
 
 #include "RenderGraphBuilder.h"
 
 namespace Spark::Render
 {
+    //! A ScopeSelections::Collect: the live scene DrawItems carrying all of DrawTags. An item
+    //! marked dead this frame is left out, though its entity stays valid through recording.
+    template<typename... DrawTags>
+    void CollectDrawItems(RHI::RHIContext& context, RHI::RHIHandle /*view*/, eastl::vector<RHI::RHIHandle>& submitList)
+    {
+        context.GetView<RHI::DrawItem, DrawTags...>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle item, const RHI::DrawItem&) { submitList.push_back(item); });
+    }
+
     //! An attachment a Scope just declared. Refines the view it is accessed through.
     class Attachment
     {
@@ -106,6 +119,13 @@ namespace Spark::Render
         //! A draw of this Scope that reads no vertex or index buffer (vertices come from
         //! SV_VertexID), e.g. a full-screen triangle: DrawLinear(3, 0).
         void Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount = 1);
+
+        //! Draw the scene's items that carry all of DrawTags, e.g. Accepts<OpaqueTag>().
+        template<typename... DrawTags>
+        void Accepts()
+        {
+            m_builder->AddScopeSelection(m_scope, &CollectDrawItems<DrawTags...>);
+        }
 
         //! Read the copy of `name` produced last frame (see ShaderAttachment::IsPreviousFrameMissing).
         ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);

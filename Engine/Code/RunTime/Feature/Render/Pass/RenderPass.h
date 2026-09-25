@@ -92,19 +92,6 @@ namespace Spark::Render
             return *this;
         }
 
-        // ---- Draw-item routing ----
-        // Declare the object classifications this pass consumes; DrawItemRouter stamps
-        // this pass's tag on every accepted GeometrySpec. Full-screen / procedural passes
-        // omit this.
-        template<typename... DrawTags>
-        RenderPassBuilder& Accepts()
-        {
-            m_capabilities.m_accepts        = &AcceptDrawTags<DrawTags...>;
-            m_capabilities.m_markSubmitItem = &MarkPassTag<PassTag>;
-            m_hasCapabilities               = true;
-            return *this;
-        }
-
         // Declare the shared bindings (view / material / instance / …, each a global
         // singleton) the executer binds once before this pass's draws. Order-free — each
         // self-describes its HLSL space. The pass's own group (space2) is resolved via

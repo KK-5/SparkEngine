@@ -85,16 +85,13 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<ShadowCasterTag>()
             .Binds<InstanceBindingTag>()
             .RendersView<ShadowViewTag>()
-            .Build([](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
 
-                // Before the atlas exists ImportImageAttachment would assert. Declaring
-                // nothing leaves the pass without a RenderPassBeginInfo, which the executer
-                // skips.
+                // Until the atlas exists the pass declares nothing and is skipped.
                 RHI::RHIHandle atlas = RHI::NullHandle;
                 rhiCtx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
                     [&](RHI::RHIHandle e) { atlas = e; });
@@ -102,22 +99,18 @@ namespace Spark::Render
                 {
                     return;
                 }
+                p.Import(RHI::AttachmentId("ShadowAtlas"), atlas);
 
-                // BeginRenderPass is per pass, so this clears the whole atlas — a tile no
+                // One render pass for every view, so this clears the whole atlas — a tile no
                 // light owns holds the clear value.
-                ImportedImageAttachmentBindInfo bind;
-                bind.m_slot   = RHI::InputName("ShadowAtlasDepth");
-                bind.m_image  = atlas;
-                bind.m_access = RHI::AttachmentAccess::Write;
-                bind.m_usage  = RHI::AttachmentUsage::DepthStencil;
-                bind.m_stage  = RHI::AttachmentStage::EarlyFragmentTest |
-                                RHI::AttachmentStage::LateFragmentTest;
-                bind.m_action.m_clearValue  = RHI::ClearValue::CreateDepth(0.0f);
-                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                RHI::AttachmentLoadStoreAction clear;
+                clear.m_clearValue  = RHI::ClearValue::CreateDepth(0.0f);
+                clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.ImportImageAttachment<SPARK_PASS_TAG("ShadowPass")>(
-                    RHI::AttachmentId("ShadowAtlas"), bind);
+                auto s = p.Scope();
+                s.DepthWrite(RHI::AttachmentId("ShadowAtlas"), clear);
+                s.Accepts<ShadowCasterTag>();
             })
             .Finalize();
     }

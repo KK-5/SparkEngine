@@ -5,6 +5,7 @@
 #include <EASTL/functional.h>
 #include <EASTL/span.h>
 #include <EASTL/type_traits.h>
+#include <EASTL/vector.h>
 
 #include <RHI/Component/Component.h>
 #include <RHI/Context/RHIContext.h>
@@ -37,8 +38,8 @@ namespace Spark::Render
     };
 
     //! On every attachment, naming the Scope it belongs to. Links point from attachment to
-    //! Scope; a Scope holds no attachment list. Items and selections get a component of their
-    //! own: nothing ever walks attachments and items together.
+    //! Scope; a Scope holds no attachment list. Items get a component of their own: nothing
+    //! ever walks attachments and items together.
     struct ScopeAttachment
     {
         RHI::RHIHandle m_scope {RHI::NullHandle};
@@ -81,6 +82,15 @@ namespace Spark::Render
         const ScopeItemRange& range = context.Get<ScopeItemRange>(scope);
         return { context.GetStorage<ScopeItem>().data() + range.m_begin, range.m_end - range.m_begin };
     }
+
+    //! On a Scope that selects sets of scene items (.Accepts): per set, the query that appends
+    //! its members under `view`. The items are persistent and carry no link to the Scope.
+    struct ScopeSelections
+    {
+        using Collect = void (*)(RHI::RHIContext&, RHI::RHIHandle view, eastl::vector<RHI::RHIHandle>& submitList);
+
+        eastl::fixed_vector<Collect, 4> m_collects;
+    };
 
     //! On a Scope whose access to some resource follows one on another queue: per source queue,
     //! the latest producer Scope it must wait for, and the fence and value that works out to.

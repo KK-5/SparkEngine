@@ -6,9 +6,9 @@ namespace Spark::Render
 {
     //! Producer-agnostic GeometrySpec → DrawItem router. Each frame Process():
     //!  1. cascade-reaps specs whose referenced resources died, then
-    //!  2. resolves each not-yet-derived spec into ONE RHI::DrawItem on the same entity,
-    //!     then stamps that entity with the PassTag of every pass (PassCapabilities) that
-    //!     accepts it — which is how the executer's per-frame query later locates it.
+    //!  2. resolves each not-yet-derived spec into ONE RHI::DrawItem on the same entity.
+    //!     Which passes draw it is not recorded here: a Scope's .Accepts selects it by the
+    //!     DrawTags on that entity each frame.
     //!
     //! GeometrySpec and DrawItem are the unresolved and resolved forms of one object on
     //! one entity, so there is no link to maintain in either direction: DrawItem present
@@ -25,7 +25,7 @@ namespace Spark::Render
     public:
         void Init(RHI::RHIContext& rhiCtx);
         //! Reap dead-dependency specs, then derive DrawItems for every
-        //! not-yet-derived spec a pass accepts. Producer-agnostic.
+        //! not-yet-derived spec. Producer-agnostic.
         void Process();
         void Shutdown(RHI::RHIContext& rhiCtx);
     };

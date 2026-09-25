@@ -332,6 +332,18 @@ namespace Spark::Render
         return item;
     }
 
+    void RenderGraphBuilder::AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        auto*  component  = rhiContext.TryGet<ScopeSelections>(scope);
+        auto& collects   = (component != nullptr ? *component : rhiContext.Add<ScopeSelections>(scope)).m_collects;
+        for (ScopeSelections::Collect existing : collects)
+        {
+            ASSERT(existing != collect, "The same set is selected twice in one Scope.");
+        }
+        collects.push_back(collect);
+    }
+
     const RHI::PipelineLayoutDescriptor& RenderGraphBuilder::CurrentPassLayout() const
     {
         auto& passContext = *PassExecuteContext::Current();

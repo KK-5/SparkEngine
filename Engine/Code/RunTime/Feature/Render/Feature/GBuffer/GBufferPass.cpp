@@ -94,7 +94,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<OpaqueTag>()
             .Binds<MaterialBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
             .BuildScopes([](RenderPassScopes& p)
@@ -153,6 +152,8 @@ namespace Spark::Render
                 // set is a no-op after the first bind.
                 s.Sampler(RHI::InputName("g_MatSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
+
+                s.Accepts<OpaqueTag>();
             })
             .Finalize()
         ;
