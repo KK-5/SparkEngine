@@ -76,9 +76,6 @@ namespace Spark::SandBox
         ASSERT(m_shader && m_shader->GetStatus() == Spark::Resource::AssetStatus::Ready,
             "[TrianglePassFeature] TriangleMVP.hlsl load failed.");
 
-        // The pass must exist before its per-pass bindings can be get-or-created by tag,
-        // so build the pass first. UpdateViewBindings then lazily creates + fills the
-        // space0 bindings (via SetPassShaderConstant).
         CreateVertexBuffer();
         CreateView();
         CreateTrianglePass();
@@ -106,7 +103,7 @@ namespace Spark::SandBox
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_view);
         // Per-pass SRGs hold no member handle now — destroy them by tag (just the
-        // space0 SRG here). Collected first: destroying inside the view iteration
+        // space2 SRG here). Collected first: destroying inside the view iteration
         // would invalidate it.
         eastl::fixed_vector<Spark::RHI::RHIHandle, 4> srgEntities;
         ctx.GetView<Spark::Render::PassShaderBindingsTag>().each(
@@ -137,7 +134,6 @@ namespace Spark::SandBox
         Spark::RHI::RequestBufferUpload(
             ctx, m_vertexBuffer, g_triangleVertices, sizeof(g_triangleVertices));
         Spark::Render::CreateStaticBufferAttachment(ctx, m_vertexBuffer,
-            Spark::RHI::InputName("TriangleVB"),
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
             Spark::RHI::AttachmentStage::VertexInput);
@@ -182,51 +178,22 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Accepts<SampleDrawTag>()
             .Binds<>()
             .RendersView<Spark::Render::MainViewTag>()
-            .Build([this](Spark::Render::RenderGraphBuilder& builder)
+            .Build([this](Spark::Render::RenderPassScopes& p)
             {
-                Spark::Render::ImportedImageAttachmentBindInfo colorBind;
-                colorBind.m_slot   = Spark::RHI::InputName("ColorOutput");
-                colorBind.m_image  = builder.GetCurrentSwapChainResource();
-                colorBind.m_access = Spark::RHI::AttachmentAccess::Write;
-                colorBind.m_usage  = Spark::RHI::AttachmentUsage::RenderTarget;
-                colorBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_clearValue  =
-                    Spark::RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
-                colorBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
-                colorBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::Store;
-                builder.ImportImageAttachment<SPARK_PASS_TAG("TrianglePass")>(
-                    Spark::RHI::AttachmentId("SwapChain"), colorBind);
+                p.Import(Spark::RHI::AttachmentId("SwapChain"), p.GetCurrentSwapChainResource());
 
-            })
-            .Compile([this](Spark::Render::RenderGraphCompiler& compiler)
-            {
-                Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("TrianglePass")>(
-                    /*spaceId*/ 0, 
-                    Spark::RHI::InputName("g_Colors"), 
-                    m_colors
-                );
+                Spark::RHI::AttachmentLoadStoreAction clear;
+                clear.m_clearValue  = Spark::RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
+                clear.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
+                clear.m_storeAction = Spark::RHI::AttachmentStoreAction::Store;
 
-                Spark::Render::SetPassShaderConstant<SPARK_PASS_TAG("TrianglePass")>(
-                    /*spaceId*/ 0, 
-                    Spark::RHI::InputName("g_MVP"), 
-                    m_matrix
-                );
-            })
-            // Same as the default hook when .Execute() is omitted. Called once per
-            // state-homogeneous run, not once per pass — N views is N calls over the same
-            // draws — so submit work.m_itemHandles, never a fresh query.
-            .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
-            {
-                auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-                for (size_t i = 0; i < work.m_itemHandles.size(); ++i)
-                {
-                    work.m_commandList->Submit(
-                        rhiCtx.Get<Spark::RHI::DrawItem>(work.m_itemHandles[i]),
-                        work.m_submitBase + static_cast<uint32_t>(i));
-                }
+                auto s = p.Scope();
+                s.RenderTarget(Spark::RHI::AttachmentId("SwapChain"), clear);
+                s.Constant(Spark::RHI::InputName("g_MVP"), m_matrix);
+                s.Constant(Spark::RHI::InputName("g_Colors"), m_colors);
+                s.Accepts<SampleDrawTag>();
             })
             .Finalize();
     }
@@ -272,7 +239,7 @@ namespace Spark::SandBox
             Math::Vector3(0.f, 1.f, 0.f),    // up
             Math::Radians(45.f), aspect, 0.1f, 100.f);
 
-        // Local, not stored on m_view — nothing reads it there; the MVP is a space0 constant.
+        // Local, not stored on m_view — nothing reads it there; the MVP is a per-pass constant.
         m_matrix = camera.GetWorldToClip() * model;
 
         m_colorPhase += 0.01f;

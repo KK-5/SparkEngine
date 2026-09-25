@@ -1,11 +1,11 @@
 #include <Shaders/ViewBindings.hlsli>
 
-Texture2D    g_Texture : register(t0, space0);
-SamplerState g_Sampler : register(s0, space0);
+Texture2D    g_Texture : register(t0, space2);
+SamplerState g_Sampler : register(s0, space2);
 
-cbuffer ObjectConstants : register(b1, space0)
+cbuffer ObjectConstants : register(b0, space2)
 {
-    float4x4 g_Model;            // per-object, written by the feature
+    float4x4 g_Model;            // per-object, set each frame by the pass
 };
 
 struct VSInput

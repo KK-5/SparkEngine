@@ -1,4 +1,4 @@
-cbuffer ViewConstants : register(b0, space0)
+cbuffer PassConstants : register(b0, space2)
 {
     float4x4 g_MVP;
     float3   g_Colors[3];

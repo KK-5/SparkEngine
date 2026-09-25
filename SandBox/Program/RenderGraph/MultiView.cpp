@@ -172,7 +172,6 @@ namespace Spark::SandBox
         Spark::RHI::RequestBufferUpload(
             ctx, m_vertexBuffer, primitive.vertexBuffer.data(), primitive.vertexBuffer.size());
         Spark::Render::CreateStaticBufferAttachment(ctx, m_vertexBuffer,
-            Spark::RHI::InputName("CubeVertex"),
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
             Spark::RHI::AttachmentStage::VertexInput);
@@ -187,7 +186,6 @@ namespace Spark::SandBox
         Spark::RHI::RequestBufferUpload(
             ctx, m_indexBuffer, primitive.indexBuffer.data(), primitive.indexBuffer.size());
         Spark::Render::CreateStaticBufferAttachment(ctx, m_indexBuffer,
-            Spark::RHI::InputName("CubeIndex"),
             Spark::RHI::AttachmentAccess::Read,
             Spark::RHI::AttachmentUsage::InputAssembly,
             Spark::RHI::AttachmentStage::VertexInput);
@@ -206,7 +204,10 @@ namespace Spark::SandBox
         desc.m_mipLevels = m_image->GetMipLevels();
         desc.m_bindFlags = RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite;
 
-        m_baseColor = RHI::CreateStaticImage(
+        // Imported, not static: the pass declares its read every frame (see CreatePasses), so
+        // the render graph owns its state. A texture that belongs to an object rather than a
+        // pass would stay static and reach the shader through a shared binding, as materials do.
+        m_baseColor = RHI::CreateImportedImage(
             ctx,
             ObjectName("BaseColorImage"),
             desc,
@@ -222,15 +223,6 @@ namespace Spark::SandBox
             RHI::ImageSubresourceRange(desc),
             RHI::Origin(),
             m_image->GetFormat()
-        );
-
-        Render::CreateStaticImageAttachment(
-            ctx,
-            m_baseColor,
-            Spark::RHI::InputName("BaseColorImage"),
-            Spark::RHI::AttachmentAccess::Read,
-            Spark::RHI::AttachmentUsage::Shader,
-            Spark::RHI::AttachmentStage::FragmentShader
         );
 
         m_baseColorViewDesc =
@@ -295,80 +287,46 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Accepts<SampleDrawTag>()
             .Binds<>()
             .RendersView<Render::MainViewTag>()
-            .Build([this](Spark::Render::RenderGraphBuilder& builder)
+            .Build([this](Spark::Render::RenderPassScopes& p)
             {
-                const auto renderSize = builder.GetRenderSize();
+                const auto renderSize = p.GetRenderSize();
 
-                Spark::Render::ImportedImageAttachmentBindInfo colorBind;
-                colorBind.m_slot   = Spark::RHI::InputName("ColorOutput");
-                colorBind.m_image  = builder.GetCurrentSwapChainResource();
-                colorBind.m_access = Spark::RHI::AttachmentAccess::Write;
-                colorBind.m_usage  = Spark::RHI::AttachmentUsage::RenderTarget;
-                colorBind.m_stage  = Spark::RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_clearValue  =
-                    Spark::RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
-                colorBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
-                colorBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::Store;
-                builder.ImportImageAttachment<SPARK_PASS_TAG("ScenePass")>(
-                    Spark::RHI::AttachmentId("SwapChain"), colorBind);
-
-                auto depthDesc = RHI::ImageDescriptor::Create2D(
+                p.Import(RHI::AttachmentId("SwapChain"), p.GetCurrentSwapChainResource());
+                p.CreateImage(RHI::AttachmentId("SceneDepth"), RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil,
                     renderSize.x, renderSize.y,
                     RHI::Format::D32_FLOAT
-                );
+                ));
 
-                Render::ImageAttachmentBindInfo depthBind;
-                depthBind.m_slot   = Spark::RHI::InputName("SceneDepth");
-                depthBind.m_usage  = Spark::RHI::AttachmentUsage::DepthStencil;
-                depthBind.m_stage  = Spark::RHI::AttachmentStage::EarlyFragmentTest |
-                                     Spark::RHI::AttachmentStage::LateFragmentTest;
-                depthBind.m_action.m_clearValue  = Spark::RHI::ClearValue::CreateDepth(0.0f);
-                depthBind.m_action.m_loadAction  = Spark::RHI::AttachmentLoadAction::Clear;
-                depthBind.m_action.m_storeAction = Spark::RHI::AttachmentStoreAction::DontCare;
+                RHI::AttachmentLoadStoreAction colorAction;
+                colorAction.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.1f, 0.1f, 0.15f, 1.f);
+                colorAction.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                colorAction.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.CreateImageAttachment<SPARK_PASS_TAG("ScenePass")>(
-                    RHI::AttachmentId("SceneDepth"), depthDesc, depthBind, RHI::AttachmentAccess::Write);
-            })
-            .Compile([this](Spark::Render::RenderGraphCompiler& compiler)
-            {
-                auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
+                RHI::AttachmentLoadStoreAction depthAction;
+                depthAction.m_clearValue  = RHI::ClearValue::CreateDepth(0.0f);
+                depthAction.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                depthAction.m_storeAction = RHI::AttachmentStoreAction::DontCare;
 
-                using namespace Spark::Render;
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId("SwapChain"), colorAction);
+                s.DepthWrite(RHI::AttachmentId("SceneDepth"), depthAction);
 
                 // Only what is view-independent: the cameras live in space1, one SRG per view.
-                SetPassShaderConstant<SPARK_PASS_TAG("ScenePass")>(
-                    /*spaceId*/ 0, Spark::RHI::InputName("g_Model"), m_modelMatrix);
-
-                if (IsResourceReady(rhiCtx, m_baseColor))
+                s.Constant(RHI::InputName("g_Model"), m_modelMatrix);
+                s.Sampler(RHI::InputName("g_Sampler"), m_samplerState);
+                // Until its upload lands the texture is left unbound, which reads as black.
+                if (Render::IsResourceReady(*RHI::RHIExecuteContext::Current(), m_baseColor))
                 {
-                    auto image = rhiCtx.Get<RHI::Components::Image>(m_baseColor);
-                    auto* view = Spark::RHI::GetOrCreateImageView(
-                        rhiCtx, m_baseColor, *image.m_image, m_baseColorViewDesc);
-                    if (view)
-                    {
-                        SetPassShaderImage<SPARK_PASS_TAG("ScenePass")>(
-                            /*spaceId*/ 0, Spark::RHI::InputName("g_Texture"), view);
-                    }
+                    p.Import(RHI::AttachmentId("BaseColor"), m_baseColor);
+                    s.Read(RHI::AttachmentId("BaseColor"))
+                        .View(m_baseColorViewDesc)
+                        .Bind(RHI::InputName("g_Texture"));
                 }
 
-                SetPassShaderSampler<SPARK_PASS_TAG("ScenePass")>(
-                    /*spaceId*/ 0, Spark::RHI::InputName("g_Sampler"), m_samplerState);
-            })
-            // Called once per state-homogeneous run, so four times here — once per view, each
-            // time over the same one draw. Submit work.m_itemHandles, never a fresh query.
-            .Execute([](Spark::Render::ExecuteWork& work, Spark::Render::RenderGraphExecuter&)
-            {
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                for (size_t i = 0; i < work.m_itemHandles.size(); ++i)
-                {
-                    work.m_commandList->Submit(
-                        rhiCtx.Get<RHI::DrawItem>(work.m_itemHandles[i]),
-                        work.m_submitBase + static_cast<uint32_t>(i));
-                }
+                s.Accepts<SampleDrawTag>();
             })
             .Finalize();
     }
