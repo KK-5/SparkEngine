@@ -79,57 +79,24 @@ namespace Spark::Render
             .Accepts<FullScreenTriangleTag>()
             .Binds<>()
             .RendersView<OutputViewTag>()
-            .Build([](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
-                // Import the swap chain as this pass's color render target. TonemapPass is
-                // now the first pass to touch the swap chain (CopyFrameBufferPass is no
-                // longer in the pipeline), so it owns the import; UIPass writes the same
-                // imported "SwapChain" attachment afterwards. Clear (black) so the warmup
-                // frame — before SceneColor is ready and the draw is dropped — is not garbage.
-                Render::ImportedImageAttachmentBindInfo swapBind;
-                swapBind.m_slot   = RHI::InputName("ColorOutput");
-                swapBind.m_usage  = RHI::AttachmentUsage::RenderTarget;
-                swapBind.m_stage  = RHI::AttachmentStage::ColorAttachmentOutput;
-                swapBind.m_access = RHI::AttachmentAccess::Write;
-                swapBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                swapBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-                swapBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
-                swapBind.m_image  = builder.GetCurrentSwapChainResource();
+                // TonemapPass is the first pass to touch the swap chain, so it owns the import;
+                // UIPass writes the same imported "SwapChain" afterwards. Cleared (black) so the
+                // warmup frame — before SceneColor is ready and the draw is dropped — is not garbage.
+                p.Import(RHI::AttachmentId("SwapChain"), p.GetCurrentSwapChainResource());
 
-                builder.ImportImageAttachment<SPARK_PASS_TAG("TonemapPass")>(
-                    RHI::AttachmentId("SwapChain"), swapBind);
+                RHI::AttachmentLoadStoreAction clear;
+                clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                clear.m_storeAction = RHI::AttachmentStoreAction::Store;
+                clear.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
 
-                // Read the HDR scene color as a shader resource: TemporalAAPass's output when it
-                // runs, SceneColor otherwise. Declaring it here orders this pass after its
-                // writer and transitions it to shader-read before this pass runs. The slot
-                // stays "SceneColor" either way; the view→SRG binding happens in the Compile
-                // hook below.
+                // The HDR scene color: TemporalAAPass's output when it runs, SceneColor otherwise.
                 const bool temporalAA = TemporalAAPass::FindMainViewSettings(*RHI::RHIExecuteContext::Current()) != nullptr;
-                Render::ImageAttachmentBindInfo readBind;
-                readBind.m_slot  = RHI::InputName("SceneColor");
-                readBind.m_usage = RHI::AttachmentUsage::Shader;
-                readBind.m_stage = RHI::AttachmentStage::FragmentShader;
-                readBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                readBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.ReadImageAttachment<SPARK_PASS_TAG("TonemapPass")>(
-                    RHI::AttachmentId(temporalAA ? "TemporalAA" : "SceneColor"), readBind);
-            })
-            .Compile([](RenderGraphCompiler& compiler)
-            {
-                // Post-CompileTransientResources, pre-CompileShaderInputs: SceneColor is
-                // materialized, so resolve its view and stage it into this pass's space2
-                // (per-pass tier) SRG (auto-created by Finalize). The full-screen triangle
-                // DrawItem comes from the shared FullScreenTriangleTag entity.
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                const uint32_t frameIndex = compiler.GetFrameIndex();
-
-                RHI::ImageView* sceneColorView = FindPassAttachmentImageView<SPARK_PASS_TAG("TonemapPass")>(
-                    rhiCtx, RHI::InputName("SceneColor"), frameIndex);
-                if (sceneColorView)
-                {
-                    SetPassShaderImage<SPARK_PASS_TAG("TonemapPass")>(2, RHI::InputName("g_SceneColor"), sceneColorView);
-                }
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId("SwapChain"), clear);
+                s.Read(RHI::AttachmentId(temporalAA ? "TemporalAA" : "SceneColor")).Bind(RHI::InputName("g_SceneColor"));
             })
             .Finalize()
         ;

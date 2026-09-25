@@ -80,66 +80,24 @@ namespace Spark::Render
             .Accepts<FullScreenTriangleTag>()
             .Binds<>()
             .RendersView<MainViewTag>()
-            .Build([](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
-                const auto size = builder.GetRenderSize();
-
-                auto desc = RHI::ImageDescriptor::Create2D(
+                const auto size = p.GetRenderSize();
+                p.CreateImage(RHI::AttachmentId("ResolvedVelocity"), RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                    size.x, size.y, RHI::Format::R16G16_FLOAT);
+                    size.x, size.y, RHI::Format::R16G16_FLOAT));
 
                 // Cleared so a warmup frame whose draw is dropped still reads as no motion.
-                Render::ImageAttachmentBindInfo outputBind;
-                outputBind.m_slot  = RHI::InputName("ResolvedVelocity");
-                outputBind.m_usage = RHI::AttachmentUsage::RenderTarget;
-                outputBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                outputBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f);
-                outputBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                outputBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                RHI::AttachmentLoadStoreAction clear;
+                clear.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f);
+                clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.CreateImageAttachment<SPARK_PASS_TAG("VelocityResolvePass")>(
-                    RHI::AttachmentId("ResolvedVelocity"), desc, outputBind, RHI::AttachmentAccess::Write);
-
-                Render::ImageAttachmentBindInfo velocityBind;
-                velocityBind.m_slot  = RHI::InputName(s_velocitySlot);
-                velocityBind.m_usage = RHI::AttachmentUsage::Shader;
-                velocityBind.m_stage = RHI::AttachmentStage::FragmentShader;
-                velocityBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                velocityBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("VelocityResolvePass")>(
-                    RHI::AttachmentId(s_velocitySlot), velocityBind);
-
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId("ResolvedVelocity"), clear);
+                s.Read(RHI::AttachmentId(s_velocitySlot)).Bind(RHI::InputName(s_velocityInput));
                 // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
-                Render::ImageAttachmentBindInfo depthBind;
-                depthBind.m_slot  = RHI::InputName(s_depthSlot);
-                depthBind.m_usage = RHI::AttachmentUsage::Shader;
-                depthBind.m_stage = RHI::AttachmentStage::FragmentShader;
-                depthBind.m_view.m_overrideFormat    = RHI::Format::R32_FLOAT;
-                depthBind.m_view.m_overrideBindFlags = RHI::ImageBindFlags::ShaderRead;
-                depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("VelocityResolvePass")>(
-                    RHI::AttachmentId(s_depthSlot), depthBind);
-            })
-            .Compile([](RenderGraphCompiler& compiler)
-            {
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                const uint32_t frameIndex = compiler.GetFrameIndex();
-
-                if (RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("VelocityResolvePass")>(
-                        rhiCtx, RHI::InputName(s_velocitySlot), frameIndex))
-                {
-                    SetPassShaderImage<SPARK_PASS_TAG("VelocityResolvePass")>(
-                        kPerPassSpaceId, RHI::InputName(s_velocityInput), view);
-                }
-                if (RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("VelocityResolvePass")>(
-                        rhiCtx, RHI::InputName(s_depthSlot), frameIndex))
-                {
-                    SetPassShaderImage<SPARK_PASS_TAG("VelocityResolvePass")>(
-                        kPerPassSpaceId, RHI::InputName(s_depthInput), view);
-                }
+                s.Read(RHI::AttachmentId(s_depthSlot)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
             })
             .Finalize()
         ;

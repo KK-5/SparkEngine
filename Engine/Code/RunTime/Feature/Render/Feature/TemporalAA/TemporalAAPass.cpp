@@ -28,35 +28,7 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr const char* s_outputName    = "TemporalAA";
-        constexpr const char* s_historySlot   = "History";
-        constexpr const char* s_colorSlot     = "SceneColor";
-        constexpr const char* s_depthSlot     = "SceneDepth";
-        constexpr const char* s_velocitySlot  = "ResolvedVelocity";
-
-        struct ShaderInput
-        {
-            const char* m_slot;
-            const char* m_input;
-        };
-
-        constexpr ShaderInput s_shaderImages[] = {
-            { s_colorSlot,    "g_SceneColor" },
-            { s_depthSlot,    "g_Depth" },
-            { s_velocitySlot, "g_Velocity" },
-            { s_historySlot,  "g_History" },
-        };
-
-        Render::ImageAttachmentBindInfo ShaderReadBind(const char* slot)
-        {
-            Render::ImageAttachmentBindInfo bind;
-            bind.m_slot  = RHI::InputName(slot);
-            bind.m_usage = RHI::AttachmentUsage::Shader;
-            bind.m_stage = RHI::AttachmentStage::FragmentShader;
-            bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-            bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-            return bind;
-        }
+        constexpr const char* s_outputName = "TemporalAA";
     }
 
     RenderPassConfig TemporalAAPass::DefaultConfig()
@@ -107,85 +79,44 @@ namespace Spark::Render
             .Accepts<FullScreenTriangleTag>()
             .Binds<>()
             .RendersView<MainViewTag>()
-            .Build([](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
-                // Declaring nothing leaves the pass without a RenderPassBeginInfo, which the
-                // executer skips.
-                if (!FindMainViewSettings(*RHI::RHIExecuteContext::Current()))
-                {
-                    return;
-                }
-
-                const auto size = builder.GetRenderSize();
-                auto desc = RHI::ImageDescriptor::Create2D(
-                    RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                    size.x, size.y, RHI::Format::R16G16B16A16_FLOAT);
-
-                Render::ImageAttachmentBindInfo outputBind;
-                outputBind.m_slot  = RHI::InputName(s_outputName);
-                outputBind.m_usage = RHI::AttachmentUsage::RenderTarget;
-                outputBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                outputBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f);
-                outputBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                outputBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.CreateImageAttachment<SPARK_PASS_TAG("TemporalAAPass")>(
-                    RHI::AttachmentId(s_outputName), desc, outputBind, RHI::AttachmentAccess::Write);
-
-                // After the Create: a previous-frame read needs this frame's name declared.
-                builder.ReadPreviousImageAttachment<SPARK_PASS_TAG("TemporalAAPass")>(
-                    RHI::AttachmentId(s_outputName), ShaderReadBind(s_historySlot));
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("TemporalAAPass")>(
-                    RHI::AttachmentId(s_colorSlot), ShaderReadBind(s_colorSlot));
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("TemporalAAPass")>(
-                    RHI::AttachmentId(s_velocitySlot), ShaderReadBind(s_velocitySlot));
-
-                // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
-                Render::ImageAttachmentBindInfo depthBind = ShaderReadBind(s_depthSlot);
-                depthBind.m_view.m_overrideFormat    = RHI::Format::R32_FLOAT;
-                depthBind.m_view.m_overrideBindFlags = RHI::ImageBindFlags::ShaderRead;
-                builder.ReadImageAttachment<SPARK_PASS_TAG("TemporalAAPass")>(
-                    RHI::AttachmentId(s_depthSlot), depthBind);
-            })
-            .Compile([](RenderGraphCompiler& compiler)
-            {
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                const ViewTemporalAA* settings = FindMainViewSettings(rhiCtx);
+                // Declaring nothing skips the pass this frame.
+                const ViewTemporalAA* settings = FindMainViewSettings(*RHI::RHIExecuteContext::Current());
                 if (!settings)
                 {
                     return;
                 }
 
-                const uint32_t frameIndex = compiler.GetFrameIndex();
-                for (const ShaderInput& image : s_shaderImages)
-                {
-                    if (RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("TemporalAAPass")>(
-                            rhiCtx, RHI::InputName(image.m_slot), frameIndex))
-                    {
-                        SetPassShaderImage<SPARK_PASS_TAG("TemporalAAPass")>(
-                            kPerPassSpaceId, RHI::InputName(image.m_input), view);
-                    }
-                }
+                const auto size = p.GetRenderSize();
+                p.CreateImage(RHI::AttachmentId(s_outputName), RHI::ImageDescriptor::Create2D(
+                    RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
+                    size.x, size.y, RHI::Format::R16G16B16A16_FLOAT));
 
-                SetPassShaderSampler<SPARK_PASS_TAG("TemporalAAPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_LinearSampler"),
+                RHI::AttachmentLoadStoreAction clear;
+                clear.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f);
+                clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                clear.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId(s_outputName), clear);
+                // After the write: a previous-frame read needs this frame's name declared.
+                const ShaderAttachment history =
+                    s.ReadPrevious(RHI::AttachmentId(s_outputName)).Bind(RHI::InputName("g_History"));
+                s.Read(RHI::AttachmentId("SceneColor")).Bind(RHI::InputName("g_SceneColor"));
+                s.Read(RHI::AttachmentId("ResolvedVelocity")).Bind(RHI::InputName("g_Velocity"));
+                // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
+                s.Read(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
+
+                s.Sampler(RHI::InputName("g_LinearSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
-                const uint32_t historyValid = IsPreviousFrameMissing<SPARK_PASS_TAG("TemporalAAPass")>(
-                    rhiCtx, RHI::InputName(s_historySlot)) ? 0u : 1u;
-                SetPassShaderConstant<SPARK_PASS_TAG("TemporalAAPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_TemporalAAHistoryValid"), historyValid);
-
-                SetPassShaderConstant<SPARK_PASS_TAG("TemporalAAPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_TemporalAACurrentFrameWeight"), settings->m_currentFrameWeight);
-                SetPassShaderConstant<SPARK_PASS_TAG("TemporalAAPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_TemporalAAMotionFrameWeight"), settings->m_motionFrameWeight);
-                SetPassShaderConstant<SPARK_PASS_TAG("TemporalAAPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_TemporalAAVarianceClipGamma"), settings->m_varianceClipGamma);
-                SetPassShaderConstant<SPARK_PASS_TAG("TemporalAAPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_TemporalAAFilterSize"), settings->m_filterSize);
+                const uint32_t historyValid = history.IsPreviousFrameMissing() ? 0u : 1u;
+                s.Constant(RHI::InputName("g_TemporalAAHistoryValid"), historyValid);
+                s.Constant(RHI::InputName("g_TemporalAACurrentFrameWeight"), settings->m_currentFrameWeight);
+                s.Constant(RHI::InputName("g_TemporalAAMotionFrameWeight"), settings->m_motionFrameWeight);
+                s.Constant(RHI::InputName("g_TemporalAAVarianceClipGamma"), settings->m_varianceClipGamma);
+                s.Constant(RHI::InputName("g_TemporalAAFilterSize"), settings->m_filterSize);
             })
             .Finalize()
         ;

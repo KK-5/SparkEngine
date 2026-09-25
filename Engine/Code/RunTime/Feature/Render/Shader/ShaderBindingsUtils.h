@@ -38,10 +38,10 @@ namespace Spark::Render
         }
     }
 
-    //! Stage a constant value — any trivially-copyable POD (matrix / vector /
-    //! scalar) — into the named constant input, then mark the binding dirty.
-    template<typename T>
-    void SetShaderConstant(RHI::RHIHandle bindings, RHI::InputName input, const T& value)
+    //! Stage a constant's bytes, packed as in C++, into the named constant input, then mark
+    //! the binding dirty.
+    inline void SetShaderConstantData(
+        RHI::RHIHandle bindings, RHI::InputName input, const void* bytes, uint32_t byteCount)
     {
         auto& ctx = *RHI::RHIExecuteContext::Current();
         auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
@@ -55,12 +55,20 @@ namespace Spark::Render
             LOG_ERROR("[ShaderBindingsUtils] Constant input '{}' not found.", input.GetCStr());
             return;
         }
-        if (!constant->SetData(&value, static_cast<uint32_t>(sizeof(T))))
+        if (!constant->SetData(bytes, byteCount))
         {
             LOG_ERROR("[ShaderBindingsUtils] SetData size mismatch for constant '{}'.", input.GetCStr());
             return;
         }
         Detail::MarkShaderBindingsDirty(ctx, bindings);
+    }
+
+    //! Stage a constant value — any trivially-copyable POD (matrix / vector /
+    //! scalar) — into the named constant input, then mark the binding dirty.
+    template<typename T>
+    void SetShaderConstant(RHI::RHIHandle bindings, RHI::InputName input, const T& value)
+    {
+        SetShaderConstantData(bindings, input, &value, static_cast<uint32_t>(sizeof(T)));
     }
 
     //! Bind an image view into the named image input, then mark the binding dirty.

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/array.h>
+#include <EASTL/fixed_vector.h>
 #include <EASTL/functional.h>
 #include <EASTL/span.h>
 #include <EASTL/type_traits.h>
@@ -8,6 +10,8 @@
 #include <RHI/Context/RHIContext.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
+#include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <Pass/Pass.h>
 
 namespace Spark::RHI
@@ -74,6 +78,33 @@ namespace Spark::Render
     {
         RHI::Fence* m_fence = nullptr;
         uint64_t    m_value = 0;
+    };
+
+    //! Samplers a Scope declared (.Sampler), for its pass's per-pass bindings.
+    struct ScopeSampler
+    {
+        RHI::InputName    m_input;
+        RHI::SamplerState m_state;
+    };
+
+    struct ScopeSamplers
+    {
+        eastl::fixed_vector<ScopeSampler, 4> m_samplers;
+    };
+
+    //! Constants a Scope declared (.Constant), as the bytes the caller passed.
+    struct ScopeConstant
+    {
+        static constexpr uint32_t ByteCountMax = 64;
+
+        RHI::InputName                     m_input;
+        uint32_t                           m_byteCount = 0;
+        eastl::array<uint8_t, ByteCountMax> m_bytes {};
+    };
+
+    struct ScopeConstants
+    {
+        eastl::fixed_vector<ScopeConstant, 8> m_constants;
     };
 
     //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once

@@ -3,6 +3,7 @@
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/PassCapabilities.h>
+#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 
 namespace Spark::Render
 {
@@ -221,6 +222,221 @@ namespace Spark::Render
             }
         }
         ASSERT(false, "Attachment added to a Scope the current pass did not open.");
+    }
+
+    void RenderGraphBuilder::ImportResource(const RHI::AttachmentId& name, RHIHandle resource)
+    {
+        ASSERT(m_currentPass != NullPass, "BeginPass must be called before declaring resources.");
+        ASSERT(resource != NullHandle, "Import of {}: the resource is NullHandle.", name.GetCStr());
+        auto& rhiContext = *RHIExecuteContext::Current();
+
+        if (!rhiContext.Has<ImportedTag>(resource))
+        {
+            rhiContext.Add<ImportedTag>(resource);
+        }
+
+        // Single-frame imports get their backing from the owning Image / Buffer component, once.
+        // Per-frame resources (ImagePerFrame, the swap chain) have it refreshed every frame by
+        // RenderGraph::RefreshPerFrameBackings before Build. Views come from the resource's
+        // view cache on demand.
+        if (auto* img = rhiContext.TryGet<Image>(resource))
+        {
+            if (!rhiContext.Has<BackingImage>(resource))
+            {
+                rhiContext.Add<BackingImage>(resource, BackingImage{ img->m_image.get() });
+            }
+        }
+        else if (auto* buf = rhiContext.TryGet<Buffer>(resource))
+        {
+            if (!rhiContext.Has<BackingBuffer>(resource))
+            {
+                rhiContext.Add<BackingBuffer>(resource, BackingBuffer{ buf->m_buffer.get() });
+            }
+        }
+
+        if constexpr (s_buildValidation)
+        {
+            ASSERT(rhiContext.Has<BackingImage>(resource) || rhiContext.Has<BackingBuffer>(resource),
+                "Imported resource {} has no backing. Single-frame: attach an Image / Buffer "
+                "component before importing; per-frame: ensure RefreshPerFrameBackings ran.",
+                name.GetCStr());
+        }
+
+        const auto [it, inserted] = m_resources.emplace(name, ResourceEntry{ resource, 0 });
+        ASSERT(inserted || it->second.m_resource == resource,
+            "{} is already declared for another resource.", name.GetCStr());
+    }
+
+    RHIHandle RenderGraphBuilder::AddPreviousFrameAttachment(ImagePassAttachment attachment, RHIHandle scope)
+    {
+        const RHI::AttachmentId& name = attachment.m_attachmentId.m_id;
+        auto& rhiContext = *RHIExecuteContext::Current();
+        const RHIHandle declared = FindTransientImage(name);
+        ASSERT(declared != NullHandle,
+            "Previous-frame read of {} before any pass created it as a transient image. "
+            "Declare the producing pass first.",
+            name.GetCStr());
+        if (declared == NullHandle)
+        {
+            return NullHandle;
+        }
+
+        // This frame's resource is read back next frame, whatever its producer asked for.
+        auto& desc = rhiContext.Get<RHI::ImageDescriptor>(declared);
+        desc.m_bindFlags |= RHI::ImageBindFlags::ShaderRead;
+        rhiContext.AddOrReplace<ExtractedImage>(declared);
+
+        RHIHandle previous = FindPreviousFrameImage(name);
+        if (previous != NullHandle && !IsSameImageStorage(rhiContext.Get<RHI::ImageDescriptor>(previous), desc))
+        {
+            rhiContext.Remove<PreviousFrameOf>(previous);
+            previous = NullHandle;
+        }
+
+        // A real previous frame is never Active; one that is, is an earlier reader's stand-in.
+        const bool missing = previous == NullHandle || rhiContext.Has<PooledImageActiveTag>(previous);
+        if (previous == NullHandle)
+        {
+            ASSERT(m_imagePool != nullptr, "[RenderGraphBuilder] No image pool for previous-frame reads.");
+            previous = AcquirePooledImage(rhiContext, *m_imagePool, desc,
+                rhiContext.TryGet<RHI::ClearValue>(declared), name);
+            // Other readers of this name this frame share the stand-in.
+            rhiContext.Add<PreviousFrameOf>(previous, PreviousFrameOf{ name });
+        }
+
+        // No version bump: nothing writes the previous frame's copy. Its id (frame offset 1)
+        // is a key of its own, so BuildGraph sees readers and no writer and emits no edge.
+        attachment.m_attachmentId = AttachmentId{ name, 0, 1 };
+        attachment.m_access       = RHI::AttachmentAccess::Read;
+        attachment.m_pass         = m_currentPass;
+        attachment.m_image        = previous;
+
+        const RHIHandle handle = AddImageAttachment(attachment, scope, nullptr);
+        rhiContext.Add<PreviousFrameTag>(handle);
+        if (missing)
+        {
+            rhiContext.Add<PreviousFrameMissingTag>(handle);
+        }
+        if (attachment.m_stage == RHI::AttachmentStage::Uninitialized)
+        {
+            m_unstagedAttachments.push_back(handle);
+        }
+        return handle;
+    }
+
+    const RHI::PipelineLayoutDescriptor& RenderGraphBuilder::CurrentPassLayout() const
+    {
+        auto& passContext = *PassExecuteContext::Current();
+        const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
+        ASSERT(layout != nullptr && layout->m_layout,
+            "Pass {} binds shader inputs but has no shaders to reflect them from.",
+            passContext.Get<PassName>(m_currentPass).m_name.GetCStr());
+        return *layout->m_layout;
+    }
+
+    namespace
+    {
+        //! The attachment stages of the shader stages in `mask`.
+        RHI::AttachmentStage ToAttachmentStage(RHI::ShaderStageMask mask)
+        {
+            ASSERT(!CheckBitsAny(mask, RHI::ShaderStageMask::Geometry | RHI::ShaderStageMask::RayTracing),
+                "Binding an attachment to a geometry or ray tracing shader input: AttachmentStage has no stage for it yet.");
+            RHI::AttachmentStage stage = RHI::AttachmentStage::Uninitialized;
+            if (CheckBitsAny(mask, RHI::ShaderStageMask::Vertex))
+            {
+                stage |= RHI::AttachmentStage::VertexShader;
+            }
+            if (CheckBitsAny(mask, RHI::ShaderStageMask::Fragment))
+            {
+                stage |= RHI::AttachmentStage::FragmentShader;
+            }
+            if (CheckBitsAny(mask, RHI::ShaderStageMask::Compute))
+            {
+                stage |= RHI::AttachmentStage::ComputeShader;
+            }
+            return stage;
+        }
+    }
+
+    void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const RHI::InputName& input)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        auto* image = rhiContext.TryGet<ImagePassAttachment>(attachment);
+        ASSERT(image != nullptr, "Binding {} to a buffer: buffer bindings are not supported yet.", input.GetCStr());
+        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment),
+            "The access of {} is already bound; declare another access to bind another input.",
+            image->m_attachmentId.m_id.GetCStr());
+
+        const RHI::ShaderInputImageDescriptor* desc = CurrentPassLayout().FindImageDescriptor(input);
+        ASSERT(desc != nullptr, "The pass's shaders have no image input {}.", input.GetCStr());
+        ASSERT(desc->m_spaceId == kPerPassSpaceId,
+            "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
+            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
+
+        const bool writes = (image->m_access & RHI::AttachmentAccess::Write) != RHI::AttachmentAccess::Unknown;
+        ASSERT(writes == (desc->m_access == RHI::ShaderInputImageAccess::ReadWrite),
+            "{} is {} in the shader but the access {} it.",
+            input.GetCStr(), writes ? "read-only" : "read-write", writes ? "writes" : "only reads");
+
+        const RHI::AttachmentStage stage = ToAttachmentStage(desc->m_stageMask);
+        if (image->m_stage == RHI::AttachmentStage::Uninitialized)
+        {
+            image->m_stage = stage;
+        }
+        else
+        {
+            ASSERT(image->m_stage == stage,
+                "The stage declared for {} differs from the stages its shaders use it in.", input.GetCStr());
+        }
+
+        rhiContext.Add<ShaderInputBinding>(attachment, ShaderInputBinding{ input });
+    }
+
+    void RenderGraphBuilder::AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state)
+    {
+        const RHI::ShaderInputSamplerDescriptor* desc = CurrentPassLayout().FindSamplerDescriptor(input);
+        ASSERT(desc != nullptr, "The pass's shaders have no sampler {}.", input.GetCStr());
+        ASSERT(desc->m_spaceId == kPerPassSpaceId,
+            "{} is in space {}; only per-pass samplers (space {}) can be set from a Scope.",
+            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
+
+        auto& rhiContext = *RHIExecuteContext::Current();
+        auto*  component  = rhiContext.TryGet<ScopeSamplers>(scope);
+        auto& samplers   = (component != nullptr ? *component : rhiContext.Add<ScopeSamplers>(scope)).m_samplers;
+        for (const ScopeSampler& sampler : samplers)
+        {
+            ASSERT(sampler.m_input != input, "Sampler {} is set twice in one Scope.", input.GetCStr());
+        }
+        samplers.push_back(ScopeSampler{ input, state });
+    }
+
+    void RenderGraphBuilder::AddScopeConstant(
+        RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount)
+    {
+        const RHI::ShaderInputConstantDescriptor* desc = CurrentPassLayout().FindConstantDescriptor(input);
+        ASSERT(desc != nullptr, "The pass's shaders have no constant {}.", input.GetCStr());
+        ASSERT(desc->m_spaceId == kPerPassSpaceId,
+            "{} is in space {}; only per-pass constants (space {}) can be set from a Scope.",
+            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
+        ASSERT(byteCount == desc->m_elementCount * desc->m_elementByteSize,
+            "Constant {} takes {} bytes, given {}.",
+            input.GetCStr(), desc->m_elementCount * desc->m_elementByteSize, byteCount);
+        ASSERT(byteCount <= ScopeConstant::ByteCountMax,
+            "Constant {} is {} bytes; a Scope constant holds at most {}.",
+            input.GetCStr(), byteCount, ScopeConstant::ByteCountMax);
+
+        auto& rhiContext = *RHIExecuteContext::Current();
+        auto*  component  = rhiContext.TryGet<ScopeConstants>(scope);
+        auto& constants  = (component != nullptr ? *component : rhiContext.Add<ScopeConstants>(scope)).m_constants;
+        for (const ScopeConstant& constant : constants)
+        {
+            ASSERT(constant.m_input != input, "Constant {} is set twice in one Scope.", input.GetCStr());
+        }
+        ScopeConstant constant;
+        constant.m_input     = input;
+        constant.m_byteCount = byteCount;
+        memcpy(constant.m_bytes.data(), bytes, byteCount);
+        constants.push_back(constant);
     }
 
     void RenderGraphBuilder::TouchNode(Pass pass)

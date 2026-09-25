@@ -224,6 +224,13 @@ namespace Spark::Render
         uint32_t m_index = 0;
     };
 
+    //! On an attachment a shader reads or writes through a named input (.Bind): lowering puts
+    //! the attachment's view into that input of its pass's per-pass bindings.
+    struct ShaderInputBinding
+    {
+        RHI::InputName m_input;
+    };
+
     //! On an attachment reading the previous frame's copy of a name. Its resource is a
     //! pooled image, so the transient flow skips it.
     struct PreviousFrameTag {};

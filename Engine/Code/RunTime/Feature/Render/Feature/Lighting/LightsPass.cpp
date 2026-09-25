@@ -25,10 +25,10 @@ namespace Spark::Render
 {
     namespace
     {
-        // GBuffer attachment slot name (matches GBufferPass) → HLSL shader input name.
+        // GBuffer image name (as GBufferPass creates it) → HLSL shader input name.
         struct SceneTexture
         {
-            const char* m_slot;
+            const char* m_name;
             const char* m_input;
         };
 
@@ -38,15 +38,14 @@ namespace Spark::Render
             { "GBufferBaseColor", "g_GBufferBaseColor" },
         };
 
-        // SceneDepth is sampled to reconstruct world position. It is viewed as R32_FLOAT (the
-        // depth resource is R32_TYPELESS underneath) and forced to a ShaderRead-only view so
-        // ImageView init does not also try to build a DSV at the R32_FLOAT override.
-        constexpr const char* s_depthSlot  = "SceneDepth";
+        // SceneDepth is sampled to reconstruct world position, viewed as R32_FLOAT (the depth
+        // resource is R32_TYPELESS underneath).
+        constexpr const char* s_depthName  = "SceneDepth";
         constexpr const char* s_depthInput = "g_Depth";
 
         // Screen-space visibility, produced by ShadowProjectionPass. Point-sampled 1:1 like
         // the GBuffer, so no sampler.
-        constexpr const char* s_maskSlot  = "ShadowMask";
+        constexpr const char* s_maskName  = "ShadowMask";
         constexpr const char* s_maskInput = "g_ShadowMask";
     }
 
@@ -116,118 +115,37 @@ namespace Spark::Render
             .Accepts<FullScreenTriangleTag>()
             .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
-            .Build([](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
                 // GBufferPass owns SceneColor and left the emissive in it; this pass blends
                 // its lighting on top, so the contents are loaded, not cleared.
-                Render::ImageAttachmentBindInfo colorBind;
-                colorBind.m_slot  = RHI::InputName("SceneColor");
-                colorBind.m_usage = RHI::AttachmentUsage::RenderTarget;
-                colorBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                colorBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                RHI::AttachmentLoadStoreAction load;
+                load.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.WriteImageAttachment<SPARK_PASS_TAG("LightsPass")>(
-                    RHI::AttachmentId("SceneColor"), colorBind);
-
-                // Declaring the GBuffer reads here makes the graph (a) order this pass after
-                // GBufferPass and (b) transition them to shader-read. The view→SRG binding
-                // happens in the Compile hook below.
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 for (const auto& tex : s_gbufferTextures)
                 {
-                    Render::ImageAttachmentBindInfo readBind;
-                    readBind.m_slot  = RHI::InputName(tex.m_slot);
-                    readBind.m_usage = RHI::AttachmentUsage::Shader;
-                    readBind.m_stage = RHI::AttachmentStage::FragmentShader;
-                    readBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                    readBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                    builder.ReadImageAttachment<SPARK_PASS_TAG("LightsPass")>(
-                        RHI::AttachmentId(tex.m_slot), readBind);
+                    s.Read(RHI::AttachmentId(tex.m_name)).Bind(RHI::InputName(tex.m_input));
                 }
+                s.Read(RHI::AttachmentId(s_depthName)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
 
-                Render::ImageAttachmentBindInfo depthBind;
-                depthBind.m_slot  = RHI::InputName(s_depthSlot);
-                depthBind.m_usage = RHI::AttachmentUsage::Shader;
-                depthBind.m_stage = RHI::AttachmentStage::FragmentShader;
-                depthBind.m_view.m_overrideFormat    = RHI::Format::R32_FLOAT;
-                depthBind.m_view.m_overrideBindFlags = RHI::ImageBindFlags::ShaderRead;
-                depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                // Also the read-only depth-stencil attachment, so the rasterizer depth-tests against
+                // it and culls sky pixels before the PS. The compiler folds both accesses into one
+                // DepthStencilRead | ShaderSampledRead barrier.
+                s.DepthRead(RHI::AttachmentId(s_depthName));
 
-                builder.ReadImageAttachment<SPARK_PASS_TAG("LightsPass")>(
-                    RHI::AttachmentId(s_depthSlot), depthBind);
-
-                // Also bound as a read-only depth-stencil attachment so the rasterizer
-                // depth-tests against it and culls sky pixels before the PS. Same resource as
-                // the SRV above -- the compiler folds both into one
-                // DepthStencilRead | ShaderSampledRead barrier. No view override here: this
-                // resolves the resource's D32_FLOAT read-only DSV.
-                Render::ImageAttachmentBindInfo depthTestBind;
-                depthTestBind.m_slot  = RHI::InputName("SceneDepthTest");
-                depthTestBind.m_usage = RHI::AttachmentUsage::DepthStencil;
-                depthTestBind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
-                depthTestBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                depthTestBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("LightsPass")>(
-                    RHI::AttachmentId(s_depthSlot), depthTestBind);
-
-                // Declared only once ShadowProjectionPass has produced it: with no shadowed
-                // lights there is no mask, and every m_shadowMaskIndex is -1, so the shader
-                // never reaches the sampler. This declaration is also the edge that orders
-                // the projection before this pass.
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                if (ShadowMaskSliceCount(rhiCtx) == 0)
+                // Only once ShadowProjectionPass has produced it: with no shadowed lights there is
+                // no mask, every m_shadowMaskIndex is -1, and the shader never reaches g_ShadowMask.
+                // This read is also the edge that orders the projection before this pass.
+                if (ShadowMaskSliceCount(*RHI::RHIExecuteContext::Current()) == 0)
                 {
                     return;
                 }
-
-                Render::ImageAttachmentBindInfo maskBind;
-                maskBind.m_slot  = RHI::InputName(s_maskSlot);
-                maskBind.m_usage = RHI::AttachmentUsage::Shader;
-                maskBind.m_stage = RHI::AttachmentStage::FragmentShader;
-                maskBind.m_view.m_isArray = 1;
-                maskBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                maskBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("LightsPass")>(
-                    RHI::AttachmentId(s_maskSlot), maskBind);
-            })
-            .Compile([](RenderGraphCompiler& compiler)
-            {
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                const uint32_t frameIndex = compiler.GetFrameIndex();
-
-                for (const auto& tex : s_gbufferTextures)
-                {
-                    RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("LightsPass")>(
-                        rhiCtx, RHI::InputName(tex.m_slot), frameIndex);
-                    if (!view)
-                    {
-                        continue;
-                    }
-                    SetPassShaderImage<SPARK_PASS_TAG("LightsPass")>(
-                        kPerPassSpaceId, RHI::InputName(tex.m_input), view);
-                }
-
-                RHI::ImageView* depthView = FindPassAttachmentImageView<SPARK_PASS_TAG("LightsPass")>(
-                    rhiCtx, RHI::InputName(s_depthSlot), frameIndex);
-                if (depthView)
-                {
-                    SetPassShaderImage<SPARK_PASS_TAG("LightsPass")>(
-                        kPerPassSpaceId, RHI::InputName(s_depthInput), depthView);
-                }
-
-                // Null on the frames Build declared no mask; every m_shadowMaskIndex is then
-                // -1, so the shader never reaches it.
-                RHI::ImageView* maskView = FindPassAttachmentImageView<SPARK_PASS_TAG("LightsPass")>(
-                    rhiCtx, RHI::InputName(s_maskSlot), frameIndex);
-                if (maskView)
-                {
-                    SetPassShaderImage<SPARK_PASS_TAG("LightsPass")>(
-                        kPerPassSpaceId, RHI::InputName(s_maskInput), maskView);
-                }
+                RHI::ImageViewDescriptor maskView;
+                maskView.m_isArray = 1;
+                s.Read(RHI::AttachmentId(s_maskName)).View(maskView).Bind(RHI::InputName(s_maskInput));
             })
             .Finalize()
         ;

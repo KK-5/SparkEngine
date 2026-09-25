@@ -97,28 +97,24 @@ namespace Spark::Render
             .Accepts<OpaqueTag>()
             .Binds<MaterialBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
-            .Build([&, cfg](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
-                const auto size = builder.GetRenderSize();
+                const auto size = p.GetRenderSize();
+                auto s = p.Scope();
 
                 // Transient GBuffer color target: cleared + stored, and shader-readable
-                // so the deferred lighting pass can sample it.
-                auto createColor = [&](const char* id, RHI::Format fmt, const RHI::ClearValue& clear)
+                // so the deferred lighting pass can sample it. Numbered in the order declared.
+                auto createColor = [&](const char* name, RHI::Format fmt, const RHI::ClearValue& clearValue)
                 {
-                    auto desc = RHI::ImageDescriptor::Create2D(
+                    p.CreateImage(RHI::AttachmentId(name), RHI::ImageDescriptor::Create2D(
                         RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                        size.x, size.y, fmt);
+                        size.x, size.y, fmt));
 
-                    Render::ImageAttachmentBindInfo bind;
-                    bind.m_slot  = RHI::InputName(id);
-                    bind.m_usage = RHI::AttachmentUsage::RenderTarget;
-                    bind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                    bind.m_action.m_clearValue  = clear;
-                    bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                    bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                    builder.CreateImageAttachment<SPARK_PASS_TAG("GBufferPass")>(
-                        RHI::AttachmentId(id), desc, bind, RHI::AttachmentAccess::Write);
+                    RHI::AttachmentLoadStoreAction clear;
+                    clear.m_clearValue  = clearValue;
+                    clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                    clear.m_storeAction = RHI::AttachmentStoreAction::Store;
+                    s.RenderTarget(RHI::AttachmentId(name), clear);
                 };
 
                 // This pass owns SceneColor: it is the first to produce scene radiance
@@ -147,31 +143,15 @@ namespace Spark::Render
                     RHI::ClearValue::CreateVector4Float(65504.f, 65504.f, 0.f, 0.f));
 
                 // Read-only depth test against DepthPrePass's SceneDepth: Load the depth
-                // to test against, Store it back unchanged. ReadImageAttachment selects a
-                // READ_ONLY_DEPTH DSV (via AttachmentAccess::Read), so with the Equal /
-                // no-write state this pass never modifies depth. Stencil actions default
-                // to None (D32_FLOAT has no stencil plane), keeping the DSV in DEPTH_READ.
-                RHI::ImageDescriptor depthDesc = RHI::ImageDescriptor::Create2D(
-                    RHI::ImageBindFlags::DepthStencil | RHI::ImageBindFlags::ShaderRead,
-                    size.x, size.y, RHI::Format::D32_FLOAT);
+                // to test against, Store it back unchanged. A depth read selects a
+                // READ_ONLY_DEPTH DSV, so with the Equal / no-write state this pass never
+                // modifies depth. Stencil actions default to None (D32_FLOAT has no stencil
+                // plane), keeping the DSV in DEPTH_READ.
+                s.DepthRead(RHI::AttachmentId("SceneDepth"));
 
-                Render::ImageAttachmentBindInfo depthBind;
-                depthBind.m_slot  = RHI::InputName("SceneDepth");
-                depthBind.m_usage = RHI::AttachmentUsage::DepthStencil;
-                depthBind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
-                depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("GBufferPass")>(
-                    RHI::AttachmentId("SceneDepth"), depthBind);
-            })
-            .Compile([](RenderGraphCompiler&)
-            {
-                // Constant material sampler (linear/wrap) into this pass's space2 bindings
-                // (auto-created by Finalize). Change-detected, so this per-frame set is a
-                // no-op after the first bind.
-                SetPassShaderSampler<SPARK_PASS_TAG("GBufferPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_MatSampler"),
+                // Constant material sampler (linear/wrap). Change-detected, so this per-frame
+                // set is a no-op after the first bind.
+                s.Sampler(RHI::InputName("g_MatSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
             })
             .Finalize()

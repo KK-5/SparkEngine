@@ -3,6 +3,9 @@
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
 #include <RHI/Format.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
+
+#include <EASTL/type_traits.h>
 
 #include "RenderGraphBuilder.h"
 
@@ -32,15 +35,14 @@ namespace Spark::Render
         RHIHandle m_handle { NullHandle };
     };
 
-    //! An attachment a shader accesses. In a render pass it needs a stage, from .Stage.
+    //! An attachment a shader accesses. In a render pass it needs a stage: from .Bind, which
+    //! takes the stages of the input it binds to, or from .Stage.
     class ShaderAttachment
     {
     public:
-        ShaderAttachment& Format(RHI::Format format)
-        {
-            m_attachment.Format(format);
-            return *this;
-        }
+        //! Reinterpret the image in another format, viewed for shader access only (a depth
+        //! image read as R32_FLOAT gets no depth-stencil view).
+        ShaderAttachment& Format(RHI::Format format);
 
         ShaderAttachment& View(const RHI::ImageViewDescriptor& view)
         {
@@ -54,8 +56,15 @@ namespace Spark::Render
             return *this;
         }
 
-        //! The shader stages that access it. Render passes only: a compute pass's is fixed.
+        //! The shader stages that access it, for an access no .Bind names (bindless, or read
+        //! through a shared binding). Render passes only: a compute pass's is fixed.
         ShaderAttachment& Stage(RHI::AttachmentStage stage);
+
+        //! Bind it to the per-pass shader input `input`: lowering puts its view there.
+        ShaderAttachment& Bind(const RHI::InputName& input);
+
+        //! For a ReadPrevious access: whether last frame left no copy, so it reads a stand-in.
+        bool IsPreviousFrameMissing() const;
 
         RHIHandle GetHandle() const { return m_attachment.GetHandle(); }
 
@@ -63,14 +72,16 @@ namespace Spark::Render
         friend class RenderScope;
         friend class ComputeScope;
 
-        ShaderAttachment(RHIHandle handle, bool fixedStage)
-            : m_attachment(handle)
+        ShaderAttachment(RenderGraphBuilder& builder, RHIHandle handle, bool fixedStage)
+            : m_builder(&builder)
+            , m_attachment(handle)
             , m_fixedStage(fixedStage)
         {
         }
 
-        Attachment m_attachment;
-        bool       m_fixedStage { false };
+        RenderGraphBuilder* m_builder { nullptr };
+        Attachment          m_attachment;
+        bool                m_fixedStage { false };
     };
 
     //! One Scope of a render pass: one render pass bracket.
@@ -90,6 +101,23 @@ namespace Spark::Render
 
         ShaderAttachment Read(const RHI::AttachmentId& name);
         ShaderAttachment ReadWrite(const RHI::AttachmentId& name);
+
+        //! Read the copy of `name` produced last frame (see ShaderAttachment::IsPreviousFrameMissing).
+        ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);
+
+        //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
+        //! set the same input must agree: the per-pass space holds one value.
+        void Sampler(const RHI::InputName& input, const RHI::SamplerState& state)
+        {
+            m_builder->AddScopeSampler(m_scope, input, state);
+        }
+
+        template<typename T>
+        void Constant(const RHI::InputName& input, const T& value)
+        {
+            static_assert(eastl::is_trivially_copyable_v<T>, "A constant is copied as bytes.");
+            m_builder->AddScopeConstant(m_scope, input, &value, static_cast<uint32_t>(sizeof(T)));
+        }
 
     private:
         friend class RenderPassScopes;
@@ -116,6 +144,23 @@ namespace Spark::Render
         ShaderAttachment Read(const RHI::AttachmentId& name);
         ShaderAttachment ReadWrite(const RHI::AttachmentId& name);
         ShaderAttachment Write(const RHI::AttachmentId& name);
+
+        //! Read the copy of `name` produced last frame (see ShaderAttachment::IsPreviousFrameMissing).
+        ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);
+
+        //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
+        //! set the same input must agree: the per-pass space holds one value.
+        void Sampler(const RHI::InputName& input, const RHI::SamplerState& state)
+        {
+            m_builder->AddScopeSampler(m_scope, input, state);
+        }
+
+        template<typename T>
+        void Constant(const RHI::InputName& input, const T& value)
+        {
+            static_assert(eastl::is_trivially_copyable_v<T>, "A constant is copied as bytes.");
+            m_builder->AddScopeConstant(m_scope, input, &value, static_cast<uint32_t>(sizeof(T)));
+        }
 
     private:
         friend class ComputePassScopes;
@@ -150,6 +195,14 @@ namespace Spark::Render
             m_builder.CreateBuffer(name, desc);
         }
 
+        //! Introduce `resource`, owned outside the graph, under `name`.
+        void Import(const RHI::AttachmentId& name, RHIHandle resource)
+        {
+            m_builder.ImportResource(name, resource);
+        }
+
+        RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }
+
         RenderScope Scope()
         {
             return RenderScope(m_builder, m_builder.OpenScope());
@@ -181,6 +234,14 @@ namespace Spark::Render
         {
             m_builder.CreateBuffer(name, desc);
         }
+
+        //! Introduce `resource`, owned outside the graph, under `name`.
+        void Import(const RHI::AttachmentId& name, RHIHandle resource)
+        {
+            m_builder.ImportResource(name, resource);
+        }
+
+        RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }
 
         ComputeScope Scope()
         {

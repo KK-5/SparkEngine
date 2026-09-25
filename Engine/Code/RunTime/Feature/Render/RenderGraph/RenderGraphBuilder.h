@@ -200,6 +200,7 @@ namespace Spark::Render
         friend class RenderScope;
         friend class ComputePassScopes;
         friend class ComputeScope;
+        friend class ShaderAttachment;
 
         void AddEdge(Pass from, Pass to);
 
@@ -241,6 +242,29 @@ namespace Spark::Render
         //! Introduce a transient resource under `name`, with no access yet.
         void CreateImage(const RHI::AttachmentId& name, const RHI::ImageDescriptor& desc);
         void CreateBuffer(const RHI::AttachmentId& name, const RHI::BufferDescriptor& desc);
+
+        //! Introduce `resource`, owned outside the graph, under `name`, with no access yet.
+        //! Importing a name again is fine for the same resource only.
+        void ImportResource(const RHI::AttachmentId& name, RHIHandle resource);
+
+        //! Add to `scope` a read of the copy of `attachment`'s name produced last frame: a
+        //! pooled image, a stand-in when there is none (PreviousFrameMissingTag). Also marks
+        //! this frame's resource for extraction, so the next frame can read it back. The
+        //! caller fills the attachment's id, usage, stage, action and view.
+        RHIHandle AddPreviousFrameAttachment(ImagePassAttachment attachment, RHIHandle scope);
+
+        //! Bind `attachment` to the shader input `input` of the current pass's per-pass space:
+        //! checks the input exists there and suits the access (SRV for reads, UAV for
+        //! writes), and gives the attachment the input's stages, or checks them against its
+        //! own.
+        void BindShaderInput(RHIHandle attachment, const RHI::InputName& input);
+
+        //! A sampler / constant `scope` sets in the current pass's per-pass space.
+        void AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state);
+        void AddScopeConstant(RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount);
+
+        //! The current pass's pipeline layout, reflected from its shaders.
+        const RHI::PipelineLayoutDescriptor& CurrentPassLayout() const;
 
         //! Add to `scope` an access of the resource called `name`: reads use its latest
         //! version; writes consume it (a graph-only read) and produce the next. Whether the
@@ -506,8 +530,6 @@ namespace Spark::Render
         const RHI::AttachmentId&                name,
         const ImportedImageAttachmentBindInfo&  bind)
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
-
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
@@ -515,37 +537,7 @@ namespace Spark::Render
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
-        RHIHandle resource = bind.m_image;
-        ASSERT(resource != NullHandle, "ImportImageAttachment: bind.m_image is NullHandle.");
-
-        // ImportedTag is a resource-level concept.
-        if (!rhiContext.Has<ImportedTag>(resource))
-        {
-            rhiContext.Add<ImportedTag>(resource);
-        }
-
-        // Materialize BackingImage for single-frame imports from the owning Image
-        // component (write once). Per-frame resources (ImagePerFrame / swap chain
-        // SwapChainImages) get BackingImage refreshed every frame by
-        // RenderGraph::RefreshPerFrameBackings, which runs before Build — nothing to do here.
-        // The view itself is resolved on demand from the resource's view cache
-        // (GetOrCreateImageView / GetOrCreateImageViewPerFrame), not materialized here.
-        if (auto* img = rhiContext.TryGet<Image>(resource))
-        {
-            if (!rhiContext.Has<BackingImage>(resource))
-            {
-                rhiContext.Add<BackingImage>(resource, BackingImage{ img->m_image.get() });
-            }
-        }
-
-        if constexpr (s_buildValidation)
-        {
-            ASSERT(rhiContext.Has<BackingImage>(resource),
-                "Imported resource {} has no BackingImage. Single-frame: attach an Image "
-                "component before importing; per-frame: ensure RefreshPerFrameBackings ran "
-                "(ImagePerFrame / SwapChainImages).",
-                name.GetCStr());
-        }
+        ImportResource(name, bind.m_image);
 
         ImagePassAttachment a;
         a.m_attachmentId      = AttachmentId{ name, 0 };
@@ -556,10 +548,8 @@ namespace Spark::Render
         a.m_stage             = bind.m_stage;
         a.m_action            = bind.m_action;
         a.m_viewDescriptor    = bind.m_viewDescriptor;
-        a.m_image             = resource;
+        a.m_image             = bind.m_image;
         a.m_pass              = m_currentPass;
-
-        m_resources.emplace(name, ResourceEntry{ resource, 0 });
         RegisterImageAttachment<PassTag>(a);
     }
 
@@ -568,8 +558,6 @@ namespace Spark::Render
         const RHI::AttachmentId&                 name,
         const ImportedBufferAttachmentBindInfo&  bind)
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
-
         if constexpr (s_buildValidation)
         {
             ASSERT(m_currentPass != NullPass,
@@ -577,32 +565,7 @@ namespace Spark::Render
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
         }
 
-        RHIHandle resource = bind.m_buffer;
-        ASSERT(resource != NullHandle, "ImportBufferAttachment: bind.m_buffer is NullHandle.");
-
-        if (!rhiContext.Has<ImportedTag>(resource))
-        {
-            rhiContext.Add<ImportedTag>(resource);
-        }
-
-        // Single-frame imports materialize BackingBuffer from the owning Buffer
-        // component; per-frame resources get it refreshed by RefreshPerFrameBackings.
-        // The view (if any) is resolved on demand from the resource's view cache.
-        if (auto* buf = rhiContext.TryGet<Buffer>(resource))
-        {
-            if (!rhiContext.Has<BackingBuffer>(resource))
-            {
-                rhiContext.Add<BackingBuffer>(resource, BackingBuffer{ buf->m_buffer.get() });
-            }
-        }
-
-        if constexpr (s_buildValidation)
-        {
-            ASSERT(rhiContext.Has<BackingBuffer>(resource),
-                "Imported resource {} has no BackingBuffer. Single-frame: attach a Buffer "
-                "component before importing; per-frame: ensure RefreshPerFrameBackings ran.",
-                name.GetCStr());
-        }
+        ImportResource(name, bind.m_buffer);
 
         BufferPassAttachment a;
         a.m_attachmentId    = AttachmentId{ name, 0 };
@@ -611,10 +574,8 @@ namespace Spark::Render
         a.m_usage           = bind.m_usage;
         a.m_stage           = bind.m_stage;
         a.m_viewDescriptor  = bind.m_viewDescriptor;
-        a.m_buffer          = resource;
+        a.m_buffer          = bind.m_buffer;
         a.m_pass            = m_currentPass;
-
-        m_resources.emplace(name, ResourceEntry{ resource, 0 });
         RegisterBufferAttachment<PassTag>(a);
     }
 
@@ -802,63 +763,20 @@ namespace Spark::Render
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
         }
 
-        const AttachmentId id{ name, 0, 1 };
-
-        auto& rhiContext = *RHIExecuteContext::Current();
-        const RHIHandle declared = FindTransientImage(name);
-        ASSERT(declared != NullHandle,
-            "Previous-frame read of '{}' before any pass created it as a transient image. "
-            "Declare the producing pass first.",
-            name.GetCStr());
-        if (declared == NullHandle)
-        {
-            return id;
-        }
-
-        // This frame's resource is read back next frame, whatever its producer asked for.
-        auto& desc = rhiContext.Get<RHI::ImageDescriptor>(declared);
-        desc.m_bindFlags |= RHI::ImageBindFlags::ShaderRead;
-        rhiContext.AddOrReplace<ExtractedImage>(declared);
-
-        RHIHandle previous = FindPreviousFrameImage(name);
-        if (previous != NullHandle && !IsSameImageStorage(rhiContext.Get<RHI::ImageDescriptor>(previous), desc))
-        {
-            rhiContext.Remove<PreviousFrameOf>(previous);
-            previous = NullHandle;
-        }
-
-        // A real previous frame is never Active; one that is, is an earlier reader's stand-in.
-        const bool missing = previous == NullHandle || rhiContext.Has<PooledImageActiveTag>(previous);
-        if (previous == NullHandle)
-        {
-            ASSERT(m_imagePool != nullptr, "[RenderGraphBuilder] No image pool for previous-frame reads.");
-            previous = AcquirePooledImage(rhiContext, *m_imagePool, desc,
-                rhiContext.TryGet<RHI::ClearValue>(declared), name);
-            // Other readers of this name this frame share the stand-in.
-            rhiContext.Add<PreviousFrameOf>(previous, PreviousFrameOf{ name });
-        }
-
-        // No version bump: nothing writes the previous frame's copy. The use
-        // entry lands under a key of its own, so BuildGraph sees readers and no writer
-        // and emits no edge — it still registers the pass as a node.
         ImagePassAttachment a;
-        a.m_attachmentId    = id;
+        a.m_attachmentId    = AttachmentId{ name, 0, 1 };
         a.m_slotName        = bind.m_slot;
-        a.m_access          = RHI::AttachmentAccess::Read;
         a.m_usage           = bind.m_usage;
         a.m_stage           = bind.m_stage;
         a.m_action          = bind.m_action;
         a.m_viewDescriptor  = bind.m_view;
-        a.m_pass            = m_currentPass;
-        a.m_image           = previous;   // known here, like an import
 
-        const RHIHandle handle = RegisterImageAttachment<PassTag>(a);
-        rhiContext.Add<PreviousFrameTag>(handle);
-        if (missing)
+        const RHIHandle handle = AddPreviousFrameAttachment(a, CurrentScope());
+        if (handle != NullHandle)
         {
-            rhiContext.Add<PreviousFrameMissingTag>(handle);
+            RHIExecuteContext::Current()->Add<PassTag>(handle);
         }
-        return id;
+        return a.m_attachmentId;
     }
 
     // ============================================================

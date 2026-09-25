@@ -31,6 +31,7 @@
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/ScopeComponents.h>
 #include <Pass/PassCapabilities.h>
+#include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
 #include <View/ViewComponents.h>
 
@@ -909,6 +910,90 @@ namespace Spark::Render
                 signal->m_value = ++m_crossQueueFenceValues[queueIndex];
             }
         }
+    }
+
+    void RenderGraphCompiler::CompileScopeBindings(PassContext& passContext, RHIContext& context)
+    {
+        Pass      pass     = NullPass;
+        RHIHandle bindings = NullHandle;
+        bool      declared = false;                    // the pass set anything this frame
+        eastl::fixed_vector<RHI::InputName, 16> bound; // the inputs its attachments were bound to
+
+        // A pass that set anything leaves no view it did not bind this frame in its per-pass
+        // space: an image or buffer input nothing bound gets null. Passes that set nothing are
+        // left alone — they may still set their inputs themselves.
+        auto finishPass = [&]()
+        {
+            if (!declared)
+            {
+                return;
+            }
+            auto isBound = [&bound](const RHI::InputName& input)
+            {
+                return eastl::find(bound.begin(), bound.end(), input) != bound.end();
+            };
+            const RHI::ShaderBindings& sb = *context.Get<RHI::Components::ShaderBindings>(bindings).m_bindings;
+            for (const RHI::ShaderInputImage& image : sb.GetImageInputs())
+            {
+                if (!isBound(image.GetDescription().m_name))
+                {
+                    SetShaderImage(bindings, image.GetDescription().m_name, nullptr);
+                }
+            }
+            for (const RHI::ShaderInputBuffer& buffer : sb.GetBufferInputs())
+            {
+                if (!isBound(buffer.GetDescription().m_name) && buffer.GetView(0))
+                {
+                    SetShaderBuffer(bindings, buffer.GetDescription().m_name, nullptr);
+                }
+            }
+        };
+
+        // One pass's Scopes are adjacent in stream order. They share the pass's per-pass space,
+        // so an input two of them set holds the later value for both: keeping such inputs
+        // identical across Scopes is the pass's job.
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            if (data.m_pass != pass)
+            {
+                finishPass();
+                pass     = data.m_pass;
+                declared = false;
+                bound.clear();
+                const auto* own = passContext.TryGet<PassBindings>(pass);
+                bindings = own != nullptr ? own->m_bindings : NullHandle;
+            }
+
+            for (RHIHandle attachment : GetScopeAttachments(context, scope))
+            {
+                if (const auto* binding = context.TryGet<ShaderInputBinding>(attachment))
+                {
+                    SetShaderImage(bindings, binding->m_input,
+                        ResolveAttachmentView(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex));
+                    bound.push_back(binding->m_input);
+                    declared = true;
+                }
+            }
+
+            if (const auto* samplers = context.TryGet<ScopeSamplers>(scope))
+            {
+                for (const ScopeSampler& sampler : samplers->m_samplers)
+                {
+                    SetShaderSampler(bindings, sampler.m_input, sampler.m_state);
+                }
+                declared = true;
+            }
+
+            if (const auto* constants = context.TryGet<ScopeConstants>(scope))
+            {
+                for (const ScopeConstant& constant : constants->m_constants)
+                {
+                    SetShaderConstantData(bindings, constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
+                }
+                declared = true;
+            }
+        }
+        finishPass();
     }
 
     void RenderGraphCompiler::CompileScopeState(PassContext& passContext, RHIContext& context)

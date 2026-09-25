@@ -220,7 +220,7 @@ compute 上调 `.Stage` 是运行期断言）。
 
 - sampler 不变也不放静态链：引擎用的是写进描述符表的动态 sampler，不是 root signature 里的静态 sampler，每帧声明
   没有限制；放在 Scope 上，不同 Scope 可以用不同的 sampler（C 之后经 bindless sampler 索引）。
-- 同一 pass 的不同 Scope 给 space2 同一槽位填了不同的 sampler 即报错，与视图相同。
+- 同一 pass 的各 Scope 共用一份 space2：同一槽位只能填相同的值（sampler、视图都一样），由写 pass 的人保证，编译器不查。
 
 **访问按角色声明，usage 与 stage 不手填。**
 
@@ -298,7 +298,7 @@ API 为何不自己归类：驱动在录制屏障时看不到后续用途，D3D1
 - **去处由 shader 决定**：`.Bind(name)` 在反射布局里查到的是 space2 的 SRV / UAV，就把视图写进 pass 那组；查到的
   是 root constant 结构的字段，就写入该视图的 bindless 索引（读用 `ReadIndex`，写用 `ReadWriteIndex`）。
   `.Constant(name, value)` 只能落在 root constant。声明侧不区分。
-- **校验**：同一 pass 的不同 Scope 给 space2 同一槽位绑了不同视图即报错——space2 在一个 pass 内只有一份。
+- **约束**：space2 在一个 pass 内只有一份，所有 Scope 看到的是最后写入的值；同一槽位在各 Scope 间必须相同，由写 pass 的人保证，不做校验。
 - 图形 pass 的 Scope 间差异同样走 root constant，由执行器在应用 Scope 状态时设置，与 item 无关，`DrawItem` 里被注释掉的
   root constant 不构成阻碍。
 - 跨后端：Vulkan 需要描述符索引 + mutable descriptor 对应 `ResourceDescriptorHeap`，材质系统已依赖这一点，
@@ -400,7 +400,7 @@ for scope in Scope 存储（已排序）:
     // 状态（Scope 这部分）
     scope.state = { pass 的 PSO, pass 的共享绑定, pass 的 space2,
                     root constant = 绑定到常量字段的 attachment 的 bindless 索引 + .Constant 的标量 }
-    绑定到 space2 的 attachment 视图、Scope 的 sampler 与 .Constant → 写进 pass 的 space2（同槽不同值即报错）
+    绑定到 space2 的 attachment 视图、Scope 的 sampler 与 .Constant → 写进 pass 的 space2
 
     // 提交区间
     begin = submitList.size()
@@ -545,7 +545,7 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
    时没有任何屏障，这一条随之修正。
 6. **跨队列同步由资源追踪推出**：wait / signal 写到 Scope 上，删除 `CompilePassCrossQueue2`。
 7. **绑定分流**：`.Bind` 按反射布局落到 pass 的 space2 或 root constant（bindless 索引）；`.Constant` 写 root
-   constant；Scope 的 root constant 由执行器在应用 Scope 状态时设置；space2 同槽不同视图的校验。
+   constant；Scope 的 root constant 由执行器在应用 Scope 状态时设置。
 8. **lowering**：第 0 步排序与第 2 遍；把 PSO、绑定、`RenderPassBeginInfo` 写到 Scope 上；按视图展开提交区间进
    提交表（视图句柄分隔）；`BasicContext` 补 storage 排序的封装，以及单存储遍历 / 指定驱动存储的 view 写法。
 9. **提交切分**：只在同步点切，由 Scope 上的 wait / signal 直接决定；`WorkStart` 只留接缝（执行器认它），负载切分
@@ -592,7 +592,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 |---|---|---|---|
 | B1 | 反射按输入记录 stage；pass 的 space2 SRG 句柄放在 pass 实体上（`PassBindings`）；删掉 pass 上的绑定集合，lowering 直接写 `ScopeState` | — | 完成 |
 | B2 | 共享核心 + render / compute 的声明器与 Scope；按角色声明访问；Scope 按需创建 | DepthPre | 完成 |
-| B3 | `.Bind` / `Sampler` / `Constant`（全落 space2）；`CompileScopeBindings`；未绑定槽写 null；同槽不同值、stage 无来源报错 | 全屏 pass、GBuffer，删 `.Compile` | |
+| B3 | `.Bind` / `Sampler` / `Constant`（全落 space2）；`CompileScopeBindings`；未绑定槽写 null；stage 无来源报错；`Import` / `ReadPrevious` | 全屏 pass、GBuffer，删 `.Compile` | 完成 |
 | B4 | `ScopeItem`；`Draw` / `DrawFullscreen` / `Dispatch` / `Copy`；提交区间按 Scope 展开 | 全屏 pass；删全屏三角形实体；Skybox 改条件 `Draw` | |
 | B5 | Scope 上的 `Accepts<>` 与 `ItemSelection`；router 不打 PassTag | DepthPre、GBuffer、Shadow | |
 | B6 | ShadowProjection 收回 draw | ShadowProjection | |
@@ -631,11 +631,13 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 
 ### B / C 开工前要定的
 
-- `.Constant` 也按反射落到 space2 cbuffer（TemporalAA 每帧写 space2 标量），与 `.Bind` 对称。
 - `.Execute` 的 hook 如何找到 attachment：它是静态函数，拿不到每帧声明返回的句柄。UI 只要渲染目标、括号由执行器
   负责，可以不找；真要找时从 Scope 上按角色取，不再用 slot 名。
-- space2 本帧没被 attachment 绑定的槽由 lowering 统一写 null（Skybox 注释说明了不写的后果）。
 - 用到 bindless 的 pass 断言设备支持（root signature 的直接索引标志受 `m_bindless` 控制）。
+- buffer 的 `.Bind` 与第一个 buffer 用户一起做，届时必须按反射的描述符类型细化读的访问标志：`ToAccessFlags` 把
+  buffer 读一律当 `ConstantBufferRead | ShaderSampledRead`，而 Vulkan 里 structured / raw buffer 的读是
+  `SHADER_STORAGE_READ`（只有 typed buffer 算 sampled）。transient buffer 的视图缓存也同时补上。
+- `AttachmentStage` 没有 Geometry，绑到 GS 输入的访问现在断言；有 GS 用户时补上。
 - Skybox 的 Execute 只是条件绘制，改为 Build 里条件 `Draw`；不透明工作只剩 UI。
 - 执行时不再逐条判断条目：现在提交区间里每个条目都要 `TryGet<View>`，再按 DrawItem / DispatchItem / CopyItem
   依次试，随 draw 数线性增长。视图边界由 lowering 给出，条目类型由 Scope 决定，ScopeItem 设计时一并定。

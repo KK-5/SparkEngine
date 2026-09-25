@@ -36,6 +36,30 @@ namespace Spark::Render
         return *this;
     }
 
+    ShaderAttachment& ShaderAttachment::Format(RHI::Format format)
+    {
+        auto* image = RHIExecuteContext::Current()->TryGet<ImagePassAttachment>(GetHandle());
+        ASSERT(image != nullptr, "Format() is for image attachments.");
+        const bool writes = (image->m_access & RHI::AttachmentAccess::Write) != RHI::AttachmentAccess::Unknown;
+        image->m_viewDescriptor.m_overrideFormat    = format;
+        image->m_viewDescriptor.m_overrideBindFlags =
+            writes ? RHI::ImageBindFlags::ShaderReadWrite : RHI::ImageBindFlags::ShaderRead;
+        return *this;
+    }
+
+    ShaderAttachment& ShaderAttachment::Bind(const RHI::InputName& input)
+    {
+        m_builder->BindShaderInput(GetHandle(), input);
+        return *this;
+    }
+
+    bool ShaderAttachment::IsPreviousFrameMissing() const
+    {
+        const auto& rhiContext = *RHIExecuteContext::Current();
+        ASSERT(rhiContext.Has<PreviousFrameTag>(GetHandle()), "Not a ReadPrevious access.");
+        return rhiContext.Has<PreviousFrameMissingTag>(GetHandle());
+    }
+
     ShaderAttachment& ShaderAttachment::Stage(RHI::AttachmentStage stage)
     {
         ASSERT(!m_fixedStage, "A compute pass's shader accesses are always in the compute stage.");
@@ -78,39 +102,57 @@ namespace Spark::Render
 
     ShaderAttachment RenderScope::Read(const RHI::AttachmentId& name)
     {
-        return ShaderAttachment(m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
+        return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read,
             RHI::AttachmentStage::Uninitialized, nullptr), false);
     }
 
     ShaderAttachment RenderScope::ReadWrite(const RHI::AttachmentId& name)
     {
-        return ShaderAttachment(m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
+        return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite,
             RHI::AttachmentStage::Uninitialized, nullptr), false);
+    }
+
+    ShaderAttachment RenderScope::ReadPrevious(const RHI::AttachmentId& name)
+    {
+        ImagePassAttachment a;
+        a.m_attachmentId = AttachmentId{ name, 0, 1 };
+        a.m_usage        = RHI::AttachmentUsage::Shader;
+        a.m_stage        = RHI::AttachmentStage::Uninitialized;
+        return ShaderAttachment(*m_builder, m_builder->AddPreviousFrameAttachment(a, m_scope), false);
     }
 
     // ============================================================
     // ComputeScope
     // ============================================================
 
+    ShaderAttachment ComputeScope::ReadPrevious(const RHI::AttachmentId& name)
+    {
+        ImagePassAttachment a;
+        a.m_attachmentId = AttachmentId{ name, 0, 1 };
+        a.m_usage        = RHI::AttachmentUsage::Shader;
+        a.m_stage        = RHI::AttachmentStage::ComputeShader;
+        return ShaderAttachment(*m_builder, m_builder->AddPreviousFrameAttachment(a, m_scope), true);
+    }
+
     ShaderAttachment ComputeScope::Read(const RHI::AttachmentId& name)
     {
-        return ShaderAttachment(m_builder->AddScopeAttachment(m_scope, nullptr, name,
+        return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, nullptr, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read,
             RHI::AttachmentStage::ComputeShader, nullptr), true);
     }
 
     ShaderAttachment ComputeScope::ReadWrite(const RHI::AttachmentId& name)
     {
-        return ShaderAttachment(m_builder->AddScopeAttachment(m_scope, nullptr, name,
+        return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, nullptr, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite,
             RHI::AttachmentStage::ComputeShader, nullptr), true);
     }
 
     ShaderAttachment ComputeScope::Write(const RHI::AttachmentId& name)
     {
-        return ShaderAttachment(m_builder->AddScopeAttachment(m_scope, nullptr, name,
+        return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, nullptr, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Write,
             RHI::AttachmentStage::ComputeShader, nullptr), true);
     }
