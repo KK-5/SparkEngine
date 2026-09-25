@@ -820,8 +820,7 @@ namespace Spark::Render
                     "[RenderGraphCompiler] Pass {} has no color attachment at index {}.", passName, i);
             }
 
-            if (const auto* pipelineState = passContext.TryGet<PassPipelineState>(pass);
-                pipelineState && !passContext.Has<CustomPipelinePassTag>(pass))
+            if (const auto* pipelineState = passContext.TryGet<PassPipelineState>(pass))
             {
                 ASSERT(colorCount == pipelineState->m_renderTargetLayout.m_colorAttachmentCount,
                     "[RenderGraphCompiler] Pass {} declares {} color attachments, its RenderTargetLayout {}.",
@@ -1405,8 +1404,8 @@ namespace Spark::Render
 
         // --- Render passes ---
         {
-            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState>(
-                Exclude<CustomPipelinePassTag>);
+            // A pass without shaders has no PassPipelineState, so no PSO.
+            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState>();
 
             view.each([&](Pass pass, const PassShaders& shaders, const PassPipelineState& pipelineState)
             {
@@ -1475,17 +1474,17 @@ namespace Spark::Render
 
         // --- Compute passes ---
         {
-            auto view = passContext.GetView<ComputePassTag, PassShaders>(
-                Exclude<CustomPipelinePassTag>);
+            auto view = passContext.GetView<ComputePassTag, PassShaders>();
 
             view.each([&](Pass pass, const PassShaders& shaders)
             {
+                // A pass without shaders has no PSO.
+                if (!shaders.m_computeShader)
+                {
+                    return;
+                }
                 if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
                     return;
-
-                ASSERT(shaders.m_computeShader,
-                    "Compute pass '{}' has no ComputeShader.",
-                    passContext.Get<PassName>(pass).m_name.GetCStr());
 
                 RHI::PipelineStateDescriptorForDispatch descriptor;
 

@@ -175,8 +175,8 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 
 - `.Accepts<>()` 移出静态链，成为 Scope 上的 `Accepts<>()`：名字不变，含义从"router 给 item 打 PassTag"变成"按 DrawTag 查询"。
 - `.Execute(fn)` 只留给不透明工作：执行器直接从流里提交 item，默认的 `SubmitDrawBatch` 不再需要。hook 按 Scope
-  调用，参数带上是第几个 Scope。`.CustomPipeline()` 删除，由"pass 没设 shader"推出：设了 shader 的，执行器先
-  应用 PSO 与绑定再调 hook；没设的（UI），状态全由 hook 负责。
+  的每个视图段调用（执行器已设好该视图的 viewport 与 space1），参数带上是第几个 Scope。`.CustomPipeline()` 删除，
+  由"pass 没设 shader"推出：设了 shader 的，执行器先应用 PSO 与绑定再调 hook；没设的（UI），状态全由 hook 负责。
 - `.Compile()` 消失：它今天做的事——把 attachment 视图、sampler、标量接到 shader 输入上——都改在 Scope 上声明
   （见下）。
 
@@ -564,7 +564,7 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 13. **全屏三角形改由 pass 声明**，删掉 RenderSystem 里那个 `GeometrySpec` + `FullScreenTriangleTag` 实体。
 14. **`ShadowProjectionPass` 收回自己的 draw**，slice 数只算一处，`ShadowMaskSystem` 不再代管 DrawItem。
-15. ~~`CopyFrameBufferPass` 改为两个 Scope~~：不做，这个 pass 本身要删除。
+15. ~~`CopyFrameBufferPass` 改为两个 Scope~~：不做，这个 pass 已删除。
 16. **UI 改为不透明工作**。
 17. **Bloom 降采样 / 上采样**：第一个多 Scope 的 compute pass（P3 步骤 2、3）。
 
@@ -598,7 +598,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 | B4 | `ScopeItem` 与 `ScopeItemRange`；render Scope 的 `Draw`（`Dispatch` 随 C，`Copy` 随第一个 copy pass）；提交区间带上 Scope 自己的 item；删 `SubmitDrawBatch` | 全屏 pass；删全屏三角形实体；Skybox 迁移、改条件 `Draw` | 完成 |
 | B5 | Scope 上的 `Accepts<>` 与 `ScopeSelections`；router 不打 PassTag，删静态 `.Accepts` | DepthPre、GBuffer、Shadow | 完成 |
 | B6 | ShadowProjection 收回 draw；删 `m_collectSubmitItems` | ShadowProjection | 完成 |
-| B7 | `.Execute` 按 Scope 调用；删 `.CustomPipeline()` | UI | |
+| B7 | `.Execute` 带上 Scope 序号；删 `.CustomPipeline()`，由没设 shader 推出 | UI | 完成 |
 | B8 | 删旧访问 API、`.Compile`、带 PassTag 的查找与 `SetPassShader*`；改回 `.Build` | — | |
 
 ### 执行侧现状

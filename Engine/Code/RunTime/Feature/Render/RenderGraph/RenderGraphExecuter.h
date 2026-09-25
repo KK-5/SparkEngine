@@ -29,6 +29,9 @@ namespace Spark::Render
     {
         RHI::CommandList* m_commandList = nullptr;
 
+        //! Which of its pass's Scopes this is (Scope::m_index).
+        uint32_t m_scopeIndex = 0;
+
         //! The segment's items. m_submitBase is the submit index its first entry must be
         //! submitted with (what CommandList::ValidateSubmitIndex checks against SetSubmitRange).
         eastl::span<const RHI::RHIHandle> m_itemHandles;

@@ -33,6 +33,7 @@
 #include <Feature/Tonemap/TonemapPass.h>
 #include <Feature/Velocity/VelocityResolvePass.h>
 #include <Feature/TemporalAA/TemporalAAPass.h>
+#include <Feature/UI/UIPass.h>
 
 #include "../Window/IWindowSystem.h"
 #include "../UI/UIBaseSystem.h"
@@ -183,31 +184,11 @@ namespace Spark::Render
         TemporalAAPass::SetUp(passContext, temporalAAPassCfg);
 
         // Final tonemap: samples the HDR SceneColor, Reinhard + gamma, writes the LDR
-        // swap chain (which it now imports, replacing CopyFrameBufferPass). UIPass draws
-        // on top afterwards. CopyFrameBufferPass is kept in the tree but no longer wired.
+        // swap chain, which it imports. UIPass draws on top afterwards.
         auto tonemapPassCfg = TonemapPass::DefaultConfig();
         TonemapPass::SetUp(passContext, tonemapPassCfg);
 
-        SPARK_RENDER_PASS(passContext, "UIPass")
-            .Queue(RHI::HardwareQueueClass::Graphics)
-            .CustomPipeline()
-            .Build([this](RenderGraphBuilder& builder)
-            {
-                ImageAttachmentBindInfo bind;
-                bind.m_slot   = RHI::InputName("ColorOutput");
-                bind.m_usage  = RHI::AttachmentUsage::RenderTarget;
-                bind.m_view   = RHI::ImageViewDescriptor{};  // All image
-                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.WriteImageAttachment<SPARK_PASS_TAG("UIPass")>(
-                    RHI::AttachmentId("SwapChain"), bind);
-            })
-            .Execute([this](ExecuteWork& work, RenderGraphExecuter&)
-            {
-                m_rednerUI.Render(work.m_commandList);
-            })
-            .Finalize();
+        UIPass::SetUp(passContext, m_rednerUI);
 
         // Render-side helpers + shared resources setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();

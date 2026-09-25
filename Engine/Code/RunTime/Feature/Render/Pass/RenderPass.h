@@ -85,13 +85,6 @@ namespace Spark::Render
             return *this;
         }
 
-        // ---- Custom pipeline (skip engine PSO) ----
-        RenderPassBuilder& CustomPipeline()
-        {
-            m_customPipeline = true;
-            return *this;
-        }
-
         // Declare the shared bindings (view / material / instance / …, each a global
         // singleton) the executer binds once before this pass's draws. Order-free — each
         // self-describes its HLSL space. The pass's own group (space2) is resolved via
@@ -144,6 +137,9 @@ namespace Spark::Render
             return *this;
         }
 
+        //! Opaque work, recorded by `fn` instead of the executer submitting the Scope's items:
+        //! called per view segment of each Scope, after the pass's PSO and bindings are set if
+        //! it has shaders.
         RenderPassBuilder& Execute(ExecuteFunction fn)
         {
             m_executeFunction = eastl::move(fn);
@@ -157,17 +153,17 @@ namespace Spark::Render
             ASSERT(m_queueSet, "Pass '{}': Queue must be set.", m_name.GetCStr());
             ASSERT(m_buildFunction, "Pass '{}': Build function is required.", m_name.GetCStr());
 
-            if (m_customPipeline)
+            // A pass that sets no shader has no pipeline: its .Execute sets all its state (UI).
+            const bool hasPipeline = m_shaders.m_vertexShader || m_shaders.m_fragmentShader;
+            if (!hasPipeline)
             {
-                ASSERT(!m_shaders.m_vertexShader && !m_shaders.m_fragmentShader &&
-                       !m_shaders.m_geometryShader && !m_shaders.m_computeShader,
-                    "Pass '{}': CustomPipeline pass must not set shaders.", m_name.GetCStr());
+                ASSERT(!m_shaders.m_geometryShader,
+                    "Pass '{}': a GeometryShader needs a VertexShader.", m_name.GetCStr());
+                ASSERT(m_executeFunction,
+                    "Pass '{}': a pass without shaders records its work in .Execute.", m_name.GetCStr());
             }
             else
             {
-                ASSERT(m_shaders.m_vertexShader || m_shaders.m_fragmentShader,
-                    "Pass '{}': RenderPass needs at least VertexShader or FragmentShader.",
-                    m_name.GetCStr());
                 // A render pass must write at least one attachment — a color
                 // target OR a depth-stencil target. Depth-only passes (depth
                 // prepass, shadow) have zero color attachments but a valid
@@ -198,11 +194,7 @@ namespace Spark::Render
 
             m_context->Add<PassShaders>(pass, m_shaders);
 
-            if (m_customPipeline)
-            {
-                m_context->Add<CustomPipelinePassTag>(pass);
-            }
-            else
+            if (hasPipeline)
             {
                 m_context->Add<PassPipelineState>(pass, m_pipelineState);
 
@@ -256,7 +248,6 @@ namespace Spark::Render
         ObjectName              m_name;
         RHI::HardwareQueueClass m_queue {};
         bool                    m_active            {true};
-        bool                    m_customPipeline    {false};
 
         PassCapabilities        m_capabilities {};
         bool                    m_hasCapabilities   {false};

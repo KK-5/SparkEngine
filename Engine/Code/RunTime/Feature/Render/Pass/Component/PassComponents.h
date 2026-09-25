@@ -61,12 +61,6 @@ namespace Spark::Render
     {
     };
 
-    //! Marks a pass that manages its own pipeline state (e.g. ImGui), skipping
-    //! engine-side PSO compilation. PSO compiler skips passes with this tag.
-    struct CustomPipelinePassTag
-    {
-    };
-
     ////////////////////////////////////////////////////
     struct PassName
     {

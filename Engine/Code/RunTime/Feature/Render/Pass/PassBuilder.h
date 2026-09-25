@@ -21,8 +21,8 @@
 namespace Spark::Render
 {
     //! Build a PipelineLayoutDescriptor from a PassShaders set via shader
-    //! reflection. Returns nullptr if no shader is present (custom-pipeline
-    //! passes). The result is owned by the caller; PassBuilder stores it on
+    //! reflection. Returns nullptr if no shader is present (a pass without a
+    //! pipeline). The result is owned by the caller; PassBuilder stores it on
     //! the pass as PassPipelineLayout so user Build callbacks can grab it
     //! before the render-graph Compile phase runs.
     inline Ptr<RHI::PipelineLayoutDescriptor> BuildPipelineLayoutFromShaders(
@@ -108,13 +108,6 @@ namespace Spark::Render
             return *this;
         }
 
-        // ---- Custom pipeline ----
-        ComputePassBuilder& CustomPipeline()
-        {
-            m_customPipeline = true;
-            return *this;
-        }
-
         // ---- Functions ----
         ComputePassBuilder& Build(BuildFunction fn)
         {
@@ -153,16 +146,8 @@ namespace Spark::Render
             ASSERT(m_buildFunction, "Compute pass '{}': Build function is required.", m_name.GetCStr());
             ASSERT(m_executeFunction, "Compute pass '{}': Execute function is required.", m_name.GetCStr());
 
-            if (m_customPipeline)
-            {
-                ASSERT(!m_shaders.m_computeShader,
-                    "Compute pass '{}': CustomPipeline pass must not set shaders.", m_name.GetCStr());
-            }
-            else
-            {
-                ASSERT(m_shaders.m_computeShader,
-                    "Compute pass '{}': ComputePass needs ComputeShader.", m_name.GetCStr());
-            }
+            // A pass that sets no shader has no pipeline: its .Execute sets all its state.
+            const bool hasPipeline = m_shaders.m_computeShader != nullptr;
 
             Pass pass = m_context->CreatePass();
 
@@ -180,11 +165,7 @@ namespace Spark::Render
 
             m_context->Add<PassShaders>(pass, m_shaders);
 
-            if (m_customPipeline)
-            {
-                m_context->Add<CustomPipelinePassTag>(pass);
-            }
-            else
+            if (hasPipeline)
             {
                 // Eager build PipelineLayoutDescriptor from shader reflection so
                 // user code (e.g. ShaderBindings::Init) can grab it before Compile.
@@ -227,7 +208,6 @@ namespace Spark::Render
         ObjectName              m_name;
         RHI::HardwareQueueClass m_queue {};
         bool                    m_active            {true};
-        bool                    m_customPipeline    {false};
 
         PassShaders             m_shaders;
 

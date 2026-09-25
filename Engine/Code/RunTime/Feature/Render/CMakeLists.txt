@@ -3,7 +3,7 @@ set(TARGET_NAME SparkRender)
 set(SOURCES
     Feature/UI/RenderUI.cpp
     Feature/UI/UIProcessFeature.cpp
-    Feature/UI/CopyFrameBufferPass.cpp
+    Feature/UI/UIPass.cpp
     Feature/DepthPre/DepthPrePass.cpp
     Feature/GBuffer/GBufferPass.cpp
     Feature/ShadowProjection/ShadowProjectionPass.cpp

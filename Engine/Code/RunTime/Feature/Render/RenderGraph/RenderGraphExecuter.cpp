@@ -351,6 +351,7 @@ namespace Spark::Render
 
         ExecuteWork work;
         work.m_commandList = commandList;
+        work.m_scopeIndex  = rhiContext.Get<Scope>(scope).m_index;
         auto submitSegment = [&](uint32_t begin, uint32_t end)
         {
             if (execute)
