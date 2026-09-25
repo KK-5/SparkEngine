@@ -35,6 +35,7 @@ namespace Spark::Render
         Pass                    m_pass {NullPass};
         uint32_t                m_index {0};   //!< order within m_pass
         RHI::HardwareQueueClass m_queue {RHI::HardwareQueueClass::Graphics};
+        uint32_t                m_order {0};   //!< position in the stream, set by SortScopes
     };
 
     //! On every attachment, naming the Scope it belongs to. Links point from attachment to
@@ -43,6 +44,9 @@ namespace Spark::Render
     struct ScopeAttachment
     {
         RHI::RHIHandle m_scope {RHI::NullHandle};
+        //! Only groups one resource's attachments within the Scope; the value means nothing.
+        RHI::RHIHandle m_resource {RHI::NullHandle};
+        uint32_t       m_scopeOrder {0};   //!< the Scope's m_order, copied by SortScopes
     };
 
     //! On every Scope: where its attachments sit in the ScopeAttachment storage's packed array,
@@ -66,6 +70,7 @@ namespace Spark::Render
     struct ScopeItem
     {
         RHI::RHIHandle m_scope {RHI::NullHandle};
+        uint32_t       m_scopeOrder {0};   //!< the Scope's m_order, copied by SortScopes
     };
 
     //! On every Scope: where its items sit in the ScopeItem storage's packed array, contiguous

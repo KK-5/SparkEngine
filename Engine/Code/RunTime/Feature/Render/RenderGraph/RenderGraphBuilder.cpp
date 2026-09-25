@@ -174,7 +174,7 @@ namespace Spark::Render
         auto& rhiContext = *RHIExecuteContext::Current();
         const RHIHandle handle = rhiContext.CreateEntity();
         rhiContext.Add<ImagePassAttachment>(handle, attachment);
-        rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ scope });
+        rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ scope, attachment.m_image });
         if (attachment.m_usage == RHI::AttachmentUsage::RenderTarget)
         {
             ASSERT(colorCount != nullptr, "A render target outside a render pass Scope.");
@@ -192,7 +192,7 @@ namespace Spark::Render
         auto& rhiContext = *RHIExecuteContext::Current();
         const RHIHandle handle = rhiContext.CreateEntity();
         rhiContext.Add<BufferPassAttachment>(handle, attachment);
-        rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ scope });
+        rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ scope, attachment.m_buffer });
         m_attachmentUses[attachment.m_attachmentId].emplace_back(attachment.m_pass, attachment.m_access);
         CountScopeAttachment(scope);
         return handle;

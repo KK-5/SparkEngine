@@ -355,28 +355,16 @@ namespace Spark::Render
                 }
                 return m_scopeIndex < other.m_scopeIndex;
             }
-
-            bool operator==(const ScopeOrderKey& other) const
-            {
-                return m_passPosition == other.m_passPosition && m_scopeIndex == other.m_scopeIndex;
-            }
         };
 
-        struct ScopeAttachmentOrderKey
+        bool ScopeAttachmentLess(const ScopeAttachment& lhs, const ScopeAttachment& rhs)
         {
-            ScopeOrderKey m_scope;
-            //! Only groups the attachments of one resource together; the value means nothing.
-            RHIHandle     m_resource = NullHandle;
-
-            bool operator<(const ScopeAttachmentOrderKey& other) const
+            if (lhs.m_scopeOrder != rhs.m_scopeOrder)
             {
-                if (!(m_scope == other.m_scope))
-                {
-                    return m_scope < other.m_scope;
-                }
-                return entt::to_integral(m_resource) < entt::to_integral(other.m_resource);
+                return lhs.m_scopeOrder < rhs.m_scopeOrder;
             }
-        };
+            return entt::to_integral(lhs.m_resource) < entt::to_integral(rhs.m_resource);
+        }
 
         ScopeOrderKey MakeScopeOrderKey(const Scope& scope, const PassContext& passContext)
         {
@@ -413,24 +401,6 @@ namespace Spark::Render
                 begin = end;
             }
         }
-
-        ScopeAttachmentOrderKey MakeScopeAttachmentOrderKey(
-            RHIHandle attachment, const RHIContext& context, const PassContext& passContext)
-        {
-            const RHIHandle scope = context.Get<ScopeAttachment>(attachment).m_scope;
-
-            ScopeAttachmentOrderKey key;
-            key.m_scope = MakeScopeOrderKey(context.Get<Scope>(scope), passContext);
-            if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
-            {
-                key.m_resource = image->m_image;
-            }
-            else if (const auto* buffer = context.TryGet<BufferPassAttachment>(attachment))
-            {
-                key.m_resource = buffer->m_buffer;
-            }
-            return key;
-        }
     }
 
     void RenderGraphCompiler::SortScopes(PassContext& passContext, RHIContext& context)
@@ -440,12 +410,22 @@ namespace Spark::Render
             return MakeScopeOrderKey(lhs, passContext) < MakeScopeOrderKey(rhs, passContext);
         });
 
-        // By entity, not component: the key lives on the Scope and the attachment.
-        context.Sort<ScopeAttachment>([&](RHIHandle lhs, RHIHandle rhs)
+        // Copied onto the links once, so their sorts below look nothing up per comparison.
+        uint32_t order = 0;
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
-            return MakeScopeAttachmentOrderKey(lhs, context, passContext)
-                 < MakeScopeAttachmentOrderKey(rhs, context, passContext);
-        });
+            data.m_order = order++;
+        }
+        for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
+        {
+            link.m_scopeOrder = context.Get<Scope>(link.m_scope).m_order;
+        }
+        for (auto [item, link] : context.GetStorage<ScopeItem>().each())
+        {
+            link.m_scopeOrder = context.Get<Scope>(link.m_scope).m_order;
+        }
+
+        context.Sort<ScopeAttachment>(ScopeAttachmentLess);
 
         if constexpr (s_scopeOrderValidation)
         {
@@ -454,17 +434,14 @@ namespace Spark::Render
             auto scopes  = context.GetStorage<Scope>().each();
             auto scopeIt = scopes.begin();
 
-            bool                    hasPrevious = false;
-            ScopeAttachmentOrderKey previous;
+            const ScopeAttachment* previous = nullptr;
             for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
             {
-                const ScopeAttachmentOrderKey key = MakeScopeAttachmentOrderKey(attachment, context, passContext);
-                ASSERT(key.m_resource != NullHandle,
+                ASSERT(link.m_resource != NullHandle,
                     "[RenderGraphCompiler] A Scope attachment is not linked to its resource.");
-                ASSERT(!hasPrevious || !(key < previous),
+                ASSERT(previous == nullptr || !ScopeAttachmentLess(link, *previous),
                     "[RenderGraphCompiler] ScopeAttachment storage is out of order after sorting.");
-                previous    = key;
-                hasPrevious = true;
+                previous = &link;
 
                 while (scopeIt != scopes.end())
                 {
@@ -480,10 +457,9 @@ namespace Spark::Render
             }
         }
 
-        context.Sort<ScopeItem>([&](const ScopeItem& lhs, const ScopeItem& rhs)
+        context.Sort<ScopeItem>([](const ScopeItem& lhs, const ScopeItem& rhs)
         {
-            return MakeScopeOrderKey(context.Get<Scope>(lhs.m_scope), passContext)
-                 < MakeScopeOrderKey(context.Get<Scope>(rhs.m_scope), passContext);
+            return lhs.m_scopeOrder < rhs.m_scopeOrder;
         });
 
         // Each Scope's attachments and items now sit contiguously in their packed arrays:
