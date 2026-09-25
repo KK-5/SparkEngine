@@ -59,12 +59,12 @@ namespace Spark::Render
         //! attachments and leaves them out of the transient pool.
         void CompileExtractedImages(RHI::ImagePool& pool);
 
-        //! Put the Scope and ScopeAttachment storages in stream order: Scopes by (pass topo
-        //! position, index in pass); attachments by (their Scope, resource), so each Scope's
-        //! attachments are contiguous and those of one resource adjacent; each Scope records where
-        //! its run is in ScopeAttachmentRange. Needs every attachment linked to its resource, so
-        //! runs after CompileTransientResources / CompileExtractedImages. Nothing may add or
-        //! remove either component afterwards.
+        //! Put the Scope, ScopeAttachment and ScopeItem storages in stream order: Scopes by (pass
+        //! topo position, index in pass); attachments by (their Scope, resource), so each Scope's
+        //! attachments are contiguous and those of one resource adjacent; items by their Scope.
+        //! Each Scope records where its runs are in ScopeAttachmentRange / ScopeItemRange. Needs
+        //! every attachment linked to its resource, so runs after CompileTransientResources /
+        //! CompileExtractedImages. Nothing may add or remove any of these components afterwards.
         void SortScopes(PassContext& passContext, RHIContext& context);
 
         //! The queues this frame's Scopes run on, into m_activeQueues: the executer opens each
@@ -125,7 +125,8 @@ namespace Spark::Render
         void CompileScopeState(PassContext& passContext, RHIContext& context);
 
         //! Lay each Scope's submissions out in submitList and record its ScopeSubmitRange: per
-        //! ready view, the view's handle then the items the pass collects for it; items only for
+        //! ready view, the view's handle then the Scope's own items and those the pass collects
+        //! for it through a static .Accepts; items only for
         //! a pass that renders no view. A render pass whose BeginInfo gives no target extent
         //! submits nothing. Runs after CompileScopeBeginInfo.
         void CompileScopeSubmitRanges(

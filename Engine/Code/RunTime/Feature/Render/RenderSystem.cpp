@@ -219,16 +219,6 @@ namespace Spark::Render
 
         m_meshGeometryComposer.Init(rhiCtxForInit);
         m_drawItemRouter.Init(rhiCtxForInit);
-
-        {
-            RHI::RHIHandle fsTri = rhiCtxForInit.CreateEntity();
-            GeometrySpec fsSpec;
-            fsSpec.m_drawArgs      = RHI::DrawArguments(RHI::DrawLinear(3, 0));
-            fsSpec.m_instanceCount = 1;
-            fsSpec.m_instanceData  = NoInstanceBinding{};
-            rhiCtxForInit.Add<GeometrySpec>(fsTri, eastl::move(fsSpec));
-            rhiCtxForInit.Add<FullScreenTriangleTag>(fsTri);
-        }
     }
 
     void RenderSystem::InitInternal()

@@ -324,6 +324,14 @@ namespace Spark::Render
         return handle;
     }
 
+    RHIHandle RenderGraphBuilder::AddScopeItem(RHIHandle scope)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        const RHIHandle item = rhiContext.CreateEntity();
+        rhiContext.Add<ScopeItem>(item, ScopeItem{ scope });
+        return item;
+    }
+
     const RHI::PipelineLayoutDescriptor& RenderGraphBuilder::CurrentPassLayout() const
     {
         auto& passContext = *PassExecuteContext::Current();
@@ -605,22 +613,29 @@ namespace Spark::Render
         BuildGraph();
         eastl::vector<Pass> passes = TopoSort();
 
-        // A pass that declared nothing is not in the graph and never runs, so its Scope has no
-        // place in the stream. Any declaration would have made the pass a node, so such a
-        // Scope has no attachments either.
+        // A pass that declared nothing is not in the graph and never runs, so its Scopes and
+        // their items have no place in the stream. Any attachment would have made the pass a
+        // node, so such a Scope has none.
         {
             auto& rhiContext  = *RHIExecuteContext::Current();
             auto& passContext = *PassExecuteContext::Current();
 
-            eastl::vector<RHIHandle> orphanScopes;
+            eastl::vector<RHIHandle> orphans;
             for (auto [handle, scope] : rhiContext.GetView<Scope>().each())
             {
                 if (!passContext.Has<PassGlobalTimeline>(scope.m_pass))
                 {
-                    orphanScopes.push_back(handle);
+                    orphans.push_back(handle);
                 }
             }
-            for (RHIHandle handle : orphanScopes)
+            for (auto [handle, item] : rhiContext.GetView<ScopeItem>().each())
+            {
+                if (!passContext.Has<PassGlobalTimeline>(rhiContext.Get<Scope>(item.m_scope).m_pass))
+                {
+                    orphans.push_back(handle);
+                }
+            }
+            for (RHIHandle handle : orphans)
             {
                 rhiContext.DestoryEntity(handle);
             }

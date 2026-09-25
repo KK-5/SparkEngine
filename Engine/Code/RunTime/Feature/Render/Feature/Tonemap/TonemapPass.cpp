@@ -11,8 +11,6 @@
 #include <Pass/RenderPass.h>
 #include <Pass/PassAccess.h>
 
-#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
-
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
@@ -76,7 +74,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<FullScreenTriangleTag>()
             .Binds<>()
             .RendersView<OutputViewTag>()
             .BuildScopes([](RenderPassScopes& p)
@@ -97,6 +94,8 @@ namespace Spark::Render
                 auto s = p.Scope();
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), clear);
                 s.Read(RHI::AttachmentId(temporalAA ? "TemporalAA" : "SceneColor")).Bind(RHI::InputName("g_SceneColor"));
+
+                s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
             })
             .Finalize()
         ;

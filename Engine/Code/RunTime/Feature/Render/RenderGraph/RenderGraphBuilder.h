@@ -263,6 +263,10 @@ namespace Spark::Render
         void AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state);
         void AddScopeConstant(RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount);
 
+        //! A new item of `scope`: an entity carrying ScopeItem, for the caller to give its
+        //! DrawItem. It lives for the frame.
+        RHIHandle AddScopeItem(RHIHandle scope);
+
         //! The current pass's pipeline layout, reflected from its shaders.
         const RHI::PipelineLayoutDescriptor& CurrentPassLayout() const;
 

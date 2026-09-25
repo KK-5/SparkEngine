@@ -19,10 +19,4 @@ namespace Spark::Render
 
     //! Shadow dimension (optional, orthogonal). Routes to the shadow pass(es). Not wired yet.
     struct ShadowCasterTag {};
-
-    //! Procedural full-screen-triangle dimension. ONE shared GeometrySpec (DrawLinear(3),
-    //! no geometry / no per-object data) carries this; every full-screen pass declares
-    //! .Accepts<FullScreenTriangleTag>() and stamps its tag on that one entity — no
-    //! per-pass procedural spec needed.
-    struct FullScreenTriangleTag {};
 }

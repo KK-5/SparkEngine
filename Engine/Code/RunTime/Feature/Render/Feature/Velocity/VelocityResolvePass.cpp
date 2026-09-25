@@ -12,8 +12,6 @@
 #include <Pass/RenderPass.h>
 #include <Pass/PassAccess.h>
 
-#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
-
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
@@ -77,7 +75,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<FullScreenTriangleTag>()
             .Binds<>()
             .RendersView<MainViewTag>()
             .BuildScopes([](RenderPassScopes& p)
@@ -98,6 +95,8 @@ namespace Spark::Render
                 s.Read(RHI::AttachmentId(s_velocitySlot)).Bind(RHI::InputName(s_velocityInput));
                 // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
                 s.Read(RHI::AttachmentId(s_depthSlot)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
+
+                s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
             })
             .Finalize()
         ;

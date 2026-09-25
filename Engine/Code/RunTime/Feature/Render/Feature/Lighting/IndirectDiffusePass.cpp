@@ -14,7 +14,6 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 
-#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
 #include <Binding/Scene/SceneBinding.h>
 #include <View/ViewTags.h>
 
@@ -105,7 +104,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<FullScreenTriangleTag>()
             .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
             .BuildScopes([](RenderPassScopes& p)
@@ -123,6 +121,8 @@ namespace Spark::Render
                 // Read-only depth-stencil attachment so the rasterizer depth-tests against it
                 // and culls sky pixels before the PS.
                 s.DepthRead(RHI::AttachmentId(s_depthName));
+
+                s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
             })
             .Finalize()
         ;

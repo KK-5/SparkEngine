@@ -166,11 +166,13 @@ namespace Spark::Render
                 rhiContext.DestoryEntity(h);
             }
 
-            // Rebuilt every frame by the builder; their attachments (destroyed above)
-            // carried ScopeAttachment and are gone with them.
+            // Rebuilt every frame by the builder, as are the items they declared; their
+            // attachments (destroyed above) carried ScopeAttachment and are gone with them.
             eastl::vector<RHIHandle> scopeHandles;
             rhiContext.GetView<Scope>().each(
                 [&](RHIHandle h, const Scope&) { scopeHandles.push_back(h); });
+            rhiContext.GetView<ScopeItem>().each(
+                [&](RHIHandle h, const ScopeItem&) { scopeHandles.push_back(h); });
             for (RHIHandle h : scopeHandles)
             {
                 rhiContext.DestoryEntity(h);
@@ -397,16 +399,5 @@ namespace Spark::Render
             segmentBegin = i + 1;
         }
         submitSegment(segmentBegin, range.m_end);
-    }
-
-    void SubmitDrawBatch(ExecuteWork& work, RenderGraphExecuter&)
-    {
-        auto& rhiContext = *RHI::RHIExecuteContext::Current();
-        for (size_t i = 0; i < work.m_itemHandles.size(); ++i)
-        {
-            work.m_commandList->Submit(
-                rhiContext.Get<RHI::DrawItem>(work.m_itemHandles[i]),
-                work.m_submitBase + static_cast<uint32_t>(i));
-        }
     }
 }

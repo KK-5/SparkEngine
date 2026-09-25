@@ -60,6 +60,28 @@ namespace Spark::Render
         return { context.GetStorage<ScopeAttachment>().data() + range.m_begin, range.m_end - range.m_begin };
     }
 
+    //! On every item a Scope declared itself (a Draw), naming that Scope. The item entity
+    //! lives for the frame, like the Scope.
+    struct ScopeItem
+    {
+        RHI::RHIHandle m_scope {RHI::NullHandle};
+    };
+
+    //! On every Scope: where its items sit in the ScopeItem storage's packed array, contiguous
+    //! since SortScopes, which records it.
+    struct ScopeItemRange
+    {
+        uint32_t m_begin = 0;
+        uint32_t m_end   = 0;
+    };
+
+    //! The items the Scope declared. Valid from SortScopes to the end of the frame.
+    inline eastl::span<const RHI::RHIHandle> GetScopeItems(RHI::RHIContext& context, RHI::RHIHandle scope)
+    {
+        const ScopeItemRange& range = context.Get<ScopeItemRange>(scope);
+        return { context.GetStorage<ScopeItem>().data() + range.m_begin, range.m_end - range.m_begin };
+    }
+
     //! On a Scope whose access to some resource follows one on another queue: per source queue,
     //! the latest producer Scope it must wait for, and the fence and value that works out to.
     //! CompileScopeBarriers fills m_producer, CompileScopeSync the syncs in stream order.
@@ -141,4 +163,5 @@ namespace Spark::Render
     // tombstones — a trivially movable type keeps the default swap-and-pop policy.
     static_assert(eastl::is_trivially_copyable_v<Scope>);
     static_assert(eastl::is_trivially_copyable_v<ScopeAttachment>);
+    static_assert(eastl::is_trivially_copyable_v<ScopeItem>);
 }

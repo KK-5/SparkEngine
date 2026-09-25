@@ -385,6 +385,37 @@ namespace Spark::Render
             return ScopeOrderKey{ passContext.Get<PassGlobalTimeline>(scope.m_pass).m_position, scope.m_index };
         }
 
+        //! Put on every Scope the range RangeT of its entries in LinkT's packed array, which is
+        //! sorted by Scope: an entry names its Scope in m_scope. A Scope with no entry gets an
+        //! empty range.
+        template<typename LinkT, typename RangeT>
+        void RecordScopeRanges(RHIContext& context)
+        {
+            for (auto [scope, data] : context.GetStorage<Scope>().each())
+            {
+                context.Add<RangeT>(scope);
+            }
+
+            auto&            links  = context.GetStorage<LinkT>();
+            const RHIHandle* packed = links.data();
+            const auto       count  = static_cast<uint32_t>(links.size());
+            for (uint32_t begin = 0; begin < count;)
+            {
+                const RHIHandle scope = links.get(packed[begin]).m_scope;
+                uint32_t        end   = begin + 1;
+                while (end < count && links.get(packed[end]).m_scope == scope)
+                {
+                    ++end;
+                }
+
+                RangeT& range = context.Get<RangeT>(scope);
+                ASSERT(range.m_begin == range.m_end,
+                    "[RenderGraphCompiler] A Scope's entries are not contiguous after sorting.");
+                range = RangeT{ begin, end };
+                begin = end;
+            }
+        }
+
         ScopeAttachmentOrderKey MakeScopeAttachmentOrderKey(
             RHIHandle attachment, const RHIContext& context, const PassContext& passContext)
         {
@@ -451,31 +482,16 @@ namespace Spark::Render
             }
         }
 
-        // Each Scope's attachments now sit contiguously in the packed array: record where, so
-        // they can be reached without walking every Scope before.
-        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        context.Sort<ScopeItem>([&](const ScopeItem& lhs, const ScopeItem& rhs)
         {
-            context.Add<ScopeAttachmentRange>(scope);
-        }
+            return MakeScopeOrderKey(context.Get<Scope>(lhs.m_scope), passContext)
+                 < MakeScopeOrderKey(context.Get<Scope>(rhs.m_scope), passContext);
+        });
 
-        auto&            attachments = context.GetStorage<ScopeAttachment>();
-        const RHIHandle* packed      = attachments.data();
-        const auto       count       = static_cast<uint32_t>(attachments.size());
-        for (uint32_t begin = 0; begin < count;)
-        {
-            const RHIHandle scope = attachments.get(packed[begin]).m_scope;
-            uint32_t        end   = begin + 1;
-            while (end < count && attachments.get(packed[end]).m_scope == scope)
-            {
-                ++end;
-            }
-
-            ScopeAttachmentRange& range = context.Get<ScopeAttachmentRange>(scope);
-            ASSERT(range.m_begin == range.m_end,
-                "[RenderGraphCompiler] A Scope's attachments are not contiguous after sorting.");
-            range = ScopeAttachmentRange{ begin, end };
-            begin = end;
-        }
+        // Each Scope's attachments and items now sit contiguously in their packed arrays:
+        // record where, so they can be reached without walking every Scope before.
+        RecordScopeRanges<ScopeAttachment, ScopeAttachmentRange>(context);
+        RecordScopeRanges<ScopeItem, ScopeItemRange>(context);
     }
 
     void RenderGraphCompiler::CompileActiveQueues(RHIContext& context)
@@ -1042,8 +1058,19 @@ namespace Spark::Render
 
     namespace
     {
+        //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those its
+        //! pass collects through a static .Accepts.
+        void AppendItems(
+            RHIHandle scope, Pass pass, RHIHandle view, const PassCapabilities& capabilities,
+            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+        {
+            const eastl::span<const RHIHandle> items = GetScopeItems(context, scope);
+            submitList.insert(submitList.end(), items.begin(), items.end());
+            capabilities.m_collectSubmitItems(context, passContext, pass, view, submitList);
+        }
+
         void AppendScopeSubmissions(
-            Pass pass, const RHI::RenderPassBeginInfo* beginInfo,
+            RHIHandle scope, Pass pass, const RHI::RenderPassBeginInfo* beginInfo,
             PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
             const auto* capabilities = passContext.TryGet<PassCapabilities>(pass);
@@ -1059,7 +1086,7 @@ namespace Spark::Render
                     passContext.Get<PassName>(pass).m_name.GetCStr());
                 if (!passContext.Has<RenderPassTag>(pass))
                 {
-                    capabilities->m_collectSubmitItems(context, passContext, pass, NullHandle, submitList);
+                    AppendItems(scope, pass, NullHandle, *capabilities, passContext, context, submitList);
                 }
                 return;
             }
@@ -1098,7 +1125,7 @@ namespace Spark::Render
                 }
 
                 submitList.push_back(view);
-                capabilities->m_collectSubmitItems(context, passContext, pass, view, submitList);
+                AppendItems(scope, pass, view, *capabilities, passContext, context, submitList);
             }
         }
     }
@@ -1108,14 +1135,17 @@ namespace Spark::Render
     {
         for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
-            // Items are still collected per pass, so a second Scope would receive them again.
-            ASSERT(data.m_index == 0,
-                "[RenderGraphCompiler] Pass {} has more than one Scope; its items cannot be split between them yet.",
+            // Items a pass collects through a static .Accepts would land in each of its Scopes.
+            ASSERT(data.m_index == 0
+                    || !passContext.Has<PassCapabilities>(data.m_pass)
+                    || passContext.Get<PassCapabilities>(data.m_pass).m_accepts == nullptr,
+                "[RenderGraphCompiler] Pass {} has more than one Scope and a static .Accepts; "
+                "its items cannot be split between them.",
                 passContext.Get<PassName>(data.m_pass).m_name.GetCStr());
 
             ScopeSubmitRange range;
             range.m_begin = static_cast<uint32_t>(submitList.size());
-            AppendScopeSubmissions(data.m_pass, context.TryGet<RHI::RenderPassBeginInfo>(scope),
+            AppendScopeSubmissions(scope, data.m_pass, context.TryGet<RHI::RenderPassBeginInfo>(scope),
                 passContext, context, submitList);
             range.m_end = static_cast<uint32_t>(submitList.size());
 

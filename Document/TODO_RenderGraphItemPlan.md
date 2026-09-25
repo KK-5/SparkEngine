@@ -593,7 +593,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 | B1 | 反射按输入记录 stage；pass 的 space2 SRG 句柄放在 pass 实体上（`PassBindings`）；删掉 pass 上的绑定集合，lowering 直接写 `ScopeState` | — | 完成 |
 | B2 | 共享核心 + render / compute 的声明器与 Scope；按角色声明访问；Scope 按需创建 | DepthPre | 完成 |
 | B3 | `.Bind` / `Sampler` / `Constant`（全落 space2）；`CompileScopeBindings`；未绑定槽写 null；stage 无来源报错；`Import` / `ReadPrevious` | 全屏 pass、GBuffer，删 `.Compile` | 完成 |
-| B4 | `ScopeItem`；`Draw` / `DrawFullscreen` / `Dispatch` / `Copy`；提交区间按 Scope 展开 | 全屏 pass；删全屏三角形实体；Skybox 改条件 `Draw` | |
+| B4 | `ScopeItem` 与 `ScopeItemRange`；render Scope 的 `Draw`（`Dispatch` 随 C，`Copy` 随第一个 copy pass）；提交区间带上 Scope 自己的 item；删 `SubmitDrawBatch` | 全屏 pass；删全屏三角形实体；Skybox 迁移、改条件 `Draw` | 完成 |
 | B5 | Scope 上的 `Accepts<>` 与 `ItemSelection`；router 不打 PassTag | DepthPre、GBuffer、Shadow | |
 | B6 | ShadowProjection 收回 draw | ShadowProjection | |
 | B7 | `.Execute` 按 Scope 调用；删 `.CustomPipeline()` | UI | |
@@ -640,7 +640,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 - `AttachmentStage` 没有 Geometry，绑到 GS 输入的访问现在断言；有 GS 用户时补上。
 - Skybox 的 Execute 只是条件绘制，改为 Build 里条件 `Draw`；不透明工作只剩 UI。
 - 执行时不再逐条判断条目：现在提交区间里每个条目都要 `TryGet<View>`，再按 DrawItem / DispatchItem / CopyItem
-  依次试，随 draw 数线性增长。视图边界由 lowering 给出，条目类型由 Scope 决定，ScopeItem 设计时一并定。
+  依次试，随 draw 数线性增长。视图边界由 lowering 给出，条目类型由 Scope 决定；会改提交表格式，与 Release 下复测帧率一起做。
   按 Scope / attachment 的 TryGet 数量固定，不必处理；真成问题时在 `ContextStorage` 里按类型序号缓存存储指针，
   不改调用方。
 

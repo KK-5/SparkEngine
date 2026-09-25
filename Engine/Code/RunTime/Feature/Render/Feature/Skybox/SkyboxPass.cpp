@@ -29,7 +29,6 @@
 
 #include <Resource/AssetManagerInterface.h>
 
-#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
 #include <Skybox/Components.h>   // Skybox::ActiveSkyCubeTag
 
 namespace Spark::Render
@@ -94,86 +93,39 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<FullScreenTriangleTag>()
             .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
-            .Build([&, cfg](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
-                Render::ImageAttachmentBindInfo colorBind;
-                colorBind.m_slot  = RHI::InputName("SceneColor");
-                colorBind.m_usage = RHI::AttachmentUsage::RenderTarget;
-                colorBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
-                colorBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                colorBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                RHI::AttachmentLoadStoreAction load;
+                load.m_loadAction  = RHI::AttachmentLoadAction::Load;
+                load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                builder.WriteImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
-                    RHI::AttachmentId("SceneColor"), colorBind);
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
+                s.DepthRead(RHI::AttachmentId("SceneDepth"));
+                s.Sampler(RHI::InputName("g_SkySampler"),
+                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
-                Render::ImageAttachmentBindInfo depthBind;
-                depthBind.m_slot  = RHI::InputName("SceneDepth");
-                depthBind.m_usage = RHI::AttachmentUsage::DepthStencil;
-                depthBind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
-                depthBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                depthBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-
-                builder.ReadImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
-                    RHI::AttachmentId("SceneDepth"), depthBind);
-
-                // Import the active skybox cube (SkyboxSystem tags it ActiveSkyCubeTag at
-                // creation) once it is materialized AND its upload has been submitted — see
-                // IsResourceReady for why both are required. No cube -> no import, and
-                // Compile below binds a null descriptor, so the sky reads black.
+                // The active skybox cube (SkyboxSystem tags it ActiveSkyCubeTag at creation),
+                // once it is materialized AND its upload has been submitted — see IsResourceReady
+                // for why both are required. No cube -> nothing drawn, and g_SkyCube, bound by
+                // nothing, is nulled rather than left holding a deleted skybox.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 RHI::RHIHandle cube = RHI::NullHandle;
                 rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
                     [&](RHI::RHIHandle e) { cube = e; });
-                if (IsResourceReady(rhiCtx, cube))
-                {
-                    Render::ImportedImageAttachmentBindInfo cubeBind;
-                    cubeBind.m_slot           = RHI::InputName("SkyCube");
-                    cubeBind.m_image          = cube;
-                    cubeBind.m_viewDescriptor = RHI::ImageViewDescriptor::CreateCubemap();
-                    cubeBind.m_access         = RHI::AttachmentAccess::Read;
-                    cubeBind.m_usage          = RHI::AttachmentUsage::Shader;
-                    cubeBind.m_stage          = RHI::AttachmentStage::FragmentShader;
-                    cubeBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-                    cubeBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-                    builder.ImportImageAttachment<SPARK_PASS_TAG("SkyboxPass")>(
-                        RHI::AttachmentId("SkyCube"), cubeBind);
-                }
-            })
-            .Compile([](RenderGraphCompiler& compiler)
-            {
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("SkyboxPass")>(
-                    rhiCtx, 
-                    RHI::InputName("SkyCube"), 
-                    compiler.GetFrameIndex()
-                );
-                // A null view is bound, never skipped. Returning early here would leave the
-                // PREVIOUS frame's cube in the SRG: the sky would keep drawing an already
-                // deleted skybox, and the SRG's ConstPtr would pin its memory forever.
-                // ShaderInputCompiler substitutes a proper null descriptor, which reads as
-                // zero -- so an absent cube renders black, which is what this pass has
-                // always claimed to do.
-                SetPassShaderSampler<SPARK_PASS_TAG("SkyboxPass")>(
-                    2,
-                    RHI::InputName("g_SkySampler"),
-                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp)
-                );
-                SetPassShaderImage<SPARK_PASS_TAG("SkyboxPass")>(2, RHI::InputName("g_SkyCube"), view);
-            })
-            .Execute([](ExecuteWork& work, RenderGraphExecuter& executer)
-            {
-                auto& rhi = *RHI::RHIExecuteContext::Current();
-
-                if (!FindPassAttachmentImageView<SPARK_PASS_TAG("SkyboxPass")>(
-                        rhi, RHI::InputName("SkyCube"), executer.GetFrameIndex()))
+                if (!IsResourceReady(rhiCtx, cube))
                 {
                     return;
                 }
 
-                SubmitDrawBatch(work, executer);
+                p.Import(RHI::AttachmentId("SkyCube"), cube);
+                s.Read(RHI::AttachmentId("SkyCube"))
+                    .View(RHI::ImageViewDescriptor::CreateCubemap())
+                    .Bind(RHI::InputName("g_SkyCube"));
+
+                s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
             })
             .Finalize()
         ;

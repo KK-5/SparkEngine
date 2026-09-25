@@ -14,7 +14,6 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 
-#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Binding/Scene/SceneBinding.h>
 #include <View/ViewTags.h>
@@ -112,7 +111,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<FullScreenTriangleTag>()
             .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
             .BuildScopes([](RenderPassScopes& p)
@@ -135,6 +133,8 @@ namespace Spark::Render
                 // it and culls sky pixels before the PS. The compiler folds both accesses into one
                 // DepthStencilRead | ShaderSampledRead barrier.
                 s.DepthRead(RHI::AttachmentId(s_depthName));
+
+                s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
 
                 // Only once ShadowProjectionPass has produced it: with no shadowed lights there is
                 // no mask, every m_shadowMaskIndex is -1, and the shader never reaches g_ShadowMask.

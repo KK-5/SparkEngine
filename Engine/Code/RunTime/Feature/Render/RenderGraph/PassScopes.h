@@ -2,6 +2,7 @@
 
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
+#include <RHI/Command/DrawArguments.h>
 #include <RHI/Format.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
@@ -101,6 +102,10 @@ namespace Spark::Render
 
         ShaderAttachment Read(const RHI::AttachmentId& name);
         ShaderAttachment ReadWrite(const RHI::AttachmentId& name);
+
+        //! A draw of this Scope that reads no vertex or index buffer (vertices come from
+        //! SV_VertexID), e.g. a full-screen triangle: DrawLinear(3, 0).
+        void Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount = 1);
 
         //! Read the copy of `name` produced last frame (see ShaderAttachment::IsPreviousFrameMissing).
         ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);

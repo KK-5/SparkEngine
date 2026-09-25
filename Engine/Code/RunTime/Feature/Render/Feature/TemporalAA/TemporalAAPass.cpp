@@ -13,8 +13,6 @@
 #include <Pass/RenderPass.h>
 #include <Pass/PassAccess.h>
 
-#include <Drawable/DrawTag.h>    // FullScreenTriangleTag
-
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
@@ -76,7 +74,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Accepts<FullScreenTriangleTag>()
             .Binds<>()
             .RendersView<MainViewTag>()
             .BuildScopes([](RenderPassScopes& p)
@@ -117,6 +114,8 @@ namespace Spark::Render
                 s.Constant(RHI::InputName("g_TemporalAAMotionFrameWeight"), settings->m_motionFrameWeight);
                 s.Constant(RHI::InputName("g_TemporalAAVarianceClipGamma"), settings->m_varianceClipGamma);
                 s.Constant(RHI::InputName("g_TemporalAAFilterSize"), settings->m_filterSize);
+
+                s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
             })
             .Finalize()
         ;

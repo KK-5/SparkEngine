@@ -38,9 +38,6 @@ namespace Spark::Render
     class RenderGraphExecuter;
     struct ScopeState;
 
-    //! Submits the DrawItems handed to a hook, for hooks that only decide whether to draw.
-    void SubmitDrawBatch(ExecuteWork& work, RenderGraphExecuter&);
-
     class RenderGraphExecuter
     {
     public:

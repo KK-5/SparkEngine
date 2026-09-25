@@ -13,9 +13,8 @@ namespace Spark::Render
     //! ReflectionsPass -- all three blend additively into the same target, so their order
     //! among themselves does not matter.
     //!
-    //! The GBuffer views are bound to this pass's own space2 SRG in the .Compile() hook -- the
-    //! phase after transient resources are materialized but before shader inputs are compiled.
-    //! Its DrawItem comes from the shared full-screen-triangle spec (FullScreenTriangleTag).
+    //! Its one Scope binds the GBuffer and depth to its shader inputs and draws a full-screen
+    //! triangle.
     struct LightsPass
     {
         static RenderPassConfig DefaultConfig();

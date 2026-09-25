@@ -1,5 +1,7 @@
 #include "PassScopes.h"
 
+#include <RHI/Command/DrawItem.h>
+
 namespace Spark::Render
 {
     namespace
@@ -112,6 +114,14 @@ namespace Spark::Render
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite,
             RHI::AttachmentStage::Uninitialized, nullptr), false);
+    }
+
+    void RenderScope::Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount)
+    {
+        RHI::DrawItem item;
+        item.m_drawArguments    = arguments;
+        item.m_drawInstanceArgs = RHI::DrawInstanceArguments(instanceCount, 0);
+        RHIExecuteContext::Current()->Add<RHI::DrawItem>(m_builder->AddScopeItem(m_scope), item);
     }
 
     ShaderAttachment RenderScope::ReadPrevious(const RHI::AttachmentId& name)
