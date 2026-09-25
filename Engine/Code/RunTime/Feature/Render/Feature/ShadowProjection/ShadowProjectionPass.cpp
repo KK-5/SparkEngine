@@ -7,16 +7,12 @@
 #include <RHI/HardwareQueue.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
-#include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
-#include <Pass/PassAccess.h>
 #include <Pass/PassContext.h>
-#include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
-#include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphUtils.h>
 
 #include <Binding/Scene/SceneBinding.h>
@@ -30,26 +26,15 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr const char* s_normalSlot = "GBufferNormal";
-        constexpr const char* s_depthSlot  = "SceneDepth";
-        constexpr const char* s_atlasSlot  = "ShadowAtlasRead";
-
-        Render::ImageAttachmentBindInfo ShaderReadBind(const char* slot, bool asDepth)
+        //! Slices the shadowed lights fill this frame: the draw's instance count. Unlike
+        //! ShadowMaskSliceCount, 0 when there are none.
+        uint32_t ShadowedSliceCount(RHI::RHIContext& ctx)
         {
-            Render::ImageAttachmentBindInfo bind;
-            bind.m_slot  = RHI::InputName(slot);
-            bind.m_usage = RHI::AttachmentUsage::Shader;
-            bind.m_stage = RHI::AttachmentStage::FragmentShader;
-            if (asDepth)
+            for (auto [entity, layout] : ctx.GetView<ShadowMaskLayout>().each())
             {
-                // Both depth resources are typeless underneath; a ShaderRead-only R32_FLOAT
-                // view keeps ImageView init from also building a DSV at that format.
-                bind.m_view.m_overrideFormat    = RHI::Format::R32_FLOAT;
-                bind.m_view.m_overrideBindFlags = RHI::ImageBindFlags::ShaderRead;
+                return layout.m_sliceCount;
             }
-            bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Load;
-            bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
-            return bind;
+            return 0;
         }
     }
 
@@ -63,7 +48,7 @@ namespace Spark::Render
             return 0;
         }
 
-        for (auto [entity, layout] : ctx.GetView<ShadowMaskDrawTag, ShadowMaskLayout>().each())
+        for (auto [entity, layout] : ctx.GetView<ShadowMaskLayout>().each())
         {
             // At least one slice whenever the mask exists at all. Zero shadowed lights still
             // gets a cleared slice rather than no texture, so the lighting pass binds the
@@ -122,7 +107,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
-            .Build([](RenderGraphBuilder& builder)
+            .BuildScopes([](RenderPassScopes& p)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
 
@@ -132,62 +117,45 @@ namespace Spark::Render
                     return;
                 }
 
-                const auto size = builder.GetRenderSize();
-                auto desc = RHI::ImageDescriptor::Create2DArray(
+                const auto size = p.GetRenderSize();
+                p.CreateImage(RHI::AttachmentId("ShadowMask"), RHI::ImageDescriptor::Create2DArray(
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                    size.x, size.y, static_cast<uint16_t>(sliceCount), kShadowMaskFormat);
+                    size.x, size.y, static_cast<uint16_t>(sliceCount), kShadowMaskFormat));
 
-                Render::ImageAttachmentBindInfo maskBind;
-                maskBind.m_slot  = RHI::InputName("ShadowMask");
-                maskBind.m_usage = RHI::AttachmentUsage::RenderTarget;
-                maskBind.m_stage = RHI::AttachmentStage::ColorAttachmentOutput;
+                RHI::AttachmentLoadStoreAction clear;
+                clear.m_clearValue  = RHI::ClearValue::CreateVector4Float(1.f, 1.f, 1.f, 1.f);
+                clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                clear.m_storeAction = RHI::AttachmentStoreAction::Store;
+
                 // A one-slice array is not an array as far as view creation is concerned
                 // unless the view says so, and one to four shadowed lights is one slice.
-                maskBind.m_view.m_isArray = 1;
-                maskBind.m_action.m_clearValue  = RHI::ClearValue::CreateVector4Float(1.f, 1.f, 1.f, 1.f);
-                maskBind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                maskBind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                RHI::ImageViewDescriptor maskView;
+                maskView.m_isArray = 1;
 
-                builder.CreateImageAttachment<SPARK_PASS_TAG("ShadowProjectionPass")>(
-                    RHI::AttachmentId("ShadowMask"), desc, maskBind, RHI::AttachmentAccess::Write);
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId("ShadowMask"), clear).View(maskView);
 
-                builder.ReadImageAttachment<SPARK_PASS_TAG("ShadowProjectionPass")>(
-                    RHI::AttachmentId(s_normalSlot), ShaderReadBind(s_normalSlot, false));
-                builder.ReadImageAttachment<SPARK_PASS_TAG("ShadowProjectionPass")>(
-                    RHI::AttachmentId(s_depthSlot), ShaderReadBind(s_depthSlot, true));
-
-                Render::ImageAttachmentBindInfo atlasBind = ShaderReadBind(s_atlasSlot, true);
-                builder.ReadImageAttachment<SPARK_PASS_TAG("ShadowProjectionPass")>(
-                    RHI::AttachmentId("ShadowAtlas"), atlasBind);
-            })
-            .Compile([](RenderGraphCompiler& compiler)
-            {
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                const uint32_t frameIndex = compiler.GetFrameIndex();
-
-                struct Input { const char* m_slot; const char* m_name; };
-                constexpr Input inputs[] = {
-                    { s_normalSlot, "g_GBufferNormal" },
-                    { s_depthSlot,  "g_Depth"         },
-                    { s_atlasSlot,  "g_ShadowAtlas"   },
-                };
-                for (const Input& in : inputs)
-                {
-                    if (RHI::ImageView* view = FindPassAttachmentImageView<SPARK_PASS_TAG("ShadowProjectionPass")>(
-                            rhiCtx, RHI::InputName(in.m_slot), frameIndex))
-                    {
-                        SetPassShaderImage<SPARK_PASS_TAG("ShadowProjectionPass")>(
-                            kPerPassSpaceId, RHI::InputName(in.m_name), view);
-                    }
-                }
+                // Both depth resources are typeless underneath, read as R32_FLOAT.
+                s.Read(RHI::AttachmentId("GBufferNormal")).Bind(RHI::InputName("g_GBufferNormal"));
+                s.Read(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
+                s.Read(RHI::AttachmentId("ShadowAtlas")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_ShadowAtlas"));
 
                 RHI::SamplerState shadowSampler = RHI::SamplerState::Create(
                     RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp);
                 shadowSampler.m_reductionType  = RHI::ReductionType::Comparison;
                 // Reversed-Z: lit when the receiver is at or nearer than the stored occluder.
                 shadowSampler.m_comparisonFunc = RHI::ComparisonFunc::GreaterEqual;
-                SetPassShaderSampler<SPARK_PASS_TAG("ShadowProjectionPass")>(
-                    kPerPassSpaceId, RHI::InputName("g_ShadowSampler"), shadowSampler);
+                s.Sampler(RHI::InputName("g_ShadowSampler"), shadowSampler);
+
+                // With no shadowed light there is no draw, but the mask still exists at one
+                // slice: it clears to 1, which already reads as fully lit, and keeping it bound
+                // every frame spares the lighting pass a sometimes-bound texture.
+                const uint32_t shadowedSlices = ShadowedSliceCount(rhiCtx);
+                if (shadowedSlices > 0)
+                {
+                    // Full-screen triangle, one instance per slice.
+                    s.Draw(RHI::DrawLinear(3, 0), shadowedSlices);
+                }
             })
             .Finalize()
         ;

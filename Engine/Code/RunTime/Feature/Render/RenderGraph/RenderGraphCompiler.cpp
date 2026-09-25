@@ -1058,11 +1058,9 @@ namespace Spark::Render
 
     namespace
     {
-        //! Under `view` (NullHandle for a viewless pass): the Scope's own items, those it
-        //! selects, then those stamped with its pass's PassTag.
-        void AppendItems(
-            RHIHandle scope, Pass pass, RHIHandle view, const PassCapabilities& capabilities,
-            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+        //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those it
+        //! selects.
+        void AppendItems(RHIHandle scope, RHIHandle view, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
             const eastl::span<const RHIHandle> items = GetScopeItems(context, scope);
             submitList.insert(submitList.end(), items.begin(), items.end());
@@ -1073,7 +1071,6 @@ namespace Spark::Render
                     collect(context, view, submitList);
                 }
             }
-            capabilities.m_collectSubmitItems(context, passContext, pass, view, submitList);
         }
 
         void AppendScopeSubmissions(
@@ -1081,7 +1078,7 @@ namespace Spark::Render
             PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
             const auto* capabilities = passContext.TryGet<PassCapabilities>(pass);
-            if (!capabilities || !capabilities->m_collectSubmitItems)
+            if (!capabilities)
             {
                 return;
             }
@@ -1093,7 +1090,7 @@ namespace Spark::Render
                     passContext.Get<PassName>(pass).m_name.GetCStr());
                 if (!passContext.Has<RenderPassTag>(pass))
                 {
-                    AppendItems(scope, pass, NullHandle, *capabilities, passContext, context, submitList);
+                    AppendItems(scope, NullHandle, context, submitList);
                 }
                 return;
             }
@@ -1132,7 +1129,7 @@ namespace Spark::Render
                 }
 
                 submitList.push_back(view);
-                AppendItems(scope, pass, view, *capabilities, passContext, context, submitList);
+                AppendItems(scope, view, context, submitList);
             }
         }
     }

@@ -17,7 +17,7 @@ N 跟渲染分辨率走（720p~4K 约 5~7），窗口一改就变。
 - **渲染图里还没有 compute 的提交路径**——执行器只提交 `DrawItem`，compute pass 全部落进"没有批次"的分支，
   工作挤在一次 Execute hook 里。
 
-同形状的后续用例：P4 的 HZB、现由 `ShadowMaskSystem` 代管 draw 的 `ShadowProjectionPass`、在 Execute 里手写
+同形状的后续用例：P4 的 HZB、原由 `ShadowMaskSystem` 代管 draw 的 `ShadowProjectionPass`、在 Execute 里手写
 两条屏障的 `CopyFrameBufferPass`。NRD 的 dispatch 列表 shader 异构，一个 PSO 装不下，走不透明工作。
 
 追下去发现，这些假设背后是同一个问题：**执行期仍在以 pass 为单位工作，而 pass 的边界难以界定。**
@@ -597,7 +597,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 | B3 | `.Bind` / `Sampler` / `Constant`（全落 space2）；`CompileScopeBindings`；未绑定槽写 null；stage 无来源报错；`Import` / `ReadPrevious` | 全屏 pass、GBuffer，删 `.Compile` | 完成 |
 | B4 | `ScopeItem` 与 `ScopeItemRange`；render Scope 的 `Draw`（`Dispatch` 随 C，`Copy` 随第一个 copy pass）；提交区间带上 Scope 自己的 item；删 `SubmitDrawBatch` | 全屏 pass；删全屏三角形实体；Skybox 迁移、改条件 `Draw` | 完成 |
 | B5 | Scope 上的 `Accepts<>` 与 `ScopeSelections`；router 不打 PassTag，删静态 `.Accepts` | DepthPre、GBuffer、Shadow | 完成 |
-| B6 | ShadowProjection 收回 draw | ShadowProjection | |
+| B6 | ShadowProjection 收回 draw；删 `m_collectSubmitItems` | ShadowProjection | 完成 |
 | B7 | `.Execute` 按 Scope 调用；删 `.CustomPipeline()` | UI | |
 | B8 | 删旧访问 API、`.Compile`、带 PassTag 的查找与 `SetPassShader*`；改回 `.Build` | — | |
 

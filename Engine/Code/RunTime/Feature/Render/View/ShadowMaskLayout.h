@@ -42,16 +42,11 @@ namespace Spark::Render
         uint32_t m_index = 0;
     };
 
-    //! On the draw entity ShadowMaskSystem owns: slices in use this frame. The projection
-    //! pass reads it for the attachment's array size, so the array and the draw's instance
-    //! count come from one value.
+    //! On the one entity ShadowMaskSystem owns: slices in use this frame. The projection
+    //! pass reads it for both the attachment's array size and its draw's instance count,
+    //! so the two come from one value.
     struct ShadowMaskLayout
     {
         uint32_t m_sliceCount = 0;
     };
-
-    //! Marks that draw entity as ShadowMaskSystem's, so shutdown can find it. The entity
-    //! carries its own DrawItem and pass tag and never passes through DrawItemRouter --
-    //! a draw whose instance count is a per-frame quantity has nothing to derive once.
-    struct ShadowMaskDrawTag {};
 }

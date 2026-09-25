@@ -235,7 +235,6 @@ namespace Spark::Render
 
             if (m_hasCapabilities)
             {
-                m_capabilities.m_collectSubmitItems = &CollectPassItems<PassTag, RHI::DrawItem>;
                 m_context->Add<PassCapabilities>(pass, m_capabilities);
             }
 

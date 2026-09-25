@@ -18,9 +18,8 @@ namespace Spark::Render
     //! lighting passes read. Runs between GBufferPass and the lighting passes.
     //!
     //! One instance per mask slice, each writing the four lights packed into it, selected by
-    //! SV_RenderTargetArrayIndex. The draw comes from ShadowMaskSystem, which owns its
-    //! DrawItem outright -- its instance count follows the light set, so there is nothing to
-    //! derive once -- and stamps it with this pass's PassTag.
+    //! SV_RenderTargetArrayIndex. Its Scope draws the full-screen triangle instanced per slice,
+    //! the count ShadowMaskSystem records in ShadowMaskLayout.
     struct ShadowProjectionPass
     {
         static RenderPassConfig DefaultConfig();
