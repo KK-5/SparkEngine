@@ -1,5 +1,6 @@
 #pragma once
 
+#include <EASTL/fixed_vector.h>
 #include <EASTL/unordered_set.h>
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
@@ -195,6 +196,10 @@ namespace Spark::Render
 
     private:
         friend class RenderGraph;
+        friend class RenderPassScopes;
+        friend class RenderScope;
+        friend class ComputePassScopes;
+        friend class ComputeScope;
 
         void AddEdge(Pass from, Pass to);
 
@@ -226,25 +231,51 @@ namespace Spark::Render
             return access;
         }
 
-        // Pure registration: build attachment entity, attach components, record use. No validation.
-        // Takes the attachment by value: resolves an imported resource link (m_image/
-        // m_buffer) at declaration time when it was not set by the caller.
+        //! Open a new Scope of the current pass, numbered after those it already has.
+        RHIHandle OpenScope();
+
+        //! The Scope the PassTag-templated API declares into: opened on its first attachment,
+        //! so a pass declared through RenderPassScopes gets none it did not ask for.
+        RHIHandle CurrentScope();
+
+        //! Introduce a transient resource under `name`, with no access yet.
+        void CreateImage(const RHI::AttachmentId& name, const RHI::ImageDescriptor& desc);
+        void CreateBuffer(const RHI::AttachmentId& name, const RHI::BufferDescriptor& desc);
+
+        //! Add to `scope` an access of the resource called `name`: reads use its latest
+        //! version; writes consume it (a graph-only read) and produce the next. Whether the
+        //! attachment is an image or a buffer is the resource's. The first clearing access
+        //! of a transient image gives the resource its clear value. `colorCount` numbers the
+        //! Scope's render targets (null outside a render pass); `action` is for render
+        //! targets and depth only.
+        RHIHandle AddScopeAttachment(
+            RHIHandle scope, uint32_t* colorCount, const RHI::AttachmentId& name,
+            RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage,
+            const RHI::AttachmentLoadStoreAction* action);
+
+        // Pure registration into `scope`: build attachment entity, attach components, record
+        // use. No validation. The PassTag-templated forms also stamp PassTag, which the
+        // slot-based lookups of the PassTag API find attachments by.
+        RHIHandle AddImageAttachment(const ImagePassAttachment& attachment, RHIHandle scope, uint32_t* colorCount);
+        RHIHandle AddBufferAttachment(const BufferPassAttachment& attachment, RHIHandle scope);
+
+        void CountScopeAttachment(RHIHandle scope);
+
+        // Takes the attachment by value: links the imported resource (m_image / m_buffer)
+        // at declaration time when it was not set by the caller.
         template<typename PassTag>
         RHIHandle RegisterBufferAttachment(BufferPassAttachment attachment);
 
         template<typename PassTag>
         RHIHandle RegisterImageAttachment(ImagePassAttachment attachment);
 
-        // Resolve an attachment name to an imported resource entity (ImportedTag).
-        // Imported resources exist from import time (before any Build), so the link is
-        // set right here at declaration. Returns NullHandle when the name is not an
-        // imported resource — then it is a transient name, resolved later by
-        // CompileTransientResources.
-        static RHIHandle FindImportedResourceByName(const RHI::AttachmentId& name);
+        // The imported resource declared under `name`, or NullHandle when the name is
+        // transient — then it is linked later by CompileTransientResources.
+        RHIHandle FindImportedResource(const RHI::AttachmentId& name) const;
 
-        // Counterpart for transient resources, which exist from the Create that declared
-        // them. Used to link a previous-frame read to the resource it mirrors.
-        static RHIHandle FindTransientImageByName(const RHI::AttachmentId& name);
+        // The transient image declared under `name`, or NullHandle. Used to link a
+        // previous-frame read to the resource it mirrors.
+        RHIHandle FindTransientImage(const RHI::AttachmentId& name) const;
 
         // The pooled image holding last frame's `name`, or NullHandle.
         static RHIHandle FindPreviousFrameImage(const RHI::AttachmentId& name);
@@ -287,20 +318,40 @@ namespace Spark::Render
             uint32_t inDegree = 0;
         };
 
+        //! A Scope the current pass opened, for the checks at EndPass.
+        struct OpenedScope
+        {
+            RHIHandle m_scope {NullHandle};
+            uint32_t  m_attachmentCount {0};
+        };
+
+        //! What Create / Import put under a name: the resource, and the latest version of it
+        //! produced so far (bumped by every write).
+        struct ResourceEntry
+        {
+            RHIHandle m_resource {NullHandle};
+            uint32_t  m_latestVersion {0};
+        };
+
         Pass m_currentPass {NullPass};
 
-        //! The one Scope every pass has until passes can declare more.
+        //! See CurrentScope.
         RHIHandle m_currentScope {NullHandle};
 
         //! RenderTarget attachments declared in m_currentScope so far: the next one's index.
         uint32_t m_currentColorCount {0};
 
+        eastl::fixed_vector<OpenedScope, 8> m_passScopes;
+
+        //! Shader accesses of a render pass declared without a stage: each must get one
+        //! before EndPass.
+        eastl::fixed_vector<RHIHandle, 8> m_unstagedAttachments;
+
         eastl::unordered_map<Pass, PassNode> m_graph;
 
         eastl::unordered_map<AttachmentId, eastl::vector<AttachmentEntry>> m_attachmentUses;
 
-        // bare-name → latest produced version. Seeded by Create/Import; bumped by Write*.
-        eastl::unordered_map<RHI::AttachmentId, uint32_t> m_latestVersions;
+        eastl::unordered_map<RHI::AttachmentId, ResourceEntry> m_resources;
 
         uint32_t m_frameIndex { 0 };
 
@@ -332,54 +383,51 @@ namespace Spark::Render
 
     inline uint32_t RenderGraphBuilder::LookupLatestVersion(const RHI::AttachmentId& name) const
     {
-        auto it = m_latestVersions.find(name);
-        ASSERT(it != m_latestVersions.end(),
+        auto it = m_resources.find(name);
+        ASSERT(it != m_resources.end(),
             "AttachmentId '{}' has not been declared (Create / Import) yet. "
             "Passes must be declared in dependency order, a Read/Write must "
             "appear after the corresponding Create/Import.",
             name.GetCStr());
-        return it->second;
+        return it->second.m_latestVersion;
     }
 
     inline uint32_t RenderGraphBuilder::BumpVersion(const RHI::AttachmentId& name)
     {
-        auto it = m_latestVersions.find(name);
-        ASSERT(it != m_latestVersions.end(),
+        auto it = m_resources.find(name);
+        ASSERT(it != m_resources.end(),
             "AttachmentId '{}' has not been declared (Create / Import) yet. "
             "Passes must be declared in dependency order — a Write must "
             "appear after the corresponding Create/Import.",
             name.GetCStr());
-        return ++(it->second);
+        return ++(it->second.m_latestVersion);
     }
 
     // ============================================================
     // Registration helpers
     // ============================================================
 
-    inline RHIHandle RenderGraphBuilder::FindImportedResourceByName(const RHI::AttachmentId& name)
+    inline RHIHandle RenderGraphBuilder::FindImportedResource(const RHI::AttachmentId& name) const
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
-        for (auto [resource, rn] : rhiContext.GetView<ImportedTag, ResourceName>().each())
+        auto it = m_resources.find(name);
+        if (it == m_resources.end() || !RHIExecuteContext::Current()->Has<ImportedTag>(it->second.m_resource))
         {
-            if (rn.m_name == name)
-            {
-                return resource;
-            }
+            return NullHandle;
         }
-        return NullHandle;
+        return it->second.m_resource;
     }
 
-    inline RHIHandle RenderGraphBuilder::FindTransientImageByName(const RHI::AttachmentId& name)
+    inline RHIHandle RenderGraphBuilder::FindTransientImage(const RHI::AttachmentId& name) const
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
-        for (auto [resource, rn, desc] : rhiContext.GetView<TransientTag, ResourceName, RHI::ImageDescriptor>().each())
+        auto it = m_resources.find(name);
+        if (it == m_resources.end())
         {
-            if (rn.m_name == name)
-            {
-                return resource;
-            }
+            return NullHandle;
         }
-        return NullHandle;
+        const auto& rhiContext = *RHIExecuteContext::Current();
+        const RHIHandle resource = it->second.m_resource;
+        return rhiContext.Has<TransientTag>(resource) && rhiContext.Has<RHI::ImageDescriptor>(resource)
+            ? resource : NullHandle;
     }
 
     inline RHIHandle RenderGraphBuilder::FindPreviousFrameImage(const RHI::AttachmentId& name)
@@ -398,40 +446,25 @@ namespace Spark::Render
     template<typename PassTag>
     RHIHandle RenderGraphBuilder::RegisterBufferAttachment(BufferPassAttachment attachment)
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
         // An earlier frame's copy never resolves against this frame's resources.
         if (attachment.m_buffer == NullHandle && attachment.m_attachmentId.m_frameOffset == 0)
         {
-            attachment.m_buffer = FindImportedResourceByName(attachment.m_attachmentId.m_id);
+            attachment.m_buffer = FindImportedResource(attachment.m_attachmentId.m_id);
         }
-        RHIHandle attachmentHandle = rhiContext.CreateEntity();
-        rhiContext.Add<BufferPassAttachment>(attachmentHandle, attachment);
-        rhiContext.Add<PassTag>(attachmentHandle);
-        rhiContext.Add<ScopeAttachment>(attachmentHandle, ScopeAttachment{ m_currentScope });
-        m_attachmentUses[attachment.m_attachmentId].emplace_back(
-            attachment.m_pass, attachment.m_access);
+        const RHIHandle attachmentHandle = AddBufferAttachment(attachment, CurrentScope());
+        RHIExecuteContext::Current()->Add<PassTag>(attachmentHandle);
         return attachmentHandle;
     }
 
     template<typename PassTag>
     RHIHandle RenderGraphBuilder::RegisterImageAttachment(ImagePassAttachment attachment)
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
         if (attachment.m_image == NullHandle && attachment.m_attachmentId.m_frameOffset == 0)
         {
-            attachment.m_image = FindImportedResourceByName(attachment.m_attachmentId.m_id);
+            attachment.m_image = FindImportedResource(attachment.m_attachmentId.m_id);
         }
-        RHIHandle attachmentHandle = rhiContext.CreateEntity();
-        rhiContext.Add<ImagePassAttachment>(attachmentHandle, attachment);
-        rhiContext.Add<PassTag>(attachmentHandle);
-        rhiContext.Add<ScopeAttachment>(attachmentHandle, ScopeAttachment{ m_currentScope });
-        if (attachment.m_usage == RHI::AttachmentUsage::RenderTarget)
-        {
-            rhiContext.Add<ColorAttachmentIndex>(attachmentHandle, ColorAttachmentIndex{ m_currentColorCount++ });
-        }
-        m_attachmentUses[attachment.m_attachmentId].emplace_back(
-            attachment.m_pass,
-            NormalizeImageAccess(attachment.m_access, attachment.m_action));
+        const RHIHandle attachmentHandle = AddImageAttachment(attachment, CurrentScope(), &m_currentColorCount);
+        RHIExecuteContext::Current()->Add<PassTag>(attachmentHandle);
         return attachmentHandle;
     }
 
@@ -526,7 +559,7 @@ namespace Spark::Render
         a.m_image             = resource;
         a.m_pass              = m_currentPass;
 
-        m_latestVersions.emplace(name, 0u);
+        m_resources.emplace(name, ResourceEntry{ resource, 0 });
         RegisterImageAttachment<PassTag>(a);
     }
 
@@ -581,7 +614,7 @@ namespace Spark::Render
         a.m_buffer          = resource;
         a.m_pass            = m_currentPass;
 
-        m_latestVersions.emplace(name, 0u);
+        m_resources.emplace(name, ResourceEntry{ resource, 0 });
         RegisterBufferAttachment<PassTag>(a);
     }
 
@@ -600,7 +633,7 @@ namespace Spark::Render
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ASSERT(m_latestVersions.find(name) == m_latestVersions.end(),
+            ASSERT(m_resources.find(name) == m_resources.end(),
                 "AttachmentId {} has already been declared (Create / Import).",
                 name.GetCStr());
             ValidateUniqueSlot<PassTag, ImagePassAttachment>(bind.m_slot);
@@ -622,7 +655,7 @@ namespace Spark::Render
         a.m_viewDescriptor    = bind.m_view;
         a.m_pass              = m_currentPass;
 
-        m_latestVersions.emplace(name, 0u);
+        m_resources.emplace(name, ResourceEntry{ resource, 0 });
         RegisterImageAttachment<PassTag>(a);
     }
 
@@ -637,7 +670,7 @@ namespace Spark::Render
         {
             ASSERT(m_currentPass != NullPass,
                 "BeginPass must be called before declaring attachments.");
-            ASSERT(m_latestVersions.find(name) == m_latestVersions.end(),
+            ASSERT(m_resources.find(name) == m_resources.end(),
                 "AttachmentId {} has already been declared (Create / Import).",
                 name.GetCStr());
             ValidateUniqueSlot<PassTag, BufferPassAttachment>(bind.m_slot);
@@ -655,7 +688,7 @@ namespace Spark::Render
         a.m_buffer          = resource;
         a.m_pass            = m_currentPass;
 
-        m_latestVersions.emplace(name, 0u);
+        m_resources.emplace(name, ResourceEntry{ resource, 0 });
         RegisterBufferAttachment<PassTag>(a);
     }
 
@@ -772,7 +805,7 @@ namespace Spark::Render
         const AttachmentId id{ name, 0, 1 };
 
         auto& rhiContext = *RHIExecuteContext::Current();
-        const RHIHandle declared = FindTransientImageByName(name);
+        const RHIHandle declared = FindTransientImage(name);
         ASSERT(declared != NullHandle,
             "Previous-frame read of '{}' before any pass created it as a transient image. "
             "Declare the producing pass first.",
@@ -805,7 +838,7 @@ namespace Spark::Render
             rhiContext.Add<PreviousFrameOf>(previous, PreviousFrameOf{ name });
         }
 
-        // No m_latestVersions bump: nothing writes the previous frame's copy. The use
+        // No version bump: nothing writes the previous frame's copy. The use
         // entry lands under a key of its own, so BuildGraph sees readers and no writer
         // and emits no edge — it still registers the pass as a node.
         ImagePassAttachment a;

@@ -15,6 +15,7 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/Component/PassComponents.h>
+#include <RenderGraph/PassScopes.h>
 #include <Resource/Shader/ShaderBuilder.h>
 
 namespace Spark::Render
@@ -60,6 +61,17 @@ namespace Spark::Render
     
 
 
+
+    //! Allocate the pass's own per-pass (space2) ShaderBindings against its reflected layout
+    //! and record it on the pass as PassBindings. The pass builders' Finalize calls this when
+    //! the layout declares the space. The entity is created with ShaderBindingsUpdateTag so
+    //! the first compile sweep produces valid GPU bindings before the first execute, and with
+    //! PassShaderBindingsTag so teardown can reap it. It owns the binding's lifetime
+    //! (Components::ShaderBindings holds the Ptr).
+    //!
+    //! Returns NullHandle, leaving the pass without PassBindings, if the pass has no
+    //! PassPipelineLayout or if RHI services / Init fail. Defined in PassAccess.cpp.
+    RHIHandle CreatePassBindings(PassContext& passCtx, RHIContext& rhiCtx, Pass pass);
 
     // RenderPassBuilder<PassTag> + SPARK_RENDER_PASS live in <Pass/RenderPass.h>.
     // It pulls the heavy PassAccess.h chain — kept out of this common header so only
@@ -107,6 +119,17 @@ namespace Spark::Render
         ComputePassBuilder& Build(BuildFunction fn)
         {
             m_buildFunction = eastl::move(fn);
+            return *this;
+        }
+
+        //! Build through ComputePassScopes: the pass opens its Scopes itself.
+        ComputePassBuilder& BuildScopes(eastl::function<void(ComputePassScopes&)> fn)
+        {
+            m_buildFunction = [fn = eastl::move(fn)](RenderGraphBuilder& builder)
+            {
+                ComputePassScopes scopes(builder);
+                fn(scopes);
+            };
             return *this;
         }
 
@@ -170,7 +193,13 @@ namespace Spark::Render
                     m_name.GetCStr());
                 if (auto layout = BuildPipelineLayoutFromShaders(*factory, m_shaders))
                 {
+                    // Auto-create the per-pass (space2) bindings, as RenderPassBuilder does.
+                    const bool hasPerPassSpace = layout->FindSpaceGroupBySpaceId(kPerPassSpaceId) != nullptr;
                     m_context->Add<PassPipelineLayout>(pass, PassPipelineLayout{ eastl::move(layout) });
+                    if (hasPerPassSpace)
+                    {
+                        CreatePassBindings(*m_context, *RHIExecuteContext::Current(), pass);
+                    }
                 }
             }
 

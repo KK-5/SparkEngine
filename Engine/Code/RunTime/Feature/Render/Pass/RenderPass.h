@@ -140,6 +140,17 @@ namespace Spark::Render
             return *this;
         }
 
+        //! Build through RenderPassScopes: the pass opens its Scopes itself.
+        RenderPassBuilder& BuildScopes(eastl::function<void(RenderPassScopes&)> fn)
+        {
+            m_buildFunction = [fn = eastl::move(fn)](RenderGraphBuilder& builder)
+            {
+                RenderPassScopes scopes(builder);
+                fn(scopes);
+            };
+            return *this;
+        }
+
         RenderPassBuilder& Compile(CompileFunction fn)
         {
             m_compileFunction = eastl::move(fn);

@@ -83,32 +83,24 @@ namespace Spark::Render
             .Accepts<OpaqueTag>()
             .Binds<InstanceBindingTag>()
             .RendersView<MainViewTag>()
-            .Build([&, cfg](RenderGraphBuilder& builder)
+            .BuildScopes([cfg](RenderPassScopes& p)
             {
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil | RHI::ImageBindFlags::ShaderRead,
-                    builder.GetRenderSize().x, 
-                    builder.GetRenderSize().y, 
+                    p.GetRenderSize().x,
+                    p.GetRenderSize().y,
                     cfg.m_renderTargetLayout.m_depthStencilFormat);
                 depthDesc.m_multisampleState = cfg.m_multisampleState;
-                
-                Render::ImageAttachmentBindInfo bind;
-                bind.m_slot  = RHI::InputName("OutputDepth");
-                bind.m_usage = RHI::AttachmentUsage::DepthStencil;
-                bind.m_stage = RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
-                bind.m_action.m_clearValue  = RHI::ClearValue::CreateDepth(0.0f);
-                bind.m_action.m_loadAction  = RHI::AttachmentLoadAction::Clear;
-                bind.m_action.m_storeAction = RHI::AttachmentStoreAction::Store;
+                p.CreateImage(RHI::AttachmentId("SceneDepth"), depthDesc);
 
-                builder.CreateImageAttachment<SPARK_PASS_TAG("DepthPrePass")>(
-                    RHI::AttachmentId("SceneDepth"),
-                    depthDesc,
-                    bind,
-                    RHI::AttachmentAccess::Write
-                );
+                RHI::AttachmentLoadStoreAction clear;
+                clear.m_clearValue  = RHI::ClearValue::CreateDepth(0.0f);
+                clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
+                clear.m_storeAction = RHI::AttachmentStoreAction::Store;
+
+                auto s = p.Scope();
+                s.DepthWrite(RHI::AttachmentId("SceneDepth"), clear);
             })
-            .Finalize()
-            ;
-        ;
+            .Finalize();
     }
 }

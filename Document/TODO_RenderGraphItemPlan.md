@@ -204,7 +204,10 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 | `Copy` | | | ✓ |
 | `Sampler` / `Constant` | ✓ | ✓ | |
 
-三种都只是外壳，按名字查资源、版本解析、登记 attachment 在共享的核心里；用组合，不用继承，否则限制失效。
+三种都只是外壳，按名字查资源、版本解析、登记 attachment 在共享的核心（`RenderGraphBuilder`）里；用组合，不用继承，
+否则限制失效。类型名：`RenderPassScopes` / `RenderScope`、`ComputePassScopes` / `ComputeScope`（copy 的等有了 copy
+pass 再加）。访问返回 `Attachment`（固定功能角色：`.Format` / `.View`）或 `ShaderAttachment`（另有 `.Stage` / `.Bind`；
+compute 上调 `.Stage` 是运行期断言）。
 
 **shader 输入都在 Scope 上声明，只有 attachment 进图。** 一个 shader 的全部输入在同一处，绑定也只有一套：都按名字在
 反射布局里找去处（space2 或 root constant）。
@@ -228,7 +231,7 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 - **没有 `.Bind` 的 shader 访问必须 `.Stage(...)`**（bindless，或经 `Binds<>` 的共享组间接读）。检查的是"stage 有没有
   来源"而不是"是不是 bindless"：两个来源都没有，建图结束时报错，忘写不会静默通过。写了 `.Stage` 又 `.Bind` 的，
   与反射比对。
-- **compute pass 的 shader 访问 stage 固定为 Compute**，它的访问对象没有 `.Stage`。
+- **compute pass 的 shader 访问 stage 固定为 Compute**，调 `.Stage` 即断言。
 - 写错的 `.Stage` 静态查不出（与全部手填相同），靠 Vulkan 的同步校验层。
 
 API 为何不自己归类：驱动在录制屏障时看不到后续用途，D3D11 / GL 的隐式追踪正因逐命令、看不到整帧、开销大而被
@@ -239,7 +242,7 @@ API 为何不自己归类：驱动在录制屏障时看不到后续用途，D3D1
 是编译期的类型身份（`SPARK_PASS_TAG`、DrawTag / ViewTag / BindingTag 模板参数），B 只减不增：Scope 上的声明只收运行时
 的值，带模板参数的（`Accepts<>`）只是运行时 id 的薄封装。
 
-示意（API 名字未定）：
+示意：
 
 ```cpp
 // 图形 pass
@@ -588,7 +591,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 | 步 | 内容 | 迁移 | 状态 |
 |---|---|---|---|
 | B1 | 反射按输入记录 stage；pass 的 space2 SRG 句柄放在 pass 实体上（`PassBindings`）；删掉 pass 上的绑定集合，lowering 直接写 `ScopeState` | — | 完成 |
-| B2 | 共享核心 + 三种声明器与 Scope；按角色声明访问；Scope 按需创建 | DepthPre | |
+| B2 | 共享核心 + render / compute 的声明器与 Scope；按角色声明访问；Scope 按需创建 | DepthPre | 完成 |
 | B3 | `.Bind` / `Sampler` / `Constant`（全落 space2）；`CompileScopeBindings`；未绑定槽写 null；同槽不同值、stage 无来源报错 | 全屏 pass、GBuffer，删 `.Compile` | |
 | B4 | `ScopeItem`；`Draw` / `DrawFullscreen` / `Dispatch` / `Copy`；提交区间按 Scope 展开 | 全屏 pass；删全屏三角形实体；Skybox 改条件 `Draw` | |
 | B5 | Scope 上的 `Accepts<>` 与 `ItemSelection`；router 不打 PassTag | DepthPre、GBuffer、Shadow | |
@@ -631,9 +634,7 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 - `.Constant` 也按反射落到 space2 cbuffer（TemporalAA 每帧写 space2 标量），与 `.Bind` 对称。
 - `.Execute` 的 hook 如何找到 attachment：它是静态函数，拿不到每帧声明返回的句柄。UI 只要渲染目标、括号由执行器
   负责，可以不找；真要找时从 Scope 上按角色取，不再用 slot 名。
-- 声明器、Scope、访问的命名（示意里的 `RenderPassScopes` 等都未定）。
 - space2 本帧没被 attachment 绑定的槽由 lowering 统一写 null（Skybox 注释说明了不写的后果）。
-- `ComputePassBuilder` 与 render pass 一样自动创建 space2 SRG。
 - 用到 bindless 的 pass 断言设备支持（root signature 的直接索引标志受 `m_bindless` 控制）。
 - Skybox 的 Execute 只是条件绘制，改为 Build 里条件 `Draw`；不透明工作只剩 UI。
 - 执行时不再逐条判断条目：现在提交区间里每个条目都要 `TryGet<View>`，再按 DrawItem / DispatchItem / CopyItem
@@ -663,6 +664,12 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 另有两处评估为可接受：提交表（容器 + 下标、混着视图句柄）GPU-driven 后变短但形状不变；残留的函数指针
 （`ItemSelection::m_collect`、不透明 hook、`m_collectViews`、`m_resolveSharedBindings`）已少。每帧全量重建与
 排序排除了"图不变就复用编译结果"的增量优化，现在不需要，若以后要做会成为障碍。
+
+**建图的每帧分配。** `RenderGraphBuilder` 的 `m_attachmentUses`（每个 key 一个节点加一个 vector）、`BuildGraph` 里每个
+key 临时建的 `perPass` map 与两个 vector、`m_graph` 的节点与后继 set、`m_resources`，加上 `CompileTransientResources`
+临时的名字表，每帧约数百次分配，帧末全部释放；Debug 的调试堆下代价放大。改法：容器做成成员、只清空不释放，不用
+基于节点的容器——使用记录平铺成一个 vector，`End` 时按 (id, pass) 排序后线性连边；图按 pass 序号存边与入度；名字表
+平铺线性查（`AttachmentId` 比较的是预算好的哈希）。与 Release 下复测帧率一起做，先量再动。
 
 ## 未决
 
