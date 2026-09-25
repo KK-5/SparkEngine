@@ -26,7 +26,7 @@ namespace Spark::RHI
     {
         size_t nameHash = m_name.GetHash();
         eastl::hash_combine_raw(seed, nameHash);
-        eastl::hash_combine(seed, m_access, m_type, m_count, m_strideSize, m_registerId);
+        eastl::hash_combine(seed, m_access, m_type, m_count, m_strideSize, m_registerId, m_stageMask);
         return seed;
     }
 
@@ -49,7 +49,7 @@ namespace Spark::RHI
     {
         size_t nameHash = m_name.GetHash();
         eastl::hash_combine_raw(seed, nameHash);
-        eastl::hash_combine(seed, m_access, m_type, m_count, m_registerId);
+        eastl::hash_combine(seed, m_access, m_type, m_count, m_registerId, m_stageMask);
         return seed;
     }
 
@@ -68,7 +68,7 @@ namespace Spark::RHI
     {
         size_t nameHash = m_name.GetHash();
         eastl::hash_combine_raw(seed, nameHash);
-        eastl::hash_combine(seed, m_count, m_registerId);
+        eastl::hash_combine(seed, m_count, m_registerId, m_stageMask);
         return seed;
     }
 
@@ -113,7 +113,7 @@ namespace Spark::RHI
         eastl::hash_combine_raw(seed, nameHash);
         eastl::hash_combine(seed, m_constantByteOffset, m_constantByteCount,
                             m_elementCount, m_elementByteSize, m_elementStride,
-                            m_registerId);
+                            m_registerId, m_stageMask);
         return seed;
     }
 

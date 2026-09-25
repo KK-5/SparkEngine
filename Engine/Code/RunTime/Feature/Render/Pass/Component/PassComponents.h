@@ -125,12 +125,16 @@ namespace Spark::Render
         Ptr<RHI::PipelineState> m_pso;
     };
 
-    //! The pass's own per-pass bindings plus the shared ones it declares via .Binds<>(),
-    //! resolved once per frame and bound once before the pass's draws. They are identical
-    //! for every draw in the pass, so they live here and not on the DrawItem.
-    struct PassSharedBindings
+    //! HLSL space reserved for a pass's OWN per-pass ShaderBindings tier (g_SceneColor,
+    //! g_SkyCube, g_MatSampler, …). RenderPassBuilder::Finalize auto-creates this SRG when
+    //! the reflected layout declares it, so no pass processor has to allocate it.
+    inline constexpr uint32_t kPerPassSpaceId = 2;
+
+    //! The pass's own per-pass (kPerPassSpaceId) bindings entity, created at Finalize when
+    //! the pass's layout has that space.
+    struct PassBindings
     {
-        eastl::fixed_vector<const RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_bindings;
+        RHIHandle m_bindings { NullHandle };
     };
 
     //! Forces PSO recompilation on next frame (set on shader hot-reload).

@@ -267,7 +267,7 @@ int main(int, char**)
         return 1;
     }
     Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-    layout->AddShaderInputDescriptors(built.list, built.stageMask);
+    layout->AddShaderInputDescriptors(built.list);
     layout->Finalize();
 
     Ptr<RHI::ShaderStageFunction> csFunc =

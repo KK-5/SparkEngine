@@ -101,32 +101,31 @@ namespace Spark::RHI
     // ShaderInput API
     //=========================================================================
 
-    void PipelineLayoutDescriptor::AddShaderInputDescriptors(
-        const ShaderInputList& list, ShaderStageMask stageMask)
+    void PipelineLayoutDescriptor::AddShaderInputDescriptors(const ShaderInputList& list)
     {
         for (const ShaderInputBufferDescriptor& desc : list.m_buffers)
         {
             uint32_t index = static_cast<uint32_t>(m_bufferDescs.size());
             m_bufferDescs.push_back(desc);
-            InsertShaderInput({ ShaderInputType::Buffer, index }, desc.m_spaceId, stageMask);
+            InsertShaderInput({ ShaderInputType::Buffer, index }, desc.m_spaceId, desc.m_stageMask);
         }
         for (const ShaderInputImageDescriptor& desc : list.m_images)
         {
             uint32_t index = static_cast<uint32_t>(m_imageDescs.size());
             m_imageDescs.push_back(desc);
-            InsertShaderInput({ ShaderInputType::Image, index }, desc.m_spaceId, stageMask);
+            InsertShaderInput({ ShaderInputType::Image, index }, desc.m_spaceId, desc.m_stageMask);
         }
         for (const ShaderInputSamplerDescriptor& desc : list.m_samplers)
         {
             uint32_t index = static_cast<uint32_t>(m_samplerDescs.size());
             m_samplerDescs.push_back(desc);
-            InsertShaderInput({ ShaderInputType::Sampler, index }, desc.m_spaceId, stageMask);
+            InsertShaderInput({ ShaderInputType::Sampler, index }, desc.m_spaceId, desc.m_stageMask);
         }
         for (const ShaderInputConstantDescriptor& desc : list.m_constants)
         {
             uint32_t index = static_cast<uint32_t>(m_constantDescs.size());
             m_constantDescs.push_back(desc);
-            InsertShaderInput({ ShaderInputType::Constant, index }, desc.m_spaceId, stageMask);
+            InsertShaderInput({ ShaderInputType::Constant, index }, desc.m_spaceId, desc.m_stageMask);
         }
     }
 

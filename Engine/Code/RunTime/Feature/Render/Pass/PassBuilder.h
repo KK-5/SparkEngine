@@ -42,7 +42,7 @@ namespace Spark::Render
         }
 
         auto layout = factory.CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list, built.stageMask);
+        layout->AddShaderInputDescriptors(built.list);
         layout->Finalize();
         return layout;
     }

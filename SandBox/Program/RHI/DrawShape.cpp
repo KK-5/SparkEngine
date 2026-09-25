@@ -346,11 +346,13 @@ namespace Spark::SandBox
             /*count*/1,
             /*registerId s0*/0,
             /*spaceId*/0));
+        inputs.m_constants.back().m_stageMask = RHI::ShaderStageMask::Vertex;
+        inputs.m_images.back().m_stageMask    = RHI::ShaderStageMask::Fragment;
+        inputs.m_samplers.back().m_stageMask  = RHI::ShaderStageMask::Fragment;
 
         // SpaceGroup stageMask is the union across inputs; resulting D3D12 visibility
         // becomes ALL when both Vertex and Fragment touch the space.
-        m_pipelineLayoutDesc->AddShaderInputDescriptors(
-            inputs, RHI::ShaderStageMask::Vertex | RHI::ShaderStageMask::Fragment);
+        m_pipelineLayoutDesc->AddShaderInputDescriptors(inputs);
         m_pipelineLayoutDesc->Finalize();
 
         // Create the per-space ShaderBindings; auto-builds the ShaderInput*

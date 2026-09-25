@@ -161,7 +161,7 @@ namespace Spark::Resource
             return false;
         }
         m_layout = m_factory->CreatePipelineLayoutDescriptor();
-        m_layout->AddShaderInputDescriptors(built.list, built.stageMask);
+        m_layout->AddShaderInputDescriptors(built.list);
         m_layout->Finalize();
 
         // ShaderBindings for space0 (equirect SRV + sampler + cube UAV live there).
@@ -237,7 +237,7 @@ namespace Spark::Resource
                 return false;
             }
             m_cubeMipsLayout = m_factory->CreatePipelineLayoutDescriptor();
-            m_cubeMipsLayout->AddShaderInputDescriptors(built.list, built.stageMask);
+            m_cubeMipsLayout->AddShaderInputDescriptors(built.list);
             m_cubeMipsLayout->Finalize();
 
             m_cubeMipsPSO = m_factory->CreatePipelineState();
@@ -284,7 +284,7 @@ namespace Spark::Resource
                 return false;
             }
             m_irradianceLayout = m_factory->CreatePipelineLayoutDescriptor();
-            m_irradianceLayout->AddShaderInputDescriptors(built.list, built.stageMask);
+            m_irradianceLayout->AddShaderInputDescriptors(built.list);
             m_irradianceLayout->Finalize();
 
             m_irradiancePSO = m_factory->CreatePipelineState();
@@ -331,7 +331,7 @@ namespace Spark::Resource
                 return false;
             }
             m_prefilterLayout = m_factory->CreatePipelineLayoutDescriptor();
-            m_prefilterLayout->AddShaderInputDescriptors(built.list, built.stageMask);
+            m_prefilterLayout->AddShaderInputDescriptors(built.list);
             m_prefilterLayout->Finalize();
 
             m_prefilterPSO = m_factory->CreatePipelineState();

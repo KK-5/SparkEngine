@@ -1,6 +1,6 @@
 #include "ShaderBuilder.h"
 
-#include <EASTL/set.h>
+#include <EASTL/map.h>
 
 namespace Spark::Resource
 {
@@ -49,19 +49,34 @@ namespace Spark::Resource
             return static_cast<RHI::ShaderStageMask>(BIT(static_cast<uint32_t>(stage)));
         }
 
-        //! 跨多次调用共享的去重表，配合 MergeStageReflection 使用。
+        //! 跨多次调用共享的去重表，配合 MergeStageReflection 使用。值是条目在输出 list 里的位置，
+        //! 后续 stage 再遇到同一输入时把自己的 stage 或进去。
         struct ShaderInputMergeState
         {
-            eastl::set<RegisterKey>   addedBindings;
-            eastl::set<eastl::string> addedConstants;
+            eastl::map<RegisterKey, RHI::ShaderInputHandle> addedBindings;
+            eastl::map<eastl::string, uint32_t>             addedConstants;
         };
 
-        //! 将单个 stage 反射并入 ShaderInputList，去重表跨调用累积。
-        //! Buffer/Image/Sampler 按 (spaceId, registerId, type) 去重；
+        RHI::ShaderStageMask& StageMaskOf(RHI::ShaderInputList& list, const RHI::ShaderInputHandle& handle)
+        {
+            switch (handle.m_type)
+            {
+            case RHI::ShaderInputType::Buffer:
+                return list.m_buffers[handle.m_index].m_stageMask;
+            case RHI::ShaderInputType::Image:
+                return list.m_images[handle.m_index].m_stageMask;
+            default:
+                return list.m_samplers[handle.m_index].m_stageMask;
+            }
+        }
+
+        //! 将单个 stage 反射并入 ShaderInputList，去重表跨调用累积；每个条目的 m_stageMask 是引用它的
+        //! stage 的并集。Buffer/Image/Sampler 按 (spaceId, registerId, type) 去重；
         //! 常量按变量名去重（cbuffer 变量展开为独立 ShaderInputConstantDescriptor，
         //! Finalize 时 PipelineLayoutDescriptor 再按 registerId 聚合成 ConstantBufferLayout）。
         void MergeStageReflection(
             const ShaderStageReflection& refl,
+            RHI::ShaderStageMask         stageMask,
             ShaderInputMergeState&       state,
             RHI::ShaderInputList&        out)
         {
@@ -69,11 +84,14 @@ namespace Spark::Resource
             {
                 for (const auto& var : cb.m_variables)
                 {
-                    if (!state.addedConstants.insert(var.m_name).second)
+                    const auto [it, inserted] = state.addedConstants.insert(
+                        { var.m_name, static_cast<uint32_t>(out.m_constants.size()) });
+                    if (!inserted)
                     {
+                        out.m_constants[it->second].m_stageMask |= stageMask;
                         continue;
                     }
-                    out.m_constants.push_back(RHI::ShaderInputConstantDescriptor(
+                    RHI::ShaderInputConstantDescriptor desc(
                         RHI::InputName(var.m_name.c_str()),
                         var.m_byteOffset,
                         var.m_byteSize,
@@ -81,15 +99,19 @@ namespace Spark::Resource
                         var.m_elementByteSize,
                         var.m_elementStride,
                         cb.m_registerId,
-                        cb.m_spaceId));
+                        cb.m_spaceId);
+                    desc.m_stageMask = stageMask;
+                    out.m_constants.push_back(desc);
                 }
             }
 
             for (const auto& res : refl.m_resources)
             {
                 RegisterKey key{ res.m_registerId, res.m_spaceId, ResolveRegisterClass(res) };
-                if (!state.addedBindings.insert(key).second)
+                const auto existing = state.addedBindings.find(key);
+                if (existing != state.addedBindings.end())
                 {
+                    StageMaskOf(out, existing->second) |= stageMask;
                     continue;
                 }
 
@@ -99,33 +121,42 @@ namespace Spark::Resource
                 {
                 case RHI::ShaderInputType::Buffer:
                 {
-                    out.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
+                    RHI::ShaderInputBufferDescriptor desc(
                         RHI::InputName(res.m_name.c_str()),
                         res.m_bufferAccess,
                         res.m_bufferType,
                         count, 0,
                         res.m_registerId,
-                        res.m_spaceId));
+                        res.m_spaceId);
+                    desc.m_stageMask = stageMask;
+                    state.addedBindings[key] = { res.m_type, static_cast<uint32_t>(out.m_buffers.size()) };
+                    out.m_buffers.push_back(desc);
                     break;
                 }
                 case RHI::ShaderInputType::Image:
                 {
-                    out.m_images.push_back(RHI::ShaderInputImageDescriptor(
+                    RHI::ShaderInputImageDescriptor desc(
                         RHI::InputName(res.m_name.c_str()),
                         res.m_imageAccess,
                         res.m_imageType,
                         count,
                         res.m_registerId,
-                        res.m_spaceId));
+                        res.m_spaceId);
+                    desc.m_stageMask = stageMask;
+                    state.addedBindings[key] = { res.m_type, static_cast<uint32_t>(out.m_images.size()) };
+                    out.m_images.push_back(desc);
                     break;
                 }
                 case RHI::ShaderInputType::Sampler:
                 {
-                    out.m_samplers.push_back(RHI::ShaderInputSamplerDescriptor(
+                    RHI::ShaderInputSamplerDescriptor desc(
                         RHI::InputName(res.m_name.c_str()),
                         count,
                         res.m_registerId,
-                        res.m_spaceId));
+                        res.m_spaceId);
+                    desc.m_stageMask = stageMask;
+                    state.addedBindings[key] = { res.m_type, static_cast<uint32_t>(out.m_samplers.size()) };
+                    out.m_samplers.push_back(desc);
                     break;
                 }
                 default:
@@ -166,7 +197,7 @@ namespace Spark::Resource
                 }
 
                 result.stageMask = result.stageMask | StageToMask(stage);
-                MergeStageReflection(*refl, state, result.list);
+                MergeStageReflection(*refl, StageToMask(stage), state, result.list);
             }
         }
     }

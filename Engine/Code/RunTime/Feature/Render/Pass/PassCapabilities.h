@@ -23,6 +23,9 @@ namespace Spark::Render
     //! call needs no allocation; fixed_vector spills to the heap past that, only slower.
     using ViewHandleList = eastl::fixed_vector<RHI::RHIHandle, 16>;
 
+    using ShaderBindingsList =
+        eastl::fixed_vector<const RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax>;
+
     //! What a pass can be asked to do, as a table of type-erased operations on the pass
     //! entity. Every entry is a template instantiation frozen at RenderPassBuilder::
     //! Finalize, where the pass's PassTag and its declared DrawTags / BindingTags /
@@ -44,10 +47,9 @@ namespace Spark::Render
         //! copy / compute producers know their own pass and stamp it themselves.
         void (*m_markSubmitItem)(RHI::RHIContext&, RHI::RHIHandle item);
 
-        //! Per-frame resolve of the bindings the executer binds once per pass. Driven by
-        //! RenderGraphCompiler after the pass compile hooks, so an SRG created lazily in
-        //! Compile lands the same frame. (.Binds<BindingTags...>)
-        void (*m_resolveSharedBindings)(RHI::RHIContext&, PassContext&, Pass);
+        //! Append the shared bindings this pass declared, bound once per Scope after the
+        //! pass's own (PassBindings). (.Binds<BindingTags...>)
+        void (*m_resolveSharedBindings)(RHI::RHIContext&, ShaderBindingsList&);
 
         //! The live view instances of the type this pass renders — one batch each.
         //! Null for a pass that renders no view (copy, and compute that needs no space1),
@@ -81,9 +83,8 @@ namespace Spark::Render
     // ---- m_resolveSharedBindings -----------------------------------------------
 
     //! Append every ShaderBindings tagged BindingTag (a global singleton per tag) to out.
-    template<typename BindingTag, size_t N>
-    void ResolveSharedBinding(
-        RHI::RHIContext& ctx, eastl::fixed_vector<const RHI::ShaderBindings*, N>& out)
+    template<typename BindingTag>
+    void ResolveSharedBinding(RHI::RHIContext& ctx, ShaderBindingsList& out)
     {
         for (auto [entity, comp] : ctx.GetView<BindingTag, RHI::Components::ShaderBindings>().each())
         {
@@ -94,19 +95,10 @@ namespace Spark::Render
         }
     }
 
-    //! Resolve onto the pass entity what the executer binds once per pass: the pass's own
-    //! per-pass bindings (space2, tagged PassTag) and the shared ones it declared.
-    //!
-    //! The per-pass group is injected unconditionally via PassTag (not listed in .Binds):
-    //! it is definitionally the pass's own, created by GetOrCreatePassShaderBindings which
-    //! stamps PassTag + Components::ShaderBindings. A pass without one resolves to empty.
-    template<typename PassTag, typename... BindingTags>
-    void ResolvePassSharedBindings(RHI::RHIContext& ctx, PassContext& passCtx, Pass pass)
+    template<typename... BindingTags>
+    void ResolveSharedBindings(RHI::RHIContext& ctx, ShaderBindingsList& out)
     {
-        PassSharedBindings shared;
-        ResolveSharedBinding<PassTag>(ctx, shared.m_bindings);
-        (ResolveSharedBinding<BindingTags>(ctx, shared.m_bindings), ...);
-        passCtx.AddOrReplace<PassSharedBindings>(pass, eastl::move(shared));
+        (ResolveSharedBinding<BindingTags>(ctx, out), ...);
     }
 
     // ---- m_collectViews --------------------------------------------------------

@@ -110,15 +110,10 @@ namespace Spark::Render
             RHI::Device&          device,
             RHI::PipelineLibrary* pipelineLibrary);
 
-
-        //! Resolves each pass's PassSharedBindings: its own space2 group plus every tag it
-        //! declared via .Binds<>. Must run after the per-pass compile hooks — sampling
-        //! passes create their SRG there, and resolving earlier would miss it for a frame.
-        void CompilePassSharedBindings(PassContext& passContext, RHIContext& context);
-
         //! Put on each Scope the submit state its pass decides (ScopeState): the compiled PSO
-        //! and, when there is one, the pass's shared bindings. Runs after CompilePipelineStates
-        //! and CompilePassSharedBindings.
+        //! and, when there is one, the bindings bound once per Scope — the pass's own
+        //! (PassBindings) then the shared ones it declared via .Binds<>. Runs after
+        //! CompilePipelineStates.
         void CompileScopeState(PassContext& passContext, RHIContext& context);
 
         //! Lay each Scope's submissions out in submitList and record its ScopeSubmitRange: per
@@ -130,7 +125,7 @@ namespace Spark::Render
 
         //! Sweeps every entity carrying ShaderBindingsUpdateTag + Components::ShaderBindings,
         //! dispatches Compile on each, and clears the tag. User code (typically
-        //! CreatePassShaderBindings + MarkShaderBindingsUpdate) drives the dirty bit.
+        //! SetShader* helpers or MarkShaderBindingsUpdate) drives the dirty bit.
         void CompileShaderInputs(RHI::Device& device, RHIContext& context);
 
         // Per-queue monotonically increasing counter for cross-queue fence values.

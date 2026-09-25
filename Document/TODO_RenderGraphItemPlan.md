@@ -84,15 +84,20 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 
 ### 四、Pass 的边界由定义产生，不是约定
 
-- **图形 pass = 一次 `VkRenderingInfo` 声明 = 一对括号 = 恰好一个 Scope。** Vulkan 走 dynamic rendering，附件
-  集合与布局在 Begin 时定死，边界自然诞生——在一个渲染通道内部，无从把自己的渲染目标声明回 shader read。
-- **compute pass = 一个 PSO**，可有任意多个 Scope。依据是第一条的标准：静态部分（shader）是一份。
-- **copy pass 没有 PSO，也没有括号**，可有任意多个 Scope。
+- **pass 的静态部分是一套管线描述**：shader 族、绑定布局、固定状态的默认值。PSO 不是它，而是它按（变体键，
+  目标格式）编译出的实例。拆不拆成两个 pass 看算法是否相同，不看 PSO 个数；依据是第一条的标准。
+- **图形 Scope = 一次 `VkRenderingInfo` 声明 = 一对括号。** Vulkan 走 dynamic rendering，附件集合与布局在 Begin
+  时定死——在一个渲染通道内部，无从把自己的渲染目标声明回 shader read，所以屏障只能落在括号之外，也就是 Scope
+  之间。一个图形 pass 可有多个 Scope，各自一对括号，如像素 shader 的降采样链：同一 shader，每级一个目标。
+- **括号内用到的每个 PSO 与这对括号的附件格式兼容**，跨 Scope 没有 PSO 约束。PSO 是状态，一个 Scope 内可以
+  切换多个（着色模型、alpha test、双面、顶点布局），这是一般情形。
+- **compute pass 没有括号**，可有任意多个 Scope。
+- **copy pass 没有管线描述，也没有括号**，可有任意多个 Scope。
 
-推论：Bloom 的降采样与上采样是两个 pass（两个 shader）。
+推论：Bloom 的降采样与上采样是两个 pass（两种算法）。
 
 检视过的反例（阴影图集按 viewport 分块、layered rendering 写多层、MSAA resolve、同一目标换管线状态）都不需要
-多次 Begin。唯一可能来敲门的是**多视图且各视图附件不同**——那时的答案是按视图实例化 pass，与本条一致。
+在同一组目标上多次 Begin。对不同目标各 Begin 一次的是多个 Scope。**多视图且各视图附件不同**等真实用例（见「未决」）。
 
 ### 五、Scope：pass 内有序的一段，段内 item 互无依赖，每个资源只有一种使用方式
 
@@ -103,7 +108,7 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 > pass 更细，是 pass 内的一段。
 
 - **Scope 是声明单位，不是执行期的区间。** 它是两类标注共同的来源：它的 attachment 经屏障编译产生事件，
-  它的绑定与 pass 的 PSO、视图一起构成状态。一个 Scope 展开成多个状态区间（每视图、每 PSO 变体各一）；
+  它的绑定与 PSO、视图一起构成状态。一个 Scope 展开成多个状态区间（每视图、每 PSO 变体各一）；
   多个相邻 Scope 若互无冲突，落在同一个事件区间里。
 - **Scope 边界是屏障可能出现的位置**；实际有没有，由相邻 Scope 之间有无冲突决定。pass 粒度是"只有一个 Scope"
   的特例，也就是今天的全部 pass。
@@ -125,7 +130,7 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 | | 例子 | 声明 |
 |---|---|---|
 | 单个 | 全屏三角形、链的每一步、ShadowProjection 的 instanced draw、一次拷贝 | `Draw` / `Dispatch` / `Copy`：创建一个 item |
-| 集合 | 网格 | `Select<DrawTags...>()`：创建一个选择，查询带这些 DrawTag 的 item |
+| 集合 | 网格 | `Accepts<DrawTags...>()`：创建一个选择，查询带这些 DrawTag 的 item |
 
 - **"场景事实还是算法结构"只回答 item 由谁产出，不再决定 pass 怎样消费它。** 作者只需回答"这个 item 是已有的
   还是我造的"——这是归属问题，不是路由问题。
@@ -165,49 +170,96 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 
 ### Pass 的声明
 
-**静态链基本不变。** `Queue`、shader、管线状态、`Binds`、`RendersView`、`Inactive` 保留，都是 lowering 的输入。
-变化只有：
+**静态链是 pass 的管线描述，基本不变。** `Queue`、shader、管线状态、`Binds`、`RendersView`、`Inactive` 保留，
+都是 lowering 的输入。变化只有：
 
-- `.Accepts<>()` 移出静态链，成为 Scope 上的 `Select<>()`。
-- `.Execute()` 不再人人都有：执行器直接从流里提交 item，默认的 `SubmitDrawBatch` 不再需要。`.CustomPipeline()`
-  与 `.Execute()` 合成一个声明（如 `.Opaque(fn)`），只给不透明工作。
-- `.Compile()` 消失：它今天做的"把 attachment 视图接到 shader 输入上"由 attachment 自己声明（见下）；常量
-  sampler 这类静态内容移到静态链。
+- `.Accepts<>()` 移出静态链，成为 Scope 上的 `Accepts<>()`：名字不变，含义从"router 给 item 打 PassTag"变成"按 DrawTag 查询"。
+- `.Execute(fn)` 只留给不透明工作：执行器直接从流里提交 item，默认的 `SubmitDrawBatch` 不再需要。hook 按 Scope
+  调用，参数带上是第几个 Scope。`.CustomPipeline()` 删除，由"pass 没设 shader"推出：设了 shader 的，执行器先
+  应用 PSO 与绑定再调 hook；没设的（UI），状态全由 hook 负责。
+- `.Compile()` 消失：它今天做的事——把 attachment 视图、sampler、标量接到 shader 输入上——都改在 Scope 上声明
+  （见下）。
 
 **动态部分只有一个回调**，声明资源、Scope、每个 Scope 的 attachment 与 item：
 
 - **N 只在一处算。** 资源级数与 Scope 个数来自同一个循环。
 - **版本自然解析。** 回调仍按 pass 的声明顺序执行；第 j 个 Scope 写第 j 级时 bump 版本，第 j+1 个 Scope 读到的
   就是它。pass 读自己写的版本不产生图边——建边时忽略自环，图只关心 pass 之间。
-- **创建与访问分开。** `Create(name, desc)` 只引入资源，访问只在 Scope 上声明。
-- **Scope 的个数由签名约束**（同 `RendersView` 只收一个 tag 的做法）：render pass 的回调直接拿到它唯一的
-  Scope；compute / copy pass 的回调拿到 pass 声明器，可多次开 Scope。
-- **attachment 直接声明它绑定到哪个 shader 输入**，编译器按反射出的布局查这个名字决定去处（见「绑定」）。不绑定到
-  shader 的 attachment（渲染目标、深度、拷贝源 / 目标）没有绑定名，角色由 usage 决定。Scope 之间不同的标量
-  （如本级尺寸）同样按名字声明：`s.Constant("g_OutputSize", size)`。
+- **创建与访问分开。** `CreateImage` / `CreateBuffer` / `Import` 只引入资源，访问只在 Scope 上声明。资源在 pass
+  之间按名字引用；访问不分 image / buffer，由名字找到的资源决定。
+- **回调拿到 pass 声明器，自己开 Scope。** 三种 pass 形状相同；只有一个 Scope 的 pass 多写一行 `p.Scope()`。
+- **什么都不声明，这一帧就跳过这个 pass**（今天已有的语义）。
 - **item 用声明时返回的句柄引用 attachment**（如拷贝 item 引用它的 src / dst）。slot 名只剩给 hook 查找的用途，
   hook 没了它也退场；调用处的 `<SPARK_PASS_TAG(...)>` 模板参数随之去掉。
+
+**按 pass 类型在类型上限制。** 声明器与 Scope 分三种，只暴露该类型合法的声明，写错是编译错误：
+
+| | render | compute | copy |
+|---|---|---|---|
+| `RenderTarget` / `DepthWrite` / `DepthRead` / `Resolve` | ✓ | | |
+| `Read` / `ReadWrite` | ✓ | ✓（另有 `Write`） | |
+| `CopySource` / `CopyDest` | | | ✓ |
+| `Accepts<>` / `Draw` | ✓ | | |
+| `Dispatch` | | ✓ | |
+| `Copy` | | | ✓ |
+| `Sampler` / `Constant` | ✓ | ✓ | |
+
+三种都只是外壳，按名字查资源、版本解析、登记 attachment 在共享的核心里；用组合，不用继承，否则限制失效。
+
+**shader 输入都在 Scope 上声明，只有 attachment 进图。** 一个 shader 的全部输入在同一处，绑定也只有一套：都按名字在
+反射布局里找去处（space2 或 root constant）。
+
+| 声明 | 进图 | 例 |
+|---|---|---|
+| 访问 + `.Bind` | 是（attachment：版本、生命周期、屏障、依赖边） | `s.Read("SceneDepth").Bind("g_Depth")` |
+| `Sampler` | 否，只是绑定 | `s.Sampler("g_LinearSampler", LinearClamp)` |
+| `Constant` | 否，只是绑定 | `s.Constant("g_OutputSize", size)` |
+
+- sampler 不变也不放静态链：引擎用的是写进描述符表的动态 sampler，不是 root signature 里的静态 sampler，每帧声明
+  没有限制；放在 Scope 上，不同 Scope 可以用不同的 sampler（C 之后经 bindless sampler 索引）。
+- 同一 pass 的不同 Scope 给 space2 同一槽位填了不同的 sampler 即报错，与视图相同。
+
+**访问按角色声明，usage 与 stage 不手填。**
+
+- **固定功能的角色，usage 与 stage 一一对应**（渲染目标 → 颜色输出，深度 → 深度测试，拷贝 → transfer，间接参数 →
+  draw indirect）。这不是推导：硬件没有第二种选择，角色名就是显式的 usage，只是填不出不存在的组合。
+- **shader 访问的 stage 来自反射**：`.Bind(name)` 在布局里查这个名字所在的 stage，声明时就查，名字不存在即报错。
+  手写 stage 等于把 shader 里的事实再抄一遍，改 shader 后两处会静默不一致。
+- **没有 `.Bind` 的 shader 访问必须 `.Stage(...)`**（bindless，或经 `Binds<>` 的共享组间接读）。检查的是"stage 有没有
+  来源"而不是"是不是 bindless"：两个来源都没有，建图结束时报错，忘写不会静默通过。写了 `.Stage` 又 `.Bind` 的，
+  与反射比对。
+- **compute pass 的 shader 访问 stage 固定为 Compute**，它的访问对象没有 `.Stage`。
+- 写错的 `.Stage` 静态查不出（与全部手填相同），靠 Vulkan 的同步校验层。
+
+API 为何不自己归类：驱动在录制屏障时看不到后续用途，D3D11 / GL 的隐式追踪正因逐命令、看不到整帧、开销大而被
+显式 API 拿掉；渲染图在帧开始前拿到整帧的声明，推导一次，信息完整。
+
+**配置化的边界。** 静态链与形状固定的 Scope 声明（角色 + 名字 + 绑定名 + 视图覆盖 + 一种 item）都可以写成数据，由
+通用的回调解释；写不进数据的正是动态部分（N、条件跳过、按数据算的尺寸），Atom 那部分同样要写代码。真正妨碍配置化的
+是编译期的类型身份（`SPARK_PASS_TAG`、DrawTag / ViewTag / BindingTag 模板参数），B 只减不增：Scope 上的声明只收运行时
+的值，带模板参数的（`Accepts<>`）只是运行时 id 的薄封装。
 
 示意（API 名字未定）：
 
 ```cpp
-// 图形 pass：回调拿到唯一的 Scope
+// 图形 pass
 .RendersView<MainViewTag>()
-.Build([](RenderScope& s) {
-    s.Create("ShadowMask", desc);
+.Build([](RenderPassScopes& p) {
+    p.CreateImage("ShadowMask", desc);
+    auto s = p.Scope();
     s.RenderTarget("ShadowMask", clearToOne);
     s.Read("GBufferNormal").Bind("g_GBufferNormal");
-    s.Read("SceneDepth", asR32).Bind("g_Depth");
+    s.Read("SceneDepth").Format(R32_FLOAT).Bind("g_Depth");
     s.Draw(DrawLinear(3), instances = sliceCount);   // slice 数只在这里算
 })
 
 // 网格 pass
-.Build([](RenderScope& s) { ...; s.Select<OpaqueTag>(); })
+.Build([](RenderPassScopes& p) { auto s = p.Scope(); ...; s.Accepts<OpaqueTag>(); })
 
 // compute 链
-.Build([](PassDecl& p) {
-    const uint32_t n = BloomLevels(p.GetRenderSize());
-    for (uint32_t j = 1; j < n; ++j) { p.Create(Level(j), ...); }
+.Build([](ComputePassScopes& p) {
+    const uint32_t n = BloomLevels(p.RenderSize());
+    for (uint32_t j = 1; j < n; ++j) { p.CreateImage(Level(j), ...); }
     for (uint32_t j = 1; j < n; ++j) {
         auto s = p.Scope();
         s.Read(Level(j - 1)).Bind("g_Input");
@@ -217,12 +269,10 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
     }
 })
 
-// CopyFrameBufferPass：两个 Scope，屏障由编译器推导，不再需要 Execute
-.Build([](PassDecl& p) {
-    auto s0 = p.Scope();  s0.Write("SwapChain", asRenderTarget);  s0.Clear(black);
-    auto s1 = p.Scope();  auto src = s1.Read("SceneColor", asCopySrc);
-                          auto dst = s1.Write("SwapChain", asCopyDst);
-                          s1.Copy(src, dst);
+// 拷贝：item 用声明返回的句柄引用 src / dst，屏障由编译器推导
+.Build([](CopyPassScopes& p) {
+    auto s = p.Scope();
+    s.Copy(s.CopySource("SceneColor"), s.CopyDest("SceneColorCopy"));
 })
 ```
 
@@ -238,7 +288,7 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 
 于是：
 
-- **space2 每个 pass 一组，与今天相同**：sampler，以及所有 Scope 都相同的输入（如 LUT）。
+- **space2 每个 pass 一组，与今天相同**：各 Scope 都相同的 sampler 与输入（如 LUT）。
 - **Scope 之间不同的东西是 bindless 索引加标量**（"读第 j-1 级""写第 j 级""本级尺寸"），作为 **root constant**
   写进 Scope 的状态，执行器应用 Scope 状态时设置。它们直接写在命令列表里、每帧重设，不占描述符，没有在途帧
   问题，也没有身份问题。
@@ -246,7 +296,8 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
   是 root constant 结构的字段，就写入该视图的 bindless 索引（读用 `ReadIndex`，写用 `ReadWriteIndex`）。
   `.Constant(name, value)` 只能落在 root constant。声明侧不区分。
 - **校验**：同一 pass 的不同 Scope 给 space2 同一槽位绑了不同视图即报错——space2 在一个 pass 内只有一份。
-- 图形 pass 只有一个 Scope，没有 Scope 间差异，`DrawItem` 里被注释掉的 root constant 不构成阻碍。
+- 图形 pass 的 Scope 间差异同样走 root constant，由执行器在应用 Scope 状态时设置，与 item 无关，`DrawItem` 里被注释掉的
+  root constant 不构成阻碍。
 - 跨后端：Vulkan 需要描述符索引 + mutable descriptor 对应 `ResourceDescriptorHeap`，材质系统已依赖这一点，
   这里不引入新负担。
 
@@ -278,7 +329,7 @@ Pass ◄── Scope::m_pass ── Scope 实体
 - **Scope 在 RHIContext，不在 PassContext**：它的子实体都在 RHIContext，引用都是 `RHIHandle`；`Pass` 的实体掩码
   只有 8 位且没有版本号，是为少量静态实体设计的。
 - **引用一律子指向父**，Scope 不持有子列表。
-- `m_collect` 由 `Select<Tags...>()` 模板实例化，写法同今天 `PassCapabilities` 里的函数指针。
+- `m_collect` 由 `Accepts<Tags...>()` 模板实例化，写法同今天 `PassCapabilities` 里的函数指针。
 - **每帧清空规则**：`Scope`、`ScopeAttachment`、`ScopeItem` 只出现在每帧实体上，帧末销毁带有它们的实体即可。场景
   item 永远不带它们。
 
@@ -289,7 +340,7 @@ Pass ◄── Scope::m_pass ── Scope 实体
 
 | 产物 | 放在 | 理由 |
 |---|---|---|
-| 括号（`RenderPassBeginInfo`） | Scope | 图形 pass 恰好一个 Scope，一一对应；Begin 在提交区间前、End 在其后，由 Scope 隐含 |
+| 括号（`RenderPassBeginInfo`） | Scope | 一个图形 Scope 一对括号，一一对应；Begin 在提交区间前、End 在其后，由 Scope 隐含 |
 | 屏障 | 引起它的 attachment | 屏障由一次访问引起，按资源合并后一条屏障对应一个 attachment；今天的 `CompiledImageBarrier` 已是如此 |
 | 跨队列 release | 生产方的 attachment | 由生产方这次访问之后紧跟另一队列的访问引起 |
 | 跨队列 wait / signal | Scope | 发生在 Scope 边界，每个队列至多一个 |
@@ -303,7 +354,7 @@ Pass ◄── Scope::m_pass ── Scope 实体
 
 ### lowering：排序，线性扫描两遍
 
-每一步只读三样东西：Scope 的子实体、pass 的静态数据（编译好的 PSO、队列、视图类型、`Binds`、静态 sampler）、
+每一步只读三样东西：Scope 的子实体、pass 的静态数据（编译好的 PSO、队列、视图类型、`Binds`）、
 资源上的追踪器。除提交表外没有别的全局结构。依赖图仍建在 pass 上：声明 attachment 时经 Scope 知道所属 pass，
 照样记入 `m_attachmentUses`，pass 读自己写的版本产生的自环忽略。
 
@@ -346,7 +397,7 @@ for scope in Scope 存储（已排序）:
     // 状态（Scope 这部分）
     scope.state = { pass 的 PSO, pass 的共享绑定, pass 的 space2,
                     root constant = 绑定到常量字段的 attachment 的 bindless 索引 + .Constant 的标量 }
-    绑定到 space2 的 attachment 视图 + pass 的静态 sampler → 写进 pass 的 space2（同槽不同视图即报错）
+    绑定到 space2 的 attachment 视图、Scope 的 sampler 与 .Constant → 写进 pass 的 space2（同槽不同值即报错）
 
     // 提交区间
     begin = submitList.size()
@@ -371,7 +422,7 @@ for scope in Scope 存储（已排序）:
 | 2：逐 Scope | attachments、items、pass 静态数据、追踪器 | attachment 上的 acquire / release；Scope 上的 wait、signal、BeginInfo、state、submitRange；提交表 |
 
 **顺带的校验**：合并相邻 attachment 时发现同一资源两种用法即报错（今天 `MergeImageBarriers` 的断言挪到这里）；
-"图形 pass 只有一个 Scope"由签名保证；"事件不落在括号内"因此自动成立。
+一个图形 Scope 一对括号、事件只落在 Scope 之间，"事件不落在括号内"因此自动成立。
 
 **entt 的约束**（3.16，`registry.sort<T>(compare)` 原地重排紧凑数组并同步稀疏数组，按 `begin()`→`end()` 遍历
 即为比较函数的升序）：
@@ -477,9 +528,9 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 ### 声明
 
 1. **Scope 实体与归属**：`Scope`、`ScopeAttachment`、`ScopeItem`；attachment 挂 `ScopeAttachment`，单个 item、选择挂 `ScopeItem`。
-2. **pass 声明改造**：单一动态回调；创建与访问分开；render pass 回调拿唯一 Scope，compute / copy 可开多个；
-   attachment 声明绑定目标；删除 `.Compile()`，`.CustomPipeline()` + `.Execute()` 合成 `.Opaque()`。
-3. **选择**：`Select<DrawTags...>()` 与 `ItemSelection`；`.Accepts<>()` 移除。
+2. **pass 声明改造**：单一动态回调；创建与访问分开；回调拿声明器开 Scope，声明器与 Scope 按 pass 类型分三种；访问按角色声明；
+   attachment 声明绑定目标；删除 `.Compile()` 与 `.CustomPipeline()`，`.Execute()` 只留给不透明工作。
+3. **选择**：Scope 上的 `Accepts<DrawTags...>()` 与 `ItemSelection`；静态链上的 `.Accepts<>()` 移除。
 4. **router 只做派生**：不再打 PassTag；`PassCapabilities` 删去 `m_accepts` / `m_markSubmitItem` /
    `m_collectSubmitItems`。
 
@@ -508,7 +559,7 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 13. **全屏三角形改由 pass 声明**，删掉 RenderSystem 里那个 `GeometrySpec` + `FullScreenTriangleTag` 实体。
 14. **`ShadowProjectionPass` 收回自己的 draw**，slice 数只算一处，`ShadowMaskSystem` 不再代管 DrawItem。
-15. **`CopyFrameBufferPass` 改为两个 Scope**：清屏与拷贝之间的屏障由编译器推导，删掉手写的两条屏障与 Execute。
+15. ~~`CopyFrameBufferPass` 改为两个 Scope~~：不做，这个 pass 本身要删除。
 16. **UI 改为不透明工作**。
 17. **Bloom 降采样 / 上采样**：第一个多 Scope 的 compute pass（P3 步骤 2、3）。
 
@@ -527,9 +578,23 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 | 段 | 内容 | 条目 | 状态 |
 |---|---|---|---|
 | A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | 完成 |
-| B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13–16 | |
+| B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13、14、16 | 进行中 |
 | C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | |
 | D | Bloom | 17 | |
+
+B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并存、逐个迁移，最后改回 `.Build`；每迁移一个 pass，
+对照迁移前后的屏障、BeginInfo、提交表与 space2 内容。
+
+| 步 | 内容 | 迁移 | 状态 |
+|---|---|---|---|
+| B1 | 反射按输入记录 stage；pass 的 space2 SRG 句柄放在 pass 实体上（`PassBindings`）；删掉 pass 上的绑定集合，lowering 直接写 `ScopeState` | — | 完成 |
+| B2 | 共享核心 + 三种声明器与 Scope；按角色声明访问；Scope 按需创建 | DepthPre | |
+| B3 | `.Bind` / `Sampler` / `Constant`（全落 space2）；`CompileScopeBindings`；未绑定槽写 null；同槽不同值、stage 无来源报错 | 全屏 pass、GBuffer，删 `.Compile` | |
+| B4 | `ScopeItem`；`Draw` / `DrawFullscreen` / `Dispatch` / `Copy`；提交区间按 Scope 展开 | 全屏 pass；删全屏三角形实体；Skybox 改条件 `Draw` | |
+| B5 | Scope 上的 `Accepts<>` 与 `ItemSelection`；router 不打 PassTag | DepthPre、GBuffer、Shadow | |
+| B6 | ShadowProjection 收回 draw | ShadowProjection | |
+| B7 | `.Execute` 按 Scope 调用；删 `.CustomPipeline()` | UI | |
+| B8 | 删旧访问 API、`.Compile`、带 PassTag 的查找与 `SetPassShader*`；改回 `.Build` | — | |
 
 ### 执行侧现状
 
@@ -558,10 +623,15 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
   可为空，Vulkan 只需要内存依赖）。
 - **外部 fence wait 挂在首次触碰的 attachment 上**，不放 Scope 上的列表。
 - **不引入事件表**：屏障会永久存在，把它们抄进提交表是另建记录，违背"数据放在引起它的实体上"。
+- **stage 记在每个 shader 输入上**（Vulkan 按绑定给 `stageFlags`），space 的可见性取组内并集。原先每个 space 都取
+  整个 shader 的 stage 并集；改后只被 PS 用到的 space 在 DX12 上收窄为 `PIXEL`。
 
 ### B / C 开工前要定的
 
 - `.Constant` 也按反射落到 space2 cbuffer（TemporalAA 每帧写 space2 标量），与 `.Bind` 对称。
+- `.Execute` 的 hook 如何找到 attachment：它是静态函数，拿不到每帧声明返回的句柄。UI 只要渲染目标、括号由执行器
+  负责，可以不找；真要找时从 Scope 上按角色取，不再用 slot 名。
+- 声明器、Scope、访问的命名（示意里的 `RenderPassScopes` 等都未定）。
 - space2 本帧没被 attachment 绑定的槽由 lowering 统一写 null（Skybox 注释说明了不写的后果）。
 - `ComputePassBuilder` 与 render pass 一样自动创建 space2 SRG。
 - 用到 bindless 的 pass 断言设备支持（root signature 的直接索引标志受 `m_bindless` 控制）。
@@ -596,9 +666,11 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 ## 未决
 
-- **PSO 变体**：一个视图段内按变体再切，变体切换同样是状态标注，可像视图句柄一样写进提交表。等变体落地再定。
-- **多视图下 Scope 与视图的展开顺序**：只影响"有多个 Scope 又按视图重放"的 compute pass（每个视图一条 Bloom
-  链），与"多视图各有附件时按视图实例化 pass"一起等真实用例。
+- **PSO 变体**：一个视图段内按变体再切，变体切换同样是状态标注，可像视图句柄一样写进提交表；变体来自 item（材质、
+  几何），不来自 Scope 的声明。`ScopeState` 只有一个 PSO 是"今天每个 pass 恰好一个 PSO"的现状，不是约束。pass 的
+  `RenderTargetLayout` 与附件格式重复，变体落地时考虑由 Scope 的附件推出 PSO 的目标格式。等变体落地再定。
+- **多视图下 Scope 与视图的展开顺序**：只影响"有多个 Scope 又按视图重放"的 pass（每个视图一条 Bloom 链），与
+  "多视图各有附件"一起等真实用例；在此之前，多个 Scope 的 pass 不得 `RendersView`（断言）。
 - **不透明工作的比例**：若大量工作无法表达为 item，流的大部分成为不透明工作，本模型的收益大幅缩水。拷贝已可
   表达为 Scope + item，目前只剩 UI，以及以后的 NRD。
 - **`TODO_DrawItemPersistencePlan.md` 已部分过时**：它主张每 (Drawable, pass) 一个骨架，理由是 PSO 各 pass

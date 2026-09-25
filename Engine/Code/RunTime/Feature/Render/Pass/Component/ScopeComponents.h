@@ -77,9 +77,8 @@ namespace Spark::Render
     };
 
     //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once
-    //! for the whole Scope (the pass's own space2 and those it declared via .Binds). Copied from
-    //! the pass by lowering. Viewport and space1 come from the view handles in the Scope's
-    //! submit range.
+    //! for the whole Scope (the pass's own space2 and those it declared via .Binds). Resolved by
+    //! lowering. Viewport and space1 come from the view handles in the Scope's submit range.
     struct ScopeState
     {
         const RHI::PipelineState*  m_pso = nullptr;

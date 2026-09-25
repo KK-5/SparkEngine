@@ -218,7 +218,7 @@ namespace Spark::RHI::Components
     };
 
     // Owning component holding a ShaderBindings instance. Placed on an entity by
-    // Render::CreatePassShaderBindings so RenderGraphCompiler::CompileShaderInputs
+    // Render::CreatePassBindings so RenderGraphCompiler::CompileShaderInputs
     // can discover it via view iteration. Filter tag is ShaderBindingsUpdateTag.
     struct ShaderBindings
     {

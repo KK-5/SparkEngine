@@ -67,6 +67,9 @@ namespace Spark::RHI
         uint32_t m_registerId = UndefinedRegisterSlot;
 
         uint32_t m_spaceId = UndefinedRegisterSlot;
+
+        //! Stages that reference this input.
+        ShaderStageMask m_stageMask = ShaderStageMask::None;
     };
 
     enum class ShaderInputImageAccess : uint32_t
@@ -115,6 +118,9 @@ namespace Spark::RHI
         uint32_t m_registerId = UndefinedRegisterSlot;
 
         uint32_t m_spaceId = UndefinedRegisterSlot;
+
+        //! Stages that reference this input.
+        ShaderStageMask m_stageMask = ShaderStageMask::None;
     };
 
     class ShaderInputSamplerDescriptor final
@@ -136,6 +142,9 @@ namespace Spark::RHI
         uint32_t m_registerId = UndefinedRegisterSlot;
 
         uint32_t m_spaceId = UndefinedRegisterSlot;
+
+        //! Stages that reference this input.
+        ShaderStageMask m_stageMask = ShaderStageMask::None;
     };
 
     class ShaderInputConstantDescriptor final
@@ -189,6 +198,9 @@ namespace Spark::RHI
         uint32_t m_registerId = UndefinedRegisterSlot;
 
         uint32_t m_spaceId = UndefinedRegisterSlot;
+
+        //! Stages that reference this input.
+        ShaderStageMask m_stageMask = ShaderStageMask::None;
     };
 
     class ShaderInputStaticSamplerDescriptor final

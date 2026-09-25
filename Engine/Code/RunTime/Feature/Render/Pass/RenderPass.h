@@ -18,11 +18,6 @@
 
 namespace Spark::Render
 {
-    //! HLSL space reserved for a pass's OWN per-pass ShaderBindings tier (g_SceneColor,
-    //! g_SkyCube, g_MatSampler, …). RenderPassBuilder::Finalize auto-creates this SRG when
-    //! the reflected layout declares it, so no pass processor has to allocate it.
-    inline constexpr uint32_t kPerPassSpaceId = 2;
-
     // ================================================================
     // RenderPassBuilder<PassTag> — chainable builder for graphics passes
     //
@@ -113,11 +108,12 @@ namespace Spark::Render
         // Declare the shared bindings (view / material / instance / …, each a global
         // singleton) the executer binds once before this pass's draws. Order-free — each
         // self-describes its HLSL space. The pass's own group (space2) is resolved via
-        // PassTag and is not listed here.
+        // PassBindings and is not listed here.
         template<typename... BindingTags>
         RenderPassBuilder& Binds()
         {
-            m_capabilities.m_resolveSharedBindings = &ResolvePassSharedBindings<PassTag, BindingTags...>;
+            m_capabilities.m_resolveSharedBindings = &ResolveSharedBindings<BindingTags...>;
+            m_hasCapabilities                      = true;
             return *this;
         }
 
@@ -220,15 +216,14 @@ namespace Spark::Render
                 if (auto layout = BuildPipelineLayoutFromShaders(*factory, m_shaders))
                 {
                     // Auto-create the per-pass (space2) bindings now that the layout is
-                    // reflected, but only when the shader actually declares that space. They
-                    // must exist before ResolvePassSharedBindings runs, so creating them here
-                    // removes that allocation from every pass processor's Init.
-                    // RHIExecuteContext is current during SetUp.
+                    // reflected, but only when the shader actually declares that space, so no
+                    // pass processor has to allocate them. RHIExecuteContext is current during
+                    // SetUp.
                     const bool hasPerPassSpace = layout->FindSpaceGroupBySpaceId(kPerPassSpaceId) != nullptr;
                     m_context->Add<PassPipelineLayout>(pass, PassPipelineLayout{ eastl::move(layout) });
                     if (hasPerPassSpace)
                     {
-                        GetOrCreatePassShaderBindings<PassTag>(*m_context, *RHIExecuteContext::Current(), kPerPassSpaceId);
+                        CreatePassBindings(*m_context, *RHIExecuteContext::Current(), pass);
                     }
                 }
             }

@@ -43,6 +43,7 @@ namespace Spark::RHI
         static constexpr uint32_t ConstantBufferCountMax = 8;
 
         uint32_t        m_spaceId   = 0;
+        //! Union of the stage masks of m_shaderInputs.
         ShaderStageMask m_stageMask = ShaderStageMask::None;
         eastl::vector<ShaderInputHandle> m_shaderInputs;
 
@@ -96,10 +97,10 @@ namespace Spark::RHI
         // ShaderInput API
         //---------------------------------------------------------------------
 
-        //! 批量添加一组 descriptor，stageMask 指明使用这组 input 的着色器阶段。
+        //! 批量添加一组 descriptor，每个 descriptor 的 m_stageMask 指明引用它的着色器阶段。
         //! 内部按 spaceId 自动分组到 m_spaceGroups，并对同 space 同类型的
         //! register 重叠做 Validation 检查。
-        void AddShaderInputDescriptors(const ShaderInputList& list, ShaderStageMask stageMask);
+        void AddShaderInputDescriptors(const ShaderInputList& list);
 
         //! 添加一个 static sampler，不进入 SpaceGroup（DX12 static sampler 不占 root parameter）。
         void AddStaticSamplerDescriptor(

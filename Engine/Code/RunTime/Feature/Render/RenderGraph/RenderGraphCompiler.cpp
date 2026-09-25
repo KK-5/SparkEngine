@@ -922,13 +922,26 @@ namespace Spark::Render
             }
 
             // Bindings resolve their space against the PSO's layout: without one there is
-            // nothing to bind them against.
-            const auto* shared = passContext.TryGet<PassSharedBindings>(data.m_pass);
-            if (state.m_pso && shared)
+            // nothing to bind them against. The pass's own group first, then the shared ones.
+            if (state.m_pso)
             {
-                for (const RHI::ShaderBindings* bindings : shared->m_bindings)
+                ShaderBindingsList bindings;
+                if (const auto* own = passContext.TryGet<PassBindings>(data.m_pass))
                 {
-                    state.m_bindings[state.m_bindingCount++] = bindings;
+                    const auto& comp = context.Get<RHI::Components::ShaderBindings>(own->m_bindings);
+                    if (comp.m_bindings)
+                    {
+                        bindings.push_back(comp.m_bindings.get());
+                    }
+                }
+                const auto* caps = passContext.TryGet<PassCapabilities>(data.m_pass);
+                if (caps && caps->m_resolveSharedBindings)
+                {
+                    caps->m_resolveSharedBindings(context, bindings);
+                }
+                for (const RHI::ShaderBindings* b : bindings)
+                {
+                    state.m_bindings[state.m_bindingCount++] = b;
                 }
             }
 
@@ -1393,17 +1406,6 @@ namespace Spark::Render
                 }
             });
         }
-    }
-
-    void RenderGraphCompiler::CompilePassSharedBindings(PassContext& passContext, RHIContext& context)
-    {
-        passContext.GetView<PassCapabilities>().each([&](Pass pass, const PassCapabilities& caps)
-        {
-            if (caps.m_resolveSharedBindings)
-            {
-                caps.m_resolveSharedBindings(context, passContext, pass);
-            }
-        });
     }
 
     void RenderGraphCompiler::CompileShaderInputs(RHI::Device& device, RHIContext& context)

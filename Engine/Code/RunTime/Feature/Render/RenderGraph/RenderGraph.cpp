@@ -275,8 +275,6 @@ namespace Spark::Render
         m_compiler.CompileScopeSync(passContext, context, m_crossQueueFences);
         m_compiler.CompileScopeBeginInfo(passContext, context);
 
-        m_compiler.CompilePassSharedBindings(passContext, context);
-
         m_compiler.CompileScopeState(passContext, context);
         m_compiler.CompileScopeSubmitRanges(passContext, context, m_executer.GetSubmitList());
 

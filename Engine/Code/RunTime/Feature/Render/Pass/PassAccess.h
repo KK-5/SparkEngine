@@ -45,125 +45,78 @@ namespace Spark::Render
         return result;
     }
 
-    namespace Detail
-    {
-    //! Allocate a ShaderBindings against the named pass's input layout and
-    //! register it on the RHIContext so RenderGraphCompiler::CompileShaderInputs
-    //! can find it. The entity is created with ShaderBindingsUpdateTag so the very
-    //! first compile sweep picks it up and produces valid GPU bindings before the
-    //! first execute.
+    //! Allocate the pass's own per-pass (space2) ShaderBindings against its reflected layout
+    //! and record it on the pass as PassBindings. RenderPassBuilder::Finalize calls this when
+    //! the layout declares the space. The entity is created with ShaderBindingsUpdateTag so
+    //! the first compile sweep produces valid GPU bindings before the first execute, and with
+    //! PassShaderBindingsTag so teardown can reap it. It owns the binding's lifetime
+    //! (Components::ShaderBindings holds the Ptr).
     //!
-    //! Returns the binding ENTITY (RHIHandle) only — not the RHI::ShaderBindings
-    //! Ptr. Stage data through the entity with the Render::SetShaderXxx helpers
-    //! (Shader/ShaderBindingsUtils.h), which also mark it dirty. The entity owns the
-    //! binding's lifetime (Components::ShaderBindings holds the Ptr), so destroying the
-    //! entity releases it.
-    //!
-    //! Returns NullHandle if the pass has no PassPipelineLayout (e.g.
-    //! custom-pipeline pass), or if RHI services / Init fail.
-    template<typename PassTagT>
-    RHIHandle CreatePassShaderBindings(
-        PassContext& passCtx, RHIContext& rhiCtx, uint32_t spaceId)
+    //! Returns NullHandle, leaving the pass without PassBindings, if the pass has no
+    //! PassPipelineLayout or if RHI services / Init fail.
+    inline RHIHandle CreatePassBindings(PassContext& passCtx, RHIContext& rhiCtx, Pass pass)
     {
-        Pass pass = FindPass<PassTagT>(passCtx);
-
         if (!passCtx.Has<PassPipelineLayout>(pass))
         {
-            LOG_ERROR("[CreatePassShaderBindings] Pass has no PassPipelineLayout "
+            LOG_ERROR("[CreatePassBindings] Pass has no PassPipelineLayout "
                       "(custom-pipeline pass or shader reflection unavailable).");
             return NullHandle;
         }
         auto& layout = passCtx.Get<PassPipelineLayout>(pass).m_layout;
-        ASSERT(layout, "[CreatePassShaderBindings] PassPipelineLayout component holds null layout.");
+        ASSERT(layout, "[CreatePassBindings] PassPipelineLayout component holds null layout.");
 
         auto* rhi = Service<RHI::RHIInterface>::Get();
-        ASSERT(rhi, "[CreatePassShaderBindings] RHI::RHIInterface service not registered.");
+        ASSERT(rhi, "[CreatePassBindings] RHI::RHIInterface service not registered.");
 
         auto* factory = rhi->GetRHIFactory();
         auto* device  = rhi->GetDevice();
         ASSERT(factory && device,
-            "[CreatePassShaderBindings] RHI factory or device is null.");
+            "[CreatePassBindings] RHI factory or device is null.");
 
         Ptr<RHI::ShaderBindings> bindings = factory->CreateShaderBindings();
         RHI::ShaderBindings::Descriptor desc;
         desc.m_layout  = layout;
-        desc.m_spaceId = spaceId;
+        desc.m_spaceId = kPerPassSpaceId;
 
         const RHI::ResultCode rc = bindings->Init(*device, desc);
         if (rc != RHI::ResultCode::Success)
         {
-            LOG_ERROR("[CreatePassShaderBindings] ShaderBindings::Init failed for spaceId={}.", spaceId);
+            LOG_ERROR("[CreatePassBindings] ShaderBindings::Init failed for spaceId={}.", kPerPassSpaceId);
             return NullHandle;
         }
 
-        // Register on RHIContext for CompileShaderInputs discovery; flag as
-        // dirty so the very first frame compiles the bindings before execute.
-        // The entity owns the Ptr from here on.
         RHIHandle entity = rhiCtx.CreateEntity();
         rhiCtx.Add<RHI::Components::ShaderBindings>(entity, RHI::Components::ShaderBindings{ bindings });
         rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(entity);
-
+        rhiCtx.Add<PassShaderBindingsTag>(entity);
+        passCtx.Add<PassBindings>(pass, PassBindings{ entity });
         return entity;
+    }
+
+    namespace Detail
+    {
+    //! The PassBindings entity of the pass carrying PassTag, or NullHandle if it has none.
+    template<typename PassTag>
+    RHIHandle FindPassBindings(uint32_t spaceId)
+    {
+        ASSERT(spaceId == kPerPassSpaceId, "[SetPassShader] Only the per-pass space ({}) is supported, got {}.",
+            kPerPassSpaceId, spaceId);
+        PassContext& passCtx = *PassExecuteContext::Current();
+        const auto*  own     = passCtx.TryGet<PassBindings>(FindPass<PassTag>(passCtx));
+        return own != nullptr ? own->m_bindings : NullHandle;
     }
     } // namespace Detail
 
-    //! Get-or-create the per-pass ShaderBindings identified by (PassTag, spaceId),
-    //! lazily creating it on first use. Wraps CreatePassShaderBindings but adds
-    //! ownership + reuse: the SRG entity is stamped with PassTag so it can be found
-    //! again on later frames, and an existing (PassTag, spaceId) entity is returned
-    //! as-is instead of re-created.
-    //!
-    //! This is the binding-access path for SAMPLING passes: a pass that samples an
-    //! upstream (often transient) attachment resolves its view during Compile
-    //! (FindPassAttachmentImageView) — a phase with no owning object to hold the SRG
-    //! handle, so the SRG is located by tag + space here rather than captured.
-    //! CreatePassShaderBindings, by contrast, stays a pure create for callers that
-    //! own and store the handle themselves; its contract is left unchanged. The get-or-
-    //! create form is what RenderPassBuilder::Finalize calls to auto-allocate a pass's
-    //! space2 SRG.
-    //!
-    //! Uniqueness leans on ShaderBindings::GetSpaceId self-describing the HLSL space,
-    //! so no extra component is needed to disambiguate multiple per-pass SRGs. The
-    //! (PassTag, Components::ShaderBindings) view never collides with attachment
-    //! entities (which carry PassTag but no ShaderBindings). Returns NullHandle if
-    //! creation fails (e.g. a custom-pipeline pass has no PassPipelineLayout).
-    template<typename PassTagT>
-    RHIHandle GetOrCreatePassShaderBindings(
-        PassContext& passCtx, RHIContext& rhiCtx, uint32_t spaceId)
-    {
-        // Reuse: an SRG already owned by this pass at the requested space.
-        for (auto [entity, comp] : rhiCtx.GetView<PassTagT, RHI::Components::ShaderBindings>().each())
-        {
-            if (comp.m_bindings && comp.m_bindings->GetSpaceId() == spaceId)
-            {
-                return entity;
-            }
-        }
-
-        // Miss: delegate the create (Detail:: — the untagged create is internal now),
-        // then stamp PassTag (lookup key) + PassShaderBindingsTag (teardown handle).
-        RHIHandle entity = Detail::CreatePassShaderBindings<PassTagT>(passCtx, rhiCtx, spaceId);
-        if (entity != NullHandle)
-        {
-            rhiCtx.Add<PassTagT>(entity);
-            rhiCtx.Add<PassShaderBindingsTag>(entity);
-        }
-        return entity;
-    }
-
     // ============================================================
-    // Per-pass shader-binding data injection. Fully encapsulated: callers never touch
-    // the entity — the (PassTag, spaceId) bindings are get-or-created lazily and the
-    // value is staged into them. Returns false only when they can't be created yet
-    // (pass layout not reflected), letting callers gate readiness. ResolvePassSharedBindings
-    // picks them up by PassTag, completing the per-pass binding path.
+    // Per-pass shader-binding data injection into the pass's PassBindings. Returns false
+    // only when the pass has none (its layout declares no per-pass space), letting callers
+    // gate readiness. CompileScopeState binds them from PassBindings.
     // ============================================================
 
     template<typename PassTag>
     bool SetPassShaderImage(uint32_t spaceId, RHI::InputName input, const RHI::ImageView* view, uint32_t arrayIndex = 0)
     {
-        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
-            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        RHIHandle srg = Detail::FindPassBindings<PassTag>(spaceId);
         if (srg == NullHandle)
         {
             return false;
@@ -175,8 +128,7 @@ namespace Spark::Render
     template<typename PassTag>
     bool SetPassShaderSampler(uint32_t spaceId, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)
     {
-        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
-            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        RHIHandle srg = Detail::FindPassBindings<PassTag>(spaceId);
         if (srg == NullHandle)
         {
             return false;
@@ -188,8 +140,7 @@ namespace Spark::Render
     template<typename PassTag>
     bool SetPassShaderBuffer(uint32_t spaceId, RHI::InputName input, const RHI::BufferView* view, uint32_t arrayIndex = 0)
     {
-        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
-            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        RHIHandle srg = Detail::FindPassBindings<PassTag>(spaceId);
         if (srg == NullHandle)
         {
             return false;
@@ -201,8 +152,7 @@ namespace Spark::Render
     template<typename PassTag, typename T>
     bool SetPassShaderConstant(uint32_t spaceId, RHI::InputName input, const T& value)
     {
-        RHIHandle srg = GetOrCreatePassShaderBindings<PassTag>(
-            *PassExecuteContext::Current(), *RHIExecuteContext::Current(), spaceId);
+        RHIHandle srg = Detail::FindPassBindings<PassTag>(spaceId);
         if (srg == NullHandle)
         {
             return false;
@@ -211,10 +161,10 @@ namespace Spark::Render
         return true;
     }
 
-    //! Reap every per-pass ShaderBindings (created via GetOrCreatePassShaderBindings)
+    //! Reap every per-pass ShaderBindings (created via CreatePassBindings)
     //! by its runtime PassShaderBindingsTag. Call once at pipeline / RenderSystem
     //! teardown — per-pass SRGs are persistent and have no external owner, so this is
-    //! their single collection point, independent of the compile-time PassTag.
+    //! their single collection point.
     //!
     //! Destroyed here rather than tagged DeadTag like the view / instance SRGs: no tick
     //! follows teardown to reap DeadTag, so they would outlive RenderSystem, and their

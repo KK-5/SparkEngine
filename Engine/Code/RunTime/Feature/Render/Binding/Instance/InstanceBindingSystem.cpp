@@ -106,7 +106,7 @@ namespace Spark::Render
         // only the handle. The g_Instances SRV is bound by GlobalBuffer once the upload
         // buffer materializes, so we DO NOT mark it dirty here.
         Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list, built.stageMask);
+        layout->AddShaderInputDescriptors(built.list);
         layout->Finalize();
 
         Ptr<RHI::ShaderBindings> instanceBindings = factory->CreateShaderBindings();

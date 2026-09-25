@@ -68,7 +68,7 @@ namespace Spark::Render
             ASSERT(factory, "[ViewFactory] RHI factory is null.");
 
             Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-            layout->AddShaderInputDescriptors(built.list, built.stageMask);
+            layout->AddShaderInputDescriptors(built.list);
             layout->Finalize();
             s_layout = eastl::move(layout);
             return s_layout;

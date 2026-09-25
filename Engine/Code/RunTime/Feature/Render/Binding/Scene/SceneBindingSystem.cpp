@@ -100,7 +100,7 @@ namespace Spark::Render
         ASSERT(factory && device, "[SceneBindingSystem] RHI factory or device is null.");
 
         Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list, built.stageMask);
+        layout->AddShaderInputDescriptors(built.list);
         layout->Finalize();
 
         Ptr<RHI::ShaderBindings> sceneBindings = factory->CreateShaderBindings();
