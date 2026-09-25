@@ -105,7 +105,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;

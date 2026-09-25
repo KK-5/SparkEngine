@@ -14,7 +14,7 @@ namespace Spark::Render
     {
         SPARK_RENDER_PASS(ctx, "UIPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;

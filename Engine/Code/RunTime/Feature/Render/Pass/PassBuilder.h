@@ -108,14 +108,9 @@ namespace Spark::Render
         }
 
         // ---- Functions ----
-        ComputePassBuilder& Build(BuildFunction fn)
-        {
-            m_buildFunction = eastl::move(fn);
-            return *this;
-        }
-
-        //! Build through ComputePassScopes: the pass opens its Scopes itself.
-        ComputePassBuilder& BuildScopes(eastl::function<void(ComputePassScopes&)> fn)
+        //! Called every frame to declare the pass's resources and Scopes; declaring nothing
+        //! skips the pass that frame.
+        ComputePassBuilder& Build(eastl::function<void(ComputePassScopes&)> fn)
         {
             m_buildFunction = [fn = eastl::move(fn)](RenderGraphBuilder& builder)
             {

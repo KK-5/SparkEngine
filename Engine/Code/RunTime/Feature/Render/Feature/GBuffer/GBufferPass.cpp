@@ -95,7 +95,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<MaterialBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 const auto size = p.GetRenderSize();
                 auto s = p.Scope();

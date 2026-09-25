@@ -75,7 +75,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<>()
             .RendersView<OutputViewTag>()
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 // TonemapPass is the first pass to touch the swap chain, so it owns the import;
                 // UIPass writes the same imported "SwapChain" afterwards. Cleared (black) so the

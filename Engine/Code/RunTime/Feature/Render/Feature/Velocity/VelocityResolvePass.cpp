@@ -76,7 +76,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<>()
             .RendersView<MainViewTag>()
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 const auto size = p.GetRenderSize();
                 p.CreateImage(RHI::AttachmentId("ResolvedVelocity"), RHI::ImageDescriptor::Create2D(

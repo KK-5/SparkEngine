@@ -112,7 +112,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<MainSceneTag>()
             .RendersView<MainViewTag>()
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 // GBufferPass owns SceneColor and left the emissive in it; this pass blends
                 // its lighting on top, so the contents are loaded, not cleared.

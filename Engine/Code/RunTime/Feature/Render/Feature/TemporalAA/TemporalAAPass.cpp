@@ -75,7 +75,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<>()
             .RendersView<MainViewTag>()
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 // Declaring nothing skips the pass this frame.
                 const ViewTemporalAA* settings = FindMainViewSettings(*RHI::RHIExecuteContext::Current());

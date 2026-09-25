@@ -87,7 +87,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<InstanceBindingTag>()
             .RendersView<ShadowViewTag>()
-            .BuildScopes([](RenderPassScopes& p)
+            .Build([](RenderPassScopes& p)
             {
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
 

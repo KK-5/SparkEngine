@@ -82,7 +82,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<InstanceBindingTag>()
             .RendersView<MainViewTag>()
-            .BuildScopes([cfg](RenderPassScopes& p)
+            .Build([cfg](RenderPassScopes& p)
             {
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil | RHI::ImageBindFlags::ShaderRead,
