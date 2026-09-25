@@ -62,7 +62,6 @@ namespace Spark::Render
             if (!rhiCtx.Has<ImagePassAttachment>(handle))
             {
                 CreateStaticImageAttachment(rhiCtx, handle,
-                    rhiCtx.Get<RHI::ResourceName>(handle).m_name,
                     RHI::AttachmentAccess::Read,
                     RHI::AttachmentUsage::Shader,
                     RHI::AttachmentStage::FragmentShader);

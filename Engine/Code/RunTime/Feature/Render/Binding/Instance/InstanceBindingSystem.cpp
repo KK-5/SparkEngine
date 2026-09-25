@@ -155,7 +155,6 @@ namespace Spark::Render
             RHI::RequestBufferUpload(
                 rhiCtx, m_idBufferEntity, m_idData.data(), m_idData.size() * sizeof(uint32_t));
             CreateStaticBufferAttachment(rhiCtx, m_idBufferEntity,
-                RHI::InputName("InstanceIDBuffer"),
                 RHI::AttachmentAccess::Read,
                 RHI::AttachmentUsage::InputAssembly,
                 RHI::AttachmentStage::VertexInput);

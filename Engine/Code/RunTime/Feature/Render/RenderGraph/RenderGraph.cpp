@@ -219,7 +219,7 @@ namespace Spark::Render
         ////////////////////////////////////////////////
         // Build
         // Iterate passes in declaration order so that attachment version
-        // tracking (LookupLatestVersion / BumpVersion) converges deterministically
+        // tracking converges deterministically
         // regardless of entt's pool order.
         m_builder.Begin(frameIndex, m_swapchainResource, renderSize, outputSize);
         for (Pass pass : passContext.GetPassesInDeclOrder())
@@ -236,7 +236,7 @@ namespace Spark::Render
             }
             m_builder.EndPass();
         }
-        eastl::vector<Pass> passes = m_builder.End();
+        m_builder.End();
         ////////////////////////////////////////////////
 
         ////////////////////////////////////////////////
@@ -245,9 +245,7 @@ namespace Spark::Render
 
         // Transient resources must be materialized (backing allocated) before the
         // rest of compile. Views are no longer materialized here — they are resolved
-        // on demand from each resource's view cache. A ShaderBindings that samples a
-        // transient image must obtain its view (FindPassAttachmentImageView) before
-        // CompileShaderInputs so the descriptor is compiled with it.
+        // on demand from each resource's view cache.
         m_compiler.CompileTransientResources(*m_pool);
 
         // After the transient stage, which links the extracted resources' attachments and
@@ -261,15 +259,6 @@ namespace Spark::Render
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
 
         StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);
-
-        for (auto pass : passes)
-        {
-            auto& func = passContext.Get<PassFunctions>(pass);
-            if (func.m_compileFunction)
-            {
-                func.m_compileFunction(m_compiler);
-            }
-        }
 
         m_compiler.CompileScopeBarriers(passContext, context, *m_pool);
         m_compiler.CompileScopeSync(passContext, context, m_crossQueueFences);

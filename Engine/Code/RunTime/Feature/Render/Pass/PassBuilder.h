@@ -74,8 +74,8 @@ namespace Spark::Render
     RHIHandle CreatePassBindings(PassContext& passCtx, RHIContext& rhiCtx, Pass pass);
 
     // RenderPassBuilder<PassTag> + SPARK_RENDER_PASS live in <Pass/RenderPass.h>.
-    // It pulls the heavy PassAccess.h chain — kept out of this common header so only
-    // files that write render passes pay for it.
+    // It pulls PassCapabilities.h, kept out of this common header so only files that write
+    // render passes pay for it.
 
     // ================================================================
     // ComputePassBuilder<PassTag>
@@ -85,7 +85,6 @@ namespace Spark::Render
     {
     public:
         using BuildFunction   = eastl::function<void(RenderGraphBuilder&)>;
-        using CompileFunction = eastl::function<void(RenderGraphCompiler&)>;
         using ExecuteFunction = eastl::function<void(ExecuteWork&, RenderGraphExecuter&)>;
 
         ComputePassBuilder& Queue(RHI::HardwareQueueClass q)
@@ -123,12 +122,6 @@ namespace Spark::Render
                 ComputePassScopes scopes(builder);
                 fn(scopes);
             };
-            return *this;
-        }
-
-        ComputePassBuilder& Compile(CompileFunction fn)
-        {
-            m_compileFunction = eastl::move(fn);
             return *this;
         }
 
@@ -186,7 +179,6 @@ namespace Spark::Render
 
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
-            funcs.m_compileFunction = eastl::move(m_compileFunction);
             funcs.m_executeFunction = eastl::move(m_executeFunction);
             m_context->Add<PassFunctions>(pass, eastl::move(funcs));
 
@@ -212,17 +204,11 @@ namespace Spark::Render
         PassShaders             m_shaders;
 
         BuildFunction           m_buildFunction;
-        CompileFunction         m_compileFunction;
         ExecuteFunction         m_executeFunction;
 
         bool                    m_queueSet  {false};
         bool                    m_finalized {false};
     };
-
-    // CopyPassBuilder<PassTag> + SPARK_COPY_PASS live in <Pass/CopyPass.h>.
-    // It installs slot-resolving Compile/Execute defaults, which pull the heavy
-    // PassAccess.h chain — kept out of this common header so only files that
-    // actually write copy passes pay for it.
 
     // ================================================================
     // Factory functions

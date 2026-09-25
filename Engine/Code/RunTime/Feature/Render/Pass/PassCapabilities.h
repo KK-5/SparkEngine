@@ -9,7 +9,6 @@
 #include <RHI/Component/Component.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
 #include <View/View.h>
 #include <View/ViewTags.h>

@@ -152,9 +152,8 @@ namespace Spark::Render
             auto& rhiContext = *RHIExecuteContext::Current();
 
             // Attachment entities are the pass→resource edges. They live through
-            // Build/Compile/Execute (Execute resolves resources by slot via them)
-            // and are destroyed here, after Execute — but still before next frame's
-            // Build, so next frame's ValidateUniqueSlot sees no stale slot names.
+            // Build/Compile/Execute (Execute records their barriers) and are destroyed
+            // here, after Execute, before next frame's Build.
             // StaticImport attachments are excluded: they persist by design.
             eastl::vector<RHIHandle> attachmentHandles;
             rhiContext.GetView<ImagePassAttachment>(Exclude<StaticImportTag>).each(

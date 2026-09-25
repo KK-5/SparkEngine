@@ -22,9 +22,7 @@ namespace Spark::Render
         ASSERT(pass != NullPass, "BeginPass called with NullPass.");
         ASSERT(m_currentPass == NullPass,
             "BeginPass called while another pass scope is still active.");
-        m_currentPass       = pass;
-        m_currentScope      = NullHandle;
-        m_currentColorCount = 0;
+        m_currentPass = pass;
     }
 
     void RenderGraphBuilder::EndPass()
@@ -63,9 +61,7 @@ namespace Spark::Render
             }
         }
 
-        m_currentPass       = NullPass;
-        m_currentScope      = NullHandle;
-        m_currentColorCount = 0;
+        m_currentPass = NullPass;
         m_passScopes.clear();
         m_unstagedAttachments.clear();
     }
@@ -83,15 +79,6 @@ namespace Spark::Render
             passContext.Get<PassExecuteQueue>(m_currentPass).m_queue });
         m_passScopes.push_back(OpenedScope{ scope, 0 });
         return scope;
-    }
-
-    RHIHandle RenderGraphBuilder::CurrentScope()
-    {
-        if (m_currentScope == NullHandle)
-        {
-            m_currentScope = OpenScope();
-        }
-        return m_currentScope;
     }
 
     void RenderGraphBuilder::CreateImage(const RHI::AttachmentId& name, const RHI::ImageDescriptor& desc)
@@ -618,12 +605,12 @@ namespace Spark::Render
         return result;
     }
 
-    eastl::vector<Pass> RenderGraphBuilder::End()
+    void RenderGraphBuilder::End()
     {
         ASSERT(m_currentPass == NullPass,
             "End() called with an active pass scope; missing EndPass?");
         BuildGraph();
-        eastl::vector<Pass> passes = TopoSort();
+        TopoSort();
 
         // A pass that declared nothing is not in the graph and never runs, so its Scopes and
         // their items have no place in the stream. Any attachment would have made the pass a
@@ -658,9 +645,6 @@ namespace Spark::Render
         m_graph.clear();
         m_attachmentUses.clear();
         m_resources.clear();
-        m_currentPass  = NullPass;
-        m_currentScope = NullHandle;
-
-        return passes;
+        m_currentPass = NullPass;
     }
 }

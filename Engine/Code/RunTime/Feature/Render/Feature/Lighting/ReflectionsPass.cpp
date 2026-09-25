@@ -6,7 +6,6 @@
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/Image/ImageView.h>
 
-#include <Pass/PassAccess.h>
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>

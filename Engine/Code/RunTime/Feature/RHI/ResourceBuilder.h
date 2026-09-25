@@ -21,8 +21,8 @@ namespace Spark::RHI
 
     //! Create a static-import buffer — uploaded once (or infrequently via streaming)
     //! and used with a single, pre-declared bind usage (e.g. vertex / index /
-    //! shader-resource).  The render graph does not require an explicit
-    //! ImportBufferAttachment call in every build function; the compiler detects
+    //! shader-resource).  The render graph does not require it to be imported in
+    //! every build function; the compiler detects
     //! the resource via StaticImportTag and emits a one-time CopyDst→target-usage
     //! barrier on first access.
     //!

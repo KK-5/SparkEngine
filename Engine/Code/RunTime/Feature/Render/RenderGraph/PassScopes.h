@@ -113,6 +113,10 @@ namespace Spark::Render
             const RHI::AttachmentId& name, const RHI::AttachmentLoadStoreAction& action = RHI::AttachmentLoadStoreAction());
         Attachment DepthRead(const RHI::AttachmentId& name);
 
+        //! Resolve the multisampled render target `source`, declared in this Scope, into `name`
+        //! when the render pass ends.
+        Attachment Resolve(const RHI::AttachmentId& name, const Attachment& source);
+
         ShaderAttachment Read(const RHI::AttachmentId& name);
         ShaderAttachment ReadWrite(const RHI::AttachmentId& name);
 

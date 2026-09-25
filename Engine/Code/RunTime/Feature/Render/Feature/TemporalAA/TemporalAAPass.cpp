@@ -11,7 +11,6 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>
-#include <Pass/PassAccess.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>

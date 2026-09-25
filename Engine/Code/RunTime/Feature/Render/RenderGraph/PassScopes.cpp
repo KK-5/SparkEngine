@@ -102,6 +102,24 @@ namespace Spark::Render
             RHI::AttachmentUsage::DepthStencil, RHI::AttachmentAccess::Read, DepthStages, &action));
     }
 
+    Attachment RenderScope::Resolve(const RHI::AttachmentId& name, const Attachment& source)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        ASSERT(rhiContext.Has<ColorAttachmentIndex>(source.GetHandle())
+                && rhiContext.Get<ScopeAttachment>(source.GetHandle()).m_scope == m_scope,
+            "A Resolve's source must be a RenderTarget of the same Scope.");
+
+        // The resolve writes every pixel, so nothing is loaded.
+        RHI::AttachmentLoadStoreAction action;
+        action.m_loadAction  = RHI::AttachmentLoadAction::DontCare;
+        action.m_storeAction = RHI::AttachmentStoreAction::Store;
+        const RHIHandle handle = m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
+            RHI::AttachmentUsage::Resolve, RHI::AttachmentAccess::Write,
+            RHI::AttachmentStage::ColorAttachmentOutput, &action);
+        rhiContext.Add<ResolveSource>(handle, ResolveSource{ source.GetHandle() });
+        return Attachment(handle);
+    }
+
     ShaderAttachment RenderScope::Read(const RHI::AttachmentId& name)
     {
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,

@@ -198,10 +198,8 @@ namespace Spark::Render
     void RenderGraphCompiler::End()
     {
         // Attachment entities are the pass→resource edges. They are NOT destroyed
-        // here: Execute needs them to resolve "which resource does this pass use at
-        // slot S" (see FindPassAttachmentImage / FindPassAttachmentImageView). They
-        // are destroyed in RenderGraphExecuter::End(), after Execute, but still
-        // before next frame's Build — so next frame's ValidateUniqueSlot is unaffected.
+        // here: Execute still records their barriers. They are destroyed in
+        // RenderGraphExecuter::End(), after Execute, before next frame's Build.
 
         // Per-resource compile-time state cursor is now cleared in
         // Executer::End(), after frame-end PendingSync update consumes it.
@@ -261,7 +259,7 @@ namespace Spark::Render
         // entities. Image views are built lazily via GetOrCreateImageView (resource's
         // ImageViewCache). Buffer views currently have no consumer, so no view is
         // created at all — only the buffer itself (att.m_buffer → BackingBuffer) is
-        // needed for barriers and FindPassAttachmentBuffer. A buffer-side view cache
+        // needed for barriers. A buffer-side view cache
         // can be added when a buffer-view consumer appears.
 
         //! Read the resource's current observed state from the BackingImage / BackingBuffer
@@ -763,7 +761,6 @@ namespace Spark::Render
             const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
 
             RHI::RenderPassBeginInfo info;
-            eastl::array<RHI::InputName, RHI::Limits::Pipeline::AttachmentColorCountMax> colorSlots {};
             uint32_t colorCount    = 0;
             uint32_t maxLayerCount = 1;
             bool     hasAny        = false;
@@ -790,7 +787,6 @@ namespace Spark::Render
                     auto& color = info.m_colorAttachments[index];
                     color.m_view            = view;
                     color.m_loadStoreAction = att->m_action;
-                    colorSlots[index]       = att->m_slotName;
                     colorCount              = eastl::max(colorCount, index + 1);
                     maxLayerCount           = eastl::max(maxLayerCount, AttachmentLayerCount(context, *att));
                     hasAny                  = true;
@@ -846,22 +842,8 @@ namespace Spark::Render
                     "[RenderGraphCompiler] Resolve attachment {}'s view could not be resolved from its resource view cache.",
                     att->m_attachmentId.m_id.GetCStr());
 
-                uint32_t source = colorCount;
-                for (uint32_t i = 0; i < colorCount; ++i)
-                {
-                    if (colorSlots[i] == att->m_resolveSourceSlot)
-                    {
-                        source = i;
-                        break;
-                    }
-                }
-                ASSERT(source < colorCount,
-                    "[RenderGraphCompiler] Resolve attachment slot '{}' references unknown RenderTarget slot '{}'.",
-                    att->m_slotName.GetCStr(), att->m_resolveSourceSlot.GetCStr());
-                if (source < colorCount)
-                {
-                    info.m_colorAttachments[source].m_resolveView = resolved;
-                }
+                const RHIHandle source = context.Get<ResolveSource>(attachment).m_source;
+                info.m_colorAttachments[context.Get<ColorAttachmentIndex>(source).m_index].m_resolveView = resolved;
             }
 
             ASSERT(hasAny,

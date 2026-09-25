@@ -599,7 +599,8 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 | B5 | Scope 上的 `Accepts<>` 与 `ScopeSelections`；router 不打 PassTag，删静态 `.Accepts` | DepthPre、GBuffer、Shadow | 完成 |
 | B6 | ShadowProjection 收回 draw；删 `m_collectSubmitItems` | ShadowProjection | 完成 |
 | B7 | `.Execute` 带上 Scope 序号；删 `.CustomPipeline()`，由没设 shader 推出 | UI | 完成 |
-| B8 | 删旧访问 API、`.Compile`、带 PassTag 的查找与 `SetPassShader*`；改回 `.Build` | — | |
+| B8a | 删旧访问 API、`.Compile`、带 PassTag 的查找与 `SetPassShader*`；删 copy pass 旧实现（`CopyPassBuilder` / `CopyRequest`）与槽名；`Resolve` 改由 Scope 声明 | — | 完成 |
+| B8b | `.BuildScopes` 改回 `.Build` | 全部 pass | |
 
 ### 执行侧现状
 

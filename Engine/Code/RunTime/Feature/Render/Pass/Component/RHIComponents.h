@@ -170,8 +170,6 @@ namespace Spark::Render
     struct ImagePassAttachment
     {
         AttachmentId                   m_attachmentId;
-        RHI::InputName                 m_slotName;
-        RHI::InputName                 m_resolveSourceSlot;
         RHI::AttachmentAccess          m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage           m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage           m_stage  = RHI::AttachmentStage::Any;
@@ -191,7 +189,6 @@ namespace Spark::Render
     struct BufferPassAttachment
     {
         AttachmentId              m_attachmentId;
-        RHI::InputName            m_slotName;
         RHI::AttachmentAccess     m_access = RHI::AttachmentAccess::Unknown;
         RHI::AttachmentUsage      m_usage  = RHI::AttachmentUsage::Uninitialized;
         RHI::AttachmentStage      m_stage  = RHI::AttachmentStage::Any;
@@ -222,6 +219,12 @@ namespace Spark::Render
     struct ColorAttachmentIndex
     {
         uint32_t m_index = 0;
+    };
+
+    //! On a Resolve attachment: the RenderTarget attachment of the same Scope it resolves.
+    struct ResolveSource
+    {
+        RHIHandle m_source {NullHandle};
     };
 
     //! On an attachment a shader reads or writes through a named input (.Bind): lowering puts
@@ -290,14 +293,12 @@ namespace Spark::Render
     inline void CreateStaticBufferAttachment(
         RHIContext&              ctx,
         RHIHandle                resourceEntity,
-        RHI::InputName           slot,
         RHI::AttachmentAccess    access,
         RHI::AttachmentUsage     usage,
         RHI::AttachmentStage     stage)
     {
         BufferPassAttachment a;
         a.m_attachmentId = AttachmentId{ ctx.Get<ResourceName>(resourceEntity).m_name, 0 };
-        a.m_slotName     = slot;
         a.m_access       = access;
         a.m_usage        = usage;
         a.m_stage        = stage;
@@ -308,14 +309,12 @@ namespace Spark::Render
     inline void CreateStaticImageAttachment(
         RHIContext&              ctx,
         RHIHandle                resourceEntity,
-        RHI::InputName           slot,
         RHI::AttachmentAccess    access,
         RHI::AttachmentUsage     usage,
         RHI::AttachmentStage     stage)
     {
         ImagePassAttachment a;
         a.m_attachmentId = AttachmentId{ ctx.Get<ResourceName>(resourceEntity).m_name, 0 };
-        a.m_slotName     = slot;
         a.m_access       = access;
         a.m_usage        = usage;
         a.m_stage        = stage;

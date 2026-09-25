@@ -32,7 +32,6 @@ namespace Spark::RHI
 namespace Spark::Render
 {
     class RenderGraphBuilder;
-    class RenderGraphCompiler;
     class RenderGraphExecuter;
     struct ExecuteWork;
 
@@ -42,14 +41,6 @@ namespace Spark::Render
     };
 
     struct ComputePassTag
-    {
-    };
-
-    //! Marks a pass that does raw command-list copy/blit/resolve work (no shaders,
-    //! no PSO, no render targets). Discriminator alongside RenderPassTag /
-    //! ComputePassTag; also the natural hook for future automated copy-command
-    //! synthesis from declared attachments.
-    struct CopyPassTag
     {
     };
 
@@ -140,7 +131,6 @@ namespace Spark::Render
     struct PassFunctions
     {
         eastl::function<void(RenderGraphBuilder&)> m_buildFunction;
-        eastl::function<void(RenderGraphCompiler&)> m_compileFunction;
         eastl::function<void(ExecuteWork&, RenderGraphExecuter&)> m_executeFunction;
     };
 }

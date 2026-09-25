@@ -11,9 +11,7 @@
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
 #include <Pass/PassBuilder.h>
-#include <Pass/PassAccess.h>
 #include <Pass/PassCapabilities.h>
-#include <RenderGraph/RenderGraphCompiler.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
 namespace Spark::Render
@@ -21,17 +19,15 @@ namespace Spark::Render
     // ================================================================
     // RenderPassBuilder<PassTag> — chainable builder for graphics passes
     //
-    // Lives here (not in the common PassBuilder.h) because Finalize installs the
-    // slot-resolving Compile/Execute defaults, which pull the heavy PassAccess.h
-    // chain — kept out of the universally-included header so only files that write
-    // render passes pay for it.
+    // Lives here (not in the common PassBuilder.h) because it pulls PassCapabilities.h,
+    // kept out of the universally-included header so only files that write render
+    // passes pay for it.
     // ================================================================
     template<typename PassTag>
     class RenderPassBuilder
     {
     public:
         using BuildFunction   = eastl::function<void(RenderGraphBuilder&)>;
-        using CompileFunction = eastl::function<void(RenderGraphCompiler&)>;
         using ExecuteFunction = eastl::function<void(ExecuteWork&, RenderGraphExecuter&)>;
 
         RenderPassBuilder& Queue(RHI::HardwareQueueClass q)
@@ -131,12 +127,6 @@ namespace Spark::Render
             return *this;
         }
 
-        RenderPassBuilder& Compile(CompileFunction fn)
-        {
-            m_compileFunction = eastl::move(fn);
-            return *this;
-        }
-
         //! Opaque work, recorded by `fn` instead of the executer submitting the Scope's items:
         //! called per view segment of each Scope, after the pass's PSO and bindings are set if
         //! it has shaders.
@@ -221,7 +211,6 @@ namespace Spark::Render
             // No default hook: the executer submits a hookless Scope's items itself.
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
-            funcs.m_compileFunction = eastl::move(m_compileFunction);
             funcs.m_executeFunction = eastl::move(m_executeFunction);
             m_context->Add<PassFunctions>(pass, eastl::move(funcs));
 
@@ -256,7 +245,6 @@ namespace Spark::Render
         PassPipelineState       m_pipelineState;
 
         BuildFunction           m_buildFunction;
-        CompileFunction         m_compileFunction;
         ExecuteFunction         m_executeFunction;
 
         bool                    m_queueSet  {false};

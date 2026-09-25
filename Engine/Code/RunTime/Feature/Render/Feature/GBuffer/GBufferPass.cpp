@@ -10,7 +10,6 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>
-#include <Pass/PassAccess.h>
 
 #include <Drawable/DrawTag.h>
 #include <View/ViewTags.h>
@@ -67,7 +66,7 @@ namespace Spark::Render
         // Depth-equal against DepthPrePass's SceneDepth, never writing depth: the
         // prepass already established the exact visible depth, so Equal keeps only the
         // owning fragment (early-Z, zero overdraw on the GBuffer PS). Read-only DSV is
-        // selected by ReadImageAttachment below, not by the write mask.
+        // selected by the DepthRead below, not by the write mask.
         states.m_depthStencilState.m_depth.m_enable    = 1;
         states.m_depthStencilState.m_depth.m_writeMask = RHI::DepthWriteMask::Zero;
         states.m_depthStencilState.m_depth.m_func      = RHI::ComparisonFunc::Equal;
