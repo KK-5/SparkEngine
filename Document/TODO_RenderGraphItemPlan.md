@@ -562,7 +562,8 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 10. **执行器改为遍历 Scope**：删除 `PassBarriers` / `SubmitBatch` / `PassSubmitTable` / `ExecuteWorkItem` /
    `QueueSegment` / `ExecuteGroup` 等表，执行循环只认 Scope、attachment 与提交表。
-11. **dispatch 提交路径**：`DispatchItem` 作为单个 item 进提交表。
+11. **dispatch 提交路径**：compute Scope 的 `Dispatch` 按线程数声明，group 数由 shader 的 `[numthreads]`（Finalize 时缓存为
+    `PassThreadGroupSize`，随 PSO 走）推出；compute Scope 的 item 不分视图进提交表。
 12. **不透明工作**：Scope 上的 execute hook，执行后状态缓存失效。
 
 ### 迁移（验证用例）
@@ -589,7 +590,7 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 |---|---|---|---|
 | A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | 完成 |
 | B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13、14、16 | 完成 |
-| C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | 进行中 |
+| C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | 完成 |
 | D | Bloom | 17 | |
 
 B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并存、逐个迁移，最后改回 `.Build`；每迁移一个 pass，
@@ -613,7 +614,7 @@ C 的步骤。
 |---|---|---|---|
 | C1 | root constant 进 RHI：shader 约定与反射分类、`ConstantsLayout`、DX12 root 参数与大小校验、`SetRootConstants` | 反射测试 | 完成 |
 | C2 | 绑定分流：`ScopeRootConstants`、`.Constant` 按反射落位、`.BindIndex` | TrianglePass 的 tint | 完成 |
-| C3 | compute Scope 的 `Dispatch`；有 shader 的 compute pass 不再要求 `.Execute` | compute 示例 | |
+| C3 | compute Scope 的 `Dispatch` 与 `PassThreadGroupSize`；compute Scope 的 item 进提交表；有 shader 的 compute pass 不再要求 `.Execute` | ComputePass 示例 | 完成 |
 
 ### 执行侧现状
 

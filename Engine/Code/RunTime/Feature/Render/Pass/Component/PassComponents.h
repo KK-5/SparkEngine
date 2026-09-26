@@ -104,6 +104,15 @@ namespace Spark::Render
         Ptr<RHI::PipelineLayoutDescriptor> m_layout;
     };
 
+    //! On a compute pass with a shader: its [numthreads], from reflection at Finalize. A
+    //! shader fixes it, so it goes with the PSO; per pass while a pass has one PSO.
+    struct PassThreadGroupSize
+    {
+        uint16_t m_x = 1;
+        uint16_t m_y = 1;
+        uint16_t m_z = 1;
+    };
+
     //! Compiled PSO cache. Written by PSO compiler, read by executer.
     struct PassCompiledPSO
     {

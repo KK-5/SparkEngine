@@ -204,3 +204,30 @@ if (BUILD_RG_MSAAPASS)
         SparkAssetManager
     )
 endif()
+option(BUILD_RG_COMPUTEPASS "Build RenderGraph ComputePass" ON)
+
+if (BUILD_RG_COMPUTEPASS)
+    set(TARGET_NAME ComputePass)
+
+    add_executable(${TARGET_NAME}
+        Common/SimpleGlfwWindow.cpp
+        RenderGraph/ComputePassFeature.cpp
+    )
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        glfw
+        SparkCore
+        SparkInput
+        SparkRender
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+    )
+endif()

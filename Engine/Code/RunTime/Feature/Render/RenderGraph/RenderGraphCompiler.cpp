@@ -1067,21 +1067,24 @@ namespace Spark::Render
             RHIHandle scope, Pass pass, const RHI::RenderPassBeginInfo* beginInfo,
             PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
+            // A compute Scope's items run under no view.
+            const bool isRenderPass = passContext.Has<RenderPassTag>(pass);
+            if (!isRenderPass)
+            {
+                AppendItems(scope, NullHandle, context, submitList);
+                return;
+            }
+
             const auto* capabilities = passContext.TryGet<PassCapabilities>(pass);
             if (!capabilities)
             {
                 return;
             }
-
+            ASSERT(capabilities->m_collectViews,
+                "[RenderGraphCompiler] Render pass {} declares no .RendersView<>().",
+                passContext.Get<PassName>(pass).m_name.GetCStr());
             if (!capabilities->m_collectViews)
             {
-                ASSERT(!passContext.Has<RenderPassTag>(pass),
-                    "[RenderGraphCompiler] Render pass {} declares no .RendersView<>().",
-                    passContext.Get<PassName>(pass).m_name.GetCStr());
-                if (!passContext.Has<RenderPassTag>(pass))
-                {
-                    AppendItems(scope, NullHandle, context, submitList);
-                }
                 return;
             }
 
@@ -1089,8 +1092,7 @@ namespace Spark::Render
             // extent it has nothing to draw into.
             RHI::Viewport targetViewport;
             RHI::Scissor  targetScissor;
-            const bool isRenderPass = passContext.Has<RenderPassTag>(pass);
-            if (isRenderPass && (!beginInfo || !ResolveTargetViewport(*beginInfo, targetViewport, targetScissor)))
+            if (!beginInfo || !ResolveTargetViewport(*beginInfo, targetViewport, targetScissor))
             {
                 return;
             }
@@ -1106,17 +1108,14 @@ namespace Spark::Render
                     continue;
                 }
 
-                if (isRenderPass)
-                {
-                    const View& viewData = context.Get<View>(view);
-                    ASSERT(viewData.m_bufferSize == Math::Vector2Int(0, 0)
-                        || (viewData.m_bufferSize.x == static_cast<int>(targetViewport.m_maxX)
-                            && viewData.m_bufferSize.y == static_cast<int>(targetViewport.m_maxY)),
-                        "[RenderGraphCompiler] Pass {} targets {}x{}, but its view's rect is a fraction of {}x{}.",
-                        passContext.Get<PassName>(pass).m_name.GetCStr(),
-                        static_cast<int>(targetViewport.m_maxX), static_cast<int>(targetViewport.m_maxY),
-                        viewData.m_bufferSize.x, viewData.m_bufferSize.y);
-                }
+                const View& viewData = context.Get<View>(view);
+                ASSERT(viewData.m_bufferSize == Math::Vector2Int(0, 0)
+                    || (viewData.m_bufferSize.x == static_cast<int>(targetViewport.m_maxX)
+                        && viewData.m_bufferSize.y == static_cast<int>(targetViewport.m_maxY)),
+                    "[RenderGraphCompiler] Pass {} targets {}x{}, but its view's rect is a fraction of {}x{}.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr(),
+                    static_cast<int>(targetViewport.m_maxX), static_cast<int>(targetViewport.m_maxY),
+                    viewData.m_bufferSize.x, viewData.m_bufferSize.y);
 
                 submitList.push_back(view);
                 AppendItems(scope, view, context, submitList);

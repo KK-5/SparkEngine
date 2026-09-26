@@ -182,6 +182,13 @@ namespace Spark::Render
         //! Read the copy of `name` produced last frame (see ShaderAttachment::IsPreviousFrameMissing).
         ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);
 
+        //! A dispatch covering this many threads, not groups: the group count follows from the
+        //! shader's [numthreads], rounded up, so the shader must bounds-check the excess.
+        void Dispatch(uint32_t threadCountX, uint32_t threadCountY = 1, uint32_t threadCountZ = 1)
+        {
+            m_builder->AddScopeDispatch(m_scope, threadCountX, threadCountY, threadCountZ);
+        }
+
         //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
         //! set the same input must agree: the per-pass space holds one value.
         void Sampler(const RHI::InputName& input, const RHI::SamplerState& state)

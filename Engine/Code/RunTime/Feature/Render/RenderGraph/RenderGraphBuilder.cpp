@@ -4,6 +4,7 @@
 #include <Pass/Component/PassComponents.h>
 #include <Pass/PassCapabilities.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <RHI/Command/DispatchItem.h>
 
 namespace Spark::Render
 {
@@ -325,6 +326,20 @@ namespace Spark::Render
         const RHIHandle item = rhiContext.CreateEntity();
         rhiContext.Add<ScopeItem>(item, ScopeItem{ scope });
         return item;
+    }
+
+    void RenderGraphBuilder::AddScopeDispatch(
+        RHIHandle scope, uint32_t threadCountX, uint32_t threadCountY, uint32_t threadCountZ)
+    {
+        auto& passContext = *PassExecuteContext::Current();
+        const auto* groupSize = passContext.TryGet<PassThreadGroupSize>(m_currentPass);
+        ASSERT(groupSize != nullptr, "Pass {} dispatches without a compute shader.",
+            passContext.Get<PassName>(m_currentPass).m_name.GetCStr());
+
+        RHI::DispatchItem item;
+        item.m_arguments = RHI::DispatchArguments(RHI::DispatchDirect(
+            threadCountX, threadCountY, threadCountZ, groupSize->m_x, groupSize->m_y, groupSize->m_z));
+        RHIExecuteContext::Current()->Add<RHI::DispatchItem>(AddScopeItem(scope), item);
     }
 
     void RenderGraphBuilder::AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect)

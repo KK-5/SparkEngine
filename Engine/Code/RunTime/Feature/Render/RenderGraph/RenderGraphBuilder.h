@@ -122,6 +122,10 @@ namespace Spark::Render
         //! DrawItem. It lives for the frame.
         RHIHandle AddScopeItem(RHIHandle scope);
 
+        //! A dispatch of `scope` covering the given thread counts: the groups follow from the
+        //! current pass's [numthreads] (PassThreadGroupSize), rounded up.
+        void AddScopeDispatch(RHIHandle scope, uint32_t threadCountX, uint32_t threadCountY, uint32_t threadCountZ);
+
         //! A set of scene items `scope` selects: `collect` appends its members under a view.
         void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);
 

@@ -216,6 +216,8 @@ namespace Spark::SandBox
                 s.Resolve(RHI::AttachmentId("SwapChain"), color);
                 s.Constant(RHI::InputName("g_MVP"), m_matrix);
                 s.Constant(RHI::InputName("g_Colors"), m_colors);
+                // TriangleMVP.hlsl's root constant: unset, it would be 0 and the triangle black.
+                s.Constant(RHI::InputName("tint"), Math::Vector4(1.f, 1.f, 1.f, 1.f));
                 s.Accepts<SampleDrawTag>();
             })
             .Finalize();
