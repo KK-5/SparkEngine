@@ -55,6 +55,12 @@ namespace Spark::Render
         return *this;
     }
 
+    ShaderAttachment& ShaderAttachment::BindIndex(const RHI::InputName& input)
+    {
+        m_builder->BindShaderInputIndex(GetHandle(), input);
+        return *this;
+    }
+
     bool ShaderAttachment::IsPreviousFrameMissing() const
     {
         const auto& rhiContext = *RHIExecuteContext::Current();

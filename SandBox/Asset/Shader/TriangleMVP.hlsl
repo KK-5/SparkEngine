@@ -4,6 +4,14 @@ cbuffer PassConstants : register(b0, space2)
     float3   g_Colors[3];
 };
 
+// Root constants: set per Scope on the command list, no descriptor.
+struct TriangleRootConstants
+{
+    float4 tint;
+};
+
+[[vk::push_constant]] ConstantBuffer<TriangleRootConstants> g_Root : register(b0, space5);
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -28,5 +36,5 @@ PSInput VSMain(VSInput input, uint vertexId : SV_VertexID)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return float4(input.color, 1.0);
+    return float4(input.color, 1.0) * g_Root.tint;
 }

@@ -70,12 +70,17 @@ namespace Spark::Render
             return *this;
         }
 
-        //! The shader stages that access it, for an access no .Bind names (bindless, or read
+        //! The shader stages that access it, for an access no .Bind names (.BindIndex, or read
         //! through a shared binding). Render passes only: a compute pass's is fixed.
         ShaderAttachment& Stage(RHI::AttachmentStage stage);
 
         //! Bind it to the per-pass shader input `input`: lowering puts its view there.
         ShaderAttachment& Bind(const RHI::InputName& input);
+
+        //! Bind it by heap index to the uint constant `input`, a root constant or a per-pass
+        //! one: lowering writes its view's bindless index there. Beside .Bind, not instead of
+        //! it; an access is bound one way. In a render pass it needs .Stage.
+        ShaderAttachment& BindIndex(const RHI::InputName& input);
 
         //! For a ReadPrevious access: whether last frame left no copy, so it reads a stand-in.
         bool IsPreviousFrameMissing() const;

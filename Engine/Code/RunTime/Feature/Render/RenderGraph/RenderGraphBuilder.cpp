@@ -78,6 +78,14 @@ namespace Spark::Render
             static_cast<uint32_t>(m_passScopes.size()),
             passContext.Get<PassExecuteQueue>(m_currentPass).m_queue });
         m_passScopes.push_back(OpenedScope{ scope, 0 });
+
+        const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
+        const RHI::ConstantsLayout* rootConstants = (layout != nullptr && layout->m_layout)
+            ? layout->m_layout->GetRootConstantsLayout() : nullptr;
+        if (rootConstants != nullptr)
+        {
+            rhiContext.Add<ScopeRootConstants>(scope).m_byteCount = rootConstants->GetDataSize();
+        }
         return scope;
     }
 
@@ -363,6 +371,50 @@ namespace Spark::Render
             }
             return stage;
         }
+
+        //! Mark `interval` of the Scope's root constants set: each field is set once.
+        void MarkRootConstantWritten(ScopeRootConstants& block, const Interval& interval, const RHI::InputName& input)
+        {
+            for (uint32_t dword = interval.m_min / 4; dword < (interval.m_max + 3) / 4; ++dword)
+            {
+                const uint32_t bit = 1u << dword;
+                ASSERT((block.m_writtenDwords & bit) == 0, "Root constant {} is set twice in one Scope.", input.GetCStr());
+                block.m_writtenDwords |= bit;
+            }
+        }
+    }
+
+    void RenderGraphBuilder::BindShaderInputIndex(RHIHandle attachment, const RHI::InputName& input)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        ASSERT(rhiContext.Has<ImagePassAttachment>(attachment),
+            "Binding {} by index to a buffer: buffer bindings are not supported yet.", input.GetCStr());
+        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
+            "The access bound to {} is already bound; declare another access to bind another input.",
+            input.GetCStr());
+
+        const RHI::PipelineLayoutDescriptor& layout = CurrentPassLayout();
+        if (const RHI::ConstantsLayout* root = layout.GetRootConstantsLayout())
+        {
+            const RHI::ShaderInputIndex index = root->FindShaderInputIndex(input);
+            if (index != RHI::InvalidShaderInputIndex)
+            {
+                const Interval interval = root->GetInterval(index);
+                ASSERT(interval.m_max - interval.m_min == 4, "Root constant {} is not a 4-byte index.", input.GetCStr());
+                const RHIHandle scope = rhiContext.Get<ScopeAttachment>(attachment).m_scope;
+                MarkRootConstantWritten(rhiContext.Get<ScopeRootConstants>(scope), interval, input);
+                rhiContext.Add<IndexBinding>(attachment, IndexBinding{ input });
+                return;
+            }
+        }
+
+        const RHI::ShaderInputConstantDescriptor* desc = layout.FindConstantDescriptor(input);
+        ASSERT(desc != nullptr, "The pass's shaders have no constant {} to take an index.", input.GetCStr());
+        ASSERT(desc->m_spaceId == kPerPassSpaceId,
+            "{} is in space {}; only root constants and per-pass constants (space {}) can take an index.",
+            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
+        ASSERT(desc->m_constantByteCount == 4, "Constant {} is not a 4-byte index.", input.GetCStr());
+        rhiContext.Add<IndexBinding>(attachment, IndexBinding{ input });
     }
 
     void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const RHI::InputName& input)
@@ -370,7 +422,7 @@ namespace Spark::Render
         auto& rhiContext = *RHIExecuteContext::Current();
         auto* image = rhiContext.TryGet<ImagePassAttachment>(attachment);
         ASSERT(image != nullptr, "Binding {} to a buffer: buffer bindings are not supported yet.", input.GetCStr());
-        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment),
+        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
             "The access of {} is already bound; declare another access to bind another input.",
             image->m_attachmentId.m_id.GetCStr());
 
@@ -420,6 +472,21 @@ namespace Spark::Render
     void RenderGraphBuilder::AddScopeConstant(
         RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount)
     {
+        if (const RHI::ConstantsLayout* root = CurrentPassLayout().GetRootConstantsLayout())
+        {
+            const RHI::ShaderInputIndex index = root->FindShaderInputIndex(input);
+            if (index != RHI::InvalidShaderInputIndex)
+            {
+                const Interval interval = root->GetInterval(index);
+                ASSERT(byteCount == interval.m_max - interval.m_min,
+                    "Root constant {} takes {} bytes, given {}.", input.GetCStr(), interval.m_max - interval.m_min, byteCount);
+                auto& block = RHIExecuteContext::Current()->Get<ScopeRootConstants>(scope);
+                MarkRootConstantWritten(block, interval, input);
+                memcpy(block.m_bytes.data() + interval.m_min, bytes, byteCount);
+                return;
+            }
+        }
+
         const RHI::ShaderInputConstantDescriptor* desc = CurrentPassLayout().FindConstantDescriptor(input);
         ASSERT(desc != nullptr, "The pass's shaders have no constant {}.", input.GetCStr());
         ASSERT(desc->m_spaceId == kPerPassSpaceId,

@@ -106,8 +106,16 @@ namespace Spark::Render
         //! own.
         void BindShaderInput(RHIHandle attachment, const RHI::InputName& input);
 
-        //! A sampler / constant `scope` sets in the current pass's per-pass space.
+        //! Bind `attachment` by heap index to the uint constant `input`, a root constant or a
+        //! per-pass one: lowering writes its view's bindless index there. The access needs a
+        //! stage from elsewhere (.Stage, or a compute pass's).
+        void BindShaderInputIndex(RHIHandle attachment, const RHI::InputName& input);
+
+        //! A sampler `scope` sets in the current pass's per-pass space.
         void AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state);
+
+        //! A constant `scope` sets: a root constant if the pass's shaders declare one called
+        //! `input`, written into the Scope's block now, else one of its per-pass space.
         void AddScopeConstant(RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount);
 
         //! A new item of `scope`: an entity carrying ScopeItem, for the caller to give its

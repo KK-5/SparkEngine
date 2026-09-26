@@ -193,6 +193,7 @@ namespace Spark::SandBox
                 s.RenderTarget(Spark::RHI::AttachmentId("SwapChain"), clear);
                 s.Constant(Spark::RHI::InputName("g_MVP"), m_matrix);
                 s.Constant(Spark::RHI::InputName("g_Colors"), m_colors);
+                s.Constant(Spark::RHI::InputName("tint"), m_tint);
                 s.Accepts<SampleDrawTag>();
             })
             .Finalize();
@@ -251,6 +252,10 @@ namespace Spark::SandBox
                 Math::Sin(phase + 2.0f) * 0.5f + 0.5f,
                 Math::Sin(phase + 4.0f) * 0.5f + 0.5f);
         }
+
+        // Pulses the brightness through the root constant.
+        const float pulse = Math::Sin(m_colorPhase * 3.0f) * 0.25f + 0.75f;
+        m_tint = Math::Vector4(pulse, pulse, pulse, 1.f);
     }
 }
 

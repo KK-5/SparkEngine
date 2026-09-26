@@ -326,6 +326,10 @@ namespace Spark::Render
             {
                 BindShaderInputs(commandList, *state.m_pso, *state.m_bindings[i]);
             }
+            if (const auto* rootConstants = rhiContext.TryGet<ScopeRootConstants>(scope))
+            {
+                commandList->SetRootConstants(rootConstants->m_bytes.data(), rootConstants->m_byteCount);
+            }
         }
 
         SubmitScopeRange(commandList, rhiContext, scope, state, beginInfo);

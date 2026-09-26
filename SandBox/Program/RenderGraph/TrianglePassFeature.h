@@ -60,6 +60,7 @@ namespace Spark::SandBox
 
         Spark::Math::Matrix4X4 m_matrix;
         Spark::Math::Vector3   m_colors[3];
+        Spark::Math::Vector4   m_tint { 1.f, 1.f, 1.f, 1.f };
 
         // Transform
         float m_rotationAngle = 0.f;

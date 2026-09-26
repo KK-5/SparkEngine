@@ -720,6 +720,20 @@ namespace Spark::Render
             return RHI::GetOrCreateImageView(context, att.m_image, *backImage->m_image, att.m_viewDescriptor);
         }
 
+        //! The heap index a shader reaches the attachment's view by (.BindIndex): its UAV's if
+        //! the access writes, else its SRV's.
+        uint32_t ResolveBindlessIndex(RHIContext& context, const ImagePassAttachment& att, uint32_t frameIndex)
+        {
+            const RHI::ImageView* view = ResolveAttachmentView(context, att, frameIndex);
+            ASSERT(view != nullptr, "[RenderGraphCompiler] {} has no view to take an index of.", att.m_attachmentId.m_id.GetCStr());
+            const bool     writes = (att.m_access & RHI::AttachmentAccess::Write) != RHI::AttachmentAccess::Unknown;
+            const uint32_t index  = writes ? view->GetBindlessReadWriteIndex() : view->GetBindlessReadIndex();
+            ASSERT(index != RHI::ImageView::InvalidBindlessIndex,
+                "[RenderGraphCompiler] {} has no bindless descriptor: the device lacks bindless, or the view its bind flag.",
+                att.m_attachmentId.m_id.GetCStr());
+            return index;
+        }
+
         uint32_t AttachmentLayerCount(const RHIContext& context, const ImagePassAttachment& att)
         {
             const auto* backImage = context.TryGet<BackingImage>(att.m_image);
@@ -889,6 +903,7 @@ namespace Spark::Render
     {
         Pass      pass     = NullPass;
         RHIHandle bindings = NullHandle;
+        const RHI::ConstantsLayout* rootConstants = nullptr;   // the pass's, if its shaders declare any
         bool      declared = false;                    // the pass set anything this frame
         eastl::fixed_vector<RHI::InputName, 16> bound; // the inputs its attachments were bound to
 
@@ -935,6 +950,8 @@ namespace Spark::Render
                 bound.clear();
                 const auto* own = passContext.TryGet<PassBindings>(pass);
                 bindings = own != nullptr ? own->m_bindings : NullHandle;
+                const auto* layout = passContext.TryGet<PassPipelineLayout>(pass);
+                rootConstants = (layout != nullptr && layout->m_layout) ? layout->m_layout->GetRootConstantsLayout() : nullptr;
             }
 
             for (RHIHandle attachment : GetScopeAttachments(context, scope))
@@ -945,6 +962,22 @@ namespace Spark::Render
                         ResolveAttachmentView(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex));
                     bound.push_back(binding->m_input);
                     declared = true;
+                }
+                else if (const auto* indexBinding = context.TryGet<IndexBinding>(attachment))
+                {
+                    const uint32_t index = ResolveBindlessIndex(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex);
+                    const RHI::ShaderInputIndex root = rootConstants != nullptr
+                        ? rootConstants->FindShaderInputIndex(indexBinding->m_input) : RHI::InvalidShaderInputIndex;
+                    if (root != RHI::InvalidShaderInputIndex)
+                    {
+                        auto& block = context.Get<ScopeRootConstants>(scope);
+                        memcpy(block.m_bytes.data() + rootConstants->GetInterval(root).m_min, &index, sizeof(index));
+                    }
+                    else
+                    {
+                        SetShaderConstantData(bindings, indexBinding->m_input, &index, sizeof(index));
+                        declared = true;
+                    }
                 }
             }
 

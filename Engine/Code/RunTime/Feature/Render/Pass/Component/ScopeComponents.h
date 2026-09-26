@@ -144,6 +144,18 @@ namespace Spark::Render
         eastl::fixed_vector<ScopeConstant, 8> m_constants;
     };
 
+    //! On every Scope of a pass whose shaders declare root constants: the whole block, zeroed
+    //! at OpenScope and set whole when the Scope is recorded, so no Scope inherits another's.
+    //! .Constant fills it at declaration, .BindIndex at lowering.
+    struct ScopeRootConstants
+    {
+        eastl::array<uint8_t, RHI::Limits::Pipeline::RootConstantByteCountMax> m_bytes {};
+        uint32_t m_byteCount     = 0;
+        uint32_t m_writtenDwords = 0;   //!< bit i: DWORD i is set, so no field is set twice
+
+        static_assert(RHI::Limits::Pipeline::RootConstantByteCountMax / 4 <= 32, "m_writtenDwords has a bit per DWORD.");
+    };
+
     //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once
     //! for the whole Scope (the pass's own space2 and those it declared via .Binds). Resolved by
     //! lowering. Viewport and space1 come from the view handles in the Scope's submit range.

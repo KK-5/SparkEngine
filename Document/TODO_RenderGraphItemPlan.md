@@ -206,15 +206,17 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
 
 三种都只是外壳，按名字查资源、版本解析、登记 attachment 在共享的核心（`RenderGraphBuilder`）里；用组合，不用继承，
 否则限制失效。类型名：`RenderPassScopes` / `RenderScope`、`ComputePassScopes` / `ComputeScope`（copy 的等有了 copy
-pass 再加）。访问返回 `Attachment`（固定功能角色：`.Format` / `.View`）或 `ShaderAttachment`（另有 `.Stage` / `.Bind`；
+pass 再加）。访问返回 `Attachment`（固定功能角色：`.Format` / `.View`）或 `ShaderAttachment`（另有 `.Stage` / `.Bind` / `.BindIndex`；
 compute 上调 `.Stage` 是运行期断言）。
 
 **shader 输入都在 Scope 上声明，只有 attachment 进图。** 一个 shader 的全部输入在同一处，绑定也只有一套：都按名字在
-反射布局里找去处（space2 或 root constant）。
+反射布局里找：`.Bind` 找 space2 的描述符槽位，`.BindIndex` 与 `Constant` 找常量，常量落在 root constant 还是 space2 由
+shader 决定。
 
 | 声明 | 进图 | 例 |
 |---|---|---|
 | 访问 + `.Bind` | 是（attachment：版本、生命周期、屏障、依赖边） | `s.Read("SceneDepth").Bind("g_Depth")` |
+| 访问 + `.BindIndex` | 是 | `s.Read(Level(j - 1)).BindIndex("inputIndex")` |
 | `Sampler` | 否，只是绑定 | `s.Sampler("g_LinearSampler", LinearClamp)` |
 | `Constant` | 否，只是绑定 | `s.Constant("g_OutputSize", size)` |
 
@@ -287,7 +289,8 @@ API 为何不自己归类：驱动在录制屏障时看不到后续用途，D3D1
 
 - **bindless 已在用**：材质 shader 经 `ResourceDescriptorHeap[index]` 读纹理，`ImageView` / `BufferView` 提供
   `GetBindlessReadIndex()` / `GetBindlessReadWriteIndex()`。
-- **`DispatchItem` 已支持 root constant。**
+- **root constant**：shader 在 space5 声明 `ConstantBuffer<T>`（约定在 shader 资源层的 `ShaderAsset.h`），命令列表直接
+  设置，不占描述符。
 
 于是：
 
@@ -295,17 +298,21 @@ API 为何不自己归类：驱动在录制屏障时看不到后续用途，D3D1
 - **Scope 之间不同的东西是 bindless 索引加标量**（"读第 j-1 级""写第 j 级""本级尺寸"），作为 **root constant**
   写进 Scope 的状态，执行器应用 Scope 状态时设置。它们直接写在命令列表里、每帧重设，不占描述符，没有在途帧
   问题，也没有身份问题。
-- **去处由 shader 决定**：`.Bind(name)` 在反射布局里查到的是 space2 的 SRV / UAV，就把视图写进 pass 那组；查到的
-  是 root constant 结构的字段，就写入该视图的 bindless 索引（读用 `ReadIndex`，写用 `ReadWriteIndex`）。
-  `.Constant(name, value)` 只能落在 root constant。声明侧不区分。
+- **`.Bind` 与 `.BindIndex` 并列，是把视图交给 shader 的两种方式**：`.Bind(name)` 把视图写进 pass 的 space2 槽位；
+  `.BindIndex(name)` 把视图的 bindless 索引写进名为 name 的 uint 常量（读用 `ReadIndex`，写用 `ReadWriteIndex`）。
+  常量（`.BindIndex` 的目标与 `.Constant`）落在 root constant 还是 space2 由 shader 决定；root constant 只是常量的
+  一个去处，与 bindless 无关。
+- **按资源归属分工**：功能自己拥有的资源（材质、物体的纹理）视图是静态的，索引由功能自己解析、写进自己的绑定，
+  render graph 不参与；graph 拥有的资源（transient、链的各级）视图在编译时才有，只能由 graph 经 `.BindIndex` 交付。
 - **约束**：space2 在一个 pass 内只有一份，所有 Scope 看到的是最后写入的值；同一槽位在各 Scope 间必须相同，由写 pass 的人保证，不做校验。
-- 图形 pass 的 Scope 间差异同样走 root constant，由执行器在应用 Scope 状态时设置，与 item 无关，`DrawItem` 里被注释掉的
-  root constant 不构成阻碍。
+- 每个 Scope 一整块 root constant（`ScopeRootConstants`），图形与 compute 相同，执行器在绑定之后设置；没设的字段
+  为 0，相邻 Scope 不继承。
 - 跨后端：Vulkan 需要描述符索引 + mutable descriptor 对应 `ResourceDescriptorHeap`，材质系统已依赖这一点，
   这里不引入新负担。
 
 **会改主意的条件**：出现 Scope 之间不同、却无法 bindless 访问的输入。那时才需要每个 Scope 一组绑定，身份问题
-随之回来。
+随之回来。出现同一 Scope 内逐 item 不同、又无法经实例索引查 buffer 的参数时，给 item 加 `ItemRootConstants`
+覆盖 Scope 的值（Vulkan 的 multi-draw-indirect 不能逐 draw 改 push constant，逐 draw 的数据应走索引查 buffer）。
 
 ### Scope 与归属关系的实体表示
 
@@ -525,10 +532,8 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 
 ### 前置
 
-0. **root constant 端到端**：「绑定」一节假定已具备，实际没有——`DispatchItem::m_rootConstants` 只有字段，DX12
-   `Submit` 不读；RHI `CommandList` 无设置接口；反射不产出 root constant 布局（`SetRootConstantsLayout` 零调用者）。
-   需要：跨后端的 shader 约定（DX12 root constants / Vulkan push constant，占用哪个 space 实现时再定）、反射识别、
-   DX12 root 参数、`CommandList::SetRootConstants`。只卡第 7 条的 root constant 部分与第 17 条。
+0. **root constant 端到端**：跨后端的 shader 约定（space5 的 `ConstantBuffer<T>`，约定在 shader 资源层）、反射分类进
+   `ShaderInputList::m_rootConstants`、`ConstantsLayout`、DX12 root 参数、`CommandList::SetRootConstants`。
 
 ### 声明
 
@@ -546,8 +551,8 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
    "状态不同或至少一方是写"——今天 `Merge*Barriers` 丢弃 src == dst 的屏障，相邻两个 pass 以 storage 写同一资源
    时没有任何屏障，这一条随之修正。
 6. **跨队列同步由资源追踪推出**：wait / signal 写到 Scope 上，删除 `CompilePassCrossQueue2`。
-7. **绑定分流**：`.Bind` 按反射布局落到 pass 的 space2 或 root constant（bindless 索引）；`.Constant` 写 root
-   constant；Scope 的 root constant 由执行器在应用 Scope 状态时设置。
+7. **绑定分流**：`.Bind` 写 space2 槽位；`.BindIndex` 与 `.Constant` 按反射落到 root constant 或 space2；Scope 的
+   root constant 由执行器在绑定之后设置。
 8. **lowering**：第 0 步排序与第 2 遍；把 PSO、绑定、`RenderPassBeginInfo` 写到 Scope 上；按视图展开提交区间进
    提交表（视图句柄分隔）；`BasicContext` 补 storage 排序的封装，以及单存储遍历 / 指定驱动存储的 view 写法。
 9. **提交切分**：只在同步点切，由 Scope 上的 wait / signal 直接决定；`WorkStart` 只留接缝（执行器认它），负载切分
@@ -583,8 +588,8 @@ Scope P.0                          Scope P.s（s = 0..N-1）            Scope P.
 | 段 | 内容 | 条目 | 状态 |
 |---|---|---|---|
 | A | 执行侧换成 Scope；旧声明 API 保留，每个 pass 一个 Scope | 1、5、6、8、9、10、12 | 完成 |
-| B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13、14、16 | 进行中 |
-| C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | |
+| B | 新声明 API，迁移全部 pass，删旧 API | 2、3、4、7（space2 部分）、13、14、16 | 完成 |
+| C | root constant 与 dispatch 提交路径 | 0、7（其余）、11 | 进行中 |
 | D | Bloom | 17 | |
 
 B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并存、逐个迁移，最后改回 `.Build`；每迁移一个 pass，
@@ -601,6 +606,14 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
 | B7 | `.Execute` 带上 Scope 序号；删 `.CustomPipeline()`，由没设 shader 推出 | UI | 完成 |
 | B8a | 删旧访问 API、`.Compile`、带 PassTag 的查找与 `SetPassShader*`；删 copy pass 旧实现（`CopyPassBuilder` / `CopyRequest`）与槽名；`Resolve` 改由 Scope 声明 | — | 完成 |
 | B8b | `.BuildScopes` 改回 `.Build` | 全部 pass | 完成 |
+
+C 的步骤。
+
+| 步 | 内容 | 验证 | 状态 |
+|---|---|---|---|
+| C1 | root constant 进 RHI：shader 约定与反射分类、`ConstantsLayout`、DX12 root 参数与大小校验、`SetRootConstants` | 反射测试 | 完成 |
+| C2 | 绑定分流：`ScopeRootConstants`、`.Constant` 按反射落位、`.BindIndex` | TrianglePass 的 tint | 完成 |
+| C3 | compute Scope 的 `Dispatch`；有 shader 的 compute pass 不再要求 `.Execute` | compute 示例 | |
 
 ### 执行侧现状
 
@@ -663,8 +676,6 @@ B 的步骤。新声明器先用过渡名 `.BuildScopes`，与旧 `.Build` 并�
   直接取，不再同步推进游标；剩下的不变量是"排序后不增删 `ScopeAttachment`"。
 - **版本解析依赖 pass 的注册顺序。** 按名字读到的是"在它之前声明的 pass 写出的最新版本"，调换两个 pass 的注册
   顺序语义就变。这是今天已有的隐式依赖，Scope 之间的读写也建立在它上面，分量更重了。
-- **`.Bind(name)` 的双重去处。** 同一写法由反射决定落到 space2 还是 root constant，两种机制藏在一个名字后面，出错
-  要到编译期才暴露。可考虑声明侧显式区分（如 `.Bind` 与 `.BindIndex`），代价是作者要多知道一件事。
 
 另有两处评估为可接受：提交表（容器 + 下标、混着视图句柄）GPU-driven 后变短但形状不变；残留的函数指针
 （`ScopeSelections` 的查询、不透明 hook、`m_collectViews`、`m_resolveSharedBindings`）已少。每帧全量重建与

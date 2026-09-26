@@ -234,6 +234,13 @@ namespace Spark::Render
         RHI::InputName m_input;
     };
 
+    //! On an attachment a shader reaches by heap index (.BindIndex): lowering writes its view's
+    //! bindless index into the uint constant `m_input`, a root constant or a per-pass one.
+    struct IndexBinding
+    {
+        RHI::InputName m_input;
+    };
+
     //! On an attachment reading the previous frame's copy of a name. Its resource is a
     //! pooled image, so the transient flow skips it.
     struct PreviousFrameTag {};
