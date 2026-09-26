@@ -15,32 +15,6 @@
 
 namespace Spark::RHI::DX12
 {
-    RootConstantBinding::RootConstantBinding(
-        uint32_t constantCount,
-        uint32_t constantRegister,
-        uint32_t constantRegisterSpace)
-        : m_constantCount(constantCount)
-        , m_constantRegister(constantRegister)
-        , m_constantRegisterSpace(constantRegisterSpace)
-    {
-    }
-
-    size_t RootConstantBinding::GetHash(size_t seed) const
-    {
-        eastl::hash_combine(seed, m_constantCount, m_constantRegister, m_constantRegisterSpace);
-        return seed;
-    }
-
-    void PipelineLayoutDescriptor::SetRootConstantBinding(const RootConstantBinding& rootConstantBinding)
-    {
-        m_rootConstantBinding = rootConstantBinding;
-    }
-
-    const RootConstantBinding& PipelineLayoutDescriptor::GetRootConstantBinding() const
-    {
-        return m_rootConstantBinding;
-    }
-
     void PipelineLayoutDescriptor::ValidateShaderInputOverlapInternal(
         const RHI::ShaderInputHandle& newHandle,
         const RHI::ShaderInputHandle& existingHandle,
@@ -154,11 +128,5 @@ namespace Spark::RHI::DX12
                       newInterval.m_min, newInterval.m_max,
                       existingInterval.m_min, existingInterval.m_max);
         }
-    }
-
-    size_t PipelineLayoutDescriptor::GetHashInternal(size_t seed) const
-    {
-        eastl::hash_combine_raw(seed, m_rootConstantBinding.GetHash());
-        return seed;
     }
 }

@@ -113,11 +113,5 @@ namespace Spark::RHI
 
         /// Arguments specific to a dispatch type.
         DispatchArguments m_arguments;
-
-        /// The number of inline constants bytes.
-        uint8_t m_rootConstantSize = 0;
-
-        /// Inline constants data.
-        const uint8_t* m_rootConstants = nullptr;
     };
 }

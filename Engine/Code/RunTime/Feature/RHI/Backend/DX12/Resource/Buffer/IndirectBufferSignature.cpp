@@ -79,10 +79,9 @@ namespace Spark::RHI::DX12
                     return RHI::ResultCode::InvalidArgument;
                 }
 
-                const PipelineLayoutDescriptor& pipelineLayoutDesc = static_cast<const PipelineLayoutDescriptor&>(pipelineLayout->GetPipelineLayoutDescriptor());
                 argDesc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
                 argDesc.Constant.DestOffsetIn32BitValues = 0;
-                argDesc.Constant.Num32BitValuesToSet = pipelineLayoutDesc.GetRootConstantBinding().m_constantCount;
+                argDesc.Constant.Num32BitValuesToSet = (pipelineLayout->GetRootConstantsByteCount() + 3) / 4;
                 argDesc.Constant.RootParameterIndex = pipelineLayout->GetRootConstantsRootParameterIndex();
 
                 m_stride += sizeof(uint32_t) * argDesc.Constant.Num32BitValuesToSet;

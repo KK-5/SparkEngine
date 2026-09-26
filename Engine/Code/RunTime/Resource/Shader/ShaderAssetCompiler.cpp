@@ -238,6 +238,149 @@ namespace Spark::Resource
             }
         }
 
+        //! One constant of a cbuffer. byteSize 0 derives it from the type (a struct member,
+        //! which reflection gives no size).
+        ShaderConstantVariableReflection ReflectConstant(
+            const char* name, uint32_t byteOffset, uint32_t byteSize, ID3D12ShaderReflectionType* type)
+        {
+            ShaderConstantVariableReflection constant;
+            constant.m_name       = name ? name : "";
+            constant.m_byteOffset = byteOffset;
+            constant.m_byteSize   = byteSize;
+
+            // ---- stride-aware fields ----
+            // 把"数组-of-矩阵"展开成统一的 (elementCount, elementByteSize, elementStride)
+            // 三元组，让 ShaderInputConstant::SetData 自动处理 HLSL CB 16-byte 对齐。
+            D3D12_SHADER_TYPE_DESC typeDesc{};
+            if (type && SUCCEEDED(type->GetDesc(&typeDesc)))
+            {
+                // 标量大小：HLSL CB 里 int/uint/bool/float 都是 4B，double 是 8B。
+                const uint32_t scalarSize =
+                    (typeDesc.Type == D3D_SVT_DOUBLE) ? 8u : 4u;
+
+                const uint32_t arrayLen =
+                    (typeDesc.Elements > 0) ? typeDesc.Elements : 1u;
+
+                uint32_t innerCount = 1;
+                uint32_t innerSize  = scalarSize;
+                if (typeDesc.Class == D3D_SVC_MATRIX_COLUMNS)
+                {
+                    // column-major: array of Columns 列，每列 Rows 个标量
+                    innerCount = typeDesc.Columns;
+                    innerSize  = typeDesc.Rows * scalarSize;
+                }
+                else if (typeDesc.Class == D3D_SVC_MATRIX_ROWS)
+                {
+                    // row-major: array of Rows 行，每行 Columns 个标量
+                    innerCount = typeDesc.Rows;
+                    innerSize  = typeDesc.Columns * scalarSize;
+                }
+                else
+                {
+                    // SCALAR / VECTOR: Rows=1, Columns=N → 单一 element
+                    innerCount = 1;
+                    innerSize  = typeDesc.Rows * typeDesc.Columns * scalarSize;
+                }
+
+                constant.m_elementCount    = arrayLen * innerCount;
+                constant.m_elementByteSize = innerSize;
+
+                const bool hasMultiplicity = (arrayLen > 1) || (innerCount > 1);
+                constant.m_elementStride =
+                    hasMultiplicity ? 16u : innerSize;
+
+                if (constant.m_byteSize == 0)
+                {
+                    constant.m_byteSize =
+                        (constant.m_elementCount - 1) * constant.m_elementStride + constant.m_elementByteSize;
+                }
+            }
+            else
+            {
+                // Fallback：当成单个原子 blob
+                constant.m_elementCount    = 1;
+                constant.m_elementByteSize = constant.m_byteSize;
+                constant.m_elementStride   = constant.m_byteSize;
+            }
+            return constant;
+        }
+
+        //! DX12 packs root constants by cbuffer rules, Vulkan by push constant rules: they agree
+        //! on naturally aligned 32-bit scalars and 2- / 4-component vectors only.
+        bool IsPortableRootConstant(ID3D12ShaderReflectionType* type, uint32_t byteOffset)
+        {
+            D3D12_SHADER_TYPE_DESC typeDesc{};
+            if (!type || FAILED(type->GetDesc(&typeDesc)))
+            {
+                return false;
+            }
+            const bool is32Bit =
+                typeDesc.Type == D3D_SVT_FLOAT || typeDesc.Type == D3D_SVT_INT || typeDesc.Type == D3D_SVT_UINT;
+            const bool isScalarOrVector =
+                (typeDesc.Class == D3D_SVC_SCALAR || typeDesc.Class == D3D_SVC_VECTOR) && typeDesc.Elements == 0;
+            return is32Bit && isScalarOrVector && typeDesc.Columns != 3 && byteOffset % (typeDesc.Columns * 4u) == 0;
+        }
+
+        //! The constants of a cbuffer into out.m_variables. A ConstantBuffer<T> reflects as one
+        //! struct variable named after the buffer: its members are the constants, one level
+        //! deep. Returns false, having logged why, on a nested struct or a root constant that
+        //! is not portable.
+        bool ReflectConstants(
+            ID3D12ShaderReflectionConstantBuffer* cb, const D3D12_SHADER_BUFFER_DESC& cbDesc,
+            ShaderConstantBufferReflection& out)
+        {
+            const bool isRootConstants = out.m_spaceId == RootConstantsSpaceId;
+            bool       valid           = true;
+
+            auto add = [&](const char* name, uint32_t byteOffset, uint32_t byteSize, ID3D12ShaderReflectionType* type)
+            {
+                if (isRootConstants && !IsPortableRootConstant(type, byteOffset))
+                {
+                    LOG_ERROR("[ShaderAssetCompiler] Root constant '{}' of '{}': only naturally aligned 32-bit "
+                        "scalars and 2- / 4-component vectors lay out the same on every backend.",
+                        name ? name : "", out.m_name.c_str());
+                    valid = false;
+                }
+                out.m_variables.push_back(ReflectConstant(name, byteOffset, byteSize, type));
+            };
+
+            out.m_variables.reserve(cbDesc.Variables);
+            for (UINT v = 0; v < cbDesc.Variables; ++v)
+            {
+                ID3D12ShaderReflectionVariable* var = cb->GetVariableByIndex(v);
+                D3D12_SHADER_VARIABLE_DESC varDesc;
+                var->GetDesc(&varDesc);
+
+                ID3D12ShaderReflectionType* type = var->GetType();
+                D3D12_SHADER_TYPE_DESC typeDesc{};
+                const bool isBlock = cbDesc.Variables == 1
+                    && type && SUCCEEDED(type->GetDesc(&typeDesc))
+                    && typeDesc.Class == D3D_SVC_STRUCT && typeDesc.Elements == 0
+                    && varDesc.Name && out.m_name == varDesc.Name;
+                if (!isBlock)
+                {
+                    add(varDesc.Name, varDesc.StartOffset, varDesc.Size, type);
+                    continue;
+                }
+
+                for (UINT m = 0; m < typeDesc.Members; ++m)
+                {
+                    ID3D12ShaderReflectionType* memberType = type->GetMemberTypeByIndex(m);
+                    D3D12_SHADER_TYPE_DESC memberDesc{};
+                    memberType->GetDesc(&memberDesc);
+                    if (memberDesc.Class == D3D_SVC_STRUCT)
+                    {
+                        LOG_ERROR("[ShaderAssetCompiler] '{}' nests the struct member '{}'; only one level is flattened.",
+                            out.m_name.c_str(), type->GetMemberTypeName(m));
+                        valid = false;
+                        continue;
+                    }
+                    add(type->GetMemberTypeName(m), varDesc.StartOffset + memberDesc.Offset, 0, memberType);
+                }
+            }
+            return valid;
+        }
+
         RHI::ShaderInputImageAccess MapImageAccess(D3D_SHADER_INPUT_TYPE type)
         {
             switch (type)
@@ -426,6 +569,7 @@ namespace Spark::Resource
 
             result->AddStageBytecode(eastl::move(bytecode));
 
+            bool reflected = true;
             // ---- 提取该 stage 的反射信息 ----
             {
                 IDxcBlob* reflectionBlob = nullptr;
@@ -472,69 +616,9 @@ namespace Spark::Resource
                                 cbRefl.m_spaceId = bindDesc.Space;
                             }
 
-                            cbRefl.m_variables.reserve(cbDesc.Variables);
-                            for (UINT v = 0; v < cbDesc.Variables; ++v)
+                            if (!ReflectConstants(cb, cbDesc, cbRefl))
                             {
-                                ID3D12ShaderReflectionVariable* var = cb->GetVariableByIndex(v);
-                                D3D12_SHADER_VARIABLE_DESC varDesc;
-                                var->GetDesc(&varDesc);
-
-                                ShaderConstantVariableReflection varRefl;
-                                varRefl.m_name = varDesc.Name ? varDesc.Name : "";
-                                varRefl.m_byteOffset = varDesc.StartOffset;
-                                varRefl.m_byteSize = varDesc.Size;
-
-                                // ---- stride-aware fields ----
-                                // 把"数组-of-矩阵"展开成统一的 (elementCount, elementByteSize, elementStride)
-                                // 三元组，让 ShaderInputConstant::SetData 自动处理 HLSL CB 16-byte 对齐。
-                                ID3D12ShaderReflectionType* varType = var->GetType();
-                                D3D12_SHADER_TYPE_DESC typeDesc{};
-                                if (varType && SUCCEEDED(varType->GetDesc(&typeDesc)))
-                                {
-                                    // 标量大小：HLSL CB 里 int/uint/bool/float 都是 4B，double 是 8B。
-                                    const uint32_t scalarSize =
-                                        (typeDesc.Type == D3D_SVT_DOUBLE) ? 8u : 4u;
-
-                                    const uint32_t arrayLen =
-                                        (typeDesc.Elements > 0) ? typeDesc.Elements : 1u;
-
-                                    uint32_t innerCount = 1;
-                                    uint32_t innerSize  = scalarSize;
-                                    if (typeDesc.Class == D3D_SVC_MATRIX_COLUMNS)
-                                    {
-                                        // column-major: array of Columns 列，每列 Rows 个标量
-                                        innerCount = typeDesc.Columns;
-                                        innerSize  = typeDesc.Rows * scalarSize;
-                                    }
-                                    else if (typeDesc.Class == D3D_SVC_MATRIX_ROWS)
-                                    {
-                                        // row-major: array of Rows 行，每行 Columns 个标量
-                                        innerCount = typeDesc.Rows;
-                                        innerSize  = typeDesc.Columns * scalarSize;
-                                    }
-                                    else
-                                    {
-                                        // SCALAR / VECTOR: Rows=1, Columns=N → 单一 element
-                                        innerCount = 1;
-                                        innerSize  = typeDesc.Rows * typeDesc.Columns * scalarSize;
-                                    }
-
-                                    varRefl.m_elementCount    = arrayLen * innerCount;
-                                    varRefl.m_elementByteSize = innerSize;
-
-                                    const bool hasMultiplicity = (arrayLen > 1) || (innerCount > 1);
-                                    varRefl.m_elementStride =
-                                        hasMultiplicity ? 16u : innerSize;
-                                }
-                                else
-                                {
-                                    // Fallback：当成单个原子 blob
-                                    varRefl.m_elementCount    = 1;
-                                    varRefl.m_elementByteSize = varDesc.Size;
-                                    varRefl.m_elementStride   = varDesc.Size;
-                                }
-
-                                cbRefl.m_variables.push_back(eastl::move(varRefl));
+                                reflected = false;
                             }
 
                             stageReflection.m_cbuffers.push_back(eastl::move(cbRefl));
@@ -585,6 +669,11 @@ namespace Spark::Resource
 
             shaderBlob->Release();
             compileResult->Release();
+
+            if (!reflected)
+            {
+                return nullptr;
+            }
         }
 
         // Record #include build dependencies (deduped across stages) for a

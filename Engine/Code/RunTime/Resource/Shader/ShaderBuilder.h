@@ -20,6 +20,7 @@ namespace Spark::Resource
     ///   - Buffer/Image/Sampler 按 (spaceId, registerId, type) 去重；
     ///   - Constant 按变量名去重（同 cbuffer 的每个变量展开为独立 descriptor，
     ///     Finalize 时由 PipelineLayoutDescriptor 按 registerId 聚合为 ConstantBufferLayout）。
+    ///   - RootConstantsSpaceId 里的 cbuffer 成员进 m_rootConstants，不进 m_constants。
     /// 调用方负责将结果传给 PipelineLayoutDescriptor::AddShaderInputDescriptors。
     ///
     /// 反射→RHI descriptor 的转换是层级中性的（只依赖 RHI 与 Resource::ShaderAsset），

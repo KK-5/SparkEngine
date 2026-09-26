@@ -39,24 +39,55 @@ namespace Spark::RHI::DX12
         DeviceObject::Shutdown();
     }
 
-    void PipelineLayout::BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters)
+    void PipelineLayout::BuildRootConstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters)
     {
-        const RootConstantBinding& rootConstantBinding = desc->GetRootConstantBinding();
-
-        m_hasRootConstants = (rootConstantBinding.m_constantCount > 0);
-
-        if (m_hasRootConstants)
+        const RHI::ConstantsLayout* layout = desc->GetRootConstantsLayout();
+        if (!layout)
         {
-            m_rootConstantsRootParameterIndex = RootParameterIndex(parameters.size());
-            parameters.emplace_back();
-            D3D12_ROOT_PARAMETER& parameter = parameters.back();
-
-            parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-            parameter.Constants.Num32BitValues = rootConstantBinding.m_constantCount;
-            parameter.Constants.ShaderRegister = rootConstantBinding.m_constantRegister;
-            parameter.Constants.RegisterSpace = rootConstantBinding.m_constantRegisterSpace;
-            parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+            return;
         }
+
+        // RHI::PipelineLayoutDescriptor::Finalize made them one block: one register, one space.
+        const eastl::span<const RHI::ShaderInputConstantDescriptor> inputs = layout->GetShaderInputList();
+        RHI::ShaderStageMask stageMask = RHI::ShaderStageMask::None;
+        for (const RHI::ShaderInputConstantDescriptor& input : inputs)
+        {
+            stageMask = stageMask | input.m_stageMask;
+        }
+
+        m_rootConstantsByteCount          = layout->GetDataSize();
+        m_rootConstantsRootParameterIndex = RootParameterIndex(parameters.size());
+
+        D3D12_ROOT_PARAMETER parameter{};
+        parameter.ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameter.Constants.Num32BitValues = (m_rootConstantsByteCount + 3) / 4;
+        parameter.Constants.ShaderRegister = inputs[0].m_registerId;
+        parameter.Constants.RegisterSpace  = inputs[0].m_spaceId;
+        parameter.ShaderVisibility         = ConvertShaderStageMask(stageMask);
+        parameters.push_back(parameter);
+    }
+
+    void PipelineLayout::ValidateRootSignatureCost(const eastl::vector<D3D12_ROOT_PARAMETER>& parameters) const
+    {
+        // A table costs one DWORD, a root descriptor two, root constants one per value.
+        uint32_t cost = 0;
+        for (const D3D12_ROOT_PARAMETER& parameter : parameters)
+        {
+            switch (parameter.ParameterType)
+            {
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                cost += 1;
+                break;
+            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                cost += parameter.Constants.Num32BitValues;
+                break;
+            default:
+                cost += 2;
+                break;
+            }
+        }
+        ASSERT(cost <= D3D12_MAX_ROOT_COST,
+            "[PipelineLayout] The root signature costs {} DWORDs; DX12 allows {}.", cost, D3D12_MAX_ROOT_COST);
     }
 
     void PipelineLayout::BuildSpaceGroupConstants(
@@ -251,10 +282,14 @@ namespace Spark::RHI::DX12
         m_spaceCBVBindings.resize(descriptor.GetSpaceGroupCount());
         m_spaceTableBindings.resize(descriptor.GetSpaceGroupCount());
 
+        // First: the earlier a root parameter, the cheaper it is to change on some hardware.
+        BuildRootConstants(dx12Descriptor, parameters);
         BuildSpaceGroupConstants(dx12Descriptor, parameters);
         BuildSpaceGroupResources(dx12Descriptor, parameters, descriptorRanges);
         BuildSpaceGroupSamplers(dx12Descriptor, parameters, samplerDescriptorRanges);
         BuildSpaceGroupStaticSamplers(dx12Descriptor, staticSamplers);
+
+        ValidateRootSignatureCost(parameters);
 
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -309,12 +344,17 @@ namespace Spark::RHI::DX12
 
     bool PipelineLayout::HasRootConstants() const
     {
-        return m_hasRootConstants;
+        return m_rootConstantsByteCount > 0;
     }
 
     RootParameterIndex PipelineLayout::GetRootConstantsRootParameterIndex() const
     {
         return m_rootConstantsRootParameterIndex;
+    }
+
+    uint32_t PipelineLayout::GetRootConstantsByteCount() const
+    {
+        return m_rootConstantsByteCount;
     }
 
     ID3D12RootSignature* PipelineLayout::Get() const

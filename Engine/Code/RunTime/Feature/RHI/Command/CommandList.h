@@ -87,6 +87,10 @@ namespace Spark::RHI
         //! Compute equivalent of BindShaderInputsForDraw.
         virtual void BindShaderInputsForDispatch(const ShaderBindings& bindings) = 0;
 
+        //! Sets bytes [0, byteCount) of the active pipeline state's root constants (a multiple
+        //! of 4). Must be called after SetPipelineState, and again after any later one.
+        virtual void SetRootConstants(const uint8_t* data, uint32_t byteCount) = 0;
+
         /// Submits a single copy item for processing on the command list.
         virtual void Submit(const CopyItem& copyItem, uint32_t submitIndex = 0) = 0;
 

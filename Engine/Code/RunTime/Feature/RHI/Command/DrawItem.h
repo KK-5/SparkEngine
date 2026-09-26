@@ -36,10 +36,5 @@ namespace Spark::RHI
         // Geometry
         IndexBufferView  m_indexBufferView;
         VertexBufferView m_vertexBufferView;
-
-        // Root constants: no producer yet, kept for future per-draw constants. Size it
-        // to the few DWORDs actually needed, not the 256-byte root signature budget.
-        // uint8_t m_rootConstantSize = 0;
-        // eastl::fixed_vector<uint8_t, Limits::Pipeline::RootConstantByteCountMax> m_rootConstants;
     };
 }

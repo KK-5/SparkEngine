@@ -71,6 +71,9 @@ namespace Spark::RHI::DX12
         /// Returns whether this pipeline layout has inline constants.
         bool HasRootConstants() const;
 
+        /// The byte size of the root constants block; 0 without one.
+        uint32_t GetRootConstantsByteCount() const;
+
         const RHI::PipelineLayoutDescriptor& GetPipelineLayoutDescriptor() const;
 
         /// Returns the platform pipeline layout object.
@@ -87,7 +90,9 @@ namespace Spark::RHI::DX12
         int32_t FindSpaceIndexBySpaceId(uint32_t spaceId) const;
 
     private:
-        void BuildRootCanstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);
+        void BuildRootConstants(const PipelineLayoutDescriptor* desc, eastl::vector<D3D12_ROOT_PARAMETER>& parameters);
+
+        void ValidateRootSignatureCost(const eastl::vector<D3D12_ROOT_PARAMETER>& parameters) const;
 
         void BuildSpaceGroupConstants(
             const PipelineLayoutDescriptor* desc,
@@ -111,11 +116,8 @@ namespace Spark::RHI::DX12
             eastl::vector<D3D12_STATIC_SAMPLER_DESC>& staticSamplers
         );
 
-        /// Root Parameter Index for root constants.
-        RootParameterIndex m_rootConstantsRootParameterIndex;
-
-        /// Tracks whether this pipeline layout has inline constants.
-        bool m_hasRootConstants = false;
+        RootParameterIndex m_rootConstantsRootParameterIndex = InvalidRootParameterIndex;
+        uint32_t           m_rootConstantsByteCount          = 0;
 
         eastl::fixed_vector<SpaceCBVBinding,       RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceCBVBindings;
         eastl::fixed_vector<SpaceTableBinding,     RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_spaceTableBindings;

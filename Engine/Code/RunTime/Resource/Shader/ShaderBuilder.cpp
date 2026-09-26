@@ -2,6 +2,8 @@
 
 #include <EASTL/map.h>
 
+#include <Log/ILogSystem.h>
+
 namespace Spark::Resource
 {
     namespace
@@ -55,6 +57,7 @@ namespace Spark::Resource
         {
             eastl::map<RegisterKey, RHI::ShaderInputHandle> addedBindings;
             eastl::map<eastl::string, uint32_t>             addedConstants;
+            eastl::map<eastl::string, uint32_t>             addedRootConstants;
         };
 
         RHI::ShaderStageMask& StageMaskOf(RHI::ShaderInputList& list, const RHI::ShaderInputHandle& handle)
@@ -82,13 +85,22 @@ namespace Spark::Resource
         {
             for (const auto& cb : refl.m_cbuffers)
             {
+                const bool isRoot = cb.m_spaceId == RootConstantsSpaceId;
+                auto& constants   = isRoot ? out.m_rootConstants : out.m_constants;
+                auto& added       = isRoot ? state.addedRootConstants : state.addedConstants;
+                const auto& other = isRoot ? state.addedConstants : state.addedRootConstants;
+
                 for (const auto& var : cb.m_variables)
                 {
-                    const auto [it, inserted] = state.addedConstants.insert(
-                        { var.m_name, static_cast<uint32_t>(out.m_constants.size()) });
+                    // Bindings look a name up in both: it must belong to one.
+                    ASSERT(other.find(var.m_name) == other.end(),
+                        "[ShaderBuilder] '{}' names both a root constant and a cbuffer constant.", var.m_name.c_str());
+
+                    const auto [it, inserted] = added.insert(
+                        { var.m_name, static_cast<uint32_t>(constants.size()) });
                     if (!inserted)
                     {
-                        out.m_constants[it->second].m_stageMask |= stageMask;
+                        constants[it->second].m_stageMask |= stageMask;
                         continue;
                     }
                     RHI::ShaderInputConstantDescriptor desc(
@@ -101,7 +113,7 @@ namespace Spark::Resource
                         cb.m_registerId,
                         cb.m_spaceId);
                     desc.m_stageMask = stageMask;
-                    out.m_constants.push_back(desc);
+                    constants.push_back(desc);
                 }
             }
 

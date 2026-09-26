@@ -40,6 +40,12 @@ namespace Spark::RHI
 
         BuildConstantBufferLayouts();
 
+        result = FinalizeRootConstantsLayout();
+        if (result != ResultCode::Success)
+        {
+            return result;
+        }
+
         size_t seed = 0;
 
         // hash 各类型 ShaderInput descriptor 数组
@@ -86,9 +92,38 @@ namespace Spark::RHI
     // Root constants（push constant）
     //=========================================================================
 
-    void PipelineLayoutDescriptor::SetRootConstantsLayout(const ConstantsLayout& rootConstantsLayout)
+    ResultCode PipelineLayoutDescriptor::FinalizeRootConstantsLayout()
     {
-        m_rootConstantsLayout = const_cast<ConstantsLayout*>(&rootConstantsLayout);
+        if (!m_rootConstantsLayout)
+        {
+            return ResultCode::Success;
+        }
+
+        if (!m_rootConstantsLayout->Finalize())
+        {
+            ASSERT(false, "[PipelineLayoutDescriptor] Root constants layout failed to finalize (duplicate names?).");
+            return ResultCode::InvalidArgument;
+        }
+
+        // One block: DX12 gives it one root parameter, Vulkan one push constant range.
+        const eastl::span<const ShaderInputConstantDescriptor> inputs = m_rootConstantsLayout->GetShaderInputList();
+        for (const ShaderInputConstantDescriptor& input : inputs)
+        {
+            if (input.m_registerId != inputs[0].m_registerId)
+            {
+                ASSERT(false, "[PipelineLayoutDescriptor] Root constants span registers {} and {}; declare one block.",
+                    inputs[0].m_registerId, input.m_registerId);
+                return ResultCode::InvalidArgument;
+            }
+        }
+
+        if (m_rootConstantsLayout->GetDataSize() > Limits::Pipeline::RootConstantByteCountMax)
+        {
+            ASSERT(false, "[PipelineLayoutDescriptor] Root constants take {} bytes; the limit is {}.",
+                m_rootConstantsLayout->GetDataSize(), Limits::Pipeline::RootConstantByteCountMax);
+            return ResultCode::InvalidArgument;
+        }
+        return ResultCode::Success;
     }
 
     const ConstantsLayout* PipelineLayoutDescriptor::GetRootConstantsLayout() const
@@ -126,6 +161,14 @@ namespace Spark::RHI
             uint32_t index = static_cast<uint32_t>(m_constantDescs.size());
             m_constantDescs.push_back(desc);
             InsertShaderInput({ ShaderInputType::Constant, index }, desc.m_spaceId, desc.m_stageMask);
+        }
+        for (const ShaderInputConstantDescriptor& desc : list.m_rootConstants)
+        {
+            if (!m_rootConstantsLayout)
+            {
+                m_rootConstantsLayout = new ConstantsLayout();
+            }
+            m_rootConstantsLayout->AddShaderInput(desc);
         }
     }
 

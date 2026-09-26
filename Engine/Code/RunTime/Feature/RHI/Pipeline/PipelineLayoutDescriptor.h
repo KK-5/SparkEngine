@@ -68,6 +68,8 @@ namespace Spark::RHI
         eastl::vector<ShaderInputImageDescriptor>    m_images;
         eastl::vector<ShaderInputSamplerDescriptor>  m_samplers;
         eastl::vector<ShaderInputConstantDescriptor> m_constants;
+        //! The root constants block's members: set on the command list, not held by any space.
+        eastl::vector<ShaderInputConstantDescriptor> m_rootConstants;
     };
 
     //=========================================================================
@@ -89,8 +91,8 @@ namespace Spark::RHI
         // Root constants（push constant）
         //---------------------------------------------------------------------
 
-        void SetRootConstantsLayout(const ConstantsLayout& rootConstantsLayout);
-
+        //! Built from ShaderInputList::m_rootConstants; no space group holds them. Null when
+        //! there are none.
         const ConstantsLayout* GetRootConstantsLayout() const;
 
         //---------------------------------------------------------------------
@@ -159,6 +161,9 @@ namespace Spark::RHI
         //! compute aligned byteSize and prefix-sum byteOffset for each unique register.
         //! Output: ShaderInputGroup::m_constantBuffers.
         void BuildConstantBufferLayouts();
+
+        //! Finalize-time pass: the root constants must be one block within the size limit.
+        ResultCode FinalizeRootConstantsLayout();
 
         static constexpr size_t InvalidHash    = static_cast<size_t>(~0);
 

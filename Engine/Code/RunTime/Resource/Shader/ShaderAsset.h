@@ -17,6 +17,12 @@ namespace Spark::Resource
         SPIRV,      ///< Vulkan
     };
 
+    //! The space a shader declares its root constants in:
+    //! `[[vk::push_constant]] ConstantBuffer<T> name : register(b0, space5)`. DXIL reflection
+    //! cannot see the attribute, so the space is what marks the block; its members become
+    //! ShaderInputList::m_rootConstants.
+    constexpr uint32_t RootConstantsSpaceId = 5;
+
     // ---- Platform-agnostic shader reflection types ----
 
     /// cbuffer 内单个变量的反射信息

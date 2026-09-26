@@ -9,6 +9,8 @@
 #include <Resource/Shader/ShaderAssetCompiler.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <Resource/Shader/ShaderBuilder.h>
+#include <RHI/Pipeline/ConstantsLayout.h>
+#include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 
 using namespace Spark;
 using namespace Spark::Resource;
@@ -404,6 +406,113 @@ TEST_F(ShaderAssetTestFixture, BuildShaderInputListFromReflection)
         EXPECT_GE(time->m_constantByteOffset, 80u);
         EXPECT_EQ(time->m_constantByteCount, 4u);
     }
+}
+
+namespace
+{
+    eastl::unique_ptr<AssetData> CompileComputeShader(const char* path)
+    {
+        MountTable fileSystem;
+        SetUpMounts(fileSystem);
+
+        BinaryAssetLoader loader;
+        AssetId id = AssetId::Of<ShaderAsset>(path);
+        LoadFailure failure = LoadFailure::Invalid;
+        auto rawData = loader.Load(id, fileSystem, failure);
+        if (!rawData)
+        {
+            return nullptr;
+        }
+
+        ShaderAssetCompiler compiler;
+        ShaderDescriptor descriptor;
+        descriptor.backend = ShaderBackend::DXIL;
+        descriptor.stages = {
+            {RHI::ShaderStage::Compute, "CSMain", "cs_6_0"},
+        };
+        return compiler.Compile(id, *rawData, fileSystem, descriptor);
+    }
+
+    //! The base class's constructor is protected: backends and tests derive to make one.
+    class TestPipelineLayoutDescriptor : public RHI::PipelineLayoutDescriptor
+    {
+    };
+}
+
+TEST_F(ShaderAssetTestFixture, RootConstantsReflectAsFlattenedMembers)
+{
+    auto compiledData = CompileComputeShader("test://Asset/Shaders/RootConstantsTest.hlsl");
+    ASSERT_NE(compiledData, nullptr);
+
+    auto* shaderData = static_cast<ShaderAssetData*>(compiledData.get());
+    auto* csRefl = shaderData->GetStageReflection(RHI::ShaderStage::Compute);
+    ASSERT_NE(csRefl, nullptr);
+
+    const ShaderConstantBufferReflection* root = nullptr;
+    for (const auto& cb : csRefl->m_cbuffers)
+    {
+        if (cb.m_spaceId == RootConstantsSpaceId)
+        {
+            root = &cb;
+        }
+    }
+    ASSERT_NE(root, nullptr);
+    ASSERT_EQ(root->m_variables.size(), 4u);
+
+    struct Expected { const char* name; uint32_t offset; uint32_t size; };
+    const Expected expected[] = {
+        { "inputIndex",  0,  4 },
+        { "outputIndex", 4,  4 },
+        { "outputSize",  8,  8 },
+        { "tint",        16, 16 },
+    };
+    for (uint32_t i = 0; i < 4; ++i)
+    {
+        EXPECT_STREQ(root->m_variables[i].m_name.c_str(), expected[i].name);
+        EXPECT_EQ(root->m_variables[i].m_byteOffset, expected[i].offset);
+        EXPECT_EQ(root->m_variables[i].m_byteSize, expected[i].size);
+    }
+}
+
+TEST_F(ShaderAssetTestFixture, RootConstantsGoToTheRootLayoutNotASpaceGroup)
+{
+    AssetId id = AssetId::Of<ShaderAsset>("test://Asset/Shaders/RootConstantsTest.hlsl");
+    auto compiledData = CompileComputeShader("test://Asset/Shaders/RootConstantsTest.hlsl");
+    ASSERT_NE(compiledData, nullptr);
+
+    ShaderAsset shader(id);
+    shader.SetDataReady(eastl::move(compiledData));
+    auto built = Resource::BuildShaderInputList(shader);
+
+    // Classified by the shader layer: the space5 block is root constants, not cbuffer constants.
+    ASSERT_EQ(built.list.m_rootConstants.size(), 4u);
+    ASSERT_EQ(built.list.m_constants.size(), 1u);
+    EXPECT_STREQ(built.list.m_constants[0].m_name.GetCStr(), "g_Exposure");
+
+    Ptr<TestPipelineLayoutDescriptor> layout = new TestPipelineLayoutDescriptor();
+    layout->AddShaderInputDescriptors(built.list);
+    ASSERT_EQ(layout->Finalize(), RHI::ResultCode::Success);
+
+    const RHI::ConstantsLayout* root = layout->GetRootConstantsLayout();
+    ASSERT_NE(root, nullptr);
+    EXPECT_EQ(root->GetDataSize(), 32u);
+    const RHI::ShaderInputIndex tint = root->FindShaderInputIndex(RHI::ShaderInputName("tint"));
+    ASSERT_NE(tint, RHI::InvalidShaderInputIndex);
+    EXPECT_EQ(root->GetInterval(tint).m_min, 16u);
+    EXPECT_EQ(root->GetInterval(tint).m_max, 32u);
+
+    EXPECT_EQ(layout->FindSpaceGroupBySpaceId(RootConstantsSpaceId), nullptr);
+    EXPECT_EQ(layout->FindConstantDescriptor(RHI::InputName("tint")), nullptr);
+
+    const RHI::ShaderInputGroup* pass = layout->FindSpaceGroupBySpaceId(2);
+    ASSERT_NE(pass, nullptr);
+    EXPECT_EQ(pass->m_constantBuffers.size(), 1u);
+    EXPECT_NE(layout->FindConstantDescriptor(RHI::InputName("g_Exposure")), nullptr);
+}
+
+TEST_F(ShaderAssetTestFixture, RootConstantFloat3IsRejected)
+{
+    EXPECT_EQ(CompileComputeShader("test://Asset/Shaders/RootConstantsFloat3Test.hlsl"), nullptr);
 }
 
 TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
