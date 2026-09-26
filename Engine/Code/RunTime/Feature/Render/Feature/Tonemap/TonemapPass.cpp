@@ -5,6 +5,7 @@
 #include <RHI/Command/CommandList.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/Image/ImageView.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/PassTag.h>
@@ -15,8 +16,10 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 
 #include <View/ViewTags.h>
+#include <View/MainView.h>
+#include <View/ViewComponents.h>
 
-#include <Feature/TemporalAA/TemporalAAPass.h>
+#include <Feature/PostProcess/PostProcessResources.h>
 
 #include <Resource/AssetManagerInterface.h>
 
@@ -87,12 +90,26 @@ namespace Spark::Render
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
                 clear.m_clearValue  = RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f);
 
-                // The HDR scene color: TemporalAAPass's output when it runs, SceneColor otherwise.
-                const bool temporalAA = TemporalAAPass::FindMainViewSettings(*RHI::RHIExecuteContext::Current()) != nullptr;
+                auto& rhiContext = *RHI::RHIExecuteContext::Current();
 
                 auto s = p.Scope();
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), clear);
-                s.Read(RHI::AttachmentId(temporalAA ? "TemporalAA" : "SceneColor")).Bind(RHI::InputName("g_SceneColor"));
+                s.Read(PostProcess::SceneColorName(rhiContext)).Bind(RHI::InputName("g_SceneColor"));
+
+                // lerp(scene, glow, intensity): the light the glow scatters is taken from the
+                // scene, not added to it.
+                float sceneWeight = 1.0f;
+                float bloomWeight = 0.0f;
+                if (const ViewBloom* bloom = FindMainViewComponent<ViewBloom>(rhiContext))
+                {
+                    sceneWeight = 1.0f - bloom->m_intensity;
+                    bloomWeight = bloom->m_intensity * PostProcess::BloomScale(p.GetRenderSize());
+                    s.Read(PostProcess::BloomName()).Bind(RHI::InputName("g_Bloom"));
+                }
+                s.Constant(RHI::InputName("g_SceneWeight"), sceneWeight);
+                s.Constant(RHI::InputName("g_BloomWeight"), bloomWeight);
+                s.Sampler(RHI::InputName("g_LinearSampler"),
+                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
             })

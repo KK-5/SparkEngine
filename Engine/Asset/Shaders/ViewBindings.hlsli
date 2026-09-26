@@ -23,6 +23,7 @@ cbuffer ViewBindings : register(b0, space1)
     float4   g_InputViewRectMin;     // xy: origin of the region read from input images, in their pixels
     float4   g_ViewSizeAndInvSize;   // view rect in pixels: w, h, 1/w, 1/h
     float4   g_BufferSizeAndInvSize; // target the rect is part of: w, h, 1/w, 1/h
+    float4   g_InputBufferSizeAndInvSize; // input images the region is read from: w, h, 1/w, 1/h
     float4   g_InvDeviceZToViewZ;    // see ConvertFromDeviceZ
 
     float    g_Exposure;             // linear pre-tonemap exposure multiplier; 1.0 = neutral

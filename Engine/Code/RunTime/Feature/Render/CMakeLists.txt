@@ -15,6 +15,9 @@ set(SOURCES
     Feature/Tonemap/TonemapPass.cpp
     Feature/Velocity/VelocityResolvePass.cpp
     Feature/TemporalAA/TemporalAAPass.cpp
+    Feature/SceneDownsample/SceneDownsamplePass.cpp
+    Feature/Bloom/BloomPass.cpp
+    Feature/PostProcess/PostProcessResources.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
@@ -49,6 +52,8 @@ target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCamera
         SparkAntiAliasing
+        SparkBloom
+        SparkPostProcess
         SparkCore
         SparkRHI
         opengl32

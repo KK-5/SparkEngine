@@ -17,8 +17,16 @@
 
 #include <Shaders/ViewBindings.hlsli>   // space1: g_Exposure
 
-// Per-pass input (space2 = per-pass tier), bound by TonemapPass's Compile hook.
-Texture2D<float4> g_SceneColor : register(t0, space2);
+// Per-pass inputs (space2 = per-pass tier), declared by TonemapPass's Scope.
+Texture2D<float4> g_SceneColor    : register(t0, space2);
+Texture2D<float4> g_Bloom         : register(t1, space2);   // BloomPass's glow, half the render size
+SamplerState      g_LinearSampler : register(s0, space2);
+
+cbuffer TonemapParams : register(b0, space2)
+{
+    float g_SceneWeight;   // 1 - bloom intensity
+    float g_BloomWeight;   // bloom intensity / bloom level count; 0 without bloom
+};
 
 struct VSOutput
 {
@@ -55,8 +63,18 @@ float3 OETF(float3 linearColor)
 float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy - g_ViewRectMin.xy + g_InputViewRectMin.xy), 0);
-    // Out of the PreExposure domain first; g_Exposure is the artistic scale, this is not.
-    float3 hdr = g_SceneColor.Load(px).rgb * g_OneOverPreExposure;
+    float3 hdr = g_SceneColor.Load(px).rgb * g_SceneWeight;
+
+    // Uniform across the draw. Without bloom g_Bloom is not bound, so it must not be read.
+    if (g_BloomWeight > 0.0)
+    {
+        // The glow covers the whole input buffer, at a fraction of its size.
+        const float2 uv = (float2(px.xy) + 0.5) * g_InputBufferSizeAndInvSize.zw;
+        hdr += g_Bloom.SampleLevel(g_LinearSampler, uv, 0).rgb * g_BloomWeight;
+    }
+
+    // Out of the PreExposure domain, the glow included; g_Exposure is the artistic scale, this is not.
+    hdr *= g_OneOverPreExposure;
 
     hdr *= g_Exposure;                 // (1) exposure: linear scale before the tone curve
     float3 mapped = ToneCurve(hdr);    // (2) tone curve

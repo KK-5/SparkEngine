@@ -4,9 +4,12 @@
 
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
+#include <Log/ILogSystem.h>
 
 #include <Feature/Camera/Components.h>
 #include <Feature/AntiAliasing/Components.h>
+#include <Feature/Bloom/Components.h>
+#include <Feature/PostProcess/Components.h>
 
 #include "View.h"
 #include "ViewComponents.h"
@@ -48,6 +51,48 @@ namespace Spark::Render
                 break;
             }
             return v;
+        }
+
+        ViewBloom ValidateBloom(const Bloom::BloomComponent& c)
+        {
+            ViewBloom v;
+            v.m_intensity = Math::Clamp(c.m_intensity, 0.0f, 1.0f);
+            return v;
+        }
+
+        //! The settings T of the highest-priority post-process volume that carries them, or null.
+        //! Volumes are unbound, so the answer is the same for every view. `tieLogged` keeps a
+        //! priority tie from being reported every frame.
+        template<typename T>
+        const T* FindVolumeSettings(WorldContext& world, const char* group, bool& tieLogged)
+        {
+            using Spark::PostProcess::PostProcessVolumeComponent;
+
+            const T* best         = nullptr;
+            int32_t  bestPriority = 0;
+            bool     tie          = false;
+            world.GetView<PostProcessVolumeComponent, T>(Exclude<DeadTag>).each(
+                [&](Entity, const PostProcessVolumeComponent& volume, const T& settings)
+            {
+                if (best == nullptr || volume.m_priority > bestPriority)
+                {
+                    best         = &settings;
+                    bestPriority = volume.m_priority;
+                    tie          = false;
+                }
+                else if (volume.m_priority == bestPriority)
+                {
+                    tie = true;
+                }
+            });
+
+            if (tie && !tieLogged)
+            {
+                LOG_WARN("[CameraViewSystem] Several post-process volumes set {} at priority {}; "
+                         "which one applies is arbitrary. Give them different priorities.", group, bestPriority);
+            }
+            tieLogged = tie;
+            return best;
         }
 
         template<typename Ref>
@@ -104,6 +149,9 @@ namespace Spark::Render
         // property the world layer doesn't know.
         const float aspect = static_cast<float>(outputSize.x) / static_cast<float>(outputSize.y);
 
+        const Bloom::BloomComponent* volumeBloom =
+            FindVolumeSettings<Bloom::BloomComponent>(*world, "Bloom", m_bloomTieLogged);
+
         world->GetView<Camera::CameraComponent, Camera::CameraViewMatrix>(Exclude<DeadTag>).each(
             [&](Entity e, const Camera::CameraComponent& camera, const Camera::CameraViewMatrix& mats)
         {
@@ -136,6 +184,23 @@ namespace Spark::Render
             else if (rhiCtx->Has<ViewTemporalAA>(mainRef->m_view))
             {
                 rhiCtx->Remove<ViewTemporalAA>(mainRef->m_view);
+            }
+
+            // The camera's own settings override the volumes'. Zero intensity is off, so a volume
+            // turns bloom off by setting it to zero, and later blending can fade it out.
+            const Bloom::BloomComponent* bloom = world->TryGet<Bloom::BloomComponent>(e);
+            if (bloom == nullptr)
+            {
+                bloom = volumeBloom;
+            }
+            const ViewBloom resolvedBloom = bloom != nullptr ? ValidateBloom(*bloom) : ViewBloom{ 0.0f };
+            if (resolvedBloom.m_intensity > 0.0f)
+            {
+                rhiCtx->AddOrReplace<ViewBloom>(mainRef->m_view, resolvedBloom);
+            }
+            else if (rhiCtx->Has<ViewBloom>(mainRef->m_view))
+            {
+                rhiCtx->Remove<ViewBloom>(mainRef->m_view);
             }
 
             rhiCtx->AddOrReplace<ViewFrustum>(mainRef->m_view, ViewFrustum{ Math::Frustum::FromViewProjection(view.GetWorldToClip()) });

@@ -33,6 +33,8 @@
 #include <Feature/Tonemap/TonemapPass.h>
 #include <Feature/Velocity/VelocityResolvePass.h>
 #include <Feature/TemporalAA/TemporalAAPass.h>
+#include <Feature/SceneDownsample/SceneDownsamplePass.h>
+#include <Feature/Bloom/BloomPass.h>
 #include <Feature/UI/UIPass.h>
 
 #include "../Window/IWindowSystem.h"
@@ -182,6 +184,12 @@ namespace Spark::Render
         // After everything that writes SceneColor; TonemapPass reads its output when enabled.
         auto temporalAAPassCfg = TemporalAAPass::DefaultConfig();
         TemporalAAPass::SetUp(passContext, temporalAAPassCfg);
+
+        // Halves the finished scene color level by level, for bloom and later the exposure histogram.
+        SceneDownsamplePass::SetUp(passContext);
+
+        // Upsamples that chain back into the glow TonemapPass blends in.
+        BloomPass::SetUp(passContext);
 
         // Final tonemap: samples the HDR SceneColor, Reinhard + gamma, writes the LDR
         // swap chain, which it imports. UIPass draws on top afterwards.

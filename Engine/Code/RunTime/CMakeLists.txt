@@ -7,6 +7,8 @@ add_subdirectory(Feature/Input)
 add_subdirectory(Feature/Transform)
 add_subdirectory(Feature/Camera)
 add_subdirectory(Feature/AntiAliasing)
+add_subdirectory(Feature/Bloom)
+add_subdirectory(Feature/PostProcess)
 add_subdirectory(Feature/Mesh)
 add_subdirectory(Feature/Material)
 add_subdirectory(Feature/Spawn)
@@ -35,6 +37,8 @@ target_link_libraries(${TARGET_NAME}
         SparkAssetManager
         SparkCamera
         SparkAntiAliasing
+        SparkBloom
+        SparkPostProcess
         SparkMesh
         SparkMaterial
         SparkSpawn

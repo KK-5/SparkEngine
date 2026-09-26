@@ -17,17 +17,15 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 
 #include <View/ViewTags.h>
+#include <View/MainView.h>
 #include <View/ViewComponents.h>
+
+#include <Feature/PostProcess/PostProcessResources.h>
 
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
 {
-    namespace
-    {
-        constexpr const char* s_outputName = "TemporalAA";
-    }
-
     RenderPassConfig TemporalAAPass::DefaultConfig()
     {
         auto* assetManager = Service<Resource::AssetManager>::Get();
@@ -78,14 +76,14 @@ namespace Spark::Render
             .Build([](RenderPassScopes& p)
             {
                 // Declaring nothing skips the pass this frame.
-                const ViewTemporalAA* settings = FindMainViewSettings(*RHI::RHIExecuteContext::Current());
+                const ViewTemporalAA* settings = FindMainViewComponent<ViewTemporalAA>(*RHI::RHIExecuteContext::Current());
                 if (!settings)
                 {
                     return;
                 }
 
                 const auto size = p.GetRenderSize();
-                p.CreateImage(RHI::AttachmentId(s_outputName), RHI::ImageDescriptor::Create2D(
+                p.CreateImage(PostProcess::TemporalAAName(), RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
                     size.x, size.y, RHI::Format::R16G16B16A16_FLOAT));
 
@@ -95,10 +93,10 @@ namespace Spark::Render
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
-                s.RenderTarget(RHI::AttachmentId(s_outputName), clear);
+                s.RenderTarget(PostProcess::TemporalAAName(), clear);
                 // After the write: a previous-frame read needs this frame's name declared.
                 const ShaderAttachment history =
-                    s.ReadPrevious(RHI::AttachmentId(s_outputName)).Bind(RHI::InputName("g_History"));
+                    s.ReadPrevious(PostProcess::TemporalAAName()).Bind(RHI::InputName("g_History"));
                 s.Read(RHI::AttachmentId("SceneColor")).Bind(RHI::InputName("g_SceneColor"));
                 s.Read(RHI::AttachmentId("ResolvedVelocity")).Bind(RHI::InputName("g_Velocity"));
                 // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
@@ -118,14 +116,5 @@ namespace Spark::Render
             })
             .Finalize()
         ;
-    }
-
-    const ViewTemporalAA* TemporalAAPass::FindMainViewSettings(RHI::RHIContext& ctx)
-    {
-        for (auto [view, settings] : ctx.GetView<MainViewTag, ViewTemporalAA>().each())
-        {
-            return &settings;
-        }
-        return nullptr;
     }
 }

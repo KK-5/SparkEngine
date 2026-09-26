@@ -18,6 +18,9 @@ namespace Spark::Render
     //!
     //! Camera views run temporal passes, so each opts into a ViewHistory. A camera with a
     //! TemporalAAComponent also gives its view ViewTemporalAA and a sub-pixel jitter per frame.
+    //!
+    //! Post-process settings (ViewBloom) come from the scene's post-process volumes, the
+    //! highest priority per group, unless the camera carries that group itself.
     class CameraViewSystem
     {
     public:
@@ -28,5 +31,8 @@ namespace Spark::Render
                     const Math::Vector2Int& outputBufferSize,
                     const FrameTime& time);
         void Shutdown(RHI::RHIContext& rhiCtx);
+
+    private:
+        bool m_bloomTieLogged = false;
     };
 }

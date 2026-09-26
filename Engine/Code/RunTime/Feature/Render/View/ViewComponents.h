@@ -49,6 +49,14 @@ namespace Spark::Render
         uint32_t m_jitterSamples      = 8;
     };
 
+    //! The view runs bloom: the BloomComponent resolved for its camera (its own, else the
+    //! post-process volumes'), validated; absent when that resolves to zero intensity. Written
+    //! by CameraViewSystem; SceneDownsamplePass, BloomPass and TonemapPass read it.
+    struct ViewBloom
+    {
+        float m_intensity = 0.04f;
+    };
+
     //! Source -> the MainViewTag view entity it produced. Lives on the WORLD entity (a
     //! camera today), like InstanceSlotRef. Named after the view TYPE, not the source:
     //! one camera can later source several types (a planar reflection view is derived

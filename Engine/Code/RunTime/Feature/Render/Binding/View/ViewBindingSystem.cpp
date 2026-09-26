@@ -58,6 +58,7 @@ namespace Spark::Render
                 std::round(inputWidth * inputRect.m_minX), std::round(inputHeight * inputRect.m_minY), 0.0f, 0.0f));
             SetShaderConstant(bindings, RHI::InputName("g_ViewSizeAndInvSize"),   SizeAndInvSize(viewWidth, viewHeight));
             SetShaderConstant(bindings, RHI::InputName("g_BufferSizeAndInvSize"), SizeAndInvSize(bufferWidth, bufferHeight));
+            SetShaderConstant(bindings, RHI::InputName("g_InputBufferSizeAndInvSize"), SizeAndInvSize(inputWidth, inputHeight));
             SetShaderConstant(bindings, RHI::InputName("g_InvDeviceZToViewZ"),
                 Math::DeviceZToViewZParams(view.m_viewToClip));
 
