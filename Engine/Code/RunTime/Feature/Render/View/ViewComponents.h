@@ -57,6 +57,20 @@ namespace Spark::Render
         float m_intensity = 0.04f;
     };
 
+    //! The view is tone mapped with AgX, graded by this look: the TonemapComponent resolved for its
+    //! camera (its own, else the post-process volumes'), its look turned into the parameters
+    //! below. Absent when nothing sets it, and TonemapPass then uses Reinhard. Written by
+    //! CameraViewSystem.
+    struct ViewTonemap
+    {
+        //! Scales log2 exposure around middle grey, before AgX's curve.
+        float m_contrast   = 1.0f;
+        //! Around luma, on the same log2 encoding.
+        float m_saturation = 1.0f;
+        //! Blender's Greyscale look: luminance in place of color, before the log2 encoding.
+        bool  m_greyscale  = false;
+    };
+
     //! Source -> the MainViewTag view entity it produced. Lives on the WORLD entity (a
     //! camera today), like InstanceSlotRef. Named after the view TYPE, not the source:
     //! one camera can later source several types (a planar reflection view is derived

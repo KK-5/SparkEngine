@@ -108,6 +108,15 @@ namespace Spark::Render
                 }
                 s.Constant(RHI::InputName("g_SceneWeight"), sceneWeight);
                 s.Constant(RHI::InputName("g_BloomWeight"), bloomWeight);
+
+                // AgX graded by the look while the view has one; otherwise Reinhard, and the look
+                // is unused.
+                const ViewTonemap* tonemap = FindMainViewComponent<ViewTonemap>(rhiContext);
+                const ViewTonemap look = tonemap != nullptr ? *tonemap : ViewTonemap{};
+                s.Constant(RHI::InputName("g_TonemapEnabled"), tonemap != nullptr ? 1u : 0u);
+                s.Constant(RHI::InputName("g_LookContrast"), look.m_contrast);
+                s.Constant(RHI::InputName("g_LookSaturation"), look.m_saturation);
+                s.Constant(RHI::InputName("g_LookGreyscale"), look.m_greyscale ? 1u : 0u);
                 s.Sampler(RHI::InputName("g_LinearSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 

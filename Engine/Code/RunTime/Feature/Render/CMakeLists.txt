@@ -54,6 +54,7 @@ target_link_libraries(${TARGET_NAME}
         SparkAntiAliasing
         SparkBloom
         SparkPostProcess
+        SparkTonemap
         SparkCore
         SparkRHI
         opengl32

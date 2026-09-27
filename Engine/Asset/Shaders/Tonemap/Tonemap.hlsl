@@ -6,9 +6,9 @@
 //
 // The chain is three ordered, independent stages: (1) exposure — a linear scale that
 // picks which slice of the HDR range the camera is sensitive to; (2) the tone curve —
-// the non-linear compression into [0,1] (Reinhard today, ACES later); (3) the OETF —
-// display encoding (gamma). They are kept separate so the tone operator can change
-// without touching exposure or gamma.
+// AgX with its look, scene-linear into display-linear [0,1], or Reinhard when the view
+// has no TonemapComponent; (3) the OETF — display encoding (gamma). They are kept
+// separate so the tone operator can change without touching exposure or gamma.
 //
 // SceneColor is read with Load (integer pixel fetch, 1:1, no sampler) — the natural
 // fit for a full-res point read, matching the deferred lighting pass's GBuffer reads.
@@ -16,6 +16,7 @@
 // shader, the tonemap draw can target the swap chain directly, so no separate copy.
 
 #include <Shaders/ViewBindings.hlsli>   // space1: g_Exposure
+#include <Shaders/Lib/AgX.hlsli>
 
 // Per-pass inputs (space2 = per-pass tier), declared by TonemapPass's Scope.
 Texture2D<float4> g_SceneColor    : register(t0, space2);
@@ -24,8 +25,12 @@ SamplerState      g_LinearSampler : register(s0, space2);
 
 cbuffer TonemapParams : register(b0, space2)
 {
-    float g_SceneWeight;   // 1 - bloom intensity
-    float g_BloomWeight;   // bloom intensity / bloom level count; 0 without bloom
+    float  g_SceneWeight;       // 1 - bloom intensity
+    float  g_BloomWeight;       // bloom intensity / bloom level count; 0 without bloom
+    float  g_LookContrast;      // the view's AgX look (TonemapComponent), see AgXLook
+    float  g_LookSaturation;
+    uint   g_LookGreyscale;
+    uint   g_TonemapEnabled;    // 0: the view has no TonemapComponent, and the look is unused
 };
 
 struct VSOutput
@@ -45,11 +50,17 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     return output;
 }
 
-// Tone curve: compress exposed linear HDR into [0,1]. Reinhard for now — swap for ACES
-// later. Exposure lives upstream of this, so the operator can change independently.
+// Tone curve: exposed scene-linear HDR into display-linear [0,1]. AgX, graded by the look;
+// exposure lives upstream of this, so the operator can change independently. Without a
+// TonemapComponent, per-channel Reinhard: crude, but it keeps the image usable.
 float3 ToneCurve(float3 hdr)
 {
-    return hdr / (hdr + 1.0);  // Reinhard
+    // Uniform across the draw.
+    if (g_TonemapEnabled == 0)
+    {
+        return hdr / (hdr + 1.0);  // Reinhard
+    }
+    return AgX(hdr, g_LookContrast, g_LookSaturation, g_LookGreyscale != 0);
 }
 
 // Display encoding (OETF): linear -> sRGB-ish. Kept separate from the tone curve so

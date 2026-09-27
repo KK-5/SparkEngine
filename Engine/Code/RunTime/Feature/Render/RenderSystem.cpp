@@ -191,7 +191,7 @@ namespace Spark::Render
         // Upsamples that chain back into the glow TonemapPass blends in.
         BloomPass::SetUp(passContext);
 
-        // Final tonemap: samples the HDR SceneColor, Reinhard + gamma, writes the LDR
+        // Final tonemap: samples the HDR SceneColor, AgX + gamma, writes the LDR
         // swap chain, which it imports. UIPass draws on top afterwards.
         auto tonemapPassCfg = TonemapPass::DefaultConfig();
         TonemapPass::SetUp(passContext, tonemapPassCfg);

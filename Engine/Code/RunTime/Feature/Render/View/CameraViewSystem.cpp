@@ -9,6 +9,7 @@
 #include <Feature/Camera/Components.h>
 #include <Feature/AntiAliasing/Components.h>
 #include <Feature/Bloom/Components.h>
+#include <Feature/Tonemap/Components.h>
 #include <Feature/PostProcess/Components.h>
 
 #include "View.h"
@@ -57,6 +58,29 @@ namespace Spark::Render
         {
             ViewBloom v;
             v.m_intensity = Math::Clamp(c.m_intensity, 0.0f, 1.0f);
+            return v;
+        }
+
+        //! The look's parameters, as Blender's config.ocio defines its AgX looks: a log-style
+        //! GradingPrimary contrast around middle grey with a saturation, or Greyscale's luminance.
+        ViewTonemap ValidateTonemap(const Tonemap::TonemapComponent& c)
+        {
+            using Tonemap::AgXLook;
+
+            ViewTonemap v;
+            switch (c.m_look)
+            {
+            case AgXLook::VeryHighContrast:   v.m_contrast = 1.57f; v.m_saturation = 0.9f;  break;
+            case AgXLook::HighContrast:       v.m_contrast = 1.4f;  v.m_saturation = 0.95f; break;
+            case AgXLook::MediumHighContrast: v.m_contrast = 1.2f;                          break;
+            case AgXLook::MediumLowContrast:  v.m_contrast = 0.9f;  v.m_saturation = 1.05f; break;
+            case AgXLook::LowContrast:        v.m_contrast = 0.8f;  v.m_saturation = 1.1f;  break;
+            case AgXLook::VeryLowContrast:    v.m_contrast = 0.7f;  v.m_saturation = 1.15f; break;
+            case AgXLook::Greyscale:          v.m_greyscale = true;                         break;
+            case AgXLook::BaseContrast:
+            default:
+                break;
+            }
             return v;
         }
 
@@ -151,6 +175,8 @@ namespace Spark::Render
 
         const Bloom::BloomComponent* volumeBloom =
             FindVolumeSettings<Bloom::BloomComponent>(*world, "Bloom", m_bloomTieLogged);
+        const Tonemap::TonemapComponent* volumeTonemap =
+            FindVolumeSettings<Tonemap::TonemapComponent>(*world, "Tonemap", m_tonemapTieLogged);
 
         world->GetView<Camera::CameraComponent, Camera::CameraViewMatrix>(Exclude<DeadTag>).each(
             [&](Entity e, const Camera::CameraComponent& camera, const Camera::CameraViewMatrix& mats)
@@ -201,6 +227,21 @@ namespace Spark::Render
             else if (rhiCtx->Has<ViewBloom>(mainRef->m_view))
             {
                 rhiCtx->Remove<ViewBloom>(mainRef->m_view);
+            }
+
+            // Without one the view is not tone mapped, only clipped and display-encoded.
+            const Tonemap::TonemapComponent* tonemap = world->TryGet<Tonemap::TonemapComponent>(e);
+            if (tonemap == nullptr)
+            {
+                tonemap = volumeTonemap;
+            }
+            if (tonemap != nullptr)
+            {
+                rhiCtx->AddOrReplace<ViewTonemap>(mainRef->m_view, ValidateTonemap(*tonemap));
+            }
+            else if (rhiCtx->Has<ViewTonemap>(mainRef->m_view))
+            {
+                rhiCtx->Remove<ViewTonemap>(mainRef->m_view);
             }
 
             rhiCtx->AddOrReplace<ViewFrustum>(mainRef->m_view, ViewFrustum{ Math::Frustum::FromViewProjection(view.GetWorldToClip()) });

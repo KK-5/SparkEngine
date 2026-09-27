@@ -15,9 +15,9 @@ P3 做两件事：**Bloom** 和**换掉色调曲线**。同时这是引擎第一
 |---|---|---|---|
 | 1 | 参数组件 `BloomComponent`（照 AntiAliasing 的模式） | — | 完成 |
 | 2 | I3：SceneDownsample 链（第一个多 Scope 的 compute pass） | 1 | 代码完成，待 RenderDoc 验证（§五） |
-| 3 | Bloom 上采样（第二个 compute pass，沿降采样链逐级累加） | 2 | 代码完成，待验证 |
-| 4a | Tonemap 合入 Bloom | 3 | 代码完成，待验证 |
-| 4b | Tonemap 换 AgX + Look，`ColorGradingComponent` | 4a | 未开始 |
+| 3 | Bloom 上采样（第二个 compute pass，沿降采样链逐级累加） | 2 | 完成（画面已验证） |
+| 4a | Tonemap 合入 Bloom | 3 | 完成（画面已验证） |
+| 4b | Tonemap 换 AgX + Look，`TonemapComponent`（Blender 的 Look 预设） | 4a | 代码完成，待验证 |
 
 执行顺序即表序。
 
@@ -116,6 +116,10 @@ AgX 的 Look 层本身就是分级层，形式是 **ASC CDL**——逐通道 `(i
 3D LUT（UE 的 CombineLUTs）存在的理由是把一长串分级运算烘进一次三线性采样。我们现在只有 CDL 四个参数，
 烘不出收益。等分级链长到值得烘的时候再建，那时 Look 的输入输出契约不变。
 
+**更正（落地时）**：Look 最终不用 CDL，改用 Blender 的 AgX 预设（§二「落地」）。CDL 作用在 sigmoid 之后的显示值上，
+参数稍动画面就变很多，难调；Blender 的预设在 sigmoid 之前、log2 曝光上做对比度与饱和度，温和且有名字可选。
+"内联、不建 LUT"的结论不变。
+
 ### D6　FXAA：不做　✅ 已定
 
 它的价值是 TAA 关闭时的低配路径，而我们没有关 TAA 的场景。真需要时是纯加法。
@@ -164,7 +168,8 @@ SceneColor 一起除回即可。降采样 shader 因此不需要任何曝光相�
   - 原理：权重 `1 / (1 + luma)`，即在 Reinhard 压缩过的空间里取平均，单个极亮样本的贡献被封顶在 1 左右。
     Jimenez 只用在第一级、按 13-tap 的 5 个盒子加权。TAA 的 `ToPerceptual` 是同一个技巧，所以 TAA 开着时
     萤火虫进 Bloom 前大多已被抹平。
-  - 需要时的顺序：先从源头做高光抗锯齿（按法线变化放大粗糙度，Toksvig 或 Kaplanyan 的方法，属材质系统）；
+  - 需要时的顺序：先从源头做高光抗锯齿。几何部分已有（`Shaders/Lib/SpecularAA.hlsli`，Tokuyoshi 与 Kaplanyan
+    的改进版，GBuffer 按插值法线的屏幕导数放宽高光），缺的是法线贴图那部分（Toksvig：把法线方差预烘进粗糙度 mip）；
     其次是 Bloom 私有的 Karis 第一级（意味着私有一整条链，降采样开销翻倍）；加在共享链第一级只作为曝光分支
     到来前的临时手段。
 - **第一级降采样把非有限值清零**：否则一个 NaN / Inf 像素会被链扩散成一整块。
@@ -207,7 +212,7 @@ SceneColor 一起除回即可。降采样 shader 因此不需要任何曝光相�
 - **TAA 暂时留在不进场景的编辑器相机上，不可调。** 画质设置的归宿另议：引擎倾向用组件而不是配置文件表达数据，
   画质设置用哪种实体承载，等出现第二个画质参数时再定。风格参数不回到相机上：相机上的风格组件只作为对 Volume
   的覆盖。
-- 新建场景不自动放 Volume：没有 Volume 就没有 Bloom，调色退回默认 Look。
+- 新建场景不自动放 Volume：没有 Volume 就没有 Bloom，色调映射退回 Reinhard（见 §三）。
 
 ---
 
@@ -287,15 +292,68 @@ AgX 的形状：
 linear sRGB
   → inset 3×3 矩阵
   → log2 编码（固定动态范围，约 -12.47 ~ +4.026 EV）
+  → Look：log2 曝光上的对比度与饱和度（Blender 的预设，见「落地」）
   → sigmoid（多项式拟合）
-  → Look：ASC CDL（offset / slope / power 逐通道 + saturation）
   → outset 3×3 矩阵
   → OETF
 ```
 
 参考实现是 OCIO 配置带 3D LUT，但 shader 移植版成熟（three.js 带一个）。总量 50~60 行加两个矩阵常量。
 
-Look 的默认值要给一组"把 AgX 从灰拉回来"的基准，**不能留单位值**——留单位值会让人以为 AgX 本身不能看。
+（原计划：Look 的默认值要给一组"把 AgX 从灰拉回来"的基准，不能留单位值。落地时改为 Blender 的预设、默认 Base Contrast，见下与 §三。）
+
+### 落地
+
+**移植，不自己推导。** AgX 是确定的数学，没有要下载的资源（不用 LUT）。移植在 `Shaders/Lib/AgX.hlsli`，出处与
+许可证写在文件头，和引擎自己的代码分开：
+
+- 矩阵、log2 范围、7 次多项式 sigmoid 取自 Filament 的 `ToneMapper.cpp`（Apache 2.0），它们又来自 Blender 的
+  AgX（Rec.2020 原色）与 Wrensch 的 minimal AgX。Rec.709 ↔ Rec.2020 用 ITU-R BT.2407 的矩阵，同 three.js（MIT）。
+- 源代码的矩阵是列主序（每三个数是一列），HLSL 里原样逐行写，乘法写成 `mul(v, M)`，数字能与源逐个比对。
+  three.js 的 outset 与本地对 Filament `AgXOutsetMatrixInv` 求逆的结果逐位一致，印证了这一约定。
+- **与 Filament 的两处不同**：输入输出是 Rec.709（Filament 的管线工作在 Rec.2020）；Look 用 Blender 的而不是
+  Filament 放在 sigmoid 之后的 CDL（见下）。
+- AgX 的 sigmoid 输出是 2.2 编码的显示值，`AgX()` 末尾解码回线性，Tonemap 的 OETF 再编码一次；以后换 sRGB 交换链
+  （硬件编码）只动 OETF。
+- 本体来自 Filament，对应较早的 Blender AgX。Blender 4.x 在 inset 前多一步"亮度补偿"（压缩超出色域的颜色），
+  sigmoid 也由 LUT 实现，所以同一 Look 在高饱和、超色域的颜色上与 Blender 有细微差别；Look 本身的数学一致。
+
+**Look：Blender 的预设**（`Tonemap::AgXLook`，编辑器里是下拉框）。参数取自 Blender 的 `config.ocio`：
+
+| Look | Blender 的做法 | 参数 |
+|---|---|---|
+| Base Contrast（= Blender 的 None） | 不改 | 对比度 1 |
+| Very High / High / Medium High Contrast | log 风格 GradingPrimary | 对比度 1.57 / 1.4 / 1.2，饱和度 0.9 / 0.95 / 1 |
+| Medium Low / Low / Very Low Contrast | 同上 | 对比度 0.9 / 0.8 / 0.7，饱和度 1.05 / 1.1 / 1.15 |
+| Greyscale | 线性值取亮度 | 权重 (0.2589, 0.6105, 0.1306)，作用于 inset 之后 |
+
+- **作用在 sigmoid 之前**：Blender 的 process_space 是 AgX Log（inset + log2 之后、sigmoid 之前）。对比度以中灰为
+  支点（OCIO log 风格 pivot = 0.5 + (−0.2)·0.5 = 0.4，在 Blender 的 AgX Log 里正是 0.18），即"离中灰每 1 档拉开成
+  c 档"；之后 sigmoid 的 toe 与 shoulder 仍兜住黑与白，所以温和、不易截断。CDL 放在 sigmoid 之后直接改显示值，
+  这是它难调的原因。
+- **范围无关**：对比度与饱和度（OCIO 在 log 值上按 Rec.709 权重取亮度）按"离中灰多少档"表达时与 log 编码的范围无关，
+  Blender 25 档的 AgX Log 上的数值原样搬到我们 16.5 档的编码上即精确。
+- **Punchy 不做**：它用 OCIO 的 GradingTone（暗部样条）加 log 空间的 CDL power，精确移植约百行；对比度一族已覆盖
+  "更有劲 / 更柔"两个方向，需要时再补。
+- 表放在 `CameraViewSystem` 的 `ValidateTonemap`（把作者选的预设换成渲染参数，同 TAA 的抖动档位），渲染侧
+  `ViewTonemap` 只有对比度、饱和度与 greyscale 标志。
+
+**数值核对**（CPU 上按同一流程计算，显示值 = 输出的 1/2.2 次方）：
+
+| 输入（线性） | Base | Very High | Medium High | Very Low | Greyscale |
+|---|---|---|---|---|---|
+| 灰 0.02 | 0.160 | 0.062 | 0.117 | 0.243 | 0.160 |
+| 灰 0.18 | 0.497 | 0.497 | 0.497 | 0.497 | 0.497 |
+| 灰 1 | 0.782 | 0.896 | 0.828 | 0.705 | 0.782 |
+| 灰 16 | 0.982 | 0.982 | 0.982 | 0.931 | 0.982 |
+| 蓝 (0.02, 0.05, 1) | 0.29/0.46/0.85 | 0.15/0.45/0.96 | 0.24/0.46/0.91 | 0.35/0.47/0.79 | 0.529 |
+| 橙 (8, 2, 0.2) | 1.00/0.88/0.76 | 0.99/0.98/0.91 | 1.00/0.93/0.82 | 0.93/0.79/0.66 | 0.909 |
+
+中灰落在 0.5 附近，是 AgX 的设计点，说明移植没错，且对比度的支点确在中灰；亮度升高时颜色走向白色即 path to white。
+组件默认 Base Contrast，与 Blender 的默认一致。
+
+**`TonemapComponent` 与 Bloom 同样经 Volume 解析**（D11），也同样门控：解析不到就不生成 `ViewTonemap`，
+TonemapPass 退回逐通道 Reinhard，见 §三。
 
 ---
 
@@ -332,7 +390,7 @@ Volume 是普通的场景实体：在层级里、随场景保存、换场景时�
 
 1. 相机自己的组件（覆盖，给游戏相机特殊处理用）；
 2. 否则，带这组组件、优先级最高的 Volume；
-3. 否则没有：Bloom 关，调色退回默认 Look。
+3. 否则没有：Bloom 关，色调映射退回 Reinhard。
 
 - **"关"是强度为 0，不是开关字段**。高优先级 Volume 把强度设为 0 即覆盖掉低优先级的 Bloom；解析结果为 0 时不生成
   `ViewBloom`，pass 全部跳过。强度能插值，以后混合时可以平滑淡出，开关只能跳变。
@@ -356,11 +414,21 @@ Volume 是普通的场景实体：在层级里、随场景保存、换场景时�
 | 组件 | 字段 | 门控 |
 |---|---|---|
 | `Bloom::BloomComponent` → `ViewBloom` | `m_intensity`（没有阈值，见 D8） | **是**。解析不出设置、或强度为 0，就没有 Bloom pass，Tonemap 也不加 Bloom。降采样链此时也不建：P3 里它只有 Bloom 一个消费者。曝光分支到来后，要改成"任一消费者存在就建"。默认零开销 |
-| `ColorGrading::ColorGradingComponent` → `ViewColorGrading` | ASC CDL：`m_slope`、`m_offset`、`m_power`、`m_saturation` | **否**，见下 |
+| `Tonemap::TonemapComponent` → `ViewTonemap` | `m_look`：Blender 的 AgX 预设（§二「落地」） | **是**，见下 |
 
-**Look 不能靠"组件缺席"关掉。** D1 说过 AgX 开箱偏灰，Look 是这条方案的一半——缺席时退回单位值就是把
-"AgX 不能看"的那一面直接端上来。所以：`ViewColorGrading` 的**成员默认值就是那组基准 Look**，TonemapPass
-取不到组件时用一个默认构造的副本。组件的默认值与之相同，所以挂上组件在调之前什么也不改变。这样"组件在不在"仍然是有意义的（有没有 Volume 或相机设了自定义分级），而画面永远不会掉进未分级的 AgX。
+**AgX 由组件在不在开关，Look 与它同在一个组件里。** 解析不到 `TonemapComponent` 时退回逐通道 Reinhard
+（`g_TonemapEnabled = 0`，shader 里一个全 draw 一致的分支）；解析到了就走 AgX 并用选定的 Look。新建场景什么都不放，
+所以默认是 Reinhard。
+
+- **为什么 Look 与开关放一起**：Look 作用在 AgX 的 log2 编码上，离开 AgX 没有意义；对应 Blender 视图变换 AgX 与
+  Look 一起选。
+- **为什么叫 Tonemap 而不是 ColorGrading**：它控制的是色调映射。以后在色调映射之前、场景线性空间里的调色（白平衡、
+  LUT）才叫 ColorGrading，与 UE 的顺序一致。组件的类型名写进场景文件，所以名字在第一次提交前定下。
+- **为什么缺席时是 Reinhard 而不是截断**：先试过只截断再做 OETF（对应 Unity 的 None），画面太差——超过 1 的高光
+  被硬切成白，亮的饱和色逐通道截断而变色（亮橙 (8, 2, 0.2) → (1, 1, 0.2) 偏黄）。Reinhard 粗糙但可用，也是 P3 之前
+  一直在用的曲线。它仍是逐通道的，所以亮的饱和色会偏色相、不走向白色，这正是 AgX 要解决的。
+- D1 的"画面不能掉进未分级的 AgX"不再成立：Base Contrast 就是不加 Look 的 AgX，也是 Blender 的默认。有了一组有名字的
+  预设，"偏灰"交给作者选一个对比度更高的，而不是替他预设一个。
 
 **曝光不动**：`View::m_exposure` 保持现状。它跟上面两组不同——每个 View 都必须有一个曝光值，presence 门控
 对它没有意义；而它要长出来的那些字段（method、min/max、百分位、speed up/down）属于推迟掉的曝光分支。
@@ -372,10 +440,10 @@ Volume 是普通的场景实体：在层级里、随场景保存、换场景时�
 
 | 步骤 | 文件 |
 |---|---|
-| 1 | 新增 `Feature/Bloom/{Components,Reflect}.h` 与 CMake（`SparkBloom`，同 `SparkAntiAliasing`）；`Engine.cpp` 注册反射；`ViewComponents.h` 加 `ViewBloom`；`CameraViewSystem.cpp` 加校验与 AddOrReplace/Remove。随后按 D11 移到 Volume：新增 `Feature/PostProcess/{Components,Reflect}.h`（`SparkPostProcess`），`CameraViewSystem.cpp` 按 Volume 解析；编辑器相机不挂 Bloom。`ColorGrading` 的同一套挪到步骤 4，它与 Look 的默认值一起定。`View::m_exposure` 不动 |
+| 1 | 新增 `Feature/Bloom/{Components,Reflect}.h` 与 CMake（`SparkBloom`，同 `SparkAntiAliasing`）；`Engine.cpp` 注册反射；`ViewComponents.h` 加 `ViewBloom`；`CameraViewSystem.cpp` 加校验与 AddOrReplace/Remove。随后按 D11 移到 Volume：新增 `Feature/PostProcess/{Components,Reflect}.h`（`SparkPostProcess`），`CameraViewSystem.cpp` 按 Volume 解析；编辑器相机不挂 Bloom。Tonemap 组件挪到步骤 4，它与 Look 的初值一起定。`View::m_exposure` 不动 |
 | 2 | 新增 `Render/Feature/SceneDownsample/SceneDownsamplePass.{h,cpp}`；`Render/Feature/PostProcess/PostProcessResources.{h,cpp}`（链的级数、名字、尺寸，场景色与 Bloom 的名字）；`Render/View/MainView.h`；`Shaders/SceneDownsample/SceneDownsample.hlsl`（CS）；`RenderSystem.cpp` 在 TemporalAA 与 Tonemap 之间注册 |
 | 3 | 新增 `Render/Feature/Bloom/BloomPass.{h,cpp}` + `Shaders/Bloom/BloomUpsample.hlsl`（CS）；`RenderSystem.cpp` 注册在 SceneDownsample 之后 |
-| 4 | `Tonemap.hlsl` 换 `ToneCurve`、加 Look 与 Bloom 合成；`TonemapPass.cpp` 加 Bloom 输入与 space2 常量。没有 Bloom 时权重为 0，shader 按权重跳过对 `g_Bloom` 的读取 |
+| 4 | 新增 `Shaders/Lib/AgX.hlsli`（移植，见 §二「落地」）与 `Feature/Tonemap/{Components,Reflect}.h`（`SparkTonemap`）；`ViewComponents.h` 加 `ViewTonemap`，`CameraViewSystem.cpp` 按 Volume 解析；`Tonemap.hlsl` 换 `ToneCurve`、加 Look 与 Bloom 合成；`TonemapPass.cpp` 加 Bloom 输入与 space2 常量。没有 Bloom 时权重为 0，shader 按权重跳过对 `g_Bloom` 的读取 |
 
 路径沿用现有布局：pass 在 `Feature/Render/Feature/<Name>/`，shader 在 `Engine/Asset/Shaders/<Name>/`；
 世界侧组件在 `Feature/<Name>/`（同 `Feature/AntiAliasing/`）。
@@ -397,7 +465,7 @@ Volume 是普通的场景实体：在层级里、随场景保存、换场景时�
 - **Volume（D11）**：场景里没有 Volume 时没有 Bloom，降采样与 Bloom pass 都不出现；加一个带 Bloom 的 Volume 后
   出现，调它的强度实时生效；再加一个优先级更高、强度为 0 的 Volume，Bloom 消失；两者优先级相同时打一次警告；
   存盘、换场景再切回，Volume 与参数都在，编辑器相机始终不出现在层级里。
-- **步骤 4**：AgX + Look 的观感。**这一步要留时间调 Look 的默认值**，不是接上就算完。同时验证亮饱和色
+- **步骤 4**：AgX + Look 的观感。逐个切换 Look，中灰亮度不变、只有两端拉开或收拢；Greyscale 为灰度。同时验证亮饱和色
   （彩色自发光 / 强色光）不偏色相——这是选 AgX 的理由，不验证就等于没选。
 
 全程 DX12 validation 零警告。
@@ -406,7 +474,7 @@ Volume 是普通的场景实体：在层级里、随场景保存、换场景时�
 
 ## 六、未决
 
-- **AgX Look 的默认值**：只能调出来，不能算出来。步骤 4 留时间。
+- **Punchy**：Blender 的 Punchy 用 OCIO GradingTone 的暗部样条，精确移植约百行，暂不做（§二「落地」）。
 - **降采样链的级数**：按 `GetRenderSize()` 算（见 §一）；具体公式随 Bloom 细节一起定。曝光分支到来后直方图
   取哪一级是另一个数，两者不必相同。
 - **D7**：见上，不在 P3。

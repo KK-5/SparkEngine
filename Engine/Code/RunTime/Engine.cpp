@@ -17,6 +17,7 @@
 #include <Feature/AntiAliasing/Reflect.h>
 #include <Feature/Bloom/Reflect.h>
 #include <Feature/PostProcess/Reflect.h>
+#include <Feature/Tonemap/Reflect.h>
 #include <Feature/Mesh/Reflect.h>
 #include <Feature/Material/Reflect.h>
 #include <Feature/Skybox/Reflect.h>
@@ -33,6 +34,7 @@ namespace Spark
         TypeRegistry::Register(Spark::AntiAliasing::Reflect);
         TypeRegistry::Register(Spark::Bloom::Reflect);
         TypeRegistry::Register(Spark::PostProcess::Reflect);
+        TypeRegistry::Register(Spark::Tonemap::Reflect);
         TypeRegistry::Register(Spark::Mesh::Reflect);
         TypeRegistry::Register(Spark::Material::Reflect);
         TypeRegistry::Register(Spark::Skybox::Reflect);
