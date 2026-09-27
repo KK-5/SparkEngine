@@ -26,8 +26,8 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 |---|---|---|
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
-| P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | 计划已定，见 `TODO_PostProcessPlan.md` |
-| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 未开始 |
+| P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
+| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 计划起草中，见 `TODO_ScreenSpacePlan.md` |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
 | P7 | 命中点着色 | 未开始 |
@@ -125,10 +125,10 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 ☐  Composite AfterDOF translucency                                                     P5
 ✅ TemporalAA（以后 TSR/DLSS/FSR 走同一位置）           ITemporalUpscaler
 ☐  MotionBlur                                          MotionBlur                      P9
-☐  SceneDownsample                                     FSceneDownsampleChain           P3
+✅ SceneDownsample（compute，每级独立纹理）             FSceneDownsampleChain
 —  Histogram → EyeAdaptation                           EyeAdaptation              随物理灯光
-☐  Bloom                                               Bloom                           P3
-◐  Tonemap (AgX + Look + bloom + exposure)              Tonemap                         P3
+✅ Bloom（dual-filter）                                 Bloom
+✅ Tonemap (AgX + Blender Look + bloom + exposure)     Tonemap
 —  FXAA                                                FXAA                            不做
 ✅ UI
 ```
@@ -214,10 +214,10 @@ z=0 并用 `Less`。UE 的 `ConvertFromDeviceZ` 及 TAA、大量屏幕空间 sha
 | I0 | 实体持有的持久图资源（决策 2） | TAA history | ✅ P1 |
 | I1 | View 时序参数 + jitter 序列 + `m_prevModel` | Velocity / TAA | ✅ P1 |
 | I2 | 渲染分辨率 / 输出分辨率分离，支持半分辨率 Pass | TAA（100% 缩放，只立接缝） | ✅ P1（缩放固定 100%） |
-| I3 | Compute pass 进图（ReadWrite attachment 已支持，尚无用例） | Histogram / Bloom | P3 |
+| I3 | Compute pass 进图：compute Scope 的 `Dispatch`、root constant、`.BindIndex`（`TODO_RenderGraphItemPlan.md` C 段）。**尚不能绑定 View（space1）**，见 P4 | SceneDownsample / Bloom | ✅ P3 |
 | I4 | per-subresource barrier（IBL 计划里记录的欠账） | HZB 逐 mip 生成 | P4 |
 | I5 | 按材质 PSO 变体 + BlendMode（见 `TODO_PerDrawPSOVariant.md`），变体范围包含 VS 与 InputLayout（为 I10 留位） | Masked | P5 |
-| I6 | 后处理参数：世界侧组件 → `CameraViewSystem` 校验 → View 上的渲染侧组件，presence 即开关。**不是一个 `PostProcessSettings` 大结构体** | TAA 参数 | ✅ P1（`Feature/AntiAliasing/`），后续功能照用 |
+| I6 | 后处理参数：世界侧组件 → `CameraViewSystem` 校验 → View 上的渲染侧组件，presence 即开关。**不是一个 `PostProcessSettings` 大结构体** | TAA 参数 | ✅ P1（`Feature/AntiAliasing/`）；P3 起风格参数经场景的后处理 Volume 解析（`TODO_PostProcessPlan.md` D11），画质参数（TAA）仍在相机上 |
 | I7 | RHI 光追：加速结构对象与绑定类型、BLAS 输入缓冲用途位、build/update/compaction、实例结构、能力检测、SM6.5 / `SPV_KHR_ray_query` 编译 | RT 阴影 | P6 |
 | I8 | 光追场景：BLAS 跟随 mesh 几何生命周期、TLAS 每帧更新、TLAS InstanceID = InstanceBinding slot；BLAS 的输入不限于静态顶点缓冲，可以是 compute 生成的缓冲（动态 BLAS，对应 `FRayTracingDynamicGeometryUpdate`） | RT 阴影 | P6 |
 | I9 | 几何记录表（instance → 顶点/索引缓冲 bindless 索引、属性布局）+ 命中点着色库 | 主光线调试视图 | P7 |
@@ -269,7 +269,7 @@ P1、P2 互不依赖，可并行。P3 / P4 / P5 之间互不依赖。
 - 池化图描述符不累加队列掩码、跨队列 fence 只覆盖 `ImportedTag`——历史资源进 async compute 前补上。
 - 关闭顺序：`RenderGraph` 的 `ImagePool` 先于引用其图的 SRG 销毁，现有临时补丁。正解是按 Init 逆序关闭 + 关闭前
   等 GPU 空闲，独立处理。
-- TAA 是全屏 PS；I3（compute pass 进图）落地后改 CS。
+- TAA 是全屏 PS；I3 已在 P3 落地，但 compute pass 还拿不到 View（space1），改 CS 要等它（见 P4）。
 
 ### P2 结构对齐　✅ 已完成
 
@@ -298,21 +298,36 @@ P1、P2 互不依赖，可并行。P3 / P4 / P5 之间互不依赖。
 - 灯光组件的"阴影方式"字段没加，`ShadowViewSystem` 仍为所有投影灯分配 atlas tile。P6 接 RT 阴影时要做。
 - 屏幕空间 AO 的声明与 `AmbientOcclusion` 信号纹理不存在，P4 与 GTAO 一起建。
 
-### P3 后处理主干
+### P3 后处理主干　✅ 已完成
 
-详细计划：`TODO_PostProcessPlan.md`。**范围只有 Bloom 与 Tonemap**，曝光整条分支已推迟（见 §五）。
+详细计划与决策记录：`TODO_PostProcessPlan.md`。**范围只有 Bloom 与 Tonemap**，曝光整条分支已推迟（见 §五）。
 
-1. 参数组件：`BloomComponent`、`ColorGradingComponent`，照 `Feature/AntiAliasing/` 的模式（I6 的机制 P1 已建好）。
-2. I3：SceneDownsample 链，引擎第一个 compute pass（每级独立纹理，不依赖 I4）。
-3. Bloom：Jimenez dual-filter 沿链上采样累加（不用 UE4 高斯，理由见计划 D4）。
-4. Tonemap 换 **AgX + Look**，合入 Bloom。分级即 Look 的 ASC CDL，内联不建 CombineLUTs。
+1. 参数组件：`BloomComponent`、`TonemapComponent`。**风格参数挂在场景的后处理 Volume 实体上**（`PostProcessVolumeComponent`，
+   逐组按优先级解析，相机自己的组件可覆盖；暂时全是 Unbound，范围与混合的扩展方式见计划 §三），随场景保存；画质参数
+   （TAA）仍在不进场景的编辑器相机上、暂不可调（计划 D11）。
+2. I3：SceneDownsample 链，引擎第一个多 Scope 的 compute pass（每级独立纹理，不依赖 I4）。链是共享的、不加阈值，
+   以后直方图也读它（D8）。
+3. Bloom：Jimenez dual-filter 沿链上采样累加，各级等权并按级数归一化（核约为 1/r²，与镜头 PSF 一致），合成用能量守恒的
+   `lerp(scene, bloom, intensity)`，不用阈值。
+4. Tonemap 换 **AgX**（移植 Filament 的实现），合入 Bloom。Look 用 **Blender 的预设**（对比度一族与 Greyscale），在 sigmoid
+   之前的 log2 曝光上做；原计划的 ASC CDL 放在 sigmoid 之后、太敏感，已弃用。没有 `TonemapComponent` 时退回 Reinhard。
 
-不做 FXAA（TAA 关闭时的低配路径，我们没有这个场景）。色调曲线不用 UE 的 `FilmToneMap`：它在链条最末端，
-下游无消费者，不属于要对齐的帧结构 / 数据契约 / 插件点三层中的任何一层，而 AgX 解掉了 ACES 系的色相偏移。
+pass 之间交接的资源名与形状集中在 `PostProcessResources.h`，pass 不互相 include。不做 FXAA（TAA 关闭时的低配路径，
+我们没有这个场景）。色调曲线不用 UE 的 `FilmToneMap`：它在链条最末端，下游无消费者，不属于要对齐的帧结构 / 数据契约 /
+插件点三层中的任何一层，而 AgX 解掉了 ACES 系的色相偏移。
 
-**验证**：Bloom 只作用于高亮；AgX + Look 的观感要留时间调默认值；亮饱和色不偏色相。
+**验证**：画面人工确认（Bloom 光晕、强度与级数跳变、Volume 覆盖与优先级、各 Look）；降采样链与 Bloom 的同步在 D3D12
+GPU-based validation 下跑过、无报错（bindless 访问 CPU 端 debug layer 查不到，渲染图的屏障编译也没有单元测试）。
+
+**带入后续阶段的遗留**：
+
+- Punchy Look 未做：要移植 OCIO GradingTone 的暗部样条，约百行。
+- 曝光分支到来时 TAA 的压缩空间 `c / (1 + luma)` 要改成乘曝光（计划"推迟的部分"）。
+- 多个 MainView 时降采样链与 Bloom 只处理第一个（计划 D9）。
 
 ### P4 屏幕空间效果
+
+详细计划（草案）：`TODO_ScreenSpacePlan.md`。前置两项基础设施：compute pass 访问 View、I4 子资源屏障。
 
 1. I4 + HZB（closest / furthest 两套 mip 链）。
 2. GTAO → `AmbientOcclusion`，接入 IndirectDiffuse / Reflections。
@@ -433,6 +448,7 @@ LightGrid（分簇光源）只留接缝：前向着色的灯光遍历封装成�
 
 - `TODO_StructureAlignPlan.md` —— P2
 - `TODO_PostProcessPlan.md` —— P3
+- `TODO_ScreenSpacePlan.md` —— P4
 - `TODO_PerDrawPSOVariant.md` —— I5
 - `TODO_DrawItemPersistencePlan.md` §八 —— P5 透明分类
 - `TODO_ShadowOptimizePlan.md` —— P2 阴影拆分时注意其中 bias 量纲的待办

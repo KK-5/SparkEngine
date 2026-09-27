@@ -14,7 +14,7 @@ P3 做两件事：**Bloom** 和**换掉色调曲线**。同时这是引擎第一
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 1 | 参数组件 `BloomComponent`（照 AntiAliasing 的模式） | — | 完成 |
-| 2 | I3：SceneDownsample 链（第一个多 Scope 的 compute pass） | 1 | 代码完成，待 RenderDoc 验证（§五） |
+| 2 | I3：SceneDownsample 链（第一个多 Scope 的 compute pass） | 1 | 完成（画面与 GPU-based validation 已验证，§五） |
 | 3 | Bloom 上采样（第二个 compute pass，沿降采样链逐级累加） | 2 | 完成（画面已验证） |
 | 4a | Tonemap 合入 Bloom | 3 | 完成（画面已验证） |
 | 4b | Tonemap 换 AgX + Look，`TonemapComponent`（Blender 的 Look 预设） | 4a | 代码完成，待验证 |
@@ -461,6 +461,13 @@ Volume 是普通的场景实体：在层级里、随场景保存、换场景时�
 
   降采样结果肉眼可查（就是模糊的 SceneColor）。队列用 Graphics：放到 async compute 会走跨队列路径，而那条路径
   没有运行时覆盖（RenderGraphItemPlan「未验证」）。
+
+  **实际的验证方式：GPU-based validation 代替逐条翻 RenderDoc。** 链与 Bloom 全经 bindless 访问纹理，CPU 端的
+  debug layer 看不到 shader 实际读写了哪个资源，漏掉或错误的屏障不会报错，画面也多半照样正确（驱动常在 dispatch
+  之间顺带刷缓存），只在别的硬件或 Vulkan 上偶发。画面只能证明内容与索引对，证明不了同步对。所以把
+  `RHI::curValidationMode` 临时切到 `GPU`，在 VS 调试器下进场景开 Bloom、转相机、改窗口尺寸：无 `D3D12 ERROR`、
+  无断点，已通过。注意引擎不把 debug layer 的消息转进日志，只进调试器输出窗口，ERROR 时断下；不挂调试器就只剩崩溃。
+  渲染图的屏障编译目前没有单元测试，GBV 是这些路径唯一的自动检查，改动屏障编译后应再跑一次。
 - **步骤 3**：Bloom 的扩散范围随级数变化，窗口尺寸改变时级数跟着变、不残留上一帧的级。阈值相关的验证取决于 D8。
 - **Volume（D11）**：场景里没有 Volume 时没有 Bloom，降采样与 Bloom pass 都不出现；加一个带 Bloom 的 Volume 后
   出现，调它的强度实时生效；再加一个优先级更高、强度为 0 的 Volume，Bloom 消失；两者优先级相同时打一次警告；

@@ -627,9 +627,8 @@ C 的步骤。
   Flush）→ signal（先提交）。执行器只读 Scope 及其 attachment 上的组件，不碰 pass、pool 与 `FenceSet`。
 
 **未验证**：现有 pass 全在 Graphics 队列，跨队列路径没有运行时覆盖，第一个 compute pass 接入时补验。
-
-**帧率待查**：A4b 时带网格的场景新路径帧率低于旧路径，配置较差的机器上尤其明显（五六十帧降到十几帧）。推测是 Debug
-构建下按条目的 `TryGet` 被慢 CPU 放大（见"B / C 开工前要定的"最后一条），未经测量；旧路径已删，先在 Release 下复测。
+P3 的 SceneDownsample / Bloom 已在 GPU-based validation 下跑过（同 pass 多 Scope 之间的屏障、渲染目标 → compute
+SRV、compute 的 space2 sampler、逐 Scope 的 root constant），无报错；它们仍在 Graphics 队列，跨队列依旧未验证。
 
 待定（括号内为倾向）：不透明工作后的状态失效，RHI 缺接口（暂不做，UI 目前是最后一个 pass）。
 
@@ -657,7 +656,7 @@ C 的步骤。
 - `AttachmentStage` 没有 Geometry，绑到 GS 输入的访问现在断言；有 GS 用户时补上。
 - Skybox 的 Execute 只是条件绘制，改为 Build 里条件 `Draw`；不透明工作只剩 UI。
 - 执行时不再逐条判断条目：现在提交区间里每个条目都要 `TryGet<View>`，再按 DrawItem / DispatchItem / CopyItem
-  依次试，随 draw 数线性增长。视图边界由 lowering 给出，条目类型由 Scope 决定；会改提交表格式，与 Release 下复测帧率一起做。
+  依次试，随 draw 数线性增长。视图边界由 lowering 给出，条目类型由 Scope 决定；会改提交表格式，profiling 显示它成为瓶颈时再做。
   按 Scope / attachment 的 TryGet 数量固定，不必处理；真成问题时在 `ContextStorage` 里按类型序号缓存存储指针，
   不改调用方。
 
@@ -686,7 +685,7 @@ C 的步骤。
 key 临时建的 `perPass` map 与两个 vector、`m_graph` 的节点与后继 set、`m_resources`，加上 `CompileTransientResources`
 临时的名字表，每帧约数百次分配，帧末全部释放；Debug 的调试堆下代价放大。改法：容器做成成员、只清空不释放，不用
 基于节点的容器——使用记录平铺成一个 vector，`End` 时按 (id, pass) 排序后线性连边；图按 pass 序号存边与入度；名字表
-平铺线性查（`AttachmentId` 比较的是预算好的哈希）。与 Release 下复测帧率一起做，先量再动。
+平铺线性查（`AttachmentId` 比较的是预算好的哈希）。先量再动。
 
 ## 未决
 
