@@ -45,5 +45,9 @@ namespace Spark::SandBox
         //! The window size this frame; both passes declare nothing while it is empty.
         Spark::Math::Vector2Int m_size { 0, 0 };
         float                   m_time = 0.f;
+
+        //! Whether the pattern pass declared its image this frame; the present pass reads it
+        //! only then. Not while the view has no g_Views slot yet, besides an empty window.
+        bool                    m_patternWritten = false;
     };
 }

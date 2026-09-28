@@ -1,7 +1,5 @@
 #include "ComputePassFeature.h"
 
-#include <EASTL/array.h>
-
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 
@@ -23,6 +21,7 @@
 #include <Pass/ComputePass.h>
 #include <Pass/RenderPass.h>
 #include <RenderGraph/PassScopes.h>
+#include <Binding/View/ViewBinding.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
 
@@ -82,12 +81,16 @@ namespace Spark::SandBox
         auto* window = Service<Window::IWindowSystem>::Get();
         m_size  = window->GetWindowSize();
         m_time += 0.016f;
+
+        // Before RenderSystem's tick, so ViewBindingSystem encodes this frame's size.
+        auto& ctx = *RHI::RHIExecuteContext::Current();
+        ctx.Get<Render::View>(m_view).m_bufferSize = m_size;
     }
 
     void ComputePassFeature::CreateView()
     {
-        // By hand, as in TrianglePass: no camera, and no shader here reads a view. The view
-        // only supplies the rect that becomes the present pass's viewport.
+        // By hand, as in TrianglePass: no camera. The pattern pass reads the view's size from
+        // g_Views; the present pass only takes its rect as the viewport.
         auto& ctx = *RHI::RHIExecuteContext::Current();
         m_view = ctx.CreateEntity();
         ctx.Add<Render::View>(m_view, Render::View{});
@@ -101,12 +104,21 @@ namespace Spark::SandBox
         SPARK_COMPUTE_PASS(passContext, "PatternPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(m_patternShader)
+            .Binds<Render::ViewBindingTag>()
             .Build([this](Render::ComputePassScopes& p)
             {
+                m_patternWritten = false;
                 if (m_size.x <= 0 || m_size.y <= 0)
                 {
                     return;
                 }
+                // The view picked here rather than by the executer: a compute pass renders none.
+                uint32_t viewIndex = 0;
+                if (!Render::TryGetViewIndex(*RHI::RHIExecuteContext::Current(), m_view, viewIndex))
+                {
+                    return;
+                }
+                m_patternWritten = true;
                 const auto width  = static_cast<uint32_t>(m_size.x);
                 const auto height = static_cast<uint32_t>(m_size.y);
 
@@ -116,7 +128,7 @@ namespace Spark::SandBox
                 auto s = p.Scope();
                 s.Write(kPattern).BindIndex(RHI::InputName("outputIndex"));
                 s.Constant(RHI::InputName("time"), m_time);
-                s.Constant(RHI::InputName("size"), eastl::array<uint32_t, 2>{ width, height });
+                s.Constant(RHI::InputName("viewIndex"), viewIndex);
                 s.Dispatch(width, height);
             })
             .Finalize();
@@ -151,7 +163,7 @@ namespace Spark::SandBox
             .RendersView<Render::MainViewTag>()
             .Build([this](Render::RenderPassScopes& p)
             {
-                if (m_size.x <= 0 || m_size.y <= 0)
+                if (!m_patternWritten)
                 {
                     return;
                 }

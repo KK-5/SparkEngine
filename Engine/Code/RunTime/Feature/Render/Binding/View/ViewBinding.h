@@ -15,4 +15,18 @@ namespace Spark::Render
 
     //! The single shared ShaderBindings entity carrying g_Views (space1).
     struct ViewBindingTag {};
+
+    //! The view's g_Views index, for a Scope that picks its view in Build and sets
+    //! .Constant("viewIndex", ...) itself. False before the view has a slot — its first
+    //! frame, or while g_Views has not materialized: skip the Scope that frame.
+    inline bool TryGetViewIndex(RHI::RHIContext& rhiCtx, RHI::RHIHandle view, uint32_t& outIndex)
+    {
+        const auto* slot = rhiCtx.TryGet<ViewSlotRef>(view);
+        if (slot == nullptr)
+        {
+            return false;
+        }
+        outIndex = slot->Get();
+        return true;
+    }
 }

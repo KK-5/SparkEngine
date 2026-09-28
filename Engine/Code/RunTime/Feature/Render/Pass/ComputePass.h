@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Pass/PassBuilder.h>
+#include <Pass/PassCapabilities.h>
 
 namespace Spark::Render
 {
@@ -31,6 +32,17 @@ namespace Spark::Render
         ComputePassBuilder& ComputeShader(Ptr<Resource::ShaderAsset> asset)
         {
             m_shaders.m_computeShader = eastl::move(asset);
+            return *this;
+        }
+
+        // Declare the shared bindings (view / material / …, each a global singleton) the
+        // executer binds once per Scope, as RenderPassBuilder::Binds does. A compute pass
+        // renders no view: one that reads a view picks it in Build and sets viewIndex itself.
+        template<typename... BindingTags>
+        ComputePassBuilder& Binds()
+        {
+            m_capabilities.m_resolveSharedBindings = &ResolveSharedBindings<BindingTags...>;
+            m_hasCapabilities                      = true;
             return *this;
         }
 
@@ -113,6 +125,11 @@ namespace Spark::Render
             funcs.m_executeFunction = eastl::move(m_executeFunction);
             m_context->Add<PassFunctions>(pass, eastl::move(funcs));
 
+            if (m_hasCapabilities)
+            {
+                m_context->Add<PassCapabilities>(pass, m_capabilities);
+            }
+
             m_finalized = true;
             return pass;
         }
@@ -133,12 +150,14 @@ namespace Spark::Render
         bool                    m_active            {true};
 
         PassShaders             m_shaders;
+        PassCapabilities        m_capabilities {};
 
         BuildFunction           m_buildFunction;
         ExecuteFunction         m_executeFunction;
 
-        bool                    m_queueSet  {false};
-        bool                    m_finalized {false};
+        bool                    m_hasCapabilities {false};
+        bool                    m_queueSet        {false};
+        bool                    m_finalized       {false};
     };
 
     // ================================================================

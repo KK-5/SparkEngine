@@ -36,11 +36,34 @@ namespace Spark::Render
             auto& passContext = *PassExecuteContext::Current();
             const char* passName = passContext.Get<PassName>(m_currentPass).m_name.GetCStr();
 
+            // An unset root constant reads as the zeroed block's 0 — a heap index 0 or view
+            // slot 0 that is silently wrong — so every field must be set in every Scope.
+            const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
+            const RHI::ConstantsLayout* rootConstants = (layout != nullptr && layout->m_layout)
+                ? layout->m_layout->GetRootConstantsLayout() : nullptr;
+
             for (const OpenedScope& opened : m_passScopes)
             {
                 ASSERT(opened.m_attachmentCount > 0,
                     "Pass {} opened Scope #{} but declared no attachment in it.",
                     passName, rhiContext.Get<Scope>(opened.m_scope).m_index);
+
+                const auto* block = rhiContext.TryGet<ScopeRootConstants>(opened.m_scope);
+                if (rootConstants == nullptr || block == nullptr)
+                {
+                    continue;
+                }
+                const auto fields = rootConstants->GetShaderInputList();
+                for (uint32_t i = 0; i < static_cast<uint32_t>(fields.size()); ++i)
+                {
+                    const Interval interval = rootConstants->GetInterval(i);
+                    for (uint32_t dword = interval.m_min / 4; dword < (interval.m_max + 3) / 4; ++dword)
+                    {
+                        ASSERT((block->m_writtenDwords & (1u << dword)) != 0,
+                            "Pass {} Scope #{} never sets root constant {}.",
+                            passName, rhiContext.Get<Scope>(opened.m_scope).m_index, fields[i].m_name.GetCStr());
+                    }
+                }
             }
 
             for (RHIHandle attachment : m_unstagedAttachments)
