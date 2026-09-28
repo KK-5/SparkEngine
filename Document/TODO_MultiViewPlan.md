@@ -467,14 +467,14 @@ constant bias 与 normal offset 进 view 的 space1 常量、在采样端应用�
 PSO 状态。**不为 per-view 光栅状态去做 PSO 变体**：DrawBatch 层理论上能承载，但今天一个 list 恒为一个 batch，
 拆开的代价远大于收益。
 
-**4. per-view SRG 与 `g_ShadowViews` 并存，不合并。**
+**4. 视图表 `g_Views` 与 `g_ShadowViews` 并存，不合并。**
 
-渲染路径继续用 per-view space1 SRG（一次只画一个 view，绑 CBV 最直接，不依赖 root constant）；LightingPass
-一次 draw 要读 N 个 shadow view，`g_ShadowViews` StructuredBuffer 必然存在。
+渲染路径用视图表：space1 是全组一份的 `g_Views`，每个视图一行，shader 以 `GetView(g_Scope.viewIndex)` 读，执行器
+在视图句柄处写 `viewIndex`（`TODO_BindingModelPlan.md`，已取代原先的 per-view space1 SRG）；LightingPass 一次 draw
+要读 N 个 shadow view，`g_ShadowViews` StructuredBuffer 仍然存在，下标是 atlas tile 槽位。
 
 两者不是两份真相：**都从同一个 `View` 组件读**（`rhiCtx.Get<View>(v)`），是同一份数据的两次编码，不是两条
-各自算矩阵的 marshal 路径。合并 CBV 那条要补 `SetRootConstants`（`Backend/DX12/Command/CommandList.h:23`），
-属于独立收益，不与 shadow 捆绑。
+各自算矩阵的 marshal 路径。不合并的理由见 BindingModelPlan D2。
 
 **5. atlas 是持久（imported）资源，不是 transient。**
 
@@ -805,11 +805,7 @@ shader 只有在 `m_shadowIndex == -1` 完全不采样时才是对的。那条�
   CommandList，`BuildExecuteWorks` 的 pass 内拆分做不了。两个后端都有原生机制
   （`D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS` / `VK_RENDERING_SUSPENDING_BIT`），且 TBDR 上还关系到 tile memory
   能否跨 CommandList 保持——按「abstraction follows the stricter backend」这个字段本就该有。独立于本方案。
-- **`g_Views` 全量缓冲区能否取代 per-view SRG。** 两者并存已定（§五「已定的决策」第 4 条），这里剩下的是
-  能否最终合并掉 CBV 这条路。障碍是 root constant（得告诉 shader「当前是第几个 view」）：layout 侧已实现
-  （`Backend/DX12/Pipeline/PipelineLayout.cpp:44-57`），缺的是 CommandList 侧的设值路径
-  （`Backend/DX12/Command/CommandList.h:23` "SetRootConstants removed"），补回来是一个虚函数加一次
-  `SetGraphicsRoot32BitConstants`。真正的触发点是 GPU 剔除按索引读所有 view，不是 shadow。
+- ~~**`g_Views` 全量缓冲区能否取代 per-view SRG。**~~ 已取代，见 `TODO_BindingModelPlan.md`。
 - **共享 space 的布局需要一份权威来源。** 描述符表的表内偏移是**追加式**的
   （`PipelineLayout.cpp` 的 `OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND`），
   `m_registerId` 只填 `BaseShaderRegister`、不决定第几格；而顺序来自

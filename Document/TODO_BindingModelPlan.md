@@ -3,7 +3,7 @@
 起因：P4 讨论 compute 访问 View（`TODO_ScreenSpacePlan.md` D2）时，发现 view 与 pass 两档绑定和其余几档不协调。本文梳理
 现状、指出问题、给出目标模型与待定项。
 
-决策 D1~D11 已确认；§七 余下的两项不阻塞实现。
+决策 D1~D11 已确认；§七 余下的两项不阻塞实现。步骤 1~3 已完成，§一、§二 记的是改造前的状态。
 
 ---
 
@@ -90,8 +90,8 @@ Pass                            ← PSO 布局、space2（pass 参数）
   `View`、还没有槽位的视图实体分配 `SlotRef`，再经 process 回调写每个槽位对应的一行（取代 `ViewBindingSystem` 现在的
   逐视图写 SRG）。buffer 就绪前的帧没有槽位，这个视图被跳过，同现在"SRG 还没编译就跳过"。lowering、Build、shader 都用这个
   槽位作视图下标。
-- 删除：每视图的 SRG、`ViewShaderBindings`、`ResolveViewShaderBindings`；lowering 里"视图绑定未就绪则跳过"改为"视图没有
-  槽位则跳过"。
+- 删除：每视图的 SRG、`ViewShaderBindings`、`ResolveViewShaderBindings`；lowering 里"视图绑定未就绪则跳过"改为"shader 读
+  视图（根常量里有 `viewIndex`）而视图没有槽位则跳过"；只要 viewport 的 pass 不受槽位影响。
 - `ViewBindingsReflect.hlsl` 保留：space1 组的 SRG 仍靠它反射布局，同 `SceneBindingsReflect.hlsl`，内容改为引用 `g_Views`。
 - 绑定：space1 的 SRG 实体打 `ViewBindingTag`，读视图的 pass 都声明 `.Binds<ViewBindingTag>()`，在 Scope 开头绑一次
   （D9）；执行器在视图句柄处不再绑任何 SRG。
@@ -277,9 +277,9 @@ space5 已经专用于根常量（`ShaderAsset.h` 的 `RootConstantsSpaceId`）�
 
 | 步骤 | 内容 | 依赖 |
 |---|---|---|
-| 1 | Scope 档与 RHI 部分写 | D5、D11 |
-| 2 | 视图表并行上线，不接 shader | D1、D3、D8 |
-| 3 | 切换到视图表 | 1、2 |
+| 1 | Scope 档与 RHI 部分写 ✅ | D5、D11 |
+| 2 | 视图表并行上线，不接 shader ✅ | D1、D3、D8 |
+| 3 | 切换到视图表 ✅ | 1、2 |
 | 4 | compute 访问视图 | 3 |
 | 5 | space2 一致性断言 | D6 |
 
