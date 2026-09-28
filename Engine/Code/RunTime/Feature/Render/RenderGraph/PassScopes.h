@@ -140,7 +140,8 @@ namespace Spark::Render
         ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);
 
         //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
-        //! set the same input must agree: the per-pass space holds one value.
+        //! set the same input must agree (lowering asserts it): the per-pass space holds one
+        //! value. One that varies per Scope goes in the shader's ScopeParameters instead.
         void Sampler(const RHI::InputName& input, const RHI::SamplerState& state)
         {
             m_builder->AddScopeSampler(m_scope, input, state);
@@ -190,7 +191,8 @@ namespace Spark::Render
         }
 
         //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
-        //! set the same input must agree: the per-pass space holds one value.
+        //! set the same input must agree (lowering asserts it): the per-pass space holds one
+        //! value. One that varies per Scope goes in the shader's ScopeParameters instead.
         void Sampler(const RHI::InputName& input, const RHI::SamplerState& state)
         {
             m_builder->AddScopeSampler(m_scope, input, state);

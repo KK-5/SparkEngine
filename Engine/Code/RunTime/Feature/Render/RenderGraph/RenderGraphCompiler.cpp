@@ -908,6 +908,31 @@ namespace Spark::Render
         bool      declared = false;                    // the pass set anything this frame
         eastl::fixed_vector<RHI::InputName, 16> bound; // the inputs its attachments were bound to
 
+        // s_scopeBindingValidation: the value each per-pass input was first set to this frame, as
+        // bytes (a view pointer, a SamplerState, a constant). The space holds one per input.
+        eastl::fixed_vector<ScopeConstant, 16> setValues;
+        static_assert(sizeof(RHI::SamplerState) <= ScopeConstant::ByteCountMax, "A sampler is recorded as bytes.");
+        auto checkAgrees = [&](const RHI::InputName& input, const void* bytes, uint32_t byteCount)
+        {
+            if constexpr (s_scopeBindingValidation)
+            {
+                auto it = eastl::find_if(setValues.begin(), setValues.end(),
+                    [&](const ScopeConstant& v) { return v.m_input == input; });
+                if (it == setValues.end())
+                {
+                    ScopeConstant& first = setValues.push_back();
+                    first.m_input     = input;
+                    first.m_byteCount = byteCount;
+                    memcpy(first.m_bytes.data(), bytes, byteCount);
+                    return;
+                }
+                ASSERT(it->m_byteCount == byteCount && memcmp(it->m_bytes.data(), bytes, byteCount) == 0,
+                    "[RenderGraphCompiler] Pass {}: its Scopes set per-pass input {} to different values, but "
+                    "the per-pass space holds one. A value that varies per Scope goes in ScopeParameters.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr(), input.GetCStr());
+            }
+        };
+
         // A pass that set anything leaves no view it did not bind this frame in its per-pass
         // space: an image or buffer input nothing bound gets null. Passes that set nothing are
         // left alone — they may still set their inputs themselves.
@@ -939,8 +964,8 @@ namespace Spark::Render
         };
 
         // One pass's Scopes are adjacent in stream order. They share the pass's per-pass space,
-        // so an input two of them set holds the later value for both: keeping such inputs
-        // identical across Scopes is the pass's job.
+        // which holds one value per input: two Scopes setting one input must agree
+        // (checkAgrees), and one Scope leaving it unset keeps the other's.
         for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
             if (data.m_pass != pass)
@@ -949,6 +974,7 @@ namespace Spark::Render
                 pass     = data.m_pass;
                 declared = false;
                 bound.clear();
+                setValues.clear();
                 const auto* own = passContext.TryGet<PassBindings>(pass);
                 bindings = own != nullptr ? own->m_bindings : NullHandle;
                 const auto* layout = passContext.TryGet<PassPipelineLayout>(pass);
@@ -959,8 +985,10 @@ namespace Spark::Render
             {
                 if (const auto* binding = context.TryGet<ShaderInputBinding>(attachment))
                 {
-                    SetShaderImage(bindings, binding->m_input,
-                        ResolveAttachmentView(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex));
+                    const RHI::ImageView* view =
+                        ResolveAttachmentView(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex);
+                    checkAgrees(binding->m_input, &view, sizeof(view));
+                    SetShaderImage(bindings, binding->m_input, view);
                     bound.push_back(binding->m_input);
                     declared = true;
                 }
@@ -976,6 +1004,7 @@ namespace Spark::Render
                     }
                     else
                     {
+                        checkAgrees(indexBinding->m_input, &index, sizeof(index));
                         SetShaderConstantData(bindings, indexBinding->m_input, &index, sizeof(index));
                         declared = true;
                     }
@@ -986,6 +1015,7 @@ namespace Spark::Render
             {
                 for (const ScopeSampler& sampler : samplers->m_samplers)
                 {
+                    checkAgrees(sampler.m_input, &sampler.m_state, sizeof(sampler.m_state));
                     SetShaderSampler(bindings, sampler.m_input, sampler.m_state);
                 }
                 declared = true;
@@ -995,6 +1025,7 @@ namespace Spark::Render
             {
                 for (const ScopeConstant& constant : constants->m_constants)
                 {
+                    checkAgrees(constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
                     SetShaderConstantData(bindings, constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
                 }
                 declared = true;

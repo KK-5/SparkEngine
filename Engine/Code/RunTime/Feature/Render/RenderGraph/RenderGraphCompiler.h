@@ -146,5 +146,8 @@ namespace Spark::Render
         RHI::HardwareQueueClassMask m_activeQueues { RHI::HardwareQueueClassMask::None };
 
         static constexpr bool s_scopeOrderValidation { true };
+
+        //! Scopes of one pass that set one per-pass input must set it to one value.
+        static constexpr bool s_scopeBindingValidation { true };
     };
 }
