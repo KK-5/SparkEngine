@@ -277,24 +277,25 @@ namespace Spark::RHI::DX12
         }
     }
 
-    void CommandList::SetRootConstants(const uint8_t* data, uint32_t byteCount)
+    void CommandList::SetRootConstants(const uint8_t* data, uint32_t byteCount, uint32_t byteOffset)
     {
         ASSERT(m_state.m_pipelineState, "[CommandList] SetPipelineState must be called before SetRootConstants.");
         const PipelineState&  pso            = static_cast<const PipelineState&>(*m_state.m_pipelineState);
         const PipelineLayout* pipelineLayout = pso.GetPipelineLayout();
         ASSERT(pipelineLayout->HasRootConstants(), "[CommandList] The pipeline state declares no root constants.");
-        ASSERT(byteCount % 4 == 0 && byteCount <= pipelineLayout->GetRootConstantsByteCount(),
-            "[CommandList] {} root constant bytes: must be a multiple of 4, at most the layout's {}.",
-            byteCount, pipelineLayout->GetRootConstantsByteCount());
+        ASSERT(byteOffset % 4 == 0 && byteCount % 4 == 0
+            && byteOffset + byteCount <= pipelineLayout->GetRootConstantsByteCount(),
+            "[CommandList] root constant bytes [{}, {}): both ends must be multiples of 4, within the layout's {}.",
+            byteOffset, byteOffset + byteCount, pipelineLayout->GetRootConstantsByteCount());
 
         const RootParameterIndex index = pipelineLayout->GetRootConstantsRootParameterIndex();
         if (pso.GetType() == RHI::PipelineStateType::Dispatch)
         {
-            GetCommandList()->SetComputeRoot32BitConstants(index, byteCount / 4, data, 0);
+            GetCommandList()->SetComputeRoot32BitConstants(index, byteCount / 4, data, byteOffset / 4);
         }
         else
         {
-            GetCommandList()->SetGraphicsRoot32BitConstants(index, byteCount / 4, data, 0);
+            GetCommandList()->SetGraphicsRoot32BitConstants(index, byteCount / 4, data, byteOffset / 4);
         }
     }
 

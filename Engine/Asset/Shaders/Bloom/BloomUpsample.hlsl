@@ -12,7 +12,7 @@
 // texel apart. Plain bilinear magnification of a small level shows its texel grid as diamond
 // blocks; the tent smooths it so the levels blend into one another.
 
-struct BloomUpsampleRootConstants
+struct ScopeParameters
 {
     float2 lowInvSize;
     uint2  outputSize;
@@ -21,29 +21,29 @@ struct BloomUpsampleRootConstants
     uint   outputIndex;
 };
 
-[[vk::push_constant]] ConstantBuffer<BloomUpsampleRootConstants> g_Root : register(b0, space5);
+#include <Shaders/ScopeBindings.hlsli>
 
 SamplerState g_LinearSampler : register(s0, space2);
 
 float3 Tap(Texture2D<float4> low, float2 uv, float2 offset)
 {
-    return low.SampleLevel(g_LinearSampler, uv + offset * g_Root.lowInvSize, 0).rgb;
+    return low.SampleLevel(g_LinearSampler, uv + offset * g_Scope.lowInvSize, 0).rgb;
 }
 
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
     // The dispatch covers the level in whole groups: the excess threads fall outside it.
-    if (any(id.xy >= g_Root.outputSize))
+    if (any(id.xy >= g_Scope.outputSize))
     {
         return;
     }
 
-    Texture2D<float4>   current = ResourceDescriptorHeap[g_Root.currentIndex];
-    Texture2D<float4>   low     = ResourceDescriptorHeap[g_Root.lowIndex];
-    RWTexture2D<float4> output  = ResourceDescriptorHeap[g_Root.outputIndex];
+    Texture2D<float4>   current = ResourceDescriptorHeap[g_Scope.currentIndex];
+    Texture2D<float4>   low     = ResourceDescriptorHeap[g_Scope.lowIndex];
+    RWTexture2D<float4> output  = ResourceDescriptorHeap[g_Scope.outputIndex];
 
-    const float2 uv = (float2(id.xy) + 0.5) / float2(g_Root.outputSize);
+    const float2 uv = (float2(id.xy) + 0.5) / float2(g_Scope.outputSize);
     const float3 glow =
         ( Tap(low, uv, float2(-1.0, -1.0))       + Tap(low, uv, float2(0.0, -1.0)) * 2.0 + Tap(low, uv, float2(1.0, -1.0))
         + Tap(low, uv, float2(-1.0,  0.0)) * 2.0 + Tap(low, uv, float2(0.0,  0.0)) * 4.0 + Tap(low, uv, float2(1.0,  0.0)) * 2.0

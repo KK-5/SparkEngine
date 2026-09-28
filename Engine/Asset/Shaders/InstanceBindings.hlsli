@@ -6,7 +6,7 @@
 //
 // space4 is the per-object tier — the highest-frequency (most values per frame) in
 // the convention: space0 per-scene, space1 per-view, space2 per-pass, space3
-// per-material, space4 per-object.
+// per-material, space4 per-object, space5 per-Scope.
 //
 // The per-draw instance index is delivered through a per-instance vertex stream
 // (PER_INSTANCE_DATA, semantic INSTANCE_INDEX) + DrawInstanced's

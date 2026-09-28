@@ -426,8 +426,8 @@ namespace Spark::Render
         const RHI::ShaderInputConstantDescriptor* desc = layout.FindConstantDescriptor(input);
         ASSERT(desc != nullptr, "The pass's shaders have no constant {} to take an index.", input.GetCStr());
         ASSERT(desc->m_spaceId == kPerPassSpaceId,
-            "{} is in space {}; only root constants and per-pass constants (space {}) can take an index.",
-            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
+            "{} is in space {}; only per-Scope (space {}) and per-pass (space {}) constants can take an index.",
+            input.GetCStr(), desc->m_spaceId, kPerScopeSpaceId, kPerPassSpaceId);
         ASSERT(desc->m_constantByteCount == 4, "Constant {} is not a 4-byte index.", input.GetCStr());
         rhiContext.Add<IndexBinding>(attachment, IndexBinding{ input });
     }
@@ -505,8 +505,8 @@ namespace Spark::Render
         const RHI::ShaderInputConstantDescriptor* desc = CurrentPassLayout().FindConstantDescriptor(input);
         ASSERT(desc != nullptr, "The pass's shaders have no constant {}.", input.GetCStr());
         ASSERT(desc->m_spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-pass constants (space {}) can be set from a Scope.",
-            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
+            "{} is in space {}; only per-Scope (space {}) and per-pass (space {}) constants can be set from a Scope.",
+            input.GetCStr(), desc->m_spaceId, kPerScopeSpaceId, kPerPassSpaceId);
         ASSERT(byteCount == desc->m_elementCount * desc->m_elementByteSize,
             "Constant {} takes {} bytes, given {}.",
             input.GetCStr(), desc->m_elementCount * desc->m_elementByteSize, byteCount);

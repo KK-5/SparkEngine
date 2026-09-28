@@ -1,11 +1,11 @@
 // Full-screen copy of a render graph image the pass reaches by heap index.
 
-struct PresentRootConstants
+struct ScopeParameters
 {
     uint inputIndex;
 };
 
-[[vk::push_constant]] ConstantBuffer<PresentRootConstants> g_Root : register(b0, space5);
+#include <Shaders/ScopeBindings.hlsli>
 
 struct PSInput
 {
@@ -23,6 +23,6 @@ PSInput VSMain(uint vertexId : SV_VertexID)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    Texture2D<float4> source = ResourceDescriptorHeap[g_Root.inputIndex];
+    Texture2D<float4> source = ResourceDescriptorHeap[g_Scope.inputIndex];
     return source.Load(int3(input.position.xy, 0));
 }

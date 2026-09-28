@@ -22,6 +22,7 @@
  *  -- Delete CommitShaderResources template; split into SetPipelineState and
  *     BindShaderInputsForDraw/Dispatch (direct dedup+bind).
  *  -- SetRootConstants: explicit, set once per PSO by the caller instead of per submit.
+ *  -- SetRootConstants: takes a byte offset, so part of the block can be rewritten between draws.
  */
 
 #pragma once
@@ -71,7 +72,7 @@ namespace Spark::RHI::DX12
         void SetScissors(const RHI::Scissor* scissors, uint32_t count) override;
         void BindShaderInputsForDraw(const RHI::ShaderBindings& bindings) override;
         void BindShaderInputsForDispatch(const RHI::ShaderBindings& bindings) override;
-        void SetRootConstants(const uint8_t* data, uint32_t byteCount) override;
+        void SetRootConstants(const uint8_t* data, uint32_t byteCount, uint32_t byteOffset) override;
         void Submit(const RHI::DrawItem& drawItem, uint32_t submitIndex = 0) override;
         void Submit(const RHI::CopyItem& copyItem, uint32_t submitIndex = 0) override;
         void Submit(const RHI::DispatchItem& dispatchItem, uint32_t submitIndex = 0) override;

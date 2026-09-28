@@ -4,7 +4,7 @@
 // and the engine fills it in ViewBindingSystem, by member name.
 //
 // Binding-space convention (by update frequency, low = stable): space0 per-scene,
-// space1 per-view, space2 per-pass, space3 per-material, space4 per-object.
+// space1 per-view, space2 per-pass, space3 per-material, space4 per-object, space5 per-Scope.
 #ifndef SPARK_VIEW_BINDINGS_HLSL
 #define SPARK_VIEW_BINDINGS_HLSL
 

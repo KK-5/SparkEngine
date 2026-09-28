@@ -328,7 +328,7 @@ namespace Spark::Render
             }
             if (const auto* rootConstants = rhiContext.TryGet<ScopeRootConstants>(scope))
             {
-                commandList->SetRootConstants(rootConstants->m_bytes.data(), rootConstants->m_byteCount);
+                commandList->SetRootConstants(rootConstants->m_bytes.data(), rootConstants->m_byteCount, 0);
             }
         }
 

@@ -124,6 +124,10 @@ namespace Spark::Render
     //! the reflected layout declares it, so no pass processor has to allocate it.
     inline constexpr uint32_t kPerPassSpaceId = 2;
 
+    //! HLSL space of the per-Scope tier (ScopeBindings.hlsli): each Scope's own block, set by
+    //! its .Constant / .BindIndex. Root constants carry it, hence the shader layer's id.
+    inline constexpr uint32_t kPerScopeSpaceId = Resource::RootConstantsSpaceId;
+
     //! The pass's own per-pass (kPerPassSpaceId) bindings entity, created at Finalize when
     //! the pass's layout has that space.
     struct PassBindings

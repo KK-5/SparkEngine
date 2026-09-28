@@ -8,7 +8,7 @@
 // a poor low-pass: a small highlight moving by one pixel jumps between blocks and the level
 // below flickers. The wider, smoother footprint changes continuously instead.
 
-struct SceneDownsampleRootConstants
+struct ScopeParameters
 {
     uint   inputIndex;
     uint   outputIndex;
@@ -16,26 +16,26 @@ struct SceneDownsampleRootConstants
     uint2  outputSize;
 };
 
-[[vk::push_constant]] ConstantBuffer<SceneDownsampleRootConstants> g_Root : register(b0, space5);
+#include <Shaders/ScopeBindings.hlsli>
 
 SamplerState g_LinearSampler : register(s0, space2);
 
 float3 Tap(Texture2D<float4> input, float2 uv, float2 offset)
 {
-    return input.SampleLevel(g_LinearSampler, uv + offset * g_Root.inputInvSize, 0).rgb;
+    return input.SampleLevel(g_LinearSampler, uv + offset * g_Scope.inputInvSize, 0).rgb;
 }
 
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
     // The dispatch covers the level in whole groups: the excess threads fall outside it.
-    if (any(id.xy >= g_Root.outputSize))
+    if (any(id.xy >= g_Scope.outputSize))
     {
         return;
     }
 
-    Texture2D<float4>   input  = ResourceDescriptorHeap[g_Root.inputIndex];
-    RWTexture2D<float4> output = ResourceDescriptorHeap[g_Root.outputIndex];
+    Texture2D<float4>   input  = ResourceDescriptorHeap[g_Scope.inputIndex];
+    RWTexture2D<float4> output = ResourceDescriptorHeap[g_Scope.outputIndex];
 
     // The output pixel's centre sits on a texel corner of the input. Offsets are in input
     // texels; each tap lands between four texels and averages them.
@@ -44,7 +44,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     //   f . g . h
     //   . i . j .
     //   k . l . m
-    const float2 uv = (float2(id.xy) + 0.5) / float2(g_Root.outputSize);
+    const float2 uv = (float2(id.xy) + 0.5) / float2(g_Scope.outputSize);
     const float3 a = Tap(input, uv, float2(-2.0, -2.0));
     const float3 b = Tap(input, uv, float2( 0.0, -2.0));
     const float3 c = Tap(input, uv, float2( 2.0, -2.0));
