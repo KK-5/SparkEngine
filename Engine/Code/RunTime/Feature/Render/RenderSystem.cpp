@@ -201,6 +201,7 @@ namespace Spark::Render
         // Render-side helpers + shared resources setup
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_sceneBindingSystem.Init(rhiCtxForInit);
+        m_viewBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
         m_shadowViewSystem.Init(rhiCtxForInit);
@@ -238,6 +239,7 @@ namespace Spark::Render
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -286,7 +288,7 @@ namespace Spark::Render
         // After the tiles are granted, before SceneBindingSystem marshals the slot it hands
         // each light into LightData.
         m_shadowMaskSystem.Update();
-        m_viewBindingSystem.Update(time);
+        m_viewBindingSystem.Update(frameIndex, time);
 
         m_sceneBindingSystem.Update(frameIndex, time);
         // MaterialBindingSystem stays first, but only so a material's slot exists before

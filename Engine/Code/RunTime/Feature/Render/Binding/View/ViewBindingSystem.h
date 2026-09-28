@@ -3,27 +3,42 @@
 #include <RHI/Context/RHIContext.h>
 #include <Tick/FrameTime.h>
 
+#include <View/View.h>
+
+#include "ViewBinding.h"
+
 namespace Spark::Render
 {
-    //! Stages every live view's View data into its own space1 ShaderBindings — the single
-    //! encoding step, deliberately blind to who produced the view. A camera view, a shadow
-    //! view and a sample's hand-built view all reach the GPU through here, so a producer
-    //! only ever writes the View component.
+    //! Encodes every live view — the single encoding step, deliberately blind to who
+    //! produced the view. A camera view, a shadow view and a sample's hand-built view all
+    //! reach the GPU through here, so a producer only ever writes the View component.
     //!
-    //! Views with no ViewShaderBindings (a pass whose shader declares no space1) are skipped
+    //! Each view gets a stable g_Views slot (space1) and its row is rewritten every frame.
+    //! Until the per-view SRGs are retired it also still writes each view's own space1
+    //! group, from the same encoded row; views with no ViewShaderBindings are skipped there
     //! by the join, not by a check.
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced AFTER every view producer and before the graph runs,
-    //! so a view created this frame is compiled in the same frame.
-    //!
-    //! Unlike the other binding systems it owns no buffer of its own: a view's constants go
-    //! straight into that view's own space1 group, so there is no array and no frameIndex.
+    //! so a view created this frame is encoded in the same frame.
     //!
     //! Also the one place a ViewHistory rolls forward, so no producer tracks last frame.
     class ViewBindingSystem
     {
     public:
-        void Update(const FrameTime& time);
+        void Init(RHI::RHIContext& rhiCtx);
+        //! frameIndex is the in-flight slot (swap-chain GetCurrentImageIndex), used to
+        //! pick this frame's g_Views copy.
+        void Update(uint32_t frameIndex, const FrameTime& time);
+        void Shutdown(RHI::RHIContext& rhiCtx);
+
+    private:
+        //! Fixed upper bound on live views, shadow faces included. Overflow logs and drops
+        //! the surplus. 256 * 592B = 148 KB per frame copy.
+        static constexpr uint32_t Capacity = 256;
+
+        GlobalBuffer<Views, ViewData, View> m_views;
+
+        RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Views @ space1
     };
 }
