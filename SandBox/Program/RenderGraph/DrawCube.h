@@ -57,7 +57,7 @@ namespace Spark::SandBox
 
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
-        // Owns the camera and its space1 SRG; Update writes both.
+        // The camera's view entity; Update writes its View.
         Spark::RHI::RHIHandle m_view = Spark::RHI::NullHandle;
 
         // Shader assets

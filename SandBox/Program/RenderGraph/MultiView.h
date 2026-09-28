@@ -61,8 +61,8 @@ namespace Spark::SandBox
 
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
-        //! Each owns a camera and its own space1 SRG, so the panels differ on screen exactly
-        //! because the executer rebinds space1 when it crosses a DrawList boundary.
+        //! Each owns a camera and its own g_Views row, so the panels differ on screen exactly
+        //! because the executer rewrites viewIndex at each view handle.
         Spark::RHI::RHIHandle m_views[kViewCount] = {
             Spark::RHI::NullHandle, Spark::RHI::NullHandle,
             Spark::RHI::NullHandle, Spark::RHI::NullHandle };

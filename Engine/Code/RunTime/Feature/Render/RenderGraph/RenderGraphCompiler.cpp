@@ -27,6 +27,7 @@
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/ShaderStages.h>
 
+#include <Binding/View/ViewBinding.h>
 #include <Drawable/GeometrySpec.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/ScopeComponents.h>
@@ -1097,13 +1098,19 @@ namespace Spark::Render
                 return;
             }
 
+            // A shader that reads the view needs its g_Views slot; one that only takes the
+            // view's viewport does not.
+            const auto* rootConstants = context.TryGet<ScopeRootConstants>(scope);
+            const bool  readsView     =
+                rootConstants != nullptr && rootConstants->m_viewIndexOffset != ScopeRootConstants::NoViewIndex;
+
             ViewHandleList views;
             capabilities->m_collectViews(context, views);
             for (RHIHandle view : views)
             {
-                // Skipping costs this view one frame; drawing it would be silently wrong.
-                const RHI::ShaderBindings* viewBindings = nullptr;
-                if (!ResolveViewShaderBindings(context, view, viewBindings))
+                // No slot before g_Views materializes. Skipping costs this view one frame;
+                // drawing it would be silently wrong.
+                if (readsView && !context.Has<ViewSlotRef>(view))
                 {
                     continue;
                 }

@@ -14,6 +14,7 @@
 #include <RenderGraph/RenderGraphCompiler.h>
 
 #include <Binding/Scene/SceneBinding.h>
+#include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 
 #include <Resource/AssetManagerInterface.h>
@@ -103,7 +104,7 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<MainSceneTag>()
+            .Binds<ViewBindingTag, MainSceneTag>()
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {

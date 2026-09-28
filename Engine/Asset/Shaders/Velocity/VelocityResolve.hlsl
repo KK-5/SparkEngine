@@ -4,6 +4,13 @@
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/Lib/Velocity.hlsli>
 
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
+
 Texture2D g_Velocity : register(t0, space2);
 Texture2D g_Depth    : register(t1, space2);   // SceneDepth, viewed as R32_FLOAT
 
@@ -30,9 +37,10 @@ float4 PSMain(VSOutput input) : SV_Target0
     float2 velocity = g_Velocity.Load(px).xy;
     if (!IsVelocityWritten(velocity))
     {
-        // The pixel centre is a jittered sample; g_ClipToPrevClip expects an unjittered position.
-        float4 clipPosition = float4(input.uv * 2.0 - 1.0 - g_TemporalAAJitter.xy, g_Depth.Load(px).r, 1.0);
-        velocity = CalcVelocity(clipPosition, mul(g_ClipToPrevClip, clipPosition));
+        // The pixel centre is a jittered sample; clipToPrevClip expects an unjittered position.
+        const ViewData view = GetView(g_Scope.viewIndex);
+        float4 clipPosition = float4(input.uv * 2.0 - 1.0 - view.temporalAAJitter.xy, g_Depth.Load(px).r, 1.0);
+        velocity = CalcVelocity(clipPosition, mul(view.clipToPrevClip, clipPosition));
     }
     return float4(velocity, 0.0, 0.0);
 }

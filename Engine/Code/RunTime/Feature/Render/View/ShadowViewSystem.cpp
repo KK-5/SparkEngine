@@ -812,8 +812,8 @@ namespace Spark::Render
 
     void ShadowViewSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        rhiCtx.GetView<ShadowViewTag, ViewShaderBindings>().each(
-            [&](RHI::RHIHandle view, const ViewShaderBindings&)
+        rhiCtx.GetView<ShadowViewTag, View>().each(
+            [&](RHI::RHIHandle view, const View&)
         {
             DestroyViewEntity(rhiCtx, view);
         });

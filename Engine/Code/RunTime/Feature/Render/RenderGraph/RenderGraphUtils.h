@@ -110,33 +110,4 @@ namespace Spark::Render
             0, 0, static_cast<int32_t>(extent.m_width), static_cast<int32_t>(extent.m_height));
         return true;
     }
-
-    //! A view's space1 SRG, if it declares one. The ViewShaderBindings component IS the
-    //! declaration, which is what separates the two nulls:
-    //!  - no component      -> the view binds no space1 at all (a pass whose shader has
-    //!                         none still wants that view's viewport). Usable, out stays null.
-    //!  - component, no SRG -> declared but not compiled yet, e.g. a view created this
-    //!                         frame. NOT usable — drawing would leave space1 holding the
-    //!                         previous pass's descriptors.
-    inline bool ResolveViewShaderBindings(
-        RHI::RHIContext& rhiContext, RHI::RHIHandle view, const RHI::ShaderBindings*& out)
-    {
-        out = nullptr;
-
-        const auto* viewBindings = rhiContext.TryGet<ViewShaderBindings>(view);
-        if (!viewBindings)
-        {
-            return true;
-        }
-
-        const auto* component =
-            rhiContext.TryGet<RHI::Components::ShaderBindings>(viewBindings->m_bindings);
-        if (!component || !component->m_bindings)
-        {
-            return false;
-        }
-
-        out = component->m_bindings.get();
-        return true;
-    }
 }

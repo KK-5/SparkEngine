@@ -86,8 +86,8 @@ namespace Spark::SandBox
 
     void ComputePassFeature::CreateView()
     {
-        // By hand, as in TrianglePass: no camera, and no space1 in the shaders. The view only
-        // supplies the rect that becomes the present pass's viewport.
+        // By hand, as in TrianglePass: no camera, and no shader here reads a view. The view
+        // only supplies the rect that becomes the present pass's viewport.
         auto& ctx = *RHI::RHIExecuteContext::Current();
         m_view = ctx.CreateEntity();
         ctx.Add<Render::View>(m_view, Render::View{});

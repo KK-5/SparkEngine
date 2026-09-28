@@ -99,8 +99,8 @@ namespace Spark::Render
         // main view and shadow views makes no sense (attachments, PSO and RT layout all
         // differ), so the signature makes it impossible.
         //
-        // Required of every pass that draws: viewport / scissor and the space1 bindings
-        // both come from the view, so a pass with draws and no view has neither.
+        // Required of every pass that draws: viewport / scissor and viewIndex both come
+        // from the view, so a pass with draws and no view has neither.
         template<typename ViewTag>
         RenderPassBuilder& RendersView()
         {

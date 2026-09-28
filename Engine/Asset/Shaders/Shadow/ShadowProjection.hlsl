@@ -12,6 +12,13 @@
 #include <Shaders/Lib/Shadow/ShadowMask.hlsli>
 #include <Shaders/Lib/Shadow/ShadowSampling.hlsli>
 
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
+
 Texture2D              g_GBufferNormal : register(t0, space2);
 Texture2D              g_Depth         : register(t1, space2);   // SceneDepth as R32_FLOAT
 Texture2D              g_ShadowAtlas   : register(t2, space2);   // atlas as R32_FLOAT
@@ -34,10 +41,10 @@ VSOutput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     return output;
 }
 
-float3 ReconstructWorldPos(float2 uv, float depth)
+float3 ReconstructWorldPos(ViewData view, float2 uv, float depth)
 {
     float2 ndc = uv * 2.0 - 1.0;
-    float4 worldH = mul(g_InvViewProj, float4(ndc, depth, 1.0));
+    float4 worldH = mul(view.invViewProj, float4(ndc, depth, 1.0));
     return worldH.xyz / worldH.w;
 }
 
@@ -45,7 +52,7 @@ float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy), 0);
 
-    float3 worldPos = ReconstructWorldPos(input.uv, g_Depth.Load(px).r);
+    float3 worldPos = ReconstructWorldPos(GetView(g_Scope.viewIndex), input.uv, g_Depth.Load(px).r);
     float3 N = normalize(DecodeNormal(g_GBufferNormal.Load(px).xyz));
 
     // Unwritten channels read as lit, so a slice holding fewer than four lights is correct

@@ -15,8 +15,15 @@
 // This pass replaces the old CopyFrameBufferPass hardware blit: once HDR→LDR needs a
 // shader, the tonemap draw can target the swap chain directly, so no separate copy.
 
-#include <Shaders/ViewBindings.hlsli>   // space1: g_Exposure
+#include <Shaders/ViewBindings.hlsli>   // space1: exposure, the view rect
 #include <Shaders/Lib/AgX.hlsli>
+
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
 
 // Per-pass inputs (space2 = per-pass tier), declared by TonemapPass's Scope.
 Texture2D<float4> g_SceneColor    : register(t0, space2);
@@ -73,21 +80,23 @@ float3 OETF(float3 linearColor)
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    int3 px = int3(int2(input.position.xy - g_ViewRectMin.xy + g_InputViewRectMin.xy), 0);
+    const ViewData view = GetView(g_Scope.viewIndex);
+
+    int3 px = int3(int2(input.position.xy - view.viewRectMin.xy + view.inputViewRectMin.xy), 0);
     float3 hdr = g_SceneColor.Load(px).rgb * g_SceneWeight;
 
     // Uniform across the draw. Without bloom g_Bloom is not bound, so it must not be read.
     if (g_BloomWeight > 0.0)
     {
         // The glow covers the whole input buffer, at a fraction of its size.
-        const float2 uv = (float2(px.xy) + 0.5) * g_InputBufferSizeAndInvSize.zw;
+        const float2 uv = (float2(px.xy) + 0.5) * view.inputBufferSizeAndInvSize.zw;
         hdr += g_Bloom.SampleLevel(g_LinearSampler, uv, 0).rgb * g_BloomWeight;
     }
 
-    // Out of the PreExposure domain, the glow included; g_Exposure is the artistic scale, this is not.
-    hdr *= g_OneOverPreExposure;
+    // Out of the PreExposure domain, the glow included; exposure is the artistic scale, this is not.
+    hdr *= view.oneOverPreExposure;
 
-    hdr *= g_Exposure;                 // (1) exposure: linear scale before the tone curve
+    hdr *= view.exposure;              // (1) exposure: linear scale before the tone curve
     float3 mapped = ToneCurve(hdr);    // (2) tone curve
     return float4(OETF(mapped), 1.0);  // (3) display encoding
 }

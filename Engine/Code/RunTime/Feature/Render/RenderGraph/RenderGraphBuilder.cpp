@@ -85,7 +85,20 @@ namespace Spark::Render
             ? layout->m_layout->GetRootConstantsLayout() : nullptr;
         if (rootConstants != nullptr)
         {
-            rhiContext.Add<ScopeRootConstants>(scope).m_byteCount = rootConstants->GetDataSize();
+            auto& block = rhiContext.Add<ScopeRootConstants>(scope);
+            block.m_byteCount = rootConstants->GetDataSize();
+
+            // A pass that renders views has the executer write viewIndex at each view handle,
+            // so it is marked set here: a .Constant("viewIndex") would be overwritten.
+            const auto* caps = passContext.TryGet<PassCapabilities>(m_currentPass);
+            const RHI::ShaderInputIndex viewIndex = rootConstants->FindShaderInputIndex(RHI::InputName("viewIndex"));
+            if (caps != nullptr && caps->m_collectViews != nullptr && viewIndex != RHI::InvalidShaderInputIndex)
+            {
+                const Interval interval = rootConstants->GetInterval(viewIndex);
+                ASSERT(interval.m_max - interval.m_min == 4, "Root constant viewIndex is not a 4-byte index.");
+                block.m_viewIndexOffset = interval.m_min;
+                block.m_writtenDwords  |= 1u << (interval.m_min / 4);
+            }
         }
         return scope;
     }

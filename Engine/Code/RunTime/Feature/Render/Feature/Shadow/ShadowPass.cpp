@@ -10,6 +10,7 @@
 #include <Pass/RenderPass.h>
 
 #include <Drawable/DrawTag.h>
+#include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 #include <Binding/Instance/InstanceBinding.h>
 #include <View/ShadowAtlasLayout.h>
@@ -85,7 +86,7 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<InstanceBindingTag>()
+            .Binds<ViewBindingTag, InstanceBindingTag>()
             .RendersView<ShadowViewTag>()
             .Build([](RenderPassScopes& p)
             {

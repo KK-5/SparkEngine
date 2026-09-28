@@ -13,10 +13,9 @@ namespace Spark::Render
     //! produced the view. A camera view, a shadow view and a sample's hand-built view all
     //! reach the GPU through here, so a producer only ever writes the View component.
     //!
-    //! Each view gets a stable g_Views slot (space1) and its row is rewritten every frame.
-    //! Until the per-view SRGs are retired it also still writes each view's own space1
-    //! group, from the same encoded row; views with no ViewShaderBindings are skipped there
-    //! by the join, not by a check.
+    //! Each view gets a stable g_Views slot (space1) and its row is rewritten every frame. A
+    //! pass reaches the array through .Binds<ViewBindingTag>(), and the row through the
+    //! viewIndex the executer writes at each view handle.
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced AFTER every view producer and before the graph runs,

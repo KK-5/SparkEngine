@@ -7,19 +7,26 @@
 // geometry wrote a nearer depth.
 //
 // The PS reconstructs the per-pixel world-space view ray as (far-plane point - camera
-// position): the far point is un-projected via g_InvViewProj, the camera position is the
-// world-space image of the view-space origin (mul(g_InvView, origin)). The cube is
+// position): the far point is un-projected via invViewProj, the camera position is the
+// world-space image of the view-space origin (mul(invView, origin)). The cube is
 // sampled with the D3D TextureCube convention — the same basis the bake shader
 // (EnvironmentBake.hlsl) used — so Sample(dir) round-trips to the equirect texel with no
 // extra pairing. The raw sample is written as linear HDR into SceneColor (R16F); the
 // dedicated TonemapPass tonemaps the whole scene at the end.
 //
-// All view matrices come from the shared per-view tier (ViewBindings, space1), computed
-// once per frame by WriteViewConstants — the skybox never re-reads the camera. The cube +
+// All view matrices come from the shared per-view tier (ViewBindings, space1), encoded
+// once per frame by ViewBindingSystem — the skybox never re-reads the camera. The cube +
 // sampler are this pass's own inputs, in the per-pass tier (space2).
 
-#include <Shaders/ViewBindings.hlsli>    // space1: g_ViewProjection, g_InvViewProj, g_View, g_InvView
+#include <Shaders/ViewBindings.hlsli>    // space1: invViewProj, invView, preExposure
 #include <Shaders/SceneBindings.hlsli>   // space0: g_EnvIntensity
+
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
 
 // Per-pass inputs (space2 = per-pass tier), bound by SkyboxProcessor.
 TextureCube  g_SkyCube    : register(t0, space2);
@@ -43,24 +50,26 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     return output;
 }
 
-float3 ReconstructWorldDir(float2 ndc)
+float3 ReconstructWorldDir(ViewData view, float2 ndc)
 {
-    // Camera world position = view-space origin mapped to world (translation of g_InvView,
+    // Camera world position = view-space origin mapped to world (translation of invView,
     // extracted convention-safely via mul rather than indexing a column).
-    float3 eye = mul(g_InvView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float3 eye = mul(view.invView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
 
     // Far-plane (z=0, reversed-Z) clip point un-projected to world; the ray is far - eye.
-    float4 farWorld = mul(g_InvViewProj, float4(ndc, 0.0, 1.0));
+    float4 farWorld = mul(view.invViewProj, float4(ndc, 0.0, 1.0));
     farWorld /= farWorld.w;
     return normalize(farWorld.xyz - eye);
 }
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    float3 dir   = ReconstructWorldDir(input.ndc);
+    const ViewData view = GetView(g_Scope.viewIndex);
+
+    float3 dir   = ReconstructWorldDir(view, input.ndc);
     float3 color = g_SkyCube.Sample(g_SkySampler, dir).rgb;
 
     // Same factor the deferred lighting applies to both IBL terms — scaling only one would
     // decouple the visible sky from the light it casts.
-    return float4(color * g_EnvIntensity * g_PreExposure, 1.0);
+    return float4(color * g_EnvIntensity * view.preExposure, 1.0);
 }

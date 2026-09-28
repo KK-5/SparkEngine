@@ -13,7 +13,7 @@ namespace Spark::Render
     //! A view PRODUCER beside CameraViewSystem: reconciles ShadowViewTag view entities
     //! against the world's shadow-casting lights every frame — find-or-create per light,
     //! refresh its View, reap the orphans. Writes only the View component; encoding it into
-    //! the view's SRG is ViewBindingSystem's job, which does that for every view regardless
+    //! the view's g_Views row is ViewBindingSystem's job, which does that for every view regardless
     //! of who produced it.
     //!
     //! Decides which lights deserve atlas space and how much; ShadowAtlasAllocator says

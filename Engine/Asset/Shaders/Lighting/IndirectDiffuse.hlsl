@@ -10,6 +10,13 @@
 #include <Shaders/Lib/DeferredShadingCommon.hlsli>
 #include <Shaders/Lib/BRDF/Diffuse.hlsli>
 
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
+
 // No depth: irradiance is view independent, so there is no world position to reconstruct.
 // SceneDepth is still bound as the read-only depth-stencil attachment that culls the sky.
 Texture2D g_GBufferNormal    : register(t0, space2);
@@ -62,5 +69,5 @@ float4 PSMain(VSOutput input) : SV_Target0
     color += SpaceZeroKeepAlive();
 
     // Alpha is held by the blend state, so what is written here never lands.
-    return float4(color * g_PreExposure, 0.0);
+    return float4(color * GetView(g_Scope.viewIndex).preExposure, 0.0);
 }

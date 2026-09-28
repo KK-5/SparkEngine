@@ -14,11 +14,13 @@ namespace Spark::Render
     //! each source entity the slot it keeps. Sources are the components an entity must
     //! carry to own a slot, Element is the GPU record.
     //!
-    //! Worth it only when something ELSE stores the index and needs it to outlive the
-    //! frame — a baked StartInstanceLocation (g_Instances), or an index living in another
-    //! GPU array (InstanceData::m_materialIndex -> g_Materials). An array the shader just
-    //! iterates gains nothing here and pays for the holes: use StagedArrayBuffer directly
-    //! and pack densely, as g_Lights does.
+    //! Worth it only when the index must outlive the frame, either because
+    //!  - something ELSE stores it — a baked StartInstanceLocation (g_Instances), or an
+    //!    index living in another GPU array (InstanceData::m_materialIndex -> g_Materials);
+    //!  - or it is the identity of GPU data kept across frames — per-view history such as
+    //!    a previous HZB or a page cache needs one view to keep one index (g_Views).
+    //! An array the shader just iterates within a frame gains nothing here and pays for
+    //! the holes: use StagedArrayBuffer directly and pack densely, as g_Lights does.
     //!
     //! Because slots are stable the array has holes, so the upload spans [0, Size()) and
     //! the holes are copied bytes nobody indexes. They are NOT cleared — see

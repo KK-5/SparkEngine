@@ -8,7 +8,7 @@ namespace Spark::Render
 {
     //! A view PRODUCER: reconciles MainViewTag view entities against the world's cameras
     //! every frame — find-or-create per camera, refresh its View, reap the orphans. Writes
-    //! only the View component; encoding it into the view's SRG is ViewBindingSystem's job,
+    //! only the View component; encoding it into the view's g_Views row is ViewBindingSystem's job,
     //! which does that for every view regardless of who produced it.
     //!
     //! A ShadowViewSystem (lights -> N views each) would sit beside this one, not inside it.

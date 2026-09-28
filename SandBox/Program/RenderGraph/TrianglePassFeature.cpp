@@ -143,9 +143,9 @@ namespace Spark::SandBox
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
 
-        // Built by hand because ViewBindingSystem find-or-creates from world cameras and this
-        // app has none. No ViewShaderBindings: TriangleMVP.hlsl declares no space1, so all
-        // this view supplies is the rect that becomes viewport / scissor.
+        // Built by hand because CameraViewSystem find-or-creates from world cameras and this
+        // app has none. TriangleMVP.hlsl reads no view, so all this view supplies is the rect
+        // that becomes viewport / scissor.
         m_view = ctx.CreateEntity();
         ctx.Add<Spark::Render::View>(m_view, Spark::Render::View{});
         ctx.Add<Spark::Render::MainViewTag>(m_view);

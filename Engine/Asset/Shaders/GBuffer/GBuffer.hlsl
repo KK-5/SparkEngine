@@ -5,6 +5,13 @@
 #include <Shaders/Lib/Velocity.hlsli>
 #include <Shaders/Lib/SpecularAA.hlsli>
 
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
+
 // Deferred base pass. Geometry comes from the vertex factory and the surface from the material
 // template; this file places the vertex and encodes the GBuffer. It depth-tests Equal against
 // DepthPrePass's SceneDepth, so the position must be computed exactly as DepthOnly.hlsl does.
@@ -42,11 +49,13 @@ VSOutput VSMain(VertexFactoryInput input)
     MaterialVertexParameters prevVertexParameters = GetMaterialVertexParameters(input, intermediates, prevWorldPosition.xyz);
     prevWorldPosition.xyz += GetMaterialWorldPositionOffset(prevVertexParameters);
 
+    const ViewData view = GetView(g_Scope.viewIndex);
+
     VSOutput output;
-    output.Position         = mul(g_ViewProjection, worldPosition);
+    output.Position         = mul(view.viewProjection, worldPosition);
     output.Interpolants     = VertexFactoryGetInterpolantsVSToPS(input, intermediates);
-    output.ClipPosition     = mul(g_ViewProjectionNoAA, worldPosition);
-    output.PrevClipPosition = mul(g_PrevViewProjection, prevWorldPosition);
+    output.ClipPosition     = mul(view.viewProjectionNoAA, worldPosition);
+    output.PrevClipPosition = mul(view.prevViewProjection, prevWorldPosition);
     return output;
 }
 
@@ -58,7 +67,7 @@ PSOutput EncodeGBuffer(MaterialPixelParameters parameters, PixelMaterialInputs i
     output.surface   = float4(inputs.Metallic, inputs.Specular, inputs.Roughness,
                               EncodeShadingModel(SHADINGMODELID_DEFAULT_LIT, 0));
     output.baseColor = float4(inputs.BaseColor, inputs.AmbientOcclusion);
-    output.sceneColor = float4(inputs.EmissiveColor * g_PreExposure, 1.0);
+    output.sceneColor = float4(inputs.EmissiveColor * GetView(g_Scope.viewIndex).preExposure, 1.0);
     return output;
 }
 

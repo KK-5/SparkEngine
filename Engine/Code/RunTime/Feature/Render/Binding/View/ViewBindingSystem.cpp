@@ -21,7 +21,6 @@
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderBuilder.h>
 
-#include <Shader/ShaderBindingsUtils.h>
 #include <View/ViewComponents.h>
 
 namespace Spark::Render
@@ -89,35 +88,6 @@ namespace Spark::Render
             return data;
         }
 
-        //! Names match ViewBindings.hlsli. Goes with the per-view SRGs.
-        void WriteViewConstants(const ViewData& data, RHI::RHIHandle bindings)
-        {
-            SetShaderConstant(bindings, RHI::InputName("g_ViewProjection"),     data.m_viewProjection);
-            SetShaderConstant(bindings, RHI::InputName("g_InvViewProj"),        data.m_invViewProj);
-            SetShaderConstant(bindings, RHI::InputName("g_View"),               data.m_view);
-            SetShaderConstant(bindings, RHI::InputName("g_InvView"),            data.m_invView);
-            SetShaderConstant(bindings, RHI::InputName("g_ViewProjectionNoAA"), data.m_viewProjectionNoAA);
-            SetShaderConstant(bindings, RHI::InputName("g_PrevViewProjection"), data.m_prevViewProjection);
-            SetShaderConstant(bindings, RHI::InputName("g_ClipToPrevClip"),     data.m_clipToPrevClip);
-
-            SetShaderConstant(bindings, RHI::InputName("g_TemporalAAJitter"),           data.m_temporalAAJitter);
-            SetShaderConstant(bindings, RHI::InputName("g_ViewRectMin"),                data.m_viewRectMin);
-            SetShaderConstant(bindings, RHI::InputName("g_InputViewRectMin"),           data.m_inputViewRectMin);
-            SetShaderConstant(bindings, RHI::InputName("g_ViewSizeAndInvSize"),         data.m_viewSizeAndInvSize);
-            SetShaderConstant(bindings, RHI::InputName("g_BufferSizeAndInvSize"),       data.m_bufferSizeAndInvSize);
-            SetShaderConstant(bindings, RHI::InputName("g_InputBufferSizeAndInvSize"),  data.m_inputBufferSizeAndInvSize);
-            SetShaderConstant(bindings, RHI::InputName("g_InvDeviceZToViewZ"),          data.m_invDeviceZToViewZ);
-
-            SetShaderConstant(bindings, RHI::InputName("g_Exposure"),           data.m_exposure);
-            SetShaderConstant(bindings, RHI::InputName("g_PreExposure"),        data.m_preExposure);
-            SetShaderConstant(bindings, RHI::InputName("g_OneOverPreExposure"), data.m_oneOverPreExposure);
-
-            SetShaderConstant(bindings, RHI::InputName("g_FrameNumber"),  data.m_frameNumber);
-            SetShaderConstant(bindings, RHI::InputName("g_GameTime"),     data.m_gameTime);
-            SetShaderConstant(bindings, RHI::InputName("g_PrevGameTime"), data.m_prevGameTime);
-            SetShaderConstant(bindings, RHI::InputName("g_DeltaTime"),    data.m_deltaTime);
-        }
-
         ViewHistory CurrentHistory(const View& view)
         {
             ViewHistory current;
@@ -141,26 +111,26 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "[ViewBindingSystem] AssetManager is unregistered.");
 
-        // ViewsReflect.hlsl is a reflection host (includes ViewData.hlsli + a dummy vertex
-        // entry reading g_Views) so the space1 layout can be reflected here — mirrors
+        // ViewBindingsReflect.hlsl is a reflection host (includes ViewBindings.hlsli + a dummy
+        // vertex entry reading g_Views) so the space1 layout can be reflected here — mirrors
         // MaterialBindingSystem / MaterialBindingsReflect.hlsl.
-        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/ViewsReflect.hlsl");
+        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/ViewBindingsReflect.hlsl");
         if (!assetId.IsValid())
         {
-            LOG_ERROR("[ViewBindingSystem] Failed to resolve ViewsReflect.hlsl asset id.");
+            LOG_ERROR("[ViewBindingSystem] Failed to resolve ViewBindingsReflect.hlsl asset id.");
             return;
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
         if (!shaderAsset)
         {
-            LOG_ERROR("[ViewBindingSystem] Failed to load ViewsReflect.hlsl.");
+            LOG_ERROR("[ViewBindingSystem] Failed to load ViewBindingsReflect.hlsl.");
             return;
         }
 
         Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
         if (built.stageMask == RHI::ShaderStageMask::None)
         {
-            LOG_ERROR("[ViewBindingSystem] ViewsReflect.hlsl produced no shader inputs.");
+            LOG_ERROR("[ViewBindingSystem] ViewBindings.hlsli produced no shader inputs.");
             return;
         }
 
@@ -224,15 +194,7 @@ namespace Spark::Render
         {
             row = EncodeViewData(view, PreviousHistory(*rhiCtx, entity, view), time);
         });
-
-        rhiCtx->GetView<View, ViewShaderBindings>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle entity, const View& view, const ViewShaderBindings& bindings)
-        {
-            WriteViewConstants(EncodeViewData(view, PreviousHistory(*rhiCtx, entity, view), time), bindings.m_bindings);
-        });
-
-        // Last, and apart from the encoding: every encode above reads last frame, and the
-        // row encode does not run at all before the buffer materializes.
+        // Apart from the encode, which does not run at all before the buffer materializes.
         rhiCtx->GetView<View, ViewHistory>(Exclude<DeadTag>).each(
             [&](const View& view, ViewHistory& history)
         {

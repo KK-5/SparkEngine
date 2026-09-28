@@ -49,6 +49,7 @@
 #include <Drawable/GeometrySpec.h>
 
 #include "SampleDrawTag.h"
+#include <Binding/View/ViewBinding.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
 #include <View/ViewComponents.h>
@@ -91,20 +92,11 @@ namespace Spark::SandBox
             }
             handle = Spark::RHI::NullHandle;
         };
-        // Order: GeometrySpec → VB/IB/Image → ViewSRG.
+        // Order: GeometrySpec → VB/IB/Image → view.
         destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_indexBuffer);
         destroyIfValid(m_baseColor);
-
-        // The view owns its SRG entity; drop that before the view itself.
-        if (m_view != Spark::RHI::NullHandle && ctx.Valid(m_view))
-        {
-            if (auto* bindings = ctx.TryGet<Spark::Render::ViewShaderBindings>(m_view))
-            {
-                destroyIfValid(bindings->m_bindings);
-            }
-        }
         destroyIfValid(m_view);
         // Per-pass SRGs hold no member handle now — destroy them by tag (just the
         // space2 SRG here). Collected first: destroying inside the view iteration
@@ -226,10 +218,9 @@ namespace Spark::SandBox
     {
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
 
-        // The standard view path: the view entity owns a space1 SRG, and the executer binds
-        // it once per DrawList. Usable because CubeTextured.hlsl includes ViewBindings.hlsli,
-        // so its space1 group matches the layout the SRG was built from — a shader declaring
-        // its own space1 could not take a view's SRG.
+        // The standard view path: ViewBindingSystem gives the view a g_Views row, the pass binds
+        // the table with .Binds<ViewBindingTag>(), and the executer writes the view's index into
+        // CubeTextured.hlsl's viewIndex.
         m_view = Spark::Render::CreateViewEntity<Spark::Render::MainViewTag>(ctx);
         ASSERT(m_view != Spark::RHI::NullHandle, "[DrawCube] Failed to create the view.");
     }
@@ -274,7 +265,7 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Binds<>()
+            .Binds<Render::ViewBindingTag>()
             .RendersView<Render::MainViewTag>()
             .Build([this](Spark::Render::RenderPassScopes& p)
             {
@@ -312,7 +303,7 @@ namespace Spark::SandBox
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), depthAction);
                 s.Resolve(RHI::AttachmentId("SwapChain"), color);
 
-                // The view owns the camera constants (space1); these are the pass's own.
+                // The camera comes from the view's g_Views row; these are the pass's own.
                 s.Constant(RHI::InputName("g_Model"), m_modelMatrix);
                 s.Sampler(RHI::InputName("g_Sampler"), m_samplerState);
                 // Until its upload lands the texture is left unbound, which reads as black.
@@ -371,9 +362,9 @@ namespace Spark::SandBox
             m_rotationAngle,
             Math::Vector3(0.f, 1.f, 0.f));   // spin around world up
 
-        // Only the View component: ViewBindingSystem stages every view into its own SRG, and
-        // the executer binds that per DrawList. Same role CameraViewSystem plays in the
-        // engine — a producer never touches the view constants.
+        // Only the View component: ViewBindingSystem encodes every view into its g_Views row.
+        // Same role CameraViewSystem plays in the engine — a producer never touches the view
+        // constants.
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         Render::View& view = rhiCtx.Get<Render::View>(m_view);
         view.m_worldToView = Math::LookAt(

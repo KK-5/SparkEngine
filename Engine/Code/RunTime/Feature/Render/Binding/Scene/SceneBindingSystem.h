@@ -17,7 +17,7 @@ namespace Spark::Render
     //! Light::LightRenderData into the current frame's g_Lights copy and writes g_LightCount
     //! — a pure field copy, no computation (direction/position were resolved upstream by
     //! LightSystem). Tags the binding entity MainSceneTag so a pass pulls it via
-    //! .Binds<MainSceneTag>(), exactly like the per-view group.
+    //! .Binds<MainSceneTag>(), exactly like the view group.
     //!
     //! Host per-frame + full re-scatter every frame. Both arrays deliberately stay on the
     //! bare StagedArrayBuffer rather than GlobalBuffer's stable slots: nothing stores a

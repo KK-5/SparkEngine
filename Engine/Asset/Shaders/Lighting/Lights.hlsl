@@ -12,6 +12,13 @@
 #include <Shaders/Lib/Lights.hlsli>
 #include <Shaders/Lib/Shadow/ShadowMask.hlsli>
 
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
+
 Texture2D      g_GBufferNormal    : register(t0, space2);
 Texture2D      g_GBufferSurface   : register(t1, space2);
 Texture2D      g_GBufferBaseColor : register(t2, space2);
@@ -33,27 +40,29 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     return output;
 }
 
-float3 ReconstructWorldPos(float2 uv, float depth)
+float3 ReconstructWorldPos(ViewData view, float2 uv, float depth)
 {
     float2 ndc = uv * 2.0 - 1.0;
-    float4 worldH = mul(g_InvViewProj, float4(ndc, depth, 1.0));
+    float4 worldH = mul(view.invViewProj, float4(ndc, depth, 1.0));
     return worldH.xyz / worldH.w;
 }
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
+    const ViewData view = GetView(g_Scope.viewIndex);
+
     int2 px = int2(input.position.xy);
     GBufferData gbuffer = GetGBufferData(
         g_GBufferNormal, g_GBufferSurface, g_GBufferBaseColor, g_Depth, px);
 
-    float3 worldPos = ReconstructWorldPos(input.uv, gbuffer.Depth);
+    float3 worldPos = ReconstructWorldPos(view, input.uv, gbuffer.Depth);
 
     // Clamped so the specular V term can't divide by zero on smooth surfaces at grazing
     // angles.
     float perceptualRoughness = max(gbuffer.Roughness, 0.045);
 
     float3 N = normalize(gbuffer.WorldNormal);
-    float3 eye = mul(g_InvView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float3 eye = mul(view.invView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     float3 V = normalize(eye - worldPos);
 
     float3 color = float3(0.0, 0.0, 0.0);
@@ -73,5 +82,5 @@ float4 PSMain(VSOutput input) : SV_Target0
     color += SpaceZeroKeepAlive();
 
     // Alpha is held by the blend state, so what is written here never lands.
-    return float4(color * g_PreExposure, 0.0);
+    return float4(color * view.preExposure, 0.0);
 }

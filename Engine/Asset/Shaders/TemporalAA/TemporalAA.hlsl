@@ -8,6 +8,13 @@
 
 #include <Shaders/ViewBindings.hlsli>
 
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
+
 Texture2D<float4> g_SceneColor : register(t0, space2);
 Texture2D<float>  g_Depth      : register(t1, space2);   // SceneDepth, viewed as R32_FLOAT
 Texture2D<float2> g_Velocity   : register(t2, space2);   // ResolvedVelocity
@@ -81,10 +88,10 @@ float ReconstructionWeight(float2 offset)
 
 // Catmull-Rom in 5 bilinear taps (the corners of the 4x4 kernel are dropped). Sharper than
 // bilinear, which would blur the history a little more every frame.
-float3 SampleHistory(float2 uv)
+float3 SampleHistory(ViewData view, float2 uv)
 {
-    float2 texSize    = g_BufferSizeAndInvSize.xy;
-    float2 invTexSize = g_BufferSizeAndInvSize.zw;
+    float2 texSize    = view.bufferSizeAndInvSize.xy;
+    float2 invTexSize = view.bufferSizeAndInvSize.zw;
 
     float2 samplePos = uv * texSize;
     float2 texPos1   = floor(samplePos - 0.5) + 0.5;
@@ -113,11 +120,13 @@ float3 SampleHistory(float2 uv)
 
 float4 TemporalAA(int2 px)
 {
-    int2 maxPx = int2(g_BufferSizeAndInvSize.xy) - 1;
+    const ViewData view = GetView(g_Scope.viewIndex);
+
+    int2 maxPx = int2(view.bufferSizeAndInvSize.xy) - 1;
 
     // The scene was shifted by the jitter, so each sample saw the unjittered image at its own
     // centre minus the jitter. In pixels, y down.
-    float2 jitterPixels = g_TemporalAAJitter.xy * float2(0.5, -0.5) * g_BufferSizeAndInvSize.xy;
+    float2 jitterPixels = view.temporalAAJitter.xy * float2(0.5, -0.5) * view.bufferSizeAndInvSize.xy;
 
     // Neighbourhood: this frame's colour at the unjittered pixel centre, its colour statistics,
     // and the closest surface's motion. Closest rather than centre, so an edge carries the
@@ -168,16 +177,16 @@ float4 TemporalAA(int2 px)
 
     // Velocity is an NDC delta; NDC y points up, UV y down.
     float2 velocity = g_Velocity.Load(int3(bestPx, 0));
-    float2 uv       = (float2(px) + 0.5) * g_BufferSizeAndInvSize.zw;
+    float2 uv       = (float2(px) + 0.5) * view.bufferSizeAndInvSize.zw;
     float2 prevUV   = uv - velocity * float2(0.5, -0.5);
 
     bool onScreen     = all(prevUV >= 0.0) && all(prevUV <= 1.0);
     bool historyValid = g_TemporalAAHistoryValid != 0 && onScreen;
 
-    float3 history = RGBToYCoCg(ToPerceptual(SampleHistory(prevUV)));
+    float3 history = RGBToYCoCg(ToPerceptual(SampleHistory(view, prevUV)));
     history = ClipToAABB(history, boxMin, boxMax);
 
-    float motionPixels = length(velocity * 0.5 * g_BufferSizeAndInvSize.xy);
+    float motionPixels = length(velocity * 0.5 * view.bufferSizeAndInvSize.xy);
     float blend        = lerp(g_TemporalAACurrentFrameWeight, g_TemporalAAMotionFrameWeight, saturate(motionPixels / kFastMotionPixels));
     float3 blended     = lerp(history, current, blend);
 

@@ -149,16 +149,22 @@ namespace Spark::Render
     //! .Constant fills it at declaration, .BindIndex at lowering.
     struct ScopeRootConstants
     {
+        static constexpr uint32_t NoViewIndex = ~0u;
+
         eastl::array<uint8_t, RHI::Limits::Pipeline::RootConstantByteCountMax> m_bytes {};
         uint32_t m_byteCount     = 0;
         uint32_t m_writtenDwords = 0;   //!< bit i: DWORD i is set, so no field is set twice
+
+        //! Byte offset of `viewIndex` in a pass that renders views: the executer rewrites just
+        //! that field at each view handle. NoViewIndex when the shader reads no view.
+        uint32_t m_viewIndexOffset = NoViewIndex;
 
         static_assert(RHI::Limits::Pipeline::RootConstantByteCountMax / 4 <= 32, "m_writtenDwords has a bit per DWORD.");
     };
 
     //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once
     //! for the whole Scope (the pass's own space2 and those it declared via .Binds). Resolved by
-    //! lowering. Viewport and space1 come from the view handles in the Scope's submit range.
+    //! lowering. Viewport and viewIndex come from the view handles in the Scope's submit range.
     struct ScopeState
     {
         const RHI::PipelineState*  m_pso = nullptr;

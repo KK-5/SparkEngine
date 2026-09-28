@@ -262,13 +262,13 @@ namespace Spark::Render
 
     void CameraViewSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        rhiCtx.GetView<MainViewTag, ViewShaderBindings>().each(
-            [&](RHI::RHIHandle view, const ViewShaderBindings&)
+        rhiCtx.GetView<MainViewTag, View>().each(
+            [&](RHI::RHIHandle view, const View&)
         {
             DestroyViewEntity(rhiCtx, view);
         });
-        rhiCtx.GetView<OutputViewTag, ViewShaderBindings>().each(
-            [&](RHI::RHIHandle view, const ViewShaderBindings&)
+        rhiCtx.GetView<OutputViewTag, View>().each(
+            [&](RHI::RHIHandle view, const View&)
         {
             DestroyViewEntity(rhiCtx, view);
         });

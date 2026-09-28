@@ -12,6 +12,7 @@
 #include <RHI/Factory.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
+#include <Binding/View/ViewBinding.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/ScopeComponents.h>
 #include <View/View.h>
@@ -348,8 +349,11 @@ namespace Spark::Render
         RHI::Scissor  targetScissor;
         const bool    hasTarget = beginInfo && ResolveTargetViewport(*beginInfo, targetViewport, targetScissor);
 
-        const auto& range   = rhiContext.Get<ScopeSubmitRange>(scope);
-        const auto* execute = rhiContext.TryGet<ScopeExecute>(scope);
+        const auto& range         = rhiContext.Get<ScopeSubmitRange>(scope);
+        const auto* execute       = rhiContext.TryGet<ScopeExecute>(scope);
+        const auto* rootConstants = rhiContext.TryGet<ScopeRootConstants>(scope);
+        const bool  writesView    = state.m_pso && rootConstants
+            && rootConstants->m_viewIndexOffset != ScopeRootConstants::NoViewIndex;
         commandList->SetSubmitRange({ range.m_begin, range.m_end });
 
         ExecuteWork work;
@@ -394,10 +398,12 @@ namespace Spark::Render
                 commandList->SetScissor(ScissorFromViewport(viewport));
             }
 
-            const RHI::ShaderBindings* viewBindings = nullptr;
-            if (state.m_pso && ResolveViewShaderBindings(rhiContext, handle, viewBindings) && viewBindings)
+            // Lowering kept only views with a slot when the shader reads one.
+            if (writesView)
             {
-                BindShaderInputs(commandList, *state.m_pso, *viewBindings);
+                const uint32_t viewIndex = rhiContext.Get<ViewSlotRef>(handle).Get();
+                commandList->SetRootConstants(
+                    reinterpret_cast<const uint8_t*>(&viewIndex), sizeof(viewIndex), rootConstants->m_viewIndexOffset);
             }
 
             segmentBegin = i + 1;

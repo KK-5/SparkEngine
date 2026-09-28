@@ -12,6 +12,7 @@
 #include <Pass/RenderPass.h>
 
 #include <Drawable/DrawTag.h>
+#include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
@@ -93,7 +94,7 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<MaterialBindingTag, InstanceBindingTag>()
+            .Binds<ViewBindingTag, MaterialBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {

@@ -99,9 +99,9 @@ namespace Spark::SandBox
         sys.m_rhiResource->Init();
 
         // Asset manager. engine:// is the same mount the editor uses, so engine-relative ids
-        // resolve -- notably "engine://Shaders/ViewBindingsReflect.hlsl", which ViewFactory
-        // reflects the space1 layout from. Without it a sample cannot build a view that owns
-        // a view SRG. Shared engine shader headers reach it the same way.
+        // resolve -- notably the *BindingsReflect.hlsl hosts the render binding systems reflect
+        // their groups from (space1's among them). Shared engine shader headers reach it the
+        // same way.
         sys.m_vfs = CreateSystem<VFSSystem>();
         sys.m_vfs->Init();
         sys.m_vfs->Mount("sandbox", SHADER_ASSET_DIR);

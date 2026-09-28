@@ -68,7 +68,7 @@ namespace Spark::Render
         //! and its submit range.
         void RecordScope(RHI::CommandList* commandList, RHIContext& rhiContext, RHIHandle scope);
 
-        //! Walk the Scope's submit range: each view handle sets viewport and space1 for the items
+        //! Walk the Scope's submit range: each view handle sets viewport and viewIndex for the items
         //! after it, which go to the Scope's hook if it has one, else are submitted one by one.
         void SubmitScopeRange(
             RHI::CommandList* commandList, RHIContext& rhiContext, RHIHandle scope,
@@ -79,7 +79,7 @@ namespace Spark::Render
         StaticPreBarrierTable m_staticPreBarriers;
 
         //! This frame's submit sequence, written by lowering: each Scope's ScopeSubmitRange is a
-        //! stretch of it. A handle is either a view, whose viewport and space1 the items after
+        //! stretch of it. A handle is either a view, whose viewport and viewIndex the items after
         //! it are submitted under, or an item.
         eastl::vector<RHI::RHIHandle> m_submitList;
 

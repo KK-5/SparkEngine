@@ -1,5 +1,12 @@
 #include <Shaders/ViewBindings.hlsli>
 
+struct ScopeParameters
+{
+    uint viewIndex;
+};
+
+#include <Shaders/ScopeBindings.hlsli>
+
 Texture2D    g_Texture : register(t0, space2);
 SamplerState g_Sampler : register(s0, space2);
 
@@ -25,7 +32,7 @@ struct PSInput
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.position = mul(g_ViewProjection, mul(g_Model, float4(input.position, 1.0)));
+    output.position = mul(GetView(g_Scope.viewIndex).viewProjection, mul(g_Model, float4(input.position, 1.0)));
     output.uv       = input.uv;
     return output;
 }

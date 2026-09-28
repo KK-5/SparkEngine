@@ -23,7 +23,10 @@ struct ViewData
     float4   invDeviceZToViewZ;         // see ConvertFromDeviceZ
 
     float    exposure;                  // linear pre-tonemap exposure multiplier; 1.0 = neutral
-    float    preExposure;               // encoding scale for SceneColor; Tonemap divides it back out
+    // Encoding scale, not an artistic one: every shader that writes SceneColor multiplies
+    // by it and Tonemap divides it back out, to sit the scene's magnitudes in a good part
+    // of FP16's range. Fixed at 1 until EyeAdaptation drives it.
+    float    preExposure;
     float    oneOverPreExposure;
     uint     frameNumber;
 

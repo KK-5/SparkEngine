@@ -44,6 +44,7 @@
 #include <Drawable/GeometrySpec.h>
 
 #include "SampleDrawTag.h"
+#include <Binding/View/ViewBinding.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
 #include <View/ViewComponents.h>
@@ -104,16 +105,8 @@ namespace Spark::SandBox
         destroyIfValid(m_indexBuffer);
         destroyIfValid(m_baseColor);
 
-        // Each view owns its SRG entity; drop that before the view itself.
         for (Spark::RHI::RHIHandle& view : m_views)
         {
-            if (view != Spark::RHI::NullHandle && ctx.Valid(view))
-            {
-                if (auto* bindings = ctx.TryGet<Spark::Render::ViewShaderBindings>(view))
-                {
-                    destroyIfValid(bindings->m_bindings);
-                }
-            }
             destroyIfValid(view);
         }
 
@@ -237,9 +230,7 @@ namespace Spark::SandBox
             "[MultiView] One rect per view.");
 
         // Four independent view instances, all carrying MainViewTag — that tag is the whole
-        // link to the pass, which collects by it. Usable because CubeTextured.hlsl includes
-        // ViewBindings.hlsli, so its space1 group matches the layout each view's SRG was built
-        // from; a shader declaring its own space1 could not take a view's SRG.
+        // link to the pass, which collects by it. Each gets its own g_Views row.
         for (uint32_t i = 0; i < kViewCount; ++i)
         {
             m_views[i] = Spark::Render::CreateViewEntity<Spark::Render::MainViewTag>(ctx);
@@ -287,7 +278,7 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Binds<>()
+            .Binds<Render::ViewBindingTag>()
             .RendersView<Render::MainViewTag>()
             .Build([this](Spark::Render::RenderPassScopes& p)
             {
@@ -314,7 +305,7 @@ namespace Spark::SandBox
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), colorAction);
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), depthAction);
 
-                // Only what is view-independent: the cameras live in space1, one SRG per view.
+                // Only what is view-independent: the cameras are g_Views rows, one per view.
                 s.Constant(RHI::InputName("g_Model"), m_modelMatrix);
                 s.Sampler(RHI::InputName("g_Sampler"), m_samplerState);
                 // Until its upload lands the texture is left unbound, which reads as black.
@@ -373,15 +364,16 @@ namespace Spark::SandBox
             m_rotationAngle,
             Math::Vector3(0.f, 1.f, 0.f));
 
-        // Producers only write the View; ViewBindingSystem stages every one into its own SRG
-        // and the executer binds that per DrawList. Same split CameraViewSystem lives on.
+        // Producers only write the View; ViewBindingSystem encodes every one into its g_Views
+        // row and the executer writes its viewIndex at the view handle. Same split
+        // CameraViewSystem lives on.
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         for (uint32_t i = 0; i < kViewCount; ++i)
         {
             Render::View& view = rhiCtx.Get<Render::View>(m_views[i]);
 
             // Four fixed points on one orbit — the panels are meant to be unmistakably
-            // different, so a broken per-view SRG bind shows up as repeated images. Not 90
+            // different, so a broken per-view viewIndex write shows up as repeated images. Not 90
             // degrees apart: a cube is 4-fold symmetric about Y, so that spacing would leave
             // the four silhouettes identical and only the texture telling them apart.
             const float orbit = Math::Radians(50.f) * static_cast<float>(i);

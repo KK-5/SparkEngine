@@ -17,12 +17,6 @@ namespace Spark::Render
         Math::Frustum m_frustum;
     };
 
-    //! View entity -> its space1 ShaderBindings entity.
-    struct ViewShaderBindings
-    {
-        RHI::RHIHandle m_bindings = RHI::NullHandle;
-    };
-
     //! The previous frame's View, for views that run temporal passes. Its producer adds it
     //! invalid to opt in; ViewBindingSystem alone fills and rolls it. A view without one
     //! encodes its previous frame as the current one.

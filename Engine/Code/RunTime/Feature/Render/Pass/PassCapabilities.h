@@ -39,7 +39,7 @@ namespace Spark::Render
         void (*m_resolveSharedBindings)(RHI::RHIContext&, ShaderBindingsList&);
 
         //! The live view instances of the type this pass renders — one batch each.
-        //! Null for a pass that renders no view (copy, and compute that needs no space1),
+        //! Null for a pass that renders no view (copy, and compute),
         //! which then emits a single batch. (.RendersView<ViewTag>)
         void (*m_collectViews)(RHI::RHIContext&, ViewHandleList&);
     };
