@@ -197,8 +197,15 @@ namespace Spark::Render
         TonemapPass::SetUp(passContext, tonemapPassCfg);
 
         UIPass::SetUp(passContext, m_rednerUI);
+    }
 
-        // Render-side helpers + shared resources setup
+    void RenderSystem::InitInternal()
+    {
+        InitRHIData();
+
+        // Render-side helpers + shared resources, paired with their Shutdown in
+        // ShutdownInternal. Here rather than in SetUpDefaultPipeline, which is passes only: a
+        // pipeline of a sample's own still renders views, and they need none of the passes.
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_viewBindingSystem.Init(rhiCtxForInit);
@@ -209,11 +216,6 @@ namespace Spark::Render
 
         m_meshGeometryComposer.Init(rhiCtxForInit);
         m_drawItemRouter.Init(rhiCtxForInit);
-    }
-
-    void RenderSystem::InitInternal()
-    {
-        InitRHIData();
 
         // ImportSwapChain materializes swap chain entities into the active RHIContext;
         // the context is owned and pushed by the RHI layer (see RHIInterface),
