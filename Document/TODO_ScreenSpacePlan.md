@@ -13,7 +13,7 @@ P4 做四件事：**HZB**、**GTAO**（`AmbientOcclusion` 信号）、**Contact 
 
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| 0a | compute pass 访问 View（space1） | — | 未开始 |
+| 0a | compute pass 访问 View（space1） | — | ✅ 完成 |
 | 0b | I4：子资源屏障 | — | 未开始 |
 | 1 | HZB（closest / furthest，一张带 mip 的纹理） | 0b | 未开始 |
 | 2 | GTAO → `AmbientOcclusion`，接入 IndirectDiffuse / Reflections | 0a（见 D2） | 未开始 |
@@ -42,19 +42,14 @@ P4 做四件事：**HZB**、**GTAO**（`AmbientOcclusion` 信号）、**Contact 
 **对齐 UE 的三层不受影响**：帧结构（pass 的位置与职责）、数据契约（信号纹理、View 参数命名）、插件点都照旧对齐；
 变的只是 shader 的来源。移植时文件头写明出处与许可证，同 `Shaders/Lib/AgX.hlsli`。
 
-### D2　compute pass 访问 View：给 ComputePassBuilder 加 `RendersView` / `Binds`　⬜ 倾向，待确认
+### D2　compute pass 访问 View：Build 里选视图，`.Binds<ViewBindingTag>()`　✅ 已定
 
-现状：`ComputePassBuilder` 没有 `RendersView` / `Binds<>`，所有读 `ViewBindings.hlsli` 的 shader 都是 PS。P3 用 D9 的办法
-（Build 里从 `View` 读出、经 `.Constant` 传）绕过，因为降采样链几乎不需要视图参数。
+由 `TODO_BindingModelPlan.md` 定下：视图数据是 space1 的全局表 `g_Views`，shader 用 `GetView(g_Scope.viewIndex)` 读。
+compute pass 不渲视图，没有 `RendersView`：pass 声明 `.Binds<ViewBindingTag>()`，Build 自己选视图，用
+`TryGetViewIndex` 取它的下标，`.Constant("viewIndex", ...)` 写进 Scope；视图还没有槽位时跳过这个 Scope。
 
-| | 做法 | 代价 |
-|---|---|---|
-| **A** | compute 也能 `RendersView<Tag>()` + `Binds<>()`，执行器按视图绑 space1 | 基础设施改动，见 §一 0a |
-| B | 每个 pass 自带常量：CPU 端从 `View` 算好，经 space2 常量传入 | 每个 pass 重复一遍 View 的数学（jitter、reversed-Z、上一帧矩阵），容易与 `ViewBindingSystem` 不一致 |
-
-倾向 A。执行器已经是通用的（见 §一 0a），改动集中在 builder 与 lowering。顺带解锁 P1 的遗留"TAA 改 CS"。
-
-XeGTAO 本身用自己的常量结构（由 CPU 按投影矩阵填），它可以走 B 先做；SSR 要的矩阵更多，应等 A。
+XeGTAO 本身用自己的常量结构（由 CPU 按投影矩阵填），可以照搬；它要的矩阵也能直接从 `GetView()` 读。顺带解锁 P1 的
+遗留"TAA 改 CS"。
 
 ### D3　HZB：一张带 mip 的 `R32_FLOAT` 纹理，逐 mip 一个 Scope　⬜ 倾向，待确认
 
@@ -123,18 +118,20 @@ ShadowMask 是四灯打包的 RGBA8 array slice，由 ShadowProjection 的 PS �
 
 ## 一、前置
 
-### 0a　compute pass 访问 View
+### 0a　compute pass 访问 View　✅
 
-执行器已经通用：`SubmitScopeRange` 遇到提交表里的视图句柄，就用这个视图的 space1 调 `BindShaderInputs`；没有渲染
-目标（compute）时只是不设 viewport。所以改动在执行器之外：
+按 D2 做完（`TODO_BindingModelPlan.md` 步骤 4）：
 
-- `ComputePassBuilder` 加 `RendersView<Tag>()` / `Binds<>()`，写进 `PassCapabilities`（同 `RenderPassBuilder`）。
-- lowering 让 compute Scope 也按视图展开提交区间（视图句柄在前，dispatch 在后）；现在 compute Scope 的 item 不分视图。
-- 仍只允许单 Scope 的 pass `RendersView`（`RenderGraphBuilder::EndPass` 的断言不动）："多 Scope × 多视图"的展开顺序
-  还是 RenderGraphItemPlan 的未决项。需要多步的效果拆成多个 pass。
-- dispatch 尺寸仍在 Build 里按渲染尺寸声明；单主 View 下成立，多视图时要按视图区域给（`TODO_MultiViewPlan.md`）。
+- `ComputePassBuilder` 加 `Binds<>()`，写进 `PassCapabilities`（同 `RenderPassBuilder`）；没有 `RendersView`，
+  执行器不按视图展开 compute 的提交区间。
+- `TryGetViewIndex(rhiCtx, view, out)`（`Binding/View/ViewBinding.h`）给 Build 取视图下标。
+- 多视图：每个视图一个 Scope，各自 `.Constant("viewIndex", ...)`，dispatch 尺寸按各视图的区域给。"每个视图读写不同的
+  资源"仍是 `TODO_MultiViewPlan.md` 的范围。
+- 每个 Scope 的根常量字段必须全部写过，漏写即断言（`RenderGraphBuilder::EndPass`），`viewIndex` 忘了写不会静默读到
+  槽位 0。
 
-**验证**：一个读 `g_ViewSizeAndInvSize` 的 compute 示例；再把 TAA 改 CS 作为第二个用例（可选）。
+**验证**：SandBox 的 ComputePass，pattern pass 的尺寸改从 `GetView().viewSizeAndInvSize` 读。TAA 改 CS 作为第二个用例
+（可选）。
 
 ### 0b　I4 子资源屏障
 
@@ -228,7 +225,7 @@ TemporalAA（上一帧）┘                                   ▼
 
 | 步骤 | 文件 |
 |---|---|
-| 0a | `Pass/ComputePass.h`（`RendersView` / `Binds`）；`RenderGraphCompiler.cpp` 的提交区间展开 |
+| 0a | `Pass/ComputePass.h`（`Binds`）；`Binding/View/ViewBinding.h`（`TryGetViewIndex`）；`RenderGraphBuilder.cpp`（根常量漏写检查） |
 | 0b | `RHI/Resource/ResourceState.h`（`ImageBarrier` 带范围）；DX12 `CommandListBase` / `Image`；`RHIComponents.h` 的 tracker；`RenderGraphCompiler.cpp` 的合并与屏障；`SparkRenderTest` 新用例 |
 | 1 | `Render/Feature/HZB/HZBPass.{h,cpp}`、`Shaders/HZB/HZB.hlsl`；共享头（D6） |
 | 2 | `Shaders/Lib/XeGTAO.hlsli`（移植）与三个 CS；`Render/Feature/AmbientOcclusion/`；世界侧 `Feature/AmbientOcclusion/`；`IndirectDiffuse.hlsl`、`Reflections.hlsl` |

@@ -3,7 +3,7 @@
 起因：P4 讨论 compute 访问 View（`TODO_ScreenSpacePlan.md` D2）时，发现 view 与 pass 两档绑定和其余几档不协调。本文梳理
 现状、指出问题、给出目标模型与待定项。
 
-决策 D1~D11 已确认；§七 余下的两项不阻塞实现。步骤 1~3 已完成，§一、§二 记的是改造前的状态。
+决策 D1~D11 已确认；§七 余下的两项不阻塞实现。步骤 1~4 已完成，§一、§二 记的是改造前的状态。
 
 ---
 
@@ -133,6 +133,9 @@ UE 的常规路径是每视图一个 View uniform buffer，C++ 里按视图循�
 `CompileScopeBindings` 里，同一 pass 的后一个 Scope 对 space2 的同一输入写了不同的值即断言：图像比视图，采样器比
 `SamplerState`，常量比字节。被挡住的两种写法要改走 space5：随 Scope 变的 `.Bind` 资源；`.BindIndex` 回退到 space2 的
 cbuffer（名字没在 `ScopeParameters` 里声明）。`PassScopes.h` 里"必须一致"的注释改为指向这条断言。
+
+space5 这边的对应检查已在步骤 4 做了：每个 Scope 的 `ScopeParameters` 字段必须全部写过，漏写即断言
+（`RenderGraphBuilder::EndPass`）；按视图重放的 pass 的 `viewIndex` 由执行器负责，视为已写。
 
 ### 以后的扩展
 
@@ -280,7 +283,7 @@ space5 已经专用于根常量（`ShaderAsset.h` 的 `RootConstantsSpaceId`）�
 | 1 | Scope 档与 RHI 部分写 ✅ | D5、D11 |
 | 2 | 视图表并行上线，不接 shader ✅ | D1、D3、D8 |
 | 3 | 切换到视图表 ✅ | 1、2 |
-| 4 | compute 访问视图 | 3 |
+| 4 | compute 访问视图 ✅ | 3 |
 | 5 | space2 一致性断言 | D6 |
 
 1 与 2 互不依赖；5 与其余都不依赖。3 做完视图数据就走表了，4 解锁 P4。
@@ -331,9 +334,9 @@ shader 与 C++ 必须一次切换：
 ### 4　compute 访问视图
 
 - `ComputePassBuilder` 加 `Binds<>()`。
-- Build 用的"视图句柄 → 槽位"查询（没有槽位时返回无效），供 `.Constant("viewIndex", slot)`。
-- lowering 检查：pass 的 `ScopeParameters` 里有 `viewIndex`、而这个 Scope 既不按视图重放也没写它，即断言（否则读到清零
-  块里的槽位 0）。
+- Build 用的"视图句柄 → 槽位"查询 `TryGetViewIndex`（没有槽位时返回 false），供 `.Constant("viewIndex", slot)`。
+- lowering 检查：Scope 的 `ScopeParameters` 每个字段都必须写过，漏写即断言（否则读到清零块里的 0）。比只查
+  `viewIndex` 宽，`.BindIndex` / `.Constant` 的漏写一并挡住。
 - 改写 ScreenSpacePlan 的 D2 与 0a。
 
 ### 5　space2 一致性断言
