@@ -6,6 +6,7 @@
 
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/HardwareQueue.h>
+#include <RHI/Resource/AccessFlags.h>
 
 namespace Spark::RHI
 {
@@ -21,9 +22,9 @@ namespace Spark::RHI
     //! Create / Discard masks to compute the full set of pipelines that must
     //! synchronize before the memory range is recycled.
     //!
-    //! m_stage carries the pipeline stage at this anchor so the pool can populate
-    //! aliasing barriers without coupling to pass-attachment iteration. For Create
-    //! it should be the first attachment's stage; for Discard, the last.
+    //! m_queue / m_stage / m_access describe the use at this anchor so the pool can seed
+    //! an aliased resource's initial state without coupling to pass-attachment iteration:
+    //! for Create the first use (only its queue is read), for Discard the last.
     struct TransientAllocationFence
     {
         TransientAllocationFence() = default;
@@ -33,15 +34,21 @@ namespace Spark::RHI
             , m_timelinePosition(timelinePosition)
         {}
 
-        TransientAllocationFence(HardwareQueueClassMask pipelines, uint32_t timelinePosition, AttachmentStage stage)
+        TransientAllocationFence(
+            HardwareQueueClassMask pipelines, uint32_t timelinePosition,
+            HardwareQueueClass queue, AttachmentStage stage, AccessFlags access)
             : m_pipelines(pipelines)
             , m_timelinePosition(timelinePosition)
+            , m_queue(queue)
             , m_stage(stage)
+            , m_access(access)
         {}
 
         HardwareQueueClassMask m_pipelines        = HardwareQueueClassMask::All;
         uint32_t               m_timelinePosition = 0; // half-open interval [alloc, discard)
-        AttachmentStage        m_stage            = AttachmentStage::Any;
+        HardwareQueueClass     m_queue            = HardwareQueueClass::Graphics;
+        AttachmentStage        m_stage            = AttachmentStage::Uninitialized;
+        AccessFlags            m_access           = AccessFlags::None;
     };
 
     static constexpr uint32_t InvalidTimelinePosition = eastl::numeric_limits<uint32_t>::max();

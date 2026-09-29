@@ -97,25 +97,16 @@ namespace Spark::RHI::DX12
         allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel, GetDescriptor().m_hostMemoryAccess);
         allocDesc.Flags = D3D12MA::ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
 
-        // D3D12_RESOURCE_STATES is D3D12_RESOURCE_STATE_COMMON by default
-        const RHI::ResourceState resourceState = bufferBase.GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
-        // Upload and Readback heap resource has a constant D3D12_RESOURCE_STATE
-        if (allocDesc.HeapType == D3D12_HEAP_TYPE_UPLOAD)
-        {
-            initialResourceState = D3D12_RESOURCE_STATE_GENERIC_READ;
-        }
-        else if (allocDesc.HeapType == D3D12_HEAP_TYPE_READBACK)
-        {
-            initialResourceState = D3D12_RESOURCE_STATE_COPY_DEST;
-        }
-
+        // Buffers have no layout; upload / readback heaps included.
+        const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
         ComPtr<D3D12MA::Allocation> allocation = nullptr;
-        HRESULT result = m_allocator->CreateResource(
+        HRESULT result = m_allocator->CreateResource3(
             &allocDesc,
-            &resourceDesc,
-            initialResourceState,
+            &resourceDesc1,
+            D3D12_BARRIER_LAYOUT_UNDEFINED,
             NULL,
+            0,
+            nullptr,
             &allocation,
             IID_NULL,
             NULL

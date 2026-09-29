@@ -339,7 +339,7 @@ namespace Spark::RHI
             barrier.m_srcAccess = AccessFlags::TransferWrite;
             barrier.m_dstAccess = AccessFlags::None;
             barrier.m_srcStage  = AttachmentStage::Copy;
-            barrier.m_dstStage  = AttachmentStage::Any;
+            barrier.m_dstStage  = AttachmentStage::Uninitialized;
             barrier.m_srcQueue  = HardwareQueueClass::Copy;
             barrier.m_dstQueue  = exclusive ? ResolveHomeQueue(mask) : HardwareQueueClass::Copy;
             batch.m_bufferReleaseBarriers.push_back(barrier);
@@ -411,7 +411,7 @@ namespace Spark::RHI
             barrier.m_srcAccess = AccessFlags::TransferWrite;
             barrier.m_dstAccess = AccessFlags::None;
             barrier.m_srcStage  = AttachmentStage::Copy;
-            barrier.m_dstStage  = AttachmentStage::Any;
+            barrier.m_dstStage  = AttachmentStage::Uninitialized;
             barrier.m_srcQueue  = HardwareQueueClass::Copy;
             barrier.m_dstQueue  = exclusive ? ResolveHomeQueue(mask) : HardwareQueueClass::Copy;
             batch.m_imageReleaseBarriers.push_back(barrier);
@@ -524,7 +524,7 @@ namespace Spark::RHI
 
         // Pre-copy barriers: transition every target into Copy/Write on the copy
         // queue. ConvertTo* auto-populates src* from the resource's tracked state:
-        //  - Fresh resource:     {Uninitialized, Graphics-default, Any}
+        //  - Fresh resource:     {None, Graphics-default, Uninitialized}
         //  - Re-upload pickup:   whatever the prior owner left (e.g. {VertexBuffer,
         //                        Graphics, VertexInput}) — fence wait was already
         //                        cleared by SubmitBatch's CPU-side skip-or-proceed

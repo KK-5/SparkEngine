@@ -97,16 +97,6 @@ namespace Spark::RHI
         m_batchOpen = false;
     }
 
-    bool TransientResourcePool::GetAliasingBarrier(const Resource& resource, DeviceMemoryBarrier& out) const
-    {
-        if (!ValidateIsInitialized() || !ValidateBatchSealed())
-        {
-            return false;
-        }
-
-        return GetAliasingBarrierInternal(resource, out);
-    }
-
     TransientResourcePoolStats TransientResourcePool::GetStats() const
     {
         if (!ValidateIsInitialized())
@@ -196,20 +186,6 @@ namespace Spark::RHI
             if (!m_batchOpen)
             {
                 LOG_ERROR("[TransientResourcePool] {} Operation requires an open batch (call must occur between OnFrameBegin and Seal()).",
-                          GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool TransientResourcePool::ValidateBatchSealed() const
-    {
-        if (Validation::isEnabled)
-        {
-            if (m_batchOpen)
-            {
-                LOG_ERROR("[TransientResourcePool] {} GetAliasingBarrier requires the batch to be sealed (call Seal() after the last Create*/Discard).",
                           GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
                 return false;
             }

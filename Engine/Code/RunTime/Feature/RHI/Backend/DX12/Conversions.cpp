@@ -1,6 +1,6 @@
 /*
  * Modified by SparkEngine in 2025
- *  -- ConvertBufferState / ConvertImageState: RHI AccessFlags to D3D12_RESOURCE_STATES.
+ *  -- ConvertBarrierAccess / Sync / Layout: RHI AccessFlags and AttachmentStage to enhanced barriers.
  */
 
 #include "Conversions.h"
@@ -385,6 +385,22 @@ namespace Spark::RHI::DX12
         resourceDesc.Flags = ConvertImageBindFlags(descriptor.m_bindFlags);
     }
 
+    D3D12_RESOURCE_DESC1 ConvertResourceDesc1(const D3D12_RESOURCE_DESC& resourceDesc)
+    {
+        D3D12_RESOURCE_DESC1 desc1{};
+        desc1.Dimension        = resourceDesc.Dimension;
+        desc1.Alignment        = resourceDesc.Alignment;
+        desc1.Width            = resourceDesc.Width;
+        desc1.Height           = resourceDesc.Height;
+        desc1.DepthOrArraySize = resourceDesc.DepthOrArraySize;
+        desc1.MipLevels        = resourceDesc.MipLevels;
+        desc1.Format           = resourceDesc.Format;
+        desc1.SampleDesc       = resourceDesc.SampleDesc;
+        desc1.Layout           = resourceDesc.Layout;
+        desc1.Flags            = resourceDesc.Flags;
+        return desc1;
+    }
+
     DXGI_FORMAT ConvertImageViewFormat(const Image& image, const RHI::ImageViewDescriptor& imageViewDescriptor)
     {
         /**
@@ -492,88 +508,224 @@ namespace Spark::RHI::DX12
             AccessFlags::DepthStencilWrite | AccessFlags::ResolveWrite |
             AccessFlags::Present;
 
-        D3D12_RESOURCE_STATES ConvertAccessToStates(
-            AccessFlags                 access,
-            RHI::HardwareQueueClass     queue,
-            [[maybe_unused]] RHI::AttachmentStage stage)
+        constexpr AccessFlags k_shaderRead = AccessFlags::ShaderSampledRead | AccessFlags::InputAttachmentRead;
+
+        constexpr D3D12_BARRIER_SYNC k_graphicsOnlySync =
+            D3D12_BARRIER_SYNC_DRAW | D3D12_BARRIER_SYNC_INDEX_INPUT | D3D12_BARRIER_SYNC_VERTEX_SHADING |
+            D3D12_BARRIER_SYNC_PIXEL_SHADING | D3D12_BARRIER_SYNC_DEPTH_STENCIL |
+            D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_RESOLVE;
+
+        D3D12_BARRIER_ACCESS ConvertBarrierAccess(AccessFlags access)
         {
-            const bool graphics = (queue == RHI::HardwareQueueClass::Graphics);
+            auto has = [access](AccessFlags bits) { return CheckBitsAny(access, bits); };
 
-            if (graphics == false)
-            {
-                ASSERT(!CheckBitsAny(access, k_graphicsOnlyAccess),
-                    "[RHI DX12] ConvertAccessToStates - graphics-only access bits 0x{:x} on queue {}.",
-                    static_cast<uint32_t>(access & k_graphicsOnlyAccess),
-                    static_cast<uint32_t>(queue));
-            }
+            D3D12_BARRIER_ACCESS a = D3D12_BARRIER_ACCESS_COMMON;
+            if (has(AccessFlags::IndirectRead))       { a |= D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT; }
+            if (has(AccessFlags::VertexIndexInput))   { a |= D3D12_BARRIER_ACCESS_VERTEX_BUFFER | D3D12_BARRIER_ACCESS_INDEX_BUFFER; }
+            if (has(AccessFlags::ConstantBufferRead)) { a |= D3D12_BARRIER_ACCESS_CONSTANT_BUFFER; }
+            if (has(k_shaderRead))                    { a |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE; }
+            if (has(AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite))     { a |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS; }
+            if (has(AccessFlags::DepthStencilRead))   { a |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ; }
+            if (has(AccessFlags::DepthStencilWrite))  { a |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE; }
+            if (has(AccessFlags::ColorAttachmentRead | AccessFlags::ColorAttachmentWrite)) { a |= D3D12_BARRIER_ACCESS_RENDER_TARGET; }
+            if (has(AccessFlags::TransferRead))       { a |= D3D12_BARRIER_ACCESS_COPY_SOURCE; }
+            if (has(AccessFlags::TransferWrite))      { a |= D3D12_BARRIER_ACCESS_COPY_DEST; }
+            if (has(AccessFlags::ResolveRead))        { a |= D3D12_BARRIER_ACCESS_RESOLVE_SOURCE; }
+            if (has(AccessFlags::ResolveWrite))       { a |= D3D12_BARRIER_ACCESS_RESOLVE_DEST; }
+            if (has(AccessFlags::PredicationRead))    { a |= D3D12_BARRIER_ACCESS_PREDICATION; }
+            if (has(AccessFlags::ShadingRateRead))    { a |= D3D12_BARRIER_ACCESS_SHADING_RATE_SOURCE; }
+            if (has(AccessFlags::AccelStructRead))    { a |= D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ; }
+            if (has(AccessFlags::AccelStructWrite))   { a |= D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE; }
 
-            auto has = [access](AccessFlags bit) { return CheckBitsAny(access, bit); };
-
-            D3D12_RESOURCE_STATES s = D3D12_RESOURCE_STATE_COMMON;
-
-            if (has(AccessFlags::IndirectRead))        { s |= D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT; }
-            if (has(AccessFlags::VertexIndexInput))    { s |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER | D3D12_RESOURCE_STATE_INDEX_BUFFER; }
-            if (has(AccessFlags::ConstantBufferRead))  { s |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER; }
-            if (has(AccessFlags::ShaderSampledRead))
-            {
-                s |= D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-                if (graphics) { s |= D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE; }
-            }
-            if (has(AccessFlags::ShaderStorageRead))   { s |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS; }
-            if (has(AccessFlags::DepthStencilRead))    { s |= D3D12_RESOURCE_STATE_DEPTH_READ; }
-            if (has(AccessFlags::ColorAttachmentRead)) { s |= D3D12_RESOURCE_STATE_RENDER_TARGET; }
-            if (has(AccessFlags::TransferRead))        { s |= D3D12_RESOURCE_STATE_COPY_SOURCE; }
-            if (has(AccessFlags::ResolveRead))         { s |= D3D12_RESOURCE_STATE_RESOLVE_SOURCE; }
-            if (has(AccessFlags::PredicationRead))     { s |= D3D12_RESOURCE_STATE_PREDICATION; }
-            if (has(AccessFlags::ShadingRateRead))     { s |= D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE; }
-            if (has(AccessFlags::InputAttachmentRead))
-            {
-                if (graphics) { s |= D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE; }
-            }
-            if (has(AccessFlags::AccelStructRead))     { s |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE; }
-
-            if (has(AccessFlags::ShaderStorageWrite))  { s |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS; }
-            if (has(AccessFlags::ColorAttachmentWrite)){ s |= D3D12_RESOURCE_STATE_RENDER_TARGET; }
-            if (has(AccessFlags::DepthStencilWrite))   { s |= D3D12_RESOURCE_STATE_DEPTH_WRITE; }
-            if (has(AccessFlags::TransferWrite))       { s |= D3D12_RESOURCE_STATE_COPY_DEST; }
-            if (has(AccessFlags::ResolveWrite))        { s |= D3D12_RESOURCE_STATE_RESOLVE_DEST; }
-            if (has(AccessFlags::AccelStructWrite))    { s |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE; }
-
-            if (has(AccessFlags::Present))             { s |= D3D12_RESOURCE_STATE_PRESENT; }
-
-            return s;
+            // ACCESS_COMMON (0) means "whatever the layout allows"; None, Present and Undefined
+            // access nothing.
+            return a == D3D12_BARRIER_ACCESS_COMMON ? D3D12_BARRIER_ACCESS_NO_ACCESS : a;
         }
     }
 
-    D3D12_RESOURCE_STATES ConvertBufferState(
-        RHI::AccessFlags access, RHI::HardwareQueueClass queue, RHI::AttachmentStage stage)
+    D3D12_BARRIER_ACCESS ConvertBufferBarrierAccess(RHI::AccessFlags access)
     {
+        ASSERT(!CheckBitsAny(access, AccessFlags::Undefined),
+            "[RHI DX12] ConvertBufferBarrierAccess - Undefined goes through a global barrier.");
         ASSERT(!CheckBitsAny(access, k_imageOnlyAccess),
-            "[RHI DX12] ConvertBufferState - image-only access bits 0x{:x} on a buffer.",
+            "[RHI DX12] ConvertBufferBarrierAccess - image-only access bits 0x{:x} on a buffer.",
             static_cast<uint32_t>(access & k_imageOnlyAccess));
-        return ConvertAccessToStates(access, queue, stage);
+        return ConvertBarrierAccess(access);
     }
 
-    D3D12_RESOURCE_STATES ConvertImageState(
-        RHI::AccessFlags access, RHI::HardwareQueueClass queue, RHI::AttachmentStage stage)
+    D3D12_BARRIER_ACCESS ConvertImageBarrierAccess(RHI::AccessFlags access)
     {
+        // UNDEFINED as LayoutBefore takes NO_ACCESS; the previous occupant's accesses may be
+        // any resource type's.
+        if (CheckBitsAny(access, AccessFlags::Undefined))
+        {
+            return D3D12_BARRIER_ACCESS_NO_ACCESS;
+        }
         ASSERT(!CheckBitsAny(access, k_bufferOnlyAccess),
-            "[RHI DX12] ConvertImageState - buffer-only access bits 0x{:x} on an image.",
+            "[RHI DX12] ConvertImageBarrierAccess - buffer-only access bits 0x{:x} on an image.",
             static_cast<uint32_t>(access & k_bufferOnlyAccess));
+        return ConvertBarrierAccess(access);
+    }
 
-        // Copy queues only support the COMMON layout — a texture used on a copy queue
-        // must stay COMMON; the copy engine implicitly promotes COMMON->COPY_DEST/SOURCE
-        // for the transfer itself. Emitting COPY_DEST/SOURCE here yields a LEGACY_COPY_*
-        // layout, which the (stricter Win11) debug layer rejects on a COPY command list
-        // (#1334 INCOMPATIBLE_BARRIER_LAYOUT). Buffers are unaffected (no layout), so
-        // ConvertBufferState is left alone. Temporary until the backend moves to Enhanced
-        // Barriers (explicit layout axis, Vulkan-aligned), which removes this whole class.
+    D3D12_BARRIER_ACCESS ConvertGlobalBarrierAccess(RHI::AccessFlags access)
+    {
+        return ConvertBarrierAccess(access);
+    }
+
+    D3D12_BARRIER_SYNC ConvertBarrierSync(
+        RHI::AttachmentStage stage, RHI::AccessFlags access, RHI::HardwareQueueClass queue)
+    {
+        using RHI::AttachmentStage;
+
+        if (queue != RHI::HardwareQueueClass::Graphics)
+        {
+            ASSERT(!CheckBitsAny(access, k_graphicsOnlyAccess),
+                "[RHI DX12] ConvertBarrierSync - graphics-only access bits 0x{:x} on queue {}.",
+                static_cast<uint32_t>(access & k_graphicsOnlyAccess),
+                static_cast<uint32_t>(queue));
+        }
+
+        if (CheckBitsAll(stage, AttachmentStage::Any))
+        {
+            return D3D12_BARRIER_SYNC_ALL;
+        }
+
+        auto stageHas = [stage](AttachmentStage bits) { return CheckBitsAny(stage, bits); };
+
+        D3D12_BARRIER_SYNC s = D3D12_BARRIER_SYNC_NONE;
+        if (stageHas(AttachmentStage::VertexShader))     { s |= D3D12_BARRIER_SYNC_VERTEX_SHADING; }
+        if (stageHas(AttachmentStage::FragmentShader | AttachmentStage::ShadingRate)) { s |= D3D12_BARRIER_SYNC_PIXEL_SHADING; }
+        if (stageHas(AttachmentStage::ComputeShader))    { s |= D3D12_BARRIER_SYNC_COMPUTE_SHADING; }
+        if (stageHas(AttachmentStage::RayTracingShader)) { s |= D3D12_BARRIER_SYNC_RAYTRACING; }
+        if (stageHas(AttachmentStage::EarlyFragmentTest | AttachmentStage::LateFragmentTest)) { s |= D3D12_BARRIER_SYNC_DEPTH_STENCIL; }
+        if (stageHas(AttachmentStage::Copy))             { s |= D3D12_BARRIER_SYNC_COPY; }
+        if (stageHas(AttachmentStage::Predication))      { s |= D3D12_BARRIER_SYNC_PREDICATION; }
+        if (stageHas(AttachmentStage::DrawIndirect))     { s |= D3D12_BARRIER_SYNC_EXECUTE_INDIRECT; }
+        if (stageHas(AttachmentStage::VertexInput))      { s |= D3D12_BARRIER_SYNC_INDEX_INPUT | D3D12_BARRIER_SYNC_VERTEX_SHADING; }
+
+        // Vulkan resolves inside COLOR_ATTACHMENT_OUTPUT; D3D12 resolve is its own sync scope,
+        // and every sync bit must suit the access.
+        const bool resolves = CheckBitsAny(access, AccessFlags::ResolveRead | AccessFlags::ResolveWrite);
+        if (resolves)
+        {
+            s |= D3D12_BARRIER_SYNC_RESOLVE;
+        }
+        if (stageHas(AttachmentStage::ColorAttachmentOutput)
+            && (!resolves || CheckBitsAny(access, AccessFlags::ColorAttachmentRead | AccessFlags::ColorAttachmentWrite)))
+        {
+            s |= D3D12_BARRIER_SYNC_RENDER_TARGET;
+        }
+
+        ASSERT(queue != RHI::HardwareQueueClass::Compute || !CheckBitsAny(s, k_graphicsOnlySync),
+            "[RHI DX12] ConvertBarrierSync - graphics stages 0x{:x} on the compute queue.",
+            static_cast<uint32_t>(stage));
+        ASSERT(queue != RHI::HardwareQueueClass::Copy || (s & ~D3D12_BARRIER_SYNC_COPY) == D3D12_BARRIER_SYNC_NONE,
+            "[RHI DX12] ConvertBarrierSync - non-copy stages 0x{:x} on the copy queue.",
+            static_cast<uint32_t>(stage));
+        // NO_ACCESS must pair with SYNC_NONE (bar a discard's UNDEFINED texture layout), and
+        // an access needs a stage: a side without access has no stage and the reverse.
+        const bool accesses = CheckBitsAny(access, AccessFlags::ReadMask | AccessFlags::WriteMask);
+        ASSERT(accesses == (s != D3D12_BARRIER_SYNC_NONE),
+            "[RHI DX12] ConvertBarrierSync - access 0x{:x} with stage 0x{:x}.",
+            static_cast<uint32_t>(access), static_cast<uint32_t>(stage));
+        return s;
+    }
+
+    D3D12_BARRIER_LAYOUT ConvertBarrierLayout(RHI::AccessFlags access, RHI::HardwareQueueClass queue)
+    {
+        // Copy queues support textures only in COMMON.
         if (queue == RHI::HardwareQueueClass::Copy)
         {
-            return D3D12_RESOURCE_STATE_COMMON;
+            return D3D12_BARRIER_LAYOUT_COMMON;
+        }
+        if (CheckBitsAny(access, AccessFlags::Undefined))
+        {
+            return D3D12_BARRIER_LAYOUT_UNDEFINED;
+        }
+        ASSERT(!CheckBitsAny(access, k_bufferOnlyAccess),
+            "[RHI DX12] ConvertBarrierLayout - buffer-only access bits 0x{:x} on an image.",
+            static_cast<uint32_t>(access & k_bufferOnlyAccess));
+        // Idle: nothing accesses it, and its contents are kept.
+        if (access == AccessFlags::None)
+        {
+            return D3D12_BARRIER_LAYOUT_COMMON;
+        }
+        if (access == AccessFlags::Present)
+        {
+            return D3D12_BARRIER_LAYOUT_PRESENT;
         }
 
-        return ConvertAccessToStates(access, queue, stage);
+        const bool direct = (queue == RHI::HardwareQueueClass::Graphics);
+        auto perQueue = [direct](D3D12_BARRIER_LAYOUT directLayout, D3D12_BARRIER_LAYOUT computeLayout)
+        {
+            return direct ? directLayout : computeLayout;
+        };
+        auto has = [access](AccessFlags bits) { return CheckBitsAny(access, bits); };
+
+        D3D12_BARRIER_LAYOUT layout;
+        AccessFlags allowed;
+        if (has(AccessFlags::ColorAttachmentRead | AccessFlags::ColorAttachmentWrite))
+        {
+            layout = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+            allowed = AccessFlags::ColorAttachmentRead | AccessFlags::ColorAttachmentWrite;
+        }
+        else if (has(AccessFlags::DepthStencilWrite))
+        {
+            layout = D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE;
+            allowed = AccessFlags::DepthStencilRead | AccessFlags::DepthStencilWrite;
+        }
+        else if (has(AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite))
+        {
+            layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS);
+            allowed = AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite;
+        }
+        else if (has(AccessFlags::TransferWrite))
+        {
+            layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST);
+            allowed = AccessFlags::TransferWrite;
+        }
+        else if (has(AccessFlags::ResolveWrite))
+        {
+            layout = D3D12_BARRIER_LAYOUT_RESOLVE_DEST;
+            allowed = AccessFlags::ResolveWrite;
+        }
+        else
+        {
+            // DEPTH_STENCIL_READ admits no shader read: a depth test that is also sampled is GENERIC_READ.
+            allowed = AccessFlags::DepthStencilRead | k_shaderRead | AccessFlags::TransferRead
+                | AccessFlags::ResolveRead | AccessFlags::ShadingRateRead;
+            const uint32_t readKinds = static_cast<uint32_t>(has(AccessFlags::DepthStencilRead)) + has(k_shaderRead)
+                + has(AccessFlags::TransferRead) + has(AccessFlags::ResolveRead) + has(AccessFlags::ShadingRateRead);
+            if (readKinds > 1)
+            {
+                layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ);
+            }
+            else if (has(AccessFlags::DepthStencilRead))
+            {
+                layout = D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ;
+            }
+            else if (has(k_shaderRead))
+            {
+                layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE);
+            }
+            else if (has(AccessFlags::TransferRead))
+            {
+                layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE);
+            }
+            else if (has(AccessFlags::ResolveRead))
+            {
+                layout = D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE;
+            }
+            else
+            {
+                layout = D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE;
+            }
+        }
+
+        ASSERT((access & ~allowed) == AccessFlags::None,
+            "[RHI DX12] ConvertBarrierLayout - access 0x{:x} has no single layout.",
+            static_cast<uint32_t>(access));
+        return layout;
     }
 
     void ConvertBufferView(

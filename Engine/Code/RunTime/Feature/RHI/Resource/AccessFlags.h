@@ -39,8 +39,12 @@ namespace Spark::RHI
         ResolveWrite         = BIT(20),
         AccelStructWrite     = BIT(21),
 
-        // terminal / exclusive [24+]
+        // states standing in for a layout [24+]
         Present              = BIT(24),
+        //! The contents need not be kept: a barrier from it discards them. Source side only;
+        //! the read / write bits beside it are the memory's previous accesses (an aliased
+        //! resource's previous occupant), still to be synchronized against.
+        Undefined            = BIT(25),
 
         ReadMask =
             IndirectRead | VertexIndexInput | ConstantBufferRead | ShaderSampledRead |

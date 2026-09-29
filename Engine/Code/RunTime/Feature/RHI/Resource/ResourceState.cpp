@@ -109,56 +109,6 @@ namespace Spark::RHI
         return barrier;
     }
 
-    namespace
-    {
-        DeviceMemoryBarrier MakeDeviceMemoryBarrierImpl(
-            Resource*           before,
-            Resource*           after,
-            BarrierResourceType typeBefore,
-            BarrierResourceType typeAfter,
-            AttachmentStage     srcStage,
-            AttachmentStage     dstStage)
-        {
-            ASSERT(after != nullptr, "[RHI] MakeDeviceMemoryBarrier: 'after' resource must be non-null.");
-            DeviceMemoryBarrier barrier;
-            barrier.m_resourceBefore = before;
-            barrier.m_resourceAfter  = after;
-            barrier.m_typeBefore     = typeBefore;
-            barrier.m_typeAfter      = typeAfter;
-            barrier.m_srcStage       = srcStage;
-            barrier.m_dstStage       = dstStage;
-            return barrier;
-        }
-    }
-
-    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
-        Buffer* before, Buffer* after, AttachmentStage srcStage, AttachmentStage dstStage)
-    {
-        return MakeDeviceMemoryBarrierImpl(
-            before, after, BarrierResourceType::Buffer, BarrierResourceType::Buffer, srcStage, dstStage);
-    }
-
-    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
-        Buffer* before, Image* after, AttachmentStage srcStage, AttachmentStage dstStage)
-    {
-        return MakeDeviceMemoryBarrierImpl(
-            before, after, BarrierResourceType::Buffer, BarrierResourceType::Image, srcStage, dstStage);
-    }
-
-    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
-        Image* before, Buffer* after, AttachmentStage srcStage, AttachmentStage dstStage)
-    {
-        return MakeDeviceMemoryBarrierImpl(
-            before, after, BarrierResourceType::Image, BarrierResourceType::Buffer, srcStage, dstStage);
-    }
-
-    DeviceMemoryBarrier MakeDeviceMemoryBarrier(
-        Image* before, Image* after, AttachmentStage srcStage, AttachmentStage dstStage)
-    {
-        return MakeDeviceMemoryBarrierImpl(
-            before, after, BarrierResourceType::Image, BarrierResourceType::Image, srcStage, dstStage);
-    }
-
     BufferBarrier ConvertToCopyRead(Buffer& buffer)
     {
         return MakeBufferBarrier(buffer, AccessFlags::TransferRead);
@@ -251,7 +201,8 @@ namespace Spark::RHI
 
     ImageBarrier ConvertToPresent(Image& image)
     {
-        return MakeImageBarrier(image, AccessFlags::Present);
+        // Nothing in the pipeline touches the image after present.
+        return MakeImageBarrier(image, AccessFlags::Present, AttachmentStage::Uninitialized);
     }
 
     namespace
@@ -283,6 +234,12 @@ namespace Spark::RHI
         }
 
         const Buffer& buffer = *barrier.m_buffer;
+        if (CheckBitsAny(barrier.m_dstAccess, AccessFlags::Undefined))
+        {
+            LOG_ERROR("[RHI] Buffer barrier for '{}' targets Undefined, which is source side only.",
+                buffer.GetName().GetCStr());
+            return false;
+        }
         if (!IsBufferAccessSupported(buffer, barrier.m_dstAccess))
         {
             LOG_ERROR(
@@ -316,6 +273,12 @@ namespace Spark::RHI
         }
 
         const Image& image = *barrier.m_image;
+        if (CheckBitsAny(barrier.m_dstAccess, AccessFlags::Undefined))
+        {
+            LOG_ERROR("[RHI] Image barrier for '{}' targets Undefined, which is source side only.",
+                image.GetName().GetCStr());
+            return false;
+        }
         if (!IsImageAccessSupported(image, barrier.m_dstAccess))
         {
             LOG_ERROR(

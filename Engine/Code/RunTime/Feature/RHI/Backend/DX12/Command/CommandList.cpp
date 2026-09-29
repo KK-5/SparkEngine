@@ -541,13 +541,48 @@ namespace Spark::RHI::DX12
         GetCommandList()->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
     }
 
+    namespace
+    {
+        D3D12_BARRIER_SUBRESOURCE_RANGE AllSubresources()
+        {
+            D3D12_BARRIER_SUBRESOURCE_RANGE range{};
+            range.IndexOrFirstMipLevel = 0xFFFFFFFF;
+            return range;
+        }
+
+        //! Render-target and depth-stencil output is ordered in submission order, so a barrier
+        //! that changes neither layout nor access between such accesses has nothing to do.
+        bool IsRasterOrderedNoOp(const D3D12_TEXTURE_BARRIER& b)
+        {
+            constexpr D3D12_BARRIER_ACCESS rasterOrdered = D3D12_BARRIER_ACCESS_RENDER_TARGET
+                | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
+            return b.LayoutBefore == b.LayoutAfter
+                && b.AccessBefore == b.AccessAfter
+                && (b.AccessBefore & ~rasterOrdered) == D3D12_BARRIER_ACCESS_COMMON;
+        }
+
+        //! The accesses beside Undefined are the memory's previous ones, possibly another
+        //! resource type's (an aliased resource's previous occupant): a global barrier waits
+        //! for them and flushes their writes.
+        D3D12_GLOBAL_BARRIER MakePreviousUseBarrier(
+            RHI::AccessFlags previous, RHI::AttachmentStage previousStage,
+            RHI::AccessFlags dst, RHI::AttachmentStage dstStage, RHI::HardwareQueueClass queue)
+        {
+            D3D12_GLOBAL_BARRIER g{};
+            g.SyncBefore   = ConvertBarrierSync(previousStage, previous, queue);
+            g.AccessBefore = ConvertGlobalBarrierAccess(previous);
+            g.SyncAfter    = ConvertBarrierSync(dstStage, dst, queue);
+            g.AccessAfter  = ConvertGlobalBarrierAccess(dst);
+            return g;
+        }
+    }
+
     void CommandList::QueueBarrier(const RHI::BufferBarrier& barrier)
     {
-        // Cross-queue ownership transfer (Vulkan QFOT) maps to a Common-state
-        // bridge in DX12: release side transitions srcAccess -> COMMON, acquire
-        // side transitions COMMON -> dstAccess. COMMON is the only state both
-        // queues are guaranteed to support transitioning into / out of, so the
-        // bridge is universally safe regardless of dstAccess's queue affinity.
+        // Cross-queue ownership transfer (Vulkan QFOT) maps to a COMMON bridge in
+        // DX12: the release side ends in NO_ACCESS (and the COMMON layout for images),
+        // the acquire side starts from there. COMMON is the only layout every queue can
+        // use, so the bridge is safe regardless of dstAccess's queue affinity.
         // Cross-queue happens-before is provided by the timeline-semaphore
         // wait that the render layer inserts between the two queues.
         const auto myQueue       = GetHardwareQueueClass();
@@ -565,41 +600,53 @@ namespace Spark::RHI::DX12
         RHI::BufferPool& bufferPool = static_cast<RHI::BufferPool&>(*barrier.m_buffer->GetPool());
         if (bufferPool.GetDescriptor().m_heapMemoryLevel == RHI::HeapMemoryLevel::Host)
         {
-            // Upload / readback heaps live in GENERIC_READ permanently; no transition needed.
+            // Upload / readback heaps are CPU-visible and never transition.
             return;
         }
 
         Buffer& buffer = static_cast<Buffer&>(*barrier.m_buffer);
-        ID3D12Resource* resource = buffer.GetMemoryView().GetMemory();
 
-        if (!isCrossQueue)
+        const bool release = isCrossQueue && myQueue == barrier.m_srcQueue;
+        const bool acquire = isCrossQueue && myQueue == barrier.m_dstQueue;
+
+        if (CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined))
         {
-            CommandListBase::QueueTransitionBarrier(
-                resource,
-                ConvertBufferState(barrier.m_srcAccess, myQueue, barrier.m_srcStage),
-                ConvertBufferState(barrier.m_dstAccess, myQueue, barrier.m_dstStage));
-            RHI::CommandList::SetResourceState(*barrier.m_buffer,
-                RHI::ResourceState{ barrier.m_dstAccess, myQueue, barrier.m_dstStage });
-        }
-        else if (myQueue == barrier.m_srcQueue)
-        {
-            // Release half: srcAccess -> COMMON on the releasing queue. Deliberately
-            // does NOT touch the tracked ResourceState — see the ImageBarrier
-            // overload for the full rationale (the release races its cross-queue
-            // acquire on another queue/thread and, landing last, would park the
-            // resource at a transit state the render graph then re-acquires).
-            CommandListBase::QueueTransitionBarrier(
-                resource,
-                ConvertBufferState(barrier.m_srcAccess, myQueue, barrier.m_srcStage),
-                D3D12_RESOURCE_STATE_COMMON);
+            // A buffer has no layout to discard: all there is to it is the memory's previous use.
+            ASSERT(!release, "Releasing a buffer from Undefined.");
+            const RHI::AccessFlags previous = barrier.m_srcAccess & ~RHI::AccessFlags::Undefined;
+            if (!acquire && previous != RHI::AccessFlags::None)
+            {
+                CommandListBase::QueueGlobalBarrier(MakePreviousUseBarrier(
+                    previous, barrier.m_srcStage, barrier.m_dstAccess, barrier.m_dstStage, myQueue));
+            }
         }
         else
         {
-            // Acquire: COMMON -> dstAccess on the destination queue.
-            CommandListBase::QueueTransitionBarrier(
-                resource,
-                D3D12_RESOURCE_STATE_COMMON,
-                ConvertBufferState(barrier.m_dstAccess, myQueue, barrier.m_dstStage));
+            D3D12_BUFFER_BARRIER b{};
+            b.SyncBefore   = D3D12_BARRIER_SYNC_NONE;
+            b.SyncAfter    = D3D12_BARRIER_SYNC_NONE;
+            b.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+            b.AccessAfter  = D3D12_BARRIER_ACCESS_NO_ACCESS;
+            b.pResource    = buffer.GetMemoryView().GetMemory();
+            b.Offset       = 0;
+            b.Size         = UINT64_MAX;
+            if (!acquire)
+            {
+                b.SyncBefore   = ConvertBarrierSync(barrier.m_srcStage, barrier.m_srcAccess, myQueue);
+                b.AccessBefore = ConvertBufferBarrierAccess(barrier.m_srcAccess);
+            }
+            if (!release)
+            {
+                b.SyncAfter   = ConvertBarrierSync(barrier.m_dstStage, barrier.m_dstAccess, myQueue);
+                b.AccessAfter = ConvertBufferBarrierAccess(barrier.m_dstAccess);
+            }
+            CommandListBase::QueueBufferBarrier(b);
+        }
+
+        // The release half deliberately does NOT touch the tracked ResourceState — see
+        // the ImageBarrier overload for the rationale.
+        if (!release)
+        {
             RHI::CommandList::SetResourceState(*barrier.m_buffer,
                 RHI::ResourceState{ barrier.m_dstAccess, myQueue, barrier.m_dstStage });
         }
@@ -621,89 +668,71 @@ namespace Spark::RHI::DX12
         }
 
         Image& image = static_cast<Image&>(*barrier.m_image);
-        ID3D12Resource* resource = image.GetMemoryView().GetMemory();
 
-        if (!isCrossQueue)
+        D3D12_TEXTURE_BARRIER b{};
+        b.SyncBefore   = D3D12_BARRIER_SYNC_NONE;
+        b.SyncAfter    = D3D12_BARRIER_SYNC_NONE;
+        b.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+        b.AccessAfter  = D3D12_BARRIER_ACCESS_NO_ACCESS;
+        b.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
+        b.LayoutAfter  = D3D12_BARRIER_LAYOUT_COMMON;
+        b.pResource    = image.GetMemoryView().GetMemory();
+        b.Subresources = AllSubresources();
+        b.Flags        = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+
+        const bool release = isCrossQueue && myQueue == barrier.m_srcQueue;
+        const bool acquire = isCrossQueue && myQueue == barrier.m_dstQueue;
+        const bool discard = CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined)
+            && myQueue != RHI::HardwareQueueClass::Copy;
+        if (!acquire)
         {
-            CommandListBase::QueueTransitionBarrier(
-                resource,
-                ConvertImageState(barrier.m_srcAccess, myQueue, barrier.m_srcStage),
-                ConvertImageState(barrier.m_dstAccess, myQueue, barrier.m_dstStage));
+            b.SyncBefore   = ConvertBarrierSync(barrier.m_srcStage, barrier.m_srcAccess, myQueue);
+            b.AccessBefore = ConvertImageBarrierAccess(barrier.m_srcAccess);
+            b.LayoutBefore = ConvertBarrierLayout(barrier.m_srcAccess, myQueue);
+        }
+        else if (discard)
+        {
+            b.LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
+        }
+        if (!release)
+        {
+            b.SyncAfter   = ConvertBarrierSync(barrier.m_dstStage, barrier.m_dstAccess, myQueue);
+            b.AccessAfter = ConvertImageBarrierAccess(barrier.m_dstAccess);
+            b.LayoutAfter = ConvertBarrierLayout(barrier.m_dstAccess, myQueue);
+        }
+        if (discard)
+        {
+            // Initializes render-target / depth-stencil compression metadata.
+            if (CheckBitsAny(image.GetDescriptor().m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil))
+            {
+                b.Flags = D3D12_TEXTURE_BARRIER_FLAG_DISCARD;
+            }
+            const RHI::AccessFlags previous = barrier.m_srcAccess & ~RHI::AccessFlags::Undefined;
+            if (!acquire && previous != RHI::AccessFlags::None)
+            {
+                CommandListBase::QueueGlobalBarrier(MakePreviousUseBarrier(
+                    previous, barrier.m_srcStage, barrier.m_dstAccess, barrier.m_dstStage, myQueue));
+            }
+        }
+        if (!IsRasterOrderedNoOp(b))
+        {
+            CommandListBase::QueueTextureBarrier(b);
+        }
+
+        // The release half deliberately does NOT touch the tracked ResourceState. The
+        // release runs on a different queue/thread than the matching acquire (e.g. async
+        // upload's Copy queue vs the graphics acquire); writing the transit state here
+        // races the acquire and, landing last, would leave the resource parked at
+        // {None, srcQueue}. The render-graph compile then re-reads that as "still needs a
+        // cross-queue acquire" and re-emits a barrier onto an already-transitioned
+        // resource. The destination queue's acquire is the sole authority for the
+        // post-handoff state; the source queue the acquire needs for its cross-queue
+        // detection is already carried by the pre-release tracked state.
+        if (!release)
+        {
             RHI::CommandList::SetResourceState(*barrier.m_image,
                 RHI::ResourceState{ barrier.m_dstAccess, myQueue, barrier.m_dstStage });
         }
-        else if (myQueue == barrier.m_srcQueue)
-        {
-            // Release half: srcAccess -> COMMON on the releasing queue. Deliberately
-            // does NOT touch the tracked ResourceState. The release runs on a
-            // different queue/thread than the matching acquire (e.g. async upload's
-            // Copy queue vs the graphics acquire); writing the transit COMMON here
-            // races the acquire and, landing last, would leave the resource parked
-            // at {Uninitialized, srcQueue}. The render-graph compile then re-reads
-            // that as "still needs a cross-queue acquire" and re-emits a COMMON→target
-            // barrier onto an already-transitioned resource (D3D12 error #527). The
-            // destination queue's acquire is the sole authority for the post-handoff
-            // state; the source queue the acquire needs for its cross-queue detection
-            // is already carried by the pre-release tracked state.
-            CommandListBase::QueueTransitionBarrier(
-                resource,
-                ConvertImageState(barrier.m_srcAccess, myQueue, barrier.m_srcStage),
-                D3D12_RESOURCE_STATE_COMMON);
-        }
-        else
-        {
-            // Acquire: COMMON -> dstAccess on the destination queue.
-            CommandListBase::QueueTransitionBarrier(
-                resource,
-                D3D12_RESOURCE_STATE_COMMON,
-                ConvertImageState(barrier.m_dstAccess, myQueue, barrier.m_dstStage));
-            RHI::CommandList::SetResourceState(*barrier.m_image,
-                RHI::ResourceState{ barrier.m_dstAccess, myQueue, barrier.m_dstStage });
-        }
-    }
-
-    void CommandList::QueueBarrier(const RHI::DeviceMemoryBarrier& barrier)
-    {
-        D3D12_RESOURCE_ALIASING_BARRIER dx12Barrier{};
-
-        if (barrier.m_resourceBefore)
-        {
-            switch (barrier.m_typeBefore)
-            {
-                case RHI::BarrierResourceType::Buffer:
-                {
-                    auto buffer = static_cast<Buffer*>(barrier.m_resourceBefore);
-                    dx12Barrier.pResourceBefore = buffer->GetMemoryView().GetMemory();
-                    break;
-                }
-                case RHI::BarrierResourceType::Image:
-                {
-                    auto image = static_cast<Image*>(barrier.m_resourceBefore);
-                    dx12Barrier.pResourceBefore = image->GetMemoryView().GetMemory();
-                    break;
-                }
-            }
-        }
-
-        switch (barrier.m_typeAfter)
-        {
-            case RHI::BarrierResourceType::Buffer:
-            {
-                auto buffer = static_cast<Buffer*>(barrier.m_resourceAfter);
-                dx12Barrier.pResourceAfter = buffer->GetMemoryView().GetMemory();
-                break;
-            }
-            case RHI::BarrierResourceType::Image:
-            {
-                auto image = static_cast<Image*>(barrier.m_resourceAfter);
-                dx12Barrier.pResourceAfter = image->GetMemoryView().GetMemory();
-                break;
-            }
-            default:
-                ASSERT(false, "Invalid memory barrier type.");
-        }
-
-        CommandListBase::QueueAliasingBarrier(dx12Barrier, nullptr);
     }
 
     void CommandList::FlushBarriers()

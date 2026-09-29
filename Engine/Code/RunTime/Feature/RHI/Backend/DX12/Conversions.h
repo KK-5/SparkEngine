@@ -52,6 +52,9 @@ namespace Spark::RHI::DX12
 
     void ConvertImageDescriptor(const RHI::ImageDescriptor& descriptor, D3D12_RESOURCE_DESC& resourceDesc);
 
+    //! For the layout-based creation APIs; no sampler feedback mip region.
+    D3D12_RESOURCE_DESC1 ConvertResourceDesc1(const D3D12_RESOURCE_DESC& resourceDesc);
+
     DXGI_FORMAT ConvertImageViewFormat(const Image& image, const RHI::ImageViewDescriptor& imageViewDescriptor);
 
     uint16_t ConvertImageAspectToPlaneSlice(RHI::ImageAspect aspect);
@@ -62,16 +65,21 @@ namespace Spark::RHI::DX12
 
     D3D12_HEAP_TYPE ConvertHeapType(RHI::HeapMemoryLevel heapMemoryLevel, RHI::HostMemoryAccess hostMemoryAccess);
 
-    // queue is the executing command list's queue (GetHardwareQueueClass), not the
-    // resource's ownership queue: it gates PIXEL_SHADER_RESOURCE, which is only valid
-    // on Graphics. Do not pass a barrier's m_dstQueue (defaults to Graphics intra-queue).
-    D3D12_RESOURCE_STATES ConvertBufferState(
-        RHI::AccessFlags access, RHI::HardwareQueueClass queue,
-        RHI::AttachmentStage stage = RHI::AttachmentStage::Any);
+    // Enhanced-barrier conversions. queue is the executing command list's queue
+    // (GetHardwareQueueClass): it picks the queue-specific layout and trims sync bits
+    // the queue can't execute.
+    D3D12_BARRIER_ACCESS ConvertBufferBarrierAccess(RHI::AccessFlags access);
 
-    D3D12_RESOURCE_STATES ConvertImageState(
-        RHI::AccessFlags access, RHI::HardwareQueueClass queue,
-        RHI::AttachmentStage stage = RHI::AttachmentStage::Any);
+    D3D12_BARRIER_ACCESS ConvertImageBarrierAccess(RHI::AccessFlags access);
+
+    //! Any resource type's accesses, for a global barrier.
+    D3D12_BARRIER_ACCESS ConvertGlobalBarrierAccess(RHI::AccessFlags access);
+
+    D3D12_BARRIER_SYNC ConvertBarrierSync(
+        RHI::AttachmentStage stage, RHI::AccessFlags access, RHI::HardwareQueueClass queue);
+
+    //! None (idle, contents kept) maps to COMMON; Undefined to UNDEFINED, valid only as LayoutBefore.
+    D3D12_BARRIER_LAYOUT ConvertBarrierLayout(RHI::AccessFlags access, RHI::HardwareQueueClass queue);
 
     void ConvertBufferView(
         const Buffer& buffer,

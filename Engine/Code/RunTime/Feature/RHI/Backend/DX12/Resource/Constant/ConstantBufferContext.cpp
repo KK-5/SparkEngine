@@ -2,6 +2,7 @@
 #include "ConstantBufferContext.h"
 
 #include <Device/Device.h>
+#include <Conversions.h>
 
 namespace Spark::RHI::DX12
 {
@@ -35,12 +36,15 @@ namespace Spark::RHI::DX12
         D3D12MA::ALLOCATION_DESC allocDesc = {};
         allocDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
 
+        const D3D12_RESOURCE_DESC1 desc1 = ConvertResourceDesc1(desc);
         ComPtr<D3D12MA::Allocation> allocation = nullptr;
-        HRESULT result = m_allocator->CreateResource(
+        HRESULT result = m_allocator->CreateResource3(
             &allocDesc,
-            &desc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
+            &desc1,
+            D3D12_BARRIER_LAYOUT_UNDEFINED,
             NULL,
+            0,
+            nullptr,
             &allocation,
             IID_NULL,
             NULL

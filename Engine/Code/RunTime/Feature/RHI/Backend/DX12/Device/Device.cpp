@@ -56,6 +56,28 @@ namespace Spark::RHI::DX12
         }
     }
 
+    void RouteDebugMessagesToLog(ComPtr<ID3D12DeviceX>& dx12Device)
+    {
+        ComPtr<ID3D12InfoQueue1> infoQueue;
+        if (SUCCEEDED(dx12Device->QueryInterface(infoQueue.GetAddressOf())))
+        {
+            DWORD cookie = 0;
+            infoQueue->RegisterMessageCallback(
+                [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void*)
+                {
+                    if (severity <= D3D12_MESSAGE_SEVERITY_ERROR)
+                    {
+                        LOG_ERROR("[D3D12] #{} {}", static_cast<int>(id), description);
+                    }
+                    else if (severity == D3D12_MESSAGE_SEVERITY_WARNING)
+                    {
+                        LOG_WARN("[D3D12] #{} {}", static_cast<int>(id), description);
+                    }
+                },
+                D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &cookie);
+        }
+    }
+
     void AddDebugFilters(ComPtr<ID3D12DeviceX>& dx12Device, RHI::ValidationMode validationMode)
     {
         eastl::vector<D3D12_MESSAGE_SEVERITY> enabledSeverities;
@@ -308,11 +330,27 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
+        // Barriers are enhanced barriers only, and resources are created with an initial layout.
+        D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12{};
+        const bool enhancedBarriers =
+            SUCCEEDED(dx12Device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12)))
+            && options12.EnhancedBarriersSupported;
+        ComPtr<ID3D12Device10> device10;
+        const bool device10Available = SUCCEEDED(dx12Device->QueryInterface(IID_PPV_ARGS(&device10)));
+        if (!enhancedBarriers || !device10Available)
+        {
+            LOG_ERROR("[DX12 Device] Enhanced barriers {}, ID3D12Device10 {}; both are required.",
+                      enhancedBarriers ? "supported" : "unsupported",
+                      device10Available ? "available" : "unavailable");
+            return RHI::ResultCode::Fail;
+        }
+
         if (validationMode != RHI::ValidationMode::Disabled)
         {
             EnableDebugDeviceFeatures(dx12Device);
             EnableBreakOnD3DError(dx12Device);
             AddDebugFilters(dx12Device, validationMode);
+            RouteDebugMessagesToLog(dx12Device);
         }
 
         m_dx12Device = dx12Device.Get();

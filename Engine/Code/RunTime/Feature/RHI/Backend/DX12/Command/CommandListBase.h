@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <EASTL/fixed_vector.h>
 #include <EASTL/optional.h>
 #include <EASTL/vector.h>
 
@@ -28,29 +29,16 @@ namespace Spark::RHI::DX12
     class ImageView;
     class BufferView;
 
-    //! Encapsulates a resource barrier with a posible state that is needed for the command list.
+    //! Encapsulates an enhanced barrier with a posible state that is needed for the command list.
     struct BarrierOp
     {
-        BarrierOp() = default;
-        BarrierOp(const D3D12_RESOURCE_TRANSITION_BARRIER& barrier, const RHI::MultisampleState* state)
+        D3D12_BARRIER_TYPE m_type = D3D12_BARRIER_TYPE_GLOBAL;
+        union
         {
-            m_barrier.Transition = barrier;
-            if (state)
-            {
-                m_cmdListState.emplace(*state);
-            }
-        }
-        BarrierOp(const D3D12_RESOURCE_ALIASING_BARRIER& barrier, const RHI::MultisampleState* state)
-        {
-            m_barrier.Aliasing = barrier;
-            if (state)
-            {
-                m_cmdListState.emplace(*state);
-            }
-        }
-
-        //! Resource barrier to be emitted.
-        D3D12_RESOURCE_BARRIER m_barrier;
+            D3D12_GLOBAL_BARRIER  m_global;
+            D3D12_TEXTURE_BARRIER m_texture;
+            D3D12_BUFFER_BARRIER  m_buffer;
+        };
         //! Optional state that the command list needs to be before emitting the barrier.
         eastl::optional<RHI::MultisampleState> m_cmdListState;
     };
@@ -69,30 +57,16 @@ namespace Spark::RHI::DX12
 
         bool IsRecording() const;
 
-        //! Adds a transition barrier that will be emitted when flusing the barriers.
+        //! Adds a texture barrier that will be emitted when flusing the barriers.
         //! Can specify a state that the command list need to be before emitting the barrier.
         //! A null state means that it doesn't matter in which state the command list is.
-        void QueueTransitionBarrier(
-            ID3D12Resource* resource,
-            D3D12_RESOURCE_STATES stateBefore,
-            D3D12_RESOURCE_STATES stateAfter,
+        void QueueTextureBarrier(
+            const D3D12_TEXTURE_BARRIER& barrier,
             const RHI::MultisampleState* state = nullptr);
-        //! Adds a transition barrier that will be emitted when flusing the barriers.
-        //! Can specify a state that the command list need to be before emitting the barrier.
-        //! A null state means that it doesn't matter in which state the command list is.
-        void QueueTransitionBarrier(
-            const D3D12_RESOURCE_TRANSITION_BARRIER& barrier,
-            const RHI::MultisampleState* state = nullptr);
-        //! Adds a transition barrier operation that will be emitted when flusing the barriers.
-        void QueueTransitionBarrier(const BarrierOp& op);
-        //! Adds an aliasing barrier that will be emitted when flusing the barriers.
-        //! Can specify a state that the command list need to be before emitting the barrier.
-        //! A null state means that it doesn't matter in which state the command list is.
-        void QueueAliasingBarrier(
-            const D3D12_RESOURCE_ALIASING_BARRIER& barrier,
-            const RHI::MultisampleState* state = nullptr);
-        //! Adds an aliasing barrier operation that will be emitted when flusing the barriers.
-        void QueueAliasingBarrier(const BarrierOp& op);
+        //! Adds a buffer barrier that will be emitted when flusing the barriers.
+        void QueueBufferBarrier(const D3D12_BUFFER_BARRIER& barrier);
+        //! Adds a global barrier that will be emitted when flusing the barriers.
+        void QueueGlobalBarrier(const D3D12_GLOBAL_BARRIER& barrier);
 
         void FlushBarriers();
 

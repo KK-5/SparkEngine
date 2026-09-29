@@ -260,7 +260,7 @@ namespace Spark::Render
 
         StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);
 
-        m_compiler.CompileScopeBarriers(passContext, context, *m_pool);
+        m_compiler.CompileScopeBarriers(passContext, context);
         m_compiler.CompileScopeSync(passContext, context, m_crossQueueFences);
         m_compiler.CompileScopeBeginInfo(passContext, context);
 
@@ -488,7 +488,8 @@ namespace Spark::Render
                 b.m_srcAccess = cur.m_access;
                 b.m_dstAccess = RHI::AccessFlags::Present;
                 b.m_srcStage  = cur.m_stage;
-                b.m_dstStage  = RHI::AttachmentStage::Any;
+                // Nothing in the pipeline touches the image after present.
+                b.m_dstStage  = RHI::AttachmentStage::Uninitialized;
                 b.m_srcQueue  = cur.m_queue;
                 b.m_dstQueue  = RHI::HardwareQueueClass::Graphics;
                 presents.push_back({ b, cur.m_queue });

@@ -93,11 +93,6 @@ namespace Spark::Render
         {
             for (RHIHandle attachment : attachments)
             {
-                // A resource's memory is handed over before its state changes.
-                if (const auto* barrier = rhiContext.TryGet<PreAliasingBarrier>(attachment))
-                {
-                    commandList->QueueBarrier(barrier->m_barrier);
-                }
                 if (const auto* barrier = rhiContext.TryGet<PreImageBarrier>(attachment))
                 {
                     commandList->QueueBarrier(barrier->m_barrier);

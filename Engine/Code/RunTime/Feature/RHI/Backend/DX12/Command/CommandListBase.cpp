@@ -114,126 +114,105 @@ namespace Spark::RHI::DX12
 
     void CommandListBase::FlushBarriers()
     {
-        if (m_queuedBarriers.size())
+        if (m_queuedBarriers.empty())
         {
-            // Some barriers needs a specific state before being emitted (e.g. Depth/Stencil resources with custom sample locations).
-            // We first search for barriers using the same state, then set the state in the commandlist and finally emit the barriers.
-            auto beginIt = m_queuedBarriers.begin();
-            decltype(beginIt) endIt;
-            eastl::vector<D3D12_RESOURCE_BARRIER> barriers(m_queuedBarriers.size());
-            decltype(BarrierOp::m_cmdListState) currentState;
-            do
-            {
-                // Find the first barrier that contains a different state
-                endIt = eastl::find_if(
-                    beginIt + 1,
-                    m_queuedBarriers.end(),
-                    [&](const auto& barrier)
-                    {
-                        return barrier.m_cmdListState != currentState;
-                    });
-
-                // Adds the barriers that use the same state to the list
-                barriers.clear();
-                eastl::transform(
-                    beginIt,
-                    endIt,
-                    eastl::back_inserter(barriers),
-                    [&](const auto& item)
-                    {
-                        return item.m_barrier;
-                    });
-
-                currentState = beginIt->m_cmdListState;
-                beginIt = endIt;
-
-                // Set the state needed by the barriers
-                if (currentState)
-                {
-                    SetBarrierState(currentState.value());
-                }
-                m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
-            } while (endIt != m_queuedBarriers.end());
-            
-            m_queuedBarriers.clear();
+            return;
         }
+
+        // Some barriers needs a specific state before being emitted (e.g. Depth/Stencil resources with custom sample locations).
+        // Each run of barriers sharing a state is emitted as one Barrier() call, one group per barrier type.
+        eastl::vector<D3D12_GLOBAL_BARRIER>  globals;
+        eastl::vector<D3D12_TEXTURE_BARRIER> textures;
+        eastl::vector<D3D12_BUFFER_BARRIER>  buffers;
+        auto beginIt = m_queuedBarriers.begin();
+        while (beginIt != m_queuedBarriers.end())
+        {
+            const auto& currentState = beginIt->m_cmdListState;
+            const auto endIt = eastl::find_if(
+                beginIt + 1,
+                m_queuedBarriers.end(),
+                [&](const BarrierOp& op)
+                {
+                    return op.m_cmdListState != currentState;
+                });
+
+            globals.clear();
+            textures.clear();
+            buffers.clear();
+            for (auto it = beginIt; it != endIt; ++it)
+            {
+                switch (it->m_type)
+                {
+                case D3D12_BARRIER_TYPE_GLOBAL:
+                    globals.push_back(it->m_global);
+                    break;
+                case D3D12_BARRIER_TYPE_TEXTURE:
+                    textures.push_back(it->m_texture);
+                    break;
+                case D3D12_BARRIER_TYPE_BUFFER:
+                    buffers.push_back(it->m_buffer);
+                    break;
+                }
+            }
+
+            eastl::fixed_vector<D3D12_BARRIER_GROUP, 3, false> groups;
+            if (!globals.empty())
+            {
+                D3D12_BARRIER_GROUP& group = groups.push_back();
+                group.Type            = D3D12_BARRIER_TYPE_GLOBAL;
+                group.NumBarriers     = static_cast<UINT32>(globals.size());
+                group.pGlobalBarriers = globals.data();
+            }
+            if (!textures.empty())
+            {
+                D3D12_BARRIER_GROUP& group = groups.push_back();
+                group.Type             = D3D12_BARRIER_TYPE_TEXTURE;
+                group.NumBarriers      = static_cast<UINT32>(textures.size());
+                group.pTextureBarriers = textures.data();
+            }
+            if (!buffers.empty())
+            {
+                D3D12_BARRIER_GROUP& group = groups.push_back();
+                group.Type            = D3D12_BARRIER_TYPE_BUFFER;
+                group.NumBarriers     = static_cast<UINT32>(buffers.size());
+                group.pBufferBarriers = buffers.data();
+            }
+
+            if (currentState)
+            {
+                SetBarrierState(currentState.value());
+            }
+            m_commandList->Barrier(static_cast<UINT32>(groups.size()), groups.data());
+            beginIt = endIt;
+        }
+
+        m_queuedBarriers.clear();
     }
 
-    void CommandListBase::QueueAliasingBarrier(
-        const D3D12_RESOURCE_ALIASING_BARRIER& barrier,
+    void CommandListBase::QueueTextureBarrier(
+        const D3D12_TEXTURE_BARRIER& barrier,
         const RHI::MultisampleState* state /*=nullptr*/)
     {
-        m_queuedBarriers.emplace_back();
-        BarrierOp& barrierOp = m_queuedBarriers.back();
-
-        D3D12_RESOURCE_BARRIER& barrierDesc = barrierOp.m_barrier;
-        barrierDesc.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
-        barrierDesc.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrierDesc.Aliasing = barrier;
-
+        BarrierOp& barrierOp = m_queuedBarriers.emplace_back();
+        barrierOp.m_type    = D3D12_BARRIER_TYPE_TEXTURE;
+        barrierOp.m_texture = barrier;
         if (state)
         {
             barrierOp.m_cmdListState.emplace(*state);
         }
     }
 
-    void CommandListBase::QueueAliasingBarrier(const BarrierOp& op)
+    void CommandListBase::QueueBufferBarrier(const D3D12_BUFFER_BARRIER& barrier)
     {
-        QueueAliasingBarrier(op.m_barrier.Aliasing, op.m_cmdListState.has_value() ? &op.m_cmdListState.value() : nullptr);
+        BarrierOp& barrierOp = m_queuedBarriers.emplace_back();
+        barrierOp.m_type   = D3D12_BARRIER_TYPE_BUFFER;
+        barrierOp.m_buffer = barrier;
     }
 
-    void CommandListBase::QueueTransitionBarrier(
-        ID3D12Resource* resource,
-        D3D12_RESOURCE_STATES stateBefore,
-        D3D12_RESOURCE_STATES stateAfter,
-        const RHI::MultisampleState* state /*=nullptr*/)
+    void CommandListBase::QueueGlobalBarrier(const D3D12_GLOBAL_BARRIER& barrier)
     {
-        D3D12_RESOURCE_TRANSITION_BARRIER barrier;
-        barrier.pResource = resource;
-        barrier.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.StateBefore = stateBefore;
-        barrier.StateAfter = stateAfter;
-        QueueTransitionBarrier(barrier, state);
-    }
-
-    void CommandListBase::QueueTransitionBarrier(
-        const D3D12_RESOURCE_TRANSITION_BARRIER& transitionBarrier,
-        const RHI::MultisampleState* state /*=nullptr*/)
-    {
-        if (transitionBarrier.StateBefore != transitionBarrier.StateAfter)
-        {
-            m_queuedBarriers.emplace_back();
-
-            BarrierOp& barrierOp = m_queuedBarriers.back();
-            D3D12_RESOURCE_BARRIER& barrierDesc = barrierOp.m_barrier;
-            barrierDesc.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrierDesc.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrierDesc.Transition = transitionBarrier;
-
-            if (state)
-            {
-                barrierOp.m_cmdListState.emplace(*state);
-            }
-        }
-        else if (transitionBarrier.StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
-        {
-            m_queuedBarriers.emplace_back();
-
-            BarrierOp& barrierOp = m_queuedBarriers.back();
-            D3D12_RESOURCE_BARRIER& barrierDesc = barrierOp.m_barrier;
-            barrierDesc.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-            barrierDesc.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrierDesc.UAV.pResource = transitionBarrier.pResource;
-
-            if (state)
-            {
-                barrierOp.m_cmdListState.emplace(*state);
-            }
-        }
-    }
-
-    void CommandListBase::QueueTransitionBarrier(const BarrierOp& op)
-    {
-        QueueTransitionBarrier(op.m_barrier.Transition, op.m_cmdListState.has_value() ? &op.m_cmdListState.value() : nullptr);
+        BarrierOp& barrierOp = m_queuedBarriers.emplace_back();
+        barrierOp.m_type   = D3D12_BARRIER_TYPE_GLOBAL;
+        barrierOp.m_global = barrier;
     }
 }

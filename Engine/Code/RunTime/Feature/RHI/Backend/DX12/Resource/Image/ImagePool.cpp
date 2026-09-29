@@ -91,15 +91,17 @@ namespace Spark::RHI::DX12
             clearValue = ConvertClearValue(imageDesc.m_format, *request.m_optimizedClearValue);
         }
 
-        const RHI::ResourceState resourceState = image->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertImageState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
-
+        // COMMON is usable on every queue, the copy queue's uploads included. The tracked
+        // state starts at no access, so the first barrier discards from UNDEFINED anyway.
+        const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
         ComPtr<D3D12MA::Allocation> allocation = nullptr;
-        HRESULT result = m_d3dmaAllocator->CreateResource(
+        HRESULT result = m_d3dmaAllocator->CreateResource3(
             &allocDesc,
-            &resourceDesc,
-            initialResourceState,
+            &resourceDesc1,
+            D3D12_BARRIER_LAYOUT_COMMON,
             (isOutputMergerAttachment && request.m_optimizedClearValue) ? &clearValue : nullptr,
+            0,
+            nullptr,
             &allocation,
             IID_NULL,
             NULL

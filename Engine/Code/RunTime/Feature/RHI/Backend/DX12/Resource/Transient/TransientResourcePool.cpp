@@ -175,7 +175,7 @@ namespace Spark::RHI::DX12
                 }
 
                 ID3D12Resource* dx12Resource = nullptr;
-                if (placement.m_resourceType == RHI::BarrierResourceType::Image)
+                if (placement.m_isImage)
                 {
                     dx12Resource = static_cast<Image*>(placement.m_resource.get())->GetMemoryView().GetMemory();
                 }
@@ -192,7 +192,6 @@ namespace Spark::RHI::DX12
             }
         }
 
-        bucket.m_aliasingBarriers.clear();
         bucket.m_placements.clear();
         bucket.m_chainTails.clear();
         if (bucket.m_offsetBlock)
@@ -222,7 +221,6 @@ namespace Spark::RHI::DX12
         }
         bucket.m_resourceCache.clear();
 
-        bucket.m_aliasingBarriers.clear();
         bucket.m_placements.clear();
         bucket.m_chainTails.clear();
         bucket.m_committedFallbacks.clear();
@@ -255,7 +253,7 @@ namespace Spark::RHI::DX12
 
         HeapBucket& bucket = CurrentBucket();
         const size_t descHash = HashResourceDesc(resourceDesc);
-        constexpr RHI::BarrierResourceType resourceType = RHI::BarrierResourceType::Image;
+        constexpr bool isImage = true;
 
         uint32_t bestChainSlot = InvalidPlacementIndex;
         uint32_t index = 0;
@@ -277,22 +275,15 @@ namespace Spark::RHI::DX12
 
         const uint32_t newIndex = static_cast<uint32_t>(bucket.m_placements.size());
 
-        // Filled while placing over a chain tail; recorded only once the resource exists.
-        RHI::DeviceMemoryBarrier aliasingBarrier;
+        RHI::ResourceState initialState = InitialState(nullptr, allocFence);
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
             const uint32_t prevTailIdx = bucket.m_chainTails[bestChainSlot];
             Placement& prevTail = bucket.m_placements[prevTailIdx];
 
-            const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
-            const RHI::AttachmentStage dstStage = allocFence.m_stage;
-
             // Before the push_back below, which may move prevTail.
-            aliasingBarrier.m_resourceBefore = prevTail.m_resource.get();
-            aliasingBarrier.m_typeBefore     = prevTail.m_resourceType;
-            aliasingBarrier.m_srcStage       = srcStage;
-            aliasingBarrier.m_dstStage       = dstStage;
+            initialState = InitialState(&prevTail, allocFence);
 
             Placement newPlacement;
             newPlacement.m_offset = prevTail.m_offset;
@@ -301,7 +292,7 @@ namespace Spark::RHI::DX12
             newPlacement.m_alloc = allocFence;
             newPlacement.m_aliasedFrom = prevTailIdx;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            newPlacement.m_resourceType = resourceType;
+            newPlacement.m_isImage = isImage;
             bucket.m_placements.push_back(eastl::move(newPlacement));
 
             // push_back 后 prevTail 引用可能失效，必须用 index 重新拿
@@ -325,7 +316,7 @@ namespace Spark::RHI::DX12
                     LOG_WARN("[TransientResourcePool] VirtualBlock full (size {} align {}); "
                              "falling back to committed image.",
                              allocationInfo.SizeInBytes, allocationInfo.Alignment);
-                    return CreateCommittedImage(createInfo, resourceDesc, allocationInfo);
+                    return CreateCommittedImage(createInfo, resourceDesc, allocationInfo, allocFence.m_queue);
                 }
                 LOG_ERROR("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}); "
                           "committed fallback disabled by descriptor.",
@@ -339,7 +330,7 @@ namespace Spark::RHI::DX12
             newPlacement.m_cacheKey = MakeResourceCacheKey(offset, descHash);
             newPlacement.m_alloc = allocFence;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            newPlacement.m_resourceType = resourceType;
+            newPlacement.m_isImage = isImage;
             bucket.m_placements.push_back(eastl::move(newPlacement));
 
             bucket.m_chainTails.push_back(newIndex);
@@ -349,7 +340,7 @@ namespace Spark::RHI::DX12
         ASSERT(factory, "RHI::Factory is null when creating transient image.");
 
         Ptr<RHI::Image> image = factory->CreateImage();
-        SetResourceState(*image, RHI::ResourceState{});
+        SetResourceState(*image, initialState);
 
         const bool isOutputMergerAttachment =
             CheckBitsAny(createInfo.m_descriptor.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
@@ -358,9 +349,6 @@ namespace Spark::RHI::DX12
         {
             clearValue = ConvertClearValue(createInfo.m_descriptor.m_format, *createInfo.m_optimizedClearValue);
         }
-
-        const RHI::ResourceState resourceState = image->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertImageState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
 
         auto& newPlacement = bucket.m_placements.back();
 
@@ -388,13 +376,17 @@ namespace Spark::RHI::DX12
             }
             else
             {
+                // Placed over memory another resource may have used; contents are undefined.
+                const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
                 ComPtr<ID3D12Resource> created;
-                HRESULT hr = m_allocator->CreateAliasingResource(
+                HRESULT hr = m_allocator->CreateAliasingResource2(
                     bucket.m_heap.get(),
                     newPlacement.m_offset,
-                    &resourceDesc,
-                    initialResourceState,
+                    &resourceDesc1,
+                    D3D12_BARRIER_LAYOUT_UNDEFINED,
                     (isOutputMergerAttachment && createInfo.m_optimizedClearValue) ? &clearValue : nullptr,
+                    0,
+                    nullptr,
                     IID_PPV_ARGS(&created));
                 if (FAILED(hr))
                 {
@@ -439,20 +431,12 @@ namespace Spark::RHI::DX12
             {
                 LOG_WARN("[TransientResourcePool] CreateAliasingResource (Image) failed; "
                          "falling back to committed image.");
-                return CreateCommittedImage(createInfo, resourceDesc, allocationInfo);
+                return CreateCommittedImage(createInfo, resourceDesc, allocationInfo, allocFence.m_queue);
             }
             return nullptr;
         }
 
         newPlacement.m_resource = image;
-
-        if (bestChainSlot != InvalidPlacementIndex)
-        {
-            aliasingBarrier.m_resourceAfter = image.get();
-            aliasingBarrier.m_typeAfter     = resourceType;
-            bucket.m_aliasingBarriers.emplace(image.get(), aliasingBarrier);
-        }
-
         return image.get();
     }
 
@@ -468,7 +452,7 @@ namespace Spark::RHI::DX12
 
         HeapBucket& bucket = CurrentBucket();
         const size_t descHash = HashResourceDesc(resourceDesc);
-        constexpr RHI::BarrierResourceType resourceType = RHI::BarrierResourceType::Buffer;
+        constexpr bool isImage = false;
 
         uint32_t bestChainSlot = InvalidPlacementIndex;
         uint32_t index = 0;
@@ -490,22 +474,15 @@ namespace Spark::RHI::DX12
 
         const uint32_t newIndex = static_cast<uint32_t>(bucket.m_placements.size());
 
-        // Filled while placing over a chain tail; recorded only once the resource exists.
-        RHI::DeviceMemoryBarrier aliasingBarrier;
+        RHI::ResourceState initialState = InitialState(nullptr, allocFence);
 
         if (bestChainSlot != InvalidPlacementIndex)
         {
             const uint32_t prevTailIdx = bucket.m_chainTails[bestChainSlot];
             Placement& prevTail = bucket.m_placements[prevTailIdx];
 
-            const RHI::AttachmentStage srcStage = prevTail.m_discard.m_stage;
-            const RHI::AttachmentStage dstStage = allocFence.m_stage;
-
             // Before the push_back below, which may move prevTail.
-            aliasingBarrier.m_resourceBefore = prevTail.m_resource.get();
-            aliasingBarrier.m_typeBefore     = prevTail.m_resourceType;
-            aliasingBarrier.m_srcStage       = srcStage;
-            aliasingBarrier.m_dstStage       = dstStage;
+            initialState = InitialState(&prevTail, allocFence);
 
             Placement newPlacement;
             newPlacement.m_offset = prevTail.m_offset;
@@ -514,7 +491,7 @@ namespace Spark::RHI::DX12
             newPlacement.m_alloc = allocFence;
             newPlacement.m_aliasedFrom = prevTailIdx;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            newPlacement.m_resourceType = resourceType;
+            newPlacement.m_isImage = isImage;
             bucket.m_placements.push_back(eastl::move(newPlacement));
 
             // push_back 后 prevTail 引用可能失效，必须用 index 重新拿
@@ -538,7 +515,7 @@ namespace Spark::RHI::DX12
                     LOG_WARN("[TransientResourcePool] VirtualBlock full (size {} align {}); "
                              "falling back to committed buffer.",
                              allocationInfo.SizeInBytes, allocationInfo.Alignment);
-                    return CreateCommittedBuffer(createInfo, resourceDesc, allocationInfo);
+                    return CreateCommittedBuffer(createInfo, resourceDesc, allocationInfo, allocFence.m_queue);
                 }
                 LOG_ERROR("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}); "
                           "committed fallback disabled by descriptor.",
@@ -552,7 +529,7 @@ namespace Spark::RHI::DX12
             newPlacement.m_cacheKey = MakeResourceCacheKey(offset, descHash);
             newPlacement.m_alloc = allocFence;
             newPlacement.m_discard = RHI::TransientAllocationFence(allocFence.m_pipelines, RHI::InvalidTimelinePosition);
-            newPlacement.m_resourceType = resourceType;
+            newPlacement.m_isImage = isImage;
             bucket.m_placements.push_back(eastl::move(newPlacement));
 
             bucket.m_chainTails.push_back(newIndex);
@@ -562,10 +539,7 @@ namespace Spark::RHI::DX12
         ASSERT(factory, "RHI::Factory is null when creating transient buffer.");
 
         Ptr<RHI::Buffer> buffer = factory->CreateBuffer();
-        SetResourceState(*buffer, RHI::ResourceState{});
-
-        const RHI::ResourceState resourceState = buffer->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
+        SetResourceState(*buffer, initialState);
 
         auto& newPlacement = bucket.m_placements.back();
 
@@ -593,12 +567,15 @@ namespace Spark::RHI::DX12
             }
             else
             {
+                const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
                 ComPtr<ID3D12Resource> created;
-                HRESULT hr = m_allocator->CreateAliasingResource(
+                HRESULT hr = m_allocator->CreateAliasingResource2(
                     bucket.m_heap.get(),
                     newPlacement.m_offset,
-                    &resourceDesc,
-                    initialResourceState,
+                    &resourceDesc1,
+                    D3D12_BARRIER_LAYOUT_UNDEFINED,
+                    nullptr,
+                    0,
                     nullptr,
                     IID_PPV_ARGS(&created));
                 if (FAILED(hr))
@@ -641,27 +618,33 @@ namespace Spark::RHI::DX12
             {
                 LOG_WARN("[TransientResourcePool] CreateAliasingResource (Buffer) failed; "
                          "falling back to committed buffer.");
-                return CreateCommittedBuffer(createInfo, resourceDesc, allocationInfo);
+                return CreateCommittedBuffer(createInfo, resourceDesc, allocationInfo, allocFence.m_queue);
             }
             return nullptr;
         }
 
         newPlacement.m_resource = buffer;
-
-        if (bestChainSlot != InvalidPlacementIndex)
-        {
-            aliasingBarrier.m_resourceAfter = buffer.get();
-            aliasingBarrier.m_typeAfter     = resourceType;
-            bucket.m_aliasingBarriers.emplace(buffer.get(), aliasingBarrier);
-        }
-
         return buffer.get();
+    }
+
+    RHI::ResourceState TransientResourcePool::InitialState(
+        const Placement* prior, const RHI::TransientAllocationFence& allocFence)
+    {
+        RHI::ResourceState state{ RHI::AccessFlags::Undefined, allocFence.m_queue, RHI::AttachmentStage::Uninitialized };
+        // Across queues the caller's fences order the two uses; this queue has nothing to wait for.
+        if (prior && prior->m_discard.m_queue == allocFence.m_queue)
+        {
+            state.m_access |= prior->m_discard.m_access;
+            state.m_stage   = prior->m_discard.m_stage;
+        }
+        return state;
     }
 
     RHI::Image* TransientResourcePool::CreateCommittedImage(
         const RHI::TransientImageCreateInfo& createInfo,
         const D3D12_RESOURCE_DESC& resourceDesc,
-        const D3D12_RESOURCE_ALLOCATION_INFO& allocationInfo)
+        const D3D12_RESOURCE_ALLOCATION_INFO& allocationInfo,
+        RHI::HardwareQueueClass queue)
     {
         HeapBucket& bucket = CurrentBucket();
 
@@ -669,7 +652,7 @@ namespace Spark::RHI::DX12
         ASSERT(factory, "RHI::Factory is null when creating committed transient image.");
 
         Ptr<RHI::Image> image = factory->CreateImage();
-        SetResourceState(*image, RHI::ResourceState{});
+        SetResourceState(*image, RHI::ResourceState{ RHI::AccessFlags::Undefined, queue, RHI::AttachmentStage::Uninitialized });
 
         const bool isOutputMergerAttachment =
             CheckBitsAny(createInfo.m_descriptor.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
@@ -679,9 +662,6 @@ namespace Spark::RHI::DX12
             clearValue = ConvertClearValue(createInfo.m_descriptor.m_format, *createInfo.m_optimizedClearValue);
         }
 
-        const RHI::ResourceState resourceState = image->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertImageState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
-
         RHI::ResultCode result = InitResource(image.get(), [&]() -> RHI::ResultCode
         {
             D3D12MA::ALLOCATION_DESC allocDesc = {};
@@ -689,13 +669,17 @@ namespace Spark::RHI::DX12
             allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel,
                                                  RHI::HostMemoryAccess::Write);
 
+            // Committed like an ImagePool image; the first use still discards from UNDEFINED.
+            const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
             ComPtr<D3D12MA::Allocation> allocation;
             ComPtr<ID3D12Resource>      dx12Resource;
-            HRESULT hr = m_allocator->CreateResource(
+            HRESULT hr = m_allocator->CreateResource3(
                 &allocDesc,
-                &resourceDesc,
-                initialResourceState,
+                &resourceDesc1,
+                D3D12_BARRIER_LAYOUT_COMMON,
                 (isOutputMergerAttachment && createInfo.m_optimizedClearValue) ? &clearValue : nullptr,
+                0,
+                nullptr,
                 &allocation,
                 IID_PPV_ARGS(&dx12Resource));
             if (FAILED(hr))
@@ -730,7 +714,8 @@ namespace Spark::RHI::DX12
     RHI::Buffer* TransientResourcePool::CreateCommittedBuffer(
         const RHI::TransientBufferCreateInfo& createInfo,
         const D3D12_RESOURCE_DESC& resourceDesc,
-        const D3D12_RESOURCE_ALLOCATION_INFO& allocationInfo)
+        const D3D12_RESOURCE_ALLOCATION_INFO& allocationInfo,
+        RHI::HardwareQueueClass queue)
     {
         HeapBucket& bucket = CurrentBucket();
 
@@ -738,10 +723,7 @@ namespace Spark::RHI::DX12
         ASSERT(factory, "RHI::Factory is null when creating committed transient buffer.");
 
         Ptr<RHI::Buffer> buffer = factory->CreateBuffer();
-        SetResourceState(*buffer, RHI::ResourceState{});
-
-        const RHI::ResourceState resourceState = buffer->GetResourceState();
-        D3D12_RESOURCE_STATES initialResourceState = ConvertBufferState(resourceState.m_access, resourceState.m_queue, resourceState.m_stage);
+        SetResourceState(*buffer, RHI::ResourceState{ RHI::AccessFlags::Undefined, queue, RHI::AttachmentStage::Uninitialized });
 
         RHI::ResultCode result = InitResource(buffer.get(), [&]() -> RHI::ResultCode
         {
@@ -750,12 +732,15 @@ namespace Spark::RHI::DX12
             allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel,
                                                  RHI::HostMemoryAccess::Write);
 
+            const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
             ComPtr<D3D12MA::Allocation> allocation;
             ComPtr<ID3D12Resource>      dx12Resource;
-            HRESULT hr = m_allocator->CreateResource(
+            HRESULT hr = m_allocator->CreateResource3(
                 &allocDesc,
-                &resourceDesc,
-                initialResourceState,
+                &resourceDesc1,
+                D3D12_BARRIER_LAYOUT_UNDEFINED,
+                nullptr,
+                0,
                 nullptr,
                 &allocation,
                 IID_PPV_ARGS(&dx12Resource));
@@ -783,18 +768,6 @@ namespace Spark::RHI::DX12
 
         bucket.m_committedFallbacks.push_back(buffer);
         return buffer.get();
-    }
-
-    bool TransientResourcePool::GetAliasingBarrierInternal(const RHI::Resource& resource, RHI::DeviceMemoryBarrier& out) const
-    {
-        const HeapBucket& bucket = CurrentBucket();
-        auto it = bucket.m_aliasingBarriers.find(&resource);
-        if (it == bucket.m_aliasingBarriers.end())
-        {
-            return false;
-        }
-        out = it->second;
-        return true;
     }
 
     void TransientResourcePool::DiscardInternal(RHI::Image* image, const RHI::TransientAllocationFence& discardFence)

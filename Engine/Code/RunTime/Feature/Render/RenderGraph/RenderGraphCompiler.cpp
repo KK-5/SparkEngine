@@ -171,12 +171,12 @@ namespace Spark::Render
                     CollectFenceWait(resource, table[qi]);
                 }
 
-                // loadOp=Clear discards prior contents — force src to the "no access"
-                // state so the barrier transitions from COMMON.
+                // loadOp=Clear discards prior contents; the prior accesses are still waited on.
                 RHI::ResourceState srcForBarrier = src;
                 if (att.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
                 {
-                    srcForBarrier.m_access = RHI::AccessFlags::None;
+                    srcForBarrier.m_access = RHI::AccessFlags::Undefined
+                        | (src.m_access & (RHI::AccessFlags::ReadMask | RHI::AccessFlags::WriteMask));
                 }
 
                 if (srcForBarrier != dst || src.m_queue != homeQueue)
@@ -213,24 +213,62 @@ namespace Spark::Render
         //! Per-resource lifetime aggregated from all attachment uses. Stored as ECS
         //! components on the resource entity during CompileTransientResources and
         //! cleared before the function returns.
-        struct ImageLifetime
+        //! The first and last uses of a transient resource, as the pool's Create / Discard fences.
+        struct LifetimeEnds
         {
             uint32_t                    m_firstPos   = RHI::InvalidTimelinePosition;
             uint32_t                    m_lastPos    = 0;
             RHI::HardwareQueueClassMask m_queueMask  = RHI::HardwareQueueClassMask::None;
-            RHI::AttachmentStage        m_firstStage = RHI::AttachmentStage::Any;
-            RHI::AttachmentStage        m_lastStage  = RHI::AttachmentStage::Any;
+            RHI::HardwareQueueClass     m_firstQueue = RHI::HardwareQueueClass::Graphics;
+            RHI::AttachmentStage        m_firstStage = RHI::AttachmentStage::Uninitialized;
+            RHI::HardwareQueueClass     m_lastQueue  = RHI::HardwareQueueClass::Graphics;
+            RHI::AttachmentStage        m_lastStage  = RHI::AttachmentStage::Uninitialized;
+            RHI::AccessFlags            m_lastAccess = RHI::AccessFlags::None;
+
+            //! Accesses of the last pass are merged: the next occupant waits for all of them.
+            void Add(uint32_t pos, RHI::HardwareQueueClass queue, RHI::AttachmentStage stage, RHI::AccessFlags access)
+            {
+                const bool isNew = (m_firstPos == RHI::InvalidTimelinePosition);
+                if (isNew || pos < m_firstPos)
+                {
+                    m_firstPos   = pos;
+                    m_firstQueue = queue;
+                    m_firstStage = stage;
+                }
+                if (isNew || pos > m_lastPos)
+                {
+                    m_lastPos    = pos;
+                    m_lastQueue  = queue;
+                    m_lastStage  = stage;
+                    m_lastAccess = access;
+                }
+                else if (pos == m_lastPos)
+                {
+                    m_lastStage  |= stage;
+                    m_lastAccess |= access;
+                }
+                m_queueMask = m_queueMask | RHI::GetHardwareQueueClassMask(queue);
+            }
+
+            RHI::TransientAllocationFence CreateFence() const
+            {
+                return { m_queueMask, m_firstPos, m_firstQueue, m_firstStage, RHI::AccessFlags::None };
+            }
+
+            RHI::TransientAllocationFence DiscardFence(uint32_t pos) const
+            {
+                return { m_queueMask, pos, m_lastQueue, m_lastStage, m_lastAccess };
+            }
+        };
+
+        struct ImageLifetime : LifetimeEnds
+        {
             eastl::vector<RHIHandle>    m_attachments;
             const RHI::ClearValue*      m_clearValue = nullptr;
         };
 
-        struct BufferLifetime
+        struct BufferLifetime : LifetimeEnds
         {
-            uint32_t                    m_firstPos  = RHI::InvalidTimelinePosition;
-            uint32_t                    m_lastPos   = 0;
-            RHI::HardwareQueueClassMask m_queueMask = RHI::HardwareQueueClassMask::None;
-            RHI::AttachmentStage        m_firstStage = RHI::AttachmentStage::Any;
-            RHI::AttachmentStage        m_lastStage  = RHI::AttachmentStage::Any;
             eastl::vector<RHIHandle>    m_attachments;
         };
 
@@ -266,8 +304,8 @@ namespace Spark::Render
         //! Read the resource's current observed state from the BackingImage / BackingBuffer
         //! component (set at runtime by barrier emit paths) for first-touch tracker seeding.
         //! Imported resources end the previous frame in whatever state the last barrier left
-        //! them in; transient resources start each frame at the descriptor default
-        //! (Uninitialized + Graphics queue). The new state model carries queue + stage
+        //! them in; transient resources start at the state the pool placed them with
+        //! (Undefined, plus the memory's previous use). The new state model carries queue + stage
         //! alongside usage/access, so the consuming pass's barrier construction has full
         //! src information without consulting a separate "imported initial state" record.
         RHI::ResourceState GetResourceInitialState(RHIHandle resource, const RHIContext& context)
@@ -547,10 +585,9 @@ namespace Spark::Render
         }
 
         void CompileScopeResourceBarrier(
-            const ScopeResourceAccess&        access,
-            PassContext&                      passContext,
-            RHIContext&                       context,
-            const RHI::TransientResourcePool& pool)
+            const ScopeResourceAccess& access,
+            PassContext&               passContext,
+            RHIContext&                context)
         {
             const RHI::HardwareQueueClass dstQueue = context.Get<Scope>(access.m_scope).m_queue;
 
@@ -583,16 +620,8 @@ namespace Spark::Render
                 {
                     context.Add<ExternalWait>(access.m_attachment, ExternalWait{ *sync });
                 }
-                // A transient resource's first touch is where the pool placed it.
-                RHI::DeviceMemoryBarrier aliasing;
-                if (context.Has<TransientTag>(access.m_resource)
-                    && pool.GetAliasingBarrier(access.m_isImage
-                            ? static_cast<const RHI::Resource&>(*backingImage->m_image)
-                            : static_cast<const RHI::Resource&>(*backingBuffer->m_buffer),
-                        aliasing))
-                {
-                    context.Add<PreAliasingBarrier>(access.m_attachment, PreAliasingBarrier{ aliasing });
-                }
+                // A transient resource starts Undefined, carrying the last use of the memory
+                // it was placed over: the first barrier discards and waits for that.
                 tracker = &context.Add<ResourceStateTracker>(access.m_resource, init);
             }
 
@@ -650,8 +679,7 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphCompiler::CompileScopeBarriers(
-        PassContext& passContext, RHIContext& context, const RHI::TransientResourcePool& pool)
+    void RenderGraphCompiler::CompileScopeBarriers(PassContext& passContext, RHIContext& context)
     {
         // SortScopes made one resource's attachments within a Scope adjacent: merge them into
         // one access, and compile it when the next attachment starts another group.
@@ -690,14 +718,14 @@ namespace Spark::Render
 
             if (group.m_attachment != NullHandle)
             {
-                CompileScopeResourceBarrier(group, passContext, context, pool);
+                CompileScopeResourceBarrier(group, passContext, context);
             }
             group = current;
         }
 
         if (group.m_attachment != NullHandle)
         {
-            CompileScopeResourceBarrier(group, passContext, context, pool);
+            CompileScopeResourceBarrier(group, passContext, context);
         }
     }
 
@@ -1232,22 +1260,13 @@ namespace Spark::Render
                 const auto     queue = passContext.Get<PassExecuteQueue>(a.m_pass).m_queue;
 
                 auto* life = rhiContext.TryGet<ImageLifetime>(resource);
-                const bool isNew = (life == nullptr);
-                if (isNew)
+                if (life == nullptr)
                 {
                     life = &rhiContext.Add<ImageLifetime>(resource);
                 }
 
-                const uint32_t oldFirst = life->m_firstPos;
-                const uint32_t oldLast  = life->m_lastPos;
-
-                life->m_firstPos  = eastl::min(oldFirst, pos);
-                life->m_lastPos   = eastl::max(oldLast,  pos);
-                life->m_queueMask = life->m_queueMask | RHI::GetHardwareQueueClassMask(queue);
+                life->Add(pos, queue, a.m_stage, ConvertAttachmentAccess(a));
                 life->m_attachments.push_back(attachmentHandle);
-
-                if (isNew || pos < oldFirst) life->m_firstStage = a.m_stage;
-                if (isNew || pos > oldLast)  life->m_lastStage  = a.m_stage;
 
                 if (life->m_clearValue == nullptr &&
                     a.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear)
@@ -1279,22 +1298,13 @@ namespace Spark::Render
                 const auto     queue = passContext.Get<PassExecuteQueue>(a.m_pass).m_queue;
 
                 auto* life = rhiContext.TryGet<BufferLifetime>(resource);
-                const bool isNew = (life == nullptr);
-                if (isNew)
+                if (life == nullptr)
                 {
                     life = &rhiContext.Add<BufferLifetime>(resource);
                 }
 
-                const uint32_t oldFirst = life->m_firstPos;
-                const uint32_t oldLast  = life->m_lastPos;
-
-                life->m_firstPos  = eastl::min(oldFirst, pos);
-                life->m_lastPos   = eastl::max(oldLast,  pos);
-                life->m_queueMask = life->m_queueMask | RHI::GetHardwareQueueClassMask(queue);
+                life->Add(pos, queue, a.m_stage, ConvertAttachmentAccess(a));
                 life->m_attachments.push_back(attachmentHandle);
-
-                if (isNew || pos < oldFirst) life->m_firstStage = a.m_stage;
-                if (isNew || pos > oldLast)  life->m_lastStage  = a.m_stage;
             });
 
         // 3. Build sweep events: emit (firstPos, Create) and (lastPos+1, Discard) for each lifetime.
@@ -1357,8 +1367,7 @@ namespace Spark::Render
                         info.m_optimizedClearValue = life.m_clearValue;
                         info.m_debugName           = name;
 
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos, life.m_firstStage };
-                        RHI::Image* image = pool.CreateImage(info, fence);
+                        RHI::Image* image = pool.CreateImage(info, life.CreateFence());
                         image->SetName(name);
                         ASSERT(image != nullptr,
                             "TransientResourcePool::CreateImage returned null for '{}'.",
@@ -1377,8 +1386,7 @@ namespace Spark::Render
                         info.m_descriptor = desc;
                         info.m_debugName  = name;
 
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, life.m_firstPos, life.m_firstStage };
-                        RHI::Buffer* buffer = pool.CreateBuffer(info, fence);
+                        RHI::Buffer* buffer = pool.CreateBuffer(info, life.CreateFence());
                         buffer->SetName(name);
                         ASSERT(buffer != nullptr,
                             "TransientResourcePool::CreateBuffer returned null for '{}'.",
@@ -1395,17 +1403,13 @@ namespace Spark::Render
                 case SweepResourceType::Image:
                     if (auto* ti = rhiContext.TryGet<BackingImage>(ev.m_resource))
                     {
-                        auto& life = rhiContext.Get<ImageLifetime>(ev.m_resource);
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos, life.m_lastStage };
-                        pool.Discard(ti->m_image, fence);
+                        pool.Discard(ti->m_image, rhiContext.Get<ImageLifetime>(ev.m_resource).DiscardFence(ev.m_pos));
                     }
                     break;
                 case SweepResourceType::Buffer:
                     if (auto* tb = rhiContext.TryGet<BackingBuffer>(ev.m_resource))
                     {
-                        auto& life = rhiContext.Get<BufferLifetime>(ev.m_resource);
-                        RHI::TransientAllocationFence fence{ life.m_queueMask, ev.m_pos, life.m_lastStage };
-                        pool.Discard(tb->m_buffer, fence);
+                        pool.Discard(tb->m_buffer, rhiContext.Get<BufferLifetime>(ev.m_resource).DiscardFence(ev.m_pos));
                     }
                     break;
                 }
@@ -1417,8 +1421,7 @@ namespace Spark::Render
         rhiContext.Clear<ImageLifetime>();
         rhiContext.Clear<BufferLifetime>();
 
-        // 6. Seal the pool: no further Create/Discard for this frame, and aliasing
-        //    barriers are now queryable for per-pass barrier compilation.
+        // 6. Seal the pool: no further Create/Discard for this frame.
         pool.Seal();
     }
 

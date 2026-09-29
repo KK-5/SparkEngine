@@ -50,8 +50,7 @@ namespace Spark::Render
         //! views, and write the backing pointers / view handles back onto the
         //! resource and attachment entities in RHIContext. Caller must ensure
         //! the pool's batch is open (post-OnFrameBegin). On return, the pool is
-        //! sealed and ready for GetAliasingBarrier queries during Scope
-        //! barrier compilation.
+        //! sealed, and each transient resource's state is where its first barrier starts.
         void CompileTransientResources(RHI::TransientResourcePool& pool);
 
         //! Back every ExtractedImage resource with a pooled image from `pool`, which
@@ -78,12 +77,10 @@ namespace Spark::Render
 
         //! Walk the sorted attachments once, Scope by Scope, and put on them the barriers their
         //! accesses need: Pre*Barrier on the first attachment of each (Scope, resource) group,
-        //! Post*Barrier (cross-queue release) on the producer's attachment, PreAliasingBarrier on
-        //! the one first touching a transient resource that `pool` placed over another's memory.
+        //! Post*Barrier (cross-queue release) on the producer's attachment.
         //! A barrier is needed when the state differs or either side writes; dropping same-state
         //! ones is the backend's call. Runs after SortScopes.
-        void CompileScopeBarriers(
-            PassContext& passContext, RHIContext& context, const RHI::TransientResourcePool& pool);
+        void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
 
         //! Turn the cross-queue waits CompileScopeBarriers recorded into fences and values: walks
         //! Scopes in stream order, gives each ScopeSignal its queue's fence in crossQueueFences
