@@ -134,6 +134,41 @@ Enhanced Barriers 没有队列所有权转移；`DIRECT_QUEUE_*` 一类 layout �
 buffer 没有 layout，只有 sync 与 access；范围须为整个 buffer（`Offset = 0`、`Size = UINT64_MAX`），与 I4 的"buffer 只按整个
 资源"一致。upload / readback 堆上的 buffer 仍不发屏障。
 
+### D7　交换链的 Present 转换随最后一个用到它的 Scope 录制；交换链最后一次访问须在 graphics　✅ 已定
+
+原先 Present 转换在帧末单独提交一个只含屏障的命令列表，每帧触发一次 #1356。转换本身省不掉（Present 要求 `COMMON`，写入时是
+`DIRECT_QUEUE_RENDER_TARGET`），单独成列表却不必：编译器在交换链的最后一个 attachment 上挂 `PostImageBarrier`（目标
+`{Present, Graphics, Uninitialized}`），与最后一个 pass 录在同一列表，排在帧末 Signal 之前。
+
+约束：交换链最后一次访问须在 graphics，编译器 ASSERT。DX12 的交换链只能绑 direct 队列，Present 恒在 graphics；非 graphics
+写交换链的场景（异步 compute 直接合成）另加一个 graphics 上的展示 pass 即可。当前交换链只有 `Color` 绑定，本就只能在 graphics 写。
+Vulkan 后端据此须为交换链选支持 present 的 graphics 队列族，找不到即报错，不在后端补所有权转移。
+
+### D8　图像不跨帧换队列，先以 ASSERT 约束　✅ 已定
+
+acquire 一侧的 `LayoutBefore = COMMON` 假定有配对的 release；跨帧换队列时没有 release，图像还停在上一队列推出的 layout 上。
+DX12 的屏障两侧 layout 都须与执行队列兼容：`DIRECT_QUEUE_*` 只在 direct 用，copy 队列只认 `COMMON` 且不做 layout 转换，
+所以目标队列无法自行从实际 layout 转出，须由旧队列转出或帧边界约定。Vulkan 的 layout 与队列无关、跨队列资源为 CONCURRENT，
+目标队列可由上次访问推出 `oldLayout` 直接转换，无此问题。
+
+目前无场景触发（渲染图的 pass 全在 graphics；上传目标都是新建图像），先约束：
+
+- 编译器首次触及图像时，初始状态的队列与本帧使用队列不同，且初始状态不是 `None`、不含 `Undefined`、不在 copy 队列，即 ASSERT。
+  copy 队列留下的图像处于各队列都认的 layout（上传结束也有 release）。
+- `AsyncUploadSystem` 的上传目标须为 `None` 或已在 copy 队列；往用过的图像里重新上传改为上传到新图像。buffer 无 layout，不受限。
+
+出现用例（如异步 compute 生成、下一帧 graphics 读的 history）时的方向：DX12 按 `m_sharedQueueMask` 推导 layout，声明含 Compute
+的图像用通用 layout（`SHADER_RESOURCE`、`UNORDERED_ACCESS` 等，direct / compute 都认），direct 与 compute 间换队列无需 release、
+无需预知下一帧；进 copy 队列仍须 `COMMON`，由上述 ASSERT 守住。前提是 `m_sharedQueueMask` 默认值由 `All` 改为 `Graphics`，
+否则所有图像（含 transient）都会失去专用 layout，Vulkan 也会全部走 CONCURRENT。
+
+### D9　transient 图像不在 copy 队列上首次使用　✅ 已定
+
+copy 队列只认 `COMMON`，不做 layout 转换，也不能 `DISCARD` / Clear。placed 图像以 `UNDEFINED` 创建，在 copy 队列上转不出来；
+原先 `Undefined` 源在 copy 队列走普通路径，得到 `NO_ACCESS` + 前一占用者的 sync + `COMMON`，并跳过了刷前一占用者访问的 global
+barrier，是同步漏洞。需求几乎不存在，直接约束：编译器首次触及 transient 图像时使用队列为 copy 即 ASSERT；DX12 后端的图像屏障
+源含 `Undefined` 且在 copy 队列同样 ASSERT。transient buffer 不受限（无 layout，只发 global barrier）。
+
 ---
 
 ## 二、要改的
@@ -151,6 +186,7 @@ buffer 没有 layout，只有 sync 与 access；范围须为整个 buffer（`Off
 - sync 只由阶段推导；唯一例外是 resolve 访问补 `SYNC_RESOLVE`（Vulkan 的 resolve 属 `COLOR_ATTACHMENT_OUTPUT`，D3D12 单列）。
   阶段与队列、访问不匹配一律 ASSERT，不在后端补救。交换链 Present 转换的 `m_dstStage` 改为 `Uninitialized`（Present 后无阶段）。
 - `AsyncUploadSystem` 的上传与移交、静态资源屏障：随转换函数改动，逻辑不变。
+- Present 转换：按 D7，`CompileScopeBarriers` 末尾给交换链挂 `PostImageBarrier`，删掉 `RenderGraph::SubmitSwapChainPresentTransition`。
 
 ---
 
@@ -161,6 +197,7 @@ buffer 没有 layout，只有 sync 与 access；范围须为整个 buffer（`Off
 | 1 ✅ | 运行时检查：`Device::InitFeatures` 查 `OPTIONS12` 与 `ID3D12Device10` 并记日志；本机两项均支持。改为不支持即初始化失败（D1）随步骤 3 一起做 |
 | 2 ✅ | D3D12MA 换成 3.2.0，调用不变，确认构建与画面无变化 |
 | 3 ✅ | 转换函数（D2）、`CommandListBase` 的屏障队列、`QueueBarrier` 改写，命令列表换 `List7`；资源改以初始 layout 创建（D4）；aliasing 记进初始状态（D3），删掉 `DeviceMemoryBarrier` 一路。首轮运行暴露 `None` 兼任"丢弃"的错误，D3 由屏障上的 bool 改为 `AccessFlags::Undefined`，原步骤 4 并入。7 个示例与编辑器运行无 debug layer 错误；画面待人工确认 |
+| 3b | Present 转换随最后一个 Scope 录制（D7），消除 #1356；跨帧换队列的 ASSERT（D8）；transient 图像不上 copy 队列的 ASSERT（D9）。debug layer 与 GPU-based validation 下编辑器与 7 个示例均无报错，画面已确认 |
 | 4 | 删除 legacy 残留：`Image::m_subresourceState` 一族与 SwapChain 对它的调用（与 I4 步骤 1 一起） |
 
 I4 的步骤 1（`ImageSubresourceStates`、按子资源记录状态）与后端无关，可与本文并行；I4 的步骤 2 放在本文之后，D5 改为依赖
@@ -175,21 +212,16 @@ I4 的步骤 1（`ImageSubresourceStates`、按子资源记录状态）与后端
 
 - D2 各访问组合与 layout 的兼容性：已由 debug layer 纠正两处（`DEPTH_STENCIL_READ` 不允许 SRV；resolve 访问的 sync 只能是
   `RESOLVE`，每个 sync 位都须与访问兼容），其余组合随验证覆盖。
-- **#1356 警告**：只含屏障的命令列表每帧触发一次（编辑器 30 秒约 2900 条），提示其屏障应取 `SYNC_NONE` / `NO_ACCESS`，
-  属驱动优化提示。来源推测是单独提交的交换链 Present 转换（`SubmitSwapChainPresentTransition`），待核实。选项：
-  a. `AddDebugFilters` 屏蔽 #1356；b. Present 转换并进本帧最后一个 graphics 命令列表，少一次 `ExecuteCommandLists`；
-  c. 暂不处理。
-- **`RouteDebugMessagesToLog`**：验证时在 `Device.cpp` 加的 `ID3D12InfoQueue1` 回调，把 debug layer 的警告 / 错误转进引擎日志，
-  只在开启验证时注册。去留待定。
-- **跨帧换队列的 `LayoutBefore`**：资源上一帧停在某队列的专用 layout（如 `DIRECT_QUEUE_SHADER_RESOURCE`），这一帧没有 release
-  就在另一队列 acquire 时，acquire 一侧的 `LayoutBefore = COMMON` 与实际不符。已知场景：`AsyncUploadSystem` 对已在 graphics 上
-  使用过的图像重新上传（copy 队列的 pre-copy 屏障）。legacy 下同样不符，非本次回退。
-- **copy 队列上的 `Undefined`**：copy 队列的 layout 恒为 `COMMON`，源为 `Undefined | 访问` 时会得到 `NO_ACCESS` + 非 `NONE`
-  的 sync + `COMMON`，不合法。目前没有 transient 资源在 copy 队列上首次使用，遇到时再定。
-- **aliasing 的 global barrier 可精确化**：现以 global barrier 刷前一占用者的访问（D3）。若性能分析显示有开销，可由池在初始
+- ~~**#1356 警告**~~：已由 D7 解决。只含屏障的命令列表触发，唯一来源是单独提交的交换链 Present 转换（编辑器 20 秒内 1818 条
+  全部落在它的 `ExecuteCommands` 内）。
+- ~~**`RouteDebugMessagesToLog`**~~：保留。`Device.cpp` 的 `ID3D12InfoQueue1` 回调把 debug layer 的警告 / 错误转进引擎日志，
+  只在开启验证时注册。
+- ~~**跨帧换队列的 `LayoutBefore`**~~：由 D8 约束；出现用例时按 D8 的方向做。
+- ~~**copy 队列上的 `Undefined`**~~：由 D9 约束。
+- **aliasing 的 global barrier 可精确化**（暂缓，待性能分析）：现以 global barrier 刷前一占用者的访问（D3）。若性能分析显示有开销，可由池在初始
   状态之外附上前一资源，DX12 改为对它发一个以 `NO_ACCESS` 结束的屏障；同一批次内的多个 global barrier 也可在 `FlushBarriers`
   里按位合并。预估完整管线每帧 15~35 条，与 legacy 的 aliasing 屏障数相同。
-- `TransientResourcePoolStats::m_aliasingBarrierCount` 从未被填写，随 aliasing 屏障的删除已无对应概念，待清理。
+- ~~`TransientResourcePoolStats::m_aliasingBarrierCount`~~：已删除（从未被填写，随 aliasing 屏障的删除已无对应概念）。
 
 ---
 
