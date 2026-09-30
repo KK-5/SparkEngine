@@ -615,6 +615,30 @@ namespace Spark::Render
             {
                 ResourceStateTracker init;
                 init.m_current = GetResourceInitialState(access.m_resource, context);
+                // Nothing released what an earlier frame left on another queue, and its layout
+                // there may not be one this queue accepts (DX12's queue-specific layouts). The
+                // Copy queue leaves images in one every queue accepts.
+                ASSERT(!access.m_isImage
+                    || init.m_current.m_queue == dstQueue
+                    || init.m_current.m_queue == RHI::HardwareQueueClass::Copy
+                    || init.m_current.m_access == RHI::AccessFlags::None
+                    || CheckBitsAny(init.m_current.m_access, RHI::AccessFlags::Undefined),
+                    "Image '{}' was left on queue {} by an earlier frame and is now first used on queue {}; "
+                    "images cannot change queues across frames.",
+                    context.Has<ResourceName>(access.m_resource)
+                        ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
+                        : "[Unnamed]",
+                    static_cast<uint32_t>(init.m_current.m_queue),
+                    static_cast<uint32_t>(dstQueue));
+                // A placed image starts Undefined, and the Copy queue cannot transition layouts
+                // (DX12), nor discard or clear to initialize one.
+                ASSERT(!access.m_isImage
+                    || dstQueue != RHI::HardwareQueueClass::Copy
+                    || !context.Has<TransientTag>(access.m_resource),
+                    "Transient image '{}' is first used on the Copy queue; transient images cannot be.",
+                    context.Has<ResourceName>(access.m_resource)
+                        ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
+                        : "[Unnamed]");
                 if (const RHI::PendingSync* sync = FindExternalWait(
                         access.m_resource, init.m_current.m_queue, dstQueue, context))
                 {
@@ -727,6 +751,39 @@ namespace Spark::Render
         {
             CompileScopeResourceBarrier(group, passContext, context);
         }
+
+        // Recorded after the last Scope's work rather than in a list of its own.
+        context.GetView<SwapChainImages, ResourceStateTracker>().each(
+            [&](RHIHandle resource, const SwapChainImages&, ResourceStateTracker& tracker)
+            {
+                if (tracker.m_current.m_access == RHI::AccessFlags::Present)
+                {
+                    return;
+                }
+
+                // A swap chain presents on the Graphics queue (DX12 binds it to a direct queue).
+                ASSERT(tracker.m_current.m_queue == RHI::HardwareQueueClass::Graphics,
+                    "Swap chain '{}' is last used on queue {}; the last pass to touch it must run on Graphics.",
+                    context.Has<ResourceName>(resource)
+                        ? context.Get<ResourceName>(resource).m_name.GetCStr()
+                        : "[Unnamed]",
+                    static_cast<uint32_t>(tracker.m_current.m_queue));
+
+                const RHI::ResourceState present {
+                    RHI::AccessFlags::Present, RHI::HardwareQueueClass::Graphics, RHI::AttachmentStage::Uninitialized };
+
+                RHI::ImageBarrier b;
+                b.m_image     = context.Get<BackingImage>(resource).m_image;
+                b.m_srcAccess = tracker.m_current.m_access;
+                b.m_dstAccess = present.m_access;
+                b.m_srcStage  = tracker.m_current.m_stage;
+                b.m_dstStage  = present.m_stage;
+                b.m_srcQueue  = tracker.m_current.m_queue;
+                b.m_dstQueue  = present.m_queue;
+                context.Add<PostImageBarrier>(tracker.m_lastAttachment, PostImageBarrier{ b });
+
+                tracker.m_current = present;
+            });
     }
 
     namespace

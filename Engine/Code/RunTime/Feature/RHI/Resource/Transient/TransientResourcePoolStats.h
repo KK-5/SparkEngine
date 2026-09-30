@@ -22,9 +22,6 @@ namespace Spark::RHI
         //! sub-allocator could not place them.
         uint32_t m_committedFallbackCount = 0;
 
-        //! Aliasing barriers the backend determined are required for the batch.
-        uint32_t m_aliasingBarrierCount = 0;
-
         //! Cross-batch placed resource cache statistics.
         uint32_t m_placedResourceCacheHits   = 0;
         uint32_t m_placedResourceCacheMisses = 0;

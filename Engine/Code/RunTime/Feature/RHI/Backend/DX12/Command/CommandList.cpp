@@ -682,8 +682,9 @@ namespace Spark::RHI::DX12
 
         const bool release = isCrossQueue && myQueue == barrier.m_srcQueue;
         const bool acquire = isCrossQueue && myQueue == barrier.m_dstQueue;
-        const bool discard = CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined)
-            && myQueue != RHI::HardwareQueueClass::Copy;
+        const bool discard = CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined);
+        ASSERT(!discard || myQueue != RHI::HardwareQueueClass::Copy,
+            "Image barrier from Undefined on the Copy queue, which cannot transition layouts.");
         if (!acquire)
         {
             b.SyncBefore   = ConvertBarrierSync(barrier.m_srcStage, barrier.m_srcAccess, myQueue);

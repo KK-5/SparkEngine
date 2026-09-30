@@ -525,14 +525,14 @@ namespace Spark::RHI
         // Pre-copy barriers: transition every target into Copy/Write on the copy
         // queue. ConvertTo* auto-populates src* from the resource's tracked state:
         //  - Fresh resource:     {None, Graphics-default, Uninitialized}
-        //  - Re-upload pickup:   whatever the prior owner left (e.g. {VertexBuffer,
-        //                        Graphics, VertexInput}) — fence wait was already
-        //                        cleared by SubmitBatch's CPU-side skip-or-proceed
+        //  - Re-upload pickup:   buffers only, whatever the prior owner left (e.g.
+        //                        {VertexBuffer, Graphics, VertexInput}) — fence wait was
+        //                        already cleared by SubmitBatch's CPU-side skip-or-proceed
         //                        check, so prior GPU work is guaranteed complete.
         // dstQueue is overridden to Copy. Because the resource's tracked m_queue
         // is rarely Copy in practice, the backend's cross-queue acquire path runs
-        // (DX12: COMMON → COPY_DEST regardless of srcUsage; Vulkan CONCURRENT:
-        // pipeline barrier with no QFOT). dstStage pinned to Copy.
+        // (DX12: images stay COMMON on the Copy queue; Vulkan CONCURRENT: pipeline
+        // barrier with no QFOT). dstStage pinned to Copy.
         for (const auto& upload : batch.m_bufferUploads)
         {
             BufferBarrier pre = ConvertToCopyWrite(*upload.m_targetBuffer);
@@ -543,6 +543,11 @@ namespace Spark::RHI
         for (const auto& upload : batch.m_imageUploads)
         {
             ImageBarrier pre = ConvertToImageCopyWrite(*upload.m_targetImage);
+            // Nothing released an image another queue left behind, and its layout there may
+            // not be one the Copy queue accepts (DX12). Upload into a new image instead.
+            ASSERT(pre.m_srcAccess == AccessFlags::None || pre.m_srcQueue == HardwareQueueClass::Copy,
+                "[AsyncUploadSystem] Upload into an image last used on queue {}; only fresh images can be uploaded into.",
+                static_cast<uint32_t>(pre.m_srcQueue));
             pre.m_dstQueue = HardwareQueueClass::Copy;
             pre.m_dstStage = AttachmentStage::Copy;
             cmdList->QueueBarrier(pre);

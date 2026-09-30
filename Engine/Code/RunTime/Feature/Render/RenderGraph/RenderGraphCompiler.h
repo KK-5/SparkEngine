@@ -77,7 +77,8 @@ namespace Spark::Render
 
         //! Walk the sorted attachments once, Scope by Scope, and put on them the barriers their
         //! accesses need: Pre*Barrier on the first attachment of each (Scope, resource) group,
-        //! Post*Barrier (cross-queue release) on the producer's attachment.
+        //! Post*Barrier (cross-queue release) on the producer's attachment, and a swap chain's
+        //! Present transition on its last attachment, which must be on Graphics.
         //! A barrier is needed when the state differs or either side writes; dropping same-state
         //! ones is the backend's call. Runs after SortScopes.
         void CompileScopeBarriers(PassContext& passContext, RHIContext& context);

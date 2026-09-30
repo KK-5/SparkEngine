@@ -285,12 +285,8 @@ namespace Spark::Render
         m_executer.ExecuteScopes(context, m_compiler.m_activeQueues, *factory, *m_device, m_commandQueueContext);
 
         // Frame-end: signal each active queue's cross-queue fence one more time.
-        // Two consumers depend on this value being live before they run:
-        //  - Swap chain Present transition (below): may queue.Wait on a
-        //    non-Graphics producer fence if the swap chain image ends on
-        //    Compute/Copy (e.g. compute final composite).
-        //  - PendingSync stamp (further below): writes this value onto every
-        //    imported resource's PendingSync component.
+        // The PendingSync stamp below writes this value onto every imported
+        // resource's PendingSync component.
         //
         // m_crossQueueFenceValues is **shared** between two writers:
         //  - CompileScopeSync (in-frame, allocates values for the ScopeSignals
@@ -313,15 +309,9 @@ namespace Spark::Render
             queue.Signal(m_crossQueueFences.GetFence(queueClass), value);
         }
 
-        SubmitSwapChainPresentTransition(*RHIExecuteContext::Current(), *factory);
-
         // Stamp PendingSync on every dynamic imported resource the RG touched
         // this frame, using the producer queue's frame-end fence value (signaled
-        // above). Note: Graphics queue's stamp value reflects "before the swap
-        // chain Present transition cmd list", but no one consumes PendingSync
-        // on a swap chain (they're never re-used by other systems), so the
-        // small inconsistency is harmless.
-        // Static imported resources are handled by a separate block below.
+        // above). Static imported resources are handled by a separate block below.
         {
             auto& ctx = *RHIExecuteContext::Current();
             ctx.GetView<ImportedTag, ResourceStateTracker>().each(
@@ -442,95 +432,6 @@ namespace Spark::Render
             });
         // Swap chain views are no longer refreshed here — they live in the resource's
         // ImageViewCachePerFrame and are resolved per frame via GetOrCreateImageViewPerFrame.
-    }
-
-    void RenderGraph::SubmitSwapChainPresentTransition(RHIContext& ctx, RHI::Factory& factory)
-    {
-        struct PresentEntry
-        {
-            RHI::ImageBarrier       m_barrier;
-            RHI::HardwareQueueClass m_producer;
-        };
-        eastl::vector<PresentEntry> presents;
-
-        ctx.GetView<ImportedTag, SwapChainImages>().each(
-            [&](RHIHandle resource, const SwapChainImages&)
-            {
-                auto* backing = ctx.TryGet<BackingImage>(resource);
-                if (!backing || backing->m_image == nullptr)
-                {
-                    return;
-                }
-
-                // Untouched this frame: no transition needed.
-                auto* tracker = ctx.TryGet<ResourceStateTracker>(resource);
-                if (!tracker)
-                {
-                    return;
-                }
-
-                const RHI::ResourceState cur = tracker->m_current;
-                if (cur.m_access == RHI::AccessFlags::Present
-                    && cur.m_queue == RHI::HardwareQueueClass::Graphics)
-                {
-                    return;
-                }
-
-                ASSERT(static_cast<uint32_t>(cur.m_queue) < RHI::HardwareQueueClassCount,
-                    "Swap chain image '{}' has invalid producer queue ({}).",
-                    ctx.Has<ResourceName>(resource)
-                        ? ctx.Get<ResourceName>(resource).m_name.GetCStr()
-                        : "[Unnamed]",
-                    static_cast<uint32_t>(cur.m_queue));
-
-                RHI::ImageBarrier b;
-                b.m_image     = backing->m_image;
-                b.m_srcAccess = cur.m_access;
-                b.m_dstAccess = RHI::AccessFlags::Present;
-                b.m_srcStage  = cur.m_stage;
-                // Nothing in the pipeline touches the image after present.
-                b.m_dstStage  = RHI::AttachmentStage::Uninitialized;
-                b.m_srcQueue  = cur.m_queue;
-                b.m_dstQueue  = RHI::HardwareQueueClass::Graphics;
-                presents.push_back({ b, cur.m_queue });
-            });
-
-        if (presents.empty())
-        {
-            return;
-        }
-
-        auto& gfxQueue = m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics);
-
-        // Wait on each non-Graphics producer queue's frame-end fence before
-        // issuing the transition. Dedup by producer queue — multiple swap chain
-        // images sharing the same producer only need one wait.
-        eastl::array<bool, RHI::HardwareQueueClassCount> waited{};
-        for (const auto& p : presents)
-        {
-            if (p.m_producer == RHI::HardwareQueueClass::Graphics)
-            {
-                continue;
-            }
-            const auto qi = static_cast<uint32_t>(p.m_producer);
-            if (waited[qi])
-            {
-                continue;
-            }
-            waited[qi] = true;
-            gfxQueue.Wait(m_crossQueueFences.GetFence(p.m_producer),
-                          m_compiler.m_crossQueueFenceValues[qi]);
-        }
-
-        RHI::CommandList* cmd = factory.CreateCommandList(*m_device, RHI::HardwareQueueClass::Graphics);
-        cmd->Open();
-        for (const auto& p : presents)
-        {
-            cmd->QueueBarrier(p.m_barrier);
-        }
-        cmd->FlushBarriers();
-        cmd->Close();
-        gfxQueue.ExecuteCommands({ &cmd, 1 });
     }
 
     void RenderGraph::ExtractImages(RHIContext& context)

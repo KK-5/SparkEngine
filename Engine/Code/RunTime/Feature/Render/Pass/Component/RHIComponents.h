@@ -106,7 +106,7 @@ namespace Spark::Render
     };
 
     //! The release half of a cross-queue transfer, on the producer's attachment: the next
-    //! access to its resource is on another queue.
+    //! access to its resource is on another queue. Also a swap chain's Present transition.
     struct PostImageBarrier
     {
         RHI::ImageBarrier m_barrier;
