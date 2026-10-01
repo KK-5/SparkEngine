@@ -97,6 +97,7 @@ namespace Spark::Render
                 s.Read(RHI::AttachmentId(s_depthSlot)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
+                s.Close();
             })
             .Finalize()
         ;

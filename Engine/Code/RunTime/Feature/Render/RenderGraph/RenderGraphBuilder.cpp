@@ -1,4 +1,5 @@
 #include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
 
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
@@ -8,6 +9,52 @@
 
 namespace Spark::Render
 {
+    namespace
+    {
+        //! Whether two attachments of one Scope ask one subresource for accesses that conflict.
+        //! A buffer has no subresources: it is asked for as a whole.
+        bool AttachmentsConflict(const RHIContext& context, RHIHandle lhs, RHIHandle rhs)
+        {
+            if (context.Get<ScopeAttachment>(lhs).m_resource != context.Get<ScopeAttachment>(rhs).m_resource)
+            {
+                return false;
+            }
+
+            if (const auto* lhsImage = context.TryGet<ImagePassAttachment>(lhs))
+            {
+                // Depth slices are not subresources, and the overlap does not look at them.
+                const auto& rhsImage = context.Get<ImagePassAttachment>(rhs);
+                return lhsImage->m_viewDescriptor.OverlapsSubResource(rhsImage.m_viewDescriptor)
+                    && RHI::HasAccessConflict(ConvertAttachmentAccess(*lhsImage), ConvertAttachmentAccess(rhsImage));
+            }
+            return RHI::HasAccessConflict(
+                ConvertAttachmentAccess(context.Get<BufferPassAttachment>(lhs)),
+                ConvertAttachmentAccess(context.Get<BufferPassAttachment>(rhs)));
+        }
+
+        //! A depth-stencil view binds both planes whatever aspects it names, so the attachment
+        //! must name every aspect the image has.
+        bool CoversDepthStencilAspects(const RHIContext& context, const ImagePassAttachment& attachment)
+        {
+            if (attachment.m_usage != RHI::AttachmentUsage::DepthStencil)
+            {
+                return true;
+            }
+
+            const RHI::ImageDescriptor* descriptor = context.TryGet<RHI::ImageDescriptor>(attachment.m_image);
+            if (!descriptor)
+            {
+                const auto* backing = context.TryGet<BackingImage>(attachment.m_image);
+                descriptor = (backing && backing->m_image) ? &backing->m_image->GetDescriptor() : nullptr;
+            }
+            if (!descriptor)
+            {
+                return true;
+            }
+            const RHI::ImageAspectFlags aspects = RHI::GetImageAspectFlags(descriptor->m_format);
+            return (attachment.m_viewDescriptor.m_aspectFlags & aspects) == aspects;
+        }
+    }
 
     void RenderGraphBuilder::Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
                                    const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize)
@@ -30,29 +77,58 @@ namespace Spark::Render
     {
         ASSERT(m_currentPass != NullPass, "EndPass called without an active pass scope.");
 
+        auto& passContext = *PassExecuteContext::Current();
+        ASSERT(m_openScope == NullHandle,
+            "Pass {} ends with Scope #{} still open: Close() it.",
+            passContext.Get<PassName>(m_currentPass).m_name.GetCStr(), m_passScopeCount - 1);
+
+        if constexpr (s_buildValidation)
+        {
+            if (m_passScopeCount > 1)
+            {
+                const auto* caps = passContext.TryGet<PassCapabilities>(m_currentPass);
+                ASSERT(caps == nullptr || caps->m_collectViews == nullptr,
+                    "Pass {} renders a view and has {} Scopes; a pass that renders a view has one.",
+                    passContext.Get<PassName>(m_currentPass).m_name.GetCStr(), m_passScopeCount);
+            }
+        }
+
+        m_currentPass    = NullPass;
+        m_passScopeCount = 0;
+    }
+
+    void RenderGraphBuilder::CheckScopeOpen(RHIHandle scope) const
+    {
+        ASSERT(scope != NullHandle && scope == m_openScope,
+            "Pass {}: adding to a Scope that is not open. A pass declares one Scope at a time, "
+            "between opening it and Close().",
+            PassExecuteContext::Current()->Get<PassName>(m_currentPass).m_name.GetCStr());
+    }
+
+    void RenderGraphBuilder::CloseScope(RHIHandle scope)
+    {
+        CheckScopeOpen(scope);
+
+        // Checked here, not as each thing is declared: .View() and .Stage() refine an
+        // attachment afterwards, and root constants are set one by one.
         if constexpr (s_buildValidation)
         {
             auto& rhiContext  = *RHIExecuteContext::Current();
             auto& passContext = *PassExecuteContext::Current();
-            const char* passName = passContext.Get<PassName>(m_currentPass).m_name.GetCStr();
+            const char*    passName   = passContext.Get<PassName>(m_currentPass).m_name.GetCStr();
+            const uint32_t scopeIndex = rhiContext.Get<Scope>(scope).m_index;
+
+            ASSERT(!m_scopeAttachments.empty(),
+                "Pass {} opened Scope #{} but declared no attachment in it.", passName, scopeIndex);
 
             // An unset root constant reads as the zeroed block's 0 — a heap index 0 or view
             // slot 0 that is silently wrong — so every field must be set in every Scope.
             const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
             const RHI::ConstantsLayout* rootConstants = (layout != nullptr && layout->m_layout)
                 ? layout->m_layout->GetRootConstantsLayout() : nullptr;
-
-            for (const OpenedScope& opened : m_passScopes)
+            const auto* block = rhiContext.TryGet<ScopeRootConstants>(scope);
+            if (rootConstants != nullptr && block != nullptr)
             {
-                ASSERT(opened.m_attachmentCount > 0,
-                    "Pass {} opened Scope #{} but declared no attachment in it.",
-                    passName, rhiContext.Get<Scope>(opened.m_scope).m_index);
-
-                const auto* block = rhiContext.TryGet<ScopeRootConstants>(opened.m_scope);
-                if (rootConstants == nullptr || block == nullptr)
-                {
-                    continue;
-                }
                 const auto fields = rootConstants->GetShaderInputList();
                 for (uint32_t i = 0; i < static_cast<uint32_t>(fields.size()); ++i)
                 {
@@ -61,33 +137,39 @@ namespace Spark::Render
                     {
                         ASSERT((block->m_writtenDwords & (1u << dword)) != 0,
                             "Pass {} Scope #{} never sets root constant {}.",
-                            passName, rhiContext.Get<Scope>(opened.m_scope).m_index, fields[i].m_name.GetCStr());
+                            passName, scopeIndex, fields[i].m_name.GetCStr());
                     }
                 }
             }
 
-            for (RHIHandle attachment : m_unstagedAttachments)
+            for (uint32_t i = 0; i < static_cast<uint32_t>(m_scopeAttachments.size()); ++i)
             {
-                const auto* image  = rhiContext.TryGet<ImagePassAttachment>(attachment);
-                const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(attachment);
-                const RHI::AttachmentStage stage = image ? image->m_stage : buffer->m_stage;
-                ASSERT(stage != RHI::AttachmentStage::Uninitialized,
-                    "Pass {}: the shader access of {} has no stage. Give it one with .Stage(...).",
-                    passName, image ? image->m_attachmentId.m_id.GetCStr() : buffer->m_attachmentId.m_id.GetCStr());
-            }
+                const RHIHandle attachment = m_scopeAttachments[i];
+                const auto*     image      = rhiContext.TryGet<ImagePassAttachment>(attachment);
+                const auto*     buffer     = rhiContext.TryGet<BufferPassAttachment>(attachment);
+                const char*     name       = image
+                    ? image->m_attachmentId.m_id.GetCStr() : buffer->m_attachmentId.m_id.GetCStr();
 
-            if (m_passScopes.size() > 1)
-            {
-                const auto* caps = passContext.TryGet<PassCapabilities>(m_currentPass);
-                ASSERT(caps == nullptr || caps->m_collectViews == nullptr,
-                    "Pass {} renders a view and has {} Scopes; a pass that renders a view has one.",
-                    passName, static_cast<uint32_t>(m_passScopes.size()));
+                ASSERT((image ? image->m_stage : buffer->m_stage) != RHI::AttachmentStage::Uninitialized,
+                    "Pass {} Scope #{}: the shader access of {} has no stage. Give it one with .Stage(...).",
+                    passName, scopeIndex, name);
+
+                ASSERT(image == nullptr || CoversDepthStencilAspects(rhiContext, *image),
+                    "Pass {} Scope #{}: the depth-stencil attachment of {} must cover every aspect of the image.",
+                    passName, scopeIndex, name);
+
+                for (uint32_t j = i + 1; j < static_cast<uint32_t>(m_scopeAttachments.size()); ++j)
+                {
+                    ASSERT(!AttachmentsConflict(rhiContext, attachment, m_scopeAttachments[j]),
+                        "Pass {} Scope #{}: {} is declared more than once with conflicting accesses to the "
+                        "same subresource.",
+                        passName, scopeIndex, name);
+                }
             }
         }
 
-        m_currentPass = NullPass;
-        m_passScopes.clear();
-        m_unstagedAttachments.clear();
+        m_openScope = NullHandle;
+        m_scopeAttachments.clear();
     }
 
     RHIHandle RenderGraphBuilder::OpenScope()
@@ -95,13 +177,17 @@ namespace Spark::Render
         ASSERT(m_currentPass != NullPass, "A Scope can only be opened inside a pass.");
         auto& rhiContext  = *RHIExecuteContext::Current();
         auto& passContext = *PassExecuteContext::Current();
+        ASSERT(m_openScope == NullHandle,
+            "Pass {} opens a Scope while Scope #{} is still open: Close() it first.",
+            passContext.Get<PassName>(m_currentPass).m_name.GetCStr(), m_passScopeCount - 1);
 
         const RHIHandle scope = rhiContext.CreateEntity();
         rhiContext.Add<Scope>(scope, Scope{
             m_currentPass,
-            static_cast<uint32_t>(m_passScopes.size()),
+            m_passScopeCount++,
             passContext.Get<PassExecuteQueue>(m_currentPass).m_queue });
-        m_passScopes.push_back(OpenedScope{ scope, 0 });
+        m_openScope = scope;
+        m_scopeAttachments.clear();
 
         const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
         const RHI::ConstantsLayout* rootConstants = (layout != nullptr && layout->m_layout)
@@ -205,17 +291,14 @@ namespace Spark::Render
             }
             attachment = AddImageAttachment(a, scope, colorCount);
         }
-
-        if (stage == RHI::AttachmentStage::Uninitialized)
-        {
-            m_unstagedAttachments.push_back(attachment);
-        }
         return attachment;
     }
 
     RHIHandle RenderGraphBuilder::AddImageAttachment(
         const ImagePassAttachment& attachment, RHIHandle scope, uint32_t* colorCount)
     {
+        CheckScopeOpen(scope);
+
         auto& rhiContext = *RHIExecuteContext::Current();
         const RHIHandle handle = rhiContext.CreateEntity();
         rhiContext.Add<ImagePassAttachment>(handle, attachment);
@@ -228,32 +311,21 @@ namespace Spark::Render
         m_attachmentUses[attachment.m_attachmentId].emplace_back(
             attachment.m_pass,
             NormalizeImageAccess(attachment.m_access, attachment.m_action));
-        CountScopeAttachment(scope);
+        m_scopeAttachments.push_back(handle);
         return handle;
     }
 
     RHIHandle RenderGraphBuilder::AddBufferAttachment(const BufferPassAttachment& attachment, RHIHandle scope)
     {
+        CheckScopeOpen(scope);
+
         auto& rhiContext = *RHIExecuteContext::Current();
         const RHIHandle handle = rhiContext.CreateEntity();
         rhiContext.Add<BufferPassAttachment>(handle, attachment);
         rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ scope, attachment.m_buffer });
         m_attachmentUses[attachment.m_attachmentId].emplace_back(attachment.m_pass, attachment.m_access);
-        CountScopeAttachment(scope);
+        m_scopeAttachments.push_back(handle);
         return handle;
-    }
-
-    void RenderGraphBuilder::CountScopeAttachment(RHIHandle scope)
-    {
-        for (OpenedScope& opened : m_passScopes)
-        {
-            if (opened.m_scope == scope)
-            {
-                ++opened.m_attachmentCount;
-                return;
-            }
-        }
-        ASSERT(false, "Attachment added to a Scope the current pass did not open.");
     }
 
     void RenderGraphBuilder::ImportResource(const RHI::AttachmentId& name, RHIHandle resource)
@@ -349,15 +421,13 @@ namespace Spark::Render
         {
             rhiContext.Add<PreviousFrameMissingTag>(handle);
         }
-        if (attachment.m_stage == RHI::AttachmentStage::Uninitialized)
-        {
-            m_unstagedAttachments.push_back(handle);
-        }
         return handle;
     }
 
     RHIHandle RenderGraphBuilder::AddScopeItem(RHIHandle scope)
     {
+        CheckScopeOpen(scope);
+
         auto& rhiContext = *RHIExecuteContext::Current();
         const RHIHandle item = rhiContext.CreateEntity();
         rhiContext.Add<ScopeItem>(item, ScopeItem{ scope });
@@ -380,6 +450,8 @@ namespace Spark::Render
 
     void RenderGraphBuilder::AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect)
     {
+        CheckScopeOpen(scope);
+
         auto& rhiContext = *RHIExecuteContext::Current();
         auto*  component  = rhiContext.TryGet<ScopeSelections>(scope);
         auto& collects   = (component != nullptr ? *component : rhiContext.Add<ScopeSelections>(scope)).m_collects;
@@ -438,6 +510,7 @@ namespace Spark::Render
     void RenderGraphBuilder::BindShaderInputIndex(RHIHandle attachment, const RHI::InputName& input)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
+        CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
         ASSERT(rhiContext.Has<ImagePassAttachment>(attachment),
             "Binding {} by index to a buffer: buffer bindings are not supported yet.", input.GetCStr());
         ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
@@ -471,6 +544,7 @@ namespace Spark::Render
     void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const RHI::InputName& input)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
+        CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
         auto* image = rhiContext.TryGet<ImagePassAttachment>(attachment);
         ASSERT(image != nullptr, "Binding {} to a buffer: buffer bindings are not supported yet.", input.GetCStr());
         ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
@@ -504,6 +578,8 @@ namespace Spark::Render
 
     void RenderGraphBuilder::AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state)
     {
+        CheckScopeOpen(scope);
+
         const RHI::ShaderInputSamplerDescriptor* desc = CurrentPassLayout().FindSamplerDescriptor(input);
         ASSERT(desc != nullptr, "The pass's shaders have no sampler {}.", input.GetCStr());
         ASSERT(desc->m_spaceId == kPerPassSpaceId,
@@ -523,6 +599,8 @@ namespace Spark::Render
     void RenderGraphBuilder::AddScopeConstant(
         RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount)
     {
+        CheckScopeOpen(scope);
+
         if (const RHI::ConstantsLayout* root = CurrentPassLayout().GetRootConstantsLayout())
         {
             const RHI::ShaderInputIndex index = root->FindShaderInputIndex(input);

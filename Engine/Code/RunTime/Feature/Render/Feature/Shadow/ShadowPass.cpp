@@ -112,6 +112,7 @@ namespace Spark::Render
                 auto s = p.Scope();
                 s.DepthWrite(RHI::AttachmentId("ShadowAtlas"), clear);
                 s.Accepts<ShadowCasterTag>();
+                s.Close();
             })
             .Finalize();
     }

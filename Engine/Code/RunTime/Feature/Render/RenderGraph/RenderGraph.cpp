@@ -1,4 +1,5 @@
 #include "RenderGraph.h"
+#include "RenderGraphUtils.h"
 
 #include <Log/ILogSystem.h>
 
@@ -261,6 +262,7 @@ namespace Spark::Render
         StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);
 
         m_compiler.CompileScopeBarriers(passContext, context);
+        m_compiler.CompileExternalWaits(context);
         m_compiler.CompileScopeSync(passContext, context, m_crossQueueFences);
         m_compiler.CompileScopeBeginInfo(passContext, context);
 
@@ -314,20 +316,34 @@ namespace Spark::Render
         // above). Static imported resources are handled by a separate block below.
         {
             auto& ctx = *RHIExecuteContext::Current();
-            ctx.GetView<ImportedTag, ResourceStateTracker>().each(
-                [&](RHIHandle resource, const ResourceStateTracker& tracker)
+            auto stamp = [&](RHIHandle resource, RHI::HardwareQueueClass queue)
+            {
+                const auto qi = static_cast<uint32_t>(queue);
+                ASSERT(qi < RHI::HardwareQueueClassCount,
+                    "State tracker for {} has invalid m_queue ({}).",
+                    ctx.Has<ResourceName>(resource)
+                        ? ctx.Get<ResourceName>(resource).m_name.GetCStr()
+                        : "[Unnamed]",
+                    qi);
+                RHI::PendingSync sync;
+                sync.m_fence = &m_crossQueueFences.GetFence(queue);
+                sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
+                ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
+            };
+
+            ctx.GetView<ImportedTag, BufferStateTracker>().each(
+                [&](RHIHandle resource, const BufferStateTracker& tracker)
                 {
-                    const auto qi = static_cast<uint32_t>(tracker.m_current.m_queue);
-                    ASSERT(qi < RHI::HardwareQueueClassCount,
-                        "ResourceStateTracker for {} has invalid m_queue ({}).",
+                    stamp(resource, tracker.m_current.m_queue);
+                });
+
+            ctx.GetView<ImportedTag, ImageStateTracker>().each(
+                [&](RHIHandle resource, const ImageStateTracker& tracker)
+                {
+                    stamp(resource, GetImageQueue(tracker.m_states,
                         ctx.Has<ResourceName>(resource)
                             ? ctx.Get<ResourceName>(resource).m_name.GetCStr()
-                            : "[Unnamed]",
-                        qi);
-                    RHI::PendingSync sync;
-                    sync.m_fence = &m_crossQueueFences.GetFence(tracker.m_current.m_queue);
-                    sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
-                    ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
+                            : "[Unnamed]"));
                 });
         }
 
@@ -335,7 +351,7 @@ namespace Spark::Render
         // queue's frame-end fence value.
         //
         // Static resources are excluded from per-pass barrier tracking — no
-        // ResourceStateTracker is created for them, so we cannot tell which
+        // state tracker is created for them, so we cannot tell which
         // ones were actually sampled this frame. The conservative choice is to
         // stamp all of them: from the GPU's perspective any texture resident on
         // the home queue may have been read by a shader, and the upload system

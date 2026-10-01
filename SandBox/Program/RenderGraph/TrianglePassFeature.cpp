@@ -195,6 +195,7 @@ namespace Spark::SandBox
                 s.Constant(Spark::RHI::InputName("g_Colors"), m_colors);
                 s.Constant(Spark::RHI::InputName("tint"), m_tint);
                 s.Accepts<SampleDrawTag>();
+                s.Close();
             })
             .Finalize();
     }

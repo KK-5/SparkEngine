@@ -114,6 +114,7 @@ namespace Spark::Render
                 s.Constant(RHI::InputName("g_TemporalAAFilterSize"), settings->m_filterSize);
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
+                s.Close();
             })
             .Finalize()
         ;

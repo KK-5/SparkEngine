@@ -103,13 +103,17 @@ namespace Spark::Render
         bool                m_fixedStage { false };
     };
 
-    //! One Scope of a render pass: one render pass bracket.
+    //! One Scope of a render pass: one render pass bracket. Open from the moment the pass gets
+    //! it until Close; a pass has one Scope open at a time.
     class RenderScope
     {
     public:
         RenderScope(RenderScope&&) = default;
         RenderScope(const RenderScope&) = delete;
         RenderScope& operator=(const RenderScope&) = delete;
+
+        //! Ends the Scope's declaration and validates it. Nothing is added to it afterwards.
+        void Close() { m_builder->CloseScope(m_scope); }
 
         //! Color targets are numbered in the order they are declared.
         Attachment RenderTarget(
@@ -168,13 +172,16 @@ namespace Spark::Render
         uint32_t            m_colorCount { 0 };
     };
 
-    //! One Scope of a compute pass.
+    //! One Scope of a compute pass. Open and closed as a RenderScope is.
     class ComputeScope
     {
     public:
         ComputeScope(ComputeScope&&) = default;
         ComputeScope(const ComputeScope&) = delete;
         ComputeScope& operator=(const ComputeScope&) = delete;
+
+        //! Ends the Scope's declaration and validates it. Nothing is added to it afterwards.
+        void Close() { m_builder->CloseScope(m_scope); }
 
         ShaderAttachment Read(const RHI::AttachmentId& name);
         ShaderAttachment ReadWrite(const RHI::AttachmentId& name);

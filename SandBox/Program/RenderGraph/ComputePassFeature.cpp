@@ -130,6 +130,7 @@ namespace Spark::SandBox
                 s.Constant(RHI::InputName("time"), m_time);
                 s.Constant(RHI::InputName("viewIndex"), viewIndex);
                 s.Dispatch(width, height);
+                s.Close();
             })
             .Finalize();
     }
@@ -178,6 +179,7 @@ namespace Spark::SandBox
                 s.RenderTarget(kSwapChain, overwrite);
                 s.Read(kPattern).Stage(RHI::AttachmentStage::FragmentShader).BindIndex(RHI::InputName("inputIndex"));
                 s.Draw(RHI::DrawLinear(3, 0));
+                s.Close();
             })
             .Finalize();
     }

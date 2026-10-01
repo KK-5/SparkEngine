@@ -19,7 +19,10 @@ namespace Spark::Render
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
-                p.Scope().RenderTarget(RHI::AttachmentId("SwapChain"), load);
+
+                auto s = p.Scope();
+                s.RenderTarget(RHI::AttachmentId("SwapChain"), load);
+                s.Close();
             })
             .Execute([&renderUI](ExecuteWork& work, RenderGraphExecuter&)
             {

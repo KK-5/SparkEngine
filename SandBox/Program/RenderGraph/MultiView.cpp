@@ -318,6 +318,7 @@ namespace Spark::SandBox
                 }
 
                 s.Accepts<SampleDrawTag>();
+                s.Close();
             })
             .Finalize();
     }

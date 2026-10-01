@@ -1,5 +1,6 @@
 #include "RenderGraphCompiler.h"
 #include "RenderGraphUtils.h"
+#include "ImageBarrierMerge.h"
 #include "PooledImage.h"
 
 #include <EASTL/algorithm.h>
@@ -301,31 +302,11 @@ namespace Spark::Render
         // needed for barriers. A buffer-side view cache
         // can be added when a buffer-view consumer appears.
 
-        //! Read the resource's current observed state from the BackingImage / BackingBuffer
-        //! component (set at runtime by barrier emit paths) for first-touch tracker seeding.
-        //! Imported resources end the previous frame in whatever state the last barrier left
-        //! them in; transient resources start at the state the pool placed them with
-        //! (Undefined, plus the memory's previous use). The new state model carries queue + stage
-        //! alongside usage/access, so the consuming pass's barrier construction has full
-        //! src information without consulting a separate "imported initial state" record.
-        RHI::ResourceState GetResourceInitialState(RHIHandle resource, const RHIContext& context)
+        const char* GetResourceNameCStr(const RHIContext& context, RHIHandle resource)
         {
-            if (auto* backing = context.TryGet<BackingImage>(resource))
-            {
-                ASSERT(backing->m_image != nullptr, "BackingImage::m_image is null.");
-                return backing->m_image->GetResourceState();
-            }
-            if (auto* backing = context.TryGet<BackingBuffer>(resource))
-            {
-                ASSERT(backing->m_buffer != nullptr, "BackingBuffer::m_buffer is null.");
-                return backing->m_buffer->GetResourceState();
-            }
-
-            LOG_ERROR("Resource {} has neither BackingImage nor BackingBuffer at first-touch.",
-                context.Has<ResourceName>(resource)
-                    ? context.Get<ResourceName>(resource).m_name.GetCStr()
-                    : "[Unnamed]");
-            return RHI::ResourceState{};
+            return context.Has<ResourceName>(resource)
+                ? context.Get<ResourceName>(resource).m_name.GetCStr()
+                : "[Unnamed]";
         }
 
         // Hard-fail any attempt to use an EXCLUSIVE imported resource on a queue
@@ -518,40 +499,37 @@ namespace Spark::Render
 
     namespace
     {
-        //! One resource's attachments within one Scope, merged into a single access.
-        struct ScopeResourceAccess
+        //! One buffer's attachments within one Scope, merged into a single access.
+        struct ScopeBufferAccess
         {
             RHIHandle            m_scope      = NullHandle;
             RHIHandle            m_resource   = NullHandle;
             RHIHandle            m_attachment = NullHandle;   //!< the first of them; carries the barrier
-            bool                 m_isImage    = false;
             RHI::AccessFlags     m_access     = RHI::AccessFlags::None;
-            RHI::AttachmentStage m_stage      = RHI::AttachmentStage::Any;
+            RHI::AttachmentStage m_stage      = RHI::AttachmentStage::Uninitialized;
         };
 
-        //! The fence an imported resource's first access must wait for: another system left it
-        //! pending on another queue (e.g. an upload) and the fence has not been reached yet.
-        const RHI::PendingSync* FindExternalWait(
-            RHIHandle               resource,
-            RHI::HardwareQueueClass srcQueue,
-            RHI::HardwareQueueClass dstQueue,
-            const RHIContext&       context)
+        //! One image's attachments within one Scope, merged into what each subresource is
+        //! asked for.
+        struct ScopeImageAccess
         {
-            if (srcQueue == dstQueue || !context.Has<ImportedTag>(resource))
+            RHIHandle   m_scope      = NullHandle;
+            RHIHandle   m_resource   = NullHandle;
+            RHIHandle   m_attachment = NullHandle;   //!< the first of them; carries the barriers
+            RHI::Image* m_image      = nullptr;
+            //! No access where nothing asks; the queue is the Scope's.
+            RHI::ImageSubresourceStates m_requests;
+        };
+
+        template<typename ListT>
+        void AddImageBarrier(RHIContext& context, RHIHandle attachment, const RHI::ImageBarrier& barrier)
+        {
+            auto* list = context.TryGet<ListT>(attachment);
+            if (!list)
             {
-                return nullptr;
+                list = &context.Add<ListT>(attachment);
             }
-            const auto* sync = context.TryGet<RHI::PendingSync>(resource);
-            if (!sync)
-            {
-                return nullptr;
-            }
-            // Fence values are monotonic, so reached at compile stays reached through execute.
-            if (sync->m_fence != nullptr && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue)
-            {
-                return nullptr;
-            }
-            return sync;
+            list->m_barriers.push_back(barrier);
         }
 
         //! The consumer Scope waits for the producer Scope on srcQueue. Only the latest producer
@@ -584,114 +562,54 @@ namespace Spark::Render
             }
         }
 
-        void CompileScopeResourceBarrier(
-            const ScopeResourceAccess& access,
-            PassContext&               passContext,
-            RHIContext&                context)
+        void CompileBufferAccess(
+            const ScopeBufferAccess& access,
+            PassContext&             passContext,
+            RHIContext&              context)
         {
             const RHI::HardwareQueueClass dstQueue = context.Get<Scope>(access.m_scope).m_queue;
 
-            const auto* backingImage  = access.m_isImage ? context.TryGet<BackingImage>(access.m_resource) : nullptr;
-            const auto* backingBuffer = access.m_isImage ? nullptr : context.TryGet<BackingBuffer>(access.m_resource);
-            ASSERT(access.m_isImage ? backingImage != nullptr : backingBuffer != nullptr,
-                "Resource {} has no backing.",
-                context.Has<ResourceName>(access.m_resource)
-                    ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
-                    : "[Unnamed]");
+            const auto* backing = context.TryGet<BackingBuffer>(access.m_resource);
+            ASSERT(backing != nullptr && backing->m_buffer != nullptr,
+                "Resource {} has no backing.", GetResourceNameCStr(context, access.m_resource));
 
             if (context.Has<ImportedTag>(access.m_resource))
             {
-                const RHI::HardwareQueueClassMask mask = access.m_isImage
-                    ? backingImage->m_image->GetDescriptor().m_sharedQueueMask
-                    : backingBuffer->m_buffer->GetDescriptor().m_sharedQueueMask;
-                ValidateExclusiveHomeQueue(mask, dstQueue,
-                    context.Has<ResourceName>(access.m_resource)
-                        ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
-                        : "[Unnamed]");
+                ValidateExclusiveHomeQueue(backing->m_buffer->GetDescriptor().m_sharedQueueMask, dstQueue,
+                    GetResourceNameCStr(context, access.m_resource));
             }
 
-            auto* tracker = context.TryGet<ResourceStateTracker>(access.m_resource);
+            auto* tracker = context.TryGet<BufferStateTracker>(access.m_resource);
             if (!tracker)
             {
-                ResourceStateTracker init;
-                init.m_current = GetResourceInitialState(access.m_resource, context);
-                // Nothing released what an earlier frame left on another queue, and its layout
-                // there may not be one this queue accepts (DX12's queue-specific layouts). The
-                // Copy queue leaves images in one every queue accepts.
-                ASSERT(!access.m_isImage
-                    || init.m_current.m_queue == dstQueue
-                    || init.m_current.m_queue == RHI::HardwareQueueClass::Copy
-                    || init.m_current.m_access == RHI::AccessFlags::None
-                    || CheckBitsAny(init.m_current.m_access, RHI::AccessFlags::Undefined),
-                    "Image '{}' was left on queue {} by an earlier frame and is now first used on queue {}; "
-                    "images cannot change queues across frames.",
-                    context.Has<ResourceName>(access.m_resource)
-                        ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
-                        : "[Unnamed]",
-                    static_cast<uint32_t>(init.m_current.m_queue),
-                    static_cast<uint32_t>(dstQueue));
-                // A placed image starts Undefined, and the Copy queue cannot transition layouts
-                // (DX12), nor discard or clear to initialize one.
-                ASSERT(!access.m_isImage
-                    || dstQueue != RHI::HardwareQueueClass::Copy
-                    || !context.Has<TransientTag>(access.m_resource),
-                    "Transient image '{}' is first used on the Copy queue; transient images cannot be.",
-                    context.Has<ResourceName>(access.m_resource)
-                        ? context.Get<ResourceName>(access.m_resource).m_name.GetCStr()
-                        : "[Unnamed]");
-                if (const RHI::PendingSync* sync = FindExternalWait(
-                        access.m_resource, init.m_current.m_queue, dstQueue, context))
-                {
-                    context.Add<ExternalWait>(access.m_attachment, ExternalWait{ *sync });
-                }
-                // A transient resource starts Undefined, carrying the last use of the memory
-                // it was placed over: the first barrier discards and waits for that.
-                tracker = &context.Add<ResourceStateTracker>(access.m_resource, init);
+                // An imported resource is where the last barrier of an earlier frame left it; a
+                // transient one starts Undefined, carrying the last use of the memory it was
+                // placed over: the first barrier waits for that.
+                tracker = &context.Add<BufferStateTracker>(access.m_resource);
+                tracker->m_current = backing->m_buffer->GetResourceState();
             }
 
             const RHI::ResourceState src = tracker->m_current;
             const RHI::ResourceState dst { access.m_access, dstQueue, access.m_stage };
 
-            // Same state with a write on either side is still an execution / memory dependency
-            // (a UAV barrier on DX12); whether it costs anything is the backend's call.
-            if (src != dst || RHI::HasWrite(src.m_access) || RHI::HasWrite(dst.m_access))
+            // A write in an unchanged state is still an execution / memory dependency (a UAV
+            // barrier on DX12); whether it costs anything is the backend's call.
+            if (src != dst || RHI::HasWrite(dst.m_access))
             {
                 const bool release = src.m_queue != dstQueue && tracker->m_lastAttachment != NullHandle;
-                if (access.m_isImage)
-                {
-                    RHI::ImageBarrier b;
-                    b.m_image     = backingImage->m_image;
-                    b.m_srcAccess = src.m_access;
-                    b.m_dstAccess = dst.m_access;
-                    b.m_srcStage  = src.m_stage;
-                    b.m_dstStage  = dst.m_stage;
-                    b.m_srcQueue  = src.m_queue;
-                    b.m_dstQueue  = dstQueue;
-                    context.Add<PreImageBarrier>(access.m_attachment, PreImageBarrier{ b });
-                    if (release)
-                    {
-                        context.Add<PostImageBarrier>(tracker->m_lastAttachment, PostImageBarrier{ b });
-                    }
-                }
-                else
-                {
-                    RHI::BufferBarrier b;
-                    b.m_buffer    = backingBuffer->m_buffer;
-                    b.m_srcAccess = src.m_access;
-                    b.m_dstAccess = dst.m_access;
-                    b.m_srcStage  = src.m_stage;
-                    b.m_dstStage  = dst.m_stage;
-                    b.m_srcQueue  = src.m_queue;
-                    b.m_dstQueue  = dstQueue;
-                    context.Add<PreBufferBarrier>(access.m_attachment, PreBufferBarrier{ b });
-                    if (release)
-                    {
-                        context.Add<PostBufferBarrier>(tracker->m_lastAttachment, PostBufferBarrier{ b });
-                    }
-                }
 
+                RHI::BufferBarrier b;
+                b.m_buffer    = backing->m_buffer;
+                b.m_srcAccess = src.m_access;
+                b.m_dstAccess = dst.m_access;
+                b.m_srcStage  = src.m_stage;
+                b.m_dstStage  = dst.m_stage;
+                b.m_srcQueue  = src.m_queue;
+                b.m_dstQueue  = dstQueue;
+                context.Add<PreBufferBarrier>(access.m_attachment, PreBufferBarrier{ b });
                 if (release)
                 {
+                    context.Add<PostBufferBarrier>(tracker->m_lastAttachment, PostBufferBarrier{ b });
                     RecordCrossQueueWait(access.m_scope,
                         context.Get<ScopeAttachment>(tracker->m_lastAttachment).m_scope,
                         src.m_queue, passContext, context);
@@ -701,89 +619,271 @@ namespace Spark::Render
             tracker->m_current        = dst;
             tracker->m_lastAttachment = access.m_attachment;
         }
+
+        void CompileImageAccess(
+            const ScopeImageAccess& access,
+            PassContext&            passContext,
+            RHIContext&             context)
+        {
+            const RHI::HardwareQueueClass dstQueue = context.Get<Scope>(access.m_scope).m_queue;
+            const char* name = GetResourceNameCStr(context, access.m_resource);
+
+            if (context.Has<ImportedTag>(access.m_resource))
+            {
+                ValidateExclusiveHomeQueue(access.m_image->GetDescriptor().m_sharedQueueMask, dstQueue, name);
+            }
+
+            auto* tracker = context.TryGet<ImageStateTracker>(access.m_resource);
+            if (!tracker)
+            {
+                // An imported image is where the barriers of earlier frames left each
+                // subresource; a transient one starts Undefined, carrying the last use of the
+                // memory it was placed over: a subresource's first barrier discards and waits
+                // for that.
+                tracker = &context.Add<ImageStateTracker>(access.m_resource);
+                tracker->m_states = access.m_image->GetSubresourceStates();
+            }
+
+            ImageTransitionList transitions;
+            CollectImageTransitions(tracker->m_states, access.m_requests, transitions);
+
+            for (const ImageTransition& transition : transitions)
+            {
+                const RHI::ResourceState& src = transition.m_src;
+                const RHI::ResourceState& dst = transition.m_dst;
+
+                // A write in an unchanged state is still an execution / memory dependency (a UAV
+                // barrier on DX12); whether it costs anything is the backend's call.
+                if (src != dst || RHI::HasWrite(dst.m_access))
+                {
+                    // A placed image starts Undefined, and the Copy queue cannot transition
+                    // layouts (DX12), nor discard or clear to initialize one.
+                    ASSERT(dstQueue != RHI::HardwareQueueClass::Copy
+                        || !CheckBitsAny(src.m_access, RHI::AccessFlags::Undefined),
+                        "Image '{}' is first used on the Copy queue while Undefined; the Copy queue "
+                        "cannot initialize an image.", name);
+
+                    // The release goes after the last Scope of the source queue to use the image.
+                    // An Undefined subresource holds nothing for that queue to release.
+                    const bool      crossQueue = src.m_queue != dstQueue;
+                    const RHIHandle producer   = crossQueue && !CheckBitsAny(src.m_access, RHI::AccessFlags::Undefined)
+                        ? tracker->m_lastAttachment[static_cast<uint32_t>(src.m_queue)]
+                        : NullHandle;
+
+                    // Nothing released what an earlier frame left on another queue, and its
+                    // layout there may not be one this queue accepts (DX12's queue-specific
+                    // layouts). The Copy queue leaves images in one every queue accepts.
+                    ASSERT(!crossQueue || producer != NullHandle
+                        || src.m_queue == RHI::HardwareQueueClass::Copy
+                        || src.m_access == RHI::AccessFlags::None
+                        || CheckBitsAny(src.m_access, RHI::AccessFlags::Undefined),
+                        "Image '{}' was left on queue {} by an earlier frame and is now first used on "
+                        "queue {}; images cannot change queues across frames.",
+                        name, static_cast<uint32_t>(src.m_queue), static_cast<uint32_t>(dstQueue));
+
+                    RHI::ImageBarrier b;
+                    b.m_image     = access.m_image;
+                    b.m_range     = transition.m_range;
+                    b.m_srcAccess = src.m_access;
+                    b.m_dstAccess = dst.m_access;
+                    b.m_srcStage  = src.m_stage;
+                    b.m_dstStage  = dst.m_stage;
+                    b.m_srcQueue  = src.m_queue;
+                    b.m_dstQueue  = dstQueue;
+                    AddImageBarrier<PreImageBarrier>(context, access.m_attachment, b);
+                    if (producer != NullHandle)
+                    {
+                        AddImageBarrier<PostImageBarrier>(context, producer, b);
+                        RecordCrossQueueWait(access.m_scope,
+                            context.Get<ScopeAttachment>(producer).m_scope,
+                            src.m_queue, passContext, context);
+                    }
+                }
+
+                tracker->m_states.Set(transition.m_range, dst);
+            }
+
+            tracker->m_lastAttachment[static_cast<uint32_t>(dstQueue)] = access.m_attachment;
+        }
+
+        // The two below walk the attachments the same way. SortScopes made one resource's
+        // attachments within a Scope adjacent: they are merged into a group, compiled when the
+        // next attachment starts another. Accesses that conflict within a group were rejected
+        // at build (CloseScope).
+
+        void CompileScopeBufferBarriers(PassContext& passContext, RHIContext& context)
+        {
+            ScopeBufferAccess group;
+            for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
+            {
+                const auto* buffer = context.TryGet<BufferPassAttachment>(attachment);
+                if (!buffer)
+                {
+                    continue;
+                }
+
+                if (group.m_scope != link.m_scope || group.m_resource != buffer->m_buffer)
+                {
+                    if (group.m_attachment != NullHandle)
+                    {
+                        CompileBufferAccess(group, passContext, context);
+                    }
+                    group = ScopeBufferAccess{ link.m_scope, buffer->m_buffer, attachment };
+                }
+
+                group.m_access |= CompileResourceState(*buffer).m_access;
+                group.m_stage  |= buffer->m_stage;
+            }
+            if (group.m_attachment != NullHandle)
+            {
+                CompileBufferAccess(group, passContext, context);
+            }
+        }
+
+        void CompileScopeImageBarriers(PassContext& passContext, RHIContext& context)
+        {
+            ScopeImageAccess group;
+            for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
+            {
+                const auto* image = context.TryGet<ImagePassAttachment>(attachment);
+                if (!image)
+                {
+                    continue;
+                }
+
+                if (group.m_scope != link.m_scope || group.m_resource != image->m_image)
+                {
+                    if (group.m_attachment != NullHandle)
+                    {
+                        CompileImageAccess(group, passContext, context);
+                    }
+
+                    const auto* backing = context.TryGet<BackingImage>(image->m_image);
+                    ASSERT(backing != nullptr && backing->m_image != nullptr,
+                        "Resource {} has no backing.", GetResourceNameCStr(context, image->m_image));
+                    const RHI::ImageDescriptor& descriptor = backing->m_image->GetDescriptor();
+
+                    group = ScopeImageAccess{ link.m_scope, image->m_image, attachment, backing->m_image };
+                    group.m_requests = RHI::ImageSubresourceStates(
+                        descriptor.m_mipLevels, descriptor.m_arraySize, backing->m_image->GetAspectFlags(),
+                        RHI::ResourceState{ RHI::AccessFlags::None, context.Get<Scope>(link.m_scope).m_queue,
+                            RHI::AttachmentStage::Uninitialized });
+                }
+
+                // Depth slices are not subresources: the view's are ignored.
+                AccumulateImageAccess(group.m_requests, RHI::ImageSubresourceRange(image->m_viewDescriptor),
+                    CompileResourceState(*image).m_access, image->m_stage);
+            }
+            if (group.m_attachment != NullHandle)
+            {
+                CompileImageAccess(group, passContext, context);
+            }
+        }
+
+        //! A swap chain image the frame used goes to Present, in a Post barrier on its last
+        //! attachment: recorded after the last Scope's work rather than in a list of its own.
+        //! Needs the image barriers compiled, for where they left the image.
+        void CompilePresentBarriers(RHIContext& context)
+        {
+            context.GetView<SwapChainImages, ImageStateTracker>().each(
+                [&](RHIHandle resource, const SwapChainImages&, ImageStateTracker& tracker)
+                {
+                    const RHI::ResourceState current = tracker.m_states.GetUniform();
+                    if (current.m_access == RHI::AccessFlags::Present)
+                    {
+                        return;
+                    }
+
+                    // A swap chain presents on the Graphics queue (DX12 binds it to a direct queue).
+                    ASSERT(current.m_queue == RHI::HardwareQueueClass::Graphics,
+                        "Swap chain '{}' is last used on queue {}; the last pass to touch it must run on Graphics.",
+                        GetResourceNameCStr(context, resource), static_cast<uint32_t>(current.m_queue));
+
+                    const RHI::ResourceState present {
+                        RHI::AccessFlags::Present, RHI::HardwareQueueClass::Graphics, RHI::AttachmentStage::Uninitialized };
+
+                    RHI::ImageBarrier b;
+                    b.m_image     = context.Get<BackingImage>(resource).m_image;
+                    b.m_srcAccess = current.m_access;
+                    b.m_dstAccess = present.m_access;
+                    b.m_srcStage  = current.m_stage;
+                    b.m_dstStage  = present.m_stage;
+                    b.m_srcQueue  = current.m_queue;
+                    b.m_dstQueue  = present.m_queue;
+                    AddImageBarrier<PostImageBarrier>(context,
+                        tracker.m_lastAttachment[static_cast<uint32_t>(RHI::HardwareQueueClass::Graphics)], b);
+
+                    tracker.m_states.SetUniform(present);
+                });
+        }
     }
 
     void RenderGraphCompiler::CompileScopeBarriers(PassContext& passContext, RHIContext& context)
     {
-        // SortScopes made one resource's attachments within a Scope adjacent: merge them into
-        // one access, and compile it when the next attachment starts another group.
-        ScopeResourceAccess group;
+        // Apart: neither's barriers depend on the other's.
+        CompileScopeBufferBarriers(passContext, context);
+        CompileScopeImageBarriers(passContext, context);
+        CompilePresentBarriers(context);
+    }
+
+    void RenderGraphCompiler::CompileExternalWaits(RHIContext& context)
+    {
+        //! The queues that already wait for a resource this frame.
+        struct Waiting
+        {
+            RHIHandle                   m_resource = NullHandle;
+            RHI::HardwareQueueClassMask m_queues   = RHI::HardwareQueueClassMask::None;
+        };
+        eastl::fixed_vector<Waiting, 8> waiting;
+
         for (auto [attachment, link] : context.GetStorage<ScopeAttachment>().each())
         {
-            ScopeResourceAccess current;
-            current.m_scope      = link.m_scope;
-            current.m_attachment = attachment;
-            if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
+            const auto*     image    = context.TryGet<ImagePassAttachment>(attachment);
+            const RHIHandle resource = image ? image->m_image : context.Get<BufferPassAttachment>(attachment).m_buffer;
+            if (!context.Has<ImportedTag>(resource))
             {
-                current.m_resource = image->m_image;
-                current.m_isImage  = true;
-                current.m_access   = CompileResourceState(*image).m_access;
-                current.m_stage    = image->m_stage;
+                continue;
             }
-            else
+            const auto* sync = context.TryGet<RHI::PendingSync>(resource);
+            if (!sync)
             {
-                const auto& buffer = context.Get<BufferPassAttachment>(attachment);
-                current.m_resource = buffer.m_buffer;
-                current.m_access   = CompileResourceState(buffer).m_access;
-                current.m_stage    = buffer.m_stage;
-            }
-
-            if (group.m_attachment != NullHandle
-                && group.m_scope == current.m_scope
-                && group.m_resource == current.m_resource)
-            {
-                group.m_access |= current.m_access;
-                group.m_stage  |= current.m_stage;
-                ASSERT(!RHI::HasWrite(group.m_access)
-                    || group.m_access == (RHI::AccessFlags::ShaderStorageRead | RHI::AccessFlags::ShaderStorageWrite),
-                    "Resource combined with conflicting read+write access in a single Scope.");
                 continue;
             }
 
-            if (group.m_attachment != NullHandle)
+            // The same queue runs in order: nothing to wait for.
+            const RHI::HardwareQueueClass queue  = context.Get<Scope>(link.m_scope).m_queue;
+            const RHI::HardwareQueueClass leftOn = image
+                ? GetImageQueue(context.Get<BackingImage>(resource).m_image->GetSubresourceStates(),
+                    GetResourceNameCStr(context, resource))
+                : context.Get<BackingBuffer>(resource).m_buffer->GetResourceState().m_queue;
+            if (leftOn == queue)
             {
-                CompileScopeResourceBarrier(group, passContext, context);
+                continue;
             }
-            group = current;
-        }
 
-        if (group.m_attachment != NullHandle)
-        {
-            CompileScopeResourceBarrier(group, passContext, context);
-        }
-
-        // Recorded after the last Scope's work rather than in a list of its own.
-        context.GetView<SwapChainImages, ResourceStateTracker>().each(
-            [&](RHIHandle resource, const SwapChainImages&, ResourceStateTracker& tracker)
+            auto entry = eastl::find_if(waiting.begin(), waiting.end(), [&](const Waiting& other)
             {
-                if (tracker.m_current.m_access == RHI::AccessFlags::Present)
-                {
-                    return;
-                }
-
-                // A swap chain presents on the Graphics queue (DX12 binds it to a direct queue).
-                ASSERT(tracker.m_current.m_queue == RHI::HardwareQueueClass::Graphics,
-                    "Swap chain '{}' is last used on queue {}; the last pass to touch it must run on Graphics.",
-                    context.Has<ResourceName>(resource)
-                        ? context.Get<ResourceName>(resource).m_name.GetCStr()
-                        : "[Unnamed]",
-                    static_cast<uint32_t>(tracker.m_current.m_queue));
-
-                const RHI::ResourceState present {
-                    RHI::AccessFlags::Present, RHI::HardwareQueueClass::Graphics, RHI::AttachmentStage::Uninitialized };
-
-                RHI::ImageBarrier b;
-                b.m_image     = context.Get<BackingImage>(resource).m_image;
-                b.m_srcAccess = tracker.m_current.m_access;
-                b.m_dstAccess = present.m_access;
-                b.m_srcStage  = tracker.m_current.m_stage;
-                b.m_dstStage  = present.m_stage;
-                b.m_srcQueue  = tracker.m_current.m_queue;
-                b.m_dstQueue  = present.m_queue;
-                context.Add<PostImageBarrier>(tracker.m_lastAttachment, PostImageBarrier{ b });
-
-                tracker.m_current = present;
+                return other.m_resource == resource;
             });
+            if (entry == waiting.end())
+            {
+                waiting.push_back(Waiting{ resource });
+                entry = waiting.end() - 1;
+            }
+            const RHI::HardwareQueueClassMask queueMask = RHI::GetHardwareQueueClassMask(queue);
+            if (CheckBitsAny(entry->m_queues, queueMask))
+            {
+                continue;
+            }
+            entry->m_queues |= queueMask;
+
+            // Fence values are monotonic, so reached at compile stays reached through execute.
+            if (sync->m_fence != nullptr && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue)
+            {
+                continue;
+            }
+            context.Add<ExternalWait>(attachment, ExternalWait{ *sync });
+        }
     }
 
     namespace

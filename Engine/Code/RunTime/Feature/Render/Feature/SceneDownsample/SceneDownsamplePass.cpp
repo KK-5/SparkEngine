@@ -97,6 +97,7 @@ namespace Spark::Render
                         static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y) });
                     s.Sampler(RHI::InputName("g_LinearSampler"), linearClamp);
                     s.Dispatch(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+                    s.Close();
                 }
             })
             .Finalize()

@@ -22,6 +22,7 @@ set(SOURCES
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
+    RenderGraph/ImageBarrierMerge.cpp
     RenderGraph/RenderGraphExecuter.cpp
     RenderGraph/RenderGraph.cpp
     RenderGraph/PooledImage.cpp

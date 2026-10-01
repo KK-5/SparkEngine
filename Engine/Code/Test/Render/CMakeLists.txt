@@ -4,6 +4,7 @@ option(HANDLEPOOL_TESTS "Reference-counted id pool tests" ON)
 option(SLOTPOOL_TESTS "Stable-slot pool tests" ON)
 option(IMAGESUBRESOURCESTATES_TESTS "Per-subresource image state tests" ON)
 option(IMAGECOPYALIGNMENT_TESTS "Image copy offset alignment tests" ON)
+option(IMAGEBARRIERMERGE_TESTS "Per-Scope image barrier merge tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -19,6 +20,7 @@ ADD_TEST_SOUECE(HANDLEPOOL_TESTS "HandlePoolTest.cpp")
 ADD_TEST_SOUECE(SLOTPOOL_TESTS "SlotPoolTest.cpp")
 ADD_TEST_SOUECE(IMAGESUBRESOURCESTATES_TESTS "ImageSubresourceStatesTest.cpp")
 ADD_TEST_SOUECE(IMAGECOPYALIGNMENT_TESTS "ImageCopyAlignmentTest.cpp")
+ADD_TEST_SOUECE(IMAGEBARRIERMERGE_TESTS "ImageBarrierMergeTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

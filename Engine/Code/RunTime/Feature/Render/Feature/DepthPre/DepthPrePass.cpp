@@ -101,6 +101,7 @@ namespace Spark::Render
                 auto s = p.Scope();
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), clear);
                 s.Accepts<OpaqueTag>();
+                s.Close();
             })
             .Finalize();
     }

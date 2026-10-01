@@ -154,6 +154,7 @@ namespace Spark::Render
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
 
                 s.Accepts<OpaqueTag>();
+                s.Close();
             })
             .Finalize()
         ;

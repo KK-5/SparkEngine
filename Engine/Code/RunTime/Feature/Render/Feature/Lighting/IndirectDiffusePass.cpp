@@ -123,6 +123,7 @@ namespace Spark::Render
                 s.DepthRead(RHI::AttachmentId(s_depthName));
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
+                s.Close();
             })
             .Finalize()
         ;

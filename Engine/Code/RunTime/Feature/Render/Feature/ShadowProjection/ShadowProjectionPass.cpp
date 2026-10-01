@@ -157,6 +157,7 @@ namespace Spark::Render
                     // Full-screen triangle, one instance per slice.
                     s.Draw(RHI::DrawLinear(3, 0), shadowedSlices);
                 }
+                s.Close();
             })
             .Finalize()
         ;

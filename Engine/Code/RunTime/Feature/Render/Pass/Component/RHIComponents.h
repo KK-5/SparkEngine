@@ -1,5 +1,6 @@
 #pragma once
 
+#include <EASTL/fixed_vector.h>
 #include <EASTL/type_traits.h>
 
 #include <Object/ObjectName.h>
@@ -18,6 +19,7 @@
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <RHI/Resource/ResourceState.h>
+#include <RHI/Resource/Image/ImageSubresourceStates.h>
 
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
@@ -84,7 +86,7 @@ namespace Spark::Render
     // Lives on Resource entities; seeded lazily on first touch, cleared at end of frame.
     // m_current is the full post-barrier state (usage + access + queue + stage) — read
     // it for both srcQueue and srcStage when constructing the next barrier.
-    struct ResourceStateTracker
+    struct BufferStateTracker
     {
         RHI::ResourceState m_current {};
         //! The attachment that last used the resource — where a cross-queue release goes.
@@ -92,12 +94,25 @@ namespace Spark::Render
         RHIHandle          m_lastAttachment { NullHandle };
     };
 
-    //! The barrier an attachment's access needs before it runs. On the first attachment of its
-    //! resource within a Scope, carrying the merged access of all of them. Per-frame, gone with
-    //! the attachment.
+    //! The image counterpart, a state per subresource: seeded with a copy of the image's
+    //! own record.
+    struct ImageStateTracker
+    {
+        RHI::ImageSubresourceStates m_states;
+        //! Per queue, the attachment that last used the image there, whichever subresources:
+        //! where the release of a subresource that queue holds goes. NullHandle while the
+        //! queue has not touched the image this frame.
+        RHIHandle m_lastAttachment[RHI::HardwareQueueClassCount] { NullHandle, NullHandle, NullHandle };
+    };
+
+    using ImageBarrierList = eastl::fixed_vector<RHI::ImageBarrier, 2, true>;
+
+    //! The barriers an attachment's access needs before it runs, one per rectangle of
+    //! subresources sharing a source state. On the first attachment of its resource within a
+    //! Scope, carrying the merged access of all of them. Per-frame, gone with the attachment.
     struct PreImageBarrier
     {
-        RHI::ImageBarrier m_barrier;
+        ImageBarrierList m_barriers;
     };
 
     struct PreBufferBarrier
@@ -105,11 +120,11 @@ namespace Spark::Render
         RHI::BufferBarrier m_barrier;
     };
 
-    //! The release half of a cross-queue transfer, on the producer's attachment: the next
-    //! access to its resource is on another queue. Also a swap chain's Present transition.
+    //! The release halves of cross-queue transfers, on the producer's attachment: the next
+    //! access to those subresources is on another queue. Also a swap chain's Present transition.
     struct PostImageBarrier
     {
-        RHI::ImageBarrier m_barrier;
+        ImageBarrierList m_barriers;
     };
 
     struct PostBufferBarrier

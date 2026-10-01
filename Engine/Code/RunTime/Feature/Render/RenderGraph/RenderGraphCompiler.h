@@ -83,6 +83,12 @@ namespace Spark::Render
         //! ones is the backend's call. Runs after SortScopes.
         void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
 
+        //! Put an ExternalWait on the attachment by which each queue first touches an imported
+        //! resource that another queue left pending (e.g. an upload on the Copy queue): its
+        //! PendingSync, when the fence has not been reached. The queue it was left on is the
+        //! one in the resource's own record. Runs after SortScopes.
+        void CompileExternalWaits(RHIContext& context);
+
         //! Turn the cross-queue waits CompileScopeBarriers recorded into fences and values: walks
         //! Scopes in stream order, gives each ScopeSignal its queue's fence in crossQueueFences
         //! and next value, and resolves each ScopeWait to its producers' signals, dropping any an

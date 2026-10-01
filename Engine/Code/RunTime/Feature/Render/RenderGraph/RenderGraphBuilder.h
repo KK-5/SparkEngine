@@ -83,8 +83,13 @@ namespace Spark::Render
             return access;
         }
 
-        //! Open a new Scope of the current pass, numbered after those it already has.
+        //! Open a new Scope of the current pass, numbered after those it already has. The one
+        //! before it must be closed: a pass has one Scope open at a time, and things are added
+        //! only to that one.
         RHIHandle OpenScope();
+
+        //! End the declaration of the open Scope and validate what it declared.
+        void CloseScope(RHIHandle scope);
 
         //! Introduce a transient resource under `name`, with no access yet.
         void CreateImage(const RHI::AttachmentId& name, const RHI::ImageDescriptor& desc);
@@ -148,7 +153,8 @@ namespace Spark::Render
         RHIHandle AddImageAttachment(const ImagePassAttachment& attachment, RHIHandle scope, uint32_t* colorCount);
         RHIHandle AddBufferAttachment(const BufferPassAttachment& attachment, RHIHandle scope);
 
-        void CountScopeAttachment(RHIHandle scope);
+        //! Asserts that `scope` is the one open.
+        void CheckScopeOpen(RHIHandle scope) const;
 
         // The transient image declared under `name`, or NullHandle. Used to link a
         // previous-frame read to the resource it mirrors.
@@ -187,13 +193,6 @@ namespace Spark::Render
             uint32_t inDegree = 0;
         };
 
-        //! A Scope the current pass opened, for the checks at EndPass.
-        struct OpenedScope
-        {
-            RHIHandle m_scope {NullHandle};
-            uint32_t  m_attachmentCount {0};
-        };
-
         //! What Create / Import put under a name: the resource, and the latest version of it
         //! produced so far (bumped by every write).
         struct ResourceEntry
@@ -204,11 +203,13 @@ namespace Spark::Render
 
         Pass m_currentPass {NullPass};
 
-        eastl::fixed_vector<OpenedScope, 8> m_passScopes;
+        //! How many Scopes the current pass has opened.
+        uint32_t m_passScopeCount {0};
 
-        //! Shader accesses of a render pass declared without a stage: each must get one
-        //! before EndPass.
-        eastl::fixed_vector<RHIHandle, 8> m_unstagedAttachments;
+        //! The Scope being declared, NullHandle between Scopes, and its attachments: what
+        //! CloseScope validates.
+        RHIHandle m_openScope {NullHandle};
+        eastl::fixed_vector<RHIHandle, 8> m_scopeAttachments;
 
         eastl::unordered_map<Pass, PassNode> m_graph;
 
