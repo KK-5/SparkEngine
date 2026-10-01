@@ -21,8 +21,8 @@ namespace Spark::RHI
         buffer.SetResourceState(state);
     }
 
-    void CommandList::SetResourceState(Image& image, ResourceState state)
+    void CommandList::SetResourceState(Image& image, const ImageSubresourceRange& range, ResourceState state)
     {
-        image.SetResourceState(state);
+        image.SetResourceState(range, state);
     }
 }

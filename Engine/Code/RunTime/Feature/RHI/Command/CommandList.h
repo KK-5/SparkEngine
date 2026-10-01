@@ -185,7 +185,7 @@ namespace Spark::RHI
     protected:
         /// Updates the tracked resource state after a barrier. For use by backend implementations.
         static void SetResourceState(Buffer& buffer, ResourceState state);
-        static void SetResourceState(Image& image, ResourceState state);
+        static void SetResourceState(Image& image, const ImageSubresourceRange& range, ResourceState state);
 
     private:
         SubmitRange m_submitRange;

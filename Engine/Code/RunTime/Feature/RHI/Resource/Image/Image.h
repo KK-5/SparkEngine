@@ -70,6 +70,7 @@ namespace Spark::RHI
 
     private:
         void SetResourceState(ResourceState state);
+        void SetResourceState(const ImageSubresourceRange& range, ResourceState state);
 
         ///////////////////////////////////////////////////////////////////
         // Platform API

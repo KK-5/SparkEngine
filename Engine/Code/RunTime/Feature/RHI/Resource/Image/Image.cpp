@@ -89,4 +89,9 @@ namespace Spark::RHI
     {
         m_subresourceStates.SetUniform(state);
     }
+
+    void Image::SetResourceState(const ImageSubresourceRange& range, ResourceState state)
+    {
+        m_subresourceStates.Set(range, state);
+    }
 }

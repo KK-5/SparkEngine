@@ -543,11 +543,36 @@ namespace Spark::RHI::DX12
 
     namespace
     {
-        D3D12_BARRIER_SUBRESOURCE_RANGE AllSubresources()
+        D3D12_BARRIER_SUBRESOURCE_RANGE ConvertBarrierSubresourceRange(
+            const RHI::Image& image, const RHI::ImageSubresourceRange& range)
         {
-            D3D12_BARRIER_SUBRESOURCE_RANGE range{};
-            range.IndexOrFirstMipLevel = 0xFFFFFFFF;
-            return range;
+            const RHI::ImageSubresourceStates& states = image.GetSubresourceStates();
+
+            D3D12_BARRIER_SUBRESOURCE_RANGE converted{};
+            if (states.IsWholeImage(range))
+            {
+                // NumMipLevels 0: IndexOrFirstMipLevel is a subresource index, this one all of them.
+                converted.IndexOrFirstMipLevel = 0xFFFFFFFF;
+                return converted;
+            }
+
+            const RHI::ImageSubresourceRange normalized = states.Normalize(range);
+            converted.IndexOrFirstMipLevel = normalized.m_mipSliceMin;
+            converted.NumMipLevels         = normalized.m_mipSliceMax - normalized.m_mipSliceMin + 1u;
+            converted.FirstArraySlice      = normalized.m_arraySliceMin;
+            converted.NumArraySlices       = normalized.m_arraySliceMax - normalized.m_arraySliceMin + 1u;
+            if (normalized.m_aspectFlags == image.GetAspectFlags())
+            {
+                // A color aspect is every plane of a planar format.
+                converted.FirstPlane = 0;
+                converted.NumPlanes  = GetFormatPlaneCount(image.GetDescriptor().m_format);
+            }
+            else
+            {
+                converted.FirstPlane = CheckBitsAny(normalized.m_aspectFlags, RHI::ImageAspectFlags::Depth) ? 0 : 1;
+                converted.NumPlanes  = 1;
+            }
+            return converted;
         }
 
         //! Render-target and depth-stencil output is ordered in submission order, so a barrier
@@ -677,7 +702,7 @@ namespace Spark::RHI::DX12
         b.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
         b.LayoutAfter  = D3D12_BARRIER_LAYOUT_COMMON;
         b.pResource    = image.GetMemoryView().GetMemory();
-        b.Subresources = AllSubresources();
+        b.Subresources = ConvertBarrierSubresourceRange(image, barrier.m_range);
         b.Flags        = D3D12_TEXTURE_BARRIER_FLAG_NONE;
 
         const bool release = isCrossQueue && myQueue == barrier.m_srcQueue;
@@ -731,7 +756,7 @@ namespace Spark::RHI::DX12
         // detection is already carried by the pre-release tracked state.
         if (!release)
         {
-            RHI::CommandList::SetResourceState(*barrier.m_image,
+            RHI::CommandList::SetResourceState(*barrier.m_image, barrier.m_range,
                 RHI::ResourceState{ barrier.m_dstAccess, myQueue, barrier.m_dstStage });
         }
     }
