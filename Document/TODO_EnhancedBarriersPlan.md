@@ -222,6 +222,19 @@ I4 的步骤 1（`ImageSubresourceStates`、按子资源记录状态）与后端
   状态之外附上前一资源，DX12 改为对它发一个以 `NO_ACCESS` 结束的屏障；同一批次内的多个 global barrier 也可在 `FlushBarriers`
   里按位合并。预估完整管线每帧 15~35 条，与 legacy 的 aliasing 屏障数相同。
 - ~~`TransientResourcePoolStats::m_aliasingBarrierCount`~~：已删除（从未被填写，随 aliasing 屏障的删除已无对应概念）。
+- **MSAA resolve 由后端在 `EndRenderPass` 里显式做，用 `ResolveSubresource`**：一条命令列表对交换链图像的唯一写入是
+  `ResolveSubresourceRegion` 时设备移除（`DXGI_ERROR_ACCESS_DENIED`，debug layer 无其他消息）；同一条列表里先对它做一次
+  `ResolveSubresource` 再做 Region 就正常，只用 `ResolveSubresource` 也正常。
+  - 实测于 Windows 11 25H2（D3D12 运行时 10.0.26100.9549）的两块显卡：NVIDIA RTX 5070 Ti Laptop（`RenderPassesTier` 0）
+    与 Intel 核显（tier 2），结果相同；与源矩形、resolve 模式（AVERAGE / MIN / MAX）、源是否 typeless、屏障按子资源
+    还是整图都无关。
+  - 结束访问 `ENDING_ACCESS_TYPE_RESOLVE` 在 tier 0 那块显卡上同样设备移除；另一台机器上无报错，那台的系统版本与
+    tier 未记录。
+  - 推断（未证实）：运行时记录"哪条命令列表写了当前后缓冲"时漏了 Region 这条路径。没有搜到同样的报告；相近的有
+    `crud89/d3d12-renderpass-barrier-mwe`（渲染通道 + Enhanced Barriers 只在交换链后缓冲上出错，Agility SDK 1.610.2 修复）。
+  - 做法：颜色附件的结束访问固定为 PRESERVE，通道结束后源 RENDER_TARGET → RESOLVE_SOURCE、`ResolveSubresource`、再
+    转回，转回是为了让上层记录的源状态在返回时仍成立。
+  - 深度 resolve 需要 Region 的 MIN / MAX 模式；它的目标不是交换链图像，按上面的结果应不受影响，做的时候确认。
 
 ---
 
