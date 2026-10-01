@@ -3,7 +3,7 @@
 `TODO_RenderGraphItemPlan.md` 第 18 条、`TODO_ScreenSpacePlan.md` 步骤 0b。P4 的 HZB 逐 mip 一个 Scope（读 mip j-1、写
 mip j），需要同一张图的不同 mip 处在不同状态；欠账出处见 `TODO_IBLPlan.md`。
 
-决策 D1~D6 均已确认，D7 待确认。
+决策 D1~D7 均已确认。
 
 ---
 
@@ -122,8 +122,7 @@ async compute 用例再设计。
 **实现**：只处理"同一 Scope 里同一资源"的那一小组 attachment（排序后本来就相邻，现在的线性扫描就是这么分组的），不遍历
 整个 Scope。组内不做几何上的范围合并（两个矩形的并集不一定还是矩形），直接复用 D2 的按子资源数组：
 
-1. **累加**：建一个与图像同形的请求表，每个 attachment 把访问与阶段按位或进范围内的每个子资源；同一子资源上出现读写冲突
-   （UAV 读写除外）即断言。
+1. **累加**：建一个与图像同形的请求表，每个 attachment 把访问与阶段按位或进范围内的每个子资源。
 2. **对比**：请求表与追踪器逐子资源比较，源、目标状态都相同的连续子资源合成一段，每段一个屏障，挂在组内第一个
    attachment 的 Pre 列表上。
 3. **更新**：追踪器里这些子资源改为请求的状态。
@@ -131,12 +130,32 @@ async compute 用例再设计。
 2、3 就是 `ImageSubresourceStates` 本来要提供的"应用新状态 → 转换列表"，输入由"一个范围一个状态"换成请求表；D4 只多了
 第 1 步的累加。"重叠的合并、不重叠的分开"由此自动成立。
 
-**快速路径**：组内只有一个整图 attachment 且追踪器整图一致（现在的全部情况）时，跳过累加与逐子资源比较，照现在发一个
-整图屏障，开销与行为不变。
+**不单独写快速路径**：请求表与追踪器都是 `ImageSubresourceStates`，整图一致时它的 `Set` / `GetSpans` 直接返回，不分配、
+不遍历，结果是一个整图屏障，与加范围之前相同。只留一条路径，少一处可能不一致的地方。
 
-**首次触碰**：播种后的几处判断（跨帧换队列的断言、transient 图像不上 Copy 队列的断言、`FindExternalWait`）现读单个
-`m_current.m_queue`，改为对播种得到的各子资源状态逐个判断；各子资源所在队列不一致时 `FindExternalWait` 同 D1 的
-`PendingSync`，先断言不支持。
+**声明的合法性在 Build 阶段拦住**，不流入编译：Scope 由 pass 显式 `Close()`，`RenderGraphBuilder::CloseScope` 对这一个
+Scope 的 attachment 两两比较，同一资源、范围重叠（`ImageViewDescriptor::OverlapsSubResource`，buffer 视为整体）且访问冲突
+（`RHI::HasAccessConflict`：有写且不是恰好 UAV 读写）即断言。不在声明的那一刻查，因为 `.View()` 是声明之后才收窄范围的。
+两两比较与按并集判断等价。编译器因此只处理合法输入，累加只做按位或。
+
+一个 pass 同一时刻只开一个 Scope：`OpenScope` 要求上一个已 `Close()`，往 Scope 上加东西要求它正开着，`EndPass` 要求都已
+关闭。builder 因此只记当前 Scope 及其 attachment，原先按 pass 攒的 Scope 列表与"未设 stage 的 attachment"列表都不需要了，
+按 Scope 的校验（attachment 非空、root constant 齐全、stage 已设）一并挪到 `CloseScope`。
+
+**深度模板 attachment 必须覆盖图像的全部 aspect**：DSV 同时绑定两个 plane，视图只含 Depth 时按视图取范围会漏掉 stencil
+plane。同样在 `CloseScope` 断言拦住，不自动扩展。
+
+**首次触碰**：两条断言（跨帧换队列、图像不能以 Undefined 首次用在 Copy 队列）原先只在建追踪器时对单个
+`m_current.m_queue` 做一次，改为按转换做：源队列与本队列不同、且源队列这一帧没有可挂 release 的 attachment（D7）时，
+这段子资源就是从上一帧带过来的。
+
+**`ExternalWait` 从屏障编译里拆出**（`CompileExternalWaits`，独立一步）：它只需要资源自己的记录与 `PendingSync`，不需要
+追踪器。规则由"资源（或子资源）第一次被碰"改为按（资源，队列）：一个 imported 资源被别的队列留着、fence 未到时，每个
+队列上第一个碰它的 Scope 都等。这是原规则的超集，不依赖子资源状态；多出来的是先在队列 A 碰过、后又在队列 B 碰的情况，
+B 会多等一次已到或将到的 fence。资源被留在哪个队列取自它的记录，图像取被访问过的子资源所在的队列（必须同一个，同 D1）。
+这条路径没有运行覆盖：编辑器默认场景与各 sample 里没有被别的队列留着的 imported 资源。
+
+**Undefined 的子资源不发 release**：它没有内容要交接，只在目标队列发 acquire 一半（带 discard），与整图时的首次触碰相同。
 
 **transient 图像的首次触碰可以是部分范围**：HZB 的第一个 Scope 只写 mip 0，其余 mip 仍是 `Undefined | 前一占用者`，各自
 首次触碰时再发自己的 discard 与等待前一占用者的 global barrier。结果正确，每张图多出约 mip 数条 global barrier（分属
@@ -166,12 +185,12 @@ plane 各自的起点与数量）直接由 `ImageBarrier::m_range` 填，不再�
 - **测试放在 `SparkRenderTest`**：它链接 SparkRender，SparkRHI 的头文件可间接用到，不新建 RHI 测试工程。
 - **`ImageSubresourceStates` 用 mip 数、层数、aspect 构造**，不接收 `RHI::Image`：测试不需要设备，RHI 图像在内部用自己的
   描述符构造它。
-- **读写冲突由返回值报告**，编译器据此 `ASSERT`：不用 death test 就能测"重叠的读写被检出"。
+- **读写冲突的规则是一个纯函数**（`RHI::HasAccessConflict`），builder 据此 `ASSERT`：不用 death test 就能测规则本身。
 
 用例：整图 → 部分 → 整图（回到一致后折叠）；相邻 Scope 读写不同 mip；同 Scope 重叠读写报冲突；深度模板的 plane；
 多层图像按矩形合并；范围归一化。
 
-### D7　追踪器的 `m_lastAttachment` 按队列记　⏳ 待确认
+### D7　追踪器的 `m_lastAttachment` 按队列记　✅ 已定
 
 现在一个资源一个 `m_lastAttachment`，跨队列 release 与 `RecordCrossQueueWait` 都挂在它上面。部分范围之后，各子资源最后
 一次访问可以在不同 Scope、不同队列，单个值选不出 release 该录在哪。
@@ -181,6 +200,9 @@ Q 上所有更早的访问之后，所以正确；等待的生产者也取它的
 
 不按子资源记：`ImageSubresourceStates` 只存 `ResourceState`（D2），再存一份同形的 attachment 数组，换来的只是 release
 能早几个 Scope 录制。
+
+只对图像：追踪器按类型拆成 `BufferStateTracker` 与 `ImageStateTracker`，buffer 只有一个状态，源队列唯一，
+`m_lastAttachment` 仍是单个。
 
 ---
 
