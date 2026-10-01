@@ -919,7 +919,26 @@ namespace Spark::Render
                     att->m_attachmentId.m_id.GetCStr());
 
                 const RHIHandle source = context.Get<ResolveSource>(attachment).m_source;
-                info.m_colorAttachments[context.Get<ColorAttachmentIndex>(source).m_index].m_resolveView = resolved;
+                auto&           color  = info.m_colorAttachments[context.Get<ColorAttachmentIndex>(source).m_index];
+
+                const RHI::ImageDescriptor& sourceDesc   = color.m_view->GetImage().GetDescriptor();
+                const RHI::ImageDescriptor& resolvedDesc = resolved->GetImage().GetDescriptor();
+                auto viewFormat = [](const RHI::ImageView& view, const RHI::ImageDescriptor& desc)
+                {
+                    const RHI::Format overrideFormat = view.GetDescriptor().m_overrideFormat;
+                    return overrideFormat != RHI::Format::Unknown ? overrideFormat : desc.m_format;
+                };
+                ASSERT(sourceDesc.m_multisampleState.m_samples > 1,
+                    "[RenderGraphCompiler] Pass {} resolves into {} from a target that is not multisampled.",
+                    passName, att->m_attachmentId.m_id.GetCStr());
+                ASSERT(resolvedDesc.m_multisampleState.m_samples == 1,
+                    "[RenderGraphCompiler] Pass {} resolves into {}, which is itself multisampled.",
+                    passName, att->m_attachmentId.m_id.GetCStr());
+                ASSERT(viewFormat(*color.m_view, sourceDesc) == viewFormat(*resolved, resolvedDesc),
+                    "[RenderGraphCompiler] Pass {} resolves into {} from a target of another format.",
+                    passName, att->m_attachmentId.m_id.GetCStr());
+
+                color.m_resolveView = resolved;
             }
 
             ASSERT(hasAny,

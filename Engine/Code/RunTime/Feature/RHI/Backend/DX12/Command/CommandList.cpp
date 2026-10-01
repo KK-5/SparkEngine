@@ -923,48 +923,44 @@ namespace Spark::RHI::DX12
             : static_cast<const RHI::Image&>(view->GetResource()).GetDescriptor().m_format;
     }
 
-    // Fills an MSAA-resolve EndingAccess using the color attachment's source / resolve views.
-    // The subresource parameter block is kept alive via `subresourceStorage`, which must
-    // outlive the pending BeginRenderPass call (CommandList stores it as a member).
-    static void FillResolveEndingAccess(
-        const ImageView& srcView,
-        const ImageView& dstView,
-        RHI::Format format,
-        bool preserveSource,
-        D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS& subresourceStorage,
-        D3D12_RENDER_PASS_ENDING_ACCESS& outAccess)
+    // The first subresource an image view covers.
+    static UINT GetImageViewSubresource(const ImageView& view)
     {
-        const auto& srcImageDesc = srcView.GetImage().GetDescriptor();
-        const auto& srcViewDesc = srcView.GetDescriptor();
-        const auto& dstViewDesc = dstView.GetDescriptor();
+        const auto& imageDesc = view.GetImage().GetDescriptor();
+        const auto& viewDesc  = view.GetDescriptor();
+        return D3D12CalcSubresource(
+            viewDesc.m_mipSliceMin, viewDesc.m_arraySliceMin, 0, imageDesc.m_mipLevels, imageDesc.m_arraySize);
+    }
 
-        subresourceStorage = {};
-        subresourceStorage.SrcSubresource = srcViewDesc.m_mipSliceMin;
-        subresourceStorage.DstSubresource = dstViewDesc.m_mipSliceMin;
-        subresourceStorage.DstX = 0;
-        subresourceStorage.DstY = 0;
-        subresourceStorage.SrcRect = {
-            0, 0,
-            static_cast<LONG>(srcImageDesc.m_size.m_width),
-            static_cast<LONG>(srcImageDesc.m_size.m_height)
-        };
-
-        outAccess = {};
-        outAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
-        auto& r = outAccess.Resolve;
-        r.pSrcResource           = srcView.GetMemory();
-        r.pDstResource           = dstView.GetMemory();
-        r.SubresourceCount       = 1;
-        r.pSubresourceParameters = &subresourceStorage;
-        r.Format                 = ConvertFormat(format);
-        r.ResolveMode            = D3D12_RESOLVE_MODE_AVERAGE;
-        r.PreserveResolveSource  = preserveSource ? TRUE : FALSE;
+    // Takes a render target's subresource to the resolve-source layout, or back from it.
+    static D3D12_TEXTURE_BARRIER MakeResolveSourceBarrier(ID3D12Resource* resource, UINT subresource, bool toResolveSource)
+    {
+        D3D12_TEXTURE_BARRIER b{};
+        b.SyncBefore   = D3D12_BARRIER_SYNC_RENDER_TARGET;
+        b.SyncAfter    = D3D12_BARRIER_SYNC_RESOLVE;
+        b.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+        b.AccessAfter  = D3D12_BARRIER_ACCESS_RESOLVE_SOURCE;
+        b.LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        b.LayoutAfter  = D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE;
+        b.pResource    = resource;
+        // NumMipLevels 0: IndexOrFirstMipLevel is a subresource index.
+        b.Subresources.IndexOrFirstMipLevel = subresource;
+        b.Flags        = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+        if (!toResolveSource)
+        {
+            eastl::swap(b.SyncBefore, b.SyncAfter);
+            eastl::swap(b.AccessBefore, b.AccessAfter);
+            eastl::swap(b.LayoutBefore, b.LayoutAfter);
+        }
+        return b;
     }
 
     void CommandList::BeginRenderPass(const RHI::RenderPassBeginInfo& info)
     {
         Device& device = static_cast<Device&>(GetDevice());
         auto& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
+
+        ASSERT(m_pendingResolves.empty(), "[CommandList] BeginRenderPass inside a render pass.");
 
         // --- Color attachments -------------------------------------------------
         D3D12_RENDER_PASS_RENDER_TARGET_DESC renderTargets[RHI::Limits::Pipeline::AttachmentColorCountMax] = {};
@@ -981,12 +977,16 @@ namespace Spark::RHI::DX12
 
             if (colorAttachment.m_resolveView)
             {
+                // EndRenderPass resolves, so the target is kept until then. Not an ending-access
+                // resolve: see EndRenderPass.
                 const auto* resolveView = static_cast<const ImageView*>(colorAttachment.m_resolveView);
-                const bool preserveSource =
-                    colorAttachment.m_loadStoreAction.m_storeAction == RHI::AttachmentStoreAction::Store;
-                FillResolveEndingAccess(
-                    *view, *resolveView, format, preserveSource,
-                    m_resolveSubresourceParams[i], renderTargets[i].EndingAccess);
+                PendingResolve& resolve = m_pendingResolves.push_back();
+                resolve.m_source                 = view->GetMemory();
+                resolve.m_destination            = resolveView->GetMemory();
+                resolve.m_sourceSubresource      = GetImageViewSubresource(*view);
+                resolve.m_destinationSubresource = GetImageViewSubresource(*resolveView);
+                resolve.m_format                 = ConvertFormat(format);
+                renderTargets[i].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
             }
             else
             {
@@ -1086,6 +1086,41 @@ namespace Spark::RHI::DX12
     void CommandList::EndRenderPass()
     {
         GetCommandList()->EndRenderPass();
+
+        if (m_pendingResolves.empty())
+        {
+            return;
+        }
+
+        // No layout admits both render-target and resolve-source access. The sources leave
+        // RENDER_TARGET for the resolve and come back to it, so the state the caller tracks
+        // for them holds on return.
+        for (const PendingResolve& resolve : m_pendingResolves)
+        {
+            CommandListBase::QueueTextureBarrier(
+                MakeResolveSourceBarrier(resolve.m_source, resolve.m_sourceSubresource, true));
+        }
+        CommandListBase::FlushBarriers();
+
+        for (const PendingResolve& resolve : m_pendingResolves)
+        {
+            // Not ResolveSubresourceRegion: when it is a command list's only write to a swap
+            // chain image, the device is removed (DXGI_ERROR_ACCESS_DENIED).
+            GetCommandList()->ResolveSubresource(
+                resolve.m_destination, resolve.m_destinationSubresource,
+                resolve.m_source, resolve.m_sourceSubresource, resolve.m_format);
+        }
+
+        // Flushed here: barriers of one Barrier() call are unordered, and the next to touch a
+        // source would otherwise share a call with this one.
+        for (const PendingResolve& resolve : m_pendingResolves)
+        {
+            CommandListBase::QueueTextureBarrier(
+                MakeResolveSourceBarrier(resolve.m_source, resolve.m_sourceSubresource, false));
+        }
+        CommandListBase::FlushBarriers();
+
+        m_pendingResolves.clear();
     }
 
     void CommandList::ClearRenderTarget(const RHI::ImageClearRequest& request)

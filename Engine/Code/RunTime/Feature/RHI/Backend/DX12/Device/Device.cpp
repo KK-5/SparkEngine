@@ -203,6 +203,8 @@ namespace Spark::RHI::DX12
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5;
         GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
         m_features.m_rayTracing = options5.RaytracingTier != D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+        // Tier 0: the runtime emulates BeginRenderPass / EndRenderPass.
+        LOG_INFO("[DX12 Device] Render pass tier {}.", static_cast<int>(options5.RenderPassesTier));
 
         m_features.m_float16 = (options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT) != 0;
 
