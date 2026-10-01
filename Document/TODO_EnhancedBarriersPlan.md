@@ -198,7 +198,7 @@ barrier，是同步漏洞。需求几乎不存在，直接约束：编译器首�
 | 2 ✅ | D3D12MA 换成 3.2.0，调用不变，确认构建与画面无变化 |
 | 3 ✅ | 转换函数（D2）、`CommandListBase` 的屏障队列、`QueueBarrier` 改写，命令列表换 `List7`；资源改以初始 layout 创建（D4）；aliasing 记进初始状态（D3），删掉 `DeviceMemoryBarrier` 一路。首轮运行暴露 `None` 兼任"丢弃"的错误，D3 由屏障上的 bool 改为 `AccessFlags::Undefined`，原步骤 4 并入。7 个示例与编辑器运行无 debug layer 错误；画面待人工确认 |
 | 3b | Present 转换随最后一个 Scope 录制（D7），消除 #1356；跨帧换队列的 ASSERT（D8）；transient 图像不上 copy 队列的 ASSERT（D9）。debug layer 与 GPU-based validation 下编辑器与 7 个示例均无报错，画面已确认 |
-| 4 | 删除 legacy 残留：`Image::m_subresourceState` 一族与 SwapChain 对它的调用（与 I4 步骤 1 一起） |
+| 4 ✅ | 删除 legacy 残留：`Image::m_subresourceState` 一族与 SwapChain 对它的调用（随 I4 步骤 1 完成） |
 
 I4 的步骤 1（`ImageSubresourceStates`、按子资源记录状态）与后端无关，可与本文并行；I4 的步骤 2 放在本文之后，D5 改为依赖
 原生范围。
