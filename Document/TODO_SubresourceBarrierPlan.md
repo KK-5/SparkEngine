@@ -11,11 +11,10 @@ mip j），需要同一张图的不同 mip 处在不同状态；欠账出处见 
 
 | 层 | 现状 | 位置 |
 |---|---|---|
-| RHI `ImageBarrier` | 没有子资源范围，整张图 | `RHI/Resource/ResourceState.h` |
+| RHI `ImageBarrier` | 带 `ImageSubresourceRange m_range`，默认整图；还没有调用者传部分范围 | `RHI/Resource/ResourceState.h` |
 | RHI `ImageSubresourceRange` | 已有：mip / array 的 [min, max] 与 aspect，默认即整图 | `RHI/Resource/Image/ImageSubResource.h` |
-| 跨帧状态记录 | `RHI::Resource` 上**单个** `ResourceState`：`CommandList::QueueBarrier` 执行屏障时写，下一帧首次触碰时 `GetResourceInitialState` 读。transient 资源由池放置时写成 `Undefined \| 前一占用者的访问` | `Resource.h`；DX12 `CommandList.cpp` 的 `QueueBarrier` |
-| DX12 纹理屏障 | 已是 Enhanced Barriers 的 `D3D12_TEXTURE_BARRIER`，子资源范围写死整图（`AllSubresources()`） | DX12 `CommandList.cpp` 的 `QueueBarrier` |
-| DX12 `Image::m_subresourceState` | O3DE 留下的残留：建图时初始化，屏障路径不读。连同 `SetSubresourceState` / `GetSubresourceStateByRange` / `GetSubresourceIndexByRange` / `m_initialResourceState` 都只在自己这一族内互相调用 | `Backend/DX12/Resource/Image/Image.{h,cpp}`；调用处在 `SwapChain` / `ImagePool` / `TransientResourcePool` |
+| 跨帧状态记录 | buffer 上单个 `ResourceState`，图像上按子资源的 `ImageSubresourceStates`：`CommandList::QueueBarrier` 执行屏障时按屏障的范围写，下一帧首次触碰时 `GetResourceInitialState` 读整图状态。transient 资源由池放置时写成 `Undefined \| 前一占用者的访问` | `Buffer.h` / `Image.h`；DX12 `CommandList.cpp` 的 `QueueBarrier` |
+| DX12 纹理屏障 | Enhanced Barriers 的 `D3D12_TEXTURE_BARRIER`，子资源范围由 `ImageBarrier::m_range` 换算（`ConvertBarrierSubresourceRange`） | DX12 `CommandList.cpp` 的 `QueueBarrier` |
 | `ResourceStateTracker` | 一个资源一个 `m_current` 加 `m_lastAttachment`，首次触碰时播种，帧末清空 | `Pass/Component/RHIComponents.h` |
 | `Pre/Post*Barrier` | 每个 attachment 实体最多各一个 | 同上 |
 | `CompileScopeBarriers` | 排序后同一 Scope 内同一资源的 attachment 相邻，合并成一个访问（`ScopeResourceAccess`）；有写且不是 UAV 读写即断言 | `RenderGraphCompiler.cpp` |
@@ -150,6 +149,10 @@ DX12 后端先切到 Enhanced Barriers（`TODO_EnhancedBarriersPlan.md`），`D3
 plane 各自的起点与数量）直接由 `ImageBarrier::m_range` 填，不再展开成逐子资源的屏障。深度模板的两个 plane 由 aspect 换算
 成 plane 范围。
 
+- 整图仍填 `0xFFFFFFFF`，与加范围之前逐比特相同。
+- 范围含图像的全部 aspect 时 plane 数取格式的（`GetFormatPlaneCount`）：NV12 / P010 这类 planar 格式在 RHI 里是一个 Color
+  aspect，在 D3D12 里是多个 plane。
+
 ### D6　可测性：抽出纯逻辑单测　✅ 已定
 
 `CompileScopeBarriers` 依赖 `BackingImage` 等真实 RHI 对象，直接测很难。抽出两块纯逻辑单独测：
@@ -186,7 +189,7 @@ Q 上所有更早的访问之后，所以正确；等待的生产者也取它的
 | 步骤 | 内容 |
 |---|---|
 | 1 ✅ | RHI：`ImageSubresourceStates` 及单测（D2、D6）；图像按子资源记录状态、整图读取接口（D1）；删 DX12 `m_subresourceState` 一族（即 `TODO_EnhancedBarriersPlan.md` 的步骤 4）。还没有调用者传部分范围，运行行为不变 |
-| 2 | RHI：`ImageBarrier::m_range`；DX12 填 Enhanced Barriers 的子资源范围（D5）；`QueueBarrier` 按范围更新图像的记录。前置 `TODO_EnhancedBarriersPlan.md` 步骤 1~3b 已完成 |
+| 2 ✅ | RHI：`ImageBarrier::m_range`；DX12 填 Enhanced Barriers 的子资源范围（D5）；`QueueBarrier` 按范围更新图像的记录。还没有调用者传部分范围；部分范围的路径用一次临时实验在 debug layer 下跑过（`EnvironmentBaker` 的 cube mip 循环逐 mip 发屏障，再按 `GetSpans` 分两段转到拷贝读），深度模板只转一个 plane 的路径没有跑过 |
 | 3 | 渲染图：追踪器改用 `ImageSubresourceStates`；按范围合并（D4）及单测；`Pre/PostImageBarrier` 改列表（D3）；`m_lastAttachment` 按队列（D7）；首次触碰的判断按子资源；`PendingSync` 的混合队列断言 |
 
 **验证**：单元测试；现有画面不变、GPU-based validation 无报错（整图路径一个比特不变）；HZB 做完后在 GPU-based
