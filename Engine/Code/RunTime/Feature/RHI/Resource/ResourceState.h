@@ -16,8 +16,9 @@ namespace Spark::RHI
     class Buffer;
     class Image;
 
-    //! Snapshot of a resource's current synchronization state, owned by
-    //! `Resource::m_resourceState` and updated whenever a barrier is emitted.
+    //! Snapshot of a resource's current synchronization state, owned by the Buffer, or by
+    //! the Image per subresource (ImageSubresourceStates), and updated whenever a barrier
+    //! is emitted.
     //!   - m_access : set-valued AccessFlags ("how it is being accessed")
     //!   - m_queue  : queue that most recently emitted a barrier on this
     //!                resource (= its current owner, cross-queue handoff sense)

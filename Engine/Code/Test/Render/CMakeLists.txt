@@ -2,6 +2,8 @@ option(SHADOWATLAS_TESTS "Shadow atlas allocator tests" ON)
 option(MATERIALOVERRIDE_TESTS "Per-object material override synthesis tests" ON)
 option(HANDLEPOOL_TESTS "Reference-counted id pool tests" ON)
 option(SLOTPOOL_TESTS "Stable-slot pool tests" ON)
+option(IMAGESUBRESOURCESTATES_TESTS "Per-subresource image state tests" ON)
+option(IMAGECOPYALIGNMENT_TESTS "Image copy offset alignment tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -15,6 +17,8 @@ ADD_TEST_SOUECE(SHADOWATLAS_TESTS "ShadowAtlasAllocatorTest.cpp")
 ADD_TEST_SOUECE(MATERIALOVERRIDE_TESTS "MaterialOverrideTest.cpp")
 ADD_TEST_SOUECE(HANDLEPOOL_TESTS "HandlePoolTest.cpp")
 ADD_TEST_SOUECE(SLOTPOOL_TESTS "SlotPoolTest.cpp")
+ADD_TEST_SOUECE(IMAGESUBRESOURCESTATES_TESTS "ImageSubresourceStatesTest.cpp")
+ADD_TEST_SOUECE(IMAGECOPYALIGNMENT_TESTS "ImageCopyAlignmentTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

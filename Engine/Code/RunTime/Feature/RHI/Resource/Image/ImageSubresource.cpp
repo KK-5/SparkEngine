@@ -1,6 +1,9 @@
 #include "ImageSubResource.h"
 
+#include <EASTL/algorithm.h>
+
 #include <Log/ILogSystem.h>
+#include <RHI/Device/DeviceLimits.h>
 
 #include "ImageDescriptor.h"
 #include "ImageViewDescriptor.h"
@@ -321,5 +324,22 @@ namespace Spark::RHI
     uint32_t GetImageSubresourceIndex(ImageSubresource subresource, uint32_t mipLevels)
     {
         return GetImageSubresourceIndex(subresource.m_mipSlice, subresource.m_arraySlice, mipLevels);
+    }
+
+    uint32_t GetImageCopyOffsetAlignment(Format format, const DeviceLimits& limits)
+    {
+        const uint32_t deviceAlignment = eastl::max<uint32_t>(limits.m_imageCopyOffsetAlignment, 1);
+        const uint32_t blockSize       = eastl::max<uint32_t>(GetFormatSize(format), 1);
+
+        // Least common multiple.
+        uint32_t a = deviceAlignment;
+        uint32_t b = blockSize;
+        while (b != 0)
+        {
+            const uint32_t remainder = a % b;
+            a = b;
+            b = remainder;
+        }
+        return deviceAlignment / a * blockSize;
     }
 }

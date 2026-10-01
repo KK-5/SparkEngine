@@ -603,6 +603,8 @@ namespace Spark::RHI
                 static_cast<size_t>(mipLevels) * imageDesc.m_arraySize,
                 ImageSubresourceLayout{});
             upload.m_targetImage->GetSubresourceLayouts(upload.m_range, layouts.data(), nullptr);
+            const uint32_t offsetAlignment = GetImageCopyOffsetAlignment(
+                imageDesc.m_format, upload.m_targetImage->GetDevice().GetLimits());
 
             const uint8_t* srcData = static_cast<const uint8_t*>(upload.m_data);
 
@@ -613,8 +615,8 @@ namespace Spark::RHI
                     const uint32_t subresourceIndex = GetImageSubresourceIndex(mipSlice, arraySlice, mipLevels);
                     const ImageSubresourceLayout& layout = layouts[subresourceIndex];
 
-                    // GPU-side layout (already aligned by GenerateSubresourceLayouts for
-                    // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT). Used for staging-buffer writes
+                    // GPU-side layout (rows already aligned by GetSubresourceLayouts to the
+                    // device's copy row pitch). Used for staging-buffer writes
                     // and the CopyBufferToImage descriptor.
                     const uint32_t dstRowPitch  = layout.m_bytesPerRow;
                     const uint32_t numRows      = layout.m_rowCount;
@@ -632,8 +634,8 @@ namespace Spark::RHI
                     // a fresh one. When the whole subresource fits this is a single band ==
                     // the previous behaviour. Chunking only engages for subresources larger
                     // than staging, which are always full-block mips, so intermediate band
-                    // boundaries land on block rows (BC-safe). DX12 CopyTextureRegion needs
-                    // the source offset aligned to TexturePlacement (512); AlignUp handles
+                    // boundaries land on block rows (BC-safe). The copy needs the source
+                    // offset aligned to offsetAlignment (512 on DX12); AlignUpNPOT handles
                     // the arbitrary offset earlier uploads leave.
                     if (layout.m_size.m_depth != 1)
                     {
@@ -656,14 +658,14 @@ namespace Spark::RHI
                     uint32_t rowsCopied = 0;
                     while (rowsCopied < numRows)
                     {
-                        uint32_t alignedOffset = AlignUp(packet->m_offset, RHI::Alignment::TexturePlacement);
+                        uint32_t alignedOffset = AlignUpNPOT(packet->m_offset, offsetAlignment);
                         uint32_t rowsFit = alignedOffset < m_descriptor.m_stagingSizeInBytes
                             ? static_cast<uint32_t>((m_descriptor.m_stagingSizeInBytes - alignedOffset) / dstRowPitch)
                             : 0;
                         if (rowsFit == 0)
                         {
                             SubmitFramePacket(); // packet full — retire it and rotate
-                            alignedOffset = 0;   // a fresh packet is 512-aligned at offset 0
+                            alignedOffset = 0;   // a fresh packet is aligned at offset 0
                             rowsFit = static_cast<uint32_t>(m_descriptor.m_stagingSizeInBytes / dstRowPitch); // >= 1 (guarded above)
                         }
                         packet->m_offset = alignedOffset;

@@ -42,6 +42,14 @@ namespace Spark::RHI
         /// The alignment required when creating storage buffer views
         uint32_t m_minStorageBufferOffsetAlignment = 0;
 
+        /// The alignment, a power of two, required of a row of texels in a buffer an image is copied
+        /// to or from. 1 where rows may be tightly packed.
+        uint32_t m_imageCopyRowPitchAlignment = 1;
+
+        /// The alignment required of where a subresource starts in such a buffer. The start must
+        /// also be a whole number of texel blocks: see GetImageCopyOffsetAlignment.
+        uint32_t m_imageCopyOffsetAlignment = 1;
+
         /// The maximum number of draws when doing indirect drawing.
         uint32_t m_maxIndirectDrawCount = 1;
 

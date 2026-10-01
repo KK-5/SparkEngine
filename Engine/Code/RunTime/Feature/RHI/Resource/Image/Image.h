@@ -10,6 +10,7 @@
 #include <RHI/Resource/Resource.h>
 #include <RHI/HardwareQueue.h>
 #include "ImageSubResource.h"
+#include "ImageSubresourceStates.h"
 #include "ImageDescriptor.h"
 #include "ImageViewDescriptor.h"
 
@@ -23,6 +24,8 @@ namespace Spark::RHI
         friend class StreamingImagePool;
         friend class TransientResourcePool;
         friend class SwapChain;
+        friend class ResourcePool;  // for SetResourceState
+        friend class CommandList;   // for SetResourceState (barrier updates)
 
     public:
         virtual ~Image() = default;
@@ -30,7 +33,8 @@ namespace Spark::RHI
         //! Computes the subresource layouts and total size of the image contents, if represented linearly. Effectively,
         //! this data represents how to store the image in a buffer resource. Naturally, if the image contents
         //! are swizzled in device memory, the layouts will differ from the actual physical memory footprint. Use this data
-        //! to facilitate transfers between buffers and images.
+        //! to facilitate transfers between buffers and images. Rows and subresource offsets are aligned to what
+        //! the device's copies require (DeviceLimits).
         //!
         //!  @param subresourceRange The range of subresources in the image to consider when computing subresource layouts.
         //!  @param subresourceLayouts
@@ -54,26 +58,29 @@ namespace Spark::RHI
 
         const ImageDescriptor& GetDescriptor() const;
 
+        //! The state of the whole image. Asserts when its subresources differ.
+        ResourceState GetResourceState() const;
+
+        const ImageSubresourceStates& GetSubresourceStates() const;
+
     protected:
         Image() = default;
 
         void SetDescriptor(const ImageDescriptor& descriptor);
 
     private:
+        void SetResourceState(ResourceState state);
+
         ///////////////////////////////////////////////////////////////////
         // Platform API
-
-        /// Called by GetSubresourceLayouts. The subresource range is clamped and validated beforehand.
-        virtual void GetSubresourceLayoutsInternal(
-            const ImageSubresourceRange& subresourceRange,
-            ImageSubresourceLayout* subresourceLayouts,
-            size_t* totalSizeInBytes) const = 0;
 
         //! Returns whether the image has sub-resources which can be evicted from or streamed into the device memory
         virtual bool IsStreamableInternal() const { return false;};
         ///////////////////////////////////////////////////////////////////
 
         ImageDescriptor m_descriptor;
+
+        ImageSubresourceStates m_subresourceStates;
 
         HardwareQueueClassMask m_supportedQueueMask = HardwareQueueClassMask::All;
 

@@ -51,7 +51,8 @@ namespace Spark::RHI
         bool ValidateIsRegistered(const Resource* resource) const;
 
         /// Sets the resource state on a resource managed by this pool.
-        void SetResourceState(Resource& resource, ResourceState state);
+        void SetResourceState(Buffer& buffer, ResourceState state);
+        void SetResourceState(Image& image, ResourceState state);
 
         bool ValidateIsInitialized() const;
 

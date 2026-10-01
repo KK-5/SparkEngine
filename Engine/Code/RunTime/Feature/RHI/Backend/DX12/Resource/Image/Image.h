@@ -8,16 +8,17 @@
 
 /*
  * Modified by SparkEngine in 2025
- *  -- All subresource states are stored in vector<D3D12_RESOURCE_STATES>
  *  -- Removed streaming concepts (StreamingImagePool, m_streamedMipLevel, etc.);
  *    streaming is the upload manager's responsibility. Image is a pure resource
- *    description holding memory, layout metadata, and subresource state tracking.
+ *    description holding memory.
+ * Modified by SparkEngine in 2026
+ *  -- Removed subresource state tracking (D3D12_RESOURCE_STATES): RHI::Image records it.
+ *  -- Subresource layouts moved to RHI::Image, which computes them from DeviceLimits.
  */
 
 #pragma once
 
 #include <EASTL/vector.h>
-#include <EASTL/array.h>
 #include <RHI/Device/DeviceObjectFactory.h>
 #include <RHI/Resource/Image/Image.h>
 #include <DX12.h>
@@ -64,20 +65,6 @@ namespace Spark::RHI::DX12
 
         bool IsTiled() const;
 
-        struct SubresourceRangeState
-        {
-            RHI::ImageSubresourceRange m_range;
-            D3D12_RESOURCE_STATES m_state = D3D12_RESOURCE_STATE_COMMON;
-        };
-
-        void SetSubresourceState(D3D12_RESOURCE_STATES state, const RHI::ImageSubresourceRange* range = nullptr);
-
-        void SetSubresourceState(D3D12_RESOURCE_STATES state, uint32_t subresourceIndex);
-
-        eastl::vector<SubresourceRangeState> GetSubresourceStateByRange(const RHI::ImageSubresourceRange* range = nullptr) const;
-
-        D3D12_RESOURCE_STATES GetInitialResourceState() const;
-
     private:
         Image() = default;
 
@@ -86,30 +73,10 @@ namespace Spark::RHI::DX12
         friend class TransientResourcePool;
         friend class DeviceObjectFactory<Image>;
 
-        //////////////////////////////////////////////////////////////////////////
-        // RHI::Image
-        void GetSubresourceLayoutsInternal(
-            const RHI::ImageSubresourceRange& subresourceRange,
-            RHI::ImageSubresourceLayout* subresourceLayouts,
-            size_t* totalSizeInBytes) const override;
-        //////////////////////////////////////////////////////////////////////////
-
-        void GetSubresourceIndexByRange(const RHI::ImageSubresourceRange* range, uint32_t& indexStart, uint32_t& indexEnd) const;
-
-        void GenerateSubresourceLayouts();
-
-        void InitSubresourceState();
-
         MemoryView m_memoryView;
 
         size_t m_sizeInBytes = 0;
 
-        eastl::array<RHI::ImageSubresourceLayout, RHI::Limits::Image::MipCountMax> m_subresourceLayoutsPerMipChain;
-
         ImageTileLayout m_tileLayout;
-
-        eastl::vector<D3D12_RESOURCE_STATES> m_subresourceState;
-
-        D3D12_RESOURCE_STATES m_initialResourceState = D3D12_RESOURCE_STATE_COMMON;
     };
 }
