@@ -663,12 +663,16 @@ namespace Spark::Render
                         "Image '{}' is first used on the Copy queue while Undefined; the Copy queue "
                         "cannot initialize an image.", name);
 
-                    // The release goes after the last Scope of the source queue to use the image.
-                    // An Undefined subresource holds nothing for that queue to release.
+                    // The last Scope of the source queue to use the image: this Scope waits for it,
+                    // and the release goes after it. An Undefined subresource holds nothing to
+                    // release, but is still waited for: the memory's previous use ran on that
+                    // queue, and that Scope is what waited for it.
                     const bool      crossQueue = src.m_queue != dstQueue;
-                    const RHIHandle producer   = crossQueue && !CheckBitsAny(src.m_access, RHI::AccessFlags::Undefined)
+                    const RHIHandle producer   = crossQueue
                         ? tracker->m_lastAttachment[static_cast<uint32_t>(src.m_queue)]
                         : NullHandle;
+                    const bool      release    = producer != NullHandle
+                        && !CheckBitsAny(src.m_access, RHI::AccessFlags::Undefined);
 
                     // Nothing released what an earlier frame left on another queue, and its
                     // layout there may not be one this queue accepts (DX12's queue-specific
@@ -691,9 +695,12 @@ namespace Spark::Render
                     b.m_srcQueue  = src.m_queue;
                     b.m_dstQueue  = dstQueue;
                     AddImageBarrier<PreImageBarrier>(context, access.m_attachment, b);
-                    if (producer != NullHandle)
+                    if (release)
                     {
                         AddImageBarrier<PostImageBarrier>(context, producer, b);
+                    }
+                    if (producer != NullHandle)
+                    {
                         RecordCrossQueueWait(access.m_scope,
                             context.Get<ScopeAttachment>(producer).m_scope,
                             src.m_queue, passContext, context);
