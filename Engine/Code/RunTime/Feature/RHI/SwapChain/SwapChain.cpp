@@ -171,6 +171,9 @@ namespace Spark::RHI
         for (uint32_t imageIdx = 0; imageIdx < m_descriptor.m_dimensions.m_imageCount; ++imageIdx)
         {
             request.m_image = m_images[imageIdx].get();
+            // The object may be a recycled one that still holds its last image's state, and
+            // SetDescriptor carries the state over: reset it first, as the pools do.
+            SetResourceState(*request.m_image, ResourceState{});
             request.m_image->SetDescriptor(imageDescriptor);
             request.m_imageIndex = imageIdx;
 

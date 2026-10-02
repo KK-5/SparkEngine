@@ -158,7 +158,6 @@ namespace Spark::RHI::DX12
         Image& image = static_cast<Image&>(*request.m_image);
 
         image.m_memoryView = MemoryView(resource.Get(), MemoryViewType::Image, 0, allocationInfo.SizeInBytes, allocationInfo.Alignment);
-        SetResourceState(image, RHI::ResourceState{});
 
         return RHI::ResultCode::Success;
     }
