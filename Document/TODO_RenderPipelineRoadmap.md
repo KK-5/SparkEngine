@@ -27,7 +27,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
 | P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
-| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 计划起草中，见 `TODO_ScreenSpacePlan.md` |
+| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4 完成，HZB 已实现），见 `TODO_ScreenSpacePlan.md` |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
 | P7 | 命中点着色 | 未开始 |
@@ -102,7 +102,7 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 ── Geometry ─────────────────────────────────────────────────────────────────────────────
 ✅ ShadowPass (atlas)                                   RenderShadowDepthMaps
 ◐  DepthPrePass → SceneDepth                           PrePass                    ✅rev-Z P5(Masked)
-☐  HZB                                                 BuildHZB                        P4
+✅ HZB (closest / furthest，尚无读者)                    BuildHZB                        P4
 —  DBuffer Decals / CustomDepth
 ✅ GBufferPass → Normal/Surface/BaseColor + Vel + Color BasePass                       (D 待第二着色模型)
 ── Lighting ─────────────────────────────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ z=0 并用 `Less`。UE 的 `ConvertFromDeviceZ` 及 TAA、大量屏幕空间 sha
 | I1 | View 时序参数 + jitter 序列 + `m_prevModel` | Velocity / TAA | ✅ P1 |
 | I2 | 渲染分辨率 / 输出分辨率分离，支持半分辨率 Pass | TAA（100% 缩放，只立接缝） | ✅ P1（缩放固定 100%） |
 | I3 | Compute pass 进图：compute Scope 的 `Dispatch`、root constant、`.BindIndex`（`TODO_RenderGraphItemPlan.md` C 段）。**尚不能绑定 View（space1）**，见 P4 | SceneDownsample / Bloom | ✅ P3 |
-| I4 | per-subresource barrier（IBL 计划里记录的欠账） | HZB 逐 mip 生成 | P4 |
+| I4 | per-subresource barrier（IBL 计划里记录的欠账） | HZB 逐 mip 生成 | ✅ P4（`TODO_SubresourceBarrierPlan.md`） |
 | I5 | 按材质 PSO 变体 + BlendMode（见 `TODO_PerDrawPSOVariant.md`），变体范围包含 VS 与 InputLayout（为 I10 留位） | Masked | P5 |
 | I6 | 后处理参数：世界侧组件 → `CameraViewSystem` 校验 → View 上的渲染侧组件，presence 即开关。**不是一个 `PostProcessSettings` 大结构体** | TAA 参数 | ✅ P1（`Feature/AntiAliasing/`）；P3 起风格参数经场景的后处理 Volume 解析（`TODO_PostProcessPlan.md` D11），画质参数（TAA）仍在相机上 |
 | I7 | RHI 光追：加速结构对象与绑定类型、BLAS 输入缓冲用途位、build/update/compaction、实例结构、能力检测、SM6.5 / `SPV_KHR_ray_query` 编译 | RT 阴影 | P6 |

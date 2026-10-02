@@ -220,6 +220,15 @@ Q 上所有更早的访问之后，所以正确；等待的生产者也取它的
 **验证**：单元测试；现有画面不变、GPU-based validation 无报错（整图路径一个比特不变）；HZB 做完后在 GPU-based
 validation 下跑部分范围的路径。
 
+HZB 已做（`TODO_ScreenSpacePlan.md` §二）：两条链（1080p 下各 11 级），每级一个 Scope 读上一级、写本级。编辑器默认场景在 debug layer
+下与 GPU-based validation 下各跑过一次，无断言、无报错。HZB 还没有读者，所以"整链读一次、屏障分成两段"这一步在真实
+pass 里还没有跑到（只有步骤 3 的临时实验跑过）。
+
+HZB 的图是第一批以非一致状态结束的图像，由此暴露一处顺序问题：`Image` 对象从 `DeviceObjectPool` 回收时不重置成员，
+`Image::SetDescriptor` 把对象上现有的整图状态带到新形状上，所以调用方必须先设初始状态。各个池子都是这个顺序，
+`SwapChain::InitImages` 反了，改窗口大小重建交换链时拿到曾是 HZB 的对象即断言；已改为先重置状态。`SetDescriptor` 直接
+接收初始状态可以去掉这个顺序依赖，未做。
+
 ---
 
 ## 关联文档

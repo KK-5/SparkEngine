@@ -14,8 +14,8 @@ P4 做四件事：**HZB**、**GTAO**（`AmbientOcclusion` 信号）、**Contact 
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 0a | compute pass 访问 View（space1） | — | ✅ 完成 |
-| 0b | I4：子资源屏障 | — | 未开始 |
-| 1 | HZB（closest / furthest，一张带 mip 的纹理） | 0b | 未开始 |
+| 0b | I4：子资源屏障 | — | ✅ 完成 |
+| 1 | HZB（closest / furthest，各一张带 mip 的纹理） | 0b | ✅ 完成 |
 | 2 | GTAO → `AmbientOcclusion`，接入 IndirectDiffuse / Reflections | 0a（见 D2） | 未开始 |
 | 3 | Contact Shadow，乘进 ShadowMask | — | 未开始 |
 | 4 | SSR → 与预滤波 cube 混合 | 0a、1 | 未开始 |
@@ -51,12 +51,16 @@ compute pass 不渲视图，没有 `RendersView`：pass 声明 `.Binds<ViewBindi
 XeGTAO 本身用自己的常量结构（由 CPU 按投影矩阵填），可以照搬；它要的矩阵也能直接从 `GetView()` 读。顺带解锁 P1 的
 遗留"TAA 改 CS"。
 
-### D3　HZB：一张带 mip 的 `R32_FLOAT` 纹理，逐 mip 一个 Scope　⬜ 倾向，待确认
+### D3　HZB：带 mip 的 `R32_FLOAT` 纹理，逐 mip 一个 Scope　✅ 已定
 
 - **必须是一张带 mip 的纹理**，不能像降采样链那样每级独立：SSR 步进时在 shader 里按距离运行时选 mip。所以依赖 I4。
-- **closest 与 furthest 两张**：reversed-Z 下 closest = 2×2 取 max，furthest = 取 min。SSR 步进用 closest（不漏掉遮挡），
-  furthest 留给以后的遮挡剔除。同一个 pass 一起写，多一张图的代价很小。只做 closest 也行，等剔除时再加 furthest。
-- **mip 0 为半分辨率向上取到 2 的幂**，每级严格减半，没有奇数尺寸的对齐问题；采样时 UV 按比例缩放。
+- **closest 与 furthest 两张都做**：reversed-Z 下 closest = 2×2 取 max，furthest = 取 min。SSR 步进用 closest（不漏掉
+  遮挡），furthest 留给以后的遮挡剔除，现在没有读者。同一个 Scope 一起写。
+- **布局同 UE**：mip 0 的一个纹素正好盖 2×2 个屏幕像素，每级严格减半，所以每一级都是精确的 2×2，没有奇数尺寸的对齐
+  问题。为此各边取"半分辨率向上取到 2 的幂"（1920×1080 → 1024×1024），链比屏幕宽：屏幕只占它的一角，屏幕 UV 乘
+  `UvFactor = renderSize / (2 × mip0Size)` 得到 HZB 的 UV。屏幕之外的纹素重复屏幕边缘的深度（读入时坐标 clamp），
+  对上面各级的 max / min 都没有影响。
+- **级数到 1×1**：`log2(mip 0 的长边) + 1`，1080p 是 11 级。
 - **格式 `R32_FLOAT`**：Vulkan 强制支持的 storage 格式里有它，没有 `R16_SFLOAT`（见 D4）。
 - **生成方式**：先每 mip 一个 Scope（第 j 个 Scope 读 mip j-1、写 mip j），逻辑最简单；需要时再优化为一次 dispatch 用
   groupshared 生成 4 级。不用 SPD 单 pass：它要 buffer 原子计数器（buffer 的 `.Bind` 还没做）与 globallycoherent，且只是
@@ -90,9 +94,10 @@ SFLOAT，`R32` / `R32G32` / `R32G32B32A32` 的 UINT / SINT / SFLOAT。**`R8_UNOR
 
 - **可选输入沿用 Bloom 的做法**：消费方（IndirectDiffuse / Reflections）按常量里的权重或开关走一个全 draw 一致的分支，
   信号不存在时不读纹理（Vulkan 读空描述符要靠可选特性）。
-- **信号名集中定义**：同 `PostProcessResources.h`，新信号（`AmbientOcclusion`、`ScreenSpaceReflections`、`HZBClosest`
-  …）的名字、尺寸与"这帧有没有"的判断放在一个共享头里，pass 不互相 include。可以借这个机会建 `SceneTextures.h`（对应
-  UE 的 `FSceneTextures`），现有 pass 里散落的 `"SceneDepth"`、`"GBufferNormal"` 等字符串以后逐步迁进来。
+- **信号名集中定义**（✅ 已定）：同 `PostProcessResources.h`，新信号（`AmbientOcclusion`、`ScreenSpaceReflections`、
+  `HZBClosest` …）的名字、尺寸与"这帧有没有"的判断放在一个共享头里，pass 不互相 include。这个头是
+  `Feature/SceneTextures/SceneTextures.h`（对应 UE 的 `FSceneTextures`），随 HZB 建立，目前只有 HZB；现有 pass 里散落的
+  `"SceneDepth"`、`"GBufferNormal"` 等字符串另起一次提交迁进来。
 
 ### D7　Contact Shadow 放在 ShadowProjection 里　⬜ 倾向，待确认
 
@@ -110,6 +115,8 @@ ShadowMask 是四灯打包的 RGBA8 array slice，由 ShadowProjection 的 PS �
 - 只追粗糙度低于上限的像素（上限来自 D5 的组件），每像素一条镜面方向的光线，不做随机采样，噪声交给 TAA。
 - 层级步进移植 FidelityFX SSSR 的步进函数；命中后用命中点的 velocity 重投影，采样上一帧的 `TemporalAA`（即
   `ReadPrevious`，HDR、已含 PreExposure）。
+- HZB 的 mip 0 是半分辨率（D3），而 SSSR 的步进假定 mip 0 是全分辨率深度：步进在 HZB 的 UV 空间里做（射线乘
+  `UvFactor`，mip 0 的尺寸当作它的 screen size），命中点只精确到 2×2 像素，之后再对全分辨率的 SceneDepth 核一次。
 - 置信度：屏幕边缘、命中背面、粗糙度接近上限处淡出；写进结果的 alpha。
 - Reflections pass 里 `lerp(cube, ssr.rgb, ssr.a)` 后再乘 EnvBRDF，屏幕外与未命中平滑回退到 cube。
 - 随机多光线加降噪（SSSR 全套或 NRD REBLUR）以后做：SSSR 全套要 tile 分类、间接 dispatch 与结构化 buffer，基础设施还没有。
@@ -133,7 +140,10 @@ ShadowMask 是四灯打包的 RGBA8 array slice，由 ShadowProjection 的 PS �
 **验证**：SandBox 的 ComputePass，pattern pass 的尺寸改从 `GetView().viewSizeAndInvSize` 读。TAA 改 CS 作为第二个用例
 （可选）。
 
-### 0b　I4 子资源屏障
+### 0b　I4 子资源屏障　✅
+
+按 `TODO_SubresourceBarrierPlan.md` 做完，决策与每一步跑过、没跑过的路径都记在那里。下面是开工前的草案，其中 DX12 一行
+已被 Enhanced Barriers 的原生子资源范围取代（`TODO_EnhancedBarriersPlan.md`）。
 
 即 RenderGraphItemPlan 第 18 条。现状与要改的：
 
@@ -161,12 +171,17 @@ SceneDepth ──► HZBPass（compute，逐 mip 一个 Scope）──► HZBClo
                                                     └► HZBFurthest（可选，同上）
 ```
 
-- Scope 0 读 SceneDepth（`R32_FLOAT` 视图），写 mip 0：半分辨率取到 2 的幂后，每个 mip 0 纹素覆盖的深度范围不一定正好是
-  2×2 个像素，按覆盖范围取 max / min，越界处 clamp。
-- Scope j（j ≥ 1）读 mip j-1、写 mip j，2×2 取 max / min。
-- 级数、尺寸、名字放在共享头里（D6），SSR 从那里取。
+- Scope 0 读 SceneDepth（`R32_FLOAT` 视图），写两条链的 mip 0：纹素 (x, y) 取像素 (2x..2x+1, 2y..2y+1) 的 max / min，
+  坐标 clamp 到 SceneDepth 的范围内（D3）。
+- Scope j（j ≥ 1）读两条链的 mip j-1、写 mip j，2×2 取 max / min。读与写各用只含一级 mip 的视图，按 heap 下标访问。
+- 一个 shader 管所有级：输入、输出各两个下标，Scope 0 的两个输入下标都指向 SceneDepth（声明两次读，一次读只能绑一个
+  下标）。
+- 名字、级数、各级尺寸、`UvFactor` 在 `SceneTextures.h` 的 `SceneTextures::HZB` 里（D6），SSR 从那里取。
+- 排在 VelocityResolve 之后。每帧都生成：现在还没有读者，等 SSR 的组件出现后按"这帧有没有读者"跳过。
+- 假定主视图铺满渲染目标（同 SceneDownsample，断言）；SceneDepth 是多重采样时不支持。
 
-**验证**：RenderDoc 看各 mip；GPU-based validation 无报错。
+**验证**：尺寸函数的单元测试（`SceneTexturesTest.cpp`）；编辑器默认场景在 debug layer 下与 GPU-based validation 下各跑过
+一次，无断言、无报错——这也是 I4 部分范围路径的第一次真实运行；两条链在 RenderDoc 里看过。还没有读者用到它。
 
 ## 三、GTAO
 
@@ -227,7 +242,7 @@ TemporalAA（上一帧）┘                                   ▼
 |---|---|
 | 0a | `Pass/ComputePass.h`（`Binds`）；`Binding/View/ViewBinding.h`（`TryGetViewIndex`）；`RenderGraphBuilder.cpp`（根常量漏写检查） |
 | 0b | `RHI/Resource/ResourceState.h`（`ImageBarrier` 带范围）；DX12 `CommandListBase` / `Image`；`RHIComponents.h` 的 tracker；`RenderGraphCompiler.cpp` 的合并与屏障；`SparkRenderTest` 新用例 |
-| 1 | `Render/Feature/HZB/HZBPass.{h,cpp}`、`Shaders/HZB/HZB.hlsl`；共享头（D6） |
+| 1 | `Render/Feature/HZB/HZBPass.{h,cpp}`、`Shaders/HZB/HZB.hlsl`；`Render/Feature/SceneTextures/SceneTextures.{h,cpp}`（D6）；`SparkRenderTest` 的 `SceneTexturesTest.cpp` |
 | 2 | `Shaders/Lib/XeGTAO.hlsli`（移植）与三个 CS；`Render/Feature/AmbientOcclusion/`；世界侧 `Feature/AmbientOcclusion/`；`IndirectDiffuse.hlsl`、`Reflections.hlsl` |
 | 3 | `ShadowProjection.hlsl`；`LightComponent` 加字段、`LightData` 打包 |
 | 4 | `Render/Feature/ScreenSpaceReflections/`、`Shaders/SSR/`；世界侧组件；`Reflections.hlsl` |
@@ -236,11 +251,11 @@ TemporalAA（上一帧）┘                                   ▼
 
 ## 七、未决
 
-- **D1~D3、D5~D8 待确认。**
+- **D1、D5、D6 的可选输入一条、D7、D8 待确认。**
 - AO 与材质 AO 的组合方式（乘 / 取 min），开工时对照 UE。
 - 多视图：HZB、GTAO、SSR 目前都只处理第一个 MainView，与 P3 相同。
 - XeGTAO 的常量对 reversed-Z 与矩阵约定的假设。
-- 是否这次建 `SceneTextures.h` 并迁移现有字符串（D6）。
+- 把现有 pass 里的 `"SceneDepth"`、`"GBufferNormal"` 等字符串迁进 `SceneTextures.h`（D6）。
 
 ---
 
