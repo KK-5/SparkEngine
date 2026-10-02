@@ -155,7 +155,10 @@ plane。同样在 `CloseScope` 断言拦住，不自动扩展。
 B 会多等一次已到或将到的 fence。资源被留在哪个队列取自它的记录，图像取被访问过的子资源所在的队列（必须同一个，同 D1）。
 这条路径没有运行覆盖：编辑器默认场景与各 sample 里没有被别的队列留着的 imported 资源。
 
-**Undefined 的子资源不发 release**：它没有内容要交接，只在目标队列发 acquire 一半（带 discard），与整图时的首次触碰相同。
+**Undefined 的子资源不发 release，但仍要等**：它没有内容要交接，只在目标队列发 acquire 一半（带 discard）。跨队列等待
+照记——transient 图像的 mip 0 首次在 Graphics 上用、mip 1 之后首次在 Compute 上用时，前一占用者的同步是经 Graphics 上
+那个 Scope 传递的（它的屏障带 global barrier 等过前一占用者），而后端的 acquire 一半不发 global barrier，Compute 不等它
+就和前一占用者之间没有任何同步。这条路径没有运行覆盖。
 
 **transient 图像的首次触碰可以是部分范围**：HZB 的第一个 Scope 只写 mip 0，其余 mip 仍是 `Undefined | 前一占用者`，各自
 首次触碰时再发自己的 discard 与等待前一占用者的 global barrier。结果正确，每张图多出约 mip 数条 global barrier（分属
@@ -212,7 +215,7 @@ Q 上所有更早的访问之后，所以正确；等待的生产者也取它的
 |---|---|
 | 1 ✅ | RHI：`ImageSubresourceStates` 及单测（D2、D6）；图像按子资源记录状态、整图读取接口（D1）；删 DX12 `m_subresourceState` 一族（即 `TODO_EnhancedBarriersPlan.md` 的步骤 4）。还没有调用者传部分范围，运行行为不变 |
 | 2 ✅ | RHI：`ImageBarrier::m_range`；DX12 填 Enhanced Barriers 的子资源范围（D5）；`QueueBarrier` 按范围更新图像的记录。还没有调用者传部分范围；部分范围的路径用一次临时实验在 debug layer 下跑过（`EnvironmentBaker` 的 cube mip 循环逐 mip 发屏障，再按 `GetSpans` 分两段转到拷贝读），深度模板只转一个 plane 的路径没有跑过 |
-| 3 | 渲染图：追踪器改用 `ImageSubresourceStates`；按范围合并（D4）及单测；`Pre/PostImageBarrier` 改列表（D3）；`m_lastAttachment` 按队列（D7）；首次触碰的判断按子资源；`PendingSync` 的混合队列断言 |
+| 3 ✅ | 渲染图：追踪器改用 `ImageSubresourceStates`；按范围合并（D4）及单测；`Pre/PostImageBarrier` 改列表（D3）；`m_lastAttachment` 按队列（D7）；首次触碰的判断按子资源；`PendingSync` 的混合队列断言。还没有 pass 声明部分视图；部分范围的路径用一次临时实验在 debug layer 下跑过（ComputePass sample 里一条 3 级的 mip 链，每级一个 Scope 读上一级、写本级，之后整链读一次：编出的屏障逐级正确，最后一次读分成 mip 0..1 与 mip 2 两个）。跨队列的部分范围、深度模板分 plane、`CompileExternalWaits` 真正加上等待的分支都没有跑过 |
 
 **验证**：单元测试；现有画面不变、GPU-based validation 无报错（整图路径一个比特不变）；HZB 做完后在 GPU-based
 validation 下跑部分范围的路径。

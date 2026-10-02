@@ -221,6 +221,11 @@ I4 的步骤 1（`ImageSubresourceStates`、按子资源记录状态）与后端
 - **aliasing 的 global barrier 可精确化**（暂缓，待性能分析）：现以 global barrier 刷前一占用者的访问（D3）。若性能分析显示有开销，可由池在初始
   状态之外附上前一资源，DX12 改为对它发一个以 `NO_ACCESS` 结束的屏障；同一批次内的多个 global barrier 也可在 `FlushBarriers`
   里按位合并。预估完整管线每帧 15~35 条，与 legacy 的 aliasing 屏障数相同。
+- **跨队列复用 transient 内存没有同步**（待第一个 async compute 用例）：D3 约定前一占用者与新资源首次使用不在同一队列时
+  "由调用方的 fence 排序"，但渲染图里并没有这个 fence。记跨队列等待的只有同一资源自己的 release / acquire
+  （`RecordCrossQueueWait`），没有代码让新资源的第一个 Scope 去等前一占用者的最后一个 Scope；池复用内存时也只比时间线
+  位置，不看队列。现在所有 pass 都在 Graphics 上，不会触发。方向二选一：池把前一占用者的最后一次使用告诉编译器，由它记
+  等待；或者不跨队列复用。
 - ~~`TransientResourcePoolStats::m_aliasingBarrierCount`~~：已删除（从未被填写，随 aliasing 屏障的删除已无对应概念）。
 - **MSAA resolve 由后端在 `EndRenderPass` 里显式做，用 `ResolveSubresource`**：一条命令列表对交换链图像的唯一写入是
   `ResolveSubresourceRegion` 时设备移除（`DXGI_ERROR_ACCESS_DENIED`，debug layer 无其他消息）；同一条列表里先对它做一次
