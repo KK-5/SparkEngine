@@ -18,6 +18,8 @@ set(SOURCES
     Feature/SceneDownsample/SceneDownsamplePass.cpp
     Feature/Bloom/BloomPass.cpp
     Feature/PostProcess/PostProcessResources.cpp
+    Feature/SceneTextures/SceneTextures.cpp
+    Feature/HZB/HZBPass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp

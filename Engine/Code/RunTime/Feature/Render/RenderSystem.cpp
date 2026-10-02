@@ -24,6 +24,7 @@
 
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
+#include <Feature/HZB/HZBPass.h>
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Feature/Lighting/LightsPass.h>
 #include <Feature/Lighting/IndirectDiffusePass.h>
@@ -158,6 +159,10 @@ namespace Spark::Render
 
         auto velocityResolvePassCfg = VelocityResolvePass::DefaultConfig();
         VelocityResolvePass::SetUp(passContext, velocityResolvePassCfg);
+
+        // The closest / furthest depth mip chains over the finished SceneDepth. Nothing reads
+        // them yet: screen-space reflections will.
+        HZBPass::SetUp(passContext);
 
         // Resolves the shadow atlas into ShadowMask, the screen-space visibility signal
         // the lighting reads instead of sampling the atlas itself.
