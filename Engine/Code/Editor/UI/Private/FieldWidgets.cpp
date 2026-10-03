@@ -552,21 +552,34 @@ namespace Editor
             // 使用allow_cast检测是否允许转换
             if (fieldValue.allow_cast<int>())
             {
-                int value = fieldValue.cast<int>();
+                const int value = fieldValue.cast<int>();
                 eastl::string label = DrawFieldLabel(width, name);
-                eastl::string inputValue;
-                inputValue.resize(256);
-                size_t offset = 0;
+
+                // The combo counts entries, the field holds the enum's value: the two are the
+                // same number only for an enum that counts from zero.
+                eastl::string      items;
+                eastl::vector<int> values;
+                int                selected = -1;
                 for (auto enumValue: enumType.data())
                 {
-                    strcpy(inputValue.data() + offset, enumValue.second.name());
-                    offset += strlen(enumValue.second.name()) + 1;
+                    MetaAny entry = enumValue.second.get(entt::meta_handle{});
+                    if (!entry.allow_cast<int>())
+                    {
+                        continue;
+                    }
+                    if (entry.cast<int>() == value)
+                    {
+                        selected = static_cast<int>(values.size());
+                    }
+                    values.push_back(entry.cast<int>());
+                    items += enumValue.second.name();
+                    items.push_back('\0');
                 }
 
                 if (ui->readOnly) { ImGui::BeginDisabled(true); }
-                if (ImGui::Combo(label.c_str(), &value, inputValue.data(), offset))
+                if (ImGui::Combo(label.c_str(), &selected, items.c_str()) && selected >= 0)
                 {
-                    data.set(instance, value);
+                    data.set(instance, values[selected]);
                     changed = true;
                 }
                 if (ui->readOnly) { ImGui::EndDisabled(); }
