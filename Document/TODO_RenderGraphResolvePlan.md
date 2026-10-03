@@ -10,7 +10,7 @@
 - 后注册的 pass 可以插到管线中间，读写中间版本的资源（例如插一个处理 SceneColor 的 pass）；
 - 依赖边补全，执行顺序确定。
 
-决策 D1~D9 均已确认。
+决策 D1~D9 均已确认，四个步骤全部完成。
 
 ---
 
@@ -21,7 +21,7 @@
 | 1 | 补读后写（WAR）边；执行顺序确定：就绪的 pass 里取声明最早的（D4） | ✅ 完成 |
 | 2 | 解析逻辑独立成 `ResolveGraph`，补单元测试（D8） | ✅ 完成 |
 | 3 | 记录与解析分离；校验迁到解析；上一帧读取在解析时完成（D1、D5、D6、D7） | ✅ 完成 |
-| 4 | 访问上的 `.From`：读写指定 pass 写出的版本（D2） | 未开始 |
+| 4 | 访问上的 `.From`：读写指定 pass 写出的版本（D2） | ✅ 完成 |
 
 1 独立于其余几步，是现存的正确性漏洞，先做、单独提交。2 是 3 的准备。4 依赖 3。
 
@@ -92,7 +92,10 @@ s.RenderTarget("SceneColor", load).From("LightsPass");                 // 接在
   输出；声明在 P 之后、不带 `.From` 的读者也读到它的输出。这正是"插一个处理 SceneColor 的 pass"要的效果。
 - 多个写接在同一个 P 之后：按声明顺序依次相接，后一个消费前一个的输出。原地改写会毁掉被消费的版本，一个版本只能有
   一个写者接手，所以它们只能排成链。
-- P 用 `PassName` 引用（字符串：外部模块拿不到别的 pass 的句柄）。P 不存在，或这一帧没有写这个资源，即断言：读者与
+- 接在一个插入者之后（X 接在 Lights 后，Z 又 `.From(X)`）：Z 紧跟 X，排在其它接在 Lights 后面的写之前，即使那些写
+  声明得比 Z 早。Z 要的是 X 的输出，这样它拿到的正好是。
+- P 用 `PassName` 引用（字符串：外部模块拿不到别的 pass 的句柄）。pass 都在 `SetUp` 时注册，所以 `.From` 被调用时当场
+  按名字找到 pass，访问上存的是 pass 句柄（`FromPass` 组件）。P 不存在，或这一帧没有写这个资源，即断言：读者与
   生产者的开关条件应当一致。
 - **`.From` 只为中途插入而设，不能让别的 pass 跟着改**：
   - 带 `.From` 的写产生的就是同名资源的下一版本，后面的 pass 不用改就拿到它。
@@ -101,6 +104,9 @@ s.RenderTarget("SceneColor", load).From("LightsPass");                 // 接在
   - **P 必须声明在使用 `.From` 的 pass 之前**，否则断言。`.From` 只能往回够一个中间版本。读一个声明在自己
     之后的 pass 产生的新资源不需要它（D3：前面没有写者的读，取最终版本）。
 - `.From` 只用于本帧的访问；`ReadPreviousImage` 读的总是上一帧的最终版本。
+- **不支持：插入的 pass 在后面的 Scope 里读回自己写出的版本。**不带 `.From` 的读按声明顺序解析，插入的 pass 注册在
+  后面，读到的是最终版本，结果成环报错。`.From` 也不能指向自己这个 pass。目前没有这样的 pass，等有了再定（候选：
+  允许 `.From` 指向自己，含义是"我自己之前写出的版本"）。
 
 **pass 的执行顺序完全由资源依赖推出**（D4），没有"pass 的逻辑顺序"这个概念，也没有 `.After` / `.Before`。一个 pass 对
 不同资源的要求互相矛盾时（例如读 Lights 写出的 SceneColor，又读管线末尾才产生的 TemporalAA），依赖成环，断言并报出
@@ -190,9 +196,10 @@ transient 资源的版本 0 是"刚分配、内容未定义"。解析出来读�
   pass 编号、解析完再抄回去，builder 里多出一批只为喂它而存在的结构。单元测试需要的是不依赖设备，context 只是
   registry，测试里直接构造（同 `MaterialOverrideTest`）。解析过程中的状态都是函数内的局部变量。
 - builder 只留"这一帧的 attachment，按声明顺序"一个列表；`m_resources` 只是名字到资源实体的映射。
-- **出错作为结果返回，不在函数里断言**：`.From` 的 pass 不存在 / 没写 / 声明在后、读到没人写过的 transient、依赖成环，
+- **出错作为结果返回，不在函数里断言**：`.From` 的 pass 这一帧没写这个资源、读到没人写过的 transient、依赖成环，
   各是一种错误，带上涉及的 attachment 或 pass。builder 拿到后断言并拼出带名字的报错。仓库的测试里没有 death test，
-  这样出错的路径也能用普通用例测到。
+  这样出错的路径也能用普通用例测到。`.From` 的 pass 不存在或声明在后，在 `.From` 被调用时就能确定，当场断言，不进
+  解析。
 - `SparkRenderTest` 新增用例（见步骤 2~4）。
 
 ### D9　不做的　✅ 已定
@@ -249,13 +256,27 @@ transient 资源的版本 0 是"刚分配、内容未定义"。解析出来读�
   管线里没有执行过（只有上面那次临时实验与单元测试）；没有 buffer 走渲染图，三个 buffer 访问没有被调用过；GPU-based
   validation 没有重跑。
 
-### 4　访问上的 `.From`
+### 4　访问上的 `.From`　✅
 
-- `Attachment` / `ShaderAttachment` 加 `.From(passName)`，记在访问上；解析按 D2、D3 处理。
-- 用例：后声明的 pass 读中间版本，排到下一个写者之前；后声明的 pass 原地改写中间版本，后面的写者与读者拿到它的
-  输出，而带 `.From` 的读者仍读到改写前的；两个写接在同一个 pass 之后按声明顺序相接；只读的 `.From` 不改变其余
-  访问解析到的版本；互相矛盾的要求成环即断言；`.From` 的 pass 不存在、这一帧没写、或声明在自己之后即断言。
-- 现有 pass 都不用 `.From`。SSR 也不需要：它按声明顺序排在 Reflections 之前即可，只依赖步骤 3。
+- `Attachment` / `ShaderAttachment` 加 `.From(passName)`：当场按名字找到声明在自己之前的 pass，在访问上挂 `FromPass`
+  （pass 句柄）。找不到（不存在，或声明在后）、用在 `ReadPreviousImage` 上，当场断言。
+- 解析只改定版本这一步，连边与排序不动。`AssignVersions` 先由 `ChainWrites` 排出写者链（不带 `.From` 的写按声明顺序；
+  带 `.From(P)` 的写插到 P 最后一次写及已经接在它后面的写之后），沿链编号；再给读定版本：带 `.From(P)` 的读取 P
+  最后一次写的版本，不带的取"声明在它之后的下一个不带 `.From` 的写"所覆盖的那个版本（没有这样的写则取最终版本）。
+- 新增一种错误 `FromPassWritesNothing`：P 在这个访问之前没有写这个资源。出错的访问按没有 `.From` 处理。
+- 用例（`RenderGraphResolveTest.cpp` 新增 10 个，共 26 个）：后声明的 pass 读中间版本，排到下一个写者之前，其余访问的
+  版本不变；后声明的 pass 原地改写中间版本，后面的写者与读者拿到它的输出，带 `.From` 的读者仍读到改写前的、排在它
+  之前；声明在 P 之后、不带 `.From` 的读者读到插入者的输出；两个写接在同一个 pass 之后按声明顺序相接；接在插入者
+  之后的写紧跟它；P 没写这个资源（读、写各一个）与 P 声明在后报错；要求互相矛盾的 pass 排不上；插入的 pass 读回
+  自己写出的版本排不上（D2 记的限制）。
+- **跑过的**：RenderTest 86 个通过。临时把 `ReflectionsPass` 的 SceneColor 改成 `.From("LightsPass")`，debug layer 下
+  打开 `Scene.scene` 并改窗口大小三次：执行顺序变为 `… LightsPass → ReflectionsPass → IndirectDiffusePass → …`，
+  无断言、无报错。临时改成 `.From("HZBPass")`：第一帧断言，报出 pass、Scope、资源与 `.From` 的 pass 名。两处临时
+  改动都已撤掉。
+- **没有跑到的**：现有 pass 都不用 `.From`，提交的代码里没有调用处；`.From` 的当场断言（名字不存在、声明在后、用在
+  上一帧读取上、重复 `.From`）没有触发过；带 `.From` 的读、buffer 访问上的 `.From` 只有单元测试；上面那次实验只确认
+  了顺序与不报错，没有比对画面；GPU-based validation 没有跑。
+- SSR 不需要 `.From`：它按声明顺序排在 Reflections 之前即可，只依赖步骤 3。
 
 ---
 
@@ -266,7 +287,7 @@ transient 资源的版本 0 是"刚分配、内容未定义"。解析出来读�
 | 1 | `RenderGraph/RenderGraphBuilder.cpp`（`BuildGraph`、`TopoSort`） |
 | 2 | `RenderGraph/RenderGraphResolve.{h,cpp}`（新）；`RenderGraphBuilder.{h,cpp}`；`Feature/Render/CMakeLists.txt`；`Test/Render/RenderGraphResolveTest.cpp`（新）与其 CMake |
 | 3 | `RenderGraphBuilder.{h,cpp}`；`PassScopes.{h,cpp}`；`RenderGraphCompiler.{h,cpp}`（`.BindValid` 的写入）；`Pass/Component/RHIComponents.h`、`PassComponents.h`；各 pass 与 SandBox 示例的调用处（改名） |
-| 4 | `PassScopes.{h,cpp}`（`.From`）；`RenderGraphResolve.{h,cpp}`；`RenderGraphBuilder.cpp`；测试 |
+| 4 | `PassScopes.{h,cpp}`（`.From`）；`Pass/Component/RHIComponents.h`（`FromPass`）；`RenderGraphResolve.{h,cpp}`；`RenderGraphBuilder.cpp`（报错）；`Test/Render/RenderGraphResolveTest.cpp` |
 
 ---
 

@@ -370,7 +370,7 @@ TemporalAA（上一帧）┘                                   ▼
 ## 七、未决
 
 - **D5 的接触阴影一行、D7 待确认。** Contact Shadow 不急，先做 SSR。
-- 渲染图在生产者之前读上一帧（§五）：见 `TODO_RenderGraphResolvePlan.md`，在 SSR 之前做。
+- ~~渲染图在生产者之前读上一帧（§五）~~：已由 `TODO_RenderGraphResolvePlan.md` 做完（四个步骤全部完成）。
 - SSGI 不在 P4：它和 SSR 共用步进与上一帧颜色的读取，但难点是每像素一两条随机光线的降噪，以及与天光、GTAO 的合成。
   等 P6 接入 NRD 后用 REBLUR_DIFFUSE 降噪再做，到时一并看 GTAO 回退路径的闪烁。
 - GTAO 的颗粒闪烁暂缓到 P6：RTAO + NRD 做完后再决定回退路径要不要自己的时域滤波（§三）。
