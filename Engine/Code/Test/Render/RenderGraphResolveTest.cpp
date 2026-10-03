@@ -68,6 +68,22 @@ protected:
         Attach(pass, resource, RHI::AttachmentAccess::ReadWrite);
     }
 
+    //! The same with .From(`from`).
+    void ReadFrom(uint32_t pass, uint32_t resource, uint32_t from)
+    {
+        Attach(pass, resource, RHI::AttachmentAccess::Read, &from);
+    }
+
+    void WriteFrom(uint32_t pass, uint32_t resource, uint32_t from)
+    {
+        Attach(pass, resource, RHI::AttachmentAccess::Write, &from);
+    }
+
+    void ReadWriteFrom(uint32_t pass, uint32_t resource, uint32_t from)
+    {
+        Attach(pass, resource, RHI::AttachmentAccess::ReadWrite, &from);
+    }
+
     void Resolve()
     {
         ResolveGraph(
@@ -147,7 +163,7 @@ protected:
     GraphResolution m_graph;
 
 private:
-    void Attach(uint32_t pass, uint32_t resource, RHI::AttachmentAccess access)
+    void Attach(uint32_t pass, uint32_t resource, RHI::AttachmentAccess access, const uint32_t* from = nullptr)
     {
         ImagePassAttachment attachment;
         attachment.m_access = access;
@@ -157,6 +173,10 @@ private:
         const RHI::RHIHandle handle = m_rhiContext.CreateEntity();
         m_rhiContext.Add<ImagePassAttachment>(handle, attachment);
         m_rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ RHI::NullHandle, m_resources[resource] });
+        if (from != nullptr)
+        {
+            m_rhiContext.Add<FromPass>(handle, FromPass{ m_passes[*from] });
+        }
         m_attachments.push_back(handle);
     }
 
@@ -388,6 +408,159 @@ TEST_F(RenderGraphResolveTest, PassesThatNeedEachOtherGetNoPlace)
     EXPECT_EQ(GraphEdges(), (Edges{ { 0, 1 }, { 1, 0 } }));
     EXPECT_EQ(Order(), (Indices{ 2 }));
     EXPECT_EQ(Unordered(), (Indices{ 0, 1 }));
+}
+
+// SceneColor through Lights, IndirectDiffuse and Reflections; pass 3, declared last, reads what
+// Lights left. The others resolve as without it.
+TEST_F(RenderGraphResolveTest, AReadFromAPassSeesItsVersionAndRunsBeforeTheNextWrite)
+{
+    Declare(4, 1);
+    Write(0, 0);
+    ReadWrite(1, 0);
+    ReadWrite(2, 0);
+    ReadFrom(3, 0, 0);
+    Resolve();
+
+    EXPECT_TRUE(m_graph.m_errors.empty());
+    EXPECT_EQ(Versions(), (Indices{ 1, 2, 3, 1 }));
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 1 }, { 0, 3 }, { 1, 2 }, { 3, 1 } }));
+    EXPECT_EQ(Order(), (Indices{ 0, 3, 1, 2 }));
+}
+
+// Pass 3 works on what pass 0 left, in place: pass 1 and its reader get pass 3's output, while
+// pass 4 still reads what pass 0 left, ahead of pass 3.
+TEST_F(RenderGraphResolveTest, AWriteFromAPassGoesRightAfterItsWrite)
+{
+    Declare(5, 1);
+    Write(0, 0);
+    ReadWrite(1, 0);
+    Read(2, 0);
+    ReadWriteFrom(3, 0, 0);
+    ReadFrom(4, 0, 0);
+    Resolve();
+
+    EXPECT_TRUE(m_graph.m_errors.empty());
+    EXPECT_EQ(Versions(), (Indices{ 1, 3, 3, 2, 1 }));
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 3 }, { 0, 4 }, { 1, 2 }, { 3, 1 }, { 4, 3 } }));
+    EXPECT_EQ(Order(), (Indices{ 0, 4, 3, 1, 2 }));
+}
+
+TEST_F(RenderGraphResolveTest, AReadDeclaredAfterThatPassSeesTheWritePutBehindIt)
+{
+    Declare(4, 1);
+    Write(0, 0);
+    Read(1, 0);
+    ReadWrite(2, 0);
+    ReadWriteFrom(3, 0, 0);
+    Resolve();
+
+    EXPECT_EQ(Versions(), (Indices{ 1, 2, 3, 2 }));
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 3 }, { 1, 2 }, { 3, 1 }, { 3, 2 } }));
+    EXPECT_EQ(Order(), (Indices{ 0, 3, 1, 2 }));
+}
+
+TEST_F(RenderGraphResolveTest, WritesFromOnePassFollowItAsDeclared)
+{
+    Declare(4, 1);
+    Write(0, 0);
+    ReadWrite(1, 0);
+    ReadWriteFrom(2, 0, 0);
+    ReadWriteFrom(3, 0, 0);
+    Resolve();
+
+    EXPECT_EQ(Versions(), (Indices{ 1, 4, 2, 3 }));
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 2 }, { 2, 3 }, { 3, 1 } }));
+    EXPECT_EQ(Order(), (Indices{ 0, 2, 3, 1 }));
+}
+
+// Pass 4 asks for what pass 2 left, itself put behind pass 0: it gets exactly that, ahead of
+// pass 3, declared before it and put behind pass 0 as well.
+TEST_F(RenderGraphResolveTest, AWriteFromAPassPutBehindAnotherFollowsItFirst)
+{
+    Declare(5, 1);
+    Write(0, 0);
+    ReadWrite(1, 0);
+    ReadWriteFrom(2, 0, 0);
+    ReadWriteFrom(3, 0, 0);
+    ReadWriteFrom(4, 0, 2);
+    Resolve();
+
+    EXPECT_EQ(Versions(), (Indices{ 1, 5, 2, 4, 3 }));
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 2 }, { 2, 4 }, { 3, 1 }, { 4, 3 } }));
+    EXPECT_EQ(Order(), (Indices{ 0, 2, 4, 3, 1 }));
+}
+
+// Pass 1 runs, and writes another resource.
+TEST_F(RenderGraphResolveTest, AReadFromAPassThatDoesNotWriteTheResourceIsAnError)
+{
+    Declare(3, 2);
+    Write(0, 0);
+    Write(1, 1);
+    ReadFrom(2, 0, 1);
+    Resolve();
+
+    EXPECT_EQ(ErrorAttachments(), (Indices{ 2 }));
+    EXPECT_EQ(m_graph.m_errors[0].m_type, GraphErrorType::FromPassWritesNothing);
+    EXPECT_EQ(Versions(), (Indices{ 1, 1, 1 }));
+}
+
+TEST_F(RenderGraphResolveTest, AWriteFromAPassThatDoesNotWriteTheResourceIsAnError)
+{
+    Declare(3, 2);
+    Write(0, 0);
+    Write(1, 1);
+    ReadWriteFrom(2, 0, 1);
+    Resolve();
+
+    EXPECT_EQ(ErrorAttachments(), (Indices{ 2 }));
+    EXPECT_EQ(m_graph.m_errors[0].m_type, GraphErrorType::FromPassWritesNothing);
+    EXPECT_EQ(Versions(), (Indices{ 1, 1, 2 }));
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 2 } }));
+}
+
+TEST_F(RenderGraphResolveTest, FromAPassDeclaredLaterIsAnError)
+{
+    Declare(2, 1);
+    ReadFrom(0, 0, 1);
+    Write(1, 0);
+    Resolve();
+
+    EXPECT_EQ(ErrorAttachments(), (Indices{ 0 }));
+    EXPECT_EQ(m_graph.m_errors[0].m_type, GraphErrorType::FromPassWritesNothing);
+}
+
+// Pass 2 reads resource 0 as pass 0 left it, so runs before pass 1 writes over that, and reads
+// resource 1, which pass 1 writes.
+TEST_F(RenderGraphResolveTest, AnEarlierVersionTogetherWithALaterResultGetsNoPlace)
+{
+    Declare(3, 2);
+    Write(0, 0);
+    ReadWrite(1, 0);
+    Write(1, 1);
+    ReadFrom(2, 0, 0);
+    Read(2, 1);
+    Resolve();
+
+    EXPECT_TRUE(m_graph.m_errors.empty());
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 1 }, { 0, 2 }, { 1, 2 }, { 2, 1 } }));
+    EXPECT_EQ(Order(), (Indices{ 0 }));
+    EXPECT_EQ(Unordered(), (Indices{ 1, 2 }));
+}
+
+// Not supported: the read in pass 2's second Scope has no .From, so it sees the frame's last
+// version as any read declared last does, not what its own pass put behind pass 0.
+TEST_F(RenderGraphResolveTest, APassReadingBackWhatItPutBehindAnotherGetsNoPlace)
+{
+    Declare(3, 1);
+    Write(0, 0);
+    ReadWrite(1, 0);
+    ReadWriteFrom(2, 0, 0);
+    Read(2, 0);
+    Resolve();
+
+    EXPECT_EQ(Versions(), (Indices{ 1, 3, 2, 3 }));
+    EXPECT_EQ(Order(), (Indices{ 0 }));
+    EXPECT_EQ(Unordered(), (Indices{ 1, 2 }));
 }
 
 TEST_F(RenderGraphResolveTest, AFrameWithoutAttachmentsResolvesToNothing)

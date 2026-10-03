@@ -1,5 +1,6 @@
 #include "PassScopes.h"
 
+#include <Pass/Component/PassComponents.h>
 #include <RHI/Command/DrawItem.h>
 
 namespace Spark::Render
@@ -35,6 +36,49 @@ namespace Spark::Render
         auto* buffer = RHIExecuteContext::Current()->TryGet<BufferPassAttachment>(m_handle);
         ASSERT(buffer != nullptr, "A buffer view on an attachment of an image.");
         buffer->m_viewDescriptor = view;
+        return *this;
+    }
+
+    Attachment& Attachment::From(eastl::string_view passName)
+    {
+        auto& rhiContext  = *RHIExecuteContext::Current();
+        auto& passContext = *PassExecuteContext::Current();
+
+        const auto* image    = rhiContext.TryGet<ImagePassAttachment>(m_handle);
+        const Pass  user     = image ? image->m_pass : rhiContext.Get<BufferPassAttachment>(m_handle).m_pass;
+        const char* userName = passContext.Get<PassName>(user).m_name.GetCStr();
+        const ObjectName name(passName);
+
+        const bool readsPreviousFrame = rhiContext.Has<PreviousFrameTag>(m_handle);
+        ASSERT(!readsPreviousFrame,
+            "Pass {}: .From({}) on a ReadPreviousImage, which reads what last frame left at its end.",
+            userName, name.GetCStr());
+        ASSERT(!rhiContext.Has<FromPass>(m_handle),
+            "Pass {}: .From({}) on an access that already has a .From.", userName, name.GetCStr());
+
+        // Among the passes declared before this one: .From reaches back for a version that has
+        // been written over since. What a pass declared later leaves needs none.
+        Pass from = NullPass;
+        for (const Pass pass : passContext.GetPassesInDeclOrder())
+        {
+            if (pass == user)
+            {
+                break;
+            }
+            const auto* declared = passContext.TryGet<PassName>(pass);
+            if (declared != nullptr && declared->m_name == name)
+            {
+                from = pass;
+                break;
+            }
+        }
+        ASSERT(from != NullPass,
+            "Pass {}: .From({}) names no pass declared before this one.", userName, name.GetCStr());
+
+        if (from != NullPass && !readsPreviousFrame)
+        {
+            rhiContext.AddOrReplace<FromPass>(m_handle, FromPass{ from });
+        }
         return *this;
     }
 

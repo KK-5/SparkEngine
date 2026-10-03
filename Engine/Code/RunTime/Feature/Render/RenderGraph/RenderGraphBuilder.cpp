@@ -777,12 +777,25 @@ namespace Spark::Render
 
         for (const GraphError& error : m_resolution.m_errors)
         {
-            const Scope& scope = rhiContext.Get<Scope>(rhiContext.Get<ScopeAttachment>(error.m_attachment).m_scope);
-            ASSERT(error.m_type != GraphErrorType::ReadsUndefined,
-                "Pass {} Scope #{} reads {}, a transient resource nothing has written by then: no pass writes it this "
-                "frame, or only this pass in a later Scope.",
-                passContext.Get<PassName>(scope.m_pass).m_name.GetCStr(), scope.m_index,
-                GetAttachmentId(rhiContext, error.m_attachment).m_id.GetCStr());
+            const Scope& scope    = rhiContext.Get<Scope>(rhiContext.Get<ScopeAttachment>(error.m_attachment).m_scope);
+            const char*  passName = passContext.Get<PassName>(scope.m_pass).m_name.GetCStr();
+            const char*  name     = GetAttachmentId(rhiContext, error.m_attachment).m_id.GetCStr();
+            switch (error.m_type)
+            {
+            case GraphErrorType::ReadsUndefined:
+                ASSERT(false,
+                    "Pass {} Scope #{} reads {}, a transient resource nothing has written by then: no pass writes it "
+                    "this frame, or only this pass in a later Scope.",
+                    passName, scope.m_index, name);
+                break;
+            case GraphErrorType::FromPassWritesNothing:
+                ASSERT(false,
+                    "Pass {} Scope #{} takes {} .From({}), which does not write it this frame: the two run on the same "
+                    "conditions, or the access drops its .From when that pass is off.",
+                    passName, scope.m_index, name,
+                    passContext.Get<PassName>(rhiContext.Get<FromPass>(error.m_attachment).m_pass).m_name.GetCStr());
+                break;
+            }
         }
 
         if (!m_resolution.m_unordered.empty())

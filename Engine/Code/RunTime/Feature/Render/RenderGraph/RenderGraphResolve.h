@@ -28,6 +28,10 @@ namespace Spark::Render
         //! A read of a transient resource that no pass writes, or only the reader's own pass
         //! after the read.
         ReadsUndefined,
+
+        //! An access with .From(P), of a resource P has no write of declared before the
+        //! access: P does not write it this frame, or is not declared before the access's pass.
+        FromPassWritesNothing,
     };
 
     struct GraphError
@@ -38,8 +42,9 @@ namespace Spark::Render
 
     struct GraphResolution
     {
-        //! What is wrong with the attachments themselves. The rest is still filled, the
-        //! attachment at fault left at the version it would otherwise have.
+        //! What is wrong with the attachments themselves. The rest is still filled: a read of
+        //! nothing is left at the version it would otherwise have, a .From that finds no write
+        //! is taken as not there.
         eastl::vector<GraphError> m_errors;
 
         //! Each once, by the declaration order of m_from, then of m_to; none from a pass to
@@ -59,6 +64,11 @@ namespace Spark::Render
     //! every write leaves the next. A read sees what the writes declared before it left; with
     //! none before it, of a transient resource, which starts with nothing in it, what the
     //! frame's last write leaves.
+    //!
+    //! An attachment with a FromPass takes the resource as that pass left it instead. A read
+    //! sees the version of that pass's last write. A write goes right after that write, and
+    //! after the writes that were put there before it: the writes and reads that followed it
+    //! get this one's version.
     //!
     //! Gives each pass with an attachment its place in the frame (PassGlobalTimeline): of the
     //! passes the edges leave ready, the one declared first runs first.

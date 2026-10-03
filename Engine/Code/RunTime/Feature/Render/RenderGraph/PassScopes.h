@@ -7,6 +7,7 @@
 #include <RHI/Format.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
+#include <EASTL/string_view.h>
 #include <EASTL/type_traits.h>
 #include <EASTL/vector.h>
 
@@ -33,6 +34,15 @@ namespace Spark::Render
         Attachment& Format(RHI::Format format);
         Attachment& View(const RHI::ImageViewDescriptor& view);
         Attachment& View(const RHI::BufferViewDescriptor& view);
+
+        //! Take the resource as the pass called `passName` left it, whatever passes declared
+        //! since have written to it. A read sees what that pass's last write of it left. A
+        //! write goes right after that one: the writes that followed it, and the reads with
+        //! no .From declared after that pass, get this one's output instead. Several writes
+        //! from one pass follow it in the order they are declared.
+        //! The pass is declared before this one and writes the resource this frame. Not for a
+        //! ReadPreviousImage.
+        Attachment& From(eastl::string_view passName);
 
         RHIHandle GetHandle() const { return m_handle; }
 
@@ -67,6 +77,13 @@ namespace Spark::Render
         ShaderAttachment& View(const RHI::BufferViewDescriptor& view)
         {
             m_attachment.View(view);
+            return *this;
+        }
+
+        //! See Attachment::From.
+        ShaderAttachment& From(eastl::string_view passName)
+        {
+            m_attachment.From(passName);
             return *this;
         }
 

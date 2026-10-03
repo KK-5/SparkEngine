@@ -249,6 +249,14 @@ namespace Spark::Render
         RHI::InputName m_input;
     };
 
+    //! On an attachment that takes its resource as `m_pass`, declared before its own pass, left
+    //! it (.From), not as the order of declaration gives it: a read sees what that pass's last
+    //! write left, a write goes right after it.
+    struct FromPass
+    {
+        Pass m_pass {NullPass};
+    };
+
     //! On an attachment of a name nothing had declared a resource for when it was declared:
     //! the pass that does comes later. The builder's End links the two and removes the tag.
     struct UnlinkedAttachmentTag {};

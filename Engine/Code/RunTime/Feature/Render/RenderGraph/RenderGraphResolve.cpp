@@ -16,7 +16,8 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr uint32_t kNoPass = ~0u;
+        constexpr uint32_t kNoPass   = ~0u;
+        constexpr uint32_t kNoAccess = ~0u;
 
         //! An attachment as the resolution works on it. A pass is its place in the declaration
         //! order here, and in everything below.
@@ -24,8 +25,9 @@ namespace Spark::Render
         {
             RHIHandle m_attachment {NullHandle};
             RHIHandle m_resource {NullHandle};
-            uint32_t  m_order   = 0;    //!< its place among the frame's attachments
+            uint32_t  m_order   = 0;         //!< its place among the frame's attachments
             uint32_t  m_pass    = 0;
+            uint32_t  m_from    = kNoPass;   //!< the pass of its .From
             bool      m_writes  = false;
             uint32_t  m_version = 0;
         };
@@ -79,6 +81,13 @@ namespace Spark::Render
                     "[RenderGraphResolve] An attachment's pass was not declared through CreatePass.");
                 access.m_pass   = found->second;
                 access.m_writes = CheckBitsAny(image ? image->m_access : buffer->m_access, RHI::AttachmentAccess::Write);
+                if (const auto* from = rhiContext.TryGet<FromPass>(attachments[i]))
+                {
+                    const auto foundFrom = passIndex.find(from->m_pass);
+                    ASSERT(foundFrom != passIndex.end(),
+                        "[RenderGraphResolve] The pass of a .From was not declared through CreatePass.");
+                    access.m_from = foundFrom->second;
+                }
                 accesses.push_back(access);
             }
 
@@ -90,24 +99,119 @@ namespace Spark::Render
             });
         }
 
+        //! Which of `accesses` is the last write by `pass`, or kNoAccess.
+        uint32_t FindLastWrite(eastl::span<const Access> accesses, uint32_t pass)
+        {
+            for (uint32_t i = static_cast<uint32_t>(accesses.size()); i-- > 0;)
+            {
+                if (accesses[i].m_writes && accesses[i].m_pass == pass)
+                {
+                    return i;
+                }
+            }
+            return kNoAccess;
+        }
+
+        //! Puts one resource's writes, by their place in `accesses`, in the order they happen:
+        //! those with no .From as declared; one with .From(P) after P's last write and after
+        //! what was put behind that write before it. One whose P has no write declared before
+        //! it is an error and loses its .From.
+        void ChainWrites(eastl::span<Access> accesses, eastl::vector<uint32_t>& chain, eastl::vector<GraphError>& errors)
+        {
+            // depth[i]: how many .From lead from chain[i] back to a write with none. What was
+            // put behind a write follows it in the chain for as long as the depth stays above
+            // its own.
+            eastl::vector<uint32_t> depth;
+            chain.clear();
+            for (uint32_t i = 0; i < static_cast<uint32_t>(accesses.size()); ++i)
+            {
+                Access& access = accesses[i];
+                if (!access.m_writes)
+                {
+                    continue;
+                }
+
+                // One with no .From goes at the end.
+                uint32_t at      = static_cast<uint32_t>(chain.size());
+                uint32_t atDepth = 0;
+
+                const uint32_t fromWrite =
+                    access.m_from != kNoPass ? FindLastWrite(accesses.first(i), access.m_from) : kNoAccess;
+                if (fromWrite != kNoAccess)
+                {
+                    // Declared before this one, so in the chain already.
+                    const uint32_t from =
+                        static_cast<uint32_t>(eastl::find(chain.begin(), chain.end(), fromWrite) - chain.begin());
+                    at = from + 1;
+                    while (at < static_cast<uint32_t>(chain.size()) && depth[at] > depth[from])
+                    {
+                        ++at;
+                    }
+                    atDepth = depth[from] + 1;
+                }
+                else if (access.m_from != kNoPass)
+                {
+                    errors.push_back(GraphError{ GraphErrorType::FromPassWritesNothing, access.m_attachment });
+                    access.m_from = kNoPass;
+                }
+
+                chain.insert(chain.begin() + at, i);
+                depth.insert(depth.begin() + at, atDepth);
+            }
+        }
+
         //! Gives one resource's accesses their versions, and writes them to the attachments.
         //! `producers` comes back as the pass that left each version; nothing left version 0.
         void AssignVersions(
             RHI::RHIContext& rhiContext, eastl::span<Access> accesses, eastl::vector<uint32_t>& producers,
             eastl::vector<GraphError>& errors)
         {
-            // A write leaves the next version, a read sees the latest so far.
+            eastl::vector<uint32_t> chain;
+            ChainWrites(accesses, chain, errors);
+
+            // Each write leaves the next version.
             producers.clear();
             producers.push_back(kNoPass);
-            for (Access& access : accesses)
+            for (const uint32_t write : chain)
             {
-                if (access.m_writes)
-                {
-                    producers.push_back(access.m_pass);
-                }
-                access.m_version = static_cast<uint32_t>(producers.size()) - 1;
+                producers.push_back(accesses[write].m_pass);
+                accesses[write].m_version = static_cast<uint32_t>(producers.size()) - 1;
             }
             const uint32_t last = static_cast<uint32_t>(producers.size()) - 1;
+
+            // A read sees what the writes declared before it left, and what was put behind
+            // those. In the chain all of that ends where the next write with no .From declared
+            // after the read begins, so it is the version that write goes over: hence
+            // backwards. A read with .From(P) sees what P's last write left instead; one whose
+            // P has no write declared before it is an error and loses its .From.
+            uint32_t seen = last;
+            for (uint32_t i = static_cast<uint32_t>(accesses.size()); i-- > 0;)
+            {
+                Access& access = accesses[i];
+                if (access.m_writes)
+                {
+                    if (access.m_from == kNoPass)
+                    {
+                        seen = access.m_version - 1;
+                    }
+                    continue;
+                }
+
+                access.m_version = seen;
+                if (access.m_from != kNoPass)
+                {
+                    const uint32_t fromWrite = FindLastWrite(accesses.first(i), access.m_from);
+                    if (fromWrite != kNoAccess)
+                    {
+                        access.m_version = accesses[fromWrite].m_version;
+                    }
+                    else
+                    {
+                        errors.push_back(GraphError{ GraphErrorType::FromPassWritesNothing, access.m_attachment });
+                        access.m_from = kNoPass;
+                    }
+                }
+            }
 
             // A read with no write before it, of a resource that starts with nothing in it:
             // what it means is what the frame leaves there, written by passes declared later.
