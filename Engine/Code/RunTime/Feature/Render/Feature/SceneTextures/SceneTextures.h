@@ -3,6 +3,7 @@
 #include <Base.h>
 #include <Math/Vector2.h>
 #include <RHI/Attachment/AttachmentEnums.h>
+#include <RHI/Context/RHIContext.h>
 #include <RHI/Format.h>
 
 //! The scene's shared textures: their names and shapes, defined once here so no pass reaches
@@ -30,5 +31,25 @@ namespace Spark::Render::SceneTextures
 
         //! Screen UV times this is HZB UV.
         Math::Vector2 UvFactor(const Math::Vector2Int& renderSize);
+    }
+
+    //! Screen-space ambient occlusion, written by AmbientOcclusionPass at the render size: how
+    //! much of the hemisphere over each pixel is open, 1 where nothing occludes it. It applies
+    //! to indirect light only, and its intensity is already in it.
+    //!
+    //! Not every frame has it. A pass that reads it asks FindView first and, when there is
+    //! none, neither declares the read nor samples the texture.
+    namespace AmbientOcclusion
+    {
+        constexpr RHI::Format kFormat = RHI::Format::R32_FLOAT;
+
+        //! The effect samples a depth chain of this many mips, so the target must have them.
+        constexpr uint32_t kDepthMipCount = 5;
+
+        const RHI::AttachmentId& Name();
+
+        //! The main view the signal is produced for this frame, or NullHandle: the view has
+        //! no ViewAmbientOcclusion, no g_Views slot yet, or a target too small for the chain.
+        RHI::RHIHandle FindView(RHI::RHIContext& ctx);
     }
 }

@@ -20,6 +20,7 @@ set(SOURCES
     Feature/PostProcess/PostProcessResources.cpp
     Feature/SceneTextures/SceneTextures.cpp
     Feature/HZB/HZBPass.cpp
+    Feature/AmbientOcclusion/AmbientOcclusionPass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
@@ -56,6 +57,7 @@ target_link_libraries(${TARGET_NAME}
         SparkCamera
         SparkAntiAliasing
         SparkBloom
+        SparkAmbientOcclusion
         SparkPostProcess
         SparkTonemap
         SparkCore

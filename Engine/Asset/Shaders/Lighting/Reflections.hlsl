@@ -8,6 +8,7 @@
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/SceneBindings.hlsli>
 #include <Shaders/Lib/DeferredShadingCommon.hlsli>
+#include <Shaders/Lib/AmbientOcclusion.hlsli>
 #include <Shaders/Lib/BRDF/EnvBRDF.hlsli>
 
 struct ScopeParameters
@@ -17,10 +18,16 @@ struct ScopeParameters
 
 #include <Shaders/ScopeBindings.hlsli>
 
-Texture2D g_GBufferNormal    : register(t0, space2);
-Texture2D g_GBufferSurface   : register(t1, space2);
-Texture2D g_GBufferBaseColor : register(t2, space2);
-Texture2D g_Depth            : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D        g_GBufferNormal    : register(t0, space2);
+Texture2D        g_GBufferSurface   : register(t1, space2);
+Texture2D        g_GBufferBaseColor : register(t2, space2);
+Texture2D        g_Depth            : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D<float> g_AmbientOcclusion : register(t4, space2);   // bound only while the frame has it
+
+cbuffer ReflectionsParams : register(b0, space2)
+{
+    uint g_AmbientOcclusionEnabled;     // 0: g_AmbientOcclusion is unbound and must not be read
+};
 
 struct VSOutput
 {
@@ -70,11 +77,17 @@ float4 PSMain(VSOutput input) : SV_Target0
         float  lod = RoughnessToLod(roughness, g_IBLPrefilteredMipCount);
         float3 prefiltered = g_PrefilteredCube.SampleLevel(g_IBLSampler, R, lod).rgb;
 
-        // AO on specular too: strictly that wants a specular-occlusion term, but leaving it
-        // unoccluded makes AO vanish entirely on metals.
+        // The material's occlusion map times the screen-space signal, turned into the
+        // occlusion of the reflection lobe. Uniform across the draw.
+        float ao = gbuffer.GBufferAO;
+        if (g_AmbientOcclusionEnabled != 0)
+        {
+            ao *= g_AmbientOcclusion.Load(int3(input.position.xy, 0));
+        }
+
         color = prefiltered
               * EnvBRDFLut(g_BRDFLut, g_IBLSampler, gbuffer.SpecularColor, roughness, NoV)
-              * g_EnvIntensity * gbuffer.GBufferAO;
+              * g_EnvIntensity * SpecularOcclusion(NoV, roughness, ao);
     }
 
     color += SpaceZeroKeepAlive();

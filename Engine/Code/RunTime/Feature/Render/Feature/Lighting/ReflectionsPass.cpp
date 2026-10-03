@@ -17,6 +17,8 @@
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 
+#include <Feature/SceneTextures/SceneTextures.h>
+
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
@@ -122,6 +124,16 @@ namespace Spark::Render
                 // Read-only depth-stencil attachment so the rasterizer depth-tests against it
                 // and culls sky pixels before the PS.
                 s.DepthRead(RHI::AttachmentId(s_depthName));
+
+                // Screen-space ambient occlusion on the frames that have it; otherwise the
+                // shader is told not to read the texture.
+                const bool hasAmbientOcclusion = SceneTextures::AmbientOcclusion::FindView(
+                    *RHI::RHIExecuteContext::Current()) != RHI::NullHandle;
+                if (hasAmbientOcclusion)
+                {
+                    s.Read(SceneTextures::AmbientOcclusion::Name()).Bind(RHI::InputName("g_AmbientOcclusion"));
+                }
+                s.Constant(RHI::InputName("g_AmbientOcclusionEnabled"), hasAmbientOcclusion ? 1u : 0u);
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
                 s.Close();

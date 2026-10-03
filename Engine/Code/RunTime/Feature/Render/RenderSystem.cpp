@@ -25,6 +25,7 @@
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/HZB/HZBPass.h>
+#include <Feature/AmbientOcclusion/AmbientOcclusionPass.h>
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Feature/Lighting/LightsPass.h>
 #include <Feature/Lighting/IndirectDiffusePass.h>
@@ -163,6 +164,11 @@ namespace Spark::Render
         // The closest / furthest depth mip chains over the finished SceneDepth. Nothing reads
         // them yet: screen-space reflections will.
         HZBPass::SetUp(passContext);
+
+        // Screen-space ambient occlusion from SceneDepth and GBufferNormal, which the two
+        // indirect lighting passes multiply in. Before them: a reader is declared after its
+        // producer.
+        AmbientOcclusionPass::SetUp(passContext);
 
         // Resolves the shadow atlas into ShadowMask, the screen-space visibility signal
         // the lighting reads instead of sampling the atlas itself.
