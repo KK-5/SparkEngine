@@ -676,6 +676,8 @@ SRV、compute 的 space2 sampler、逐 Scope 的 root constant），无报错；
   直接取，不再同步推进游标；剩下的不变量是"排序后不增删 `ScopeAttachment`"。
 - **版本解析依赖 pass 的注册顺序。** 按名字读到的是"在它之前声明的 pass 写出的最新版本"，调换两个 pass 的注册
   顺序语义就变。这是今天已有的隐式依赖，Scope 之间的读写也建立在它上面，分量更重了。
+  由 `TODO_RenderGraphResolvePlan.md` 处理：build 只记录、统一解析；要读写中间版本的访问用 `.From` 指明是谁写出的；
+  同时补上缺失的读后写依赖边。
 
 另有两处评估为可接受：提交表（容器 + 下标、混着视图句柄）GPU-driven 后变短但形状不变；残留的函数指针
 （`ScopeSelections` 的查询、不透明 hook、`m_collectViews`、`m_resolveSharedBindings`）已少。每帧全量重建与

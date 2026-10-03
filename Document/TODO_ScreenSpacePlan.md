@@ -18,15 +18,15 @@ P4 做四件事：**HZB**、**GTAO**（`AmbientOcclusion` 信号）、**Contact 
 | 1 | HZB（closest / furthest，各一张带 mip 的纹理） | 0b | ✅ 完成 |
 | 2 | GTAO → `AmbientOcclusion`，接入 IndirectDiffuse / Reflections | 0a（见 D2） | 已实现；颗粒闪烁暂缓到 P6（§三） |
 | 3 | Contact Shadow，乘进 ShadowMask | — | 未开始 |
-| 4 | SSR → 与预滤波 cube 混合 | 0a、1 | 未开始 |
+| 4 | SSR → 与预滤波 cube 混合 | 0a、1、`TODO_RenderGraphResolvePlan.md` 步骤 3 | D8 已定；等渲染图的记录与解析分离（§五） |
 
-0a、0b 互不依赖；3 不依赖任何前置，可以最先做来热身。
+0a、0b 互不依赖；3 不依赖任何前置。顺序上先做 4，3 不急。
 
 ---
 
 ## 决策记录
 
-### D1　实现来源：宽松许可证的开源实现，结构对齐 UE　✅ 已定（GTAO 已按此移植；SSR、Contact Shadow 的来源开工时再核实）
+### D1　实现来源：宽松许可证的开源实现，结构对齐 UE　✅ 已定（GTAO 已按此移植；SSR 用 SSSR 的步进，许可证开工时核实；Contact Shadow 的来源开工时再核实）
 
 路线图的硬目标是对齐 UE，理由是"以后能把 UE 的渲染算法原样抄进来"。但 UE 的 shader 源码受 Unreal Engine EULA
 约束，拿到非 UE 引擎里用是受限的（以 EULA 条款为准）。P3 的 AgX 走的是另一条路：移植 MIT / Apache 的现成实现，
@@ -81,12 +81,12 @@ SFLOAT，`R32` / `R32G32` / `R32G32B32A32` 的 UINT / SINT / SFLOAT。**`R8_UNOR
 | XeGTAO 的 AO | 单通道 8 位 | `R32_FLOAT`；带 bent normal 时 `R8G8B8A8_UNORM`（XeGTAO 本来就这样打包） |
 | SSR 结果 | — | `R16G16B16A16_FLOAT`（alpha 为置信度） |
 
-### D5　参数归属按 P3 D11 的划分　⬜ AO 一行已定，其余待确认
+### D5　参数归属按 P3 D11 的划分　⬜ AO、SSR 两行已定，接触阴影待确认
 
 | 参数 | 性质 | 放在 |
 |---|---|---|
 | AO 强度、半径 | 风格（UE 放在 PostProcessVolume） | ✅ Volume 上的 `AmbientOcclusionComponent`（相机上的覆盖 Volume，同 Bloom）；强度为 0 即关 |
-| SSR 强度、最大粗糙度 | 风格（同上） | Volume 上的 `ScreenSpaceReflectionComponent` |
+| SSR 强度、最大粗糙度、质量档 | 风格（同上）；质量档同 AO 的例外 | ✅ Volume 上的 `ScreenSpaceReflectionComponent`；强度为 0 即关；质量档 `Low` / `Medium` / `High` 由后端映射成最大步数 |
 | 接触阴影长度 | 灯的属性（UE 放在灯组件上） | `LightComponent` 加字段，0 即关 |
 | 各效果的质量档位 | 画质 | 画质设置的归宿未定（P3 D11），先写成常量。**例外**：AO 的质量档（`Low` / `Medium` / `High`）放在 `AmbientOcclusionComponent` 上，由 `CameraViewSystem` 映射成 3 / 6 / 9 个 slice；画质设置定下来之后再决定是否并入 |
 
@@ -111,16 +111,29 @@ ShadowMask 是四灯打包的 RGBA8 array slice，由 ShadowProjection 的 PS �
 代价：没有阴影槽位的灯（超出预算，或以后设为"无阴影"的灯）拿不到接触阴影；UE 对这类灯在光照 pass 里补做，我们等
 需要时再补。Bend 的 wavefront 方案质量与效率更好，但它是按灯的独立 compute pass，作为以后的升级。
 
-### D8　SSR：每像素一条光线，沿 closest HZB 层级步进，取上一帧颜色　⬜ 倾向，待确认
+### D8　SSR：每像素一条镜面光线，沿 closest HZB 层级步进，取上一帧颜色　✅ 已定
 
-- 只追粗糙度低于上限的像素（上限来自 D5 的组件），每像素一条镜面方向的光线，不做随机采样，噪声交给 TAA。
-- 层级步进移植 FidelityFX SSSR 的步进函数；命中后用命中点的 velocity 重投影，采样上一帧的 `TemporalAA`（即
-  `ReadPrevious`，HDR、已含 PreExposure）。
-- HZB 的 mip 0 是半分辨率（D3），而 SSSR 的步进假定 mip 0 是全分辨率深度：步进在 HZB 的 UV 空间里做（射线乘
-  `UvFactor`，mip 0 的尺寸当作它的 screen size），命中点只精确到 2×2 像素，之后再对全分辨率的 SceneDepth 核一次。
-- 置信度：屏幕边缘、命中背面、粗糙度接近上限处淡出；写进结果的 alpha。
-- Reflections pass 里 `lerp(cube, ssr.rgb, ssr.a)` 后再乘 EnvBRDF，屏幕外与未命中平滑回退到 cube。
-- 随机多光线加降噪（SSSR 全套或 NRD REBLUR）以后做：SSSR 全套要 tile 分类、间接 dispatch 与结构化 buffer，基础设施还没有。
+- **定位**：SSR 不会被以后的光追与探针取代，而是混合方案的第一层（同 UE5 Lumen 的 screen traces）：先在屏幕空间追，
+  未命中的交给下一层。现在下一层是预滤波 cube，P8 之后是 DDGI 探针，以后的 RT 反射是 ray query。它便宜，命中点
+  的光照这一帧已经算好，看到的几何与画面一致，也是不支持光追的设备上唯一的动态反射。
+- **光线**：只追粗糙度低于上限的像素（上限来自 D5 的组件，默认 0.3~0.4），每像素一条镜面方向的光线，不做随机采样，
+  上限附近淡出到 cube。粗糙表面的反射偏清晰，以此换没有噪声：GTAO 已经说明噪声全交给 TAA 在这里不够。按粗糙度
+  读上一帧颜色的模糊 mip 是以后的升级；随机多光线加降噪等 P6 的 NRD（REBLUR_SPECULAR）。
+- **步进**：移植 FidelityFX SSSR 的层级步进函数（许可证开工时核实）。HZB 的 mip 0 是半分辨率（D3），而 SSSR 的步进
+  假定 mip 0 是全分辨率深度：步进在 HZB 的 UV 空间里做（射线乘 `UvFactor`，mip 0 的尺寸当作它的 screen size），命中点
+  只精确到 2×2 像素，之后再对全分辨率的 SceneDepth 核一次。
+- **步进函数是独立的库**（`Shaders/Lib/ScreenTrace.hlsli`），不写死在 SSR 里：以后的 RT 反射、SSGI 都先做一次屏幕空间
+  追踪，Contact Shadow 也是一种短距离的屏幕追踪。
+- **厚度**：深度图只有最前一层，光线落在表面之后、固定厚度以内才算命中。厚度先是常量。
+- **颜色**：命中后用命中点的 velocity 重投影，采样上一帧的 `TemporalAA`（`ReadPrevious`，HDR、已含 PreExposure）。
+  要求视图开着 TAA，没有就不做 SSR。这一帧的 TemporalAA 在 Reflections 之后才声明，而现在的 `ReadPrevious` 要求
+  先声明，见 §五。
+- **分辨率**：全分辨率追踪，量过耗时再考虑半分辨率。
+- **置信度**（结果的 alpha）：屏幕边缘、朝向相机的光线、命中背面、粗糙度接近上限、上一帧缺失时淡出。全是常量。
+  alpha 也是以后混合 RT 反射时的权重：置信度低的交给光追，接口不变。
+- **合成**：Reflections pass 里 `lerp(cube, ssr.rgb, ssr.a)` 后再乘 EnvBRDF，屏幕外与未命中平滑回退到 cube。GTAO 的
+  镜面遮蔽只乘在 cube 那部分：SSR 是追到的结果，已经含遮挡（UE 的做法开工时核对）。
+- **HZB 跳过**：HZB 成为 SSR 的输入后，按"这帧有没有 SSR"生成，判断与 SSR 共用 `SceneTextures` 里的 `FindView`（D6）。
 
 ---
 
@@ -330,8 +343,14 @@ TemporalAA（上一帧）┘                                   ▼
 - 数据契约顺带复查：路线图「未决」要求在这里用低粗糙度的大平面检查 `GBufferNormal` 的 R10G10B10A2 编码是否出条带，
   出了就换八面体编码（只改 `EncodeNormal` / `DecodeNormal`）。
 - 上一帧颜色是 TAA 之后的 HDR；PreExposure 现在恒为 1，曝光分支到来时要按 `PreExposure(N) / PreExposure(N-1)` 校正。
+- **先决：在生产者之前读上一帧**。`RenderGraphBuilder::AddPreviousFrameAttachment` 要求这一帧已有 pass 把这个名字声明成
+  transient image（取它的描述符、给它加 ShaderRead 并标记保留到下一帧），否则断言。TAA 读自己的历史是先声明后读，
+  满足；SSR 排在 Reflections 之前，TemporalAA 这一帧还没声明。由 `TODO_RenderGraphResolvePlan.md` 解决：build 只记录、
+  全部声明完再统一解析，SSR 依赖它的步骤 3（顺带补上读后写的依赖边、执行顺序确定、pass 可以插到管线中间）。
+- 上一帧颜色的读取与命中点重投影写成通用的函数，SSGI 以后复用。
 
-**验证**：路线图的"屏幕外 / 遮挡处平滑回退到 cube"；相机移动时反射不拖影、不闪；粗糙度上限处无明显断层。
+**验证**：场景由用户搭（低粗糙度的大平面加几个物体，能俯视的机位），效果由用户截图与 RenderDoc 导出。路线图的"屏幕外 /
+遮挡处平滑回退到 cube"；相机移动时反射不拖影、不闪；粗糙度上限处无明显断层。
 
 ---
 
@@ -344,13 +363,16 @@ TemporalAA（上一帧）┘                                   ▼
 | 1 | `Render/Feature/HZB/HZBPass.{h,cpp}`、`Shaders/HZB/HZB.hlsl`；`Render/Feature/SceneTextures/SceneTextures.{h,cpp}`（D6）；`SparkRenderTest` 的 `SceneTexturesTest.cpp` |
 | 2 | `Shaders/Lib/XeGTAO.hlsli`（移植）、`Shaders/AmbientOcclusion/` 的三个 CS 与 `GTAOCommon.hlsli`、`Shaders/Lib/AmbientOcclusion.hlsli`（多次反弹、镜面遮蔽）；`Render/Feature/AmbientOcclusion/AmbientOcclusionPass.{h,cpp}`；世界侧 `Feature/AmbientOcclusion/`；`CameraViewSystem`（`ViewAmbientOcclusion`）；`SceneTextures`；`IndirectDiffuse` / `Reflections` 的 pass 与 shader |
 | 3 | `ShadowProjection.hlsl`；`LightComponent` 加字段、`LightData` 打包 |
-| 4 | `Render/Feature/ScreenSpaceReflections/`、`Shaders/SSR/`；世界侧组件；`Reflections.hlsl` |
+| 4 | 渲染图的上一帧读取（`RenderGraphBuilder`，§五）；`Shaders/Lib/ScreenTrace.hlsli`（步进库）；`Render/Feature/ScreenSpaceReflections/`、`Shaders/SSR/`；世界侧 `Feature/ScreenSpaceReflection/`；`CameraViewSystem`；`SceneTextures`；`HZBPass`（按有无读者跳过）；`Reflections` 的 pass 与 shader |
 
 ---
 
 ## 七、未决
 
-- **D5 的 SSR 与接触阴影两行、D7、D8 待确认。**
+- **D5 的接触阴影一行、D7 待确认。** Contact Shadow 不急，先做 SSR。
+- 渲染图在生产者之前读上一帧（§五）：见 `TODO_RenderGraphResolvePlan.md`，在 SSR 之前做。
+- SSGI 不在 P4：它和 SSR 共用步进与上一帧颜色的读取，但难点是每像素一两条随机光线的降噪，以及与天光、GTAO 的合成。
+  等 P6 接入 NRD 后用 REBLUR_DIFFUSE 降噪再做，到时一并看 GTAO 回退路径的闪烁。
 - GTAO 的颗粒闪烁暂缓到 P6：RTAO + NRD 做完后再决定回退路径要不要自己的时域滤波（§三）。
 - 镜面遮蔽用 Frostbite v3 的形式而不是 UE 的（§三），要不要改回与 UE 一致。
 - 多视图：HZB、GTAO、SSR 目前都只处理第一个 MainView，与 P3 相同。
@@ -364,4 +386,5 @@ TemporalAA（上一帧）┘                                   ▼
 - `TODO_RenderGraphItemPlan.md` —— I4 是其第 18 条；"多 Scope × 多视图"是其未决项
 - `TODO_PostProcessPlan.md` —— D10（storage 格式）、D11（参数归属）、`PostProcessResources.h` 的先例
 - `TODO_IBLPlan.md` —— I4 欠账的出处
+- `TODO_RenderGraphResolvePlan.md` —— SSR 的先决条件：渲染图的记录与解析分离
 - `TODO_MultiViewPlan.md` —— 多视图下的 dispatch 尺寸与资源身份

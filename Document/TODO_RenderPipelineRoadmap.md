@@ -47,7 +47,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 |---|---|---|
 | `ShadowMask`（每灯一个通道，4 灯打包一个 array slice） | Lights | ShadowProjection（光栅 atlas）/ RayTracingShadows |
 | `AmbientOcclusion` | IndirectDiffuse、Reflections | GTAO / RTAO |
-| `DiffuseIndirect` | IndirectDiffuse | 无（天光 SH/IBL）/ DDGI / 以后 SSGI、Lumen |
+| `DiffuseIndirect` | IndirectDiffuse | 无（天光 SH/IBL）/ DDGI / 以后 SSGI（P6 的 NRD 之后，复用 SSR 的步进）、Lumen |
 | `Reflections` | Reflections | 预滤波 cube / SSR / 以后 RT 反射 |
 
 对应 UE 的 `ScreenShadowMaskTexture`、`RenderDiffuseIndirectAndAmbientOcclusion`、
