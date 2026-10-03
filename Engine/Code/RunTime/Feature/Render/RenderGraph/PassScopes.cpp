@@ -42,7 +42,7 @@ namespace Spark::Render
     {
         auto* image = RHIExecuteContext::Current()->TryGet<ImagePassAttachment>(GetHandle());
         ASSERT(image != nullptr, "Format() is for image attachments.");
-        const bool writes = (image->m_access & RHI::AttachmentAccess::Write) != RHI::AttachmentAccess::Unknown;
+        const bool writes = CheckBitsAny(image->m_access, RHI::AttachmentAccess::Write);
         image->m_viewDescriptor.m_overrideFormat    = format;
         image->m_viewDescriptor.m_overrideBindFlags =
             writes ? RHI::ImageBindFlags::ShaderReadWrite : RHI::ImageBindFlags::ShaderRead;

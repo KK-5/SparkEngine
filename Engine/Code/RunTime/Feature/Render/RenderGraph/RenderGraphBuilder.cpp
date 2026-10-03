@@ -1,6 +1,8 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 
+#include <EASTL/heap.h>
+
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/PassCapabilities.h>
@@ -251,7 +253,7 @@ namespace Spark::Render
         ResourceEntry& entry = it->second;
 
         uint32_t version = entry.m_latestVersion;
-        if ((access & RHI::AttachmentAccess::Write) != RHI::AttachmentAccess::Unknown)
+        if (CheckBitsAny(access, RHI::AttachmentAccess::Write))
         {
             m_attachmentUses[AttachmentId{ name, version }].emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
             version = ++entry.m_latestVersion;
@@ -557,7 +559,7 @@ namespace Spark::Render
             "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
             input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
 
-        const bool writes = (image->m_access & RHI::AttachmentAccess::Write) != RHI::AttachmentAccess::Unknown;
+        const bool writes = CheckBitsAny(image->m_access, RHI::AttachmentAccess::Write);
         ASSERT(writes == (desc->m_access == RHI::ShaderInputImageAccess::ReadWrite),
             "{} is {} in the shader but the access {} it.",
             input.GetCStr(), writes ? "read-only" : "read-write", writes ? "writes" : "only reads");
@@ -686,11 +688,6 @@ namespace Spark::Render
             }
         }
 
-        auto HasFlag = [](RHI::AttachmentAccess access, RHI::AttachmentAccess require) -> bool
-        {
-            return (access & require) != RHI::AttachmentAccess::Unknown;
-        };
-
         for (auto& [id, entries] : m_attachmentUses)
         {
             Pass writer = NullPass;
@@ -702,8 +699,8 @@ namespace Spark::Render
 
             for (const auto& entry: entries)
             {
-                const bool isRead = HasFlag(entry.access, RHI::AttachmentAccess::Read);
-                const bool isWrite = HasFlag(entry.access, RHI::AttachmentAccess::Write);
+                const bool isRead = CheckBitsAny(entry.access, RHI::AttachmentAccess::Read);
+                const bool isWrite = CheckBitsAny(entry.access, RHI::AttachmentAccess::Write);
 
                 ASSERT(entry.pass != NullPass, "Attachment {} has entry with NullPass.", id.m_id.GetCStr());
                 ASSERT(isRead || isWrite, "Attachment {} entry has Unknown access — likely missing access flag.", id.m_id.GetCStr());
@@ -751,6 +748,33 @@ namespace Spark::Render
                 }
             }
         }
+
+        // Write after read: whoever uses a version runs before the pass that writes the next
+        // one over it. Without this a reader and that writer both wait for the version's
+        // producer only, and nothing orders the two.
+        for (const auto& [id, entries] : m_attachmentUses)
+        {
+            if (id.m_version == 0)
+            {
+                continue;
+            }
+            const auto previous = m_attachmentUses.find(AttachmentId{ id.m_id, id.m_version - 1, id.m_frameOffset });
+            if (previous == m_attachmentUses.end())
+            {
+                continue;
+            }
+            for (const auto& entry : entries)
+            {
+                if (!CheckBitsAny(entry.access, RHI::AttachmentAccess::Write))
+                {
+                    continue;
+                }
+                for (const auto& user : previous->second)
+                {
+                    AddEdge(user.pass, entry.pass);
+                }
+            }
+        }
     }
 
     eastl::vector<Pass> RenderGraphBuilder::TopoSort()
@@ -760,19 +784,35 @@ namespace Spark::Render
         eastl::vector<Pass> result;
         result.reserve(m_graph.size());
 
+        // Of the passes that are ready, the one declared first goes first: the order is the
+        // declaration order wherever the edges leave a choice, and the same every frame.
+        eastl::unordered_map<Pass, uint32_t> declIndex;
+        for (Pass pass : passContext.GetPassesInDeclOrder())
+        {
+            declIndex.emplace(pass, static_cast<uint32_t>(declIndex.size()));
+        }
+        const auto declaredLater = [&](Pass lhs, Pass rhs)
+        {
+            return declIndex.at(lhs) > declIndex.at(rhs);
+        };
+
+        // A min-heap on the declaration index.
         eastl::vector<Pass> ready;
         ready.reserve(m_graph.size());
 
         for (const auto& [pass, node] : m_graph)
         {
+            ASSERT(declIndex.find(pass) != declIndex.end(), "A pass in the graph was not declared through CreatePass.");
             if (node.inDegree == 0)
             {
                 ready.push_back(pass);
             }
         }
+        eastl::make_heap(ready.begin(), ready.end(), declaredLater);
 
         while(!ready.empty())
         {
+            eastl::pop_heap(ready.begin(), ready.end(), declaredLater);
             Pass cur = ready.back();
             ready.pop_back();
 
@@ -793,6 +833,7 @@ namespace Spark::Render
                 if (--depNodeIt->second.inDegree == 0)
                 {
                     ready.push_back(dep);
+                    eastl::push_heap(ready.begin(), ready.end(), declaredLater);
                 }
             }
         }
