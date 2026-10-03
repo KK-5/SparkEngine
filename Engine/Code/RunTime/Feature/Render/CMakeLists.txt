@@ -26,6 +26,7 @@ set(SOURCES
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
     RenderGraph/ImageBarrierMerge.cpp
+    RenderGraph/RenderGraphResolve.cpp
     RenderGraph/RenderGraphExecuter.cpp
     RenderGraph/RenderGraph.cpp
     RenderGraph/PooledImage.cpp

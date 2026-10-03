@@ -249,14 +249,26 @@ namespace Spark::Render
         RHI::InputName m_input;
     };
 
+    //! On an attachment of a name nothing had declared a resource for when it was declared:
+    //! the pass that does comes later. The builder's End links the two and removes the tag.
+    struct UnlinkedAttachmentTag {};
+
     //! On an attachment reading the previous frame's copy of a name. Its resource is a
     //! pooled image, so the transient flow skips it.
     struct PreviousFrameTag {};
 
     //! Alongside PreviousFrameTag when there is no previous frame to read: first frame,
     //! a descriptor change, or a reader coming back after a pause. The image is bound
-    //! but its content is undefined.
+    //! but its content is undefined. Set by the builder's End.
     struct PreviousFrameMissingTag {};
+
+    //! Alongside PreviousFrameTag (.BindValid): lowering writes into the uint constant
+    //! `m_input`, a root constant or a per-pass one, 1 when the image holds last frame's
+    //! content and 0 when it does not (PreviousFrameMissingTag).
+    struct PreviousFrameValidBinding
+    {
+        RHI::InputName m_input;
+    };
 
     //! An image the graph owns across frames. One entity per RHI image for its whole life,
     //! so BackingImage and the view cache never go stale. No ResourceName: once imported

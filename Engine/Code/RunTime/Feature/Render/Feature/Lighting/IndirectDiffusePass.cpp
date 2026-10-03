@@ -118,7 +118,7 @@ namespace Spark::Render
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 for (const auto& tex : s_gbufferTextures)
                 {
-                    s.Read(RHI::AttachmentId(tex.m_name)).Bind(RHI::InputName(tex.m_input));
+                    s.ReadImage(RHI::AttachmentId(tex.m_name)).Bind(RHI::InputName(tex.m_input));
                 }
                 // Read-only depth-stencil attachment so the rasterizer depth-tests against it
                 // and culls sky pixels before the PS.
@@ -130,7 +130,7 @@ namespace Spark::Render
                     *RHI::RHIExecuteContext::Current()) != RHI::NullHandle;
                 if (hasAmbientOcclusion)
                 {
-                    s.Read(SceneTextures::AmbientOcclusion::Name()).Bind(RHI::InputName("g_AmbientOcclusion"));
+                    s.ReadImage(SceneTextures::AmbientOcclusion::Name()).Bind(RHI::InputName("g_AmbientOcclusion"));
                 }
                 s.Constant(RHI::InputName("g_AmbientOcclusionEnabled"), hasAmbientOcclusion ? 1u : 0u);
 

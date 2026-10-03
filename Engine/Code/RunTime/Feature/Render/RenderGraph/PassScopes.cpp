@@ -61,11 +61,10 @@ namespace Spark::Render
         return *this;
     }
 
-    bool ShaderAttachment::IsPreviousFrameMissing() const
+    ShaderAttachment& ShaderAttachment::BindValid(const RHI::InputName& input)
     {
-        const auto& rhiContext = *RHIExecuteContext::Current();
-        ASSERT(rhiContext.Has<PreviousFrameTag>(GetHandle()), "Not a ReadPrevious access.");
-        return rhiContext.Has<PreviousFrameMissingTag>(GetHandle());
+        m_builder->BindPreviousFrameValid(GetHandle(), input);
+        return *this;
     }
 
     ShaderAttachment& ShaderAttachment::Stage(RHI::AttachmentStage stage)
@@ -126,18 +125,30 @@ namespace Spark::Render
         return Attachment(handle);
     }
 
-    ShaderAttachment RenderScope::Read(const RHI::AttachmentId& name)
+    ShaderAttachment RenderScope::ReadImage(const RHI::AttachmentId& name)
     {
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read,
             RHI::AttachmentStage::Uninitialized, nullptr), false);
     }
 
-    ShaderAttachment RenderScope::ReadWrite(const RHI::AttachmentId& name)
+    ShaderAttachment RenderScope::ReadWriteImage(const RHI::AttachmentId& name)
     {
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite,
             RHI::AttachmentStage::Uninitialized, nullptr), false);
+    }
+
+    ShaderAttachment RenderScope::ReadBuffer(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read, RHI::AttachmentStage::Uninitialized), false);
+    }
+
+    ShaderAttachment RenderScope::ReadWriteBuffer(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite, RHI::AttachmentStage::Uninitialized), false);
     }
 
     void RenderScope::Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount)
@@ -148,7 +159,7 @@ namespace Spark::Render
         RHIExecuteContext::Current()->Add<RHI::DrawItem>(m_builder->AddScopeItem(m_scope), item);
     }
 
-    ShaderAttachment RenderScope::ReadPrevious(const RHI::AttachmentId& name)
+    ShaderAttachment RenderScope::ReadPreviousImage(const RHI::AttachmentId& name)
     {
         ImagePassAttachment a;
         a.m_attachmentId = AttachmentId{ name, 0, 1 };
@@ -161,7 +172,7 @@ namespace Spark::Render
     // ComputeScope
     // ============================================================
 
-    ShaderAttachment ComputeScope::ReadPrevious(const RHI::AttachmentId& name)
+    ShaderAttachment ComputeScope::ReadPreviousImage(const RHI::AttachmentId& name)
     {
         ImagePassAttachment a;
         a.m_attachmentId = AttachmentId{ name, 0, 1 };
@@ -170,24 +181,41 @@ namespace Spark::Render
         return ShaderAttachment(*m_builder, m_builder->AddPreviousFrameAttachment(a, m_scope), true);
     }
 
-    ShaderAttachment ComputeScope::Read(const RHI::AttachmentId& name)
+    ShaderAttachment ComputeScope::ReadImage(const RHI::AttachmentId& name)
     {
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, nullptr, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read,
             RHI::AttachmentStage::ComputeShader, nullptr), true);
     }
 
-    ShaderAttachment ComputeScope::ReadWrite(const RHI::AttachmentId& name)
+    ShaderAttachment ComputeScope::ReadWriteImage(const RHI::AttachmentId& name)
     {
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, nullptr, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite,
             RHI::AttachmentStage::ComputeShader, nullptr), true);
     }
 
-    ShaderAttachment ComputeScope::Write(const RHI::AttachmentId& name)
+    ShaderAttachment ComputeScope::WriteImage(const RHI::AttachmentId& name)
     {
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, nullptr, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Write,
             RHI::AttachmentStage::ComputeShader, nullptr), true);
+    }
+    ShaderAttachment ComputeScope::ReadBuffer(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read, RHI::AttachmentStage::ComputeShader), true);
+    }
+
+    ShaderAttachment ComputeScope::ReadWriteBuffer(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite, RHI::AttachmentStage::ComputeShader), true);
+    }
+
+    ShaderAttachment ComputeScope::WriteBuffer(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Write, RHI::AttachmentStage::ComputeShader), true);
     }
 }

@@ -95,19 +95,17 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 s.RenderTarget(PostProcess::TemporalAAName(), clear);
-                // After the write: a previous-frame read needs this frame's name declared.
-                const ShaderAttachment history =
-                    s.ReadPrevious(PostProcess::TemporalAAName()).Bind(RHI::InputName("g_History"));
-                s.Read(RHI::AttachmentId("SceneColor")).Bind(RHI::InputName("g_SceneColor"));
-                s.Read(RHI::AttachmentId("ResolvedVelocity")).Bind(RHI::InputName("g_Velocity"));
+                s.ReadPreviousImage(PostProcess::TemporalAAName())
+                    .Bind(RHI::InputName("g_History"))
+                    .BindValid(RHI::InputName("g_TemporalAAHistoryValid"));
+                s.ReadImage(RHI::AttachmentId("SceneColor")).Bind(RHI::InputName("g_SceneColor"));
+                s.ReadImage(RHI::AttachmentId("ResolvedVelocity")).Bind(RHI::InputName("g_Velocity"));
                 // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
-                s.Read(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
+                s.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
 
                 s.Sampler(RHI::InputName("g_LinearSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
-                const uint32_t historyValid = history.IsPreviousFrameMissing() ? 0u : 1u;
-                s.Constant(RHI::InputName("g_TemporalAAHistoryValid"), historyValid);
                 s.Constant(RHI::InputName("g_TemporalAACurrentFrameWeight"), settings->m_currentFrameWeight);
                 s.Constant(RHI::InputName("g_TemporalAAMotionFrameWeight"), settings->m_motionFrameWeight);
                 s.Constant(RHI::InputName("g_TemporalAAVarianceClipGamma"), settings->m_varianceClipGamma);

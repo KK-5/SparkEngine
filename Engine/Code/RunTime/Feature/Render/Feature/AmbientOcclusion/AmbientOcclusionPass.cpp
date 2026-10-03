@@ -151,7 +151,7 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 SetFrameInputs(s, inputs);
-                s.Read(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT)
+                s.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT)
                     .BindIndex(RHI::InputName("sceneDepthIndex"));
 
                 // All five mips are written by the one dispatch, each through a view of its own.
@@ -161,7 +161,7 @@ namespace Spark::Render
                 {
                     const RHI::ImageViewDescriptor view = RHI::ImageViewDescriptor::Create(
                         RHI::Format::Unknown, static_cast<uint16_t>(mip), static_cast<uint16_t>(mip));
-                    s.Write(DepthChainName()).View(view).BindIndex(RHI::InputName(s_outputs[mip]));
+                    s.WriteImage(DepthChainName()).View(view).BindIndex(RHI::InputName(s_outputs[mip]));
                 }
 
                 // A thread converts 2x2 pixels.
@@ -189,10 +189,10 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 SetFrameInputs(s, inputs);
-                s.Read(DepthChainName()).BindIndex(RHI::InputName("depthIndex"));
-                s.Read(RHI::AttachmentId("GBufferNormal")).BindIndex(RHI::InputName("normalIndex"));
-                s.Write(WorkingTermName()).BindIndex(RHI::InputName("outTermIndex"));
-                s.Write(EdgesName()).BindIndex(RHI::InputName("outEdgesIndex"));
+                s.ReadImage(DepthChainName()).BindIndex(RHI::InputName("depthIndex"));
+                s.ReadImage(RHI::AttachmentId("GBufferNormal")).BindIndex(RHI::InputName("normalIndex"));
+                s.WriteImage(WorkingTermName()).BindIndex(RHI::InputName("outTermIndex"));
+                s.WriteImage(EdgesName()).BindIndex(RHI::InputName("outEdgesIndex"));
                 s.Constant(RHI::InputName("sliceCount"), inputs.m_sliceCount);
                 s.Dispatch(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
                 s.Close();
@@ -217,9 +217,9 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 SetFrameInputs(s, inputs);
-                s.Read(WorkingTermName()).BindIndex(RHI::InputName("termIndex"));
-                s.Read(EdgesName()).BindIndex(RHI::InputName("edgesIndex"));
-                s.Write(SceneTextures::AmbientOcclusion::Name()).BindIndex(RHI::InputName("outputIndex"));
+                s.ReadImage(WorkingTermName()).BindIndex(RHI::InputName("termIndex"));
+                s.ReadImage(EdgesName()).BindIndex(RHI::InputName("edgesIndex"));
+                s.WriteImage(SceneTextures::AmbientOcclusion::Name()).BindIndex(RHI::InputName("outputIndex"));
 
                 // A thread denoises two horizontal pixels.
                 s.Dispatch(static_cast<uint32_t>(size.x + 1) / 2, static_cast<uint32_t>(size.y));

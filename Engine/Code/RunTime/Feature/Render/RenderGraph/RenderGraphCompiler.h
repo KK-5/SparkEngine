@@ -115,7 +115,9 @@ namespace Spark::Render
             RHI::PipelineLibrary* pipelineLibrary);
 
         //! Write what Scopes declared for their pass's per-pass space into its bindings: the views
-        //! of attachments bound to inputs (ShaderInputBinding), samplers and constants. A pass
+        //! of attachments bound to inputs (ShaderInputBinding), samplers and constants; and the
+        //! uints attachments give constants (IndexBinding, PreviousFrameValidBinding), a root
+        //! constant's into its Scope's block. A pass
         //! that declared any of these gets null in the image and buffer inputs none of them
         //! bound. Scopes of one pass share its per-pass space: an input two of them set must be
         //! the same, which is the pass's to keep, not checked here. Runs after SortScopes

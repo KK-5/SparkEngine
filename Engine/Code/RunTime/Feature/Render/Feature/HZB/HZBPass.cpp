@@ -77,8 +77,8 @@ namespace Spark::Render
                         // Both chains start from the scene depth: one access per index.
                         const RHI::AttachmentId sceneDepth("SceneDepth");
                         inputSize = renderSize;
-                        s.Read(sceneDepth).Format(RHI::Format::R32_FLOAT).BindIndex(closestInput);
-                        s.Read(sceneDepth).Format(RHI::Format::R32_FLOAT).BindIndex(furthestInput);
+                        s.ReadImage(sceneDepth).Format(RHI::Format::R32_FLOAT).BindIndex(closestInput);
+                        s.ReadImage(sceneDepth).Format(RHI::Format::R32_FLOAT).BindIndex(furthestInput);
                     }
                     else
                     {
@@ -86,14 +86,14 @@ namespace Spark::Render
                         const RHI::ImageViewDescriptor inputView =
                             RHI::ImageViewDescriptor::Create(RHI::Format::Unknown, above, above);
                         inputSize = HZB::MipSize(renderSize, mip - 1);
-                        s.Read(HZB::ClosestName()).View(inputView).BindIndex(closestInput);
-                        s.Read(HZB::FurthestName()).View(inputView).BindIndex(furthestInput);
+                        s.ReadImage(HZB::ClosestName()).View(inputView).BindIndex(closestInput);
+                        s.ReadImage(HZB::FurthestName()).View(inputView).BindIndex(furthestInput);
                     }
 
                     const RHI::ImageViewDescriptor outputView = RHI::ImageViewDescriptor::Create(
                         RHI::Format::Unknown, static_cast<uint16_t>(mip), static_cast<uint16_t>(mip));
-                    s.Write(HZB::ClosestName()).View(outputView).BindIndex(RHI::InputName("closestOutputIndex"));
-                    s.Write(HZB::FurthestName()).View(outputView).BindIndex(RHI::InputName("furthestOutputIndex"));
+                    s.WriteImage(HZB::ClosestName()).View(outputView).BindIndex(RHI::InputName("closestOutputIndex"));
+                    s.WriteImage(HZB::FurthestName()).View(outputView).BindIndex(RHI::InputName("furthestOutputIndex"));
 
                     s.Constant(RHI::InputName("inputSize"), eastl::array<uint32_t, 2>{
                         static_cast<uint32_t>(inputSize.x), static_cast<uint32_t>(inputSize.y) });

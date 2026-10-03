@@ -310,7 +310,7 @@ namespace Spark::SandBox
                 if (Render::IsResourceReady(*RHI::RHIExecuteContext::Current(), m_baseColor))
                 {
                     p.Import(RHI::AttachmentId("BaseColor"), m_baseColor);
-                    s.Read(RHI::AttachmentId("BaseColor"))
+                    s.ReadImage(RHI::AttachmentId("BaseColor"))
                         .View(m_baseColorViewDesc)
                         .Bind(RHI::InputName("g_Texture"));
                 }

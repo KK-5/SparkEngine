@@ -1,8 +1,6 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 
-#include <EASTL/heap.h>
-
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/PassCapabilities.h>
@@ -13,25 +11,53 @@ namespace Spark::Render
 {
     namespace
     {
-        //! Whether two attachments of one Scope ask one subresource for accesses that conflict.
-        //! A buffer has no subresources: it is asked for as a whole.
-        bool AttachmentsConflict(const RHIContext& context, RHIHandle lhs, RHIHandle rhs)
+        const AttachmentId& GetAttachmentId(const RHIContext& context, RHIHandle attachment)
         {
-            if (context.Get<ScopeAttachment>(lhs).m_resource != context.Get<ScopeAttachment>(rhs).m_resource)
+            const auto* image = context.TryGet<ImagePassAttachment>(attachment);
+            return image ? image->m_attachmentId : context.Get<BufferPassAttachment>(attachment).m_attachmentId;
+        }
+
+        //! Whether two attachments are of one resource. By the resource where both are linked to
+        //! theirs, which also finds one imported under two names; by the name where the resource
+        //! is declared later, or is last frame's copy.
+        bool AreOfOneResource(const RHIContext& context, RHIHandle lhs, RHIHandle rhs)
+        {
+            const RHIHandle lhsResource = context.Get<ScopeAttachment>(lhs).m_resource;
+            const RHIHandle rhsResource = context.Get<ScopeAttachment>(rhs).m_resource;
+            if (lhsResource != NullHandle && rhsResource != NullHandle)
             {
-                return false;
+                return lhsResource == rhsResource;
             }
 
-            if (const auto* lhsImage = context.TryGet<ImagePassAttachment>(lhs))
+            const AttachmentId& lhsId = GetAttachmentId(context, lhs);
+            const AttachmentId& rhsId = GetAttachmentId(context, rhs);
+            return lhsId.m_id == rhsId.m_id && lhsId.m_frameOffset == rhsId.m_frameOffset;
+        }
+
+        //! Whether two attachments of one resource ask one subresource for accesses that
+        //! conflict. A buffer has no subresources: it is asked for as a whole.
+        bool AccessesConflict(const RHIContext& context, RHIHandle lhs, RHIHandle rhs)
+        {
+            const auto* lhsImage = context.TryGet<ImagePassAttachment>(lhs);
+            const auto* rhsImage = context.TryGet<ImagePassAttachment>(rhs);
+            if (lhsImage != nullptr && rhsImage != nullptr)
             {
                 // Depth slices are not subresources, and the overlap does not look at them.
-                const auto& rhsImage = context.Get<ImagePassAttachment>(rhs);
-                return lhsImage->m_viewDescriptor.OverlapsSubResource(rhsImage.m_viewDescriptor)
-                    && RHI::HasAccessConflict(ConvertAttachmentAccess(*lhsImage), ConvertAttachmentAccess(rhsImage));
+                return lhsImage->m_viewDescriptor.OverlapsSubResource(rhsImage->m_viewDescriptor)
+                    && RHI::HasAccessConflict(ConvertAttachmentAccess(*lhsImage), ConvertAttachmentAccess(*rhsImage));
+            }
+            if (lhsImage != nullptr || rhsImage != nullptr)
+            {
+                return false;
             }
             return RHI::HasAccessConflict(
                 ConvertAttachmentAccess(context.Get<BufferPassAttachment>(lhs)),
                 ConvertAttachmentAccess(context.Get<BufferPassAttachment>(rhs)));
+        }
+
+        bool IsBufferResource(const RHIContext& context, RHIHandle resource)
+        {
+            return context.Has<RHI::BufferDescriptor>(resource) || context.Has<BackingBuffer>(resource);
         }
 
         //! A depth-stencil view binds both planes whatever aspects it names, so the attachment
@@ -55,6 +81,16 @@ namespace Spark::Render
             }
             const RHI::ImageAspectFlags aspects = RHI::GetImageAspectFlags(descriptor->m_format);
             return (attachment.m_viewDescriptor.m_aspectFlags & aspects) == aspects;
+        }
+
+        //! The first clearing access of a transient image gives the resource its clear value.
+        void GiveClearValue(RHIContext& context, const ImagePassAttachment& attachment)
+        {
+            if (attachment.m_action.m_loadAction == RHI::AttachmentLoadAction::Clear
+                && context.Has<TransientTag>(attachment.m_image) && !context.Has<RHI::ClearValue>(attachment.m_image))
+            {
+                context.Add<RHI::ClearValue>(attachment.m_image, attachment.m_action.m_clearValue);
+            }
         }
     }
 
@@ -156,13 +192,15 @@ namespace Spark::Render
                     "Pass {} Scope #{}: the shader access of {} has no stage. Give it one with .Stage(...).",
                     passName, scopeIndex, name);
 
-                ASSERT(image == nullptr || CoversDepthStencilAspects(rhiContext, *image),
+                // One whose resource is declared later is checked when End links the two.
+                ASSERT(image == nullptr || image->m_image == NullHandle || CoversDepthStencilAspects(rhiContext, *image),
                     "Pass {} Scope #{}: the depth-stencil attachment of {} must cover every aspect of the image.",
                     passName, scopeIndex, name);
 
                 for (uint32_t j = i + 1; j < static_cast<uint32_t>(m_scopeAttachments.size()); ++j)
                 {
-                    ASSERT(!AttachmentsConflict(rhiContext, attachment, m_scopeAttachments[j]),
+                    ASSERT(!AreOfOneResource(rhiContext, attachment, m_scopeAttachments[j])
+                            || !AccessesConflict(rhiContext, attachment, m_scopeAttachments[j]),
                         "Pass {} Scope #{}: {} is declared more than once with conflicting accesses to the "
                         "same subresource.",
                         passName, scopeIndex, name);
@@ -224,7 +262,7 @@ namespace Spark::Render
                 "AttachmentId {} has already been declared (Create / Import).",
                 name.GetCStr());
         }
-        m_resources.emplace(name, ResourceEntry{ CreateTransientImageResource(name, desc, nullptr), 0 });
+        m_resources.emplace(name, CreateTransientImageResource(name, desc, nullptr));
     }
 
     void RenderGraphBuilder::CreateBuffer(const RHI::AttachmentId& name, const RHI::BufferDescriptor& desc)
@@ -237,7 +275,13 @@ namespace Spark::Render
                 "AttachmentId {} has already been declared (Create / Import).",
                 name.GetCStr());
         }
-        m_resources.emplace(name, ResourceEntry{ CreateTransientBufferResource(name, desc), 0 });
+        m_resources.emplace(name, CreateTransientBufferResource(name, desc));
+    }
+
+    RHIHandle RenderGraphBuilder::FindResource(const RHI::AttachmentId& name) const
+    {
+        const auto it = m_resources.find(name);
+        return it != m_resources.end() ? it->second : NullHandle;
     }
 
     RHIHandle RenderGraphBuilder::AddScopeAttachment(
@@ -245,53 +289,59 @@ namespace Spark::Render
         RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage,
         const RHI::AttachmentLoadStoreAction* action)
     {
-        auto it = m_resources.find(name);
-        ASSERT(it != m_resources.end(),
-            "AttachmentId {} has not been declared (Create / Import) yet. Passes must be "
-            "declared in dependency order, an access after the Create / Import of its resource.",
-            name.GetCStr());
-        ResourceEntry& entry = it->second;
+        auto& rhiContext = *RHIExecuteContext::Current();
 
-        uint32_t version = entry.m_latestVersion;
-        if (CheckBitsAny(access, RHI::AttachmentAccess::Write))
+        // NullHandle while nothing has declared the name: the pass that does may come later.
+        const RHIHandle resource = FindResource(name);
+        ASSERT(resource == NullHandle || !IsBufferResource(rhiContext, resource),
+            "{} is a buffer: a Scope accesses it with ReadBuffer / ReadWriteBuffer / WriteBuffer.", name.GetCStr());
+
+        ImagePassAttachment a;
+        a.m_attachmentId = AttachmentId{ name, 0 };
+        a.m_access       = access;
+        a.m_usage        = usage;
+        a.m_stage        = stage;
+        a.m_image        = resource;
+        a.m_pass         = m_currentPass;
+        if (action != nullptr)
         {
-            m_attachmentUses[AttachmentId{ name, version }].emplace_back(m_currentPass, RHI::AttachmentAccess::Read);
-            version = ++entry.m_latestVersion;
+            a.m_action = *action;
         }
 
-        auto& rhiContext = *RHIExecuteContext::Current();
-        const RHIHandle resource = entry.m_resource;
-        RHIHandle attachment = NullHandle;
-        if (rhiContext.Has<RHI::BufferDescriptor>(resource) || rhiContext.Has<BackingBuffer>(resource))
+        const RHIHandle attachment = AddImageAttachment(a, scope, colorCount);
+        if (resource != NullHandle)
         {
-            BufferPassAttachment a;
-            a.m_attachmentId = AttachmentId{ name, version };
-            a.m_access       = access;
-            a.m_usage        = usage;
-            a.m_stage        = stage;
-            a.m_buffer       = resource;
-            a.m_pass         = m_currentPass;
-            attachment = AddBufferAttachment(a, scope);
+            GiveClearValue(rhiContext, a);
         }
         else
         {
-            ImagePassAttachment a;
-            a.m_attachmentId = AttachmentId{ name, version };
-            a.m_access       = access;
-            a.m_usage        = usage;
-            a.m_stage        = stage;
-            a.m_image        = resource;
-            a.m_pass         = m_currentPass;
-            if (action != nullptr)
-            {
-                a.m_action = *action;
-                if (action->m_loadAction == RHI::AttachmentLoadAction::Clear
-                    && rhiContext.Has<TransientTag>(resource) && !rhiContext.Has<RHI::ClearValue>(resource))
-                {
-                    rhiContext.Add<RHI::ClearValue>(resource, action->m_clearValue);
-                }
-            }
-            attachment = AddImageAttachment(a, scope, colorCount);
+            rhiContext.Add<UnlinkedAttachmentTag>(attachment);
+        }
+        return attachment;
+    }
+
+    RHIHandle RenderGraphBuilder::AddScopeBufferAttachment(
+        RHIHandle scope, const RHI::AttachmentId& name,
+        RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+
+        const RHIHandle resource = FindResource(name);
+        ASSERT(resource == NullHandle || IsBufferResource(rhiContext, resource),
+            "{} is an image: a Scope accesses it with ReadImage / ReadWriteImage / WriteImage.", name.GetCStr());
+
+        BufferPassAttachment a;
+        a.m_attachmentId = AttachmentId{ name, 0 };
+        a.m_access       = access;
+        a.m_usage        = usage;
+        a.m_stage        = stage;
+        a.m_buffer       = resource;
+        a.m_pass         = m_currentPass;
+
+        const RHIHandle attachment = AddBufferAttachment(a, scope);
+        if (resource == NullHandle)
+        {
+            rhiContext.Add<UnlinkedAttachmentTag>(attachment);
         }
         return attachment;
     }
@@ -310,10 +360,8 @@ namespace Spark::Render
             ASSERT(colorCount != nullptr, "A render target outside a render pass Scope.");
             rhiContext.Add<ColorAttachmentIndex>(handle, ColorAttachmentIndex{ (*colorCount)++ });
         }
-        m_attachmentUses[attachment.m_attachmentId].emplace_back(
-            attachment.m_pass,
-            NormalizeImageAccess(attachment.m_access, attachment.m_action));
         m_scopeAttachments.push_back(handle);
+        m_attachments.push_back(handle);
         return handle;
     }
 
@@ -325,8 +373,8 @@ namespace Spark::Render
         const RHIHandle handle = rhiContext.CreateEntity();
         rhiContext.Add<BufferPassAttachment>(handle, attachment);
         rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ scope, attachment.m_buffer });
-        m_attachmentUses[attachment.m_attachmentId].emplace_back(attachment.m_pass, attachment.m_access);
         m_scopeAttachments.push_back(handle);
+        m_attachments.push_back(handle);
         return handle;
     }
 
@@ -368,62 +416,35 @@ namespace Spark::Render
                 name.GetCStr());
         }
 
-        const auto [it, inserted] = m_resources.emplace(name, ResourceEntry{ resource, 0 });
-        ASSERT(inserted || it->second.m_resource == resource,
+        const auto [it, inserted] = m_resources.emplace(name, resource);
+        ASSERT(inserted || it->second == resource,
             "{} is already declared for another resource.", name.GetCStr());
     }
 
     RHIHandle RenderGraphBuilder::AddPreviousFrameAttachment(ImagePassAttachment attachment, RHIHandle scope)
     {
-        const RHI::AttachmentId& name = attachment.m_attachmentId.m_id;
-        auto& rhiContext = *RHIExecuteContext::Current();
-        const RHIHandle declared = FindTransientImage(name);
-        ASSERT(declared != NullHandle,
-            "Previous-frame read of {} before any pass created it as a transient image. "
-            "Declare the producing pass first.",
-            name.GetCStr());
-        if (declared == NullHandle)
-        {
-            return NullHandle;
-        }
-
-        // This frame's resource is read back next frame, whatever its producer asked for.
-        auto& desc = rhiContext.Get<RHI::ImageDescriptor>(declared);
-        desc.m_bindFlags |= RHI::ImageBindFlags::ShaderRead;
-        rhiContext.AddOrReplace<ExtractedImage>(declared);
-
-        RHIHandle previous = FindPreviousFrameImage(name);
-        if (previous != NullHandle && !IsSameImageStorage(rhiContext.Get<RHI::ImageDescriptor>(previous), desc))
-        {
-            rhiContext.Remove<PreviousFrameOf>(previous);
-            previous = NullHandle;
-        }
-
-        // A real previous frame is never Active; one that is, is an earlier reader's stand-in.
-        const bool missing = previous == NullHandle || rhiContext.Has<PooledImageActiveTag>(previous);
-        if (previous == NullHandle)
-        {
-            ASSERT(m_imagePool != nullptr, "[RenderGraphBuilder] No image pool for previous-frame reads.");
-            previous = AcquirePooledImage(rhiContext, *m_imagePool, desc,
-                rhiContext.TryGet<RHI::ClearValue>(declared), name);
-            // Other readers of this name this frame share the stand-in.
-            rhiContext.Add<PreviousFrameOf>(previous, PreviousFrameOf{ name });
-        }
-
-        // No version bump: nothing writes the previous frame's copy. Its id (frame offset 1)
-        // is a key of its own, so BuildGraph sees readers and no writer and emits no edge.
-        attachment.m_attachmentId = AttachmentId{ name, 0, 1 };
+        // Frame offset 1 makes it a resource of its own to ResolveGraph, with readers and no
+        // writer, so no edge. Which image it reads is End's to fill.
+        attachment.m_attachmentId = AttachmentId{ attachment.m_attachmentId.m_id, 0, 1 };
         attachment.m_access       = RHI::AttachmentAccess::Read;
         attachment.m_pass         = m_currentPass;
-        attachment.m_image        = previous;
+        attachment.m_image        = NullHandle;
 
         const RHIHandle handle = AddImageAttachment(attachment, scope, nullptr);
-        rhiContext.Add<PreviousFrameTag>(handle);
-        if (missing)
-        {
-            rhiContext.Add<PreviousFrameMissingTag>(handle);
-        }
+        RHIExecuteContext::Current()->Add<PreviousFrameTag>(handle);
         return handle;
+    }
+
+    void RenderGraphBuilder::BindPreviousFrameValid(RHIHandle attachment, const RHI::InputName& input)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        ASSERT(rhiContext.Has<PreviousFrameTag>(attachment),
+            "BindValid({}) on an access that is not a ReadPreviousImage.", input.GetCStr());
+        ASSERT(!rhiContext.Has<PreviousFrameValidBinding>(attachment),
+            "The previous-frame read bound to {} already has a constant that takes its validity.", input.GetCStr());
+
+        ReserveUintConstant(rhiContext.Get<ScopeAttachment>(attachment).m_scope, input);
+        rhiContext.Add<PreviousFrameValidBinding>(attachment, PreviousFrameValidBinding{ input });
     }
 
     RHIHandle RenderGraphBuilder::AddScopeItem(RHIHandle scope)
@@ -509,15 +530,9 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphBuilder::BindShaderInputIndex(RHIHandle attachment, const RHI::InputName& input)
+    void RenderGraphBuilder::ReserveUintConstant(RHIHandle scope, const RHI::InputName& input)
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
-        CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
-        ASSERT(rhiContext.Has<ImagePassAttachment>(attachment),
-            "Binding {} by index to a buffer: buffer bindings are not supported yet.", input.GetCStr());
-        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
-            "The access bound to {} is already bound; declare another access to bind another input.",
-            input.GetCStr());
+        CheckScopeOpen(scope);
 
         const RHI::PipelineLayoutDescriptor& layout = CurrentPassLayout();
         if (const RHI::ConstantsLayout* root = layout.GetRootConstantsLayout())
@@ -526,20 +541,30 @@ namespace Spark::Render
             if (index != RHI::InvalidShaderInputIndex)
             {
                 const Interval interval = root->GetInterval(index);
-                ASSERT(interval.m_max - interval.m_min == 4, "Root constant {} is not a 4-byte index.", input.GetCStr());
-                const RHIHandle scope = rhiContext.Get<ScopeAttachment>(attachment).m_scope;
-                MarkRootConstantWritten(rhiContext.Get<ScopeRootConstants>(scope), interval, input);
-                rhiContext.Add<IndexBinding>(attachment, IndexBinding{ input });
+                ASSERT(interval.m_max - interval.m_min == 4, "Root constant {} is not a 4-byte uint.", input.GetCStr());
+                MarkRootConstantWritten(RHIExecuteContext::Current()->Get<ScopeRootConstants>(scope), interval, input);
                 return;
             }
         }
 
         const RHI::ShaderInputConstantDescriptor* desc = layout.FindConstantDescriptor(input);
-        ASSERT(desc != nullptr, "The pass's shaders have no constant {} to take an index.", input.GetCStr());
+        ASSERT(desc != nullptr, "The pass's shaders have no constant {}.", input.GetCStr());
         ASSERT(desc->m_spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-Scope (space {}) and per-pass (space {}) constants can take an index.",
+            "{} is in space {}; only per-Scope (space {}) and per-pass (space {}) constants can be set from a Scope.",
             input.GetCStr(), desc->m_spaceId, kPerScopeSpaceId, kPerPassSpaceId);
-        ASSERT(desc->m_constantByteCount == 4, "Constant {} is not a 4-byte index.", input.GetCStr());
+        ASSERT(desc->m_constantByteCount == 4, "Constant {} is not a 4-byte uint.", input.GetCStr());
+    }
+
+    void RenderGraphBuilder::BindShaderInputIndex(RHIHandle attachment, const RHI::InputName& input)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        ASSERT(rhiContext.Has<ImagePassAttachment>(attachment),
+            "Binding {} by index to a buffer: buffer bindings are not supported yet.", input.GetCStr());
+        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
+            "The access bound to {} is already bound; declare another access to bind another input.",
+            input.GetCStr());
+
+        ReserveUintConstant(rhiContext.Get<ScopeAttachment>(attachment).m_scope, input);
         rhiContext.Add<IndexBinding>(attachment, IndexBinding{ input });
     }
 
@@ -644,210 +669,148 @@ namespace Spark::Render
         constants.push_back(constant);
     }
 
-    void RenderGraphBuilder::TouchNode(Pass pass)
+    void RenderGraphBuilder::LinkAttachments()
     {
-        // 让没有任何边的孤立 pass 也出现在图里
-        m_graph.try_emplace(pass);
-    }
-
-
-    void RenderGraphBuilder::AddEdge(Pass from, Pass to)
-    {
-        // 防止self edge
-        if (from == to)
-        {
-            return;
-        }
-
-        auto [it, inserted] = m_graph[from].dependents.insert(to);
-        if (inserted)
-        {
-            ++m_graph[to].inDegree;
-        }
-    }
-
-    void RenderGraphBuilder::BuildGraph()
-    {
-        // merge per-pass uses on each attachment (multi-use within one pass collapses to OR'd access)
-        for (auto& [id, entries] : m_attachmentUses)
-        {
-            eastl::unordered_map<Pass, RHI::AttachmentAccess> perPass;
-            for (const auto& e : entries)
-            {
-                perPass[e.pass] |= e.access;
-            }
-
-            if (perPass.size() != entries.size())
-            {
-                entries.clear();
-                entries.reserve(perPass.size());
-                for (const auto& [pass, access] : perPass)
-                {
-                    entries.emplace_back(pass, access);
-                }
-            }
-        }
-
-        for (auto& [id, entries] : m_attachmentUses)
-        {
-            Pass writer = NullPass;
-            eastl::vector<Pass> readerWriters;  // RW
-            eastl::vector<Pass> readers;    // R only
-
-            readerWriters.reserve(entries.size());
-            readers.reserve(entries.size());
-
-            for (const auto& entry: entries)
-            {
-                const bool isRead = CheckBitsAny(entry.access, RHI::AttachmentAccess::Read);
-                const bool isWrite = CheckBitsAny(entry.access, RHI::AttachmentAccess::Write);
-
-                ASSERT(entry.pass != NullPass, "Attachment {} has entry with NullPass.", id.m_id.GetCStr());
-                ASSERT(isRead || isWrite, "Attachment {} entry has Unknown access — likely missing access flag.", id.m_id.GetCStr());
-
-                TouchNode(entry.pass);
-
-                if (isRead && isWrite)
-                {
-                    readerWriters.push_back(entry.pass);
-                }
-                else if (isWrite)
-                {
-                    ASSERT(writer == NullPass,
-                        "Attachment {} has multiple pure writers — non-commutative chain "
-                        "must be expressed via renaming.",
-                        id.m_id.GetCStr()
-                    );
-                    writer = entry.pass;
-                }
-                else if (isRead)
-                {
-                    readers.push_back(entry.pass);
-                }
-            }
-
-            // All read after write
-            if (writer != NullPass)
-            {
-                for (Pass rw : readerWriters) 
-                {
-                    AddEdge(writer, rw);
-                }
-                for (Pass r : readers)
-                {
-                    AddEdge(writer, r);
-                }
-            }
-
-            // Read after read write
-            for (Pass rw : readerWriters)
-            {
-                for (Pass r : readers)
-                {
-                    AddEdge(rw, r);
-                }
-            }
-        }
-
-        // Write after read: whoever uses a version runs before the pass that writes the next
-        // one over it. Without this a reader and that writer both wait for the version's
-        // producer only, and nothing orders the two.
-        for (const auto& [id, entries] : m_attachmentUses)
-        {
-            if (id.m_version == 0)
-            {
-                continue;
-            }
-            const auto previous = m_attachmentUses.find(AttachmentId{ id.m_id, id.m_version - 1, id.m_frameOffset });
-            if (previous == m_attachmentUses.end())
-            {
-                continue;
-            }
-            for (const auto& entry : entries)
-            {
-                if (!CheckBitsAny(entry.access, RHI::AttachmentAccess::Write))
-                {
-                    continue;
-                }
-                for (const auto& user : previous->second)
-                {
-                    AddEdge(user.pass, entry.pass);
-                }
-            }
-        }
-    }
-
-    eastl::vector<Pass> RenderGraphBuilder::TopoSort()
-    {
+        auto& rhiContext  = *RHIExecuteContext::Current();
         auto& passContext = *PassExecuteContext::Current();
 
-        eastl::vector<Pass> result;
-        result.reserve(m_graph.size());
-
-        // Of the passes that are ready, the one declared first goes first: the order is the
-        // declaration order wherever the edges leave a choice, and the same every frame.
-        eastl::unordered_map<Pass, uint32_t> declIndex;
-        for (Pass pass : passContext.GetPassesInDeclOrder())
+        for (auto [attachment, link] : rhiContext.GetView<UnlinkedAttachmentTag, ScopeAttachment>().each())
         {
-            declIndex.emplace(pass, static_cast<uint32_t>(declIndex.size()));
-        }
-        const auto declaredLater = [&](Pass lhs, Pass rhs)
-        {
-            return declIndex.at(lhs) > declIndex.at(rhs);
-        };
+            auto*                    image    = rhiContext.TryGet<ImagePassAttachment>(attachment);
+            auto*                    buffer   = rhiContext.TryGet<BufferPassAttachment>(attachment);
+            const RHI::AttachmentId& name     = image ? image->m_attachmentId.m_id : buffer->m_attachmentId.m_id;
+            const Scope&             scope    = rhiContext.Get<Scope>(link.m_scope);
+            const char*              passName = passContext.Get<PassName>(scope.m_pass).m_name.GetCStr();
 
-        // A min-heap on the declaration index.
-        eastl::vector<Pass> ready;
-        ready.reserve(m_graph.size());
-
-        for (const auto& [pass, node] : m_graph)
-        {
-            ASSERT(declIndex.find(pass) != declIndex.end(), "A pass in the graph was not declared through CreatePass.");
-            if (node.inDegree == 0)
-            {
-                ready.push_back(pass);
-            }
-        }
-        eastl::make_heap(ready.begin(), ready.end(), declaredLater);
-
-        while(!ready.empty())
-        {
-            eastl::pop_heap(ready.begin(), ready.end(), declaredLater);
-            Pass cur = ready.back();
-            ready.pop_back();
-
-            passContext.Add<PassGlobalTimeline>(cur, PassGlobalTimeline{ static_cast<uint32_t>(result.size()) });
-            result.push_back(cur);
-
-            auto nodeIt = m_graph.find(cur);
-            if (nodeIt == m_graph.end())
+            const RHIHandle resource = FindResource(name);
+            ASSERT(resource != NullHandle,
+                "Pass {} Scope #{} accesses {}, which no pass declares (Create / Import) this frame.",
+                passName, scope.m_index, name.GetCStr());
+            if (resource == NullHandle)
             {
                 continue;
             }
 
-            for (Pass dep : nodeIt->second.dependents)
+            // What AddScopeAttachment / AddScopeBufferAttachment and CloseScope do for an
+            // attachment that has its resource.
+            const bool isBuffer = IsBufferResource(rhiContext, resource);
+            ASSERT(isBuffer == (buffer != nullptr),
+                "Pass {} Scope #{} accesses {} as {}, and it is declared as {}.",
+                passName, scope.m_index, name.GetCStr(),
+                buffer ? "a buffer" : "an image", isBuffer ? "a buffer" : "an image");
+            if (isBuffer != (buffer != nullptr))
             {
-                auto depNodeIt = m_graph.find(dep);
-                ASSERT(depNodeIt != m_graph.end(), "Dependency pass {} not found in graph.", passContext.Get<PassName>(dep).m_name.GetCStr());
-                ASSERT(depNodeIt->second.inDegree > 0, "Invalid indegree state in topo sort.");
-                if (--depNodeIt->second.inDegree == 0)
-                {
-                    ready.push_back(dep);
-                    eastl::push_heap(ready.begin(), ready.end(), declaredLater);
-                }
+                continue;
+            }
+
+            link.m_resource = resource;
+            if (buffer != nullptr)
+            {
+                buffer->m_buffer = resource;
+                continue;
+            }
+
+            image->m_image = resource;
+            GiveClearValue(rhiContext, *image);
+            ASSERT(CoversDepthStencilAspects(rhiContext, *image),
+                "Pass {} Scope #{}: the depth-stencil attachment of {} must cover every aspect of the image.",
+                passName, scope.m_index, name.GetCStr());
+        }
+        rhiContext.Clear<UnlinkedAttachmentTag>();
+    }
+
+    void RenderGraphBuilder::LinkPreviousFrameReads()
+    {
+        auto& rhiContext  = *RHIExecuteContext::Current();
+        auto& passContext = *PassExecuteContext::Current();
+
+        for (auto [attachment, image, link] :
+             rhiContext.GetView<PreviousFrameTag, ImagePassAttachment, ScopeAttachment>().each())
+        {
+            const RHI::AttachmentId name     = image.m_attachmentId.m_id;
+            const RHIHandle         declared = FindTransientImage(name);
+            ASSERT(declared != NullHandle,
+                "Pass {} reads last frame's {}, which no pass creates as a transient image this frame: a reader of the "
+                "previous frame runs only while the producer does.",
+                passContext.Get<PassName>(image.m_pass).m_name.GetCStr(), name.GetCStr());
+            if (declared == NullHandle)
+            {
+                continue;
+            }
+
+            // This frame's resource is read back next frame, whatever its producer asked for.
+            auto& desc = rhiContext.Get<RHI::ImageDescriptor>(declared);
+            desc.m_bindFlags |= RHI::ImageBindFlags::ShaderRead;
+            rhiContext.AddOrReplace<ExtractedImage>(declared);
+
+            RHIHandle previous = FindPreviousFrameImage(name);
+            if (previous != NullHandle && !IsSameImageStorage(rhiContext.Get<RHI::ImageDescriptor>(previous), desc))
+            {
+                rhiContext.Remove<PreviousFrameOf>(previous);
+                previous = NullHandle;
+            }
+
+            // A real previous frame is never Active; one that is, is an earlier reader's stand-in.
+            const bool missing = previous == NullHandle || rhiContext.Has<PooledImageActiveTag>(previous);
+            if (previous == NullHandle)
+            {
+                ASSERT(m_imagePool != nullptr, "[RenderGraphBuilder] No image pool for previous-frame reads.");
+                previous = AcquirePooledImage(rhiContext, *m_imagePool, desc,
+                    rhiContext.TryGet<RHI::ClearValue>(declared), name);
+                // Other readers of this name this frame share the stand-in.
+                rhiContext.Add<PreviousFrameOf>(previous, PreviousFrameOf{ name });
+            }
+
+            image.m_image   = previous;
+            link.m_resource = previous;
+            if (missing)
+            {
+                rhiContext.Add<PreviousFrameMissingTag>(attachment);
             }
         }
+    }
 
-        ASSERT(result.size() == m_graph.size(), "RenderGraph contains cycle, topo sort failed.");
-        return result;
+    void RenderGraphBuilder::CheckResolution() const
+    {
+        auto& rhiContext  = *RHIExecuteContext::Current();
+        auto& passContext = *PassExecuteContext::Current();
+
+        for (const GraphError& error : m_resolution.m_errors)
+        {
+            const Scope& scope = rhiContext.Get<Scope>(rhiContext.Get<ScopeAttachment>(error.m_attachment).m_scope);
+            ASSERT(error.m_type != GraphErrorType::ReadsUndefined,
+                "Pass {} Scope #{} reads {}, a transient resource nothing has written by then: no pass writes it this "
+                "frame, or only this pass in a later Scope.",
+                passContext.Get<PassName>(scope.m_pass).m_name.GetCStr(), scope.m_index,
+                GetAttachmentId(rhiContext, error.m_attachment).m_id.GetCStr());
+        }
+
+        if (!m_resolution.m_unordered.empty())
+        {
+            eastl::string names;
+            for (const Pass pass : m_resolution.m_unordered)
+            {
+                names += names.empty() ? "" : ", ";
+                names += passContext.Get<PassName>(pass).m_name.GetCStr();
+            }
+            ASSERT(false,
+                "[RenderGraphBuilder] The accesses of these passes need each other's results in a cycle, or wait for "
+                "such passes: {}.",
+                names.c_str());
+        }
     }
 
     void RenderGraphBuilder::End()
     {
         ASSERT(m_currentPass == NullPass,
             "End() called with an active pass scope; missing EndPass?");
-        BuildGraph();
-        TopoSort();
+
+        LinkAttachments();
+        LinkPreviousFrameReads();
+        ResolveGraph(
+            *RHIExecuteContext::Current(), *PassExecuteContext::Current(),
+            eastl::span<const RHIHandle>(m_attachments.data(), m_attachments.size()), m_resolution);
+        CheckResolution();
 
         // A pass that declared nothing is not in the graph and never runs, so its Scopes and
         // their items have no place in the stream. Any attachment would have made the pass a
@@ -879,8 +842,7 @@ namespace Spark::Render
 
         // Frame-scoped state: cleared at frame end, not next frame's start —
         // so a missed Begin() can't drag stale data forward.
-        m_graph.clear();
-        m_attachmentUses.clear();
+        m_attachments.clear();
         m_resources.clear();
         m_currentPass = NullPass;
     }

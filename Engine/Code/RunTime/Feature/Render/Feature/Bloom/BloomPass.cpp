@@ -85,9 +85,9 @@ namespace Spark::Render
                     const Math::Vector2Int size    = LevelSize(renderSize, level);
 
                     auto s = p.Scope();
-                    s.Read(LevelName(level)).BindIndex(RHI::InputName("currentIndex"));
-                    s.Read(low).BindIndex(RHI::InputName("lowIndex"));
-                    s.Write(UpName(level)).BindIndex(RHI::InputName("outputIndex"));
+                    s.ReadImage(LevelName(level)).BindIndex(RHI::InputName("currentIndex"));
+                    s.ReadImage(low).BindIndex(RHI::InputName("lowIndex"));
+                    s.WriteImage(UpName(level)).BindIndex(RHI::InputName("outputIndex"));
                     s.Constant(RHI::InputName("lowInvSize"), Math::Vector2(
                         1.0f / static_cast<float>(lowSize.x), 1.0f / static_cast<float>(lowSize.y)));
                     s.Constant(RHI::InputName("outputSize"), eastl::array<uint32_t, 2>{

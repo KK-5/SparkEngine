@@ -1144,6 +1144,25 @@ namespace Spark::Render
             }
         };
 
+        // A uint an attachment gives a constant (.BindIndex, .BindValid): into the Scope's block
+        // if the constant is a root constant, else into the per-pass space.
+        auto setAttachmentConstant = [&](RHIHandle scope, const RHI::InputName& input, uint32_t value)
+        {
+            const RHI::ShaderInputIndex root = rootConstants != nullptr
+                ? rootConstants->FindShaderInputIndex(input) : RHI::InvalidShaderInputIndex;
+            if (root != RHI::InvalidShaderInputIndex)
+            {
+                auto& block = context.Get<ScopeRootConstants>(scope);
+                memcpy(block.m_bytes.data() + rootConstants->GetInterval(root).m_min, &value, sizeof(value));
+            }
+            else
+            {
+                checkAgrees(input, &value, sizeof(value));
+                SetShaderConstantData(bindings, input, &value, sizeof(value));
+                declared = true;
+            }
+        };
+
         // A pass that set anything leaves no view it did not bind this frame in its per-pass
         // space: an image or buffer input nothing bound gets null. Passes that set nothing are
         // left alone — they may still set their inputs themselves.
@@ -1205,20 +1224,15 @@ namespace Spark::Render
                 }
                 else if (const auto* indexBinding = context.TryGet<IndexBinding>(attachment))
                 {
-                    const uint32_t index = ResolveBindlessIndex(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex);
-                    const RHI::ShaderInputIndex root = rootConstants != nullptr
-                        ? rootConstants->FindShaderInputIndex(indexBinding->m_input) : RHI::InvalidShaderInputIndex;
-                    if (root != RHI::InvalidShaderInputIndex)
-                    {
-                        auto& block = context.Get<ScopeRootConstants>(scope);
-                        memcpy(block.m_bytes.data() + rootConstants->GetInterval(root).m_min, &index, sizeof(index));
-                    }
-                    else
-                    {
-                        checkAgrees(indexBinding->m_input, &index, sizeof(index));
-                        SetShaderConstantData(bindings, indexBinding->m_input, &index, sizeof(index));
-                        declared = true;
-                    }
+                    setAttachmentConstant(scope, indexBinding->m_input,
+                        ResolveBindlessIndex(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex));
+                }
+
+                // Beside either binding of a previous-frame read, not instead of it.
+                if (const auto* valid = context.TryGet<PreviousFrameValidBinding>(attachment))
+                {
+                    setAttachmentConstant(scope, valid->m_input,
+                        context.Has<PreviousFrameMissingTag>(attachment) ? 0u : 1u);
                 }
             }
 

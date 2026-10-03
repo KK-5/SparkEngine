@@ -118,7 +118,7 @@ namespace Spark::Render
                 if (IsResourceReady(rhiCtx, cube))
                 {
                     p.Import(RHI::AttachmentId("SkyCube"), cube);
-                    s.Read(RHI::AttachmentId("SkyCube"))
+                    s.ReadImage(RHI::AttachmentId("SkyCube"))
                         .View(RHI::ImageViewDescriptor::CreateCubemap())
                         .Bind(RHI::InputName("g_SkyCube"));
 
