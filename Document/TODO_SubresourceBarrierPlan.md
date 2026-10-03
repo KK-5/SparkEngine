@@ -220,8 +220,9 @@ Q 上所有更早的访问之后，所以正确；等待的生产者也取它的
 **验证**：单元测试；现有画面不变、GPU-based validation 无报错（整图路径一个比特不变）；HZB 做完后在 GPU-based
 validation 下跑部分范围的路径。
 
-HZB 已做（`TODO_ScreenSpacePlan.md` §二）：两条链（1080p 下各 11 级），每级一个 Scope 读上一级、写本级。编辑器默认场景在 debug layer
-下与 GPU-based validation 下各跑过一次，无断言、无报错。HZB 还没有读者，所以"整链读一次、屏障分成两段"这一步在真实
+HZB 已做（`TODO_ScreenSpacePlan.md` §二）：两条链（1080p 下各 11 级），每级一个 Scope 读上一级、写本级。debug layer 下与
+GPU-based validation 下各跑过，无断言、无报错（最初两次停在编辑器的欢迎页上、没有场景，之后做 GTAO 时在真实场景里
+又跑过）。HZB 还没有读者，所以"整链读一次、屏障分成两段"这一步在真实
 pass 里还没有跑到（只有步骤 3 的临时实验跑过）。
 
 HZB 的图是第一批以非一致状态结束的图像，由此暴露一处顺序问题：`Image` 对象从 `DeviceObjectPool` 回收时不重置成员，

@@ -27,7 +27,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
 | P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
-| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4 完成，HZB 已实现），见 `TODO_ScreenSpacePlan.md` |
+| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现），见 `TODO_ScreenSpacePlan.md` |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
 | P7 | 命中点着色 | 未开始 |
@@ -106,7 +106,7 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 —  DBuffer Decals / CustomDepth
 ✅ GBufferPass → Normal/Surface/BaseColor + Vel + Color BasePass                       (D 待第二着色模型)
 ── Lighting ─────────────────────────────────────────────────────────────────────────────
-☐  AmbientOcclusion → AmbientOcclusion                 GTAO / RTAO                     P4 P6
+◐  AmbientOcclusion → AmbientOcclusion                 GTAO / RTAO                 ✅GTAO P6
 ◐  ShadowProjection / RTShadows → ShadowMask[light]    RenderShadowProjections     ✅光栅 P6
 ✅ Lights (一个全屏 draw 循环所有灯)                    RenderLights
 ◐  IndirectDiffuse (sky/IBL | DDGI) × AO               RenderDiffuseIndirectAndAO   ✅IBL P4 P8
