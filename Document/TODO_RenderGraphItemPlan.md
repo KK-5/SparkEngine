@@ -187,6 +187,9 @@ pass 的边界仍需定义，但这个定义只影响图的粒度与 lowering，
   就是它。pass 读自己写的版本不产生图边——建边时忽略自环，图只关心 pass 之间。
 - **创建与访问分开。** `CreateImage` / `CreateBuffer` / `Import` 只引入资源，访问只在 Scope 上声明。资源在 pass
   之间按名字引用；访问不分 image / buffer，由名字找到的资源决定。
+  （已改：资源可以声明在访问之后，访问时查不到它，所以访问自己说明种类：`ReadImage` / `ReadWriteImage` / `WriteImage`
+  与 `ReadBuffer` / `ReadWriteBuffer` / `WriteBuffer`，`ReadPrevious` 改名 `ReadPreviousImage`，见
+  `TODO_RenderGraphResolvePlan.md` D1。本文其余各处的 `Read` / `Write` / `ReadPrevious` 是改名前的写法。）
 - **回调拿到 pass 声明器，自己开 Scope。** 三种 pass 形状相同；只有一个 Scope 的 pass 多写一行 `p.Scope()`。
 - **什么都不声明，这一帧就跳过这个 pass**（今天已有的语义）。
 - **item 用声明时返回的句柄引用 attachment**（如拷贝 item 引用它的 src / dst）。slot 名只剩给 hook 查找的用途，

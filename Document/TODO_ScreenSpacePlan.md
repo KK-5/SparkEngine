@@ -18,7 +18,7 @@ P4 做四件事：**HZB**、**GTAO**（`AmbientOcclusion` 信号）、**Contact 
 | 1 | HZB（closest / furthest，各一张带 mip 的纹理） | 0b | ✅ 完成 |
 | 2 | GTAO → `AmbientOcclusion`，接入 IndirectDiffuse / Reflections | 0a（见 D2） | 已实现；颗粒闪烁暂缓到 P6（§三） |
 | 3 | Contact Shadow，乘进 ShadowMask | — | 未开始 |
-| 4 | SSR → 与预滤波 cube 混合 | 0a、1、`TODO_RenderGraphResolvePlan.md` 步骤 3 | D8 已定；等渲染图的记录与解析分离（§五） |
+| 4 | SSR → 与预滤波 cube 混合 | 0a、1、`TODO_RenderGraphResolvePlan.md` 步骤 3 | D8 已定；渲染图的记录与解析分离已完成，可以开工（§五） |
 
 0a、0b 互不依赖；3 不依赖任何前置。顺序上先做 4，3 不急。
 
@@ -125,8 +125,8 @@ ShadowMask 是四灯打包的 RGBA8 array slice，由 ShadowProjection 的 PS �
 - **步进函数是独立的库**（`Shaders/Lib/ScreenTrace.hlsli`），不写死在 SSR 里：以后的 RT 反射、SSGI 都先做一次屏幕空间
   追踪，Contact Shadow 也是一种短距离的屏幕追踪。
 - **厚度**：深度图只有最前一层，光线落在表面之后、固定厚度以内才算命中。厚度先是常量。
-- **颜色**：命中后用命中点的 velocity 重投影，采样上一帧的 `TemporalAA`（`ReadPrevious`，HDR、已含 PreExposure）。
-  要求视图开着 TAA，没有就不做 SSR。这一帧的 TemporalAA 在 Reflections 之后才声明，而现在的 `ReadPrevious` 要求
+- **颜色**：命中后用命中点的 velocity 重投影，采样上一帧的 `TemporalAA`（`ReadPreviousImage`，HDR、已含 PreExposure）。
+  要求视图开着 TAA，没有就不做 SSR。这一帧的 TemporalAA 在 Reflections 之后才声明，而现在的 `ReadPreviousImage` 要求
   先声明，见 §五。
 - **分辨率**：全分辨率追踪，量过耗时再考虑半分辨率。
 - **置信度**（结果的 alpha）：屏幕边缘、朝向相机的光线、命中背面、粗糙度接近上限、上一帧缺失时淡出。全是常量。
