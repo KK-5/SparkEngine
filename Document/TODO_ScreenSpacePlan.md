@@ -18,7 +18,7 @@ P4 做四件事：**HZB**、**GTAO**（`AmbientOcclusion` 信号）、**Contact 
 | 1 | HZB（closest / furthest，各一张带 mip 的纹理） | 0b | ✅ 完成 |
 | 2 | GTAO → `AmbientOcclusion`，接入 IndirectDiffuse / Reflections | 0a（见 D2） | 已实现；颗粒闪烁暂缓到 P6（§三） |
 | 3 | Contact Shadow，乘进 ShadowMask | — | 未开始 |
-| 4 | SSR → 与预滤波 cube 混合 | 0a、1、`TODO_RenderGraphResolvePlan.md` 步骤 3 | D8 已定；渲染图的记录与解析分离已完成，可以开工（§五） |
+| 4 | SSR → 与预滤波 cube 混合 | 0a、1、`TODO_RenderGraphResolvePlan.md` 步骤 3 | 已实现；位置正确，反射不全与边缘闪烁是屏幕空间的限制，不再投入（§五） |
 
 0a、0b 互不依赖；3 不依赖任何前置。顺序上先做 4，3 不急。
 
@@ -26,7 +26,7 @@ P4 做四件事：**HZB**、**GTAO**（`AmbientOcclusion` 信号）、**Contact 
 
 ## 决策记录
 
-### D1　实现来源：宽松许可证的开源实现，结构对齐 UE　✅ 已定（GTAO 已按此移植；SSR 用 SSSR 的步进，许可证开工时核实；Contact Shadow 的来源开工时再核实）
+### D1　实现来源：宽松许可证的开源实现，结构对齐 UE　✅ 已定（GTAO 已按此移植；SSR 用 SSSR 的步进，许可证已核实为 MIT；Contact Shadow 的来源开工时再核实）
 
 路线图的硬目标是对齐 UE，理由是"以后能把 UE 的渲染算法原样抄进来"。但 UE 的 shader 源码受 Unreal Engine EULA
 约束，拿到非 UE 引擎里用是受限的（以 EULA 条款为准）。P3 的 AgX 走的是另一条路：移植 MIT / Apache 的现成实现，
@@ -119,20 +119,24 @@ ShadowMask 是四灯打包的 RGBA8 array slice，由 ShadowProjection 的 PS �
 - **光线**：只追粗糙度低于上限的像素（上限来自 D5 的组件，默认 0.3~0.4），每像素一条镜面方向的光线，不做随机采样，
   上限附近淡出到 cube。粗糙表面的反射偏清晰，以此换没有噪声：GTAO 已经说明噪声全交给 TAA 在这里不够。按粗糙度
   读上一帧颜色的模糊 mip 是以后的升级；随机多光线加降噪等 P6 的 NRD（REBLUR_SPECULAR）。
-- **步进**：移植 FidelityFX SSSR 的层级步进函数（许可证开工时核实）。HZB 的 mip 0 是半分辨率（D3），而 SSSR 的步进
-  假定 mip 0 是全分辨率深度：步进在 HZB 的 UV 空间里做（射线乘 `UvFactor`，mip 0 的尺寸当作它的 screen size），命中点
-  只精确到 2×2 像素，之后再对全分辨率的 SceneDepth 核一次。
+- **步进**：移植 FidelityFX SSSR 的层级步进函数（`ffx-sssr/ffx_sssr.h`，仓库的 `license.txt` 是 MIT）。HZB 的 mip 0 是
+  半分辨率（D3），而 SSSR 的步进假定最细一级是全分辨率深度。做法比最初设想的（在 HZB 上步进、命中后再对 SceneDepth 核
+  一次）更直接：**把 SceneDepth 当作第 0 级，HZB 的 mip k 当作第 k+1 级**。HZB 的 mip 0 一个纹素正好盖 2×2 个像素、各边
+  是 2 的幂，所以每一级都是下一级精确的 2×2，SSSR 的算法不用改，命中点精确到像素。步进在"追踪 UV"里做：屏幕 UV 乘
+  `UvFactor`，第 0 级的尺寸取 HZB mip 0 的两倍。
 - **步进函数是独立的库**（`Shaders/Lib/ScreenTrace.hlsli`），不写死在 SSR 里：以后的 RT 反射、SSGI 都先做一次屏幕空间
   追踪，Contact Shadow 也是一种短距离的屏幕追踪。
 - **厚度**：深度图只有最前一层，光线落在表面之后、固定厚度以内才算命中。厚度先是常量。
 - **颜色**：命中后用命中点的 velocity 重投影，采样上一帧的 `TemporalAA`（`ReadPreviousImage`，HDR、已含 PreExposure）。
-  要求视图开着 TAA，没有就不做 SSR。这一帧的 TemporalAA 在 Reflections 之后才声明，而现在的 `ReadPreviousImage` 要求
-  先声明，见 §五。
+  要求视图开着 TAA，没有就不做 SSR。这一帧的 TemporalAA 在 Reflections 之后才声明，在生产者之前读上一帧由
+  `TODO_RenderGraphResolvePlan.md` 支持。
 - **分辨率**：全分辨率追踪，量过耗时再考虑半分辨率。
-- **置信度**（结果的 alpha）：屏幕边缘、朝向相机的光线、命中背面、粗糙度接近上限、上一帧缺失时淡出。全是常量。
+- **置信度**（结果的 alpha）：屏幕边缘、朝向相机的光线、命中背面、粗糙度接近上限时淡出。全是常量。上一帧缺失时
+  不淡出，改取这一帧的 SceneColor（§五）。
   alpha 也是以后混合 RT 反射时的权重：置信度低的交给光追，接口不变。
 - **合成**：Reflections pass 里 `lerp(cube, ssr.rgb, ssr.a)` 后再乘 EnvBRDF，屏幕外与未命中平滑回退到 cube。GTAO 的
-  镜面遮蔽只乘在 cube 那部分：SSR 是追到的结果，已经含遮挡（UE 的做法开工时核对）。
+  镜面遮蔽只乘在 cube 那部分：SSR 是追到的结果，已经含遮挡。印象中 UE 也是这样（镜面遮蔽乘在留给反射捕获与天光的
+  权重 `1 - SSR.a` 上），但 UE 的源码不公开，**没有对着源码核实**。
 - **HZB 跳过**：HZB 成为 SSR 的输入后，按"这帧有没有 SSR"生成，判断与 SSR 共用 `SceneTextures` 里的 `FindView`（D6）。
 
 ---
@@ -336,21 +340,94 @@ mip）；法线取自带法线贴图的 `GBufferNormal`，细节法线会在 AO 
 HZBClosest ─┐
 SceneDepth ─┼─► SSRPass（compute，读 View）──► ScreenSpaceReflections（RGBA16F，a = 置信度）
 GBuffer ────┤                                          │
-TemporalAA（上一帧）┘                                   ▼
-                                               Reflections：lerp(cube, ssr, a) × EnvBRDF
+ResolvedVelocity ─┤                                    │
+TemporalAA（上一帧）┤                                   ▼
+SceneColor（这一帧，兜底）┘                     Reflections：lerp(cube, ssr, a) × EnvBRDF
 ```
 
 - 数据契约顺带复查：路线图「未决」要求在这里用低粗糙度的大平面检查 `GBufferNormal` 的 R10G10B10A2 编码是否出条带，
   出了就换八面体编码（只改 `EncodeNormal` / `DecodeNormal`）。
-- 上一帧颜色是 TAA 之后的 HDR；PreExposure 现在恒为 1，曝光分支到来时要按 `PreExposure(N) / PreExposure(N-1)` 校正。
-- **先决：在生产者之前读上一帧**。`RenderGraphBuilder::AddPreviousFrameAttachment` 要求这一帧已有 pass 把这个名字声明成
-  transient image（取它的描述符、给它加 ShaderRead 并标记保留到下一帧），否则断言。TAA 读自己的历史是先声明后读，
-  满足；SSR 排在 Reflections 之前，TemporalAA 这一帧还没声明。由 `TODO_RenderGraphResolvePlan.md` 解决：build 只记录、
-  全部声明完再统一解析，SSR 依赖它的步骤 3（顺带补上读后写的依赖边、执行顺序确定、pass 可以插到管线中间）。
-- 上一帧颜色的读取与命中点重投影写成通用的函数，SSGI 以后复用。
+- 上一帧颜色是 TAA 之后的 HDR；PreExposure 现在恒为 1，曝光分支到来时要按 `PreExposure(N) / PreExposure(N-1)` 校正
+  （现在按两帧相等处理，SSR 输出的是除掉 PreExposure 的场景线性辐射度）。
+- 在生产者之前读上一帧：由 `TODO_RenderGraphResolvePlan.md` 支持，SSR 用 `ReadPreviousImage(...).Bind(...).BindValid(...)`。
+- **输入都在 per-pass 的 space2**：贴图与输出用 `.Bind` 绑到命名槽位，参数在 cbuffer `ScreenSpaceReflectionsParams` 里，
+  `ScopeParameters` 只有 `viewIndex`。这个 pass 只有一个 Scope，没有按 Scope 区分的数据；root constant（space5）留给
+  HZB、GTAO、Bloom 这类每个 Scope 资源不同的 pass。
 
-**验证**：场景由用户搭（低粗糙度的大平面加几个物体，能俯视的机位），效果由用户截图与 RenderDoc 导出。路线图的"屏幕外 /
-遮挡处平滑回退到 cube"；相机移动时反射不拖影、不闪；粗糙度上限处无明显断层。
+**实现**：
+
+- **组件**：`ScreenSpaceReflectionComponent`（`Feature/ScreenSpaceReflection/`）：强度、最大粗糙度（默认 0.4）、质量档。
+  `CameraViewSystem` 解析成 `ViewScreenSpaceReflection`，质量档 `Low` / `Medium` / `High` 映射成最多 32 / 64 / 128 步。
+- **有没有**：`SceneTextures::ScreenSpaceReflections::FindView`：主视图有 `ViewScreenSpaceReflection`、有视图槽位、开着
+  TAA。SSR 的 pass、Reflections 都问它；`HZB::HasReader` 也由它决定，没有 SSR 的帧不再生成 HZB。
+- **步进库** `Shaders/Lib/ScreenTrace.hlsli`（文件头有 MIT 声明与改动清单），不绑定任何资源，纹理与 View 都是参数：
+  `ScreenTrace_MakeRay`（世界空间的点与方向 → 追踪 UV 与设备深度里的射线）、`ScreenTrace_March`（层级步进）、
+  `ScreenTrace_ThicknessConfidence`、`ScreenTrace_BorderFade`。相对源码的改动：
+  - 深度链是两张纹理（SceneDepth 加 HZB），见 D8；
+  - 射线走出屏幕或深度范围即结束、算未命中，层级不超过最后一级。源码在这些地方越界读取，靠命中校验兜底，而越界读取
+    在 Vulkan 上是未定义的；
+  - "命中"的含义是射线从最细一级往下穿出。源码的 `valid_hit` 比的是步数与上限，恒为真；
+  - 只留 reversed-Z 分支；镜面光线，没有按 wave 占用率提前退出。
+- **射线的第二个点**取沿反射方向走"视深度的一半"处：朝向相机的射线，这个点也仍在相机前方，投影不会出问题。
+- **SSR 的 shader**（`Shaders/ScreenSpaceReflections/ScreenSpaceReflections.hlsl`）依次：天空、Unlit、粗糙度超过上限的像素
+  输出 0 → 朝向相机的射线淡出 → 步进 → 命中校验（几乎没走出去、命中天空、命中背面的输出 0；厚度；屏幕边缘）→ 用命中点
+  的 `ResolvedVelocity` 找到上一帧的位置（`Lib/Velocity.hlsli` 的 `PreviousScreenUV`，先减去抖动）→ 双线性采样上一帧的
+  TemporalAA；落在屏幕外或没有上一帧时改采这一帧的 SceneColor。alpha = 厚度置信度 × 边缘淡出 × 粗糙度淡出 × 朝向淡出 × 强度。
+- **常量都是初值，没有在画面上调过**：厚度是命中处到相机距离的 2%；粗糙度在上限以下的最后 25% 里淡出；反射方向与
+  "指向相机"的夹角余弦在 0.5~0.9 之间淡出；边缘淡出取屏幕高度的 5%（源码的值）；命中点离起点不到 2 像素算自己
+  （源码的值）。
+- **合成**：`Reflections.hlsl` 里 `lerp(cube × 镜面遮蔽, ssr.rgb, ssr.a) × EnvBRDF`。
+
+**限制**：
+
+- 没有环境 IBL 的场景里 SSR 不生效：Reflections 的整段计算在 `HasEnvironmentIBL()` 里，EnvBRDF 的查找表与环境 cube
+  在同一张描述符表上，没有环境时不能读。
+- 视图没开 TAA 时不做（D8）。只处理第一个 MainView，且它要铺满渲染目标（断言）。
+- 命中点离起点不到 2 像素的被拒绝，所以物体与地面接触处有一条很窄的带子回退到 cube。
+- 粗糙表面的反射和光滑表面一样清晰，只是更淡（D8）。
+
+**跑过的**：整个工程编译通过，RenderTest 86 个通过。编辑器在 debug layer 下打开 `Scene.scene`，后处理体积上挂 SSR 组件
+（最大粗糙度 1，让所有表面都追踪）：单开 SSR；SSR 加 AO 并改窗口大小三次（含奇数尺寸）；不挂 SSR 并改窗口大小三次（HZB
+不再生成的路径）。三次都无断言、无报错，shader 编译无报错。输入搬到 space2 之后同样的方式又跑了两次（SSR 加 AO；
+单开 SSR、最大粗糙度 0.4），各改窗口大小三次，无断言、无报错。
+
+**没有验证的**：画面效果一概没有验证，包括 SSR 的输出是否非零、反射的位置对不对。GPU-based validation 没有跑。编辑器里
+手动加组件、调参数与保存没有试。
+
+**用户验证的结果**（光滑桌面上放四个物体，俯视机位）：反射的位置对；反射不全；有明显闪烁。
+
+- **改掉的一处错误**：读上一帧颜色时没有扣掉抖动。光线在带抖动的深度图里走，命中点的 UV 带着抖动，而速度与上一帧的
+  TemporalAA 都不带，反射的内容每帧偏移最多半个像素。改为先减去 `temporalAAJitter` 再重投影，闪烁减轻，没有消失。
+- **排除的**：调低天空盒亮度后照样闪，所以不是"半透明的置信度压在很亮的 cube 反射上"；`Medium` 与 `High` 差不多
+  （`Low` 有明显缺失），所以 64 步够用。
+- **抓帧分析**（一帧，2051×1298；从导出的 SceneDepth、HZBClosest、GBufferNormal、GBufferSurface 与 `g_Views` 在 CPU 上
+  重跑 shader 的逻辑，给每个像素标出 alpha 的来由）。重跑的 alpha 与 GPU 导出的输出相关系数 0.997，99.9% 的像素相差
+  不到 0.05，所以 GPU 上跑的就是设计的那套逻辑，步进与校验里没有发现错误。追踪的像素里：
+
+  | 结果 | 占追踪像素 |
+  |---|---|
+  | 光线走出屏幕（回退 cube，正常） | 68.0% |
+  | 命中并通过各项校验 | 29.9% |
+  | 步数用完 | 0.7% |
+  | 离起点不到 2 像素 | 1.1% |
+  | 命中背面 / 天空 | 0.3% |
+
+  命中的像素里，光线停在表面上的只有 32.3%；停在表面后方、厚度以内的 24.2%；**超出厚度的 43.5%**（置信度约为 0，
+  等于没命中）。在画面上，超出厚度的像素连成每个物体下方的一整片：桌面上这些点的反射光线从物体背后穿过，它要反射的
+  是物体朝下、朝后的面，屏幕上没有。
+- **反射不全的原因**：就是上面这 43.5%，屏幕空间的固有限制。加大厚度只会把物体正面的颜色拉长填进去，不是真的反射。
+- **闪烁的位置**：置信度落在 0 与 1 之间的像素占命中的 8.2%，集中在"停在表面上"与"超出厚度"两片区域的交界和物体的
+  轮廓上。相邻像素之间 alpha 的平均差：两个都停在表面上的是 0.012，有一个停在表面后方的是 0.037。这条交界带的位置
+  取决于光线停在哪个像素格子里，随 TAA 的抖动逐帧移动。**没有直接量到帧间变化**：第二次导出的分辨率与格式不同，无法
+  逐像素相减，所以"闪的就是这条带"是由空间上的不稳定推出来的。另外 TAA 单独使用时本身也有轻微闪烁。
+- **改窗口大小时反射突然消失**：尺寸一变，上一帧的 TemporalAA 就不可用，SSR 原来在这种帧上输出 0；拖动窗口时每帧
+  尺寸都在变，反射一直是空的。改为没有上一帧时读**这一帧**的 SceneColor（SSR 排在 IndirectDiffuse 之后、Reflections
+  之前，此时它有直接光与间接漫反射，还没有反射与天空），命中的表面上一帧在屏幕外时也用它。这样的帧上反射少一层
+  "反射里的反射"，但不会消失。带改窗口大小跑过两次，无断言、无报错；效果待用户看。
+- **结论**：SSR 按设计在工作，质量受限于屏幕空间，不能当反射的主要来源；它的定位仍是 D8 说的混合方案第一层。闪烁不再
+  投入，等 RT 反射。
+
+**没有看的**：相机移动时的拖影；粗糙度上限处的断层；光滑大平面上法线编码的条带（见上）。
 
 ---
 
@@ -363,7 +440,7 @@ TemporalAA（上一帧）┘                                   ▼
 | 1 | `Render/Feature/HZB/HZBPass.{h,cpp}`、`Shaders/HZB/HZB.hlsl`；`Render/Feature/SceneTextures/SceneTextures.{h,cpp}`（D6）；`SparkRenderTest` 的 `SceneTexturesTest.cpp` |
 | 2 | `Shaders/Lib/XeGTAO.hlsli`（移植）、`Shaders/AmbientOcclusion/` 的三个 CS 与 `GTAOCommon.hlsli`、`Shaders/Lib/AmbientOcclusion.hlsli`（多次反弹、镜面遮蔽）；`Render/Feature/AmbientOcclusion/AmbientOcclusionPass.{h,cpp}`；世界侧 `Feature/AmbientOcclusion/`；`CameraViewSystem`（`ViewAmbientOcclusion`）；`SceneTextures`；`IndirectDiffuse` / `Reflections` 的 pass 与 shader |
 | 3 | `ShadowProjection.hlsl`；`LightComponent` 加字段、`LightData` 打包 |
-| 4 | 渲染图的上一帧读取（`RenderGraphBuilder`，§五）；`Shaders/Lib/ScreenTrace.hlsli`（步进库）；`Render/Feature/ScreenSpaceReflections/`、`Shaders/SSR/`；世界侧 `Feature/ScreenSpaceReflection/`；`CameraViewSystem`；`SceneTextures`；`HZBPass`（按有无读者跳过）；`Reflections` 的 pass 与 shader |
+| 4 | `Shaders/Lib/ScreenTrace.hlsli`（步进库）、`Shaders/Lib/Velocity.hlsli`（`PreviousScreenUV`）；`Render/Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.{h,cpp}`、`Shaders/ScreenSpaceReflections/ScreenSpaceReflections.hlsl`；世界侧 `Feature/ScreenSpaceReflection/`；`CameraViewSystem`（`ViewScreenSpaceReflection`）；`SceneTextures`；`HZBPass`（按有无读者跳过）；`Reflections` 的 pass 与 shader；`RenderSystem`、`Engine.cpp` 与各 CMake 的注册 |
 
 ---
 
@@ -371,6 +448,7 @@ TemporalAA（上一帧）┘                                   ▼
 
 - **D5 的接触阴影一行、D7 待确认。** Contact Shadow 不急，先做 SSR。
 - ~~渲染图在生产者之前读上一帧（§五）~~：已由 `TODO_RenderGraphResolvePlan.md` 做完（四个步骤全部完成）。
+- SSR 的质量不足以当反射的主要来源（§五的抓帧分析）。路线图里 RT 反射现在排在"后续"，要不要提前，待定。
 - SSGI 不在 P4：它和 SSR 共用步进与上一帧颜色的读取，但难点是每像素一两条随机光线的降噪，以及与天光、GTAO 的合成。
   等 P6 接入 NRD 后用 REBLUR_DIFFUSE 降噪再做，到时一并看 GTAO 回退路径的闪烁。
 - GTAO 的颗粒闪烁暂缓到 P6：RTAO + NRD 做完后再决定回退路径要不要自己的时域滤波（§三）。

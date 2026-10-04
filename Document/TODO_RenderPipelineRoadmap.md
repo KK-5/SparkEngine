@@ -27,7 +27,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
 | P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
-| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现），见 `TODO_ScreenSpacePlan.md` |
+| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现，SSR 已实现：位置正确，质量受限于屏幕空间，定位是混合反射的第一层；剩 Contact Shadow），见 `TODO_ScreenSpacePlan.md` |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
 | P7 | 命中点着色 | 未开始 |
@@ -332,7 +332,8 @@ GPU-based validation 下跑过、无报错（bindless 访问 CPU 端 debug layer
 1. I4 + HZB（closest / furthest 两套 mip 链）。
 2. GTAO → `AmbientOcclusion`，接入 IndirectDiffuse / Reflections。
 3. Contact Shadow：在 Lights 中对单灯追屏幕空间短射线，乘进 ShadowMask。
-4. SSR：HZB 步进 + 上一帧 SceneColor（View 持久资源）重投影，与预滤波 cube 混合。
+4. SSR：SceneDepth + HZB 层级步进，命中点重投影到上一帧的 TemporalAA 取色（没有上一帧时取这一帧的 SceneColor），
+   与预滤波 cube 混合。
 
 **验证**：AO 只压暗间接光、不影响直接光；SSR 在屏幕外/遮挡处平滑回退到 cube。
 
