@@ -26,6 +26,7 @@
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/HZB/HZBPass.h>
 #include <Feature/AmbientOcclusion/AmbientOcclusionPass.h>
+#include <Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.h>
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Feature/Lighting/LightsPass.h>
 #include <Feature/Lighting/IndirectDiffusePass.h>
@@ -161,8 +162,8 @@ namespace Spark::Render
         auto velocityResolvePassCfg = VelocityResolvePass::DefaultConfig();
         VelocityResolvePass::SetUp(passContext, velocityResolvePassCfg);
 
-        // The closest / furthest depth mip chains over the finished SceneDepth. Nothing reads
-        // them yet: screen-space reflections will.
+        // The closest / furthest depth mip chains over the finished SceneDepth, on the frames
+        // something reads them: screen-space reflections march the closest one.
         HZBPass::SetUp(passContext);
 
         // Screen-space ambient occlusion from SceneDepth and GBufferNormal, which the two
@@ -184,6 +185,10 @@ namespace Spark::Render
 
         auto indirectDiffuseCfg = IndirectDiffusePass::DefaultConfig();
         IndirectDiffusePass::SetUp(passContext, indirectDiffuseCfg);
+
+        // What the mirror direction of each pixel sees on screen, which ReflectionsPass lays
+        // over the environment's reflection.
+        ScreenSpaceReflectionsPass::SetUp(passContext);
 
         auto reflectionsCfg = ReflectionsPass::DefaultConfig();
         ReflectionsPass::SetUp(passContext, reflectionsCfg);

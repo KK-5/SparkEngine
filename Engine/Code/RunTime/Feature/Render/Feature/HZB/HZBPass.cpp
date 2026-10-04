@@ -42,6 +42,12 @@ namespace Spark::Render
 
                 auto& rhiContext = *RHI::RHIExecuteContext::Current();
 
+                // Declaring nothing skips the pass this frame.
+                if (!HZB::HasReader(rhiContext))
+                {
+                    return;
+                }
+
                 // The chain is laid over the whole scene depth, so the main view must cover
                 // all of it.
                 for (auto [entity, view] : rhiContext.GetView<MainViewTag, View>().each())

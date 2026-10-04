@@ -10,6 +10,7 @@
 #include <Feature/AntiAliasing/Components.h>
 #include <Feature/Bloom/Components.h>
 #include <Feature/AmbientOcclusion/Components.h>
+#include <Feature/ScreenSpaceReflection/Components.h>
 #include <Feature/Tonemap/Components.h>
 #include <Feature/PostProcess/Components.h>
 
@@ -79,6 +80,28 @@ namespace Spark::Render
                 break;
             default:
                 v.m_sliceCount = 3;
+                break;
+            }
+            return v;
+        }
+
+        ViewScreenSpaceReflection ValidateScreenSpaceReflection(
+            const ScreenSpaceReflection::ScreenSpaceReflectionComponent& c)
+        {
+            ViewScreenSpaceReflection v;
+            v.m_intensity    = Math::Clamp(c.m_intensity, 0.0f, 1.0f);
+            v.m_maxRoughness = Math::Clamp(c.m_maxRoughness, 0.05f, 1.0f);
+            // A hierarchical step crosses a whole cell of the depth chain, so these reach far.
+            switch (c.m_quality)
+            {
+            case ScreenSpaceReflection::ScreenSpaceReflectionQuality::Low:
+                v.m_maxSteps = 32;
+                break;
+            case ScreenSpaceReflection::ScreenSpaceReflectionQuality::High:
+                v.m_maxSteps = 128;
+                break;
+            default:
+                v.m_maxSteps = 64;
                 break;
             }
             return v;
@@ -201,6 +224,9 @@ namespace Spark::Render
         const AmbientOcclusion::AmbientOcclusionComponent* volumeAmbientOcclusion =
             FindVolumeSettings<AmbientOcclusion::AmbientOcclusionComponent>(
                 *world, "Ambient Occlusion", m_ambientOcclusionTieLogged);
+        const ScreenSpaceReflection::ScreenSpaceReflectionComponent* volumeScreenSpaceReflection =
+            FindVolumeSettings<ScreenSpaceReflection::ScreenSpaceReflectionComponent>(
+                *world, "Screen Space Reflection", m_screenSpaceReflectionTieLogged);
         const Tonemap::TonemapComponent* volumeTonemap =
             FindVolumeSettings<Tonemap::TonemapComponent>(*world, "Tonemap", m_tonemapTieLogged);
 
@@ -271,6 +297,24 @@ namespace Spark::Render
             else if (rhiCtx->Has<ViewAmbientOcclusion>(mainRef->m_view))
             {
                 rhiCtx->Remove<ViewAmbientOcclusion>(mainRef->m_view);
+            }
+
+            // Resolved as bloom is: the camera's own first, zero intensity is off.
+            const ScreenSpaceReflection::ScreenSpaceReflectionComponent* screenSpaceReflection =
+                world->TryGet<ScreenSpaceReflection::ScreenSpaceReflectionComponent>(e);
+            if (screenSpaceReflection == nullptr)
+            {
+                screenSpaceReflection = volumeScreenSpaceReflection;
+            }
+            const ViewScreenSpaceReflection resolvedScreenSpaceReflection = screenSpaceReflection != nullptr
+                ? ValidateScreenSpaceReflection(*screenSpaceReflection) : ViewScreenSpaceReflection{ 0.0f };
+            if (resolvedScreenSpaceReflection.m_intensity > 0.0f)
+            {
+                rhiCtx->AddOrReplace<ViewScreenSpaceReflection>(mainRef->m_view, resolvedScreenSpaceReflection);
+            }
+            else if (rhiCtx->Has<ViewScreenSpaceReflection>(mainRef->m_view))
+            {
+                rhiCtx->Remove<ViewScreenSpaceReflection>(mainRef->m_view);
             }
 
             // Without one the view is not tone mapped, only clipped and display-encoded.

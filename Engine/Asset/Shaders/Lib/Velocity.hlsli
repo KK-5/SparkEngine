@@ -26,4 +26,12 @@ bool IsVelocityWritten(float2 velocity)
     return velocity.x < kVelocityUnwritten;
 }
 
+//! Where the surface at screen UV `uv` (y down) was last frame, given its velocity. It may lie
+//! off screen.
+float2 PreviousScreenUV(float2 uv, float2 velocity)
+{
+    // Velocity is an NDC delta; NDC y points up, UV y down.
+    return uv - velocity * float2(0.5, -0.5);
+}
+
 #endif // SPARK_VELOCITY_HLSLI

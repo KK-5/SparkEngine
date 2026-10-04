@@ -21,6 +21,7 @@ set(SOURCES
     Feature/SceneTextures/SceneTextures.cpp
     Feature/HZB/HZBPass.cpp
     Feature/AmbientOcclusion/AmbientOcclusionPass.cpp
+    Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
@@ -59,6 +60,7 @@ target_link_libraries(${TARGET_NAME}
         SparkAntiAliasing
         SparkBloom
         SparkAmbientOcclusion
+        SparkScreenSpaceReflection
         SparkPostProcess
         SparkTonemap
         SparkCore

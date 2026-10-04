@@ -135,6 +135,17 @@ namespace Spark::Render
                 }
                 s.Constant(RHI::InputName("g_AmbientOcclusionEnabled"), hasAmbientOcclusion ? 1u : 0u);
 
+                // Likewise the traced reflections, which replace the environment's where a
+                // ray found something.
+                const bool hasScreenSpaceReflections = SceneTextures::ScreenSpaceReflections::FindView(
+                    *RHI::RHIExecuteContext::Current()) != RHI::NullHandle;
+                if (hasScreenSpaceReflections)
+                {
+                    s.ReadImage(SceneTextures::ScreenSpaceReflections::Name())
+                        .Bind(RHI::InputName("g_ScreenSpaceReflections"));
+                }
+                s.Constant(RHI::InputName("g_ScreenSpaceReflectionsEnabled"), hasScreenSpaceReflections ? 1u : 0u);
+
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
                 s.Close();
             })

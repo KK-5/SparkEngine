@@ -31,6 +31,10 @@ namespace Spark::Render::SceneTextures
 
         //! Screen UV times this is HZB UV.
         Math::Vector2 UvFactor(const Math::Vector2Int& renderSize);
+
+        //! Whether a pass reads the chains this frame; HZBPass builds them only then. A new
+        //! reader adds its own condition here.
+        bool HasReader(RHI::RHIContext& ctx);
     }
 
     //! Screen-space ambient occlusion, written by AmbientOcclusionPass at the render size: how
@@ -50,6 +54,26 @@ namespace Spark::Render::SceneTextures
 
         //! The main view the signal is produced for this frame, or NullHandle: the view has
         //! no ViewAmbientOcclusion, no g_Views slot yet, or a target too small for the chain.
+        RHI::RHIHandle FindView(RHI::RHIContext& ctx);
+    }
+
+    //! Screen-space reflections, written by ScreenSpaceReflectionsPass at the render size. rgb
+    //! is the radiance arriving along each pixel's mirror direction, scene-linear (no
+    //! pre-exposure); a is how far it replaces the environment's reflection: 0 where the ray
+    //! found nothing, the surface is too rough, or the hit cannot be trusted, and the view's
+    //! intensity at most.
+    //!
+    //! Not every frame has them. A pass that reads them asks FindView first, as with
+    //! AmbientOcclusion.
+    namespace ScreenSpaceReflections
+    {
+        constexpr RHI::Format kFormat = RHI::Format::R16G16B16A16_FLOAT;
+
+        const RHI::AttachmentId& Name();
+
+        //! The main view the signal is produced for this frame, or NullHandle: the view has
+        //! no ViewScreenSpaceReflection, no g_Views slot yet, or no temporal AA, whose last
+        //! output is where a hit's color comes from.
         RHI::RHIHandle FindView(RHI::RHIContext& ctx);
     }
 }

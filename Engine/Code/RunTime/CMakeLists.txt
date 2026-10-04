@@ -9,6 +9,7 @@ add_subdirectory(Feature/Camera)
 add_subdirectory(Feature/AntiAliasing)
 add_subdirectory(Feature/Bloom)
 add_subdirectory(Feature/AmbientOcclusion)
+add_subdirectory(Feature/ScreenSpaceReflection)
 add_subdirectory(Feature/PostProcess)
 add_subdirectory(Feature/Tonemap)
 add_subdirectory(Feature/Mesh)
@@ -41,6 +42,7 @@ target_link_libraries(${TARGET_NAME}
         SparkAntiAliasing
         SparkBloom
         SparkAmbientOcclusion
+        SparkScreenSpaceReflection
         SparkPostProcess
         SparkTonemap
         SparkMesh

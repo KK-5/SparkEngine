@@ -53,6 +53,11 @@ namespace Spark::Render::SceneTextures
                 static_cast<float>(renderSize.x) / static_cast<float>(size.x * 2),
                 static_cast<float>(renderSize.y) / static_cast<float>(size.y * 2));
         }
+
+        bool HasReader(RHI::RHIContext& ctx)
+        {
+            return ScreenSpaceReflections::FindView(ctx) != RHI::NullHandle;
+        }
     }
 
     namespace AmbientOcclusion
@@ -71,6 +76,26 @@ namespace Spark::Render::SceneTextures
                 const int32_t minSide = 1 << (kDepthMipCount - 1);
                 const bool    usable  = ctx.Has<ViewSlotRef>(entity)
                     && view.m_bufferSize.x >= minSide && view.m_bufferSize.y >= minSide;
+                return usable ? entity : RHI::NullHandle;
+            }
+            return RHI::NullHandle;
+        }
+    }
+
+    namespace ScreenSpaceReflections
+    {
+        const RHI::AttachmentId& Name()
+        {
+            static const RHI::AttachmentId s_name("ScreenSpaceReflections");
+            return s_name;
+        }
+
+        RHI::RHIHandle FindView(RHI::RHIContext& ctx)
+        {
+            // The first main view only, as FindMainViewComponent.
+            for (auto [entity, view, settings] : ctx.GetView<MainViewTag, Render::View, ViewScreenSpaceReflection>().each())
+            {
+                const bool usable = ctx.Has<ViewSlotRef>(entity) && ctx.Has<ViewTemporalAA>(entity);
                 return usable ? entity : RHI::NullHandle;
             }
             return RHI::NullHandle;

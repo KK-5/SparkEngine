@@ -63,6 +63,19 @@ namespace Spark::Render
         uint32_t m_sliceCount = 3;
     };
 
+    //! The view asks for screen-space reflections: the ScreenSpaceReflectionComponent resolved
+    //! for its camera (its own, else the post-process volumes'), validated; absent when that
+    //! resolves to zero intensity. Written by CameraViewSystem. Whether the frame gets them is
+    //! SceneTextures::ScreenSpaceReflections::FindView's to say: the view must run temporal AA
+    //! as well.
+    struct ViewScreenSpaceReflection
+    {
+        float    m_intensity    = 1.0f;
+        float    m_maxRoughness = 0.4f;
+        //! Steps a ray takes before it gives up, from the component's quality.
+        uint32_t m_maxSteps     = 64;
+    };
+
     //! The view is tone mapped with AgX, graded by this look: the TonemapComponent resolved for its
     //! camera (its own, else the post-process volumes'), its look turned into the parameters
     //! below. Absent when nothing sets it, and TonemapPass then uses Reinhard. Written by
