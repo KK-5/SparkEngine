@@ -17,7 +17,7 @@ D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 0 | RHI：indirect 抽象重做 + 能力位 | — | 完成（2026-10-05），见下 |
-| 1 | 渲染图：间接参数的访问角色、`DispatchIndirect`、图内 buffer 的首个用例 | 0 | 未开始 |
+| 1 | 渲染图：间接参数的访问角色、`DispatchIndirect`、图内 buffer 的首个用例 | 0 | 完成（2026-10-05），见下 |
 | 2 | buffer 跨队列同步的纠正（D12） | — | 未开始 |
 | 3 | 几何租约 + `g_Geometries`，draw 改用共享 buffer 里的偏移（仍走 CPU 提交） | 2 | 未开始 |
 | 4 | CPU 填参数的 indirect draw（不剔除） | 0、1、3 | 未开始 |
@@ -34,6 +34,17 @@ D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列
   不为 0（留给步骤 4）。
 - `RenderSystem` 里"三项能力齐全才能运行"的检查没有触发过：DX12 三项恒为真，用户决定不为它强行关能力位来测。
 - Vulkan `PhysicalDevice` 加的两个特性查询没有编译过（Vulkan 后端不参与构建）。
+
+**步骤 1 跑过什么、没跑过什么**
+
+- 全量 Debug 编译通过；`SparkRenderTest` 89 个用例通过，其中三个是新加的（见 §四 步骤 1）。
+- `IndirectDispatch` 示例由用户看过画面，我在 debug layer 下跑过 300 帧以上、无断言无报错。它是这些东西的第一次
+  实际执行：图内 transient buffer、buffer 的 UAV view 与 `.Bind`、shader 里的 `RWStructuredBuffer`、
+  buffer 从"compute 写"到"间接参数读"的屏障、`IndirectArguments` / `DispatchIndirect` 与 lowering、
+  RHI 的 indirect dispatch。引擎代码没有因此改动。
+- 没有执行过的：`RenderScope::IndirectArguments`（没有能用它的调用，步骤 4 才有）；buffer 的只读 `.Bind`
+  （示例里绑的是可写的）；跨队列的 buffer 访问（示例全在图形队列）；GPU-based validation（只开了 debug layer）。
+- 屏障本身没有单元测试：`SparkRenderTest` 不创建设备，而屏障编译要读真实 buffer 对象的状态。
 
 ---
 
@@ -355,13 +366,23 @@ count buffer 每帧要清零。没有 buffer 的 clear 操作，由剔除 pass �
 - **访问角色**：`RenderScope` / `ComputeScope` 加 `IndirectArguments(name)`，对应
   `AttachmentUsage::Indirect` + `AccessFlags::IndirectRead` + `AttachmentStage::DrawIndirect`。RHI 侧都有，只缺入口。
   count buffer 也按这个角色读（DX12 要求它在 indirect argument 状态，Vulkan 要求 indirect 用途位）。
-- **`ComputeScope::DispatchIndirect(name, byteOffset)`**：挨着 `Dispatch`，产生一个 indirect 的 `DispatchItem`。
-  本计划内没有消费者，用户决定一并做；用一个最小的测试 pass 验证。
+  它返回 `Attachment`：可以接 `.From`，不能 `.Bind`（不是 shader 访问）。写这个 buffer 与把它当间接参数读是冲突的
+  访问，不能在同一个 Scope 里：写参数的 pass 与按参数调用的 pass 因此必须分开。
+- **`ComputeScope::DispatchIndirect(arguments, byteOffset)`**：挨着 `Dispatch`，产生一个 indirect 的 `DispatchItem`。
+  `arguments` 是本 Scope 的 `IndirectArguments(name)` 返回的那次访问，不是名字（同 `RenderScope::Resolve` 收
+  render target 的先例）。buffer 里放的是**线程组数**，不是 `Dispatch` 收的线程数，写参数的 shader 自己除以
+  `[numthreads]`。本计划内没有消费者，用户决定一并做；由示例 `IndirectDispatch` 验证。
+- **item 的 buffer 指针由 lowering 填。** item 在声明时建，那时 buffer 还没有后备，所以 item 上带一个组件记着它用
+  哪次访问（`ItemIndirectArguments`），`CompileItemIndirectArguments` 在生成提交列表之前把后备 buffer 填进去。
+  分配 transient 资源排在编译的最前面，所以此时后备一定已经就位。
+- **buffer 的 `.Bind`**（步骤 1 补的，原来只支持 image）：绑定之前要先用 `.View(...)` 给出元素大小与个数，buffer
+  没有"整个资源"这样的默认 view。buffer 的 `.BindIndex` 没有做，目前没有需要它的地方。
 - **场景 draw 的声明不变**：仍是 `s.Accepts<OpaqueTag>()`，三个 pass 的代码不改。pass 不知道自己被 direct 还是
   indirect 画。"视图类型 + tag"确定是哪个集合（D7）：视图类型来自 pass 的 `RendersView<ViewTag>()`，
   `Accepts<Tags>()` 在模板里顺带记下这些 tag 在 `m_drawMask` 里的位。某个 tag 没有位，这次选择就只走 CPU 路径。
 - **走哪条路由 builder 按开关决定**（能力不足的设备不会运行到这里，D3）：GPU 路径下 builder 替 Scope 加上参数 buffer 与 count buffer 的
-  `IndirectArguments` 访问，pass 不声明它们。
+  `IndirectArguments` 访问，pass 不声明它们。这部分步骤 1 没有做，留到步骤 4；它调的会是
+  `s.IndirectArguments(name)` 底下的同一个函数。
 - **CPU 提交路径一直在，不随 GPU 路径做完而清理。** 走它的有：Scope 自己声明的 item
   （全屏三角形、Skybox 这类 `NoInstanceBinding` 的 draw）；P5 的 Translucency（要排序）；运行时开关关掉的时候
   （§五的验证靠两条路对照）。实体上持久的 `RHI::DrawItem` 因此保留，步骤 3 之后它的 view 指向共享 buffer。
@@ -481,10 +502,15 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 ### 1　渲染图
 
-1. `IndirectArguments(name)` 角色与 `DispatchIndirect`。
-2. 走通图内 buffer：`CreateBuffer` → compute Scope `WriteBuffer(...).Bind(...)` → 后续 Scope 读。这是第一个用例，
-   屏障编译、transient 分配、`.Bind` 到 buffer 输入都要核对。
-3. `SparkRenderTest` 加用例：UAV 写 → IndirectRead 的屏障。
+1. buffer 的 `.Bind`：builder 接受 buffer 访问，lowering 从资源的 view 缓存取 buffer view 填进 pass 的绑定。
+   原计划以为只要核对，实际是 builder 与 lowering 都只支持 image，要补实现。
+2. `IndirectArguments(name)` 角色（两种 Scope）与 `ComputeScope::DispatchIndirect`，以及 lowering 的
+   `CompileItemIndirectArguments`。
+3. 示例 `IndirectDispatch`（`SandBox/Program/RenderGraph/`）：`ArgsPass` 用 compute 把三个线程组数写进图内 buffer，
+   `PatternPass` 先直接派发铺一层暗图案、再按那个 buffer 间接派发画亮的，`PresentPass` 显示。
+4. `SparkRenderTest` 三个用例：把 buffer 当间接参数读的 pass 排在写它的 pass 之后（顺带补上 `ResolveGraph` 处理
+   buffer 访问的测试，夹具原来只造 image 的访问）；`Indirect` 用途换算成 `IndirectRead`；写一个 buffer 与把它当
+   间接参数读是冲突的访问。原计划的"UAV 写 → IndirectRead 的屏障"做不成单元测试，由示例在 debug layer 下验证。
 
 ### 2　buffer 跨队列同步的纠正
 
@@ -521,7 +547,8 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 - **步骤 0**：`IndirectDraw` 不带 count buffer 时 6 个方块都出现，带 count buffer（值为 3）时只出现上面一排；
   D3D12 debug layer 无报错。`firstInstance` 不为 0、不带索引的 indirect draw、indirect dispatch 这个示例不覆盖。
-- **步骤 1**：`SparkRenderTest` 新用例通过；测试 pass 的 `DispatchIndirect` 在 GPU-based validation 下无报错。
+- **步骤 1**：`SparkRenderTest` 新用例通过；示例 `IndirectDispatch` 的画面是整窗的暗图案加左边一条宽度来回变化的
+  亮带，debug layer 无报错。
 - **步骤 2**：画面与改动前一致；加载场景、流式加入物体时 debug layer 与 GPU-based validation 无报错。
   "渲染图里 buffer 换队列"那一处没有任何 pass 用到，改了验证不了。
 - **步骤 3**：画面与改动前一致；抓帧里所有 mesh 的 VB / IB 落在共享 buffer 上；删掉实体后那一段被回收、再加载不增长；
@@ -554,8 +581,6 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 - **`DeadTag` 到销毁之间隔几帧（D6）。** 没有查。它决定"带 `DeadTag` 的实体清零"这一步是必需的还是只是保险。
 - **16 位索引。** 现在资产都是 `UINT32`。一次调用只有一种索引格式，以后引入 16 位索引的话它是 bucket 的又一维。
 - **每视图一个 Scope 还是一次二维 dispatch（D7）。** 阴影 tile 多的时候后者省 dispatch，但要一张"参与的视图下标"表。
-- **图内 transient buffer 的后备在 lowering 时是否已经就位（D9）。** indirect 的 `DrawItem` 要 `Buffer*`，
-  编译各步的先后待核对。
 - **多个 MainView。** 设计上按视图分段，天然支持；但 `MainOpaque` 的消费者（DepthPre / GBuffer）之外的 pass 目前只
   处理第一个 MainView，与 P3 / P4 的遗留相同。
 - **多 PSO（I5）时怎么分 bucket。** 不在本计划内，已对过的方向与留下的问题见 D10 的说明。
@@ -567,7 +592,7 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 | 步骤 | 文件 |
 |---|---|
 | 0 | 删 `RHI/Resource/Buffer/IndirectBuffer{Signature,Layout,View,Writer}.*`、DX12 `Resource/Buffer/IndirectBufferSignature.*`；`RHI/Command/IndirectArguments.h`、`DrawArguments.h`、`DispatchItem.h`；`RHI/Factory.h`、`ID3D12Factory.{h,cpp}`；DX12 `Command/CommandList.{h,cpp}`、`Device/Device.{h,cpp}`；`RHI/Device/DeviceFeatures.h`；Vulkan `PhysicalDevice.{h,cpp}`；两个 CMake；新建 `RHI/Command/IndirectCommands.h`、`SandBox/Program/RHI/IndirectDraw.cpp`，`SandBox/Program/CMakeLists.txt` |
-| 1 | `RenderGraph/PassScopes.{h,cpp}`、`RenderGraphBuilder.{h,cpp}`、`RenderGraphCompiler.cpp`；`SparkRenderTest` |
+| 1 | `RenderGraph/PassScopes.{h,cpp}`、`RenderGraphBuilder.{h,cpp}`、`RenderGraphCompiler.{h,cpp}`、`RenderGraph.cpp`、`RenderGraphExecuter.cpp`（注释）；`Pass/Component/ScopeComponents.h`（`ItemIndirectArguments`）；新建 `SandBox/Program/RenderGraph/IndirectDispatchFeature.{h,cpp}`、`SandBox/Asset/Shader/IndirectDispatch{Args,Pattern}.hlsl`，`SandBox/Program/CMakeLists.txt`；`Test/Render/RenderGraphResolveTest.cpp`、新建 `Test/Render/BufferAccessTest.cpp`，`Test/Render/CMakeLists.txt` |
 | 2 | `RHI/System/AsyncUploadSystem.{h,cpp}`；`Render/RenderGraph/RenderGraphCompiler.cpp`（静态 buffer 的首次使用、逐 Scope 的 buffer 访问） |
 | 3 | `RHI/Component/Component.h`（区间组件）、`RHI/ResourceBuilder.h`（解析函数）、`RHI/System/AsyncUploadSystem.cpp`（目标与基偏移）、`RHI/System/RHIResourceSystem.cpp`（关闭时清理区间组件）；`Render/RenderGraph/RenderGraphUtils.h`（就绪判断）；新建 `Render/Binding/Geometry/`（系统、租约、变长分配、`g_Geometries`）；`Feature/Mesh/Components.h`、`MeshSystem.cpp`；`Render/Drawable/MeshGeometryComposer.cpp`、`DrawItemRouter.cpp`；`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`。`RHI::Buffer` 与 `BufferPool` 不动 |
 | 4 | 新建 `Render/Feature/SceneDraws/SceneDraws.{h,cpp}`；`Binding/SlotPool.h`、`GlobalBuffer.h`（排空释放的槽位并清零）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`PassScopes.h`（`Accepts<Tags>()` 记下 mask 位）、`RenderGraphBuilder.{h,cpp}`（路径选择）；`RenderGraphCompiler.cpp`（lowering）。三个 pass 的文件不动 |
