@@ -130,6 +130,10 @@ namespace Spark::Render
         //! CompilePipelineStates.
         void CompileScopeState(PassContext& passContext, RHIContext& context);
 
+        //! Give each item that reads its arguments from a buffer of the graph
+        //! (ItemIndirectArguments) that buffer's backing. Runs after the transient stage.
+        void CompileItemIndirectArguments(PassContext& passContext, RHIContext& context);
+
         //! Lay each Scope's submissions out in submitList and record its ScopeSubmitRange: per
         //! ready view, the view's handle then the Scope's own items and those the pass collects
         //! for it through a static .Accepts; items only for

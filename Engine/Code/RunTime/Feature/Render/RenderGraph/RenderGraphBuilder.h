@@ -129,6 +129,11 @@ namespace Spark::Render
         //! current pass's [numthreads] (PassThreadGroupSize), rounded up.
         void AddScopeDispatch(RHIHandle scope, uint32_t threadCountX, uint32_t threadCountY, uint32_t threadCountZ);
 
+        //! A dispatch of `scope` that reads its group counts from the buffer `arguments`
+        //! accesses, `byteOffset` into it. `arguments` is an indirect-arguments access of
+        //! `scope`.
+        void AddScopeDispatchIndirect(RHIHandle scope, RHIHandle arguments, uint64_t byteOffset);
+
         //! A set of scene items `scope` selects: `collect` appends its members under a view.
         void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);
 

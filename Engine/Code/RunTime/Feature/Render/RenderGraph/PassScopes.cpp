@@ -195,6 +195,12 @@ namespace Spark::Render
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite, RHI::AttachmentStage::Uninitialized), false);
     }
 
+    Attachment RenderScope::IndirectArguments(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Indirect, RHI::AttachmentAccess::Read, RHI::AttachmentStage::DrawIndirect));
+    }
+
     void RenderScope::Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount)
     {
         RHI::DrawItem item;
@@ -261,5 +267,11 @@ namespace Spark::Render
     {
         return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Write, RHI::AttachmentStage::ComputeShader), true);
+    }
+
+    Attachment ComputeScope::IndirectArguments(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Indirect, RHI::AttachmentAccess::Read, RHI::AttachmentStage::DrawIndirect));
     }
 }

@@ -24,6 +24,7 @@
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Command/RenderPassBeginInfo.h>
 
+#include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/ShaderStages.h>
@@ -296,11 +297,10 @@ namespace Spark::Render
         };
 
         // Transient image AND buffer views are no longer materialized as view
-        // entities. Image views are built lazily via GetOrCreateImageView (resource's
-        // ImageViewCache). Buffer views currently have no consumer, so no view is
-        // created at all — only the buffer itself (att.m_buffer → BackingBuffer) is
-        // needed for barriers. A buffer-side view cache
-        // can be added when a buffer-view consumer appears.
+        // entities. Both are built lazily from the resource's view cache
+        // (GetOrCreateImageView / GetOrCreateBufferView), a buffer's only when an
+        // access is bound to a shader input: barriers need just the buffer itself
+        // (att.m_buffer → BackingBuffer).
 
         const char* GetResourceNameCStr(const RHIContext& context, RHIHandle resource)
         {
@@ -913,6 +913,23 @@ namespace Spark::Render
             return RHI::GetOrCreateImageView(context, att.m_image, *backImage->m_image, att.m_viewDescriptor);
         }
 
+        //! The buffer counterpart.
+        RHI::BufferView* ResolveAttachmentView(
+            RHIContext& context, const BufferPassAttachment& att, uint32_t frameIndex)
+        {
+            auto* backBuffer = context.TryGet<BackingBuffer>(att.m_buffer);
+            if (!backBuffer || !backBuffer->m_buffer)
+            {
+                return nullptr;
+            }
+            if (context.Has<RHI::PerFrameTag>(att.m_buffer))
+            {
+                return RHI::GetOrCreateBufferViewPerFrame(
+                    context, att.m_buffer, *backBuffer->m_buffer, att.m_viewDescriptor, frameIndex);
+            }
+            return RHI::GetOrCreateBufferView(context, att.m_buffer, *backBuffer->m_buffer, att.m_viewDescriptor);
+        }
+
         //! The heap index a shader reaches the attachment's view by (.BindIndex): its UAV's if
         //! the access writes, else its SRV's.
         uint32_t ResolveBindlessIndex(RHIContext& context, const ImagePassAttachment& att, uint32_t frameIndex)
@@ -1215,10 +1232,22 @@ namespace Spark::Render
             {
                 if (const auto* binding = context.TryGet<ShaderInputBinding>(attachment))
                 {
-                    const RHI::ImageView* view =
-                        ResolveAttachmentView(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex);
-                    checkAgrees(binding->m_input, &view, sizeof(view));
-                    SetShaderImage(bindings, binding->m_input, view);
+                    if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
+                    {
+                        const RHI::ImageView* view = ResolveAttachmentView(context, *image, m_frameIndex);
+                        checkAgrees(binding->m_input, &view, sizeof(view));
+                        SetShaderImage(bindings, binding->m_input, view);
+                    }
+                    else
+                    {
+                        const auto& buffer = context.Get<BufferPassAttachment>(attachment);
+                        const RHI::BufferView* view = ResolveAttachmentView(context, buffer, m_frameIndex);
+                        ASSERT(view != nullptr,
+                            "[RenderGraphCompiler] Buffer {} bound to {} has no view: it has no backing, or the view could not be made.",
+                            buffer.m_attachmentId.m_id.GetCStr(), binding->m_input.GetCStr());
+                        checkAgrees(binding->m_input, &view, sizeof(view));
+                        SetShaderBuffer(bindings, binding->m_input, view);
+                    }
                     bound.push_back(binding->m_input);
                     declared = true;
                 }
@@ -1300,6 +1329,25 @@ namespace Spark::Render
             {
                 context.Add<ScopeExecute>(scope, ScopeExecute{ &execute });
             }
+        }
+    }
+
+    void RenderGraphCompiler::CompileItemIndirectArguments(PassContext& passContext, RHIContext& context)
+    {
+        for (auto [item, arguments] : context.GetStorage<ItemIndirectArguments>().each())
+        {
+            const auto& attachment = context.Get<BufferPassAttachment>(arguments.m_attachment);
+            const auto* backing    = context.TryGet<BackingBuffer>(attachment.m_buffer);
+            const char* passName   = passContext.Get<PassName>(attachment.m_pass).m_name.GetCStr();
+            ASSERT(backing != nullptr && backing->m_buffer != nullptr,
+                "[RenderGraphCompiler] Pass {}: the indirect arguments {} have no backing.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+            ASSERT(CheckBitsAll(backing->m_buffer->GetDescriptor().m_bindFlags, RHI::BufferBindFlags::Indirect),
+                "[RenderGraphCompiler] Pass {}: {} is read as indirect arguments but was not created with "
+                "BufferBindFlags::Indirect.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+
+            context.Get<RHI::DispatchItem>(item).m_arguments.m_indirect.m_buffer = backing->m_buffer;
         }
     }
 

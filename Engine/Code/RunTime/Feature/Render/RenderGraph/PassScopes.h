@@ -153,6 +153,10 @@ namespace Spark::Render
         ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
 
+        //! The buffer an indirect call of this Scope reads its records, or their count, from.
+        //! Created with BufferBindFlags::Indirect.
+        Attachment IndirectArguments(const RHI::AttachmentId& name);
+
         //! A draw of this Scope that reads no vertex or index buffer (vertices come from
         //! SV_VertexID), e.g. a full-screen triangle: DrawLinear(3, 0).
         void Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount = 1);
@@ -218,6 +222,10 @@ namespace Spark::Render
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
         ShaderAttachment WriteBuffer(const RHI::AttachmentId& name);
 
+        //! The buffer an indirect call of this Scope reads its records from. Created with
+        //! BufferBindFlags::Indirect.
+        Attachment IndirectArguments(const RHI::AttachmentId& name);
+
         //! Read the copy of `name` produced last frame (see ShaderAttachment::BindValid). A pass
         //! of this frame creates `name`, declared before this one or after it.
         ShaderAttachment ReadPreviousImage(const RHI::AttachmentId& name);
@@ -227,6 +235,14 @@ namespace Spark::Render
         void Dispatch(uint32_t threadCountX, uint32_t threadCountY = 1, uint32_t threadCountZ = 1)
         {
             m_builder->AddScopeDispatch(m_scope, threadCountX, threadCountY, threadCountZ);
+        }
+
+        //! A dispatch that reads its size from `arguments`, an IndirectArguments access of this
+        //! Scope: one RHI::DispatchIndirectCommand at `byteOffset`. Unlike Dispatch, that is a
+        //! count of groups, not of threads -- whoever writes the record divides by [numthreads].
+        void DispatchIndirect(const Attachment& arguments, uint64_t byteOffset = 0)
+        {
+            m_builder->AddScopeDispatchIndirect(m_scope, arguments.GetHandle(), byteOffset);
         }
 
         //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that

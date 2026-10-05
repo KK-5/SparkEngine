@@ -197,6 +197,14 @@ namespace Spark::Render
                     "Pass {} Scope #{}: the depth-stencil attachment of {} must cover every aspect of the image.",
                     passName, scopeIndex, name);
 
+                // An image's default view is the whole image; a buffer has no default, its
+                // elements' size and count are not something the buffer itself knows.
+                ASSERT(buffer == nullptr || !rhiContext.Has<ShaderInputBinding>(attachment)
+                        || buffer->m_viewDescriptor.m_elementCount != 0,
+                    "Pass {} Scope #{}: the access of buffer {} is bound to a shader input but has no view. "
+                    "Give it one with .View(...).",
+                    passName, scopeIndex, name);
+
                 for (uint32_t j = i + 1; j < static_cast<uint32_t>(m_scopeAttachments.size()); ++j)
                 {
                     ASSERT(!AreOfOneResource(rhiContext, attachment, m_scopeAttachments[j])
@@ -471,6 +479,27 @@ namespace Spark::Render
         RHIExecuteContext::Current()->Add<RHI::DispatchItem>(AddScopeItem(scope), item);
     }
 
+    void RenderGraphBuilder::AddScopeDispatchIndirect(RHIHandle scope, RHIHandle arguments, uint64_t byteOffset)
+    {
+        auto& rhiContext  = *RHIExecuteContext::Current();
+        auto& passContext = *PassExecuteContext::Current();
+        ASSERT(passContext.Has<PassThreadGroupSize>(m_currentPass), "Pass {} dispatches without a compute shader.",
+            passContext.Get<PassName>(m_currentPass).m_name.GetCStr());
+
+        const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(arguments);
+        ASSERT(buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::Indirect
+                && rhiContext.Get<ScopeAttachment>(arguments).m_scope == scope,
+            "A DispatchIndirect's arguments must be an IndirectArguments access of the same Scope.");
+
+        // The buffer is filled in by lowering: it has no backing yet.
+        RHI::DispatchItem item;
+        item.m_arguments = RHI::DispatchArguments(RHI::DispatchIndirect(nullptr, byteOffset));
+
+        const RHIHandle handle = AddScopeItem(scope);
+        rhiContext.Add<RHI::DispatchItem>(handle, item);
+        rhiContext.Add<ItemIndirectArguments>(handle, ItemIndirectArguments{ arguments });
+    }
+
     void RenderGraphBuilder::AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect)
     {
         CheckScopeOpen(scope);
@@ -572,31 +601,52 @@ namespace Spark::Render
     {
         auto& rhiContext = *RHIExecuteContext::Current();
         CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
-        auto* image = rhiContext.TryGet<ImagePassAttachment>(attachment);
-        ASSERT(image != nullptr, "Binding {} to a buffer: buffer bindings are not supported yet.", input.GetCStr());
+        auto* image  = rhiContext.TryGet<ImagePassAttachment>(attachment);
+        auto* buffer = image != nullptr ? nullptr : &rhiContext.Get<BufferPassAttachment>(attachment);
         ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
             "The access of {} is already bound; declare another access to bind another input.",
-            image->m_attachmentId.m_id.GetCStr());
+            image != nullptr ? image->m_attachmentId.m_id.GetCStr() : buffer->m_attachmentId.m_id.GetCStr());
 
-        const RHI::ShaderInputImageDescriptor* desc = CurrentPassLayout().FindImageDescriptor(input);
-        ASSERT(desc != nullptr, "The pass's shaders have no image input {}.", input.GetCStr());
-        ASSERT(desc->m_spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
-            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
-
-        const bool writes = CheckBitsAny(image->m_access, RHI::AttachmentAccess::Write);
-        ASSERT(writes == (desc->m_access == RHI::ShaderInputImageAccess::ReadWrite),
-            "{} is {} in the shader but the access {} it.",
-            input.GetCStr(), writes ? "read-only" : "read-write", writes ? "writes" : "only reads");
-
-        const RHI::AttachmentStage stage = ToAttachmentStage(desc->m_stageMask);
-        if (image->m_stage == RHI::AttachmentStage::Uninitialized)
+        // What the shader says of the input: where it is, whether it writes, in which stages.
+        uint32_t             spaceId       = 0;
+        bool                 shaderWrites  = false;
+        RHI::ShaderStageMask stageMask     = RHI::ShaderStageMask::None;
+        if (image != nullptr)
         {
-            image->m_stage = stage;
+            const RHI::ShaderInputImageDescriptor* desc = CurrentPassLayout().FindImageDescriptor(input);
+            ASSERT(desc != nullptr, "The pass's shaders have no image input {}.", input.GetCStr());
+            spaceId      = desc->m_spaceId;
+            shaderWrites = desc->m_access == RHI::ShaderInputImageAccess::ReadWrite;
+            stageMask    = desc->m_stageMask;
         }
         else
         {
-            ASSERT(image->m_stage == stage,
+            const RHI::ShaderInputBufferDescriptor* desc = CurrentPassLayout().FindBufferDescriptor(input);
+            ASSERT(desc != nullptr, "The pass's shaders have no buffer input {}.", input.GetCStr());
+            spaceId      = desc->m_spaceId;
+            shaderWrites = desc->m_access == RHI::ShaderInputBufferAccess::ReadWrite;
+            stageMask    = desc->m_stageMask;
+        }
+
+        ASSERT(spaceId == kPerPassSpaceId,
+            "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
+            input.GetCStr(), spaceId, kPerPassSpaceId);
+
+        const RHI::AttachmentAccess access = image != nullptr ? image->m_access : buffer->m_access;
+        const bool writes = CheckBitsAny(access, RHI::AttachmentAccess::Write);
+        ASSERT(writes == shaderWrites,
+            "{} is {} in the shader but the access {} it.",
+            input.GetCStr(), writes ? "read-only" : "read-write", writes ? "writes" : "only reads");
+
+        const RHI::AttachmentStage stage    = ToAttachmentStage(stageMask);
+        RHI::AttachmentStage&      declared = image != nullptr ? image->m_stage : buffer->m_stage;
+        if (declared == RHI::AttachmentStage::Uninitialized)
+        {
+            declared = stage;
+        }
+        else
+        {
+            ASSERT(declared == stage,
                 "The stage declared for {} differs from the stages its shaders use it in.", input.GetCStr());
         }
 

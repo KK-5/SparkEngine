@@ -88,6 +88,14 @@ namespace Spark::Render
         return { context.GetStorage<ScopeItem>().data() + range.m_begin, range.m_end - range.m_begin };
     }
 
+    //! On an item that reads its arguments from a buffer of the graph (a DispatchIndirect): the
+    //! access of its Scope that reads that buffer. The buffer has no backing when the item is
+    //! declared, so lowering puts it into the item (CompileItemIndirectArguments).
+    struct ItemIndirectArguments
+    {
+        RHI::RHIHandle m_attachment {RHI::NullHandle};
+    };
+
     //! On a Scope that selects sets of scene items (.Accepts): per set, the query that appends
     //! its members under `view`. The items are persistent and carry no link to the Scope.
     struct ScopeSelections

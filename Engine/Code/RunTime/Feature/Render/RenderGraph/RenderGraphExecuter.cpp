@@ -147,10 +147,10 @@ namespace Spark::Render
 
         auto& passContext = *PassExecuteContext::Current();
 
-        // Transient views are no longer separate entities: image views live in the
-        // resource's ImageViewCache and buffer attachments hold no view. Both are
-        // released when the transient RESOURCE entity is destroyed below (its cache
-        // component drops the owning Ptr<ImageView>), so no per-view cleanup is needed.
+        // Transient views are no longer separate entities: they live in the resource's
+        // ImageViewCache / BufferViewCache. Both are released when the transient
+        // RESOURCE entity is destroyed below (its cache component drops the owning
+        // Ptr to the view), so no per-view cleanup is needed.
         {
             auto& rhiContext = *RHIExecuteContext::Current();
 

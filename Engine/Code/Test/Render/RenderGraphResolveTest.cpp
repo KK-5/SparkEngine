@@ -84,6 +84,18 @@ protected:
         Attach(pass, resource, RHI::AttachmentAccess::ReadWrite, &from);
     }
 
+    //! The resource accessed as a buffer: by a shader that writes it, and as the arguments
+    //! of an indirect call.
+    void WriteBuffer(uint32_t pass, uint32_t resource)
+    {
+        AttachBuffer(pass, resource, RHI::AttachmentAccess::Write, RHI::AttachmentUsage::Shader);
+    }
+
+    void ReadIndirectArguments(uint32_t pass, uint32_t resource)
+    {
+        AttachBuffer(pass, resource, RHI::AttachmentAccess::Read, RHI::AttachmentUsage::Indirect);
+    }
+
     void Resolve()
     {
         ResolveGraph(
@@ -96,7 +108,10 @@ protected:
         Indices versions;
         for (RHI::RHIHandle attachment : m_attachments)
         {
-            versions.push_back(m_rhiContext.Get<ImagePassAttachment>(attachment).m_attachmentId.m_version);
+            const auto* image = m_rhiContext.TryGet<ImagePassAttachment>(attachment);
+            versions.push_back(image != nullptr
+                ? image->m_attachmentId.m_version
+                : m_rhiContext.Get<BufferPassAttachment>(attachment).m_attachmentId.m_version);
         }
         return versions;
     }
@@ -177,6 +192,20 @@ private:
         {
             m_rhiContext.Add<FromPass>(handle, FromPass{ m_passes[*from] });
         }
+        m_attachments.push_back(handle);
+    }
+
+    void AttachBuffer(uint32_t pass, uint32_t resource, RHI::AttachmentAccess access, RHI::AttachmentUsage usage)
+    {
+        BufferPassAttachment attachment;
+        attachment.m_access = access;
+        attachment.m_usage  = usage;
+        attachment.m_pass   = m_passes[pass];
+        attachment.m_buffer = m_resources[resource];
+
+        const RHI::RHIHandle handle = m_rhiContext.CreateEntity();
+        m_rhiContext.Add<BufferPassAttachment>(handle, attachment);
+        m_rhiContext.Add<ScopeAttachment>(handle, ScopeAttachment{ RHI::NullHandle, m_resources[resource] });
         m_attachments.push_back(handle);
     }
 
@@ -561,6 +590,22 @@ TEST_F(RenderGraphResolveTest, APassReadingBackWhatItPutBehindAnotherGetsNoPlace
     EXPECT_EQ(Versions(), (Indices{ 1, 3, 2, 3 }));
     EXPECT_EQ(Order(), (Indices{ 0 }));
     EXPECT_EQ(Unordered(), (Indices{ 1, 2 }));
+}
+
+// The records of an indirect call, written by a compute pass and read by the pass that
+// makes the call. A buffer's accesses resolve as an image's do.
+TEST_F(RenderGraphResolveTest, ABufferReadAsIndirectArgumentsFollowsThePassThatWroteIt)
+{
+    Declare(2, 1, { 0 });
+    WriteBuffer(0, 0);
+    ReadIndirectArguments(1, 0);
+    Resolve();
+
+    EXPECT_EQ(Versions(), (Indices{ 1, 1 }));
+    EXPECT_EQ(GraphEdges(), (Edges{ { 0, 1 } }));
+    EXPECT_EQ(Order(), (Indices{ 0, 1 }));
+    EXPECT_TRUE(m_graph.m_errors.empty());
+    EXPECT_TRUE(m_graph.m_unordered.empty());
 }
 
 TEST_F(RenderGraphResolveTest, AFrameWithoutAttachmentsResolvesToNothing)
