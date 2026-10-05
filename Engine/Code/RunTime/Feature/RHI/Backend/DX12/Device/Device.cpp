@@ -2,12 +2,18 @@
 
 #include <Log/ILogSystem.h>
 #include <Math/Bit.h>
+#include <RHI/Command/IndirectCommands.h>
 #include <RHI/ValidationLayer.h>
 #include <DX12.h>
 #include <Conversions.h>
 
 namespace Spark::RHI::DX12
 {
+    // RHI records are handed to ExecuteIndirect as they are.
+    static_assert(sizeof(RHI::DrawIndirectCommand) == sizeof(D3D12_DRAW_ARGUMENTS));
+    static_assert(sizeof(RHI::DrawIndexedIndirectCommand) == sizeof(D3D12_DRAW_INDEXED_ARGUMENTS));
+    static_assert(sizeof(RHI::DispatchIndirectCommand) == sizeof(D3D12_DISPATCH_ARGUMENTS));
+
     void EnableD3DDebugLayer()
     {
         ComPtr<ID3D12Debug> debugController;
@@ -155,9 +161,8 @@ namespace Spark::RHI::DX12
         }
         m_features.m_predication = true;
         m_features.m_occlusionQueryPrecise = true;
-        //m_features.m_indirectCommandTier = RHI::IndirectCommandTiers::Tier2;
+        m_features.m_indirectMultiDrawSupported = true;
         m_features.m_indirectDrawCountBufferSupported = true;
-        m_features.m_indirectDispatchCountBufferSupported = true;
         m_features.m_indirectDrawStartInstanceLocationSupported = true;
         m_features.m_signalFenceFromCPU = true;
         //m_features.m_crossDeviceFences = true;
@@ -363,11 +368,53 @@ namespace Spark::RHI::DX12
 
         InitFeatures();
 
+        return InitCommandSignatures();
+    }
+
+    RHI::ResultCode Device::InitCommandSignatures()
+    {
+        struct Layout
+        {
+            D3D12_INDIRECT_ARGUMENT_TYPE m_type;
+            UINT                         m_byteStride;
+        };
+        const Layout layouts[static_cast<size_t>(IndirectCommandType::Count)] =
+        {
+            { D3D12_INDIRECT_ARGUMENT_TYPE_DRAW,         sizeof(D3D12_DRAW_ARGUMENTS) },
+            { D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED, sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) },
+            { D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH,     sizeof(D3D12_DISPATCH_ARGUMENTS) },
+        };
+
+        for (size_t i = 0; i < m_commandSignatures.size(); ++i)
+        {
+            D3D12_INDIRECT_ARGUMENT_DESC argument = {};
+            argument.Type = layouts[i].m_type;
+
+            D3D12_COMMAND_SIGNATURE_DESC desc = {};
+            desc.ByteStride       = layouts[i].m_byteStride;
+            desc.NumArgumentDescs = 1;
+            desc.pArgumentDescs   = &argument;
+
+            // No root signature: none of these records changes a root argument.
+            ComPtr<ID3D12CommandSignature> signature;
+            if (FAILED(m_dx12Device->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(signature.GetAddressOf()))))
+            {
+                LOG_ERROR("[DX12 Device] Failed to create the command signature of indirect command type {}.", i);
+                return RHI::ResultCode::Fail;
+            }
+            m_commandSignatures[i] = signature.Get();
+        }
+
         return RHI::ResultCode::Success;
     }
 
     void Device::ShutdownInternal()
     {
+        for (auto& signature : m_commandSignatures)
+        {
+            signature = nullptr;
+        }
+
         m_dxgiFactory = nullptr;
         m_dxgiAdapter = nullptr;
 
@@ -460,5 +507,10 @@ namespace Spark::RHI::DX12
     ID3D12DeviceX* Device::GetDX12Device()
     {
         return m_dx12Device.get();
+    }
+
+    ID3D12CommandSignature* Device::GetCommandSignature(IndirectCommandType type) const
+    {
+        return m_commandSignatures[static_cast<size_t>(type)].get();
     }
 }

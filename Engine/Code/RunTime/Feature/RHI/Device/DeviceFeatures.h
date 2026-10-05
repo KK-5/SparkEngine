@@ -41,20 +41,16 @@ namespace Spark::RHI
         //! Whether the adapter supports predication
         bool m_predication = false;
 
-        //! Whether the adapter supports indirect draw
-        bool m_indirectDrawSupport = true;
-            
-        //! Whether the adapter supports a count buffer when doing indirect drawing.
+        //! Whether one indirect draw can run more than one record (Vulkan: multiDrawIndirect).
+        bool m_indirectMultiDrawSupported = false;
+
+        //! Whether the adapter supports a count buffer when doing indirect drawing
+        //! (Vulkan: drawIndirectCount).
         bool m_indirectDrawCountBufferSupported = false;
 
-        //! Whether the adapter supports a count buffer when doing indirect dispatching.
-        bool m_indirectDispatchCountBufferSupported = false;
-
-        //! Whether the adapter supports supplying a start instance location when doing indirect drawing.
+        //! Whether the adapter supports supplying a start instance location when doing indirect
+        //! drawing (Vulkan: drawIndirectFirstInstance).
         bool m_indirectDrawStartInstanceLocationSupported = false;
-
-        //! Tier of supported indirect commands.
-        //RHI::IndirectCommandTiers m_indirectCommandTier = RHI::IndirectCommandTiers::Tier0;
 
         //! The type of support for subpass inputs of render target attachments.
         //SubpassInputSupportType m_subpassInputSupport = SubpassInputSupportType::None;

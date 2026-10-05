@@ -28,7 +28,6 @@
 #include <Resource/ShaderInput/ShaderBindings.h>
 #include <Resource/Buffer/Buffer.h>
 #include <Resource/Buffer/BufferView.h>
-#include <Resource/Buffer/IndirectBufferSignature.h>
 #include <Resource/Image/Image.h>
 #include <Resource/Image/ImageView.h>
 #include <SwapChain/SwapChain.h>
@@ -460,8 +459,16 @@ namespace Spark::RHI::DX12
             break;
         }
         case RHI::DispatchType::Indirect:
-            ExecuteIndirect(dispatchItem.m_arguments.m_indirect);
+        {
+            const RHI::DispatchIndirect& indirect = dispatchItem.m_arguments.m_indirect;
+
+            RHI::IndirectArguments arguments;
+            arguments.m_buffer     = indirect.m_buffer;
+            arguments.m_byteOffset = indirect.m_byteOffset;
+            arguments.m_maxCount   = 1;
+            ExecuteIndirect(IndirectCommandType::Dispatch, arguments);
             break;
+        }
         default:
             ASSERT(false, "Invalid dispatch type");
             break;
@@ -509,14 +516,15 @@ namespace Spark::RHI::DX12
             }
             case RHI::DrawType::Indirect:
             {
-                const auto& indirect = drawItem.m_drawArguments.m_indirect;
-                const RHI::IndirectBufferLayout& layout = indirect.m_indirectBufferView->GetSignature()->GetDescriptor().m_layout;
-                if (layout.GetType() == RHI::IndirectBufferLayoutType::IndexedDraw)
-                {
-                    ASSERT(drawItem.m_indexBufferView.GetBuffer(), "Index buffer view is null!");
-                    SetIndexBuffer(drawItem.m_indexBufferView);
-                }
-                ExecuteIndirect(indirect);
+                ExecuteIndirect(IndirectCommandType::Draw, drawItem.m_drawArguments.m_indirect.m_arguments);
+                break;
+            }
+            case RHI::DrawType::IndexedIndirect:
+            {
+                ASSERT(drawItem.m_indexBufferView.GetBuffer(), "Index buffer view is null!");
+                SetIndexBuffer(drawItem.m_indexBufferView);
+
+                ExecuteIndirect(IndirectCommandType::DrawIndexed, drawItem.m_drawArguments.m_indexedIndirect.m_arguments);
                 break;
             }
             default:
@@ -869,19 +877,30 @@ namespace Spark::RHI::DX12
         m_state.m_shadingRateState.m_isDirty = false;
     }
 
-    void CommandList::ExecuteIndirect(const RHI::IndirectArguments& arguments)
+    void CommandList::ExecuteIndirect(IndirectCommandType type, const RHI::IndirectArguments& arguments)
     {
-        const IndirectBufferSignature* signature = static_cast<const IndirectBufferSignature*>(arguments.m_indirectBufferView->GetSignature());
+        const Buffer* buffer      = static_cast<const Buffer*>(arguments.m_buffer);
+        const Buffer* countBuffer = static_cast<const Buffer*>(arguments.m_countBuffer);
 
-        const Buffer* buffer = static_cast<const Buffer*>(arguments.m_indirectBufferView->GetBuffer());
-        const Buffer* countBuffer = arguments.m_countBuffer ? static_cast<const Buffer*>(arguments.m_countBuffer) : nullptr;
+        if (RHI::Validation::isEnabled)
+        {
+            ASSERT(buffer, "[CommandList] Indirect call without an argument buffer.");
+            ASSERT(
+                CheckBitsAll(buffer->GetDescriptor().m_bindFlags, RHI::BufferBindFlags::Indirect),
+                "[CommandList] The argument buffer of an indirect call needs BufferBindFlags::Indirect.");
+            ASSERT(
+                !countBuffer || CheckBitsAll(countBuffer->GetDescriptor().m_bindFlags, RHI::BufferBindFlags::Indirect),
+                "[CommandList] The count buffer of an indirect call needs BufferBindFlags::Indirect.");
+        }
+
+        Device& device = static_cast<Device&>(GetDevice());
         GetCommandList()->ExecuteIndirect(
-            signature->Get(),
-            arguments.m_maxSequenceCount,
+            device.GetCommandSignature(type),
+            arguments.m_maxCount,
             buffer->GetMemoryView().GetMemory(),
-            buffer->GetMemoryView().GetOffset() + arguments.m_indirectBufferView->GetByteOffset() + arguments.m_indirectBufferByteOffset,
+            buffer->GetMemoryView().GetOffset() + arguments.m_byteOffset,
             countBuffer ? countBuffer->GetMemoryView().GetMemory() : nullptr,
-            countBuffer ? arguments.m_countBufferByteOffset : 0
+            countBuffer ? countBuffer->GetMemoryView().GetOffset() + arguments.m_countByteOffset : 0
         );
     }
 

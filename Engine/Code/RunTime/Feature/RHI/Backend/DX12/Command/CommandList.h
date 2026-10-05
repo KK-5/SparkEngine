@@ -43,8 +43,9 @@ namespace Spark::RHI::DX12
     class CommandQueue;
     class ShaderBindings;
     class SwapChain;
+    enum class IndirectCommandType : uint8_t;
 
-    class CommandList : public RHI::CommandList, 
+    class CommandList : public RHI::CommandList,
                         public CommandListBase
     {
     public:
@@ -108,7 +109,7 @@ namespace Spark::RHI::DX12
         void CommitScissorState();
         void CommitShadingRateState();
 
-        void ExecuteIndirect(const RHI::IndirectArguments& arguments);
+        void ExecuteIndirect(IndirectCommandType type, const RHI::IndirectArguments& arguments);
 
         struct ShaderResourceBindings
         {

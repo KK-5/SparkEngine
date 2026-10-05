@@ -22,6 +22,28 @@ if (BUILD_RHI_HELLOTRIANGLE)
     )
 endif()
 
+option(BUILD_RHI_INDIRECTDRAW "Build RHI IndirectDraw" ON)
+
+if (BUILD_RHI_INDIRECTDRAW)
+    set(TARGET_NAME IndirectDraw)
+
+    add_executable(${TARGET_NAME} Common/SimpleGlfwWindow.cpp RHI/IndirectDraw.cpp)
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        glfw
+        SparkCore
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+    )
+endif()
+
 option(BUILD_RHI_BAKECUBEMAP "Build RHI BakeCubemap" ON)
 
 if (BUILD_RHI_BAKECUBEMAP)

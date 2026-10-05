@@ -71,6 +71,22 @@ namespace Spark::Render
             return false;
         }
 
+        // What the GPU-driven path needs of the device. It has no fallback, so a device
+        // without all three does not run the renderer (TODO_GPUDrivenPlan.md D3).
+        const RHI::DeviceFeatures& features = device->GetFeatures();
+        if (!features.m_indirectMultiDrawSupported
+            || !features.m_indirectDrawStartInstanceLocationSupported
+            || !features.m_indirectDrawCountBufferSupported)
+        {
+            LOG_ERROR("[RenderSystem] The device cannot run the renderer: indirect multi-draw {}, "
+                      "start instance location in indirect draws {}, indirect draw count buffer {}; "
+                      "all three are required.",
+                      features.m_indirectMultiDrawSupported ? "supported" : "unsupported",
+                      features.m_indirectDrawStartInstanceLocationSupported ? "supported" : "unsupported",
+                      features.m_indirectDrawCountBufferSupported ? "supported" : "unsupported");
+            return false;
+        }
+
         if (!m_renderGraph.Init(*device))
         {
             LOG_ERROR("[RenderSystem] RenderGraph init failed.");

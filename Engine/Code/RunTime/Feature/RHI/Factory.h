@@ -16,8 +16,6 @@ namespace Spark::RHI
     class BufferPool;
     class BufferView;
 
-    class IndirectBufferSignature;
-
     class Image;
     class ImagePool;
     class ImageView;
@@ -72,8 +70,6 @@ namespace Spark::RHI
         virtual Ptr<BufferPool> CreateBufferPool() = 0;
 
         virtual Ptr<BufferView> CreateBufferView() = 0;
-
-        virtual Ptr<IndirectBufferSignature> CreateIndirectBufferSignature() = 0;
 
         virtual Ptr<Image> CreateImage() = 0;
 

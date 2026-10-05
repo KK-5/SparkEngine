@@ -68,9 +68,21 @@ namespace Spark::RHI
         uint16_t m_threadsPerGroupZ = 1; // = m_totalNumberOfThreadsZ / numberOfGroupsZ
     };
 
-    //! Arguments used when submitting an indirect dispatch call into a CommandList.
-    //! The indirect dispatch arguments are the same ones as the indirect draw ones.
-    using DispatchIndirect = IndirectArguments;
+    //! Arguments used when submitting an indirect dispatch call into a CommandList: one
+    //! DispatchIndirectCommand at m_byteOffset of m_buffer. A dispatch reads a single record
+    //! and has no count buffer in either API.
+    struct DispatchIndirect
+    {
+        DispatchIndirect() = default;
+
+        DispatchIndirect(const Buffer* buffer, uint64_t byteOffset)
+            : m_buffer(buffer)
+            , m_byteOffset(byteOffset)
+        {}
+
+        const Buffer* m_buffer     = nullptr;
+        uint64_t      m_byteOffset = 0;
+    };
 
     enum class DispatchType : uint8_t
     {

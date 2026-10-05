@@ -17,7 +17,6 @@ namespace Spark::RHI::DX12
         m_bufferObjectPool.Init();
         m_bufferPoolObjectPool.Init();
         m_bufferViewObjectPool.Init();
-        m_indirectBufferSignatureObjectPool.Init();
         m_imageObjectPool.Init();
         m_imagePoolObjectPool.Init();
         m_imageViewObjectPool.Init();
@@ -41,7 +40,6 @@ namespace Spark::RHI::DX12
         m_bufferObjectPool.Shutdown();
         m_bufferPoolObjectPool.Shutdown();
         m_bufferViewObjectPool.Shutdown();
-        m_indirectBufferSignatureObjectPool.Shutdown();
         m_imageObjectPool.Shutdown();
         m_imagePoolObjectPool.Shutdown();
         m_imageViewObjectPool.Shutdown();
@@ -98,7 +96,6 @@ namespace Spark::RHI::DX12
         m_bufferObjectPool.Collect();
         m_bufferPoolObjectPool.Collect();
         m_bufferViewObjectPool.Collect();
-        m_indirectBufferSignatureObjectPool.Collect();
         m_imageObjectPool.Collect();
         m_imagePoolObjectPool.Collect();
         m_imageViewObjectPool.Collect();
@@ -277,11 +274,6 @@ namespace Spark::RHI::DX12
     Ptr<RHI::BufferView> ID3D12Factory::CreateBufferView()
     {
         return static_cast<RHI::BufferView*>(m_bufferViewObjectPool.CreateDeviceObject());
-    }
-
-    Ptr<RHI::IndirectBufferSignature> ID3D12Factory::CreateIndirectBufferSignature()
-    {
-        return static_cast<RHI::IndirectBufferSignature*>(m_indirectBufferSignatureObjectPool.CreateDeviceObject());
     }
 
     Ptr<RHI::Image> ID3D12Factory::CreateImage()

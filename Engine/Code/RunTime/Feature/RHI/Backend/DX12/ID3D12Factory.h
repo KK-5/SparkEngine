@@ -11,7 +11,6 @@
 #include "Resource/Buffer/Buffer.h"
 #include "Resource/Buffer/BufferPool.h"
 #include "Resource/Buffer/BufferView.h"
-#include "Resource/Buffer/IndirectBufferSignature.h"
 #include "Resource/Image/Image.h"
 #include "Resource/Image/ImagePool.h"
 #include "Resource/Image/ImageView.h"
@@ -113,8 +112,6 @@ namespace Spark::RHI::DX12
 
         Ptr<RHI::BufferView> CreateBufferView() override;
 
-        Ptr<RHI::IndirectBufferSignature> CreateIndirectBufferSignature() override;
-
         Ptr<RHI::Image> CreateImage() override;
 
         Ptr<RHI::ImagePool> CreateImagePool() override;
@@ -160,7 +157,6 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<Buffer>                    m_bufferObjectPool;
         DeviceObjectPool<BufferPool>                m_bufferPoolObjectPool;
         DeviceObjectPool<BufferView>                m_bufferViewObjectPool;
-        DeviceObjectPool<IndirectBufferSignature>   m_indirectBufferSignatureObjectPool;
         DeviceObjectPool<Image>                     m_imageObjectPool;
         DeviceObjectPool<ImagePool>                 m_imagePoolObjectPool;
         DeviceObjectPool<ImageView>                 m_imageViewObjectPool;

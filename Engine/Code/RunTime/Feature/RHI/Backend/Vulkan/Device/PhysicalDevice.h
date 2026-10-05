@@ -23,6 +23,8 @@ namespace Spark::RHI::Vulkan
         Predication,
         DepthClipEnable,
         ConservativeRaster,
+        MultiDrawIndirect,
+        DrawIndirectFirstInstance,
         DrawIndirectCount,
         NullDescriptor,
         SeparateDepthStencil,

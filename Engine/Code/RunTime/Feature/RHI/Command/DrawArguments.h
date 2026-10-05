@@ -59,13 +59,36 @@ namespace Spark::RHI
         uint32_t m_indexOffset = 0;
     };
 
-    using DrawIndirect = IndirectArguments;
+    //! The buffer holds DrawIndirectCommand records.
+    struct DrawIndirect
+    {
+        DrawIndirect() = default;
+
+        explicit DrawIndirect(const IndirectArguments& arguments)
+            : m_arguments(arguments)
+        {}
+
+        IndirectArguments m_arguments;
+    };
+
+    //! The buffer holds DrawIndexedIndirectCommand records. The index buffer is the DrawItem's.
+    struct DrawIndexedIndirect
+    {
+        DrawIndexedIndirect() = default;
+
+        explicit DrawIndexedIndirect(const IndirectArguments& arguments)
+            : m_arguments(arguments)
+        {}
+
+        IndirectArguments m_arguments;
+    };
 
     enum class DrawType : uint8_t
     {
         Indexed = 0,
         Linear,
-        Indirect
+        Indirect,
+        IndexedIndirect
     };
 
     struct DrawArguments
@@ -88,12 +111,18 @@ namespace Spark::RHI
             , m_indirect{ indirect }
         {}
 
+        DrawArguments(const DrawIndexedIndirect& indexedIndirect)
+            : m_type{ DrawType::IndexedIndirect }
+            , m_indexedIndirect{ indexedIndirect }
+        {}
+
         DrawType m_type;
         union
         {
             DrawIndexed m_indexed;
             DrawLinear m_linear;
             DrawIndirect m_indirect;
+            DrawIndexedIndirect m_indexedIndirect;
         };
     };
 }

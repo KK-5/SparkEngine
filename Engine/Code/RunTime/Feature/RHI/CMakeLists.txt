@@ -38,9 +38,6 @@ set(SOURCES
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/BufferView.cpp
     Resource/Buffer/IndexBufferView.cpp
-    Resource/Buffer/IndirectBufferLayout.cpp
-    Resource/Buffer/IndirectBufferSignature.cpp
-    Resource/Buffer/IndirectBufferView.cpp
     Resource/Buffer/VertexInputView.cpp
     Resource/Buffer/VertexBufferView.cpp
     Resource/Image/Image.cpp

@@ -174,6 +174,8 @@ namespace Spark::RHI::Vulkan
             m_features.set(static_cast<uint32_t>(feature), supported);
         };
 
+        setFeature(DeviceFeature::MultiDrawIndirect, m_deviceFeatures.multiDrawIndirect);
+        setFeature(DeviceFeature::DrawIndirectFirstInstance, m_deviceFeatures.drawIndirectFirstInstance);
         setFeature(DeviceFeature::DrawIndirectCount, m_vulkan12Features.drawIndirectCount);
         setFeature(DeviceFeature::SeparateDepthStencil, m_vulkan12Features.separateDepthStencilLayouts);
         setFeature(DeviceFeature::DynamicRendering, m_vulkan13Features.dynamicRendering);

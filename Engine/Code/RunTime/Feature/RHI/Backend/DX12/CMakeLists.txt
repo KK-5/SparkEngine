@@ -45,7 +45,6 @@ set(SOURCES
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/Buffer.cpp
     Resource/Buffer/BufferView.cpp
-    Resource/Buffer/IndirectBufferSignature.cpp
     Resource/Constant/ConstantBufferContext.cpp
     Resource/Image/ImagePool.cpp
     Resource/Image/Image.cpp

@@ -9,61 +9,34 @@
 /*
  * Modified by SparkEngine in 2025
  *  -- IndirectArguments has been changed from a template class to a normal class, with template parameters fixed as Buffer and IndirectBufferView.
+ * Modified by SparkEngine in 2026
+ *  -- Names the buffer directly instead of an IndirectBufferView: the record layouts are
+ *     fixed (IndirectCommands.h), so there is no signature to carry and no stride to choose.
  */
-
 
 #pragma once
 
-#include <RHI/Resource/Buffer/Buffer.h>
-#include <RHI/Resource/Buffer/IndirectBufferView.h>
+#include <cstdint>
+
+#include "IndirectCommands.h"
 
 namespace Spark::RHI
 {
+    class Buffer;
+
+    //! Where an indirect draw finds its records (see IndirectCommands.h for their layout).
+    //! Which record type m_buffer holds is said by the draw type that carries this.
     struct IndirectArguments
     {
-        IndirectArguments() = default;
+        //! Holds the records, sizeof(record) apart, the first one at m_byteOffset.
+        const Buffer* m_buffer     = nullptr;
+        uint64_t      m_byteOffset = 0;
 
-        IndirectArguments(
-            uint32_t maxSequenceCount,
-            const IndirectBufferView& indirectBuffer,
-            uint64_t indirectBufferByteOffset)
-            : IndirectArguments(
-                maxSequenceCount,
-                indirectBuffer,
-                indirectBufferByteOffset,
-                nullptr,
-                0)
-        {}
+        //! Without a count buffer: exactly how many records are executed.
+        //! With one: the upper bound; the uint32 at m_countByteOffset says how many.
+        uint32_t      m_maxCount = 0;
 
-        IndirectArguments(
-            uint32_t maxSequenceCount,
-            const IndirectBufferView& indirectBuffer,
-            uint64_t indirectBufferByteOffset,
-            const Buffer* countBuffer,
-            uint64_t countBufferByteOffset)
-            : m_maxSequenceCount(maxSequenceCount)
-            , m_indirectBufferView(&indirectBuffer)
-            , m_indirectBufferByteOffset(indirectBufferByteOffset)
-            , m_countBuffer(countBuffer)
-            , m_countBufferByteOffset(countBufferByteOffset)
-        {}
-
-        //! There are two ways that m_maxSequenceCount can be specified:
-        //! 1) If m_countBuffer is not NULL, then m_maxSequenceCount specifies the maximum number of operations which will be performed.
-        //!    The actual number of operations to be performed are defined by the minimum of this value, and a 32 bit unsigned integer
-        //!    contained in m_countBuffer(at the byte offset specified by m_countBufferByteOffset).
-        //! 2) If m_countBuffer is NULL, the m_maxSequenceCount specifies the exact number of operations which will be performed.
-        uint32_t m_maxSequenceCount = 0;
-
-        //! Specifies an offset into IndirectBufferView to identify the first command argument.
-        uint64_t m_indirectBufferByteOffset = 0;
-        //! Specifies an offset into m_countBuffer, identifying the argument count.
-        uint64_t m_countBufferByteOffset = 0;
-
-        //! View over the Indirect buffer that contains the commands.
-        const IndirectBufferView* m_indirectBufferView = nullptr;
-
-        //! Optional count buffer that contains the number of indirect commands in the indirect buffer.
-        const Buffer* m_countBuffer = nullptr;
+        const Buffer* m_countBuffer     = nullptr;
+        uint64_t      m_countByteOffset = 0;
     };
 }
