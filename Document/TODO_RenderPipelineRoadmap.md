@@ -27,7 +27,8 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
 | P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
-| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现，SSR 已实现：位置正确，质量受限于屏幕空间，定位是混合反射的第一层；剩 Contact Shadow），见 `TODO_ScreenSpacePlan.md` |
+| P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现，SSR 已完成、画面已确认：质量受限于屏幕空间，定位是混合反射的第一层；剩 Contact Shadow），见 `TODO_ScreenSpacePlan.md` |
+| I11 | GPU-driven 基础（indirect draw / 几何共用 buffer 对象 / compute 视锥剔除），排在 P5 之前 | 进行中（步骤 0 完成：RHI 的 indirect 抽象与能力位），见 `TODO_GPUDrivenPlan.md` |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
 | P7 | 命中点着色 | 未开始 |
@@ -97,7 +98,7 @@ OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneratio
 ✅ Camera / Shadow / View / Scene / Material / Instance bindings                         
 ☐  RayTracingScene Update (BLAS build/compact, TLAS)   FRayTracingScene               P6
 ☐  DDGI Update (trace → blend → border → relocate)     (RTXGI 插件)                    P8
-—  GPU Culling (compute cull → indirect draw)          GPUScene culling
+☐  GPU Culling (compute 视锥剔除 → indirect draw)      GPUScene culling               I11
 —  WaterInfo (俯视渲染水面高度/深度/流速)                WaterZone
 ── Geometry ─────────────────────────────────────────────────────────────────────────────
 ✅ ShadowPass (atlas)                                   RenderShadowDepthMaps
@@ -222,6 +223,7 @@ z=0 并用 `Less`。UE 的 `ConvertFromDeviceZ` 及 TAA、大量屏幕空间 sha
 | I8 | 光追场景：BLAS 跟随 mesh 几何生命周期、TLAS 每帧更新、TLAS InstanceID = InstanceBinding slot；BLAS 的输入不限于静态顶点缓冲，可以是 compute 生成的缓冲（动态 BLAS，对应 `FRayTracingDynamicGeometryUpdate`） | RT 阴影 | P6 |
 | I9 | 几何记录表（instance → 顶点/索引缓冲 bindless 索引、属性布局）+ 命中点着色库 | 主光线调试视图 | P7 |
 | I10 | Vertex Factory（§二契约）：一个 Pass 内按 factory 选 VS 与 InputLayout | 静态网格（接缝），地形/蒙皮（第二用例） | ✅ HLSL 契约 P1；组合机制 P5 |
+| I11 | GPU-driven 基础：RHI 的 indirect 记录只含 draw / dispatch 参数、渲染图的间接参数角色、buffer 跨队列同步按原生语义纠正、几何放进共享 buffer（租约，和 Binding 系统同形；所在 buffer 进 batch key）、几何表 `g_Geometries`（I9 的起点）、compute 视锥剔除 | DepthPre / GBuffer / Shadow 的场景 draw | P4 与 P5 之间（`TODO_GPUDrivenPlan.md`） |
 
 I7 的现状：`DeviceFeatures::m_rayTracing` 已有，`BufferBindFlags` 已有 AS / ShaderTable / Scratch，**缺 BLAS 构建输入
 的用途位**（Vulkan 要求顶点/索引缓冲创建时带 `ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY` +
@@ -244,6 +246,9 @@ P2 结构对齐 ──┼──► P4 屏幕空间 ──┐
 ```
 
 P1、P2 互不依赖，可并行。P3 / P4 / P5 之间互不依赖。
+
+I11 不在图里：P5 在功能上不依赖它，但它排在 P5 之前——I5 / I10 的 batch key（PSO 变体 × 几何所在的 buffer 对象）要等它把几何
+存储定下来，Translucency 也要对着一条真实的 indirect 路径设计成"不走 indirect 的例外"。
 
 ### P1 时序基础 + TAA　✅ 已完成
 
@@ -408,7 +413,7 @@ LightGrid（分簇光源）只留接缝：前向着色的灯光遍历封装成�
 | MSAA | 与延迟管线不兼容 |
 | DBuffer Decals / CustomDepth | 帧结构中留位置，不排期 |
 | LightGrid 分簇光源 | 灯多到逐灯循环成为瓶颈时。届时直接做分簇，不经过逐灯光体积 + stencil 那一步 |
-| GPU 剔除 + indirect draw | 植被等实例数上万、每 Drawable 一个 DrawItem 撑不住时 |
+| HZB 遮挡剔除 / meshlet / GPU 侧 LOD 选择 | 植被等实例数上万时。indirect draw 与视锥剔除已提前为 I11 |
 | 自动曝光 + PreExposure | **与物理灯光单位一起做**。自动曝光的收益要物理单位才兑现：现在灯光 intensity 是对着 `exposure = 1.0` 凑出来的数，不是物理量，手调场景里自动曝光收益为零。PreExposure 更是一个像素都不改，它防的是 FP16 指数溢出，而我们还没有会溢出的内容。决策 D2/D3 已定，到时直接用 |
 
 ---
@@ -451,6 +456,7 @@ LightGrid（分簇光源）只留接缝：前向着色的灯光遍历封装成�
 - `TODO_PostProcessPlan.md` —— P3
 - `TODO_ScreenSpacePlan.md` —— P4
 - `TODO_PerDrawPSOVariant.md` —— I5
+- `TODO_GPUDrivenPlan.md` —— I11
 - `TODO_DrawItemPersistencePlan.md` §八 —— P5 透明分类
 - `TODO_ShadowOptimizePlan.md` —— P2 阴影拆分时注意其中 bias 量纲的待办
 - `TODO_MultiViewPlan.md` —— I0 的 View 持有者、per-view Pass 循环
