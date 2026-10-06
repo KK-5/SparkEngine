@@ -22,8 +22,21 @@ namespace Spark::RHI::DX12
         , m_type{memoryType}
     {}
 
+    BufferMemoryView::BufferMemoryView(
+        MemoryView&& memoryView,
+        Ptr<VirtualBlockAllocation> allocation)
+        : MemoryView(eastl::move(memoryView))
+        , m_type{BufferMemoryType::Shared}
+        , m_virtualBlockAllocation{eastl::move(allocation)}
+    {}
+
     BufferMemoryType BufferMemoryView::GetType() const
     {
         return m_type;
+    }
+
+    VirtualBlockAllocation* BufferMemoryView::GetVirtualBlockAllocation() const
+    {
+        return m_virtualBlockAllocation.get();
     }
 }

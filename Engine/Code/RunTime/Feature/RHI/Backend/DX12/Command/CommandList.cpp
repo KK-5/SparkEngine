@@ -642,7 +642,23 @@ namespace Spark::RHI::DX12
         const bool release = isCrossQueue && myQueue == barrier.m_srcQueue;
         const bool acquire = isCrossQueue && myQueue == barrier.m_dstQueue;
 
-        if (CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined))
+        if (buffer.GetMemoryView().GetType() == BufferMemoryType::Shared)
+        {
+            // A part of a resource other buffers have parts of takes no native barrier: one
+            // spans the whole resource. A handoff between queues has nothing to do here, D3D12
+            // having no ownership; within a queue only reads can go without.
+            if (RHI::Validation::isEnabled)
+            {
+                ASSERT(isCrossQueue || !(RHI::HasWrite(barrier.m_srcAccess) || RHI::HasWrite(barrier.m_dstAccess)),
+                    "[CommandList] Buffer {} is a part of a shared resource and cannot take a barrier around a write "
+                    "(0x{:x} -> 0x{:x} on queue {}). Order its writes and reads by submissions.",
+                    barrier.m_buffer->GetName().GetCStr(),
+                    static_cast<uint32_t>(barrier.m_srcAccess),
+                    static_cast<uint32_t>(barrier.m_dstAccess),
+                    static_cast<uint32_t>(myQueue));
+            }
+        }
+        else if (CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined))
         {
             // A buffer has no layout to discard: all there is to it is the memory's previous use.
             ASSERT(!release, "Releasing a buffer from Undefined.");

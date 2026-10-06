@@ -227,6 +227,19 @@ namespace Spark::RHI
                 return false;
             }
 
+            // The buffers of a pool with a budget are parts of one native buffer, which has
+            // one sharing mode.
+            if (poolDescriptor.m_budgetInBytes != 0
+                && initRequest.m_descriptor.m_sharedQueueMask != poolDescriptor.m_sharedQueueMask)
+            {
+                LOG_ERROR("[BufferPool] Buffer shared queue mask 0x{:x} differs from 0x{:x} of pool {}, "
+                          "whose buffers share one native buffer.",
+                          static_cast<uint32_t>(initRequest.m_descriptor.m_sharedQueueMask),
+                          static_cast<uint32_t>(poolDescriptor.m_sharedQueueMask),
+                          GetName().GetCStr());
+                return false;
+            }
+
             // Initial data is not allowed for read-only heaps.
             if (initRequest.m_initialData && poolDescriptor.m_hostMemoryAccess == HostMemoryAccess::Read)
             {

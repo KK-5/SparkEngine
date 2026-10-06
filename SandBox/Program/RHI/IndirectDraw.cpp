@@ -38,6 +38,11 @@ namespace Spark::SandBox
     static constexpr bool     kUseCountBuffer   = true;
     static constexpr uint32_t kCountBufferValue = 3;
 
+    //  - kSubAllocateBuffers true: the pool has a budget, so the four buffers are parts of one
+    //    native buffer and take no barrier. The picture is the same either way.
+    static constexpr bool     kSubAllocateBuffers  = true;
+    static constexpr uint64_t kBufferPoolBudget    = 64 * 1024;
+
     static constexpr uint32_t kQuadCount           = 6;
     static constexpr uint32_t kQuadColumnCount     = 3;
     static constexpr uint32_t kVertexCountPerQuad  = 4;
@@ -360,6 +365,7 @@ namespace Spark::SandBox
         desc.m_heapMemoryLevel = RHI::HeapMemoryLevel::Device;
         desc.m_bindFlags = geometryFlags | indirectFlags;
         desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::All;
+        desc.m_budgetInBytes = kSubAllocateBuffers ? kBufferPoolBudget : 0;
         RHI::ResultCode res = m_bufferPool->Init(*m_device, desc);
         if (res != RHI::ResultCode::Success)
         {
@@ -367,12 +373,15 @@ namespace Spark::SandBox
             return;
         }
 
-        auto create = [this](Upload& upload, RHI::BufferBindFlags bindFlags, const char* what)
+        // The alignment is the element size: where a buffer starts inside a shared native
+        // buffer has to be a whole number of its elements.
+        auto create = [this](Upload& upload, RHI::BufferBindFlags bindFlags, uint64_t alignment, const char* what)
         {
             upload.m_buffer = m_rhiFactory->CreateBuffer();
             RHI::BufferDescriptor bufferDesc;
             bufferDesc.m_bindFlags = bindFlags;
             bufferDesc.m_byteCount = upload.m_byteCount;
+            bufferDesc.m_alignment = alignment;
 
             RHI::BufferInitRequest initRequest;
             initRequest.m_buffer = upload.m_buffer.get();
@@ -382,10 +391,12 @@ namespace Spark::SandBox
                 LOG_ERROR("Init {} buffer failed", what);
             }
         };
-        create(m_vertices, geometryFlags, "vertex");
-        create(m_indices, geometryFlags, "index");
-        create(m_arguments, indirectFlags, "argument");
-        create(m_count, indirectFlags, "count");
+        // The count first, so that the vertices, whose size is no power of two, do not start
+        // at 0 of a shared native buffer, where any alignment holds.
+        create(m_count, indirectFlags, sizeof(uint32_t), "count");
+        create(m_vertices, geometryFlags, sizeof(Vertex), "vertex");
+        create(m_indices, geometryFlags, sizeof(uint16_t), "index");
+        create(m_arguments, indirectFlags, sizeof(uint32_t), "argument");
     }
 
     void IndirectDraw::CreateStageBuffer()
@@ -432,10 +443,15 @@ namespace Spark::SandBox
 
         commandList->Open();
 
+        // A part of a shared native buffer takes no barrier. It needs none here: this is a
+        // submission of its own, done before the first draw is submitted.
         commandList->QueueBarrier(RHI::ConvertToCopyRead(*m_stageBuffer));
-        for (Upload* upload : uploads)
+        if (!kSubAllocateBuffers)
         {
-            commandList->QueueBarrier(RHI::ConvertToCopyWrite(*upload->m_buffer));
+            for (Upload* upload : uploads)
+            {
+                commandList->QueueBarrier(RHI::ConvertToCopyWrite(*upload->m_buffer));
+            }
         }
         commandList->FlushBarriers();
 
@@ -451,11 +467,14 @@ namespace Spark::SandBox
             commandList->Submit(copyItem);
         }
 
-        commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_vertices.m_buffer));
-        commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_indices.m_buffer));
-        commandList->QueueBarrier(RHI::ConvertToIndirect(*m_arguments.m_buffer));
-        commandList->QueueBarrier(RHI::ConvertToIndirect(*m_count.m_buffer));
-        commandList->FlushBarriers();
+        if (!kSubAllocateBuffers)
+        {
+            commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_vertices.m_buffer));
+            commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_indices.m_buffer));
+            commandList->QueueBarrier(RHI::ConvertToIndirect(*m_arguments.m_buffer));
+            commandList->QueueBarrier(RHI::ConvertToIndirect(*m_count.m_buffer));
+            commandList->FlushBarriers();
+        }
 
         commandList->Close();
     }

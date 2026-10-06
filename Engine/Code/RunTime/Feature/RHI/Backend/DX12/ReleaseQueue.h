@@ -53,4 +53,18 @@ namespace Spark::RHI::DX12
     };
 
     using D3D12MAReleaseQueue = ObjectCollector<D3d12maReleaseQueueTraits>;
+
+    class VirtualBlockAllocation;
+
+    //! The same for parts of a D3D12MA::VirtualBlock: a part stays taken until the GPU has
+    //! flushed the last frame that may read it.
+    class VirtualBlockAllocationReleaseQueueTraits
+        : public ObjectCollectorTraits
+    {
+    public:
+        using MutexType = std::mutex;
+        using ObjectType = VirtualBlockAllocation;
+    };
+
+    using VirtualBlockAllocationReleaseQueue = ObjectCollector<VirtualBlockAllocationReleaseQueueTraits>;
 }

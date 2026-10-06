@@ -14,6 +14,7 @@
 
 #include <EASTL/internal/move_help.h>
 #include <MemoryView.h>
+#include <VirtualBlockAllocation.h>
 
 namespace Spark::RHI::DX12
 {
@@ -33,6 +34,10 @@ namespace Spark::RHI::DX12
         BufferMemoryView() = default;
         BufferMemoryView(MemoryView&& memoryView, BufferMemoryType memoryType);
 
+        /// A part of a memory resource other buffers have parts of: Shared. The view spans
+        /// the part; the allocation is what keeps it taken.
+        BufferMemoryView(MemoryView&& memoryView, Ptr<VirtualBlockAllocation> allocation);
+
         /// Supports only move construction / assignment because of constraints in the base class.
         BufferMemoryView(const BufferMemoryView& rhs) = delete;
         BufferMemoryView(BufferMemoryView&& rhs) = default;
@@ -41,8 +46,12 @@ namespace Spark::RHI::DX12
 
         BufferMemoryType GetType() const;
 
+        /// Null unless Shared. A Unique buffer's allocation is MemoryView's.
+        VirtualBlockAllocation* GetVirtualBlockAllocation() const;
+
     private:
         BufferMemoryType m_type = BufferMemoryType::Unique;
+        Ptr<VirtualBlockAllocation> m_virtualBlockAllocation;
     };
 
 
