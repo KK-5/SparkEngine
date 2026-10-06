@@ -3,12 +3,13 @@
 路线图基础设施 I11 的落地计划，排在 P4 与 P5 之间。总览见 `TODO_RenderPipelineRoadmap.md`。
 
 I11 做五件事：**RHI 的 indirect 抽象重做**、**渲染图里的间接参数**、**buffer 跨队列同步按原生语义纠正**、
-**几何数据放进共享 buffer**（租约，和 Binding 系统同一个形状）、**compute 视锥剔除**。
+**几何数据放进同一个原生 buffer**（由 `BufferPool` 在一个原生 buffer 内分配，渲染层的几何系统持有池）、**compute 视锥剔除**。
 做完之后，一个 pass 对一个视图画场景物体是一次 indirect 调用，画哪些由 GPU 决定。
 
-本文是草案。D1（范围）、D2（RHI 的 indirect 抽象）、D3（能力位）、D4（几何的共享 buffer）、D6（剔除的输入）、
+本文是草案。D1（范围）、D2（RHI 的 indirect 抽象）、D3（能力位）、D4（几何进同一个原生 buffer）、D6（剔除的输入）、
 D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列同步）已由用户确认，D8（压缩）也已确认。D5、D11 已撤销；D10 已撤销，改为一段与 I5 的关系的说明。决策项没有待确认的了。
 现状一节来自 2026-10-04 / 05 读代码，没有运行验证，写的是动手之前的样子。D12 的原生语义来自 2026-10-05 查的规范原文。
+D4 与步骤 3 在 2026-10-06 按 `TODO_BufferPoolPlan.md` 重写：原来是渲染层自己在一个共享 buffer 里分配（租约），现在分配与延迟回收在池里。
 
 ---
 
@@ -19,11 +20,12 @@ D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列
 | 0 | RHI：indirect 抽象重做 + 能力位 | — | 完成（2026-10-05），见下 |
 | 1 | 渲染图：间接参数的访问角色、`DispatchIndirect`、图内 buffer 的首个用例 | 0 | 完成（2026-10-05），见下 |
 | 2 | buffer 跨队列同步的纠正（D12） | — | 完成（2026-10-06），见下 |
-| 3 | 几何租约 + `g_Geometries`，draw 改用共享 buffer 里的偏移（仍走 CPU 提交） | 2 | 未开始 |
+| 3 | 几何进同一个原生 buffer：渲染层的几何系统持有池、替 Mesh 申请（仍走 CPU 提交） | `TODO_BufferPoolPlan.md` 步骤 1（已完成） | 进行中：第 1、2 小步完成（2026-10-06），第 1 小步的画面用户已确认，见下 |
 | 4 | CPU 填参数的 indirect draw（不剔除） | 0、1、3 | 未开始 |
-| 5 | compute 视锥剔除，带 count buffer | 4 | 未开始 |
+| 5 | compute 视锥剔除，带 count buffer；`g_Geometries` | 4 | 未开始 |
 
-0 / 1 与 2 / 3 互不依赖。4 把"indirect 画得对"和"剔除算得对"分开验证，所以不跳过。
+0 / 1 与 2、3 互不依赖。4 把"indirect 画得对"和"剔除算得对"分开验证，所以不跳过。
+步骤 3 原来依赖步骤 2（几何 buffer 用共享模式），重写后几何的池是图形独占的，不再依赖它。
 
 **步骤 0 跑过什么、没跑过什么**
 
@@ -50,16 +52,50 @@ D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列
 
 - 全量 Debug 编译通过；`SparkRenderTest` 89 个用例通过，没有新增用例。
 - 我在 debug layer 下各跑 10 秒、只看日志，无断言无报错：
-  - `DrawCube`：mesh 的 VB / IB 已是共享模式，走的是"上传不发屏障、图形队列按 fence 等、之后队列内一条屏障"。
-    `InstanceIDBuffer` 仍是独占，走原来的路径。
+  - `DrawCube`：**这一条当时写错了**（2026-10-06 做步骤 3 时发现）。原文是"mesh 的 VB / IB 已是共享模式，走的是上传不发屏障、
+    图形队列按 fence 等、之后队列内一条屏障"。实际 `DrawCube` 不用 `MeshComponent`，它的 VB / IB 是示例自己用
+    `CreateStaticBuffer` 建的、掩码只有图形一位，步骤 2 没有动它；这次运行走的全是独占路径。
+    所以网格的共享路径我没有跑过，它只在用户用编辑器加载带网格的场景看画面时执行过。
   - `IndirectDispatch`，`kArgsOnComputeQueue` 打开：`ArgsPass` 在 Compute 队列写参数 buffer，`PatternPass` 在图形队列
     把它当间接参数读。临时日志确认走到了"共享 buffer 换队列"的新分支（日志已删）。改动前的代码也这样跑过一遍，
     旧的"释放 + 接手"路径同样无报错，说明 Compute 队列上的 pass 本身能跑。
   - `IndirectDispatch`，开关关：与步骤 1 相同的路径。
 - 画面：2.1（上传与静态路径、mesh 改共享模式）之后用户检查过，没有问题。`kArgsOnComputeQueue` 打开时的画面没有看过。
 - 没有执行过的：`CompileExternalWaits` 里 buffer 的分支（引擎里没有导入的 buffer，只有导入的 image）；
-  运行中流式加入物体（我没有跑）；copy 队列写一段、图形队列同时读同一个 buffer 的另一段（步骤 3 有了租约才出现）；
+  运行中流式加入物体（我没有跑）；copy 队列写一段、图形队列同时读同一个原生 buffer 的另一段（步骤 3 几何进了同一个原生 buffer 才出现）；
   GPU-based validation（它是 `ValidationLayer.h` 里的编译期常量，Debug 只开 debug layer）。
+
+**步骤 3 跑过什么、没跑过什么**（第 1 小步）
+
+- 全量 Debug 编译通过；`SparkRenderTest` 89 个用例通过，没有新增用例。`MeshGeometry` 是只能移动的组件，世界的各条路径编译都接受。
+  `SparkMesh` 不再链接 `SparkRHI`。
+- 示例里没有带 `MeshComponent` 的实体，编辑器启动时场景里也没有，所以验证用的是临时代码（已删）：编辑器在模型就绪后
+  生成三份 `project://Model/Body.glb`，后端在划分、释放、丢弃屏障三处各打一行日志。debug layer 下跑 30 秒后正常关窗退出。
+  - 六个 buffer 落在同一个原生 buffer 里，偏移依次是 0、253008、360720、613716、721440、974424。顶点的偏移都是 48 的倍数，
+    索引的都是 4 的倍数。顶点 buffer 后面空出 48 字节，是"步长不是 2 的幂时多要一点再取整"留下的。
+  - 独占路径的三条屏障都是换队列的，全部被丢弃，没有碰到断言：copy 队列接手（图形 → copy）、copy 队列释放、
+    图形队列接回（目标访问是顶点 / 索引读）。
+  - 六个 buffer 的上传在同一批里提交，即一次提交里往同一个原生 buffer 拷多段，debug layer 无报错（D12"没有覆盖的"第二条，
+    只有 debug layer 这一层确认）。
+  - 释放：临时在第 300 帧移除一个实体的 `MeshGeometry`。同一帧里几何系统给它重新申请，拿到的是新的偏移（旧的还没还回去）；
+    这一 tick 末旧的两个 buffer 被销毁、进了池的待回收队列。这条链上没有任何手写的释放代码。
+  - 关闭：几何系统销毁了 6 个 buffer 实体，再关池，这两步之间和之后都没有报错。
+- 关闭时日志里有 4 条 `There is garbage that wasn't collected` 和一条 `Live ID3D12Device ... Refcount: 5`。
+  对照过：临时让几何系统不建池，同样是这 4 条和 1 条，所以是改动之前就有的，不在这一步处理。
+- 画面由用户在编辑器里确认，没有问题。
+- 没有执行过的：运行中加载大量网格；池放不下；带索引以外的网格；GPU-based validation。
+- 第 1 小步留下、第 3 小步处理的：池的预算是占位的 256 MB，建池时就占用，**每个用 `RenderSystem` 的示例也会占**；
+  池放不下时每帧报一次错。
+
+第 2 小步（`MeshGeometry` 跟着 `MeshComponent` 走）：
+
+- `RemoveStaleMeshGeometry` 每帧在创建扫描之前跑：`MeshComponent` 没了、或它的三项和 `MeshGeometry` 里存的不一样，
+  就移除 `MeshGeometry` 并摘掉 `WorldComposedTag`。
+- `SparkRenderTest` 新增 5 个用例（`MeshGeometryTest`），共 94 个通过：没有变化时不动；移除组件、换 primitive、换模型后
+  `MeshGeometry` 与 `WorldComposedTag` 都没了、两个 buffer 实体带上 `DeadTag`；世界实体被销毁后两个 buffer 实体带上 `DeadTag`
+  （这一条测的是第 1 小步的 `UniqueRHIHandle`）。
+- 只有单元测试，没有在编辑器里执行过：现在 `MeshComponent` 都是模型解析出来的，还不能自由指定（用户 2026-10-06 说明，
+  测试通过即可）。所以"换掉之后同一帧重新申请、重新 compose、画出新网格"这一整段没有跑过。
 
 ---
 
@@ -122,7 +158,8 @@ P5 在功能上不需要 indirect。排在它前面是因为 P5 的两项会把 
 - `BufferPool` 每个 buffer 调一次 `CreateResource3`（`BufferPool.cpp:103`），D3D12MA 把它们放进同一个 heap 块：
   内存是共用的，但各自是独立的 `ID3D12Resource`。
 - `BufferDescriptor::m_sharedQueueMask` 只有一位是独占（有一个归属队列），多位是共享。mesh 的 VB / IB 原来填的是
-  只有图形一位，步骤 2 改成了图形与 copy 两位；`InstanceIDBuffer` 仍是只有图形一位。走上传的 buffer 只有这三种。
+  只有图形一位，步骤 2 改成了图形与 copy 两位（步骤 3 会改回只有图形一位，见 D4）；`InstanceIDBuffer` 仍是只有图形一位。
+  走上传的 buffer 只有这三种。
 - 上传走 copy 队列（`AsyncUploadSystem`）。待上传的数据是实体上的一个 `PendingBufferUpload` 组件，
   一个实体同一时刻只能挂一段。
 - `RHI::Buffer` 上记一份状态，其中一项是"当前所有者队列"（`ResourceState.h:24`）。上传时 copy 队列对整个 buffer 发
@@ -198,10 +235,7 @@ Vulkan 里这三项都是可选的，DX12 全部支持：
 **检查在 `RenderSystem` 的初始化里**，拿到设备之后：缺任何一项就打错误日志（点名哪一项）并返回失败，和它前后的
 其他初始化检查同一个写法。能力位由 RHI 如实报告，拒绝运行是渲染层的决定；直接用 RHI 的示例不经过这里。
 
-### D4　几何数据放进共享 buffer：租约，和 Binding 系统同一个形状　✅ 已定
-
-> 2026-10-06：这一项与步骤 3 正在按 `TODO_BufferPoolPlan.md` 重新讨论（由 `BufferPool` 在一个原生 buffer 内分配，
-> 上层不再自己分配与回收）。那份计划定下来之前，下面的内容保持原样，定下来之后改写。
+### D4　几何数据放进同一个原生 buffer：池来分配，渲染层的几何系统持有池　✅ 已定（2026-10-06 重写）
 
 记录里不能换 VB / IB，所以一个 batch 要合成一次调用，它的 draw 必须共用缓冲，靠 `firstIndex` / `vertexOffset` 区分。
 
@@ -209,101 +243,105 @@ Vulkan 里这三项都是可选的，DX12 全部支持：
 VB / IB 的绑定单位是 buffer 对象（Vulkan 是 `VkBuffer` + 偏移，DX12 是一个资源的地址范围），两个独立对象即使在
 heap 里相邻也合不成一次调用。
 
+**怎么放进同一个原生 buffer** 由 `TODO_BufferPoolPlan.md` 定下并已实现（它的步骤 1）：带预算的 `BufferPool` 初始化时建一个
+原生 buffer，之后从它申请的每个 `RHI::Buffer` 是其中的一段；对齐、延迟回收、放不下时的报错都在池里。本节只写渲染层怎么用它。
+
 **方向（已定）**
 
-- **它是又一个 Binding 系统。** 和 `g_Instances`、`g_Materials` 一样：都是往 GPU 送大量同一类数据、放进一个大 buffer。
-  系统扫描带 Mesh 数据的实体，统一分配，给它挂上租约。
-- **共享 buffer 是这个系统持有的一个普通资源实体**，实体和原生对象一对一。
-- **Mesh 拿到的是租约**（共享 buffer 里的一段），不是一个属于自己的 buffer。租约归还靠它自己析构，同 `SlotRef`。
-  每份租约是 RHIContext 里的一个实体，世界侧照旧持有它的 `RHIHandle`（见下"区间实体与分段上传"）。
-- **Mesh 只填申请信息。** 它不知道自己和谁共用一块，也不知道会被 direct 还是 indirect 画。
-- **RHI 保持两个 API 的原生语义。** 一个 `RHI::Buffer` 就是一个原生的 buffer 对象；`BufferPool` 只管分配策略，
-  不为这件事加任何东西。
+- **渲染层的几何系统持有这个池，替 Mesh 申请。** Mesh 模块只描述引用了哪个网格资源（`MeshComponent`），不碰 RHIContext，
+  不知道自己和谁共用一块，也不知道会被 direct 还是 indirect 画。`MeshGPUComponent` 删掉，`MeshSystem` 只剩填统计数字。
+- **一个网格仍是两个 `RHI::Buffer`、RHIContext 里两个资源实体**（顶点、索引），各带 `Components::Buffer`、`StaticImportTag`
+  与静态 attachment，和现在一样，变的只有它们从哪个池来。所以**上传系统、渲染图、`DrawItemRouter` 都不用改**：
+  `PendingBufferUpload` 打在 buffer 实体上，fence 盖在它上面，`DrawItem` 的 view 指向这个 `RHI::Buffer`，
+  它在原生 buffer 里的偏移由后端自己加。
+- **顶点与索引放同一个池、同一个原生 buffer**，各自按 BufferPool 计划 D2 填 `m_alignment`（顶点填步长，索引填索引大小）。
+  一个 buffer 在原生 buffer 里的偏移除以元素大小，就是记录里的 `vertexOffset` / `firstIndex`（步骤 4 用）。
+- **池是图形独占的**（BufferPool 计划 D6），mesh buffer 的掩码从步骤 2 的"图形与 copy 两位"改回只有图形一位。
+  上传走独占路径：copy 队列接手、释放，图形队列等 fence 后接回，每个 buffer 各走一遍。
+  - 按代码读，这三条屏障都是换队列的（新 buffer 的状态里队列默认是 Graphics），DX12 后端按 BufferPool 计划 D3 丢弃、
+    状态照常更新，碰不到"同一队列内带写"的断言。没有跑过。
+  - 改回去之后，步骤 2 的共享路径在引擎本体里暂时没人走，只剩示例 `IndirectDispatch` 打开 `kArgsOnComputeQueue` 时。
+  - 独占路径的旧问题重新适用于网格：上传线程发屏障时写 buffer 的状态，渲染图在主线程读。步骤 2 之前所有网格一直是
+    这个情况，没有观察到出过事，记在 §六 `PendingSync` 一条里。
+- **buffer 由几何系统直接建**，不经过 `PendingBufferInit` 与 `RHIResourceSystem`：建对象、设名字、从自己的池初始化、
+  建实体挂组件，这几行在几何系统里手写（用户 2026-10-06 定，不放进 `ResourceBuilder.h`）。
+- `InstanceIDBuffer` 不动，仍然走 `RHIResourceSystem`。
 
-仓库里已有的"只用资源的一部分"都是这个形状：资源是一个实体、由系统持有，使用方持有寻址数据——`g_Instances` /
-`g_Materials` 的槽位、阴影 atlas 的 tile（`View::m_rect`）、ShadowMask 的 slice 与通道、image 的 view（资源实体上的 cache）。
-`GeometrySpec` 的顶点流也已经是"handle + 区间"。
+**几何系统的形状（已定）**
 
-**否掉的做法**
+- `RenderSystem` 持有的一个普通 helper，同各 Binding 系统。在 `InstanceBindingSystem` 之前更新：实例槽位只发给带几何的实体。
+- 每帧扫描带 `MeshComponent`、还没有几何的世界实体：查资产，建两个 buffer，提交上传，把结果存进世界实体上一个
+  渲染层的组件 `MeshGeometry`。组件里有：
+  - 两个 buffer 实体的句柄，各包在一个 `UniqueRHIHandle` 里（见"释放"），它管所有权；
+  - 索引格式、各项计数与字节数，即现在 `MeshGPUComponent` 的内容去掉输入布局（它没有任何读者，各 pass 的输入布局是写死的）；
+  - 建它时用的（资产 id，mesh 序号，primitive 序号），用来发现 `MeshComponent` 改了指向。
+- `InstanceBindingSystem` 与 `MeshGeometryComposer` 从读 `MeshGPUComponent` 改成读这个组件。
+- 仓库里同形状的是 `MaterialOverrideRef` 与 `SyncOverrideMaterials`：渲染层扫描世界实体，把自己建的东西的句柄挂回去。
 
-- 渲染层另立"几何池"，Mesh 持有池的句柄：把分配做成了一个新概念。
-- `BufferPool` 在 buffer 对象内再分配：把使用场景带进了 `BufferPool`，还要把资源状态从 `RHI::Buffer` 挪到底层对象上。
-- 多个实体各带一个指向同一 `RHI::Buffer` 的 `Components::Buffer` 与各自的静态 attachment：它们看起来都是资源，
-  实体与原生对象变成多对一，"每个对象只做一次"的事要按对象去重。定下来的做法（见下）区间实体带的是另一个组件。
-- 区间实体引用"持有共享 buffer 的实体"：实体引用实体，不要。
-- 把上传请求做成列表组件挂在共享 buffer 的实体上：每一段的 fence 与就绪状态没有地方放。
+**就绪（已定）**
 
-**和现有 Binding 系统不同、需要解决的地方**
+- 图形队列在 GPU 上等每个 buffer 自己的上传 fence（`CompileStaticResourceBarriers`），不变。
+- **compose 要多等一步：两个 buffer 实体都没有 `UploadPendingTag`**（即 `IsResourceReady`），也就是上传已经提交、
+  fence 已经盖上。现在 `MeshGeometryComposer` 只看 buffer 对象在不在，从"对象建好"到"上传提交"之间的几帧里
+  `DrawItem` 已经在画、而渲染图还没有 fence 可等（静态屏障那条路在这段时间按 `IsResourceReady` 跳过它）。
+  独立 buffer 时读到的是新分配的内存，一般看不出来；进了池之后那一段可能是刚回收的，会把上一个网格的数据画出来。
+  这是读代码得出的，没有观察过。
 
-- **变长。** mesh 大小各不相同，租的是连续的一串而不是一个槽位。空闲表要支持切分与相邻合并；mesh 数量是千这个量级，
-  按偏移排序的空闲表加首次适配就够。
-- **回收后不能马上复用。** 已提交、GPU 还没执行完的帧可能还在画那段数据。归还的区间先等 `m_frameCountMax` 帧再回到
-  空闲表，与现有释放队列的延迟一致。`SlotPool` 不需要这一步，因为实例数据每帧整块重写。
-- **不是每帧整块重传。** 现有 Binding 系统是 host 可见的 buffer、每帧重传；几何数据大、只传一次、要放显存。
-  上传按 D12：copy 队列直接写租约的那一段。
-- **就绪跟着租约走。** 一段在上传的 fence 完成后才算就绪，就绪了才出 `DrawItem`。
-- **只有上传会写这个 buffer**（D12 的"一个写者"）。以后 compute 写的动态几何（蒙皮输出）要另开一个 buffer。
-- **不缩容，也不整理碎片。** 总空闲够、但没有一段连续的够用时，第一版按溢出处理。
+**释放（已定）**
 
-**按元素分配（已定）**
+- **句柄包成一个 RAII 对象，`MeshGeometry` 持有它**（用户 2026-10-06 定）。`UniqueRHIHandle`（`RHI/Context/`）只能移动，
+  析构时给它的实体打 `DeadTag`。组件被移除、世界实体被销毁、世界被清空都是同一条路，整条链是自动的：
+  `MeshGeometry` 析构 → buffer 实体打上 `DeadTag` → `DrawItemRouter` 级联回收 `GeometrySpec` 与 `DrawItem`，
+  `RHIHandleClearSystem` 在这一 tick 末销毁实体 → buffer 析构时回到池 → 那一段等 `m_frameCountMax` 帧后才能再分出去。
+  - 打 `DeadTag` 而不是直接销毁：`DrawItemRouter` 靠 buffer 实体上的 `DeadTag` 发现依赖没了。
+  - 析构函数会碰 RHIContext。`HandlePool` 的约定是析构时只写自己的内存（析构可能发生在任何 context 拆除的过程中），
+    这里放宽了：析构里先确认当前有 RHIContext、句柄仍然有效，否则什么都不做。仓库里的先例是
+    `MaterialBindingSystem::OnEntityDestory`，它在世界销毁实体的过程中给另一个 context 的实体打 `DeadTag`。
+  - 换掉的写法：几何句柄用 `SharedHandle`（`SlotRef` 那一套），几何系统一张表记每个 id 对应的两个 buffer 实体，
+    句柄析构时记下 id、下一次更新时排空。它为"析构时通知一下"带来了一个 id 空间、一张表和一次排空；
+    当时的理由"这个 id 就是 `g_Geometries` 的槽位"不成立，`GlobalBuffer` 自己会给带源组件的实体发槽位。
+  - 也没有选 `MaterialOverrideRef` 的做法（每帧扫描"有引用、没有源组件"的实体，再接 `EntityEventBus::OnEntityDestory`
+    处理实体销毁）：两套机制，靠观察到销毁。
+- **`MeshComponent` 被移除而实体还在**：每帧扫描"有 `MeshGeometry`、没有 `MeshComponent`"的实体，移除 `MeshGeometry`。
+- **`MeshComponent` 改了指向**：每帧拿组件里存的三项和 `MeshComponent` 比对，不一样就换掉 `MeshGeometry`，并摘掉
+  `WorldComposedTag` 让它重新 compose。不依赖组件事件。
+  - 现状（读代码得出，没有观察过）：编辑 `MeshComponent` 后旧 buffer 被标记销毁，`GeometrySpec` 被级联回收，
+    但 `WorldComposedTag` 没人摘，所以不会重新生成，物体应当会消失。这里顺带修掉。
+- **关闭顺序**（BufferPool 计划 D6 的持有者责任）：先清掉世界上的 `MeshGeometry`，再把从自己的池里申请的 buffer 实体
+  直接销毁，最后关池。
+  - 直接销毁而不是等 `DeadTag`：关闭之后没有 tick 来回收。
+  - 找这些实体不用列表也不用标签：遍历 `Components::Buffer`，取 `GetPool()` 是自己的池的那些。
+  - `DrawItem` 里的 view 持的是裸指针，持有 buffer 引用的只有 `Components::Buffer` 与 view 缓存。
+  - 排在 `RenderGraph::Shutdown` 之后，它会等 GPU 空闲。
 
-顶点放一个数组（元素是 48 字节的顶点），索引放另一个数组（元素是 `uint32`），是两个 buffer。mesh 租的是"连续的
-一串元素"，一个 mesh 两份租约：一串顶点、一串索引。租约的起点直接就是记录里的 `vertexOffset` / `firstIndex`，
-不需要对齐处理；`SlotPool` 只是从"租一个"推广到"租一串"。以后每种顶点布局（vertex factory）一个顶点数组，
-索引数组共用。没有选按字节分配：那样可以合成一个 buffer，但偏移要按 stride / 4 对齐才能换算成记录里的单位。
+**容量（已定）**
 
-**容量分三版放开（已定）**
-
-显存是创建时就占用的，定大了浪费、定小了不够。后一版不推翻前一版：
-
-| 版本 | 做法 | 共享 buffer 的个数 | 归属 |
-|---|---|---|---|
-| 一 | 固定容量，一个可配的常量；溢出时报错并丢弃，同 `GlobalBuffer` | 1 | 本计划 |
-| 二 | 容量不够时搬迁扩容：开一对更大的，把旧内容拷过去，切换 | 1 | 本计划之后 |
-| 三 | 长到上限后开第二个；超过阈值的大 mesh 独占一个 | 大于 1 | I5 做出多 bucket 之后 |
-
-- 本计划只做第一版。它和现有 Binding 系统完全一致，不需要新机制。
-- 第二版新增三件事：旧 buffer 的内容拷到新 buffer；切换时重烘所有 `DrawItem`（租约存的是偏移，不用变）；旧 buffer 等
-  在途的帧用完再释放。按 D12，拷贝期间图形队列照常读旧 buffer。
-- 第三版才让 bucket 大于 1（所在 buffer 是 batch key 的一部分）。
-- 没有选"一堆固定大小的小页"：它直接增加 buffer 的个数，而减少 buffer 切换正是做这件事的目的。
-- 这是成熟做法。Bevy 的网格分配器是同一个形状：顶点与索引各自一套共享 buffer，从 1 MiB 起、满了重新分配并拷贝
-  （每次 1.5 倍）、到 512 MiB 上限后再开新的、超过 256 MiB 的 mesh 独占一个，分配按批提交、建议每帧最多一批
-  （bevy PR #14257 与 `SlabAllocatorSettings` 的文档，2026-10-05 核对）。
+- 池的预算是几何系统里一个可配的常量，建池时定死。现在没有数据：几何系统累加自己申请过的字节数、打一行日志
+  （不需要池的统计查询），用户加载最大的场景跑一次，按实际用量的两倍左右取。
+- 待回收的段仍算已用：删掉一批物体后立刻加载新的，那几帧里新旧两份同时占着容量，余量要覆盖它。
+- **放不下时**池会报错（写出空闲总量与最大的一段连续空闲）。这个实体没有几何，几何系统记下来、不每帧重试，
+  免得日志刷屏。不退回独立的 buffer（BufferPool 计划 D5）。
+- 以后怎么增长这次不预设，见 BufferPool 计划 D5 与 §八。原来设想过的两版留作记录：搬迁扩容（开一个更大的、把旧内容
+  拷过去、切换）；长到上限后开第二个、超过阈值的大 mesh 独占一个。Bevy 的网格分配器是后一种形状（从 1 MiB 起、
+  满了按 1.5 倍重新分配并拷贝、到 512 MiB 上限后再开新的、超过 256 MiB 的 mesh 独占，bevy PR #14257，2026-10-05 核对）。
+  多于一个原生 buffer 之后 indirect 要按它分组，那是 I5 的 bucket 做出来之后的事。
 - 没有选稀疏资源（预留大 buffer、按需绑定物理内存）：在 Vulkan 上是可选特性。
 
-**区间实体与分段上传（已定）**
+**使用方要守的**（BufferPool 计划 D3）：只有上传会写这个池里的 buffer。GPU 会写的几何（以后的蒙皮输出）不能进这个池，
+仍然一个 buffer 一个原生对象。
 
-一个资源会有多个上传，是以后的主要路径（image 的子资源上传是同一件事）。做法：**谁要上传，上传组件就打在谁身上。**
+**换掉的写法**（2026-10-05 定，2026-10-06 换掉）：渲染层自己持有一个共享 buffer，在里面做变长分配与延迟回收——
+Mesh 拿租约，每份租约是 RHIContext 里一个带"区间组件"的实体，上传系统按区间找目标与基偏移，顶点与索引各一个数组、
+按元素分配，就绪跟着租约的 fence 走。换掉的原因：分配与延迟回收是 RHI 这一层的事，池应当真的管理内存，
+而不是上层在它旁边再做一套。当时否掉"`BufferPool` 在 buffer 对象内再分配"的两条理由也都不成立，见 BufferPool 计划 §七。
 
-- 每一段是 RHIContext 里的一个实体，带一个**区间组件**：`Ptr<RHI::Buffer>` + 字节偏移 + 字节数。引用的是 RHI 对象，
-  不是别的实体。`RHI::DrawItem` 里的 view 本来就是这样持有 buffer 的。
-- 共享 buffer 本身仍是几何系统持有的普通资源实体，带 `Components::Buffer` 与静态 attachment，和原生对象一对一。
-  区间实体不带这些，按实体遍历资源的系统看不到它们。
-- 和现在单个 buffer 是同一个状态机，只有"物化"不同：
+**`g_Geometries` 表挪到步骤 5**（第一个读它的是剔除 shader）。稳定槽位的 `GlobalBuffer`，每个几何一行，
+`{ firstIndex, indexCount, vertexOffset, bucket, 局部 AABB 的中心与半长 }`；`MeshGeometry` 是它的源组件，槽位由 `GlobalBuffer` 发，
+前三项由 buffer 在原生 buffer 里的偏移换算，要用 BufferPool 计划 D7 的接口。`InstanceData` 用 padding 加一个
+`m_geometryIndex`，仍是 208 字节。它也是 I9（P7 命中点着色）要的"几何记录表"的起点。
 
-  | | 现在 | 分段 |
-  |---|---|---|
-  | 申请 | 实体带 `PendingBufferInit` | 实体带一个"要一段"的申请 |
-  | 物化 | `RHIResourceSystem` 建 buffer，挂 `Components::Buffer` | 几何系统在固定的那一处分配，挂区间组件 |
-  | 上传 | `PendingBufferUpload` 写进自己的 buffer | `PendingBufferUpload` 写进区间指向的那一段 |
-  | 提交后 | 实体上盖 `PendingSync` | 同样盖在这个实体上，就是这一段的 fence |
-  | 就绪 | 没有 `UploadPendingTag` | 没有 `UploadPendingTag`，且 fence 已完成 |
-
-- 上传系统的规则：**上传到这个实体所描述的范围；自己拥有整个 buffer 的实体，范围就是整个 buffer。** 现有行为是特例。
-- 区间组件定义在 RHI 的组件层（上传系统在 RHI 层），只是数据，描述的是原生 API 每个绑定调用都在用的
-  "buffer + 偏移 + 大小"。
-- 拿 handle 取 buffer 的地方（烘 `DrawItem`、上传、就绪判断）走同一个解析函数，返回 buffer、基偏移、字节数。
-- 就绪判断要看 fence：共享 buffer 一直是稳定状态，渲染图不会替某一段去等。
-- 第二版搬迁扩容时，几何系统把所有区间组件里的指针换成新 buffer，与重烘 `DrawItem` 是同一趟遍历。
-- image 以后用同一个形状：实体持有 `Ptr<RHI::Image>` 加子资源范围，`PendingImageUpload` 打在它上面。这次不做。
-
-**`g_Geometries` 表**（稳定槽位，`GlobalBuffer`）：每个几何一行，`{ firstIndex, indexCount, vertexOffset, bucket,
-局部 AABB 的中心与半长 }`，前三项来自租约。`InstanceData` 用 padding 加一个 `m_geometryIndex`，仍是 208 字节。
-它是同一个系统的另一个槽位，也是 I9（P7 命中点着色）要的"几何记录表"的起点。
-
-**去重不在本计划内。** 现在每个世界实体各传一份几何（`MeshSystem.cpp:137`）。以后 Mesh 会像 Material 一样放进
-独立的 Context 当实体，世界实体共享的是它的句柄，自然去重。
+**去重不在本计划内。** 现在每个世界实体各传一份几何。以后 Mesh 会像 Material 一样放进独立的 Context 当实体，
+世界实体共享的是它的句柄，自然去重；到时持有 `MeshGeometry` 的是那个 Mesh 实体。
 
 D5 已撤销：实例身份的做法不变，不构成一项决策，内容并入 D8。后面的编号不动。
 
@@ -320,7 +358,8 @@ D5 已撤销：实例身份的做法不变，不构成一项决策，内容并�
   - **槽位被释放。** `SlotPool::Free` 只记下 id（`HandlePool.h:42` 的约定），`GlobalBuffer::Update` 在分配新槽位
     之前排空，把 staging 里那一条清零。staging 整块上传，不需要别的通知途径。
   - **实体带 `DeadTag` 但还没销毁。** 编码的 view 排除它（`GlobalBuffer.h:83`），它还握着槽位，旧记录要清掉。
-  - **几何还没就绪**（D4：这一段的 fence 未完成）。
+  - **几何还没就绪**（D4"就绪"：两个 buffer 实体还有 `UploadPendingTag`，上传没提交）。上传提交之后、fence 完成之前
+    不用写 0，图形队列会在 GPU 上等。
 - mask 由 `InstanceBindingSystem` 编码时写。分类要和 CPU 路径打 tag 用同一个来源，否则两条路径画的集合会不一样。
 - tag 与位的对应定义在 D7 的共享头里。只走 CPU 路径的分类（以后的半透明）不占位。
 - 回收延迟不需要：一帧内剔除与绘制读的是同一份副本。跨帧的 GPU 状态出现时再加
@@ -405,10 +444,12 @@ count buffer 每帧要清零。没有 buffer 的 clear 操作，由剔除 pass �
   `s.IndirectArguments(name)` 底下的同一个函数。
 - **CPU 提交路径一直在，不随 GPU 路径做完而清理。** 走它的有：Scope 自己声明的 item
   （全屏三角形、Skybox 这类 `NoInstanceBinding` 的 draw）；P5 的 Translucency（要排序）；运行时开关关掉的时候
-  （§五的验证靠两条路对照）。实体上持久的 `RHI::DrawItem` 因此保留，步骤 3 之后它的 view 指向共享 buffer。
+  （§五的验证靠两条路对照）。实体上持久的 `RHI::DrawItem` 因此保留，步骤 3 之后它的 view 指向的 `RHI::Buffer`
+  是池的原生 buffer 里的一段。
   GPU 路径打开时，被 indirect 画的物体的 `DrawItem` 是闲置的；让它们不生成是以后的小优化。
 - **lowering**：`CompileScopeSubmitRanges` 对 GPU 路径的集合，在每个视图句柄之后追加一个 per-frame 的
-  item 实体，带 indirect 的 `RHI::DrawItem`（VB / IB = 几何所在的 buffer 对象 + ID 流；参数 = 该视图的段）。
+  item 实体，带 indirect 的 `RHI::DrawItem`（VB / IB = 几何所在的原生 buffer + ID 流；参数 = 该视图的段）。
+  绑定整个原生 buffer 要用 `TODO_BufferPoolPlan.md` D7 的接口（一个 buffer 落在哪个原生 buffer 上、偏移多少），步骤 4 定。
   **executer 不改**：`SubmitItem` → `CommandList::Submit(DrawItem)` 已经是这个形状。
 
 ### D10　与 I5（多 PSO）的关系　已撤销，改为说明
@@ -484,8 +525,8 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 | 位置 | 改之前 | 改之后 |
 |---|---|---|
 | 上传前后的屏障（`AsyncUploadSystem` 的 `ProcessBatch`、`SubmitBatch`） | 每个目标 buffer 发接手和释放两条 | 共享模式的 buffer 两条都不发；独占的保持 |
-| 上传前等读者（`SubmitBatch`） | 实体上的 `PendingSync` 没完成就推迟 | 不变；新的区间实体自己没有 `PendingSync`，所以写不相交的段时不会等 |
-| 上传后盖 `PendingSync`（`SubmitBatch`） | 盖在带上传组件的实体上，它就是 buffer 实体 | 不变；按段上传时那个实体是区间实体（D4），fence 自然落在这一段上 |
+| 上传前等读者（`SubmitBatch`） | 实体上的 `PendingSync` 没完成就推迟 | 不变 |
+| 上传后盖 `PendingSync`（`SubmitBatch`） | 盖在带上传组件的实体上，它就是 buffer 实体 | 不变 |
 | 静态 buffer 要不要等（`CompileStaticResourceBarriers`） | 状态里的队列不是自己才等 | 共享模式：身上有 fence 且没完成就等，判断放在"已是稳定状态"的提前返回之前；独占的保持 |
 | 静态 buffer 的屏障（同上） | 一条跨队列屏障 | 代码没有改：共享模式的状态不再被翻到 Copy，生成出来的自然是队列内的一条 |
 | 导入的 buffer 被某个队列首次使用（`CompileExternalWaits`） | 状态里的队列不是自己才等 | 共享模式：身上有 fence 且没完成就等；独占的保持 |
@@ -512,13 +553,14 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 一次 `ExecuteCommandLists` 里的第一次访问可以不带屏障；执行器在每次等 fence 之前都先把已录的命令提交掉，所以一个队列
 等完之后的访问一定是新一次提交里的第一次访问。图内创建的 buffer 掩码默认是 `All`，这条规则对它们全都生效。
 
-按段上传不发屏障之后，buffer 的状态（发屏障时才更新）一直停在图形队列的顶点 / 索引读，渲染图每帧看到的是稳定状态。
-
 **使用方的契约**（原生 API 同样不替你保证）：同一时刻只有一个队列写这个 buffer；读的字节与正在写的字节不相交；
-写完的字节等 fence 之后才读。几何 buffer 由租约保证后两条（D4）。
+写完的字节等 fence 之后才读。
 
-**对几何上传的含义**：共享 buffer 用共享模式创建（`m_sharedQueueMask` 带图形与 copy 两位）；copy 队列直接往租约的
-那一段拷贝，不发屏障；那一段在 fence 完成后就绪。
+**对几何上传的含义**（2026-10-06 改写，原来的写法作废）：这一节原来定的是"几何的共享 buffer 用共享模式创建，copy 队列
+直接往租约的那一段拷贝"。它依据的理解是"独占模式要对整个原生对象交接所有权"，这是错的——Vulkan 的所有权按 buffer 的
+区间算（`TODO_BufferPoolPlan.md` §三）。现在几何的池是图形独占的（D4），每个 `RHI::Buffer` 各自走独占路径，
+本节纠正的共享路径它用不到。上面的契约对同一个原生 buffer 里的各段仍然成立，由两样东西保证：每个 buffer 等自己的
+上传 fence；一段被释放后等 `m_frameCountMax` 帧才会再分出去（池的延迟回收）。
 
 **没有覆盖的**
 
@@ -527,7 +569,7 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
   这次不处理。
 - DX12 规范有一句"对同一资源的连续写必须用屏障刷新"。一批上传里往同一个 buffer 拷多段是否算，读不出确定答案；
   按惯例这是合法的常规用法。步骤 2 没有碰到这个情况：一批里一个 buffer 只有一次拷贝，数据跨 staging 包时拆出的几次
-  拷贝分在不同的提交里。步骤 3 按段上传时才会出现，到时用 debug layer 与 GPU-based validation 确认。
+  拷贝分在不同的提交里。步骤 3 几何进了同一个原生 buffer 才会出现（一批里上传多个网格），到时用 debug layer 确认。
 
 ---
 
@@ -567,14 +609,20 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 与原计划的出入：原计划是"按 D12 的表改五处"，实际表里有两处要补（见 D12"等待的判断为什么要改"）；原计划以为换队列
 那一处验证不了，实际可以用示例覆盖。
 
-### 3　几何租约
+### 3　几何进同一个原生 buffer
 
-1. 区间组件与解析函数；`AsyncUploadSystem` 按区间找目标与基偏移；就绪判断加上 fence。
-2. 几何的 Binding 系统：固定容量的共享 buffer（顶点、索引各一个）、变长的租约分配、延迟回收。
-3. `g_Geometries`、`InstanceData::m_geometryIndex`，HLSL 镜像同步。
-4. `MeshSystem` 改为只提交申请；`DrawItemRouter` 烘 `DrawItem` 时 view 指向共享 buffer，租约换算成
-   `firstIndex` / `vertexOffset`。
-5. 仍走 CPU 提交。画面应与改动前完全一致。
+前提是 `TODO_BufferPoolPlan.md` 的步骤 1（池在一个原生 buffer 内分配，已完成）。按 D4：
+
+1. 几何系统接管申请与上传：持有图形独占、带预算的池；扫描带 `MeshComponent` 的世界实体，建两个 buffer 并提交上传，
+   结果存进世界实体上的几何组件。`InstanceBindingSystem` 与 `MeshGeometryComposer` 改读它；compose 等到两个 buffer
+   没有 `UploadPendingTag`。`MeshGPUComponent` 删掉，`MeshSystem` 只剩填统计数字、不再碰 RHIContext。
+   释放也在这一小步：`UniqueRHIHandle`，以及关闭顺序。
+   这一小步结束时仍走 CPU 提交，画面应与改动前完全一致。
+2. 变更：`MeshComponent` 被移除而实体还在、改了指向时的处理。
+3. 容量：累加申请字节数的日志，放不下时不每帧重试；按用户跑出来的用量定常量。
+
+`DrawItem` 仍是每个网格绑自己的 `RHI::Buffer`、偏移为 0；换算成 `firstIndex` / `vertexOffset`、绑定整个原生 buffer
+是步骤 4 的事。`g_Geometries` 与 `InstanceData::m_geometryIndex` 在步骤 5。
 
 ### 4　indirect draw，CPU 填参数
 
@@ -586,9 +634,10 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 ### 5　compute 视锥剔除
 
-1. `InstanceCulling` pass 与 shader，按 D7 输出；参数 buffer 的生产者从 CPU 换成它。
-2. D8 的压缩（原子追加 + count buffer），以及每帧清零 count 的那个 Scope。
-3. 更新路线图：帧结构里 `GPU Culling` 一行、I11 的状态。
+1. `g_Geometries`（源组件是 D4 的 `MeshGeometry`）、`InstanceData::m_geometryIndex`，HLSL 镜像同步。
+2. `InstanceCulling` pass 与 shader，按 D7 输出；参数 buffer 的生产者从 CPU 换成它。
+3. D8 的压缩（原子追加 + count buffer），以及每帧清零 count 的那个 Scope。
+4. 更新路线图：帧结构里 `GPU Culling` 一行、I11 的状态。
 
 ---
 
@@ -602,8 +651,11 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
   亮带，debug layer 无报错。
 - **步骤 2**：画面与改动前一致；加载场景、流式加入物体时 debug layer 无报错；`IndirectDispatch` 的
   `kArgsOnComputeQueue` 开关两边画面一致、debug layer 无报错。GPU-based validation 没有跑。实际跑了什么见"状态"一节。
-- **步骤 3**：画面与改动前一致；抓帧里所有 mesh 的 VB / IB 落在共享 buffer 上；删掉实体后那一段被回收、再加载不增长；
-  运行中加载新 mesh 的那几帧，已有物体照常画、validation 无报错。
+- **步骤 3**：画面与改动前一致；抓帧里所有 mesh 的 VB / IB 落在同一个原生 buffer 上；删掉实体后那一段被回收、
+  再加载同样的内容不报放不下；编辑一个物体的 `MeshComponent` 后它换成新网格而不是消失；
+  运行中加载新 mesh 的那几帧，已有物体照常画、新物体不闪出别的网格的形状、debug layer 无报错。
+  它同时是这些东西的第一次执行：划出来的 buffer 经过上传系统与渲染图、独占路径的三条屏障被后端丢弃、
+  一次提交里往同一个原生 buffer 拷多段（D12"没有覆盖的"第二条）。
 - **步骤 4**：开关两边画面一致；抓帧里 DepthPre / GBuffer 各一次 `ExecuteIndirect`，Shadow 每个视图一次。
 - **步骤 5**：
   - 开关两边画面一致，包括阴影——**阴影视图要用自己的视锥剔**，主相机转开后投影者不能消失；
@@ -623,9 +675,7 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 ## 六、未决
 
-- **Mesh 怎么表达"我要的是一段几何数据"（D4）。** 它不认识渲染侧的几何系统，申请组件放在哪一层、长什么样，
-  留到实现时定。
-- **共享 buffer 第一版的容量取多少（D4）。** 没有数据，先按现有场景的实际用量取一个宽裕的值。
+- **几何的池的预算取多少（D4）。** 没有数据，做法已定：步骤 3 打一行用量的日志，用户加载最大的场景跑一次，按两倍左右取。
 - **D12"没有覆盖的"两条。** 实现细节已在步骤 2 定下，见 D12。
 - **`PendingSync` 按用途拆开。** 2026-10-06 与用户对过方向，没有定，也不在步骤 2 内。
   - 现状：资源实体上一个 `{fence, value}` 槽位，后盖的覆盖先盖的，同时承担三种关系——
@@ -642,14 +692,19 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
     只是读出来的，没有观察到）；盖章靠每个提交方自觉，静态资源因为不知道哪些被用了只能每帧全盖，逐资源的信息等于一个全局值。
   - 方向：不往这个槽位里加信息，按用途拆成三件各自更简单的事。
     - 上传 → 首次使用：改成 CPU 上判断就绪，上传的 fence 完成前资源不参与渲染。渲染队列不再在 GPU 上等 copy 队列，
-      上面那个不同步也随之消失。D4 给租约定的就是这条规则，这里是把它推广到所有上传的资源。代价是资源晚一两帧出现。
+      上面那个不同步也随之消失。D4 原来给租约定的就是这条规则（重写后 D4 没有采用，仍是 GPU 上等）。代价是资源晚一两帧出现。
     - 使用 → 再次上传：用一个全局的帧 fence（"最后一次可能用到它的那一帧跑完了没有"），与延迟释放队列同一个思路。
     - 渲染图内部：留在渲染图自己的组件里，生产方与使用方都是它自己，不需要跨系统的协议。
   - 没想清楚的：`PendingSync` 的使用方没有全部读过（`UIProcessFeature` 里有一处）；image 上传后还要一条屏障转 layout，
     它怎么配合就绪判断。
-  - 时机：步骤 3 第一小步要写"就绪判断加上 fence"，到那时定它只对租约生效，还是作为所有上传资源的统一规则。
+  - 时机：没有定。原来打算在步骤 3 写"租约的就绪判断加上 fence"时一起定；D4 重写后步骤 3 的就绪仍是 GPU 上等，
+    不再碰这件事。
+  - D4 重写后，网格回到独占路径，上面"两处不同步"那一条重新适用于它们。
 - **`m_drawMask` 的来源（D6）。** 分类 tag 现在打在 RHIContext 的 `GeometrySpec` 实体上，mask 是
   `InstanceBindingSystem` 遍历世界实体时写的；两边怎么共用一个分类来源、几何就绪怎么传到实例编码，留到实现时定。
+- **源组件没了之后实例槽位不归还（D6，步骤 4 要处理）。** `MeshComponent` 被移除而实体还在时，`MeshGeometry` 会被移除
+  （步骤 3），但实体上的 `InstanceSlotRef` 留着：`GlobalBuffer` 只发槽位，不收回源组件已经没了的。CPU 路径下没有后果
+  （`DrawItem` 已被回收）；做 `m_drawMask` 时这个槽位要写 0 或者收回，否则剔除 shader 会把它当成还活着。
 - **`DeadTag` 到销毁之间隔几帧（D6）。** 没有查。它决定"带 `DeadTag` 的实体清零"这一步是必需的还是只是保险。
 - **16 位索引。** 现在资产都是 `UINT32`。一次调用只有一种索引格式，以后引入 16 位索引的话它是 bucket 的又一维。
 - **每视图一个 Scope 还是一次二维 dispatch（D7）。** 阴影 tile 多的时候后者省 dispatch，但要一张"参与的视图下标"表。
@@ -666,9 +721,9 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 | 0 | 删 `RHI/Resource/Buffer/IndirectBuffer{Signature,Layout,View,Writer}.*`、DX12 `Resource/Buffer/IndirectBufferSignature.*`；`RHI/Command/IndirectArguments.h`、`DrawArguments.h`、`DispatchItem.h`；`RHI/Factory.h`、`ID3D12Factory.{h,cpp}`；DX12 `Command/CommandList.{h,cpp}`、`Device/Device.{h,cpp}`；`RHI/Device/DeviceFeatures.h`；Vulkan `PhysicalDevice.{h,cpp}`；两个 CMake；新建 `RHI/Command/IndirectCommands.h`、`SandBox/Program/RHI/IndirectDraw.cpp`，`SandBox/Program/CMakeLists.txt` |
 | 1 | `RenderGraph/PassScopes.{h,cpp}`、`RenderGraphBuilder.{h,cpp}`、`RenderGraphCompiler.{h,cpp}`、`RenderGraph.cpp`、`RenderGraphExecuter.cpp`（注释）；`Pass/Component/ScopeComponents.h`（`ItemIndirectArguments`）；新建 `SandBox/Program/RenderGraph/IndirectDispatchFeature.{h,cpp}`、`SandBox/Asset/Shader/IndirectDispatch{Args,Pattern}.hlsl`，`SandBox/Program/CMakeLists.txt`；`Test/Render/RenderGraphResolveTest.cpp`、新建 `Test/Render/BufferAccessTest.cpp`，`Test/Render/CMakeLists.txt` |
 | 2 | `RHI/System/AsyncUploadSystem.{h,cpp}`；`RHI/HardwareQueue.h`（`IsExclusiveQueueMask`）；`RHI/Component/Component.h`（注释）；`Render/RenderGraph/RenderGraphCompiler.{h,cpp}`（静态 buffer 的等待、导入 buffer 的等待、逐 Scope 的 buffer 访问）；`Feature/Mesh/MeshSystem.cpp`（VB / IB 的掩码）；`SandBox/Program/RenderGraph/IndirectDispatchFeature.cpp`（`kArgsOnComputeQueue`） |
-| 3 | `RHI/Component/Component.h`（区间组件）、`RHI/ResourceBuilder.h`（解析函数）、`RHI/System/AsyncUploadSystem.cpp`（目标与基偏移）、`RHI/System/RHIResourceSystem.cpp`（关闭时清理区间组件）；`Render/RenderGraph/RenderGraphUtils.h`（就绪判断）；新建 `Render/Binding/Geometry/`（系统、租约、变长分配、`g_Geometries`）；`Feature/Mesh/Components.h`、`MeshSystem.cpp`；`Render/Drawable/MeshGeometryComposer.cpp`、`DrawItemRouter.cpp`；`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`。`RHI::Buffer` 与 `BufferPool` 不动 |
+| 3 | 新建 `Render/Geometry/MeshGeometry.h`、`MeshGeometrySystem.{h,cpp}`，`RHI/Context/UniqueRHIHandle.h`；`Render/CMakeLists.txt`；`Render/RenderSystem.{h,cpp}`（持有、更新顺序、关闭顺序）；`Feature/Mesh/Components.h`（删 `MeshGPUComponent`）、`MeshSystem.{h,cpp}`；`Render/Drawable/MeshGeometryComposer.cpp`；`Render/Binding/Instance/InstanceBindingSystem.{h,cpp}`；`Feature/Skybox/Components.h`（一处提到 `MeshGPUComponent` 的注释）。RHI、上传系统、渲染图、`DrawItemRouter` 不动 |
 | 4 | 新建 `Render/Feature/SceneDraws/SceneDraws.{h,cpp}`；`Binding/SlotPool.h`、`GlobalBuffer.h`（排空释放的槽位并清零）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`PassScopes.h`（`Accepts<Tags>()` 记下 mask 位）、`RenderGraphBuilder.{h,cpp}`（路径选择）；`RenderGraphCompiler.cpp`（lowering）。三个 pass 的文件不动 |
-| 5 | 新建 `Render/Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`；`RenderSystem.cpp` 的注册；`TODO_RenderPipelineRoadmap.md` |
+| 5 | 新建 `Render/Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`；`g_Geometries`（几何系统里）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_geometryIndex`）；`RenderSystem.cpp` 的注册；`TODO_RenderPipelineRoadmap.md` |
 
 ---
 
@@ -678,5 +733,6 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 - `TODO_DrawItemShapePlan.md` —— §二（记录里能放什么）、§五（per-batch PSO）、§六（M / V）、§七（变体索引不放实体上）
 - `TODO_MultiViewPlan.md` —— §三·五：DrawList 按视图分、list 内按 PSO 分段
 - `TODO_RenderGraphItemPlan.md` —— Scope / item 模型；逐 draw 数据走索引查 buffer
-- `TODO_GlobalBufferUploadPlan.md` —— §六 预留的"GPU 侧遍历空洞的有效性信号"由 D6 落地；D4 的租约是它的变长版本
+- `TODO_BufferPoolPlan.md` —— 池在一个原生 buffer 内分配；D4 与步骤 3 建在它上面，步骤 4 要用它的 D7
+- `TODO_GlobalBufferUploadPlan.md` —— §六 预留的"GPU 侧遍历空洞的有效性信号"由 D6 落地
 - `TODO_PerDrawPSOVariant.md` —— I5；D10 的说明里记着它设计时要用的方向

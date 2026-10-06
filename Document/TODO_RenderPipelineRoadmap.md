@@ -28,7 +28,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
 | P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
 | P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现，SSR 已完成、画面已确认：质量受限于屏幕空间，定位是混合反射的第一层；剩 Contact Shadow），见 `TODO_ScreenSpacePlan.md` |
-| I11 | GPU-driven 基础（indirect draw / 几何共用 buffer 对象 / compute 视锥剔除），排在 P5 之前 | 进行中（步骤 0、1、2 完成：RHI 的 indirect 抽象与能力位、渲染图的间接参数与 indirect dispatch、共享模式的 buffer 跨队列只靠 fence），见 `TODO_GPUDrivenPlan.md` |
+| I11 | GPU-driven 基础（indirect draw / 几何共用 buffer 对象 / compute 视锥剔除），排在 P5 之前 | 进行中（步骤 0、1、2 完成：RHI 的 indirect 抽象与能力位、渲染图的间接参数与 indirect dispatch、共享模式的 buffer 跨队列只靠 fence；步骤 3 依赖的"池在一个原生 buffer 内分配"也已完成，见 `TODO_BufferPoolPlan.md`），见 `TODO_GPUDrivenPlan.md` |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
 | P7 | 命中点着色 | 未开始 |
@@ -223,7 +223,7 @@ z=0 并用 `Less`。UE 的 `ConvertFromDeviceZ` 及 TAA、大量屏幕空间 sha
 | I8 | 光追场景：BLAS 跟随 mesh 几何生命周期、TLAS 每帧更新、TLAS InstanceID = InstanceBinding slot；BLAS 的输入不限于静态顶点缓冲，可以是 compute 生成的缓冲（动态 BLAS，对应 `FRayTracingDynamicGeometryUpdate`） | RT 阴影 | P6 |
 | I9 | 几何记录表（instance → 顶点/索引缓冲 bindless 索引、属性布局）+ 命中点着色库 | 主光线调试视图 | P7 |
 | I10 | Vertex Factory（§二契约）：一个 Pass 内按 factory 选 VS 与 InputLayout | 静态网格（接缝），地形/蒙皮（第二用例） | ✅ HLSL 契约 P1；组合机制 P5 |
-| I11 | GPU-driven 基础：RHI 的 indirect 记录只含 draw / dispatch 参数、渲染图的间接参数角色、buffer 跨队列同步按原生语义纠正、几何放进共享 buffer（租约，和 Binding 系统同形；所在 buffer 进 batch key）、几何表 `g_Geometries`（I9 的起点）、compute 视锥剔除 | DepthPre / GBuffer / Shadow 的场景 draw | P4 与 P5 之间（`TODO_GPUDrivenPlan.md`） |
+| I11 | GPU-driven 基础：RHI 的 indirect 记录只含 draw / dispatch 参数、渲染图的间接参数角色、buffer 跨队列同步按原生语义纠正、几何放进同一个原生 buffer（`BufferPool` 在一个原生 buffer 内分配，渲染层的几何系统持有池，见 `TODO_BufferPoolPlan.md`；所在的原生 buffer 进 batch key）、几何表 `g_Geometries`（I9 的起点）、compute 视锥剔除 | DepthPre / GBuffer / Shadow 的场景 draw | P4 与 P5 之间（`TODO_GPUDrivenPlan.md`） |
 
 I7 的现状：`DeviceFeatures::m_rayTracing` 已有，`BufferBindFlags` 已有 AS / ShaderTable / Scratch，**缺 BLAS 构建输入
 的用途位**（Vulkan 要求顶点/索引缓冲创建时带 `ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY` +
