@@ -200,6 +200,9 @@ Vulkan 里这三项都是可选的，DX12 全部支持：
 
 ### D4　几何数据放进共享 buffer：租约，和 Binding 系统同一个形状　✅ 已定
 
+> 2026-10-06：这一项与步骤 3 正在按 `TODO_BufferPoolPlan.md` 重新讨论（由 `BufferPool` 在一个原生 buffer 内分配，
+> 上层不再自己分配与回收）。那份计划定下来之前，下面的内容保持原样，定下来之后改写。
+
 记录里不能换 VB / IB，所以一个 batch 要合成一次调用，它的 draw 必须共用缓冲，靠 `firstIndex` / `vertexOffset` 区分。
 
 要共用的是 **buffer 对象**，不只是内存。现在各个 mesh 的 buffer 共用的是 heap，各自仍是独立的原生对象（§二）。
