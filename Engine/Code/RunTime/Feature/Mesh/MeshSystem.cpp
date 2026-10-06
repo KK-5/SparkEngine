@@ -132,7 +132,7 @@ namespace Spark::Mesh
         RHI::BufferDescriptor vbDesc;
         vbDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
         vbDesc.m_byteCount       = prim.vertexBuffer.size();
-        vbDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
+        vbDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics | RHI::HardwareQueueClassMask::Copy;
 
         const eastl::string vbName = eastl::string("MeshVB_") + idSuffix;
         RHI::RHIHandle vbEntity = RHI::CreateStaticBuffer(*rhiCtx, ObjectName(vbName), vbDesc);
@@ -147,7 +147,7 @@ namespace Spark::Mesh
             RHI::BufferDescriptor ibDesc;
             ibDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
             ibDesc.m_byteCount       = prim.indexBuffer.size();
-            ibDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
+            ibDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics | RHI::HardwareQueueClassMask::Copy;
 
             const eastl::string ibName = eastl::string("MeshIB_") + idSuffix;
             ibEntity = RHI::CreateStaticBuffer(*rhiCtx, ObjectName(ibName), ibDesc);

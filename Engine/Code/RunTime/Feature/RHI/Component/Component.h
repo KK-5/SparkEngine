@@ -71,6 +71,8 @@ namespace Spark::RHI
     //!         // emit cross-queue acquire barrier
     //!     }
     //!     // else same queue — serial execution guarantees happens-before; do nothing.
+    //! A buffer several queues share has no owner in its state and takes no acquire barrier:
+    //! its consumer waits for whatever fence it carries, its own queue's included.
     //!
     //! AddOrReplace is safe across the various producer/consumer interleavings:
     //!  - Cross-queue overwrite: a consumer must have removed the prior PendingSync

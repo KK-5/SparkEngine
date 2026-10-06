@@ -13,11 +13,6 @@ namespace Spark::RHI
 {
     namespace
     {
-        // Single bit → EXCLUSIVE; multi bit → CONCURRENT.
-        bool IsExclusive(HardwareQueueClassMask mask)
-        {
-            return CountBitsSet(static_cast<uint32_t>(mask)) == 1;
-        }
         HardwareQueueClass ResolveHomeQueue(HardwareQueueClassMask mask)
         {
             if (mask == HardwareQueueClassMask::Compute)
@@ -307,7 +302,7 @@ namespace Spark::RHI
             Buffer* target = owning->m_buffer.get();
             const auto& desc  = target->GetDescriptor();
             const auto  mask  = desc.m_sharedQueueMask;
-            const bool  exclusive = IsExclusive(mask);
+            const bool  exclusive = IsExclusiveQueueMask(mask);
             const ResourceState curState = target->GetResourceState();
 
             if (ValidateBufferUpload(ctx, handle, mask, exclusive, curState))
@@ -329,20 +324,22 @@ namespace Spark::RHI
             upload.m_destinationOffset = pending.m_destinationOffset;
             batch.m_bufferUploads.push_back(upload);
 
-            // Release barrier:
-            //  - EXCLUSIVE:  Copy/Write → COMMON, srcQueue=Copy, dstQueue=homeQueue
-            //                (real Vulkan QFOT release half; DX12 lands at COMMON)
-            //  - CONCURRENT: Copy/Write → COMMON, intra-Copy (no QFOT in Vulkan,
-            //                Copy→COMMON in DX12; consumer pulls from there)
-            BufferBarrier barrier;
-            barrier.m_buffer    = target;
-            barrier.m_srcAccess = AccessFlags::TransferWrite;
-            barrier.m_dstAccess = AccessFlags::None;
-            barrier.m_srcStage  = AttachmentStage::Copy;
-            barrier.m_dstStage  = AttachmentStage::Uninitialized;
-            barrier.m_srcQueue  = HardwareQueueClass::Copy;
-            barrier.m_dstQueue  = exclusive ? ResolveHomeQueue(mask) : HardwareQueueClass::Copy;
-            batch.m_bufferReleaseBarriers.push_back(barrier);
+            // An exclusive buffer is handed over: Copy/Write → COMMON, srcQueue=Copy,
+            // dstQueue=homeQueue (the release half of Vulkan's ownership transfer; DX12 lands
+            // at COMMON). A shared one has no owner and a buffer no layout: the fence is all
+            // that orders this write against the other queues.
+            if (exclusive)
+            {
+                BufferBarrier barrier;
+                barrier.m_buffer    = target;
+                barrier.m_srcAccess = AccessFlags::TransferWrite;
+                barrier.m_dstAccess = AccessFlags::None;
+                barrier.m_srcStage  = AttachmentStage::Copy;
+                barrier.m_dstStage  = AttachmentStage::Uninitialized;
+                barrier.m_srcQueue  = HardwareQueueClass::Copy;
+                barrier.m_dstQueue  = ResolveHomeQueue(mask);
+                batch.m_bufferReleaseBarriers.push_back(barrier);
+            }
 
             touchedEntities.push_back(handle);
 
@@ -381,7 +378,7 @@ namespace Spark::RHI
             Image* target = owning->m_image.get();
             const auto& desc  = target->GetDescriptor();
             const auto  mask  = desc.m_sharedQueueMask;
-            const bool  exclusive = IsExclusive(mask);
+            const bool  exclusive = IsExclusiveQueueMask(mask);
             const ResourceState curState = target->GetResourceState();
 
             if (ValidateImageUpload(ctx, handle, mask, exclusive, curState))
@@ -405,7 +402,11 @@ namespace Spark::RHI
             upload.m_sourceFormat      = pending.m_sourceFormat;
             batch.m_imageUploads.push_back(upload);
 
-            // See CompileBufferBarriers's release-barrier comment above.
+            // Release barrier:
+            //  - EXCLUSIVE:  Copy/Write → COMMON, srcQueue=Copy, dstQueue=homeQueue
+            //                (real Vulkan QFOT release half; DX12 lands at COMMON)
+            //  - CONCURRENT: Copy/Write → COMMON, intra-Copy (no QFOT in Vulkan,
+            //                Copy→COMMON in DX12; consumer pulls from there)
             ImageBarrier barrier;
             barrier.m_image     = target;
             barrier.m_srcAccess = AccessFlags::TransferWrite;
@@ -522,19 +523,23 @@ namespace Spark::RHI
             cmdList = packet->m_commandRecorder->GetCommandList();
         };
 
-        // Pre-copy barriers: transition every target into Copy/Write on the copy
-        // queue. ConvertTo* auto-populates src* from the resource's tracked state:
+        // Pre-copy barriers: transition the targets into Copy/Write on the copy queue —
+        // every image, and the buffers one queue owns. A shared buffer takes none (see the
+        // release barrier in SubmitBatch), so its tracked state is never written from this
+        // thread. ConvertTo* auto-populates src* from the resource's tracked state:
         //  - Fresh resource:     {None, Graphics-default, Uninitialized}
-        //  - Re-upload pickup:   buffers only, whatever the prior owner left (e.g.
-        //                        {VertexBuffer, Graphics, VertexInput}) — fence wait was
+        //  - Re-upload pickup:   whatever the prior owner left — fence wait was
         //                        already cleared by SubmitBatch's CPU-side skip-or-proceed
         //                        check, so prior GPU work is guaranteed complete.
         // dstQueue is overridden to Copy. Because the resource's tracked m_queue
         // is rarely Copy in practice, the backend's cross-queue acquire path runs
-        // (DX12: images stay COMMON on the Copy queue; Vulkan CONCURRENT: pipeline
-        // barrier with no QFOT). dstStage pinned to Copy.
+        // (DX12: images stay COMMON on the Copy queue). dstStage pinned to Copy.
         for (const auto& upload : batch.m_bufferUploads)
         {
+            if (!IsExclusiveQueueMask(upload.m_targetBuffer->GetDescriptor().m_sharedQueueMask))
+            {
+                continue;
+            }
             BufferBarrier pre = ConvertToCopyWrite(*upload.m_targetBuffer);
             pre.m_dstQueue = HardwareQueueClass::Copy;
             pre.m_dstStage = AttachmentStage::Copy;

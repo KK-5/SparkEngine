@@ -91,10 +91,10 @@ namespace Spark::RHI
             eastl::vector<ImageUpload>   m_imageUploads;
 
             // Release barriers constructed on the main thread in SubmitBatch.
-            // CONCURRENT targets: intra-Copy Copy/Write → Uninitialized (lands at COMMON).
+            // CONCURRENT images:  intra-Copy Copy/Write → Uninitialized (lands at COMMON).
             // EXCLUSIVE targets:  cross-queue Copy → homeQueue, srcUsage=Copy/Write → Uninit.
+            // CONCURRENT buffers have none.
             // The upload thread flushes them after copies.
-            // Indices align with m_bufferUploads / m_imageUploads respectively.
             eastl::vector<BufferBarrier> m_bufferReleaseBarriers;
             eastl::vector<ImageBarrier>  m_imageReleaseBarriers;
         };

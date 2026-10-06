@@ -40,6 +40,10 @@ namespace Spark::SandBox
         const RHI::AttachmentId kPattern      { "Pattern" };
         const RHI::AttachmentId kSwapChain    { "SwapChain" };
 
+        // On, ArgsPass runs on the Compute queue: the arguments are written on one queue and
+        // read on another.
+        constexpr bool kArgsOnComputeQueue = false;
+
         Ptr<Resource::ShaderAsset> LoadShader(const char* path)
         {
             auto* assetManager = Service<Resource::AssetManager>::Get();
@@ -118,7 +122,7 @@ namespace Spark::SandBox
         auto& passContext = *Render::PassExecuteContext::Current();
 
         SPARK_COMPUTE_PASS(passContext, "ArgsPass")
-            .Queue(RHI::HardwareQueueClass::Graphics)
+            .Queue(kArgsOnComputeQueue ? RHI::HardwareQueueClass::Compute : RHI::HardwareQueueClass::Graphics)
             .ComputeShader(m_argsShader)
             .Binds<Render::ViewBindingTag>()
             .Build([this](Render::ComputePassScopes& p)

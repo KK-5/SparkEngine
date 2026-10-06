@@ -86,7 +86,8 @@ namespace Spark::Render
         //! Put an ExternalWait on the attachment by which each queue first touches an imported
         //! resource that another queue left pending (e.g. an upload on the Copy queue): its
         //! PendingSync, when the fence has not been reached. The queue it was left on is the
-        //! one in the resource's own record. Runs after SortScopes.
+        //! one in the resource's own record; a buffer several queues share has none, and is
+        //! waited for whichever queue left the fence. Runs after SortScopes.
         void CompileExternalWaits(RHIContext& context);
 
         //! Turn the cross-queue waits CompileScopeBarriers recorded into fences and values: walks
@@ -104,6 +105,7 @@ namespace Spark::Render
         //! StaticImportTag attachments. Called once before the per-pass compile
         //! hooks. Reads RHI resource state directly — after the first frame the
         //! resource is in its steady state and the resulting barrier lists are empty.
+        //! A buffer several queues share is waited for by its fence alone, whichever queue left it.
         StaticPreBarrierTable CompileStaticResourceBarriers(RHIContext& context);
 
         //! Compile PSO for each non-custom pipeline pass and cache the result

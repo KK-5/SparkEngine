@@ -46,6 +46,13 @@ namespace Spark::RHI
     //! Returns the hardware queue class mask bit associated with the enum value.
     HardwareQueueClassMask GetHardwareQueueClassMask(HardwareQueueClass hardwareQueueClass);
 
+    //! Whether a resource's m_sharedQueueMask leaves it to one queue (one bit: Vulkan's exclusive
+    //! sharing mode, crossing queues by an ownership transfer) rather than to several at once.
+    inline bool IsExclusiveQueueMask(HardwareQueueClassMask queueMask)
+    {
+        return CountBitsSet(static_cast<uint32_t>(queueMask)) == 1;
+    }
+
     //! Scans the bit mask and returns the most capable queue from the set.
     HardwareQueueClass GetMostCapableHardwareQueue(HardwareQueueClassMask queueMask);
 

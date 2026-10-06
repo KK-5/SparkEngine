@@ -103,9 +103,19 @@ namespace Spark::Render
                 const RHI::ResourceState src = buf->m_buffer->GetResourceState();
                 RHI::ResourceState       dst = CompileResourceState(att);
 
-                const auto homeQueue = ResolveHomeQueue(
-                    buf->m_buffer->GetDescriptor().m_sharedQueueMask);
+                const auto queueMask = buf->m_buffer->GetDescriptor().m_sharedQueueMask;
+                const bool exclusive = RHI::IsExclusiveQueueMask(queueMask);
+                const auto homeQueue = ResolveHomeQueue(queueMask);
                 const auto qi = static_cast<uint32_t>(homeQueue);
+
+                // A shared buffer has no owner for its state to name, and nothing but its
+                // fence says another queue wrote it: wait for whatever fence it carries.
+                // Ahead of the steady-state return, which a write into a settled buffer hits.
+                if (!exclusive)
+                {
+                    CollectFenceWait(resource, table[qi]);
+                }
+
                 // Pin dst to the resource's steady (post-acquire) identity — its home
                 // queue and the attachment's shader stage. CompileResourceState only
                 // fills usage/access, leaving stage=Any / queue=default; without this
@@ -122,7 +132,7 @@ namespace Spark::Render
                 }
 
                 // Fence wait for cross-queue handoff from upload
-                if (src.m_queue != homeQueue)
+                if (exclusive && src.m_queue != homeQueue)
                 {
                     CollectFenceWait(resource, table[qi]);
                 }
@@ -320,9 +330,7 @@ namespace Spark::Render
             RHI::HardwareQueueClass     passQueue,
             const char*                 resourceName)
         {
-            const uint32_t m = static_cast<uint32_t>(mask);
-            const bool exclusive = (m != 0) && ((m & (m - 1)) == 0);
-            if (!exclusive)
+            if (!RHI::IsExclusiveQueueMask(mask))
             {
                 return;
             }
@@ -592,9 +600,22 @@ namespace Spark::Render
             const RHI::ResourceState src = tracker->m_current;
             const RHI::ResourceState dst { access.m_access, dstQueue, access.m_stage };
 
+            // A shared buffer changing queues has no owner to hand over and no layout to
+            // change: the fence orders the two queues, and what follows a wait is the first
+            // access of a new submission, which needs no barrier.
+            const bool shared = !RHI::IsExclusiveQueueMask(backing->m_buffer->GetDescriptor().m_sharedQueueMask);
+            if (shared && src.m_queue != dstQueue)
+            {
+                if (tracker->m_lastAttachment != NullHandle)
+                {
+                    RecordCrossQueueWait(access.m_scope,
+                        context.Get<ScopeAttachment>(tracker->m_lastAttachment).m_scope,
+                        src.m_queue, passContext, context);
+                }
+            }
             // A write in an unchanged state is still an execution / memory dependency (a UAV
             // barrier on DX12); whether it costs anything is the backend's call.
-            if (src != dst || RHI::HasWrite(dst.m_access))
+            else if (src != dst || RHI::HasWrite(dst.m_access))
             {
                 const bool release = src.m_queue != dstQueue && tracker->m_lastAttachment != NullHandle;
 
@@ -857,13 +878,22 @@ namespace Spark::Render
                 continue;
             }
 
-            // The same queue runs in order: nothing to wait for.
-            const RHI::HardwareQueueClass queue  = context.Get<Scope>(link.m_scope).m_queue;
-            const RHI::HardwareQueueClass leftOn = image
-                ? GetImageQueue(context.Get<BackingImage>(resource).m_image->GetSubresourceStates(),
-                    GetResourceNameCStr(context, resource))
-                : context.Get<BackingBuffer>(resource).m_buffer->GetResourceState().m_queue;
-            if (leftOn == queue)
+            // The same queue runs in order: nothing to wait for. A shared buffer's state names
+            // no owner to tell that by, so it is waited for whichever queue left the fence.
+            const RHI::HardwareQueueClass queue = context.Get<Scope>(link.m_scope).m_queue;
+            bool sameQueue = false;
+            if (image)
+            {
+                sameQueue = GetImageQueue(context.Get<BackingImage>(resource).m_image->GetSubresourceStates(),
+                    GetResourceNameCStr(context, resource)) == queue;
+            }
+            else
+            {
+                const RHI::Buffer& buffer = *context.Get<BackingBuffer>(resource).m_buffer;
+                sameQueue = RHI::IsExclusiveQueueMask(buffer.GetDescriptor().m_sharedQueueMask)
+                    && buffer.GetResourceState().m_queue == queue;
+            }
+            if (sameQueue)
             {
                 continue;
             }
