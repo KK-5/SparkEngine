@@ -28,7 +28,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
 | P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
 | P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现，SSR 已完成、画面已确认：质量受限于屏幕空间，定位是混合反射的第一层；剩 Contact Shadow），见 `TODO_ScreenSpacePlan.md` |
-| I11 | GPU-driven 基础（indirect draw / 几何共用 buffer 对象 / compute 视锥剔除），排在 P5 之前 | 进行中（步骤 0、1 完成：RHI 的 indirect 抽象与能力位、渲染图的间接参数与 indirect dispatch），见 `TODO_GPUDrivenPlan.md` |
+| I11 | GPU-driven 基础（indirect draw / 几何共用 buffer 对象 / compute 视锥剔除），排在 P5 之前 | 进行中（步骤 0、1、2 完成：RHI 的 indirect 抽象与能力位、渲染图的间接参数与 indirect dispatch、共享模式的 buffer 跨队列只靠 fence），见 `TODO_GPUDrivenPlan.md` |
 | P5 | 透明物体（BlendMode / Translucency / Fog） | 未开始 |
 | P6 | 光追阴影 / RTAO + NRD | 未开始 |
 | P7 | 命中点着色 | 未开始 |

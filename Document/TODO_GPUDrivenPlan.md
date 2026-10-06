@@ -8,7 +8,7 @@ I11 做五件事：**RHI 的 indirect 抽象重做**、**渲染图里的间接�
 
 本文是草案。D1（范围）、D2（RHI 的 indirect 抽象）、D3（能力位）、D4（几何的共享 buffer）、D6（剔除的输入）、
 D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列同步）已由用户确认，D8（压缩）也已确认。D5、D11 已撤销；D10 已撤销，改为一段与 I5 的关系的说明。决策项没有待确认的了。
-现状一节来自 2026-10-04 / 05 读代码，没有运行验证。D12 的原生语义来自 2026-10-05 查的规范原文。
+现状一节来自 2026-10-04 / 05 读代码，没有运行验证，写的是动手之前的样子。D12 的原生语义来自 2026-10-05 查的规范原文。
 
 ---
 
@@ -18,7 +18,7 @@ D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列
 |---|---|---|---|
 | 0 | RHI：indirect 抽象重做 + 能力位 | — | 完成（2026-10-05），见下 |
 | 1 | 渲染图：间接参数的访问角色、`DispatchIndirect`、图内 buffer 的首个用例 | 0 | 完成（2026-10-05），见下 |
-| 2 | buffer 跨队列同步的纠正（D12） | — | 未开始 |
+| 2 | buffer 跨队列同步的纠正（D12） | — | 完成（2026-10-06），见下 |
 | 3 | 几何租约 + `g_Geometries`，draw 改用共享 buffer 里的偏移（仍走 CPU 提交） | 2 | 未开始 |
 | 4 | CPU 填参数的 indirect draw（不剔除） | 0、1、3 | 未开始 |
 | 5 | compute 视锥剔除，带 count buffer | 4 | 未开始 |
@@ -45,6 +45,21 @@ D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列
 - 没有执行过的：`RenderScope::IndirectArguments`（没有能用它的调用，步骤 4 才有）；buffer 的只读 `.Bind`
   （示例里绑的是可写的）；跨队列的 buffer 访问（示例全在图形队列）；GPU-based validation（只开了 debug layer）。
 - 屏障本身没有单元测试：`SparkRenderTest` 不创建设备，而屏障编译要读真实 buffer 对象的状态。
+
+**步骤 2 跑过什么、没跑过什么**
+
+- 全量 Debug 编译通过；`SparkRenderTest` 89 个用例通过，没有新增用例。
+- 我在 debug layer 下各跑 10 秒、只看日志，无断言无报错：
+  - `DrawCube`：mesh 的 VB / IB 已是共享模式，走的是"上传不发屏障、图形队列按 fence 等、之后队列内一条屏障"。
+    `InstanceIDBuffer` 仍是独占，走原来的路径。
+  - `IndirectDispatch`，`kArgsOnComputeQueue` 打开：`ArgsPass` 在 Compute 队列写参数 buffer，`PatternPass` 在图形队列
+    把它当间接参数读。临时日志确认走到了"共享 buffer 换队列"的新分支（日志已删）。改动前的代码也这样跑过一遍，
+    旧的"释放 + 接手"路径同样无报错，说明 Compute 队列上的 pass 本身能跑。
+  - `IndirectDispatch`，开关关：与步骤 1 相同的路径。
+- 画面：2.1（上传与静态路径、mesh 改共享模式）之后用户检查过，没有问题。`kArgsOnComputeQueue` 打开时的画面没有看过。
+- 没有执行过的：`CompileExternalWaits` 里 buffer 的分支（引擎里没有导入的 buffer，只有导入的 image）；
+  运行中流式加入物体（我没有跑）；copy 队列写一段、图形队列同时读同一个 buffer 的另一段（步骤 3 有了租约才出现）；
+  GPU-based validation（它是 `ValidationLayer.h` 里的编译期常量，Debug 只开 debug layer）。
 
 ---
 
@@ -106,11 +121,13 @@ P5 在功能上不需要 indirect。排在它前面是因为 P5 的两项会把 
 
 - `BufferPool` 每个 buffer 调一次 `CreateResource3`（`BufferPool.cpp:103`），D3D12MA 把它们放进同一个 heap 块：
   内存是共用的，但各自是独立的 `ID3D12Resource`。
-- `BufferDescriptor::m_sharedQueueMask` 只有一位是独占（有一个归属队列），多位是共享。mesh 的 VB / IB 填的是只有图形一位。
+- `BufferDescriptor::m_sharedQueueMask` 只有一位是独占（有一个归属队列），多位是共享。mesh 的 VB / IB 原来填的是
+  只有图形一位，步骤 2 改成了图形与 copy 两位；`InstanceIDBuffer` 仍是只有图形一位。走上传的 buffer 只有这三种。
 - 上传走 copy 队列（`AsyncUploadSystem`）。待上传的数据是实体上的一个 `PendingBufferUpload` 组件，
   一个实体同一时刻只能挂一段。
 - `RHI::Buffer` 上记一份状态，其中一项是"当前所有者队列"（`ResourceState.h:24`）。上传时 copy 队列对整个 buffer 发
-  接手 / 释放屏障；之后图形队列等上传的 fence，再发一条跨队列屏障接回来。独占与共享的 buffer 都这么走（见 D12）。
+  接手 / 释放屏障；之后图形队列等上传的 fence，再发一条跨队列屏障接回来。步骤 2 之前独占与共享的 buffer 都这么走，
+  之后只有独占的这么走（见 D12）。
 
 ---
 
@@ -434,7 +451,7 @@ I5 之后   普通 Draw：[视图] [bucket] item item [bucket] item …
 
 D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡的另一边，内容并入 D9。后面的编号不动。
 
-### D12　buffer 的跨队列同步按原生语义纠正　✅ 已定；实现细节待定
+### D12　buffer 的跨队列同步按原生语义纠正　✅ 已定；步骤 2 已实现
 
 **原则**：RHI 把两个 API 原生支持的能力暴露出来，确实需要的机制才加（执行过程中记录每个资源的状态是需要的），
 不为一个场景创造新概念。
@@ -456,21 +473,41 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 | 跨队列，访问的是同一批字节 | fence；Vulkan 独占模式另加一对所有权屏障 |
 | 跨队列，访问的字节不相交 | 什么都不需要 |
 
-**偏差**：现在的代码把"独占模式"的做法（释放 / 接手一对屏障）用在了所有 buffer 上，也没有区分"字节不相交"的情况。
+**偏差**：步骤 2 之前的代码把"独占模式"的做法（释放 / 接手一对屏障）用在了所有 buffer 上，也没有区分"字节不相交"的情况。
 它对独占的 buffer 是对的。
 
-**纠正**
+**纠正**（步骤 2 已做）
 
-| 位置 | 现在 | 纠正后 |
+| 位置 | 改之前 | 改之后 |
 |---|---|---|
-| 上传前后的屏障（`AsyncUploadSystem.cpp:536`、`:337`） | 每个目标 buffer 发接手和释放两条 | 共享模式的 buffer 两条都不发；独占的保持 |
-| 上传前等读者（`AsyncUploadSystem.cpp:316`） | 实体上的 `PendingSync` 没完成就推迟 | 不变；新的区间实体自己没有 `PendingSync`，所以写不相交的段时不会等 |
-| 上传后盖 `PendingSync`（`AsyncUploadSystem.cpp:440`） | 盖在带上传组件的实体上，它就是 buffer 实体 | 不变；按段上传时那个实体是区间实体（D4），fence 自然落在这一段上 |
-| 静态 buffer 首次使用（`RenderGraphCompiler.cpp:86`） | 等上传的 fence，再发一条跨队列屏障 | 共享模式：只等 fence；独占的保持 |
-| 渲染图里 buffer 换队列（`RenderGraphCompiler.cpp:597`） | 等 fence，再发释放 / 接手一对屏障 | 共享模式：只等 fence；独占的 buffer 本来就不允许换队列 |
+| 上传前后的屏障（`AsyncUploadSystem` 的 `ProcessBatch`、`SubmitBatch`） | 每个目标 buffer 发接手和释放两条 | 共享模式的 buffer 两条都不发；独占的保持 |
+| 上传前等读者（`SubmitBatch`） | 实体上的 `PendingSync` 没完成就推迟 | 不变；新的区间实体自己没有 `PendingSync`，所以写不相交的段时不会等 |
+| 上传后盖 `PendingSync`（`SubmitBatch`） | 盖在带上传组件的实体上，它就是 buffer 实体 | 不变；按段上传时那个实体是区间实体（D4），fence 自然落在这一段上 |
+| 静态 buffer 要不要等（`CompileStaticResourceBarriers`） | 状态里的队列不是自己才等 | 共享模式：身上有 fence 且没完成就等，判断放在"已是稳定状态"的提前返回之前；独占的保持 |
+| 静态 buffer 的屏障（同上） | 一条跨队列屏障 | 代码没有改：共享模式的状态不再被翻到 Copy，生成出来的自然是队列内的一条 |
+| 导入的 buffer 被某个队列首次使用（`CompileExternalWaits`） | 状态里的队列不是自己才等 | 共享模式：身上有 fence 且没完成就等；独占的保持 |
+| 渲染图里 buffer 换队列（`CompileBufferAccess`） | 等 fence，再发释放 / 接手一对屏障 | 共享模式：只记跨队列等待，两边都不发屏障；独占的保持（导入的独占 buffer 本来就不允许换队列） |
 
-不动的：渲染图给导入资源生成的跨队列等待（`CompileExternalWaits`，只有 fence）；DX12 后端的跨队列屏障实现
-（留给独占模式）；image 的所有路径——image 上传确实两样都要，fence 管先后，屏障管 layout。
+不动的：DX12 后端的跨队列屏障实现（留给独占模式）；image 的所有路径——image 上传确实两样都要，fence 管先后，
+屏障管 layout。
+
+**等待的判断为什么要改**（定 D12 时漏掉的）：原来"要不要等"看的是 buffer 状态里的队列，上传的屏障把它翻成 Copy，
+图形队列看到不是自己才去等。共享模式不发屏障后它不再变，照旧判断的话图形队列不会等上传。所以共享的 buffer 改看
+`PendingSync`。原表把 `CompileExternalWaits` 列为"不动"，同样是错的。
+
+**共享的 buffer 不区分"是不是本队列留下的"**：有 fence 且没完成就等。
+
+- 等自己队列的 fence 是合法的，那次 signal 在队列里排在前面，等待一到就通过。代价是执行器为每个等待多拆一次提交。
+- 现在这个代价不存在：引擎里没有导入的 buffer；静态 buffer 帧末不会被渲染图重新盖章（那段按 `BackingBuffer` 遍历，
+  静态 buffer 没有这个组件），身上只可能是上传的 fence。
+- 出现"每帧都用的导入共享 buffer"时再区分。那时的做法是在 `PendingSync` 里记下 signal 它的队列对象、使用方比较队列；
+  记对象而不是类别，因为上传系统的 copy 队列与渲染图的 copy 队列类别相同、对象不同。
+- 试过又撤掉的：比较 fence 的地址是不是渲染图给本队列的那一个。它是从 fence 反推队列，依赖"只有渲染图用这组 fence"
+  的约定。
+
+**换队列时两边都不发屏障的依据**（Enhanced Barriers 规范 Barrier-Free Access 一节，2026-10-06 重读原文）：buffer 在
+一次 `ExecuteCommandLists` 里的第一次访问可以不带屏障；执行器在每次等 fence 之前都先把已录的命令提交掉，所以一个队列
+等完之后的访问一定是新一次提交里的第一次访问。图内创建的 buffer 掩码默认是 `All`，这条规则对它们全都生效。
 
 按段上传不发屏障之后，buffer 的状态（发屏障时才更新）一直停在图形队列的顶点 / 索引读，渲染图每帧看到的是稳定状态。
 
@@ -486,7 +523,8 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
   两次写之间需要一条队列内的屏障，而一份状态填不出"上一次在本队列的访问"。现有代码同样没有覆盖，也没有这样的用例，
   这次不处理。
 - DX12 规范有一句"对同一资源的连续写必须用屏障刷新"。一批上传里往同一个 buffer 拷多段是否算，读不出确定答案；
-  按惯例这是合法的常规用法，实现时用 debug layer 与 GPU-based validation 确认。
+  按惯例这是合法的常规用法。步骤 2 没有碰到这个情况：一批里一个 buffer 只有一次拷贝，数据跨 staging 包时拆出的几次
+  拷贝分在不同的提交里。步骤 3 按段上传时才会出现，到时用 debug layer 与 GPU-based validation 确认。
 
 ---
 
@@ -514,7 +552,17 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 ### 2　buffer 跨队列同步的纠正
 
-按 D12 的表改五处。实现细节到时再定。
+1. 上传与静态路径：`AsyncUploadSystem` 对共享模式的 buffer 不发上传前后的屏障；`CompileStaticResourceBarriers`
+   对它们按 fence 决定等不等。mesh 的 VB / IB 改成共享模式（图形与 copy 两位），否则没有 buffer 走到新路径——
+   走上传的三种 buffer 原来全是独占的；`InstanceIDBuffer` 留独占，两条路径各有一个真实的 buffer 在跑。
+   新增 `RHI::IsExclusiveQueueMask`，替掉上传系统与编译器里各自手写的判断。
+2. 图内与导入的 buffer：`CompileBufferAccess` 对换队列的共享 buffer 只记跨队列等待；`CompileExternalWaits` 对共享的
+   buffer 按 fence 决定等不等。示例 `IndirectDispatch` 加常量 `kArgsOnComputeQueue`（默认关），打开后 `ArgsPass` 跑在
+   Compute 队列，是"一个队列写、另一个队列读同一个图内 buffer"的用例。
+3. `PendingSync` 的协议注释补上共享 buffer 的规则。
+
+与原计划的出入：原计划是"按 D12 的表改五处"，实际表里有两处要补（见 D12"等待的判断为什么要改"）；原计划以为换队列
+那一处验证不了，实际可以用示例覆盖。
 
 ### 3　几何租约
 
@@ -549,8 +597,8 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
   D3D12 debug layer 无报错。`firstInstance` 不为 0、不带索引的 indirect draw、indirect dispatch 这个示例不覆盖。
 - **步骤 1**：`SparkRenderTest` 新用例通过；示例 `IndirectDispatch` 的画面是整窗的暗图案加左边一条宽度来回变化的
   亮带，debug layer 无报错。
-- **步骤 2**：画面与改动前一致；加载场景、流式加入物体时 debug layer 与 GPU-based validation 无报错。
-  "渲染图里 buffer 换队列"那一处没有任何 pass 用到，改了验证不了。
+- **步骤 2**：画面与改动前一致；加载场景、流式加入物体时 debug layer 无报错；`IndirectDispatch` 的
+  `kArgsOnComputeQueue` 开关两边画面一致、debug layer 无报错。GPU-based validation 没有跑。实际跑了什么见"状态"一节。
 - **步骤 3**：画面与改动前一致；抓帧里所有 mesh 的 VB / IB 落在共享 buffer 上；删掉实体后那一段被回收、再加载不增长；
   运行中加载新 mesh 的那几帧，已有物体照常画、validation 无报错。
 - **步骤 4**：开关两边画面一致；抓帧里 DepthPre / GBuffer 各一次 `ExecuteIndirect`，Shadow 每个视图一次。
@@ -575,7 +623,28 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 - **Mesh 怎么表达"我要的是一段几何数据"（D4）。** 它不认识渲染侧的几何系统，申请组件放在哪一层、长什么样，
   留到实现时定。
 - **共享 buffer 第一版的容量取多少（D4）。** 没有数据，先按现有场景的实际用量取一个宽裕的值。
-- **D12 的实现细节**，以及它"没有覆盖的"两条。
+- **D12"没有覆盖的"两条。** 实现细节已在步骤 2 定下，见 D12。
+- **`PendingSync` 按用途拆开。** 2026-10-06 与用户对过方向，没有定，也不在步骤 2 内。
+  - 现状：资源实体上一个 `{fence, value}` 槽位，后盖的覆盖先盖的，同时承担三种关系——
+
+    | 关系 | 谁盖 | 谁读 | 怎么用 |
+    |---|---|---|---|
+    | 上传 → 首次使用 | 上传系统 | 渲染图 | GPU 上等（`queue.Wait`） |
+    | 使用 → 再次上传 | 渲染图帧末 | 上传系统 | CPU 上查，没完成就推迟 |
+    | 渲染图内部跨帧、跨队列 | 渲染图帧末 | 渲染图下一帧 | GPU 上等 |
+
+  - 读代码看到的迹象：覆盖是否安全靠注释里的推理保证（`RenderGraph.cpp` 帧末给静态资源盖章的那段）；
+    `Component.h` 的协议写"使用方等完后移除"，实际没有任何地方移除；"是谁"在资源的状态里、由上传线程发屏障时写，
+    "何时完成"在 `PendingSync` 里、由主线程提交时盖，两处不同步（独占路径上渲染图编译若先于上传线程，那一帧不会等上传；
+    只是读出来的，没有观察到）；盖章靠每个提交方自觉，静态资源因为不知道哪些被用了只能每帧全盖，逐资源的信息等于一个全局值。
+  - 方向：不往这个槽位里加信息，按用途拆成三件各自更简单的事。
+    - 上传 → 首次使用：改成 CPU 上判断就绪，上传的 fence 完成前资源不参与渲染。渲染队列不再在 GPU 上等 copy 队列，
+      上面那个不同步也随之消失。D4 给租约定的就是这条规则，这里是把它推广到所有上传的资源。代价是资源晚一两帧出现。
+    - 使用 → 再次上传：用一个全局的帧 fence（"最后一次可能用到它的那一帧跑完了没有"），与延迟释放队列同一个思路。
+    - 渲染图内部：留在渲染图自己的组件里，生产方与使用方都是它自己，不需要跨系统的协议。
+  - 没想清楚的：`PendingSync` 的使用方没有全部读过（`UIProcessFeature` 里有一处）；image 上传后还要一条屏障转 layout，
+    它怎么配合就绪判断。
+  - 时机：步骤 3 第一小步要写"就绪判断加上 fence"，到那时定它只对租约生效，还是作为所有上传资源的统一规则。
 - **`m_drawMask` 的来源（D6）。** 分类 tag 现在打在 RHIContext 的 `GeometrySpec` 实体上，mask 是
   `InstanceBindingSystem` 遍历世界实体时写的；两边怎么共用一个分类来源、几何就绪怎么传到实例编码，留到实现时定。
 - **`DeadTag` 到销毁之间隔几帧（D6）。** 没有查。它决定"带 `DeadTag` 的实体清零"这一步是必需的还是只是保险。
@@ -593,7 +662,7 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 |---|---|
 | 0 | 删 `RHI/Resource/Buffer/IndirectBuffer{Signature,Layout,View,Writer}.*`、DX12 `Resource/Buffer/IndirectBufferSignature.*`；`RHI/Command/IndirectArguments.h`、`DrawArguments.h`、`DispatchItem.h`；`RHI/Factory.h`、`ID3D12Factory.{h,cpp}`；DX12 `Command/CommandList.{h,cpp}`、`Device/Device.{h,cpp}`；`RHI/Device/DeviceFeatures.h`；Vulkan `PhysicalDevice.{h,cpp}`；两个 CMake；新建 `RHI/Command/IndirectCommands.h`、`SandBox/Program/RHI/IndirectDraw.cpp`，`SandBox/Program/CMakeLists.txt` |
 | 1 | `RenderGraph/PassScopes.{h,cpp}`、`RenderGraphBuilder.{h,cpp}`、`RenderGraphCompiler.{h,cpp}`、`RenderGraph.cpp`、`RenderGraphExecuter.cpp`（注释）；`Pass/Component/ScopeComponents.h`（`ItemIndirectArguments`）；新建 `SandBox/Program/RenderGraph/IndirectDispatchFeature.{h,cpp}`、`SandBox/Asset/Shader/IndirectDispatch{Args,Pattern}.hlsl`，`SandBox/Program/CMakeLists.txt`；`Test/Render/RenderGraphResolveTest.cpp`、新建 `Test/Render/BufferAccessTest.cpp`，`Test/Render/CMakeLists.txt` |
-| 2 | `RHI/System/AsyncUploadSystem.{h,cpp}`；`Render/RenderGraph/RenderGraphCompiler.cpp`（静态 buffer 的首次使用、逐 Scope 的 buffer 访问） |
+| 2 | `RHI/System/AsyncUploadSystem.{h,cpp}`；`RHI/HardwareQueue.h`（`IsExclusiveQueueMask`）；`RHI/Component/Component.h`（注释）；`Render/RenderGraph/RenderGraphCompiler.{h,cpp}`（静态 buffer 的等待、导入 buffer 的等待、逐 Scope 的 buffer 访问）；`Feature/Mesh/MeshSystem.cpp`（VB / IB 的掩码）；`SandBox/Program/RenderGraph/IndirectDispatchFeature.cpp`（`kArgsOnComputeQueue`） |
 | 3 | `RHI/Component/Component.h`（区间组件）、`RHI/ResourceBuilder.h`（解析函数）、`RHI/System/AsyncUploadSystem.cpp`（目标与基偏移）、`RHI/System/RHIResourceSystem.cpp`（关闭时清理区间组件）；`Render/RenderGraph/RenderGraphUtils.h`（就绪判断）；新建 `Render/Binding/Geometry/`（系统、租约、变长分配、`g_Geometries`）；`Feature/Mesh/Components.h`、`MeshSystem.cpp`；`Render/Drawable/MeshGeometryComposer.cpp`、`DrawItemRouter.cpp`；`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`。`RHI::Buffer` 与 `BufferPool` 不动 |
 | 4 | 新建 `Render/Feature/SceneDraws/SceneDraws.{h,cpp}`；`Binding/SlotPool.h`、`GlobalBuffer.h`（排空释放的槽位并清零）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`PassScopes.h`（`Accepts<Tags>()` 记下 mask 位）、`RenderGraphBuilder.{h,cpp}`（路径选择）；`RenderGraphCompiler.cpp`（lowering）。三个 pass 的文件不动 |
 | 5 | 新建 `Render/Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`；`RenderSystem.cpp` 的注册；`TODO_RenderPipelineRoadmap.md` |
