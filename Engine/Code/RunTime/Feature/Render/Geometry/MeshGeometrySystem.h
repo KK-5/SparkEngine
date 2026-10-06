@@ -25,8 +25,8 @@ namespace Spark::Render
 
     private:
         //! Size of the native buffer, taken whole at Init. A request that finds no room fails;
-        //! the pool does not grow. A placeholder until a real scene has been measured.
-        static constexpr uint64_t PoolBudgetInBytes = 256ull * 1024 * 1024;
+        //! the pool does not grow.
+        static constexpr uint64_t PoolBudgetInBytes = 64ull * 1024 * 1024;
 
         //! A buffer entity of the pool holding a copy of data, or NullHandle if the pool has
         //! no room. data must outlive the upload.

@@ -39,7 +39,8 @@ namespace Spark::SandBox
     static constexpr uint32_t kCountBufferValue = 3;
 
     //  - kSubAllocateBuffers true: the pool has a budget, so the four buffers are parts of one
-    //    native buffer and take no barrier. The picture is the same either way.
+    //    native buffer. The upload's barriers then assert in the DX12 backend: a part of a
+    //    shared buffer cannot yet take a barrier around a write within a queue.
     static constexpr bool     kSubAllocateBuffers  = true;
     static constexpr uint64_t kBufferPoolBudget    = 64 * 1024;
 
@@ -443,15 +444,10 @@ namespace Spark::SandBox
 
         commandList->Open();
 
-        // A part of a shared native buffer takes no barrier. It needs none here: this is a
-        // submission of its own, done before the first draw is submitted.
         commandList->QueueBarrier(RHI::ConvertToCopyRead(*m_stageBuffer));
-        if (!kSubAllocateBuffers)
+        for (Upload* upload : uploads)
         {
-            for (Upload* upload : uploads)
-            {
-                commandList->QueueBarrier(RHI::ConvertToCopyWrite(*upload->m_buffer));
-            }
+            commandList->QueueBarrier(RHI::ConvertToCopyWrite(*upload->m_buffer));
         }
         commandList->FlushBarriers();
 
@@ -467,14 +463,11 @@ namespace Spark::SandBox
             commandList->Submit(copyItem);
         }
 
-        if (!kSubAllocateBuffers)
-        {
-            commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_vertices.m_buffer));
-            commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_indices.m_buffer));
-            commandList->QueueBarrier(RHI::ConvertToIndirect(*m_arguments.m_buffer));
-            commandList->QueueBarrier(RHI::ConvertToIndirect(*m_count.m_buffer));
-            commandList->FlushBarriers();
-        }
+        commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_vertices.m_buffer));
+        commandList->QueueBarrier(RHI::ConvertToInputAssembly(*m_indices.m_buffer));
+        commandList->QueueBarrier(RHI::ConvertToIndirect(*m_arguments.m_buffer));
+        commandList->QueueBarrier(RHI::ConvertToIndirect(*m_count.m_buffer));
+        commandList->FlushBarriers();
 
         commandList->Close();
     }
