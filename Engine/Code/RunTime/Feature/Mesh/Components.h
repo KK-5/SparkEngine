@@ -4,10 +4,6 @@
 #include <Resource/AssetTypes.h>
 #include <Resource/Model/ModelAsset.h>
 
-#include <RHI/Context/RHIHandle.h>
-#include <RHI/Pipeline/InputStreamLayout.h>
-#include <RHI/Resource/Buffer/IndexBufferView.h>
-
 namespace Spark::Mesh
 {
     struct MeshComponent
@@ -20,23 +16,6 @@ namespace Spark::Mesh
         uint32_t m_vertexCount   = 0;
         uint32_t m_triangleCount = 0;
     };
-
-
-
-    struct MeshGPUComponent {
-        RHI::RHIHandle m_vertexBuffer   {RHI::NullHandle};
-        RHI::RHIHandle m_indexBindings  {RHI::NullHandle};
-
-        RHI::InputStreamLayout m_inputLayout;
-
-        uint32_t         m_indexCount = 0;
-        RHI::IndexFormat m_indexFormat;
-        uint32_t         m_indexByteCount   = 0;
-
-        uint32_t m_vertexByteCount  = 0;
-        uint32_t m_vertexByteStride = 0;
-    };
-
 }
 
 namespace Spark

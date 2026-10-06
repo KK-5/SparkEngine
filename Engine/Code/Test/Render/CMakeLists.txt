@@ -8,6 +8,7 @@ option(IMAGEBARRIERMERGE_TESTS "Per-Scope image barrier merge tests" ON)
 option(RENDERGRAPHRESOLVE_TESTS "Render graph version and order resolution tests" ON)
 option(SCENETEXTURES_TESTS "Scene texture shape tests" ON)
 option(BUFFERACCESS_TESTS "Buffer attachment access tests" ON)
+option(MESHGEOMETRY_TESTS "Mesh geometry lifetime tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -27,6 +28,7 @@ ADD_TEST_SOUECE(IMAGEBARRIERMERGE_TESTS "ImageBarrierMergeTest.cpp")
 ADD_TEST_SOUECE(RENDERGRAPHRESOLVE_TESTS "RenderGraphResolveTest.cpp")
 ADD_TEST_SOUECE(SCENETEXTURES_TESTS "SceneTexturesTest.cpp")
 ADD_TEST_SOUECE(BUFFERACCESS_TESTS "BufferAccessTest.cpp")
+ADD_TEST_SOUECE(MESHGEOMETRY_TESTS "MeshGeometryTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

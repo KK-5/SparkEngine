@@ -29,7 +29,7 @@ namespace Spark::Skybox
         float m_intensity = 1.0f;
     };
 
-    //! Resolved GPU side, written by SkyboxSystem (mirrors MeshGPUComponent).
+    //! Resolved GPU side, written by SkyboxSystem.
     //!  - m_cubemapAsset : reserved handle on the compiled cubemap image asset
     //!                     (the source the upload reads from). Today it is just the
     //!                     loaded environment asset; once the asset-layer bake lands

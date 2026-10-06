@@ -21,6 +21,7 @@
 #include "Binding/Scene/SceneBindingSystem.h"
 #include "Binding/Instance/InstanceBindingSystem.h"
 #include "Binding/Material/MaterialBindingSystem.h"
+#include "Geometry/MeshGeometrySystem.h"
 #include "Drawable/MeshGeometryComposer.h"
 #include "Drawable/DrawItemRouter.h"
 
@@ -78,6 +79,7 @@ namespace Spark::Render
         ViewBindingSystem m_viewBindingSystem;
         SceneBindingSystem m_sceneBindingSystem;
         MaterialBindingSystem m_materialBindingSystem;
+        MeshGeometrySystem    m_meshGeometrySystem;
         InstanceBindingSystem m_instanceBindingSystem;
         MeshGeometryComposer m_meshGeometryComposer;
         DrawItemRouter       m_drawItemRouter;

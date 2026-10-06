@@ -9,13 +9,14 @@
 
 namespace Spark::Mesh
 {
+    //! Checks that a MeshComponent names a mesh that exists and fills its statistics. Putting
+    //! the geometry on the GPU is the render side's (Render::MeshGeometrySystem).
     class MeshSystem final : public ISystem,
                              public ComponentEventBus::Handler
     {
     public:
         SPARK_COMPONENT_ACCESS(
-            ReadWriteComponent<MeshComponent>,
-            WriteComponent<MeshGPUComponent>
+            ReadWriteComponent<MeshComponent>
         );
 
         SPARK_SYSTEM_TRAITS(MeshSystem);
@@ -29,10 +30,8 @@ namespace Spark::Mesh
         // ComponentEventBus
         void OnComponentConstruct(Entity entity) override;
         void OnComponentUpdated(Entity entity) override;
-        void OnComponentDestory(Entity entity) override;
 
     private:
-        void BuildGPUResources(Entity entity, Resource::ModelAsset& modelAsset);
-        void CleanupGPUResources(Entity entity);
+        void UpdateStatistics(MeshComponent& meshComp, Resource::ModelAsset& modelAsset);
     };
 }

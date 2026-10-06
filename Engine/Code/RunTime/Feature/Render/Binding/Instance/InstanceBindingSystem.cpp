@@ -125,7 +125,7 @@ namespace Spark::Render
         rhiCtx.Add<InstanceBindingTag>(m_bindingsEntity);
 
         GlobalBuffer<Instances, InstanceData,
-                     Transform::WorldTransformMatrix, Mesh::MeshGPUComponent>::Descriptor bufferDesc;
+                     Transform::WorldTransformMatrix, MeshGeometry>::Descriptor bufferDesc;
         bufferDesc.m_capacity       = Capacity;
         bufferDesc.m_resourceName   = ObjectName(InstanceBufferName);
         bufferDesc.m_inputName      = RHI::InputName(InstanceBufferName);
@@ -174,7 +174,7 @@ namespace Spark::Render
         auto* matCtx = Material::MaterialExecuteContext::Current();
         m_instances.Update(*world, *rhiCtx, frameIndex,
             [&](Entity e, InstanceData& out,
-                const Transform::WorldTransformMatrix& m, const Mesh::MeshGPUComponent&)
+                const Transform::WorldTransformMatrix& m, const MeshGeometry&)
         {
             const auto* history = world->TryGet<InstanceHistory>(e);
             out.m_model     = m.m_worldMatrix;

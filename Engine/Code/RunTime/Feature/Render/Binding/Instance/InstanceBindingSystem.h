@@ -4,7 +4,7 @@
 
 #include <RHI/Context/RHIContext.h>
 
-#include <Mesh/Components.h>
+#include <Geometry/MeshGeometry.h>
 #include <Transform/Components.h>
 
 #include "InstanceBinding.h"
@@ -36,7 +36,7 @@ namespace Spark::Render
         static constexpr uint32_t Capacity = 65536;
 
         GlobalBuffer<Instances, InstanceData,
-                     Transform::WorldTransformMatrix, Mesh::MeshGPUComponent> m_instances;
+                     Transform::WorldTransformMatrix, MeshGeometry> m_instances;
 
         RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
         RHI::RHIHandle m_idBufferEntity = RHI::NullHandle;  // Components::Buffer — per-instance vertex stream ([0..Capacity-1])

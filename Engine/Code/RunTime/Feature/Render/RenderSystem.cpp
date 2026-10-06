@@ -242,6 +242,7 @@ namespace Spark::Render
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_viewBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
+        m_meshGeometrySystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
         m_shadowViewSystem.Init(rhiCtxForInit);
         m_shadowMaskSystem.Init(rhiCtxForInit);
@@ -290,6 +291,9 @@ namespace Spark::Render
         // itself can be released — any in-flight Present has completed and
         // the imported ImageView entities are gone.
         m_renderGraph.Shutdown();
+
+        // Releases the native buffer every mesh was drawn from, so only once the GPU is idle.
+        m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
     }
 
     void RenderSystem::OnTick(const FrameTime& time)
@@ -330,6 +334,8 @@ namespace Spark::Render
         // stable now, not rewritten every frame, so this is a one-time ordering need —
         // a material allocated later just falls back to slot 0 for one frame.
         m_materialBindingSystem.Update(frameIndex);
+        // Before InstanceBindingSystem: what gets an instance slot is what has geometry.
+        m_meshGeometrySystem.Update();
         m_instanceBindingSystem.Update(frameIndex);
 
         // World → GeometrySpec: find-or-create over renderable world entities.

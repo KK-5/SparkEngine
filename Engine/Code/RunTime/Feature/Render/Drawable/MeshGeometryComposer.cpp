@@ -9,7 +9,8 @@
 
 #include <Pass/Component/RHIComponents.h>
 
-#include <Mesh/Components.h>
+#include <Geometry/MeshGeometry.h>
+#include <RenderGraph/RenderGraphUtils.h>
 
 #include "GeometrySpec.h"
 #include "DrawTag.h"
@@ -19,25 +20,25 @@ namespace Spark::Render
     namespace
     {
         GeometrySpec ComposePersistent(
-            const Mesh::MeshGPUComponent& gpu,
+            const MeshGeometry& geometry,
             const InstanceSlotRef&        slotRef,
             RHI::RHIHandle                idBufferEntity,
             uint32_t                      idBufferBytes)
         {
             GeometrySpec d;
             d.m_streams.push_back(VertexStreamSpec{
-                gpu.m_vertexBuffer, /*slot*/ 0, VertexBufferInfo{ 0, gpu.m_vertexByteCount, gpu.m_vertexByteStride } });
+                geometry.m_vertexBuffer.Get(), /*slot*/ 0, VertexBufferInfo{ 0, geometry.m_vertexByteCount, geometry.m_vertexByteStride } });
 
-            if (gpu.m_indexBindings != RHI::NullHandle)
+            if (geometry.m_indexBuffer.IsValid())
             {
-                d.m_index.m_indexBuffer = gpu.m_indexBindings;
-                d.m_index.m_indexInfo   = IndexBufferInfo{ 0, gpu.m_indexByteCount, gpu.m_indexFormat };
-                d.m_drawArgs    = RHI::DrawArguments(RHI::DrawIndexed(0, gpu.m_indexCount, 0));
+                d.m_index.m_indexBuffer = geometry.m_indexBuffer.Get();
+                d.m_index.m_indexInfo   = IndexBufferInfo{ 0, geometry.m_indexByteCount, geometry.m_indexFormat };
+                d.m_drawArgs    = RHI::DrawArguments(RHI::DrawIndexed(0, geometry.m_indexCount, 0));
             }
             else
             {
-                const uint32_t vertexCount = gpu.m_vertexByteStride
-                    ? gpu.m_vertexByteCount / gpu.m_vertexByteStride
+                const uint32_t vertexCount = geometry.m_vertexByteStride
+                    ? geometry.m_vertexByteCount / geometry.m_vertexByteStride
                     : 0;
                 d.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(0, vertexCount));
             }
@@ -55,24 +56,16 @@ namespace Spark::Render
             return d;
         }
 
-        //! Geometry buffers are created deferred (PendingBufferInit -> OnFrameBegin), so
-        //! compose must wait until they materialize before it can resolve their views.
-        bool GeometryBuffersReady(RHI::RHIContext& ctx, const Mesh::MeshGPUComponent& gpu)
+        //! The copy into a geometry buffer is submitted some frames after the buffer is made,
+        //! and until then there is no fence for the graph to wait on: a draw would read
+        //! whatever the memory held before, which in a pool is another mesh's data.
+        bool GeometryBuffersReady(RHI::RHIContext& ctx, const MeshGeometry& geometry)
         {
-            auto ready = [&](RHI::RHIHandle e) -> bool
-            {
-                auto* buf = ctx.TryGet<RHI::Components::Buffer>(e);
-                return buf && buf->m_buffer;
-            };
-            if (!ready(gpu.m_vertexBuffer))
+            if (!IsResourceReady(ctx, geometry.m_vertexBuffer.Get()))
             {
                 return false;
             }
-            if (gpu.m_indexBindings != RHI::NullHandle && !ready(gpu.m_indexBindings))
-            {
-                return false;
-            }
-            return true;
+            return !geometry.m_indexBuffer.IsValid() || IsResourceReady(ctx, geometry.m_indexBuffer.Get());
         }
     }
 
@@ -112,17 +105,12 @@ namespace Spark::Render
         // Find-or-create: world entities that became renderable and not yet
         // composed. Producers that invalidate downstream resources must remove
         // WorldComposedTag themselves to trigger recomposition.
-        world->GetView<Mesh::MeshGPUComponent, InstanceSlotRef>(Exclude<DeadTag, WorldComposedTag>)
-            .each([&](Entity wE, const Mesh::MeshGPUComponent& gpu, const InstanceSlotRef& ref)
+        world->GetView<MeshGeometry, InstanceSlotRef>(Exclude<DeadTag, WorldComposedTag>)
+            .each([&](Entity wE, const MeshGeometry& geometry, const InstanceSlotRef& ref)
         {
-            if (gpu.m_vertexBuffer == RHI::NullHandle)
-            {
-                return;
-            }
-
-            // Defer compose until geometry buffers materialize; retry next frame
+            // Defer compose until the uploads are submitted; retry next frame
             // (WorldComposedTag stays unset).
-            if (!GeometryBuffersReady(*rhiCtx, gpu))
+            if (!GeometryBuffersReady(*rhiCtx, geometry))
             {
                 return;
             }
@@ -135,13 +123,13 @@ namespace Spark::Render
             // and only when the mesh becomes drawable, i.e. when the buffers are used.
             // Slot name is unused by the static-barrier path, so the resource's own
             // ResourceName stands in.
-            CreateStaticBufferAttachment(*rhiCtx, gpu.m_vertexBuffer,
+            CreateStaticBufferAttachment(*rhiCtx, geometry.m_vertexBuffer.Get(),
                 RHI::AttachmentAccess::Read,
                 RHI::AttachmentUsage::InputAssembly,
                 RHI::AttachmentStage::VertexInput);
-            if (gpu.m_indexBindings != RHI::NullHandle)
+            if (geometry.m_indexBuffer.IsValid())
             {
-                CreateStaticBufferAttachment(*rhiCtx, gpu.m_indexBindings,
+                CreateStaticBufferAttachment(*rhiCtx, geometry.m_indexBuffer.Get(),
                     RHI::AttachmentAccess::Read,
                     RHI::AttachmentUsage::InputAssembly,
                     RHI::AttachmentStage::VertexInput);
@@ -154,7 +142,7 @@ namespace Spark::Render
             // itself carries an authored flag.
             rhiCtx->Add<ShadowCasterTag>(spec);
             rhiCtx->Add<GeometrySpec>(spec,
-                ComposePersistent(gpu, ref, idBufferEntity, idBufferByteCount));
+                ComposePersistent(geometry, ref, idBufferEntity, idBufferByteCount));
 
             // DrawItem derivation is deferred to DrawItemRouter — a producer-agnostic
             // step over every GeometrySpec, not just world-composed ones.
