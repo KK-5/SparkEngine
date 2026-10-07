@@ -22,6 +22,11 @@ namespace Spark::RHI::DX12
         return m_memoryView;
     }
 
+    uint64_t Buffer::GetBaseOffset() const
+    {
+        return m_memoryView.GetOffset();
+    }
+
     uint64_t Buffer::GetDeviceAddress() const
     {
         return m_memoryView.GetGpuAddress();

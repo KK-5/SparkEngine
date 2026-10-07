@@ -50,6 +50,7 @@ namespace Spark::RHI::DX12
         RHI::ResultCode OrphanBufferInternal(RHI::Buffer& buffer) override;
         RHI::ResultCode MapBufferInternal(const RHI::BufferMapRequest& mapRequest, RHI::BufferMapResponse& response) override;
         void UnmapBufferInternal(RHI::Buffer& buffer) override;
+        RHI::Buffer* GetBaseBuffer() const override;
         //////////////////////////////////////////////////////////////////////////
 
         RHI::ResultCode InitBaseBuffer(const RHI::BufferPoolDescriptor& descriptor);
@@ -62,7 +63,7 @@ namespace Spark::RHI::DX12
 
         // Only in a pool with a budget: the one native buffer every buffer of the pool is a
         // part of, the record of which parts are taken, and the parts buffers gave back.
-        Ptr<D3D12MA::Allocation>           m_baseBuffer;
+        Ptr<RHI::Buffer>                   m_baseBuffer;
         Ptr<D3D12MA::VirtualBlock>         m_virtualBlock;
         VirtualBlockAllocationReleaseQueue m_virtualBlockReleaseQueue;
     };

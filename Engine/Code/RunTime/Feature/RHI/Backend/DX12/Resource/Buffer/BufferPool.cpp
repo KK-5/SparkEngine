@@ -17,6 +17,8 @@
 #include <mutex>
 #include <EASTL/vector.h>
 #include <Math/Bit.h>
+#include <Service/Service.h>
+#include <RHI/Factory.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Fence/Fence.h>
 #include <Device/Device.h>
@@ -138,18 +140,30 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
-        m_baseBuffer   = allocation.Get();
+        // The whole native buffer as a buffer of the pool. It owns the memory its parts are in.
+        Ptr<RHI::Buffer> baseBuffer = Service<RHI::Factory>::Get()->CreateBuffer();
+        baseBuffer->SetName(GetName());
+        MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer, 0, descriptor.m_budgetInBytes, 0);
+        static_cast<Buffer&>(*baseBuffer).m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
+        m_baseBuffer = eastl::move(baseBuffer);
+
         m_virtualBlock = virtualBlock.Get();
         return RHI::ResultCode::Success;
     }
 
+    RHI::Buffer* BufferPool::GetBaseBuffer() const
+    {
+        return m_baseBuffer.get();
+    }
+
     void BufferPool::ShutdownInternal()
     {
+        // Before the queue its memory waits in is emptied.
+        m_baseBuffer.reset();
         m_releaseQueue.Shutdown();
         // Each part holds the block, which goes with the last of them.
         m_virtualBlockReleaseQueue.Shutdown();
         m_virtualBlock.reset();
-        m_baseBuffer.reset();
         m_allocator.reset();
     }
 
@@ -180,7 +194,8 @@ namespace Spark::RHI::DX12
         }
         offset = AlignUpNPOT(offset, alignment);
 
-        MemoryView memoryView(m_baseBuffer->GetResource(), MemoryViewType::Buffer, offset, bufferDescriptor.m_byteCount, alignment);
+        Memory* baseMemory = static_cast<const Buffer&>(*m_baseBuffer).GetMemoryView().GetMemory();
+        MemoryView memoryView(baseMemory, MemoryViewType::Buffer, offset, bufferDescriptor.m_byteCount, alignment);
         buffer.m_memoryView = BufferMemoryView(
             eastl::move(memoryView),
             Ptr<VirtualBlockAllocation>(new VirtualBlockAllocation(m_virtualBlock.get(), allocation)));
@@ -234,12 +249,13 @@ namespace Spark::RHI::DX12
     void BufferPool::ShutdownResourceInternal(RHI::Resource& resourceBase)
     {
         Buffer& buffer = static_cast<Buffer&>(resourceBase);
-        if (buffer.GetMemoryView().GetType() == BufferMemoryType::Shared)
+        if (VirtualBlockAllocation* part = buffer.GetMemoryView().GetVirtualBlockAllocation())
         {
-            m_virtualBlockReleaseQueue.QueueForCollect(buffer.GetMemoryView().GetVirtualBlockAllocation());
+            m_virtualBlockReleaseQueue.QueueForCollect(part);
         }
         else
         {
+            // A buffer of its own, or the base buffer.
             m_releaseQueue.QueueForCollect(buffer.GetMemoryView().GetMemoryAllocation());
         }
         // 这里移动赋值，原MemoryView持有的MemoryAllocation自动release

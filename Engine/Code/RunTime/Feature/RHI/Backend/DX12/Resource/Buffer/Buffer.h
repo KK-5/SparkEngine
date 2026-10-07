@@ -27,6 +27,8 @@ namespace Spark::RHI::DX12
         const BufferMemoryView& GetMemoryView() const;
         BufferMemoryView& GetMemoryView();
 
+        uint64_t GetBaseOffset() const override;
+
         uint64_t GetDeviceAddress() const override;
 
     private:

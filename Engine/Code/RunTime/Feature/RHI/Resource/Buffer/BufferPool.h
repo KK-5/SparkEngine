@@ -89,6 +89,17 @@ namespace Spark::RHI
 
         const BufferPoolDescriptor& GetDescriptor() const override final;
 
+        //! The one native buffer every buffer of a pool with a budget is a part of, as a
+        //! buffer of the pool spanning all of it. Null in a pool without a budget.
+        //!
+        //! A barrier acts on a whole native buffer, so what the pool holds is tracked one
+        //! of two ways, and its owner picks one for the pool:
+        //!  - by its parts, when they are uploaded once and only read after: bind the base
+        //!    buffer where one binding has to cover them all, and give it no barrier;
+        //!  - by the base buffer, when something on a queue writes the parts and reads them
+        //!    back: it is the resource that takes the barriers, and a part is where in it.
+        virtual Buffer* GetBaseBuffer() const { return nullptr; }
+
     protected:
         BufferPool() = default;
 

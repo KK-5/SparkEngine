@@ -25,6 +25,13 @@ namespace Spark::RHI
 
         ResourceState GetResourceState() const;
 
+        //! Where the buffer starts in its pool's base buffer, in bytes. 0 for a buffer that is
+        //! a native buffer of its own.
+        virtual uint64_t GetBaseOffset() const
+        {
+            return 0;
+        }
+
         static constexpr uint64_t InvalidDeviceAddress = static_cast<uint64_t>(-1);
         virtual uint64_t GetDeviceAddress() const
         {

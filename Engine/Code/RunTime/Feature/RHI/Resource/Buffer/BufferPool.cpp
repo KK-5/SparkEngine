@@ -11,7 +11,7 @@ namespace Spark::RHI
 {
     ResultCode BufferPool::Init(Device& device, const BufferPoolDescriptor& descriptor)
     {
-        return ResourcePool::Init(
+        const ResultCode resultCode = ResourcePool::Init(
             device, descriptor,
             [this, &device, &descriptor]()
         {
@@ -24,6 +24,23 @@ namespace Spark::RHI
 
             return InitInternal(device, descriptor);
         });
+
+        Buffer* baseBuffer = GetBaseBuffer();
+        if (resultCode != ResultCode::Success || !baseBuffer)
+        {
+            return resultCode;
+        }
+
+        // The backend made it with its memory in InitInternal, before the pool could take
+        // a resource. Registered here as a buffer of the pool like any other, allowing
+        // whatever the pool allows.
+        BufferDescriptor baseDescriptor;
+        baseDescriptor.m_byteCount       = m_descriptor.m_budgetInBytes;
+        baseDescriptor.m_bindFlags       = m_descriptor.m_bindFlags;
+        baseDescriptor.m_sharedQueueMask = m_descriptor.m_sharedQueueMask;
+        baseBuffer->SetDescriptor(baseDescriptor);
+        SetResourceState(*baseBuffer, RHI::ResourceState{});
+        return ResourcePool::InitResource(baseBuffer, []() { return ResultCode::Success; });
     }
 
     ResultCode BufferPool::InitBuffer(const BufferInitRequest& request)
