@@ -21,7 +21,7 @@ D4 与步骤 3 在 2026-10-06 按 `TODO_BufferPoolPlan.md` 重写：原来是渲
 | 1 | 渲染图：间接参数的访问角色、`DispatchIndirect`、图内 buffer 的首个用例 | 0 | 完成（2026-10-05），见下 |
 | 2 | buffer 跨队列同步的纠正（D12） | — | 完成（2026-10-06），见下 |
 | 3 | 几何进同一个原生 buffer：渲染层的几何系统持有池、替 Mesh 申请（仍走 CPU 提交） | `TODO_BufferPoolPlan.md` 步骤 1（已完成） | 完成（2026-10-06），第 1 小步的画面用户已确认，见下 |
-| 4 | CPU 填参数的 indirect draw（不剔除） | 0、1、3 | 进行中：第 1 小步（RHI 暴露偏移与池的底层 buffer）完成（2026-10-07），见 `TODO_BufferPoolPlan.md` D7 |
+| 4 | CPU 填参数的 indirect draw（不剔除） | 0、1、3 | 进行中：第 1 小步（RHI 暴露偏移与池的底层 buffer）完成（2026-10-07），见 `TODO_BufferPoolPlan.md` D7；第 2 小步（`m_drawMask`）完成（2026-10-07），见下 |
 | 5 | compute 视锥剔除，带 count buffer；`g_Geometries` | 4 | 未开始 |
 
 0 / 1 与 2、3 互不依赖。4 把"indirect 画得对"和"剔除算得对"分开验证，所以不跳过。
@@ -98,6 +98,32 @@ D4 与步骤 3 在 2026-10-06 按 `TODO_BufferPoolPlan.md` 重写：原来是渲
 
 第 3 小步（容量）：用户 2026-10-06 定为固定 64 MB、先不动，代码只改了那个常量。原来打算的三项小改动没有做，
 留着的三件事见 D4"容量"。改完后全量编译通过、`SparkRenderTest` 94 个用例通过；64 MB 下没有再跑编辑器。
+
+**步骤 4 第 2 小步跑过什么、没跑过什么**（`m_drawMask`，规则见 D6）
+
+- 全量 Debug 编译通过；`SparkRenderTest` 103 个用例通过，新增 9 个：`GlobalBufferTest` 5 个（发槽位与编码、归还后读出默认值、
+  新持有者从默认值开始、带 `DeadTag` 的实体销毁前记录不变而销毁后变默认值、丢了源组件就归还而拿回来又有槽位）、
+  `DrawMaskTest` 3 个、`SlotPoolTest` 1 个（`IsHeld`）。`MeshGeometryTest` 的两个用例补了就绪标签的断言。
+- `GlobalBuffer::Update` 拆出了 `UpdateMirror`（不需要 buffer 的那一半）并加了只读的 `operator[]`，只是为了不要设备就能测；
+  它让一个只做了一半的更新成了公开接口，用户 2026-10-07 同意留着。
+- 编辑器里用临时代码（已删）生成 `project://Model/SofaPart.glb`（6 个网格）并逐帧打印 mask。**这是在第一版实现下跑的**
+  （归还队列加 `DeadTag` 重置，见 D6"换掉的写法"），改成现在的实现后没有重跑：
+
+  | 时刻 | 6 条记录的 mask | 持有槽位的实体数 |
+  |---|---|---|
+  | 生成的那一帧（上传未提交） | `0 0 0 0 0 0` | 6 |
+  | 下一帧 | `3 3 3 3 3 3` | 6 |
+  | 给一个实体加 `DeadTag` 的那一帧 | `0 3 3 3 3 3` | 6 |
+  | 它被销毁后 | `0 3 3 3 3 3` | 5 |
+  | 移除另一个实体的 `MeshComponent` | `0 3 3 3 3 0` | 4 |
+
+  现在的实现与这张表的差别只在第三行：加 `DeadTag` 的那一帧 mask 不再变 0，销毁后才变。这一处由单元测试覆盖。
+- 改成现在的实现后，编辑器空场景跑过一遍，日志里只有关闭时原有的那几条。
+- `MeshGeometryComposer` 里多了一段：槽位没了的实体摘掉 `WorldComposedTag`，否则它重新拿到槽位后不会再 compose。
+  它现在没有触发的途径——槽位被收回只可能是 `MeshGeometry` 没了（几何系统已经摘了标签）或 `WorldTransformMatrix` 没了
+  （全仓库没有地方移除它）。用户 2026-10-07 定先留着。
+- 没有执行过的：画面没有看（CPU 路径不读这个字段，按理没有变化）；没有任何 shader 或 CPU 代码读 `m_drawMask`，第 3 小步才有。
+- 顺带看到的：`project://Model/Room.glb`（265 MB）放不下 64 MB 的池，放不下的网格每帧各报一条错，是 D4"容量"里已知的行为。
 
 ---
 
@@ -351,23 +377,35 @@ D5 已撤销：实例身份的做法不变，不构成一项决策，内容并�
 
 ### D6　剔除直接遍历 `g_Instances`，靠记录里的 mask 跳过空洞　✅ 已定
 
-`g_Instances` 是稳定槽位，有空洞且不清零，shader 遍历 `[0, Size())` 会碰到已经删掉的物体。
+`g_Instances` 是稳定槽位，有空洞，而且空洞原来不清零，shader 遍历 `[0, Size())` 会碰到已经删掉的物体。
 `TODO_GlobalBufferUploadPlan.md` §六 为这种情况预留的做法是补一个 GPU 侧的有效性信号，这里落的就是它。
 
 - `InstanceData` 用 padding 加 `m_drawMask`：每一位是一个分类（对应 `OpaqueTag`、`ShadowCasterTag`），
   **0 表示不画**。连同 D4 的 `m_geometryIndex`，仍是 208 字节。
 - 剔除 shader 的第 i 个线程读 `g_Instances[i]`：mask 不含当前集合的位就退出；否则按 `m_geometryIndex` 读
   `g_Geometries` 拿包围盒与 draw 参数。引用只有一跳，和实例 → 材质同形。
-- 写成 0 的三种情况：
-  - **槽位被释放。** `SlotPool::Free` 只记下 id（`HandlePool.h:42` 的约定），`GlobalBuffer::Update` 在分配新槽位
-    之前排空，把 staging 里那一条清零。staging 整块上传，不需要别的通知途径。
-  - **实体带 `DeadTag` 但还没销毁。** 编码的 view 排除它（`GlobalBuffer.h:83`），它还握着槽位，旧记录要清掉。
-  - **几何还没就绪**（D4"就绪"：两个 buffer 实体还有 `UploadPendingTag`，上传没提交）。上传提交之后、fence 完成之前
-    不用写 0，图形队列会在 GPU 上等。
-- mask 由 `InstanceBindingSystem` 编码时写。分类要和 CPU 路径打 tag 用同一个来源，否则两条路径画的集合会不一样。
-- tag 与位的对应定义在 D7 的共享头里。只走 CPU 路径的分类（以后的半透明）不占位。
+- 写成 0 的情况（2026-10-07 实现时重定）。规则是两条："没有人持有的槽位读出来是默认值"，"几何没就绪的不写分类"：
+  - **槽位没有人持有。** `GlobalBuffer::Update` 每帧把 `[0, Size())` 里没人持有的记录重置成 `Element{}`（mask 为 0）。
+    有没有人持有问的是池已有的引用计数（`HandlePool::IsHeld`）。归还本身仍只有 RAII 一条路径：`SlotRef` 析构 → `SlotPool::Free`。
+  - **源组件没了而实体还在。** 以前没有人销毁它的 `SlotRef`，槽位一直被占着、旧记录也留着；步骤 3 让它真的会发生
+    （`MeshComponent` 被移除后 `MeshGeometry` 跟着没了）。`GlobalBuffer::Update` 每帧把缺了源组件的实体身上的槽位组件移除，
+    和"检测到源组件就发槽位"是一对；之后落进上一条。
+  - **几何还没就绪。** 几何系统在两个 buffer 的上传都已提交时给世界实体打 `MeshGeometryReadyTag`，实例编码时有这个标签才写分类，
+    否则写 0。compose 也改成看这个标签，"就绪"只有几何系统一个来源。上传提交之后、fence 完成之前不用写 0，图形队列会在 GPU 上等。
+- 前两条在 `GlobalBuffer` 里，对实例、材质、视图三张表都生效。
+- **带 `DeadTag` 但还没销毁的实体不处理**（原来列为一种，实现过，后来删掉）。世界实体在每帧最后才销毁，渲染在它之前，
+  所以确实有一帧旧记录留着；但那一帧它的几何与槽位都还有效，CPU 路径同样照旧画它，多画这一帧没有害处，销毁之后落进第一条。
+  这是读代码得出的，没有单独跑过。
+- mask 由 `InstanceBindingSystem` 编码时写。分类只有一个来源 `ClassifyDraw`（`Drawable/DrawMask.h`）：compose 按它给
+  `GeometrySpec` 打 tag，实例编码按它写 mask，两条路径画的集合因此一样。现在恒为不透明加投影。tag 是 compose 时打一次、
+  mask 是每帧写，以后分类会随物体变化时要补上重新 compose 的触发。
+- tag 与位的对应也在 `DrawMask.h`。只走 CPU 路径的分类（以后的半透明）不占位。
 - 回收延迟不需要：一帧内剔除与绘制读的是同一份副本。跨帧的 GPU 状态出现时再加
   （同 `TODO_GlobalBufferUploadPlan.md` §六）。
+
+换掉的写法（2026-10-07，实现过）：`SlotPool` 另记一张"刚被归还的 id"的表，`GlobalBuffer` 每帧排空并只清那几条。
+用户否掉：归还的路径应当只有 RAII 那一条，池不该为清记录多背一份状态。换成每帧重置之后，判断读的是每个 id 8 字节的计数，
+重置只写空洞；最坏是整张表全是空洞，要写 13.6 MB。
 
 代价：空洞白占线程。高水位只增不减，卸载大量物体后仍按峰值派发，每个空线程读一个字段就退出。
 每个视图都要把整张表过一遍。
@@ -380,7 +418,8 @@ O(N) 的循环、多一层引用（清单 → 实例 → 几何）。引擎里�
 分段本身不是选择：一次 indirect 调用里不能换视图常量与渲染目标，所以每个视图一段；不同 pass 画的集合不同，
 所以每个集合一份。
 
-- **draw 集合集中定义**在一个共享头里（暂名 `Feature/SceneDraws/SceneDraws.h`，同 `SceneTextures.h` 的先例）：
+- **draw 集合集中定义**在一个共享头里（文件还没有建。tag 与位的对应已经在 `Drawable/DrawMask.h`，见 D6；
+  除此之外还要不要一个"集合"的定义，步骤 4 第 3 小步定——pass 已经用 `Accepts<Tag>()` 说了要哪一位，视图类型它也有）：
   `MainOpaque` = `MainViewTag` × `OpaqueTag`，`ShadowCasters` = `ShadowViewTag` × `ShadowCasterTag`。
   一个集合知道自己的视图类型、分类 tag 与它在 `m_drawMask` 里的位、参数 buffer 与 count buffer 的名字。
 - **DepthPre 与 GBuffer 共用 `MainOpaque` 的结果**：剔一次，两个 pass 读同一段。可见性是（物体，视图）的属性，
@@ -631,8 +670,8 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 ### 4　indirect draw，CPU 填参数
 
 1. RHI 暴露"buffer 在底层 buffer 里的偏移"与"池的底层 buffer"（`TODO_BufferPoolPlan.md` D7）。已完成。
-2. `SceneDraws.h`（集合，以及 tag 与 mask 位的对应）；`InstanceData::m_drawMask`，HLSL 镜像同步；
-   释放的槽位、带 `DeadTag` 的实体、几何未就绪的实例写 0（D6）。
+2. `Drawable/DrawMask.h`（tag 与 mask 位的对应，分类的唯一来源 `ClassifyDraw`）；`InstanceData::m_drawMask`，HLSL 镜像同步；
+   没人持有的槽位、几何未就绪的实例写 0，缺了源组件的实体归还槽位（D6）。已完成。
 3. 参数 buffer 先由 CPU 每帧上传（每个集合一份，所有视图读同一段，无 count buffer）；`Accepts<Tags>()` 记下 mask 位、
    builder 的路径选择、lowering 提交批次的 item；运行时开关。三个消费者（DepthPre、GBuffer、Shadow）的代码不改，
    开关打开后它们走 GPU 路径。
@@ -650,6 +689,7 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 第 3 小步再定的两处：批次的实例数据和现有的不同（现有的是烘死一个起始实例，批次的起始实例在每条记录里），
 `GeometrySpec` 的实例数据要多一种情况；批次由几何系统产出，还是另起一个管 draw 集合的系统产出。D9 的原文到那时一起改。
+还有第三处：要不要"draw 集合"这个定义（见 D7 第一条）。
 
 ### 5　compute 视锥剔除
 
@@ -719,12 +759,6 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
   - 时机：没有定。原来打算在步骤 3 写"租约的就绪判断加上 fence"时一起定；D4 重写后步骤 3 的就绪仍是 GPU 上等，
     不再碰这件事。
   - D4 重写后，网格回到独占路径，上面"两处不同步"那一条重新适用于它们。
-- **`m_drawMask` 的来源（D6）。** 分类 tag 现在打在 RHIContext 的 `GeometrySpec` 实体上，mask 是
-  `InstanceBindingSystem` 遍历世界实体时写的；两边怎么共用一个分类来源、几何就绪怎么传到实例编码，留到实现时定。
-- **源组件没了之后实例槽位不归还（D6，步骤 4 要处理）。** `MeshComponent` 被移除而实体还在时，`MeshGeometry` 会被移除
-  （步骤 3），但实体上的 `InstanceSlotRef` 留着：`GlobalBuffer` 只发槽位，不收回源组件已经没了的。CPU 路径下没有后果
-  （`DrawItem` 已被回收）；做 `m_drawMask` 时这个槽位要写 0 或者收回，否则剔除 shader 会把它当成还活着。
-- **`DeadTag` 到销毁之间隔几帧（D6）。** 没有查。它决定"带 `DeadTag` 的实体清零"这一步是必需的还是只是保险。
 - **16 位索引。** 现在资产都是 `UINT32`。一次调用只有一种索引格式，以后引入 16 位索引的话它是 bucket 的又一维。
 - **每视图一个 Scope 还是一次二维 dispatch（D7）。** 阴影 tile 多的时候后者省 dispatch，但要一张"参与的视图下标"表。
 - **多个 MainView。** 设计上按视图分段，天然支持；但 `MainOpaque` 的消费者（DepthPre / GBuffer）之外的 pass 目前只
@@ -741,7 +775,7 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 | 1 | `RenderGraph/PassScopes.{h,cpp}`、`RenderGraphBuilder.{h,cpp}`、`RenderGraphCompiler.{h,cpp}`、`RenderGraph.cpp`、`RenderGraphExecuter.cpp`（注释）；`Pass/Component/ScopeComponents.h`（`ItemIndirectArguments`）；新建 `SandBox/Program/RenderGraph/IndirectDispatchFeature.{h,cpp}`、`SandBox/Asset/Shader/IndirectDispatch{Args,Pattern}.hlsl`，`SandBox/Program/CMakeLists.txt`；`Test/Render/RenderGraphResolveTest.cpp`、新建 `Test/Render/BufferAccessTest.cpp`，`Test/Render/CMakeLists.txt` |
 | 2 | `RHI/System/AsyncUploadSystem.{h,cpp}`；`RHI/HardwareQueue.h`（`IsExclusiveQueueMask`）；`RHI/Component/Component.h`（注释）；`Render/RenderGraph/RenderGraphCompiler.{h,cpp}`（静态 buffer 的等待、导入 buffer 的等待、逐 Scope 的 buffer 访问）；`Feature/Mesh/MeshSystem.cpp`（VB / IB 的掩码）；`SandBox/Program/RenderGraph/IndirectDispatchFeature.cpp`（`kArgsOnComputeQueue`） |
 | 3 | 新建 `Render/Geometry/MeshGeometry.h`、`MeshGeometrySystem.{h,cpp}`，`RHI/Context/UniqueRHIHandle.h`；`Render/CMakeLists.txt`；`Render/RenderSystem.{h,cpp}`（持有、更新顺序、关闭顺序）；`Feature/Mesh/Components.h`（删 `MeshGPUComponent`）、`MeshSystem.{h,cpp}`；`Render/Drawable/MeshGeometryComposer.cpp`；`Render/Binding/Instance/InstanceBindingSystem.{h,cpp}`；`Feature/Skybox/Components.h`（一处提到 `MeshGPUComponent` 的注释）。RHI、上传系统、渲染图、`DrawItemRouter` 不动 |
-| 4 | 新建 `Render/Feature/SceneDraws/SceneDraws.{h,cpp}`；`Binding/SlotPool.h`、`GlobalBuffer.h`（排空释放的槽位并清零）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`PassScopes.h`（`Accepts<Tags>()` 记下 mask 位）、`RenderGraphBuilder.{h,cpp}`（路径选择）；`RenderGraphCompiler.cpp`（lowering）。三个 pass 的文件不动 |
+| 4 | 新建 `Render/Drawable/DrawMask.{h,cpp}`；`Handle/HandlePool.h`（`IsHeld`）、`Binding/GlobalBuffer.h`（归还缺了源组件的槽位、每帧重置空洞、`UpdateMirror`）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`Geometry/MeshGeometry.h`（`MeshGeometryReadyTag`）、`MeshGeometrySystem.cpp`、`Drawable/MeshGeometryComposer.cpp`；`Test/Render/GlobalBufferTest.cpp`、`DrawMaskTest.cpp`（新建）、`SlotPoolTest.cpp`、`MeshGeometryTest.cpp`；`PassScopes.h`（`Accepts<Tags>()` 记下 mask 位）、`RenderGraphBuilder.{h,cpp}`（路径选择）；`RenderGraphCompiler.cpp`（lowering）。三个 pass 的文件不动 |
 | 5 | 新建 `Render/Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`；`g_Geometries`（几何系统里）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_geometryIndex`）；`RenderSystem.cpp` 的注册；`TODO_RenderPipelineRoadmap.md` |
 
 ---
