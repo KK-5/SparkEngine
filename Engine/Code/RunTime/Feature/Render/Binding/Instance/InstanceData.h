@@ -18,12 +18,13 @@ namespace Spark::Render
         Math::Matrix4X4 m_normalMatrix{Math::Matrix4X4Const::IDENTITY}; // inverse-transpose of model (64B)
         uint32_t        m_materialIndex = 0;   // slot into g_Materials (space3), resolved per frame
         uint32_t        m_drawMask      = 0;   // DrawMask.h; 0 is a record nobody draws
-        uint32_t        m_pad[2]        = {0, 0};
+        uint32_t        m_geometryIndex = 0;   // slot into g_Geometries (space6); only meaningful while m_drawMask is set
+        uint32_t        m_pad           = 0;
     };
 
     // 208B, 16B-aligned. StructuredBuffer elements are tightly C-packed (no cbuffer 16B
     // rounding), so sizeof must match the HLSL
-    // `float4x4 Model; float4x4 PrevModel; float4x4 NormalMatrix; uint MaterialIndex; uint DrawMask; uint2 _Pad;`.
+    // `float4x4 Model; float4x4 PrevModel; float4x4 NormalMatrix; uint MaterialIndex; uint DrawMask; uint GeometryIndex; uint _Pad;`.
     static_assert(sizeof(InstanceData) == 208,
         "InstanceData must stay 208 bytes to match InstanceData.hlsli; add padding "
         "deliberately when introducing new fields.");

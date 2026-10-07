@@ -40,6 +40,7 @@ namespace Spark::Render
 
         RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
         RHI::RHIHandle m_idBufferEntity = RHI::NullHandle;  // Components::Buffer — per-instance vertex stream ([0..Capacity-1])
+        RHI::RHIHandle m_slotCountEntity = RHI::NullHandle; // InstanceSlotCount — how far g_Instances is in use
 
         // CPU-side source for the one-time ID-buffer upload. Must outlive the async
         // upload (PendingBufferUpload contract), so it lives for the system's lifetime.

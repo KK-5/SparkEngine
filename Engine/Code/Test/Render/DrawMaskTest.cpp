@@ -5,6 +5,7 @@
 #include <RHI/Context/RHIContext.h>
 
 #include <Drawable/DrawMask.h>
+#include <Feature/InstanceCulling/InstanceCullingPass.h>
 
 using namespace Spark;
 using namespace Spark::Render;
@@ -52,4 +53,15 @@ TEST(DrawMaskTest, AMeshIsOpaqueAndCastsToday)
     const Entity e = world.CreateEntity();
 
     EXPECT_EQ(ClassifyDraw(world, e), Both);
+}
+
+//! Two lists under one name would be one buffer written by both passes.
+TEST(DrawMaskTest, EachListHasBuffersOfItsOwn)
+{
+    EXPECT_NE(InstanceCullingPass::OpaqueDrawArgumentsName(),
+              InstanceCullingPass::ShadowCasterDrawArgumentsName());
+    EXPECT_NE(InstanceCullingPass::OpaqueDrawCountName(),
+              InstanceCullingPass::ShadowCasterDrawCountName());
+    EXPECT_NE(InstanceCullingPass::OpaqueDrawArgumentsName(),
+              InstanceCullingPass::OpaqueDrawCountName());
 }

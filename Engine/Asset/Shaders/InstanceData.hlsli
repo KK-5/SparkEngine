@@ -11,7 +11,8 @@ struct InstanceData
     float4x4 NormalMatrix;   // inverse-transpose of Model; use (float3x3) for normals
     uint     MaterialIndex;  // slot into g_Materials (space3)
     uint     DrawMask;       // one bit per classification tag (DrawMask.h); 0 = not drawn
-    uint2    _Pad;
+    uint     GeometryIndex;  // slot into g_Geometries (space6); only meaningful while DrawMask is set
+    uint     _Pad;
 };
 
 #endif // SPARK_INSTANCE_DATA_HLSLI

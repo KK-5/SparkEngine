@@ -28,6 +28,14 @@ namespace Spark::Render
     //! The single shared ShaderBindings entity carrying g_Instances (space4).
     struct InstanceBindingTag {};
 
+    //! On an entity of its own, kept by InstanceBindingSystem: how many slots of g_Instances
+    //! a reader of the whole array has to go through this frame. The high-water mark, not
+    //! the number of live instances: the holes below it are counted.
+    struct InstanceSlotCount
+    {
+        uint32_t m_count = 0;
+    };
+
     //! The single shared per-instance vertex stream ID buffer entity.
     struct InstanceIDBufferTag {};
 }

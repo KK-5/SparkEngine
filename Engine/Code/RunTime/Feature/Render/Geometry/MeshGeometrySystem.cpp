@@ -31,6 +31,12 @@ namespace Spark::Render
         constexpr RHI::BufferBindFlags GeometryBindFlags =
             RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
 
+        //! Where a buffer of the pool starts in the pool's native buffer, in bytes.
+        uint64_t BaseOffset(RHI::RHIContext& rhiCtx, RHI::RHIHandle buffer)
+        {
+            return rhiCtx.Get<RHI::Components::Buffer>(buffer).m_buffer->GetBaseOffset();
+        }
+
         //! The primitive a MeshComponent names, or null while there is none to draw. Silent:
         //! MeshSystem reports a component that names nothing, once, where this runs every frame.
         const Resource::Primitive* FindPrimitive(
@@ -94,7 +100,7 @@ namespace Spark::Render
         }
     }
 
-    void MeshGeometrySystem::Init(RHI::RHIContext& /*rhiCtx*/)
+    void MeshGeometrySystem::Init(RHI::RHIContext& rhiCtx)
     {
         auto* rhi = Service<RHI::RHIInterface>::Get();
 
@@ -112,7 +118,14 @@ namespace Spark::Render
         {
             LOG_ERROR("[MeshGeometrySystem] BufferPool::Init failed; no mesh will have geometry.");
             m_pool.reset();
+            return;
         }
+
+        // Only bound and read: what a queue may do with a part is tracked on the part.
+        m_baseBuffer = rhiCtx.CreateEntity();
+        rhiCtx.Add<RHI::ResourceName>(m_baseBuffer, RHI::ResourceName{ m_pool->GetName() });
+        rhiCtx.Add<RHI::Components::Buffer>(
+            m_baseBuffer, RHI::Components::Buffer{ Ptr<RHI::Buffer>(m_pool->GetBaseBuffer()) });
     }
 
     void MeshGeometrySystem::Update()
@@ -138,6 +151,12 @@ namespace Spark::Render
                 return;
             }
 
+            // What lets every mesh be a part of one vertex binding: the compiler lets no
+            // other format through.
+            ASSERT(Resource::IsStandardVertexLayout(primitive->layout),
+                "[MeshGeometrySystem] A primitive of {} is not in the standard vertex format.",
+                meshComp.m_modelAssetId.GetPath().c_str());
+
             // Unique suffix so per-entity ResourceNames don't collide as AttachmentIds.
             const eastl::string idSuffix = eastl::to_string(static_cast<uint32_t>(entity));
 
@@ -160,10 +179,11 @@ namespace Spark::Render
 
             if (!primitive->indexBuffer.empty())
             {
+                const uint32_t indexByteSize = RHI::GetIndexFormatSize(primitive->indexFormat);
                 geometry.m_indexBuffer = RHI::UniqueRHIHandle(CreateBuffer(
                     *rhiCtx, ObjectName(eastl::string("MeshIB_") + idSuffix),
                     primitive->indexBuffer.data(), primitive->indexBuffer.size(),
-                    RHI::GetIndexFormatSize(primitive->indexFormat)));
+                    indexByteSize));
                 if (!geometry.m_indexBuffer.IsValid())
                 {
                     // geometry goes here and takes the vertex buffer with it.
@@ -172,6 +192,12 @@ namespace Spark::Render
                 geometry.m_indexCount     = primitive->indexCount;
                 geometry.m_indexFormat    = primitive->indexFormat;
                 geometry.m_indexByteCount = static_cast<uint32_t>(primitive->indexBuffer.size());
+
+                // Whole elements: each buffer was placed at a multiple of its element size.
+                geometry.m_firstIndex = static_cast<uint32_t>(
+                    BaseOffset(*rhiCtx, geometry.m_indexBuffer.Get()) / indexByteSize);
+                geometry.m_vertexOffset = static_cast<uint32_t>(
+                    BaseOffset(*rhiCtx, geometry.m_vertexBuffer.Get()) / geometry.m_vertexByteStride);
             }
 
             world->Add<MeshGeometry>(entity, eastl::move(geometry));
@@ -201,18 +227,20 @@ namespace Spark::Render
             return;
         }
 
-        // The pool's buffers have to be gone before it is. Destroyed outright: no tick
-        // follows to reap the DeadTag the clear above left on them.
-        eastl::vector<RHI::RHIHandle> buffers;
+        // The pool's buffers have to be gone before it is, the native buffer's own entity
+        // among them. Destroyed outright: no tick follows to reap the DeadTag the clear above
+        // left on them.
+        eastl::vector<RHI::RHIHandle> entities;
         rhiCtx.GetView<RHI::Components::Buffer>().each(
             [&](RHI::RHIHandle entity, const RHI::Components::Buffer& buffer)
         {
             if (buffer.m_buffer && buffer.m_buffer->GetPool() == m_pool.get())
             {
-                buffers.push_back(entity);
+                entities.push_back(entity);
             }
         });
-        rhiCtx.DestoryEntity(buffers.begin(), buffers.end());
+        rhiCtx.DestoryEntity(entities.begin(), entities.end());
+        m_baseBuffer = RHI::NullHandle;
 
         m_pool->Shutdown();
         m_pool.reset();

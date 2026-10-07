@@ -21,6 +21,7 @@
 
 #include <Material/MaterialUtils.h>         // MaterialComponent / StandardPBR / GetDefaultMaterial
 #include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
+#include <Binding/Geometry/GeometryBinding.h>
 #include <Drawable/DrawMask.h>
 
 namespace Spark::Render
@@ -133,6 +134,9 @@ namespace Spark::Render
         bufferDesc.m_bindingsEntity = m_bindingsEntity;
         m_instances.Init(rhiCtx, bufferDesc);
 
+        m_slotCountEntity = rhiCtx.CreateEntity();
+        rhiCtx.Add<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ 0 });
+
         // Per-instance vertex-stream ID buffer: static identity table [0..Capacity-1],
         // uploaded once and read as a vertex stream every frame. It goes through the
         // StaticImported path (CreateStaticBuffer + static buffer attachment) so the
@@ -187,9 +191,18 @@ namespace Spark::Render
             out.m_normalMatrix = Math::ToMatrix4X4(
                 Math::Transpose(Math::Inverse(Math::ToMatrix3X3(m.m_worldMatrix))));
             out.m_materialIndex = ResolveMaterialIndex(*world, matCtx, e);
-            // 0 until the geometry can be read: a reader of g_Instances draws what is set.
-            out.m_drawMask = world->Has<MeshGeometryReadyTag>(e) ? ClassifyDraw(*world, e) : 0;
+            // 0 until the geometry can be read and has its g_Geometries record: a reader of
+            // g_Instances draws what is set, from the record m_geometryIndex names.
+            const auto* geometrySlot = world->TryGet<GeometrySlotRef>(e);
+            const bool  drawable     = geometrySlot && world->Has<MeshGeometryReadyTag>(e);
+            out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
+            out.m_drawMask      = drawable ? ClassifyDraw(*world, e) : 0;
         });
+
+        if (m_slotCountEntity != RHI::NullHandle)
+        {
+            rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ m_instances.Size() });
+        }
 
         // Only encoded renderables hold a slot, so history starts on the frame they were first written.
         world->GetView<InstanceHistory, Transform::WorldTransformMatrix>(Exclude<DeadTag>).each(
@@ -213,8 +226,10 @@ namespace Spark::Render
 
         if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
         if (m_idBufferEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_idBufferEntity); }
+        if (m_slotCountEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_slotCountEntity); }
 
         m_bindingsEntity = RHI::NullHandle;
         m_idBufferEntity = RHI::NullHandle;
+        m_slotCountEntity = RHI::NullHandle;
     }
 }

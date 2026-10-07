@@ -10,6 +10,7 @@
 
 #include <Drawable/GeometrySpec.h>
 #include <Geometry/MeshGeometry.h>
+#include <Binding/Geometry/GeometryBindingSystem.h>
 
 using namespace Spark;
 using namespace Spark::Render;
@@ -128,4 +129,18 @@ TEST_F(MeshGeometryTest, DestroyedEntityMarksItsBuffersDead)
 
     EXPECT_TRUE(IsDead(vb));
     EXPECT_TRUE(IsDead(ib));
+}
+
+TEST_F(MeshGeometryTest, AMeshIsEncodedWithWhereItStarts)
+{
+    MeshGeometry geometry;
+    geometry.m_indexCount   = 36;
+    geometry.m_firstIndex   = 1200;
+    geometry.m_vertexOffset = 77;
+
+    const GeometryData data = EncodeGeometryData(geometry);
+
+    EXPECT_EQ(data.m_firstIndex, 1200u);
+    EXPECT_EQ(data.m_indexCount, 36u);
+    EXPECT_EQ(data.m_vertexOffset, 77);
 }

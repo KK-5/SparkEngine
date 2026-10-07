@@ -11,10 +11,11 @@ namespace Spark::Render
     //! MeshGeometry naming it. The Mesh feature only says which mesh it means.
     //!
     //! Owns the pool the vertex and index buffers come from: one native buffer they are all
-    //! parts of, so draws of different meshes can share a vertex and an index binding.
+    //! parts of, so draws of different meshes can share a vertex and an index binding. How
+    //! a mesh is placed in it is known here only; MeshGeometry says it to everything else.
     //!
-    //! Plain helper, not ISystem — owned by RenderSystem, ticked before InstanceBindingSystem,
-    //! which gives an instance slot to what has a MeshGeometry.
+    //! Plain helper, not ISystem — owned by RenderSystem, ticked before GeometryBindingSystem
+    //! and InstanceBindingSystem, which give a slot to what has a MeshGeometry.
     class MeshGeometrySystem
     {
     public:
@@ -26,7 +27,7 @@ namespace Spark::Render
     private:
         //! Size of the native buffer, taken whole at Init. A request that finds no room fails;
         //! the pool does not grow.
-        static constexpr uint64_t PoolBudgetInBytes = 64ull * 1024 * 1024;
+        static constexpr uint64_t PoolBudgetInBytes = 256ull * 1024 * 1024;
 
         //! A buffer entity of the pool holding a copy of data, or NullHandle if the pool has
         //! no room. data must outlive the upload.
@@ -38,5 +39,8 @@ namespace Spark::Render
             uint32_t alignment);
 
         Ptr<RHI::BufferPool> m_pool;
+
+        //! Components::Buffer — the pool's whole native buffer, for a draw that binds it.
+        RHI::RHIHandle m_baseBuffer = RHI::NullHandle;
     };
 }

@@ -25,6 +25,7 @@
 #include <Feature/DepthPre/DepthPrePass.h>
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/HZB/HZBPass.h>
+#include <Feature/InstanceCulling/InstanceCullingPass.h>
 #include <Feature/AmbientOcclusion/AmbientOcclusionPass.h>
 #include <Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.h>
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
@@ -164,6 +165,9 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
+        // First: the lists the passes below draw the scene by. Nothing reads them yet.
+        InstanceCullingPass::SetUp(passContext);
+
         auto shadowPassCfg = ShadowPass::DefaultConfig();
         ShadowPass::SetUp(passContext, shadowPassCfg);
 
@@ -243,6 +247,7 @@ namespace Spark::Render
         m_viewBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_meshGeometrySystem.Init(rhiCtxForInit);
+        m_geometryBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
         m_shadowViewSystem.Init(rhiCtxForInit);
         m_shadowMaskSystem.Init(rhiCtxForInit);
@@ -273,6 +278,7 @@ namespace Spark::Render
         m_meshGeometryComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -334,8 +340,10 @@ namespace Spark::Render
         // stable now, not rewritten every frame, so this is a one-time ordering need —
         // a material allocated later just falls back to slot 0 for one frame.
         m_materialBindingSystem.Update(frameIndex);
-        // Before InstanceBindingSystem: what gets an instance slot is what has geometry.
+        // Before the two below: what gets a geometry slot and an instance slot is what has
+        // geometry, and the instance stores the geometry slot.
         m_meshGeometrySystem.Update();
+        m_geometryBindingSystem.Update(frameIndex);
         m_instanceBindingSystem.Update(frameIndex);
 
         // World → GeometrySpec: find-or-create over renderable world entities.

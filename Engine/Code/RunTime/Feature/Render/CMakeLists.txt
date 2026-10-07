@@ -22,6 +22,7 @@ set(SOURCES
     Feature/HZB/HZBPass.cpp
     Feature/AmbientOcclusion/AmbientOcclusionPass.cpp
     Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.cpp
+    Feature/InstanceCulling/InstanceCullingPass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
@@ -41,6 +42,7 @@ set(SOURCES
     View/ViewFactory.cpp
     Binding/View/ViewBindingSystem.cpp
     Binding/Scene/SceneBindingSystem.cpp
+    Binding/Geometry/GeometryBindingSystem.cpp
     Binding/Instance/InstanceBindingSystem.cpp
     Binding/Material/MaterialBindingSystem.cpp
     Geometry/MeshGeometrySystem.cpp

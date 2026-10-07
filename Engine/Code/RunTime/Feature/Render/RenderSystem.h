@@ -19,6 +19,7 @@
 #include "View/ShadowViewSystem.h"
 #include "View/ShadowMaskSystem.h"
 #include "Binding/Scene/SceneBindingSystem.h"
+#include "Binding/Geometry/GeometryBindingSystem.h"
 #include "Binding/Instance/InstanceBindingSystem.h"
 #include "Binding/Material/MaterialBindingSystem.h"
 #include "Geometry/MeshGeometrySystem.h"
@@ -80,6 +81,7 @@ namespace Spark::Render
         SceneBindingSystem m_sceneBindingSystem;
         MaterialBindingSystem m_materialBindingSystem;
         MeshGeometrySystem    m_meshGeometrySystem;
+        GeometryBindingSystem m_geometryBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
         MeshGeometryComposer m_meshGeometryComposer;
         DrawItemRouter       m_drawItemRouter;

@@ -26,6 +26,11 @@ namespace Spark::Render
         uint32_t         m_indexCount     = 0;
         RHI::IndexFormat m_indexFormat    = RHI::IndexFormat::Unknown;
         uint32_t         m_indexByteCount = 0;
+
+        //! Where the mesh starts in the native buffer its two buffers are parts of, as an
+        //! indexed draw of that whole buffer counts: in indices, and in vertices.
+        uint32_t m_firstIndex   = 0;
+        uint32_t m_vertexOffset = 0;
     };
 
     //! On a world entity whose MeshGeometry can be drawn: the uploads of both buffers are
