@@ -21,7 +21,7 @@ D4 与步骤 3 在 2026-10-06 按 `TODO_BufferPoolPlan.md` 重写：原来是渲
 | 1 | 渲染图：间接参数的访问角色、`DispatchIndirect`、图内 buffer 的首个用例 | 0 | 完成（2026-10-05），见下 |
 | 2 | buffer 跨队列同步的纠正（D12） | — | 完成（2026-10-06），见下 |
 | 3 | 几何进同一个原生 buffer：渲染层的几何系统持有池、替 Mesh 申请（仍走 CPU 提交） | `TODO_BufferPoolPlan.md` 步骤 1（已完成） | 完成（2026-10-06），第 1 小步的画面用户已确认，见下 |
-| 4 | CPU 填参数的 indirect draw（不剔除） | 0、1、3 | 未开始 |
+| 4 | CPU 填参数的 indirect draw（不剔除） | 0、1、3 | 进行中：第 1 小步（RHI 暴露偏移与池的底层 buffer）完成（2026-10-07），见 `TODO_BufferPoolPlan.md` D7 |
 | 5 | compute 视锥剔除，带 count buffer；`g_Geometries` | 4 | 未开始 |
 
 0 / 1 与 2、3 互不依赖。4 把"indirect 画得对"和"剔除算得对"分开验证，所以不跳过。
@@ -330,8 +330,9 @@ heap 里相邻也合不成一次调用。
   讨论过的方向与没有采用的原因记在 BufferPool 计划 §八。
 - 没有选稀疏资源（预留大 buffer、按需绑定物理内存）：在 Vulkan 上是可选特性。
 
-**使用方要守的**（BufferPool 计划 D3）：只有上传会写这个池里的 buffer。GPU 会写的几何（以后的蒙皮输出）不能进这个池，
-仍然一个 buffer 一个原生对象。
+**这个池的用法**（BufferPool 计划 D9，2026-10-07 定）：几何的池用"按段跟踪"——各段上传一次、之后只读，底层 buffer 只用来
+绑定和读。GPU 会写的几何（以后的蒙皮输出）不放进这个池；它用另一个池、选"按底层 buffer 跟踪"的用法。
+这一段原来写的是"GPU 会写的几何不能进这种池，仍然一个 buffer 一个原生对象"，那是把按段跟踪的适用范围当成了这种池的限制。
 
 **换掉的写法**（2026-10-05 定，2026-10-06 换掉）：渲染层自己持有一个共享 buffer，在里面做变长分配与延迟回收——
 Mesh 拿租约，每份租约是 RHIContext 里一个带"区间组件"的实体，上传系统按区间找目标与基偏移，顶点与索引各一个数组、
@@ -629,11 +630,26 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 ### 4　indirect draw，CPU 填参数
 
-1. `SceneDraws.h`（集合，以及 tag 与 mask 位的对应）；`InstanceData::m_drawMask`，HLSL 镜像同步；
+1. RHI 暴露"buffer 在底层 buffer 里的偏移"与"池的底层 buffer"（`TODO_BufferPoolPlan.md` D7）。已完成。
+2. `SceneDraws.h`（集合，以及 tag 与 mask 位的对应）；`InstanceData::m_drawMask`，HLSL 镜像同步；
    释放的槽位、带 `DeadTag` 的实体、几何未就绪的实例写 0（D6）。
-2. 参数 buffer 先由 CPU 每帧上传（每个集合一份，所有视图读同一段，无 count buffer）。
-3. `Accepts<Tags>()` 记下 mask 位、builder 的路径选择、lowering 的 indirect item。
-4. 加运行时开关。三个消费者（DepthPre、GBuffer、Shadow）的代码不改，开关打开后它们走 GPU 路径。
+3. 参数 buffer 先由 CPU 每帧上传（每个集合一份，所有视图读同一段，无 count buffer）；`Accepts<Tags>()` 记下 mask 位、
+   builder 的路径选择、lowering 提交批次的 item；运行时开关。三个消费者（DepthPre、GBuffer、Shadow）的代码不改，
+   开关打开后它们走 GPU 路径。
+
+**放置形式只有几何系统知道**（用户 2026-10-07 定，详见 `TODO_BufferPoolPlan.md` D7 的表）。它改掉 D9 里 lowering 的一句：
+原来写的是渲染图在 lowering 时自己造 indirect 的 `DrawItem`、"VB / IB = 几何所在的原生 buffer"，那样渲染图就得去找
+底层 buffer、知道步长与索引格式。改成：
+
+- 几何系统产出批次的几何部分：一个 `GeometrySpec` 形状的描述，VB / IB 指向底层 buffer，带实例 ID 流，由 `DrawItemRouter`
+  照常烘成 `DrawItem`。
+- 几何系统也产出每个网格在批次里的参数（`firstIndex`、`indexCount`、`vertexOffset`），申请时算好存在 `MeshGeometry` 上，
+  步骤 5 再进 `g_Geometries`。
+- 渲染图只做两件事：按开关决定这个集合走哪条路；走 indirect 时提交批次的 item，并把这个视图的参数段接上去
+  （步骤 1 的 `ItemIndirectArguments`）。
+
+第 3 小步再定的两处：批次的实例数据和现有的不同（现有的是烘死一个起始实例，批次的起始实例在每条记录里），
+`GeometrySpec` 的实例数据要多一种情况；批次由几何系统产出，还是另起一个管 draw 集合的系统产出。D9 的原文到那时一起改。
 
 ### 5　compute 视锥剔除
 
