@@ -21,6 +21,7 @@
 
 #include <Material/MaterialUtils.h>         // MaterialComponent / StandardPBR / GetDefaultMaterial
 #include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
+#include <Drawable/DrawMask.h>
 
 namespace Spark::Render
 {
@@ -186,6 +187,8 @@ namespace Spark::Render
             out.m_normalMatrix = Math::ToMatrix4X4(
                 Math::Transpose(Math::Inverse(Math::ToMatrix3X3(m.m_worldMatrix))));
             out.m_materialIndex = ResolveMaterialIndex(*world, matCtx, e);
+            // 0 until the geometry can be read: a reader of g_Instances draws what is set.
+            out.m_drawMask = world->Has<MeshGeometryReadyTag>(e) ? ClassifyDraw(*world, e) : 0;
         });
 
         // Only encoded renderables hold a slot, so history starts on the frame they were first written.

@@ -115,3 +115,21 @@ TEST(SlotPoolTest, AnObserverSeesTheSlotGoWhenTheEntityDoes)
 
     EXPECT_FALSE(observer.IsValid());
 }
+
+//! A copy keeps the slot, so it stays held until the last one goes.
+TEST(SlotPoolTest, ASlotIsHeldUntilItsLastRefGoes)
+{
+    Ptr<TestPool> pool = MakePool(4);
+    EXPECT_FALSE(pool->IsHeld(0));
+
+    TestRef a = pool->Allocate();
+    TestRef copy = a;
+    EXPECT_TRUE(pool->IsHeld(a.Get()));
+
+    a.Reset();
+    EXPECT_TRUE(pool->IsHeld(0));
+
+    copy.Reset();
+    EXPECT_FALSE(pool->IsHeld(0));
+    EXPECT_FALSE(pool->IsHeld(4));
+}

@@ -27,6 +27,13 @@ namespace Spark::Render
     template<typename Pool>
     class HandlePool : public Object
     {
+    public:
+        //! Whether a SharedHandle to id exists right now.
+        bool IsHeld(uint32_t id) const
+        {
+            return id < m_entries.size() && m_entries[id].m_refCount > 0;
+        }
+
     protected:
         //! Fixes the id space. Drops every entry, so only before anything is handed out.
         void Reserve(uint32_t capacity)

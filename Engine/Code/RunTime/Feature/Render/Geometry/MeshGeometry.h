@@ -28,6 +28,12 @@ namespace Spark::Render
         uint32_t         m_indexByteCount = 0;
     };
 
+    //! On a world entity whose MeshGeometry can be drawn: the uploads of both buffers are
+    //! submitted. Before that there is no fence to wait on, and a draw would read whatever
+    //! the memory held, which in a pool is another mesh's data. MeshGeometrySystem puts it
+    //! on; it goes with the MeshGeometry.
+    struct MeshGeometryReadyTag {};
+
     //! Takes the MeshGeometry off every world entity whose MeshComponent is gone or names
     //! another mesh, and lets the entity be composed again. Compared every frame, so an edit
     //! to the component needs no notification.

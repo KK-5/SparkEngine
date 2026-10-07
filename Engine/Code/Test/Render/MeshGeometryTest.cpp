@@ -53,6 +53,7 @@ protected:
         const Entity e = world.CreateEntity();
         world.Add<Mesh::MeshComponent>(e, mesh);
         world.Add<MeshGeometry>(e, eastl::move(geometry));
+        world.Add<MeshGeometryReadyTag>(e);
         world.Add<WorldComposedTag>(e);
         return e;
     }
@@ -68,6 +69,7 @@ TEST_F(MeshGeometryTest, UnchangedComponentKeepsItsGeometry)
     RemoveStaleMeshGeometry();
 
     EXPECT_TRUE(world.Has<MeshGeometry>(e));
+    EXPECT_TRUE(world.Has<MeshGeometryReadyTag>(e));
     EXPECT_TRUE(world.Has<WorldComposedTag>(e));
     EXPECT_FALSE(IsDead(vb));
 }
@@ -82,6 +84,7 @@ TEST_F(MeshGeometryTest, RemovedComponentTakesItsGeometryAlong)
     RemoveStaleMeshGeometry();
 
     EXPECT_FALSE(world.Has<MeshGeometry>(e));
+    EXPECT_FALSE(world.Has<MeshGeometryReadyTag>(e));
     EXPECT_FALSE(world.Has<WorldComposedTag>(e));
     EXPECT_TRUE(IsDead(vb));
     EXPECT_TRUE(IsDead(ib));

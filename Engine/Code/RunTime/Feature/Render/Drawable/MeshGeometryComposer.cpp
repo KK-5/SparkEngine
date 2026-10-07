@@ -1,5 +1,7 @@
 #include "MeshGeometryComposer.h"
 
+#include <EASTL/vector.h>
+
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
 
@@ -10,10 +12,9 @@
 #include <Pass/Component/RHIComponents.h>
 
 #include <Geometry/MeshGeometry.h>
-#include <RenderGraph/RenderGraphUtils.h>
 
 #include "GeometrySpec.h"
-#include "DrawTag.h"
+#include "DrawMask.h"
 
 namespace Spark::Render
 {
@@ -55,18 +56,6 @@ namespace Spark::Render
 
             return d;
         }
-
-        //! The copy into a geometry buffer is submitted some frames after the buffer is made,
-        //! and until then there is no fence for the graph to wait on: a draw would read
-        //! whatever the memory held before, which in a pool is another mesh's data.
-        bool GeometryBuffersReady(RHI::RHIContext& ctx, const MeshGeometry& geometry)
-        {
-            if (!IsResourceReady(ctx, geometry.m_vertexBuffer.Get()))
-            {
-                return false;
-            }
-            return !geometry.m_indexBuffer.IsValid() || IsResourceReady(ctx, geometry.m_indexBuffer.Get());
-        }
     }
 
     void MeshGeometryComposer::Init(RHI::RHIContext& /*rhiCtx*/)
@@ -102,19 +91,26 @@ namespace Spark::Render
             return;
         }
 
+        // The spec of an entity whose slot went back is reaped (DrawItemRouter), so the
+        // entity composes again once it has one. Collected first: the tag is the pool
+        // being iterated.
+        eastl::vector<Entity> lostSlot;
+        world->GetView<WorldComposedTag>(Exclude<InstanceSlotRef>).each([&](Entity wE)
+        {
+            lostSlot.push_back(wE);
+        });
+        for (Entity wE : lostSlot)
+        {
+            world->Remove<WorldComposedTag>(wE);
+        }
+
         // Find-or-create: world entities that became renderable and not yet
         // composed. Producers that invalidate downstream resources must remove
-        // WorldComposedTag themselves to trigger recomposition.
-        world->GetView<MeshGeometry, InstanceSlotRef>(Exclude<DeadTag, WorldComposedTag>)
+        // WorldComposedTag themselves to trigger recomposition. An entity whose geometry
+        // is not ready yet is picked up the frame it is.
+        world->GetView<MeshGeometry, InstanceSlotRef, MeshGeometryReadyTag>(Exclude<DeadTag, WorldComposedTag>)
             .each([&](Entity wE, const MeshGeometry& geometry, const InstanceSlotRef& ref)
         {
-            // Defer compose until the uploads are submitted; retry next frame
-            // (WorldComposedTag stays unset).
-            if (!GeometryBuffersReady(*rhiCtx, geometry))
-            {
-                return;
-            }
-
             // Static-import barrier registration lives HERE (moved off MeshSystem to
             // sever the feature→SparkRender reverse dependency): render registers the
             // VB/IB upload→InputAssembly attachment at the point it actually consumes
@@ -136,11 +132,7 @@ namespace Spark::Render
             }
 
             RHI::RHIHandle spec = rhiCtx->CreateEntity();
-            // Everything is opaque today; becomes a per-AlphaMode split later.
-            rhiCtx->Add<OpaqueTag>(spec);
-            // Orthogonal to the shading dimension: every opaque mesh casts, until the mesh
-            // itself carries an authored flag.
-            rhiCtx->Add<ShadowCasterTag>(spec);
+            AddDrawTags(*rhiCtx, spec, ClassifyDraw(*world, wE));
             rhiCtx->Add<GeometrySpec>(spec,
                 ComposePersistent(geometry, ref, idBufferEntity, idBufferByteCount));
 

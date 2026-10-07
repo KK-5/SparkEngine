@@ -22,6 +22,7 @@
 #include <Mesh/Components.h>
 
 #include <Drawable/GeometrySpec.h>
+#include <RenderGraph/RenderGraphUtils.h>
 
 namespace Spark::Render
 {
@@ -83,7 +84,7 @@ namespace Spark::Render
 
         for (Entity entity : stale)
         {
-            world->Remove<MeshGeometry>(entity);
+            world->Remove<MeshGeometry, MeshGeometryReadyTag>(entity);
             // The spec composed from the old buffers is reaped with them, and nothing
             // composes the next one while the entity still says it is composed.
             if (world->Has<WorldComposedTag>(entity))
@@ -175,13 +176,24 @@ namespace Spark::Render
 
             world->Add<MeshGeometry>(entity, eastl::move(geometry));
         });
+
+        // Structural write inside iteration: the tag is only in the exclude set.
+        world->GetView<MeshGeometry>(Exclude<MeshGeometryReadyTag, DeadTag>).each(
+            [&](Entity entity, const MeshGeometry& geometry)
+        {
+            if (IsResourceReady(*rhiCtx, geometry.m_vertexBuffer.Get())
+                && (!geometry.m_indexBuffer.IsValid() || IsResourceReady(*rhiCtx, geometry.m_indexBuffer.Get())))
+            {
+                world->Add<MeshGeometryReadyTag>(entity);
+            }
+        });
     }
 
     void MeshGeometrySystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
         if (auto* world = WorldExecuteContext::Current())
         {
-            world->Clear<MeshGeometry>();
+            world->Clear<MeshGeometry, MeshGeometryReadyTag>();
         }
 
         if (!m_pool)

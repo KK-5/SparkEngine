@@ -1,5 +1,8 @@
 #pragma once
 
+#include <EASTL/utility.h>
+#include <EASTL/vector.h>
+
 #include <CoreComponents/Tags.h>
 #include <ECS/BasicContext.h>
 #include <Log/ILogSystem.h>
@@ -23,8 +26,9 @@ namespace Spark::Render
     //! the holes: use StagedArrayBuffer directly and pack densely, as g_Lights does.
     //!
     //! Because slots are stable the array has holes, so the upload spans [0, Size()) and
-    //! the holes are copied bytes nobody indexes. They are NOT cleared — see
-    //! TODO_GlobalBufferUploadPlan.md §6.
+    //! the holes are copied bytes. A slot nobody holds reads as Element{}: a reader
+    //! of the whole range (GPU culling over g_Instances) tells a hole by that, so Element{}
+    //! has to read as "nothing here".
     template<typename Tag, typename Element, typename... Sources>
     class GlobalBuffer
     {
@@ -64,6 +68,40 @@ namespace Spark::Render
                 return;
             }
 
+            UpdateMirror(ctx, eastl::forward<ProcessFn>(process));
+
+            m_array.Upload(rhiCtx, Size());
+        }
+
+        //! The part of Update that needs no buffer: who holds a slot, and the mirror.
+        template<typename Ctx, typename ProcessFn>
+        void UpdateMirror(Ctx& ctx, ProcessFn&& process)
+        {
+            // An entity that lost a source keeps nothing here. Collected first: Slot is
+            // the pool being iterated.
+            eastl::vector<typename Ctx::Entity> lostSource;
+            ctx.template GetView<Slot>().each([&](auto entity, const Slot&)
+            {
+                if (!ctx.template HasAll<Sources...>(entity))
+                {
+                    lostSource.push_back(entity);
+                }
+            });
+            for (auto entity : lostSource)
+            {
+                ctx.template Remove<Slot>(entity);
+            }
+
+            // A hole keeps what its last holder wrote. Reset every frame rather than when
+            // the slot comes back: that happens in a destructor, which cannot reach here.
+            for (uint32_t id = 0; id < Size(); ++id)
+            {
+                if (!m_slots->IsHeld(id))
+                {
+                    m_array[id] = Element{};
+                }
+            }
+
             // Structural write inside iteration: the added component is only in the
             // exclude set, never an iterated pool. First thing to route through a deferred
             // command buffer once this step goes parallel.
@@ -85,12 +123,13 @@ namespace Spark::Render
             {
                 process(entity, m_array[slot.Get()], sources...);
             });
-
-            m_array.Upload(rhiCtx, Size());
         }
 
         //! High-water mark. Every live slot is below it, so it is also the upload length.
         uint32_t Size() const { return m_slots ? m_slots->Bound() : 0; }
+
+        //! The mirror's record at slot, as of the last Update.
+        const Element& operator[](uint32_t slot) const { return m_array[slot]; }
 
     private:
         StagedArrayBuffer<Element> m_array;
