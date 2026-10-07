@@ -53,4 +53,33 @@ namespace Spark::Resource
             return nullptr;
         }
     };
+
+    /// The one vertex format a mesh has once compiled, whatever its source carried:
+    /// POSITION float3, NORMAL float3, TANGENT float4 (w is the handedness), TEXCOORD0
+    /// float2, interleaved in that order. The render layer relies on it: every mesh is
+    /// drawn through the same input layout, and meshes share one vertex binding.
+    namespace StandardVertex
+    {
+        inline constexpr uint32_t PositionOffset = 0;
+        inline constexpr uint32_t NormalOffset   = 12;
+        inline constexpr uint32_t TangentOffset  = 24;
+        inline constexpr uint32_t TexCoordOffset = 40;
+        inline constexpr uint32_t Stride         = 48;
+    }
+
+    inline bool IsStandardVertexLayout(const VertexLayout& layout)
+    {
+        auto has = [&](const char* semantic, RHI::Format format, uint32_t byteOffset)
+        {
+            const VertexAttribute* attribute = layout.FindAttribute(semantic);
+            return attribute != nullptr && attribute->format == format && attribute->byteOffset == byteOffset;
+        };
+
+        return layout.stride == StandardVertex::Stride
+            && layout.attributes.size() == 4
+            && has(VertexSemantic::Position, RHI::Format::R32G32B32_FLOAT,    StandardVertex::PositionOffset)
+            && has(VertexSemantic::Normal,   RHI::Format::R32G32B32_FLOAT,    StandardVertex::NormalOffset)
+            && has(VertexSemantic::Tangent,  RHI::Format::R32G32B32A32_FLOAT, StandardVertex::TangentOffset)
+            && has(VertexSemantic::TexCoord, RHI::Format::R32G32_FLOAT,       StandardVertex::TexCoordOffset);
+    }
 }

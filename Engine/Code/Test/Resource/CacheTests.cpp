@@ -355,7 +355,7 @@ TEST(CacheFormatTest, ImageAndModelHaveAFormatToday)
     EXPECT_EQ(GetCacheFormat(AssetType::Image).version, 2u);
     EXPECT_STREQ(GetCacheFormat(AssetType::Image).extension, ".ktx2");
 
-    EXPECT_EQ(GetCacheFormat(AssetType::Model).version, 1u);
+    EXPECT_EQ(GetCacheFormat(AssetType::Model).version, 3u);
     EXPECT_STREQ(GetCacheFormat(AssetType::Model).extension, ".smdl");
 
     EXPECT_EQ(GetCacheFormat(AssetType::Shader).version, 0u);

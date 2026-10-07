@@ -655,3 +655,136 @@ TEST_F(ModelCacheTestFixture, ASecondRunRestoresTheGlbUnitFromCache)
     // A hit writes nothing back.
     EXPECT_EQ(CacheFileCount(), written);
 }
+
+// ===== The standard vertex format =====
+
+namespace
+{
+    VertexLayout MakeLayout(bool tangent, bool texCoord)
+    {
+        VertexLayout layout;
+        auto add = [&](const char* semantic, RHI::Format format, uint32_t byteCount)
+        {
+            VertexAttribute attribute;
+            attribute.semantic   = semantic;
+            attribute.format     = format;
+            attribute.byteOffset = layout.stride;
+            layout.attributes.push_back(attribute);
+            layout.stride += byteCount;
+        };
+
+        add(VertexSemantic::Position, RHI::Format::R32G32B32_FLOAT, 12);
+        add(VertexSemantic::Normal,   RHI::Format::R32G32B32_FLOAT, 12);
+        if (tangent)
+        {
+            add(VertexSemantic::Tangent, RHI::Format::R32G32B32A32_FLOAT, 16);
+        }
+        if (texCoord)
+        {
+            add(VertexSemantic::TexCoord, RHI::Format::R32G32_FLOAT, 8);
+        }
+        return layout;
+    }
+}
+
+TEST(StandardVertexTest, OnlyTheFullInterleavedFormatIsStandard)
+{
+    EXPECT_TRUE(IsStandardVertexLayout(MakeLayout(true, true)));
+
+    // What the loader hands the compiler before tangents are generated, and what a source
+    // without UVs used to come out as.
+    EXPECT_FALSE(IsStandardVertexLayout(MakeLayout(false, true)));
+    EXPECT_FALSE(IsStandardVertexLayout(MakeLayout(false, false)));
+    EXPECT_FALSE(IsStandardVertexLayout(MakeLayout(true, false)));
+    EXPECT_FALSE(IsStandardVertexLayout(VertexLayout{}));
+}
+
+//! Cube.glb carries no tangents: the compiler has to bring it to the one format.
+TEST(StandardVertexTest, ACompiledModelIsInTheStandardFormat)
+{
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
+
+    ModelAssetLoader loader;
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/Cube.glb");
+    LoadFailure failure = LoadFailure::Invalid;
+    auto rawData = loader.Load(id, fileSystem, failure);
+    ASSERT_NE(rawData, nullptr);
+
+    ModelAssetCompiler compiler;
+    auto compiledData = compiler.Compile(id, *rawData);
+    ASSERT_NE(compiledData, nullptr);
+
+    auto* modelData = static_cast<ModelAssetData*>(compiledData.get());
+    ASSERT_GE(modelData->GetMeshCount(), 1u);
+    for (size_t m = 0; m < modelData->GetMeshCount(); ++m)
+    {
+        ASSERT_GE(modelData->GetMesh(m)->primitives.size(), 1u);
+        for (const Primitive& prim : modelData->GetMesh(m)->primitives)
+        {
+            EXPECT_TRUE(IsStandardVertexLayout(prim.layout));
+            EXPECT_EQ(prim.layout.stride, StandardVertex::Stride);
+            EXPECT_EQ(prim.indexFormat, RHI::IndexFormat::UINT32);
+        }
+    }
+}
+
+//! A surface with no texture laid on it: position and normal only.
+TEST(StandardVertexTest, APrimitiveWithoutUVIsFilledIn)
+{
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
+
+    ModelAssetLoader loader;
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/TriangleNoUV.gltf");
+    LoadFailure failure = LoadFailure::Invalid;
+    auto rawData = loader.Load(id, fileSystem, failure);
+    ASSERT_NE(rawData, nullptr);
+
+    ModelAssetCompiler compiler;
+    auto compiledData = compiler.Compile(id, *rawData);
+    ASSERT_NE(compiledData, nullptr);
+
+    auto* modelData = static_cast<ModelAssetData*>(compiledData.get());
+    ASSERT_EQ(modelData->GetMeshCount(), 1u);
+    ASSERT_EQ(modelData->GetMesh(0)->primitives.size(), 1u);
+
+    const Primitive& prim = modelData->GetMesh(0)->primitives[0];
+    ASSERT_TRUE(IsStandardVertexLayout(prim.layout));
+    ASSERT_EQ(prim.vertexBuffer.size(), 3u * StandardVertex::Stride);
+    EXPECT_EQ(prim.indexCount, 3u);
+
+    for (size_t v = 0; v < 3; ++v)
+    {
+        const uint8_t* vertex = prim.vertexBuffer.data() + v * StandardVertex::Stride;
+        float normal[3], tangent[4], uv[2];
+        memcpy(normal,  vertex + StandardVertex::NormalOffset,   sizeof(normal));
+        memcpy(tangent, vertex + StandardVertex::TangentOffset,  sizeof(tangent));
+        memcpy(uv,      vertex + StandardVertex::TexCoordOffset, sizeof(uv));
+
+        EXPECT_EQ(uv[0], 0.0f);
+        EXPECT_EQ(uv[1], 0.0f);
+
+        // A placeholder, but one a shader can normalize and build a frame from.
+        const float lengthSquared = tangent[0] * tangent[0] + tangent[1] * tangent[1] + tangent[2] * tangent[2];
+        const float alongNormal   = tangent[0] * normal[0] + tangent[1] * normal[1] + tangent[2] * normal[2];
+        EXPECT_NEAR(lengthSquared, 1.0f, 1e-4f);
+        EXPECT_NEAR(alongNormal, 0.0f, 1e-4f);
+        EXPECT_EQ(tangent[3], 1.0f);
+    }
+}
+
+//! Nothing stands in for a normal, so the primitive is refused and its mesh is left out.
+TEST(StandardVertexTest, APrimitiveWithoutNormalIsRejected)
+{
+    MountTable fileSystem;
+    SetUpMounts(fileSystem);
+
+    ModelAssetLoader loader;
+    AssetId id = AssetId::Of<ModelAsset>("test://Asset/TriangleNoNormal.gltf");
+    LoadFailure failure = LoadFailure::Invalid;
+    auto rawData = loader.Load(id, fileSystem, failure);
+    ASSERT_NE(rawData, nullptr);
+
+    EXPECT_EQ(static_cast<ModelAssetRawData*>(rawData.get())->GetMeshCount(), 0u);
+}

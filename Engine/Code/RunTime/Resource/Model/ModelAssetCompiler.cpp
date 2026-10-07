@@ -309,16 +309,30 @@ namespace Spark::Resource
 
         for (auto& mesh : result->m_meshes)
         {
-            for (auto& prim : mesh.primitives)
+            for (auto it = mesh.primitives.begin(); it != mesh.primitives.end();)
             {
-                ++totalPrimitives;
+                Primitive& prim = *it;
 
                 if (GenerateTangents(prim))
                 {
                     ++tangentGenerated;
                 }
 
+                // The loader lets through only what can be completed; what still is not in
+                // the one format here could not be given its tangents.
+                if (!IsStandardVertexLayout(prim.layout))
+                {
+                    LOG_ERROR("[ModelAssetCompiler] '{}': mesh '{}' primitive {} did not reach the standard "
+                              "vertex format; rejected.",
+                        result->m_resolvedPath.c_str(), mesh.name.c_str(),
+                        static_cast<size_t>(it - mesh.primitives.begin()));
+                    it = mesh.primitives.erase(it);
+                    continue;
+                }
+
+                ++totalPrimitives;
                 OptimizePrimitive(prim);
+                ++it;
             }
         }
 

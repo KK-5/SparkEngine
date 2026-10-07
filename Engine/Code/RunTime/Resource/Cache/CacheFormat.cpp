@@ -10,7 +10,7 @@ namespace Spark::Resource
             return {2, ".ktx2"};
 
         case AssetType::Model:
-            return {1, ".smdl"};
+            return {3, ".smdl"};
 
         // Waits on a dependency mechanism: its includes are inputs the key cannot describe.
         case AssetType::Shader:

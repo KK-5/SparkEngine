@@ -82,6 +82,34 @@ namespace Spark::Resource
 
         // ---- vertex interleave ----
 
+        //! A tangent per vertex for a primitive that has no UV to define one: a unit vector
+        //! perpendicular to the normal, w = 1. Which one does not matter, only that a shader
+        //! normalizing it stays finite.
+        eastl::vector<float> MakePlaceholderTangents(const eastl::vector<float>& normals, size_t vertexCount)
+        {
+            eastl::vector<float> tangents(vertexCount * 4);
+            for (size_t v = 0; v < vertexCount; ++v)
+            {
+                const Math::Vector3 normal(normals[v * 3], normals[v * 3 + 1], normals[v * 3 + 2]);
+
+                // The axis the normal leans on least, with the normal's part taken out.
+                const Math::Vector3 axis = fabsf(normal.x) < 0.9f
+                    ? Math::Vector3(1.0f, 0.0f, 0.0f)
+                    : Math::Vector3(0.0f, 1.0f, 0.0f);
+                Math::Vector3 tangent = axis - normal * Math::Dot(axis, normal);
+
+                // A zero-length normal leaves the axis itself.
+                const float length = Math::Length(tangent);
+                tangent = length > 1e-6f ? tangent / length : axis;
+
+                tangents[v * 4]     = tangent.x;
+                tangents[v * 4 + 1] = tangent.y;
+                tangents[v * 4 + 2] = tangent.z;
+                tangents[v * 4 + 3] = 1.0f;
+            }
+            return tangents;
+        }
+
         void InterleaveVertexBuffer(
             uint8_t* dstStart,
             size_t vertexCount, uint32_t stride,
@@ -382,6 +410,29 @@ namespace Spark::Resource
                     uvs0 = ExtractFloats<fastgltf::math::fvec2>(gltf,
                         gltf.accessors[uvIt->accessorIndex]);
                     hasUV0 = true;
+                }
+
+                // Every primitive leaves the compiler in one format (StandardVertex), so what
+                // the source lacks is filled in. A normal cannot be: the primitive is refused.
+                if (!hasNormals)
+                {
+                    LOG_ERROR("[ModelAssetLoader] Mesh '{}' primitive {} has no NORMAL; rejected.",
+                        mesh.name.c_str(), mesh.primitives.size());
+                    continue;
+                }
+                // No UV is a surface no texture is laid on, so any UV does. A missing tangent
+                // is derived from the UV by the compiler; with no UV to derive it from there
+                // is no normal map to need it either, and a placeholder stands in.
+                if (!hasUV0)
+                {
+                    uvs0.assign(vertexCount * 2, 0.0f);
+                    hasUV0 = true;
+
+                    if (!hasTangents)
+                    {
+                        tangents    = MakePlaceholderTangents(normals, vertexCount);
+                        hasTangents = true;
+                    }
                 }
 
                 // Indices
