@@ -1,5 +1,7 @@
 #include "Device.h"
 
+#include <EASTL/string.h>
+
 #include <Log/ILogSystem.h>
 #include <Math/Bit.h>
 #include <RHI/Command/IndirectCommands.h>
@@ -62,14 +64,131 @@ namespace Spark::RHI::DX12
         }
     }
 
+    namespace
+    {
+        const char* BreadcrumbOpName(D3D12_AUTO_BREADCRUMB_OP op)
+        {
+            // In the order of D3D12_AUTO_BREADCRUMB_OP.
+            static const char* const names[] = {
+                "SetMarker", "BeginEvent", "EndEvent", "DrawInstanced", "DrawIndexedInstanced",
+                "ExecuteIndirect", "Dispatch", "CopyBufferRegion", "CopyTextureRegion", "CopyResource",
+                "CopyTiles", "ResolveSubresource", "ClearRenderTargetView", "ClearUnorderedAccessView",
+                "ClearDepthStencilView", "ResourceBarrier", "ExecuteBundle", "Present", "ResolveQueryData",
+                "BeginSubmission", "EndSubmission", "DecodeFrame", "ProcessFrames", "AtomicCopyBufferUint",
+                "AtomicCopyBufferUint64", "ResolveSubresourceRegion", "WriteBufferImmediate", "DecodeFrame1",
+                "SetProtectedResourceSession", "DecodeFrame2", "ProcessFrames1",
+                "BuildRaytracingAccelerationStructure", "EmitRaytracingAccelerationStructurePostbuildInfo",
+                "CopyRaytracingAccelerationStructure", "DispatchRays", "InitializeMetaCommand",
+                "ExecuteMetaCommand", "EstimateMotion", "ResolveMotionVectorHeap", "SetPipelineState1",
+                "InitializeExtensionCommand", "ExecuteExtensionCommand", "DispatchMesh", "EncodeFrame",
+                "ResolveEncoderOutputMetadata", "Barrier", "BeginCommandList", "DispatchGraph", "SetProgram",
+            };
+            const size_t index = static_cast<size_t>(op);
+            return index < sizeof(names) / sizeof(names[0]) ? names[index] : "?";
+        }
+
+        //! A debug name DRED hands over in either width, as the log takes it.
+        eastl::string BreadcrumbName(const char* narrow, const wchar_t* wide)
+        {
+            if (narrow != nullptr)
+            {
+                return narrow;
+            }
+            eastl::string name;
+            for (; wide != nullptr && *wide != 0; ++wide)
+            {
+                name.push_back(*wide < 128 ? static_cast<char>(*wide) : '?');
+            }
+            return name.empty() ? eastl::string("(unnamed)") : name;
+        }
+
+        //! What the GPU was doing when the device was removed, from DRED's breadcrumbs: for
+        //! each command list it had started and not finished, the operations around the
+        //! first one that did not complete.
+        void LogDeviceRemovedData(ID3D12Device* device)
+        {
+            ComPtr<ID3D12DeviceRemovedExtendedData1> dred;
+            if (device == nullptr || FAILED(device->QueryInterface(IID_PPV_ARGS(&dred))))
+            {
+                LOG_ERROR("[DX12 Device] Device removed; DRED is not available.");
+                return;
+            }
+
+            D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs {};
+            const HRESULT result = dred->GetAutoBreadcrumbsOutput1(&breadcrumbs);
+            if (FAILED(result))
+            {
+                LOG_ERROR("[DX12 Device] Device removed; DRED has no breadcrumbs (0x{:08X}).",
+                    static_cast<uint32_t>(result));
+                return;
+            }
+
+            // How many operations before and after the suspect one are listed.
+            constexpr uint32_t Before = 24;
+            constexpr uint32_t After  = 6;
+
+            uint32_t finished = 0;
+            uint32_t notStarted = 0;
+            for (const D3D12_AUTO_BREADCRUMB_NODE1* node = breadcrumbs.pHeadAutoBreadcrumbNode;
+                 node != nullptr; node = node->pNext)
+            {
+                const uint32_t count     = node->BreadcrumbCount;
+                const uint32_t completed = node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0;
+                if (completed >= count)
+                {
+                    ++finished;
+                    continue;
+                }
+                if (completed == 0)
+                {
+                    ++notStarted;
+                    continue;
+                }
+
+                // Which one of its kind the suspect is, to find it in the frame.
+                const D3D12_AUTO_BREADCRUMB_OP suspect = node->pCommandHistory[completed];
+                uint32_t ordinal = 1;
+                for (uint32_t i = 0; i < completed; ++i)
+                {
+                    ordinal += node->pCommandHistory[i] == suspect ? 1 : 0;
+                }
+
+                LOG_ERROR("[DX12 Device] In flight: command list '{}' on queue '{}', {} of {} operations completed. "
+                          "The first not completed is #{}, {} (number {} of its kind in the list).",
+                    BreadcrumbName(node->pCommandListDebugNameA, node->pCommandListDebugNameW).c_str(),
+                    BreadcrumbName(node->pCommandQueueDebugNameA, node->pCommandQueueDebugNameW).c_str(),
+                    completed, count, completed, BreadcrumbOpName(suspect), ordinal);
+
+                eastl::string line;
+                const uint32_t begin = completed > Before ? completed - Before : 0;
+                const uint32_t end   = completed + After < count ? completed + After + 1 : count;
+                for (uint32_t i = begin; i < end; ++i)
+                {
+                    line += i == completed ? " [>> " : " ";
+                    line += BreadcrumbOpName(node->pCommandHistory[i]);
+                    line += i == completed ? " <<]" : "";
+                }
+                LOG_ERROR("[DX12 Device]   #{}..#{}:{}", begin, end - 1, line.c_str());
+            }
+            LOG_ERROR("[DX12 Device] Other command lists: {} finished, {} not started.", finished, notStarted);
+
+            D3D12_DRED_PAGE_FAULT_OUTPUT1 pageFault {};
+            if (SUCCEEDED(dred->GetPageFaultAllocationOutput1(&pageFault)) && pageFault.PageFaultVA != 0)
+            {
+                LOG_ERROR("[DX12 Device] Page fault at GPU address 0x{:X}.", pageFault.PageFaultVA);
+            }
+        }
+    }
+
     void RouteDebugMessagesToLog(ComPtr<ID3D12DeviceX>& dx12Device)
     {
         ComPtr<ID3D12InfoQueue1> infoQueue;
         if (SUCCEEDED(dx12Device->QueryInterface(infoQueue.GetAddressOf())))
         {
+            // The device outlives the callback: the info queue is the device's own.
             DWORD cookie = 0;
             infoQueue->RegisterMessageCallback(
-                [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void*)
+                [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void* device)
                 {
                     if (severity <= D3D12_MESSAGE_SEVERITY_ERROR)
                     {
@@ -79,8 +198,15 @@ namespace Spark::RHI::DX12
                     {
                         LOG_WARN("[D3D12] #{} {}", static_cast<int>(id), description);
                     }
+
+                    if (id == D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_AT_FAULT
+                        || id == D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_POSSIBLY_AT_FAULT
+                        || id == D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_NOT_AT_FAULT)
+                    {
+                        LogDeviceRemovedData(static_cast<ID3D12Device*>(device));
+                    }
                 },
-                D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &cookie);
+                D3D12_MESSAGE_CALLBACK_FLAG_NONE, dx12Device.Get(), &cookie);
         }
     }
 
