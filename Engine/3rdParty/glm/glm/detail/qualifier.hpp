@@ -141,7 +141,7 @@ namespace detail
 	template<>
 	struct storage<3, unsigned int, true>
 	{
-		typedef glm_i32vec4 type;
+		typedef glm_u32vec4 type;
 	};
 
 	template<>
@@ -240,6 +240,7 @@ namespace detail
 	struct storage<3, unsigned int, true> : public storage<4, unsigned int, true>
 	{};
 
+#	if GLM_HAS_ALIGNOF
 	template<>
 	struct storage<3, double, true>
 	{
@@ -247,6 +248,7 @@ namespace detail
 			double data[4];
 		} type;
 	};
+#	endif//GLM_HAS_ALIGNOF
 
 #	endif
 
