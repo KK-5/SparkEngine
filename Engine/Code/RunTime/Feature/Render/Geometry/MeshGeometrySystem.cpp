@@ -22,6 +22,7 @@
 #include <Mesh/Components.h>
 
 #include <Drawable/GeometrySpec.h>
+#include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphUtils.h>
 
 namespace Spark::Render
@@ -126,6 +127,7 @@ namespace Spark::Render
         rhiCtx.Add<RHI::ResourceName>(m_baseBuffer, RHI::ResourceName{ m_pool->GetName() });
         rhiCtx.Add<RHI::Components::Buffer>(
             m_baseBuffer, RHI::Components::Buffer{ Ptr<RHI::Buffer>(m_pool->GetBaseBuffer()) });
+        rhiCtx.Add<MeshGeometryBaseBufferTag>(m_baseBuffer);
     }
 
     void MeshGeometrySystem::Update()
@@ -194,10 +196,14 @@ namespace Spark::Render
                 geometry.m_indexByteCount = static_cast<uint32_t>(primitive->indexBuffer.size());
 
                 // Whole elements: each buffer was placed at a multiple of its element size.
-                geometry.m_firstIndex = static_cast<uint32_t>(
-                    BaseOffset(*rhiCtx, geometry.m_indexBuffer.Get()) / indexByteSize);
-                geometry.m_vertexOffset = static_cast<uint32_t>(
-                    BaseOffset(*rhiCtx, geometry.m_vertexBuffer.Get()) / geometry.m_vertexByteStride);
+                const uint64_t indexBaseOffset  = BaseOffset(*rhiCtx, geometry.m_indexBuffer.Get());
+                const uint64_t vertexBaseOffset = BaseOffset(*rhiCtx, geometry.m_vertexBuffer.Get());
+                ASSERT(indexBaseOffset % indexByteSize == 0 && vertexBaseOffset % geometry.m_vertexByteStride == 0,
+                    "[MeshGeometrySystem] A buffer of the pool does not start at a whole element "
+                    "(index {} / {}, vertex {} / {}).",
+                    indexBaseOffset, indexByteSize, vertexBaseOffset, geometry.m_vertexByteStride);
+                geometry.m_firstIndex   = static_cast<uint32_t>(indexBaseOffset / indexByteSize);
+                geometry.m_vertexOffset = static_cast<uint32_t>(vertexBaseOffset / geometry.m_vertexByteStride);
             }
 
             world->Add<MeshGeometry>(entity, eastl::move(geometry));
@@ -276,6 +282,12 @@ namespace Spark::Render
         rhiCtx.Add<RHI::ResourceName>(entity, RHI::ResourceName{ name });
         rhiCtx.Add<RHI::Components::Buffer>(entity, RHI::Components::Buffer{ buffer });
         RHI::RequestBufferUpload(rhiCtx, entity, data, byteCount);
+        // What makes the Graphics queue wait for the upload and take the buffer back before a
+        // draw reads it, through its own view or the native buffer's.
+        CreateStaticBufferAttachment(rhiCtx, entity,
+            RHI::AttachmentAccess::Read,
+            RHI::AttachmentUsage::InputAssembly,
+            RHI::AttachmentStage::VertexInput);
         return entity;
     }
 }

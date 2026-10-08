@@ -161,6 +161,14 @@ namespace Spark::Render
         //! SV_VertexID), e.g. a full-screen triangle: DrawLinear(3, 0).
         void Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount = 1);
 
+        //! Draw the meshes a list names: the buffer `argumentsName` holds a
+        //! DrawIndexedIndirectCommand per mesh and `countName` how many of them, both
+        //! written by an earlier pass (InstanceCullingPass). One call per view. The Scope
+        //! reads both as IndirectArguments. The draw binds the geometry pool's native buffer
+        //! as its vertex and index stream and the instance ID buffer beside it; it draws
+        //! nothing until both exist.
+        void DrawIndirect(const RHI::AttachmentId& argumentsName, const RHI::AttachmentId& countName);
+
         //! Draw the scene's items that carry all of DrawTags, e.g. Accepts<OpaqueTag>().
         template<typename... DrawTags>
         void Accepts()

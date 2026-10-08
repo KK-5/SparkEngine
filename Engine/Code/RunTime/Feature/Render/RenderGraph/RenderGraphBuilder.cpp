@@ -6,6 +6,7 @@
 #include <Pass/PassCapabilities.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Command/DispatchItem.h>
+#include <RHI/Command/DrawItem.h>
 
 namespace Spark::Render
 {
@@ -498,6 +499,29 @@ namespace Spark::Render
         const RHIHandle handle = AddScopeItem(scope);
         rhiContext.Add<RHI::DispatchItem>(handle, item);
         rhiContext.Add<ItemIndirectArguments>(handle, ItemIndirectArguments{ arguments });
+    }
+
+    void RenderGraphBuilder::AddScopeDrawIndirect(
+        RHIHandle scope, const RHI::DrawItem& geometry, RHIHandle arguments, RHIHandle count)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+
+        auto isIndirectAccess = [&](RHIHandle access)
+        {
+            const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(access);
+            return buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::Indirect
+                && rhiContext.Get<ScopeAttachment>(access).m_scope == scope;
+        };
+        ASSERT(isIndirectAccess(arguments) && isIndirectAccess(count),
+            "A DrawIndirect's arguments and count must be IndirectArguments accesses of the same Scope.");
+
+        // The buffers and the record count are filled in by lowering: they have no backing yet.
+        RHI::DrawItem item = geometry;
+        item.m_drawArguments = RHI::DrawArguments(RHI::DrawIndexedIndirect(RHI::IndirectArguments{}));
+
+        const RHIHandle handle = AddScopeItem(scope);
+        rhiContext.Add<RHI::DrawItem>(handle, item);
+        rhiContext.Add<ItemIndirectArguments>(handle, ItemIndirectArguments{ arguments, count });
     }
 
     void RenderGraphBuilder::AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect)

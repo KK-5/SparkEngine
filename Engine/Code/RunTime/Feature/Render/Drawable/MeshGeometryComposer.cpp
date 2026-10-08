@@ -111,26 +111,6 @@ namespace Spark::Render
         world->GetView<MeshGeometry, InstanceSlotRef, MeshGeometryReadyTag>(Exclude<DeadTag, WorldComposedTag>)
             .each([&](Entity wE, const MeshGeometry& geometry, const InstanceSlotRef& ref)
         {
-            // Static-import barrier registration lives HERE (moved off MeshSystem to
-            // sever the feature→SparkRender reverse dependency): render registers the
-            // VB/IB upload→InputAssembly attachment at the point it actually consumes
-            // the buffers. This find-or-create block is one-time per mesh
-            // (WorldComposedTag gate), so the attachment is registered exactly once —
-            // and only when the mesh becomes drawable, i.e. when the buffers are used.
-            // Slot name is unused by the static-barrier path, so the resource's own
-            // ResourceName stands in.
-            CreateStaticBufferAttachment(*rhiCtx, geometry.m_vertexBuffer.Get(),
-                RHI::AttachmentAccess::Read,
-                RHI::AttachmentUsage::InputAssembly,
-                RHI::AttachmentStage::VertexInput);
-            if (geometry.m_indexBuffer.IsValid())
-            {
-                CreateStaticBufferAttachment(*rhiCtx, geometry.m_indexBuffer.Get(),
-                    RHI::AttachmentAccess::Read,
-                    RHI::AttachmentUsage::InputAssembly,
-                    RHI::AttachmentStage::VertexInput);
-            }
-
             RHI::RHIHandle spec = rhiCtx->CreateEntity();
             AddDrawTags(*rhiCtx, spec, ClassifyDraw(*world, wE));
             rhiCtx->Add<GeometrySpec>(spec,

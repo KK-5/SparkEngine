@@ -1,5 +1,7 @@
 #include "InstanceCullingPass.h"
 
+#include <EASTL/algorithm.h>
+
 #include <Math/Bit.h>
 
 #include <RHI/HardwareQueue.h>
@@ -38,15 +40,10 @@ namespace Spark::Render
                 slotCount = count.m_count;
             }
 
-            // Declaring nothing skips the pass this frame: no instance has a slot yet.
-            if (slotCount == 0)
-            {
-                return;
-            }
-
             // Every slot may be drawn. A power of two, so the buffer keeps its size while
-            // instances come and go.
-            const uint32_t capacity = NextPowerOfTwo(slotCount);
+            // instances come and go; one record with no slot at all, so the list exists in
+            // every frame and holds a count of 0.
+            const uint32_t capacity = NextPowerOfTwo(eastl::max(slotCount, 1u));
 
             // Written by the shader and read as the arguments, and the count, of a draw.
             constexpr RHI::BufferBindFlags bindFlags =
@@ -92,7 +89,9 @@ namespace Spark::Render
                 s.ReadWriteBuffer(countName).View(countView).Bind(countInput);
                 s.WriteBuffer(argumentsName).View(argumentsView).Bind(argumentsInput);
                 setConstants(s, 0);
-                s.Dispatch(slotCount);
+                // One thread with no slot: a dispatch of no group is a debug layer warning, and
+                // a thread past slotCount writes nothing.
+                s.Dispatch(eastl::max(slotCount, 1u));
                 s.Close();
             }
         }

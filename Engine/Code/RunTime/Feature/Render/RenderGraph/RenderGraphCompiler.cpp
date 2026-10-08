@@ -1364,9 +1364,9 @@ namespace Spark::Render
 
     void RenderGraphCompiler::CompileItemIndirectArguments(PassContext& passContext, RHIContext& context)
     {
-        for (auto [item, arguments] : context.GetStorage<ItemIndirectArguments>().each())
+        auto backingOf = [&](RHIHandle access) -> const RHI::Buffer*
         {
-            const auto& attachment = context.Get<BufferPassAttachment>(arguments.m_attachment);
+            const auto& attachment = context.Get<BufferPassAttachment>(access);
             const auto* backing    = context.TryGet<BackingBuffer>(attachment.m_buffer);
             const char* passName   = passContext.Get<PassName>(attachment.m_pass).m_name.GetCStr();
             ASSERT(backing != nullptr && backing->m_buffer != nullptr,
@@ -1376,8 +1376,26 @@ namespace Spark::Render
                 "[RenderGraphCompiler] Pass {}: {} is read as indirect arguments but was not created with "
                 "BufferBindFlags::Indirect.",
                 passName, attachment.m_attachmentId.m_id.GetCStr());
+            return backing->m_buffer;
+        };
 
-            context.Get<RHI::DispatchItem>(item).m_arguments.m_indirect.m_buffer = backing->m_buffer;
+        for (auto [item, arguments] : context.GetStorage<ItemIndirectArguments>().each())
+        {
+            const RHI::Buffer* buffer = backingOf(arguments.m_attachment);
+
+            if (auto* dispatch = context.TryGet<RHI::DispatchItem>(item))
+            {
+                dispatch->m_arguments.m_indirect.m_buffer = buffer;
+                continue;
+            }
+
+            // The count buffer says how many records to execute; at most as many as the
+            // argument buffer holds.
+            RHI::IndirectArguments& draw = context.Get<RHI::DrawItem>(item).m_drawArguments.m_indexedIndirect.m_arguments;
+            draw.m_buffer      = buffer;
+            draw.m_countBuffer = backingOf(arguments.m_countAttachment);
+            draw.m_maxCount    = static_cast<uint32_t>(
+                buffer->GetDescriptor().m_byteCount / sizeof(RHI::DrawIndexedIndirectCommand));
         }
     }
 

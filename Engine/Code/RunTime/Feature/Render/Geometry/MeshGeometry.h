@@ -39,6 +39,9 @@ namespace Spark::Render
     //! on; it goes with the MeshGeometry.
     struct MeshGeometryReadyTag {};
 
+    //! On the RHI entity of the native buffer every mesh's two buffers are parts of.
+    struct MeshGeometryBaseBufferTag {};
+
     //! Takes the MeshGeometry off every world entity whose MeshComponent is gone or names
     //! another mesh, and lets the entity be composed again. Compared every frame, so an edit
     //! to the component needs no notification.

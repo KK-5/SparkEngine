@@ -2,6 +2,13 @@
 
 #include <Pass/Component/PassComponents.h>
 #include <RHI/Command/DrawItem.h>
+#include <RHI/Component/Component.h>
+#include <RHI/Resource/Buffer/Buffer.h>
+
+#include <Resource/Model/VertexLayout.h>
+
+#include <Binding/Instance/InstanceBinding.h>
+#include <Geometry/MeshGeometry.h>
 
 namespace Spark::Render
 {
@@ -207,6 +214,46 @@ namespace Spark::Render
         item.m_drawArguments    = arguments;
         item.m_drawInstanceArgs = RHI::DrawInstanceArguments(instanceCount, 0);
         RHIExecuteContext::Current()->Add<RHI::DrawItem>(m_builder->AddScopeItem(m_scope), item);
+    }
+
+    void RenderScope::DrawIndirect(const RHI::AttachmentId& argumentsName, const RHI::AttachmentId& countName)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+
+        auto findBuffer = [&](auto view) -> const RHI::Buffer*
+        {
+            const RHI::Buffer* found = nullptr;
+            view.each([&](RHIHandle, const RHI::Components::Buffer& buffer) { found = buffer.m_buffer.get(); });
+            return found;
+        };
+
+        // Every mesh is a part of one native buffer; the stream that hands a record's first
+        // instance to the vertex shader is another. Nothing to draw through until both exist.
+        const RHI::Buffer* geometry = findBuffer(
+            rhiContext.GetView<MeshGeometryBaseBufferTag, RHI::Components::Buffer>(Exclude<DeadTag>));
+        const RHI::Buffer* instanceIds = findBuffer(
+            rhiContext.GetView<InstanceIDBufferTag, RHI::Components::Buffer>(Exclude<DeadTag>));
+        if (geometry == nullptr || instanceIds == nullptr)
+        {
+            return;
+        }
+
+        const uint64_t geometryByteCount = geometry->GetDescriptor().m_byteCount;
+        ASSERT(geometryByteCount <= UINT32_MAX,
+            "[RenderScope] The geometry pool's native buffer is beyond what a stream's range holds.");
+
+        // The whole native buffer as both streams: each record says which part its draw reads.
+        RHI::DrawItem item;
+        item.m_vertexBufferView.SetVertexInputView(0, RHI::VertexInputView(
+            *geometry, 0, static_cast<uint32_t>(geometryByteCount), Resource::StandardVertex::Stride));
+        item.m_vertexBufferView.SetVertexInputView(1, RHI::VertexInputView(
+            *instanceIds, 0, static_cast<uint32_t>(instanceIds->GetDescriptor().m_byteCount), sizeof(uint32_t)));
+        item.m_indexBufferView = RHI::IndexBufferView(
+            *geometry, 0, static_cast<uint32_t>(geometryByteCount), RHI::IndexFormat::UINT32);
+
+        const RHIHandle arguments = IndirectArguments(argumentsName).GetHandle();
+        const RHIHandle count     = IndirectArguments(countName).GetHandle();
+        m_builder->AddScopeDrawIndirect(m_scope, item, arguments, count);
     }
 
     ShaderAttachment RenderScope::ReadPreviousImage(const RHI::AttachmentId& name)

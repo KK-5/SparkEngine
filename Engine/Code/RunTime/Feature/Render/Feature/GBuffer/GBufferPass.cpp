@@ -11,7 +11,7 @@
 #include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>
 
-#include <Drawable/DrawTag.h>
+#include <Feature/InstanceCulling/InstanceCullingPass.h>
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
@@ -153,7 +153,8 @@ namespace Spark::Render
                 s.Sampler(RHI::InputName("g_MatSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
 
-                s.Accepts<OpaqueTag>();
+                s.DrawIndirect(
+                    InstanceCullingPass::OpaqueDrawArgumentsName(), InstanceCullingPass::OpaqueDrawCountName());
                 s.Close();
             })
             .Finalize()

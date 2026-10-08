@@ -13,8 +13,8 @@ namespace Spark::Render
     //! record in one list, every one that casts a shadow a record in the other. Nothing is
     //! culled yet.
     //!
-    //! Each pass creates its pair of buffers every frame. A frame in which no instance has a
-    //! slot declares nothing, and they do not exist.
+    //! Each pass creates its pair of buffers every frame, also in one where no instance has a
+    //! slot: the count is then 0.
     struct InstanceCullingPass
     {
         //! DrawIndexedIndirectCommand records, packed from the start of the buffer.

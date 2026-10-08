@@ -19,6 +19,7 @@
 namespace Spark::RHI
 {
     class ImagePool;
+    struct DrawItem;
 }
 
 namespace Spark::Render
@@ -133,6 +134,11 @@ namespace Spark::Render
         //! accesses, `byteOffset` into it. `arguments` is an indirect-arguments access of
         //! `scope`.
         void AddScopeDispatchIndirect(RHIHandle scope, RHIHandle arguments, uint64_t byteOffset);
+
+        //! An indexed draw of `scope` through the vertex and index bindings of `geometry`, that
+        //! reads its records from the buffer `arguments` accesses and how many of them from the
+        //! one `count` accesses. Both are indirect-arguments accesses of `scope`.
+        void AddScopeDrawIndirect(RHIHandle scope, const RHI::DrawItem& geometry, RHIHandle arguments, RHIHandle count);
 
         //! A set of scene items `scope` selects: `collect` appends its members under a view.
         void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);
