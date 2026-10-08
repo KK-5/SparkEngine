@@ -126,10 +126,11 @@ namespace Spark::SandBox
                     RHI::ImageBindFlags::ShaderReadWrite, width, height, RHI::Format::R8G8B8A8_UNORM));
 
                 auto s = p.Scope();
-                s.Write(kPattern).BindIndex(RHI::InputName("outputIndex"));
+                s.WriteImage(kPattern).BindIndex(RHI::InputName("outputIndex"));
                 s.Constant(RHI::InputName("time"), m_time);
                 s.Constant(RHI::InputName("viewIndex"), viewIndex);
                 s.Dispatch(width, height);
+                s.Close();
             })
             .Finalize();
     }
@@ -176,8 +177,9 @@ namespace Spark::SandBox
 
                 auto s = p.Scope();
                 s.RenderTarget(kSwapChain, overwrite);
-                s.Read(kPattern).Stage(RHI::AttachmentStage::FragmentShader).BindIndex(RHI::InputName("inputIndex"));
+                s.ReadImage(kPattern).Stage(RHI::AttachmentStage::FragmentShader).BindIndex(RHI::InputName("inputIndex"));
                 s.Draw(RHI::DrawLinear(3, 0));
+                s.Close();
             })
             .Finalize();
     }

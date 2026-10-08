@@ -203,6 +203,8 @@ namespace Spark::RHI::DX12
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5;
         GetDX12Device()->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
         m_features.m_rayTracing = options5.RaytracingTier != D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+        // Tier 0: the runtime emulates BeginRenderPass / EndRenderPass.
+        LOG_INFO("[DX12 Device] Render pass tier {}.", static_cast<int>(options5.RenderPassesTier));
 
         m_features.m_float16 = (options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT) != 0;
 
@@ -280,6 +282,8 @@ namespace Spark::RHI::DX12
         m_limits.m_maxImageDimensionCube = D3D12_REQ_TEXTURECUBE_DIMENSION;
         m_limits.m_maxImageArraySize = D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;
         m_limits.m_minConstantBufferViewOffset = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+        m_limits.m_imageCopyRowPitchAlignment = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+        m_limits.m_imageCopyOffsetAlignment = D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT;
         m_limits.m_maxIndirectDrawCount = static_cast<uint32_t>(-1);
         m_limits.m_maxIndirectDispatchCount = static_cast<uint32_t>(-1);
         m_limits.m_maxConstantBufferSize = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 4u * 4u; // 4096 vectors * 4 values per vector * 4 bytes per value

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <EASTL/fixed_vector.h>
-#include <EASTL/unordered_set.h>
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
 
@@ -15,6 +14,7 @@
 #include <RHI/Context/RHIContext.h>
 
 #include "PooledImage.h"
+#include "RenderGraphResolve.h"
 
 namespace Spark::RHI
 {
@@ -53,14 +53,6 @@ namespace Spark::Render
         friend class ComputeScope;
         friend class ShaderAttachment;
 
-        void AddEdge(Pass from, Pass to);
-
-        void TouchNode(Pass pass);
-
-        void BuildGraph();
-
-        eastl::vector<Pass> TopoSort();
-
         void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
                    const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize);
 
@@ -83,10 +75,16 @@ namespace Spark::Render
             return access;
         }
 
-        //! Open a new Scope of the current pass, numbered after those it already has.
+        //! Open a new Scope of the current pass, numbered after those it already has. The one
+        //! before it must be closed: a pass has one Scope open at a time, and things are added
+        //! only to that one.
         RHIHandle OpenScope();
 
-        //! Introduce a transient resource under `name`, with no access yet.
+        //! End the declaration of the open Scope and validate what it declared.
+        void CloseScope(RHIHandle scope);
+
+        //! Introduce a transient resource under `name`, with no access yet. Accesses of the
+        //! name may have been declared already, by this pass or an earlier one.
         void CreateImage(const RHI::AttachmentId& name, const RHI::ImageDescriptor& desc);
         void CreateBuffer(const RHI::AttachmentId& name, const RHI::BufferDescriptor& desc);
 
@@ -94,11 +92,16 @@ namespace Spark::Render
         //! Importing a name again is fine for the same resource only.
         void ImportResource(const RHI::AttachmentId& name, RHIHandle resource);
 
-        //! Add to `scope` a read of the copy of `attachment`'s name produced last frame: a
-        //! pooled image, a stand-in when there is none (PreviousFrameMissingTag). Also marks
-        //! this frame's resource for extraction, so the next frame can read it back. The
-        //! caller fills the attachment's id, usage, stage, action and view.
+        //! Add to `scope` a read of the copy of `attachment`'s name produced last frame. The
+        //! caller fills the attachment's id, usage, stage, action and view. End links it to
+        //! that copy, a pooled image, or to a stand-in when there is none, and marks this
+        //! frame's resource for extraction, so the next frame can read it back.
         RHIHandle AddPreviousFrameAttachment(ImagePassAttachment attachment, RHIHandle scope);
+
+        //! Bind to the uint constant `input`, a root constant or a per-pass one, whether the
+        //! previous-frame read `attachment` gets last frame's content: lowering writes 1 there,
+        //! or 0 when it reads a stand-in.
+        void BindPreviousFrameValid(RHIHandle attachment, const RHI::InputName& input);
 
         //! Bind `attachment` to the shader input `input` of the current pass's per-pass space:
         //! checks the input exists there and suits the access (SRV for reads, UAV for
@@ -132,25 +135,33 @@ namespace Spark::Render
         //! The current pass's pipeline layout, reflected from its shaders.
         const RHI::PipelineLayoutDescriptor& CurrentPassLayout() const;
 
-        //! Add to `scope` an access of the resource called `name`: reads use its latest
-        //! version; writes consume it (a graph-only read) and produce the next. Whether the
-        //! attachment is an image or a buffer is the resource's. The first clearing access
-        //! of a transient image gives the resource its clear value. `colorCount` numbers the
-        //! Scope's render targets (null outside a render pass); `action` is for render
-        //! targets and depth only.
+        //! Add to `scope` an access of the image called `name`; End gives it its version. A
+        //! name nothing has declared yet gets its attachment marked (UnlinkedAttachmentTag)
+        //! for End to link. The first clearing access of a transient image gives the resource
+        //! its clear value. `colorCount` numbers the Scope's render targets (null outside a
+        //! render pass); `action` is for render targets and depth only.
         RHIHandle AddScopeAttachment(
             RHIHandle scope, uint32_t* colorCount, const RHI::AttachmentId& name,
             RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage,
             const RHI::AttachmentLoadStoreAction* action);
 
-        // Pure registration into `scope`: build attachment entity, attach components, record
-        // use. No validation.
+        //! The same for the buffer called `name`.
+        RHIHandle AddScopeBufferAttachment(
+            RHIHandle scope, const RHI::AttachmentId& name,
+            RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage);
+
+        //! The resource declared under `name` so far, or NullHandle.
+        RHIHandle FindResource(const RHI::AttachmentId& name) const;
+
+        // Pure registration into `scope`: build attachment entity, attach components. No
+        // validation.
         RHIHandle AddImageAttachment(const ImagePassAttachment& attachment, RHIHandle scope, uint32_t* colorCount);
         RHIHandle AddBufferAttachment(const BufferPassAttachment& attachment, RHIHandle scope);
 
-        void CountScopeAttachment(RHIHandle scope);
+        //! Asserts that `scope` is the one open.
+        void CheckScopeOpen(RHIHandle scope) const;
 
-        // The transient image declared under `name`, or NullHandle. Used to link a
+        // The transient image declared under `name` so far, or NullHandle. Used to link a
         // previous-frame read to the resource it mirrors.
         RHIHandle FindTransientImage(const RHI::AttachmentId& name) const;
 
@@ -170,51 +181,39 @@ namespace Spark::Render
             const RHI::AttachmentId&     name,
             const RHI::BufferDescriptor& desc);
 
-        struct AttachmentEntry
-        {
-            AttachmentEntry() = default;
-            AttachmentEntry(Pass p, RHI::AttachmentAccess a)
-                : pass(p), access(a)
-            {}
+        //! End's steps, before ResolveGraph. The first links the attachments declared ahead of
+        //! their resource (UnlinkedAttachmentTag) to it, now that every pass has declared its
+        //! own. The second links the previous-frame reads to last frame's copies, after it: a
+        //! stand-in takes the clear value this frame's resource was given. One that reads a
+        //! stand-in is marked (PreviousFrameMissingTag).
+        void LinkAttachments();
+        void LinkPreviousFrameReads();
 
-            Pass pass;
-            RHI::AttachmentAccess access;
-        };
+        //! Asserts on what ResolveGraph found wrong.
+        void CheckResolution() const;
 
-        struct PassNode
-        {
-            eastl::unordered_set<Pass> dependents;
-            uint32_t inDegree = 0;
-        };
-
-        //! A Scope the current pass opened, for the checks at EndPass.
-        struct OpenedScope
-        {
-            RHIHandle m_scope {NullHandle};
-            uint32_t  m_attachmentCount {0};
-        };
-
-        //! What Create / Import put under a name: the resource, and the latest version of it
-        //! produced so far (bumped by every write).
-        struct ResourceEntry
-        {
-            RHIHandle m_resource {NullHandle};
-            uint32_t  m_latestVersion {0};
-        };
+        //! Checks that the current pass's shaders have a 4-byte constant `input` a Scope can
+        //! set, a root constant or a per-pass one, for lowering to write a value an attachment
+        //! gives it; a root constant is marked set in `scope`.
+        void ReserveUintConstant(RHIHandle scope, const RHI::InputName& input);
 
         Pass m_currentPass {NullPass};
 
-        eastl::fixed_vector<OpenedScope, 8> m_passScopes;
+        //! How many Scopes the current pass has opened.
+        uint32_t m_passScopeCount {0};
 
-        //! Shader accesses of a render pass declared without a stage: each must get one
-        //! before EndPass.
-        eastl::fixed_vector<RHIHandle, 8> m_unstagedAttachments;
+        //! The Scope being declared, NullHandle between Scopes, and its attachments: what
+        //! CloseScope validates.
+        RHIHandle m_openScope {NullHandle};
+        eastl::fixed_vector<RHIHandle, 8> m_scopeAttachments;
 
-        eastl::unordered_map<Pass, PassNode> m_graph;
+        //! The frame's attachments, in the order they were declared.
+        eastl::vector<RHIHandle> m_attachments;
 
-        eastl::unordered_map<AttachmentId, eastl::vector<AttachmentEntry>> m_attachmentUses;
+        //! The resource Create / Import put under each name.
+        eastl::unordered_map<RHI::AttachmentId, RHIHandle> m_resources;
 
-        eastl::unordered_map<RHI::AttachmentId, ResourceEntry> m_resources;
+        GraphResolution m_resolution;
 
         uint32_t m_frameIndex { 0 };
 
@@ -240,7 +239,7 @@ namespace Spark::Render
             return NullHandle;
         }
         const auto& rhiContext = *RHIExecuteContext::Current();
-        const RHIHandle resource = it->second.m_resource;
+        const RHIHandle resource = it->second;
         return rhiContext.Has<TransientTag>(resource) && rhiContext.Has<RHI::ImageDescriptor>(resource)
             ? resource : NullHandle;
     }

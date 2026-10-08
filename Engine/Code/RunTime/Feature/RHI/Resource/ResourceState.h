@@ -9,6 +9,7 @@
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Resource/AccessFlags.h>
 #include <RHI/HardwareQueue.h>
+#include <RHI/Resource/Image/ImageSubResource.h>
 
 namespace Spark::RHI
 {
@@ -16,8 +17,9 @@ namespace Spark::RHI
     class Buffer;
     class Image;
 
-    //! Snapshot of a resource's current synchronization state, owned by
-    //! `Resource::m_resourceState` and updated whenever a barrier is emitted.
+    //! Snapshot of a resource's current synchronization state, owned by the Buffer, or by
+    //! the Image per subresource (ImageSubresourceStates), and updated whenever a barrier
+    //! is emitted.
     //!   - m_access : set-valued AccessFlags ("how it is being accessed")
     //!   - m_queue  : queue that most recently emitted a barrier on this
     //!                resource (= its current owner, cross-queue handoff sense)
@@ -66,15 +68,19 @@ namespace Spark::RHI
         HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
+    //! The src side is the state of every subresource in m_range: subresources in different
+    //! states take one barrier each.
     struct ImageBarrier
     {
-        Image*             m_image     = nullptr;
-        AccessFlags        m_srcAccess = AccessFlags::None;
-        AccessFlags        m_dstAccess = AccessFlags::None;
-        AttachmentStage    m_srcStage  = AttachmentStage::Any;
-        AttachmentStage    m_dstStage  = AttachmentStage::Any;
-        HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
-        HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
+        Image*                m_image     = nullptr;
+        //! Defaults to the whole image.
+        ImageSubresourceRange m_range;
+        AccessFlags           m_srcAccess = AccessFlags::None;
+        AccessFlags           m_dstAccess = AccessFlags::None;
+        AttachmentStage       m_srcStage  = AttachmentStage::Any;
+        AttachmentStage       m_dstStage  = AttachmentStage::Any;
+        HardwareQueueClass    m_srcQueue  = HardwareQueueClass::Graphics;
+        HardwareQueueClass    m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
     //! Construct a barrier whose src side is auto-populated from
@@ -86,6 +92,7 @@ namespace Spark::RHI
         AccessFlags dstAccess,
         AttachmentStage dstStage = AttachmentStage::Any);
 
+    //! Covers the whole image, which must be in one state.
     ImageBarrier MakeImageBarrier(
         Image& image,
         AccessFlags dstAccess,

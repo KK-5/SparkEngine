@@ -9,6 +9,8 @@
 #include <Feature/Camera/Components.h>
 #include <Feature/AntiAliasing/Components.h>
 #include <Feature/Bloom/Components.h>
+#include <Feature/AmbientOcclusion/Components.h>
+#include <Feature/ScreenSpaceReflection/Components.h>
 #include <Feature/Tonemap/Components.h>
 #include <Feature/PostProcess/Components.h>
 
@@ -43,9 +45,10 @@ namespace Spark::Render
             switch (c.m_jitterSamples)
             {
             case AntiAliasing::TemporalAAJitterSamples::Four:
-            case AntiAliasing::TemporalAAJitterSamples::Eight:
+                v.m_jitterSamples = 4;
+                break;
             case AntiAliasing::TemporalAAJitterSamples::Sixteen:
-                v.m_jitterSamples = static_cast<uint32_t>(c.m_jitterSamples);
+                v.m_jitterSamples = 16;
                 break;
             default:
                 v.m_jitterSamples = 8;
@@ -58,6 +61,49 @@ namespace Spark::Render
         {
             ViewBloom v;
             v.m_intensity = Math::Clamp(c.m_intensity, 0.0f, 1.0f);
+            return v;
+        }
+
+        ViewAmbientOcclusion ValidateAmbientOcclusion(const AmbientOcclusion::AmbientOcclusionComponent& c)
+        {
+            ViewAmbientOcclusion v;
+            v.m_intensity = Math::Clamp(c.m_intensity, 0.0f, 1.0f);
+            v.m_radius    = Math::Clamp(c.m_radius, 0.05f, 5.0f);
+            // 3 slices is the source's High preset, 9 its Ultra.
+            switch (c.m_quality)
+            {
+            case AmbientOcclusion::AmbientOcclusionQuality::Medium:
+                v.m_sliceCount = 6;
+                break;
+            case AmbientOcclusion::AmbientOcclusionQuality::High:
+                v.m_sliceCount = 9;
+                break;
+            default:
+                v.m_sliceCount = 3;
+                break;
+            }
+            return v;
+        }
+
+        ViewScreenSpaceReflection ValidateScreenSpaceReflection(
+            const ScreenSpaceReflection::ScreenSpaceReflectionComponent& c)
+        {
+            ViewScreenSpaceReflection v;
+            v.m_intensity    = Math::Clamp(c.m_intensity, 0.0f, 1.0f);
+            v.m_maxRoughness = Math::Clamp(c.m_maxRoughness, 0.05f, 1.0f);
+            // A hierarchical step crosses a whole cell of the depth chain, so these reach far.
+            switch (c.m_quality)
+            {
+            case ScreenSpaceReflection::ScreenSpaceReflectionQuality::Low:
+                v.m_maxSteps = 32;
+                break;
+            case ScreenSpaceReflection::ScreenSpaceReflectionQuality::High:
+                v.m_maxSteps = 128;
+                break;
+            default:
+                v.m_maxSteps = 64;
+                break;
+            }
             return v;
         }
 
@@ -175,6 +221,12 @@ namespace Spark::Render
 
         const Bloom::BloomComponent* volumeBloom =
             FindVolumeSettings<Bloom::BloomComponent>(*world, "Bloom", m_bloomTieLogged);
+        const AmbientOcclusion::AmbientOcclusionComponent* volumeAmbientOcclusion =
+            FindVolumeSettings<AmbientOcclusion::AmbientOcclusionComponent>(
+                *world, "Ambient Occlusion", m_ambientOcclusionTieLogged);
+        const ScreenSpaceReflection::ScreenSpaceReflectionComponent* volumeScreenSpaceReflection =
+            FindVolumeSettings<ScreenSpaceReflection::ScreenSpaceReflectionComponent>(
+                *world, "Screen Space Reflection", m_screenSpaceReflectionTieLogged);
         const Tonemap::TonemapComponent* volumeTonemap =
             FindVolumeSettings<Tonemap::TonemapComponent>(*world, "Tonemap", m_tonemapTieLogged);
 
@@ -227,6 +279,42 @@ namespace Spark::Render
             else if (rhiCtx->Has<ViewBloom>(mainRef->m_view))
             {
                 rhiCtx->Remove<ViewBloom>(mainRef->m_view);
+            }
+
+            // Resolved as bloom is: the camera's own first, zero intensity is off.
+            const AmbientOcclusion::AmbientOcclusionComponent* ambientOcclusion =
+                world->TryGet<AmbientOcclusion::AmbientOcclusionComponent>(e);
+            if (ambientOcclusion == nullptr)
+            {
+                ambientOcclusion = volumeAmbientOcclusion;
+            }
+            const ViewAmbientOcclusion resolvedAmbientOcclusion = ambientOcclusion != nullptr
+                ? ValidateAmbientOcclusion(*ambientOcclusion) : ViewAmbientOcclusion{ 0.0f };
+            if (resolvedAmbientOcclusion.m_intensity > 0.0f)
+            {
+                rhiCtx->AddOrReplace<ViewAmbientOcclusion>(mainRef->m_view, resolvedAmbientOcclusion);
+            }
+            else if (rhiCtx->Has<ViewAmbientOcclusion>(mainRef->m_view))
+            {
+                rhiCtx->Remove<ViewAmbientOcclusion>(mainRef->m_view);
+            }
+
+            // Resolved as bloom is: the camera's own first, zero intensity is off.
+            const ScreenSpaceReflection::ScreenSpaceReflectionComponent* screenSpaceReflection =
+                world->TryGet<ScreenSpaceReflection::ScreenSpaceReflectionComponent>(e);
+            if (screenSpaceReflection == nullptr)
+            {
+                screenSpaceReflection = volumeScreenSpaceReflection;
+            }
+            const ViewScreenSpaceReflection resolvedScreenSpaceReflection = screenSpaceReflection != nullptr
+                ? ValidateScreenSpaceReflection(*screenSpaceReflection) : ViewScreenSpaceReflection{ 0.0f };
+            if (resolvedScreenSpaceReflection.m_intensity > 0.0f)
+            {
+                rhiCtx->AddOrReplace<ViewScreenSpaceReflection>(mainRef->m_view, resolvedScreenSpaceReflection);
+            }
+            else if (rhiCtx->Has<ViewScreenSpaceReflection>(mainRef->m_view))
+            {
+                rhiCtx->Remove<ViewScreenSpaceReflection>(mainRef->m_view);
             }
 
             // Without one the view is not tone mapped, only clipped and display-encoded.

@@ -115,17 +115,16 @@ namespace Spark::Render
                 RHI::RHIHandle cube = RHI::NullHandle;
                 rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
                     [&](RHI::RHIHandle e) { cube = e; });
-                if (!IsResourceReady(rhiCtx, cube))
+                if (IsResourceReady(rhiCtx, cube))
                 {
-                    return;
+                    p.Import(RHI::AttachmentId("SkyCube"), cube);
+                    s.ReadImage(RHI::AttachmentId("SkyCube"))
+                        .View(RHI::ImageViewDescriptor::CreateCubemap())
+                        .Bind(RHI::InputName("g_SkyCube"));
+
+                    s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
                 }
-
-                p.Import(RHI::AttachmentId("SkyCube"), cube);
-                s.Read(RHI::AttachmentId("SkyCube"))
-                    .View(RHI::ImageViewDescriptor::CreateCubemap())
-                    .Bind(RHI::InputName("g_SkyCube"));
-
-                s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
+                s.Close();
             })
             .Finalize()
         ;

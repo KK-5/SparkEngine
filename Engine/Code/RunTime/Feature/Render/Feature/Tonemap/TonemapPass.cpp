@@ -95,7 +95,7 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), clear);
-                s.Read(PostProcess::SceneColorName(rhiContext)).Bind(RHI::InputName("g_SceneColor"));
+                s.ReadImage(PostProcess::SceneColorName(rhiContext)).Bind(RHI::InputName("g_SceneColor"));
 
                 // lerp(scene, glow, intensity): the light the glow scatters is taken from the
                 // scene, not added to it.
@@ -105,7 +105,7 @@ namespace Spark::Render
                 {
                     sceneWeight = 1.0f - bloom->m_intensity;
                     bloomWeight = bloom->m_intensity * PostProcess::BloomScale(p.GetRenderSize());
-                    s.Read(PostProcess::BloomName()).Bind(RHI::InputName("g_Bloom"));
+                    s.ReadImage(PostProcess::BloomName()).Bind(RHI::InputName("g_Bloom"));
                 }
                 s.Constant(RHI::InputName("g_SceneWeight"), sceneWeight);
                 s.Constant(RHI::InputName("g_BloomWeight"), bloomWeight);
@@ -122,6 +122,7 @@ namespace Spark::Render
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
+                s.Close();
             })
             .Finalize()
         ;

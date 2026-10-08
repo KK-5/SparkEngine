@@ -92,11 +92,12 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 s.RenderTarget(RHI::AttachmentId("ResolvedVelocity"), clear);
-                s.Read(RHI::AttachmentId(s_velocitySlot)).Bind(RHI::InputName(s_velocityInput));
+                s.ReadImage(RHI::AttachmentId(s_velocitySlot)).Bind(RHI::InputName(s_velocityInput));
                 // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
-                s.Read(RHI::AttachmentId(s_depthSlot)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
+                s.ReadImage(RHI::AttachmentId(s_depthSlot)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
+                s.Close();
             })
             .Finalize()
         ;

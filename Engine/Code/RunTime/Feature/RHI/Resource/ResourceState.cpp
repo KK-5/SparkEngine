@@ -279,6 +279,30 @@ namespace Spark::RHI
                 image.GetName().GetCStr());
             return false;
         }
+
+        const ImageDescriptor& descriptor = image.GetDescriptor();
+        const ImageSubresourceRange& range = barrier.m_range;
+        if (range.m_mipSliceMin >= descriptor.m_mipLevels || range.m_mipSliceMin > range.m_mipSliceMax
+            || range.m_arraySliceMin >= descriptor.m_arraySize || range.m_arraySliceMin > range.m_arraySliceMax)
+        {
+            LOG_ERROR(
+                "[RHI] Image barrier for '{}' covers mips [{}, {}] and array slices [{}, {}], outside the image's "
+                "{} mips and {} slices.",
+                image.GetName().GetCStr(),
+                range.m_mipSliceMin, range.m_mipSliceMax, range.m_arraySliceMin, range.m_arraySliceMax,
+                descriptor.m_mipLevels, descriptor.m_arraySize);
+            return false;
+        }
+        if (!CheckBitsAny(range.m_aspectFlags, image.GetAspectFlags()))
+        {
+            LOG_ERROR(
+                "[RHI] Image barrier for '{}' names aspects 0x{:x}, none of which the image has (0x{:x}).",
+                image.GetName().GetCStr(),
+                static_cast<uint32_t>(range.m_aspectFlags),
+                static_cast<uint32_t>(image.GetAspectFlags()));
+            return false;
+        }
+
         if (!IsImageAccessSupported(image, barrier.m_dstAccess))
         {
             LOG_ERROR(

@@ -18,10 +18,16 @@ set(SOURCES
     Feature/SceneDownsample/SceneDownsamplePass.cpp
     Feature/Bloom/BloomPass.cpp
     Feature/PostProcess/PostProcessResources.cpp
+    Feature/SceneTextures/SceneTextures.cpp
+    Feature/HZB/HZBPass.cpp
+    Feature/AmbientOcclusion/AmbientOcclusionPass.cpp
+    Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
+    RenderGraph/ImageBarrierMerge.cpp
+    RenderGraph/RenderGraphResolve.cpp
     RenderGraph/RenderGraphExecuter.cpp
     RenderGraph/RenderGraph.cpp
     RenderGraph/PooledImage.cpp
@@ -53,6 +59,8 @@ target_link_libraries(${TARGET_NAME}
         SparkCamera
         SparkAntiAliasing
         SparkBloom
+        SparkAmbientOcclusion
+        SparkScreenSpaceReflection
         SparkPostProcess
         SparkTonemap
         SparkCore

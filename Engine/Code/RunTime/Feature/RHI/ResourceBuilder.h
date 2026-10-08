@@ -29,7 +29,7 @@ namespace Spark::RHI
     //! For per-frame CPU-written buffers (e.g. constant / uniform buffers that
     //! are updated every frame) use CreateDynamicBuffer (ImportedTag) instead —
     //! that path participates in the per-pass barrier compile and the per-frame
-    //! ResourceStateTracker cursor.
+    //! state tracker.
     inline RHIHandle CreateStaticBuffer(
         BasicContext<RHIHandle>& ctx,
         ObjectName name,

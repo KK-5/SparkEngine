@@ -525,7 +525,7 @@ namespace Spark::SandBox
 
         const uint32_t rowBytes        = layout.m_bytesPerRow;
         const uint32_t rowCount        = layout.m_rowCount;
-        const uint32_t rowBytesAligned = AlignUp(rowBytes, RHI::Alignment::TexturePitch);
+        const uint32_t rowBytesAligned = AlignUp(rowBytes, m_device->GetLimits().m_imageCopyRowPitchAlignment);
         const uint32_t imageTotalBytes = layout.m_bytesPerImage;
         const uint32_t stageTexBytes   = rowBytesAligned * rowCount;
 

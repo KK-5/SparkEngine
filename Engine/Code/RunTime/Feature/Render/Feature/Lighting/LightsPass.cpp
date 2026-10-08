@@ -125,9 +125,9 @@ namespace Spark::Render
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 for (const auto& tex : s_gbufferTextures)
                 {
-                    s.Read(RHI::AttachmentId(tex.m_name)).Bind(RHI::InputName(tex.m_input));
+                    s.ReadImage(RHI::AttachmentId(tex.m_name)).Bind(RHI::InputName(tex.m_input));
                 }
-                s.Read(RHI::AttachmentId(s_depthName)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
+                s.ReadImage(RHI::AttachmentId(s_depthName)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
 
                 // Also the read-only depth-stencil attachment, so the rasterizer depth-tests against
                 // it and culls sky pixels before the PS. The compiler folds both accesses into one
@@ -139,13 +139,13 @@ namespace Spark::Render
                 // Only once ShadowProjectionPass has produced it: with no shadowed lights there is
                 // no mask, every m_shadowMaskIndex is -1, and the shader never reaches g_ShadowMask.
                 // This read is also the edge that orders the projection before this pass.
-                if (ShadowMaskSliceCount(*RHI::RHIExecuteContext::Current()) == 0)
+                if (ShadowMaskSliceCount(*RHI::RHIExecuteContext::Current()) != 0)
                 {
-                    return;
+                    RHI::ImageViewDescriptor maskView;
+                    maskView.m_isArray = 1;
+                    s.ReadImage(RHI::AttachmentId(s_maskName)).View(maskView).Bind(RHI::InputName(s_maskInput));
                 }
-                RHI::ImageViewDescriptor maskView;
-                maskView.m_isArray = 1;
-                s.Read(RHI::AttachmentId(s_maskName)).View(maskView).Bind(RHI::InputName(s_maskInput));
+                s.Close();
             })
             .Finalize()
         ;

@@ -207,6 +207,26 @@ namespace Spark::RHI::DX12
         }
     }
 
+    uint32_t GetFormatPlaneCount(RHI::Format format)
+    {
+        switch (format)
+        {
+        case RHI::Format::D24_UNORM_S8_UINT:
+        case RHI::Format::D32_FLOAT_S8X24_UINT:
+        case RHI::Format::NV12:
+        case RHI::Format::P010:
+        case RHI::Format::P016:
+        case RHI::Format::NV11:
+        case RHI::Format::P208:
+            return 2;
+        case RHI::Format::V208:
+        case RHI::Format::V408:
+            return 3;
+        default:
+            return 1;
+        }
+    }
+
     D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type)
     {
         static const D3D12_COMMAND_LIST_TYPE Table[] =

@@ -93,9 +93,12 @@ namespace Spark::Render
         {
             for (RHIHandle attachment : attachments)
             {
-                if (const auto* barrier = rhiContext.TryGet<PreImageBarrier>(attachment))
+                if (const auto* pre = rhiContext.TryGet<PreImageBarrier>(attachment))
                 {
-                    commandList->QueueBarrier(barrier->m_barrier);
+                    for (const RHI::ImageBarrier& barrier : pre->m_barriers)
+                    {
+                        commandList->QueueBarrier(barrier);
+                    }
                 }
                 if (const auto* barrier = rhiContext.TryGet<PreBufferBarrier>(attachment))
                 {
@@ -109,9 +112,12 @@ namespace Spark::Render
         {
             for (RHIHandle attachment : attachments)
             {
-                if (const auto* barrier = rhiContext.TryGet<PostImageBarrier>(attachment))
+                if (const auto* post = rhiContext.TryGet<PostImageBarrier>(attachment))
                 {
-                    commandList->QueueBarrier(barrier->m_barrier);
+                    for (const RHI::ImageBarrier& barrier : post->m_barriers)
+                    {
+                        commandList->QueueBarrier(barrier);
+                    }
                 }
                 if (const auto* barrier = rhiContext.TryGet<PostBufferBarrier>(attachment))
                 {
@@ -135,8 +141,9 @@ namespace Spark::Render
         // Per-resource compile-time state cursor. First touch in CompileScopeBarriers
         // expects a fresh slate each frame — imported resources start at their backing's
         // state, transients at Uninitialized. Without this clear, frame N+1 inherits frame
-        // N's m_current and emits wrong barriers.
-        RHIExecuteContext::Current()->Clear<ResourceStateTracker>();
+        // N's state and emits wrong barriers.
+        RHIExecuteContext::Current()->Clear<BufferStateTracker>();
+        RHIExecuteContext::Current()->Clear<ImageStateTracker>();
 
         auto& passContext = *PassExecuteContext::Current();
 

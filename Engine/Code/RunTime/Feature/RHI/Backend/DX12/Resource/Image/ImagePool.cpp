@@ -132,8 +132,6 @@ namespace Spark::RHI::DX12
         MemoryView memoryView(allocation.Get(), MemoryViewType::Image, 0, allocation->GetSize(), allocation->GetAlignment());
         image->m_sizeInBytes = memoryView.GetSize();
         image->m_memoryView = eastl::move(memoryView);
-        image->GenerateSubresourceLayouts();
-        image->InitSubresourceState();
 
         return RHI::ResultCode::Success;
     }

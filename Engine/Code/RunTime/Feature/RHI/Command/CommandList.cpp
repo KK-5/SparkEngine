@@ -8,15 +8,21 @@
 
 #include "CommandList.h"
 
-#include <RHI/Resource/Resource.h>
+#include <RHI/Resource/Buffer/Buffer.h>
+#include <RHI/Resource/Image/Image.h>
 
 namespace Spark::RHI
 {
     const ShadingRateCombinators CommandList::DefaultShadingRateCombinators = { { ShadingRateCombinerOp::Passthrough,
                                                                                   ShadingRateCombinerOp::Passthrough } };
 
-    void CommandList::SetResourceState(Resource& resource, ResourceState state)
+    void CommandList::SetResourceState(Buffer& buffer, ResourceState state)
     {
-        resource.SetResourceState(state);
+        buffer.SetResourceState(state);
+    }
+
+    void CommandList::SetResourceState(Image& image, const ImageSubresourceRange& range, ResourceState state)
+    {
+        image.SetResourceState(range, state);
     }
 }

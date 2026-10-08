@@ -49,6 +49,7 @@ set(SOURCES
     Resource/Image/ImagePoolBase.cpp
     Resource/Image/ImagePool.cpp
     Resource/Image/ImageSubResource.cpp
+    Resource/Image/ImageSubresourceStates.cpp
     Resource/Image/ImageViewDescriptor.cpp
     Resource/Image/ImageView.cpp
     Resource/Image/StreamingImagePool.cpp

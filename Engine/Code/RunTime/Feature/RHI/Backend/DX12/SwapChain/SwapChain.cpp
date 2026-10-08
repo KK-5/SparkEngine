@@ -158,11 +158,6 @@ namespace Spark::RHI::DX12
         Image& image = static_cast<Image&>(*request.m_image);
 
         image.m_memoryView = MemoryView(resource.Get(), MemoryViewType::Image, 0, allocationInfo.SizeInBytes, allocationInfo.Alignment);
-        image.GenerateSubresourceLayouts();
-        image.InitSubresourceState();
-        // Overwrite m_initialAttachmentState because Swapchain images are created with D3D12_RESOURCE_STATE_COMMON state
-        image.SetSubresourceState(D3D12_RESOURCE_STATE_COMMON);
-        SetResourceState(image, RHI::ResourceState{});
 
         return RHI::ResultCode::Success;
     }

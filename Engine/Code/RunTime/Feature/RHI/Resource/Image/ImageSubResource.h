@@ -6,6 +6,7 @@
 
 namespace Spark::RHI
 {
+    struct DeviceLimits;
     struct ImageDescriptor;
     struct ImageViewDescriptor;
 
@@ -109,4 +110,9 @@ namespace Spark::RHI
 
     uint32_t GetImageSubresourceIndex(uint32_t mipSlice, uint32_t arraySlice, uint32_t mipLevels);
     uint32_t GetImageSubresourceIndex(ImageSubresource subresource, uint32_t mipLevels);
+
+    //! The alignment of where a subresource starts in a buffer an image of this format is
+    //! copied to or from: the device's, and a whole number of texel blocks (Vulkan requires
+    //! the latter). Not necessarily a power of two.
+    uint32_t GetImageCopyOffsetAlignment(Format format, const DeviceLimits& limits);
 }

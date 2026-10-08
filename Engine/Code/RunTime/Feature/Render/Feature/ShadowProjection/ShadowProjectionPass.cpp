@@ -137,9 +137,9 @@ namespace Spark::Render
                 s.RenderTarget(RHI::AttachmentId("ShadowMask"), clear).View(maskView);
 
                 // Both depth resources are typeless underneath, read as R32_FLOAT.
-                s.Read(RHI::AttachmentId("GBufferNormal")).Bind(RHI::InputName("g_GBufferNormal"));
-                s.Read(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
-                s.Read(RHI::AttachmentId("ShadowAtlas")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_ShadowAtlas"));
+                s.ReadImage(RHI::AttachmentId("GBufferNormal")).Bind(RHI::InputName("g_GBufferNormal"));
+                s.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
+                s.ReadImage(RHI::AttachmentId("ShadowAtlas")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_ShadowAtlas"));
 
                 RHI::SamplerState shadowSampler = RHI::SamplerState::Create(
                     RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp);
@@ -157,6 +157,7 @@ namespace Spark::Render
                     // Full-screen triangle, one instance per slice.
                     s.Draw(RHI::DrawLinear(3, 0), shadowedSlices);
                 }
+                s.Close();
             })
             .Finalize()
         ;

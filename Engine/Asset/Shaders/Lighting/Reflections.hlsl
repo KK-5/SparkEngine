@@ -1,6 +1,7 @@
-// Indirect specular. Full-screen triangle that adds the prefiltered environment through the
-// split-sum approximation to SceneColor. This is where SSR or ray-traced reflections later
-// layer over the cube, falling back to it where the trace fails.
+// Indirect specular. Full-screen triangle that adds the radiance arriving along the reflection
+// to SceneColor, through the split-sum approximation: the prefiltered environment, and over it
+// the screen-space reflections as far as their alpha trusts them. Ray-traced reflections later
+// take the pixels that alpha leaves, before the cube.
 //
 // Sky pixels are culled by the rasterizer (far-plane triangle, depth-test Less against
 // SceneDepth).
@@ -8,6 +9,7 @@
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/SceneBindings.hlsli>
 #include <Shaders/Lib/DeferredShadingCommon.hlsli>
+#include <Shaders/Lib/AmbientOcclusion.hlsli>
 #include <Shaders/Lib/BRDF/EnvBRDF.hlsli>
 
 struct ScopeParameters
@@ -17,10 +19,18 @@ struct ScopeParameters
 
 #include <Shaders/ScopeBindings.hlsli>
 
-Texture2D g_GBufferNormal    : register(t0, space2);
-Texture2D g_GBufferSurface   : register(t1, space2);
-Texture2D g_GBufferBaseColor : register(t2, space2);
-Texture2D g_Depth            : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D        g_GBufferNormal    : register(t0, space2);
+Texture2D        g_GBufferSurface   : register(t1, space2);
+Texture2D        g_GBufferBaseColor : register(t2, space2);
+Texture2D        g_Depth            : register(t3, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D<float> g_AmbientOcclusion : register(t4, space2);   // bound only while the frame has it
+Texture2D<float4> g_ScreenSpaceReflections : register(t5, space2);   // likewise
+
+cbuffer ReflectionsParams : register(b0, space2)
+{
+    uint g_AmbientOcclusionEnabled;         // 0: g_AmbientOcclusion is unbound and must not be read
+    uint g_ScreenSpaceReflectionsEnabled;   // 0: g_ScreenSpaceReflections likewise
+};
 
 struct VSOutput
 {
@@ -70,11 +80,24 @@ float4 PSMain(VSOutput input) : SV_Target0
         float  lod = RoughnessToLod(roughness, g_IBLPrefilteredMipCount);
         float3 prefiltered = g_PrefilteredCube.SampleLevel(g_IBLSampler, R, lod).rgb;
 
-        // AO on specular too: strictly that wants a specular-occlusion term, but leaving it
-        // unoccluded makes AO vanish entirely on metals.
-        color = prefiltered
-              * EnvBRDFLut(g_BRDFLut, g_IBLSampler, gbuffer.SpecularColor, roughness, NoV)
-              * g_EnvIntensity * gbuffer.GBufferAO;
+        // The material's occlusion map times the screen-space signal, turned into the
+        // occlusion of the reflection lobe. Uniform across the draw.
+        float ao = gbuffer.GBufferAO;
+        if (g_AmbientOcclusionEnabled != 0)
+        {
+            ao *= g_AmbientOcclusion.Load(int3(input.position.xy, 0));
+        }
+
+        // The occlusion stands in for what the cube cannot know is in the way. A traced
+        // reflection found what is in the way, so it takes none.
+        float3 radiance = prefiltered * g_EnvIntensity * SpecularOcclusion(NoV, roughness, ao);
+        if (g_ScreenSpaceReflectionsEnabled != 0)
+        {
+            float4 traced = g_ScreenSpaceReflections.Load(int3(input.position.xy, 0));
+            radiance = lerp(radiance, traced.rgb, traced.a);
+        }
+
+        color = radiance * EnvBRDFLut(g_BRDFLut, g_IBLSampler, gbuffer.SpecularColor, roughness, NoV);
     }
 
     color += SpaceZeroKeepAlive();

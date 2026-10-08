@@ -508,7 +508,7 @@ namespace Spark::Resource
             RHI::GetImageSubresourceLayout(RHI::Size{srcW, srcH, 1}, srcFormat);
         const uint32_t srcRowBytes    = srcLayout.m_bytesPerRow;
         const uint32_t srcRowCount    = srcLayout.m_rowCount;
-        const uint32_t srcRowAligned  = AlignUp(srcRowBytes, RHI::Alignment::TexturePitch);
+        const uint32_t srcRowAligned  = AlignUp(srcRowBytes, m_device->GetLimits().m_imageCopyRowPitchAlignment);
         const uint32_t stageBytes     = srcRowAligned * srcRowCount;
 
         Ptr<RHI::Buffer> stageBuf = m_factory->CreateBuffer();

@@ -13,8 +13,8 @@
  *  -- Add QueueBarrier/FlushBarriers override from RHI::CommandList.
  *  -- BeginRenderPass / EndRenderPass: dynamic render pass implementation on top of
  *     ID3D12GraphicsCommandList4. Handles MSAA SetSamplePositions, read-only DSV via
- *     AttachmentAccess, optional MSAA resolve (EndingAccess = RESOLVE) and per-region
- *     shading rate image.
+ *     AttachmentAccess, optional MSAA resolve (done by EndRenderPass after the pass, not as an
+ *     ending access) and per-region shading rate image.
  *  -- Clear / DiscardImage: overrides RHI::CommandList; requests are RHI types.
  * Modified by SparkEngine in 2026
  *  -- Simplify ShaderResourceBindings: remove m_srgsBySlot (two-stage assign-then-pull
@@ -155,11 +155,16 @@ namespace Spark::RHI::DX12
 
         } m_state;
 
-        // Keep-alive storage for resolve subresource parameters during an active render pass.
-        // DX12 requires pSubresourceParameters to stay valid from BeginRenderPass until EndRenderPass.
-        // One entry per color attachment; only the ones with an active resolve are populated.
-        eastl::array<D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS,
-            RHI::Limits::Pipeline::AttachmentColorCountMax> m_resolveSubresourceParams = {};
+        // An MSAA resolve the open render pass asked for, done by EndRenderPass.
+        struct PendingResolve
+        {
+            ID3D12Resource* m_source = nullptr;
+            ID3D12Resource* m_destination = nullptr;
+            UINT            m_sourceSubresource = 0;
+            UINT            m_destinationSubresource = 0;
+            DXGI_FORMAT     m_format = DXGI_FORMAT_UNKNOWN;
+        };
+        eastl::fixed_vector<PendingResolve, RHI::Limits::Pipeline::AttachmentColorCountMax, false> m_pendingResolves;
     };
 
 }

@@ -7,6 +7,7 @@
 #include <RHI/Format.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
+#include <EASTL/string_view.h>
 #include <EASTL/type_traits.h>
 #include <EASTL/vector.h>
 
@@ -33,6 +34,15 @@ namespace Spark::Render
         Attachment& Format(RHI::Format format);
         Attachment& View(const RHI::ImageViewDescriptor& view);
         Attachment& View(const RHI::BufferViewDescriptor& view);
+
+        //! Take the resource as the pass called `passName` left it, whatever passes declared
+        //! since have written to it. A read sees what that pass's last write of it left. A
+        //! write goes right after that one: the writes that followed it, and the reads with
+        //! no .From declared after that pass, get this one's output instead. Several writes
+        //! from one pass follow it in the order they are declared.
+        //! The pass is declared before this one and writes the resource this frame. Not for a
+        //! ReadPreviousImage.
+        Attachment& From(eastl::string_view passName);
 
         RHIHandle GetHandle() const { return m_handle; }
 
@@ -70,6 +80,13 @@ namespace Spark::Render
             return *this;
         }
 
+        //! See Attachment::From.
+        ShaderAttachment& From(eastl::string_view passName)
+        {
+            m_attachment.From(passName);
+            return *this;
+        }
+
         //! The shader stages that access it, for an access no .Bind names (.BindIndex, or read
         //! through a shared binding). Render passes only: a compute pass's is fixed.
         ShaderAttachment& Stage(RHI::AttachmentStage stage);
@@ -82,8 +99,10 @@ namespace Spark::Render
         //! it; an access is bound one way. In a render pass it needs .Stage.
         ShaderAttachment& BindIndex(const RHI::InputName& input);
 
-        //! For a ReadPrevious access: whether last frame left no copy, so it reads a stand-in.
-        bool IsPreviousFrameMissing() const;
+        //! For a ReadPreviousImage access: the uint constant `input`, a root constant or a per-pass
+        //! one, is set to 1 when the image holds last frame's content and to 0 when last frame
+        //! left none and it reads a stand-in.
+        ShaderAttachment& BindValid(const RHI::InputName& input);
 
         RHIHandle GetHandle() const { return m_attachment.GetHandle(); }
 
@@ -103,13 +122,17 @@ namespace Spark::Render
         bool                m_fixedStage { false };
     };
 
-    //! One Scope of a render pass: one render pass bracket.
+    //! One Scope of a render pass: one render pass bracket. Open from the moment the pass gets
+    //! it until Close; a pass has one Scope open at a time.
     class RenderScope
     {
     public:
         RenderScope(RenderScope&&) = default;
         RenderScope(const RenderScope&) = delete;
         RenderScope& operator=(const RenderScope&) = delete;
+
+        //! Ends the Scope's declaration and validates it. Nothing is added to it afterwards.
+        void Close() { m_builder->CloseScope(m_scope); }
 
         //! Color targets are numbered in the order they are declared.
         Attachment RenderTarget(
@@ -122,8 +145,13 @@ namespace Spark::Render
         //! when the render pass ends.
         Attachment Resolve(const RHI::AttachmentId& name, const Attachment& source);
 
-        ShaderAttachment Read(const RHI::AttachmentId& name);
-        ShaderAttachment ReadWrite(const RHI::AttachmentId& name);
+        //! A shader's access of an image.
+        ShaderAttachment ReadImage(const RHI::AttachmentId& name);
+        ShaderAttachment ReadWriteImage(const RHI::AttachmentId& name);
+
+        //! A shader's access of a buffer.
+        ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
+        ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
 
         //! A draw of this Scope that reads no vertex or index buffer (vertices come from
         //! SV_VertexID), e.g. a full-screen triangle: DrawLinear(3, 0).
@@ -136,8 +164,9 @@ namespace Spark::Render
             m_builder->AddScopeSelection(m_scope, &CollectDrawItems<DrawTags...>);
         }
 
-        //! Read the copy of `name` produced last frame (see ShaderAttachment::IsPreviousFrameMissing).
-        ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);
+        //! Read the copy of `name` produced last frame (see ShaderAttachment::BindValid). A pass
+        //! of this frame creates `name`, declared before this one or after it.
+        ShaderAttachment ReadPreviousImage(const RHI::AttachmentId& name);
 
         //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
         //! set the same input must agree (lowering asserts it): the per-pass space holds one
@@ -168,7 +197,7 @@ namespace Spark::Render
         uint32_t            m_colorCount { 0 };
     };
 
-    //! One Scope of a compute pass.
+    //! One Scope of a compute pass. Open and closed as a RenderScope is.
     class ComputeScope
     {
     public:
@@ -176,12 +205,22 @@ namespace Spark::Render
         ComputeScope(const ComputeScope&) = delete;
         ComputeScope& operator=(const ComputeScope&) = delete;
 
-        ShaderAttachment Read(const RHI::AttachmentId& name);
-        ShaderAttachment ReadWrite(const RHI::AttachmentId& name);
-        ShaderAttachment Write(const RHI::AttachmentId& name);
+        //! Ends the Scope's declaration and validates it. Nothing is added to it afterwards.
+        void Close() { m_builder->CloseScope(m_scope); }
 
-        //! Read the copy of `name` produced last frame (see ShaderAttachment::IsPreviousFrameMissing).
-        ShaderAttachment ReadPrevious(const RHI::AttachmentId& name);
+        //! A shader's access of an image.
+        ShaderAttachment ReadImage(const RHI::AttachmentId& name);
+        ShaderAttachment ReadWriteImage(const RHI::AttachmentId& name);
+        ShaderAttachment WriteImage(const RHI::AttachmentId& name);
+
+        //! A shader's access of a buffer.
+        ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
+        ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
+        ShaderAttachment WriteBuffer(const RHI::AttachmentId& name);
+
+        //! Read the copy of `name` produced last frame (see ShaderAttachment::BindValid). A pass
+        //! of this frame creates `name`, declared before this one or after it.
+        ShaderAttachment ReadPreviousImage(const RHI::AttachmentId& name);
 
         //! A dispatch covering this many threads, not groups: the group count follows from the
         //! shader's [numthreads], rounded up, so the shader must bounds-check the excess.

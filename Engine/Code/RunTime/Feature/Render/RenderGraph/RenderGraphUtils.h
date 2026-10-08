@@ -87,6 +87,30 @@ namespace Spark::Render
         return state;
     }
 
+    //! The queue an image is on: that of the subresources something accessed, which must all
+    //! be on one — a resource carries one PendingSync, the fence of one queue.
+    inline RHI::HardwareQueueClass GetImageQueue(const RHI::ImageSubresourceStates& states, const char* imageName)
+    {
+        RHI::ImageSubresourceStates::SpanList spans;
+        states.GetSpans(RHI::ImageSubresourceRange(), spans);
+
+        const RHI::ImageSubresourceSpan* accessed = nullptr;
+        for (const RHI::ImageSubresourceSpan& span : spans)
+        {
+            if (!CheckBitsAny(span.m_state.m_access, RHI::AccessFlags::ReadMask | RHI::AccessFlags::WriteMask))
+            {
+                continue;
+            }
+            ASSERT(accessed == nullptr || accessed->m_state.m_queue == span.m_state.m_queue,
+                "Image {} has subresources on queues {} and {}, which is not supported.",
+                imageName,
+                static_cast<uint32_t>(accessed->m_state.m_queue),
+                static_cast<uint32_t>(span.m_state.m_queue));
+            accessed = &span;
+        }
+        return (accessed ? accessed : spans.begin())->m_state.m_queue;
+    }
+
     //! The full-target viewport / scissor, which every view's rect is scaled against.
     //! RenderPassBeginInfo carries no render area and a depth-only pass has no color
     //! attachment, so the extent comes from the first attachment that exists.

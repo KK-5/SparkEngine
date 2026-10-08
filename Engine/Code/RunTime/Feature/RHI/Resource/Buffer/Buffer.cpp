@@ -11,4 +11,14 @@ namespace Spark::RHI
     {
         return m_descriptor;
     }
+
+    ResourceState Buffer::GetResourceState() const
+    {
+        return m_resourceState;
+    }
+
+    void Buffer::SetResourceState(ResourceState state)
+    {
+        m_resourceState = state;
+    }
 }

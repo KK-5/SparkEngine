@@ -198,7 +198,7 @@ barrier，是同步漏洞。需求几乎不存在，直接约束：编译器首�
 | 2 ✅ | D3D12MA 换成 3.2.0，调用不变，确认构建与画面无变化 |
 | 3 ✅ | 转换函数（D2）、`CommandListBase` 的屏障队列、`QueueBarrier` 改写，命令列表换 `List7`；资源改以初始 layout 创建（D4）；aliasing 记进初始状态（D3），删掉 `DeviceMemoryBarrier` 一路。首轮运行暴露 `None` 兼任"丢弃"的错误，D3 由屏障上的 bool 改为 `AccessFlags::Undefined`，原步骤 4 并入。7 个示例与编辑器运行无 debug layer 错误；画面待人工确认 |
 | 3b | Present 转换随最后一个 Scope 录制（D7），消除 #1356；跨帧换队列的 ASSERT（D8）；transient 图像不上 copy 队列的 ASSERT（D9）。debug layer 与 GPU-based validation 下编辑器与 7 个示例均无报错，画面已确认 |
-| 4 | 删除 legacy 残留：`Image::m_subresourceState` 一族与 SwapChain 对它的调用（与 I4 步骤 1 一起） |
+| 4 ✅ | 删除 legacy 残留：`Image::m_subresourceState` 一族与 SwapChain 对它的调用（随 I4 步骤 1 完成） |
 
 I4 的步骤 1（`ImageSubresourceStates`、按子资源记录状态）与后端无关，可与本文并行；I4 的步骤 2 放在本文之后，D5 改为依赖
 原生范围。
@@ -221,7 +221,25 @@ I4 的步骤 1（`ImageSubresourceStates`、按子资源记录状态）与后端
 - **aliasing 的 global barrier 可精确化**（暂缓，待性能分析）：现以 global barrier 刷前一占用者的访问（D3）。若性能分析显示有开销，可由池在初始
   状态之外附上前一资源，DX12 改为对它发一个以 `NO_ACCESS` 结束的屏障；同一批次内的多个 global barrier 也可在 `FlushBarriers`
   里按位合并。预估完整管线每帧 15~35 条，与 legacy 的 aliasing 屏障数相同。
+- **跨队列复用 transient 内存没有同步**（待第一个 async compute 用例）：D3 约定前一占用者与新资源首次使用不在同一队列时
+  "由调用方的 fence 排序"，但渲染图里并没有这个 fence。记跨队列等待的只有同一资源自己的 release / acquire
+  （`RecordCrossQueueWait`），没有代码让新资源的第一个 Scope 去等前一占用者的最后一个 Scope；池复用内存时也只比时间线
+  位置，不看队列。现在所有 pass 都在 Graphics 上，不会触发。方向二选一：池把前一占用者的最后一次使用告诉编译器，由它记
+  等待；或者不跨队列复用。
 - ~~`TransientResourcePoolStats::m_aliasingBarrierCount`~~：已删除（从未被填写，随 aliasing 屏障的删除已无对应概念）。
+- **MSAA resolve 由后端在 `EndRenderPass` 里显式做，用 `ResolveSubresource`**：一条命令列表对交换链图像的唯一写入是
+  `ResolveSubresourceRegion` 时设备移除（`DXGI_ERROR_ACCESS_DENIED`，debug layer 无其他消息）；同一条列表里先对它做一次
+  `ResolveSubresource` 再做 Region 就正常，只用 `ResolveSubresource` 也正常。
+  - 实测于 Windows 11 25H2（D3D12 运行时 10.0.26100.9549）的两块显卡：NVIDIA RTX 5070 Ti Laptop（`RenderPassesTier` 0）
+    与 Intel 核显（tier 2），结果相同；与源矩形、resolve 模式（AVERAGE / MIN / MAX）、源是否 typeless、屏障按子资源
+    还是整图都无关。
+  - 结束访问 `ENDING_ACCESS_TYPE_RESOLVE` 在 tier 0 那块显卡上同样设备移除；另一台机器上无报错，那台的系统版本与
+    tier 未记录。
+  - 推断（未证实）：运行时记录"哪条命令列表写了当前后缓冲"时漏了 Region 这条路径。没有搜到同样的报告；相近的有
+    `crud89/d3d12-renderpass-barrier-mwe`（渲染通道 + Enhanced Barriers 只在交换链后缓冲上出错，Agility SDK 1.610.2 修复）。
+  - 做法：颜色附件的结束访问固定为 PRESERVE，通道结束后源 RENDER_TARGET → RESOLVE_SOURCE、`ResolveSubresource`、再
+    转回，转回是为了让上层记录的源状态在返回时仍成立。
+  - 深度 resolve 需要 Region 的 MIN / MAX 模式；它的目标不是交换链图像，按上面的结果应不受影响，做的时候确认。
 
 ---
 

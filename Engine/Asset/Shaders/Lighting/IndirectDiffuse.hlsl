@@ -8,6 +8,7 @@
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/SceneBindings.hlsli>
 #include <Shaders/Lib/DeferredShadingCommon.hlsli>
+#include <Shaders/Lib/AmbientOcclusion.hlsli>
 #include <Shaders/Lib/BRDF/Diffuse.hlsli>
 
 struct ScopeParameters
@@ -19,9 +20,15 @@ struct ScopeParameters
 
 // No depth: irradiance is view independent, so there is no world position to reconstruct.
 // SceneDepth is still bound as the read-only depth-stencil attachment that culls the sky.
-Texture2D g_GBufferNormal    : register(t0, space2);
-Texture2D g_GBufferSurface   : register(t1, space2);
-Texture2D g_GBufferBaseColor : register(t2, space2);
+Texture2D        g_GBufferNormal    : register(t0, space2);
+Texture2D        g_GBufferSurface   : register(t1, space2);
+Texture2D        g_GBufferBaseColor : register(t2, space2);
+Texture2D<float> g_AmbientOcclusion : register(t3, space2);   // bound only while the frame has it
+
+cbuffer IndirectDiffuseParams : register(b0, space2)
+{
+    uint g_AmbientOcclusionEnabled;     // 0: g_AmbientOcclusion is unbound and must not be read
+};
 
 // Used when no environment is bound (no skybox, or its bake is still uploading).
 static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
@@ -63,8 +70,13 @@ float4 PSMain(VSOutput input) : SV_Target0
         color = g_Ambient * gbuffer.BaseColor;
     }
 
-    // Only the material's own occlusion map for now; P4's screen-space AO multiplies in here.
-    color *= gbuffer.GBufferAO;
+    // The material's occlusion map times the screen-space signal. Uniform across the draw.
+    float ao = gbuffer.GBufferAO;
+    if (g_AmbientOcclusionEnabled != 0)
+    {
+        ao *= g_AmbientOcclusion.Load(int3(input.position.xy, 0));
+    }
+    color *= AOMultiBounce(gbuffer.BaseColor, ao);
 
     color += SpaceZeroKeepAlive();
 

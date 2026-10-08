@@ -407,8 +407,6 @@ namespace Spark::RHI::DX12
                         allocationInfo.Alignment);
             dx12Image->m_sizeInBytes = memoryView.GetSize();
             dx12Image->m_memoryView = eastl::move(memoryView);
-            dx12Image->GenerateSubresourceLayouts();
-            dx12Image->InitSubresourceState();
             return RHI::ResultCode::Success;
         });
 
@@ -697,8 +695,6 @@ namespace Spark::RHI::DX12
                                   allocationInfo.Alignment);
             dx12Image->m_sizeInBytes = memoryView.GetSize();
             dx12Image->m_memoryView = eastl::move(memoryView);
-            dx12Image->GenerateSubresourceLayouts();
-            dx12Image->InitSubresourceState();
             return RHI::ResultCode::Success;
         });
 

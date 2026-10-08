@@ -8,9 +8,9 @@ namespace Spark::AntiAliasing
 {
     enum class TemporalAAJitterSamples : uint32_t
     {
-        Four    = 4,
-        Eight   = 8,
-        Sixteen = 16,
+        Four,
+        Eight,
+        Sixteen,
     };
 
     //! On a camera entity: its view runs temporal anti-aliasing. Presence enables it.

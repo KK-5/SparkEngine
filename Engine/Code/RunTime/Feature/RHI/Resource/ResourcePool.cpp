@@ -3,6 +3,8 @@
 #include <Log/ILogSystem.h>
 
 #include "Resource.h"
+#include "Buffer/Buffer.h"
+#include "Image/Image.h"
 
 namespace Spark::RHI
 {
@@ -42,9 +44,14 @@ namespace Spark::RHI
         return true;
     }
 
-    void ResourcePool::SetResourceState(Resource& resource, ResourceState state)
+    void ResourcePool::SetResourceState(Buffer& buffer, ResourceState state)
     {
-        resource.SetResourceState(state);
+        buffer.SetResourceState(state);
+    }
+
+    void ResourcePool::SetResourceState(Image& image, ResourceState state)
+    {
+        image.SetResourceState(state);
     }
 
     bool ResourcePool::ValidateIsInitialized() const

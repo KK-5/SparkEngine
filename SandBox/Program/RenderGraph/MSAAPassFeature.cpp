@@ -219,6 +219,7 @@ namespace Spark::SandBox
                 // TriangleMVP.hlsl's root constant: unset, it would be 0 and the triangle black.
                 s.Constant(RHI::InputName("tint"), Math::Vector4(1.f, 1.f, 1.f, 1.f));
                 s.Accepts<SampleDrawTag>();
+                s.Close();
             })
             .Finalize();
     }

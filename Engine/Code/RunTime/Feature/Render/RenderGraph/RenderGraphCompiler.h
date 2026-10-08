@@ -83,6 +83,12 @@ namespace Spark::Render
         //! ones is the backend's call. Runs after SortScopes.
         void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
 
+        //! Put an ExternalWait on the attachment by which each queue first touches an imported
+        //! resource that another queue left pending (e.g. an upload on the Copy queue): its
+        //! PendingSync, when the fence has not been reached. The queue it was left on is the
+        //! one in the resource's own record. Runs after SortScopes.
+        void CompileExternalWaits(RHIContext& context);
+
         //! Turn the cross-queue waits CompileScopeBarriers recorded into fences and values: walks
         //! Scopes in stream order, gives each ScopeSignal its queue's fence in crossQueueFences
         //! and next value, and resolves each ScopeWait to its producers' signals, dropping any an
@@ -109,7 +115,9 @@ namespace Spark::Render
             RHI::PipelineLibrary* pipelineLibrary);
 
         //! Write what Scopes declared for their pass's per-pass space into its bindings: the views
-        //! of attachments bound to inputs (ShaderInputBinding), samplers and constants. A pass
+        //! of attachments bound to inputs (ShaderInputBinding), samplers and constants; and the
+        //! uints attachments give constants (IndexBinding, PreviousFrameValidBinding), a root
+        //! constant's into its Scope's block. A pass
         //! that declared any of these gets null in the image and buffer inputs none of them
         //! bound. Scopes of one pass share its per-pass space: an input two of them set must be
         //! the same, which is the pass's to keep, not checked here. Runs after SortScopes

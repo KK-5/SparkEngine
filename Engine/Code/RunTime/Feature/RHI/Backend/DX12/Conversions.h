@@ -28,6 +28,10 @@ namespace Spark::RHI::DX12
 
     DXGI_FORMAT ConvertFormat(RHI::Format format, bool raiseAsserts = true);
 
+    //! How many planes a resource of the format has: its depth and stencil, or a planar
+    //! format's.
+    uint32_t GetFormatPlaneCount(RHI::Format format);
+
     D3D12_SAMPLE_POSITION ConvertSamplePosition(const RHI::SamplePosition& position);
 
     D3D12_COMMAND_LIST_TYPE ConvertHardwareQueueClass(RHI::HardwareQueueClass type);

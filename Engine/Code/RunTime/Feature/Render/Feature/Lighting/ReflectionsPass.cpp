@@ -17,6 +17,8 @@
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 
+#include <Feature/SceneTextures/SceneTextures.h>
+
 #include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
@@ -116,14 +118,36 @@ namespace Spark::Render
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 for (const auto& tex : s_gbufferTextures)
                 {
-                    s.Read(RHI::AttachmentId(tex.m_name)).Bind(RHI::InputName(tex.m_input));
+                    s.ReadImage(RHI::AttachmentId(tex.m_name)).Bind(RHI::InputName(tex.m_input));
                 }
-                s.Read(RHI::AttachmentId(s_depthName)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
+                s.ReadImage(RHI::AttachmentId(s_depthName)).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName(s_depthInput));
                 // Read-only depth-stencil attachment so the rasterizer depth-tests against it
                 // and culls sky pixels before the PS.
                 s.DepthRead(RHI::AttachmentId(s_depthName));
 
+                // Screen-space ambient occlusion on the frames that have it; otherwise the
+                // shader is told not to read the texture.
+                const bool hasAmbientOcclusion = SceneTextures::AmbientOcclusion::FindView(
+                    *RHI::RHIExecuteContext::Current()) != RHI::NullHandle;
+                if (hasAmbientOcclusion)
+                {
+                    s.ReadImage(SceneTextures::AmbientOcclusion::Name()).Bind(RHI::InputName("g_AmbientOcclusion"));
+                }
+                s.Constant(RHI::InputName("g_AmbientOcclusionEnabled"), hasAmbientOcclusion ? 1u : 0u);
+
+                // Likewise the traced reflections, which replace the environment's where a
+                // ray found something.
+                const bool hasScreenSpaceReflections = SceneTextures::ScreenSpaceReflections::FindView(
+                    *RHI::RHIExecuteContext::Current()) != RHI::NullHandle;
+                if (hasScreenSpaceReflections)
+                {
+                    s.ReadImage(SceneTextures::ScreenSpaceReflections::Name())
+                        .Bind(RHI::InputName("g_ScreenSpaceReflections"));
+                }
+                s.Constant(RHI::InputName("g_ScreenSpaceReflectionsEnabled"), hasScreenSpaceReflections ? 1u : 0u);
+
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
+                s.Close();
             })
             .Finalize()
         ;
