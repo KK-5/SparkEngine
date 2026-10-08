@@ -630,14 +630,17 @@ namespace Spark::RHI::DX12
                 static_cast<uint32_t>(barrier.m_dstQueue));
         }
 
-        RHI::BufferPool& bufferPool = static_cast<RHI::BufferPool&>(*barrier.m_buffer->GetPool());
-        if (bufferPool.GetDescriptor().m_heapMemoryLevel == RHI::HeapMemoryLevel::Host)
+        Buffer& buffer = static_cast<Buffer&>(*barrier.m_buffer);
+
+        // Upload / readback heaps are CPU-visible and never transition. Asked of the native
+        // resource: the buffer's pool is not always a BufferPool (a transient buffer's is not).
+        D3D12_HEAP_PROPERTIES heapProperties {};
+        if (SUCCEEDED(buffer.GetMemoryView().GetMemory()->GetHeapProperties(&heapProperties, nullptr))
+            && (heapProperties.Type == D3D12_HEAP_TYPE_UPLOAD || heapProperties.Type == D3D12_HEAP_TYPE_READBACK))
         {
-            // Upload / readback heaps are CPU-visible and never transition.
             return;
         }
 
-        Buffer& buffer = static_cast<Buffer&>(*barrier.m_buffer);
 
         const bool release = isCrossQueue && myQueue == barrier.m_srcQueue;
         const bool acquire = isCrossQueue && myQueue == barrier.m_dstQueue;
