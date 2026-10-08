@@ -29,7 +29,7 @@ namespace Spark::RHI
 
         Image* image = CreateImageInternal(createInfo, allocFence);
 
-        if (Validation::isEnabled && image && image->GetPool() != this)
+        if (Validation::isEnabled && image && !Contains(*image))
         {
             LOG_ERROR("[TransientResourcePool] {} CreateImageInternal returned an image whose pool pointer is not this pool. "
                       "The backend must register new images via InitResource and reuse cached images that are already registered.",
@@ -50,7 +50,7 @@ namespace Spark::RHI
 
         Buffer* buffer = CreateBufferInternal(createInfo, allocFence);
 
-        if (Validation::isEnabled && buffer && buffer->GetPool() != this)
+        if (Validation::isEnabled && buffer && !Contains(*buffer))
         {
             LOG_ERROR("[TransientResourcePool] {} CreateBufferInternal returned a buffer whose pool pointer is not this pool.",
                       GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
@@ -155,7 +155,7 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (!image || image->GetPool() != this)
+            if (!image || !Contains(*image))
             {
                 LOG_ERROR("[TransientResourcePool] {} Image is null or was not allocated by this pool.",
                           GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
@@ -169,7 +169,7 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (!buffer || buffer->GetPool() != this)
+            if (!buffer || !Contains(*buffer))
             {
                 LOG_ERROR("[TransientResourcePool] {} Buffer is null or was not allocated by this pool.",
                           GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");

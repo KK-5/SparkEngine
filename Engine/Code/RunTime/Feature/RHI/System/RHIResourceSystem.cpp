@@ -306,18 +306,19 @@ namespace Spark::RHI
     {
         auto process = [&](RHIHandle handle, RHI::Buffer& buffer, const PendingBufferMap& mapReq)
         {
-            auto* pool = static_cast<BufferPool*>(buffer.GetPool());
+            // Only a Host buffer can be mapped, and the ones this system makes come from these two.
+            BufferPool* pool = nullptr;
+            for (BufferPool* hostPool : { m_hostUploadPlacedBufferPool.get(), m_hostReadbackPlacedBufferPool.get() })
+            {
+                if (hostPool != nullptr && hostPool->Contains(buffer))
+                {
+                    pool = hostPool;
+                }
+            }
             if (!pool)
             {
-                LOG_ERROR("[RHIResourceSystem] ProcessBufferMaps: buffer on entity {} has no pool; skipping.",
-                          static_cast<uint32_t>(handle));
-                return;
-            }
-
-            if (pool->GetDescriptor().m_heapMemoryLevel != HeapMemoryLevel::Host)
-            {
-                LOG_ERROR("[RHIResourceSystem] ProcessBufferMaps: buffer on entity {} is Device heap; "
-                          "use PendingBufferUpload for Device buffers.",
+                LOG_ERROR("[RHIResourceSystem] ProcessBufferMaps: buffer on entity {} is not from a Host pool of "
+                          "this system; use PendingBufferUpload for Device buffers.",
                           static_cast<uint32_t>(handle));
                 return;
             }

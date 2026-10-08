@@ -234,7 +234,7 @@ namespace Spark::Render
         rhiCtx.GetView<RHI::Components::Buffer>().each(
             [&](RHI::RHIHandle entity, const RHI::Components::Buffer& buffer)
         {
-            if (buffer.m_buffer && buffer.m_buffer->GetPool() == m_pool.get())
+            if (buffer.m_buffer && m_pool->Contains(*buffer.m_buffer))
             {
                 entities.push_back(entity);
             }

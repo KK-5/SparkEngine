@@ -15,12 +15,11 @@ namespace Spark::RHI
 
         void Shutdown() override final;
 
-        const ResourcePool* GetPool() const;
-        ResourcePool* GetPool();
-
     private:
         void SetPool(ResourcePool* pool);
 
+        //! The pool it was initialized on. Not handed out: whoever needs the pool holds it,
+        //! and asks it whether a resource is its own (ResourcePool::Contains).
         ResourcePool* m_pool = nullptr;
         bool m_isInvalidationQueued = false;
     };

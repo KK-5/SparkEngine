@@ -25,6 +25,9 @@ namespace Spark::RHI
 
         uint32_t GetResourceCount() const;
 
+        //! Whether `resource` was initialized on this pool and is still on it.
+        bool Contains(const Resource& resource) const;
+
         virtual void ShutdownResource(Resource* resource);
 
         virtual const ResourcePoolDescriptor& GetDescriptor() const = 0;

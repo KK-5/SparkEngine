@@ -16,11 +16,16 @@ namespace Spark::RHI
         }
     }
 
+    bool ResourcePool::Contains(const Resource& resource) const
+    {
+        return resource.m_pool == this;
+    }
+
     bool ResourcePool::ValidateIsUnregistered(const Resource* resource) const
     {
         if (Validation::isEnabled)
         {
-            if (!resource || resource->GetPool() != nullptr)
+            if (!resource || resource->m_pool != nullptr)
             {
                 LOG_ERROR("[ResourcePool] Resource {} is null or is registered on another pool.", GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
                 return false;
@@ -34,7 +39,7 @@ namespace Spark::RHI
     {
         if (Validation::isEnabled)
         {
-            if (!resource || resource->GetPool() != this)
+            if (!resource || !Contains(*resource))
             {
                 LOG_ERROR("[ResourcePool] Resource {} is null or is not registered on this pool.", GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]");
                 return false;

@@ -8,9 +8,9 @@ namespace Spark::RHI
 {
     Resource::~Resource()
     {
-        if (GetPool() != nullptr)
+        if (m_pool != nullptr)
         {
-            LOG_ERROR("[Resource] Resource {} is still registered on pool. {}", GetName().GetCStr(), GetPool()->GetName().GetCStr());
+            LOG_ERROR("[Resource] Resource {} is still registered on pool. {}", GetName().GetCStr(), m_pool->GetName().GetCStr());
         }
     }
 
@@ -22,16 +22,6 @@ namespace Spark::RHI
         }
 
         DeviceObject::Shutdown();
-    }
-
-    const ResourcePool* Resource::GetPool() const
-    {
-        return m_pool;
-    }
-
-    ResourcePool* Resource::GetPool()
-    {
-        return m_pool;
     }
 
     void Resource::SetPool(ResourcePool* pool)
