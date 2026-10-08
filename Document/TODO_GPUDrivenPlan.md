@@ -12,6 +12,7 @@ D7（剔除的输出）、D9（渲染图的入口）、D12（buffer 的跨队列
 D4 与步骤 3 在 2026-10-06 按 `TODO_BufferPoolPlan.md` 重写：原来是渲染层自己在一个共享 buffer 里分配（租约），现在分配与延迟回收在池里。
 步骤 4 与 5 在 2026-10-07 重排：参数不先由 CPU 填，步骤 4 就由 GPU 生成、不带开关，`g_Geometries` 跟着提前到步骤 4；
 D7 的"集合"一维在 2026-10-08 按实现改写（每种分类一个列表）。
+D9 在 2026-10-09 按实现改写：pass 自己声明间接绘制，不再经 `Accepts` 路由，批次的几何每帧就地组装。
 
 ---
 
@@ -22,7 +23,7 @@ D7 的"集合"一维在 2026-10-08 按实现改写（每种分类一个列表）
 | 0 | RHI：indirect 抽象重做 + 能力位 | — | 完成（2026-10-05），见下 |
 | 1 | 渲染图：间接参数的访问角色、`DispatchIndirect`、图内 buffer 的首个用例 | 0 | 完成（2026-10-05），见下 |
 | 2 | buffer 跨队列同步的纠正（D12） | — | 完成（2026-10-06），见下 |
-| 3 | 几何进同一个原生 buffer：渲染层的几何系统持有池、替 Mesh 申请（仍走 CPU 提交） | `TODO_BufferPoolPlan.md` 步骤 1（已完成） | 完成（2026-10-06），第 1 小步的画面用户已确认，见下 |
+| 4 | indirect draw，参数由 GPU 生成（不剔除）；`g_Geometries` | 0、1、3 | 完成（2026-10-09），画面用户已确认。第 1 小步（RHI 暴露偏移与池的底层 buffer，2026-10-07）见 `TODO_BufferPoolPlan.md` D7；第 2 小步（`m_drawMask`，2026-10-07）与第 3 小步的三步（几何一侧、生成参数的 compute pass、绘制 pass 读列表）见下 |
 | 4 | indirect draw，参数由 GPU 生成（不剔除）；`g_Geometries` | 0、1、3 | 进行中：第 1 小步（RHI 暴露偏移与池的底层 buffer）完成（2026-10-07），见 `TODO_BufferPoolPlan.md` D7；第 2 小步（`m_drawMask`）完成（2026-10-07）；第 3 小步分成三步，前两步（几何一侧、生成参数的 compute pass）完成（2026-10-08），第三步（绘制 pass 改读这些列表）未开始，见下 |
 | 5 | compute 视锥剔除：在步骤 4 的 pass 上加视锥测试与按视图分段 | 4 | 未开始 |
 
@@ -50,6 +51,9 @@ D7 的"集合"一维在 2026-10-08 按实现改写（每种分类一个列表）
 - 没有执行过的：`RenderScope::IndirectArguments`（没有能用它的调用，步骤 4 才有）；buffer 的只读 `.Bind`
   （示例里绑的是可写的）；跨队列的 buffer 访问（示例全在图形队列）；GPU-based validation（只开了 debug layer）。
 - 屏障本身没有单元测试：`SparkRenderTest` 不创建设备，而屏障编译要读真实 buffer 对象的状态。
+- **更正（2026-10-08）：上面"buffer 从 compute 写到间接参数读的屏障"当时并没有发出去。** DX12 后端把 transient buffer
+  的屏障全部丢掉了（原因见"步骤 4 第 3 小步的第三步"），示例能跑、debug layer 不报错，是因为内存里恰好是对的。
+  渲染图编译出这条屏障是真的，后端把它变成原生屏障这一段到 2026-10-08 修复之后才第一次执行；修复后示例重跑 10 秒无报错。
 
 **步骤 2 跑过什么、没跑过什么**
 
@@ -147,6 +151,37 @@ D7 的"集合"一维在 2026-10-08 按实现改写（每种分类一个列表）
 - 模型缓存的版本改了，改完后第一次启动编辑器会把工程里的模型全部重新烘一遍：慢一次，期间关窗不会立刻退出。
 - 顺带处理的：用户场景里一个网格要 44,903,184 字节的顶点和 17,992,800 字节的索引，64 MB 的池放不下，
   每隔几帧申请到顶点、索引失败、再放掉顶点，每帧报错。预算改成 256 MB（D4"容量"），用户确认不再报错；`Room.glb` 仍然放不下。
+- **这一段的编辑器运行比写的要弱**（2026-10-08 发现）：编辑器启动后停在欢迎页，自动运行没有进过主界面，场景也是空的。
+  所以上面只说明两个 pass 被声明、被执行，不说明任何一次绘制读过这些 buffer。
+
+**步骤 4 第 3 小步的第三步跑过什么、没跑过什么**（绘制 pass 读列表，内容见 D9 与 §四 步骤 4）
+
+- 全量 Debug 编译通过；`SparkRenderTest` 105 个用例通过，没有新增的。`DrawIndirect` 与 lowering 给 draw item 填参数的那一支
+  都要真实的 buffer 对象，测试里造不出来，只有编辑器的运行覆盖它们。
+- **写完后第一次交给用户就出了问题：物体多的场景必现设备移除（`DXGI_ERROR_DEVICE_HUNG`），画面在卡死前是正常的。**
+  - 我一开始复现不了。用临时代码生成 `SofaPart`、`bugatti`、`lamborghini`、`corrupted_archangel`，带不带灯光，五次都没有卡死。
+    原因是上面说的欢迎页，加上空场景里没有天空盒与后处理。改成在临时代码里打开用户的 `Car.scene` 才复现，15 到 20 秒内必现。
+  - 定位靠新加的日志：后端在设备移除时读 DRED 的面包屑（原来打开了、没有人读），打印 GPU 停在哪条命令上。
+    停在场景绘制的 `ExecuteIndirect`；同一个命令列表里四次 `Dispatch` 之间一条 `Barrier` 都没有。
+  - 把 DepthPre 与 GBuffer 临时换回旧路径、只留阴影走间接绘制，仍然卡死，而且那一帧旧路径一个物体都没画：
+    列表本该是空的，间接绘制读到的 count 却不是 0。
+  - **根因在 DX12 后端，不在这一步的代码里**：`CommandList::QueueBarrier` 把 buffer 的池强转成 `BufferPool` 去读堆类型，
+    用来跳过上传堆与回读堆；transient buffer 的池是 `TransientResourcePool`，读到的是错位的字段，恰好等于 Host，于是直接返回。
+    **transient buffer 的所有屏障因此都没有发出去**，包括"compute 写 → 间接参数读"和清零与追加之间的那一条。
+    绘制可能在计数清零之前读它；transient 堆里是零时看不出来，`Car.scene` 有天空盒与 Bloom，堆里是别的资源留下的内容。
+  - 修复：堆类型直接问原生资源（`GetHeapProperties`），点名 UPLOAD 与 READBACK。上传堆与回读堆不发屏障是 DX12 的规则，
+    Vulkan 没有对应的概念，所以这个判断留在后端里（2026-10-08 查过规范，见 `TODO_BufferPoolPlan.md` D7 末尾）。
+- 修复之后跑过的，都是打开 `Car.scene`（72 个实例、一盏平行光、天空盒、Bloom）并过了欢迎页：
+  只有阴影走间接绘制 45 秒；三个 pass 都走 50 秒；去掉 `Resource::GetPool` 之后 40 秒；批次几何改成就地组装之后 40 秒。
+  日志里只有关闭时原有的那几条。`IndirectDispatch` 示例 10 秒无报错。
+- **画面由用户在 2026-10-09 确认，没有问题。**
+- 顺带改的：
+  - `Resource::GetPool` 去掉，换成 `ResourcePool::Contains`（用户定的名字）。外面对它的需求只有"是不是这个池的"，
+    而拿得到基类指针就拦不住向下转型。同样写法的还有 `RHIResourceSystem::ProcessBufferMaps` 一处，今天碰巧没错，
+    改成在它自己的两个 Host 池里比对。
+  - 几何系统加了断言：网格在底层 buffer 里的偏移必须是元素大小的整数倍（原来只有注释）。
+  - 空场景里"派发 0 个线程组"会让 debug layer 每帧报警告，追加记录的那次派发改成至少一个线程。
+- 没有执行过的：GPU-based validation；点光源（六个阴影视图）；`Room.glb` 这种放不下池的场景在新路径下的表现。
 
 ---
 
@@ -330,8 +365,11 @@ heap 里相邻也合不成一次调用。
   - 建它时用的（资产 id，mesh 序号，primitive 序号），用来发现 `MeshComponent` 改了指向；
   - （步骤 4 加的）`m_firstIndex` 与 `m_vertexOffset`：把整个底层 buffer 当成一次带索引的绘制时，这个网格从第几个索引、
     第几个顶点开始。申请时由两个 buffer 的偏移除以 4 和 48 得到。
-- （步骤 4 加的）池的底层 buffer 在 RHIContext 里有一个实体（名字加 `Components::Buffer`），初始化时建，
-  关闭时和池里别的 buffer 一起销毁。它是给批次绑定 VB / IB 用的，现在还没有人绑。
+- （步骤 4 加的）池的底层 buffer 在 RHIContext 里有一个实体（名字、`Components::Buffer`、`MeshGeometryBaseBufferTag`），
+  初始化时建，关闭时和池里别的 buffer 一起销毁。`RenderScope::DrawIndirect` 按那个 tag 找到它，绑成 VB 与 IB（D9）。
+- （步骤 4 改的）每个网格两个 buffer 的上传等待（`CreateStaticBufferAttachment`）在几何系统建 buffer 时注册，
+  原来是 composer 在 compose 时注册。图形队列靠它等上传的 fence、把 buffer 接回来，间接绘制同样需要，
+  不该取决于 composer 有没有 compose 这个实体。
 - `InstanceBindingSystem` 与 `MeshGeometryComposer` 从读 `MeshGPUComponent` 改成读这个组件。
 - 仓库里同形状的是 `MaterialOverrideRef` 与 `SyncOverrideMaterials`：渲染层扫描世界实体，把自己建的东西的句柄挂回去。
 
@@ -367,7 +405,8 @@ heap 里相邻也合不成一次调用。
 - **关闭顺序**（BufferPool 计划 D6 的持有者责任）：先清掉世界上的 `MeshGeometry`，再把从自己的池里申请的 buffer 实体
   直接销毁，最后关池。
   - 直接销毁而不是等 `DeadTag`：关闭之后没有 tick 来回收。
-  - 找这些实体不用列表也不用标签：遍历 `Components::Buffer`，取 `GetPool()` 是自己的池的那些。
+  - 找这些实体不用列表也不用标签：遍历 `Components::Buffer`，问自己的池 `Contains` 的那些
+    （原来是取 buffer 的 `GetPool()` 来比，这个接口 2026-10-09 去掉了）。
   - `DrawItem` 里的 view 持的是裸指针，持有 buffer 引用的只有 `Components::Buffer` 与 view 缓存。
   - 排在 `RenderGraph::Shutdown` 之后，它会等 GPU 空闲。
 
@@ -493,8 +532,10 @@ O(N) 的循环、多一层引用（清单 → 实例 → 几何）。引擎里�
   - 现在（步骤 4，不分视图）：参数 buffer 是 N 条记录，N 是 `g_Instances` 的高水位（D6：不另外数每个列表有多少 draw）；
     count buffer 是一个 `uint`。
   - 步骤 5 分视图之后：参数 buffer 是"视图数 × N"条，第 k 个视图的段从 `k × N` 开始；count buffer 每个视图一个 `uint`。
-- **没有槽位的帧 buffer 不存在。** 高水位为 0 时 pass 什么都不声明、被渲染图跳过。读这些 buffer 的一方要处理这种帧
-  （步骤 4 的第三步）。
+- **列表每一帧都存在。** 高水位为 0 时容量取 1，照常清零、照常派发，count 是 0，间接调用画 0 条，
+  读它的一方没有特殊情况。原来的写法是高水位为 0 时 pass 什么都不声明、buffer 不存在；那样读的一方只能在声明时查
+  名字有没有被声明，而这取决于剔除 pass 排在它前面声明，渲染图本身并不要求声明顺序。
+  追加记录的那次派发至少一个线程：派发 0 个线程组会让 debug layer 每帧报警告，多出来的线程在 `id.x >= slotCount` 处退出。
 - **pass 跑在图形队列**（用户 2026-10-07 同意先这样）。它的输出马上被 Shadow 读，而 Shadow 是图形队列一帧里的第一件事，
   放到计算队列换不来并行，只多出一次提交和一次跨队列等待。
 
@@ -537,13 +578,16 @@ count buffer 每帧要清零：transient buffer 里是它那块内存上一次�
 （Vulkan 的 `vkCmdFillBuffer`，DX12 的 `ClearUnorderedAccessViewUint`），之后去掉 `isClearCount` 与 shader 里的分支。
 什么时候做没有定。
 
+清零与追加之间、追加与间接调用之间都靠屏障排先后。这些屏障在 2026-10-08 之前实际上没有发出去（后端的 bug，见"状态"），
+清零那一步因此形同虚设；修复之后才真正生效。
+
 风险：原子追加的顺序不保证跨帧稳定，完全共面重叠的两个表面在 GBuffer 里（深度 `Equal`，后写的赢）可能逐帧换人。
 这本来就是内容上的 z-fighting，但现在的 CPU 顺序是稳定的，所以要实测。实测有问题时的补救是保序的压缩
 （先写每个槽位可见与否，再做前缀和，最后按位置写），多两到三次派发。
 
 ### D9　渲染图的入口　✅ 已定
 
-新入口都挨着现有的同类放，pass 选场景物体的写法不变。
+新入口都挨着现有的同类放。场景物体的画法在 2026-10-09 改了：pass 自己声明间接绘制（见下面"场景 draw"一条）。
 
 - **访问角色**：`RenderScope` / `ComputeScope` 加 `IndirectArguments(name)`，对应
   `AttachmentUsage::Indirect` + `AccessFlags::IndirectRead` + `AttachmentStage::DrawIndirect`。RHI 侧都有，只缺入口。
@@ -559,22 +603,38 @@ count buffer 每帧要清零：transient buffer 里是它那块内存上一次�
   分配 transient 资源排在编译的最前面，所以此时后备一定已经就位。
 - **buffer 的 `.Bind`**（步骤 1 补的，原来只支持 image）：绑定之前要先用 `.View(...)` 给出元素大小与个数，buffer
   没有"整个资源"这样的默认 view。buffer 的 `.BindIndex` 没有做，目前没有需要它的地方。
-- **场景 draw 的声明不变**：仍是 `s.Accepts<OpaqueTag>()`，三个 pass 的代码不改。pass 不知道自己被 direct 还是
-  indirect 画。tag 确定读哪个列表（D7）：`Accepts<Tags>()` 在模板里顺带记下这些 tag 在 `m_drawMask` 里的位。
-  某个 tag 没有位，这次选择就只走 CPU 路径。
-- **没有运行时开关**（用户 2026-10-07 定；原来写的是 builder 按开关选路、两条路对照着验证）。有位的分类直接走 GPU 路径：
-  builder 替 Scope 加上参数 buffer 与 count buffer 的 `IndirectArguments` 访问，pass 不声明它们。
-  这部分还没有做（步骤 4 的第三步）；它调的会是 `s.IndirectArguments(name)` 底下的同一个函数。
-  能力不足的设备不会运行到这里（D3）。
-- **CPU 提交路径一直在，不随 GPU 路径做完而清理。** 走它的有：Scope 自己声明的 item
-  （全屏三角形、Skybox 这类 `NoInstanceBinding` 的 draw）；P5 的 Translucency（要排序）。
-  步骤 3 之后实体上持久的 `RHI::DrawItem` 的 view 指向的 `RHI::Buffer` 是池的原生 buffer 里的一段。
-  被 indirect 画的物体还生不生成自己的 `DrawItem`，第三步定。
-- **lowering**：`CompileScopeSubmitRanges` 对走 GPU 路径的列表，在每个视图句柄之后追加一个 per-frame 的
-  item 实体，带 indirect 的 `RHI::DrawItem`（VB / IB = 几何所在的原生 buffer + ID 流；参数 = 该视图的段）。
-  这一条里"渲染图自己造 `DrawItem`"已经改掉，批次的几何部分由几何一侧产出，见 §四 步骤 4"放置形式只有几何系统知道"；
-  其余的在步骤 4 的第三步定。
-  **executer 不改**：`SubmitItem` → `CommandList::Submit(DrawItem)` 已经是这个形状。
+- **场景 draw：pass 自己声明间接绘制**（2026-10-09 实现，用户提出）。三个 pass 里原来的 `s.Accepts<...>()` 换成
+  `s.DrawIndirect(argumentsName, countName)`，两个名字取自 `InstanceCullingPass`。它挨着 `s.Draw`，形状对着
+  `ComputeScope::DispatchIndirect`，做三件事：
+  - 找底层 buffer 与实例 ID buffer 的实体，任何一个还没有就什么都不声明。
+  - 就地填一个 `DrawItem`：整个底层 buffer 既是 VB（槽 0，步长取资产一侧的 `StandardVertex::Stride`）又是 IB（`UINT32`），
+    ID 流在槽 1。每条记录里的 `firstIndex` / `vertexOffset` / `firstInstance` 说这次绘制读哪一段、是哪个实例。
+  - 对两个名字各做一次 `IndirectArguments`，加成 Scope 自己的一个 item。
+- **item 是 Scope 自己的**，和全屏三角形同一类：每帧建、帧末丢，在每个视图下各提交一次。所以 `AppendScopeSubmissions`
+  与 executer 都没有改。Shadow 有 N 个视图就是 N 次调用读同一个列表，步骤 4 不剔除，本该如此。
+- **lowering 只多一件事**：`ItemIndirectArguments` 多记一次 count 的访问，`CompileItemIndirectArguments` 按 item 是
+  dispatch 还是 draw 分别填；draw 的 `maxCount` 取参数 buffer 装得下的记录数，不另外传高水位。
+- **没有运行时开关**（用户 2026-10-07 定）。能力不足的设备不会运行到这里（D3）。
+- **换掉的写法**（都在 2026-10-08 / 09，前两种实现过）：
+  - `Accepts<Tag>()` 在模板里按 tag 选路，有列表的 tag 走间接绘制。原来的理由"pass 不知道自己被 direct 还是 indirect 画"
+    是为运行时开关准备的，开关去掉后只剩下"藏起来"：要一个 tag → buffer 名字的 trait，`Accepts` 里多一个看不见的分支。
+    用户提出直接在 pass 里写，名字用 `DrawIndirect`（"让使用者一眼看懂"）。
+  - 批次的几何走 `GeometrySpec`：composer 拼一份带 `MeshBatchTag` 的 spec，`DrawItemRouter` 烘成 `DrawItem`，
+    `GeometrySpec` 的实例数据为此多一种只有 ID 流的情况。它复用了现成的就绪与回收，但批次不是"某个物体的几何"，
+    `m_drawArgs` 之类对它没有意义，烘出来的也只是模板。每帧就地组装没有持久状态，就绪是同一个判断，回收不需要。
+  - "放置形式只有几何系统知道"（2026-10-07 定）：渲染图不该知道底层 buffer、步长、索引格式。用户 2026-10-09 表示
+    不必守这一条，渲染图直接接触顶点 buffer 才是正常的。所以组装直接写在 `RenderScope::DrawIndirect` 里。
+- **方向（用户 2026-10-09）：`DrawItem` 的生成统一到"Scope 自己声明"这一种，原来那套单独的系统解析几何的做法慢慢去掉。**
+  - 理由：间接提交的 item 很少，可以像全屏三角形一样直接生成；它以后是主路径；pass 画了什么全写在它的 Build 里，
+    比 `Accepts` 路由直观。持久的 `DrawItem` 本质是一份手工维护失效的缓存，这次会话里的状态同步问题多出在它上面。
+  - 每帧重建的开销以后由渲染图统一的缓存来弥补，现在不为它预留任何东西。
+  - 需要退回逐物体提交时（P5 的半透明要排序）用 `Draw`，由 pass 自己引入顶点 buffer。池里划出来的每一段都能独立绑定来读，
+    到 2026-10-08 为止所有网格就是这么画的；边界见 `TODO_BufferPoolPlan.md` D9（同一队列里写完再读的数据不在这种用法里）。
+    也可以都绑同一个底层 buffer、只在 draw 参数里区分，`MeshGeometry` 上已经有起点。带几何的 `Draw` 入口到那时再加。
+  - **现状**：`Accepts` 与 lowering 里收集持久 `DrawItem` 的那段已经没有调用方；逐网格的 `GeometrySpec` / `DrawItem`、
+    `MeshGeometryComposer`、`DrawItemRouter`、`WorldComposedTag` 仍在生成和运行，没有消费者。什么时候删没有定
+    （用户："后面的慢慢来"），见 §六。
+  - **缺口**：Scope 自己的 item 不能按视图区分，而步骤 5 的按视图分段与半透明的按视图排序都需要。见 §六。
 
 ### D10　与 I5（多 PSO）的关系　已撤销，改为说明
 
@@ -762,31 +822,27 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
    2. **生成参数的 compute pass。** 已完成。`InstanceCullingPass` 注册两个 pass，每种分类一个列表（D7）；
       原子追加加 count buffer，清零用 shader 的另一种模式（D8）；高水位经 `InstanceSlotCount` 交给它（D6）。
       还没有人读这些 buffer。
-   3. **切换：绘制 pass 读这些列表。** 未开始，动手前先和用户对方案。大致要做的（没有对过）：`Accepts<Tag>()` 记下位并
-      对应到列表的两个 buffer；builder 替 Scope 加 `IndirectArguments` 访问；lowering 的 `CompileItemIndirectArguments`
-      从 dispatch 扩到 draw，并接上 count buffer；批次的 `GeometrySpec`（VB / IB 是底层 buffer 的实体，步长 48，`UINT32`）；
-      `GeometrySpec` 的实例数据多一种只有 ID 流的情况；没有槽位的帧 buffer 不存在。做完后用户看画面。
+   3. **切换：绘制 pass 读这些列表。** 已完成，画面用户已确认（2026-10-09）。
+      - `RenderScope::DrawIndirect(argumentsName, countName)`，DepthPre、GBuffer、Shadow 各换一行（D9）。
+      - lowering 给 draw item 填两个 buffer 与 `maxCount`（D9）。
+      - 列表每一帧都存在（D7）。
+      - 上传等待挪到几何系统；底层 buffer 的实体带 tag；偏移整除的断言（D4）。
+      - 过程中查出并修掉后端丢 transient buffer 屏障的 bug，加了设备移除时的面包屑日志，去掉了 `Resource::GetPool`（见"状态"）。
+      - 没有做的：逐网格的 `GeometrySpec` / `DrawItem` 仍在生成，`Accepts` 没有调用方了，都没有删（§六）。
 
 **第 3 小步原来的写法**（2026-10-07 换掉）：参数 buffer 先由 CPU 每帧上传（无 count buffer），加一个运行时开关，
 两条路对照着验证；GPU 生成留到步骤 5。用户提出直接由 GPU 生成、不剔除、不要开关：CPU 版本并不简单多少，
 还要多养一个开关和一条之后要删的路。`g_Geometries` 与压缩因此从步骤 5 提前到这里。
 
-**放置形式只有几何系统知道**（用户 2026-10-07 定，详见 `TODO_BufferPoolPlan.md` D7 的表）。它改掉 D9 里 lowering 的一句：
-原来写的是渲染图在 lowering 时自己造 indirect 的 `DrawItem`、"VB / IB = 几何所在的原生 buffer"，那样渲染图就得去找
-底层 buffer、知道步长与索引格式。改成：
-
-- 几何一侧产出批次的几何部分：一个 `GeometrySpec` 形状的描述，VB / IB 指向底层 buffer，带实例 ID 流，由 `DrawItemRouter`
-  照常烘成 `DrawItem`。
-- 几何系统也产出每个网格在批次里的参数（`firstIndex`、`indexCount`、`vertexOffset`），申请时算好存在 `MeshGeometry` 上，
-  经 `g_Geometries` 给 shader（已实现）。
-- 渲染图只做一件事：走 indirect 时提交批次的 item，并把这个视图的参数段接上去（步骤 1 的 `ItemIndirectArguments`）。
-
-第三步再定的两处：批次的实例数据和现有的不同（现有的是烘死一个起始实例，批次的起始实例在每条记录里），
-`GeometrySpec` 的实例数据要多一种情况；批次由谁产出。D9 的原文到那时一起改。
-原来列的第三处"要不要 draw 集合这个定义"已经定了：不要（D7）。
+**"放置形式只有几何系统知道"不再是约束**（2026-10-07 定，2026-10-09 用户放开）。当时的意思是渲染图不该去找底层 buffer、
+不该知道步长与索引格式，所以批次的几何由几何一侧产出一个 `GeometrySpec` 形状的描述。现在批次的 view 直接在
+`RenderScope::DrawIndirect` 里填（D9）。留下来的是另一半：每个网格在批次里的参数（`firstIndex`、`indexCount`、`vertexOffset`）
+仍由几何系统在申请时算好、存在 `MeshGeometry` 上、经 `g_Geometries` 给 shader。
+原来列的"要不要 draw 集合这个定义"也定了：不要（D7）。
 
 ### 5　compute 视锥剔除
 
+0. 先定 Scope 自己的 item 怎么按视图区分（§六）：现在一个 item 在每个视图下原样提交，而每个视图要读自己的段。
 1. `g_Geometries` 的每一行加局部 AABB（资产里每个 primitive 有，§二），HLSL 镜像同步。
 2. shader 里的视锥测试；每个（列表，视图）一个 Scope，输出按 D7 的视图一维分段，绘制 pass 的每个视图读自己的段。
 3. 更新路线图：帧结构里 `GPU Culling` 一行、I11 的状态。
@@ -796,6 +852,9 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 ## 五、验证
 
 按仓库的分工，画面由用户确认，我只保证能跑、测试通过、validation 无报错。
+
+**编辑器的自动运行要打开一个存好的场景并过了欢迎页才算数**（2026-10-08 的教训，经过见"状态"）。
+默认是停在欢迎页、场景为空，那样跑出来的"无报错"说明不了绘制。现在用的是 `project://Scenes/Car.scene`。
 
 - **步骤 0**：`IndirectDraw` 不带 count buffer 时 6 个方块都出现，带 count buffer（值为 3）时只出现上面一排；
   D3D12 debug layer 无报错。`firstInstance` 不为 0、不带索引的 indirect draw、indirect dispatch 这个示例不覆盖。
@@ -830,6 +889,14 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 
 - **几何的容量管理（D4）。** 现在是固定 256 MB，放不下的网格每帧重试并报错。要解决的是池的增长与回收，
   方向见 `TODO_BufferPoolPlan.md` §八，没有定。
+- **Scope 自己的 item 不能按视图区分（D9）。** 一个 item 在每个视图下原样提交。步骤 5 的按视图分段要它，以后半透明的
+  按视图排序也要它。大致两种做法：让 Build 能枚举视图并声明"属于某个视图的 item"，或者仍由 lowering 按视图展开。
+  前一种和"pass 自己声明"的方向一致。没有设计，步骤 5 开头定。
+- **逐网格的那套什么时候删（D9）。** `Accepts`、`ScopeSelections` 与 lowering 里对应的那段没有调用方了；
+  `MeshGeometryComposer`、`GeometrySpec`、`DrawItemRouter`、`WorldComposedTag` 还在每帧运行，产出没人读的 `DrawItem`。
+  方向是删，时间没有定。删之前它还有一个用处：画面有疑问时把某个 pass 的那一行换回 `Accepts` 就是旧路径。
+- **多 PSO（I5）在这个方向下的样子。** pass 的 Build 里对运行期的 bucket 列表循环，每个 bucket 声明一次 `DrawIndirect`；
+  item 或 Scope 要能带自己的 PSO。只是对过，没有设计，仍按 D10 不预留。
 - **buffer 的原生填充操作（D8）。** 已定要加，加了之后去掉 shader 的清零模式；什么时候做没有定。
 - **高水位怎么让 shader 直接读到（D6）。** 现在是单独实体上的 `InstanceSlotCount` 加 `.Constant`。
   放进 `InstanceBindings.hlsli` 被后端的一条断言挡着。
@@ -873,7 +940,7 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 | 1 | `RenderGraph/PassScopes.{h,cpp}`、`RenderGraphBuilder.{h,cpp}`、`RenderGraphCompiler.{h,cpp}`、`RenderGraph.cpp`、`RenderGraphExecuter.cpp`（注释）；`Pass/Component/ScopeComponents.h`（`ItemIndirectArguments`）；新建 `SandBox/Program/RenderGraph/IndirectDispatchFeature.{h,cpp}`、`SandBox/Asset/Shader/IndirectDispatch{Args,Pattern}.hlsl`，`SandBox/Program/CMakeLists.txt`；`Test/Render/RenderGraphResolveTest.cpp`、新建 `Test/Render/BufferAccessTest.cpp`，`Test/Render/CMakeLists.txt` |
 | 2 | `RHI/System/AsyncUploadSystem.{h,cpp}`；`RHI/HardwareQueue.h`（`IsExclusiveQueueMask`）；`RHI/Component/Component.h`（注释）；`Render/RenderGraph/RenderGraphCompiler.{h,cpp}`（静态 buffer 的等待、导入 buffer 的等待、逐 Scope 的 buffer 访问）；`Feature/Mesh/MeshSystem.cpp`（VB / IB 的掩码）；`SandBox/Program/RenderGraph/IndirectDispatchFeature.cpp`（`kArgsOnComputeQueue`） |
 | 3 | 新建 `Render/Geometry/MeshGeometry.h`、`MeshGeometrySystem.{h,cpp}`，`RHI/Context/UniqueRHIHandle.h`；`Render/CMakeLists.txt`；`Render/RenderSystem.{h,cpp}`（持有、更新顺序、关闭顺序）；`Feature/Mesh/Components.h`（删 `MeshGPUComponent`）、`MeshSystem.{h,cpp}`；`Render/Drawable/MeshGeometryComposer.cpp`；`Render/Binding/Instance/InstanceBindingSystem.{h,cpp}`；`Feature/Skybox/Components.h`（一处提到 `MeshGPUComponent` 的注释）。RHI、上传系统、渲染图、`DrawItemRouter` 不动 |
-| 4 | 新建 `Render/Drawable/DrawMask.{h,cpp}`；`Handle/HandlePool.h`（`IsHeld`）、`Binding/GlobalBuffer.h`（归还缺了源组件的槽位、每帧重置空洞、`UpdateMirror`）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`Geometry/MeshGeometry.h`（`MeshGeometryReadyTag`）、`MeshGeometrySystem.cpp`、`Drawable/MeshGeometryComposer.cpp`；`Test/Render/GlobalBufferTest.cpp`、`DrawMaskTest.cpp`（新建）、`SlotPoolTest.cpp`、`MeshGeometryTest.cpp`。第 3 小步的前两步：`Resource/Model/VertexLayout.h`（`StandardVertex`）、`ModelAssetLoader.cpp`、`ModelAssetCompiler.cpp`、`Resource/Cache/CacheFormat.cpp`，`Test/Resource/ModelAssetTests.cpp`、`CacheTests.cpp` 与两个测试资产；`Geometry/MeshGeometry.h`、`MeshGeometrySystem.{h,cpp}`（起点、底层 buffer 的实体、256 MB）；新建 `Binding/Geometry/GeometryData.h`、`GeometryBinding.h`、`GeometryBindingSystem.{h,cpp}`，`Shaders/GeometryData.hlsli`、`GeometryBindings.hlsli`、`GeometryBindingsReflect.hlsl`、`IndirectCommands.hlsli`；`InstanceData.h` 与 `InstanceData.hlsli`（`m_geometryIndex`）、`InstanceBinding.h`（`InstanceSlotCount`）、`InstanceBindingSystem.{h,cpp}`；新建 `Render/Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`；`RenderSystem.{h,cpp}`、`Render/CMakeLists.txt`。还没做的第三步：`PassScopes.h`（`Accepts<Tags>()` 记下 mask 位）、`RenderGraphBuilder.{h,cpp}`、`RenderGraphCompiler.cpp`（lowering）、`Drawable/` 下批次的 `GeometrySpec`。三个 pass 的文件不动 |
+| 4 | 新建 `Render/Drawable/DrawMask.{h,cpp}`；`Handle/HandlePool.h`（`IsHeld`）、`Binding/GlobalBuffer.h`（归还缺了源组件的槽位、每帧重置空洞、`UpdateMirror`）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`Geometry/MeshGeometry.h`（`MeshGeometryReadyTag`）、`MeshGeometrySystem.cpp`、`Drawable/MeshGeometryComposer.cpp`；`Test/Render/GlobalBufferTest.cpp`、`DrawMaskTest.cpp`（新建）、`SlotPoolTest.cpp`、`MeshGeometryTest.cpp`。第 3 小步的前两步：`Resource/Model/VertexLayout.h`（`StandardVertex`）、`ModelAssetLoader.cpp`、`ModelAssetCompiler.cpp`、`Resource/Cache/CacheFormat.cpp`，`Test/Resource/ModelAssetTests.cpp`、`CacheTests.cpp` 与两个测试资产；`Geometry/MeshGeometry.h`、`MeshGeometrySystem.{h,cpp}`（起点、底层 buffer 的实体、256 MB）；新建 `Binding/Geometry/GeometryData.h`、`GeometryBinding.h`、`GeometryBindingSystem.{h,cpp}`，`Shaders/GeometryData.hlsli`、`GeometryBindings.hlsli`、`GeometryBindingsReflect.hlsl`、`IndirectCommands.hlsli`；`InstanceData.h` 与 `InstanceData.hlsli`（`m_geometryIndex`）、`InstanceBinding.h`（`InstanceSlotCount`）、`InstanceBindingSystem.{h,cpp}`；新建 `Render/Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`；`RenderSystem.{h,cpp}`、`Render/CMakeLists.txt`。第三步：`RenderGraph/PassScopes.{h,cpp}`（`RenderScope::DrawIndirect`）、`RenderGraphBuilder.{h,cpp}`（`AddScopeDrawIndirect`）、`RenderGraphCompiler.{h,cpp}`（lowering）、`Pass/Component/ScopeComponents.h`（count 的访问）；`Feature/DepthPre/DepthPrePass.cpp`、`Feature/GBuffer/GBufferPass.cpp`、`Feature/Shadow/ShadowPass.cpp` 各一行；`InstanceCullingPass.{h,cpp}`（列表一直存在）；`Geometry/MeshGeometry.h`（底层 buffer 的 tag）、`MeshGeometrySystem.cpp`（上传等待、断言）、`Drawable/MeshGeometryComposer.cpp`（去掉上传等待的注册）。同时改的 RHI：DX12 `Command/CommandList.cpp`（transient buffer 的屏障）、`Device/Device.cpp`（设备移除时的面包屑）；`RHI/Resource/Resource.{h,cpp}`、`ResourcePool.{h,cpp}`、`Transient/TransientResourcePool.cpp`、`System/RHIResourceSystem.cpp`（`GetPool` 换成 `Contains`） |
 | 5 | `InstanceCullingPass.cpp`、`InstanceCulling.hlsl`（视锥测试、按视图分段）；`GeometryData.h` 与 `GeometryData.hlsli`（局部 AABB）、`GeometryBindingSystem.cpp`；`TODO_RenderPipelineRoadmap.md` |
 
 ---

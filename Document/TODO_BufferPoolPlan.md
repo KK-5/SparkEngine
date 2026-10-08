@@ -318,6 +318,25 @@ indirect 调用时要两样东西：
 没有新增的报错。改成虚函数、由后端持有之后同样的检查又跑了一遍，结果相同；`DrawCube` 与 `IndirectDispatch` 各跑一遍无报错。
 没有跑过的：真的把底层 buffer 绑成 VB / IB 画（步骤 4 后面的小步）；对底层 buffer 发屏障（D9 的第二种用法，没有使用者）。
 
+**2026-10-09 补记**
+
+- 底层 buffer 现在真的被绑成 VB 与 IB 了：`RenderScope::DrawIndirect` 把它整个绑上，各段照旧带着自己的屏障状态，
+  copy 队列同时往别的段上传。打开 `Car.scene` 跑过，画面用户已确认（`TODO_GPUDrivenPlan.md` 步骤 4）。
+- **资源不再给出它的池。** `Resource::GetPool` 去掉了，换成 `ResourcePool::Contains(resource)`。起因是 DX12 后端的一个 bug：
+  发屏障时把 buffer 的池强转成 `BufferPool` 去读堆类型，而 transient buffer 的池是 `TransientResourcePool`，
+  读错了字段，结果 transient buffer 的屏障全被丢掉（经过见 `TODO_GPUDrivenPlan.md`"状态"）。
+  - 外面对"资源的池"的需求只有归属判断；拿得到基类指针，就拦不住向下转型。要用池的人自己持有池。
+    和上面"绑定要的是池的底层 buffer，和具体哪一段无关"是同一个意思。
+  - 堆类型这类属性属于资源和它的内存，不属于池：后端现在直接问原生资源（`GetHeapProperties`）。
+- **上传堆与回读堆的 buffer 不发屏障，是 DX12 的规则，不是通用的**（2026-10-08 查规范）：
+  - DX12 旧的状态模型里是硬性规定：上传堆的资源必须是 `GENERIC_READ`、回读堆的必须是 `COPY_DEST`，都不能改。
+    Enhanced Barriers 下，上传堆的 buffer 只允许读类型的访问；回读堆的只允许拷贝与 resolve 的目标，
+    规范提到它可能需要屏障来处理连续两次写。引擎没有往同一个回读 buffer 连续拷贝的用法。
+    最后这一句读的是规范页面的摘要，没有逐字核对。
+  - Vulkan 没有这两种堆。内存是否 CPU 可见只是内存的属性，屏障看的是 GPU 上的两次访问：CPU 写、之后提交的命令读，
+    不需要屏障；GPU 写、CPU 读回，要一条目标是 `HOST` 阶段的屏障再等 fence；GPU 写 GPU 读，和普通 buffer 一样。
+  - 所以这个提前返回留在 DX12 后端里，不上升成 RHI 的规则。
+
 ### D8　池这一版不多暴露任何东西；统计查询有了使用者再加　✅ 已定
 
 - **统计查询先不做**（用户 2026-10-06 定，改掉了这一条原来"暴露统计"的写法）：现在没有使用者。
