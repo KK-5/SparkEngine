@@ -92,6 +92,27 @@ if (BUILD_RHI_BRDFLUTGEN)
     )
 endif()
 
+option(BUILD_LTCLUTGEN "Build LTCLutGen" ON)
+
+if (BUILD_LTCLUTGEN)
+    set(TARGET_NAME LTCLutGen)
+
+    # Import tool — run by hand, writes Engine/Asset/Image/LTC1.ktx2 and LTC2.ktx2.
+    add_executable(${TARGET_NAME} RHI/LTCLutGen.cpp)
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        SparkCore
+        SparkAssetManager
+        ktx
+    )
+endif()
+
 option(BUILD_RHI_DRAWSHAPE "Build RHI DrawShape" ON)
 
 if (BUILD_RHI_DRAWSHAPE)

@@ -15,6 +15,7 @@ namespace Spark::Light
         Directional = 0,
         Point       = 1,
         Spot        = 2,
+        Rect        = 3,
     };
 
     //! Side of the texel footprint the shadow filter covers. An enum and not a float for two
@@ -45,6 +46,12 @@ namespace Spark::Light
         float         m_range     = 10.0f;    // point/spot falloff radius (world units)
         float         m_innerConeDeg = 20.0f; // spot inner cone half-angle
         float         m_outerConeDeg = 30.0f; // spot outer cone half-angle
+
+        //! RECT ONLY, world units before the Transform's scale: the emitter's size is these
+        //! times the scale of the entity's x / y axes, and m_intensity is spread over that
+        //! area, so resizing by either route changes the shape but not the total output.
+        float         m_width  = 1.0f;
+        float         m_height = 1.0f;
 
         bool          m_castShadow = true;
         //! m_shadowBias is in NDC depth (0..1 across the light's own near..far), so the same
@@ -81,10 +88,16 @@ namespace Spark::Light
         Math::Vector3 m_worldDirection  {0.0f, -1.0f, 0.0f}; // direction the light shines (world)
         Math::Vector3 m_worldPosition   {0.0f, 0.0f, 0.0f};  // point/spot origin (world)
         Math::Vector3 m_color           {1.0f, 1.0f, 1.0f};
-        float         m_intensity = 1.0f;
+        float         m_intensity = 1.0f;   // rect: radiance, i.e. authored intensity / area
         float         m_range     = 10.0f;
         float         m_cosInner  = 1.0f;   // cos(inner cone), spot
         float         m_cosOuter  = 1.0f;   // cos(outer cone), spot
+
+        //! Rect only. Unit, perpendicular to m_worldDirection; the up axis is their cross
+        //! product and is not carried, so a mirrored transform cannot flip the winding.
+        Math::Vector3 m_worldRight      {1.0f, 0.0f, 0.0f};
+        float         m_halfWidth  = 0.5f;  // world units, scale already applied
+        float         m_halfHeight = 0.5f;
 
         bool          m_castShadow = true;
         float         m_shadowBias = 0.0005f;

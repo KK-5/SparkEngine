@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include <EASTL/algorithm.h>
+
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 #include <Service/Service.h>
@@ -28,9 +30,34 @@ namespace Spark::Light
             return Math::Vector3(world[3]);
         }
 
+        //! A rect's radiance is its intensity over its area, and the polygon integral loses
+        //! precision on a sliver, so neither side is allowed to reach zero.
+        constexpr float kRectMinSize = 0.01f;
+
+        //! The x axis with whatever leans along forward taken out: a parent's non-uniform
+        //! scale can shear the two, and the GPU record has no room for a parallelogram.
+        Math::Vector3 ExtractRight(const Math::Matrix4X4& world, const Math::Vector3& forward)
+        {
+            const Math::Vector3 x = Math::Vector3(world[0]);
+            Math::Vector3 right   = x - forward * Math::Dot(x, forward);
+            if (Math::Dot(right, right) < 1e-12f)
+            {
+                const Math::Vector3 up = (Math::Abs(forward.y) > 0.99f)
+                    ? Math::Vector3(0.0f, 0.0f, 1.0f)
+                    : Math::Vector3(0.0f, 1.0f, 0.0f);
+                right = Math::Cross(up, forward);
+            }
+            return Math::Normalize(right);
+        }
+
+        float RectHalfExtent(float authored, const Math::Vector4& axis)
+        {
+            return 0.5f * eastl::max(authored * Math::Length(Math::Vector3(axis)), kRectMinSize);
+        }
+
         Math::Sphere ResolveBounds(const LightRenderData& rd)
         {
-            if (rd.m_type == LightType::Point)
+            if (rd.m_type == LightType::Point || rd.m_type == LightType::Rect)
             {
                 return Math::Sphere{ rd.m_worldPosition, rd.m_range };
             }
@@ -71,6 +98,14 @@ namespace Spark::Light
             rd.m_worldPosition  = ExtractPosition(xform.m_worldMatrix);
             rd.m_cosInner       = Math::Cos(Math::Radians(lc.m_innerConeDeg));
             rd.m_cosOuter       = Math::Cos(Math::Radians(lc.m_outerConeDeg));
+
+            if (rd.m_type == LightType::Rect)
+            {
+                rd.m_worldRight = ExtractRight(xform.m_worldMatrix, rd.m_worldDirection);
+                rd.m_halfWidth  = RectHalfExtent(lc.m_width,  xform.m_worldMatrix[0]);
+                rd.m_halfHeight = RectHalfExtent(lc.m_height, xform.m_worldMatrix[1]);
+                rd.m_intensity  = lc.m_intensity / (4.0f * rd.m_halfWidth * rd.m_halfHeight);
+            }
 
             rd.m_castShadow         = lc.m_castShadow;
             rd.m_shadowBias         = lc.m_shadowBias;

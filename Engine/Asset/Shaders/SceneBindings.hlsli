@@ -29,6 +29,14 @@ TextureCube  g_PrefilteredCube : register(t2, space0);
 // but it shares this group because it is bound once and read by every shading path.
 Texture2D    g_BRDFLut         : register(t3, space0);
 
+// Linearly Transformed Cosines tables for rect lights, imported by SandBox LTCLutGen.
+// uv = (perceptualRoughness, sqrt(1 - NoV)); g_LTC1 is the inverse matrix, g_LTC2.xy the
+// amplitude and its Fresnel part. Not part of the environment: gated on HasAreaLightLut,
+// never on HasEnvironmentIBL.
+Texture2D    g_LTC1            : register(t5, space0);
+Texture2D    g_LTC2            : register(t6, space0);
+
+// Linear clamp. Named for its first user; every table in this group is read through it.
 SamplerState g_IBLSampler      : register(s0, space0);
 
 cbuffer SceneConstants : register(b0, space0)
@@ -46,6 +54,8 @@ cbuffer SceneConstants : register(b0, space0)
     float g_SceneGameTime;            // seconds; stops under pause, stretches under time scale
     float g_ScenePrevGameTime;
     float g_SceneDeltaTime;           // game time step
+
+    uint  g_AreaLightLutReady;        // 0 == g_LTC1 / g_LTC2 unbound; see HasAreaLightLut
 };
 
 LightData GetLight(uint i)
@@ -66,6 +76,13 @@ bool HasEnvironmentIBL()
     return g_IBLPrefilteredMipCount > 0;
 }
 
+//! The same rule for g_LTC1 / g_LTC2, on a gate of their own: a scene with no skybox still
+//! has rect lights.
+bool HasAreaLightLut()
+{
+    return g_AreaLightLutReady != 0;
+}
+
 //! WORKAROUND, not shading. A pass's space0 table offsets come from its OWN reflection,
 //! while the group writes its descriptors in the GROUP's order, so a shader referencing only
 //! part of space0 shifts every slot past the gap -- g_IrradianceCube starts reading g_Lights.
@@ -80,6 +97,11 @@ float SpaceZeroKeepAlive()
         keep += g_IrradianceCube.SampleLevel(g_IBLSampler, float3(0, 1, 0), 0).r
               + g_PrefilteredCube.SampleLevel(g_IBLSampler, float3(0, 1, 0), 0).r
               + g_BRDFLut.SampleLevel(g_IBLSampler, float2(1, 0), 0).r;
+    }
+    if (HasAreaLightLut())
+    {
+        keep += g_LTC1.SampleLevel(g_IBLSampler, float2(0, 0), 0).r
+              + g_LTC2.SampleLevel(g_IBLSampler, float2(0, 0), 0).r;
     }
     return keep * 1e-30;
 }

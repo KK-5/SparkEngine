@@ -17,9 +17,9 @@ namespace Spark::Render
     struct LightData
     {
         Math::Vector3 m_direction;             // dir/spot: direction the light shines (world)
-        float         m_intensity = 0.0f;
+        float         m_intensity = 0.0f;      // rect: radiance (LightSystem divided by the area)
         Math::Vector3 m_color;                 // rgb radiance tint
-        uint32_t      m_type      = 0;         // Light::LightType (0=dir, 1=point, 2=spot)
+        uint32_t      m_type      = 0;         // Light::LightType (0=dir, 1=point, 2=spot, 3=rect)
         Math::Vector3 m_position;              // point/spot: world origin
         float         m_invRange  = 0.0f;      // 1/range for attenuation (0 = directional)
         float         m_cosInner  = 1.0f;      // spot cone
@@ -31,17 +31,23 @@ namespace Spark::Render
         //! row, which reads as unshadowed.
         uint32_t      m_shadowFaceCount = 1;
 
+        //! Rect: unit right axis. Up is cross(m_direction, m_right) in the shader.
+        Math::Vector3 m_right;
+
         //! ShadowMask slot, granted per frame by ShadowMaskSystem; -1 = sample no mask.
         //! A different index space from m_shadowIndex: that one addresses an atlas row, this
         //! one is dense across the lights that were granted a mask.
         int32_t       m_shadowMaskIndex = -1;
 
+        float         m_halfWidth  = 0.0f;     // rect, world units
+        float         m_halfHeight = 0.0f;
+
         //! To the next 16B boundary, and where the next field goes.
-        uint32_t      m_padding[3] = {};
+        uint32_t      m_padding[2] = {};
     };
 
-    // 80B. StructuredBuffer elements are tightly C-packed, so sizeof must match the HLSL
-    // struct in SceneBindings.hlsli; add padding deliberately when introducing new fields.
-    static_assert(sizeof(LightData) == 80,
-        "LightData must stay 80 bytes to match SceneBindings.hlsli.");
+    // 96B. StructuredBuffer elements are tightly C-packed, so sizeof must match the HLSL
+    // struct in LightData.hlsli; add padding deliberately when introducing new fields.
+    static_assert(sizeof(LightData) == 96,
+        "LightData must stay 96 bytes to match LightData.hlsli.");
 }

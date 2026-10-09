@@ -32,6 +32,10 @@ float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
     float  timeScalar = (float)g_SceneFrameNumber + g_SceneGameTime
                       + g_ScenePrevGameTime + g_SceneDeltaTime;
 
+    float  ltcScalar = g_LTC1.SampleLevel(g_IBLSampler, float2(0.0, 0.0), 0).x
+                     + g_LTC2.SampleLevel(g_IBLSampler, float2(0.0, 0.0), 0).x
+                     + (float)g_AreaLightLutReady;
+
     return float4(l.direction + l.color + l.position + env,
-                  l.intensity + w + envScalar + shadowScalar + timeScalar) * 1e-6;
+                  l.intensity + w + envScalar + shadowScalar + timeScalar + ltcScalar) * 1e-6;
 }

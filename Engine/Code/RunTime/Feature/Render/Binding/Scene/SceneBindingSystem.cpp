@@ -60,9 +60,33 @@ namespace Spark::Render
         constexpr const char* GameTimeName         = "g_SceneGameTime";
         constexpr const char* PrevGameTimeName     = "g_ScenePrevGameTime";
         constexpr const char* DeltaTimeName        = "g_SceneDeltaTime";
+        constexpr const char* LTC1Name             = "g_LTC1";
+        constexpr const char* LTC2Name             = "g_LTC2";
+        constexpr const char* AreaLightLutReadyName = "g_AreaLightLutReady";
 
         //! Baked offline by SandBox BRDFLutGen and checked in; see BRDFLutBake.hlsl.
         constexpr const char* BRDFLutAssetPath     = "engine://Image/BRDFLut.ktx2";
+
+        //! Imported by SandBox LTCLutGen and checked in.
+        constexpr const char* LTC1AssetPath        = "engine://Image/LTC1.ktx2";
+        constexpr const char* LTC2AssetPath        = "engine://Image/LTC2.ktx2";
+
+        //! Register the upload->shader-read attachment at the SAMPLE POINT, like material
+        //! textures do. The static-barrier compiler keys on ImagePassAttachment, not on
+        //! StaticImportTag, so without this these images get neither the state transition
+        //! nor the wait on the upload fence: they stay in CopyWrite on the copy queue and
+        //! only read correctly because DX12 decays copy-queue resources to COMMON and
+        //! re-promotes them on first shader read. Vulkan has neither behaviour.
+        void RegisterStaticShaderRead(RHI::RHIContext& rhiCtx, RHI::RHIHandle handle)
+        {
+            if (!rhiCtx.Has<ImagePassAttachment>(handle))
+            {
+                CreateStaticImageAttachment(rhiCtx, handle,
+                    RHI::AttachmentAccess::Read,
+                    RHI::AttachmentUsage::Shader,
+                    RHI::AttachmentStage::FragmentShader);
+            }
+        }
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -120,7 +144,8 @@ namespace Spark::Render
 
         // A constant dropped by DXC logs every frame, but a dropped image stays silent —
         // images are only bound when something needs them. Catch it once, here.
-        for (const char* name : {IrradianceCubeName, PrefilteredCubeName, BRDFLutName})
+        for (const char* name : {IrradianceCubeName, PrefilteredCubeName, BRDFLutName,
+                                 LTC1Name, LTC2Name})
         {
             if (!sceneBindings->FindImageInput(RHI::InputName(name)))
             {
@@ -135,7 +160,7 @@ namespace Spark::Render
         }
         // Marks the group live: every early return above is silent, and downstream just
         // no-ops on a null binding handle.
-        LOG_INFO("[SceneBindingSystem] space0 layout reflected (lights + environment IBL).");
+        LOG_INFO("[SceneBindingSystem] space0 layout reflected (lights + environment IBL + LTC).");
 
         // Both arrays land in the space0 group created above, so they share m_bindings and
         // differ only by input name and capacity. Materialized on the next frame begin
@@ -157,31 +182,34 @@ namespace Spark::Render
             m_shadowViews.Init(rhiCtx, shadowDesc);
         }
 
-        CreateBRDFLut(rhiCtx);
+        // Without the first, IBL falls back to constant ambient; without the other two, rect
+        // lights contribute nothing.
+        m_brdfLut = CreateLut(rhiCtx, BRDFLutAssetPath, "BRDFLut");
+        m_ltc1    = CreateLut(rhiCtx, LTC1AssetPath, "LTC1");
+        m_ltc2    = CreateLut(rhiCtx, LTC2AssetPath, "LTC2");
     }
 
-    void SceneBindingSystem::CreateBRDFLut(RHI::RHIContext& rhiCtx)
+    RHI::RHIHandle SceneBindingSystem::CreateLut(
+        RHI::RHIContext& rhiCtx, const char* assetPath, const char* name)
     {
         auto* assetManager = Service<Resource::AssetManager>::Get();
-        const Resource::AssetId id = assetManager->MakeAssetId(BRDFLutAssetPath);
+        const Resource::AssetId id = assetManager->MakeAssetId(assetPath);
         if (!id.IsValid())
         {
-            LOG_ERROR("[SceneBindingSystem] '{}' could not be resolved; IBL will fall "
-                      "back to constant ambient. Regenerate it with the BRDFLutGen tool.",
-                      BRDFLutAssetPath);
-            return;
+            LOG_ERROR("[SceneBindingSystem] '{}' could not be resolved. Regenerate it with "
+                      "the tool that writes it (SandBox BRDFLutGen / LTCLutGen).", assetPath);
+            return RHI::NullHandle;
         }
 
         // A .ktx2 is loaded already compiled, so this is a plain deserialize -- no mip
-        // generation, no BCn, and the RG16F format comes from the file rather than the
-        // descriptor.
+        // generation, no BCn, and the format comes from the file rather than the descriptor.
         Ptr<Resource::ImageAsset> lut = assetManager->LoadAsset<Resource::ImageAsset>(id);
         const Resource::ImageAssetData* data = lut ? lut->GetImageData() : nullptr;
         if (!lut || lut->GetStatus() != Resource::AssetStatus::Ready || !data
             || data->GetTextureBytes().empty())
         {
-            LOG_ERROR("[SceneBindingSystem] Failed to load the BRDF LUT '{}'.", BRDFLutAssetPath);
-            return;
+            LOG_ERROR("[SceneBindingSystem] Failed to load the table '{}'.", assetPath);
+            return RHI::NullHandle;
         }
 
         RHI::ImageDescriptor desc = RHI::ImageDescriptor::Create2D(
@@ -192,13 +220,14 @@ namespace Spark::Render
 
         // StaticImportTag: sampled every frame, never an attachment, so the compiler emits
         // its one-time CopyDst->ShaderRead barrier -- same treatment as the IBL cubes.
-        m_brdfLut = RHI::CreateStaticImage(
-            rhiCtx, ObjectName("BRDFLut"), desc,
+        const RHI::RHIHandle handle = RHI::CreateStaticImage(
+            rhiCtx, ObjectName(name), desc,
             RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
 
         RHI::RequestImageUpload(
-            rhiCtx, m_brdfLut, data->GetTextureBytes().data(), data->GetTextureBytes().size(),
+            rhiCtx, handle, data->GetTextureBytes().data(), data->GetTextureBytes().size(),
             RHI::ImageSubresourceRange(desc), RHI::Origin(), lut->GetFormat());
+        return handle;
     }
 
     void SceneBindingSystem::PackShadowViews(RHI::RHIContext& rhiCtx)
@@ -261,6 +290,9 @@ namespace Spark::Render
             d.m_invRange   = rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f;
             d.m_cosInner   = rd.m_cosInner;
             d.m_cosOuter   = rd.m_cosOuter;
+            d.m_right      = rd.m_worldRight;
+            d.m_halfWidth  = rd.m_halfWidth;
+            d.m_halfHeight = rd.m_halfHeight;
 
             // Read from the light, not from the view entity: g_Lights is packed by
             // iteration order while the row is not, so this is the one place the two
@@ -353,25 +385,9 @@ namespace Spark::Render
             return result;
         }
 
-        // Register the upload->shader-read attachment at the SAMPLE POINT, like material
-        // textures do. The static-barrier compiler keys on ImagePassAttachment, not on
-        // StaticImportTag, so without this these images get neither the state transition
-        // nor the wait on the upload fence: they stay in CopyWrite on the copy queue and
-        // only read correctly because DX12 decays copy-queue resources to COMMON and
-        // re-promotes them on first shader read. Vulkan has neither behaviour.
-        auto RegisterStaticShaderRead = [&](RHI::RHIHandle handle)
-        {
-            if (!rhiCtx->Has<ImagePassAttachment>(handle))
-            {
-                CreateStaticImageAttachment(*rhiCtx, handle,
-                    RHI::AttachmentAccess::Read,
-                    RHI::AttachmentUsage::Shader,
-                    RHI::AttachmentStage::FragmentShader);
-            }
-        };
-        RegisterStaticShaderRead(gpu->m_irradiance);
-        RegisterStaticShaderRead(gpu->m_prefiltered);
-        RegisterStaticShaderRead(m_brdfLut);
+        RegisterStaticShaderRead(*rhiCtx, gpu->m_irradiance);
+        RegisterStaticShaderRead(*rhiCtx, gpu->m_prefiltered);
+        RegisterStaticShaderRead(*rhiCtx, m_brdfLut);
 
         const RHI::ImageViewDescriptor cubeView = RHI::ImageViewDescriptor::CreateCubemap();
         RHI::ImageView* irradianceView = RHI::GetOrCreateImageView(
@@ -385,9 +401,6 @@ namespace Spark::Render
             return result;
         }
 
-        SetShaderSampler(m_bindings, RHI::InputName(IBLSamplerName),
-            RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear,
-                                      RHI::AddressMode::Clamp));
         SetShaderImage(m_bindings, RHI::InputName(IrradianceCubeName), irradianceView);
         SetShaderImage(m_bindings, RHI::InputName(PrefilteredCubeName), prefilteredView);
         SetShaderImage(m_bindings, RHI::InputName(BRDFLutName), brdfLutView);
@@ -397,6 +410,38 @@ namespace Spark::Render
         result.m_prefilteredMipCount =
             prefilteredImage->m_image->GetDescriptor().m_mipLevels;
         return result;
+    }
+
+    bool SceneBindingSystem::BindAreaLightLuts(RHI::RHIContext& rhiCtx)
+    {
+        // Both or neither, for the reason BindEnvironmentIBL gives.
+        if (!IsResourceReady(rhiCtx, m_ltc1) || !IsResourceReady(rhiCtx, m_ltc2))
+        {
+            return false;
+        }
+
+        auto* ltc1Image = rhiCtx.TryGet<RHI::Components::Image>(m_ltc1);
+        auto* ltc2Image = rhiCtx.TryGet<RHI::Components::Image>(m_ltc2);
+        if (!ltc1Image || !ltc2Image)
+        {
+            return false;
+        }
+
+        RegisterStaticShaderRead(rhiCtx, m_ltc1);
+        RegisterStaticShaderRead(rhiCtx, m_ltc2);
+
+        RHI::ImageView* ltc1View = RHI::GetOrCreateImageView(
+            rhiCtx, m_ltc1, *ltc1Image->m_image, RHI::ImageViewDescriptor{});
+        RHI::ImageView* ltc2View = RHI::GetOrCreateImageView(
+            rhiCtx, m_ltc2, *ltc2Image->m_image, RHI::ImageViewDescriptor{});
+        if (!ltc1View || !ltc2View)
+        {
+            return false;
+        }
+
+        SetShaderImage(m_bindings, RHI::InputName(LTC1Name), ltc1View);
+        SetShaderImage(m_bindings, RHI::InputName(LTC2Name), ltc2View);
+        return true;
     }
 
     void SceneBindingSystem::Update(uint32_t frameIndex, const FrameTime& time)
@@ -450,6 +495,15 @@ namespace Spark::Render
         SetShaderConstant(m_bindings, RHI::InputName(PrefilteredMipsName), env.m_prefilteredMipCount);
         SetShaderConstant(m_bindings, RHI::InputName(EnvIntensityName), env.m_intensity);
 
+        // Not inside either gate: the cubes and the LTC tables are read through it, and
+        // each can be bound without the other.
+        SetShaderSampler(m_bindings, RHI::InputName(IBLSamplerName),
+            RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear,
+                                      RHI::AddressMode::Clamp));
+
+        const uint32_t areaLightLutReady = BindAreaLightLuts(*rhiCtx) ? 1u : 0u;
+        SetShaderConstant(m_bindings, RHI::InputName(AreaLightLutReadyName), areaLightLutReady);
+
         // Doubles on the CPU so they stay exact across a long session; the shader only ever
         // needs the low bits, so the narrowing is deliberate.
         SetShaderConstant(m_bindings, RHI::InputName(FrameNumberName),
@@ -468,8 +522,12 @@ namespace Spark::Render
 
         if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
         if (m_brdfLut  != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_brdfLut); }
+        if (m_ltc1     != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_ltc1); }
+        if (m_ltc2     != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_ltc2); }
 
         m_bindings = RHI::NullHandle;
         m_brdfLut  = RHI::NullHandle;
+        m_ltc1     = RHI::NullHandle;
+        m_ltc2     = RHI::NullHandle;
     }
 }

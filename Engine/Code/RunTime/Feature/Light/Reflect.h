@@ -17,7 +17,8 @@ namespace Spark::Light
             .Type("LightType")
             .Data<LightType::Directional>("Directional")
             .Data<LightType::Point>("Point")
-            .Data<LightType::Spot>("Spot");
+            .Data<LightType::Spot>("Spot")
+            .Data<LightType::Rect>("Rect");
 
         context.Reflect<ShadowFilterWidth>()
             .Type("ShadowFilterWidth")
@@ -38,6 +39,10 @@ namespace Spark::Light
             .Data<&LightComponent::m_innerConeDeg>("Inner Cone Degrees").Custom<Spark::FloatElement>(0.f, 89.f, 0.5f)
                 .Traits(MetaFieldTraits::Serializable)
             .Data<&LightComponent::m_outerConeDeg>("Outer Cone Degrees").Custom<Spark::FloatElement>(0.f, 90.f, 0.5f)
+                .Traits(MetaFieldTraits::Serializable)
+            .Data<&LightComponent::m_width>("Width").Custom<Spark::FloatElement>(0.01f, 100.f, 0.01f)
+                .Traits(MetaFieldTraits::Serializable)
+            .Data<&LightComponent::m_height>("Height").Custom<Spark::FloatElement>(0.01f, 100.f, 0.01f)
                 .Traits(MetaFieldTraits::Serializable)
             .Data<&LightComponent::m_castShadow>("Cast Shadow").Custom<Spark::BoolElement>()
                 .Traits(MetaFieldTraits::Serializable)

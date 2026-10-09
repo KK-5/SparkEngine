@@ -77,7 +77,13 @@ namespace Spark::Render
         {
             // A spot wider than 90 degrees wants faces too — see TODO §八. It stays on its
             // own single view until the point light path is proven.
-            return rd.m_type == Light::LightType::Point ? kShadowCubeFaceCount : 1;
+            //
+            // A rect shines into a whole hemisphere, which no single view covers, so it
+            // borrows the point light's cube and is shadowed as a point at its centre —
+            // right in the umbra, wrong in the penumbra (TODO_AreaLightPlan.md §五).
+            const bool cube = rd.m_type == Light::LightType::Point
+                           || rd.m_type == Light::LightType::Rect;
+            return cube ? kShadowCubeFaceCount : 1;
         }
 
         //! The five points bounding a 90 degree face: the light, and the far cap's corners.
@@ -94,6 +100,24 @@ namespace Spark::Render
             out[2] = origin + (axis + right - up) * range;
             out[3] = origin + (axis - right + up) * range;
             out[4] = origin + (axis - right - up) * range;
+        }
+
+        //! Whether a face looks only at what lies behind a rect's emitting plane, where it
+        //! lights nothing. The apex sits on the plane, so the four far corners decide it.
+        bool FaceBehindEmitter(const Light::LightRenderData& rd, const Math::Vector3 (&hull)[5])
+        {
+            if (rd.m_type != Light::LightType::Rect)
+            {
+                return false;
+            }
+            for (uint32_t corner = 1; corner < 5; ++corner)
+            {
+                if (Math::Dot(hull[corner] - rd.m_worldPosition, rd.m_worldDirection) > 0.0f)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         //! A light must clear kScoreEnter to take a tile but only kScoreExit to keep one, so
@@ -511,30 +535,28 @@ namespace Spark::Render
             }
 
             // Which faces are worth a tile. A light with one view has no face to reject, and
-            // with no main view nothing is rejected at all — the same direction 6a errs in.
+            // with no main view the frustum rejects nothing — the same direction 6a errs in.
             uint32_t       faceMask  = 1u;
             const uint32_t faceCount = ShadowFaceCount(rd);
-            if (faceCount > 1 && main.m_valid)
+            if (faceCount > 1)
             {
                 faceMask = 0;
                 for (uint32_t face = 0; face < faceCount; ++face)
                 {
                     Math::Vector3 hull[5];
                     FaceHull(rd.m_worldPosition, face, rd.m_range, hull);
-                    if (!main.m_frustum.RejectsHull(hull, 5))
+                    if (FaceBehindEmitter(rd, hull)
+                        || (main.m_valid && main.m_frustum.RejectsHull(hull, 5)))
                     {
-                        faceMask = SetBit(faceMask, face);
+                        continue;
                     }
+                    faceMask = SetBit(faceMask, face);
                 }
                 if (faceMask == 0)
                 {
                     Deactivate(*world, *rhiCtx, e);
                     return;
                 }
-            }
-            else if (faceCount > 1)
-            {
-                faceMask = BIT_MASK(faceCount);
             }
 
             candidates.push_back(
@@ -780,6 +802,7 @@ namespace Spark::Render
                 WriteDirectionalView(view, *rd, volume, tileLevel);
                 break;
             case Light::LightType::Point:
+            case Light::LightType::Rect:
                 WritePointFaceView(view, *rd, face, tileLevel);
                 break;
             default:

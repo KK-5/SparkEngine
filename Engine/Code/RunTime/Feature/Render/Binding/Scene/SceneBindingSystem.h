@@ -64,17 +64,24 @@ namespace Spark::Render
             float    m_intensity = 1.0f;
         };
 
-        //! Binds the active skybox's IBL cubes + sampler into space0 and reports the
+        //! Binds the active skybox's IBL cubes and the BRDF LUT into space0 and reports the
         //! matching constants. Stays at defaults until every image is ready.
         EnvironmentBinding BindEnvironmentIBL();
 
-        //! Loads the checked-in BRDF LUT and hands it to the GPU as a static image. Scene
+        //! Binds the two LTC tables into space0. False until both are ready, and then the
+        //! shader must not read either — which is what g_AreaLightLutReady tells it.
+        bool BindAreaLightLuts(RHI::RHIContext& rhiCtx);
+
+        //! Loads a checked-in table and hands it to the GPU as a static image. Scene
         //! independent, so it happens once at Init rather than following the skybox.
-        void CreateBRDFLut(RHI::RHIContext& rhiCtx);
+        //! NullHandle when the asset is missing, which every reader treats as never ready.
+        RHI::RHIHandle CreateLut(RHI::RHIContext& rhiCtx, const char* assetPath, const char* name);
 
         // Shared resources, owned by their RHIContext entities (this system holds handles).
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Lights + SceneConstants @ space0
         RHI::RHIHandle m_brdfLut  = RHI::NullHandle;  // static 2D RG16F DFG table, created once at Init
+        RHI::RHIHandle m_ltc1     = RHI::NullHandle;  // static 2D RGBA16F, LTC inverse matrix
+        RHI::RHIHandle m_ltc2     = RHI::NullHandle;  // static 2D RGBA16F, LTC amplitude / Fresnel
 
         //! Packed densely in iteration order, [0, g_LightCount).
         StagedArrayBuffer<LightData> m_lights;
