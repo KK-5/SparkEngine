@@ -26,7 +26,7 @@ D9 在 2026-10-09 按实现改写：pass 自己声明间接绘制，不再经 `A
 | 2 | buffer 跨队列同步的纠正（D12） | — | 完成（2026-10-06），见下 |
 | 3 | 几何进同一个原生 buffer：渲染层的几何系统持有池、替 Mesh 申请（仍走 CPU 提交） | `TODO_BufferPoolPlan.md` 步骤 1（已完成） | 完成（2026-10-06），第 1 小步的画面用户已确认，见下 |
 | 4 | indirect draw，参数由 GPU 生成（不剔除）；`g_Geometries` | 0、1、3 | 完成（2026-10-09），画面用户已确认。第 1 小步（RHI 暴露偏移与池的底层 buffer，2026-10-07）见 `TODO_BufferPoolPlan.md` D7；第 2 小步（`m_drawMask`，2026-10-07）与第 3 小步的三步（几何一侧、生成参数的 compute pass、绘制 pass 读列表）见下 |
-| 5 | compute 视锥剔除：在步骤 4 的 pass 上加视锥测试与按视图分段 | 4 | 进行中：第 0 小步（按视图分段，间接绘制在每个视图下读自己的段，D13）完成（2026-10-10），画面用户已确认，见下；局部 AABB 与视锥测试未开始 |
+| 5 | compute 视锥剔除：在步骤 4 的 pass 上加视锥测试与按视图分段 | 4 | 完成（2026-10-10）：第 0 小步（按视图分段，间接绘制在每个视图下读自己的段，D13）与第 1、2 小步（局部包围盒、视锥测试，D7）；画面用户都已确认，切换视角后抓帧里 count 随之变化，见下 |
 
 0 / 1 与 2、3 互不依赖。4 把"indirect 画得对"和"剔除算得对"分开验证，所以不跳过；重排之后分开的仍是这两件事，
 步骤 4 的 pass 给每个带分类位的实例都写一条记录。
@@ -202,6 +202,26 @@ D9 在 2026-10-09 按实现改写：pass 自己声明间接绘制，不再经 `A
 - 没有执行过的：各条断言（标在 image 的访问上、标在只读的访问上、buffer 不带 `Indirect`、视图查不到段等）；各段里的 count 与记录内容
   （没有回读也没有抓帧，依据只是 debug layer 无报错、没有设备移除）；一种 tag 给多种视图、一个 Scope 读两个列表；GPU-based validation。
 - `Car.scene` 已不在工程里，这次用的是上面两个场景。
+
+**步骤 5 第 1、2 小步跑过什么、没跑过什么**（局部包围盒与视锥测试，内容见 D7；2026-10-10）
+
+- **画面由用户在 2026-10-10 确认，没有问题；用户切换视角后抓帧，看到 count 随之变化。** 下面是在这之前我自己跑的。
+
+- 全量 Debug 编译通过；`SparkRenderTest` 109 个用例通过，新增 1 个（几何记录带上包围盒的中心与半长）。
+- 编辑器用临时代码（已删）自动过欢迎页并打开场景、用环境变量摆编辑器相机，脚本抓编辑器窗口自己的内容（`PrintWindow`）
+  再逐点比较视口部分（每 4 个像素取一个，共 57865 个点）。debug layer 下运行后正常关窗，日志里只有关闭时原有的那几条。
+  - **两个场景的默认视角都验证不了剔除。** 编辑器相机在原点：`ModelTest.scene` 里它贴着一组柜子，背后那个"房间"是天空盒的全景图；
+    `Room.scene` 里它对着一面墙。一开始把视锥缩到二十分之一画面几乎不变，就是这个原因，不是测试没起作用。
+  - `ModelTest.scene`，相机放在 (0, 1.2, -6)：
+    - 测试与关掉测试相比，23 个点不同，都是物体轮廓上的孤立点（这个场景没有量两次同样配置之间的差）。
+    - 把左右两个面临时收窄到 0.3 倍：画面左侧整个落在收窄后视锥外的椅子连同它的影子消失，其余不变。
+      这是"被剔掉的实例确实不再画"的依据，主视图与阴影视图都走的这一份 shader。
+    - 临时改成全部剔掉：场景物体全部消失，只剩天空盒。
+  - `Room.scene`（一盏矩形面光，这次 6 个阴影视图），相机放在房间里：测试与关掉测试相比 5 个点不同，
+    两次都关掉测试之间也是 5 个点。
+- 没有执行过的：count 的值与实际画出的 draw 数逐一核对（用户抓帧看到的是它随视角变化）；站在光源与阴影近平面之间的投影者；相机或物体运动时物体跨过屏幕边缘；
+  删除物体、槽位复用；视图还没有槽位的那一帧是否真的出现过；GPU-based validation。
+- 取整从 2 的幂改成固定步长（视图 4 个一档，每个视图 1024 条一档）是同一批改动，上面的运行都带着它。
 
 ---
 
@@ -467,8 +487,10 @@ TEXCOORD0 float2 交错，48 字节；索引总是 `UINT32`。由资产系统保
   - 第一版规则把"缺 UV 又缺切线"也拒绝，拒掉了大量正常的无贴图部件（见"状态"）。
 
 **`g_Geometries` 表**（2026-10-07 提前到步骤 4，已实现；原来排在步骤 5）。稳定槽位的 `GlobalBuffer`，每个几何一行，
-现在是 12 字节的 `{ firstIndex, indexCount, vertexOffset }`，就是一条 indexed indirect 记录里由几何决定的那三项；
-bucket 等 I5，局部 AABB 等步骤 5。`MeshGeometry` 是它的源组件，槽位由 `GlobalBuffer` 发。`InstanceData` 用 padding 加了
+起初是 12 字节的 `{ firstIndex, indexCount, vertexOffset }`，就是一条 indexed indirect 记录里由几何决定的那三项；
+步骤 5 加了局部包围盒的中心与半长，变成 48 字节：`{ boundsCenter, firstIndex, boundsExtents, indexCount, vertexOffset, 填充 }`。
+每个 `float3` 后面跟一个 4 字节的字段，这样 DX 的紧排与 std430 得到同一个布局。包围盒来自资产里每个 primitive 的 `bounds`，
+经 `MeshGeometry::m_localBounds` 带过来，存中心与半长是因为测试用的就是这两个。bucket 等 I5。`MeshGeometry` 是它的源组件，槽位由 `GlobalBuffer` 发。`InstanceData` 用 padding 加了
 `m_geometryIndex`，仍是 208 字节。它也是 I9（P7 命中点着色）要的"几何记录表"的起点。
 
 - 表和它的绑定由一个单独的 `GeometryBindingSystem` 持有（`Binding/Geometry/`），在 space6，不放在几何系统里
@@ -551,7 +573,7 @@ O(N) 的循环、多一层引用（清单 → 实例 → 几何）。引擎里�
 - **每个列表两个图内 transient buffer**，每帧由它的 pass 创建（步骤 5 第 0 小步起按视图分段）。
   - 参数 buffer 是 `viewCapacity × maxDrawsPerView` 条记录，count buffer 是 `viewCapacity` 个 `uint`。
     `maxDrawsPerView` 是 `g_Instances` 的高水位（D6：不另外数每个列表有多少 draw），`viewCapacity` 是这一帧的视图数，
-    两个都至少为 1、都向上取到 2 的幂，免得 transient 池每帧换 buffer。
+    两个都至少为 1、都按固定步长向上取整（视图 4 个一档，每个视图的条数 1024 条一档），免得 transient 池每帧换 buffer。
   - 第 k 个视图的段从 `k × maxDrawsPerView` 条开始，它的 count 是第 k 个 `uint`。k（代码里的 `viewOrdinal`）是视图在传入的
     列表里的次序，只在 `BuildDrawList` 里用：它告诉 shader 往哪写（常量 `firstDraw`、`viewOrdinal`），并把同一个位置标在
     写这一段的访问上（D13）。读的一方不算 k。
@@ -579,22 +601,36 @@ O(N) 的循环、多一层引用（清单 → 实例 → 几何）。引擎里�
   两边各自枚举再按位置对齐，少一个视图就会整体错位；而且视图类型配错时读到的是别人的段，没有报错。
   现在布局只在 `BuildDrawList` 里算一次，读的一方按视图句柄查偏移。
 
-视图一维里还没做的（视锥测试）：
+视锥测试（步骤 5 第 1、2 小步，2026-10-10 实现）：
 
-- **shader 要读到视图的矩阵**：两个 pass 的 `.Binds` 加 `ViewBindingTag`，每个视图的 Scope 多一个常量 `viewIndex`
+- **shader 读视图的矩阵**：两个 pass 的 `.Binds` 加了 `ViewBindingTag`，每个视图的 Scope 多一个常量 `viewIndex`
   （`TryGetViewIndex`）。space1 只有 `g_Views` 一个资源，没有"共享 space 必须引用全组资源"的问题。
-- **视图还没有 `g_Views` 槽位的那一帧，剔除 pass 也跳过它**，不建 Scope。解析在这种情况下本来就不画这个视图
-  （三个绘制 pass 的 shader 都读视图），两边要一致。
-- **视锥平面从 `viewProjectionNoAA` 提取**，`ViewData` 不加字段。原来写的是 `m_viewProjection`，那是带 TAA 抖动的；
-  `View.h` 的注释也说剔除看不带抖动的投影。局部 AABB 经 `Model` 变到世界空间（中心乘矩阵，半长乘矩阵的绝对值）再对各个面测试。
-  reversed-Z 加无限远平面时有一个面是退化的，要跳过。
-- **阴影视图不测近平面。** `ShadowPass` 关了深度裁剪做 pancaking：站在光源与近平面之间的投影者不被裁掉、深度压到近平面上、
-  仍然投影。按六个面测会把它们剔掉，影子就没了。所以"测哪几个面"要能按视图不同（读代码得出，没有观察过）。
+- **视图还没有 `g_Views` 槽位的那一帧，剔除 pass 也跳过它**：`BuildDrawList` 开头先滤掉这样的视图，剩下的才参与布局、
+  建 Scope、标段。解析在这种情况下本来就不画这个视图（三个绘制 pass 的 shader 都读视图），两边一致。
+  滤完一个视图都不剩时仍然写一次（上面"一个视图都没有"那条），那个 Scope 的 `slotCount` 给 0：不写记录，也不读 `g_Views`。
+- **在实例自己的空间里测，矩阵用 `viewProjectionNoAA`。** `localToClip = viewProjectionNoAA × Model`，各个面是它的行的组合，
+  局部包围盒（`g_Geometries` 里的中心与半长）完全在某个面外侧就不写记录。只看符号，面不用归一化。
+  - 原来写的是"局部 AABB 经 `Model` 变成世界空间的 AABB 再测"。在局部空间测等价于测有向包围盒，更紧，运算量相当。
+  - 原来写的是 `m_viewProjection`，那是带 TAA 抖动的；`View.h` 的注释也说剔除看不带抖动的投影。`ViewData` 没有加字段。
+  - 原来写的"reversed-Z 加无限远平面时有一个面是退化的，要跳过"不成立：`PerspectiveFov` 是 reversed-Z，
+    但远平面有限（相机的 `clipEnd`、光源的范围），正交投影也是。clip z 在近平面是 w、远平面是 0，
+    所以远平面是第 2 行，近平面是第 3 行减第 2 行，和 `Math/Frustum.h` 里的标注相反。
+- **所有视图都不测近平面，测其余五个面**（用户 2026-10-10 定）。
+  - 阴影视图不能测：`ShadowPass` 关了深度裁剪做 pancaking，站在光源与近平面之间的投影者不被裁掉、深度压到近平面上、
+    仍然投影，测了就把它们剔掉了（读代码得出，没有观察过）。
+  - 透视的主视图测了也几乎没有收获：四个侧面都过相机位置，近平面多剔的只有整个落在相机与近平面之间的物体，
+    和紧贴相机背后、包围盒横跨相机位置的物体。
+  - 于是两类视图一条规则，不需要"这个视图测不测近平面"的量。我先提的是加一个量（剔除 pass 的参数，或视图上的字段），
+    前者要和 `ShadowPass` 的 `depthClipEnable` 保持一致，后者把 pass 的光栅化状态放到了视图上。
+  - 少测一个面只会多画、不会少画。**正交的主视图是例外的代价**：侧面互相平行，相机背后整条柱体里的物体都会放进来。
+    现在 `CameraViewSystem` 只建透视视图；加正交相机时这条要重新看。
+  - 远平面对阴影视图也测：比远平面更远的投影者深度被压到远平面上，等于清除值，本来就不产生影子。
 - 剔除 pass 放在帧结构的 Scene Update 段，各 binding system 上传之后、ShadowPass 之前，对应路线图里
   `GPU Culling` 那一行。
 
 已知开销：每个视图都按"全部实例可见"预留，参数 buffer 是 `viewCapacity × maxDrawsPerView × 20B`。10 万实例、16 个阴影视图约 42 MB，
-100 万实例约 335 MB；它是 transient 内存，没被写到的部分只占显存。两个维度都取 2 的幂，最坏多留近 4 倍。
+100 万实例约 335 MB；它是 transient 内存，没被写到的部分只占显存。取整多留的部分有上限：最多 3 个视图的段，每段最多 1023 条
+（原来两个维度都取 2 的幂，最坏多留近 4 倍，2026-10-10 改成固定步长）。
 它不能靠"GPU 先计数、再按前缀和排紧"来缩小：每个视图的段从哪里开始，是 CPU 录制 indirect 调用时填的偏移
 （DX12 与 Vulkan 都是），GPU 算出来的起点 CPU 拿不到。缓解的方向见 §六，现在不做。
 
@@ -955,10 +991,10 @@ UE 查的是官方文档与 API 页，源码读不到——每个（视图，pas
    - 剔除 pass：每个（列表，视图）一个 Scope 并标上段，buffer 按视图数放大；shader 多了 `firstDraw` 与 `viewOrdinal`，
      清零改成清每个视图的 count（D7）。每一段写的是全部带分类位的实例，不剔除，所以画面应与之前一致。
    - 三个绘制 pass 没有改。
-1. `g_Geometries` 的每一行加局部 AABB（资产里每个 primitive 有，§二），HLSL 镜像同步。未开始。
-2. shader 里的视锥测试（D7"还没做的"几条）。未开始。打算先只给主视图加测试、阴影视图不剔，再处理阴影视图的近平面：
-   两步都只改 shader 与常量，不动提交一侧。
-3. 更新路线图：帧结构里 `GPU Culling` 一行、I11 的状态。
+1. **`g_Geometries` 的每一行加局部包围盒**（资产里每个 primitive 有，§二），HLSL 镜像同步。已完成（2026-10-10）。
+2. **shader 里的视锥测试**（D7"视锥测试"）。已完成，画面用户已确认（2026-10-10）。两类视图一次做完：
+   所有视图都不测近平面，没有"先主视图、后阴影视图"的分步。提交一侧没有动。
+3. 更新路线图：帧结构里 `GPU Culling` 一行、I11 的状态。已更新。
 
 ---
 
@@ -987,7 +1023,7 @@ UE 查的是官方文档与 API 页，源码读不到——每个（视图，pas
 - **步骤 5**：
   - 第 0 小步（不剔除）：画面与之前一致；多个阴影视图时每个视图的 `ExecuteIndirect` 偏移各不相同；
   - 画面与剔除前一致，包括阴影——**阴影视图要用自己的视锥剔**，主相机转开后投影者不能消失；
-  - 站在光源与阴影视图近平面之间的投影者仍然有影子（D7：阴影视图不测近平面）；
+  - 站在光源与阴影视图近平面之间的投影者仍然有影子（D7：所有视图都不测近平面）；
   - 物体跨过屏幕边缘时不闪、不提前消失；
   - 删掉物体后它立刻不再被画，之后在同一个槽位加载别的物体也正常（D6 的空洞）；
   - 抓帧里 count 的值等于该视图实际画出的 draw 数；
@@ -1010,8 +1046,8 @@ UE 查的是官方文档与 API 页，源码读不到——每个（视图，pas
   剩下的是 CPU 排序的半透明：每个视图下提交的 item 及其先后都不同，D13 表达不了。它需要的是排序，不是剔除。
   P5 时的三条路：CPU 排序加逐物体直接绘制（在解析按视图展开的同一处另加"一个视图下一串 item"）；GPU 上排序后写参数 buffer
   （只在半透明的 PSO 很少时可行）；顺序无关的透明。现在不为它预留。
-- **每个视图预留全部实例的空间（D7 的已知开销）。** 2026-10-10 对过，都没有做：
-  - 便宜的两条：两个维度都取 2 的幂最坏多留近 4 倍，改成按固定步长取整；按分类的实例数留，而不是按槽位高水位。
+- **每个视图预留全部实例的空间（D7 的已知开销）。** 2026-10-10 对过，只做了取整那一条：
+  - 便宜的两条：取整从 2 的幂改成固定步长，已做；按分类的实例数留，而不是按槽位高水位，没有做。
   - 记录不再是每个实例一条：每种（网格，分组）一条记录、`instanceCount` 由剔除累加，另有一个每实例 4 字节的实例号 buffer
     作为 slot 1 的逐实例流，`firstInstance` 变成这一种的实例号在流里的起点。即原生的实例化绘制，预留量约省到五分之一，
     绘制次数也跟着降。它推翻 D8"记录自带身份"那一条，而且要等几何去重之后才有收益（现在每个世界实体一份几何，每种只有一个实例）。
@@ -1074,7 +1110,7 @@ UE 查的是官方文档与 API 页，源码读不到——每个（视图，pas
 | 2 | `RHI/System/AsyncUploadSystem.{h,cpp}`；`RHI/HardwareQueue.h`（`IsExclusiveQueueMask`）；`RHI/Component/Component.h`（注释）；`Render/RenderGraph/RenderGraphCompiler.{h,cpp}`（静态 buffer 的等待、导入 buffer 的等待、逐 Scope 的 buffer 访问）；`Feature/Mesh/MeshSystem.cpp`（VB / IB 的掩码）；`SandBox/Program/RenderGraph/IndirectDispatchFeature.cpp`（`kArgsOnComputeQueue`） |
 | 3 | 新建 `Render/Geometry/MeshGeometry.h`、`MeshGeometrySystem.{h,cpp}`，`RHI/Context/UniqueRHIHandle.h`；`Render/CMakeLists.txt`；`Render/RenderSystem.{h,cpp}`（持有、更新顺序、关闭顺序）；`Feature/Mesh/Components.h`（删 `MeshGPUComponent`）、`MeshSystem.{h,cpp}`；`Render/Drawable/MeshGeometryComposer.cpp`；`Render/Binding/Instance/InstanceBindingSystem.{h,cpp}`；`Feature/Skybox/Components.h`（一处提到 `MeshGPUComponent` 的注释）。RHI、上传系统、渲染图、`DrawItemRouter` 不动 |
 | 4 | 新建 `Render/Drawable/DrawMask.{h,cpp}`；`Handle/HandlePool.h`（`IsHeld`）、`Binding/GlobalBuffer.h`（归还缺了源组件的槽位、每帧重置空洞、`UpdateMirror`）、`Binding/Instance/InstanceData.h` 与 `InstanceData.hlsli`（`m_drawMask`）、`InstanceBindingSystem.cpp`；`Geometry/MeshGeometry.h`（`MeshGeometryReadyTag`）、`MeshGeometrySystem.cpp`、`Drawable/MeshGeometryComposer.cpp`；`Test/Render/GlobalBufferTest.cpp`、`DrawMaskTest.cpp`（新建）、`SlotPoolTest.cpp`、`MeshGeometryTest.cpp`。第 3 小步的前两步：`Resource/Model/VertexLayout.h`（`StandardVertex`）、`ModelAssetLoader.cpp`、`ModelAssetCompiler.cpp`、`Resource/Cache/CacheFormat.cpp`，`Test/Resource/ModelAssetTests.cpp`、`CacheTests.cpp` 与两个测试资产；`Geometry/MeshGeometry.h`、`MeshGeometrySystem.{h,cpp}`（起点、底层 buffer 的实体、256 MB）；新建 `Binding/Geometry/GeometryData.h`、`GeometryBinding.h`、`GeometryBindingSystem.{h,cpp}`，`Shaders/GeometryData.hlsli`、`GeometryBindings.hlsli`、`GeometryBindingsReflect.hlsl`、`IndirectCommands.hlsli`；`InstanceData.h` 与 `InstanceData.hlsli`（`m_geometryIndex`）、`InstanceBinding.h`（`InstanceSlotCount`）、`InstanceBindingSystem.{h,cpp}`；新建 `Render/Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`；`RenderSystem.{h,cpp}`、`Render/CMakeLists.txt`。第三步：`RenderGraph/PassScopes.{h,cpp}`（`RenderScope::DrawIndirect`）、`RenderGraphBuilder.{h,cpp}`（`AddScopeDrawIndirect`）、`RenderGraphCompiler.{h,cpp}`（lowering）、`Pass/Component/ScopeComponents.h`（count 的访问）；`Feature/DepthPre/DepthPrePass.cpp`、`Feature/GBuffer/GBufferPass.cpp`、`Feature/Shadow/ShadowPass.cpp` 各一行；`InstanceCullingPass.{h,cpp}`（列表一直存在）；`Geometry/MeshGeometry.h`（底层 buffer 的 tag）、`MeshGeometrySystem.cpp`（上传等待、断言）、`Drawable/MeshGeometryComposer.cpp`（去掉上传等待的注册）。同时改的 RHI：DX12 `Command/CommandList.cpp`（transient buffer 的屏障）、`Device/Device.cpp`（设备移除时的面包屑）；`RHI/Resource/Resource.{h,cpp}`、`ResourcePool.{h,cpp}`、`Transient/TransientResourcePool.cpp`、`System/RHIResourceSystem.cpp`（`GetPool` 换成 `Contains`） |
-| 5 | 第 0 小步（已做）：`Pass/Component/RHIComponents.h`（`IndirectArgumentsOfView` 与两个查找函数）、`ScopeComponents.h`（`PerViewItemTag`）；`RenderGraph/PassScopes.{h,cpp}`（`ShaderAttachment::IndirectArgumentsOf`）、`RenderGraphBuilder.{h,cpp}`（`SetIndirectArgumentsOfView`）、`RenderGraphCompiler.cpp`（`ResolveItemForView`、`maxCount`）、`RenderGraphExecuter.cpp`（帧末销毁）；`Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`（按视图分段）；新建 `Test/Render/IndirectArgumentsOfViewTest.cpp`，`Test/Render/CMakeLists.txt`。之后：`InstanceCullingPass.cpp`、`InstanceCulling.hlsl`（视锥测试）；`GeometryData.h` 与 `GeometryData.hlsli`（局部 AABB）、`GeometryBindingSystem.cpp`；`TODO_RenderPipelineRoadmap.md` |
+| 5 | 第 0 小步（已做）：`Pass/Component/RHIComponents.h`（`IndirectArgumentsOfView` 与两个查找函数）、`ScopeComponents.h`（`PerViewItemTag`）；`RenderGraph/PassScopes.{h,cpp}`（`ShaderAttachment::IndirectArgumentsOf`）、`RenderGraphBuilder.{h,cpp}`（`SetIndirectArgumentsOfView`）、`RenderGraphCompiler.cpp`（`ResolveItemForView`、`maxCount`）、`RenderGraphExecuter.cpp`（帧末销毁）；`Feature/InstanceCulling/InstanceCullingPass.{h,cpp}`、`Shaders/InstanceCulling/InstanceCulling.hlsl`（按视图分段）；新建 `Test/Render/IndirectArgumentsOfViewTest.cpp`，`Test/Render/CMakeLists.txt`。第 1、2 小步（已做）：`Geometry/MeshGeometry.h`（`m_localBounds`）、`MeshGeometrySystem.cpp`；`Binding/Geometry/GeometryData.h` 与 `Shaders/GeometryData.hlsli`（中心与半长，48 字节）、`GeometryBindingSystem.cpp`；`InstanceCullingPass.cpp`（滤掉没有槽位的视图、`viewIndex`、绑定 `ViewBindingTag`、取整改成固定步长）、`InstanceCulling.hlsl`（视锥测试）；`Test/Render/MeshGeometryTest.cpp`；`TODO_RenderPipelineRoadmap.md` |
 
 ---
 
