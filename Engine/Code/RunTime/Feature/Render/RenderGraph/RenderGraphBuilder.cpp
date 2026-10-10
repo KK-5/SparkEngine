@@ -621,6 +621,30 @@ namespace Spark::Render
         rhiContext.Add<IndexBinding>(attachment, IndexBinding{ input });
     }
 
+    void RenderGraphBuilder::SetIndirectArgumentsOfView(RHIHandle attachment, RHIHandle view, uint64_t byteOffset)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
+
+        const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(attachment);
+        ASSERT(buffer != nullptr, ".IndirectArgumentsOf on an access of an image.");
+        const char* name = buffer->m_attachmentId.m_id.GetCStr();
+        ASSERT(CheckBitsAny(buffer->m_access, RHI::AttachmentAccess::Write),
+            ".IndirectArgumentsOf on an access that only reads {}: it marks the write of a view's part.", name);
+
+        // Marking a buffer no indirect call can read would do nothing, silently.
+        const auto* descriptor = buffer->m_buffer != NullHandle
+            ? rhiContext.TryGet<RHI::BufferDescriptor>(buffer->m_buffer) : nullptr;
+        ASSERT(descriptor != nullptr && CheckBitsAll(descriptor->m_bindFlags, RHI::BufferBindFlags::Indirect),
+            ".IndirectArgumentsOf on {}, which the graph has not created with BufferBindFlags::Indirect "
+            "before this access.", name);
+
+        ASSERT(view != NullHandle, ".IndirectArgumentsOf on {} names no view.", name);
+        ASSERT(!rhiContext.Has<IndirectArgumentsOfView>(attachment),
+            "The access of {} already writes the indirect arguments of a view.", name);
+        rhiContext.Add<IndirectArgumentsOfView>(attachment, IndirectArgumentsOfView{ view, byteOffset });
+    }
+
     void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const RHI::InputName& input)
     {
         auto& rhiContext = *RHIExecuteContext::Current();

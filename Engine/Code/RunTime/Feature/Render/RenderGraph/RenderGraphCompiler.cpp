@@ -1362,6 +1362,18 @@ namespace Spark::Render
         }
     }
 
+    namespace
+    {
+        //! How many records an indexed indirect draw can read from `byteOffset` of `buffer` on.
+        uint32_t IndirectRecordCapacity(const RHI::Buffer& buffer, uint64_t byteOffset)
+        {
+            const uint64_t byteCount = buffer.GetDescriptor().m_byteCount;
+            ASSERT(byteOffset <= byteCount,
+                "[RenderGraphCompiler] Indirect arguments start {} bytes into a buffer of {}.", byteOffset, byteCount);
+            return static_cast<uint32_t>((byteCount - byteOffset) / sizeof(RHI::DrawIndexedIndirectCommand));
+        }
+    }
+
     void RenderGraphCompiler::CompileItemIndirectArguments(PassContext& passContext, RHIContext& context)
     {
         auto backingOf = [&](RHIHandle access) -> const RHI::Buffer*
@@ -1394,19 +1406,68 @@ namespace Spark::Render
             RHI::IndirectArguments& draw = context.Get<RHI::DrawItem>(item).m_drawArguments.m_indexedIndirect.m_arguments;
             draw.m_buffer      = buffer;
             draw.m_countBuffer = backingOf(arguments.m_countAttachment);
-            draw.m_maxCount    = static_cast<uint32_t>(
-                buffer->GetDescriptor().m_byteCount / sizeof(RHI::DrawIndexedIndirectCommand));
+            draw.m_maxCount    = IndirectRecordCapacity(*buffer, draw.m_byteOffset);
         }
     }
 
     namespace
     {
+        //! What to submit for `item` under `view`: the item itself, unless it is an indirect
+        //! draw of buffers that hold their arguments per view. That one gets an item of its own
+        //! for the view, reading the view's part of both; NullHandle when `view` has none.
+        RHIHandle ResolveItemForView(RHIHandle item, RHIHandle view, RHIContext& context)
+        {
+            const auto* indirect = context.TryGet<ItemIndirectArguments>(item);
+            if (view == NullHandle || indirect == nullptr || !context.Has<RHI::DrawItem>(item))
+            {
+                return item;
+            }
+
+            const auto& arguments = context.Get<BufferPassAttachment>(indirect->m_attachment);
+            const auto& count     = context.Get<BufferPassAttachment>(indirect->m_countAttachment);
+            if (!HoldsIndirectArgumentsPerView(context, arguments.m_buffer))
+            {
+                return item;
+            }
+
+            uint64_t argumentsByteOffset = 0;
+            uint64_t countByteOffset     = 0;
+            const bool hasPart =
+                TryGetIndirectArgumentsOfView(context, arguments.m_buffer, view, argumentsByteOffset)
+                && TryGetIndirectArgumentsOfView(context, count.m_buffer, view, countByteOffset);
+            ASSERT(hasPart,
+                "[RenderGraphCompiler] {} holds indirect arguments per view, but it or {} has none for a view "
+                "a draw reading them is submitted under.",
+                arguments.m_attachmentId.m_id.GetCStr(), count.m_attachmentId.m_id.GetCStr());
+            if (!hasPart)
+            {
+                return NullHandle;
+            }
+
+            RHI::DrawItem draw = context.Get<RHI::DrawItem>(item);
+            RHI::IndirectArguments& drawArguments = draw.m_drawArguments.m_indexedIndirect.m_arguments;
+            drawArguments.m_byteOffset      = argumentsByteOffset;
+            drawArguments.m_countByteOffset = countByteOffset;
+            drawArguments.m_maxCount        = IndirectRecordCapacity(*drawArguments.m_buffer, argumentsByteOffset);
+
+            const RHIHandle perView = context.CreateEntity();
+            context.Add<RHI::DrawItem>(perView, draw);
+            context.Add<PerViewItemTag>(perView);
+            return perView;
+        }
+
         //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those it
         //! selects.
         void AppendItems(RHIHandle scope, RHIHandle view, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
-            const eastl::span<const RHIHandle> items = GetScopeItems(context, scope);
-            submitList.insert(submitList.end(), items.begin(), items.end());
+            for (RHIHandle item : GetScopeItems(context, scope))
+            {
+                const RHIHandle resolved = ResolveItemForView(item, view, context);
+                if (resolved != NullHandle)
+                {
+                    submitList.push_back(resolved);
+                }
+            }
             if (const auto* selections = context.TryGet<ScopeSelections>(scope))
             {
                 for (ScopeSelections::Collect collect : selections->m_collects)

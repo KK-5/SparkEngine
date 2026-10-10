@@ -13,15 +13,19 @@ namespace Spark::Render
     //! record in one list, every one that casts a shadow a record in the other. Nothing is
     //! culled yet.
     //!
+    //! A list is written once per view that draws it, the opaque one for the main views and
+    //! the shadow casters' for the shadow views, each into a part of the pair of buffers the
+    //! pass marks as that view's (.IndirectArgumentsOf): a DrawIndirect reads its view's.
+    //!
     //! Each pass creates its pair of buffers every frame, also in one where no instance has a
-    //! slot: the count is then 0.
+    //! slot or no view draws the list: the count is then 0.
     struct InstanceCullingPass
     {
-        //! DrawIndexedIndirectCommand records, packed from the start of the buffer.
+        //! DrawIndexedIndirectCommand records, packed from the start of each view's part.
         static const RHI::AttachmentId& OpaqueDrawArgumentsName();
         static const RHI::AttachmentId& ShadowCasterDrawArgumentsName();
 
-        //! One uint32: how many records the list's argument buffer holds this frame.
+        //! A uint32 per view: how many records its part of the argument buffer holds this frame.
         static const RHI::AttachmentId& OpaqueDrawCountName();
         static const RHI::AttachmentId& ShadowCasterDrawCountName();
 

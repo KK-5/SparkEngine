@@ -118,6 +118,12 @@ namespace Spark::Render
         return *this;
     }
 
+    ShaderAttachment& ShaderAttachment::IndirectArgumentsOf(RHIHandle view, uint64_t byteOffset)
+    {
+        m_builder->SetIndirectArgumentsOfView(GetHandle(), view, byteOffset);
+        return *this;
+    }
+
     ShaderAttachment& ShaderAttachment::Stage(RHI::AttachmentStage stage)
     {
         ASSERT(!m_fixedStage, "A compute pass's shader accesses are always in the compute stage.");

@@ -168,13 +168,16 @@ namespace Spark::Render
                 rhiContext.DestoryEntity(h);
             }
 
-            // Rebuilt every frame by the builder, as are the items they declared; their
-            // attachments (destroyed above) carried ScopeAttachment and are gone with them.
+            // Rebuilt every frame by the builder, as are the items they declared and those
+            // lowering made of them per view; their attachments (destroyed above) carried
+            // ScopeAttachment and are gone with them.
             eastl::vector<RHIHandle> scopeHandles;
             rhiContext.GetView<Scope>().each(
                 [&](RHIHandle h, const Scope&) { scopeHandles.push_back(h); });
             rhiContext.GetView<ScopeItem>().each(
                 [&](RHIHandle h, const ScopeItem&) { scopeHandles.push_back(h); });
+            rhiContext.GetView<PerViewItemTag>().each(
+                [&](RHIHandle h) { scopeHandles.push_back(h); });
             for (RHIHandle h : scopeHandles)
             {
                 rhiContext.DestoryEntity(h);

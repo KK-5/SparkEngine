@@ -99,6 +99,11 @@ namespace Spark::Render
         RHI::RHIHandle m_countAttachment {RHI::NullHandle};
     };
 
+    //! On an item lowering made for one view out of an item of a Scope whose indirect
+    //! arguments are held per view (IndirectArgumentsOfView): it reads that view's. It lives
+    //! for the frame.
+    struct PerViewItemTag {};
+
     //! On a Scope that selects sets of scene items (.Accepts): per set, the query that appends
     //! its members under `view`. The items are persistent and carry no link to the Scope.
     struct ScopeSelections

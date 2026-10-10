@@ -115,6 +115,11 @@ namespace Spark::Render
         //! stage from elsewhere (.Stage, or a compute pass's).
         void BindShaderInputIndex(RHIHandle attachment, const RHI::InputName& input);
 
+        //! Mark the buffer access `attachment` as writing the indirect arguments of `view`,
+        //! which start `byteOffset` into the buffer. The access writes, and the buffer is one
+        //! the graph has created already, with BufferBindFlags::Indirect.
+        void SetIndirectArgumentsOfView(RHIHandle attachment, RHIHandle view, uint64_t byteOffset);
+
         //! A sampler `scope` sets in the current pass's per-pass space.
         void AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state);
 

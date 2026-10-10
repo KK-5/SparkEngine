@@ -257,6 +257,45 @@ namespace Spark::Render
         Pass m_pass {NullPass};
     };
 
+    //! On a buffer attachment that writes the indirect arguments of one view
+    //! (.IndirectArgumentsOf): an indirect draw reading that buffer under m_view starts at
+    //! m_byteOffset.
+    struct IndirectArgumentsOfView
+    {
+        RHIHandle m_view {NullHandle};
+        uint64_t  m_byteOffset = 0;
+    };
+
+    //! Whether `buffer` holds indirect arguments per view: some access of it writes one
+    //! view's. A draw reading it then reads the part of the view it is submitted under.
+    inline bool HoldsIndirectArgumentsPerView(RHIContext& context, RHIHandle buffer)
+    {
+        for (auto [attachment, ofView, access] : context.GetView<IndirectArgumentsOfView, BufferPassAttachment>().each())
+        {
+            if (access.m_buffer == buffer)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    //! Where `view`'s indirect arguments start in `buffer`. False when no access of the
+    //! buffer writes any for that view.
+    inline bool TryGetIndirectArgumentsOfView(
+        RHIContext& context, RHIHandle buffer, RHIHandle view, uint64_t& outByteOffset)
+    {
+        for (auto [attachment, ofView, access] : context.GetView<IndirectArgumentsOfView, BufferPassAttachment>().each())
+        {
+            if (access.m_buffer == buffer && ofView.m_view == view)
+            {
+                outByteOffset = ofView.m_byteOffset;
+                return true;
+            }
+        }
+        return false;
+    }
+
     //! On an attachment of a name nothing had declared a resource for when it was declared:
     //! the pass that does comes later. The builder's End links the two and removes the tag.
     struct UnlinkedAttachmentTag {};

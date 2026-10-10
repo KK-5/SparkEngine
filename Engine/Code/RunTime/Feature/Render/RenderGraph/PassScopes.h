@@ -104,6 +104,12 @@ namespace Spark::Render
         //! left none and it reads a stand-in.
         ShaderAttachment& BindValid(const RHI::InputName& input);
 
+        //! For a write of a buffer indirect calls read (BufferBindFlags::Indirect), created
+        //! before this access: what it writes is the indirect arguments of `view`, which start
+        //! `byteOffset` into the buffer. A DrawIndirect of the buffer reads, under each view,
+        //! from where that view's start; a buffer no access marks is read from its start.
+        ShaderAttachment& IndirectArgumentsOf(RHIHandle view, uint64_t byteOffset);
+
         RHIHandle GetHandle() const { return m_attachment.GetHandle(); }
 
     private:
@@ -163,10 +169,11 @@ namespace Spark::Render
 
         //! Draw the meshes a list names: the buffer `argumentsName` holds a
         //! DrawIndexedIndirectCommand per mesh and `countName` how many of them, both
-        //! written by an earlier pass (InstanceCullingPass). One call per view. The Scope
-        //! reads both as IndirectArguments. The draw binds the geometry pool's native buffer
-        //! as its vertex and index stream and the instance ID buffer beside it; it draws
-        //! nothing until both exist.
+        //! written by an earlier pass (InstanceCullingPass). One call per view, reading that
+        //! view's part of both where the pass that wrote them marked one
+        //! (.IndirectArgumentsOf). The Scope reads both as IndirectArguments. The draw binds
+        //! the geometry pool's native buffer as its vertex and index stream and the instance
+        //! ID buffer beside it; it draws nothing until both exist.
         void DrawIndirect(const RHI::AttachmentId& argumentsName, const RHI::AttachmentId& countName);
 
         //! Draw the scene's items that carry all of DrawTags, e.g. Accepts<OpaqueTag>().
