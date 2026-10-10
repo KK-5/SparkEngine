@@ -168,6 +168,7 @@ namespace Spark::Render
             geometry.m_modelAssetId  = meshComp.m_modelAssetId;
             geometry.m_meshIndex      = meshComp.m_meshIndex;
             geometry.m_primitiveIndex = meshComp.m_primitiveIndex;
+            geometry.m_localBounds    = primitive->bounds;
             geometry.m_vertexBuffer = RHI::UniqueRHIHandle(CreateBuffer(
                 *rhiCtx, ObjectName(eastl::string("MeshVB_") + idSuffix),
                 primitive->vertexBuffer.data(), primitive->vertexBuffer.size(),

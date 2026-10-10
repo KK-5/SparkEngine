@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Math/AABB.h>
+
 #include <Resource/AssetTypes.h>
 
 #include <RHI/Context/UniqueRHIHandle.h>
@@ -31,6 +33,9 @@ namespace Spark::Render
         //! indexed draw of that whole buffer counts: in indices, and in vertices.
         uint32_t m_firstIndex   = 0;
         uint32_t m_vertexOffset = 0;
+
+        //! Around the mesh's vertices, in the space they are stored in.
+        Math::AABB m_localBounds;
     };
 
     //! On a world entity whose MeshGeometry can be drawn: the uploads of both buffers are

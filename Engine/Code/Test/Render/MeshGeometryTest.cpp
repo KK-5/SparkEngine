@@ -144,3 +144,15 @@ TEST_F(MeshGeometryTest, AMeshIsEncodedWithWhereItStarts)
     EXPECT_EQ(data.m_indexCount, 36u);
     EXPECT_EQ(data.m_vertexOffset, 77);
 }
+
+TEST_F(MeshGeometryTest, AMeshIsEncodedWithTheBoxAroundIt)
+{
+    MeshGeometry geometry;
+    geometry.m_localBounds.min = Math::Vector3(-1.0f, 0.0f, 2.0f);
+    geometry.m_localBounds.max = Math::Vector3(3.0f, 4.0f, 8.0f);
+
+    const GeometryData data = EncodeGeometryData(geometry);
+
+    EXPECT_EQ(data.m_boundsCenter, Math::Vector3(1.0f, 2.0f, 5.0f));
+    EXPECT_EQ(data.m_boundsExtents, Math::Vector3(2.0f, 2.0f, 3.0f));
+}
