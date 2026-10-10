@@ -148,10 +148,10 @@ namespace Spark::Render
                 // plane), keeping the DSV in DEPTH_READ.
                 s.DepthRead(RHI::AttachmentId("SceneDepth"));
 
-                // Constant material sampler (linear/wrap). Change-detected, so this per-frame
+                // Constant material sampler. Change-detected, so this per-frame
                 // set is a no-op after the first bind.
                 s.Sampler(RHI::InputName("g_MatSampler"),
-                    RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
+                    RHI::SamplerState::CreateAnisotropic(16, RHI::AddressMode::Wrap));
 
                 s.DrawIndirect(
                     InstanceCullingPass::OpaqueDrawArgumentsName(), InstanceCullingPass::OpaqueDrawCountName());
