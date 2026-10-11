@@ -52,13 +52,9 @@ namespace Spark::Render
                 return;
             }
 
-            if (auto* sync = rhiCtx->TryGet<RHI::PendingSync>(gpu.m_image))
+            if (rhiCtx->Has<RHI::PendingUploads>(gpu.m_image))
             {
-                if (!(sync->m_fence
-                    && sync->m_fence->GetCompletedValue() >= sync->m_fenceValue))
-                {
-                    return;
-                }
+                return;
             }
 
             auto* imageView = RHI::GetOrCreateImageView(

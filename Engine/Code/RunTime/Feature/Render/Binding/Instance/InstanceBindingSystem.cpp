@@ -143,7 +143,7 @@ namespace Spark::Render
         // render graph emits the one-time upload→InputAssembly barrier AND the
         // copy→graphics fence wait via CompileStaticResourceBarriers — without the
         // attachment the graphics queue would race the async upload. m_idData is kept
-        // alive for the upload's lifetime (PendingBufferUpload contract).
+        // alive for the upload's lifetime (BufferUploadRequest contract).
         {
             m_idData.resize(Capacity);
             for (uint32_t i = 0; i < Capacity; ++i)

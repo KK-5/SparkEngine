@@ -13,6 +13,7 @@
 #include <RHI/Base.h>
 #include <RHI/Bus/FrameEventBus.h>
 #include <RHI/Component/Component.h>
+#include <RHI/Context/RHIEventContext.h>
 #include <RHI/Command/CommandQueue.h>
 #include <RHI/Command/CommandRecorder.h>
 #include <RHI/Fence/Fence.h>
@@ -55,7 +56,8 @@ namespace Spark::RHI
             Ptr<CommandRecorder>  m_commandRecorder;
         };
 
-        // Source data + resolved target, packed for the upload thread.
+        // Source data + resolved target, packed for the upload thread. The request, which
+        // outlives the batch, is what keeps the target alive (UploadBatch).
         struct BufferUpload
         {
             const void* m_data              = nullptr;
@@ -102,7 +104,10 @@ namespace Spark::RHI
         // CPU-blocking sync flush for init-time paths.
         void FlushUploadPackets();
 
-        void SubmitBatch(RHIContext& ctx);
+        //! Ends the requests whose batch the GPU has finished.
+        void FinishUploads(RHIContext& ctx, RHIEventContext& events);
+
+        void SubmitBatch(RHIContext& ctx, RHIEventContext& events);
 
         void UploadThreadMain();
         void ProcessBatch(Batch& batch);
@@ -118,7 +123,7 @@ namespace Spark::RHI
         // compiler can record the paired graphics-queue fence wait + acquire barrier.
         // The upload thread writes fence values via CommandQueue::Signal;
         // the main thread allocates batch fence values through m_batchFenceValue
-        // and never touches the fence directly.
+        // and only reads the completed value.
         Ptr<Fence>               m_uploadFence;
         uint64_t                 m_batchFenceValue = 0;
 

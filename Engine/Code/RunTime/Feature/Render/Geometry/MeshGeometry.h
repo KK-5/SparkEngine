@@ -39,9 +39,8 @@ namespace Spark::Render
     };
 
     //! On a world entity whose MeshGeometry can be drawn: the uploads of both buffers are
-    //! submitted. Before that there is no fence to wait on, and a draw would read whatever
-    //! the memory held, which in a pool is another mesh's data. MeshGeometrySystem puts it
-    //! on; it goes with the MeshGeometry.
+    //! over. Before that a draw would read whatever the memory held, which in a pool is
+    //! another mesh's data. MeshGeometrySystem puts it on; it goes with the MeshGeometry.
     struct MeshGeometryReadyTag {};
 
     //! On the RHI entity of the native buffer every mesh's two buffers are parts of.

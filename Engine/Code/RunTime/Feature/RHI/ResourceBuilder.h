@@ -12,6 +12,7 @@
 #include <Service/Service.h>
 
 #include <RHI/Component/Component.h>
+#include <RHI/Context/RHIEventContext.h>
 #include <RHI/Factory.h>
 
 namespace Spark::RHI
@@ -44,6 +45,24 @@ namespace Spark::RHI
         return entity;
     }
 
+    namespace Internal
+    {
+        inline void CountPendingUpload(BasicContext<RHIHandle>& ctx, RHIHandle resourceEntity)
+        {
+            if (auto* pending = ctx.TryGet<PendingUploads>(resourceEntity))
+            {
+                ++pending->m_count;
+            }
+            else
+            {
+                ctx.Add<PendingUploads>(resourceEntity, PendingUploads{ 1 });
+            }
+        }
+    }
+
+    //! Asks AsyncUploadSystem to copy `data` into the buffer. The resource carries
+    //! PendingUploads until this and every other upload into it is over; whoever reads it
+    //! asks that. `data` stays valid until then.
     inline void RequestBufferUpload(
         BasicContext<RHIHandle>& ctx,
         RHIHandle resourceEntity,
@@ -51,9 +70,40 @@ namespace Spark::RHI
         size_t dataSize,
         uint64_t destinationOffset = 0)
     {
-        ctx.Add<PendingBufferUpload>(resourceEntity,
-            PendingBufferUpload{ data, dataSize, destinationOffset });
-        ctx.Add<UploadPendingTag>(resourceEntity);
+        auto& events = *RHIEventExecuteContext::Current();
+        const RHIEvent request = events.CreateEntity();
+        events.Add<BufferUploadRequest>(request,
+            BufferUploadRequest{ resourceEntity, data, dataSize, destinationOffset });
+        events.Add<UploadRequestedTag>(request);
+        Internal::CountPendingUpload(ctx, resourceEntity);
+    }
+
+    //! AsyncUploadSystem's: the upload `request` is over, whether it landed or was dropped.
+    //! Its target has one less to wait for, and the request goes.
+    inline void FinishUploadRequest(BasicContext<RHIHandle>& ctx, RHIEventContext& events, RHIEvent request)
+    {
+        RHIHandle target = NullHandle;
+        if (const auto* buffer = events.TryGet<BufferUploadRequest>(request))
+        {
+            target = buffer->m_target;
+        }
+        else if (const auto* image = events.TryGet<ImageUploadRequest>(request))
+        {
+            target = image->m_target;
+        }
+
+        // The target may have gone first, and its count with it.
+        if (ctx.Valid(target))
+        {
+            if (auto* pending = ctx.TryGet<PendingUploads>(target))
+            {
+                if (--pending->m_count == 0)
+                {
+                    ctx.Remove<PendingUploads>(target);
+                }
+            }
+        }
+        events.DestoryEntity(request);
     }
 
     // === Image helpers ===
@@ -90,6 +140,7 @@ namespace Spark::RHI
         return entity;
     }
 
+    //! Image counterpart of RequestBufferUpload.
     inline void RequestImageUpload(
         BasicContext<RHIHandle>& ctx,
         RHIHandle resourceEntity,
@@ -99,9 +150,12 @@ namespace Spark::RHI
         Origin destinationOrigin = {},
         Format sourceFormat = Format::Unknown)
     {
-        ctx.Add<PendingImageUpload>(resourceEntity,
-            PendingImageUpload{ data, dataSize, range, destinationOrigin, sourceFormat });
-        ctx.Add<UploadPendingTag>(resourceEntity);
+        auto& events = *RHIEventExecuteContext::Current();
+        const RHIEvent request = events.CreateEntity();
+        events.Add<ImageUploadRequest>(request,
+            ImageUploadRequest{ resourceEntity, data, dataSize, range, destinationOrigin, sourceFormat });
+        events.Add<UploadRequestedTag>(request);
+        Internal::CountPendingUpload(ctx, resourceEntity);
     }
 
     //! Resource-owned, descriptor-keyed image view cache (see Components::ImageViewCache).

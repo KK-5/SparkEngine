@@ -7,10 +7,14 @@ namespace Spark::RHI
     void RHIInterface::InitInternal()
     {
         RHIExecuteContext::Push(m_context);
+        RHIEventExecuteContext::Push(m_eventContext);
     }
 
     void RHIInterface::ShutdownInternal()
     {
+        m_eventContext.Clear();
+        RHIEventExecuteContext::Pop();
+
         m_context.Clear();
         RHIExecuteContext::Pop();
     }

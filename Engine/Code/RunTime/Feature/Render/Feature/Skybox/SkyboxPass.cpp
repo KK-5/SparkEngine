@@ -108,7 +108,7 @@ namespace Spark::Render
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
                 // The active skybox cube (SkyboxSystem tags it ActiveSkyCubeTag at creation),
-                // once it is materialized AND its upload has been submitted — see IsResourceReady
+                // once it is materialized AND its upload is over — see IsResourceReady
                 // for why both are required. No cube -> nothing drawn, and g_SkyCube, bound by
                 // nothing, is nulled rather than left holding a deleted skybox.
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();

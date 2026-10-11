@@ -318,7 +318,7 @@ namespace Spark::RHI
             if (!pool)
             {
                 LOG_ERROR("[RHIResourceSystem] ProcessBufferMaps: buffer on entity {} is not from a Host pool of "
-                          "this system; use PendingBufferUpload for Device buffers.",
+                          "this system; use RequestBufferUpload for Device buffers.",
                           static_cast<uint32_t>(handle));
                 return;
             }

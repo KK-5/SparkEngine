@@ -25,12 +25,11 @@ namespace Spark::Render
     //!      Components::Buffer::m_buffer is non-null). Non-trivial resources are created
     //!      lazily by RHIResourceSystem (PendingImageInit / PendingBufferInit), so this
     //!      is false for a frame or two after the entity is declared.
-    //!   2. Upload settled — no UploadPendingTag. A one-time staging upload is submitted
-    //!      only by AsyncUploadSystem::SubmitBatch, which clears UploadPendingTag and
-    //!      stamps PendingSync (the cross-queue fence the graph then waits on). Touching
-    //!      the resource in the window between materialization and upload-submit would
-    //!      advance its resource state (access) and make the still-pending EXCLUSIVE
-    //!      upload fail AsyncUploadSystem's "already in use" check.
+    //!   2. No upload outstanding — no PendingUploads. AsyncUploadSystem takes it off once
+    //!      the copy queue has finished every upload into the resource, so nothing here
+    //!      waits for that queue on the GPU. Touching the resource before its upload is
+    //!      even submitted would advance its resource state (access) and make the
+    //!      still-pending EXCLUSIVE upload fail AsyncUploadSystem's "already in use" check.
     //!
     //! Both the static-import barrier path (CompileStaticResourceBarriers) and
     //! imported-resource passes (e.g. SkyboxPass importing its sky cube) gate on this,
@@ -41,9 +40,9 @@ namespace Spark::Render
         {
             return false;
         }
-        // One-time upload not yet submitted — defer. (Resources that never upload
-        // never carry this tag, so this only gates the ones that do.)
-        if (ctx.Has<RHI::UploadPendingTag>(handle))
+        // An upload into it is not over — defer. (Resources that never upload
+        // never carry this, so it only gates the ones that do.)
+        if (ctx.Has<RHI::PendingUploads>(handle))
         {
             return false;
         }

@@ -6,6 +6,7 @@
 #include "Factory.h"
 #include "Bus/FrameEventBus.h"
 #include "Context/RHIContext.h"
+#include "Context/RHIEventContext.h"
 #include "Device/Device.h"
 #include "Device/PhysicalDevice.h"
 #include "Device/DeviceDescriptor.h"
@@ -15,8 +16,9 @@ namespace Spark::RHI
     //! Abstract base for an RHI backend. Concrete backends (DX12 / Vulkan / ...)
     //! derive via Service<RHIInterface>::Handler. The base owns engine-wide
     //! singletons that any RHI consumer needs:
-    //!   - RHIContext   (ECS registry for RHI resource entities)
-    //!   - Device       (logical device — user-driven construction, owned here)
+    //!   - RHIContext      (ECS registry for RHI resource entities)
+    //!   - RHIEventContext (ECS registry for what RHI systems hand to one another)
+    //!   - Device          (logical device — user-driven construction, owned here)
     //!
     //! Lifecycle is split:
     //!   1. ISystem::Init() → InitInternal()
@@ -53,6 +55,8 @@ namespace Spark::RHI
 
         RHIContext& GetContext() { return m_context; }
 
+        RHIEventContext& GetEventContext() { return m_eventContext; }
+
         //! Returns the engine-wide logical device, or nullptr if InitDevice
         //! has not been called yet.
         Device* GetDevice() const { return m_device.get(); }
@@ -84,15 +88,19 @@ namespace Spark::RHI
         //! InitInternal, popped in ShutdownInternal.
         RHIContext m_context;
 
+        //! Engine-wide RHIEventContext (BasicContext<RHIEvent>) — pushed and popped
+        //! together with m_context.
+        RHIEventContext m_eventContext;
+
         //! Engine-wide logical device. Filled in by InitDevice (user-driven),
         //! shut down + released by ShutdownInternal.
         Ptr<Device> m_device;
 
-        //! Default impl pushes m_context onto the RHIExecuteContext stack.
+        //! Default impl pushes m_context and m_eventContext onto their execute-context stacks.
         //! Derived backends override and CALL THIS LAST after their own init.
         void InitInternal() override;
 
-        //! Default impl shuts down m_device (if present) and pops m_context.
+        //! Default impl shuts down m_device (if present) and pops both contexts.
         //! Derived backends override and CALL THIS FIRST before their own teardown.
         void ShutdownInternal() override;
     };

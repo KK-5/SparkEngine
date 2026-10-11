@@ -113,37 +113,45 @@ namespace Spark::RHI
 
     //////////////////////////////////////////////////////////////
     // Upload pipeline components
-    // Buffer state machine: [UploadPendingTag] → [PendingSync] → [done]
-    // Image  state machine: [UploadPendingTag] → [PendingSync] → [done]
-
-    // Discovery tag — entity has staged upload data not yet flushed to GPU.
-    struct UploadPendingTag {};
-
-    // CPU source data for a buffer upload. Caller guarantees m_data is valid
-    // until PendingBufferUpload is removed from the entity.
     //
-    // NOTE: re-upload safety uses a CPU-side skip — if the target carries a
-    // PendingSync whose fence hasn't reached its value yet, AsyncUploadSystem
-    // silently leaves the entity for the next frame instead of submitting now.
-    // The entity stays in (UploadPendingTag + PendingBufferUpload) state across
-    // these retries, so m_data must remain valid until the upload is actually
-    // submitted — potentially several frames after the caller added the
-    // component. For first-upload (no prior PendingSync) this lifetime extension
-    // is a no-op.
-    struct PendingBufferUpload
+    // An upload is one entity of RHIEventContext, made by RequestBufferUpload /
+    // RequestImageUpload and destroyed by AsyncUploadSystem once it is over. It carries one
+    // of the state tags below. A resource may have several at a time, each writing its own
+    // part.
+
+    // The request has not been taken into a batch yet.
+    struct UploadRequestedTag {};
+
+    // The request is in a batch on the copy queue. Comes with UploadBatch.
+    struct UploadingTag {};
+
+    // On the RESOURCE entity while uploads into it are not over: how many. What a reader
+    // of the resource asks, with the handle it already has.
+    struct PendingUploads
     {
+        uint32_t m_count = 0;
+    };
+
+    // A buffer upload: the resource entity it writes and the CPU source data. The upload
+    // thread reads m_data, so the caller keeps it valid until the upload is over.
+    //
+    // NOTE: if the target carries a PendingSync whose fence hasn't reached its value yet,
+    // AsyncUploadSystem leaves the request for the next frame instead of submitting it.
+    struct BufferUploadRequest
+    {
+        RHIHandle   m_target            = NullHandle;
         const void* m_data              = nullptr;
         size_t      m_dataSize          = 0;
         uint64_t    m_destinationOffset = 0;
     };
 
-    // CPU source data for an image upload. Same m_data lifetime contract as
-    // PendingBufferUpload (including the CPU-side skip retry behavior).
+    // An image upload. Same m_data lifetime contract as BufferUploadRequest.
     // m_range specifies the subresource range to upload; per-subresource
     // layout (row pitch, image size, dimensions) is queried from the target
     // Image at execution time via GetSubresourceLayouts.
-    struct PendingImageUpload
+    struct ImageUploadRequest
     {
+        RHIHandle             m_target            = NullHandle;
         const void*           m_data              = nullptr;
         size_t                m_dataSize          = 0;
         ImageSubresourceRange m_range {};
@@ -151,10 +159,19 @@ namespace Spark::RHI
         Format                m_sourceFormat      = Format::Unknown;
     };
 
+    // The batch an uploading request is in: its upload is over once the upload fence
+    // reaches m_fenceValue. m_resource keeps the target alive for the upload thread and
+    // is let go of on the main thread.
+    struct UploadBatch
+    {
+        uint64_t      m_fenceValue = 0;
+        Ptr<Resource> m_resource;
+    };
+
     // CPU source data + destination range for a host-buffer write via Map.
     // Processed synchronously by RHIResourceSystem::OnFrameBegin: Map →
     // memcpy → Unmap. Only valid for Host heap buffers; Device heap buffers
-    // must use PendingBufferUpload instead.
+    // must use RequestBufferUpload instead.
     // Caller guarantees m_data is valid until this component is removed.
     struct PendingBufferMap
     {

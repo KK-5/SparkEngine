@@ -43,7 +43,7 @@ namespace Spark::Render
         RHI::RHIHandle m_slotCountEntity = RHI::NullHandle; // InstanceSlotCount — how far g_Instances is in use
 
         // CPU-side source for the one-time ID-buffer upload. Must outlive the async
-        // upload (PendingBufferUpload contract), so it lives for the system's lifetime.
+        // upload (BufferUploadRequest contract), so it lives for the system's lifetime.
         eastl::vector<uint32_t> m_idData;
     };
 }

@@ -5,6 +5,7 @@
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Factory.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/Command/CopyItem.h>
@@ -26,10 +27,8 @@ namespace Spark::RHI
             return HardwareQueueClass::Graphics;
         }
 
-        // Returns true if the entity should be skipped (validation failed).
-        // On failure, logs the error and removes UploadPendingTag + PendingBufferUpload.
+        // Returns true if the upload into `handle` has to be dropped, with the error logged.
         bool ValidateBufferUpload(
-            RHIContext& ctx,
             RHIHandle handle,
             HardwareQueueClassMask mask,
             bool exclusive,
@@ -40,8 +39,6 @@ namespace Spark::RHI
                 LOG_ERROR("[AsyncUploadSystem] Entity {} target buffer has empty "
                           "m_sharedQueueMask; declare at least one consumer queue.",
                           static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingBufferUpload>(handle);
                 return true;
             }
             if (exclusive && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
@@ -49,8 +46,6 @@ namespace Spark::RHI
                 LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
                           "m_sharedQueueMask, which has no consumer. Set at least one "
                           "non-Copy queue.", static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingBufferUpload>(handle);
                 return true;
             }
             if (exclusive && curState.m_access != AccessFlags::None)
@@ -61,17 +56,13 @@ namespace Spark::RHI
                           "re-uploadable resources.",
                           static_cast<uint32_t>(handle),
                           static_cast<uint32_t>(curState.m_access));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingBufferUpload>(handle);
                 return true;
             }
             return false;
         }
 
-        // Returns true if the entity should be skipped (validation failed).
-        // On failure, logs the error and removes UploadPendingTag + PendingImageUpload.
+        // Returns true if the upload into `handle` has to be dropped, with the error logged.
         bool ValidateImageUpload(
-            RHIContext& ctx,
             RHIHandle handle,
             HardwareQueueClassMask mask,
             bool exclusive,
@@ -82,8 +73,6 @@ namespace Spark::RHI
                 LOG_ERROR("[AsyncUploadSystem] Entity {} target image has empty "
                           "m_sharedQueueMask; declare at least one consumer queue.",
                           static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingImageUpload>(handle);
                 return true;
             }
             if (exclusive && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
@@ -91,8 +80,6 @@ namespace Spark::RHI
                 LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
                           "m_sharedQueueMask, which has no consumer. Set at least one "
                           "non-Copy queue.", static_cast<uint32_t>(handle));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingImageUpload>(handle);
                 return true;
             }
             if (exclusive && curState.m_access != AccessFlags::None)
@@ -103,8 +90,6 @@ namespace Spark::RHI
                           "re-uploadable resources.",
                           static_cast<uint32_t>(handle),
                           static_cast<uint32_t>(curState.m_access));
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingImageUpload>(handle);
                 return true;
             }
             return false;
@@ -226,6 +211,17 @@ namespace Spark::RHI
 
         FlushUploadPackets();
 
+        // The requests hold their targets; let go before the pools those came from shut down.
+        if (auto* events = RHIEventExecuteContext::Current())
+        {
+            eastl::vector<RHIEvent> requests;
+            events->GetView<BufferUploadRequest>().each(
+                [&](RHIEvent request, const BufferUploadRequest&) { requests.push_back(request); });
+            events->GetView<ImageUploadRequest>().each(
+                [&](RHIEvent request, const ImageUploadRequest&) { requests.push_back(request); });
+            events->DestoryEntity(requests.begin(), requests.end());
+        }
+
         for (auto& packet : m_packets)
         {
             m_stagingPool->UnmapBuffer(*packet.m_stagingBuffer);
@@ -236,13 +232,34 @@ namespace Spark::RHI
 
     void AsyncUploadSystem::OnFrameBegin()
     {
-        auto& ctx = *RHIExecuteContext::Current();
+        auto& ctx    = *RHIExecuteContext::Current();
+        auto& events = *RHIEventExecuteContext::Current();
 
-        // Submitted upload entities carry PendingSync with the upload fence.
+        FinishUploads(ctx, events);
+
+        // The targets of submitted requests carry PendingSync with the upload fence.
         // The RG barrier compiler consumes PendingSync on first cross-queue
         // touch → ExternalWait on that attachment → executer emits queue.Wait before
-        // the acquire barrier. No CPU-side poll step needed.
-        SubmitBatch(ctx);
+        // the acquire barrier.
+        SubmitBatch(ctx, events);
+    }
+
+    void AsyncUploadSystem::FinishUploads(RHIContext& ctx, RHIEventContext& events)
+    {
+        const uint64_t completed = m_uploadFence->GetCompletedValue();
+
+        eastl::vector<RHIEvent> done;
+        events.GetView<UploadingTag, UploadBatch>().each([&](RHIEvent request, const UploadBatch& batch)
+        {
+            if (batch.m_fenceValue <= completed)
+            {
+                done.push_back(request);
+            }
+        });
+        for (RHIEvent request : done)
+        {
+            FinishUploadRequest(ctx, events, request);
+        }
     }
 
     void AsyncUploadSystem::FlushUploadPackets()
@@ -254,10 +271,10 @@ namespace Spark::RHI
         }
     }
 
-    void AsyncUploadSystem::SubmitBatch(RHIContext& ctx)
+    void AsyncUploadSystem::SubmitBatch(RHIContext& ctx, RHIEventContext& events)
     {
-        auto bufferView = ctx.GetView<UploadPendingTag, PendingBufferUpload>();
-        auto imageView  = ctx.GetView<UploadPendingTag, PendingImageUpload>();
+        auto bufferView = events.GetView<UploadRequestedTag, BufferUploadRequest>();
+        auto imageView  = events.GetView<UploadRequestedTag, ImageUploadRequest>();
 
         Batch batch;
         batch.m_bufferUploads.reserve(bufferView.size_hint());
@@ -265,11 +282,28 @@ namespace Spark::RHI
         batch.m_bufferReleaseBarriers.reserve(bufferView.size_hint());
         batch.m_imageReleaseBarriers.reserve(imageView.size_hint());
 
-        eastl::vector<RHIHandle> touchedEntities;
-        touchedEntities.reserve(bufferView.size_hint() + imageView.size_hint());
-
-        bufferView.each([&](RHIHandle handle, const PendingBufferUpload& pending)
+        struct Taken
         {
+            RHIEvent      m_request;
+            RHIHandle     m_target;
+            Ptr<Resource> m_resource;
+        };
+        eastl::vector<Taken> taken;
+        taken.reserve(bufferView.size_hint() + imageView.size_hint());
+
+        // Requests that cannot be uploaded. Over once both views are walked.
+        eastl::vector<RHIEvent> dropped;
+
+        bufferView.each([&](RHIEvent request, const BufferUploadRequest& pending)
+        {
+            const RHIHandle handle = pending.m_target;
+            if (!ctx.Valid(handle))
+            {
+                // The target went before its upload was taken.
+                dropped.push_back(request);
+                return;
+            }
+
             auto* owning = ctx.TryGet<Components::Buffer>(handle);
             if (!owning || !owning->m_buffer)
             {
@@ -283,19 +317,18 @@ namespace Spark::RHI
                 // CPU-mapped and the caller should write to them directly via Map().
                 if (ctx.TryGet<Components::BufferPerFrame>(handle))
                 {
-                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingBufferUpload "
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} has a buffer upload requested "
                               "but is host-visible (BufferPerFrame). Write via Map() "
                               "instead of staging upload.",
                               static_cast<uint32_t>(handle));
                 }
                 else
                 {
-                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingBufferUpload "
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} has a buffer upload requested "
                               "but has no materialized Buffer and no PendingBufferInit.",
                               static_cast<uint32_t>(handle));
                 }
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingBufferUpload>(handle);
+                dropped.push_back(request);
                 return;
             }
 
@@ -305,8 +338,11 @@ namespace Spark::RHI
             const bool  exclusive = IsExclusiveQueueMask(mask);
             const ResourceState curState = target->GetResourceState();
 
-            if (ValidateBufferUpload(ctx, handle, mask, exclusive, curState))
+            if (ValidateBufferUpload(handle, mask, exclusive, curState))
+            {
+                dropped.push_back(request);
                 return;
+            }
 
             if (auto* sync = ctx.TryGet<PendingSync>(handle))
             {
@@ -341,14 +377,18 @@ namespace Spark::RHI
                 batch.m_bufferReleaseBarriers.push_back(barrier);
             }
 
-            touchedEntities.push_back(handle);
-
-            ctx.Remove<UploadPendingTag>(handle);
-            ctx.Remove<PendingBufferUpload>(handle);
+            taken.push_back(Taken{ request, handle, Ptr<Resource>(target) });
         });
 
-        imageView.each([&](RHIHandle handle, const PendingImageUpload& pending)
+        imageView.each([&](RHIEvent request, const ImageUploadRequest& pending)
         {
+            const RHIHandle handle = pending.m_target;
+            if (!ctx.Valid(handle))
+            {
+                dropped.push_back(request);
+                return;
+            }
+
             auto* owning = ctx.TryGet<Components::Image>(handle);
             if (!owning || !owning->m_image)
             {
@@ -359,19 +399,18 @@ namespace Spark::RHI
                 }
                 if (ctx.TryGet<Components::ImagePerFrame>(handle))
                 {
-                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingImageUpload "
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} has an image upload requested "
                               "but is host-visible (ImagePerFrame). Staging upload is "
                               "not supported for per-frame images.",
                               static_cast<uint32_t>(handle));
                 }
                 else
                 {
-                    LOG_ERROR("[AsyncUploadSystem] Entity {} carries PendingImageUpload "
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} has an image upload requested "
                               "but has no materialized Image and no PendingImageInit.",
                               static_cast<uint32_t>(handle));
                 }
-                ctx.Remove<UploadPendingTag>(handle);
-                ctx.Remove<PendingImageUpload>(handle);
+                dropped.push_back(request);
                 return;
             }
 
@@ -381,8 +420,11 @@ namespace Spark::RHI
             const bool  exclusive = IsExclusiveQueueMask(mask);
             const ResourceState curState = target->GetResourceState();
 
-            if (ValidateImageUpload(ctx, handle, mask, exclusive, curState))
+            if (ValidateImageUpload(handle, mask, exclusive, curState))
+            {
+                dropped.push_back(request);
                 return;
+            }
 
             if (auto* sync = ctx.TryGet<PendingSync>(handle))
             {
@@ -417,11 +459,13 @@ namespace Spark::RHI
             barrier.m_dstQueue  = exclusive ? ResolveHomeQueue(mask) : HardwareQueueClass::Copy;
             batch.m_imageReleaseBarriers.push_back(barrier);
 
-            touchedEntities.push_back(handle);
-
-            ctx.Remove<UploadPendingTag>(handle);
-            ctx.Remove<PendingImageUpload>(handle);
+            taken.push_back(Taken{ request, handle, Ptr<Resource>(target) });
         });
+
+        for (RHIEvent request : dropped)
+        {
+            FinishUploadRequest(ctx, events, request);
+        }
 
         if (batch.m_bufferUploads.empty() && batch.m_imageUploads.empty())
         {
@@ -434,14 +478,18 @@ namespace Spark::RHI
         // pending value single-writer.
         batch.m_fenceValue = ++m_batchFenceValue;
 
-        // Producer-side: stamp PendingSync on every touched entity with this
+        // Producer-side: stamp PendingSync on every target with this
         // batch's (m_uploadFence, m_fenceValue). The next cross-queue consumer
         // (RG first-touch) reads it, emits queue.Wait, removes the component,
         // and emits the acquire barrier.
         const PendingSync sync{ m_uploadFence.get(), batch.m_fenceValue };
-        for (RHIHandle handle : touchedEntities)
+        for (Taken& entry : taken)
         {
-            ctx.AddOrReplace<PendingSync>(handle, sync);
+            ctx.AddOrReplace<PendingSync>(entry.m_target, sync);
+            events.Remove<UploadRequestedTag>(entry.m_request);
+            events.Add<UploadingTag>(entry.m_request);
+            events.Add<UploadBatch>(entry.m_request,
+                UploadBatch{ batch.m_fenceValue, eastl::move(entry.m_resource) });
         }
 
         {

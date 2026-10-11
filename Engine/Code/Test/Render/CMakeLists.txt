@@ -12,6 +12,7 @@ option(MESHGEOMETRY_TESTS "Mesh geometry lifetime tests" ON)
 option(GLOBALBUFFER_TESTS "Stable-slot buffer mirror tests" ON)
 option(DRAWMASK_TESTS "Draw classification mask tests" ON)
 option(INDIRECTARGUMENTSOFVIEW_TESTS "Per-view indirect arguments lookup tests" ON)
+option(UPLOADREQUEST_TESTS "Upload request tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -35,6 +36,7 @@ ADD_TEST_SOUECE(MESHGEOMETRY_TESTS "MeshGeometryTest.cpp")
 ADD_TEST_SOUECE(GLOBALBUFFER_TESTS "GlobalBufferTest.cpp")
 ADD_TEST_SOUECE(DRAWMASK_TESTS "DrawMaskTest.cpp")
 ADD_TEST_SOUECE(INDIRECTARGUMENTSOFVIEW_TESTS "IndirectArgumentsOfViewTest.cpp")
+ADD_TEST_SOUECE(UPLOADREQUEST_TESTS "UploadRequestTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 
