@@ -39,6 +39,7 @@
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
+#include <RenderGraph/RenderGraphUtils.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
 #include <Drawable/GeometrySpec.h>
@@ -218,7 +219,11 @@ namespace Spark::SandBox
                 s.Constant(RHI::InputName("g_Colors"), m_colors);
                 // TriangleMVP.hlsl's root constant: unset, it would be 0 and the triangle black.
                 s.Constant(RHI::InputName("tint"), Math::Vector4(1.f, 1.f, 1.f, 1.f));
-                s.Accepts<SampleDrawTag>();
+                // Nothing is drawn until the triangle's upload lands.
+                if (Render::IsResourceReady(*RHI::RHIExecuteContext::Current(), m_vertexBuffer))
+                {
+                    s.Accepts<SampleDrawTag>();
+                }
                 s.Close();
             })
             .Finalize();

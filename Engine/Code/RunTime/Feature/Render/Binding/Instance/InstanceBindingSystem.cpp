@@ -16,6 +16,7 @@
 #include <Resource/Shader/ShaderBuilder.h>
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticBufferAttachment + Attachment enums
+#include <RenderGraph/RenderGraphUtils.h>   // IsResourceReady
 
 #include <Math/MathUtils.h>
 
@@ -201,7 +202,9 @@ namespace Spark::Render
 
         if (m_slotCountEntity != RHI::NullHandle)
         {
-            rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ m_instances.Size() });
+            // No slot until the ID buffer's upload is over: a draw of any slot reads it.
+            const uint32_t slotCount = IsResourceReady(*rhiCtx, m_idBufferEntity) ? m_instances.Size() : 0;
+            rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ slotCount });
         }
 
         // Only encoded renderables hold a slot, so history starts on the frame they were first written.

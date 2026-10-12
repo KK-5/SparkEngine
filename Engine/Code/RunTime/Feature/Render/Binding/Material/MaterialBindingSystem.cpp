@@ -27,6 +27,7 @@
 #include <Material/MaterialUtils.h>
 
 #include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
+#include <RenderGraph/RenderGraphUtils.h>   // IsResourceReady
 
 namespace Spark::Render
 {
@@ -44,12 +45,7 @@ namespace Spark::Render
                 return InvalidTextureIndex;
             }
             const RHI::RHIHandle handle = tex->m_handles[slot];
-            if (handle == RHI::NullHandle)
-            {
-                return InvalidTextureIndex;
-            }
-            auto* imgComp = rhiCtx.TryGet<RHI::Components::Image>(handle);
-            if (!imgComp || !imgComp->m_image)
+            if (!IsResourceReady(rhiCtx, handle))
             {
                 return InvalidTextureIndex;
             }
@@ -68,7 +64,7 @@ namespace Spark::Render
             }
 
             RHI::ImageView* view = RHI::GetOrCreateImageView(
-                rhiCtx, handle, *imgComp->m_image, RHI::ImageViewDescriptor{});
+                rhiCtx, handle, *rhiCtx.Get<RHI::Components::Image>(handle).m_image, RHI::ImageViewDescriptor{});
             return view ? view->GetBindlessReadIndex() : InvalidTextureIndex;
         }
     }

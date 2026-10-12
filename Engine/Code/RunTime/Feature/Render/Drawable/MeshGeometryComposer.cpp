@@ -10,6 +10,7 @@
 #include <RHI/Command/DrawItem.h>
 
 #include <Pass/Component/RHIComponents.h>
+#include <RenderGraph/RenderGraphUtils.h>
 
 #include <Geometry/MeshGeometry.h>
 
@@ -85,9 +86,9 @@ namespace Spark::Render
                 : 0;
         });
 
-        if (idBufferEntity == RHI::NullHandle || idBufferByteCount == 0)
+        if (!IsResourceReady(*rhiCtx, idBufferEntity))
         {
-            // Warmup frame — globals not yet materialized.
+            // Warmup frame — globals not yet materialized and uploaded.
             return;
         }
 

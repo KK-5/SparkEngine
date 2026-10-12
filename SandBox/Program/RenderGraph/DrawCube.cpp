@@ -306,8 +306,9 @@ namespace Spark::SandBox
                 // The camera comes from the view's g_Views row; these are the pass's own.
                 s.Constant(RHI::InputName("g_Model"), m_modelMatrix);
                 s.Sampler(RHI::InputName("g_Sampler"), m_samplerState);
+                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 // Until its upload lands the texture is left unbound, which reads as black.
-                if (Render::IsResourceReady(*RHI::RHIExecuteContext::Current(), m_baseColor))
+                if (Render::IsResourceReady(rhiCtx, m_baseColor))
                 {
                     p.Import(RHI::AttachmentId("BaseColor"), m_baseColor);
                     s.ReadImage(RHI::AttachmentId("BaseColor"))
@@ -315,7 +316,11 @@ namespace Spark::SandBox
                         .Bind(RHI::InputName("g_Texture"));
                 }
 
-                s.Accepts<SampleDrawTag>();
+                // Nothing is drawn until the cube's own uploads land.
+                if (Render::IsResourceReady(rhiCtx, m_vertexBuffer) && Render::IsResourceReady(rhiCtx, m_indexBuffer))
+                {
+                    s.Accepts<SampleDrawTag>();
+                }
                 s.Close();
             })
             .Finalize();
