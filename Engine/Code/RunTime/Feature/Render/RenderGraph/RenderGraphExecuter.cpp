@@ -207,26 +207,8 @@ namespace Spark::Render
         passContext.Clear<PassGlobalTimeline>();
     }
 
-    void RenderGraphExecuter::ExecuteStaticPreBarriers(RHI::CommandList* commandList, uint32_t queueIndex)
-    {
-        const auto& barriers = m_staticPreBarriers[queueIndex];
-
-        for (const auto& b : barriers.m_imageBarriers)
-        {
-            commandList->QueueBarrier(b);
-        }
-
-        for (const auto& b : barriers.m_bufferBarriers)
-        {
-            commandList->QueueBarrier(b);
-        }
-
-        commandList->FlushBarriers();
-    }
-
     void RenderGraphExecuter::ExecuteScopes(
-        RHIContext& rhiContext, RHI::HardwareQueueClassMask activeQueues,
-        RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues)
+        RHIContext& rhiContext, RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues)
     {
         eastl::array<RHI::CommandList*, RHI::HardwareQueueClassCount> recording {};
 
@@ -253,26 +235,6 @@ namespace Spark::Render
             queues.GetCommandQueue(queueClass).ExecuteCommands({ &commandList, 1 });
             commandList = nullptr;
         };
-
-        // Static imports settle before anything else on their queue.
-        for (uint32_t queueIndex = 0; queueIndex < RHI::HardwareQueueClassCount; ++queueIndex)
-        {
-            const auto queueClass = static_cast<RHI::HardwareQueueClass>(queueIndex);
-            if (!CheckBitsAny(activeQueues, RHI::GetHardwareQueueClassMask(queueClass)))
-            {
-                continue;
-            }
-
-            const StaticPreBarriers& staticPre = m_staticPreBarriers[queueIndex];
-            for (const auto& sync : staticPre.m_fenceWaits)
-            {
-                queues.GetCommandQueue(queueClass).Wait(*sync.m_fence, sync.m_fenceValue);
-            }
-            if (!staticPre.m_imageBarriers.empty() || !staticPre.m_bufferBarriers.empty())
-            {
-                ExecuteStaticPreBarriers(open(queueClass), queueIndex);
-            }
-        }
 
         for (auto [scope, data] : rhiContext.GetStorage<Scope>().each())
         {

@@ -205,6 +205,23 @@ namespace Spark::RHI
         return MakeImageBarrier(image, AccessFlags::Present, AttachmentStage::Uninitialized);
     }
 
+    AccessFlags GetReadOnlyAccess(const Buffer& buffer)
+    {
+        constexpr AccessFlags reads[] = {
+            AccessFlags::TransferRead, AccessFlags::ShaderSampledRead, AccessFlags::ConstantBufferRead,
+            AccessFlags::VertexIndexInput, AccessFlags::IndirectRead, AccessFlags::PredicationRead };
+
+        AccessFlags access = AccessFlags::None;
+        for (AccessFlags read : reads)
+        {
+            if (IsBufferAccessSupported(buffer, read))
+            {
+                access |= read;
+            }
+        }
+        return access;
+    }
+
     namespace
     {
         //! Cross-queue ownership transfer requires the resource to be visible

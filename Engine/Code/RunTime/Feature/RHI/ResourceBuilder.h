@@ -12,6 +12,7 @@
 #include <Service/Service.h>
 
 #include <RHI/Component/Component.h>
+#include <RHI/Component/EventComponent.h>
 #include <RHI/Context/RHIEventContext.h>
 #include <RHI/Factory.h>
 

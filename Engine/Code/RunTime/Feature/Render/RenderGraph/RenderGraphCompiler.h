@@ -22,18 +22,6 @@ namespace Spark::RHI
 namespace Spark::Render
 {
 
-    // Per-queue pre-frame barriers for static resources (StaticImportTag).
-    // Compiled once before the per-pass compile hooks, executed before any Scope
-    // on each queue. Empty after the first frame when resources reach steady state.
-    struct StaticPreBarriers
-    {
-        eastl::vector<RHI::PendingSync>  m_fenceWaits;
-        eastl::vector<RHI::ImageBarrier> m_imageBarriers;
-        eastl::vector<RHI::BufferBarrier> m_bufferBarriers;
-    };
-
-    using StaticPreBarrierTable = eastl::array<StaticPreBarriers, static_cast<size_t>(RHI::HardwareQueueClass::Count)>;
-
     class RenderGraphCompiler
     {
     public:
@@ -66,8 +54,8 @@ namespace Spark::Render
         //! CompileExtractedImages. Nothing may add or remove any of these components afterwards.
         void SortScopes(PassContext& passContext, RHIContext& context);
 
-        //! The queues this frame's Scopes run on, into m_activeQueues: the executer opens each
-        //! of them before the first Scope, and the frame end stamps only those.
+        //! The queues this frame's Scopes run on, into m_activeQueues: the frame end signals
+        //! and stamps only those.
         void CompileActiveQueues(RHIContext& context);
 
         bool IsQueueActive(RHI::HardwareQueueClass queue) const
@@ -100,13 +88,6 @@ namespace Spark::Render
         //! on the Scope. Colors go by ColorAttachmentIndex, not storage order. Runs after
         //! SortScopes.
         void CompileScopeBeginInfo(PassContext& passContext, RHIContext& context);
-
-        //! Compile per-queue pre-frame fence-waits + acquire-barriers for all
-        //! StaticImportTag attachments. Called once before the per-pass compile
-        //! hooks. Reads RHI resource state directly — after the first frame the
-        //! resource is in its steady state and the resulting barrier lists are empty.
-        //! A buffer several queues share is waited for by its fence alone, whichever queue left it.
-        StaticPreBarrierTable CompileStaticResourceBarriers(RHIContext& context);
 
         //! Compile PSO for each non-custom pipeline pass and cache the result
         //! as PassCompiledPSO on the pass entity. Skips passes that already have

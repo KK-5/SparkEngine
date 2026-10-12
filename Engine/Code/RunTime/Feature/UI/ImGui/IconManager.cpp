@@ -68,6 +68,7 @@ namespace Spark::UI
             imageData->GetHeight(),
             imageData->GetFormat());
         imageDesc.m_mipLevels = static_cast<uint16_t>(imageData->GetMipLevels());
+        imageDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
         RHI::RHIHandle imageEntity = RHI::CreateStaticImage(
             *rhiCtx,

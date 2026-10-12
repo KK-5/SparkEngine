@@ -121,6 +121,9 @@ namespace Spark::RHI
     ImageBarrier ConvertToShadingRate(Image& image);
     ImageBarrier ConvertToPresent(Image& image);
 
+    //! Every read the buffer's bind flags allow, and no write.
+    AccessFlags GetReadOnlyAccess(const Buffer& buffer);
+
     //! Validates whether destination state is supported by the resource bind flags.
     //! Returns false and reports an error if the transition is invalid.
     bool ValidateBufferBarrier(const BufferBarrier& barrier);

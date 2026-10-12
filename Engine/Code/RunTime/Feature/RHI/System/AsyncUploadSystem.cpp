@@ -1,5 +1,8 @@
 #include "AsyncUploadSystem.h"
 
+#include <EASTL/algorithm.h>
+#include <EASTL/array.h>
+
 #include <Log/ILogSystem.h>
 #include <Math/Bit.h>
 
@@ -8,6 +11,7 @@
 #include <RHI/ResourceBuilder.h>
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Command/CommandList.h>
+#include <RHI/Command/CommandQueueContext.h>
 #include <RHI/Command/CopyItem.h>
 
 namespace Spark::RHI
@@ -61,13 +65,10 @@ namespace Spark::RHI
             return false;
         }
 
-        // Returns true if the upload into `handle` has to be dropped, with the error logged.
-        bool ValidateImageUpload(
-            RHIHandle handle,
-            HardwareQueueClassMask mask,
-            bool exclusive,
-            const ResourceState& curState)
+        // Returns true if the upload into `range` of `image` has to be dropped, with the error logged.
+        bool ValidateImageUpload(RHIHandle handle, const Image& image, const ImageSubresourceRange& range)
         {
+            const HardwareQueueClassMask mask = image.GetDescriptor().m_sharedQueueMask;
             if (mask == HardwareQueueClassMask::None)
             {
                 LOG_ERROR("[AsyncUploadSystem] Entity {} target image has empty "
@@ -75,24 +76,155 @@ namespace Spark::RHI
                           static_cast<uint32_t>(handle));
                 return true;
             }
-            if (exclusive && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
+            // Its layout would be changed on one of its queues with the others not ordered
+            // behind that.
+            if (!IsExclusiveQueueMask(mask))
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} target image is shared by several queues "
+                          "(m_sharedQueueMask=0x{:x}); uploading into one is not supported.",
+                          static_cast<uint32_t>(handle), static_cast<uint32_t>(mask));
+                return true;
+            }
+            if (ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
             {
                 LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
                           "m_sharedQueueMask, which has no consumer. Set at least one "
                           "non-Copy queue.", static_cast<uint32_t>(handle));
                 return true;
             }
-            if (exclusive && curState.m_access != AccessFlags::None)
+
+            ImageSubresourceStates::SpanList spans;
+            image.GetSubresourceStates().GetSpans(range, spans);
+            for (const ImageSubresourceSpan& span : spans)
             {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
-                          "(access=0x{:x}). Exclusive resources cannot be re-uploaded -- "
-                          "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
-                          "re-uploadable resources.",
-                          static_cast<uint32_t>(handle),
-                          static_cast<uint32_t>(curState.m_access));
-                return true;
+                if (span.m_state.m_access != AccessFlags::None)
+                {
+                    LOG_ERROR("[AsyncUploadSystem] Entity {} has subresources already in use "
+                              "(access=0x{:x}) among those the upload writes. Only new "
+                              "subresources can be uploaded into.",
+                              static_cast<uint32_t>(handle),
+                              static_cast<uint32_t>(span.m_state.m_access));
+                    return true;
+                }
             }
             return false;
+        }
+
+        // What an upload hands over to the queue that owns its target: the Copy queue records
+        // it to release, the owner to acquire, the same barrier both times. The buffer is
+        // left readable in every way its bind flags allow; with none it stays as the copy
+        // left it, for the render graph to take from there.
+        BufferBarrier MakeBufferHandoff(Buffer& buffer)
+        {
+            const AccessFlags reads = GetReadOnlyAccess(buffer);
+            const bool        read  = reads != AccessFlags::None;
+
+            BufferBarrier barrier;
+            barrier.m_buffer    = &buffer;
+            barrier.m_srcAccess = AccessFlags::TransferWrite;
+            barrier.m_srcStage  = AttachmentStage::Copy;
+            barrier.m_srcQueue  = HardwareQueueClass::Copy;
+            barrier.m_dstAccess = read ? reads : AccessFlags::TransferWrite;
+            barrier.m_dstStage  = read ? AttachmentStage::Any : AttachmentStage::Copy;
+            barrier.m_dstQueue  = ResolveHomeQueue(buffer.GetDescriptor().m_sharedQueueMask);
+            return barrier;
+        }
+
+        // Image counterpart of MakeBufferHandoff, over the subresources the upload wrote.
+        // Sampling is the one use of an image no pass declares, so an image that can be
+        // sampled is left ready for it; any other keeps the copy's layout for the render
+        // graph to take from there.
+        ImageBarrier MakeImageHandoff(Image& image, const ImageSubresourceRange& range)
+        {
+            const ImageDescriptor& descriptor = image.GetDescriptor();
+            const bool sampled = CheckBitsAny(descriptor.m_bindFlags, ImageBindFlags::ShaderRead);
+
+            ImageBarrier barrier;
+            barrier.m_image     = &image;
+            barrier.m_range     = range;
+            barrier.m_srcAccess = AccessFlags::TransferWrite;
+            barrier.m_srcStage  = AttachmentStage::Copy;
+            barrier.m_srcQueue  = HardwareQueueClass::Copy;
+            barrier.m_dstAccess = sampled ? AccessFlags::ShaderSampledRead : AccessFlags::TransferWrite;
+            barrier.m_dstStage  = sampled ? AttachmentStage::Any : AttachmentStage::Copy;
+            barrier.m_dstQueue  = ResolveHomeQueue(descriptor.m_sharedQueueMask);
+            return barrier;
+        }
+
+        // Puts on a request whose copy is over the barrier that takes its target back, and
+        // moves it to awaiting that. False when there is none to take: a buffer several
+        // queues share, or a target that is gone.
+        bool AwaitAcquire(RHIContext& ctx, RHIEventContext& events, RHIEvent request)
+        {
+            Resource& resource = *events.Get<UploadBatch>(request).m_resource;
+            if (const auto* bufferUpload = events.TryGet<BufferUploadRequest>(request))
+            {
+                Buffer& buffer = static_cast<Buffer&>(resource);
+                if (!ctx.Valid(bufferUpload->m_target) || !IsExclusiveQueueMask(buffer.GetDescriptor().m_sharedQueueMask))
+                {
+                    return false;
+                }
+                events.Add<BufferBarrier>(request, MakeBufferHandoff(buffer));
+            }
+            else
+            {
+                const ImageUploadRequest& imageUpload = events.Get<ImageUploadRequest>(request);
+                if (!ctx.Valid(imageUpload.m_target))
+                {
+                    return false;
+                }
+                events.Add<ImageBarrier>(request, MakeImageHandoff(static_cast<Image&>(resource), imageUpload.m_range));
+            }
+            events.Remove<UploadingTag>(request);
+            events.Add<UploadAcquirePendingTag>(request);
+            return true;
+        }
+    }
+
+    void ExecuteUploadAcquires(Device& device, CommandQueueContext& queues)
+    {
+        auto& ctx    = *RHIExecuteContext::Current();
+        auto& events = *RHIEventExecuteContext::Current();
+
+        eastl::array<CommandList*, HardwareQueueClassCount> recording {};
+        auto open = [&](HardwareQueueClass queueClass)
+        {
+            CommandList*& commandList = recording[static_cast<uint32_t>(queueClass)];
+            if (!commandList)
+            {
+                commandList = Service<Factory>::Get()->CreateCommandList(device, queueClass);
+                commandList->Open();
+            }
+            return commandList;
+        };
+
+        eastl::vector<RHIEvent> acquired;
+        events.GetView<UploadAcquirePendingTag, BufferBarrier>().each([&](RHIEvent request, const BufferBarrier& barrier)
+        {
+            open(barrier.m_dstQueue)->QueueBarrier(barrier);
+            acquired.push_back(request);
+        });
+        events.GetView<UploadAcquirePendingTag, ImageBarrier>().each([&](RHIEvent request, const ImageBarrier& barrier)
+        {
+            open(barrier.m_dstQueue)->QueueBarrier(barrier);
+            acquired.push_back(request);
+        });
+
+        for (uint32_t queueIndex = 0; queueIndex < HardwareQueueClassCount; ++queueIndex)
+        {
+            CommandList* commandList = recording[queueIndex];
+            if (!commandList)
+            {
+                continue;
+            }
+            commandList->FlushBarriers();
+            commandList->Close();
+            queues.GetCommandQueue(static_cast<HardwareQueueClass>(queueIndex)).ExecuteCommands({ &commandList, 1 });
+        }
+
+        for (RHIEvent request : acquired)
+        {
+            FinishUploadRequest(ctx, events, request);
         }
     }
 
@@ -236,11 +368,6 @@ namespace Spark::RHI
         auto& events = *RHIEventExecuteContext::Current();
 
         FinishUploads(ctx, events);
-
-        // The targets of submitted requests carry PendingSync with the upload fence.
-        // The RG barrier compiler consumes PendingSync on first cross-queue
-        // touch → ExternalWait on that attachment → executer emits queue.Wait before
-        // the acquire barrier.
         SubmitBatch(ctx, events);
     }
 
@@ -248,17 +375,20 @@ namespace Spark::RHI
     {
         const uint64_t completed = m_uploadFence->GetCompletedValue();
 
-        eastl::vector<RHIEvent> done;
+        eastl::vector<RHIEvent> copied;
         events.GetView<UploadingTag, UploadBatch>().each([&](RHIEvent request, const UploadBatch& batch)
         {
             if (batch.m_fenceValue <= completed)
             {
-                done.push_back(request);
+                copied.push_back(request);
             }
         });
-        for (RHIEvent request : done)
+        for (RHIEvent request : copied)
         {
-            FinishUploadRequest(ctx, events, request);
+            if (!AwaitAcquire(ctx, events, request))
+            {
+                FinishUploadRequest(ctx, events, request);
+            }
         }
     }
 
@@ -279,13 +409,13 @@ namespace Spark::RHI
         Batch batch;
         batch.m_bufferUploads.reserve(bufferView.size_hint());
         batch.m_imageUploads.reserve(imageView.size_hint());
+        batch.m_imagePreBarriers.reserve(imageView.size_hint());
         batch.m_bufferReleaseBarriers.reserve(bufferView.size_hint());
         batch.m_imageReleaseBarriers.reserve(imageView.size_hint());
 
         struct Taken
         {
             RHIEvent      m_request;
-            RHIHandle     m_target;
             Ptr<Resource> m_resource;
         };
         eastl::vector<Taken> taken;
@@ -360,24 +490,16 @@ namespace Spark::RHI
             upload.m_destinationOffset = pending.m_destinationOffset;
             batch.m_bufferUploads.push_back(upload);
 
-            // An exclusive buffer is handed over: Copy/Write → COMMON, srcQueue=Copy,
-            // dstQueue=homeQueue (the release half of Vulkan's ownership transfer; DX12 lands
-            // at COMMON). A shared one has no owner and a buffer no layout: the fence is all
-            // that orders this write against the other queues.
+            // An exclusive buffer is released to its queue. A shared one has no owner and a
+            // buffer no layout: the fence is all that orders this write against the other
+            // queues. Neither takes a barrier before the copy: the Copy queue needs no
+            // transfer to write a buffer whose contents it does not keep.
             if (exclusive)
             {
-                BufferBarrier barrier;
-                barrier.m_buffer    = target;
-                barrier.m_srcAccess = AccessFlags::TransferWrite;
-                barrier.m_dstAccess = AccessFlags::None;
-                barrier.m_srcStage  = AttachmentStage::Copy;
-                barrier.m_dstStage  = AttachmentStage::Uninitialized;
-                barrier.m_srcQueue  = HardwareQueueClass::Copy;
-                barrier.m_dstQueue  = ResolveHomeQueue(mask);
-                batch.m_bufferReleaseBarriers.push_back(barrier);
+                batch.m_bufferReleaseBarriers.push_back(MakeBufferHandoff(*target));
             }
 
-            taken.push_back(Taken{ request, handle, Ptr<Resource>(target) });
+            taken.push_back(Taken{ request, Ptr<Resource>(target) });
         });
 
         imageView.each([&](RHIEvent request, const ImageUploadRequest& pending)
@@ -415,12 +537,7 @@ namespace Spark::RHI
             }
 
             Image* target = owning->m_image.get();
-            const auto& desc  = target->GetDescriptor();
-            const auto  mask  = desc.m_sharedQueueMask;
-            const bool  exclusive = IsExclusiveQueueMask(mask);
-            const ResourceState curState = target->GetResourceState();
-
-            if (ValidateImageUpload(handle, mask, exclusive, curState))
+            if (ValidateImageUpload(handle, *target, pending.m_range))
             {
                 dropped.push_back(request);
                 return;
@@ -444,22 +561,22 @@ namespace Spark::RHI
             upload.m_sourceFormat      = pending.m_sourceFormat;
             batch.m_imageUploads.push_back(upload);
 
-            // Release barrier:
-            //  - EXCLUSIVE:  Copy/Write → COMMON, srcQueue=Copy, dstQueue=homeQueue
-            //                (real Vulkan QFOT release half; DX12 lands at COMMON)
-            //  - CONCURRENT: Copy/Write → COMMON, intra-Copy (no QFOT in Vulkan,
-            //                Copy→COMMON in DX12; consumer pulls from there)
-            ImageBarrier barrier;
-            barrier.m_image     = target;
-            barrier.m_srcAccess = AccessFlags::TransferWrite;
-            barrier.m_dstAccess = AccessFlags::None;
-            barrier.m_srcStage  = AttachmentStage::Copy;
-            barrier.m_dstStage  = AttachmentStage::Uninitialized;
-            barrier.m_srcQueue  = HardwareQueueClass::Copy;
-            barrier.m_dstQueue  = exclusive ? ResolveHomeQueue(mask) : HardwareQueueClass::Copy;
-            batch.m_imageReleaseBarriers.push_back(barrier);
+            // The subresources are new, so nothing of theirs is kept: the Copy queue turns
+            // them into a copy destination itself, with no queue to take them from.
+            ImageBarrier pre;
+            pre.m_image     = target;
+            pre.m_range     = pending.m_range;
+            pre.m_srcAccess = AccessFlags::Undefined;
+            pre.m_srcStage  = AttachmentStage::Uninitialized;
+            pre.m_srcQueue  = HardwareQueueClass::Copy;
+            pre.m_dstAccess = AccessFlags::TransferWrite;
+            pre.m_dstStage  = AttachmentStage::Copy;
+            pre.m_dstQueue  = HardwareQueueClass::Copy;
+            batch.m_imagePreBarriers.push_back(pre);
 
-            taken.push_back(Taken{ request, handle, Ptr<Resource>(target) });
+            batch.m_imageReleaseBarriers.push_back(MakeImageHandoff(*target, pending.m_range));
+
+            taken.push_back(Taken{ request, Ptr<Resource>(target) });
         });
 
         for (RHIEvent request : dropped)
@@ -478,14 +595,8 @@ namespace Spark::RHI
         // pending value single-writer.
         batch.m_fenceValue = ++m_batchFenceValue;
 
-        // Producer-side: stamp PendingSync on every target with this
-        // batch's (m_uploadFence, m_fenceValue). The next cross-queue consumer
-        // (RG first-touch) reads it, emits queue.Wait, removes the component,
-        // and emits the acquire barrier.
-        const PendingSync sync{ m_uploadFence.get(), batch.m_fenceValue };
         for (Taken& entry : taken)
         {
-            ctx.AddOrReplace<PendingSync>(entry.m_target, sync);
             events.Remove<UploadRequestedTag>(entry.m_request);
             events.Add<UploadingTag>(entry.m_request);
             events.Add<UploadBatch>(entry.m_request,
@@ -571,39 +682,11 @@ namespace Spark::RHI
             cmdList = packet->m_commandRecorder->GetCommandList();
         };
 
-        // Pre-copy barriers: transition the targets into Copy/Write on the copy queue —
-        // every image, and the buffers one queue owns. A shared buffer takes none (see the
-        // release barrier in SubmitBatch), so its tracked state is never written from this
-        // thread. ConvertTo* auto-populates src* from the resource's tracked state:
-        //  - Fresh resource:     {None, Graphics-default, Uninitialized}
-        //  - Re-upload pickup:   whatever the prior owner left — fence wait was
-        //                        already cleared by SubmitBatch's CPU-side skip-or-proceed
-        //                        check, so prior GPU work is guaranteed complete.
-        // dstQueue is overridden to Copy. Because the resource's tracked m_queue
-        // is rarely Copy in practice, the backend's cross-queue acquire path runs
-        // (DX12: images stay COMMON on the Copy queue). dstStage pinned to Copy.
-        for (const auto& upload : batch.m_bufferUploads)
+        // The one place this thread writes a resource's tracked state: the subresources an
+        // image upload turns into a copy destination.
+        for (const auto& barrier : batch.m_imagePreBarriers)
         {
-            if (!IsExclusiveQueueMask(upload.m_targetBuffer->GetDescriptor().m_sharedQueueMask))
-            {
-                continue;
-            }
-            BufferBarrier pre = ConvertToCopyWrite(*upload.m_targetBuffer);
-            pre.m_dstQueue = HardwareQueueClass::Copy;
-            pre.m_dstStage = AttachmentStage::Copy;
-            cmdList->QueueBarrier(pre);
-        }
-        for (const auto& upload : batch.m_imageUploads)
-        {
-            ImageBarrier pre = ConvertToImageCopyWrite(*upload.m_targetImage);
-            // Nothing released an image another queue left behind, and its layout there may
-            // not be one the Copy queue accepts (DX12). Upload into a new image instead.
-            ASSERT(pre.m_srcAccess == AccessFlags::None || pre.m_srcQueue == HardwareQueueClass::Copy,
-                "[AsyncUploadSystem] Upload into an image last used on queue {}; only fresh images can be uploaded into.",
-                static_cast<uint32_t>(pre.m_srcQueue));
-            pre.m_dstQueue = HardwareQueueClass::Copy;
-            pre.m_dstStage = AttachmentStage::Copy;
-            cmdList->QueueBarrier(pre);
+            cmdList->QueueBarrier(barrier);
         }
         cmdList->FlushBarriers();
 
@@ -764,11 +847,9 @@ namespace Spark::RHI
             }
         }
 
-        // Release barriers: cross-queue handoff to the destination queue. The
-        // backend sees srcQueue == myQueue (Copy) and emits the release half —
-        // for DX12 this is target → COMMON. The acquire half is emitted later
-        // by the RenderGraph executer when a pass first uses the resource
-        // (paired with a fence wait on m_uploadFence).
+        // Release barriers: the release half of the handoff to the queue that owns each
+        // target. The acquire half is the same barrier, put on the request once this batch's
+        // fence is reached (FinishUploads).
         for (const auto& barrier : batch.m_bufferReleaseBarriers)
         {
             cmdList->QueueBarrier(barrier);

@@ -53,16 +53,11 @@ namespace Spark::Render
 
         void End();
 
-        void ExecuteStaticPreBarriers(RHI::CommandList* commandList, uint32_t queueIndex);
-
-        void SetStaticPreBarriers(StaticPreBarrierTable&& table) { m_staticPreBarriers = eastl::move(table); }
-
-        //! Records and submits every Scope in stream order. Each of activeQueues is opened first
-        //! with its static-import waits and barriers, then keeps one CommandList open, submitted
-        //! before a Scope that waits or carries WorkStartTag, and after one that signals.
+        //! Records and submits every Scope in stream order. Each queue keeps one CommandList
+        //! open, submitted before a Scope that waits or carries WorkStartTag, and after one
+        //! that signals.
         void ExecuteScopes(
-            RHIContext& rhiContext, RHI::HardwareQueueClassMask activeQueues,
-            RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues);
+            RHIContext& rhiContext, RHI::Factory& factory, RHI::Device& device, RHI::CommandQueueContext& queues);
 
         //! A Scope's own work, between its barriers: its render pass if it has one, its state,
         //! and its submit range.
@@ -75,8 +70,6 @@ namespace Spark::Render
             const ScopeState& state, const RHI::RenderPassBeginInfo* beginInfo);
 
         eastl::vector<RHI::RHIHandle>& GetSubmitList() { return m_submitList; }
-
-        StaticPreBarrierTable m_staticPreBarriers;
 
         //! This frame's submit sequence, written by lowering: each Scope's ScopeSubmitRange is a
         //! stretch of it. A handle is either a view, whose viewport and viewIndex the items after

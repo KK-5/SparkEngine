@@ -25,15 +25,15 @@ namespace Spark::Render
     //!      Components::Buffer::m_buffer is non-null). Non-trivial resources are created
     //!      lazily by RHIResourceSystem (PendingImageInit / PendingBufferInit), so this
     //!      is false for a frame or two after the entity is declared.
-    //!   2. No upload outstanding — no PendingUploads. AsyncUploadSystem takes it off once
-    //!      the copy queue has finished every upload into the resource, so nothing here
-    //!      waits for that queue on the GPU. Touching the resource before its upload is
-    //!      even submitted would advance its resource state (access) and make the
-    //!      still-pending EXCLUSIVE upload fail AsyncUploadSystem's "already in use" check.
+    //!   2. No upload outstanding — no PendingUploads. It goes once the copy queue has
+    //!      finished every upload into the resource and the queue that owns it has taken it
+    //!      back, so nothing here waits for another queue on the GPU. Touching the resource
+    //!      before its upload is even submitted would advance its resource state (access)
+    //!      and make the still-pending EXCLUSIVE upload fail AsyncUploadSystem's "already
+    //!      in use" check.
     //!
-    //! Both the static-import barrier path (CompileStaticResourceBarriers) and
-    //! imported-resource passes (e.g. SkyboxPass importing its sky cube) gate on this,
-    //! so the two paths share a single definition of "ready".
+    //! Whoever reads an uploaded resource gates on this: what binds or draws it without a
+    //! pass declaring it, and passes that import it (e.g. SkyboxPass importing its sky cube).
     inline bool IsResourceReady(RHI::RHIContext& ctx, RHI::RHIHandle handle)
     {
         if (handle == RHI::NullHandle)
@@ -71,8 +71,7 @@ namespace Spark::Render
     }
 
     //! Compile a pass attachment into the resource state it implies. Fills access only;
-    //! queue/stage stay at their defaults (Any / default) — callers that need the
-    //! steady-state identity pin those themselves (see CompileStaticResourceBarriers).
+    //! queue/stage stay at their defaults.
     template <typename AttachmentT>
     RHI::ResourceState CompileResourceState(const AttachmentT& attachment)
     {

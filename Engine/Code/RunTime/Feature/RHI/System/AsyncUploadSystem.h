@@ -13,6 +13,7 @@
 #include <RHI/Base.h>
 #include <RHI/Bus/FrameEventBus.h>
 #include <RHI/Component/Component.h>
+#include <RHI/Component/EventComponent.h>
 #include <RHI/Context/RHIEventContext.h>
 #include <RHI/Command/CommandQueue.h>
 #include <RHI/Command/CommandRecorder.h>
@@ -21,6 +22,15 @@
 
 namespace Spark::RHI
 {
+    class CommandQueueContext;
+    class Device;
+
+    //! Records the acquire of every upload that awaits one (UploadAcquirePendingTag) on the
+    //! queue that owns its target, one CommandList per queue, and ends those uploads. For
+    //! whoever owns the queues, every frame: after FrameEventBus::OnFrameBegin, which puts
+    //! the barriers on the requests, and before anything reads the targets' states.
+    void ExecuteUploadAcquires(Device& device, CommandQueueContext& queues);
+
     class AsyncUploadSystem final : public ISystem
                                   , public FrameEventBus::Handler
     {
@@ -92,11 +102,11 @@ namespace Spark::RHI
             eastl::vector<BufferUpload>  m_bufferUploads;
             eastl::vector<ImageUpload>   m_imageUploads;
 
-            // Release barriers constructed on the main thread in SubmitBatch.
-            // CONCURRENT images:  intra-Copy Copy/Write → Uninitialized (lands at COMMON).
-            // EXCLUSIVE targets:  cross-queue Copy → homeQueue, srcUsage=Copy/Write → Uninit.
-            // CONCURRENT buffers have none.
-            // The upload thread flushes them after copies.
+            // What the upload thread records around the copies, made on the main thread in
+            // SubmitBatch from the requests alone: the upload thread reads no resource state.
+            // An image is turned into a copy destination first; what one queue owns is
+            // released to it afterwards. A buffer several queues share takes neither.
+            eastl::vector<ImageBarrier>  m_imagePreBarriers;
             eastl::vector<BufferBarrier> m_bufferReleaseBarriers;
             eastl::vector<ImageBarrier>  m_imageReleaseBarriers;
         };
@@ -104,7 +114,8 @@ namespace Spark::RHI
         // CPU-blocking sync flush for init-time paths.
         void FlushUploadPackets();
 
-        //! Ends the requests whose batch the GPU has finished.
+        //! Moves the requests whose batch the GPU has finished on: to awaiting their acquire,
+        //! or to their end when they need none.
         void FinishUploads(RHIContext& ctx, RHIEventContext& events);
 
         void SubmitBatch(RHIContext& ctx, RHIEventContext& events);
@@ -118,9 +129,8 @@ namespace Spark::RHI
         eastl::vector<FramePacket> m_packets;
         uint32_t                 m_currentPacketIndex = 0;
 
-        // External contract fence — signalled exactly once per batch (final value).
-        // PendingSync carries a raw pointer to this fence so the RG barrier
-        // compiler can record the paired graphics-queue fence wait + acquire barrier.
+        // Signalled exactly once per batch (final value); a request's copy is over once it
+        // reaches the value its UploadBatch holds.
         // The upload thread writes fence values via CommandQueue::Signal;
         // the main thread allocates batch fence values through m_batchFenceValue
         // and only reads the completed value.

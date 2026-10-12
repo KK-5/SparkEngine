@@ -13,6 +13,7 @@
 #include <RHI/Resource/Image/ImagePool.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Pipeline/PipelineLibrary.h>
+#include <RHI/System/AsyncUploadSystem.h>
 
 #include <Pass/Pipeline.h>
 #include <Pass/Component/RHIComponents.h>
@@ -209,6 +210,12 @@ namespace Spark::Render
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
         m_commandQueueContext.Begin();
 
+        // Uploads whose copies are over go back to their queues ahead of everything this
+        // frame submits, so Build and Compile see them ready and in their final states.
+        // Relies on no OnFrameBegin handler reading those states: AsyncUploadSystem's puts
+        // the barriers on the requests there, and the bus orders handlers arbitrarily.
+        RHI::ExecuteUploadAcquires(*m_device, m_commandQueueContext);
+
         auto& context = *RHIExecuteContext::Current();
 
         // Refresh borrowed pointers (BackingImage / BackingBuffer / Backing*View)
@@ -259,8 +266,6 @@ namespace Spark::Render
 
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
 
-        StaticPreBarrierTable staticPreBarriers = m_compiler.CompileStaticResourceBarriers(context);
-
         m_compiler.CompileScopeBarriers(passContext, context);
         m_compiler.CompileExternalWaits(context);
         m_compiler.CompileScopeSync(passContext, context, m_crossQueueFences);
@@ -280,12 +285,10 @@ namespace Spark::Render
         // Execute
         m_executer.Begin(frameIndex);
 
-        m_executer.SetStaticPreBarriers(eastl::move(staticPreBarriers));
-
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
-        m_executer.ExecuteScopes(context, m_compiler.m_activeQueues, *factory, *m_device, m_commandQueueContext);
+        m_executer.ExecuteScopes(context, *factory, *m_device, m_commandQueueContext);
 
         // Frame-end: signal each active queue's cross-queue fence one more time.
         // The PendingSync stamp below writes this value onto every imported
@@ -312,9 +315,8 @@ namespace Spark::Render
             queue.Signal(m_crossQueueFences.GetFence(queueClass), value);
         }
 
-        // Stamp PendingSync on every dynamic imported resource the RG touched
-        // this frame, using the producer queue's frame-end fence value (signaled
-        // above). Static imported resources are handled by a separate block below.
+        // Stamp PendingSync on every imported resource the RG touched this frame,
+        // using the producer queue's frame-end fence value (signaled above).
         {
             auto& ctx = *RHIExecuteContext::Current();
             auto stamp = [&](RHIHandle resource, RHI::HardwareQueueClass queue)
@@ -345,64 +347,6 @@ namespace Spark::Render
                         ctx.Has<ResourceName>(resource)
                             ? ctx.Get<ResourceName>(resource).m_name.GetCStr()
                             : "[Unnamed]"));
-                });
-        }
-
-        // Stamp PendingSync on every static imported resource with the home
-        // queue's frame-end fence value.
-        //
-        // Static resources are excluded from per-pass barrier tracking — no
-        // state tracker is created for them, so we cannot tell which
-        // ones were actually sampled this frame. The conservative choice is to
-        // stamp all of them: from the GPU's perspective any texture resident on
-        // the home queue may have been read by a shader, and the upload system
-        // (streaming textures) must wait for this fence before re-uploading.
-        //
-        // Guard: skip if the home queue had no work this frame. Overwriting a
-        // live upload-system PendingSync{copyFence} with a stale completed
-        // Graphics fence would incorrectly signal "safe to re-upload" while
-        // the copy transition is still pending.
-        {
-            auto& ctx = *RHIExecuteContext::Current();
-
-            auto ResolveHomeQueue = [](RHI::HardwareQueueClassMask mask) -> RHI::HardwareQueueClass
-            {
-                if (mask == RHI::HardwareQueueClassMask::Compute) { return RHI::HardwareQueueClass::Compute; }
-                if (mask == RHI::HardwareQueueClassMask::Copy)    { return RHI::HardwareQueueClass::Copy; }
-                return RHI::HardwareQueueClass::Graphics;
-            };
-
-            // StaticImportTag and BackingImage/Buffer all live on resource entities.
-            ctx.GetView<StaticImportTag, BackingImage>().each(
-                [&](RHIHandle resource, const BackingImage& backing)
-                {
-                    if (!backing.m_image) { return; }
-
-                    const auto homeQueue = ResolveHomeQueue(
-                        backing.m_image->GetDescriptor().m_sharedQueueMask);
-                    const auto qi = static_cast<uint32_t>(homeQueue);
-                    if (!m_compiler.IsQueueActive(homeQueue)) { return; }
-
-                    RHI::PendingSync sync;
-                    sync.m_fence      = &m_crossQueueFences.GetFence(homeQueue);
-                    sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
-                    ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
-                });
-
-            ctx.GetView<StaticImportTag, BackingBuffer>().each(
-                [&](RHIHandle resource, const BackingBuffer& backing)
-                {
-                    if (!backing.m_buffer) { return; }
-
-                    const auto homeQueue = ResolveHomeQueue(
-                        backing.m_buffer->GetDescriptor().m_sharedQueueMask);
-                    const auto qi = static_cast<uint32_t>(homeQueue);
-                    if (!m_compiler.IsQueueActive(homeQueue)) { return; }
-
-                    RHI::PendingSync sync;
-                    sync.m_fence      = &m_crossQueueFences.GetFence(homeQueue);
-                    sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
-                    ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
                 });
         }
 
