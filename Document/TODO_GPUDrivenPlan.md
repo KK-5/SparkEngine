@@ -391,6 +391,9 @@ heap 里相邻也合不成一次调用。
   - 改回去之后，步骤 2 的共享路径在引擎本体里暂时没人走，只剩示例 `IndirectDispatch` 打开 `kArgsOnComputeQueue` 时。
   - 独占路径的旧问题重新适用于网格：上传线程发屏障时写 buffer 的状态，渲染图在主线程读。步骤 2 之前所有网格一直是
     这个情况，没有观察到出过事，记在 §六 `PendingSync` 一条里。
+  - 2026-10-12：这一条说的上传与接回已被 `TODO_UploadHandoffPlan.md` 取代。buffer 实体不再带 `StaticImportTag` 与静态 attachment，
+    上传请求是 `RHIEventContext` 里的实体；copy 队列只在拷贝后释放，接回由上传系统在帧开头发，图形队列不在 GPU 上等；
+    上传线程不再读写 buffer 的状态，上面那个旧问题不存在了。
 - **buffer 由几何系统直接建**，不经过 `PendingBufferInit` 与 `RHIResourceSystem`：建对象、设名字、从自己的池初始化、
   建实体挂组件，这几行在几何系统里手写（用户 2026-10-06 定，不放进 `ResourceBuilder.h`）。
 - `InstanceIDBuffer` 不动，仍然走 `RHIResourceSystem`。
@@ -410,6 +413,8 @@ heap 里相邻也合不成一次调用。
 - （步骤 4 改的）每个网格两个 buffer 的上传等待（`CreateStaticBufferAttachment`）在几何系统建 buffer 时注册，
   原来是 composer 在 compose 时注册。图形队列靠它等上传的 fence、把 buffer 接回来，间接绘制同样需要，
   不该取决于 composer 有没有 compose 这个实体。
+  - 2026-10-12：这个注册已经删掉（`TODO_UploadHandoffPlan.md`）。接回由上传系统自己发，不需要任何一方登记；
+    画的一方问 `RHI::IsResourceReady`。
 - `InstanceBindingSystem` 与 `MeshGeometryComposer` 从读 `MeshGPUComponent` 改成读这个组件。
 - 仓库里同形状的是 `MaterialOverrideRef` 与 `SyncOverrideMaterials`：渲染层扫描世界实体，把自己建的东西的句柄挂回去。
 
@@ -799,6 +804,11 @@ D11 已撤销：CPU 提交路径保留不构成一项决策，没有需要权衡
 不动的：DX12 后端的跨队列屏障实现（留给独占模式）；image 的所有路径——image 上传确实两样都要，fence 管先后，
 屏障管 layout。
 
+2026-10-12：上表里上传系统与静态 buffer 的几行已被 `TODO_UploadHandoffPlan.md` 取代。独占的 buffer 只发拷贝后的释放，
+接回由上传系统在帧开头发；上传系统不再盖也不再读 `PendingSync`；`CompileStaticResourceBarriers` 与"静态 buffer"这个类别都没有了，
+共享的 buffer 上传后 fence 完成就就绪，由读的一方在 CPU 上问。`CompileExternalWaits` 与 `CompileBufferAccess` 两行仍然成立。
+下面"共享的 buffer 不区分"一段里说到静态 buffer 的地方同样不再适用。
+
 **等待的判断为什么要改**（定 D12 时漏掉的）：原来"要不要等"看的是 buffer 状态里的队列，上传的屏障把它翻成 Copy，
 图形队列看到不是自己才去等。共享模式不发屏障后它不再变，照旧判断的话图形队列不会等上传。所以共享的 buffer 改看
 `PendingSync`。原表把 `CompileExternalWaits` 列为"不动"，同样是错的。
@@ -1070,6 +1080,9 @@ UE 查的是官方文档与 API 页，源码读不到——每个（视图，pas
   放进 `InstanceBindings.hlsli` 被后端的一条断言挡着。
 - **D12"没有覆盖的"两条。** 实现细节已在步骤 2 定下，见 D12。
 - **`PendingSync` 按用途拆开。** 2026-10-06 与用户对过方向，没有定，也不在步骤 2 内。
+  - 2026-10-12：已在 `TODO_UploadHandoffPlan.md` 里做完，下面留作记录。上传 → 首次使用：改成了 CPU 上判断就绪；
+    使用 → 再次上传：没有做帧 fence，被渲染图跟踪的资源不允许上传，独占资源不允许再次上传；
+    渲染图内部：`PendingSync` 挪进了渲染层，只有渲染图自己盖和读。
   - 现状：资源实体上一个 `{fence, value}` 槽位，后盖的覆盖先盖的，同时承担三种关系——
 
     | 关系 | 谁盖 | 谁读 | 怎么用 |

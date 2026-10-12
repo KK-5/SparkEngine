@@ -3,8 +3,7 @@
 把"资源上传完、交给使用它的队列"这件事整个归上传系统，渲染图不认识这类资源。
 渲染图里的 Static 路径（`StaticImportTag`、挂在资源实体上的 attachment、图开头的等待与屏障、帧末盖 fence）全部删除。
 
-标"待确认"的是写文档时补的、没有和用户讨论过的；其余决定都是用户确认过的。
-§三 标了哪些是查过原文的、哪些是凭记忆的。
+决定都是用户确认过的。§三 标了哪些是查过原文的、哪些是凭记忆的。
 
 ---
 
@@ -14,7 +13,7 @@
 |---|---|---|
 | 1 | `RHIEventContext`；上传请求是独立实体，带状态；就绪在 CPU 上判断；读的一方都问就绪 | 完成 |
 | 2 | 上传系统把接回的屏障写到请求上，队列持有者在帧开头执行；上传线程录的屏障由请求给出；删除渲染图 Static 路径的屏障与等待 | 完成 |
-| 3 | 清理资源上的 attachment、`StaticImportTag`；改名；上传与导入分开，`PendingSync` 收回渲染层（§五） | 未开始 |
+| 3 | 清理资源上的 attachment、`StaticImportTag`；改名；上传与导入分开，`PendingSync` 收回渲染层（§五） | 完成 |
 
 ---
 
@@ -69,22 +68,16 @@ Execute
 | `InstanceIDBuffer` | `InstanceBindingSystem` | 间接绘制：就绪前 `InstanceSlotCount` 写 0，`InstanceCullingPass` 不写绘制记录。逐个绘制：`MeshGeometryComposer` 没就绪不生成 `GeometrySpec` |
 | 材质纹理 | `MaterialTextureSystem` | `MaterialBindingSystem` 的 `ResolveTexIndex` 没就绪返回 `InvalidTextureIndex`，着色器走"没有贴图"的分支 |
 | IBL、BRDF LUT、LTC 两张表 | `SceneBindingSystem` | 它自己问 |
-| 天空盒立方体 | `SkyboxSystem`，`CreateImportedImage` | `SkyboxPass` 就绪后才 `p.Import` |
+| 天空盒立方体 | `SkyboxSystem` | `SkyboxPass` 就绪后才 `p.Import` |
 | UI 图标 | `IconManager` | `UIProcessFeature` 看 `PendingUploads` |
 | 示例的顶点、索引 | `SandBox/Program/RenderGraph/` 下四个示例 | Build 里就绪了才 `Accepts<SampleDrawTag>()` |
-| 示例的贴图（`DrawCube`、`MultiView`） | 同上，`CreateImportedImage` | 就绪后才 `p.Import` |
+| 示例的贴图（`DrawCube`、`MultiView`） | 同上 | 就绪后才 `p.Import` |
 
+- 这些资源都用 `RHI::CreateBuffer` / `RHI::CreateImage` 创建（网格的段由几何系统直接从池里建），就绪用 `RHI::IsResourceReady` 问。
 - 材质记录每帧重新编码，纹理下标随就绪变化不需要额外触发。
-- "上传且导入"的有三处：天空盒立方体和两个示例的贴图。pass 作用域里按名字绑定 image 只有 `p.Import` 加 `ReadImage(...).Bind(...)` 这一条路，
-  没有直接绑视图的接口。`p.Import` 会给还没有 `ImportedTag` 的资源加上它。
+- "先上传、再导入"的有三处：天空盒立方体和两个示例的贴图（D12）。pass 作用域里按名字绑定 image 只有 `p.Import` 加
+  `ReadImage(...).Bind(...)` 这一条路，没有直接绑视图的接口。`p.Import` 会给还没有 `ImportedTag` 的资源加上它。
 - 每一处都是一个资源对象一次传完。
-
-**Static 路径还剩下的**（步骤 3 删）
-
-- `CreateStaticBufferAttachment` / `CreateStaticImageAttachment` 还在被调用，但没有任何东西读它挂的组件。
-- `StaticImportTag` 和四处 `Exclude<StaticImportTag>`。
-- `SubmitBatch` 里"目标带着没完成的 `PendingSync` 就推迟"的检查。
-- `InstanceBindingSystem.cpp`、`RHIComponents.h` 里说"由 `CompileStaticResourceBarriers` 发屏障"的注释，已经不对。
 
 **后端与状态记录**
 
@@ -319,8 +312,9 @@ DX12 的 debug layer 会报，Vulkan 上是错的 layout。没有检查拦着：
 
 `StaticImportTag` 删掉后"Static"不对应任何机制，这个函数也不再加任何标记：它就是默认的那种，要渲染图管的才叫 `CreateImported…`。
 
-- 重名的两处：`Factory::CreateBuffer()` 是成员函数、不带 Context、返回 `Ptr`，调用处看得出区别；
-  `MeshGeometrySystem::CreateBuffer` 是私有函数，改名（改成什么**待确认**）。
+- 同名的：`Factory::CreateBuffer()` 是成员函数、不带 Context、返回 `Ptr`；pass 作用域里的 `p.CreateImage` / `p.CreateBuffer`
+  建的是 transient 资源。调用处都看得出区别。
+- `MeshGeometrySystem` 里原来叫 `CreateBuffer` 的私有函数改成了 `CreateGeometryBuffer`。
 
 `CreateImportedImage` 含义不变：渲染图跟踪它的状态，pass 要声明对它的访问。
 
@@ -352,50 +346,33 @@ DX12 的 debug layer 会报，Vulkan 上是错的 layout。没有检查拦着：
     - **DX12 上落到不分队列的 layout。** 后端现在按队列选 `DIRECT_QUEUE_SHADER_RESOURCE` / `COMPUTE_QUEUE_SHADER_RESOURCE`，
       图形队列转过去计算队列用不了。
 - **DX12 后端对 buffer 的换队列屏障一律不发原生屏障**，像对池里的段那样。那样接回的目标访问在 DX12 上不起作用。
-  它依赖"新 buffer 处于通用访问"（§三，凭记忆），动手前要查规范。
+  规范支持这样做（§三：buffer 在一次提交里第一次被访问不需要屏障）。随"拆开"一起做（§七）。
 - **pass 声明读大 buffer。** 渲染图以后若要写几何 buffer（GPU 蒙皮、压缩整理），它必须变成 pass 声明的导入资源，那时是必需的。
 
 ### D12　上传与导入分开；`PendingSync` 收回渲染层
 
-- **规则**：目标已经带 `ImportedTag` 的上传请求被拒绝（报错，请求直接结束）；
-  `SubmitBatch` 里"目标带着没完成的 `PendingSync` 就推迟"那段检查删掉，上传系统不再读 `PendingSync`。
+- **规则**：目标已经带 `ImportedTag` 的上传请求被拒绝（`SubmitBatch` 里报错，请求直接结束）。上传系统不读 `PendingSync`。
   - 一个资源同时被上传、又被渲染图跟踪，就有两个系统在写它的状态。
-  - 不能只删检查不加拒绝：共享模式的导入资源再次上传时就没有任何保护。
-- **`PendingSync` 只在渲染图内部**：帧末给被 pass 碰过的导入资源盖，下一帧换队列时等。
-  组件从 `RHI/Component/Component.h` 挪到渲染层；那段"所有系统统一遵守"的协议说明重写
-  （它写的"使用方等完后移除"实际没有任何地方做）。
-- **"上传且导入"的三处怎么改**（**待确认**）：天空盒立方体、`DrawCube` 与 `MultiView` 的贴图，现在都是 `CreateImportedImage` 加上传。
-  - 打算：三处都改用 `CreateImage` 创建（创建时不带 `ImportedTag`），pass 一侧不动。就绪后照旧 `p.Import`
-    再 `ReadImage(...).Bind(...)`，`ImportedTag` 由 `p.Import` 在那时加上。
-    - 这是"先上传，交接完再交给渲染图"：请求在 pass 导入之前已经结束，两个系统先后写状态，不同时。
-    - 导入之后它是渲染图跟踪的资源，不能再上传。
-    - 渲染图第一次碰它时，状态是 D7 的"所有阶段只读"，会多一条同队列、只读到只读的屏障，一次。
-  - `SkyboxSystem` 里 `CreateAndUploadImage` 的 `staticImport` 参数随之去掉。
+  - 拒绝放在收走的时候而不是发请求的时候：资源可能在发请求之后才被导入。
+- **`PendingSync` 只在渲染图内部**（`Render::PendingSync`，`Pass/Component/RHIComponents.h`）：帧末给被 pass 碰过的导入资源盖，
+  之后某一帧别的队列接手它时等。
+- **要被 pass 声明、又要上传内容的资源，先上传再导入**：天空盒立方体、`DrawCube` 与 `MultiView` 的贴图。
+  用 `CreateImage` 创建（创建时不带 `ImportedTag`），就绪后 pass 才 `p.Import` 再 `ReadImage(...).Bind(...)`，
+  `ImportedTag` 由 `p.Import` 在那时加上。
+  - 请求在 pass 导入之前已经结束，两个系统先后写状态，不同时。
+  - 导入之后它是渲染图跟踪的资源，不能再上传。
+  - 渲染图第一次碰它时，状态是 D7 的"所有阶段只读"，会多一条同队列、只读到只读的屏障，一次。
 
 ---
 
-## 五、剩下的工作：步骤 3
+## 五、步骤 3 做了什么
 
-- 删除 `CreateStaticBufferAttachment` / `CreateStaticImageAttachment` 及全部调用处；`StaticImportTag`；四处 `Exclude<StaticImportTag>`；
-  §二列的两处过时注释。
-- `IsResourceReady` 和渲染图无关，挪到 RHI 层。
-- 改名（D10），`MeshGeometrySystem` 的私有函数一并改。
-- 上传与导入分开（D12）：三处改用 `CreateImage`；拒绝往带 `ImportedTag` 的目标上传；删掉 `SubmitBatch` 里读 `PendingSync` 的检查；
-  `PendingSync` 挪到渲染层并重写说明。
-- 同步 `TODO_GPUDrivenPlan.md`（D12、§六 `PendingSync` 一条）、`TODO_BufferPoolPlan.md` 里提到 Static 路径与独占路径三条屏障的地方。
-
-动手前要用户确认的两处：三处"上传且导入"的资源的改法（D12）；`MeshGeometrySystem::CreateBuffer` 的新名字（D10）。
-
-涉及的文件：
-
-- `Render/RenderGraph/RenderGraphCompiler.cpp`、`RenderGraphExecuter.cpp`（四处 `Exclude`）、`RenderGraphUtils.h`
-- `Render/Pass/Component/RHIComponents.h`
-- `RHI/Component/Component.h`（删 `StaticImportTag`，`PendingSync` 挪走）与渲染层接收它的头文件
-- `RHI/ResourceBuilder.h`、`RHI/System/AsyncUploadSystem.cpp`
-- `Render/Geometry/MeshGeometrySystem.{h,cpp}`
-- `Feature/Skybox/SkyboxSystem.cpp`、`DrawCube.cpp`、`MultiView.cpp`
-- §二表里的各使用方（去掉 attachment、改名）
-- 两份方案文档
+- 删除了 `CreateStaticBufferAttachment` / `CreateStaticImageAttachment` 及全部调用处、`StaticImportTag`、四处 `Exclude<StaticImportTag>`。
+  渲染图里已经没有任何 Static 路径的东西。
+- `IsResourceReady` 挪到了 RHI 层（`RHI/ResourceBuilder.h`）。
+- 改名（D10）。
+- 上传与导入分开（D12）。
+- `TODO_GPUDrivenPlan.md`、`TODO_BufferPoolPlan.md` 里描述旧的独占路径、静态 attachment、`PendingSync` 的段落各加了一句说明，原文没有改。
 
 ---
 
@@ -403,9 +380,11 @@ DX12 的 debug layer 会报，Vulkan 上是错的 layout。没有检查拦着：
 
 分工：我保证编译和单元测试通过；画面和日志由用户看。编辑器要从仓库根目录启动，并打开一个存好的场景。
 
-- **步骤 3 要看的**：天空盒与两个示例的贴图照常显示；日志里没有 `[D3D12]` 的 error、warning。
+- 三个步骤的画面与日志用户都确认过。
+- **已知的一条告警**：`[D3D12] #1356 … have recorded only Barrier commands`，有上传完成的帧会出现。它是性能提示，
+  说的是只含屏障的提交里屏障不该带同步和访问（§三）。没有单独处理，见 §七"换所有权和改状态拆开"。
 - **单元测试**（`Test/Render/UploadRequestTest.cpp`）覆盖：请求建立时的状态与数据、资源上的计数（每个请求加一、最后一个结束才摘、
-  目标先没了也能结束）。步骤 3 加"往已导入的资源上传被拒"。收走、fence 完成、执行接回要有真的 copy 队列，单元测试测不了。
+  目标先没了也能结束）。收走、校验（包括"往已导入的资源上传被拒"）、fence 完成、执行接回要有真的 copy 队列，单元测试测不了。
 
 **验证不到的**
 
@@ -427,6 +406,19 @@ DX12 的 debug layer 会报，Vulkan 上是错的 layout。没有检查拦着：
 - 所属队列是计算队列、绑定标志里却有 `InputAssembly` 或 `Constant` 的 buffer，落点里有计算队列不支持的访问，DX12 后端会断言。
   这种描述本身是矛盾的，现在没有，没有为它加处理。
 - `RHIEventContext` 里以后还放什么没有定。回读、延迟释放的通知这类"一方产生、另一方过一会处理"的东西是候选。
+
+**换所有权和改状态拆开**（方向与用户对过，没有设计，另起一份文档做）
+
+现在的交接屏障一条里装了三样：从哪个队列到哪个队列、现在是什么状态、以后怎么用。第三样引出了三处麻烦：
+
+- D7 的落点牵动上传线程：释放要和接回一样，提交 batch 时就得知道"以后是什么状态"。
+- DX12 上 buffer 接回要声明之后的全部读法。规范说 buffer 跨提交根本不需要屏障（§三），那座桥是后端自己加的。
+- DX12 的那条告警：同步和访问放在了没有任何使用的提交里。
+
+两个 API 跨提交要交接的东西其实只有：D3D12 是 layout（纹理），Vulkan 是所有权加 layout。访问方式和阶段在两边都不是交接的内容。
+拆开后交接只带所有权和 layout，改状态是同一个队列上的普通屏障，一次上传是"做哪几步"的组合（共享 image 就是只做后一步）。
+它不只动上传系统：`BufferBarrier` / `ImageBarrier` 上"源、目标队列不同就是交接"的约定渲染图处理跨队列资源时也在用。
+另外 D3D12 上采样用的纹理停在 COMMON 就能用，连 layout 都可以不转；按队列区分的 layout 是性能上的取舍。
 
 ---
 
