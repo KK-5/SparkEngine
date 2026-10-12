@@ -71,7 +71,7 @@ namespace Spark::Render
         {
             if (const auto* wait = rhiContext.TryGet<ScopeWait>(scope))
             {
-                for (const RHI::PendingSync& sync : wait->m_sync)
+                for (const PendingSync& sync : wait->m_sync)
                 {
                     if (sync.m_fence)
                     {
@@ -157,11 +157,10 @@ namespace Spark::Render
             // Attachment entities are the pass→resource edges. They live through
             // Build/Compile/Execute (Execute records their barriers) and are destroyed
             // here, after Execute, before next frame's Build.
-            // StaticImport attachments are excluded: they persist by design.
             eastl::vector<RHIHandle> attachmentHandles;
-            rhiContext.GetView<ImagePassAttachment>(Exclude<StaticImportTag>).each(
+            rhiContext.GetView<ImagePassAttachment>().each(
                 [&](RHIHandle h, const ImagePassAttachment&) { attachmentHandles.push_back(h); });
-            rhiContext.GetView<BufferPassAttachment>(Exclude<StaticImportTag>).each(
+            rhiContext.GetView<BufferPassAttachment>().each(
                 [&](RHIHandle h, const BufferPassAttachment&) { attachmentHandles.push_back(h); });
             for (RHIHandle h : attachmentHandles)
             {
@@ -249,7 +248,7 @@ namespace Spark::Render
             }
 
             // A wait holds back only what is submitted after it, so what came before goes first.
-            ForEachScopeWait(rhiContext, scope, attachments, [&](const RHI::PendingSync& sync)
+            ForEachScopeWait(rhiContext, scope, attachments, [&](const PendingSync& sync)
             {
                 submit(queueClass);
                 queue.Wait(*sync.m_fence, sync.m_fenceValue);

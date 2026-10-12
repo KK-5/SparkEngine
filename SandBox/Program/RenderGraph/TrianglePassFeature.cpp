@@ -34,7 +34,6 @@
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
-#include <RenderGraph/RenderGraphUtils.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
 #include <Drawable/GeometrySpec.h>
@@ -130,14 +129,10 @@ namespace Spark::SandBox
         vbDesc.m_byteCount = sizeof(g_triangleVertices);
         vbDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        m_vertexBuffer = Spark::RHI::CreateStaticBuffer(
+        m_vertexBuffer = Spark::RHI::CreateBuffer(
             ctx, ObjectName("TriangleVB"), vbDesc);
         Spark::RHI::RequestBufferUpload(
             ctx, m_vertexBuffer, g_triangleVertices, sizeof(g_triangleVertices));
-        Spark::Render::CreateStaticBufferAttachment(ctx, m_vertexBuffer,
-            Spark::RHI::AttachmentAccess::Read,
-            Spark::RHI::AttachmentUsage::InputAssembly,
-            Spark::RHI::AttachmentStage::VertexInput);
     }
 
     void TrianglePassFeature::CreateView()
@@ -196,7 +191,7 @@ namespace Spark::SandBox
                 s.Constant(Spark::RHI::InputName("g_Colors"), m_colors);
                 s.Constant(Spark::RHI::InputName("tint"), m_tint);
                 // Nothing is drawn until the triangle's upload lands.
-                if (Spark::Render::IsResourceReady(*Spark::RHI::RHIExecuteContext::Current(), m_vertexBuffer))
+                if (Spark::RHI::IsResourceReady(*Spark::RHI::RHIExecuteContext::Current(), m_vertexBuffer))
                 {
                     s.Accepts<SampleDrawTag>();
                 }

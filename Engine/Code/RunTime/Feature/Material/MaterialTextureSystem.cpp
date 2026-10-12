@@ -153,7 +153,7 @@ namespace Spark::Material
         const eastl::string name = eastl::string("MaterialTex_") +
             eastl::to_string(static_cast<unsigned long long>(id.GetHash()));
 
-        RHI::RHIHandle tex = RHI::CreateStaticImage(
+        RHI::RHIHandle tex = RHI::CreateImage(
             rhiCtx, ObjectName(name), desc,
             RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
 

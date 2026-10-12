@@ -31,7 +31,7 @@ namespace Spark::Render
 
         //! A buffer entity of the pool holding a copy of data, or NullHandle if the pool has
         //! no room. data must outlive the upload.
-        RHI::RHIHandle CreateBuffer(
+        RHI::RHIHandle CreateGeometryBuffer(
             RHI::RHIContext& rhiCtx,
             const ObjectName& name,
             const void* data,

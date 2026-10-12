@@ -26,8 +26,7 @@
 #include <Material/MaterialContext.h>
 #include <Material/MaterialUtils.h>
 
-#include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
-#include <RenderGraph/RenderGraphUtils.h>   // IsResourceReady
+#include <Pass/Component/RHIComponents.h>
 
 namespace Spark::Render
 {
@@ -45,22 +44,9 @@ namespace Spark::Render
                 return InvalidTextureIndex;
             }
             const RHI::RHIHandle handle = tex->m_handles[slot];
-            if (!IsResourceReady(rhiCtx, handle))
+            if (!RHI::IsResourceReady(rhiCtx, handle))
             {
                 return InvalidTextureIndex;
-            }
-
-            // Static-import barrier registration lives HERE (moved off
-            // MaterialTextureSystem so the producer stops deciding usage): render
-            // registers the texture's upload→shader-read attachment at its
-            // resolve/sample point. One-time via the Has-check; slot name is unused by
-            // the static-barrier path, so the resource's own ResourceName stands in.
-            if (!rhiCtx.Has<ImagePassAttachment>(handle))
-            {
-                CreateStaticImageAttachment(rhiCtx, handle,
-                    RHI::AttachmentAccess::Read,
-                    RHI::AttachmentUsage::Shader,
-                    RHI::AttachmentStage::FragmentShader);
             }
 
             RHI::ImageView* view = RHI::GetOrCreateImageView(

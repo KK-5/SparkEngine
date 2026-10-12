@@ -710,7 +710,7 @@ namespace Spark::Render
             {
                 continue;
             }
-            const auto* sync = context.TryGet<RHI::PendingSync>(resource);
+            const auto* sync = context.TryGet<PendingSync>(resource);
             if (!sync)
             {
                 continue;
@@ -984,7 +984,7 @@ namespace Spark::Render
                         continue;
                     }
                     waited[queueIndex][source] = signal.m_value;
-                    wait->m_sync[source]       = RHI::PendingSync{ signal.m_fence, signal.m_value };
+                    wait->m_sync[source]       = PendingSync{ signal.m_fence, signal.m_value };
                 }
             }
 
@@ -1422,7 +1422,7 @@ namespace Spark::Render
 
         // 2. Walk attachments, accumulate per-resource lifetime + queue mask + clear value
         //    directly on the resource entity as ECS components.
-        rhiContext.GetView<ImagePassAttachment>(Exclude<StaticImportTag, PreviousFrameTag>).each(
+        rhiContext.GetView<ImagePassAttachment>(Exclude<PreviousFrameTag>).each(
             [&](RHIHandle attachmentHandle, ImagePassAttachment& a)
             {
                 auto it = transientImageByName.find(a.m_attachmentId.m_id);
@@ -1467,7 +1467,7 @@ namespace Spark::Render
                 }
             });
 
-        rhiContext.GetView<BufferPassAttachment>(Exclude<StaticImportTag>).each(
+        rhiContext.GetView<BufferPassAttachment>().each(
             [&](RHIHandle attachmentHandle, BufferPassAttachment& a)
             {
                 auto it = transientBufferByName.find(a.m_attachmentId.m_id);

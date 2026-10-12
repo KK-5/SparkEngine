@@ -31,7 +31,6 @@ namespace Spark::RHI
     // they live in each resource's view cache (see Components::ImageViewCache).
     struct ImportedTag {};
     struct TransientTag {};
-    struct StaticImportTag {};
 
     // Resource multiplicity tags — determines single vs. per-frame allocation.
     // Absence of PerFrameTag defaults to single-frame behavior.
@@ -50,46 +49,6 @@ namespace Spark::RHI
     struct ResourceName
     {
         ObjectName m_name {};
-    };
-
-    //! Cross-system handoff handshake. Present on a resource entity when some
-    //! producer has submitted work touching the resource but no cross-queue
-    //! consumer has yet absorbed the fence.
-    //!
-    //! Producer protocol (uniform across all systems — AsyncUploadSystem, RG, ...):
-    //!     after queue.Signal(myFence, V), for each touched resource:
-    //!         ctx.AddOrReplace<PendingSync>(resource, {&myFence, V});
-    //! Same-queue producers MUST still stamp — the next cross-queue consumer
-    //! relies on the latest value being visible here.
-    //!
-    //! Consumer protocol (first touch of resource on a new queue):
-    //!     if (resource.GetResourceState().m_queue != myQueue) {
-    //!         if (auto* sync = ctx.TryGet<PendingSync>(resource)) {
-    //!             myQueue.Wait(*sync->m_fence, sync->m_fenceValue);
-    //!             ctx.Remove<PendingSync>(resource);
-    //!         }
-    //!         // emit cross-queue acquire barrier
-    //!     }
-    //!     // else same queue — serial execution guarantees happens-before; do nothing.
-    //! A buffer several queues share has no owner in its state and takes no acquire barrier:
-    //! its consumer waits for whatever fence it carries, its own queue's included.
-    //!
-    //! AddOrReplace is safe across the various producer/consumer interleavings:
-    //!  - Cross-queue overwrite: a consumer must have removed the prior PendingSync
-    //!    before the new producer touched the resource, so the overwritten value
-    //!    has already been consumed.
-    //!  - Same-queue overwrite (possibly with different m_fence): queue serial
-    //!    execution guarantees the new fence's signal happens-after the old
-    //!    fence's signal on this queue, so waiting on the new value implies the
-    //!    old work has completed.
-    //!
-    //! Lifetime: m_fence is a non-owning pointer. The owning system (e.g.
-    //! AsyncUploadSystem for m_uploadFence) must outlive any resource that
-    //! carries a PendingSync referencing its fence.
-    struct PendingSync
-    {
-        Fence*   m_fence      = nullptr;
-        uint64_t m_fenceValue = 0;
     };
 
     //////////////////////////////////////////////////////////////

@@ -19,20 +19,32 @@
 namespace Spark::RHI
 {
 
+    //! Is the resource there to be used: its RHI object made (RHIResourceSystem makes it a
+    //! frame or two after the entity) and every upload into it over, the handoff to the
+    //! queue that owns it included. Whoever reads an uploaded resource asks this first.
+    inline bool IsResourceReady(BasicContext<RHIHandle>& ctx, RHIHandle handle)
+    {
+        if (handle == NullHandle || ctx.Has<PendingUploads>(handle))
+        {
+            return false;
+        }
+        if (const auto* image = ctx.TryGet<Components::Image>(handle))
+        {
+            return image->m_image != nullptr;
+        }
+        if (const auto* buffer = ctx.TryGet<Components::Buffer>(handle))
+        {
+            return buffer->m_buffer != nullptr;
+        }
+        return false;
+    }
+
     // === Buffer helpers ===
 
-    //! Create a static-import buffer — uploaded once (or infrequently via streaming)
-    //! and used with a single, pre-declared bind usage (e.g. vertex / index /
-    //! shader-resource).  The render graph does not require it to be imported in
-    //! every build function; the compiler detects
-    //! the resource via StaticImportTag and emits a one-time CopyDst→target-usage
-    //! barrier on first access.
-    //!
-    //! For per-frame CPU-written buffers (e.g. constant / uniform buffers that
-    //! are updated every frame) use CreateDynamicBuffer (ImportedTag) instead —
-    //! that path participates in the per-pass barrier compile and the per-frame
-    //! state tracker.
-    inline RHIHandle CreateStaticBuffer(
+    //! A buffer the render graph does not track: filled by an upload (RequestBufferUpload)
+    //! and read from then on, by whatever binds or draws it once it is ready. A buffer
+    //! passes declare is imported into the graph instead.
+    inline RHIHandle CreateBuffer(
         BasicContext<RHIHandle>& ctx,
         ObjectName name,
         const BufferDescriptor& desc,
@@ -40,7 +52,6 @@ namespace Spark::RHI
         HostMemoryAccess hostAccess = HostMemoryAccess::Write)
     {
         RHIHandle entity = ctx.CreateEntity();
-        ctx.Add<StaticImportTag>(entity);
         ctx.Add<ResourceName>(entity, ResourceName{ name });
         ctx.Add<PendingBufferInit>(entity, PendingBufferInit{ desc, heapLevel, hostAccess });
         return entity;
@@ -109,11 +120,10 @@ namespace Spark::RHI
 
     // === Image helpers ===
 
-    //! Create a static-import image — the primary entry point for material
-    //! textures, cubemaps, and other images that are uploaded once (or via mip
-    //! streaming) and sampled every frame without explicit per-pass registration.
-    //! Same StaticImportTag semantics as CreateStaticBuffer above.
-    inline RHIHandle CreateStaticImage(
+    //! Image counterpart of CreateBuffer: material textures, cubemaps and the like, uploaded
+    //! and then sampled with no pass declaring them. One a pass does declare may start here
+    //! too and be imported once its upload is over; from then on it takes no more uploads.
+    inline RHIHandle CreateImage(
         BasicContext<RHIHandle>& ctx,
         ObjectName name,
         const ImageDescriptor& desc,
@@ -121,7 +131,6 @@ namespace Spark::RHI
         HostMemoryAccess hostAccess = HostMemoryAccess::Write)
     {
         RHIHandle entity = ctx.CreateEntity();
-        ctx.Add<StaticImportTag>(entity);
         ctx.Add<ResourceName>(entity, ResourceName{ name });
         ctx.Add<PendingImageInit>(entity, PendingImageInit{ desc, heapLevel, hostAccess });
         return entity;

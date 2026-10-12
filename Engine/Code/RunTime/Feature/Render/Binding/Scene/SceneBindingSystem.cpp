@@ -37,7 +37,7 @@
 #include <View/ShadowAtlasLayout.h>
 #include <View/ShadowMaskLayout.h>
 
-#include <Pass/Component/RHIComponents.h>   // CreateStaticImageAttachment
+#include <Pass/Component/RHIComponents.h>
 
 #include "RenderGraph/RenderGraphUtils.h"
 #include "SceneBinding.h"
@@ -70,23 +70,6 @@ namespace Spark::Render
         //! Imported by SandBox LTCLutGen and checked in.
         constexpr const char* LTC1AssetPath        = "engine://Image/LTC1.ktx2";
         constexpr const char* LTC2AssetPath        = "engine://Image/LTC2.ktx2";
-
-        //! Register the upload->shader-read attachment at the SAMPLE POINT, like material
-        //! textures do. The static-barrier compiler keys on ImagePassAttachment, not on
-        //! StaticImportTag, so without this these images get neither the state transition
-        //! nor the wait on the upload fence: they stay in CopyWrite on the copy queue and
-        //! only read correctly because DX12 decays copy-queue resources to COMMON and
-        //! re-promotes them on first shader read. Vulkan has neither behaviour.
-        void RegisterStaticShaderRead(RHI::RHIContext& rhiCtx, RHI::RHIHandle handle)
-        {
-            if (!rhiCtx.Has<ImagePassAttachment>(handle))
-            {
-                CreateStaticImageAttachment(rhiCtx, handle,
-                    RHI::AttachmentAccess::Read,
-                    RHI::AttachmentUsage::Shader,
-                    RHI::AttachmentStage::FragmentShader);
-            }
-        }
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -218,9 +201,8 @@ namespace Spark::Render
         desc.m_mipLevels       = static_cast<uint16_t>(lut->GetMipLevels());
         desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
-        // StaticImportTag: sampled every frame, never an attachment, so the compiler emits
-        // its one-time CopyDst->ShaderRead barrier -- same treatment as the IBL cubes.
-        const RHI::RHIHandle handle = RHI::CreateStaticImage(
+        // Sampled every frame and never declared by a pass, like the IBL cubes.
+        const RHI::RHIHandle handle = RHI::CreateImage(
             rhiCtx, ObjectName(name), desc,
             RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
 
@@ -370,9 +352,9 @@ namespace Spark::Render
         // All or nothing: a partially bound set would leave some slot stale while the mip
         // count says "go ahead and sample". The LUT joins the same gate -- without it the
         // specular term has no F0 scale/bias to apply.
-        if (!IsResourceReady(*rhiCtx, gpu->m_irradiance)
-            || !IsResourceReady(*rhiCtx, gpu->m_prefiltered)
-            || !IsResourceReady(*rhiCtx, m_brdfLut))
+        if (!RHI::IsResourceReady(*rhiCtx, gpu->m_irradiance)
+            || !RHI::IsResourceReady(*rhiCtx, gpu->m_prefiltered)
+            || !RHI::IsResourceReady(*rhiCtx, m_brdfLut))
         {
             return result;
         }
@@ -384,10 +366,6 @@ namespace Spark::Render
         {
             return result;
         }
-
-        RegisterStaticShaderRead(*rhiCtx, gpu->m_irradiance);
-        RegisterStaticShaderRead(*rhiCtx, gpu->m_prefiltered);
-        RegisterStaticShaderRead(*rhiCtx, m_brdfLut);
 
         const RHI::ImageViewDescriptor cubeView = RHI::ImageViewDescriptor::CreateCubemap();
         RHI::ImageView* irradianceView = RHI::GetOrCreateImageView(
@@ -415,7 +393,7 @@ namespace Spark::Render
     bool SceneBindingSystem::BindAreaLightLuts(RHI::RHIContext& rhiCtx)
     {
         // Both or neither, for the reason BindEnvironmentIBL gives.
-        if (!IsResourceReady(rhiCtx, m_ltc1) || !IsResourceReady(rhiCtx, m_ltc2))
+        if (!RHI::IsResourceReady(rhiCtx, m_ltc1) || !RHI::IsResourceReady(rhiCtx, m_ltc2))
         {
             return false;
         }
@@ -426,9 +404,6 @@ namespace Spark::Render
         {
             return false;
         }
-
-        RegisterStaticShaderRead(rhiCtx, m_ltc1);
-        RegisterStaticShaderRead(rhiCtx, m_ltc2);
 
         RHI::ImageView* ltc1View = RHI::GetOrCreateImageView(
             rhiCtx, m_ltc1, *ltc1Image->m_image, RHI::ImageViewDescriptor{});

@@ -122,7 +122,7 @@ namespace Spark::Render
     struct ScopeWait
     {
         RHI::RHIHandle   m_producer[RHI::HardwareQueueClassCount] { RHI::NullHandle, RHI::NullHandle, RHI::NullHandle };
-        RHI::PendingSync m_sync[RHI::HardwareQueueClassCount] {};
+        PendingSync m_sync[RHI::HardwareQueueClassCount] {};
     };
 
     //! On a Scope another queue waits for: its queue's cross-queue fence and next value, assigned

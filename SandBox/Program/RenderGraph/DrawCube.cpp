@@ -151,13 +151,9 @@ namespace Spark::SandBox
         vbDesc.m_byteCount = primitive.vertexBuffer.size();
         vbDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        m_vertexBuffer = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeVertex"), vbDesc);
+        m_vertexBuffer = Spark::RHI::CreateBuffer(ctx, ObjectName("CubeVertex"), vbDesc);
         Spark::RHI::RequestBufferUpload(
             ctx, m_vertexBuffer, primitive.vertexBuffer.data(), primitive.vertexBuffer.size());
-        Spark::Render::CreateStaticBufferAttachment(ctx, m_vertexBuffer,
-            Spark::RHI::AttachmentAccess::Read,
-            Spark::RHI::AttachmentUsage::InputAssembly,
-            Spark::RHI::AttachmentStage::VertexInput);
 
         Spark::RHI::BufferDescriptor ibDesc;
         ibDesc.m_bindFlags =
@@ -165,13 +161,9 @@ namespace Spark::SandBox
         ibDesc.m_byteCount = primitive.indexBuffer.size();
         ibDesc.m_sharedQueueMask = Spark::RHI::HardwareQueueClassMask::Graphics;
 
-        m_indexBuffer = Spark::RHI::CreateStaticBuffer(ctx, ObjectName("CubeIndex"), ibDesc);
+        m_indexBuffer = Spark::RHI::CreateBuffer(ctx, ObjectName("CubeIndex"), ibDesc);
         Spark::RHI::RequestBufferUpload(
             ctx, m_indexBuffer, primitive.indexBuffer.data(), primitive.indexBuffer.size());
-        Spark::Render::CreateStaticBufferAttachment(ctx, m_indexBuffer,
-            Spark::RHI::AttachmentAccess::Read,
-            Spark::RHI::AttachmentUsage::InputAssembly,
-            Spark::RHI::AttachmentStage::VertexInput);
     }
 
     void DrawCube::CreateImage()
@@ -187,10 +179,10 @@ namespace Spark::SandBox
         desc.m_mipLevels = m_image->GetMipLevels();
         desc.m_bindFlags = RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite;
 
-        // Imported, not static: the pass declares its read every frame (see CreatePasses), so
-        // the render graph owns its state. A texture that belongs to an object rather than a
-        // pass would stay static and reach the shader through a shared binding, as materials do.
-        m_baseColor = RHI::CreateImportedImage(
+        // The pass imports it once its upload is over and declares its read every frame (see
+        // CreatePasses). A texture that belongs to an object rather than a pass would never be
+        // imported and reach the shader through a shared binding, as materials do.
+        m_baseColor = RHI::CreateImage(
             ctx,
             ObjectName("BaseColorImage"),
             desc,
@@ -308,7 +300,7 @@ namespace Spark::SandBox
                 s.Sampler(RHI::InputName("g_Sampler"), m_samplerState);
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
                 // Until its upload lands the texture is left unbound, which reads as black.
-                if (Render::IsResourceReady(rhiCtx, m_baseColor))
+                if (RHI::IsResourceReady(rhiCtx, m_baseColor))
                 {
                     p.Import(RHI::AttachmentId("BaseColor"), m_baseColor);
                     s.ReadImage(RHI::AttachmentId("BaseColor"))
@@ -317,7 +309,7 @@ namespace Spark::SandBox
                 }
 
                 // Nothing is drawn until the cube's own uploads land.
-                if (Render::IsResourceReady(rhiCtx, m_vertexBuffer) && Render::IsResourceReady(rhiCtx, m_indexBuffer))
+                if (RHI::IsResourceReady(rhiCtx, m_vertexBuffer) && RHI::IsResourceReady(rhiCtx, m_indexBuffer))
                 {
                     s.Accepts<SampleDrawTag>();
                 }

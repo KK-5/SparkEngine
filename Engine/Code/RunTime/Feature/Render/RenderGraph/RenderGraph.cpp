@@ -328,10 +328,10 @@ namespace Spark::Render
                         ? ctx.Get<ResourceName>(resource).m_name.GetCStr()
                         : "[Unnamed]",
                     qi);
-                RHI::PendingSync sync;
+                PendingSync sync;
                 sync.m_fence = &m_crossQueueFences.GetFence(queue);
                 sync.m_fenceValue = m_compiler.m_crossQueueFenceValues[qi];
-                ctx.AddOrReplace<RHI::PendingSync>(resource, sync);
+                ctx.AddOrReplace<PendingSync>(resource, sync);
             };
 
             ctx.GetView<ImportedTag, BufferStateTracker>().each(

@@ -15,8 +15,8 @@
 #include <Resource/Shader/ShaderAsset.h>
 #include <Resource/Shader/ShaderBuilder.h>
 
-#include <Pass/Component/RHIComponents.h>   // CreateStaticBufferAttachment + Attachment enums
-#include <RenderGraph/RenderGraphUtils.h>   // IsResourceReady
+#include <RHI/ResourceBuilder.h>
+#include <Pass/Component/RHIComponents.h>
 
 #include <Math/MathUtils.h>
 
@@ -139,12 +139,8 @@ namespace Spark::Render
         rhiCtx.Add<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ 0 });
 
         // Per-instance vertex-stream ID buffer: static identity table [0..Capacity-1],
-        // uploaded once and read as a vertex stream every frame. It goes through the
-        // StaticImported path (CreateStaticBuffer + static buffer attachment) so the
-        // render graph emits the one-time upload→InputAssembly barrier AND the
-        // copy→graphics fence wait via CompileStaticResourceBarriers — without the
-        // attachment the graphics queue would race the async upload. m_idData is kept
-        // alive for the upload's lifetime (BufferUploadRequest contract).
+        // uploaded once and read as a vertex stream every frame, once it is ready (Update).
+        // m_idData is kept alive for the upload's lifetime (BufferUploadRequest contract).
         {
             m_idData.resize(Capacity);
             for (uint32_t i = 0; i < Capacity; ++i)
@@ -157,13 +153,9 @@ namespace Spark::Render
             bufDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
             bufDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
-            m_idBufferEntity = RHI::CreateStaticBuffer(rhiCtx, ObjectName("InstanceIDBuffer"), bufDesc);
+            m_idBufferEntity = RHI::CreateBuffer(rhiCtx, ObjectName("InstanceIDBuffer"), bufDesc);
             RHI::RequestBufferUpload(
                 rhiCtx, m_idBufferEntity, m_idData.data(), m_idData.size() * sizeof(uint32_t));
-            CreateStaticBufferAttachment(rhiCtx, m_idBufferEntity,
-                RHI::AttachmentAccess::Read,
-                RHI::AttachmentUsage::InputAssembly,
-                RHI::AttachmentStage::VertexInput);
             rhiCtx.Add<InstanceIDBufferTag>(m_idBufferEntity);
         }
     }
@@ -203,7 +195,7 @@ namespace Spark::Render
         if (m_slotCountEntity != RHI::NullHandle)
         {
             // No slot until the ID buffer's upload is over: a draw of any slot reads it.
-            const uint32_t slotCount = IsResourceReady(*rhiCtx, m_idBufferEntity) ? m_instances.Size() : 0;
+            const uint32_t slotCount = RHI::IsResourceReady(*rhiCtx, m_idBufferEntity) ? m_instances.Size() : 0;
             rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ slotCount });
         }
 

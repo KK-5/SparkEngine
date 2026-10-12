@@ -86,16 +86,6 @@ namespace Spark::RHI
             Format                m_sourceFormat      = Format::Unknown;
         };
 
-        // Cross-system handoff fence wait, recorded by SubmitBatch when a
-        // target carries a PendingSync from a different queue's previous
-        // submission. Upload thread emits queue.Wait before the pre-copy
-        // barrier so the prior owner's GPU work is guaranteed complete.
-        struct FenceWait
-        {
-            Fence*   m_fence = nullptr;
-            uint64_t m_value = 0;
-        };
-
         struct Batch
         {
             uint64_t                     m_fenceValue;

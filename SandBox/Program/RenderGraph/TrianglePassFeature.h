@@ -45,10 +45,6 @@ namespace Spark::SandBox
         void Update();
         void BuildGeometry();
 
-        // Vertex buffer (in RHIContext) + raw view entity used to import it as
-        // a buffer attachment in the pass — the attachment path is how RG picks
-        // up PendingSync from AsyncUploadSystem and emits the queue.Wait + acquire
-        // barrier on the graphics queue.
         Spark::RHI::RHIHandle m_vertexBuffer     = Spark::RHI::NullHandle;
 
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;

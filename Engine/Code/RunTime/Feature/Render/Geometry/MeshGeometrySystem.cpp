@@ -169,7 +169,7 @@ namespace Spark::Render
             geometry.m_meshIndex      = meshComp.m_meshIndex;
             geometry.m_primitiveIndex = meshComp.m_primitiveIndex;
             geometry.m_localBounds    = primitive->bounds;
-            geometry.m_vertexBuffer = RHI::UniqueRHIHandle(CreateBuffer(
+            geometry.m_vertexBuffer = RHI::UniqueRHIHandle(CreateGeometryBuffer(
                 *rhiCtx, ObjectName(eastl::string("MeshVB_") + idSuffix),
                 primitive->vertexBuffer.data(), primitive->vertexBuffer.size(),
                 primitive->layout.stride));
@@ -183,7 +183,7 @@ namespace Spark::Render
             if (!primitive->indexBuffer.empty())
             {
                 const uint32_t indexByteSize = RHI::GetIndexFormatSize(primitive->indexFormat);
-                geometry.m_indexBuffer = RHI::UniqueRHIHandle(CreateBuffer(
+                geometry.m_indexBuffer = RHI::UniqueRHIHandle(CreateGeometryBuffer(
                     *rhiCtx, ObjectName(eastl::string("MeshIB_") + idSuffix),
                     primitive->indexBuffer.data(), primitive->indexBuffer.size(),
                     indexByteSize));
@@ -214,8 +214,8 @@ namespace Spark::Render
         world->GetView<MeshGeometry>(Exclude<MeshGeometryReadyTag, DeadTag>).each(
             [&](Entity entity, const MeshGeometry& geometry)
         {
-            if (IsResourceReady(*rhiCtx, geometry.m_vertexBuffer.Get())
-                && (!geometry.m_indexBuffer.IsValid() || IsResourceReady(*rhiCtx, geometry.m_indexBuffer.Get())))
+            if (RHI::IsResourceReady(*rhiCtx, geometry.m_vertexBuffer.Get())
+                && (!geometry.m_indexBuffer.IsValid() || RHI::IsResourceReady(*rhiCtx, geometry.m_indexBuffer.Get())))
             {
                 world->Add<MeshGeometryReadyTag>(entity);
             }
@@ -253,7 +253,7 @@ namespace Spark::Render
         m_pool.reset();
     }
 
-    RHI::RHIHandle MeshGeometrySystem::CreateBuffer(
+    RHI::RHIHandle MeshGeometrySystem::CreateGeometryBuffer(
         RHI::RHIContext& rhiCtx,
         const ObjectName& name,
         const void* data,
@@ -277,18 +277,11 @@ namespace Spark::Render
             return RHI::NullHandle;
         }
 
-        // What RHIResourceSystem would put on a static buffer it made from a PendingBufferInit.
+        // What RHIResourceSystem would put on a buffer it made from a PendingBufferInit.
         RHI::RHIHandle entity = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::StaticImportTag>(entity);
         rhiCtx.Add<RHI::ResourceName>(entity, RHI::ResourceName{ name });
         rhiCtx.Add<RHI::Components::Buffer>(entity, RHI::Components::Buffer{ buffer });
         RHI::RequestBufferUpload(rhiCtx, entity, data, byteCount);
-        // What makes the Graphics queue wait for the upload and take the buffer back before a
-        // draw reads it, through its own view or the native buffer's.
-        CreateStaticBufferAttachment(rhiCtx, entity,
-            RHI::AttachmentAccess::Read,
-            RHI::AttachmentUsage::InputAssembly,
-            RHI::AttachmentStage::VertexInput);
         return entity;
     }
 }

@@ -29,9 +29,6 @@ namespace Spark::RHI
 
     // A buffer upload: the resource entity it writes and the CPU source data. The upload
     // thread reads m_data, so the caller keeps it valid until the upload is over.
-    //
-    // NOTE: if the target carries a PendingSync whose fence hasn't reached its value yet,
-    // AsyncUploadSystem leaves the request for the next frame instead of submitting it.
     struct BufferUploadRequest
     {
         RHIHandle   m_target            = NullHandle;

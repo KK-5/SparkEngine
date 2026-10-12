@@ -16,8 +16,7 @@ namespace Spark::Material
     //!
     //! Owned and driven by MaterialSystem (composition) — its tick runs BEFORE the render
     //! system, so MaterialGPUTextures is ready when render's MaterialBindingSystem turns
-    //! each RHIHandle into a bindless index. The static-import attachment (a render-graph
-    //! usage concept) is registered by the render consumer, not here.
+    //! each RHIHandle into a bindless index once the texture's upload is over.
     class MaterialTextureSystem
     {
     public:

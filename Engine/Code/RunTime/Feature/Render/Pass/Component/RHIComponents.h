@@ -39,7 +39,6 @@ namespace Spark::Render
     // RHI-layer components re-exported into Render namespace.
     // Code that already uses Spark::Render::Xxx continues to compile.
     using RHI::ImportedTag;
-    using RHI::StaticImportTag;
     using RHI::TransientTag;
     using RHI::RHIUpdateTag;
     using RHI::ShaderBindingsUpdateTag;
@@ -132,11 +131,24 @@ namespace Spark::Render
         RHI::BufferBarrier m_barrier;
     };
 
-    //! On the attachment that first touched an imported resource another system left pending
-    //! on another queue (e.g. an upload): its queue waits for that fence before the Scope runs.
+    //! A fence and the value it reaches once some submitted work is over. As a component, on
+    //! an imported resource the graph touched: the frame-end value of the queue the resource
+    //! was left on, stamped every frame by RenderGraph::ExecutePipeline. A Scope of a later
+    //! frame that takes the resource up on another queue waits for it (ExternalWait); on the
+    //! same queue the order of submission is enough. A buffer several queues share names no
+    //! queue in its state, so it is waited for whichever queue left the fence. The fence is
+    //! one of the graph's own, not owned here.
+    struct PendingSync
+    {
+        RHI::Fence* m_fence      = nullptr;
+        uint64_t    m_fenceValue = 0;
+    };
+
+    //! On the attachment that first touched an imported resource an earlier frame left on
+    //! another queue: its queue waits for that fence before the Scope runs.
     struct ExternalWait
     {
-        RHI::PendingSync m_sync;
+        PendingSync m_sync;
     };
 
     ///////////////////////////////////////////////
@@ -345,57 +357,6 @@ namespace Spark::Render
     //! each frame) and have no external owner, so this tag is their collection handle.
     struct PassShaderBindingsTag {};
     /////////////////////////////////////////////////
-
-    ///////////////////////////////////////////////
-    // Static-import resource attachment helpers
-    //
-    // Call once at resource creation time (not in the Build lambda) to store
-    // BufferPassAttachment / ImagePassAttachment directly on the static resource
-    // entity (m_view == NullHandle).  The component persists across frames and is
-    // consumed each compile by CompileStaticResourceBarriers, which drives the
-    // CopyDst → target-usage barrier without any per-pass Build registration.
-    //
-    // Pattern:
-    //   auto vb = RHI::CreateStaticBuffer(ctx, name, desc);
-    //   Render::CreateStaticBufferAttachment(ctx, vb,
-    //       RHI::InputName("MyVB"),
-    //       RHI::AttachmentAccess::Read,
-    //       RHI::AttachmentUsage::InputAssembly,
-    //       RHI::AttachmentStage::VertexInput);
-    ///////////////////////////////////////////////
-
-    inline void CreateStaticBufferAttachment(
-        RHIContext&              ctx,
-        RHIHandle                resourceEntity,
-        RHI::AttachmentAccess    access,
-        RHI::AttachmentUsage     usage,
-        RHI::AttachmentStage     stage)
-    {
-        BufferPassAttachment a;
-        a.m_attachmentId = AttachmentId{ ctx.Get<ResourceName>(resourceEntity).m_name, 0 };
-        a.m_access       = access;
-        a.m_usage        = usage;
-        a.m_stage        = stage;
-        a.m_pass         = NullPass;    // persists across frames, not tied to one pass
-        ctx.AddOrReplace<BufferPassAttachment>(resourceEntity, a);
-    }
-
-    inline void CreateStaticImageAttachment(
-        RHIContext&              ctx,
-        RHIHandle                resourceEntity,
-        RHI::AttachmentAccess    access,
-        RHI::AttachmentUsage     usage,
-        RHI::AttachmentStage     stage)
-    {
-        ImagePassAttachment a;
-        a.m_attachmentId = AttachmentId{ ctx.Get<ResourceName>(resourceEntity).m_name, 0 };
-        a.m_access       = access;
-        a.m_usage        = usage;
-        a.m_stage        = stage;
-        a.m_pass         = NullPass;
-        ctx.AddOrReplace<ImagePassAttachment>(resourceEntity, a);
-    }
-    ///////////////////////////////////////////////
 }
 
 namespace eastl

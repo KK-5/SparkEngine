@@ -13,6 +13,7 @@
 #include <Pass/RenderPass.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
+#include <RHI/ResourceBuilder.h>
 #include <RenderGraph/RenderGraphUtils.h>
 
 #include <Binding/Scene/SceneBinding.h>
@@ -44,7 +45,7 @@ namespace Spark::Render
         RHI::RHIHandle atlas = RHI::NullHandle;
         ctx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
             [&](RHI::RHIHandle e) { atlas = e; });
-        if (!IsResourceReady(ctx, atlas))
+        if (!RHI::IsResourceReady(ctx, atlas))
         {
             return 0;
         }

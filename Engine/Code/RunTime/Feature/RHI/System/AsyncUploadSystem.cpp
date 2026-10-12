@@ -31,6 +31,20 @@ namespace Spark::RHI
             return HardwareQueueClass::Graphics;
         }
 
+        // Returns true, with the error logged, if `handle` is a resource the render graph
+        // tracks: its state is the graph's to write, and an upload would write it too.
+        bool RejectImportedTarget(RHIContext& ctx, RHIHandle handle)
+        {
+            if (!ctx.Has<ImportedTag>(handle))
+            {
+                return false;
+            }
+            LOG_ERROR("[AsyncUploadSystem] Entity {} is imported into the render graph and cannot be "
+                      "uploaded into. Upload first and import once the upload is over, or write it "
+                      "from a pass.", static_cast<uint32_t>(handle));
+            return true;
+        }
+
         // Returns true if the upload into `handle` has to be dropped, with the error logged.
         bool ValidateBufferUpload(
             RHIHandle handle,
@@ -468,19 +482,10 @@ namespace Spark::RHI
             const bool  exclusive = IsExclusiveQueueMask(mask);
             const ResourceState curState = target->GetResourceState();
 
-            if (ValidateBufferUpload(handle, mask, exclusive, curState))
+            if (RejectImportedTarget(ctx, handle) || ValidateBufferUpload(handle, mask, exclusive, curState))
             {
                 dropped.push_back(request);
                 return;
-            }
-
-            if (auto* sync = ctx.TryGet<PendingSync>(handle))
-            {
-                if (sync->m_fence->GetCompletedValue() < sync->m_fenceValue)
-                {
-                    // Skip the buffer that are in use
-                    return;
-                } 
             }
 
             BufferUpload upload;
@@ -537,19 +542,10 @@ namespace Spark::RHI
             }
 
             Image* target = owning->m_image.get();
-            if (ValidateImageUpload(handle, *target, pending.m_range))
+            if (RejectImportedTarget(ctx, handle) || ValidateImageUpload(handle, *target, pending.m_range))
             {
                 dropped.push_back(request);
                 return;
-            }
-
-            if (auto* sync = ctx.TryGet<PendingSync>(handle))
-            {
-                if (sync->m_fence->GetCompletedValue() < sync->m_fenceValue)
-                {
-                    // Skip the image that are in use
-                    return;
-                } 
             }
 
             ImageUpload upload;

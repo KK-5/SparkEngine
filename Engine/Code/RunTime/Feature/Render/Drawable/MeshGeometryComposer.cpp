@@ -6,11 +6,11 @@
 #include <CoreComponents/Tags.h>
 
 #include <RHI/Component/Component.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Command/DrawItem.h>
 
 #include <Pass/Component/RHIComponents.h>
-#include <RenderGraph/RenderGraphUtils.h>
 
 #include <Geometry/MeshGeometry.h>
 
@@ -86,7 +86,7 @@ namespace Spark::Render
                 : 0;
         });
 
-        if (!IsResourceReady(*rhiCtx, idBufferEntity))
+        if (!RHI::IsResourceReady(*rhiCtx, idBufferEntity))
         {
             // Warmup frame — globals not yet materialized and uploaded.
             return;

@@ -115,7 +115,7 @@ namespace Spark::Render
                 RHI::RHIHandle cube = RHI::NullHandle;
                 rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
                     [&](RHI::RHIHandle e) { cube = e; });
-                if (IsResourceReady(rhiCtx, cube))
+                if (RHI::IsResourceReady(rhiCtx, cube))
                 {
                     p.Import(RHI::AttachmentId("SkyCube"), cube);
                     s.ReadImage(RHI::AttachmentId("SkyCube"))

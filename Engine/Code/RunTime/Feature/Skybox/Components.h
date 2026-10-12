@@ -60,7 +60,7 @@ namespace Spark::Skybox
     //! SceneBindingSystem finds the SkyboxGPUComponent whose m_cubemap carries this tag and
     //! takes its IBL handles from that same component, so sky and environment lighting can
     //! never come from two different HDRIs. The IBL images get no tag of their own -- they
-    //! are static imports bound straight into space0, never render-graph attachments.
+    //! are bound straight into space0, never render-graph attachments.
     struct ActiveSkyCubeTag {};
 }
 

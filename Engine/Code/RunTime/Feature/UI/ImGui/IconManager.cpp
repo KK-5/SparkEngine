@@ -61,7 +61,6 @@ namespace Spark::UI
         iconComp.m_iconImageAsset = eastl::move(imageAsset);
         world.Add<IconComponent>(worldEntity, eastl::move(iconComp));
 
-        // Static GPU image
         RHI::ImageDescriptor imageDesc = RHI::ImageDescriptor::Create2D(
             RHI::ImageBindFlags::ShaderRead |  RHI::ImageBindFlags::CopyWrite,
             imageData->GetWidth(),
@@ -70,7 +69,7 @@ namespace Spark::UI
         imageDesc.m_mipLevels = static_cast<uint16_t>(imageData->GetMipLevels());
         imageDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
-        RHI::RHIHandle imageEntity = RHI::CreateStaticImage(
+        RHI::RHIHandle imageEntity = RHI::CreateImage(
             *rhiCtx,
             ObjectName(imagePath),
             imageDesc);

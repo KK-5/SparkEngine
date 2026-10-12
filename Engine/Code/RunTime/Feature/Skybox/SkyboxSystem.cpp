@@ -22,12 +22,10 @@ namespace Spark::Skybox
     namespace
     {
         //! Create the GPU image for one compiled image asset and queue its upload.
-        //! `staticImport` picks StaticImportTag (sampled directly, no attachment) over
-        //! ImportedTag (a pass must register it). Returns NullHandle on failure.
+        //! Returns NullHandle on failure.
         RHI::RHIHandle CreateAndUploadImage(RHI::RHIContext& rhiCtx,
                                             const Resource::ImageAsset& asset,
-                                            const eastl::string& name,
-                                            bool staticImport)
+                                            const eastl::string& name)
         {
             const Resource::ImageAssetData* data = asset.GetImageData();
             if (!data || data->GetTextureBytes().empty())
@@ -46,17 +44,9 @@ namespace Spark::Skybox
             desc.m_mipLevels       = static_cast<uint16_t>(asset.GetMipLevels());
             desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
-            // StaticImportTag vs ImportedTag decides who emits the CopyDst->ShaderRead
-            // barrier: static imports are handled once by the compiler on first access,
-            // imported ones need a pass to declare them as an attachment -- which is why
-            // the sky cube, and only the sky cube, is imported (SkyboxPass registers it).
-            RHI::RHIHandle imageEntity = staticImport
-                ? RHI::CreateStaticImage(
-                      rhiCtx, ObjectName(name), desc,
-                      RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write)
-                : RHI::CreateImportedImage(
-                      rhiCtx, ObjectName(name), desc,
-                      RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
+            RHI::RHIHandle imageEntity = RHI::CreateImage(
+                rhiCtx, ObjectName(name), desc,
+                RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
 
             RHI::RequestImageUpload(
                 rhiCtx, imageEntity,
@@ -173,8 +163,9 @@ namespace Spark::Skybox
 
         const eastl::string idSuffix = eastl::to_string(static_cast<uint32_t>(entity));
 
+        // SkyboxPass imports the cube into the render graph once its upload is over.
         RHI::RHIHandle cubeEntity = CreateAndUploadImage(
-            *rhiCtx, *asset, eastl::string("SkyboxCube_") + idSuffix, /*staticImport*/ false);
+            *rhiCtx, *asset, eastl::string("SkyboxCube_") + idSuffix);
         if (cubeEntity == RHI::NullHandle)
         {
             return;
@@ -188,14 +179,12 @@ namespace Spark::Skybox
         if (const Ptr<Resource::ImageAsset>& irradiance = asset->GetIrradianceAsset())
         {
             gpuComp.m_irradiance = CreateAndUploadImage(
-                *rhiCtx, *irradiance, eastl::string("SkyboxIrradiance_") + idSuffix,
-                /*staticImport*/ true);
+                *rhiCtx, *irradiance, eastl::string("SkyboxIrradiance_") + idSuffix);
         }
         if (const Ptr<Resource::ImageAsset>& prefiltered = asset->GetPrefilteredAsset())
         {
             gpuComp.m_prefiltered = CreateAndUploadImage(
-                *rhiCtx, *prefiltered, eastl::string("SkyboxPrefiltered_") + idSuffix,
-                /*staticImport*/ true);
+                *rhiCtx, *prefiltered, eastl::string("SkyboxPrefiltered_") + idSuffix);
         }
 
         // Designate this as the active skybox's cube so the render SkyboxPass imports it.

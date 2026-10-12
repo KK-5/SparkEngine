@@ -16,6 +16,7 @@
 #include <View/ShadowAtlasLayout.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
+#include <RHI/ResourceBuilder.h>
 #include <RenderGraph/RenderGraphUtils.h>
 
 #include <Resource/AssetManagerInterface.h>
@@ -96,7 +97,7 @@ namespace Spark::Render
                 RHI::RHIHandle atlas = RHI::NullHandle;
                 rhiCtx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
                     [&](RHI::RHIHandle e) { atlas = e; });
-                if (!IsResourceReady(rhiCtx, atlas))
+                if (!RHI::IsResourceReady(rhiCtx, atlas))
                 {
                     return;
                 }

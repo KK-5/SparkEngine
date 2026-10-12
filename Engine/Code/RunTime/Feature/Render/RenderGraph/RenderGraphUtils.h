@@ -18,45 +18,6 @@
 //! state but express render-layer decisions, so they live here rather than in RHI.
 namespace Spark::Render
 {
-    //! Is a resource entity ready to be used by the render graph this frame?
-    //!
-    //! "Ready" requires BOTH:
-    //!   1. Materialized — its owning RHI object exists (Components::Image::m_image or
-    //!      Components::Buffer::m_buffer is non-null). Non-trivial resources are created
-    //!      lazily by RHIResourceSystem (PendingImageInit / PendingBufferInit), so this
-    //!      is false for a frame or two after the entity is declared.
-    //!   2. No upload outstanding — no PendingUploads. It goes once the copy queue has
-    //!      finished every upload into the resource and the queue that owns it has taken it
-    //!      back, so nothing here waits for another queue on the GPU. Touching the resource
-    //!      before its upload is even submitted would advance its resource state (access)
-    //!      and make the still-pending EXCLUSIVE upload fail AsyncUploadSystem's "already
-    //!      in use" check.
-    //!
-    //! Whoever reads an uploaded resource gates on this: what binds or draws it without a
-    //! pass declaring it, and passes that import it (e.g. SkyboxPass importing its sky cube).
-    inline bool IsResourceReady(RHI::RHIContext& ctx, RHI::RHIHandle handle)
-    {
-        if (handle == RHI::NullHandle)
-        {
-            return false;
-        }
-        // An upload into it is not over — defer. (Resources that never upload
-        // never carry this, so it only gates the ones that do.)
-        if (ctx.Has<RHI::PendingUploads>(handle))
-        {
-            return false;
-        }
-        if (const auto* img = ctx.TryGet<RHI::Components::Image>(handle))
-        {
-            return img->m_image != nullptr;
-        }
-        if (const auto* buf = ctx.TryGet<RHI::Components::Buffer>(handle))
-        {
-            return buf->m_buffer != nullptr;
-        }
-        return false;   // neither an image nor a buffer is materialized yet
-    }
-
     //! Translate a pass attachment's usage/access into RHI AccessFlags. Buffer and
     //! image differ (a shader read on a buffer adds ConstantBufferRead; on an image
     //! it is SRV-only), so the two overloads pick the matching translation.
