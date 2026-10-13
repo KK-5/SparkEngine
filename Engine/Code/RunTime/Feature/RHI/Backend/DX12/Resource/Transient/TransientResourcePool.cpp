@@ -667,14 +667,15 @@ namespace Spark::RHI::DX12
             allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel,
                                                  RHI::HostMemoryAccess::Write);
 
-            // Committed like an ImagePool image; the first use still discards from UNDEFINED.
+            // In the layout a placed one starts in, which is what its state says: the first use
+            // discards from UNDEFINED.
             const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
             ComPtr<D3D12MA::Allocation> allocation;
             ComPtr<ID3D12Resource>      dx12Resource;
             HRESULT hr = m_allocator->CreateResource3(
                 &allocDesc,
                 &resourceDesc1,
-                D3D12_BARRIER_LAYOUT_COMMON,
+                D3D12_BARRIER_LAYOUT_UNDEFINED,
                 (isOutputMergerAttachment && createInfo.m_optimizedClearValue) ? &clearValue : nullptr,
                 0,
                 nullptr,

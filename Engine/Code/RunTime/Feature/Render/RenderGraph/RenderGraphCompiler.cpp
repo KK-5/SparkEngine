@@ -538,7 +538,7 @@ namespace Spark::Render
                     // layouts). The Copy queue leaves images in one every queue accepts.
                     ASSERT(!crossQueue || producer != NullHandle
                         || src.m_queue == RHI::HardwareQueueClass::Copy
-                        || src.m_access == RHI::AccessFlags::None
+                        || src.m_access == RHI::AccessFlags::Initial
                         || CheckBitsAny(src.m_access, RHI::AccessFlags::Undefined),
                         "Image '{}' was left on queue {} by an earlier frame and is now first used on "
                         "queue {}; images cannot change queues across frames.",

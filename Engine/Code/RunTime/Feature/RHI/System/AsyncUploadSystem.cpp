@@ -66,7 +66,7 @@ namespace Spark::RHI
                           "non-Copy queue.", static_cast<uint32_t>(handle));
                 return true;
             }
-            if (exclusive && curState.m_access != AccessFlags::None)
+            if (exclusive && curState.m_access != AccessFlags::Initial)
             {
                 LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
                           "(access=0x{:x}). Exclusive resources cannot be re-uploaded -- "
@@ -111,7 +111,7 @@ namespace Spark::RHI
             image.GetSubresourceStates().GetSpans(range, spans);
             for (const ImageSubresourceSpan& span : spans)
             {
-                if (span.m_state.m_access != AccessFlags::None)
+                if (span.m_state.m_access != AccessFlags::Initial)
                 {
                     LOG_ERROR("[AsyncUploadSystem] Entity {} has subresources already in use "
                               "(access=0x{:x}) among those the upload writes. Only new "
@@ -557,12 +557,12 @@ namespace Spark::RHI
             upload.m_sourceFormat      = pending.m_sourceFormat;
             batch.m_imageUploads.push_back(upload);
 
-            // The subresources are new, so nothing of theirs is kept: the Copy queue turns
-            // them into a copy destination itself, with no queue to take them from.
+            // The subresources are new and hold nothing: the Copy queue turns them into a
+            // copy destination itself, with no queue to take them from.
             ImageBarrier pre;
             pre.m_image     = target;
             pre.m_range     = pending.m_range;
-            pre.m_srcAccess = AccessFlags::Undefined;
+            pre.m_srcAccess = AccessFlags::Initial;
             pre.m_srcStage  = AttachmentStage::Uninitialized;
             pre.m_srcQueue  = HardwareQueueClass::Copy;
             pre.m_dstAccess = AccessFlags::TransferWrite;

@@ -789,6 +789,92 @@ namespace Spark::RHI::DX12
         }
     }
 
+    void CommandList::QueueRelease(const RHI::BufferQueueTransfer& transfer)
+    {
+        // D3D12 has no ownership to hand over and a buffer no layout: there is nothing to record.
+        if (RHI::Validation::isEnabled)
+        {
+            ASSERT(RHI::ValidateBufferQueueTransfer(transfer), "[CommandList] Releasing an invalid buffer queue transfer.");
+            ASSERT(GetHardwareQueueClass() == transfer.m_srcQueue,
+                "[CommandList] Buffer {} is released on queue {}, not the queue {} it leaves.",
+                transfer.m_buffer->GetName().GetCStr(),
+                static_cast<uint32_t>(GetHardwareQueueClass()),
+                static_cast<uint32_t>(transfer.m_srcQueue));
+        }
+    }
+
+    void CommandList::QueueRelease(const RHI::ImageQueueTransfer& transfer)
+    {
+        const auto myQueue = GetHardwareQueueClass();
+        if (RHI::Validation::isEnabled)
+        {
+            ASSERT(RHI::ValidateImageQueueTransfer(transfer), "[CommandList] Releasing an invalid image queue transfer.");
+            ASSERT(myQueue == transfer.m_srcQueue,
+                "[CommandList] Image {} is released on queue {}, not the queue {} it leaves.",
+                transfer.m_image->GetName().GetCStr(),
+                static_cast<uint32_t>(myQueue),
+                static_cast<uint32_t>(transfer.m_srcQueue));
+        }
+
+        Image& image = static_cast<Image&>(*transfer.m_image);
+
+        // Left in COMMON, the one layout every queue takes an image from.
+        D3D12_TEXTURE_BARRIER b{};
+        b.SyncBefore   = ConvertBarrierSync(transfer.m_srcStage, transfer.m_srcAccess, myQueue);
+        b.SyncAfter    = D3D12_BARRIER_SYNC_NONE;
+        b.AccessBefore = ConvertImageBarrierAccess(transfer.m_srcAccess);
+        b.AccessAfter  = D3D12_BARRIER_ACCESS_NO_ACCESS;
+        b.LayoutBefore = ConvertBarrierLayout(transfer.m_srcAccess, myQueue);
+        b.LayoutAfter  = D3D12_BARRIER_LAYOUT_COMMON;
+        b.pResource    = image.GetMemoryView().GetMemory();
+        b.Subresources = ConvertBarrierSubresourceRange(image, transfer.m_range);
+        b.Flags        = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+
+        // Already there on the Copy queue, which keeps its images in COMMON.
+        if (b.LayoutBefore != D3D12_BARRIER_LAYOUT_COMMON)
+        {
+            CommandListBase::QueueTextureBarrier(b);
+        }
+    }
+
+    void CommandList::QueueAcquire(const RHI::BufferQueueTransfer& transfer)
+    {
+        const auto myQueue = GetHardwareQueueClass();
+        if (RHI::Validation::isEnabled)
+        {
+            ASSERT(RHI::ValidateBufferQueueTransfer(transfer), "[CommandList] Acquiring an invalid buffer queue transfer.");
+            ASSERT(!RHI::IsExclusiveQueueMask(transfer.m_buffer->GetDescriptor().m_sharedQueueMask)
+                    || myQueue == transfer.m_dstQueue,
+                "[CommandList] Buffer {} is acquired on queue {}, not the queue {} it was released to.",
+                transfer.m_buffer->GetName().GetCStr(),
+                static_cast<uint32_t>(myQueue),
+                static_cast<uint32_t>(transfer.m_dstQueue));
+        }
+
+        // Nothing to record: the release left nothing for this queue to take over.
+        RHI::CommandList::SetResourceState(*transfer.m_buffer,
+            RHI::ResourceState{ RHI::AccessFlags::None, myQueue, RHI::AttachmentStage::Uninitialized });
+    }
+
+    void CommandList::QueueAcquire(const RHI::ImageQueueTransfer& transfer)
+    {
+        const auto myQueue = GetHardwareQueueClass();
+        if (RHI::Validation::isEnabled)
+        {
+            ASSERT(RHI::ValidateImageQueueTransfer(transfer), "[CommandList] Acquiring an invalid image queue transfer.");
+            ASSERT(!RHI::IsExclusiveQueueMask(transfer.m_image->GetDescriptor().m_sharedQueueMask)
+                    || myQueue == transfer.m_dstQueue,
+                "[CommandList] Image {} is acquired on queue {}, not the queue {} it was released to.",
+                transfer.m_image->GetName().GetCStr(),
+                static_cast<uint32_t>(myQueue),
+                static_cast<uint32_t>(transfer.m_dstQueue));
+        }
+
+        // Nothing to record: the release left the image in COMMON, which is what None is here.
+        RHI::CommandList::SetResourceState(*transfer.m_image, transfer.m_range,
+            RHI::ResourceState{ RHI::AccessFlags::None, myQueue, RHI::AttachmentStage::Uninitialized });
+    }
+
     void CommandList::FlushBarriers()
     {
         CommandListBase::FlushBarriers();

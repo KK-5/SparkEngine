@@ -83,6 +83,35 @@ namespace Spark::RHI
         HardwareQueueClass    m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
+    //! A resource going from one queue to another with its contents kept. Recorded twice:
+    //! CommandList::QueueRelease on m_srcQueue and QueueAcquire on m_dstQueue, in that order,
+    //! which the caller sees to (a fence). The src side is the state it is released from;
+    //! acquiring leaves it in AccessFlags::None on the acquiring queue, for a barrier there to
+    //! take further. A resource whose contents need not be kept (Undefined, Initial) is not
+    //! transferred: the queue taking it up starts its barrier from that state.
+    //!
+    //! m_dstQueue binds only a resource one queue owns. One several queues share changes no
+    //! owner, and whichever of them acquires it has it.
+    struct BufferQueueTransfer
+    {
+        Buffer*            m_buffer    = nullptr;
+        AccessFlags        m_srcAccess = AccessFlags::None;
+        AttachmentStage    m_srcStage  = AttachmentStage::Uninitialized;
+        HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
+        HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
+    };
+
+    struct ImageQueueTransfer
+    {
+        Image*                m_image     = nullptr;
+        //! Defaults to the whole image.
+        ImageSubresourceRange m_range;
+        AccessFlags           m_srcAccess = AccessFlags::None;
+        AttachmentStage       m_srcStage  = AttachmentStage::Uninitialized;
+        HardwareQueueClass    m_srcQueue  = HardwareQueueClass::Graphics;
+        HardwareQueueClass    m_dstQueue  = HardwareQueueClass::Graphics;
+    };
+
     //! Construct a barrier whose src side is auto-populated from
     //! `buffer.GetResourceState()` (access / stage / queue). Caller supplies the
     //! dst side. dstQueue stays at the struct default (Graphics); callers crossing
@@ -128,4 +157,14 @@ namespace Spark::RHI
     //! Returns false and reports an error if the transition is invalid.
     bool ValidateBufferBarrier(const BufferBarrier& barrier);
     bool ValidateImageBarrier(const ImageBarrier& barrier);
+
+    //! Whether a resource with this queue mask may go from srcQueue to dstQueue: the two
+    //! differ, and each of them other than Copy is one of the resource's queues. Copy is a
+    //! visitor: an upload leaves from it into a resource that does not list it.
+    bool IsQueueTransferAllowed(
+        HardwareQueueClassMask sharedMask, HardwareQueueClass srcQueue, HardwareQueueClass dstQueue);
+
+    //! Returns false and reports an error if the transfer is invalid.
+    bool ValidateBufferQueueTransfer(const BufferQueueTransfer& transfer);
+    bool ValidateImageQueueTransfer(const ImageQueueTransfer& transfer);
 }

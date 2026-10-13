@@ -39,7 +39,7 @@ namespace Spark::RHI
         baseDescriptor.m_bindFlags       = m_descriptor.m_bindFlags;
         baseDescriptor.m_sharedQueueMask = m_descriptor.m_sharedQueueMask;
         baseBuffer->SetDescriptor(baseDescriptor);
-        SetResourceState(*baseBuffer, RHI::ResourceState{});
+        SetResourceState(*baseBuffer, RHI::ResourceState{ RHI::AccessFlags::Initial });
         return ResourcePool::InitResource(baseBuffer, []() { return ResultCode::Success; });
     }
 
@@ -52,8 +52,7 @@ namespace Spark::RHI
 
         request.m_buffer->SetDescriptor(request.m_descriptor);
 
-        // Set initial resource state using Vulkan-style (Usage, Access) model.
-        SetResourceState(*request.m_buffer, RHI::ResourceState{});
+        SetResourceState(*request.m_buffer, RHI::ResourceState{ RHI::AccessFlags::Initial });
 
         ResultCode resultCode = ResourcePool::InitResource(request.m_buffer, [this, &request](){
             return InitBufferInternal(*request.m_buffer, request.m_descriptor);

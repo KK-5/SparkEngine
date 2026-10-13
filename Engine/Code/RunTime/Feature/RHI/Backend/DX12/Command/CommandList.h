@@ -81,6 +81,10 @@ namespace Spark::RHI::DX12
         void EndPredication() override;
         void QueueBarrier(const RHI::BufferBarrier& barrier) override;
         void QueueBarrier(const RHI::ImageBarrier& barrier) override;
+        void QueueRelease(const RHI::BufferQueueTransfer& transfer) override;
+        void QueueRelease(const RHI::ImageQueueTransfer& transfer) override;
+        void QueueAcquire(const RHI::BufferQueueTransfer& transfer) override;
+        void QueueAcquire(const RHI::ImageQueueTransfer& transfer) override;
         void FlushBarriers() override;
         void SetFragmentShadingRate(
             RHI::ShadingRate rate,

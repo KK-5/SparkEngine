@@ -14,6 +14,8 @@ namespace Spark::RHI
 {
     enum class AccessFlags : uint32_t
     {
+        //! No access. As a resource's state: nothing accesses it and its contents are kept,
+        //! which is where acquiring it leaves it. A barrier starts from it, none ends in it.
         None                 = 0,
 
         // reads [0,15]
@@ -45,6 +47,10 @@ namespace Spark::RHI
         //! the read / write bits beside it are the memory's previous accesses (an aliased
         //! resource's previous occupant), still to be synchronized against.
         Undefined            = BIT(25),
+        //! Newly made, in memory of its own that nothing has accessed: it has no contents
+        //! yet. Source side only. Apart from Undefined, which a backend may discard from and
+        //! which names a previous use; apart from None, whose contents a barrier keeps.
+        Initial              = BIT(26),
 
         ReadMask =
             IndirectRead | VertexIndexInput | ConstantBufferRead | ShaderSampledRead |

@@ -6,7 +6,7 @@ namespace Spark::RHI
 {
     ResultCode ImagePoolBase::InitImage(Image* image, const ImageDescriptor& descriptor, BackendMethod initResourceMethod)
     {
-        SetResourceState(*image, RHI::ResourceState{});
+        SetResourceState(*image, RHI::ResourceState{ RHI::AccessFlags::Initial });
 
         image->SetDescriptor(descriptor);
 

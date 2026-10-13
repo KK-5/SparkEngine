@@ -13,6 +13,7 @@ option(GLOBALBUFFER_TESTS "Stable-slot buffer mirror tests" ON)
 option(DRAWMASK_TESTS "Draw classification mask tests" ON)
 option(INDIRECTARGUMENTSOFVIEW_TESTS "Per-view indirect arguments lookup tests" ON)
 option(UPLOADREQUEST_TESTS "Upload request tests" ON)
+option(QUEUETRANSFER_TESTS "Queue transfer validation tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -37,6 +38,7 @@ ADD_TEST_SOUECE(GLOBALBUFFER_TESTS "GlobalBufferTest.cpp")
 ADD_TEST_SOUECE(DRAWMASK_TESTS "DrawMaskTest.cpp")
 ADD_TEST_SOUECE(INDIRECTARGUMENTSOFVIEW_TESTS "IndirectArgumentsOfViewTest.cpp")
 ADD_TEST_SOUECE(UPLOADREQUEST_TESTS "UploadRequestTest.cpp")
+ADD_TEST_SOUECE(QUEUETRANSFER_TESTS "QueueTransferTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

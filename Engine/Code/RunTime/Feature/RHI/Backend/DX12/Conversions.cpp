@@ -665,8 +665,8 @@ namespace Spark::RHI::DX12
         ASSERT(!CheckBitsAny(access, k_bufferOnlyAccess),
             "[RHI DX12] ConvertBarrierLayout - buffer-only access bits 0x{:x} on an image.",
             static_cast<uint32_t>(access & k_bufferOnlyAccess));
-        // Idle: nothing accesses it, and its contents are kept.
-        if (access == AccessFlags::None)
+        // Nothing accesses it: idle with its contents kept, or new and holding none yet.
+        if (access == AccessFlags::None || access == AccessFlags::Initial)
         {
             return D3D12_BARRIER_LAYOUT_COMMON;
         }

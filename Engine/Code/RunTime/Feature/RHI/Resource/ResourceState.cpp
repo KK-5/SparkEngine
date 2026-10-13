@@ -240,6 +240,66 @@ namespace Spark::RHI
                 GetHardwareQueueClassMask(srcQueue) | GetHardwareQueueClassMask(dstQueue);
             return CheckBitsAll(sharedMask, required);
         }
+
+        //! None, Initial and Undefined say what a resource holds while nothing accesses it: a
+        //! barrier starts from them, none ends in one.
+        bool IsBarrierTarget(AccessFlags access)
+        {
+            return access != AccessFlags::None
+                && !CheckBitsAny(access, AccessFlags::Undefined | AccessFlags::Initial);
+        }
+
+        //! `what` names the thing that carries the range, for the error.
+        bool ValidateImageRange(const Image& image, const ImageSubresourceRange& range, const char* what)
+        {
+            const ImageDescriptor& descriptor = image.GetDescriptor();
+            if (range.m_mipSliceMin >= descriptor.m_mipLevels || range.m_mipSliceMin > range.m_mipSliceMax
+                || range.m_arraySliceMin >= descriptor.m_arraySize || range.m_arraySliceMin > range.m_arraySliceMax)
+            {
+                LOG_ERROR(
+                    "[RHI] Image {} for '{}' covers mips [{}, {}] and array slices [{}, {}], outside the image's "
+                    "{} mips and {} slices.",
+                    what, image.GetName().GetCStr(),
+                    range.m_mipSliceMin, range.m_mipSliceMax, range.m_arraySliceMin, range.m_arraySliceMax,
+                    descriptor.m_mipLevels, descriptor.m_arraySize);
+                return false;
+            }
+            if (!CheckBitsAny(range.m_aspectFlags, image.GetAspectFlags()))
+            {
+                LOG_ERROR(
+                    "[RHI] Image {} for '{}' names aspects 0x{:x}, none of which the image has (0x{:x}).",
+                    what, image.GetName().GetCStr(),
+                    static_cast<uint32_t>(range.m_aspectFlags),
+                    static_cast<uint32_t>(image.GetAspectFlags()));
+                return false;
+            }
+            return true;
+        }
+
+        template<typename TransferT>
+        bool ValidateQueueTransfer(const TransferT& transfer, const char* name, HardwareQueueClassMask sharedMask)
+        {
+            if (CheckBitsAny(transfer.m_srcAccess, AccessFlags::Undefined | AccessFlags::Initial))
+            {
+                LOG_ERROR(
+                    "[RHI] Queue transfer of '{}' from access 0x{:x}: a resource whose contents need not be kept is "
+                    "not transferred, the queue taking it up starts its barrier from that state.",
+                    name, static_cast<uint32_t>(transfer.m_srcAccess));
+                return false;
+            }
+            if (!IsQueueTransferAllowed(sharedMask, transfer.m_srcQueue, transfer.m_dstQueue))
+            {
+                LOG_ERROR(
+                    "[RHI] Queue transfer of '{}' from queue {} to queue {} is invalid: the two must differ and, "
+                    "Copy aside, be among the resource's queues (sharedQueueMask=0x{:x}).",
+                    name,
+                    static_cast<uint32_t>(transfer.m_srcQueue),
+                    static_cast<uint32_t>(transfer.m_dstQueue),
+                    static_cast<uint32_t>(sharedMask));
+                return false;
+            }
+            return true;
+        }
     }
 
     bool ValidateBufferBarrier(const BufferBarrier& barrier)
@@ -251,10 +311,10 @@ namespace Spark::RHI
         }
 
         const Buffer& buffer = *barrier.m_buffer;
-        if (CheckBitsAny(barrier.m_dstAccess, AccessFlags::Undefined))
+        if (!IsBarrierTarget(barrier.m_dstAccess))
         {
-            LOG_ERROR("[RHI] Buffer barrier for '{}' targets Undefined, which is source side only.",
-                buffer.GetName().GetCStr());
+            LOG_ERROR("[RHI] Buffer barrier for '{}' targets access 0x{:x}: None, Initial and Undefined are source side only.",
+                buffer.GetName().GetCStr(), static_cast<uint32_t>(barrier.m_dstAccess));
             return false;
         }
         if (!IsBufferAccessSupported(buffer, barrier.m_dstAccess))
@@ -290,33 +350,15 @@ namespace Spark::RHI
         }
 
         const Image& image = *barrier.m_image;
-        if (CheckBitsAny(barrier.m_dstAccess, AccessFlags::Undefined))
+        if (!IsBarrierTarget(barrier.m_dstAccess))
         {
-            LOG_ERROR("[RHI] Image barrier for '{}' targets Undefined, which is source side only.",
-                image.GetName().GetCStr());
+            LOG_ERROR("[RHI] Image barrier for '{}' targets access 0x{:x}: None, Initial and Undefined are source side only.",
+                image.GetName().GetCStr(), static_cast<uint32_t>(barrier.m_dstAccess));
             return false;
         }
 
-        const ImageDescriptor& descriptor = image.GetDescriptor();
-        const ImageSubresourceRange& range = barrier.m_range;
-        if (range.m_mipSliceMin >= descriptor.m_mipLevels || range.m_mipSliceMin > range.m_mipSliceMax
-            || range.m_arraySliceMin >= descriptor.m_arraySize || range.m_arraySliceMin > range.m_arraySliceMax)
+        if (!ValidateImageRange(image, barrier.m_range, "barrier"))
         {
-            LOG_ERROR(
-                "[RHI] Image barrier for '{}' covers mips [{}, {}] and array slices [{}, {}], outside the image's "
-                "{} mips and {} slices.",
-                image.GetName().GetCStr(),
-                range.m_mipSliceMin, range.m_mipSliceMax, range.m_arraySliceMin, range.m_arraySliceMax,
-                descriptor.m_mipLevels, descriptor.m_arraySize);
-            return false;
-        }
-        if (!CheckBitsAny(range.m_aspectFlags, image.GetAspectFlags()))
-        {
-            LOG_ERROR(
-                "[RHI] Image barrier for '{}' names aspects 0x{:x}, none of which the image has (0x{:x}).",
-                image.GetName().GetCStr(),
-                static_cast<uint32_t>(range.m_aspectFlags),
-                static_cast<uint32_t>(image.GetAspectFlags()));
             return false;
         }
 
@@ -342,5 +384,42 @@ namespace Spark::RHI
             return false;
         }
         return true;
+    }
+
+    bool IsQueueTransferAllowed(
+        HardwareQueueClassMask sharedMask, HardwareQueueClass srcQueue, HardwareQueueClass dstQueue)
+    {
+        if (srcQueue == dstQueue)
+        {
+            return false;
+        }
+        const HardwareQueueClassMask required =
+            (GetHardwareQueueClassMask(srcQueue) | GetHardwareQueueClassMask(dstQueue)) & ~HardwareQueueClassMask::Copy;
+        return CheckBitsAll(sharedMask, required);
+    }
+
+    bool ValidateBufferQueueTransfer(const BufferQueueTransfer& transfer)
+    {
+        if (!transfer.m_buffer)
+        {
+            LOG_ERROR("[RHI] ValidateBufferQueueTransfer: null buffer pointer.");
+            return false;
+        }
+
+        const Buffer& buffer = *transfer.m_buffer;
+        return ValidateQueueTransfer(transfer, buffer.GetName().GetCStr(), buffer.GetDescriptor().m_sharedQueueMask);
+    }
+
+    bool ValidateImageQueueTransfer(const ImageQueueTransfer& transfer)
+    {
+        if (!transfer.m_image)
+        {
+            LOG_ERROR("[RHI] ValidateImageQueueTransfer: null image pointer.");
+            return false;
+        }
+
+        const Image& image = *transfer.m_image;
+        return ValidateImageRange(image, transfer.m_range, "queue transfer")
+            && ValidateQueueTransfer(transfer, image.GetName().GetCStr(), image.GetDescriptor().m_sharedQueueMask);
     }
 }
