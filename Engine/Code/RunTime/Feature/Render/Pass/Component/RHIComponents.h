@@ -119,16 +119,38 @@ namespace Spark::Render
         RHI::BufferBarrier m_barrier;
     };
 
-    //! The release halves of cross-queue transfers, on the producer's attachment: the next
-    //! access to those subresources is on another queue. Also a swap chain's Present transition.
+    //! A swap chain's Present transition, on its last attachment: recorded after the Scope's
+    //! work.
     struct PostImageBarrier
     {
         ImageBarrierList m_barriers;
     };
 
-    struct PostBufferBarrier
+    using ImageQueueTransferList = eastl::fixed_vector<RHI::ImageQueueTransfer, 2, true>;
+
+    //! The resource comes to this attachment's Scope from another queue with its contents
+    //! kept: acquired before the Scope's barriers, which take it on from None. On the same
+    //! attachment as the Pre*Barrier.
+    struct PreImageAcquire
     {
-        RHI::BufferBarrier m_barrier;
+        ImageQueueTransferList m_transfers;
+    };
+
+    struct PreBufferAcquire
+    {
+        RHI::BufferQueueTransfer m_transfer;
+    };
+
+    //! The release halves of those transfers, on the attachment that last used the resource
+    //! on the queue it leaves: recorded after that Scope's work.
+    struct PostImageRelease
+    {
+        ImageQueueTransferList m_transfers;
+    };
+
+    struct PostBufferRelease
+    {
+        RHI::BufferQueueTransfer m_transfer;
     };
 
     //! A fence and the value it reaches once some submitted work is over. As a component, on

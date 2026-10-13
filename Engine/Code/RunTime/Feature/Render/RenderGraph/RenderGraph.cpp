@@ -213,7 +213,7 @@ namespace Spark::Render
         // Uploads whose copies are over go back to their queues ahead of everything this
         // frame submits, so Build and Compile see them ready and in their final states.
         // Relies on no OnFrameBegin handler reading those states: AsyncUploadSystem's puts
-        // the barriers on the requests there, and the bus orders handlers arbitrarily.
+        // the transfers on the requests there, and the bus orders handlers arbitrarily.
         RHI::ExecuteUploadAcquires(*m_device, m_commandQueueContext);
 
         auto& context = *RHIExecuteContext::Current();

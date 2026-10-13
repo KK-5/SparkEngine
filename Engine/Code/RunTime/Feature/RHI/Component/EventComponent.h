@@ -23,8 +23,8 @@ namespace Spark::RHI
     struct UploadingTag {};
 
     // The copy is over and the queue that owns the target has yet to take it back. Comes
-    // with the barrier that does (BufferBarrier / ImageBarrier), which ExecuteUploadAcquires
-    // records.
+    // with the transfer the target was released with (BufferQueueTransfer /
+    // ImageQueueTransfer), whose acquire ExecuteUploadAcquires records.
     struct UploadAcquirePendingTag {};
 
     // A buffer upload: the resource entity it writes and the CPU source data. The upload
@@ -53,7 +53,7 @@ namespace Spark::RHI
 
     // The batch a request went into: its copy is over once the upload fence reaches
     // m_fenceValue. m_resource keeps the target alive for the upload thread and for the
-    // barrier the request carries afterwards, and is let go of on the main thread, with
+    // transfer the request carries afterwards, and is let go of on the main thread, with
     // the request.
     struct UploadBatch
     {

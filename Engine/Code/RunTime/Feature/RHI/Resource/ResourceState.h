@@ -21,13 +21,13 @@ namespace Spark::RHI
     //! the Image per subresource (ImageSubresourceStates), and updated whenever a barrier
     //! is emitted.
     //!   - m_access : set-valued AccessFlags ("how it is being accessed")
-    //!   - m_queue  : queue that most recently emitted a barrier on this
-    //!                resource (= its current owner, cross-queue handoff sense)
+    //!   - m_queue  : queue the resource is on: the one that last recorded a barrier
+    //!                on it or acquired it
     //!   - m_stage  : pipeline stage of the most recent barrier, fed back as
     //!                srcStage for the next one; none while nothing has accessed it
     //!
-    //! Make{Buffer,Image}Barrier auto-populate srcAccess / srcStage / srcQueue
-    //! from this struct, so callers only fill the dst side.
+    //! Make{Buffer,Image}Barrier auto-populate srcAccess / srcStage from this struct,
+    //! so callers only fill the dst side.
     struct ResourceState
     {
         AccessFlags        m_access = AccessFlags::None;
@@ -43,20 +43,8 @@ namespace Spark::RHI
         bool operator!=(const ResourceState& other) const { return !(*this == other); }
     };
 
-    //! Cross-queue ownership transfer (Vulkan QFOT) is encoded by setting
-    //! m_srcQueue != m_dstQueue. Such a barrier MUST be emitted twice with
-    //! identical (srcQueue, dstQueue): once on the src queue's command list
-    //! (release) and once on the dst queue's command list (acquire). The
-    //! happens-before between release and acquire is provided externally by
-    //! a timeline-semaphore signal/wait pair issued by the caller between the
-    //! two submissions; the barrier itself only describes the transfer.
-    //!
-    //! Vulkan backend: emits both halves with srcQueueFamilyIndex/dstQueueFamilyIndex
-    //!     set, performs layout transition exactly as Vulkan spec requires.
-    //! DX12 backend: bridges through COMMON state -- release side transitions
-    //!     srcAccess -> COMMON, acquire side transitions COMMON -> dstAccess.
-    //!
-    //! Intra-queue is the common case: leave m_srcQueue == m_dstQueue (default).
+    //! A change of state on the queue whose command list records it. A resource going to
+    //! another queue is a BufferQueueTransfer / ImageQueueTransfer, not a barrier.
     struct BufferBarrier
     {
         Buffer*            m_buffer    = nullptr;
@@ -64,8 +52,6 @@ namespace Spark::RHI
         AccessFlags        m_dstAccess = AccessFlags::None;
         AttachmentStage    m_srcStage  = AttachmentStage::Any;
         AttachmentStage    m_dstStage  = AttachmentStage::Any;
-        HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
-        HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
     //! The src side is the state of every subresource in m_range: subresources in different
@@ -79,8 +65,6 @@ namespace Spark::RHI
         AccessFlags           m_dstAccess = AccessFlags::None;
         AttachmentStage       m_srcStage  = AttachmentStage::Any;
         AttachmentStage       m_dstStage  = AttachmentStage::Any;
-        HardwareQueueClass    m_srcQueue  = HardwareQueueClass::Graphics;
-        HardwareQueueClass    m_dstQueue  = HardwareQueueClass::Graphics;
     };
 
     //! A resource going from one queue to another with its contents kept. Recorded twice:
@@ -113,9 +97,7 @@ namespace Spark::RHI
     };
 
     //! Construct a barrier whose src side is auto-populated from
-    //! `buffer.GetResourceState()` (access / stage / queue). Caller supplies the
-    //! dst side. dstQueue stays at the struct default (Graphics); callers crossing
-    //! queues override it post-construction.
+    //! `buffer.GetResourceState()` (access / stage). Caller supplies the dst side.
     BufferBarrier MakeBufferBarrier(
         Buffer& buffer,
         AccessFlags dstAccess,

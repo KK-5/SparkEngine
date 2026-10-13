@@ -125,48 +125,33 @@ namespace Spark::RHI
         }
 
         // What an upload hands over to the queue that owns its target: the Copy queue records
-        // it to release, the owner to acquire, the same barrier both times. The buffer is
-        // left readable in every way its bind flags allow; with none it stays as the copy
-        // left it, for the render graph to take from there.
-        BufferBarrier MakeBufferHandoff(Buffer& buffer)
+        // it to release, the owner to acquire, the same transfer both times.
+        BufferQueueTransfer MakeBufferHandoff(Buffer& buffer)
         {
-            const AccessFlags reads = GetReadOnlyAccess(buffer);
-            const bool        read  = reads != AccessFlags::None;
-
-            BufferBarrier barrier;
-            barrier.m_buffer    = &buffer;
-            barrier.m_srcAccess = AccessFlags::TransferWrite;
-            barrier.m_srcStage  = AttachmentStage::Copy;
-            barrier.m_srcQueue  = HardwareQueueClass::Copy;
-            barrier.m_dstAccess = read ? reads : AccessFlags::TransferWrite;
-            barrier.m_dstStage  = read ? AttachmentStage::Any : AttachmentStage::Copy;
-            barrier.m_dstQueue  = ResolveHomeQueue(buffer.GetDescriptor().m_sharedQueueMask);
-            return barrier;
+            BufferQueueTransfer transfer;
+            transfer.m_buffer    = &buffer;
+            transfer.m_srcAccess = AccessFlags::TransferWrite;
+            transfer.m_srcStage  = AttachmentStage::Copy;
+            transfer.m_srcQueue  = HardwareQueueClass::Copy;
+            transfer.m_dstQueue  = ResolveHomeQueue(buffer.GetDescriptor().m_sharedQueueMask);
+            return transfer;
         }
 
         // Image counterpart of MakeBufferHandoff, over the subresources the upload wrote.
-        // Sampling is the one use of an image no pass declares, so an image that can be
-        // sampled is left ready for it; any other keeps the copy's layout for the render
-        // graph to take from there.
-        ImageBarrier MakeImageHandoff(Image& image, const ImageSubresourceRange& range)
+        ImageQueueTransfer MakeImageHandoff(Image& image, const ImageSubresourceRange& range)
         {
-            const ImageDescriptor& descriptor = image.GetDescriptor();
-            const bool sampled = CheckBitsAny(descriptor.m_bindFlags, ImageBindFlags::ShaderRead);
-
-            ImageBarrier barrier;
-            barrier.m_image     = &image;
-            barrier.m_range     = range;
-            barrier.m_srcAccess = AccessFlags::TransferWrite;
-            barrier.m_srcStage  = AttachmentStage::Copy;
-            barrier.m_srcQueue  = HardwareQueueClass::Copy;
-            barrier.m_dstAccess = sampled ? AccessFlags::ShaderSampledRead : AccessFlags::TransferWrite;
-            barrier.m_dstStage  = sampled ? AttachmentStage::Any : AttachmentStage::Copy;
-            barrier.m_dstQueue  = ResolveHomeQueue(descriptor.m_sharedQueueMask);
-            return barrier;
+            ImageQueueTransfer transfer;
+            transfer.m_image     = &image;
+            transfer.m_range     = range;
+            transfer.m_srcAccess = AccessFlags::TransferWrite;
+            transfer.m_srcStage  = AttachmentStage::Copy;
+            transfer.m_srcQueue  = HardwareQueueClass::Copy;
+            transfer.m_dstQueue  = ResolveHomeQueue(image.GetDescriptor().m_sharedQueueMask);
+            return transfer;
         }
 
-        // Puts on a request whose copy is over the barrier that takes its target back, and
-        // moves it to awaiting that. False when there is none to take: a buffer several
+        // Puts on a request whose copy is over the transfer its target was released with, and
+        // moves it to awaiting the acquire. False when there is none to take: a buffer several
         // queues share, or a target that is gone.
         bool AwaitAcquire(RHIContext& ctx, RHIEventContext& events, RHIEvent request)
         {
@@ -178,7 +163,7 @@ namespace Spark::RHI
                 {
                     return false;
                 }
-                events.Add<BufferBarrier>(request, MakeBufferHandoff(buffer));
+                events.Add<BufferQueueTransfer>(request, MakeBufferHandoff(buffer));
             }
             else
             {
@@ -187,7 +172,7 @@ namespace Spark::RHI
                 {
                     return false;
                 }
-                events.Add<ImageBarrier>(request, MakeImageHandoff(static_cast<Image&>(resource), imageUpload.m_range));
+                events.Add<ImageQueueTransfer>(request, MakeImageHandoff(static_cast<Image&>(resource), imageUpload.m_range));
             }
             events.Remove<UploadingTag>(request);
             events.Add<UploadAcquirePendingTag>(request);
@@ -212,15 +197,46 @@ namespace Spark::RHI
             return commandList;
         };
 
+        // Acquired, the target is in None. A buffer goes on to every read its bind flags allow;
+        // an image that can be sampled to that, the one use of an image no pass declares. Any
+        // other stays in None, for the render graph to take from there.
         eastl::vector<RHIEvent> acquired;
-        events.GetView<UploadAcquirePendingTag, BufferBarrier>().each([&](RHIEvent request, const BufferBarrier& barrier)
+        events.GetView<UploadAcquirePendingTag, BufferQueueTransfer>().each(
+            [&](RHIEvent request, const BufferQueueTransfer& transfer)
         {
-            open(barrier.m_dstQueue)->QueueBarrier(barrier);
+            CommandList* commandList = open(transfer.m_dstQueue);
+            commandList->QueueAcquire(transfer);
+
+            const AccessFlags reads = GetReadOnlyAccess(*transfer.m_buffer);
+            if (reads != AccessFlags::None)
+            {
+                BufferBarrier barrier;
+                barrier.m_buffer    = transfer.m_buffer;
+                barrier.m_srcAccess = AccessFlags::None;
+                barrier.m_srcStage  = AttachmentStage::Uninitialized;
+                barrier.m_dstAccess = reads;
+                barrier.m_dstStage  = AttachmentStage::Any;
+                commandList->QueueBarrier(barrier);
+            }
             acquired.push_back(request);
         });
-        events.GetView<UploadAcquirePendingTag, ImageBarrier>().each([&](RHIEvent request, const ImageBarrier& barrier)
+        events.GetView<UploadAcquirePendingTag, ImageQueueTransfer>().each(
+            [&](RHIEvent request, const ImageQueueTransfer& transfer)
         {
-            open(barrier.m_dstQueue)->QueueBarrier(barrier);
+            CommandList* commandList = open(transfer.m_dstQueue);
+            commandList->QueueAcquire(transfer);
+
+            if (CheckBitsAny(transfer.m_image->GetDescriptor().m_bindFlags, ImageBindFlags::ShaderRead))
+            {
+                ImageBarrier barrier;
+                barrier.m_image     = transfer.m_image;
+                barrier.m_range     = transfer.m_range;
+                barrier.m_srcAccess = AccessFlags::None;
+                barrier.m_srcStage  = AttachmentStage::Uninitialized;
+                barrier.m_dstAccess = AccessFlags::ShaderSampledRead;
+                barrier.m_dstStage  = AttachmentStage::Any;
+                commandList->QueueBarrier(barrier);
+            }
             acquired.push_back(request);
         });
 
@@ -424,8 +440,8 @@ namespace Spark::RHI
         batch.m_bufferUploads.reserve(bufferView.size_hint());
         batch.m_imageUploads.reserve(imageView.size_hint());
         batch.m_imagePreBarriers.reserve(imageView.size_hint());
-        batch.m_bufferReleaseBarriers.reserve(bufferView.size_hint());
-        batch.m_imageReleaseBarriers.reserve(imageView.size_hint());
+        batch.m_bufferReleases.reserve(bufferView.size_hint());
+        batch.m_imageReleases.reserve(imageView.size_hint());
 
         struct Taken
         {
@@ -501,7 +517,7 @@ namespace Spark::RHI
             // transfer to write a buffer whose contents it does not keep.
             if (exclusive)
             {
-                batch.m_bufferReleaseBarriers.push_back(MakeBufferHandoff(*target));
+                batch.m_bufferReleases.push_back(MakeBufferHandoff(*target));
             }
 
             taken.push_back(Taken{ request, Ptr<Resource>(target) });
@@ -564,13 +580,11 @@ namespace Spark::RHI
             pre.m_range     = pending.m_range;
             pre.m_srcAccess = AccessFlags::Initial;
             pre.m_srcStage  = AttachmentStage::Uninitialized;
-            pre.m_srcQueue  = HardwareQueueClass::Copy;
             pre.m_dstAccess = AccessFlags::TransferWrite;
             pre.m_dstStage  = AttachmentStage::Copy;
-            pre.m_dstQueue  = HardwareQueueClass::Copy;
             batch.m_imagePreBarriers.push_back(pre);
 
-            batch.m_imageReleaseBarriers.push_back(MakeImageHandoff(*target, pending.m_range));
+            batch.m_imageReleases.push_back(MakeImageHandoff(*target, pending.m_range));
 
             taken.push_back(Taken{ request, Ptr<Resource>(target) });
         });
@@ -843,16 +857,16 @@ namespace Spark::RHI
             }
         }
 
-        // Release barriers: the release half of the handoff to the queue that owns each
-        // target. The acquire half is the same barrier, put on the request once this batch's
-        // fence is reached (FinishUploads).
-        for (const auto& barrier : batch.m_bufferReleaseBarriers)
+        // The release half of the handoff to the queue that owns each target. The acquire half
+        // is the same transfer, put on the request once this batch's fence is reached
+        // (FinishUploads).
+        for (const auto& transfer : batch.m_bufferReleases)
         {
-            cmdList->QueueBarrier(barrier);
+            cmdList->QueueRelease(transfer);
         }
-        for (const auto& barrier : batch.m_imageReleaseBarriers)
+        for (const auto& transfer : batch.m_imageReleases)
         {
-            cmdList->QueueBarrier(barrier);
+            cmdList->QueueRelease(transfer);
         }
         cmdList->FlushBarriers();
 

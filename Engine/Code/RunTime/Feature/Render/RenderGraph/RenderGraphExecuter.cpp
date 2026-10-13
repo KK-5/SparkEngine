@@ -91,8 +91,20 @@ namespace Spark::Render
         void QueueScopePreBarriers(
             RHI::CommandList* commandList, RHIContext& rhiContext, eastl::span<const RHIHandle> attachments)
         {
+            // A resource is acquired before its barrier, which takes it on from there.
             for (RHIHandle attachment : attachments)
             {
+                if (const auto* acquire = rhiContext.TryGet<PreImageAcquire>(attachment))
+                {
+                    for (const RHI::ImageQueueTransfer& transfer : acquire->m_transfers)
+                    {
+                        commandList->QueueAcquire(transfer);
+                    }
+                }
+                if (const auto* acquire = rhiContext.TryGet<PreBufferAcquire>(attachment))
+                {
+                    commandList->QueueAcquire(acquire->m_transfer);
+                }
                 if (const auto* pre = rhiContext.TryGet<PreImageBarrier>(attachment))
                 {
                     for (const RHI::ImageBarrier& barrier : pre->m_barriers)
@@ -119,9 +131,16 @@ namespace Spark::Render
                         commandList->QueueBarrier(barrier);
                     }
                 }
-                if (const auto* barrier = rhiContext.TryGet<PostBufferBarrier>(attachment))
+                if (const auto* release = rhiContext.TryGet<PostImageRelease>(attachment))
                 {
-                    commandList->QueueBarrier(barrier->m_barrier);
+                    for (const RHI::ImageQueueTransfer& transfer : release->m_transfers)
+                    {
+                        commandList->QueueRelease(transfer);
+                    }
+                }
+                if (const auto* release = rhiContext.TryGet<PostBufferRelease>(attachment))
+                {
+                    commandList->QueueRelease(release->m_transfer);
                 }
             }
         }

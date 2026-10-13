@@ -26,9 +26,10 @@ namespace Spark::RHI
     class Device;
 
     //! Records the acquire of every upload that awaits one (UploadAcquirePendingTag) on the
-    //! queue that owns its target, one CommandList per queue, and ends those uploads. For
-    //! whoever owns the queues, every frame: after FrameEventBus::OnFrameBegin, which puts
-    //! the barriers on the requests, and before anything reads the targets' states.
+    //! queue that owns its target, and the barrier that takes the target on to how it is read
+    //! from then on, one CommandList per queue, and ends those uploads. For whoever owns the
+    //! queues, every frame: after FrameEventBus::OnFrameBegin, which puts the transfers on
+    //! the requests, and before anything reads the targets' states.
     void ExecuteUploadAcquires(Device& device, CommandQueueContext& queues);
 
     class AsyncUploadSystem final : public ISystem
@@ -96,9 +97,9 @@ namespace Spark::RHI
             // SubmitBatch from the requests alone: the upload thread reads no resource state.
             // An image is turned into a copy destination first; what one queue owns is
             // released to it afterwards. A buffer several queues share takes neither.
-            eastl::vector<ImageBarrier>  m_imagePreBarriers;
-            eastl::vector<BufferBarrier> m_bufferReleaseBarriers;
-            eastl::vector<ImageBarrier>  m_imageReleaseBarriers;
+            eastl::vector<ImageBarrier>        m_imagePreBarriers;
+            eastl::vector<BufferQueueTransfer> m_bufferReleases;
+            eastl::vector<ImageQueueTransfer>  m_imageReleases;
         };
 
         // CPU-blocking sync flush for init-time paths.
