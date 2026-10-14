@@ -75,9 +75,16 @@ namespace Spark::RHI
     //
     // The upload requests themselves are entities of RHIEventContext (EventComponent.h).
 
-    // While uploads into the resource are not over: how many. What a reader of the
-    // resource asks, with the handle it already has.
+    // While uploads into the resource are not over: how many. An upload is over once its
+    // copy is (its fence). What a reader of the resource asks, with the handle it already has.
     struct PendingUploads
+    {
+        uint32_t m_count = 0;
+    };
+
+    // While uploads into the resource are copied and released and their acquire is not
+    // recorded yet: how many.
+    struct PendingAcquires
     {
         uint32_t m_count = 0;
     };

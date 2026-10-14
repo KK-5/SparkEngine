@@ -24,7 +24,8 @@ namespace Spark::RHI
 
     // The copy is over and the queue that owns the target has yet to take it back. Comes
     // with the transfer the target was released with (BufferQueueTransfer /
-    // ImageQueueTransfer), whose acquire ExecuteUploadAcquires records.
+    // ImageQueueTransfer), whose acquire the render graph records in the Scope that first
+    // declares a read of the target. Ended by FinishUploadAcquire.
     struct UploadAcquirePendingTag {};
 
     // A buffer upload: the resource entity it writes and the CPU source data. The upload

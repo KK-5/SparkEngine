@@ -63,13 +63,21 @@ namespace Spark::Render
             return CheckBitsAny(m_activeQueues, RHI::GetHardwareQueueClassMask(queue));
         }
 
+        //! Walk the Scopes in stream order and give the uploads awaiting their acquire to the
+        //! first that uses a tag of their target (ScopeUses): a ScopeUpload on the request, its
+        //! transfer taken to the tag's access. A Scope on another queue that uses one later waits
+        //! for that Scope. Runs after SortScopes.
+        void CompileScopeUploads(PassContext& passContext, RHIContext& context);
+
         //! Walk the sorted attachments once, Scope by Scope, and put on them the barriers their
         //! accesses need: Pre*Barrier on the first attachment of each (Scope, resource) group;
         //! for a resource coming from another queue, Pre*Acquire in its place and Post*Release
         //! on the producer's attachment; and a swap chain's Present
         //! transition (PostImageBarrier) on its last attachment, which must be on Graphics.
+        //! An imported resource with uploads awaiting their acquire is acquired by the Scope that
+        //! first accesses it. Last, each Scope's uploads get their ScopeUploadRange.
         //! A barrier is needed when the state differs or either side writes; dropping same-state
-        //! ones is the backend's call. Runs after SortScopes.
+        //! ones is the backend's call. Runs after CompileScopeUploads.
         void CompileScopeBarriers(PassContext& passContext, RHIContext& context);
 
         //! Put an ExternalWait on the attachment by which each queue first touches an imported

@@ -239,18 +239,18 @@ namespace Spark::Render
 
         //! Put on every Scope the range RangeT of its entries in LinkT's packed array, which is
         //! sorted by Scope: an entry names its Scope in m_scope. A Scope with no entry gets an
-        //! empty range.
-        template<typename LinkT, typename RangeT>
-        void RecordScopeRanges(RHIContext& context)
+        //! empty range. The entries live in `linkContext`, the Scopes' context or another.
+        template<typename LinkT, typename RangeT, typename LinkContextT>
+        void RecordScopeRanges(RHIContext& context, LinkContextT& linkContext)
         {
             for (auto [scope, data] : context.GetStorage<Scope>().each())
             {
                 context.Add<RangeT>(scope);
             }
 
-            auto&            links  = context.GetStorage<LinkT>();
-            const RHIHandle* packed = links.data();
-            const auto       count  = static_cast<uint32_t>(links.size());
+            auto&       links  = linkContext.template GetStorage<LinkT>();
+            const auto* packed = links.data();
+            const auto  count  = static_cast<uint32_t>(links.size());
             for (uint32_t begin = 0; begin < count;)
             {
                 const RHIHandle scope = links.get(packed[begin]).m_scope;
@@ -330,8 +330,8 @@ namespace Spark::Render
 
         // Each Scope's attachments and items now sit contiguously in their packed arrays:
         // record where, so they can be reached without walking every Scope before.
-        RecordScopeRanges<ScopeAttachment, ScopeAttachmentRange>(context);
-        RecordScopeRanges<ScopeItem, ScopeItemRange>(context);
+        RecordScopeRanges<ScopeAttachment, ScopeAttachmentRange>(context, context);
+        RecordScopeRanges<ScopeItem, ScopeItemRange>(context, context);
     }
 
     void RenderGraphCompiler::CompileActiveQueues(RHIContext& context)
@@ -419,6 +419,61 @@ namespace Spark::Render
             }
         }
 
+        //! The queues the target of an upload awaiting its acquire lists.
+        RHI::HardwareQueueClassMask GetUploadQueueMask(RHI::RHIEventContext& events, RHI::RHIEvent request)
+        {
+            if (const auto* transfer = events.TryGet<RHI::BufferQueueTransfer>(request))
+            {
+                return transfer->m_buffer->GetDescriptor().m_sharedQueueMask;
+            }
+            return events.Get<RHI::ImageQueueTransfer>(request).m_image->GetDescriptor().m_sharedQueueMask;
+        }
+
+        //! The queue the target of an upload awaiting its acquire was released to.
+        RHI::HardwareQueueClass GetUploadQueue(RHI::RHIEventContext& events, RHI::RHIEvent request)
+        {
+            if (const auto* transfer = events.TryGet<RHI::BufferQueueTransfer>(request))
+            {
+                return transfer->m_dstQueue;
+            }
+            return events.Get<RHI::ImageQueueTransfer>(request).m_dstQueue;
+        }
+
+        //! Has `scope` record the acquire of the upload `request`, into `access` at `stage`.
+        void AcquireUpload(
+            RHI::RHIEventContext& events, RHI::RHIEvent request, RHIHandle scope, const Scope& data,
+            RHI::AccessFlags access, RHI::AttachmentStage stage)
+        {
+            if (auto* transfer = events.TryGet<RHI::BufferQueueTransfer>(request))
+            {
+                transfer->m_dstAccess = access;
+                transfer->m_dstStage  = stage;
+            }
+            else
+            {
+                auto& imageTransfer = events.Get<RHI::ImageQueueTransfer>(request);
+                imageTransfer.m_dstAccess = access;
+                imageTransfer.m_dstStage  = stage;
+            }
+            events.Add<ScopeUpload>(request, ScopeUpload{ scope, data.m_order });
+        }
+
+        //! The uploads into `resource` awaiting their acquire that no Scope acquires yet.
+        template<typename RequestT>
+        eastl::fixed_vector<RHI::RHIEvent, 4, true> FindUploadsToAcquire(RHI::RHIEventContext& events, RHIHandle resource)
+        {
+            eastl::fixed_vector<RHI::RHIEvent, 4, true> found;
+            events.GetView<RHI::UploadAcquirePendingTag, RequestT>(Exclude<ScopeUpload>).each(
+                [&](RHI::RHIEvent request, const RequestT& upload)
+                {
+                    if (upload.m_target == resource)
+                    {
+                        found.push_back(request);
+                    }
+                });
+            return found;
+        }
+
         void CompileBufferAccess(
             const ScopeBufferAccess& access,
             PassContext&             passContext,
@@ -436,6 +491,8 @@ namespace Spark::Render
                     GetResourceNameCStr(context, access.m_resource));
             }
 
+            const RHI::ResourceState dst { access.m_access, dstQueue, access.m_stage };
+
             auto* tracker = context.TryGet<BufferStateTracker>(access.m_resource);
             if (!tracker)
             {
@@ -443,10 +500,24 @@ namespace Spark::Render
                 // transient one starts Undefined.
                 tracker = &context.Add<BufferStateTracker>(access.m_resource);
                 tracker->m_current = backing->m_buffer->GetResourceState();
+
+                // Uploaded before it was imported, and released by the Copy queue: this Scope,
+                // the first to access it, acquires it into this access.
+                if (context.Has<RHI::PendingAcquires>(access.m_resource))
+                {
+                    auto& events = *RHI::RHIEventExecuteContext::Current();
+                    const Scope& scope = context.Get<Scope>(access.m_scope);
+                    for (RHI::RHIEvent request : FindUploadsToAcquire<RHI::BufferUploadRequest>(events, access.m_resource))
+                    {
+                        AcquireUpload(events, request, access.m_scope, scope, dst.m_access, dst.m_stage);
+                    }
+                    tracker->m_current        = dst;
+                    tracker->m_lastAttachment = access.m_attachment;
+                    return;
+                }
             }
 
             const RHI::ResourceState& src = tracker->m_current;
-            const RHI::ResourceState  dst { access.m_access, dstQueue, access.m_stage };
 
             if (src.m_queue != dstQueue)
             {
@@ -502,6 +573,33 @@ namespace Spark::Render
                 // subresource; a transient one starts Undefined.
                 tracker = &context.Add<ImageStateTracker>(access.m_resource);
                 tracker->m_states = access.m_image->GetSubresourceStates();
+
+                // Uploaded before it was imported, and released by the Copy queue: this Scope,
+                // the first to access it, acquires what each upload wrote, as it was released.
+                // Into what this access asks of it where that is one state throughout, else
+                // idle; the barriers below take each subresource on from there.
+                if (context.Has<RHI::PendingAcquires>(access.m_resource))
+                {
+                    auto& events = *RHI::RHIEventExecuteContext::Current();
+                    const Scope& scope = context.Get<Scope>(access.m_scope);
+                    for (RHI::RHIEvent request : FindUploadsToAcquire<RHI::ImageUploadRequest>(events, access.m_resource))
+                    {
+                        const RHI::ImageSubresourceRange& range = events.Get<RHI::ImageQueueTransfer>(request).m_range;
+
+                        RHI::ImageSubresourceStates::SpanList spans;
+                        access.m_requests.GetSpans(range, spans);
+                        const bool uniform = eastl::all_of(spans.begin(), spans.end(),
+                            [&](const RHI::ImageSubresourceSpan& span) { return span.m_state == spans[0].m_state; });
+                        RHI::ResourceState acquired { RHI::AccessFlags::None, dstQueue, RHI::AttachmentStage::Uninitialized };
+                        if (uniform && spans[0].m_state.m_access != RHI::AccessFlags::None)
+                        {
+                            acquired = spans[0].m_state;
+                        }
+
+                        AcquireUpload(events, request, access.m_scope, scope, acquired.m_access, acquired.m_stage);
+                        tracker->m_states.Set(range, acquired);
+                    }
+                }
             }
 
             ImageTransitionList transitions;
@@ -670,12 +768,65 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphCompiler::CompileScopeUploads(PassContext& passContext, RHIContext& context)
+    {
+        auto& events = *RHI::RHIEventExecuteContext::Current();
+        for (auto [scope, data] : context.GetStorage<Scope>().each())
+        {
+            const auto* uses = context.TryGet<ScopeUses>(scope);
+            if (!uses)
+            {
+                continue;
+            }
+
+            UploadTakeList taken;
+            for (ScopeUses::Take take : uses->m_takes)
+            {
+                take(context, events, taken);
+            }
+
+            for (const UploadTake& upload : taken)
+            {
+                // As for an imported resource: DX12 runs it, Vulkan would not.
+                ASSERT(!RHI::IsExclusiveQueueMask(GetUploadQueueMask(events, upload.m_request))
+                        || GetUploadQueue(events, upload.m_request) == data.m_queue,
+                    "Pass {} uses on queue {} a resource uploaded for queue {} alone.",
+                    passContext.Get<PassName>(data.m_pass).m_name.GetCStr(),
+                    static_cast<uint32_t>(data.m_queue),
+                    static_cast<uint32_t>(GetUploadQueue(events, upload.m_request)));
+
+                // Acquired by an earlier Scope. On another queue (a resource several queues
+                // share), this one waits for it.
+                if (const auto* acquiring = events.TryGet<ScopeUpload>(upload.m_request))
+                {
+                    const RHI::HardwareQueueClass queue = context.Get<Scope>(acquiring->m_scope).m_queue;
+                    if (queue != data.m_queue)
+                    {
+                        RecordCrossQueueWait(scope, acquiring->m_scope, queue, passContext, context);
+                    }
+                    continue;
+                }
+
+                // Into what the tag reads it as, for every read from then on.
+                AcquireUpload(events, upload.m_request, scope, data, upload.m_access, RHI::AttachmentStage::Any);
+            }
+        }
+    }
+
     void RenderGraphCompiler::CompileScopeBarriers(PassContext& passContext, RHIContext& context)
     {
         // Apart: neither's barriers depend on the other's.
         CompileScopeBufferBarriers(passContext, context);
         CompileScopeImageBarriers(passContext, context);
         CompilePresentBarriers(context);
+
+        // Every upload a Scope acquires has its ScopeUpload now, the imported ones' included.
+        auto& events = *RHI::RHIEventExecuteContext::Current();
+        events.Sort<ScopeUpload>([](const ScopeUpload& lhs, const ScopeUpload& rhs)
+        {
+            return lhs.m_scopeOrder < rhs.m_scopeOrder;
+        });
+        RecordScopeRanges<ScopeUpload, ScopeUploadRange>(context, events);
     }
 
     void RenderGraphCompiler::CompileExternalWaits(RHIContext& context)

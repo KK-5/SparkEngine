@@ -20,8 +20,8 @@ namespace Spark::RHI
 {
 
     //! Is the resource there to be used: its RHI object made (RHIResourceSystem makes it a
-    //! frame or two after the entity) and every upload into it over, the handoff to the
-    //! queue that owns it included. Whoever reads an uploaded resource asks this first.
+    //! frame or two after the entity) and every upload into it over, its copy done. Whoever
+    //! reads an uploaded resource asks this first; the Scope that declares the read acquires it.
     inline bool IsResourceReady(BasicContext<RHIHandle>& ctx, RHIHandle handle)
     {
         if (handle == NullHandle || ctx.Has<PendingUploads>(handle))
@@ -59,16 +59,49 @@ namespace Spark::RHI
 
     namespace Internal
     {
-        inline void CountPendingUpload(BasicContext<RHIHandle>& ctx, RHIHandle resourceEntity)
+        //! One more of what Counter counts on the resource (PendingUploads, PendingAcquires).
+        template<typename Counter>
+        void CountUp(BasicContext<RHIHandle>& ctx, RHIHandle resourceEntity)
         {
-            if (auto* pending = ctx.TryGet<PendingUploads>(resourceEntity))
+            if (auto* pending = ctx.TryGet<Counter>(resourceEntity))
             {
                 ++pending->m_count;
             }
             else
             {
-                ctx.Add<PendingUploads>(resourceEntity, PendingUploads{ 1 });
+                ctx.Add<Counter>(resourceEntity, Counter{ 1 });
             }
+        }
+
+        //! One less, the component going with the last. The resource may have gone first, and
+        //! its count with it.
+        template<typename Counter>
+        void CountDown(BasicContext<RHIHandle>& ctx, RHIHandle resourceEntity)
+        {
+            if (!ctx.Valid(resourceEntity))
+            {
+                return;
+            }
+            if (auto* pending = ctx.TryGet<Counter>(resourceEntity))
+            {
+                if (--pending->m_count == 0)
+                {
+                    ctx.Remove<Counter>(resourceEntity);
+                }
+            }
+        }
+
+        inline RHIHandle GetUploadTarget(RHIEventContext& events, RHIEvent request)
+        {
+            if (const auto* buffer = events.TryGet<BufferUploadRequest>(request))
+            {
+                return buffer->m_target;
+            }
+            if (const auto* image = events.TryGet<ImageUploadRequest>(request))
+            {
+                return image->m_target;
+            }
+            return NullHandle;
         }
     }
 
@@ -87,34 +120,34 @@ namespace Spark::RHI
         events.Add<BufferUploadRequest>(request,
             BufferUploadRequest{ resourceEntity, data, dataSize, destinationOffset });
         events.Add<UploadRequestedTag>(request);
-        Internal::CountPendingUpload(ctx, resourceEntity);
+        Internal::CountUp<PendingUploads>(ctx, resourceEntity);
     }
 
-    //! AsyncUploadSystem's: the upload `request` is over, whether it landed or was dropped.
-    //! Its target has one less to wait for, and the request goes.
+    //! AsyncUploadSystem's: the upload `request` is over and takes no acquire, whether it
+    //! landed or was dropped. Its target has one upload less, and the request goes.
     inline void FinishUploadRequest(BasicContext<RHIHandle>& ctx, RHIEventContext& events, RHIEvent request)
     {
-        RHIHandle target = NullHandle;
-        if (const auto* buffer = events.TryGet<BufferUploadRequest>(request))
-        {
-            target = buffer->m_target;
-        }
-        else if (const auto* image = events.TryGet<ImageUploadRequest>(request))
-        {
-            target = image->m_target;
-        }
+        Internal::CountDown<PendingUploads>(ctx, Internal::GetUploadTarget(events, request));
+        events.DestoryEntity(request);
+    }
 
-        // The target may have gone first, and its count with it.
+    //! AsyncUploadSystem's: the copy of `request` is over and it awaits its acquire. Its
+    //! target has one upload less and one acquire more; the request stays.
+    inline void FinishUploadCopy(BasicContext<RHIHandle>& ctx, RHIEventContext& events, RHIEvent request)
+    {
+        const RHIHandle target = Internal::GetUploadTarget(events, request);
+        Internal::CountDown<PendingUploads>(ctx, target);
         if (ctx.Valid(target))
         {
-            if (auto* pending = ctx.TryGet<PendingUploads>(target))
-            {
-                if (--pending->m_count == 0)
-                {
-                    ctx.Remove<PendingUploads>(target);
-                }
-            }
+            Internal::CountUp<PendingAcquires>(ctx, target);
         }
+    }
+
+    //! The acquire of `request` is recorded, or will never be: its target has one acquire
+    //! less, and the request goes. Whatever ends a request awaiting its acquire calls this.
+    inline void FinishUploadAcquire(BasicContext<RHIHandle>& ctx, RHIEventContext& events, RHIEvent request)
+    {
+        Internal::CountDown<PendingAcquires>(ctx, Internal::GetUploadTarget(events, request));
         events.DestoryEntity(request);
     }
 
@@ -165,7 +198,7 @@ namespace Spark::RHI
         events.Add<ImageUploadRequest>(request,
             ImageUploadRequest{ resourceEntity, data, dataSize, range, destinationOrigin, sourceFormat });
         events.Add<UploadRequestedTag>(request);
-        Internal::CountPendingUpload(ctx, resourceEntity);
+        Internal::CountUp<PendingUploads>(ctx, resourceEntity);
     }
 
     //! Resource-owned, descriptor-keyed image view cache (see Components::ImageViewCache).

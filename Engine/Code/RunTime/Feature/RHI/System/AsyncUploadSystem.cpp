@@ -176,71 +176,8 @@ namespace Spark::RHI
             }
             events.Remove<UploadingTag>(request);
             events.Add<UploadAcquirePendingTag>(request);
+            FinishUploadCopy(ctx, events, request);
             return true;
-        }
-    }
-
-    void ExecuteUploadAcquires(Device& device, CommandQueueContext& queues)
-    {
-        auto& ctx    = *RHIExecuteContext::Current();
-        auto& events = *RHIEventExecuteContext::Current();
-
-        eastl::array<CommandList*, HardwareQueueClassCount> recording {};
-        auto open = [&](HardwareQueueClass queueClass)
-        {
-            CommandList*& commandList = recording[static_cast<uint32_t>(queueClass)];
-            if (!commandList)
-            {
-                commandList = Service<Factory>::Get()->CreateCommandList(device, queueClass);
-                commandList->Open();
-            }
-            return commandList;
-        };
-
-        // A buffer is acquired into every read its bind flags allow; an image that can be
-        // sampled into that, the one use of an image no pass declares. Any other is left idle
-        // (None), for the render graph to take from there.
-        eastl::vector<RHIEvent> acquired;
-        events.GetView<UploadAcquirePendingTag, BufferQueueTransfer>().each(
-            [&](RHIEvent request, const BufferQueueTransfer& transfer)
-        {
-            BufferQueueTransfer acquire = transfer;
-            acquire.m_dstAccess = GetReadOnlyAccess(*transfer.m_buffer);
-            if (acquire.m_dstAccess != AccessFlags::None)
-            {
-                acquire.m_dstStage = AttachmentStage::Any;
-            }
-            open(transfer.m_dstQueue)->QueueAcquire(acquire);
-            acquired.push_back(request);
-        });
-        events.GetView<UploadAcquirePendingTag, ImageQueueTransfer>().each(
-            [&](RHIEvent request, const ImageQueueTransfer& transfer)
-        {
-            ImageQueueTransfer acquire = transfer;
-            if (CheckBitsAny(transfer.m_image->GetDescriptor().m_bindFlags, ImageBindFlags::ShaderRead))
-            {
-                acquire.m_dstAccess = AccessFlags::ShaderSampledRead;
-                acquire.m_dstStage  = AttachmentStage::Any;
-            }
-            open(transfer.m_dstQueue)->QueueAcquire(acquire);
-            acquired.push_back(request);
-        });
-
-        for (uint32_t queueIndex = 0; queueIndex < HardwareQueueClassCount; ++queueIndex)
-        {
-            CommandList* commandList = recording[queueIndex];
-            if (!commandList)
-            {
-                continue;
-            }
-            commandList->FlushBarriers();
-            commandList->Close();
-            queues.GetCommandQueue(static_cast<HardwareQueueClass>(queueIndex)).ExecuteCommands({ &commandList, 1 });
-        }
-
-        for (RHIEvent request : acquired)
-        {
-            FinishUploadRequest(ctx, events, request);
         }
     }
 

@@ -25,13 +25,6 @@ namespace Spark::RHI
     class CommandQueueContext;
     class Device;
 
-    //! Records the acquire of every upload that awaits one (UploadAcquirePendingTag) on the
-    //! queue that owns its target, into how the target is read from then on, one CommandList
-    //! per queue, and ends those uploads. For whoever owns the
-    //! queues, every frame: after FrameEventBus::OnFrameBegin, which puts the transfers on
-    //! the requests, and before anything reads the targets' states.
-    void ExecuteUploadAcquires(Device& device, CommandQueueContext& queues);
-
     class AsyncUploadSystem final : public ISystem
                                   , public FrameEventBus::Handler
     {
@@ -106,7 +99,8 @@ namespace Spark::RHI
         void FlushUploadPackets();
 
         //! Moves the requests whose batch the GPU has finished on: to awaiting their acquire,
-        //! or to their end when they need none.
+        //! which the Scope that declares a read of the target records, or to their end when
+        //! they need none.
         void FinishUploads(RHIContext& ctx, RHIEventContext& events);
 
         void SubmitBatch(RHIContext& ctx, RHIEventContext& events);

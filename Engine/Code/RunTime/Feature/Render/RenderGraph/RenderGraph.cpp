@@ -13,10 +13,11 @@
 #include <RHI/Resource/Image/ImagePool.h>
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Pipeline/PipelineLibrary.h>
-#include <RHI/System/AsyncUploadSystem.h>
+#include <RHI/ResourceBuilder.h>
 
 #include <Pass/Pipeline.h>
 #include <Pass/Component/RHIComponents.h>
+#include <Pass/Component/ScopeComponents.h>
 #include <Pass/Component/PassComponents.h>
 
 namespace Spark::Render
@@ -210,12 +211,6 @@ namespace Spark::Render
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
         m_commandQueueContext.Begin();
 
-        // Uploads whose copies are over go back to their queues ahead of everything this
-        // frame submits, so Build and Compile see them ready and in their final states.
-        // Relies on no OnFrameBegin handler reading those states: AsyncUploadSystem's puts
-        // the transfers on the requests there, and the bus orders handlers arbitrarily.
-        RHI::ExecuteUploadAcquires(*m_device, m_commandQueueContext);
-
         auto& context = *RHIExecuteContext::Current();
 
         // Refresh borrowed pointers (BackingImage / BackingBuffer / Backing*View)
@@ -266,6 +261,7 @@ namespace Spark::Render
 
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
 
+        m_compiler.CompileScopeUploads(passContext, context);
         m_compiler.CompileScopeBarriers(passContext, context);
         m_compiler.CompileExternalWaits(context);
         m_compiler.CompileScopeSync(passContext, context, m_crossQueueFences);
@@ -289,6 +285,17 @@ namespace Spark::Render
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
         m_executer.ExecuteScopes(context, *factory, *m_device, m_commandQueueContext);
+
+        // The uploads the Scopes acquired are over, their acquires recorded.
+        {
+            auto& events = *RHI::RHIEventExecuteContext::Current();
+            auto& links  = events.GetStorage<ScopeUpload>();
+            const eastl::vector<RHI::RHIEvent> acquired(links.data(), links.data() + links.size());
+            for (RHI::RHIEvent request : acquired)
+            {
+                RHI::FinishUploadAcquire(context, events, request);
+            }
+        }
 
         // Frame-end: signal each active queue's cross-queue fence one more time.
         // The PendingSync stamp below writes this value onto every imported

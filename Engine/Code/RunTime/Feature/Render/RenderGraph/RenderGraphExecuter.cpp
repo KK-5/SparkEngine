@@ -88,6 +88,24 @@ namespace Spark::Render
             }
         }
 
+        //! The acquires of the uploads the Scope acquires (ScopeUpload), ahead of its attachments'
+        //! barriers, which take an imported one on from what the acquire left.
+        void QueueScopeUploadAcquires(RHI::CommandList* commandList, RHIContext& rhiContext, RHIHandle scope)
+        {
+            auto& events = *RHI::RHIEventExecuteContext::Current();
+            for (RHI::RHIEvent request : GetScopeUploads(rhiContext, events, scope))
+            {
+                if (const auto* transfer = events.TryGet<RHI::BufferQueueTransfer>(request))
+                {
+                    commandList->QueueAcquire(*transfer);
+                }
+                else
+                {
+                    commandList->QueueAcquire(events.Get<RHI::ImageQueueTransfer>(request));
+                }
+            }
+        }
+
         void QueueScopePreBarriers(
             RHI::CommandList* commandList, RHIContext& rhiContext, eastl::span<const RHIHandle> attachments)
         {
@@ -274,6 +292,7 @@ namespace Spark::Render
 
             RHI::CommandList* commandList = open(queueClass);
 
+            QueueScopeUploadAcquires(commandList, rhiContext, scope);
             QueueScopePreBarriers(commandList, rhiContext, attachments);
             commandList->FlushBarriers();
 

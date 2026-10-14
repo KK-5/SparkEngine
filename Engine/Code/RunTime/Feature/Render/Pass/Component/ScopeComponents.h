@@ -9,6 +9,7 @@
 
 #include <RHI/Component/Component.h>
 #include <RHI/Context/RHIContext.h>
+#include <RHI/Context/RHIEventContext.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
@@ -114,14 +115,49 @@ namespace Spark::Render
         eastl::fixed_vector<Collect, 4> m_collects;
     };
 
+    //! An upload awaiting its acquire whose target carries a tag a Scope uses, with the
+    //! access that tag says its resources are read with.
+    struct UploadTake
+    {
+        RHI::RHIEvent    m_request {RHI::NullEvent};
+        RHI::AccessFlags m_access  {RHI::AccessFlags::None};
+    };
+
+    using UploadTakeList = eastl::fixed_vector<UploadTake, 8, true>;
+
     //! On a Scope that reads resources from outside the graph by tag (.Uses): per tag, what
-    //! takes that tag's uploads for the Scope.
+    //! picks the uploads into resources carrying it that await their acquire, whichever
+    //! Scope acquires them. CompileScopeUploads decides which this Scope does.
     struct ScopeUses
     {
-        using Take = void (*)(RHI::RHIContext&, RHI::RHIHandle scope);
+        using Take = void (*)(RHI::RHIContext&, RHI::RHIEventContext&, UploadTakeList& out);
 
         eastl::fixed_vector<Take, 4> m_takes;
     };
+
+    //! On an upload awaiting its acquire (an RHIEventContext entity), naming the Scope that
+    //! records the acquire: the transfer the request carries, its dst side set by then.
+    struct ScopeUpload
+    {
+        RHI::RHIHandle m_scope {RHI::NullHandle};
+        uint32_t       m_scopeOrder {0};   //!< the Scope's m_order
+    };
+
+    //! On every Scope: where the uploads it acquires sit in the ScopeUpload storage's packed
+    //! array, contiguous since CompileScopeBarriers, which records it.
+    struct ScopeUploadRange
+    {
+        uint32_t m_begin = 0;
+        uint32_t m_end   = 0;
+    };
+
+    //! The uploads the Scope acquires. Valid from CompileScopeBarriers to the end of the frame.
+    inline eastl::span<const RHI::RHIEvent> GetScopeUploads(
+        RHI::RHIContext& context, RHI::RHIEventContext& events, RHI::RHIHandle scope)
+    {
+        const ScopeUploadRange& range = context.Get<ScopeUploadRange>(scope);
+        return { events.GetStorage<ScopeUpload>().data() + range.m_begin, range.m_end - range.m_begin };
+    }
 
     //! Declare one more tag on `scope`. One it declares already, from another source, is not
     //! added again.
@@ -239,4 +275,5 @@ namespace Spark::Render
     static_assert(eastl::is_trivially_copyable_v<Scope>);
     static_assert(eastl::is_trivially_copyable_v<ScopeAttachment>);
     static_assert(eastl::is_trivially_copyable_v<ScopeItem>);
+    static_assert(eastl::is_trivially_copyable_v<ScopeUpload>);
 }

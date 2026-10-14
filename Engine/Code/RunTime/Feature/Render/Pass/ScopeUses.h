@@ -1,6 +1,8 @@
 #pragma once
 
+#include <RHI/Component/EventComponent.h>
 #include <RHI/Context/RHIContext.h>
+#include <RHI/Context/RHIEventContext.h>
 #include <RHI/Resource/AccessFlags.h>
 
 #include <Pass/TagList.h>
@@ -8,15 +10,24 @@
 
 namespace Spark::Render
 {
-    //! A ScopeUses::Take: claims for `scope` the uploads into resources carrying Tag that await
-    //! their acquire, which takes them into Tag::Access. A tag for this carries the access its
-    //! resources are read with.
+    //! A ScopeUses::Take: the uploads awaiting their acquire whose target carries Tag, each with
+    //! Tag::Access. A tag for this carries the access its resources are read with.
     template<typename Tag>
-    void TakeUploads(RHI::RHIContext&, RHI::RHIHandle /*scope*/)
+    void TakeUploads(RHI::RHIContext& context, RHI::RHIEventContext& events, UploadTakeList& out)
     {
         static_assert(Tag::Access != RHI::AccessFlags::None, "A tag a Scope uses says how its resources are read.");
-        // Uploads are still acquired at the start of the frame (ExecuteUploadAcquires): none
-        // awaits a claim yet.
+
+        auto take = [&](RHI::RHIEvent request, RHI::RHIHandle target)
+        {
+            if (context.Valid(target) && context.Has<Tag>(target))
+            {
+                out.push_back(UploadTake{ request, Tag::Access });
+            }
+        };
+        events.GetView<RHI::UploadAcquirePendingTag, RHI::BufferUploadRequest>().each(
+            [&](RHI::RHIEvent request, const RHI::BufferUploadRequest& upload) { take(request, upload.m_target); });
+        events.GetView<RHI::UploadAcquirePendingTag, RHI::ImageUploadRequest>().each(
+            [&](RHI::RHIEvent request, const RHI::ImageUploadRequest& upload) { take(request, upload.m_target); });
     }
 
     template<typename... Tags>
