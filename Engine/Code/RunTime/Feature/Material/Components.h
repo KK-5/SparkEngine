@@ -8,6 +8,7 @@
 #include <Math/Vector4.h>
 #include <ECS/ComponentTraits.h>
 #include <RHI/Context/RHIHandle.h>
+#include <RHI/Resource/AccessFlags.h>
 #include <Resource/Material/MaterialState.h>
 #include <Resource/Material/StandardPBR.h>
 
@@ -50,6 +51,13 @@ namespace Spark::Material
         {
             m_handles.fill(RHI::NullHandle);
         }
+    };
+
+    //! On the RHIContext entity of each texture MaterialTextureSystem uploads (a
+    //! MaterialGPUTextures handle), sampled through the bindless heap.
+    struct MaterialTextureTag
+    {
+        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
     };
 
     //! Marks the one resident default material in the MaterialContext. Lets any

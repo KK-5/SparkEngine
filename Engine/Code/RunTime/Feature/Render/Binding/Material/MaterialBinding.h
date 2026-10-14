@@ -1,8 +1,10 @@
 #pragma once
 
+#include <Material/Components.h>
 #include <Material/MaterialHandle.h>
 
 #include <Binding/GlobalBuffer.h>
+#include <Pass/TagList.h>
 
 #include "MaterialData.h"
 
@@ -38,5 +40,8 @@ namespace Spark::Render
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
     //! g_Materials SRV at space3. A pass declares .Binds<MaterialBindingTag>() and the
     //! executer binds it once before the pass's draws, exactly like ViewBindingTag (space1).
-    struct MaterialBindingTag {};
+    struct MaterialBindingTag
+    {
+        using Uses = TagList<Material::MaterialTextureTag>;
+    };
 }

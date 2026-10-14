@@ -91,17 +91,11 @@ namespace Spark::Render
             .RendersView<ShadowViewTag>()
             .Build([](RenderPassScopes& p)
             {
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-
                 // Until the atlas exists the pass declares nothing and is skipped.
-                RHI::RHIHandle atlas = RHI::NullHandle;
-                rhiCtx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
-                    [&](RHI::RHIHandle e) { atlas = e; });
-                if (!RHI::IsResourceReady(rhiCtx, atlas))
+                if (!p.Import<ShadowAtlasTag>(RHI::AttachmentId("ShadowAtlas")))
                 {
                     return;
                 }
-                p.Import(RHI::AttachmentId("ShadowAtlas"), atlas);
 
                 // One render pass for every view, so this clears the whole atlas — a tile no
                 // light owns holds the clear value.

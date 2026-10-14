@@ -281,6 +281,7 @@ namespace Spark::Render
         RHI::RHIHandle entity = rhiCtx.CreateEntity();
         rhiCtx.Add<RHI::ResourceName>(entity, RHI::ResourceName{ name });
         rhiCtx.Add<RHI::Components::Buffer>(entity, RHI::Components::Buffer{ buffer });
+        rhiCtx.Add<MeshGeometrySegmentTag>(entity);
         RHI::RequestBufferUpload(rhiCtx, entity, data, byteCount);
         return entity;
     }

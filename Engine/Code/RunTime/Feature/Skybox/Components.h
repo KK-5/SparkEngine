@@ -5,6 +5,7 @@
 #include <Resource/Image/ImageAsset.h>
 
 #include <RHI/Context/RHIHandle.h>
+#include <RHI/Resource/AccessFlags.h>
 
 namespace Spark::Skybox
 {
@@ -59,9 +60,15 @@ namespace Spark::Skybox
     //! Also the answer to "which skybox is active" for consumers that need the whole set:
     //! SceneBindingSystem finds the SkyboxGPUComponent whose m_cubemap carries this tag and
     //! takes its IBL handles from that same component, so sky and environment lighting can
-    //! never come from two different HDRIs. The IBL images get no tag of their own -- they
-    //! are bound straight into space0, never render-graph attachments.
+    //! never come from two different HDRIs.
     struct ActiveSkyCubeTag {};
+
+    //! On the RHIContext entities of every skybox's IBL images (m_irradiance, m_prefiltered),
+    //! which SceneBindingSystem binds into space0 rather than any pass importing them.
+    struct SkyLightingTag
+    {
+        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
+    };
 }
 
 namespace Spark

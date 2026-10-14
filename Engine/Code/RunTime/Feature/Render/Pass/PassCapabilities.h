@@ -9,6 +9,7 @@
 #include <RHI/Component/Component.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
+#include <Pass/ScopeUses.h>
 #include <Pass/Component/PassComponents.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
@@ -38,6 +39,10 @@ namespace Spark::Render
         //! pass's own (PassBindings). (.Binds<BindingTags...>)
         void (*m_resolveSharedBindings)(RHI::RHIContext&, ShaderBindingsList&);
 
+        //! Declare on a Scope, as it opens, the tags of the resources those shared bindings
+        //! read (BindingTag::Uses), as .Uses would. (.Binds<BindingTags...>)
+        void (*m_uses)(RHI::RHIContext&, RHI::RHIHandle scope);
+
         //! The live view instances of the type this pass renders — one batch each.
         //! Null for a pass that renders no view (copy, and compute),
         //! which then emits a single batch. (.RendersView<ViewTag>)
@@ -63,6 +68,14 @@ namespace Spark::Render
     void ResolveSharedBindings(RHI::RHIContext& ctx, ShaderBindingsList& out)
     {
         (ResolveSharedBinding<BindingTags>(ctx, out), ...);
+    }
+
+    // ---- m_uses ----------------------------------------------------------------
+
+    template<typename... BindingTags>
+    void DeclareBindingUses([[maybe_unused]] RHI::RHIContext& ctx, [[maybe_unused]] RHI::RHIHandle scope)
+    {
+        (AddScopeUses(ctx, scope, typename BindingTags::Uses{}), ...);
     }
 
     // ---- m_collectViews --------------------------------------------------------

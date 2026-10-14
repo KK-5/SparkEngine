@@ -73,6 +73,7 @@ namespace Spark::UI
             *rhiCtx,
             ObjectName(imagePath),
             imageDesc);
+        rhiCtx->Add<IconImageTag>(imageEntity);
 
         RHI::RequestImageUpload(
             *rhiCtx,

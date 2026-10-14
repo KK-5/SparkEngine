@@ -3,6 +3,8 @@
 #include <RHI/HardwareQueue.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
 
+#include <UI/ImGui/Components.h>
+
 #include <Pass/PassContext.h>
 #include <Pass/RenderPass.h>
 
@@ -22,6 +24,8 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), load);
+                // The UI draws in .Execute, where nothing names what it samples.
+                s.Uses<UI::IconImageTag>();
                 s.Close();
             })
             .Execute([&renderUI](ExecuteWork& work, RenderGraphExecuter&)

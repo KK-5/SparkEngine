@@ -1,6 +1,9 @@
 #pragma once
 
+#include <RHI/Resource/AccessFlags.h>
+
 #include <Binding/GlobalBuffer.h>
+#include <Pass/TagList.h>
 
 #include "InstanceData.h"
 
@@ -26,7 +29,10 @@ namespace Spark::Render
     };
 
     //! The single shared ShaderBindings entity carrying g_Instances (space4).
-    struct InstanceBindingTag {};
+    struct InstanceBindingTag
+    {
+        using Uses = TagList<>;
+    };
 
     //! On an entity of its own, kept by InstanceBindingSystem: how many slots of g_Instances
     //! a reader of the whole array has to go through this frame. The high-water mark, not
@@ -37,5 +43,8 @@ namespace Spark::Render
     };
 
     //! The single shared per-instance vertex stream ID buffer entity.
-    struct InstanceIDBufferTag {};
+    struct InstanceIDBufferTag
+    {
+        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::VertexIndexInput;
+    };
 }

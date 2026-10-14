@@ -14,6 +14,7 @@
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <Pass/Pass.h>
+#include <Pass/Component/RHIComponents.h>
 
 namespace Spark::RHI
 {
@@ -112,6 +113,31 @@ namespace Spark::Render
 
         eastl::fixed_vector<Collect, 4> m_collects;
     };
+
+    //! On a Scope that reads resources from outside the graph by tag (.Uses): per tag, what
+    //! takes that tag's uploads for the Scope.
+    struct ScopeUses
+    {
+        using Take = void (*)(RHI::RHIContext&, RHI::RHIHandle scope);
+
+        eastl::fixed_vector<Take, 4> m_takes;
+    };
+
+    //! Declare one more tag on `scope`. One it declares already, from another source, is not
+    //! added again.
+    inline void AddScopeUse(RHI::RHIContext& context, RHI::RHIHandle scope, ScopeUses::Take take)
+    {
+        auto* component = context.TryGet<ScopeUses>(scope);
+        auto& takes     = (component != nullptr ? *component : context.Add<ScopeUses>(scope)).m_takes;
+        for (ScopeUses::Take existing : takes)
+        {
+            if (existing == take)
+            {
+                return;
+            }
+        }
+        takes.push_back(take);
+    }
 
     //! On a Scope whose access to some resource follows one on another queue: per source queue,
     //! the latest producer Scope it must wait for, and the fence and value that works out to.

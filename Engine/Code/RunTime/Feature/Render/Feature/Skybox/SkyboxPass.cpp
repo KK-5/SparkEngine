@@ -107,17 +107,11 @@ namespace Spark::Render
                 s.Sampler(RHI::InputName("g_SkySampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
-                // The active skybox cube (SkyboxSystem tags it ActiveSkyCubeTag at creation),
-                // once it is materialized AND its upload is over — see IsResourceReady
-                // for why both are required. No cube -> nothing drawn, and g_SkyCube, bound by
-                // nothing, is nulled rather than left holding a deleted skybox.
-                auto& rhiCtx = *RHI::RHIExecuteContext::Current();
-                RHI::RHIHandle cube = RHI::NullHandle;
-                rhiCtx.GetView<Skybox::ActiveSkyCubeTag>(Exclude<DeadTag>).each(
-                    [&](RHI::RHIHandle e) { cube = e; });
-                if (RHI::IsResourceReady(rhiCtx, cube))
+                // The active skybox cube, once it is ready. No cube -> nothing drawn, and
+                // g_SkyCube, bound by nothing, is nulled rather than left holding a deleted
+                // skybox.
+                if (p.Import<Skybox::ActiveSkyCubeTag>(RHI::AttachmentId("SkyCube")))
                 {
-                    p.Import(RHI::AttachmentId("SkyCube"), cube);
                     s.ReadImage(RHI::AttachmentId("SkyCube"))
                         .View(RHI::ImageViewDescriptor::CreateCubemap())
                         .Bind(RHI::InputName("g_SkyCube"));

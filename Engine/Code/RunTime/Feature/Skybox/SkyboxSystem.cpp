@@ -186,6 +186,13 @@ namespace Spark::Skybox
             gpuComp.m_prefiltered = CreateAndUploadImage(
                 *rhiCtx, *prefiltered, eastl::string("SkyboxPrefiltered_") + idSuffix);
         }
+        for (RHI::RHIHandle lighting : { gpuComp.m_irradiance, gpuComp.m_prefiltered })
+        {
+            if (lighting != RHI::NullHandle)
+            {
+                rhiCtx->Add<SkyLightingTag>(lighting);
+            }
+        }
 
         // Designate this as the active skybox's cube so the render SkyboxPass imports it.
         // Tagged at creation (materialization is not required to tag — SkyboxPass gates the

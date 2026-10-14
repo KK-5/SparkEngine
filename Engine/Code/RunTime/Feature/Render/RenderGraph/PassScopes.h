@@ -12,11 +12,24 @@
 #include <EASTL/vector.h>
 
 #include <CoreComponents/Tags.h>
+#include <RHI/ResourceBuilder.h>
+
+#include <Pass/ScopeUses.h>
 
 #include "RenderGraphBuilder.h"
 
 namespace Spark::Render
 {
+    //! The resource carrying Tag, once it is there to be used (IsResourceReady); NullHandle
+    //! until then.
+    template<typename Tag>
+    RHIHandle FindReadyResource(RHI::RHIContext& context)
+    {
+        RHIHandle resource = NullHandle;
+        context.GetView<Tag>(Exclude<DeadTag>).each([&](RHIHandle e) { resource = e; });
+        return RHI::IsResourceReady(context, resource) ? resource : NullHandle;
+    }
+
     //! A ScopeSelections::Collect: the live scene DrawItems carrying all of DrawTags. An item
     //! marked dead this frame is left out, though its entity stays valid through recording.
     template<typename... DrawTags>
@@ -183,6 +196,15 @@ namespace Spark::Render
             m_builder->AddScopeSelection(m_scope, &CollectDrawItems<DrawTags...>);
         }
 
+        //! Read the resources carrying Tag, which live outside the graph, as Tag::Access says.
+        //! For what nothing in this Scope names: .Binds<> and DrawIndirect declare what they
+        //! read themselves.
+        template<typename Tag>
+        void Uses()
+        {
+            m_builder->AddScopeUse(m_scope, &TakeUploads<Tag>);
+        }
+
         //! Read the copy of `name` produced last frame (see ShaderAttachment::BindValid). A pass
         //! of this frame creates `name`, declared before this one or after it.
         ShaderAttachment ReadPreviousImage(const RHI::AttachmentId& name);
@@ -260,6 +282,13 @@ namespace Spark::Render
             m_builder->AddScopeDispatchIndirect(m_scope, arguments.GetHandle(), byteOffset);
         }
 
+        //! See RenderScope::Uses.
+        template<typename Tag>
+        void Uses()
+        {
+            m_builder->AddScopeUse(m_scope, &TakeUploads<Tag>);
+        }
+
         //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
         //! set the same input must agree (lowering asserts it): the per-pass space holds one
         //! value. One that varies per Scope goes in the shader's ScopeParameters instead.
@@ -314,6 +343,20 @@ namespace Spark::Render
             m_builder.ImportResource(name, resource);
         }
 
+        //! Introduce under `name` the resource carrying Tag, once it is ready. False while there
+        //! is none: what the pass declares without it is its own call.
+        template<typename Tag>
+        bool Import(const RHI::AttachmentId& name)
+        {
+            const RHIHandle resource = FindReadyResource<Tag>(*RHI::RHIExecuteContext::Current());
+            if (resource == NullHandle)
+            {
+                return false;
+            }
+            m_builder.ImportResource(name, resource);
+            return true;
+        }
+
         RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }
 
         RenderScope Scope()
@@ -352,6 +395,19 @@ namespace Spark::Render
         void Import(const RHI::AttachmentId& name, RHIHandle resource)
         {
             m_builder.ImportResource(name, resource);
+        }
+
+        //! See RenderPassScopes::Import.
+        template<typename Tag>
+        bool Import(const RHI::AttachmentId& name)
+        {
+            const RHIHandle resource = FindReadyResource<Tag>(*RHI::RHIExecuteContext::Current());
+            if (resource == NullHandle)
+            {
+                return false;
+            }
+            m_builder.ImportResource(name, resource);
+            return true;
         }
 
         RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }

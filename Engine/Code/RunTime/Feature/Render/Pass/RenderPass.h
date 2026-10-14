@@ -89,6 +89,7 @@ namespace Spark::Render
         RenderPassBuilder& Binds()
         {
             m_capabilities.m_resolveSharedBindings = &ResolveSharedBindings<BindingTags...>;
+            m_capabilities.m_uses                  = &DeclareBindingUses<BindingTags...>;
             m_hasCapabilities                      = true;
             return *this;
         }

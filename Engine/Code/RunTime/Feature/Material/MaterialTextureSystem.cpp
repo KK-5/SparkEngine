@@ -156,6 +156,7 @@ namespace Spark::Material
         RHI::RHIHandle tex = RHI::CreateImage(
             rhiCtx, ObjectName(name), desc,
             RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
+        rhiCtx.Add<MaterialTextureTag>(tex);
 
         RHI::RequestImageUpload(
             rhiCtx, tex, data->GetTextureBytes().data(), data->GetTextureBytes().size(),

@@ -148,6 +148,9 @@ namespace Spark::Render
         //! A set of scene items `scope` selects: `collect` appends its members under a view.
         void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);
 
+        //! A tag `scope` uses (.Uses): `take` takes that tag's uploads for it.
+        void AddScopeUse(RHIHandle scope, ScopeUses::Take take);
+
         //! The current pass's pipeline layout, reflected from its shaders.
         const RHI::PipelineLayoutDescriptor& CurrentPassLayout() const;
 

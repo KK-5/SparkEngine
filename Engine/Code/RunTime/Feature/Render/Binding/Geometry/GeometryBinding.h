@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Binding/GlobalBuffer.h>
+#include <Pass/TagList.h>
 
 #include "GeometryData.h"
 
@@ -14,5 +15,8 @@ namespace Spark::Render
     using GeometrySlotRef = SlotRef<Geometries>;
 
     //! The single shared ShaderBindings entity carrying g_Geometries (space6).
-    struct GeometryBindingTag {};
+    struct GeometryBindingTag
+    {
+        using Uses = TagList<>;
+    };
 }

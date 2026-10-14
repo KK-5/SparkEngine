@@ -201,10 +201,12 @@ namespace Spark::Render
         desc.m_mipLevels       = static_cast<uint16_t>(lut->GetMipLevels());
         desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
 
-        // Sampled every frame and never declared by a pass, like the IBL cubes.
+        // Sampled every frame through space0, like the IBL cubes: the passes that bind it
+        // declare it by its tag.
         const RHI::RHIHandle handle = RHI::CreateImage(
             rhiCtx, ObjectName(name), desc,
             RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
+        rhiCtx.Add<SceneLookupTableTag>(handle);
 
         RHI::RequestImageUpload(
             rhiCtx, handle, data->GetTextureBytes().data(), data->GetTextureBytes().size(),

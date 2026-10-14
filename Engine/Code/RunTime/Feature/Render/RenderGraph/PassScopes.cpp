@@ -244,6 +244,10 @@ namespace Spark::Render
             return;
         }
 
+        // What the draw reads of them: each mesh's part, and the ID stream.
+        Uses<MeshGeometrySegmentTag>();
+        Uses<InstanceIDBufferTag>();
+
         const uint64_t geometryByteCount = geometry->GetDescriptor().m_byteCount;
         ASSERT(geometryByteCount <= UINT32_MAX,
             "[RenderScope] The geometry pool's native buffer is beyond what a stream's range holds.");

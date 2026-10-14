@@ -6,6 +6,7 @@
 #include <Resource/Image/ImageAsset.h>
 
 #include <RHI/Context/RHIHandle.h>
+#include <RHI/Resource/AccessFlags.h>
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 
@@ -22,5 +23,12 @@ namespace Spark::UI
         RHI::RHIHandle           m_image    {RHI::NullHandle};
         RHI::ImageViewDescriptor m_viewDesc {};
         ImTextureID              m_iconId   {ImTextureID_Invalid};
+    };
+
+    //! On the RHIContext entity of each icon image (IconGPUComponent::m_image), which the UI
+    //! samples.
+    struct IconImageTag
+    {
+        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
     };
 }

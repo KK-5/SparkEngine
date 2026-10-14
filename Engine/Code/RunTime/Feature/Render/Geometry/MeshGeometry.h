@@ -5,6 +5,7 @@
 #include <Resource/AssetTypes.h>
 
 #include <RHI/Context/UniqueRHIHandle.h>
+#include <RHI/Resource/AccessFlags.h>
 #include <RHI/Resource/Buffer/IndexBufferView.h>
 
 namespace Spark::Render
@@ -42,6 +43,13 @@ namespace Spark::Render
     //! over. Before that a draw would read whatever the memory held, which in a pool is
     //! another mesh's data. MeshGeometrySystem puts it on; it goes with the MeshGeometry.
     struct MeshGeometryReadyTag {};
+
+    //! On the RHIContext entity of each of a mesh's buffers, a part of the geometry pool's
+    //! native buffer, read as a vertex or index stream.
+    struct MeshGeometrySegmentTag
+    {
+        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::VertexIndexInput;
+    };
 
     //! On the RHI entity of the native buffer every mesh's two buffers are parts of.
     struct MeshGeometryBaseBufferTag {};

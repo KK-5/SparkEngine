@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Binding/GlobalBuffer.h>
+#include <Pass/TagList.h>
 
 #include "ViewData.h"
 
@@ -14,7 +15,10 @@ namespace Spark::Render
     using ViewSlotRef = SlotRef<Views>;
 
     //! The single shared ShaderBindings entity carrying g_Views (space1).
-    struct ViewBindingTag {};
+    struct ViewBindingTag
+    {
+        using Uses = TagList<>;
+    };
 
     //! The view's g_Views index, for a Scope that picks its view in Build and sets
     //! .Constant("viewIndex", ...) itself. False before the view has a slot — its first

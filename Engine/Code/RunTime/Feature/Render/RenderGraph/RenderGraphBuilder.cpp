@@ -238,6 +238,12 @@ namespace Spark::Render
         m_openScope = scope;
         m_scopeAttachments.clear();
 
+        const auto* caps = passContext.TryGet<PassCapabilities>(m_currentPass);
+        if (caps != nullptr && caps->m_uses != nullptr)
+        {
+            caps->m_uses(rhiContext, scope);
+        }
+
         const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
         const RHI::ConstantsLayout* rootConstants = (layout != nullptr && layout->m_layout)
             ? layout->m_layout->GetRootConstantsLayout() : nullptr;
@@ -248,7 +254,6 @@ namespace Spark::Render
 
             // A pass that renders views has the executer write viewIndex at each view handle,
             // so it is marked set here: a .Constant("viewIndex") would be overwritten.
-            const auto* caps = passContext.TryGet<PassCapabilities>(m_currentPass);
             const RHI::ShaderInputIndex viewIndex = rootConstants->FindShaderInputIndex(RHI::InputName("viewIndex"));
             if (caps != nullptr && caps->m_collectViews != nullptr && viewIndex != RHI::InvalidShaderInputIndex)
             {
@@ -536,6 +541,12 @@ namespace Spark::Render
             ASSERT(existing != collect, "The same set is selected twice in one Scope.");
         }
         collects.push_back(collect);
+    }
+
+    void RenderGraphBuilder::AddScopeUse(RHIHandle scope, ScopeUses::Take take)
+    {
+        CheckScopeOpen(scope);
+        Render::AddScopeUse(*RHIExecuteContext::Current(), scope, take);
     }
 
     const RHI::PipelineLayoutDescriptor& RenderGraphBuilder::CurrentPassLayout() const
