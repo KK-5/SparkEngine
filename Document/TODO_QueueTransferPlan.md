@@ -10,8 +10,9 @@
 ## 状态
 
 - 步骤 1 完成，画面与日志用户确认过。
-- 步骤 2 的代码写完了，编译和单元测试通过。渲染图里跨队列的三种产出跑不到，只靠读代码。
-- 步骤 2 里翻出一个原有的问题：`Undefined` 里混着上一个使用者的信息。怎么改还没有定，见 §五。
+- 步骤 2 完成，连同之后补的接回带终点（D2），画面与日志用户确认过。渲染图里跨队列的产出跑不到，只靠读代码。
+- 步骤 2 里翻出一个原有的问题：`Undefined` 里混着上一个使用者的信息。接回改成带终点之后，
+  渲染图不再需要认识它，问题收在 RHI 内部；RHI 里怎么改还没有定，见 §五。
 - 步骤 3、4 还没有开始，步骤见 §六。
 
 ---
@@ -145,6 +146,8 @@ struct ImageQueueTransfer
     AttachmentStage       m_srcStage  = AttachmentStage::Uninitialized;
     HardwareQueueClass    m_srcQueue  = HardwareQueueClass::Graphics;
     HardwareQueueClass    m_dstQueue  = HardwareQueueClass::Graphics;
+    AccessFlags           m_dstAccess = AccessFlags::None;
+    AttachmentStage       m_dstStage  = AttachmentStage::Uninitialized;
 };
 struct BufferQueueTransfer { /* m_buffer，其余同上，没有 m_range */ };
 
@@ -157,12 +160,16 @@ virtual void QueueAcquire(const ImageQueueTransfer& transfer)  = 0;
 
 - 一次换队列录两次：源队列上 `QueueRelease`，目标队列上 `QueueAcquire`。两次之间的先后由调用方的 fence 保证，和现在一样。
 - **凡是换队列都发**，独占、共享、buffer、image 都一样。哪一半在哪个后端上为空，由后端决定（D9）。
-- **换完之后资源停在 `None`**（D3）。释放方只管把自己的状态收掉，接收方只管从 `None` 转到自己要的，
-  两边都不需要认识对方的状态。
+- **接回直接转到终点** `m_dstAccess` / `m_dstStage`，即接收方这次访问要的状态。释放不读终点。
+  终点是 `None` 时，资源接回后空闲在本队列（上传里没有只读用途的资源）。
+  - 和 Vulkan 的写法一致：接收方那一半本身就带新的访问和 layout，换队列和接收方的第一次改状态是同一条。
+  - 上层因此不用知道资源到了新队列、转之前是什么状态，终点它本来就知道。
   - 没有选"换队列之后状态不变"：那样要求交接时的状态两边队列都支持（计算队列写不出渲染目标），
     渲染图得判断屏障该发在哪一边。
 - `m_srcAccess` / `m_srcStage` 是释放前的状态，由调用方给：上传线程不读资源的记录。
-- **内容不用保留的资源不交接。** 状态是 `Undefined`，或是没人用过的 `Initial`，接手的队列直接从那个状态发屏障。
+- **新的（`Initial`）和内容不用保留的（`Undefined`）资源没有东西可交，由后端判断，上层不区分。**
+  上层照样写释放和接回；后端看源状态，不录交接，只录接回里转到终点的那一步。
+  这两种状态的队列字段不作数，换队列的掩码校验也不查它们。跨队列的等待照旧由上层记。
 
 ### D3　三个"没有访问"的状态
 
@@ -171,7 +178,7 @@ virtual void QueueAcquire(const ImageQueueTransfer& transfer)  = 0;
 | | `Initial`（新增） | `Undefined` | `None` |
 |---|---|---|---|
 | 含义 | 新建的，自己的内存，从没被访问过 | 内容不用保留，内存可能是别的资源用过的 | 内容要保留，任何队列都可以接手 |
-| 谁写上去 | 池在创建时 | transient 池每次分配时 | `QueueAcquire` |
+| 谁写上去 | 池在创建时 | transient 池每次分配时 | 终点为 `None` 的 `QueueAcquire` |
 | DX12 | COMMON | 未定义 layout，渲染目标和深度加丢弃 | COMMON |
 | Vulkan | 从未定义出发 | 从未定义出发 | 从保留下来的 layout 出发 |
 
@@ -208,7 +215,7 @@ virtual void QueueAcquire(const ImageQueueTransfer& transfer)  = 0;
 ### D5　记录什么时候写
 
 - `QueueBarrier`：和现在一样，录的时候把记录写成目标状态。
-- `QueueAcquire`：把记录写成 `{None, 本队列, 无阶段}`。
+- `QueueAcquire`：把记录写成 `{终点, 本队列, 终点的阶段}`。终点是 `None` 只有上传会用，源都是拷贝写。
 - `QueueRelease`：不写。换队列是一件事录两次，记录只在接回时变一次。上传线程因此仍然只在拷贝前那条屏障上写记录。
 - `ResourceState::m_queue` 的含义是"资源现在在哪个队列上"，由屏障和接回写。
   这句话只对有内容的状态成立，对 `Initial` 和 `Undefined` 不成立，见 §五。
@@ -220,10 +227,9 @@ virtual void QueueAcquire(const ImageQueueTransfer& transfer)  = 0;
 | 1 | copy 队列（上传线程） | 屏障 `Initial` 到拷贝写，buffer 和 image 都发。然后拷贝 |
 | 2 | copy 队列（上传线程） | `QueueRelease`，交给所属队列 |
 | — | 主线程 | 帧开头查 fence，完成了才往下走。资源从这时起算就绪 |
-| 3 | 认领这个请求的 Scope 所在的队列 | `QueueAcquire`，资源到 `None` |
-| 4 | 同上 | 屏障：`None` 到那次访问要的状态 |
+| 3 | 认领这个请求的 Scope 所在的队列 | `QueueAcquire`，直接到那次访问要的状态 |
 
-- **上传系统只做到查 fence 为止**：拷贝、释放、CPU 查 fence。第 3、4 步由渲染图在 pass 声明的访问处做（D11、D14），
+- **上传系统只做到查 fence 为止**：拷贝、释放、CPU 查 fence。第 3 步由渲染图在 pass 声明的访问处做（D11、D14），
   不再有帧开头的 `ExecuteUploadAcquires`。
 - **buffer 拷贝前也发屏障。** 现在的代码省掉了它，理由是 DX12 上 buffer 第一次被访问不需要屏障。按 D1，
   这一步由上层照逻辑写出，后端不发原生屏障（D9）。buffer 上传完的记录因此如实是"拷贝写、在 copy 队列上"，和 image 一样。
@@ -240,23 +246,23 @@ virtual void QueueAcquire(const ImageQueueTransfer& transfer)  = 0;
 
 ### D8　渲染图
 
-- **编译**：一次访问的源队列和本 Scope 的队列不同、且有内容要保留时，产生三样：生产方最后一个 attachment 上的释放、
-  消费方 attachment 上的接回、消费方上从 `None` 出发的屏障。跨队列等待照旧。
+- **编译**：一次访问的源队列和本 Scope 的队列不同时，产生两样：生产方最后一个 attachment 上的释放、
+  消费方 attachment 上接回到这次访问的状态，代替这次的屏障。跨队列等待照旧。不看源状态有没有内容（D2）。
 - **组件**：`Pre/PostImageBarrier`、`Pre/PostBufferBarrier` 旁边加放换队列的组件。
-- **执行**：Scope 开头先录接回、再录屏障；结尾录释放。
+- **执行**：Scope 开头录接回和屏障；结尾录释放。
 - **上传过来的资源第一次被访问**：释放那一半是上传线程录的，接回不由编译算，用等接回的请求上的那一份（D14）。
 - **共享 buffer 换队列**：现在只记等待、不发屏障；改成和别的资源一样发释放和接回，两个后端上都为空。
-- **不动的**：独占的导入资源不能换队列；image 不跨帧换队列的断言；transient image 不在 copy 队列上首次使用的断言；
-  等待与 `PendingSync`。
+- **不动的**：独占的导入资源不能换队列；image 不跨帧换队列的断言；等待与 `PendingSync`。
+  transient image 不在 copy 队列上首次使用的断言只留 DX12 `QueueBarrier` 里那份，渲染图里重复的一份删掉。
 
 ### D9　各后端把它变成什么
 
 | 操作 | Vulkan | DX12 |
 |---|---|---|
 | 释放 image | 独占：交接的释放一半，顺带转到公用 layout。共享：一条普通屏障转到公用 layout | 当前 layout 转到 COMMON；已经是 COMMON 就为空（copy 队列） |
-| 接回 image | 独占：交接的接回一半。共享：空 | 空 |
-| 释放、接回 buffer | 独占：交接一对。共享：空 | 空 |
-| 从 `None` 出发的屏障 | 公用 layout 转到需要的 | COMMON 转到需要的 |
+| 接回 image | 独占：交接的接回一半，再从公用 layout 转到终点。共享：只转到终点 | COMMON 转到终点 |
+| 释放、接回 buffer | 独占：交接一对。共享：空 | 空，接回只写记录 |
+| 源是 `Initial` / `Undefined` | 释放为空；接回从未定义 layout 转到终点 | 释放为空；接回从 COMMON / 未定义 layout 转到终点，后者带丢弃 |
 
 - Vulkan 的"公用 layout"是哪一个由后端定：统一转到一个（比如 GENERAL），或者保留原 layout 并记住它。上层不关心。
   代价是比现在多一条屏障，用户确认可以接受。仓库里还没有 Vulkan 后端，这一列是照着 §三 核对过的预期。
@@ -441,7 +447,7 @@ struct MaterialTextureTag
 | 提出 | 上传请求：目标、数据、范围 | 调用方 |
 | 拷贝中 | 加上 batch：fence 的值、保活的指针 | 上传系统 |
 | 等接回 | 加上释放时用的那份换队列（现在是一条屏障） | 上传系统 |
-| 被认领 | 加上认领组件；快速路径再加落点屏障 | 渲染图的编译 |
+| 被认领 | 加上认领组件；快速路径再把落点写进换队列的终点 | 渲染图的编译 |
 | 录完 | 实体销毁 | 渲染图，帧末 |
 
 - 资源实体上不另放"等落点"的标记。一次上传一个实体，image 的每段范围天然分开。
@@ -453,8 +459,8 @@ struct MaterialTextureTag
 - 编译按流的顺序走 Scope，调这个函数：走一遍等接回的请求，目标资源带这个标签、还没被认领的，认领给这个 Scope。
 - 认领是给请求实体加一个组件，写着所属的 Scope，和 `ScopeItem` 同一个模式：存储按 Scope 排好，
   Scope 记自己那一段的起止。组件由渲染层定义，放在 `RHIEventContext` 里。
-- 快速路径认领时把落点屏障也放到请求实体上：起点是接回后的 `None`，终点是标签定义里的访问，队列是 Scope 的队列。
-- 执行器录到 Scope 时走它那一段：先录接回（实体上的换队列），再录屏障。只读，不改组件。
+- 快速路径认领时把标签定义里的访问写进请求实体上换队列的终点。
+- 执行器录到 Scope 时走它那一段，录接回（实体上的换队列）。
 - 帧末渲染图通过 RHI 的辅助函数结束被认领的请求。
 - 一个请求只有一个认领组件，所以一个资源只被取一次。跨队列要等谁，也从认领组件上知道。
 - 没有把"取"放在执行时：那样一个资源只被取一次靠的是录命令的先后，并行录时不成立；
@@ -466,10 +472,10 @@ struct MaterialTextureTag
 **一般路径的接回也用这个实体。**
 
 - 编译第一次碰到一个带 `PendingAcquires` 的导入资源时，找出目标是它的等接回请求，认领给这个 Scope。
-  之后把那段范围当作已经在本队列、状态是 `None`，照常算自己的屏障。
+  接回的终点是这次访问的状态，之后照常算自己的屏障。
 - 没有让编译从状态记录自己算一份接回：它按这次访问碰到的子资源切范围，会和释放时的对不上。
   pass 只访问了上传范围的一部分时偏小，上传分成几个请求时又会合成一段。Vulkan 要求两者完全一致（§三）。
-- 上传的接回因此只有一套做法，两条路径的区别只在落点屏障由谁给：快速路径是标签定义的访问，一般路径是编译算的。
+- 上传的接回因此只有一套做法，两条路径的区别只在终点由谁给：快速路径是标签定义的访问，一般路径是这次访问的状态。
 
 **资源实体上两个计数，各说一段。**
 
@@ -523,8 +529,11 @@ struct MaterialTextureTag
 
    - DX12 的屏障把 `Undefined` 旁边的位拆出来，另发一条全局屏障。
    - 池分配时判断上一个使用者和本次使用是不是同一个队列，不是就不写这些位。
-   - 渲染图编译跨队列时，用 `KeepsContents` 判断有没有东西可交接，用 `ArrivedState` 把这些位去掉。
-     这两个函数是步骤 2 加的，把原来散在断言豁免和释放条件里的判断收到了一处，行为和改之前一样。
+   - DX12 的接回把这些位去掉（上一个使用者在别的队列上，由跨队列等待管）；换队列的掩码校验不查这两种状态的队列。
+   - 渲染图原来也要认识这些（步骤 2 的 `KeepsContents` / `ArrivedState`），接回改成带终点（D2）后去掉了，
+     上层换队列时不再看源状态。问题因此收在 RHI 内部：池写、DX12 读。
+   - 渲染图里只剩一处提到这两种状态：image 不跨帧换队列的断言，豁免新的和不用保留内容的。
+     它防的是 DX12 按队列区分的 layout，D13 按掩码选 layout 之后可能整条不需要。
 
    **已经清楚的**
 
@@ -532,6 +541,11 @@ struct MaterialTextureTag
    - 有疑问的是 `Undefined` 这一半。
    - 两个 API 都没有专门的切换操作，要求只有"旧资源的访问先做完"；这条等待可以发在旧资源上，也可以发在新资源上（§三）。
      引擎现在是后一种，所以要把旧资源的信息送到新资源那里。
+
+   **还没核实的**
+
+   - 池在上一个使用者和本次使用不在同一个队列时不写那些位，注释说"由调用方的 fence 排序"。
+     渲染图里没找到专门为共用内存的前后两个资源加的跨队列等待，可能有别的机制保证，没有查。
 
    **提过、没有被采纳的两个方向**
 
@@ -555,7 +569,8 @@ struct MaterialTextureTag
 
 - 上传系统在步骤 2 就换成换队列，是为了运行覆盖：所有 pass 都在图形队列，渲染图里跨队列的代码跑不到，
   真正会跑到换队列的只有上传。
-- 步骤 2 之后，不能采样的 image、没有只读用途的 buffer 接回后停在 `None`，不发落点屏障（之前是停在拷贝写）。
+- 步骤 2 之后，不能采样的 image、没有只读用途的 buffer 接回后停在 `None`（之前是停在拷贝写）。
+- 步骤 2 之后补了一处：接回带终点（D2），渲染图去掉 `KeepsContents` / `ArrivedState`，上传的接回和落点合成一次接回。
 - 步骤 3 补 buffer 拷贝前的屏障时要注意：池里的段上，DX12 对"围着写的屏障"有一条断言。步骤 2 已经把
   "从 `Initial` / `None` 出发不发原生屏障"排在它前面，所以 `Initial` 到拷贝写不会碰到它。
 
@@ -582,8 +597,8 @@ struct MaterialTextureTag
   它的 D6（`PendingUploads` 计数、请求的几个阶段）沿用：计数的含义不变，"等接回"这个阶段还在，
   录接回的地方从帧开头换成认领它的 Scope，资源上另加 `PendingAcquires`（本文 D14）。
   D8 里"buffer 没有拷贝前屏障"由本文的 D6 取代。
-- `TODO_EnhancedBarriersPlan.md`：D5（释放转到 COMMON、接回从 COMMON 转出）由本文的 D2、D9 取代，接回不再转出，
-  由接收方的屏障转。D2、D3 对 `None` 的定义沿用。D4 里"`ImagePool` 新建资源的记录是 `None`"改成 `Initial`。
+- `TODO_EnhancedBarriersPlan.md`：D5（释放转到 COMMON、接回从 COMMON 转出）由本文的 D2、D9 取代，
+  接回从 COMMON 直接转到接收方这次访问的状态。D2、D3 对 `None` 的定义沿用。D4 里"`ImagePool` 新建资源的记录是 `None`"改成 `Initial`。
   D8、D9 的断言沿用，D8 里对"初始状态是 `None`"的豁免改成 `Initial`。
   D2 里"一律用专用版"由本文的 D13 取代；D8 末尾写的方向这里做了按掩码选 layout 那一半，默认值没有改。
 - `TODO_SubresourceBarrierPlan.md`：D4、D7 里按子资源挂释放、接回的做法沿用，挂的东西从屏障换成换队列。
