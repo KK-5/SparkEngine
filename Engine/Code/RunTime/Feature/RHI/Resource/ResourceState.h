@@ -67,12 +67,14 @@ namespace Spark::RHI
         AttachmentStage       m_dstStage  = AttachmentStage::Any;
     };
 
-    //! A resource going from one queue to another with its contents kept. Recorded twice:
-    //! CommandList::QueueRelease on m_srcQueue and QueueAcquire on m_dstQueue, in that order,
-    //! which the caller sees to (a fence). The src side is the state it is released from;
-    //! acquiring leaves it in AccessFlags::None on the acquiring queue, for a barrier there to
-    //! take further. A resource whose contents need not be kept (Undefined, Initial) is not
-    //! transferred: the queue taking it up starts its barrier from that state.
+    //! A resource going from one queue to another. Recorded twice: CommandList::QueueRelease
+    //! on m_srcQueue and QueueAcquire on m_dstQueue, in that order, which the caller sees to (a
+    //! fence). The src side is the state it leaves in; the acquire takes it on to the dst side,
+    //! which the release does not read. None as dst leaves it idle on the acquiring queue.
+    //!
+    //! A resource that is new (Initial) or whose contents need not be kept (Undefined) has
+    //! nothing to hand over: the backend records no handover for it, only the acquire's change
+    //! to dst.
     //!
     //! m_dstQueue binds only a resource one queue owns. One several queues share changes no
     //! owner, and whichever of them acquires it has it.
@@ -83,6 +85,8 @@ namespace Spark::RHI
         AttachmentStage    m_srcStage  = AttachmentStage::Uninitialized;
         HardwareQueueClass m_srcQueue  = HardwareQueueClass::Graphics;
         HardwareQueueClass m_dstQueue  = HardwareQueueClass::Graphics;
+        AccessFlags        m_dstAccess = AccessFlags::None;
+        AttachmentStage    m_dstStage  = AttachmentStage::Uninitialized;
     };
 
     struct ImageQueueTransfer
@@ -94,6 +98,8 @@ namespace Spark::RHI
         AttachmentStage       m_srcStage  = AttachmentStage::Uninitialized;
         HardwareQueueClass    m_srcQueue  = HardwareQueueClass::Graphics;
         HardwareQueueClass    m_dstQueue  = HardwareQueueClass::Graphics;
+        AccessFlags           m_dstAccess = AccessFlags::None;
+        AttachmentStage       m_dstStage  = AttachmentStage::Uninitialized;
     };
 
     //! Construct a barrier whose src side is auto-populated from

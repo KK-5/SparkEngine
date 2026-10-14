@@ -197,46 +197,32 @@ namespace Spark::RHI
             return commandList;
         };
 
-        // Acquired, the target is in None. A buffer goes on to every read its bind flags allow;
-        // an image that can be sampled to that, the one use of an image no pass declares. Any
-        // other stays in None, for the render graph to take from there.
+        // A buffer is acquired into every read its bind flags allow; an image that can be
+        // sampled into that, the one use of an image no pass declares. Any other is left idle
+        // (None), for the render graph to take from there.
         eastl::vector<RHIEvent> acquired;
         events.GetView<UploadAcquirePendingTag, BufferQueueTransfer>().each(
             [&](RHIEvent request, const BufferQueueTransfer& transfer)
         {
-            CommandList* commandList = open(transfer.m_dstQueue);
-            commandList->QueueAcquire(transfer);
-
-            const AccessFlags reads = GetReadOnlyAccess(*transfer.m_buffer);
-            if (reads != AccessFlags::None)
+            BufferQueueTransfer acquire = transfer;
+            acquire.m_dstAccess = GetReadOnlyAccess(*transfer.m_buffer);
+            if (acquire.m_dstAccess != AccessFlags::None)
             {
-                BufferBarrier barrier;
-                barrier.m_buffer    = transfer.m_buffer;
-                barrier.m_srcAccess = AccessFlags::None;
-                barrier.m_srcStage  = AttachmentStage::Uninitialized;
-                barrier.m_dstAccess = reads;
-                barrier.m_dstStage  = AttachmentStage::Any;
-                commandList->QueueBarrier(barrier);
+                acquire.m_dstStage = AttachmentStage::Any;
             }
+            open(transfer.m_dstQueue)->QueueAcquire(acquire);
             acquired.push_back(request);
         });
         events.GetView<UploadAcquirePendingTag, ImageQueueTransfer>().each(
             [&](RHIEvent request, const ImageQueueTransfer& transfer)
         {
-            CommandList* commandList = open(transfer.m_dstQueue);
-            commandList->QueueAcquire(transfer);
-
+            ImageQueueTransfer acquire = transfer;
             if (CheckBitsAny(transfer.m_image->GetDescriptor().m_bindFlags, ImageBindFlags::ShaderRead))
             {
-                ImageBarrier barrier;
-                barrier.m_image     = transfer.m_image;
-                barrier.m_range     = transfer.m_range;
-                barrier.m_srcAccess = AccessFlags::None;
-                barrier.m_srcStage  = AttachmentStage::Uninitialized;
-                barrier.m_dstAccess = AccessFlags::ShaderSampledRead;
-                barrier.m_dstStage  = AttachmentStage::Any;
-                commandList->QueueBarrier(barrier);
+                acquire.m_dstAccess = AccessFlags::ShaderSampledRead;
+                acquire.m_dstStage  = AttachmentStage::Any;
             }
+            open(transfer.m_dstQueue)->QueueAcquire(acquire);
             acquired.push_back(request);
         });
 

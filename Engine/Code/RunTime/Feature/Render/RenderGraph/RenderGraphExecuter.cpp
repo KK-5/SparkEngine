@@ -91,7 +91,6 @@ namespace Spark::Render
         void QueueScopePreBarriers(
             RHI::CommandList* commandList, RHIContext& rhiContext, eastl::span<const RHIHandle> attachments)
         {
-            // A resource is acquired before its barrier, which takes it on from there.
             for (RHIHandle attachment : attachments)
             {
                 if (const auto* acquire = rhiContext.TryGet<PreImageAcquire>(attachment))

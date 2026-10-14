@@ -257,15 +257,16 @@ namespace Spark::RHI
         template<typename TransferT>
         bool ValidateQueueTransfer(const TransferT& transfer, const char* name, HardwareQueueClassMask sharedMask)
         {
-            if (CheckBitsAny(transfer.m_srcAccess, AccessFlags::Undefined | AccessFlags::Initial))
+            if (transfer.m_dstAccess != AccessFlags::None && !IsBarrierTarget(transfer.m_dstAccess))
             {
                 LOG_ERROR(
-                    "[RHI] Queue transfer of '{}' from access 0x{:x}: a resource whose contents need not be kept is "
-                    "not transferred, the queue taking it up starts its barrier from that state.",
-                    name, static_cast<uint32_t>(transfer.m_srcAccess));
+                    "[RHI] Queue transfer of '{}' to access 0x{:x}: Initial and Undefined are source side only.",
+                    name, static_cast<uint32_t>(transfer.m_dstAccess));
                 return false;
             }
-            if (!IsQueueTransferAllowed(sharedMask, transfer.m_srcQueue, transfer.m_dstQueue))
+            // One that holds nothing to hand over was on no queue in particular.
+            const bool handsOver = !CheckBitsAny(transfer.m_srcAccess, AccessFlags::Initial | AccessFlags::Undefined);
+            if (handsOver && !IsQueueTransferAllowed(sharedMask, transfer.m_srcQueue, transfer.m_dstQueue))
             {
                 LOG_ERROR(
                     "[RHI] Queue transfer of '{}' from queue {} to queue {} is invalid: the two must differ and, "

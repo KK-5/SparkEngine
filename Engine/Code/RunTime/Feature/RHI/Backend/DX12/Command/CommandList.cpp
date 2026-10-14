@@ -608,6 +608,22 @@ namespace Spark::RHI::DX12
             g.AccessAfter  = ConvertGlobalBarrierAccess(dst);
             return g;
         }
+
+        //! `srcAccess` with its accesses taken out, which is one of the three idle states: Initial
+        //! or Undefined as it was, else None. The other queue's accesses are the caller's wait
+        //! between the queues to cover, not the acquiring queue's barrier.
+        RHI::AccessFlags IdleAccess(RHI::AccessFlags srcAccess)
+        {
+            if (CheckBitsAny(srcAccess, RHI::AccessFlags::Undefined))
+            {
+                return RHI::AccessFlags::Undefined;
+            }
+            if (CheckBitsAny(srcAccess, RHI::AccessFlags::Initial))
+            {
+                return RHI::AccessFlags::Initial;
+            }
+            return RHI::AccessFlags::None;
+        }
     }
 
     void CommandList::QueueBarrier(const RHI::BufferBarrier& barrier)
@@ -747,6 +763,12 @@ namespace Spark::RHI::DX12
                 static_cast<uint32_t>(transfer.m_srcQueue));
         }
 
+        // New, or with no contents to keep: nothing to hand over.
+        if (CheckBitsAny(transfer.m_srcAccess, RHI::AccessFlags::Initial | RHI::AccessFlags::Undefined))
+        {
+            return;
+        }
+
         Image& image = static_cast<Image&>(*transfer.m_image);
 
         // Left in COMMON, the one layout every queue takes an image from.
@@ -782,9 +804,10 @@ namespace Spark::RHI::DX12
                 static_cast<uint32_t>(transfer.m_dstQueue));
         }
 
-        // Nothing to record: the release left nothing for this queue to take over.
+        // Nothing to record: D3D12 has no ownership, a buffer no layout, and its first access on
+        // this queue since it came over takes no barrier (QueueBarrier).
         RHI::CommandList::SetResourceState(*transfer.m_buffer,
-            RHI::ResourceState{ RHI::AccessFlags::None, myQueue, RHI::AttachmentStage::Uninitialized });
+            RHI::ResourceState{ transfer.m_dstAccess, myQueue, transfer.m_dstStage });
     }
 
     void CommandList::QueueAcquire(const RHI::ImageQueueTransfer& transfer)
@@ -801,9 +824,23 @@ namespace Spark::RHI::DX12
                 static_cast<uint32_t>(transfer.m_dstQueue));
         }
 
-        // Nothing to record: the release left the image in COMMON, which is what None is here.
-        RHI::CommandList::SetResourceState(*transfer.m_image, transfer.m_range,
-            RHI::ResourceState{ RHI::AccessFlags::None, myQueue, RHI::AttachmentStage::Uninitialized });
+        // Left idle in COMMON, where the release left it.
+        if (transfer.m_dstAccess == RHI::AccessFlags::None)
+        {
+            RHI::CommandList::SetResourceState(*transfer.m_image, transfer.m_range,
+                RHI::ResourceState{ RHI::AccessFlags::None, myQueue, RHI::AttachmentStage::Uninitialized });
+            return;
+        }
+
+        // The change to dst is a barrier on this queue.
+        RHI::ImageBarrier barrier;
+        barrier.m_image     = transfer.m_image;
+        barrier.m_range     = transfer.m_range;
+        barrier.m_srcAccess = IdleAccess(transfer.m_srcAccess);
+        barrier.m_srcStage  = RHI::AttachmentStage::Uninitialized;
+        barrier.m_dstAccess = transfer.m_dstAccess;
+        barrier.m_dstStage  = transfer.m_dstStage;
+        QueueBarrier(barrier);
     }
 
     void CommandList::FlushBarriers()

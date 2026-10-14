@@ -117,7 +117,8 @@ namespace Spark::RHI
         virtual void QueueBarrier(const ImageBarrier& barrier) = 0;
 
         /// The two halves of a resource changing queues (see BufferQueueTransfer): the release on the
-        /// queue it leaves, the acquire on the queue that takes it. Queued like barriers.
+        /// queue it leaves, the acquire on the queue that takes it, into the transfer's dst state.
+        /// Queued like barriers.
         virtual void QueueRelease(const BufferQueueTransfer& transfer) = 0;
         virtual void QueueRelease(const ImageQueueTransfer& transfer) = 0;
         virtual void QueueAcquire(const BufferQueueTransfer& transfer) = 0;

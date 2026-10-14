@@ -128,9 +128,8 @@ namespace Spark::Render
 
     using ImageQueueTransferList = eastl::fixed_vector<RHI::ImageQueueTransfer, 2, true>;
 
-    //! The resource comes to this attachment's Scope from another queue with its contents
-    //! kept: acquired before the Scope's barriers, which take it on from None. On the same
-    //! attachment as the Pre*Barrier.
+    //! The resource comes to this attachment's Scope from another queue: acquired into the
+    //! state the access needs, in place of a barrier. On the attachment a Pre*Barrier goes on.
     struct PreImageAcquire
     {
         ImageQueueTransferList m_transfers;

@@ -389,28 +389,6 @@ namespace Spark::Render
             list->m_transfers.push_back(transfer);
         }
 
-        //! Whether a resource in this state holds contents its next access must find. One that
-        //! is new, or whose contents need not be kept, has nothing to hand to another queue.
-        bool KeepsContents(RHI::AccessFlags access)
-        {
-            return !CheckBitsAny(access, RHI::AccessFlags::Undefined | RHI::AccessFlags::Initial);
-        }
-
-        //! What a resource left in `src` on another queue is in once on `queue`, for the
-        //! barrier there to start from.
-        RHI::ResourceState ArrivedState(const RHI::ResourceState& src, RHI::HardwareQueueClass queue)
-        {
-            // Acquired with its contents: that leaves it in None.
-            if (KeepsContents(src.m_access))
-            {
-                return { RHI::AccessFlags::None, queue, RHI::AttachmentStage::Uninitialized };
-            }
-            // Nothing was handed over. What it holds stays; the other queue's last access goes,
-            // the wait for that queue covers it.
-            const RHI::AccessFlags holds = src.m_access & (RHI::AccessFlags::Undefined | RHI::AccessFlags::Initial);
-            return { holds, queue, RHI::AttachmentStage::Uninitialized };
-        }
-
         //! The consumer Scope waits for the producer Scope on srcQueue. Only the latest producer
         //! per source queue is kept: waiting for it covers every earlier signal on that queue.
         //! Values are assigned later, in stream order (CompileScopeSync).
@@ -462,42 +440,34 @@ namespace Spark::Render
             if (!tracker)
             {
                 // An imported resource is where the last barrier of an earlier frame left it; a
-                // transient one starts Undefined, carrying the last use of the memory it was
-                // placed over: the first barrier waits for that.
+                // transient one starts Undefined.
                 tracker = &context.Add<BufferStateTracker>(access.m_resource);
                 tracker->m_current = backing->m_buffer->GetResourceState();
             }
 
-            RHI::ResourceState src = tracker->m_current;
-            const RHI::ResourceState dst { access.m_access, dstQueue, access.m_stage };
+            const RHI::ResourceState& src = tracker->m_current;
+            const RHI::ResourceState  dst { access.m_access, dstQueue, access.m_stage };
 
             if (src.m_queue != dstQueue)
             {
+                const RHI::BufferQueueTransfer transfer {
+                    backing->m_buffer, src.m_access, src.m_stage, src.m_queue, dstQueue, dst.m_access, dst.m_stage };
+                context.Add<PreBufferAcquire>(access.m_attachment, PreBufferAcquire{ transfer });
+
+                // New, or left on the other queue by an earlier frame, it has no Scope there to
+                // release it. Of the latter only a buffer several queues share gets here, which
+                // has no owner to hand over.
                 const RHIHandle producer = tracker->m_lastAttachment;
-                if (KeepsContents(src.m_access))
-                {
-                    const RHI::BufferQueueTransfer transfer {
-                        backing->m_buffer, src.m_access, src.m_stage, src.m_queue, dstQueue };
-                    context.Add<PreBufferAcquire>(access.m_attachment, PreBufferAcquire{ transfer });
-                    // Left on the other queue by an earlier frame, it has no Scope there to
-                    // release it: only a buffer several queues share gets here, which has no
-                    // owner to hand over.
-                    if (producer != NullHandle)
-                    {
-                        context.Add<PostBufferRelease>(producer, PostBufferRelease{ transfer });
-                    }
-                }
                 if (producer != NullHandle)
                 {
+                    context.Add<PostBufferRelease>(producer, PostBufferRelease{ transfer });
                     RecordCrossQueueWait(access.m_scope,
                         context.Get<ScopeAttachment>(producer).m_scope, src.m_queue, passContext, context);
                 }
-                src = ArrivedState(src, dstQueue);
             }
-
             // A write in an unchanged state is still an execution / memory dependency (a UAV
             // barrier on DX12); whether it costs anything is the backend's call.
-            if (src != dst || RHI::HasWrite(dst.m_access))
+            else if (src != dst || RHI::HasWrite(dst.m_access))
             {
                 RHI::BufferBarrier b;
                 b.m_buffer    = backing->m_buffer;
@@ -529,9 +499,7 @@ namespace Spark::Render
             if (!tracker)
             {
                 // An imported image is where the barriers of earlier frames left each
-                // subresource; a transient one starts Undefined, carrying the last use of the
-                // memory it was placed over: a subresource's first barrier discards and waits
-                // for that.
+                // subresource; a transient one starts Undefined.
                 tracker = &context.Add<ImageStateTracker>(access.m_resource);
                 tracker->m_states = access.m_image->GetSubresourceStates();
             }
@@ -541,56 +509,40 @@ namespace Spark::Render
 
             for (const ImageTransition& transition : transitions)
             {
-                RHI::ResourceState        src = transition.m_src;
+                const RHI::ResourceState& src = transition.m_src;
                 const RHI::ResourceState& dst = transition.m_dst;
-
-                // A placed image starts Undefined, and the Copy queue cannot transition
-                // layouts (DX12), nor discard or clear to initialize one.
-                ASSERT(dstQueue != RHI::HardwareQueueClass::Copy
-                    || !CheckBitsAny(src.m_access, RHI::AccessFlags::Undefined),
-                    "Image '{}' is first used on the Copy queue while Undefined; the Copy queue "
-                    "cannot initialize an image.", name);
 
                 if (src.m_queue != dstQueue)
                 {
                     // The last Scope of the source queue to use the image: this Scope waits for it,
-                    // and the release goes after it. A subresource whose contents are not kept
-                    // has nothing to release, but is still waited for: the memory's previous use
-                    // ran on that queue, and that Scope is what waited for it.
+                    // and the release goes after it.
                     const RHIHandle producer = tracker->m_lastAttachment[static_cast<uint32_t>(src.m_queue)];
 
                     // Nothing released what an earlier frame left on another queue, and its
                     // layout there may not be one this queue accepts (DX12's queue-specific
-                    // layouts). The Copy queue leaves images in one every queue accepts.
+                    // layouts). The Copy queue leaves images in one every queue accepts; an image
+                    // that is new or holds nothing to keep was left in none.
                     ASSERT(producer != NullHandle
                         || src.m_queue == RHI::HardwareQueueClass::Copy
-                        || !KeepsContents(src.m_access),
+                        || CheckBitsAny(src.m_access, RHI::AccessFlags::Initial | RHI::AccessFlags::Undefined),
                         "Image '{}' was left on queue {} by an earlier frame and is now first used on "
                         "queue {}; images cannot change queues across frames.",
                         name, static_cast<uint32_t>(src.m_queue), static_cast<uint32_t>(dstQueue));
 
-                    if (KeepsContents(src.m_access))
-                    {
-                        const RHI::ImageQueueTransfer transfer {
-                            access.m_image, transition.m_range, src.m_access, src.m_stage, src.m_queue, dstQueue };
-                        AddImageTransfer<PreImageAcquire>(context, access.m_attachment, transfer);
-                        if (producer != NullHandle)
-                        {
-                            AddImageTransfer<PostImageRelease>(context, producer, transfer);
-                        }
-                    }
+                    const RHI::ImageQueueTransfer transfer { access.m_image, transition.m_range,
+                        src.m_access, src.m_stage, src.m_queue, dstQueue, dst.m_access, dst.m_stage };
+                    AddImageTransfer<PreImageAcquire>(context, access.m_attachment, transfer);
                     if (producer != NullHandle)
                     {
+                        AddImageTransfer<PostImageRelease>(context, producer, transfer);
                         RecordCrossQueueWait(access.m_scope,
                             context.Get<ScopeAttachment>(producer).m_scope,
                             src.m_queue, passContext, context);
                     }
-                    src = ArrivedState(src, dstQueue);
                 }
-
                 // A write in an unchanged state is still an execution / memory dependency (a UAV
                 // barrier on DX12); whether it costs anything is the backend's call.
-                if (src != dst || RHI::HasWrite(dst.m_access))
+                else if (src != dst || RHI::HasWrite(dst.m_access))
                 {
                     RHI::ImageBarrier b;
                     b.m_image     = access.m_image;

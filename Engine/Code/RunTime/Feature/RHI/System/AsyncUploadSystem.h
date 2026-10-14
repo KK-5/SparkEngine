@@ -26,8 +26,8 @@ namespace Spark::RHI
     class Device;
 
     //! Records the acquire of every upload that awaits one (UploadAcquirePendingTag) on the
-    //! queue that owns its target, and the barrier that takes the target on to how it is read
-    //! from then on, one CommandList per queue, and ends those uploads. For whoever owns the
+    //! queue that owns its target, into how the target is read from then on, one CommandList
+    //! per queue, and ends those uploads. For whoever owns the
     //! queues, every frame: after FrameEventBus::OnFrameBegin, which puts the transfers on
     //! the requests, and before anything reads the targets' states.
     void ExecuteUploadAcquires(Device& device, CommandQueueContext& queues);
