@@ -111,7 +111,8 @@ namespace Spark::RHI::DX12
             const D3D12_RESOURCE_ALLOCATION_INFO& allocationInfo,
             RHI::HardwareQueueClass queue);
 
-        //! Undefined contents; placed over `prior` on the same queue, also its last use to wait for.
+        //! Undefined contents; placed over `prior`, which used the same one queue, also its last use
+        //! to wait for.
         static RHI::ResourceState InitialState(const Placement* prior, const RHI::TransientAllocationFence& allocFence);
 
         HeapBucket&       CurrentBucket()       { return m_buckets[m_currentSlot]; }

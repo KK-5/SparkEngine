@@ -53,6 +53,17 @@ namespace Spark::RHI::DX12
             eastl::hash_combine_raw(h, descHash);
             return static_cast<uint64_t>(h);
         }
+
+        //! Whether memory a resource is done with may go to one starting after it: only when both
+        //! are used on the same one queue. That queue runs the two in order and a barrier on it
+        //! waits for the first. Across queues nothing orders them, and a wait added for it would
+        //! hold back the queues that run apart to overlap.
+        bool CanTakeOver(const RHI::TransientAllocationFence& discard, const RHI::TransientAllocationFence& alloc)
+        {
+            return discard.m_timelinePosition <= alloc.m_timelinePosition
+                && discard.m_pipelines == alloc.m_pipelines
+                && RHI::IsExclusiveQueueMask(alloc.m_pipelines);
+        }
     }
 
 
@@ -261,7 +272,7 @@ namespace Spark::RHI::DX12
         {
             const Placement& tail = bucket.m_placements[tailIndex];
 
-            if (tail.m_discard.m_timelinePosition <= allocFence.m_timelinePosition &&
+            if (CanTakeOver(tail.m_discard, allocFence) &&
                 tail.m_size >= allocationInfo.SizeInBytes &&
                 IsAligned(tail.m_offset, allocationInfo.Alignment)
                 )
@@ -458,7 +469,7 @@ namespace Spark::RHI::DX12
         {
             const Placement& tail = bucket.m_placements[tailIndex];
 
-            if (tail.m_discard.m_timelinePosition <= allocFence.m_timelinePosition &&
+            if (CanTakeOver(tail.m_discard, allocFence) &&
                 tail.m_size >= allocationInfo.SizeInBytes &&
                 IsAligned(tail.m_offset, allocationInfo.Alignment)
                 )
@@ -629,8 +640,8 @@ namespace Spark::RHI::DX12
         const Placement* prior, const RHI::TransientAllocationFence& allocFence)
     {
         RHI::ResourceState state{ RHI::AccessFlags::Undefined, allocFence.m_queue, RHI::AttachmentStage::Uninitialized };
-        // Across queues the caller's fences order the two uses; this queue has nothing to wait for.
-        if (prior && prior->m_discard.m_queue == allocFence.m_queue)
+        // Memory only goes over within one queue (CanTakeOver): the prior's last use is on it.
+        if (prior)
         {
             state.m_access |= prior->m_discard.m_access;
             state.m_stage   = prior->m_discard.m_stage;

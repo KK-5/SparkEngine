@@ -38,7 +38,9 @@ namespace Spark::RHI
     //! Pool that allocates short-lived images and buffers from heap memory shared
     //! through aliasing. Resources are valid from their Create*() fence through
     //! their Discard() fence; resources whose fence intervals do not overlap may
-    //! share the same heap range.
+    //! share the same heap range, when both are used on the same one queue (their
+    //! fences' m_pipelines): that queue runs them in order. Across queues nothing
+    //! orders them, so they get memory of their own.
     //!
     //! Lifecycle is driven by FrameEventBus plus an explicit Seal() call:
     //!   - OnFrameBegin opens a new allocation batch. The previous batch's GPU
@@ -63,9 +65,8 @@ namespace Spark::RHI
     //! that a later batch can reuse the same placed resource on a descriptor hit.
     //!
     //! A created resource's contents are undefined: its state starts at AccessFlags::Undefined.
-    //! Placed over another resource's memory on the same queue, the state also carries that
-    //! resource's last access and stage (from its Discard fence), so the first barrier waits
-    //! for them. Across queues the caller's fences order the two uses.
+    //! Placed over another resource's memory, the state also carries that resource's last
+    //! access and stage (from its Discard fence), so the first barrier waits for them.
     class TransientResourcePool : public ResourcePool
     {
     public:

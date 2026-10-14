@@ -17,10 +17,9 @@ namespace Spark::RHI
     //! to decide whether two resources' lifetimes overlap and therefore whether they
     //! can share heap memory.
     //!
-    //! m_pipelines describes which hardware queues participate at this anchor. When
-    //! a transient resource is consumed across multiple queues the pool unions the
-    //! Create / Discard masks to compute the full set of pipelines that must
-    //! synchronize before the memory range is recycled.
+    //! m_pipelines is every queue that uses the resource. The pool hands memory from one
+    //! resource to the next only when both use the same one queue, which runs them in
+    //! order; a resource several queues use gets memory of its own.
     //!
     //! m_queue / m_stage / m_access describe the use at this anchor so the pool can seed
     //! an aliased resource's initial state without coupling to pass-attachment iteration:
