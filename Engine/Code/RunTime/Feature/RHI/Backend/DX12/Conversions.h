@@ -83,7 +83,10 @@ namespace Spark::RHI::DX12
         RHI::AttachmentStage stage, RHI::AccessFlags access, RHI::HardwareQueueClass queue);
 
     //! None (idle, contents kept) maps to COMMON; Undefined to UNDEFINED, valid only as LayoutBefore.
-    D3D12_BARRIER_LAYOUT ConvertBarrierLayout(RHI::AccessFlags access, RHI::HardwareQueueClass queue);
+    //! `sharedQueueMask` is the image's: one both Graphics and Compute use takes the layouts both
+    //! accept, any other its queue's own.
+    D3D12_BARRIER_LAYOUT ConvertBarrierLayout(
+        RHI::AccessFlags access, RHI::HardwareQueueClass queue, RHI::HardwareQueueClassMask sharedQueueMask);
 
     void ConvertBufferView(
         const Buffer& buffer,

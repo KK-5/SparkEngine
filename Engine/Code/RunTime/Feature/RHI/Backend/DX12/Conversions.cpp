@@ -651,7 +651,8 @@ namespace Spark::RHI::DX12
         return s;
     }
 
-    D3D12_BARRIER_LAYOUT ConvertBarrierLayout(RHI::AccessFlags access, RHI::HardwareQueueClass queue)
+    D3D12_BARRIER_LAYOUT ConvertBarrierLayout(
+        RHI::AccessFlags access, RHI::HardwareQueueClass queue, RHI::HardwareQueueClassMask sharedQueueMask)
     {
         // Copy queues support textures only in COMMON.
         if (queue == RHI::HardwareQueueClass::Copy)
@@ -675,9 +676,17 @@ namespace Spark::RHI::DX12
             return D3D12_BARRIER_LAYOUT_PRESENT;
         }
 
+        // A layout follows from the state alone, whichever queue records the barrier into or out
+        // of it: an image both queues use takes the version both accept; the Copy bit has no say.
+        const bool shared = CheckBitsAll(sharedQueueMask, RHI::HardwareQueueClassMask::Graphics | RHI::HardwareQueueClassMask::Compute);
         const bool direct = (queue == RHI::HardwareQueueClass::Graphics);
-        auto perQueue = [direct](D3D12_BARRIER_LAYOUT directLayout, D3D12_BARRIER_LAYOUT computeLayout)
+        auto perQueue = [shared, direct](
+            D3D12_BARRIER_LAYOUT sharedLayout, D3D12_BARRIER_LAYOUT directLayout, D3D12_BARRIER_LAYOUT computeLayout)
         {
+            if (shared)
+            {
+                return sharedLayout;
+            }
             return direct ? directLayout : computeLayout;
         };
         auto has = [access](AccessFlags bits) { return CheckBitsAny(access, bits); };
@@ -696,12 +705,12 @@ namespace Spark::RHI::DX12
         }
         else if (has(AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite))
         {
-            layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS);
+            layout = perQueue(D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS, D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS);
             allowed = AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite;
         }
         else if (has(AccessFlags::TransferWrite))
         {
-            layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST);
+            layout = perQueue(D3D12_BARRIER_LAYOUT_COPY_DEST, D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST);
             allowed = AccessFlags::TransferWrite;
         }
         else if (has(AccessFlags::ResolveWrite))
@@ -718,7 +727,7 @@ namespace Spark::RHI::DX12
                 + has(AccessFlags::TransferRead) + has(AccessFlags::ResolveRead) + has(AccessFlags::ShadingRateRead);
             if (readKinds > 1)
             {
-                layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ);
+                layout = perQueue(D3D12_BARRIER_LAYOUT_GENERIC_READ, D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ);
             }
             else if (has(AccessFlags::DepthStencilRead))
             {
@@ -726,11 +735,11 @@ namespace Spark::RHI::DX12
             }
             else if (has(k_shaderRead))
             {
-                layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE);
+                layout = perQueue(D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE);
             }
             else if (has(AccessFlags::TransferRead))
             {
-                layout = perQueue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE);
+                layout = perQueue(D3D12_BARRIER_LAYOUT_COPY_SOURCE, D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE, D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE);
             }
             else if (has(AccessFlags::ResolveRead))
             {

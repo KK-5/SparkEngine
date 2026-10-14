@@ -88,8 +88,8 @@ namespace Spark::RHI
 
             // What the upload thread records around the copies, made on the main thread in
             // SubmitBatch from the requests alone: the upload thread reads no resource state.
-            // A target is turned into a copy destination first; what one queue owns is
-            // released to it afterwards. A buffer several queues share takes neither.
+            // A target is turned into a copy destination first, and released to the queue that
+            // reads it afterwards.
             eastl::vector<BufferBarrier>       m_bufferPreBarriers;
             eastl::vector<ImageBarrier>        m_imagePreBarriers;
             eastl::vector<BufferQueueTransfer> m_bufferReleases;

@@ -707,8 +707,8 @@ namespace Spark::RHI::DX12
         b.SyncAfter    = ConvertBarrierSync(barrier.m_dstStage, barrier.m_dstAccess, myQueue);
         b.AccessBefore = ConvertImageBarrierAccess(barrier.m_srcAccess);
         b.AccessAfter  = ConvertImageBarrierAccess(barrier.m_dstAccess);
-        b.LayoutBefore = ConvertBarrierLayout(barrier.m_srcAccess, myQueue);
-        b.LayoutAfter  = ConvertBarrierLayout(barrier.m_dstAccess, myQueue);
+        b.LayoutBefore = ConvertBarrierLayout(barrier.m_srcAccess, myQueue, image.GetDescriptor().m_sharedQueueMask);
+        b.LayoutAfter  = ConvertBarrierLayout(barrier.m_dstAccess, myQueue, image.GetDescriptor().m_sharedQueueMask);
         b.pResource    = image.GetMemoryView().GetMemory();
         b.Subresources = ConvertBarrierSubresourceRange(image, barrier.m_range);
         b.Flags        = D3D12_TEXTURE_BARRIER_FLAG_NONE;
@@ -777,7 +777,7 @@ namespace Spark::RHI::DX12
         b.SyncAfter    = D3D12_BARRIER_SYNC_NONE;
         b.AccessBefore = ConvertImageBarrierAccess(transfer.m_srcAccess);
         b.AccessAfter  = D3D12_BARRIER_ACCESS_NO_ACCESS;
-        b.LayoutBefore = ConvertBarrierLayout(transfer.m_srcAccess, myQueue);
+        b.LayoutBefore = ConvertBarrierLayout(transfer.m_srcAccess, myQueue, image.GetDescriptor().m_sharedQueueMask);
         b.LayoutAfter  = D3D12_BARRIER_LAYOUT_COMMON;
         b.pResource    = image.GetMemoryView().GetMemory();
         b.Subresources = ConvertBarrierSubresourceRange(image, transfer.m_range);

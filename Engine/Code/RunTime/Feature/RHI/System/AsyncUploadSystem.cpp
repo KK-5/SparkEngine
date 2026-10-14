@@ -67,36 +67,26 @@ namespace Spark::RHI
                           "non-Copy queue.", static_cast<uint32_t>(handle));
                 return true;
             }
-            if (!exclusive)
-            {
-                return false;
-            }
-            // An exclusive buffer is uploaded once, whole: each check covers a stretch of that
-            // one upload. Another upload would hand the whole buffer over a second time.
+            // A buffer is uploaded once, whole, into a new one: each check covers a stretch of
+            // that one upload. Another would hand the whole buffer over a second time, or, once it
+            // is in use, take it from whichever queue reads it with nothing releasing it there.
             if (ctx.Get<PendingUploads>(handle).m_count > 1)
             {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and has another upload "
-                          "still copying. Exclusive buffers are uploaded once -- set "
-                          "m_sharedQueueMask to multi-bit (CONCURRENT) for re-uploadable resources.",
-                          static_cast<uint32_t>(handle));
+                LOG_ERROR("[AsyncUploadSystem] Entity {} has another upload still copying. A buffer "
+                          "is uploaded once.", static_cast<uint32_t>(handle));
                 return true;
             }
             if (ctx.Has<PendingAcquires>(handle))
             {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and has an upload copied "
-                          "and not yet acquired. Exclusive buffers are uploaded once -- set "
-                          "m_sharedQueueMask to multi-bit (CONCURRENT) for re-uploadable resources.",
-                          static_cast<uint32_t>(handle));
+                LOG_ERROR("[AsyncUploadSystem] Entity {} has an upload copied and not yet acquired. "
+                          "A buffer is uploaded once.", static_cast<uint32_t>(handle));
                 return true;
             }
             if (curState.m_access != AccessFlags::Initial)
             {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
-                          "(access=0x{:x}). Exclusive resources cannot be re-uploaded -- "
-                          "set m_sharedQueueMask to multi-bit (CONCURRENT) for "
-                          "re-uploadable resources.",
-                          static_cast<uint32_t>(handle),
-                          static_cast<uint32_t>(curState.m_access));
+                LOG_ERROR("[AsyncUploadSystem] Entity {} is already in use (access=0x{:x}). A buffer "
+                          "is uploaded once, into a new one.",
+                          static_cast<uint32_t>(handle), static_cast<uint32_t>(curState.m_access));
                 return true;
             }
             return false;
@@ -113,16 +103,7 @@ namespace Spark::RHI
                           static_cast<uint32_t>(handle));
                 return true;
             }
-            // Its layout would be changed on one of its queues with the others not ordered
-            // behind that.
-            if (!IsExclusiveQueueMask(mask))
-            {
-                LOG_ERROR("[AsyncUploadSystem] Entity {} target image is shared by several queues "
-                          "(m_sharedQueueMask=0x{:x}); uploading into one is not supported.",
-                          static_cast<uint32_t>(handle), static_cast<uint32_t>(mask));
-                return true;
-            }
-            if (ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
+            if (IsExclusiveQueueMask(mask) && ResolveHomeQueue(mask) == HardwareQueueClass::Copy)
             {
                 LOG_ERROR("[AsyncUploadSystem] Entity {} declares EXCLUSIVE Copy-only "
                           "m_sharedQueueMask, which has no consumer. Set at least one "
@@ -147,8 +128,9 @@ namespace Spark::RHI
             return false;
         }
 
-        // What an upload hands over to the queue that owns its target: the Copy queue records
-        // it to release, the owner to acquire, the same transfer both times.
+        // What an upload hands over to the queue that reads its target: the Copy queue records
+        // it to release, that queue to acquire, the same transfer both times. A target several
+        // queues share is acquired by whichever of them first declares a read of it.
         BufferQueueTransfer MakeBufferHandoff(Buffer& buffer)
         {
             BufferQueueTransfer transfer;
@@ -174,19 +156,17 @@ namespace Spark::RHI
         }
 
         // Puts on a request whose copy is over the transfer its target was released with, and
-        // moves it to awaiting the acquire. False when there is none to take: a buffer several
-        // queues share, or a target that is gone.
+        // moves it to awaiting the acquire. False when there is none to take: the target is gone.
         bool AwaitAcquire(RHIContext& ctx, RHIEventContext& events, RHIEvent request)
         {
             Resource& resource = *events.Get<UploadBatch>(request).m_resource;
             if (const auto* bufferUpload = events.TryGet<BufferUploadRequest>(request))
             {
-                Buffer& buffer = static_cast<Buffer&>(resource);
-                if (!ctx.Valid(bufferUpload->m_target) || !IsExclusiveQueueMask(buffer.GetDescriptor().m_sharedQueueMask))
+                if (!ctx.Valid(bufferUpload->m_target))
                 {
                     return false;
                 }
-                events.Add<BufferQueueTransfer>(request, MakeBufferHandoff(buffer));
+                events.Add<BufferQueueTransfer>(request, MakeBufferHandoff(static_cast<Buffer&>(resource)));
             }
             else
             {
@@ -477,21 +457,17 @@ namespace Spark::RHI
             upload.m_destinationOffset = pending.m_destinationOffset;
             batch.m_bufferUploads.push_back(upload);
 
-            // An exclusive buffer is new: the Copy queue turns it into a copy destination itself,
-            // and releases it to its queue after. A shared one has no owner, and its state may be
-            // another queue's: the fence is all that orders this write against the other queues.
-            if (exclusive)
-            {
-                BufferBarrier pre;
-                pre.m_buffer    = target;
-                pre.m_srcAccess = AccessFlags::Initial;
-                pre.m_srcStage  = AttachmentStage::Uninitialized;
-                pre.m_dstAccess = AccessFlags::TransferWrite;
-                pre.m_dstStage  = AttachmentStage::Copy;
-                batch.m_bufferPreBarriers.push_back(pre);
+            // The buffer is new: the Copy queue turns it into a copy destination itself, and
+            // releases it to the queue that reads it after.
+            BufferBarrier pre;
+            pre.m_buffer    = target;
+            pre.m_srcAccess = AccessFlags::Initial;
+            pre.m_srcStage  = AttachmentStage::Uninitialized;
+            pre.m_dstAccess = AccessFlags::TransferWrite;
+            pre.m_dstStage  = AttachmentStage::Copy;
+            batch.m_bufferPreBarriers.push_back(pre);
 
-                batch.m_bufferReleases.push_back(MakeBufferHandoff(*target));
-            }
+            batch.m_bufferReleases.push_back(MakeBufferHandoff(*target));
 
             taken.push_back(Taken{ request, Ptr<Resource>(target) });
         });
