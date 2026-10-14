@@ -37,6 +37,12 @@ protected:
         const auto* pending = rhi.TryGet<RHI::PendingUploads>(resource);
         return pending ? pending->m_count : 0;
     }
+
+    uint32_t AcquireCount(RHI::RHIHandle resource)
+    {
+        const auto* pending = rhi.TryGet<RHI::PendingAcquires>(resource);
+        return pending ? pending->m_count : 0;
+    }
 };
 
 TEST_F(UploadRequestTest, BufferRequestStartsRequestedAndNamesItsTarget)
@@ -141,6 +147,65 @@ TEST_F(UploadRequestTest, ARequestOutlivingItsTargetStillEnds)
 
     rhi.DestoryEntity(image);
     RHI::FinishUploadRequest(rhi, events, requests[0]);
+
+    EXPECT_FALSE(events.Valid(requests[0]));
+}
+
+//! Once copied, the upload is over and its acquire is not: the request stays.
+TEST_F(UploadRequestTest, ACopiedUploadCountsAsAnAcquire)
+{
+    const RHI::RHIHandle buffer = rhi.CreateEntity();
+    const uint32_t data[2] = {};
+    RHI::RequestBufferUpload(rhi, buffer, &data[0], sizeof(uint32_t), 0);
+    RHI::RequestBufferUpload(rhi, buffer, &data[1], sizeof(uint32_t), 4);
+    const auto requests = Requests();
+    ASSERT_EQ(requests.size(), 2u);
+
+    RHI::FinishUploadCopy(rhi, events, requests[0]);
+
+    EXPECT_TRUE(events.Valid(requests[0]));
+    EXPECT_EQ(PendingCount(buffer), 1u);
+    EXPECT_EQ(AcquireCount(buffer), 1u);
+
+    RHI::FinishUploadCopy(rhi, events, requests[1]);
+
+    EXPECT_FALSE(rhi.Has<RHI::PendingUploads>(buffer));
+    EXPECT_EQ(AcquireCount(buffer), 2u);
+}
+
+TEST_F(UploadRequestTest, TheAcquireCountGoesWithTheLastAcquire)
+{
+    const RHI::RHIHandle image = rhi.CreateEntity();
+    const uint8_t data[4] = {};
+    RHI::RequestImageUpload(rhi, image, data, sizeof(data));
+    RHI::RequestImageUpload(rhi, image, data, sizeof(data));
+    const auto requests = Requests();
+    ASSERT_EQ(requests.size(), 2u);
+    RHI::FinishUploadCopy(rhi, events, requests[0]);
+    RHI::FinishUploadCopy(rhi, events, requests[1]);
+
+    RHI::FinishUploadAcquire(rhi, events, requests[0]);
+
+    EXPECT_FALSE(events.Valid(requests[0]));
+    EXPECT_EQ(AcquireCount(image), 1u);
+
+    RHI::FinishUploadAcquire(rhi, events, requests[1]);
+
+    EXPECT_FALSE(events.Valid(requests[1]));
+    EXPECT_FALSE(rhi.Has<RHI::PendingAcquires>(image));
+}
+
+TEST_F(UploadRequestTest, AnAcquireOutlivingItsTargetStillEnds)
+{
+    const RHI::RHIHandle buffer = rhi.CreateEntity();
+    const uint32_t data = 0;
+    RHI::RequestBufferUpload(rhi, buffer, &data, sizeof(data));
+    const auto requests = Requests();
+    ASSERT_EQ(requests.size(), 1u);
+
+    rhi.DestoryEntity(buffer);
+    RHI::FinishUploadCopy(rhi, events, requests[0]);
+    RHI::FinishUploadAcquire(rhi, events, requests[0]);
 
     EXPECT_FALSE(events.Valid(requests[0]));
 }

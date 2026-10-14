@@ -47,6 +47,7 @@ namespace Spark::RHI
 
         // Returns true if the upload into `handle` has to be dropped, with the error logged.
         bool ValidateBufferUpload(
+            RHIContext& ctx,
             RHIHandle handle,
             HardwareQueueClassMask mask,
             bool exclusive,
@@ -66,7 +67,29 @@ namespace Spark::RHI
                           "non-Copy queue.", static_cast<uint32_t>(handle));
                 return true;
             }
-            if (exclusive && curState.m_access != AccessFlags::Initial)
+            if (!exclusive)
+            {
+                return false;
+            }
+            // An exclusive buffer is uploaded once, whole: each check covers a stretch of that
+            // one upload. Another upload would hand the whole buffer over a second time.
+            if (ctx.Get<PendingUploads>(handle).m_count > 1)
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and has another upload "
+                          "still copying. Exclusive buffers are uploaded once -- set "
+                          "m_sharedQueueMask to multi-bit (CONCURRENT) for re-uploadable resources.",
+                          static_cast<uint32_t>(handle));
+                return true;
+            }
+            if (ctx.Has<PendingAcquires>(handle))
+            {
+                LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and has an upload copied "
+                          "and not yet acquired. Exclusive buffers are uploaded once -- set "
+                          "m_sharedQueueMask to multi-bit (CONCURRENT) for re-uploadable resources.",
+                          static_cast<uint32_t>(handle));
+                return true;
+            }
+            if (curState.m_access != AccessFlags::Initial)
             {
                 LOG_ERROR("[AsyncUploadSystem] Entity {} is EXCLUSIVE and already in use "
                           "(access=0x{:x}). Exclusive resources cannot be re-uploaded -- "
@@ -343,6 +366,25 @@ namespace Spark::RHI
                 FinishUploadRequest(ctx, events, request);
             }
         }
+
+        // Awaiting an acquire no Scope will record: the target is gone. The request lets go of
+        // the resource it holds.
+        eastl::vector<RHIEvent> orphaned;
+        auto collectOrphans = [&](RHIEvent request, RHIHandle target)
+        {
+            if (!ctx.Valid(target))
+            {
+                orphaned.push_back(request);
+            }
+        };
+        events.GetView<UploadAcquirePendingTag, BufferUploadRequest>().each(
+            [&](RHIEvent request, const BufferUploadRequest& upload) { collectOrphans(request, upload.m_target); });
+        events.GetView<UploadAcquirePendingTag, ImageUploadRequest>().each(
+            [&](RHIEvent request, const ImageUploadRequest& upload) { collectOrphans(request, upload.m_target); });
+        for (RHIEvent request : orphaned)
+        {
+            FinishUploadAcquire(ctx, events, request);
+        }
     }
 
     void AsyncUploadSystem::FlushUploadPackets()
@@ -362,6 +404,7 @@ namespace Spark::RHI
         Batch batch;
         batch.m_bufferUploads.reserve(bufferView.size_hint());
         batch.m_imageUploads.reserve(imageView.size_hint());
+        batch.m_bufferPreBarriers.reserve(bufferView.size_hint());
         batch.m_imagePreBarriers.reserve(imageView.size_hint());
         batch.m_bufferReleases.reserve(bufferView.size_hint());
         batch.m_imageReleases.reserve(imageView.size_hint());
@@ -421,7 +464,7 @@ namespace Spark::RHI
             const bool  exclusive = IsExclusiveQueueMask(mask);
             const ResourceState curState = target->GetResourceState();
 
-            if (RejectImportedTarget(ctx, handle) || ValidateBufferUpload(handle, mask, exclusive, curState))
+            if (RejectImportedTarget(ctx, handle) || ValidateBufferUpload(ctx, handle, mask, exclusive, curState))
             {
                 dropped.push_back(request);
                 return;
@@ -434,12 +477,19 @@ namespace Spark::RHI
             upload.m_destinationOffset = pending.m_destinationOffset;
             batch.m_bufferUploads.push_back(upload);
 
-            // An exclusive buffer is released to its queue. A shared one has no owner and a
-            // buffer no layout: the fence is all that orders this write against the other
-            // queues. Neither takes a barrier before the copy: the Copy queue needs no
-            // transfer to write a buffer whose contents it does not keep.
+            // An exclusive buffer is new: the Copy queue turns it into a copy destination itself,
+            // and releases it to its queue after. A shared one has no owner, and its state may be
+            // another queue's: the fence is all that orders this write against the other queues.
             if (exclusive)
             {
+                BufferBarrier pre;
+                pre.m_buffer    = target;
+                pre.m_srcAccess = AccessFlags::Initial;
+                pre.m_srcStage  = AttachmentStage::Uninitialized;
+                pre.m_dstAccess = AccessFlags::TransferWrite;
+                pre.m_dstStage  = AttachmentStage::Copy;
+                batch.m_bufferPreBarriers.push_back(pre);
+
                 batch.m_bufferReleases.push_back(MakeBufferHandoff(*target));
             }
 
@@ -615,8 +665,12 @@ namespace Spark::RHI
             cmdList = packet->m_commandRecorder->GetCommandList();
         };
 
-        // The one place this thread writes a resource's tracked state: the subresources an
-        // image upload turns into a copy destination.
+        // The one place this thread writes a resource's tracked state: the buffers and image
+        // subresources the uploads turn into copy destinations.
+        for (const auto& barrier : batch.m_bufferPreBarriers)
+        {
+            cmdList->QueueBarrier(barrier);
+        }
         for (const auto& barrier : batch.m_imagePreBarriers)
         {
             cmdList->QueueBarrier(barrier);
