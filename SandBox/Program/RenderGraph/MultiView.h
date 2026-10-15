@@ -4,7 +4,7 @@
 #include <Math/Matrix4x4.h>
 #include <Tick/TickBus.h>
 #include <Pass/Pass.h>
-#include <RHI/Context/RHIHandle.h>
+#include <RHI/Context/UniqueRHIHandle.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <View/View.h>
@@ -63,9 +63,7 @@ namespace Spark::SandBox
 
         //! Each owns a camera and its own g_Views row, so the panels differ on screen exactly
         //! because the executer rewrites viewIndex at each view handle.
-        Spark::RHI::RHIHandle m_views[kViewCount] = {
-            Spark::RHI::NullHandle, Spark::RHI::NullHandle,
-            Spark::RHI::NullHandle, Spark::RHI::NullHandle };
+        Spark::RHI::UniqueRHIHandle m_views[kViewCount];
 
         Ptr<Spark::Resource::ShaderAsset> m_shader;
         Ptr<Spark::Resource::ModelAsset>  m_model;

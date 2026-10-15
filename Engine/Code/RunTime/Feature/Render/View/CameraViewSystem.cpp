@@ -166,14 +166,13 @@ namespace Spark::Render
         }
 
         template<typename Ref>
-        void ReapOrphans(WorldContext& world, RHI::RHIContext& rhiCtx)
+        void ReapOrphans(WorldContext& world)
         {
             eastl::fixed_vector<Entity, 4> orphans;
-            world.GetView<Ref>().each([&](Entity e, const Ref& ref)
+            world.GetView<Ref>().each([&](Entity e, const Ref&)
             {
                 if (world.Has<DeadTag>(e) || !world.Has<Camera::CameraComponent>(e))
                 {
-                    DestroyViewEntity(rhiCtx, ref.m_view);
                     orphans.push_back(e);
                 }
             });
@@ -190,12 +189,12 @@ namespace Spark::Render
             {
                 return ref;
             }
-            const RHI::RHIHandle created = CreateViewEntity<Tag>(rhiCtx);
-            if (created == RHI::NullHandle)
+            RHI::UniqueRHIHandle created = CreateViewEntity<Tag>(rhiCtx);
+            if (!created.IsValid())
             {
                 return nullptr;
             }
-            return &world.Add<Ref>(source, Ref{ created });
+            return &world.Add<Ref>(source, Ref{ eastl::move(created) });
         }
     }
 
@@ -212,8 +211,8 @@ namespace Spark::Render
             return;   // a minimized / zero framebuffer would divide by zero below
         }
 
-        ReapOrphans<MainViewRef>(*world, *rhiCtx);
-        ReapOrphans<OutputViewRef>(*world, *rhiCtx);
+        ReapOrphans<MainViewRef>(*world);
+        ReapOrphans<OutputViewRef>(*world);
 
         // Projection is built HERE, not in CameraSystem: aspect is a render-target
         // property the world layer doesn't know.
@@ -240,13 +239,15 @@ namespace Spark::Render
             {
                 return;
             }
+            const RHI::RHIHandle mainView   = mainRef->m_view.Get();
+            const RHI::RHIHandle outputView = outputRef->m_view.Get();
             if (!hadMainView)
             {
-                rhiCtx->Add<ViewHistory>(mainRef->m_view);
+                rhiCtx->Add<ViewHistory>(mainView);
             }
 
             // Both views exist before either View is referenced: creating one grows the pool.
-            View& view = rhiCtx->Get<View>(mainRef->m_view);
+            View& view = rhiCtx->Get<View>(mainView);
             view.m_worldToView = mats.m_viewMatrix;
             view.m_viewToClip  = Math::PerspectiveFov(Math::Radians(camera.m_fov), aspect, camera.m_clipStart, camera.m_clipEnd);
             view.m_bufferSize  = renderSize;
@@ -257,11 +258,11 @@ namespace Spark::Render
             {
                 const ViewTemporalAA validated = ValidateTemporalAA(*taa);
                 view.m_jitter = TemporalJitter(time.m_frameNumber, validated.m_jitterSamples, renderSize);
-                rhiCtx->AddOrReplace<ViewTemporalAA>(mainRef->m_view, validated);
+                rhiCtx->AddOrReplace<ViewTemporalAA>(mainView, validated);
             }
-            else if (rhiCtx->Has<ViewTemporalAA>(mainRef->m_view))
+            else if (rhiCtx->Has<ViewTemporalAA>(mainView))
             {
-                rhiCtx->Remove<ViewTemporalAA>(mainRef->m_view);
+                rhiCtx->Remove<ViewTemporalAA>(mainView);
             }
 
             // The camera's own settings override the volumes'. Zero intensity is off, so a volume
@@ -274,11 +275,11 @@ namespace Spark::Render
             const ViewBloom resolvedBloom = bloom != nullptr ? ValidateBloom(*bloom) : ViewBloom{ 0.0f };
             if (resolvedBloom.m_intensity > 0.0f)
             {
-                rhiCtx->AddOrReplace<ViewBloom>(mainRef->m_view, resolvedBloom);
+                rhiCtx->AddOrReplace<ViewBloom>(mainView, resolvedBloom);
             }
-            else if (rhiCtx->Has<ViewBloom>(mainRef->m_view))
+            else if (rhiCtx->Has<ViewBloom>(mainView))
             {
-                rhiCtx->Remove<ViewBloom>(mainRef->m_view);
+                rhiCtx->Remove<ViewBloom>(mainView);
             }
 
             // Resolved as bloom is: the camera's own first, zero intensity is off.
@@ -292,11 +293,11 @@ namespace Spark::Render
                 ? ValidateAmbientOcclusion(*ambientOcclusion) : ViewAmbientOcclusion{ 0.0f };
             if (resolvedAmbientOcclusion.m_intensity > 0.0f)
             {
-                rhiCtx->AddOrReplace<ViewAmbientOcclusion>(mainRef->m_view, resolvedAmbientOcclusion);
+                rhiCtx->AddOrReplace<ViewAmbientOcclusion>(mainView, resolvedAmbientOcclusion);
             }
-            else if (rhiCtx->Has<ViewAmbientOcclusion>(mainRef->m_view))
+            else if (rhiCtx->Has<ViewAmbientOcclusion>(mainView))
             {
-                rhiCtx->Remove<ViewAmbientOcclusion>(mainRef->m_view);
+                rhiCtx->Remove<ViewAmbientOcclusion>(mainView);
             }
 
             // Resolved as bloom is: the camera's own first, zero intensity is off.
@@ -310,11 +311,11 @@ namespace Spark::Render
                 ? ValidateScreenSpaceReflection(*screenSpaceReflection) : ViewScreenSpaceReflection{ 0.0f };
             if (resolvedScreenSpaceReflection.m_intensity > 0.0f)
             {
-                rhiCtx->AddOrReplace<ViewScreenSpaceReflection>(mainRef->m_view, resolvedScreenSpaceReflection);
+                rhiCtx->AddOrReplace<ViewScreenSpaceReflection>(mainView, resolvedScreenSpaceReflection);
             }
-            else if (rhiCtx->Has<ViewScreenSpaceReflection>(mainRef->m_view))
+            else if (rhiCtx->Has<ViewScreenSpaceReflection>(mainView))
             {
-                rhiCtx->Remove<ViewScreenSpaceReflection>(mainRef->m_view);
+                rhiCtx->Remove<ViewScreenSpaceReflection>(mainView);
             }
 
             // Without one the view is not tone mapped, only clipped and display-encoded.
@@ -325,17 +326,17 @@ namespace Spark::Render
             }
             if (tonemap != nullptr)
             {
-                rhiCtx->AddOrReplace<ViewTonemap>(mainRef->m_view, ValidateTonemap(*tonemap));
+                rhiCtx->AddOrReplace<ViewTonemap>(mainView, ValidateTonemap(*tonemap));
             }
-            else if (rhiCtx->Has<ViewTonemap>(mainRef->m_view))
+            else if (rhiCtx->Has<ViewTonemap>(mainView))
             {
-                rhiCtx->Remove<ViewTonemap>(mainRef->m_view);
+                rhiCtx->Remove<ViewTonemap>(mainView);
             }
 
-            rhiCtx->AddOrReplace<ViewFrustum>(mainRef->m_view, ViewFrustum{ Math::Frustum::FromViewProjection(view.GetWorldToClip()) });
+            rhiCtx->AddOrReplace<ViewFrustum>(mainView, ViewFrustum{ Math::Frustum::FromViewProjection(view.GetWorldToClip()) });
 
             // Same camera, placed in the displayed target instead of the render targets.
-            View& output = rhiCtx->Get<View>(outputRef->m_view);
+            View& output = rhiCtx->Get<View>(outputView);
             output = view;
             output.m_jitter          = Math::Vector2(0.0f, 0.0f);
             output.m_inputRect       = view.m_rect;
@@ -348,20 +349,9 @@ namespace Spark::Render
         });
     }
 
-    void CameraViewSystem::Shutdown(RHI::RHIContext& rhiCtx)
+    void CameraViewSystem::Shutdown()
     {
-        rhiCtx.GetView<MainViewTag, View>().each(
-            [&](RHI::RHIHandle view, const View&)
-        {
-            DestroyViewEntity(rhiCtx, view);
-        });
-        rhiCtx.GetView<OutputViewTag, View>().each(
-            [&](RHI::RHIHandle view, const View&)
-        {
-            DestroyViewEntity(rhiCtx, view);
-        });
-
-        // Strip the world-side refs so a re-init starts clean.
+        // The refs own the views, so clearing them lets the views go too.
         if (auto* world = WorldExecuteContext::Current())
         {
             world->Clear<MainViewRef>();

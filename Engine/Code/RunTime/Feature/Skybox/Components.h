@@ -4,7 +4,7 @@
 #include <Resource/AssetTypes.h>
 #include <Resource/Image/ImageAsset.h>
 
-#include <RHI/Context/RHIHandle.h>
+#include <RHI/Context/UniqueRHIHandle.h>
 #include <RHI/Resource/AccessFlags.h>
 
 namespace Spark::Skybox
@@ -42,12 +42,13 @@ namespace Spark::Skybox
     //!                     binds them into space0 and samples them every frame).
     //!                     NullHandle when the asset carries no IBL products.
     //! No equirect, no bake state: the feature does not know a bake happened.
+    //! Owns the three images: the component going lets them go.
     struct SkyboxGPUComponent
     {
         Ptr<Resource::ImageAsset> m_cubemapAsset;
-        RHI::RHIHandle            m_cubemap     = RHI::NullHandle;
-        RHI::RHIHandle            m_irradiance  = RHI::NullHandle;
-        RHI::RHIHandle            m_prefiltered = RHI::NullHandle;
+        RHI::UniqueRHIHandle      m_cubemap;
+        RHI::UniqueRHIHandle      m_irradiance;
+        RHI::UniqueRHIHandle      m_prefiltered;
     };
 
     //! Placed on the RHIContext cube resource entity (SkyboxGPUComponent::m_cubemap) of the

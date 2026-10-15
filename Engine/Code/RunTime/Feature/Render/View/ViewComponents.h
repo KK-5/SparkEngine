@@ -5,7 +5,7 @@
 #include <Math/Frustum.h>
 #include <Math/Matrix4x4.h>
 #include <Math/Vector2.h>
-#include <RHI/Context/RHIHandle.h>
+#include <RHI/Context/UniqueRHIHandle.h>
 
 #include "ShadowPools.h"
 
@@ -94,15 +94,17 @@ namespace Spark::Render
     //! camera today), like InstanceSlotRef. Named after the view TYPE, not the source:
     //! one camera can later source several types (a planar reflection view is derived
     //! from it too). Shadows get their own ShadowViewRefs on the light — N per source.
+    //!
+    //! Owns the view: the ref going, however the source went, marks it dead.
     struct MainViewRef
     {
-        RHI::RHIHandle m_view = RHI::NullHandle;
+        RHI::UniqueRHIHandle m_view;
     };
 
     //! Source -> the OutputViewTag view entity it produced, beside MainViewRef.
     struct OutputViewRef
     {
-        RHI::RHIHandle m_view = RHI::NullHandle;
+        RHI::UniqueRHIHandle m_view;
     };
 
     //! Which row of g_ShadowViews holds this view's ShadowViewData. The only number
@@ -126,10 +128,17 @@ namespace Spark::Render
     //!
     //! A view's position in m_views IS its face index, and stays so for the light's life:
     //! a face culled this frame keeps its slot, inactive and holding no tile.
+    //!
+    //! Owns its views like MainViewRef. Move-only spelled out: fixed_vector's copy constructor
+    //! is declared whatever its element, so without it the struct would look copyable.
     struct ShadowViewRefs
     {
-        eastl::fixed_vector<RHI::RHIHandle, 6> m_views;
-        ShadowViewRows                         m_rows;
+        ShadowViewRefs()                            = default;
+        ShadowViewRefs(ShadowViewRefs&&)            = default;
+        ShadowViewRefs& operator=(ShadowViewRefs&&) = default;
+
+        eastl::fixed_vector<RHI::UniqueRHIHandle, 6> m_views;
+        ShadowViewRows                               m_rows;
 
         //! -1 when the light holds no rows, which is what the shader reads as "casts no
         //! shadow".

@@ -5,7 +5,7 @@
 #include <Resource/Asset.h>
 #include <Resource/Image/ImageAsset.h>
 
-#include <RHI/Context/RHIHandle.h>
+#include <RHI/Context/UniqueRHIHandle.h>
 #include <RHI/Resource/AccessFlags.h>
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
@@ -18,9 +18,10 @@ namespace Spark::UI
         Ptr<Resource::ImageAsset> m_iconImageAsset;
     };
 
+    //! Owns the icon's image: the component going lets it go.
     struct IconGPUComponent
     {
-        RHI::RHIHandle           m_image    {RHI::NullHandle};
+        RHI::UniqueRHIHandle     m_image;
         RHI::ImageViewDescriptor m_viewDesc {};
         ImTextureID              m_iconId   {ImTextureID_Invalid};
     };

@@ -105,9 +105,9 @@ namespace Spark::SandBox
         destroyIfValid(m_indexBuffer);
         destroyIfValid(m_baseColor);
 
-        for (Spark::RHI::RHIHandle& view : m_views)
+        for (Spark::RHI::UniqueRHIHandle& view : m_views)
         {
-            destroyIfValid(view);
+            view.Reset();
         }
 
         eastl::fixed_vector<Spark::RHI::RHIHandle, 4> srgEntities;
@@ -226,8 +226,8 @@ namespace Spark::SandBox
         for (uint32_t i = 0; i < kViewCount; ++i)
         {
             m_views[i] = Spark::Render::CreateViewEntity<Spark::Render::MainViewTag>(ctx);
-            ASSERT(m_views[i] != Spark::RHI::NullHandle, "[MultiView] Failed to create view {}.", i);
-            ctx.Get<Spark::Render::View>(m_views[i]).m_rect = kViewRects[i];
+            ASSERT(m_views[i].IsValid(), "[MultiView] Failed to create view {}.", i);
+            ctx.Get<Spark::Render::View>(m_views[i].Get()).m_rect = kViewRects[i];
         }
     }
 
@@ -368,7 +368,7 @@ namespace Spark::SandBox
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
         for (uint32_t i = 0; i < kViewCount; ++i)
         {
-            Render::View& view = rhiCtx.Get<Render::View>(m_views[i]);
+            Render::View& view = rhiCtx.Get<Render::View>(m_views[i].Get());
 
             // Four fixed points on one orbit — the panels are meant to be unmistakably
             // different, so a broken per-view viewIndex write shows up as repeated images. Not 90

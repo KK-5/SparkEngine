@@ -31,7 +31,7 @@ namespace Spark::Render
                     const Math::Vector2Int& outputOrigin, const Math::Vector2Int& outputSize,
                     const Math::Vector2Int& outputBufferSize,
                     const FrameTime& time);
-        void Shutdown(RHI::RHIContext& rhiCtx);
+        void Shutdown();
 
     private:
         bool m_bloomTieLogged                 = false;

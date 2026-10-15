@@ -3,6 +3,7 @@
 #include <EASTL/unordered_map.h>
 
 #include <RHI/Context/RHIContext.h>
+#include <RHI/Context/UniqueRHIHandle.h>
 #include <Resource/AssetTypes.h>
 
 namespace Spark::Resource { class ImageAsset; }
@@ -30,10 +31,11 @@ namespace Spark::Material
         RHI::RHIHandle EnsureResident(RHI::RHIContext& rhiCtx, const Resource::AssetId& id,
                                       const Ptr<Resource::ImageAsset>& img);
 
+        //! Owns the texture: dropping the entry lets it go.
         struct PoolEntry
         {
-            RHI::RHIHandle m_handle = RHI::NullHandle;
-            uint32_t       m_gen    = 0;
+            RHI::UniqueRHIHandle m_handle;
+            uint32_t             m_gen = 0;
         };
 
         eastl::unordered_map<Resource::AssetId, PoolEntry> m_pool;

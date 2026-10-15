@@ -5,7 +5,6 @@
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <Object/ObjectName.h>
-#include <CoreComponents/Tags.h>
 
 #include <RHI/ResourceBuilder.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
@@ -55,7 +54,7 @@ namespace Spark::Material
                 // yet pays for a lookup, and only until its asset reaches Ready.
                 if (auto it = m_pool.find(id); it != m_pool.end())
                 {
-                    gpu.m_handles[slot] = it->second.m_handle;
+                    gpu.m_handles[slot] = it->second.m_handle.Get();
                     continue;
                 }
 
@@ -78,8 +77,7 @@ namespace Spark::Material
     void MaterialTextureSystem::CollectGarbage()
     {
         auto* matCtx = MaterialExecuteContext::Current();
-        auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!matCtx || !rhiCtx)
+        if (!matCtx)
         {
             return;
         }
@@ -105,10 +103,6 @@ namespace Spark::Material
         {
             if (it->second.m_gen != m_gcGeneration)
             {
-                if (it->second.m_handle != RHI::NullHandle)
-                {
-                    rhiCtx->Add<DeadTag>(it->second.m_handle);
-                }
                 it = m_pool.erase(it);
             }
             else
@@ -120,18 +114,6 @@ namespace Spark::Material
 
     void MaterialTextureSystem::Shutdown()
     {
-        auto* rhiCtx = RHI::RHIExecuteContext::Current();
-        if (!rhiCtx)
-        {
-            return;
-        }
-        for (auto& entry : m_pool)
-        {
-            if (entry.second.m_handle != RHI::NullHandle)
-            {
-                rhiCtx->Add<DeadTag>(entry.second.m_handle);
-            }
-        }
         m_pool.clear();
     }
 
@@ -162,7 +144,7 @@ namespace Spark::Material
             rhiCtx, tex, data->GetTextureBytes().data(), data->GetTextureBytes().size(),
             RHI::ImageSubresourceRange(desc), RHI::Origin(), img->GetFormat());
 
-        m_pool.emplace(id, PoolEntry{ tex, m_gcGeneration });
+        m_pool.emplace(id, PoolEntry{ RHI::UniqueRHIHandle(tex), m_gcGeneration });
         return tex;
     }
 }

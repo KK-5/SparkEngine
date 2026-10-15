@@ -2,7 +2,6 @@
 
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
-#include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 
@@ -176,17 +175,18 @@ namespace Spark::Skybox
         // falls back to its constant ambient. Their readiness needs no check -- the asset
         // layer publishes them before the parent goes Ready.
         SkyboxGPUComponent gpuComp;
+        gpuComp.m_cubemap = RHI::UniqueRHIHandle(cubeEntity);
         if (const Ptr<Resource::ImageAsset>& irradiance = asset->GetIrradianceAsset())
         {
-            gpuComp.m_irradiance = CreateAndUploadImage(
-                *rhiCtx, *irradiance, eastl::string("SkyboxIrradiance_") + idSuffix);
+            gpuComp.m_irradiance = RHI::UniqueRHIHandle(CreateAndUploadImage(
+                *rhiCtx, *irradiance, eastl::string("SkyboxIrradiance_") + idSuffix));
         }
         if (const Ptr<Resource::ImageAsset>& prefiltered = asset->GetPrefilteredAsset())
         {
-            gpuComp.m_prefiltered = CreateAndUploadImage(
-                *rhiCtx, *prefiltered, eastl::string("SkyboxPrefiltered_") + idSuffix);
+            gpuComp.m_prefiltered = RHI::UniqueRHIHandle(CreateAndUploadImage(
+                *rhiCtx, *prefiltered, eastl::string("SkyboxPrefiltered_") + idSuffix));
         }
-        for (RHI::RHIHandle lighting : { gpuComp.m_irradiance, gpuComp.m_prefiltered })
+        for (RHI::RHIHandle lighting : { gpuComp.m_irradiance.Get(), gpuComp.m_prefiltered.Get() })
         {
             if (lighting != RHI::NullHandle)
             {
@@ -202,7 +202,6 @@ namespace Spark::Skybox
         rhiCtx->Add<ActiveSkyCubeTag>(cubeEntity);
 
         gpuComp.m_cubemapAsset = asset;
-        gpuComp.m_cubemap      = cubeEntity;
         ctx.AddOrReplace<SkyboxGPUComponent>(entity, eastl::move(gpuComp));
     }
 
@@ -217,23 +216,12 @@ namespace Spark::Skybox
             return;
         }
 
-        if (rhiCtx)
+        if (rhiCtx && rhiCtx->Has<ActiveSkyCubeTag>(gpuComp->m_cubemap.Get()))
         {
-            if (rhiCtx->Has<ActiveSkyCubeTag>(gpuComp->m_cubemap))
-            {
-                rhiCtx->Clear<ActiveSkyCubeTag>();
-            }
-
-            for (RHI::RHIHandle handle : {gpuComp->m_cubemap, gpuComp->m_irradiance,
-                                          gpuComp->m_prefiltered})
-            {
-                if (rhiCtx->Valid(handle))
-                {
-                    rhiCtx->Add<DeadTag>(handle);
-                }
-            }
+            rhiCtx->Clear<ActiveSkyCubeTag>();
         }
 
+        // The component owns the images, so removing it lets them go.
         ctx.Remove<SkyboxGPUComponent>(entity);
     }
 }

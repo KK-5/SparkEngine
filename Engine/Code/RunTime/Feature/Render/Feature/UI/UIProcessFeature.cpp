@@ -46,19 +46,19 @@ namespace Spark::Render
 
             // Resolve the icon's view from the image resource's view cache. A missing
             // Image component means the resource is not materialized yet — skip.
-            auto* imgComp = rhiCtx->TryGet<RHI::Components::Image>(gpu.m_image);
+            auto* imgComp = rhiCtx->TryGet<RHI::Components::Image>(gpu.m_image.Get());
             if (!imgComp || !imgComp->m_image)
             {
                 return;
             }
 
-            if (rhiCtx->Has<RHI::PendingUploads>(gpu.m_image))
+            if (rhiCtx->Has<RHI::PendingUploads>(gpu.m_image.Get()))
             {
                 return;
             }
 
             auto* imageView = RHI::GetOrCreateImageView(
-                *rhiCtx, gpu.m_image, *imgComp->m_image, gpu.m_viewDesc);
+                *rhiCtx, gpu.m_image.Get(), *imgComp->m_image, gpu.m_viewDesc);
             if (!imageView)
             {
                 return;

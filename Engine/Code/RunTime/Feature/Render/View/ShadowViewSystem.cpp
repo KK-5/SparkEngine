@@ -491,10 +491,6 @@ namespace Spark::Render
             }
 
             ReleaseAllocation(*rhiCtx, refs);
-            for (RHI::RHIHandle v : refs.m_views)
-            {
-                DestroyViewEntity(*rhiCtx, v);
-            }
             LOG_INFO("[ShadowViewSystem] Light {} released {} shadow view(s).",
                 static_cast<uint32_t>(e), refs.m_views.size());
             orphans.push_back(e);
@@ -623,9 +619,9 @@ namespace Spark::Render
     //! Every face of a light shares one level, so the first tile found answers for all.
     uint32_t ShadowViewSystem::GrantedLevel(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
     {
-        for (RHI::RHIHandle view : refs.m_views)
+        for (const RHI::UniqueRHIHandle& view : refs.m_views)
         {
-            if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(view))
+            if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(view.Get()))
             {
                 return ShadowAtlasAllocator::LevelOfTile(tile->Get());
             }
@@ -638,7 +634,7 @@ namespace Spark::Render
         uint32_t mask = 0;
         for (uint32_t face = 0; face < refs.m_views.size(); ++face)
         {
-            if (rhiCtx.Has<ShadowAtlasTile>(refs.m_views[face]))
+            if (rhiCtx.Has<ShadowAtlasTile>(refs.m_views[face].Get()))
             {
                 mask = SetBit(mask, face);
             }
@@ -649,9 +645,9 @@ namespace Spark::Render
     void ShadowViewSystem::ReleaseTilesKeepingRows(
         RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
     {
-        for (RHI::RHIHandle view : refs.m_views)
+        for (const RHI::UniqueRHIHandle& view : refs.m_views)
         {
-            rhiCtx.Remove<ShadowAtlasTile>(view);
+            rhiCtx.Remove<ShadowAtlasTile>(view.Get());
         }
     }
 
@@ -659,9 +655,9 @@ namespace Spark::Render
         RHI::RHIContext& rhiCtx, ShadowViewRefs& refs)
     {
         ReleaseTilesKeepingRows(rhiCtx, refs);
-        for (RHI::RHIHandle view : refs.m_views)
+        for (const RHI::UniqueRHIHandle& view : refs.m_views)
         {
-            rhiCtx.Remove<ShadowViewIndex>(view);
+            rhiCtx.Remove<ShadowViewIndex>(view.Get());
         }
         refs.m_rows.Reset();
     }
@@ -715,7 +711,7 @@ namespace Spark::Render
             if (CheckBit(faceMask, face))
             {
                 rhiCtx.AddOrReplace<ShadowAtlasTile>(
-                    refs.m_views[face], eastl::move(tiles[next++]));
+                    refs.m_views[face].Get(), eastl::move(tiles[next++]));
             }
         }
         return true;
@@ -737,16 +733,12 @@ namespace Spark::Render
             ShadowViewRefs added;
             for (uint32_t face = 0; face < faceCount; ++face)
             {
-                const RHI::RHIHandle created = CreateViewEntity<ShadowViewTag>(rhiCtx);
-                if (created == RHI::NullHandle)
+                RHI::UniqueRHIHandle created = CreateViewEntity<ShadowViewTag>(rhiCtx);
+                if (!created.IsValid())
                 {
-                    for (RHI::RHIHandle view : added.m_views)
-                    {
-                        DestroyViewEntity(rhiCtx, view);
-                    }
                     return;
                 }
-                added.m_views.push_back(created);
+                added.m_views.push_back(eastl::move(created));
             }
             refs = &world.Add<ShadowViewRefs>(light, eastl::move(added));
         }
@@ -764,7 +756,7 @@ namespace Spark::Render
             for (uint32_t face = 0; face < faceCount; ++face)
             {
                 rhiCtx.AddOrReplace<ShadowViewIndex>(
-                    refs->m_views[face], ShadowViewIndex{ row + face });
+                    refs->m_views[face].Get(), ShadowViewIndex{ row + face });
             }
             LOG_INFO("[ShadowViewSystem] Light {} took {} shadow view row(s) from {}.",
                 static_cast<uint32_t>(light), faceCount, row);
@@ -777,7 +769,7 @@ namespace Spark::Render
 
         for (uint32_t face = 0; face < faceCount; ++face)
         {
-            const RHI::RHIHandle viewHandle = refs->m_views[face];
+            const RHI::RHIHandle viewHandle = refs->m_views[face].Get();
 
             const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(viewHandle);
             if (!tile)
@@ -821,11 +813,11 @@ namespace Spark::Render
         }
 
         ReleaseAllocation(rhiCtx, *refs);
-        for (RHI::RHIHandle v : refs->m_views)
+        for (const RHI::UniqueRHIHandle& v : refs->m_views)
         {
-            if (!rhiCtx.Has<ViewInactiveTag>(v))
+            if (!rhiCtx.Has<ViewInactiveTag>(v.Get()))
             {
-                rhiCtx.Add<ViewInactiveTag>(v);
+                rhiCtx.Add<ViewInactiveTag>(v.Get());
             }
         }
 
@@ -835,17 +827,11 @@ namespace Spark::Render
 
     void ShadowViewSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        rhiCtx.GetView<ShadowViewTag, View>().each(
-            [&](RHI::RHIHandle view, const View&)
-        {
-            DestroyViewEntity(rhiCtx, view);
-        });
-        m_atlas.Shutdown(rhiCtx);
-
-        // Strip the world-side refs so a re-init starts clean.
+        // The refs own the views, so clearing them lets the views go too.
         if (auto* world = WorldExecuteContext::Current())
         {
             world->Clear<ShadowViewRefs>();
         }
+        m_atlas.Shutdown(rhiCtx);
     }
 }

@@ -97,7 +97,7 @@ namespace Spark::SandBox
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_indexBuffer);
         destroyIfValid(m_baseColor);
-        destroyIfValid(m_view);
+        m_view.Reset();
         // Per-pass SRGs hold no member handle now — destroy them by tag (just the
         // space2 SRG here). Collected first: destroying inside the view iteration
         // would invalidate it.
@@ -214,7 +214,7 @@ namespace Spark::SandBox
         // the table with .Binds<ViewBindingTag>(), and the executer writes the view's index into
         // CubeTextured.hlsl's viewIndex.
         m_view = Spark::Render::CreateViewEntity<Spark::Render::MainViewTag>(ctx);
-        ASSERT(m_view != Spark::RHI::NullHandle, "[DrawCube] Failed to create the view.");
+        ASSERT(m_view.IsValid(), "[DrawCube] Failed to create the view.");
     }
 
     void DrawCube::CreatePasses()
@@ -364,7 +364,7 @@ namespace Spark::SandBox
         // Same role CameraViewSystem plays in the engine — a producer never touches the view
         // constants.
         auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        Render::View& view = rhiCtx.Get<Render::View>(m_view);
+        Render::View& view = rhiCtx.Get<Render::View>(m_view.Get());
         view.m_worldToView = Math::LookAt(
             Math::Vector3(0.f, 5.f, -5.f),   // eye
             Math::Vector3(0.f, 0.f, 0.f),    // target

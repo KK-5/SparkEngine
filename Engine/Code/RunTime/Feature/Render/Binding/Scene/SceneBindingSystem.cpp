@@ -327,8 +327,8 @@ namespace Spark::Render
         world->GetView<Skybox::SkyboxGPUComponent>().each(
             [&](Entity entity, const Skybox::SkyboxGPUComponent& gpu)
         {
-            if (gpu.m_cubemap != RHI::NullHandle
-                && rhiCtx->Has<Skybox::ActiveSkyCubeTag>(gpu.m_cubemap))
+            if (gpu.m_cubemap.IsValid()
+                && rhiCtx->Has<Skybox::ActiveSkyCubeTag>(gpu.m_cubemap.Get()))
             {
                 active = entity;
             }
@@ -350,19 +350,21 @@ namespace Spark::Render
         {
             return result;
         }
+        const RHI::RHIHandle irradiance  = gpu->m_irradiance.Get();
+        const RHI::RHIHandle prefiltered = gpu->m_prefiltered.Get();
 
         // All or nothing: a partially bound set would leave some slot stale while the mip
         // count says "go ahead and sample". The LUT joins the same gate -- without it the
         // specular term has no F0 scale/bias to apply.
-        if (!RHI::IsResourceReady(*rhiCtx, gpu->m_irradiance)
-            || !RHI::IsResourceReady(*rhiCtx, gpu->m_prefiltered)
+        if (!RHI::IsResourceReady(*rhiCtx, irradiance)
+            || !RHI::IsResourceReady(*rhiCtx, prefiltered)
             || !RHI::IsResourceReady(*rhiCtx, m_brdfLut))
         {
             return result;
         }
 
-        auto* irradianceImage  = rhiCtx->TryGet<RHI::Components::Image>(gpu->m_irradiance);
-        auto* prefilteredImage = rhiCtx->TryGet<RHI::Components::Image>(gpu->m_prefiltered);
+        auto* irradianceImage  = rhiCtx->TryGet<RHI::Components::Image>(irradiance);
+        auto* prefilteredImage = rhiCtx->TryGet<RHI::Components::Image>(prefiltered);
         auto* brdfLutImage     = rhiCtx->TryGet<RHI::Components::Image>(m_brdfLut);
         if (!irradianceImage || !prefilteredImage || !brdfLutImage)
         {
@@ -371,9 +373,9 @@ namespace Spark::Render
 
         const RHI::ImageViewDescriptor cubeView = RHI::ImageViewDescriptor::CreateCubemap();
         RHI::ImageView* irradianceView = RHI::GetOrCreateImageView(
-            *rhiCtx, gpu->m_irradiance, *irradianceImage->m_image, cubeView);
+            *rhiCtx, irradiance, *irradianceImage->m_image, cubeView);
         RHI::ImageView* prefilteredView = RHI::GetOrCreateImageView(
-            *rhiCtx, gpu->m_prefiltered, *prefilteredImage->m_image, cubeView);
+            *rhiCtx, prefiltered, *prefilteredImage->m_image, cubeView);
         RHI::ImageView* brdfLutView = RHI::GetOrCreateImageView(
             *rhiCtx, m_brdfLut, *brdfLutImage->m_image, RHI::ImageViewDescriptor{});
         if (!irradianceView || !prefilteredView || !brdfLutView)

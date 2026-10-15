@@ -284,7 +284,7 @@ namespace Spark::Render
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_cameraViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_cameraViewSystem.Shutdown();
 
         // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
         // tag-owned). Reap them here alongside the other binding entities.

@@ -95,7 +95,7 @@ namespace Spark::UI
 
         // GPU component on world entity
         IconGPUComponent gpuComp;
-        gpuComp.m_image = imageEntity;
+        gpuComp.m_image = RHI::UniqueRHIHandle(imageEntity);
         gpuComp.m_viewDesc = viewDesc;
         world.AddOrReplace<IconGPUComponent>(worldEntity, eastl::move(gpuComp));
 
@@ -124,15 +124,11 @@ namespace Spark::UI
     void IconManager::ShutdownInternal()
     {
         auto world = WorldExecuteContext::CurrentReference<SystemTraits>();
-        auto* rhiCtx = RHI::RHIExecuteContext::Current();
 
-        world.GetView<IconGPUComponent>().each([&](Entity entity, const IconGPUComponent& gpuComp)
+        // Reset now rather than when the reaper takes the entity: no tick may follow.
+        world.GetView<IconGPUComponent>().each([&](Entity entity, IconGPUComponent& gpuComp)
         {
-            if (rhiCtx && gpuComp.m_image != RHI::NullHandle && rhiCtx->Valid(gpuComp.m_image))
-            {
-                rhiCtx->Add<DeadTag>(gpuComp.m_image);
-            }
-
+            gpuComp.m_image.Reset();
             world.Add<DeadTag>(entity);
         });
     }

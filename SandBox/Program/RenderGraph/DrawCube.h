@@ -4,7 +4,7 @@
 #include <Math/Matrix4x4.h>
 #include <Tick/TickBus.h>
 #include <Pass/Pass.h>
-#include <RHI/Context/RHIHandle.h>
+#include <RHI/Context/UniqueRHIHandle.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <View/View.h>
@@ -58,7 +58,7 @@ namespace Spark::SandBox
         Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         // The camera's view entity; Update writes its View.
-        Spark::RHI::RHIHandle m_view = Spark::RHI::NullHandle;
+        Spark::RHI::UniqueRHIHandle m_view;
 
         // Shader assets
         Ptr<Spark::Resource::ShaderAsset> m_shader;
