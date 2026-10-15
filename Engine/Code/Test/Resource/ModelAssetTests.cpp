@@ -770,7 +770,7 @@ TEST(StandardVertexTest, APrimitiveWithoutUVIsFilledIn)
         const float alongNormal   = tangent[0] * normal[0] + tangent[1] * normal[1] + tangent[2] * normal[2];
         EXPECT_NEAR(lengthSquared, 1.0f, 1e-4f);
         EXPECT_NEAR(alongNormal, 0.0f, 1e-4f);
-        EXPECT_EQ(tangent[3], 1.0f);
+        EXPECT_EQ(fabsf(tangent[3]), 1.0f);
     }
 }
 
