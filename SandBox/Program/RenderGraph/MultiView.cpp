@@ -41,9 +41,6 @@
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <RenderGraph/RenderGraphUtils.h>
-#include <Drawable/GeometrySpec.h>
-
-#include "SampleDrawTag.h"
 #include <Binding/View/ViewBinding.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
@@ -79,8 +76,6 @@ namespace Spark::SandBox
         CreateViews();
         CreatePasses();
 
-        BuildGeometry();
-
         TickBus::Handler::BusConnect();
         return true;
     }
@@ -98,9 +93,8 @@ namespace Spark::SandBox
             }
             handle = Spark::RHI::NullHandle;
         };
-        // Order: GeometrySpec -> VB/IB/Image -> views.
+        // Order: VB/IB/Image -> views.
 
-        destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_indexBuffer);
         destroyIfValid(m_baseColor);
@@ -313,38 +307,19 @@ namespace Spark::SandBox
                 // Nothing is drawn until the cube's own uploads land.
                 if (RHI::IsResourceReady(rhiCtx, m_vertexBuffer) && RHI::IsResourceReady(rhiCtx, m_indexBuffer))
                 {
-                    s.Accepts<SampleDrawTag>();
+                    p.Import(RHI::AttachmentId("CubeVertices"), m_vertexBuffer);
+                    p.Import(RHI::AttachmentId("CubeIndices"), m_indexBuffer);
+
+                    auto vertices = s.InputAssembly(RHI::AttachmentId("CubeVertices"));
+                    auto indices  = s.InputAssembly(RHI::AttachmentId("CubeIndices"));
+
+                    const Resource::Primitive& primitive = m_model->GetModelData()->GetMesh(0)->primitives[0];
+                    const Render::Attachment vertexStreams[] = { vertices };
+                    s.Draw(RHI::DrawIndexed(0, primitive.indexCount, 0), vertexStreams, { indices, primitive.indexFormat });
                 }
                 s.Close();
             })
             .Finalize();
-    }
-
-    void MultiView::BuildGeometry()
-    {
-        auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        m_drawable = rhiCtx.CreateEntity();
-
-        auto* mesh = m_model->GetModelData()->GetMesh(0);
-        const Resource::Primitive& primitive = mesh->primitives[0];
-
-        Render::GeometrySpec drawable;
-        drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawIndexed(0, primitive.indexCount, 0));
-        Render::VertexStreamSpec vertex;
-        vertex.m_buffer = m_vertexBuffer;
-        vertex.m_vertexBufferInfo = Render::VertexBufferInfo{
-            0, static_cast<uint32_t>(primitive.vertexBuffer.size()), primitive.layout.stride};
-        vertex.m_inputSlot = 0;
-        drawable.m_streams.push_back(vertex);
-
-        drawable.m_index.m_indexBuffer = m_indexBuffer;
-        drawable.m_index.m_indexInfo   = Render::IndexBufferInfo{
-            0, static_cast<uint32_t>(primitive.indexBuffer.size()), primitive.indexFormat };
-
-        drawable.m_instanceData = Render::NoInstanceBinding{};
-
-        rhiCtx.Add<Render::GeometrySpec>(m_drawable, eastl::move(drawable));
-        rhiCtx.Add<SampleDrawTag>(m_drawable);
     }
 
     void MultiView::Update()

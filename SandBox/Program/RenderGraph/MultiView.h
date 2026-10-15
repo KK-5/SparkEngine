@@ -51,15 +51,12 @@ namespace Spark::SandBox
         void CreateVertexBuffer();
         void CreateViews();
         void CreatePasses();
-        void BuildGeometry();
         void Update();
 
         Spark::RHI::RHIHandle m_vertexBuffer = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_indexBuffer  = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_baseColor    = Spark::RHI::NullHandle;
         Spark::RHI::ImageViewDescriptor m_baseColorViewDesc {};
-
-        Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         //! Each owns a camera and its own g_Views row, so the panels differ on screen exactly
         //! because the executer rewrites viewIndex at each view handle.

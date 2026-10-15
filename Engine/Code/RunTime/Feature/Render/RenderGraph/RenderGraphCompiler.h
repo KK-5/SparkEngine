@@ -127,6 +127,11 @@ namespace Spark::Render
         //! many records the argument buffer holds. Runs after the transient stage.
         void CompileItemIndirectArguments(PassContext& passContext, RHIContext& context);
 
+        //! Bind into each draw that reads its vertices and indices from buffers of the graph
+        //! (ItemInputAssembly) those buffers' backings, whole, each vertex stream with the stride
+        //! its slot has in the pass's input layout. Runs after the transient stage.
+        void CompileItemInputAssembly(PassContext& passContext, RHIContext& context);
+
         //! Lay each Scope's submissions out in submitList and record its ScopeSubmitRange: per
         //! ready view, the view's handle then the Scope's own items and those the pass collects
         //! for it through a static .Accepts; items only for

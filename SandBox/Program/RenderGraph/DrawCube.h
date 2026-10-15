@@ -45,7 +45,6 @@ namespace Spark::SandBox
         void CreateView();
         void CreatePasses();
         void Update();
-        void BuildGeometry();
         void LoadAsset();
         void CreateImage();
 
@@ -54,8 +53,6 @@ namespace Spark::SandBox
         Spark::RHI::RHIHandle m_indexBuffer     = Spark::RHI::NullHandle;
         Spark::RHI::RHIHandle m_baseColor       = Spark::RHI::NullHandle;
         Spark::RHI::ImageViewDescriptor m_baseColorViewDesc {};
-
-        Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         // The camera's view entity; Update writes its View.
         Spark::RHI::UniqueRHIHandle m_view;

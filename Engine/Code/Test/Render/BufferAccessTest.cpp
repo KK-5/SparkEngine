@@ -26,3 +26,23 @@ TEST(BufferAccessTest, WritingABufferConflictsWithReadingItAsIndirectArguments)
     EXPECT_TRUE(RHI::HasAccessConflict(write, indirect));
     EXPECT_FALSE(RHI::HasAccessConflict(read, indirect));
 }
+
+TEST(BufferAccessTest, VerticesAndIndicesAreAVertexIndexInputRead)
+{
+    EXPECT_EQ(
+        RHI::ConvertBufferAccess(RHI::AttachmentUsage::InputAssembly, RHI::AttachmentAccess::Read),
+        RHI::AccessFlags::VertexIndexInput);
+}
+
+TEST(BufferAccessTest, WritingABufferConflictsWithDrawingFromIt)
+{
+    const RHI::AccessFlags write =
+        RHI::ConvertBufferAccess(RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Write);
+    const RHI::AccessFlags read =
+        RHI::ConvertBufferAccess(RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read);
+    const RHI::AccessFlags inputAssembly =
+        RHI::ConvertBufferAccess(RHI::AttachmentUsage::InputAssembly, RHI::AttachmentAccess::Read);
+
+    EXPECT_TRUE(RHI::HasAccessConflict(write, inputAssembly));
+    EXPECT_FALSE(RHI::HasAccessConflict(read, inputAssembly));
+}

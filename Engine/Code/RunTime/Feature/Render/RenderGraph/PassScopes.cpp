@@ -214,12 +214,46 @@ namespace Spark::Render
             RHI::AttachmentUsage::Indirect, RHI::AttachmentAccess::Read, RHI::AttachmentStage::DrawIndirect));
     }
 
+    Attachment RenderScope::InputAssembly(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::InputAssembly, RHI::AttachmentAccess::Read, RHI::AttachmentStage::VertexInput));
+    }
+
     void RenderScope::Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount)
     {
         RHI::DrawItem item;
         item.m_drawArguments    = arguments;
         item.m_drawInstanceArgs = RHI::DrawInstanceArguments(instanceCount, 0);
         RHIExecuteContext::Current()->Add<RHI::DrawItem>(m_builder->AddScopeItem(m_scope), item);
+    }
+
+    void RenderScope::Draw(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
+        uint32_t instanceCount)
+    {
+        DrawStreams(arguments, vertices, NullHandle, RHI::IndexFormat::Unknown, instanceCount);
+    }
+
+    void RenderScope::Draw(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
+        const IndexStream& indices, uint32_t instanceCount)
+    {
+        DrawStreams(arguments, vertices, indices.m_buffer.GetHandle(), indices.m_format, instanceCount);
+    }
+
+    void RenderScope::DrawStreams(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
+        RHIHandle indices, RHI::IndexFormat indexFormat, uint32_t instanceCount)
+    {
+        eastl::fixed_vector<RHIHandle, RHI::Limits::Pipeline::StreamCountMax, true> handles;
+        for (const Attachment& vertex : vertices)
+        {
+            handles.push_back(vertex.GetHandle());
+        }
+
+        RHI::DrawItem item;
+        item.m_drawArguments    = arguments;
+        item.m_drawInstanceArgs = RHI::DrawInstanceArguments(instanceCount, 0);
+        m_builder->AddScopeDraw(m_scope, item, eastl::span<const RHIHandle>(handles.data(), handles.size()),
+            indices, indexFormat);
     }
 
     void RenderScope::DrawIndirect(const RHI::AttachmentId& argumentsName, const RHI::AttachmentId& countName)

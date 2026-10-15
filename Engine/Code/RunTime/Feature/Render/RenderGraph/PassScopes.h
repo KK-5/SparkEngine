@@ -7,6 +7,7 @@
 #include <RHI/Format.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
+#include <EASTL/span.h>
 #include <EASTL/string_view.h>
 #include <EASTL/type_traits.h>
 #include <EASTL/vector.h>
@@ -70,6 +71,13 @@ namespace Spark::Render
         }
 
         RHIHandle m_handle { NullHandle };
+    };
+
+    //! The indices of a RenderScope::Draw: an InputAssembly access and the format they are in.
+    struct IndexStream
+    {
+        Attachment       m_buffer;
+        RHI::IndexFormat m_format;
     };
 
     //! An attachment a shader accesses. In a render pass it needs a stage: from .Bind, which
@@ -176,9 +184,22 @@ namespace Spark::Render
         //! Created with BufferBindFlags::Indirect.
         Attachment IndirectArguments(const RHI::AttachmentId& name);
 
+        //! The buffer a Draw of this Scope reads vertices or indices from. Created with
+        //! BufferBindFlags::InputAssembly.
+        Attachment InputAssembly(const RHI::AttachmentId& name);
+
         //! A draw of this Scope that reads no vertex or index buffer (vertices come from
         //! SV_VertexID), e.g. a full-screen triangle: DrawLinear(3, 0).
         void Draw(const RHI::DrawArguments& arguments, uint32_t instanceCount = 1);
+
+        //! A draw of this Scope reading `vertices[i]` as the vertex stream of input slot i, and
+        //! `indices` for an indexed one, each bound whole: offsets into them go in `arguments`.
+        //! Each is an InputAssembly access of this Scope; the stride of a slot is the one the
+        //! pass's input layout gives it, which has as many slots as `vertices` fills.
+        void Draw(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
+            uint32_t instanceCount = 1);
+        void Draw(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
+            const IndexStream& indices, uint32_t instanceCount = 1);
 
         //! Draw the meshes a list names: the buffer `argumentsName` holds a
         //! DrawIndexedIndirectCommand per mesh and `countName` how many of them, both
@@ -226,6 +247,9 @@ namespace Spark::Render
 
     private:
         friend class RenderPassScopes;
+
+        void DrawStreams(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
+            RHIHandle indices, RHI::IndexFormat indexFormat, uint32_t instanceCount);
 
         RenderScope(RenderGraphBuilder& builder, RHIHandle scope)
             : m_builder(&builder)

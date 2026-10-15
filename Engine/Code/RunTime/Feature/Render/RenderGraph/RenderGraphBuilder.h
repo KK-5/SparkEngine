@@ -145,6 +145,12 @@ namespace Spark::Render
         //! one `count` accesses. Both are indirect-arguments accesses of `scope`.
         void AddScopeDrawIndirect(RHIHandle scope, const RHI::DrawItem& geometry, RHIHandle arguments, RHIHandle count);
 
+        //! A draw of `scope` with the arguments of `draw`, reading its vertices from the buffers
+        //! `vertices` access, slot by slot, and, unless `indices` is NullHandle, its indices from
+        //! the one it accesses, in `indexFormat`. All are InputAssembly accesses of `scope`.
+        void AddScopeDraw(RHIHandle scope, const RHI::DrawItem& draw, eastl::span<const RHIHandle> vertices,
+            RHIHandle indices, RHI::IndexFormat indexFormat);
+
         //! A set of scene items `scope` selects: `collect` appends its members under a view.
         void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);
 

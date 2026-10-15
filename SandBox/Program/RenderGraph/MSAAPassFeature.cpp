@@ -41,9 +41,6 @@
 #include <RenderGraph/RenderGraphExecuter.h>
 #include <View/View.h>
 #include <View/ViewTags.h>
-#include <Drawable/GeometrySpec.h>
-
-#include "SampleDrawTag.h"
 
 #include <Window/IWindowSystem.h>
 
@@ -85,7 +82,6 @@ namespace Spark::SandBox
         CreateVertexBuffer();
         CreateView();
         CreatePasses();
-        BuildGeometry();
 
         TickBus::Handler::BusConnect();
         return true;
@@ -105,7 +101,6 @@ namespace Spark::SandBox
             handle = Spark::RHI::NullHandle;
         };
 
-        destroyIfValid(m_drawable);
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_view);
         // Per-pass SRGs hold no member handle now — destroy them by tag (just the
@@ -215,29 +210,15 @@ namespace Spark::SandBox
                 // Nothing is drawn until the triangle's upload lands.
                 if (RHI::IsResourceReady(*RHI::RHIExecuteContext::Current(), m_vertexBuffer))
                 {
-                    s.Accepts<SampleDrawTag>();
+                    p.Import(RHI::AttachmentId("TriangleVertices"), m_vertexBuffer);
+                    auto vertices = s.InputAssembly(RHI::AttachmentId("TriangleVertices"));
+
+                    const Render::Attachment vertexStreams[] = { vertices };
+                    s.Draw(RHI::DrawLinear(g_vertexCount, 0), vertexStreams);
                 }
                 s.Close();
             })
             .Finalize();
-    }
-
-    void MSAAPassFeature::BuildGeometry()
-    {
-        auto& rhiCtx = *Spark::RHI::RHIExecuteContext::Current();
-        m_drawable = rhiCtx.CreateEntity();
-
-        Render::GeometrySpec drawable;
-        drawable.m_drawArgs = RHI::DrawArguments(RHI::DrawLinear(g_vertexCount, 0));
-        Render::VertexStreamSpec vertex;
-        vertex.m_buffer     = m_vertexBuffer;
-        vertex.m_vertexBufferInfo = Render::VertexBufferInfo{0, sizeof(g_triangleVertices), sizeof(TriangleVertex)};
-        vertex.m_inputSlot  = 0;
-        drawable.m_streams.push_back(vertex);
-        drawable.m_instanceData = Render::NoInstanceBinding{};
-
-        rhiCtx.Add<Render::GeometrySpec>(m_drawable, eastl::move(drawable));
-        rhiCtx.Add<SampleDrawTag>(m_drawable);
     }
 
     void MSAAPassFeature::Update()

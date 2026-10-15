@@ -529,6 +529,39 @@ namespace Spark::Render
         rhiContext.Add<ItemIndirectArguments>(handle, ItemIndirectArguments{ arguments, count });
     }
 
+    void RenderGraphBuilder::AddScopeDraw(RHIHandle scope, const RHI::DrawItem& draw,
+        eastl::span<const RHIHandle> vertices, RHIHandle indices, RHI::IndexFormat indexFormat)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+
+        auto isInputAssemblyAccess = [&](RHIHandle access)
+        {
+            const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(access);
+            return buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::InputAssembly
+                && rhiContext.Get<ScopeAttachment>(access).m_scope == scope;
+        };
+        ASSERT(vertices.size() <= RHI::Limits::Pipeline::StreamCountMax,
+            "A Draw reads {} vertex streams, more than the {} a pipeline takes.",
+            vertices.size(), RHI::Limits::Pipeline::StreamCountMax);
+        for (RHIHandle vertex : vertices)
+        {
+            ASSERT(isInputAssemblyAccess(vertex), "A Draw's vertex streams must be InputAssembly accesses of the same Scope.");
+        }
+        ASSERT(indices == NullHandle || isInputAssemblyAccess(indices),
+            "A Draw's indices must be an InputAssembly access of the same Scope.");
+        ASSERT(indices == NullHandle || indexFormat != RHI::IndexFormat::Unknown, "A Draw's indices need a format.");
+
+        // The buffers are bound by lowering: they have no backing yet.
+        ItemInputAssembly inputAssembly;
+        inputAssembly.m_vertexAttachments.assign(vertices.begin(), vertices.end());
+        inputAssembly.m_indexAttachment = indices;
+        inputAssembly.m_indexFormat     = indexFormat;
+
+        const RHIHandle handle = AddScopeItem(scope);
+        rhiContext.Add<RHI::DrawItem>(handle, draw);
+        rhiContext.Add<ItemInputAssembly>(handle, eastl::move(inputAssembly));
+    }
+
     void RenderGraphBuilder::AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect)
     {
         CheckScopeOpen(scope);

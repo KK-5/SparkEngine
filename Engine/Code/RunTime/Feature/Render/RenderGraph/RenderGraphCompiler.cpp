@@ -1385,6 +1385,63 @@ namespace Spark::Render
         }
     }
 
+    void RenderGraphCompiler::CompileItemInputAssembly(PassContext& passContext, RHIContext& context)
+    {
+        auto backingOf = [&](RHIHandle access, uint32_t& byteCount) -> const RHI::Buffer&
+        {
+            const auto& attachment = context.Get<BufferPassAttachment>(access);
+            const auto* backing    = context.TryGet<BackingBuffer>(attachment.m_buffer);
+            const char* passName   = passContext.Get<PassName>(attachment.m_pass).m_name.GetCStr();
+            ASSERT(backing != nullptr && backing->m_buffer != nullptr,
+                "[RenderGraphCompiler] Pass {}: the input assembly buffer {} has no backing.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+
+            const RHI::BufferDescriptor& descriptor = backing->m_buffer->GetDescriptor();
+            ASSERT(CheckBitsAll(descriptor.m_bindFlags, RHI::BufferBindFlags::InputAssembly),
+                "[RenderGraphCompiler] Pass {}: {} is read as vertices or indices but was not created with "
+                "BufferBindFlags::InputAssembly.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+            ASSERT(descriptor.m_byteCount <= UINT32_MAX,
+                "[RenderGraphCompiler] Pass {}: {} is beyond what a vertex or index binding spans.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+
+            byteCount = static_cast<uint32_t>(descriptor.m_byteCount);
+            return *backing->m_buffer;
+        };
+
+        for (auto [item, inputAssembly] : context.GetStorage<ItemInputAssembly>().each())
+        {
+            RHI::DrawItem& draw = context.Get<RHI::DrawItem>(item);
+
+            if (!inputAssembly.m_vertexAttachments.empty())
+            {
+                const Pass pass = context.Get<BufferPassAttachment>(inputAssembly.m_vertexAttachments.front()).m_pass;
+                const auto streams =
+                    passContext.Get<PassPipelineState>(pass).m_inputStreamLayout.GetStreamBuffers();
+                ASSERT(streams.size() == inputAssembly.m_vertexAttachments.size(),
+                    "[RenderGraphCompiler] Pass {}: a Draw reads {} vertex streams, its input layout has {}.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr(),
+                    inputAssembly.m_vertexAttachments.size(), streams.size());
+
+                const size_t slotCount = eastl::min(streams.size(), inputAssembly.m_vertexAttachments.size());
+                for (size_t slot = 0; slot < slotCount; ++slot)
+                {
+                    uint32_t byteCount = 0;
+                    const RHI::Buffer& buffer = backingOf(inputAssembly.m_vertexAttachments[slot], byteCount);
+                    draw.m_vertexBufferView.SetVertexInputView(static_cast<uint32_t>(slot),
+                        RHI::VertexInputView(buffer, 0, byteCount, streams[slot].m_byteStride));
+                }
+            }
+
+            if (inputAssembly.m_indexAttachment != NullHandle)
+            {
+                uint32_t byteCount = 0;
+                const RHI::Buffer& buffer = backingOf(inputAssembly.m_indexAttachment, byteCount);
+                draw.m_indexBufferView = RHI::IndexBufferView(buffer, 0, byteCount, inputAssembly.m_indexFormat);
+            }
+        }
+    }
+
     namespace
     {
         //! What to submit for `item` under `view`: the item itself, unless it is an indirect

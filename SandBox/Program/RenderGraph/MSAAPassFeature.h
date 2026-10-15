@@ -41,12 +41,9 @@ namespace Spark::SandBox
         void CreateView();
         void CreatePasses();
         void Update();
-        void BuildGeometry();
 
         // Vertex buffer (in RHIContext)
         Spark::RHI::RHIHandle m_vertexBuffer     = Spark::RHI::NullHandle;
-
-        Spark::RHI::RHIHandle m_drawable = Spark::RHI::NullHandle;
 
         Spark::RHI::RHIHandle m_view = Spark::RHI::NullHandle;
 

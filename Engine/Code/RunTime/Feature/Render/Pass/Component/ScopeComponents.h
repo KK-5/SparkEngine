@@ -12,6 +12,7 @@
 #include <RHI/Context/RHIEventContext.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
+#include <RHI/Resource/Buffer/IndexBufferView.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <Pass/Pass.h>
@@ -99,6 +100,17 @@ namespace Spark::Render
         RHI::RHIHandle m_attachment {RHI::NullHandle};
         //! A draw's access of the buffer that says how many records to execute.
         RHI::RHIHandle m_countAttachment {RHI::NullHandle};
+    };
+
+    //! On a draw of a Scope that reads its vertices, and its indices, from buffers of the graph:
+    //! the Scope's InputAssembly accesses of them, the vertex ones by input slot. The buffers have
+    //! no backing when the draw is declared, so lowering binds them (CompileItemInputAssembly),
+    //! whole, with the stride the pass's input layout gives each slot.
+    struct ItemInputAssembly
+    {
+        eastl::fixed_vector<RHI::RHIHandle, RHI::Limits::Pipeline::StreamCountMax> m_vertexAttachments;
+        RHI::RHIHandle   m_indexAttachment {RHI::NullHandle};
+        RHI::IndexFormat m_indexFormat {RHI::IndexFormat::Unknown};
     };
 
     //! On an item lowering made for one view out of an item of a Scope whose indirect
