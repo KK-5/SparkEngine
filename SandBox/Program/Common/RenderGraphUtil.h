@@ -36,8 +36,10 @@ namespace Spark::SandBox
         SystemUniquePtr<SimpleGlfwWindow>           m_window;
         SystemUniquePtr<Input::InputSystem>         m_input;
         SystemUniquePtr<RHI::DX12::RHISystem>       m_rhi;
-        SystemUniquePtr<RHI::AsyncUploadSystem>     m_asyncUpload;
+        // Declared after the resource system, so it shuts down first: its requests hold the
+        // resources they upload into, which have to go before the pools they came from.
         SystemUniquePtr<RHI::RHIResourceSystem>     m_rhiResource;
+        SystemUniquePtr<RHI::AsyncUploadSystem>     m_asyncUpload;
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<Render::RenderSystem>       m_render;
         UniquePtr<ILogSystem>                     m_logger;
@@ -92,11 +94,11 @@ namespace Spark::SandBox
         }
 
         // RHI resource infrastructure
-        sys.m_asyncUpload = CreateSystem<RHI::AsyncUploadSystem>();
-        sys.m_asyncUpload->Init();
-
         sys.m_rhiResource = CreateSystem<RHI::RHIResourceSystem>();
         sys.m_rhiResource->Init();
+
+        sys.m_asyncUpload = CreateSystem<RHI::AsyncUploadSystem>();
+        sys.m_asyncUpload->Init();
 
         // Asset manager. engine:// is the same mount the editor uses, so engine-relative ids
         // resolve -- notably the *BindingsReflect.hlsl hosts the render binding systems reflect
