@@ -1,34 +1,33 @@
-// InstanceCulling.hlsl — turns g_Instances into the draws indirect calls read, written once
-// for each view. One thread per instance slot; a slot whose DrawMask lacks the pass's bit (a
-// hole, geometry not ready, or another kind of object) writes nothing, and neither does an
-// instance whose box is outside the view's frustum.
+// InstanceCulling.hlsl — the g_Instances slots each view sees, written once for each view.
+// One thread per instance slot; a slot whose DrawMask lacks the pass's bit (a hole, geometry
+// not ready, or another kind of object) writes nothing, and neither does an instance whose
+// box is outside the view's frustum.
 //
-// Each view has a stretch of the argument buffer and a count of its own. A thread takes the
-// next free place among its view's draws from the count, so they are packed from the start
-// of the stretch and in no fixed order.
+// Each view has a part of the visible list and a count of its own. A thread takes the next
+// free place in its view's part from the count, so the part is packed from its start and in
+// no fixed order. The InstanceBinning passes read it.
 //
-// The pass runs this once to zero the counts, then once per view to write its draws.
+// The pass runs this once to zero the counts, then once per view to write its part.
 
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/InstanceBindings.hlsli>
 #include <Shaders/GeometryBindings.hlsli>
-#include <Shaders/IndirectCommands.hlsli>
 
 struct ScopeParameters
 {
-    uint isClearCount;  // 1: zero the counts and write no draw
-    uint slotCount;     // slots of g_Instances to go through, holes included
-    uint drawMaskBit;   // the classification bit the draws are of
-    uint viewCapacity;  // views g_DrawCount has a count for
-    uint firstDraw;     // where this view's draws start in g_DrawArguments
-    uint viewOrdinal;   // which count in g_DrawCount is this view's
-    uint viewIndex;     // the view's row of g_Views
+    uint isClearCount;    // 1: zero the counts and write no entry
+    uint slotCount;       // slots of g_Instances to go through, holes included
+    uint drawMaskBit;     // the classification bit the list is of
+    uint viewCapacity;    // views g_VisibleCount has a count for
+    uint viewFirstEntry;  // where this view's part starts in g_VisibleInstances
+    uint viewOrdinal;     // which count in g_VisibleCount is this view's
+    uint viewIndex;       // the view's row of g_Views
 };
 
 #include <Shaders/ScopeBindings.hlsli>
 
-RWStructuredBuffer<DrawIndexedIndirectCommand> g_DrawArguments : register(u0, space2);
-RWStructuredBuffer<uint>                       g_DrawCount     : register(u1, space2);
+RWStructuredBuffer<uint> g_VisibleInstances : register(u0, space2);
+RWStructuredBuffer<uint> g_VisibleCount     : register(u1, space2);
 
 // True when the box lies wholly outside the plane. A point is inside when dot(plane, point) >= 0.
 bool IsBoxOutside(float4 plane, float3 center, float3 extents)
@@ -58,7 +57,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     {
         if (id.x < g_Scope.viewCapacity)
         {
-            g_DrawCount[id.x] = 0;
+            g_VisibleCount[id.x] = 0;
         }
         return;
     }
@@ -83,16 +82,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    DrawIndexedIndirectCommand command;
-    command.IndexCount    = geometry.IndexCount;
-    command.InstanceCount = 1;
-    command.FirstIndex    = geometry.FirstIndex;
-    command.VertexOffset  = geometry.VertexOffset;
-    // The per-instance ID stream is read from here on, so the draw's vertex shader gets
-    // this slot as its INSTANCE_INDEX.
-    command.FirstInstance = id.x;
-
     uint place;
-    InterlockedAdd(g_DrawCount[g_Scope.viewOrdinal], 1, place);
-    g_DrawArguments[g_Scope.firstDraw + place] = command;
+    InterlockedAdd(g_VisibleCount[g_Scope.viewOrdinal], 1, place);
+    g_VisibleInstances[g_Scope.viewFirstEntry + place] = id.x;
 }

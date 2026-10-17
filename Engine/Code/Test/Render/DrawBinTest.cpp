@@ -290,6 +290,35 @@ TEST_F(DrawBinTest, APassDrawingNoListHasNoBins)
     EXPECT_EQ(AssignmentCount(), 0u);
 }
 
+//! What a DrawIndirect of the pass expands into under a view, a draw per bin.
+TEST_F(DrawBinTest, AViewIsDrawnABinAtATimeInIndexOrder)
+{
+    const Pass depth  = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
+    const Pass shadow = AddPass("Shadow", DrawMaskBit<ShadowCasterTag>::Index);
+    Encode(SingleSided, Opaque | Caster, 3);
+    Encode(DoubleSided, Opaque, 4);
+    Frame();
+
+    eastl::vector<DrawBinRange> bins;
+    CollectBinRanges(passes, depth, bins);
+    ASSERT_EQ(bins.size(), 2u);
+    for (uint32_t index = 0; index < bins.size(); ++index)
+    {
+        const PipelineKey key = Entry(depth, SingleSided).m_index == index ? SingleSided : DoubleSided;
+        const DrawBinRange& range = RangeOf(depth, key);
+        EXPECT_EQ(bins[index].m_index, index);
+        EXPECT_EQ(bins[index].m_first, range.m_first);
+        EXPECT_EQ(bins[index].m_capacity, range.m_capacity);
+    }
+
+    // The double-sided bin holds no caster, so the shadow pass does not draw it.
+    bins.clear();
+    CollectBinRanges(passes, shadow, bins);
+    ASSERT_EQ(bins.size(), 1u);
+    EXPECT_EQ(bins[0].m_capacity, 3u);
+    EXPECT_EQ(bins[0].m_index, Entry(shadow, SingleSided).m_index);
+}
+
 TEST_F(DrawBinTest, ShutdownLeavesNothingBehind)
 {
     const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);

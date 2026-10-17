@@ -17,6 +17,7 @@ option(QUEUETRANSFER_TESTS "Queue transfer validation tests" ON)
 option(VIEWREF_TESTS "View ownership by its source's refs tests" ON)
 option(PIPELINEVARIANT_TESTS "Pipeline key and variant interpretation tests" ON)
 option(DRAWBIN_TESTS "Draw bin assignment, layout and projection tests" ON)
+option(INSTANCELISTS_TESTS "Culling and binning list layout tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -45,6 +46,7 @@ ADD_TEST_SOUECE(QUEUETRANSFER_TESTS "QueueTransferTest.cpp")
 ADD_TEST_SOUECE(VIEWREF_TESTS "ViewRefTest.cpp")
 ADD_TEST_SOUECE(PIPELINEVARIANT_TESTS "PipelineVariantTest.cpp")
 ADD_TEST_SOUECE(DRAWBIN_TESTS "DrawBinTest.cpp")
+ADD_TEST_SOUECE(INSTANCELISTS_TESTS "InstanceListsTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

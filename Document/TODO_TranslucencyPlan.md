@@ -19,7 +19,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 1-0 | 变体的解释（D13）：管线键、变体、解释函数、"pass 默认描述 + 变体 → PSO 描述" | — | ✅ 完成 |
-| 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证（1a-1、1a-2、1b 三个小步） | 1-0（PSO 先同步建，D11 不挡） | 进行中（1a-1 完成） |
+| 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证（1a-1、1a-2、1b 三个小步） | 1-0（PSO 先同步建，D11 不挡） | 进行中（1a-1、1a-2 完成） |
 | 2 | pass 的 layout 以声明为准 + shader 宏排列 | — | 未开始 |
 | 3 | Masked | 1、2 | 未开始 |
 | 4 | 参数由 CPU 生成的间接绘制（通用机制） | 1 | 未开始 |
@@ -442,7 +442,7 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
     清零、视锥测试、"一个视图都没有时也写一次"、取整照旧；可见列表不打 `IndirectArgumentsOf` 标记。
   - 从 `BuildDrawList` 抽出一个函数，按视图类型给出"参与的视图（句柄、`g_Views` 下标）、`viewCapacity`、`maxPerView`"，两段都调它，
     D3 的视图布局先不另做机制。
-  - 第二段：`InstanceBinning.hlsl` 与每个绘制 pass 的 `<Pass>InstanceBinning`（由绘制 pass 的 `SetUp` 用一个辅助函数注册）：按名字找到绘制 pass，
+  - 第二段：`InstanceBinning.hlsl` 与每个绘制 pass 的 `<Pass>InstanceBinning`（同剔除 pass，在 `InstanceBinningPass::SetUp` 里逐个显式写出，不自动生成）：按 `PassTag` 找到绘制 pass，
     读它的 `PassBinLayout`、导入它的 `PassBinTable`，建参数 buffer（`viewCapacity × viewStride` 条）与 count buffer（`viewCapacity × binCount` 个）；
     一个清零 Scope，再每个视图一个 Scope，标出视图起点（参数 k × `viewStride` × 20 字节，count k × `binCount` × 4 字节），线程数 `maxPerView`。
     写 draw 记录的几行从剔除 shader 挪过来。`.Binds<InstanceBindingTag, GeometryBindingTag>()`。

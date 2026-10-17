@@ -190,14 +190,12 @@ namespace Spark::Render
                 passCtx.Get<PassBinTable>(assignment.m_pass).m_entries[key] = DrawBinTableEntry{ range.m_index, range.m_first };
             }
 
-            // Until the buffer materializes there is nothing to copy into.
+            // Also on the frame the buffer is requested: the frame's start makes it, then copies
+            // into it, so a binning pass never reads a table not written.
             for (auto [pass, table] : passCtx.GetView<PassBinTable>().each())
             {
-                if (rhiCtx.Has<RHI::Components::BufferPerFrame>(table.m_buffer))
-                {
-                    rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
-                        table.m_buffer, RHI::PendingBufferMap{ table.m_entries.data(), 0, sizeof(table.m_entries) });
-                }
+                rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
+                    table.m_buffer, RHI::PendingBufferMap{ table.m_entries.data(), 0, sizeof(table.m_entries) });
             }
         }
     }
@@ -238,6 +236,20 @@ namespace Spark::Render
             }
             rhiCtx.AddOrReplace<KeyInstanceCount>(entity, counts[value]);
         }
+    }
+
+    void CollectBinRanges(const PassContext& passCtx, Pass pass, eastl::vector<DrawBinRange>& out)
+    {
+        const size_t begin = out.size();
+        for (auto [bin, of, range] : passCtx.GetView<DrawBinOf, DrawBinRange>().each())
+        {
+            if (of.m_pass == pass && range.m_capacity > 0)
+            {
+                out.push_back(range);
+            }
+        }
+        eastl::sort(out.begin() + begin, out.end(),
+            [](const DrawBinRange& a, const DrawBinRange& b) { return a.m_index < b.m_index; });
     }
 
     void DrawBinSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx)

@@ -23,6 +23,8 @@ set(SOURCES
     Feature/AmbientOcclusion/AmbientOcclusionPass.cpp
     Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.cpp
     Feature/InstanceCulling/InstanceCullingPass.cpp
+    Feature/InstanceBinning/InstanceBinningPass.cpp
+    Feature/InstanceLists/InstanceLists.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
     PipelineState/PipelineVariantInterpret.cpp

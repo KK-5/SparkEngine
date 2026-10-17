@@ -1,0 +1,84 @@
+#pragma once
+
+#include <Base.h>
+
+#include <EASTL/fixed_vector.h>
+
+#include <RHI/Attachment/AttachmentEnums.h>
+#include <RHI/Context/RHIContext.h>
+
+#include <Pass/PassCapabilities.h>
+
+//! The buffers the scene is drawn by, from culling to the indirect draws: their names and how
+//! they are laid out, defined once here so no pass reaches into another to learn them.
+//!
+//! InstanceCullingPass writes, per kind of object, the instances each view sees. An
+//! InstanceBinning pass per drawing pass sorts them into that pass's DrawBins, and the drawing
+//! pass's DrawIndirect reads what it wrote a bin at a time.
+namespace Spark::Render::InstanceLists
+{
+    //! A view a list is culled for: the view and its row of g_Views.
+    struct CulledView
+    {
+        RHI::RHIHandle m_view      = RHI::NullHandle;
+        uint32_t       m_viewIndex = 0;
+    };
+
+    //! How a list's visible instances are laid out for a set of views. The culling pass that
+    //! writes them and each binning pass that reads them work it out alike, so the two agree on
+    //! which view is the k-th and where its part starts.
+    struct CullingLayout
+    {
+        eastl::fixed_vector<CulledView, 16> m_views;   // in order; view k's part starts at k * m_maxPerView
+        uint32_t m_slotCount    = 0;   // slots of g_Instances to go through, holes included
+        uint32_t m_viewCapacity = 0;   // views the buffers have room for, at least one
+        uint32_t m_maxPerView   = 0;   // entries in each view's part of the visible list
+    };
+
+    //! The layout for `views`. A view with no row in g_Views yet is left out: it has nothing
+    //! to be tested against, and nothing is drawn under it this frame either. The capacities
+    //! are rounded up a step at a time, so the buffers keep their size while views and
+    //! instances come and go.
+    CullingLayout LayOutCulling(RHI::RHIContext& rhiContext, const ViewHandleList& views);
+
+    // The visible lists, written by InstanceCullingPass. VisibleInstances holds the g_Instances
+    // slots each view sees, packed from the start of the view's part; VisibleCount a uint32 per
+    // view, how many entries its part holds this frame.
+
+    //! The opaque instances, for the main views.
+    namespace Opaque
+    {
+        const RHI::AttachmentId& VisibleInstancesName();
+        const RHI::AttachmentId& VisibleCountName();
+    }
+
+    //! The shadow casters, for the shadow views.
+    namespace ShadowCaster
+    {
+        const RHI::AttachmentId& VisibleInstancesName();
+        const RHI::AttachmentId& VisibleCountName();
+    }
+
+    // A drawing pass's bins, written by its InstanceBinning pass. DrawArguments holds
+    // DrawIndexedIndirectCommand records, PassBinLayout::m_viewStride of them per view; DrawCount
+    // a uint32 per bin and view, PassBinLayout::m_binCount of them per view. Both are marked as
+    // each view's (.IndirectArgumentsOf).
+
+    namespace DepthPre
+    {
+        const RHI::AttachmentId& DrawArgumentsName();
+        const RHI::AttachmentId& DrawCountName();
+    }
+
+    namespace GBuffer
+    {
+        const RHI::AttachmentId& DrawArgumentsName();
+        const RHI::AttachmentId& DrawCountName();
+    }
+
+    namespace Shadow
+    {
+        const RHI::AttachmentId& DrawArgumentsName();
+        const RHI::AttachmentId& DrawCountName();
+    }
+}

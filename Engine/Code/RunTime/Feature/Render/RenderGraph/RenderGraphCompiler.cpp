@@ -35,6 +35,7 @@
 #include <Pass/Component/ScopeComponents.h>
 #include <Pass/PassCapabilities.h>
 #include <PipelineState/PipelineStateBuild.h>
+#include <DrawBin/DrawBinSystem.h>
 #include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
 #include <View/ViewComponents.h>
@@ -1445,22 +1446,26 @@ namespace Spark::Render
 
     namespace
     {
-        //! What to submit for `item` under `view`: the item itself, unless it is an indirect
-        //! draw of buffers that hold their arguments per view. That one gets an item of its own
-        //! for the view, reading the view's part of both; NullHandle when `view` has none.
-        RHIHandle ResolveItemForView(RHIHandle item, RHIHandle view, RHIContext& context)
+        //! Appends what to submit for `item` of `pass` under `view`: the item itself, unless it
+        //! is an indirect draw of buffers that hold their arguments per view. That one gets an
+        //! item of its own for the view, reading the view's part of both, or one per DrawBin
+        //! when the pass draws a list; none when `view` has no part.
+        void AppendItemForView(RHIHandle item, RHIHandle view, Pass pass,
+            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
             const auto* indirect = context.TryGet<ItemIndirectArguments>(item);
             if (view == NullHandle || indirect == nullptr || !context.Has<RHI::DrawItem>(item))
             {
-                return item;
+                submitList.push_back(item);
+                return;
             }
 
             const auto& arguments = context.Get<BufferPassAttachment>(indirect->m_attachment);
             const auto& count     = context.Get<BufferPassAttachment>(indirect->m_countAttachment);
             if (!HoldsIndirectArgumentsPerView(context, arguments.m_buffer))
             {
-                return item;
+                submitList.push_back(item);
+                return;
             }
 
             uint64_t argumentsByteOffset = 0;
@@ -1474,32 +1479,59 @@ namespace Spark::Render
                 arguments.m_attachmentId.m_id.GetCStr(), count.m_attachmentId.m_id.GetCStr());
             if (!hasPart)
             {
-                return NullHandle;
+                return;
             }
 
-            RHI::DrawItem draw = context.Get<RHI::DrawItem>(item);
-            RHI::IndirectArguments& drawArguments = draw.m_drawArguments.m_indexedIndirect.m_arguments;
-            drawArguments.m_byteOffset      = argumentsByteOffset;
-            drawArguments.m_countByteOffset = countByteOffset;
-            drawArguments.m_maxCount        = IndirectRecordCapacity(*drawArguments.m_buffer, argumentsByteOffset);
+            const RHI::DrawItem& source = context.Get<RHI::DrawItem>(item);
+            auto appendDraw = [&](uint64_t byteOffset, uint64_t countByteOffset, uint32_t maxCount)
+            {
+                RHI::DrawItem draw = source;
+                RHI::IndirectArguments& drawArguments = draw.m_drawArguments.m_indexedIndirect.m_arguments;
+                ASSERT(maxCount <= IndirectRecordCapacity(*drawArguments.m_buffer, byteOffset),
+                    "[RenderGraphCompiler] A draw of {} reads {} records past what the buffer holds.",
+                    arguments.m_attachmentId.m_id.GetCStr(), maxCount);
+                drawArguments.m_byteOffset      = byteOffset;
+                drawArguments.m_countByteOffset = countByteOffset;
+                drawArguments.m_maxCount        = maxCount;
 
-            const RHIHandle perView = context.CreateEntity();
-            context.Add<RHI::DrawItem>(perView, draw);
-            context.Add<PerViewItemTag>(perView);
-            return perView;
+                const RHIHandle perView = context.CreateEntity();
+                context.Add<RHI::DrawItem>(perView, draw);
+                context.Add<PerViewItemTag>(perView);
+                submitList.push_back(perView);
+            };
+
+            // A pass drawing a list draws the view's part a DrawBin at a time: from the bin's first
+            // record, with the bin's count, which a count buffer holds as a uint32 each.
+            if (passContext.Has<PassDrawList>(pass))
+            {
+                ASSERT(source.m_drawArguments.m_type == RHI::DrawType::IndexedIndirect,
+                    "[RenderGraphCompiler] Pass {} draws its bins with a draw that is not an indexed indirect one.",
+                    passContext.Get<PassName>(pass).m_name.GetCStr());
+                constexpr uint64_t RecordSize = sizeof(RHI::DrawIndexedIndirectCommand);
+
+                eastl::vector<DrawBinRange> bins;
+                CollectBinRanges(passContext, pass, bins);
+                for (const DrawBinRange& bin : bins)
+                {
+                    appendDraw(argumentsByteOffset + bin.m_first * RecordSize,
+                               countByteOffset + bin.m_index * sizeof(uint32_t),
+                               bin.m_capacity);
+                }
+                return;
+            }
+
+            appendDraw(argumentsByteOffset, countByteOffset,
+                IndirectRecordCapacity(*source.m_drawArguments.m_indexedIndirect.m_arguments.m_buffer, argumentsByteOffset));
         }
 
         //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those it
         //! selects.
-        void AppendItems(RHIHandle scope, RHIHandle view, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+        void AppendItems(RHIHandle scope, RHIHandle view, Pass pass,
+            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
         {
             for (RHIHandle item : GetScopeItems(context, scope))
             {
-                const RHIHandle resolved = ResolveItemForView(item, view, context);
-                if (resolved != NullHandle)
-                {
-                    submitList.push_back(resolved);
-                }
+                AppendItemForView(item, view, pass, passContext, context, submitList);
             }
             if (const auto* selections = context.TryGet<ScopeSelections>(scope))
             {
@@ -1518,7 +1550,7 @@ namespace Spark::Render
             const bool isRenderPass = passContext.Has<RenderPassTag>(pass);
             if (!isRenderPass)
             {
-                AppendItems(scope, NullHandle, context, submitList);
+                AppendItems(scope, NullHandle, pass, passContext, context, submitList);
                 return;
             }
 
@@ -1571,7 +1603,7 @@ namespace Spark::Render
                     viewData.m_bufferSize.x, viewData.m_bufferSize.y);
 
                 submitList.push_back(view);
-                AppendItems(scope, view, context, submitList);
+                AppendItems(scope, view, pass, passContext, context, submitList);
             }
         }
     }

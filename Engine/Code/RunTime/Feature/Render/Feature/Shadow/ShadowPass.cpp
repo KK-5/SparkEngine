@@ -9,7 +9,7 @@
 #include <Pass/PassContext.h>
 #include <Pass/RenderPass.h>
 
-#include <Feature/InstanceCulling/InstanceCullingPass.h>
+#include <Feature/InstanceLists/InstanceLists.h>
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 #include <Binding/Instance/InstanceBinding.h>
@@ -108,8 +108,8 @@ namespace Spark::Render
                 auto s = p.Scope();
                 s.DepthWrite(RHI::AttachmentId("ShadowAtlas"), clear);
                 s.DrawIndirect(
-                    InstanceCullingPass::ShadowCasterDrawArgumentsName(),
-                    InstanceCullingPass::ShadowCasterDrawCountName());
+                    InstanceLists::Shadow::DrawArgumentsName(),
+                    InstanceLists::Shadow::DrawCountName());
                 s.Close();
             })
             .Finalize();

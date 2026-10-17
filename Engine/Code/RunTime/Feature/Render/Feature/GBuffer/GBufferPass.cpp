@@ -11,7 +11,7 @@
 #include <Pass/PassTag.h>
 #include <Pass/RenderPass.h>
 
-#include <Feature/InstanceCulling/InstanceCullingPass.h>
+#include <Feature/InstanceLists/InstanceLists.h>
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
@@ -155,7 +155,7 @@ namespace Spark::Render
                     RHI::SamplerState::CreateAnisotropic(16, RHI::AddressMode::Wrap));
 
                 s.DrawIndirect(
-                    InstanceCullingPass::OpaqueDrawArgumentsName(), InstanceCullingPass::OpaqueDrawCountName());
+                    InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName());
                 s.Close();
             })
             .Finalize()

@@ -9,7 +9,7 @@
 #include <Pass/PassContext.h>
 #include <Pass/RenderPass.h>
 
-#include <Feature/InstanceCulling/InstanceCullingPass.h>
+#include <Feature/InstanceLists/InstanceLists.h>
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 #include <Binding/Instance/InstanceBinding.h>
@@ -102,7 +102,7 @@ namespace Spark::Render
                 auto s = p.Scope();
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), clear);
                 s.DrawIndirect(
-                    InstanceCullingPass::OpaqueDrawArgumentsName(), InstanceCullingPass::OpaqueDrawCountName());
+                    InstanceLists::DepthPre::DrawArgumentsName(), InstanceLists::DepthPre::DrawCountName());
                 s.Close();
             })
             .Finalize();

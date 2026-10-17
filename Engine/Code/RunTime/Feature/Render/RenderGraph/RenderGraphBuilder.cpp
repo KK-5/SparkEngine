@@ -421,6 +421,22 @@ namespace Spark::Render
                 rhiContext.Add<BackingBuffer>(resource, BackingBuffer{ buf->m_buffer.get() });
             }
         }
+        // A per-frame resource imported for the first time: RefreshPerFrameBackings ran before
+        // Build and skipped it, not yet imported. This frame's copy, as it takes from now on.
+        else if (auto* images = rhiContext.TryGet<ImagePerFrame>(resource))
+        {
+            if (!rhiContext.Has<BackingImage>(resource))
+            {
+                rhiContext.Add<BackingImage>(resource, BackingImage{ images->m_images[m_frameIndex].get() });
+            }
+        }
+        else if (auto* buffers = rhiContext.TryGet<BufferPerFrame>(resource))
+        {
+            if (!rhiContext.Has<BackingBuffer>(resource))
+            {
+                rhiContext.Add<BackingBuffer>(resource, BackingBuffer{ buffers->m_buffers[m_frameIndex].get() });
+            }
+        }
 
         if constexpr (s_buildValidation)
         {

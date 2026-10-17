@@ -26,6 +26,7 @@
 #include <Feature/GBuffer/GBufferPass.h>
 #include <Feature/HZB/HZBPass.h>
 #include <Feature/InstanceCulling/InstanceCullingPass.h>
+#include <Feature/InstanceBinning/InstanceBinningPass.h>
 #include <Feature/AmbientOcclusion/AmbientOcclusionPass.h>
 #include <Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.h>
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
@@ -165,8 +166,10 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
-        // First: the lists the passes below draw the scene by. Nothing reads them yet.
+        // First: what each view sees, then each drawing pass's bins of it, which the passes
+        // below draw the scene by.
         InstanceCullingPass::SetUp(passContext);
+        InstanceBinningPass::SetUp(passContext);
 
         auto shadowPassCfg = ShadowPass::DefaultConfig();
         ShadowPass::SetUp(passContext, shadowPassCfg);
