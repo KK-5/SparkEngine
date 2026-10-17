@@ -20,10 +20,13 @@ namespace
             InstanceLists::Opaque::VisibleCountName(),
             InstanceLists::ShadowCaster::VisibleInstancesName(),
             InstanceLists::ShadowCaster::VisibleCountName(),
+            InstanceLists::DepthPre::BinTableName(),
             InstanceLists::DepthPre::DrawArgumentsName(),
             InstanceLists::DepthPre::DrawCountName(),
+            InstanceLists::GBuffer::BinTableName(),
             InstanceLists::GBuffer::DrawArgumentsName(),
             InstanceLists::GBuffer::DrawCountName(),
+            InstanceLists::Shadow::BinTableName(),
             InstanceLists::Shadow::DrawArgumentsName(),
             InstanceLists::Shadow::DrawCountName(),
         };

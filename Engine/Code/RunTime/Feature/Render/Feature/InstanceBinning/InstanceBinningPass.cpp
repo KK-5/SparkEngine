@@ -42,12 +42,13 @@ namespace Spark::Render
         };
 
         //! The Build of a binning pass: drawPass's bins of the instances `views` see, in the two
-        //! buffers named.
+        //! buffers named, its bin table imported under binTableName.
         void BuildBins(
             ComputePassScopes& p,
             Pass drawPass,
             const ViewHandleList& views,
             const VisibleList& visible,
+            const RHI::AttachmentId& binTableName,
             const RHI::AttachmentId& argumentsName,
             const RHI::AttachmentId& countName)
         {
@@ -60,12 +61,11 @@ namespace Spark::Render
 
             const PassBinLayout& binLayout = passContext.Get<PassBinLayout>(drawPass);
             const PassBinTable&  binTable  = passContext.Get<PassBinTable>(drawPass);
-            const char*          passName  = passContext.Get<PassName>(drawPass).m_name.GetCStr();
 
             // DrawBinSystem made it before this frame began, so it was created at the frame's start.
             ASSERT(rhiContext.Has<RHI::Components::BufferPerFrame>(binTable.m_buffer),
-                "[InstanceBinningPass] {}'s bin table has no buffer.", passName);
-            const RHI::AttachmentId binTableName(eastl::string(passName) + "BinTable");
+                "[InstanceBinningPass] {}'s bin table has no buffer.",
+                passContext.Get<PassName>(drawPass).m_name.GetCStr());
             p.Import(binTableName, binTable.m_buffer);
 
             const uint32_t recordCount = culling.m_viewCapacity * binLayout.m_viewStride;
@@ -196,6 +196,7 @@ namespace Spark::Render
                 CollectViews<MainViewTag>(*RHI::RHIExecuteContext::Current(), views);
                 BuildBins(p, FindPass<SPARK_PASS_TAG("DepthPrePass")>(), views,
                     VisibleList{ InstanceLists::Opaque::VisibleInstancesName(), InstanceLists::Opaque::VisibleCountName() },
+                    InstanceLists::DepthPre::BinTableName(),
                     InstanceLists::DepthPre::DrawArgumentsName(), InstanceLists::DepthPre::DrawCountName());
             })
             .Finalize();
@@ -210,6 +211,7 @@ namespace Spark::Render
                 CollectViews<MainViewTag>(*RHI::RHIExecuteContext::Current(), views);
                 BuildBins(p, FindPass<SPARK_PASS_TAG("GBufferPass")>(), views,
                     VisibleList{ InstanceLists::Opaque::VisibleInstancesName(), InstanceLists::Opaque::VisibleCountName() },
+                    InstanceLists::GBuffer::BinTableName(),
                     InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName());
             })
             .Finalize();
@@ -225,6 +227,7 @@ namespace Spark::Render
                 BuildBins(p, FindPass<SPARK_PASS_TAG("ShadowPass")>(), views,
                     VisibleList{ InstanceLists::ShadowCaster::VisibleInstancesName(),
                                  InstanceLists::ShadowCaster::VisibleCountName() },
+                    InstanceLists::Shadow::BinTableName(),
                     InstanceLists::Shadow::DrawArgumentsName(), InstanceLists::Shadow::DrawCountName());
             })
             .Finalize();

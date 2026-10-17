@@ -59,25 +59,28 @@ namespace Spark::Render::InstanceLists
         const RHI::AttachmentId& VisibleCountName();
     }
 
-    // A drawing pass's bins, written by its InstanceBinning pass. DrawArguments holds
-    // DrawIndexedIndirectCommand records, PassBinLayout::m_viewStride of them per view; DrawCount
-    // a uint32 per bin and view, PassBinLayout::m_binCount of them per view. Both are marked as
-    // each view's (.IndirectArgumentsOf).
+    // A drawing pass's bins. BinTable is the pass's PassBinTable, which its InstanceBinning pass
+    // imports. DrawArguments and DrawCount are what that pass writes: DrawIndexedIndirectCommand
+    // records, PassBinLayout::m_viewStride of them per view, and a uint32 per bin and view,
+    // PassBinLayout::m_binCount of them per view, both marked as each view's (.IndirectArgumentsOf).
 
     namespace DepthPre
     {
+        const RHI::AttachmentId& BinTableName();
         const RHI::AttachmentId& DrawArgumentsName();
         const RHI::AttachmentId& DrawCountName();
     }
 
     namespace GBuffer
     {
+        const RHI::AttachmentId& BinTableName();
         const RHI::AttachmentId& DrawArgumentsName();
         const RHI::AttachmentId& DrawCountName();
     }
 
     namespace Shadow
     {
+        const RHI::AttachmentId& BinTableName();
         const RHI::AttachmentId& DrawArgumentsName();
         const RHI::AttachmentId& DrawCountName();
     }
