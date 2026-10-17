@@ -93,7 +93,8 @@ VertexFactoryInterpolantsVSToPS VertexFactoryGetInterpolantsVSToPS(
     return interpolants;
 }
 
-MaterialPixelParameters GetMaterialPixelParameters(VertexFactoryInterpolantsVSToPS interpolants, float4 svPosition)
+MaterialPixelParameters GetMaterialPixelParameters(
+    VertexFactoryInterpolantsVSToPS interpolants, float4 svPosition, bool isFrontFace)
 {
     MaterialPixelParameters parameters;
     parameters.SvPosition        = svPosition;
@@ -101,6 +102,7 @@ MaterialPixelParameters GetMaterialPixelParameters(VertexFactoryInterpolantsVSTo
     parameters.WorldTangent      = interpolants.WorldTangent;
     parameters.TexCoord0         = interpolants.TexCoord0;
     parameters.MaterialIndex     = interpolants.MaterialIndex;
+    parameters.TwoSidedSign      = isFrontFace ? 1.0 : -1.0;
     parameters.WorldNormal       = parameters.WorldVertexNormal;
     return parameters;
 }

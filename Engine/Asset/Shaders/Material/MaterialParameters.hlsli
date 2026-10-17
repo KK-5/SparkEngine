@@ -16,6 +16,7 @@ struct MaterialPixelParameters
     float4 WorldTangent;        // xyz interpolated, w = handedness
     float2 TexCoord0;
     uint   MaterialIndex;
+    float  TwoSidedSign;        // 1 on a front face, -1 on a back face, which only a double-sided surface shows
 
     float3 WorldNormal;         // resolved by CalcMaterialParameters
 };

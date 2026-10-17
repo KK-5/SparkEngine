@@ -19,7 +19,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 1-0 | 变体的解释（D13）：管线键、变体、解释函数、"pass 默认描述 + 变体 → PSO 描述" | — | ✅ 完成 |
-| 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证（1a-1、1a-2、1b 三个小步） | 1-0（PSO 先同步建，D11 不挡） | 进行中（1a-1、1a-2 完成） |
+| 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证（1a-1、1a-2、1b 三个小步） | 1-0（PSO 先同步建，D11 不挡） | ✅ 完成 |
 | 2 | pass 的 layout 以声明为准 + shader 宏排列 | — | 未开始 |
 | 3 | Masked | 1、2 | 未开始 |
 | 4 | 参数由 CPU 生成的间接绘制（通用机制） | 1 | 未开始 |
@@ -112,9 +112,10 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
   `SetPipelineState`。Scope 开头仍设 pass 的默认 PSO。
 - 不透明一个桶一个 item，半透明一段一个 item：同一套机制，后者是"每段一个物体"时退化成逐物体切换。
 
-**要查的**：layout 相同时换 PSO，DX12 后端是否保留已绑的资源与 root constant（执行器在视图之间写的 `viewIndex`）。
-按原生语义两边都保留（DX12 root signature 不变则 root 参数不失效，Vulkan 兼容 layout 下 descriptor set 不失效），
-后端实现可能把绑定标脏。
+**换 PSO 后的绑定**（1b 查过）：按原生语义 layout 相同时两边都保留（DX12 root signature 不变则 root 参数不失效，Vulkan 兼容
+layout 下 descriptor set 不失效）；但 DX12 后端每个 PSO 自建一个 `PipelineLayout`，换 PSO 时重设 root signature、清掉已绑定的 SRG。
+执行器在每次切换后重新写出 pass 的绑定、Scope 的 root constant 与当前视图的 `viewIndex`；后端以后按描述合并相同的 layout，
+这些重绑定就成了空操作。
 
 ### D3　两段式：可见性每个视图算一次，各 pass 再按自己的桶分　✅ 已定方向
 

@@ -14,7 +14,11 @@
 #include <RHI/ResourceBuilder.h>
 
 #include <Pass/Component/PassComponents.h>
+#include <PipelineState/PipelineStateBuild.h>
 #include <PipelineState/PipelineVariantInterpret.h>
+
+#include <RHI/Factory.h>
+#include <RHI/Device/Device.h>
 
 namespace Spark::Render
 {
@@ -238,18 +242,20 @@ namespace Spark::Render
         }
     }
 
-    void CollectBinRanges(const PassContext& passCtx, Pass pass, eastl::vector<DrawBinRange>& out)
+    void CollectDrawnBins(const PassContext& passCtx, Pass pass, eastl::vector<DrawBinHandle>& out)
     {
         const size_t begin = out.size();
         for (auto [bin, of, range] : passCtx.GetView<DrawBinOf, DrawBinRange>().each())
         {
             if (of.m_pass == pass && range.m_capacity > 0)
             {
-                out.push_back(range);
+                out.push_back(bin);
             }
         }
-        eastl::sort(out.begin() + begin, out.end(),
-            [](const DrawBinRange& a, const DrawBinRange& b) { return a.m_index < b.m_index; });
+        eastl::sort(out.begin() + begin, out.end(), [&](DrawBinHandle a, DrawBinHandle b)
+        {
+            return passCtx.Get<DrawBinRange>(a).m_index < passCtx.Get<DrawBinRange>(b).m_index;
+        });
     }
 
     void DrawBinSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx)
@@ -257,6 +263,30 @@ namespace Spark::Render
         Assign(rhiCtx, passCtx);
         Layout(rhiCtx, passCtx);
         WriteBinTables(rhiCtx, passCtx);
+    }
+
+    void DrawBinSystem::BuildPipelines(PassContext& passCtx, RHI::Factory& factory, RHI::Device& device)
+    {
+        eastl::vector<DrawBinHandle> newBins;
+        for (auto [bin, of, variant] : passCtx.GetView<DrawBinOf, PipelineVariant>(Exclude<DrawBinPipeline>).each())
+        {
+            newBins.push_back(bin);
+        }
+
+        for (DrawBinHandle bin : newBins)
+        {
+            const Pass  pass     = passCtx.Get<DrawBinOf>(bin).m_pass;
+            const char* passName = passCtx.Get<PassName>(pass).m_name.GetCStr();
+
+            const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
+                factory, passCtx.Get<PassShaders>(pass), passCtx.Get<PassPipelineState>(pass),
+                passCtx.Get<PassPipelineLayout>(pass), passCtx.Get<PipelineVariant>(bin), passName);
+
+            Ptr<RHI::PipelineState> pso = factory.CreatePipelineState();
+            const RHI::ResultCode result = pso->Init(device, descriptor, nullptr);
+            ASSERT(result == RHI::ResultCode::Success, "[DrawBinSystem] Failed to create a bin's PSO for pass '{}'.", passName);
+            passCtx.Add<DrawBinPipeline>(bin, DrawBinPipeline{ eastl::move(pso) });
+        }
     }
 
     void DrawBinSystem::Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx)

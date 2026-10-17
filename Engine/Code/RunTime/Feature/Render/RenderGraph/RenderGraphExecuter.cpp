@@ -359,6 +359,31 @@ namespace Spark::Render
             && rootConstants->m_viewIndexOffset != ScopeRootConstants::NoViewIndex;
         commandList->SetSubmitRange({ range.m_begin, range.m_end });
 
+        // The PSO the list has, and the view index the Scope's root constants carry. An item of
+        // a DrawBin draws with its bin's PSO, any other with the Scope's. After a switch the
+        // bindings and root constants are written out again: whether they survived it is the
+        // backend's business.
+        const RHI::PipelineState* currentPso = state.m_pso;
+        uint32_t                  viewIndex  = 0;
+        auto switchPipelineState = [&](const RHI::PipelineState& pso)
+        {
+            commandList->SetPipelineState(pso);
+            for (uint8_t b = 0; b < state.m_bindingCount; ++b)
+            {
+                BindShaderInputs(commandList, pso, *state.m_bindings[b]);
+            }
+            if (rootConstants)
+            {
+                commandList->SetRootConstants(rootConstants->m_bytes.data(), rootConstants->m_byteCount, 0);
+            }
+            if (writesView)
+            {
+                commandList->SetRootConstants(
+                    reinterpret_cast<const uint8_t*>(&viewIndex), sizeof(viewIndex), rootConstants->m_viewIndexOffset);
+            }
+            currentPso = &pso;
+        };
+
         ExecuteWork work;
         work.m_commandList = commandList;
         work.m_scopeIndex  = rhiContext.Get<Scope>(scope).m_index;
@@ -373,6 +398,12 @@ namespace Spark::Render
             }
             for (uint32_t i = begin; i < end; ++i)
             {
+                const auto* itemPso = rhiContext.TryGet<ItemPipelineState>(m_submitList[i]);
+                const RHI::PipelineState* pso = itemPso ? itemPso->m_pso : state.m_pso;
+                if (pso && pso != currentPso)
+                {
+                    switchPipelineState(*pso);
+                }
                 SubmitItem(commandList, rhiContext, m_submitList[i], i);
             }
         };
@@ -404,7 +435,7 @@ namespace Spark::Render
             // Lowering kept only views with a slot when the shader reads one.
             if (writesView)
             {
-                const uint32_t viewIndex = rhiContext.Get<ViewSlotRef>(handle).Get();
+                viewIndex = rhiContext.Get<ViewSlotRef>(handle).Get();
                 commandList->SetRootConstants(
                     reinterpret_cast<const uint8_t*>(&viewIndex), sizeof(viewIndex), rootConstants->m_viewIndexOffset);
             }

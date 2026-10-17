@@ -299,24 +299,22 @@ TEST_F(DrawBinTest, AViewIsDrawnABinAtATimeInIndexOrder)
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    eastl::vector<DrawBinRange> bins;
-    CollectBinRanges(passes, depth, bins);
+    eastl::vector<DrawBinHandle> bins;
+    CollectDrawnBins(passes, depth, bins);
     ASSERT_EQ(bins.size(), 2u);
     for (uint32_t index = 0; index < bins.size(); ++index)
     {
-        const PipelineKey key = Entry(depth, SingleSided).m_index == index ? SingleSided : DoubleSided;
-        const DrawBinRange& range = RangeOf(depth, key);
-        EXPECT_EQ(bins[index].m_index, index);
-        EXPECT_EQ(bins[index].m_first, range.m_first);
-        EXPECT_EQ(bins[index].m_capacity, range.m_capacity);
+        const DrawBinRange& range = passes.Get<DrawBinRange>(bins[index]);
+        EXPECT_EQ(range.m_index, index);
+        EXPECT_EQ(passes.Get<DrawBinOf>(bins[index]).m_pass, depth);
     }
 
     // The double-sided bin holds no caster, so the shadow pass does not draw it.
     bins.clear();
-    CollectBinRanges(passes, shadow, bins);
+    CollectDrawnBins(passes, shadow, bins);
     ASSERT_EQ(bins.size(), 1u);
-    EXPECT_EQ(bins[0].m_capacity, 3u);
-    EXPECT_EQ(bins[0].m_index, Entry(shadow, SingleSided).m_index);
+    EXPECT_EQ(passes.Get<DrawBinRange>(bins[0]).m_capacity, 3u);
+    EXPECT_EQ(passes.Get<DrawBinRange>(bins[0]).m_index, Entry(shadow, SingleSided).m_index);
 }
 
 TEST_F(DrawBinTest, ShutdownLeavesNothingBehind)

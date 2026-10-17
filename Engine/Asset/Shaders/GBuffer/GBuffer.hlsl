@@ -71,9 +71,10 @@ PSOutput EncodeGBuffer(MaterialPixelParameters parameters, PixelMaterialInputs i
     return output;
 }
 
-PSOutput PSMain(VSOutput input)
+PSOutput PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace)
 {
-    MaterialPixelParameters parameters = GetMaterialPixelParameters(input.Interpolants, input.Position);
+    // A single-sided surface's back is culled, so only a double-sided one reaches here back-facing.
+    MaterialPixelParameters parameters = GetMaterialPixelParameters(input.Interpolants, input.Position, isFrontFace);
 
     PixelMaterialInputs inputs;
     CalcMaterialParameters(parameters, inputs, g_MatSampler);

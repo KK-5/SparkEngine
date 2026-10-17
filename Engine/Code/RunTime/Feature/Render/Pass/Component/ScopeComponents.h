@@ -118,6 +118,13 @@ namespace Spark::Render
     //! for the frame.
     struct PerViewItemTag {};
 
+    //! On such an item drawing one DrawBin: the bin's PSO, which the executer switches to for it.
+    //! The bin owns it, and outlives the frame.
+    struct ItemPipelineState
+    {
+        const RHI::PipelineState* m_pso = nullptr;
+    };
+
     //! On a Scope that selects sets of scene items (.Accepts): per set, the query that appends
     //! its members under `view`. The items are persistent and carry no link to the Scope.
     struct ScopeSelections

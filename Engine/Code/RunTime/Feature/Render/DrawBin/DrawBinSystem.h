@@ -5,6 +5,12 @@
 
 #include <RHI/Context/RHIContext.h>
 
+namespace Spark::RHI
+{
+    class Device;
+    class Factory;
+}
+
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassDrawListComponents.h>
 
@@ -21,9 +27,9 @@ namespace Spark::Render
     //! Writes counts onto the keys' entities, making one for a key counted the first time.
     void PublishKeyInstanceCounts(RHI::RHIContext& rhiCtx, const KeyInstanceCounts& counts);
 
-    //! The ranges of pass's bins a view is drawn by, a draw each: in index order, an empty bin
-    //! left out. In records and counts; what a record is, and so its size, is the draw's.
-    void CollectBinRanges(const PassContext& passCtx, Pass pass, eastl::vector<DrawBinRange>& out);
+    //! The bins of pass a view is drawn by, a draw each: in index order, an empty bin left out.
+    //! Their DrawBinRange is in records and counts; what a record is, and so its size, is the draw's.
+    void CollectDrawnBins(const PassContext& passCtx, Pass pass, eastl::vector<DrawBinHandle>& out);
 
     //! Keeps every pass's DrawBins from the keys the instance encoding published: assigns a
     //! new key or a new pass, lays out each bin's capacity and first record, and writes
@@ -35,6 +41,8 @@ namespace Spark::Render
     {
     public:
         void Update(RHI::RHIContext& rhiCtx, PassContext& passCtx);
+        //! Gives each bin that has none its DrawBinPipeline. After Update, which makes the bins.
+        void BuildPipelines(PassContext& passCtx, RHI::Factory& factory, RHI::Device& device);
         //! Also lets the keys go: they are this system's data, though the encoding makes them.
         void Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx);
     };

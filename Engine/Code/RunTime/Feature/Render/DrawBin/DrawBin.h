@@ -5,6 +5,7 @@
 #include <EASTL/array.h>
 
 #include <RHI/Context/RHIContext.h>
+#include <RHI/Pipeline/PipelineState.h>
 
 #include <Drawable/DrawMask.h>
 #include <Pass/Pass.h>
@@ -48,6 +49,13 @@ namespace Spark::Render
         uint32_t m_index    = 0;
         uint32_t m_first    = 0;
         uint32_t m_capacity = 0;
+    };
+
+    //! On a bin's entity: the PSO its instances draw with, its pass's default PSO with the
+    //! bin's variant on it. Built once, when the bin is new.
+    struct DrawBinPipeline
+    {
+        Ptr<RHI::PipelineState> m_pso;
     };
 
     //! On an entity of its own: in pass, instances of key go to bin.

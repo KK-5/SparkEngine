@@ -96,6 +96,9 @@ void CalcMaterialParameters(
     {
         parameters.WorldNormal = inputs.Normal;
     }
+
+    // The back of a double-sided surface faces the other way, bumps and all.
+    parameters.WorldNormal *= parameters.TwoSidedSign;
 }
 
 //! Feed to clip(): negative discards.

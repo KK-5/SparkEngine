@@ -1483,7 +1483,8 @@ namespace Spark::Render
             }
 
             const RHI::DrawItem& source = context.Get<RHI::DrawItem>(item);
-            auto appendDraw = [&](uint64_t byteOffset, uint64_t countByteOffset, uint32_t maxCount)
+            auto appendDraw = [&](uint64_t byteOffset, uint64_t countByteOffset, uint32_t maxCount,
+                                  const RHI::PipelineState* pso)
             {
                 RHI::DrawItem draw = source;
                 RHI::IndirectArguments& drawArguments = draw.m_drawArguments.m_indexedIndirect.m_arguments;
@@ -1497,31 +1498,40 @@ namespace Spark::Render
                 const RHIHandle perView = context.CreateEntity();
                 context.Add<RHI::DrawItem>(perView, draw);
                 context.Add<PerViewItemTag>(perView);
+                if (pso != nullptr)
+                {
+                    context.Add<ItemPipelineState>(perView, ItemPipelineState{ pso });
+                }
                 submitList.push_back(perView);
             };
 
             // A pass drawing a list draws the view's part a DrawBin at a time: from the bin's first
-            // record, with the bin's count, which a count buffer holds as a uint32 each.
+            // record, with the bin's count, which a count buffer holds as a uint32 each, and its PSO.
             if (passContext.Has<PassDrawList>(pass))
             {
+                const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
                 ASSERT(source.m_drawArguments.m_type == RHI::DrawType::IndexedIndirect,
-                    "[RenderGraphCompiler] Pass {} draws its bins with a draw that is not an indexed indirect one.",
-                    passContext.Get<PassName>(pass).m_name.GetCStr());
+                    "[RenderGraphCompiler] Pass {} draws its bins with a draw that is not an indexed indirect one.", passName);
                 constexpr uint64_t RecordSize = sizeof(RHI::DrawIndexedIndirectCommand);
 
-                eastl::vector<DrawBinRange> bins;
-                CollectBinRanges(passContext, pass, bins);
-                for (const DrawBinRange& bin : bins)
+                eastl::vector<DrawBinHandle> bins;
+                CollectDrawnBins(passContext, pass, bins);
+                for (DrawBinHandle bin : bins)
                 {
-                    appendDraw(argumentsByteOffset + bin.m_first * RecordSize,
-                               countByteOffset + bin.m_index * sizeof(uint32_t),
-                               bin.m_capacity);
+                    const DrawBinRange& range    = passContext.Get<DrawBinRange>(bin);
+                    const auto*         pipeline = passContext.TryGet<DrawBinPipeline>(bin);
+                    ASSERT(pipeline && pipeline->m_pso, "[RenderGraphCompiler] A bin of pass {} has no PSO.", passName);
+                    appendDraw(argumentsByteOffset + range.m_first * RecordSize,
+                               countByteOffset + range.m_index * sizeof(uint32_t),
+                               range.m_capacity,
+                               pipeline ? pipeline->m_pso.get() : nullptr);
                 }
                 return;
             }
 
             appendDraw(argumentsByteOffset, countByteOffset,
-                IndirectRecordCapacity(*source.m_drawArguments.m_indexedIndirect.m_arguments.m_buffer, argumentsByteOffset));
+                IndirectRecordCapacity(*source.m_drawArguments.m_indexedIndirect.m_arguments.m_buffer, argumentsByteOffset),
+                nullptr);
         }
 
         //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those it

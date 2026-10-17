@@ -351,6 +351,10 @@ namespace Spark::Render
         m_instanceBindingSystem.Update(frameIndex);
         // Lays out the bins from the counts the encoding above just published.
         m_drawBinSystem.Update(rhiCtx, passContext);
+        {
+            auto* rhi = Service<RHI::RHIInterface>::Get();
+            m_drawBinSystem.BuildPipelines(passContext, *rhi->GetRHIFactory(), *rhi->GetDevice());
+        }
 
         // World → GeometrySpec: find-or-create over renderable world entities.
         m_meshGeometryComposer.Update();
