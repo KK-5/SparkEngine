@@ -3,6 +3,7 @@
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <EASTL/functional.h>
+#include <EASTL/optional.h>
 
 #include <RHI/Factory.h>
 #include <RHI/Context/RHIContext.h>
@@ -12,6 +13,8 @@
 
 #include <Pass/PassBuilder.h>
 #include <Pass/PassCapabilities.h>
+#include <Drawable/DrawMask.h>
+#include <Pass/Component/PassDrawListComponents.h>
 #include <RenderGraph/RenderGraphExecuter.h>
 
 namespace Spark::Render
@@ -107,6 +110,17 @@ namespace Spark::Render
         {
             m_capabilities.m_collectViews = &CollectViews<ViewTag>;
             m_hasCapabilities             = true;
+            return *this;
+        }
+
+        // ---- Scene draws ----
+        //! The pass draws the instances classified as Tag, one DrawBin at a time: the bins
+        //! and which PSO each draws with come from DrawBinSystem, not from the pass.
+        template<typename Tag>
+        RenderPassBuilder& Draw()
+        {
+            ASSERT(!m_drawList, "Pass '{}' draws one list.", m_name.GetCStr());
+            m_drawList = PassDrawList{ DrawMaskBit<Tag>::Index };
             return *this;
         }
 
@@ -215,6 +229,12 @@ namespace Spark::Render
                 m_context->Add<PassCapabilities>(pass, m_capabilities);
             }
 
+            if (m_drawList)
+            {
+                ASSERT(hasPipeline, "Pass '{}': a pass drawing a list needs shaders.", m_name.GetCStr());
+                m_context->Add<PassDrawList>(pass, *m_drawList);
+            }
+
             m_finalized = true;
             return pass;
         }
@@ -239,6 +259,8 @@ namespace Spark::Render
 
         PassShaders             m_shaders;
         PassPipelineState       m_pipelineState;
+
+        eastl::optional<PassDrawList> m_drawList;
 
         BuildFunction           m_buildFunction;
         ExecuteFunction         m_executeFunction;

@@ -277,6 +277,7 @@ namespace Spark::Render
         m_drawItemRouter.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometryComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
+        m_drawBinSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -345,6 +346,8 @@ namespace Spark::Render
         m_meshGeometrySystem.Update();
         m_geometryBindingSystem.Update(frameIndex);
         m_instanceBindingSystem.Update(frameIndex);
+        // Lays out the bins from the counts the encoding above just published.
+        m_drawBinSystem.Update(rhiCtx, passContext);
 
         // World → GeometrySpec: find-or-create over renderable world entities.
         m_meshGeometryComposer.Update();

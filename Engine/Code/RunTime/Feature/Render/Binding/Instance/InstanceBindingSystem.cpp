@@ -24,6 +24,7 @@
 #include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Drawable/DrawMask.h>
+#include <DrawBin/DrawBinSystem.h>
 
 namespace Spark::Render
 {
@@ -31,21 +32,11 @@ namespace Spark::Render
     {
         constexpr const char* InstanceBufferName = "g_Instances";
 
-        //! Material handle -> its stable g_Materials slot. The material an object overrides
-        //! wins over the one it references; both are ordinary material entities by now.
-        //! Falls back to the default material when unset or dangling.
-        //!
-        //! The slot is allocated once by MaterialBindingSystem and does not move, so this
-        //! reads whatever is there rather than depending on a value written this same
-        //! frame; a material whose slot does not exist yet falls back to 0 for a frame.
-        uint32_t ResolveMaterialIndex(
-            WorldContext& world, Material::MaterialContext* matCtx, Entity e)
+        //! The material an object draws with. The one it overrides wins over the one it
+        //! references; both are ordinary material entities by now. Falls back to the default
+        //! material when unset or dangling.
+        Material::MaterialHandle ResolveMaterial(WorldContext& world, Material::MaterialContext& matCtx, Entity e)
         {
-            if (!matCtx)
-            {
-                return 0;
-            }
-
             Material::MaterialHandle mh = Material::NullMaterial;
             if (const auto* ref = world.TryGet<MaterialOverrideRef>(e))
             {
@@ -55,11 +46,19 @@ namespace Spark::Render
             {
                 mh = mc->m_material;
             }
-            if (!(matCtx->Valid(mh) && matCtx->Has<Resource::StandardPBR>(mh)))
+            if (!(matCtx.Valid(mh) && matCtx.Has<Resource::StandardPBR>(mh)))
             {
-                mh = Material::GetDefaultMaterial(*matCtx);
+                mh = Material::GetDefaultMaterial(matCtx);
             }
-            if (const auto* slotRef = matCtx->TryGet<MaterialSlotRef>(mh))
+            return mh;
+        }
+
+        //! The material's stable g_Materials slot. Allocated once by MaterialBindingSystem and
+        //! never moved, so this reads whatever is there rather than depending on a value
+        //! written this same frame; a material whose slot does not exist yet reads 0 for a frame.
+        uint32_t MaterialIndexOf(const Material::MaterialContext& matCtx, Material::MaterialHandle mh)
+        {
+            if (const auto* slotRef = matCtx.TryGet<MaterialSlotRef>(mh))
             {
                 if (slotRef->IsValid())
                 {
@@ -67,6 +66,13 @@ namespace Spark::Render
                 }
             }
             return 0;
+        }
+
+        PipelineKey PipelineKeyOf(const Material::MaterialContext& matCtx, Material::MaterialHandle mh)
+        {
+            // The one material shader there is: every material is StandardPBR.
+            const auto* state = matCtx.TryGet<Resource::MaterialState>(mh);
+            return MakePipelineKey(0, state ? *state : Resource::MaterialState{});
         }
     }
 
@@ -170,6 +176,7 @@ namespace Spark::Render
         }
 
         auto* matCtx = Material::MaterialExecuteContext::Current();
+        m_keyCounts.fill(KeyInstanceCount{});
         m_instances.Update(*world, *rhiCtx, frameIndex,
             [&](Entity e, InstanceData& out,
                 const Transform::WorldTransformMatrix& m, const MeshGeometry&)
@@ -183,14 +190,27 @@ namespace Spark::Render
             // inverse; embedded in a 4x4 for a StructuredBuffer-safe layout (VS reads its 3x3).
             out.m_normalMatrix = Math::ToMatrix4X4(
                 Math::Transpose(Math::Inverse(Math::ToMatrix3X3(m.m_worldMatrix))));
-            out.m_materialIndex = ResolveMaterialIndex(*world, matCtx, e);
+            if (matCtx)
+            {
+                const Material::MaterialHandle material = ResolveMaterial(*world, *matCtx, e);
+                out.m_materialIndex = MaterialIndexOf(*matCtx, material);
+                out.m_pipelineKey   = PipelineKeyOf(*matCtx, material).m_value;
+            }
+            else
+            {
+                out.m_materialIndex = 0;
+                out.m_pipelineKey   = PipelineKey{}.m_value;
+            }
             // 0 until the geometry can be read and has its g_Geometries record: a reader of
             // g_Instances draws what is set, from the record m_geometryIndex names.
             const auto* geometrySlot = world->TryGet<GeometrySlotRef>(e);
             const bool  drawable     = geometrySlot && world->Has<MeshGeometryReadyTag>(e);
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
             out.m_drawMask      = drawable ? ClassifyDraw(*world, e) : 0;
+            // What the culling can pick, so what the bins are sized for.
+            CountKeyInstance(m_keyCounts, PipelineKey{ out.m_pipelineKey }, out.m_drawMask);
         });
+        PublishKeyInstanceCounts(*rhiCtx, m_keyCounts);
 
         if (m_slotCountEntity != RHI::NullHandle)
         {

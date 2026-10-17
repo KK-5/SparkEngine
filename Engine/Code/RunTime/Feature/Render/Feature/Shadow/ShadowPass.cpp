@@ -89,6 +89,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<ViewBindingTag, InstanceBindingTag>()
             .RendersView<ShadowViewTag>()
+            .Draw<ShadowCasterTag>()
             .Build([](RenderPassScopes& p)
             {
                 // Until the atlas exists the pass declares nothing and is skipped.

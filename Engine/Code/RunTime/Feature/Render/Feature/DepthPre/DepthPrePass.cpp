@@ -83,6 +83,7 @@ namespace Spark::Render
             .RenderStates(cfg.m_renderStates)
             .Binds<ViewBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
+            .Draw<OpaqueTag>()
             .Build([cfg](RenderPassScopes& p)
             {
                 auto depthDesc = RHI::ImageDescriptor::Create2D(

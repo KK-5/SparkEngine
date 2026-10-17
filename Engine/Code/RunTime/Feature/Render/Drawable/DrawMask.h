@@ -16,8 +16,11 @@ namespace Spark::Render
 
     //! The bit of a tag. Only a tag something reads g_Instances for has one.
     template<typename Tag> struct DrawMaskBit;
-    template<> struct DrawMaskBit<OpaqueTag>       { static constexpr DrawMask Value = 1u << 0; };
-    template<> struct DrawMaskBit<ShadowCasterTag> { static constexpr DrawMask Value = 1u << 1; };
+    template<> struct DrawMaskBit<OpaqueTag>       { static constexpr uint32_t Index = 0; static constexpr DrawMask Value = 1u << Index; };
+    template<> struct DrawMaskBit<ShadowCasterTag> { static constexpr uint32_t Index = 1; static constexpr DrawMask Value = 1u << Index; };
+
+    //! How many tags have a bit: an array with an entry per bit has this many.
+    inline constexpr uint32_t DrawMaskBitCount = 2;
 
     template<typename... Tags>
     constexpr DrawMask DrawMaskOf()

@@ -27,6 +27,7 @@ set(SOURCES
     Pass/Pipeline.cpp
     PipelineState/PipelineVariantInterpret.cpp
     PipelineState/PipelineStateBuild.cpp
+    DrawBin/DrawBinSystem.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
     RenderGraph/ImageBarrierMerge.cpp
