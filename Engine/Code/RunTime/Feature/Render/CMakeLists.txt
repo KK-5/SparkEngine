@@ -25,6 +25,8 @@ set(SOURCES
     Feature/InstanceCulling/InstanceCullingPass.cpp
     Pass/PassAccess.cpp
     Pass/Pipeline.cpp
+    PipelineState/PipelineVariantInterpret.cpp
+    PipelineState/PipelineStateBuild.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
     RenderGraph/ImageBarrierMerge.cpp

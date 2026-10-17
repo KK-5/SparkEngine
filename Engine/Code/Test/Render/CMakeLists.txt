@@ -15,6 +15,7 @@ option(INDIRECTARGUMENTSOFVIEW_TESTS "Per-view indirect arguments lookup tests" 
 option(UPLOADREQUEST_TESTS "Upload request tests" ON)
 option(QUEUETRANSFER_TESTS "Queue transfer validation tests" ON)
 option(VIEWREF_TESTS "View ownership by its source's refs tests" ON)
+option(PIPELINEVARIANT_TESTS "Pipeline key and variant interpretation tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -41,6 +42,7 @@ ADD_TEST_SOUECE(INDIRECTARGUMENTSOFVIEW_TESTS "IndirectArgumentsOfViewTest.cpp")
 ADD_TEST_SOUECE(UPLOADREQUEST_TESTS "UploadRequestTest.cpp")
 ADD_TEST_SOUECE(QUEUETRANSFER_TESTS "QueueTransferTest.cpp")
 ADD_TEST_SOUECE(VIEWREF_TESTS "ViewRefTest.cpp")
+ADD_TEST_SOUECE(PIPELINEVARIANT_TESTS "PipelineVariantTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

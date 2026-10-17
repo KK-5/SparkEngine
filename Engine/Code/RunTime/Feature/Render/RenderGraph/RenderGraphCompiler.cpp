@@ -34,6 +34,7 @@
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/ScopeComponents.h>
 #include <Pass/PassCapabilities.h>
+#include <PipelineState/PipelineStateBuild.h>
 #include <Shader/ShaderBindingsUtils.h>
 #include <View/View.h>
 #include <View/ViewComponents.h>
@@ -1831,50 +1832,13 @@ namespace Spark::Render
                 if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
                     return;
 
-                RHI::PipelineStateDescriptorForDraw descriptor;
-
-                if (shaders.m_vertexShader)
-                {
-                    auto* stage = shaders.m_vertexShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Vertex);
-                    ASSERT(stage, "Pass '{}': VertexShader has no vertex-stage bytecode.",
-                        passContext.Get<PassName>(pass).m_name.GetCStr());
-                    auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Vertex);
-                    func->SetByteCode(stage->bytecode);
-                    func->Finalize();
-                    descriptor.m_vertexFunction = eastl::move(func);
-                }
-
-                if (shaders.m_fragmentShader)
-                {
-                    auto* stage = shaders.m_fragmentShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Fragment);
-                    ASSERT(stage, "Pass '{}': FragmentShader has no fragment-stage bytecode.",
-                        passContext.Get<PassName>(pass).m_name.GetCStr());
-                    auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Fragment);
-                    func->SetByteCode(stage->bytecode);
-                    func->Finalize();
-                    descriptor.m_fragmentFunction = eastl::move(func);
-                }
-
-                if (shaders.m_geometryShader)
-                {
-                    auto* stage = shaders.m_geometryShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Geometry);
-                    ASSERT(stage, "Pass '{}': GeometryShader has no geometry-stage bytecode.",
-                        passContext.Get<PassName>(pass).m_name.GetCStr());
-                    auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Geometry);
-                    func->SetByteCode(stage->bytecode);
-                    func->Finalize();
-                    descriptor.m_geometryFunction = eastl::move(func);
-                }
-
-                descriptor.m_inputStreamLayout  = pipelineState.m_inputStreamLayout;
-                descriptor.m_renderTargetLayout = pipelineState.m_renderTargetLayout;
-                descriptor.m_renderStates       = pipelineState.m_renderStates;
-
+                const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
                 ASSERT(passContext.Has<PassPipelineLayout>(pass),
-                    "Pass '{}' has no PassPipelineLayout (eager build in PassBuilder::Finalize failed?).",
-                    passContext.Get<PassName>(pass).m_name.GetCStr());
-                descriptor.m_pipelineLayoutDescriptor =
-                    passContext.Get<PassPipelineLayout>(pass).m_layout;
+                    "Pass '{}' has no PassPipelineLayout (eager build in PassBuilder::Finalize failed?).", passName);
+
+                // The default PSO is the pass's own with no variant on it.
+                const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
+                    *factory, shaders, pipelineState, passContext.Get<PassPipelineLayout>(pass), PipelineVariant{}, passName);
 
                 auto pso = factory->CreatePipelineState();
                 RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);

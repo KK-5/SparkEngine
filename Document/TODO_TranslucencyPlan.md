@@ -4,7 +4,8 @@
 
 本文是草案。2026-10-15 与用户讨论后写下；2026-10-16 按后续讨论改写：分组换成两段式（先可见性、再按 pass 分桶），
 PSO 改为由"pass + 材质"查找、可在加载时推导，覆盖材质的状态定为可覆盖；同日再定分桶的数据组织（D8：管线键 + 键级的分配关系）
-与绘制方式（D10 选 B）。P5 原来的六项里 HeightFog 不做（用户定），Distortion 待定（D9）。现状一节来自 2026-10-15 / 16 读代码，
+与绘制方式（D10 选 B）；2026-10-17 补桶的先后（变体带优先级）、D10 里 count 偏移的写法、CPU 路径的查找落点，同日把"键 → 变体"
+从 pass 的回调改成一套独立的解释机制（D13），并定下代码里的命名（桶为 `DrawBin`，第二段为 `InstanceBinning`）。P5 原来的六项里 HeightFog 不做（用户定），Distortion 待定（D9）。现状一节来自 2026-10-15 / 16 读代码，
 没有运行验证。
 
 P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、**参数由 CPU 生成的间接绘制**、**前向着色的半透明**。
@@ -17,7 +18,8 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证 | —（PSO 先同步建，D11 不挡） | 未开始 |
+| 1-0 | 变体的解释（D13）：管线键、变体、解释函数、"pass 默认描述 + 变体 → PSO 描述" | — | ✅ 完成 |
+| 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证（1a-1、1a-2、1b 三个小步） | 1-0（PSO 先同步建，D11 不挡） | 未开始 |
 | 2 | pass 的 layout 以声明为准 + shader 宏排列 | — | 未开始 |
 | 3 | Masked | 1、2 | 未开始 |
 | 4 | 参数由 CPU 生成的间接绘制（通用机制） | 1 | 未开始 |
@@ -106,7 +108,8 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 ### D2　item 带 PSO，执行器在 item 之间切换　✅ 已定方向
 
 - 同一个 pass 的所有 PSO 共用一份 layout（`TODO_PerDrawPSOVariant.md` 的约束不变；layout 怎么来见 D4）。
-- 一个 item 用哪个 PSO 来自它的桶（D8、D10）；执行器在 item 的 PSO 与当前不同时 `SetPipelineState`。Scope 开头仍设 pass 的默认 PSO。
+- 一个 item 用哪个 PSO 来自它的桶（D8、D10），桶的 PSO 由 D13 的变体加 pass 的默认描述得到；执行器在 item 的 PSO 与当前不同时
+  `SetPipelineState`。Scope 开头仍设 pass 的默认 PSO。
 - 不透明一个桶一个 item，半透明一段一个 item：同一套机制，后者是"每段一个物体"时退化成逐物体切换。
 
 **要查的**：layout 相同时换 PSO，DX12 后端是否保留已绑的资源与 root constant（执行器在视图之间写的 `viewIndex`）。
@@ -125,14 +128,15 @@ CPU 按每个桶的实例数给它划一段，GPU 往段里追加记录并计数
 
 - **第一段 可见性**：由现在的剔除 pass 改过来，每个分类一个 pass、每个视图一个 Scope，视锥测试照旧；输出从 draw 记录改成
   可见的实例号（每个视图一段）与每个视图的可见数。与 pass 无关。
-- **第二段 分桶**：每个绘制 pass 一个 compute pass（写参数与按参数调用不能在同一个 Scope，I11 D9），每个视图一个 Scope；
-  读可见列表，以实例的管线键查这个 pass 的表得到桶号与段起点（D8），往桶的段里追加 draw 记录并计数。
+- **第二段 分桶**：每个绘制 pass 一个 compute pass（`InstanceBinning`，名字带上绘制 pass 的名字，如 `DepthPreInstanceBinning`；
+  写参数与按参数调用不能在同一个 Scope，I11 D9），每个视图一个 Scope；读可见列表，以实例的管线键查这个 pass 的表得到桶号与段起点（D8），
+  往桶的段里追加 draw 记录并计数。
 - DepthPre 与 GBuffer 读同一份不透明可见列表，各有自己的第二段，"画同一批物体"由构造保证；以后加双阶段 HZB 遮挡剔除只改第一段。
-- 写出的参数段照旧由写的一侧用 `IndirectArgumentsOf(view, offset)` 标在访问上（D13 不变）。
+- 写出的参数段照旧由写的一侧用 `IndirectArgumentsOf(view, offset)` 标在访问上（I11 D13 不变）。
 
 **查找与分桶是两件事**
 
-- **查找**：pass 的规则"管线键 → 变体"，变体加 pass 的默认 PSO 就是这个物体在这个 pass 里用的 PSO（D8、D11）。
+- **查找**：D13 的解释"（管线键，pass）→ 变体"，变体加 pass 的默认 PSO 就是这个物体在这个 pass 里用的 PSO（D11）。
 - **分桶**：把实例按查找的结果排到一起。桶就是"这个 pass 的一个 PSO"，"键 → 桶"是查找结果按变体去重。
   分桶之所以存在，只是为了把调用次数从材质数压到 PSO 数。
 
@@ -150,7 +154,7 @@ CPU 按每个桶的实例数给它划一段，GPU 往段里追加记录并计数
 
 **两段之间的问题与解法**
 
-- **第二段怎么知道每个视图的可见列表在哪**（两边各自枚举视图再按次序对齐，少一个就整体错位，D13 指出过）：
+- **第二段怎么知道每个视图的可见列表在哪**（两边各自枚举视图再按次序对齐，少一个就整体错位，I11 D13 指出过）：
   - A. 视图布局（参与的视图、次序、段起点）每帧算一次，两段都读这一份（倾向）。
   - B. 第一段标在访问上，第二段去查：第二段是 compute，常量在 Build 时就要定，渲染图要先支持"compute 的常量在解析时按视图填"。
   - C. 第一段顺便写第二段的间接派发参数：段起点仍要两边一致，只解决一半。
@@ -182,7 +186,7 @@ CPU 按每个桶的实例数给它划一段，GPU 往段里追加记录并计数
   里"暂存环形缓冲 + 拷贝 Pass 在渲染层"那一段与此冲突，那份计划另行设计。
 - 不先拷进 transient buffer：参数只有几 KB，显存读省下的延迟可以忽略；以后要在 GPU 上再加工（例如半透明的 HZB 遮挡剔除，
   把被挡住的记录的 `instanceCount` 写 0，顺序与分段不变），由那个 compute pass 把主机 buffer 当 SRV 读、写一个 transient buffer。
-- `RenderScope::DrawIndirect` 加不带 count 的重载：（参数访问，字节偏移，条数，PSO）。不走 D13 的查找，偏移由 pass 给。
+- `RenderScope::DrawIndirect` 加不带 count 的重载：（参数访问，字节偏移，条数，PSO）。不走 I11 D13 的查找，偏移由 pass 给。
 - **`ItemOfView`**：item 可以只属于某个视图，解析时只放进那个视图（I11 §六"各视图下 item 的序列不同"留下的口子）。
   没有它的 item 照旧在每个视图下提交。
 - D8 里每个 pass 的"键 → 桶"表也走这套主机可见每帧 buffer：它只有键空间那么大，每帧整张写。
@@ -202,7 +206,10 @@ CPU 按每个桶的实例数给它划一段，GPU 往段里追加记录并计数
 - 不建 CPU BVH：排序本来就要碰每个可见物体，BVH 只省被剔掉的那部分测试，动态物体还要每帧维护。数量大的半透明是粒子，
   按发射器走：一个发射器一个 PSO，发射器内在 GPU 上排序，CPU 只排发射器。场景 BVH 等 CPU 侧有多个空间查询需要时作为独立基础设施设计。
 - 排好的顺序里相邻物体的 PSO 相同就并成一段，一段一个 item。item 数等于排序后 PSO 切换的次数，与物体数无关。
-  "这个 pass 下这个物体用什么 PSO"与 GPU 分桶用的是同一个查找：给物体算出管线键，交给这个 pass 的规则（D8），只写一处。
+  "这个 pass 下这个物体用什么 PSO"与 GPU 分桶用的是同一个查找：给物体算出管线键，交给 D13 的解释，只写一处。
+  CPU 路径按这个 pass 投影表的 CPU 镜像，由键查到桶，取桶的 PSO。
+- 半透明 pass 声明 `.Draw<TranslucentTag>()`、参与 D8 的分配与投影，但不注册第二段，也不用带 count 的 `DrawIndirect`（用 D5 的重载），
+  所以 D10 的展开与第二段都不会作用到它；它的布局容量为 0，投影表上传到 GPU 也用不上，都只是多算一点。
 
 不选的：GPU 排序（排完 CPU 不知道 PSO 连续段在哪断开，只在所有半透明共用一个 PSO 时成立，与"每种材质一套 shader"冲突）；
 顺序无关透明（多层时颜色不准，与 UE 的半透明行为对不上）。
@@ -219,46 +226,55 @@ CPU 按每个桶的实例数给它划一段，GPU 往段里追加记录并计数
   BeforeDOF 走同一条路，P9 有了 DOF 再分开。编辑器材质窗口跟着加选项。
 - `AlphaMode::Blend` 及新增的三种归为半透明，不进不透明与投影者列表。
 
-### D8　分桶的数据组织：管线键 + 键级的分配关系　✅ 已定（用户 2026-10-16）
+### D8　分桶的数据组织：管线键 + 键级的分配关系　✅ 已定（用户 2026-10-16，2026-10-17 改规则与命名）
 
 CPU 分桶要交出三样：**键 → 桶的映射**（第二段把一个可见实例写进哪个桶）、**每个桶的容量与段起点**（第二段写记录的位置，
-也是 CPU 录制间接调用的参数偏移与 `maxCount`）、**每个桶的 PSO**（item 之间切换）。
+也是 CPU 录制间接调用的参数偏移与 `maxCount`）、**每个桶的 PSO**（item 之间切换）。桶在代码里叫 `DrawBin`（同 Nanite 的 raster bin、
+Bevy 的 bin：一个管线、一次间接调用画的一组实例；不用 bucket，UE 的 state bucket 是 CPU 上合并相同命令，另一回事）。
 
-**管线键**
+**管线键**（`PipelineKey`，参照 Bevy 的 `MeshPipelineKey`）
 
-- 决定一个物体在某个 pass 里用哪个 PSO 的，是材质的 shader、材质的渲染状态，以及物体自己的少数因素（例如镜像物体要翻转剔除方向，
-  UE 的 `bReverseCulling`；按帧切换的顶点开关）。三者打包成一个整数：管线键 = shader 编号 × 状态组合数 + 状态位，
-  状态位 = alphaMode | doubleSided | 物体标志。
-- 编码时与 `ClassifyDraw` 同处、逐实例每帧算出，写进 `InstanceData`（占现在的 `m_pad`），只有这一个来源。物体换材质、切换标志，
-  只是下一帧写出另一个键：不维护逐物体或逐材质的映射。
-- shader 编号现在恒为 0，物体标志现在一个也没有，两个维度从第一步就在键里。shader 编号以后由 shader 一侧给出连续编号，
-  经"材质 → 它引用的 shader"取得，与 `MaterialSlotRef` 同一条路。
+- 决定一个物体在某个 pass 里用哪个 PSO 的，是它的特性（D13）：材质的 shader、材质的特性（alphaMode、doubleSided，以后的 WPO、
+  像素深度偏移、着色模型），以及物体自己的少数因素（例如镜像物体要翻转剔除方向，UE 的 `bReverseCulling`）。打包成一个整数：
+  管线键 = shader 编号 × 特性组合数 + 特性位，特性位 = alphaMode | doubleSided | 物体标志 | 材质特性位。以后加顶点工厂编号，是又一个乘数维度。
+- 编码时与 `ClassifyDraw` 同处、逐实例每帧算出，写进 `InstanceData`（`m_pad` 改为 `m_pipelineKey`），只有这一个来源。物体换材质、
+  切换标志，只是下一帧写出另一个键：不维护逐物体或逐材质的映射。
+- 位的排布与解码函数（`GetAlphaMode`、`IsDoubleSided`、`GetShaderIndex` 等）只在 `PipelineKey.h` 一处，别处不做位运算。
+  第一步：alphaMode 占 3 位（D7 追加后共 6 个值，一次留够），doubleSided 1 位，物体标志与材质特性位 0 位，特性组合数 16；shader 编号恒为 0。
+  键空间就是 16。
+- shader 编号以后由 shader 一侧给出连续编号，经"材质 → 它引用的 shader"取得，与 `MaterialSlotRef` 同一条路。
 - 键空间必须小而稠密：GPU 表按它寻址。shader 多到上千、表到几万项时，再改成只给出现过的组合编号。
 
-**规则**：pass 的分组策略是"键 → 变体"，变体是相对 pass 默认 PSO 的改动（第一步只有剔除模式）；同一个 pass 里变体相同就是同一个桶。
-规则以 `PassBucketRule{分类位, 回调}` 挂在 pass 上，回调是 pass 唯一的回调；规则怎么交出去是占位，以后再定。
+**变体**：（键，pass）→ `PipelineVariant` 由 D13 的解释系统给出；pass 上只声明 `.Draw<Tag>()`。同一个 pass 里变体相同就是同一个桶。
+
+**桶的先后**：`PipelineVariant` 里带优先级，由解释系统按通用规则给出（变体带上会关掉 early-Z 的宏时排在后面，例如镂空：两次绘制共享
+深度内容，先画的不透明用完整的 early-Z 把深度填好，镂空的像素在 PS 之前就被剔掉；GBuffer 的模板不响应镂空，先后无所谓）。
+布局时每个 pass 内先按优先级、再按变体排，`index` 与 `first` 按排好的顺序给，不依赖实体的存储顺序。优先级参与"变体相同"的比较，
+它由同样的输入算出，PSO 改动相同的键优先级也相同，不会因此多拆桶。
 
 **实体**
 
 | 实体 | 上下文 | 组件 | 何时建 |
 |---|---|---|---|
 | 管线键 | RHIContext（同 `InstanceSlotCount`） | `PipelineKey{value}`；每帧写的 `KeyInstanceCount`（每个分类位一个数） | 编码第一次见到这个键 |
-| 桶 | PassContext | `BucketOf{pass}`、`BucketVariant`、`BucketPSO`；每帧写的 `BucketSegment{index, first, capacity}` | 第一条分配指向它 |
-| 分配 | PassContext | `BucketAssignment{pass, key, bucket}` | 新键或新 pass 出现 |
-| pass（已有） | PassContext | `PassBucketRule`、`PassBucketTable`（GPU 表）；每帧写的 `PassBucketLayout{bucketCount, viewStride}` | pass 声明 |
+| 桶 | PassContext | `DrawBinOf{pass}`、`PipelineVariant`、`DrawBinPipeline`（1b 起）；每帧写的 `DrawBinRange{index, first, capacity}` | 第一条分配指向它 |
+| 分配 | PassContext | `DrawBinAssignment{pass, key, bin}` | 新键或新 pass 出现 |
+| pass（已有） | PassContext | `PassDrawList{分类位}`（`.Draw<Tag>()` 加）、`PassBinTable`（GPU 表）；每帧写的 `PassBinLayout{binCount, viewStride}` | pass 声明 |
 
-分配关系建在键这一级，数量是键数 × 分桶的 pass 数，很小，也很少变。
+分配关系建在键这一级，数量是键数 × 分桶的 pass 数，很小，也很少变。发现新增用的标签是键上的 `KeyBinned` 与 pass 上的 `PassBinned`。
 
-**系统**（一帧内的先后；1 是现有的 `InstanceBindingSystem`，2 ~ 4 排在它之后、`ExecutePipeline` 之前）
+**系统**（一帧内的先后；1 是现有的 `InstanceBindingSystem`，2 ~ 4 是 `DrawBinSystem`，排在它之后、`ExecutePipeline` 之前）
 
 1. **编码**：算出键写进记录；按（分类位，键）计数，用的是写进记录的 `m_drawMask` 与键，几何未就绪（`m_drawMask` 为 0）与容量溢出
-   未编码的实例不计入，与第一段能挑出的实例是同一批。结束时把计数写到各个键实体的 `KeyInstanceCount` 上，没见过的键新建实体。
-2. **分配**（低频，用 Exclude 发现新增，同 GlobalBuffer 发现新材质）：`GetView<PipelineKey>(Exclude<KeyAssigned>)` 对每个有规则的 pass
-   求变体，在这个 pass 的桶里找变体相同的、没有就新建（同时建 PSO），建一条分配；`GetView<PassBucketRule>(Exclude<PassAssigned>)`
+   未编码的实例不计入，与第一段能挑出的实例是同一批。键空间是编译期常量，计数用系统内的固定数组，每帧清零。结束时把计数写到各个键实体的
+   `KeyInstanceCount` 上，没见过的键新建实体。
+2. **分配**（低频，用 Exclude 发现新增，同 GlobalBuffer 发现新材质）：`GetView<PipelineKey>(Exclude<KeyBinned>)` 对每个有 `PassDrawList`
+   的 pass 求变体（D13），在这个 pass 的桶里找变体相同的、没有就新建（1b 起同时建 PSO），建一条分配；`GetView<PassDrawList>(Exclude<PassBinned>)`
    对已有的全部键做同样的事。pass 的加入与移除整体重算。
-3. **布局**（每帧）：遍历分配，`capacity += key 的计数[pass 的分类位]`；遍历桶，按 pass 依次给 `index` 与 `first`（前缀和），
-   累计出 `PassBucketLayout`。
-4. **投影**（每帧）：遍历分配，写 `table_pass[key.value] = {index, first}`；没有分配的键写"不画"。表是关系的投影，同 `g_Materials`。
+3. **布局**（每帧）：遍历分配，`capacity += key 的计数[pass 的分类位]`；每个 pass 内按（优先级，变体）排序，依次给 `index` 与 `first`
+   （前缀和），累计出 `PassBinLayout`。`viewStride` 按 1024 条一档、`binCount` 按 4 个一档取整，免得第二段的 transient buffer 跟着换。
+4. **投影**（每帧）：遍历分配，写 `table_pass[key.value] = {index, first}`；没有分配的键写"不画"。表是关系的投影，同 `g_Materials`；
+   GPU 一侧是 RHI 的主机可见每帧 buffer（D5），CPU 镜像因为键空间是常量而用固定数组，与 buffer 句柄一起放在 `PassBinTable` 里。
 
 渲染图里第二段读这张表，解析 `DrawIndirect` 读这个 pass 的桶（D10）。
 
@@ -268,16 +284,15 @@ CPU 分桶要交出三样：**键 → 桶的映射**（第二段把一个可见�
 **非 ECS 的部分，各有理由**
 
 - 编码循环里的局部累加数组：逐实例按值找键实体太贵，先在系统内累加，结束时每个键写一次组件。
-- 键值 → 实体的查找：发布计数时按值找键实体。键不超过 32 个，线性扫描；键变多时在系统内加索引。
-- 规则回调：它就是 pass 的分组策略。
+- 键值 → 实体的查找：发布计数时按值找键实体。键空间现在是 16，线性扫描；键变多时在系统内加索引。
 - GPU 表：GPU 要按键直接寻址，只能是数组。
 
 **以后的加法**：PSO 异步编译时桶上加就绪标签；投影时一个键的分配有任一个桶没就绪，就在所有 pass 的表里写"不画"
-（否则 DepthPre 画了、GBuffer 没画，`Equal` 下是空洞）；shader 编号进键；物体标志加位。
+（否则 DepthPre 画了、GBuffer 没画，`Equal` 下是空洞）；shader 编号、材质特性位、顶点工厂编号进键；物体标志加位。
 
 **不选的**
 
-- 每帧对每个材质、每个 pass 求规则：材质可达数万。
+- 每帧对每个材质、每个 pass 求变体：材质可达数万。
 - 分配建在材质级（材质，桶）：物体一侧影响 PSO 的因素进不来；GPU 表按材质槽位寻址，大小与空洞同 `g_Materials`。
 - 分配建在物体级（物体，桶）：数量是物体数 × pass 数，加载帧批量建；GPU 表按物体槽位寻址，只在变化时局部更新，要一种还没有的
   "持久 buffer、局部更新"写法。
@@ -289,12 +304,13 @@ CPU 分桶要交出三样：**键 → 桶的映射**（第二段把一个可见�
 
 ### D10　绘制 pass 怎么"每个桶画一次"　✅ 选 B（2026-10-16）
 
-pass 仍然只写一行 `DrawIndirect`，解析时读这个 pass 的桶实体（D8），展开成每个（视图，桶）一个 item：与 D13 按视图展开同一套机制，
-pass 不关心有几个桶，就像它现在不关心有几个视图。
+pass 仍然只写一行 `DrawIndirect`，解析时读这个 pass 的 `DrawBin`（D8），展开成每个（视图，桶）一个 item：与 I11 D13 按视图展开
+同一套机制，pass 不关心有几个桶，就像它现在不关心有几个视图。
 
 - 参数偏移 = 写参数的访问用 `IndirectArgumentsOf` 标出的视图起点 + `first` × 记录大小；视图之间相隔 `viewStride` 条。
-- `maxCount` = `capacity`；count 偏移 = （视图 × `bucketCount` + `index`）× 4。
-- PSO = 桶的 PSO。`capacity` 为 0 的桶不展开。
+- count 偏移 = 写 count 的访问标出的视图起点 + `index` × 4。视图起点由第二段标出，即视图次序 × `binCount` × 4；解析不算视图次序（I11 D13）。
+- `maxCount` = `capacity`。PSO = 桶的 `DrawBinPipeline`（1a 没有，用 pass 的默认 PSO）。`capacity` 为 0 的桶不展开。
+- 展开的先后按 `index`，即布局排好的桶序（D8 的优先级）。
 
 不选 A（pass 在 Build 里逐桶声明）：每个分桶的 pass 都要重复同一段遍历，pass 里多出与它的功能无关的东西。
 
@@ -313,9 +329,9 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
 
 **方向**
 
-- **PSO 不是"第一次画时才知道"，而是"键和 pass 都已知时就能推出来"**：pass 对一个管线键用什么 PSO，是（键，pass 的固定配置）
-  的确定函数（D8）。新键出现时分配系统就求出变体、建桶，同时发出预编译请求；平时只是查表。
-- 因此 pass 的规则必须是"不画就能求值"的，输入只有键与 pass 自己的配置。
+- **PSO 不是"第一次画时才知道"，而是"键和 pass 都已知时就能推出来"**：一个管线键在某个 pass 里用什么 PSO，是（键，pass 的默认配置，
+  pass 模板声明的排列范围）的确定函数（D13）。新键出现时分配系统就求出变体、建桶，同时发出预编译请求；平时只是查表。
+- D13 的解释只用这些静态输入，不画就能求值；预编请求就是"pass 模板 × 顶点工厂 × 材质 shader × 宏集合 × 状态覆盖"，即变体本身。
 - **PSO 就绪的语义同贴图、几何**：还没编好的键，在所有 pass 的表里落成"不画"或进默认的桶（D8"以后的加法"）。
 - **一个独立于渲染图的 PSO 缓存**：键是完整描述的 hash（shader 字节码、状态、RT 格式、输入布局、layout），负责去重、异步创建、
   回答是否就绪，下面接 RHI 的 `PipelineLibrary` 做跨运行持久化（要先把那个空壳实现起来）。
@@ -329,40 +345,129 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
 - PSO 没好时：这一帧不画（UE 默认），还是先用默认材质的 PSO。
 - 缓存放在哪一层：去重与持久化是对 RHI 原生对象的通用管理（键全是 RHI 的描述，Atom 也有 RHI 层的 PSO cache），倾向 RHI；
   "材质就绪时替各个 pass 推导并发请求"是渲染层的事。
-- ~~查找表由谁在什么时候算~~：D8 的分配系统，在新键或新 pass 出现时。
+- ~~查找表由谁在什么时候算~~：D8 的分配系统调用 D13 的解释，在新键或新 pass 出现时。
 
 ### D12　覆盖材质的状态也可以被覆盖　✅ 已定（用户 2026-10-16）
 
 - 分桶只读"物体最终解析出的那个材质"的状态，来源是材质资产还是覆盖不影响分桶的设计。
 - 要改的都在上层：覆盖组件除了参数还能带状态，`SyncOverrideMaterials` 建覆盖材质时把状态也写进去。覆盖组件的格式做到时再定，不在 P5 主线上。
 
+### D13　PSO 变体的解释：一套独立的机制　✅ 已定（用户 2026-10-17）
+
+**为什么单独做**：桶的分配（D8）、PSO 预编（D11）、半透明的 CPU 路径（D6）问的是同一个问题："这个物体在这个 pass 里用什么 PSO"。
+它是一套独立的机制（`Render/PipelineState/`，无状态的函数），分桶只是它的使用者之一。
+
+**概念**
+
+| 概念 | 是什么 | 归谁 |
+|---|---|---|
+| 特性 | 被画的东西身上会让某些 pass 的 PSO 不同的事实：双面、镂空、混合模式、材质 shader，以后的镜像翻转、顶点动画、顶点工厂 | 引擎定义，封闭的集合 |
+| 管线键 | 一个实例所有特性的打包（D8） | 物体一侧 |
+| 变体 | 对（键，pass）解释后的结果，`PipelineVariant` | 解释系统产出 |
+
+特性的集合是封闭的：加一种特性要同时改材质格式、键的位、shader 约定与解释代码，本来就是引擎层面的改动。pass（包括以后的用户 pass）
+不发明特性。
+
+**变体**：固定大小的值类型，按值比较，不含容器。字段随步骤增加：
+
+- 优先级（1a）；
+- 状态覆盖：剔除模式（1b）、混合状态（步骤 5），没被覆盖的用 pass 默认的；
+- shader 的选择：特性宏集合（位集，每位一种特性的宏）、材质 shader 编号（不用时为"无"）、顶点工厂编号（以后）。pass 模板属于 pass，不在变体里。
+
+**静态信息各回各的地方**：pass 上只声明 `.Draw<Tag>()`（画哪种列表、参与分桶），没有逐特性的声明。原因是逐个看，这些都不是 pass 的选择：
+
+- **对所有 pass 都一样的，是解释系统里的通用规则**：双面 → 不剔除；镜像翻转 → 剔除方向反过来（排在双面之后，已是 None 的不变）；
+  混合模式 → 按 alphaMode 查固定的表得到混合状态（不透明与投影者列表里没有半透明的键，分类已经过滤）；顶点工厂 → VS 与输入布局；
+  优先级 → 变体带上会关掉 early-Z 的宏时排在后面。
+- **pass 的 shader 模板的性质，由模板自己声明**：模板支持哪些特性宏（DepthOnly 处理 `MATERIALBLENDING_MASKED`，GBuffer 不处理），
+  以及是否忽略材质 shader（默认使用，GBuffer 就是；DepthOnly 声明忽略，只在镂空、顶点动画这类特性需要时才用）。这就是步骤 2 的排列范围，
+  shader 宏排列本来就要知道一个 shader 支持哪些宏；UE 同样让 shader 自己声明（`ShouldCompilePermutation`）。怎么声明在步骤 2 定。
+- **宏属于特性，不属于 pass**：所有 pass 模板遵守同一套宏约定（名字沿用 UE），所以没有"这个 pass 用哪个排列"这样的参数。
+- **真正属于某个 pass 的例外**（例如以后阴影想对双面物体用另一种剔除）：到时给 pass 加一个可选的覆盖组件，是例外不是常规写法。现在没有。
+
+**解释**（输入：键、pass 的默认配置、pass 模板声明的排列范围；固定步骤）
+
+1. 从默认变体出发：优先级 0，没有覆盖，没有宏，不用材质 shader。
+2. 应用通用规则，按引擎定义的顺序；几个特性改同一个字段时谁先谁后只在这里决定。
+3. 键里的特性凡是模板支持的，加上对应的宏；用到材质代码的，标记需要材质代码。
+4. 模板不忽略材质 shader，或第 3 步有特性需要材质代码，填上键里的 shader 编号，否则为"无"。
+5. 规整：没用到的字段清成默认值，保证效果相同的变体按值也相同，不多拆桶。
+
+**使用者**
+
+- D8 的分配：新键或新 pass 出现时求变体，按变体找到或新建 `DrawBin`。
+- PSO 的建立：同一个系统里一个通用函数，把"pass 的默认描述 + 变体"变成 PSO 描述（1b 只改剔除；步骤 2、3 之后选 shader 排列；步骤 5 加混合状态）。
+  D11 的预编请求以后从这里发出。
+- D6 的 CPU 路径：经投影表的 CPU 镜像用同一份结果。
+
+**不选的**
+
+- pass 上存规则回调（`PassBucketRule{分类位, 回调}`，函数指针或 `eastl::function`）：组件里存的是逻辑，确定性只能靠自觉。
+  `PassCapabilities` 里的函数指针是另一回事：它们是类型擦除，背后是同一份模板代码，只是把 `ViewTag` / `BindingTags` 带到运行期，
+  可以换成运行期的类型 id 或值；规则是每个 pass 各不相同的策略，换不掉。
+- 每个 pass 一张按特性组合预先填好的变体表（用"匹配条件 → 覆盖"的声明填）：一套小语言，读起来不直白。
+- 每种特性一个响应组件挂在 pass 上（`DoubleSidedResponse`、`AlphaMaskResponse` 等），系统统一解释：声明太多，而其中多数是通用规则或模板的性质，
+  并不是 pass 的选择。
+
 ---
 
 ## 三、步骤
 
+### 1-0　变体的解释
+
+在 `Render/PipelineState/` 下，纯函数，不依赖 ECS，单元测试覆盖：
+
+- `PipelineKey.h`：键的位布局、`MakePipelineKey` 与解码函数，键空间 16。
+- `PipelineVariant`（优先级、剔除覆盖、特性宏、材质 shader 编号）与 `FeatureMacro`。
+- `InterpretPipelineVariant(键, pass 的渲染状态, ShaderTemplateFeatures)`：D13 的五步。双面 → `CullMode::None` 已经写好；
+  `ShaderTemplateFeatures`（支持的宏、是否忽略材质 shader）在步骤 2 之前没有来源，调用方传默认值。
+- `BuildDrawPipelineDescriptor`：pass 的 shader、`PassPipelineState`、`PassPipelineLayout` 加变体 → `PipelineStateDescriptorForDraw`。
+  `CompilePipelineStates` 用它建 pass 的默认 PSO（空变体）；现在只套用剔除覆盖，带宏或材质 shader 的变体要等步骤 2。
+
 ### 1　两段式剔除 + 分桶 + item 级 PSO 切换，用 doubleSided 验证
 
-两个小步：
+三个小步：
 
-- **1a 只拆段，只有一个桶**：管线键写进 `InstanceData` 并计数；D8 的实体与四个系统，所有 pass 的规则恒返回默认变体，每个 pass 一个桶；
-  剔除 pass 改写可见列表，加每个绘制 pass 的第二段（写 draw 记录的代码从现在的剔除 shader 挪过去）；D10 的展开。两段用同一个函数
-  枚举视图（`CollectViews` + `TryGetViewIndex`），D3 的视图布局先不另做机制。画面应与现在完全一样，验证拆段本身没有画错。
-- **1b 分桶与 PSO 切换**：DepthPre、Shadow、GBuffer 的规则在双面时返回 `CullMode::None`；GBuffer 一律按 `SV_IsFrontFace` 翻转法线与
-  切线框架（单面物体的背面被剔掉，不需要排列）；执行器的 item 级切换（D2），查后端换 PSO 是否保留绑定。变体 PSO 按（pass，变体）
-  同步建，挂在桶上，拼描述的部分从 `CompilePipelineStates` 抽出来复用。这一步只换渲染状态，不需要新 shader，layout 不变。
+- **1a-1 CPU 一侧，不碰渲染**：
+  - `InstanceData::m_pad` 改为 `m_pipelineKey`，HLSL 镜像跟着改。
+  - `InstanceBindingSystem`：`ResolveMaterialIndex` 改成先解析出材质句柄，槽位与 `MaterialState` 都从它读，键由它算出；按（分类位，键）计数，
+    发布到键实体。
+  - `RenderPassBuilder` 加 `.Draw<Tag>()`，`Finalize` 时加 `PassDrawList`；DepthPre、GBuffer 写 `.Draw<OpaqueTag>()`，Shadow 写
+    `.Draw<ShadowCasterTag>()`。
+  - `DrawBinSystem` 的分配、布局、投影，由 `RenderSystem` 持有，排在 `m_instanceBindingSystem.Update` 之后。变体由 1-0 的
+    `InterpretPipelineVariant` 求出（模板性质传默认值），双面的键已经会落进自己的桶。
+  - 全部可以用单元测试验证。
+- **1a-2 GPU 拆成两段，桶都用 pass 的默认 PSO**：
+  - 第一段：`InstanceCulling.hlsl` / `InstanceCullingPass` 改写可见列表（`OpaqueVisibleInstances` / `OpaqueVisibleCount`，投影者同样两个名字），
+    清零、视锥测试、"一个视图都没有时也写一次"、取整照旧；可见列表不打 `IndirectArgumentsOf` 标记。
+  - 从 `BuildDrawList` 抽出一个函数，按视图类型给出"参与的视图（句柄、`g_Views` 下标）、`viewCapacity`、`maxPerView`"，两段都调它，
+    D3 的视图布局先不另做机制。
+  - 第二段：`InstanceBinning.hlsl` 与每个绘制 pass 的 `<Pass>InstanceBinning`（由绘制 pass 的 `SetUp` 用一个辅助函数注册）：按名字找到绘制 pass，
+    读它的 `PassBinLayout`、导入它的 `PassBinTable`，建参数 buffer（`viewCapacity × viewStride` 条）与 count buffer（`viewCapacity × binCount` 个）；
+    一个清零 Scope，再每个视图一个 Scope，标出视图起点（参数 k × `viewStride` × 20 字节，count k × `binCount` × 4 字节），线程数 `maxPerView`。
+    写 draw 记录的几行从剔除 shader 挪过来。`.Binds<InstanceBindingTag, GeometryBindingTag>()`。
+  - 绘制 pass 的 `DrawIndirect` 换成自己那对 buffer 的名字；`ResolveItemForView` 按 D10 展开，要能放入多个 item 并拿到 PassContext 与 pass。
+  - 删掉 `InstanceCullingPass` 的四个 `*DrawArguments` / `*DrawCount` 名字。
+  - 画面应与现在完全一样，验证拆段本身没有画错。
+- **1b PSO 切换**："双面 → `CullMode::None`"这条通用规则 1-0 已经写好，pass 不用写任何东西；GBuffer 一律按 `SV_IsFrontFace`
+  翻转法线与切线框架（单面物体的背面被剔掉，不需要排列）；执行器的 item 级切换（D2），查后端换 PSO 是否保留绑定。变体 PSO 按
+  （pass，变体）用 `BuildDrawPipelineDescriptor` 同步建，以 `DrawBinPipeline` 挂在桶上。这一步只换渲染状态，
+  不需要新 shader，layout 不变。
 
 ### 2　layout 以声明为准 + shader 宏排列
 
 - D4：layout 来自声明的绑定组；变体的子集校验；去掉 `SpaceZeroKeepAlive`；深度类 pass 声明完整顶点格式并校验步长。
 - shader 的身份变成（资产，宏集合），宏集合进 hash 与缓存键，异步按需编译（D11）。每种材质一套 shader 的 include 重定向留到第二个材质
   shader 出现时（路线图 I10）。
+- shader 模板声明自己的排列范围：支持哪些特性宏、是否忽略材质 shader（D13）。解释系统的第 3、4 步读它。
 
 ### 3　Masked
 
 - `MaterialData` 加 `m_alphaCutoff`，不透明度取 `baseColor.a × 贴图 alpha`；C++ 与 HLSL 两边的 static_assert 一起改。
 - `ClassifyDraw` 读材质状态：Masked 为不透明加投影，Blend 等为半透明。
-- DepthPre、Shadow 的镂空变体：PS 采样 alpha 并 clip。DepthPre 里不透明的桶排在镂空的桶前面（带 clip 的 PS 会关掉 early-Z）。
-- GBuffer 的镂空变体不 clip：深度 `Equal`，DepthPre 裁掉的像素深度对不上。
+- DepthOnly 模板（DepthPre、Shadow 共用）声明支持 `MATERIALBLENDING_MASKED`：PS 采样 alpha 并 clip，需要材质代码；解释系统按通用规则
+  给它靠后的优先级，排在不透明的桶之后（D8"桶的先后"）。
+- GBuffer 模板不声明镂空的宏，镂空在 GBuffer 里不改变 PSO：深度 `Equal`，DepthPre 裁掉的像素深度对不上，不需要 clip。
 
 ### 4　参数由 CPU 生成的间接绘制
 
@@ -385,10 +490,12 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
 
 ## 四、验证
 
-- **单元测试**：管线键的生成、按（分类位，键）计数、新键与新 pass 的分配、同变体的键并进同一个桶、每个桶的容量与段起点、
-  投影出的"键 → 桶"表、D10 展开出的 item、两段共用的视图枚举、`ItemOfView` 的解析、CPU 排序与切段。
+- **单元测试**：管线键的编码与解码、按（分类位，键）计数、解释系统的各条规则与规整、新键与新 pass 的分配、同变体的键并进同一个桶、
+  每个桶的容量与段起点、按优先级的桶序、取整、投影出的"键 → 桶"表、D10 展开出的 item、两段共用的视图枚举、`ItemOfView` 的解析、
+  CPU 排序与切段。
 - **画面由用户确认**，每步交一次。我这边只跑短时间的运行，确认能跑、日志里没有新的报错。
-- 步骤 1a：画面与拆段之前完全一样。
+- 步骤 1a-1：只有单元测试与短时间运行，画面不该有任何变化。
+- 步骤 1a-2：画面与拆段之前完全一样。
 - 步骤 1b：双面物体背面可见、单面物体不变；同一场景切换 doubleSided 后画面随之变化。
 - 步骤 3：镂空叶片的轮廓在深度、GBuffer、阴影里一致。
 - 步骤 5：半透明叠加顺序正确；半透明受阴影与 IBL；相机移动时排序随之变化。
