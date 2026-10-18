@@ -611,7 +611,13 @@ mask 还没有生产者时摘掉它，中间会有一次"全场无阴影"的状�
 
 ## 未决
 
-- **共享绑定组的 space 布局应由组拥有，而不是各 pass 自己反射**（本阶段发现，已用绕过挡住）。
+- ~~**共享绑定组的 space 布局应由组拥有，而不是各 pass 自己反射**（本阶段发现，已用绕过挡住）。~~
+  ✅ 2026-10-18 解决（`3e2faf93`、`a45295d2` 与随后删掉 `SpaceZeroKeepAlive` 的一次提交）。和下面写的正解有三处不同：
+  组的布局不再来自反射宿主，而是在各绑定系统里用 C++ 声明（`Binding/SharedBindings.h`），宿主全部删除；不需要另建
+  spaceId → 组布局的注册表，pass 按自己 `.Binds<Tag>()` 收集到的组取 space，并把 shader 读到的共享资源与组的声明逐项校验
+  （`Pass/PassBuilder.cpp` 的 `BuildPassPipelineLayout`）；绑定系统的 `Init` 那时早已在声明 pass 之前，不用调整顺序。
+  抄来的 space 对 pass 拥有的全部 stage 可见。Skybox 因此也拿到完整的 space0，下面那条疑问随之消除，画面没有单独验证。
+  以下是当时的记录。
 
   一个 pass 的描述符表偏移来自它自己的反射（`PassBuilder.h` 的 `BuildPipelineLayoutFromShaders`），
   而共享组的描述符是按**组的**顺序写进堆的。反射把资源按类型分组（先 buffer 后 image，见

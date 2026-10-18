@@ -5,7 +5,8 @@
 本文是草案。2026-10-15 与用户讨论后写下；2026-10-16 按后续讨论改写：分组换成两段式（先可见性、再按 pass 分桶），
 PSO 改为由"pass + 材质"查找、可在加载时推导，覆盖材质的状态定为可覆盖；同日再定分桶的数据组织（D8：管线键 + 键级的分配关系）
 与绘制方式（D10 选 B）；2026-10-17 补桶的先后（变体带优先级）、D10 里 count 偏移的写法、CPU 路径的查找落点，同日把"键 → 变体"
-从 pass 的回调改成一套独立的解释机制（D13），并定下代码里的命名（桶为 `DrawBin`，第二段为 `InstanceBinning`）。P5 原来的六项里 HeightFog 不做（用户定），Distortion 待定（D9）。现状一节来自 2026-10-15 / 16 读代码，
+从 pass 的回调改成一套独立的解释机制（D13），并定下代码里的命名（桶为 `DrawBin`，第二段为 `InstanceBinning`）。P5 原来的六项里 HeightFog 不做（用户定），Distortion 待定（D9）。
+2026-10-18 取消步骤 2：宏排列不做、Masked 推后，layout 那一半作为独立的修正做完（D4）。现状一节来自 2026-10-15 / 16 读代码，
 没有运行验证。
 
 P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、**参数由 CPU 生成的间接绘制**、**前向着色的半透明**。
@@ -20,13 +21,14 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 |---|---|---|---|
 | 1-0 | 变体的解释（D13）：管线键、变体、解释函数、"pass 默认描述 + 变体 → PSO 描述" | — | ✅ 完成 |
 | 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证（1a-1、1a-2、1b 三个小步） | 1-0（PSO 先同步建，D11 不挡） | ✅ 完成 |
-| 2 | pass 的 layout 以声明为准 + shader 宏排列 | — | 未开始 |
-| 3 | Masked | 1、2 | 未开始 |
+| ~~2~~ | ~~pass 的 layout 以声明为准 + shader 宏排列~~ | — | 取消（用户 2026-10-18），见 D4 |
+| 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4 | 参数由 CPU 生成的间接绘制（通用机制） | 1 | 未开始 |
 | 5 | 半透明（前向，BeforeDOF） | 1、4 | 未开始 |
 | 6 | Distortion | 5 | 待定（D9） |
 
-1 与 2 互不依赖。1 不碰 layout 与 shader 系统，先用纯渲染状态的变体把拆段、分桶、切换验证掉。
+1 不碰 layout 与 shader 系统，先用纯渲染状态的变体把拆段、分桶、切换验证掉。宏排列现在不做：只改渲染状态的变体用不上它，
+它唯一的用户是 Masked，而半透明更重要（用户 2026-10-18），所以 Masked 一起推后，下一步是 4。
 
 ---
 
@@ -169,15 +171,21 @@ CPU 按每个桶的实例数给它划一段，GPU 往段里追加记录并计数
 
 代价：每个（绘制 pass，视图）多一次派发；每个视图多一段可见列表（每个实例 4 字节）；不透明的参数 buffer 从一份变成 DepthPre、GBuffer 各一份。
 
-### D4　pass 的 layout 以声明为准　✅ 已定方向
+### D4　pass 的 layout 以声明为准　退回（2026-10-18）
 
-- pass 的 layout 由 `Binds<...>` 的各个共享组加上 pass 自己的 space2 决定，不再反射默认 shader 得到。改的是 layout 的来源，
-  不是时机：现在的 layout 已经在 `PassBuilder::Finalize` 时建好（`PassPipelineLayout`），渲染图之外建 PSO 不依赖 D4。
-- 每个变体校验自己引用的资源是这份 layout 的子集。
-- 顺带去掉 `SpaceZeroKeepAlive`（`TODO_StructureAlignPlan.md`，路线图 P2 遗留第一条）。I11 D6 里 `InstanceBindings` 加 cbuffer
-  被 `CommandList.cpp:219` 的断言挡住，根源相同；`InstanceSlotCount` 要不要挪进去另定。
-- **同一个 pass 的变体之间顶点流步长必须一致**：lowering 按 pass 的输入布局取步长。深度类 pass 一律声明完整的标准顶点格式，
-  VS 不用的通道不读；加一条"变体与 pass 的步长一致"的校验。
+在 P5 里它的理由是带宏的排列会多引用资源（镂空的 DepthOnly 要读材质），反射默认 shader 得到的 layout 装不下。宏排列不做，
+变体只改渲染状态、shader 永远是 pass 默认的那套，这个理由就没有了。
+
+其中与 P5 无关的那一半已经作为独立的修正做完（`3e2faf93`、`a45295d2` 与随后删掉 `SpaceZeroKeepAlive` 的一次提交）：
+共享组在 C++ 里声明自己的 layout（`Binding/SharedBindings.h`，space 号统一在 `Binding/BindingSpaces.h`），五个
+`*BindingsReflect.hlsl` 反射宿主删除；pass 的 layout 里它绑的组的 space 整份取自组的声明，shader 读的共享资源与声明逐项校验
+（`BuildPassPipelineLayout`）。`CommandList.cpp:219` 的断言因此不再挡共享组加 cbuffer，`InstanceSlotCount` 要不要挪进
+`InstanceBindings` 另定。
+
+**还没做的一条，不属于 P5**：间接绘制的 VB 固定按 `StandardVertex::Stride`（48）绑定（`PassScopes.cpp` 的 `RenderScope::DrawIndirect`），
+而 DepthPre / Shadow 的 PSO 输入布局只声明 POSITION，步长 12。DX12 的步长在 VB view 上，所以现在能画；Vulkan 把步长烘进 pipeline，
+会按 12 读。修法：深度类 pass 声明完整的标准顶点格式（VS 不用的通道不读），`DrawIndirect` 绑几何时校验 pass 输入布局的步长。
+（本节原先写"lowering 按 pass 的输入布局取步长"，那只对直接绘制的 `CompileItemInputAssembly` 成立。）
 
 ### D5　参数由 CPU 生成：用 RHI 现成的主机可见每帧 buffer，直接读　✅ 已定
 
@@ -381,8 +389,8 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
   混合模式 → 按 alphaMode 查固定的表得到混合状态（不透明与投影者列表里没有半透明的键，分类已经过滤）；顶点工厂 → VS 与输入布局；
   优先级 → 变体带上会关掉 early-Z 的宏时排在后面。
 - **pass 的 shader 模板的性质，由模板自己声明**：模板支持哪些特性宏（DepthOnly 处理 `MATERIALBLENDING_MASKED`，GBuffer 不处理），
-  以及是否忽略材质 shader（默认使用，GBuffer 就是；DepthOnly 声明忽略，只在镂空、顶点动画这类特性需要时才用）。这就是步骤 2 的排列范围，
-  shader 宏排列本来就要知道一个 shader 支持哪些宏；UE 同样让 shader 自己声明（`ShouldCompilePermutation`）。怎么声明在步骤 2 定。
+  以及是否忽略材质 shader（默认使用，GBuffer 就是；DepthOnly 声明忽略，只在镂空、顶点动画这类特性需要时才用）。这就是宏排列的范围，
+  shader 宏排列本来就要知道一个 shader 支持哪些宏；UE 同样让 shader 自己声明（`ShouldCompilePermutation`）。怎么声明到做宏排列时再定。
 - **宏属于特性，不属于 pass**：所有 pass 模板遵守同一套宏约定（名字沿用 UE），所以没有"这个 pass 用哪个排列"这样的参数。
 - **真正属于某个 pass 的例外**（例如以后阴影想对双面物体用另一种剔除）：到时给 pass 加一个可选的覆盖组件，是例外不是常规写法。现在没有。
 
@@ -397,7 +405,7 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
 **使用者**
 
 - D8 的分配：新键或新 pass 出现时求变体，按变体找到或新建 `DrawBin`。
-- PSO 的建立：同一个系统里一个通用函数，把"pass 的默认描述 + 变体"变成 PSO 描述（1b 只改剔除；步骤 2、3 之后选 shader 排列；步骤 5 加混合状态）。
+- PSO 的建立：同一个系统里一个通用函数，把"pass 的默认描述 + 变体"变成 PSO 描述（1b 只改剔除；有了宏排列之后选 shader 排列；步骤 5 加混合状态）。
   D11 的预编请求以后从这里发出。
 - D6 的 CPU 路径：经投影表的 CPU 镜像用同一份结果。
 
@@ -421,9 +429,9 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
 - `PipelineKey.h`：键的位布局、`MakePipelineKey` 与解码函数，键空间 16。
 - `PipelineVariant`（优先级、剔除覆盖、特性宏、材质 shader 编号）与 `FeatureMacro`。
 - `InterpretPipelineVariant(键, pass 的渲染状态, ShaderTemplateFeatures)`：D13 的五步。双面 → `CullMode::None` 已经写好；
-  `ShaderTemplateFeatures`（支持的宏、是否忽略材质 shader）在步骤 2 之前没有来源，调用方传默认值。
+  `ShaderTemplateFeatures`（支持的宏、是否忽略材质 shader）在有宏排列之前没有来源，调用方传默认值。
 - `BuildDrawPipelineDescriptor`：pass 的 shader、`PassPipelineState`、`PassPipelineLayout` 加变体 → `PipelineStateDescriptorForDraw`。
-  `CompilePipelineStates` 用它建 pass 的默认 PSO（空变体）；现在只套用剔除覆盖，带宏或材质 shader 的变体要等步骤 2。
+  `CompilePipelineStates` 用它建 pass 的默认 PSO（空变体）；现在只套用剔除覆盖，带宏或材质 shader 的变体要等宏排列。
 
 ### 1　两段式剔除 + 分桶 + item 级 PSO 切换，用 doubleSided 验证
 
@@ -455,14 +463,19 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
   （pass，变体）用 `BuildDrawPipelineDescriptor` 同步建，以 `DrawBinPipeline` 挂在桶上。这一步只换渲染状态，
   不需要新 shader，layout 不变。
 
-### 2　layout 以声明为准 + shader 宏排列
+### ~~2　layout 以声明为准 + shader 宏排列~~　取消（用户 2026-10-18）
 
-- D4：layout 来自声明的绑定组；变体的子集校验；去掉 `SpaceZeroKeepAlive`；深度类 pass 声明完整顶点格式并校验步长。
+layout 那一半见 D4。宏排列等到有了用户再做，即推后的 Masked；原来列的内容留作那时的起点：
+
 - shader 的身份变成（资产，宏集合），宏集合进 hash 与缓存键，异步按需编译（D11）。每种材质一套 shader 的 include 重定向留到第二个材质
   shader 出现时（路线图 I10）。
 - shader 模板声明自己的排列范围：支持哪些特性宏、是否忽略材质 shader（D13）。解释系统的第 3、4 步读它。
+- 待定：排列多引用的资源要装得进 pass 的 layout，而 pass 自己的 space2 取自默认 shader 的反射。一种做法是材质代码只多引用
+  共享组与 bindless（GBuffer 的 `g_MatSampler` 从 space2 挪进材质组），另有"取所有排列反射的并集"、"space2 也在 C++ 声明"。
 
-### 3　Masked
+### 3　Masked　推后（用户 2026-10-18）
+
+依赖宏排列（DepthOnly 要一个 clip 的排列），而半透明更重要。
 
 - `MaterialData` 加 `m_alphaCutoff`，不透明度取 `baseColor.a × 贴图 alpha`；C++ 与 HLSL 两边的 static_assert 一起改。
 - `ClassifyDraw` 读材质状态：Masked 为不透明加投影，Blend 等为半透明。

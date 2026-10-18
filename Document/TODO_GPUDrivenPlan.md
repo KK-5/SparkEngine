@@ -533,7 +533,8 @@ D5 已撤销：实例身份的做法不变，不构成一项决策，内容并�
   - 用户提过放进 `InstanceBindings.hlsli`（`g_Instances` 旁边一个计数，绑定系统顺手更新）。没有做，挡住它的是 DX12 后端
     的一条断言：一个 pass 自己反射出的某个 space 的 constant buffer 数要和共享的那一组一样多（`CommandList.cpp:219`），
     space4 加一个 cbuffer 之后 DepthPre、GBuffer、Shadow 都得读它一下，和 `SpaceZeroKeepAlive` 是同一个坑
-    （`TODO_StructureAlignPlan.md`）。先用单独的实体（用户 2026-10-08 定）。
+    （`TODO_StructureAlignPlan.md`）。先用单独的实体（用户 2026-10-08 定）。2026-10-18 起这个断言不再挡：pass 的 layout
+    整份取用组的 space，不读它的 pass 也有那个 cbuffer；要不要挪进去另定。
 - **带 `DeadTag` 但还没销毁的实体不处理**（原来列为一种，实现过，后来删掉）。世界实体在每帧最后才销毁，渲染在它之前，
   所以确实有一帧旧记录留着；但那一帧它的几何与槽位都还有效，CPU 路径同样照旧画它，多画这一帧没有害处，销毁之后落进第一条。
   这是读代码得出的，没有单独跑过。

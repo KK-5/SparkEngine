@@ -806,7 +806,9 @@ shader 只有在 `m_shadowIndex == -1` 完全不采样时才是对的。那条�
   （`D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS` / `VK_RENDERING_SUSPENDING_BIT`），且 TBDR 上还关系到 tile memory
   能否跨 CommandList 保持——按「abstraction follows the stricter backend」这个字段本就该有。独立于本方案。
 - ~~**`g_Views` 全量缓冲区能否取代 per-view SRG。**~~ 已取代，见 `TODO_BindingModelPlan.md`。
-- **共享 space 的布局需要一份权威来源。** 描述符表的表内偏移是**追加式**的
+- ✅ 2026-10-18 解决，权威来源是各绑定系统里的 C++ 声明而不是反射宿主（宿主已删除），pass 组装 layout 时整份取用、
+  对它的全部 stage 可见，见 `TODO_StructureAlignPlan.md` 未决一节。以下是当时的记录。
+  ~~**共享 space 的布局需要一份权威来源。**~~ 描述符表的表内偏移是**追加式**的
   （`PipelineLayout.cpp` 的 `OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND`），
   `m_registerId` 只填 `BaseShaderRegister`、不决定第几格；而顺序来自
   `AddShaderInputDescriptors` 固定的 buffer → image → sampler → constant 分桶。于是 SRG 的表（从反射宿主

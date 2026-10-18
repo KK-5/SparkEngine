@@ -293,12 +293,11 @@ I11 不在图里：P5 在功能上不依赖它，但它排在 P5 之前——I5 
 
 **带入后续阶段的遗留**：
 
-- **共享绑定组的 space0 布局缺陷**——Pass 的描述符表偏移来自它自己的反射，而共享组按组的顺序写描述符，
-  只引用部分 space0 的 shader 会让空缺之后的槽位整体错位。现用 `SceneBindings.hlsli` 里的
-  `SpaceZeroKeepAlive()` 绕过（每个 shader 强行引用全部 space0 资源）。正解是让组拥有的 space 由组描述布局，
-  改点在 `PassBuilder.h` 的 `BuildPipelineLayoutFromShaders` 加一处初始化顺序调整，不动 PSO 与 DX12 后端。
-- `SkyboxPass` 只引用 `g_EnvIntensity`、不引用任何 space0 SRV，**疑似同一问题但未验证**。测法：改天空盒组件
-  的 intensity，看天空亮度跟不跟。
+- ~~**共享绑定组的 space0 布局缺陷**~~ ✅ 2026-10-18 解决：共享组在 C++ 里声明布局，pass 的 layout 整份取用它绑的组的
+  space 并校验 shader 的引用（`BuildPassPipelineLayout`），`SpaceZeroKeepAlive()` 与五个反射宿主删除。经过见
+  `TODO_StructureAlignPlan.md` 未决一节。
+- ~~`SkyboxPass` 只引用 `g_EnvIntensity`、不引用任何 space0 SRV，**疑似同一问题但未验证**~~。随上一条消除：它现在拿到完整的
+  space0。画面没有单独验证，测法仍是改天空盒组件的 intensity，看天空亮度跟不跟。
 - ShadowProjection 是全屏 draw，**没有按灯包围盒收缩**。等 P4/P5 的光源剔除到位后自然补上。
 - 灯光组件的"阴影方式"字段没加，`ShadowViewSystem` 仍为所有投影灯分配 atlas tile。P6 接 RT 阴影时要做。
 - 屏幕空间 AO 的声明与 `AmbientOcclusion` 信号纹理不存在，P4 与 GTAO 一起建。
@@ -346,7 +345,7 @@ GPU-based validation 下跑过、无报错（bindless 访问 CPU 端 debug layer
 
 1. I5：按材质 PSO 变体，变体维度按"材质 × vertex factory"设计（I10，factory 维度先只有静态网格）。材质加 `BlendMode`（Opaque / Masked / Translucent / Additive / Modulate /
    AlphaComposite）、`TranslucencyPass`（BeforeDOF / AfterDOF）。
-2. Masked：DepthPrePass / ShadowPass / GBufferPass 带 PS 做 clip。
+2. Masked：DepthPrePass / ShadowPass / GBufferPass 带 PS 做 clip。推后（2026-10-18），等 shader 宏排列，见 `TODO_TranslucencyPlan.md`。
 3. 分类：`DrawItemPersistencePlan` §八 所说的"加一个分类 tag + 一条映射 + 一个 pass"。
 4. Translucency（SurfaceForwardShading）：前向着色库与延迟共用 BRDF，逐灯循环 + 采样 shadow atlas + IBL；按
    视图深度从后往前排序。BeforeDOF 直接写 SceneColor；AfterDOF 写 SeparateTranslucency，DOF 之后合成（P9 之前

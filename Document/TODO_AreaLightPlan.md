@@ -461,7 +461,8 @@ struct LightData   // 96 bytes
 - **采样器也要挪**：`g_IBLSampler` 现在在 `BindEnvironmentIBL` 的门后面才设置，没有天空盒时是未设置的。LTC 复用这个
   线性 clamp 采样器，所以它的设置要移到无条件路径。
 - 新资源要同时加进 `SceneBindingsReflect.hlsl` 和 `SpaceZeroKeepAlive`，漏任何一处都是静默错位
-  （`TODO_StructureAlignPlan.md` 记的那笔欠账）。
+  （`TODO_StructureAlignPlan.md` 记的那笔欠账）。2026-10-18 起这条不再成立：两者都已删除，新资源加进
+  `SceneBindings.hlsli` 与 `SceneBindingSystem::Init` 的声明，两边不一致时 pass 建 layout 会报错。
 
 ---
 

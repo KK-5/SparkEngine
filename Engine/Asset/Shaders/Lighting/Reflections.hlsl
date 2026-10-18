@@ -100,8 +100,6 @@ float4 PSMain(VSOutput input) : SV_Target0
         color = radiance * EnvBRDFLut(g_BRDFLut, g_IBLSampler, gbuffer.SpecularColor, roughness, NoV);
     }
 
-    color += SpaceZeroKeepAlive();
-
     // Alpha is held by the blend state, so what is written here never lands.
     return float4(color * view.preExposure, 0.0);
 }

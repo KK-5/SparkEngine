@@ -78,8 +78,6 @@ float4 PSMain(VSOutput input) : SV_Target0
     }
     color *= AOMultiBounce(gbuffer.BaseColor, ao);
 
-    color += SpaceZeroKeepAlive();
-
     // Alpha is held by the blend state, so what is written here never lands.
     return float4(color * GetView(g_Scope.viewIndex).preExposure, 0.0);
 }
