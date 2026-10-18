@@ -182,9 +182,10 @@ CPU 按每个桶的实例数给它划一段，GPU 往段里追加记录并计数
 （`BuildPassPipelineLayout`）。`CommandList.cpp:219` 的断言因此不再挡共享组加 cbuffer，`InstanceSlotCount` 要不要挪进
 `InstanceBindings` 另定。
 
-**还没做的一条，不属于 P5**：间接绘制的 VB 固定按 `StandardVertex::Stride`（48）绑定（`PassScopes.cpp` 的 `RenderScope::DrawIndirect`），
-而 DepthPre / Shadow 的 PSO 输入布局只声明 POSITION，步长 12。DX12 的步长在 VB view 上，所以现在能画；Vulkan 把步长烘进 pipeline，
-会按 12 读。修法：深度类 pass 声明完整的标准顶点格式（VS 不用的通道不读），`DrawIndirect` 绑几何时校验 pass 输入布局的步长。
+**另一条，不属于 P5，2026-10-18 已修**：间接绘制的 VB 固定按 `StandardVertex::Stride`（48）绑定（`PassScopes.cpp` 的
+`RenderScope::DrawIndirect`），而 DepthPre / Shadow 的 PSO 输入布局原先只声明 POSITION，步长 12。DX12 的步长在 VB view 上，
+所以能画；Vulkan 把步长烘进 pipeline，会按 12 读。现在两者和 GBuffer 一样手动声明完整的 `StandardVertex`（输入布局描述绑定的几何，
+不是 VS 读哪几个通道）；以后有了第二种顶点布局，再统一建顶点工厂来给出输入布局（用户定）。
 （本节原先写"lowering 按 pass 的输入布局取步长"，那只对直接绘制的 `CompileItemInputAssembly` 成立。）
 
 ### D5　参数由 CPU 生成：用 RHI 现成的主机可见每帧 buffer，直接读　✅ 已定

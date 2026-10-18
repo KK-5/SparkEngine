@@ -45,9 +45,14 @@ namespace Spark::Render
         RHI::InputStreamLayout input;
         RHI::InputStreamLayoutBuilder builder;
         builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
-        // Depth-only VS reads POSITION alone; it sits at offset 0, so no padding is
-        // needed for the trailing NORMAL/TANGENT/TEXCOORD the mesh interleaves.
-        builder.AddBuffer()->Channel("POSITION", 0, RHI::Format::R32G32B32_FLOAT);
+        // The whole StandardVertex, as GBufferPass declares it, though the VS reads POSITION
+        // alone: the layout describes the bound geometry, and Vulkan bakes its stride into the
+        // pipeline.
+        builder.AddBuffer()
+               ->Channel("POSITION", 0, RHI::Format::R32G32B32_FLOAT)
+               ->Channel("NORMAL",   0, RHI::Format::R32G32B32_FLOAT)
+               ->Channel("TANGENT",  0, RHI::Format::R32G32B32A32_FLOAT)
+               ->Channel("TEXCOORD", 0, RHI::Format::R32G32_FLOAT);
         builder.AddBuffer(RHI::StreamStepFunction::PerInstance, 1)
                ->Channel("INSTANCE_INDEX", 0, RHI::Format::R32_UINT);
         input = builder.End();
