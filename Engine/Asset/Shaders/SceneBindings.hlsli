@@ -11,8 +11,8 @@
 #include "LightData.hlsli"
 #include <Shaders/Lib/Shadow/ShadowViewData.hlsli>
 
-// The group's layout -- every resource and SceneConstants member below, in this order -- is
-// declared again in SceneBindingSystem::Init; change both together.
+// The group's layout -- every resource and SceneConstants member below -- is declared again
+// in SceneBindingSystem::Init; change both together.
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
 
 // Indexed by LightData::shadowIndex plus a cube face — entries for unallocated

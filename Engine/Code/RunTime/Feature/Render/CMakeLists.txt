@@ -26,6 +26,7 @@ set(SOURCES
     Feature/InstanceBinning/InstanceBinningPass.cpp
     Feature/InstanceLists/InstanceLists.cpp
     Pass/PassAccess.cpp
+    Pass/PassBuilder.cpp
     Pass/Pipeline.cpp
     PipelineState/PipelineVariantInterpret.cpp
     PipelineState/PipelineStateBuild.cpp

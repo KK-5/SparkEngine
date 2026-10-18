@@ -94,8 +94,8 @@ namespace Spark::Render
         Ptr<Resource::ShaderAsset> m_computeShader  = nullptr;
     };
 
-    //! PipelineLayoutDescriptor derived from PassShaders reflection at
-    //! PassBuilder::Finalize. Lives on the pass so user-side Build callbacks
+    //! PipelineLayoutDescriptor built at PassBuilder::Finalize from the bound groups and
+    //! the PassShaders reflection (BuildPassPipelineLayout). Lives on the pass so user-side Build callbacks
     //! can construct ShaderBindings (which require the layout at Init) without
     //! waiting for the render-graph Compile phase. PSO compiler reads this
     //! to assemble the root signature / descriptor set layouts.

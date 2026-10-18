@@ -198,15 +198,20 @@ namespace Spark::Render
             {
                 m_context->Add<PassPipelineState>(pass, m_pipelineState);
 
-                // Eager build PipelineLayoutDescriptor from shader reflection so
-                // user code (e.g. ShaderBindings::Init) can grab it before Compile.
+                // Eager build the PipelineLayoutDescriptor so user code (e.g.
+                // ShaderBindings::Init) can grab it before Compile.
                 auto* factory = Service<RHI::Factory>::Get();
                 ASSERT(factory, "Pass '{}': RHI::Factory service is not registered.",
                     m_name.GetCStr());
-                if (auto layout = BuildPipelineLayoutFromShaders(*factory, m_shaders))
+                ShaderBindingsList groups;
+                if (m_capabilities.m_resolveSharedBindings)
+                {
+                    m_capabilities.m_resolveSharedBindings(*RHIExecuteContext::Current(), groups);
+                }
+                if (auto layout = BuildPassPipelineLayout(*factory, m_shaders, groups, m_name.GetCStr()))
                 {
                     // Auto-create the per-pass (space2) bindings now that the layout is
-                    // reflected, but only when the shader actually declares that space, so no
+                    // built, but only when the shader actually declares that space, so no
                     // pass processor has to allocate them. RHIExecuteContext is current during
                     // SetUp.
                     const bool hasPerPassSpace = layout->FindSpaceGroupBySpaceId(kPerPassSpaceId) != nullptr;

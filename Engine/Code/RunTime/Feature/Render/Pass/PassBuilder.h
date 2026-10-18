@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/span.h>
+
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <Base.h>
@@ -16,37 +18,21 @@
 #include <Pass/PassTag.h>
 #include <Pass/Component/PassComponents.h>
 #include <RenderGraph/PassScopes.h>
-#include <Resource/Shader/ShaderBuilder.h>
 
 namespace Spark::Render
 {
-    //! Build a PipelineLayoutDescriptor from a PassShaders set via shader
-    //! reflection. Returns nullptr if no shader is present (a pass without a
-    //! pipeline). The result is owned by the caller; PassBuilder stores it on
-    //! the pass as PassPipelineLayout so user Build callbacks can grab it
-    //! before the render-graph Compile phase runs.
-    inline Ptr<RHI::PipelineLayoutDescriptor> BuildPipelineLayoutFromShaders(
-        RHI::Factory& factory, const PassShaders& shaders)
-    {
-        const Resource::ShaderAsset* assets[] = {
-            shaders.m_vertexShader.get(),
-            shaders.m_fragmentShader.get(),
-            shaders.m_geometryShader.get(),
-            shaders.m_computeShader.get(),
-        };
-        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(
-            eastl::span<const Resource::ShaderAsset* const>(assets, 4));
-
-        if (built.stageMask == RHI::ShaderStageMask::None)
-        {
-            return nullptr;
-        }
-
-        auto layout = factory.CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list);
-        layout->Finalize();
-        return layout;
-    }
+    //! The pass's PipelineLayoutDescriptor. Each shared group it binds (`groups`, from
+    //! .Binds) gives its whole space, copied from the group's own layout so the pass's
+    //! descriptor tables are the ones the group writes, however little of it the shaders
+    //! read; the space is made visible to every stage the pass has. The pass's own space
+    //! (kPerPassSpaceId) and its root constants come from its shaders' reflection, which
+    //! is also checked against the groups. Null if no shader is present (a pass without a
+    //! pipeline). PassBuilder stores it on the pass as PassPipelineLayout so user Build
+    //! callbacks can grab it before the render-graph Compile phase runs. Defined in
+    //! PassBuilder.cpp.
+    Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(
+        RHI::Factory& factory, const PassShaders& shaders,
+        eastl::span<const RHI::ShaderBindings* const> groups, const char* passName);
 
     struct RenderPassConfig
     {
