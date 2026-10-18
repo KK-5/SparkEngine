@@ -8,19 +8,12 @@
 #include <Log/ILogSystem.h>
 #include <Math/MathUtils.h>
 #include <Math/Vector4.h>
-#include <Service/Service.h>
-
-#include <RHI/RHIInterface.h>
-#include <RHI/Factory.h>
-#include <RHI/Device/Device.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Resource/AssetManagerInterface.h>
-#include <Resource/Shader/ShaderAsset.h>
-#include <Resource/Shader/ShaderBuilder.h>
-
+#include <Binding/BindingSpaces.h>
+#include <Binding/SharedBindings.h>
 #include <View/ViewComponents.h>
 
 namespace Spark::Render
@@ -108,52 +101,18 @@ namespace Spark::Render
 
     void ViewBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        auto* assetManager = Service<Resource::AssetManager>::Get();
-        ASSERT(assetManager, "[ViewBindingSystem] AssetManager is unregistered.");
-
-        // ViewBindingsReflect.hlsl is a reflection host (includes ViewBindings.hlsli + a dummy
-        // vertex entry reading g_Views) so the space1 layout can be reflected here — mirrors
-        // MaterialBindingSystem / MaterialBindingsReflect.hlsl.
-        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/ViewBindingsReflect.hlsl");
-        if (!assetId.IsValid())
-        {
-            LOG_ERROR("[ViewBindingSystem] Failed to resolve ViewBindingsReflect.hlsl asset id.");
-            return;
-        }
-        auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
-        if (!shaderAsset)
-        {
-            LOG_ERROR("[ViewBindingSystem] Failed to load ViewBindingsReflect.hlsl.");
-            return;
-        }
-
-        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
-        if (built.stageMask == RHI::ShaderStageMask::None)
-        {
-            LOG_ERROR("[ViewBindingSystem] ViewBindings.hlsli produced no shader inputs.");
-            return;
-        }
-
-        auto* rhi = Service<RHI::RHIInterface>::Get();
-        ASSERT(rhi, "[ViewBindingSystem] RHI::RHIInterface service not registered.");
-        auto* factory = rhi->GetRHIFactory();
-        auto* device  = rhi->GetDevice();
-        ASSERT(factory && device, "[ViewBindingSystem] RHI factory or device is null.");
+        // The layout of ViewBindings.hlsli, declared rather than reflected (see SharedBindings.h).
+        RHI::ShaderInputList inputs;
+        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
+            RHI::InputName(ViewBufferName), RHI::ShaderInputBufferAccess::Read,
+            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kViewSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
         // only the handle. The g_Views SRV is bound by GlobalBuffer once the upload
         // buffer materializes, so we DO NOT mark it dirty here.
-        Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list);
-        layout->Finalize();
-
-        Ptr<RHI::ShaderBindings> viewBindings = factory->CreateShaderBindings();
-        RHI::ShaderBindings::Descriptor desc;
-        desc.m_layout  = layout;
-        desc.m_spaceId = 1;   // The shared view group is reserved at space1.
-        if (viewBindings->Init(*device, desc) != RHI::ResultCode::Success)
+        Ptr<RHI::ShaderBindings> viewBindings = CreateSharedBindings(inputs, kViewSpaceId, "ViewBindingSystem");
+        if (!viewBindings)
         {
-            LOG_ERROR("[ViewBindingSystem] ShaderBindings::Init failed.");
             return;
         }
 

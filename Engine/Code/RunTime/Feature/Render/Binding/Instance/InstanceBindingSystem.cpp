@@ -1,21 +1,15 @@
 #include "InstanceBindingSystem.h"
 
 #include <Log/ILogSystem.h>
-#include <Service/Service.h>
 #include <ECS/Common.h>
 
-#include <RHI/RHIInterface.h>
-#include <RHI/Factory.h>
-#include <RHI/Device/Device.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Resource/AssetManagerInterface.h>
-#include <Resource/Shader/ShaderAsset.h>
-#include <Resource/Shader/ShaderBuilder.h>
-
 #include <RHI/ResourceBuilder.h>
+#include <Binding/BindingSpaces.h>
+#include <Binding/SharedBindings.h>
 #include <Pass/Component/RHIComponents.h>
 
 #include <Math/MathUtils.h>
@@ -78,53 +72,19 @@ namespace Spark::Render
 
     void InstanceBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        auto* assetManager = Service<Resource::AssetManager>::Get();
-        ASSERT(assetManager, "[InstanceBindingSystem] AssetManager is unregistered.");
-
-        // InstanceBindings.hlsli is a pure StructuredBuffer header with no entry point;
-        // InstanceBindingsReflect.hlsl is a reflection host that #includes it and adds a
-        // dummy vertex entry reading g_Instances, purely so we can reflect the space4
-        // layout here (mirrors ViewBindingSystem / ViewBindingsReflect.hlsl).
-        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/InstanceBindingsReflect.hlsl");
-        if (!assetId.IsValid())
-        {
-            LOG_ERROR("[InstanceBindingSystem] Failed to resolve InstanceBindingsReflect.hlsl asset id.");
-            return;
-        }
-        auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
-        if (!shaderAsset)
-        {
-            LOG_ERROR("[InstanceBindingSystem] Failed to load InstanceBindingsReflect.hlsl.");
-            return;
-        }
-
-        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
-        if (built.stageMask == RHI::ShaderStageMask::None)
-        {
-            LOG_ERROR("[InstanceBindingSystem] InstanceBindings.hlsli produced no shader inputs.");
-            return;
-        }
-
-        auto* rhi = Service<RHI::RHIInterface>::Get();
-        ASSERT(rhi, "[InstanceBindingSystem] RHI::RHIInterface service not registered.");
-        auto* factory = rhi->GetRHIFactory();
-        auto* device  = rhi->GetDevice();
-        ASSERT(factory && device, "[InstanceBindingSystem] RHI factory or device is null.");
+        // The layout of InstanceBindings.hlsli, declared rather than reflected (see SharedBindings.h).
+        RHI::ShaderInputList inputs;
+        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
+            RHI::InputName(InstanceBufferName), RHI::ShaderInputBufferAccess::Read,
+            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kInstanceSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
         // only the handle. The g_Instances SRV is bound by GlobalBuffer once the upload
         // buffer materializes, so we DO NOT mark it dirty here.
-        Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list);
-        layout->Finalize();
-
-        Ptr<RHI::ShaderBindings> instanceBindings = factory->CreateShaderBindings();
-        RHI::ShaderBindings::Descriptor desc;
-        desc.m_layout  = layout;
-        desc.m_spaceId = 4;   // InstanceBindings (per-object) is reserved at space4.
-        if (instanceBindings->Init(*device, desc) != RHI::ResultCode::Success)
+        Ptr<RHI::ShaderBindings> instanceBindings =
+            CreateSharedBindings(inputs, kInstanceSpaceId, "InstanceBindingSystem");
+        if (!instanceBindings)
         {
-            LOG_ERROR("[InstanceBindingSystem] ShaderBindings::Init failed.");
             return;
         }
 

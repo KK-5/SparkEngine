@@ -1,18 +1,13 @@
 #include "GeometryBindingSystem.h"
 
 #include <Log/ILogSystem.h>
-#include <Service/Service.h>
 #include <ECS/Common.h>
 
-#include <RHI/RHIInterface.h>
-#include <RHI/Factory.h>
-#include <RHI/Device/Device.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Resource/AssetManagerInterface.h>
-#include <Resource/Shader/ShaderAsset.h>
-#include <Resource/Shader/ShaderBuilder.h>
+#include <Binding/BindingSpaces.h>
+#include <Binding/SharedBindings.h>
 
 namespace Spark::Render
 {
@@ -34,52 +29,19 @@ namespace Spark::Render
 
     void GeometryBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        auto* assetManager = Service<Resource::AssetManager>::Get();
-        ASSERT(assetManager, "[GeometryBindingSystem] AssetManager is unregistered.");
-
-        // GeometryBindingsReflect.hlsl is a reflection host (#includes GeometryBindings.hlsli
-        // + a dummy vertex entry reading g_Geometries) so we can reflect the space6 layout
-        // here — mirrors InstanceBindingSystem / InstanceBindingsReflect.hlsl.
-        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/GeometryBindingsReflect.hlsl");
-        if (!assetId.IsValid())
-        {
-            LOG_ERROR("[GeometryBindingSystem] Failed to resolve GeometryBindingsReflect.hlsl asset id.");
-            return;
-        }
-        auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
-        if (!shaderAsset)
-        {
-            LOG_ERROR("[GeometryBindingSystem] Failed to load GeometryBindingsReflect.hlsl.");
-            return;
-        }
-
-        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
-        if (built.stageMask == RHI::ShaderStageMask::None)
-        {
-            LOG_ERROR("[GeometryBindingSystem] GeometryBindings.hlsli produced no shader inputs.");
-            return;
-        }
-
-        auto* rhi = Service<RHI::RHIInterface>::Get();
-        ASSERT(rhi, "[GeometryBindingSystem] RHI::RHIInterface service not registered.");
-        auto* factory = rhi->GetRHIFactory();
-        auto* device  = rhi->GetDevice();
-        ASSERT(factory && device, "[GeometryBindingSystem] RHI factory or device is null.");
+        // The layout of GeometryBindings.hlsli, declared rather than reflected (see SharedBindings.h).
+        RHI::ShaderInputList inputs;
+        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
+            RHI::InputName(GeometryBufferName), RHI::ShaderInputBufferAccess::Read,
+            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kGeometrySpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
         // only the handle. The g_Geometries SRV is bound by GlobalBuffer once the upload
         // buffer materializes.
-        Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list);
-        layout->Finalize();
-
-        Ptr<RHI::ShaderBindings> geometryBindings = factory->CreateShaderBindings();
-        RHI::ShaderBindings::Descriptor desc;
-        desc.m_layout  = layout;
-        desc.m_spaceId = 6;   // GeometryBindings (per-geometry) is reserved at space6.
-        if (geometryBindings->Init(*device, desc) != RHI::ResultCode::Success)
+        Ptr<RHI::ShaderBindings> geometryBindings =
+            CreateSharedBindings(inputs, kGeometrySpaceId, "GeometryBindingSystem");
+        if (!geometryBindings)
         {
-            LOG_ERROR("[GeometryBindingSystem] ShaderBindings::Init failed.");
             return;
         }
 

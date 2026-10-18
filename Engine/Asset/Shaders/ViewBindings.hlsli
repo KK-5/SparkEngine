@@ -6,13 +6,13 @@
 // ScopeBindings.hlsli). The pass declares .Binds<ViewBindingTag>(); ViewBindingSystem
 // fills the rows.
 //
-// Binding-space convention (by update frequency, low = stable): space0 per-scene,
-// space1 per-view, space2 per-pass, space3 per-material, space4 per-object, space5 per-Scope.
+// The spaces of all binding tiers are listed in Render/Binding/BindingSpaces.h.
 #ifndef SPARK_VIEW_BINDINGS_HLSL
 #define SPARK_VIEW_BINDINGS_HLSL
 
 #include "ViewData.hlsli"
 
+// The group's layout is declared again in ViewBindingSystem::Init; change both together.
 StructuredBuffer<ViewData> g_Views : register(t0, space1);
 
 ViewData GetView(uint viewIndex)

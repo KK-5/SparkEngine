@@ -4,9 +4,8 @@
 // and the engine fills g_Instances via InstanceBindingSystem (one element per
 // renderable entity, per frame).
 //
-// space4 is the per-object tier — the highest-frequency (most values per frame) in
-// the convention: space0 per-scene, space1 per-view, space2 per-pass, space3
-// per-material, space4 per-object, space5 per-Scope.
+// space4 is the per-object tier, the highest-frequency one (most values per frame). The
+// spaces of all binding tiers are listed in Render/Binding/BindingSpaces.h.
 //
 // The per-draw instance index is delivered through a per-instance vertex stream
 // (PER_INSTANCE_DATA, semantic INSTANCE_INDEX) + DrawInstanced's
@@ -16,6 +15,7 @@
 
 #include "InstanceData.hlsli"
 
+// The group's layout is declared again in InstanceBindingSystem::Init; change both together.
 StructuredBuffer<InstanceData> g_Instances : register(t0, space4);
 
 // Abstraction seam: today instanceIdx comes straight from the vertex input. If a

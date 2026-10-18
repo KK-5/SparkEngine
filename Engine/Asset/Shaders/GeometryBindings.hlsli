@@ -4,13 +4,13 @@
 // and the engine fills g_Geometries via GeometryBindingSystem (one element per mesh on
 // the GPU). InstanceData::GeometryIndex indexes it.
 //
-// It extends the convention (space0 per-scene, space1 per-view, space2 per-pass,
-// space3 per-material, space4 per-object, space5 per-Scope) with space6 per-geometry.
+// The spaces of all binding tiers are listed in Render/Binding/BindingSpaces.h.
 #ifndef SPARK_GEOMETRY_BINDINGS_HLSL
 #define SPARK_GEOMETRY_BINDINGS_HLSL
 
 #include "GeometryData.hlsli"
 
+// The group's layout is declared again in GeometryBindingSystem::Init; change both together.
 StructuredBuffer<GeometryData> g_Geometries : register(t0, space6);
 
 #endif // SPARK_GEOMETRY_BINDINGS_HLSL

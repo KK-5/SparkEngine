@@ -44,6 +44,7 @@ set(SOURCES
     View/ShadowPools.cpp
     View/ShadowViewSystem.cpp
     View/ShadowMaskSystem.cpp
+    Binding/SharedBindings.cpp
     Binding/View/ViewBindingSystem.cpp
     Binding/Scene/SceneBindingSystem.cpp
     Binding/Geometry/GeometryBindingSystem.cpp

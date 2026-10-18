@@ -7,9 +7,6 @@
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 
-#include <RHI/RHIInterface.h>
-#include <RHI/Factory.h>
-#include <RHI/Device/Device.h>
 #include <RHI/Component/Component.h>
 #include <RHI/ResourceBuilder.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
@@ -17,10 +14,10 @@
 
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Image/ImageAsset.h>
-#include <Resource/Shader/ShaderAsset.h>
-#include <Resource/Shader/ShaderBuilder.h>
 
 #include <Shader/ShaderBindingsUtils.h>
+#include <Binding/BindingSpaces.h>
+#include <Binding/SharedBindings.h>
 
 #include <RHI/Resource/Image/Image.h>
 #include <RHI/Resource/Image/ImageView.h>
@@ -74,49 +71,59 @@ namespace Spark::Render
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        auto* assetManager = Service<Resource::AssetManager>::Get();
-        ASSERT(assetManager, "[SceneBindingSystem] AssetManager is unregistered.");
-
-        // SceneBindingsReflect.hlsl is a reflection host (#includes SceneBindings.hlsli + a
-        // dummy vertex entry reading g_Lights / g_LightCount) so we can reflect the space0
-        // layout here — mirrors ViewBindingSystem / ViewBindingsReflect.hlsl.
-        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/SceneBindingsReflect.hlsl");
-        if (!assetId.IsValid())
+        // The layout of SceneBindings.hlsli, declared rather than reflected (see SharedBindings.h).
+        struct BufferInput
         {
-            LOG_ERROR("[SceneBindingSystem] Failed to resolve SceneBindingsReflect.hlsl asset id.");
-            return;
+            const char* m_name;
+            uint32_t    m_register;
+        };
+        struct ImageInput
+        {
+            const char*               m_name;
+            RHI::ShaderInputImageType m_type;
+            uint32_t                  m_register;
+        };
+        constexpr BufferInput Buffers[] = {
+            { LightBufferName,      0 },
+            { ShadowViewBufferName, 4 },
+        };
+        constexpr ImageInput Images[] = {
+            { IrradianceCubeName,  RHI::ShaderInputImageType::ImageCube, 1 },
+            { PrefilteredCubeName, RHI::ShaderInputImageType::ImageCube, 2 },
+            { BRDFLutName,         RHI::ShaderInputImageType::Image2D,   3 },
+            { LTC1Name,            RHI::ShaderInputImageType::Image2D,   5 },
+            { LTC2Name,            RHI::ShaderInputImageType::Image2D,   6 },
+        };
+
+        RHI::ShaderInputList inputs;
+        for (const BufferInput& buffer : Buffers)
+        {
+            inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
+                RHI::InputName(buffer.m_name), RHI::ShaderInputBufferAccess::Read,
+                RHI::ShaderInputBufferType::Structured, 1, 0, buffer.m_register, kSceneSpaceId));
         }
-        auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
-        if (!shaderAsset)
+        for (const ImageInput& image : Images)
         {
-            LOG_ERROR("[SceneBindingSystem] Failed to load SceneBindingsReflect.hlsl.");
-            return;
+            inputs.m_images.push_back(RHI::ShaderInputImageDescriptor(
+                RHI::InputName(image.m_name), RHI::ShaderInputImageAccess::Read,
+                image.m_type, 1, image.m_register, kSceneSpaceId));
+        }
+        inputs.m_samplers.push_back(RHI::ShaderInputSamplerDescriptor(RHI::InputName(IBLSamplerName), 1, 0, kSceneSpaceId));
+
+        // cbuffer SceneConstants : register(b0), every member a 4-byte scalar.
+        uint32_t constantOffset = 0;
+        for (const char* name : { LightCountName, PrefilteredMipsName, EnvIntensityName, ShadowTexelSizeName,
+                                  FrameNumberName, GameTimeName, PrevGameTimeName, DeltaTimeName,
+                                  AreaLightLutReadyName })
+        {
+            inputs.m_constants.push_back(RHI::ShaderInputConstantDescriptor(
+                RHI::InputName(name), constantOffset, 4, 0, kSceneSpaceId));
+            constantOffset += 4;
         }
 
-        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
-        if (built.stageMask == RHI::ShaderStageMask::None)
+        Ptr<RHI::ShaderBindings> sceneBindings = CreateSharedBindings(inputs, kSceneSpaceId, "SceneBindingSystem");
+        if (!sceneBindings)
         {
-            LOG_ERROR("[SceneBindingSystem] SceneBindings.hlsli produced no shader inputs.");
-            return;
-        }
-
-        auto* rhi = Service<RHI::RHIInterface>::Get();
-        ASSERT(rhi, "[SceneBindingSystem] RHI::RHIInterface service not registered.");
-        auto* factory = rhi->GetRHIFactory();
-        auto* device  = rhi->GetDevice();
-        ASSERT(factory && device, "[SceneBindingSystem] RHI factory or device is null.");
-
-        Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list);
-        layout->Finalize();
-
-        Ptr<RHI::ShaderBindings> sceneBindings = factory->CreateShaderBindings();
-        RHI::ShaderBindings::Descriptor desc;
-        desc.m_layout  = layout;
-        desc.m_spaceId = 0;   // SceneBindings (per-scene) is reserved at space0.
-        if (sceneBindings->Init(*device, desc) != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("[SceneBindingSystem] ShaderBindings::Init failed.");
             return;
         }
 
@@ -124,26 +131,6 @@ namespace Spark::Render
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindings, RHI::Components::ShaderBindings{ sceneBindings });
         rhiCtx.Add<MainSceneTag>(m_bindings);
-
-        // A constant dropped by DXC logs every frame, but a dropped image stays silent —
-        // images are only bound when something needs them. Catch it once, here.
-        for (const char* name : {IrradianceCubeName, PrefilteredCubeName, BRDFLutName,
-                                 LTC1Name, LTC2Name})
-        {
-            if (!sceneBindings->FindImageInput(RHI::InputName(name)))
-            {
-                LOG_ERROR("[SceneBindingSystem] '{}' is missing from the reflected space0 "
-                          "layout — add a use of it to SceneBindingsReflect.hlsl.", name);
-            }
-        }
-        if (!sceneBindings->FindSamplerInput(RHI::InputName(IBLSamplerName)))
-        {
-            LOG_ERROR("[SceneBindingSystem] '{}' is missing from the reflected space0 "
-                      "layout — add a use of it to SceneBindingsReflect.hlsl.", IBLSamplerName);
-        }
-        // Marks the group live: every early return above is silent, and downstream just
-        // no-ops on a null binding handle.
-        LOG_INFO("[SceneBindingSystem] space0 layout reflected (lights + environment IBL + LTC).");
 
         // Both arrays land in the space0 group created above, so they share m_bindings and
         // differ only by input name and capacity. Materialized on the next frame begin

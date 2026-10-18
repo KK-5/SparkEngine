@@ -101,9 +101,7 @@ namespace Spark::SandBox
         sys.m_asyncUpload->Init();
 
         // Asset manager. engine:// is the same mount the editor uses, so engine-relative ids
-        // resolve -- notably the *BindingsReflect.hlsl hosts the render binding systems reflect
-        // their groups from (space1's among them). Shared engine shader headers reach it the
-        // same way.
+        // resolve -- notably the shared engine shader headers the samples include.
         sys.m_vfs = CreateSystem<VFSSystem>();
         sys.m_vfs->Init();
         sys.m_vfs->Mount("sandbox", SHADER_ASSET_DIR);

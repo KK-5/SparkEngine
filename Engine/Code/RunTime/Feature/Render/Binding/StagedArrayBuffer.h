@@ -33,7 +33,7 @@ namespace Spark::Render
     //! cacheable RAM, which is the write mode encoding wants — upload heaps are
     //! write-combined and read-modify-write scattered stores into them are slow.
     //!
-    //! The owner creates the ShaderBindings entity (shader reflection, space id, its own
+    //! The owner creates the ShaderBindings entity (declared layout, space id, its own
     //! tags) and hands it in — this only binds the SRV onto it each frame.
     template<typename Element>
     class StagedArrayBuffer

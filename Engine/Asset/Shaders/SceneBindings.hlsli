@@ -4,14 +4,15 @@
 //     #include <Shaders/SceneBindings.hlsli>
 // and the engine fills g_Lights / g_LightCount via SceneBindingSystem.
 //
-// Binding-space convention (by update frequency, low = stable): space0 per-scene,
-// space1 per-view, space2 per-pass, space3 per-material, space4 per-object, space5 per-Scope.
+// The spaces of all binding tiers are listed in Render/Binding/BindingSpaces.h.
 #ifndef SPARK_SCENE_BINDINGS_HLSL
 #define SPARK_SCENE_BINDINGS_HLSL
 
 #include "LightData.hlsli"
 #include <Shaders/Lib/Shadow/ShadowViewData.hlsli>
 
+// The group's layout -- every resource and SceneConstants member below, in this order -- is
+// declared again in SceneBindingSystem::Init; change both together.
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
 
 // Indexed by LightData::shadowIndex plus a cube face — entries for unallocated

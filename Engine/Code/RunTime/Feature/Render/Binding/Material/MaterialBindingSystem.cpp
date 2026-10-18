@@ -1,12 +1,8 @@
 #include "MaterialBindingSystem.h"
 
 #include <Log/ILogSystem.h>
-#include <Service/Service.h>
 #include <CoreComponents/Tags.h>
 
-#include <RHI/RHIInterface.h>
-#include <RHI/Factory.h>
-#include <RHI/Device/Device.h>
 #include <RHI/Component/Component.h>
 #include <RHI/ResourceBuilder.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
@@ -14,11 +10,10 @@
 #include <RHI/Resource/Image/ImageViewDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Resource/AssetManagerInterface.h>
-#include <Resource/Shader/ShaderAsset.h>
-#include <Resource/Shader/ShaderBuilder.h>
-
 #include <EASTL/fixed_vector.h>
+
+#include <Binding/BindingSpaces.h>
+#include <Binding/SharedBindings.h>
 
 #include <ECS/ExecuteContext.h>
 #include <ECS/WorldContext.h>
@@ -57,52 +52,19 @@ namespace Spark::Render
 
     void MaterialBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        auto* assetManager = Service<Resource::AssetManager>::Get();
-        ASSERT(assetManager, "[MaterialBindingSystem] AssetManager is unregistered.");
-
-        // MaterialBindingsReflect.hlsl is a reflection host (#includes MaterialBindings.hlsli
-        // + a dummy vertex entry reading g_Materials) so we can reflect the space3 layout
-        // here — mirrors InstanceBindingSystem / InstanceBindingsReflect.hlsl.
-        const Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/MaterialBindingsReflect.hlsl");
-        if (!assetId.IsValid())
-        {
-            LOG_ERROR("[MaterialBindingSystem] Failed to resolve MaterialBindingsReflect.hlsl asset id.");
-            return;
-        }
-        auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
-        if (!shaderAsset)
-        {
-            LOG_ERROR("[MaterialBindingSystem] Failed to load MaterialBindingsReflect.hlsl.");
-            return;
-        }
-
-        Resource::ShaderInputBuildResult built = Resource::BuildShaderInputList(*shaderAsset);
-        if (built.stageMask == RHI::ShaderStageMask::None)
-        {
-            LOG_ERROR("[MaterialBindingSystem] MaterialBindings.hlsli produced no shader inputs.");
-            return;
-        }
-
-        auto* rhi = Service<RHI::RHIInterface>::Get();
-        ASSERT(rhi, "[MaterialBindingSystem] RHI::RHIInterface service not registered.");
-        auto* factory = rhi->GetRHIFactory();
-        auto* device  = rhi->GetDevice();
-        ASSERT(factory && device, "[MaterialBindingSystem] RHI factory or device is null.");
+        // The layout of MaterialBindings.hlsli, declared rather than reflected (see SharedBindings.h).
+        RHI::ShaderInputList inputs;
+        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
+            RHI::InputName(MaterialBufferName), RHI::ShaderInputBufferAccess::Read,
+            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kMaterialSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
         // only the handle. The g_Materials SRV is bound by GlobalBuffer once the upload
         // buffer materializes, so we DO NOT mark it dirty here.
-        Ptr<RHI::PipelineLayoutDescriptor> layout = factory->CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(built.list);
-        layout->Finalize();
-
-        Ptr<RHI::ShaderBindings> materialBindings = factory->CreateShaderBindings();
-        RHI::ShaderBindings::Descriptor desc;
-        desc.m_layout  = layout;
-        desc.m_spaceId = 3;   // MaterialBindings (per-material) is reserved at space3.
-        if (materialBindings->Init(*device, desc) != RHI::ResultCode::Success)
+        Ptr<RHI::ShaderBindings> materialBindings =
+            CreateSharedBindings(inputs, kMaterialSpaceId, "MaterialBindingSystem");
+        if (!materialBindings)
         {
-            LOG_ERROR("[MaterialBindingSystem] ShaderBindings::Init failed.");
             return;
         }
 
