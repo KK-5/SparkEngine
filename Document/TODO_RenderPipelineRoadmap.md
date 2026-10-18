@@ -413,7 +413,7 @@ LightGrid（分簇光源）只留接缝：前向着色的灯光遍历封装成�
 | MSAA | 与延迟管线不兼容 |
 | DBuffer Decals / CustomDepth | 帧结构中留位置，不排期 |
 | LightGrid 分簇光源 | 灯多到逐灯循环成为瓶颈时。届时直接做分簇，不经过逐灯光体积 + stencil 那一步 |
-| HZB 遮挡剔除 / meshlet / GPU 侧 LOD 选择 | 植被等实例数上万时。indirect draw 与视锥剔除已提前为 I11 |
+| HZB 遮挡剔除 / meshlet | 植被等实例数上万时。indirect draw 与视锥剔除已提前为 I11 |
 | 自动曝光 + PreExposure | **与物理灯光单位一起做**。自动曝光的收益要物理单位才兑现：现在灯光 intensity 是对着 `exposure = 1.0` 凑出来的数，不是物理量，手调场景里自动曝光收益为零。PreExposure 更是一个像素都不改，它防的是 FP16 指数溢出，而我们还没有会溢出的内容。决策 D2/D3 已定，到时直接用 |
 
 ---

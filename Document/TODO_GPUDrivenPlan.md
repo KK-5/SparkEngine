@@ -302,7 +302,7 @@ P5 在功能上不需要 indirect。排在它前面是因为 P5 的两项会把 
 
 做：indirect draw / dispatch 的机制、让几何数据落在同一个 buffer 对象里（D4）、compute 视锥剔除（带 count buffer）。
 
-不做：HZB 遮挡剔除（`HZBFurthest` 仍然没有读者）、meshlet、GPU 侧 LOD 选择、双阶段剔除。它们留在路线图 §五原来的
+不做：HZB 遮挡剔除（`HZBFurthest` 仍然没有读者）、meshlet、双阶段剔除。它们留在路线图 §五原来的
 触发条件上。
 
 ### D2　RHI 的 indirect 记录固定为三种，取消 signature / layout 对象　✅ 已定
