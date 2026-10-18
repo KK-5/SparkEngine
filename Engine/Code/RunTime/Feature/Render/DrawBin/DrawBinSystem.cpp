@@ -65,8 +65,9 @@ namespace Spark::Render
                 passCtx.Get<PassName>(pass).m_name.GetCStr());
 
             // No shader template declares its features until shader permutations exist.
-            const PipelineVariant variant = InterpretPipelineVariant(
-                rhiCtx.Get<PipelineKey>(key), pipelineState->m_renderStates, ShaderTemplateFeatures{});
+            const PipelineKey     keyValue = rhiCtx.Get<PipelineKey>(key);
+            const PipelineVariant variant  = InterpretPipelineVariant(
+                keyValue, pipelineState->m_renderStates, ShaderTemplateFeatures{});
 
             DrawBinHandle bin = NullDrawBin;
             for (auto [entity, of, binVariant] : passCtx.GetView<DrawBinOf, PipelineVariant>().each())
@@ -85,8 +86,15 @@ namespace Spark::Render
                 passCtx.Add<DrawBinRange>(bin);
             }
 
+            DrawBinAssignment record;
+            record.m_pass             = pass;
+            record.m_key              = key;
+            record.m_bin              = bin;
+            record.m_keyValue         = keyValue;
+            record.m_drawMaskBitIndex = passCtx.Get<PassDrawList>(pass).m_drawMaskBitIndex;
+
             const DrawBinAssignmentHandle assignment = passCtx.CreateEntity();
-            passCtx.Add<DrawBinAssignment>(assignment, DrawBinAssignment{ pass, key, bin });
+            passCtx.Add<DrawBinAssignment>(assignment, record);
         }
 
         //! A new pass against the keys already assigned, then the new keys against every pass:
@@ -145,9 +153,8 @@ namespace Spark::Render
             }
             for (auto [entity, assignment] : passCtx.GetView<DrawBinAssignment>().each())
             {
-                const uint32_t bit = passCtx.Get<PassDrawList>(assignment.m_pass).m_drawMaskBitIndex;
                 passCtx.Get<DrawBinRange>(assignment.m_bin).m_capacity +=
-                    rhiCtx.Get<KeyInstanceCount>(assignment.m_key).m_counts[bit];
+                    rhiCtx.Get<KeyInstanceCount>(assignment.m_key).m_counts[assignment.m_drawMaskBitIndex];
             }
 
             // Ordered by what they are, not by where their entities happen to be stored.
@@ -190,8 +197,8 @@ namespace Spark::Render
             for (auto [entity, assignment] : passCtx.GetView<DrawBinAssignment>().each())
             {
                 const auto& range = passCtx.Get<DrawBinRange>(assignment.m_bin);
-                const uint32_t key = rhiCtx.Get<PipelineKey>(assignment.m_key).m_value;
-                passCtx.Get<PassBinTable>(assignment.m_pass).m_entries[key] = DrawBinTableEntry{ range.m_index, range.m_first };
+                passCtx.Get<PassBinTable>(assignment.m_pass).m_entries[assignment.m_keyValue.m_value] =
+                    DrawBinTableEntry{ range.m_index, range.m_first };
             }
 
             // Also on the frame the buffer is requested: the frame's start makes it, then copies

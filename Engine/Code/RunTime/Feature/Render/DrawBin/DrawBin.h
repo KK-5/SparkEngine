@@ -59,10 +59,15 @@ namespace Spark::Render
     };
 
     //! On an entity of its own: in pass, instances of key go to bin.
+    //! The key's value and the pass's draw-mask bit never change for either's life, so they are
+    //! copied here: the per-frame passes over the assignments then read only what does change.
     struct DrawBinAssignment
     {
         Pass           m_pass = NullPass;
         RHI::RHIHandle m_key  = RHI::NullHandle;
         DrawBinHandle  m_bin  = NullDrawBin;
+
+        PipelineKey m_keyValue;
+        uint32_t    m_drawMaskBitIndex = 0;
     };
 }
