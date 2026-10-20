@@ -1,0 +1,49 @@
+#include "DrawGroup.h"
+
+#include <EASTL/sort.h>
+#include <EASTL/tuple.h>
+
+namespace Spark::Render
+{
+    bool DrawsBefore(const PipelineVariant& a, const PipelineVariant& b)
+    {
+        auto order = [](const PipelineVariant& v)
+        {
+            return eastl::make_tuple(v.m_priority, static_cast<uint32_t>(v.m_cullMode),
+                                     static_cast<uint32_t>(v.m_featureMacros), v.m_materialShader);
+        };
+        return order(a) < order(b);
+    }
+
+    void GroupDrawEntries(eastl::span<DrawEntry> entries, DrawOrder order, eastl::vector<DrawGroup>& groups)
+    {
+        groups.clear();
+
+        if (order == DrawOrder::Any)
+        {
+            eastl::sort(entries.begin(), entries.end(), [](const DrawEntry& a, const DrawEntry& b)
+            {
+                return DrawsBefore(a.m_variant, b.m_variant);
+            });
+        }
+
+        uint32_t firstDraw = 0;
+        for (uint32_t index = 0; index < static_cast<uint32_t>(entries.size()); ++index)
+        {
+            const DrawEntry& entry = entries[index];
+            if (groups.empty() || groups.back().m_variant != entry.m_variant)
+            {
+                DrawGroup group;
+                group.m_variant    = entry.m_variant;
+                group.m_firstEntry = index;
+                group.m_firstDraw  = firstDraw;
+                groups.push_back(group);
+            }
+
+            DrawGroup& group = groups.back();
+            ++group.m_entryCount;
+            group.m_maxDraws += entry.m_count;
+            firstDraw        += entry.m_count;
+        }
+    }
+}

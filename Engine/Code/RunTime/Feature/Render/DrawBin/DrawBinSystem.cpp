@@ -3,7 +3,6 @@
 #include <EASTL/algorithm.h>
 #include <EASTL/sort.h>
 #include <EASTL/string.h>
-#include <EASTL/tuple.h>
 #include <EASTL/vector.h>
 
 #include <CoreComponents/Tags.h>
@@ -21,23 +20,14 @@
 #include <RHI/Factory.h>
 #include <RHI/Device/Device.h>
 
+#include "DrawGroup.h"
+
 namespace Spark::Render
 {
     namespace
     {
         constexpr uint32_t BinCountStep   = 4;
         constexpr uint32_t ViewStrideStep = 1024;
-
-        //! The order a pass's bins draw in: by priority, the rest only to make it total.
-        bool DrawsBefore(const PipelineVariant& a, const PipelineVariant& b)
-        {
-            auto order = [](const PipelineVariant& v)
-            {
-                return eastl::make_tuple(v.m_priority, static_cast<uint32_t>(v.m_cullMode),
-                                         static_cast<uint32_t>(v.m_featureMacros), v.m_materialShader);
-            };
-            return order(a) < order(b);
-        }
 
         RHI::RHIHandle CreateBinTableBuffer(RHI::RHIContext& rhiCtx, const PassName& passName)
         {

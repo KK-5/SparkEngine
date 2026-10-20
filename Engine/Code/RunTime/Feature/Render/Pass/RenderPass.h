@@ -120,7 +120,7 @@ namespace Spark::Render
         RenderPassBuilder& Draw()
         {
             ASSERT(!m_drawList, "Pass '{}' draws one list.", m_name.GetCStr());
-            m_drawList = PassDrawList{ DrawMaskBit<Tag>::Index };
+            m_drawList = PassDrawList{ DrawMaskBit<Tag>::Index, Tag::Order, Tag::Culling };
             return *this;
         }
 

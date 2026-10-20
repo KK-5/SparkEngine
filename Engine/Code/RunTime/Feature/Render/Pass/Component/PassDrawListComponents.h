@@ -6,6 +6,7 @@
 
 #include <RHI/Context/RHIContext.h>
 
+#include <Drawable/DrawTag.h>
 #include <PipelineState/PipelineKey.h>
 
 namespace Spark::Render
@@ -13,10 +14,13 @@ namespace Spark::Render
     // Components on a pass that draws a list of scene instances, a DrawBin at a time
     // (DrawBin/DrawBin.h). DrawBinSystem adds all but PassDrawList and writes them.
 
-    //! Added by .Draw<Tag>(): the pass draws the instances whose draw mask has this bit.
+    //! Added by .Draw<Tag>(): the pass draws the instances whose draw mask has this bit, in
+    //! the order and culled where Tag declares.
     struct PassDrawList
     {
-        uint32_t m_drawMaskBitIndex = 0;
+        uint32_t    m_drawMaskBitIndex = 0;
+        DrawOrder   m_order            = DrawOrder::Any;
+        DrawCulling m_culling          = DrawCulling::Gpu;
     };
 
     //! Once every key has an assignment for the pass.
