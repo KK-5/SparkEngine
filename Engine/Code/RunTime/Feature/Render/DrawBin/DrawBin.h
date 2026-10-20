@@ -2,73 +2,45 @@
 
 #include <cstdint>
 
-#include <EASTL/array.h>
-
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Pipeline/PipelineState.h>
 
-#include <Drawable/DrawMask.h>
 #include <Pass/Pass.h>
 #include <PipelineState/PipelineKey.h>
+#include <PipelineState/PipelineKeyIndex.h>
 #include <PipelineState/PipelineVariant.h>
 
 namespace Spark::Render
 {
-    // A DrawBin is the instances one pass draws with one PSO, in one indirect call per view.
-    // Keys live in the RHIContext beside InstanceSlotCount, bins and assignments in the
-    // PassContext beside their passes; what goes on the passes is in PassDrawListComponents.h.
+    // The elements of the DrawContext (DrawContext.h); what goes on the passes is in
+    // PassDrawListComponents.h.
 
-    //! A bin's and an assignment's entities. PassContext entities, so the same type as Pass:
-    //! the names are for the reader.
-    using DrawBinHandle           = Pass;
-    using DrawBinAssignmentHandle = Pass;
-    inline constexpr DrawBinHandle NullDrawBin = NullPass;
-
-    //! On a key's entity (with PipelineKey), written every frame: how many encoded instances
-    //! carry the key, per draw-mask bit.
-    struct KeyInstanceCount
+    //! One pipeline key among the instances of a draw list, the instances a tag classifies:
+    //! how many encoded instances carry it. The encoding publishes one a key the list has
+    //! (DrawListKeyCounter), which is what the CPU knows of a list the GPU culls.
+    struct DrawListKey
     {
-        eastl::array<uint32_t, DrawMaskBitCount> m_counts{};
+        uint32_t         m_drawMaskBitIndex = 0;
+        PipelineKeyIndex m_keyIndex;
+        PipelineKey      m_key;
+        uint32_t         m_instanceCount = 0;
     };
 
-    //! On a key's entity once every pass that bins has an assignment for it.
-    struct KeyBinned
+    //! One indirect draw of a pass: a DrawGroup with its PSO. Under a view, or under every view
+    //! the pass renders (NullHandle) when its list is culled on the GPU, whose groups are the
+    //! same for every view and lie at the start of each view's part of the arguments.
+    struct DrawBin
     {
-    };
+        Pass           m_pass  = NullPass;
+        RHI::RHIHandle m_view  = RHI::NullHandle;
+        //! Its place among the pass's, which is also which of a view's counts is its.
+        uint32_t       m_index = 0;
 
-    //! On a bin's entity, with the PipelineVariant all its instances draw with.
-    struct DrawBinOf
-    {
-        Pass m_pass = NullPass;
-    };
-
-    //! On a bin's entity, written every frame. index orders the pass's bins (its count is
-    //! the index-th of a view's); first is the bin's first record within a view's arguments.
-    struct DrawBinRange
-    {
-        uint32_t m_index    = 0;
-        uint32_t m_first    = 0;
-        uint32_t m_capacity = 0;
-    };
-
-    //! On a bin's entity: the PSO its instances draw with, its pass's default PSO with the
-    //! bin's variant on it. Looked up once, when the bin is new; DrawBinSystem's
-    //! DrawPipelineCache owns it.
-    struct DrawBinPipeline
-    {
+        PipelineVariant           m_variant;
+        //! DrawBinSystem::AcquirePipelines fills it; its DrawPipelineCache owns it.
         const RHI::PipelineState* m_pso = nullptr;
-    };
 
-    //! On an entity of its own: in pass, instances of key go to bin.
-    //! The key's value and the pass's draw-mask bit never change for either's life, so they are
-    //! copied here: the per-frame passes over the assignments then read only what does change.
-    struct DrawBinAssignment
-    {
-        Pass           m_pass = NullPass;
-        RHI::RHIHandle m_key  = RHI::NullHandle;
-        DrawBinHandle  m_bin  = NullDrawBin;
-
-        PipelineKey m_keyValue;
-        uint32_t    m_drawMaskBitIndex = 0;
+        uint32_t m_firstDraw = 0;
+        uint32_t m_maxDraws  = 0;
     };
 }

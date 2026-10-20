@@ -2,12 +2,9 @@
 
 #include <cstdint>
 
-#include <EASTL/array.h>
-
 #include <RHI/Context/RHIContext.h>
 
 #include <Drawable/DrawTag.h>
-#include <PipelineState/PipelineKey.h>
 
 namespace Spark::Render
 {
@@ -23,11 +20,6 @@ namespace Spark::Render
         DrawCulling m_culling          = DrawCulling::Gpu;
     };
 
-    //! Once every key has an assignment for the pass.
-    struct PassBinned
-    {
-    };
-
     //! Written every frame. Both rounded up a step at a time, so what is sized by them is not
     //! resized every frame.
     struct PassBinLayout
@@ -36,20 +28,21 @@ namespace Spark::Render
         uint32_t m_viewStride = 0;   // records per view
     };
 
-    //! One entry of a pass's key-to-bin table. HLSL mirror comes with the binning shader.
+    //! One entry of a pass's bin table. HLSL mirror comes with the binning shader.
     struct DrawBinTableEntry
     {
         static constexpr uint32_t NotDrawn = UINT32_MAX;
 
-        uint32_t m_index = NotDrawn;   // DrawBinRange::m_index of the key's bin
-        uint32_t m_first = 0;          // and its m_first
+        uint32_t m_index = NotDrawn;   // DrawBin::m_index of the key's bin
+        uint32_t m_first = 0;          // and its m_firstDraw
     };
 
-    //! The pass's key-to-bin table, addressed by PipelineKey::m_value. The CPU mirror is what
-    //! is uploaded into buffer, a host per-frame buffer, every frame.
+    //! The pass's table from a key index to its bin, a host per-frame buffer written whole
+    //! every frame. m_entryCount entries are this frame's, of m_capacity it holds.
     struct PassBinTable
     {
-        eastl::array<DrawBinTableEntry, PipelineKeyCount> m_entries{};
-        RHI::RHIHandle                                    m_buffer = RHI::NullHandle;
+        RHI::RHIHandle m_buffer     = RHI::NullHandle;
+        uint32_t       m_capacity   = 0;
+        uint32_t       m_entryCount = 0;
     };
 }

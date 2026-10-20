@@ -18,7 +18,6 @@
 #include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Drawable/DrawMask.h>
-#include <DrawBin/DrawBinSystem.h>
 #include <PipelineState/PipelineKeyIndex.h>
 
 namespace Spark::Render
@@ -137,7 +136,6 @@ namespace Spark::Render
         }
 
         auto* matCtx = Material::MaterialExecuteContext::Current();
-        m_keyCounts.fill(KeyInstanceCount{});
         m_instances.Update(*world, *rhiCtx, frameIndex,
             [&](Entity e, InstanceData& out,
                 const Transform::WorldTransformMatrix& m, const MeshGeometry&)
@@ -170,9 +168,12 @@ namespace Spark::Render
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
             out.m_drawMask      = drawable ? ClassifyDraw(*world, e) : 0;
             // What the culling can pick, so what the bins are sized for.
-            CountKeyInstance(m_keyCounts, key, out.m_drawMask);
+            m_keyCounter.Count(key, out.m_drawMask);
         });
-        PublishKeyInstanceCounts(*rhiCtx, m_keyCounts);
+        if (auto* drawCtx = DrawExecuteContext::Current())
+        {
+            m_keyCounter.Publish(*drawCtx);
+        }
 
         if (m_slotCountEntity != RHI::NullHandle)
         {

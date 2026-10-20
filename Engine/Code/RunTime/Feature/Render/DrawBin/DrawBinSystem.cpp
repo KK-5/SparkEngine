@@ -1,9 +1,8 @@
 #include "DrawBinSystem.h"
 
 #include <EASTL/algorithm.h>
-#include <EASTL/sort.h>
 #include <EASTL/string.h>
-#include <EASTL/vector.h>
+#include <EASTL/tuple.h>
 
 #include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
@@ -13,26 +12,21 @@
 #include <RHI/ResourceBuilder.h>
 
 #include <Pass/Component/PassComponents.h>
-#include <PipelineState/PipelineKeyIndex.h>
 #include <PipelineState/PipelineStateBuild.h>
 #include <PipelineState/PipelineVariantInterpret.h>
-
-#include <RHI/Factory.h>
-#include <RHI/Device/Device.h>
-
-#include "DrawGroup.h"
 
 namespace Spark::Render
 {
     namespace
     {
-        constexpr uint32_t BinCountStep   = 4;
-        constexpr uint32_t ViewStrideStep = 1024;
+        constexpr uint32_t BinCountStep      = 4;
+        constexpr uint32_t ViewStrideStep    = 1024;
+        constexpr uint32_t BinTableEntryStep = 16;
 
-        RHI::RHIHandle CreateBinTableBuffer(RHI::RHIContext& rhiCtx, const PassName& passName)
+        RHI::RHIHandle CreateBinTableBuffer(RHI::RHIContext& rhiCtx, const PassName& passName, uint32_t capacity)
         {
             RHI::BufferDescriptor desc;
-            desc.m_byteCount = sizeof(PassBinTable::m_entries);
+            desc.m_byteCount = static_cast<uint64_t>(capacity) * sizeof(DrawBinTableEntry);
             desc.m_bindFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyRead;
 
             RHI::PendingBufferInit init;
@@ -48,238 +42,128 @@ namespace Spark::Render
             return buffer;
         }
 
-        //! Finds or makes the bin of pass that key's instances draw in, and records it.
-        void AssignKey(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass, RHI::RHIHandle key)
+        //! The pass's table holds entryCount this frame: a new buffer when the old one holds fewer.
+        PassBinTable& FitBinTable(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass, uint32_t entryCount)
         {
-            const auto* pipelineState = passCtx.TryGet<PassPipelineState>(pass);
-            ASSERT(pipelineState, "[DrawBinSystem] Pass '{}' draws a list but has no pipeline.",
-                passCtx.Get<PassName>(pass).m_name.GetCStr());
-
-            // No shader template declares its features until shader permutations exist.
-            const PipelineKey     keyValue = rhiCtx.Get<PipelineKey>(key);
-            const PipelineVariant variant  = InterpretPipelineVariant(
-                keyValue, pipelineState->m_renderStates, ShaderTemplateFeatures{});
-
-            DrawBinHandle bin = NullDrawBin;
-            for (auto [entity, of, binVariant] : passCtx.GetView<DrawBinOf, PipelineVariant>().each())
+            if (!passCtx.Has<PassBinTable>(pass))
             {
-                if (of.m_pass == pass && binVariant == variant)
+                passCtx.Add<PassBinTable>(pass);
+            }
+            PassBinTable& table = passCtx.Get<PassBinTable>(pass);
+            if (table.m_capacity < entryCount)
+            {
+                if (table.m_buffer != RHI::NullHandle)
                 {
-                    bin = entity;
-                    break;
+                    rhiCtx.Add<DeadTag>(table.m_buffer);
                 }
+                table.m_capacity = AlignUp(entryCount, BinTableEntryStep);
+                table.m_buffer   = CreateBinTableBuffer(rhiCtx, passCtx.Get<PassName>(pass), table.m_capacity);
             }
-            if (bin == NullDrawBin)
-            {
-                bin = passCtx.CreateEntity();
-                passCtx.Add<DrawBinOf>(bin, DrawBinOf{ pass });
-                passCtx.Add<PipelineVariant>(bin, variant);
-                passCtx.Add<DrawBinRange>(bin);
-            }
-
-            DrawBinAssignment record;
-            record.m_pass             = pass;
-            record.m_key              = key;
-            record.m_bin              = bin;
-            record.m_keyValue         = keyValue;
-            record.m_drawMaskBitIndex = passCtx.Get<PassDrawList>(pass).m_drawMaskBitIndex;
-
-            const DrawBinAssignmentHandle assignment = passCtx.CreateEntity();
-            passCtx.Add<DrawBinAssignment>(assignment, record);
+            table.m_entryCount = entryCount;
+            return table;
         }
+    }
 
-        //! A new pass against the keys already assigned, then the new keys against every pass:
-        //! a key and a pass that are both new meet once, in the second.
-        void Assign(RHI::RHIContext& rhiCtx, PassContext& passCtx)
+    void CollectDrawBins(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawBinList& out)
+    {
+        out.clear();
+        for (auto [entity, bin] : drawCtx.GetView<DrawBin>().each())
         {
-            eastl::vector<RHI::RHIHandle> binnedKeys;
-            for (auto [key, value] : rhiCtx.GetView<PipelineKey, KeyBinned>().each())
+            if (bin.m_pass == pass && bin.m_view == view)
             {
-                binnedKeys.push_back(key);
-            }
-
-            eastl::vector<Pass> newPasses;
-            for (auto [pass, drawList] : passCtx.GetView<PassDrawList>(Exclude<PassBinned>).each())
-            {
-                newPasses.push_back(pass);
-            }
-            for (Pass pass : newPasses)
-            {
-                for (RHI::RHIHandle key : binnedKeys)
-                {
-                    AssignKey(rhiCtx, passCtx, pass, key);
-                }
-                PassBinTable table;
-                table.m_buffer = CreateBinTableBuffer(rhiCtx, passCtx.Get<PassName>(pass));
-                passCtx.Add<PassBinTable>(pass, table);
-                passCtx.Add<PassBinLayout>(pass);
-                passCtx.Add<PassBinned>(pass);
-            }
-
-            eastl::vector<RHI::RHIHandle> newKeys;
-            for (auto [key, value] : rhiCtx.GetView<PipelineKey>(Exclude<KeyBinned>).each())
-            {
-                newKeys.push_back(key);
-            }
-            eastl::vector<Pass> binnedPasses;
-            for (auto [pass, drawList] : passCtx.GetView<PassDrawList, PassBinned>().each())
-            {
-                binnedPasses.push_back(pass);
-            }
-            for (RHI::RHIHandle key : newKeys)
-            {
-                for (Pass pass : binnedPasses)
-                {
-                    AssignKey(rhiCtx, passCtx, pass, key);
-                }
-                rhiCtx.Add<KeyBinned>(key);
-            }
-        }
-
-        void Layout(RHI::RHIContext& rhiCtx, PassContext& passCtx)
-        {
-            for (auto [bin, range] : passCtx.GetView<DrawBinRange>().each())
-            {
-                range.m_capacity = 0;
-            }
-            for (auto [entity, assignment] : passCtx.GetView<DrawBinAssignment>().each())
-            {
-                passCtx.Get<DrawBinRange>(assignment.m_bin).m_capacity +=
-                    rhiCtx.Get<KeyInstanceCount>(assignment.m_key).m_counts[assignment.m_drawMaskBitIndex];
-            }
-
-            // Ordered by what they are, not by where their entities happen to be stored.
-            eastl::vector<DrawBinHandle> bins;
-            for (auto [pass, drawList, layout] : passCtx.GetView<PassDrawList, PassBinLayout>().each())
-            {
-                bins.clear();
-                for (auto [bin, of] : passCtx.GetView<DrawBinOf>().each())
-                {
-                    if (of.m_pass == pass)
-                    {
-                        bins.push_back(bin);
-                    }
-                }
-                eastl::sort(bins.begin(), bins.end(), [&](DrawBinHandle a, DrawBinHandle b)
-                {
-                    return DrawsBefore(passCtx.Get<PipelineVariant>(a), passCtx.Get<PipelineVariant>(b));
-                });
-
-                uint32_t first = 0;
-                for (uint32_t index = 0; index < bins.size(); ++index)
-                {
-                    auto& range   = passCtx.Get<DrawBinRange>(bins[index]);
-                    range.m_index = index;
-                    range.m_first = first;
-                    first += range.m_capacity;
-                }
-
-                layout.m_binCount   = AlignUp(eastl::max(static_cast<uint32_t>(bins.size()), 1u), BinCountStep);
-                layout.m_viewStride = AlignUp(eastl::max(first, 1u), ViewStrideStep);
-            }
-        }
-
-        void WriteBinTables(RHI::RHIContext& rhiCtx, PassContext& passCtx)
-        {
-            for (auto [pass, table] : passCtx.GetView<PassBinTable>().each())
-            {
-                table.m_entries.fill(DrawBinTableEntry{});
-            }
-            for (auto [entity, assignment] : passCtx.GetView<DrawBinAssignment>().each())
-            {
-                const auto& range = passCtx.Get<DrawBinRange>(assignment.m_bin);
-                passCtx.Get<PassBinTable>(assignment.m_pass).m_entries[PipelineKeyIndexOf(assignment.m_keyValue).m_value] =
-                    DrawBinTableEntry{ range.m_index, range.m_first };
-            }
-
-            // Also on the frame the buffer is requested: the frame's start makes it, then copies
-            // into it, so a binning pass never reads a table not written.
-            for (auto [pass, table] : passCtx.GetView<PassBinTable>().each())
-            {
-                rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
-                    table.m_buffer, RHI::PendingBufferMap{ table.m_entries.data(), 0, sizeof(table.m_entries) });
+                out.push_back(&bin);
             }
         }
     }
 
-    void CountKeyInstance(KeyInstanceCounts& counts, PipelineKey key, DrawMask drawMask)
+    void DrawBinSystem::UpdatePass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass)
     {
-        ASSERT(key.m_value < PipelineKeyCount, "[DrawBinSystem] Key {} is outside the key space.", key.m_value);
-        for (uint32_t bit = 0; bit < DrawMaskBitCount; ++bit)
+        const PassDrawList& drawList = passCtx.Get<PassDrawList>(pass);
+        const auto* pipelineState = passCtx.TryGet<PassPipelineState>(pass);
+        ASSERT(pipelineState, "[DrawBinSystem] Pass '{}' draws a list but has no pipeline.",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
+        ASSERT(drawList.m_culling == DrawCulling::Gpu,
+            "[DrawBinSystem] Pass '{}' draws a list culled on the CPU, which is not drawn yet.",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
+
+        // No shader template declares its features until shader permutations exist.
+        m_entries.clear();
+        // What a binning thread can look up: every instance it sees is counted in some DrawListKey.
+        uint32_t tableLength = 0;
+        for (auto [entity, listKey] : drawCtx.GetView<DrawListKey>().each())
         {
-            if (CheckBit(drawMask, bit))
+            if (listKey.m_drawMaskBitIndex != drawList.m_drawMaskBitIndex)
             {
-                ++counts[key.m_value].m_counts[bit];
+                continue;
             }
+            DrawEntry entry;
+            entry.m_variant  = InterpretPipelineVariant(listKey.m_key, pipelineState->m_renderStates, ShaderTemplateFeatures{});
+            entry.m_count    = listKey.m_instanceCount;
+            entry.m_keyIndex = listKey.m_keyIndex.m_value;
+            m_entries.push_back(entry);
+            tableLength = eastl::max(tableLength, entry.m_keyIndex + 1);
         }
+
+        GroupDrawEntries(m_entries, drawList.m_order, m_groups);
+
+        eastl::vector<DrawBinTableEntry>& image = m_binTables[pass];
+        image.assign(eastl::max(tableLength, 1u), DrawBinTableEntry{});
+
+        uint32_t drawCount = 0;
+        for (uint32_t index = 0; index < static_cast<uint32_t>(m_groups.size()); ++index)
+        {
+            const DrawGroup& group = m_groups[index];
+
+            DrawBin bin;
+            bin.m_pass      = pass;
+            bin.m_index     = index;
+            bin.m_variant   = group.m_variant;
+            bin.m_firstDraw = group.m_firstDraw;
+            bin.m_maxDraws  = group.m_maxDraws;
+            drawCtx.Add<DrawBin>(drawCtx.CreateEntity(), bin);
+
+            for (uint32_t e = group.m_firstEntry; e < group.m_firstEntry + group.m_entryCount; ++e)
+            {
+                image[m_entries[e].m_keyIndex] = DrawBinTableEntry{ index, group.m_firstDraw };
+            }
+            drawCount += group.m_maxDraws;
+        }
+
+        PassBinLayout layout;
+        layout.m_binCount   = AlignUp(eastl::max(static_cast<uint32_t>(m_groups.size()), 1u), BinCountStep);
+        layout.m_viewStride = AlignUp(eastl::max(drawCount, 1u), ViewStrideStep);
+        passCtx.AddOrReplace<PassBinLayout>(pass, layout);
+
+        // Also on the frame the buffer is requested: the frame's start makes it, then copies
+        // into it, so a binning pass never reads a table not written.
+        const PassBinTable& table = FitBinTable(rhiCtx, passCtx, pass, static_cast<uint32_t>(image.size()));
+        rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
+            table.m_buffer, RHI::PendingBufferMap{ image.data(), 0, image.size() * sizeof(DrawBinTableEntry) });
     }
 
-    void PublishKeyInstanceCounts(RHI::RHIContext& rhiCtx, const KeyInstanceCounts& counts)
+    void DrawBinSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx)
     {
-        eastl::array<RHI::RHIHandle, PipelineKeyCount> entityOfKey;
-        entityOfKey.fill(RHI::NullHandle);
-        for (auto [entity, key] : rhiCtx.GetView<PipelineKey>().each())
+        for (auto [pass, drawList] : passCtx.GetView<PassDrawList>().each())
         {
-            entityOfKey[key.m_value] = entity;
+            UpdatePass(rhiCtx, passCtx, drawCtx, pass);
         }
 
-        for (uint32_t value = 0; value < PipelineKeyCount; ++value)
+        drawCtx.Sort<DrawBin>([](const DrawBin& a, const DrawBin& b)
         {
-            RHI::RHIHandle entity = entityOfKey[value];
-            if (entity == RHI::NullHandle)
-            {
-                const auto& perBit = counts[value].m_counts;
-                if (eastl::all_of(perBit.begin(), perBit.end(), [](uint32_t count) { return count == 0; }))
-                {
-                    continue;
-                }
-                entity = rhiCtx.CreateEntity();
-                rhiCtx.Add<PipelineKey>(entity, PipelineKey{ value });
-            }
-            rhiCtx.AddOrReplace<KeyInstanceCount>(entity, counts[value]);
-        }
-    }
-
-    void CollectDrawnBins(const PassContext& passCtx, Pass pass, eastl::vector<DrawBinHandle>& out)
-    {
-        const size_t begin = out.size();
-        for (auto [bin, of, range] : passCtx.GetView<DrawBinOf, DrawBinRange>().each())
-        {
-            if (of.m_pass == pass && range.m_capacity > 0)
-            {
-                out.push_back(bin);
-            }
-        }
-        eastl::sort(out.begin() + begin, out.end(), [&](DrawBinHandle a, DrawBinHandle b)
-        {
-            return passCtx.Get<DrawBinRange>(a).m_index < passCtx.Get<DrawBinRange>(b).m_index;
+            return eastl::make_tuple(static_cast<uint32_t>(a.m_pass), static_cast<uint32_t>(a.m_view), a.m_index)
+                 < eastl::make_tuple(static_cast<uint32_t>(b.m_pass), static_cast<uint32_t>(b.m_view), b.m_index);
         });
     }
 
-    void DrawBinSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx)
+    void DrawBinSystem::AcquirePipelines(PassContext& passCtx, DrawContext& drawCtx, RHI::Factory& factory, RHI::Device& device)
     {
-        Assign(rhiCtx, passCtx);
-        Layout(rhiCtx, passCtx);
-        WriteBinTables(rhiCtx, passCtx);
-    }
-
-    void DrawBinSystem::BuildPipelines(PassContext& passCtx, RHI::Factory& factory, RHI::Device& device)
-    {
-        eastl::vector<DrawBinHandle> newBins;
-        for (auto [bin, of, variant] : passCtx.GetView<DrawBinOf, PipelineVariant>(Exclude<DrawBinPipeline>).each())
+        for (auto [entity, bin] : drawCtx.GetView<DrawBin>().each())
         {
-            newBins.push_back(bin);
-        }
-
-        for (DrawBinHandle bin : newBins)
-        {
-            const Pass  pass     = passCtx.Get<DrawBinOf>(bin).m_pass;
-            const char* passName = passCtx.Get<PassName>(pass).m_name.GetCStr();
-
+            const char* passName = passCtx.Get<PassName>(bin.m_pass).m_name.GetCStr();
             const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
-                passCtx.Get<PassStageFunctions>(pass), passCtx.Get<PassPipelineState>(pass),
-                passCtx.Get<PassPipelineLayout>(pass), passCtx.Get<PipelineVariant>(bin), passName);
-            passCtx.Add<DrawBinPipeline>(bin, DrawBinPipeline{ m_pipelineCache.Acquire(descriptor, factory, device, passName) });
+                passCtx.Get<PassStageFunctions>(bin.m_pass), passCtx.Get<PassPipelineState>(bin.m_pass),
+                passCtx.Get<PassPipelineLayout>(bin.m_pass), bin.m_variant, passName);
+            bin.m_pso = m_pipelineCache.Acquire(descriptor, factory, device, passName);
         }
     }
 
@@ -288,36 +172,19 @@ namespace Spark::Render
         eastl::vector<Pass> passes;
         for (auto [pass, table] : passCtx.GetView<PassBinTable>().each())
         {
-            rhiCtx.Add<DeadTag>(table.m_buffer);
+            if (table.m_buffer != RHI::NullHandle)
+            {
+                rhiCtx.Add<DeadTag>(table.m_buffer);
+            }
             passes.push_back(pass);
         }
         for (Pass pass : passes)
         {
             passCtx.Remove<PassBinTable>(pass);
             passCtx.Remove<PassBinLayout>(pass);
-            passCtx.Remove<PassBinned>(pass);
         }
 
-        eastl::vector<DrawBinHandle> bins;
-        for (auto [bin, of] : passCtx.GetView<DrawBinOf>().each())
-        {
-            bins.push_back(bin);
-        }
-        passCtx.DestoryEntity(bins.begin(), bins.end());
-
-        eastl::vector<DrawBinAssignmentHandle> assignments;
-        for (auto [entity, assignment] : passCtx.GetView<DrawBinAssignment>().each())
-        {
-            assignments.push_back(entity);
-        }
-        passCtx.DestoryEntity(assignments.begin(), assignments.end());
-
-        for (auto [key, value] : rhiCtx.GetView<PipelineKey>().each())
-        {
-            rhiCtx.Add<DeadTag>(key);
-        }
-
-        // After the bins, which point at what it owns.
+        m_binTables.clear();
         m_pipelineCache.Shutdown();
     }
 }

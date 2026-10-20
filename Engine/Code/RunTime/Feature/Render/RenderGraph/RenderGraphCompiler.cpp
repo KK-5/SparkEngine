@@ -1512,19 +1512,18 @@ namespace Spark::Render
                 const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
                 ASSERT(source.m_drawArguments.m_type == RHI::DrawType::IndexedIndirect,
                     "[RenderGraphCompiler] Pass {} draws its bins with a draw that is not an indexed indirect one.", passName);
-                constexpr uint64_t RecordSize = sizeof(RHI::DrawIndexedIndirectCommand);
+                constexpr uint64_t CommandSize = sizeof(RHI::DrawIndexedIndirectCommand);
 
-                eastl::vector<DrawBinHandle> bins;
-                CollectDrawnBins(passContext, pass, bins);
-                for (DrawBinHandle bin : bins)
+                // A GPU-culled list's bins are the same under every view.
+                DrawBinList bins;
+                CollectDrawBins(*DrawExecuteContext::Current(), pass, NullHandle, bins);
+                for (const DrawBin* bin : bins)
                 {
-                    const DrawBinRange& range    = passContext.Get<DrawBinRange>(bin);
-                    const auto*         pipeline = passContext.TryGet<DrawBinPipeline>(bin);
-                    ASSERT(pipeline && pipeline->m_pso, "[RenderGraphCompiler] A bin of pass {} has no PSO.", passName);
-                    appendDraw(argumentsByteOffset + range.m_first * RecordSize,
-                               countByteOffset + range.m_index * sizeof(uint32_t),
-                               range.m_capacity,
-                               pipeline ? pipeline->m_pso : nullptr);
+                    ASSERT(bin->m_pso, "[RenderGraphCompiler] A bin of pass {} has no PSO.", passName);
+                    appendDraw(argumentsByteOffset + bin->m_firstDraw * CommandSize,
+                               countByteOffset + bin->m_index * sizeof(uint32_t),
+                               bin->m_maxDraws,
+                               bin->m_pso);
                 }
                 return;
             }

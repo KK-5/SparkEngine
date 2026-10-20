@@ -266,6 +266,7 @@ namespace Spark::Render
         InitRenderUI();
 
         PassExecuteContext::Push(m_pipeline.GetPassContext());
+        DrawExecuteContext::Push(m_drawContext);
 
         TickBus::Handler::BusConnect();
     }
@@ -294,6 +295,7 @@ namespace Spark::Render
         // tag-owned). Reap them here alongside the other binding entities.
         ReapPassShaderBindings(*RHI::RHIExecuteContext::Current());
 
+        DrawExecuteContext::Pop();
         PassExecuteContext::Pop();
 
         // RenderGraph::Shutdown drains the GPU and destroys the swap chain
@@ -348,12 +350,14 @@ namespace Spark::Render
         // geometry, and the instance stores the geometry slot.
         m_meshGeometrySystem.Update();
         m_geometryBindingSystem.Update(frameIndex);
+        // Last frame's draw preparation goes, before the encoding writes this frame's.
+        m_drawContext.Clear();
         m_instanceBindingSystem.Update(frameIndex);
-        // Lays out the bins from the counts the encoding above just published.
-        m_drawBinSystem.Update(rhiCtx, passContext);
+        // The bins of each pass from the DrawListKeys the encoding above just published.
+        m_drawBinSystem.Update(rhiCtx, passContext, m_drawContext);
         {
             auto* rhi = Service<RHI::RHIInterface>::Get();
-            m_drawBinSystem.BuildPipelines(passContext, *rhi->GetRHIFactory(), *rhi->GetDevice());
+            m_drawBinSystem.AcquirePipelines(passContext, m_drawContext, *rhi->GetRHIFactory(), *rhi->GetDevice());
         }
 
         // World → GeometrySpec: find-or-create over renderable world entities.

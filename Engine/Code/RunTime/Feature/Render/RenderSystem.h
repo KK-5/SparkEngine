@@ -85,6 +85,7 @@ namespace Spark::Render
         GeometryBindingSystem m_geometryBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
         DrawBinSystem         m_drawBinSystem;
+        DrawContext           m_drawContext;
         MeshGeometryComposer m_meshGeometryComposer;
         DrawItemRouter       m_drawItemRouter;
 

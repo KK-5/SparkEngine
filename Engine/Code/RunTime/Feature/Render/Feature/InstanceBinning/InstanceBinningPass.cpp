@@ -90,7 +90,7 @@ namespace Spark::Render
             const RHI::BufferViewDescriptor visibleCountView = RHI::BufferViewDescriptor::CreateStructured(
                 0, culling.m_viewCapacity, sizeof(uint32_t));
             const RHI::BufferViewDescriptor binTableView = RHI::BufferViewDescriptor::CreateStructured(
-                0, static_cast<uint32_t>(binTable.m_entries.size()), sizeof(DrawBinTableEntry));
+                0, binTable.m_entryCount, sizeof(DrawBinTableEntry));
             const RHI::BufferViewDescriptor argumentsView = RHI::BufferViewDescriptor::CreateStructured(
                 0, recordCount, sizeof(RHI::DrawIndexedIndirectCommand));
             const RHI::BufferViewDescriptor countView = RHI::BufferViewDescriptor::CreateStructured(
@@ -116,7 +116,7 @@ namespace Spark::Render
             {
                 s.Constant(RHI::InputName("isClearCount"), constants.m_isClearCount);
                 s.Constant(RHI::InputName("countCapacity"), countCount);
-                s.Constant(RHI::InputName("binTableCount"), static_cast<uint32_t>(binTable.m_entries.size()));
+                s.Constant(RHI::InputName("binTableCount"), binTable.m_entryCount);
                 s.Constant(RHI::InputName("entryCount"), constants.m_entryCount);
                 s.Constant(RHI::InputName("viewFirstEntry"), constants.m_viewFirstEntry);
                 s.Constant(RHI::InputName("viewOrdinal"), constants.m_viewOrdinal);

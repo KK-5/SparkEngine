@@ -119,7 +119,7 @@ namespace Spark::Render
     struct PerViewItemTag {};
 
     //! On such an item drawing one DrawBin: the bin's PSO, which the executer switches to for it.
-    //! The bin owns it, and outlives the frame.
+    //! DrawBinSystem's DrawPipelineCache owns it, and outlives the frame.
     struct ItemPipelineState
     {
         const RHI::PipelineState* m_pso = nullptr;

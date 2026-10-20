@@ -1,16 +1,17 @@
 #include <gtest/gtest.h>
 
-#include <EASTL/sort.h>
 #include <EASTL/vector.h>
 
 #include <CoreComponents/Tags.h>
 
+#include <RHI/Component/Component.h>
 #include <RHI/Context/RHIContext.h>
 
 #include <DrawBin/DrawBinSystem.h>
-#include <PipelineState/PipelineKeyIndex.h>
+#include <DrawBin/DrawListKeyCounter.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/PassContext.h>
+#include <PipelineState/PipelineKeyIndex.h>
 
 using namespace Spark;
 using namespace Spark::Render;
@@ -33,18 +34,20 @@ namespace
     const PipelineKey Masked      = Key(Resource::AlphaMode::Mask, false);
 }
 
-//! Bins kept from published counts. Everything is components on the two contexts, so no
-//! device is needed; the bin tables' buffers never materialize and are not uploaded.
+//! Bins made from the counted keys. Everything is components on the contexts, so no device is
+//! needed; the bins get no PSO and the bin tables' buffers never materialize.
 class DrawBinTest : public ::testing::Test
 {
 protected:
-    RHI::RHIContext rhi;
-    PassContext     passes;
-    DrawBinSystem   system;
-    KeyInstanceCounts counts{};
+    RHI::RHIContext    rhi;
+    PassContext        passes;
+    DrawContext        draws;
+    DrawBinSystem      system;
+    DrawListKeyCounter counter;
 
-    //! A pass culling back faces, as the scene passes do, drawing the list of bitIndex.
-    Pass AddPass(const char* name, uint32_t bitIndex)
+    //! A pass culling back faces, as the scene passes do, drawing the list of Tag.
+    template<typename Tag>
+    Pass AddPass(const char* name)
     {
         PassPipelineState pipelineState;
         pipelineState.m_renderStates.m_rasterState.m_cullMode = RHI::CullMode::Back;
@@ -52,7 +55,7 @@ protected:
         const Pass pass = passes.CreatePass();
         passes.Add<PassName>(pass, PassName{ ObjectName(name) });
         passes.Add<PassPipelineState>(pass, pipelineState);
-        passes.Add<PassDrawList>(pass, PassDrawList{ bitIndex });
+        passes.Add<PassDrawList>(pass, PassDrawList{ DrawMaskBit<Tag>::Index, Tag::Order, Tag::Culling });
         return pass;
     }
 
@@ -60,178 +63,156 @@ protected:
     {
         for (uint32_t i = 0; i < instances; ++i)
         {
-            CountKeyInstance(counts, key, mask);
+            counter.Count(key, mask);
         }
     }
 
-    //! A frame: what was encoded since the last one is published, then the bins kept.
+    //! A frame: the context emptied, what was encoded since the last one published, the bins made.
     void Frame()
     {
-        PublishKeyInstanceCounts(rhi, counts);
-        system.Update(rhi, passes);
-        counts.fill(KeyInstanceCount{});
+        draws.Clear();
+        counter.Publish(draws);
+        system.Update(rhi, passes, draws);
     }
 
-    eastl::vector<DrawBinHandle> BinsOf(Pass pass)
+    DrawBinList BinsOf(Pass pass)
     {
-        eastl::vector<DrawBinHandle> bins;
-        for (auto [bin, of] : passes.GetView<DrawBinOf>().each())
-        {
-            if (of.m_pass == pass)
-            {
-                bins.push_back(bin);
-            }
-        }
+        DrawBinList bins;
+        CollectDrawBins(draws, pass, RHI::NullHandle, bins);
         return bins;
     }
 
-    size_t AssignmentCount()
+    //! What the pass's bin table holds for key, as uploaded.
+    DrawBinTableEntry Entry(Pass pass, PipelineKey key)
     {
-        return passes.GetView<DrawBinAssignment>().size();
-    }
-
-    const DrawBinTableEntry& Entry(Pass pass, PipelineKey key)
-    {
-        return passes.Get<PassBinTable>(pass).m_entries[PipelineKeyIndexOf(key).m_value];
-    }
-
-    const DrawBinRange& RangeOf(Pass pass, PipelineKey key)
-    {
-        for (DrawBinHandle bin : BinsOf(pass))
+        const auto& upload = rhi.Get<RHI::PendingBufferMap>(passes.Get<PassBinTable>(pass).m_buffer);
+        const auto* entries = static_cast<const DrawBinTableEntry*>(upload.m_data);
+        const uint32_t index = PipelineKeyIndexOf(key).m_value;
+        if (index >= upload.m_byteCount / sizeof(DrawBinTableEntry))
         {
-            if (passes.Get<DrawBinRange>(bin).m_index == Entry(pass, key).m_index)
+            return DrawBinTableEntry{};
+        }
+        return entries[index];
+    }
+
+    const DrawBin* BinOf(Pass pass, PipelineKey key)
+    {
+        for (const DrawBin* bin : BinsOf(pass))
+        {
+            if (bin->m_index == Entry(pass, key).m_index)
             {
-                return passes.Get<DrawBinRange>(bin);
+                return bin;
             }
         }
-        ADD_FAILURE() << "key " << key.m_value << " has no bin";
-        static DrawBinRange none;
-        return none;
+        return nullptr;
+    }
+
+    uint32_t ListKeyCount(DrawMask bit, PipelineKey key)
+    {
+        for (auto [entity, listKey] : draws.GetView<DrawListKey>().each())
+        {
+            if (listKey.m_drawMaskBitIndex == bit && listKey.m_key == key)
+            {
+                return listKey.m_instanceCount;
+            }
+        }
+        return 0;
     }
 };
 
-TEST_F(DrawBinTest, AnInstanceCountsUnderEachBitOfItsMask)
+TEST_F(DrawBinTest, AnInstanceCountsInTheListOfEachBitOfItsMask)
 {
     Encode(SingleSided, Opaque | Caster, 2);
     Encode(SingleSided, Opaque, 1);
     Encode(DoubleSided, 0, 5);
+    counter.Publish(draws);
 
-    EXPECT_EQ(counts[SingleSided.m_value].m_counts[DrawMaskBit<OpaqueTag>::Index], 3u);
-    EXPECT_EQ(counts[SingleSided.m_value].m_counts[DrawMaskBit<ShadowCasterTag>::Index], 2u);
-    // Drawn nowhere, counted nowhere: no list the culling makes has it.
-    EXPECT_EQ(counts[DoubleSided.m_value].m_counts[DrawMaskBit<OpaqueTag>::Index], 0u);
-    EXPECT_EQ(counts[DoubleSided.m_value].m_counts[DrawMaskBit<ShadowCasterTag>::Index], 0u);
+    EXPECT_EQ(ListKeyCount(DrawMaskBit<OpaqueTag>::Index, SingleSided), 3u);
+    EXPECT_EQ(ListKeyCount(DrawMaskBit<ShadowCasterTag>::Index, SingleSided), 2u);
+    // Drawn nowhere, in no list: the culling never picks it.
+    EXPECT_EQ(draws.GetView<DrawListKey>().size(), 2u);
 }
 
-TEST_F(DrawBinTest, AKeyGetsAnEntityTheFirstTimeItIsCountedAndKeepsIt)
+TEST_F(DrawBinTest, AListKeyCarriesTheKeyAndItsIndex)
 {
-    Encode(DoubleSided, 0, 1);
-    PublishKeyInstanceCounts(rhi, counts);
-    EXPECT_EQ(rhi.GetView<PipelineKey>().size(), 0u);
+    Encode(DoubleSided, Opaque, 1);
+    counter.Publish(draws);
 
+    ASSERT_EQ(draws.GetView<DrawListKey>().size(), 1u);
+    const DrawListKey& listKey = draws.Get<DrawListKey>(*draws.GetView<DrawListKey>().begin());
+    EXPECT_EQ(listKey.m_key, DoubleSided);
+    EXPECT_EQ(listKey.m_keyIndex, PipelineKeyIndexOf(DoubleSided));
+}
+
+TEST_F(DrawBinTest, EachFrameIsCountedFromNothing)
+{
     Encode(SingleSided, Opaque, 2);
-    PublishKeyInstanceCounts(rhi, counts);
-    ASSERT_EQ(rhi.GetView<PipelineKey>().size(), 1u);
-    const RHI::RHIHandle key = *rhi.GetView<PipelineKey>().begin();
-    EXPECT_EQ(rhi.Get<PipelineKey>(key), SingleSided);
-    EXPECT_EQ(rhi.Get<KeyInstanceCount>(key).m_counts[DrawMaskBit<OpaqueTag>::Index], 2u);
+    Frame();
+    Frame();
 
-    counts.fill(KeyInstanceCount{});
-    PublishKeyInstanceCounts(rhi, counts);
-    ASSERT_EQ(rhi.GetView<PipelineKey>().size(), 1u);
-    EXPECT_EQ(rhi.Get<KeyInstanceCount>(key).m_counts[DrawMaskBit<OpaqueTag>::Index], 0u);
+    EXPECT_EQ(draws.GetView<DrawListKey>().size(), 0u);
 }
 
 //! Masking changes nothing in a template that does not declare it, and none does yet;
 //! being double-sided changes the cull mode of a pass that culls.
 TEST_F(DrawBinTest, KeysThatDrawAlikeShareABin)
 {
-    const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
+    const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 1);
     Encode(Masked, Opaque, 1);
     Encode(DoubleSided, Opaque, 1);
     Frame();
 
     EXPECT_EQ(BinsOf(depth).size(), 2u);
-    EXPECT_EQ(AssignmentCount(), 3u);
     EXPECT_EQ(Entry(depth, SingleSided).m_index, Entry(depth, Masked).m_index);
     EXPECT_NE(Entry(depth, SingleSided).m_index, Entry(depth, DoubleSided).m_index);
 }
 
 TEST_F(DrawBinTest, ABinHoldsWhatItsKeysCountInThePassesList)
 {
-    const Pass depth  = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
-    const Pass shadow = AddPass("Shadow", DrawMaskBit<ShadowCasterTag>::Index);
+    const Pass depth  = AddPass<OpaqueTag>("Depth");
+    const Pass shadow = AddPass<ShadowCasterTag>("Shadow");
     Encode(SingleSided, Opaque | Caster, 3);
     Encode(Masked, Opaque, 2);
     Encode(DoubleSided, Opaque | Caster, 4);
     Frame();
 
-    EXPECT_EQ(RangeOf(depth, SingleSided).m_capacity, 5u);
-    EXPECT_EQ(RangeOf(depth, DoubleSided).m_capacity, 4u);
-    EXPECT_EQ(RangeOf(shadow, SingleSided).m_capacity, 3u);
-    EXPECT_EQ(RangeOf(shadow, DoubleSided).m_capacity, 4u);
+    EXPECT_EQ(BinOf(depth, SingleSided)->m_maxDraws, 5u);
+    EXPECT_EQ(BinOf(depth, DoubleSided)->m_maxDraws, 4u);
+    EXPECT_EQ(BinOf(shadow, SingleSided)->m_maxDraws, 3u);
+    EXPECT_EQ(BinOf(shadow, DoubleSided)->m_maxDraws, 4u);
 
-    // Next frame's counts replace this one's.
+    // Next frame's counts replace this one's, and a key no instance has has no bin.
     Encode(SingleSided, Opaque, 1);
     Frame();
-    EXPECT_EQ(RangeOf(depth, SingleSided).m_capacity, 1u);
-    EXPECT_EQ(RangeOf(depth, DoubleSided).m_capacity, 0u);
-    EXPECT_EQ(RangeOf(shadow, SingleSided).m_capacity, 0u);
+    EXPECT_EQ(BinsOf(depth).size(), 1u);
+    EXPECT_EQ(BinOf(depth, SingleSided)->m_maxDraws, 1u);
+    EXPECT_EQ(BinsOf(shadow).size(), 0u);
 }
 
 TEST_F(DrawBinTest, BinsLieOneAfterAnotherInTheirIndexOrder)
 {
-    const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
+    const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 3);
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    eastl::vector<DrawBinRange> ranges;
-    for (DrawBinHandle bin : BinsOf(depth))
+    const DrawBinList bins = BinsOf(depth);
+    ASSERT_EQ(bins.size(), 2u);
+    uint32_t firstDraw = 0;
+    for (uint32_t i = 0; i < bins.size(); ++i)
     {
-        ranges.push_back(passes.Get<DrawBinRange>(bin));
+        EXPECT_EQ(bins[i]->m_index, i);
+        EXPECT_EQ(bins[i]->m_firstDraw, firstDraw);
+        EXPECT_EQ(bins[i]->m_view, RHI::NullHandle);
+        firstDraw += bins[i]->m_maxDraws;
     }
-    eastl::sort(ranges.begin(), ranges.end(),
-        [](const DrawBinRange& a, const DrawBinRange& b) { return a.m_index < b.m_index; });
-
-    uint32_t first = 0;
-    for (uint32_t i = 0; i < ranges.size(); ++i)
-    {
-        EXPECT_EQ(ranges[i].m_index, i);
-        EXPECT_EQ(ranges[i].m_first, first);
-        first += ranges[i].m_capacity;
-    }
-    EXPECT_EQ(first, 7u);
-}
-
-TEST_F(DrawBinTest, ALaterPriorityDrawsLater)
-{
-    const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
-    Encode(SingleSided, Opaque, 1);
-    Encode(DoubleSided, Opaque, 1);
-    Frame();
-
-    // No rule raises a priority yet; raise one by hand, as masking will in a template that clips.
-    for (DrawBinHandle bin : BinsOf(depth))
-    {
-        if (passes.Get<DrawBinRange>(bin).m_index == Entry(depth, SingleSided).m_index)
-        {
-            passes.Get<PipelineVariant>(bin).m_priority = 1;
-        }
-    }
-    Encode(SingleSided, Opaque, 1);
-    Encode(DoubleSided, Opaque, 1);
-    Frame();
-
-    EXPECT_EQ(Entry(depth, DoubleSided).m_index, 0u);
-    EXPECT_EQ(Entry(depth, SingleSided).m_index, 1u);
-    EXPECT_EQ(Entry(depth, SingleSided).m_first, 1u);
+    EXPECT_EQ(firstDraw, 7u);
 }
 
 TEST_F(DrawBinTest, ALayoutRoundsUpAStepAtATime)
 {
-    const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
+    const Pass depth = AddPass<OpaqueTag>("Depth");
     Frame();
     EXPECT_EQ(passes.Get<PassBinLayout>(depth).m_binCount, 4u);
     EXPECT_EQ(passes.Get<PassBinLayout>(depth).m_viewStride, 1024u);
@@ -243,41 +224,31 @@ TEST_F(DrawBinTest, ALayoutRoundsUpAStepAtATime)
     EXPECT_EQ(passes.Get<PassBinLayout>(depth).m_viewStride, 2048u);
 }
 
-TEST_F(DrawBinTest, ATableSendsAKeyToItsBinAndAnUnassignedKeyNowhere)
+TEST_F(DrawBinTest, ATableSendsAKeyToItsBinAndAKeyOfNoBinNowhere)
 {
-    const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
+    const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 3);
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    for (DrawBinHandle bin : BinsOf(depth))
+    for (const DrawBin* bin : BinsOf(depth))
     {
-        const auto& range = passes.Get<DrawBinRange>(bin);
-        const PipelineKey key = passes.Get<PipelineVariant>(bin).m_cullMode == RHI::CullMode::None ? DoubleSided : SingleSided;
-        EXPECT_EQ(Entry(depth, key).m_index, range.m_index);
-        EXPECT_EQ(Entry(depth, key).m_first, range.m_first);
+        const PipelineKey key = bin->m_variant.m_cullMode == RHI::CullMode::None ? DoubleSided : SingleSided;
+        EXPECT_EQ(Entry(depth, key).m_index, bin->m_index);
+        EXPECT_EQ(Entry(depth, key).m_first, bin->m_firstDraw);
     }
     EXPECT_EQ(Entry(depth, Masked).m_index, DrawBinTableEntry::NotDrawn);
 }
 
-//! A key and a pass are assigned once each way round, whichever came first.
-TEST_F(DrawBinTest, ANewPassAndANewKeyAreEachAssignedOnce)
+TEST_F(DrawBinTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
 {
-    const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
-    Encode(SingleSided, Opaque, 1);
-    Frame();
-    EXPECT_EQ(AssignmentCount(), 1u);
-
-    const Pass shadow = AddPass("Shadow", DrawMaskBit<ShadowCasterTag>::Index);
+    const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(DoubleSided, Opaque, 1);
     Frame();
-    EXPECT_EQ(AssignmentCount(), 4u);
-    EXPECT_NE(Entry(shadow, SingleSided).m_index, DrawBinTableEntry::NotDrawn);
-    EXPECT_NE(Entry(shadow, DoubleSided).m_index, DrawBinTableEntry::NotDrawn);
-    EXPECT_NE(Entry(depth, DoubleSided).m_index, DrawBinTableEntry::NotDrawn);
 
-    Frame();
-    EXPECT_EQ(AssignmentCount(), 4u);
+    const PassBinTable& table = passes.Get<PassBinTable>(depth);
+    EXPECT_EQ(table.m_entryCount, PipelineKeyIndexOf(DoubleSided).m_value + 1);
+    EXPECT_GE(table.m_capacity, table.m_entryCount);
 }
 
 TEST_F(DrawBinTest, APassDrawingNoListHasNoBins)
@@ -288,39 +259,12 @@ TEST_F(DrawBinTest, APassDrawingNoListHasNoBins)
     Frame();
 
     EXPECT_FALSE(passes.Has<PassBinTable>(post));
-    EXPECT_EQ(AssignmentCount(), 0u);
-}
-
-//! What a DrawIndirect of the pass expands into under a view, a draw per bin.
-TEST_F(DrawBinTest, AViewIsDrawnABinAtATimeInIndexOrder)
-{
-    const Pass depth  = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
-    const Pass shadow = AddPass("Shadow", DrawMaskBit<ShadowCasterTag>::Index);
-    Encode(SingleSided, Opaque | Caster, 3);
-    Encode(DoubleSided, Opaque, 4);
-    Frame();
-
-    eastl::vector<DrawBinHandle> bins;
-    CollectDrawnBins(passes, depth, bins);
-    ASSERT_EQ(bins.size(), 2u);
-    for (uint32_t index = 0; index < bins.size(); ++index)
-    {
-        const DrawBinRange& range = passes.Get<DrawBinRange>(bins[index]);
-        EXPECT_EQ(range.m_index, index);
-        EXPECT_EQ(passes.Get<DrawBinOf>(bins[index]).m_pass, depth);
-    }
-
-    // The double-sided bin holds no caster, so the shadow pass does not draw it.
-    bins.clear();
-    CollectDrawnBins(passes, shadow, bins);
-    ASSERT_EQ(bins.size(), 1u);
-    EXPECT_EQ(passes.Get<DrawBinRange>(bins[0]).m_capacity, 3u);
-    EXPECT_EQ(passes.Get<DrawBinRange>(bins[0]).m_index, Entry(shadow, SingleSided).m_index);
+    EXPECT_EQ(BinsOf(post).size(), 0u);
 }
 
 TEST_F(DrawBinTest, ShutdownLeavesNothingBehind)
 {
-    const Pass depth = AddPass("Depth", DrawMaskBit<OpaqueTag>::Index);
+    const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 1);
     Frame();
     const RHI::RHIHandle buffer = passes.Get<PassBinTable>(depth).m_buffer;
@@ -329,10 +273,5 @@ TEST_F(DrawBinTest, ShutdownLeavesNothingBehind)
 
     EXPECT_TRUE(rhi.Has<DeadTag>(buffer));
     EXPECT_FALSE(passes.Has<PassBinTable>(depth));
-    EXPECT_EQ(passes.GetView<DrawBinOf>().size(), 0u);
-    EXPECT_EQ(AssignmentCount(), 0u);
-    for (auto [key, value] : rhi.GetView<PipelineKey>().each())
-    {
-        EXPECT_TRUE(rhi.Has<DeadTag>(key));
-    }
+    EXPECT_FALSE(passes.Has<PassBinLayout>(depth));
 }

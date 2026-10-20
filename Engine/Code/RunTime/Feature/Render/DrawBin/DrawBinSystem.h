@@ -1,6 +1,7 @@
 #pragma once
 
-#include <EASTL/array.h>
+#include <EASTL/fixed_vector.h>
+#include <EASTL/hash_map.h>
 #include <EASTL/vector.h>
 
 #include <RHI/Context/RHIContext.h>
@@ -16,38 +17,43 @@ namespace Spark::RHI
 #include <PipelineState/DrawPipelineCache.h>
 
 #include "DrawBin.h"
+#include "DrawContext.h"
+#include "DrawGroup.h"
 
 namespace Spark::Render
 {
-    //! An encoding pass's instance counts, indexed by key value.
-    using KeyInstanceCounts = eastl::array<KeyInstanceCount, PipelineKeyCount>;
+    //! A pass's DrawBins, as few as a pass of a GPU-culled list has.
+    using DrawBinList = eastl::fixed_vector<const DrawBin*, 8>;
 
-    //! Counts an encoded instance under each bit of drawMask.
-    void CountKeyInstance(KeyInstanceCounts& counts, PipelineKey key, DrawMask drawMask);
+    //! The DrawBins of pass under view, in their index order. Its DrawBins sorted, as Update
+    //! leaves them.
+    void CollectDrawBins(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawBinList& out);
 
-    //! Writes counts onto the keys' entities, making one for a key counted the first time.
-    void PublishKeyInstanceCounts(RHI::RHIContext& rhiCtx, const KeyInstanceCounts& counts);
-
-    //! The bins of pass a view is drawn by, a draw each: in index order, an empty bin left out.
-    //! Their DrawBinRange is in records and counts; what a record is, and so its size, is the draw's.
-    void CollectDrawnBins(const PassContext& passCtx, Pass pass, eastl::vector<DrawBinHandle>& out);
-
-    //! Keeps every pass's DrawBins from the keys the instance encoding published: assigns a
-    //! new key or a new pass, lays out each bin's capacity and first record, and writes
-    //! each pass's PassBinTable from the assignments.
+    //! Turns what is known of each draw list into the DrawBins of each pass drawing it: groups
+    //! a pass's DrawListKeys by their variant in the pass, and writes the pass's bin table and
+    //! PassBinLayout from the groups.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, updated after InstanceBindingSystem
-    //! (whose counts it lays out) and before the render graph is built.
+    //! (whose DrawListKeys it reads) and before the render graph is built.
     class DrawBinSystem
     {
     public:
-        void Update(RHI::RHIContext& rhiCtx, PassContext& passCtx);
-        //! Gives each bin that has none its DrawBinPipeline. After Update, which makes the bins.
-        void BuildPipelines(PassContext& passCtx, RHI::Factory& factory, RHI::Device& device);
-        //! Also lets the keys go: they are this system's data, though the encoding makes them.
+        void Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx);
+        //! Gives every DrawBin its PSO. After Update.
+        void AcquirePipelines(PassContext& passCtx, DrawContext& drawCtx, RHI::Factory& factory, RHI::Device& device);
         void Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx);
 
     private:
+        void UpdatePass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass);
+
         DrawPipelineCache m_pipelineCache;
+
+        // Reused from pass to pass and frame to frame.
+        eastl::vector<DrawEntry> m_entries;
+        eastl::vector<DrawGroup> m_groups;
+
+        //! The image of each pass's bin table, which the table's buffer is copied from at the
+        //! next frame's start, so it stays put until then.
+        eastl::hash_map<Pass, eastl::vector<DrawBinTableEntry>> m_binTables;
     };
 }

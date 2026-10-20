@@ -7,7 +7,7 @@
 #include <Geometry/MeshGeometry.h>
 #include <Transform/Components.h>
 
-#include <DrawBin/DrawBinSystem.h>
+#include <DrawBin/DrawListKeyCounter.h>
 
 #include "InstanceBinding.h"
 
@@ -48,7 +48,7 @@ namespace Spark::Render
         // upload (BufferUploadRequest contract), so it lives for the system's lifetime.
         eastl::vector<uint32_t> m_idData;
 
-        // This frame's encoded instances per key and draw-mask bit, published onto the keys.
-        KeyInstanceCounts m_keyCounts{};
+        // This frame's encoded instances per key and draw-mask bit, published as DrawListKeys.
+        DrawListKeyCounter m_keyCounter;
     };
 }
