@@ -1524,7 +1524,7 @@ namespace Spark::Render
                     appendDraw(argumentsByteOffset + range.m_first * RecordSize,
                                countByteOffset + range.m_index * sizeof(uint32_t),
                                range.m_capacity,
-                               pipeline ? pipeline->m_pso.get() : nullptr);
+                               pipeline ? pipeline->m_pso : nullptr);
                 }
                 return;
             }
@@ -1867,9 +1867,9 @@ namespace Spark::Render
         // --- Render passes ---
         {
             // A pass without shaders has no PassPipelineState, so no PSO.
-            auto view = passContext.GetView<RenderPassTag, PassShaders, PassPipelineState>();
+            auto view = passContext.GetView<RenderPassTag, PassStageFunctions, PassPipelineState>();
 
-            view.each([&](Pass pass, const PassShaders& shaders, const PassPipelineState& pipelineState)
+            view.each([&](Pass pass, const PassStageFunctions& stageFunctions, const PassPipelineState& pipelineState)
             {
                 if (passContext.Has<PassCompiledPSO>(pass) && !passContext.Has<PassPSODirtyTag>(pass))
                     return;
@@ -1880,7 +1880,7 @@ namespace Spark::Render
 
                 // The default PSO is the pass's own with no variant on it.
                 const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
-                    *factory, shaders, pipelineState, passContext.Get<PassPipelineLayout>(pass), PipelineVariant{}, passName);
+                    stageFunctions, pipelineState, passContext.Get<PassPipelineLayout>(pass), PipelineVariant{}, passName);
 
                 auto pso = factory->CreatePipelineState();
                 RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
@@ -1899,12 +1899,12 @@ namespace Spark::Render
 
         // --- Compute passes ---
         {
-            auto view = passContext.GetView<ComputePassTag, PassShaders>();
+            auto view = passContext.GetView<ComputePassTag, PassStageFunctions>();
 
-            view.each([&](Pass pass, const PassShaders& shaders)
+            view.each([&](Pass pass, const PassStageFunctions& stageFunctions)
             {
                 // A pass without shaders has no PSO.
-                if (!shaders.m_computeShader)
+                if (!stageFunctions.m_compute)
                 {
                     return;
                 }
@@ -1912,14 +1912,7 @@ namespace Spark::Render
                     return;
 
                 RHI::PipelineStateDescriptorForDispatch descriptor;
-
-                auto* stage = shaders.m_computeShader->GetShaderData()->GetStageBytecode(RHI::ShaderStage::Compute);
-                ASSERT(stage, "Pass '{}': ComputeShader has no compute-stage bytecode.",
-                    passContext.Get<PassName>(pass).m_name.GetCStr());
-                auto func = factory->CreateShaderStageFunction(RHI::ShaderStage::Compute);
-                func->SetByteCode(stage->bytecode);
-                func->Finalize();
-                descriptor.m_computeFunction = eastl::move(func);
+                descriptor.m_computeFunction = stageFunctions.m_compute;
 
                 ASSERT(passContext.Has<PassPipelineLayout>(pass),
                     "Compute pass '{}' has no PassPipelineLayout (eager build in PassBuilder::Finalize failed?).",

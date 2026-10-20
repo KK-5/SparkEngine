@@ -7,21 +7,16 @@
 
 #include "PipelineVariant.h"
 
-namespace Spark::RHI
-{
-    class Factory;
-}
-
 namespace Spark::Render
 {
     //! The pass's render states with what `variant` overrides.
     RHI::RenderStates ApplyPipelineVariant(const RHI::RenderStates& passStates, const PipelineVariant& variant);
 
-    //! The draw PSO description of a pass, with `variant` applied to its default. `passName`
-    //! only names the pass in asserts.
+    //! The draw PSO description of a pass, with `variant` applied to its default. Refers to the
+    //! pass's stage functions and layout, so it makes nothing. `passName` only names the pass
+    //! in asserts.
     RHI::PipelineStateDescriptorForDraw BuildDrawPipelineDescriptor(
-        RHI::Factory&             factory,
-        const PassShaders&        shaders,
+        const PassStageFunctions& stageFunctions,
         const PassPipelineState&  pipelineState,
         const PassPipelineLayout& layout,
         const PipelineVariant&    variant,

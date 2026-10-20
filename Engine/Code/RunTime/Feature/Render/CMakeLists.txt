@@ -30,6 +30,7 @@ set(SOURCES
     Pass/Pipeline.cpp
     PipelineState/PipelineVariantInterpret.cpp
     PipelineState/PipelineStateBuild.cpp
+    PipelineState/DrawPipelineCache.cpp
     DrawBin/DrawBinSystem.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp

@@ -52,10 +52,11 @@ namespace Spark::Render
     };
 
     //! On a bin's entity: the PSO its instances draw with, its pass's default PSO with the
-    //! bin's variant on it. Built once, when the bin is new.
+    //! bin's variant on it. Looked up once, when the bin is new; DrawBinSystem's
+    //! DrawPipelineCache owns it.
     struct DrawBinPipeline
     {
-        Ptr<RHI::PipelineState> m_pso;
+        const RHI::PipelineState* m_pso = nullptr;
     };
 
     //! On an entity of its own: in pass, instances of key go to bin.

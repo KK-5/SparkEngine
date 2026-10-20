@@ -26,9 +26,7 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::InvalidArgument;
         }
 
-        size_t hash = 0;
-        eastl::hash_combine(hash, byteCode.data(), byteCode.size());
-        SetHash(hash);
+        SetHash(static_cast<size_t>(eastl::hash_bytes(byteCode.data(), byteCode.size())));
         return RHI::ResultCode::Success;
     }
 }

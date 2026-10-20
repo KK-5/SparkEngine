@@ -5,6 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <EASTLEX/hash.h>
 #include <Log/ILogSystem.h>
 #include <Serialization/Json.h>
 #include <VFS/FileSystem.h>
@@ -21,18 +22,9 @@ namespace Spark::Resource
 {
     namespace
     {
-        //! FNV-1a, local until something else needs a 64-bit hash.
-        constexpr uint64_t kHashSeed  = 14695981039346656037ull;
-        constexpr uint64_t kHashPrime = 1099511628211ull;
-
         void Fold(uint64_t& hash, const void* data, size_t size)
         {
-            const auto* bytes = static_cast<const uint8_t*>(data);
-            for (size_t i = 0; i < size; ++i)
-            {
-                hash ^= static_cast<uint64_t>(bytes[i]);
-                hash *= kHashPrime;
-            }
+            eastl::fnv1a64_fold(hash, data, size);
         }
 
         void Fold(uint64_t& hash, eastl::string_view text)
@@ -158,7 +150,7 @@ namespace Spark::Resource
             return {};
         }
 
-        uint64_t key = kHashSeed;
+        uint64_t key = eastl::fnv1a64_seed;
         Fold(key, eastl::string_view("SparkAssetCache"));
         Fold(key, eastl::string_view(SPARK_CACHE_BUILD_TAG));
         Fold(key, eastl::string_view(canonical.c_str(), canonical.size()));

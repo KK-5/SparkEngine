@@ -10,6 +10,7 @@
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/Pipeline/RenderTargetLayout.h>
 #include <RHI/Pipeline/PipelineState.h>
+#include <RHI/Pipeline/ShaderStageFunction.h>
 #include <RHI/Resource/ResourceState.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
@@ -92,6 +93,19 @@ namespace Spark::Render
         Ptr<Resource::ShaderAsset> m_fragmentShader = nullptr;
         Ptr<Resource::ShaderAsset> m_geometryShader = nullptr;
         Ptr<Resource::ShaderAsset> m_computeShader  = nullptr;
+    };
+
+    //! PassShaders as stage functions, made once at Finalize (CreatePassStageFunctions). A PSO
+    //! description compares its stage functions by pointer, so every description of a pass refers
+    //! to these and two of them with the same variant are equal. Per pass while a pass's shaders
+    //! are fixed; shader permutations, passes sharing a shader, or hot reload would want them
+    //! kept by (shader asset, stage, macros) in a module of their own instead.
+    struct PassStageFunctions
+    {
+        Ptr<RHI::ShaderStageFunction> m_vertex;
+        Ptr<RHI::ShaderStageFunction> m_geometry;
+        Ptr<RHI::ShaderStageFunction> m_fragment;
+        Ptr<RHI::ShaderStageFunction> m_compute;
     };
 
     //! PipelineLayoutDescriptor built at PassBuilder::Finalize from the bound groups and

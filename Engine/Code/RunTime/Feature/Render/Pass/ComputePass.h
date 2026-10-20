@@ -101,6 +101,8 @@ namespace Spark::Render
                 auto* factory = Service<RHI::Factory>::Get();
                 ASSERT(factory, "Compute pass '{}': RHI::Factory service is not registered.",
                     m_name.GetCStr());
+                m_context->Add<PassStageFunctions>(pass, CreatePassStageFunctions(*factory, m_shaders, m_name.GetCStr()));
+
                 ShaderBindingsList groups;
                 if (m_capabilities.m_resolveSharedBindings)
                 {

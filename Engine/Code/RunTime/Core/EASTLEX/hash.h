@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <thread>
 #include <functional>
 #include <EASTL/functional.h>
@@ -7,6 +8,27 @@
 
 namespace eastl
 {
+    //! 64-bit FNV-1a, folded over bytes: a hash of what they hold, not of where they are.
+    inline constexpr uint64_t fnv1a64_seed = 14695981039346656037ull;
+
+    inline void fnv1a64_fold(uint64_t& hash, const void* data, size_t size)
+    {
+        constexpr uint64_t prime = 1099511628211ull;
+        const auto* bytes = static_cast<const uint8_t*>(data);
+        for (size_t i = 0; i < size; ++i)
+        {
+            hash ^= static_cast<uint64_t>(bytes[i]);
+            hash *= prime;
+        }
+    }
+
+    inline uint64_t hash_bytes(const void* data, size_t size)
+    {
+        uint64_t hash = fnv1a64_seed;
+        fnv1a64_fold(hash, data, size);
+        return hash;
+    }
+
     template<>
     struct hash<std::thread::id> 
     {

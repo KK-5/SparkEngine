@@ -286,13 +286,9 @@ namespace Spark::Render
             const char* passName = passCtx.Get<PassName>(pass).m_name.GetCStr();
 
             const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
-                factory, passCtx.Get<PassShaders>(pass), passCtx.Get<PassPipelineState>(pass),
+                passCtx.Get<PassStageFunctions>(pass), passCtx.Get<PassPipelineState>(pass),
                 passCtx.Get<PassPipelineLayout>(pass), passCtx.Get<PipelineVariant>(bin), passName);
-
-            Ptr<RHI::PipelineState> pso = factory.CreatePipelineState();
-            const RHI::ResultCode result = pso->Init(device, descriptor, nullptr);
-            ASSERT(result == RHI::ResultCode::Success, "[DrawBinSystem] Failed to create a bin's PSO for pass '{}'.", passName);
-            passCtx.Add<DrawBinPipeline>(bin, DrawBinPipeline{ eastl::move(pso) });
+            passCtx.Add<DrawBinPipeline>(bin, DrawBinPipeline{ m_pipelineCache.Acquire(descriptor, factory, device, passName) });
         }
     }
 
@@ -329,5 +325,8 @@ namespace Spark::Render
         {
             rhiCtx.Add<DeadTag>(key);
         }
+
+        // After the bins, which point at what it owns.
+        m_pipelineCache.Shutdown();
     }
 }

@@ -13,6 +13,7 @@ namespace Spark::RHI
 
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassDrawListComponents.h>
+#include <PipelineState/DrawPipelineCache.h>
 
 #include "DrawBin.h"
 
@@ -45,5 +46,8 @@ namespace Spark::Render
         void BuildPipelines(PassContext& passCtx, RHI::Factory& factory, RHI::Device& device);
         //! Also lets the keys go: they are this system's data, though the encoding makes them.
         void Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx);
+
+    private:
+        DrawPipelineCache m_pipelineCache;
     };
 }

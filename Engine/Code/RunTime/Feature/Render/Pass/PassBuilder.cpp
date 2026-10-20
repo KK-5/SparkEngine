@@ -139,6 +139,35 @@ namespace Spark::Render
                 }
             }
         }
+
+        //! `stage` of `shader` as a stage function, or null when the pass sets no such shader.
+        Ptr<RHI::ShaderStageFunction> CreateStageFunction(
+            RHI::Factory& factory, const Ptr<Resource::ShaderAsset>& shader, RHI::ShaderStage stage,
+            const char* passName, const char* stageName)
+        {
+            if (!shader)
+            {
+                return nullptr;
+            }
+
+            const auto* bytecode = shader->GetShaderData()->GetStageBytecode(stage);
+            ASSERT(bytecode, "Pass '{}': its {} has no bytecode for that stage.", passName, stageName);
+            auto function = factory.CreateShaderStageFunction(stage);
+            function->SetByteCode(bytecode->bytecode);
+            function->Finalize();
+            return function;
+        }
+    }
+
+    PassStageFunctions CreatePassStageFunctions(
+        RHI::Factory& factory, const PassShaders& shaders, const char* passName)
+    {
+        PassStageFunctions functions;
+        functions.m_vertex   = CreateStageFunction(factory, shaders.m_vertexShader, RHI::ShaderStage::Vertex, passName, "VertexShader");
+        functions.m_geometry = CreateStageFunction(factory, shaders.m_geometryShader, RHI::ShaderStage::Geometry, passName, "GeometryShader");
+        functions.m_fragment = CreateStageFunction(factory, shaders.m_fragmentShader, RHI::ShaderStage::Fragment, passName, "FragmentShader");
+        functions.m_compute  = CreateStageFunction(factory, shaders.m_computeShader, RHI::ShaderStage::Compute, passName, "ComputeShader");
+        return functions;
     }
 
     Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(

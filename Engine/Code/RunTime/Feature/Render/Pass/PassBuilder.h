@@ -34,6 +34,11 @@ namespace Spark::Render
         RHI::Factory& factory, const PassShaders& shaders,
         eastl::span<const RHI::ShaderBindings* const> groups, const char* passName);
 
+    //! A stage function for each shader the pass sets. The pass builders' Finalize stores it on
+    //! the pass. Defined in PassBuilder.cpp.
+    PassStageFunctions CreatePassStageFunctions(
+        RHI::Factory& factory, const PassShaders& shaders, const char* passName);
+
     struct RenderPassConfig
     {
         Ptr<Resource::ShaderAsset> m_vertexShader = nullptr;
