@@ -107,15 +107,15 @@ protected:
         return BinsOf(pass, view);
     }
 
-    //! What the pass's bin table holds for key, as uploaded.
-    DrawBinTableEntry Entry(Pass pass, PipelineKey key)
+    //! What the pass's indirect layout table holds for key, as uploaded.
+    IndirectLayoutEntry Entry(Pass pass, PipelineKey key)
     {
-        const auto& upload = rhi.Get<RHI::PendingBufferMap>(passes.Get<PassBinTable>(pass).m_buffer);
-        const auto* entries = static_cast<const DrawBinTableEntry*>(upload.m_data);
+        const auto& upload = rhi.Get<RHI::PendingBufferMap>(passes.Get<PassIndirectLayout>(pass).m_table);
+        const auto* entries = static_cast<const IndirectLayoutEntry*>(upload.m_data);
         const uint32_t index = PipelineKeyIndexOf(key).m_value;
-        if (index >= upload.m_byteCount / sizeof(DrawBinTableEntry))
+        if (index >= upload.m_byteCount / sizeof(IndirectLayoutEntry))
         {
-            return DrawBinTableEntry{};
+            return IndirectLayoutEntry{};
         }
         return entries[index];
     }
@@ -124,7 +124,7 @@ protected:
     {
         for (const DrawBin* bin : BinsOf(pass))
         {
-            if (bin->m_index == Entry(pass, key).m_index)
+            if (bin->m_index == Entry(pass, key).m_countIndex)
             {
                 return bin;
             }
@@ -189,8 +189,8 @@ TEST_F(DrawBinTest, KeysThatDrawAlikeShareABin)
     Frame();
 
     EXPECT_EQ(BinsOf(depth).size(), 2u);
-    EXPECT_EQ(Entry(depth, SingleSided).m_index, Entry(depth, Masked).m_index);
-    EXPECT_NE(Entry(depth, SingleSided).m_index, Entry(depth, DoubleSided).m_index);
+    EXPECT_EQ(Entry(depth, SingleSided).m_countIndex, Entry(depth, Masked).m_countIndex);
+    EXPECT_NE(Entry(depth, SingleSided).m_countIndex, Entry(depth, DoubleSided).m_countIndex);
 }
 
 TEST_F(DrawBinTest, ABinHoldsWhatItsKeysCountInThePassesList)
@@ -268,22 +268,22 @@ TEST_F(DrawBinTest, APassUnderNoViewHasATableButNoBins)
     Frame();
 
     EXPECT_EQ(draws.GetView<DrawBin>().size(), 0u);
-    EXPECT_TRUE(passes.Has<PassBinLayout>(depth));
-    EXPECT_NE(Entry(depth, SingleSided).m_index, DrawBinTableEntry::NotDrawn);
+    EXPECT_TRUE(passes.Has<PassIndirectLayout>(depth));
+    EXPECT_NE(Entry(depth, SingleSided).m_countIndex, IndirectLayoutEntry::NotDrawn);
 }
 
 TEST_F(DrawBinTest, ALayoutRoundsUpAStepAtATime)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Frame();
-    EXPECT_EQ(passes.Get<PassBinLayout>(depth).m_binCount, 4u);
-    EXPECT_EQ(passes.Get<PassBinLayout>(depth).m_viewStride, 1024u);
+    EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_countsPerView, 4u);
+    EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_recordsPerView, 1024u);
 
     Encode(SingleSided, Opaque, 1000);
     Encode(DoubleSided, Opaque, 25);
     Frame();
-    EXPECT_EQ(passes.Get<PassBinLayout>(depth).m_binCount, 4u);
-    EXPECT_EQ(passes.Get<PassBinLayout>(depth).m_viewStride, 2048u);
+    EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_countsPerView, 4u);
+    EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_recordsPerView, 2048u);
 }
 
 TEST_F(DrawBinTest, ATableSendsAKeyToItsBinAndAKeyOfNoBinNowhere)
@@ -296,10 +296,10 @@ TEST_F(DrawBinTest, ATableSendsAKeyToItsBinAndAKeyOfNoBinNowhere)
     for (const DrawBin* bin : BinsOf(depth))
     {
         const PipelineKey key = bin->m_variant.m_cullMode == RHI::CullMode::None ? DoubleSided : SingleSided;
-        EXPECT_EQ(Entry(depth, key).m_index, bin->m_index);
-        EXPECT_EQ(Entry(depth, key).m_first, bin->m_firstDraw);
+        EXPECT_EQ(Entry(depth, key).m_countIndex, bin->m_index);
+        EXPECT_EQ(Entry(depth, key).m_firstRecord, bin->m_firstDraw);
     }
-    EXPECT_EQ(Entry(depth, Masked).m_index, DrawBinTableEntry::NotDrawn);
+    EXPECT_EQ(Entry(depth, Masked).m_countIndex, IndirectLayoutEntry::NotDrawn);
 }
 
 TEST_F(DrawBinTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
@@ -308,9 +308,7 @@ TEST_F(DrawBinTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
     Encode(DoubleSided, Opaque, 1);
     Frame();
 
-    const PassBinTable& table = passes.Get<PassBinTable>(depth);
-    EXPECT_EQ(table.m_entryCount, PipelineKeyIndexOf(DoubleSided).m_value + 1);
-    EXPECT_GE(table.m_capacity, table.m_entryCount);
+    EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_tableLength, PipelineKeyIndexOf(DoubleSided).m_value + 1);
 }
 
 TEST_F(DrawBinTest, APassDrawingNoListHasNoBins)
@@ -320,7 +318,7 @@ TEST_F(DrawBinTest, APassDrawingNoListHasNoBins)
     Encode(SingleSided, Opaque, 1);
     Frame();
 
-    EXPECT_FALSE(passes.Has<PassBinTable>(post));
+    EXPECT_FALSE(passes.Has<PassIndirectLayout>(post));
     EXPECT_EQ(BinsOf(post).size(), 0u);
 }
 
@@ -329,11 +327,11 @@ TEST_F(DrawBinTest, ShutdownLeavesNothingBehind)
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 1);
     Frame();
-    const RHI::RHIHandle buffer = passes.Get<PassBinTable>(depth).m_buffer;
+    const RHI::RHIHandle buffer = passes.Get<PassIndirectLayout>(depth).m_table;
 
     system.Shutdown(rhi, passes);
 
     EXPECT_TRUE(rhi.Has<DeadTag>(buffer));
-    EXPECT_FALSE(passes.Has<PassBinTable>(depth));
-    EXPECT_FALSE(passes.Has<PassBinLayout>(depth));
+    EXPECT_FALSE(passes.Has<PassIndirectLayout>(depth));
+    EXPECT_FALSE(passes.Has<PassIndirectLayout>(depth));
 }

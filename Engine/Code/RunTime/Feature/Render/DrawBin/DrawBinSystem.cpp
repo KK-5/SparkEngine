@@ -18,14 +18,15 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr uint32_t BinCountStep      = 4;
-        constexpr uint32_t ViewStrideStep    = 1024;
-        constexpr uint32_t BinTableEntryStep = 16;
+        constexpr uint32_t CountsPerViewStep  = 4;
+        constexpr uint32_t RecordsPerViewStep = 1024;
+        //! While a key's index is its value, no index reaches the key space.
+        constexpr uint32_t TableCapacity      = PipelineKeyCount;
 
-        RHI::RHIHandle CreateBinTableBuffer(RHI::RHIContext& rhiCtx, const PassName& passName, uint32_t capacity)
+        RHI::RHIHandle CreateTable(RHI::RHIContext& rhiCtx, const PassName& passName)
         {
             RHI::BufferDescriptor desc;
-            desc.m_byteCount = static_cast<uint64_t>(capacity) * sizeof(DrawBinTableEntry);
+            desc.m_byteCount = static_cast<uint64_t>(TableCapacity) * sizeof(IndirectLayoutEntry);
             desc.m_bindFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyRead;
 
             RHI::PendingBufferInit init;
@@ -33,33 +34,12 @@ namespace Spark::Render
             init.m_heapMemoryLevel  = RHI::HeapMemoryLevel::Host;
             init.m_hostMemoryAccess = RHI::HostMemoryAccess::Write;
 
-            const eastl::string name = eastl::string(passName.m_name.GetCStr()) + "BinTable";
+            const eastl::string name = eastl::string(passName.m_name.GetCStr()) + "IndirectLayout";
             const RHI::RHIHandle buffer = rhiCtx.CreateEntity();
             rhiCtx.Add<RHI::PendingBufferInit>(buffer, init);
             rhiCtx.Add<RHI::PerFrameTag>(buffer);
             rhiCtx.Add<RHI::ResourceName>(buffer, RHI::ResourceName{ ObjectName(name) });
             return buffer;
-        }
-
-        //! The pass's table holds entryCount this frame: a new buffer when the old one holds fewer.
-        PassBinTable& FitBinTable(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass, uint32_t entryCount)
-        {
-            if (!passCtx.Has<PassBinTable>(pass))
-            {
-                passCtx.Add<PassBinTable>(pass);
-            }
-            PassBinTable& table = passCtx.Get<PassBinTable>(pass);
-            if (table.m_capacity < entryCount)
-            {
-                if (table.m_buffer != RHI::NullHandle)
-                {
-                    rhiCtx.Add<DeadTag>(table.m_buffer);
-                }
-                table.m_capacity = AlignUp(entryCount, BinTableEntryStep);
-                table.m_buffer   = CreateBinTableBuffer(rhiCtx, passCtx.Get<PassName>(pass), table.m_capacity);
-            }
-            table.m_entryCount = entryCount;
-            return table;
         }
     }
 
@@ -105,8 +85,10 @@ namespace Spark::Render
 
         GroupDrawEntries(m_entries, drawList.m_order, m_groups);
 
-        eastl::vector<DrawBinTableEntry>& image = m_binTables[pass];
-        image.assign(eastl::max(tableLength, 1u), DrawBinTableEntry{});
+        eastl::vector<IndirectLayoutEntry>& image = m_tables[pass];
+        image.assign(eastl::max(tableLength, 1u), IndirectLayoutEntry{});
+        ASSERT(image.size() <= TableCapacity, "[DrawBinSystem] Pass '{}' has a key index past its table.",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
 
         uint32_t drawCount = 0;
         for (uint32_t index = 0; index < static_cast<uint32_t>(m_groups.size()); ++index)
@@ -114,21 +96,24 @@ namespace Spark::Render
             const DrawGroup& group = m_groups[index];
             for (uint32_t e = group.m_firstEntry; e < group.m_firstEntry + group.m_entryCount; ++e)
             {
-                image[m_entries[e].m_keyIndex] = DrawBinTableEntry{ index, group.m_firstDraw };
+                image[m_entries[e].m_keyIndex] = IndirectLayoutEntry{ index, group.m_firstDraw };
             }
             drawCount += group.m_maxDraws;
         }
 
-        PassBinLayout layout;
-        layout.m_binCount   = AlignUp(eastl::max(static_cast<uint32_t>(m_groups.size()), 1u), BinCountStep);
-        layout.m_viewStride = AlignUp(eastl::max(drawCount, 1u), ViewStrideStep);
-        passCtx.AddOrReplace<PassBinLayout>(pass, layout);
+        if (!passCtx.Has<PassIndirectLayout>(pass))
+        {
+            passCtx.Add<PassIndirectLayout>(pass).m_table = CreateTable(rhiCtx, passCtx.Get<PassName>(pass));
+        }
+        PassIndirectLayout& layout = passCtx.Get<PassIndirectLayout>(pass);
+        layout.m_tableLength    = static_cast<uint32_t>(image.size());
+        layout.m_countsPerView  = AlignUp(eastl::max(static_cast<uint32_t>(m_groups.size()), 1u), CountsPerViewStep);
+        layout.m_recordsPerView = AlignUp(eastl::max(drawCount, 1u), RecordsPerViewStep);
 
-        // Also on the frame the buffer is requested: the frame's start makes it, then copies
+        // Also on the frame the table is requested: the frame's start makes it, then copies
         // into it, so a binning pass never reads a table not written.
-        const PassBinTable& table = FitBinTable(rhiCtx, passCtx, pass, static_cast<uint32_t>(image.size()));
         rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
-            table.m_buffer, RHI::PendingBufferMap{ image.data(), 0, image.size() * sizeof(DrawBinTableEntry) });
+            layout.m_table, RHI::PendingBufferMap{ image.data(), 0, image.size() * sizeof(IndirectLayoutEntry) });
 
         // Only the GPU knows which instances a view sees, so the groups are the whole list's,
         // the same under every view, each view's in its own part of the arguments. The views
@@ -178,20 +163,19 @@ namespace Spark::Render
     void DrawBinSystem::Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx)
     {
         eastl::vector<Pass> passes;
-        for (auto [pass, table] : passCtx.GetView<PassBinTable>().each())
+        for (auto [pass, layout] : passCtx.GetView<PassIndirectLayout>().each())
         {
-            if (table.m_buffer != RHI::NullHandle)
+            if (layout.m_table != RHI::NullHandle)
             {
-                rhiCtx.Add<DeadTag>(table.m_buffer);
+                rhiCtx.Add<DeadTag>(layout.m_table);
             }
             passes.push_back(pass);
         }
         for (Pass pass : passes)
         {
-            passCtx.Remove<PassBinTable>(pass);
-            passCtx.Remove<PassBinLayout>(pass);
+            passCtx.Remove<PassIndirectLayout>(pass);
         }
 
-        m_binTables.clear();
+        m_tables.clear();
     }
 }

@@ -9,7 +9,7 @@
 namespace Spark::Render
 {
     // Components on a pass that draws a list of scene instances, a DrawBin at a time
-    // (DrawBin/DrawBin.h). DrawBinSystem adds all but PassDrawList and writes them.
+    // (DrawBin/DrawBin.h). DrawBinSystem adds and writes all but PassDrawList.
 
     //! Added by .Draw<Tag>(): the pass draws the instances whose draw mask has this bit, in
     //! the order and culled where Tag declares.
@@ -20,29 +20,27 @@ namespace Spark::Render
         DrawCulling m_culling          = DrawCulling::Gpu;
     };
 
-    //! Written every frame. Both rounded up a step at a time, so what is sized by them is not
-    //! resized every frame.
-    struct PassBinLayout
-    {
-        uint32_t m_binCount   = 0;   // counts per view
-        uint32_t m_viewStride = 0;   // records per view
-    };
-
-    //! One entry of a pass's bin table. HLSL mirror comes with the binning shader.
-    struct DrawBinTableEntry
+    //! Where a key index's instances go in a view's part of a pass's indirect arguments. HLSL
+    //! mirror comes with the binning shader.
+    struct IndirectLayoutEntry
     {
         static constexpr uint32_t NotDrawn = UINT32_MAX;
 
-        uint32_t m_index = NotDrawn;   // DrawBin::m_index of the key's bin
-        uint32_t m_first = 0;          // and its m_firstDraw
+        uint32_t m_countIndex  = NotDrawn;   // which of the view's counts its draw reads: DrawBin::m_index
+        uint32_t m_firstRecord = 0;          // its draw's first record: DrawBin::m_firstDraw
     };
 
-    //! The pass's table from a key index to its bin, a host per-frame buffer written whole
-    //! every frame. m_entryCount entries are this frame's, of m_capacity it holds.
-    struct PassBinTable
+    //! How a pass whose list is culled on the GPU lays out its indirect arguments, the same in
+    //! each view's part: what the pass's InstanceBinning reads. Written every frame.
+    struct PassIndirectLayout
     {
-        RHI::RHIHandle m_buffer     = RHI::NullHandle;
-        uint32_t       m_capacity   = 0;
-        uint32_t       m_entryCount = 0;
+        //! IndirectLayoutEntry by key index, a host per-frame buffer written whole every frame.
+        RHI::RHIHandle m_table       = RHI::NullHandle;
+        //! This frame's entries: the largest key index of the list, plus one.
+        uint32_t       m_tableLength = 0;
+
+        // Both rounded up a step at a time, so what they size is not resized every frame.
+        uint32_t m_countsPerView  = 0;
+        uint32_t m_recordsPerView = 0;
     };
 }

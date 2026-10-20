@@ -42,13 +42,13 @@ namespace Spark::Render
         };
 
         //! The Build of a binning pass: drawPass's bins of the instances `views` see, in the two
-        //! buffers named, its bin table imported under binTableName.
+        //! buffers named, its PassIndirectLayout table imported under layoutName.
         void BuildBins(
             ComputePassScopes& p,
             Pass drawPass,
             const ViewHandleList& views,
             const VisibleList& visible,
-            const RHI::AttachmentId& binTableName,
+            const RHI::AttachmentId& layoutName,
             const RHI::AttachmentId& argumentsName,
             const RHI::AttachmentId& countName)
         {
@@ -59,17 +59,16 @@ namespace Spark::Render
             const InstanceLists::CullingLayout culling   = InstanceLists::LayOutCulling(rhiContext, views);
             const uint32_t                     viewCount = static_cast<uint32_t>(culling.m_views.size());
 
-            const PassBinLayout& binLayout = passContext.Get<PassBinLayout>(drawPass);
-            const PassBinTable&  binTable  = passContext.Get<PassBinTable>(drawPass);
+            const PassIndirectLayout& layout = passContext.Get<PassIndirectLayout>(drawPass);
 
             // DrawBinSystem made it before this frame began, so it was created at the frame's start.
-            ASSERT(rhiContext.Has<RHI::Components::BufferPerFrame>(binTable.m_buffer),
-                "[InstanceBinningPass] {}'s bin table has no buffer.",
+            ASSERT(rhiContext.Has<RHI::Components::BufferPerFrame>(layout.m_table),
+                "[InstanceBinningPass] {}'s indirect layout has no table.",
                 passContext.Get<PassName>(drawPass).m_name.GetCStr());
-            p.Import(binTableName, binTable.m_buffer);
+            p.Import(layoutName, layout.m_table);
 
-            const uint32_t recordCount = culling.m_viewCapacity * binLayout.m_viewStride;
-            const uint32_t countCount  = culling.m_viewCapacity * binLayout.m_binCount;
+            const uint32_t recordCount = culling.m_viewCapacity * layout.m_recordsPerView;
+            const uint32_t countCount  = culling.m_viewCapacity * layout.m_countsPerView;
 
             // Written by the shader and read as the arguments, and the counts, of draws.
             constexpr RHI::BufferBindFlags bindFlags =
@@ -89,8 +88,8 @@ namespace Spark::Render
                 0, culling.m_viewCapacity * culling.m_maxPerView, sizeof(uint32_t));
             const RHI::BufferViewDescriptor visibleCountView = RHI::BufferViewDescriptor::CreateStructured(
                 0, culling.m_viewCapacity, sizeof(uint32_t));
-            const RHI::BufferViewDescriptor binTableView = RHI::BufferViewDescriptor::CreateStructured(
-                0, binTable.m_entryCount, sizeof(DrawBinTableEntry));
+            const RHI::BufferViewDescriptor layoutView = RHI::BufferViewDescriptor::CreateStructured(
+                0, layout.m_tableLength, sizeof(IndirectLayoutEntry));
             const RHI::BufferViewDescriptor argumentsView = RHI::BufferViewDescriptor::CreateStructured(
                 0, recordCount, sizeof(RHI::DrawIndexedIndirectCommand));
             const RHI::BufferViewDescriptor countView = RHI::BufferViewDescriptor::CreateStructured(
@@ -98,7 +97,7 @@ namespace Spark::Render
 
             const RHI::InputName visibleInstancesInput("g_VisibleInstances");
             const RHI::InputName visibleCountInput("g_VisibleCount");
-            const RHI::InputName binTableInput("g_BinTable");
+            const RHI::InputName layoutInput("g_IndirectLayout");
             const RHI::InputName argumentsInput("g_DrawArguments");
             const RHI::InputName countInput("g_DrawCount");
 
@@ -116,7 +115,7 @@ namespace Spark::Render
             {
                 s.Constant(RHI::InputName("isClearCount"), constants.m_isClearCount);
                 s.Constant(RHI::InputName("countCapacity"), countCount);
-                s.Constant(RHI::InputName("binTableCount"), binTable.m_entryCount);
+                s.Constant(RHI::InputName("indirectLayoutLength"), layout.m_tableLength);
                 s.Constant(RHI::InputName("entryCount"), constants.m_entryCount);
                 s.Constant(RHI::InputName("viewFirstEntry"), constants.m_viewFirstEntry);
                 s.Constant(RHI::InputName("viewOrdinal"), constants.m_viewOrdinal);
@@ -146,13 +145,13 @@ namespace Spark::Render
                 ScopeConstants constants;
                 constants.m_viewFirstEntry  = viewOrdinal * culling.m_maxPerView;
                 constants.m_viewOrdinal     = viewOrdinal;
-                constants.m_viewFirstCount  = viewOrdinal * binLayout.m_binCount;
-                constants.m_viewFirstRecord = viewOrdinal * binLayout.m_viewStride;
+                constants.m_viewFirstCount  = viewOrdinal * layout.m_countsPerView;
+                constants.m_viewFirstRecord = viewOrdinal * layout.m_recordsPerView;
 
                 auto s = p.Scope();
                 s.ReadBuffer(visible.m_instancesName).View(visibleInstancesView).Bind(visibleInstancesInput);
                 s.ReadBuffer(visible.m_countName).View(visibleCountView).Bind(visibleCountInput);
-                s.ReadBuffer(binTableName).View(binTableView).Bind(binTableInput);
+                s.ReadBuffer(layoutName).View(layoutView).Bind(layoutInput);
                 ShaderAttachment count     = s.ReadWriteBuffer(countName).View(countView).Bind(countInput);
                 ShaderAttachment arguments = s.WriteBuffer(argumentsName).View(argumentsView).Bind(argumentsInput);
                 if (viewOrdinal < viewCount)
@@ -197,7 +196,7 @@ namespace Spark::Render
                 CollectViews<MainViewTag>(*RHI::RHIExecuteContext::Current(), views);
                 BuildBins(p, FindPass<SPARK_PASS_TAG("DepthPrePass")>(), views,
                     VisibleList{ InstanceLists::Opaque::VisibleInstancesName(), InstanceLists::Opaque::VisibleCountName() },
-                    InstanceLists::DepthPre::BinTableName(),
+                    InstanceLists::DepthPre::IndirectLayoutName(),
                     InstanceLists::DepthPre::DrawArgumentsName(), InstanceLists::DepthPre::DrawCountName());
             })
             .Finalize();
@@ -212,7 +211,7 @@ namespace Spark::Render
                 CollectViews<MainViewTag>(*RHI::RHIExecuteContext::Current(), views);
                 BuildBins(p, FindPass<SPARK_PASS_TAG("GBufferPass")>(), views,
                     VisibleList{ InstanceLists::Opaque::VisibleInstancesName(), InstanceLists::Opaque::VisibleCountName() },
-                    InstanceLists::GBuffer::BinTableName(),
+                    InstanceLists::GBuffer::IndirectLayoutName(),
                     InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName());
             })
             .Finalize();
@@ -228,7 +227,7 @@ namespace Spark::Render
                 BuildBins(p, FindPass<SPARK_PASS_TAG("ShadowPass")>(), views,
                     VisibleList{ InstanceLists::ShadowCaster::VisibleInstancesName(),
                                  InstanceLists::ShadowCaster::VisibleCountName() },
-                    InstanceLists::Shadow::BinTableName(),
+                    InstanceLists::Shadow::IndirectLayoutName(),
                     InstanceLists::Shadow::DrawArgumentsName(), InstanceLists::Shadow::DrawCountName());
             })
             .Finalize();

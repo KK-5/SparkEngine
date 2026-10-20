@@ -24,8 +24,8 @@ namespace Spark::Render
     void CollectDrawBins(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawBinList& out);
 
     //! Turns what is known of each draw list into the DrawBins of each pass drawing it: groups
-    //! a pass's DrawListKeys by their variant in the pass, writes the pass's bin table and
-    //! PassBinLayout from the groups, and the groups as DrawBins under each view the pass renders.
+    //! a pass's DrawListKeys by their variant in the pass, writes the pass's PassIndirectLayout
+    //! from the groups, and the groups as DrawBins under each view the pass renders.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, updated after InstanceBindingSystem
     //! (whose DrawListKeys it reads) and before the render graph is built.
@@ -43,8 +43,8 @@ namespace Spark::Render
         eastl::vector<DrawGroup> m_groups;
         ViewHandleList           m_views;
 
-        //! The image of each pass's bin table, which the table's buffer is copied from at the
-        //! next frame's start, so it stays put until then.
-        eastl::hash_map<Pass, eastl::vector<DrawBinTableEntry>> m_binTables;
+        //! The image of each pass's PassIndirectLayout table, which the table's buffer is copied
+        //! from at the next frame's start, so it stays put until then.
+        eastl::hash_map<Pass, eastl::vector<IndirectLayoutEntry>> m_tables;
     };
 }

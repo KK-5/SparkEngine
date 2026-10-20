@@ -73,9 +73,9 @@ namespace Spark::Render::InstanceLists
 
     namespace DepthPre
     {
-        const RHI::AttachmentId& BinTableName()
+        const RHI::AttachmentId& IndirectLayoutName()
         {
-            static const RHI::AttachmentId name("DepthPreBinTable");
+            static const RHI::AttachmentId name("DepthPreIndirectLayout");
             return name;
         }
 
@@ -94,9 +94,9 @@ namespace Spark::Render::InstanceLists
 
     namespace GBuffer
     {
-        const RHI::AttachmentId& BinTableName()
+        const RHI::AttachmentId& IndirectLayoutName()
         {
-            static const RHI::AttachmentId name("GBufferBinTable");
+            static const RHI::AttachmentId name("GBufferIndirectLayout");
             return name;
         }
 
@@ -115,9 +115,9 @@ namespace Spark::Render::InstanceLists
 
     namespace Shadow
     {
-        const RHI::AttachmentId& BinTableName()
+        const RHI::AttachmentId& IndirectLayoutName()
         {
-            static const RHI::AttachmentId name("ShadowBinTable");
+            static const RHI::AttachmentId name("ShadowIndirectLayout");
             return name;
         }
 
