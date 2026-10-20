@@ -112,15 +112,6 @@ namespace Spark::Render
         for (uint32_t index = 0; index < static_cast<uint32_t>(m_groups.size()); ++index)
         {
             const DrawGroup& group = m_groups[index];
-
-            DrawBin bin;
-            bin.m_pass      = pass;
-            bin.m_index     = index;
-            bin.m_variant   = group.m_variant;
-            bin.m_firstDraw = group.m_firstDraw;
-            bin.m_maxDraws  = group.m_maxDraws;
-            drawCtx.Add<DrawBin>(drawCtx.CreateEntity(), bin);
-
             for (uint32_t e = group.m_firstEntry; e < group.m_firstEntry + group.m_entryCount; ++e)
             {
                 image[m_entries[e].m_keyIndex] = DrawBinTableEntry{ index, group.m_firstDraw };
@@ -138,6 +129,36 @@ namespace Spark::Render
         const PassBinTable& table = FitBinTable(rhiCtx, passCtx, pass, static_cast<uint32_t>(image.size()));
         rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
             table.m_buffer, RHI::PendingBufferMap{ image.data(), 0, image.size() * sizeof(DrawBinTableEntry) });
+
+        // Only the GPU knows which instances a view sees, so the groups are the whole list's,
+        // the same under every view, each view's in its own part of the arguments. The views
+        // are those the render graph draws the pass under, by the same call in the same frame;
+        // one it skips leaves its bins unread.
+        const auto* capabilities = passCtx.TryGet<PassCapabilities>(pass);
+        ASSERT(capabilities && capabilities->m_collectViews,
+            "[DrawBinSystem] Pass '{}' draws a list but declares no .RendersView<>().",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
+        m_views.clear();
+        if (capabilities && capabilities->m_collectViews)
+        {
+            capabilities->m_collectViews(rhiCtx, m_views);
+        }
+        for (RHI::RHIHandle view : m_views)
+        {
+            for (uint32_t index = 0; index < static_cast<uint32_t>(m_groups.size()); ++index)
+            {
+                const DrawGroup& group = m_groups[index];
+
+                DrawBin bin;
+                bin.m_pass      = pass;
+                bin.m_view      = view;
+                bin.m_index     = index;
+                bin.m_variant   = group.m_variant;
+                bin.m_firstDraw = group.m_firstDraw;
+                bin.m_maxDraws  = group.m_maxDraws;
+                drawCtx.Add<DrawBin>(drawCtx.CreateEntity(), bin);
+            }
+        }
     }
 
     void DrawBinSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx)

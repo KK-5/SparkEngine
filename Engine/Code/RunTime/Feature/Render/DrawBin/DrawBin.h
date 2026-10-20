@@ -25,19 +25,19 @@ namespace Spark::Render
         uint32_t         m_instanceCount = 0;
     };
 
-    //! One indirect draw of a pass: a DrawGroup of the pass. Under a view, or under every view
-    //! the pass renders (NullHandle) when its list is culled on the GPU, whose groups are the
-    //! same for every view and lie at the start of each view's part of the arguments. Its PSO
-    //! is the pass's description with its variant, which the render graph builds.
+    //! One indirect draw of a pass under a view: a DrawGroup of the pass. Its PSO is the pass's
+    //! description with its variant, which the render graph builds.
     struct DrawBin
     {
         Pass           m_pass  = NullPass;
         RHI::RHIHandle m_view  = RHI::NullHandle;
-        //! Its place among the pass's, which is also which of a view's counts is its.
+        //! Its place among the pass's under the view, which is also which of the view's counts is its.
         uint32_t       m_index = 0;
 
         PipelineVariant m_variant;
 
+        //! From the start of the view's part of the argument buffer, or of the buffer when it
+        //! has no part per view.
         uint32_t m_firstDraw = 0;
         uint32_t m_maxDraws  = 0;
     };

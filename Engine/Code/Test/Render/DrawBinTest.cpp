@@ -32,10 +32,15 @@ namespace
     const PipelineKey SingleSided = Key(Resource::AlphaMode::Opaque, false);
     const PipelineKey DoubleSided = Key(Resource::AlphaMode::Opaque, true);
     const PipelineKey Masked      = Key(Resource::AlphaMode::Mask, false);
+
+    //! The views the test's passes render.
+    struct TestViewTag
+    {
+    };
 }
 
 //! Bins made from the counted keys. Everything is components on the contexts, so no device is
-//! needed; the bins get no PSO and the bin tables' buffers never materialize.
+//! needed; the bin tables' buffers never materialize.
 class DrawBinTest : public ::testing::Test
 {
 protected:
@@ -44,17 +49,32 @@ protected:
     DrawContext        draws;
     DrawBinSystem      system;
     DrawListKeyCounter counter;
+    //! The one view a test has unless it adds more.
+    RHI::RHIHandle     view = AddView();
 
-    //! A pass culling back faces, as the scene passes do, drawing the list of Tag.
+    RHI::RHIHandle AddView()
+    {
+        const RHI::RHIHandle added = rhi.CreateEntity();
+        rhi.Add<View>(added);
+        rhi.Add<TestViewTag>(added);
+        return added;
+    }
+
+    //! A pass culling back faces, as the scene passes do, drawing the list of Tag under every
+    //! TestViewTag view.
     template<typename Tag>
     Pass AddPass(const char* name)
     {
         PassPipelineState pipelineState;
         pipelineState.m_renderStates.m_rasterState.m_cullMode = RHI::CullMode::Back;
 
+        PassCapabilities capabilities{};
+        capabilities.m_collectViews = &CollectViews<TestViewTag>;
+
         const Pass pass = passes.CreatePass();
         passes.Add<PassName>(pass, PassName{ ObjectName(name) });
         passes.Add<PassPipelineState>(pass, pipelineState);
+        passes.Add<PassCapabilities>(pass, capabilities);
         passes.Add<PassDrawList>(pass, PassDrawList{ DrawMaskBit<Tag>::Index, Tag::Order, Tag::Culling });
         return pass;
     }
@@ -75,11 +95,16 @@ protected:
         system.Update(rhi, passes, draws);
     }
 
-    DrawBinList BinsOf(Pass pass)
+    DrawBinList BinsOf(Pass pass, RHI::RHIHandle under)
     {
         DrawBinList bins;
-        CollectDrawBins(draws, pass, RHI::NullHandle, bins);
+        CollectDrawBins(draws, pass, under, bins);
         return bins;
+    }
+
+    DrawBinList BinsOf(Pass pass)
+    {
+        return BinsOf(pass, view);
     }
 
     //! What the pass's bin table holds for key, as uploaded.
@@ -204,10 +229,47 @@ TEST_F(DrawBinTest, BinsLieOneAfterAnotherInTheirIndexOrder)
     {
         EXPECT_EQ(bins[i]->m_index, i);
         EXPECT_EQ(bins[i]->m_firstDraw, firstDraw);
-        EXPECT_EQ(bins[i]->m_view, RHI::NullHandle);
+        EXPECT_EQ(bins[i]->m_view, view);
         firstDraw += bins[i]->m_maxDraws;
     }
     EXPECT_EQ(firstDraw, 7u);
+}
+
+//! Which instances a view sees only the GPU knows, so each view gets the bins of the whole list.
+TEST_F(DrawBinTest, EachViewHasTheSameBins)
+{
+    const RHI::RHIHandle other = AddView();
+    const Pass depth = AddPass<OpaqueTag>("Depth");
+    Encode(SingleSided, Opaque, 3);
+    Encode(DoubleSided, Opaque, 4);
+    Frame();
+
+    const DrawBinList bins      = BinsOf(depth, view);
+    const DrawBinList otherBins = BinsOf(depth, other);
+    ASSERT_EQ(bins.size(), 2u);
+    ASSERT_EQ(otherBins.size(), bins.size());
+    for (uint32_t i = 0; i < bins.size(); ++i)
+    {
+        EXPECT_EQ(bins[i]->m_view, view);
+        EXPECT_EQ(otherBins[i]->m_view, other);
+        EXPECT_EQ(otherBins[i]->m_index, bins[i]->m_index);
+        EXPECT_EQ(otherBins[i]->m_variant, bins[i]->m_variant);
+        EXPECT_EQ(otherBins[i]->m_firstDraw, bins[i]->m_firstDraw);
+        EXPECT_EQ(otherBins[i]->m_maxDraws, bins[i]->m_maxDraws);
+    }
+}
+
+//! The binning pass reads the table and the layout every frame, views or none.
+TEST_F(DrawBinTest, APassUnderNoViewHasATableButNoBins)
+{
+    rhi.Add<DeadTag>(view);
+    const Pass depth = AddPass<OpaqueTag>("Depth");
+    Encode(SingleSided, Opaque, 3);
+    Frame();
+
+    EXPECT_EQ(draws.GetView<DrawBin>().size(), 0u);
+    EXPECT_TRUE(passes.Has<PassBinLayout>(depth));
+    EXPECT_NE(Entry(depth, SingleSided).m_index, DrawBinTableEntry::NotDrawn);
 }
 
 TEST_F(DrawBinTest, ALayoutRoundsUpAStepAtATime)

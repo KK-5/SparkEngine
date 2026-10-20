@@ -1515,9 +1515,8 @@ namespace Spark::Render
                     "[RenderGraphCompiler] Pass {} draws its bins with a draw that is not an indexed indirect one.", passName);
                 constexpr uint64_t CommandSize = sizeof(RHI::DrawIndexedIndirectCommand);
 
-                // A GPU-culled list's bins are the same under every view.
                 DrawBinList bins;
-                CollectDrawBins(*DrawExecuteContext::Current(), pass, NullHandle, bins);
+                CollectDrawBins(*DrawExecuteContext::Current(), pass, view, bins);
                 for (const DrawBin* bin : bins)
                 {
                     const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
