@@ -14,6 +14,7 @@
 #include <RHI/ResourceBuilder.h>
 
 #include <Pass/Component/PassComponents.h>
+#include <PipelineState/PipelineKeyIndex.h>
 #include <PipelineState/PipelineStateBuild.h>
 #include <PipelineState/PipelineVariantInterpret.h>
 
@@ -197,7 +198,7 @@ namespace Spark::Render
             for (auto [entity, assignment] : passCtx.GetView<DrawBinAssignment>().each())
             {
                 const auto& range = passCtx.Get<DrawBinRange>(assignment.m_bin);
-                passCtx.Get<PassBinTable>(assignment.m_pass).m_entries[assignment.m_keyValue.m_value] =
+                passCtx.Get<PassBinTable>(assignment.m_pass).m_entries[PipelineKeyIndexOf(assignment.m_keyValue).m_value] =
                     DrawBinTableEntry{ range.m_index, range.m_first };
             }
 

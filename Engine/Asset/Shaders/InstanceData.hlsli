@@ -12,7 +12,7 @@ struct InstanceData
     uint     MaterialIndex;  // slot into g_Materials (space3)
     uint     DrawMask;       // one bit per classification tag (DrawMask.h); 0 = not drawn
     uint     GeometryIndex;  // slot into g_Geometries (space6); only meaningful while DrawMask is set
-    uint     PipelineKey;    // what decides the instance's PSO in each pass (PipelineKey.h)
+    uint     PipelineKeyIndex; // what each pass's bin table is addressed by (PipelineKeyIndex.h)
 };
 
 #endif // SPARK_INSTANCE_DATA_HLSLI

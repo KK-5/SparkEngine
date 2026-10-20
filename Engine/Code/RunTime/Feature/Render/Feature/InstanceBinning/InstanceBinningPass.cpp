@@ -116,6 +116,7 @@ namespace Spark::Render
             {
                 s.Constant(RHI::InputName("isClearCount"), constants.m_isClearCount);
                 s.Constant(RHI::InputName("countCapacity"), countCount);
+                s.Constant(RHI::InputName("binTableCount"), static_cast<uint32_t>(binTable.m_entries.size()));
                 s.Constant(RHI::InputName("entryCount"), constants.m_entryCount);
                 s.Constant(RHI::InputName("viewFirstEntry"), constants.m_viewFirstEntry);
                 s.Constant(RHI::InputName("viewOrdinal"), constants.m_viewOrdinal);

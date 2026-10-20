@@ -8,6 +8,7 @@
 #include <RHI/Context/RHIContext.h>
 
 #include <DrawBin/DrawBinSystem.h>
+#include <PipelineState/PipelineKeyIndex.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/PassContext.h>
 
@@ -91,7 +92,7 @@ protected:
 
     const DrawBinTableEntry& Entry(Pass pass, PipelineKey key)
     {
-        return passes.Get<PassBinTable>(pass).m_entries[key.m_value];
+        return passes.Get<PassBinTable>(pass).m_entries[PipelineKeyIndexOf(key).m_value];
     }
 
     const DrawBinRange& RangeOf(Pass pass, PipelineKey key)

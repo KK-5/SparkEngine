@@ -2,7 +2,7 @@
 // written once for each view. One thread per entry of the view's part of the visible list
 // (InstanceCulling.hlsl); a thread past the view's count writes nothing.
 //
-// The pass's bin table sends an instance's pipeline key to its bin: which of the view's
+// The pass's bin table sends an instance's pipeline key index to its bin: which of the view's
 // counts is the bin's, and where the bin's records start in the view's part of the argument
 // buffer. A thread takes the next free place among its bin's records from the bin's count,
 // so a bin is packed from its start and in no fixed order. The CPU sized each bin for all
@@ -27,6 +27,7 @@ struct ScopeParameters
 {
     uint isClearCount;     // 1: zero the counts and write no record
     uint countCapacity;    // counts g_DrawCount holds, for every view
+    uint binTableCount;    // entries g_BinTable holds
     uint entryCount;       // threads that may have an entry: the view's part holds fewer
     uint viewFirstEntry;   // where this view's part starts in g_VisibleInstances
     uint viewOrdinal;      // which count in g_VisibleCount is this view's
@@ -60,9 +61,14 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    const uint              slot     = g_VisibleInstances[g_Scope.viewFirstEntry + id.x];
-    const InstanceData      instance = g_Instances[slot];
-    const DrawBinTableEntry bin      = g_BinTable[instance.PipelineKey];
+    const uint         slot     = g_VisibleInstances[g_Scope.viewFirstEntry + id.x];
+    const InstanceData instance = g_Instances[slot];
+    // Past the table a read gives 0, which is bin 0's entry, not "not drawn".
+    if (instance.PipelineKeyIndex >= g_Scope.binTableCount)
+    {
+        return;
+    }
+    const DrawBinTableEntry bin = g_BinTable[instance.PipelineKeyIndex];
     if (bin.Index == NotDrawn)
     {
         return;

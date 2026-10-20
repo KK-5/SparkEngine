@@ -19,6 +19,7 @@
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Drawable/DrawMask.h>
 #include <DrawBin/DrawBinSystem.h>
+#include <PipelineState/PipelineKeyIndex.h>
 
 namespace Spark::Render
 {
@@ -150,17 +151,18 @@ namespace Spark::Render
             // inverse; embedded in a 4x4 for a StructuredBuffer-safe layout (VS reads its 3x3).
             out.m_normalMatrix = Math::ToMatrix4X4(
                 Math::Transpose(Math::Inverse(Math::ToMatrix3X3(m.m_worldMatrix))));
+            PipelineKey key;
             if (matCtx)
             {
                 const Material::MaterialHandle material = ResolveMaterial(*world, *matCtx, e);
                 out.m_materialIndex = MaterialIndexOf(*matCtx, material);
-                out.m_pipelineKey   = PipelineKeyOf(*matCtx, material).m_value;
+                key                 = PipelineKeyOf(*matCtx, material);
             }
             else
             {
                 out.m_materialIndex = 0;
-                out.m_pipelineKey   = PipelineKey{}.m_value;
             }
+            out.m_pipelineKeyIndex = PipelineKeyIndexOf(key).m_value;
             // 0 until the geometry can be read and has its g_Geometries record: a reader of
             // g_Instances draws what is set, from the record m_geometryIndex names.
             const auto* geometrySlot = world->TryGet<GeometrySlotRef>(e);
@@ -168,7 +170,7 @@ namespace Spark::Render
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
             out.m_drawMask      = drawable ? ClassifyDraw(*world, e) : 0;
             // What the culling can pick, so what the bins are sized for.
-            CountKeyInstance(m_keyCounts, PipelineKey{ out.m_pipelineKey }, out.m_drawMask);
+            CountKeyInstance(m_keyCounts, key, out.m_drawMask);
         });
         PublishKeyInstanceCounts(*rhiCtx, m_keyCounts);
 
