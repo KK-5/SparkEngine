@@ -11,6 +11,7 @@ namespace Spark::RHI
 {
     class Device;
     class Factory;
+    class PipelineLibrary;
 }
 
 namespace Spark::Render
@@ -20,10 +21,11 @@ namespace Spark::Render
     class DrawPipelineCache
     {
     public:
+        void Init(RHI::Factory& factory, RHI::Device& device, RHI::PipelineLibrary* pipelineLibrary);
+
         //! The PSO of `descriptor`, built the first time it is asked for. `passName` only names
         //! the pass in asserts.
-        const RHI::PipelineState* Acquire(const RHI::PipelineStateDescriptorForDraw& descriptor,
-                                          RHI::Factory& factory, RHI::Device& device, const char* passName);
+        const Ptr<RHI::PipelineState>& Acquire(const RHI::PipelineStateDescriptorForDraw& descriptor, const char* passName);
 
         void Shutdown();
 
@@ -34,6 +36,10 @@ namespace Spark::Render
             RHI::PipelineStateDescriptorForDraw m_descriptor;
             Ptr<RHI::PipelineState>             m_pso;
         };
+
+        RHI::Factory*         m_factory         = nullptr;
+        RHI::Device*          m_device          = nullptr;
+        RHI::PipelineLibrary* m_pipelineLibrary = nullptr;
 
         eastl::hash_multimap<size_t, Entry> m_entries;
     };

@@ -6,6 +6,7 @@
 
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassContext.h>
+#include <PipelineState/DrawPipelineCache.h>
 #include <RHI/Context/RHIContext.h>
 
 namespace Spark::RHI
@@ -144,6 +145,11 @@ namespace Spark::Render
         //! dispatches Compile on each, and clears the tag. User code (typically
         //! SetShader* helpers or MarkShaderBindingsUpdate) drives the dirty bit.
         void CompileShaderInputs(RHI::Device& device, RHIContext& context);
+
+        //! Every draw PSO: a pass's default (CompilePipelineStates) and each DrawBin's, when its
+        //! item is expanded. A stopgap until a real PSO cache exists; that one may belong in
+        //! RenderGraph, which makes and manages the RHI objects, handed in where needed.
+        DrawPipelineCache m_drawPipelineCache;
 
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.

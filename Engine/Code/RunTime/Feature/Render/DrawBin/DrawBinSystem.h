@@ -6,15 +6,8 @@
 
 #include <RHI/Context/RHIContext.h>
 
-namespace Spark::RHI
-{
-    class Device;
-    class Factory;
-}
-
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassDrawListComponents.h>
-#include <PipelineState/DrawPipelineCache.h>
 
 #include "DrawBin.h"
 #include "DrawContext.h"
@@ -39,14 +32,10 @@ namespace Spark::Render
     {
     public:
         void Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx);
-        //! Gives every DrawBin its PSO. After Update.
-        void AcquirePipelines(PassContext& passCtx, DrawContext& drawCtx, RHI::Factory& factory, RHI::Device& device);
         void Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx);
 
     private:
         void UpdatePass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass);
-
-        DrawPipelineCache m_pipelineCache;
 
         // Reused from pass to pass and frame to frame.
         eastl::vector<DrawEntry> m_entries;

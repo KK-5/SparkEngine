@@ -1449,9 +1449,10 @@ namespace Spark::Render
         //! Appends what to submit for `item` of `pass` under `view`: the item itself, unless it
         //! is an indirect draw of buffers that hold their arguments per view. That one gets an
         //! item of its own for the view, reading the view's part of both, or one per DrawBin
-        //! when the pass draws a list; none when `view` has no part.
-        void AppendItemForView(RHIHandle item, RHIHandle view, Pass pass,
-            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+        //! when the pass draws a list, with the bin's PSO from pipelineCache; none when `view`
+        //! has no part.
+        void AppendItemForView(RHIHandle item, RHIHandle view, Pass pass, PassContext& passContext,
+            RHIContext& context, DrawPipelineCache& pipelineCache, eastl::vector<RHIHandle>& submitList)
         {
             const auto* indirect = context.TryGet<ItemIndirectArguments>(item);
             if (view == NullHandle || indirect == nullptr || !context.Has<RHI::DrawItem>(item))
@@ -1519,11 +1520,13 @@ namespace Spark::Render
                 CollectDrawBins(*DrawExecuteContext::Current(), pass, NullHandle, bins);
                 for (const DrawBin* bin : bins)
                 {
-                    ASSERT(bin->m_pso, "[RenderGraphCompiler] A bin of pass {} has no PSO.", passName);
+                    const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
+                        passContext.Get<PassStageFunctions>(pass), passContext.Get<PassPipelineState>(pass),
+                        passContext.Get<PassPipelineLayout>(pass), bin->m_variant, passName);
                     appendDraw(argumentsByteOffset + bin->m_firstDraw * CommandSize,
                                countByteOffset + bin->m_index * sizeof(uint32_t),
                                bin->m_maxDraws,
-                               bin->m_pso);
+                               pipelineCache.Acquire(descriptor, passName).get());
                 }
                 return;
             }
@@ -1535,12 +1538,12 @@ namespace Spark::Render
 
         //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those it
         //! selects.
-        void AppendItems(RHIHandle scope, RHIHandle view, Pass pass,
-            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+        void AppendItems(RHIHandle scope, RHIHandle view, Pass pass, PassContext& passContext,
+            RHIContext& context, DrawPipelineCache& pipelineCache, eastl::vector<RHIHandle>& submitList)
         {
             for (RHIHandle item : GetScopeItems(context, scope))
             {
-                AppendItemForView(item, view, pass, passContext, context, submitList);
+                AppendItemForView(item, view, pass, passContext, context, pipelineCache, submitList);
             }
             if (const auto* selections = context.TryGet<ScopeSelections>(scope))
             {
@@ -1552,14 +1555,14 @@ namespace Spark::Render
         }
 
         void AppendScopeSubmissions(
-            RHIHandle scope, Pass pass, const RHI::RenderPassBeginInfo* beginInfo,
-            PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList)
+            RHIHandle scope, Pass pass, const RHI::RenderPassBeginInfo* beginInfo, PassContext& passContext,
+            RHIContext& context, DrawPipelineCache& pipelineCache, eastl::vector<RHIHandle>& submitList)
         {
             // A compute Scope's items run under no view.
             const bool isRenderPass = passContext.Has<RenderPassTag>(pass);
             if (!isRenderPass)
             {
-                AppendItems(scope, NullHandle, pass, passContext, context, submitList);
+                AppendItems(scope, NullHandle, pass, passContext, context, pipelineCache, submitList);
                 return;
             }
 
@@ -1612,7 +1615,7 @@ namespace Spark::Render
                     viewData.m_bufferSize.x, viewData.m_bufferSize.y);
 
                 submitList.push_back(view);
-                AppendItems(scope, view, pass, passContext, context, submitList);
+                AppendItems(scope, view, pass, passContext, context, pipelineCache, submitList);
             }
         }
     }
@@ -1625,7 +1628,7 @@ namespace Spark::Render
             ScopeSubmitRange range;
             range.m_begin = static_cast<uint32_t>(submitList.size());
             AppendScopeSubmissions(scope, data.m_pass, context.TryGet<RHI::RenderPassBeginInfo>(scope),
-                passContext, context, submitList);
+                passContext, context, m_drawPipelineCache, submitList);
             range.m_end = static_cast<uint32_t>(submitList.size());
 
             context.Add<ScopeSubmitRange>(scope, range);
@@ -1877,17 +1880,12 @@ namespace Spark::Render
                 ASSERT(passContext.Has<PassPipelineLayout>(pass),
                     "Pass '{}' has no PassPipelineLayout (eager build in PassBuilder::Finalize failed?).", passName);
 
-                // The default PSO is the pass's own with no variant on it.
+                // The default PSO is the pass's own with no variant on it, so a DrawBin of no
+                // variant gets this one from the cache too.
                 const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
                     stageFunctions, pipelineState, passContext.Get<PassPipelineLayout>(pass), PipelineVariant{}, passName);
 
-                auto pso = factory->CreatePipelineState();
-                RHI::ResultCode rc = pso->Init(device, descriptor, pipelineLibrary);
-                ASSERT(rc == RHI::ResultCode::Success,
-                    "Failed to create graphics PSO for pass '{}'.",
-                    passContext.Get<PassName>(pass).m_name.GetCStr());
-
-                passContext.AddOrReplace<PassCompiledPSO>(pass, PassCompiledPSO{eastl::move(pso)});
+                passContext.AddOrReplace<PassCompiledPSO>(pass, PassCompiledPSO{ m_drawPipelineCache.Acquire(descriptor, passName) });
 
                 if (passContext.Has<PassPSODirtyTag>(pass))
                 {

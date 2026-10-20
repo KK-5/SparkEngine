@@ -71,6 +71,7 @@ namespace Spark::Render
             LOG_ERROR("[RenderGraph] PipelineLibrary init failed.");
             return false;
         }
+        m_compiler.m_drawPipelineCache.Init(factory, device, m_pipelineLibrary.get());
 
         m_device = &device;
 
@@ -199,6 +200,8 @@ namespace Spark::Render
         // drains at frame end. No frame follows, and the pool's destructor does not flush
         // it; Shutdown does, before its allocator goes. The GPU is already idle.
         m_imagePool->Shutdown();
+
+        m_compiler.m_drawPipelineCache.Shutdown();
     }
 
     void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex,

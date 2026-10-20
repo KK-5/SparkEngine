@@ -355,10 +355,6 @@ namespace Spark::Render
         m_instanceBindingSystem.Update(frameIndex);
         // The bins of each pass from the DrawListKeys the encoding above just published.
         m_drawBinSystem.Update(rhiCtx, passContext, m_drawContext);
-        {
-            auto* rhi = Service<RHI::RHIInterface>::Get();
-            m_drawBinSystem.AcquirePipelines(passContext, m_drawContext, *rhi->GetRHIFactory(), *rhi->GetDevice());
-        }
 
         // World → GeometrySpec: find-or-create over renderable world entities.
         m_meshGeometryComposer.Update();

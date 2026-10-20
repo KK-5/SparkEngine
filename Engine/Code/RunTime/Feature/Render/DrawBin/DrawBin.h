@@ -3,7 +3,6 @@
 #include <cstdint>
 
 #include <RHI/Context/RHIContext.h>
-#include <RHI/Pipeline/PipelineState.h>
 
 #include <Pass/Pass.h>
 #include <PipelineState/PipelineKey.h>
@@ -26,9 +25,10 @@ namespace Spark::Render
         uint32_t         m_instanceCount = 0;
     };
 
-    //! One indirect draw of a pass: a DrawGroup with its PSO. Under a view, or under every view
+    //! One indirect draw of a pass: a DrawGroup of the pass. Under a view, or under every view
     //! the pass renders (NullHandle) when its list is culled on the GPU, whose groups are the
-    //! same for every view and lie at the start of each view's part of the arguments.
+    //! same for every view and lie at the start of each view's part of the arguments. Its PSO
+    //! is the pass's description with its variant, which the render graph builds.
     struct DrawBin
     {
         Pass           m_pass  = NullPass;
@@ -36,9 +36,7 @@ namespace Spark::Render
         //! Its place among the pass's, which is also which of a view's counts is its.
         uint32_t       m_index = 0;
 
-        PipelineVariant           m_variant;
-        //! DrawBinSystem::AcquirePipelines fills it; its DrawPipelineCache owns it.
-        const RHI::PipelineState* m_pso = nullptr;
+        PipelineVariant m_variant;
 
         uint32_t m_firstDraw = 0;
         uint32_t m_maxDraws  = 0;

@@ -12,7 +12,6 @@
 #include <RHI/ResourceBuilder.h>
 
 #include <Pass/Component/PassComponents.h>
-#include <PipelineState/PipelineStateBuild.h>
 #include <PipelineState/PipelineVariantInterpret.h>
 
 namespace Spark::Render
@@ -155,18 +154,6 @@ namespace Spark::Render
         });
     }
 
-    void DrawBinSystem::AcquirePipelines(PassContext& passCtx, DrawContext& drawCtx, RHI::Factory& factory, RHI::Device& device)
-    {
-        for (auto [entity, bin] : drawCtx.GetView<DrawBin>().each())
-        {
-            const char* passName = passCtx.Get<PassName>(bin.m_pass).m_name.GetCStr();
-            const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
-                passCtx.Get<PassStageFunctions>(bin.m_pass), passCtx.Get<PassPipelineState>(bin.m_pass),
-                passCtx.Get<PassPipelineLayout>(bin.m_pass), bin.m_variant, passName);
-            bin.m_pso = m_pipelineCache.Acquire(descriptor, factory, device, passName);
-        }
-    }
-
     void DrawBinSystem::Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx)
     {
         eastl::vector<Pass> passes;
@@ -185,6 +172,5 @@ namespace Spark::Render
         }
 
         m_binTables.clear();
-        m_pipelineCache.Shutdown();
     }
 }
