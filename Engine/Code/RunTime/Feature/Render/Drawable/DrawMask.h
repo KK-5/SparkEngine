@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-#include <ECS/WorldContext.h>
-
 #include <RHI/Context/RHIContext.h>
+
+#include <Resource/Material/MaterialState.h>
 
 #include "DrawTag.h"
 
@@ -39,9 +39,10 @@ namespace Spark::Render
     inline constexpr DrawMask CpuCulledDrawMask =
         DrawMaskCulledOn<OpaqueTag, ShadowCasterTag, TranslucentTag>(DrawCulling::Cpu);
 
-    //! What a world entity with a mesh is drawn as. The one source of it: the tags on its
-    //! GeometrySpec and its m_drawMask both come from here, so both paths draw the same set.
-    DrawMask ClassifyDraw(const WorldContext& world, Entity entity);
+    //! The draw lists an instance drawn with a material of `state` is in, a bit a list: what the
+    //! encoding writes as its m_drawMask. A blended surface is translucent and casts no shadow;
+    //! any other is opaque and casts.
+    DrawMask DrawListsOf(const Resource::MaterialState& state);
 
     //! Puts on spec the tags mask names.
     void AddDrawTags(RHI::RHIContext& rhiCtx, RHI::RHIHandle spec, DrawMask mask);

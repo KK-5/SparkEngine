@@ -63,11 +63,10 @@ namespace Spark::Render
             return 0;
         }
 
-        PipelineKey PipelineKeyOf(const Material::MaterialContext& matCtx, Material::MaterialHandle mh)
+        Resource::MaterialState MaterialStateOf(const Material::MaterialContext& matCtx, Material::MaterialHandle mh)
         {
-            // The one material shader there is: every material is StandardPBR.
             const auto* state = matCtx.TryGet<Resource::MaterialState>(mh);
-            return MakePipelineKey(0, state ? *state : Resource::MaterialState{});
+            return state ? *state : Resource::MaterialState{};
         }
     }
 
@@ -151,24 +150,23 @@ namespace Spark::Render
             // inverse; embedded in a 4x4 for a StructuredBuffer-safe layout (VS reads its 3x3).
             out.m_normalMatrix = Math::ToMatrix4X4(
                 Math::Transpose(Math::Inverse(Math::ToMatrix3X3(m.m_worldMatrix))));
-            PipelineKey key;
+            Resource::MaterialState state;
+            out.m_materialIndex = 0;
             if (matCtx)
             {
                 const Material::MaterialHandle material = ResolveMaterial(*world, *matCtx, e);
                 out.m_materialIndex = MaterialIndexOf(*matCtx, material);
-                key                 = PipelineKeyOf(*matCtx, material);
+                state               = MaterialStateOf(*matCtx, material);
             }
-            else
-            {
-                out.m_materialIndex = 0;
-            }
+            // The one material shader there is: every material is StandardPBR.
+            const PipelineKey key  = MakePipelineKey(0, state);
             out.m_pipelineKeyIndex = PipelineKeyIndexOf(key).m_value;
             // 0 until the geometry can be read and has its g_Geometries record: a reader of
             // g_Instances draws what is set, from the record m_geometryIndex names.
             const auto* geometrySlot = world->TryGet<GeometrySlotRef>(e);
             const bool  drawable     = geometrySlot && world->Has<MeshGeometryReadyTag>(e);
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
-            out.m_drawMask      = drawable ? ClassifyDraw(*world, e) : 0;
+            out.m_drawMask      = drawable ? DrawListsOf(state) : 0;
             // What the culling can pick: counted by key where the GPU culls, listed one by one
             // where the CPU does.
             m_keyCounter.Count(key, out.m_drawMask);

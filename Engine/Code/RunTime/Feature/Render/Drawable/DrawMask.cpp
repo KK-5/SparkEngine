@@ -14,10 +14,14 @@ namespace Spark::Render
         }
     }
 
-    DrawMask ClassifyDraw(const WorldContext& /*world*/, Entity /*entity*/)
+    DrawMask DrawListsOf(const Resource::MaterialState& state)
     {
-        // Everything is opaque today; becomes a per-AlphaMode split later. Orthogonal to
-        // that, every opaque mesh casts, until the mesh itself carries an authored flag.
+        if (state.m_alphaMode == Resource::AlphaMode::Blend)
+        {
+            return DrawMaskOf<TranslucentTag>();
+        }
+        // Masked draws as opaque until it clips. Every opaque surface casts, until the mesh
+        // itself carries an authored flag.
         return DrawMaskOf<OpaqueTag, ShadowCasterTag>();
     }
 

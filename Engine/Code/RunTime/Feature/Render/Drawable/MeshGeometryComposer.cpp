@@ -113,7 +113,8 @@ namespace Spark::Render
             .each([&](Entity wE, const MeshGeometry& geometry, const InstanceSlotRef& ref)
         {
             RHI::RHIHandle spec = rhiCtx->CreateEntity();
-            AddDrawTags(*rhiCtx, spec, ClassifyDraw(*world, wE));
+            // Nothing selects these items any more (Accepts); the scene draws by DrawListsOf.
+            AddDrawTags(*rhiCtx, spec, DrawMaskOf<OpaqueTag, ShadowCasterTag>());
             rhiCtx->Add<GeometrySpec>(spec,
                 ComposePersistent(geometry, ref, idBufferEntity, idBufferByteCount));
 

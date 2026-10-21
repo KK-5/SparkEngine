@@ -28,7 +28,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | ~~2~~ | ~~pass 的 layout 以声明为准 + shader 宏排列~~ | — | 取消（用户 2026-10-18），见 D4 |
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
-| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a ~ 4e 完成，余 4f） |
+| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | ✅ 完成（4a ~ 4f） |
 | 5 | 半透明的着色（前向，BeforeDOF） | 4 | 未开始 |
 | 6 | Distortion | 5 | 待定（D9） |
 
@@ -774,7 +774,7 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
   `Layout`、`WriteBinTables`、`BuildPipelines`，以及 `PassBinTable` 里的定长数组。
 - 分桶 pass、`InstanceBinning.hlsl`、`IndirectArgumentsOf`、D10 的展开不动；`CollectDrawnBins` 改为 `CollectDrawBins`，读 `DrawContext` 里的组。
 
-### 4　CPU 路径的间接绘制，用简单着色的半透明验证
+### 4　CPU 路径的间接绘制，用简单着色的半透明验证　✅ 完成（2026-10-21）
 
 这条路的第一个使用者是半透明，所以把步骤 5 的前一部分并进来，用最终会留下的代码验证（用户 2026-10-18 定），不写临时的验证路径：
 
@@ -823,10 +823,14 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
       `MaterialData` 两边注释里的"a reserved"改为不透明度（glTF 的 `baseColorFactor.a` 已经一路写到这里）。
     - 上传堆上的参数 buffer 作为间接参数读时不会有不合法的 barrier：DX12 后端的 `QueueBarrier` 对上传、回读堆的 buffer 不发 barrier。
     - 验证：短时间运行无报错；没有半透明物体时画面不变，场景由用户验证。
-  - 4f　分类
-    - `ClassifyDraw` 改为由材质状态分类：`Blend` → `TranslucentTag`（不投影），其余照旧为不透明 + 投影。签名改为接收解析后的
-      `MaterialState`；编码（`InstanceBindingSystem`）与 `MeshGeometryComposer` 两个调用方都先解析材质（`ResolveMaterial` 挪到两边都能用的地方）。
-    - `DrawMaskTest` 按材质状态测分类。
+  - ✅ 4f　分类
+    - `ClassifyDraw` 改名 `DrawListsOf(MaterialState)`（用户 2026-10-21，同 `DrawListKey`、`DrawListInstance` 与编码里的 `…Of`）：
+      实例进哪几个绘制列表，`DrawMask` 一位一个列表。`Blend` → `TranslucentTag`（不投影），`Opaque`、`Mask` 照旧为不透明 + 投影
+      （Masked 推后，仍按不透明画）。不再接收 world 与实体，物体级的因素出现时再加。
+    - 只有编码（`InstanceBindingSystem`）调它：材质状态解析一次，键与列表都由它得出；没有材质上下文时用默认状态。
+    - `MeshGeometryComposer` 不分类（用户 2026-10-21：不删，当它不存在）：它的 DrawItem 只有 `Accepts` 会选，已没有 pass 用，
+      写死今天的值 `DrawMaskOf<OpaqueTag, ShadowCasterTag>()`，不为它设计材质变化后的重新 compose。删除见 `TODO_BufferRangePlan.md` §八。
+    - `DrawMaskTest` 按 alphaMode 测列表。
     - 画面由用户用自己准备的场景确认：半透明物体可见、从远到近混合、不进阴影、不透明物体不变。
 - 半透明 pass 只做最简单的着色：不打光，输出带不透明度的基色，pass 默认的混合状态为 SrcAlpha / InvSrcAlpha，深度只测不写。
   不透明度取 `baseColor.a × 贴图 alpha`：glTF 的 `baseColorFactor` alpha 与 `alphaMode` 已导入并写进 `MaterialData`，只是材质模板里固定写成 1。

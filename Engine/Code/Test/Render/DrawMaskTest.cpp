@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <ECS/WorldContext.h>
-
 #include <RHI/Context/RHIContext.h>
 
 #include <Drawable/DrawMask.h>
@@ -60,10 +58,39 @@ TEST(DrawMaskTest, ASpecGetsTheTagsItsMaskNames)
     EXPECT_FALSE(rhi.Has<TranslucentTag>(none));
 }
 
-TEST(DrawMaskTest, AMeshIsOpaqueAndCastsToday)
+namespace
 {
-    WorldContext world;
-    const Entity e = world.CreateEntity();
+    DrawMask DrawListsOfAlphaMode(Resource::AlphaMode mode)
+    {
+        Resource::MaterialState state;
+        state.m_alphaMode = mode;
+        return DrawListsOf(state);
+    }
+}
 
-    EXPECT_EQ(ClassifyDraw(world, e), Both);
+TEST(DrawMaskTest, AnOpaqueSurfaceIsOpaqueAndCasts)
+{
+    EXPECT_EQ(DrawListsOfAlphaMode(Resource::AlphaMode::Opaque), Both);
+    EXPECT_EQ(DrawListsOf(Resource::MaterialState{}), Both);
+}
+
+//! Until it clips, a masked surface draws as an opaque one.
+TEST(DrawMaskTest, AMaskedSurfaceIsOpaqueAndCasts)
+{
+    EXPECT_EQ(DrawListsOfAlphaMode(Resource::AlphaMode::Mask), Both);
+}
+
+TEST(DrawMaskTest, ABlendedSurfaceIsTranslucentAndCastsNoShadow)
+{
+    EXPECT_EQ(DrawListsOfAlphaMode(Resource::AlphaMode::Blend), Translucent);
+}
+
+//! Double-sidedness picks a PSO, not a list.
+TEST(DrawMaskTest, DoubleSidedLeavesTheListsAlone)
+{
+    Resource::MaterialState state;
+    state.m_doubleSided = true;
+    EXPECT_EQ(DrawListsOf(state), Both);
+    state.m_alphaMode = Resource::AlphaMode::Blend;
+    EXPECT_EQ(DrawListsOf(state), Translucent);
 }
