@@ -119,6 +119,8 @@ namespace Spark::Render
         template<typename Tag>
         RenderPassBuilder& Draw()
         {
+            static_assert(Tag::Culling == DrawCulling::Gpu || Tag::Order == DrawOrder::BackToFront,
+                "A list the CPU culls draws in its sorted order, back to front; one whose order does not matter is culled on the GPU.");
             ASSERT(!m_drawList, "Pass '{}' draws one list.", m_name.GetCStr());
             m_drawList = PassDrawList{ DrawMaskBit<Tag>::Index, Tag::Order, Tag::Culling };
             return *this;

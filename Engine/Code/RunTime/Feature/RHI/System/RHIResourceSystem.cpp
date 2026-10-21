@@ -52,9 +52,10 @@ namespace Spark::RHI
             desc.m_heapMemoryLevel = HeapMemoryLevel::Host;
             desc.m_hostMemoryAccess = HostMemoryAccess::Write;
             // ShaderRead lets host-visible StructuredBuffers (e.g. g_Instances) carry an
-            // SRV directly on the upload buffer — no device-heap copy needed.
+            // SRV directly on the upload buffer — no device-heap copy needed. Indirect does the
+            // same for indirect arguments the CPU writes.
             desc.m_bindFlags = BufferBindFlags::CopyRead | BufferBindFlags::Constant
-                             | BufferBindFlags::ShaderRead;
+                             | BufferBindFlags::ShaderRead | BufferBindFlags::Indirect;
             desc.m_sharedQueueMask = HardwareQueueClassMask::All;
             m_hostUploadPlacedBufferPool = factory->CreateBufferPool();
             m_hostUploadPlacedBufferPool->Init(*device, desc);

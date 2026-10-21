@@ -78,4 +78,13 @@ namespace Spark::Render
     //! The instances of the list of bit that view sees, back to front. Found by halving the
     //! storage SortVisibleInstances left.
     VisibleInstanceRange VisibleInstancesOf(const DrawContext& drawCtx, RHI::RHIHandle view, uint32_t bit);
+
+    //! On the buffer of the draws of every list the CPU culls, which DrawListCullingSystem owns
+    //! and writes whole every frame: a DrawIndexedIndirectCommand a VisibleInstance, in their
+    //! sorted order. They are the list's, not a pass's: a pass drawing such a list imports it
+    //! by this tag and only cuts its groups out of it.
+    struct CpuCulledDrawArgumentsTag {};
+
+    //! Where the draws of instances start in that buffer: their place in the sorted storage.
+    uint32_t FirstDrawOffset(const DrawContext& drawCtx, const VisibleInstanceRange& instances);
 }

@@ -95,4 +95,14 @@ namespace Spark::Render
             [](const VisibleInstance& a, const VisibleInstance& b) { return ListOf(a) < ListOf(b); });
         return { first, last };
     }
+
+    uint32_t FirstDrawOffset(const DrawContext& drawCtx, const VisibleInstanceRange& instances)
+    {
+        const auto* storage = drawCtx.GetStorage<VisibleInstance>();
+        if (storage == nullptr)
+        {
+            return 0;
+        }
+        return static_cast<uint32_t>(instances.begin() - storage->cbegin());
+    }
 }

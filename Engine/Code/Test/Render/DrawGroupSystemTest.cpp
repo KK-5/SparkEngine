@@ -131,6 +131,25 @@ protected:
         return nullptr;
     }
 
+    //! A translucent instance `under` sees, `depth` along it, as DrawListCullingSystem leaves one.
+    void AddVisible(RHI::RHIHandle under, uint32_t slot, float depth, PipelineKey key)
+    {
+        VisibleInstance visible;
+        visible.m_view             = under;
+        visible.m_drawMaskBitIndex = DrawMaskBit<TranslucentTag>::Index;
+        visible.m_slot             = slot;
+        visible.m_key              = key;
+        visible.m_depth            = depth;
+        draws.Add<VisibleInstance>(draws.CreateEntity(), visible);
+    }
+
+    //! A frame of the visible instances added since the context was emptied.
+    void CpuFrame()
+    {
+        SortVisibleInstances(draws);
+        system.Update(rhi, passes, draws);
+    }
+
     uint32_t ListKeyCount(DrawMask bit, PipelineKey key)
     {
         for (auto [entity, listKey] : draws.GetView<DrawListKey>().each())
@@ -317,6 +336,64 @@ TEST_F(DrawGroupSystemTest, NoGroupsIsAnEmptyRun)
 
     Frame();
     EXPECT_TRUE(GroupsOf(depth).empty());
+}
+
+//! A list the CPU culls draws in the order it is sorted, cut where the variant changes.
+TEST_F(DrawGroupSystemTest, AListTheCpuCullsIsCutWhereItsVariantChanges)
+{
+    const Pass translucency = AddPass<TranslucentTag>("Translucency");
+    AddVisible(view, 0, 50.0f, SingleSided);
+    AddVisible(view, 1, 40.0f, SingleSided);
+    AddVisible(view, 2, 30.0f, DoubleSided);
+    AddVisible(view, 3, 20.0f, SingleSided);
+    CpuFrame();
+
+    const DrawGroupRange groups = GroupsOf(translucency);
+    ASSERT_EQ(groups.size(), 3u);
+    EXPECT_EQ(groups[0].m_maxDraws, 2u);
+    EXPECT_EQ(groups[1].m_maxDraws, 1u);
+    EXPECT_EQ(groups[2].m_maxDraws, 1u);
+    EXPECT_EQ(groups[1].m_variant.m_cullMode, RHI::CullMode::None);
+    uint32_t firstDraw = 0;
+    for (uint32_t i = 0; i < groups.size(); ++i)
+    {
+        EXPECT_EQ(groups[i].m_index, i);
+        EXPECT_EQ(groups[i].m_firstDraw, firstDraw);
+        firstDraw += groups[i].m_maxDraws;
+    }
+}
+
+//! Every view's draws lie in one buffer, so a view's groups start where its draws do.
+TEST_F(DrawGroupSystemTest, AViewsGroupsStartWhereItsDrawsDo)
+{
+    const RHI::RHIHandle other = AddView();
+    const Pass translucency = AddPass<TranslucentTag>("Translucency");
+    AddVisible(view, 0, 20.0f, SingleSided);
+    AddVisible(view, 1, 10.0f, SingleSided);
+    AddVisible(other, 2, 30.0f, SingleSided);
+    AddVisible(other, 3, 20.0f, DoubleSided);
+    CpuFrame();
+
+    for (RHI::RHIHandle under : { view, other })
+    {
+        const DrawGroupRange groups = GroupsOf(translucency, under);
+        ASSERT_FALSE(groups.empty());
+        EXPECT_EQ(groups[0].m_firstDraw, FirstDrawOffset(draws, VisibleInstancesOf(draws, under, DrawMaskBit<TranslucentTag>::Index)));
+    }
+    EXPECT_EQ(GroupsOf(translucency, view).size(), 1u);
+    EXPECT_EQ(GroupsOf(translucency, other).size(), 2u);
+    EXPECT_EQ(GroupsOf(translucency, other)[1].m_firstDraw, GroupsOf(translucency, other)[0].m_firstDraw + 1);
+}
+
+//! Its draws are the list's, written by DrawListCullingSystem: the pass has no table of its own.
+TEST_F(DrawGroupSystemTest, APassOfAListTheCpuCullsHasNoIndirectLayout)
+{
+    const Pass translucency = AddPass<TranslucentTag>("Translucency");
+    AddVisible(view, 0, 20.0f, SingleSided);
+    CpuFrame();
+
+    EXPECT_EQ(GroupsOf(translucency).size(), 1u);
+    EXPECT_FALSE(passes.Has<PassIndirectLayout>(translucency));
 }
 
 TEST_F(DrawGroupSystemTest, ALayoutRoundsUpAStepAtATime)

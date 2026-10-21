@@ -70,18 +70,8 @@ namespace Spark::Render
         WriteIndirectLayout(rhiCtx, passCtx, pass);
 
         // Only the GPU knows which instances a view sees, so the groups are the whole list's,
-        // the same under every view, each view's in its own part of the arguments. The views
-        // are those the render graph draws the pass under, by the same call in the same frame;
-        // one it skips leaves its groups unread.
-        const auto* capabilities = passCtx.TryGet<PassCapabilities>(pass);
-        ASSERT(capabilities && capabilities->m_collectViews,
-            "[DrawGroupSystem] Pass '{}' draws a list but declares no .RendersView<>().",
-            passCtx.Get<PassName>(pass).m_name.GetCStr());
-        m_views.clear();
-        if (capabilities && capabilities->m_collectViews)
-        {
-            capabilities->m_collectViews(rhiCtx, m_views);
-        }
+        // the same under every view, each view's in its own part of the arguments.
+        CollectPassViews(rhiCtx, passCtx, pass);
         for (RHI::RHIHandle view : m_views)
         {
             for (DrawGroup group : m_groups)
@@ -90,6 +80,58 @@ namespace Spark::Render
                 group.m_view = view;
                 drawCtx.Add<DrawGroup>(drawCtx.CreateEntity(), group);
             }
+        }
+    }
+
+    void DrawGroupSystem::UpdateCpuCulledPass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass)
+    {
+        const PassDrawList& drawList = passCtx.Get<PassDrawList>(pass);
+        const auto* pipelineState = passCtx.TryGet<PassPipelineState>(pass);
+        ASSERT(pipelineState, "[DrawGroupSystem] Pass '{}' draws a list but has no pipeline.",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
+        // The list's order is its draws' order, which the pass only cuts into groups.
+        ASSERT(drawList.m_order == DrawOrder::BackToFront,
+            "[DrawGroupSystem] Pass '{}' draws a list the CPU culls in any order; such a list is culled on the GPU.",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
+
+        CollectPassViews(rhiCtx, passCtx, pass);
+        for (RHI::RHIHandle view : m_views)
+        {
+            const VisibleInstanceRange visible = VisibleInstancesOf(drawCtx, view, drawList.m_drawMaskBitIndex);
+
+            m_entries.clear();
+            for (const VisibleInstance& instance : visible)
+            {
+                DrawEntry entry;
+                entry.m_variant = InterpretPipelineVariant(instance.m_key, pipelineState->m_renderStates, ShaderTemplateFeatures{});
+                m_entries.push_back(entry);
+            }
+            GroupDrawEntries(m_entries, drawList.m_order, m_groups);
+
+            // Cut out of the view's draws, where DrawListCullingSystem wrote them.
+            const uint32_t firstDraw = FirstDrawOffset(drawCtx, visible);
+            for (DrawGroup group : m_groups)
+            {
+                group.m_pass       = pass;
+                group.m_view       = view;
+                group.m_firstDraw += firstDraw;
+                drawCtx.Add<DrawGroup>(drawCtx.CreateEntity(), group);
+            }
+        }
+    }
+
+    void DrawGroupSystem::CollectPassViews(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass)
+    {
+        // Those the render graph draws the pass under, by the same call in the same frame; one it
+        // skips leaves its groups unread.
+        const auto* capabilities = passCtx.TryGet<PassCapabilities>(pass);
+        ASSERT(capabilities && capabilities->m_collectViews,
+            "[DrawGroupSystem] Pass '{}' draws a list but declares no .RendersView<>().",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
+        m_views.clear();
+        if (capabilities && capabilities->m_collectViews)
+        {
+            capabilities->m_collectViews(rhiCtx, m_views);
         }
     }
 
@@ -132,10 +174,14 @@ namespace Spark::Render
     {
         for (auto [pass, drawList] : passCtx.GetView<PassDrawList>().each())
         {
-            ASSERT(drawList.m_culling == DrawCulling::Gpu,
-                "[DrawGroupSystem] Pass '{}' draws a list culled on the CPU, which is not drawn yet.",
-                passCtx.Get<PassName>(pass).m_name.GetCStr());
-            UpdateGpuCulledPass(rhiCtx, passCtx, drawCtx, pass);
+            if (drawList.m_culling == DrawCulling::Gpu)
+            {
+                UpdateGpuCulledPass(rhiCtx, passCtx, drawCtx, pass);
+            }
+            else
+            {
+                UpdateCpuCulledPass(rhiCtx, passCtx, drawCtx, pass);
+            }
         }
 
         SortDrawGroups(drawCtx);

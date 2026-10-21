@@ -282,6 +282,7 @@ namespace Spark::Render
         m_meshGeometryComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
+        m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());

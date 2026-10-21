@@ -15,12 +15,13 @@
 
 namespace Spark::Render
 {
-    //! Turns what is known of each draw list into the DrawGroups of each pass drawing it: groups
-    //! a pass's DrawListKeys by their variant in the pass, writes the pass's PassIndirectLayout
-    //! from them, and the groups under each view the pass renders.
+    //! Turns what is known of each draw list into the DrawGroups of each pass drawing it, under
+    //! each view the pass renders. A list the GPU culls: groups its DrawListKeys by their variant
+    //! in the pass and writes the pass's PassIndirectLayout from them. A list the CPU culls: cuts
+    //! each view's VisibleInstances, whose draws are already written, where the variant changes.
     //!
-    //! Plain helper, not ISystem — owned by RenderSystem, updated after InstanceBindingSystem
-    //! (whose DrawListKeys it reads) and before the render graph is built.
+    //! Plain helper, not ISystem — owned by RenderSystem, updated after InstanceBindingSystem and
+    //! DrawListCullingSystem (whose elements it reads) and before the render graph is built.
     class DrawGroupSystem
     {
     public:
@@ -29,6 +30,9 @@ namespace Spark::Render
 
     private:
         void UpdateGpuCulledPass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass);
+        //! Groups cut out of each view's draws, which DrawListCullingSystem wrote in the list's order.
+        void UpdateCpuCulledPass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass);
+        void CollectPassViews(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass);
         //! The table and layout of the pass's InstanceBinning, from its entries and groups.
         void WriteIndirectLayout(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass);
 

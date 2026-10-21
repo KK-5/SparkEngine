@@ -6,6 +6,9 @@
 #include <Math/Frustum.h>
 #include <Math/MathUtils.h>
 
+#include <CoreComponents/Tags.h>
+
+#include <RHI/Component/Component.h>
 #include <RHI/Context/RHIContext.h>
 
 #include <DrawList/DrawList.h>
@@ -91,6 +94,29 @@ protected:
         draws.Add<DrawListInstance>(draws.CreateEntity(), instance);
     }
 
+    //! The CpuCulledDrawArgumentsTag buffers there are.
+    eastl::vector<RHI::RHIHandle> DrawArgumentsBuffers()
+    {
+        eastl::vector<RHI::RHIHandle> buffers;
+        rhi.GetView<CpuCulledDrawArgumentsTag>().each([&](RHI::RHIHandle buffer) { buffers.push_back(buffer); });
+        return buffers;
+    }
+
+    //! The draws as uploaded this frame.
+    eastl::vector<RHI::DrawIndexedIndirectCommand> UploadedDraws()
+    {
+        const eastl::vector<RHI::RHIHandle> buffers = DrawArgumentsBuffers();
+        eastl::vector<RHI::DrawIndexedIndirectCommand> draws;
+        for (RHI::RHIHandle buffer : buffers)
+        {
+            if (const auto* upload = rhi.TryGet<RHI::PendingBufferMap>(buffer))
+            {
+                const auto* commands = static_cast<const RHI::DrawIndexedIndirectCommand*>(upload->m_data);
+                draws.assign(commands, commands + upload->m_byteCount / sizeof(RHI::DrawIndexedIndirectCommand));
+            }
+        }
+        return draws;
+    }
     //! The slots under `under`, in the order they draw.
     eastl::vector<uint32_t> SlotsOf(RHI::RHIHandle under)
     {
@@ -206,4 +232,103 @@ TEST_F(DrawListCullingSystemTest, NoPassOfAListTheCpuCullsCullsNothing)
 
     EXPECT_TRUE(SlotsOf(view).empty());
     EXPECT_EQ(draws.GetView<VisibleInstance>().size(), 0u);
+}
+
+//! A draw a visible instance, in the list's order: what the passes cut their groups out of.
+TEST_F(DrawListCullingSystemTest, AListsDrawsAreWrittenInItsOrder)
+{
+    AddPass<TranslucentTag>("Translucency");
+    AddInstance(0, Math::Vector3(0.0f, 0.0f, 5.0f));
+    AddInstance(1, Math::Vector3(0.0f, 0.0f, 20.0f));
+    AddInstance(2, Math::Vector3(0.0f, 0.0f, 10.0f));
+    system.Update(rhi, passes, draws);
+
+    const eastl::vector<RHI::DrawIndexedIndirectCommand> uploaded = UploadedDraws();
+    ASSERT_EQ(uploaded.size(), 3u);
+    const uint32_t order[] = { 1, 2, 0 };
+    for (uint32_t i = 0; i < 3; ++i)
+    {
+        EXPECT_EQ(uploaded[i].m_firstInstance, order[i]);
+        EXPECT_EQ(uploaded[i].m_instanceCount, 1u);
+        EXPECT_EQ(uploaded[i].m_indexCount, 36u);
+        EXPECT_EQ(uploaded[i].m_firstIndex, 6 * order[i]);
+        EXPECT_EQ(uploaded[i].m_vertexOffset, 24);
+    }
+}
+
+//! One buffer for every view: a view's draws start at its place in the sorted storage.
+TEST_F(DrawListCullingSystemTest, AViewsDrawsStartAtItsPlace)
+{
+    const RHI::RHIHandle other = AddView(true);
+    AddPass<TranslucentTag>("Translucency");
+    AddInstance(0, Math::Vector3(0.0f, 0.0f, 10.0f));
+    AddInstance(1, Math::Vector3(0.0f, 0.0f, 20.0f));
+    system.Update(rhi, passes, draws);
+
+    const VisibleInstanceRange first  = VisibleInstancesOf(draws, view, TranslucentBit);
+    const VisibleInstanceRange second = VisibleInstancesOf(draws, other, TranslucentBit);
+    const uint32_t firstStart  = FirstDrawOffset(draws, first);
+    const uint32_t secondStart = FirstDrawOffset(draws, second);
+    EXPECT_EQ(eastl::min(firstStart, secondStart), 0u);
+    EXPECT_EQ(eastl::max(firstStart, secondStart), 2u);
+
+    const eastl::vector<RHI::DrawIndexedIndirectCommand> uploaded = UploadedDraws();
+    ASSERT_EQ(uploaded.size(), 4u);
+    EXPECT_EQ(uploaded[secondStart].m_firstInstance, second[0].m_slot);
+}
+
+TEST_F(DrawListCullingSystemTest, TheDrawsBufferIsAHostOneOfEveryFrame)
+{
+    AddPass<TranslucentTag>("Translucency");
+    system.Update(rhi, passes, draws);
+
+    const eastl::vector<RHI::RHIHandle> buffers = DrawArgumentsBuffers();
+    ASSERT_EQ(buffers.size(), 1u);
+    EXPECT_TRUE(rhi.Has<RHI::PerFrameTag>(buffers[0]));
+    const RHI::PendingBufferInit& init = rhi.Get<RHI::PendingBufferInit>(buffers[0]);
+    EXPECT_EQ(init.m_heapMemoryLevel, RHI::HeapMemoryLevel::Host);
+    EXPECT_EQ(init.m_descriptor.m_bindFlags, RHI::BufferBindFlags::Indirect);
+    EXPECT_EQ(init.m_descriptor.m_byteCount, 1024u * sizeof(RHI::DrawIndexedIndirectCommand));
+    // Nothing seen, nothing to copy.
+    EXPECT_FALSE(rhi.Has<RHI::PendingBufferMap>(buffers[0]));
+}
+
+TEST_F(DrawListCullingSystemTest, TheDrawsBufferGrowsAStepAtATime)
+{
+    AddPass<TranslucentTag>("Translucency");
+    AddInstance(0, Math::Vector3(0.0f, 0.0f, 10.0f));
+    system.Update(rhi, passes, draws);
+    const RHI::RHIHandle small = DrawArgumentsBuffers()[0];
+
+    draws.Clear();
+    for (uint32_t slot = 0; slot < 1025; ++slot)
+    {
+        AddInstance(slot, Math::Vector3(0.0f, 0.0f, 10.0f));
+    }
+    system.Update(rhi, passes, draws);
+
+    EXPECT_TRUE(rhi.Has<DeadTag>(small));
+    RHI::RHIHandle grown = RHI::NullHandle;
+    for (RHI::RHIHandle buffer : DrawArgumentsBuffers())
+    {
+        if (!rhi.Has<DeadTag>(buffer))
+        {
+            grown = buffer;
+        }
+    }
+    ASSERT_NE(grown, RHI::NullHandle);
+    EXPECT_EQ(rhi.Get<RHI::PendingBufferInit>(grown).m_descriptor.m_byteCount,
+        2048u * sizeof(RHI::DrawIndexedIndirectCommand));
+    EXPECT_EQ(rhi.Get<RHI::PendingBufferMap>(grown).m_byteCount, 1025u * sizeof(RHI::DrawIndexedIndirectCommand));
+}
+
+TEST_F(DrawListCullingSystemTest, ShutdownLeavesNothingBehind)
+{
+    AddPass<TranslucentTag>("Translucency");
+    system.Update(rhi, passes, draws);
+    const RHI::RHIHandle buffer = DrawArgumentsBuffers()[0];
+
+    system.Shutdown(rhi);
+
+    EXPECT_TRUE(rhi.Has<DeadTag>(buffer));
 }

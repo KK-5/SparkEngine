@@ -2,9 +2,14 @@
 
 #include <EASTL/algorithm.h>
 
+#include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
+#include <Math/Bit.h>
 #include <Math/Frustum.h>
 #include <Math/Vector4.h>
+
+#include <RHI/Component/Component.h>
+#include <RHI/ResourceBuilder.h>
 
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/PassDrawListComponents.h>
@@ -15,6 +20,11 @@
 
 namespace Spark::Render
 {
+    namespace
+    {
+        constexpr uint32_t DrawArgumentsStep = 1024;
+    }
+
     void DrawListCullingSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx)
     {
         m_lists.clear();
@@ -80,5 +90,62 @@ namespace Spark::Render
         }
 
         SortVisibleInstances(drawCtx);
+        WriteDrawArguments(rhiCtx, drawCtx);
+    }
+
+    void DrawListCullingSystem::WriteDrawArguments(RHI::RHIContext& rhiCtx, const DrawContext& drawCtx)
+    {
+        // In the storage's order, so a visible instance's draw is at its place in it (FirstDrawOffset).
+        m_drawArgumentsData.clear();
+        if (const auto* storage = drawCtx.GetStorage<VisibleInstance>())
+        {
+            for (const VisibleInstance& visible : *storage)
+            {
+                RHI::DrawIndexedIndirectCommand command;
+                command.m_indexCount    = visible.m_indexCount;
+                command.m_instanceCount = 1;
+                command.m_firstIndex    = visible.m_firstIndex;
+                command.m_vertexOffset  = visible.m_vertexOffset;
+                command.m_firstInstance = visible.m_slot;
+                m_drawArgumentsData.push_back(command);
+            }
+        }
+        const uint32_t drawCount = static_cast<uint32_t>(m_drawArgumentsData.size());
+
+        // Made before any pass draws a list, so the frame's start makes it before one imports it.
+        if (m_drawArguments == RHI::NullHandle || m_drawArgumentsCapacity < drawCount)
+        {
+            if (m_drawArguments != RHI::NullHandle)
+            {
+                rhiCtx.Add<DeadTag>(m_drawArguments);
+            }
+            m_drawArgumentsCapacity = AlignUp(eastl::max(drawCount, 1u), DrawArgumentsStep);
+
+            RHI::BufferDescriptor desc;
+            desc.m_byteCount = static_cast<uint64_t>(m_drawArgumentsCapacity) * sizeof(RHI::DrawIndexedIndirectCommand);
+            desc.m_bindFlags = RHI::BufferBindFlags::Indirect;
+            m_drawArguments = RHI::CreateBuffer(rhiCtx, ObjectName("CpuCulledDrawArguments"), desc,
+                RHI::HeapMemoryLevel::Host, RHI::HostMemoryAccess::Write);
+            rhiCtx.Add<RHI::PerFrameTag>(m_drawArguments);
+            rhiCtx.Add<CpuCulledDrawArgumentsTag>(m_drawArguments);
+        }
+
+        // With no draw, no group reads it.
+        if (drawCount > 0)
+        {
+            rhiCtx.AddOrReplace<RHI::PendingBufferMap>(m_drawArguments, RHI::PendingBufferMap{
+                m_drawArgumentsData.data(), 0, m_drawArgumentsData.size() * sizeof(RHI::DrawIndexedIndirectCommand) });
+        }
+    }
+
+    void DrawListCullingSystem::Shutdown(RHI::RHIContext& rhiCtx)
+    {
+        if (m_drawArguments != RHI::NullHandle)
+        {
+            rhiCtx.Add<DeadTag>(m_drawArguments);
+        }
+        m_drawArguments         = RHI::NullHandle;
+        m_drawArgumentsCapacity = 0;
+        m_drawArgumentsData.clear();
     }
 }

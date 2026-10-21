@@ -11,7 +11,7 @@ PSO 改为由"pass + 材质"查找、可在加载时推导，覆盖材质的状�
 定下 D14 的框架：剔除按（视图，Tag）输出可见列表，排序与分组是一套独立的机制，CPU 路径由 CPU 写记录（推翻 D5 原来的做法），
 GPU 路径是同一结构在"CPU 不知道可见性"下的形式，只换 binTable 与组的来源。2026-10-20 写下数据组织的草案（D15）：键号、
 组件里不放 vector、每帧的绘制准备放进独立的 `DrawContext`，同日按它做完 4-0（分 a ~ d 四小步），GPU 路径已换到新的数据组织上，
-CPU 路径（步骤 4）的部分仍是草案。现状一节来自 2026-10-15 / 16 读代码，没有运行验证。
+CPU 路径（步骤 4）的部分仍是草案。2026-10-21 做完 4-0 之后的整理：组只有 `DrawGroup` 一个类型，系统改名 `DrawGroupSystem`、目录 `DrawList/`，，读组改为二分取一段。现状一节来自 2026-10-15 / 16 读代码，没有运行验证。
 
 P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、**顺序由 CPU 决定的间接绘制**、**前向着色的半透明**。
 做完之后，场景物体只有一种提交方式：间接绘制，每组一次调用。差别只在谁知道要画哪些实例：CPU 知道（半透明），CPU 排序、分组、
@@ -27,8 +27,8 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | 1 | 两段式剔除 + 每个 pass 的分桶 + item 级 PSO 切换，用 doubleSided 验证（1a-1、1a-2、1b 三个小步） | 1-0（PSO 先同步建，D11 不挡） | ✅ 完成 |
 | ~~2~~ | ~~pass 的 layout 以声明为准 + shader 宏排列~~ | — | 取消（用户 2026-10-18），见 D4 |
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
-| 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）；之后的整理做了三项，余四项 |
-| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 未开始 |
+| 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
+| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a、4b 完成） |
 | 5 | 半透明的着色（前向，BeforeDOF） | 4 | 未开始 |
 | 6 | Distortion | 5 | 待定（D9） |
 
@@ -254,7 +254,7 @@ CPU 路径上 CPU 什么都知道，就由 CPU 直接写出最终结果，不经
 > 挂在长期实体上的 `DrawBinRange`：桶就是排序分组每帧的输出，binTable 是"每个键落进哪一组"。`viewStride` 与按视图偏移在 GPU 路径里保留（D14）。
 > 2026-10-20：下文"键空间必须小而稠密"与"再改成只给出现过的组合编号"是错的：键与组合编号的个数都随内容增长、不固定，按键值寻址的表
 > 本身不成立。GPU 一侧改为按键号寻址，CPU 一侧不按键缓存（D15）。
-> 下面是现在代码里的样子。
+> 下面是 4-0 之前代码里的样子，留作记录。
 
 CPU 分桶要交出三样：**键 → 桶的映射**（第二段把一个可见实例写进哪个桶）、**每个桶的容量与段起点**（第二段写记录的位置，
 也是 CPU 录制间接调用的参数偏移与 `maxCount`）、**每个桶的 PSO**（item 之间切换）。桶在代码里叫 `DrawBin`（同 Nanite 的 raster bin、
@@ -523,7 +523,7 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
 
 ### D15　D14 的数据组织　GPU 路径已做（4-0），CPU 路径为草案（用户 2026-10-20）
 
-D14 的框架落到数据结构上。GPU 路径的部分随 4-0 做完；CPU 路径（候选、可见实例、记录 buffer）等步骤 4 再细化。
+D14 的框架落到数据结构上。GPU 路径的部分随 4-0 做完；CPU 路径随步骤 4 逐步做（4a 列表实例、4b 剔除，其余为方案）。
 
 **Tag 的声明**（`DrawTag.h`）
 
@@ -575,7 +575,8 @@ D14 的框架落到数据结构上。GPU 路径的部分随 4-0 做完；CPU 路
   `m_drawMask` 为 0 的不进剔除）。
 - 分桶 pass 要的都在 pass 上的 `PassIndirectLayout` 里：表的 buffer（主机可见每帧，pass 第一次画列表时建，每帧整张写）、这一帧的表长、
   每个视图几个 count（`m_countsPerView`）、几条记录（`m_recordsPerView`）；后两个按档取整，免得分桶 pass 的 transient buffer 跟着换。
-  表的 CPU 镜像是 `DrawBinSystem` 私有的数组。
+  表的 CPU 镜像是 `DrawGroupSystem` 私有的数组。表照 entry 写：分组时每个 entry 记下它落进第几组（`m_groupIndex`），
+  `table[entry 的键号] = {组号, 组的 first}`，组上不带 entry 区间（entry 是系统里逐 pass 重填的临时数组）。
 
 **组件里不放 vector：每帧的绘制准备放进独立的 `DrawContext`**
 
@@ -589,32 +590,55 @@ D14 的框架落到数据结构上。GPU 路径的部分随 4-0 做完；CPU 路
 | 元素 | 组件 | 谁写 | 排序 |
 |---|---|---|---|
 | 列表里的键 | `DrawListKey{Tag 位, 键号, 键值, 实例数}` | 编码，只给 `Gpu` 的 Tag | — |
-| 候选 | `InstanceCandidate{Tag 位, 槽位, 键, indexCount, firstIndex, vertexOffset, 世界包围盒}` | 编码，只给 `Cpu` 的 Tag | — |
-| 可见实例 | `VisibleInstance{视图, Tag 位, 槽位, 键, 三个几何字段, 深度}` | 剔除（`VisibilitySystem`） | （视图，Tag 位，深度，键） |
-| 组 | `DrawBin{pass, 视图, 次序, 变体, firstDraw, maxDraws}` | `DrawBinSystem` | （pass，视图，次序） |
+| 列表实例 | `DrawListInstance{Tag 位, 槽位, 键, indexCount, firstIndex, vertexOffset, 世界包围盒}` | 编码，只给 `Cpu` 的 Tag | — |
+| 可见实例 | `VisibleInstance{视图, Tag 位, 槽位, 键, 三个几何字段, 深度}` | 剔除（`DrawListCullingSystem`） | （视图，Tag 位，深度降序，键） |
+| 组 | `DrawGroup{pass, 视图, 次序, 变体, firstDraw, maxDraws}` | `DrawGroupSystem` | （pass，视图，次序） |
 
-- 候选由编码给出：它本来逐个经过每个实例、解析材质、算键、调 `ClassifyDraw`，键只算一处；几何取自世界实体上的 `MeshGeometry`，
+- 头文件按数据流切开，各自写明谁写、谁读（`Render/DrawList/` 下）：`DrawList.h` 是列表的元素（`DrawListKey`、`DrawListInstance`、
+  `VisibleInstance`），编码与剔除写、`DrawGroupSystem` 读；`DrawGroup.h` 是 entry、组、`GroupDrawEntries` 与读组的 `DrawGroupsOf`，`DrawGroupSystem` 写、渲染图读；
+  pass 上的 `PassDrawList`（`.Draw<Tag>()` 加）与 `PassIndirectLayout`（`DrawGroupSystem` 写、分桶 pass 读）各在 `Pass/Component/` 下一个头文件。
+- 读组：`SortDrawGroups` 按（pass，视图，次序）排 storage，`DrawGroupsOf` 以同一个顺序二分，返回（pass，视图）在 storage 里连续的一段，
+  不复制、不全量过滤（CPU 路径每个视图的组数随场景，全量过滤是平方）。
+
+- 列表实例（用户 2026-10-21 定名，"候选"是口语）由编码给出，与 `DrawListKey` 是一对：GPU 剔除的列表 CPU 只知道键与实例数，
+  CPU 剔除的列表知道每个实例。计数器只数 GPU 剔除的位（`CpuCulledDrawMask` 由各 Tag 声明的 `Culling` 折叠得出）。编码本来逐个经过每个实例、解析材质、算键、调 `ClassifyDraw`，键只算一处；几何取自世界实体上的 `MeshGeometry`，
   世界包围盒由 `m_localBounds` 与模型矩阵算出，不回读 `g_Instances` 的暂存镜像（绑定缓冲只写不读）。这就是步骤 4 原来待定的"从哪里收集"。
-- 可见实例直接带上排序与写记录要的字段，不存指回候选的下标。
+- 可见实例直接带上排序与写记录要的字段，不存指回列表实例的下标。剔除对每个（视图，位）只做一次，用视图的 `ViewFrustum`、
+  不测近平面（`Frustum::IntersectsAABBIgnoringNear`，与 `InstanceCulling.hlsl` 一致）；深度取盒子中心在视空间的 z。
+  `VisibleInstancesOf` 以排序的顺序二分出（视图，位）的一段，同 `DrawGroupsOf`（两者都是 `DrawElementRange`）。
+- **CPU 路径的绘制参数属于列表，不属于 pass**（用户 2026-10-21）：一条记录 `{indexCount, 1, firstIndex, vertexOffset, 槽位}`
+  全部取自可见实例，先后是列表从远到近的顺序，都与哪个 pass 画它无关；与 pass 有关的只有组在哪里断开（变体由 pass 的渲染状态求出）。
+  所以剔除系统排好序后，按 storage 的顺序为每个可见实例写一条记录，所有 CPU 剔除的列表共用一块参数 buffer（资源 Tag
+  `CpuCulledDrawArgumentsTag`，主机可见每帧，`Indirect`，按档取整、不够时换一块）；一个可见实例的记录就在它在 storage 里的位置
+  （`FirstDrawOffset`）。pass 用 `Import<CpuCulledDrawArgumentsTag>` 显式导入，身上不挂资源：pass 与资源是两个轴。
+  `DrawGroupSystem` 只在这串记录上切组，不碰 RHI。GPU 路径的参数是每个 pass 一份，那是限制逼出来的：分组与写记录在同一次 dispatch 里，
+  写之前就要知道这个 pass 的组。
+- **CPU 剔除的 Tag 必须声明 `BackToFront`**（用户 2026-10-21）：记录的顺序由列表决定，pass 只切不排；顺序无关的物体应走 GPU 剔除，
+  不留回退。`.Draw<Tag>()` 里 `static_assert`，`DrawGroupSystem` 里再 ASSERT。
 - 组总在一个视图下。GPU 路径的组来自整个 Tag 的直方图，每个视图都相同，为 pass 渲染的每个视图各写一份；视图取自 pass 的
   `m_collectViews`，与渲染图展开 item 时是同一个调用。
-- first 从参数 buffer 里这个视图那段的起点算起（`IndirectArgumentsOf` 标出），buffer 不分视图时（CPU 路径的记录 buffer）从开头算。
+- first 从这个视图的参数起点算起。起点是组地址里由 `DrawGroupSystem` 以外的写入方决定的那一部分：GPU 路径里分桶 pass 按视图预留
+  固定大小，把视图那段的起点标在写它的访问上（`IndirectArgumentsOf`）；CPU 路径的整个地址都由 CPU 决定，没有别人定起点，即为 0。
+  CPU 的参数 buffer 语义上就不分段（每组只需要它那段记录的位置），不是"能省掉分段"；给它补标 0 等于假装有另一个写入方（用户 2026-10-21）。
+  解析经 `TryGetIndirectArgumentsStart` 取起点（4d）。
 
-**系统私有的连续数组**：编码累加计数的数组、binTable 的 CPU 镜像、键值 → 键号的 hash map（换成槽位池后）、描述哈希 → PSO 的表。它们要稠密寻址、整块上传或按值查找，不是一组元素，
+**系统私有的连续数组**：编码累加计数的数组、binTable 的 CPU 镜像、CPU 参数 buffer 的镜像、键值 → 键号的 hash map（换成槽位池后）、描述哈希 → PSO 的表。它们要稠密寻址、整块上传或按值查找，不是一组元素，
 只在系统内部读写；上传时 `PendingBufferMap` 指向系统成员的内存，系统在它就有效。pass 上的 `PassIndirectLayout` 只留表的 buffer 句柄与长度。
 
 **每帧的流程**（都在 `RenderSystem::Update` 里、渲染图构建之前）
 
 1. `DrawContext::clear()`。
-2. 编码（`InstanceBindingSystem`）：键号写进记录；`Gpu` 的 Tag 累加计数、结束时发布 `DrawListKey`，`Cpu` 的 Tag 写候选。
-3. 剔除（`VisibilitySystem`）：对每个视图、每个有 pass 在这类视图下要它的 `Cpu` Tag，视锥测试候选，写可见实例；排序。
-4. 排序分组（`DrawBinSystem`）：
-   - `Gpu` 的 pass：这个 Tag 的每个 `DrawListKey` 一项（由键值求变体、实例数），按（优先级，变体）排、同变体合并；
-     写 `PassIndirectLayout`（binTable 按元素里的键号写，每个视图的 count 与记录数取整），再为 pass 渲染的每个视图各写一份组。
-   - `Cpu` 的 pass：沿排好的可见实例，每碰到一段（视图，Tag）就交给画它、渲染这个视图的每个 pass：按顺序求变体，相邻同变体合并，
-     写组，并按顺序把记录写进这个 pass 的记录 buffer（主机可见每帧，`ShaderRead | Indirect`；容量为实例容量，超出的丢弃并报错，D5）。
-5. 渲染图：分桶 pass 的 Build 照旧，读 `PassIndirectLayout`；pass 的 Build 对 `Cpu` 的 pass 导入记录 buffer，`DrawIndirect(argumentsName)`
-   用一个不带 count 的重载；`AppendItemForView` 取（pass，这个视图）的组，每组一个 item，偏移 = first × 记录大小，
+2. 编码（`InstanceBindingSystem`）：键号写进记录；`Gpu` 的 Tag 累加计数、结束时发布 `DrawListKey`，`Cpu` 的 Tag 写 `DrawListInstance`。
+3. 剔除（`DrawListCullingSystem`）：对每个有 pass 在其下画 `Cpu` Tag 的（视图，位），视锥测试列表实例，写可见实例；排序；
+   按排好的顺序写 CPU 参数 buffer 的镜像。
+4. 排序分组（`DrawGroupSystem`，`Update` 按 pass 的路径分派，最后 `SortDrawGroups`）：
+   - `Gpu` 的 pass（`UpdateGpuCulledPass`）：这个 Tag 的每个 `DrawListKey` 一项（由键值求变体、实例数），按（优先级，变体）排、同变体合并；
+     写 `PassIndirectLayout`（`WriteIndirectLayout`，只有这条路径有：binTable 按 entry 的键号写，每个视图的 count 与记录数取整），
+     再为 pass 渲染的每个视图各写一份组。
+   - `Cpu` 的 pass（`UpdateCpuCulledPass`）：对 pass 渲染的每个视图，取（视图，位）的可见实例，按顺序求变体，相邻同变体合并（不排序），
+     组的 first 加上这一段的 `FirstDrawOffset`，写组。
+5. 渲染图：分桶 pass 的 Build 照旧，读 `PassIndirectLayout`；`Cpu` 的 pass 的 Build 用 `Import<CpuCulledDrawArgumentsTag>` 导入参数 buffer，`DrawIndirect(argumentsName)`
+   用一个不带 count 的重载；`AppendItemForView` 经 `DrawGroupsOf` 取（pass，这个视图）的组，每组一个 item，偏移 = first × 记录大小，
    maxCount = count，PSO 由（pass，变体）的描述查缓存。RHI 不用改：`m_countBuffer` 为空即不带 count，DX12 后端已支持。
 
 **不选的**
@@ -627,19 +651,25 @@ D14 的框架落到数据结构上。GPU 路径的部分随 4-0 做完；CPU 路
 - 每帧按"键在这一帧有序键列表里的位置"编号写进 `InstanceData`：表稠密、shader 不用查找，但与增量上传冲突（见上）。
 - 把键号容量定为实例容量：依赖了一个以后不成立的固定上限（`g_Instances` 也会改成数量可变），需要的只是上面三个性质。
 - 三个全局入口 `KeySlotOf` / `KeyOfSlot` / `KeySlotBound`（槽位 → 键值反查、长度）：换成槽位池后后两个要查编码系统里的登记表，
-  `DrawBinSystem` 调它们就是一个系统去找另一个系统；改由 `DrawListKey` 同时带键值与键号、长度取最大键号。
+  排序分组的系统调它们就是一个系统去找另一个系统；改由 `DrawListKey` 同时带键值与键号、长度取最大键号。
 - 组件里放 vector、要求"取出来原地改写"：靠写法保证，组件被移动、交换、替换时就失效。
 - 专门的 `FrameArena<T>`（不可拷贝、不可移动、只有保留容量的 `Reset`）由生产系统持有、组件里放区间：渲染图读组要拿到生产系统，
   经 `Service` 等于一个系统直接调另一个系统；ECS 的 storage 已经是一块 arena。
 - 可见实例与组直接放进 RHIContext / PassContext：语义上归不进任何一个，也要逐类型清空。
+- CPU 路径每个 pass 一块参数 buffer、挂在 pass 上（`PassDrawArguments`）：参数与 pass 无关；把 pass 要用的资源写到 pass 上，pass 与资源混成一个轴。
+- pass 的 Build 按 `PassTag` 找 pass、或经 `GetPass()` 读自己身上的组件：pass 因此知道了列表机制。`InstanceBinning` 现在按 `PassTag`
+  找它服务的绘制 pass，是为方便的写法，以后要改（用户 2026-10-21）。
+- 渲染图在 `DrawIndirect` 里替 pass 导入它的参数：资源必须由 pass 显式引入，不能在后台偷偷带上。
+- 给 CPU 的参数 buffer 每个视图补标起点 0：见上，语义不对。
+- CPU 剔除 + `Any`：顺序无关的物体走 GPU 剔除，不为它让 `GroupDrawEntries` 改成只切不排。
 
 **还要设计的**
 
-- 名字：`DrawContext`、`DrawEntity`、`VisibilitySystem`、组沿用 `DrawBin`、系统沿用 `DrawBinSystem`。
+- 名字已定：`DrawContext`、`DrawEntity`、组 `DrawGroup`、系统 `DrawGroupSystem`、剔除 `DrawListCullingSystem`、目录 `DrawList/`
+  （用户 2026-10-21：桶的说法已抹掉，Bin 又与 Binding 易混；GPU 上的 `InstanceBinning` 不改）。
 - 键号换成槽位池时：`PipelineKeySlotRef` 放在世界实体的哪个组件上，实例换键时的替换时机（第一版不涉及）。
 - `DrawContext` 的清空与 `DrawExecuteContext` 的压入放在 `RenderSystem::Update` 的哪里，编码之前的系统会不会也要往里写。
-- 记录 buffer 怎么建：它和 binTable 一样是导入渲染图、每帧整块写的主机可见 buffer，不用 `StagedArrayBuffer`（那是绑在共享组上的数组）；
-  到步骤 4 时看两处是否共用一个小封装。
+- GPU 路径里 pass 介入了资源的生成（binTable 与每个 pass 的参数），pass 与资源两个轴怎么拆开，用户还在想（2026-10-21）。
 
 ---
 
@@ -722,14 +752,15 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
 - ✅ 组不带 PSO（`2e0ee4c`）：缓存移到渲染图编译器，展开 item 时由（pass，变体）查得；pass 的默认 PSO 也经它。
 - ✅ 组总在一个视图下（`bd9970f`）：GPU 路径为 pass 渲染的每个视图各写一份组，不再以"视图为空"代表所有视图。
 - ✅ GPU 路径的东西收成一个组件（`38b78db`）：`PassIndirectLayout` 取代 `PassBinLayout` 与 `PassBinTable`，表的 buffer 按键空间定长、不扩容。
-- 待做：`DrawGroup` 与 `DrawBin` 是同一个概念的两个类型，合并成一个；分组时在每个 entry 上记下它落进第几组，GPU 路径照 entry 写表，
-  组上不再带 entry 区间。合并后的名字到时再定（暂不用 Bin）。
-- 待做：`DrawBinSystem::UpdatePass` 按职责拆开：按路径造 entry（GPU 从 `DrawListKey`，CPU 从可见实例）、共用的分组与写组、只有 GPU 才有的
-  写 `PassIndirectLayout`。读的时候先看到 pass 走哪条路径，再看到共用的部分。
-- 待做：头文件按数据流切开，每块的头注释写明谁写、谁读：列表的元素（`DrawListKey`，以后的候选、可见实例）、pass 的声明（`PassDrawList`）、
-  组（排序分组写、解析读）、`PassIndirectLayout`（`DrawBinSystem` 写、分桶 pass 读）。
-- 待做：`CollectDrawBins` 在排好序的 storage 上返回（pass，视图）的连续一段，不做全量过滤；CPU 路径每个视图的组数随场景，全量过滤是平方。
-- 留到步骤 4：`DrawBin::m_index` 现在兼作组序与 count 下标，两者在 GPU 路径里永远相等；CPU 路径出现条数确切、没有 count 的组时拆成两个字段。
+- ✅ 组只有一个类型（`fc057b4`）：`DrawGroup` 与 `DrawBin` 合并为 `DrawGroup`，即 `DrawContext` 的元素；分组时每个 entry 记下它落进第几组，
+  GPU 路径照 entry 写表，组上不带 entry 区间。
+- ✅ `UpdatePass` 按职责拆开（`64f6aa9`）：拆出只有 GPU 路径才有的 `WriteIndirectLayout`，其余留在 `UpdateGpuCulledPass` 一条主线上；
+  `Update` 处先看到 pass 走哪条路径。造 entry、写组太短，不单独成函数（用户 2026-10-21）。
+- ✅ 头文件按数据流切开（`cc7bf7d`），见 D15；同时改名：目录 `DrawBin/` → `DrawList/`，`DrawBinSystem` → `DrawGroupSystem`。
+- ✅ 读组返回排好序的一段（`d590a9b`）：`SortDrawGroups` 与 `DrawGroupsOf`，二分，不做全量过滤。
+- 留到步骤 4：`DrawGroup::m_index` 现在兼作组序与 count 下标，两者在 GPU 路径里永远相等；CPU 路径出现条数确切、没有 count 的组时拆成两个字段。
+
+**4-0 本身做的**（名字是 4-0d 时的，整理后的见 D15）：
 
 - Tag 声明 `Order` / `Culling`，`PassDrawList` 带上它们（D15）。
 - PSO 查找：键 → 变体 → 描述每帧现算，渲染图编译器里一张描述哈希 → PSO 的表只防重复建，pass 的默认 PSO 也从它取。
@@ -746,12 +777,21 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
 
 这条路的第一个使用者是半透明，所以把步骤 5 的前一部分并进来，用最终会留下的代码验证（用户 2026-10-18 定），不写临时的验证路径：
 
-- D14 / D15 的一般形态：编码给出 `TranslucentTag` 的候选；`VisibilitySystem` 对主视图做（视图，`TranslucentTag`）剔除，写可见实例并排序；
-  `TranslucentTag` 声明 `BackToFront` + `Cpu`；排序分组与 4-0 共用；CPU 写记录（D5），每组一次间接调用，不用 count buffer：
+- D14 / D15 的一般形态：编码给出 `TranslucentTag` 的列表实例；`DrawListCullingSystem` 做（视图，`TranslucentTag`）剔除，写可见实例并排序，
+  再写 CPU 参数 buffer；`TranslucentTag` 声明 `BackToFront` + `Cpu`；`DrawGroupSystem` 在记录上切组；每组一次间接调用，不用 count buffer：
   `DrawIndirect` 加不带 count 的重载，`AppendItemForView` 取（pass，视图）的组。与现有 `DrawIndirect` 共用几何绑定（一段代码）。
   这条路对几何的依赖与不透明的 GPU 路径完全相同，几何池以后怎么改都在同一处一起改，不以 `TODO_BufferRangePlan.md` 为前提。
 - D6：半透明的分类与标签、视锥测试。标签 `TransparentTag` 改名为 `TranslucentTag`（用户 2026-10-19 同意），占 draw-mask 第 2 位。
-  从哪里收集已定为编码给出候选（D15），不回读 `g_Instances`、`g_Geometries` 的暂存镜像。
+  从哪里收集已定为编码给出列表实例（D15），不回读 `g_Instances`、`g_Geometries` 的暂存镜像。
+- 分六小步，前五步画面不变（没有东西分进半透明）：
+  - ✅ 4a（`dc005c5`）：`TranslucentTag` 与第 2 位、`CpuCulledDrawMask`、计数器只数 GPU 剔除的位、编码写 `DrawListInstance`。
+  - ✅ 4b（`4ad8aaf`）：`DrawListCullingSystem`、`VisibleInstance` 与 `VisibleInstancesOf`、`DrawElementRange`、
+    `Frustum::IntersectsAABBIgnoringNear`（并改正反向 Z 下平面的标注）。
+  - 4c：剔除系统写 CPU 参数 buffer（`CpuCulledDrawArgumentsTag`），`DrawGroupSystem` 的 `UpdateCpuCulledPass` 切组；CPU 剔除必须 `BackToFront`。
+  - 4d：不带 count 的 `DrawIndirect`、count 可选、`TryGetIndirectArgumentsStart`、`AppendItemForView` 重排。
+  - 4e：`TranslucencyPass` 与 shader（Skybox 之后、TAA 之前），材质模板的不透明度；导入参数 buffer。运行时确认上传堆上的 buffer
+    作为间接参数读时渲染图不发不合法的 barrier。
+  - 4f：`ClassifyDraw` 按 alphaMode 分类，用户用场景确认画面。
 - 半透明 pass 只做最简单的着色：不打光，输出带不透明度的基色，pass 默认的混合状态为 SrcAlpha / InvSrcAlpha，深度只测不写。
   不透明度取 `baseColor.a × 贴图 alpha`：glTF 的 `baseColorFactor` alpha 与 `alphaMode` 已导入并写进 `MaterialData`，只是材质模板里固定写成 1。
 - `ClassifyDraw` 最后改（Blend → 半透明，不投影），中间任何一步都不会出现 Blend 物体从画面上消失的状态。
@@ -774,7 +814,7 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
 - **单元测试**：管线键的编码与解码、解释系统的各条规则与规整、PSO 缓存（同一份描述不重复建、不同键同变体同 PSO、哈希相同而描述不同时不混用）、
   键号（换成槽位池时：同键共用、最后一个持有者放下即归还、换键换号）、`DrawListKey` 的发布（按 Tag 位与键计数、两个 Tag 位各计一次）、排序分组（两种排序键、相邻同 PSO 合并、
   不同键同 PSO 并进一组、按优先级的组序、容量与起点、binTable）、`DrawContext` 的元素排序与按所有者切开、D10 展开出的 item、
-  两段共用的视图枚举、（视图，Tag）剔除、CPU 写出的记录。
+  两段共用的视图枚举、（视图，Tag）剔除（含不测近平面）、CPU 写出的记录与在记录上切组。
 - 步骤 4-0：画面与改之前完全一样。
 - **画面由用户确认**，每步交一次。我这边只跑短时间的运行，确认能跑、日志里没有新的报错。
 - 步骤 1a-1：只有单元测试与短时间运行，画面不该有任何变化。
