@@ -43,14 +43,14 @@ namespace Spark::Render
         }
     }
 
-    void CollectDrawBins(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawBinList& out)
+    void CollectDrawGroups(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawGroupList& out)
     {
         out.clear();
-        for (auto [entity, bin] : drawCtx.GetView<DrawBin>().each())
+        for (auto [entity, group] : drawCtx.GetView<DrawGroup>().each())
         {
-            if (bin.m_pass == pass && bin.m_view == view)
+            if (group.m_pass == pass && group.m_view == view)
             {
-                out.push_back(&bin);
+                out.push_back(&group);
             }
         }
     }
@@ -91,14 +91,10 @@ namespace Spark::Render
             passCtx.Get<PassName>(pass).m_name.GetCStr());
 
         uint32_t drawCount = 0;
-        for (uint32_t index = 0; index < static_cast<uint32_t>(m_groups.size()); ++index)
+        for (const DrawEntry& entry : m_entries)
         {
-            const DrawGroup& group = m_groups[index];
-            for (uint32_t e = group.m_firstEntry; e < group.m_firstEntry + group.m_entryCount; ++e)
-            {
-                image[m_entries[e].m_keyIndex] = IndirectLayoutEntry{ index, group.m_firstDraw };
-            }
-            drawCount += group.m_maxDraws;
+            image[entry.m_keyIndex] = IndirectLayoutEntry{ entry.m_groupIndex, m_groups[entry.m_groupIndex].m_firstDraw };
+            drawCount += entry.m_count;
         }
 
         if (!passCtx.Has<PassIndirectLayout>(pass))
@@ -118,7 +114,7 @@ namespace Spark::Render
         // Only the GPU knows which instances a view sees, so the groups are the whole list's,
         // the same under every view, each view's in its own part of the arguments. The views
         // are those the render graph draws the pass under, by the same call in the same frame;
-        // one it skips leaves its bins unread.
+        // one it skips leaves its groups unread.
         const auto* capabilities = passCtx.TryGet<PassCapabilities>(pass);
         ASSERT(capabilities && capabilities->m_collectViews,
             "[DrawBinSystem] Pass '{}' draws a list but declares no .RendersView<>().",
@@ -130,18 +126,11 @@ namespace Spark::Render
         }
         for (RHI::RHIHandle view : m_views)
         {
-            for (uint32_t index = 0; index < static_cast<uint32_t>(m_groups.size()); ++index)
+            for (DrawGroup group : m_groups)
             {
-                const DrawGroup& group = m_groups[index];
-
-                DrawBin bin;
-                bin.m_pass      = pass;
-                bin.m_view      = view;
-                bin.m_index     = index;
-                bin.m_variant   = group.m_variant;
-                bin.m_firstDraw = group.m_firstDraw;
-                bin.m_maxDraws  = group.m_maxDraws;
-                drawCtx.Add<DrawBin>(drawCtx.CreateEntity(), bin);
+                group.m_pass = pass;
+                group.m_view = view;
+                drawCtx.Add<DrawGroup>(drawCtx.CreateEntity(), group);
             }
         }
     }
@@ -153,7 +142,7 @@ namespace Spark::Render
             UpdatePass(rhiCtx, passCtx, drawCtx, pass);
         }
 
-        drawCtx.Sort<DrawBin>([](const DrawBin& a, const DrawBin& b)
+        drawCtx.Sort<DrawGroup>([](const DrawGroup& a, const DrawGroup& b)
         {
             return eastl::make_tuple(static_cast<uint32_t>(a.m_pass), static_cast<uint32_t>(a.m_view), a.m_index)
                  < eastl::make_tuple(static_cast<uint32_t>(b.m_pass), static_cast<uint32_t>(b.m_view), b.m_index);

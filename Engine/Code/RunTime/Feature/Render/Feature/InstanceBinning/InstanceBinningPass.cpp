@@ -41,7 +41,7 @@ namespace Spark::Render
             const RHI::AttachmentId& m_countName;
         };
 
-        //! The Build of a binning pass: drawPass's bins of the instances `views` see, in the two
+        //! The Build of a binning pass: drawPass's groups of the instances `views` see, in the two
         //! buffers named, its PassIndirectLayout table imported under layoutName.
         void BuildBins(
             ComputePassScopes& p,

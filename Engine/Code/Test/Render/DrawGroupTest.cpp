@@ -63,19 +63,19 @@ TEST(DrawGroupTest, AnyMakesOneGroupOfKeysOfOneVariant)
     GroupDrawEntries(entries, DrawOrder::Any, groups);
 
     ASSERT_EQ(groups.size(), 2u);
-    const DrawGroup* merged = groups[0].m_variant == Default ? &groups[0] : &groups[1];
-    EXPECT_EQ(merged->m_entryCount, 2u);
-    EXPECT_EQ(merged->m_maxDraws, 8u);
+    const DrawGroup& merged = groups[0].m_variant == Default ? groups[0] : groups[1];
+    EXPECT_EQ(merged.m_maxDraws, 8u);
 
-    // Both keys are still to be found among the group's entries.
-    eastl::vector<uint32_t> keys;
-    for (uint32_t e = merged->m_firstEntry; e < merged->m_firstEntry + merged->m_entryCount; ++e)
+    // Both keys fall in it.
+    auto groupOfKey = [&](uint32_t keyIndex)
     {
-        EXPECT_EQ(entries[e].m_variant, Default);
-        keys.push_back(entries[e].m_keyIndex);
-    }
-    EXPECT_NE(eastl::find(keys.begin(), keys.end(), 7u), keys.end());
-    EXPECT_NE(eastl::find(keys.begin(), keys.end(), 9u), keys.end());
+        const auto entry = eastl::find_if(entries.begin(), entries.end(),
+            [&](const DrawEntry& e) { return e.m_keyIndex == keyIndex; });
+        return entry->m_groupIndex;
+    };
+    EXPECT_EQ(groupOfKey(7), merged.m_index);
+    EXPECT_EQ(groupOfKey(9), merged.m_index);
+    EXPECT_NE(groupOfKey(4), merged.m_index);
 }
 
 TEST(DrawGroupTest, AGroupStartsAfterWhatTheGroupsBeforeItMakeRoomFor)
@@ -105,16 +105,17 @@ TEST(DrawGroupTest, BackToFrontKeepsTheOrderAndSplitsAVariantThatComesBack)
     ASSERT_EQ(groups.size(), 3u);
     EXPECT_EQ(groups[0].m_variant, Later);
     EXPECT_EQ(groups[1].m_variant, Default);
-    EXPECT_EQ(groups[1].m_entryCount, 2u);
+    EXPECT_EQ(groups[1].m_maxDraws, 2u);
     EXPECT_EQ(groups[2].m_variant, Later);
     EXPECT_EQ(entries[0].m_variant, Later);
     EXPECT_EQ(entries[3].m_variant, Later);
 }
 
-TEST(DrawGroupTest, TheGroupsCoverEveryEntryOnceInOrder)
+//! So the entries, in the order left, are the records of the groups one after another.
+TEST(DrawGroupTest, EachEntryFallsInAGroupInOrder)
 {
     eastl::vector<DrawEntry> entries{
-        Entry(Later, 1), Entry(TwoSided, 1), Entry(Default, 1), Entry(TwoSided, 1), Entry(Default, 1) };
+        Entry(Later, 1), Entry(TwoSided, 2), Entry(Default, 3), Entry(TwoSided, 4), Entry(Default, 5) };
 
     for (DrawOrder order : { DrawOrder::Any, DrawOrder::BackToFront })
     {
@@ -123,13 +124,24 @@ TEST(DrawGroupTest, TheGroupsCoverEveryEntryOnceInOrder)
 
         GroupDrawEntries(ordered, order, groups);
 
-        uint32_t next = 0;
-        for (const DrawGroup& group : groups)
+        ASSERT_FALSE(groups.empty());
+        eastl::vector<uint32_t> draws(groups.size(), 0);
+        uint32_t previous = 0;
+        for (const DrawEntry& entry : ordered)
         {
-            EXPECT_EQ(group.m_firstEntry, next);
-            EXPECT_GT(group.m_entryCount, 0u);
-            next += group.m_entryCount;
+            ASSERT_LT(entry.m_groupIndex, groups.size());
+            EXPECT_GE(entry.m_groupIndex, previous);
+            EXPECT_LE(entry.m_groupIndex, previous + 1);
+            EXPECT_EQ(entry.m_variant, groups[entry.m_groupIndex].m_variant);
+            draws[entry.m_groupIndex] += entry.m_count;
+            previous = entry.m_groupIndex;
         }
-        EXPECT_EQ(next, static_cast<uint32_t>(entries.size()));
+        EXPECT_EQ(ordered.front().m_groupIndex, 0u);
+        EXPECT_EQ(ordered.back().m_groupIndex, static_cast<uint32_t>(groups.size()) - 1);
+        for (uint32_t index = 0; index < static_cast<uint32_t>(groups.size()); ++index)
+        {
+            EXPECT_EQ(groups[index].m_index, index);
+            EXPECT_EQ(groups[index].m_maxDraws, draws[index]);
+        }
     }
 }

@@ -28,22 +28,21 @@ namespace Spark::Render
         }
 
         uint32_t firstDraw = 0;
-        for (uint32_t index = 0; index < static_cast<uint32_t>(entries.size()); ++index)
+        for (DrawEntry& entry : entries)
         {
-            const DrawEntry& entry = entries[index];
             if (groups.empty() || groups.back().m_variant != entry.m_variant)
             {
                 DrawGroup group;
-                group.m_variant    = entry.m_variant;
-                group.m_firstEntry = index;
-                group.m_firstDraw  = firstDraw;
+                group.m_index     = static_cast<uint32_t>(groups.size());
+                group.m_variant   = entry.m_variant;
+                group.m_firstDraw = firstDraw;
                 groups.push_back(group);
             }
 
             DrawGroup& group = groups.back();
-            ++group.m_entryCount;
-            group.m_maxDraws += entry.m_count;
-            firstDraw        += entry.m_count;
+            entry.m_groupIndex = group.m_index;
+            group.m_maxDraws  += entry.m_count;
+            firstDraw         += entry.m_count;
         }
     }
 }

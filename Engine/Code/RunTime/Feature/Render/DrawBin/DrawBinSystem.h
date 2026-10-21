@@ -16,16 +16,16 @@
 
 namespace Spark::Render
 {
-    //! A pass's DrawBins, as few as a pass of a GPU-culled list has.
-    using DrawBinList = eastl::fixed_vector<const DrawBin*, 8>;
+    //! A pass's DrawGroups, as few as a pass of a GPU-culled list has.
+    using DrawGroupList = eastl::fixed_vector<const DrawGroup*, 8>;
 
-    //! The DrawBins of pass under view, in their index order. Its DrawBins sorted, as Update
+    //! The DrawGroups of pass under view, in their index order. Its DrawGroups sorted, as Update
     //! leaves them.
-    void CollectDrawBins(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawBinList& out);
+    void CollectDrawGroups(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawGroupList& out);
 
-    //! Turns what is known of each draw list into the DrawBins of each pass drawing it: groups
+    //! Turns what is known of each draw list into the DrawGroups of each pass drawing it: groups
     //! a pass's DrawListKeys by their variant in the pass, writes the pass's PassIndirectLayout
-    //! from the groups, and the groups as DrawBins under each view the pass renders.
+    //! from them, and the groups under each view the pass renders.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, updated after InstanceBindingSystem
     //! (whose DrawListKeys it reads) and before the render graph is built.

@@ -166,7 +166,7 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
-        // First: what each view sees, then each drawing pass's bins of it, which the passes
+        // First: what each view sees, then each drawing pass's groups of it, which the passes
         // below draw the scene by.
         InstanceCullingPass::SetUp(passContext);
         InstanceBinningPass::SetUp(passContext);
@@ -353,7 +353,7 @@ namespace Spark::Render
         // Last frame's draw preparation goes, before the encoding writes this frame's.
         m_drawContext.Clear();
         m_instanceBindingSystem.Update(frameIndex);
-        // The bins of each pass from the DrawListKeys the encoding above just published.
+        // The groups of each pass from the DrawListKeys the encoding above just published.
         m_drawBinSystem.Update(rhiCtx, passContext, m_drawContext);
 
         // World → GeometrySpec: find-or-create over renderable world entities.

@@ -16,7 +16,7 @@ namespace Spark::Render
         }
 
         //! A pixel shader that may discard keeps depth from being written ahead of it, so the
-        //! bins using one go after those that fill depth with early-Z.
+        //! groups using one go after those that fill depth with early-Z.
         constexpr FeatureMacro EarlyDepthBreakingMacros = FeatureMacro::MaterialBlendingMasked;
 
         constexpr uint32_t AfterEarlyDepthPriority = 1;

@@ -1448,8 +1448,8 @@ namespace Spark::Render
     {
         //! Appends what to submit for `item` of `pass` under `view`: the item itself, unless it
         //! is an indirect draw of buffers that hold their arguments per view. That one gets an
-        //! item of its own for the view, reading the view's part of both, or one per DrawBin
-        //! when the pass draws a list, with the bin's PSO from pipelineCache; none when `view`
+        //! item of its own for the view, reading the view's part of both, or one per DrawGroup
+        //! when the pass draws a list, with the group's PSO from pipelineCache; none when `view`
         //! has no part.
         void AppendItemForView(RHIHandle item, RHIHandle view, Pass pass, PassContext& passContext,
             RHIContext& context, DrawPipelineCache& pipelineCache, eastl::vector<RHIHandle>& submitList)
@@ -1506,25 +1506,25 @@ namespace Spark::Render
                 submitList.push_back(perView);
             };
 
-            // A pass drawing a list draws the view's part a DrawBin at a time: from the bin's first
-            // record, with the bin's count, which a count buffer holds as a uint32 each, and its PSO.
+            // A pass drawing a list draws the view's part a DrawGroup at a time: from the group's first
+            // record, with the group's count, which a count buffer holds as a uint32 each, and its PSO.
             if (passContext.Has<PassDrawList>(pass))
             {
                 const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
                 ASSERT(source.m_drawArguments.m_type == RHI::DrawType::IndexedIndirect,
-                    "[RenderGraphCompiler] Pass {} draws its bins with a draw that is not an indexed indirect one.", passName);
+                    "[RenderGraphCompiler] Pass {} draws its groups with a draw that is not an indexed indirect one.", passName);
                 constexpr uint64_t CommandSize = sizeof(RHI::DrawIndexedIndirectCommand);
 
-                DrawBinList bins;
-                CollectDrawBins(*DrawExecuteContext::Current(), pass, view, bins);
-                for (const DrawBin* bin : bins)
+                DrawGroupList groups;
+                CollectDrawGroups(*DrawExecuteContext::Current(), pass, view, groups);
+                for (const DrawGroup* group : groups)
                 {
                     const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
                         passContext.Get<PassStageFunctions>(pass), passContext.Get<PassPipelineState>(pass),
-                        passContext.Get<PassPipelineLayout>(pass), bin->m_variant, passName);
-                    appendDraw(argumentsByteOffset + bin->m_firstDraw * CommandSize,
-                               countByteOffset + bin->m_index * sizeof(uint32_t),
-                               bin->m_maxDraws,
+                        passContext.Get<PassPipelineLayout>(pass), group->m_variant, passName);
+                    appendDraw(argumentsByteOffset + group->m_firstDraw * CommandSize,
+                               countByteOffset + group->m_index * sizeof(uint32_t),
+                               group->m_maxDraws,
                                pipelineCache.Acquire(descriptor, passName).get());
                 }
                 return;
@@ -1879,7 +1879,7 @@ namespace Spark::Render
                 ASSERT(passContext.Has<PassPipelineLayout>(pass),
                     "Pass '{}' has no PassPipelineLayout (eager build in PassBuilder::Finalize failed?).", passName);
 
-                // The default PSO is the pass's own with no variant on it, so a DrawBin of no
+                // The default PSO is the pass's own with no variant on it, so a DrawGroup of no
                 // variant gets this one from the cache too.
                 const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
                     stageFunctions, pipelineState, passContext.Get<PassPipelineLayout>(pass), PipelineVariant{}, passName);

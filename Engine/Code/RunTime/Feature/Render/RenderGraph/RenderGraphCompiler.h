@@ -146,7 +146,7 @@ namespace Spark::Render
         //! SetShader* helpers or MarkShaderBindingsUpdate) drives the dirty bit.
         void CompileShaderInputs(RHI::Device& device, RHIContext& context);
 
-        //! Every draw PSO: a pass's default (CompilePipelineStates) and each DrawBin's, when its
+        //! Every draw PSO: a pass's default (CompilePipelineStates) and each DrawGroup's, when its
         //! item is expanded. A stopgap until a real PSO cache exists; that one may belong in
         //! RenderGraph, which makes and manages the RHI objects, handed in where needed.
         DrawPipelineCache m_drawPipelineCache;

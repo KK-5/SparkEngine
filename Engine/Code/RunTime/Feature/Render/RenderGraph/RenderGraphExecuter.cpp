@@ -360,7 +360,7 @@ namespace Spark::Render
         commandList->SetSubmitRange({ range.m_begin, range.m_end });
 
         // The PSO the list has, and the view index the Scope's root constants carry. An item of
-        // a DrawBin draws with its bin's PSO, any other with the Scope's. After a switch the
+        // a DrawGroup draws with its group's PSO, any other with the Scope's. After a switch the
         // bindings and root constants are written out again: whether they survived it is the
         // backend's business.
         const RHI::PipelineState* currentPso = state.m_pso;

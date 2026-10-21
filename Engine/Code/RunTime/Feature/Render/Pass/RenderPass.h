@@ -114,7 +114,7 @@ namespace Spark::Render
         }
 
         // ---- Scene draws ----
-        //! The pass draws the instances classified as Tag, one DrawBin at a time: the bins
+        //! The pass draws the instances classified as Tag, one DrawGroup at a time: the groups
         //! and which PSO each draws with come from DrawBinSystem, not from the pass.
         template<typename Tag>
         RenderPassBuilder& Draw()

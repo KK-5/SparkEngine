@@ -21,12 +21,12 @@ namespace Spark::Render
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::Render::FeatureMacro, uint32_t);
 
     //! What a pass changes from its default PSO for one pipeline key. Compared by value: equal
-    //! variants of one pass draw in one bin.
+    //! variants of one pass draw in one group.
     struct PipelineVariant
     {
         static constexpr uint32_t NoMaterialShader = UINT32_MAX;
 
-        //! A pass draws its bins lowest first.
+        //! A pass draws its groups lowest first.
         uint32_t      m_priority       = 0;
         //! Invalid keeps the pass's own.
         RHI::CullMode m_cullMode       = RHI::CullMode::Invalid;

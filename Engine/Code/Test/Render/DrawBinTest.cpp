@@ -39,8 +39,8 @@ namespace
     };
 }
 
-//! Bins made from the counted keys. Everything is components on the contexts, so no device is
-//! needed; the bin tables' buffers never materialize.
+//! Groups made from the counted keys. Everything is components on the contexts, so no device is
+//! needed; the indirect layout tables' buffers never materialize.
 class DrawBinTest : public ::testing::Test
 {
 protected:
@@ -87,7 +87,7 @@ protected:
         }
     }
 
-    //! A frame: the context emptied, what was encoded since the last one published, the bins made.
+    //! A frame: the context emptied, what was encoded since the last one published, the groups made.
     void Frame()
     {
         draws.Clear();
@@ -95,16 +95,16 @@ protected:
         system.Update(rhi, passes, draws);
     }
 
-    DrawBinList BinsOf(Pass pass, RHI::RHIHandle under)
+    DrawGroupList GroupsOf(Pass pass, RHI::RHIHandle under)
     {
-        DrawBinList bins;
-        CollectDrawBins(draws, pass, under, bins);
-        return bins;
+        DrawGroupList groups;
+        CollectDrawGroups(draws, pass, under, groups);
+        return groups;
     }
 
-    DrawBinList BinsOf(Pass pass)
+    DrawGroupList GroupsOf(Pass pass)
     {
-        return BinsOf(pass, view);
+        return GroupsOf(pass, view);
     }
 
     //! What the pass's indirect layout table holds for key, as uploaded.
@@ -120,13 +120,13 @@ protected:
         return entries[index];
     }
 
-    const DrawBin* BinOf(Pass pass, PipelineKey key)
+    const DrawGroup* GroupOf(Pass pass, PipelineKey key)
     {
-        for (const DrawBin* bin : BinsOf(pass))
+        for (const DrawGroup* group : GroupsOf(pass))
         {
-            if (bin->m_index == Entry(pass, key).m_countIndex)
+            if (group->m_index == Entry(pass, key).m_countIndex)
             {
-                return bin;
+                return group;
             }
         }
         return nullptr;
@@ -180,7 +180,7 @@ TEST_F(DrawBinTest, EachFrameIsCountedFromNothing)
 
 //! Masking changes nothing in a template that does not declare it, and none does yet;
 //! being double-sided changes the cull mode of a pass that culls.
-TEST_F(DrawBinTest, KeysThatDrawAlikeShareABin)
+TEST_F(DrawBinTest, KeysThatDrawAlikeShareAGroup)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 1);
@@ -188,12 +188,12 @@ TEST_F(DrawBinTest, KeysThatDrawAlikeShareABin)
     Encode(DoubleSided, Opaque, 1);
     Frame();
 
-    EXPECT_EQ(BinsOf(depth).size(), 2u);
+    EXPECT_EQ(GroupsOf(depth).size(), 2u);
     EXPECT_EQ(Entry(depth, SingleSided).m_countIndex, Entry(depth, Masked).m_countIndex);
     EXPECT_NE(Entry(depth, SingleSided).m_countIndex, Entry(depth, DoubleSided).m_countIndex);
 }
 
-TEST_F(DrawBinTest, ABinHoldsWhatItsKeysCountInThePassesList)
+TEST_F(DrawBinTest, AGroupHoldsWhatItsKeysCountInThePassesList)
 {
     const Pass depth  = AddPass<OpaqueTag>("Depth");
     const Pass shadow = AddPass<ShadowCasterTag>("Shadow");
@@ -202,41 +202,41 @@ TEST_F(DrawBinTest, ABinHoldsWhatItsKeysCountInThePassesList)
     Encode(DoubleSided, Opaque | Caster, 4);
     Frame();
 
-    EXPECT_EQ(BinOf(depth, SingleSided)->m_maxDraws, 5u);
-    EXPECT_EQ(BinOf(depth, DoubleSided)->m_maxDraws, 4u);
-    EXPECT_EQ(BinOf(shadow, SingleSided)->m_maxDraws, 3u);
-    EXPECT_EQ(BinOf(shadow, DoubleSided)->m_maxDraws, 4u);
+    EXPECT_EQ(GroupOf(depth, SingleSided)->m_maxDraws, 5u);
+    EXPECT_EQ(GroupOf(depth, DoubleSided)->m_maxDraws, 4u);
+    EXPECT_EQ(GroupOf(shadow, SingleSided)->m_maxDraws, 3u);
+    EXPECT_EQ(GroupOf(shadow, DoubleSided)->m_maxDraws, 4u);
 
-    // Next frame's counts replace this one's, and a key no instance has has no bin.
+    // Next frame's counts replace this one's, and a key no instance has has no group.
     Encode(SingleSided, Opaque, 1);
     Frame();
-    EXPECT_EQ(BinsOf(depth).size(), 1u);
-    EXPECT_EQ(BinOf(depth, SingleSided)->m_maxDraws, 1u);
-    EXPECT_EQ(BinsOf(shadow).size(), 0u);
+    EXPECT_EQ(GroupsOf(depth).size(), 1u);
+    EXPECT_EQ(GroupOf(depth, SingleSided)->m_maxDraws, 1u);
+    EXPECT_EQ(GroupsOf(shadow).size(), 0u);
 }
 
-TEST_F(DrawBinTest, BinsLieOneAfterAnotherInTheirIndexOrder)
+TEST_F(DrawBinTest, GroupsLieOneAfterAnotherInTheirIndexOrder)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 3);
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    const DrawBinList bins = BinsOf(depth);
-    ASSERT_EQ(bins.size(), 2u);
+    const DrawGroupList groups = GroupsOf(depth);
+    ASSERT_EQ(groups.size(), 2u);
     uint32_t firstDraw = 0;
-    for (uint32_t i = 0; i < bins.size(); ++i)
+    for (uint32_t i = 0; i < groups.size(); ++i)
     {
-        EXPECT_EQ(bins[i]->m_index, i);
-        EXPECT_EQ(bins[i]->m_firstDraw, firstDraw);
-        EXPECT_EQ(bins[i]->m_view, view);
-        firstDraw += bins[i]->m_maxDraws;
+        EXPECT_EQ(groups[i]->m_index, i);
+        EXPECT_EQ(groups[i]->m_firstDraw, firstDraw);
+        EXPECT_EQ(groups[i]->m_view, view);
+        firstDraw += groups[i]->m_maxDraws;
     }
     EXPECT_EQ(firstDraw, 7u);
 }
 
-//! Which instances a view sees only the GPU knows, so each view gets the bins of the whole list.
-TEST_F(DrawBinTest, EachViewHasTheSameBins)
+//! Which instances a view sees only the GPU knows, so each view gets the groups of the whole list.
+TEST_F(DrawBinTest, EachViewHasTheSameGroups)
 {
     const RHI::RHIHandle other = AddView();
     const Pass depth = AddPass<OpaqueTag>("Depth");
@@ -244,30 +244,30 @@ TEST_F(DrawBinTest, EachViewHasTheSameBins)
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    const DrawBinList bins      = BinsOf(depth, view);
-    const DrawBinList otherBins = BinsOf(depth, other);
-    ASSERT_EQ(bins.size(), 2u);
-    ASSERT_EQ(otherBins.size(), bins.size());
-    for (uint32_t i = 0; i < bins.size(); ++i)
+    const DrawGroupList groups      = GroupsOf(depth, view);
+    const DrawGroupList otherGroups = GroupsOf(depth, other);
+    ASSERT_EQ(groups.size(), 2u);
+    ASSERT_EQ(otherGroups.size(), groups.size());
+    for (uint32_t i = 0; i < groups.size(); ++i)
     {
-        EXPECT_EQ(bins[i]->m_view, view);
-        EXPECT_EQ(otherBins[i]->m_view, other);
-        EXPECT_EQ(otherBins[i]->m_index, bins[i]->m_index);
-        EXPECT_EQ(otherBins[i]->m_variant, bins[i]->m_variant);
-        EXPECT_EQ(otherBins[i]->m_firstDraw, bins[i]->m_firstDraw);
-        EXPECT_EQ(otherBins[i]->m_maxDraws, bins[i]->m_maxDraws);
+        EXPECT_EQ(groups[i]->m_view, view);
+        EXPECT_EQ(otherGroups[i]->m_view, other);
+        EXPECT_EQ(otherGroups[i]->m_index, groups[i]->m_index);
+        EXPECT_EQ(otherGroups[i]->m_variant, groups[i]->m_variant);
+        EXPECT_EQ(otherGroups[i]->m_firstDraw, groups[i]->m_firstDraw);
+        EXPECT_EQ(otherGroups[i]->m_maxDraws, groups[i]->m_maxDraws);
     }
 }
 
 //! The binning pass reads the table and the layout every frame, views or none.
-TEST_F(DrawBinTest, APassUnderNoViewHasATableButNoBins)
+TEST_F(DrawBinTest, APassUnderNoViewHasATableButNoGroups)
 {
     rhi.Add<DeadTag>(view);
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 3);
     Frame();
 
-    EXPECT_EQ(draws.GetView<DrawBin>().size(), 0u);
+    EXPECT_EQ(draws.GetView<DrawGroup>().size(), 0u);
     EXPECT_TRUE(passes.Has<PassIndirectLayout>(depth));
     EXPECT_NE(Entry(depth, SingleSided).m_countIndex, IndirectLayoutEntry::NotDrawn);
 }
@@ -286,18 +286,18 @@ TEST_F(DrawBinTest, ALayoutRoundsUpAStepAtATime)
     EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_recordsPerView, 2048u);
 }
 
-TEST_F(DrawBinTest, ATableSendsAKeyToItsBinAndAKeyOfNoBinNowhere)
+TEST_F(DrawBinTest, ATableSendsAKeyToItsGroupAndAKeyOfNoGroupNowhere)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 3);
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    for (const DrawBin* bin : BinsOf(depth))
+    for (const DrawGroup* group : GroupsOf(depth))
     {
-        const PipelineKey key = bin->m_variant.m_cullMode == RHI::CullMode::None ? DoubleSided : SingleSided;
-        EXPECT_EQ(Entry(depth, key).m_countIndex, bin->m_index);
-        EXPECT_EQ(Entry(depth, key).m_firstRecord, bin->m_firstDraw);
+        const PipelineKey key = group->m_variant.m_cullMode == RHI::CullMode::None ? DoubleSided : SingleSided;
+        EXPECT_EQ(Entry(depth, key).m_countIndex, group->m_index);
+        EXPECT_EQ(Entry(depth, key).m_firstRecord, group->m_firstDraw);
     }
     EXPECT_EQ(Entry(depth, Masked).m_countIndex, IndirectLayoutEntry::NotDrawn);
 }
@@ -311,7 +311,7 @@ TEST_F(DrawBinTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
     EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_tableLength, PipelineKeyIndexOf(DoubleSided).m_value + 1);
 }
 
-TEST_F(DrawBinTest, APassDrawingNoListHasNoBins)
+TEST_F(DrawBinTest, APassDrawingNoListHasNoGroups)
 {
     const Pass post = passes.CreatePass();
     passes.Add<PassName>(post, PassName{ ObjectName("Post") });
@@ -319,7 +319,7 @@ TEST_F(DrawBinTest, APassDrawingNoListHasNoBins)
     Frame();
 
     EXPECT_FALSE(passes.Has<PassIndirectLayout>(post));
-    EXPECT_EQ(BinsOf(post).size(), 0u);
+    EXPECT_EQ(GroupsOf(post).size(), 0u);
 }
 
 TEST_F(DrawBinTest, ShutdownLeavesNothingBehind)

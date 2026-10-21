@@ -118,7 +118,7 @@ namespace Spark::Render
     //! for the frame.
     struct PerViewItemTag {};
 
-    //! On such an item drawing one DrawBin: the bin's PSO, which the executer switches to for it.
+    //! On such an item drawing one DrawGroup: the group's PSO, which the executer switches to for it.
     //! RenderGraphCompiler's DrawPipelineCache owns it, and outlives the frame.
     struct ItemPipelineState
     {

@@ -167,7 +167,7 @@ namespace Spark::Render
             const bool  drawable     = geometrySlot && world->Has<MeshGeometryReadyTag>(e);
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
             out.m_drawMask      = drawable ? ClassifyDraw(*world, e) : 0;
-            // What the culling can pick, so what the bins are sized for.
+            // What the culling can pick, so what the groups are sized for.
             m_keyCounter.Count(key, out.m_drawMask);
         });
         if (auto* drawCtx = DrawExecuteContext::Current())

@@ -39,7 +39,7 @@ namespace entt
 namespace Spark::Render
 {
     //! This frame's draw preparation: what the passes drawing lists draw, from the encoding to
-    //! the indirect draws (DrawBin.h). Everything in it lives one frame: RenderSystem empties it
+    //! the indirect draws (DrawGroup.h). Everything in it lives one frame: RenderSystem empties it
     //! whole as each frame begins. Its elements are many to one with what owns them, which is a
     //! field of theirs, so a component's storage, sorted, is the array a consumer walks; it
     //! keeps its memory from frame to frame. It refers to other contexts by handle only.

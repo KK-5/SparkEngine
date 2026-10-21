@@ -13,8 +13,8 @@
 //! they are laid out, defined once here so no pass reaches into another to learn them.
 //!
 //! InstanceCullingPass writes, per kind of object, the instances each view sees. An
-//! InstanceBinning pass per drawing pass sorts them into that pass's DrawBins, and the drawing
-//! pass's DrawIndirect reads what it wrote a bin at a time.
+//! InstanceBinning pass per drawing pass sorts them into that pass's DrawGroups, and the drawing
+//! pass's DrawIndirect reads what it wrote a group at a time.
 namespace Spark::Render::InstanceLists
 {
     //! A view a list is culled for: the view and its row of g_Views.
@@ -59,10 +59,10 @@ namespace Spark::Render::InstanceLists
         const RHI::AttachmentId& VisibleCountName();
     }
 
-    // A drawing pass's bins. IndirectLayout is the table of the pass's PassIndirectLayout, which
+    // A drawing pass's groups. IndirectLayout is the table of the pass's PassIndirectLayout, which
     // its InstanceBinning pass imports. DrawArguments and DrawCount are what that pass writes:
     // DrawIndexedIndirectCommand records, PassIndirectLayout::m_recordsPerView of them per view, and
-    // a uint32 per bin and view, PassIndirectLayout::m_countsPerView of them per view, both marked
+    // a uint32 per group and view, PassIndirectLayout::m_countsPerView of them per view, both marked
     // as each view's (.IndirectArgumentsOf).
 
     namespace DepthPre

@@ -8,8 +8,8 @@
 
 namespace Spark::Render
 {
-    // Components on a pass that draws a list of scene instances, a DrawBin at a time
-    // (DrawBin/DrawBin.h). DrawBinSystem adds and writes all but PassDrawList.
+    // Components on a pass that draws a list of scene instances, a DrawGroup at a time
+    // (DrawBin/DrawGroup.h). DrawBinSystem adds and writes all but PassDrawList.
 
     //! Added by .Draw<Tag>(): the pass draws the instances whose draw mask has this bit, in
     //! the order and culled where Tag declares.
@@ -26,8 +26,8 @@ namespace Spark::Render
     {
         static constexpr uint32_t NotDrawn = UINT32_MAX;
 
-        uint32_t m_countIndex  = NotDrawn;   // which of the view's counts its draw reads: DrawBin::m_index
-        uint32_t m_firstRecord = 0;          // its draw's first record: DrawBin::m_firstDraw
+        uint32_t m_countIndex  = NotDrawn;   // which of the view's counts its draw reads: DrawGroup::m_index
+        uint32_t m_firstRecord = 0;          // its draw's first record: DrawGroup::m_firstDraw
     };
 
     //! How a pass whose list is culled on the GPU lays out its indirect arguments, the same in
