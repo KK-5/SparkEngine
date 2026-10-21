@@ -353,7 +353,9 @@ namespace Spark::Render
         // Last frame's draw preparation goes, before the encoding writes this frame's.
         m_drawContext.Clear();
         m_instanceBindingSystem.Update(frameIndex);
-        // The groups of each pass from the DrawListKeys the encoding above just published.
+        // What each view sees of the lists the CPU culls, from the instances the encoding listed.
+        m_drawListCullingSystem.Update(rhiCtx, passContext, m_drawContext);
+        // The groups of each pass from what the two above left.
         m_drawGroupSystem.Update(rhiCtx, passContext, m_drawContext);
 
         // World → GeometrySpec: find-or-create over renderable world entities.

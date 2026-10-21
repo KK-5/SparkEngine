@@ -110,6 +110,18 @@ TEST(FrustumTest, AABBStraddlingAPlane)
     EXPECT_TRUE(f.IntersectsAABB(MakeBox({-1.0f, -1.0f, 0.5f}, {1.0f, 1.0f, 1.5f})));
 }
 
+//! A box wholly between the eye and the near plane is rejected by the near plane alone.
+TEST(FrustumTest, AABBBeforeTheNearPlaneIsKeptIgnoringNear)
+{
+    const Math::Frustum f = MakeTestFrustum();
+    const Math::AABB box = MakeBox({-0.1f, -0.1f, 0.4f}, {0.1f, 0.1f, 0.6f});
+
+    EXPECT_FALSE(f.IntersectsAABB(box));
+    EXPECT_TRUE(f.IntersectsAABBIgnoringNear(box));
+    // The far plane still rejects.
+    EXPECT_FALSE(f.IntersectsAABBIgnoringNear(MakeBox({-1.0f, -1.0f, 150.0f}, {1.0f, 1.0f, 160.0f})));
+}
+
 //! Every corner is outside, yet the box swallows the frustum whole.
 TEST(FrustumTest, AABBEnclosingTheFrustum)
 {

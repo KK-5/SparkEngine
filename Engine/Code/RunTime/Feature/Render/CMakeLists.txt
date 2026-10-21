@@ -34,6 +34,7 @@ set(SOURCES
     DrawList/DrawGroup.cpp
     DrawList/DrawGroupSystem.cpp
     DrawList/DrawList.cpp
+    DrawList/DrawListCullingSystem.cpp
     DrawList/DrawListKeyCounter.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp

@@ -46,4 +46,20 @@ namespace Spark::Render
     using DrawContext             = BasicContext<DrawEntity>;
     using DrawExecuteContext      = ExecuteContext<DrawEntity>;
     using DrawExecuteContextGuard = ExecuteContextGuard<DrawEntity>;
+
+    //! The elements of one owner: a run of T's storage, sorted by owner first.
+    template<typename T>
+    struct DrawElementRange
+    {
+        using Iterator = typename entt::storage_type_t<T, DrawEntity>::const_iterator;
+
+        Iterator m_begin;
+        Iterator m_end;
+
+        Iterator begin() const { return m_begin; }
+        Iterator end() const { return m_end; }
+        size_t   size() const { return static_cast<size_t>(m_end - m_begin); }
+        bool     empty() const { return m_begin == m_end; }
+        const T& operator[](size_t index) const { return m_begin[static_cast<ptrdiff_t>(index)]; }
+    };
 }

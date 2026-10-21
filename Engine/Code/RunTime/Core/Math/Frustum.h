@@ -11,9 +11,11 @@ namespace Spark::Math
     /// View frustum as six inward-facing planes: (a,b,c,d) with ax+by+cz+d >= 0 inside.
     struct Frustum
     {
-        Vector4 planes[6];   // left, right, bottom, top, near, far
+        //! Left, right, bottom, top, then z >= 0 and z <= w: under the engine's reversed-Z the
+        //! far plane and the near one.
+        Vector4 planes[6];
 
-        //! LH_ZO ONLY. Clip z runs 0..w rather than -w..w, so the near plane is row 2 alone
+        //! LH_ZO ONLY. Clip z runs 0..w rather than -w..w, so the z >= 0 plane is row 2 alone
         //! and not row3 + row2.
         static Frustum FromViewProjection(const Matrix4X4& viewProj)
         {
@@ -84,13 +86,27 @@ namespace Spark::Math
         //! not intersection.
         bool IntersectsAABB(const AABB& box) const
         {
+            return IntersectsAABB(box, 6);
+        }
+
+        //! As IntersectsAABB, but nothing is rejected for lying before the near plane.
+        bool IntersectsAABBIgnoringNear(const AABB& box) const
+        {
+            // The near plane comes last.
+            return IntersectsAABB(box, 5);
+        }
+
+    private:
+        //! Against the first planeCount planes.
+        bool IntersectsAABB(const AABB& box, uint32_t planeCount) const
+        {
             const Vector3 center  = box.Center();
             const Vector3 extents = box.Extents();
 
-            for (const Vector4& plane : planes)
+            for (uint32_t i = 0; i < planeCount; ++i)
             {
-                const Vector3 n = Vector3(plane);
-                if (Dot(n, center) + Dot(Abs(n), extents) + plane.w < 0.0f)
+                const Vector3 n = Vector3(planes[i]);
+                if (Dot(n, center) + Dot(Abs(n), extents) + planes[i].w < 0.0f)
                 {
                     return false;
                 }

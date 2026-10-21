@@ -5,6 +5,8 @@
 #include <Math/AABB.h>
 #include <Math/Matrix4x4.h>
 
+#include <RHI/Context/RHIContext.h>
+
 #include <Drawable/DrawMask.h>
 #include <Geometry/MeshGeometry.h>
 #include <PipelineState/PipelineKey.h>
@@ -48,4 +50,32 @@ namespace Spark::Render
     //! A DrawListInstance of the instance for each bit of drawMask the CPU culls.
     void AddDrawListInstances(DrawContext& drawCtx, DrawMask drawMask, uint32_t slot, PipelineKey key,
         const MeshGeometry& geometry, const Math::Matrix4X4& model);
+
+    //! A DrawListInstance a view sees, which DrawListCullingSystem writes: what its group and its
+    //! record are made from, and how far it is.
+    struct VisibleInstance
+    {
+        RHI::RHIHandle m_view             = RHI::NullHandle;
+        uint32_t       m_drawMaskBitIndex = 0;
+        uint32_t       m_slot             = 0;
+        PipelineKey    m_key;
+
+        uint32_t m_indexCount   = 0;
+        uint32_t m_firstIndex   = 0;
+        int32_t  m_vertexOffset = 0;
+
+        //! Its box's centre in view space, along the view.
+        float m_depth = 0.0f;
+    };
+
+    //! Orders the visible instances by view and list, each list's back to front, so the order
+    //! a list blended over what is behind draws in. Those as far are ordered by key, so that
+    //! alike ones fall next to each other.
+    void SortVisibleInstances(DrawContext& drawCtx);
+
+    using VisibleInstanceRange = DrawElementRange<VisibleInstance>;
+
+    //! The instances of the list of bit that view sees, back to front. Found by halving the
+    //! storage SortVisibleInstances left.
+    VisibleInstanceRange VisibleInstancesOf(const DrawContext& drawCtx, RHI::RHIHandle view, uint32_t bit);
 }
