@@ -24,16 +24,18 @@ PixelMaterialInputs CalcPixelMaterialInputs(MaterialPixelParameters parameters, 
 
     PixelMaterialInputs inputs;
     inputs.Specular    = mat.Specular;
-    inputs.Opacity     = 1.0;
     inputs.OpacityMask = 1.0;
 
-    inputs.BaseColor = mat.BaseColor.rgb;
+    // glTF: the base colour's alpha is the surface's opacity.
+    float4 baseColor = mat.BaseColor;
     uint baseColorTexIndex = mat.TexIndices[SPARK_TEX_SLOT_BASE_COLOR];
     if (baseColorTexIndex != SPARK_INVALID_TEXTURE_INDEX)
     {
         Texture2D<float4> baseColorTex = ResourceDescriptorHeap[NonUniformResourceIndex(baseColorTexIndex)];
-        inputs.BaseColor *= baseColorTex.Sample(materialSampler, uv).rgb;
+        baseColor *= baseColorTex.Sample(materialSampler, uv);
     }
+    inputs.BaseColor = baseColor.rgb;
+    inputs.Opacity   = baseColor.a;
 
     inputs.Roughness = mat.Roughness;
     inputs.Metallic  = mat.Metallic;

@@ -28,7 +28,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | ~~2~~ | ~~pass 的 layout 以声明为准 + shader 宏排列~~ | — | 取消（用户 2026-10-18），见 D4 |
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
-| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a ~ 4d 完成，余 4e ~ 4f） |
+| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a ~ 4e 完成，余 4f） |
 | 5 | 半透明的着色（前向，BeforeDOF） | 4 | 未开始 |
 | 6 | Distortion | 5 | 待定（D9） |
 
@@ -808,18 +808,21 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
       原来不分段的 buffer 原样提交、不展开组，CPU 路径的参数 buffer 不分段，不重排会整块画一次。
     - 单元测试：起点的三种情况（分段取视图那段、不分段为 0、分段缺视图为 false）。展开要查 PSO 缓存、需要 device，不做单元测试，
       由运行覆盖（同 4-0 的 PSO 缓存）；这一步没有 pass 用不带 count 的重载（4e 才有），运行只走到重排后的 GPU 路径，不透明的画面不变。
-  - 4e　`TranslucencyPass`
-    - `Feature/Translucency/TranslucencyPass` 与 `Shaders/Translucency/Translucency.hlsl`：VS 同 GBuffer（顶点工厂、材质的顶点偏移），
-      PS 不打光，输出 `float4(baseColor × preExposure, opacity)`。
-    - 渲染状态：混合 SrcAlpha / InvSrcAlpha，深度只测不写（`GreaterEqual`，反向 Z；写掩码 Zero，`DepthRead(SceneDepth)` 取只读 DSV），
-      剔除 Back（双面的由变体改为 None）。SceneColor 先 Load 再 Store，混合在 Skybox 写过的结果之上。
+  - ✅ 4e　`TranslucencyPass`
+    - `Feature/Translucency/TranslucencyPass` 与 `Shaders/Translucency/Translucency.hlsl`：VS 用同一套顶点工厂与材质的顶点偏移，
+      自己写一份、不与 GBuffer 抽公共函数（用户 2026-10-21：相同的只有三行，GBuffer 还要算上一帧位置写速度）；PS 不打光，
+      输出 `float4(baseColor × preExposure, opacity)`。
+    - 渲染状态：颜色混合 SrcAlpha / InvSrcAlpha，alpha 通道同 Lighting 的三个 pass 用 Zero / One 保留 SceneColor.a；深度只测不写
+      （`GreaterEqual`，反向 Z；写掩码 Zero，`DepthRead(SceneDepth)` 取只读 DSV），剔除 Back（双面的由变体改为 None）。
+      SceneColor 先 Load 再 Store，混合在 Skybox 写过的结果之上。
     - 位置：Skybox 之后、TemporalAA 之前（BeforeDOF）；`.RendersView<MainViewTag>()`、`.Draw<TranslucentTag>()`、
       `.Binds<ViewBindingTag, MaterialBindingTag, InstanceBindingTag>()`；材质采样器同 GBuffer。不写 Velocity。
     - Build 显式导入参数：`p.Import<CpuCulledDrawArgumentsTag>(InstanceLists::CpuCulled::DrawArgumentsName())`，成功才
       `s.DrawIndirect(同名)`。attachment 名放进 `InstanceLists`（新的 `CpuCulled` 一组）。pass 不读任何列表机制的组件，不加 `GetPass()`。
-    - 材质模板：`inputs.Opacity = mat.BaseColor.a × 贴图 alpha`（现在固定为 1）；GBuffer 不读它，不受影响。
-    - 运行时确认：上传堆上的参数 buffer 作为间接参数读时，渲染图不发不合法的 barrier（上传堆资源只能处于 `GENERIC_READ`）；
-      没有半透明物体时画面不变、日志无新报错。
+    - 材质模板：`inputs.Opacity = mat.BaseColor.a × 贴图 alpha`（现在固定为 1）；GBuffer、DepthOnly 不读它，不受影响。
+      `MaterialData` 两边注释里的"a reserved"改为不透明度（glTF 的 `baseColorFactor.a` 已经一路写到这里）。
+    - 上传堆上的参数 buffer 作为间接参数读时不会有不合法的 barrier：DX12 后端的 `QueueBarrier` 对上传、回读堆的 buffer 不发 barrier。
+    - 验证：短时间运行无报错；没有半透明物体时画面不变，场景由用户验证。
   - 4f　分类
     - `ClassifyDraw` 改为由材质状态分类：`Blend` → `TranslucentTag`（不投影），其余照旧为不透明 + 投影。签名改为接收解析后的
       `MaterialState`；编码（`InstanceBindingSystem`）与 `MeshGeometryComposer` 两个调用方都先解析材质（`ResolveMaterial` 挪到两边都能用的地方）。

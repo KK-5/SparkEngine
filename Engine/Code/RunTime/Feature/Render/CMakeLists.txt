@@ -12,6 +12,7 @@ set(SOURCES
     Feature/Lighting/ReflectionsPass.cpp
     Feature/Shadow/ShadowPass.cpp
     Feature/Skybox/SkyboxPass.cpp
+    Feature/Translucency/TranslucencyPass.cpp
     Feature/Tonemap/TonemapPass.cpp
     Feature/Velocity/VelocityResolvePass.cpp
     Feature/TemporalAA/TemporalAAPass.cpp

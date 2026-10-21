@@ -24,7 +24,7 @@ namespace Spark::Render
     //! TODO_MaterialSystemPlan.md appendix B.6.
     struct MaterialData
     {
-        Math::Vector4 m_baseColor{0.8f, 0.8f, 0.8f, 1.0f};   // rgb (+a reserved)
+        Math::Vector4 m_baseColor{0.8f, 0.8f, 0.8f, 1.0f};   // rgb; a = opacity
         float         m_metallic    = 0.0f;
         float         m_roughness   = 0.5f;
         float         m_specular    = 0.5f;                  // dielectric F0 scale

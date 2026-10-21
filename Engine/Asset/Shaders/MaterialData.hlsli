@@ -17,7 +17,7 @@
 
 struct MaterialData
 {
-    float4 BaseColor;         // rgb (+a reserved)
+    float4 BaseColor;         // rgb; a = opacity
     float  Metallic;
     float  Roughness;
     float  Specular;

@@ -85,4 +85,14 @@ namespace Spark::Render::InstanceLists
         const RHI::AttachmentId& DrawArgumentsName();
         const RHI::AttachmentId& DrawCountName();
     }
+
+    // The lists the CPU culls. Their draws are the lists', not a pass's: DrawListCullingSystem
+    // writes them all into the one buffer carrying CpuCulledDrawArgumentsTag, each exactly as many
+    // as are seen, and a pass drawing such a list imports it under DrawArgumentsName and draws it
+    // with no count.
+
+    namespace CpuCulled
+    {
+        const RHI::AttachmentId& DrawArgumentsName();
+    }
 }

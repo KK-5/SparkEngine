@@ -133,4 +133,13 @@ namespace Spark::Render::InstanceLists
             return name;
         }
     }
+
+    namespace CpuCulled
+    {
+        const RHI::AttachmentId& DrawArgumentsName()
+        {
+            static const RHI::AttachmentId name("CpuCulledDrawArguments");
+            return name;
+        }
+    }
 }

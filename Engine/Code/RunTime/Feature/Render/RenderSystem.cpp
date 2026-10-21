@@ -38,6 +38,7 @@
 #include <Feature/Tonemap/TonemapPass.h>
 #include <Feature/Velocity/VelocityResolvePass.h>
 #include <Feature/TemporalAA/TemporalAAPass.h>
+#include <Feature/Translucency/TranslucencyPass.h>
 #include <Feature/SceneDownsample/SceneDownsamplePass.h>
 #include <Feature/Bloom/BloomPass.h>
 #include <Feature/UI/UIPass.h>
@@ -219,6 +220,11 @@ namespace Spark::Render
         // Skybox samples the baked cube into SceneColor (linear HDR) after depth pre.
         auto skyboxPassCfg = SkyboxPass::DefaultConfig();
         SkyboxPass::SetUp(passContext, skyboxPassCfg);
+
+        // Translucent surfaces blend over the lit scene and the sky, back to front; before TAA
+        // (BeforeDOF), so they are resolved with the rest.
+        auto translucencyPassCfg = TranslucencyPass::DefaultConfig();
+        TranslucencyPass::SetUp(passContext, translucencyPassCfg);
 
         // After everything that writes SceneColor; TonemapPass reads its output when enabled.
         auto temporalAAPassCfg = TemporalAAPass::DefaultConfig();
