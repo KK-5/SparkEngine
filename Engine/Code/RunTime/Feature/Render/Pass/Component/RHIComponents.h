@@ -299,34 +299,28 @@ namespace Spark::Render
         uint64_t  m_byteOffset = 0;
     };
 
-    //! Whether `buffer` holds indirect arguments per view: some access of it writes one
-    //! view's. A draw reading it then reads the part of the view it is submitted under.
-    inline bool HoldsIndirectArgumentsPerView(RHIContext& context, RHIHandle buffer)
-    {
-        for (auto [attachment, ofView, access] : context.GetView<IndirectArgumentsOfView, BufferPassAttachment>().each())
-        {
-            if (access.m_buffer == buffer)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    //! Where `view`'s indirect arguments start in `buffer`. False when no access of the
-    //! buffer writes any for that view.
-    inline bool TryGetIndirectArgumentsOfView(
+    //! Where an indirect draw of `buffer` under `view` starts reading: the start a writer of
+    //! the buffer set for that view (.IndirectArgumentsOf), the buffer's own when no writer
+    //! sets one. False when writers set the start of other views but not of `view`.
+    inline bool TryGetIndirectArgumentsStart(
         RHIContext& context, RHIHandle buffer, RHIHandle view, uint64_t& outByteOffset)
     {
+        bool startsPerView = false;
         for (auto [attachment, ofView, access] : context.GetView<IndirectArgumentsOfView, BufferPassAttachment>().each())
         {
-            if (access.m_buffer == buffer && ofView.m_view == view)
+            if (access.m_buffer != buffer)
+            {
+                continue;
+            }
+            if (ofView.m_view == view)
             {
                 outByteOffset = ofView.m_byteOffset;
                 return true;
             }
+            startsPerView = true;
         }
-        return false;
+        outByteOffset = 0;
+        return !startsPerView;
     }
 
     //! On an attachment of a name nothing had declared a resource for when it was declared:

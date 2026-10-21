@@ -98,7 +98,8 @@ namespace Spark::Render
     struct ItemIndirectArguments
     {
         RHI::RHIHandle m_attachment {RHI::NullHandle};
-        //! A draw's access of the buffer that says how many records to execute.
+        //! A draw's access of the buffer that says how many records to execute. None for a
+        //! draw whose groups say exactly how many.
         RHI::RHIHandle m_countAttachment {RHI::NullHandle};
     };
 

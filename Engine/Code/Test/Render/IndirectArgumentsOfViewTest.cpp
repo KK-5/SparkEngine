@@ -32,9 +32,9 @@ TEST(IndirectArgumentsOfViewTest, AViewReadsFromWhereItsOwnStart)
     AddWriteOfView(context, buffer, viewB, 2560);
 
     uint64_t byteOffset = ~0ull;
-    EXPECT_TRUE(TryGetIndirectArgumentsOfView(context, buffer, viewA, byteOffset));
+    EXPECT_TRUE(TryGetIndirectArgumentsStart(context, buffer, viewA, byteOffset));
     EXPECT_EQ(byteOffset, 0u);
-    EXPECT_TRUE(TryGetIndirectArgumentsOfView(context, buffer, viewB, byteOffset));
+    EXPECT_TRUE(TryGetIndirectArgumentsStart(context, buffer, viewB, byteOffset));
     EXPECT_EQ(byteOffset, 2560u);
 }
 
@@ -50,31 +50,44 @@ TEST(IndirectArgumentsOfViewTest, EachBufferHasOffsetsOfItsOwn)
     AddWriteOfView(context, count, view, 4);
 
     uint64_t byteOffset = 0;
-    EXPECT_TRUE(TryGetIndirectArgumentsOfView(context, arguments, view, byteOffset));
+    EXPECT_TRUE(TryGetIndirectArgumentsStart(context, arguments, view, byteOffset));
     EXPECT_EQ(byteOffset, 2560u);
-    EXPECT_TRUE(TryGetIndirectArgumentsOfView(context, count, view, byteOffset));
+    EXPECT_TRUE(TryGetIndirectArgumentsStart(context, count, view, byteOffset));
     EXPECT_EQ(byteOffset, 4u);
 }
 
-//! What lowering tells apart: a buffer read from its start under any view, and one that
-//! holds a part per view but none for the view asked about.
-TEST(IndirectArgumentsOfViewTest, AViewWithNoPartIsNotTakenForAnUnmarkedBuffer)
+//! A buffer no writer sets a start of, as the CPU writes its records, is read from its own
+//! start under any view.
+TEST(IndirectArgumentsOfViewTest, ABufferNoWriterSetsAStartOfStartsAtZero)
 {
     RHIContext context;
-    const RHIHandle marked   = context.CreateEntity();
     const RHIHandle unmarked = context.CreateEntity();
+    const RHIHandle marked   = context.CreateEntity();
     const RHIHandle viewA    = context.CreateEntity();
     const RHIHandle viewB    = context.CreateEntity();
-    AddWriteOfView(context, marked, viewA, 0);
+    AddWriteOfView(context, marked, viewA, 2560);
 
     BufferPassAttachment access;
     access.m_buffer = unmarked;
     context.Add<BufferPassAttachment>(context.CreateEntity(), access);
 
-    uint64_t byteOffset = 0;
-    EXPECT_TRUE(HoldsIndirectArgumentsPerView(context, marked));
-    EXPECT_FALSE(TryGetIndirectArgumentsOfView(context, marked, viewB, byteOffset));
+    uint64_t byteOffset = ~0ull;
+    EXPECT_TRUE(TryGetIndirectArgumentsStart(context, unmarked, viewA, byteOffset));
+    EXPECT_EQ(byteOffset, 0u);
+    byteOffset = ~0ull;
+    EXPECT_TRUE(TryGetIndirectArgumentsStart(context, unmarked, viewB, byteOffset));
+    EXPECT_EQ(byteOffset, 0u);
+}
 
-    EXPECT_FALSE(HoldsIndirectArgumentsPerView(context, unmarked));
-    EXPECT_FALSE(TryGetIndirectArgumentsOfView(context, unmarked, viewA, byteOffset));
+//! A buffer whose writers set the start of other views has none for a view they leave out.
+TEST(IndirectArgumentsOfViewTest, AViewTheWritersLeaveOutHasNoStart)
+{
+    RHIContext context;
+    const RHIHandle buffer = context.CreateEntity();
+    const RHIHandle viewA  = context.CreateEntity();
+    const RHIHandle viewB  = context.CreateEntity();
+    AddWriteOfView(context, buffer, viewA, 0);
+
+    uint64_t byteOffset = 0;
+    EXPECT_FALSE(TryGetIndirectArgumentsStart(context, buffer, viewB, byteOffset));
 }

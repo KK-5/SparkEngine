@@ -1380,10 +1380,10 @@ namespace Spark::Render
             }
 
             // The count buffer says how many records to execute; at most as many as the
-            // argument buffer holds.
+            // argument buffer holds. A draw without one is given its count per group.
             RHI::IndirectArguments& draw = context.Get<RHI::DrawItem>(item).m_drawArguments.m_indexedIndirect.m_arguments;
             draw.m_buffer      = buffer;
-            draw.m_countBuffer = backingOf(arguments.m_countAttachment);
+            draw.m_countBuffer = arguments.m_countAttachment != NullHandle ? backingOf(arguments.m_countAttachment) : nullptr;
             draw.m_maxCount    = IndirectRecordCapacity(*buffer, draw.m_byteOffset);
         }
     }
@@ -1448,10 +1448,10 @@ namespace Spark::Render
     namespace
     {
         //! Appends what to submit for `item` of `pass` under `view`: the item itself, unless it
-        //! is an indirect draw of buffers that hold their arguments per view. That one gets an
-        //! item of its own for the view, reading the view's part of both, or one per DrawGroup
-        //! when the pass draws a list, with the group's PSO from pipelineCache; none when `view`
-        //! has no part.
+        //! is an indirect draw. That one gets an item of its own for the view, reading from where
+        //! the view's records and their count start, or one per DrawGroup when the pass draws a
+        //! list, with the group's PSO from pipelineCache; none when the writers of its buffers set
+        //! where other views start but not `view`.
         void AppendItemForView(RHIHandle item, RHIHandle view, Pass pass, PassContext& passContext,
             RHIContext& context, DrawPipelineCache& pipelineCache, eastl::vector<RHIHandle>& submitList)
         {
@@ -1463,23 +1463,21 @@ namespace Spark::Render
             }
 
             const auto& arguments = context.Get<BufferPassAttachment>(indirect->m_attachment);
-            const auto& count     = context.Get<BufferPassAttachment>(indirect->m_countAttachment);
-            if (!HoldsIndirectArgumentsPerView(context, arguments.m_buffer))
-            {
-                submitList.push_back(item);
-                return;
-            }
+            const bool  hasCount  = indirect->m_countAttachment != NullHandle;
 
             uint64_t argumentsByteOffset = 0;
             uint64_t countByteOffset     = 0;
-            const bool hasPart =
-                TryGetIndirectArgumentsOfView(context, arguments.m_buffer, view, argumentsByteOffset)
-                && TryGetIndirectArgumentsOfView(context, count.m_buffer, view, countByteOffset);
-            ASSERT(hasPart,
-                "[RenderGraphCompiler] {} holds indirect arguments per view, but it or {} has none for a view "
+            bool hasStart = TryGetIndirectArgumentsStart(context, arguments.m_buffer, view, argumentsByteOffset);
+            if (hasCount)
+            {
+                const auto& count = context.Get<BufferPassAttachment>(indirect->m_countAttachment);
+                hasStart = hasStart && TryGetIndirectArgumentsStart(context, count.m_buffer, view, countByteOffset);
+            }
+            ASSERT(hasStart,
+                "[RenderGraphCompiler] The writers of {} or of its count set where other views start, but not a view "
                 "a draw reading them is submitted under.",
-                arguments.m_attachmentId.m_id.GetCStr(), count.m_attachmentId.m_id.GetCStr());
-            if (!hasPart)
+                arguments.m_attachmentId.m_id.GetCStr());
+            if (!hasStart)
             {
                 return;
             }
@@ -1507,8 +1505,9 @@ namespace Spark::Render
                 submitList.push_back(perView);
             };
 
-            // A pass drawing a list draws the view's part a DrawGroup at a time: from the group's first
-            // record, with the group's count, which a count buffer holds as a uint32 each, and its PSO.
+            // A pass drawing a list draws the view's records a DrawGroup at a time: from the group's
+            // first record, with its PSO, and as many as it takes or, with a count buffer, as the
+            // uint32 that buffer holds for it in group order says.
             if (passContext.Has<PassDrawList>(pass))
             {
                 const char* passName = passContext.Get<PassName>(pass).m_name.GetCStr();
@@ -1522,7 +1521,7 @@ namespace Spark::Render
                         passContext.Get<PassStageFunctions>(pass), passContext.Get<PassPipelineState>(pass),
                         passContext.Get<PassPipelineLayout>(pass), group.m_variant, passName);
                     appendDraw(argumentsByteOffset + group.m_firstDraw * CommandSize,
-                               countByteOffset + group.m_index * sizeof(uint32_t),
+                               hasCount ? countByteOffset + group.m_index * sizeof(uint32_t) : 0,
                                group.m_maxDraws,
                                pipelineCache.Acquire(descriptor, passName).get());
                 }

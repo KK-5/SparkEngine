@@ -203,12 +203,17 @@ namespace Spark::Render
 
         //! Draw the meshes a list names: the buffer `argumentsName` holds a
         //! DrawIndexedIndirectCommand per mesh and `countName` how many of them, both
-        //! written by an earlier pass (InstanceCullingPass). One call per view, reading that
+        //! written by an earlier pass (an InstanceBinning). One call per view, reading that
         //! view's part of both where the pass that wrote them marked one
-        //! (.IndirectArgumentsOf). The Scope reads both as IndirectArguments. The draw binds
-        //! the geometry pool's native buffer as its vertex and index stream and the instance
-        //! ID buffer beside it; it draws nothing until both exist.
+        //! (.IndirectArgumentsOf), and one per group when the pass draws a list. The Scope
+        //! reads both as IndirectArguments. The draw binds the geometry pool's native buffer
+        //! as its vertex and index stream and the instance ID buffer beside it; it draws
+        //! nothing until both exist.
         void DrawIndirect(const RHI::AttachmentId& argumentsName, const RHI::AttachmentId& countName);
+
+        //! As above with no count buffer, for a pass drawing a list: each of its groups says
+        //! exactly how many records its call executes.
+        void DrawIndirect(const RHI::AttachmentId& argumentsName);
 
         //! Draw the scene's items that carry all of DrawTags, e.g. Accepts<OpaqueTag>().
         template<typename... DrawTags>
@@ -250,6 +255,10 @@ namespace Spark::Render
 
         void DrawStreams(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
             RHIHandle indices, RHI::IndexFormat indexFormat, uint32_t instanceCount);
+
+        //! Binds what an indirect draw reads its meshes through into `outItem` and declares
+        //! the reads. False, declaring nothing, until both exist.
+        bool UseIndirectDrawGeometry(RHI::DrawItem& outItem);
 
         RenderScope(RenderGraphBuilder& builder, RHIHandle scope)
             : m_builder(&builder)

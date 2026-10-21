@@ -39,15 +39,16 @@ namespace Spark::Render
     {
         Pass           m_pass  = NullPass;
         RHI::RHIHandle m_view  = RHI::NullHandle;
-        //! Its place among the pass's under the view, which is also which of the view's counts is its.
+        //! Its place among the pass's under the view. A count buffer holds a count a group in
+        //! this order.
         uint32_t       m_index = 0;
 
         PipelineVariant m_variant;
 
         //! Its part of the indirect arguments, a command a draw: where it starts, after what the
-        //! groups before it make room for, from the start of the view's part of the argument
-        //! buffer, or of the buffer when it has no part per view; and how many its entries take,
-        //! which is as many as its draw reads at most.
+        //! groups before it make room for, from where the view's records start in the argument
+        //! buffer; and how many its entries take, which is as many as its draw reads, exactly
+        //! without a count buffer and at most with one.
         uint32_t m_firstDraw = 0;
         uint32_t m_maxDraws  = 0;
     };

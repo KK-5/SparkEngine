@@ -142,7 +142,8 @@ namespace Spark::Render
 
         //! An indexed draw of `scope` through the vertex and index bindings of `geometry`, that
         //! reads its records from the buffer `arguments` accesses and how many of them from the
-        //! one `count` accesses. Both are indirect-arguments accesses of `scope`.
+        //! one `count` accesses, or, with `count` NullHandle, as many as the groups of the list
+        //! the pass draws say. Both are indirect-arguments accesses of `scope`.
         void AddScopeDrawIndirect(RHIHandle scope, const RHI::DrawItem& geometry, RHIHandle arguments, RHIHandle count);
 
         //! A draw of `scope` with the arguments of `draw`, reading its vertices from the buffers

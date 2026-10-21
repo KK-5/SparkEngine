@@ -28,7 +28,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | ~~2~~ | ~~pass 的 layout 以声明为准 + shader 宏排列~~ | — | 取消（用户 2026-10-18），见 D4 |
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
-| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a ~ 4c 完成，余 4d ~ 4f） |
+| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a ~ 4d 完成，余 4e ~ 4f） |
 | 5 | 半透明的着色（前向，BeforeDOF） | 4 | 未开始 |
 | 6 | Distortion | 5 | 待定（D9） |
 
@@ -758,7 +758,8 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
   `Update` 处先看到 pass 走哪条路径。造 entry、写组太短，不单独成函数（用户 2026-10-21）。
 - ✅ 头文件按数据流切开（`cc7bf7d`），见 D15；同时改名：目录 `DrawBin/` → `DrawList/`，`DrawBinSystem` → `DrawGroupSystem`。
 - ✅ 读组返回排好序的一段（`d590a9b`）：`SortDrawGroups` 与 `DrawGroupsOf`，二分，不做全量过滤。
-- 留到步骤 4：`DrawGroup::m_index` 现在兼作组序与 count 下标，两者在 GPU 路径里永远相等；CPU 路径出现条数确切、没有 count 的组时拆成两个字段。
+- `DrawGroup::m_index` 不拆（用户 2026-10-21，原定步骤 4 拆成组序与 count 下标）：它就是组序；"count 下标等于组序"是 GPU 路径
+  排 count buffer 的约定（每个视图那段按组序每组一个数），只在有 count 时用到。拆开后 CPU 路径的组多一个没有含义的字段。
 
 **4-0 本身做的**（名字是 4-0d 时的，整理后的见 D15）：
 
@@ -791,18 +792,22 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
     `FirstDrawOffset` 给出一段可见实例在其中的起点；`DrawGroupSystem` 的 `UpdateCpuCulledPass` 在变体变化处切组、不碰 RHI，
     两条路径共用 `CollectPassViews`；CPU 剔除必须 `BackToFront`（`.Draw<Tag>()` 的 `static_assert` 与运行时 ASSERT）；
     主机上传池允许 `Indirect`（DX12 上传堆的 `GENERIC_READ` 含间接参数，Vulkan 主机可见 buffer 可带 `INDIRECT_BUFFER`）。
-  - 4d　渲染图：不带 count 的间接绘制
+  - ✅ 4d　渲染图：不带 count 的间接绘制
     - `RenderScope::DrawIndirect(argumentsName)`：不带 count 的重载。几何绑定（几何池的原生 buffer 作两条流、ID 流、`Uses<>`）
       与带 count 的重载抽成一段共用代码。
     - `RenderGraphBuilder::AddScopeDrawIndirect` 的 count 可为 `NullHandle`（断言只对给出的访问做）；`ItemIndirectArguments` 的 count
       为空即不带 count；`CompileItemIndirectArguments` 只在有 count 时取它的 backing。RHI 不用改：`m_countBuffer` 为空即不带 count。
-    - `TryGetIndirectArgumentsStart(context, buffer, view, outByteOffset)`，放在 `TryGetIndirectArgumentsOfView` 旁：在视图下画这块
-      buffer 从哪里读起，即写入方为这个视图定下的起点（`IndirectArgumentsOf`），没有写入方定就是 0；buffer 按视图分段却缺这个视图时
-      返回 false（原来 `AppendItemForView` 里的断言挪进来）。注释按 D15"起点"一条的语义写，不写成"有段取段、没段取 0"的分支。
+    - 不带 count 的间接绘制只用于画列表的 pass，`AddScopeDrawIndirect` 里断言（用户 2026-10-21）：没有 count buffer 时 maxCount 是确切条数，
+      只有组给得出；否则按 buffer 容量画，会把这一帧没写的记录也画进去。
+    - `TryGetIndirectArgumentsStart(context, buffer, view, outByteOffset)` 取代 `HoldsIndirectArgumentsPerView` 与
+      `TryGetIndirectArgumentsOfView`（两者只有 `AppendItemForView` 用）：在视图下画这块 buffer 从哪里读起，即写入方为这个视图定下的起点
+      （`IndirectArgumentsOf`），没有写入方定就是 0；buffer 按视图分段却缺这个视图时返回 false（原来 `AppendItemForView` 里的断言挪进来）。
+      注释按 D15"起点"一条的语义写，不写成"有段取段、没段取 0"的分支。
     - `AppendItemForView` 重排：参数的起点经它取，有 count 时 count 的起点也经它取；pass 画列表就按组展开（偏移 = 起点 + first × 记录大小，
       有 count 时 count 偏移 = count 起点 + 次序 × 4，maxCount = `m_maxDraws`，PSO 由（pass，变体）查缓存）；不画列表的照旧出一个 item。
-    - 单元测试：起点的三种情况（分段取视图那段、不分段为 0、分段缺视图为 false）；不带 count 的间接绘制展开出的 item；
-      不透明的画面不变。
+      原来不分段的 buffer 原样提交、不展开组，CPU 路径的参数 buffer 不分段，不重排会整块画一次。
+    - 单元测试：起点的三种情况（分段取视图那段、不分段为 0、分段缺视图为 false）。展开要查 PSO 缓存、需要 device，不做单元测试，
+      由运行覆盖（同 4-0 的 PSO 缓存）；这一步没有 pass 用不带 count 的重载（4e 才有），运行只走到重排后的 GPU 路径，不透明的画面不变。
   - 4e　`TranslucencyPass`
     - `Feature/Translucency/TranslucencyPass` 与 `Shaders/Translucency/Translucency.hlsl`：VS 同 GBuffer（顶点工厂、材质的顶点偏移），
       PS 不打光，输出 `float4(baseColor × preExposure, opacity)`。

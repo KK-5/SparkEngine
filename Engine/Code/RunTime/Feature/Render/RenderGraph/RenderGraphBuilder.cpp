@@ -3,6 +3,7 @@
 
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
+#include <Pass/Component/PassDrawListComponents.h>
 #include <Pass/PassCapabilities.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Command/DispatchItem.h>
@@ -533,8 +534,13 @@ namespace Spark::Render
             return buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::Indirect
                 && rhiContext.Get<ScopeAttachment>(access).m_scope == scope;
         };
-        ASSERT(isIndirectAccess(arguments) && isIndirectAccess(count),
+        ASSERT(isIndirectAccess(arguments) && (count == NullHandle || isIndirectAccess(count)),
             "A DrawIndirect's arguments and count must be IndirectArguments accesses of the same Scope.");
+        // Without a count buffer a draw executes exactly as many records as it is told, which
+        // only the groups of a list say.
+        ASSERT(count != NullHandle || PassExecuteContext::Current()->Has<PassDrawList>(m_currentPass),
+            "Pass {} draws indirect without a count but draws no list.",
+            PassExecuteContext::Current()->Get<PassName>(m_currentPass).m_name.GetCStr());
 
         // The buffers and the record count are filled in by lowering: they have no backing yet.
         RHI::DrawItem item = geometry;
