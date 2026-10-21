@@ -36,7 +36,9 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx);
 
     private:
-        void UpdatePass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass);
+        void UpdateGpuCulledPass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass);
+        //! The table and layout of the pass's InstanceBinning, from its entries and groups.
+        void WriteIndirectLayout(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass);
 
         // Reused from pass to pass and frame to frame.
         eastl::vector<DrawEntry> m_entries;

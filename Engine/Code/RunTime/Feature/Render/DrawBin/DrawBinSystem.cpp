@@ -55,20 +55,15 @@ namespace Spark::Render
         }
     }
 
-    void DrawBinSystem::UpdatePass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass)
+    void DrawBinSystem::UpdateGpuCulledPass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass)
     {
         const PassDrawList& drawList = passCtx.Get<PassDrawList>(pass);
         const auto* pipelineState = passCtx.TryGet<PassPipelineState>(pass);
         ASSERT(pipelineState, "[DrawBinSystem] Pass '{}' draws a list but has no pipeline.",
             passCtx.Get<PassName>(pass).m_name.GetCStr());
-        ASSERT(drawList.m_culling == DrawCulling::Gpu,
-            "[DrawBinSystem] Pass '{}' draws a list culled on the CPU, which is not drawn yet.",
-            passCtx.Get<PassName>(pass).m_name.GetCStr());
 
         // No shader template declares its features until shader permutations exist.
         m_entries.clear();
-        // What a binning thread can look up: every instance it sees is counted in some DrawListKey.
-        uint32_t tableLength = 0;
         for (auto [entity, listKey] : drawCtx.GetView<DrawListKey>().each())
         {
             if (listKey.m_drawMaskBitIndex != drawList.m_drawMaskBitIndex)
@@ -80,36 +75,10 @@ namespace Spark::Render
             entry.m_count    = listKey.m_instanceCount;
             entry.m_keyIndex = listKey.m_keyIndex.m_value;
             m_entries.push_back(entry);
-            tableLength = eastl::max(tableLength, entry.m_keyIndex + 1);
         }
 
         GroupDrawEntries(m_entries, drawList.m_order, m_groups);
-
-        eastl::vector<IndirectLayoutEntry>& image = m_tables[pass];
-        image.assign(eastl::max(tableLength, 1u), IndirectLayoutEntry{});
-        ASSERT(image.size() <= TableCapacity, "[DrawBinSystem] Pass '{}' has a key index past its table.",
-            passCtx.Get<PassName>(pass).m_name.GetCStr());
-
-        uint32_t drawCount = 0;
-        for (const DrawEntry& entry : m_entries)
-        {
-            image[entry.m_keyIndex] = IndirectLayoutEntry{ entry.m_groupIndex, m_groups[entry.m_groupIndex].m_firstDraw };
-            drawCount += entry.m_count;
-        }
-
-        if (!passCtx.Has<PassIndirectLayout>(pass))
-        {
-            passCtx.Add<PassIndirectLayout>(pass).m_table = CreateTable(rhiCtx, passCtx.Get<PassName>(pass));
-        }
-        PassIndirectLayout& layout = passCtx.Get<PassIndirectLayout>(pass);
-        layout.m_tableLength    = static_cast<uint32_t>(image.size());
-        layout.m_countsPerView  = AlignUp(eastl::max(static_cast<uint32_t>(m_groups.size()), 1u), CountsPerViewStep);
-        layout.m_recordsPerView = AlignUp(eastl::max(drawCount, 1u), RecordsPerViewStep);
-
-        // Also on the frame the table is requested: the frame's start makes it, then copies
-        // into it, so a binning pass never reads a table not written.
-        rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
-            layout.m_table, RHI::PendingBufferMap{ image.data(), 0, image.size() * sizeof(IndirectLayoutEntry) });
+        WriteIndirectLayout(rhiCtx, passCtx, pass);
 
         // Only the GPU knows which instances a view sees, so the groups are the whole list's,
         // the same under every view, each view's in its own part of the arguments. The views
@@ -135,11 +104,49 @@ namespace Spark::Render
         }
     }
 
+    void DrawBinSystem::WriteIndirectLayout(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass)
+    {
+        // What a binning thread can look up: every instance it sees is counted in some DrawListKey.
+        uint32_t tableLength = 1;
+        uint32_t drawCount   = 0;
+        for (const DrawEntry& entry : m_entries)
+        {
+            tableLength = eastl::max(tableLength, entry.m_keyIndex + 1);
+            drawCount  += entry.m_count;
+        }
+        ASSERT(tableLength <= TableCapacity, "[DrawBinSystem] Pass '{}' has a key index past its table.",
+            passCtx.Get<PassName>(pass).m_name.GetCStr());
+
+        eastl::vector<IndirectLayoutEntry>& image = m_tables[pass];
+        image.assign(tableLength, IndirectLayoutEntry{});
+        for (const DrawEntry& entry : m_entries)
+        {
+            image[entry.m_keyIndex] = IndirectLayoutEntry{ entry.m_groupIndex, m_groups[entry.m_groupIndex].m_firstDraw };
+        }
+
+        if (!passCtx.Has<PassIndirectLayout>(pass))
+        {
+            passCtx.Add<PassIndirectLayout>(pass).m_table = CreateTable(rhiCtx, passCtx.Get<PassName>(pass));
+        }
+        PassIndirectLayout& layout = passCtx.Get<PassIndirectLayout>(pass);
+        layout.m_tableLength    = tableLength;
+        layout.m_countsPerView  = AlignUp(eastl::max(static_cast<uint32_t>(m_groups.size()), 1u), CountsPerViewStep);
+        layout.m_recordsPerView = AlignUp(eastl::max(drawCount, 1u), RecordsPerViewStep);
+
+        // Also on the frame the table is requested: the frame's start makes it, then copies
+        // into it, so a binning pass never reads a table not written.
+        rhiCtx.AddOrReplace<RHI::PendingBufferMap>(
+            layout.m_table, RHI::PendingBufferMap{ image.data(), 0, image.size() * sizeof(IndirectLayoutEntry) });
+    }
+
     void DrawBinSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx)
     {
         for (auto [pass, drawList] : passCtx.GetView<PassDrawList>().each())
         {
-            UpdatePass(rhiCtx, passCtx, drawCtx, pass);
+            ASSERT(drawList.m_culling == DrawCulling::Gpu,
+                "[DrawBinSystem] Pass '{}' draws a list culled on the CPU, which is not drawn yet.",
+                passCtx.Get<PassName>(pass).m_name.GetCStr());
+            UpdateGpuCulledPass(rhiCtx, passCtx, drawCtx, pass);
         }
 
         drawCtx.Sort<DrawGroup>([](const DrawGroup& a, const DrawGroup& b)
