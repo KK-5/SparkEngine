@@ -28,7 +28,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | ~~2~~ | ~~pass 的 layout 以声明为准 + shader 宏排列~~ | — | 取消（用户 2026-10-18），见 D4 |
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
-| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a、4b 完成） |
+| 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | 进行中（4a ~ 4c 完成，余 4d ~ 4f） |
 | 5 | 半透明的着色（前向，BeforeDOF） | 4 | 未开始 |
 | 6 | Distortion | 5 | 待定（D9） |
 
@@ -787,11 +787,39 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
   - ✅ 4a（`dc005c5`）：`TranslucentTag` 与第 2 位、`CpuCulledDrawMask`、计数器只数 GPU 剔除的位、编码写 `DrawListInstance`。
   - ✅ 4b（`4ad8aaf`）：`DrawListCullingSystem`、`VisibleInstance` 与 `VisibleInstancesOf`、`DrawElementRange`、
     `Frustum::IntersectsAABBIgnoringNear`（并改正反向 Z 下平面的标注）。
-  - 4c：剔除系统写 CPU 参数 buffer（`CpuCulledDrawArgumentsTag`），`DrawGroupSystem` 的 `UpdateCpuCulledPass` 切组；CPU 剔除必须 `BackToFront`。
-  - 4d：不带 count 的 `DrawIndirect`、count 可选、`TryGetIndirectArgumentsStart`、`AppendItemForView` 重排。
-  - 4e：`TranslucencyPass` 与 shader（Skybox 之后、TAA 之前），材质模板的不透明度；导入参数 buffer。运行时确认上传堆上的 buffer
-    作为间接参数读时渲染图不发不合法的 barrier。
-  - 4f：`ClassifyDraw` 按 alphaMode 分类，用户用场景确认画面。
+  - ✅ 4c（`9d18647`）：剔除系统排好序后写 CPU 参数 buffer（`CpuCulledDrawArgumentsTag`，主机可见每帧、`Indirect`，按 1024 一档、不够时换一块），
+    `FirstDrawOffset` 给出一段可见实例在其中的起点；`DrawGroupSystem` 的 `UpdateCpuCulledPass` 在变体变化处切组、不碰 RHI，
+    两条路径共用 `CollectPassViews`；CPU 剔除必须 `BackToFront`（`.Draw<Tag>()` 的 `static_assert` 与运行时 ASSERT）；
+    主机上传池允许 `Indirect`（DX12 上传堆的 `GENERIC_READ` 含间接参数，Vulkan 主机可见 buffer 可带 `INDIRECT_BUFFER`）。
+  - 4d　渲染图：不带 count 的间接绘制
+    - `RenderScope::DrawIndirect(argumentsName)`：不带 count 的重载。几何绑定（几何池的原生 buffer 作两条流、ID 流、`Uses<>`）
+      与带 count 的重载抽成一段共用代码。
+    - `RenderGraphBuilder::AddScopeDrawIndirect` 的 count 可为 `NullHandle`（断言只对给出的访问做）；`ItemIndirectArguments` 的 count
+      为空即不带 count；`CompileItemIndirectArguments` 只在有 count 时取它的 backing。RHI 不用改：`m_countBuffer` 为空即不带 count。
+    - `TryGetIndirectArgumentsStart(context, buffer, view, outByteOffset)`，放在 `TryGetIndirectArgumentsOfView` 旁：在视图下画这块
+      buffer 从哪里读起，即写入方为这个视图定下的起点（`IndirectArgumentsOf`），没有写入方定就是 0；buffer 按视图分段却缺这个视图时
+      返回 false（原来 `AppendItemForView` 里的断言挪进来）。注释按 D15"起点"一条的语义写，不写成"有段取段、没段取 0"的分支。
+    - `AppendItemForView` 重排：参数的起点经它取，有 count 时 count 的起点也经它取；pass 画列表就按组展开（偏移 = 起点 + first × 记录大小，
+      有 count 时 count 偏移 = count 起点 + 次序 × 4，maxCount = `m_maxDraws`，PSO 由（pass，变体）查缓存）；不画列表的照旧出一个 item。
+    - 单元测试：起点的三种情况（分段取视图那段、不分段为 0、分段缺视图为 false）；不带 count 的间接绘制展开出的 item；
+      不透明的画面不变。
+  - 4e　`TranslucencyPass`
+    - `Feature/Translucency/TranslucencyPass` 与 `Shaders/Translucency/Translucency.hlsl`：VS 同 GBuffer（顶点工厂、材质的顶点偏移），
+      PS 不打光，输出 `float4(baseColor × preExposure, opacity)`。
+    - 渲染状态：混合 SrcAlpha / InvSrcAlpha，深度只测不写（`GreaterEqual`，反向 Z；写掩码 Zero，`DepthRead(SceneDepth)` 取只读 DSV），
+      剔除 Back（双面的由变体改为 None）。SceneColor 先 Load 再 Store，混合在 Skybox 写过的结果之上。
+    - 位置：Skybox 之后、TemporalAA 之前（BeforeDOF）；`.RendersView<MainViewTag>()`、`.Draw<TranslucentTag>()`、
+      `.Binds<ViewBindingTag, MaterialBindingTag, InstanceBindingTag>()`；材质采样器同 GBuffer。不写 Velocity。
+    - Build 显式导入参数：`p.Import<CpuCulledDrawArgumentsTag>(InstanceLists::CpuCulled::DrawArgumentsName())`，成功才
+      `s.DrawIndirect(同名)`。attachment 名放进 `InstanceLists`（新的 `CpuCulled` 一组）。pass 不读任何列表机制的组件，不加 `GetPass()`。
+    - 材质模板：`inputs.Opacity = mat.BaseColor.a × 贴图 alpha`（现在固定为 1）；GBuffer 不读它，不受影响。
+    - 运行时确认：上传堆上的参数 buffer 作为间接参数读时，渲染图不发不合法的 barrier（上传堆资源只能处于 `GENERIC_READ`）；
+      没有半透明物体时画面不变、日志无新报错。
+  - 4f　分类
+    - `ClassifyDraw` 改为由材质状态分类：`Blend` → `TranslucentTag`（不投影），其余照旧为不透明 + 投影。签名改为接收解析后的
+      `MaterialState`；编码（`InstanceBindingSystem`）与 `MeshGeometryComposer` 两个调用方都先解析材质（`ResolveMaterial` 挪到两边都能用的地方）。
+    - `DrawMaskTest` 按材质状态测分类。
+    - 画面由用户用自己准备的场景确认：半透明物体可见、从远到近混合、不进阴影、不透明物体不变。
 - 半透明 pass 只做最简单的着色：不打光，输出带不透明度的基色，pass 默认的混合状态为 SrcAlpha / InvSrcAlpha，深度只测不写。
   不透明度取 `baseColor.a × 贴图 alpha`：glTF 的 `baseColorFactor` alpha 与 `alphaMode` 已导入并写进 `MaterialData`，只是材质模板里固定写成 1。
 - `ClassifyDraw` 最后改（Blend → 半透明，不投影），中间任何一步都不会出现 Blend 物体从画面上消失的状态。
