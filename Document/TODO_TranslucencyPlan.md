@@ -11,7 +11,7 @@ PSO 改为由"pass + 材质"查找、可在加载时推导，覆盖材质的状�
 定下 D14 的框架：剔除按（视图，Tag）输出可见列表，排序与分组是一套独立的机制，CPU 路径由 CPU 写记录（推翻 D5 原来的做法），
 GPU 路径是同一结构在"CPU 不知道可见性"下的形式，只换 binTable 与组的来源。2026-10-20 写下数据组织的草案（D15）：键号、
 组件里不放 vector、每帧的绘制准备放进独立的 `DrawContext`，同日按它做完 4-0（分 a ~ d 四小步），GPU 路径已换到新的数据组织上，
-CPU 路径（步骤 4）的部分仍是草案。2026-10-21 做完 4-0 之后的整理：组只有 `DrawGroup` 一个类型，系统改名 `DrawGroupSystem`、目录 `DrawList/`，，读组改为二分取一段。现状一节来自 2026-10-15 / 16 读代码，没有运行验证。
+CPU 路径（步骤 4）当时仍是草案，2026-10-21 做完。2026-10-21 做完 4-0 之后的整理：组只有 `DrawGroup` 一个类型，系统改名 `DrawGroupSystem`、目录 `DrawList/`，读组改为二分取一段。2026-10-22 定步骤 5：Additive 改为 SrcAlpha / One，Modulate 推后到宏排列，材质的 `TranslucencyPass` 字段推到 P9。现状一节来自 2026-10-15 / 16 读代码，没有运行验证。
 
 P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、**顺序由 CPU 决定的间接绘制**、**前向着色的半透明**。
 做完之后，场景物体只有一种提交方式：间接绘制，每组一次调用。差别只在谁知道要画哪些实例：CPU 知道（半透明），CPU 排序、分组、
@@ -29,7 +29,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
 | 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | ✅ 完成（4a ~ 4f） |
-| 5 | 半透明的着色（前向，BeforeDOF） | 4 | 未开始 |
+| 5 | 半透明的着色（前向，BeforeDOF）：混合方式进变体、前向着色（5a ~ 5c） | 4 | 方案已定，未开始 |
 | 6 | Distortion | 5 | 待定（D9） |
 
 1 不碰 layout 与 shader 系统，先用纯渲染状态的变体把拆段、分桶、切换验证掉。宏排列现在不做：只改渲染状态的变体用不上它，
@@ -237,15 +237,30 @@ CPU 路径上 CPU 什么都知道，就由 CPU 直接写出最终结果，不经
 
 ### D7　半透明的着色与位置　✅ 已定方向
 
-- **前向着色**：`EvaluateLight` / `EvaluateRectLight` 复用；阴影把 ShadowProjection 里按灯采 atlas 的那段抽成函数（ShadowMask
-  对半透明无效）；IBL 用天光加预滤波 cube 乘 EnvBRDF；没有 AO 与 SSR；输出乘 PreExposure。灯光循环封装成函数，给 LightGrid 留接缝。
+- **前向着色**：`EvaluateLight` / `EvaluateRectLight` 复用；阴影用 `Lib/Shadow/ShadowSampling.hlsli` 的 `SampleShadow`（ShadowProjection
+  里按灯采 atlas 的那段已是这个函数，ShadowMask 对半透明无效）；IBL 用天光加预滤波 cube 乘 EnvBRDF；没有 AO 与 SSR；输出乘 PreExposure。
+  灯光循环封装成函数，给 LightGrid 留接缝。
 - **深度**：读 SceneDepth 做测试，不写。
-- **混合状态**：Translucent 为 SrcAlpha / InvSrcAlpha，AlphaComposite 为 One / InvSrcAlpha，Additive 为 One / One，Modulate 为 DestColor / Zero。
+- **混合状态**（用户 2026-10-22 改）：所有混合方式共用一个 shader，输出（颜色，不透明度），只换混合状态，shader 不知道是哪一种：
+
+  | 模式 | 颜色 | shader 输出能否共用 |
+  |---|---|---|
+  | Translucent | SrcAlpha / InvSrcAlpha | 能 |
+  | AlphaComposite（预乘） | One / InvSrcAlpha | 能：颜色由作者预乘 |
+  | Additive | SrcAlpha / One（原定 One / One） | 能：加上去的量由混合单元乘不透明度，同 UE |
+  | Modulate | DestColor / Zero | 不能，推后 |
+
+  alpha 通道一律 Zero / One，保留 SceneColor.a（同 Lighting 的三个 pass）。
+  Modulate 是拿输出去乘背后的颜色，要的是不打光、不乘 PreExposure 的基色，与共用 shader 的输出不同；UE 为它单编一个排列
+  （`MATERIALBLENDING_MODULATE`）。宏排列与 Masked 一起推后，Modulate 也等它。不让材质数据带上混合方式、在 shader 里分支：
+  那是把 PSO 一侧的事实放进着色一侧，违背 `MaterialState` 与 `MaterialData` 的分工。
 - **位置**：Skybox 之后、TAA 之前（BeforeDOF），只画主视图。
 - **不投影**；接受阴影。
-- **材质格式**：`AlphaMode` 末尾追加 Additive、Modulate、AlphaComposite；新增 `TranslucencyPass`（BeforeDOF / AfterDOF），AfterDOF 先和
-  BeforeDOF 走同一条路，P9 有了 DOF 再分开。编辑器材质窗口跟着加选项。
-- `AlphaMode::Blend` 及新增的三种归为半透明，不进不透明与投影者列表。
+- **材质格式**：`AlphaMode` 末尾追加 Additive、AlphaComposite（Modulate 推后，见上）。编辑器材质窗口的 STATE 区由反射生成，
+  追加的值自动出现，只补预览区的名字。
+- **`TranslucencyPass`（BeforeDOF / AfterDOF）推到 P9**（用户 2026-10-22，原定此时加进材质）：AfterDOF 在有 DOF 之前与 BeforeDOF 走同一条路，
+  字段没有读者；格式只追加，以后加没有代价。
+- `AlphaMode::Blend` 及新增的两种归为半透明，不进不透明与投影者列表。
 
 ### D8　分桶的数据组织：管线键 + 键级的分配关系　✅ 已定（用户 2026-10-16，2026-10-17 改规则与命名）
 
@@ -399,13 +414,13 @@ visibility buffer；DX12 图形管线没有对应的拆分）。
 **变体**：固定大小的值类型，按值比较，不含容器。字段随步骤增加：
 
 - 优先级（1a）；
-- 状态覆盖：剔除模式（1b）、混合状态（步骤 5），没被覆盖的用 pass 默认的；
+- 状态覆盖：剔除模式（1b）、混合方式（步骤 5：存混合方式的枚举而不是整份混合状态，建 PSO 时才翻译成状态），没被覆盖的用 pass 默认的；
 - shader 的选择：特性宏集合（位集，每位一种特性的宏）、材质 shader 编号（不用时为"无"）、顶点工厂编号（以后）。pass 模板属于 pass，不在变体里。
 
 **静态信息各回各的地方**：pass 上只声明 `.Draw<Tag>()`（画哪种列表、参与分桶），没有逐特性的声明。原因是逐个看，这些都不是 pass 的选择：
 
 - **对所有 pass 都一样的，是解释系统里的通用规则**：双面 → 不剔除；镜像翻转 → 剔除方向反过来（排在双面之后，已是 None 的不变）；
-  混合模式 → 按 alphaMode 查固定的表得到混合状态（不透明与投影者列表里没有半透明的键，分类已经过滤）；顶点工厂 → VS 与输入布局；
+  混合模式 → 按 alphaMode 查固定的表得到混合方式（D7 的表；不透明与投影者列表里没有半透明的键，分类已经过滤）；顶点工厂 → VS 与输入布局；
   优先级 → 变体带上会关掉 early-Z 的宏时排在后面。
 - **pass 的 shader 模板的性质，由模板自己声明**：模板支持哪些特性宏（DepthOnly 处理 `MATERIALBLENDING_MASKED`，GBuffer 不处理），
   以及是否忽略材质 shader（默认使用，GBuffer 就是；DepthOnly 声明忽略，只在镂空、顶点动画这类特性需要时才用）。这就是宏排列的范围，
@@ -839,9 +854,21 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
 
 ### 5　半透明的着色
 
-- 材质格式与编辑器（D7 追加的 alphaMode 与 `TranslucencyPass`）。
-- 混合状态进变体（D13），按 alphaMode 查表。
-- 前向着色库：灯光循环、按灯采阴影 atlas、IBL（D7）。
+2026-10-22 读代码确认：要新做的机制只有"混合方式进变体"。灯光（`EvaluateLight` / `EvaluateRectLight` / `EvaluateBRDF` 是不绑资源的函数，
+`g_Lights`、LTC、环境 cube、BRDF LUT 在场景组 `MainSceneTag`）、阴影（`SampleShadow`、`CubeFaceIndex`）、IBL（`HasEnvironmentIBL`、
+`RoughnessToLod`、`EnvBRDFLut`、`Fd_Lambert`）都已有，前向着色照 IndirectDiffuse / Reflections 的写法拼起来即可。分三小步：
+
+- **5a 材质格式**：`AlphaMode` 末尾追加 Additive、AlphaComposite（D7），反射里加名字；`DrawListsOf` 由"等于 Blend"改为"属于半透明类"；
+  管线键的 `static_assert` 改为检查最后一个值（3 位放得下）；编辑器预览区的 `AlphaModeName` 补上。
+- **5b 混合方式进变体**（D13）：变体加混合方式的枚举，等号、哈希、`DrawsBefore` 跟着改；解释里加通用规则（半透明类的 alphaMode 按 D7
+  的表给出混合方式，与 pass 默认相同时清回"无改动"，所以 `Blend` 在 TranslucencyPass 里仍是默认 PSO、不多拆组）；`ApplyPipelineVariant`
+  把枚举翻译成颜色目标的混合状态。单元测试覆盖规则与规整。
+- **5c 前向着色**：pass 加绑场景组；shader 按灯循环（封装成函数，给 LightGrid 留接缝），阴影按灯采 atlas，与 Lights pass 用同样的
+  条件判断哪些灯有阴影；atlas 不一定每帧都有，pass 照 ShadowProjection 先看 `ShadowAtlasTag` 是否就绪，用 scope 常量告诉 shader
+  （同 IndirectDiffuse 的 `g_AmbientOcclusionEnabled`）；IBL 与自发光；世界坐标由 `SV_Position` 与 `ViewData` 反算（同 UE），
+  不加插值量。
+
+推后的：Modulate（等宏排列，D7）、材质的 `TranslucencyPass` 字段（P9，D7）。
 
 ### 6　Distortion
 
