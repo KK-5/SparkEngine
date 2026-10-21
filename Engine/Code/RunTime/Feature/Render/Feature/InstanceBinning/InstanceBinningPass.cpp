@@ -9,7 +9,7 @@
 #include <Pass/PassContext.h>
 #include <Pass/PassCapabilities.h>
 #include <Pass/ComputePass.h>
-#include <Pass/Component/PassDrawListComponents.h>
+#include <Pass/Component/PassIndirectLayout.h>
 
 #include <RenderGraph/PassScopes.h>
 
@@ -61,7 +61,7 @@ namespace Spark::Render
 
             const PassIndirectLayout& layout = passContext.Get<PassIndirectLayout>(drawPass);
 
-            // DrawBinSystem made it before this frame began, so it was created at the frame's start.
+            // DrawGroupSystem made it before this frame began, so it was created at the frame's start.
             ASSERT(rhiContext.Has<RHI::Components::BufferPerFrame>(layout.m_table),
                 "[InstanceBinningPass] {}'s indirect layout has no table.",
                 passContext.Get<PassName>(drawPass).m_name.GetCStr());

@@ -1,4 +1,4 @@
-#include "DrawBinSystem.h"
+#include "DrawGroupSystem.h"
 
 #include <EASTL/algorithm.h>
 #include <EASTL/string.h>
@@ -13,6 +13,8 @@
 
 #include <Pass/Component/PassComponents.h>
 #include <PipelineState/PipelineVariantInterpret.h>
+
+#include "DrawList.h"
 
 namespace Spark::Render
 {
@@ -43,23 +45,11 @@ namespace Spark::Render
         }
     }
 
-    void CollectDrawGroups(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawGroupList& out)
-    {
-        out.clear();
-        for (auto [entity, group] : drawCtx.GetView<DrawGroup>().each())
-        {
-            if (group.m_pass == pass && group.m_view == view)
-            {
-                out.push_back(&group);
-            }
-        }
-    }
-
-    void DrawBinSystem::UpdateGpuCulledPass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass)
+    void DrawGroupSystem::UpdateGpuCulledPass(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx, Pass pass)
     {
         const PassDrawList& drawList = passCtx.Get<PassDrawList>(pass);
         const auto* pipelineState = passCtx.TryGet<PassPipelineState>(pass);
-        ASSERT(pipelineState, "[DrawBinSystem] Pass '{}' draws a list but has no pipeline.",
+        ASSERT(pipelineState, "[DrawGroupSystem] Pass '{}' draws a list but has no pipeline.",
             passCtx.Get<PassName>(pass).m_name.GetCStr());
 
         // No shader template declares its features until shader permutations exist.
@@ -86,7 +76,7 @@ namespace Spark::Render
         // one it skips leaves its groups unread.
         const auto* capabilities = passCtx.TryGet<PassCapabilities>(pass);
         ASSERT(capabilities && capabilities->m_collectViews,
-            "[DrawBinSystem] Pass '{}' draws a list but declares no .RendersView<>().",
+            "[DrawGroupSystem] Pass '{}' draws a list but declares no .RendersView<>().",
             passCtx.Get<PassName>(pass).m_name.GetCStr());
         m_views.clear();
         if (capabilities && capabilities->m_collectViews)
@@ -104,7 +94,7 @@ namespace Spark::Render
         }
     }
 
-    void DrawBinSystem::WriteIndirectLayout(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass)
+    void DrawGroupSystem::WriteIndirectLayout(RHI::RHIContext& rhiCtx, PassContext& passCtx, Pass pass)
     {
         // What a binning thread can look up: every instance it sees is counted in some DrawListKey.
         uint32_t tableLength = 1;
@@ -114,7 +104,7 @@ namespace Spark::Render
             tableLength = eastl::max(tableLength, entry.m_keyIndex + 1);
             drawCount  += entry.m_count;
         }
-        ASSERT(tableLength <= TableCapacity, "[DrawBinSystem] Pass '{}' has a key index past its table.",
+        ASSERT(tableLength <= TableCapacity, "[DrawGroupSystem] Pass '{}' has a key index past its table.",
             passCtx.Get<PassName>(pass).m_name.GetCStr());
 
         eastl::vector<IndirectLayoutEntry>& image = m_tables[pass];
@@ -139,12 +129,12 @@ namespace Spark::Render
             layout.m_table, RHI::PendingBufferMap{ image.data(), 0, image.size() * sizeof(IndirectLayoutEntry) });
     }
 
-    void DrawBinSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx)
+    void DrawGroupSystem::Update(RHI::RHIContext& rhiCtx, PassContext& passCtx, DrawContext& drawCtx)
     {
         for (auto [pass, drawList] : passCtx.GetView<PassDrawList>().each())
         {
             ASSERT(drawList.m_culling == DrawCulling::Gpu,
-                "[DrawBinSystem] Pass '{}' draws a list culled on the CPU, which is not drawn yet.",
+                "[DrawGroupSystem] Pass '{}' draws a list culled on the CPU, which is not drawn yet.",
                 passCtx.Get<PassName>(pass).m_name.GetCStr());
             UpdateGpuCulledPass(rhiCtx, passCtx, drawCtx, pass);
         }
@@ -156,7 +146,7 @@ namespace Spark::Render
         });
     }
 
-    void DrawBinSystem::Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx)
+    void DrawGroupSystem::Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx)
     {
         eastl::vector<Pass> passes;
         for (auto [pass, layout] : passCtx.GetView<PassIndirectLayout>().each())

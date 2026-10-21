@@ -45,4 +45,16 @@ namespace Spark::Render
             firstDraw         += entry.m_count;
         }
     }
+
+    void CollectDrawGroups(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawGroupList& out)
+    {
+        out.clear();
+        for (auto [entity, group] : drawCtx.GetView<DrawGroup>().each())
+        {
+            if (group.m_pass == pass && group.m_view == view)
+            {
+                out.push_back(&group);
+            }
+        }
+    }
 }

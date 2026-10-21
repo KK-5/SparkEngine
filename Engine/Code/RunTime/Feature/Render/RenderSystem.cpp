@@ -281,7 +281,7 @@ namespace Spark::Render
         m_drawItemRouter.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometryComposer.Shutdown(*RHI::RHIExecuteContext::Current());
 
-        m_drawBinSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
+        m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -354,7 +354,7 @@ namespace Spark::Render
         m_drawContext.Clear();
         m_instanceBindingSystem.Update(frameIndex);
         // The groups of each pass from the DrawListKeys the encoding above just published.
-        m_drawBinSystem.Update(rhiCtx, passContext, m_drawContext);
+        m_drawGroupSystem.Update(rhiCtx, passContext, m_drawContext);
 
         // World → GeometrySpec: find-or-create over renderable world entities.
         m_meshGeometryComposer.Update();

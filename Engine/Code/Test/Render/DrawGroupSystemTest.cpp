@@ -7,8 +7,9 @@
 #include <RHI/Component/Component.h>
 #include <RHI/Context/RHIContext.h>
 
-#include <DrawBin/DrawBinSystem.h>
-#include <DrawBin/DrawListKeyCounter.h>
+#include <DrawList/DrawGroupSystem.h>
+#include <DrawList/DrawList.h>
+#include <DrawList/DrawListKeyCounter.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/PassContext.h>
 #include <PipelineState/PipelineKeyIndex.h>
@@ -41,13 +42,13 @@ namespace
 
 //! Groups made from the counted keys. Everything is components on the contexts, so no device is
 //! needed; the indirect layout tables' buffers never materialize.
-class DrawBinTest : public ::testing::Test
+class DrawGroupSystemTest : public ::testing::Test
 {
 protected:
     RHI::RHIContext    rhi;
     PassContext        passes;
     DrawContext        draws;
-    DrawBinSystem      system;
+    DrawGroupSystem    system;
     DrawListKeyCounter counter;
     //! The one view a test has unless it adds more.
     RHI::RHIHandle     view = AddView();
@@ -145,7 +146,7 @@ protected:
     }
 };
 
-TEST_F(DrawBinTest, AnInstanceCountsInTheListOfEachBitOfItsMask)
+TEST_F(DrawGroupSystemTest, AnInstanceCountsInTheListOfEachBitOfItsMask)
 {
     Encode(SingleSided, Opaque | Caster, 2);
     Encode(SingleSided, Opaque, 1);
@@ -158,7 +159,7 @@ TEST_F(DrawBinTest, AnInstanceCountsInTheListOfEachBitOfItsMask)
     EXPECT_EQ(draws.GetView<DrawListKey>().size(), 2u);
 }
 
-TEST_F(DrawBinTest, AListKeyCarriesTheKeyAndItsIndex)
+TEST_F(DrawGroupSystemTest, AListKeyCarriesTheKeyAndItsIndex)
 {
     Encode(DoubleSided, Opaque, 1);
     counter.Publish(draws);
@@ -169,7 +170,7 @@ TEST_F(DrawBinTest, AListKeyCarriesTheKeyAndItsIndex)
     EXPECT_EQ(listKey.m_keyIndex, PipelineKeyIndexOf(DoubleSided));
 }
 
-TEST_F(DrawBinTest, EachFrameIsCountedFromNothing)
+TEST_F(DrawGroupSystemTest, EachFrameIsCountedFromNothing)
 {
     Encode(SingleSided, Opaque, 2);
     Frame();
@@ -180,7 +181,7 @@ TEST_F(DrawBinTest, EachFrameIsCountedFromNothing)
 
 //! Masking changes nothing in a template that does not declare it, and none does yet;
 //! being double-sided changes the cull mode of a pass that culls.
-TEST_F(DrawBinTest, KeysThatDrawAlikeShareAGroup)
+TEST_F(DrawGroupSystemTest, KeysThatDrawAlikeShareAGroup)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 1);
@@ -193,7 +194,7 @@ TEST_F(DrawBinTest, KeysThatDrawAlikeShareAGroup)
     EXPECT_NE(Entry(depth, SingleSided).m_countIndex, Entry(depth, DoubleSided).m_countIndex);
 }
 
-TEST_F(DrawBinTest, AGroupHoldsWhatItsKeysCountInThePassesList)
+TEST_F(DrawGroupSystemTest, AGroupHoldsWhatItsKeysCountInThePassesList)
 {
     const Pass depth  = AddPass<OpaqueTag>("Depth");
     const Pass shadow = AddPass<ShadowCasterTag>("Shadow");
@@ -215,7 +216,7 @@ TEST_F(DrawBinTest, AGroupHoldsWhatItsKeysCountInThePassesList)
     EXPECT_EQ(GroupsOf(shadow).size(), 0u);
 }
 
-TEST_F(DrawBinTest, GroupsLieOneAfterAnotherInTheirIndexOrder)
+TEST_F(DrawGroupSystemTest, GroupsLieOneAfterAnotherInTheirIndexOrder)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 3);
@@ -236,7 +237,7 @@ TEST_F(DrawBinTest, GroupsLieOneAfterAnotherInTheirIndexOrder)
 }
 
 //! Which instances a view sees only the GPU knows, so each view gets the groups of the whole list.
-TEST_F(DrawBinTest, EachViewHasTheSameGroups)
+TEST_F(DrawGroupSystemTest, EachViewHasTheSameGroups)
 {
     const RHI::RHIHandle other = AddView();
     const Pass depth = AddPass<OpaqueTag>("Depth");
@@ -260,7 +261,7 @@ TEST_F(DrawBinTest, EachViewHasTheSameGroups)
 }
 
 //! The binning pass reads the table and the layout every frame, views or none.
-TEST_F(DrawBinTest, APassUnderNoViewHasATableButNoGroups)
+TEST_F(DrawGroupSystemTest, APassUnderNoViewHasATableButNoGroups)
 {
     rhi.Add<DeadTag>(view);
     const Pass depth = AddPass<OpaqueTag>("Depth");
@@ -272,7 +273,7 @@ TEST_F(DrawBinTest, APassUnderNoViewHasATableButNoGroups)
     EXPECT_NE(Entry(depth, SingleSided).m_countIndex, IndirectLayoutEntry::NotDrawn);
 }
 
-TEST_F(DrawBinTest, ALayoutRoundsUpAStepAtATime)
+TEST_F(DrawGroupSystemTest, ALayoutRoundsUpAStepAtATime)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Frame();
@@ -286,7 +287,7 @@ TEST_F(DrawBinTest, ALayoutRoundsUpAStepAtATime)
     EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_recordsPerView, 2048u);
 }
 
-TEST_F(DrawBinTest, ATableSendsAKeyToItsGroupAndAKeyOfNoGroupNowhere)
+TEST_F(DrawGroupSystemTest, ATableSendsAKeyToItsGroupAndAKeyOfNoGroupNowhere)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 3);
@@ -302,7 +303,7 @@ TEST_F(DrawBinTest, ATableSendsAKeyToItsGroupAndAKeyOfNoGroupNowhere)
     EXPECT_EQ(Entry(depth, Masked).m_countIndex, IndirectLayoutEntry::NotDrawn);
 }
 
-TEST_F(DrawBinTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
+TEST_F(DrawGroupSystemTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(DoubleSided, Opaque, 1);
@@ -311,7 +312,7 @@ TEST_F(DrawBinTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
     EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_tableLength, PipelineKeyIndexOf(DoubleSided).m_value + 1);
 }
 
-TEST_F(DrawBinTest, APassDrawingNoListHasNoGroups)
+TEST_F(DrawGroupSystemTest, APassDrawingNoListHasNoGroups)
 {
     const Pass post = passes.CreatePass();
     passes.Add<PassName>(post, PassName{ ObjectName("Post") });
@@ -322,7 +323,7 @@ TEST_F(DrawBinTest, APassDrawingNoListHasNoGroups)
     EXPECT_EQ(GroupsOf(post).size(), 0u);
 }
 
-TEST_F(DrawBinTest, ShutdownLeavesNothingBehind)
+TEST_F(DrawGroupSystemTest, ShutdownLeavesNothingBehind)
 {
     const Pass depth = AddPass<OpaqueTag>("Depth");
     Encode(SingleSided, Opaque, 1);

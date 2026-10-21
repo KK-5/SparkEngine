@@ -31,9 +31,9 @@ set(SOURCES
     PipelineState/PipelineVariantInterpret.cpp
     PipelineState/PipelineStateBuild.cpp
     PipelineState/DrawPipelineCache.cpp
-    DrawBin/DrawBinSystem.cpp
-    DrawBin/DrawGroup.cpp
-    DrawBin/DrawListKeyCounter.cpp
+    DrawList/DrawGroup.cpp
+    DrawList/DrawGroupSystem.cpp
+    DrawList/DrawListKeyCounter.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
     RenderGraph/ImageBarrierMerge.cpp

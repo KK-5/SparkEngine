@@ -14,7 +14,7 @@
 #include <Shaders/GeometryBindings.hlsli>
 #include <Shaders/IndirectCommands.hlsli>
 
-// Mirror of IndirectLayoutEntry (PassDrawListComponents.h).
+// Mirror of IndirectLayoutEntry (PassIndirectLayout.h).
 struct IndirectLayoutEntry
 {
     uint CountIndex;     // which of a view's counts is the bin's; NotDrawn when the key is drawn in no bin

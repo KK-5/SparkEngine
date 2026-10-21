@@ -3,7 +3,7 @@
 #include <EASTL/algorithm.h>
 #include <EASTL/vector.h>
 
-#include <DrawBin/DrawGroup.h>
+#include <DrawList/DrawGroup.h>
 
 using namespace Spark;
 using namespace Spark::Render;
