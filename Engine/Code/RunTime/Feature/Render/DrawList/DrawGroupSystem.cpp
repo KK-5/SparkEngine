@@ -2,7 +2,6 @@
 
 #include <EASTL/algorithm.h>
 #include <EASTL/string.h>
-#include <EASTL/tuple.h>
 
 #include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
@@ -139,11 +138,7 @@ namespace Spark::Render
             UpdateGpuCulledPass(rhiCtx, passCtx, drawCtx, pass);
         }
 
-        drawCtx.Sort<DrawGroup>([](const DrawGroup& a, const DrawGroup& b)
-        {
-            return eastl::make_tuple(static_cast<uint32_t>(a.m_pass), static_cast<uint32_t>(a.m_view), a.m_index)
-                 < eastl::make_tuple(static_cast<uint32_t>(b.m_pass), static_cast<uint32_t>(b.m_view), b.m_index);
-        });
+        SortDrawGroups(drawCtx);
     }
 
     void DrawGroupSystem::Shutdown(RHI::RHIContext& rhiCtx, PassContext& passCtx)

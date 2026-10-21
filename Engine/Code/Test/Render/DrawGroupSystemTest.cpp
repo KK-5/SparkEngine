@@ -96,14 +96,12 @@ protected:
         system.Update(rhi, passes, draws);
     }
 
-    DrawGroupList GroupsOf(Pass pass, RHI::RHIHandle under)
+    DrawGroupRange GroupsOf(Pass pass, RHI::RHIHandle under)
     {
-        DrawGroupList groups;
-        CollectDrawGroups(draws, pass, under, groups);
-        return groups;
+        return DrawGroupsOf(draws, pass, under);
     }
 
-    DrawGroupList GroupsOf(Pass pass)
+    DrawGroupRange GroupsOf(Pass pass)
     {
         return GroupsOf(pass, view);
     }
@@ -123,11 +121,11 @@ protected:
 
     const DrawGroup* GroupOf(Pass pass, PipelineKey key)
     {
-        for (const DrawGroup* group : GroupsOf(pass))
+        for (const DrawGroup& group : GroupsOf(pass))
         {
-            if (group->m_index == Entry(pass, key).m_countIndex)
+            if (group.m_index == Entry(pass, key).m_countIndex)
             {
-                return group;
+                return &group;
             }
         }
         return nullptr;
@@ -223,15 +221,15 @@ TEST_F(DrawGroupSystemTest, GroupsLieOneAfterAnotherInTheirIndexOrder)
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    const DrawGroupList groups = GroupsOf(depth);
+    const DrawGroupRange groups = GroupsOf(depth);
     ASSERT_EQ(groups.size(), 2u);
     uint32_t firstDraw = 0;
     for (uint32_t i = 0; i < groups.size(); ++i)
     {
-        EXPECT_EQ(groups[i]->m_index, i);
-        EXPECT_EQ(groups[i]->m_firstDraw, firstDraw);
-        EXPECT_EQ(groups[i]->m_view, view);
-        firstDraw += groups[i]->m_maxDraws;
+        EXPECT_EQ(groups[i].m_index, i);
+        EXPECT_EQ(groups[i].m_firstDraw, firstDraw);
+        EXPECT_EQ(groups[i].m_view, view);
+        firstDraw += groups[i].m_maxDraws;
     }
     EXPECT_EQ(firstDraw, 7u);
 }
@@ -245,18 +243,18 @@ TEST_F(DrawGroupSystemTest, EachViewHasTheSameGroups)
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    const DrawGroupList groups      = GroupsOf(depth, view);
-    const DrawGroupList otherGroups = GroupsOf(depth, other);
+    const DrawGroupRange groups      = GroupsOf(depth, view);
+    const DrawGroupRange otherGroups = GroupsOf(depth, other);
     ASSERT_EQ(groups.size(), 2u);
     ASSERT_EQ(otherGroups.size(), groups.size());
     for (uint32_t i = 0; i < groups.size(); ++i)
     {
-        EXPECT_EQ(groups[i]->m_view, view);
-        EXPECT_EQ(otherGroups[i]->m_view, other);
-        EXPECT_EQ(otherGroups[i]->m_index, groups[i]->m_index);
-        EXPECT_EQ(otherGroups[i]->m_variant, groups[i]->m_variant);
-        EXPECT_EQ(otherGroups[i]->m_firstDraw, groups[i]->m_firstDraw);
-        EXPECT_EQ(otherGroups[i]->m_maxDraws, groups[i]->m_maxDraws);
+        EXPECT_EQ(groups[i].m_view, view);
+        EXPECT_EQ(otherGroups[i].m_view, other);
+        EXPECT_EQ(otherGroups[i].m_index, groups[i].m_index);
+        EXPECT_EQ(otherGroups[i].m_variant, groups[i].m_variant);
+        EXPECT_EQ(otherGroups[i].m_firstDraw, groups[i].m_firstDraw);
+        EXPECT_EQ(otherGroups[i].m_maxDraws, groups[i].m_maxDraws);
     }
 }
 
@@ -271,6 +269,43 @@ TEST_F(DrawGroupSystemTest, APassUnderNoViewHasATableButNoGroups)
     EXPECT_EQ(draws.GetView<DrawGroup>().size(), 0u);
     EXPECT_TRUE(passes.Has<PassIndirectLayout>(depth));
     EXPECT_NE(Entry(depth, SingleSided).m_countIndex, IndirectLayoutEntry::NotDrawn);
+}
+
+//! However the groups were added, each pass's under each view are a run of their own.
+TEST_F(DrawGroupSystemTest, APassUnderAViewHasItsOwnRunOfGroupsInOrder)
+{
+    const RHI::RHIHandle other = AddView();
+    const Pass depth  = AddPass<OpaqueTag>("Depth");
+    const Pass shadow = AddPass<ShadowCasterTag>("Shadow");
+    Encode(SingleSided, Opaque | Caster, 3);
+    Encode(DoubleSided, Opaque, 4);
+    Frame();
+
+    for (Pass pass : { depth, shadow })
+    {
+        for (RHI::RHIHandle under : { view, other })
+        {
+            const DrawGroupRange groups = GroupsOf(pass, under);
+            ASSERT_EQ(groups.size(), pass == depth ? 2u : 1u);
+            for (uint32_t i = 0; i < groups.size(); ++i)
+            {
+                EXPECT_EQ(groups[i].m_pass, pass);
+                EXPECT_EQ(groups[i].m_view, under);
+                EXPECT_EQ(groups[i].m_index, i);
+            }
+        }
+    }
+    EXPECT_EQ(draws.GetView<DrawGroup>().size(), 6u);
+}
+
+TEST_F(DrawGroupSystemTest, NoGroupsIsAnEmptyRun)
+{
+    const Pass depth = AddPass<OpaqueTag>("Depth");
+    // Before any frame there is not even a storage of groups.
+    EXPECT_TRUE(GroupsOf(depth).empty());
+
+    Frame();
+    EXPECT_TRUE(GroupsOf(depth).empty());
 }
 
 TEST_F(DrawGroupSystemTest, ALayoutRoundsUpAStepAtATime)
@@ -294,11 +329,11 @@ TEST_F(DrawGroupSystemTest, ATableSendsAKeyToItsGroupAndAKeyOfNoGroupNowhere)
     Encode(DoubleSided, Opaque, 4);
     Frame();
 
-    for (const DrawGroup* group : GroupsOf(depth))
+    for (const DrawGroup& group : GroupsOf(depth))
     {
-        const PipelineKey key = group->m_variant.m_cullMode == RHI::CullMode::None ? DoubleSided : SingleSided;
-        EXPECT_EQ(Entry(depth, key).m_countIndex, group->m_index);
-        EXPECT_EQ(Entry(depth, key).m_firstRecord, group->m_firstDraw);
+        const PipelineKey key = group.m_variant.m_cullMode == RHI::CullMode::None ? DoubleSided : SingleSided;
+        EXPECT_EQ(Entry(depth, key).m_countIndex, group.m_index);
+        EXPECT_EQ(Entry(depth, key).m_firstRecord, group.m_firstDraw);
     }
     EXPECT_EQ(Entry(depth, Masked).m_countIndex, IndirectLayoutEntry::NotDrawn);
 }

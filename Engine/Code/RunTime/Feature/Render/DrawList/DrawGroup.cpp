@@ -1,10 +1,21 @@
 #include "DrawGroup.h"
 
+#include <algorithm>
+
 #include <EASTL/sort.h>
 #include <EASTL/tuple.h>
 
 namespace Spark::Render
 {
+    namespace
+    {
+        //! What the storage is sorted by first, a group's run in it.
+        eastl::tuple<uint32_t, uint32_t> OwnerOf(const DrawGroup& group)
+        {
+            return eastl::make_tuple(static_cast<uint32_t>(group.m_pass), static_cast<uint32_t>(group.m_view));
+        }
+    }
+
     bool DrawsBefore(const PipelineVariant& a, const PipelineVariant& b)
     {
         auto order = [](const PipelineVariant& v)
@@ -46,15 +57,28 @@ namespace Spark::Render
         }
     }
 
-    void CollectDrawGroups(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawGroupList& out)
+    void SortDrawGroups(DrawContext& drawCtx)
     {
-        out.clear();
-        for (auto [entity, group] : drawCtx.GetView<DrawGroup>().each())
+        drawCtx.Sort<DrawGroup>([](const DrawGroup& a, const DrawGroup& b)
         {
-            if (group.m_pass == pass && group.m_view == view)
-            {
-                out.push_back(&group);
-            }
+            return eastl::make_tuple(OwnerOf(a), a.m_index) < eastl::make_tuple(OwnerOf(b), b.m_index);
+        });
+    }
+
+    DrawGroupRange DrawGroupsOf(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view)
+    {
+        const auto* storage = drawCtx.GetStorage<DrawGroup>();
+        if (storage == nullptr)
+        {
+            return {};
         }
+
+        DrawGroup probe;
+        probe.m_pass = pass;
+        probe.m_view = view;
+        // std's: EASTL's algorithms do not take entt's iterators as random access.
+        const auto [first, last] = std::equal_range(storage->cbegin(), storage->cend(), probe,
+            [](const DrawGroup& a, const DrawGroup& b) { return OwnerOf(a) < OwnerOf(b); });
+        return { first, last };
     }
 }

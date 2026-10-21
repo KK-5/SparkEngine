@@ -1516,16 +1516,14 @@ namespace Spark::Render
                     "[RenderGraphCompiler] Pass {} draws its groups with a draw that is not an indexed indirect one.", passName);
                 constexpr uint64_t CommandSize = sizeof(RHI::DrawIndexedIndirectCommand);
 
-                DrawGroupList groups;
-                CollectDrawGroups(*DrawExecuteContext::Current(), pass, view, groups);
-                for (const DrawGroup* group : groups)
+                for (const DrawGroup& group : DrawGroupsOf(*DrawExecuteContext::Current(), pass, view))
                 {
                     const RHI::PipelineStateDescriptorForDraw descriptor = BuildDrawPipelineDescriptor(
                         passContext.Get<PassStageFunctions>(pass), passContext.Get<PassPipelineState>(pass),
-                        passContext.Get<PassPipelineLayout>(pass), group->m_variant, passName);
-                    appendDraw(argumentsByteOffset + group->m_firstDraw * CommandSize,
-                               countByteOffset + group->m_index * sizeof(uint32_t),
-                               group->m_maxDraws,
+                        passContext.Get<PassPipelineLayout>(pass), group.m_variant, passName);
+                    appendDraw(argumentsByteOffset + group.m_firstDraw * CommandSize,
+                               countByteOffset + group.m_index * sizeof(uint32_t),
+                               group.m_maxDraws,
                                pipelineCache.Acquire(descriptor, passName).get());
                 }
                 return;

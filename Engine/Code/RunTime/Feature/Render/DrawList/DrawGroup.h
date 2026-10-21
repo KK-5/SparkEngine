@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-#include <EASTL/fixed_vector.h>
 #include <EASTL/span.h>
 #include <EASTL/vector.h>
 
@@ -62,10 +61,24 @@ namespace Spark::Render
     //! each time it comes back.
     void GroupDrawEntries(eastl::span<DrawEntry> entries, DrawOrder order, eastl::vector<DrawGroup>& groups);
 
-    //! A pass's DrawGroups, as few as a pass of a GPU-culled list has.
-    using DrawGroupList = eastl::fixed_vector<const DrawGroup*, 8>;
+    //! Orders the DrawContext's groups by pass, view and index, which DrawGroupsOf relies on.
+    void SortDrawGroups(DrawContext& drawCtx);
 
-    //! The DrawGroups of pass under view, in their index order. Its DrawGroups sorted, as
-    //! DrawGroupSystem leaves them.
-    void CollectDrawGroups(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view, DrawGroupList& out);
+    //! The DrawGroups of a pass under a view: a run of the sorted storage, in index order.
+    struct DrawGroupRange
+    {
+        using Iterator = entt::storage_type_t<DrawGroup, DrawEntity>::const_iterator;
+
+        Iterator m_begin;
+        Iterator m_end;
+
+        Iterator begin() const { return m_begin; }
+        Iterator end() const { return m_end; }
+        size_t   size() const { return static_cast<size_t>(m_end - m_begin); }
+        bool     empty() const { return m_begin == m_end; }
+        const DrawGroup& operator[](size_t index) const { return m_begin[static_cast<ptrdiff_t>(index)]; }
+    };
+
+    //! Found by halving the storage SortDrawGroups left, so empty when nothing is there.
+    DrawGroupRange DrawGroupsOf(const DrawContext& drawCtx, Pass pass, RHI::RHIHandle view);
 }
