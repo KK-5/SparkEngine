@@ -1,0 +1,61 @@
+#include "DrawList.h"
+
+#include <Math/Bit.h>
+#include <Math/Vector4.h>
+
+namespace Spark::Render
+{
+    namespace
+    {
+        //! Around the box's eight corners once moved by transform.
+        Math::AABB TransformBounds(const Math::AABB& bounds, const Math::Matrix4X4& transform)
+        {
+            Math::AABB result;
+            for (uint32_t corner = 0; corner < 8; ++corner)
+            {
+                const Math::Vector3 local(
+                    (corner & 1) ? bounds.max.x : bounds.min.x,
+                    (corner & 2) ? bounds.max.y : bounds.min.y,
+                    (corner & 4) ? bounds.max.z : bounds.min.z);
+                const Math::Vector3 world(transform * Math::Vector4(local, 1.0f));
+                if (corner == 0)
+                {
+                    result.min = world;
+                    result.max = world;
+                }
+                else
+                {
+                    result.Expand(world);
+                }
+            }
+            return result;
+        }
+    }
+
+    void AddDrawListInstances(DrawContext& drawCtx, DrawMask drawMask, uint32_t slot, PipelineKey key,
+        const MeshGeometry& geometry, const Math::Matrix4X4& model)
+    {
+        const DrawMask listed = drawMask & CpuCulledDrawMask;
+        if (listed == 0)
+        {
+            return;
+        }
+
+        DrawListInstance instance;
+        instance.m_slot         = slot;
+        instance.m_key          = key;
+        instance.m_indexCount   = geometry.m_indexCount;
+        instance.m_firstIndex   = geometry.m_firstIndex;
+        instance.m_vertexOffset = static_cast<int32_t>(geometry.m_vertexOffset);
+        instance.m_worldBounds  = TransformBounds(geometry.m_localBounds, model);
+
+        for (uint32_t bit = 0; bit < DrawMaskBitCount; ++bit)
+        {
+            if (CheckBit(listed, bit))
+            {
+                instance.m_drawMaskBitIndex = bit;
+                drawCtx.Add<DrawListInstance>(drawCtx.CreateEntity(), instance);
+            }
+        }
+    }
+}

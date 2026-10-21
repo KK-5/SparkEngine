@@ -33,6 +33,7 @@ set(SOURCES
     PipelineState/DrawPipelineCache.cpp
     DrawList/DrawGroup.cpp
     DrawList/DrawGroupSystem.cpp
+    DrawList/DrawList.cpp
     DrawList/DrawListKeyCounter.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp

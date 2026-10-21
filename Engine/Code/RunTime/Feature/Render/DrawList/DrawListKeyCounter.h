@@ -10,7 +10,7 @@
 
 namespace Spark::Render
 {
-    //! The encoding's count of its instances by draw-mask bit and pipeline key. Counted here,
+    //! The encoding's count of its instances by pipeline key, in each list the GPU culls. Counted here,
     //! where a key's index addresses an array, and published once at the end: looking an element
     //! up by value for every instance would cost too much.
     class DrawListKeyCounter
@@ -18,7 +18,7 @@ namespace Spark::Render
     public:
         DrawListKeyCounter();
 
-        //! An encoded instance, under each bit of drawMask. 0 counts nowhere: no list has it.
+        //! An encoded instance, under each bit of drawMask the GPU culls. 0 counts nowhere: no list has it.
         void Count(PipelineKey key, DrawMask drawMask);
 
         //! A DrawListKey for each bit and key counted at least once, then counts from 0 again.

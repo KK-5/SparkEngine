@@ -25,5 +25,6 @@ namespace Spark::Render
     {
         AddDrawTag<OpaqueTag>(rhiCtx, spec, mask);
         AddDrawTag<ShadowCasterTag>(rhiCtx, spec, mask);
+        AddDrawTag<TranslucentTag>(rhiCtx, spec, mask);
     }
 }

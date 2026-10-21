@@ -38,8 +38,13 @@ namespace Spark::Render
         static constexpr DrawCulling Culling = DrawCulling::Gpu;
     };
 
-    //! Shading dimension (exclusive) — alpha-blended, forward-shaded. Not wired yet.
-    struct TransparentTag {};
+    //! Shading dimension (exclusive) — alpha-blended, forward-shaded. Blended over what is
+    //! behind, so back to front, which only the CPU can sort.
+    struct TranslucentTag
+    {
+        static constexpr DrawOrder   Order   = DrawOrder::BackToFront;
+        static constexpr DrawCulling Culling = DrawCulling::Cpu;
+    };
 
     //! Shadow dimension (optional, orthogonal). Routes to the shadow pass(es).
     struct ShadowCasterTag

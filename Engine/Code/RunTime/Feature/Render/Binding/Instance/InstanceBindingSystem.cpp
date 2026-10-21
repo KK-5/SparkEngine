@@ -18,6 +18,7 @@
 #include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Drawable/DrawMask.h>
+#include <DrawList/DrawList.h>
 #include <PipelineState/PipelineKeyIndex.h>
 
 namespace Spark::Render
@@ -135,10 +136,11 @@ namespace Spark::Render
             return;
         }
 
-        auto* matCtx = Material::MaterialExecuteContext::Current();
+        auto* matCtx  = Material::MaterialExecuteContext::Current();
+        auto* drawCtx = DrawExecuteContext::Current();
         m_instances.Update(*world, *rhiCtx, frameIndex,
             [&](Entity e, InstanceData& out,
-                const Transform::WorldTransformMatrix& m, const MeshGeometry&)
+                const Transform::WorldTransformMatrix& m, const MeshGeometry& geometry)
         {
             const auto* history = world->TryGet<InstanceHistory>(e);
             out.m_model     = m.m_worldMatrix;
@@ -167,10 +169,16 @@ namespace Spark::Render
             const bool  drawable     = geometrySlot && world->Has<MeshGeometryReadyTag>(e);
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
             out.m_drawMask      = drawable ? ClassifyDraw(*world, e) : 0;
-            // What the culling can pick, so what the groups are sized for.
+            // What the culling can pick: counted by key where the GPU culls, listed one by one
+            // where the CPU does.
             m_keyCounter.Count(key, out.m_drawMask);
+            if (drawCtx)
+            {
+                AddDrawListInstances(*drawCtx, out.m_drawMask, world->Get<InstanceSlotRef>(e).Get(), key,
+                    geometry, m.m_worldMatrix);
+            }
         });
-        if (auto* drawCtx = DrawExecuteContext::Current())
+        if (drawCtx)
         {
             m_keyCounter.Publish(*drawCtx);
         }

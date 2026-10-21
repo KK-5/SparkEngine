@@ -157,6 +157,17 @@ TEST_F(DrawGroupSystemTest, AnInstanceCountsInTheListOfEachBitOfItsMask)
     EXPECT_EQ(draws.GetView<DrawListKey>().size(), 2u);
 }
 
+//! A list the CPU culls is its instances, not its keys.
+TEST_F(DrawGroupSystemTest, AListTheCpuCullsHasNoKeys)
+{
+    Encode(SingleSided, Opaque | DrawMaskOf<TranslucentTag>(), 2);
+    counter.Publish(draws);
+
+    EXPECT_EQ(ListKeyCount(DrawMaskBit<OpaqueTag>::Index, SingleSided), 2u);
+    EXPECT_EQ(ListKeyCount(DrawMaskBit<TranslucentTag>::Index, SingleSided), 0u);
+    EXPECT_EQ(draws.GetView<DrawListKey>().size(), 1u);
+}
+
 TEST_F(DrawGroupSystemTest, AListKeyCarriesTheKeyAndItsIndex)
 {
     Encode(DoubleSided, Opaque, 1);

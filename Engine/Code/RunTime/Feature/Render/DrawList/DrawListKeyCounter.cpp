@@ -20,11 +20,14 @@ namespace Spark::Render
         const PipelineKeyIndex index = PipelineKeyIndexOf(key);
         ASSERT(index.m_value < m_keyCounts.size(), "[DrawListKeyCounter] Key index {} is past the counts.", index.m_value);
 
+        // A CPU-culled list is its instances (DrawListInstance), not its keys.
+        const DrawMask counted = drawMask & ~CpuCulledDrawMask;
+
         KeyCounts& keyCounts = m_keyCounts[index.m_value];
         keyCounts.m_key = key;
         for (uint32_t bit = 0; bit < DrawMaskBitCount; ++bit)
         {
-            if (CheckBit(drawMask, bit))
+            if (CheckBit(counted, bit))
             {
                 ++keyCounts.m_counts[bit];
             }
