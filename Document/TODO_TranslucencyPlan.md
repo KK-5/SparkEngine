@@ -29,7 +29,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
 | 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | ✅ 完成（4a ~ 4f） |
-| 5 | 半透明的着色（前向，BeforeDOF）：混合方式进变体、前向着色（5a ~ 5c） | 4 | 方案已定，未开始 |
+| 5 | 半透明的着色（前向，BeforeDOF）：混合方式进变体、前向着色（5a ~ 5c） | 4 | 进行中（5a、5b 完成） |
 | 6 | Distortion | 5 | 待定（D9） |
 
 1 不碰 layout 与 shader 系统，先用纯渲染状态的变体把拆段、分桶、切换验证掉。宏排列现在不做：只改渲染状态的变体用不上它，
@@ -858,11 +858,17 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
 `g_Lights`、LTC、环境 cube、BRDF LUT 在场景组 `MainSceneTag`）、阴影（`SampleShadow`、`CubeFaceIndex`）、IBL（`HasEnvironmentIBL`、
 `RoughnessToLod`、`EnvBRDFLut`、`Fd_Lambert`）都已有，前向着色照 IndirectDiffuse / Reflections 的写法拼起来即可。分三小步：
 
-- **5a 材质格式**：`AlphaMode` 末尾追加 Additive、AlphaComposite（D7），反射里加名字；`DrawListsOf` 由"等于 Blend"改为"属于半透明类"；
-  管线键的 `static_assert` 改为检查最后一个值（3 位放得下）；编辑器预览区的 `AlphaModeName` 补上。
-- **5b 混合方式进变体**（D13）：变体加混合方式的枚举，等号、哈希、`DrawsBefore` 跟着改；解释里加通用规则（半透明类的 alphaMode 按 D7
-  的表给出混合方式，与 pass 默认相同时清回"无改动"，所以 `Blend` 在 TranslucencyPass 里仍是默认 PSO、不多拆组）；`ApplyPipelineVariant`
-  把枚举翻译成颜色目标的混合状态。单元测试覆盖规则与规整。
+- ✅ **5a 材质格式**（2026-10-22）：`AlphaMode` 末尾追加 Additive、AlphaComposite（D7），反射里加名字；`Resource::IsTranslucent(AlphaMode)`
+  逐个列出三种半透明（不靠枚举顺序），放在材质格式一侧，`DrawListsOf` 与 5b 的规则共用；`DrawListsOf` 由"等于 Blend"改为它；
+  管线键的 `static_assert` 改为检查最后一个值（3 位放得下）；编辑器预览区的 `AlphaModeName` 补上。测试：`DrawMaskTest` 测两种新模式只进半透明列表，
+  管线键往返覆盖全部五种，材质写出再读回改用 `AlphaComposite`。混合仍是 pass 默认的 SrcAlpha / InvSrcAlpha，到 5b 才按模式区分。
+- ✅ **5b 混合方式进变体**（D13，2026-10-22）：变体加 `BlendMode`（Translucent、Additive、AlphaComposite，`Invalid` 沿用 pass 的，同 `m_cullMode`；
+  不存 `AlphaMode`，那是材质格式的枚举，Opaque、Mask 也不是混合方式），等号、哈希、`DrawsBefore` 跟着改；解释里加通用规则（排在双面之后，
+  alphaMode 按 D7 的表给出混合方式，不混合的为 `Invalid`；规整：应用后混合状态与 pass 默认相同即清回 `Invalid`，所以 `Blend` 在
+  TranslucencyPass 里仍是默认 PSO、不多拆组）；`ApplyPipelineVariant` 把枚举翻译成第 0 个颜色目标的混合状态（颜色因子按表，alpha 一律
+  Zero / One，写掩码留 pass 的），断言 pass 不开独立混合：不开时 DX12 只读第 0 个、Vulkan 要求各目标相同。单元测试覆盖规则、规整与翻译。
+  - 顺带修正 `RenderStates::GetHash`：原来哈希的是 `this` 的地址，同一份描述在 `RenderGraphCompiler` 的两处算出不同的哈希，PSO 缓存会建两份；
+    改为按字节哈希，与按 memcmp 的 `operator==` 一致。
 - **5c 前向着色**：pass 加绑场景组；shader 按灯循环（封装成函数，给 LightGrid 留接缝），阴影按灯采 atlas，与 Lights pass 用同样的
   条件判断哪些灯有阴影；atlas 不一定每帧都有，pass 照 ShadowProjection 先看 `ShadowAtlasTag` 是否就绪，用 scope 常量告诉 shader
   （同 IndirectDiffuse 的 `g_AmbientOcclusionEnabled`）；IBL 与自发光；世界坐标由 `SV_Position` 与 `ViewData` 反算（同 UE），

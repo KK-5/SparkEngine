@@ -225,7 +225,7 @@ TEST_F(MaterialAssetTestFixture, NoAuthoredValueIsLostOnTheWayOut)
     }
 
     MaterialState state;
-    state.m_alphaMode   = AlphaMode::Blend;
+    state.m_alphaMode   = AlphaMode::AlphaComposite;
     state.m_alphaCutoff = 0.375f;
     state.m_doubleSided = true;
 

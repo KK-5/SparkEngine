@@ -23,14 +23,14 @@ namespace Spark::Render
 
     namespace PipelineKeyLayout
     {
-        // Room for the six alpha modes once the translucent ones are appended.
+        // Room for the alpha modes still to be appended.
         inline constexpr uint32_t AlphaModeShift   = 0;
         inline constexpr uint32_t AlphaModeBits    = 3;
         inline constexpr uint32_t DoubleSidedShift = AlphaModeShift + AlphaModeBits;
         inline constexpr uint32_t FeatureBitCount  = DoubleSidedShift + 1;
         inline constexpr uint32_t ShaderIndexShift = FeatureBitCount;
 
-        static_assert(static_cast<uint32_t>(Resource::AlphaMode::Blend) <= BIT_MASK(AlphaModeBits),
+        static_assert(static_cast<uint32_t>(Resource::AlphaMode::AlphaComposite) <= BIT_MASK(AlphaModeBits),
             "AlphaMode outgrew its bits in PipelineKey.");
     }
 

@@ -36,6 +36,16 @@ namespace Spark::RHI
         {
             return buffer->m_buffer != nullptr;
         }
+        // A per-frame resource gets its component once every frame's copy is made; slots past
+        // the device's frame count stay empty.
+        if (const auto* images = ctx.TryGet<Components::ImagePerFrame>(handle))
+        {
+            return images->m_images[0] != nullptr;
+        }
+        if (const auto* buffers = ctx.TryGet<Components::BufferPerFrame>(handle))
+        {
+            return buffers->m_buffers[0] != nullptr;
+        }
         return false;
     }
 

@@ -54,7 +54,8 @@ namespace Spark::RHI
 
     size_t RenderStates::GetHash(size_t seed) const
     {
-        eastl::hash_combine(seed, this);
+        // By bytes, as operator== compares them.
+        eastl::hash_combine_raw(seed, static_cast<size_t>(eastl::hash_bytes(this, sizeof(RenderStates))));
         return seed;
     }
 }

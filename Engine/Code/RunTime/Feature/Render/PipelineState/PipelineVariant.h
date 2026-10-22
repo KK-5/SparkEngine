@@ -20,6 +20,16 @@ namespace Spark::Render
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::Render::FeatureMacro, uint32_t);
 
+    //! How a translucent surface goes over what is behind it. Turned into a blend state only as
+    //! the PSO is built.
+    enum class BlendMode : uint8_t
+    {
+        Translucent,
+        Additive,
+        AlphaComposite,
+        Invalid
+    };
+
     //! What a pass changes from its default PSO for one pipeline key. Compared by value: equal
     //! variants of one pass draw in one group.
     struct PipelineVariant
@@ -30,6 +40,8 @@ namespace Spark::Render
         uint32_t      m_priority       = 0;
         //! Invalid keeps the pass's own.
         RHI::CullMode m_cullMode       = RHI::CullMode::Invalid;
+        //! Invalid keeps the pass's own.
+        BlendMode     m_blendMode      = BlendMode::Invalid;
         FeatureMacro  m_featureMacros  = FeatureMacro::None;
         //! The material shader built into the template, or none: the template's own code.
         uint32_t      m_materialShader = NoMaterialShader;
@@ -38,6 +50,7 @@ namespace Spark::Render
         {
             return m_priority == rhs.m_priority
                 && m_cullMode == rhs.m_cullMode
+                && m_blendMode == rhs.m_blendMode
                 && m_featureMacros == rhs.m_featureMacros
                 && m_materialShader == rhs.m_materialShader;
         }
@@ -55,7 +68,8 @@ namespace eastl
         {
             size_t seed = 0;
             hash_combine(seed, variant.m_priority, static_cast<uint32_t>(variant.m_cullMode),
-                static_cast<uint32_t>(variant.m_featureMacros), variant.m_materialShader);
+                static_cast<uint32_t>(variant.m_blendMode), static_cast<uint32_t>(variant.m_featureMacros),
+                variant.m_materialShader);
             return seed;
         }
     };

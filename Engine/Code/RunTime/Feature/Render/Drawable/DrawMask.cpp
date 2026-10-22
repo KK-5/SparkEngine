@@ -16,7 +16,7 @@ namespace Spark::Render
 
     DrawMask DrawListsOf(const Resource::MaterialState& state)
     {
-        if (state.m_alphaMode == Resource::AlphaMode::Blend)
+        if (Resource::IsTranslucent(state.m_alphaMode))
         {
             return DrawMaskOf<TranslucentTag>();
         }

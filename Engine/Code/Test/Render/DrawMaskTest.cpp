@@ -85,6 +85,12 @@ TEST(DrawMaskTest, ABlendedSurfaceIsTranslucentAndCastsNoShadow)
     EXPECT_EQ(DrawListsOfAlphaMode(Resource::AlphaMode::Blend), Translucent);
 }
 
+TEST(DrawMaskTest, EveryTranslucentModeIsTranslucentAndCastsNoShadow)
+{
+    EXPECT_EQ(DrawListsOfAlphaMode(Resource::AlphaMode::Additive), Translucent);
+    EXPECT_EQ(DrawListsOfAlphaMode(Resource::AlphaMode::AlphaComposite), Translucent);
+}
+
 //! Double-sidedness picks a PSO, not a list.
 TEST(DrawMaskTest, DoubleSidedLeavesTheListsAlone)
 {

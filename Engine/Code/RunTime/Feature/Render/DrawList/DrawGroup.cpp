@@ -21,6 +21,7 @@ namespace Spark::Render
         auto order = [](const PipelineVariant& v)
         {
             return eastl::make_tuple(v.m_priority, static_cast<uint32_t>(v.m_cullMode),
+                                     static_cast<uint32_t>(v.m_blendMode),
                                      static_cast<uint32_t>(v.m_featureMacros), v.m_materialShader);
         };
         return order(a) < order(b);

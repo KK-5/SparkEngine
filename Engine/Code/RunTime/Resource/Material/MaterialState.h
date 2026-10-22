@@ -5,14 +5,21 @@
 namespace Spark::Resource
 {
     //! Frozen on disk: `state`'s "Alpha Mode" is written as one of these names. Append
-    //! only -- glTF's three today, and a richer set (additive, modulate, premultiplied)
-    //! is a set of new values rather than a new key when a translucent path exists.
+    //! only -- glTF's three, then the translucent ones glTF lacks; modulate is still to come.
     enum class AlphaMode : uint8_t
     {
         Opaque,
         Mask,
         Blend,
+        Additive,
+        AlphaComposite,     // the colour is premultiplied by its opacity
     };
+
+    //! Drawn over what is behind it rather than into the opaque scene.
+    constexpr bool IsTranslucent(AlphaMode mode)
+    {
+        return mode == AlphaMode::Blend || mode == AlphaMode::Additive || mode == AlphaMode::AlphaComposite;
+    }
 
     //! A material's `state`: the values that pick a pipeline state or a render path,
     //! kept apart from the shading properties because the consumers differ -- these

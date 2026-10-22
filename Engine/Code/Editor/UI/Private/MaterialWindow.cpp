@@ -60,9 +60,11 @@ namespace Editor
         {
             switch (mode)
             {
-            case Resource::AlphaMode::Opaque: return "Opaque";
-            case Resource::AlphaMode::Mask:   return "Mask";
-            case Resource::AlphaMode::Blend:  return "Blend";
+            case Resource::AlphaMode::Opaque:         return "Opaque";
+            case Resource::AlphaMode::Mask:           return "Mask";
+            case Resource::AlphaMode::Blend:          return "Blend";
+            case Resource::AlphaMode::Additive:       return "Additive";
+            case Resource::AlphaMode::AlphaComposite: return "AlphaComposite";
             }
             return "-";
         }

@@ -1,9 +1,23 @@
 #include "PipelineVariantInterpret.h"
 
+#include "PipelineStateBuild.h"
+
 namespace Spark::Render
 {
     namespace
     {
+        //! Invalid for a surface that does not blend.
+        BlendMode BlendModeOf(Resource::AlphaMode alphaMode)
+        {
+            switch (alphaMode)
+            {
+            case Resource::AlphaMode::Blend:          return BlendMode::Translucent;
+            case Resource::AlphaMode::Additive:       return BlendMode::Additive;
+            case Resource::AlphaMode::AlphaComposite: return BlendMode::AlphaComposite;
+            default:                                  return BlendMode::Invalid;
+            }
+        }
+
         //! The macros of the features a key carries, whether or not a template implements them.
         FeatureMacro FeatureMacrosOf(PipelineKey key)
         {
@@ -32,6 +46,7 @@ namespace Spark::Render
         {
             variant.m_cullMode = RHI::CullMode::None;
         }
+        variant.m_blendMode = BlendModeOf(GetAlphaMode(key));
 
         // The features the template implements; each of them so far reads the material's code.
         variant.m_featureMacros = FilterBits(FeatureMacrosOf(key), shaderTemplate.m_featureMacros);
@@ -49,6 +64,11 @@ namespace Spark::Render
         if (variant.m_cullMode == passStates.m_rasterState.m_cullMode)
         {
             variant.m_cullMode = RHI::CullMode::Invalid;
+        }
+        if (variant.m_blendMode != BlendMode::Invalid
+            && ApplyPipelineVariant(passStates, variant).m_blendState == passStates.m_blendState)
+        {
+            variant.m_blendMode = BlendMode::Invalid;
         }
 
         return variant;

@@ -19,7 +19,9 @@ namespace Spark::Resource
             .Type("AlphaMode")
             .Data<AlphaMode::Opaque>("Opaque")
             .Data<AlphaMode::Mask>("Mask")
-            .Data<AlphaMode::Blend>("Blend");
+            .Data<AlphaMode::Blend>("Blend")
+            .Data<AlphaMode::Additive>("Additive")
+            .Data<AlphaMode::AlphaComposite>("AlphaComposite");
 
         context.Reflect<MaterialState>()
             .Type("MaterialState")
