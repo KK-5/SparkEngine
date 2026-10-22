@@ -1,11 +1,31 @@
 #include "ShadowAtlasAllocator.h"
 
+#include <CoreComponents/Tags.h>
+
 #include <RHI/HardwareQueue.h>
 #include <RHI/ResourceBuilder.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 
 namespace Spark::Render
 {
+    bool IsShadowAtlasReady(RHI::RHIContext& ctx)
+    {
+        RHI::RHIHandle atlas = RHI::NullHandle;
+        ctx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
+            [&](RHI::RHIHandle e) { atlas = e; });
+        return RHI::IsResourceReady(ctx, atlas);
+    }
+
+    RHI::SamplerState ShadowAtlasSampler()
+    {
+        RHI::SamplerState sampler = RHI::SamplerState::Create(
+            RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp);
+        sampler.m_reductionType  = RHI::ReductionType::Comparison;
+        // Reversed-Z: lit when the receiver is at or nearer than the stored occluder.
+        sampler.m_comparisonFunc = RHI::ComparisonFunc::GreaterEqual;
+        return sampler;
+    }
+
     void ShadowAtlasAllocator::Init(RHI::RHIContext& rhiCtx)
     {
         auto desc = RHI::ImageDescriptor::Create2D(

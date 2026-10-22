@@ -1,11 +1,18 @@
 #pragma once
 
 #include <RHI/Context/RHIContext.h>
+#include <RHI/Resource/Sampler/SamplerState.h>
 
 #include "ShadowPools.h"
 
 namespace Spark::Render
 {
+    //! Whether the atlas exists this frame. ShadowPass imports it then, so a later pass may read it.
+    bool IsShadowAtlasReady(RHI::RHIContext& ctx);
+
+    //! How the atlas is read: a receiver's depth compared against the stored occluder's.
+    RHI::SamplerState ShadowAtlasSampler();
+
     //! The shadow atlas image and the two pools handed out against it: tiles to rasterize
     //! into, and g_ShadowViews rows to describe them. The image is here because a tile id
     //! means nothing without it, and because a pool may hold no GPU resource — its ids come

@@ -74,22 +74,8 @@ float4 PSMain(VSOutput input) : SV_Target0
         {
             shadow = SampleShadowMask(g_ShadowMask, px, light.shadowMaskIndex);
         }
-
-        if (light.type == 3)
-        {
-            if (HasAreaLightLut())
-            {
-                color += EvaluateRectLight(light, worldPos, N, V, gbuffer.DiffuseColor,
-                                           gbuffer.SpecularColor, perceptualRoughness,
-                                           g_LTC1, g_LTC2, g_IBLSampler) * shadow;
-            }
-            continue;
-        }
-
-        float3 L;
-        float3 radiance = EvaluateLight(light, worldPos, L) * shadow;
-        color += EvaluateBRDF(N, V, L, gbuffer.DiffuseColor, gbuffer.SpecularColor,
-                              perceptualRoughness) * radiance;
+        color += EvaluateLightResponse(light, worldPos, N, V, gbuffer.DiffuseColor,
+                                       gbuffer.SpecularColor, perceptualRoughness) * shadow;
     }
 
     // Alpha is held by the blend state, so what is written here never lands.

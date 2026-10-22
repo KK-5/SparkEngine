@@ -136,8 +136,9 @@ namespace Spark::Render
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
 
-                // Only once ShadowProjectionPass has produced it: with no shadowed lights there is
-                // no mask, every m_shadowMaskIndex is -1, and the shader never reaches g_ShadowMask.
+                // Only once ShadowProjectionPass has produced it: before the atlas exists there is
+                // no mask, and ShadowViewSystem grants no tiles then, so every m_shadowMaskIndex
+                // is -1 and the shader never reaches g_ShadowMask.
                 // This read is also the edge that orders the projection before this pass.
                 if (ShadowMaskSliceCount(*RHI::RHIExecuteContext::Current()) != 0)
                 {

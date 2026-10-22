@@ -29,7 +29,7 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 | 3 | Masked | 1、宏排列 | 推后（用户 2026-10-18） |
 | 4-0 | GPU 路径的 binTable 与组改由 PSO 查找 + 排序分组从直方图得出（D14、D15），画面不变 | 1 | ✅ 完成（a ~ d）及之后的整理（七项） |
 | 4 | CPU 路径：（视图，Tag）剔除、排序分组、CPU 写记录、每组一次间接调用（D14、D15），用简单着色的半透明验证 | 4-0 及其整理 | ✅ 完成（4a ~ 4f） |
-| 5 | 半透明的着色（前向，BeforeDOF）：混合方式进变体、前向着色（5a ~ 5c） | 4 | 进行中（5a、5b 完成） |
+| 5 | 半透明的着色（前向，BeforeDOF）：混合方式进变体、前向着色（5a ~ 5c） | 4 | ✅ 完成（5a ~ 5c） |
 | 6 | Distortion | 5 | 待定（D9） |
 
 1 不碰 layout 与 shader 系统，先用纯渲染状态的变体把拆段、分桶、切换验证掉。宏排列现在不做：只改渲染状态的变体用不上它，
@@ -869,10 +869,20 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
   Zero / One，写掩码留 pass 的），断言 pass 不开独立混合：不开时 DX12 只读第 0 个、Vulkan 要求各目标相同。单元测试覆盖规则、规整与翻译。
   - 顺带修正 `RenderStates::GetHash`：原来哈希的是 `this` 的地址，同一份描述在 `RenderGraphCompiler` 的两处算出不同的哈希，PSO 缓存会建两份；
     改为按字节哈希，与按 memcmp 的 `operator==` 一致。
-- **5c 前向着色**：pass 加绑场景组；shader 按灯循环（封装成函数，给 LightGrid 留接缝），阴影按灯采 atlas，与 Lights pass 用同样的
-  条件判断哪些灯有阴影；atlas 不一定每帧都有，pass 照 ShadowProjection 先看 `ShadowAtlasTag` 是否就绪，用 scope 常量告诉 shader
-  （同 IndirectDiffuse 的 `g_AmbientOcclusionEnabled`）；IBL 与自发光；世界坐标由 `SV_Position` 与 `ViewData` 反算（同 UE），
-  不加插值量。
+- ✅ **5c 前向着色**（2026-10-22）：
+  - 共用的函数抽出来，不复制：`Lib/Lights.hlsli` 的 `EvaluateLightResponse`（任意类型的灯不含阴影的出射，矩形灯走 LTC、看 `HasAreaLightLut`），
+    Lights.hlsl 的循环体改用它；新的 `Lib/ShadingCommon.hlsli`（同 UE）放 `ComputeDiffuseColor` / `ComputeF0`，GBuffer 解码改用它们；
+    `ViewBindings.hlsli` 加 `SvPositionToWorld`（经 `viewRectMin`、`viewSizeAndInvSize` 与带 jitter 的 `invViewProj`），世界坐标由它反算（同 UE），
+    不加插值量；没有环境时的 `g_Ambient` 从 IndirectDiffuse 挪进 `SceneBindings.hlsli`。
+  - Translucency.hlsl：`GetForwardDirectLighting` 遍历 `g_LightCount`（LightGrid 只换这里遍历哪些灯）；`LightShadow` 以 `shadowMaskIndex ≥ 0`
+    判断有阴影（同 Lights pass，超出遮罩容量的灯两边都不投），按 `shadowIndex` 与 cube 面采 atlas；`GetForwardIndirectLighting` 照
+    IndirectDiffuse 与 Reflections，只用材质自己的 AO，没有屏幕空间 AO 与 SSR；粗糙度照 GBuffer 做 SpecularAA，直接光钳 0.045、
+    环境不钳；输出（直接 + 间接 + 自发光）× PreExposure 与不透明度。
+  - atlas 的就绪不另设常量（原定照 IndirectDiffuse 用 scope 常量，2026-10-22 读代码后改）：ShadowViewSystem 在 atlas 就绪前不分 tile，
+    所以没有灯有遮罩槽位，shader 走不到采样；就绪只会由否变是，调用顺序是 ShadowView → ShadowMask → SceneBinding → Build，
+    pass 看到的就绪不会晚于分 tile 时。pass 在 `IsShadowAtlasReady` 时读 `ShadowAtlas` 并绑比较采样器；这两个从 ShadowProjection 抽到
+    `ShadowAtlasAllocator.h`，两处共用。LightsPass 读 ShadowMask 的注释按这条保证改正（原写"没有投影的灯就没有遮罩"，就绪后遮罩至少一片）。
+  - pass 加绑 `MainSceneTag`。shader 用 DXC 离线编过（含所有包含改动头文件的 shader）；用户验证了灯光、阴影、IBL、矩形灯与不透明画面不变。
 
 推后的：Modulate（等宏排列，D7）、材质的 `TranslucencyPass` 字段（P9，D7）。
 
@@ -902,9 +912,16 @@ GPU 路径一个生产者，一般的类型上带了 GPU 路径的含义，GPU �
 ## 五、已知但不做
 
 - 半透明不写 Velocity，运动的半透明物体在 TAA 下拖影（UE 有让半透明输出速度的选项）。
-- 双面半透明先画背面再画正面（UE 的 two-sided separate pass）。
+- 套叠的半透明实例排不对（2026-10-22 用材质球验证时发现）：排序按实例世界包围盒中心的视图 z，一个实例包着另一个时（外壳与壳内的零件），
+  任何逐实例的一个深度值都排不出包含关系，外壳先画、零件后画就盖在外壳前表面上。凸的单个网格（编辑器材质窗口的预览形状）不受影响。
+  各引擎都没有通用解法，给的是下面几种手段，有场景需要时再挑：
+  - 双面半透明先画背面再画正面（UE 的 two-sided separate pass、HDRP 的 Back Then Front Rendering）：与现有机制最贴合，
+    双面的半透明键已拆成变体，改为"剔正面一组、剔背面一组"相邻画。
+  - 半透明的排序优先级（UE 的 `TranslucencySortPriority`）：材质或网格格式加字段、进排序键，由作者指定套叠部件的先后。
+  - 只留最前一层的深度预通道（HDRP 的 Transparent Depth Prepass）：半透明先写一份 SceneDepth 拷贝，颜色以 `Equal` 测试；
+    半透明之间互不可见，只适合作材质选项。
+  - 顺序无关透明（UE5 实验性的逐像素排序、加权混合 OIT）：新机制，结果近似或代价高。
 - 半透明投影。
-- 半透明的排序优先级（UE 的 `TranslucencySortPriority`）。
 - PSO 的录制回放预热（D11 之上的加法）。
 - 参数 buffer 按全量预留留下的空洞：每个视图、每个桶都按列表的全部实例预留，可见的远少于全部。只对剔除后的结果排段要由 GPU 决定段起点，
   而 `ExecuteIndirect` / `vkCmdDrawIndexedIndirectCount` 的参数偏移是录制参数、间接命令不能换 PSO。做到它要按（桶，网格）实例化

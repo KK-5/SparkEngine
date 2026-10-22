@@ -10,7 +10,9 @@
 #include <Pass/RenderPass.h>
 
 #include <Feature/InstanceLists/InstanceLists.h>
+#include <Binding/Scene/SceneBinding.h>
 #include <Binding/View/ViewBinding.h>
+#include <View/ShadowAtlasAllocator.h>
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
@@ -90,7 +92,7 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<ViewBindingTag, MaterialBindingTag, InstanceBindingTag>()
+            .Binds<ViewBindingTag, MainSceneTag, MaterialBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
             .Draw<TranslucentTag>()
             .Build([](RenderPassScopes& p)
@@ -104,6 +106,14 @@ namespace Spark::Render
                 s.DepthRead(RHI::AttachmentId("SceneDepth"));
                 s.Sampler(RHI::InputName("g_MatSampler"),
                     RHI::SamplerState::CreateAnisotropic(16, RHI::AddressMode::Wrap));
+
+                // Only lights granted tiles sample it, and none is until it exists.
+                if (IsShadowAtlasReady(*RHI::RHIExecuteContext::Current()))
+                {
+                    s.ReadImage(RHI::AttachmentId("ShadowAtlas")).Format(RHI::Format::R32_FLOAT)
+                        .Bind(RHI::InputName("g_ShadowAtlas"));
+                    s.Sampler(RHI::InputName("g_ShadowSampler"), ShadowAtlasSampler());
+                }
 
                 // The list's draws, once DrawListCullingSystem has made their buffer.
                 const RHI::AttachmentId& arguments = InstanceLists::CpuCulled::DrawArgumentsName();

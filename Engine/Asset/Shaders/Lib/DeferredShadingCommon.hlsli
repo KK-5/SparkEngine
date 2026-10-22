@@ -10,6 +10,8 @@
 #ifndef SPARK_LIB_DEFERRED_SHADING_COMMON_HLSLI
 #define SPARK_LIB_DEFERRED_SHADING_COMMON_HLSLI
 
+#include <Shaders/Lib/ShadingCommon.hlsli>
+
 #define SHADINGMODELID_UNLIT        0
 #define SHADINGMODELID_DEFAULT_LIT  1
 
@@ -72,9 +74,8 @@ GBufferData DecodeGBufferData(
     gbuffer.CustomData  = float4(0.0, 0.0, 0.0, 0.0);
     gbuffer.Depth       = 0.0;
 
-    // Metals have no diffuse and tint F0 with base color; dielectrics keep a flat F0.
-    gbuffer.DiffuseColor  = gbuffer.BaseColor * (1.0 - gbuffer.Metallic);
-    gbuffer.SpecularColor = lerp(0.08 * gbuffer.Specular, gbuffer.BaseColor, gbuffer.Metallic);
+    gbuffer.DiffuseColor  = ComputeDiffuseColor(gbuffer.BaseColor, gbuffer.Metallic);
+    gbuffer.SpecularColor = ComputeF0(gbuffer.Specular, gbuffer.BaseColor, gbuffer.Metallic);
     return gbuffer;
 }
 

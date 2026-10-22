@@ -30,9 +30,6 @@ cbuffer IndirectDiffuseParams : register(b0, space2)
     uint g_AmbientOcclusionEnabled;     // 0: g_AmbientOcclusion is unbound and must not be read
 };
 
-// Used when no environment is bound (no skybox, or its bake is still uploading).
-static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
-
 struct VSOutput
 {
     float4 position : SV_Position;

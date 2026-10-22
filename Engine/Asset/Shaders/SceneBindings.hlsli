@@ -77,6 +77,10 @@ bool HasEnvironmentIBL()
     return g_IBLPrefilteredMipCount > 0;
 }
 
+//! The irradiance a surface takes without an environment (no skybox, or its bake still
+//! uploading), times its base colour.
+static const float3 g_Ambient = float3(0.03, 0.03, 0.03);
+
 //! The same rule for g_LTC1 / g_LTC2, on a gate of their own: a scene with no skybox still
 //! has rect lights.
 bool HasAreaLightLut()

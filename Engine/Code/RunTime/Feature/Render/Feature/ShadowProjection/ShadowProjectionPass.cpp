@@ -2,12 +2,9 @@
 
 #include <EASTL/algorithm.h>
 
-#include <CoreComponents/Tags.h>
-
 #include <RHI/HardwareQueue.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
-#include <RHI/Resource/Sampler/SamplerState.h>
 
 #include <Pass/PassContext.h>
 #include <Pass/RenderPass.h>
@@ -17,6 +14,7 @@
 #include <RenderGraph/RenderGraphUtils.h>
 
 #include <Binding/Scene/SceneBinding.h>
+#include <View/ShadowAtlasAllocator.h>
 #include <View/ShadowAtlasLayout.h>
 #include <View/ShadowMaskLayout.h>
 #include <Binding/View/ViewBinding.h>
@@ -42,10 +40,7 @@ namespace Spark::Render
 
     uint32_t ShadowMaskSliceCount(RHI::RHIContext& ctx)
     {
-        RHI::RHIHandle atlas = RHI::NullHandle;
-        ctx.GetView<ShadowAtlasTag>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle e) { atlas = e; });
-        if (!RHI::IsResourceReady(ctx, atlas))
+        if (!IsShadowAtlasReady(ctx))
         {
             return 0;
         }
@@ -142,12 +137,7 @@ namespace Spark::Render
                 s.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
                 s.ReadImage(RHI::AttachmentId("ShadowAtlas")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_ShadowAtlas"));
 
-                RHI::SamplerState shadowSampler = RHI::SamplerState::Create(
-                    RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp);
-                shadowSampler.m_reductionType  = RHI::ReductionType::Comparison;
-                // Reversed-Z: lit when the receiver is at or nearer than the stored occluder.
-                shadowSampler.m_comparisonFunc = RHI::ComparisonFunc::GreaterEqual;
-                s.Sampler(RHI::InputName("g_ShadowSampler"), shadowSampler);
+                s.Sampler(RHI::InputName("g_ShadowSampler"), ShadowAtlasSampler());
 
                 // With no shadowed light there is no draw, but the mask still exists at one
                 // slice: it clears to 1, which already reads as fully lit, and keeping it bound

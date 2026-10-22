@@ -11,6 +11,7 @@
 #include <Shaders/LightData.hlsli>
 #include <Shaders/SceneBindings.hlsli>
 #include <Shaders/Lib/LTC.hlsli>
+#include <Shaders/Lib/BRDF/BRDF.hlsli>
 
 // Returns the unshadowed incident radiance at worldPos for this light, and writes L (unit
 // vector pointing from the surface toward the light).
@@ -92,6 +93,26 @@ float3 EvaluateRectLight(LightData light, float3 worldPos, float3 N, float3 V,
 
     return light.color * light.intensity * (window * window)
          * (diffuseColor * diffuse + specularColor * specular);
+}
+
+// The unshadowed outgoing radiance toward V from one light of any type: a rect light
+// integrated over its emitter, any other through its single L.
+float3 EvaluateLightResponse(LightData light, float3 worldPos, float3 N, float3 V,
+                             float3 diffuseColor, float3 F0, float perceptualRoughness)
+{
+    if (light.type == 3)
+    {
+        if (!HasAreaLightLut())
+        {
+            return float3(0.0, 0.0, 0.0);
+        }
+        return EvaluateRectLight(light, worldPos, N, V, diffuseColor, F0, perceptualRoughness,
+                                 g_LTC1, g_LTC2, g_IBLSampler);
+    }
+
+    float3 L;
+    float3 radiance = EvaluateLight(light, worldPos, L);
+    return EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness) * radiance;
 }
 
 #endif // SPARK_LIB_LIGHTS_HLSLI

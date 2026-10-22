@@ -29,4 +29,14 @@ float ConvertFromDeviceZ(ViewData view, float deviceZ)
         : (deviceZ - view.invDeviceZToViewZ.y) / view.invDeviceZToViewZ.x;
 }
 
+//! A pixel shader's SV_Position back to the world, through the jittered matrix it was
+//! rasterized with.
+float3 SvPositionToWorld(ViewData view, float4 svPosition)
+{
+    float2 uv  = (svPosition.xy - view.viewRectMin.xy) * view.viewSizeAndInvSize.zw;
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    float4 worldH = mul(view.invViewProj, float4(ndc, svPosition.z, 1.0));
+    return worldH.xyz / worldH.w;
+}
+
 #endif // SPARK_VIEW_BINDINGS_HLSL
