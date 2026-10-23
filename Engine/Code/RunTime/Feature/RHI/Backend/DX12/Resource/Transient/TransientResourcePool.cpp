@@ -77,31 +77,7 @@ namespace Spark::RHI::DX12
         const RHI::TransientResourcePoolDescriptor& descriptor)
     {
         Device& device = static_cast<Device&>(deviceBase);
-
-        D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
-        allocatorDesc.Flags    = D3D12MA::ALLOCATOR_FLAG_NONE;
-        allocatorDesc.pDevice  = device.GetDX12Device();
-        allocatorDesc.pAdapter = device.GetPhysicalDevice().GetAdapter();
-
-        ComPtr<D3D12MA::Allocator> pAllocator;
-        if (FAILED(D3D12MA::CreateAllocator(&allocatorDesc, &pAllocator)))
-        {
-            LOG_ERROR("[TransientResourcePool] Failed to initialize D3D12MA::Allocator.");
-            return RHI::ResultCode::Fail;
-        }
-        m_allocator = pAllocator.Get();
-
-        D3D12_FEATURE_DATA_D3D12_OPTIONS options = m_allocator->GetD3D12Options();
-        ASSERT(options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2,
-               "TransientResourcePool requires D3D12_RESOURCE_HEAP_TIER_2.");
-        if (options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
-        {
-            LOG_ERROR("[TransientResourcePool] Device does not support D3D12_RESOURCE_HEAP_TIER_2 "
-                      "(observed tier: {}). Pool cannot operate on this device.",
-                      static_cast<int>(options.ResourceHeapTier));
-            m_allocator.reset();
-            return RHI::ResultCode::Fail;
-        }
+        m_allocator = device.GetAllocator();
 
         D3D12MAReleaseQueue::Descriptor mqDesc;
         mqDesc.m_collectLatency = device.GetDescriptor().m_frameCountMax;
@@ -121,7 +97,7 @@ namespace Spark::RHI::DX12
             {
                 m_buckets.clear();
                 m_releaseQueue.Shutdown();
-                m_allocator.reset();
+                m_allocator = nullptr;
                 return RHI::ResultCode::Fail;
             }
         }
@@ -864,6 +840,6 @@ namespace Spark::RHI::DX12
         m_buckets.clear();
 
         m_releaseQueue.Shutdown();
-        m_allocator.reset();
+        m_allocator = nullptr;
     }
 }

@@ -47,7 +47,9 @@ namespace Spark::RHI::DX12
         void ShutdownInternal() override;
         //////////////////////////////////////////////////////////////////////////
 
-        Ptr<D3D12MA::Allocator> m_d3dmaAllocator;
+        // A pool of the device's allocator. Its allocations wait out the GPU here rather than on
+        // the device: D3D12MA releases a pool only after all of them.
+        Ptr<D3D12MA::Pool> m_pool;
         D3D12MAReleaseQueue m_releaseQueue;
     };
 }

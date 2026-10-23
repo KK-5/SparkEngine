@@ -32,7 +32,8 @@ namespace Spark::RHI::DX12
     private:
         friend class ID3D12Factory; // shutdown object
 
-        Ptr<D3D12MA::Allocator> m_allocator;
+        // The device's, not held: the factory shuts this down before the device goes.
+        D3D12MA::Allocator* m_allocator = nullptr;
         D3D12MAReleaseQueue m_releaseQueue;
     };
 }

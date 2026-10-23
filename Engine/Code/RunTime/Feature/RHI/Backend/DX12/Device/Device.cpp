@@ -480,6 +480,16 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
+        // Pools put buffers and every kind of texture in one heap.
+        D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+        dx12Device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+        if (options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
+        {
+            LOG_ERROR("[DX12 Device] Resource heap tier {} is below the required tier 2.",
+                      static_cast<int>(options.ResourceHeapTier));
+            return RHI::ResultCode::Fail;
+        }
+
         if (validationMode != RHI::ValidationMode::Disabled)
         {
             EnableDebugDeviceFeatures(dx12Device);
@@ -494,7 +504,24 @@ namespace Spark::RHI::DX12
 
         InitFeatures();
 
+        D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
+        allocatorDesc.Flags    = D3D12MA::ALLOCATOR_FLAG_NONE;
+        allocatorDesc.pDevice  = m_dx12Device.get();
+        allocatorDesc.pAdapter = dx12PhysicalDevice.GetAdapter();
+        ComPtr<D3D12MA::Allocator> allocator;
+        if (FAILED(D3D12MA::CreateAllocator(&allocatorDesc, &allocator)))
+        {
+            LOG_ERROR("[DX12 Device] Failed to initialize the D3D12MemoryAllocator.");
+            return RHI::ResultCode::Fail;
+        }
+        m_allocator = allocator.Get();
+
         return InitCommandSignatures();
+    }
+
+    D3D12MA::Allocator* Device::GetAllocator() const
+    {
+        return m_allocator.get();
     }
 
     RHI::ResultCode Device::InitCommandSignatures()
@@ -540,6 +567,9 @@ namespace Spark::RHI::DX12
         {
             signature = nullptr;
         }
+
+        // After every pool: the factory shuts them down before the device goes.
+        m_allocator = nullptr;
 
         m_dxgiFactory = nullptr;
         m_dxgiAdapter = nullptr;

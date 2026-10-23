@@ -26,23 +26,23 @@ namespace Spark::RHI::DX12
         return nullptr;
     }
 
-    RHI::ResultCode ImagePool::InitInternal(RHI::Device& deviceBase, const RHI::ImagePoolDescriptor&)
+    RHI::ResultCode ImagePool::InitInternal(RHI::Device& deviceBase, const RHI::ImagePoolDescriptor& descriptor)
     {
         Device& device = static_cast<Device&>(deviceBase);
 
-        // ImagePool 分配的内存总是commited的
-        D3D12MA::ALLOCATOR_DESC desc = {};
-        desc.Flags = D3D12MA::ALLOCATOR_FLAG_ALWAYS_COMMITTED;
-        desc.pDevice = device.GetDX12Device();
-        desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
+        // Every image gets memory of its own.
+        D3D12MA::POOL_DESC poolDesc = {};
+        poolDesc.Flags               = D3D12MA::POOL_FLAG_ALWAYS_COMMITTED;
+        poolDesc.HeapProperties.Type = ConvertHeapType(descriptor.m_heapMemoryLevel, descriptor.m_hostMemoryAccess);
+        poolDesc.HeapFlags           = D3D12_HEAP_FLAG_NONE;
 
-        ComPtr<D3D12MA::Allocator> pAllocator;
-        if (FAILED(D3D12MA::CreateAllocator(&desc, &pAllocator)))
+        ComPtr<D3D12MA::Pool> pool;
+        if (FAILED(device.GetAllocator()->CreatePool(&poolDesc, &pool)))
         {
-            LOG_ERROR("[ImagePool] Failed to initialize the D3D12MemoryAllocator.");
+            LOG_ERROR("[ImagePool] Failed to create the D3D12MA pool of image pool {}.", GetName().GetCStr());
             return RHI::ResultCode::Fail;
         }
-        m_d3dmaAllocator = pAllocator.Get();
+        m_pool = pool.Get();
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
@@ -54,7 +54,8 @@ namespace Spark::RHI::DX12
     void ImagePool::ShutdownInternal()
     {
         m_releaseQueue.Shutdown();
-        m_d3dmaAllocator.reset();
+        // Last: D3D12MA releases a pool only once all its allocations are gone.
+        m_pool.reset();
     }
 
     RHI::ResultCode ImagePool::InitImageInternal(const RHI::ImageInitRequest& request)
@@ -75,10 +76,8 @@ namespace Spark::RHI::DX12
         D3D12_RESOURCE_DESC resourceDesc;
         ConvertImageDescriptor(imageDesc, resourceDesc);
 
-        // Read heap type from pool descriptor (Device → DEFAULT, Host+Read → READBACK)
-        const RHI::ImagePoolDescriptor& poolDesc = GetDescriptor();
         D3D12MA::ALLOCATION_DESC allocDesc = {};
-        allocDesc.HeapType = ConvertHeapType(poolDesc.m_heapMemoryLevel, poolDesc.m_hostMemoryAccess);
+        allocDesc.CustomPool = m_pool.get();
         allocDesc.Flags = D3D12MA::ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
 
         // Clear values only apply when the image is a render target or depth stencil.
@@ -95,7 +94,7 @@ namespace Spark::RHI::DX12
         // state starts at no access, so the first barrier discards from UNDEFINED anyway.
         const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
         ComPtr<D3D12MA::Allocation> allocation = nullptr;
-        HRESULT result = m_d3dmaAllocator->CreateResource3(
+        HRESULT result = device.GetAllocator()->CreateResource3(
             &allocDesc,
             &resourceDesc1,
             D3D12_BARRIER_LAYOUT_COMMON,

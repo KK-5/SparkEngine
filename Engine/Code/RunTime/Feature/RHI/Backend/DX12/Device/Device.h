@@ -36,6 +36,10 @@ namespace Spark::RHI::DX12
         //! there is one per type, made with the device.
         ID3D12CommandSignature* GetCommandSignature(IndirectCommandType type) const;
 
+        //! The one allocator of the device. Every pool allocates through it, and is shut
+        //! down before it goes.
+        D3D12MA::Allocator* GetAllocator() const;
+
     private:
         //////////////////////////////
         /// RHI::Device override
@@ -53,6 +57,7 @@ namespace Spark::RHI::DX12
         eastl::array<Ptr<ID3D12CommandSignature>, static_cast<size_t>(IndirectCommandType::Count)> m_commandSignatures;
 
         Ptr<ID3D12DeviceX> m_dx12Device;
+        Ptr<D3D12MA::Allocator> m_allocator;
         Ptr<IDXGIAdapterX> m_dxgiAdapter;
         Ptr<IDXGIFactoryX> m_dxgiFactory;
     };

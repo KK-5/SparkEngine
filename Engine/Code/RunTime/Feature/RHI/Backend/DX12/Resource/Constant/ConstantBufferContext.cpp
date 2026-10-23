@@ -9,18 +9,7 @@ namespace Spark::RHI::DX12
     RHI::ResultCode ConstantBufferContext::Init(Device& device)
     {
         DeviceObject::Init(device);
-
-        D3D12MA::ALLOCATOR_DESC desc = {};
-        desc.pDevice = device.GetDX12Device();
-        desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
-
-        ComPtr<D3D12MA::Allocator> pAllocator;
-        if (FAILED(D3D12MA::CreateAllocator(&desc, &pAllocator)))
-        {
-            LOG_ERROR("[ConstantBufferContext] Failed to initialize the D3D12MemoryAllocator.");
-            return RHI::ResultCode::Fail;
-        }
-        m_allocator = pAllocator.Get();
+        m_allocator = device.GetAllocator();
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;

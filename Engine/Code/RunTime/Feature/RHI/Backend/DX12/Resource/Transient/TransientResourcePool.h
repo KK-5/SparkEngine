@@ -118,7 +118,8 @@ namespace Spark::RHI::DX12
         HeapBucket&       CurrentBucket()       { return m_buckets[m_currentSlot]; }
         const HeapBucket& CurrentBucket() const { return m_buckets[m_currentSlot]; }
 
-        Ptr<D3D12MA::Allocator>   m_allocator;
+        // The device's, not held: the pool is shut down before the device goes.
+        D3D12MA::Allocator*       m_allocator = nullptr;
         eastl::vector<HeapBucket> m_buckets;
         uint32_t                  m_currentSlot = 0;
 

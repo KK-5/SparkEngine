@@ -71,7 +71,6 @@ namespace Spark::RHI
             constexpr uint64_t MediumStagingBufferPageSizeInBytes  = 2ul   * 1024 * 1024;
             constexpr uint64_t LargestStagingBufferPageSizeInBytes = 128ul * 1024 * 1024;
             constexpr uint64_t ImagePoolPageSizeInBytes            = 2ul   * 1024 * 1024;
-            constexpr uint64_t BufferPoolPageSizeInBytes           = 16ul  * 1024 * 1024;
         }
     } // namespace DefaultValues
 

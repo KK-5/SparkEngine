@@ -53,12 +53,14 @@ namespace Spark::RHI::DX12
         RHI::Buffer* GetBaseBuffer() const override;
         //////////////////////////////////////////////////////////////////////////
 
-        RHI::ResultCode InitBaseBuffer(const RHI::BufferPoolDescriptor& descriptor);
+        RHI::ResultCode InitBaseBuffer(Device& device, const RHI::BufferPoolDescriptor& descriptor);
         // InitBufferInternal's two ways: a resource of the buffer's own, or a part of the base buffer.
         RHI::ResultCode InitUniqueBuffer(Buffer& buffer, const RHI::BufferDescriptor& descriptor);
         RHI::ResultCode InitSubAllocatedBuffer(Buffer& buffer, const RHI::BufferDescriptor& descriptor);
 
-        Ptr<D3D12MA::Allocator> m_allocator;
+        // A pool of the device's allocator. Its allocations wait out the GPU here rather than on
+        // the device: D3D12MA releases a pool only after all of them.
+        Ptr<D3D12MA::Pool> m_pool;
         D3D12MAReleaseQueue m_releaseQueue;
 
         // Only in a pool with a budget: the one native buffer every buffer of the pool is a

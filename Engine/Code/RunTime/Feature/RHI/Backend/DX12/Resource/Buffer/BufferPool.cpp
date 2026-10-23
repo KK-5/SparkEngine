@@ -46,37 +46,20 @@ namespace Spark::RHI::DX12
     {
         Device& device = static_cast<Device&>(deviceBase);
 
-        uint32_t bufferPageSize = RHI::DefaultValues::Memory::BufferPoolPageSizeInBytes;
+        D3D12MA::POOL_DESC poolDesc = {};
+        poolDesc.Flags                  = D3D12MA::POOL_FLAG_NONE;
+        poolDesc.HeapProperties.Type    = ConvertHeapType(descriptorBase.m_heapMemoryLevel, descriptorBase.m_hostMemoryAccess);
+        poolDesc.HeapFlags              = D3D12_HEAP_FLAG_NONE;
+        poolDesc.BlockSize              = descriptorBase.m_blockSizeInBytes;
+        poolDesc.MinAllocationAlignment = descriptorBase.m_minAllocationAlignment;
 
-        if (descriptorBase.m_largestPooledAllocationSizeInBytes > 0)
+        ComPtr<D3D12MA::Pool> pool;
+        if (FAILED(device.GetAllocator()->CreatePool(&poolDesc, &pool)))
         {
-            bufferPageSize = eastl::max<uint32_t>(bufferPageSize, static_cast<uint32_t>(descriptorBase.m_largestPooledAllocationSizeInBytes));
+            LOG_ERROR("[BufferPool] Failed to create the D3D12MA pool of buffer pool {}.", GetName().GetCStr());
+            return RHI::ResultCode::Fail;
         }
-
-        D3D12MA::ALLOCATOR_DESC desc = {};
-        desc.pDevice = device.GetDX12Device();
-        desc.pAdapter = device.GetPhysicalDevice().GetAdapter();
-        desc.PreferredBlockSize = bufferPageSize;
-
-        ComPtr<D3D12MA::Allocator> pAllocator = nullptr;
-        //desc.Flags = D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
-        desc.Flags = D3D12MA::ALLOCATOR_FLAG_NONE;
-        HRESULT allocatorCreateResult = D3D12MA::CreateAllocator(&desc, &pAllocator);
-        if (FAILED(allocatorCreateResult))
-        {
-            // Compatibility fallback: some older Windows 10 D3D12 runtimes reject
-            // D3D12_HEAP_FLAG_CREATE_NOT_ZEROED (0x1000) used by this allocator flag.
-            desc.Flags = D3D12MA::ALLOCATOR_FLAG_NONE;
-            allocatorCreateResult = D3D12MA::CreateAllocator(&desc, &pAllocator);
-            if (FAILED(allocatorCreateResult))
-            {
-                LOG_ERROR("[BufferPool] Failed to initialize the D3D12MemoryAllocator.");
-                return RHI::ResultCode::Fail;
-            }
-
-            LOG_WARN("[BufferPool] D3D12 allocator not-zeroed heaps are unsupported on this runtime, fallback to zeroed heaps.");
-        }
-        m_allocator = pAllocator.Get();
+        m_pool = pool.Get();
 
         D3D12MAReleaseQueue::Descriptor releaseQueueDescriptor;
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
@@ -88,13 +71,13 @@ namespace Spark::RHI::DX12
             virtualBlockReleaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
             m_virtualBlockReleaseQueue.Init(virtualBlockReleaseQueueDescriptor);
 
-            return InitBaseBuffer(descriptorBase);
+            return InitBaseBuffer(device, descriptorBase);
         }
 
         return RHI::ResultCode::Success;
     }
 
-    RHI::ResultCode BufferPool::InitBaseBuffer(const RHI::BufferPoolDescriptor& descriptor)
+    RHI::ResultCode BufferPool::InitBaseBuffer(Device& device, const RHI::BufferPoolDescriptor& descriptor)
     {
         // Every buffer of the pool is used through this one, so it takes all the pool allows.
         RHI::BufferDescriptor bufferDescriptor;
@@ -106,12 +89,12 @@ namespace Spark::RHI::DX12
         const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
 
         D3D12MA::ALLOCATION_DESC allocDesc = {};
-        allocDesc.HeapType = ConvertHeapType(descriptor.m_heapMemoryLevel, descriptor.m_hostMemoryAccess);
+        allocDesc.CustomPool = m_pool.get();
         // Nothing is placed beside it.
         allocDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED;
 
         ComPtr<D3D12MA::Allocation> allocation = nullptr;
-        HRESULT result = m_allocator->CreateResource3(
+        HRESULT result = device.GetAllocator()->CreateResource3(
             &allocDesc,
             &resourceDesc1,
             D3D12_BARRIER_LAYOUT_UNDEFINED,
@@ -164,7 +147,8 @@ namespace Spark::RHI::DX12
         // Each part holds the block, which goes with the last of them.
         m_virtualBlockReleaseQueue.Shutdown();
         m_virtualBlock.reset();
-        m_allocator.reset();
+        // Last: D3D12MA releases a pool only once all its allocations are gone.
+        m_pool.reset();
     }
 
     RHI::ResultCode BufferPool::InitSubAllocatedBuffer(Buffer& buffer, const RHI::BufferDescriptor& bufferDescriptor)
@@ -216,13 +200,13 @@ namespace Spark::RHI::DX12
         ConvertBufferDescriptor(bufferDescriptor, resourceDesc);
 
         D3D12MA::ALLOCATION_DESC allocDesc = {};
-        allocDesc.HeapType = ConvertHeapType(GetDescriptor().m_heapMemoryLevel, GetDescriptor().m_hostMemoryAccess);
+        allocDesc.CustomPool = m_pool.get();
         allocDesc.Flags = D3D12MA::ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
 
         // Buffers have no layout; upload / readback heaps included.
         const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
         ComPtr<D3D12MA::Allocation> allocation = nullptr;
-        HRESULT result = m_allocator->CreateResource3(
+        HRESULT result = GetDevice().GetAllocator()->CreateResource3(
             &allocDesc,
             &resourceDesc1,
             D3D12_BARRIER_LAYOUT_UNDEFINED,
