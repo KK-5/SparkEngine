@@ -1,10 +1,14 @@
 #pragma once
 
+#include <mutex>
+
 #include <Object/Object.h>
+#include <Object/ObjectCollector.h>
 #include <Base.h>
 
 #include <RHI/Base.h>
 #include <RHI/Format.h>
+#include <RHI/Bus/FrameEventBus.h>
 #include "DeviceDescriptor.h"
 #include "PhysicalDevice.h"
 #include "DeviceFeatures.h"
@@ -13,6 +17,7 @@
 namespace Spark::RHI
 {
     class Device: public Object
+                , public FrameEventBus::Handler
     {
     public:
         virtual ~Device() = default;
@@ -46,6 +51,14 @@ namespace Spark::RHI
         //! from there and the bus gives them no ordering among themselves.
         void BeginFrame(uint32_t frameIndex);
 
+        //! Holds the object until the GPU has finished the work submitted so far, then drops
+        //! it. What has to wait goes in the object's destructor.
+        void QueueForRelease(Ptr<Object> object);
+
+        //! Drops everything queued at once. Only once the GPU is idle, and before the pools
+        //! are shut down: what is queued may hold resources of theirs.
+        void FlushReleaseQueue();
+
     protected:
         DeviceFeatures m_features;
         DeviceLimits m_limits;
@@ -55,6 +68,9 @@ namespace Spark::RHI
     
     private:
         void Shutdown() override final;
+
+        // FrameEventBus
+        void OnFrameEnd() override;
 
         // backend
         //! Called when just the device is being initialized.
@@ -74,5 +90,11 @@ namespace Spark::RHI
         Ptr<PhysicalDevice> m_physicalDevice;
         bool m_isInFrame = false;
         uint32_t m_frameIndex = 0;
+
+        struct ReleaseQueueTraits : ObjectCollectorTraits
+        {
+            using MutexType = std::mutex;
+        };
+        ObjectCollector<ReleaseQueueTraits> m_releaseQueue;
     };
 }

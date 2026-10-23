@@ -212,8 +212,10 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 
 **R2　`QueueForRelease(Ptr<Object>)`**
 
-- 加在 `RHI::Device` 上，实现在 RHI 基类：Core 的 `ObjectCollector`，延迟 `frameCountMax` 帧，帧末回收；Device
-  关闭时全部回收，之后才销毁 Allocator。
+- 加在 `RHI::Device` 上，实现在 RHI 基类：Core 的 `ObjectCollector`，延迟 `frameCountMax` 帧。Device 接
+  `FrameEventBus`，在 `OnFrameEnd` 回收，和池遵守同一个帧约定，不依赖 RenderGraph（只链 SparkRHI 的样例自己广播）。
+- 关闭时在 `RHIInterface::ShutdownInternal` 清空上下文之后全部回收（`FlushReleaseQueue`），早于 Factory 关闭所有池，
+  排进来的对象可以间接持有 RHI 资源；`Device::Shutdown` 再兜底回收一次。
 - 现有按类型分开的释放队列先不动。
 - 暂无使用方，编译通过即可；渲染层的区间对象是第一个用户。
 
@@ -261,6 +263,17 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 零散 Draw（已定，先做）：`RenderScope::Draw(arguments, span<const Attachment> vertices[, IndexStream])`，
 缓冲经 `p.Import` + `s.InputAssembly` 成为附件，步长取自 Pass 的输入布局；同时删除 `MeshGeometryComposer`、
 `DrawItemRouter`、`GeometrySpec`、`Accepts`。场景内容走 indirect，Draw 只用于零散用途。
+
+帧号统一到 Device（方向已定，R2 之后再做）：
+
+- 现状有三个计数器：交换链的图像索引（`RenderSystem` 取来传给各系统和 `ExecutePipeline`，经
+  `Device::BeginFrame` 转述，`RefreshPerFrameBackings` 还用它选后备缓冲）、`CommandQueueContext::m_currentFrameIndex`
+  （选 CPU 等的帧 Fence）。交换链 Resize 把图像索引归 0，另两个不归，从此错开。只链 SparkRHI 的样例不调
+  `BeginFrame`，`GetFrameIndex()` 恒为 0。
+- 做法：Device 接 `FrameEventBus`，在 `OnFrameEnd` 推进唯一的计数器——不在 `OnFrameBegin` 推进，因为总线不定
+  处理者顺序，`OnFrameBegin` 里读帧号的（如 `RHIResourceSystem`）会读到新旧不定的值。RenderSystem、各系统、
+  `CommandQueueContext` 的帧 Fence 都改用它；交换链只用自己的图像索引选后备缓冲；删掉 `BeginFrame` 和
+  `ExecutePipeline` 的 `frameIndex` 参数。
 
 系统 Pass 与管线分开登记（方向已定，做法到时再设计）：
 

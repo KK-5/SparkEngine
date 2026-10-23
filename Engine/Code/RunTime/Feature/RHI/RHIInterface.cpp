@@ -17,6 +17,13 @@ namespace Spark::RHI
 
         m_context.Clear();
         RHIExecuteContext::Pop();
+
+        // After the components that may queue on their way out, before the backend shuts the
+        // pools down: what is queued may hold resources of theirs.
+        if (m_device)
+        {
+            m_device->FlushReleaseQueue();
+        }
     }
 
     PhysicalDeviceList RHIInterface::EnumeratePhysicalDevices() const

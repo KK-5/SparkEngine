@@ -35,6 +35,14 @@ namespace Spark::RHI
             m_physicalDevice = nullptr;
         }
 
+        if (resultCode == ResultCode::Success)
+        {
+            ObjectCollector<ReleaseQueueTraits>::Descriptor releaseQueueDescriptor;
+            releaseQueueDescriptor.m_collectLatency = m_descriptor.m_frameCountMax;
+            m_releaseQueue.Init(releaseQueueDescriptor);
+            FrameEventBus::Handler::BusConnect();
+        }
+
         return resultCode;
     }
 
@@ -42,9 +50,27 @@ namespace Spark::RHI
     {
         if (IsInitialized())
         {
+            FrameEventBus::Handler::BusDisconnect();
+            // Before the backend goes: what is queued may still reach its allocator.
+            FlushReleaseQueue();
             ShutdownInternal();
             m_physicalDevice = nullptr;
         }
+    }
+
+    void Device::QueueForRelease(Ptr<Object> object)
+    {
+        m_releaseQueue.QueueForCollect(eastl::move(object));
+    }
+
+    void Device::FlushReleaseQueue()
+    {
+        m_releaseQueue.Collect(true);
+    }
+
+    void Device::OnFrameEnd()
+    {
+        m_releaseQueue.Collect();
     }
 
     const PhysicalDevice& Device::GetPhysicalDevice() const
