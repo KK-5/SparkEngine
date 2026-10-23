@@ -130,8 +130,9 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
   系统里。
 - **reserved Buffer 由 `BufferDescriptor` 标记**，仍走池的 `InitBuffer`，池按标记直接调设备 API 创建
   （`CreateReservedResource` / 带 sparse 标志的 `vkCreateBuffer`，D3D12MA / VMA 都不创建 reserved 资源），注册在
-  池上，释放走原有的延迟释放。标记存在 Buffer 的描述符上，映射时据此校验。约束：大小是页的整数倍、不带初始数据、
-  只在设备堆、瞬态资源不能是 reserved。
+  池上，释放走原有的延迟释放。标记存在 Buffer 的描述符上，映射时据此校验。约束：大小是页的整数倍、不能 Map
+  （它没有自己的内存）、因而不带初始数据、瞬态资源不能是 reserved。不限池的堆类型：池的堆类型只决定池里普通分配
+  的内存，reserved Buffer 不分配内存。
 - **后备是池里普通分配的 placed Buffer**，不带 bind flags，没有专门的入口。池不知道自己是不是后备，约束由上层和
   后端各自保证：
   - 对齐：上层把池描述符的最小分配对齐设为页大小（`DeviceLimits` 给出）。
@@ -152,9 +153,10 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
   队列不需额外等待，别的队列用过该页时用现有 `Signal` / `Wait` 等它；先解除映射再放掉后备 Buffer，后端在后备
   释放时检查它是否还有页映射着。
 - 图导入整个 reserved 资源，按 §二 整资源同步；映射不进图。
-- 特性要求（Tiled Resources Tier，与 Resource Heap Tier 是两套分级）：DX12 Tiled Resources Tier 1 下读未映射页
-  未定义，Tier 2 起读 0；Vulkan 需要 `sparseBinding` +
-  `sparseResidencyBuffer` / `sparseResidencyImage2D`，移动端多数和 MoltenVK 不支持。
+- 特性要求（Tiled Resources Tier，与 Resource Heap Tier 是两套分级）是引擎的最低要求，设备初始化时检查，不支持
+  的设备不能运行引擎，RHI 不设特性开关：DX12 Tiled Resources Tier 2（Tier 1 下读未映射页未定义，Tier 2 起读 0）；
+  Vulkan `sparseBinding` + `sparseResidencyBuffer`（Image 再加 `sparseResidencyImage2D`）+
+  `residencyNonResidentStrict`。移动端多数和 MoltenVK 不支持。
 
 ## 七、推广到 Image
 
@@ -221,11 +223,26 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 
 **R3　reserved Buffer**
 
-- `BufferDescriptor` 加 reserved 标记；池的 `InitBuffer` 见标记就调设备 API 创建（DX12 `CreateReservedResource`），
-  不经 D3D12MA，注册在池上，释放走 `QueueForRelease(ID3D12Object)`。
-- 校验：大小是页的整数倍、不带初始数据、只在设备堆、设备支持 tiled resources；瞬态资源不能是 reserved。
-- `DeviceLimits` 加页大小，`DeviceFeatures` 记 Tiled Resources Tier。
-- 后备不需要新代码：上层建一个最小分配对齐为页大小的池，`InitBuffer` 时传 `BindFlags::None`。
+- `BufferDescriptor` 加 `bool m_reserved`（Vulkan 对应 `SPARSE_BINDING | SPARSE_RESIDENCY`）。
+- `DeviceLimits` 加 `m_reservedPageSizeInBytes`，DX12 在 `InitializeLimits` 填 `D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES`
+  （64KB）；Vulkan 以后取一个 sparse Buffer 内存需求的对齐。上层据此设后备池的最小对齐、定 reserved Buffer 的大小。
+  `DeviceFeatures` 不加字段：Tiled Resources Tier 2 是最低要求，`Device::InitInternal` 检查，不够就初始化失败。
+  现有 `m_tiledResource` 保持原含义（`StreamingImagePool` / DX12 `Image` 在用）。
+- `ID3D12DeviceX` 从 `ID3D12Device6` 改为 `ID3D12Device10`：建 reserved 资源并给初始 layout 要
+  `CreateReservedResource2`。`InitInternal` 对 `ID3D12DeviceX` 的查询本就保证它，删掉单独查 Device10 的那段，只留
+  增强屏障的检查。
+- RHI 校验：reserved Buffer 大小是页的整数倍、不带初始数据；`MapBuffer` 拒绝 reserved Buffer（不论池在哪种堆）；
+  RHI `TransientResourcePool` 拒绝 reserved 的瞬态 Buffer。
+- DX12 `BufferPool`：`InitBufferInternal` 加第三个分支，reserved 用 `CreateReservedResource2`（初始 layout
+  `UNDEFINED`）创建，不经 D3D12MA，`MemoryView(Memory*, Buffer, 0, size, 0)` 包起来——GPU 地址照常，`GetHeap()`
+  为空，R4 据此区分它和后备。`ShutdownResourceInternal` 遇 reserved 没有 D3D12MA 分配可排，把 `ID3D12Resource`
+  交给 `Service<ID3D12FactoryInterface>::Get()->QueueForRelease`，再清空内存视图。
+- DX12 `CommandList::QueueBarrier`：reserved Buffer 跳过 `GetHeapProperties` 的上传 / 回读堆判断——那条规则针对
+  建在这类堆里、状态固定为 `GENERIC_READ` 的资源；reserved 资源没有所属的堆，按自己的状态走屏障，与映射上的内存
+  无关。
+- 不用改：View、屏障、导入图照常（它就是一个原生资源）；后备不需要新代码，上层建一个最小分配对齐为页大小的池，
+  `InitBuffer` 时传 `BindFlags::None`。
+- 验证：暂无使用方，编译通过、编辑器照常即可；与 R4 一起在 SandBox 样例里实测。
 
 **R4　`CommandQueue::UpdateTileMappings`**
 
