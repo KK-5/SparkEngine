@@ -54,7 +54,9 @@ namespace Spark::RHI::DX12
         //////////////////////////////////////////////////////////////////////////
 
         RHI::ResultCode InitBaseBuffer(Device& device, const RHI::BufferPoolDescriptor& descriptor);
-        // InitBufferInternal's two ways: a resource of the buffer's own, or a part of the base buffer.
+        // InitBufferInternal's three ways: a reserved resource, a resource of the buffer's own, or
+        // a part of the base buffer.
+        RHI::ResultCode InitReservedBuffer(Buffer& buffer, const RHI::BufferDescriptor& descriptor);
         RHI::ResultCode InitUniqueBuffer(Buffer& buffer, const RHI::BufferDescriptor& descriptor);
         RHI::ResultCode InitSubAllocatedBuffer(Buffer& buffer, const RHI::BufferDescriptor& descriptor);
 

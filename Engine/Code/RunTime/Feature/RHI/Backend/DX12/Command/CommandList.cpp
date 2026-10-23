@@ -634,8 +634,10 @@ namespace Spark::RHI::DX12
 
         // Upload / readback heaps are CPU-visible and never transition. Asked of the native
         // resource: the buffer's pool is not always a BufferPool (a transient buffer's is not).
+        // A reserved buffer is in no heap whatever memory is mapped onto it, and the call fails.
         D3D12_HEAP_PROPERTIES heapProperties {};
-        if (SUCCEEDED(buffer.GetMemoryView().GetMemory()->GetHeapProperties(&heapProperties, nullptr))
+        if (!buffer.GetDescriptor().m_reserved
+            && SUCCEEDED(buffer.GetMemoryView().GetMemory()->GetHeapProperties(&heapProperties, nullptr))
             && (heapProperties.Type == D3D12_HEAP_TYPE_UPLOAD || heapProperties.Type == D3D12_HEAP_TYPE_READBACK))
         {
             return;

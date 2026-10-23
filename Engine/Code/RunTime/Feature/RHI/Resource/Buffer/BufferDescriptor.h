@@ -18,6 +18,10 @@ namespace Spark::RHI
         BufferBindFlags m_bindFlags = BufferBindFlags::None;
 
         HardwareQueueClassMask m_sharedQueueMask = HardwareQueueClassMask::All;
+
+        /// Address space only: no memory of its own, pages are mapped onto it from other buffers.
+        /// A whole number of DeviceLimits::m_reservedPageSizeInBytes, never mapped, never transient.
+        bool m_reserved = false;
     };
     
     

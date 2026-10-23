@@ -419,6 +419,7 @@ namespace Spark::RHI::DX12
         m_limits.m_maxIndirectDispatchCount = static_cast<uint32_t>(-1);
         m_limits.m_maxConstantBufferSize = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 4u * 4u; // 4096 vectors * 4 values per vector * 4 bytes per value
         m_limits.m_maxBufferSize = D3D12_REQ_RESOURCE_SIZE_IN_MEGABYTES_EXPRESSION_C_TERM * (1024u * 1024u); // 2048 MB
+        m_limits.m_reservedPageSizeInBytes = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
     }
 
     RHI::ResultCode Device::InitInternal(RHI::PhysicalDevice& physicalDevice)
@@ -470,13 +471,9 @@ namespace Spark::RHI::DX12
         const bool enhancedBarriers =
             SUCCEEDED(dx12Device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12)))
             && options12.EnhancedBarriersSupported;
-        ComPtr<ID3D12Device10> device10;
-        const bool device10Available = SUCCEEDED(dx12Device->QueryInterface(IID_PPV_ARGS(&device10)));
-        if (!enhancedBarriers || !device10Available)
+        if (!enhancedBarriers)
         {
-            LOG_ERROR("[DX12 Device] Enhanced barriers {}, ID3D12Device10 {}; both are required.",
-                      enhancedBarriers ? "supported" : "unsupported",
-                      device10Available ? "available" : "unavailable");
+            LOG_ERROR("[DX12 Device] Enhanced barriers are unsupported; they are required.");
             return RHI::ResultCode::Fail;
         }
 
@@ -487,6 +484,14 @@ namespace Spark::RHI::DX12
         {
             LOG_ERROR("[DX12 Device] Resource heap tier {} is below the required tier 2.",
                       static_cast<int>(options.ResourceHeapTier));
+            return RHI::ResultCode::Fail;
+        }
+
+        // Reserved buffers: from tier 2 a page not mapped reads as zero.
+        if (options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_2)
+        {
+            LOG_ERROR("[DX12 Device] Tiled resources tier {} is below the required tier 2.",
+                      static_cast<int>(options.TiledResourcesTier));
             return RHI::ResultCode::Fail;
         }
 

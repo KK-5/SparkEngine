@@ -22,6 +22,7 @@
 #include <RHI/RHILimits.h>
 #include <RHI/Fence/Fence.h>
 #include <Device/Device.h>
+#include <ID3D12Factory.h>
 #include <Memory.h>
 #include <MemoryView.h>
 #include <Conversions.h>
@@ -189,9 +190,42 @@ namespace Spark::RHI::DX12
     RHI::ResultCode BufferPool::InitBufferInternal(RHI::Buffer& bufferBase, const RHI::BufferDescriptor& bufferDescriptor)
     {
         Buffer& buffer = static_cast<Buffer&>(bufferBase);
+        if (bufferDescriptor.m_reserved)
+        {
+            return InitReservedBuffer(buffer, bufferDescriptor);
+        }
         return m_virtualBlock
             ? InitSubAllocatedBuffer(buffer, bufferDescriptor)
             : InitUniqueBuffer(buffer, bufferDescriptor);
+    }
+
+    RHI::ResultCode BufferPool::InitReservedBuffer(Buffer& buffer, const RHI::BufferDescriptor& bufferDescriptor)
+    {
+        // D3D12MA does not create reserved resources.
+        D3D12_RESOURCE_DESC resourceDesc;
+        ConvertBufferDescriptor(bufferDescriptor, resourceDesc);
+
+        ComPtr<ID3D12Resource> resource;
+        HRESULT result = GetDevice().GetDX12Device()->CreateReservedResource2(
+            &resourceDesc,
+            D3D12_BARRIER_LAYOUT_UNDEFINED,
+            nullptr,
+            nullptr,
+            0,
+            nullptr,
+            IID_PPV_ARGS(&resource)
+        );
+        if (FAILED(result))
+        {
+            LOG_ERROR("[BufferPool] Failed to create reserved buffer {} of {} bytes.",
+                      buffer.GetName().GetCStr(), bufferDescriptor.m_byteCount);
+            return RHI::ResultCode::Fail;
+        }
+
+        // No allocation, so no heap: what tells it from a buffer backing its pages.
+        MemoryView memoryView(resource.Get(), MemoryViewType::Buffer, 0, bufferDescriptor.m_byteCount, 0);
+        buffer.m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
+        return RHI::ResultCode::Success;
     }
 
     RHI::ResultCode BufferPool::InitUniqueBuffer(Buffer& buffer, const RHI::BufferDescriptor& bufferDescriptor)
@@ -233,7 +267,12 @@ namespace Spark::RHI::DX12
     void BufferPool::ShutdownResourceInternal(RHI::Resource& resourceBase)
     {
         Buffer& buffer = static_cast<Buffer&>(resourceBase);
-        if (VirtualBlockAllocation* part = buffer.GetMemoryView().GetVirtualBlockAllocation())
+        if (buffer.GetDescriptor().m_reserved)
+        {
+            // No D3D12MA allocation to queue: the resource itself waits out the GPU.
+            Service<ID3D12FactoryInterface>::Get()->QueueForRelease(GetDevice(), buffer.GetMemoryView().GetMemory());
+        }
+        else if (VirtualBlockAllocation* part = buffer.GetMemoryView().GetVirtualBlockAllocation())
         {
             m_virtualBlockReleaseQueue.QueueForCollect(part);
         }

@@ -6,6 +6,7 @@
 #include "BufferPool.h"
 
 #include <Log/ILogSystem.h>
+#include <RHI/Device/Device.h>
 
 namespace Spark::RHI
 {
@@ -121,6 +122,13 @@ namespace Spark::RHI
             LOG_ERROR("[BufferPool] Cannot map buffer {} from a Device heap pool. "
                       "Use a Host heap pool or StreamBuffer for uploads.",
                       request.m_buffer->GetName().GetCStr());
+            return ResultCode::InvalidOperation;
+        }
+
+        // Whatever heap the pool is on: the buffer has no memory of its own.
+        if (request.m_buffer->GetDescriptor().m_reserved)
+        {
+            LOG_ERROR("[BufferPool] Cannot map reserved buffer {}.", request.m_buffer->GetName().GetCStr());
             return ResultCode::InvalidOperation;
         }
 
@@ -261,6 +269,26 @@ namespace Spark::RHI
             {
                 LOG_ERROR("[BufferPool] Initial data is not allowed with read-only pools.");
                 return false;
+            }
+
+            if (initRequest.m_descriptor.m_reserved)
+            {
+                const uint64_t pageSize = GetDevice().GetLimits().m_reservedPageSizeInBytes;
+                if (initRequest.m_descriptor.m_byteCount == 0 || initRequest.m_descriptor.m_byteCount % pageSize != 0)
+                {
+                    LOG_ERROR("[BufferPool] Reserved buffer {} of {} bytes in pool {} is not a whole number of {}-byte pages.",
+                              initRequest.m_buffer->GetName().GetCStr(), initRequest.m_descriptor.m_byteCount,
+                              GetName().GetCStr(), pageSize);
+                    return false;
+                }
+
+                // It has no memory of its own to write the data into.
+                if (initRequest.m_initialData)
+                {
+                    LOG_ERROR("[BufferPool] Reserved buffer {} in pool {} cannot take initial data.",
+                              initRequest.m_buffer->GetName().GetCStr(), GetName().GetCStr());
+                    return false;
+                }
             }
         }
 
