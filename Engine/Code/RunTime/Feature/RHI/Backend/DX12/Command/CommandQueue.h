@@ -54,9 +54,8 @@ namespace Spark::RHI::DX12
         void ShutdownInternal() override;
         void SignalInternal(RHI::Fence& fence, uint64_t value) override;
         void WaitInternal(RHI::Fence& fence, uint64_t value) override;
+        RHI::ResultCode UpdateTileMappingsInternal(eastl::span<const RHI::BufferTileMapping> mappings) override;
         //////////////////////////////////////////////////////////////////////////
-
-        // void UpdateTileMappings(CommandList& commandList);
 
         Ptr<ID3D12CommandQueue> m_queue;
         ID3D12DeviceX* m_dx12Device;

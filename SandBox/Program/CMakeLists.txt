@@ -92,6 +92,29 @@ if (BUILD_RHI_BRDFLUTGEN)
     )
 endif()
 
+option(BUILD_RHI_RESERVEDBUFFER "Build RHI ReservedBuffer" ON)
+
+if (BUILD_RHI_RESERVEDBUFFER)
+    set(TARGET_NAME ReservedBuffer)
+
+    # Headless: maps pages onto a reserved buffer and checks what a shader reads from it.
+    add_executable(${TARGET_NAME} RHI/ReservedBuffer.cpp)
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        SparkCore
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+    )
+endif()
+
 option(BUILD_LTCLUTGEN "Build LTCLutGen" ON)
 
 if (BUILD_LTCLUTGEN)

@@ -114,7 +114,7 @@ namespace Spark::RHI::DX12
         return m_memoryAllocation ? m_memoryAllocation->GetHeap() : nullptr;
     }
 
-    size_t MemoryView::GetHeapOffset()
+    size_t MemoryView::GetHeapOffset() const
     {
         return m_memoryAllocation ? m_memoryAllocation->GetOffset() : 0;
     }

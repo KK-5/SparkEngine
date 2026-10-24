@@ -72,7 +72,7 @@ namespace Spark::RHI::DX12
         ID3D12Heap* GetHeap() const;
 
         // Offset in the heap that the Memory is allocated in. Will be zero for committed resources
-        size_t GetHeapOffset();
+        size_t GetHeapOffset() const;
     
     private:
         void Construct();

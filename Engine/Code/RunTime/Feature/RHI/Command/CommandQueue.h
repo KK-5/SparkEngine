@@ -14,6 +14,8 @@
 #include <RHI/Device/DeviceObject.h>
 #include <RHI/Fence/Fence.h>
 
+#include "BufferTileMapping.h"
+
 namespace Spark::RHI
 {
     class CommandList;
@@ -46,6 +48,10 @@ namespace Spark::RHI
         /// GPU waits for fence to reach >= value before executing subsequent commands.
         ResultCode Wait(RHI::Fence& fence, uint64_t value);
 
+        /// Ordered after all work submitted to this queue so far and before all submitted after it.
+        /// Applied in order, so a later mapping of the same page overrides an earlier one.
+        ResultCode UpdateTileMappings(eastl::span<const BufferTileMapping> mappings);
+
         virtual void WaitForIdle() = 0;
             
         RHI::HardwareQueueClass GetHardwareQueueClass() const;
@@ -58,11 +64,13 @@ namespace Spark::RHI
         virtual void ExecuteCommandsInternal(eastl::span<CommandList*> commandLists) = 0;
         virtual void SignalInternal(RHI::Fence& fence, uint64_t value) = 0;
         virtual void WaitInternal(RHI::Fence& fence, uint64_t value) = 0;
+        virtual ResultCode UpdateTileMappingsInternal(eastl::span<const BufferTileMapping> mappings) = 0;
         virtual void ShutdownInternal() = 0;
         //////////////////////////////////////////////////////////////////////////
 
     private:
         bool ValidateIsInitialized() const;
+        bool ValidateTileMapping(const BufferTileMapping& mapping) const;
 
         void ProcessQueue();
         CommandQueueDescriptor m_descriptor;

@@ -8,10 +8,12 @@
 
 #include "CommandQueue.h"
 
+#include <Log/ILogSystem.h>
 #include <Device/Device.h>
 #include <Conversions.h>
 #include <Fence/Fence.h>
 #include <ID3D12Factory.h>
+#include <Resource/Buffer/Buffer.h>
 
 #include "CommandList.h"
 
@@ -66,6 +68,56 @@ namespace Spark::RHI::DX12
     {
         Fence& dx12Fence = static_cast<Fence&>(fence);
         Wait(dx12Fence.Get(), value);
+    }
+
+    RHI::ResultCode CommandQueue::UpdateTileMappingsInternal(eastl::span<const RHI::BufferTileMapping> mappings)
+    {
+        if (RHI::Validation::isEnabled)
+        {
+            for (const RHI::BufferTileMapping& mapping : mappings)
+            {
+                // Only a placed buffer has a heap and an offset in it to map from.
+                if (mapping.m_backingBuffer
+                    && !static_cast<const Buffer*>(mapping.m_backingBuffer)->GetMemoryView().GetHeap())
+                {
+                    LOG_ERROR("[DX12 CommandQueue] Backing buffer {} of {} is not placed in a heap.",
+                              mapping.m_backingBuffer->GetName().GetCStr(), mapping.m_buffer->GetName().GetCStr());
+                    return RHI::ResultCode::InvalidArgument;
+                }
+            }
+        }
+
+        const uint64_t pageSize = GetDevice().GetLimits().m_reservedPageSizeInBytes;
+        // One heap per call.
+        for (const RHI::BufferTileMapping& mapping : mappings)
+        {
+            const Buffer& buffer = static_cast<const Buffer&>(*mapping.m_buffer);
+
+            D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
+            coordinate.X = static_cast<UINT>(mapping.m_byteOffset / pageSize);
+
+            D3D12_TILE_REGION_SIZE regionSize = {};
+            regionSize.NumTiles = static_cast<UINT>(mapping.m_byteCount / pageSize);
+            regionSize.UseBox = FALSE;
+
+            ID3D12Heap* heap = nullptr;
+            D3D12_TILE_RANGE_FLAGS rangeFlags = D3D12_TILE_RANGE_FLAG_NULL;
+            UINT heapStartTile = 0;
+            if (mapping.m_backingBuffer)
+            {
+                const MemoryView& backingMemory = static_cast<const Buffer*>(mapping.m_backingBuffer)->GetMemoryView();
+                heap = backingMemory.GetHeap();
+                rangeFlags = D3D12_TILE_RANGE_FLAG_NONE;
+                heapStartTile = static_cast<UINT>((backingMemory.GetHeapOffset() + mapping.m_backingByteOffset) / pageSize);
+            }
+            m_queue->UpdateTileMappings(
+                buffer.GetMemoryView().GetMemory(),
+                1, &coordinate, &regionSize,
+                heap,
+                1, &rangeFlags, &heapStartTile, &regionSize.NumTiles,
+                D3D12_TILE_MAPPING_FLAG_NONE);
+        }
+        return RHI::ResultCode::Success;
     }
 
     void CommandQueue::WaitForIdle()
