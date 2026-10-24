@@ -137,7 +137,8 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
   后端各自保证：
   - 对齐：上层把池描述符的最小分配对齐设为页大小（`DeviceLimits` 给出）。
   - Vulkan 内存类型：后端给 `VmaPool` 选内存类型时，按"同 usage 加 sparse 标志"的 `memoryTypeBits` 选（规范保证它
-    是不带 sparse 的子集，对普通 Buffer 也合法），所以任何池都能当后备；设备不支持 sparse 时按普通选。
+    是不带 sparse 的子集，对普通 Buffer 也合法），所以任何池都能当后备；设备不支持 sparse 时按普通选。DX12 的
+    文档没写堆类型的限制，实测（debug layer）DEFAULT / UPLOAD / READBACK 堆都能映射。
   - 映射时后端校验后备是 placed、偏移按页对齐、Vulkan 内存类型在 reserved 资源的 `memoryTypeBits` 内，不满足报错。
   - 后备按大块分配，映射引用"后备 + 页偏移"。
 - 后备与 reserved 资源共享内存，不能当普通资源用：它不带 bind flags，校验据此拒绝给它建 View、发屏障、导入图。
@@ -150,8 +151,8 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
   接口不带同步参数。Vulkan 允许的"映射藏在后台、只在首次使用时等"现在不用；纹理流送需要时加一个返回 Fence 值的
   异步变体，是加法。
 - 上层的责任：系统在自己的更新里（早于 `ExecutePipeline`）映射，本帧即可用；页上区间都归还后即可解除映射，同
-  队列不需额外等待，别的队列用过该页时用现有 `Signal` / `Wait` 等它；先解除映射再放掉后备 Buffer，后端在后备
-  释放时检查它是否还有页映射着。
+  队列不需额外等待，别的队列用过该页时用现有 `Signal` / `Wait` 等它；先解除映射再放掉后备 Buffer。哪页映到哪个
+  后备由持有池的系统记，它本来就管着页；RHI 不记映射，也不查后备释放时是否还映射着。
 - 图导入整个 reserved 资源，按 §二 整资源同步；映射不进图。
 - 特性要求（Tiled Resources Tier，与 Resource Heap Tier 是两套分级）是引擎的最低要求，设备初始化时检查，不支持
   的设备不能运行引擎，RHI 不设特性开关：DX12 Tiled Resources Tier 2（Tier 1 下读未映射页未定义，Tier 2 起读 0）；
@@ -246,10 +247,10 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 
 **R4　`CommandQueue::UpdateTileMappings`**
 
-- RHI 基类加接口和校验：目标是 reserved Buffer，后备不是 reserved、是 placed、偏移按页对齐，页范围不越界。
+- RHI 基类加接口和校验：目标是 reserved Buffer，后备不是 reserved、是 placed，页范围不越界。两侧的偏移和大小都按
+  字节给（同 Vulkan 的 `VkSparseMemoryBind`），按页对齐；DX12 后端换算成 tile。
 - DX12：后备的堆和起始页从它的 `D3D12MA::Allocation`（`GetHeap()` / `GetOffset()`）取，调
-  `ID3D12CommandQueue::UpdateTileMappings`，解除映射用 NULL range flag。后端记录每个后备映射着的页数，后备释放
-  时还有页映射着就报错。
+  `ID3D12CommandQueue::UpdateTileMappings`，解除映射用 NULL range flag。
 - Vulkan 对应：`vkQueueBindSparse`，用 timeline semaphore 排进队列的时间线（§六）。
 - R3、R4 的验证：`SandBox/Program/` 加一个最小样例——建 reserved Buffer、映射两页、拷贝写入、compute 读回检查，
   再解除映射、放掉后备。
