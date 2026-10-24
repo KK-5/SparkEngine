@@ -147,7 +147,7 @@ namespace Spark::Render
             return;
         }
 
-        if (m_renderGraph.ResizeSwapChain(*m_swapChain, windowSize))
+        if (m_renderGraph.ResizeSwapChain(windowSize))
         {
             m_requestedSwapChainSize = windowSize;
         }
@@ -320,10 +320,10 @@ namespace Spark::Render
         auto& passContext = *PassExecuteContext::Current();
         auto& rhiCtx = *RHI::RHIExecuteContext::Current();
 
-        // Must stay ahead of frameIndex: a resize rewinds the current image index to 0.
+        // Ahead of the graph, which picks this frame's back buffer by the current image index.
         SyncSwapChainToWindow();
 
-        const uint32_t frameIndex =m_swapChain->GetCurrentImageIndex();
+        const uint32_t frameIndex = Service<RHI::RHIInterface>::Get()->GetDevice()->GetFrameIndex();
 
         // Output is where the scene is displayed inside the swap chain: the editor viewport
         // panel, or the whole swap chain.
@@ -374,7 +374,7 @@ namespace Spark::Render
 
         m_uiProcessFeature.Process();
 
-        m_renderGraph.ExecutePipeline(passContext, frameIndex, renderSize, outputSize);
+        m_renderGraph.ExecutePipeline(passContext, renderSize, outputSize);
         m_swapChain->Present();
     }
 }

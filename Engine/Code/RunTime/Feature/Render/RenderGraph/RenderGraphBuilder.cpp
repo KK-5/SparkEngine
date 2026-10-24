@@ -404,10 +404,10 @@ namespace Spark::Render
             rhiContext.Add<ImportedTag>(resource);
         }
 
-        // Single-frame imports get their backing from the owning Image / Buffer component, once.
-        // Per-frame resources (ImagePerFrame, the swap chain) have it refreshed every frame by
-        // RenderGraph::RefreshPerFrameBackings before Build. Views come from the resource's
-        // view cache on demand.
+        // Single-frame imports get their backing from the owning Image / Buffer component, once;
+        // a swap chain image has it from its creation. Per-frame resources (ImagePerFrame) have
+        // it refreshed every frame by RenderGraph::RefreshPerFrameBackings before Build. Views
+        // come from the resource's view cache on demand.
         if (auto* img = rhiContext.TryGet<Image>(resource))
         {
             if (!rhiContext.Has<BackingImage>(resource))

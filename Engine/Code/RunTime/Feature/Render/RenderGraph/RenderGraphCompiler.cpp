@@ -740,8 +740,8 @@ namespace Spark::Render
         //! Needs the image barriers compiled, for where they left the image.
         void CompilePresentBarriers(RHIContext& context)
         {
-            context.GetView<SwapChainImages, ImageStateTracker>().each(
-                [&](RHIHandle resource, const SwapChainImages&, ImageStateTracker& tracker)
+            context.GetView<SwapChainImageTag, ImageStateTracker>().each(
+                [&](RHIHandle resource, ImageStateTracker& tracker)
                 {
                     const RHI::ResourceState current = tracker.m_states.GetUniform();
                     if (current.m_access == RHI::AccessFlags::Present)

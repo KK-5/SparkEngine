@@ -31,7 +31,7 @@ namespace Spark::Render
     {
     public:
         void Init(RHI::RHIContext& rhiCtx);
-        //! frameIndex is the in-flight slot (swap-chain image index), picking this frame's
+        //! frameIndex is the in-flight slot (Device::GetFrameIndex), picking this frame's
         //! g_Lights copy — same frame-index contract as MaterialBindingSystem.
         void Update(uint32_t frameIndex, const FrameTime& time);
         void Shutdown(RHI::RHIContext& rhiCtx);

@@ -71,6 +71,7 @@ namespace Spark::RHI
     void Device::OnFrameEnd()
     {
         m_releaseQueue.Collect();
+        m_frameIndex = (m_frameIndex + 1) % m_descriptor.m_frameCountMax;
     }
 
     const PhysicalDevice& Device::GetPhysicalDevice() const
@@ -96,14 +97,5 @@ namespace Spark::RHI
     FormatCapabilities Device::GetFormatCapabilities(Format format) const
     {
         return m_formatsCapabilities[static_cast<uint32_t>(format)];
-    }
-
-    void Device::BeginFrame(uint32_t frameIndex)
-    {
-        ASSERT(frameIndex < m_descriptor.m_frameCountMax,
-            "[Device] Frame index {} is outside the {} in-flight frames.",
-            frameIndex, m_descriptor.m_frameCountMax);
-
-        m_frameIndex = frameIndex;
     }
 }

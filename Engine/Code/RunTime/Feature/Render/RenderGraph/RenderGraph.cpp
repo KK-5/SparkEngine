@@ -82,40 +82,34 @@ namespace Spark::Render
     {
         ASSERT(m_device != nullptr, "[RenderGraph] ImportSwapChain called before Init.");
 
-        auto& context = *RHIExecuteContext::Current();
-
-        m_swapchainResource = context.CreateEntity();
-        RefreshSwapChainImages(swapChain, context);
-        context.Add<ImportedTag>(m_swapchainResource);
-        context.Add<RHI::PerFrameTag>(m_swapchainResource);
-        context.Add<ResourceName>(m_swapchainResource, ObjectName{"SwapChain"});
-        // NOTE: swap chain Present-state transition at frame end is TBD —
-        // CompileFinalTransitionBarrier was removed alongside ImportedResourceState.
-        //
-        // Swap chain views are no longer pre-built into a SwapChainViews component.
-        // They are materialized lazily, per frame, via the resource's
-        // ImageViewCachePerFrame (GetOrCreateImageViewPerFrame), keyed by the
-        // attachment's view descriptor and indexed by frameIndex.
+        m_swapChain = &swapChain;
+        CreateSwapChainImages(*RHIExecuteContext::Current());
         return true;
     }
 
-    void RenderGraph::RefreshSwapChainImages(RHI::SwapChain& swapChain, RHIContext& context)
+    void RenderGraph::CreateSwapChainImages(RHIContext& context)
     {
-        ASSERT(m_swapchainResource != NullHandle,
-            "[RenderGraph] RefreshSwapChainImages called without a swap chain resource entity.");
-
-        const uint32_t imageCount = swapChain.GetImageCount();
-        ASSERT(imageCount <= RHI::Limits::Device::FrameCountMax,
-            "[RenderGraph] Swap chain has {} images, more than FrameCountMax.", imageCount);
-
-        // Value-initialized so slots past imageCount stay null instead of holding
-        // back buffers from before a resize.
-        SwapChainImages swapChainImages {};
+        // Views come from each image's own view cache, as for any imported image.
+        const uint32_t imageCount = m_swapChain->GetImageCount();
         for (uint32_t i = 0; i < imageCount; ++i)
         {
-            swapChainImages.images[i] = swapChain.GetImage(i);
+            const RHIHandle image = context.CreateEntity();
+            context.Add<ImportedTag>(image);
+            context.Add<SwapChainImageTag>(image);
+            const eastl::string name(eastl::string::CtorSprintf(), "SwapChain %u", i);
+            context.Add<ResourceName>(image, ObjectName{ name.c_str() });
+            context.Add<BackingImage>(image, BackingImage{ m_swapChain->GetImage(i) });
+            m_swapChainImages.push_back(image);
         }
-        context.AddOrReplace<SwapChainImages>(m_swapchainResource, eastl::move(swapChainImages));
+    }
+
+    void RenderGraph::DestroySwapChainImages(RHIContext& context)
+    {
+        for (RHIHandle image : m_swapChainImages)
+        {
+            context.DestoryEntity(image);
+        }
+        m_swapChainImages.clear();
     }
 
     void RenderGraph::WaitForGpuIdle()
@@ -126,7 +120,7 @@ namespace Spark::Render
         }
     }
 
-    bool RenderGraph::ResizeSwapChain(RHI::SwapChain& swapChain, const Math::Vector2Int& size)
+    bool RenderGraph::ResizeSwapChain(const Math::Vector2Int& size)
     {
         ASSERT(m_device != nullptr, "[RenderGraph] ResizeSwapChain called before Init.");
 
@@ -135,7 +129,7 @@ namespace Spark::Render
             return false;
         }
 
-        if (m_swapchainResource == NullHandle)
+        if (!m_swapChain)
         {
             LOG_ERROR("[RenderGraph] ResizeSwapChain called before ImportSwapChain.");
             return false;
@@ -148,23 +142,21 @@ namespace Spark::Render
         // queues, not just Graphics: an image can end the frame on Compute or Copy.
         WaitForGpuIdle();
 
-        // The cached per-frame views were built over the old images; drop them so the
-        // next frame rebuilds them lazily.
-        context.Remove<RHI::Components::ImageViewCachePerFrame>(m_swapchainResource);
-        context.Remove<BackingImage>(m_swapchainResource);
+        // Their views were built over the old images, and go with them.
+        DestroySwapChainImages(context);
 
-        RHI::SwapChainDimensions dimensions = swapChain.GetDescriptor().m_dimensions;
+        RHI::SwapChainDimensions dimensions = m_swapChain->GetDescriptor().m_dimensions;
         dimensions.m_imageWidth  = static_cast<uint32_t>(size.x);
         dimensions.m_imageHeight = static_cast<uint32_t>(size.y);
 
-        if (swapChain.Resize(dimensions) != RHI::ResultCode::Success)
+        const bool resized = m_swapChain->Resize(dimensions) == RHI::ResultCode::Success;
+        if (!resized)
         {
             LOG_ERROR("[RenderGraph] Swap chain resize to {}x{} failed.", size.x, size.y);
-            return false;
         }
 
-        RefreshSwapChainImages(swapChain, context);
-        return true;
+        CreateSwapChainImages(context);
+        return resized;
     }
 
     void RenderGraph::Shutdown()
@@ -180,11 +172,8 @@ namespace Spark::Render
         WaitForGpuIdle();
 
         auto& context = *RHIExecuteContext::Current();
-        if (m_swapchainResource != NullHandle && context.Valid(m_swapchainResource))
-        {
-            context.DestoryEntity(m_swapchainResource);
-            m_swapchainResource = NullHandle;
-        }
+        DestroySwapChainImages(context);
+        m_swapChain = nullptr;
 
         // Pooled images outlive every frame, so nothing else reaps them.
         eastl::vector<RHIHandle> pooledImages;
@@ -204,12 +193,10 @@ namespace Spark::Render
         m_compiler.m_drawPipelineCache.Shutdown();
     }
 
-    void RenderGraph::ExecutePipeline(PassContext& passContext, uint32_t frameIndex,
+    void RenderGraph::ExecutePipeline(PassContext& passContext,
                                       const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize)
     {
-        // Publish this frame's in-flight slot before anything can read it. Handlers on
-        // FrameEventBus take it from the Device, and the bus orders them arbitrarily.
-        m_device->BeginFrame(frameIndex);
+        const uint32_t frameIndex = m_device->GetFrameIndex();
 
         RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameBegin);
         m_commandQueueContext.Begin();
@@ -219,7 +206,6 @@ namespace Spark::Render
         // Refresh borrowed pointers (BackingImage / BackingBuffer / Backing*View)
         // for any per-frame imported resources whose Owning component rotates with
         // frameIndex. Single-frame imports are handled lazily by the builder.
-        // Swap chain BackingImage (from SwapChainImages) is also refreshed here.
         RefreshPerFrameBackings(context, frameIndex);
 
         ////////////////////////////////////////////////
@@ -227,7 +213,9 @@ namespace Spark::Render
         // Iterate passes in declaration order so that attachment version
         // tracking converges deterministically
         // regardless of entt's pool order.
-        m_builder.Begin(frameIndex, m_swapchainResource, renderSize, outputSize);
+        const RHIHandle swapChainImage =
+            m_swapChain ? m_swapChainImages[m_swapChain->GetCurrentImageIndex()] : NullHandle;
+        m_builder.Begin(frameIndex, swapChainImage, renderSize, outputSize);
         for (Pass pass : passContext.GetPassesInDeclOrder())
         {
             if (!passContext.Has<ActivePassTag>(pass))
@@ -413,20 +401,6 @@ namespace Spark::Render
                 context.AddOrReplace<BackingBuffer>(entity,
                     BackingBuffer{ owning.m_buffers[frameIndex].get() });
             });
-
-        // Swap chain is special: the underlying RHI image is owned by SwapChain
-        // (Vulkan/DX12 don't allow independent ref-counting of swap chain images),
-        // so the resource side stores raw pointers. Treat BackingImage as the
-        // borrowed pointer the rest of the graph reads — same contract as for
-        // owning ImagePerFrame, just sourced from a raw array.
-        context.GetView<ImportedTag, SwapChainImages>().each(
-            [&](RHIHandle entity, const SwapChainImages& owning)
-            {
-                context.AddOrReplace<BackingImage>(entity,
-                    BackingImage{ owning.images[frameIndex] });
-            });
-        // Swap chain views are no longer refreshed here — they live in the resource's
-        // ImageViewCachePerFrame and are resolved per frame via GetOrCreateImageViewPerFrame.
     }
 
     void RenderGraph::ExtractImages(RHIContext& context)

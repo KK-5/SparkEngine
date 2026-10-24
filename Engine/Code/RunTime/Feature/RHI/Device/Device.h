@@ -43,13 +43,9 @@ namespace Spark::RHI
         //! the copy the CPU may write and the one the frame's commands will read.
         //! ONE counter for the whole engine — a second one that merely advances at
         //! the same rate is not equivalent, since anything that rewinds one of them
-        //! (SwapChain::Resize does) offsets the two permanently.
+        //! offsets the two permanently. Advances on OnFrameEnd, so it is not to be read
+        //! by another OnFrameEnd handler: the bus orders them arbitrarily.
         uint32_t GetFrameIndex() const { return m_frameIndex; }
-
-        //! Declares the slot for the frame about to be recorded. Call once per frame,
-        //! before RHI::FrameEventBus broadcasts OnFrameBegin — handlers read the index
-        //! from there and the bus gives them no ordering among themselves.
-        void BeginFrame(uint32_t frameIndex);
 
         //! Holds the object until the GPU has finished the work submitted so far, then drops
         //! it. What has to wait goes in the object's destructor.

@@ -14,7 +14,6 @@
 #include <Device/Device.h>
 #include <ID3D12Factory.h>
 #include <MemoryView.h>
-#include <Command/CommandQueueContext.h>
 #include <Resource/Image/Image.h>
 #include <3rdParty/D3D12MA/D3D12MemAlloc.h>
 

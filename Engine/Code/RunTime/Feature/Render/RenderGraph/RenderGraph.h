@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/vector.h>
+
 #include <Math/Vector2.h>
 
 #include <RHI/Command/CommandQueueContext.h>
@@ -29,20 +31,21 @@ namespace Spark::Render
     public:
         bool Init(RHI::Device& device);
 
-        //! Register the swap chain into the active RHIContext as imported entities.
-        //! Must run after Init, and requires RHIExecuteContext to be pushed by the caller.
+        //! Register the swap chain into the active RHIContext as imported entities, one
+        //! per back buffer. Must run after Init, and requires RHIExecuteContext to be
+        //! pushed by the caller. The swap chain outlives the graph.
         bool ImportSwapChain(RHI::SwapChain& swapChain);
 
-        //! Resize the imported swap chain and re-point the resource entity at the new
-        //! back buffers. Drains every queue, so frame-boundary only — never between
-        //! Build and Execute. Returns false (swap chain untouched) on failure.
-        bool ResizeSwapChain(RHI::SwapChain& swapChain, const Math::Vector2Int& size);
+        //! Resize the imported swap chain and rebuild the back buffers' entities. Drains
+        //! every queue, so frame-boundary only — never between Build and Execute. Returns
+        //! false (swap chain untouched) on failure.
+        bool ResizeSwapChain(const Math::Vector2Int& size);
 
         void Shutdown();
 
         //! See RenderGraphBuilder::GetRenderSize / GetOutputSize. The caller (driver)
         //! decides where they come from and the graph threads them to Build callbacks.
-        void ExecutePipeline(PassContext& passContext, uint32_t frameIndex,
+        void ExecutePipeline(PassContext& passContext,
                              const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize);
 
         RHI::CommandQueue& GetCommandQueue(RHI::HardwareQueueClass queueClass)
@@ -50,15 +53,14 @@ namespace Spark::Render
             return m_commandQueueContext.GetCommandQueue(queueClass);
         }
 
-        RHIHandle GetSwapchainResource() const { return m_swapchainResource; }
-
     private:
-        void RefreshSwapChainImages(RHI::SwapChain& swapChain, RHIContext& context);
+        void CreateSwapChainImages(RHIContext& context);
+        void DestroySwapChainImages(RHIContext& context);
 
         void WaitForGpuIdle();
 
-        //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame /
-        //! SwapChainImages on resource entities) and refresh BackingImage /
+        //! Walk per-frame imported resources (ImagePerFrame / BufferPerFrame on
+        //! resource entities) and refresh BackingImage /
         //! BackingBuffer from m_xxx[frameIndex]. Views are not refreshed here — they
         //! are resolved per frame from each resource's view cache. Single-frame
         //! imports are handled by the builder's lazy-add path on first import;
@@ -79,7 +81,11 @@ namespace Spark::Render
         Ptr<RHI::PipelineLibrary>       m_pipelineLibrary;
         RHI::CommandQueueContext  m_commandQueueContext;
         RHI::FenceSet             m_crossQueueFences;
-        RHIHandle                 m_swapchainResource;
+
+        RHI::SwapChain*           m_swapChain = nullptr;
+        //! A plain imported image per back buffer; the swap chain's image index picks this
+        //! frame's.
+        eastl::vector<RHIHandle>  m_swapChainImages;
 
         RenderGraphBuilder  m_builder;
         RenderGraphCompiler m_compiler;

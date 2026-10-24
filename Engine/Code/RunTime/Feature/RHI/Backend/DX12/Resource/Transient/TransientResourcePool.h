@@ -115,13 +115,13 @@ namespace Spark::RHI::DX12
         //! to wait for.
         static RHI::ResourceState InitialState(const Placement* prior, const RHI::TransientAllocationFence& allocFence);
 
-        HeapBucket&       CurrentBucket()       { return m_buckets[m_currentSlot]; }
-        const HeapBucket& CurrentBucket() const { return m_buckets[m_currentSlot]; }
+        //! The device's frame index picks it.
+        HeapBucket&       CurrentBucket();
+        const HeapBucket& CurrentBucket() const;
 
         // The device's, not held: the pool is shut down before the device goes.
         D3D12MA::Allocator*       m_allocator = nullptr;
         eastl::vector<HeapBucket> m_buckets;
-        uint32_t                  m_currentSlot = 0;
 
         D3D12MAReleaseQueue       m_releaseQueue;
     };

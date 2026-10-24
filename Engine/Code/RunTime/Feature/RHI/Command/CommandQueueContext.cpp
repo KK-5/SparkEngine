@@ -76,7 +76,6 @@ namespace Spark::RHI
     RHI::ResultCode CommandQueueContext::Init(RHI::Device& device)
     {
         m_device = &device;
-        m_currentFrameIndex = 0;
         m_frameFences.resize(device.GetDescriptor().m_frameCountMax);
         for (FenceSet& fences : m_frameFences)
         {
@@ -164,14 +163,13 @@ namespace Spark::RHI
 
     void CommandQueueContext::End()
     {
-        SignalOnGpu(m_frameFences[m_currentFrameIndex]);
+        const uint32_t frameIndex = m_device->GetFrameIndex();
+        SignalOnGpu(m_frameFences[frameIndex]);
 
-        // Advance to the next frame and wait for its resources to be available before continuing.
-        m_currentFrameIndex = (m_currentFrameIndex + 1) % static_cast<uint32_t>(m_frameFences.size());
-        {
-            m_frameFences[m_currentFrameIndex].Wait();
-            m_frameFences[m_currentFrameIndex].Reset();
-        }
+        // Wait for the next frame's resources to be available before continuing.
+        const uint32_t nextFrameIndex = (frameIndex + 1) % static_cast<uint32_t>(m_frameFences.size());
+        m_frameFences[nextFrameIndex].Wait();
+        m_frameFences[nextFrameIndex].Reset();
     }
 
     const FenceSet& CommandQueueContext::GetFlushFences()

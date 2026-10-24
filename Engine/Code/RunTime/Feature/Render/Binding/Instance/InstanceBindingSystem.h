@@ -26,7 +26,7 @@ namespace Spark::Render
     {
     public:
         void Init(RHI::RHIContext& rhiCtx);
-        //! frameIndex is the in-flight slot (swap-chain GetCurrentImageIndex), used to
+        //! frameIndex is the in-flight slot (Device::GetFrameIndex), used to
         //! pick this frame's g_Instances copy. RenderSystem::OnTick passes it.
         void Update(uint32_t frameIndex);
         void Shutdown(RHI::RHIContext& rhiCtx);

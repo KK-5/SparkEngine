@@ -52,14 +52,9 @@ namespace Spark::Render
     ///////////////////////////////////////////////
 
     ///////////////////////////////////////////////
-    // SwapChain-specific component (Render-layer concept). Holds the back-buffer
-    // images borrowed from the SwapChain (raw pointers — the swap chain owns them).
-    // Views are NOT stored here: they live in the resource's ImageViewCachePerFrame,
-    // built lazily per frame via GetOrCreateImageViewPerFrame.
-    struct SwapChainImages
-    {
-        FrameArray<RHI::Image*> images;
-    };
+    // A back buffer of the swap chain: a plain imported image, one entity each, whose
+    // BackingImage borrows the swap chain's image. The swap chain picks the frame's.
+    struct SwapChainImageTag {};
 
     //! Non-owning pointer to the actual RHI resource backing a resource entity.
     //! Render graph (barrier compile, attachment resolution, executer) reads only
@@ -67,7 +62,7 @@ namespace Spark::Render
     //!  - Transient: written by RenderGraphCompiler::CompileTransientResources
     //!    after the pool allocates.
     //!  - Imported single-frame: written once by the importer at registration,
-    //!    points into the entity's own Image::m_image.
+    //!    points into the entity's own Image::m_image, or a swap chain image.
     //!  - Imported per-frame: written each OnFrameBegin by the importer,
     //!    points into ImagePerFrame::m_images[frameIndex].
     //! Lifetime is managed externally — transient pool or importing owner.

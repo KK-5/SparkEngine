@@ -102,9 +102,6 @@ namespace Spark::RHI::DX12
             }
         }
 
-        // 首次 OnFrameBegin 推进到 slot 0
-        m_currentSlot = frameCountMax - 1;
-
         return RHI::ResultCode::Success;
     }
 
@@ -819,11 +816,20 @@ namespace Spark::RHI::DX12
                buffer->GetName().GetCStr());
     }
 
+    TransientResourcePool::HeapBucket& TransientResourcePool::CurrentBucket()
+    {
+        return m_buckets[GetDevice().GetFrameIndex()];
+    }
+
+    const TransientResourcePool::HeapBucket& TransientResourcePool::CurrentBucket() const
+    {
+        return m_buckets[GetDevice().GetFrameIndex()];
+    }
+
     void TransientResourcePool::OnFrameBeginInternal()
     {
-        // 推进到下一槽。frames-in-flight fence 保证此槽上一次 GPU 工作已完成。
-        m_currentSlot = (m_currentSlot + 1) % static_cast<uint32_t>(m_buckets.size());
-        ResetBucket(m_buckets[m_currentSlot]);
+        // frames-in-flight fence 保证此槽上一次 GPU 工作已完成。
+        ResetBucket(CurrentBucket());
     }
 
     void TransientResourcePool::OnFrameEndInternal()

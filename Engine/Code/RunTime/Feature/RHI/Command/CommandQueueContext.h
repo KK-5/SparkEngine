@@ -65,6 +65,7 @@ namespace Spark::RHI
 
         void ExecuteCommands(RHI::HardwareQueueClass hardwareQueueClass, eastl::span<RHI::CommandList*> commandLists);
 
+        //! Ahead of FrameEventBus::OnFrameEnd, where the Device moves on to the frame waited for.
         void End();
 
         /// Persistent fences used for intra-frame command flushing.
@@ -78,7 +79,6 @@ namespace Spark::RHI
 
         FenceSet m_flushFences;
         eastl::vector<FenceSet> m_frameFences;
-        uint32_t m_currentFrameIndex = 0;
         Device* m_device = nullptr;
     };
 }

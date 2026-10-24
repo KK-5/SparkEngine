@@ -335,8 +335,22 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 - R3、R4 的验证：`SandBox/Program/` 加一个最小样例——建 reserved Buffer、映射两页、拷贝写入、compute 读回检查，
   再解除映射、放掉后备。
 
-**之后：渲染层**——区间对象、按帧分槽的暂存与 Copy Pass、几何池迁到 reserved Buffer、系统 Pass 阶段，
-`RHIResourceSystem` 的拆除随各系统迁移一起做。到时另列步骤。
+**之后：渲染层**（区间分配器、区间池、`ReservedBuffer` 与图提交映射已完成）。L1 ~ L3 是两个使用方共同的前提，
+先迁几何池（只用 Copy，验证整条链路，并解锁 R5），再迁实例。
+
+- ~~**L1　帧号统一到 Device**~~（已完成，§十二）：按帧分槽的暂存靠"每份上次被用在 `frameCountMax` 帧前"保证
+  复用安全，选槽要一个不会错开的帧号，所以先于暂存。
+- **L2　系统 Pass 单独登记**（§十二）：PassContext 归 RenderSystem，系统在 `Init` 里登记 Pass，排在管线之前。纯
+  重构，画面不变。
+- **L3　暂存与 Copy Pass**（§九 第 1 条）：系统持有的按帧分槽主机暂存，槽大小即每帧预算，超出的留到下一帧；
+  Copy Pass 从暂存拷进池的区间。
+- **L4　几何池迁移**：`MeshGeometrySystem` 改用 `Suballocator` + `ReservedBuffer`，`MeshGeometry` 持有区间；
+  上传走 L3，不再经 `AsyncUploadSystem`；DrawIndirect 接收顶点流附件，删 `MeshGeometrySegmentTag` 一套（§八）。
+- **R5**　删预算模式（见下）。
+- **L5　`g_Instances`**：设备池 + scatter Pass，加变化检测；`InstanceIDBuffer` 改为活跃列表；剔除与分箱按位置
+  （§八，连同 `TODO_GPUDrivenPlan.md`）。
+- **L6　其余数组**：`g_Materials` 等 `GlobalBuffer`、`StagedArrayBuffer` 的小数组迁到区间对象，`SlotPool` 一类
+  工具逐步删除；`RHIResourceSystem` 随各系统迁移一起拆。
 
 **R5　删预算模式**（依赖几何池迁移完）
 
@@ -362,16 +376,20 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 缓冲经 `p.Import` + `s.InputAssembly` 成为附件，步长取自 Pass 的输入布局；同时删除 `MeshGeometryComposer`、
 `DrawItemRouter`、`GeometrySpec`、`Accepts`。场景内容走 indirect，Draw 只用于零散用途。
 
-帧号统一到 Device（方向已定，R2 之后再做）：
+帧号统一到 Device（L1，已完成）：
 
-- 现状有三个计数器：交换链的图像索引（`RenderSystem` 取来传给各系统和 `ExecutePipeline`，经
-  `Device::BeginFrame` 转述，`RefreshPerFrameBackings` 还用它选后备缓冲）、`CommandQueueContext::m_currentFrameIndex`
-  （选 CPU 等的帧 Fence）。交换链 Resize 把图像索引归 0，另两个不归，从此错开。只链 SparkRHI 的样例不调
-  `BeginFrame`，`GetFrameIndex()` 恒为 0。
-- 做法：Device 接 `FrameEventBus`，在 `OnFrameEnd` 推进唯一的计数器——不在 `OnFrameBegin` 推进，因为总线不定
-  处理者顺序，`OnFrameBegin` 里读帧号的（如 `RHIResourceSystem`）会读到新旧不定的值。RenderSystem、各系统、
-  `CommandQueueContext` 的帧 Fence 都改用它；交换链只用自己的图像索引选后备缓冲；删掉 `BeginFrame` 和
-  `ExecutePipeline` 的 `frameIndex` 参数。
+- 原先的计数器：交换链的图像索引（`RenderSystem` 取来传给各系统和 `ExecutePipeline`，经 `Device::BeginFrame`
+  转述）、`CommandQueueContext::m_currentFrameIndex`（选 CPU 等的帧 Fence）、DX12 `TransientResourcePool` 的
+  `m_currentSlot`（选瞬态槽）。交换链 Resize 把图像索引归 0，另外的不归，从此错开。
+- Device 在 `OnFrameEnd` 推进唯一的帧号——不在 `OnFrameBegin` 推进，因为总线不定处理者顺序，`OnFrameBegin` 里
+  读帧号的会读到新旧不定的值；也因此 `OnFrameEnd` 的处理者不读它。`CommandQueueContext::End` 排在 `OnFrameEnd`
+  之前，给当前帧号的 Fence 发信号、等下一帧号的。RenderSystem、各绑定系统、图、瞬态池都读它；删掉 `BeginFrame`
+  和 `ExecutePipeline` 的 `frameIndex` 参数。
+- 交换链不是"每帧一份"：用哪一张由呈现引擎定（DXGI Resize 归 0，Vulkan acquire 不保证轮转），张数与在途帧数
+  无关，复用由 Present / acquire 保证而非帧 Fence。原先它是一个带 `PerFrameTag` 的实体、按帧号取图和视图，只因
+  帧号恰等于图像索引才成立。现在每张后备缓冲一个普通导入 Image 实体（`SwapChainImageTag`，`BackingImage`
+  建时写定，普通视图缓存），Resize 时整组重建，每帧按交换链的图像索引把当前那张交给 builder。`PendingSync`
+  随之记在各自的图上，是这张图上次被用的位置。
 
 系统 Pass 与管线分开登记（方向已定，做法到时再设计）：
 
