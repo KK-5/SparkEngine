@@ -8,6 +8,9 @@
 
 #include "CommandQueue.h"
 
+#include <EASTL/sort.h>
+#include <EASTL/vector.h>
+
 #include <Log/ILogSystem.h>
 #include <RHI/Device/Device.h>
 #include <RHI/Resource/Buffer/Buffer.h>
@@ -147,6 +150,10 @@ namespace Spark::RHI
                     return ResultCode::InvalidArgument;
                 }
             }
+            if (!ValidateTileMappingsDisjoint(mappings))
+            {
+                return ResultCode::InvalidArgument;
+            }
         }
 
         if (mappings.empty())
@@ -211,6 +218,34 @@ namespace Spark::RHI
             return false;
         }
 
+        return true;
+    }
+
+    bool CommandQueue::ValidateTileMappingsDisjoint(eastl::span<const BufferTileMapping> mappings) const
+    {
+        eastl::vector<const BufferTileMapping*> sorted;
+        sorted.reserve(mappings.size());
+        for (const BufferTileMapping& mapping : mappings)
+        {
+            sorted.push_back(&mapping);
+        }
+        eastl::sort(sorted.begin(), sorted.end(), [](const BufferTileMapping* a, const BufferTileMapping* b)
+        {
+            return a->m_buffer != b->m_buffer ? a->m_buffer < b->m_buffer : a->m_byteOffset < b->m_byteOffset;
+        });
+
+        for (size_t i = 1; i < sorted.size(); ++i)
+        {
+            const BufferTileMapping& previous = *sorted[i - 1];
+            const BufferTileMapping& current  = *sorted[i];
+            if (previous.m_buffer == current.m_buffer
+                && previous.m_byteOffset + previous.m_byteCount > current.m_byteOffset)
+            {
+                LOG_ERROR("[CommandQueue] Tile mappings of {} at {} and at {} overlap in one call.",
+                          current.m_buffer->GetName().GetCStr(), previous.m_byteOffset, current.m_byteOffset);
+                return false;
+            }
+        }
         return true;
     }
 

@@ -49,7 +49,7 @@ namespace Spark::RHI
         ResultCode Wait(RHI::Fence& fence, uint64_t value);
 
         /// Ordered after all work submitted to this queue so far and before all submitted after it.
-        /// Applied in order, so a later mapping of the same page overrides an earlier one.
+        /// Each page appears in at most one mapping of a call, as Vulkan binds no range twice in a batch.
         ResultCode UpdateTileMappings(eastl::span<const BufferTileMapping> mappings);
 
         virtual void WaitForIdle() = 0;
@@ -71,6 +71,7 @@ namespace Spark::RHI
     private:
         bool ValidateIsInitialized() const;
         bool ValidateTileMapping(const BufferTileMapping& mapping) const;
+        bool ValidateTileMappingsDisjoint(eastl::span<const BufferTileMapping> mappings) const;
 
         void ProcessQueue();
         CommandQueueDescriptor m_descriptor;

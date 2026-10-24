@@ -37,6 +37,8 @@ set(SOURCES
     DrawList/DrawList.cpp
     DrawList/DrawListCullingSystem.cpp
     DrawList/DrawListKeyCounter.cpp
+    Suballocation/Suballocator.cpp
+    Suballocation/ReservedBuffer.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
     RenderGraph/ImageBarrierMerge.cpp

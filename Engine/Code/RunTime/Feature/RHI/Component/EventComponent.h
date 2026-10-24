@@ -1,5 +1,6 @@
 #pragma once
 
+#include <RHI/Command/BufferTileMapping.h>
 #include <RHI/Context/RHIHandle.h>
 #include <RHI/Resource/Resource.h>
 #include <RHI/Resource/Image/ImageSubResource.h>
@@ -60,5 +61,19 @@ namespace Spark::RHI
     {
         uint64_t      m_fenceValue = 0;
         Ptr<Resource> m_resource;
+    };
+
+    //////////////////////////////////////////////////////////////
+    // Tile mappings
+    //
+    // A mapping of a reserved buffer, made by whoever holds it, no two pending on one page, and
+    // submitted by the render graph on the graphics queue before the frame's work. Destroyed once
+    // submitted.
+    struct BufferTileMappingRequest
+    {
+        Ptr<Buffer>       m_buffer;
+        BufferTileMapping m_mapping;
+        // What the mapping maps or unmaps, kept until it is submitted.
+        Ptr<Buffer>       m_backing;
     };
 }

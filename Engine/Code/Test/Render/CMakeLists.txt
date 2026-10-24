@@ -21,6 +21,7 @@ option(DRAWGROUP_TESTS "Sorting and grouping a pass's draw entries tests" ON)
 option(DRAWLIST_TESTS "What the encoding lists of each draw list tests" ON)
 option(DRAWLISTCULLINGSYSTEM_TESTS "What each view sees of the lists the CPU culls tests" ON)
 option(INSTANCELISTS_TESTS "Culling and binning list layout tests" ON)
+option(SUBALLOCATOR_TESTS "Suballocation release and hand-back tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -53,6 +54,7 @@ ADD_TEST_SOUECE(DRAWGROUP_TESTS "DrawGroupTest.cpp")
 ADD_TEST_SOUECE(DRAWLIST_TESTS "DrawListTest.cpp")
 ADD_TEST_SOUECE(DRAWLISTCULLINGSYSTEM_TESTS "DrawListCullingSystemTest.cpp")
 ADD_TEST_SOUECE(INSTANCELISTS_TESTS "InstanceListsTest.cpp")
+ADD_TEST_SOUECE(SUBALLOCATOR_TESTS "SuballocatorTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

@@ -62,10 +62,12 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 | 层 | 负责 |
 |---|---|
 | RHI | `BufferPool` / `ImagePool` 退回纯粹的资源分配：D3D12MA / VMA 的包装，按描述符分配资源，不再提供管理功能（删预算模式：大缓冲、VirtualBlock、`BufferMemoryType::Shared`、`GetBaseOffset`）。D3D12MA / VMA 的 Allocator 每个 Device 一个，每个池一一对应一个自定义池（`D3D12MA::Pool` / `VmaPool`），描述符对应过去：堆级别 + 主机访问 → 堆类型 / 内存类型，块大小，最小分配对齐（通用参数，不是 reserved 专用）；原来设在 Allocator 上的标志（如 `ALWAYS_COMMITTED`）下放到池或单次分配。代价：自定义池各开堆块，空闲内存不跨池共享，块不宜过大、空块及时释放。最低要求 Resource Heap Tier 2（Turing / GCN 起），池不按 Buffer / 纹理 / RT-DS 拆，`TransientResourcePool` 的 Tier 1 分支删掉。延迟释放仍留在各池：D3D12MA 要求池的分配先于池释放，而共用的 `ObjectCollector` 强制回收不保序，没法只先放某个池的分配；Device 只持有 Allocator，所有池都在它之前关闭。新增后端无关的 `QueueForRelease(Ptr<Object>)`：RHI 多持有这个对象直到已提交的 GPU 工作完成再放掉，要延迟的工作写在对象的析构里；延迟帧数只在 RHI 内部。不收函数：函数能捕获任何东西，不可控。新增 reserved 资源与页映射（见 §六） |
-| Core | 纯 CPU 的区间分配算法：变长区间（自写空闲链表 / TLSF，或引入 OffsetAllocator）和定长槽，不依赖 D3D12MA |
-| 系统 / 渲染层 | 统一的区间对象（§五）。需要管理的系统自己持有池，合适时多个系统共用一个；页式管理由需要的系统自己扩展。几何池 = 一个 reserved Buffer + 区间分配器，`MeshGeometry` 持有区间而不是分段 Buffer。按帧分槽的暂存 + Copy / scatter Pass 也在这一层 |
+| Core | 纯 CPU 的区间分配算法，只认偏移和大小，不认 Buffer、不认帧（§五） |
+| 系统 / 渲染层 | 区间池与区间对象（§五）。需要管理的系统自己持有池，合适时多个系统共用一个。`ReservedBuffer` = reserved Buffer + 后备 + 页映射，按报来的页占用映射 / 解除映射。几何池是一个区间池加 `ReservedBuffer`，`MeshGeometry` 持有区间而不是分段 Buffer。按帧分槽的暂存 + Copy / scatter Pass 也在这一层 |
 
-先例：阴影图集（Core 的 `QuadTreeAllocator` + 渲染层 `ShadowAtlasAllocator` 持有图集并发 RAII tile）。
+区间分配不进 RHI：它不是 DX12 / Vulkan 的原生概念（D3D12MA / VMA 的虚拟分配器是库附带的 CPU 工具），R5 删的
+预算模式正是 RHI 里的这一套；延迟归还只要 `QueueForRelease`，上层就能做。先例：阴影图集（Core 的
+`QuadTreeAllocator` + 渲染层 `ShadowAtlasAllocator` 持有图集并发 RAII tile）。
 
 **`RHIResourceSystem` 长期去掉。** 资源的创建和 Map 由各自的系统负责：选池、Map 拷贝随之迁到使用方，按帧轮转
 多份收在 `StagedArrayBuffer` 一类的工具里，不让每个系统各写一遍。`AsyncUploadSystem` 不再接收经它创建的资源，
@@ -76,15 +78,71 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 几何池之外，`GlobalBuffer` / `StagedArrayBuffer` 管的上传缓冲区是第二个用例，"Buffer 引用一个区间"抽成一个
 对象，所有 CPU→GPU 的数据同步逐步统一到它上面。
 
-**区间对象**：`Ptr<RHI::Buffer>` + 偏移 + 大小 + 分配器的引用。
+**一个算法、一种池、一种区间，一律按字节。** 不另设定长槽：数组的一个元素就是大小为 `sizeof(Element)` 的区间，
+下标 = 偏移 / 元素大小。数组池分配时对齐填 1：地址空间只在元素大小的整数倍处被切开，偏移自然是它的倍数，释放
+留下的空洞恰好放下下一个元素；填元素大小的对齐反而让每次请求多出 `元素大小 - 1`，这种空洞就再也放不下。
+
+**Core 的区间分配算法**：自写的两级分箱 TLSF（OffsetAllocator 的做法），不引第三方。
+
+- 节点表按需扩容，没有最大分配数；偏移 64 位；支持任意对齐（非 2 的幂多分 `alignment - 1` 再上取）；给出最高
+  使用位置。地址空间的大小建池时定。
+- good-fit：请求先看自己那一档的链表头（最近释放的块，覆盖同尺寸的复用），不够再向上取档，取第一个非空档的
+  任意块。末尾的大空闲块在最高的档里，所以至少大一档的空洞、同档最近释放的空洞都先于它被用到，分配集中在低
+  地址；同档里更早释放的空洞留给更小的请求。一种元素大小的数组：恰好一个元素的空洞由"先看链表头"命中，合并出的
+  更大空洞在比末尾低的档里，都先于末尾被用到，不另做"最小下标优先"。最高使用位置在末尾的释放并回大空闲块后会
+  回落。
+- 向上取档找不到时，再逐个查自己那一档：有空间就不会失败，只在快满时才不是 O(1)。
+
+**区间池**（渲染层，`Suballocator`；区间对象是 `Suballocation`）：引用计数的 `Object`，包一个 Core 分配器，建池时
+给定容量（字节）和 Device；用在 `ReservedBuffer`（§六）上时再给它的页大小。
+
+- 分配器管理整个 reserved Buffer 的虚拟地址空间，不知道页。页跟着分配走：区间碰到未映射的页就映射它；页上的
+  区间都真正归还后解除映射。物理内存按活着的区间碰到的页算，不按字节算。
+- 页占用（给了页大小才开）：每页一个"碰到它的区间数"；分配时加一，真正归还时减一，有无变化的页记进变化
+  列表。跨页的区间（包括跨页的数组元素）每页都计，不限制跨页。系统取变化时每页带上此刻是否被碰到，逐页与"是否
+  映射着"比较，不一致才映射 / 解除映射；同一期间先空后占，不发任何映射。映射着哪个后备由 `ReservedBuffer` 记。
+
+**区间对象**：池的引用 + 偏移 + 大小 + 分配器归还用的节点。**不带 Buffer**：它是池地址空间里的一段，背后是一个
+reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.Import` 导入整个池，绘制和 scatter 只要偏移。
 
 - 只能移动的唯一所有权（同 `UniqueRHIHandle`）；要共享时经持有它的实体共享（实例引用网格实体），不复制区间。
-- 区间对象持有一个引用计数的分配记录（`Object`，析构时把区间还给分配器，并持有分配器的引用），析构时把它交给
-  `QueueForRelease`。先例是现在的 `VirtualBlockAllocation`。主机池和设备池一律延迟，不按池类型区分：主机池必须
-  延迟（CPU 会直接写复用的区间），设备池延迟只是晚几帧复用。分配器活到最后一条记录放掉。
+  满了返回空区间，调用方报错。
+- 析构时新建一条释放记录（`Object`，持有池的引用和这段的位置），交给 `QueueForRelease`；记录析构时才把这段
+  还给分配器、减页占用。主机池和设备池一律延迟：主机池必须延迟（CPU 会直接写复用的区间），设备池延迟只是晚几帧
+  复用。记录在释放时才建，活着的区间不各占一个堆对象。
 - 延迟归还的副作用：一个区间不会在同一帧里既被释放又被重新分配。
-- 整段被读的数组（GPU 剔除遍历 `g_Instances`）在释放当帧就要读成"空"：析构时立即把区间记进分配器的待清列表
-  （只写分配器自己的内存），系统下次更新时把 `Element{}` 写进去；归还照样延迟。
+- 池不承担任何清理语义：释放后的空洞、新映射页里残留的内容都不清，由读的一方保证不读到它们（见下面的实例
+  入口）。
+- 记录的析构可能在 RHI 关闭的 `FlushReleaseQueue` 里，系统已经关了：池的回调只写池自己的内存，要用 RHI / 上下文
+  的事记下来留给系统；池被记录持有，不会悬空。区间对象要在 RHI 关闭前全部析构（`Device::Shutdown` 之后排进来的
+  不再回收），区间存在组件上，随实体先于池和 Device 清掉。
+
+**实例入口与活跃列表**：会被整段遍历的只有 `g_Instances`，它是实例的入口；`g_Materials`、`g_Geometries` 等都由
+实例记录按下标引用，从不被遍历，空洞里是什么无所谓。
+
+- `g_Instances` 用区间池分持久的槽，下标跨帧稳定，要稳定引用实例的（历史数据、TLAS、拾取）记槽号。不做成
+  swap-remove 的密集数组：那样每次删除都要挪数据，所有将来跨帧引用实例的地方都得跟着挪，没有理由放弃持久下标。
+- `InstanceIDBuffer`（现在是恒等表）改为活跃列表：`位置 → 槽号`，只放有槽的实例，紧凑，swap-remove 维护。剔除
+  遍历 `[0, 个数)`；绘制的 `FirstInstance` 填本帧的位置，VS 的 `InstanceIndex = InstanceIDBuffer[FirstInstance]`
+  仍是槽号，shader 不变。空洞和新映射页的残留内容都没有位置指向，读不到，不需清零，也不需"空元素全 0"的约定。
+- 位置只在本帧有效、不被任何人记住：列表的更新排在本帧剔除之前，CPU 剔除用应用完本帧删除后的位置生成命令。
+  是否绘制仍由 `DrawMask` 定，几何未就绪的实例不会让列表来回增删。
+- 逐绘制的通道只能是 `firstInstance`：Vulkan 的间接绘制不能逐条改 push constant；DX12 的 `SV_InstanceID` 不含
+  它，所以经实例流的顶点属性取，这也是这张表存在的原因。
+- 活跃列表只在末尾增减，放在 `ReservedBuffer` 上，按个数跨页边界上报页的变化，延迟同区间池。
+- 将来的实例化绘制（`InstanceCount > 1`）要求一批实例在实例流里连续，而活跃列表的顺序任意、剔除后还有空隙：分箱
+  按批写一份本帧压实的可见列表，绑为这类绘制的实例流，同是"位置 → 槽号"，是加法。
+
+**系统的每帧处理**：取页的变化去映射，早于 `ExecutePipeline`。
+
+**多线程**：分配和区间析构可在任意线程，归还在 Device 回收时，处理在系统更新里。
+
+- 每个池一把锁，锁住分配器、页占用和变化列表；临界区是 O(1) 的分配加几页计数，分配不是每帧热点，不做每线程
+  子分配器或无锁结构。
+- 区间的偏移和大小创建后不变，读不加锁。析构只建记录交 `QueueForRelease`，不碰池的锁；记录析构时才拿池的锁，
+  而 `ObjectCollector` 放开自己的锁后才析构对象，两把锁不嵌套。
+- 系统**先取自己的写入队列，再取池的页变化**：工作线程总是先分配（页变化在池锁内登记）再交数据，所以取到的
+  每项写入，它碰到的页都在这次变化里或早已映射；之后才分配的，下一帧写。
 
 **写入方式**：区间对象是同一个，区别只在分配自哪个池、怎么写进去。
 
@@ -103,8 +161,8 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 
 **scatter Pass**：
 
-- CPU 往本帧暂存槽写两段：目标槽下标（`uint`）和对应的新记录（紧密排列）。释放的槽也是一条更新，数据为
-  `Element{}`。变化检测按帧记，同一槽一帧只出现一次。
+- CPU 往本帧暂存槽写两段：目标槽下标（`uint`）和对应的新记录（紧密排列）。变化检测按帧记，同一槽一帧只出现
+  一次。
 - 一个通用的 compute，按 16 字节一块拷，不认 `Element` 类型，所有使用方共用一个管线：线程 `id` 处理第
   `id / ElementSize16` 条更新的第 `id % ElementSize16` 块，`Dest[slot * ElementSize16 + chunk] = Data[...]`。
   相邻线程写同一条记录的相邻块，写入连续。UE 的 `ScatterCopyCS` 同形。
@@ -117,14 +175,18 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 
 - `StagedArrayBuffer` 即"主机池每帧一份"，小数组保持这种写法，改用区间对象。
 - `GlobalBuffer` 的大数组（`g_Instances`、`g_Materials`）迁到设备池 + scatter。要新加变化检测：现在的
-  `process` 每帧重写所有实体；空洞也不再每帧整体重置，改为上面的待清列表。
-- `SlotPool` / `SharedHandle` 由区间对象 + Core 的定长槽分配取代；`WeakHandle` 只有将删的
-  `MeshGeometryComposer` / `GeometrySpec` 在用。
+  `process` 每帧重写所有实体；空洞也不再每帧整体重置，剔除经活跃列表读，读不到空洞。
+- `SlotPool` / `SharedHandle` / `HandlePool` 这类工具逐步由区间池和区间对象取代，不再新加；`WeakHandle` 只有
+  将删的 `MeshGeometryComposer` / `GeometrySpec` 在用。
 
 ## 六、池的增长：reserved 资源 + 同类后备
 
-- 池的大块资源是 reserved 资源：一次保留足够的虚拟地址空间，按页（64KB）映射物理内存。扩页时从池里取后备
-  资源映射上去，缩页时解除映射。
+- 池的大块资源是 reserved 资源：一次保留足够的虚拟地址空间，按页映射物理内存。扩页时从池里取后备资源映射上去，
+  缩页时解除映射。
+- **页的大小**：硬件页（tile）只是映射的最小粒度，DX12 固定 64KB，Vulkan 由驱动给出，程序不能调，经
+  `DeviceLimits::m_reservedPageSizeInBytes` 查询。管理用的页由持有者定，是硬件页的整数倍，按用途取（几何 2MB，
+  小数组更小）：页越大，后备对象和映射调用越少，回收越粗。渲染层的持有者是 `ReservedBuffer`（以后的 Image 版本
+  是 `ReservedImage`）。
 - **后备与被映射的资源同类**：Buffer 由 Buffer 后备，Image 由 Image 后备。RHI 不暴露裸内存对象，后端从后备的
   分配里取底层内存（DX12 的堆 + 偏移，Vulkan 的 `VkDeviceMemory` + 偏移）。池只分配资源，页的管理在持有它的
   系统里。
@@ -140,19 +202,31 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
     是不带 sparse 的子集，对普通 Buffer 也合法），所以任何池都能当后备；设备不支持 sparse 时按普通选。DX12 的
     文档没写堆类型的限制，实测（debug layer）DEFAULT / UPLOAD / READBACK 堆都能映射。
   - 映射时后端校验后备是 placed、偏移按页对齐、Vulkan 内存类型在 reserved 资源的 `memoryTypeBits` 内，不满足报错。
-  - 后备按大块分配，映射引用"后备 + 页偏移"。
+  - 一页一个后备 Buffer，大小即页的大小，映射一页是一条覆盖多个 tile 的 `BufferTileMapping`。后备池的块大小设为
+    页的大小，每个后备正好占满一个 D3D12MA 块，必然 placed，块空了由 D3D12MA 释放。
 - 后备与 reserved 资源共享内存，不能当普通资源用：它不带 bind flags，校验据此拒绝给它建 View、发屏障、导入图。
   Vulkan 要求 `usage` 非零，由后端自己补，RHI 层看不到。
 - **映射是队列级操作**（DX12 `ID3D12CommandQueue::UpdateTileMappings`，Vulkan `vkQueueBindSparse`），不能录进
   CommandList，也不由图里的 Pass 做。RHI 只提供 `CommandQueue::UpdateTileMappings(span<const BufferTileMapping>)`
-  （后备为空即解除映射），映射什么、何时映射、何时解除都由持有池的系统决定。
+  （后备为空即解除映射）。映射什么、何时映射、何时解除由持有池的系统决定，提交由图做（见下）。
 - 语义按 DX12 定：在队列 Q 上的映射排在 Q 上之前所有提交之后、之后所有提交之前。Vulkan 的 bind sparse 与 submit
   即使同队列也没有隐式顺序，后端内部用 timeline semaphore 补上（bind 等 Q 的上一次提交，下一次提交等 bind），
   接口不带同步参数。Vulkan 允许的"映射藏在后台、只在首次使用时等"现在不用；纹理流送需要时加一个返回 Fence 值的
   异步变体，是加法。
-- 上层的责任：系统在自己的更新里（早于 `ExecutePipeline`）映射，本帧即可用；页上区间都归还后即可解除映射，同
-  队列不需额外等待，别的队列用过该页时用现有 `Signal` / `Wait` 等它；先解除映射再放掉后备 Buffer。哪页映到哪个
-  后备由持有池的系统记，它本来就管着页；RHI 不记映射，也不查后备释放时是否还映射着。
+- 一次调用里每页最多出现一次，validation 检查重叠。按 Vulkan 定：同一批次里一段范围不能绑定两次，批次可能乱序
+  完成；DX12 允许重叠、后者覆盖前者，不用这一点。一次调用可以含多个 reserved Buffer（Vulkan 一个批次绑多个
+  Buffer、多块内存）；DX12 一次原生调用只有一个资源、一个堆，而一页一个后备即一页一个堆，后端一条映射一次调用。
+- 上层的责任：系统在自己的更新里算出映射，经 `RHIEventContext` 的 `BufferTileMappingRequest` 交给图，和上传请求
+  一样是渲染前的资源准备。一个请求一条映射，图在 Execute 开头、所有 Scope 之前对每个请求发一次
+  `UpdateTileMappings` 在图形队列上，本帧即可用；系统拿不到图的队列，也不需要。`ReservedBuffer` 按页记未提交的
+  请求：页只有两种状态，请求未提交时这页再变就是变回去，撤掉请求、什么都不发（先解除再占用，后备从请求里取回；
+  先映射再变空，没映射过的后备随请求放掉），即 §五 的"同一期间先空后占，不发任何映射"。所以一页最多一个未提交
+  的请求，请求之间无序。请求持有它映射或解除的后备，提交后才放掉，所以总是先解除映射再放掉后备。Vulkan 上一个
+  请求一次 bind sparse 偏多时，图把请求收进跨帧复用的数组一次提交，请求不变。页上区间都归还后即可解除映射，图形队列之前的工作排在它前面。哪页映到哪个后备由持有池的系统记，
+  它本来就管着页；RHI 不记映射，也不查后备释放时是否还映射着。
+- 现在的边界：映射只在图形队列上排序，reserved Buffer 的共享队列只有 Graphics。将来别的队列（如异步计算）在本帧
+  先用到这个 Buffer 时，扩展图的执行：映射发在本帧第一个用它的 Scope 的队列上（同上传的 acquire 记在第一个读它的
+  Scope 里），或让那个队列等图形队列。请求的格式不变。
 - 图导入整个 reserved 资源，按 §二 整资源同步；映射不进图。
 - 特性要求（Tiled Resources Tier，与 Resource Heap Tier 是两套分级）是引擎的最低要求，设备初始化时检查，不支持
   的设备不能运行引擎，RHI 不设特性开关：DX12 Tiled Resources Tier 2（Tier 1 下读未映射页未定义，Tier 2 起读 0）；
@@ -170,7 +244,7 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
   - 未驻留的 mip 靠最小 LOD 限制（DX12 SRV 的 `ResourceMinLODClamp`，Vulkan `VK_EXT_image_view_min_lod`）。改它
     就是改描述符，bindless 下描述符更新随帧延迟。
 - **虚拟纹理通常不走硬件 sparse**：物理页图集纹理 + 间接表，多张纹理共享一个物理页缓存，属于"普通大 Image +
-  Core 的定长槽分配器"，与阴影图集同类。
+  区间池（每次分配一个物理页大小）"，与阴影图集同类。
 - reserved 的 RT / DS 新映射的页内容未定义，首次使用前对该区域 Discard / Clear；只当拷贝目标、整页覆盖写的流送
   纹理不受影响。
 
@@ -180,13 +254,19 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 - **DrawIndirect**：不再写死 `MeshGeometryBaseBufferTag`，改为和零散 Draw 一样接收顶点流附件，Pass 自己
   `p.Import<Tag>` + `s.InputAssembly`。`Uses<MeshGeometrySegmentTag>` 随之删除。
 - **`Uses<Tag>`** 只留给"新资源经上传系统交接后、经绑定 / bindless 读取"的资源（材质贴图、IBL、查找表、图标）。
+- **剔除与分箱**（§五 实例入口）：剔除按活跃列表的个数 dispatch，读 `g_Instances[InstanceIDBuffer[i]]`，可见时
+  输出位置 `i`；分箱和 CPU 剔除的 `FirstInstance` 填位置而不是槽号。`InstanceSlotCount` / extent 不再定 dispatch
+  大小。改动落在 `TODO_GPUDrivenPlan.md` 的剔除部分。
 
 ## 九、待设计
 
 1. ~~暂存与拷贝 Pass 的形态~~（已定）：暂存由上传的系统自己持有，不走 `AsyncUploadSystem`。按帧分槽
    （`frameCountMax` 个），槽大小就是每帧预算，超出的留在系统自己的队列里下一帧接着传；复用安全由帧节奏保证。
    不做环形缓冲：每帧预算是前提，单帧多占违背它。写入方式见 §五。
-2. 区间分配算法的选型。
+2. ~~区间分配算法的选型~~（已定）：Core 自写 TLSF，见 §五。
+3. ~~映射发在哪个队列~~（已定）：映射只在同一队列内排序，队列由 `RenderGraph` 持有。不开放图的队列给系统（在
+   系统边界上打洞），也不挪到 Device（Device 保持精简）。系统经事件把映射交给图，图在 Execute 开头于图形队列统一
+   提交，见 §六。
 
 先不做（都是加法，后面加上不破坏现在的设计）：
 
@@ -268,8 +348,8 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 
 ## 十一、前瞻
 
-- **Nanite 类虚拟几何**：页池 = 一块被 GPU 写、被多个 Pass 读的大缓冲，按整资源同步；页按槽分配（Core 的定长
-  槽分配器，流式系统持有）；淘汰的页经 `QueueForRelease` 延迟复用；页数据经暂存 + 转码 Pass 写入；页池以 SRV
+- **Nanite 类虚拟几何**：页池 = 一块被 GPU 写、被多个 Pass 读的大缓冲，按整资源同步；页从区间池分配
+  （每次分配一页大小，流式系统持有）；淘汰的页经 `QueueForRelease` 延迟复用；页数据经暂存 + 转码 Pass 写入；页池以 SRV
   读，走 `ReadBuffer` 附件。与本方案一致。
 - **API 趋势**：同步变粗（DX12 缓冲屏障整资源 + global barrier，Vulkan 推荐无所有权转移时用 global memory
   barrier）、内存地址化（buffer device address、bindless）。"大缓冲 + 偏移"顺应这个方向。

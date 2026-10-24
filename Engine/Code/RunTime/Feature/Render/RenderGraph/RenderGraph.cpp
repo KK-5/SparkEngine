@@ -288,6 +288,29 @@ namespace Spark::Render
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
+        // Ahead of every Scope, which may touch the pages. No two requests are on one page, so
+        // their order is of no concern.
+        {
+            auto& events   = *RHI::RHIEventExecuteContext::Current();
+            auto& requests = events.GetStorage<RHI::BufferTileMappingRequest>();
+            if (!requests.empty())
+            {
+                auto& queue = m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics);
+                for (const RHI::BufferTileMappingRequest& request : requests)
+                {
+                    if (queue.UpdateTileMappings({ &request.m_mapping, 1 }) != RHI::ResultCode::Success)
+                    {
+                        LOG_ERROR("[RenderGraph] Updating the tile mapping of {} at {} failed.",
+                                  request.m_buffer->GetName().GetCStr(), request.m_mapping.m_byteOffset);
+                    }
+                }
+
+                // The backings unmapped go to their pools' release queues.
+                const eastl::vector<RHI::RHIEvent> submitted(requests.data(), requests.data() + requests.size());
+                events.DestoryEntity(submitted.begin(), submitted.end());
+            }
+        }
+
         m_executer.ExecuteScopes(context, *factory, *m_device, m_commandQueueContext);
 
         // The uploads the Scopes acquired are over, their acquires recorded.
