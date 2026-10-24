@@ -116,7 +116,23 @@ namespace Spark::RHI
 
     BufferBarrier ConvertToShaderRead(Buffer& buffer)
     {
-        return MakeBufferBarrier(buffer, AccessFlags::ConstantBufferRead | AccessFlags::ShaderSampledRead);
+        // Only the reads the buffer is bound for. Bound for neither, it asks for both and
+        // the barrier fails validation.
+        const BufferBindFlags bindFlags = buffer.GetDescriptor().m_bindFlags;
+        AccessFlags access = AccessFlags::None;
+        if (CheckBitsAny(bindFlags, BufferBindFlags::ShaderRead))
+        {
+            access |= AccessFlags::ShaderSampledRead;
+        }
+        if (CheckBitsAny(bindFlags, BufferBindFlags::Constant))
+        {
+            access |= AccessFlags::ConstantBufferRead;
+        }
+        if (access == AccessFlags::None)
+        {
+            access = AccessFlags::ConstantBufferRead | AccessFlags::ShaderSampledRead;
+        }
+        return MakeBufferBarrier(buffer, access);
     }
 
     BufferBarrier ConvertToShaderWrite(Buffer& buffer)
