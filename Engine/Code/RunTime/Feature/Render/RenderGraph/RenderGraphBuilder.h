@@ -52,6 +52,8 @@ namespace Spark::Render
         friend class RenderScope;
         friend class ComputePassScopes;
         friend class ComputeScope;
+        friend class CopyPassScopes;
+        friend class CopyScope;
         friend class ShaderAttachment;
 
         void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
@@ -151,6 +153,12 @@ namespace Spark::Render
         //! the one it accesses, in `indexFormat`. All are InputAssembly accesses of `scope`.
         void AddScopeDraw(RHIHandle scope, const RHI::DrawItem& draw, eastl::span<const RHIHandle> vertices,
             RHIHandle indices, RHI::IndexFormat indexFormat);
+
+        //! A copy of `scope` of `byteCount` bytes from `sourceOffset` into the buffer `source`
+        //! accesses to `destinationOffset` into the one `destination` accesses. Both are copy
+        //! accesses of `scope`, the one reading, the other writing.
+        void AddScopeCopy(RHIHandle scope, RHIHandle source, uint64_t sourceOffset,
+            RHIHandle destination, uint64_t destinationOffset, uint64_t byteCount);
 
         //! A set of scene items `scope` selects: `collect` appends its members under a view.
         void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);

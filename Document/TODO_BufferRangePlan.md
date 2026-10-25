@@ -340,8 +340,8 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 
 - ~~**L1　帧号统一到 Device**~~（已完成，§十二）：按帧分槽的暂存靠"每份上次被用在 `frameCountMax` 帧前"保证
   复用安全，选槽要一个不会错开的帧号，所以先于暂存。
-- **L2　系统 Pass 单独登记**（§十二）：PassContext 归 RenderSystem，系统在 `Init` 里登记 Pass，排在管线之前。纯
-  重构，画面不变。
+- **L2　系统 Pass 单独登记**（延后，§十二）：现在系统的 Pass 和管线的 Pass 一样登记在唯一的 PassContext 里，暂不
+  支持自定义管线，改管线就改引擎代码。以后再把两类分开，让用户能控制管线。
 - **L3　暂存与 Copy Pass**（§九 第 1 条）：系统持有的按帧分槽主机暂存，槽大小即每帧预算，超出的留到下一帧；
   Copy Pass 从暂存拷进池的区间。
 - **L4　几何池迁移**：`MeshGeometrySystem` 改用 `Suballocator` + `ReservedBuffer`，`MeshGeometry` 持有区间；
@@ -391,7 +391,7 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   建时写定，普通视图缓存），Resize 时整组重建，每帧按交换链的图像索引把当前那张交给 builder。`PendingSync`
   随之记在各自的图上，是这张图上次被用的位置。
 
-系统 Pass 与管线分开登记（方向已定，做法到时再设计）：
+系统 Pass 与管线分开登记（方向已定，延后；在此之前系统 Pass 与管线的 Pass 登记在同一处，不支持自定义管线）：
 
 - 问题：池的 Copy / scatter Pass 若写在 `SetUpDefaultPipeline` 里，用户自定义管线时就没了（`InstanceCullingPass` /
   `InstanceBinningPass` 现在也有同样的问题）。这类 Pass 跑不跑由数据的主人决定：系统记着"区间第 N 帧写好"，

@@ -46,6 +46,10 @@ namespace Spark::Render
     {
     };
 
+    struct CopyPassTag
+    {
+    };
+
     struct RayTracingPassTag
     {
     };

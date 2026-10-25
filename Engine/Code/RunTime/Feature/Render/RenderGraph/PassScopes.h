@@ -63,6 +63,7 @@ namespace Spark::Render
     private:
         friend class RenderScope;
         friend class ComputeScope;
+        friend class CopyScope;
         friend class ShaderAttachment;
 
         explicit Attachment(RHIHandle handle)
@@ -350,6 +351,45 @@ namespace Spark::Render
         RHIHandle           m_scope { NullHandle };
     };
 
+    //! One Scope of a copy pass. Open and closed as a RenderScope is.
+    class CopyScope
+    {
+    public:
+        CopyScope(CopyScope&&) = default;
+        CopyScope(const CopyScope&) = delete;
+        CopyScope& operator=(const CopyScope&) = delete;
+
+        //! Ends the Scope's declaration and validates it. Nothing is added to it afterwards.
+        void Close() { m_builder->CloseScope(m_scope); }
+
+        //! The buffer a copy of this Scope reads. Created with BufferBindFlags::CopyRead.
+        Attachment CopySource(const RHI::AttachmentId& name);
+
+        //! The buffer a copy of this Scope writes. Created with BufferBindFlags::CopyWrite.
+        Attachment CopyDestination(const RHI::AttachmentId& name);
+
+        //! Copy `byteCount` bytes from `sourceOffset` into `source` to `destinationOffset` into
+        //! `destination`, a CopySource and a CopyDestination of this Scope.
+        void CopyBuffer(const Attachment& source, uint64_t sourceOffset,
+                        const Attachment& destination, uint64_t destinationOffset, uint64_t byteCount)
+        {
+            m_builder->AddScopeCopy(m_scope, source.GetHandle(), sourceOffset,
+                destination.GetHandle(), destinationOffset, byteCount);
+        }
+
+    private:
+        friend class CopyPassScopes;
+
+        CopyScope(RenderGraphBuilder& builder, RHIHandle scope)
+            : m_builder(&builder)
+            , m_scope(scope)
+        {
+        }
+
+        RenderGraphBuilder* m_builder { nullptr };
+        RHIHandle           m_scope { NullHandle };
+    };
+
     //! What a render pass's Build callback declares its frame with: the resources it
     //! introduces and the Scopes it runs as. Declaring nothing skips the pass this frame.
     class RenderPassScopes
@@ -453,6 +493,37 @@ namespace Spark::Render
         uint32_t         GetFrameIndex() const { return m_builder.GetFrameIndex(); }
         Math::Vector2Int GetRenderSize() const { return m_builder.GetRenderSize(); }
         Math::Vector2Int GetOutputSize() const { return m_builder.GetOutputSize(); }
+
+    private:
+        RenderGraphBuilder& m_builder;
+    };
+
+    //! The copy counterpart of RenderPassScopes.
+    class CopyPassScopes
+    {
+    public:
+        explicit CopyPassScopes(RenderGraphBuilder& builder)
+            : m_builder(builder)
+        {
+        }
+
+        void CreateBuffer(const RHI::AttachmentId& name, const RHI::BufferDescriptor& desc)
+        {
+            m_builder.CreateBuffer(name, desc);
+        }
+
+        //! Introduce `resource`, owned outside the graph, under `name`.
+        void Import(const RHI::AttachmentId& name, RHIHandle resource)
+        {
+            m_builder.ImportResource(name, resource);
+        }
+
+        CopyScope Scope()
+        {
+            return CopyScope(m_builder, m_builder.OpenScope());
+        }
+
+        uint32_t GetFrameIndex() const { return m_builder.GetFrameIndex(); }
 
     private:
         RenderGraphBuilder& m_builder;

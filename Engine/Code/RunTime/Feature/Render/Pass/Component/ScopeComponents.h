@@ -103,6 +103,14 @@ namespace Spark::Render
         RHI::RHIHandle m_countAttachment {RHI::NullHandle};
     };
 
+    //! On a copy of a Scope: its CopySource and CopyDestination accesses. The buffers have no
+    //! backing when the copy is declared, so lowering puts them into the item (CompileItemCopies).
+    struct ItemCopy
+    {
+        RHI::RHIHandle m_sourceAttachment {RHI::NullHandle};
+        RHI::RHIHandle m_destinationAttachment {RHI::NullHandle};
+    };
+
     //! On a draw of a Scope that reads its vertices, and its indices, from buffers of the graph:
     //! the Scope's InputAssembly accesses of them, the vertex ones by input slot. The buffers have
     //! no backing when the draw is declared, so lowering binds them (CompileItemInputAssembly),

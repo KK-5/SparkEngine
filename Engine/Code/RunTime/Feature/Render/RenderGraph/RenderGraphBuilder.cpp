@@ -6,6 +6,7 @@
 #include <Pass/Component/PassDrawListComponents.h>
 #include <Pass/PassCapabilities.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <RHI/Command/CopyItem.h>
 #include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawItem.h>
 
@@ -521,6 +522,31 @@ namespace Spark::Render
         const RHIHandle handle = AddScopeItem(scope);
         rhiContext.Add<RHI::DispatchItem>(handle, item);
         rhiContext.Add<ItemIndirectArguments>(handle, ItemIndirectArguments{ arguments });
+    }
+
+    void RenderGraphBuilder::AddScopeCopy(RHIHandle scope, RHIHandle source, uint64_t sourceOffset,
+        RHIHandle destination, uint64_t destinationOffset, uint64_t byteCount)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        auto isCopyAccess = [&](RHIHandle access, bool writes)
+        {
+            const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(access);
+            return buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::Copy
+                && CheckBitsAny(buffer->m_access, RHI::AttachmentAccess::Write) == writes
+                && rhiContext.Get<ScopeAttachment>(access).m_scope == scope;
+        };
+        ASSERT(isCopyAccess(source, false) && isCopyAccess(destination, true),
+            "A copy's source and destination must be a CopySource and a CopyDestination of the same Scope.");
+
+        // The buffers are filled in by lowering: they have no backing yet.
+        RHI::CopyBufferDescriptor descriptor;
+        descriptor.m_sourceOffset      = sourceOffset;
+        descriptor.m_destinationOffset = destinationOffset;
+        descriptor.m_size              = byteCount;
+
+        const RHIHandle item = AddScopeItem(scope);
+        rhiContext.Add<RHI::CopyItem>(item, RHI::CopyItem(descriptor));
+        rhiContext.Add<ItemCopy>(item, ItemCopy{ source, destination });
     }
 
     void RenderGraphBuilder::AddScopeDrawIndirect(

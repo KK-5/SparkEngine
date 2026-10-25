@@ -383,4 +383,20 @@ namespace Spark::Render
         return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
             RHI::AttachmentUsage::Indirect, RHI::AttachmentAccess::Read, RHI::AttachmentStage::DrawIndirect));
     }
+
+    // ============================================================
+    // CopyScope
+    // ============================================================
+
+    Attachment CopyScope::CopySource(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Copy, RHI::AttachmentAccess::Read, RHI::AttachmentStage::Copy));
+    }
+
+    Attachment CopyScope::CopyDestination(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::Copy, RHI::AttachmentAccess::Write, RHI::AttachmentStage::Copy));
+    }
 }

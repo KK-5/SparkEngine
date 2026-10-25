@@ -261,6 +261,7 @@ namespace Spark::Render
         m_compiler.CompileScopeBindings(passContext, context);
         m_compiler.CompileScopeState(passContext, context);
         m_compiler.CompileItemIndirectArguments(passContext, context);
+        m_compiler.CompileItemCopies(passContext, context);
         m_compiler.CompileItemInputAssembly(passContext, context);
         m_compiler.CompileScopeSubmitRanges(passContext, context, m_executer.GetSubmitList());
 

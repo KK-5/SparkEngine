@@ -64,8 +64,9 @@ namespace Spark::Render
     //! PassPipelineLayout or if RHI services / Init fail. Defined in PassAccess.cpp.
     RHIHandle CreatePassBindings(PassContext& passCtx, RHIContext& rhiCtx, Pass pass);
 
-    // The builders live in <Pass/RenderPass.h> (RenderPassBuilder, SPARK_RENDER_PASS) and
-    // <Pass/ComputePass.h> (ComputePassBuilder, SPARK_COMPUTE_PASS). RenderPass.h pulls
+    // The builders live in <Pass/RenderPass.h> (RenderPassBuilder, SPARK_RENDER_PASS),
+    // <Pass/ComputePass.h> (ComputePassBuilder, SPARK_COMPUTE_PASS) and <Pass/CopyPass.h>
+    // (CopyPassBuilder, SPARK_COPY_PASS). RenderPass.h pulls
     // PassCapabilities.h, kept out of this common header so only files that write render
     // passes pay for it.
 } // namespace Spark::Render

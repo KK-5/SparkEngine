@@ -24,6 +24,7 @@
 #include <RHI/Resource/Transient/TransientResourcePool.h>
 #include <RHI/Command/RenderPassBeginInfo.h>
 
+#include <RHI/Command/CopyItem.h>
 #include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
@@ -1385,6 +1386,30 @@ namespace Spark::Render
             draw.m_buffer      = buffer;
             draw.m_countBuffer = arguments.m_countAttachment != NullHandle ? backingOf(arguments.m_countAttachment) : nullptr;
             draw.m_maxCount    = IndirectRecordCapacity(*buffer, draw.m_byteOffset);
+        }
+    }
+
+    void RenderGraphCompiler::CompileItemCopies(PassContext& passContext, RHIContext& context)
+    {
+        auto backingOf = [&](RHIHandle access, RHI::BufferBindFlags bindFlag, const char* bindFlagName) -> const RHI::Buffer*
+        {
+            const auto& attachment = context.Get<BufferPassAttachment>(access);
+            const auto* backing    = context.TryGet<BackingBuffer>(attachment.m_buffer);
+            const char* passName   = passContext.Get<PassName>(attachment.m_pass).m_name.GetCStr();
+            ASSERT(backing != nullptr && backing->m_buffer != nullptr,
+                "[RenderGraphCompiler] Pass {}: the copied buffer {} has no backing.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+            ASSERT(CheckBitsAll(backing->m_buffer->GetDescriptor().m_bindFlags, bindFlag),
+                "[RenderGraphCompiler] Pass {}: {} is copied but was not created with BufferBindFlags::{}.",
+                passName, attachment.m_attachmentId.m_id.GetCStr(), bindFlagName);
+            return backing->m_buffer;
+        };
+
+        for (auto [item, copy] : context.GetStorage<ItemCopy>().each())
+        {
+            RHI::CopyBufferDescriptor& descriptor = context.Get<RHI::CopyItem>(item).m_buffer;
+            descriptor.m_sourceBuffer      = backingOf(copy.m_sourceAttachment, RHI::BufferBindFlags::CopyRead, "CopyRead");
+            descriptor.m_destinationBuffer = backingOf(copy.m_destinationAttachment, RHI::BufferBindFlags::CopyWrite, "CopyWrite");
         }
     }
 
