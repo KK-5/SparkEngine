@@ -13,6 +13,16 @@ namespace Spark::Render
 {
     ReservedBuffer::~ReservedBuffer() = default;
 
+    void ReservedBuffer::Shutdown()
+    {
+        // The reserved buffer before its backings, and the pool last.
+        m_buffer.reset();
+        m_backings.clear();
+        m_pendingRequests.clear();
+        m_pool.reset();
+        m_mappedPageCount = 0;
+    }
+
     bool ReservedBuffer::Init(RHI::Device& device, const Descriptor& descriptor)
     {
         const uint64_t tileSize = device.GetLimits().m_reservedPageSizeInBytes;

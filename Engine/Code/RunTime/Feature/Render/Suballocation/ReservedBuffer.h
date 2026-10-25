@@ -39,6 +39,8 @@ namespace Spark::Render
         ~ReservedBuffer();
 
         bool Init(RHI::Device& device, const Descriptor& descriptor);
+        //! Before the RHI shuts down. Requests not yet submitted keep what they map.
+        void Shutdown();
 
         //! Backs the pages newly touched and drops the ones emptied, a BufferTileMappingRequest
         //! each, which the render graph submits before the frame's work. A page changed back before

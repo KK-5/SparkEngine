@@ -13,6 +13,7 @@
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
 #include <Binding/Instance/InstanceBinding.h>
+#include <Geometry/MeshGeometry.h>
 #include <View/ShadowAtlasLayout.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
@@ -114,9 +115,17 @@ namespace Spark::Render
 
                 auto s = p.Scope();
                 s.DepthWrite(RHI::AttachmentId("ShadowAtlas"), clear);
-                s.DrawIndirect(
-                    InstanceLists::Shadow::DrawArgumentsName(),
-                    InstanceLists::Shadow::DrawCountName());
+                // Until both exist nothing of the scene is drawn, but the atlas is still cleared.
+                if (p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
+                    && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs")))
+                {
+                    // The pool is the first vertex stream and the indices, the instance IDs the
+                    // second. Every mesh's indices are 32 bit: the model loader writes no other.
+                    const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
+                    const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
+                    s.DrawIndirect(InstanceLists::Shadow::DrawArgumentsName(), InstanceLists::Shadow::DrawCountName(),
+                        vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
+                }
                 s.Close();
             })
             .Finalize();

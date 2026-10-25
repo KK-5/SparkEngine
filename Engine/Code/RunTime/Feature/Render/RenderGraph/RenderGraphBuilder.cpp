@@ -549,8 +549,8 @@ namespace Spark::Render
         rhiContext.Add<ItemCopy>(item, ItemCopy{ source, destination });
     }
 
-    void RenderGraphBuilder::AddScopeDrawIndirect(
-        RHIHandle scope, const RHI::DrawItem& geometry, RHIHandle arguments, RHIHandle count)
+    void RenderGraphBuilder::AddScopeDrawIndirect(RHIHandle scope, RHIHandle arguments, RHIHandle count,
+        eastl::span<const RHIHandle> vertices, RHIHandle indices, RHI::IndexFormat indexFormat)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
 
@@ -569,16 +569,26 @@ namespace Spark::Render
             PassExecuteContext::Current()->Get<PassName>(m_currentPass).m_name.GetCStr());
 
         // The buffers and the record count are filled in by lowering: they have no backing yet.
-        RHI::DrawItem item = geometry;
+        RHI::DrawItem item;
         item.m_drawArguments = RHI::DrawArguments(RHI::DrawIndexedIndirect(RHI::IndirectArguments{}));
 
         const RHIHandle handle = AddScopeItem(scope);
         rhiContext.Add<RHI::DrawItem>(handle, item);
         rhiContext.Add<ItemIndirectArguments>(handle, ItemIndirectArguments{ arguments, count });
+        rhiContext.Add<ItemInputAssembly>(handle, MakeInputAssembly(scope, vertices, indices, indexFormat));
     }
 
     void RenderGraphBuilder::AddScopeDraw(RHIHandle scope, const RHI::DrawItem& draw,
         eastl::span<const RHIHandle> vertices, RHIHandle indices, RHI::IndexFormat indexFormat)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        const RHIHandle handle = AddScopeItem(scope);
+        rhiContext.Add<RHI::DrawItem>(handle, draw);
+        rhiContext.Add<ItemInputAssembly>(handle, MakeInputAssembly(scope, vertices, indices, indexFormat));
+    }
+
+    ItemInputAssembly RenderGraphBuilder::MakeInputAssembly(RHIHandle scope,
+        eastl::span<const RHIHandle> vertices, RHIHandle indices, RHI::IndexFormat indexFormat) const
     {
         auto& rhiContext = *RHIExecuteContext::Current();
 
@@ -604,10 +614,7 @@ namespace Spark::Render
         inputAssembly.m_vertexAttachments.assign(vertices.begin(), vertices.end());
         inputAssembly.m_indexAttachment = indices;
         inputAssembly.m_indexFormat     = indexFormat;
-
-        const RHIHandle handle = AddScopeItem(scope);
-        rhiContext.Add<RHI::DrawItem>(handle, draw);
-        rhiContext.Add<ItemInputAssembly>(handle, eastl::move(inputAssembly));
+        return inputAssembly;
     }
 
     void RenderGraphBuilder::AddScopeUse(RHIHandle scope, ScopeUses::Take take)

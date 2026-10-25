@@ -38,9 +38,7 @@ namespace Spark::Render
         uint32_t m_count = 0;
     };
 
-    //! The single shared per-instance vertex stream ID buffer entity.
-    struct InstanceIDBufferTag
-    {
-        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::VertexIndexInput;
-    };
+    //! The single shared per-instance vertex stream ID buffer entity, which a pass drawing
+    //! meshes imports.
+    struct InstanceIDBufferTag {};
 }

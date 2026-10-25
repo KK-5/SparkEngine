@@ -16,6 +16,7 @@
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
+#include <Geometry/MeshGeometry.h>
 #include <Drawable/DrawTag.h>
 #include <DrawList/DrawList.h>
 
@@ -115,11 +116,18 @@ namespace Spark::Render
                     s.Sampler(RHI::InputName("g_ShadowSampler"), ShadowAtlasSampler());
                 }
 
-                // The list's draws, once DrawListCullingSystem has made their buffer.
+                // The list's draws, once DrawListCullingSystem has made their buffer and the
+                // geometry and instance IDs exist.
                 const RHI::AttachmentId& arguments = InstanceLists::CpuCulled::DrawArgumentsName();
-                if (p.Import<CpuCulledDrawArgumentsTag>(arguments))
+                if (p.Import<CpuCulledDrawArgumentsTag>(arguments)
+                    && p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
+                    && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs")))
                 {
-                    s.DrawIndirect(arguments);
+                    // The pool is the first vertex stream and the indices, the instance IDs the
+                    // second. Every mesh's indices are 32 bit: the model loader writes no other.
+                    const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
+                    const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
+                    s.DrawIndirect(arguments, vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }
                 s.Close();
             })

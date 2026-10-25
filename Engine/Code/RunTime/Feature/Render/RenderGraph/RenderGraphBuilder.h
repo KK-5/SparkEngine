@@ -142,11 +142,12 @@ namespace Spark::Render
         //! `scope`.
         void AddScopeDispatchIndirect(RHIHandle scope, RHIHandle arguments, uint64_t byteOffset);
 
-        //! An indexed draw of `scope` through the vertex and index bindings of `geometry`, that
-        //! reads its records from the buffer `arguments` accesses and how many of them from the
-        //! one `count` accesses, or, with `count` NullHandle, as many as the groups of the list
-        //! the pass draws say. Both are indirect-arguments accesses of `scope`.
-        void AddScopeDrawIndirect(RHIHandle scope, const RHI::DrawItem& geometry, RHIHandle arguments, RHIHandle count);
+        //! An indexed draw of `scope` that reads its records from the buffer `arguments` accesses
+        //! and how many of them from the one `count` accesses, or, with `count` NullHandle, as
+        //! many as the groups of the list the pass draws say. Both are indirect-arguments
+        //! accesses of `scope`. It reads its vertices and indices as AddScopeDraw does.
+        void AddScopeDrawIndirect(RHIHandle scope, RHIHandle arguments, RHIHandle count,
+            eastl::span<const RHIHandle> vertices, RHIHandle indices, RHI::IndexFormat indexFormat);
 
         //! A draw of `scope` with the arguments of `draw`, reading its vertices from the buffers
         //! `vertices` access, slot by slot, and, unless `indices` is NullHandle, its indices from
@@ -191,6 +192,11 @@ namespace Spark::Render
 
         //! Asserts that `scope` is the one open.
         void CheckScopeOpen(RHIHandle scope) const;
+
+        //! What a draw of `scope` reads its vertices and indices through, for lowering to bind.
+        //! Each is an InputAssembly access of `scope`.
+        ItemInputAssembly MakeInputAssembly(RHIHandle scope, eastl::span<const RHIHandle> vertices,
+            RHIHandle indices, RHI::IndexFormat indexFormat) const;
 
         // The transient image declared under `name` so far, or NullHandle. Used to link a
         // previous-frame read to the resource it mirrors.

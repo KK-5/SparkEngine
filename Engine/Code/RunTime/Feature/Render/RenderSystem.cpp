@@ -166,6 +166,9 @@ namespace Spark::Render
     {
         auto& passContext = m_pipeline.GetPassContext();
 
+        // Before every pass that draws meshes: it copies their new bytes into the pool.
+        m_meshGeometrySystem.SetUp(passContext);
+
         // First: what each view sees, then each drawing pass's groups of it, which the passes
         // below draw the scene by.
         InstanceCullingPass::SetUp(passContext);

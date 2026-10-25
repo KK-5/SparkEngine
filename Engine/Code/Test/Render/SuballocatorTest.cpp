@@ -6,28 +6,18 @@
 #include <EASTL/vector.h>
 
 #include <RHI/Bus/FrameEventBus.h>
-#include <RHI/Device/Device.h>
-#include <RHI/Device/PhysicalDevice.h>
 
 #include <Suballocation/Suballocator.h>
 
+#include "FakeDevice.h"
+
 using namespace Spark;
 using namespace Spark::Render;
+using Spark::Test::FakeDevice;
 
 namespace
 {
     constexpr uint32_t kFrameCountMax = 2;
-
-    //! The base Device's release queue and frame hook, with no backend: what a Suballocator
-    //! reaches of a device is QueueForRelease, released at OnFrameEnd.
-    class FakeDevice final : public RHI::Device
-    {
-    private:
-        RHI::ResultCode InitInternal(RHI::PhysicalDevice&) override { return RHI::ResultCode::Success; }
-        void ShutdownInternal() override {}
-        RHI::ResultCode InitializeLimits() override { return RHI::ResultCode::Success; }
-        void FillFormatsCapabilitiesInternal(FormatCapabilitiesList&) override {}
-    };
 
     class SuballocatorTests : public ::testing::Test
     {

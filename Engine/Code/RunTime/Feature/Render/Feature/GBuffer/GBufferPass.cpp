@@ -16,6 +16,7 @@
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
+#include <Geometry/MeshGeometry.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RenderGraph/RenderGraphCompiler.h>
@@ -154,8 +155,17 @@ namespace Spark::Render
                 s.Sampler(RHI::InputName("g_MatSampler"),
                     RHI::SamplerState::CreateAnisotropic(16, RHI::AddressMode::Wrap));
 
-                s.DrawIndirect(
-                    InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName());
+                // Until both exist nothing of the scene is drawn, but the targets are still cleared.
+                if (p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
+                    && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs")))
+                {
+                    // The pool is the first vertex stream and the indices, the instance IDs the
+                    // second. Every mesh's indices are 32 bit: the model loader writes no other.
+                    const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
+                    const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
+                    s.DrawIndirect(InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName(),
+                        vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
+                }
                 s.Close();
             })
             .Finalize()

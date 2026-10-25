@@ -198,18 +198,18 @@ namespace Spark::Render
         //! written by an earlier pass (an InstanceBinning). One call per view, reading that
         //! view's part of both where the pass that wrote them marked one
         //! (.IndirectArgumentsOf), and one per group when the pass draws a list. The Scope
-        //! reads both as IndirectArguments. The draw binds the geometry pool's native buffer
-        //! as its vertex and index stream and the instance ID buffer beside it; it draws
-        //! nothing until both exist.
-        void DrawIndirect(const RHI::AttachmentId& argumentsName, const RHI::AttachmentId& countName);
+        //! reads both as IndirectArguments. Each record's offsets are into `vertices` and
+        //! `indices`, which it reads as a Draw does.
+        void DrawIndirect(const RHI::AttachmentId& argumentsName, const RHI::AttachmentId& countName,
+            eastl::span<const Attachment> vertices, const IndexStream& indices);
 
         //! As above with no count buffer, for a pass drawing a list: each of its groups says
         //! exactly how many records its call executes.
-        void DrawIndirect(const RHI::AttachmentId& argumentsName);
+        void DrawIndirect(const RHI::AttachmentId& argumentsName,
+            eastl::span<const Attachment> vertices, const IndexStream& indices);
 
         //! Read the resources carrying Tag, which live outside the graph, as Tag::Access says.
-        //! For what nothing in this Scope names: .Binds<> and DrawIndirect declare what they
-        //! read themselves.
+        //! For what nothing in this Scope names: .Binds<> declares what it reads itself.
         template<typename Tag>
         void Uses()
         {
@@ -241,9 +241,8 @@ namespace Spark::Render
         void DrawStreams(const RHI::DrawArguments& arguments, eastl::span<const Attachment> vertices,
             RHIHandle indices, RHI::IndexFormat indexFormat, uint32_t instanceCount);
 
-        //! Binds what an indirect draw reads its meshes through into `outItem` and declares
-        //! the reads. False, declaring nothing, until both exist.
-        bool UseIndirectDrawGeometry(RHI::DrawItem& outItem);
+        void DrawIndirectStreams(RHIHandle arguments, RHIHandle count,
+            eastl::span<const Attachment> vertices, const IndexStream& indices);
 
         RenderScope(RenderGraphBuilder& builder, RHIHandle scope)
             : m_builder(&builder)

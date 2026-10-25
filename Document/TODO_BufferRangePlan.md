@@ -351,10 +351,18 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   CopyDestination 并拷贝字节区间；`StagingBuffer` 是系统持有的每帧一份主机暂存。
 - ~~**L4a　删掉旧的 DrawItem 派生路径**~~（已完成，§十二）：`MeshGeometryComposer` → `DrawItemRouter` →
   `GeometrySpec` 做出的 DrawItem 只有 `.Accepts<>()` 取得到，而没有 Pass 调它，连同 `ScopeSelections` 一起删。
-- **L4b　几何池迁移**：`MeshGeometrySystem` 改用 `Suballocator` + `ReservedBuffer`，顶点与索引共用一块 reserved
-  Buffer，`MeshGeometry` 持有两个区间（顶点按步长、索引按 4 字节对齐）；上传走 L3，不再经 `AsyncUploadSystem`；
+- ~~**L4b　几何池迁移**~~（已完成）：`MeshGeometrySystem` 改用 `Suballocator` + `ReservedBuffer`（虚拟容量
+  1GB，页 2MB），顶点与索引共用一块 reserved Buffer，`MeshGeometry` 持有两个区间（顶点按步长、索引按 4 字节对齐）；
   DrawIndirect 接收顶点流附件，几何池与 `InstanceIDBuffer` 都由 Pass 导入，删 `MeshGeometrySegmentTag` /
-  `MeshGeometryBaseBufferTag` 一套（§八）。上传的细节待定。
+  `MeshGeometryBaseBufferTag` 一套（§八）。
+  - 上传走 L3，不再经 `AsyncUploadSystem`：每帧定量（8MB），装进池按帧进行，这是正确性要求（池每帧被读，写要排在
+    同帧读之前），业界同（UE 的 `r.VT.MaxUploadsPerFrame`、Nanite 每次更新的页安装上限）。准备数据（解析、解码）
+    不与帧绑定，由准备好的字节入队。
+  - 进度在实体上（`MeshGeometryUpload`，随 `MeshGeometry` 增删，几何移除即不再写），不另设队列：每帧先传完已开始
+    的，再开始新的，到额度为止，所以任何时刻最多一个传了一半。传完最后一块的那帧即可画：拷贝 Pass 排在所有读池的
+    Pass 之前。
+  - 多线程：系统线程只做按额度挑选和记区间；切好的暂存区间互不重叠，memcpy 可拆给工作线程，在图 Build 前汇合。
+  - 几何仍按实体，同一网格多实例各占一份；按网格共享是以后的事。
 - **R5**　删预算模式（见下）。
 - **L5　`g_Instances`**：设备池 + scatter Pass，加变化检测；`InstanceIDBuffer` 改为活跃列表；剔除与分箱按位置
   （§八，连同 `TODO_GPUDrivenPlan.md`）。
