@@ -31,7 +31,6 @@
 #include <RHI/Pipeline/ShaderStages.h>
 
 #include <Binding/View/ViewBinding.h>
-#include <Drawable/GeometrySpec.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/PassDrawListComponents.h>
 #include <Pass/Component/ScopeComponents.h>
@@ -1558,21 +1557,13 @@ namespace Spark::Render
                 nullptr);
         }
 
-        //! Under `view` (NullHandle for a viewless pass): the Scope's own items, then those it
-        //! selects.
+        //! Under `view` (NullHandle for a viewless pass): the Scope's items.
         void AppendItems(RHIHandle scope, RHIHandle view, Pass pass, PassContext& passContext,
             RHIContext& context, DrawPipelineCache& pipelineCache, eastl::vector<RHIHandle>& submitList)
         {
             for (RHIHandle item : GetScopeItems(context, scope))
             {
                 AppendItemForView(item, view, pass, passContext, context, pipelineCache, submitList);
-            }
-            if (const auto* selections = context.TryGet<ScopeSelections>(scope))
-            {
-                for (ScopeSelections::Collect collect : selections->m_collects)
-                {
-                    collect(context, view, submitList);
-                }
             }
         }
 

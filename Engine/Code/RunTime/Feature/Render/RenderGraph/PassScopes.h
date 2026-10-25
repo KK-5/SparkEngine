@@ -31,15 +31,6 @@ namespace Spark::Render
         return RHI::IsResourceReady(context, resource) ? resource : NullHandle;
     }
 
-    //! A ScopeSelections::Collect: the live scene DrawItems carrying all of DrawTags. An item
-    //! marked dead this frame is left out, though its entity stays valid through recording.
-    template<typename... DrawTags>
-    void CollectDrawItems(RHI::RHIContext& context, RHI::RHIHandle /*view*/, eastl::vector<RHI::RHIHandle>& submitList)
-    {
-        context.GetView<RHI::DrawItem, DrawTags...>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle item, const RHI::DrawItem&) { submitList.push_back(item); });
-    }
-
     //! An attachment a Scope just declared. Refines the view it is accessed through.
     class Attachment
     {
@@ -215,13 +206,6 @@ namespace Spark::Render
         //! As above with no count buffer, for a pass drawing a list: each of its groups says
         //! exactly how many records its call executes.
         void DrawIndirect(const RHI::AttachmentId& argumentsName);
-
-        //! Draw the scene's items that carry all of DrawTags, e.g. Accepts<OpaqueTag>().
-        template<typename... DrawTags>
-        void Accepts()
-        {
-            m_builder->AddScopeSelection(m_scope, &CollectDrawItems<DrawTags...>);
-        }
 
         //! Read the resources carrying Tag, which live outside the graph, as Tag::Access says.
         //! For what nothing in this Scope names: .Binds<> and DrawIndirect declare what they

@@ -17,10 +17,6 @@ namespace Spark::Render
     //! renderable's life, so a consumer bakes it once as StartInstanceLocation.
     using InstanceSlotRef = SlotRef<Instances>;
 
-    //! What such a consumer holds instead of a copy. A copy would keep the slot
-    //! allocated, and noticing that the renderable let it go is the whole point.
-    using InstanceSlotWeakRef = SlotWeakRef<Instances>;
-
     //! The model matrix a renderable was encoded with last frame, on the WORLD entity.
     //! Absent means no history: the previous transform is taken as the current one.
     struct InstanceHistory

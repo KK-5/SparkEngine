@@ -62,8 +62,6 @@ set(SOURCES
     Binding/Material/MaterialBindingSystem.cpp
     Geometry/MeshGeometrySystem.cpp
     Drawable/DrawMask.cpp
-    Drawable/MeshGeometryComposer.cpp
-    Drawable/DrawItemRouter.cpp
 )
 
 add_library(${TARGET_NAME} STATIC

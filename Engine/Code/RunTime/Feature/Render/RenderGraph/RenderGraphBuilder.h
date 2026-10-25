@@ -160,9 +160,6 @@ namespace Spark::Render
         void AddScopeCopy(RHIHandle scope, RHIHandle source, uint64_t sourceOffset,
             RHIHandle destination, uint64_t destinationOffset, uint64_t byteCount);
 
-        //! A set of scene items `scope` selects: `collect` appends its members under a view.
-        void AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect);
-
         //! A tag `scope` uses (.Uses): `take` takes that tag's uploads for it.
         void AddScopeUse(RHIHandle scope, ScopeUses::Take take);
 

@@ -176,8 +176,8 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 - `StagedArrayBuffer` 即"主机池每帧一份"，小数组保持这种写法，改用区间对象。
 - `GlobalBuffer` 的大数组（`g_Instances`、`g_Materials`）迁到设备池 + scatter。要新加变化检测：现在的
   `process` 每帧重写所有实体；空洞也不再每帧整体重置，剔除经活跃列表读，读不到空洞。
-- `SlotPool` / `SharedHandle` / `HandlePool` 这类工具逐步由区间池和区间对象取代，不再新加；`WeakHandle` 只有
-  将删的 `MeshGeometryComposer` / `GeometrySpec` 在用。
+- `SlotPool` / `SharedHandle` / `HandlePool` 这类工具逐步由区间池和区间对象取代，不再新加；`WeakHandle` 随
+  `GeometrySpec` 删除已无使用方，只剩测试。
 
 ## 六、池的增长：reserved 资源 + 同类后备
 
@@ -349,8 +349,12 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   支持自定义管线，改管线就改引擎代码。以后再把两类分开，让用户能控制管线。
 - ~~**L3　暂存与 Copy Pass**~~（已完成，§九 第 1 条）：Copy Pass 是第三种 Pass，Scope 声明 CopySource /
   CopyDestination 并拷贝字节区间；`StagingBuffer` 是系统持有的每帧一份主机暂存。
-- **L4　几何池迁移**：`MeshGeometrySystem` 改用 `Suballocator` + `ReservedBuffer`，`MeshGeometry` 持有区间；
-  上传走 L3，不再经 `AsyncUploadSystem`；DrawIndirect 接收顶点流附件，删 `MeshGeometrySegmentTag` 一套（§八）。
+- ~~**L4a　删掉旧的 DrawItem 派生路径**~~（已完成，§十二）：`MeshGeometryComposer` → `DrawItemRouter` →
+  `GeometrySpec` 做出的 DrawItem 只有 `.Accepts<>()` 取得到，而没有 Pass 调它，连同 `ScopeSelections` 一起删。
+- **L4b　几何池迁移**：`MeshGeometrySystem` 改用 `Suballocator` + `ReservedBuffer`，顶点与索引共用一块 reserved
+  Buffer，`MeshGeometry` 持有两个区间（顶点按步长、索引按 4 字节对齐）；上传走 L3，不再经 `AsyncUploadSystem`；
+  DrawIndirect 接收顶点流附件，几何池与 `InstanceIDBuffer` 都由 Pass 导入，删 `MeshGeometrySegmentTag` /
+  `MeshGeometryBaseBufferTag` 一套（§八）。上传的细节待定。
 - **R5**　删预算模式（见下）。
 - **L5　`g_Instances`**：设备池 + scatter Pass，加变化检测；`InstanceIDBuffer` 改为活跃列表；剔除与分箱按位置
   （§八，连同 `TODO_GPUDrivenPlan.md`）。
@@ -377,9 +381,9 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 
 ## 十二、相关但单独实施
 
-零散 Draw（已定，先做）：`RenderScope::Draw(arguments, span<const Attachment> vertices[, IndexStream])`，
-缓冲经 `p.Import` + `s.InputAssembly` 成为附件，步长取自 Pass 的输入布局；同时删除 `MeshGeometryComposer`、
-`DrawItemRouter`、`GeometrySpec`、`Accepts`。场景内容走 indirect，Draw 只用于零散用途。
+零散 Draw（已完成）：`RenderScope::Draw(arguments, span<const Attachment> vertices[, IndexStream])`，
+缓冲经 `p.Import` + `s.InputAssembly` 成为附件，步长取自 Pass 的输入布局；`MeshGeometryComposer`、
+`DrawItemRouter`、`GeometrySpec`、`Accepts` 已删（L4a）。场景内容走 indirect，Draw 只用于零散用途。
 
 帧号统一到 Device（L1，已完成）：
 

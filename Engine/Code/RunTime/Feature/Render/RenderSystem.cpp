@@ -17,7 +17,6 @@
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/PassAccess.h>
 
-#include <Drawable/GeometrySpec.h>
 #include <Drawable/DrawTag.h>
 
 #include <RHI/Command/DrawArguments.h>
@@ -261,9 +260,6 @@ namespace Spark::Render
         m_shadowViewSystem.Init(rhiCtxForInit);
         m_shadowMaskSystem.Init(rhiCtxForInit);
 
-        m_meshGeometryComposer.Init(rhiCtxForInit);
-        m_drawItemRouter.Init(rhiCtxForInit);
-
         // ImportSwapChain materializes swap chain entities into the active RHIContext;
         // the context is owned and pushed by the RHI layer (see RHIInterface),
         // so by this point RHIExecuteContext::Current() is already valid.
@@ -281,11 +277,8 @@ namespace Spark::Render
     {
         TickBus::Handler::BusDisconnect();
 
-        // The feature processors own no teardown: procedural specs are reaped by
-        // DrawItemRouter (below), per-pass SRGs by ReapPassShaderBindings.
-
-        m_drawItemRouter.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_meshGeometryComposer.Shutdown(*RHI::RHIExecuteContext::Current());
+        // The feature processors own no teardown: per-pass SRGs are reaped by
+        // ReapPassShaderBindings.
 
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -364,13 +357,6 @@ namespace Spark::Render
         m_drawListCullingSystem.Update(rhiCtx, passContext, m_drawContext);
         // The groups of each pass from what the two above left.
         m_drawGroupSystem.Update(rhiCtx, passContext, m_drawContext);
-
-        // World → GeometrySpec: find-or-create over renderable world entities.
-        m_meshGeometryComposer.Update();
-        // Producer-agnostic GeometrySpec → DrawItem routing: reap dead-dependency specs,
-        // then route every not-yet-derived spec (world-composed or otherwise) through
-        // the passes that accept it.
-        m_drawItemRouter.Process();
 
         m_uiProcessFeature.Process();
 

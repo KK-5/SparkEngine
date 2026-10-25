@@ -134,15 +134,6 @@ namespace Spark::Render
         const RHI::PipelineState* m_pso = nullptr;
     };
 
-    //! On a Scope that selects sets of scene items (.Accepts): per set, the query that appends
-    //! its members under `view`. The items are persistent and carry no link to the Scope.
-    struct ScopeSelections
-    {
-        using Collect = void (*)(RHI::RHIContext&, RHI::RHIHandle view, eastl::vector<RHI::RHIHandle>& submitList);
-
-        eastl::fixed_vector<Collect, 4> m_collects;
-    };
-
     //! An upload awaiting its acquire whose target carries a tag a Scope uses, with the
     //! access that tag says its resources are read with.
     struct UploadTake

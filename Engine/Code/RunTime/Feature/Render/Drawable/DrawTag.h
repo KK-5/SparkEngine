@@ -21,11 +21,11 @@ namespace Spark::Render
     };
 
     //! Object classification tags — a property of the OBJECT that decides WHICH
-    //! passes consume it (a Scope selects it via Accepts<ClassTag>()). A property
+    //! passes consume it (its DrawMask bits, which the culling reads). A property
     //! that only changes the PSO within the same pass set (alpha-test discard, cull
     //! mode, …) is an object-side PSO hint, not a classification tag.
     //!
-    //! Tags group into dimensions: exclusive within a dimension (composer derives one),
+    //! Tags group into dimensions: exclusive within a dimension (the material decides one),
     //! orthogonal across (Opaque + ShadowCaster coexist and route to their own passes).
     //!
     //! A tag a pass draws as a list (.Draw<Tag>()) declares its Order and Culling.

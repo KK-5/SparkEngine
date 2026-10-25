@@ -11,7 +11,7 @@
 namespace Spark::Render
 {
     //! The classification tags of one object, a bit each: InstanceData::m_drawMask. It lets
-    //! a reader of g_Instances ask what a Scope asks with Accepts<Tag>(). 0 draws nowhere.
+    //! a reader of g_Instances ask which tags an instance carries. 0 draws nowhere.
     using DrawMask = uint32_t;
 
     //! The bit of a tag. Only a tag something reads g_Instances for has one.

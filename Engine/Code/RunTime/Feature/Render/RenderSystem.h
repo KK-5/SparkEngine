@@ -25,8 +25,6 @@
 #include "DrawList/DrawGroupSystem.h"
 #include "DrawList/DrawListCullingSystem.h"
 #include "Geometry/MeshGeometrySystem.h"
-#include "Drawable/MeshGeometryComposer.h"
-#include "Drawable/DrawItemRouter.h"
 
 namespace Spark::Render
 {
@@ -88,8 +86,6 @@ namespace Spark::Render
         DrawListCullingSystem m_drawListCullingSystem;
         DrawGroupSystem       m_drawGroupSystem;
         DrawContext           m_drawContext;
-        MeshGeometryComposer m_meshGeometryComposer;
-        DrawItemRouter       m_drawItemRouter;
 
         Pipeline    m_pipeline {"default"};
         RenderGraph m_renderGraph;

@@ -8,7 +8,6 @@
 
 #include <Mesh/Components.h>
 
-#include <Drawable/GeometrySpec.h>
 #include <Geometry/MeshGeometry.h>
 #include <Binding/Geometry/GeometryBindingSystem.h>
 
@@ -36,8 +35,8 @@ protected:
         WorldExecuteContext::Pop();
     }
 
-    //! A composed mesh entity whose geometry was made from what its component names.
-    Entity ComposedMesh()
+    //! A mesh entity whose geometry was made from what its component names.
+    Entity MeshWithGeometry()
     {
         Mesh::MeshComponent mesh;
         mesh.m_modelAssetId   = Resource::AssetId::Of<Resource::ModelAsset>("test://Model/A.glb");
@@ -55,7 +54,6 @@ protected:
         world.Add<Mesh::MeshComponent>(e, mesh);
         world.Add<MeshGeometry>(e, eastl::move(geometry));
         world.Add<MeshGeometryReadyTag>(e);
-        world.Add<WorldComposedTag>(e);
         return e;
     }
 
@@ -64,20 +62,19 @@ protected:
 
 TEST_F(MeshGeometryTest, UnchangedComponentKeepsItsGeometry)
 {
-    const Entity e = ComposedMesh();
+    const Entity e = MeshWithGeometry();
     const RHI::RHIHandle vb = world.Get<MeshGeometry>(e).m_vertexBuffer.Get();
 
     RemoveStaleMeshGeometry();
 
     EXPECT_TRUE(world.Has<MeshGeometry>(e));
     EXPECT_TRUE(world.Has<MeshGeometryReadyTag>(e));
-    EXPECT_TRUE(world.Has<WorldComposedTag>(e));
     EXPECT_FALSE(IsDead(vb));
 }
 
 TEST_F(MeshGeometryTest, RemovedComponentTakesItsGeometryAlong)
 {
-    const Entity e = ComposedMesh();
+    const Entity e = MeshWithGeometry();
     const RHI::RHIHandle vb = world.Get<MeshGeometry>(e).m_vertexBuffer.Get();
     const RHI::RHIHandle ib = world.Get<MeshGeometry>(e).m_indexBuffer.Get();
 
@@ -86,14 +83,13 @@ TEST_F(MeshGeometryTest, RemovedComponentTakesItsGeometryAlong)
 
     EXPECT_FALSE(world.Has<MeshGeometry>(e));
     EXPECT_FALSE(world.Has<MeshGeometryReadyTag>(e));
-    EXPECT_FALSE(world.Has<WorldComposedTag>(e));
     EXPECT_TRUE(IsDead(vb));
     EXPECT_TRUE(IsDead(ib));
 }
 
 TEST_F(MeshGeometryTest, ComponentNamingAnotherPrimitiveDropsItsGeometry)
 {
-    const Entity e = ComposedMesh();
+    const Entity e = MeshWithGeometry();
     const RHI::RHIHandle vb = world.Get<MeshGeometry>(e).m_vertexBuffer.Get();
     const RHI::RHIHandle ib = world.Get<MeshGeometry>(e).m_indexBuffer.Get();
 
@@ -101,14 +97,13 @@ TEST_F(MeshGeometryTest, ComponentNamingAnotherPrimitiveDropsItsGeometry)
     RemoveStaleMeshGeometry();
 
     EXPECT_FALSE(world.Has<MeshGeometry>(e));
-    EXPECT_FALSE(world.Has<WorldComposedTag>(e));
     EXPECT_TRUE(IsDead(vb));
     EXPECT_TRUE(IsDead(ib));
 }
 
 TEST_F(MeshGeometryTest, ComponentNamingAnotherModelDropsItsGeometry)
 {
-    const Entity e = ComposedMesh();
+    const Entity e = MeshWithGeometry();
     const RHI::RHIHandle vb = world.Get<MeshGeometry>(e).m_vertexBuffer.Get();
 
     world.Get<Mesh::MeshComponent>(e).m_modelAssetId =
@@ -121,7 +116,7 @@ TEST_F(MeshGeometryTest, ComponentNamingAnotherModelDropsItsGeometry)
 
 TEST_F(MeshGeometryTest, DestroyedEntityMarksItsBuffersDead)
 {
-    const Entity e = ComposedMesh();
+    const Entity e = MeshWithGeometry();
     const RHI::RHIHandle vb = world.Get<MeshGeometry>(e).m_vertexBuffer.Get();
     const RHI::RHIHandle ib = world.Get<MeshGeometry>(e).m_indexBuffer.Get();
 

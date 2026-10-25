@@ -138,9 +138,8 @@ namespace Spark::Render
         void CompileItemInputAssembly(PassContext& passContext, RHIContext& context);
 
         //! Lay each Scope's submissions out in submitList and record its ScopeSubmitRange: per
-        //! ready view, the view's handle then the Scope's own items and those the pass collects
-        //! for it through a static .Accepts; items only for
-        //! a pass that renders no view. A render pass whose BeginInfo gives no target extent
+        //! ready view, the view's handle then the Scope's items; items only for a pass that
+        //! renders no view. A render pass whose BeginInfo gives no target extent
         //! submits nothing. Runs after CompileScopeBeginInfo.
         void CompileScopeSubmitRanges(
             PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList);

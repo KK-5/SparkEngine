@@ -610,20 +610,6 @@ namespace Spark::Render
         rhiContext.Add<ItemInputAssembly>(handle, eastl::move(inputAssembly));
     }
 
-    void RenderGraphBuilder::AddScopeSelection(RHIHandle scope, ScopeSelections::Collect collect)
-    {
-        CheckScopeOpen(scope);
-
-        auto& rhiContext = *RHIExecuteContext::Current();
-        auto*  component  = rhiContext.TryGet<ScopeSelections>(scope);
-        auto& collects   = (component != nullptr ? *component : rhiContext.Add<ScopeSelections>(scope)).m_collects;
-        for (ScopeSelections::Collect existing : collects)
-        {
-            ASSERT(existing != collect, "The same set is selected twice in one Scope.");
-        }
-        collects.push_back(collect);
-    }
-
     void RenderGraphBuilder::AddScopeUse(RHIHandle scope, ScopeUses::Take take)
     {
         CheckScopeOpen(scope);

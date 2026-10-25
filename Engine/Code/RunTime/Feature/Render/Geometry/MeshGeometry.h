@@ -55,7 +55,7 @@ namespace Spark::Render
     struct MeshGeometryBaseBufferTag {};
 
     //! Takes the MeshGeometry off every world entity whose MeshComponent is gone or names
-    //! another mesh, and lets the entity be composed again. Compared every frame, so an edit
-    //! to the component needs no notification.
+    //! another mesh, so the next one is made. Compared every frame, so an edit to the
+    //! component needs no notification.
     void RemoveStaleMeshGeometry();
 }

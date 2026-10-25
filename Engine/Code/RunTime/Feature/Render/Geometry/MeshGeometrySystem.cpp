@@ -21,7 +21,6 @@
 
 #include <Mesh/Components.h>
 
-#include <Drawable/GeometrySpec.h>
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphUtils.h>
 
@@ -92,12 +91,6 @@ namespace Spark::Render
         for (Entity entity : stale)
         {
             world->Remove<MeshGeometry, MeshGeometryReadyTag>(entity);
-            // The spec composed from the old buffers is reaped with them, and nothing
-            // composes the next one while the entity still says it is composed.
-            if (world->Has<WorldComposedTag>(entity))
-            {
-                world->Remove<WorldComposedTag>(entity);
-            }
         }
     }
 
