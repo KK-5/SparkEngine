@@ -66,9 +66,9 @@ P5 做三件事：**按材质的 PSO 变体**（I5，含 Masked 与双面）、*
 
 - DepthPre / GBuffer / Shadow 各一行 `s.DrawIndirect(arguments, count)`。剔除 pass 每个分类一个，每个视图一个 Scope，
   视图 k 的段从 `k × maxDrawsPerView` 条开始，count 每个视图一个（`TODO_GPUDrivenPlan.md` D7 / D13）。剔除与写 draw 记录在同一个 shader 里。
-- `DrawIndirect` 把 `MeshGeometryBaseBufferTag` 的底层 buffer 绑成 VB 与 IB，加上实例 ID 流（`PassScopes.cpp` 的
-  `RenderScope::DrawIndirect`）；记录里的几何偏移来自 `MeshGeometry` 的 `m_firstIndex` / `m_vertexOffset`，即网格在这块原生 buffer
-  里的起点。`TODO_BufferRangePlan.md` §五 提过要改成接收顶点流附件，那份计划用户还在犹豫。
+- 各 Pass 在 Build 里导入几何池（`MeshGeometryPoolTag`）与实例 ID 流，几何池绑成 VB 与 IB，实例 ID 流为第二个
+  顶点流，传给 `RenderScope::DrawIndirect`；记录里的几何偏移来自 `MeshGeometry` 的 `m_firstIndex` / `m_vertexOffset`，
+  即网格在几何池里的起点（`TODO_BufferRangePlan.md` L4b）。
 - DepthPre 的输入布局只声明 POSITION；GBuffer 声明完整的标准顶点格式。lowering 取顶点流步长用的是 pass 的输入布局
   （`CompileItemInputAssembly`）。
 - GBuffer 的深度测试是 `Equal`、不写深度。Shadow 有 PS。

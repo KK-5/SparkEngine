@@ -16,9 +16,7 @@
 
 #include <mutex>
 #include <EASTL/vector.h>
-#include <Math/Bit.h>
 #include <Service/Service.h>
-#include <RHI/Factory.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Fence/Fence.h>
 #include <Device/Device.h>
@@ -39,7 +37,6 @@ namespace Spark::RHI::DX12
     void BufferPool::OnFrameEnd()
     {
         m_releaseQueue.Collect();
-        m_virtualBlockReleaseQueue.Collect();
         ResourcePool::OnFrameEnd();
     }
 
@@ -66,125 +63,14 @@ namespace Spark::RHI::DX12
         releaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
         m_releaseQueue.Init(releaseQueueDescriptor);
 
-        if (descriptorBase.m_budgetInBytes != 0)
-        {
-            VirtualBlockAllocationReleaseQueue::Descriptor virtualBlockReleaseQueueDescriptor;
-            virtualBlockReleaseQueueDescriptor.m_collectLatency = device.GetDescriptor().m_frameCountMax;
-            m_virtualBlockReleaseQueue.Init(virtualBlockReleaseQueueDescriptor);
-
-            return InitBaseBuffer(device, descriptorBase);
-        }
-
         return RHI::ResultCode::Success;
-    }
-
-    RHI::ResultCode BufferPool::InitBaseBuffer(Device& device, const RHI::BufferPoolDescriptor& descriptor)
-    {
-        // Every buffer of the pool is used through this one, so it takes all the pool allows.
-        RHI::BufferDescriptor bufferDescriptor;
-        bufferDescriptor.m_byteCount = descriptor.m_budgetInBytes;
-        bufferDescriptor.m_bindFlags = descriptor.m_bindFlags;
-
-        D3D12_RESOURCE_DESC resourceDesc;
-        ConvertBufferDescriptor(bufferDescriptor, resourceDesc);
-        const D3D12_RESOURCE_DESC1 resourceDesc1 = ConvertResourceDesc1(resourceDesc);
-
-        D3D12MA::ALLOCATION_DESC allocDesc = {};
-        allocDesc.CustomPool = m_pool.get();
-        // Nothing is placed beside it.
-        allocDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED;
-
-        ComPtr<D3D12MA::Allocation> allocation = nullptr;
-        HRESULT result = device.GetAllocator()->CreateResource3(
-            &allocDesc,
-            &resourceDesc1,
-            D3D12_BARRIER_LAYOUT_UNDEFINED,
-            NULL,
-            0,
-            nullptr,
-            &allocation,
-            IID_NULL,
-            NULL
-        );
-        if (FAILED(result))
-        {
-            LOG_ERROR("[BufferPool] Failed to create the base buffer of {} bytes.", descriptor.m_budgetInBytes);
-            return RHI::ResultCode::Fail;
-        }
-
-        // In bytes. The resource may be larger (ConvertBufferDescriptor rounds up); the rest
-        // is left unused.
-        D3D12MA::VIRTUAL_BLOCK_DESC blockDesc = {};
-        blockDesc.Size = descriptor.m_budgetInBytes;
-
-        ComPtr<D3D12MA::VirtualBlock> virtualBlock = nullptr;
-        if (FAILED(D3D12MA::CreateVirtualBlock(&blockDesc, &virtualBlock)))
-        {
-            LOG_ERROR("[BufferPool] CreateVirtualBlock failed.");
-            return RHI::ResultCode::Fail;
-        }
-
-        // The whole native buffer as a buffer of the pool. It owns the memory its parts are in.
-        Ptr<RHI::Buffer> baseBuffer = Service<RHI::Factory>::Get()->CreateBuffer();
-        baseBuffer->SetName(GetName());
-        MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer, 0, descriptor.m_budgetInBytes, 0);
-        static_cast<Buffer&>(*baseBuffer).m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
-        m_baseBuffer = eastl::move(baseBuffer);
-
-        m_virtualBlock = virtualBlock.Get();
-        return RHI::ResultCode::Success;
-    }
-
-    RHI::Buffer* BufferPool::GetBaseBuffer() const
-    {
-        return m_baseBuffer.get();
     }
 
     void BufferPool::ShutdownInternal()
     {
-        // Before the queue its memory waits in is emptied.
-        m_baseBuffer.reset();
         m_releaseQueue.Shutdown();
-        // Each part holds the block, which goes with the last of them.
-        m_virtualBlockReleaseQueue.Shutdown();
-        m_virtualBlock.reset();
         // Last: D3D12MA releases a pool only once all its allocations are gone.
         m_pool.reset();
-    }
-
-    RHI::ResultCode BufferPool::InitSubAllocatedBuffer(Buffer& buffer, const RHI::BufferDescriptor& bufferDescriptor)
-    {
-        // VirtualBlock aligns to powers of two only. Any other alignment takes up to one
-        // alignment more and starts at the first aligned byte of what it got.
-        const uint64_t alignment    = eastl::max<uint64_t>(bufferDescriptor.m_alignment, 1);
-        const bool     isPowerOfTwo = IsPowerOfTwo(alignment);
-
-        D3D12MA::VIRTUAL_ALLOCATION_DESC allocDesc = {};
-        allocDesc.Size      = isPowerOfTwo ? bufferDescriptor.m_byteCount : bufferDescriptor.m_byteCount + alignment - 1;
-        allocDesc.Alignment = isPowerOfTwo ? alignment : 1;
-
-        D3D12MA::VirtualAllocation allocation;
-        UINT64 offset = 0;
-        if (FAILED(m_virtualBlock->Allocate(&allocDesc, &allocation, &offset)))
-        {
-            // Free bytes below the request: too small a budget. Above it: fragmented.
-            D3D12MA::DetailedStatistics statistics = {};
-            m_virtualBlock->CalculateStatistics(&statistics);
-            LOG_ERROR("[BufferPool] Pool {} has no room for buffer {} ({} bytes, alignment {}): {} of its {} bytes "
-                      "are free, the largest free range is {} bytes.",
-                GetName().GetCStr(), buffer.GetName().GetCStr(), bufferDescriptor.m_byteCount, alignment,
-                GetDescriptor().m_budgetInBytes - statistics.Stats.AllocationBytes, GetDescriptor().m_budgetInBytes,
-                statistics.UnusedRangeSizeMax);
-            return RHI::ResultCode::OutOfMemory;
-        }
-        offset = AlignUpNPOT(offset, alignment);
-
-        Memory* baseMemory = static_cast<const Buffer&>(*m_baseBuffer).GetMemoryView().GetMemory();
-        MemoryView memoryView(baseMemory, MemoryViewType::Buffer, offset, bufferDescriptor.m_byteCount, alignment);
-        buffer.m_memoryView = BufferMemoryView(
-            eastl::move(memoryView),
-            Ptr<VirtualBlockAllocation>(new VirtualBlockAllocation(m_virtualBlock.get(), allocation)));
-        return RHI::ResultCode::Success;
     }
 
     RHI::ResultCode BufferPool::InitBufferInternal(RHI::Buffer& bufferBase, const RHI::BufferDescriptor& bufferDescriptor)
@@ -194,9 +80,7 @@ namespace Spark::RHI::DX12
         {
             return InitReservedBuffer(buffer, bufferDescriptor);
         }
-        return m_virtualBlock
-            ? InitSubAllocatedBuffer(buffer, bufferDescriptor)
-            : InitUniqueBuffer(buffer, bufferDescriptor);
+        return InitUniqueBuffer(buffer, bufferDescriptor);
     }
 
     RHI::ResultCode BufferPool::InitReservedBuffer(Buffer& buffer, const RHI::BufferDescriptor& bufferDescriptor)
@@ -224,7 +108,7 @@ namespace Spark::RHI::DX12
 
         // No allocation, so no heap: what tells it from a buffer backing its pages.
         MemoryView memoryView(resource.Get(), MemoryViewType::Buffer, 0, bufferDescriptor.m_byteCount, 0);
-        buffer.m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
+        buffer.m_memoryView = BufferMemoryView(eastl::move(memoryView));
         return RHI::ResultCode::Success;
     }
 
@@ -260,7 +144,7 @@ namespace Spark::RHI::DX12
 
         // 创建一个默认BufferMemoryView，使用全部Memory(ID3DResource)
         MemoryView memoryView(allocation.Get(), MemoryViewType::Buffer, 0, bufferDescriptor.m_byteCount, bufferDescriptor.m_alignment);
-        buffer.m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
+        buffer.m_memoryView = BufferMemoryView(eastl::move(memoryView));
         return RHI::ResultCode::Success;
     }
 
@@ -272,13 +156,8 @@ namespace Spark::RHI::DX12
             // No D3D12MA allocation to queue: the resource itself waits out the GPU.
             Service<ID3D12FactoryInterface>::Get()->QueueForRelease(GetDevice(), buffer.GetMemoryView().GetMemory());
         }
-        else if (VirtualBlockAllocation* part = buffer.GetMemoryView().GetVirtualBlockAllocation())
-        {
-            m_virtualBlockReleaseQueue.QueueForCollect(part);
-        }
         else
         {
-            // A buffer of its own, or the base buffer.
             m_releaseQueue.QueueForCollect(buffer.GetMemoryView().GetMemoryAllocation());
         }
         // 这里移动赋值，原MemoryView持有的MemoryAllocation自动release

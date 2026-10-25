@@ -410,6 +410,8 @@ heap 里相邻也合不成一次调用。
     第几个顶点开始。申请时由两个 buffer 的偏移除以 4 和 48 得到。
 - （步骤 4 加的）池的底层 buffer 在 RHIContext 里有一个实体（名字、`Components::Buffer`、`MeshGeometryBaseBufferTag`），
   初始化时建，关闭时和池里别的 buffer 一起销毁。`RenderScope::DrawIndirect` 按那个 tag 找到它，绑成 VB 与 IB（D9）。
+  - 2026-10-25：这个实体和 tag 已经删掉（`TODO_BufferRangePlan.md` L4b）。几何池换成一块 reserved buffer 的导入
+    实体（`MeshGeometryPoolTag`），各绘制 Pass 自己导入并作为顶点流与索引流传给 `DrawIndirect`。
 - （步骤 4 改的）每个网格两个 buffer 的上传等待（`CreateStaticBufferAttachment`）在几何系统建 buffer 时注册，
   原来是 composer 在 compose 时注册。图形队列靠它等上传的 fence、把 buffer 接回来，间接绘制同样需要，
   不该取决于 composer 有没有 compose 这个实体。

@@ -649,22 +649,7 @@ namespace Spark::RHI::DX12
             || barrier.m_srcAccess == RHI::AccessFlags::Initial;
         if (!untouched)
         {
-            if (buffer.GetMemoryView().GetType() == BufferMemoryType::Shared)
-            {
-                // A part of a resource other buffers have parts of takes no native barrier: one
-                // spans the whole resource. Only reads can go without.
-                if (RHI::Validation::isEnabled)
-                {
-                    ASSERT(!(RHI::HasWrite(barrier.m_srcAccess) || RHI::HasWrite(barrier.m_dstAccess)),
-                        "[CommandList] Buffer {} is a part of a shared resource and cannot take a barrier around a write "
-                        "(0x{:x} -> 0x{:x} on queue {}). Order its writes and reads by submissions.",
-                        barrier.m_buffer->GetName().GetCStr(),
-                        static_cast<uint32_t>(barrier.m_srcAccess),
-                        static_cast<uint32_t>(barrier.m_dstAccess),
-                        static_cast<uint32_t>(myQueue));
-                }
-            }
-            else if (CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined))
+            if (CheckBitsAny(barrier.m_srcAccess, RHI::AccessFlags::Undefined))
             {
                 // A buffer has no layout to discard: all there is to it is the memory's previous use.
                 const RHI::AccessFlags previous = barrier.m_srcAccess & ~RHI::AccessFlags::Undefined;

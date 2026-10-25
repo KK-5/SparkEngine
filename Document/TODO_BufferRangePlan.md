@@ -4,7 +4,7 @@
 区间对象和 CPU→GPU 的几种写入方式。只记大体思路，细节后面再设计。
 
 它推翻了 `TODO_BufferPoolPlan.md` 的做法（池在一个原生 buffer 里分出 `RHI::Buffer`），也改动
-`TODO_GPUDrivenPlan.md` D4 的落地方式。
+`TODO_GPUDrivenPlan.md` D4 的落地方式。那份计划的实现与文档在 R5 一起删除，见 git 历史。
 
 ---
 
@@ -363,17 +363,19 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     Pass 之前。
   - 多线程：系统线程只做按额度挑选和记区间；切好的暂存区间互不重叠，memcpy 可拆给工作线程，在图 Build 前汇合。
   - 几何仍按实体，同一网格多实例各占一份；按网格共享是以后的事。
-- **R5**　删预算模式（见下）。
+- ~~**R5**　删预算模式~~（已完成，见下）。
 - **L5　`g_Instances`**：设备池 + scatter Pass，加变化检测；`InstanceIDBuffer` 改为活跃列表；剔除与分箱按位置
   （§八，连同 `TODO_GPUDrivenPlan.md`）。
 - **L6　其余数组**：`g_Materials` 等 `GlobalBuffer`、`StagedArrayBuffer` 的小数组迁到区间对象，`SlotPool` 一类
   工具逐步删除；`RHIResourceSystem` 随各系统迁移一起拆。
 
-**R5　删预算模式**（依赖几何池迁移完）
+~~**R5　删预算模式**~~（已完成）
 
 - 删 `ResourcePoolDescriptor::m_budgetInBytes`、`GetBaseBuffer`、`InitBaseBuffer`、`InitSubAllocatedBuffer`、
   `VirtualBlockAllocation` 与其释放队列、`BufferMemoryType::Shared`、`CommandList::QueueBarrier` 里 `Shared` 的分支、
   `RHI::BufferPool::Init` 里注册基础 Buffer 的那段。
+- `BufferMemoryType` 只剩 `Unique`，整个枚举删掉；`BufferMemoryView` 暂留为 `MemoryView` 的薄壳，并入 `MemoryView`
+  另做。`ResourcePoolDescriptor` 留作空基类。示例 `IndirectDraw` 的划分开关一并删除，四个 Buffer 各自独立。
 
 **Image 的 reserved 资源**随纹理流送再做。
 

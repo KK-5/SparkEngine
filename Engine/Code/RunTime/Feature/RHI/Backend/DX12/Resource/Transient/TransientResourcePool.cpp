@@ -578,7 +578,7 @@ namespace Spark::RHI::DX12
                         0,
                         newPlacement.m_size,
                         allocationInfo.Alignment);
-            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
+            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView));
             return RHI::ResultCode::Success;
         });
 
@@ -738,7 +738,7 @@ namespace Spark::RHI::DX12
                                   0,
                                   allocationInfo.SizeInBytes,
                                   allocationInfo.Alignment);
-            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView), BufferMemoryType::Unique);
+            dx12Buffer->m_memoryView = BufferMemoryView(eastl::move(memoryView));
             return RHI::ResultCode::Success;
         });
 

@@ -8,7 +8,7 @@
 
 /*
  * Modified by SparkEngine in 2025
- *  -- Rename BufferMemoryType::SubAllocated to BufferMemoryType::Shared
+ *  -- Remove BufferMemoryType: a buffer's memory is a resource of its own.
  */
 #pragma once
 

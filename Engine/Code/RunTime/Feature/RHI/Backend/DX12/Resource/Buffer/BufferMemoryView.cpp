@@ -8,35 +8,15 @@
 
 /*
  * Modified by SparkEngine in 2025
- *  -- Rename BufferMemoryType::SubAllocated to BufferMemoryType::Shared
+ *  -- Remove BufferMemoryType: a buffer's memory is a resource of its own.
  */
+
 
 #include "BufferMemoryView.h"
 
 namespace Spark::RHI::DX12
-{        
-    BufferMemoryView::BufferMemoryView(
-        MemoryView&& memoryView,
-        BufferMemoryType memoryType)
+{
+    BufferMemoryView::BufferMemoryView(MemoryView&& memoryView)
         : MemoryView(eastl::move(memoryView))
-        , m_type{memoryType}
     {}
-
-    BufferMemoryView::BufferMemoryView(
-        MemoryView&& memoryView,
-        Ptr<VirtualBlockAllocation> allocation)
-        : MemoryView(eastl::move(memoryView))
-        , m_type{BufferMemoryType::Shared}
-        , m_virtualBlockAllocation{eastl::move(allocation)}
-    {}
-
-    BufferMemoryType BufferMemoryView::GetType() const
-    {
-        return m_type;
-    }
-
-    VirtualBlockAllocation* BufferMemoryView::GetVirtualBlockAllocation() const
-    {
-        return m_virtualBlockAllocation.get();
-    }
 }

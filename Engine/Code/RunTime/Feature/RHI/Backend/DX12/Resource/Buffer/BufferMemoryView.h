@@ -8,51 +8,25 @@
 
  /*
  * Modified by SparkEngine in 2025
- *  -- Rename BufferMemoryType::SubAllocated to BufferMemoryType::Shared
+ *  -- Remove BufferMemoryType: a buffer's memory is a resource of its own.
  */
 #pragma once
 
 #include <EASTL/internal/move_help.h>
 #include <MemoryView.h>
-#include <VirtualBlockAllocation.h>
 
 namespace Spark::RHI::DX12
 {
-    enum class BufferMemoryType : uint32_t
-    {
-        /// This buffer owns its own memory resource. Attachments on the frame scheduler require
-        /// this type.
-        Unique,
-
-        /// This buffer shares a memory resource with other buffers.
-        Shared
-    };
-
     class BufferMemoryView : public MemoryView
     {
     public:
         BufferMemoryView() = default;
-        BufferMemoryView(MemoryView&& memoryView, BufferMemoryType memoryType);
-
-        /// A part of a memory resource other buffers have parts of: Shared. The view spans
-        /// the part; the allocation is what keeps it taken.
-        BufferMemoryView(MemoryView&& memoryView, Ptr<VirtualBlockAllocation> allocation);
+        explicit BufferMemoryView(MemoryView&& memoryView);
 
         /// Supports only move construction / assignment because of constraints in the base class.
         BufferMemoryView(const BufferMemoryView& rhs) = delete;
         BufferMemoryView(BufferMemoryView&& rhs) = default;
         BufferMemoryView& operator=(const BufferMemoryView& rhs) = delete;
         BufferMemoryView& operator=(BufferMemoryView&& rhs) = default;
-
-        BufferMemoryType GetType() const;
-
-        /// Null unless Shared. A Unique buffer's allocation is MemoryView's.
-        VirtualBlockAllocation* GetVirtualBlockAllocation() const;
-
-    private:
-        BufferMemoryType m_type = BufferMemoryType::Unique;
-        Ptr<VirtualBlockAllocation> m_virtualBlockAllocation;
     };
-
-
 }

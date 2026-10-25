@@ -10,7 +10,5 @@ namespace Spark::RHI
     {
         ResourcePoolDescriptor() = default;
         virtual ~ResourcePoolDescriptor() = default;
-
-        uint64_t m_budgetInBytes = 0;
     };
 }

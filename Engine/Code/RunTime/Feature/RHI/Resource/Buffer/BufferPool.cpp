@@ -12,7 +12,7 @@ namespace Spark::RHI
 {
     ResultCode BufferPool::Init(Device& device, const BufferPoolDescriptor& descriptor)
     {
-        const ResultCode resultCode = ResourcePool::Init(
+        return ResourcePool::Init(
             device, descriptor,
             [this, &device, &descriptor]()
         {
@@ -25,23 +25,6 @@ namespace Spark::RHI
 
             return InitInternal(device, descriptor);
         });
-
-        Buffer* baseBuffer = GetBaseBuffer();
-        if (resultCode != ResultCode::Success || !baseBuffer)
-        {
-            return resultCode;
-        }
-
-        // The backend made it with its memory in InitInternal, before the pool could take
-        // a resource. Registered here as a buffer of the pool like any other, allowing
-        // whatever the pool allows.
-        BufferDescriptor baseDescriptor;
-        baseDescriptor.m_byteCount       = m_descriptor.m_budgetInBytes;
-        baseDescriptor.m_bindFlags       = m_descriptor.m_bindFlags;
-        baseDescriptor.m_sharedQueueMask = m_descriptor.m_sharedQueueMask;
-        baseBuffer->SetDescriptor(baseDescriptor);
-        SetResourceState(*baseBuffer, RHI::ResourceState{ RHI::AccessFlags::Initial });
-        return ResourcePool::InitResource(baseBuffer, []() { return ResultCode::Success; });
     }
 
     ResultCode BufferPool::InitBuffer(const BufferInitRequest& request)
@@ -248,19 +231,6 @@ namespace Spark::RHI
             if ((poolDescriptor.m_bindFlags & initRequest.m_descriptor.m_bindFlags) != initRequest.m_descriptor.m_bindFlags)
             {
                 LOG_ERROR("[BufferPool] Pool bind flags do not contain buffer bind flags in pool {}", GetName().GetCStr());
-                return false;
-            }
-
-            // The buffers of a pool with a budget are parts of one native buffer, which has
-            // one sharing mode.
-            if (poolDescriptor.m_budgetInBytes != 0
-                && initRequest.m_descriptor.m_sharedQueueMask != poolDescriptor.m_sharedQueueMask)
-            {
-                LOG_ERROR("[BufferPool] Buffer shared queue mask 0x{:x} differs from 0x{:x} of pool {}, "
-                          "whose buffers share one native buffer.",
-                          static_cast<uint32_t>(initRequest.m_descriptor.m_sharedQueueMask),
-                          static_cast<uint32_t>(poolDescriptor.m_sharedQueueMask),
-                          GetName().GetCStr());
                 return false;
             }
 
