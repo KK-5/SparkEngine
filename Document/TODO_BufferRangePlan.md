@@ -260,9 +260,14 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 
 ## 九、待设计
 
-1. ~~暂存与拷贝 Pass 的形态~~（已定）：暂存由上传的系统自己持有，不走 `AsyncUploadSystem`。按帧分槽
-   （`frameCountMax` 个），槽大小就是每帧预算，超出的留在系统自己的队列里下一帧接着传；复用安全由帧节奏保证。
-   不做环形缓冲：每帧预算是前提，单帧多占违背它。写入方式见 §五。
+1. ~~暂存与拷贝 Pass 的形态~~（已定）：暂存由上传的系统自己持有（`StagingBuffer`），不走 `AsyncUploadSystem`。
+   每个在途帧一个主机 Buffer，各是一个普通导入实体，由系统按 Device 帧号自己轮转（不用 `PerFrameTag` /
+   `BufferPerFrame`），一直映射；复用安全由帧 Fence 保证。系统每帧先 `Begin(本帧字节数)` 再切分：总量写之前就
+   已知（不能等的数据是变化项数，可以等的是额度），所以容量不够时在 `Begin` 换更大的 Buffer，此时其中没有数据，
+   帧中途不增长。容量与速率分开：容量按需增长，不估；速率只限可以等的数据（几何、流送），不能等的（实例变换、
+   材质修改）不限，否则画错。第一版可以等的额度是系统里定死的常量；以后换成一个全局的每帧上传预算（按 GPU 拷贝
+   耗时调整），各系统只向它申请，是加法。拷贝由 Copy Pass（与 Render / Compute 并列的第三种 Pass）完成，由拥有
+   暂存的系统登记。写入方式见 §五。
 2. ~~区间分配算法的选型~~（已定）：Core 自写 TLSF，见 §五。
 3. ~~映射发在哪个队列~~（已定）：映射只在同一队列内排序，队列由 `RenderGraph` 持有。不开放图的队列给系统（在
    系统边界上打洞），也不挪到 Device（Device 保持精简）。系统经事件把映射交给图，图在 Execute 开头于图形队列统一
@@ -342,8 +347,8 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   复用安全，选槽要一个不会错开的帧号，所以先于暂存。
 - **L2　系统 Pass 单独登记**（延后，§十二）：现在系统的 Pass 和管线的 Pass 一样登记在唯一的 PassContext 里，暂不
   支持自定义管线，改管线就改引擎代码。以后再把两类分开，让用户能控制管线。
-- **L3　暂存与 Copy Pass**（§九 第 1 条）：系统持有的按帧分槽主机暂存，槽大小即每帧预算，超出的留到下一帧；
-  Copy Pass 从暂存拷进池的区间。
+- ~~**L3　暂存与 Copy Pass**~~（已完成，§九 第 1 条）：Copy Pass 是第三种 Pass，Scope 声明 CopySource /
+  CopyDestination 并拷贝字节区间；`StagingBuffer` 是系统持有的每帧一份主机暂存。
 - **L4　几何池迁移**：`MeshGeometrySystem` 改用 `Suballocator` + `ReservedBuffer`，`MeshGeometry` 持有区间；
   上传走 L3，不再经 `AsyncUploadSystem`；DrawIndirect 接收顶点流附件，删 `MeshGeometrySegmentTag` 一套（§八）。
 - **R5**　删预算模式（见下）。
