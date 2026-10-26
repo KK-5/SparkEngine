@@ -8,12 +8,12 @@
 #include <Geometry/MeshGeometry.h>
 #include <Transform/Components.h>
 
+#include <Binding/DeviceArray.h>
 #include <DrawList/DrawListKeyCounter.h>
 #include <Pass/PassContext.h>
 
 #include "ActiveInstanceList.h"
 #include "InstanceBinding.h"
-#include "InstancePool.h"
 
 namespace Spark::Render
 {
@@ -21,10 +21,10 @@ namespace Spark::Render
     //! active list, position -> slot, which a draw's FirstInstance indexes as the per-instance
     //! vertex stream and which delivers the slot as InstanceIndex.
     //!
-    //! A renderable's slot is an InstanceSlot, a record of InstancePool, which writes the
-    //! records that changed. A renderable's position is its place in the InstanceSlot storage,
-    //! which entt keeps packed; ActiveInstanceList puts the list on the GPU. A pass of this
-    //! system applies the writes of each.
+    //! A renderable's slot is an InstanceSlot, an element of g_Instances, a DeviceArray, which
+    //! writes the records that changed. A renderable's position is its place in the
+    //! InstanceSlot storage, which entt keeps packed; ActiveInstanceList puts the list on the
+    //! GPU. A pass of this system applies the writes of each.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, ticked after ViewBindingSystem
     //! and before the draw lists are culled and grouped.
@@ -51,7 +51,8 @@ namespace Spark::Render
         RHI::RHIHandle m_bindingsEntity      = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
         RHI::RHIHandle m_instanceCountEntity = RHI::NullHandle;  // ActiveInstanceCount
 
-        InstancePool            m_instancePool;
+        //! g_Instances, carrying InstancePoolTag.
+        DeviceArray             m_instances;
         ActiveInstanceList      m_activeList;
         //! This frame's active list: position -> slot.
         eastl::vector<uint32_t> m_activeSlots;

@@ -44,9 +44,15 @@ namespace Spark::Render
             static_assert(eastl::is_trivially_copyable_v<T>, "An element is copied as bytes.");
             ASSERT(sizeof(T) == m_elementSize, "[ElementUpdateBuffer] A {}-byte value set as a {}-byte element.",
                 sizeof(T), m_elementSize);
+            SetBytes(index, &value);
+        }
+
+        //! As Set, from the m_elementSize bytes at `bytes`, for an owner that keeps no type.
+        void SetBytes(uint32_t index, const void* bytes)
+        {
             if (uint8_t* element = Append(index))
             {
-                memcpy(element, &value, sizeof(T));
+                memcpy(element, bytes, m_elementSize);
             }
         }
 

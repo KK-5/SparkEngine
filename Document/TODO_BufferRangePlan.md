@@ -268,6 +268,12 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   不替 Pass 声明。`Binds` 只声明 Pass 的着色器用哪些共享输入，以后可由着色器反射推导。漏声明不做校验（要逐 Scope 扫共享
   组的视图，代价与复杂度都不值），由写 Pass 的人负责；读 `g_Instances` 的 Pass 经 `InstancePoolTag` 导入并在
   每个 Scope 里 `ReadBuffer`（渲染 Pass 加 `.Stage(VertexShader)`）。
+- **着色器访问要说明着色器怎么拿到它**（待做，L6a2）：现在经共享绑定读的访问只写 `s.ReadBuffer(name)`，不建视图、
+  不绑定，与"漏写 `.Bind`"在图看来一样，是隐式保证。改为三选一且必须说：`.Bind(input)`（图建视图填进 Pass 自己的
+  绑定）、`.BindIndex(input)`（图建视图填 bindless 下标）、`.Shared<Tag>()`（新增：着色器经共享绑定 `Tag` 读，图
+  不建视图）。降低阶段两条只看这次声明本身的检查：每个着色器访问恰好用了其中一种；`.Shared<Tag>()` 的资源确是
+  `Tag` 那个共享绑定里某个视图的 Buffer。`.Stage` 仍手写：共享绑定的布局是声明的，推不出阶段，以后有反射再推导。
+  读 `g_Instances` 的六个 Pass 改用 `.Shared<InstanceBindingTag>()`。
 - **剔除与分箱**（§五 实例入口）：剔除按活跃列表的个数 dispatch，读 `g_Instances[InstanceIDBuffer[i]]`，可见时
   输出位置 `i`；分箱和 CPU 剔除的 `FirstInstance` 填位置而不是槽号。`InstanceSlotCount` / extent 不再定 dispatch
   大小。改动落在 `TODO_GPUDrivenPlan.md` 的剔除部分。
@@ -400,8 +406,26 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     → `EndUpdate` 写入暂存，`InstanceUpdate` Pass 写进池，排在剔除之前。空洞不再清零：剔除只经活跃列表读。读它的六个
     Pass 手动声明读取（§八），不做漏声明校验。带 `DeadTag` 未销毁的实体不再编码，记录保持最后一次的内容，销毁前
     多画一帧（同 `TODO_GPUDrivenPlan.md` D6）。`InstanceBindingSystem::Update` 不再取帧号。
-- **L6　其余数组**：`g_Materials` 等 `GlobalBuffer`、`StagedArrayBuffer` 的小数组迁到区间对象，`SlotPool` 一类
-  工具逐步删除；`RHIResourceSystem` 随各系统迁移一起拆。
+- **L6　其余数组**：按 §五 的写法分两类。大、多半不变的（`g_Geometries` 48B × 65536、`g_Materials` 68B × 1024）
+  迁到设备池 + 元素更新；小、每帧都变的（`g_Views`、`g_Lights`、`g_ShadowViews`）仍是主机上每帧一份、整份重写，
+  但直接用 `StagingBuffer`：`Begin` 后把记录写进映射内存，再把本帧那份的 structured view 绑到共享绑定，不再经
+  `StagedArrayBuffer` 与 `RHIResourceSystem`。上传堆是写合并内存，读回极慢，所以每条记录在 CPU 上算完整再一次写入。
+  - ~~**L6a　`DeviceArray`**~~（已完成）：`InstancePool` 的机制抽出来，`Render/Binding/DeviceArray`：reserved Buffer
+    （硬件页）、按页计数的 `Suballocator` 发元素、按字节的镜像加"已知"标记、`ElementUpdateBuffer`；view 在初始化时
+    绑一次。不做成模板，`Set<T>` 检查大小后按字节比较与复制（`ElementUpdateBuffer` 为此加了 `SetBytes`）。导入
+    标签由使用方挂在 `GetResource()` 上，写入 Pass 由使用方声明。`g_Instances` 改用它，`InstancePool` 删除。
+    共享绑定上的 view 由 `DeviceArray` 建、绑并在 `Shutdown` 里先解绑再关池：view 持有 Buffer，解绑要与 Buffer 的
+    生命周期绑在一起。
+  - **L6a2　着色器访问说明来源**：`ShaderAttachment::Shared<Tag>()` 与降低阶段的两条检查（§八），读 `g_Instances`
+    的 Pass 改用它。
+  - **L6b　`g_Geometries`**：迁到 `DeviceArray`，`GeometrySlotRef` 换成持有区间的组件。
+  - **L6c　`g_Materials`**：同上，`MaterialSlotRef` 换成持有区间的组件。
+  - **L6d　`g_Lights`、`g_ShadowViews`**：直接用 `StagingBuffer`；阴影行的 bias 改为填行时一次带上，不再先写后补。
+    删 `StagedArrayBuffer`。
+  - **L6e　`g_Views`**：槽号换成区间，写法同 L6d。
+  - **L6f　清理**：删 `GlobalBuffer`、`SlotPool` 与其测试；阴影的 `ShadowTilePool` / `ShadowRowPool`（`HandlePool`）
+    是否换成 `Suballocator` 到这一步再定。`RHIResourceSystem` 余下的使用方（CPU 剔除的间接参数、分箱的间接布局表）
+    之后单独看。
 
 ~~**R5　删预算模式**~~（已完成）
 
