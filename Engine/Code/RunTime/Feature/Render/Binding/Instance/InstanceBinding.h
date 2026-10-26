@@ -2,20 +2,22 @@
 
 #include <RHI/Resource/AccessFlags.h>
 
-#include <Binding/GlobalBuffer.h>
 #include <Pass/TagList.h>
+#include <Suballocation/Suballocator.h>
 
 #include "InstanceData.h"
 
 namespace Spark::Render
 {
-    //! Names the g_Instances array (space4) for GlobalBuffer and its slot refs.
-    struct Instances {};
+    //! A renderable's g_Instances slot, on the WORLD entity: an InstanceData-sized range of
+    //! the array's address space, which does not move for the renderable's life. Going, it is
+    //! handed back once the GPU is done with it.
+    struct InstanceSlot
+    {
+        Suballocation m_range;
 
-    //! A renderable's g_Instances slot, on the WORLD entity. Get() is the GPU index
-    //! directly — there is no indirection table, and it does not move for the
-    //! renderable's life, so a consumer bakes it once as StartInstanceLocation.
-    using InstanceSlotRef = SlotRef<Instances>;
+        uint32_t Get() const { return static_cast<uint32_t>(m_range.GetOffset() / sizeof(InstanceData)); }
+    };
 
     //! The model matrix a renderable was encoded with last frame, on the WORLD entity.
     //! Absent means no history: the previous transform is taken as the current one.

@@ -266,7 +266,7 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 - **`Uses<Tag>`** 只留给"新资源经上传系统交接后、经绑定 / bindless 读取"的资源（材质贴图、IBL、查找表、图标）。
 - **在图里被写的资源由 Pass 手动声明访问**（`p.Import` + `s.ReadBuffer(...)`，渲染 Pass 加 `.Stage`），共享绑定
   不替 Pass 声明。`Binds` 只声明 Pass 的着色器用哪些共享输入，以后可由着色器反射推导。漏声明由降低阶段校验：
-  Scope 绑定的共享组里有视图指向图在跟踪的资源，而这个 Scope 没有声明对它的访问，就报错（L5c 起有可校验的对象）。
+  Scope 绑定的共享组里有视图指向图在跟踪的资源，而这个 Scope 没有声明对它的访问，就报错（L5d 起有可校验的对象）。
 - **剔除与分箱**（§五 实例入口）：剔除按活跃列表的个数 dispatch，读 `g_Instances[InstanceIDBuffer[i]]`，可见时
   输出位置 `i`；分箱和 CPU 剔除的 `FirstInstance` 填位置而不是槽号。`InstanceSlotCount` / extent 不再定 dispatch
   大小。改动落在 `TODO_GPUDrivenPlan.md` 的剔除部分。
@@ -378,15 +378,20 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   - 几何仍按实体，同一网格多实例各占一份；按网格共享是以后的事。
 - ~~**R5**　删预算模式~~（已完成，见下）。
 - **L5　`g_Instances`**：设备池 + 元素更新 Pass，加变化检测；`InstanceIDBuffer` 改为活跃列表；剔除与分箱按位置
-  （§八，连同 `TODO_GPUDrivenPlan.md`）。分三步：
+  （§八，连同 `TODO_GPUDrivenPlan.md`）。分四步，先把槽位从 SharedHandle 换下来，后面各步只建在新组件上：
   - ~~**L5a　元素更新**~~（已完成）：`ElementUpdateBuffer` + `ElementUpdate.hlsl`（§五）。第一个使用方是
     `InstanceIDBuffer`：改为 `ReservedBuffer`，按条数映射前缀的页（增减都有，见 §五 活跃列表），新槽的恒等 ID 经
     `InstanceIDUpdate` Pass 写入，排在所有绘制 Pass 之前，新槽当帧可画；`InstanceSlotCount` 取槽数与已写 ID 数
     的较小者，去掉等上传完成的门槛。内容仍是恒等表，渲染不变。
-  - **L5b　活跃列表**：`InstanceIDBuffer` 改为位置 → 槽（交换删除），剔除、分箱、CPU 剔除按位置；
-    `InstanceSlotCount` 改为活跃个数。`g_Instances` 这一步仍是 `GlobalBuffer`。
-  - **L5c　`g_Instances` 迁到设备池**：`ReservedBuffer` + `Suballocator` 槽位 + 镜像比较的变化检测；
-    `InstanceSlotRef` 换成持有区间的组件；读它的 Pass 手动声明读取，加上漏声明的校验（§八）。
+  - ~~**L5b　槽位换成区间**~~（已完成）：`InstanceSlot { Suballocation }` 取代 `InstanceSlotRef`，从只管地址
+    空间的 `Suballocator`（`Capacity × 208` 字节，不计页）按一条记录分，槽号 = 偏移 / 208。`InstanceBindingSystem`
+    不再经 `GlobalBuffer`，直接用 `StagedArrayBuffer`，`g_Instances` 仍是主机上每帧一份、整份重写；空洞不再靠
+    `SlotPool::IsHeld` 认，每帧先把 `[0, extent)` 清成 `InstanceData{}` 再编码。剔除照旧按槽，渲染不变。
+  - **L5c　活跃列表**：位置 = `InstanceSlot` 存储里的下标（entt 的紧凑数组，增在末尾、删时 swap-remove），每帧
+    从存储生成 `位置 → 槽`，与镜像逐位置比较，不同的经元素更新写入；正确性不依赖存储顺序，顺序只决定每帧差异
+    多少。剔除、分箱、CPU 剔除按位置；列表长度用新组件 `ActiveInstanceCount`，删 `InstanceSlotCount`。
+  - **L5d　`g_Instances` 迁到设备池**：`ReservedBuffer` + 元素更新 + 镜像比较的变化检测，去掉空洞清零；读它的
+    Pass 手动声明读取，加上漏声明的校验（§八）。
 - **L6　其余数组**：`g_Materials` 等 `GlobalBuffer`、`StagedArrayBuffer` 的小数组迁到区间对象，`SlotPool` 一类
   工具逐步删除；`RHIResourceSystem` 随各系统迁移一起拆。
 

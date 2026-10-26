@@ -2,11 +2,13 @@
 
 #include <EASTL/vector.h>
 
+#include <ECS/WorldContext.h>
 #include <RHI/Context/RHIContext.h>
 
 #include <Geometry/MeshGeometry.h>
 #include <Transform/Components.h>
 
+#include <Binding/StagedArrayBuffer.h>
 #include <DrawList/DrawListKeyCounter.h>
 #include <Pass/PassContext.h>
 #include <Staging/ElementUpdateBuffer.h>
@@ -20,10 +22,11 @@ namespace Spark::Render
     //! vertex stream ([0..slot count)) that delivers InstanceIndex via PER_INSTANCE_DATA +
     //! StartInstanceLocation.
     //!
-    //! Slot allocation, encoding and upload of g_Instances are all GlobalBuffer's; this only
-    //! supplies the space4 SRG, the ID stream, and the per-renderable encode. The ID stream is
-    //! a reserved buffer backed page by page as the slots reach it, the IDs of new slots
-    //! written in a pass of its own.
+    //! A renderable's slot is an InstanceSlot, a range of an address space of Capacity
+    //! records; g_Instances is rewritten whole every frame into its in-flight copy, the holes
+    //! as InstanceData{}, which reads as nothing here. The ID stream is a reserved buffer
+    //! backed page by page as the slots reach it, the IDs of new slots written in a pass of
+    //! its own.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, ticked after ViewBindingSystem
     //! and before the draw lists are culled and grouped.
@@ -46,11 +49,20 @@ namespace Spark::Render
         static constexpr uint32_t Capacity = 65536;
         static constexpr uint64_t InstanceIdByteCount = uint64_t(Capacity) * sizeof(uint32_t);
 
+        //! A slot for each renderable with a transform and geometry, none for one without.
+        void UpdateSlots(WorldContext& world);
+
+        //! Every slot's record, the holes cleared.
+        void EncodeInstances(WorldContext& world);
+
         //! The IDs of the slots past those written, on the pages they reach.
         void UpdateInstanceIds(uint32_t slotCount);
 
-        GlobalBuffer<Instances, InstanceData,
-                     Transform::WorldTransformMatrix, MeshGeometry> m_instances;
+        //! Slots [0, this) take in every live one.
+        uint32_t GetSlotCount() const;
+
+        Ptr<Suballocator>                m_slotAllocator;
+        StagedArrayBuffer<InstanceData>  m_instances;
 
         RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
         RHI::RHIHandle m_slotCountEntity = RHI::NullHandle; // InstanceSlotCount — how far g_Instances is in use

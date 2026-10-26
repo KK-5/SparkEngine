@@ -1,5 +1,7 @@
 #include "InstanceBindingSystem.h"
 
+#include <EASTL/algorithm.h>
+
 #include <Log/ILogSystem.h>
 #include <ECS/Common.h>
 #include <Service/Service.h>
@@ -88,7 +90,7 @@ namespace Spark::Render
             RHI::ShaderInputBufferType::Structured, 1, 0, 0, kInstanceSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The g_Instances SRV is bound by GlobalBuffer once the upload
+        // only the handle. The g_Instances SRV is bound by StagedArrayBuffer once the upload
         // buffer materializes, so we DO NOT mark it dirty here.
         Ptr<RHI::ShaderBindings> instanceBindings =
             CreateSharedBindings(inputs, kInstanceSpaceId, "InstanceBindingSystem");
@@ -102,19 +104,20 @@ namespace Spark::Render
             m_bindingsEntity, RHI::Components::ShaderBindings{ instanceBindings });
         rhiCtx.Add<InstanceBindingTag>(m_bindingsEntity);
 
-        GlobalBuffer<Instances, InstanceData,
-                     Transform::WorldTransformMatrix, MeshGeometry>::Descriptor bufferDesc;
+        StagedArrayBuffer<InstanceData>::Descriptor bufferDesc;
         bufferDesc.m_capacity       = Capacity;
         bufferDesc.m_resourceName   = ObjectName(InstanceBufferName);
         bufferDesc.m_inputName      = RHI::InputName(InstanceBufferName);
         bufferDesc.m_bindingsEntity = m_bindingsEntity;
         m_instances.Init(rhiCtx, bufferDesc);
 
+        RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
+        m_slotAllocator = new Suballocator(device, uint64_t(Capacity) * sizeof(InstanceData));
+
         m_slotCountEntity = rhiCtx.CreateEntity();
         rhiCtx.Add<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ 0 });
 
         // Read as a vertex stream on the Graphics queue, where the pass of SetUp writes it.
-        RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         const uint64_t pageSize = device.GetLimits().m_reservedPageSizeInBytes;
 
         ReservedBuffer::Descriptor poolDesc;
@@ -203,13 +206,87 @@ namespace Spark::Render
             return;
         }
 
+        // Nothing is allocated or encoded until the buffer materializes, as no record could
+        // be read before.
+        if (m_slotAllocator && m_instances.BindFrame(*rhiCtx, frameIndex))
+        {
+            UpdateSlots(*world);
+            EncodeInstances(*world);
+            m_instances.Upload(*rhiCtx, GetSlotCount());
+        }
+        if (auto* drawCtx = DrawExecuteContext::Current())
+        {
+            m_keyCounter.Publish(*drawCtx);
+        }
+
+        UpdateInstanceIds(GetSlotCount());
+
+        if (m_slotCountEntity != RHI::NullHandle)
+        {
+            // Only the slots with an ID: a draw of any slot reads it. They are written this
+            // frame ahead of every pass that draws.
+            const uint32_t slotCount = eastl::min(GetSlotCount(), m_instanceIdCount);
+            rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ slotCount });
+        }
+
+        // Only encoded renderables hold a slot, so history starts on the frame they were first written.
+        world->GetView<InstanceHistory, Transform::WorldTransformMatrix>(Exclude<DeadTag>).each(
+            [](Entity, InstanceHistory& history, const Transform::WorldTransformMatrix& m)
+        {
+            history.m_model = m.m_worldMatrix;
+        });
+        world->GetView<InstanceSlot, Transform::WorldTransformMatrix>(Exclude<InstanceHistory, DeadTag>).each(
+            [&](Entity e, const InstanceSlot&, const Transform::WorldTransformMatrix& m)
+        {
+            world->Add<InstanceHistory>(e, InstanceHistory{ m.m_worldMatrix });
+        });
+    }
+
+    void InstanceBindingSystem::UpdateSlots(WorldContext& world)
+    {
+        // Collected first: InstanceSlot is the pool being iterated.
+        eastl::vector<Entity> lostSource;
+        world.GetView<InstanceSlot>().each([&](Entity entity, const InstanceSlot&)
+        {
+            if (!world.HasAll<Transform::WorldTransformMatrix, MeshGeometry>(entity))
+            {
+                lostSource.push_back(entity);
+            }
+        });
+        for (Entity entity : lostSource)
+        {
+            world.Remove<InstanceSlot>(entity);
+        }
+
+        // Structural write inside iteration: InstanceSlot is only in the exclude set.
+        world.GetView<Transform::WorldTransformMatrix, MeshGeometry>(Exclude<InstanceSlot, DeadTag>).each(
+            [&](Entity entity, const Transform::WorldTransformMatrix&, const MeshGeometry&)
+        {
+            Suballocation range = m_slotAllocator->Allocate(sizeof(InstanceData));
+            if (!range.IsValid())
+            {
+                LOG_ERROR("[InstanceBindingSystem] All {} instance slots are taken; an entity is not drawn.", Capacity);
+                return;
+            }
+            world.Add<InstanceSlot>(entity, InstanceSlot{ eastl::move(range) });
+        });
+    }
+
+    void InstanceBindingSystem::EncodeInstances(WorldContext& world)
+    {
+        // A slot no one holds reads as nothing: its record is cleared every frame, as the one
+        // copy written this frame holds whatever was in it frameCountMax frames ago.
+        InstanceData* records = m_instances.Data();
+        eastl::fill(records, records + GetSlotCount(), InstanceData{});
+
         auto* matCtx  = Material::MaterialExecuteContext::Current();
         auto* drawCtx = DrawExecuteContext::Current();
-        m_instances.Update(*world, *rhiCtx, frameIndex,
-            [&](Entity e, InstanceData& out,
+        world.GetView<InstanceSlot, Transform::WorldTransformMatrix, MeshGeometry>(Exclude<DeadTag>).each(
+            [&](Entity e, const InstanceSlot& slot,
                 const Transform::WorldTransformMatrix& m, const MeshGeometry& geometry)
         {
-            const auto* history = world->TryGet<InstanceHistory>(e);
+            InstanceData& out = records[slot.Get()];
+            const auto* history = world.TryGet<InstanceHistory>(e);
             out.m_model     = m.m_worldMatrix;
             out.m_prevModel = history ? history->m_model : m.m_worldMatrix;
             // Normals need the inverse-transpose of the model's linear part to stay
@@ -222,7 +299,7 @@ namespace Spark::Render
             out.m_materialIndex = 0;
             if (matCtx)
             {
-                const Material::MaterialHandle material = ResolveMaterial(*world, *matCtx, e);
+                const Material::MaterialHandle material = ResolveMaterial(world, *matCtx, e);
                 out.m_materialIndex = MaterialIndexOf(*matCtx, material);
                 state               = MaterialStateOf(*matCtx, material);
             }
@@ -231,8 +308,8 @@ namespace Spark::Render
             out.m_pipelineKeyIndex = PipelineKeyIndexOf(key).m_value;
             // 0 until the geometry can be read and has its g_Geometries record: a reader of
             // g_Instances draws what is set, from the record m_geometryIndex names.
-            const auto* geometrySlot = world->TryGet<GeometrySlotRef>(e);
-            const bool  drawable     = geometrySlot && world->Has<MeshGeometryReadyTag>(e);
+            const auto* geometrySlot = world.TryGet<GeometrySlotRef>(e);
+            const bool  drawable     = geometrySlot && world.Has<MeshGeometryReadyTag>(e);
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
             out.m_drawMask      = drawable ? DrawListsOf(state) : 0;
             // What the culling can pick: counted by key where the GPU culls, listed one by one
@@ -240,44 +317,29 @@ namespace Spark::Render
             m_keyCounter.Count(key, out.m_drawMask);
             if (drawCtx)
             {
-                AddDrawListInstances(*drawCtx, out.m_drawMask, world->Get<InstanceSlotRef>(e).Get(), key,
-                    geometry, m.m_worldMatrix);
+                AddDrawListInstances(*drawCtx, out.m_drawMask, slot.Get(), key, geometry, m.m_worldMatrix);
             }
         });
-        if (drawCtx)
+    }
+
+    uint32_t InstanceBindingSystem::GetSlotCount() const
+    {
+        if (!m_slotAllocator)
         {
-            m_keyCounter.Publish(*drawCtx);
+            return 0;
         }
-
-        UpdateInstanceIds(m_instances.Size());
-
-        if (m_slotCountEntity != RHI::NullHandle)
-        {
-            // Only the slots with an ID: a draw of any slot reads it. They are written this
-            // frame ahead of every pass that draws.
-            const uint32_t slotCount = eastl::min(m_instances.Size(), m_instanceIdCount);
-            rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ slotCount });
-        }
-
-        // Only encoded renderables hold a slot, so history starts on the frame they were first written.
-        world->GetView<InstanceHistory, Transform::WorldTransformMatrix>(Exclude<DeadTag>).each(
-            [](Entity, InstanceHistory& history, const Transform::WorldTransformMatrix& m)
-        {
-            history.m_model = m.m_worldMatrix;
-        });
-        world->GetView<InstanceSlotRef, Transform::WorldTransformMatrix>(Exclude<InstanceHistory, DeadTag>).each(
-            [&](Entity e, const InstanceSlotRef&, const Transform::WorldTransformMatrix& m)
-        {
-            world->Add<InstanceHistory>(e, InstanceHistory{ m.m_worldMatrix });
-        });
+        return static_cast<uint32_t>((m_slotAllocator->GetExtent() + sizeof(InstanceData) - 1) / sizeof(InstanceData));
     }
 
     void InstanceBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
         if (auto* world = WorldExecuteContext::Current())
         {
-            m_instances.Shutdown(*world, rhiCtx);
+            world->Clear<InstanceSlot>();
         }
+        // The slots just cleared hold it until the device hands them back.
+        m_slotAllocator.reset();
+        m_instances.Shutdown(rhiCtx);
 
         if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
         if (m_slotCountEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_slotCountEntity); }
