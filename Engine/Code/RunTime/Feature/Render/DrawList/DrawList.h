@@ -36,8 +36,9 @@ namespace Spark::Render
     struct DrawListInstance
     {
         uint32_t    m_drawMaskBitIndex = 0;
-        //! Its g_Instances slot, which its record draws as its first instance.
-        uint32_t    m_slot = 0;
+        //! Its position in the active list (InstanceIDBufferTag), which its record draws as its
+        //! first instance. This frame's only.
+        uint32_t    m_position = 0;
         PipelineKey m_key;
 
         uint32_t m_indexCount   = 0;
@@ -48,7 +49,7 @@ namespace Spark::Render
     };
 
     //! A DrawListInstance of the instance for each bit of drawMask the CPU culls.
-    void AddDrawListInstances(DrawContext& drawCtx, DrawMask drawMask, uint32_t slot, PipelineKey key,
+    void AddDrawListInstances(DrawContext& drawCtx, DrawMask drawMask, uint32_t position, PipelineKey key,
         const MeshGeometry& geometry, const Math::Matrix4X4& model);
 
     //! A DrawListInstance a view sees, which DrawListCullingSystem writes: what its group and its
@@ -57,7 +58,7 @@ namespace Spark::Render
     {
         RHI::RHIHandle m_view             = RHI::NullHandle;
         uint32_t       m_drawMaskBitIndex = 0;
-        uint32_t       m_slot             = 0;
+        uint32_t       m_position         = 0;
         PipelineKey    m_key;
 
         uint32_t m_indexCount   = 0;

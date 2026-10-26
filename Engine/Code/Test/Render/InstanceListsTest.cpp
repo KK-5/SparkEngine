@@ -66,10 +66,10 @@ protected:
         return view;
     }
 
-    void SetSlotCount(uint32_t count)
+    void SetInstanceCount(uint32_t count)
     {
         const RHI::RHIHandle entity = rhi.CreateEntity();
-        rhi.Add<InstanceSlotCount>(entity, InstanceSlotCount{ count });
+        rhi.Add<ActiveInstanceCount>(entity, ActiveInstanceCount{ count });
     }
 };
 
@@ -92,9 +92,9 @@ TEST_F(CullingLayoutTest, AViewWithoutARowIsLeftOutAndTheOthersKeepTheirOrder)
     EXPECT_EQ(layout.m_views[1].m_viewIndex, rhi.Get<ViewSlotRef>(second).Get());
 }
 
-TEST_F(CullingLayoutTest, EveryViewHasRoomForEverySlotRoundedUp)
+TEST_F(CullingLayoutTest, EveryViewHasRoomForEveryInstanceRoundedUp)
 {
-    SetSlotCount(1500);
+    SetInstanceCount(1500);
     ViewHandleList views;
     for (int i = 0; i < 5; ++i)
     {
@@ -102,18 +102,18 @@ TEST_F(CullingLayoutTest, EveryViewHasRoomForEverySlotRoundedUp)
     }
     const InstanceLists::CullingLayout layout = InstanceLists::LayOutCulling(rhi, views);
 
-    EXPECT_EQ(layout.m_slotCount, 1500u);
+    EXPECT_EQ(layout.m_instanceCount, 1500u);
     EXPECT_EQ(layout.m_maxPerView, 2048u);
     EXPECT_EQ(layout.m_viewCapacity, 8u);
 }
 
 //! The buffers exist in every frame, so there is room for something when there is nothing.
-TEST_F(CullingLayoutTest, NoViewAndNoSlotStillMakeRoom)
+TEST_F(CullingLayoutTest, NoViewAndNoInstanceStillMakeRoom)
 {
     const InstanceLists::CullingLayout layout = InstanceLists::LayOutCulling(rhi, ViewHandleList{});
 
     EXPECT_TRUE(layout.m_views.empty());
-    EXPECT_EQ(layout.m_slotCount, 0u);
+    EXPECT_EQ(layout.m_instanceCount, 0u);
     EXPECT_GT(layout.m_maxPerView, 0u);
     EXPECT_GT(layout.m_viewCapacity, 0u);
 }

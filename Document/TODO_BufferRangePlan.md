@@ -387,9 +387,12 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     空间的 `Suballocator`（`Capacity × 208` 字节，不计页）按一条记录分，槽号 = 偏移 / 208。`InstanceBindingSystem`
     不再经 `GlobalBuffer`，直接用 `StagedArrayBuffer`，`g_Instances` 仍是主机上每帧一份、整份重写；空洞不再靠
     `SlotPool::IsHeld` 认，每帧先把 `[0, extent)` 清成 `InstanceData{}` 再编码。剔除照旧按槽，渲染不变。
-  - **L5c　活跃列表**：位置 = `InstanceSlot` 存储里的下标（entt 的紧凑数组，增在末尾、删时 swap-remove），每帧
+  - ~~**L5c　活跃列表**~~（已完成）：位置 = `InstanceSlot` 存储里的下标（entt 的紧凑数组，增在末尾、删时 swap-remove），每帧
     从存储生成 `位置 → 槽`，与镜像逐位置比较，不同的经元素更新写入；正确性不依赖存储顺序，顺序只决定每帧差异
-    多少。剔除、分箱、CPU 剔除按位置；列表长度用新组件 `ActiveInstanceCount`，删 `InstanceSlotCount`。
+    多少。剔除、分箱、CPU 剔除按位置；列表长度用新组件 `ActiveInstanceCount`，删 `InstanceSlotCount`。剔除和
+    分箱各自导入 `InstanceIDBuffer` 并以 `g_InstanceIDs` 读（手动声明，§八）。GPU 上的列表由 `ActiveInstanceList`
+    持有（`ReservedBuffer`、页、元素更新、镜像），系统每帧把本帧的 `位置 → 槽` 数组交给它；暂存涨不上去时这一帧
+    个数为 0，镜像清空，下一帧整份重写。容量 `InstanceCapacity` 移到 `InstanceBinding.h`，剔除与分箱的视图按它定。
   - **L5d　`g_Instances` 迁到设备池**：`ReservedBuffer` + 元素更新 + 镜像比较的变化检测，去掉空洞清零；读它的
     Pass 手动声明读取，加上漏声明的校验（§八）。
 - **L6　其余数组**：`g_Materials` 等 `GlobalBuffer`、`StagedArrayBuffer` 的小数组迁到区间对象，`SlotPool` 一类

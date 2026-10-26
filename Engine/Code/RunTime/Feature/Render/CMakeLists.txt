@@ -60,6 +60,7 @@ set(SOURCES
     Binding/Scene/SceneBindingSystem.cpp
     Binding/Geometry/GeometryBindingSystem.cpp
     Binding/Instance/InstanceBindingSystem.cpp
+    Binding/Instance/ActiveInstanceList.cpp
     Binding/Material/MaterialBindingSystem.cpp
     Geometry/MeshGeometrySystem.cpp
     Drawable/DrawMask.cpp

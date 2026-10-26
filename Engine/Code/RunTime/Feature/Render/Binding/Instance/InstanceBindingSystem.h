@@ -11,22 +11,21 @@
 #include <Binding/StagedArrayBuffer.h>
 #include <DrawList/DrawListKeyCounter.h>
 #include <Pass/PassContext.h>
-#include <Staging/ElementUpdateBuffer.h>
-#include <Suballocation/ReservedBuffer.h>
 
+#include "ActiveInstanceList.h"
 #include "InstanceBinding.h"
 
 namespace Spark::Render
 {
-    //! Owns the g_Instances array (space4) + its ShaderBindings, and the per-instance ID
-    //! vertex stream ([0..slot count)) that delivers InstanceIndex via PER_INSTANCE_DATA +
-    //! StartInstanceLocation.
+    //! Owns the g_Instances array (space4) + its ShaderBindings, and the instance IDs: the
+    //! active list, position -> slot, which a draw's FirstInstance indexes as the per-instance
+    //! vertex stream and which delivers the slot as InstanceIndex.
     //!
-    //! A renderable's slot is an InstanceSlot, a range of an address space of Capacity
+    //! A renderable's slot is an InstanceSlot, a range of an address space of InstanceCapacity
     //! records; g_Instances is rewritten whole every frame into its in-flight copy, the holes
-    //! as InstanceData{}, which reads as nothing here. The ID stream is a reserved buffer
-    //! backed page by page as the slots reach it, the IDs of new slots written in a pass of
-    //! its own.
+    //! as InstanceData{}, which reads as nothing here. A renderable's position is its place in
+    //! the InstanceSlot storage, which entt keeps packed; ActiveInstanceList puts the list on
+    //! the GPU, and a pass of this system applies its writes.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, ticked after ViewBindingSystem
     //! and before the draw lists are culled and grouped.
@@ -43,20 +42,14 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
-        //! Fixed upper bound. Overflow logs an error and drops the surplus entities
-        //! (rendering is not blocked). At 208 B per instance this is 13 MB (g_Instances) +
-        //! 256 KB (ID buffer).
-        static constexpr uint32_t Capacity = 65536;
-        static constexpr uint64_t InstanceIdByteCount = uint64_t(Capacity) * sizeof(uint32_t);
-
         //! A slot for each renderable with a transform and geometry, none for one without.
         void UpdateSlots(WorldContext& world);
 
         //! Every slot's record, the holes cleared.
         void EncodeInstances(WorldContext& world);
 
-        //! The IDs of the slots past those written, on the pages they reach.
-        void UpdateInstanceIds(uint32_t slotCount);
+        //! This frame's active list into m_activeSlots.
+        void CollectActiveSlots(WorldContext& world);
 
         //! Slots [0, this) take in every live one.
         uint32_t GetSlotCount() const;
@@ -64,17 +57,12 @@ namespace Spark::Render
         Ptr<Suballocator>                m_slotAllocator;
         StagedArrayBuffer<InstanceData>  m_instances;
 
-        RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
-        RHI::RHIHandle m_slotCountEntity = RHI::NullHandle; // InstanceSlotCount — how far g_Instances is in use
+        RHI::RHIHandle m_bindingsEntity      = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
+        RHI::RHIHandle m_instanceCountEntity = RHI::NullHandle;  // ActiveInstanceCount
 
-        //! Mapped as far as the IDs reach.
-        ReservedBuffer                          m_instanceIdPool;
-        eastl::vector<Suballocator::PageChange> m_instanceIdPageChanges;
-        //! The pool's buffer as the graph imports it.
-        RHI::RHIHandle                          m_instanceIdResource = RHI::NullHandle;
-        ElementUpdateBuffer                     m_instanceIdUpdate;
-        //! IDs [0, this) are in the pool.
-        uint32_t                                m_instanceIdCount = 0;
+        ActiveInstanceList      m_activeList;
+        //! This frame's active list: position -> slot.
+        eastl::vector<uint32_t> m_activeSlots;
 
         // This frame's encoded instances per key and draw-mask bit, published as DrawListKeys.
         DrawListKeyCounter m_keyCounter;

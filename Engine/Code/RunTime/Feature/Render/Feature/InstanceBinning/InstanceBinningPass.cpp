@@ -59,6 +59,10 @@ namespace Spark::Render
             const InstanceLists::CullingLayout culling   = InstanceLists::LayOutCulling(rhiContext, views);
             const uint32_t                     viewCount = static_cast<uint32_t>(culling.m_views.size());
 
+            // Without the active list the culling saw no instance, and nothing reads it.
+            const RHI::AttachmentId idsName("InstanceIDs");
+            const bool hasIds = p.Import<InstanceIDBufferTag>(idsName);
+
             const PassIndirectLayout& layout = passContext.Get<PassIndirectLayout>(drawPass);
 
             // DrawGroupSystem made it before this frame began, so it was created at the frame's start.
@@ -94,7 +98,10 @@ namespace Spark::Render
                 0, recordCount, sizeof(RHI::DrawIndexedIndirectCommand));
             const RHI::BufferViewDescriptor countView = RHI::BufferViewDescriptor::CreateStructured(
                 0, countCount, sizeof(uint32_t));
+            const RHI::BufferViewDescriptor idsView = RHI::BufferViewDescriptor::CreateStructured(
+                0, InstanceCapacity, sizeof(uint32_t));
 
+            const RHI::InputName idsInput("g_InstanceIDs");
             const RHI::InputName visibleInstancesInput("g_VisibleInstances");
             const RHI::InputName visibleCountInput("g_VisibleCount");
             const RHI::InputName layoutInput("g_IndirectLayout");
@@ -149,6 +156,10 @@ namespace Spark::Render
                 constants.m_viewFirstRecord = viewOrdinal * layout.m_recordsPerView;
 
                 auto s = p.Scope();
+                if (hasIds)
+                {
+                    s.ReadBuffer(idsName).View(idsView).Bind(idsInput);
+                }
                 s.ReadBuffer(visible.m_instancesName).View(visibleInstancesView).Bind(visibleInstancesInput);
                 s.ReadBuffer(visible.m_countName).View(visibleCountView).Bind(visibleCountInput);
                 s.ReadBuffer(layoutName).View(layoutView).Bind(layoutInput);
@@ -160,8 +171,8 @@ namespace Spark::Render
                     count.IndirectArgumentsOf(view, static_cast<uint64_t>(constants.m_viewFirstCount) * sizeof(uint32_t));
                     arguments.IndirectArgumentsOf(view,
                         static_cast<uint64_t>(constants.m_viewFirstRecord) * sizeof(RHI::DrawIndexedIndirectCommand));
-                    // A view sees at most every slot.
-                    constants.m_entryCount = culling.m_slotCount;
+                    // A view sees at most every instance.
+                    constants.m_entryCount = hasIds ? culling.m_instanceCount : 0;
                 }
                 setConstants(s, constants);
                 // One thread with no entry: a dispatch of no group is a debug layer warning, and

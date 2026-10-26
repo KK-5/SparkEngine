@@ -9,6 +9,9 @@
 
 namespace Spark::Render
 {
+    //! How many instances there can be: slots of g_Instances, and entries of the instance IDs.
+    constexpr uint32_t InstanceCapacity = 65536;
+
     //! A renderable's g_Instances slot, on the WORLD entity: an InstanceData-sized range of
     //! the array's address space, which does not move for the renderable's life. Going, it is
     //! handed back once the GPU is done with it.
@@ -32,15 +35,17 @@ namespace Spark::Render
         using Uses = TagList<>;
     };
 
-    //! On an entity of its own, kept by InstanceBindingSystem: how many slots of g_Instances
-    //! a reader of the whole array has to go through this frame. The high-water mark, not
-    //! the number of live instances: the holes below it are counted.
-    struct InstanceSlotCount
+    //! On an entity of its own, kept by InstanceBindingSystem: how many entries of the instance
+    //! IDs are this frame's, one for each renderable holding a slot. A reader of every instance
+    //! goes through them.
+    struct ActiveInstanceCount
     {
         uint32_t m_count = 0;
     };
 
-    //! The single shared per-instance vertex stream ID buffer entity, which a pass drawing
-    //! meshes imports.
+    //! The single shared instance ID buffer entity: the active list, position -> g_Instances
+    //! slot, packed and in no fixed order. A pass drawing meshes imports it as the per-instance
+    //! vertex stream, and a draw's FirstInstance is a position in it; one going through every
+    //! instance reads it as g_InstanceIDs.
     struct InstanceIDBufferTag {};
 }

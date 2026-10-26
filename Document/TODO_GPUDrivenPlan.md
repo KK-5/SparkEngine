@@ -510,7 +510,12 @@ TEXCOORD0 float2 交错，48 字节；索引总是 `UINT32`。由资产系统保
 
 D5 已撤销：实例身份的做法不变，不构成一项决策，内容并入 D8。后面的编号不动。
 
-### D6　剔除直接遍历 `g_Instances`，靠记录里的 mask 跳过空洞　✅ 已定
+### D6　剔除直接遍历 `g_Instances`，靠记录里的 mask 跳过空洞　✅ 已定（遍历方式已被活跃列表取代）
+
+> **2026-10-26 更新**（`TODO_BufferRangePlan.md` L5c）：剔除不再遍历 `[0, 高水位)` 的槽位，改为遍历活跃列表
+> `InstanceIDBuffer`（位置 → 槽，`InstanceSlot` 存储的下标即位置，紧凑），第 i 个线程读 `g_Instances[g_InstanceIDs[i]]`，
+> 可见时写入位置 i；个数来自 `ActiveInstanceCount`，`InstanceSlotCount` 已删。槽位也已从 `SlotRef` 换成 `InstanceSlot`
+> （持有 `Suballocation`），`InstanceBindingSystem` 不再经 `GlobalBuffer`。下面关于空洞清零与 mask 的规则仍然成立。
 
 `g_Instances` 是稳定槽位，有空洞，而且空洞原来不清零，shader 遍历 `[0, Size())` 会碰到已经删掉的物体。
 `TODO_GlobalBufferUploadPlan.md` §六 为这种情况预留的做法是补一个 GPU 侧的有效性信号，这里落的就是它。
@@ -655,6 +660,10 @@ O(N) 的循环、多一层引用（清单 → 实例 → 几何）。引擎里�
 **压缩不需要额外的表。** 实例身份沿用现在的做法：ID 流 slot1，记录里的 `firstInstance` 就是 `g_Instances` 的槽位，
 DX12 与 Vulkan 读逐实例顶点流时都会加上它。记录自带身份，压缩只是拷贝记录，不需要另一张"第几条记录 → 哪个实例"
 的表，shader 不用改。
+
+> **2026-10-26 更新**：ID 流现在是活跃列表，`firstInstance` 填本帧的**位置**，顶点着色器读 `ID 流[firstInstance]` 仍得到
+> 槽位。分箱从可见列表读到位置，经 `g_InstanceIDs` 换成槽位去读 `g_Instances`；CPU 剔除的 `DrawListInstance` /
+> `VisibleInstance` 同样带位置（`m_position`）。
 
 count buffer 每帧要清零：transient buffer 里是它那块内存上一次留下的内容，而计数是往上加的。RHI 没有 buffer 的填充操作，
 所以现在由同一个 shader 的另一种模式来做（步骤 4 已实现）：pass 的第一个 Scope 把常量 `isClearCount` 置 1、派发一组线程，

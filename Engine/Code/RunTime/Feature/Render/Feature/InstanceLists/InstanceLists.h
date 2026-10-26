@@ -30,7 +30,7 @@ namespace Spark::Render::InstanceLists
     struct CullingLayout
     {
         eastl::fixed_vector<CulledView, 16> m_views;   // in order; view k's part starts at k * m_maxPerView
-        uint32_t m_slotCount    = 0;   // slots of g_Instances to go through, holes included
+        uint32_t m_instanceCount = 0;  // entries of the active list to go through
         uint32_t m_viewCapacity = 0;   // views the buffers have room for, at least one
         uint32_t m_maxPerView   = 0;   // entries in each view's part of the visible list
     };
@@ -41,8 +41,8 @@ namespace Spark::Render::InstanceLists
     //! instances come and go.
     CullingLayout LayOutCulling(RHI::RHIContext& rhiContext, const ViewHandleList& views);
 
-    // The visible lists, written by InstanceCullingPass. VisibleInstances holds the g_Instances
-    // slots each view sees, packed from the start of the view's part; VisibleCount a uint32 per
+    // The visible lists, written by InstanceCullingPass. VisibleInstances holds the active-list
+    // positions each view sees, packed from the start of the view's part; VisibleCount a uint32 per
     // view, how many entries its part holds this frame.
 
     //! The opaque instances, for the main views.

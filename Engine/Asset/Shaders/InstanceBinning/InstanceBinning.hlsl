@@ -40,6 +40,7 @@ struct ScopeParameters
 StructuredBuffer<uint>              g_VisibleInstances : register(t0, space2);
 StructuredBuffer<uint>              g_VisibleCount     : register(t1, space2);
 StructuredBuffer<IndirectLayoutEntry> g_IndirectLayout : register(t2, space2);
+StructuredBuffer<uint>              g_InstanceIDs      : register(t3, space2);   // position -> g_Instances slot
 
 RWStructuredBuffer<DrawIndexedIndirectCommand> g_DrawArguments : register(u0, space2);
 RWStructuredBuffer<uint>                       g_DrawCount     : register(u1, space2);
@@ -61,8 +62,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    const uint         slot     = g_VisibleInstances[g_Scope.viewFirstEntry + id.x];
-    const InstanceData instance = g_Instances[slot];
+    const uint         position = g_VisibleInstances[g_Scope.viewFirstEntry + id.x];
+    const InstanceData instance = g_Instances[g_InstanceIDs[position]];
     // Past the table a read gives 0, which is bin 0's entry, not "not drawn".
     if (instance.PipelineKeyIndex >= g_Scope.indirectLayoutLength)
     {
@@ -82,8 +83,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     command.FirstIndex    = geometry.FirstIndex;
     command.VertexOffset  = geometry.VertexOffset;
     // The per-instance ID stream is read from here on, so the draw's vertex shader gets
-    // this slot as its INSTANCE_INDEX.
-    command.FirstInstance = slot;
+    // the slot at this position as its INSTANCE_INDEX.
+    command.FirstInstance = position;
 
     uint place;
     InterlockedAdd(g_DrawCount[g_Scope.viewFirstCount + bin.CountIndex], 1, place);

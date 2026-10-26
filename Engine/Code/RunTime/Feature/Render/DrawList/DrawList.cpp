@@ -42,7 +42,7 @@ namespace Spark::Render
         }
     }
 
-    void AddDrawListInstances(DrawContext& drawCtx, DrawMask drawMask, uint32_t slot, PipelineKey key,
+    void AddDrawListInstances(DrawContext& drawCtx, DrawMask drawMask, uint32_t position, PipelineKey key,
         const MeshGeometry& geometry, const Math::Matrix4X4& model)
     {
         const DrawMask listed = drawMask & CpuCulledDrawMask;
@@ -52,7 +52,7 @@ namespace Spark::Render
         }
 
         DrawListInstance instance;
-        instance.m_slot         = slot;
+        instance.m_position     = position;
         instance.m_key          = key;
         instance.m_indexCount   = geometry.m_indexCount;
         instance.m_firstIndex   = geometry.m_firstIndex;

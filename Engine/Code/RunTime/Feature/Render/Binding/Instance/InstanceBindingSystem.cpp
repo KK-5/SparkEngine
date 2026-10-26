@@ -79,6 +79,24 @@ namespace Spark::Render
             const auto* state = matCtx.TryGet<Resource::MaterialState>(mh);
             return state ? *state : Resource::MaterialState{};
         }
+
+        // The active list is the InstanceSlot storage in its own order. entt keeps a storage
+        // packed, adding at the end and moving the last into a hole, so a frame moves few
+        // renderables; nothing depends on that but how many positions are written.
+
+        //! A renderable's position in the active list.
+        template<typename Storage>
+        uint32_t PositionOf(const Storage& slots, Entity entity)
+        {
+            return static_cast<uint32_t>(slots.index(entity));
+        }
+
+        //! The slot of the renderable at a position of the active list.
+        template<typename Storage>
+        uint32_t SlotAt(const Storage& slots, uint32_t position)
+        {
+            return slots.get(slots[position]).Get();
+        }
     }
 
     void InstanceBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -105,47 +123,19 @@ namespace Spark::Render
         rhiCtx.Add<InstanceBindingTag>(m_bindingsEntity);
 
         StagedArrayBuffer<InstanceData>::Descriptor bufferDesc;
-        bufferDesc.m_capacity       = Capacity;
+        bufferDesc.m_capacity       = InstanceCapacity;
         bufferDesc.m_resourceName   = ObjectName(InstanceBufferName);
         bufferDesc.m_inputName      = RHI::InputName(InstanceBufferName);
         bufferDesc.m_bindingsEntity = m_bindingsEntity;
         m_instances.Init(rhiCtx, bufferDesc);
 
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
-        m_slotAllocator = new Suballocator(device, uint64_t(Capacity) * sizeof(InstanceData));
+        m_slotAllocator = new Suballocator(device, uint64_t(InstanceCapacity) * sizeof(InstanceData));
 
-        m_slotCountEntity = rhiCtx.CreateEntity();
-        rhiCtx.Add<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ 0 });
+        m_instanceCountEntity = rhiCtx.CreateEntity();
+        rhiCtx.Add<ActiveInstanceCount>(m_instanceCountEntity, ActiveInstanceCount{ 0 });
 
-        // Read as a vertex stream on the Graphics queue, where the pass of SetUp writes it.
-        const uint64_t pageSize = device.GetLimits().m_reservedPageSizeInBytes;
-
-        ReservedBuffer::Descriptor poolDesc;
-        poolDesc.m_capacity  = InstanceIdByteCount;
-        poolDesc.m_pageSize  = pageSize;
-        poolDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::ShaderReadWrite;
-        poolDesc.m_name      = ObjectName("InstanceIDBuffer");
-        if (!m_instanceIdPool.Init(device, poolDesc))
-        {
-            LOG_ERROR("[InstanceBindingSystem] The instance ID buffer failed to init; no instance will be drawn.");
-            return;
-        }
-
-        ElementUpdateBuffer::Descriptor updateDesc;
-        updateDesc.m_name        = ObjectName("InstanceIDUpdate");
-        updateDesc.m_elementSize = sizeof(uint32_t);
-        if (!m_instanceIdUpdate.Init(device, updateDesc))
-        {
-            LOG_ERROR("[InstanceBindingSystem] The instance ID updates failed to init; no instance will be drawn.");
-            m_instanceIdPool.Shutdown();
-            return;
-        }
-
-        m_instanceIdResource = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::Buffer>(m_instanceIdResource, RHI::Components::Buffer{ Ptr<RHI::Buffer>(m_instanceIdPool.GetBuffer()) });
-        rhiCtx.Add<RHI::ImportedTag>(m_instanceIdResource);
-        rhiCtx.Add<RHI::ResourceName>(m_instanceIdResource, RHI::ResourceName{ poolDesc.m_name });
-        rhiCtx.Add<InstanceIDBufferTag>(m_instanceIdResource);
+        m_activeList.Init(rhiCtx, device);
     }
 
     void InstanceBindingSystem::SetUp(PassContext& passContext)
@@ -166,7 +156,8 @@ namespace Spark::Render
             .ComputeShader(shaderAsset)
             .Build([this](ComputePassScopes& p)
             {
-                const uint32_t updateCount = m_instanceIdUpdate.GetUpdateCount();
+                const ElementUpdateBuffer& updates     = m_activeList.GetUpdates();
+                const uint32_t             updateCount = updates.GetUpdateCount();
                 if (updateCount == 0)
                 {
                     return;
@@ -174,23 +165,23 @@ namespace Spark::Render
 
                 const RHI::AttachmentId updatesName("InstanceIDUpdate");
                 const RHI::AttachmentId idsName("InstanceIDs");
-                p.Import(updatesName, m_instanceIdUpdate.GetResource());
-                p.Import(idsName, m_instanceIdResource);
+                p.Import(updatesName, updates.GetResource());
+                p.Import(idsName, m_activeList.GetResource());
 
-                const uint32_t elementWords = m_instanceIdUpdate.GetElementSize() / sizeof(uint32_t);
+                const uint32_t elementWords = updates.GetElementSize() / sizeof(uint32_t);
 
                 auto s = p.Scope();
                 s.ReadBuffer(updatesName)
-                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(m_instanceIdUpdate.GetByteCount())))
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(updates.GetByteCount())))
                     .Bind(RHI::InputName("g_Updates"));
-                // Read too: the IDs not updated stay.
+                // Read too: the entries not updated stay.
                 s.ReadWriteBuffer(idsName)
-                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(InstanceIdByteCount)))
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(ActiveInstanceList::ByteCount)))
                     .Bind(RHI::InputName("g_Elements"));
                 s.Constant(RHI::InputName("updateCount"), updateCount);
                 s.Constant(RHI::InputName("elementWords"), elementWords);
-                s.Constant(RHI::InputName("indicesOffset"), static_cast<uint32_t>(m_instanceIdUpdate.GetIndicesOffset()));
-                s.Constant(RHI::InputName("elementsOffset"), static_cast<uint32_t>(m_instanceIdUpdate.GetElementsOffset()));
+                s.Constant(RHI::InputName("indicesOffset"), static_cast<uint32_t>(updates.GetIndicesOffset()));
+                s.Constant(RHI::InputName("elementsOffset"), static_cast<uint32_t>(updates.GetElementsOffset()));
                 s.Dispatch(updateCount * elementWords);
                 s.Close();
             })
@@ -219,14 +210,11 @@ namespace Spark::Render
             m_keyCounter.Publish(*drawCtx);
         }
 
-        UpdateInstanceIds(GetSlotCount());
-
-        if (m_slotCountEntity != RHI::NullHandle)
+        CollectActiveSlots(*world);
+        const uint32_t instanceCount = m_activeList.Update(m_activeSlots);
+        if (m_instanceCountEntity != RHI::NullHandle)
         {
-            // Only the slots with an ID: a draw of any slot reads it. They are written this
-            // frame ahead of every pass that draws.
-            const uint32_t slotCount = eastl::min(GetSlotCount(), m_instanceIdCount);
-            rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ slotCount });
+            rhiCtx->AddOrReplace<ActiveInstanceCount>(m_instanceCountEntity, ActiveInstanceCount{ instanceCount });
         }
 
         // Only encoded renderables hold a slot, so history starts on the frame they were first written.
@@ -265,7 +253,7 @@ namespace Spark::Render
             Suballocation range = m_slotAllocator->Allocate(sizeof(InstanceData));
             if (!range.IsValid())
             {
-                LOG_ERROR("[InstanceBindingSystem] All {} instance slots are taken; an entity is not drawn.", Capacity);
+                LOG_ERROR("[InstanceBindingSystem] All {} instance slots are taken; an entity is not drawn.", InstanceCapacity);
                 return;
             }
             world.Add<InstanceSlot>(entity, InstanceSlot{ eastl::move(range) });
@@ -281,6 +269,7 @@ namespace Spark::Render
 
         auto* matCtx  = Material::MaterialExecuteContext::Current();
         auto* drawCtx = DrawExecuteContext::Current();
+        const auto& slots = world.GetStorage<InstanceSlot>();
         world.GetView<InstanceSlot, Transform::WorldTransformMatrix, MeshGeometry>(Exclude<DeadTag>).each(
             [&](Entity e, const InstanceSlot& slot,
                 const Transform::WorldTransformMatrix& m, const MeshGeometry& geometry)
@@ -317,7 +306,7 @@ namespace Spark::Render
             m_keyCounter.Count(key, out.m_drawMask);
             if (drawCtx)
             {
-                AddDrawListInstances(*drawCtx, out.m_drawMask, slot.Get(), key, geometry, m.m_worldMatrix);
+                AddDrawListInstances(*drawCtx, out.m_drawMask, PositionOf(slots, e), key, geometry, m.m_worldMatrix);
             }
         });
     }
@@ -342,58 +331,22 @@ namespace Spark::Render
         m_instances.Shutdown(rhiCtx);
 
         if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
-        if (m_slotCountEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_slotCountEntity); }
+        if (m_instanceCountEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_instanceCountEntity); }
 
         m_bindingsEntity = RHI::NullHandle;
-        m_slotCountEntity = RHI::NullHandle;
+        m_instanceCountEntity = RHI::NullHandle;
 
-        m_instanceIdCount = 0;
-        if (m_instanceIdResource != RHI::NullHandle)
-        {
-            rhiCtx.DestoryEntity(m_instanceIdResource);
-            m_instanceIdResource = RHI::NullHandle;
-        }
-        m_instanceIdUpdate.Shutdown();
-        m_instanceIdPool.Shutdown();
+        m_activeList.Shutdown(rhiCtx);
+        m_activeSlots.clear();
     }
 
-    void InstanceBindingSystem::UpdateInstanceIds(uint32_t slotCount)
+    void InstanceBindingSystem::CollectActiveSlots(WorldContext& world)
     {
-        if (!m_instanceIdPool.GetBuffer())
+        const auto& slots = world.GetStorage<InstanceSlot>();
+        m_activeSlots.resize(slots.size());
+        for (uint32_t position = 0; position < m_activeSlots.size(); ++position)
         {
-            return;
+            m_activeSlots[position] = SlotAt(slots, position);
         }
-
-        // The IDs are found by their number, so they are a prefix of the buffer and so are their
-        // pages: those past it are unmapped at once, as the queue runs the unmapping after every
-        // read already submitted.
-        const uint64_t pageSize    = m_instanceIdPool.GetPageSize();
-        const uint32_t idsPerPage  = static_cast<uint32_t>(pageSize / sizeof(uint32_t));
-        const uint32_t neededPages = (slotCount + idsPerPage - 1) / idsPerPage;
-        const uint32_t mappedPages = m_instanceIdPool.GetMappedPageCount();
-
-        m_instanceIdPageChanges.clear();
-        for (uint32_t page = mappedPages; page < neededPages; ++page)
-        {
-            m_instanceIdPageChanges.push_back(Suballocator::PageChange{ page, true });
-        }
-        for (uint32_t page = neededPages; page < mappedPages; ++page)
-        {
-            m_instanceIdPageChanges.push_back(Suballocator::PageChange{ page, false });
-        }
-        m_instanceIdPool.Update(m_instanceIdPageChanges);
-
-        // A page mapped again has a backing of its own, without the IDs it had.
-        const uint64_t backedIds = uint64_t(m_instanceIdPool.GetMappedPageCount()) * idsPerPage;
-        const uint32_t idCount   = static_cast<uint32_t>(eastl::min<uint64_t>(slotCount, backedIds));
-        m_instanceIdCount        = static_cast<uint32_t>(eastl::min<uint64_t>(m_instanceIdCount, backedIds));
-        const uint32_t newCount  = idCount > m_instanceIdCount ? idCount - m_instanceIdCount : 0;
-
-        m_instanceIdUpdate.Begin(newCount);
-        for (uint32_t id = m_instanceIdCount; id < idCount; ++id)
-        {
-            m_instanceIdUpdate.Set(id, id);
-        }
-        m_instanceIdCount += m_instanceIdUpdate.GetUpdateCount();
     }
 }

@@ -71,7 +71,7 @@ TEST_F(DrawListTest, AnInstanceCarriesWhatItsRecordDraws)
 
     ASSERT_EQ(InstanceCount(), 1u);
     const DrawListInstance& instance = OnlyInstance();
-    EXPECT_EQ(instance.m_slot, 7u);
+    EXPECT_EQ(instance.m_position, 7u);
     EXPECT_EQ(instance.m_key, doubleSided);
     EXPECT_EQ(instance.m_indexCount, 36u);
     EXPECT_EQ(instance.m_firstIndex, 120u);

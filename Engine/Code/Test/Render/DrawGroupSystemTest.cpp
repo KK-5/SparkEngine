@@ -132,12 +132,12 @@ protected:
     }
 
     //! A translucent instance `under` sees, `depth` along it, as DrawListCullingSystem leaves one.
-    void AddVisible(RHI::RHIHandle under, uint32_t slot, float depth, PipelineKey key)
+    void AddVisible(RHI::RHIHandle under, uint32_t position, float depth, PipelineKey key)
     {
         VisibleInstance visible;
         visible.m_view             = under;
         visible.m_drawMaskBitIndex = DrawMaskBit<TranslucentTag>::Index;
-        visible.m_slot             = slot;
+        visible.m_position             = position;
         visible.m_key              = key;
         visible.m_depth            = depth;
         draws.Add<VisibleInstance>(draws.CreateEntity(), visible);

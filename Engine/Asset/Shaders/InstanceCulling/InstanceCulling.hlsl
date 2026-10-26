@@ -1,7 +1,7 @@
-// InstanceCulling.hlsl — the g_Instances slots each view sees, written once for each view.
-// One thread per instance slot; a slot whose DrawMask lacks the pass's bit (a hole, geometry
-// not ready, or another kind of object) writes nothing, and neither does an instance whose
-// box is outside the view's frustum.
+// InstanceCulling.hlsl — the positions in the active list of the instances each view sees,
+// written once for each view. One thread per position; an instance whose DrawMask lacks the
+// pass's bit (geometry not ready, or another kind of object) writes nothing, and neither does
+// one whose box is outside the view's frustum.
 //
 // Each view has a part of the visible list and a count of its own. A thread takes the next
 // free place in its view's part from the count, so the part is packed from its start and in
@@ -16,7 +16,7 @@
 struct ScopeParameters
 {
     uint isClearCount;    // 1: zero the counts and write no entry
-    uint slotCount;       // slots of g_Instances to go through, holes included
+    uint instanceCount;   // positions of the active list to go through
     uint drawMaskBit;     // the classification bit the list is of
     uint viewCapacity;    // views g_VisibleCount has a count for
     uint viewFirstEntry;  // where this view's part starts in g_VisibleInstances
@@ -26,6 +26,7 @@ struct ScopeParameters
 
 #include <Shaders/ScopeBindings.hlsli>
 
+StructuredBuffer<uint>   g_InstanceIDs      : register(t0, space2);   // position -> g_Instances slot
 RWStructuredBuffer<uint> g_VisibleInstances : register(u0, space2);
 RWStructuredBuffer<uint> g_VisibleCount     : register(u1, space2);
 
@@ -62,12 +63,12 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    if (id.x >= g_Scope.slotCount)
+    if (id.x >= g_Scope.instanceCount)
     {
         return;
     }
 
-    const InstanceData instance = g_Instances[id.x];
+    const InstanceData instance = g_Instances[g_InstanceIDs[id.x]];
     if ((instance.DrawMask & g_Scope.drawMaskBit) == 0)
     {
         return;

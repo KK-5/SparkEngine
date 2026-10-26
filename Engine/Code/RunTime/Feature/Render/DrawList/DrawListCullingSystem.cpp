@@ -79,7 +79,7 @@ namespace Spark::Render
                 VisibleInstance visible;
                 visible.m_view             = view;
                 visible.m_drawMaskBitIndex = bit;
-                visible.m_slot             = instance.m_slot;
+                visible.m_position         = instance.m_position;
                 visible.m_key              = instance.m_key;
                 visible.m_indexCount       = instance.m_indexCount;
                 visible.m_firstIndex       = instance.m_firstIndex;
@@ -106,7 +106,7 @@ namespace Spark::Render
                 command.m_instanceCount = 1;
                 command.m_firstIndex    = visible.m_firstIndex;
                 command.m_vertexOffset  = visible.m_vertexOffset;
-                command.m_firstInstance = visible.m_slot;
+                command.m_firstInstance = visible.m_position;
                 m_drawArgumentsData.push_back(command);
             }
         }

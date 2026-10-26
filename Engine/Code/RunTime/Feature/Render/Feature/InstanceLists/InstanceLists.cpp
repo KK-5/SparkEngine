@@ -19,9 +19,9 @@ namespace Spark::Render::InstanceLists
     CullingLayout LayOutCulling(RHI::RHIContext& rhiContext, const ViewHandleList& views)
     {
         CullingLayout layout;
-        for (auto [entity, count] : rhiContext.GetView<InstanceSlotCount>().each())
+        for (auto [entity, count] : rhiContext.GetView<ActiveInstanceCount>().each())
         {
-            layout.m_slotCount = count.m_count;
+            layout.m_instanceCount = count.m_count;
         }
 
         for (RHI::RHIHandle view : views)
@@ -33,11 +33,11 @@ namespace Spark::Render::InstanceLists
             }
         }
 
-        // Every slot may be visible in every view: each view gets room for all of them, and a
+        // Every instance may be visible in every view: each view gets room for all of them, and a
         // count of its own. Room for one view and one entry at least, so the buffers exist in
         // every frame.
         layout.m_viewCapacity = AlignUp(eastl::max(static_cast<uint32_t>(layout.m_views.size()), 1u), ViewCapacityStep);
-        layout.m_maxPerView   = AlignUp(eastl::max(layout.m_slotCount, 1u), EntriesPerViewStep);
+        layout.m_maxPerView   = AlignUp(eastl::max(layout.m_instanceCount, 1u), EntriesPerViewStep);
         return layout;
     }
 

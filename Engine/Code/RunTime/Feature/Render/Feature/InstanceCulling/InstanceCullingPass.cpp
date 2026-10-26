@@ -38,6 +38,11 @@ namespace Spark::Render
             const uint32_t viewCount  = static_cast<uint32_t>(layout.m_views.size());
             const uint32_t entryCount = layout.m_viewCapacity * layout.m_maxPerView;
 
+            // Without the active list there is no instance to go through, and nothing reads it.
+            const RHI::AttachmentId idsName("InstanceIDs");
+            const bool     hasIds        = p.Import<InstanceIDBufferTag>(idsName);
+            const uint32_t instanceCount = hasIds ? layout.m_instanceCount : 0;
+
             constexpr RHI::BufferBindFlags bindFlags = RHI::BufferBindFlags::ShaderReadWrite;
 
             RHI::BufferDescriptor instancesDesc;
@@ -55,14 +60,18 @@ namespace Spark::Render
             const RHI::BufferViewDescriptor countView = RHI::BufferViewDescriptor::CreateStructured(
                 0, layout.m_viewCapacity, sizeof(uint32_t));
 
+            const RHI::BufferViewDescriptor idsView = RHI::BufferViewDescriptor::CreateStructured(
+                0, InstanceCapacity, sizeof(uint32_t));
+
             const RHI::InputName instancesInput("g_VisibleInstances");
             const RHI::InputName countInput("g_VisibleCount");
+            const RHI::InputName idsInput("g_InstanceIDs");
 
             // Every Scope sets all of them.
             struct ScopeConstants
             {
                 uint32_t m_isClearCount   = 0;
-                uint32_t m_slotCount      = 0;
+                uint32_t m_instanceCount  = 0;
                 uint32_t m_viewFirstEntry = 0;
                 uint32_t m_viewOrdinal    = 0;
                 uint32_t m_viewIndex      = 0;
@@ -70,7 +79,7 @@ namespace Spark::Render
             auto setConstants = [&](ComputeScope& s, const ScopeConstants& constants)
             {
                 s.Constant(RHI::InputName("isClearCount"), constants.m_isClearCount);
-                s.Constant(RHI::InputName("slotCount"), constants.m_slotCount);
+                s.Constant(RHI::InputName("instanceCount"), constants.m_instanceCount);
                 s.Constant(RHI::InputName("drawMaskBit"), drawMaskBit);
                 s.Constant(RHI::InputName("viewCapacity"), layout.m_viewCapacity);
                 s.Constant(RHI::InputName("viewFirstEntry"), constants.m_viewFirstEntry);
@@ -91,8 +100,8 @@ namespace Spark::Render
                 s.Close();
             }
 
-            // With no view the buffers are still written once, with no slot to go through: the
-            // passes that read them do so every frame, and a buffer nothing writes cannot be read.
+            // With no view the buffers are still written once, with no instance to go through:
+            // the passes that read them do so every frame, and a buffer nothing writes cannot be read.
             const uint32_t writeCount = eastl::max(viewCount, 1u);
             for (uint32_t viewOrdinal = 0; viewOrdinal < writeCount; ++viewOrdinal)
             {
@@ -101,17 +110,21 @@ namespace Spark::Render
                 constants.m_viewOrdinal    = viewOrdinal;
                 if (viewOrdinal < viewCount)
                 {
-                    constants.m_slotCount = layout.m_slotCount;
-                    constants.m_viewIndex = layout.m_views[viewOrdinal].m_viewIndex;
+                    constants.m_instanceCount = instanceCount;
+                    constants.m_viewIndex     = layout.m_views[viewOrdinal].m_viewIndex;
                 }
 
                 auto s = p.Scope();
+                if (hasIds)
+                {
+                    s.ReadBuffer(idsName).View(idsView).Bind(idsInput);
+                }
                 s.ReadWriteBuffer(countName).View(countView).Bind(countInput);
                 s.WriteBuffer(instancesName).View(instancesView).Bind(instancesInput);
                 setConstants(s, constants);
-                // One thread with no slot: a dispatch of no group is a debug layer warning, and
-                // a thread past slotCount writes nothing.
-                s.Dispatch(eastl::max(constants.m_slotCount, 1u));
+                // One thread with no instance: a dispatch of no group is a debug layer warning,
+                // and a thread past instanceCount writes nothing.
+                s.Dispatch(eastl::max(constants.m_instanceCount, 1u));
                 s.Close();
             }
         }

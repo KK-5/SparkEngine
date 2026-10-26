@@ -80,14 +80,14 @@ protected:
     }
 
     //! A translucent instance of a box of half-size `half` around `center`.
-    void AddInstance(uint32_t slot, const Math::Vector3& center, float half = 0.5f, PipelineKey key = Key(false))
+    void AddInstance(uint32_t position, const Math::Vector3& center, float half = 0.5f, PipelineKey key = Key(false))
     {
         DrawListInstance instance;
         instance.m_drawMaskBitIndex = TranslucentBit;
-        instance.m_slot             = slot;
+        instance.m_position             = position;
         instance.m_key              = key;
         instance.m_indexCount       = 36;
-        instance.m_firstIndex       = 6 * slot;
+        instance.m_firstIndex       = 6 * position;
         instance.m_vertexOffset     = 24;
         instance.m_worldBounds.min  = center - Math::Vector3(half);
         instance.m_worldBounds.max  = center + Math::Vector3(half);
@@ -117,15 +117,15 @@ protected:
         }
         return draws;
     }
-    //! The slots under `under`, in the order they draw.
-    eastl::vector<uint32_t> SlotsOf(RHI::RHIHandle under)
+    //! The positions under `under`, in the order they draw.
+    eastl::vector<uint32_t> PositionsOf(RHI::RHIHandle under)
     {
-        eastl::vector<uint32_t> slots;
+        eastl::vector<uint32_t> positions;
         for (const VisibleInstance& visible : VisibleInstancesOf(draws, under, TranslucentBit))
         {
-            slots.push_back(visible.m_slot);
+            positions.push_back(visible.m_position);
         }
-        return slots;
+        return positions;
     }
 };
 
@@ -139,9 +139,9 @@ TEST_F(DrawListCullingSystemTest, AViewSeesWhatIsInItsFrustum)
     AddInstance(4, Math::Vector3(10.0f, 0.0f, 10.0f));    // across the right side
     system.Update(rhi, passes, draws);
 
-    eastl::vector<uint32_t> slots = SlotsOf(view);
-    eastl::sort(slots.begin(), slots.end());
-    EXPECT_EQ(slots, (eastl::vector<uint32_t>{ 0, 4 }));
+    eastl::vector<uint32_t> positions = PositionsOf(view);
+    eastl::sort(positions.begin(), positions.end());
+    EXPECT_EQ(positions, (eastl::vector<uint32_t>{ 0, 4 }));
 }
 
 //! As InstanceCulling.hlsl, so a list draws the same set whichever culls it.
@@ -151,7 +151,7 @@ TEST_F(DrawListCullingSystemTest, TheNearPlaneCullsNothing)
     AddInstance(0, Math::Vector3(0.0f, 0.0f, 0.5f), 0.1f);
     system.Update(rhi, passes, draws);
 
-    EXPECT_EQ(SlotsOf(view), (eastl::vector<uint32_t>{ 0 }));
+    EXPECT_EQ(PositionsOf(view), (eastl::vector<uint32_t>{ 0 }));
 }
 
 TEST_F(DrawListCullingSystemTest, AListDrawsBackToFront)
@@ -162,7 +162,7 @@ TEST_F(DrawListCullingSystemTest, AListDrawsBackToFront)
     AddInstance(2, Math::Vector3(0.0f, 0.0f, 10.0f));
     system.Update(rhi, passes, draws);
 
-    EXPECT_EQ(SlotsOf(view), (eastl::vector<uint32_t>{ 1, 2, 0 }));
+    EXPECT_EQ(PositionsOf(view), (eastl::vector<uint32_t>{ 1, 2, 0 }));
     const VisibleInstanceRange visible = VisibleInstancesOf(draws, view, TranslucentBit);
     EXPECT_FLOAT_EQ(visible[0].m_depth, 20.0f);
 }
@@ -176,7 +176,7 @@ TEST_F(DrawListCullingSystemTest, ThoseAsFarAreOrderedByKey)
     AddInstance(1, Math::Vector3(1.0f, 0.0f, 10.0f), 0.5f, first);
     system.Update(rhi, passes, draws);
 
-    EXPECT_EQ(SlotsOf(view), (eastl::vector<uint32_t>{ 1, 0 }));
+    EXPECT_EQ(PositionsOf(view), (eastl::vector<uint32_t>{ 1, 0 }));
 }
 
 TEST_F(DrawListCullingSystemTest, AVisibleInstanceCarriesWhatItsRecordDraws)
@@ -188,7 +188,7 @@ TEST_F(DrawListCullingSystemTest, AVisibleInstanceCarriesWhatItsRecordDraws)
     const VisibleInstanceRange visible = VisibleInstancesOf(draws, view, TranslucentBit);
     ASSERT_EQ(visible.size(), 1u);
     EXPECT_EQ(visible[0].m_view, view);
-    EXPECT_EQ(visible[0].m_slot, 3u);
+    EXPECT_EQ(visible[0].m_position, 3u);
     EXPECT_EQ(visible[0].m_key, Key(true));
     EXPECT_EQ(visible[0].m_indexCount, 36u);
     EXPECT_EQ(visible[0].m_firstIndex, 18u);
@@ -215,9 +215,9 @@ TEST_F(DrawListCullingSystemTest, EachViewHasItsOwnRun)
     AddInstance(1, Math::Vector3(0.0f, 0.0f, 20.0f));
     system.Update(rhi, passes, draws);
 
-    EXPECT_EQ(SlotsOf(view), (eastl::vector<uint32_t>{ 1, 0 }));
-    EXPECT_EQ(SlotsOf(other), (eastl::vector<uint32_t>{ 1, 0 }));
-    EXPECT_TRUE(SlotsOf(undrawn).empty());
+    EXPECT_EQ(PositionsOf(view), (eastl::vector<uint32_t>{ 1, 0 }));
+    EXPECT_EQ(PositionsOf(other), (eastl::vector<uint32_t>{ 1, 0 }));
+    EXPECT_TRUE(PositionsOf(undrawn).empty());
     for (const VisibleInstance& visible : VisibleInstancesOf(draws, other, TranslucentBit))
     {
         EXPECT_EQ(visible.m_view, other);
@@ -230,7 +230,7 @@ TEST_F(DrawListCullingSystemTest, NoPassOfAListTheCpuCullsCullsNothing)
     AddInstance(0, Math::Vector3(0.0f, 0.0f, 10.0f));
     system.Update(rhi, passes, draws);
 
-    EXPECT_TRUE(SlotsOf(view).empty());
+    EXPECT_TRUE(PositionsOf(view).empty());
     EXPECT_EQ(draws.GetView<VisibleInstance>().size(), 0u);
 }
 
@@ -274,7 +274,7 @@ TEST_F(DrawListCullingSystemTest, AViewsDrawsStartAtItsPlace)
 
     const eastl::vector<RHI::DrawIndexedIndirectCommand> uploaded = UploadedDraws();
     ASSERT_EQ(uploaded.size(), 4u);
-    EXPECT_EQ(uploaded[secondStart].m_firstInstance, second[0].m_slot);
+    EXPECT_EQ(uploaded[secondStart].m_firstInstance, second[0].m_position);
 }
 
 TEST_F(DrawListCullingSystemTest, TheDrawsBufferIsAHostOneOfEveryFrame)
@@ -301,9 +301,9 @@ TEST_F(DrawListCullingSystemTest, TheDrawsBufferGrowsAStepAtATime)
     const RHI::RHIHandle small = DrawArgumentsBuffers()[0];
 
     draws.Clear();
-    for (uint32_t slot = 0; slot < 1025; ++slot)
+    for (uint32_t position = 0; position < 1025; ++position)
     {
-        AddInstance(slot, Math::Vector3(0.0f, 0.0f, 10.0f));
+        AddInstance(position, Math::Vector3(0.0f, 0.0f, 10.0f));
     }
     system.Update(rhi, passes, draws);
 
