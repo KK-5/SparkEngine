@@ -105,9 +105,10 @@ namespace Spark::Render
                 clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
-                // Until both exist nothing of the scene is drawn, but the depth is still cleared.
+                // Until they all exist nothing of the scene is drawn, but the depth is still cleared.
                 const bool hasGeometry = p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
-                                      && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"));
+                                      && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
+                                      && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances"));
 
                 auto s = p.Scope();
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), clear);
@@ -117,6 +118,8 @@ namespace Spark::Render
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
                     const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
+                    // Through the shared binding, by the vertex shader.
+                    s.ReadBuffer(RHI::AttachmentId("Instances")).Stage(RHI::AttachmentStage::VertexShader);
                     s.DrawIndirect(InstanceLists::DepthPre::DrawArgumentsName(), InstanceLists::DepthPre::DrawCountName(),
                         vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }

@@ -35,6 +35,10 @@ namespace Spark::Render
         using Uses = TagList<>;
     };
 
+    //! The buffer entity g_Instances is a view of, written in the graph. A pass whose shaders
+    //! read g_Instances imports it by this tag and declares the read in each Scope.
+    struct InstancePoolTag {};
+
     //! On an entity of its own, kept by InstanceBindingSystem: how many entries of the instance
     //! IDs are this frame's, one for each renderable holding a slot. A reader of every instance
     //! goes through them.

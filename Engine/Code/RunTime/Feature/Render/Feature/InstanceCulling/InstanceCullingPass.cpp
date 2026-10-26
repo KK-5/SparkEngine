@@ -38,10 +38,13 @@ namespace Spark::Render
             const uint32_t viewCount  = static_cast<uint32_t>(layout.m_views.size());
             const uint32_t entryCount = layout.m_viewCapacity * layout.m_maxPerView;
 
-            // Without the active list there is no instance to go through, and nothing reads it.
+            // Without the active list and the instances there is no instance to go through, and
+            // neither is read.
             const RHI::AttachmentId idsName("InstanceIDs");
-            const bool     hasIds        = p.Import<InstanceIDBufferTag>(idsName);
-            const uint32_t instanceCount = hasIds ? layout.m_instanceCount : 0;
+            const RHI::AttachmentId instancesPoolName("Instances");
+            const bool     hasInstances  = p.Import<InstanceIDBufferTag>(idsName)
+                                        && p.Import<InstancePoolTag>(instancesPoolName);
+            const uint32_t instanceCount = hasInstances ? layout.m_instanceCount : 0;
 
             constexpr RHI::BufferBindFlags bindFlags = RHI::BufferBindFlags::ShaderReadWrite;
 
@@ -115,9 +118,11 @@ namespace Spark::Render
                 }
 
                 auto s = p.Scope();
-                if (hasIds)
+                if (hasInstances)
                 {
                     s.ReadBuffer(idsName).View(idsView).Bind(idsInput);
+                    // Through the shared binding.
+                    s.ReadBuffer(instancesPoolName);
                 }
                 s.ReadWriteBuffer(countName).View(countView).Bind(countInput);
                 s.WriteBuffer(instancesName).View(instancesView).Bind(instancesInput);

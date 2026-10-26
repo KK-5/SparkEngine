@@ -515,7 +515,8 @@ D5 已撤销：实例身份的做法不变，不构成一项决策，内容并�
 > **2026-10-26 更新**（`TODO_BufferRangePlan.md` L5c）：剔除不再遍历 `[0, 高水位)` 的槽位，改为遍历活跃列表
 > `InstanceIDBuffer`（位置 → 槽，`InstanceSlot` 存储的下标即位置，紧凑），第 i 个线程读 `g_Instances[g_InstanceIDs[i]]`，
 > 可见时写入位置 i；个数来自 `ActiveInstanceCount`，`InstanceSlotCount` 已删。槽位也已从 `SlotRef` 换成 `InstanceSlot`
-> （持有 `Suballocation`），`InstanceBindingSystem` 不再经 `GlobalBuffer`。下面关于空洞清零与 mask 的规则仍然成立。
+> （持有 `Suballocation`），`InstanceBindingSystem` 不再经 `GlobalBuffer`。L5d 起 `g_Instances` 在设备池里只写变化的
+> 记录，空洞不再清零（剔除读不到空洞）；下面"没有人持有的槽位读出来是默认值"一条随之作废，mask 与几何就绪的规则仍然成立。
 
 `g_Instances` 是稳定槽位，有空洞，而且空洞原来不清零，shader 遍历 `[0, Size())` 会碰到已经删掉的物体。
 `TODO_GlobalBufferUploadPlan.md` §六 为这种情况预留的做法是补一个 GPU 侧的有效性信号，这里落的就是它。

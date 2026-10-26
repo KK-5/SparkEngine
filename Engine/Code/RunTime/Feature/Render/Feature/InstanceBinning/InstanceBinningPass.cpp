@@ -59,9 +59,12 @@ namespace Spark::Render
             const InstanceLists::CullingLayout culling   = InstanceLists::LayOutCulling(rhiContext, views);
             const uint32_t                     viewCount = static_cast<uint32_t>(culling.m_views.size());
 
-            // Without the active list the culling saw no instance, and nothing reads it.
+            // Without the active list and the instances the culling saw no instance, and neither
+            // is read.
             const RHI::AttachmentId idsName("InstanceIDs");
-            const bool hasIds = p.Import<InstanceIDBufferTag>(idsName);
+            const RHI::AttachmentId instancesPoolName("Instances");
+            const bool hasInstances = p.Import<InstanceIDBufferTag>(idsName)
+                                   && p.Import<InstancePoolTag>(instancesPoolName);
 
             const PassIndirectLayout& layout = passContext.Get<PassIndirectLayout>(drawPass);
 
@@ -156,9 +159,11 @@ namespace Spark::Render
                 constants.m_viewFirstRecord = viewOrdinal * layout.m_recordsPerView;
 
                 auto s = p.Scope();
-                if (hasIds)
+                if (hasInstances)
                 {
                     s.ReadBuffer(idsName).View(idsView).Bind(idsInput);
+                    // Through the shared binding.
+                    s.ReadBuffer(instancesPoolName);
                 }
                 s.ReadBuffer(visible.m_instancesName).View(visibleInstancesView).Bind(visibleInstancesInput);
                 s.ReadBuffer(visible.m_countName).View(visibleCountView).Bind(visibleCountInput);
@@ -172,7 +177,7 @@ namespace Spark::Render
                     arguments.IndirectArgumentsOf(view,
                         static_cast<uint64_t>(constants.m_viewFirstRecord) * sizeof(RHI::DrawIndexedIndirectCommand));
                     // A view sees at most every instance.
-                    constants.m_entryCount = hasIds ? culling.m_instanceCount : 0;
+                    constants.m_entryCount = hasInstances ? culling.m_instanceCount : 0;
                 }
                 setConstants(s, constants);
                 // One thread with no entry: a dispatch of no group is a debug layer warning, and

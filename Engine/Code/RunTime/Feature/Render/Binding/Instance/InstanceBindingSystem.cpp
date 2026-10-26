@@ -108,8 +108,7 @@ namespace Spark::Render
             RHI::ShaderInputBufferType::Structured, 1, 0, 0, kInstanceSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The g_Instances SRV is bound by StagedArrayBuffer once the upload
-        // buffer materializes, so we DO NOT mark it dirty here.
+        // only the handle. InstancePool binds the g_Instances SRV.
         Ptr<RHI::ShaderBindings> instanceBindings =
             CreateSharedBindings(inputs, kInstanceSpaceId, "InstanceBindingSystem");
         if (!instanceBindings)
@@ -122,15 +121,8 @@ namespace Spark::Render
             m_bindingsEntity, RHI::Components::ShaderBindings{ instanceBindings });
         rhiCtx.Add<InstanceBindingTag>(m_bindingsEntity);
 
-        StagedArrayBuffer<InstanceData>::Descriptor bufferDesc;
-        bufferDesc.m_capacity       = InstanceCapacity;
-        bufferDesc.m_resourceName   = ObjectName(InstanceBufferName);
-        bufferDesc.m_inputName      = RHI::InputName(InstanceBufferName);
-        bufferDesc.m_bindingsEntity = m_bindingsEntity;
-        m_instances.Init(rhiCtx, bufferDesc);
-
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
-        m_slotAllocator = new Suballocator(device, uint64_t(InstanceCapacity) * sizeof(InstanceData));
+        m_instancePool.Init(rhiCtx, device, m_bindingsEntity);
 
         m_instanceCountEntity = rhiCtx.CreateEntity();
         rhiCtx.Add<ActiveInstanceCount>(m_instanceCountEntity, ActiveInstanceCount{ 0 });
@@ -150,6 +142,42 @@ namespace Spark::Render
             return;
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
+
+        SPARK_COMPUTE_PASS(passContext, "InstanceUpdate")
+            .Queue(RHI::HardwareQueueClass::Graphics)
+            .ComputeShader(shaderAsset)
+            .Build([this](ComputePassScopes& p)
+            {
+                const ElementUpdateBuffer& updates     = m_instancePool.GetUpdates();
+                const uint32_t             updateCount = updates.GetUpdateCount();
+                if (updateCount == 0)
+                {
+                    return;
+                }
+
+                const RHI::AttachmentId updatesName("InstanceUpdate");
+                const RHI::AttachmentId instancesName("Instances");
+                p.Import(updatesName, updates.GetResource());
+                p.Import(instancesName, m_instancePool.GetResource());
+
+                const uint32_t elementWords = updates.GetElementSize() / sizeof(uint32_t);
+
+                auto s = p.Scope();
+                s.ReadBuffer(updatesName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(updates.GetByteCount())))
+                    .Bind(RHI::InputName("g_Updates"));
+                // Read too: the records not updated stay.
+                s.ReadWriteBuffer(instancesName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(InstancePool::ByteCount)))
+                    .Bind(RHI::InputName("g_Elements"));
+                s.Constant(RHI::InputName("updateCount"), updateCount);
+                s.Constant(RHI::InputName("elementWords"), elementWords);
+                s.Constant(RHI::InputName("indicesOffset"), static_cast<uint32_t>(updates.GetIndicesOffset()));
+                s.Constant(RHI::InputName("elementsOffset"), static_cast<uint32_t>(updates.GetElementsOffset()));
+                s.Dispatch(updateCount * elementWords);
+                s.Close();
+            })
+            .Finalize();
 
         SPARK_COMPUTE_PASS(passContext, "InstanceIDUpdate")
             .Queue(RHI::HardwareQueueClass::Graphics)
@@ -188,7 +216,7 @@ namespace Spark::Render
             .Finalize();
     }
 
-    void InstanceBindingSystem::Update(uint32_t frameIndex)
+    void InstanceBindingSystem::Update()
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
@@ -197,14 +225,10 @@ namespace Spark::Render
             return;
         }
 
-        // Nothing is allocated or encoded until the buffer materializes, as no record could
-        // be read before.
-        if (m_slotAllocator && m_instances.BindFrame(*rhiCtx, frameIndex))
-        {
-            UpdateSlots(*world);
-            EncodeInstances(*world);
-            m_instances.Upload(*rhiCtx, GetSlotCount());
-        }
+        AllocateSlots(*world);
+        m_instancePool.BeginUpdate();
+        UpdateInstanceData(*world);
+        m_instancePool.EndUpdate();
         if (auto* drawCtx = DrawExecuteContext::Current())
         {
             m_keyCounter.Publish(*drawCtx);
@@ -230,7 +254,7 @@ namespace Spark::Render
         });
     }
 
-    void InstanceBindingSystem::UpdateSlots(WorldContext& world)
+    void InstanceBindingSystem::AllocateSlots(WorldContext& world)
     {
         // Collected first: InstanceSlot is the pool being iterated.
         eastl::vector<Entity> lostSource;
@@ -250,7 +274,7 @@ namespace Spark::Render
         world.GetView<Transform::WorldTransformMatrix, MeshGeometry>(Exclude<InstanceSlot, DeadTag>).each(
             [&](Entity entity, const Transform::WorldTransformMatrix&, const MeshGeometry&)
         {
-            Suballocation range = m_slotAllocator->Allocate(sizeof(InstanceData));
+            Suballocation range = m_instancePool.Allocate();
             if (!range.IsValid())
             {
                 LOG_ERROR("[InstanceBindingSystem] All {} instance slots are taken; an entity is not drawn.", InstanceCapacity);
@@ -260,13 +284,8 @@ namespace Spark::Render
         });
     }
 
-    void InstanceBindingSystem::EncodeInstances(WorldContext& world)
+    void InstanceBindingSystem::UpdateInstanceData(WorldContext& world)
     {
-        // A slot no one holds reads as nothing: its record is cleared every frame, as the one
-        // copy written this frame holds whatever was in it frameCountMax frames ago.
-        InstanceData* records = m_instances.Data();
-        eastl::fill(records, records + GetSlotCount(), InstanceData{});
-
         auto* matCtx  = Material::MaterialExecuteContext::Current();
         auto* drawCtx = DrawExecuteContext::Current();
         const auto& slots = world.GetStorage<InstanceSlot>();
@@ -274,7 +293,7 @@ namespace Spark::Render
             [&](Entity e, const InstanceSlot& slot,
                 const Transform::WorldTransformMatrix& m, const MeshGeometry& geometry)
         {
-            InstanceData& out = records[slot.Get()];
+            InstanceData out;
             const auto* history = world.TryGet<InstanceHistory>(e);
             out.m_model     = m.m_worldMatrix;
             out.m_prevModel = history ? history->m_model : m.m_worldMatrix;
@@ -308,16 +327,8 @@ namespace Spark::Render
             {
                 AddDrawListInstances(*drawCtx, out.m_drawMask, PositionOf(slots, e), key, geometry, m.m_worldMatrix);
             }
+            m_instancePool.Set(slot.Get(), out);
         });
-    }
-
-    uint32_t InstanceBindingSystem::GetSlotCount() const
-    {
-        if (!m_slotAllocator)
-        {
-            return 0;
-        }
-        return static_cast<uint32_t>((m_slotAllocator->GetExtent() + sizeof(InstanceData) - 1) / sizeof(InstanceData));
     }
 
     void InstanceBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
@@ -326,9 +337,7 @@ namespace Spark::Render
         {
             world->Clear<InstanceSlot>();
         }
-        // The slots just cleared hold it until the device hands them back.
-        m_slotAllocator.reset();
-        m_instances.Shutdown(rhiCtx);
+        m_instancePool.Shutdown(rhiCtx);
 
         if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
         if (m_instanceCountEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_instanceCountEntity); }
