@@ -40,6 +40,7 @@ set(SOURCES
     Suballocation/Suballocator.cpp
     Suballocation/ReservedBuffer.cpp
     Staging/StagingBuffer.cpp
+    Staging/ElementUpdateBuffer.cpp
     RenderGraph/RenderGraphBuilder.cpp
     RenderGraph/RenderGraphCompiler.cpp
     RenderGraph/ImageBarrierMerge.cpp

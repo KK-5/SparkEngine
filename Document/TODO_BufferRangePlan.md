@@ -37,7 +37,7 @@
 - **`AsyncUploadSystem` 只负责新资源。** 现有规则全部保留，它们就是这个系统的定义：只上传进新资源、只上传
   一次、已导入的资源不收、上传完交接（release / acquire）给图。之后资源归图，上传系统不再碰。
 - **图在用的资源（池）只由图里的 Pass 写。**
-  - CPU 来源：CPU 写进主机可见、按帧分槽的暂存，图里一个 Pass 写进池的区间（Copy 或 scatter，见 §五）。
+  - CPU 来源：CPU 写进主机可见、按帧分槽的暂存，图里一个 Pass 写进池的区间（Copy 或元素更新，见 §五）。
     Nanite 的页也属于这类，只是 Pass 是转码（磁盘编码 → GPU 格式）+ fixup。
   - GPU 来源：蒙皮、粒子这类每帧由 GPU 算出的数据，本来就是 Pass。
   - 池的状态只有图写，两种来源是同一种"对整块 Buffer 声明写"。
@@ -63,7 +63,7 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 |---|---|
 | RHI | `BufferPool` / `ImagePool` 退回纯粹的资源分配：D3D12MA / VMA 的包装，按描述符分配资源，不再提供管理功能（删预算模式：大缓冲、VirtualBlock、`BufferMemoryType::Shared`、`GetBaseOffset`）。D3D12MA / VMA 的 Allocator 每个 Device 一个，每个池一一对应一个自定义池（`D3D12MA::Pool` / `VmaPool`），描述符对应过去：堆级别 + 主机访问 → 堆类型 / 内存类型，块大小，最小分配对齐（通用参数，不是 reserved 专用）；原来设在 Allocator 上的标志（如 `ALWAYS_COMMITTED`）下放到池或单次分配。代价：自定义池各开堆块，空闲内存不跨池共享，块不宜过大、空块及时释放。最低要求 Resource Heap Tier 2（Turing / GCN 起），池不按 Buffer / 纹理 / RT-DS 拆，`TransientResourcePool` 的 Tier 1 分支删掉。延迟释放仍留在各池：D3D12MA 要求池的分配先于池释放，而共用的 `ObjectCollector` 强制回收不保序，没法只先放某个池的分配；Device 只持有 Allocator，所有池都在它之前关闭。新增后端无关的 `QueueForRelease(Ptr<Object>)`：RHI 多持有这个对象直到已提交的 GPU 工作完成再放掉，要延迟的工作写在对象的析构里；延迟帧数只在 RHI 内部。不收函数：函数能捕获任何东西，不可控。新增 reserved 资源与页映射（见 §六） |
 | Core | 纯 CPU 的区间分配算法，只认偏移和大小，不认 Buffer、不认帧（§五） |
-| 系统 / 渲染层 | 区间池与区间对象（§五）。需要管理的系统自己持有池，合适时多个系统共用一个。`ReservedBuffer` = reserved Buffer + 后备 + 页映射，按报来的页占用映射 / 解除映射。几何池是一个区间池加 `ReservedBuffer`，`MeshGeometry` 持有区间而不是分段 Buffer。按帧分槽的暂存 + Copy / scatter Pass 也在这一层 |
+| 系统 / 渲染层 | 区间池与区间对象（§五）。需要管理的系统自己持有池，合适时多个系统共用一个。`ReservedBuffer` = reserved Buffer + 后备 + 页映射，按报来的页占用映射 / 解除映射。几何池是一个区间池加 `ReservedBuffer`，`MeshGeometry` 持有区间而不是分段 Buffer。按帧分槽的暂存 + Copy / 元素更新 Pass 也在这一层 |
 
 区间分配不进 RHI：它不是 DX12 / Vulkan 的原生概念（D3D12MA / VMA 的虚拟分配器是库附带的 CPU 工具），R5 删的
 预算模式正是 RHI 里的这一套；延迟归还只要 `QueueForRelease`，上层就能做。先例：阴影图集（Core 的
@@ -103,7 +103,7 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
   映射着"比较，不一致才映射 / 解除映射；同一期间先空后占，不发任何映射。映射着哪个后备由 `ReservedBuffer` 记。
 
 **区间对象**：池的引用 + 偏移 + 大小 + 分配器归还用的节点。**不带 Buffer**：它是池地址空间里的一段，背后是一个
-reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.Import` 导入整个池，绘制和 scatter 只要偏移。
+reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.Import` 导入整个池，绘制和元素更新只要偏移。
 
 - 只能移动的唯一所有权（同 `UniqueRHIHandle`）；要共享时经持有它的实体共享（实例引用网格实体），不复制区间。
   满了返回空区间，调用方报错。
@@ -129,7 +129,11 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   是否绘制仍由 `DrawMask` 定，几何未就绪的实例不会让列表来回增删。
 - 逐绘制的通道只能是 `firstInstance`：Vulkan 的间接绘制不能逐条改 push constant；DX12 的 `SV_InstanceID` 不含
   它，所以经实例流的顶点属性取，这也是这张表存在的原因。
-- 活跃列表只在末尾增减，放在 `ReservedBuffer` 上，按个数跨页边界上报页的变化，延迟同区间池。
+- 活跃列表只在末尾增减，放在 `ReservedBuffer` 上，不经区间池：读它的一方按编号算地址（`FirstInstance` 处在
+  `位置 × 4`），所以条目和页都是 Buffer 的前缀，而区间池决定区间放在哪、归还又延迟，增减交错时会在前缀里留洞。
+  系统按个数算需要的页数，与已映射页数比，多出的页映射、多余的页当帧解除映射：解除映射在图形队列上排在之前
+  提交的所有读取之后，后备由池延迟释放。重新映射的页换了新后备，原来的条目没了，已写条数随之截到映射的范围内，
+  再增长时重写。
 - 将来的实例化绘制（`InstanceCount > 1`）要求一批实例在实例流里连续，而活跃列表的顺序任意、剔除后还有空隙：分箱
   按批写一份本帧压实的可见列表，绑为这类绘制的实例流，同是"位置 → 槽号"，是加法。
 
@@ -146,9 +150,9 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 
 **写入方式**：区间对象是同一个，区别只在分配自哪个池、怎么写进去。
 
-| | 主机池，每帧一份（Map 直接写） | 设备池，Copy | 设备池，scatter |
+| | 主机池，每帧一份（Map 直接写） | 设备池，Copy | 设备池，元素更新 |
 |---|---|---|---|
-| 写入 | 每帧整份重写进本帧那份 | 暂存 + Copy Pass | 暂存 + scatter Pass |
+| 写入 | 每帧整份重写进本帧那份 | 暂存 + Copy Pass | 暂存 + 元素更新 Pass |
 | 每帧上传量 | 整个数组 | 新数据 | 只有变化的条目 |
 | 内存 | `frameCountMax` 份 | 1 份 | 1 份 |
 | GPU 读取 | 走 PCIe | 显存 | 显存 |
@@ -156,26 +160,32 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 
 主机池只放一份、只改变化的几条是不成立的：CPU 领先 GPU 若干帧，Map 改写时 GPU 可能还在读前一帧的值，同一帧的
 不同 Pass 会读到不同版本；Map / Unmap 不提供同步。每帧一份可以避开，但每份上次被写已是 `frameCountMax` 帧前，
-只能整份重写。设备池的 Copy / scatter 把 CPU 的写入排进 GPU 队列：CPU 只写本帧专属的暂存槽，改写那一份数据的
+只能整份重写。设备池的 Copy / 元素更新把 CPU 的写入排进 GPU 队列：CPU 只写本帧专属的暂存槽，改写那一份数据的
 是图里的 Pass，排在前一帧所有读取之后、本帧所有读取之前。
 
-**scatter Pass**：
+**元素更新 Pass**（即 scatter 写入）：
 
-- CPU 往本帧暂存槽写两段：目标槽下标（`uint`）和对应的新记录（紧密排列）。变化检测按帧记，同一槽一帧只出现
-  一次。
-- 一个通用的 compute，按 16 字节一块拷，不认 `Element` 类型，所有使用方共用一个管线：线程 `id` 处理第
-  `id / ElementSize16` 条更新的第 `id % ElementSize16` 块，`Dest[slot * ElementSize16 + chunk] = Data[...]`。
-  相邻线程写同一条记录的相邻块，写入连续。UE 的 `ScatterCopyCS` 同形。
-- 图里声明读暂存槽（主机堆，后端不发屏障）、写整个池（ShaderWrite）；之后的剔除和绘制读池。没有更新的帧不
-  dispatch。池的 Buffer 带 `ShaderWrite`，以 raw view 绑定。
-- 要求 `sizeof(Element)` 是 16 的倍数；做不到的按 4 字节一块，线程数 ×4。
+- `ElementUpdateBuffer`（`Render/Staging/`）：系统持有，内含一个 `StagingBuffer`，每帧 `Begin(条数)` 后逐条
+  `Add(下标)` 填内容，暂存里是两段：下标（`uint`）和对应的新内容（紧密排列）。变化检测按帧记，同一下标一帧只
+  出现一次。它只管暂存，不碰 Pass。
+- 一个通用的 compute（`ElementUpdate.hlsl`），按 4 字节一块拷，不认元素类型，所有使用方共用：线程 `id` 处理第
+  `id / elementWords` 条更新的第 `id % elementWords` 个 `uint`，`g_Elements[index * elementWords + word] = ...`。
+  相邻线程写同一条记录的相邻字，写入连续。UE 的 `ScatterCopyCS` 同形。元素大小须是 4 的倍数。
+- Pass 由拥有数组的系统自己声明，内容写在声明处：读暂存（raw view，主机堆，后端不发屏障）、读写数组（raw
+  view，ReadWrite：没更新的元素保留原值）、设四个常量、按 条数 × 每条字数 dispatch。没有更新的帧不声明任何
+  东西，Pass 被跳过。数组的 Buffer 带 `ShaderWrite`。
 - 池是 reserved 资源，扩容只映射新页、已有数据不动，所以稳定下标和不定容量能同时成立。
 
 **迁移**：
 
 - `StagedArrayBuffer` 即"主机池每帧一份"，小数组保持这种写法，改用区间对象。
-- `GlobalBuffer` 的大数组（`g_Instances`、`g_Materials`）迁到设备池 + scatter。要新加变化检测：现在的
+- `GlobalBuffer` 的大数组（`g_Instances`、`g_Materials`）迁到设备池 + 元素更新。要新加变化检测：现在的
   `process` 每帧重写所有实体；空洞也不再每帧整体重置，剔除经活跃列表读，读不到空洞。
+- 变化检测先用镜像比较：CPU 留一份上次传上去的记录，每帧照常编码，和镜像 `memcmp`，不同才上传并更新镜像。只看
+  结果，不必知道是哪个来源变了，不会漏。以后编码本身嫌慢时换变更帧号：源组件带最后变化的帧号，由生产它的系统
+  原地写（不改 ECS 结构，可并行）；读取方先比帧号再编码，`prevModel` 用 `帧号 >= 当前帧 - 1` 覆盖，材质等共享源
+  由实例去读它的帧号，不需要反查。不用 `on_update` 信号或标记组件：信号慢且不能并行，标记是结构改动，还要扇出。
+  前提是 `TransformSystem` 只在变化时写世界矩阵。换成帧号后镜像留在 Validation 构建里当校验。
 - `SlotPool` / `SharedHandle` / `HandlePool` 这类工具逐步由区间池和区间对象取代，不再新加；`WeakHandle` 随
   `GeometrySpec` 删除已无使用方，只剩测试。
 
@@ -254,6 +264,9 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 - **DrawIndirect**：不再写死 `MeshGeometryBaseBufferTag`，改为和零散 Draw 一样接收顶点流附件，Pass 自己
   `p.Import<Tag>` + `s.InputAssembly`。`Uses<MeshGeometrySegmentTag>` 随之删除。
 - **`Uses<Tag>`** 只留给"新资源经上传系统交接后、经绑定 / bindless 读取"的资源（材质贴图、IBL、查找表、图标）。
+- **在图里被写的资源由 Pass 手动声明访问**（`p.Import` + `s.ReadBuffer(...)`，渲染 Pass 加 `.Stage`），共享绑定
+  不替 Pass 声明。`Binds` 只声明 Pass 的着色器用哪些共享输入，以后可由着色器反射推导。漏声明由降低阶段校验：
+  Scope 绑定的共享组里有视图指向图在跟踪的资源，而这个 Scope 没有声明对它的访问，就报错（L5c 起有可校验的对象）。
 - **剔除与分箱**（§五 实例入口）：剔除按活跃列表的个数 dispatch，读 `g_Instances[InstanceIDBuffer[i]]`，可见时
   输出位置 `i`；分箱和 CPU 剔除的 `FirstInstance` 填位置而不是槽号。`InstanceSlotCount` / extent 不再定 dispatch
   大小。改动落在 `TODO_GPUDrivenPlan.md` 的剔除部分。
@@ -364,8 +377,16 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   - 多线程：系统线程只做按额度挑选和记区间；切好的暂存区间互不重叠，memcpy 可拆给工作线程，在图 Build 前汇合。
   - 几何仍按实体，同一网格多实例各占一份；按网格共享是以后的事。
 - ~~**R5**　删预算模式~~（已完成，见下）。
-- **L5　`g_Instances`**：设备池 + scatter Pass，加变化检测；`InstanceIDBuffer` 改为活跃列表；剔除与分箱按位置
-  （§八，连同 `TODO_GPUDrivenPlan.md`）。
+- **L5　`g_Instances`**：设备池 + 元素更新 Pass，加变化检测；`InstanceIDBuffer` 改为活跃列表；剔除与分箱按位置
+  （§八，连同 `TODO_GPUDrivenPlan.md`）。分三步：
+  - ~~**L5a　元素更新**~~（已完成）：`ElementUpdateBuffer` + `ElementUpdate.hlsl`（§五）。第一个使用方是
+    `InstanceIDBuffer`：改为 `ReservedBuffer`，按条数映射前缀的页（增减都有，见 §五 活跃列表），新槽的恒等 ID 经
+    `InstanceIDUpdate` Pass 写入，排在所有绘制 Pass 之前，新槽当帧可画；`InstanceSlotCount` 取槽数与已写 ID 数
+    的较小者，去掉等上传完成的门槛。内容仍是恒等表，渲染不变。
+  - **L5b　活跃列表**：`InstanceIDBuffer` 改为位置 → 槽（交换删除），剔除、分箱、CPU 剔除按位置；
+    `InstanceSlotCount` 改为活跃个数。`g_Instances` 这一步仍是 `GlobalBuffer`。
+  - **L5c　`g_Instances` 迁到设备池**：`ReservedBuffer` + `Suballocator` 槽位 + 镜像比较的变化检测；
+    `InstanceSlotRef` 换成持有区间的组件；读它的 Pass 手动声明读取，加上漏声明的校验（§八）。
 - **L6　其余数组**：`g_Materials` 等 `GlobalBuffer`、`StagedArrayBuffer` 的小数组迁到区间对象，`SlotPool` 一类
   工具逐步删除；`RHIResourceSystem` 随各系统迁移一起拆。
 
@@ -412,7 +433,7 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 
 系统 Pass 与管线分开登记（方向已定，延后；在此之前系统 Pass 与管线的 Pass 登记在同一处，不支持自定义管线）：
 
-- 问题：池的 Copy / scatter Pass 若写在 `SetUpDefaultPipeline` 里，用户自定义管线时就没了（`InstanceCullingPass` /
+- 问题：池的 Copy / 元素更新 Pass 若写在 `SetUpDefaultPipeline` 里，用户自定义管线时就没了（`InstanceCullingPass` /
   `InstanceBinningPass` 现在也有同样的问题）。这类 Pass 跑不跑由数据的主人决定：系统记着"区间第 N 帧写好"，
   不跑就是假记录；它们只读暂存、只写池，不依赖管线里的任何 Pass，也不能因"没人读"被剔除。
 - 单一 PassContext：图从建图到执行处处靠 `PassExecuteContext::Current()` 查 Pass，`Pass` 的 id 只在所属

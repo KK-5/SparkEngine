@@ -2,15 +2,24 @@
 
 #include <Log/ILogSystem.h>
 #include <ECS/Common.h>
+#include <Service/Service.h>
 
 #include <RHI/HardwareQueue.h>
+#include <RHI/RHIInterface.h>
+#include <RHI/Component/Component.h>
+#include <RHI/Device/Device.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <RHI/Resource/Buffer/Buffer.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <RHI/ResourceBuilder.h>
+#include <Resource/AssetManagerInterface.h>
+
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
+#include <Pass/ComputePass.h>
 #include <Pass/Component/RHIComponents.h>
+#include <RenderGraph/PassScopes.h>
 
 #include <Math/MathUtils.h>
 
@@ -104,26 +113,85 @@ namespace Spark::Render
         m_slotCountEntity = rhiCtx.CreateEntity();
         rhiCtx.Add<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ 0 });
 
-        // Per-instance vertex-stream ID buffer: static identity table [0..Capacity-1],
-        // uploaded once and read as a vertex stream every frame, once it is ready (Update).
-        // m_idData is kept alive for the upload's lifetime (BufferUploadRequest contract).
+        // Read as a vertex stream on the Graphics queue, where the pass of SetUp writes it.
+        RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
+        const uint64_t pageSize = device.GetLimits().m_reservedPageSizeInBytes;
+
+        ReservedBuffer::Descriptor poolDesc;
+        poolDesc.m_capacity  = InstanceIdByteCount;
+        poolDesc.m_pageSize  = pageSize;
+        poolDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::ShaderReadWrite;
+        poolDesc.m_name      = ObjectName("InstanceIDBuffer");
+        if (!m_instanceIdPool.Init(device, poolDesc))
         {
-            m_idData.resize(Capacity);
-            for (uint32_t i = 0; i < Capacity; ++i)
-            {
-                m_idData[i] = i;
-            }
-
-            RHI::BufferDescriptor bufDesc;
-            bufDesc.m_byteCount       = static_cast<uint64_t>(Capacity) * sizeof(uint32_t);
-            bufDesc.m_bindFlags       = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
-            bufDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
-
-            m_idBufferEntity = RHI::CreateBuffer(rhiCtx, ObjectName("InstanceIDBuffer"), bufDesc);
-            RHI::RequestBufferUpload(
-                rhiCtx, m_idBufferEntity, m_idData.data(), m_idData.size() * sizeof(uint32_t));
-            rhiCtx.Add<InstanceIDBufferTag>(m_idBufferEntity);
+            LOG_ERROR("[InstanceBindingSystem] The instance ID buffer failed to init; no instance will be drawn.");
+            return;
         }
+
+        ElementUpdateBuffer::Descriptor updateDesc;
+        updateDesc.m_name        = ObjectName("InstanceIDUpdate");
+        updateDesc.m_elementSize = sizeof(uint32_t);
+        if (!m_instanceIdUpdate.Init(device, updateDesc))
+        {
+            LOG_ERROR("[InstanceBindingSystem] The instance ID updates failed to init; no instance will be drawn.");
+            m_instanceIdPool.Shutdown();
+            return;
+        }
+
+        m_instanceIdResource = rhiCtx.CreateEntity();
+        rhiCtx.Add<RHI::Components::Buffer>(m_instanceIdResource, RHI::Components::Buffer{ Ptr<RHI::Buffer>(m_instanceIdPool.GetBuffer()) });
+        rhiCtx.Add<RHI::ImportedTag>(m_instanceIdResource);
+        rhiCtx.Add<RHI::ResourceName>(m_instanceIdResource, RHI::ResourceName{ poolDesc.m_name });
+        rhiCtx.Add<InstanceIDBufferTag>(m_instanceIdResource);
+    }
+
+    void InstanceBindingSystem::SetUp(PassContext& passContext)
+    {
+        auto* assetManager = Service<Resource::AssetManager>::Get();
+        ASSERT(assetManager, "AssetManager is unregister.");
+
+        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/ElementUpdate/ElementUpdate.hlsl");
+        if (!assetId.IsValid())
+        {
+            LOG_ERROR("[InstanceBindingSystem] Failed to load shader ElementUpdate.hlsl.");
+            return;
+        }
+        auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
+
+        SPARK_COMPUTE_PASS(passContext, "InstanceIDUpdate")
+            .Queue(RHI::HardwareQueueClass::Graphics)
+            .ComputeShader(shaderAsset)
+            .Build([this](ComputePassScopes& p)
+            {
+                const uint32_t updateCount = m_instanceIdUpdate.GetUpdateCount();
+                if (updateCount == 0)
+                {
+                    return;
+                }
+
+                const RHI::AttachmentId updatesName("InstanceIDUpdate");
+                const RHI::AttachmentId idsName("InstanceIDs");
+                p.Import(updatesName, m_instanceIdUpdate.GetResource());
+                p.Import(idsName, m_instanceIdResource);
+
+                const uint32_t elementWords = m_instanceIdUpdate.GetElementSize() / sizeof(uint32_t);
+
+                auto s = p.Scope();
+                s.ReadBuffer(updatesName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(m_instanceIdUpdate.GetByteCount())))
+                    .Bind(RHI::InputName("g_Updates"));
+                // Read too: the IDs not updated stay.
+                s.ReadWriteBuffer(idsName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(InstanceIdByteCount)))
+                    .Bind(RHI::InputName("g_Elements"));
+                s.Constant(RHI::InputName("updateCount"), updateCount);
+                s.Constant(RHI::InputName("elementWords"), elementWords);
+                s.Constant(RHI::InputName("indicesOffset"), static_cast<uint32_t>(m_instanceIdUpdate.GetIndicesOffset()));
+                s.Constant(RHI::InputName("elementsOffset"), static_cast<uint32_t>(m_instanceIdUpdate.GetElementsOffset()));
+                s.Dispatch(updateCount * elementWords);
+                s.Close();
+            })
+            .Finalize();
     }
 
     void InstanceBindingSystem::Update(uint32_t frameIndex)
@@ -181,10 +249,13 @@ namespace Spark::Render
             m_keyCounter.Publish(*drawCtx);
         }
 
+        UpdateInstanceIds(m_instances.Size());
+
         if (m_slotCountEntity != RHI::NullHandle)
         {
-            // No slot until the ID buffer's upload is over: a draw of any slot reads it.
-            const uint32_t slotCount = RHI::IsResourceReady(*rhiCtx, m_idBufferEntity) ? m_instances.Size() : 0;
+            // Only the slots with an ID: a draw of any slot reads it. They are written this
+            // frame ahead of every pass that draws.
+            const uint32_t slotCount = eastl::min(m_instances.Size(), m_instanceIdCount);
             rhiCtx->AddOrReplace<InstanceSlotCount>(m_slotCountEntity, InstanceSlotCount{ slotCount });
         }
 
@@ -209,11 +280,58 @@ namespace Spark::Render
         }
 
         if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
-        if (m_idBufferEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_idBufferEntity); }
         if (m_slotCountEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_slotCountEntity); }
 
         m_bindingsEntity = RHI::NullHandle;
-        m_idBufferEntity = RHI::NullHandle;
         m_slotCountEntity = RHI::NullHandle;
+
+        m_instanceIdCount = 0;
+        if (m_instanceIdResource != RHI::NullHandle)
+        {
+            rhiCtx.DestoryEntity(m_instanceIdResource);
+            m_instanceIdResource = RHI::NullHandle;
+        }
+        m_instanceIdUpdate.Shutdown();
+        m_instanceIdPool.Shutdown();
+    }
+
+    void InstanceBindingSystem::UpdateInstanceIds(uint32_t slotCount)
+    {
+        if (!m_instanceIdPool.GetBuffer())
+        {
+            return;
+        }
+
+        // The IDs are found by their number, so they are a prefix of the buffer and so are their
+        // pages: those past it are unmapped at once, as the queue runs the unmapping after every
+        // read already submitted.
+        const uint64_t pageSize    = m_instanceIdPool.GetPageSize();
+        const uint32_t idsPerPage  = static_cast<uint32_t>(pageSize / sizeof(uint32_t));
+        const uint32_t neededPages = (slotCount + idsPerPage - 1) / idsPerPage;
+        const uint32_t mappedPages = m_instanceIdPool.GetMappedPageCount();
+
+        m_instanceIdPageChanges.clear();
+        for (uint32_t page = mappedPages; page < neededPages; ++page)
+        {
+            m_instanceIdPageChanges.push_back(Suballocator::PageChange{ page, true });
+        }
+        for (uint32_t page = neededPages; page < mappedPages; ++page)
+        {
+            m_instanceIdPageChanges.push_back(Suballocator::PageChange{ page, false });
+        }
+        m_instanceIdPool.Update(m_instanceIdPageChanges);
+
+        // A page mapped again has a backing of its own, without the IDs it had.
+        const uint64_t backedIds = uint64_t(m_instanceIdPool.GetMappedPageCount()) * idsPerPage;
+        const uint32_t idCount   = static_cast<uint32_t>(eastl::min<uint64_t>(slotCount, backedIds));
+        m_instanceIdCount        = static_cast<uint32_t>(eastl::min<uint64_t>(m_instanceIdCount, backedIds));
+        const uint32_t newCount  = idCount > m_instanceIdCount ? idCount - m_instanceIdCount : 0;
+
+        m_instanceIdUpdate.Begin(newCount);
+        for (uint32_t id = m_instanceIdCount; id < idCount; ++id)
+        {
+            m_instanceIdUpdate.Set(id, id);
+        }
+        m_instanceIdCount += m_instanceIdUpdate.GetUpdateCount();
     }
 }

@@ -168,6 +168,8 @@ namespace Spark::Render
 
         // Before every pass that draws meshes: it copies their new bytes into the pool.
         m_meshGeometrySystem.SetUp(passContext);
+        // Before every pass that draws meshes: it writes the IDs of new instance slots.
+        m_instanceBindingSystem.SetUp(passContext);
 
         // First: what each view sees, then each drawing pass's groups of it, which the passes
         // below draw the scene by.
@@ -285,7 +287,6 @@ namespace Spark::Render
 
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -307,7 +308,9 @@ namespace Spark::Render
         // the imported ImageView entities are gone.
         m_renderGraph.Shutdown();
 
-        // Releases the native buffer every mesh was drawn from, so only once the GPU is idle.
+        // Release the native buffers every mesh was drawn from and its instance IDs read from,
+        // so only once the GPU is idle.
+        m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
     }
 
