@@ -67,7 +67,7 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 
 区间分配不进 RHI：它不是 DX12 / Vulkan 的原生概念（D3D12MA / VMA 的虚拟分配器是库附带的 CPU 工具），R5 删的
 预算模式正是 RHI 里的这一套；延迟归还只要 `QueueForRelease`，上层就能做。先例：阴影图集（Core 的
-`QuadTreeAllocator` + 渲染层 `ShadowAtlasAllocator` 持有图集并发 RAII tile）。
+`QuadTreeAllocator` + 渲染层 `ShadowAtlasAllocator` 持有图集并发 RAII tile；L7 换成 reserved 纹理数组）。
 
 **`RHIResourceSystem` 长期去掉。** 资源的创建和 Map 由各自的系统负责：选池、Map 拷贝随之迁到使用方，按帧轮转
 多份收在 `StagedArrayBuffer` 一类的工具里，不让每个系统各写一遍。`AsyncUploadSystem` 不再接收经它创建的资源，
@@ -197,25 +197,33 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   `DeviceLimits::m_reservedPageSizeInBytes` 查询。管理用的页由持有者定，是硬件页的整数倍，按用途取（几何 2MB，
   小数组更小）：页越大，后备对象和映射调用越少，回收越粗。渲染层的持有者是 `ReservedBuffer`（以后的 Image 版本
   是 `ReservedImage`）。
-- **后备与被映射的资源同类**：Buffer 由 Buffer 后备，Image 由 Image 后备。RHI 不暴露裸内存对象，后端从后备的
-  分配里取底层内存（DX12 的堆 + 偏移，Vulkan 的 `VkDeviceMemory` + 偏移）。池只分配资源，页的管理在持有它的
-  系统里。
+- **后备一律是 Buffer 壳**，Buffer 和 Image 的页都由它后备（2026-10-27 定，原先是"Image 由 Image 后备"）。壳只
+  用来带出一段内存：RHI 不暴露裸内存对象，后端从壳的分配里取底层内存（DX12 的堆 + 偏移，Vulkan 的
+  `VkDeviceMemory` + 偏移）。不用 Image 壳：一张 placed Image 占多少字节由驱动定，不能按页数指定，还要给
+  `ImagePool` 加 placed 模式；Buffer 壳要多少建多少，与 Buffer 共用后备池。这和上传纹理用暂存 Buffer 而不用暂存
+  Image 是一回事。池只分配资源，页的管理在持有它的系统里。
 - **reserved Buffer 由 `BufferDescriptor` 标记**，仍走池的 `InitBuffer`，池按标记直接调设备 API 创建
   （`CreateReservedResource` / 带 sparse 标志的 `vkCreateBuffer`，D3D12MA / VMA 都不创建 reserved 资源），注册在
   池上，释放走原有的延迟释放。标记存在 Buffer 的描述符上，映射时据此校验。约束：大小是页的整数倍、不能 Map
   （它没有自己的内存）、因而不带初始数据、瞬态资源不能是 reserved。不限池的堆类型：池的堆类型只决定池里普通分配
   的内存，reserved Buffer 不分配内存。
-- **后备是池里普通分配的 placed Buffer**，不带 bind flags，没有专门的入口。池不知道自己是不是后备，约束由上层和
-  后端各自保证：
-  - 对齐：上层把池描述符的最小分配对齐设为页大小（`DeviceLimits` 给出）。
-  - Vulkan 内存类型：后端给 `VmaPool` 选内存类型时，按"同 usage 加 sparse 标志"的 `memoryTypeBits` 选（规范保证它
-    是不带 sparse 的子集，对普通 Buffer 也合法），所以任何池都能当后备；设备不支持 sparse 时按普通选。DX12 的
-    文档没写堆类型的限制，实测（debug layer）DEFAULT / UPLOAD / READBACK 堆都能映射。
+- **后备是池里普通分配的 placed Buffer**，不带 bind flags，没有专门的入口。约束由上层和后端各自保证：
+  - 对齐：上层把池描述符的最小分配对齐设为页大小（`DeviceLimits` 给出）。稀疏绑定要求的对齐即稀疏页大小。
+  - Vulkan 内存类型：规范不把不同资源的 `memoryTypeBits` 联系起来——Buffer 只保证 `flags`、`usage` 相同的彼此
+    一致，深度 / 模板 Image 只保证 `format`、`tiling` 与 sparse 等标志相同的彼此一致，带不带 sparse 本身就是区分
+    条件；各自至少有一个 `DEVICE_LOCAL` 类型，但不保证是同一个（原先写的"sparse 的是不带 sparse 的子集"规范里
+    没有）。所以后备池的描述符写明它后备哪类 reserved 资源：Buffer 给用途，Image 给格式。Vulkan 后端在池初始化时
+    按这些创建参数查出要求（`vkGetDeviceBufferMemoryRequirements` / `vkGetDeviceImageMemoryRequirements`，不需要
+    资源对象），按它选类型，找不到兼容类型则池初始化失败——启动时确定，不碰运气。是池级的配置，同最小分配对齐，
+    不和单个资源耦合。DX12 忽略它：文档没写堆类型的限制，实测（debug layer）DEFAULT / UPLOAD / READBACK 堆都能
+    映射；Heap Tier 2 下 Buffer 和纹理同堆。
   - 映射时后端校验后备是 placed、偏移按页对齐、Vulkan 内存类型在 reserved 资源的 `memoryTypeBits` 内，不满足报错。
   - 一页一个后备 Buffer，大小即页的大小，映射一页是一条覆盖多个 tile 的 `BufferTileMapping`。后备池的块大小设为
     页的大小，每个后备正好占满一个 D3D12MA 块，必然 placed，块空了由 D3D12MA 释放。
 - 后备与 reserved 资源共享内存，不能当普通资源用：它不带 bind flags，校验据此拒绝给它建 View、发屏障、导入图。
-  Vulkan 要求 `usage` 非零，由后端自己补，RHI 层看不到。
+  Vulkan 后端对 `BindFlags::None` 的 Buffer 只分配内存、不建 `VkBuffer`：稀疏绑定的内存段上不能已绑着别的资源
+  （`VUID-VkSparseImageMemoryBind-memory-01104`，除非开 `sparseResidencyAliased`），而壳本来就不被当 Buffer 用。
+  RHI 层看不到这一点。
 - **映射是队列级操作**（DX12 `ID3D12CommandQueue::UpdateTileMappings`，Vulkan `vkQueueBindSparse`），不能录进
   CommandList，也不由图里的 Pass 做。RHI 只提供 `CommandQueue::UpdateTileMappings(span<const BufferTileMapping>)`
   （后备为空即解除映射）。映射什么、何时映射、何时解除由持有池的系统决定，提交由图做（见下）。
@@ -247,16 +255,35 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 
 - Image 的状态本来按子资源记（`ImageSubresourceStates`），图按子资源区间合并屏障，写 mip k 的同时采样其他 mip
   不会整块串行。
-- **纹理流送是第一个用户**：mip 驻留 = 映射对应的 tile。需要：
-  - tile 形状和 mip tail 由后端查询（DX12 已有 `ImageTileLayout`，Vulkan `vkGetImageSparseMemoryRequirements`），
-    mip tail 整体映射；
-  - 格式逐个查询 sparse 支持；
-  - 未驻留的 mip 靠最小 LOD 限制（DX12 SRV 的 `ResourceMinLODClamp`，Vulkan `VK_EXT_image_view_min_lod`）。改它
-    就是改描述符，bindless 下描述符更新随帧延迟。
-- **虚拟纹理通常不走硬件 sparse**：物理页图集纹理 + 间接表，多张纹理共享一个物理页缓存，属于"普通大 Image +
-  区间池（每次分配一个物理页大小）"，与阴影图集同类。
+- **阴影是第一个用户**（2026-10-27 定，原先是纹理流送）：图集换成一个 reserved 的 2D 纹理数组，每个阴影视图
+  占一层，只渲染层左上 res×res 那块，也只映射那块的 tile；分辨率从"在图集里划哪块"变成"映射多少页"，二维装箱
+  （四叉树、碎片降级、tile 所有权）随之去掉。硬件替我们做了地址换算：着色器照常采样、跨页过滤正确、照常光栅化
+  写入，软件虚拟纹理在这几处的工作（页表查询、页边 border、逐页渲染）都不需要。读未映射的页得 0，反向 Z 下等于
+  "无遮挡"，越出有效区的采样无害。细节见 L7。
+- **映射的形态照搬 Buffer**：`ImageTileMapping` 与 `BufferTileMapping` 并列——目标是 reserved Image 的一个 mip、
+  一层上的一块 tile 区域（起点与大小都以 tile 计，DX12 的原生单位；Vulkan 以纹素计、按 granularity 对齐，后端乘
+  tile 形状换算，边缘不满一个 tile 时截到资源边界），后备是 Buffer 壳加偏移、为空即解除映射；区域里的 tile 按
+  x、y、z 的顺序对应后备里连续的页（DX12 区域 + 堆区间即此序；Vulkan 一条绑定跨多块时内存是否同序，实现时查
+  规范，不同则后端按行拆，接口不变）。`CommandQueue::UpdateTileMappings` 加 Image 的重载，"一个 tile 一次调用
+  至多一次"照旧，按 (Image, mip, 层) 判区域重叠。`ImageTileMappingRequest` 照 `BufferTileMappingRequest`，图在
+  Execute 开头一并提交。
+- **tile 形状按资源查**：reserved Image 建好后后端查一次记在 Image 上（DX12 已有 `ImageTileLayout`，来自
+  `GetResourceTiling`；Vulkan `vkGetImageSparseMemoryRequirements`），上层据此算一块区域覆盖哪些 tile。标准 tile
+  在两个后端上都是 64KB，`m_reservedPageSizeInBytes` 照用。
+- **能力**：Vulkan `sparseResidencyImage2D` 已在引擎最低要求里（§六），不设特性开关。格式的 sparse 支持在创建时
+  由后端按完整参数查（DX12 `D3D12_FORMAT_SUPPORT2_TILED`，Vulkan `vkGetPhysicalDeviceSparseImageFormatProperties`
+  带类型、采样数、用途、tiling，结果非空），不支持就创建失败；不进 `FormatCapabilities`：Vulkan 的结果随用途等
+  参数变，一个按格式的能力位表达不准。要"挑一个支持 sparse 的格式"时再按完整参数加查询。
+- **第一版只做阴影要的**：2D / 2D 数组、单采样、单 aspect 格式、没有 packed mip（mip tail），其余在建时报错。
+  3D 要 DX12 Tier 3；MSAA 的 sparse 在两边都是可选；深度加模板的组合格式在 Vulkan 上可能分 aspect 绑定；mip tail
+  在两边都要另一种映射方式——都留给纹理流送。
+- **纹理流送以后**：mip 驻留 = 映射对应的 tile，mip tail 整体映射；未驻留的 mip 靠最小 LOD 限制（DX12 SRV 的
+  `ResourceMinLODClamp`，Vulkan `VK_EXT_image_view_min_lod`），改它就是改描述符，bindless 下描述符更新随帧延迟。
+- **虚拟纹理通常不走硬件 sparse**：要哪些页多在 GPU 上决定（采样反馈、VSM 的页标记），硬件映射只能经 CPU 从
+  队列提交，要回读、晚几帧；缺页不会自动退到粗 mip，仍要驻留图；还要顾及移动端等平台。所以物理页图集纹理 +
+  间接表，多张纹理共享一个物理页缓存。阴影由 CPU 决定分辨率、变化少、整级映射，这几条都碰不到。
 - reserved 的 RT / DS 新映射的页内容未定义，首次使用前对该区域 Discard / Clear；只当拷贝目标、整页覆盖写的流送
-  纹理不受影响。
+  纹理不受影响。阴影每帧清，自然满足。RHI 不按 tile 追踪，写在约定里。
 
 ## 八、对上层的影响
 
@@ -439,9 +466,16 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     写不进时清掉 `ViewIndex`，读视图的 Scope 这一帧跳过。`ViewSlotRef` 与容量上限去掉；`ViewBindingSystem::Update`
     不再取帧号，`Shutdown` 挪到 GPU 空闲之后。以后若有按视图行号索引的持久 GPU 数据，再换成稳定分配，改的只是
     `ViewIndex` 的来源。
-  - **L6f　清理**：`StagedArrayBuffer`、`GlobalBuffer`、`SlotPool` 已无引用，删它们与其测试；阴影的 `ShadowTilePool` / `ShadowRowPool`（`HandlePool`）
-    是否换成 `Suballocator` 到这一步再定。`RHIResourceSystem` 余下的使用方（CPU 剔除的间接参数、分箱的间接布局表）
-    之后单独看。
+  - **L6f　清理**：`StagedArrayBuffer`、`GlobalBuffer`、`SlotPool` 已无引用，删它们与其测试。阴影的
+    `ShadowTilePool` / `ShadowRowPool`（`HandlePool`）不在这一步换，随 L7 整个去掉。`RHIResourceSystem` 余下的
+    使用方（CPU 剔除的间接参数、分箱的间接布局表）之后单独看。
+- **L7　阴影改用 reserved 纹理数组**（依赖 R6；方向已定，细节待设计）：图集换成 reserved 的 2D 纹理数组（§七），
+  每个阴影视图一层、只映射左上 res×res 那块。层号跨帧稳定，否则灯一增减各层都要重映射；它是一维的，从容量为层数
+  的 `Suballocator` 取，延迟归还正好对应"灯撤销时上一帧可能还在采样"。`g_ShadowViews` 的行号不需跨帧稳定（同
+  L6e：它和存着它的 `g_Lights` 每帧一起重写），改为打包灯光时顺手密排，`ShadowRowPool`、`ShadowViewRows`、
+  `ShadowViewIndex` 与行数上限去掉。打分、准入、滞回照旧，预算从图集面积变成物理页数。`ShadowTilePool`、四叉树
+  的这处用法、tile 句柄、`HandlePool` / `SharedHandle` / `WeakHandle` 一起删。不先做"图集每帧重排"的过渡：
+  这条路要被替换。
 
 ~~**R5　删预算模式**~~（已完成）
 
@@ -451,7 +485,19 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 - `BufferMemoryType` 只剩 `Unique`，整个枚举删掉；`BufferMemoryView` 暂留为 `MemoryView` 的薄壳，并入 `MemoryView`
   另做。`ResourcePoolDescriptor` 留作空基类。示例 `IndirectDraw` 的划分开关一并删除，四个 Buffer 各自独立。
 
-**Image 的 reserved 资源**随纹理流送再做。
+**R6　reserved Image 与 `ImageTileMapping`**（§六、§七；阴影 L7 的前提）
+
+- **R6a　建 reserved Image**：`ImageDescriptor` 加 `m_reserved`，DX12 `ImagePool` 按它用 `CreateReservedResource2`
+  （布局 `64KB_UNDEFINED_SWIZZLE`）创建，不经分配器，释放同 reserved Buffer；Vulkan 对应 `SPARSE_BINDING |
+  SPARSE_RESIDENCY`。约束同 reserved Buffer（不能 Map、不是瞬态、不带初始数据）加 §七 第一版的限制。tile 形状与
+  packed mip 由后端在创建后查询（DX12 填现成的 `ImageTileLayout`），tile 形状记在 `RHI::Image` 上暴露给上层，有
+  packed mip 则创建失败；格式的 sparse 支持在创建时查。
+- **R6b　映射**：`ImageTileMapping`、`UpdateTileMappings` 的 Image 重载、RHI 基类校验（目标是 reserved Image，
+  区域不越出这个 mip 的 tile 范围，后备不是 reserved、不带 bind flags、偏移按页对齐、长度够区域的 tile 数，同一次
+  调用里区域不重叠）、DX12 实现（区域 + 堆区间）。后备池描述符加"后备哪类 reserved 资源"（Buffer 的用途 / Image
+  的格式），`ReservedBuffer` 的后备池补上；DX12 不读它，Vulkan 后端选内存类型用。
+- **R6c　提交与样例**：`ImageTileMappingRequest`，图在 Execute 开头与 Buffer 的请求一起提交。`SandBox/Program/RHI/`
+  加最小样例：建 reserved 2D 数组，在一层上映射一块区域，画进去再采样显示，解除映射。
 
 ## 十一、前瞻
 

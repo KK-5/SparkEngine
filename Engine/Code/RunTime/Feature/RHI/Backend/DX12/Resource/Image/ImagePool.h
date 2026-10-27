@@ -19,6 +19,7 @@
 namespace Spark::RHI::DX12
 {
     class Device;
+    class Image;
     class ImagePoolResolver;
 
     class ImagePool final : public RHI::ImagePool
@@ -46,6 +47,12 @@ namespace Spark::RHI::DX12
         void ShutdownResourceInternal(RHI::Resource& resourceBase) override;
         void ShutdownInternal() override;
         //////////////////////////////////////////////////////////////////////////
+
+        // InitImageInternal's two ways: a reserved resource, or a committed one of the image's own.
+        RHI::ResultCode InitReservedImage(Image& image, const RHI::ImageDescriptor& descriptor,
+                                          D3D12_RESOURCE_DESC resourceDesc, const D3D12_CLEAR_VALUE* clearValue);
+        RHI::ResultCode InitUniqueImage(Image& image, const D3D12_RESOURCE_DESC& resourceDesc,
+                                        const D3D12_CLEAR_VALUE* clearValue);
 
         // A pool of the device's allocator. Its allocations wait out the GPU here rather than on
         // the device: D3D12MA releases a pool only after all of them.

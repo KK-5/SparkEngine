@@ -17,7 +17,8 @@ namespace Spark::Render
             && a.m_dimension == b.m_dimension
             && a.m_arraySize == b.m_arraySize
             && a.m_mipLevels == b.m_mipLevels
-            && a.m_isCubemap == b.m_isCubemap;
+            && a.m_isCubemap == b.m_isCubemap
+            && a.m_reserved  == b.m_reserved;
     }
 
     RHIHandle AcquirePooledImage(

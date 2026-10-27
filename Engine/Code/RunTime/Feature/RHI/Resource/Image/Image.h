@@ -63,10 +63,17 @@ namespace Spark::RHI
 
         const ImageSubresourceStates& GetSubresourceStates() const;
 
+        //! Texels in one tile of a reserved image, the unit its tiles are mapped in. Zero when
+        //! the image is not reserved. A mip of it spans its size over this, rounded up.
+        const Size& GetTileShape() const;
+
     protected:
         Image() = default;
 
         void SetDescriptor(const ImageDescriptor& descriptor);
+
+        //! The backend's, once it has created a reserved image.
+        void SetTileShape(const Size& tileShape);
 
     private:
         void SetResourceState(ResourceState state);
@@ -88,5 +95,7 @@ namespace Spark::RHI
         uint32_t m_residentMipLevel = 0;
 
         ImageAspectFlags m_aspectFlags = ImageAspectFlags::None;
+
+        Size m_tileShape{ 0, 0, 0 };
     };
 }

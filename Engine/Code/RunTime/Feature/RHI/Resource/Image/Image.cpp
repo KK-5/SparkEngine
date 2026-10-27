@@ -68,6 +68,18 @@ namespace Spark::RHI
         // Pools set the initial state before the descriptor: it carries over.
         m_subresourceStates = ImageSubresourceStates(
             descriptor.m_mipLevels, descriptor.m_arraySize, m_aspectFlags, m_subresourceStates.GetUniform());
+        // Before the backend creates the image, which sets it if the image is reserved.
+        m_tileShape = Size(0, 0, 0);
+    }
+
+    const Size& Image::GetTileShape() const
+    {
+        return m_tileShape;
+    }
+
+    void Image::SetTileShape(const Size& tileShape)
+    {
+        m_tileShape = tileShape;
     }
 
     const ImageDescriptor& Image::GetDescriptor() const

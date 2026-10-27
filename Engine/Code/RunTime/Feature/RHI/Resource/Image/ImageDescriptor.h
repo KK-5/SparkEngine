@@ -84,6 +84,10 @@ namespace Spark::RHI
 
         /// Whether to treat this image as a cubemap.
         uint32_t m_isCubemap = 0;
+
+        /// Address space only: no memory of its own, tiles are mapped onto it from backing buffers.
+        /// 2D or a 2D array, one sample, a format of one aspect, no packed mips; never transient.
+        bool m_reserved = false;
     };
 
     //! Returns whether mip 'A' is more detailed than mip 'B'.

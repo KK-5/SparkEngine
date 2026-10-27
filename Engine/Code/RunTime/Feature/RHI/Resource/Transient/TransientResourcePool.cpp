@@ -27,6 +27,14 @@ namespace Spark::RHI
             return nullptr;
         }
 
+        if (Validation::isEnabled && createInfo.m_descriptor.m_reserved)
+        {
+            LOG_ERROR("[TransientResourcePool] {} cannot create reserved image {}: a transient image is placed in the pool's heap.",
+                      GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]",
+                      createInfo.m_debugName.GetCStr() ? createInfo.m_debugName.GetCStr() : "[Nameless]");
+            return nullptr;
+        }
+
         Image* image = CreateImageInternal(createInfo, allocFence);
 
         if (Validation::isEnabled && image && !Contains(*image))
