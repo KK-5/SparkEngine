@@ -57,6 +57,8 @@ namespace Spark::Render
 
         //! This frame's buffer, for the pass to import.
         RHI::RHIHandle GetResource() const;
+        //! This frame's buffer, for a view a shader reads it by.
+        RHI::Buffer* GetBuffer() const;
 
         uint64_t GetUsedBytes() const { return m_usedBytes; }
 

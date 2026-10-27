@@ -101,6 +101,11 @@ namespace Spark::Render
         return m_slots.empty() ? RHI::NullHandle : m_slots[m_current].m_resource;
     }
 
+    RHI::Buffer* StagingBuffer::GetBuffer() const
+    {
+        return m_slots.empty() ? nullptr : m_slots[m_current].m_buffer.get();
+    }
+
     bool StagingBuffer::CreateSlot(Slot& slot, uint32_t index, uint64_t capacity)
     {
         const eastl::string name(eastl::string::CtorSprintf(), "%s %u", m_descriptor.m_name.GetCStr(), index);

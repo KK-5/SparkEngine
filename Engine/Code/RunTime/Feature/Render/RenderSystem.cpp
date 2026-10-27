@@ -291,7 +291,6 @@ namespace Spark::Render
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown();
@@ -309,11 +308,11 @@ namespace Spark::Render
         // the imported ImageView entities are gone.
         m_renderGraph.Shutdown();
 
-        // Release the native buffers every mesh was drawn from and its records and instance IDs
-        // read from, so only once the GPU is idle.
+        // Release native buffers the passes read, so only once the GPU is idle.
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
     }
 
@@ -349,7 +348,7 @@ namespace Spark::Render
         m_shadowMaskSystem.Update();
         m_viewBindingSystem.Update(frameIndex, time);
 
-        m_sceneBindingSystem.Update(frameIndex, time);
+        m_sceneBindingSystem.Update(time);
         // MaterialBindingSystem stays first, but only so a material's slot exists before
         // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
         // stable now, not rewritten every frame, so this is a one-time ordering need —

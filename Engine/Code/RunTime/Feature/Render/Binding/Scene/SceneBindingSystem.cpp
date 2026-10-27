@@ -1,5 +1,9 @@
 #include "SceneBindingSystem.h"
 
+#include <string.h>
+
+#include <EASTL/algorithm.h>
+
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <CoreComponents/Tags.h>
@@ -7,8 +11,12 @@
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
 
+#include <RHI/RHIInterface.h>
 #include <RHI/Component/Component.h>
+#include <RHI/Device/Device.h>
 #include <RHI/ResourceBuilder.h>
+#include <RHI/Resource/Buffer/Buffer.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
@@ -67,6 +75,35 @@ namespace Spark::Render
         //! Imported by SandBox LTCLutGen and checked in.
         constexpr const char* LTC1AssetPath        = "engine://Image/LTC1.ktx2";
         constexpr const char* LTC2AssetPath        = "engine://Image/LTC2.ktx2";
+
+        //! Copies `records` into this frame's buffer of `staging` in one go and binds `input` to
+        //! a view of the whole buffer, so each buffer gets one view whatever the count. Room for
+        //! one record at least, so the view is never empty. False when the buffer could not
+        //! grow: then `input` is bound to nothing.
+        template<typename Record>
+        bool WriteAndBind(RHI::RHIContext& rhiCtx, StagingBuffer& staging, const eastl::vector<Record>& records,
+            RHI::RHIHandle bindings, const char* input)
+        {
+            const uint64_t byteCount = eastl::max<uint64_t>(records.size(), 1) * sizeof(Record);
+            staging.Begin(byteCount);
+            const StagingBuffer::Allocation allocation = staging.Allocate(byteCount);
+            RHI::Buffer* buffer = staging.GetBuffer();
+            if (!allocation.m_data || !buffer)
+            {
+                SetShaderBuffer(bindings, RHI::InputName(input), nullptr);
+                return false;
+            }
+            if (!records.empty())
+            {
+                memcpy(allocation.m_data, records.data(), records.size() * sizeof(Record));
+            }
+
+            const RHI::BufferViewDescriptor viewDesc = RHI::BufferViewDescriptor::CreateStructured(
+                0, static_cast<uint32_t>(buffer->GetDescriptor().m_byteCount / sizeof(Record)), sizeof(Record));
+            RHI::BufferView* view = RHI::GetOrCreateBufferView(rhiCtx, staging.GetResource(), *buffer, viewDesc);
+            SetShaderBuffer(bindings, RHI::InputName(input), view);
+            return view != nullptr;
+        }
     }
 
     void SceneBindingSystem::Init(RHI::RHIContext& rhiCtx)
@@ -132,24 +169,21 @@ namespace Spark::Render
             m_bindings, RHI::Components::ShaderBindings{ sceneBindings });
         rhiCtx.Add<MainSceneTag>(m_bindings);
 
-        // Both arrays land in the space0 group created above, so they share m_bindings and
-        // differ only by input name and capacity. Materialized on the next frame begin
-        // (deferred PendingBufferInit path, inside StagedArrayBuffer::Init).
+        // Both arrays land in the space0 group created above, read by shaders straight from
+        // host memory.
+        RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         {
-            StagedArrayBuffer<LightData>::Descriptor lightDesc;
-            lightDesc.m_capacity       = Capacity;
-            lightDesc.m_resourceName   = ObjectName(LightBufferName);
-            lightDesc.m_inputName      = RHI::InputName(LightBufferName);
-            lightDesc.m_bindingsEntity = m_bindings;
-            m_lights.Init(rhiCtx, lightDesc);
+            StagingBuffer::Descriptor lightDesc;
+            lightDesc.m_name      = ObjectName(LightBufferName);
+            lightDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
+            m_lightBuffer.Init(device, lightDesc);
         }
         {
-            StagedArrayBuffer<ShadowViewData>::Descriptor shadowDesc;
-            shadowDesc.m_capacity       = kShadowViewCapacity;
-            shadowDesc.m_resourceName   = ObjectName(ShadowViewBufferName);
-            shadowDesc.m_inputName      = RHI::InputName(ShadowViewBufferName);
-            shadowDesc.m_bindingsEntity = m_bindings;
-            m_shadowViews.Init(rhiCtx, shadowDesc);
+            StagingBuffer::Descriptor shadowDesc;
+            shadowDesc.m_name            = ObjectName(ShadowViewBufferName);
+            shadowDesc.m_bindFlags       = RHI::BufferBindFlags::ShaderRead;
+            shadowDesc.m_initialCapacity = uint64_t(kShadowViewCapacity) * sizeof(ShadowViewData);
+            m_shadowViewBuffer.Init(device, shadowDesc);
         }
 
         // Without the first, IBL falls back to constant ambient; without the other two, rect
@@ -203,10 +237,7 @@ namespace Spark::Render
 
     void SceneBindingSystem::PackShadowViews(RHI::RHIContext& rhiCtx)
     {
-        for (uint32_t row = 0; row < m_shadowViews.Capacity(); ++row)
-        {
-            m_shadowViews[row] = ShadowViewData{};
-        }
+        m_shadowViews.assign(kShadowViewCapacity, ShadowViewData{});
 
         rhiCtx.GetView<ShadowViewTag, View, ShadowViewIndex>(Exclude<DeadTag>).each(
             [&](RHI::RHIHandle, const View& view, const ShadowViewIndex& row)
@@ -232,27 +263,20 @@ namespace Spark::Render
         });
     }
 
-    uint32_t SceneBindingSystem::PackLightData(WorldContext& world, bool shadowViewsBound)
+    void SceneBindingSystem::PackLightData(WorldContext& world)
     {
-        // Dense marshal: every live world LightRenderData -> m_lights[slot]. Pure field
-        // copy — direction/position were already resolved by LightSystem (compute vs write).
+        // Dense marshal: every live world LightRenderData -> a record. Pure field copy —
+        // direction/position were already resolved by LightSystem (compute vs write).
         //
         // DeadTag is excluded because EntityReaper destroys on its own tick, not at the
         // kill site: between the two, the entity still carries LightRenderData. Without
         // this the light keeps lighting the scene after deletion, and this loop disagrees
         // with ShadowViewSystem — which does exclude it — about whether the light exists.
-        uint32_t slot = 0;
+        m_lights.clear();
         world.GetView<Light::LightRenderData>(Exclude<DeadTag>).each(
             [&](Entity entity, const Light::LightRenderData& rd)
         {
-            if (slot >= m_lights.Capacity())
-            {
-                LOG_ERROR("[SceneBindingSystem] Capacity={} overflow; dropping light.",
-                          m_lights.Capacity());
-                return;
-            }
-
-            LightData& d   = m_lights[slot];
+            LightData& d   = m_lights.push_back();
             d.m_direction  = rd.m_worldDirection;
             d.m_intensity  = rd.m_intensity;
             d.m_color      = rd.m_color;
@@ -277,11 +301,10 @@ namespace Spark::Render
 
             // Every row the light owns, since the authored bias applies to all its faces
             // and a face without a tile keeps its row inverted by PackShadowViews.
-            for (uint32_t face = 0; shadowViewsBound && d.m_shadowIndex >= 0
-                    && face < d.m_shadowFaceCount; ++face)
+            for (uint32_t face = 0; d.m_shadowIndex >= 0 && face < d.m_shadowFaceCount; ++face)
             {
                 const uint32_t row = static_cast<uint32_t>(d.m_shadowIndex) + face;
-                if (row >= m_shadowViews.Capacity())
+                if (row >= m_shadowViews.size())
                 {
                     break;
                 }
@@ -291,10 +314,7 @@ namespace Spark::Render
                 sv.m_pcfRadiusTexels     =
                     0.5f * static_cast<float>(Light::ShadowFilterFootprint(rd.m_shadowFilterWidth));
             }
-            ++slot;
         });
-
-        return slot;
     }
 
     SceneBindingSystem::EnvironmentBinding SceneBindingSystem::BindEnvironmentIBL()
@@ -410,7 +430,7 @@ namespace Spark::Render
         return true;
     }
 
-    void SceneBindingSystem::Update(uint32_t frameIndex, const FrameTime& time)
+    void SceneBindingSystem::Update(const FrameTime& time)
     {
         auto* world  = WorldExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
@@ -419,40 +439,25 @@ namespace Spark::Render
             return;
         }
 
-        // Only scatter into g_Lights once this frame's copy is materialized (one warmup
-        // frame after Init). The count constant is written UNCONDITIONALLY below — even on
-        // the warmup frame — so the SceneConstants CBV always has a compiled GPU address
-        // when the SRG binds. The CBV bind is unguarded in CommandList (unlike the SRV
-        // table, which is skipped when unbound), so a missing address trips a hard assert.
-        // Before the light loop: that loop adds each light's authored bias to the entry its
-        // m_shadowIndex points at, and PackShadowViews zeroes the array first.
-        const bool shadowViewsBound = m_shadowViews.BindFrame(*rhiCtx, frameIndex);
-        if (shadowViewsBound)
-        {
-            PackShadowViews(*rhiCtx);
-        }
-
-        uint32_t lightCount = 0;
-        if (m_lights.BindFrame(*rhiCtx, frameIndex))
-        {
-            lightCount = PackLightData(*world, shadowViewsBound);
-            m_lights.Upload(*rhiCtx, lightCount);
-        }
-
-        // After the light loop, which is what completes the entries.
-        if (shadowViewsBound)
-        {
-            m_shadowViews.Upload(*rhiCtx, m_shadowViews.Capacity());
-        }
+        // Before the light loop: that loop adds each light's authored bias to the row its
+        // m_shadowIndex points at, and PackShadowViews zeroes the rows first. Both written
+        // once complete.
+        PackShadowViews(*rhiCtx);
+        PackLightData(*world);
+        WriteAndBind(*rhiCtx, m_shadowViewBuffer, m_shadowViews, m_bindings, ShadowViewBufferName);
+        const uint32_t lightCount =
+            WriteAndBind(*rhiCtx, m_lightBuffer, m_lights, m_bindings, LightBufferName)
+                ? static_cast<uint32_t>(m_lights.size()) : 0;
 
         // A per-scene constant, not a per-view one: an atlas texel is 1/resolution in UV
         // whatever tile it falls in, and stays so when tiles stop being uniform.
         SetShaderConstant(m_bindings, RHI::InputName(ShadowTexelSizeName),
             1.0f / static_cast<float>(kShadowAtlasResolution));
 
-        // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every
-        // frame (0 during warmup) so the CBV is always compiled; SetShaderConstant marks
-        // the binding dirty. The shader loop is empty while count is 0.
+        // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every frame
+        // so the CBV is always compiled: its bind is unguarded in CommandList, unlike the SRV
+        // table's, and a missing address trips a hard assert. The shader loop is empty while
+        // count is 0.
         SetShaderConstant(m_bindings, RHI::InputName(LightCountName), lightCount);
 
         // Same unconditional-write rule as g_LightCount; 0 mips is also the shader's gate,
@@ -483,8 +488,14 @@ namespace Spark::Render
 
     void SceneBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        m_lights.Shutdown(rhiCtx);
-        m_shadowViews.Shutdown(rhiCtx);
+        // The views hold the buffers, which go before their pools.
+        if (m_bindings != RHI::NullHandle)
+        {
+            SetShaderBuffer(m_bindings, RHI::InputName(LightBufferName), nullptr);
+            SetShaderBuffer(m_bindings, RHI::InputName(ShadowViewBufferName), nullptr);
+        }
+        m_lightBuffer.Shutdown();
+        m_shadowViewBuffer.Shutdown();
 
         if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
         if (m_brdfLut  != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_brdfLut); }

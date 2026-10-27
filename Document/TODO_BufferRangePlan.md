@@ -427,9 +427,12 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     `MaterialSlotRef`，`MaterialPoolTag` 挂在它的 Buffer 上，`MaterialUpdate` Pass 写入；GBuffer、Translucency 导入并
     以 `.Stage(FragmentShader)` 声明读取（只有像素着色器读）。容量提到 2^16。材质只在编辑或贴图就绪时变，镜像比较后
     多数帧不写。
-  - **L6d　`g_Lights`、`g_ShadowViews`**：直接用 `StagingBuffer`；阴影行的 bias 改为填行时一次带上，不再先写后补。
-    删 `StagedArrayBuffer`。
-  - **L6e　`g_Views`**：槽号换成区间，写法同 L6d。
+  - ~~**L6d　`g_Lights`、`g_ShadowViews`**~~（已完成）：各一个 `StagingBuffer`（`ShaderRead`）。每帧先在 CPU 的临时数组里
+    拼完整（阴影行先填、再由灯光补 bias，都在临时数组上），再 `Begin` + 一次 `memcpy` 写进映射内存，绑一个覆盖整份
+    Buffer 的 structured view（每份 Buffer 一个视图，不随条数变；至少一个元素）。灯光不再有上限，着色器按
+    `g_LightCount` 遍历。`StagingBuffer` 加了 `GetBuffer()`；`SceneBindingSystem::Update` 不再取帧号，`Shutdown` 先解绑
+    视图再关暂存，挪到 GPU 空闲之后。`StagedArrayBuffer` 仍被 `GlobalBuffer`（`g_Views`）用着，删除推到 L6e。
+  - **L6e　`g_Views`**：槽号换成区间，写法同 L6d；之后删 `StagedArrayBuffer`。
   - **L6f　清理**：删 `GlobalBuffer`、`SlotPool` 与其测试；阴影的 `ShadowTilePool` / `ShadowRowPool`（`HandlePool`）
     是否换成 `Suballocator` 到这一步再定。`RHIResourceSystem` 余下的使用方（CPU 剔除的间接参数、分箱的间接布局表）
     之后单独看。
