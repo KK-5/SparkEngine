@@ -10,7 +10,7 @@
 namespace Spark::Render
 {
     //! How many instances there can be: slots of g_Instances, and entries of the instance IDs.
-    constexpr uint32_t InstanceCapacity = 65536;
+    constexpr uint32_t InstanceCapacity = 1u << 20;
 
     //! A renderable's g_Instances slot, on the WORLD entity: an InstanceData-sized range of
     //! the array's address space, which does not move for the renderable's life. Going, it is

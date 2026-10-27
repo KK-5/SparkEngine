@@ -168,7 +168,9 @@ namespace Spark::Render
 
         // Before every pass that draws meshes: it copies their new bytes into the pool.
         m_meshGeometrySystem.SetUp(passContext);
-        // Before every pass that draws meshes: it writes the IDs of new instance slots.
+        // Before every pass that reads them: they write the geometry and instance records, and
+        // the instance IDs, that changed.
+        m_geometryBindingSystem.SetUp(passContext);
         m_instanceBindingSystem.SetUp(passContext);
 
         // First: what each view sees, then each drawing pass's groups of it, which the passes
@@ -287,7 +289,6 @@ namespace Spark::Render
 
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -308,9 +309,10 @@ namespace Spark::Render
         // the imported ImageView entities are gone.
         m_renderGraph.Shutdown();
 
-        // Release the native buffers every mesh was drawn from and its instance IDs read from,
-        // so only once the GPU is idle.
+        // Release the native buffers every mesh was drawn from and its records and instance IDs
+        // read from, so only once the GPU is idle.
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
     }
 
@@ -355,7 +357,7 @@ namespace Spark::Render
         // Before the two below: what gets a geometry slot and an instance slot is what has
         // geometry, and the instance stores the geometry slot.
         m_meshGeometrySystem.Update();
-        m_geometryBindingSystem.Update(frameIndex);
+        m_geometryBindingSystem.Update();
         // Last frame's draw preparation goes, before the encoding writes this frame's.
         m_drawContext.Clear();
         m_instanceBindingSystem.Update();

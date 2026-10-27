@@ -79,7 +79,8 @@ namespace Spark::Render
         RHI::RHIHandle                          m_resource = RHI::NullHandle;
         ElementUpdateBuffer                     m_updates;
 
-        //! What the GPU holds in each element, where m_known says it is known.
+        //! What the GPU holds in each element, where m_known says it is known; as far as the
+        //! highest element set.
         eastl::vector<uint8_t> m_elements;
         eastl::vector<uint8_t> m_known;
         //! This frame's elements that differ from what the GPU holds.

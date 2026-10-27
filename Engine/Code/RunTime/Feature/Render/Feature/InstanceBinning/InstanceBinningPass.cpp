@@ -59,12 +59,14 @@ namespace Spark::Render
             const InstanceLists::CullingLayout culling   = InstanceLists::LayOutCulling(rhiContext, views);
             const uint32_t                     viewCount = static_cast<uint32_t>(culling.m_views.size());
 
-            // Without the active list and the instances the culling saw no instance, and neither
-            // is read.
+            // Without the active list, the instances and their geometry the culling saw no
+            // instance, and none of them is read.
             const RHI::AttachmentId idsName("InstanceIDs");
             const RHI::AttachmentId instancesPoolName("Instances");
+            const RHI::AttachmentId geometriesPoolName("Geometries");
             const bool hasInstances = p.Import<InstanceIDBufferTag>(idsName)
-                                   && p.Import<InstancePoolTag>(instancesPoolName);
+                                   && p.Import<InstancePoolTag>(instancesPoolName)
+                                   && p.Import<GeometryPoolTag>(geometriesPoolName);
 
             const PassIndirectLayout& layout = passContext.Get<PassIndirectLayout>(drawPass);
 
@@ -162,8 +164,9 @@ namespace Spark::Render
                 if (hasInstances)
                 {
                     s.ReadBuffer(idsName).View(idsView).Bind(idsInput);
-                    // Through the shared binding.
+                    // Through the shared bindings.
                     s.ReadBuffer(instancesPoolName);
+                    s.ReadBuffer(geometriesPoolName);
                 }
                 s.ReadBuffer(visible.m_instancesName).View(visibleInstancesView).Bind(visibleInstancesInput);
                 s.ReadBuffer(visible.m_countName).View(visibleCountView).Bind(visibleCountInput);

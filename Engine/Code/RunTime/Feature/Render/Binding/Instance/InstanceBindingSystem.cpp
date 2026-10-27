@@ -325,7 +325,7 @@ namespace Spark::Render
             out.m_pipelineKeyIndex = PipelineKeyIndexOf(key).m_value;
             // 0 until the geometry can be read and has its g_Geometries record: a reader of
             // g_Instances draws what is set, from the record m_geometryIndex names.
-            const auto* geometrySlot = world.TryGet<GeometrySlotRef>(e);
+            const auto* geometrySlot = world.TryGet<GeometrySlot>(e);
             const bool  drawable     = geometrySlot && world.Has<MeshGeometryReadyTag>(e);
             out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
             out.m_drawMask      = drawable ? DrawListsOf(state) : 0;

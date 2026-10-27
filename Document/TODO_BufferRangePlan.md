@@ -268,7 +268,7 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   不替 Pass 声明。`Binds` 只声明 Pass 的着色器用哪些共享输入，以后可由着色器反射推导。漏声明不做校验（要逐 Scope 扫共享
   组的视图，代价与复杂度都不值），由写 Pass 的人负责；读 `g_Instances` 的 Pass 经 `InstancePoolTag` 导入并在
   每个 Scope 里 `ReadBuffer`（渲染 Pass 加 `.Stage(VertexShader)`）。
-- **着色器访问要说明着色器怎么拿到它**（待做，L6a2）：现在经共享绑定读的访问只写 `s.ReadBuffer(name)`，不建视图、
+- **着色器访问要说明着色器怎么拿到它**（待做，L6a2，形态待重新设计：下面的 `.Shared<Tag>()` 还不够）：现在经共享绑定读的访问只写 `s.ReadBuffer(name)`，不建视图、
   不绑定，与"漏写 `.Bind`"在图看来一样，是隐式保证。改为三选一且必须说：`.Bind(input)`（图建视图填进 Pass 自己的
   绑定）、`.BindIndex(input)`（图建视图填 bindless 下标）、`.Shared<Tag>()`（新增：着色器经共享绑定 `Tag` 读，图
   不建视图）。降低阶段两条只看这次声明本身的检查：每个着色器访问恰好用了其中一种；`.Shared<Tag>()` 的资源确是
@@ -416,9 +416,13 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     标签由使用方挂在 `GetResource()` 上，写入 Pass 由使用方声明。`g_Instances` 改用它，`InstancePool` 删除。
     共享绑定上的 view 由 `DeviceArray` 建、绑并在 `Shutdown` 里先解绑再关池：view 持有 Buffer，解绑要与 Buffer 的
     生命周期绑在一起。
-  - **L6a2　着色器访问说明来源**：`ShaderAttachment::Shared<Tag>()` 与降低阶段的两条检查（§八），读 `g_Instances`
-    的 Pass 改用它。
-  - **L6b　`g_Geometries`**：迁到 `DeviceArray`，`GeometrySlotRef` 换成持有区间的组件。
+  - **L6a2　着色器访问说明来源**（暂缓，形态待重新设计）：`ShaderAttachment::Shared<Tag>()` 与降低阶段的两条检查
+    （§八）还不够，之后再设计。在那之前经共享绑定读的访问仍只写 `ReadBuffer`，旁边注明。
+  - ~~**L6b　`g_Geometries`**~~（已完成）：迁到 `DeviceArray`，`GeometrySlotRef` 换成 `GeometrySlot`（持有区间），
+    `GeometryPoolTag` 挂在它的 Buffer 上；`GeometryUpdate` Pass 写入，排在剔除之前；剔除与分箱导入并声明读取。
+    `GeometryBindingSystem::Update` 不再取帧号，`Shutdown` 挪到 GPU 空闲之后。同时 `DeviceArray` 的镜像改为按需增长
+    （只到已设置的最高元素），容量只是地址空间的上限，`InstanceCapacity` 与几何容量提到 2^20：reserved Buffer 不映射
+    就不占显存，规模的瓶颈在 CPU 每帧逐实例的编码（以后用变更帧号解决），不在容量。
   - **L6c　`g_Materials`**：同上，`MaterialSlotRef` 换成持有区间的组件。
   - **L6d　`g_Lights`、`g_ShadowViews`**：直接用 `StagingBuffer`；阴影行的 bias 改为填行时一次带上，不再先写后补。
     删 `StagedArrayBuffer`。

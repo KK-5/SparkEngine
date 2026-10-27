@@ -57,8 +57,6 @@ namespace Spark::Render
             SetShaderBuffer(descriptor.m_bindings, descriptor.m_inputName, view);
         }
 
-        m_elements.resize(GetByteCount());
-        m_known.assign(descriptor.m_capacity, 0);
         return true;
     }
 
@@ -96,24 +94,33 @@ namespace Spark::Render
         m_allocator->TakePageChanges(m_pageChanges);
         m_pool.Update(m_pageChanges);
 
-        // A page mapped again has a backing of its own, without the elements it had.
+        // A page mapped again has a backing of its own, without the elements it had. Past the
+        // mirror nothing is known anyway.
         const uint64_t pageSize    = m_pool.GetPageSize();
         const uint64_t elementSize = m_descriptor.m_elementSize;
         for (const Suballocator::PageChange& change : m_pageChanges)
         {
-            if (!change.m_occupied)
+            const uint64_t first = change.m_page * pageSize / elementSize;
+            if (!change.m_occupied || first >= m_known.size())
             {
                 continue;
             }
-            const uint64_t first = change.m_page * pageSize / elementSize;
-            const uint64_t last  = eastl::min<uint64_t>(((change.m_page + 1) * pageSize - 1) / elementSize,
-                m_descriptor.m_capacity - 1);
-            eastl::fill(m_known.begin() + first, m_known.begin() + last + 1, uint8_t(0));
+            const uint64_t end = eastl::min<uint64_t>(((change.m_page + 1) * pageSize - 1) / elementSize + 1,
+                m_known.size());
+            eastl::fill(m_known.begin() + first, m_known.begin() + end, uint8_t(0));
         }
     }
 
     void DeviceArray::SetBytes(uint32_t index, const void* bytes)
     {
+        // The mirror reaches the highest element set, not the capacity, which only bounds the
+        // address space.
+        if (index >= m_known.size())
+        {
+            m_known.resize(index + 1, uint8_t(0));
+            m_elements.resize(uint64_t(index + 1) * m_descriptor.m_elementSize);
+        }
+
         uint8_t* element = m_elements.data() + uint64_t(index) * m_descriptor.m_elementSize;
         if (m_known[index] && memcmp(element, bytes, m_descriptor.m_elementSize) == 0)
         {

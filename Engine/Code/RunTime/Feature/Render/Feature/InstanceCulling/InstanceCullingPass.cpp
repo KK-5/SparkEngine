@@ -38,12 +38,14 @@ namespace Spark::Render
             const uint32_t viewCount  = static_cast<uint32_t>(layout.m_views.size());
             const uint32_t entryCount = layout.m_viewCapacity * layout.m_maxPerView;
 
-            // Without the active list and the instances there is no instance to go through, and
-            // neither is read.
+            // Without the active list, the instances and their geometry there is no instance to go
+            // through, and none of them is read.
             const RHI::AttachmentId idsName("InstanceIDs");
             const RHI::AttachmentId instancesPoolName("Instances");
+            const RHI::AttachmentId geometriesPoolName("Geometries");
             const bool     hasInstances  = p.Import<InstanceIDBufferTag>(idsName)
-                                        && p.Import<InstancePoolTag>(instancesPoolName);
+                                        && p.Import<InstancePoolTag>(instancesPoolName)
+                                        && p.Import<GeometryPoolTag>(geometriesPoolName);
             const uint32_t instanceCount = hasInstances ? layout.m_instanceCount : 0;
 
             constexpr RHI::BufferBindFlags bindFlags = RHI::BufferBindFlags::ShaderReadWrite;
@@ -121,8 +123,9 @@ namespace Spark::Render
                 if (hasInstances)
                 {
                     s.ReadBuffer(idsName).View(idsView).Bind(idsInput);
-                    // Through the shared binding.
+                    // Through the shared bindings.
                     s.ReadBuffer(instancesPoolName);
+                    s.ReadBuffer(geometriesPoolName);
                 }
                 s.ReadWriteBuffer(countName).View(countView).Bind(countInput);
                 s.WriteBuffer(instancesName).View(instancesView).Bind(instancesInput);
