@@ -3,19 +3,19 @@
 #include <ECS/Bus/EntityEventBus.h>
 #include <RHI/Context/RHIContext.h>
 
+#include <Binding/DeviceArray.h>
 #include <Material/Components.h>
+#include <Material/MaterialContext.h>
+#include <Pass/PassContext.h>
 
 #include "MaterialBinding.h"
 
 namespace Spark::Render
 {
     //! Owns the g_Materials array (space3) + its ShaderBindings. Every material entity
-    //! carrying Resource::StandardPBR gets a stable slot, and its parameters are encoded
-    //! into that slot's g_Materials record.
-    //!
-    //! Slot allocation, encoding and upload are all GlobalBuffer's; this only supplies
-    //! the space3 SRG and the per-material encode. Materials are few (KB-level), so the
-    //! encode stays unconditional — no DirtyTag, see TODO_GlobalBufferUploadPlan.md §8.
+    //! carrying Resource::StandardPBR gets a stable slot, a MaterialSlot, and its parameters
+    //! are encoded into that slot's g_Materials record. g_Materials is a DeviceArray, which
+    //! writes the records that changed: a material's, when it is edited or a texture arrives.
     //!
     //! A world entity's StandardPBROverride is synthesized into a material entity of its
     //! own here, so the buffer keeps one population and the shader keeps one array. That
@@ -27,9 +27,10 @@ namespace Spark::Render
     {
     public:
         void Init(RHI::RHIContext& rhiCtx);
-        //! frameIndex is the in-flight slot (Device::GetFrameIndex), used to
-        //! pick this frame's g_Materials copy. RenderSystem::OnTick passes it.
-        void Update(uint32_t frameIndex);
+        //! Registers the pass writing the records, ahead of every pass that reads them.
+        void SetUp(PassContext& passContext);
+        void Update();
+        //! After the GPU is idle.
         void Shutdown(RHI::RHIContext& rhiCtx);
 
         void OnEntityCreate(Entity) override {}
@@ -38,13 +39,16 @@ namespace Spark::Render
         void OnEntityDestory(Entity entity) override;
 
     private:
-
         //! Fixed upper bound on live materials. Overflow logs and drops the surplus
-        //! (rendering is not blocked). 1024 * 68B = 68 KB per frame copy.
-        static constexpr uint32_t Capacity = 1024;
+        //! (rendering is not blocked).
+        static constexpr uint32_t Capacity = 1u << 16;
 
-        GlobalBuffer<Materials, MaterialData, Resource::StandardPBR> m_materials;
+        //! A slot for each material with StandardPBR; one that lost it gives its back.
+        void AllocateSlots(Material::MaterialContext& matCtx);
 
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Materials @ space3
+
+        //! g_Materials, carrying MaterialPoolTag.
+        DeviceArray m_materials;
     };
 }

@@ -117,12 +117,13 @@ namespace Spark::Render
                 }
 
                 // The list's draws, once DrawListCullingSystem has made their buffer and the
-                // geometry, the instance IDs and the instances exist.
+                // geometry, the instance IDs, the instances and the materials exist.
                 const RHI::AttachmentId& arguments = InstanceLists::CpuCulled::DrawArgumentsName();
                 if (p.Import<CpuCulledDrawArgumentsTag>(arguments)
                     && p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
-                    && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances")))
+                    && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances"))
+                    && p.Import<MaterialPoolTag>(RHI::AttachmentId("Materials")))
                 {
                     // The pool is the first vertex stream and the indices, the instance IDs the
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
@@ -130,6 +131,8 @@ namespace Spark::Render
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
                     // Through the shared binding, by the vertex shader.
                     s.ReadBuffer(RHI::AttachmentId("Instances")).Stage(RHI::AttachmentStage::VertexShader);
+                    // Through the shared binding, by the pixel shader.
+                    s.ReadBuffer(RHI::AttachmentId("Materials")).Stage(RHI::AttachmentStage::FragmentShader);
                     s.DrawIndirect(arguments, vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }
                 s.Close();

@@ -168,8 +168,9 @@ namespace Spark::Render
 
         // Before every pass that draws meshes: it copies their new bytes into the pool.
         m_meshGeometrySystem.SetUp(passContext);
-        // Before every pass that reads them: they write the geometry and instance records, and
-        // the instance IDs, that changed.
+        // Before every pass that reads them: they write the material, geometry and instance
+        // records, and the instance IDs, that changed.
+        m_materialBindingSystem.SetUp(passContext);
         m_geometryBindingSystem.SetUp(passContext);
         m_instanceBindingSystem.SetUp(passContext);
 
@@ -289,7 +290,6 @@ namespace Spark::Render
 
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -313,6 +313,7 @@ namespace Spark::Render
         // read from, so only once the GPU is idle.
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
     }
 
@@ -353,7 +354,7 @@ namespace Spark::Render
         // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
         // stable now, not rewritten every frame, so this is a one-time ordering need —
         // a material allocated later just falls back to slot 0 for one frame.
-        m_materialBindingSystem.Update(frameIndex);
+        m_materialBindingSystem.Update();
         // Before the two below: what gets a geometry slot and an instance slot is what has
         // geometry, and the instance stores the geometry slot.
         m_meshGeometrySystem.Update();

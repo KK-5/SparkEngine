@@ -2,6 +2,12 @@
 
 #include <Log/ILogSystem.h>
 #include <CoreComponents/Tags.h>
+#include <Service/Service.h>
+
+#include <RHI/HardwareQueue.h>
+#include <RHI/RHIInterface.h>
+#include <RHI/Device/Device.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 
 #include <RHI/Component/Component.h>
 #include <RHI/ResourceBuilder.h>
@@ -21,7 +27,11 @@
 #include <Material/MaterialContext.h>
 #include <Material/MaterialUtils.h>
 
+#include <Pass/ComputePass.h>
 #include <Pass/Component/RHIComponents.h>
+#include <RenderGraph/PassScopes.h>
+
+#include <Resource/AssetManagerInterface.h>
 
 namespace Spark::Render
 {
@@ -59,8 +69,7 @@ namespace Spark::Render
             RHI::ShaderInputBufferType::Structured, 1, 0, 0, kMaterialSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The g_Materials SRV is bound by GlobalBuffer once the upload
-        // buffer materializes, so we DO NOT mark it dirty here.
+        // only the handle. The DeviceArray binds the g_Materials SRV.
         Ptr<RHI::ShaderBindings> materialBindings =
             CreateSharedBindings(inputs, kMaterialSpaceId, "MaterialBindingSystem");
         if (!materialBindings)
@@ -73,14 +82,69 @@ namespace Spark::Render
             m_bindings, RHI::Components::ShaderBindings{ materialBindings });
         rhiCtx.Add<MaterialBindingTag>(m_bindings);
 
-        GlobalBuffer<Materials, MaterialData, Resource::StandardPBR>::Descriptor bufferDesc;
-        bufferDesc.m_capacity       = Capacity;
-        bufferDesc.m_resourceName   = ObjectName(MaterialBufferName);
-        bufferDesc.m_inputName      = RHI::InputName(MaterialBufferName);
-        bufferDesc.m_bindingsEntity = m_bindings;
-        m_materials.Init(rhiCtx, bufferDesc);
+        RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
+        DeviceArray::Descriptor arrayDesc;
+        arrayDesc.m_name        = ObjectName(MaterialBufferName);
+        arrayDesc.m_elementSize = sizeof(MaterialData);
+        arrayDesc.m_capacity    = Capacity;
+        arrayDesc.m_inputName   = RHI::InputName(MaterialBufferName);
+        arrayDesc.m_bindings    = m_bindings;
+        if (m_materials.Init(rhiCtx, device, arrayDesc))
+        {
+            rhiCtx.Add<MaterialPoolTag>(m_materials.GetResource());
+        }
 
         EntityEventBus::Handler::BusConnect();
+    }
+
+    void MaterialBindingSystem::SetUp(PassContext& passContext)
+    {
+        auto* assetManager = Service<Resource::AssetManager>::Get();
+        ASSERT(assetManager, "AssetManager is unregister.");
+
+        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/ElementUpdate/ElementUpdate.hlsl");
+        if (!assetId.IsValid())
+        {
+            LOG_ERROR("[MaterialBindingSystem] Failed to load shader ElementUpdate.hlsl.");
+            return;
+        }
+        auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
+
+        SPARK_COMPUTE_PASS(passContext, "MaterialUpdate")
+            .Queue(RHI::HardwareQueueClass::Graphics)
+            .ComputeShader(shaderAsset)
+            .Build([this](ComputePassScopes& p)
+            {
+                const ElementUpdateBuffer& updates     = m_materials.GetUpdates();
+                const uint32_t             updateCount = updates.GetUpdateCount();
+                if (updateCount == 0)
+                {
+                    return;
+                }
+
+                const RHI::AttachmentId updatesName("MaterialUpdate");
+                const RHI::AttachmentId materialsName("Materials");
+                p.Import(updatesName, updates.GetResource());
+                p.Import(materialsName, m_materials.GetResource());
+
+                const uint32_t elementWords = updates.GetElementSize() / sizeof(uint32_t);
+
+                auto s = p.Scope();
+                s.ReadBuffer(updatesName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(updates.GetByteCount())))
+                    .Bind(RHI::InputName("g_Updates"));
+                // Read too: the records not updated stay.
+                s.ReadWriteBuffer(materialsName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(m_materials.GetByteCount())))
+                    .Bind(RHI::InputName("g_Elements"));
+                s.Constant(RHI::InputName("updateCount"), updateCount);
+                s.Constant(RHI::InputName("elementWords"), elementWords);
+                s.Constant(RHI::InputName("indicesOffset"), static_cast<uint32_t>(updates.GetIndicesOffset()));
+                s.Constant(RHI::InputName("elementsOffset"), static_cast<uint32_t>(updates.GetElementsOffset()));
+                s.Dispatch(updateCount * elementWords);
+                s.Close();
+            })
+            .Finalize();
     }
 
     void MaterialBindingSystem::OnEntityDestory(Entity entity)
@@ -130,7 +194,7 @@ namespace Spark::Render
         });
 
         // Collected first: the link is the pool being iterated, and this repo does not
-        // write into one (see GlobalBuffer::Update).
+        // write into one.
         eastl::fixed_vector<Entity, 8> stale;
         world->GetView<MaterialOverrideRef>(Exclude<Material::StandardPBROverride>).each(
             [&](Entity entity, const MaterialOverrideRef& ref)
@@ -166,7 +230,7 @@ namespace Spark::Render
         }
     }
 
-    void MaterialBindingSystem::Update(uint32_t frameIndex)
+    void MaterialBindingSystem::Update()
     {
         auto* matCtx = Material::MaterialExecuteContext::Current();
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
@@ -177,9 +241,12 @@ namespace Spark::Render
 
         SyncOverrideMaterials();
 
-        m_materials.Update(*matCtx, *rhiCtx, frameIndex,
-            [&](Material::MaterialHandle h, MaterialData& d, const Resource::StandardPBR& params)
+        AllocateSlots(*matCtx);
+        m_materials.BeginUpdate();
+        matCtx->GetView<MaterialSlot, Resource::StandardPBR>(Exclude<DeadTag>).each(
+            [&](Material::MaterialHandle h, const MaterialSlot& slot, const Resource::StandardPBR& params)
         {
+            MaterialData d;
             d.m_baseColor   = params.m_baseColor;
             d.m_metallic    = params.m_metallic;
             d.m_roughness   = params.m_roughness;
@@ -190,9 +257,39 @@ namespace Spark::Render
             {
                 d.m_texIndices[texSlot] = ResolveTexIndex(*rhiCtx, *matCtx, h, texSlot);
             }
+            m_materials.Set(slot.Get(), d);
         });
+        m_materials.EndUpdate();
 
         ReapDeadMaterials();
+    }
+
+    void MaterialBindingSystem::AllocateSlots(Material::MaterialContext& matCtx)
+    {
+        // Collected first: MaterialSlot is the pool being iterated.
+        eastl::fixed_vector<Material::MaterialHandle, 8> lost;
+        matCtx.GetView<MaterialSlot>(Exclude<Resource::StandardPBR>).each(
+            [&](Material::MaterialHandle h, const MaterialSlot&)
+        {
+            lost.push_back(h);
+        });
+        for (Material::MaterialHandle h : lost)
+        {
+            matCtx.Remove<MaterialSlot>(h);
+        }
+
+        // Structural write inside iteration: MaterialSlot is only in the exclude set.
+        matCtx.GetView<Resource::StandardPBR>(Exclude<MaterialSlot, DeadTag>).each(
+            [&](Material::MaterialHandle h, const Resource::StandardPBR&)
+        {
+            Suballocation range = m_materials.Allocate();
+            if (!range.IsValid())
+            {
+                LOG_ERROR("[MaterialBindingSystem] All {} material slots are taken; a material is not drawn.", Capacity);
+                return;
+            }
+            matCtx.Add<MaterialSlot>(h, MaterialSlot{ eastl::move(range) });
+        });
     }
 
     void MaterialBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
@@ -208,8 +305,9 @@ namespace Spark::Render
 
         if (auto* matCtx = Material::MaterialExecuteContext::Current())
         {
-            m_materials.Shutdown(*matCtx, rhiCtx);
+            matCtx->Clear<MaterialSlot>();
         }
+        m_materials.Shutdown(rhiCtx);
 
         if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
 

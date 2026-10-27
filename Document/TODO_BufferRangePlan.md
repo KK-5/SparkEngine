@@ -423,7 +423,10 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     `GeometryBindingSystem::Update` 不再取帧号，`Shutdown` 挪到 GPU 空闲之后。同时 `DeviceArray` 的镜像改为按需增长
     （只到已设置的最高元素），容量只是地址空间的上限，`InstanceCapacity` 与几何容量提到 2^20：reserved Buffer 不映射
     就不占显存，规模的瓶颈在 CPU 每帧逐实例的编码（以后用变更帧号解决），不在容量。
-  - **L6c　`g_Materials`**：同上，`MaterialSlotRef` 换成持有区间的组件。
+  - ~~**L6c　`g_Materials`**~~（已完成）：同 L6b。`MaterialSlot`（持有区间，挂在材质上下文的材质实体上）取代
+    `MaterialSlotRef`，`MaterialPoolTag` 挂在它的 Buffer 上，`MaterialUpdate` Pass 写入；GBuffer、Translucency 导入并
+    以 `.Stage(FragmentShader)` 声明读取（只有像素着色器读）。容量提到 2^16。材质只在编辑或贴图就绪时变，镜像比较后
+    多数帧不写。
   - **L6d　`g_Lights`、`g_ShadowViews`**：直接用 `StagingBuffer`；阴影行的 bias 改为填行时一次带上，不再先写后补。
     删 `StagedArrayBuffer`。
   - **L6e　`g_Views`**：槽号换成区间，写法同 L6d。

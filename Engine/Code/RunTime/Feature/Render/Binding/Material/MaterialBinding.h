@@ -3,8 +3,8 @@
 #include <Material/Components.h>
 #include <Material/MaterialHandle.h>
 
-#include <Binding/GlobalBuffer.h>
 #include <Pass/TagList.h>
+#include <Suballocation/Suballocator.h>
 
 #include "MaterialData.h"
 
@@ -29,13 +29,16 @@ namespace Spark::Render
     //! Destroys every material entity wearing DeadTag.
     void ReapDeadMaterials();
 
-    //! Names the g_Materials array (space3) for GlobalBuffer and its slot refs.
-    struct Materials {};
+    //! A material's g_Materials slot, on the MATERIAL entity: a MaterialData-sized range of the
+    //! array's address space. Get() is the GPU index directly and does not move for the
+    //! material's life, so a consumer resolves it once per encode instead of reading a slot
+    //! rewritten every frame.
+    struct MaterialSlot
+    {
+        Suballocation m_range;
 
-    //! A material's g_Materials slot, on the MATERIAL entity. Get() is the GPU index
-    //! directly and does not move for the material's life, so a consumer resolves it
-    //! once per encode instead of reading a slot rewritten every frame.
-    using MaterialSlotRef = SlotRef<Materials>;
+        uint32_t Get() const { return static_cast<uint32_t>(m_range.GetOffset() / sizeof(MaterialData)); }
+    };
 
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
     //! g_Materials SRV at space3. A pass declares .Binds<MaterialBindingTag>() and the
@@ -44,4 +47,8 @@ namespace Spark::Render
     {
         using Uses = TagList<Material::MaterialTextureTag>;
     };
+
+    //! The buffer entity g_Materials is a view of, written in the graph. A pass whose shaders
+    //! read g_Materials imports it by this tag and declares the read in each Scope.
+    struct MaterialPoolTag {};
 }

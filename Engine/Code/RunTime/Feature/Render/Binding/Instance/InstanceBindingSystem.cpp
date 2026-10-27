@@ -26,7 +26,7 @@
 #include <Math/MathUtils.h>
 
 #include <Material/MaterialUtils.h>         // MaterialComponent / StandardPBR / GetDefaultMaterial
-#include <Binding/Material/MaterialBinding.h>   // MaterialSlotRef
+#include <Binding/Material/MaterialBinding.h>   // MaterialSlot
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Drawable/DrawMask.h>
 #include <DrawList/DrawList.h>
@@ -64,12 +64,9 @@ namespace Spark::Render
         //! written this same frame; a material whose slot does not exist yet reads 0 for a frame.
         uint32_t MaterialIndexOf(const Material::MaterialContext& matCtx, Material::MaterialHandle mh)
         {
-            if (const auto* slotRef = matCtx.TryGet<MaterialSlotRef>(mh))
+            if (const auto* slot = matCtx.TryGet<MaterialSlot>(mh))
             {
-                if (slotRef->IsValid())
-                {
-                    return slotRef->Get();
-                }
+                return slot->Get();
             }
             return 0;
         }

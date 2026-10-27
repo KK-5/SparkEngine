@@ -158,7 +158,8 @@ namespace Spark::Render
                 // Until they all exist nothing of the scene is drawn, but the targets are still cleared.
                 if (p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
-                    && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances")))
+                    && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances"))
+                    && p.Import<MaterialPoolTag>(RHI::AttachmentId("Materials")))
                 {
                     // The pool is the first vertex stream and the indices, the instance IDs the
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
@@ -166,6 +167,8 @@ namespace Spark::Render
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
                     // Through the shared binding, by the vertex shader.
                     s.ReadBuffer(RHI::AttachmentId("Instances")).Stage(RHI::AttachmentStage::VertexShader);
+                    // Through the shared binding, by the pixel shader.
+                    s.ReadBuffer(RHI::AttachmentId("Materials")).Stage(RHI::AttachmentStage::FragmentShader);
                     s.DrawIndirect(InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName(),
                         vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }
