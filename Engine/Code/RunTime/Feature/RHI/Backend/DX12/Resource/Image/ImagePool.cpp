@@ -31,9 +31,12 @@ namespace Spark::RHI::DX12
     {
         Device& device = static_cast<Device&>(deviceBase);
 
-        // Every image gets memory of its own.
+        // Every image gets memory of its own, but a tile backing's is mapped from its heap, so a pool
+        // that makes them places its images.
         D3D12MA::POOL_DESC poolDesc = {};
-        poolDesc.Flags               = D3D12MA::POOL_FLAG_ALWAYS_COMMITTED;
+        poolDesc.Flags = CheckBitsAny(descriptor.m_bindFlags, RHI::ImageBindFlags::TileBacking)
+            ? D3D12MA::POOL_FLAG_NONE
+            : D3D12MA::POOL_FLAG_ALWAYS_COMMITTED;
         poolDesc.HeapProperties.Type = ConvertHeapType(descriptor.m_heapMemoryLevel, descriptor.m_hostMemoryAccess);
         poolDesc.HeapFlags           = D3D12_HEAP_FLAG_NONE;
 
@@ -69,8 +72,8 @@ namespace Spark::RHI::DX12
         ConvertImageDescriptor(imageDesc, resourceDesc);
 
         // Clear values only apply when the image is a render target or depth stencil.
-        const bool isOutputMergerAttachment =
-            CheckBitsAny(imageDesc.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
+        const bool isOutputMergerAttachment = CheckBitsAny(resourceDesc.Flags,
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 
         D3D12_CLEAR_VALUE clearValue;
         const D3D12_CLEAR_VALUE* optimizedClearValue = nullptr;

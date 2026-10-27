@@ -58,6 +58,12 @@ namespace Spark::RHI
                 return false;
             }
 
+            if (CheckBitsAny(image.GetDescriptor().m_bindFlags, ImageBindFlags::TileBacking))
+            {
+                LOG_WARN("[ImageView] Image '{}' is a tile backing, which has no views.", image.GetName().GetCStr());
+                return false;
+            }
+
             if (!CheckBitsAll(static_cast<uint32_t>(image.GetDescriptor().m_bindFlags), static_cast<uint32_t>(viewDescriptor.m_overrideBindFlags)))
             {
                 LOG_WARN("[ImageView] Image view has bind flags that are incompatible with the underlying image.");

@@ -15,6 +15,7 @@
 #include <RHI/Fence/Fence.h>
 
 #include "BufferTileMapping.h"
+#include "ImageTileMapping.h"
 
 namespace Spark::RHI
 {
@@ -52,6 +53,9 @@ namespace Spark::RHI
         /// Each page appears in at most one mapping of a call, as Vulkan binds no range twice in a batch.
         ResultCode UpdateTileMappings(eastl::span<const BufferTileMapping> mappings);
 
+        /// The same for tiles of reserved images: each tile in at most one mapping of a call.
+        ResultCode UpdateTileMappings(eastl::span<const ImageTileMapping> mappings);
+
         virtual void WaitForIdle() = 0;
             
         RHI::HardwareQueueClass GetHardwareQueueClass() const;
@@ -65,6 +69,7 @@ namespace Spark::RHI
         virtual void SignalInternal(RHI::Fence& fence, uint64_t value) = 0;
         virtual void WaitInternal(RHI::Fence& fence, uint64_t value) = 0;
         virtual ResultCode UpdateTileMappingsInternal(eastl::span<const BufferTileMapping> mappings) = 0;
+        virtual ResultCode UpdateTileMappingsInternal(eastl::span<const ImageTileMapping> mappings) = 0;
         virtual void ShutdownInternal() = 0;
         //////////////////////////////////////////////////////////////////////////
 
@@ -72,6 +77,8 @@ namespace Spark::RHI
         bool ValidateIsInitialized() const;
         bool ValidateTileMapping(const BufferTileMapping& mapping) const;
         bool ValidateTileMappingsDisjoint(eastl::span<const BufferTileMapping> mappings) const;
+        bool ValidateTileMapping(const ImageTileMapping& mapping) const;
+        bool ValidateTileMappingsDisjoint(eastl::span<const ImageTileMapping> mappings) const;
 
         void ProcessQueue();
         CommandQueueDescriptor m_descriptor;

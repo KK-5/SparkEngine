@@ -1,6 +1,7 @@
 #include "TransientResourcePool.h"
 
 #include <Log/ILogSystem.h>
+#include <Math/Bit.h>
 
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Image/Image.h>
@@ -27,9 +28,10 @@ namespace Spark::RHI
             return nullptr;
         }
 
-        if (Validation::isEnabled && createInfo.m_descriptor.m_reserved)
+        if (Validation::isEnabled
+            && (createInfo.m_descriptor.m_reserved || CheckBitsAny(createInfo.m_descriptor.m_bindFlags, ImageBindFlags::TileBacking)))
         {
-            LOG_ERROR("[TransientResourcePool] {} cannot create reserved image {}: a transient image is placed in the pool's heap.",
+            LOG_ERROR("[TransientResourcePool] {} cannot create reserved image or tile backing {}: a transient image is placed in the pool's heap.",
                       GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]",
                       createInfo.m_debugName.GetCStr() ? createInfo.m_debugName.GetCStr() : "[Nameless]");
             return nullptr;
@@ -56,9 +58,10 @@ namespace Spark::RHI
             return nullptr;
         }
 
-        if (Validation::isEnabled && createInfo.m_descriptor.m_reserved)
+        if (Validation::isEnabled
+            && (createInfo.m_descriptor.m_reserved || CheckBitsAny(createInfo.m_descriptor.m_bindFlags, BufferBindFlags::TileBacking)))
         {
-            LOG_ERROR("[TransientResourcePool] {} cannot create reserved buffer {}: a transient buffer is placed in the pool's heap.",
+            LOG_ERROR("[TransientResourcePool] {} cannot create reserved buffer or tile backing {}: a transient buffer is placed in the pool's heap.",
                       GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]",
                       createInfo.m_debugName.GetCStr() ? createInfo.m_debugName.GetCStr() : "[Nameless]");
             return nullptr;

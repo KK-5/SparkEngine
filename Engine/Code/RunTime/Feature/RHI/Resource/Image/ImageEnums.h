@@ -27,6 +27,10 @@ namespace Spark::RHI
         CopyRead    = BIT(5),
         CopyWrite   = BIT(6),
         ShadingRate = BIT(7),
+
+        //! Memory for the tiles of reserved images of its format, mapped onto them and used as
+        //! nothing else: never viewed or given a barrier. The other flags name the reserved images'.
+        TileBacking = BIT(8),
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::ImageBindFlags, uint32_t);

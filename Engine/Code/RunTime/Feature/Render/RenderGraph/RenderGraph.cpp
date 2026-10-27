@@ -22,6 +22,34 @@
 
 namespace Spark::Render
 {
+    namespace
+    {
+        //! Submits the pending requests of one kind on `queue`, then destroys them: the backings
+        //! they unmapped go to their pools' release queues. No two are on one page or tile, so
+        //! their order is of no concern.
+        template<typename Request, typename Events, typename OnFailure>
+        void SubmitTileMappings(Events& events, RHI::CommandQueue& queue, OnFailure&& onFailure)
+        {
+            auto& requests = events.template GetStorage<Request>();
+            if (requests.empty())
+            {
+                return;
+            }
+
+            for (const Request& request : requests)
+            {
+                using Mapping = decltype(request.m_mapping);
+                if (queue.UpdateTileMappings(eastl::span<const Mapping>(&request.m_mapping, 1)) != RHI::ResultCode::Success)
+                {
+                    onFailure(request);
+                }
+            }
+
+            const eastl::vector<RHI::RHIEvent> submitted(requests.data(), requests.data() + requests.size());
+            events.DestoryEntity(submitted.begin(), submitted.end());
+        }
+    }
+
     bool RenderGraph::Init(RHI::Device& device)
     {
         if (m_commandQueueContext.Init(device) != RHI::ResultCode::Success)
@@ -277,27 +305,24 @@ namespace Spark::Render
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
-        // Ahead of every Scope, which may touch the pages. No two requests are on one page, so
-        // their order is of no concern.
+        // Ahead of every Scope, which may touch the pages and tiles.
         {
-            auto& events   = *RHI::RHIEventExecuteContext::Current();
-            auto& requests = events.GetStorage<RHI::BufferTileMappingRequest>();
-            if (!requests.empty())
+            auto& events = *RHI::RHIEventExecuteContext::Current();
+            auto& queue  = m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics);
+            SubmitTileMappings<RHI::BufferTileMappingRequest>(events, queue,
+                [](const RHI::BufferTileMappingRequest& request)
             {
-                auto& queue = m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics);
-                for (const RHI::BufferTileMappingRequest& request : requests)
-                {
-                    if (queue.UpdateTileMappings({ &request.m_mapping, 1 }) != RHI::ResultCode::Success)
-                    {
-                        LOG_ERROR("[RenderGraph] Updating the tile mapping of {} at {} failed.",
-                                  request.m_buffer->GetName().GetCStr(), request.m_mapping.m_byteOffset);
-                    }
-                }
-
-                // The backings unmapped go to their pools' release queues.
-                const eastl::vector<RHI::RHIEvent> submitted(requests.data(), requests.data() + requests.size());
-                events.DestoryEntity(submitted.begin(), submitted.end());
-            }
+                LOG_ERROR("[RenderGraph] Updating the tile mapping of {} at {} failed.",
+                          request.m_buffer->GetName().GetCStr(), request.m_mapping.m_byteOffset);
+            });
+            SubmitTileMappings<RHI::ImageTileMappingRequest>(events, queue,
+                [](const RHI::ImageTileMappingRequest& request)
+            {
+                const RHI::Origin& origin = request.m_mapping.m_tileOrigin;
+                LOG_ERROR("[RenderGraph] Updating the tile mapping of {} at tile ({}, {}, {}) of mip {} of slice {} failed.",
+                          request.m_image->GetName().GetCStr(), origin.m_left, origin.m_top, origin.m_front,
+                          request.m_mapping.m_mipSlice, request.m_mapping.m_arraySlice);
+            });
         }
 
         m_executer.ExecuteScopes(context, *factory, *m_device, m_commandQueueContext);

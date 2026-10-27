@@ -205,9 +205,12 @@ int main(int, char**)
     devicePoolDesc.m_bindFlags = RHI::BufferBindFlags::ShaderReadWrite | RHI::BufferBindFlags::CopyRead | RHI::BufferBindFlags::CopyWrite;
     Ptr<RHI::BufferPool> devicePool = InitPool(*factory, *device, devicePoolDesc);
 
-    // Its buffers are placed on whole pages: a block takes the whole backing, which a larger
-    // buffer would not fit and get memory of its own.
+    // Tile backings of reserved buffers bound as the one below. Its buffers are placed on whole
+    // pages: a block takes the whole backing, which a larger buffer would not fit and get memory
+    // of its own.
+    constexpr RHI::BufferBindFlags reservedFlags = RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyWrite;
     RHI::BufferPoolDescriptor backingPoolDesc;
+    backingPoolDesc.m_bindFlags              = reservedFlags | RHI::BufferBindFlags::TileBacking;
     backingPoolDesc.m_blockSizeInBytes       = kBackingPageCount * pageSize;
     backingPoolDesc.m_minAllocationAlignment = pageSize;
     Ptr<RHI::BufferPool> backingPool = InitPool(*factory, *device, backingPoolDesc);
@@ -230,12 +233,12 @@ int main(int, char**)
     }
 
     // --- Buffers ---
-    RHI::BufferDescriptor reservedDesc(RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::CopyWrite, reservedBytes);
+    RHI::BufferDescriptor reservedDesc(reservedFlags, reservedBytes);
     reservedDesc.m_reserved = true;
     Ptr<RHI::Buffer> reserved = InitBuffer(*factory, *devicePool, reservedDesc, "Reserved");
 
     Ptr<RHI::Buffer> backing = InitBuffer(*factory, *backingPool,
-        RHI::BufferDescriptor(RHI::BufferBindFlags::None, kBackingPageCount * pageSize), "Backing");
+        RHI::BufferDescriptor(reservedFlags | RHI::BufferBindFlags::TileBacking, kBackingPageCount * pageSize), "Backing");
 
     Ptr<RHI::Buffer> output = InitBuffer(*factory, *devicePool,
         RHI::BufferDescriptor(RHI::BufferBindFlags::ShaderWrite | RHI::BufferBindFlags::CopyRead, reservedBytes), "Output");

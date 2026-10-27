@@ -195,11 +195,14 @@ namespace Spark::RHI
             return true;
         }
 
-        // It shares its memory with the reserved buffer, so it is not to be used as a buffer.
-        if (backing->GetDescriptor().m_reserved || backing->GetDescriptor().m_bindFlags != BufferBindFlags::None)
+        // Its memory was chosen for reserved buffers of the flags it names.
+        if (backing->GetDescriptor().m_bindFlags != (buffer->GetDescriptor().m_bindFlags | BufferBindFlags::TileBacking))
         {
-            LOG_ERROR("[CommandQueue] Backing buffer {} of {} must be neither reserved nor bound as anything.",
-                      backing->GetName().GetCStr(), buffer->GetName().GetCStr());
+            LOG_ERROR("[CommandQueue] Backing buffer {} of {} has bind flags 0x{:x}: a tile backing of the reserved "
+                      "buffer's 0x{:x} is wanted.",
+                      backing->GetName().GetCStr(), buffer->GetName().GetCStr(),
+                      static_cast<uint32_t>(backing->GetDescriptor().m_bindFlags),
+                      static_cast<uint32_t>(buffer->GetDescriptor().m_bindFlags));
             return false;
         }
 
@@ -244,6 +247,145 @@ namespace Spark::RHI
                 LOG_ERROR("[CommandQueue] Tile mappings of {} at {} and at {} overlap in one call.",
                           current.m_buffer->GetName().GetCStr(), previous.m_byteOffset, current.m_byteOffset);
                 return false;
+            }
+        }
+        return true;
+    }
+
+    ResultCode CommandQueue::UpdateTileMappings(eastl::span<const ImageTileMapping> mappings)
+    {
+        if (!ValidateIsInitialized())
+        {
+            return ResultCode::InvalidOperation;
+        }
+
+        if (Validation::isEnabled)
+        {
+            for (const ImageTileMapping& mapping : mappings)
+            {
+                if (!ValidateTileMapping(mapping))
+                {
+                    return ResultCode::InvalidArgument;
+                }
+            }
+            if (!ValidateTileMappingsDisjoint(mappings))
+            {
+                return ResultCode::InvalidArgument;
+            }
+        }
+
+        if (mappings.empty())
+        {
+            return ResultCode::Success;
+        }
+        return UpdateTileMappingsInternal(mappings);
+    }
+
+    namespace
+    {
+        //! Tiles of `shape` it takes to cover `size`.
+        Size TileGrid(const Size& size, const Size& shape)
+        {
+            return Size(
+                (size.m_width  + shape.m_width  - 1) / shape.m_width,
+                (size.m_height + shape.m_height - 1) / shape.m_height,
+                (size.m_depth  + shape.m_depth  - 1) / shape.m_depth);
+        }
+
+        uint64_t TileCount(const Size& extent)
+        {
+            return static_cast<uint64_t>(extent.m_width) * extent.m_height * extent.m_depth;
+        }
+    }
+
+    bool CommandQueue::ValidateTileMapping(const ImageTileMapping& mapping) const
+    {
+        const Image* image = mapping.m_image;
+        if (!image || !image->GetDescriptor().m_reserved)
+        {
+            LOG_ERROR("[CommandQueue] Tile mapping target {} is not a reserved image.",
+                      image ? image->GetName().GetCStr() : "[Null]");
+            return false;
+        }
+
+        const ImageDescriptor& descriptor = image->GetDescriptor();
+        if (mapping.m_mipSlice >= descriptor.m_mipLevels || mapping.m_arraySlice >= descriptor.m_arraySize)
+        {
+            LOG_ERROR("[CommandQueue] Tile mapping of mip {} of slice {} is outside reserved image {}.",
+                      mapping.m_mipSlice, mapping.m_arraySlice, image->GetName().GetCStr());
+            return false;
+        }
+
+        const Size&   shape  = image->GetTileShape();
+        const Size    grid   = TileGrid(descriptor.m_size.GetReducedMip(mapping.m_mipSlice), shape);
+        const Origin& origin = mapping.m_tileOrigin;
+        const Size&   extent = mapping.m_tileExtent;
+        if (TileCount(extent) == 0
+            || origin.m_left  + extent.m_width  > grid.m_width
+            || origin.m_top   + extent.m_height > grid.m_height
+            || origin.m_front + extent.m_depth  > grid.m_depth)
+        {
+            LOG_ERROR("[CommandQueue] Tile mapping of {}x{}x{} tiles at ({}, {}, {}) is outside the {}x{}x{} tiles "
+                      "of mip {} of reserved image {}.",
+                      extent.m_width, extent.m_height, extent.m_depth, origin.m_left, origin.m_top, origin.m_front,
+                      grid.m_width, grid.m_height, grid.m_depth, mapping.m_mipSlice, image->GetName().GetCStr());
+            return false;
+        }
+
+        const Image* backing = mapping.m_backingImage;
+        if (!backing)
+        {
+            return true;
+        }
+
+        // Its memory was chosen for reserved images of the format and flags it names.
+        const ImageDescriptor& backingDescriptor = backing->GetDescriptor();
+        if (backingDescriptor.m_format != descriptor.m_format
+            || backingDescriptor.m_bindFlags != (descriptor.m_bindFlags | ImageBindFlags::TileBacking))
+        {
+            LOG_ERROR("[CommandQueue] Backing image {} of {} has format {} and bind flags 0x{:x}: a tile backing of "
+                      "the reserved image's format {} and bind flags 0x{:x} is wanted.",
+                      backing->GetName().GetCStr(), image->GetName().GetCStr(),
+                      static_cast<uint32_t>(backingDescriptor.m_format),
+                      static_cast<uint32_t>(backingDescriptor.m_bindFlags),
+                      static_cast<uint32_t>(descriptor.m_format), static_cast<uint32_t>(descriptor.m_bindFlags));
+            return false;
+        }
+
+        // Of the same format, so cut into the same tiles.
+        const uint64_t backingTiles = TileCount(TileGrid(backingDescriptor.m_size, shape)) * backingDescriptor.m_arraySize;
+        if (mapping.m_backingTileOffset + TileCount(extent) > backingTiles)
+        {
+            LOG_ERROR("[CommandQueue] Tile mapping of {} tiles from tile {} runs past the {} tiles of backing image {}.",
+                      TileCount(extent), mapping.m_backingTileOffset, backingTiles, backing->GetName().GetCStr());
+            return false;
+        }
+
+        return true;
+    }
+
+    bool CommandQueue::ValidateTileMappingsDisjoint(eastl::span<const ImageTileMapping> mappings) const
+    {
+        auto overlap = [](uint32_t a, uint32_t aCount, uint32_t b, uint32_t bCount)
+        {
+            return a < b + bCount && b < a + aCount;
+        };
+
+        for (size_t i = 0; i < mappings.size(); ++i)
+        {
+            const ImageTileMapping& a = mappings[i];
+            for (size_t j = i + 1; j < mappings.size(); ++j)
+            {
+                const ImageTileMapping& b = mappings[j];
+                if (a.m_image == b.m_image && a.m_mipSlice == b.m_mipSlice && a.m_arraySlice == b.m_arraySlice
+                    && overlap(a.m_tileOrigin.m_left,  a.m_tileExtent.m_width,  b.m_tileOrigin.m_left,  b.m_tileExtent.m_width)
+                    && overlap(a.m_tileOrigin.m_top,   a.m_tileExtent.m_height, b.m_tileOrigin.m_top,   b.m_tileExtent.m_height)
+                    && overlap(a.m_tileOrigin.m_front, a.m_tileExtent.m_depth,  b.m_tileOrigin.m_front, b.m_tileExtent.m_depth))
+                {
+                    LOG_ERROR("[CommandQueue] Tile mappings of mip {} of slice {} of {} overlap in one call.",
+                              a.m_mipSlice, a.m_arraySlice, a.m_image->GetName().GetCStr());
+                    return false;
+                }
             }
         }
         return true;

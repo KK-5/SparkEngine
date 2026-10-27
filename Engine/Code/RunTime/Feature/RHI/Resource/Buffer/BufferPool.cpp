@@ -115,6 +115,13 @@ namespace Spark::RHI
             return ResultCode::InvalidOperation;
         }
 
+        // Its memory is its reserved buffers'.
+        if (CheckBitsAny(request.m_buffer->GetDescriptor().m_bindFlags, BufferBindFlags::TileBacking))
+        {
+            LOG_ERROR("[BufferPool] Cannot map tile backing {}.", request.m_buffer->GetName().GetCStr());
+            return ResultCode::InvalidOperation;
+        }
+
         ResultCode resultCode = MapBufferInternal(request, response);
         ValidateBufferMap(*request.m_buffer, response.m_data != nullptr);
         return resultCode;
@@ -257,6 +264,20 @@ namespace Spark::RHI
                 {
                     LOG_ERROR("[BufferPool] Reserved buffer {} in pool {} cannot take initial data.",
                               initRequest.m_buffer->GetName().GetCStr(), GetName().GetCStr());
+                    return false;
+                }
+            }
+
+            // Whole pages of memory for reserved buffers, which nothing reads as data of its own.
+            if (CheckBitsAny(initRequest.m_descriptor.m_bindFlags, BufferBindFlags::TileBacking))
+            {
+                const uint64_t pageSize = GetDevice().GetLimits().m_reservedPageSizeInBytes;
+                if (initRequest.m_descriptor.m_reserved || initRequest.m_initialData
+                    || initRequest.m_descriptor.m_byteCount == 0 || initRequest.m_descriptor.m_byteCount % pageSize != 0)
+                {
+                    LOG_ERROR("[BufferPool] Tile backing {} in pool {} must be a whole number of {}-byte pages, "
+                              "not reserved and without initial data.",
+                              initRequest.m_buffer->GetName().GetCStr(), GetName().GetCStr(), pageSize);
                     return false;
                 }
             }

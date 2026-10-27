@@ -16,6 +16,11 @@ namespace Spark::RHI
         bool IsBufferAccessSupported(const Buffer& buffer, AccessFlags access)
         {
             const BufferBindFlags bindFlags = buffer.GetDescriptor().m_bindFlags;
+            // Its other flags are its reserved buffers', not its own.
+            if (CheckBitsAny(bindFlags, BufferBindFlags::TileBacking))
+            {
+                return false;
+            }
             auto req = [&](AccessFlags bit, BufferBindFlags need)
             {
                 return !CheckBitsAny(access, bit) || CheckBitsAny(bindFlags, need);
@@ -43,6 +48,11 @@ namespace Spark::RHI
             }
 
             const ImageBindFlags bindFlags = image.GetDescriptor().m_bindFlags;
+            // Its other flags are its reserved images', not its own.
+            if (CheckBitsAny(bindFlags, ImageBindFlags::TileBacking))
+            {
+                return false;
+            }
             auto req = [&](AccessFlags bit, ImageBindFlags need)
             {
                 return !CheckBitsAny(access, bit) || CheckBitsAny(bindFlags, need);

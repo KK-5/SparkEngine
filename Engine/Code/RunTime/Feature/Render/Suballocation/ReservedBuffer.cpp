@@ -39,7 +39,8 @@ namespace Spark::Render
 
         // A block per backing: each is placed, filling one.
         RHI::BufferPoolDescriptor poolDescriptor;
-        poolDescriptor.m_bindFlags              = descriptor.m_bindFlags;
+        // The reserved buffer, and the tile backings of its pages.
+        poolDescriptor.m_bindFlags              = descriptor.m_bindFlags | RHI::BufferBindFlags::TileBacking;
         poolDescriptor.m_blockSizeInBytes       = m_pageSize;
         poolDescriptor.m_minAllocationAlignment = m_pageSize;
         // Mapped on the graphics queue only.
@@ -130,7 +131,8 @@ namespace Spark::Render
                 fresh->SetName(m_buffer->GetName());
                 RHI::BufferInitRequest initRequest;
                 initRequest.m_buffer     = fresh.get();
-                initRequest.m_descriptor = RHI::BufferDescriptor(RHI::BufferBindFlags::None, m_pageSize);
+                initRequest.m_descriptor = RHI::BufferDescriptor(
+                    m_buffer->GetDescriptor().m_bindFlags | RHI::BufferBindFlags::TileBacking, m_pageSize);
                 initRequest.m_descriptor.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
                 if (m_pool->InitBuffer(initRequest) != RHI::ResultCode::Success)
                 {

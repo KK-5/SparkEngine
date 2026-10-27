@@ -1,6 +1,7 @@
 #pragma once
 
 #include <RHI/Command/BufferTileMapping.h>
+#include <RHI/Command/ImageTileMapping.h>
 #include <RHI/Context/RHIHandle.h>
 #include <RHI/Resource/Resource.h>
 #include <RHI/Resource/Image/ImageSubResource.h>
@@ -75,5 +76,14 @@ namespace Spark::RHI
         BufferTileMapping m_mapping;
         // What the mapping maps or unmaps, kept until it is submitted.
         Ptr<Buffer>       m_backing;
+    };
+
+    //! The same for a box of tiles of a reserved image, no two pending on one tile.
+    struct ImageTileMappingRequest
+    {
+        Ptr<Image>       m_image;
+        ImageTileMapping m_mapping;
+        // What the mapping maps or unmaps, kept until it is submitted.
+        Ptr<Image>       m_backing;
     };
 }

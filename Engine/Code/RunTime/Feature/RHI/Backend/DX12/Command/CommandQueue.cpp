@@ -14,6 +14,7 @@
 #include <Fence/Fence.h>
 #include <ID3D12Factory.h>
 #include <Resource/Buffer/Buffer.h>
+#include <Resource/Image/Image.h>
 
 #include "CommandList.h"
 
@@ -70,23 +71,32 @@ namespace Spark::RHI::DX12
         Wait(dx12Fence.Get(), value);
     }
 
-    RHI::ResultCode CommandQueue::UpdateTileMappingsInternal(eastl::span<const RHI::BufferTileMapping> mappings)
+    namespace
     {
-        if (RHI::Validation::isEnabled)
+        //! A run of `tileCount` tiles of a tile backing's memory, from `tileOffset` on: its heap and
+        //! first tile there. False when the backing is in no heap, or the run is past its end.
+        bool BackingTiles(const RHI::Resource& backing, const MemoryView& memory, uint64_t tileOffset,
+                          uint64_t tileCount, ID3D12Heap*& heap, UINT& startTile)
         {
-            for (const RHI::BufferTileMapping& mapping : mappings)
+            constexpr uint64_t tileSize = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+            if (RHI::Validation::isEnabled)
             {
-                // Only a placed buffer has a heap and an offset in it to map from.
-                if (mapping.m_backingBuffer
-                    && !static_cast<const Buffer*>(mapping.m_backingBuffer)->GetMemoryView().GetHeap())
+                // Only a placed resource has a heap and an offset in it to map from.
+                if (!memory.GetHeap() || (tileOffset + tileCount) * tileSize > memory.GetSize())
                 {
-                    LOG_ERROR("[DX12 CommandQueue] Backing buffer {} of {} is not placed in a heap.",
-                              mapping.m_backingBuffer->GetName().GetCStr(), mapping.m_buffer->GetName().GetCStr());
-                    return RHI::ResultCode::InvalidArgument;
+                    LOG_ERROR("[DX12 CommandQueue] Backing {} is not placed in a heap, or its {} bytes end before "
+                              "tile {}.", backing.GetName().GetCStr(), memory.GetSize(), tileOffset + tileCount);
+                    return false;
                 }
             }
+            heap      = memory.GetHeap();
+            startTile = static_cast<UINT>(memory.GetHeapOffset() / tileSize + tileOffset);
+            return true;
         }
+    }
 
+    RHI::ResultCode CommandQueue::UpdateTileMappingsInternal(eastl::span<const RHI::BufferTileMapping> mappings)
+    {
         const uint64_t pageSize = GetDevice().GetLimits().m_reservedPageSizeInBytes;
         // One heap per call.
         for (const RHI::BufferTileMapping& mapping : mappings)
@@ -106,12 +116,60 @@ namespace Spark::RHI::DX12
             if (mapping.m_backingBuffer)
             {
                 const MemoryView& backingMemory = static_cast<const Buffer*>(mapping.m_backingBuffer)->GetMemoryView();
-                heap = backingMemory.GetHeap();
+                if (!BackingTiles(*mapping.m_backingBuffer, backingMemory, mapping.m_backingByteOffset / pageSize,
+                                  regionSize.NumTiles, heap, heapStartTile))
+                {
+                    return RHI::ResultCode::InvalidArgument;
+                }
                 rangeFlags = D3D12_TILE_RANGE_FLAG_NONE;
-                heapStartTile = static_cast<UINT>((backingMemory.GetHeapOffset() + mapping.m_backingByteOffset) / pageSize);
             }
             m_queue->UpdateTileMappings(
                 buffer.GetMemoryView().GetMemory(),
+                1, &coordinate, &regionSize,
+                heap,
+                1, &rangeFlags, &heapStartTile, &regionSize.NumTiles,
+                D3D12_TILE_MAPPING_FLAG_NONE);
+        }
+        return RHI::ResultCode::Success;
+    }
+
+    RHI::ResultCode CommandQueue::UpdateTileMappingsInternal(eastl::span<const RHI::ImageTileMapping> mappings)
+    {
+        // One heap per call.
+        for (const RHI::ImageTileMapping& mapping : mappings)
+        {
+            const Image& image = static_cast<const Image&>(*mapping.m_image);
+            const RHI::ImageDescriptor& descriptor = image.GetDescriptor();
+
+            D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
+            coordinate.X = mapping.m_tileOrigin.m_left;
+            coordinate.Y = mapping.m_tileOrigin.m_top;
+            coordinate.Z = mapping.m_tileOrigin.m_front;
+            coordinate.Subresource = D3D12CalcSubresource(
+                mapping.m_mipSlice, mapping.m_arraySlice, 0, descriptor.m_mipLevels, descriptor.m_arraySize);
+
+            D3D12_TILE_REGION_SIZE regionSize = {};
+            regionSize.UseBox   = TRUE;
+            regionSize.Width    = mapping.m_tileExtent.m_width;
+            regionSize.Height   = static_cast<UINT16>(mapping.m_tileExtent.m_height);
+            regionSize.Depth    = static_cast<UINT16>(mapping.m_tileExtent.m_depth);
+            regionSize.NumTiles = regionSize.Width * regionSize.Height * regionSize.Depth;
+
+            ID3D12Heap* heap = nullptr;
+            D3D12_TILE_RANGE_FLAGS rangeFlags = D3D12_TILE_RANGE_FLAG_NULL;
+            UINT heapStartTile = 0;
+            if (mapping.m_backingImage)
+            {
+                const MemoryView& backingMemory = static_cast<const Image*>(mapping.m_backingImage)->GetMemoryView();
+                if (!BackingTiles(*mapping.m_backingImage, backingMemory, mapping.m_backingTileOffset,
+                                  regionSize.NumTiles, heap, heapStartTile))
+                {
+                    return RHI::ResultCode::InvalidArgument;
+                }
+                rangeFlags = D3D12_TILE_RANGE_FLAG_NONE;
+            }
+            m_queue->UpdateTileMappings(
+                image.GetMemoryView().GetMemory(),
                 1, &coordinate, &regionSize,
                 heap,
                 1, &rangeFlags, &heapStartTile, &regionSize.NumTiles,

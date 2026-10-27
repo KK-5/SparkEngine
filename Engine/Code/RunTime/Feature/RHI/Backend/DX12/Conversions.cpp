@@ -241,6 +241,12 @@ namespace Spark::RHI::DX12
 
     D3D12_RESOURCE_FLAGS ConvertBufferBindFlags(RHI::BufferBindFlags bufferFlags)
     {
+        // Used as nothing: the other flags are its reserved buffers'.
+        if (CheckBitsAny(bufferFlags, RHI::BufferBindFlags::TileBacking))
+        {
+            return D3D12_RESOURCE_FLAG_NONE;
+        }
+
         D3D12_RESOURCE_FLAGS resourceFlags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
         if (CheckBitsAll(bufferFlags, RHI::BufferBindFlags::ShaderWrite))
         {
@@ -286,6 +292,12 @@ namespace Spark::RHI::DX12
 
     D3D12_RESOURCE_FLAGS ConvertImageBindFlags(RHI::ImageBindFlags imageFlags)
     {
+        // Used as nothing: the other flags are its reserved images'.
+        if (CheckBitsAny(imageFlags, RHI::ImageBindFlags::TileBacking))
+        {
+            return D3D12_RESOURCE_FLAG_NONE;
+        }
+
         D3D12_RESOURCE_FLAGS resourceFlags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
         if (CheckBitsAll(imageFlags, RHI::ImageBindFlags::ShaderWrite))
         {

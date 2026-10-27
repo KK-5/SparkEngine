@@ -75,6 +75,12 @@ namespace Spark::RHI
                 return false;
             }
 
+            if (CheckBitsAny(buffer.GetDescriptor().m_bindFlags, BufferBindFlags::TileBacking))
+            {
+                LOG_WARN("[DeviceBufferView] Buffer {} is a tile backing, which has no views.", buffer.GetName().GetCStr());
+                return false;
+            }
+
             if (!CheckBitsAll(static_cast<uint32_t>(buffer.GetDescriptor().m_bindFlags), static_cast<uint32_t>(viewDescriptor.m_overrideBindFlags)))
             {
                 LOG_WARN("[DeviceBufferView] Buffer view has bind flags that are incompatible with the underlying buffer.");

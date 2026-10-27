@@ -12,7 +12,8 @@ namespace Spark::RHI
         uint64_t      m_byteOffset = 0;
         uint64_t      m_byteCount = 0;
 
-        //! Null unmaps the range. Else a placed buffer of BufferBindFlags::None, not reserved.
+        //! Null unmaps the range. Else a buffer of BufferBindFlags::TileBacking and, the flag aside,
+        //! the reserved buffer's bind flags.
         const Buffer* m_backingBuffer = nullptr;
         uint64_t      m_backingByteOffset = 0;
     };

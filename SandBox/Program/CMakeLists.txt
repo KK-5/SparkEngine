@@ -115,6 +115,22 @@ if (BUILD_RHI_RESERVEDBUFFER)
     )
 endif()
 
+option(BUILD_RHI_RESERVEDIMAGE "Build RHI ReservedImage" ON)
+
+if (BUILD_RHI_RESERVEDIMAGE)
+    set(TARGET_NAME ReservedImage)
+
+    # Headless: maps tiles onto a reserved depth image and checks what a clear leaves in it.
+    add_executable(${TARGET_NAME} RHI/ReservedImage.cpp)
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        SparkCore
+        SparkRHI
+        SparkRHI_DX12
+    )
+endif()
+
 option(BUILD_LTCLUTGEN "Build LTCLutGen" ON)
 
 if (BUILD_LTCLUTGEN)

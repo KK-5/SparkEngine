@@ -197,33 +197,36 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   `DeviceLimits::m_reservedPageSizeInBytes` 查询。管理用的页由持有者定，是硬件页的整数倍，按用途取（几何 2MB，
   小数组更小）：页越大，后备对象和映射调用越少，回收越粗。渲染层的持有者是 `ReservedBuffer`（以后的 Image 版本
   是 `ReservedImage`）。
-- **后备一律是 Buffer 壳**，Buffer 和 Image 的页都由它后备（2026-10-27 定，原先是"Image 由 Image 后备"）。壳只
-  用来带出一段内存：RHI 不暴露裸内存对象，后端从壳的分配里取底层内存（DX12 的堆 + 偏移，Vulkan 的
-  `VkDeviceMemory` + 偏移）。不用 Image 壳：一张 placed Image 占多少字节由驱动定，不能按页数指定，还要给
-  `ImagePool` 加 placed 模式；Buffer 壳要多少建多少，与 Buffer 共用后备池。这和上传纹理用暂存 Buffer 而不用暂存
-  Image 是一回事。池只分配资源，页的管理在持有它的系统里。
+- **后备与被映射的资源同类，由 `TileBacking` 标明**（2026-10-28 定）：Buffer 由 Buffer 后备，Image 由 Image 后备。
+  后备是池里普通分配的资源，bind flags 是 `TileBacking` 加上它后备的 reserved 资源的 bind flags，Image 还带着同样的
+  格式——它的内存给什么样的 reserved 资源用，由使用者在描述符里写明，和普通资源写明用途一样。RHI 不暴露裸内存
+  对象，后端从后备的分配里取底层内存（DX12 的堆 + 偏移，Vulkan 的 `VkDeviceMemory` + 偏移）。池只分配资源，页的
+  管理在持有它的系统里。演化过程：先是"同类后备、不带 bind flags"，后改"一律 Buffer 壳"，再在池上加跨类型的
+  "后备哪类资源"声明——要往 Buffer 池里写 Image 的格式，说明 Buffer 壳兜不住 Image；而"不带 bind flags"是拿
+  `None` 暗中表示后备，该有一个明确的标志。
 - **reserved Buffer 由 `BufferDescriptor` 标记**，仍走池的 `InitBuffer`，池按标记直接调设备 API 创建
   （`CreateReservedResource` / 带 sparse 标志的 `vkCreateBuffer`，D3D12MA / VMA 都不创建 reserved 资源），注册在
   池上，释放走原有的延迟释放。标记存在 Buffer 的描述符上，映射时据此校验。约束：大小是页的整数倍、不能 Map
   （它没有自己的内存）、因而不带初始数据、瞬态资源不能是 reserved。不限池的堆类型：池的堆类型只决定池里普通分配
   的内存，reserved Buffer 不分配内存。
-- **后备是池里普通分配的 placed Buffer**，不带 bind flags，没有专门的入口。约束由上层和后端各自保证：
+- **后备的约束**：
   - 对齐：上层把池描述符的最小分配对齐设为页大小（`DeviceLimits` 给出）。稀疏绑定要求的对齐即稀疏页大小。
   - Vulkan 内存类型：规范不把不同资源的 `memoryTypeBits` 联系起来——Buffer 只保证 `flags`、`usage` 相同的彼此
     一致，深度 / 模板 Image 只保证 `format`、`tiling` 与 sparse 等标志相同的彼此一致，带不带 sparse 本身就是区分
     条件；各自至少有一个 `DEVICE_LOCAL` 类型，但不保证是同一个（原先写的"sparse 的是不带 sparse 的子集"规范里
-    没有）。所以后备池的描述符写明它后备哪类 reserved 资源：Buffer 给用途，Image 给格式。Vulkan 后端在池初始化时
-    按这些创建参数查出要求（`vkGetDeviceBufferMemoryRequirements` / `vkGetDeviceImageMemoryRequirements`，不需要
-    资源对象），按它选类型，找不到兼容类型则池初始化失败——启动时确定，不碰运气。是池级的配置，同最小分配对齐，
-    不和单个资源耦合。DX12 忽略它：文档没写堆类型的限制，实测（debug layer）DEFAULT / UPLOAD / READBACK 堆都能
-    映射；Heap Tier 2 下 Buffer 和纹理同堆。
-  - 映射时后端校验后备是 placed、偏移按页对齐、Vulkan 内存类型在 reserved 资源的 `memoryTypeBits` 内，不满足报错。
+    没有）。后备的描述符正好给出所需：Vulkan 后端按"同用途（Image 加同格式）、带 sparse 标志"的创建参数查出要求
+    （`vkGetDeviceBufferMemoryRequirements` / `vkGetDeviceImageMemoryRequirements`，不需要资源对象），按它选
+    类型，选不到则创建失败——启动时确定，不碰运气。DX12 不需要：文档没写堆类型的限制，实测（debug layer）
+    DEFAULT / UPLOAD / READBACK 堆都能映射；Heap Tier 2 下 Buffer 和纹理同堆。
+  - 映射时校验：RHI 层查后备带 `TileBacking`、其余 bind flags（与格式）与目标一致、范围在后备之内；后端查它在
+    堆里、范围在分配之内（DX12），内存类型在目标的 `memoryTypeBits` 内（Vulkan）。
   - 一页一个后备 Buffer，大小即页的大小，映射一页是一条覆盖多个 tile 的 `BufferTileMapping`。后备池的块大小设为
-    页的大小，每个后备正好占满一个 D3D12MA 块，必然 placed，块空了由 D3D12MA 释放。
-- 后备与 reserved 资源共享内存，不能当普通资源用：它不带 bind flags，校验据此拒绝给它建 View、发屏障、导入图。
-  Vulkan 后端对 `BindFlags::None` 的 Buffer 只分配内存、不建 `VkBuffer`：稀疏绑定的内存段上不能已绑着别的资源
-  （`VUID-VkSparseImageMemoryBind-memory-01104`，除非开 `sparseResidencyAliased`），而壳本来就不被当 Buffer 用。
-  RHI 层看不到这一点。
+    页的大小，每个后备正好占满一个 D3D12MA 块，必然 placed，块空了由 D3D12MA 释放。后备 Image 在 DX12 上同样要
+    placed：池的 bind flags 带 `TileBacking` 时不再总是 committed。
+- 后备与 reserved 资源共享内存，不能当普通资源用：带 `TileBacking` 的资源不能 Map、建 View、发屏障（渲染图导入
+  也止于屏障），也不能是瞬态资源；DX12 建它时不带任何资源标志。Vulkan 后端对它只分配内存、不建 `VkBuffer` /
+  `VkImage`：稀疏绑定的内存段上不能已绑着别的资源（`VUID-VkSparseImageMemoryBind-memory-01104`，除非开
+  `sparseResidencyAliased`）。
 - **映射是队列级操作**（DX12 `ID3D12CommandQueue::UpdateTileMappings`，Vulkan `vkQueueBindSparse`），不能录进
   CommandList，也不由图里的 Pass 做。RHI 只提供 `CommandQueue::UpdateTileMappings(span<const BufferTileMapping>)`
   （后备为空即解除映射）。映射什么、何时映射、何时解除由持有池的系统决定，提交由图做（见下）。
@@ -262,9 +265,10 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   "无遮挡"，越出有效区的采样无害。细节见 L7。
 - **映射的形态照搬 Buffer**：`ImageTileMapping` 与 `BufferTileMapping` 并列——目标是 reserved Image 的一个 mip、
   一层上的一块 tile 区域（起点与大小都以 tile 计，DX12 的原生单位；Vulkan 以纹素计、按 granularity 对齐，后端乘
-  tile 形状换算，边缘不满一个 tile 时截到资源边界），后备是 Buffer 壳加偏移、为空即解除映射；区域里的 tile 按
-  x、y、z 的顺序对应后备里连续的页（DX12 区域 + 堆区间即此序；Vulkan 一条绑定跨多块时内存是否同序，实现时查
-  规范，不同则后端按行拆，接口不变）。`CommandQueue::UpdateTileMappings` 加 Image 的重载，"一个 tile 一次调用
+  tile 形状换算，边缘不满一个 tile 时截到资源边界），后备是同格式的 `TileBacking` Image 加 tile 偏移、为空即解除
+  映射；后备的 tile 按行、再按层数，同格式即同 tile 形状。区域里的 tile 按 x、y、z 的顺序对应后备里从偏移起连续
+  的 tile（DX12 区域 + 堆区间即此序；Vulkan 一条绑定跨多块时内存是否同序，实现时查规范，不同则后端按行拆，接口
+  不变）。`CommandQueue::UpdateTileMappings` 加 Image 的重载，"一个 tile 一次调用
   至多一次"照旧，按 (Image, mip, 层) 判区域重叠。`ImageTileMappingRequest` 照 `BufferTileMappingRequest`，图在
   Execute 开头一并提交。
 - **tile 形状按资源查**：reserved Image 建好后后端查一次记在 Image 上（DX12 已有 `ImageTileLayout`，来自
@@ -485,19 +489,24 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
 - `BufferMemoryType` 只剩 `Unique`，整个枚举删掉；`BufferMemoryView` 暂留为 `MemoryView` 的薄壳，并入 `MemoryView`
   另做。`ResourcePoolDescriptor` 留作空基类。示例 `IndirectDraw` 的划分开关一并删除，四个 Buffer 各自独立。
 
-**R6　reserved Image 与 `ImageTileMapping`**（§六、§七；阴影 L7 的前提）
+~~**R6　reserved Image 与 `ImageTileMapping`**~~（已完成；§六、§七；阴影 L7 的前提）
 
 - **R6a　建 reserved Image**：`ImageDescriptor` 加 `m_reserved`，DX12 `ImagePool` 按它用 `CreateReservedResource2`
   （布局 `64KB_UNDEFINED_SWIZZLE`）创建，不经分配器，释放同 reserved Buffer；Vulkan 对应 `SPARSE_BINDING |
   SPARSE_RESIDENCY`。约束同 reserved Buffer（不能 Map、不是瞬态、不带初始数据）加 §七 第一版的限制。tile 形状与
   packed mip 由后端在创建后查询（DX12 填现成的 `ImageTileLayout`），tile 形状记在 `RHI::Image` 上暴露给上层，有
   packed mip 则创建失败；格式的 sparse 支持在创建时查。
-- **R6b　映射**：`ImageTileMapping`、`UpdateTileMappings` 的 Image 重载、RHI 基类校验（目标是 reserved Image，
-  区域不越出这个 mip 的 tile 范围，后备不是 reserved、不带 bind flags、偏移按页对齐、长度够区域的 tile 数，同一次
-  调用里区域不重叠）、DX12 实现（区域 + 堆区间）。后备池描述符加"后备哪类 reserved 资源"（Buffer 的用途 / Image
-  的格式），`ReservedBuffer` 的后备池补上；DX12 不读它，Vulkan 后端选内存类型用。
-- **R6c　提交与样例**：`ImageTileMappingRequest`，图在 Execute 开头与 Buffer 的请求一起提交。`SandBox/Program/RHI/`
-  加最小样例：建 reserved 2D 数组，在一层上映射一块区域，画进去再采样显示，解除映射。
+- **R6b　映射**：`BufferBindFlags` / `ImageBindFlags` 加 `TileBacking`（§六）：带它的资源不能 Map、建 View、发
+  屏障、做瞬态资源，后备 Buffer 是页的整数倍，后备 Image 单级 mip、其余限制同 reserved Image；DX12 转换出的资源
+  标志为空，后备 Image 的池不再总是 committed。`ImageTileMapping`（后备是 Image 加 tile 偏移）、`UpdateTileMappings`
+  的 Image 重载、RHI 基类校验（目标是 reserved Image，区域不越出这个 mip 的 tile 网格，后备的格式与其余 bind flags
+  与目标一致、范围在后备之内，同一次调用里区域不重叠）、DX12 实现（区域 + 堆区间，后备的堆与起始 tile 与 Buffer
+  共用一个换算）。`BufferTileMapping` 的校验同样改查 `TileBacking`；`ReservedBuffer` 与 RHI 示例的后备改带它。
+- **R6c　提交与样例**：`ImageTileMappingRequest`，图在 Execute 开头与 Buffer 的请求一起提交（两种请求共用一个
+  提交函数）。`SandBox/Program/RHI/ReservedImage` 是 headless 样例：D32 的 reserved 2D 数组两层，第 1 层左上 2×2
+  tile 映射到一个 256×256 的后备，经 DSV 用渲染过程清除再拷贝读回——映射处得清除值、其余得 0；解除映射后再清，
+  整层得 0。在 Intel 核显上通过、debug layer 无报错，确认了：reserved 纹理以 `COMMON` 为初始布局可行，tile 形状
+  128×128，reserved 深度图可建 DSV / SRV，placed 后备 Image 的分配够它的 tile 数，写未映射处丢弃、读得 0。
 
 ## 十一、前瞻
 
