@@ -1,5 +1,7 @@
 #include "ShadowMaskSystem.h"
 
+#include <EASTL/fixed_vector.h>
+
 #include <CoreComponents/Tags.h>
 #include <ECS/WorldContext.h>
 
@@ -22,6 +24,16 @@ namespace Spark::Render
         {
             return;
         }
+
+        // A light that stopped casting lost its ShadowViewRefs, so the loop below never sees
+        // it; a slot left on it would have it read the mask of the light the slot goes to next.
+        eastl::fixed_vector<Entity, 8> stale;
+        world->GetView<ShadowMaskSlot>(Exclude<ShadowViewRefs>).each(
+            [&](Entity light, const ShadowMaskSlot&)
+        {
+            stale.push_back(light);
+        });
+        world->Remove<ShadowMaskSlot>(stale.begin(), stale.end());
 
         // A light holds rows only while ShadowViewSystem has granted it tiles, so this is
         // the same test SceneBindingSystem makes when it decides m_shadowIndex.
