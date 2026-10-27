@@ -1,17 +1,26 @@
 #include "ViewBindingSystem.h"
 
 #include <cmath>
+#include <string.h>
 
+#include <EASTL/algorithm.h>
 #include <EASTL/fixed_vector.h>
 
 #include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
 #include <Math/MathUtils.h>
 #include <Math/Vector4.h>
+#include <Service/Service.h>
+#include <RHI/RHIInterface.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Component/Component.h>
+#include <RHI/Device/Device.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
+#include <RHI/Resource/Buffer/Buffer.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
+#include <Shader/ShaderBindingsUtils.h>
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
 #include <View/ViewComponents.h>
@@ -108,8 +117,7 @@ namespace Spark::Render
             RHI::ShaderInputBufferType::Structured, 1, 0, 0, kViewSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The g_Views SRV is bound by GlobalBuffer once the upload
-        // buffer materializes, so we DO NOT mark it dirty here.
+        // only the handle. The g_Views SRV is bound by Update, so we DO NOT mark it dirty here.
         Ptr<RHI::ShaderBindings> viewBindings = CreateSharedBindings(inputs, kViewSpaceId, "ViewBindingSystem");
         if (!viewBindings)
         {
@@ -121,15 +129,13 @@ namespace Spark::Render
             m_bindings, RHI::Components::ShaderBindings{ viewBindings });
         rhiCtx.Add<ViewBindingTag>(m_bindings);
 
-        GlobalBuffer<Views, ViewData, View>::Descriptor bufferDesc;
-        bufferDesc.m_capacity       = Capacity;
-        bufferDesc.m_resourceName   = ObjectName(ViewBufferName);
-        bufferDesc.m_inputName      = RHI::InputName(ViewBufferName);
-        bufferDesc.m_bindingsEntity = m_bindings;
-        m_views.Init(rhiCtx, bufferDesc);
+        StagingBuffer::Descriptor bufferDesc;
+        bufferDesc.m_name      = ObjectName(ViewBufferName);
+        bufferDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
+        m_viewBuffer.Init(*Service<RHI::RHIInterface>::Get()->GetDevice(), bufferDesc);
     }
 
-    void ViewBindingSystem::Update(uint32_t frameIndex, const FrameTime& time)
+    void ViewBindingSystem::Update(const FrameTime& time)
     {
         auto* rhiCtx = RHI::RHIExecuteContext::Current();
         if (!rhiCtx)
@@ -148,12 +154,20 @@ namespace Spark::Render
             rhiCtx->Remove<ViewHistoryResetTag>(view);
         }
 
-        m_views.Update(*rhiCtx, *rhiCtx, frameIndex,
-            [&](RHI::RHIHandle entity, ViewData& row, const View& view)
+        // Last frame's rows are gone, so are the indices: a view not packed below keeps none.
+        rhiCtx->Clear<ViewIndex>();
+        m_views.clear();
+        // Structural write inside iteration: ViewIndex is not an iterated pool.
+        rhiCtx->GetView<View>(Exclude<DeadTag>).each([&](RHI::RHIHandle entity, const View& view)
         {
-            row = EncodeViewData(view, PreviousHistory(*rhiCtx, entity, view), time);
+            rhiCtx->Add<ViewIndex>(entity, ViewIndex{ static_cast<uint32_t>(m_views.size()) });
+            m_views.push_back(EncodeViewData(view, PreviousHistory(*rhiCtx, entity, view), time));
         });
-        // Apart from the encode, which does not run at all before the buffer materializes.
+        if (!WriteAndBind(*rhiCtx))
+        {
+            rhiCtx->Clear<ViewIndex>();
+        }
+
         rhiCtx->GetView<View, ViewHistory>(Exclude<DeadTag>).each(
             [&](const View& view, ViewHistory& history)
         {
@@ -163,12 +177,41 @@ namespace Spark::Render
 
     void ViewBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        m_views.Shutdown(rhiCtx, rhiCtx);
+        rhiCtx.Clear<ViewIndex>();
 
+        // The view holds the buffer, which goes before its pool.
         if (m_bindings != RHI::NullHandle)
         {
+            SetShaderBuffer(m_bindings, RHI::InputName(ViewBufferName), nullptr);
             rhiCtx.Add<DeadTag>(m_bindings);
         }
         m_bindings = RHI::NullHandle;
+        m_viewBuffer.Shutdown();
+        m_views.clear();
+    }
+
+    bool ViewBindingSystem::WriteAndBind(RHI::RHIContext& rhiCtx)
+    {
+        // Room for one row at least, so the view is never empty.
+        const uint64_t byteCount = eastl::max<uint64_t>(m_views.size(), 1) * sizeof(ViewData);
+        m_viewBuffer.Begin(byteCount);
+        const StagingBuffer::Allocation allocation = m_viewBuffer.Allocate(byteCount);
+        RHI::Buffer* buffer = m_viewBuffer.GetBuffer();
+        if (!allocation.m_data || !buffer)
+        {
+            SetShaderBuffer(m_bindings, RHI::InputName(ViewBufferName), nullptr);
+            return false;
+        }
+        if (!m_views.empty())
+        {
+            memcpy(allocation.m_data, m_views.data(), m_views.size() * sizeof(ViewData));
+        }
+
+        // A view of the whole buffer, so each buffer gets one whatever the count.
+        const RHI::BufferViewDescriptor viewDesc = RHI::BufferViewDescriptor::CreateStructured(
+            0, static_cast<uint32_t>(buffer->GetDescriptor().m_byteCount / sizeof(ViewData)), sizeof(ViewData));
+        RHI::BufferView* view = RHI::GetOrCreateBufferView(rhiCtx, m_viewBuffer.GetResource(), *buffer, viewDesc);
+        SetShaderBuffer(m_bindings, RHI::InputName(ViewBufferName), view);
+        return view != nullptr;
     }
 }

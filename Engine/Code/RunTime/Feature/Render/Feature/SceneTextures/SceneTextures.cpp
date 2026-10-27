@@ -74,7 +74,7 @@ namespace Spark::Render::SceneTextures
             for (auto [entity, view, settings] : ctx.GetView<MainViewTag, Render::View, ViewAmbientOcclusion>().each())
             {
                 const int32_t minSide = 1 << (kDepthMipCount - 1);
-                const bool    usable  = ctx.Has<ViewSlotRef>(entity)
+                const bool    usable  = ctx.Has<ViewIndex>(entity)
                     && view.m_bufferSize.x >= minSide && view.m_bufferSize.y >= minSide;
                 return usable ? entity : RHI::NullHandle;
             }
@@ -95,7 +95,7 @@ namespace Spark::Render::SceneTextures
             // The first main view only, as FindMainViewComponent.
             for (auto [entity, view, settings] : ctx.GetView<MainViewTag, Render::View, ViewScreenSpaceReflection>().each())
             {
-                const bool usable = ctx.Has<ViewSlotRef>(entity) && ctx.Has<ViewTemporalAA>(entity);
+                const bool usable = ctx.Has<ViewIndex>(entity) && ctx.Has<ViewTemporalAA>(entity);
                 return usable ? entity : RHI::NullHandle;
             }
             return RHI::NullHandle;

@@ -53,7 +53,7 @@ namespace Spark::Render::SceneTextures
         const RHI::AttachmentId& Name();
 
         //! The main view the signal is produced for this frame, or NullHandle: the view has
-        //! no ViewAmbientOcclusion, no g_Views slot yet, or a target too small for the chain.
+        //! no ViewAmbientOcclusion, no g_Views row this frame, or a target too small for the chain.
         RHI::RHIHandle FindView(RHI::RHIContext& ctx);
     }
 
@@ -72,7 +72,7 @@ namespace Spark::Render::SceneTextures
         const RHI::AttachmentId& Name();
 
         //! The main view the signal is produced for this frame, or NullHandle: the view has
-        //! no ViewScreenSpaceReflection, no g_Views slot yet, or no temporal AA, whose last
+        //! no ViewScreenSpaceReflection, no g_Views row this frame, or no temporal AA, whose last
         //! output is where a hit's color comes from.
         RHI::RHIHandle FindView(RHI::RHIContext& ctx);
     }

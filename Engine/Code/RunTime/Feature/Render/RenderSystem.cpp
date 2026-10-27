@@ -290,7 +290,6 @@ namespace Spark::Render
 
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown();
@@ -313,6 +312,7 @@ namespace Spark::Render
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
     }
 
@@ -323,8 +323,6 @@ namespace Spark::Render
 
         // Ahead of the graph, which picks this frame's back buffer by the current image index.
         SyncSwapChainToWindow();
-
-        const uint32_t frameIndex = Service<RHI::RHIInterface>::Get()->GetDevice()->GetFrameIndex();
 
         // Output is where the scene is displayed inside the swap chain: the editor viewport
         // panel, or the whole swap chain.
@@ -346,7 +344,7 @@ namespace Spark::Render
         // After the tiles are granted, before SceneBindingSystem marshals the slot it hands
         // each light into LightData.
         m_shadowMaskSystem.Update();
-        m_viewBindingSystem.Update(frameIndex, time);
+        m_viewBindingSystem.Update(time);
 
         m_sceneBindingSystem.Update(time);
         // MaterialBindingSystem stays first, but only so a material's slot exists before

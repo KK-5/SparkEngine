@@ -432,10 +432,10 @@ namespace Spark::Render
                 commandList->SetScissor(ScissorFromViewport(viewport));
             }
 
-            // Lowering kept only views with a slot when the shader reads one.
+            // Lowering kept only views with a row when the shader reads one.
             if (writesView)
             {
-                viewIndex = rhiContext.Get<ViewSlotRef>(handle).Get();
+                viewIndex = rhiContext.Get<ViewIndex>(handle).m_index;
                 commandList->SetRootConstants(
                     reinterpret_cast<const uint8_t*>(&viewIndex), sizeof(viewIndex), rootConstants->m_viewIndexOffset);
             }

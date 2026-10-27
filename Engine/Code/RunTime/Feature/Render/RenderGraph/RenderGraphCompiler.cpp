@@ -1601,7 +1601,7 @@ namespace Spark::Render
                 return;
             }
 
-            // A shader that reads the view needs its g_Views slot; one that only takes the
+            // A shader that reads the view needs its g_Views row; one that only takes the
             // view's viewport does not.
             const auto* rootConstants = context.TryGet<ScopeRootConstants>(scope);
             const bool  readsView     =
@@ -1611,9 +1611,9 @@ namespace Spark::Render
             capabilities->m_collectViews(context, views);
             for (RHIHandle view : views)
             {
-                // No slot before g_Views materializes. Skipping costs this view one frame;
+                // No row when g_Views could not be written. Skipping costs this view one frame;
                 // drawing it would be silently wrong.
-                if (readsView && !context.Has<ViewSlotRef>(view))
+                if (readsView && !context.Has<ViewIndex>(view))
                 {
                     continue;
                 }

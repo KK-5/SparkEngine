@@ -432,8 +432,14 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     Buffer 的 structured view（每份 Buffer 一个视图，不随条数变；至少一个元素）。灯光不再有上限，着色器按
     `g_LightCount` 遍历。`StagingBuffer` 加了 `GetBuffer()`；`SceneBindingSystem::Update` 不再取帧号，`Shutdown` 先解绑
     视图再关暂存，挪到 GPU 空闲之后。`StagedArrayBuffer` 仍被 `GlobalBuffer`（`g_Views`）用着，删除推到 L6e。
-  - **L6e　`g_Views`**：槽号换成区间，写法同 L6d；之后删 `StagedArrayBuffer`。
-  - **L6f　清理**：删 `GlobalBuffer`、`SlotPool` 与其测试；阴影的 `ShadowTilePool` / `ShadowRowPool`（`HandlePool`）
+  - ~~**L6e　`g_Views`**~~（已完成）：不分槽，同 `g_Lights` 每帧密排。行号是否要稳定，看存着它的东西是否与数组同帧
+    重写：材质、几何的行号存在持久的 `g_Instances` 里，必须稳定；视图行号只存在 Scope 常量与剔除布局里，都每帧
+    重算，阴影采样走 `g_ShadowViews`（另一套行号），不引用 `g_Views`。所以活视图每帧按顺序编号，编号作为
+    `ViewIndex` 组件写在视图实体上（先整体清掉，没编上号的视图不留旧号），记录写进一个 `StagingBuffer`，写法同 L6d；
+    写不进时清掉 `ViewIndex`，读视图的 Scope 这一帧跳过。`ViewSlotRef` 与容量上限去掉；`ViewBindingSystem::Update`
+    不再取帧号，`Shutdown` 挪到 GPU 空闲之后。以后若有按视图行号索引的持久 GPU 数据，再换成稳定分配，改的只是
+    `ViewIndex` 的来源。
+  - **L6f　清理**：`StagedArrayBuffer`、`GlobalBuffer`、`SlotPool` 已无引用，删它们与其测试；阴影的 `ShadowTilePool` / `ShadowRowPool`（`HandlePool`）
     是否换成 `Suballocator` 到这一步再定。`RHIResourceSystem` 余下的使用方（CPU 剔除的间接参数、分箱的间接布局表）
     之后单独看。
 

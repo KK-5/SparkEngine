@@ -1,8 +1,11 @@
 #pragma once
 
+#include <EASTL/vector.h>
+
 #include <RHI/Context/RHIContext.h>
 #include <Tick/FrameTime.h>
 
+#include <Staging/StagingBuffer.h>
 #include <View/View.h>
 
 #include "ViewBinding.h"
@@ -13,9 +16,10 @@ namespace Spark::Render
     //! produced the view. A camera view, a shadow view and a sample's hand-built view all
     //! reach the GPU through here, so a producer only ever writes the View component.
     //!
-    //! Each view gets a stable g_Views slot (space1) and its row is rewritten every frame. A
-    //! pass reaches the array through .Binds<ViewBindingTag>(), and the row through the
-    //! viewIndex the executer writes at each view handle.
+    //! g_Views (space1) is small and changes every frame, so it is a StagingBuffer rewritten
+    //! whole: the live views packed densely, each given its row as a ViewIndex. A pass
+    //! reaches the array through .Binds<ViewBindingTag>(), and the row through the viewIndex
+    //! the executer writes at each view handle.
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from
     //! RenderSystem::OnTick, sequenced AFTER every view producer and before the graph runs,
@@ -26,17 +30,17 @@ namespace Spark::Render
     {
     public:
         void Init(RHI::RHIContext& rhiCtx);
-        //! frameIndex is the in-flight slot (Device::GetFrameIndex), used to
-        //! pick this frame's g_Views copy.
-        void Update(uint32_t frameIndex, const FrameTime& time);
+        void Update(const FrameTime& time);
+        //! After the GPU is idle.
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
-        //! Fixed upper bound on live views, shadow faces included. Overflow logs and drops
-        //! the surplus. 256 * 592B = 148 KB per frame copy.
-        static constexpr uint32_t Capacity = 256;
+        //! Copies m_views into this frame's buffer in one go and binds g_Views to it. False
+        //! when the buffer could not grow: then g_Views is bound to nothing.
+        bool WriteAndBind(RHI::RHIContext& rhiCtx);
 
-        GlobalBuffer<Views, ViewData, View> m_views;
+        StagingBuffer           m_viewBuffer;
+        eastl::vector<ViewData> m_views;
 
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Views @ space1
     };

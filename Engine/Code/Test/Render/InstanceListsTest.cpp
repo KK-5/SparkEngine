@@ -52,17 +52,12 @@ class CullingLayoutTest : public ::testing::Test
 {
 protected:
     RHI::RHIContext rhi;
-    Ptr<SlotPool<Views>> viewSlots{ new SlotPool<Views>() };
-
-    void SetUp() override
-    {
-        viewSlots->Init(8);
-    }
+    uint32_t        rowCount = 0;
 
     RHI::RHIHandle ViewWithRow()
     {
         const RHI::RHIHandle view = rhi.CreateEntity();
-        rhi.Add<ViewSlotRef>(view, viewSlots->Allocate());
+        rhi.Add<ViewIndex>(view, ViewIndex{ rowCount++ });
         return view;
     }
 
@@ -87,9 +82,9 @@ TEST_F(CullingLayoutTest, AViewWithoutARowIsLeftOutAndTheOthersKeepTheirOrder)
 
     ASSERT_EQ(layout.m_views.size(), 2u);
     EXPECT_EQ(layout.m_views[0].m_view, first);
-    EXPECT_EQ(layout.m_views[0].m_viewIndex, rhi.Get<ViewSlotRef>(first).Get());
+    EXPECT_EQ(layout.m_views[0].m_viewIndex, rhi.Get<ViewIndex>(first).m_index);
     EXPECT_EQ(layout.m_views[1].m_view, second);
-    EXPECT_EQ(layout.m_views[1].m_viewIndex, rhi.Get<ViewSlotRef>(second).Get());
+    EXPECT_EQ(layout.m_views[1].m_viewIndex, rhi.Get<ViewIndex>(second).m_index);
 }
 
 TEST_F(CullingLayoutTest, EveryViewHasRoomForEveryInstanceRoundedUp)
