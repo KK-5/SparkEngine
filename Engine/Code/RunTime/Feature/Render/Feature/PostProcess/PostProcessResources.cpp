@@ -2,6 +2,8 @@
 
 #include <EASTL/array.h>
 
+#include <Log/ILogSystem.h>
+
 #include <View/MainView.h>
 #include <View/ViewComponents.h>
 

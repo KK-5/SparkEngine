@@ -15,9 +15,13 @@
 // in SceneBindingSystem::Init; change both together.
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
 
-// Indexed by LightData::shadowIndex plus a cube face — entries for unallocated
-// tiles are zeroed, so never read one without checking shadowIndex >= 0 first.
+// Indexed by a shadow map: LightData::shadowIndex plus a cube face. A shadow map nobody holds
+// reads as unshadowed, but never read one without checking shadowIndex >= 0 first.
 StructuredBuffer<ShadowViewData> g_ShadowViews : register(t4, space0);
+
+// Indexed by a view's g_Views row: the shadow map a shadow view renders into. ShadowDepth.hlsl
+// reads it to pick its layer; rows of other views hold nothing meaningful.
+StructuredBuffer<uint> g_ViewShadowMaps : register(t7, space0);
 
 // The active skybox's baked environment. g_PrefilteredCube's mips are a ROUGHNESS axis
 // (mip n == roughness n/(mipCount-1)), not a detail chain — always sample it with an
@@ -45,7 +49,7 @@ cbuffer SceneConstants : register(b0, space0)
     uint  g_LightCount;               // number of valid entries in g_Lights this frame
     uint  g_IBLPrefilteredMipCount;   // 0 == no environment bound; see HasEnvironmentIBL
     float g_EnvIntensity;             // SkyboxComponent::m_intensity, or 1 with no skybox
-    float g_ShadowAtlasTexelSize;     // 1 / atlas resolution; the PCF step in atlas UV
+    float g_ShadowMapTexelSize;       // 1 / a shadow map layer's width; the PCF step in UV
 
     // Engine clock (Core FrameTime), also mirrored into ViewBindings for shaders that bind
     // only the per-view group. Both copies come from the same source and always agree; the

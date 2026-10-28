@@ -21,7 +21,7 @@ struct ScopeParameters
 // its own.
 
 SamplerState           g_MatSampler    : register(s0, space2);
-Texture2D              g_ShadowAtlas   : register(t0, space2);   // atlas as R32_FLOAT, bound once it exists
+Texture2DArray         g_ShadowMaps    : register(t0, space2);   // shadow maps as R32_FLOAT, bound once they exist
 SamplerComparisonState g_ShadowSampler : register(s1, space2);
 
 struct VSOutput
@@ -44,9 +44,9 @@ VSOutput VSMain(VertexFactoryInput input)
     return output;
 }
 
-//! Sampled from the atlas at the surface itself: the ShadowMask holds the opaque depth's.
+//! Sampled from the shadow maps at the surface itself: the ShadowMask holds the opaque depth's.
 //! Lights with a mask slot are the shadowed ones, as in the Lights pass, and ShadowViewSystem
-//! grants none until the atlas exists, so the atlas is bound whenever this reaches it.
+//! grants none until the shadow maps exist, so they are bound whenever this reaches them.
 float LightShadow(LightData light, float3 worldPos, float3 N)
 {
     if (light.shadowMaskIndex < 0)
@@ -54,13 +54,13 @@ float LightShadow(LightData light, float3 worldPos, float3 N)
         return 1.0;
     }
 
-    int row = light.shadowIndex;
-    if (light.shadowFaceCount > 1)
+    int map = light.shadowIndex;
+    if (light.shadowMapCount > 1)
     {
-        row += int(CubeFaceIndex(worldPos - light.position));
+        map += int(CubeFaceIndex(worldPos - light.position));
     }
-    return SampleShadow(GetShadowView(row), worldPos, N,
-                        g_ShadowAtlas, g_ShadowSampler, g_ShadowAtlasTexelSize);
+    return SampleShadow(GetShadowView(map), uint(map), worldPos, N,
+                        g_ShadowMaps, g_ShadowSampler, g_ShadowMapTexelSize);
 }
 
 //! Every light of the scene. A light grid narrows the loop to the lights of the surface's cell.

@@ -67,7 +67,7 @@ UE 的 GPUScene（scatter upload）和 Nanite 页池（上传 + 转码）都是�
 
 区间分配不进 RHI：它不是 DX12 / Vulkan 的原生概念（D3D12MA / VMA 的虚拟分配器是库附带的 CPU 工具），R5 删的
 预算模式正是 RHI 里的这一套；延迟归还只要 `QueueForRelease`，上层就能做。先例：阴影图集（Core 的
-`QuadTreeAllocator` + 渲染层 `ShadowAtlasAllocator` 持有图集并发 RAII tile；L7 换成 reserved 纹理数组）。
+`QuadTreeAllocator` + 渲染层 `ShadowAtlasAllocator` 持有图集并发 RAII tile；L7 已换成 reserved 纹理数组）。
 
 **`RHIResourceSystem` 长期去掉。** 资源的创建和 Map 由各自的系统负责：选池、Map 拷贝随之迁到使用方，按帧轮转
 多份收在 `StagedArrayBuffer` 一类的工具里，不让每个系统各写一遍。`AsyncUploadSystem` 不再接收经它创建的资源，
@@ -237,6 +237,11 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 - 一次调用里每页最多出现一次，validation 检查重叠。按 Vulkan 定：同一批次里一段范围不能绑定两次，批次可能乱序
   完成；DX12 允许重叠、后者覆盖前者，不用这一点。一次调用可以含多个 reserved Buffer（Vulkan 一个批次绑多个
   Buffer、多块内存）；DX12 一次原生调用只有一个资源、一个堆，而一页一个后备即一页一个堆，后端一条映射一次调用。
+  - **待改（2026-10-28 记）**：这条把 Vulkan 的限制原样交给了上层，上层改映射时得自己算"哪些是多出来的"（L7 缩小
+    阴影图时把 L 形拆成两个框解除）。Vulkan 后端补得出"同一帧的请求按提交顺序生效、后者覆盖前者"：提交前在 CPU
+    上按 tile 合并，只把每个 tile 的最终状态交给 `vkQueueBindSparse`；DX12 原生如此。改法：RHI 提供这个语义、去掉
+    重叠校验，Vulkan 后端的合并写进本节；"Vulkan 同一批次不能重复绑定"这条说法改之前先对照规范核实。之后
+    `ShadowMapAllocator::SetResolution` 可简化为整块解除旧的、映射新的。
 - 上层的责任：系统在自己的更新里算出映射，经 `RHIEventContext` 的 `BufferTileMappingRequest` 交给图，和上传请求
   一样是渲染前的资源准备。一个请求一条映射，图在 Execute 开头、所有 Scope 之前对每个请求发一次
   `UpdateTileMappings` 在图形队列上，本帧即可用；系统拿不到图的队列，也不需要。`ReservedBuffer` 按页记未提交的
@@ -252,7 +257,8 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 - 特性要求（Tiled Resources Tier，与 Resource Heap Tier 是两套分级）是引擎的最低要求，设备初始化时检查，不支持
   的设备不能运行引擎，RHI 不设特性开关：DX12 Tiled Resources Tier 2（Tier 1 下读未映射页未定义，Tier 2 起读 0）；
   Vulkan `sparseBinding` + `sparseResidencyBuffer`（Image 再加 `sparseResidencyImage2D`）+
-  `residencyNonResidentStrict`。移动端多数和 MoltenVK 不支持。
+  `residencyNonResidentStrict`。移动端多数和 MoltenVK 不支持。层渲染（VS 写 `SV_RenderTargetArrayIndex`）同样是最低
+  要求：DX12 `VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation`，Vulkan `shaderOutputLayer`。
 
 ## 七、推广到 Image
 
@@ -262,7 +268,7 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   占一层，只渲染层左上 res×res 那块，也只映射那块的 tile；分辨率从"在图集里划哪块"变成"映射多少页"，二维装箱
   （四叉树、碎片降级、tile 所有权）随之去掉。硬件替我们做了地址换算：着色器照常采样、跨页过滤正确、照常光栅化
   写入，软件虚拟纹理在这几处的工作（页表查询、页边 border、逐页渲染）都不需要。读未映射的页得 0，反向 Z 下等于
-  "无遮挡"，越出有效区的采样无害。细节见 L7。
+  "无遮挡"，越过右下边缘的采样无害。细节见 L7。
 - **映射的形态照搬 Buffer**：`ImageTileMapping` 与 `BufferTileMapping` 并列——目标是 reserved Image 的一个 mip、
   一层上的一块 tile 区域（起点与大小都以 tile 计，DX12 的原生单位；Vulkan 以纹素计、按 granularity 对齐，后端乘
   tile 形状换算，边缘不满一个 tile 时截到资源边界），后备是同格式的 `TileBacking` Image 加 tile 偏移、为空即解除
@@ -470,16 +476,40 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     写不进时清掉 `ViewIndex`，读视图的 Scope 这一帧跳过。`ViewSlotRef` 与容量上限去掉；`ViewBindingSystem::Update`
     不再取帧号，`Shutdown` 挪到 GPU 空闲之后。以后若有按视图行号索引的持久 GPU 数据，再换成稳定分配，改的只是
     `ViewIndex` 的来源。
-  - **L6f　清理**：`StagedArrayBuffer`、`GlobalBuffer`、`SlotPool` 已无引用，删它们与其测试。阴影的
-    `ShadowTilePool` / `ShadowRowPool`（`HandlePool`）不在这一步换，随 L7 整个去掉。`RHIResourceSystem` 余下的
-    使用方（CPU 剔除的间接参数、分箱的间接布局表）之后单独看。
-- **L7　阴影改用 reserved 纹理数组**（依赖 R6；方向已定，细节待设计）：图集换成 reserved 的 2D 纹理数组（§七），
-  每个阴影视图一层、只映射左上 res×res 那块。层号跨帧稳定，否则灯一增减各层都要重映射；它是一维的，从容量为层数
-  的 `Suballocator` 取，延迟归还正好对应"灯撤销时上一帧可能还在采样"。`g_ShadowViews` 的行号不需跨帧稳定（同
-  L6e：它和存着它的 `g_Lights` 每帧一起重写），改为打包灯光时顺手密排，`ShadowRowPool`、`ShadowViewRows`、
-  `ShadowViewIndex` 与行数上限去掉。打分、准入、滞回照旧，预算从图集面积变成物理页数。`ShadowTilePool`、四叉树
-  的这处用法、tile 句柄、`HandlePool` / `SharedHandle` / `WeakHandle` 一起删。不先做"图集每帧重排"的过渡：
-  这条路要被替换。
+  - **L6f　清理**：`StagedArrayBuffer`、`GlobalBuffer`、`SlotPool` 已无引用，删它们与其测试，`HandlePool` 随之没有
+    使用方，一并删。阴影的 `ShadowTilePool` / `ShadowRowPool` 已随 L7 去掉。`RHIResourceSystem` 余下的使用方（CPU
+    剔除的间接参数、分箱的间接布局表）之后单独看。
+- ~~**L7　阴影改用 reserved 纹理数组**~~（已完成）：图集换成 reserved 的 2D 深度纹理数组（§七，D32，每层 2048²、96 层，
+  只占地址空间）。一个阴影视图一张阴影图（shadow map），即数组的一层；视图渲染进它的左上 res×res，也只有那块有内存。
+  命名按概念不按存储：一盏灯持有若干张阴影图（"map"），只有立方体的几何处说"face"（第 i 张图即第 i 个面）。
+  - ~~**L7a　层渲染列为最低要求**~~：VS 写 `SV_RenderTargetArrayIndex`（`ShadowProjection` 早已依赖）设备初始化时检查，
+    不支持就初始化失败；`DeviceFeatures::m_layeredRenderingFromVertexShader` 删掉，同 sparse 不设特性开关。
+  - **`ShadowMapAllocator`**（取代 `ShadowAtlasAllocator` 与 `ShadowPools`）：自建 reserved 池与 `TileBacking` 池，数组
+    直接创建后注册为导入资源（`ShadowMapTag`，不经 `PendingImageInit`）；容量 96 的 `Suballocator` 发阴影图序号，一盏灯
+    取连续若干张（`AllocateMaps`）。`Commit(index, res)` 给一张图的左上 res² 建后备、发映射请求，`Decommit` 收回；缩小时
+    把旧方块多出的 L 形拆两个框解除映射（§六"待改"那条放宽后可简化）。**后备归分配器持有、按序号记**，只随解除映射的
+    请求放掉：整个数组每帧清，一层若还映射着放掉的内存，那块内存可能已属别的资源；灯被直接销毁、没走 Decommit 时，
+    后备留到这个序号下次 Commit。请求的 `m_backing` 照本义持有它映射上去或解除的那块；放大时被覆盖的旧后备不必持有
+    （映射在本帧所有工作之前替换，资源释放本就延迟数帧）。
+  - **灯上 `ShadowMaps { Suballocation; m_level; First() }`**：在即持有阴影，滞回读 `m_level`。第 i 个视图的阴影图是
+    `First() + i`，也是它 `g_ShadowViews` 的行号（`LightData::m_shadowIndex = First()`，`m_shadowMapCount` 取代
+    `m_shadowFaceCount`）。`ShadowViewRefs` 只剩视图；`ShadowViewIndex`、行池、行数上限去掉。
+  - **ShadowViewSystem**：不再打分排序、不设预算，先到先得；96 张用完时后来的灯不投阴影（每次耗尽只警告一次），不够
+    再加容量——内存只在 Commit 时才真正占用。按屏幕覆盖范围（`coverage`，原 score）定级别与进出门槛照旧。一盏灯的图
+    共用一个级别（2048 / 1024 / 512），被剔除的面 Decommit；后备建不出时只停那一面，下帧再试。视图 `m_rect` 为
+    `(0, extent)²`，extent = res / 2048；`ShadowMapExtent` 与 `ShadowClipToUV(extent)` 取代 tile 矩形与 `MakeShadowUVRemap`
+    （只剩缩放，偏移恒 0）。`Shutdown` 挪到 GPU 空闲之后。方向光仍一层一个正交盒，不做级联：光栅阴影是光追阴影之前的
+    回退（级联 / clipmap 见 §十一）。
+  - **绘制**：仍是一个 Scope、一个 render pass，DSV 是整个数组的视图（`ShadowMapView`，显式指定，不依赖默认视图）。
+    `ShadowDepth.hlsl`（顶点同 DepthOnly）按 `viewIndex` 查 `g_ViewShadowMaps` 得层号写 `SV_RenderTargetArrayIndex`。
+    这张"当帧视图行号 → 阴影图序号"的表由 SceneBindingSystem 每帧写，和 `g_ShadowViews` 一样放在 space0（t7）、主机内存
+    直接读，ShadowPass 因此 `.Binds<..., MainSceneTag>()`。View / ViewData 不加字段。
+  - **采样**：`SampleShadow` / `BicubicPcf` 读 `Texture2DArray` 加序号；`ShadowViewData::uvMinMax` 缩成 `uvMax`（默认 -1，
+    空行读作无阴影；补三个 float 仍 96 字节）。越过右下边缘读到未映射处得 0（反向 Z 的远平面，受光）；uv < 0 会被钳到图
+    自己的首行首列，所以仍显式判出界；PCF 仍钳到内缩半 texel。`g_ShadowMapTexelSize` 为 1/2048。采样只在这一个函数里，
+    将来换存储形态（§十一）只动这几处。
+  - 待实测：整个数组 Clear 覆盖未映射处的开销（若明显，改为按视图只清它的区域）；reserved 资源的虚拟地址上限（96 层约
+    1.5GB）。`QuadTreeAllocator` 已无使用方，之后删；`HandlePool` 只剩 `SlotPool` 一个使用方，随 L6f 删。
 
 ~~**R5　删预算模式**~~（已完成）
 
@@ -515,6 +545,22 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   读，走 `ReadBuffer` 附件。与本方案一致。
 - **API 趋势**：同步变粗（DX12 缓冲屏障整资源 + global barrier，Vulkan 推荐无所有权转移时用 global memory
   barrier）、内存地址化（buffer device address、bindless）。"大缓冲 + 偏移"顺应这个方向。
+- **阴影往虚拟阴影图演进**（参考 UE VSM，不对标）：硬件映射省掉页表查询、页边 border、逐页渲染，代价是映射只能
+  由 CPU 在队列上提交（DX12 / Vulkan 都没有 GPU 写参数的映射），所以 GPU 当帧算出的页需求最早一两帧后才生效。
+  缓解的路线都留在硬件映射上：① L7，每灯一个分辨率；② CPU 按页定级——每层开到更高的虚拟分辨率，按"灯范围 ∩
+  相机视锥"逐区域取离相机最近点所需的级别，方向光用 clipmap（一级一层），零延迟，局部光接近最优；③ GPU 从深度
+  标页、回读后延迟映射细页，粗级由 ② 常驻，采样经驻留表退到粗级，延迟只表现为新进入视野处一两帧偏糊。CPU 与
+  GPU 的差别不在范围大小（级别按距离选，两边的显存都只随级数增长），而在 CPU 只知道体积、不知道可见表面：空处与
+  被遮挡处也要映射，遮挡多的场景差几倍。只有当 ③ 的延迟不可接受、必须同帧响应时，才换成软件页表。
+  VSM 相对级联阴影的改进里，能拿过来的：clipmap 按距离自动选级（方向光取 N 张图，范围逐级翻倍、对齐世界，无分割
+  参数可调）；按"级别范围 ∩ 视锥"稀疏提交（Commit 从左上方块推广到任意一组 tile）；页缓存（映射跨帧保持，只清、
+  只画失效区域，clipmap 平移用环绕寻址，物体移动标记它覆盖的页），与 GPU 标页无关，收益最大。光栅阴影若只作光追的
+  回退，做 clipmap 就够；若长期承担主要角色，再加稀疏提交与页缓存。
+- **Scope 级的视图选择**：现在 `RendersView` 的 Pass 每个 Scope 都回放这个 Pass 的全部视图，所以各视图共用一个
+  渲染目标，阴影写数组的不同层靠 VS 输出层号（L7）。若 Scope 能只渲染指定视图，各视图便可各声明自己那层（或那张）
+  的目标，VS 不必知道层；但图的编译与执行里按视图回放的部分要重新设计。等出现第二个"视图间渲染目标不同"的需求
+  （反射捕获各写一张立方体、按视图不同分辨率的目标、按页开 Pass）再设计；那时阴影的替换点只有 ShadowPass 与
+  `ShadowDepth.hlsl` 的层号表。
 - **若将来需要区间级并行**：扩展点是让图里的缓冲访问带可选区间、按区间判冲突，是加字段，不需要把区间重新做成
   Buffer。
 

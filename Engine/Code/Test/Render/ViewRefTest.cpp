@@ -6,7 +6,6 @@
 
 #include <RHI/Context/RHIContext.h>
 
-#include <View/ShadowPools.h>
 #include <View/ViewComponents.h>
 #include <View/ViewFactory.h>
 #include <View/ViewTags.h>
@@ -51,17 +50,13 @@ TEST_F(ViewRefTest, DestroyedCameraMarksItsViewsDead)
     EXPECT_TRUE(IsDead(output));
 }
 
-TEST_F(ViewRefTest, DestroyedLightMarksItsShadowViewsDeadAndGivesItsRowsBack)
+TEST_F(ViewRefTest, DestroyedLightMarksItsShadowViewsDead)
 {
-    Ptr<ShadowRowPool> rows(new ShadowRowPool());
-
     ShadowViewRefs refs;
     for (uint32_t face = 0; face < kShadowCubeFaceCount; ++face)
     {
         refs.m_views.push_back(CreateViewEntity<ShadowViewTag>(rhi));
     }
-    refs.m_rows = rows->Allocate(kShadowCubeFaceCount);
-    const uint32_t base = refs.m_rows.Get();
 
     eastl::fixed_vector<RHI::RHIHandle, kShadowCubeFaceCount> views;
     for (const RHI::UniqueRHIHandle& view : refs.m_views)
@@ -78,7 +73,6 @@ TEST_F(ViewRefTest, DestroyedLightMarksItsShadowViewsDeadAndGivesItsRowsBack)
     {
         EXPECT_TRUE(IsDead(view));
     }
-    EXPECT_EQ(rows->Allocate(kShadowCubeFaceCount).Get(), base);
 }
 
 TEST_F(ViewRefTest, RemovedRefMarksItsViewDead)

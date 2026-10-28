@@ -7,7 +7,9 @@
 #include <Math/Vector2.h>
 #include <RHI/Context/UniqueRHIHandle.h>
 
-#include "ShadowPools.h"
+#include <Suballocation/Suballocator.h>
+
+#include "ShadowMapLayout.h"
 
 namespace Spark::Render
 {
@@ -107,27 +109,12 @@ namespace Spark::Render
         RHI::UniqueRHIHandle m_view;
     };
 
-    //! Which row of g_ShadowViews holds this view's ShadowViewData. The only number
-    //! PackShadowViews may address by, and consistent within a frame: LightData::m_shadowIndex
-    //! is read from the light in that same pass, so a row that moved mid-frame would point one
-    //! light's shadow at another light's matrices. Stability ACROSS frames is not required —
-    //! only tile caching would need that.
-    struct ShadowViewIndex
-    {
-        uint32_t m_index = 0;
-    };
-
     //! Source -> the ShadowViewTag view entities it produced. Lives on the WORLD light
     //! entity like MainViewRef, but N per source (six for a point light's cube faces).
     //!
-    //! m_rows rides along because SceneBindingSystem packs g_Lights by iteration order and
-    //! needs the light's g_ShadowViews row during that same pass — reading it here keeps it
-    //! out of RHIContext. Same lifetime as m_views, so one component rather than two. It
-    //! addresses the FIRST of the light's rows: a point light's six faces occupy a
-    //! contiguous run, so one int still addresses them all.
-    //!
-    //! A view's position in m_views IS its face index, and stays so for the light's life:
-    //! a face culled this frame keeps its slot, inactive and holding no tile.
+    //! A view's position in m_views is which of the light's shadow maps it renders, a cube's
+    //! face, and stays so for the light's life: a view culled this frame keeps its slot, inactive
+    //! and its shadow map decommitted.
     //!
     //! Owns its views like MainViewRef. Move-only spelled out: fixed_vector's copy constructor
     //! is declared whatever its element, so without it the struct would look copyable.
@@ -138,13 +125,17 @@ namespace Spark::Render
         ShadowViewRefs& operator=(ShadowViewRefs&&) = default;
 
         eastl::fixed_vector<RHI::UniqueRHIHandle, 6> m_views;
-        ShadowViewRows                               m_rows;
+    };
 
-        //! -1 when the light holds no rows, which is what the shader reads as "casts no
-        //! shadow".
-        int32_t BaseIndex() const
-        {
-            return m_rows.IsValid() ? static_cast<int32_t>(m_rows.Get()) : -1;
-        }
+    //! A light's shadow, on the WORLD light entity beside its ShadowViewRefs: the shadow maps
+    //! its views render into, view i into First() + i, and the level they were granted. Present
+    //! exactly while the light holds a shadow. A view's g_ShadowViews row is its shadow map's
+    //! index too.
+    struct ShadowMaps
+    {
+        Suballocation m_range;
+        uint32_t      m_level = kNoShadowLevel;
+
+        uint32_t First() const { return static_cast<uint32_t>(m_range.GetOffset()); }
     };
 }

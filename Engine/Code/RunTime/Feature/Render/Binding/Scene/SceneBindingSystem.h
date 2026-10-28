@@ -21,11 +21,11 @@ namespace Spark::Render
     //! LightSystem). Tags the binding entity MainSceneTag so a pass pulls it via
     //! .Binds<MainSceneTag>(), exactly like the view group.
     //!
-    //! Both arrays are small and change every frame, so each is a StagingBuffer rewritten
+    //! The arrays are small and change every frame, so each is a StagingBuffer rewritten
     //! whole: put together in CPU memory first, then copied in once, as the mapped memory is
     //! write-combined and slow to read back. Nothing stores a light index across frames (the
-    //! shader iterates g_Lights), and g_ShadowViews is addressed by a row ShadowAtlasAllocator
-    //! hands out.
+    //! shader iterates g_Lights), g_ShadowViews is addressed by shadow map, and
+    //! g_ViewShadowMaps by this frame's view rows.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, ticked among the binding
     //! systems (before the pass processors that consume MainSceneTag).
@@ -38,16 +38,13 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiCtx);
 
     private:
-        //! Fills m_shadowViews from the live shadow view entities, addressed by tile
-        //! slot. Unallocated slots stay zeroed. The authored bias is NOT written here — it
-        //! lives on the light, so PackLightData adds it.
-        void PackShadowViews(RHI::RHIContext& rhiCtx);
+        //! Fills m_shadowViews from the lights holding shadow maps, a row a committed shadow
+        //! map, and m_viewShadowMaps from their views' rows of g_Views. After ViewBindingSystem
+        //! has given the views their rows.
+        void PackShadowViews(WorldContext& world, RHI::RHIContext& rhiCtx);
 
         //! Fills m_lights from the live lights, packed densely in iteration order; its
         //! size is g_LightCount, the length the shader iterates.
-        //!
-        //! Also completes the g_ShadowViews rows each light owns with that light's authored
-        //! bias, so it must run AFTER PackShadowViews, which zeroes those rows first.
         void PackLightData(WorldContext& world);
 
         struct EnvironmentBinding
@@ -82,8 +79,12 @@ namespace Spark::Render
         StagingBuffer            m_lightBuffer;
         eastl::vector<LightData> m_lights;
 
-        //! Every atlas row, addressed by row, so the whole array is written.
+        //! A row a shadow map, all of them written.
         StagingBuffer                 m_shadowViewBuffer;
         eastl::vector<ShadowViewData> m_shadowViews;
+
+        //! A shadow view's g_Views row -> the shadow map it renders into.
+        StagingBuffer           m_viewShadowMapBuffer;
+        eastl::vector<uint32_t> m_viewShadowMaps;
     };
 }

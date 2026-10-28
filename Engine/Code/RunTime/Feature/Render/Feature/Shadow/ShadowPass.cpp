@@ -14,7 +14,9 @@
 #include <View/ViewTags.h>
 #include <Binding/Instance/InstanceBinding.h>
 #include <Geometry/MeshGeometry.h>
-#include <View/ShadowAtlasLayout.h>
+#include <View/ShadowMapAllocator.h>
+#include <View/ShadowMapLayout.h>
+#include <Binding/Scene/SceneBinding.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
 #include <RHI/ResourceBuilder.h>
@@ -29,17 +31,17 @@ namespace Spark::Render
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "AssetManager is unregister.");
 
-        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/DepthOnly/DepthOnly.hlsl");
+        Resource::AssetId assetId = assetManager->MakeAssetId("engine://Shaders/Shadow/ShadowDepth.hlsl");
         if (!assetId.IsValid())
         {
-            LOG_ERROR("[ShadowPass] Failed to loaded shader DepthOnly.hlsl.");
+            LOG_ERROR("[ShadowPass] Failed to loaded shader ShadowDepth.hlsl.");
             return {};
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 0;
-        rt.m_depthStencilFormat   = kShadowAtlasFormat;
+        rt.m_depthStencilFormat   = kShadowMapFormat;
 
         // The whole StandardVertex, as GBufferPass declares it, though the VS reads POSITION
         // alone: the layout describes the bound geometry, and Vulkan bakes its stride into the
@@ -95,27 +97,28 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<ViewBindingTag, InstanceBindingTag>()
+            // The scene group for g_ViewShadowMaps, which places each view in its shadow map.
+            .Binds<ViewBindingTag, InstanceBindingTag, MainSceneTag>()
             .RendersView<ShadowViewTag>()
             .Draw<ShadowCasterTag>()
             .Build([](RenderPassScopes& p)
             {
-                // Until the atlas exists the pass declares nothing and is skipped.
-                if (!p.Import<ShadowAtlasTag>(RHI::AttachmentId("ShadowAtlas")))
+                // Until the shadow maps exist the pass declares nothing and is skipped.
+                if (!p.Import<ShadowMapTag>(RHI::AttachmentId("ShadowMaps")))
                 {
                     return;
                 }
 
-                // One render pass for every view, so this clears the whole atlas — a tile no
-                // light owns holds the clear value.
+                // One render pass for every view, so this clears every shadow map. Writes to what
+                // is not committed are dropped.
                 RHI::AttachmentLoadStoreAction clear;
                 clear.m_clearValue  = RHI::ClearValue::CreateDepth(0.0f);
                 clear.m_loadAction  = RHI::AttachmentLoadAction::Clear;
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
-                s.DepthWrite(RHI::AttachmentId("ShadowAtlas"), clear);
-                // Until they all exist nothing of the scene is drawn, but the atlas is still cleared.
+                s.DepthWrite(RHI::AttachmentId("ShadowMaps"), clear).View(ShadowMapView(RHI::Format::Unknown));
+                // Until they all exist nothing of the scene is drawn, but the shadow maps are still cleared.
                 if (p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
                     && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances")))

@@ -291,7 +291,6 @@ namespace Spark::Render
         m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown();
 
         // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
@@ -313,6 +312,7 @@ namespace Spark::Render
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
     }
 

@@ -1,4 +1,4 @@
-// Projects the shadow atlas into screen space: one full-screen draw, one instance per
+// Projects the shadow maps into screen space: one full-screen draw, one instance per
 // ShadowMask slice, each writing the four lights packed into that slice.
 //
 // No depth attachment, so the sky is shaded too and its mask values are meaningless. It
@@ -21,7 +21,7 @@ struct ScopeParameters
 
 Texture2D              g_GBufferNormal : register(t0, space2);
 Texture2D              g_Depth         : register(t1, space2);   // SceneDepth as R32_FLOAT
-Texture2D              g_ShadowAtlas   : register(t2, space2);   // atlas as R32_FLOAT
+Texture2DArray         g_ShadowMaps    : register(t2, space2);   // shadow maps as R32_FLOAT
 SamplerComparisonState g_ShadowSampler : register(s0, space2);
 
 struct VSOutput
@@ -69,14 +69,14 @@ float4 PSMain(VSOutput input) : SV_Target0
             continue;
         }
 
-        int row = light.shadowIndex;
-        if (light.shadowFaceCount > 1)
+        int map = light.shadowIndex;
+        if (light.shadowMapCount > 1)
         {
-            row += int(CubeFaceIndex(worldPos - light.position));
+            map += int(CubeFaceIndex(worldPos - light.position));
         }
         mask[ShadowMaskChannel(light.shadowMaskIndex)] =
-            SampleShadow(GetShadowView(row), worldPos, N,
-                         g_ShadowAtlas, g_ShadowSampler, g_ShadowAtlasTexelSize);
+            SampleShadow(GetShadowView(map), uint(map), worldPos, N,
+                         g_ShadowMaps, g_ShadowSampler, g_ShadowMapTexelSize);
     }
     return mask;
 }

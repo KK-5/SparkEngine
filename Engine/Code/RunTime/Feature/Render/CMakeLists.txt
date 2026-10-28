@@ -51,8 +51,7 @@ set(SOURCES
     RenderGraph/PassScopes.cpp
     RenderSystem.cpp
     View/CameraViewSystem.cpp
-    View/ShadowAtlasAllocator.cpp
-    View/ShadowPools.cpp
+    View/ShadowMapAllocator.cpp
     View/ShadowViewSystem.cpp
     View/ShadowMaskSystem.cpp
     Binding/SharedBindings.cpp

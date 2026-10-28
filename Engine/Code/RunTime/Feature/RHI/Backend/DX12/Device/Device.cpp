@@ -339,9 +339,6 @@ namespace Spark::RHI::DX12
 
         m_features.m_float16 = (options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT) != 0;
 
-        m_features.m_layeredRenderingFromVertexShader =
-            options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation != 0;
-
         // SM6.6 dynamic resources (ResourceDescriptorHeap) — the material-texture
         // bindless path (TODO_MaterialSystemPlan.md B.6). Requires shader model >= 6.6
         // and resource binding tier 3 (full-heap dynamic indexing). options was fetched
@@ -492,6 +489,13 @@ namespace Spark::RHI::DX12
         {
             LOG_ERROR("[DX12 Device] Tiled resources tier {} is below the required tier 2.",
                       static_cast<int>(options.TiledResourcesTier));
+            return RHI::ResultCode::Fail;
+        }
+
+        // Layered rendering: a vertex shader picks the array slice it rasterizes into.
+        if (!options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation)
+        {
+            LOG_ERROR("[DX12 Device] SV_RenderTargetArrayIndex from a vertex shader is unsupported; it is required.");
             return RHI::ResultCode::Fail;
         }
 

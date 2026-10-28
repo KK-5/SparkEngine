@@ -10,8 +10,8 @@
 // a width-4 tent in each axis, and the final squaring bends its linear penumbra ramp into a
 // quadratic one — which is the shape a cubic B-spline has, and the whole of "bicubic" here.
 //
-// Nothing in this file is bound. The atlas and its sampler arrive as arguments so the same
-// kernels serve any shadow resource, and the caller owns every binding decision.
+// Nothing in this file is bound. The shadow maps and their sampler arrive as arguments so the
+// same kernels serve any shadow resource, and the caller owns every binding decision.
 //
 // References:
 //   https://web.archive.org/web/20201222005801/https:/vec3.ca/bicubic-filtering-in-fewer-taps/
@@ -21,37 +21,38 @@
 
 struct ShadowFilterInput
 {
-    float2 uv;            // atlas UV of the shaded point
+    float2 uv;            // layer UV of the shaded point
+    float  layer;         // the shadow map's layer
     float  z;             // comparison depth, bias already applied
 
-    //! (minU, minV, maxU, maxV) at the tile's texel CENTRES, not its edges. Every tap clamps
-    //! here, so no kernel width can reach a neighbouring tile — whose depth belongs to an
-    //! unrelated light and would compare to an arbitrary result.
+    //! (minU, minV, maxU, maxV) at the shadow map's edge texel CENTRES. Every tap clamps here,
+    //! so no kernel width reaches past it.
     float4 uvClamp;
 
-    //! The ATLAS resolution, never the tile's. Tiles are powers of two on integer texel
-    //! bounds, so the two grids coincide and the floor below aligns for both; sizing by the
-    //! tile instead puts every tap half a texel off, which reads as blur rather than as a bug.
-    float  atlasSize;
-    float  invAtlasSize;
+    //! The LAYER's resolution, never the shadow map's. A shadow map starts at the layer's
+    //! corner on whole texels, so the two grids coincide and the floor below aligns for both;
+    //! sizing by the shadow map instead puts every tap half a texel off, which reads as blur
+    //! rather than as a bug.
+    float  layerSize;
+    float  invLayerSize;
 };
 
-float BicubicTap(Texture2D atlas, SamplerComparisonState smp,
+float BicubicTap(Texture2DArray maps, SamplerComparisonState smp,
                  ShadowFilterInput input, float2 base, float2 offsetTexels)
 {
-    float2 uv = clamp(base + offsetTexels * input.invAtlasSize, input.uvClamp.xy, input.uvClamp.zw);
-    return atlas.SampleCmpLevelZero(smp, uv, input.z);
+    float2 uv = clamp(base + offsetTexels * input.invLayerSize, input.uvClamp.xy, input.uvClamp.zw);
+    return maps.SampleCmpLevelZero(smp, float3(uv, input.layer), input.z);
 }
 
 //! 3x3 kernel in 4 taps. Half-width 1.5 texels.
-float BicubicPcf4Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterInput input)
+float BicubicPcf4Tap(Texture2DArray maps, SamplerComparisonState smp, ShadowFilterInput input)
 {
-    float2 scaled = input.uv * input.atlasSize + 0.5;
+    float2 scaled = input.uv * input.layerSize + 0.5;
     float2 grid   = floor(scaled);
     float2 f      = scaled - grid;
 
     // Lands on a texel centre, and the sampled point sits exactly f texels from it.
-    float2 base = (grid - 0.5) * input.invAtlasSize;
+    float2 base = (grid - 0.5) * input.invLayerSize;
 
     float2 w0 = 3.0 - 2.0 * f;
     float2 w1 = 1.0 + 2.0 * f;
@@ -59,23 +60,23 @@ float BicubicPcf4Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterIn
     float2 o0 = (2.0 - f) / w0 - 1.0;
     float2 o1 = f / w1 + 1.0;
 
-    float sum = w0.x * w0.y * BicubicTap(atlas, smp, input, base, float2(o0.x, o0.y))
-              + w1.x * w0.y * BicubicTap(atlas, smp, input, base, float2(o1.x, o0.y))
-              + w0.x * w1.y * BicubicTap(atlas, smp, input, base, float2(o0.x, o1.y))
-              + w1.x * w1.y * BicubicTap(atlas, smp, input, base, float2(o1.x, o1.y));
+    float sum = w0.x * w0.y * BicubicTap(maps, smp, input, base, float2(o0.x, o0.y))
+              + w1.x * w0.y * BicubicTap(maps, smp, input, base, float2(o1.x, o0.y))
+              + w0.x * w1.y * BicubicTap(maps, smp, input, base, float2(o0.x, o1.y))
+              + w1.x * w1.y * BicubicTap(maps, smp, input, base, float2(o1.x, o1.y));
 
     sum *= 1.0 / 16.0;
     return sum * sum;
 }
 
 //! 5x5 kernel in 9 taps. Half-width 2.5 texels.
-float BicubicPcf9Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterInput input)
+float BicubicPcf9Tap(Texture2DArray maps, SamplerComparisonState smp, ShadowFilterInput input)
 {
-    float2 scaled = input.uv * input.atlasSize + 0.5;
+    float2 scaled = input.uv * input.layerSize + 0.5;
     float2 grid   = floor(scaled);
     float2 f      = scaled - grid;
 
-    float2 base = (grid - 0.5) * input.invAtlasSize;
+    float2 base = (grid - 0.5) * input.invLayerSize;
 
     float2 w0 = 4.0 - 3.0 * f;
     float2 w1 = 7.0;
@@ -100,7 +101,7 @@ float BicubicPcf9Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterIn
     [unroll]
     for (int i = 0; i < 9; ++i)
     {
-        sum += weights[i] * BicubicTap(atlas, smp, input, base, offsets[i]);
+        sum += weights[i] * BicubicTap(maps, smp, input, base, offsets[i]);
     }
 
     sum *= 1.0 / 144.0;
@@ -109,13 +110,13 @@ float BicubicPcf9Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterIn
 
 //! 7x7 kernel in 16 taps. Half-width 3.5 texels. Every weight here is negative; the products
 //! that actually scale a tap are pairs of them, so the kernel is positive throughout.
-float BicubicPcf16Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterInput input)
+float BicubicPcf16Tap(Texture2DArray maps, SamplerComparisonState smp, ShadowFilterInput input)
 {
-    float2 scaled = input.uv * input.atlasSize + 0.5;
+    float2 scaled = input.uv * input.layerSize + 0.5;
     float2 grid   = floor(scaled);
     float2 f      = scaled - grid;
 
-    float2 base = (grid - 0.5) * input.invAtlasSize;
+    float2 base = (grid - 0.5) * input.invLayerSize;
 
     float2 w0 = 5.0 * f - 6.0;
     float2 w1 = 11.0 * f - 28.0;
@@ -144,7 +145,7 @@ float BicubicPcf16Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterI
     [unroll]
     for (int i = 0; i < 16; ++i)
     {
-        sum += weights[i] * BicubicTap(atlas, smp, input, base, offsets[i]);
+        sum += weights[i] * BicubicTap(maps, smp, input, base, offsets[i]);
     }
 
     sum *= 1.0 / 2704.0;
@@ -153,18 +154,18 @@ float BicubicPcf16Tap(Texture2D atlas, SamplerComparisonState smp, ShadowFilterI
 
 //! Picks the kernel whose half-width the caller asked for. The offsets are authored in whole
 //! texels, so the width is NOT continuous — it steps 1.5 / 2.5 / 3.5 and nothing between.
-float BicubicPcf(Texture2D atlas, SamplerComparisonState smp,
+float BicubicPcf(Texture2DArray maps, SamplerComparisonState smp,
                  ShadowFilterInput input, float halfWidthTexels)
 {
     if (halfWidthTexels < 2.0)
     {
-        return BicubicPcf4Tap(atlas, smp, input);
+        return BicubicPcf4Tap(maps, smp, input);
     }
     if (halfWidthTexels < 3.0)
     {
-        return BicubicPcf9Tap(atlas, smp, input);
+        return BicubicPcf9Tap(maps, smp, input);
     }
-    return BicubicPcf16Tap(atlas, smp, input);
+    return BicubicPcf16Tap(maps, smp, input);
 }
 
 #endif // SPARK_LIB_SHADOW_BICUBIC_PCF_HLSLI

@@ -26,6 +26,7 @@
 #include <Shader/ShaderBindingsUtils.h>
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/View/ViewBinding.h>
 
 #include <RHI/Resource/Image/Image.h>
 #include <RHI/Resource/Image/ImageView.h>
@@ -39,7 +40,7 @@
 #include <View/View.h>
 #include <View/ViewTags.h>
 #include <View/ViewComponents.h>
-#include <View/ShadowAtlasLayout.h>
+#include <View/ShadowMapLayout.h>
 #include <View/ShadowMaskLayout.h>
 
 #include <Pass/Component/RHIComponents.h>
@@ -54,7 +55,8 @@ namespace Spark::Render
         constexpr const char* LightBufferName      = "g_Lights";
         constexpr const char* LightCountName       = "g_LightCount";
         constexpr const char* ShadowViewBufferName = "g_ShadowViews";
-        constexpr const char* ShadowTexelSizeName  = "g_ShadowAtlasTexelSize";
+        constexpr const char* ViewShadowMapBufferName = "g_ViewShadowMaps";
+        constexpr const char* ShadowTexelSizeName  = "g_ShadowMapTexelSize";
         constexpr const char* IrradianceCubeName   = "g_IrradianceCube";
         constexpr const char* PrefilteredCubeName  = "g_PrefilteredCube";
         constexpr const char* BRDFLutName          = "g_BRDFLut";
@@ -121,8 +123,9 @@ namespace Spark::Render
             uint32_t                  m_register;
         };
         constexpr BufferInput Buffers[] = {
-            { LightBufferName,      0 },
-            { ShadowViewBufferName, 4 },
+            { LightBufferName,         0 },
+            { ShadowViewBufferName,    4 },
+            { ViewShadowMapBufferName, 7 },
         };
         constexpr ImageInput Images[] = {
             { IrradianceCubeName,  RHI::ShaderInputImageType::ImageCube, 1 },
@@ -169,7 +172,7 @@ namespace Spark::Render
             m_bindings, RHI::Components::ShaderBindings{ sceneBindings });
         rhiCtx.Add<MainSceneTag>(m_bindings);
 
-        // Both arrays land in the space0 group created above, read by shaders straight from
+        // The arrays land in the space0 group created above, read by shaders straight from
         // host memory.
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         {
@@ -182,8 +185,14 @@ namespace Spark::Render
             StagingBuffer::Descriptor shadowDesc;
             shadowDesc.m_name            = ObjectName(ShadowViewBufferName);
             shadowDesc.m_bindFlags       = RHI::BufferBindFlags::ShaderRead;
-            shadowDesc.m_initialCapacity = uint64_t(kShadowViewCapacity) * sizeof(ShadowViewData);
+            shadowDesc.m_initialCapacity = uint64_t(kShadowMapCount) * sizeof(ShadowViewData);
             m_shadowViewBuffer.Init(device, shadowDesc);
+        }
+        {
+            StagingBuffer::Descriptor viewDesc;
+            viewDesc.m_name      = ObjectName(ViewShadowMapBufferName);
+            viewDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
+            m_viewShadowMapBuffer.Init(device, viewDesc);
         }
 
         // Without the first, IBL falls back to constant ambient; without the other two, rect
@@ -235,31 +244,52 @@ namespace Spark::Render
         return handle;
     }
 
-    void SceneBindingSystem::PackShadowViews(RHI::RHIContext& rhiCtx)
+    void SceneBindingSystem::PackShadowViews(WorldContext& world, RHI::RHIContext& rhiCtx)
     {
-        m_shadowViews.assign(kShadowViewCapacity, ShadowViewData{});
+        m_shadowViews.assign(kShadowMapCount, ShadowViewData{});
+        m_viewShadowMaps.clear();
 
-        rhiCtx.GetView<ShadowViewTag, View, ShadowViewIndex>(Exclude<DeadTag>).each(
-            [&](RHI::RHIHandle, const View& view, const ShadowViewIndex& row)
+        world.GetView<ShadowMaps, ShadowViewRefs, Light::LightRenderData>(Exclude<DeadTag>).each(
+            [&](const ShadowMaps& maps, const ShadowViewRefs& refs, const Light::LightRenderData& rd)
         {
-            if (row.m_index >= kShadowViewCapacity)
+            const float extent = ShadowMapExtent(maps.m_level);
+            const float texels = static_cast<float>(ShadowResolution(maps.m_level));
+            for (uint32_t i = 0; i < refs.m_views.size(); ++i)
             {
-                return;
+                const RHI::RHIHandle viewHandle = refs.m_views[i].Get();
+                const uint32_t       index      = maps.First() + i;
+
+                if (const auto* row = rhiCtx.TryGet<ViewIndex>(viewHandle))
+                {
+                    if (row->m_index >= m_viewShadowMaps.size())
+                    {
+                        m_viewShadowMaps.resize(row->m_index + 1, 0);
+                    }
+                    m_viewShadowMaps[row->m_index] = index;
+                }
+
+                // Not committed this frame: its row stays a hole, read as unshadowed.
+                if (rhiCtx.Has<ViewInactiveTag>(viewHandle))
+                {
+                    continue;
+                }
+
+                const View&     view = rhiCtx.Get<View>(viewHandle);
+                ShadowViewData& d    = m_shadowViews[index];
+                d.m_worldToShadowUV  = ShadowClipToUV(extent) * view.GetWorldToClip();
+                d.m_uvMax            = extent;
+
+                // [0][0] is 1/tan(halfFov) under a perspective projection and 1/halfExtent under
+                // an orthographic one, so this one expression is the world width NDC [-1,1]
+                // spans in either — divided by the texels it lands on.
+                const float scaleX     = view.m_viewToClip[0][0];
+                d.m_texelWorldSizePerW = scaleX != 0.0f ? 2.0f / (scaleX * texels) : 0.0f;
+
+                d.m_depthBias          = rd.m_shadowBias;
+                d.m_normalOffsetTexels = rd.m_shadowNormalOffsetTexels;
+                d.m_pcfRadiusTexels    =
+                    0.5f * static_cast<float>(Light::ShadowFilterFootprint(rd.m_shadowFilterWidth));
             }
-
-            ShadowViewData& d = m_shadowViews[row.m_index];
-            d.m_worldToShadowUV = MakeShadowUVRemap(view.m_rect) * view.GetWorldToClip();
-            d.m_uvMinMax = Math::Vector4(
-                view.m_rect.m_minX, view.m_rect.m_minY, view.m_rect.m_maxX, view.m_rect.m_maxY);
-
-            // [0][0] is 1/tan(halfFov) under a perspective projection and 1/halfExtent under
-            // an orthographic one, so this one expression is the world width NDC [-1,1] spans
-            // in either — divided by the texels it lands on, which the rect gives directly.
-            const float texels = (view.m_rect.m_maxX - view.m_rect.m_minX)
-                               * static_cast<float>(kShadowAtlasResolution);
-            const float scaleX = view.m_viewToClip[0][0];
-            d.m_texelWorldSizePerW =
-                (scaleX != 0.0f && texels > 0.0f) ? 2.0f / (scaleX * texels) : 0.0f;
         });
     }
 
@@ -289,31 +319,15 @@ namespace Spark::Render
             d.m_halfWidth  = rd.m_halfWidth;
             d.m_halfHeight = rd.m_halfHeight;
 
-            // Read from the light, not from the view entity: g_Lights is packed by
-            // iteration order while the row is not, so this is the one place the two
-            // index spaces meet.
+            // Read from the light: g_Lights is packed by iteration order while the shadow maps
+            // are not, so this is the one place the two index spaces meet.
+            const auto* maps      = world.TryGet<ShadowMaps>(entity);
             const auto* refs      = world.TryGet<ShadowViewRefs>(entity);
-            d.m_shadowIndex       = refs ? refs->BaseIndex() : -1;
-            d.m_shadowFaceCount   = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
+            d.m_shadowIndex       = maps ? static_cast<int32_t>(maps->First()) : -1;
+            d.m_shadowMapCount    = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
 
             const auto* maskSlot  = world.TryGet<ShadowMaskSlot>(entity);
             d.m_shadowMaskIndex   = maskSlot ? static_cast<int32_t>(maskSlot->m_index) : -1;
-
-            // Every row the light owns, since the authored bias applies to all its faces
-            // and a face without a tile keeps its row inverted by PackShadowViews.
-            for (uint32_t face = 0; d.m_shadowIndex >= 0 && face < d.m_shadowFaceCount; ++face)
-            {
-                const uint32_t row = static_cast<uint32_t>(d.m_shadowIndex) + face;
-                if (row >= m_shadowViews.size())
-                {
-                    break;
-                }
-                ShadowViewData& sv       = m_shadowViews[row];
-                sv.m_depthBias           = rd.m_shadowBias;
-                sv.m_normalOffsetTexels  = rd.m_shadowNormalOffsetTexels;
-                sv.m_pcfRadiusTexels     =
-                    0.5f * static_cast<float>(Light::ShadowFilterFootprint(rd.m_shadowFilterWidth));
-            }
         });
     }
 
@@ -439,20 +453,18 @@ namespace Spark::Render
             return;
         }
 
-        // Before the light loop: that loop adds each light's authored bias to the row its
-        // m_shadowIndex points at, and PackShadowViews zeroes the rows first. Both written
-        // once complete.
-        PackShadowViews(*rhiCtx);
+        PackShadowViews(*world, *rhiCtx);
         PackLightData(*world);
         WriteAndBind(*rhiCtx, m_shadowViewBuffer, m_shadowViews, m_bindings, ShadowViewBufferName);
+        WriteAndBind(*rhiCtx, m_viewShadowMapBuffer, m_viewShadowMaps, m_bindings, ViewShadowMapBufferName);
         const uint32_t lightCount =
             WriteAndBind(*rhiCtx, m_lightBuffer, m_lights, m_bindings, LightBufferName)
                 ? static_cast<uint32_t>(m_lights.size()) : 0;
 
-        // A per-scene constant, not a per-view one: an atlas texel is 1/resolution in UV
-        // whatever tile it falls in, and stays so when tiles stop being uniform.
+        // A per-scene constant, not a per-view one: every layer is as wide, whatever the
+        // resolution of the shadow map in it.
         SetShaderConstant(m_bindings, RHI::InputName(ShadowTexelSizeName),
-            1.0f / static_cast<float>(kShadowAtlasResolution));
+            1.0f / static_cast<float>(kShadowMapResolution));
 
         // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every frame
         // so the CBV is always compiled: its bind is unguarded in CommandList, unlike the SRV
@@ -493,9 +505,11 @@ namespace Spark::Render
         {
             SetShaderBuffer(m_bindings, RHI::InputName(LightBufferName), nullptr);
             SetShaderBuffer(m_bindings, RHI::InputName(ShadowViewBufferName), nullptr);
+            SetShaderBuffer(m_bindings, RHI::InputName(ViewShadowMapBufferName), nullptr);
         }
         m_lightBuffer.Shutdown();
         m_shadowViewBuffer.Shutdown();
+        m_viewShadowMapBuffer.Shutdown();
 
         if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
         if (m_brdfLut  != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_brdfLut); }

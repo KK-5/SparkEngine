@@ -11,8 +11,8 @@ struct LightData
     float3 color;     uint  type;        // rgb; 0=directional, 1=point, 2=spot, 3=rect
     float3 position;  float invRange;    // world position, 1/range (0=dir)
     float  cosInner;  float cosOuter;                 // spot cone
-    int    shadowIndex;                               // first g_ShadowViews row; -1 = none
-    uint   shadowFaceCount;                           // >1 adds a cube face index to it
+    int    shadowIndex;                               // first shadow map and g_ShadowViews row; -1 = none
+    uint   shadowMapCount;                            // >1 adds a cube face index to it
     float3 right;     int   shadowMaskIndex;          // rect unit right axis; ShadowMask slot, -1 = none
     float  halfWidth; float halfHeight;               // rect, world units
     // Scalars, not a uint2: a vector's alignment rule would decide where it lands and the

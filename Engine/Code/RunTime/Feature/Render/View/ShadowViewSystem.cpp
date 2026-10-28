@@ -1,7 +1,6 @@
 #include "ShadowViewSystem.h"
 
 #include <EASTL/fixed_vector.h>
-#include <EASTL/sort.h>
 
 #include <ECS/Common.h>
 #include <CoreComponents/Tags.h>
@@ -11,13 +10,12 @@
 #include <Math/MathUtils.h>
 #include <Math/Sphere.h>
 
-#include <RHI/HardwareQueue.h>
-#include <RHI/ResourceBuilder.h>
-#include <RHI/Resource/Image/ImageDescriptor.h>
+#include <Service/Service.h>
+
+#include <RHI/RHIInterface.h>
+#include <RHI/ResourceBuilder.h>   // IsResourceReady
 
 #include <Light/Components.h>
-
-#include <RHI/ResourceBuilder.h>   // IsResourceReady
 
 #include "View.h"
 #include "ViewComponents.h"
@@ -28,14 +26,12 @@ namespace Spark::Render
 {
     namespace
     {
-        //! World size of one shadow texel of a directional light's box. The divisor is the
-        //! tile's USABLE span, not its resolution: the viewport is inset by the border, so
-        //! that is what NDC [-1,1] lands on. Per level, since the tile a light is granted is
-        //! no longer one fixed size — snapping to a grid that does not match the texels it
-        //! was actually given puts the crawl straight back.
+        //! World size of one shadow texel of a directional light's box. Per level, since the
+        //! resolution a light is granted is not one fixed size — snapping to a grid that does not
+        //! match the texels it was actually given puts the crawl straight back.
         float DirectionalTexelSize(float radius, uint32_t level)
         {
-            return 2.0f * radius / static_cast<float>(ShadowUsableTexels(level));
+            return 2.0f * radius / static_cast<float>(ShadowResolution(level));
         }
 
         //! A shadow distance below this is not worth a view. Also keeps the slice non-empty
@@ -73,7 +69,8 @@ namespace Spark::Render
             return dir;
         }
 
-        uint32_t ShadowFaceCount(const Light::LightRenderData& rd)
+        //! A cube light's shadow map i is its face i.
+        uint32_t ShadowMapCount(const Light::LightRenderData& rd)
         {
             // A spot wider than 90 degrees wants faces too — see TODO §八. It stays on its
             // own single view until the point light path is proven.
@@ -120,31 +117,25 @@ namespace Spark::Render
             return true;
         }
 
-        //! A light must clear kScoreEnter to take a tile but only kScoreExit to keep one, so
-        //! one hovering at the boundary does not flicker on and off.
-        constexpr float kScoreEnter = 0.03f;
-        constexpr float kScoreExit  = 0.02f;
-
-        //! Ranking bonus for a light that already holds a tile: a newcomer has to be clearly
-        //! more important to take it over, not a hair ahead.
-        constexpr float kIncumbentBonus = 1.25f;
+        //! A light must cover kCoverageEnter of the view to take a shadow but only kCoverageExit
+        //! to keep one, so one hovering at the boundary does not flicker on and off.
+        constexpr float kCoverageEnter = 0.03f;
+        constexpr float kCoverageExit  = 0.02f;
 
         //! A directional light, which has no bounding volume to project and lights everything
-        //! there is. Nothing measurable competes with it. Ranked like any other score, not
-        //! exempt from the budget.
+        //! there is: it takes the coarsest level.
         //!
-        //! NOT for a radius that merely could not be computed. A score decides how much of the
-        //! atlas a light is handed, so answering "unmeasurable" with "maximal" spends the
-        //! whole atlas on the one light whose size nobody knows.
-        constexpr float kScoreDirectional = 1e9f;
+        //! NOT for a radius that merely could not be computed: answering "unmeasurable" with
+        //! "maximal" hands the largest shadow maps to a light whose size nobody knows.
+        constexpr float kCoverageDirectional = 1e9f;
 
-        //! What a light covering the entire view scores. The unit is NDC half heights, so 1.0
+        //! What a light covering the entire view covers. The unit is NDC half heights, so 1.0
         //! IS the whole view — anything beyond it is off screen and buys no more detail.
-        constexpr float kScoreFullView = 1.0f;
+        constexpr float kCoverageFullView = 1.0f;
 
         //! Screen radius, in NDC half heights, at which a light earns each level — indexed BY
         //! level, so entry [1] is what 2048 costs, and the finest level is free to anyone who
-        //! cleared kScoreEnter at all.
+        //! cleared kCoverageEnter at all.
         //!
         //! Geometric rather than evenly spaced: a level up is four times the texels, so it
         //! takes twice the coverage to deserve one. Expressed in NDC and not derived through
@@ -152,7 +143,7 @@ namespace Spark::Render
         //! through a pixel count nobody maintains would only dress up a judgement call.
         constexpr float kLevelPromote[] = { 0.0f, 0.50f, 0.25f, 0.0f };
 
-        //! And what it takes to keep one. Same 0.67 ratio as kScoreEnter to kScoreExit,
+        //! And what it takes to keep one. Same 0.67 ratio as kCoverageEnter to kCoverageExit,
         //! reused rather than reinvented so the system has one hysteresis width.
         constexpr float kLevelDemote[] = { 0.0f, 0.34f, 0.17f, 0.0f };
 
@@ -161,14 +152,14 @@ namespace Spark::Render
         static_assert(ArraySize(kLevelDemote) > kShadowFinestLevel,
             "one demote threshold per level");
 
-        //! The level a score asks for outright, ignoring whatever the light holds now.
-        //! kScoreDirectional saturates at the coarsest level by falling through the first
+        //! The level a coverage asks for outright, ignoring whatever the light holds now.
+        //! kCoverageDirectional saturates at the coarsest level by falling through the first
         //! test, so a directional light needs no branch of its own here either.
-        uint32_t LevelForScore(float score)
+        uint32_t LevelForCoverage(float coverage)
         {
             for (uint32_t level = kShadowCoarsestLevel; level < kShadowFinestLevel; ++level)
             {
-                if (score >= kLevelPromote[level])
+                if (coverage >= kLevelPromote[level])
                 {
                     return level;
                 }
@@ -176,18 +167,17 @@ namespace Spark::Render
             return kShadowFinestLevel;
         }
 
-        //! The level to ask for, with the light's CURRENT level as the hysteresis state. That
-        //! state is read back off the tile the light holds rather than tracked, so this keeps
-        //! 6a's property of carrying nothing across frames.
-        uint32_t RequestedLevel(float score, uint32_t currentLevel)
+        //! The level to ask for, with the light's CURRENT level (ShadowMaps::m_level) as the
+        //! hysteresis state.
+        uint32_t RequestedLevel(float coverage, uint32_t currentLevel)
         {
-            const uint32_t wanted = LevelForScore(score);
+            const uint32_t wanted = LevelForCoverage(coverage);
             if (currentLevel == kNoShadowLevel || wanted < currentLevel)
             {
-                // Holding nothing, or the score cleared the bar for a coarser tile outright.
+                // Holding nothing, or the coverage cleared the bar for a coarser level outright.
                 return wanted;
             }
-            if (score < kLevelDemote[currentLevel])
+            if (coverage < kLevelDemote[currentLevel])
             {
                 // Fallen out of the band. wanted is necessarily finer than currentLevel here,
                 // since the demote threshold sits below the promote one for the same level.
@@ -208,7 +198,7 @@ namespace Spark::Render
             float         m_nearZ  = 0.1f;
 
             //! False during warmup and with no camera, and then nothing is culled: letting
-            //! through what should be rejected costs a tile, rejecting what should pass
+            //! through what should be rejected costs a shadow map, rejecting what should pass
             //! loses a shadow.
             bool          m_valid = false;
         };
@@ -322,33 +312,9 @@ namespace Spark::Render
             {
                 // Inside the sphere the tangent cone has no apex angle to measure, but the
                 // answer is not unknown: the light surrounds the viewer, so it covers the view.
-                return kScoreFullView;
+                return kCoverageFullView;
             }
             return sphere.radius * main.m_proj11 / Math::Sqrt(d2 - r2);
-        }
-
-        struct Candidate
-        {
-            Entity m_light     = NullEntity;
-            float  m_score     = 0.0f;
-            bool   m_holdsTile = false;
-
-            //! What the score asks for going in, revised down by the budget pass to what the
-            //! ranks above it left affordable. Still the level that will be requested from the
-            //! allocator either way.
-            uint32_t m_requestedLevel = kShadowFinestLevel;
-
-            //! Bit per face that survived culling. Bit 0 for a light with a single view.
-            uint32_t m_faceMask = 1u;
-
-            //! Whether the budget could seat it. Not a prefix of the ranking: a light needing
-            //! six faces can be turned away while a single-face one below it still fits.
-            bool m_admitted = false;
-        };
-
-        float RankOf(const Candidate& c)
-        {
-            return c.m_score * (c.m_holdsTile ? kIncumbentBonus : 1.0f);
         }
 
         //! Quantize the box origin to whole texels in the light's own frame. Without it the
@@ -403,7 +369,7 @@ namespace Spark::Render
             view.m_worldToView = Math::LookAt(rd.m_worldPosition, rd.m_worldPosition + dir, StableUp(dir));
 
             // m_cosOuter is the cosine of the HALF angle, so the full vertical fov is twice
-            // its arccos. Square tile, hence aspect 1.
+            // its arccos. Square shadow map, hence aspect 1.
             const float outerHalf = Math::Clamp(
                 Math::Acos(Math::Clamp(rd.m_cosOuter, -1.0f, 1.0f)),
                 Math::Radians(kSpotMinHalfAngleDeg), Math::Radians(kSpotMaxHalfAngleDeg));
@@ -412,14 +378,14 @@ namespace Spark::Render
         }
 
         //! Wider than 90 degrees by enough that the 45 degree face edge lands `margin` texels
-        //! inside the tile instead of on its border. The strip between the two carries the
+        //! inside the shadow map instead of on its border. The strip between the two carries the
         //! neighbouring face's content, so a filter tap that walks off the edge reads the
         //! depth that direction really has rather than a clamped copy of the last texel —
         //! which is what the seam across a cube's faces is.
         //!
         //! Shading still picks a face by the exact 90 degree rule, so the strip is only ever
         //! read as filter footprint, never selected into.
-        //! A world offset displaces a lookup at the tile edge two ways at once: laterally, and
+        //! A world offset displaces a lookup at the shadow map edge two ways at once: laterally, and
         //! through the perspective divide on its depth component. The two draw on orthogonal
         //! components of the normal, so the worst case over orientations is sec(halfFov) —
         //! exactly this at 45 degrees, and 1.3% under it at the padded angle, which is 0.04
@@ -437,7 +403,7 @@ namespace Spark::Render
 
             // The 45 degree edge is to sit at NDC 1 - 2*margin/texels, and a direction at that
             // angle maps to 1/tan(halfFov), which gives the half angle outright.
-            const float texels = static_cast<float>(ShadowUsableTexels(level));
+            const float texels = static_cast<float>(ShadowResolution(level));
             const float inner  = Math::Clamp(texels - 2.0f * margin, 1.0f, texels);
             return 2.0f * Math::Atan(texels / inner);
         }
@@ -456,7 +422,7 @@ namespace Spark::Render
 
     void ShadowViewSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        m_atlas.Init(rhiCtx);
+        m_maps.Init(rhiCtx, *Service<RHI::RHIInterface>::Get()->GetDevice());
     }
 
     void ShadowViewSystem::Update()
@@ -468,16 +434,16 @@ namespace Spark::Render
             return;
         }
 
-        // The single readiness gate for shadows. Holding tiles back until the atlas exists
+        // The single readiness gate for shadows. Holding shadow maps back until they exist
         // leaves every m_shadowIndex at -1, which is what the lighting shader already tests,
-        // so nothing downstream needs a second check for the warmup frames.
-        if (!RHI::IsResourceReady(*rhiCtx, m_atlas.Image()))
+        // so nothing downstream needs a second check.
+        if (!RHI::IsResourceReady(*rhiCtx, m_maps.GetResource()))
         {
             return;
         }
 
         // Sweep: a light that died, lost its render data or stopped casting hands its views
-        // and its tiles back. So does one whose type changed, since the number of views was
+        // and its shadow maps back. So does one whose type changed, since the number of views was
         // fixed when they were created — an author switching a light to Point in the editor
         // would otherwise leave it with the single view it had as a directional.
         eastl::fixed_vector<Entity, 8> orphans;
@@ -485,12 +451,12 @@ namespace Spark::Render
         {
             const auto* rd = world->TryGet<Light::LightRenderData>(e);
             if (!world->Has<DeadTag>(e) && rd && ProducesShadowView(*rd)
-                && refs.m_views.size() == ShadowFaceCount(*rd))
+                && refs.m_views.size() == ShadowMapCount(*rd))
             {
                 return;
             }
 
-            ReleaseAllocation(*rhiCtx, refs);
+            ReleaseMaps(*world, e, refs);
             LOG_INFO("[ShadowViewSystem] Light {} released {} shadow view(s).",
                 static_cast<uint32_t>(e), refs.m_views.size());
             orphans.push_back(e);
@@ -499,7 +465,7 @@ namespace Spark::Render
 
         const MainViewInfo main = ResolveMainView(*rhiCtx);
 
-        eastl::fixed_vector<Candidate, 32> candidates;
+        // First come, first served: a light finding every shadow map taken goes without.
         world->GetView<Light::LightRenderData>(Exclude<DeadTag>).each(
             [&](Entity e, const Light::LightRenderData& rd)
         {
@@ -508,13 +474,12 @@ namespace Spark::Render
                 return;
             }
 
-            const auto* refs      = world->TryGet<ShadowViewRefs>(e);
-            const bool  holdsTile = refs && refs->m_rows.IsValid();
-
-            const uint32_t grantedLevel = holdsTile ? GrantedLevel(*rhiCtx, *refs) : kNoShadowLevel;
+            const auto*    maps         = world->TryGet<ShadowMaps>(e);
+            const bool     holdsShadow  = maps != nullptr;
+            const uint32_t grantedLevel = holdsShadow ? maps->m_level : kNoShadowLevel;
 
             // No LightBounds means unbounded influence, so nothing here can reject it.
-            float score = kScoreDirectional;
+            float coverage = kCoverageDirectional;
             if (const auto* bounds = world->TryGet<Light::LightBounds>(e); bounds && main.m_valid)
             {
                 if (!main.m_frustum.IntersectsSphere(bounds->m_sphere.center, bounds->m_sphere.radius))
@@ -522,22 +487,23 @@ namespace Spark::Render
                     Deactivate(*world, *rhiCtx, e);
                     return;
                 }
-                score = ScreenRadius(bounds->m_sphere, main);
-                if (score < (holdsTile ? kScoreExit : kScoreEnter))
+                coverage = ScreenRadius(bounds->m_sphere, main);
+                if (coverage < (holdsShadow ? kCoverageExit : kCoverageEnter))
                 {
                     Deactivate(*world, *rhiCtx, e);
                     return;
                 }
             }
 
-            // Which faces are worth a tile. A light with one view has no face to reject, and
-            // with no main view the frustum rejects nothing — the same direction 6a errs in.
-            uint32_t       faceMask  = 1u;
-            const uint32_t faceCount = ShadowFaceCount(rd);
-            if (faceCount > 1)
+            // Which shadow maps are worth having: a cube's faces are culled. A light with one view
+            // has nothing to reject, and with no main view the frustum rejects nothing — the same
+            // direction 6a errs in.
+            uint32_t       mapMask  = 1u;
+            const uint32_t mapCount = ShadowMapCount(rd);
+            if (mapCount > 1)
             {
-                faceMask = 0;
-                for (uint32_t face = 0; face < faceCount; ++face)
+                mapMask = 0;
+                for (uint32_t face = 0; face < mapCount; ++face)
                 {
                     Math::Vector3 hull[5];
                     FaceHull(rd.m_worldPosition, face, rd.m_range, hull);
@@ -546,192 +512,68 @@ namespace Spark::Render
                     {
                         continue;
                     }
-                    faceMask = SetBit(faceMask, face);
+                    mapMask = SetBit(mapMask, face);
                 }
-                if (faceMask == 0)
+                if (mapMask == 0)
                 {
                     Deactivate(*world, *rhiCtx, e);
                     return;
                 }
             }
 
-            candidates.push_back(
-                Candidate{ e, score, holdsTile, RequestedLevel(score, grantedLevel), faceMask });
+            Activate(*world, *rhiCtx, e, RequestedLevel(coverage, grantedLevel), mapMask,
+                ShadowVolume(rd, main));
         });
-
-        eastl::sort(candidates.begin(), candidates.end(),
-            [](const Candidate& a, const Candidate& b) { return RankOf(a) > RankOf(b); });
-
-        // Commit the atlas down the ranking, reducing the level of whoever cannot be afforded
-        // at the size they asked for. Two things fall out of doing this before allocating
-        // rather than during: the admitted set is known BEFORE any tile changes hands, which
-        // is what lets the rejected lights be deactivated first and their space reused this
-        // same frame; and a light that cannot be afforded is given a smaller tile rather than
-        // dropped, so a light loses its shadow only once even the finest tile is gone.
-        //
-        // The sum is optimistic — it ignores fragmentation, so the tiles may not actually cut
-        // even when the area adds up. That error lands in the safe direction: allocation
-        // reduces the level again, and no light is rejected that could have been served.
-        uint32_t committedUnits = 0;
-        for (Candidate& candidate : candidates)
-        {
-            const uint32_t faces = CountBitsSet(candidate.m_faceMask);
-
-            uint32_t level = candidate.m_requestedLevel;
-            while (level <= kShadowFinestLevel
-                && committedUnits + faces * ShadowTileCost(level) > kShadowBudgetUnits)
-            {
-                ++level;
-            }
-            if (level > kShadowFinestLevel)
-            {
-                // Skipped, not stopped at: what is left cannot seat THIS light's faces, and a
-                // light below asking for fewer of them may still be seated. Cost is faces
-                // times area, so it does not descend with the ranking.
-                continue;
-            }
-            candidate.m_requestedLevel = level;
-            candidate.m_admitted       = true;
-            committedUnits += faces * ShadowTileCost(level);
-        }
-
-        // Rejected first: a tile handed back here is available to an admitted light below in
-        // the same frame.
-        for (const Candidate& candidate : candidates)
-        {
-            if (!candidate.m_admitted)
-            {
-                Deactivate(*world, *rhiCtx, candidate.m_light);
-            }
-        }
-        for (const Candidate& candidate : candidates)
-        {
-            if (!candidate.m_admitted)
-            {
-                continue;
-            }
-            const auto* rd = world->TryGet<Light::LightRenderData>(candidate.m_light);
-            Activate(*world, *rhiCtx, candidate.m_light, candidate.m_requestedLevel,
-                candidate.m_faceMask, rd ? ShadowVolume(*rd, main) : Math::Sphere{});
-        }
     }
 
-    //! Every face of a light shares one level, so the first tile found answers for all.
-    uint32_t ShadowViewSystem::GrantedLevel(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
+    uint32_t ShadowViewSystem::CommitMaps(ShadowMaps& maps, uint32_t level, uint32_t mapMask, uint32_t mapCount)
     {
-        for (const RHI::UniqueRHIHandle& view : refs.m_views)
+        uint32_t committed = 0;
+        for (uint32_t i = 0; i < mapCount; ++i)
         {
-            if (const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(view.Get()))
+            const uint32_t index = maps.First() + i;
+            if (!CheckBit(mapMask, i))
             {
-                return ShadowAtlasAllocator::LevelOfTile(tile->Get());
+                m_maps.Decommit(index);
+            }
+            else if (m_maps.Commit(index, ShadowResolution(level)))
+            {
+                committed = SetBit(committed, i);
             }
         }
-        return kNoShadowLevel;
+        maps.m_level = level;
+        return committed;
     }
 
-    uint32_t ShadowViewSystem::HeldFaceMask(RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
+    void ShadowViewSystem::ReleaseMaps(WorldContext& world, Entity light, const ShadowViewRefs& refs)
     {
-        uint32_t mask = 0;
-        for (uint32_t face = 0; face < refs.m_views.size(); ++face)
+        const auto* maps = world.TryGet<ShadowMaps>(light);
+        if (!maps)
         {
-            if (rhiCtx.Has<ShadowAtlasTile>(refs.m_views[face].Get()))
-            {
-                mask = SetBit(mask, face);
-            }
+            return;
         }
-        return mask;
-    }
-
-    void ShadowViewSystem::ReleaseTilesKeepingRows(
-        RHI::RHIContext& rhiCtx, const ShadowViewRefs& refs)
-    {
-        for (const RHI::UniqueRHIHandle& view : refs.m_views)
+        for (uint32_t i = 0; i < refs.m_views.size(); ++i)
         {
-            rhiCtx.Remove<ShadowAtlasTile>(view.Get());
+            m_maps.Decommit(maps->First() + i);
         }
-    }
-
-    void ShadowViewSystem::ReleaseAllocation(
-        RHI::RHIContext& rhiCtx, ShadowViewRefs& refs)
-    {
-        ReleaseTilesKeepingRows(rhiCtx, refs);
-        for (const RHI::UniqueRHIHandle& view : refs.m_views)
-        {
-            rhiCtx.Remove<ShadowViewIndex>(view.Get());
-        }
-        refs.m_rows.Reset();
-    }
-
-    //! Every surviving face gets a tile of one level, or none of them does. A cube missing a
-    //! face leaks a hard-edged wedge whose presence tracks atlas fragmentation rather than
-    //! anything in the scene; one level coarser everywhere is the better failure.
-    //!
-    //! The g_ShadowViews rows are untouched throughout — the light's m_shadowIndex, published
-    //! to the shader, survives every change of level and of face set.
-    bool ShadowViewSystem::ReallocateTiles(WorldContext& world, RHI::RHIContext& rhiCtx,
-        Entity light, const ShadowViewRefs& refs, uint32_t level, uint32_t faceMask)
-    {
-        const uint32_t currentLevel = GrantedLevel(rhiCtx, refs);
-        if (currentLevel == level && HeldFaceMask(rhiCtx, refs) == faceMask)
-        {
-            return true;
-        }
-
-        const uint32_t faces = CountBitsSet(faceMask);
-        ShadowTileList tiles;
-
-        if (currentLevel != kNoShadowLevel && level < currentLevel)
-        {
-            // Promoting: allocate BEFORE releasing. The larger tiles may want the very space
-            // the current ones sit in, in which case this fails and the light keeps what it
-            // has — a missed promotion, not a lost shadow. Releasing first would make that
-            // same case cost the light its tiles, and a light held down by a full atlas would
-            // then release and re-acquire every single frame.
-            if (!m_atlas.AllocateTilesAt(level, faces, tiles))
-            {
-                return true;
-            }
-            ReleaseTilesKeepingRows(rhiCtx, refs);
-        }
-        else
-        {
-            // Demoting, or arriving, or only the face set moved: release first, since the
-            // space wanted is most likely inside what is being given up.
-            ReleaseTilesKeepingRows(rhiCtx, refs);
-            if (m_atlas.AllocateTilesOrFiner(level, faces, tiles) == kNoShadowLevel)
-            {
-                Deactivate(world, rhiCtx, light);
-                return false;
-            }
-        }
-
-        uint32_t next = 0;
-        for (uint32_t face = 0; face < refs.m_views.size(); ++face)
-        {
-            if (CheckBit(faceMask, face))
-            {
-                rhiCtx.AddOrReplace<ShadowAtlasTile>(
-                    refs.m_views[face].Get(), eastl::move(tiles[next++]));
-            }
-        }
-        return true;
+        world.Remove<ShadowMaps>(light);
     }
 
     void ShadowViewSystem::Activate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light,
-        uint32_t level, uint32_t faceMask, const Math::Sphere& volume)
+        uint32_t level, uint32_t mapMask, const Math::Sphere& volume)
     {
         const auto* rd = world.TryGet<Light::LightRenderData>(light);
         if (!rd)
         {
             return;
         }
-        const uint32_t faceCount = ShadowFaceCount(*rd);
+        const uint32_t mapCount = ShadowMapCount(*rd);
 
         auto* refs = world.TryGet<ShadowViewRefs>(light);
         if (!refs)
         {
             ShadowViewRefs added;
-            for (uint32_t face = 0; face < faceCount; ++face)
+            for (uint32_t i = 0; i < mapCount; ++i)
             {
                 RHI::UniqueRHIHandle created = CreateViewEntity<ShadowViewTag>(rhiCtx);
                 if (!created.IsValid())
@@ -743,36 +585,36 @@ namespace Spark::Render
             refs = &world.Add<ShadowViewRefs>(light, eastl::move(added));
         }
 
-        // Rows come first and all at once, so a face index addresses its row whether or not
-        // that face is holding a tile this frame.
-        if (!refs->m_rows.IsValid())
+        // Shadow maps come all at once, so a view addresses its own whether or not it is
+        // committed this frame.
+        auto* maps = world.TryGet<ShadowMaps>(light);
+        if (!maps)
         {
-            refs->m_rows = m_atlas.AllocateRows(faceCount);
-            if (!refs->m_rows.IsValid())
+            Suballocation range = m_maps.AllocateMaps(mapCount);
+            if (!range.IsValid())
             {
+                if (!m_outOfMapsLogged)
+                {
+                    LOG_WARN("[ShadowViewSystem] All {} shadow maps are taken; light {} casts no shadow "
+                             "until some are given back.", kShadowMapCount, static_cast<uint32_t>(light));
+                    m_outOfMapsLogged = true;
+                }
                 return;
             }
-            const uint32_t row = refs->m_rows.Get();
-            for (uint32_t face = 0; face < faceCount; ++face)
-            {
-                rhiCtx.AddOrReplace<ShadowViewIndex>(
-                    refs->m_views[face].Get(), ShadowViewIndex{ row + face });
-            }
-            LOG_INFO("[ShadowViewSystem] Light {} took {} shadow view row(s) from {}.",
-                static_cast<uint32_t>(light), faceCount, row);
+            m_outOfMapsLogged = false;
+            maps = &world.Add<ShadowMaps>(light, ShadowMaps{ eastl::move(range), kNoShadowLevel });
+            LOG_INFO("[ShadowViewSystem] Light {} took {} shadow map(s) from {}.",
+                static_cast<uint32_t>(light), mapCount, maps->First());
         }
 
-        if (!ReallocateTiles(world, rhiCtx, light, *refs, level, faceMask))
-        {
-            return;
-        }
+        // A view whose shadow map could not be committed casts no shadow this frame, and is
+        // tried again the next.
+        const uint32_t committed = CommitMaps(*maps, level, mapMask, mapCount);
 
-        for (uint32_t face = 0; face < faceCount; ++face)
+        for (uint32_t i = 0; i < mapCount; ++i)
         {
-            const RHI::RHIHandle viewHandle = refs->m_views[face].Get();
-
-            const auto* tile = rhiCtx.TryGet<ShadowAtlasTile>(viewHandle);
-            if (!tile)
+            const RHI::RHIHandle viewHandle = refs->m_views[i].Get();
+            if (!CheckBit(committed, i))
             {
                 if (!rhiCtx.Has<ViewInactiveTag>(viewHandle))
                 {
@@ -782,20 +624,20 @@ namespace Spark::Render
             }
             rhiCtx.Remove<ViewInactiveTag>(viewHandle);
 
-            View& view  = rhiCtx.Get<View>(viewHandle);
-            view.m_rect       = ShadowTileRect(tile->Get());
-            view.m_bufferSize = Math::Vector2Int(kShadowAtlasResolution, kShadowAtlasResolution);
-
-            const uint32_t tileLevel = ShadowAtlasAllocator::LevelOfTile(tile->Get());
+            // The top left of its layer. Field order is (minX, maxX, minY, maxY).
+            const float extent = ShadowMapExtent(level);
+            View& view         = rhiCtx.Get<View>(viewHandle);
+            view.m_rect        = ViewRect{ 0.0f, extent, 0.0f, extent };
+            view.m_bufferSize  = Math::Vector2Int(kShadowMapResolution, kShadowMapResolution);
 
             switch (rd->m_type)
             {
             case Light::LightType::Directional:
-                WriteDirectionalView(view, *rd, volume, tileLevel);
+                WriteDirectionalView(view, *rd, volume, level);
                 break;
             case Light::LightType::Point:
             case Light::LightType::Rect:
-                WritePointFaceView(view, *rd, face, tileLevel);
+                WritePointFaceView(view, *rd, i, level);
                 break;
             default:
                 WriteSpotView(view, *rd);
@@ -806,13 +648,13 @@ namespace Spark::Render
 
     void ShadowViewSystem::Deactivate(WorldContext& world, RHI::RHIContext& rhiCtx, Entity light)
     {
-        auto* refs = world.TryGet<ShadowViewRefs>(light);
-        if (!refs || !refs->m_rows.IsValid())
+        const auto* refs = world.TryGet<ShadowViewRefs>(light);
+        if (!refs || !world.Has<ShadowMaps>(light))
         {
             return;
         }
 
-        ReleaseAllocation(rhiCtx, *refs);
+        ReleaseMaps(world, light, *refs);
         for (const RHI::UniqueRHIHandle& v : refs->m_views)
         {
             if (!rhiCtx.Has<ViewInactiveTag>(v.Get()))
@@ -821,17 +663,18 @@ namespace Spark::Render
             }
         }
 
-        LOG_INFO("[ShadowViewSystem] Light {} gave its shadow tile back.",
-            static_cast<uint32_t>(light));
+        LOG_INFO("[ShadowViewSystem] Light {} gave its shadow back.", static_cast<uint32_t>(light));
     }
 
     void ShadowViewSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        // The refs own the views, so clearing them lets the views go too.
+        // The refs own the views, so clearing them lets the views go too. The indices go before
+        // the allocator that hands them out.
         if (auto* world = WorldExecuteContext::Current())
         {
+            world->Clear<ShadowMaps>();
             world->Clear<ShadowViewRefs>();
         }
-        m_atlas.Shutdown(rhiCtx);
+        m_maps.Shutdown(rhiCtx);
     }
 }

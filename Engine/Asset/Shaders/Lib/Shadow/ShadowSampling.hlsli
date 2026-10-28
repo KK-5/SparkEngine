@@ -1,5 +1,5 @@
 // Turns a shadow view record plus a world position into a visibility factor. Nothing here is
-// bound: the atlas, its comparison sampler and the atlas texel size all arrive as arguments,
+// bound: the shadow maps, their comparison sampler and the texel size all arrive as arguments,
 // so every caller owns its own registers.
 //
 // Deferred shading reaches this through ShadowProjection, which resolves it into the
@@ -21,10 +21,9 @@ uint CubeFaceIndex(float3 v)
     return axis * 2 + (v[axis] < 0.0 ? 1 : 0);
 }
 
-//! 1 = lit, 0 = fully shadowed. The tile transform is already inside worldToShadowUV, so
-//! nothing here knows the atlas layout.
-float SampleShadow(ShadowViewData sv, float3 worldPos, float3 N,
-                   Texture2D atlas, SamplerComparisonState smp, float invAtlasSize)
+//! 1 = lit, 0 = fully shadowed. `index` is the shadow map sv describes, which is its layer.
+float SampleShadow(ShadowViewData sv, uint index, float3 worldPos, float3 N,
+                   Texture2DArray maps, SamplerComparisonState smp, float invLayerSize)
 {
     // The offset is authored in texels, and a texel's world size scales with w. Taken at the
     // unoffset position: the offset is a texel or two against a distance of many, and solving
@@ -39,24 +38,26 @@ float SampleShadow(ShadowViewData sv, float3 worldPos, float3 N,
     {
         return 1.0;
     }
-    if (any(uvz.xy < sv.uvMinMax.xy) || any(uvz.xy > sv.uvMinMax.zw))
+    // Past the far edges the layer is unmapped and reads as unshadowed anyway, but the sampler
+    // clamps a uv below 0 onto the shadow map's own first texels.
+    if (any(uvz.xy < 0.0) || any(uvz.xy > sv.uvMax))
     {
         return 1.0;
     }
 
     ShadowFilterInput input;
     input.uv           = uvz.xy;
+    input.layer        = index;
     input.z            = uvz.z + sv.depthBias;   // reversed-Z: toward the light is +z
-    input.atlasSize    = 1.0 / invAtlasSize;
-    input.invAtlasSize = invAtlasSize;
+    input.layerSize    = 1.0 / invLayerSize;
+    input.invLayerSize = invLayerSize;
 
-    // Half a texel in from the inset rect, because its bounds are texel EDGES: a tap clamped
-    // to one still draws half its bilinear weight from the unrasterized border, which holds
-    // the clear depth and so reads as unshadowed.
-    float halfTexel = 0.5 * invAtlasSize;
-    input.uvClamp = sv.uvMinMax + float4(halfTexel, halfTexel, -halfTexel, -halfTexel);
+    // Half a texel in from the shadow map's edges, because they are texel EDGES: a tap clamped
+    // to one still draws half its bilinear weight from beyond, which reads as unshadowed.
+    float halfTexel = 0.5 * invLayerSize;
+    input.uvClamp = float4(halfTexel, halfTexel, sv.uvMax - halfTexel, sv.uvMax - halfTexel);
 
-    return BicubicPcf(atlas, smp, input, sv.pcfRadiusTexels);
+    return BicubicPcf(maps, smp, input, sv.pcfRadiusTexels);
 }
 
 #endif // SPARK_LIB_SHADOW_SAMPLING_HLSLI

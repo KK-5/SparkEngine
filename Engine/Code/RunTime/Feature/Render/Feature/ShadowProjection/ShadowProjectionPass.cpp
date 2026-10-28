@@ -14,8 +14,8 @@
 #include <RenderGraph/RenderGraphUtils.h>
 
 #include <Binding/Scene/SceneBinding.h>
-#include <View/ShadowAtlasAllocator.h>
-#include <View/ShadowAtlasLayout.h>
+#include <View/ShadowMapAllocator.h>
+#include <View/ShadowMapLayout.h>
 #include <View/ShadowMaskLayout.h>
 #include <Binding/View/ViewBinding.h>
 #include <View/ViewTags.h>
@@ -40,7 +40,7 @@ namespace Spark::Render
 
     uint32_t ShadowMaskSliceCount(RHI::RHIContext& ctx)
     {
-        if (!IsShadowAtlasReady(ctx))
+        if (!IsShadowMapReady(ctx))
         {
             return 0;
         }
@@ -135,9 +135,10 @@ namespace Spark::Render
                 // Both depth resources are typeless underneath, read as R32_FLOAT.
                 s.ReadImage(RHI::AttachmentId("GBufferNormal")).Bind(RHI::InputName("g_GBufferNormal"));
                 s.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
-                s.ReadImage(RHI::AttachmentId("ShadowAtlas")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_ShadowAtlas"));
+                s.ReadImage(RHI::AttachmentId("ShadowMaps")).View(ShadowMapView(RHI::Format::R32_FLOAT))
+                    .Bind(RHI::InputName("g_ShadowMaps"));
 
-                s.Sampler(RHI::InputName("g_ShadowSampler"), ShadowAtlasSampler());
+                s.Sampler(RHI::InputName("g_ShadowSampler"), ShadowMapSampler());
 
                 // With no shadowed light there is no draw, but the mask still exists at one
                 // slice: it clears to 1, which already reads as fully lit, and keeping it bound

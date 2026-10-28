@@ -24,12 +24,12 @@ namespace Spark::Render
         float         m_invRange  = 0.0f;      // 1/range for attenuation (0 = directional)
         float         m_cosInner  = 1.0f;      // spot cone
         float         m_cosOuter  = 1.0f;
-        int32_t       m_shadowIndex = -1;      // first g_ShadowViews row; -1 = casts no shadow
+        int32_t       m_shadowIndex = -1;      // first shadow map, and g_ShadowViews row; -1 = casts no shadow
 
-        //! Rows the light owns from m_shadowIndex on, one per cube face. Above 1 the shader
-        //! adds a face index to m_shadowIndex; a face with no tile this frame still owns its
-        //! row, which reads as unshadowed.
-        uint32_t      m_shadowFaceCount = 1;
+        //! Shadow maps the light holds from m_shadowIndex on, a cube's being its faces. Above 1
+        //! the shader adds a face index to m_shadowIndex; a face not committed this frame still
+        //! owns its row, which reads as unshadowed.
+        uint32_t      m_shadowMapCount = 1;
 
         //! Rect: unit right axis. Up is cross(m_direction, m_right) in the shader.
         Math::Vector3 m_right;

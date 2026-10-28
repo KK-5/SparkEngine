@@ -25,23 +25,22 @@ namespace Spark::Render
             return;
         }
 
-        // A light that stopped casting lost its ShadowViewRefs, so the loop below never sees
+        // A light that gave its shadow back lost its ShadowMaps, so the loop below never sees
         // it; a slot left on it would have it read the mask of the light the slot goes to next.
         eastl::fixed_vector<Entity, 8> stale;
-        world->GetView<ShadowMaskSlot>(Exclude<ShadowViewRefs>).each(
+        world->GetView<ShadowMaskSlot>(Exclude<ShadowMaps>).each(
             [&](Entity light, const ShadowMaskSlot&)
         {
             stale.push_back(light);
         });
         world->Remove<ShadowMaskSlot>(stale.begin(), stale.end());
 
-        // A light holds rows only while ShadowViewSystem has granted it tiles, so this is
-        // the same test SceneBindingSystem makes when it decides m_shadowIndex.
+        // The same test SceneBindingSystem makes when it decides m_shadowIndex.
         uint32_t granted = 0;
-        world->GetView<ShadowViewRefs>(Exclude<DeadTag>).each(
-            [&](Entity light, const ShadowViewRefs& refs)
+        world->GetView<ShadowMaps>(Exclude<DeadTag>).each(
+            [&](Entity light, const ShadowMaps&)
         {
-            if (refs.BaseIndex() < 0 || granted >= kShadowMaskCapacity)
+            if (granted >= kShadowMaskCapacity)
             {
                 world->Remove<ShadowMaskSlot>(light);
                 return;
