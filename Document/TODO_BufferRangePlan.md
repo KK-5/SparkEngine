@@ -476,9 +476,9 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     写不进时清掉 `ViewIndex`，读视图的 Scope 这一帧跳过。`ViewSlotRef` 与容量上限去掉；`ViewBindingSystem::Update`
     不再取帧号，`Shutdown` 挪到 GPU 空闲之后。以后若有按视图行号索引的持久 GPU 数据，再换成稳定分配，改的只是
     `ViewIndex` 的来源。
-  - **L6f　清理**：`StagedArrayBuffer`、`GlobalBuffer`、`SlotPool` 已无引用，删它们与其测试，`HandlePool` 随之没有
-    使用方，一并删。阴影的 `ShadowTilePool` / `ShadowRowPool` 已随 L7 去掉。`RHIResourceSystem` 余下的使用方（CPU
-    剔除的间接参数、分箱的间接布局表）之后单独看。
+  - ~~**L6f　清理**~~（已完成）：`StagedArrayBuffer`、`GlobalBuffer`、`SlotPool`、`HandlePool` 与其测试删除。阴影的
+    `ShadowTilePool` / `ShadowRowPool` 已随 L7 去掉。`RHIResourceSystem` 余下的使用方（CPU 剔除的间接参数、分箱的
+    间接布局表）之后单独看。
 - ~~**L7　阴影改用 reserved 纹理数组**~~（已完成）：图集换成 reserved 的 2D 深度纹理数组（§七，D32，每层 2048²、96 层，
   只占地址空间）。一个阴影视图一张阴影图（shadow map），即数组的一层；视图渲染进它的左上 res×res，也只有那块有内存。
   命名按概念不按存储：一盏灯持有若干张阴影图（"map"），只有立方体的几何处说"face"（第 i 张图即第 i 个面）。
@@ -508,8 +508,9 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     空行读作无阴影；补三个 float 仍 96 字节）。越过右下边缘读到未映射处得 0（反向 Z 的远平面，受光）；uv < 0 会被钳到图
     自己的首行首列，所以仍显式判出界；PCF 仍钳到内缩半 texel。`g_ShadowMapTexelSize` 为 1/2048。采样只在这一个函数里，
     将来换存储形态（§十一）只动这几处。
-  - 待实测：整个数组 Clear 覆盖未映射处的开销（若明显，改为按视图只清它的区域）；reserved 资源的虚拟地址上限（96 层约
-    1.5GB）。`QuadTreeAllocator` 已无使用方，之后删；`HandlePool` 只剩 `SlotPool` 一个使用方，随 L6f 删。
+  - 整个数组 Clear 的开销已测（2026-10-28，RenderDoc 对照 Clear 与 DontCare）：在帧间噪声以内，可忽略——写未映射处被丢弃，
+    清除量随提交的内存走，不随层数。待查：reserved 资源的虚拟地址上限（96 层约 1.5GB）。`QuadTreeAllocator` 已无
+    使用方，之后删；`HandlePool` 已随 L6f 删除。
 
 ~~**R5　删预算模式**~~（已完成）
 

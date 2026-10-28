@@ -14,7 +14,7 @@ using namespace Spark;
 using namespace Spark::Render;
 
 //! Synthesis and reaping only — both touch nothing but the two contexts, so no device is
-//! needed. What happens to the g_Materials slot in between is GlobalBuffer's.
+//! needed. What happens to the g_Materials slot in between is MaterialBindingSystem's.
 class MaterialOverrideTest : public ::testing::Test
 {
 protected:
