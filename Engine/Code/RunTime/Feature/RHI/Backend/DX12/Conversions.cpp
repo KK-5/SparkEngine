@@ -634,6 +634,7 @@ namespace Spark::RHI::DX12
         if (stageHas(AttachmentStage::Predication))      { s |= D3D12_BARRIER_SYNC_PREDICATION; }
         if (stageHas(AttachmentStage::DrawIndirect))     { s |= D3D12_BARRIER_SYNC_EXECUTE_INDIRECT; }
         if (stageHas(AttachmentStage::VertexInput))      { s |= D3D12_BARRIER_SYNC_INDEX_INPUT | D3D12_BARRIER_SYNC_VERTEX_SHADING; }
+        if (stageHas(AttachmentStage::AccelerationStructureBuild)) { s |= D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE; }
 
         // Vulkan resolves inside COLOR_ATTACHMENT_OUTPUT; D3D12 resolve is its own sync scope,
         // and every sync bit must suit the access.

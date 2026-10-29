@@ -160,12 +160,15 @@ namespace Spark::RHI
         //! Variable shading rate stage
         ShadingRate = BIT(11),
 
+        //! Acceleration structure build: its destination, update source, scratch and inputs
+        AccelerationStructureBuild = BIT(12),
+
         //! All graphics stages
         AnyGraphics = VertexShader | FragmentShader | ComputeShader | RayTracingShader,
 
         //! All stages
         Any = AnyGraphics | EarlyFragmentTest | LateFragmentTest | ColorAttachmentOutput | Copy | Predication | DrawIndirect |
-            VertexInput | ShadingRate
+            VertexInput | ShadingRate | AccelerationStructureBuild
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentStage, uint32_t);

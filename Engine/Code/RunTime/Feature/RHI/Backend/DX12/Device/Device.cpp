@@ -499,6 +499,17 @@ namespace Spark::RHI::DX12
             return RHI::ResultCode::Fail;
         }
 
+        // Inline ray tracing (RayQuery) needs tier 1.1.
+        D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5{};
+        dx12Device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
+        if (options5.RaytracingTier < D3D12_RAYTRACING_TIER_1_1)
+        {
+            // The enum encodes tier X.Y as XY; 0 is no support.
+            LOG_ERROR("[DX12 Device] Raytracing tier {}.{} is below the required tier 1.1.",
+                      static_cast<int>(options5.RaytracingTier) / 10, static_cast<int>(options5.RaytracingTier) % 10);
+            return RHI::ResultCode::Fail;
+        }
+
         if (validationMode != RHI::ValidationMode::Disabled)
         {
             EnableDebugDeviceFeatures(dx12Device);
