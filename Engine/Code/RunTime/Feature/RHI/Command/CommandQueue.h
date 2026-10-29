@@ -49,8 +49,9 @@ namespace Spark::RHI
         /// GPU waits for fence to reach >= value before executing subsequent commands.
         ResultCode Wait(RHI::Fence& fence, uint64_t value);
 
-        /// Ordered after all work submitted to this queue so far and before all submitted after it.
-        /// Each page appears in at most one mapping of a call, as Vulkan binds no range twice in a batch.
+        /// Ordered after all work submitted to this queue so far, other calls included, and before
+        /// all submitted after it. Each page appears in at most one mapping of a call, as Vulkan
+        /// binds no range twice in a batch; mapping a page that is mapped replaces its memory.
         ResultCode UpdateTileMappings(eastl::span<const BufferTileMapping> mappings);
 
         /// The same for tiles of reserved images: each tile in at most one mapping of a call.

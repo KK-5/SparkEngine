@@ -67,9 +67,10 @@ namespace Spark::RHI
     //////////////////////////////////////////////////////////////
     // Tile mappings
     //
-    // A mapping of a reserved buffer, made by whoever holds it, no two pending on one page, and
-    // submitted by the render graph on the graphics queue before the frame's work. Destroyed once
-    // submitted.
+    // A mapping of a reserved buffer, made by whoever holds it, and submitted by the render graph
+    // on the graphics queue before the frame's work: every unmapping, then every mapping, so a
+    // page unmapped and mapped in one frame ends up mapped. No two pending mappings, nor two
+    // pending unmappings, on one page. Destroyed once submitted.
     struct BufferTileMappingRequest
     {
         Ptr<Buffer>       m_buffer;
@@ -78,7 +79,7 @@ namespace Spark::RHI
         Ptr<Buffer>       m_backing;
     };
 
-    //! The same for a box of tiles of a reserved image, no two pending on one tile.
+    //! The same for a box of tiles of a reserved image, by tile.
     struct ImageTileMappingRequest
     {
         Ptr<Image>       m_image;

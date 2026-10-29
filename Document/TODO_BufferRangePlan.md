@@ -230,26 +230,28 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
 - **映射是队列级操作**（DX12 `ID3D12CommandQueue::UpdateTileMappings`，Vulkan `vkQueueBindSparse`），不能录进
   CommandList，也不由图里的 Pass 做。RHI 只提供 `CommandQueue::UpdateTileMappings(span<const BufferTileMapping>)`
   （后备为空即解除映射）。映射什么、何时映射、何时解除由持有池的系统决定，提交由图做（见下）。
-- 语义按 DX12 定：在队列 Q 上的映射排在 Q 上之前所有提交之后、之后所有提交之前。Vulkan 的 bind sparse 与 submit
-  即使同队列也没有隐式顺序，后端内部用 timeline semaphore 补上（bind 等 Q 的上一次提交，下一次提交等 bind），
-  接口不带同步参数。Vulkan 允许的"映射藏在后台、只在首次使用时等"现在不用；纹理流送需要时加一个返回 Fence 值的
-  异步变体，是加法。
-- 一次调用里每页最多出现一次，validation 检查重叠。按 Vulkan 定：同一批次里一段范围不能绑定两次，批次可能乱序
-  完成；DX12 允许重叠、后者覆盖前者，不用这一点。一次调用可以含多个 reserved Buffer（Vulkan 一个批次绑多个
-  Buffer、多块内存）；DX12 一次原生调用只有一个资源、一个堆，而一页一个后备即一页一个堆，后端一条映射一次调用。
-  - **待改（2026-10-28 记）**：这条把 Vulkan 的限制原样交给了上层，上层改映射时得自己算"哪些是多出来的"（L7 缩小
-    阴影图时把 L 形拆成两个框解除）。Vulkan 后端补得出"同一帧的请求按提交顺序生效、后者覆盖前者"：提交前在 CPU
-    上按 tile 合并，只把每个 tile 的最终状态交给 `vkQueueBindSparse`；DX12 原生如此。改法：RHI 提供这个语义、去掉
-    重叠校验，Vulkan 后端的合并写进本节；"Vulkan 同一批次不能重复绑定"这条说法改之前先对照规范核实。之后
-    `ShadowMapAllocator::SetResolution` 可简化为整块解除旧的、映射新的。
+- 语义按 DX12 定：在队列 Q 上的映射排在 Q 上之前所有提交（包括之前的映射）之后、之后所有提交之前；映射一个已
+  映射的页即替换它的内存，不必先解除。Vulkan 的 bind sparse 之间、与 submit 之间即使同队列也没有隐式顺序（批次
+  可能乱序完成），后端内部用 timeline semaphore 补上（每次 bind 等 Q 上的前一次提交或 bind，下一次提交或 bind 等
+  它），接口不带同步参数。Vulkan 允许的"映射藏在后台、只在首次使用时等"现在不用；纹理流送需要时加一个返回 Fence
+  值的异步变体，是加法。
+- 一次调用里每页最多出现一次，validation 检查重叠。按 Vulkan 定（规范："Within a batch, a given range of a
+  resource must not be bound more than once"，解除即绑到空，也算一次）；DX12 允许重叠、后者覆盖前者，不用这一点。
+  一次调用即 Vulkan 的一个批次，可以含多个 reserved Buffer（一个批次绑多个 Buffer、多块内存）；DX12 一次原生调用
+  只有一个资源、一个堆，而一页一个后备即一页一个堆，后端一条映射一次调用。
 - 上层的责任：系统在自己的更新里算出映射，经 `RHIEventContext` 的 `BufferTileMappingRequest` 交给图，和上传请求
-  一样是渲染前的资源准备。一个请求一条映射，图在 Execute 开头、所有 Scope 之前对每个请求发一次
-  `UpdateTileMappings` 在图形队列上，本帧即可用；系统拿不到图的队列，也不需要。`ReservedBuffer` 按页记未提交的
-  请求：页只有两种状态，请求未提交时这页再变就是变回去，撤掉请求、什么都不发（先解除再占用，后备从请求里取回；
-  先映射再变空，没映射过的后备随请求放掉），即 §五 的"同一期间先空后占，不发任何映射"。所以一页最多一个未提交
-  的请求，请求之间无序。请求持有它映射或解除的后备，提交后才放掉，所以总是先解除映射再放掉后备。Vulkan 上一个
-  请求一次 bind sparse 偏多时，图把请求收进跨帧复用的数组一次提交，请求不变。页上区间都归还后即可解除映射，图形队列之前的工作排在它前面。哪页映到哪个后备由持有池的系统记，
-  它本来就管着页；RHI 不记映射，也不查后备释放时是否还映射着。
+  一样是渲染前的资源准备。一个请求一条映射；图在 Execute 开头、所有 Scope 之前，把本帧的请求按"后备是否为空"
+  分成解除和映射两组，在图形队列上**先整组解除、再整组映射**，各一次 `UpdateTileMappings`，本帧即可用；系统拿不到
+  图的队列，也不需要。请求在 ECS 里，存储顺序不可靠（单独撤掉一个请求即打乱），所以顺序只由"解除在前"这一条
+  给出，不依赖请求之间的先后。由此同一帧、同一页（tile）上：
+  - 解除 + 映射：允许，结果是映射着（映射优先）。持有者改映射时整块解除旧的、整块映射新的，不必算差集。
+  - 映射 + 映射、解除 + 解除：不允许，同组即同一次调用，由那次调用的重叠校验报出。两次映射若顺序反了，页会映射
+    在一块随请求放掉的后备上，那块内存之后可能属于别的资源；两次解除虽然无害，也只会出自记账错误。
+  `ReservedBuffer` 按页记未提交的请求：页只有两种状态，请求未提交时这页再变就是变回去，撤掉请求、什么都不发（先
+  解除再占用，后备从请求里取回；先映射再变空，没映射过的后备随请求放掉），即 §五 的"同一期间先空后占，不发任何
+  映射"，所以一页最多一个未提交的请求。请求持有它映射或解除的后备，提交后才放掉，所以总是先解除映射再放掉后备。
+  页上区间都归还后即可解除映射，图形队列之前的工作排在它前面。哪页映到哪个后备由持有池的系统记，它本来就管着页；
+  RHI 不记映射，也不查后备释放时是否还映射着。
 - 现在的边界：映射只在图形队列上排序，reserved Buffer 的共享队列只有 Graphics。将来别的队列（如异步计算）在本帧
   先用到这个 Buffer 时，扩展图的执行：映射发在本帧第一个用它的 Scope 的队列上（同上传的 acquire 记在第一个读它的
   Scope 里），或让那个队列等图形队列。请求的格式不变。
@@ -259,6 +261,22 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   Vulkan `sparseBinding` + `sparseResidencyBuffer`（Image 再加 `sparseResidencyImage2D`）+
   `residencyNonResidentStrict`。移动端多数和 MoltenVK 不支持。层渲染（VS 写 `SV_RenderTargetArrayIndex`）同样是最低
   要求：DX12 `VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation`，Vulkan `shaderOutputLayer`。
+- **虚拟地址的两个上限**（2026-10-29 记，未实施）：reserved 资源不占内存，但占地址空间，两个后端限的东西不同——DX12 按
+  单个资源（`MaxGPUVirtualAddressBitsPerResource`，reserved Buffer 的 Width 文档写明以它为上限；另有整个进程的
+  `MaxGPUVirtualAddressBitsPerProcess`，与普通资源共用），Vulkan 按总额（`sparseAddressSpaceSize`，所有 sparse 资源
+  的大小之和，**不论是否绑了内存**）。两个都加进 `DeviceLimits`：
+  - `m_maxReservedResourceSizeInBytes`：DX12 取 2^每资源位数；Vulkan Buffer 取 `min(maxBufferSize, 总额)`，Image
+    取总额（另受各维尺寸限制）。
+  - `m_reservedAddressSpaceInBytes`：Vulkan 取 `sparseAddressSpaceSize`；DX12 取 2^每进程位数，只是上界，普通资源
+    也在里面。
+  - 建 reserved 资源时 RHI 校验单个大小，并按 Device 累计活着的 reserved 资源大小与总额比（延迟释放中的仍计入，
+    Vulkan 上它们还存在），超出即创建失败。
+  - 引擎最低要求（设备初始化时检查）：设备报的这两个上限，单个至少 4GB、总额至少 64GB，低于即不能运行引擎。现在最大的单个是阴影数组约 1.5GB，总共约 3GB
+    （几何池 1GB、阴影 1.5GB、`g_Instances` 约 208MB 与几个小数组）；总额留到 64GB 是给以后的大用户，纹理流送会
+    为所有贴图的完整 mip 链保留地址，几千张贴图就是几十 GB。实测与统计（2026-10-29）：RTX 3060 上 DX12 两项都是
+    40 bit、Vulkan 总额 2^40，都是 1TB；gpuinfo 的 Windows 报告里 Vulkan 总额 2^40 占 64%，2^44 占 11%，约 2^47 占
+    5%，2GB 与 4GB 共约 5%（不知是哪些设备，可能本就不支持 sparse），这条要求排除的基本只是这一档。各池的虚拟
+    容量仍由持有者定，不按额度自动分。
 
 ## 七、推广到 Image
 
@@ -276,7 +294,7 @@ reserved Buffer 还是每帧一份的多个 Buffer，是池的事；Pass 经 `p.
   的 tile（DX12 区域 + 堆区间即此序；Vulkan 一条绑定跨多块时内存是否同序，实现时查规范，不同则后端按行拆，接口
   不变）。`CommandQueue::UpdateTileMappings` 加 Image 的重载，"一个 tile 一次调用
   至多一次"照旧，按 (Image, mip, 层) 判区域重叠。`ImageTileMappingRequest` 照 `BufferTileMappingRequest`，图在
-  Execute 开头一并提交。
+  Execute 开头一并提交，同样先解除、后映射（§六）。
 - **tile 形状按资源查**：reserved Image 建好后后端查一次记在 Image 上（DX12 已有 `ImageTileLayout`，来自
   `GetResourceTiling`；Vulkan `vkGetImageSparseMemoryRequirements`），上层据此算一块区域覆盖哪些 tile。标准 tile
   在两个后端上都是 64KB，`m_reservedPageSizeInBytes` 照用。
@@ -486,11 +504,10 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     不支持就初始化失败；`DeviceFeatures::m_layeredRenderingFromVertexShader` 删掉，同 sparse 不设特性开关。
   - **`ShadowMapAllocator`**（取代 `ShadowAtlasAllocator` 与 `ShadowPools`）：自建 reserved 池与 `TileBacking` 池，数组
     直接创建后注册为导入资源（`ShadowMapTag`，不经 `PendingImageInit`）；容量 96 的 `Suballocator` 发阴影图序号，一盏灯
-    取连续若干张（`AllocateMaps`）。`Commit(index, res)` 给一张图的左上 res² 建后备、发映射请求，`Decommit` 收回；缩小时
-    把旧方块多出的 L 形拆两个框解除映射（§六"待改"那条放宽后可简化）。**后备归分配器持有、按序号记**，只随解除映射的
-    请求放掉：整个数组每帧清，一层若还映射着放掉的内存，那块内存可能已属别的资源；灯被直接销毁、没走 Decommit 时，
-    后备留到这个序号下次 Commit。请求的 `m_backing` 照本义持有它映射上去或解除的那块；放大时被覆盖的旧后备不必持有
-    （映射在本帧所有工作之前替换，资源释放本就延迟数帧）。
+    取连续若干张（`AllocateMaps`）。`Commit(index, res)` 给一张图的左上 res² 建后备、发映射请求，`Decommit` 收回；改分辨率
+    时整块解除旧方块、整块映射新方块，重叠处由"先解除、后映射"（§六）留给新的。**后备归分配器持有、按序号记**，只随
+    解除映射的请求放掉：整个数组每帧清，一层若还映射着放掉的内存，那块内存可能已属别的资源；灯被直接销毁、没走
+    Decommit 时，后备留到这个序号下次 Commit。请求的 `m_backing` 照本义持有它映射上去或解除的那块。
   - **灯上 `ShadowMaps { Suballocation; m_level; First() }`**：在即持有阴影，滞回读 `m_level`。第 i 个视图的阴影图是
     `First() + i`，也是它 `g_ShadowViews` 的行号（`LightData::m_shadowIndex = First()`，`m_shadowMapCount` 取代
     `m_shadowFaceCount`）。`ShadowViewRefs` 只剩视图；`ShadowViewIndex`、行池、行数上限去掉。
@@ -509,7 +526,7 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
     自己的首行首列，所以仍显式判出界；PCF 仍钳到内缩半 texel。`g_ShadowMapTexelSize` 为 1/2048。采样只在这一个函数里，
     将来换存储形态（§十一）只动这几处。
   - 整个数组 Clear 的开销已测（2026-10-28，RenderDoc 对照 Clear 与 DontCare）：在帧间噪声以内，可忽略——写未映射处被丢弃，
-    清除量随提交的内存走，不随层数。待查：reserved 资源的虚拟地址上限（96 层约 1.5GB）。`QuadTreeAllocator` 已无
+    清除量随提交的内存走，不随层数。reserved 资源的虚拟地址上限见 §六（96 层约 1.5GB）。`QuadTreeAllocator` 已无
     使用方，之后删；`HandlePool` 已随 L6f 删除。
 
 ~~**R5　删预算模式**~~（已完成）
@@ -552,7 +569,21 @@ Instance / Device 骨架，各步的 Vulkan 部分只约束接口，不写代码
   相机视锥"逐区域取离相机最近点所需的级别，方向光用 clipmap（一级一层），零延迟，局部光接近最优；③ GPU 从深度
   标页、回读后延迟映射细页，粗级由 ② 常驻，采样经驻留表退到粗级，延迟只表现为新进入视野处一两帧偏糊。CPU 与
   GPU 的差别不在范围大小（级别按距离选，两边的显存都只随级数增长），而在 CPU 只知道体积、不知道可见表面：空处与
-  被遮挡处也要映射，遮挡多的场景差几倍。只有当 ③ 的延迟不可接受、必须同帧响应时，才换成软件页表。
+  被遮挡处也要映射，遮挡多的场景差几倍。
+  - **③ 的形态**（同贴图流送：常驻粗的、按反馈补细的）：保底是 CPU 定的完整覆盖，只求有、分辨率可以低；反馈只往上
+    加细页，**不用它裁保底**——反馈是一两帧前的，裁了保底新露出处便既无细页也无保底，读到未映射处得 0（反向 Z 的
+    远平面）即漏光。显存因此靠保底低分辨率省，不靠裁剪。要补的：标页 Pass（深度重建世界坐标、投到光源空间、算级别
+    与页，写请求缓冲回读）；驻留表由 CPU 与映射同帧写，两者天然一致，着色器有细页用细页、否则退保底——这是唯一的
+    "软件表"，不需要 GPU 分配与原子写深度；每个视图画两级，细级整范围光栅化，写未映射处丢弃但光栅照付，之后可用
+    scissor 或按区域剔除；细级分辨率超过 2048，要换一种形态的 reserved 资源；细页回收加滞回，免得镜头晃动反复映射。
+  - **显存与软件页表比**：③ 的占用跟着需求走，多出来的只有延迟窗口里已不需要的页与滞回多留的页；静态细页一直映射
+    即是缓存，留多少由 CPU 的回收策略定。VSM 的物理页池按最坏情况一次定好，空的部分拿来缓存，换的是渲染时间；
+    定小溢出、定大浪费，但峰值是确定的。③ 反过来没有硬上限，要控峰值得设预算，超预算要定先给谁，**优先级会回来**
+    ——只作用在细页上，保底不受影响。另一个代价是映射次数：细页按 tile 频繁映射与解除，每帧请求变多，后备也要改成
+    按 tile 从堆里分配（不再一张图一个后备 Image），靠批量提交与滞回缓解。
+  - **软件页表是加一层，不是换掉硬件映射**：只有当 ③ 的延迟不可接受、必须同帧响应时，才在上面加软件页表——逐页的
+    虚拟→物理映射由 GPU 当帧写页表，硬件映射退到下层，只管物理页池哪些部分有内存，由 CPU 按空闲页余量增减，晚一两
+    帧由余量兜住。代价是采样查表、原子写深度、跨页过滤处理页边，这些原本由硬件映射免费提供。
   VSM 相对级联阴影的改进里，能拿过来的：clipmap 按距离自动选级（方向光取 N 张图，范围逐级翻倍、对齐世界，无分割
   参数可调）；按"级别范围 ∩ 视锥"稀疏提交（Commit 从左上方块推广到任意一组 tile）；页缓存（映射跨帧保持，只清、
   只画失效区域，clipmap 平移用环绕寻址，物体移动标记它覆盖的页），与 GPU 标页无关，收益最大。光栅阴影若只作光追的

@@ -24,11 +24,22 @@ namespace Spark::Render
 {
     namespace
     {
+        bool IsUnmapping(const RHI::BufferTileMapping& mapping)
+        {
+            return mapping.m_backingBuffer == nullptr;
+        }
+
+        bool IsUnmapping(const RHI::ImageTileMapping& mapping)
+        {
+            return mapping.m_backingImage == nullptr;
+        }
+
         //! Submits the pending requests of one kind on `queue`, then destroys them: the backings
-        //! they unmapped go to their pools' release queues. No two are on one page or tile, so
-        //! their order is of no concern.
-        template<typename Request, typename Events, typename OnFailure>
-        void SubmitTileMappings(Events& events, RHI::CommandQueue& queue, OnFailure&& onFailure)
+        //! they unmapped go to their pools' release queues. The unmappings go in one call before
+        //! the mappings in another, so a page or tile both unmapped and mapped this frame ends up
+        //! mapped, whatever order the requests are stored in.
+        template<typename Request, typename Events>
+        void SubmitTileMappings(Events& events, RHI::CommandQueue& queue, const char* kind)
         {
             auto& requests = events.template GetStorage<Request>();
             if (requests.empty())
@@ -36,13 +47,30 @@ namespace Spark::Render
                 return;
             }
 
+            using Mapping = decltype(Request::m_mapping);
+            eastl::vector<Mapping> unmappings;
+            eastl::vector<Mapping> mappings;
             for (const Request& request : requests)
             {
-                using Mapping = decltype(request.m_mapping);
-                if (queue.UpdateTileMappings(eastl::span<const Mapping>(&request.m_mapping, 1)) != RHI::ResultCode::Success)
+                if (IsUnmapping(request.m_mapping))
                 {
-                    onFailure(request);
+                    unmappings.push_back(request.m_mapping);
                 }
+                else
+                {
+                    mappings.push_back(request.m_mapping);
+                }
+            }
+
+            if (queue.UpdateTileMappings(eastl::span<const Mapping>(unmappings.data(), unmappings.size()))
+                != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[RenderGraph] Unmapping {} {} tile ranges failed.", unmappings.size(), kind);
+            }
+            if (queue.UpdateTileMappings(eastl::span<const Mapping>(mappings.data(), mappings.size()))
+                != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[RenderGraph] Mapping {} {} tile ranges failed.", mappings.size(), kind);
             }
 
             const eastl::vector<RHI::RHIEvent> submitted(requests.data(), requests.data() + requests.size());
@@ -309,20 +337,8 @@ namespace Spark::Render
         {
             auto& events = *RHI::RHIEventExecuteContext::Current();
             auto& queue  = m_commandQueueContext.GetCommandQueue(RHI::HardwareQueueClass::Graphics);
-            SubmitTileMappings<RHI::BufferTileMappingRequest>(events, queue,
-                [](const RHI::BufferTileMappingRequest& request)
-            {
-                LOG_ERROR("[RenderGraph] Updating the tile mapping of {} at {} failed.",
-                          request.m_buffer->GetName().GetCStr(), request.m_mapping.m_byteOffset);
-            });
-            SubmitTileMappings<RHI::ImageTileMappingRequest>(events, queue,
-                [](const RHI::ImageTileMappingRequest& request)
-            {
-                const RHI::Origin& origin = request.m_mapping.m_tileOrigin;
-                LOG_ERROR("[RenderGraph] Updating the tile mapping of {} at tile ({}, {}, {}) of mip {} of slice {} failed.",
-                          request.m_image->GetName().GetCStr(), origin.m_left, origin.m_top, origin.m_front,
-                          request.m_mapping.m_mipSlice, request.m_mapping.m_arraySlice);
-            });
+            SubmitTileMappings<RHI::BufferTileMappingRequest>(events, queue, "buffer");
+            SubmitTileMappings<RHI::ImageTileMappingRequest>(events, queue, "image");
         }
 
         m_executer.ExecuteScopes(context, *factory, *m_device, m_commandQueueContext);

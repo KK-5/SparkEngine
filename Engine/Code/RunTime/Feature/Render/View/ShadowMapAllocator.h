@@ -54,7 +54,8 @@ namespace Spark::Render
 
         //! Gives the shadow map memory for resolution² from the top left of its layer. False
         //! when none could be had, and then it has none. Commit and Decommit at most once a shadow
-        //! map a frame: a frame's mappings are submitted together, and two on one tile are refused.
+        //! map a frame: a frame's mappings are submitted together, and two mappings or two
+        //! unmappings on one tile are refused.
         bool Commit(uint32_t index, uint32_t resolution);
 
         //! Takes the shadow map's memory back.

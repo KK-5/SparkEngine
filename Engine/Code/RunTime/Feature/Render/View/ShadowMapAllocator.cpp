@@ -163,15 +163,16 @@ namespace Spark::Render
             return true;
         }
 
-        // Where the new square covers the old, its mapping replaces the old one before any of the
-        // frame's work, and the old backing's memory is released frames later: nothing needs to
-        // hold it for that part.
+        // The old square is unmapped whole: a frame's unmappings are submitted before its
+        // mappings, so where the new square covers it, the new one stays mapped.
         const RHI::Size& tileShape = m_image->GetTileShape();
-        const uint32_t   oldTiles  = current.m_resolution / tileShape.m_width;
-        Ptr<RHI::Image>  previous  = eastl::move(current.m_image);
+        if (current.m_resolution != 0)
+        {
+            const uint32_t oldTiles = current.m_resolution / tileShape.m_width;
+            RequestMapping(index, 0, 0, oldTiles, oldTiles, current.m_image, false);
+        }
         current = Backing{};
 
-        uint32_t newTiles = 0;
         if (resolution != 0)
         {
             Ptr<RHI::Image> backing = InitImage(*m_backingPool,
@@ -180,7 +181,7 @@ namespace Spark::Render
                 "ShadowMapBacking");
             if (backing)
             {
-                newTiles = resolution / tileShape.m_width;
+                const uint32_t newTiles = resolution / tileShape.m_width;
                 RequestMapping(index, 0, 0, newTiles, newTiles, backing, true);
                 current.m_image      = eastl::move(backing);
                 current.m_resolution = resolution;
@@ -188,17 +189,6 @@ namespace Spark::Render
             else
             {
                 LOG_ERROR("[ShadowMapAllocator] No memory for a {}² shadow map at {}.", resolution, index);
-            }
-        }
-
-        // What the old square has beyond the new one: the columns to its right, then the rows
-        // below it.
-        if (oldTiles > newTiles)
-        {
-            RequestMapping(index, newTiles, 0, oldTiles - newTiles, oldTiles, previous, false);
-            if (newTiles != 0)
-            {
-                RequestMapping(index, 0, newTiles, newTiles, oldTiles - newTiles, previous, false);
             }
         }
         return current.m_resolution == resolution;
