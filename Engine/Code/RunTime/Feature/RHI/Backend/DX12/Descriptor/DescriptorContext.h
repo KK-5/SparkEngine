@@ -74,6 +74,11 @@ namespace Spark::RHI::DX12
             DescriptorHandle& unorderedAccessViewClear,
             DescriptorHandle& staticView);
 
+        //! An SRV with no resource whose view carries the structure's address.
+        void CreateAccelerationStructureView(
+            GpuVirtualAddress address,
+            DescriptorHandle& shaderResourceView);
+
         void CreateRenderTargetView(
             const Image& image,
             const RHI::ImageViewDescriptor& imageViewDescriptor,

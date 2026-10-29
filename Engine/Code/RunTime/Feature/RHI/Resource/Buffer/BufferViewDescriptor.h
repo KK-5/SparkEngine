@@ -28,9 +28,6 @@ namespace Spark::RHI
             Format elementFormat);
 
         /*
-        static BufferViewDescriptor CreateRayTracingTLAS(
-            uint32_t totalByteCount);
-
         HashValue64 GetHash(HashValue64 seed = HashValue64{ 0 }) const;
         */
 

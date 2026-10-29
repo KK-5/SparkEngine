@@ -16,7 +16,7 @@ inline ray query 追踪。I8（光追场景：BLAS 跟着几何、TLAS 每帧更
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 1 | 最低要求检查、构建阶段 | — | 已完成 |
-| 2 | 加速结构对象与绑定类型（含反射），删掉 buffer 路径里的特例 | 1 | 未开始 |
+| 2 | 加速结构对象与绑定类型（含反射），删掉 buffer 路径里的特例 | 1 | 已完成 |
 | 3 | 构建：输入描述、所需大小、构建命令、访问与屏障；一个 RHI 示例验证 | 2 | 未开始 |
 | 4 | 压缩与原地更新 | 3 | 推后：I8 的静态网格先不压缩 |
 
@@ -92,7 +92,8 @@ docs.vulkan.org 的参考页（`VkAccelerationStructureCreateInfoKHR`、`vkCmdBu
 持有 buffer 的引用，记下偏移、大小、类型；不是资源，不进池，不跟踪状态，内存、状态与屏障都在 buffer 上。
 RHI 不记哪个 buffer 上建了哪些加速结构，多个加速结构放进同一个 buffer 是上层的事（D2）。
 
-- DX12：地址（buffer 地址 + 偏移）与一个 SRV 描述符（资源为空、地址写在 `Location`），销毁时描述符经延迟队列归还。
+- DX12：地址（buffer 地址 + 偏移）与一个 SRV 描述符（资源为空、地址写在 `Location`）。描述符在 CPU 侧，绑定时拷进描述符表，
+  销毁时直接释放，同 `BufferView`。
 - Vulkan：创建并持有 `VkAccelerationStructureKHR`，销毁走延迟释放。
 
 ### D2　存放加速结构的 buffer 只放加速结构，由上层划分、按原生 buffer 跟踪　已定

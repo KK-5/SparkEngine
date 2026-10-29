@@ -41,6 +41,7 @@ set(SOURCES
     Resource/Buffer/IndexBufferView.cpp
     Resource/Buffer/VertexInputView.cpp
     Resource/Buffer/VertexBufferView.cpp
+    RayTracing/AccelerationStructure.cpp
     Resource/Image/Image.cpp
     Resource/Image/ImageDescriptor.cpp
     Resource/Image/ImageEnum.cpp

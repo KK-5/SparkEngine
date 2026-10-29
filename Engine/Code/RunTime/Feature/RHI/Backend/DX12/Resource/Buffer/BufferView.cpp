@@ -82,7 +82,7 @@ namespace Spark::RHI::DX12
         m_memory = buffer.GetMemoryView().GetMemory();
         m_gpuAddress = buffer.GetMemoryView().GetGpuAddress() + viewDescriptor.m_elementOffset * viewDescriptor.m_elementSize;
 
-        if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::RayTracingAccelerationStructure))
+        if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::ShaderRead))
         {
             descriptorContext.CreateShaderResourceView(buffer, viewDescriptor, m_readDescriptor, m_staticReadDescriptor);
             if (!m_staticReadDescriptor.IsNull())

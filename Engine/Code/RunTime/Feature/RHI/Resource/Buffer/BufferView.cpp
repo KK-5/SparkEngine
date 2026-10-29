@@ -81,6 +81,13 @@ namespace Spark::RHI
                 return false;
             }
 
+            if (CheckBitsAny(buffer.GetDescriptor().m_bindFlags, BufferBindFlags::RayTracingAccelerationStructure))
+            {
+                LOG_WARN("[DeviceBufferView] Buffer {} holds acceleration structures, which bind as AccelerationStructure "
+                         "objects rather than views.", buffer.GetName().GetCStr());
+                return false;
+            }
+
             if (!CheckBitsAll(static_cast<uint32_t>(buffer.GetDescriptor().m_bindFlags), static_cast<uint32_t>(viewDescriptor.m_overrideBindFlags)))
             {
                 LOG_WARN("[DeviceBufferView] Buffer view has bind flags that are incompatible with the underlying buffer.");

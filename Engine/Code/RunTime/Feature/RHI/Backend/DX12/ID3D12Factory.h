@@ -15,6 +15,7 @@
 #include "Resource/Image/ImagePool.h"
 #include "Resource/Image/ImageView.h"
 #include "Resource/Transient/TransientResourcePool.h"
+#include "RayTracing/AccelerationStructure.h"
 #include "Resource/ShaderInput/ShaderBindings.h"
 #include "Resource/ShaderInput/ShaderInputCompiler.h"
 #include "Pipeline/PipelineLibrary.h"
@@ -122,6 +123,8 @@ namespace Spark::RHI::DX12
 
         Ptr<RHI::TransientResourcePool> CreateTransientResourcePool() override;
 
+        Ptr<RHI::AccelerationStructure> CreateAccelerationStructure() override;
+
         Ptr<RHI::ShaderBindings> CreateShaderBindings() override;
 
         RHI::ShaderInputCompiler& AcquireShaderInputCompiler(RHI::Device& device) override;
@@ -161,6 +164,7 @@ namespace Spark::RHI::DX12
         DeviceObjectPool<ImagePool>                 m_imagePoolObjectPool;
         DeviceObjectPool<ImageView>                 m_imageViewObjectPool;
         DeviceObjectPool<TransientResourcePool>     m_transientResourcePoolObjectPool;
+        DeviceObjectPool<AccelerationStructure>     m_accelerationStructureObjectPool;
         DeviceObjectPool<ShaderBindings>            m_shaderBindingsObjectPool;
         DeviceObjectPool<PipelineLibrary>           m_pipelineLibraryObjectPool;
         DeviceObjectPool<PipelineState>             m_pipelineStateObjectPool;

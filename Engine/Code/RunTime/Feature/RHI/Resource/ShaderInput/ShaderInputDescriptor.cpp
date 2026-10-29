@@ -72,6 +72,25 @@ namespace Spark::RHI
         return seed;
     }
 
+    ShaderInputAccelerationStructureDescriptor::ShaderInputAccelerationStructureDescriptor(
+        const InputName& name,
+        uint32_t count,
+        uint32_t registerId,
+        uint32_t spaceId)
+        : m_name{ name }
+        , m_count{ count }
+        , m_registerId{ registerId }
+        , m_spaceId{ spaceId }
+    {}
+
+    size_t ShaderInputAccelerationStructureDescriptor::GetHash(size_t seed) const
+    {
+        size_t nameHash = m_name.GetHash();
+        eastl::hash_combine_raw(seed, nameHash);
+        eastl::hash_combine(seed, m_count, m_registerId, m_stageMask);
+        return seed;
+    }
+
     ShaderInputConstantDescriptor::ShaderInputConstantDescriptor(
         const InputName& name,
         uint32_t constantByteOffset,

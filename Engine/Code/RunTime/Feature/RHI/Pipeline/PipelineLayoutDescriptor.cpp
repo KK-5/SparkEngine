@@ -22,6 +22,7 @@ namespace Spark::RHI
 
         m_bufferDescs.clear();
         m_imageDescs.clear();
+        m_accelerationStructureDescs.clear();
         m_samplerDescs.clear();
         m_constantDescs.clear();
         m_staticSamplerDescs.clear();
@@ -51,6 +52,7 @@ namespace Spark::RHI
         // hash 各类型 ShaderInput descriptor 数组
         for (const auto& d : m_bufferDescs)       { eastl::hash_combine_raw(seed, d.GetHash()); }
         for (const auto& d : m_imageDescs)         { eastl::hash_combine_raw(seed, d.GetHash()); }
+        for (const auto& d : m_accelerationStructureDescs) { eastl::hash_combine_raw(seed, d.GetHash()); }
         for (const auto& d : m_samplerDescs)       { eastl::hash_combine_raw(seed, d.GetHash()); }
         for (const auto& d : m_constantDescs)      { eastl::hash_combine_raw(seed, d.GetHash()); }
         for (const auto& e : m_staticSamplerDescs) { eastl::hash_combine_raw(seed, e.m_desc.GetHash()); }
@@ -149,6 +151,12 @@ namespace Spark::RHI
             uint32_t index = static_cast<uint32_t>(m_imageDescs.size());
             m_imageDescs.push_back(desc);
             InsertShaderInput({ ShaderInputType::Image, index }, desc.m_spaceId, desc.m_stageMask);
+        }
+        for (const ShaderInputAccelerationStructureDescriptor& desc : list.m_accelerationStructures)
+        {
+            uint32_t index = static_cast<uint32_t>(m_accelerationStructureDescs.size());
+            m_accelerationStructureDescs.push_back(desc);
+            InsertShaderInput({ ShaderInputType::AccelerationStructure, index }, desc.m_spaceId, desc.m_stageMask);
         }
         for (const ShaderInputSamplerDescriptor& desc : list.m_samplers)
         {
@@ -299,6 +307,11 @@ namespace Spark::RHI
         return m_imageDescs[index];
     }
 
+    const ShaderInputAccelerationStructureDescriptor& PipelineLayoutDescriptor::GetAccelerationStructureDescriptor(uint32_t index) const
+    {
+        return m_accelerationStructureDescs[index];
+    }
+
     const ShaderInputSamplerDescriptor& PipelineLayoutDescriptor::GetSamplerDescriptor(uint32_t index) const
     {
         return m_samplerDescs[index];
@@ -339,6 +352,15 @@ namespace Spark::RHI
     const ShaderInputImageDescriptor* PipelineLayoutDescriptor::FindImageDescriptor(const InputName& name) const
     {
         for (const ShaderInputImageDescriptor& d : m_imageDescs)
+        {
+            if (d.m_name == name) { return &d; }
+        }
+        return nullptr;
+    }
+
+    const ShaderInputAccelerationStructureDescriptor* PipelineLayoutDescriptor::FindAccelerationStructureDescriptor(const InputName& name) const
+    {
+        for (const ShaderInputAccelerationStructureDescriptor& d : m_accelerationStructureDescs)
         {
             if (d.m_name == name) { return &d; }
         }

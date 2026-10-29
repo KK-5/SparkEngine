@@ -410,7 +410,7 @@ TEST_F(ShaderAssetTestFixture, BuildShaderInputListFromReflection)
 
 namespace
 {
-    eastl::unique_ptr<AssetData> CompileComputeShader(const char* path)
+    eastl::unique_ptr<AssetData> CompileComputeShader(const char* path, const char* profile = "cs_6_0")
     {
         MountTable fileSystem;
         SetUpMounts(fileSystem);
@@ -428,7 +428,7 @@ namespace
         ShaderDescriptor descriptor;
         descriptor.backend = ShaderBackend::DXIL;
         descriptor.stages = {
-            {RHI::ShaderStage::Compute, "CSMain", "cs_6_0"},
+            {RHI::ShaderStage::Compute, "CSMain", profile},
         };
         return compiler.Compile(id, *rawData, fileSystem, descriptor);
     }
@@ -508,6 +508,48 @@ TEST_F(ShaderAssetTestFixture, RootConstantsGoToTheRootLayoutNotASpaceGroup)
     ASSERT_NE(pass, nullptr);
     EXPECT_EQ(pass->m_constantBuffers.size(), 1u);
     EXPECT_NE(layout->FindConstantDescriptor(RHI::InputName("g_Exposure")), nullptr);
+}
+
+TEST_F(ShaderAssetTestFixture, AccelerationStructureReflectsAsItsOwnInputType)
+{
+    AssetId id = AssetId::Of<ShaderAsset>("test://Asset/Shaders/RayQueryTest.hlsl");
+    auto compiledData = CompileComputeShader("test://Asset/Shaders/RayQueryTest.hlsl", "cs_6_5");
+    ASSERT_NE(compiledData, nullptr);
+
+    ShaderAsset shader(id);
+    shader.SetDataReady(eastl::move(compiledData));
+    auto built = Resource::BuildShaderInputList(shader);
+
+    // Not a buffer, and its t1 does not clash with the texture's t0; the images are the
+    // texture and the output.
+    EXPECT_EQ(built.list.m_buffers.size(), 0u);
+    ASSERT_EQ(built.list.m_images.size(), 2u);
+    ASSERT_EQ(built.list.m_accelerationStructures.size(), 1u);
+    const RHI::ShaderInputAccelerationStructureDescriptor& scene = built.list.m_accelerationStructures[0];
+    EXPECT_STREQ(scene.m_name.GetCStr(), "g_Scene");
+    EXPECT_EQ(scene.m_count, 1u);
+    EXPECT_EQ(scene.m_registerId, 1u);
+    EXPECT_EQ(scene.m_spaceId, 2u);
+    EXPECT_EQ(scene.m_stageMask, RHI::ShaderStageMask::Compute);
+
+    Ptr<TestPipelineLayoutDescriptor> layout = new TestPipelineLayoutDescriptor();
+    layout->AddShaderInputDescriptors(built.list);
+    ASSERT_EQ(layout->Finalize(), RHI::ResultCode::Success);
+
+    EXPECT_NE(layout->FindAccelerationStructureDescriptor(RHI::InputName("g_Scene")), nullptr);
+    EXPECT_EQ(layout->FindBufferDescriptor(RHI::InputName("g_Scene")), nullptr);
+
+    const RHI::ShaderInputGroup* group = layout->FindSpaceGroupBySpaceId(2);
+    ASSERT_NE(group, nullptr);
+    uint32_t structureCount = 0;
+    for (const RHI::ShaderInputHandle& handle : group->m_shaderInputs)
+    {
+        if (handle.m_type == RHI::ShaderInputType::AccelerationStructure)
+        {
+            ++structureCount;
+        }
+    }
+    EXPECT_EQ(structureCount, 1u);
 }
 
 TEST_F(ShaderAssetTestFixture, RootConstantFloat3IsRejected)

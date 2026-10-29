@@ -33,6 +33,7 @@ namespace Spark::RHI
         ShutdownInternal();
         m_buffers.clear();
         m_images.clear();
+        m_accelerationStructures.clear();
         m_samplers.clear();
         m_constants.clear();
         m_layoutDescriptor = nullptr;
@@ -57,6 +58,12 @@ namespace Spark::RHI
             {
                 m_images.push_back(ShaderInputImage(
                     descriptor.m_layout->GetImageDescriptor(handle.m_index)));
+                break;
+            }
+            case ShaderInputType::AccelerationStructure:
+            {
+                m_accelerationStructures.push_back(ShaderInputAccelerationStructure(
+                    descriptor.m_layout->GetAccelerationStructureDescriptor(handle.m_index)));
                 break;
             }
             case ShaderInputType::Sampler:
@@ -92,6 +99,18 @@ namespace Spark::RHI
     ShaderInputImage* ShaderBindings::FindImageInput(const InputName& name)
     {
         for (ShaderInputImage& input : m_images)
+        {
+            if (input.GetDescription().m_name == name)
+            {
+                return &input;
+            }
+        }
+        return nullptr;
+    }
+
+    ShaderInputAccelerationStructure* ShaderBindings::FindAccelerationStructureInput(const InputName& name)
+    {
+        for (ShaderInputAccelerationStructure& input : m_accelerationStructures)
         {
             if (input.GetDescription().m_name == name)
             {
@@ -140,6 +159,18 @@ namespace Spark::RHI
     const ShaderInputImage* ShaderBindings::FindImageInput(const InputName& name) const
     {
         for (const ShaderInputImage& input : m_images)
+        {
+            if (input.GetDescription().m_name == name)
+            {
+                return &input;
+            }
+        }
+        return nullptr;
+    }
+
+    const ShaderInputAccelerationStructure* ShaderBindings::FindAccelerationStructureInput(const InputName& name) const
+    {
+        for (const ShaderInputAccelerationStructure& input : m_accelerationStructures)
         {
             if (input.GetDescription().m_name == name)
             {

@@ -47,6 +47,14 @@ namespace Spark::Render
                     out.m_images.push_back(desc);
                     break;
                 }
+                case RHI::ShaderInputType::AccelerationStructure:
+                {
+                    RHI::ShaderInputAccelerationStructureDescriptor desc =
+                        layout.GetAccelerationStructureDescriptor(handle.m_index);
+                    desc.m_stageMask = stages;
+                    out.m_accelerationStructures.push_back(desc);
+                    break;
+                }
                 case RHI::ShaderInputType::Sampler:
                 {
                     RHI::ShaderInputSamplerDescriptor desc = layout.GetSamplerDescriptor(handle.m_index);
@@ -87,6 +95,12 @@ namespace Spark::Render
             const RHI::PipelineLayoutDescriptor& layout, const RHI::ShaderInputImageDescriptor& read)
         {
             return layout.FindImageDescriptor(read.m_name);
+        }
+
+        const RHI::ShaderInputAccelerationStructureDescriptor* FindDeclared(
+            const RHI::PipelineLayoutDescriptor& layout, const RHI::ShaderInputAccelerationStructureDescriptor& read)
+        {
+            return layout.FindAccelerationStructureDescriptor(read.m_name);
         }
 
         const RHI::ShaderInputSamplerDescriptor* FindDeclared(
@@ -196,6 +210,7 @@ namespace Spark::Render
 
         TakeReflected(reflected.list.m_buffers,   inputs.m_buffers,   groups, passName);
         TakeReflected(reflected.list.m_images,    inputs.m_images,    groups, passName);
+        TakeReflected(reflected.list.m_accelerationStructures, inputs.m_accelerationStructures, groups, passName);
         TakeReflected(reflected.list.m_samplers,  inputs.m_samplers,  groups, passName);
         TakeReflected(reflected.list.m_constants, inputs.m_constants, groups, passName);
         inputs.m_rootConstants = eastl::move(reflected.list.m_rootConstants);

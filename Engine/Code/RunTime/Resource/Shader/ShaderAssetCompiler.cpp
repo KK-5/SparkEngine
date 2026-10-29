@@ -193,6 +193,8 @@ namespace Spark::Resource
                 return RHI::ShaderInputType::Image;
             case D3D_SIT_SAMPLER:
                 return RHI::ShaderInputType::Sampler;
+            case D3D_SIT_RTACCELERATIONSTRUCTURE:
+                return RHI::ShaderInputType::AccelerationStructure;
             default:
                 return RHI::ShaderInputType::Buffer;
             }

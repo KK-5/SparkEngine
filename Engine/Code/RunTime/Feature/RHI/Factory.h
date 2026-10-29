@@ -22,6 +22,8 @@ namespace Spark::RHI
     class StreamingImagePool;
     class TransientResourcePool;
 
+    class AccelerationStructure;
+
     class ConstantsLayout;
     class ShaderBindings;
     class ShaderInputCompiler;
@@ -80,6 +82,8 @@ namespace Spark::RHI
         virtual Ptr<StreamingImagePool> CreateStreamingImagePool() = 0;
 
         virtual Ptr<TransientResourcePool> CreateTransientResourcePool() = 0;
+
+        virtual Ptr<AccelerationStructure> CreateAccelerationStructure() = 0;
 
         virtual Ptr<ShaderBindings> CreateShaderBindings() = 0;
 

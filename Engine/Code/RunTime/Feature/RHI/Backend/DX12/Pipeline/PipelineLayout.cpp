@@ -130,9 +130,23 @@ namespace Spark::RHI::DX12
 
             for (auto handle: spaceGroup.m_shaderInputs)
             {
-                if (handle.m_type != ShaderInputType::Buffer && handle.m_type != ShaderInputType::Image)
+                if (handle.m_type != ShaderInputType::Buffer && handle.m_type != ShaderInputType::Image
+                    && handle.m_type != ShaderInputType::AccelerationStructure)
                 {
                     continue;
+                }
+
+                if (handle.m_type == ShaderInputType::AccelerationStructure)
+                {
+                    const RHI::ShaderInputAccelerationStructureDescriptor& input =
+                        desc->GetAccelerationStructureDescriptor(handle.m_index);
+                    D3D12_DESCRIPTOR_RANGE descriptorRange;
+                    descriptorRange.RangeType      = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                    descriptorRange.RegisterSpace  = input.m_spaceId;
+                    descriptorRange.NumDescriptors = input.m_count;
+                    descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+                    descriptorRange.BaseShaderRegister = input.m_registerId;
+                    descriptorRanges[index].push_back(descriptorRange);
                 }
 
                 if (handle.m_type == ShaderInputType::Buffer)

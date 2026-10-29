@@ -21,6 +21,7 @@ namespace Spark::RHI::DX12
         m_imagePoolObjectPool.Init();
         m_imageViewObjectPool.Init();
         m_transientResourcePoolObjectPool.Init();
+        m_accelerationStructureObjectPool.Init();
         m_shaderBindingsObjectPool.Init();
         m_pipelineLibraryObjectPool.Init();
         m_pipelineStateObjectPool.Init();
@@ -37,6 +38,7 @@ namespace Spark::RHI::DX12
 
     void ID3D12Factory::Shutdown()
     {
+        m_accelerationStructureObjectPool.Shutdown();
         m_bufferObjectPool.Shutdown();
         m_bufferPoolObjectPool.Shutdown();
         m_bufferViewObjectPool.Shutdown();
@@ -100,6 +102,7 @@ namespace Spark::RHI::DX12
         m_imagePoolObjectPool.Collect();
         m_imageViewObjectPool.Collect();
         m_transientResourcePoolObjectPool.Collect();
+        m_accelerationStructureObjectPool.Collect();
         m_shaderBindingsObjectPool.Collect();
         m_pipelineLibraryObjectPool.Collect();
         m_pipelineStateObjectPool.Collect();
@@ -299,6 +302,11 @@ namespace Spark::RHI::DX12
     Ptr<RHI::TransientResourcePool> ID3D12Factory::CreateTransientResourcePool()
     {
         return static_cast<RHI::TransientResourcePool*>(m_transientResourcePoolObjectPool.CreateDeviceObject());
+    }
+
+    Ptr<RHI::AccelerationStructure> ID3D12Factory::CreateAccelerationStructure()
+    {
+        return static_cast<RHI::AccelerationStructure*>(m_accelerationStructureObjectPool.CreateDeviceObject());
     }
 
     Ptr<RHI::ShaderBindings> ID3D12Factory::CreateShaderBindings()

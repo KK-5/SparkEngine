@@ -787,28 +787,19 @@ namespace Spark::RHI::DX12
         shaderResourceView = {};
         shaderResourceView.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
-        if (CheckBitsAll(buffer.GetDescriptor().m_bindFlags, RHI::BufferBindFlags::RayTracingAccelerationStructure))
-        {
-            shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
-            shaderResourceView.Format = DXGI_FORMAT_UNKNOWN;
-            shaderResourceView.RaytracingAccelerationStructure.Location = buffer.GetMemoryView().GetGpuAddress();
-        }
-        else
-        {
-            shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-            shaderResourceView.Format = ConvertFormat(bufferViewDescriptor.m_elementFormat);
-            shaderResourceView.Buffer.FirstElement = elementOffset;
-            shaderResourceView.Buffer.NumElements = bufferViewDescriptor.m_elementCount;
+        shaderResourceView.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        shaderResourceView.Format = ConvertFormat(bufferViewDescriptor.m_elementFormat);
+        shaderResourceView.Buffer.FirstElement = elementOffset;
+        shaderResourceView.Buffer.NumElements = bufferViewDescriptor.m_elementCount;
 
-            if (bufferViewDescriptor.m_elementFormat == RHI::Format::R32_UINT)
-            {
-                shaderResourceView.Format = DXGI_FORMAT_R32_TYPELESS;
-                shaderResourceView.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
-            }
-            else if (shaderResourceView.Format == DXGI_FORMAT_UNKNOWN)
-            {
-                shaderResourceView.Buffer.StructureByteStride = bufferViewDescriptor.m_elementSize;
-            }
+        if (bufferViewDescriptor.m_elementFormat == RHI::Format::R32_UINT)
+        {
+            shaderResourceView.Format = DXGI_FORMAT_R32_TYPELESS;
+            shaderResourceView.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        }
+        else if (shaderResourceView.Format == DXGI_FORMAT_UNKNOWN)
+        {
+            shaderResourceView.Buffer.StructureByteStride = bufferViewDescriptor.m_elementSize;
         }
     }
 

@@ -9,6 +9,7 @@
 #include <Resource/Buffer/BufferView.h>
 #include <Resource/Image/ImageView.h>
 #include <Resource/Sampler/Sampler.h>
+#include <RayTracing/AccelerationStructure.h>
 #include <Resource/Constant/ConstantBufferContext.h>
 
 namespace Spark::RHI::DX12
@@ -219,6 +220,22 @@ namespace Spark::RHI::DX12
                     break;
                 }
             }
+            else if (handle.m_type == RHI::ShaderInputType::AccelerationStructure)
+            {
+                const auto& structureDesc = desc.GetAccelerationStructureDescriptor(handle.m_index);
+                const RHI::ShaderInputAccelerationStructure* input = b.FindAccelerationStructureInput(structureDesc.m_name);
+                ASSERT(input, "[ShaderInputCompiler] AccelerationStructure ShaderInput missing: %s",
+                    structureDesc.m_name.GetCStr());
+
+                const DescriptorHandle nullHandle =
+                    descriptorCtx.GetNullHandleSRV(D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE);
+                for (const auto& structure : input->GetAccelerationStructures())
+                {
+                    sources.push_back(structure
+                        ? static_cast<const AccelerationStructure*>(structure.get())->GetReadDescriptor()
+                        : nullHandle);
+                }
+            }
         }
 
         ASSERT(sources.size() == frameTable.GetSize(),
@@ -391,6 +408,10 @@ namespace Spark::RHI::DX12
             else if (handle.m_type == RHI::ShaderInputType::Image)
             {
                 total += desc.GetImageDescriptor(handle.m_index).m_count;
+            }
+            else if (handle.m_type == RHI::ShaderInputType::AccelerationStructure)
+            {
+                total += desc.GetAccelerationStructureDescriptor(handle.m_index).m_count;
             }
         }
         return total;

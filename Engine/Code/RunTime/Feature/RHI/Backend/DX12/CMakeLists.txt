@@ -45,6 +45,7 @@ set(SOURCES
     Resource/Buffer/BufferPool.cpp
     Resource/Buffer/Buffer.cpp
     Resource/Buffer/BufferView.cpp
+    RayTracing/AccelerationStructure.cpp
     Resource/Constant/ConstantBufferContext.cpp
     Resource/Image/ImagePool.cpp
     Resource/Image/Image.cpp

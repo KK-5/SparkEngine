@@ -42,17 +42,23 @@ namespace Spark::RHI
         /// Returns nullptr if no input with the given name exists in this space group.
         ShaderInputBuffer*   FindBufferInput(const InputName& name);
         ShaderInputImage*    FindImageInput(const InputName& name);
+        ShaderInputAccelerationStructure* FindAccelerationStructureInput(const InputName& name);
         ShaderInputSampler*  FindSamplerInput(const InputName& name);
         ShaderInputConstant* FindConstantInput(const InputName& name);
 
         const ShaderInputBuffer*   FindBufferInput(const InputName& name)   const;
         const ShaderInputImage*    FindImageInput(const InputName& name)    const;
+        const ShaderInputAccelerationStructure* FindAccelerationStructureInput(const InputName& name) const;
         const ShaderInputSampler*  FindSamplerInput(const InputName& name)  const;
         const ShaderInputConstant* FindConstantInput(const InputName& name) const;
 
         /// Iteration over all inputs in this space group (for compile).
         eastl::span<const ShaderInputBuffer>   GetBufferInputs()   const { return { m_buffers.data(),   m_buffers.size() }; }
         eastl::span<const ShaderInputImage>    GetImageInputs()    const { return { m_images.data(),    m_images.size() }; }
+        eastl::span<const ShaderInputAccelerationStructure> GetAccelerationStructureInputs() const
+        {
+            return { m_accelerationStructures.data(), m_accelerationStructures.size() };
+        }
         eastl::span<const ShaderInputSampler>  GetSamplerInputs()  const { return { m_samplers.data(),  m_samplers.size() }; }
         eastl::span<const ShaderInputConstant> GetConstantInputs() const { return { m_constants.data(), m_constants.size() }; }
 
@@ -74,6 +80,7 @@ namespace Spark::RHI
 
         eastl::vector<ShaderInputBuffer>   m_buffers;
         eastl::vector<ShaderInputImage>    m_images;
+        eastl::vector<ShaderInputAccelerationStructure> m_accelerationStructures;
         eastl::vector<ShaderInputSampler>  m_samplers;
         eastl::vector<ShaderInputConstant> m_constants;
     };

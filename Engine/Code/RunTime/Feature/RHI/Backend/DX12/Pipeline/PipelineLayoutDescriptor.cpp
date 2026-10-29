@@ -93,6 +93,11 @@ namespace Spark::RHI::DX12
                     : HlslRegisterNamespace::SRV;
                 return { ns, desc.m_registerId, desc.m_count };
             }
+            case RHI::ShaderInputType::AccelerationStructure:
+            {
+                const auto& desc = GetAccelerationStructureDescriptor(handle.m_index);
+                return { HlslRegisterNamespace::SRV, desc.m_registerId, desc.m_count };
+            }
             case RHI::ShaderInputType::Sampler:
             {
                 const auto& desc = GetSamplerDescriptor(handle.m_index);

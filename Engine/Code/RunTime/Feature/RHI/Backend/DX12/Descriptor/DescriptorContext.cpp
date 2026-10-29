@@ -147,6 +147,11 @@ namespace Spark::RHI::DX12
             m_D3D12Device->CreateShaderResourceView(nullptr, &desc, GetCpuNativeHandle(srvDescriptorHandle));
             m_nullDescriptorsSRV[dimension] = srvDescriptorHandle;
         }
+
+        // Address 0 is a null acceleration structure: every trace against it misses.
+        DescriptorHandle accelerationStructureHandle;
+        CreateAccelerationStructureView(0, accelerationStructureHandle);
+        m_nullDescriptorsSRV[D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE] = accelerationStructureHandle;
     }
 
     void DescriptorContext::CreateNullDescriptorsUAV()
@@ -345,8 +350,7 @@ namespace Spark::RHI::DX12
         D3D12_SHADER_RESOURCE_VIEW_DESC viewDesc;
         ConvertBufferView(buffer, bufferViewDescriptor, viewDesc);
 
-        bool isRayTracingAccelerationStructure = CheckBitsAll(buffer.GetDescriptor().m_bindFlags, RHI::BufferBindFlags::RayTracingAccelerationStructure);
-        ID3D12Resource* resource = isRayTracingAccelerationStructure ? nullptr : buffer.GetMemoryView().GetMemory();
+        ID3D12Resource* resource = buffer.GetMemoryView().GetMemory();
         m_D3D12Device->CreateShaderResourceView(resource, &viewDesc, descriptorHandle);
 
         staticView = m_staticPool.AllocateHandle();
@@ -357,6 +361,28 @@ namespace Spark::RHI::DX12
             bufferViewDescriptor.m_elementCount * bufferViewDescriptor.m_elementSize);
         ConvertBufferView(buffer, rawDesc, staticViewDesc);
         m_D3D12Device->CreateShaderResourceView(resource, &staticViewDesc, m_staticPool.GetCpuNativeHandle(staticView));
+    }
+
+    void DescriptorContext::CreateAccelerationStructureView(
+        GpuVirtualAddress address,
+        DescriptorHandle& shaderResourceView)
+    {
+        if (shaderResourceView.IsNull())
+        {
+            shaderResourceView = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>();
+            if (shaderResourceView.IsNull())
+            {
+                ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
+                return;
+            }
+        }
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+        viewDesc.Format = DXGI_FORMAT_UNKNOWN;
+        viewDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+        viewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        viewDesc.RaytracingAccelerationStructure.Location = address;
+        m_D3D12Device->CreateShaderResourceView(nullptr, &viewDesc, GetCpuNativeHandle(shaderResourceView));
     }
 
     void DescriptorContext::CreateUnorderedAccessView(

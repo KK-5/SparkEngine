@@ -7,6 +7,7 @@
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/Image/ImageView.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
+#include <RHI/RayTracing/AccelerationStructure.h>
 
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 
@@ -149,6 +150,58 @@ namespace Spark::RHI
     private:
         ShaderInputImageDescriptor m_descriptor;
         eastl::fixed_vector<ConstPtr<ImageView>, ArrayCountMax> m_views;
+    };
+
+    //////////////////////////////////////////////////////////////////////////
+    // ShaderInputAccelerationStructure
+    //////////////////////////////////////////////////////////////////////////
+
+    class ShaderInputAccelerationStructure
+    {
+    public:
+        static constexpr uint32_t ArrayCountMax = 16;
+
+        ShaderInputAccelerationStructure() = default;
+        explicit ShaderInputAccelerationStructure(const ShaderInputAccelerationStructureDescriptor& desc) { Init(desc); }
+
+        void Init(const ShaderInputAccelerationStructureDescriptor& desc)
+        {
+            m_descriptor = desc;
+            m_structures.resize(desc.m_count);
+        }
+
+        const ShaderInputAccelerationStructureDescriptor& GetDescription() const { return m_descriptor; }
+
+        bool SetAccelerationStructure(uint32_t arrayIndex, const AccelerationStructure* structure)
+        {
+            if (arrayIndex >= m_descriptor.m_count)
+            {
+                return false;
+            }
+            m_structures[arrayIndex] = structure;
+            return true;
+        }
+
+        const ConstPtr<AccelerationStructure>& GetAccelerationStructure(uint32_t arrayIndex) const
+        {
+            static const ConstPtr<AccelerationStructure> s_null;
+            if (arrayIndex >= m_descriptor.m_count)
+            {
+                return s_null;
+            }
+            return m_structures[arrayIndex];
+        }
+
+        eastl::span<const ConstPtr<AccelerationStructure>> GetAccelerationStructures() const
+        {
+            return { m_structures.data(), m_structures.size() };
+        }
+
+        uint32_t GetCount() const { return m_descriptor.m_count; }
+
+    private:
+        ShaderInputAccelerationStructureDescriptor m_descriptor;
+        eastl::fixed_vector<ConstPtr<AccelerationStructure>, ArrayCountMax> m_structures;
     };
 
     //////////////////////////////////////////////////////////////////////////

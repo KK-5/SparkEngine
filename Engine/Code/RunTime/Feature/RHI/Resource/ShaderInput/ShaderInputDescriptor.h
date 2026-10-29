@@ -15,6 +15,7 @@ namespace Spark::RHI
         Image,
         Sampler,
         Constant,
+        AccelerationStructure,
         Count
     };
 
@@ -33,8 +34,7 @@ namespace Spark::RHI
         Constant,
         Structured,
         Typed,
-        Raw,
-        AccelerationStructure
+        Raw
     };
 
     static const uint32_t UndefinedRegisterSlot = static_cast<uint32_t>(-1);
@@ -112,6 +112,30 @@ namespace Spark::RHI
         ShaderInputImageType m_type = ShaderInputImageType::Unknown;
 
         ShaderInputImageAccess m_access = ShaderInputImageAccess::Read;
+
+        uint32_t m_count = 0;
+
+        uint32_t m_registerId = UndefinedRegisterSlot;
+
+        uint32_t m_spaceId = UndefinedRegisterSlot;
+
+        //! Stages that reference this input.
+        ShaderStageMask m_stageMask = ShaderStageMask::None;
+    };
+
+    class ShaderInputAccelerationStructureDescriptor final
+    {
+    public:
+        ShaderInputAccelerationStructureDescriptor() = default;
+        ShaderInputAccelerationStructureDescriptor(
+            const InputName& name,
+            uint32_t count,
+            uint32_t registerId,
+            uint32_t spaceId);
+
+        size_t GetHash(size_t seed = 0) const;
+
+        InputName m_name;
 
         uint32_t m_count = 0;
 

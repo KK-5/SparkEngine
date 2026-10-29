@@ -66,6 +66,7 @@ namespace Spark::RHI
     {
         eastl::vector<ShaderInputBufferDescriptor>   m_buffers;
         eastl::vector<ShaderInputImageDescriptor>    m_images;
+        eastl::vector<ShaderInputAccelerationStructureDescriptor> m_accelerationStructures;
         eastl::vector<ShaderInputSamplerDescriptor>  m_samplers;
         eastl::vector<ShaderInputConstantDescriptor> m_constants;
         //! The root constants block's members: set on the command list, not held by any space.
@@ -120,6 +121,7 @@ namespace Spark::RHI
         // 按下标取单个 descriptor — 配合 ShaderInputRef 在 SpaceGroup loop 里使用
         const ShaderInputBufferDescriptor&        GetBufferDescriptor(uint32_t index) const;
         const ShaderInputImageDescriptor&         GetImageDescriptor(uint32_t index) const;
+        const ShaderInputAccelerationStructureDescriptor& GetAccelerationStructureDescriptor(uint32_t index) const;
         const ShaderInputSamplerDescriptor&       GetSamplerDescriptor(uint32_t index) const;
         const ShaderInputConstantDescriptor&      GetConstantDescriptor(uint32_t index) const;
 
@@ -131,6 +133,7 @@ namespace Spark::RHI
         // 名字查找 — 调试/校验用，线性扫描，不在热路径上调用
         const ShaderInputBufferDescriptor*   FindBufferDescriptor(const InputName& name) const;
         const ShaderInputImageDescriptor*    FindImageDescriptor(const InputName& name) const;
+        const ShaderInputAccelerationStructureDescriptor* FindAccelerationStructureDescriptor(const InputName& name) const;
         const ShaderInputSamplerDescriptor*  FindSamplerDescriptor(const InputName& name) const;
         const ShaderInputConstantDescriptor* FindConstantDescriptor(const InputName& name) const;
 
@@ -177,6 +180,7 @@ namespace Spark::RHI
         //---------------------------------------------------------------------
         eastl::vector<ShaderInputBufferDescriptor>        m_bufferDescs;
         eastl::vector<ShaderInputImageDescriptor>         m_imageDescs;
+        eastl::vector<ShaderInputAccelerationStructureDescriptor> m_accelerationStructureDescs;
         eastl::vector<ShaderInputSamplerDescriptor>       m_samplerDescs;
         eastl::vector<ShaderInputConstantDescriptor>      m_constantDescs;
         struct StaticSamplerEntry

@@ -23,6 +23,8 @@ namespace Spark::Resource
             case RHI::ShaderInputType::Image:
                 return res.m_imageAccess == RHI::ShaderInputImageAccess::ReadWrite
                     ? RegisterClass::UAV : RegisterClass::SRV;
+            case RHI::ShaderInputType::AccelerationStructure:
+                return RegisterClass::SRV;
             case RHI::ShaderInputType::Buffer:
                 if (res.m_bufferAccess == RHI::ShaderInputBufferAccess::ReadWrite) return RegisterClass::UAV;
                 if (res.m_bufferAccess == RHI::ShaderInputBufferAccess::Constant)  return RegisterClass::CBV;
@@ -68,6 +70,8 @@ namespace Spark::Resource
                 return list.m_buffers[handle.m_index].m_stageMask;
             case RHI::ShaderInputType::Image:
                 return list.m_images[handle.m_index].m_stageMask;
+            case RHI::ShaderInputType::AccelerationStructure:
+                return list.m_accelerationStructures[handle.m_index].m_stageMask;
             default:
                 return list.m_samplers[handle.m_index].m_stageMask;
             }
@@ -157,6 +161,18 @@ namespace Spark::Resource
                     desc.m_stageMask = stageMask;
                     state.addedBindings[key] = { res.m_type, static_cast<uint32_t>(out.m_images.size()) };
                     out.m_images.push_back(desc);
+                    break;
+                }
+                case RHI::ShaderInputType::AccelerationStructure:
+                {
+                    RHI::ShaderInputAccelerationStructureDescriptor desc(
+                        RHI::InputName(res.m_name.c_str()),
+                        count,
+                        res.m_registerId,
+                        res.m_spaceId);
+                    desc.m_stageMask = stageMask;
+                    state.addedBindings[key] = { res.m_type, static_cast<uint32_t>(out.m_accelerationStructures.size()) };
+                    out.m_accelerationStructures.push_back(desc);
                     break;
                 }
                 case RHI::ShaderInputType::Sampler:
