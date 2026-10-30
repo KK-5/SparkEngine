@@ -77,6 +77,7 @@ namespace Spark::RHI::DX12
         void Submit(const RHI::DrawItem& drawItem, uint32_t submitIndex = 0) override;
         void Submit(const RHI::CopyItem& copyItem, uint32_t submitIndex = 0) override;
         void Submit(const RHI::DispatchItem& dispatchItem, uint32_t submitIndex = 0) override;
+        void Submit(const RHI::AccelerationStructureBuildItem& buildItem, uint32_t submitIndex = 0) override;
         void BeginPredication(const RHI::Buffer& buffer, uint64_t offset, RHI::PredicationOp operation) override;
         void EndPredication() override;
         void QueueBarrier(const RHI::BufferBarrier& barrier) override;

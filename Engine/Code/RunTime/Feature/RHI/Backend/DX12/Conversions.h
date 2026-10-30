@@ -19,6 +19,8 @@
 #include <RHI/Resource/AccessFlags.h>
 #include <RHI/Command/CommandList.h>
 
+#include <EASTL/fixed_vector.h>
+
 #include "DX12.h"
 
 namespace Spark::RHI::DX12
@@ -87,6 +89,13 @@ namespace Spark::RHI::DX12
     //! accept, any other its queue's own.
     D3D12_BARRIER_LAYOUT ConvertBarrierLayout(
         RHI::AccessFlags access, RHI::HardwareQueueClass queue, RHI::HardwareQueueClassMask sharedQueueMask);
+
+    using RayTracingGeometryDescs = eastl::fixed_vector<D3D12_RAYTRACING_GEOMETRY_DESC, 8>;
+
+    //! The result points into `geometryDescs`. A null buffer's address is 0, which the size query
+    //! does not read.
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS ConvertAccelerationStructureBuildInputs(
+        const RHI::AccelerationStructureBuildInputs& inputs, RayTracingGeometryDescs& geometryDescs);
 
     void ConvertBufferView(
         const Buffer& buffer,

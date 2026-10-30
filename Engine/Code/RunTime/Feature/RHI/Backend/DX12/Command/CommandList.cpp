@@ -30,6 +30,7 @@
 #include <Resource/Buffer/BufferView.h>
 #include <Resource/Image/Image.h>
 #include <Resource/Image/ImageView.h>
+#include <RayTracing/AccelerationStructure.h>
 #include <SwapChain/SwapChain.h>
 
 #include "CommandQueue.h"
@@ -473,6 +474,35 @@ namespace Spark::RHI::DX12
             ASSERT(false, "Invalid dispatch type");
             break;
         }
+    }
+
+    void CommandList::Submit(const RHI::AccelerationStructureBuildItem& buildItem, uint32_t submitIndex)
+    {
+        ValidateSubmitIndex(submitIndex);
+
+        if (RHI::Validation::isEnabled)
+        {
+            if (GetHardwareQueueClass() == RHI::HardwareQueueClass::Copy)
+            {
+                LOG_ERROR("[CommandList] An acceleration structure build cannot be submitted on the copy queue.");
+                return;
+            }
+            if (!RHI::ValidateAccelerationStructureBuildItem(GetDevice(), buildItem))
+            {
+                return;
+            }
+        }
+
+        RayTracingGeometryDescs geometryDescs;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc{};
+        desc.Inputs = ConvertAccelerationStructureBuildInputs(buildItem.m_inputs, geometryDescs);
+        desc.DestAccelerationStructureData =
+            static_cast<const AccelerationStructure*>(buildItem.m_destination)->GetGpuAddress();
+        desc.SourceAccelerationStructureData = 0;
+        desc.ScratchAccelerationStructureData =
+            static_cast<const Buffer*>(buildItem.m_scratchBuffer)->GetMemoryView().GetGpuAddress() + buildItem.m_scratchOffset;
+
+        GetCommandList()->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
     }
 
     void CommandList::Submit(const RHI::DrawItem& drawItem, uint32_t submitIndex)

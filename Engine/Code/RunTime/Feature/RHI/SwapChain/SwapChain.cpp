@@ -163,7 +163,7 @@ namespace Spark::RHI
 
         RHI::ImageDescriptor& imageDescriptor = request.m_descriptor;
         imageDescriptor.m_dimension = RHI::ImageDimension::Image2D;
-        imageDescriptor.m_bindFlags = RHI::ImageBindFlags::Color;
+        imageDescriptor.m_bindFlags = RHI::ImageBindFlags::Color | RHI::ImageBindFlags::CopyWrite;
         imageDescriptor.m_size.m_width = m_descriptor.m_dimensions.m_imageWidth;
         imageDescriptor.m_size.m_height = m_descriptor.m_dimensions.m_imageHeight;
         imageDescriptor.m_format = m_descriptor.m_dimensions.m_imageFormat;

@@ -417,6 +417,7 @@ namespace Spark::RHI::DX12
         m_limits.m_maxConstantBufferSize = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 4u * 4u; // 4096 vectors * 4 values per vector * 4 bytes per value
         m_limits.m_maxBufferSize = D3D12_REQ_RESOURCE_SIZE_IN_MEGABYTES_EXPRESSION_C_TERM * (1024u * 1024u); // 2048 MB
         m_limits.m_reservedPageSizeInBytes = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+        m_limits.m_accelerationStructureScratchOffsetAlignment = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT;
     }
 
     RHI::ResultCode Device::InitInternal(RHI::PhysicalDevice& physicalDevice)
@@ -678,6 +679,44 @@ namespace Spark::RHI::DX12
         }
 
         formatsCapabilities[static_cast<uint32_t>(RHI::Format::R8_UINT)] |= RHI::FormatCapabilities::ShadingRate;
+
+        // Set by the raytracing spec, not reported per format: the base set and what tier 1.1 adds.
+        constexpr RHI::Format accelerationStructureVertexFormats[] = {
+            RHI::Format::R32G32_FLOAT,
+            RHI::Format::R32G32B32_FLOAT,
+            RHI::Format::R16G16_FLOAT,
+            RHI::Format::R16G16B16A16_FLOAT,
+            RHI::Format::R16G16_SNORM,
+            RHI::Format::R16G16B16A16_SNORM,
+            RHI::Format::R16G16_UNORM,
+            RHI::Format::R16G16B16A16_UNORM,
+            RHI::Format::R10G10B10A2_UNORM,
+            RHI::Format::R8G8_UNORM,
+            RHI::Format::R8G8B8A8_UNORM,
+            RHI::Format::R8G8_SNORM,
+            RHI::Format::R8G8B8A8_SNORM,
+        };
+        for (RHI::Format format : accelerationStructureVertexFormats)
+        {
+            formatsCapabilities[static_cast<uint32_t>(format)] |= RHI::FormatCapabilities::AccelerationStructureVertex;
+        }
+    }
+
+    RHI::AccelerationStructureBuildSizes Device::GetAccelerationStructureBuildSizesInternal(
+        const RHI::AccelerationStructureBuildInputs& inputs) const
+    {
+        RayTracingGeometryDescs geometryDescs;
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS dx12Inputs =
+            ConvertAccelerationStructureBuildInputs(inputs, geometryDescs);
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO info{};
+        m_dx12Device->GetRaytracingAccelerationStructurePrebuildInfo(&dx12Inputs, &info);
+
+        RHI::AccelerationStructureBuildSizes sizes;
+        sizes.m_resultSize        = info.ResultDataMaxSizeInBytes;
+        sizes.m_buildScratchSize  = info.ScratchDataSizeInBytes;
+        sizes.m_updateScratchSize = info.UpdateScratchDataSizeInBytes;
+        return sizes;
     }
 
     ID3D12DeviceX* Device::GetDX12Device()

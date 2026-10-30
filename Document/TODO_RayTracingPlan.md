@@ -19,7 +19,7 @@ inline ray query 追踪。I8（光追场景：BLAS 跟着几何、TLAS 每帧更
 |---|---|---|---|
 | 1 | 最低要求检查、构建阶段 | — | 已完成 |
 | 2 | 加速结构对象与绑定类型（含反射），删掉 buffer 路径里的特例 | 1 | 已完成 |
-| 3 | 构建：输入描述、所需大小、构建命令、访问与屏障；一个 RHI 示例验证 | 2 | 未开始 |
+| 3 | 构建：输入描述、所需大小、构建命令、访问与屏障；一个 RHI 示例验证 | 2 | 已完成 |
 | 4 | 压缩与原地更新 | 3 | 推后：I8 的静态网格先不压缩 |
 
 D1 ~ D8 已定。
@@ -82,7 +82,9 @@ docs.vulkan.org 的参考页（`VkAccelerationStructureCreateInfoKHR`、`vkCmdBu
 
 - **Enhanced Barriers 规范自相矛盾**：`SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE` 一节说可配的访问只有 AS 读，
   兼容表又让 `SHADER_RESOURCE` 可配它；UAV 访问的兼容表不含它，旧 UAV 屏障的等价写法里却有。输入与 scratch 的屏障
-  以步骤 3 示例在 debug layer 下的实际结果为准。
+  以步骤 3 示例在 debug layer 下的实际结果为准。2026-10-30 实测（`RayQueryTriangle`，RTX 3060）：输入 `SHADER_RESOURCE`、
+  scratch `UNORDERED_ACCESS`、存放 buffer AS 写到 AS 读写，都配 `SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE`，debug layer
+  与 GPU 验证层均无报错。
 
 ---
 
@@ -175,8 +177,8 @@ RHI 不记哪个 buffer 上建了哪些加速结构，多个加速结构放进�
    `D3D_SIT_RTACCELERATIONSTRUCTURE` 映射到它、编译器的写法（D3）；删掉 buffer 路径的三处特例和 `ShaderInputBufferType::AccelerationStructure`。
 3. **构建**（中）：`RayTracingGeometry`、`RayTracingInstance`（D4）、大小查询、`AccelerationStructureBuildItem` 与 DX12 的提交（D6）、
    存放用的 buffer（D2）；D5 的访问：`RayTracingBuildInput` 与 `AccelStructBuildInputRead`、`AccelStructScratch`、
-   `ResourceState` 的校验。交换链图像加 `CopyWrite`（Vulkan 后端建交换链时要求表面支持 `TRANSFER_DST`，
-   不支持就失败，同 D7）。验证用一个 RHI 示例（同 `HelloTriangle`，不经过渲染图）：
+   `ResourceState` 的校验。交换链图像加 `CopyWrite`（DXGI 没有对应的用途，flip 模型的 back buffer 不声明也能作拷贝目标；
+   Vulkan 后端建交换链时要求表面支持 `TRANSFER_DST`，不支持就失败，同 D7）。验证用一个 RHI 示例（同 `HelloTriangle`，不经过渲染图）：
    - 一个三角形的 BLAS；TLAS 两个实例引用它，各带不同的平移与实例号。BLAS 与 TLAS 放在同一个存放 buffer 里（验证偏移）。
    - 顶点在 Device 堆，从 upload 拷入（upload 堆在 DX12 上不发屏障，测不到输入的屏障）；实例 buffer 由 CPU 写。
    - 两次构建串行共用一块 scratch，中间有 scratch 与存放 buffer 的屏障。

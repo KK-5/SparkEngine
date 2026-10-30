@@ -47,6 +47,8 @@ namespace Spark::RHI::DX12
         void ShutdownInternal() override;
         RHI::ResultCode InitializeLimits() override;
         void FillFormatsCapabilitiesInternal(FormatCapabilitiesList& formatsCapabilities) override;
+        RHI::AccelerationStructureBuildSizes GetAccelerationStructureBuildSizesInternal(
+            const RHI::AccelerationStructureBuildInputs& inputs) const override;
         //////////////////////////////
 
         /// @brief init m_features and m_limits

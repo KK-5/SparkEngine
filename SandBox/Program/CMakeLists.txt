@@ -131,6 +131,30 @@ if (BUILD_RHI_RESERVEDIMAGE)
     )
 endif()
 
+option(BUILD_RHI_RAYQUERYTRIANGLE "Build RHI RayQueryTriangle" ON)
+
+if (BUILD_RHI_RAYQUERYTRIANGLE)
+    set(TARGET_NAME RayQueryTriangle)
+
+    # Builds a BLAS and a TLAS of two instances and traces them with an inline ray query.
+    add_executable(${TARGET_NAME} Common/SimpleGlfwWindow.cpp RHI/RayQueryTriangle.cpp)
+
+    target_compile_definitions(${TARGET_NAME}
+    PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+
+    target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        glfw
+        SparkCore
+        SparkRHI
+        SparkRHI_DX12
+        SparkAssetManager
+    )
+endif()
+
 option(BUILD_LTCLUTGEN "Build LTCLutGen" ON)
 
 if (BUILD_LTCLUTGEN)

@@ -9,9 +9,15 @@
 #include <Log/ILogSystem.h>
 #include <Resource/Buffer/Buffer.h>
 #include <Resource/Image/Image.h>
+#include <RHI/RayTracing/RayTracingInstance.h>
 
 namespace Spark::RHI::DX12
 {
+    static_assert(sizeof(RHI::RayTracingInstance) == sizeof(D3D12_RAYTRACING_INSTANCE_DESC));
+    static_assert(offsetof(RHI::RayTracingInstance, m_transform) == offsetof(D3D12_RAYTRACING_INSTANCE_DESC, Transform));
+    static_assert(offsetof(RHI::RayTracingInstance, m_accelerationStructureAddress)
+                  == offsetof(D3D12_RAYTRACING_INSTANCE_DESC, AccelerationStructure));
+
     DXGI_FORMAT ConvertFormat(RHI::Format format, [[maybe_unused]] bool raiseAsserts)
     {
         switch (format)
@@ -669,6 +675,96 @@ namespace Spark::RHI::DX12
             "[RHI DX12] ConvertBarrierSync - access 0x{:x} with stage 0x{:x}.",
             static_cast<uint32_t>(access), static_cast<uint32_t>(stage));
         return s;
+    }
+
+    namespace
+    {
+        D3D12_GPU_VIRTUAL_ADDRESS GetBuildInputAddress(const RHI::Buffer* buffer, uint64_t offset)
+        {
+            if (buffer == nullptr)
+            {
+                return 0;
+            }
+            return static_cast<const Buffer*>(buffer)->GetMemoryView().GetGpuAddress() + offset;
+        }
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS ConvertAccelerationStructureBuildFlags(
+            RHI::AccelerationStructureBuildFlags flags)
+        {
+            using RHI::AccelerationStructureBuildFlags;
+
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS result = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_NONE;
+            if (CheckBitsAny(flags, AccelerationStructureBuildFlags::PreferFastTrace))
+            {
+                result |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+            }
+            if (CheckBitsAny(flags, AccelerationStructureBuildFlags::PreferFastBuild))
+            {
+                result |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+            }
+            if (CheckBitsAny(flags, AccelerationStructureBuildFlags::AllowUpdate))
+            {
+                result |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+            }
+            if (CheckBitsAny(flags, AccelerationStructureBuildFlags::AllowCompaction))
+            {
+                result |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
+            }
+            return result;
+        }
+
+        DXGI_FORMAT ConvertIndexFormat(RHI::IndexFormat format)
+        {
+            switch (format)
+            {
+            case RHI::IndexFormat::UINT16:
+                return DXGI_FORMAT_R16_UINT;
+            case RHI::IndexFormat::UINT32:
+                return DXGI_FORMAT_R32_UINT;
+            default:
+                return DXGI_FORMAT_UNKNOWN;
+            }
+        }
+    }
+
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS ConvertAccelerationStructureBuildInputs(
+        const RHI::AccelerationStructureBuildInputs& inputs, RayTracingGeometryDescs& geometryDescs)
+    {
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS result{};
+        result.Flags       = ConvertAccelerationStructureBuildFlags(inputs.m_flags);
+        result.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+
+        if (inputs.m_type == RHI::AccelerationStructureType::TopLevel)
+        {
+            result.Type          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+            result.NumDescs      = inputs.m_instanceCount;
+            result.InstanceDescs = GetBuildInputAddress(inputs.m_instanceBuffer, inputs.m_instanceOffset);
+            return result;
+        }
+
+        geometryDescs.clear();
+        for (const RHI::RayTracingGeometry& geometry : inputs.m_geometries)
+        {
+            D3D12_RAYTRACING_GEOMETRY_DESC& desc = geometryDescs.push_back();
+            desc = {};
+            desc.Type  = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+            desc.Flags = geometry.m_opaque ? D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE : D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
+
+            D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC& triangles = desc.Triangles;
+            triangles.Transform3x4               = 0;
+            triangles.IndexFormat                = ConvertIndexFormat(geometry.m_indexFormat);
+            triangles.VertexFormat               = ConvertFormat(geometry.m_vertexFormat);
+            triangles.IndexCount                 = geometry.m_indexCount;
+            triangles.VertexCount                = geometry.m_vertexCount;
+            triangles.IndexBuffer                = GetBuildInputAddress(geometry.m_indexBuffer, geometry.m_indexOffset);
+            triangles.VertexBuffer.StartAddress  = GetBuildInputAddress(geometry.m_vertexBuffer, geometry.m_vertexOffset);
+            triangles.VertexBuffer.StrideInBytes = geometry.m_vertexStride;
+        }
+
+        result.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        result.NumDescs       = static_cast<UINT>(geometryDescs.size());
+        result.pGeometryDescs = geometryDescs.data();
+        return result;
     }
 
     D3D12_BARRIER_LAYOUT ConvertBarrierLayout(
