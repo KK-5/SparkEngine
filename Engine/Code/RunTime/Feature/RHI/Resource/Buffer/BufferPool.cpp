@@ -281,6 +281,19 @@ namespace Spark::RHI
                     return false;
                 }
             }
+
+            if (CheckBitsAny(initRequest.m_descriptor.m_bindFlags, BufferBindFlags::RayTracingAccelerationStructure))
+            {
+                if (initRequest.m_descriptor.m_bindFlags != BufferBindFlags::RayTracingAccelerationStructure
+                    || poolDescriptor.m_heapMemoryLevel != HeapMemoryLevel::Device
+                    || initRequest.m_descriptor.m_reserved || initRequest.m_initialData)
+                {
+                    LOG_ERROR("[BufferPool] Acceleration structure buffer {} in pool {} must be bound with "
+                              "RayTracingAccelerationStructure alone, on the Device heap, not reserved and without initial data.",
+                              initRequest.m_buffer->GetName().GetCStr(), GetName().GetCStr());
+                    return false;
+                }
+            }
         }
 
         return true;

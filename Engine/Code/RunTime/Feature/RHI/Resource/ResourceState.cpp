@@ -30,13 +30,15 @@ namespace Spark::RHI
                 && req(AccessFlags::TransferWrite,      BufferBindFlags::CopyWrite)
                 && req(AccessFlags::ShaderSampledRead,  BufferBindFlags::ShaderRead | BufferBindFlags::RayTracingShaderTable)
                 && req(AccessFlags::ConstantBufferRead, BufferBindFlags::Constant)
-                && req(AccessFlags::ShaderStorageRead,  BufferBindFlags::ShaderWrite | BufferBindFlags::RayTracingScratchBuffer)
-                && req(AccessFlags::ShaderStorageWrite, BufferBindFlags::ShaderWrite | BufferBindFlags::RayTracingScratchBuffer)
+                && req(AccessFlags::ShaderStorageRead,  BufferBindFlags::ShaderWrite)
+                && req(AccessFlags::ShaderStorageWrite, BufferBindFlags::ShaderWrite)
                 && req(AccessFlags::VertexIndexInput,   BufferBindFlags::InputAssembly | BufferBindFlags::DynamicInputAssembly)
                 && req(AccessFlags::IndirectRead,       BufferBindFlags::Indirect)
                 && req(AccessFlags::PredicationRead,    BufferBindFlags::Predication)
                 && req(AccessFlags::AccelStructRead,    BufferBindFlags::RayTracingAccelerationStructure)
-                && req(AccessFlags::AccelStructWrite,   BufferBindFlags::RayTracingAccelerationStructure);
+                && req(AccessFlags::AccelStructWrite,   BufferBindFlags::RayTracingAccelerationStructure)
+                && req(AccessFlags::AccelStructScratch, BufferBindFlags::RayTracingScratchBuffer)
+                && req(AccessFlags::AccelStructBuildInputRead, BufferBindFlags::RayTracingBuildInput);
         }
 
         bool IsImageAccessSupported(const Image& image, AccessFlags access)

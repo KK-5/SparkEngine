@@ -31,6 +31,7 @@
 #include "DrawItem.h"
 #include "CopyItem.h"
 #include "DispatchItem.h"
+#include "AccelerationStructureBuildItem.h"
 #include "RenderPassBeginInfo.h"
 
 namespace Spark::RHI
@@ -100,6 +101,9 @@ namespace Spark::RHI
 
         /// Submits a single dispatch item for processing on the command list.
         virtual void Submit(const DispatchItem& dispatchItem, uint32_t submitIndex = 0) = 0;
+
+        /// Submits a single acceleration structure build on a graphics or compute command list.
+        virtual void Submit(const AccelerationStructureBuildItem& buildItem, uint32_t submitIndex = 0) = 0;
 
         /// Submits a single dispatch rays item for processing on the command list.
         /// virtual void Submit(const DeviceDispatchRaysItem& dispatchRaysItem, uint32_t submitIndex = 0) = 0;

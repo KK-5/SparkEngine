@@ -248,11 +248,17 @@ namespace Spark::RHI::DX12
         }
 
         D3D12_RESOURCE_FLAGS resourceFlags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
-        if (CheckBitsAll(bufferFlags, RHI::BufferBindFlags::ShaderWrite))
+        if (CheckBitsAny(bufferFlags, RHI::BufferBindFlags::ShaderWrite | RHI::BufferBindFlags::RayTracingScratchBuffer))
         {
             resourceFlags = SetBits(resourceFlags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         }
-        if (CheckBitsAny(bufferFlags, RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::RayTracingAccelerationStructure))
+        if (CheckBitsAny(bufferFlags, RHI::BufferBindFlags::RayTracingAccelerationStructure))
+        {
+            resourceFlags = SetBits(resourceFlags,
+                D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        }
+        if (CheckBitsAny(bufferFlags, RHI::BufferBindFlags::ShaderRead | RHI::BufferBindFlags::RayTracingAccelerationStructure
+                                    | RHI::BufferBindFlags::RayTracingBuildInput))
         {
             resourceFlags = ResetBits(resourceFlags, D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
         }
@@ -523,7 +529,8 @@ namespace Spark::RHI::DX12
         constexpr AccessFlags k_bufferOnlyAccess =
             AccessFlags::IndirectRead | AccessFlags::VertexIndexInput |
             AccessFlags::ConstantBufferRead | AccessFlags::PredicationRead |
-            AccessFlags::AccelStructRead | AccessFlags::AccelStructWrite;
+            AccessFlags::AccelStructRead | AccessFlags::AccelStructWrite | AccessFlags::AccelStructBuildInputRead |
+            AccessFlags::AccelStructScratch;
 
         constexpr AccessFlags k_imageOnlyAccess =
             AccessFlags::DepthStencilRead | AccessFlags::ColorAttachmentRead |
@@ -555,8 +562,8 @@ namespace Spark::RHI::DX12
             if (has(AccessFlags::IndirectRead))       { a |= D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT; }
             if (has(AccessFlags::VertexIndexInput))   { a |= D3D12_BARRIER_ACCESS_VERTEX_BUFFER | D3D12_BARRIER_ACCESS_INDEX_BUFFER; }
             if (has(AccessFlags::ConstantBufferRead)) { a |= D3D12_BARRIER_ACCESS_CONSTANT_BUFFER; }
-            if (has(k_shaderRead))                    { a |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE; }
-            if (has(AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite))     { a |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS; }
+            if (has(k_shaderRead | AccessFlags::AccelStructBuildInputRead)) { a |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE; }
+            if (has(AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite | AccessFlags::AccelStructScratch)) { a |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS; }
             if (has(AccessFlags::DepthStencilRead))   { a |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ; }
             if (has(AccessFlags::DepthStencilWrite))  { a |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE; }
             if (has(AccessFlags::ColorAttachmentRead | AccessFlags::ColorAttachmentWrite)) { a |= D3D12_BARRIER_ACCESS_RENDER_TARGET; }

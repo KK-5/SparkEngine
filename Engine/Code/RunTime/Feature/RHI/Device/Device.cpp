@@ -1,6 +1,7 @@
 #include "Device.h"
 
 #include <Log/ILogSystem.h>
+#include <RHI/RayTracing/AccelerationStructureBuildInputs.h>
 
 namespace Spark::RHI
 {
@@ -97,5 +98,14 @@ namespace Spark::RHI
     FormatCapabilities Device::GetFormatCapabilities(Format format) const
     {
         return m_formatsCapabilities[static_cast<uint32_t>(format)];
+    }
+
+    AccelerationStructureBuildSizes Device::GetAccelerationStructureBuildSizes(const AccelerationStructureBuildInputs& inputs) const
+    {
+        if (Validation::isEnabled && !ValidateAccelerationStructureBuildInputs(*this, inputs))
+        {
+            return {};
+        }
+        return GetAccelerationStructureBuildSizesInternal(inputs);
     }
 }

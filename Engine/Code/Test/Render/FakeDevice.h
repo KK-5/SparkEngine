@@ -2,6 +2,7 @@
 
 #include <RHI/Device/Device.h>
 #include <RHI/Device/PhysicalDevice.h>
+#include <RHI/RayTracing/AccelerationStructureBuildInputs.h>
 
 namespace Spark::Test
 {
@@ -14,5 +15,7 @@ namespace Spark::Test
         void ShutdownInternal() override {}
         RHI::ResultCode InitializeLimits() override { return RHI::ResultCode::Success; }
         void FillFormatsCapabilitiesInternal(FormatCapabilitiesList&) override {}
+        RHI::AccelerationStructureBuildSizes GetAccelerationStructureBuildSizesInternal(
+            const RHI::AccelerationStructureBuildInputs&) const override { return {}; }
     };
 }

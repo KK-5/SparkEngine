@@ -9,6 +9,8 @@ inline ray query 追踪。I8（光追场景：BLAS 跟着几何、TLAS 每帧更
 2026-10-29 按后来的定论改过：缓冲区间计划 R5 删了池在一个原生 buffer 里划分的做法，区间分配定在 RHI 之上（D1、D2 重写）；
 光追硬件是最低要求、不做回退（D7 重写）。
 
+2026-10-30：构建输入有了自己的绑定标志与访问位，不再复用 `ShaderSampledRead`；scratch 有了自己的访问位（D5）。
+
 ---
 
 ## 状态
@@ -131,10 +133,13 @@ RHI 不记哪个 buffer 上建了哪些加速结构，多个加速结构放进�
 - `AttachmentStage` 加 `AccelerationStructureBuild`（DX12 `SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE`，Vulkan
   `ACCELERATION_STRUCTURE_BUILD`），拷贝 / 压缩用的阶段到步骤 4 再加。
 - 目标：构建阶段 `AccelStructWrite`（更新时的源为 `AccelStructRead`）；追踪：compute 阶段 `AccelStructRead`。
-- 输入：构建阶段 `ShaderSampledRead`。Vulkan 后端在构建阶段转成 `SHADER_READ`；DX12 为 `ACCESS_SHADER_RESOURCE`。
-  输入 buffer 要带构建输入的绑定标志（Vulkan `ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY`）。
-- scratch：构建阶段 `AccelStructRead | AccelStructWrite`。DX12 后端把不带加速结构标志的 buffer 上的 AS 访问转成 UAV。
-  `ResourceState` 的校验：AS 读写要求 buffer 带加速结构标志或 scratch 标志；scratch 不再归到 `ShaderStorage*`。
+- 输入：构建阶段 `AccelStructBuildInputRead`，要求 buffer 带绑定标志 `RayTracingBuildInput`。访问 DX12 为
+  `ACCESS_SHADER_RESOURCE`，Vulkan 为 `SHADER_READ`；绑定标志 DX12 清掉 `DENY_SHADER_RESOURCE`，Vulkan 为
+  `ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY` + `SHADER_DEVICE_ADDRESS`。不复用 `ShaderSampledRead`：校验按访问位查
+  绑定标志，它已对应 `ShaderRead`；让构建输入也只带 `ShaderRead`，Vulkan 就得给每个着色器读的 buffer 都加上构建的用途。
+- scratch：构建阶段 `AccelStructScratch`（写的区间，读写一起），要求 buffer 带 `RayTracingScratchBuffer`。访问 DX12 为
+  `ACCESS_UNORDERED_ACCESS`，Vulkan 为 `ACCELERATION_STRUCTURE_READ | WRITE`。现有的访问位都只适合一边：DX12 的 AS 访问
+  只能用在创建时标成加速结构的资源上，Vulkan 的 storage 访问不能配构建阶段。scratch 不再归到 `ShaderStorage*`。
 - 串行共用一块 scratch 的构建之间要屏障；同时进行的构建各用互不重叠的 scratch。scratch 的来源由 I8 定。
 
 ### D6　构建是一种 item，经 `CommandList::Submit` 提交　已定
@@ -169,9 +174,14 @@ RHI 不记哪个 buffer 上建了哪些加速结构，多个加速结构放进�
 2. **对象与绑定类型**（中）：`RHI::AccelerationStructure`（D1）与 DX12 实现；`ShaderInputAccelerationStructure`、反射把
    `D3D_SIT_RTACCELERATIONSTRUCTURE` 映射到它、编译器的写法（D3）；删掉 buffer 路径的三处特例和 `ShaderInputBufferType::AccelerationStructure`。
 3. **构建**（中）：`RayTracingGeometry`、`RayTracingInstance`（D4）、大小查询、`AccelerationStructureBuildItem` 与 DX12 的提交（D6）、
-   存放用的 buffer（D2，示例里一个 buffer 放两个加速结构，验证偏移）；D5 的访问：构建输入的绑定标志、scratch 的 AS 访问在
-   DX12 转成 UAV、`ResourceState` 的校验。验证用一个 RHI 示例（同 `HelloTriangle`，不经过渲染图）：一个三角形的 BLAS、一个实例的 TLAS、
-   一个 compute shader 每像素用 `RayQuery` 打一条光线，命中写颜色、没命中写背景，输出到屏幕。
+   存放用的 buffer（D2）；D5 的访问：`RayTracingBuildInput` 与 `AccelStructBuildInputRead`、`AccelStructScratch`、
+   `ResourceState` 的校验。交换链图像加 `CopyWrite`（Vulkan 后端建交换链时要求表面支持 `TRANSFER_DST`，
+   不支持就失败，同 D7）。验证用一个 RHI 示例（同 `HelloTriangle`，不经过渲染图）：
+   - 一个三角形的 BLAS；TLAS 两个实例引用它，各带不同的平移与实例号。BLAS 与 TLAS 放在同一个存放 buffer 里（验证偏移）。
+   - 顶点在 Device 堆，从 upload 拷入（upload 堆在 DX12 上不发屏障，测不到输入的屏障）；实例 buffer 由 CPU 写。
+   - 两次构建串行共用一块 scratch，中间有 scratch 与存放 buffer 的屏障。
+   - 一个 compute shader 每像素用 `RayQuery` 打一条正交光线：命中按重心坐标着色（三个角各一种纯色），按实例号区分两个
+     实例的色调；没命中写背景。结果写进一张图，拷进 back buffer。
 4. **压缩与更新**（推后，D8）。
 
 每一步之后：全量编译，`SparkRenderTest` 通过；步骤 3 在 debug layer 下跑示例，无报错。
@@ -180,7 +190,8 @@ RHI 不记哪个 buffer 上建了哪些加速结构，多个加速结构放进�
 
 ## 五、验证
 
-- 示例画面：三角形在正确的位置，边缘与光栅化的同一个三角形重合。
+- 示例画面：两个三角形各在其平移处（实例变换的布局）；各自是自己实例号的色调（实例号与 mask 的打包）；三个角的颜色
+  与顶点顺序一致（顶点的偏移、步长、格式）；两个都在（实例个数、BLAS 地址）。
 - debug layer 无报错；GPU 验证层下构建与追踪之间的屏障无报警。
 - 设备不支持 Tier 1.1 时 `Device` 初始化失败并报出原因。
 
@@ -190,7 +201,7 @@ RHI 不记哪个 buffer 上建了哪些加速结构，多个加速结构放进�
 
 - 存放用的 buffer 与其上的区间分配（D2）由光追场景系统持有；BLAS 跟着几何的生命周期建与释放。存放用的 buffer 不能
   reserved，增长的办法（多块 buffer 组成的块链，或另建更大的再拷贝 / 重建）由 I8 定。
-- 几何池的 reserved buffer 要带构建输入的用途（Vulkan 的两个位；DX12 只需地址），在几何池创建时加。构建的参考页
+- 几何池的 reserved buffer 要带 `RayTracingBuildInput`（D5），在几何池创建时加。构建的参考页
   没有禁止输入在 sparse residency 的 buffer 里（只禁止了存放加速结构的 buffer），但没有找到明说允许的条文，到 I8 再确认。
 - 实例 buffer 由 CPU 写还是由 compute 从 `g_Instances` 生成，实例号取 InstanceBinding 的 slot（路线图 I8）。
 - 渲染图：TLAS 与存放池的底层 buffer 作为资源；构建 pass；scratch 的来源；TLAS 绑进场景组。

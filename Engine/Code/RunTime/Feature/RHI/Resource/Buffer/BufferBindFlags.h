@@ -21,10 +21,12 @@ namespace Spark::RHI
         RayTracingAccelerationStructure = BIT(9),
         RayTracingShaderTable           = BIT(10),
         RayTracingScratchBuffer         = BIT(11),
+        //! Read by acceleration structure builds as vertices, indices or instances.
+        RayTracingBuildInput            = BIT(12),
 
         //! Memory for the pages of reserved buffers, mapped onto them and used as nothing else:
         //! never mapped, viewed or given a barrier. The other flags name the reserved buffers'.
-        TileBacking                     = BIT(12),
+        TileBacking                     = BIT(13),
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::BufferBindFlags, uint32_t);

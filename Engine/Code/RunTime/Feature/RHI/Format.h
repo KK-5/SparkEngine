@@ -203,10 +203,17 @@ namespace Spark::RHI
         TypedStoreBuffer = BIT(7),  // The format can be used to create a buffer that supports typed store operations.  
         AtomicBuffer     = BIT(8),  // The format can be used to create a buffer that supports atomic operations.
         ShadingRate      = BIT(9),  // The format can be used to create a shading rate image.
+        AccelerationStructureVertex = BIT(10), // The format can be the vertex format of an acceleration structure build.
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::FormatCapabilities, uint32_t);
 
     uint32_t GetFormatSize(Format format);
+
+    uint32_t GetFormatComponentCount(Format format);
+
+    //! The size of one component, or a packed format's whole size; 0 for block compressed,
+    //! subsampled and palettized formats.
+    uint32_t GetFormatComponentAlignment(Format format);
     
 }

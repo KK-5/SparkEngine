@@ -32,6 +32,8 @@ namespace Spark::RHI
         ShadingRateRead      = BIT(10),
         InputAttachmentRead  = BIT(11),
         AccelStructRead      = BIT(12),
+        //! Vertices, indices or instances read by an acceleration structure build.
+        AccelStructBuildInputRead = BIT(13),
 
         // writes [16,23]
         ShaderStorageWrite   = BIT(16),
@@ -40,6 +42,8 @@ namespace Spark::RHI
         TransferWrite        = BIT(19),
         ResolveWrite         = BIT(20),
         AccelStructWrite     = BIT(21),
+        //! A build's scratch memory, read and written by it.
+        AccelStructScratch   = BIT(22),
 
         // states standing in for a layout [24+]
         Present              = BIT(24),
@@ -55,11 +59,12 @@ namespace Spark::RHI
         ReadMask =
             IndirectRead | VertexIndexInput | ConstantBufferRead | ShaderSampledRead |
             ShaderStorageRead | DepthStencilRead | ColorAttachmentRead | TransferRead |
-            ResolveRead | PredicationRead | ShadingRateRead | InputAttachmentRead | AccelStructRead,
+            ResolveRead | PredicationRead | ShadingRateRead | InputAttachmentRead | AccelStructRead |
+            AccelStructBuildInputRead,
 
         WriteMask =
             ShaderStorageWrite | ColorAttachmentWrite | DepthStencilWrite |
-            TransferWrite | ResolveWrite | AccelStructWrite,
+            TransferWrite | ResolveWrite | AccelStructWrite | AccelStructScratch,
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AccessFlags, uint32_t);

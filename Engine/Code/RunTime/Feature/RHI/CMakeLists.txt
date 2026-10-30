@@ -12,6 +12,7 @@ set(SOURCES
     Attachment/AttachmentLoadStoreAction.cpp
     Attachment/RenderAttachmentLayout.cpp
     Attachment/RenderAttachmentLayoutBuilder.cpp
+    Command/AccelerationStructureBuildItem.cpp
     Command/CommandList.cpp
     Command/CommandRecorder.cpp
     Command/CommandQueue.cpp
@@ -42,6 +43,7 @@ set(SOURCES
     Resource/Buffer/VertexInputView.cpp
     Resource/Buffer/VertexBufferView.cpp
     RayTracing/AccelerationStructure.cpp
+    RayTracing/AccelerationStructureBuildInputs.cpp
     Resource/Image/Image.cpp
     Resource/Image/ImageDescriptor.cpp
     Resource/Image/ImageEnum.cpp

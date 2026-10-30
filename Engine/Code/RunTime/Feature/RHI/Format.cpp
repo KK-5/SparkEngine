@@ -164,7 +164,7 @@ namespace Spark::RHI
             return 0;
         }
     }
-    /*
+
     uint32_t GetFormatComponentCount(Format format)
     {
         switch (format)
@@ -385,6 +385,103 @@ namespace Spark::RHI
             LOG_ERROR("Unimplemented format");
             return 0;
         }
-        */
-    
+    }
+
+    uint32_t GetFormatComponentAlignment(Format format)
+    {
+        switch (format)
+        {
+        // Packed: components are not whole bytes.
+        case Format::R10G10B10A2_UNORM:
+        case Format::R10G10B10A2_UINT:
+        case Format::R10G10B10_XR_BIAS_A2_UNORM:
+        case Format::R11G11B10_FLOAT:
+        case Format::R9G9B9E5_SHAREDEXP:
+        case Format::R5G6B5_UNORM:
+        case Format::B5G6R5_UNORM:
+        case Format::B5G5R5A1_UNORM:
+        case Format::B4G4R4A4_UNORM:
+        case Format::D24_UNORM_S8_UINT:
+        case Format::D32_FLOAT_S8X24_UINT:
+            return GetFormatSize(format);
+
+        // Block compressed, subsampled or palettized: no component of its own to align to.
+        case Format::BC1_UNORM:
+        case Format::BC1_UNORM_SRGB:
+        case Format::BC2_UNORM:
+        case Format::BC2_UNORM_SRGB:
+        case Format::BC3_UNORM:
+        case Format::BC3_UNORM_SRGB:
+        case Format::BC4_UNORM:
+        case Format::BC4_SNORM:
+        case Format::BC5_UNORM:
+        case Format::BC5_SNORM:
+        case Format::BC6H_UF16:
+        case Format::BC6H_SF16:
+        case Format::BC7_UNORM:
+        case Format::BC7_UNORM_SRGB:
+        case Format::EAC_R11_UNORM:
+        case Format::EAC_R11_SNORM:
+        case Format::EAC_RG11_UNORM:
+        case Format::EAC_RG11_SNORM:
+        case Format::ETC2_UNORM:
+        case Format::ETC2_UNORM_SRGB:
+        case Format::ETC2A_UNORM:
+        case Format::ETC2A_UNORM_SRGB:
+        case Format::ETC2A1_UNORM:
+        case Format::ETC2A1_UNORM_SRGB:
+        case Format::ASTC_4x4_UNORM:
+        case Format::ASTC_4x4_UNORM_SRGB:
+        case Format::ASTC_5x4_UNORM:
+        case Format::ASTC_5x4_UNORM_SRGB:
+        case Format::ASTC_5x5_UNORM:
+        case Format::ASTC_5x5_UNORM_SRGB:
+        case Format::ASTC_6x5_UNORM:
+        case Format::ASTC_6x5_UNORM_SRGB:
+        case Format::ASTC_6x6_UNORM:
+        case Format::ASTC_6x6_UNORM_SRGB:
+        case Format::ASTC_8x5_UNORM:
+        case Format::ASTC_8x5_UNORM_SRGB:
+        case Format::ASTC_8x6_UNORM:
+        case Format::ASTC_8x6_UNORM_SRGB:
+        case Format::ASTC_8x8_UNORM:
+        case Format::ASTC_8x8_UNORM_SRGB:
+        case Format::ASTC_10x5_UNORM:
+        case Format::ASTC_10x5_UNORM_SRGB:
+        case Format::ASTC_10x6_UNORM:
+        case Format::ASTC_10x6_UNORM_SRGB:
+        case Format::ASTC_10x8_UNORM:
+        case Format::ASTC_10x8_UNORM_SRGB:
+        case Format::ASTC_10x10_UNORM:
+        case Format::ASTC_10x10_UNORM_SRGB:
+        case Format::ASTC_12x10_UNORM:
+        case Format::ASTC_12x10_UNORM_SRGB:
+        case Format::ASTC_12x12_UNORM:
+        case Format::ASTC_12x12_UNORM_SRGB:
+        case Format::R8G8_B8G8_UNORM:
+        case Format::G8R8_G8B8_UNORM:
+        case Format::AYUV:
+        case Format::Y410:
+        case Format::Y416:
+        case Format::NV12:
+        case Format::P010:
+        case Format::P016:
+        case Format::YUY2:
+        case Format::Y210:
+        case Format::Y216:
+        case Format::NV11:
+        case Format::AI44:
+        case Format::IA44:
+        case Format::P8:
+        case Format::A8P8:
+        case Format::R1_UNORM:
+            return 0;
+
+        default:
+        {
+            const uint32_t componentCount = GetFormatComponentCount(format);
+            return componentCount == 0 ? 0 : GetFormatSize(format) / componentCount;
+        }
+        }
+    }
 }

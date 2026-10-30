@@ -16,6 +16,9 @@
 
 namespace Spark::RHI
 {
+    struct AccelerationStructureBuildInputs;
+    struct AccelerationStructureBuildSizes;
+
     class Device: public Object
                 , public FrameEventBus::Handler
     {
@@ -38,6 +41,9 @@ namespace Spark::RHI
 
         //! Returns a union of all capabilities of a specific format.
         FormatCapabilities GetFormatCapabilities(Format format) const;
+
+        //! Zero sizes when the inputs are invalid.
+        AccelerationStructureBuildSizes GetAccelerationStructureBuildSizes(const AccelerationStructureBuildInputs& inputs) const;
 
         //! The in-flight slot every per-frame resource is indexed by this frame:
         //! the copy the CPU may write and the one the frame's commands will read.
@@ -80,6 +86,9 @@ namespace Spark::RHI
 
         //! Fills the capabilities for each format.
         virtual void FillFormatsCapabilitiesInternal(FormatCapabilitiesList& formatsCapabilities) = 0;
+
+        virtual AccelerationStructureBuildSizes GetAccelerationStructureBuildSizesInternal(
+            const AccelerationStructureBuildInputs& inputs) const = 0;
 
         FormatCapabilitiesList m_formatsCapabilities;
 

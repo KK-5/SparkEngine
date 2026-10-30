@@ -97,5 +97,7 @@ namespace Spark::RHI
         constexpr uint32_t Buffer = 16;
         //! Offset of an acceleration structure in its buffer (DX12 and Vulkan alike).
         constexpr uint32_t AccelerationStructure = 256;
+        //! Where a build's instances start in their buffer.
+        constexpr uint32_t AccelerationStructureInstance = 16;
     }
 }
