@@ -66,7 +66,8 @@ namespace Spark::RHI
         /// where a page starts in the buffer backing it.
         uint64_t m_reservedPageSizeInBytes = 0;
 
-        /// The alignment of an acceleration structure build's scratch in its buffer.
+        /// The alignment of an acceleration structure build's scratch device address.
+        /// RayTracingScratchBuffer guarantees an aligned base; callers align the offset.
         uint32_t m_accelerationStructureScratchOffsetAlignment = 1;
 
         //! Size of the tile when specifying shading rate through an image. The size refers to the tile's width and

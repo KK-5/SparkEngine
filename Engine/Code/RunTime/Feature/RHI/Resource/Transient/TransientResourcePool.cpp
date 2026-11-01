@@ -67,6 +67,16 @@ namespace Spark::RHI
             return nullptr;
         }
 
+        if (Validation::isEnabled
+            && CheckBitsAny(createInfo.m_descriptor.m_bindFlags, BufferBindFlags::RayTracingAccelerationStructure))
+        {
+            LOG_ERROR("[TransientResourcePool] {} cannot create acceleration structure buffer {}: "
+                      "acceleration structure storage must not alias other resources in the pool's heap.",
+                      GetName().GetCStr() ? GetName().GetCStr() : "[Nameless]",
+                      createInfo.m_debugName.GetCStr() ? createInfo.m_debugName.GetCStr() : "[Nameless]");
+            return nullptr;
+        }
+
         Buffer* buffer = CreateBufferInternal(createInfo, allocFence);
 
         if (Validation::isEnabled && buffer && !Contains(*buffer))

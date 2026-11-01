@@ -88,11 +88,13 @@ namespace Spark::Render
     {
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
 
-        // Read as vertices and indices on the Graphics queue, where the copy pass writes it.
+        // Read as vertices and indices by draws and acceleration structure builds on the
+        // Graphics queue, where the copy pass writes it.
         ReservedBuffer::Descriptor poolDesc;
         poolDesc.m_capacity  = PoolCapacityInBytes;
         poolDesc.m_pageSize  = PageSizeInBytes;
-        poolDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite;
+        poolDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::CopyWrite
+                            | RHI::BufferBindFlags::RayTracingBuildInput;
         poolDesc.m_name      = ObjectName("MeshGeometryPool");
         if (!m_pool.Init(device, poolDesc))
         {

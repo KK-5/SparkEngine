@@ -13,7 +13,7 @@
 
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| 1 | RHI 补缺：scratch 的地址对齐约定、瞬态池拒绝加速结构 buffer、几何池带构建输入用途 | — | 未开始 |
+| 1 | RHI 补缺：scratch 的地址对齐约定、瞬态池拒绝加速结构 buffer、几何池带构建输入用途 | — | 已落地；编译、单测通过，运行检查见 §四 |
 | 2 | 渲染图：`AccelerationStructurePass` 与它的 scope，构建相关的访问声明 | 1 | 未开始 |
 | 3 | 光追场景系统与 BLAS：存放 buffer、构建描述、BLAS 状态、构建预算、生命周期 | 2 | 未开始 |
 | 4 | TLAS：BLAS 地址数组、生成实例的 compute、TLAS 构建、绑进场景组 | 3 | 未开始 |
@@ -27,20 +27,23 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 
 - **几何**：`MeshGeometrySystem` 给每个带 `MeshComponent` 的世界实体建一份 `MeshGeometry`，是几何池里的顶点、索引区间。
   同一个模型放在多个实体上，池里就有多份，几何不共享。几何池是一块 `ReservedBuffer`，绑定标志
-  `InputAssembly | CopyWrite`；数据按每帧预算分帧拷入，拷完的实体挂 `MeshGeometryReadyTag`（拷贝 pass 在本帧所有读池的
-  pass 之前）。几何池在 `RHIContext` 里是一个导入资源实体，带 `MeshGeometryPoolTag`。顶点是标准格式，位置在最前。
+  `InputAssembly | CopyWrite | RayTracingBuildInput`（步骤 1 已补）；数据按每帧预算分帧拷入，拷完的实体挂
+  `MeshGeometryReadyTag`（拷贝 pass 在本帧所有读池的 pass 之前）。几何池在 `RHIContext` 里是一个导入资源实体，带
+  `MeshGeometryPoolTag`。顶点是标准格式，位置在最前。
 - **几何记录**：`GeometryBindingSystem` 给每个 `MeshGeometry` 一个 `GeometrySlot`（`g_Geometries` 的下标，一个 `DeviceArray`）。
 - **实例**：`InstanceBindingSystem` 给每个可渲染实体一个 `InstanceSlot`（`g_Instances` 的下标），记录 `InstanceData`：模型矩阵、
   `m_geometryIndex`（即 `GeometrySlot`，只在 `m_drawMask` 非 0 时有意义）等。活动列表（位置 → slot）以 `g_InstanceIDs` 上 GPU，
   个数在 `ActiveInstanceCount`。容量 2²⁰。
-- **场景组**：`SceneBindingSystem` 持有 space0 的 `ShaderBindings`，标签 `MainSceneTag`；它的 `Uses` 列出场景组读的资源标签，
-  绑定场景组的 pass 在每个 scope 上自动声明这些读（`AddScopeUses`）。
+- **场景组**：`SceneBindingSystem` 持有 space0 的 `ShaderBindings`，标签 `MainSceneTag`。当前 `Uses` 经
+  `AddScopeUses` / `TakeUploads` 为 scope 接收带相应标签的异步上传，处理 acquire；它不会导入普通资源或创建
+  `ScopeAttachment`，因此不能据此生成图内构建到追踪的读依赖。图内资源的访问仍需 scope 显式声明，同 `InstancePoolTag`。
 - **渲染图**：pass 类型按 scope 录的命令分（`CopyPass` / `ComputePass` / `RenderPass`），一种类型一种 scope。scope 可以
   `CreateBuffer` 建瞬态 buffer，由 RHI 的瞬态池放在共享堆里、与别的瞬态资源别名。`HasAccessConflict` 只放过
   `ShaderStorageRead | ShaderStorageWrite` 这一种读写组合。
 - **区间分配**：`Suballocator` 在 `pageSize = 0` 时不按页计数，可用于普通 buffer；区间延迟 `frameCountMax` 帧归还。
-- **RHI**：I7 的全部内容。瞬态池只拒绝 reserved 与 `TileBacking`；scratch 的校验只查偏移按
-  `m_accelerationStructureScratchOffsetAlignment` 对齐。
+- **RHI**：I7 的全部内容。步骤 1 已让瞬态池在 validation 开启时拒绝 `RayTracingAccelerationStructure`（与原有的
+  reserved / `TileBacking` 校验并列）；scratch 的基地址对齐保证已写进 `BufferBindFlags` 与 `DeviceLimits`，因此构建校验
+  只查偏移按 `m_accelerationStructureScratchOffsetAlignment` 对齐。
 
 ---
 
@@ -109,11 +112,15 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
   取 BLAS 地址，写一个 `RHI::RayTracingInstance`。mask 先只有 0xFF / 0，标志先不填；以后按投影等属性分层、按双面材质关剔除。
 - 实例 buffer 每帧整个重写，是瞬态 buffer：65535 × 64 字节，`ShaderWrite | RayTracingBuildInput`。
 
-### D8　TLAS 绑进场景组，读声明走 `Uses`　已定
+### D8　TLAS 绑进场景组，追踪 scope 显式声明 AS 读　已定
 
 - TLAS 对象挂在一个带标签的 `RHIContext` 实体上，`SceneBindingSystem` 取来按名字绑进 space0（I7 D3），系统间不经 Service。
-- 存放 buffer 的资源实体带一个标签，访问为 `AccelStructRead`，列进 `MainSceneTag::Uses`：绑定场景组的 pass 自动声明对它的读，
-  追踪 pass 不用各自手写。
+- 存放 buffer 的资源实体带一个标签。实际追踪的 pass 按标签导入它，每个追踪 scope 显式声明 `AccelStructRead`，阶段为
+  实际执行 ray query 的 shader 阶段（本期为 `ComputeShader`）。这是对存放 TLAS 与 BLAS 的 buffer 的依赖，不创建普通
+  `BufferView`；shader 中的 TLAS 仍通过独立的加速结构绑定类型取得。
+- 绑定与访问声明各司其职：绑定场景组本身不表示使用 TLAS。AS 存放 buffer 不加入 `MainSceneTag::Uses`，避免把不追踪的
+  光栅 pass 也变成 AS 的读者。当前 `Uses` 只处理上传接收，不能替代这里的导入与访问声明。
+- 可以用小接口统一导入和 AS 读声明，具体代码形状在实现时确定；本期不扩展 `Uses` 为普通图资源的自动依赖机制。
 
 ### D9　渲染图的访问声明　已定
 
@@ -122,25 +129,33 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 - `HasAccessConflict` 要放过存放 buffer 上同一 scope 的 `AccelStructRead | AccelStructWrite`。`AccelStructScratch` 是写，两个
   scope 同时用一块 scratch 判为冲突，正确。
 - 生成实例的 compute scope 声明实例 buffer 的 `ShaderStorageWrite`；到构建 scope 的 `AccelStructBuildInputRead` 由渲染图生成屏障。
+- 追踪 scope 对 AS 存放 buffer 显式声明 `AccelStructRead`（D8），由渲染图生成构建写到 shader 追踪读的依赖与屏障。
 
 ---
 
 ## 三、步骤
 
-1. **RHI 补缺**（小）：
+1. **RHI 补缺**（小，代码已落地）：
    - 约定：带 `RayTracingScratchBuffer` 的 buffer 起始地址由后端保证按 `m_accelerationStructureScratchOffsetAlignment` 对齐，
-     普通池与瞬态池都遵守，校验只查偏移因此成立。DX12 按 64 KB 放置，自动满足；Vulkan 按设备地址要求，后端建 scratch buffer
-     时显式对齐（VMA 有指定对齐的接口），瞬态堆的内存带 `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT`。写进 `BufferBindFlags` 的注释。
+     普通池与瞬态池都遵守，校验只查偏移因此成立。已写进 `BufferBindFlags` 与 `DeviceLimits` 的注释。DX12 现有普通池通过
+     D3D12MA 创建独立 buffer 资源，瞬态池按 `GetResourceAllocationInfo` 对齐放置，现有 64 KB 对齐满足 256 字节的 scratch 要求，
+     无需改分配路径。Vulkan 尚未实现 buffer 池：后续实现须显式保证基设备地址对齐，带设备地址用途的内存分配须有
+     `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT`，普通池与瞬态池同样遵守此契约。
    - 瞬态池拒绝带 `RayTracingAccelerationStructure` 的 buffer：它与别的资源重叠在 DX12 上是错误，同 `BufferPool` 的约束。
-   - 几何池的 `ReservedBuffer` 加 `RayTracingBuildInput`。Vulkan 上 sparse residency 的 buffer 作构建输入是否允许，到时对照
-     `vkCmdBuildAccelerationStructuresKHR` 的 VUID 确认（I7 §六）。
-2. **渲染图**（中）：`AccelerationStructurePassBuilder`、`AccelerationStructureScope` 与构建的录入（D1）；访问声明与
-   `HasAccessConflict`（D9）。
+   - 几何池的 `ReservedBuffer` 已加 `RayTracingBuildInput`。已核对 Vulkan：
+     [`vkGetBufferDeviceAddress` 的 03324](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetBufferDeviceAddress.html)
+     允许 sparse buffer 取得设备地址；
+     [`vkCmdBuildAccelerationStructuresKHR` 的 03673 / 03804 / 03806](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdBuildAccelerationStructuresKHR.html)
+     要求构建输入用途和有效的顶点 / 索引设备地址，没有禁止 sparse 构建输入。后端仍须具备 sparse / buffer device address 能力，
+     为输入 buffer 设置相应用途，并保证实际输入区间已映射、上传与构建正确同步；AS 存放 buffer 的非 sparse 限制不套在输入上。
+2. **渲染图**（中）：`AccelerationStructurePassBuilder`、`AccelerationStructureScope` 与构建的录入（D1）；构建与追踪的
+   访问声明（D8、D9），以及 `HasAccessConflict`（D9）。
 3. **光追场景系统与 BLAS**（中）：存放 buffer 与区间分配（D4）、构建描述及 `MeshGeometrySystem` 的产出（D2）、BLAS 状态组件
    （D6）、构建预算与 scratch（D5）、每帧比较（D3）、构建 pass 的注册。
-4. **TLAS**（中）：BLAS 地址数组、生成实例的 compute pass、TLAS 构建（D7）；TLAS 绑进场景组与 `Uses`（D8）。
+4. **TLAS**（中）：BLAS 地址数组、生成实例的 compute pass、TLAS 构建（D7）；TLAS 绑进场景组，AS 存放 buffer 提供标签
+   供追踪 pass 导入（D8）。
 5. **调试视图**（小）：一个 compute pass，每像素从相机打一条主光线，命中按实例号着色、未命中黑，可开关。也是读 TLAS 的
-   第一个使用者，验证 D8 的读声明。
+   第一个使用者：显式导入 AS 存放 buffer 并声明读，验证 D8 的构建到追踪依赖。
 
 每一步之后：全量编译，单元测试通过；编辑器运行无报错。
 
@@ -148,8 +163,21 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 
 ## 四、验证
 
+**步骤 1 验证记录（2026-11-01）：**
+
+- `cmake --build --preset debug --parallel 4` 全量构建通过；`ctest --test-dir build -C Debug --output-on-failure`
+  的 5 个测试目标全部通过。
+- `RayQueryTriangle` 完成 BLAS / TLAS 构建并运行、正常关闭，未记录 error；退出时有一条 D3D12 `Live ID3D12Device` 警告。
+- 编辑器完成 DX12 初始化并进入资产预加载，日志有 `ModelAssetLoader` 的 glTF 必需扩展未启用错误。自动关闭未在时限内完成，
+  已终止本次启动的进程；未完成进入场景后的验证，不视作「编辑器运行无报错」通过。该解析错误与退出行为本次未修改。
+- 本次没有运行 Vulkan 后端，也没有开启 GPU-based validation；跨后端约束依据规范核对，当前运行检查使用 DX12 Debug。
+
+**场景接入后的验证项：**
+
 - 调试视图：场景里每个静态网格都在（BLAS 与 TLAS 的实例对得上）；与光栅画面重合（实例变换的转换）；实例号着色与
   `InstanceSlot` 一致；移动物体时跟着动（TLAS 每帧更新）；删除、换网格后正确消失与重建（D3）。
+- 读依赖：调试视图的追踪 scope 有 AS 存放 buffer 的读 attachment，构建写到 `ComputeShader` AS 读的屏障由图生成；
+  只绑定场景组、不追踪的 pass 不产生 AS 读依赖（D8）。
 - 加载大场景时 BLAS 分帧建完，没有单帧尖峰超过预算（D5）。
 - debug layer 与 GPU 验证层无报错。
 
