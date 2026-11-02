@@ -14,12 +14,26 @@
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 1 | RHI 补缺：scratch 的地址对齐约定、瞬态池拒绝加速结构 buffer、几何池带构建输入用途 | — | 已落地；编译、单测通过，运行检查见 §四 |
-| 2 | 渲染图：`AccelerationStructurePass` 与它的 scope，构建相关的访问声明 | 1 | 未开始 |
+| 2 | 渲染图：`AccelerationStructurePass` 与它的 scope，构建相关的访问声明 | 1 | 进行中；构建记录与编译函数已落地，主流程接线和追踪访问待完成 |
 | 3 | 光追场景系统与 BLAS：存放 buffer、构建描述、BLAS 状态、构建预算、生命周期 | 2 | 未开始 |
 | 4 | TLAS：BLAS 地址数组、生成实例的 compute、TLAS 构建、绑进场景组 | 3 | 未开始 |
 | 5 | 验证用的调试视图 | 4 | 未开始 |
 
 D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
+
+**步骤 2 细分进展（2026-11-02）：**
+
+| 子步骤 | 内容 | 状态 |
+|---|---|---|
+| 1 | `AccelerationStructurePassBuilder`、类型标签与注册宏，限制 Graphics / Compute 队列 | 已实现 |
+| 2 | `AccelerationStructurePassScopes`、`AccelerationStructureScope`、资源导入与构建访问声明 | 已实现 |
+| 3 | 构建描述、BLAS / TLAS item 记录与编译函数 | 已实现；本轮测试已由用户验证通过 |
+| 4 | 主编译流程调用构建编译函数，executer 提交 RHI 构建 item | 待实现，下一步 |
+| 5 | Compute / Render scope 的追踪访问接口 | 待实现；所需 usage 转换和 AS 读写组合已落地 |
+| 6 | 场景构建 pass 内先 BLAS scope、后 TLAS scope | 方案已定，场景系统接入时落实 |
+
+本轮 AS 资源由实体表示，导入后将访问映射到存放 buffer；构建输入和 scratch 的布局从 attachment 的 view 读取。
+BLAS / TLAS 的输入组件分开，公共构建组件只引用资源实体与 attachment。区间重叠校验按讨论推后，由调用方保证同一 scope 内的构建区间不重叠。
 
 ---
 
@@ -37,9 +51,9 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 - **场景组**：`SceneBindingSystem` 持有 space0 的 `ShaderBindings`，标签 `MainSceneTag`。当前 `Uses` 经
   `AddScopeUses` / `TakeUploads` 为 scope 接收带相应标签的异步上传，处理 acquire；它不会导入普通资源或创建
   `ScopeAttachment`，因此不能据此生成图内构建到追踪的读依赖。图内资源的访问仍需 scope 显式声明，同 `InstancePoolTag`。
-- **渲染图**：pass 类型按 scope 录的命令分（`CopyPass` / `ComputePass` / `RenderPass`），一种类型一种 scope。scope 可以
-  `CreateBuffer` 建瞬态 buffer，由 RHI 的瞬态池放在共享堆里、与别的瞬态资源别名。`HasAccessConflict` 只放过
-  `ShaderStorageRead | ShaderStorageWrite` 这一种读写组合。
+- **渲染图**：pass 类型按 scope 录的命令分（`CopyPass` / `ComputePass` / `RenderPass` / `AccelerationStructurePass`），一种类型一种 scope。
+  `CreateBuffer` 建瞬态 buffer，由 RHI 的瞬态池放在共享堆里、与别的瞬态资源别名。`HasAccessConflict` 放过 shader storage 与 AS 的读写组合；
+  构建 scope 内还允许 AS / scratch 的同用途重复访问声明，实际区间不重叠暂由调用方保证，跨 scope 仍按整个 buffer 同步。
 - **区间分配**：`Suballocator` 在 `pageSize = 0` 时不按页计数，可用于普通 buffer；区间延迟 `frameCountMax` 帧归还。
 - **RHI**：I7 的全部内容。步骤 1 已让瞬态池在 validation 开启时拒绝 `RayTracingAccelerationStructure`（与原有的
   reserved / `TileBacking` 校验并列）；scratch 的基地址对齐保证已写进 `BufferBindFlags` 与 `DeviceLimits`，因此构建校验
@@ -57,6 +71,7 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 - `RayTracingPass` 留给光追管线的 `DispatchRays`：带管线、绑定与着色器表，同 `ComputePass` 一级，分散在各功能里（RT 阴影、
   反射、GI），每个功能一个 pass。
 - 全场景一个构建 pass，每帧一次：先本帧要建的 BLAS，再 TLAS。
+- 同一 pass 内分两个 scope：第一段构建互不依赖的 BLAS，第二段构建 TLAS，由图在 scope 之间生成 AS 依赖和 scratch 复用屏障。
 
 ### D2　几何来源只产出构建描述，BLAS 由光追场景系统构建　已定
 
@@ -91,12 +106,15 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 - scratch 构建前后内容都无关，用构建 pass 的 scope `CreateBuffer` 建瞬态 buffer，带 `RayTracingScratchBuffer`。
 - 每帧构建预算：同 `UploadBytesPerFrame` 的做法，限制一帧新建的 BLAS 的 scratch 总量，超出的留到下一帧。
 - 预算内的 BLAS 各用 scratch 里互不重叠的区间，彼此不加屏障；TLAS 复用 scratch，之前一道屏障。
+- scratch 区间通过各自 attachment 的 `.View()` 声明，compiler 从 view 读取字节偏移，构建接口不再传 `scratchOffset`。
+  同一 scope 内的 scratch 与 AS 存放区间暂由调用方保证不重叠；构建之间的区间重叠校验推后，不影响跨 scope 的整 buffer 同步。
 
 ### D6　BLAS 状态是世界实体上的组件　已定
 
-- 组件持有 `Ptr<RHI::AccelerationStructure>` 与它在存放 buffer 里的 `Suballocation`。存在即表示 BLAS 已建好（构建在本帧的构建
+- 组件持有 AS 资源实体的 `RHIHandle` 与它在存放 buffer 里的 `Suballocation`。AS 实体由 `RayTracingSceneSystem` 管理，
+  `RHI::Components::AccelerationStructure` 持有 RHI 对象与存放 buffer 的资源实体句柄。组件存在即表示 BLAS 已建好（构建在本帧的构建
   pass 里，在任何读 TLAS 的 pass 之前）；与描述分开，不复用 `MeshGeometryReadyTag`。
-- 组件去掉时：区间延迟归还，还在 GPU 上的 TLAS 引用的内存不会被覆盖；对象本身 GPU 不直接读（绑定的是 TLAS），直接释放。
+- 组件去掉时：AS 资源实体由光追场景系统撤销，区间延迟归还，还在 GPU 上的 TLAS 引用的内存不会被覆盖。
 
 ### D7　TLAS 实例由 compute 写，按活动列表紧排　已定（地址数组的下标待确认）
 
@@ -114,9 +132,11 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 
 ### D8　TLAS 绑进场景组，追踪 scope 显式声明 AS 读　已定
 
-- TLAS 对象挂在一个带标签的 `RHIContext` 实体上，`SceneBindingSystem` 取来按名字绑进 space0（I7 D3），系统间不经 Service。
-- 存放 buffer 的资源实体带一个标签。实际追踪的 pass 按标签导入它，每个追踪 scope 显式声明 `AccelStructRead`，阶段为
-  实际执行 ray query 的 shader 阶段（本期为 `ComputeShader`）。这是对存放 TLAS 与 BLAS 的 buffer 的依赖，不创建普通
+- TLAS 对象挂在一个带标签的 AS 资源实体上，由 `RayTracingSceneSystem` 管理；`SceneBindingSystem` 取来按名字绑进 space0（I7 D3），系统间不经 Service。
+- pass 导入 AS 资源实体，构建接口通过目标 attachment 使用它，不直接接收 RHI 对象。声明 AS 访问时，图将 `BufferPassAttachment::m_buffer`
+  与 `ScopeAttachment::m_resource` 指向关联的存放 buffer 实体，另存 AS 实体引用；构建 item 保存 AS 实体句柄，编译时解析 RHI 对象。
+- 实际追踪的 pass 按 TLAS 标签导入 AS 实体，每个追踪 scope 显式声明 `AccelStructRead`，阶段为
+  实际执行 ray query 的 shader 阶段（本期为 `ComputeShader`）。依赖与屏障仍落在存放 TLAS 与 BLAS 的 buffer 上，不创建普通
   `BufferView`；shader 中的 TLAS 仍通过独立的加速结构绑定类型取得。
 - 绑定与访问声明各司其职：绑定场景组本身不表示使用 TLAS。AS 存放 buffer 不加入 `MainSceneTag::Uses`，避免把不追踪的
   光栅 pass 也变成 AS 的读者。当前 `Uses` 只处理上传接收，不能替代这里的导入与访问声明。
@@ -126,6 +146,8 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 
 - `AccelerationStructureScope` 声明：构建输入读（`AccelStructBuildInputRead`，几何池与实例 buffer）、存放 buffer 的 AS 写或
   AS 读写（TLAS 构建读 BLAS、写 TLAS）、scratch（`AccelStructScratch`），阶段都是构建。
+- 构建输入的范围与布局通过 attachment 的 `.View(BufferViewDescriptor)` 声明，compiler 从中读取偏移、步长和数量；索引用
+  `R16_UINT` / `R32_UINT` view，实例用 `RayTracingInstance` 的 structured view，数量为本次构建的实际数量。顶点位置格式与不透明属性单独保留。
 - `HasAccessConflict` 要放过存放 buffer 上同一 scope 的 `AccelStructRead | AccelStructWrite`。`AccelStructScratch` 是写，两个
   scope 同时用一块 scratch 判为冲突，正确。
 - 生成实例的 compute scope 声明实例 buffer 的 `ShaderStorageWrite`；到构建 scope 的 `AccelStructBuildInputRead` 由渲染图生成屏障。
@@ -152,10 +174,10 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
    访问声明（D8、D9），以及 `HasAccessConflict`（D9）。
 3. **光追场景系统与 BLAS**（中）：存放 buffer 与区间分配（D4）、构建描述及 `MeshGeometrySystem` 的产出（D2）、BLAS 状态组件
    （D6）、构建预算与 scratch（D5）、每帧比较（D3）、构建 pass 的注册。
-4. **TLAS**（中）：BLAS 地址数组、生成实例的 compute pass、TLAS 构建（D7）；TLAS 绑进场景组，AS 存放 buffer 提供标签
-   供追踪 pass 导入（D8）。
+4. **TLAS**（中）：BLAS 地址数组、生成实例的 compute pass、TLAS 构建（D7）；TLAS 绑进场景组，AS 资源实体提供标签
+   供追踪 pass 导入，并将访问解析到存放 buffer（D8）。
 5. **调试视图**（小）：一个 compute pass，每像素从相机打一条主光线，命中按实例号着色、未命中黑，可开关。也是读 TLAS 的
-   第一个使用者：显式导入 AS 存放 buffer 并声明读，验证 D8 的构建到追踪依赖。
+   第一个使用者：显式导入 TLAS 资源实体并声明读，验证 D8 的构建到追踪依赖。
 
 每一步之后：全量编译，单元测试通过；编辑器运行无报错。
 
@@ -171,6 +193,13 @@ D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 - 编辑器完成 DX12 初始化并进入资产预加载，日志有 `ModelAssetLoader` 的 glTF 必需扩展未启用错误。自动关闭未在时限内完成，
   已终止本次启动的进程；未完成进入场景后的验证，不视作「编辑器运行无报错」通过。该解析错误与退出行为本次未修改。
 - 本次没有运行 Vulkan 后端，也没有开启 GPU-based validation；跨后端约束依据规范核对，当前运行检查使用 DX12 Debug。
+
+**步骤 2 本轮验证记录（2026-11-02，进行中）：**
+
+- `cmake --build --preset debug --target SparkRender --parallel 4` 的 Debug 构建通过，包含相关依赖；新接口的单独编译通过。
+- 用户已完成本轮测试验证，并确认均通过。
+- 步骤 1 的编辑器运行验证已由用户补充完成并确认通过；上面的 2026-11-01 记录保留为当次执行结果。
+- 当前完成 Pass / Scope、AS 实体导入、构建 item 记录与编译函数；主编译流程和命令提交接线、追踪访问入口仍待实现，步骤 2 整体尚未完成。
 
 **场景接入后的验证项：**
 

@@ -50,6 +50,10 @@ namespace Spark::Render
     {
     };
 
+    struct AccelerationStructurePassTag
+    {
+    };
+
     struct RayTracingPassTag
     {
     };

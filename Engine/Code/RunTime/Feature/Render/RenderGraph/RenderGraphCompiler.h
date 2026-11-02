@@ -132,6 +132,9 @@ namespace Spark::Render
         //! the transient stage.
         void CompileItemCopies(PassContext& passContext, RHIContext& context);
 
+        //! Resolve build attachments after the transient stage and bind the owned geometry array.
+        void CompileItemAccelerationStructures(PassContext& passContext, RHIContext& context);
+
         //! Bind into each draw that reads its vertices and indices from buffers of the graph
         //! (ItemInputAssembly) those buffers' backings, whole, each vertex stream with the stride
         //! its slot has in the pass's input layout. Runs after the transient stage.

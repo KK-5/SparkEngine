@@ -341,6 +341,53 @@ namespace Spark::Render
             RHI::AttachmentUsage::Indirect, RHI::AttachmentAccess::Read, RHI::AttachmentStage::DrawIndirect));
     }
 
+    Attachment AccelerationStructureScope::BuildInput(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::RayTracingBuildInput, RHI::AttachmentAccess::Read,
+            RHI::AttachmentStage::AccelerationStructureBuild));
+    }
+
+    Attachment AccelerationStructureScope::ReadAccelerationStructure(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeAccelerationStructureAttachment(m_scope, name, RHI::AttachmentAccess::Read,
+            RHI::AttachmentStage::AccelerationStructureBuild));
+    }
+
+    Attachment AccelerationStructureScope::WriteAccelerationStructure(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeAccelerationStructureAttachment(m_scope, name, RHI::AttachmentAccess::Write,
+            RHI::AttachmentStage::AccelerationStructureBuild));
+    }
+
+    Attachment AccelerationStructureScope::ReadWriteAccelerationStructure(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeAccelerationStructureAttachment(m_scope, name, RHI::AttachmentAccess::ReadWrite,
+            RHI::AttachmentStage::AccelerationStructureBuild));
+    }
+
+    Attachment AccelerationStructureScope::Scratch(const RHI::AttachmentId& name)
+    {
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::RayTracingScratchBuffer, RHI::AttachmentAccess::ReadWrite,
+            RHI::AttachmentStage::AccelerationStructureBuild));
+    }
+
+    void AccelerationStructureScope::BuildBottomLevel(const Attachment& destination,
+        eastl::span<const TriangleBuildInput> geometries,
+        const Attachment& scratch, RHI::AccelerationStructureBuildFlags flags)
+    {
+        m_builder->AddScopeBuildBottomLevel(m_scope, destination.GetHandle(), geometries,
+            scratch.GetHandle(), flags);
+    }
+
+    void AccelerationStructureScope::BuildTopLevel(const Attachment& destination, const Attachment& instances,
+        const Attachment& scratch, RHI::AccelerationStructureBuildFlags flags)
+    {
+        m_builder->AddScopeBuildTopLevel(m_scope, destination.GetHandle(), instances.GetHandle(),
+            scratch.GetHandle(), flags);
+    }
+
     // ============================================================
     // CopyScope
     // ============================================================

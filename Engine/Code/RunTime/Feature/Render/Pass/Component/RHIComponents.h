@@ -237,6 +237,12 @@ namespace Spark::Render
         Pass                      m_pass {NullPass};
     };
 
+    //! The AS identity; BufferPassAttachment and ScopeAttachment track its storage buffer.
+    struct AccelerationStructureAttachment
+    {
+        RHIHandle m_resource {NullHandle};
+    };
+
     // ObjectName (the underlying type of RHI::AttachmentId) embeds an eastl::string
     // in debug builds for log/inspection, which makes AttachmentId — and therefore
     // these components — non-trivially-copyable. Only enforce the POD invariant in

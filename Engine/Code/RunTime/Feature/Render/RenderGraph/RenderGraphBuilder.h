@@ -24,6 +24,8 @@ namespace Spark::RHI
 
 namespace Spark::Render
 {
+    struct TriangleBuildInput;
+
     class RenderGraphBuilder
     {
     public:
@@ -54,6 +56,8 @@ namespace Spark::Render
         friend class ComputeScope;
         friend class CopyPassScopes;
         friend class CopyScope;
+        friend class AccelerationStructurePassScopes;
+        friend class AccelerationStructureScope;
         friend class ShaderAttachment;
 
         void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
@@ -94,6 +98,8 @@ namespace Spark::Render
         //! Introduce `resource`, owned outside the graph, under `name`, with no access yet.
         //! Importing a name again is fine for the same resource only.
         void ImportResource(const RHI::AttachmentId& name, RHIHandle resource);
+
+        void PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource);
 
         //! Add to `scope` a read of the copy of `attachment`'s name produced last frame. The
         //! caller fills the attachment's id, usage, stage, action and view. End links it to
@@ -161,6 +167,16 @@ namespace Spark::Render
         void AddScopeCopy(RHIHandle scope, RHIHandle source, uint64_t sourceOffset,
             RHIHandle destination, uint64_t destinationOffset, uint64_t byteCount);
 
+        void AddScopeBuildBottomLevel(RHIHandle scope, RHIHandle destination,
+            eastl::span<const TriangleBuildInput> geometries, RHIHandle scratch,
+            RHI::AccelerationStructureBuildFlags flags);
+
+        void AddScopeBuildTopLevel(RHIHandle scope, RHIHandle destination, RHIHandle instances,
+            RHIHandle scratch, RHI::AccelerationStructureBuildFlags flags);
+
+        ItemAccelerationStructureBuild MakeAccelerationStructureBuild(RHIHandle scope,
+            RHIHandle destination, RHIHandle scratch) const;
+
         //! A tag `scope` uses (.Uses): `take` takes that tag's uploads for it.
         void AddScopeUse(RHIHandle scope, ScopeUses::Take take);
 
@@ -181,6 +197,10 @@ namespace Spark::Render
         RHIHandle AddScopeBufferAttachment(
             RHIHandle scope, const RHI::AttachmentId& name,
             RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage);
+
+        //! AS accesses name an imported AS entity but track its storage buffer.
+        RHIHandle AddScopeAccelerationStructureAttachment(RHIHandle scope, const RHI::AttachmentId& name,
+            RHI::AttachmentAccess access, RHI::AttachmentStage stage);
 
         //! The resource declared under `name` so far, or NullHandle.
         RHIHandle FindResource(const RHI::AttachmentId& name) const;

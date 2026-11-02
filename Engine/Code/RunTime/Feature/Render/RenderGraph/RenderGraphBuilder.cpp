@@ -1,5 +1,6 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
+#include "PassScopes.h"
 
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
@@ -7,6 +8,7 @@
 #include <Pass/PassCapabilities.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Command/CopyItem.h>
+#include <RHI/Command/AccelerationStructureBuildItem.h>
 #include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawItem.h>
 
@@ -53,14 +55,32 @@ namespace Spark::Render
             {
                 return false;
             }
-            return RHI::HasAccessConflict(
-                ConvertAttachmentAccess(context.Get<BufferPassAttachment>(lhs)),
-                ConvertAttachmentAccess(context.Get<BufferPassAttachment>(rhs)));
+            const auto& lhsBuffer = context.Get<BufferPassAttachment>(lhs);
+            const auto& rhsBuffer = context.Get<BufferPassAttachment>(rhs);
+            if (lhsBuffer.m_stage == RHI::AttachmentStage::AccelerationStructureBuild
+                && rhsBuffer.m_stage == RHI::AttachmentStage::AccelerationStructureBuild
+                && lhsBuffer.m_usage == rhsBuffer.m_usage
+                && (lhsBuffer.m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure
+                    || lhsBuffer.m_usage == RHI::AttachmentUsage::RayTracingScratchBuffer))
+            {
+                // Builds in one Scope use disjoint ranges, currently guaranteed by the caller.
+                return false;
+            }
+            return RHI::HasAccessConflict(ConvertAttachmentAccess(lhsBuffer), ConvertAttachmentAccess(rhsBuffer));
         }
 
         bool IsBufferResource(const RHIContext& context, RHIHandle resource)
         {
             return context.Has<RHI::BufferDescriptor>(resource) || context.Has<BackingBuffer>(resource);
+        }
+
+        bool IsBuildAccess(const RHIContext& context, RHIHandle scope, RHIHandle attachment,
+            RHI::AttachmentUsage usage, RHI::AttachmentAccess access)
+        {
+            const auto* buffer = context.TryGet<BufferPassAttachment>(attachment);
+            return buffer != nullptr && buffer->m_usage == usage && CheckBitsAll(buffer->m_access, access)
+                && buffer->m_stage == RHI::AttachmentStage::AccelerationStructureBuild
+                && context.Get<ScopeAttachment>(attachment).m_scope == scope;
         }
 
         //! A depth-stencil view binds both planes whatever aspects it names, so the attachment
@@ -309,6 +329,8 @@ namespace Spark::Render
 
         // NullHandle while nothing has declared the name: the pass that does may come later.
         const RHIHandle resource = FindResource(name);
+        ASSERT(resource == NullHandle || !rhiContext.Has<RHI::Components::AccelerationStructure>(resource),
+            "{} is an acceleration structure, not an image.", name.GetCStr());
         ASSERT(resource == NullHandle || !IsBufferResource(rhiContext, resource),
             "{} is a buffer: a Scope accesses it with ReadBuffer / ReadWriteBuffer / WriteBuffer.", name.GetCStr());
 
@@ -344,7 +366,7 @@ namespace Spark::Render
 
         const RHIHandle resource = FindResource(name);
         ASSERT(resource == NullHandle || IsBufferResource(rhiContext, resource),
-            "{} is an image: a Scope accesses it with ReadImage / ReadWriteImage / WriteImage.", name.GetCStr());
+            "{} is not a buffer resource.", name.GetCStr());
 
         BufferPassAttachment a;
         a.m_attachmentId = AttachmentId{ name, 0 };
@@ -359,6 +381,28 @@ namespace Spark::Render
         {
             rhiContext.Add<UnlinkedAttachmentTag>(attachment);
         }
+        return attachment;
+    }
+
+    RHIHandle RenderGraphBuilder::AddScopeAccelerationStructureAttachment(RHIHandle scope,
+        const RHI::AttachmentId& name, RHI::AttachmentAccess access, RHI::AttachmentStage stage)
+    {
+        auto& context = *RHIExecuteContext::Current();
+        const RHIHandle resource = FindResource(name);
+        ASSERT(resource != NullHandle && context.Has<RHI::Components::AccelerationStructure>(resource),
+            "{} must be imported as an acceleration structure before declaring its access.", name.GetCStr());
+        const auto& structure = context.Get<RHI::Components::AccelerationStructure>(resource);
+
+        BufferPassAttachment buffer;
+        buffer.m_attachmentId = AttachmentId{name, 0};
+        buffer.m_access = access;
+        buffer.m_usage = RHI::AttachmentUsage::RayTracingAccelerationStructure;
+        buffer.m_stage = stage;
+        buffer.m_buffer = structure.m_bufferResource;
+        buffer.m_pass = m_currentPass;
+
+        const RHIHandle attachment = AddBufferAttachment(buffer, scope);
+        context.Add<AccelerationStructureAttachment>(attachment, AccelerationStructureAttachment{resource});
         return attachment;
     }
 
@@ -398,11 +442,36 @@ namespace Spark::Render
     {
         ASSERT(m_currentPass != NullPass, "BeginPass must be called before declaring resources.");
         ASSERT(resource != NullHandle, "Import of {}: the resource is NullHandle.", name.GetCStr());
+        PrepareImportedResource(name, resource);
+
+        const auto [it, inserted] = m_resources.emplace(name, resource);
+        ASSERT(inserted || it->second == resource,
+            "{} is already declared for another resource.", name.GetCStr());
+    }
+
+    void RenderGraphBuilder::PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource)
+    {
         auto& rhiContext = *RHIExecuteContext::Current();
+        ASSERT(rhiContext.Valid(resource), "Import of {}: the resource entity is invalid.", name.GetCStr());
 
         if (!rhiContext.Has<ImportedTag>(resource))
         {
             rhiContext.Add<ImportedTag>(resource);
+        }
+
+        if (const auto* structure = rhiContext.TryGet<RHI::Components::AccelerationStructure>(resource))
+        {
+            ASSERT(structure->m_structure != nullptr && structure->m_structure->IsInitialized(),
+                "Imported acceleration structure {} is not initialized.", name.GetCStr());
+            const RHIHandle storage = structure->m_bufferResource;
+            ASSERT(storage != NullHandle && rhiContext.Valid(storage)
+                    && rhiContext.Has<Buffer>(storage) && !rhiContext.Has<RHI::Components::AccelerationStructure>(storage)
+                    && !rhiContext.Has<TransientTag>(resource) && !rhiContext.Has<TransientTag>(storage),
+                "Imported acceleration structure {} must refer to a persistent buffer entity.", name.GetCStr());
+            PrepareImportedResource(name, storage);
+            ASSERT(rhiContext.Get<BackingBuffer>(storage).m_buffer == &structure->m_structure->GetBuffer(),
+                "Imported acceleration structure {} does not refer to its storage buffer.", name.GetCStr());
+            return;
         }
 
         // Single-frame imports get their backing from the owning Image / Buffer component, once;
@@ -447,10 +516,6 @@ namespace Spark::Render
                 "component before importing; per-frame: ensure RefreshPerFrameBackings ran.",
                 name.GetCStr());
         }
-
-        const auto [it, inserted] = m_resources.emplace(name, resource);
-        ASSERT(inserted || it->second == resource,
-            "{} is already declared for another resource.", name.GetCStr());
     }
 
     RHIHandle RenderGraphBuilder::AddPreviousFrameAttachment(ImagePassAttachment attachment, RHIHandle scope)
@@ -547,6 +612,84 @@ namespace Spark::Render
         const RHIHandle item = AddScopeItem(scope);
         rhiContext.Add<RHI::CopyItem>(item, RHI::CopyItem(descriptor));
         rhiContext.Add<ItemCopy>(item, ItemCopy{ source, destination });
+    }
+
+    ItemAccelerationStructureBuild RenderGraphBuilder::MakeAccelerationStructureBuild(RHIHandle scope,
+        RHIHandle destination, RHIHandle scratch) const
+    {
+        CheckScopeOpen(scope);
+        const auto& context = *RHIExecuteContext::Current();
+        ASSERT(IsBuildAccess(context, scope, destination,
+                RHI::AttachmentUsage::RayTracingAccelerationStructure, RHI::AttachmentAccess::Write),
+            "A build's storage must be an acceleration structure write access of the same Scope.");
+        const auto* structure = context.TryGet<AccelerationStructureAttachment>(destination);
+        ASSERT(structure != nullptr, "A build's destination must be an imported acceleration structure access.");
+        ASSERT(IsBuildAccess(context, scope, scratch,
+                RHI::AttachmentUsage::RayTracingScratchBuffer, RHI::AttachmentAccess::ReadWrite),
+            "A build's scratch must be a Scratch access of the same Scope.");
+
+        ItemAccelerationStructureBuild build;
+        build.m_destination = structure->m_resource;
+        build.m_storageAttachment = destination;
+        build.m_scratchAttachment = scratch;
+        return build;
+    }
+
+    void RenderGraphBuilder::AddScopeBuildBottomLevel(RHIHandle scope, RHIHandle destination,
+        eastl::span<const TriangleBuildInput> geometries, RHIHandle scratch,
+        RHI::AccelerationStructureBuildFlags flags)
+    {
+        auto build = MakeAccelerationStructureBuild(scope, destination, scratch);
+        ASSERT(!geometries.empty(), "A bottom level build requires geometries.");
+
+        auto& context = *RHIExecuteContext::Current();
+        ItemBottomLevelBuild inputs;
+        inputs.m_geometries.reserve(geometries.size());
+        inputs.m_geometryAttachments.reserve(geometries.size());
+        for (const TriangleBuildInput& input : geometries)
+        {
+            const RHIHandle vertices = input.m_vertices.GetHandle();
+            const RHIHandle indices = input.m_indices ? input.m_indices->GetHandle() : NullHandle;
+            ASSERT(IsBuildAccess(context, scope, vertices,
+                    RHI::AttachmentUsage::RayTracingBuildInput, RHI::AttachmentAccess::Read),
+                "A build's vertices must be a BuildInput access of the same Scope.");
+            ASSERT(indices == NullHandle || IsBuildAccess(context, scope, indices,
+                    RHI::AttachmentUsage::RayTracingBuildInput, RHI::AttachmentAccess::Read),
+                "A build's indices must be a BuildInput access of the same Scope.");
+            RHI::RayTracingGeometry geometry;
+            geometry.m_vertexFormat = input.m_vertexFormat;
+            geometry.m_opaque = input.m_opaque;
+            inputs.m_geometries.push_back(geometry);
+            inputs.m_geometryAttachments.push_back(ItemBuildGeometry{vertices, indices});
+        }
+
+        RHI::AccelerationStructureBuildItem item;
+        item.m_inputs.m_type = RHI::AccelerationStructureType::BottomLevel;
+        item.m_inputs.m_flags = flags;
+
+        const RHIHandle handle = AddScopeItem(scope);
+        context.Add<ItemAccelerationStructureBuild>(handle, eastl::move(build));
+        context.Add<ItemBottomLevelBuild>(handle, eastl::move(inputs));
+        context.Add<RHI::AccelerationStructureBuildItem>(handle, item);
+    }
+
+    void RenderGraphBuilder::AddScopeBuildTopLevel(RHIHandle scope, RHIHandle destination, RHIHandle instances,
+        RHIHandle scratch, RHI::AccelerationStructureBuildFlags flags)
+    {
+        auto build = MakeAccelerationStructureBuild(scope, destination, scratch);
+
+        auto& context = *RHIExecuteContext::Current();
+        ASSERT(IsBuildAccess(context, scope, instances,
+                RHI::AttachmentUsage::RayTracingBuildInput, RHI::AttachmentAccess::Read),
+            "A build's instances must be a BuildInput access of the same Scope.");
+        RHI::AccelerationStructureBuildItem item;
+        item.m_inputs.m_type = RHI::AccelerationStructureType::TopLevel;
+        item.m_inputs.m_flags = flags;
+
+        const RHIHandle handle = AddScopeItem(scope);
+        context.Add<ItemAccelerationStructureBuild>(handle, eastl::move(build));
+        context.Add<ItemTopLevelBuild>(handle, ItemTopLevelBuild{instances});
+        context.Add<RHI::AccelerationStructureBuildItem>(handle, item);
     }
 
     void RenderGraphBuilder::AddScopeDrawIndirect(RHIHandle scope, RHIHandle arguments, RHIHandle count,
@@ -873,6 +1016,9 @@ namespace Spark::Render
             {
                 continue;
             }
+
+            ASSERT(!rhiContext.Has<RHI::Components::AccelerationStructure>(resource),
+                "Pass {} accesses acceleration structure {} as an image or buffer.", passName, name.GetCStr());
 
             // What AddScopeAttachment / AddScopeBufferAttachment and CloseScope do for an
             // attachment that has its resource.

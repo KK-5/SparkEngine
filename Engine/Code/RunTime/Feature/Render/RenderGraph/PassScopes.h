@@ -5,8 +5,10 @@
 #include <RHI/Command/DrawArguments.h>
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Format.h>
+#include <RHI/RayTracing/AccelerationStructureBuildInputs.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
+#include <EASTL/optional.h>
 #include <EASTL/span.h>
 #include <EASTL/string_view.h>
 #include <EASTL/type_traits.h>
@@ -55,6 +57,7 @@ namespace Spark::Render
         friend class RenderScope;
         friend class ComputeScope;
         friend class CopyScope;
+        friend class AccelerationStructureScope;
         friend class ShaderAttachment;
 
         explicit Attachment(RHIHandle handle)
@@ -70,6 +73,15 @@ namespace Spark::Render
     {
         Attachment       m_buffer;
         RHI::IndexFormat m_format;
+    };
+
+    struct TriangleBuildInput
+    {
+        Attachment                 m_vertices;
+        RHI::Format                m_vertexFormat = RHI::Format::Unknown;
+        //! An R16_UINT or R32_UINT view.
+        eastl::optional<Attachment> m_indices;
+        bool                       m_opaque = true;
     };
 
     //! An attachment a shader accesses. In a render pass it needs a stage: from .Bind, which
@@ -334,6 +346,46 @@ namespace Spark::Render
         RHIHandle           m_scope { NullHandle };
     };
 
+    class AccelerationStructureScope
+    {
+    public:
+        AccelerationStructureScope(AccelerationStructureScope&&) = default;
+        AccelerationStructureScope(const AccelerationStructureScope&) = delete;
+        AccelerationStructureScope& operator=(const AccelerationStructureScope&) = delete;
+
+        void Close() { m_builder->CloseScope(m_scope); }
+
+        //! Vertex, index or instance data; View declares its element range and stride.
+        Attachment BuildInput(const RHI::AttachmentId& name);
+        Attachment ReadAccelerationStructure(const RHI::AttachmentId& name);
+        Attachment WriteAccelerationStructure(const RHI::AttachmentId& name);
+        Attachment ReadWriteAccelerationStructure(const RHI::AttachmentId& name);
+        //! View declares this build's scratch range.
+        Attachment Scratch(const RHI::AttachmentId& name);
+
+        //! Copies the geometries. Builds in one Scope use disjoint destination and scratch ranges.
+        void BuildBottomLevel(const Attachment& destination,
+            eastl::span<const TriangleBuildInput> geometries, const Attachment& scratch,
+            RHI::AccelerationStructureBuildFlags flags = RHI::AccelerationStructureBuildFlags::None);
+
+        //! Instances use a structured RayTracingInstance view with the actual build count.
+        void BuildTopLevel(const Attachment& destination, const Attachment& instances,
+            const Attachment& scratch,
+            RHI::AccelerationStructureBuildFlags flags = RHI::AccelerationStructureBuildFlags::None);
+
+    private:
+        friend class AccelerationStructurePassScopes;
+
+        AccelerationStructureScope(RenderGraphBuilder& builder, RHIHandle scope)
+            : m_builder(&builder)
+            , m_scope(scope)
+        {
+        }
+
+        RenderGraphBuilder* m_builder { nullptr };
+        RHIHandle           m_scope { NullHandle };
+    };
+
     //! One Scope of a copy pass. Open and closed as a RenderScope is.
     class CopyScope
     {
@@ -476,6 +528,47 @@ namespace Spark::Render
         uint32_t         GetFrameIndex() const { return m_builder.GetFrameIndex(); }
         Math::Vector2Int GetRenderSize() const { return m_builder.GetRenderSize(); }
         Math::Vector2Int GetOutputSize() const { return m_builder.GetOutputSize(); }
+
+    private:
+        RenderGraphBuilder& m_builder;
+    };
+
+    class AccelerationStructurePassScopes
+    {
+    public:
+        explicit AccelerationStructurePassScopes(RenderGraphBuilder& builder)
+            : m_builder(builder)
+        {
+        }
+
+        void CreateBuffer(const RHI::AttachmentId& name, const RHI::BufferDescriptor& desc)
+        {
+            m_builder.CreateBuffer(name, desc);
+        }
+
+        void Import(const RHI::AttachmentId& name, RHIHandle resource)
+        {
+            m_builder.ImportResource(name, resource);
+        }
+
+        template<typename Tag>
+        bool Import(const RHI::AttachmentId& name)
+        {
+            const RHIHandle resource = FindReadyResource<Tag>(*RHI::RHIExecuteContext::Current());
+            if (resource == NullHandle)
+            {
+                return false;
+            }
+            m_builder.ImportResource(name, resource);
+            return true;
+        }
+
+        AccelerationStructureScope Scope()
+        {
+            return AccelerationStructureScope(m_builder, m_builder.OpenScope());
+        }
+
+        uint32_t GetFrameIndex() const { return m_builder.GetFrameIndex(); }
 
     private:
         RenderGraphBuilder& m_builder;

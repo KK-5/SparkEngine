@@ -80,12 +80,13 @@ namespace Spark::RHI
     }
 
     //! Two accesses to one resource at the same time conflict unless both read, or together
-    //! they are exactly shader storage read+write.
+    //! they are exactly shader storage or acceleration structure read+write.
     inline bool HasAccessConflict(AccessFlags lhs, AccessFlags rhs)
     {
         const AccessFlags combined = lhs | rhs;
         return HasWrite(combined)
-            && combined != (AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite);
+            && combined != (AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite)
+            && combined != (AccessFlags::AccelStructRead | AccessFlags::AccelStructWrite);
     }
 
     inline uint8_t CountAccessBits(AccessFlags a)

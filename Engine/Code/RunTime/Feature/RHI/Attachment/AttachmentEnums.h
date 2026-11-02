@@ -90,6 +90,12 @@ namespace Spark::RHI
         //! Ray tracing acceleration structure (BLAS/TLAS). Distinct from generic Shader read in D3D12/Vulkan.
         RayTracingAccelerationStructure,
 
+        //! Vertex, index or instance data read by an acceleration structure build.
+        RayTracingBuildInput,
+
+        //! Scratch memory read and written by an acceleration structure build.
+        RayTracingScratchBuffer,
+
         Count,
     };
 
@@ -108,9 +114,11 @@ namespace Spark::RHI
         ShadingRate = BIT(static_cast<uint32_t>(AttachmentUsage::ShadingRate)),
         Present = BIT(static_cast<uint32_t>(AttachmentUsage::Present)),
         RayTracingAccelerationStructure = BIT(static_cast<uint32_t>(AttachmentUsage::RayTracingAccelerationStructure)),
+        RayTracingBuildInput = BIT(static_cast<uint32_t>(AttachmentUsage::RayTracingBuildInput)),
+        RayTracingScratchBuffer = BIT(static_cast<uint32_t>(AttachmentUsage::RayTracingScratchBuffer)),
         All =
             RenderTarget | DepthStencil | Shader | Copy | Resolve | Predication | Indirect | SubpassInput | InputAssembly | ShadingRate |
-            Present | RayTracingAccelerationStructure
+            Present | RayTracingAccelerationStructure | RayTracingBuildInput | RayTracingScratchBuffer
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentUsageMask, uint32_t);

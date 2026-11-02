@@ -8,6 +8,7 @@
 #include <RHI/MemoryEnums.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Context/RHIContext.h>
+#include <RHI/RayTracing/AccelerationStructure.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/Image/Image.h>
@@ -105,8 +106,7 @@ namespace Spark::RHI
 
 namespace Spark::RHI::Components
 {
-    // Owning resource components. The Ptr<> owns the RHI object lifetime;
-    // RHIResourceSystem creates these from descriptors.
+    // Owning resource components. The Ptr<> owns the RHI object lifetime.
     struct Buffer
     {
         Ptr<RHI::Buffer> m_buffer;
@@ -115,6 +115,12 @@ namespace Spark::RHI::Components
     struct Image
     {
         Ptr<RHI::Image> m_image;
+    };
+
+    struct AccelerationStructure
+    {
+        Ptr<RHI::AccelerationStructure> m_structure;
+        RHIHandle                      m_bufferResource {NullHandle};
     };
 
     //! One cached single-frame image view on a resource: its descriptor (cache key)

@@ -37,7 +37,14 @@ namespace Spark::RHI
             return AccessFlags::PredicationRead;
 
         case AttachmentUsage::RayTracingAccelerationStructure:
-            return wantsWrite ? AccessFlags::AccelStructWrite : AccessFlags::AccelStructRead;
+            return (CheckBitsAny(access, AttachmentAccess::Read) ? AccessFlags::AccelStructRead : AccessFlags::None)
+                | (wantsWrite ? AccessFlags::AccelStructWrite : AccessFlags::None);
+
+        case AttachmentUsage::RayTracingBuildInput:
+            return AccessFlags::AccelStructBuildInputRead;
+
+        case AttachmentUsage::RayTracingScratchBuffer:
+            return AccessFlags::AccelStructScratch;
 
         default:
             ASSERT(false, "ConvertBufferAccess: usage {} is not valid for a buffer", static_cast<uint32_t>(usage));

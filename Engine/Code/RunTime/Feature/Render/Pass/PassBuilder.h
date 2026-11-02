@@ -65,8 +65,9 @@ namespace Spark::Render
     RHIHandle CreatePassBindings(PassContext& passCtx, RHIContext& rhiCtx, Pass pass);
 
     // The builders live in <Pass/RenderPass.h> (RenderPassBuilder, SPARK_RENDER_PASS),
-    // <Pass/ComputePass.h> (ComputePassBuilder, SPARK_COMPUTE_PASS) and <Pass/CopyPass.h>
-    // (CopyPassBuilder, SPARK_COPY_PASS). RenderPass.h pulls
+    // <Pass/ComputePass.h> (ComputePassBuilder, SPARK_COMPUTE_PASS), <Pass/CopyPass.h>
+    // (CopyPassBuilder, SPARK_COPY_PASS) and <Pass/AccelerationStructurePass.h>
+    // (AccelerationStructurePassBuilder, SPARK_ACCELERATION_STRUCTURE_PASS). RenderPass.h pulls
     // PassCapabilities.h, kept out of this common header so only files that write render
     // passes pay for it.
 } // namespace Spark::Render

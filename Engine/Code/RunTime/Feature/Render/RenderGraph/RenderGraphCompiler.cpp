@@ -25,6 +25,8 @@
 #include <RHI/Command/RenderPassBeginInfo.h>
 
 #include <RHI/Command/CopyItem.h>
+#include <RHI/Command/AccelerationStructureBuildItem.h>
+#include <RHI/RayTracing/RayTracingInstance.h>
 #include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
@@ -1409,6 +1411,94 @@ namespace Spark::Render
             RHI::CopyBufferDescriptor& descriptor = context.Get<RHI::CopyItem>(item).m_buffer;
             descriptor.m_sourceBuffer      = backingOf(copy.m_sourceAttachment, RHI::BufferBindFlags::CopyRead, "CopyRead");
             descriptor.m_destinationBuffer = backingOf(copy.m_destinationAttachment, RHI::BufferBindFlags::CopyWrite, "CopyWrite");
+        }
+    }
+
+    void RenderGraphCompiler::CompileItemAccelerationStructures(PassContext& passContext, RHIContext& context)
+    {
+        auto backingOf = [&](RHIHandle access, RHI::BufferBindFlags bindFlag) -> const RHI::Buffer*
+        {
+            const auto& attachment = context.Get<BufferPassAttachment>(access);
+            const auto* backing = context.TryGet<BackingBuffer>(attachment.m_buffer);
+            const char* passName = passContext.Get<PassName>(attachment.m_pass).m_name.GetCStr();
+            ASSERT(backing != nullptr && backing->m_buffer != nullptr,
+                "[RenderGraphCompiler] Pass {}: build buffer {} has no backing.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+            ASSERT(CheckBitsAll(backing->m_buffer->GetDescriptor().m_bindFlags, bindFlag),
+                "[RenderGraphCompiler] Pass {}: build buffer {} lacks the required bind flag.",
+                passName, attachment.m_attachmentId.m_id.GetCStr());
+            return backing->m_buffer;
+        };
+
+        for (auto [handle, build] : context.GetStorage<ItemAccelerationStructureBuild>().each())
+        {
+            auto& item = context.Get<RHI::AccelerationStructureBuildItem>(handle);
+            const auto& destination = context.Get<RHI::Components::AccelerationStructure>(build.m_destination);
+            ASSERT(destination.m_structure != nullptr && destination.m_structure->IsInitialized(),
+                "[RenderGraphCompiler] A build's destination resource is not initialized.");
+            ASSERT(destination.m_structure->GetType() == item.m_inputs.m_type,
+                "[RenderGraphCompiler] A build's destination type does not match its inputs.");
+            ASSERT(context.Has<ItemBottomLevelBuild>(handle) != context.Has<ItemTopLevelBuild>(handle),
+                "[RenderGraphCompiler] A build requires exactly one bottom or top level input component.");
+            ASSERT(backingOf(build.m_storageAttachment, RHI::BufferBindFlags::RayTracingAccelerationStructure)
+                    == &destination.m_structure->GetBuffer(),
+                "[RenderGraphCompiler] A build's storage access does not refer to its destination's buffer.");
+            ASSERT(context.Get<BufferPassAttachment>(build.m_storageAttachment).m_buffer == destination.m_bufferResource,
+                "[RenderGraphCompiler] A build's storage access does not refer to its buffer entity.");
+            item.m_destination = destination.m_structure.get();
+            item.m_scratchBuffer = backingOf(build.m_scratchAttachment, RHI::BufferBindFlags::RayTracingScratchBuffer);
+            const auto& scratch = context.Get<BufferPassAttachment>(build.m_scratchAttachment).m_viewDescriptor;
+            item.m_scratchOffset = uint64_t(scratch.m_elementOffset) * scratch.m_elementSize;
+        }
+
+        for (auto [handle, build] : context.GetStorage<ItemBottomLevelBuild>().each())
+        {
+            auto& item = context.Get<RHI::AccelerationStructureBuildItem>(handle);
+            ASSERT(item.m_inputs.m_type == RHI::AccelerationStructureType::BottomLevel,
+                "[RenderGraphCompiler] Bottom level inputs require a bottom level build item.");
+            ASSERT(build.m_geometries.size() == build.m_geometryAttachments.size(),
+                "[RenderGraphCompiler] A build's geometries and input attachments do not match.");
+            for (size_t i = 0; i < build.m_geometries.size(); ++i)
+            {
+                RHI::RayTracingGeometry& geometry = build.m_geometries[i];
+                const ItemBuildGeometry& input = build.m_geometryAttachments[i];
+                geometry.m_vertexBuffer = backingOf(input.m_vertexAttachment, RHI::BufferBindFlags::RayTracingBuildInput);
+                const auto& vertices = context.Get<BufferPassAttachment>(input.m_vertexAttachment).m_viewDescriptor;
+                ASSERT(vertices.m_elementSize != 0 && vertices.m_elementCount != 0,
+                    "[RenderGraphCompiler] A build's vertex view requires a nonzero stride and count.");
+                geometry.m_vertexOffset = uint64_t(vertices.m_elementOffset) * vertices.m_elementSize;
+                geometry.m_vertexStride = vertices.m_elementSize;
+                geometry.m_vertexCount = vertices.m_elementCount;
+
+                if (input.m_indexAttachment != NullHandle)
+                {
+                    geometry.m_indexBuffer = backingOf(input.m_indexAttachment, RHI::BufferBindFlags::RayTracingBuildInput);
+                    const auto& indices = context.Get<BufferPassAttachment>(input.m_indexAttachment).m_viewDescriptor;
+                    ASSERT(indices.m_elementFormat == RHI::Format::R16_UINT || indices.m_elementFormat == RHI::Format::R32_UINT,
+                        "[RenderGraphCompiler] A build's index view must be R16_UINT or R32_UINT.");
+                    ASSERT(indices.m_elementSize == RHI::GetFormatSize(indices.m_elementFormat) && indices.m_elementCount != 0,
+                        "[RenderGraphCompiler] A build's index view has an invalid element size or count.");
+                    geometry.m_indexOffset = uint64_t(indices.m_elementOffset) * indices.m_elementSize;
+                    geometry.m_indexCount = indices.m_elementCount;
+                    geometry.m_indexFormat = indices.m_elementFormat == RHI::Format::R16_UINT
+                        ? RHI::IndexFormat::UINT16 : RHI::IndexFormat::UINT32;
+                }
+            }
+            item.m_inputs.m_geometries = {build.m_geometries.data(), build.m_geometries.size()};
+        }
+
+        for (auto [handle, build] : context.GetStorage<ItemTopLevelBuild>().each())
+        {
+            auto& item = context.Get<RHI::AccelerationStructureBuildItem>(handle);
+            ASSERT(item.m_inputs.m_type == RHI::AccelerationStructureType::TopLevel,
+                "[RenderGraphCompiler] Top level inputs require a top level build item.");
+            item.m_inputs.m_instanceBuffer = backingOf(build.m_instanceAttachment, RHI::BufferBindFlags::RayTracingBuildInput);
+            const auto& instances = context.Get<BufferPassAttachment>(build.m_instanceAttachment).m_viewDescriptor;
+            ASSERT(instances.m_elementFormat == RHI::Format::Unknown
+                    && instances.m_elementSize == sizeof(RHI::RayTracingInstance),
+                "[RenderGraphCompiler] A build's instances require a structured RayTracingInstance view.");
+            item.m_inputs.m_instanceOffset = uint64_t(instances.m_elementOffset) * instances.m_elementSize;
+            item.m_inputs.m_instanceCount = instances.m_elementCount;
         }
     }
 

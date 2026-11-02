@@ -24,7 +24,7 @@ namespace Spark::RHI
     //! reads an uploaded resource asks this first; the Scope that declares the read acquires it.
     inline bool IsResourceReady(BasicContext<RHIHandle>& ctx, RHIHandle handle)
     {
-        if (handle == NullHandle || ctx.Has<PendingUploads>(handle))
+        if (handle == NullHandle || !ctx.Valid(handle) || ctx.Has<PendingUploads>(handle))
         {
             return false;
         }
@@ -35,6 +35,13 @@ namespace Spark::RHI
         if (const auto* buffer = ctx.TryGet<Components::Buffer>(handle))
         {
             return buffer->m_buffer != nullptr;
+        }
+        if (const auto* structure = ctx.TryGet<Components::AccelerationStructure>(handle))
+        {
+            const RHIHandle storage = structure->m_bufferResource;
+            return structure->m_structure != nullptr && structure->m_structure->IsInitialized()
+                && storage != NullHandle && ctx.Valid(storage) && ctx.Has<Components::Buffer>(storage)
+                && IsResourceReady(ctx, storage);
         }
         // A per-frame resource gets its component once every frame's copy is made; slots past
         // the device's frame count stay empty.

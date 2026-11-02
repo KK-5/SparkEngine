@@ -11,6 +11,7 @@
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Context/RHIEventContext.h>
 #include <RHI/HardwareQueue.h>
+#include <RHI/RayTracing/AccelerationStructureBuildInputs.h>
 #include <RHI/RHILimits.h>
 #include <RHI/Resource/Buffer/IndexBufferView.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
@@ -109,6 +110,31 @@ namespace Spark::Render
     {
         RHI::RHIHandle m_sourceAttachment {RHI::NullHandle};
         RHI::RHIHandle m_destinationAttachment {RHI::NullHandle};
+    };
+
+    struct ItemBuildGeometry
+    {
+        RHIHandle m_vertexAttachment {NullHandle};
+        RHIHandle m_indexAttachment {NullHandle};
+    };
+
+    struct ItemAccelerationStructureBuild
+    {
+        RHIHandle m_destination {NullHandle};
+        RHIHandle m_storageAttachment {NullHandle};
+        RHIHandle m_scratchAttachment {NullHandle};
+    };
+
+    //! Owns the geometry array that the RHI build item spans after lowering.
+    struct ItemBottomLevelBuild
+    {
+        eastl::vector<ItemBuildGeometry>      m_geometryAttachments;
+        eastl::vector<RHI::RayTracingGeometry> m_geometries;
+    };
+
+    struct ItemTopLevelBuild
+    {
+        RHIHandle m_instanceAttachment {NullHandle};
     };
 
     //! On a draw of a Scope that reads its vertices, and its indices, from buffers of the graph:
