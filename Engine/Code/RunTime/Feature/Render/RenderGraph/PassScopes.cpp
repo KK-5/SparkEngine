@@ -201,6 +201,13 @@ namespace Spark::Render
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::ReadWrite, RHI::AttachmentStage::Uninitialized), false);
     }
 
+    ShaderAttachment RenderScope::ReadAccelerationStructure(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::RayTracingAccelerationStructure,
+            RHI::AttachmentAccess::Read, RHI::AttachmentStage::Uninitialized), false);
+    }
+
     Attachment RenderScope::IndirectArguments(const RHI::AttachmentId& name)
     {
         return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
@@ -335,6 +342,13 @@ namespace Spark::Render
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Write, RHI::AttachmentStage::ComputeShader), true);
     }
 
+    ShaderAttachment ComputeScope::ReadAccelerationStructure(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachment(*m_builder, m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::RayTracingAccelerationStructure,
+            RHI::AttachmentAccess::Read, RHI::AttachmentStage::ComputeShader), true);
+    }
+
     Attachment ComputeScope::IndirectArguments(const RHI::AttachmentId& name)
     {
         return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
@@ -350,19 +364,22 @@ namespace Spark::Render
 
     Attachment AccelerationStructureScope::ReadAccelerationStructure(const RHI::AttachmentId& name)
     {
-        return Attachment(m_builder->AddScopeAccelerationStructureAttachment(m_scope, name, RHI::AttachmentAccess::Read,
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::RayTracingAccelerationStructure, RHI::AttachmentAccess::Read,
             RHI::AttachmentStage::AccelerationStructureBuild));
     }
 
     Attachment AccelerationStructureScope::WriteAccelerationStructure(const RHI::AttachmentId& name)
     {
-        return Attachment(m_builder->AddScopeAccelerationStructureAttachment(m_scope, name, RHI::AttachmentAccess::Write,
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::RayTracingAccelerationStructure, RHI::AttachmentAccess::Write,
             RHI::AttachmentStage::AccelerationStructureBuild));
     }
 
     Attachment AccelerationStructureScope::ReadWriteAccelerationStructure(const RHI::AttachmentId& name)
     {
-        return Attachment(m_builder->AddScopeAccelerationStructureAttachment(m_scope, name, RHI::AttachmentAccess::ReadWrite,
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::RayTracingAccelerationStructure, RHI::AttachmentAccess::ReadWrite,
             RHI::AttachmentStage::AccelerationStructureBuild));
     }
 

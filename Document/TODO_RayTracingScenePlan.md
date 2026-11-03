@@ -14,26 +14,27 @@
 | 步骤 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | 1 | RHI 补缺：scratch 的地址对齐约定、瞬态池拒绝加速结构 buffer、几何池带构建输入用途 | — | 已落地；编译、单测通过，运行检查见 §四 |
-| 2 | 渲染图：`AccelerationStructurePass` 与它的 scope，构建相关的访问声明 | 1 | 进行中；构建记录与编译函数已落地，主流程接线和追踪访问待完成 |
+| 2 | 渲染图：`AccelerationStructurePass` 与它的 scope，构建与追踪的访问声明 | 1 | 基础已实现；构建编译、提交与追踪读取绑定已接入，场景运行验证待后续 |
 | 3 | 光追场景系统与 BLAS：存放 buffer、构建描述、BLAS 状态、构建预算、生命周期 | 2 | 未开始 |
 | 4 | TLAS：BLAS 地址数组、生成实例的 compute、TLAS 构建、绑进场景组 | 3 | 未开始 |
 | 5 | 验证用的调试视图 | 4 | 未开始 |
 
 D1 ~ D9 已定，D7 中 BLAS 地址数组的下标待确认。
 
-**步骤 2 细分进展（2026-11-02）：**
+**步骤 2 细分进展（2026-11-03）：**
 
 | 子步骤 | 内容 | 状态 |
 |---|---|---|
 | 1 | `AccelerationStructurePassBuilder`、类型标签与注册宏，限制 Graphics / Compute 队列 | 已实现 |
 | 2 | `AccelerationStructurePassScopes`、`AccelerationStructureScope`、资源导入与构建访问声明 | 已实现 |
-| 3 | 构建描述、BLAS / TLAS item 记录与编译函数 | 已实现；本轮测试已由用户验证通过 |
-| 4 | 主编译流程调用构建编译函数，executer 提交 RHI 构建 item | 待实现，下一步 |
-| 5 | Compute / Render scope 的追踪访问接口 | 待实现；所需 usage 转换和 AS 读写组合已落地 |
+| 3 | 构建描述、BLAS / TLAS item 记录与编译函数 | 已实现；2026-11-02 测试已由用户验证通过 |
+| 4 | 主编译流程调用构建编译函数，executer 提交 RHI 构建 item | 已实现；2026-11-03 Debug 编译通过，运行验证待用户执行 |
+| 5 | Compute / Render scope 的追踪访问接口与绑定 | 已实现；2026-11-03 Debug 编译通过，运行验证待用户执行 |
 | 6 | 场景构建 pass 内先 BLAS scope、后 TLAS scope | 方案已定，场景系统接入时落实 |
 
-本轮 AS 资源由实体表示，导入后将访问映射到存放 buffer；构建输入和 scratch 的布局从 attachment 的 view 读取。
-BLAS / TLAS 的输入组件分开，公共构建组件只引用资源实体与 attachment。区间重叠校验按讨论推后，由调用方保证同一 scope 内的构建区间不重叠。
+AS 作为 buffer 的特殊用途，pass 直接导入存放 buffer；构建目标、追踪读取、构建输入和 scratch 的区间均从 attachment 的 view 读取。
+渲染层 `AccelerationStructure` 组件只持有 RHI 对象，编译阶段创建并挂在使用它的 attachment 上，不使用对象缓存。
+BLAS / TLAS 的输入组件分开，公共构建组件只引用目标和 scratch attachment。区间重叠校验按讨论推后，由调用方保证同一 scope 内的构建区间不重叠。
 
 ---
 
@@ -111,10 +112,10 @@ BLAS / TLAS 的输入组件分开，公共构建组件只引用资源实体与 a
 
 ### D6　BLAS 状态是世界实体上的组件　已定
 
-- 组件持有 AS 资源实体的 `RHIHandle` 与它在存放 buffer 里的 `Suballocation`。AS 实体由 `RayTracingSceneSystem` 管理，
-  `RHI::Components::AccelerationStructure` 持有 RHI 对象与存放 buffer 的资源实体句柄。组件存在即表示 BLAS 已建好（构建在本帧的构建
+- 组件持有存放 buffer 资源实体的 `RHIHandle` 与其中的 `Suballocation`，由 `RayTracingSceneSystem` 管理。
+  RHI AS 对象在编译阶段创建，由 attachment 上的渲染层 `AccelerationStructure` 组件持有。BLAS 状态组件存在即表示 BLAS 已建好（构建在本帧的构建
   pass 里，在任何读 TLAS 的 pass 之前）；与描述分开，不复用 `MeshGeometryReadyTag`。
-- 组件去掉时：AS 资源实体由光追场景系统撤销，区间延迟归还，还在 GPU 上的 TLAS 引用的内存不会被覆盖。
+- 组件去掉时：区间延迟归还，还在 GPU 上的 TLAS 引用的内存不会被覆盖。attachment 销毁时释放其持有的 RHI AS 对象引用。
 
 ### D7　TLAS 实例由 compute 写，按活动列表紧排　已定（地址数组的下标待确认）
 
@@ -132,12 +133,17 @@ BLAS / TLAS 的输入组件分开，公共构建组件只引用资源实体与 a
 
 ### D8　TLAS 绑进场景组，追踪 scope 显式声明 AS 读　已定
 
-- TLAS 对象挂在一个带标签的 AS 资源实体上，由 `RayTracingSceneSystem` 管理；`SceneBindingSystem` 取来按名字绑进 space0（I7 D3），系统间不经 Service。
-- pass 导入 AS 资源实体，构建接口通过目标 attachment 使用它，不直接接收 RHI 对象。声明 AS 访问时，图将 `BufferPassAttachment::m_buffer`
-  与 `ScopeAttachment::m_resource` 指向关联的存放 buffer 实体，另存 AS 实体引用；构建 item 保存 AS 实体句柄，编译时解析 RHI 对象。
-- 实际追踪的 pass 按 TLAS 标签导入 AS 实体，每个追踪 scope 显式声明 `AccelStructRead`，阶段为
+- `RayTracingSceneSystem` 管理存放 buffer 和 TLAS 区间；TLAS 仍按独立 AS 输入绑进 space0（I7 D3），系统间不经 Service。
+  共享场景绑定使用编译阶段产生的 AS 对象，具体接入在场景系统阶段实现。
+- pass 直接导入存放 buffer，AS 访问通过 `BufferPassAttachment` 描述，`m_buffer` 与 `ScopeAttachment::m_resource` 都指向该 buffer 实体。
+  构建目标和 shader 读取通过 `.View(CreateRaw(offset, size))` 声明 AS 区间；构建 item 只保存目标 attachment，编译时从其 AS 组件取得 RHI 对象。
+- AS 对象由 `CompileAccelerationStructures` 在 buffer 就绪后创建；构建目标的类型由 BLAS / TLAS 命令确定，shader 读取使用 TLAS。
+  组件只保存 `Ptr<RHI::AccelerationStructure>`，挂在各自 attachment 上；同一 buffer 的不同区间各有对象，不使用缓存。仅声明构建阶段读取依赖不创建对象。
+- 实际追踪的 pass 导入 TLAS 所在 buffer，每个追踪 scope 显式声明 `AccelStructRead`，阶段为
   实际执行 ray query 的 shader 阶段（本期为 `ComputeShader`）。依赖与屏障仍落在存放 TLAS 与 BLAS 的 buffer 上，不创建普通
   `BufferView`；shader 中的 TLAS 仍通过独立的加速结构绑定类型取得。
+- Compute / Render scope 的 `ReadAccelerationStructure` 返回 `ShaderAttachment`；Compute 固定为 `ComputeShader`，Render 通过
+  `.Stage(...)` 声明阶段，或由 `.Bind(...)` 按反射确定。`.Bind(...)` 写入 per-pass 组的独立 AS 输入，不生成普通 buffer view。
 - 绑定与访问声明各司其职：绑定场景组本身不表示使用 TLAS。AS 存放 buffer 不加入 `MainSceneTag::Uses`，避免把不追踪的
   光栅 pass 也变成 AS 的读者。当前 `Uses` 只处理上传接收，不能替代这里的导入与访问声明。
 - 可以用小接口统一导入和 AS 读声明，具体代码形状在实现时确定；本期不扩展 `Uses` 为普通图资源的自动依赖机制。
@@ -174,10 +180,10 @@ BLAS / TLAS 的输入组件分开，公共构建组件只引用资源实体与 a
    访问声明（D8、D9），以及 `HasAccessConflict`（D9）。
 3. **光追场景系统与 BLAS**（中）：存放 buffer 与区间分配（D4）、构建描述及 `MeshGeometrySystem` 的产出（D2）、BLAS 状态组件
    （D6）、构建预算与 scratch（D5）、每帧比较（D3）、构建 pass 的注册。
-4. **TLAS**（中）：BLAS 地址数组、生成实例的 compute pass、TLAS 构建（D7）；TLAS 绑进场景组，AS 资源实体提供标签
-   供追踪 pass 导入，并将访问解析到存放 buffer（D8）。
+4. **TLAS**（中）：BLAS 地址数组、生成实例的 compute pass、TLAS 构建（D7）；TLAS 绑进场景组，存放 buffer 提供标签
+   供追踪 pass 导入，通过 attachment view 选择 TLAS 区间（D8）。
 5. **调试视图**（小）：一个 compute pass，每像素从相机打一条主光线，命中按实例号着色、未命中黑，可开关。也是读 TLAS 的
-   第一个使用者：显式导入 TLAS 资源实体并声明读，验证 D8 的构建到追踪依赖。
+   第一个使用者：显式导入 TLAS 所在 buffer、声明区间和读取，验证 D8 的构建到追踪依赖。
 
 每一步之后：全量编译，单元测试通过；编辑器运行无报错。
 
@@ -199,7 +205,32 @@ BLAS / TLAS 的输入组件分开，公共构建组件只引用资源实体与 a
 - `cmake --build --preset debug --target SparkRender --parallel 4` 的 Debug 构建通过，包含相关依赖；新接口的单独编译通过。
 - 用户已完成本轮测试验证，并确认均通过。
 - 步骤 1 的编辑器运行验证已由用户补充完成并确认通过；上面的 2026-11-01 记录保留为当次执行结果。
-- 当前完成 Pass / Scope、AS 实体导入、构建 item 记录与编译函数；主编译流程和命令提交接线、追踪访问入口仍待实现，步骤 2 整体尚未完成。
+- 截至 2026-11-02，已完成 Pass / Scope、AS 实体导入、构建 item 记录与编译函数；主编译流程和命令提交接线、追踪访问入口仍待实现。
+
+**步骤 2 子步骤 4 进展（2026-11-03）：**
+
+- `ExecutePipeline` 在瞬态资源物化之后、生成提交列表之前调用 `CompileItemAccelerationStructures`，补齐 RHI 构建 item。
+- executer 的 `SubmitItem` 识别 `RHI::AccelerationStructureBuildItem`，沿用现有提交序号调用 `CommandList::Submit`。
+- 构建命令沿用 scope 的屏障、队列同步、提交列表和帧末清理；区间重叠校验继续推后。
+- `cmake --build --preset debug --target SparkRender --parallel 4` 的 Debug 构建通过；本轮未运行单元测试或编辑器，运行验证待用户执行。
+  追踪访问入口和场景系统接入仍在后续步骤。
+
+**步骤 2 子步骤 5 进展（2026-11-03）：**
+
+- Compute / Render scope 新增 `ReadAccelerationStructure`，返回 `ShaderAttachment`；访问依赖与屏障继续跟踪底层存放 buffer。
+- `.Bind(...)` 匹配独立的 AS 反射输入，校验 TLAS 与 shader 阶段，并在编译绑定时解析资源实体、写入 AS 对象；未绑定的 per-pass AS 输入按现有规则清空。
+- 共享场景组仍单独绑定，只有 scope 显式声明 AS 读取才产生图内依赖；`Binds<MainSceneTag>` 不隐含读取。
+- `cmake --build --preset debug --target SparkRender --parallel 4` 的 Debug 构建通过；新接口的独立编译通过，覆盖 Compute `.Bind()`、Render `.Stage()` / `.Bind()`。
+  本轮未运行单元测试或编辑器，运行验证由用户执行。
+
+**步骤 2 AS 对象持有方式调整（2026-11-03）：**
+
+- 删除 RHI 层 AS 资源组件和专用导入分支，AS 访问直接使用 `BufferPassAttachment`，构建目标和追踪读取通过 view 声明存放区间。
+- 渲染层 `AccelerationStructure` 组件只保存 `Ptr<RHI::AccelerationStructure>`，在编译阶段创建并挂到 attachment 上，无对象缓存；attachment 销毁时释放引用。
+- `ItemAccelerationStructureBuild` 只引用目标与 scratch attachment，构建 item 和 shader 绑定使用编译阶段创建的对象。
+- 多个 scope 绑定同一 per-pass AS 输入时，按底层 buffer、区间和 AS 类型检查一致性，允许各 attachment 持有独立对象。
+- 新接口独立编译通过，覆盖同一 buffer 中多个 AS 目标及 shader 读取；`cmake --build --preset debug --target SparkRender --parallel 4` 的 Debug 构建通过。
+  本轮未运行单元测试或编辑器，运行验证待用户执行。
 
 **场景接入后的验证项：**
 

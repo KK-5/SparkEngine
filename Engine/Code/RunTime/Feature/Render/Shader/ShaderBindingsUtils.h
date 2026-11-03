@@ -118,6 +118,35 @@ namespace Spark::Render
         Detail::MarkShaderBindingsDirty(ctx, bindings);
     }
 
+    inline void SetShaderAccelerationStructure(
+        RHI::RHIHandle bindings, RHI::InputName input, const RHI::AccelerationStructure* structure, uint32_t arrayIndex = 0)
+    {
+        auto& ctx = *RHI::RHIExecuteContext::Current();
+        auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
+        if (!sb)
+        {
+            return;
+        }
+        auto* target = sb->FindAccelerationStructureInput(input);
+        if (!target)
+        {
+            LOG_ERROR("[ShaderBindingsUtils] Acceleration structure input '{}' not found.", input.GetCStr());
+            return;
+        }
+        if (arrayIndex >= target->GetCount())
+        {
+            LOG_ERROR("[ShaderBindingsUtils] Array index {} is out of range for acceleration structure input '{}'.",
+                arrayIndex, input.GetCStr());
+            return;
+        }
+        if (target->GetAccelerationStructure(arrayIndex).get() == structure)
+        {
+            return;
+        }
+        target->SetAccelerationStructure(arrayIndex, structure);
+        Detail::MarkShaderBindingsDirty(ctx, bindings);
+    }
+
     //! Bind a sampler state into the named sampler input, then mark the binding dirty.
     inline void SetShaderSampler(
         RHI::RHIHandle bindings, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)

@@ -19,6 +19,7 @@
 #include <RHI/Resource/Buffer/BufferView.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
 #include <RHI/Resource/ResourceState.h>
+#include <RHI/RayTracing/AccelerationStructure.h>
 #include <RHI/Resource/Image/ImageSubresourceStates.h>
 
 #include <RHI/Attachment/AttachmentEnums.h>
@@ -237,10 +238,10 @@ namespace Spark::Render
         Pass                      m_pass {NullPass};
     };
 
-    //! The AS identity; BufferPassAttachment and ScopeAttachment track its storage buffer.
-    struct AccelerationStructureAttachment
+    //! Owned by the attachment that builds or reads this buffer range as an AS.
+    struct AccelerationStructure
     {
-        RHIHandle m_resource {NullHandle};
+        Ptr<RHI::AccelerationStructure> m_structure;
     };
 
     // ObjectName (the underlying type of RHI::AttachmentId) embeds an eastl::string

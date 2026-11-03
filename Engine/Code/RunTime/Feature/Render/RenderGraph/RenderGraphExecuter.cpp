@@ -5,6 +5,7 @@
 
 #include <RHI/Command/CommandList.h>
 #include <RHI/Command/CommandQueueContext.h>
+#include <RHI/Command/AccelerationStructureBuildItem.h>
 #include <RHI/Command/CopyItem.h>
 #include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawItem.h>
@@ -58,6 +59,11 @@ namespace Spark::Render
             if (const auto* copy = rhiContext.TryGet<RHI::CopyItem>(item))
             {
                 commandList->Submit(*copy, submitIndex);
+                return;
+            }
+            if (const auto* build = rhiContext.TryGet<RHI::AccelerationStructureBuildItem>(item))
+            {
+                commandList->Submit(*build, submitIndex);
                 return;
             }
             ASSERT(false, "[RenderGraphExecuter] Submit list entry {} is neither a view nor an item.", submitIndex);

@@ -120,8 +120,7 @@ namespace Spark::Render
 
     struct ItemAccelerationStructureBuild
     {
-        RHIHandle m_destination {NullHandle};
-        RHIHandle m_storageAttachment {NullHandle};
+        RHIHandle m_destinationAttachment {NullHandle};
         RHIHandle m_scratchAttachment {NullHandle};
     };
 
