@@ -14,6 +14,8 @@
 
 namespace Spark::Render
 {
+    StagingBuffer::StagingBuffer() = default;
+
     StagingBuffer::~StagingBuffer()
     {
         ASSERT(m_slots.empty(), "[StagingBuffer] {} destroyed before Shutdown.", m_descriptor.m_name.GetCStr());

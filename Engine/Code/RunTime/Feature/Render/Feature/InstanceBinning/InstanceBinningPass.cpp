@@ -70,8 +70,8 @@ namespace Spark::Render
 
             const PassIndirectLayout& layout = passContext.Get<PassIndirectLayout>(drawPass);
 
-            // DrawGroupSystem made it before this frame began, so it was created at the frame's start.
-            ASSERT(rhiContext.Has<RHI::Components::BufferPerFrame>(layout.m_table),
+            // DrawGroupSystem has already written this pass's range in the current frame's buffer.
+            ASSERT(rhiContext.Has<RHI::Components::Buffer>(layout.m_table),
                 "[InstanceBinningPass] {}'s indirect layout has no table.",
                 passContext.Get<PassName>(drawPass).m_name.GetCStr());
             p.Import(layoutName, layout.m_table);
@@ -98,7 +98,8 @@ namespace Spark::Render
             const RHI::BufferViewDescriptor visibleCountView = RHI::BufferViewDescriptor::CreateStructured(
                 0, culling.m_viewCapacity, sizeof(uint32_t));
             const RHI::BufferViewDescriptor layoutView = RHI::BufferViewDescriptor::CreateStructured(
-                0, layout.m_tableLength, sizeof(IndirectLayoutEntry));
+                static_cast<uint32_t>(layout.m_tableByteOffset / sizeof(IndirectLayoutEntry)),
+                layout.m_tableLength, sizeof(IndirectLayoutEntry));
             const RHI::BufferViewDescriptor argumentsView = RHI::BufferViewDescriptor::CreateStructured(
                 0, recordCount, sizeof(RHI::DrawIndexedIndirectCommand));
             const RHI::BufferViewDescriptor countView = RHI::BufferViewDescriptor::CreateStructured(
