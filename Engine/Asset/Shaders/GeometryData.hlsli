@@ -11,7 +11,8 @@ struct GeometryData
     float3 BoundsExtents;   // half the box's size along each axis
     uint   IndexCount;
     int    VertexOffset;
-    uint3  _Pad;
+    uint   _Pad;
+    uint2  BottomLevelAddress;
 };
 
 #endif // SPARK_GEOMETRY_DATA_HLSLI

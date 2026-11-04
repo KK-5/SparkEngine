@@ -227,6 +227,15 @@ namespace Spark::Render
                     "Give it one with .View(...).",
                     passName, scopeIndex, name);
 
+                if (buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure)
+                {
+                    const auto* structure = rhiContext.TryGet<AccelerationStructure>(attachment);
+                    ASSERT(structure != nullptr && structure->m_structure != nullptr
+                            && structure->m_structure->IsInitialized(),
+                        "Pass {} Scope #{}: AS attachment {} requires an initialized object via .AccelerationStructure(...).",
+                        passName, scopeIndex, name);
+                }
+
                 for (uint32_t j = i + 1; j < static_cast<uint32_t>(m_scopeAttachments.size()); ++j)
                 {
                     ASSERT(!AreOfOneResource(rhiContext, attachment, m_scopeAttachments[j])

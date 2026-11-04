@@ -39,6 +39,18 @@ namespace Spark::Render
         return *this;
     }
 
+    Attachment& Attachment::AccelerationStructure(const Ptr<RHI::AccelerationStructure>& structure)
+    {
+        auto& context = *RHIExecuteContext::Current();
+        const auto* buffer = context.TryGet<BufferPassAttachment>(m_handle);
+        ASSERT(buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure,
+            "AccelerationStructure() requires an acceleration structure attachment.");
+        ASSERT(structure != nullptr && structure->IsInitialized(),
+            "AccelerationStructure() requires an initialized AS object.");
+        context.AddOrReplace<Render::AccelerationStructure>(m_handle, Render::AccelerationStructure{structure});
+        return *this;
+    }
+
     Attachment& Attachment::From(eastl::string_view passName)
     {
         auto& rhiContext  = *RHIExecuteContext::Current();

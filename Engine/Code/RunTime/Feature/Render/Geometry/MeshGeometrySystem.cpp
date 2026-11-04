@@ -19,6 +19,7 @@
 #include <Mesh/Components.h>
 
 #include <Pass/CopyPass.h>
+#include <RayTracing/RayTracingGeometryBuildInput.h>
 
 namespace Spark::Render
 {
@@ -80,7 +81,7 @@ namespace Spark::Render
 
         for (Entity entity : stale)
         {
-            world->Remove<MeshGeometry, MeshGeometryUpload, MeshGeometryReadyTag>(entity);
+            world->Remove<MeshGeometry, MeshGeometryUpload, MeshGeometryReadyTag, RayTracingGeometryBuildInput>(entity);
         }
     }
 
@@ -202,6 +203,10 @@ namespace Spark::Render
     {
         if (auto* world = WorldExecuteContext::Current())
         {
+            world->GetView<MeshGeometry>().each([&](Entity entity, const MeshGeometry&)
+            {
+                world->Remove<RayTracingGeometryBuildInput>(entity);
+            });
             world->Clear<MeshGeometry, MeshGeometryUpload, MeshGeometryReadyTag>();
         }
         m_copies.clear();
@@ -302,6 +307,23 @@ namespace Spark::Render
             upload.m_uploadedBytes = end;
             if (upload.GetRemainingBytes() == 0)
             {
+                RayTracingGeometryBuildInput input;
+                input.m_vertexBuffer = m_poolResource;
+                input.m_vertexView = RHI::BufferViewDescriptor::CreateStructured(
+                    geometry.m_vertexOffset,
+                    static_cast<uint32_t>(geometry.m_vertices.GetSize() / geometry.m_vertexByteStride),
+                    geometry.m_vertexByteStride);
+                input.m_vertexFormat = RHI::Format::R32G32B32_FLOAT;
+                if (geometry.m_indices.IsValid())
+                {
+                    input.m_indexBuffer = m_poolResource;
+                    input.m_indexView = RHI::BufferViewDescriptor::CreateTyped(
+                        geometry.m_firstIndex, geometry.m_indexCount,
+                        geometry.m_indexFormat == RHI::IndexFormat::UINT16
+                            ? RHI::Format::R16_UINT : RHI::Format::R32_UINT);
+                }
+                world.Add<RayTracingGeometryBuildInput>(entity, input);
+
                 // Copied this frame ahead of every pass that reads the pool.
                 world.Remove<MeshGeometryUpload>(entity);
                 world.Add<MeshGeometryReadyTag>(entity);

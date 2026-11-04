@@ -19,6 +19,7 @@
 #include <Binding/SharedBindings.h>
 #include <Pass/ComputePass.h>
 #include <RenderGraph/PassScopes.h>
+#include <RayTracing/RayTracingBottomLevel.h>
 
 namespace Spark::Render
 {
@@ -134,9 +135,17 @@ namespace Spark::Render
         AllocateSlots(*world);
         m_geometries.BeginUpdate();
         world->GetView<GeometrySlot, MeshGeometry>().each(
-            [&](Entity, const GeometrySlot& slot, const MeshGeometry& geometry)
+            [&](Entity entity, const GeometrySlot& slot, const MeshGeometry& geometry)
         {
-            m_geometries.Set(slot.Get(), EncodeGeometryData(geometry));
+            GeometryData data = EncodeGeometryData(geometry);
+            const auto* bottomLevel = world->TryGet<RayTracingBottomLevel>(entity);
+            const auto* input = world->TryGet<RayTracingGeometryBuildInput>(entity);
+            if (bottomLevel && bottomLevel->m_structure && input && bottomLevel->m_input == *input)
+            {
+                // New BLAS objects are created after this update and enter the table next frame.
+                data.m_bottomLevelAddress = bottomLevel->m_structure->GetDeviceAddress();
+            }
+            m_geometries.Set(slot.Get(), data);
         });
         m_geometries.EndUpdate();
     }

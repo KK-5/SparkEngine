@@ -168,6 +168,7 @@ namespace Spark::Render
 
         // Before every pass that draws meshes: it copies their new bytes into the pool.
         m_meshGeometrySystem.SetUp(passContext);
+        m_rayTracingSceneSystem.SetUp(passContext);
         // Before every pass that reads them: they write the material, geometry and instance
         // records, and the instance IDs, that changed.
         m_materialBindingSystem.SetUp(passContext);
@@ -265,6 +266,7 @@ namespace Spark::Render
         m_meshGeometrySystem.Init(rhiCtxForInit);
         m_geometryBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
+        m_rayTracingSceneSystem.Init(rhiCtxForInit);
         m_shadowViewSystem.Init(rhiCtxForInit);
         m_shadowMaskSystem.Init(rhiCtxForInit);
 
@@ -307,6 +309,7 @@ namespace Spark::Render
         m_renderGraph.Shutdown();
 
         // Release native buffers the passes read, so only once the GPU is idle.
+        m_rayTracingSceneSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -359,6 +362,7 @@ namespace Spark::Render
         // Last frame's draw preparation goes, before the encoding writes this frame's.
         m_drawContext.Clear();
         m_instanceBindingSystem.Update();
+        m_rayTracingSceneSystem.Update();
         // What each view sees of the lists the CPU culls, from the instances the encoding listed.
         m_drawListCullingSystem.Update(rhiCtx, passContext, m_drawContext);
         // The groups of each pass from what the two above left.

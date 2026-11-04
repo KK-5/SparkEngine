@@ -63,6 +63,8 @@ set(SOURCES
     Binding/DeviceArray.cpp
     Binding/Material/MaterialBindingSystem.cpp
     Geometry/MeshGeometrySystem.cpp
+    RayTracing/RayTracingBottomLevel.cpp
+    RayTracing/RayTracingSceneSystem.cpp
     Drawable/DrawMask.cpp
 )
 

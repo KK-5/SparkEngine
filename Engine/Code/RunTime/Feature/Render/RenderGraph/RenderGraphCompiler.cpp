@@ -1435,58 +1435,6 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphCompiler::CompileAccelerationStructures(RHIContext& context)
-    {
-        auto create = [&](RHIHandle attachment, RHI::AccelerationStructureType type)
-        {
-            if (const auto* existing = context.TryGet<AccelerationStructure>(attachment))
-            {
-                ASSERT(existing->m_structure->GetType() == type,
-                    "[RenderGraphCompiler] An AS attachment is used as both a BLAS and a TLAS.");
-                return;
-            }
-
-            const auto& access = context.Get<BufferPassAttachment>(attachment);
-            const auto* backing = context.TryGet<BackingBuffer>(access.m_buffer);
-            ASSERT(backing != nullptr && backing->m_buffer != nullptr,
-                "[RenderGraphCompiler] AS buffer {} has no backing.", access.m_attachmentId.m_id.GetCStr());
-
-            const auto& view = access.m_viewDescriptor;
-            RHI::AccelerationStructureDescriptor descriptor;
-            descriptor.m_type = type;
-            descriptor.m_buffer = backing->m_buffer;
-            descriptor.m_offset = uint64_t(view.m_elementOffset) * view.m_elementSize;
-            descriptor.m_size = uint64_t(view.m_elementCount) * view.m_elementSize;
-
-            auto* factory = Service<RHI::Factory>::Get();
-            ASSERT(factory != nullptr, "RHI::Factory service not registered.");
-            Ptr<RHI::AccelerationStructure> structure = factory->CreateAccelerationStructure();
-            ASSERT(structure != nullptr, "[RenderGraphCompiler] Failed to create an AS object.");
-            const auto result = structure->Init(backing->m_buffer->GetDevice(), descriptor);
-            ASSERT(result == RHI::ResultCode::Success,
-                "[RenderGraphCompiler] Failed to initialize AS buffer {}.", access.m_attachmentId.m_id.GetCStr());
-            if (result != RHI::ResultCode::Success)
-            {
-                return;
-            }
-            context.Add<AccelerationStructure>(attachment, AccelerationStructure{eastl::move(structure)});
-        };
-
-        for (auto [item, build] : context.GetStorage<ItemAccelerationStructureBuild>().each())
-        {
-            create(build.m_destinationAttachment, context.Get<RHI::AccelerationStructureBuildItem>(item).m_inputs.m_type);
-        }
-        // Shader-read attachments own separate TLAS objects for binding; this does not issue GPU builds.
-        for (auto [attachment, access] : context.GetStorage<BufferPassAttachment>().each())
-        {
-            if (access.m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure
-                && access.m_stage != RHI::AttachmentStage::AccelerationStructureBuild)
-            {
-                create(attachment, RHI::AccelerationStructureType::TopLevel);
-            }
-        }
-    }
-
     void RenderGraphCompiler::CompileItemAccelerationStructures(PassContext& passContext, RHIContext& context)
     {
         auto backingOf = [&](RHIHandle access, RHI::BufferBindFlags bindFlag) -> const RHI::Buffer*

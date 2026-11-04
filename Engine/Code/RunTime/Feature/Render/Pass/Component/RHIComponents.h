@@ -238,7 +238,7 @@ namespace Spark::Render
         Pass                      m_pass {NullPass};
     };
 
-    //! Owned by the attachment that builds or reads this buffer range as an AS.
+    //! Keeps the externally owned AS alive while this attachment uses its buffer range.
     struct AccelerationStructure
     {
         Ptr<RHI::AccelerationStructure> m_structure;

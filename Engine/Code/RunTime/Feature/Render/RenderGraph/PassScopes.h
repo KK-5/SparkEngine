@@ -41,6 +41,7 @@ namespace Spark::Render
         Attachment& Format(RHI::Format format);
         Attachment& View(const RHI::ImageViewDescriptor& view);
         Attachment& View(const RHI::BufferViewDescriptor& view);
+        Attachment& AccelerationStructure(const Ptr<RHI::AccelerationStructure>& structure);
 
         //! Take the resource as the pass called `passName` left it, whatever passes declared
         //! since have written to it. A read sees what that pass's last write of it left. A
@@ -102,6 +103,12 @@ namespace Spark::Render
         ShaderAttachment& View(const RHI::BufferViewDescriptor& view)
         {
             m_attachment.View(view);
+            return *this;
+        }
+
+        ShaderAttachment& AccelerationStructure(const Ptr<RHI::AccelerationStructure>& structure)
+        {
+            m_attachment.AccelerationStructure(structure);
             return *this;
         }
 
