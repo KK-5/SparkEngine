@@ -126,6 +126,11 @@ namespace Spark::Render
             LOG_ERROR("[RenderSystem] DrawGroupSystem init failed.");
             return false;
         }
+        if (!m_drawListCullingSystem.Init(*device))
+        {
+            LOG_ERROR("[RenderSystem] DrawListCullingSystem init failed.");
+            return false;
+        }
 
         return true;
     }
@@ -294,7 +299,6 @@ namespace Spark::Render
         // The feature processors own no teardown: per-pass SRGs are reaped by
         // ReapPassShaderBindings.
 
-        m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown();
 
@@ -312,6 +316,7 @@ namespace Spark::Render
         m_renderGraph.Shutdown();
 
         // Release native buffers the passes read, so only once the GPU is idle.
+        m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_drawGroupSystem.Shutdown(m_pipeline.GetPassContext());
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());

@@ -20,6 +20,9 @@
 #include <View/View.h>
 #include <View/ViewComponents.h>
 
+#include "FakeDevice.h"
+#include "FakeHostBufferFactory.h"
+
 using namespace Spark;
 using namespace Spark::Render;
 
@@ -46,10 +49,28 @@ class DrawListCullingSystemTest : public ::testing::Test
 {
 protected:
     RHI::RHIContext       rhi;
+    Spark::Test::FakeHostBufferFactory factory;
+    Ptr<RHI::PhysicalDevice> physicalDevice{ new RHI::PhysicalDevice };
+    Ptr<Spark::Test::FakeDevice> device{ new Spark::Test::FakeDevice };
     PassContext           passes;
     DrawContext           draws;
     DrawListCullingSystem system;
     RHI::RHIHandle        view = AddView(true);
+
+    void SetUp() override
+    {
+        RHI::RHIExecuteContext::Push(rhi);
+        ASSERT_EQ(device->Init(*physicalDevice, RHI::DeviceDescriptor{}), RHI::ResultCode::Success);
+        ASSERT_TRUE(system.Init(*device));
+    }
+
+    void TearDown() override
+    {
+        system.Shutdown(rhi);
+        device->FlushReleaseQueue();
+        device->BusDisconnect();
+        RHI::RHIExecuteContext::Pop();
+    }
 
     RHI::RHIHandle AddView(bool drawn)
     {
@@ -102,18 +123,18 @@ protected:
         return buffers;
     }
 
-    //! The draws as uploaded this frame.
+    //! The draws written into this frame's mapped buffer.
     eastl::vector<RHI::DrawIndexedIndirectCommand> UploadedDraws()
     {
         const eastl::vector<RHI::RHIHandle> buffers = DrawArgumentsBuffers();
         eastl::vector<RHI::DrawIndexedIndirectCommand> draws;
         for (RHI::RHIHandle buffer : buffers)
         {
-            if (const auto* upload = rhi.TryGet<RHI::PendingBufferMap>(buffer))
-            {
-                const auto* commands = static_cast<const RHI::DrawIndexedIndirectCommand*>(upload->m_data);
-                draws.assign(commands, commands + upload->m_byteCount / sizeof(RHI::DrawIndexedIndirectCommand));
-            }
+            const auto& mapped = static_cast<const Spark::Test::FakeHostBuffer&>(
+                *rhi.Get<RHI::Components::Buffer>(buffer).m_buffer);
+            const auto* commands = reinterpret_cast<const RHI::DrawIndexedIndirectCommand*>(mapped.m_bytes.data());
+            const auto drawCount = this->draws.GetView<VisibleInstance>().size();
+            draws.assign(commands, commands + drawCount);
         }
         return draws;
     }
@@ -284,16 +305,32 @@ TEST_F(DrawListCullingSystemTest, TheDrawsBufferIsAHostOneOfEveryFrame)
 
     const eastl::vector<RHI::RHIHandle> buffers = DrawArgumentsBuffers();
     ASSERT_EQ(buffers.size(), 1u);
-    EXPECT_TRUE(rhi.Has<RHI::PerFrameTag>(buffers[0]));
-    const RHI::PendingBufferInit& init = rhi.Get<RHI::PendingBufferInit>(buffers[0]);
-    EXPECT_EQ(init.m_heapMemoryLevel, RHI::HeapMemoryLevel::Host);
-    EXPECT_EQ(init.m_descriptor.m_bindFlags, RHI::BufferBindFlags::Indirect);
-    EXPECT_EQ(init.m_descriptor.m_byteCount, 1024u * sizeof(RHI::DrawIndexedIndirectCommand));
-    // Nothing seen, nothing to copy.
+    EXPECT_TRUE(rhi.Has<RHI::ImportedTag>(buffers[0]));
+    const auto& buffer = *rhi.Get<RHI::Components::Buffer>(buffers[0]).m_buffer;
+    EXPECT_EQ(buffer.GetDescriptor().m_bindFlags, RHI::BufferBindFlags::Indirect);
+    EXPECT_EQ(buffer.GetDescriptor().m_byteCount, 1024u * sizeof(RHI::DrawIndexedIndirectCommand));
+    EXPECT_FALSE(rhi.Has<RHI::PendingBufferInit>(buffers[0]));
     EXPECT_FALSE(rhi.Has<RHI::PendingBufferMap>(buffers[0]));
+
+    RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
+    system.Update(rhi, passes, draws);
+    const auto nextFrame = DrawArgumentsBuffers();
+    ASSERT_EQ(nextFrame.size(), 1u);
+    EXPECT_NE(nextFrame[0], buffers[0]);
+    EXPECT_TRUE(rhi.Valid(buffers[0]));
+    EXPECT_FALSE(rhi.Has<CpuCulledDrawArgumentsTag>(buffers[0]));
+    // Returning to the same slot reuses its resource; the import tag remains unique.
+    for (uint32_t i = 1; i < device->GetDescriptor().m_frameCountMax; ++i)
+    {
+        RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
+    }
+    system.Update(rhi, passes, draws);
+    const auto reused = DrawArgumentsBuffers();
+    ASSERT_EQ(reused.size(), 1u);
+    EXPECT_EQ(reused[0], buffers[0]);
 }
 
-TEST_F(DrawListCullingSystemTest, TheDrawsBufferGrowsAStepAtATime)
+TEST_F(DrawListCullingSystemTest, TheDrawsBufferGrowsAndPublishesItsReplacement)
 {
     AddPass<TranslucentTag>("Translucency");
     AddInstance(0, Math::Vector3(0.0f, 0.0f, 10.0f));
@@ -307,19 +344,44 @@ TEST_F(DrawListCullingSystemTest, TheDrawsBufferGrowsAStepAtATime)
     }
     system.Update(rhi, passes, draws);
 
-    EXPECT_TRUE(rhi.Has<DeadTag>(small));
-    RHI::RHIHandle grown = RHI::NullHandle;
-    for (RHI::RHIHandle buffer : DrawArgumentsBuffers())
-    {
-        if (!rhi.Has<DeadTag>(buffer))
-        {
-            grown = buffer;
-        }
-    }
-    ASSERT_NE(grown, RHI::NullHandle);
-    EXPECT_EQ(rhi.Get<RHI::PendingBufferInit>(grown).m_descriptor.m_byteCount,
+    EXPECT_FALSE(rhi.Valid(small));
+    const auto buffers = DrawArgumentsBuffers();
+    ASSERT_EQ(buffers.size(), 1u);
+    const auto grown = buffers[0];
+    EXPECT_EQ(rhi.Get<RHI::Components::Buffer>(grown).m_buffer->GetDescriptor().m_byteCount,
         2048u * sizeof(RHI::DrawIndexedIndirectCommand));
-    EXPECT_EQ(rhi.Get<RHI::PendingBufferMap>(grown).m_byteCount, 1025u * sizeof(RHI::DrawIndexedIndirectCommand));
+    EXPECT_EQ(UploadedDraws().size(), 1025u);
+}
+
+TEST_F(DrawListCullingSystemTest, WritingAnotherFramePreservesPreviousArguments)
+{
+    AddPass<TranslucentTag>("Translucency");
+    AddInstance(3, Math::Vector3(0.0f, 0.0f, 10.0f));
+    system.Update(rhi, passes, draws);
+    const auto previous = DrawArgumentsBuffers()[0];
+
+    RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
+    draws.Clear();
+    AddInstance(7, Math::Vector3(0.0f, 0.0f, 10.0f));
+    system.Update(rhi, passes, draws);
+
+    const auto buffers = DrawArgumentsBuffers();
+    ASSERT_EQ(buffers.size(), 1u);
+    EXPECT_NE(buffers[0], previous);
+    const auto& previousBuffer = static_cast<const Spark::Test::FakeHostBuffer&>(
+        *rhi.Get<RHI::Components::Buffer>(previous).m_buffer);
+    const auto* previousCommands = reinterpret_cast<const RHI::DrawIndexedIndirectCommand*>(previousBuffer.m_bytes.data());
+    EXPECT_EQ(previousCommands[0].m_firstInstance, 3u);
+    const auto written = UploadedDraws();
+    ASSERT_EQ(written.size(), 1u);
+    EXPECT_EQ(written[0].m_firstInstance, 7u);
+
+    // An empty next frame publishes its own slot and draws none of the previous commands.
+    RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
+    draws.Clear();
+    system.Update(rhi, passes, draws);
+    EXPECT_EQ(DrawArgumentsBuffers().size(), 1u);
+    EXPECT_TRUE(UploadedDraws().empty());
 }
 
 TEST_F(DrawListCullingSystemTest, ShutdownLeavesNothingBehind)
@@ -330,5 +392,7 @@ TEST_F(DrawListCullingSystemTest, ShutdownLeavesNothingBehind)
 
     system.Shutdown(rhi);
 
-    EXPECT_TRUE(rhi.Has<DeadTag>(buffer));
+    EXPECT_FALSE(rhi.Valid(buffer));
+    EXPECT_TRUE(DrawArgumentsBuffers().empty());
+    EXPECT_EQ(rhi.GetView<RHI::Components::Buffer>().size(), 0u);
 }
