@@ -200,8 +200,9 @@ namespace Spark::RHI
         return entity;
     }
 
-    //! Image counterpart of RequestBufferUpload.
-    inline void RequestImageUpload(
+    //! Image counterpart of RequestBufferUpload. Returns the request so its caller may
+    //! attach ownership of the source data for the duration of the upload.
+    inline RHIEvent RequestImageUpload(
         BasicContext<RHIHandle>& ctx,
         RHIHandle resourceEntity,
         const void* data,
@@ -216,6 +217,7 @@ namespace Spark::RHI
             ImageUploadRequest{ resourceEntity, data, dataSize, range, destinationOrigin, sourceFormat });
         events.Add<UploadRequestedTag>(request);
         Internal::CountUp<PendingUploads>(ctx, resourceEntity);
+        return request;
     }
 
     //! Resource-owned, descriptor-keyed image view cache (see Components::ImageViewCache).

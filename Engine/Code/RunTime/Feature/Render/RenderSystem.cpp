@@ -8,6 +8,7 @@
 #include <RHI/Pipeline/PipelineStateDescriptor.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/Context/RHIContext.h>
+#include <RHI/System/RHIHandleClearSystem.h>
 
 #include <Pass/Pass.h>
 #include <Pass/PassTag.h>
@@ -270,6 +271,7 @@ namespace Spark::Render
         // ShutdownInternal. Here rather than in SetUpDefaultPipeline, which is passes only: a
         // pipeline of a sample's own still renders views, and they need none of the passes.
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
+        m_sceneTextureSystem.Init(rhiCtxForInit, *Service<RHI::RHIInterface>::Get()->GetDevice());
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_viewBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
@@ -322,9 +324,13 @@ namespace Spark::Render
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_sceneTextureSystem.Shutdown(*WorldExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        // Shutdown has retired the owners' handles; collect them before their pools are destroyed.
+        RHI::RHIHandleClearSystem::Collect(*RHI::RHIExecuteContext::Current());
+        Service<RHI::RHIInterface>::Get()->GetDevice()->FlushReleaseQueue();
     }
 
     void RenderSystem::OnTick(const FrameTime& time)
@@ -357,6 +363,7 @@ namespace Spark::Render
         m_shadowMaskSystem.Update();
         m_viewBindingSystem.Update(time);
 
+        m_sceneTextureSystem.Update(*WorldExecuteContext::Current(), rhiCtx);
         m_sceneBindingSystem.Update(time);
         // MaterialBindingSystem stays first, but only so a material's slot exists before
         // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is

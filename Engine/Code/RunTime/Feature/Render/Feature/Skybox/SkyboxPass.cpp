@@ -29,7 +29,7 @@
 
 #include <Resource/AssetManagerInterface.h>
 
-#include <Skybox/Components.h>   // Skybox::ActiveSkyCubeTag
+#include <Scene/SceneTextureComponents.h>
 
 namespace Spark::Render
 {
@@ -110,7 +110,7 @@ namespace Spark::Render
                 // The active skybox cube, once it is ready. No cube -> nothing drawn, and
                 // g_SkyCube, bound by nothing, is nulled rather than left holding a deleted
                 // skybox.
-                if (p.Import<Skybox::ActiveSkyCubeTag>(RHI::AttachmentId("SkyCube")))
+                if (p.Import<ActiveSkyCubeTag>(RHI::AttachmentId("SkyCube")))
                 {
                     s.ReadImage(RHI::AttachmentId("SkyCube"))
                         .View(RHI::ImageViewDescriptor::CreateCubemap())

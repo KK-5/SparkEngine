@@ -40,7 +40,7 @@ namespace Spark::Test
     };
 
     //! Only host buffers are needed: exercise the real StagingBuffer without a graphics backend.
-    class FakeHostBufferFactory final : public Service<RHI::Factory>::Handler
+    class FakeHostBufferFactory : public Service<RHI::Factory>::Handler
     {
     public:
         Ptr<RHI::Buffer> CreateBuffer() override { return Ptr<RHI::Buffer>(new FakeHostBuffer); }
