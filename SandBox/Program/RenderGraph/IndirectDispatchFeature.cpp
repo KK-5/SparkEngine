@@ -261,6 +261,7 @@ int main(int, char**)
 
     Render::Pipeline pipeline("IndirectDispatch");
     Render::PassExecuteContext::Push(pipeline.GetPassContext());
+    sys.m_render->SetUpSystemPasses(pipeline.GetPassContext());
 
     SandBox::IndirectDispatchFeature feature;
     feature.Init();

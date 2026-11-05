@@ -250,6 +250,7 @@ int main(int, char**)
     // Pipeline + Feature setup
     Render::Pipeline pipeline("Triangle");
     Render::PassExecuteContext::Push(pipeline.GetPassContext());
+    sys.m_render->SetUpSystemPasses(pipeline.GetPassContext());
 
     SandBox::TrianglePassFeature feature;
     feature.Init();

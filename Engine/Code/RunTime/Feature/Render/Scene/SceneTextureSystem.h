@@ -18,9 +18,9 @@ namespace Spark::Render
         SceneTextureSystem();
         ~SceneTextureSystem();
         void Init(RHI::RHIContext& rhiCtx, RHI::Device& device);
-        void Update(WorldContext& world, RHI::RHIContext& rhiCtx);
-        //! Retires owned handles. The renderer's common reaper runs before this object's pool goes.
-        void Shutdown(WorldContext& world);
+        void Update(RHI::RHIContext& rhiCtx);
+        //! Retires owned handles even without a world; the renderer reaps them before the pool goes.
+        void Shutdown();
 
     private:
         //! Creates immediately and submits one asynchronous upload. The request retains its source.

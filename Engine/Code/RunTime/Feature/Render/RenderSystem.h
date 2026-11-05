@@ -22,6 +22,7 @@
 #include "Binding/Geometry/GeometryBindingSystem.h"
 #include "Binding/Instance/InstanceBindingSystem.h"
 #include "Binding/Material/MaterialBindingSystem.h"
+#include "Binding/RayTracing/RayTracingBindingSystem.h"
 #include "DrawList/DrawGroupSystem.h"
 #include "DrawList/DrawListCullingSystem.h"
 #include "Geometry/MeshGeometrySystem.h"
@@ -57,6 +58,8 @@ namespace Spark::Render
             return static_cast<unsigned int>(RenderSystemTickOrder);
         }
 
+        //! Once per context, before passes consuming scene resources.
+        void SetUpSystemPasses(PassContext& passContext);
         void SetUpDefaultPipeline();
 
     private:
@@ -87,6 +90,7 @@ namespace Spark::Render
         GeometryBindingSystem m_geometryBindingSystem;
         InstanceBindingSystem m_instanceBindingSystem;
         RayTracingSceneSystem m_rayTracingSceneSystem;
+        RayTracingBindingSystem m_rayTracingBindingSystem;
         DrawListCullingSystem m_drawListCullingSystem;
         DrawGroupSystem       m_drawGroupSystem;
         DrawContext           m_drawContext;

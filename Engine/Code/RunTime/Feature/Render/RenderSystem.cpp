@@ -174,10 +174,8 @@ namespace Spark::Render
         return true;
     }
 
-    void RenderSystem::SetUpDefaultPipeline()
+    void RenderSystem::SetUpSystemPasses(PassContext& passContext)
     {
-        auto& passContext = m_pipeline.GetPassContext();
-
         // Before every pass that draws meshes: it copies their new bytes into the pool.
         m_meshGeometrySystem.SetUp(passContext);
         // Before every pass that reads them: they write the material, geometry and instance
@@ -186,6 +184,12 @@ namespace Spark::Render
         m_geometryBindingSystem.SetUp(passContext);
         m_instanceBindingSystem.SetUp(passContext);
         m_rayTracingSceneSystem.SetUp(passContext);
+    }
+
+    void RenderSystem::SetUpDefaultPipeline()
+    {
+        auto& passContext = m_pipeline.GetPassContext();
+        SetUpSystemPasses(passContext);
 
         // First: what each view sees, then each drawing pass's groups of it, which the passes
         // below draw the scene by.
@@ -280,6 +284,7 @@ namespace Spark::Render
         m_geometryBindingSystem.Init(rhiCtxForInit);
         m_instanceBindingSystem.Init(rhiCtxForInit);
         m_rayTracingSceneSystem.Init(rhiCtxForInit);
+        m_rayTracingBindingSystem.Init(rhiCtxForInit);
         m_shadowViewSystem.Init(rhiCtxForInit);
         m_shadowMaskSystem.Init(rhiCtxForInit);
 
@@ -322,12 +327,13 @@ namespace Spark::Render
         // Release native buffers the passes read, so only once the GPU is idle.
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_drawGroupSystem.Shutdown(m_pipeline.GetPassContext());
+        m_rayTracingBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_rayTracingSceneSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_sceneTextureSystem.Shutdown(*WorldExecuteContext::Current());
+        m_sceneTextureSystem.Shutdown();
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -366,7 +372,7 @@ namespace Spark::Render
         m_shadowMaskSystem.Update();
         m_viewBindingSystem.Update(time);
 
-        m_sceneTextureSystem.Update(*WorldExecuteContext::Current(), rhiCtx);
+        m_sceneTextureSystem.Update(rhiCtx);
         m_sceneBindingSystem.Update(time);
         // MaterialBindingSystem stays first, but only so a material's slot exists before
         // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
@@ -381,6 +387,7 @@ namespace Spark::Render
         m_drawContext.Clear();
         m_instanceBindingSystem.Update();
         m_rayTracingSceneSystem.Update();
+        m_rayTracingBindingSystem.Update();
         // What each view sees of the lists the CPU culls, from the instances the encoding listed.
         m_drawListCullingSystem.Update(rhiCtx, passContext, m_drawContext);
         // The groups of each pass from what the two above left.

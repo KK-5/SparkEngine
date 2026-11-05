@@ -116,7 +116,7 @@ protected:
         skyboxes.Shutdown();
         // Simulate the uploader stopping before the renderer releases its pool.
         events.Clear();
-        images.Shutdown(world);
+        images.Shutdown();
         RHI::RHIHandleClearSystem::Collect(rhi);
         device->FlushReleaseQueue();
         device->BusDisconnect();
@@ -208,12 +208,12 @@ TEST_F(SceneTextureSystemTest, OnlyNewSkyboxesCanClaimSelectionAfterTheActiveEnt
 {
     const auto first = AddSkybox(AddSky("test://sky-a"));
     const auto second = AddSkybox(AddSky("test://sky-b"));
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_TRUE(world.Has<Skybox::ActiveSkyboxTag>(first));
     EXPECT_TRUE(rhi.Has<ActiveSkyCubeTag>(world.Get<SkyboxGPUComponent>(first).m_cubemap.Get()));
 
     world.DestoryEntity(first);
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_EQ(world.GetView<Skybox::ActiveSkyboxTag>().size(), 0u);
     EXPECT_FALSE(world.Has<Skybox::ActiveSkyboxTag>(second));
     EXPECT_EQ(rhi.GetView<ActiveSkyCubeTag>().size(), 0u);
@@ -224,7 +224,7 @@ TEST_F(SceneTextureSystemTest, OnlyNewSkyboxesCanClaimSelectionAfterTheActiveEnt
     EXPECT_FALSE(world.Has<Skybox::ActiveSkyboxTag>(second));
 
     const auto third = AddSkybox(AddSky("test://sky-c"));
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_TRUE(world.Has<Skybox::ActiveSkyboxTag>(third));
     EXPECT_EQ(world.GetView<Skybox::ActiveSkyboxTag>().size(), 1u);
     EXPECT_TRUE(rhi.Has<ActiveSkyCubeTag>(world.Get<SkyboxGPUComponent>(third).m_cubemap.Get()));
@@ -244,7 +244,7 @@ TEST_F(SceneTextureSystemTest, BatchCreationAlsoSelectsOnlyTheFirstSkybox)
 TEST_F(SceneTextureSystemTest, StaticImagesAreCreatedImmediatelyAndUploadedOnce)
 {
     const auto sky = AddSkybox(AddSky("test://sky"));
-    images.Update(world, rhi);
+    images.Update(rhi);
     const auto cube = world.Get<SkyboxGPUComponent>(sky).m_cubemap.Get();
     EXPECT_EQ(rhi.GetView<RHI::PendingImageInit>().size(), 0u);
     EXPECT_EQ(rhi.GetView<RHI::PerFrameTag>().size(), 0u);
@@ -269,7 +269,7 @@ TEST_F(SceneTextureSystemTest, StaticImagesAreCreatedImmediatelyAndUploadedOnce)
     auto component = world.Get<Skybox::SkyboxComponent>(sky);
     component.m_intensity = 3.0f;
     world.Replace<Skybox::SkyboxComponent>(sky, component);
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_EQ(world.Get<SkyboxGPUComponent>(sky).m_cubemap.Get(), cube);
     EXPECT_EQ(events.GetView<RHI::ImageUploadRequest>().size(), 4u);
     EXPECT_EQ(assets.m_loads, 3u); // Only the engine lookup tables load synchronously.
@@ -279,10 +279,10 @@ TEST_F(SceneTextureSystemTest, AnAssetBecomingReadyNeedsNoComponentRewrite)
 {
     const auto asset = AddSky("test://late", false);
     const auto sky = AddSkybox(asset);
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_FALSE(world.Has<SkyboxGPUComponent>(sky));
     MakeReady(*asset);
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_TRUE(world.Has<SkyboxGPUComponent>(sky));
 }
 
@@ -296,7 +296,7 @@ TEST_F(SceneTextureSystemTest, VisibleSkyAndLightingUseTheSameActiveWorldEntity)
         assets.m_images.push_back(child);
     }
     const auto sky = AddSkybox(asset);
-    images.Update(world, rhi);
+    images.Update(rhi);
     const auto& gpu = world.Get<SkyboxGPUComponent>(sky);
     EXPECT_TRUE(rhi.Has<ActiveSkyCubeTag>(gpu.m_cubemap.Get()));
     EXPECT_TRUE(rhi.Has<SkyLightingTag>(gpu.m_irradiance.Get()));
@@ -309,7 +309,7 @@ TEST_F(SceneTextureSystemTest, VisibleSkyAndLightingUseTheSameActiveWorldEntity)
     const auto oldCube = gpu.m_cubemap.Get();
     world.DestoryEntity(sky);
     const auto replacement = AddSkybox(AddSky("test://new-without-ibl"));
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_FALSE(rhi.Has<ActiveSkyCubeTag>(oldCube));
     EXPECT_FALSE(world.Has<Skybox::ActiveSkyboxTag>(other));
     EXPECT_TRUE(rhi.Has<ActiveSkyCubeTag>(world.Get<SkyboxGPUComponent>(replacement).m_cubemap.Get()));
@@ -319,18 +319,18 @@ TEST_F(SceneTextureSystemTest, VisibleSkyAndLightingUseTheSameActiveWorldEntity)
 TEST_F(SceneTextureSystemTest, ReplacingAndRemovingSkyboxesRetiresTheirImages)
 {
     const auto sky = AddSkybox(AddSky("test://old"));
-    images.Update(world, rhi);
+    images.Update(rhi);
     const auto oldImage = world.Get<SkyboxGPUComponent>(sky).m_cubemap.Get();
     const auto replacement = AddSky("test://new");
     world.Replace<Skybox::SkyboxComponent>(sky, Skybox::SkyboxComponent{ replacement->GetAssetId(), 1.0f });
-    images.Update(world, rhi);
+    images.Update(rhi);
     const auto newImage = world.Get<SkyboxGPUComponent>(sky).m_cubemap.Get();
     EXPECT_NE(newImage, oldImage);
     EXPECT_TRUE(rhi.Has<DeadTag>(oldImage));
     EXPECT_FALSE(rhi.Has<ActiveSkyCubeTag>(oldImage));
     EXPECT_TRUE(rhi.Has<ActiveSkyCubeTag>(newImage));
     world.Remove<Skybox::SkyboxComponent>(sky);
-    images.Update(world, rhi);
+    images.Update(rhi);
     EXPECT_FALSE(world.Has<SkyboxGPUComponent>(sky));
     EXPECT_TRUE(rhi.Has<DeadTag>(newImage));
     EXPECT_EQ(rhi.GetView<ActiveSkyCubeTag>().size(), 0u);
@@ -340,7 +340,7 @@ TEST_F(SceneTextureSystemTest, UploadRequestKeepsSourceAfterTheWorldEntityIsGone
 {
     auto asset = AddSky("test://retired");
     const auto sky = AddSkybox(asset);
-    images.Update(world, rhi);
+    images.Update(rhi);
     const auto image = world.Get<SkyboxGPUComponent>(sky).m_cubemap.Get();
     RHI::RHIEvent upload = RHI::NullEvent;
     for (auto [request, data] : events.GetView<RHI::ImageUploadRequest>().each())
@@ -363,13 +363,13 @@ TEST_F(SceneTextureSystemTest, UploadRequestKeepsSourceAfterTheWorldEntityIsGone
 TEST_F(SceneTextureSystemTest, ShutdownMarksOwnedImagesForTheCommonReaper)
 {
     const auto sky = AddSkybox(AddSky("test://shutdown"));
-    images.Update(world, rhi);
+    images.Update(rhi);
     const auto cube = world.Get<SkyboxGPUComponent>(sky).m_cubemap.Get();
     const auto brdf = FindTable<BRDFLutTag>();
     const auto ltc1 = FindTable<LTC1Tag>();
     const auto ltc2 = FindTable<LTC2Tag>();
     events.Clear();
-    images.Shutdown(world);
+    images.Shutdown();
     EXPECT_EQ(world.GetView<SkyboxGPUComponent>().size(), 0u);
     for (auto image : { cube, brdf, ltc1, ltc2 })
     {
