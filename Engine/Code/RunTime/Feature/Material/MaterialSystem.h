@@ -1,11 +1,9 @@
 #pragma once
 
 #include <ECS/ISystem.h>
-#include <Tick/TickBus.h>
 
 #include "MaterialContext.h"
 #include "MaterialHandle.h"
-#include "MaterialTextureSystem.h"
 
 namespace Spark::Material
 {
@@ -18,8 +16,7 @@ namespace Spark::Material
     //! create/update API on purpose, keeping materials data-driven (the registry is
     //! the container, every system accesses it equally). Symmetric to how the engine
     //! owns the WorldContext and systems merely consume it.
-    class MaterialSystem final : public ISystem,
-                                 public TickBus::Handler
+    class MaterialSystem final : public ISystem
     {
     public:
         eastl::vector<HashString> Request() const override { return {}; }
@@ -28,18 +25,11 @@ namespace Spark::Material
         //! The resident fallback material. Always valid for the system's lifetime.
         MaterialHandle GetDefaultMaterial() const { return m_defaultMaterial; }
 
-        void OnTick(const FrameTime& time) override;
-        unsigned int GetTickOrder() const override
-        {
-            return static_cast<unsigned int>(TickOrder::TICK_PRE_RENDER);
-        }
-
     private:
         void InitInternal() override;
         void ShutdownInternal() override;
 
         MaterialContext       m_context;
-        MaterialTextureSystem m_textureSystem;
         MaterialHandle        m_defaultMaterial{NullMaterial};
     };
 }

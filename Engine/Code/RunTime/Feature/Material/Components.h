@@ -2,13 +2,9 @@
 
 #include <cstdint>
 
-#include <EASTL/array.h>
-
 #include <Math/Vector3.h>
 #include <Math/Vector4.h>
 #include <ECS/ComponentTraits.h>
-#include <RHI/Context/RHIHandle.h>
-#include <RHI/Resource/AccessFlags.h>
 #include <Resource/Material/MaterialState.h>
 #include <Resource/Material/StandardPBR.h>
 
@@ -36,28 +32,6 @@ namespace Spark::Material
     //! reach this object at all.
     struct StandardPBROverride : Resource::StandardPBR
     {
-    };
-
-    //! Resolved per-channel GPU textures (RHIHandles) on the material entity, one per
-    //! MaterialTexSlot. Written by MaterialTextureSystem (owned by MaterialSystem), read
-    //! by render's MaterialBindingSystem to resolve each bindless index. NullHandle in a
-    //! slot = unresolved / no map. This is the producer→consumer handoff component, so it
-    //! lives in SparkMaterial (the producer's module); render depends on it and includes it.
-    struct MaterialGPUTextures
-    {
-        eastl::array<RHI::RHIHandle, Resource::MaterialTexSlotCount> m_handles;
-
-        MaterialGPUTextures()
-        {
-            m_handles.fill(RHI::NullHandle);
-        }
-    };
-
-    //! On the RHIContext entity of each texture MaterialTextureSystem uploads (a
-    //! MaterialGPUTextures handle), sampled through the bindless heap.
-    struct MaterialTextureTag
-    {
-        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
     };
 
     //! Marks the one resident default material in the MaterialContext. Lets any

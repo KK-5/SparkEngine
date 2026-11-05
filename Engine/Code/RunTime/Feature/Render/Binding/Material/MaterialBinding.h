@@ -2,6 +2,7 @@
 
 #include <Material/Components.h>
 #include <Material/MaterialHandle.h>
+#include <Material/MaterialTextureComponents.h>
 
 #include <Pass/TagList.h>
 #include <Suballocation/Suballocator.h>
@@ -45,7 +46,7 @@ namespace Spark::Render
     //! executer binds it once before the pass's draws, exactly like ViewBindingTag (space1).
     struct MaterialBindingTag
     {
-        using Uses = TagList<Material::MaterialTextureTag>;
+        using Uses = TagList<MaterialTextureTag>;
     };
 
     //! The buffer entity g_Materials is a view of, written in the graph. A pass whose shaders

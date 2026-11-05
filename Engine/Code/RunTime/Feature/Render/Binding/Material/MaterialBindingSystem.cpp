@@ -43,7 +43,7 @@ namespace Spark::Render
             RHI::RHIContext& rhiCtx, Material::MaterialContext& matCtx,
             Material::MaterialHandle h, size_t slot)
         {
-            auto* tex = matCtx.TryGet<Material::MaterialGPUTextures>(h);
+            auto* tex = matCtx.TryGet<MaterialGPUTextures>(h);
             if (!tex)
             {
                 return InvalidTextureIndex;

@@ -51,6 +51,7 @@ set(SOURCES
     RenderGraph/PassScopes.cpp
     RenderSystem.cpp
     Scene/SceneTextureSystem.cpp
+    Material/MaterialTextureSystem.cpp
     View/CameraViewSystem.cpp
     View/ShadowMapAllocator.cpp
     View/ShadowViewSystem.cpp
@@ -76,6 +77,7 @@ target_link_libraries(${TARGET_NAME}
         SparkAssetManager
         SparkUI
     PUBLIC
+        SparkMaterial
         SparkCamera
         SparkSkybox
         SparkAntiAliasing

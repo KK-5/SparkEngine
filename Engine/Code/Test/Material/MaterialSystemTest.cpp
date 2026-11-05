@@ -2,6 +2,7 @@
 
 #include <ECS/WorldContext.h>
 #include <ECS/ExecuteContext.h>
+#include <Tick/TickBus.h>
 
 #include <Material/MaterialSystem.h>
 #include <Material/MaterialUtils.h>
@@ -224,7 +225,7 @@ TEST_F(MaterialSystemTest, AMaterialWithNoReferrerIsNotCollected)
 {
     const MaterialHandle h = CreateMaterial(*mat, Resource::StandardPBR{});
 
-    sys.OnTick(FrameTime{});
+    TickBus::Broadcast(&TickBus::Events::OnTick, FrameTime{});
     EXPECT_TRUE(Alive(h));
     EXPECT_TRUE(Alive(sys.GetDefaultMaterial()));
 }

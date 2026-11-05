@@ -274,6 +274,7 @@ namespace Spark::Render
         m_sceneTextureSystem.Init(rhiCtxForInit, *Service<RHI::RHIInterface>::Get()->GetDevice());
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_viewBindingSystem.Init(rhiCtxForInit);
+        m_materialTextureSystem.Init(*Service<RHI::RHIInterface>::Get()->GetDevice());
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_meshGeometrySystem.Init(rhiCtxForInit);
         m_geometryBindingSystem.Init(rhiCtxForInit);
@@ -323,6 +324,7 @@ namespace Spark::Render
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_materialTextureSystem.Shutdown();
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneTextureSystem.Shutdown(*WorldExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -365,6 +367,7 @@ namespace Spark::Render
 
         m_sceneTextureSystem.Update(*WorldExecuteContext::Current(), rhiCtx);
         m_sceneBindingSystem.Update(time);
+        m_materialTextureSystem.Update();
         // MaterialBindingSystem stays first, but only so a material's slot exists before
         // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
         // stable now, not rewritten every frame, so this is a one-time ordering need —
