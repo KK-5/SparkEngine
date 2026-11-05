@@ -191,7 +191,7 @@ namespace Spark::Render
         ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
 
-        //! View declares the TLAS byte range in the buffer.
+        //! Shared bindings need only the buffer dependency; per-pass .Bind needs .View and .AccelerationStructure.
         ShaderAttachment ReadAccelerationStructure(const RHI::AttachmentId& name);
 
         //! The buffer an indirect call of this Scope reads its records, or their count, from.
@@ -298,7 +298,7 @@ namespace Spark::Render
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
         ShaderAttachment WriteBuffer(const RHI::AttachmentId& name);
 
-        //! View declares the TLAS byte range in the buffer.
+        //! Shared bindings need only the buffer dependency; per-pass .Bind needs .View and .AccelerationStructure.
         ShaderAttachment ReadAccelerationStructure(const RHI::AttachmentId& name);
 
         //! The buffer an indirect call of this Scope reads its records from. Created with

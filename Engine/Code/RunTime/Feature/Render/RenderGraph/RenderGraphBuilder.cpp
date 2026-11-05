@@ -227,7 +227,11 @@ namespace Spark::Render
                     "Give it one with .View(...).",
                     passName, scopeIndex, name);
 
-                if (buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure)
+                // Shared-binding reads only declare a buffer dependency.
+                if (buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure
+                    && (CheckBitsAny(buffer->m_access, RHI::AttachmentAccess::Write)
+                        || rhiContext.Has<ShaderInputBinding>(attachment)
+                        || rhiContext.Has<AccelerationStructure>(attachment)))
                 {
                     const auto* structure = rhiContext.TryGet<AccelerationStructure>(attachment);
                     ASSERT(structure != nullptr && structure->m_structure != nullptr

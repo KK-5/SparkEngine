@@ -668,6 +668,15 @@ namespace Spark::RHI::DX12
         ASSERT(queue != RHI::HardwareQueueClass::Copy || (s & ~D3D12_BARRIER_SYNC_COPY) == D3D12_BARRIER_SYNC_NONE,
             "[RHI DX12] ConvertBarrierSync - non-copy stages 0x{:x} on the copy queue.",
             static_cast<uint32_t>(stage));
+
+        if (CheckBitsAny(access, AccessFlags::AccelStructRead)
+            && stageHas(AttachmentStage::VertexShader | AttachmentStage::FragmentShader))
+        {
+            // AS reads cannot pair with the individual vertex/pixel shading sync bits.
+            s &= ~(D3D12_BARRIER_SYNC_VERTEX_SHADING | D3D12_BARRIER_SYNC_PIXEL_SHADING);
+            s |= D3D12_BARRIER_SYNC_ALL_SHADING;
+        }
+
         // NO_ACCESS must pair with SYNC_NONE (bar a discard's UNDEFINED texture layout), and
         // an access needs a stage: a side without access has no stage and the reverse.
         const bool accesses = CheckBitsAny(access, AccessFlags::ReadMask | AccessFlags::WriteMask);

@@ -117,7 +117,6 @@ namespace Spark::Render
             Shutdown(rhiContext);
             return;
         }
-        rhiContext.Add<RayTracingSceneTag>(m_storageResource);
         RayTracingScene scene;
         scene.m_topLevelView = RHI::BufferViewDescriptor::CreateRaw(
             static_cast<uint32_t>(m_topLevelAllocation.GetOffset()), static_cast<uint32_t>(m_topLevelAllocation.GetSize()));
@@ -259,7 +258,7 @@ namespace Spark::Render
                         .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(topLevelScratchSize))),
                     TopLevelBuildFlags);
                 scope.Close();
-                scene.m_ready = true;
+                RHI::RHIExecuteContext::Current()->Add<RayTracingSceneTag>(m_storageResource);
             })
             .Finalize();
     }
@@ -273,6 +272,10 @@ namespace Spark::Render
         RemoveStaleRayTracingBottomLevels();
         auto* world = WorldExecuteContext::Current();
         auto* rhiContext = RHI::RHIExecuteContext::Current();
+        if (rhiContext && m_storageResource != RHI::NullHandle)
+        {
+            rhiContext->Remove<RayTracingSceneTag>(m_storageResource);
+        }
         if (!world || !rhiContext || !m_allocator || !RHI::IsResourceReady(*rhiContext, m_storageResource))
         {
             return;
@@ -281,7 +284,6 @@ namespace Spark::Render
         const auto& storageBuffer = *rhiContext->Get<RHI::Components::Buffer>(m_storageResource).m_buffer;
         RHI::Device& device = storageBuffer.GetDevice();
         auto& scene = rhiContext->Get<RayTracingScene>(m_storageResource);
-        scene.m_ready = false;
         if (!scene.m_topLevel)
         {
             RHI::AccelerationStructureDescriptor descriptor;

@@ -51,7 +51,7 @@ namespace Spark::Render
         }
 
         const RHI::AccelerationStructure* structure = nullptr;
-        for (auto [entity, scene] : rhiContext->GetView<RayTracingSceneTag, RayTracingScene>(Exclude<DeadTag>).each())
+        for (auto [entity, scene] : rhiContext->GetView<RayTracingScene>(Exclude<DeadTag>).each())
         {
             structure = scene.m_topLevel.get();
         }
