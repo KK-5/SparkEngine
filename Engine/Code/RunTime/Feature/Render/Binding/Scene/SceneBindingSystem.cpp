@@ -20,8 +20,6 @@
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Resource/AssetManagerInterface.h>
-#include <Resource/Image/ImageAsset.h>
 
 #include <Shader/ShaderBindingsUtils.h>
 #include <Binding/BindingSpaces.h>
@@ -36,6 +34,7 @@
 
 #include <Light/Components.h>
 #include <Skybox/Components.h>
+#include <Scene/SceneTextureComponents.h>
 
 #include <View/View.h>
 #include <View/ViewTags.h>
@@ -71,12 +70,13 @@ namespace Spark::Render
         constexpr const char* LTC2Name             = "g_LTC2";
         constexpr const char* AreaLightLutReadyName = "g_AreaLightLutReady";
 
-        //! Baked offline by SandBox BRDFLutGen and checked in; see BRDFLutBake.hlsl.
-        constexpr const char* BRDFLutAssetPath     = "engine://Image/BRDFLut.ktx2";
-
-        //! Imported by SandBox LTCLutGen and checked in.
-        constexpr const char* LTC1AssetPath        = "engine://Image/LTC1.ktx2";
-        constexpr const char* LTC2AssetPath        = "engine://Image/LTC2.ktx2";
+        template<typename Tag>
+        RHI::RHIHandle FindLookupTable(RHI::RHIContext& context)
+        {
+            RHI::RHIHandle table = RHI::NullHandle;
+            context.GetView<Tag>(Exclude<DeadTag>).each([&](RHI::RHIHandle entity) { table = entity; });
+            return table;
+        }
 
         //! Copies `records` into this frame's buffer of `staging` in one go and binds `input` to
         //! a view of the whole buffer, so each buffer gets one view whatever the count. Room for
@@ -194,54 +194,6 @@ namespace Spark::Render
             viewDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
             m_viewShadowMapBuffer.Init(device, viewDesc);
         }
-
-        // Without the first, IBL falls back to constant ambient; without the other two, rect
-        // lights contribute nothing.
-        m_brdfLut = CreateLut(rhiCtx, BRDFLutAssetPath, "BRDFLut");
-        m_ltc1    = CreateLut(rhiCtx, LTC1AssetPath, "LTC1");
-        m_ltc2    = CreateLut(rhiCtx, LTC2AssetPath, "LTC2");
-    }
-
-    RHI::RHIHandle SceneBindingSystem::CreateLut(
-        RHI::RHIContext& rhiCtx, const char* assetPath, const char* name)
-    {
-        auto* assetManager = Service<Resource::AssetManager>::Get();
-        const Resource::AssetId id = assetManager->MakeAssetId(assetPath);
-        if (!id.IsValid())
-        {
-            LOG_ERROR("[SceneBindingSystem] '{}' could not be resolved. Regenerate it with "
-                      "the tool that writes it (SandBox BRDFLutGen / LTCLutGen).", assetPath);
-            return RHI::NullHandle;
-        }
-
-        // A .ktx2 is loaded already compiled, so this is a plain deserialize -- no mip
-        // generation, no BCn, and the format comes from the file rather than the descriptor.
-        Ptr<Resource::ImageAsset> lut = assetManager->LoadAsset<Resource::ImageAsset>(id);
-        const Resource::ImageAssetData* data = lut ? lut->GetImageData() : nullptr;
-        if (!lut || lut->GetStatus() != Resource::AssetStatus::Ready || !data
-            || data->GetTextureBytes().empty())
-        {
-            LOG_ERROR("[SceneBindingSystem] Failed to load the table '{}'.", assetPath);
-            return RHI::NullHandle;
-        }
-
-        RHI::ImageDescriptor desc = RHI::ImageDescriptor::Create2D(
-            RHI::ImageBindFlags::ShaderRead | RHI::ImageBindFlags::CopyWrite,
-            lut->GetWidth(), lut->GetHeight(), lut->GetFormat());
-        desc.m_mipLevels       = static_cast<uint16_t>(lut->GetMipLevels());
-        desc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
-
-        // Sampled every frame through space0, like the IBL cubes: the passes that bind it
-        // declare it by its tag.
-        const RHI::RHIHandle handle = RHI::CreateImage(
-            rhiCtx, ObjectName(name), desc,
-            RHI::HeapMemoryLevel::Device, RHI::HostMemoryAccess::Write);
-        rhiCtx.Add<SceneLookupTableTag>(handle);
-
-        RHI::RequestImageUpload(
-            rhiCtx, handle, data->GetTextureBytes().data(), data->GetTextureBytes().size(),
-            RHI::ImageSubresourceRange(desc), RHI::Origin(), lut->GetFormat());
-        return handle;
     }
 
     void SceneBindingSystem::PackShadowViews(WorldContext& world, RHI::RHIContext& rhiCtx)
@@ -342,18 +294,9 @@ namespace Spark::Render
             return result;
         }
 
-        // Keyed off the same tag SkyboxPass imports by, so the visible sky and the
-        // environment lighting can never come from two different HDRIs.
         Entity active = NullEntity;
-        world->GetView<Skybox::SkyboxGPUComponent>().each(
-            [&](Entity entity, const Skybox::SkyboxGPUComponent& gpu)
-        {
-            if (gpu.m_cubemap.IsValid()
-                && rhiCtx->Has<Skybox::ActiveSkyCubeTag>(gpu.m_cubemap.Get()))
-            {
-                active = entity;
-            }
-        });
+        world->GetView<Skybox::ActiveSkyboxTag>(Exclude<DeadTag>).each(
+            [&](Entity entity) { active = entity; });
         if (active == NullEntity)
         {
             return result;
@@ -366,27 +309,28 @@ namespace Spark::Render
             result.m_intensity = comp->m_intensity;
         }
 
-        const auto* gpu = world->TryGet<Skybox::SkyboxGPUComponent>(active);
+        const auto* gpu = world->TryGet<SkyboxGPUComponent>(active);
         if (!gpu)
         {
             return result;
         }
         const RHI::RHIHandle irradiance  = gpu->m_irradiance.Get();
         const RHI::RHIHandle prefiltered = gpu->m_prefiltered.Get();
+        const auto brdfLut = FindLookupTable<BRDFLutTag>(*rhiCtx);
 
         // All or nothing: a partially bound set would leave some slot stale while the mip
         // count says "go ahead and sample". The LUT joins the same gate -- without it the
         // specular term has no F0 scale/bias to apply.
         if (!RHI::IsResourceReady(*rhiCtx, irradiance)
             || !RHI::IsResourceReady(*rhiCtx, prefiltered)
-            || !RHI::IsResourceReady(*rhiCtx, m_brdfLut))
+            || !RHI::IsResourceReady(*rhiCtx, brdfLut))
         {
             return result;
         }
 
         auto* irradianceImage  = rhiCtx->TryGet<RHI::Components::Image>(irradiance);
         auto* prefilteredImage = rhiCtx->TryGet<RHI::Components::Image>(prefiltered);
-        auto* brdfLutImage     = rhiCtx->TryGet<RHI::Components::Image>(m_brdfLut);
+        auto* brdfLutImage     = rhiCtx->TryGet<RHI::Components::Image>(brdfLut);
         if (!irradianceImage || !prefilteredImage || !brdfLutImage)
         {
             return result;
@@ -398,7 +342,7 @@ namespace Spark::Render
         RHI::ImageView* prefilteredView = RHI::GetOrCreateImageView(
             *rhiCtx, prefiltered, *prefilteredImage->m_image, cubeView);
         RHI::ImageView* brdfLutView = RHI::GetOrCreateImageView(
-            *rhiCtx, m_brdfLut, *brdfLutImage->m_image, RHI::ImageViewDescriptor{});
+            *rhiCtx, brdfLut, *brdfLutImage->m_image, RHI::ImageViewDescriptor{});
         if (!irradianceView || !prefilteredView || !brdfLutView)
         {
             return result;
@@ -410,30 +354,31 @@ namespace Spark::Render
 
         // From the live image, not a bake-time constant, so a re-bake at a different mip
         // count needs no change here.
-        result.m_prefilteredMipCount =
-            prefilteredImage->m_image->GetDescriptor().m_mipLevels;
+        result.m_prefilteredMipCount = prefilteredImage->m_image->GetDescriptor().m_mipLevels;
         return result;
     }
 
     bool SceneBindingSystem::BindAreaLightLuts(RHI::RHIContext& rhiCtx)
     {
+        const auto ltc1 = FindLookupTable<LTC1Tag>(rhiCtx);
+        const auto ltc2 = FindLookupTable<LTC2Tag>(rhiCtx);
         // Both or neither, for the reason BindEnvironmentIBL gives.
-        if (!RHI::IsResourceReady(rhiCtx, m_ltc1) || !RHI::IsResourceReady(rhiCtx, m_ltc2))
+        if (!RHI::IsResourceReady(rhiCtx, ltc1) || !RHI::IsResourceReady(rhiCtx, ltc2))
         {
             return false;
         }
 
-        auto* ltc1Image = rhiCtx.TryGet<RHI::Components::Image>(m_ltc1);
-        auto* ltc2Image = rhiCtx.TryGet<RHI::Components::Image>(m_ltc2);
+        auto* ltc1Image = rhiCtx.TryGet<RHI::Components::Image>(ltc1);
+        auto* ltc2Image = rhiCtx.TryGet<RHI::Components::Image>(ltc2);
         if (!ltc1Image || !ltc2Image)
         {
             return false;
         }
 
         RHI::ImageView* ltc1View = RHI::GetOrCreateImageView(
-            rhiCtx, m_ltc1, *ltc1Image->m_image, RHI::ImageViewDescriptor{});
+            rhiCtx, ltc1, *ltc1Image->m_image, RHI::ImageViewDescriptor{});
         RHI::ImageView* ltc2View = RHI::GetOrCreateImageView(
-            rhiCtx, m_ltc2, *ltc2Image->m_image, RHI::ImageViewDescriptor{});
+            rhiCtx, ltc2, *ltc2Image->m_image, RHI::ImageViewDescriptor{});
         if (!ltc1View || !ltc2View)
         {
             return false;
@@ -457,14 +402,12 @@ namespace Spark::Render
         PackLightData(*world);
         WriteAndBind(*rhiCtx, m_shadowViewBuffer, m_shadowViews, m_bindings, ShadowViewBufferName);
         WriteAndBind(*rhiCtx, m_viewShadowMapBuffer, m_viewShadowMaps, m_bindings, ViewShadowMapBufferName);
-        const uint32_t lightCount =
-            WriteAndBind(*rhiCtx, m_lightBuffer, m_lights, m_bindings, LightBufferName)
+        const uint32_t lightCount = WriteAndBind(*rhiCtx, m_lightBuffer, m_lights, m_bindings, LightBufferName)
                 ? static_cast<uint32_t>(m_lights.size()) : 0;
 
         // A per-scene constant, not a per-view one: every layer is as wide, whatever the
         // resolution of the shadow map in it.
-        SetShaderConstant(m_bindings, RHI::InputName(ShadowTexelSizeName),
-            1.0f / static_cast<float>(kShadowMapResolution));
+        SetShaderConstant(m_bindings, RHI::InputName(ShadowTexelSizeName), 1.0f / static_cast<float>(kShadowMapResolution));
 
         // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every frame
         // so the CBV is always compiled: its bind is unguarded in CommandList, unlike the SRV
@@ -511,14 +454,11 @@ namespace Spark::Render
         m_shadowViewBuffer.Shutdown();
         m_viewShadowMapBuffer.Shutdown();
 
-        if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
-        if (m_brdfLut  != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_brdfLut); }
-        if (m_ltc1     != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_ltc1); }
-        if (m_ltc2     != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_ltc2); }
+        if (m_bindings != RHI::NullHandle)
+        {
+            rhiCtx.DestoryEntity(m_bindings);
+        }
 
         m_bindings = RHI::NullHandle;
-        m_brdfLut  = RHI::NullHandle;
-        m_ltc1     = RHI::NullHandle;
-        m_ltc2     = RHI::NullHandle;
     }
 }

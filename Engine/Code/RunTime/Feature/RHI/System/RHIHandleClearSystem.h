@@ -40,8 +40,14 @@ namespace Spark::RHI
                 return;
             }
 
-            auto view = rhiCtx->GetView<DeadTag>();
-            rhiCtx->DestoryEntity(view.begin(), view.end());
+            Collect(*rhiCtx);
+        }
+
+        //! Shared by frame-end collection and final renderer teardown, while pools are still alive.
+        static void Collect(RHIContext& context)
+        {
+            auto view = context.GetView<DeadTag>();
+            context.DestoryEntity(view.begin(), view.end());
         }
 
         unsigned int GetTickOrder() const override

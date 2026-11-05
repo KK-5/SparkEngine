@@ -16,7 +16,7 @@
 | 1 | RHI 补缺：scratch 的地址对齐约定、瞬态池拒绝加速结构 buffer、几何池带构建输入用途 | — | 已落地；编译、单测通过，运行检查见 §四 |
 | 2 | 渲染图：`AccelerationStructurePass` 与它的 scope，构建与追踪的访问声明 | 1 | 基础已实现；构建编译、提交与追踪读取绑定已接入，场景运行验证待后续 |
 | 3 | 光追场景系统与 BLAS：存放 buffer、构建描述、BLAS 状态、构建预算、生命周期 | 2 | 已实现；全量 Debug 编译通过，2026-11-04 用户确认运行验证通过 |
-| 4 | TLAS：几何记录中的 BLAS 地址、生成实例的 compute、TLAS 构建、绑进场景组 | 3 | 进行中；固定区间、场景描述和 BLAS 地址上传已实现，实例生成待实现 |
+| 4 | TLAS：几何记录中的 BLAS 地址、生成实例的 compute、TLAS 构建、绑进场景组 | 3 | 进行中；BLAS 地址上传、GPU 实例生成和每帧 TLAS 构建已实现，共享绑定待接入 |
 | 5 | 验证用的调试视图 | 4 | 未开始 |
 
 D1 ~ D9 已定；BLAS 地址放入 `GeometryData`，复用 `GeometrySlot` 下标。
@@ -25,8 +25,8 @@ D1 ~ D9 已定；BLAS 地址放入 `GeometryData`，复用 `GeometrySlot` 下标
 
 1. **TLAS 存放区间与场景描述**（已实现）：在共享 AS buffer 内先为 TLAS 预留固定区间，按 65535 实例查询结果和 scratch 大小；发布 buffer 标签、TLAS view 和可用状态。
 2. **BLAS 对象持有与地址上传**（已实现）：`RayTracingSceneSystem::Update` 在存放 buffer 就绪并分配区间后创建 RHI AS 对象，由 `RayTracingBottomLevel` 持有。attachment 必须通过 `.AccelerationStructure(...)` 显式传入对象，图不再创建 AS。下一帧 `GeometryBindingSystem` 将地址写入 `GeometryData`，复用现有增量上传；缺失或输入失效时为 0，不增加独立地址表或编译结果回填。
-3. **GPU 实例生成**：compute 按活动列表读取 InstanceSlot，再读取 `InstanceData` 与 `GeometryData` 中的 BLAS 地址，生成 64 字节的 `RayTracingInstance`；实例号为 slot，无 BLAS 或 draw mask 为 0 时写无效实例，处理矩阵布局、0 实例与数量上限。
-4. **TLAS 构建 scope**：扩展现有构建 Pass，先可选的 BLAS scope，再每帧 TLAS scope；使用实际实例数的 structured view，scratch 按两个阶段需求的最大值分配并复用，由图生成屏障。
+3. **GPU 实例生成**（已实现）：compute 按活动列表读取 InstanceSlot，再读取 `InstanceData` 与 `GeometryData` 中的 BLAS 地址，生成 64 字节的 `RayTracingInstance`；实例号为 slot，无 BLAS 或 draw mask 为 0 时写无效实例，处理矩阵布局、0 实例与数量上限。
+4. **TLAS 构建 scope**（已实现）：扩展现有构建 Pass，先可选的 BLAS scope，再每帧 TLAS scope；使用实际实例数的 structured view，scratch 按两个阶段需求的最大值分配并复用，由图生成屏障。
 5. **共享绑定与追踪入口**：给场景组增加 TLAS 输入，绑定场景系统持有的 TLAS 对象；追踪 scope 显式导入存放 buffer、传入对象并声明 TLAS 读取，普通场景组绑定不隐含 AS 依赖。
 
 几何编码先于光追场景 Update，新 BLAS 的地址自然在下一帧上传；GPU 构建与后续使用仍由队列顺序和 AS 屏障保证，不等待 CPU 侧完成通知。
@@ -41,7 +41,7 @@ D1 ~ D9 已定；BLAS 地址放入 `GeometryData`，复用 `GeometrySlot` 下标
 | 3 | 构建描述、BLAS / TLAS item 记录与编译函数 | 已实现；2026-11-02 测试已由用户验证通过 |
 | 4 | 主编译流程调用构建编译函数，executer 提交 RHI 构建 item | 已实现；2026-11-03 Debug 编译通过，运行验证待用户执行 |
 | 5 | Compute / Render scope 的追踪访问接口与绑定 | 已实现；2026-11-03 Debug 编译通过，运行验证待用户执行 |
-| 6 | 场景构建 pass 内先 BLAS scope、后 TLAS scope | 方案已定，场景系统接入时落实 |
+| 6 | 场景构建 pass 内先 BLAS scope、后 TLAS scope | 已实现；2026-11-04 全量 Debug 编译通过，运行验证待用户执行 |
 
 AS 作为 buffer 的特殊用途，pass 直接导入存放 buffer；构建目标、追踪读取、构建输入和 scratch 的区间均从 attachment 的 view 读取。
 渲染层 `AccelerationStructure` 组件只持有 RHI 对象，通过 `.AccelerationStructure(const Ptr<RHI::AccelerationStructure>&)` 显式传入使用它的 attachment，不使用对象缓存。
@@ -112,6 +112,7 @@ BLAS / TLAS 的输入组件分开，公共构建组件只引用目标和 scratch
 - 越少越好的原因：追踪读 TLAS 引用的每个 BLAS。Vulkan 的可见性按 buffer 走，TLAS 所在 buffer 的屏障只让 TLAS 的写可见，本帧
   新建的 BLAS 要它所在的 buffer 有"构建写 → 追踪读"的屏障；所以每个追踪 pass 要对每块存放 BLAS 的 buffer 声明 AS 读。
 - TLAS 占一个固定区间，大小按实例上限 65535 查一次（查到的大小对实例数不超过它的构建都适用）。
+- 存放 buffer 就绪后创建 TLAS 对象，由其 `RayTracingScene::m_topLevel` 持有并跨帧复用；Shutdown 在 GPU 空闲后随资源实体销毁对象。
 - 存放 buffer 初始容量为 256 MiB，作为系统私有常量，后续按场景需求调整。
 
 ### D5　scratch：渲染图的瞬态 buffer，加每帧构建预算　已定
@@ -120,6 +121,7 @@ BLAS / TLAS 的输入组件分开，公共构建组件只引用目标和 scratch
 - 每帧构建预算：同 `UploadBytesPerFrame` 的做法，scratch 预算初值为 8 MiB，超出的任务留到下一帧。
   单个构建所需 scratch 超过预算时允许独占一帧，避免永久等待；各任务区间按设备要求对齐。
 - 预算内的 BLAS 各用 scratch 里互不重叠的区间，彼此不加屏障；TLAS 复用 scratch，之前一道屏障。
+- scratch 分配大小取本帧 BLAS 总需求与 TLAS 上限查询需求的最大值；TLAS 在后一个 scope 中从偏移 0 复用，BLAS 预算仍单独统计。
 - scratch 区间通过各自 attachment 的 `.View()` 声明，compiler 从 view 读取字节偏移，构建接口不再传 `scratchOffset`。
   同一 scope 内的 scratch 与 AS 存放区间暂由调用方保证不重叠；构建之间的区间重叠校验推后，不影响跨 scope 的整 buffer 同步。
 
@@ -296,6 +298,33 @@ BLAS / TLAS 的输入组件分开，公共构建组件只引用目标和 scratch
 - `Attachment` 与 `ShaderAttachment` 支持链式 `.AccelerationStructure(...)`；所有 AS attachment 必须显式传入对象并在 Build 阶段检查，Compile 不再创建对象或单独遍历校验 AS attachment。
 - `GeometryData` 保持 48 字节，新增 BLAS 地址字段并同步 HLSL；下一帧正常增量上传，输入失效时清零。不增加独立地址表、上传 Pass、结果提取或延后回填接口。
 - 实例生成、TLAS 构建及共享绑定尚未接入。
+- `cmake --build --preset debug --parallel 4` 全量 Debug 编译与链接通过；未运行单元测试或编辑器。
+
+**步骤 4 GPU 实例生成进展（2026-11-04）：**
+
+- 新增 `RayTracingInstances.hlsl` 与 Graphics 队列上的 `RayTracingSceneInstances` compute Pass，复用实例和几何共享绑定，显式声明活动 ID、实例池和几何池的读取。
+- 每线程按活动位置读取 InstanceSlot，将模型矩阵的前三行、slot、mask 和 BLAS 地址写入 64 字节记录；DrawMask 为 0 或地址为 0 时写 mask 0、地址 0，hit group offset 与 flags 暂为 0。
+- 输出为 `RayTracingSceneInstances` 瞬态 buffer，容量 65535 × 64 字节，用途为 `ShaderReadWrite | RayTracingBuildInput`。场景系统保存实际实例数，超过容量时截断并警告一次；0 实例或输入资源未就绪时派发一个组，shader 不读取输入或写入记录。
+- 场景 Pass 注册移到几何、实例上传 Pass 之后，保证生成实例读取本帧记录；compute 只复制地址，不声明 AS 内容读取，TLAS 构建依赖在下一步接入。
+- DXC `cs_6_6` 编译通过，反射确认输出记录为 64 字节，两个打包字段及地址的偏移分别为 48、52、56；`cmake --build --preset debug --parallel 4` 全量 Debug 编译与链接通过。未运行单元测试或编辑器。
+
+**步骤 4 TLAS 构建 scope 进展（2026-11-04）：**
+
+- Update 在共享存放 buffer 就绪后初始化 TLAS 对象，放入 `RayTracingScene::m_topLevel`；跨帧复用同一对象和预留区间，attachment 通过 `.AccelerationStructure(...)` 共享引用。
+- `RayTracingSceneBuild` 先录入可选的 BLAS scope，再每帧录入 TLAS scope。实例输入 view 使用实际数量（允许为 0）和 64 字节步长，无新增 BLAS 或空场景时仍重建 TLAS，避免沿用旧实例。
+- TLAS 目标对共享存放 buffer 声明 AS 读写，涵盖 BLAS 内容读取和 TLAS 写入；scratch 大小取 BLAS 总需求与 TLAS 需求的最大值，TLAS 从偏移 0 复用。两个 scope 之间的 AS 与 scratch 屏障、实例 compute 写到构建输入读的屏障均由现有图流程生成。
+- `m_ready` 在 Update 中重置，录入本帧 TLAS 构建并关闭 scope 后设为 true，表示已安排构建；对象随存放资源实体在 GPU 空闲后的 Shutdown 中释放。
+- 排查 DX12 #926：用户确认 scratch 临时改为 committed 分配后告警消失；恢复别名并尝试 `AssertResourceAccess` 后告警仍在，已撤回该尝试。
+- 2026-11-04 用户日志确认本次告警的两个原生 Buffer 为 `RayTracingSceneScratch`（生命周期 `[1,2)`）和 `OpaqueVisibleCount`（`[2,6)`），共用同一起始 GPU 地址，`cached=0`。这只证明图中声明的半开区间不重叠，不能据此排除原生状态或同步实现问题。
+- 2026-11-05 用户确认 `AssertResourceState(UNORDERED_ACCESS)` 查询成功且返回 true 后 #926 仍存在。实际命令日志记录 TLAS 构建后发出 `BUILD_RAYTRACING_ACCELERATION_STRUCTURE → COMPUTE_SHADING` 的全局屏障，再使用 `OpaqueVisibleCount`。已按要求移除排查用的地址、别名、屏障日志及临时状态断言，保留现有分配与同步逻辑；告警尚未修复。
+- `cmake --build --preset debug --parallel 4` 全量 Debug 编译与链接通过；未运行单元测试或编辑器。共享场景绑定与追踪入口留到第 5 个子步骤。
+
+**步骤 4 场景独立 BufferPool（2026-11-05）：**
+
+- `RayTracingSceneSystem` 持有 Device 内存的 `BufferPool`，直接初始化 storage、scratch 和实例输入的 RHI Buffer，并挂到导入资源实体；不再等待 `RHIResourceSystem` 创建 storage，scratch 和实例输入也不再创建瞬态资源。
+- scratch 初始容量取 8 MiB BLAS 预算与 TLAS 需求的最大值，容量不足时在准备 BLAS 任务前扩容。替换时使用新实体，旧 view 缓存随旧实体销毁，底层分配由池延迟释放。
+- 实例输入容量固定为 65535 × 64 字节，用途为 `ShaderReadWrite | RayTracingBuildInput`；`RayTracingSceneInstances` compute Pass 和 `RayTracingSceneBuild` 均导入同一持久资源，沿用原有 view、scope 和屏障声明。三个 Buffer 均不参与瞬态别名复用。
+- Shutdown 在 GPU 空闲后清理 AS 状态与三个资源实体，清空设备延迟释放队列中的 AS 引用，最后释放独立池。用户确认仅移出 scratch 后仍有 #926，剩余地址范围为 64 字节；实例输入也改为系统持有后，用户确认告警消失。代码注释说明构建使用 GPU 地址，系统管理这些资源以避开瞬态别名复用带来的 DX12 地址归属歧义。
 - `cmake --build --preset debug --parallel 4` 全量 Debug 编译与链接通过；未运行单元测试或编辑器。
 
 **场景接入后的验证项：**

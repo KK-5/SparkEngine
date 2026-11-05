@@ -50,6 +50,7 @@ set(SOURCES
     RenderGraph/PooledImage.cpp
     RenderGraph/PassScopes.cpp
     RenderSystem.cpp
+    Scene/SceneTextureSystem.cpp
     View/CameraViewSystem.cpp
     View/ShadowMapAllocator.cpp
     View/ShadowViewSystem.cpp
@@ -78,6 +79,7 @@ target_link_libraries(${TARGET_NAME}
         SparkUI
     PUBLIC
         SparkCamera
+        SparkSkybox
         SparkAntiAliasing
         SparkBloom
         SparkAmbientOcclusion

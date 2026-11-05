@@ -80,8 +80,8 @@ namespace Spark::Render
     //! storage SortVisibleInstances left.
     VisibleInstanceRange VisibleInstancesOf(const DrawContext& drawCtx, RHI::RHIHandle view, uint32_t bit);
 
-    //! On the buffer of the draws of every list the CPU culls, which DrawListCullingSystem owns
-    //! and writes whole every frame: a DrawIndexedIndirectCommand a VisibleInstance, in their
+    //! On the current frame's buffer of the draws of every list the CPU culls, owned and written
+    //! by DrawListCullingSystem: a DrawIndexedIndirectCommand a VisibleInstance, in their
     //! sorted order. They are the list's, not a pass's: a pass drawing such a list imports it
     //! by this tag and only cuts its groups out of it.
     struct CpuCulledDrawArgumentsTag {};

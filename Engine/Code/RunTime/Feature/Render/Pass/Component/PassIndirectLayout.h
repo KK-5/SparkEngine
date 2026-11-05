@@ -6,7 +6,7 @@
 
 namespace Spark::Render
 {
-    // How a pass whose list is culled on the GPU lays out its indirect arguments. DrawBinSystem
+    // How a pass whose list is culled on the GPU lays out its indirect arguments. DrawGroupSystem
     // writes it every frame; the pass's InstanceBinning reads it.
 
     //! Where a key index's instances go in a view's part of a pass's indirect arguments. Mirror
@@ -22,10 +22,11 @@ namespace Spark::Render
     //! On the pass: the same layout in each view's part.
     struct PassIndirectLayout
     {
-        //! IndirectLayoutEntry by key index, a host per-frame buffer written whole every frame.
-        RHI::RHIHandle m_table       = RHI::NullHandle;
+        //! This pass's range in DrawGroupSystem's shared host buffer for the current frame.
+        RHI::RHIHandle m_table           = RHI::NullHandle;
+        uint64_t       m_tableByteOffset = 0;
         //! This frame's entries: the largest key index of the list, plus one.
-        uint32_t       m_tableLength = 0;
+        uint32_t       m_tableLength     = 0;
 
         // Both rounded up a step at a time, so what they size is not resized every frame.
         uint32_t m_countsPerView  = 0;

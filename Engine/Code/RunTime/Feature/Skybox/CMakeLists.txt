@@ -11,7 +11,6 @@ add_library(${TARGET_NAME} STATIC
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore
-        SparkRHI
         SparkAssetManager
 )
 

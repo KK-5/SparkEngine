@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
+#include <RHI/RayTracing/AccelerationStructure.h>
 
 namespace Spark::Render
 {
@@ -13,6 +14,7 @@ namespace Spark::Render
 
     struct RayTracingScene
     {
+        Ptr<RHI::AccelerationStructure> m_topLevel;
         RHI::BufferViewDescriptor m_topLevelView;
         //! TLAS contents are built or scheduled before readers this frame.
         bool m_ready = false;

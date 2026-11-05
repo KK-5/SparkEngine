@@ -26,6 +26,7 @@
 #include "DrawList/DrawListCullingSystem.h"
 #include "Geometry/MeshGeometrySystem.h"
 #include "RayTracing/RayTracingSceneSystem.h"
+#include "Scene/SceneTextureSystem.h"
 
 namespace Spark::Render
 {
@@ -79,6 +80,7 @@ namespace Spark::Render
         ShadowViewSystem  m_shadowViewSystem;
         ShadowMaskSystem  m_shadowMaskSystem;
         ViewBindingSystem m_viewBindingSystem;
+        SceneTextureSystem m_sceneTextureSystem;
         SceneBindingSystem m_sceneBindingSystem;
         MaterialBindingSystem m_materialBindingSystem;
         MeshGeometrySystem    m_meshGeometrySystem;

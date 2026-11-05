@@ -14,6 +14,9 @@
 #include <Pass/PassContext.h>
 #include <PipelineState/PipelineKeyIndex.h>
 
+#include "FakeDevice.h"
+#include "FakeHostBufferFactory.h"
+
 using namespace Spark;
 using namespace Spark::Render;
 
@@ -40,18 +43,35 @@ namespace
     };
 }
 
-//! Groups made from the counted keys. Everything is components on the contexts, so no device is
-//! needed; the indirect layout tables' buffers never materialize.
+//! Groups made from the counted keys, with layout tables written into CPU-backed host buffers.
 class DrawGroupSystemTest : public ::testing::Test
 {
 protected:
     RHI::RHIContext    rhi;
+    Spark::Test::FakeHostBufferFactory factory;
+    Ptr<RHI::PhysicalDevice> physicalDevice{ new RHI::PhysicalDevice };
+    Ptr<Spark::Test::FakeDevice> device{ new Spark::Test::FakeDevice };
     PassContext        passes;
     DrawContext        draws;
     DrawGroupSystem    system;
     DrawListKeyCounter counter;
     //! The one view a test has unless it adds more.
     RHI::RHIHandle     view = AddView();
+
+    void SetUp() override
+    {
+        RHI::RHIExecuteContext::Push(rhi);
+        ASSERT_EQ(device->Init(*physicalDevice, RHI::DeviceDescriptor{}), RHI::ResultCode::Success);
+        ASSERT_TRUE(system.Init(*device));
+    }
+
+    void TearDown() override
+    {
+        system.Shutdown(passes);
+        device->FlushReleaseQueue();
+        device->BusDisconnect();
+        RHI::RHIExecuteContext::Pop();
+    }
 
     RHI::RHIHandle AddView()
     {
@@ -94,6 +114,7 @@ protected:
         draws.Clear();
         counter.Publish(draws);
         system.Update(rhi, passes, draws);
+        RHI::FrameEventBus::Broadcast(&RHI::FrameEventBus::Events::OnFrameEnd);
     }
 
     DrawGroupRange GroupsOf(Pass pass, RHI::RHIHandle under)
@@ -109,10 +130,11 @@ protected:
     //! What the pass's indirect layout table holds for key, as uploaded.
     IndirectLayoutEntry Entry(Pass pass, PipelineKey key)
     {
-        const auto& upload = rhi.Get<RHI::PendingBufferMap>(passes.Get<PassIndirectLayout>(pass).m_table);
-        const auto* entries = static_cast<const IndirectLayoutEntry*>(upload.m_data);
+        const auto& layout = passes.Get<PassIndirectLayout>(pass);
+        const auto& buffer = static_cast<const Spark::Test::FakeHostBuffer&>(*rhi.Get<RHI::Components::Buffer>(layout.m_table).m_buffer);
+        const auto* entries = reinterpret_cast<const IndirectLayoutEntry*>(buffer.m_bytes.data() + layout.m_tableByteOffset);
         const uint32_t index = PipelineKeyIndexOf(key).m_value;
-        if (index >= upload.m_byteCount / sizeof(IndirectLayoutEntry))
+        if (index >= layout.m_tableLength)
         {
             return IndirectLayoutEntry{};
         }
@@ -230,6 +252,14 @@ TEST_F(DrawGroupSystemTest, AGroupHoldsWhatItsKeysCountInThePassesList)
     Encode(Masked, Opaque, 2);
     Encode(DoubleSided, Opaque | Caster, 4);
     Frame();
+
+    const auto& depthLayout = passes.Get<PassIndirectLayout>(depth);
+    const auto& shadowLayout = passes.Get<PassIndirectLayout>(shadow);
+    EXPECT_EQ(depthLayout.m_table, shadowLayout.m_table);
+    EXPECT_TRUE(depthLayout.m_tableByteOffset + uint64_t(depthLayout.m_tableLength) * sizeof(IndirectLayoutEntry)
+                    <= shadowLayout.m_tableByteOffset
+                || shadowLayout.m_tableByteOffset + uint64_t(shadowLayout.m_tableLength) * sizeof(IndirectLayoutEntry)
+                    <= depthLayout.m_tableByteOffset);
 
     EXPECT_EQ(GroupOf(depth, SingleSided)->m_maxDraws, 5u);
     EXPECT_EQ(GroupOf(depth, DoubleSided)->m_maxDraws, 4u);
@@ -435,6 +465,35 @@ TEST_F(DrawGroupSystemTest, ATableIsAsLongAsTheKeysItCanBeAskedFor)
     EXPECT_EQ(passes.Get<PassIndirectLayout>(depth).m_tableLength, PipelineKeyIndexOf(DoubleSided).m_value + 1);
 }
 
+TEST_F(DrawGroupSystemTest, EmptyTablesShareABufferWithRawViewAlignedOffsets)
+{
+    // Each empty table still has one 8-byte entry. Three need padding between both pairs.
+    const Pass tablePasses[] = {
+        AddPass<OpaqueTag>("Depth"),
+        AddPass<ShadowCasterTag>("Shadow"),
+        AddPass<OpaqueTag>("GBuffer")
+    };
+    Frame();
+
+    const auto resource = passes.Get<PassIndirectLayout>(tablePasses[0]).m_table;
+    const auto& buffer = *rhi.Get<RHI::Components::Buffer>(resource).m_buffer;
+    for (Pass pass : tablePasses)
+    {
+        const auto& layout = passes.Get<PassIndirectLayout>(pass);
+        EXPECT_EQ(layout.m_table, resource);
+        EXPECT_EQ(layout.m_tableLength, 1u);
+        EXPECT_EQ(layout.m_tableByteOffset % 16, 0u);
+        EXPECT_LE(layout.m_tableByteOffset + sizeof(IndirectLayoutEntry), buffer.GetDescriptor().m_byteCount);
+        for (Pass other : tablePasses)
+        {
+            if (pass != other)
+            {
+                EXPECT_NE(layout.m_tableByteOffset, passes.Get<PassIndirectLayout>(other).m_tableByteOffset);
+            }
+        }
+    }
+}
+
 TEST_F(DrawGroupSystemTest, APassDrawingNoListHasNoGroups)
 {
     const Pass post = passes.CreatePass();
@@ -453,9 +512,8 @@ TEST_F(DrawGroupSystemTest, ShutdownLeavesNothingBehind)
     Frame();
     const RHI::RHIHandle buffer = passes.Get<PassIndirectLayout>(depth).m_table;
 
-    system.Shutdown(rhi, passes);
+    system.Shutdown(passes);
 
-    EXPECT_TRUE(rhi.Has<DeadTag>(buffer));
-    EXPECT_FALSE(passes.Has<PassIndirectLayout>(depth));
+    EXPECT_FALSE(rhi.Valid(buffer));
     EXPECT_FALSE(passes.Has<PassIndirectLayout>(depth));
 }

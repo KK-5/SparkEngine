@@ -2,74 +2,20 @@
 
 #include <ECS/ComponentTraits.h>
 #include <Resource/AssetTypes.h>
-#include <Resource/Image/ImageAsset.h>
-
-#include <RHI/Context/UniqueRHIHandle.h>
-#include <RHI/Resource/AccessFlags.h>
 
 namespace Spark::Skybox
 {
-    //! User-facing skybox data on a world entity (mirrors MeshComponent). Pure
-    //! data — just the environment image asset id (an HDRI today; its compiled
-    //! form is a cubemap). The component does NOT load: asset loading is the upper
-    //! layer's responsibility (the editor assigns an already-loaded asset). The
-    //! system only organizes the loaded asset into GPU resources.
-    //!
-    //! Also deliberately BAKE-AGNOSTIC: it only ever references a cubemap-shaped
-    //! image asset; the equirect→cubemap bake belongs to the asset / Image-Compile
-    //! layer, not here.
+    //! Scene description only. Asset loading belongs to the upper layer; consumers decide
+    //! how to use the compiled cubemap and its optional environment-lighting products.
     struct SkyboxComponent
     {
         Resource::AssetId m_imageAssetId;
-
-        //! Multiplies the environment's radiance -- the visible sky AND both IBL terms,
-        //! which is what keeps them consistent: scaling incident radiance by k scales the
-        //! irradiance and prefiltered integrals by exactly k (both are linear in it), so
-        //! this is equivalent to re-baking a k-times brighter HDRI, with no re-bake.
-        //! Applied at sample time by the skybox and lighting shaders.
+        //! Scales both the visible sky and its environment lighting, without changing the asset.
         float m_intensity = 1.0f;
     };
 
-    //! Resolved GPU side, written by SkyboxSystem.
-    //!  - m_cubemapAsset : reserved handle on the compiled cubemap image asset
-    //!                     (the source the upload reads from). Today it is just the
-    //!                     loaded environment asset; once the asset-layer bake lands
-    //!                     it is the cubemap-form product — downstream is unchanged.
-    //!  - m_cubemap      : the GPU texture the render SkyboxPass samples.
-    //!  - m_irradiance /
-    //!    m_prefiltered  : the environment bake's IBL products, uploaded as static
-    //!                     imports (no render-graph attachment — SceneBindingSystem
-    //!                     binds them into space0 and samples them every frame).
-    //!                     NullHandle when the asset carries no IBL products.
-    //! No equirect, no bake state: the feature does not know a bake happened.
-    //! Owns the three images: the component going lets them go.
-    struct SkyboxGPUComponent
-    {
-        Ptr<Resource::ImageAsset> m_cubemapAsset;
-        RHI::UniqueRHIHandle      m_cubemap;
-        RHI::UniqueRHIHandle      m_irradiance;
-        RHI::UniqueRHIHandle      m_prefiltered;
-    };
-
-    //! Placed on the RHIContext cube resource entity (SkyboxGPUComponent::m_cubemap) of the
-    //! ACTIVE skybox. SkyboxSystem tags it at creation; the render SkyboxPass reads it to
-    //! import the cube as its g_SkyCube shader-read attachment. Defined here (SparkSkybox),
-    //! NOT in SparkRender, so the feature can set it without a feature->render dependency —
-    //! the render pass reads it in the allowed render->feature direction. Singleton:
-    //! SkyboxSystem clears any prior cube's tag before tagging a newly built one.
-    //!
-    //! Also the answer to "which skybox is active" for consumers that need the whole set:
-    //! SceneBindingSystem finds the SkyboxGPUComponent whose m_cubemap carries this tag and
-    //! takes its IBL handles from that same component, so sky and environment lighting can
-    //! never come from two different HDRIs.
-    struct ActiveSkyCubeTag {};
-
-    //! On the RHIContext entities of every skybox's IBL images (m_irradiance, m_prefiltered),
-    //! which SceneBindingSystem binds into space0 rather than any pass importing them.
-    struct SkyLightingTag
-    {
-        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
-    };
+    //! Runtime selection assigned by SkyboxSystem to the first created skybox.
+    struct ActiveSkyboxTag {};
 }
 
 namespace Spark

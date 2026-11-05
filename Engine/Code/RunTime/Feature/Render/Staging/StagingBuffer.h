@@ -38,7 +38,7 @@ namespace Spark::Render
             void*    m_data   = nullptr;
         };
 
-        StagingBuffer() = default;
+        StagingBuffer();
         StagingBuffer(const StagingBuffer&)            = delete;
         StagingBuffer& operator=(const StagingBuffer&) = delete;
         ~StagingBuffer();

@@ -8,6 +8,7 @@
 #include <RHI/Pipeline/PipelineStateDescriptor.h>
 #include <RHI/Command/CommandList.h>
 #include <RHI/Context/RHIContext.h>
+#include <RHI/System/RHIHandleClearSystem.h>
 
 #include <Pass/Pass.h>
 #include <Pass/PassTag.h>
@@ -121,6 +122,17 @@ namespace Spark::Render
         }
         m_requestedSwapChainSize = windowSize;
 
+        if (!m_drawGroupSystem.Init(*device))
+        {
+            LOG_ERROR("[RenderSystem] DrawGroupSystem init failed.");
+            return false;
+        }
+        if (!m_drawListCullingSystem.Init(*device))
+        {
+            LOG_ERROR("[RenderSystem] DrawListCullingSystem init failed.");
+            return false;
+        }
+
         return true;
     }
 
@@ -168,12 +180,12 @@ namespace Spark::Render
 
         // Before every pass that draws meshes: it copies their new bytes into the pool.
         m_meshGeometrySystem.SetUp(passContext);
-        m_rayTracingSceneSystem.SetUp(passContext);
         // Before every pass that reads them: they write the material, geometry and instance
         // records, and the instance IDs, that changed.
         m_materialBindingSystem.SetUp(passContext);
         m_geometryBindingSystem.SetUp(passContext);
         m_instanceBindingSystem.SetUp(passContext);
+        m_rayTracingSceneSystem.SetUp(passContext);
 
         // First: what each view sees, then each drawing pass's groups of it, which the passes
         // below draw the scene by.
@@ -260,6 +272,7 @@ namespace Spark::Render
         // ShutdownInternal. Here rather than in SetUpDefaultPipeline, which is passes only: a
         // pipeline of a sample's own still renders views, and they need none of the passes.
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
+        m_sceneTextureSystem.Init(rhiCtxForInit, *Service<RHI::RHIInterface>::Get()->GetDevice());
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_viewBindingSystem.Init(rhiCtxForInit);
         m_materialBindingSystem.Init(rhiCtxForInit);
@@ -290,8 +303,6 @@ namespace Spark::Render
         // The feature processors own no teardown: per-pass SRGs are reaped by
         // ReapPassShaderBindings.
 
-        m_drawGroupSystem.Shutdown(*RHI::RHIExecuteContext::Current(), m_pipeline.GetPassContext());
-        m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown();
 
@@ -309,14 +320,20 @@ namespace Spark::Render
         m_renderGraph.Shutdown();
 
         // Release native buffers the passes read, so only once the GPU is idle.
+        m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_drawGroupSystem.Shutdown(m_pipeline.GetPassContext());
         m_rayTracingSceneSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        m_sceneTextureSystem.Shutdown(*WorldExecuteContext::Current());
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_shadowViewSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_meshGeometrySystem.Shutdown(*RHI::RHIExecuteContext::Current());
+        // Shutdown has retired the owners' handles; collect them before their pools are destroyed.
+        RHI::RHIHandleClearSystem::Collect(*RHI::RHIExecuteContext::Current());
+        Service<RHI::RHIInterface>::Get()->GetDevice()->FlushReleaseQueue();
     }
 
     void RenderSystem::OnTick(const FrameTime& time)
@@ -349,6 +366,7 @@ namespace Spark::Render
         m_shadowMaskSystem.Update();
         m_viewBindingSystem.Update(time);
 
+        m_sceneTextureSystem.Update(*WorldExecuteContext::Current(), rhiCtx);
         m_sceneBindingSystem.Update(time);
         // MaterialBindingSystem stays first, but only so a material's slot exists before
         // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
