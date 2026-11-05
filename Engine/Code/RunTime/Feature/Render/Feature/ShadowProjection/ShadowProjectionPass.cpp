@@ -14,6 +14,8 @@
 #include <RenderGraph/RenderGraphUtils.h>
 
 #include <Binding/Scene/SceneBinding.h>
+#include <Binding/RayTracing/RayTracingBinding.h>
+#include <RayTracing/RayTracingScene.h>
 #include <View/ShadowMapAllocator.h>
 #include <View/ShadowMapLayout.h>
 #include <View/ShadowMaskLayout.h>
@@ -102,7 +104,7 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<ViewBindingTag, MainSceneTag>()
+            .Binds<ViewBindingTag, MainSceneTag, RayTracingSceneBindingTag>()
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
@@ -113,6 +115,13 @@ namespace Spark::Render
                 {
                     return;
                 }
+
+                // This frame's TLAS, once RayTracingSceneBuild has scheduled it. Importing it
+                // is also the edge that orders that build before this pass; the structure
+                // itself arrives through the shared bindings. False on a frame whose build did
+                // not happen, and then the directional lights fall back to their atlas.
+                const RHI::AttachmentId storage("RayTracingSceneStorage");
+                const bool hasScene = p.Import<RayTracingSceneTag>(storage);
 
                 const auto size = p.GetRenderSize();
                 p.CreateImage(RHI::AttachmentId("ShadowMask"), RHI::ImageDescriptor::Create2DArray(
@@ -139,6 +148,16 @@ namespace Spark::Render
                     .Bind(RHI::InputName("g_ShadowMaps"));
 
                 s.Sampler(RHI::InputName("g_ShadowSampler"), ShadowMapSampler());
+
+                // A shared-binding read only declares the dependency: the structure is bound
+                // at space7 by RayTracingBindingSystem. What the declaration buys is the
+                // build-to-trace barrier in front of this pass.
+                if (hasScene)
+                {
+                    s.ReadAccelerationStructure(storage).Stage(RHI::AttachmentStage::FragmentShader);
+                }
+                // Readiness, not a switch: without a TLAS the shader must not trace a null one.
+                s.Constant(RHI::InputName("traceShadows"), hasScene ? 1u : 0u);
 
                 // With no shadowed light there is no draw, but the mask still exists at one
                 // slice: it clears to 1, which already reads as fully lit, and keeping it bound

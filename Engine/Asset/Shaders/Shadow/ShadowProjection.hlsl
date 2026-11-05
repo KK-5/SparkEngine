@@ -1,5 +1,7 @@
-// Projects the shadow maps into screen space: one full-screen draw, one instance per
-// ShadowMask slice, each writing the four lights packed into that slice.
+// Resolves each shadow-casting light's visibility into the ShadowMask: one full-screen draw,
+// one instance per slice, each writing the four lights packed into that slice. A light reads
+// its visibility from the atlas it was given or, for a directional light, from a traced
+// shadow ray -- whichever the light needs, the mask is the one signal the lighting consumes.
 //
 // No depth attachment, so the sky is shaded too and its mask values are meaningless. It
 // cannot have one: SceneDepth is a plain 2D image while ShadowMask is an array, and a
@@ -9,12 +11,16 @@
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/SceneBindings.hlsli>
 #include <Shaders/Lib/DeferredShadingCommon.hlsli>   // DecodeNormal
+#include <Shaders/Lib/Lights.hlsli>                  // LightData, DirectionToLight
 #include <Shaders/Lib/Shadow/ShadowMask.hlsli>
 #include <Shaders/Lib/Shadow/ShadowSampling.hlsli>
+#include <Shaders/Lib/Shadow/RayTracedShadow.hlsli>  // g_RayTracingScene
 
 struct ScopeParameters
 {
     uint viewIndex;
+    //! Nonzero when this frame's TLAS exists, so the directional lights may be traced.
+    uint traceShadows;
 };
 
 #include <Shaders/ScopeBindings.hlsli>
@@ -52,12 +58,20 @@ float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy), 0);
 
-    float3 worldPos = ReconstructWorldPos(GetView(g_Scope.viewIndex), input.uv, g_Depth.Load(px).r);
-    float3 N = normalize(DecodeNormal(g_GBufferNormal.Load(px).xyz));
-
     // Unwritten channels read as lit, so a slice holding fewer than four lights is correct
     // without the consumer knowing how many it holds.
     float4 mask = float4(1.0, 1.0, 1.0, 1.0);
+
+    // Reversed-Z: the sky sits at depth 0 and its reconstructed world position means nothing,
+    // so no ray is traced there. The channels it leaves at 1.0 are read by nothing.
+    const float depth = g_Depth.Load(px).r;
+    if (depth <= 0.0)
+    {
+        return mask;
+    }
+
+    const float3 worldPos = ReconstructWorldPos(GetView(g_Scope.viewIndex), input.uv, depth);
+    const float3 N        = normalize(DecodeNormal(g_GBufferNormal.Load(px).xyz));
 
     // One sweep of the light list rather than a slot-to-light table: at these light counts
     // it costs what the lighting loop already costs, and it needs no extra buffer.
@@ -69,14 +83,23 @@ float4 PSMain(VSOutput input) : SV_Target0
             continue;
         }
 
-        int map = light.shadowIndex;
-        if (light.shadowMapCount > 1)
+        float visibility;
+        if (g_Scope.traceShadows != 0 && light.type == 0)
         {
-            map += int(CubeFaceIndex(worldPos - light.position));
+            const float3 L = DirectionToLight(light, worldPos);
+            visibility = TraceDirectionalShadow(worldPos, N, L) ? 1.0 : 0.0;
         }
-        mask[ShadowMaskChannel(light.shadowMaskIndex)] =
-            SampleShadow(GetShadowView(map), uint(map), worldPos, N,
-                         g_ShadowMaps, g_ShadowSampler, g_ShadowMapTexelSize);
+        else
+        {
+            int map = light.shadowIndex;
+            if (light.shadowMapCount > 1)
+            {
+                map += int(CubeFaceIndex(worldPos - light.position));
+            }
+            visibility = SampleShadow(GetShadowView(map), uint(map), worldPos, N,
+                                      g_ShadowMaps, g_ShadowSampler, g_ShadowMapTexelSize);
+        }
+        mask[ShadowMaskChannel(light.shadowMaskIndex)] = visibility;
     }
     return mask;
 }

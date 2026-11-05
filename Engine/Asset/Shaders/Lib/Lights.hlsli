@@ -13,6 +13,20 @@
 #include <Shaders/Lib/LTC.hlsli>
 #include <Shaders/Lib/BRDF/BRDF.hlsli>
 
+// The unit vector from the surface toward the light: the engine's one definition of it.
+// A directional light has no position, so its L is the negated shine direction; every other
+// type points at the emitter. Shadow tracing takes its ray direction from here too, so a
+// shadow ray and the radiance the BRDF sees cannot disagree about where the light is.
+float3 DirectionToLight(LightData light, float3 worldPos)
+{
+    if (light.type == 0)
+    {
+        return normalize(-light.direction);
+    }
+    float3 toLight = light.position - worldPos;
+    return toLight / sqrt(max(dot(toLight, toLight), 1e-8));
+}
+
 // Returns the unshadowed incident radiance at worldPos for this light, and writes L (unit
 // vector pointing from the surface toward the light).
 float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
@@ -22,7 +36,7 @@ float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
     // Directional: L is the negated shine direction, no attenuation.
     if (light.type == 0)
     {
-        L = normalize(-light.direction);
+        L = DirectionToLight(light, worldPos);
         radiance = light.color * light.intensity;
     }
     else

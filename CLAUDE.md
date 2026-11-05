@@ -90,14 +90,14 @@ The RHI is loosely modeled on O3DE/Atom but **explicitly diverges** wherever Ato
 
 `OnFrameBegin` / `OnFrameCompileBegin` / `OnFrameEnd` are the frame hooks. Validation flag `m_isProcessingFrame` is only set under `Validation::isEnabled` — do not depend on it for state-machine logic; track your own batch state if needed.
 
-Backends extend a sub-base (`BufferPool` → `DX12::BufferPool`) and override the `*Internal` virtuals. Each DX12 pool owns its own `D3D12MA::Allocator` plus a `D3D12MAReleaseQueue m_releaseQueue` for `D3D12MA::Allocation` deferred release. For `ID3D12Object` deferred release, **do not maintain a per-pool queue** — use `Service<ID3D12FactoryInterface>::Get()->QueueForRelease(device, ptr)` which routes to the shared `D3D12ObjReleaseQueue` owned by `ID3D12Factory`. Latency for both queues is `device.GetDescriptor().m_frameCountMax`.
+Backends extend a sub-base (`BufferPool` → `DX12::BufferPool`) and override the `*Internal` virtuals. Each DX12 pool owns a `D3D12MA::Pool` of the device's allocator plus a `D3D12MAReleaseQueue m_releaseQueue` for `D3D12MA::Allocation` deferred release — the queue stays per pool because D3D12MA releases a pool only after all its allocations. For `ID3D12Object` deferred release, **do not maintain a per-pool queue** — use `Service<ID3D12FactoryInterface>::Get()->QueueForRelease(device, ptr)` which routes to the shared `D3D12ObjReleaseQueue` owned by `ID3D12Factory`. Latency for both queues is `device.GetDescriptor().m_frameCountMax`.
 
 #### DX12 backend specifics
 
-- `D3D12MA::Allocator` is per-pool (matches existing `BufferPool` / `ImagePool` pattern), not a singleton.
+- One `D3D12MA::Allocator` per device (`DX12::Device::GetAllocator()`). `BufferPool` / `ImagePool` each map to a `D3D12MA::Pool` built from their descriptor; `TransientResourcePool` / `ConstantBufferContext` use the allocator's default pools. The factory shuts every pool down before the device releases the allocator.
 - `MemoryView` (`Backend/DX12/MemoryView.h`) wraps `(D3D12MA::Allocation*, offset, size, alignment, type)` — both Image and Buffer hold one.
 - Aliased / placed resources go through `Allocator::AllocateMemory` (raw heap) + `CreateAliasingResource` (placed resource at offset). `CreateResource` is for committed allocations only; `ALLOCATION_FLAG_CAN_ALIAS` is for `CreateResource`'s output, not `AllocateMemory`'s.
-- Heap-tier 2 lets buffers and all texture types share one heap (`D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES`). Tier 1 requires three category-specific heaps.
+- Resource heap tier 2 is the minimum (the device fails to init below it): buffers and all texture types share one heap (`D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES`).
 - Heap alignment for any-resource heaps is `D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT` (4 MB) when MSAA RT/DS may be placed; otherwise 64 KB.
 
 ### Render system
