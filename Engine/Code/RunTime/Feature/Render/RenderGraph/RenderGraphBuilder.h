@@ -198,10 +198,6 @@ namespace Spark::Render
             RHIHandle scope, const RHI::AttachmentId& name,
             RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage);
 
-        //! AS accesses name an imported AS entity but track its storage buffer.
-        RHIHandle AddScopeAccelerationStructureAttachment(RHIHandle scope, const RHI::AttachmentId& name,
-            RHI::AttachmentAccess access, RHI::AttachmentStage stage);
-
         //! The resource declared under `name` so far, or NullHandle.
         RHIHandle FindResource(const RHI::AttachmentId& name) const;
 

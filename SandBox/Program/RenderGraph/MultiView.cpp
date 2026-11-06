@@ -372,6 +372,7 @@ int main(int, char**)
 
     Render::Pipeline pipeline("MultiView");
     Render::PassExecuteContext::Push(pipeline.GetPassContext());
+    sys.m_render->SetUpSystemPasses(pipeline.GetPassContext());
 
     SandBox::MultiView feature;
     feature.Init();

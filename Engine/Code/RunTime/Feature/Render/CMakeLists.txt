@@ -62,9 +62,12 @@ set(SOURCES
     Binding/Geometry/GeometryBindingSystem.cpp
     Binding/Instance/InstanceBindingSystem.cpp
     Binding/Instance/ActiveInstanceList.cpp
+    Binding/RayTracing/RayTracingBindingSystem.cpp
     Binding/DeviceArray.cpp
     Binding/Material/MaterialBindingSystem.cpp
     Geometry/MeshGeometrySystem.cpp
+    RayTracing/RayTracingBottomLevel.cpp
+    RayTracing/RayTracingSceneSystem.cpp
     Drawable/DrawMask.cpp
 )
 

@@ -23,6 +23,8 @@ namespace Spark::RHI
     {
         //! Row major, object to world.
         float    m_transform[3][4];
+        // API layout: ID/offset in low 24 bits, mask/flags in high 8 bits.
+        // C++ bit-field order is implementation-defined; assumes MSVC's low-to-high allocation.
         uint32_t m_instanceId : 24;
         uint32_t m_mask : 8;
         uint32_t m_hitGroupOffset : 24;

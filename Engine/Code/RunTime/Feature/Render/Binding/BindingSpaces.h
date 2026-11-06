@@ -6,7 +6,7 @@ namespace Spark::Render
 {
     // The HLSL register spaces of the engine's binding tiers, the one list of them: the
     // .hlsli headers write the same numbers in their register(), and a pass's layout is
-    // checked against these. Assigned by update frequency, low = stable; space6 extends
+    // checked against these. Assigned by update frequency, low = stable; spaces6/7 extend
     // the convention past the per-Scope tier.
     //
     // Only for shaders written against the engine's groups. A standalone shader (the
@@ -26,13 +26,16 @@ namespace Spark::Render
     //! MaterialBindings.hlsli: g_Materials. MaterialBindingSystem.
     inline constexpr uint32_t kMaterialSpaceId = 3;
 
-    //! InstanceBindings.hlsli: g_Instances. InstanceBindingSystem.
+    //! InstanceBindings.hlsli: g_Instances, g_EmissiveInstanceIDs. InstanceBindingSystem.
     inline constexpr uint32_t kInstanceSpaceId = 4;
 
     //! The per-Scope tier (ScopeBindings.hlsli): each Scope's own block, set by its
     //! .Constant / .BindIndex. Root constants carry it, hence the shader layer's id.
     inline constexpr uint32_t kPerScopeSpaceId = Resource::RootConstantsSpaceId;
 
-    //! GeometryBindings.hlsli: g_Geometries. GeometryBindingSystem.
+    //! GeometryBindings.hlsli: g_Geometries and raw g_MeshGeometry. GeometryBindingSystem.
     inline constexpr uint32_t kGeometrySpaceId = 6;
+
+    //! RayTracingSceneBindings.hlsli: g_RayTracingScene. RayTracingBindingSystem.
+    inline constexpr uint32_t kRayTracingSpaceId = 7;
 }

@@ -319,6 +319,7 @@ namespace Spark::Render
         m_compiler.CompileItemIndirectArguments(passContext, context);
         m_compiler.CompileItemCopies(passContext, context);
         m_compiler.CompileItemInputAssembly(passContext, context);
+        m_compiler.CompileItemAccelerationStructures(passContext, context);
         m_compiler.CompileScopeSubmitRanges(passContext, context, m_executer.GetSubmitList());
 
         m_compiler.CompileShaderInputs(*m_device, context);

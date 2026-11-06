@@ -3,6 +3,7 @@
 #include <EASTL/string.h>
 #include <EASTL/vector.h>
 #include <CoreComponents/Tags.h>
+#include <ECS/Common.h>
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 #include <RHI/Factory.h>
@@ -132,9 +133,10 @@ namespace Spark::Render
         world.Add<SkyboxGPUComponent>(entity, eastl::move(gpu));
     }
 
-    void SceneTextureSystem::Update(WorldContext& world, RHI::RHIContext& rhiCtx)
+    void SceneTextureSystem::Update(RHI::RHIContext& rhiCtx)
     {
-        if (!m_pool)
+        auto* world = WorldExecuteContext::Current();
+        if (!world || !m_pool)
         {
             return;
         }
@@ -142,10 +144,10 @@ namespace Spark::Render
         rhiCtx.Clear<SkyLightingTag>();
 
         eastl::vector<Entity> stale;
-        for (auto [entity, gpu] : world.GetView<SkyboxGPUComponent>().each())
+        for (auto [entity, gpu] : world->GetView<SkyboxGPUComponent>().each())
         {
-            const auto* sky = world.TryGet<Skybox::SkyboxComponent>(entity);
-            if (!sky || world.Has<DeadTag>(entity) || !gpu.m_cubemapAsset
+            const auto* sky = world->TryGet<Skybox::SkyboxComponent>(entity);
+            if (!sky || world->Has<DeadTag>(entity) || !gpu.m_cubemapAsset
                 || gpu.m_cubemapAsset->GetAssetId() != sky->m_imageAssetId)
             {
                 stale.push_back(entity);
@@ -153,22 +155,22 @@ namespace Spark::Render
         }
         for (Entity entity : stale)
         {
-            world.Remove<SkyboxGPUComponent>(entity);
+            world->Remove<SkyboxGPUComponent>(entity);
         }
 
         auto* manager = Service<Resource::AssetManager>::Get();
-        for (auto [entity, sky] : world.GetView<Skybox::SkyboxComponent>(Exclude<DeadTag>).each())
+        for (auto [entity, sky] : world->GetView<Skybox::SkyboxComponent>(Exclude<DeadTag>).each())
         {
-            if (!world.Has<SkyboxGPUComponent>(entity) && sky.m_imageAssetId.IsValid() && manager)
+            if (!world->Has<SkyboxGPUComponent>(entity) && sky.m_imageAssetId.IsValid() && manager)
             {
                 const auto asset = manager->FindAsset(sky.m_imageAssetId);
                 if (asset && asset->GetAssetType() == Resource::AssetType::Image && asset->IsReady())
                 {
-                    CreateSkybox(world, rhiCtx, entity, Ptr<Resource::ImageAsset>(static_cast<Resource::ImageAsset*>(asset.get())));
+                    CreateSkybox(*world, rhiCtx, entity, Ptr<Resource::ImageAsset>(static_cast<Resource::ImageAsset*>(asset.get())));
                 }
             }
-            const auto* gpu = world.TryGet<SkyboxGPUComponent>(entity);
-            if (world.Has<Skybox::ActiveSkyboxTag>(entity) && gpu)
+            const auto* gpu = world->TryGet<SkyboxGPUComponent>(entity);
+            if (world->Has<Skybox::ActiveSkyboxTag>(entity) && gpu)
             {
                 rhiCtx.Add<ActiveSkyCubeTag>(gpu->m_cubemap.Get());
                 for (auto lighting : { gpu->m_irradiance.Get(), gpu->m_prefiltered.Get() })
@@ -182,11 +184,14 @@ namespace Spark::Render
         }
     }
 
-    void SceneTextureSystem::Shutdown(WorldContext& world)
+    void SceneTextureSystem::Shutdown()
     {
-        world.Clear<SkyboxGPUComponent>();
         m_brdfLut.Reset();
         m_ltc1.Reset();
         m_ltc2.Reset();
+        if (auto* world = WorldExecuteContext::Current())
+        {
+            world->Clear<SkyboxGPUComponent>();
+        }
     }
 }

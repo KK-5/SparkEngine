@@ -1,0 +1,396 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "SparkEngine original Cornell Box-style diagnostic scene"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Floor",
+      "mesh": 0,
+      "translation": [
+        0,
+        -0.04,
+        -1
+      ],
+      "scale": [
+        2.16,
+        0.08,
+        2.16
+      ]
+    },
+    {
+      "name": "Ceiling",
+      "mesh": 1,
+      "translation": [
+        0,
+        2.04,
+        -1
+      ],
+      "scale": [
+        2.16,
+        0.08,
+        2.16
+      ]
+    },
+    {
+      "name": "BackWall",
+      "mesh": 2,
+      "translation": [
+        0,
+        1,
+        -2.04
+      ],
+      "scale": [
+        2.16,
+        2,
+        0.08
+      ]
+    },
+    {
+      "name": "LeftRedWall",
+      "mesh": 3,
+      "translation": [
+        -1.04,
+        1,
+        -1
+      ],
+      "scale": [
+        0.08,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "RightGreenWall",
+      "mesh": 4,
+      "translation": [
+        1.04,
+        1,
+        -1
+      ],
+      "scale": [
+        0.08,
+        2,
+        2
+      ]
+    },
+    {
+      "name": "ShortBlock",
+      "mesh": 5,
+      "translation": [
+        -0.38,
+        0.3,
+        -0.65
+      ],
+      "scale": [
+        0.55,
+        0.6,
+        0.55
+      ],
+      "rotation": [
+        0,
+        0.14780941112961063,
+        0,
+        0.9890158633619168
+      ]
+    },
+    {
+      "name": "TallBlock",
+      "mesh": 6,
+      "translation": [
+        0.38,
+        0.6,
+        -1.3
+      ],
+      "scale": [
+        0.55,
+        1.2,
+        0.55
+      ],
+      "rotation": [
+        0,
+        -0.15643446504023087,
+        0,
+        0.9876883405951378
+      ]
+    },
+    {
+      "name": "CeilingLight",
+      "mesh": 7,
+      "translation": [
+        0,
+        1.99,
+        -1
+      ],
+      "scale": [
+        0.65,
+        0.02,
+        0.6
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "name": "White",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.73,
+          0.73,
+          0.73,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.8
+      }
+    },
+    {
+      "name": "Red",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.63,
+          0.065,
+          0.05,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.8
+      }
+    },
+    {
+      "name": "Green",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.14,
+          0.45,
+          0.091,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.8
+      }
+    },
+    {
+      "name": "CeilingEmitter",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.8
+      },
+      "emissiveFactor": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Floor",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Ceiling",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "BackWall",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "LeftRedWall",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 1
+        }
+      ]
+    },
+    {
+      "name": "RightGreenWall",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 2
+        }
+      ]
+    },
+    {
+      "name": "ShortBlock",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "TallBlock",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "CeilingLight",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 3
+        }
+      ]
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 1224,
+      "uri": "data:application/octet-stream;base64,AAAAPwAAAL8AAAA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIC/AACAPwAAAAAAAAAAAAAAPwAAAL8AAAC/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIC/AACAPwAAgD8AAAAAAAAAPwAAAD8AAAC/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIC/AACAPwAAgD8AAIA/AAAAPwAAAD8AAAA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIC/AACAPwAAAAAAAIA/AAAAvwAAAL8AAAC/AACAvwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAvwAAAL8AAAA/AACAvwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAgD8AAAAAAAAAvwAAAD8AAAA/AACAvwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAgD8AAIA/AAAAvwAAAD8AAAC/AACAvwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAIA/AAAAvwAAAD8AAAA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAPwAAAD8AAAA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAPwAAAD8AAAC/AAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAIA/AAAAvwAAAD8AAAC/AAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAvwAAAL8AAAC/AAAAAAAAgL8AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAPwAAAL8AAAC/AAAAAAAAgL8AAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAPwAAAL8AAAA/AAAAAAAAgL8AAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAIA/AAAAvwAAAL8AAAA/AAAAAAAAgL8AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAvwAAAL8AAAA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAPwAAAL8AAAA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAPwAAAD8AAAA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAgD8AAIA/AAAAvwAAAD8AAAA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAPwAAAL8AAAC/AAAAAAAAAAAAAIC/AACAvwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAvwAAAL8AAAC/AAAAAAAAAAAAAIC/AACAvwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAvwAAAD8AAAC/AAAAAAAAAAAAAIC/AACAvwAAAAAAAAAAAACAPwAAgD8AAIA/AAAAPwAAAD8AAAC/AAAAAAAAAAAAAIC/AACAvwAAAAAAAAAAAACAPwAAAAAAAIA/AAABAAIAAAACAAMABAAFAAYABAAGAAcACAAJAAoACAAKAAsADAANAA4ADAAOAA8AEAARABIAEAASABMAFAAVABYAFAAWABcA"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 1152,
+      "byteStride": 48,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 1152,
+      "byteLength": 72,
+      "target": 34963
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC3",
+      "min": [
+        -0.5,
+        -0.5,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 24,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 40,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 0,
+      "componentType": 5123,
+      "count": 36,
+      "type": "SCALAR"
+    }
+  ]
+}

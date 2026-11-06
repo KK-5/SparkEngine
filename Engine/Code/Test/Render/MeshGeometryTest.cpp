@@ -214,6 +214,18 @@ TEST_F(MeshGeometryTest, AMeshIsEncodedWithTheBoxAroundIt)
     EXPECT_EQ(data.m_boundsExtents, Math::Vector3(2.0f, 2.0f, 3.0f));
 }
 
+// FirstIndex counts elements, not bytes. Hit shading must know which size was used by
+// the draw and BLAS build; guessing UINT32 corrupts UINT16 and non-indexed meshes.
+TEST_F(MeshGeometryTest, HitShadingReceivesTheIndexElementSize)
+{
+    MeshGeometry geometry;
+    EXPECT_EQ(EncodeGeometryData(geometry).m_indexByteStride, 0u);
+    geometry.m_indexFormat = RHI::IndexFormat::UINT16;
+    EXPECT_EQ(EncodeGeometryData(geometry).m_indexByteStride, 2u);
+    geometry.m_indexFormat = RHI::IndexFormat::UINT32;
+    EXPECT_EQ(EncodeGeometryData(geometry).m_indexByteStride, 4u);
+}
+
 //! An upload already begun goes on before any new one starts.
 TEST_F(MeshGeometryTest, ABegunUploadGoesFirst)
 {

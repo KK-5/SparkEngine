@@ -17,8 +17,8 @@ namespace Spark::RHI
 
 namespace Spark::Render
 {
-    //! The active list on the GPU: position -> g_Instances slot, the buffer carrying
-    //! InstanceIDBufferTag. Each frame it is given the list and makes the GPU's the same,
+    //! A packed list on the GPU: position -> g_Instances slot. Its owner names and tags
+    //! the buffer. Each frame it is given the list and makes the GPU's the same,
     //! writing only the positions that differ, through updates its owner's pass applies.
     //!
     //! The entries are found by their position, so they are a prefix of the buffer and so are
@@ -29,7 +29,8 @@ namespace Spark::Render
     public:
         static constexpr uint64_t ByteCount = uint64_t(InstanceCapacity) * sizeof(uint32_t);
 
-        bool Init(RHI::RHIContext& rhiCtx, RHI::Device& device);
+        bool Init(RHI::RHIContext& rhiCtx, RHI::Device& device,
+            const ObjectName& name, RHI::BufferBindFlags bindFlags);
         //! After the GPU is idle.
         void Shutdown(RHI::RHIContext& rhiCtx);
 

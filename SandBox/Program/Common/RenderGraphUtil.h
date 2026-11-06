@@ -2,6 +2,8 @@
 
 #include <EASTL/sort.h>
 
+#include <ECS/Common.h>
+#include <ECS/WorldContext.h>
 #include <Log/ILogSystem.h>
 #include <Log/SpdLogSystem.h>
 #include <Base.h>
@@ -15,6 +17,7 @@
 #include <RHI/Backend/DX12/RHISystem.h>
 #include <RHI/System/RHIResourceSystem.h>
 #include <RHI/System/AsyncUploadSystem.h>
+#include <RHI/System/RHIHandleClearSystem.h>
 #include <RHI/Device/DeviceDescriptor.h>
 
 #include <Resource/Asset.h>
@@ -32,6 +35,32 @@ namespace Spark::SandBox
 {
     struct RenderGraphSystems
     {
+        RenderGraphSystems() = default;
+        RenderGraphSystems(RenderGraphSystems&&) = default;
+
+        ~RenderGraphSystems()
+        {
+            // Upload requests must release their targets before renderer-owned pools go.
+            m_asyncUpload.reset();
+            m_render.reset();
+            if (m_worldContext)
+            {
+                m_worldContext->Clear();
+            }
+            if (m_rhi && m_rhi->IsInitialized())
+            {
+                RHI::RHIHandleClearSystem::Collect(m_rhi->GetContext());
+                if (auto* device = m_rhi->GetDevice())
+                {
+                    device->FlushReleaseQueue();
+                }
+            }
+        }
+
+        UniquePtr<ILogSystem>                       m_logger;
+        // Stable addresses when this bundle is returned by value; outlive every system.
+        UniquePtr<WorldContext>                     m_worldContext;
+        UniquePtr<WorldExecuteContextGuard>         m_worldCtxGuard;
         SystemUniquePtr<VFSSystem>                  m_vfs;
         SystemUniquePtr<SimpleGlfwWindow>           m_window;
         SystemUniquePtr<Input::InputSystem>         m_input;
@@ -42,7 +71,6 @@ namespace Spark::SandBox
         SystemUniquePtr<RHI::AsyncUploadSystem>     m_asyncUpload;
         SystemUniquePtr<Resource::SparkAssetManager> m_assetManager;
         SystemUniquePtr<Render::RenderSystem>       m_render;
-        UniquePtr<ILogSystem>                     m_logger;
     };
 
     inline RenderGraphSystems InitRenderGraphApp(int width, int height, const char* title)
@@ -50,6 +78,8 @@ namespace Spark::SandBox
         using namespace Spark;
 
         RenderGraphSystems sys;
+        sys.m_worldContext = MakeUnique<WorldContext>();
+        sys.m_worldCtxGuard = MakeUnique<WorldExecuteContextGuard>(*sys.m_worldContext);
 
         // Asset ids are cached as JSON, which runs off reflection.
         TypeRegistry::Register(Spark::Reflect);

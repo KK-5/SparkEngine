@@ -1191,7 +1191,7 @@ namespace Spark::Render
         };
 
         // A pass that set anything leaves no view it did not bind this frame in its per-pass
-        // space: an image or buffer input nothing bound gets null. Passes that set nothing are
+        // space: an image, buffer or AS input nothing bound gets null. Passes that set nothing are
         // left alone — they may still set their inputs themselves.
         auto finishPass = [&]()
         {
@@ -1216,6 +1216,16 @@ namespace Spark::Render
                 if (!isBound(buffer.GetDescription().m_name) && buffer.GetView(0))
                 {
                     SetShaderBuffer(bindings, buffer.GetDescription().m_name, nullptr);
+                }
+            }
+            for (const auto& structure : sb.GetAccelerationStructureInputs())
+            {
+                if (!isBound(structure.GetDescription().m_name))
+                {
+                    for (uint32_t i = 0; i < structure.GetCount(); ++i)
+                    {
+                        SetShaderAccelerationStructure(bindings, structure.GetDescription().m_name, nullptr, i);
+                    }
                 }
             }
         };
@@ -1247,6 +1257,17 @@ namespace Spark::Render
                         const RHI::ImageView* view = ResolveAttachmentView(context, *image, m_frameIndex);
                         checkAgrees(binding->m_input, &view, sizeof(view));
                         SetShaderImage(bindings, binding->m_input, view);
+                    }
+                    else if (context.Get<BufferPassAttachment>(attachment).m_usage
+                        == RHI::AttachmentUsage::RayTracingAccelerationStructure)
+                    {
+                        const auto& resource = context.Get<AccelerationStructure>(attachment);
+                        const RHI::AccelerationStructure* structure = resource.m_structure.get();
+                        const eastl::array<uint64_t, 4> identity {
+                            reinterpret_cast<uintptr_t>(&structure->GetBuffer()), structure->GetOffset(),
+                            structure->GetSize(), static_cast<uint64_t>(structure->GetType()) };
+                        checkAgrees(binding->m_input, identity.data(), sizeof(identity));
+                        SetShaderAccelerationStructure(bindings, binding->m_input, structure);
                     }
                     else
                     {
@@ -1433,18 +1454,13 @@ namespace Spark::Render
         for (auto [handle, build] : context.GetStorage<ItemAccelerationStructureBuild>().each())
         {
             auto& item = context.Get<RHI::AccelerationStructureBuildItem>(handle);
-            const auto& destination = context.Get<RHI::Components::AccelerationStructure>(build.m_destination);
+            const auto& destination = context.Get<AccelerationStructure>(build.m_destinationAttachment);
             ASSERT(destination.m_structure != nullptr && destination.m_structure->IsInitialized(),
                 "[RenderGraphCompiler] A build's destination resource is not initialized.");
             ASSERT(destination.m_structure->GetType() == item.m_inputs.m_type,
                 "[RenderGraphCompiler] A build's destination type does not match its inputs.");
             ASSERT(context.Has<ItemBottomLevelBuild>(handle) != context.Has<ItemTopLevelBuild>(handle),
                 "[RenderGraphCompiler] A build requires exactly one bottom or top level input component.");
-            ASSERT(backingOf(build.m_storageAttachment, RHI::BufferBindFlags::RayTracingAccelerationStructure)
-                    == &destination.m_structure->GetBuffer(),
-                "[RenderGraphCompiler] A build's storage access does not refer to its destination's buffer.");
-            ASSERT(context.Get<BufferPassAttachment>(build.m_storageAttachment).m_buffer == destination.m_bufferResource,
-                "[RenderGraphCompiler] A build's storage access does not refer to its buffer entity.");
             item.m_destination = destination.m_structure.get();
             item.m_scratchBuffer = backingOf(build.m_scratchAttachment, RHI::BufferBindFlags::RayTracingScratchBuffer);
             const auto& scratch = context.Get<BufferPassAttachment>(build.m_scratchAttachment).m_viewDescriptor;

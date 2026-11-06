@@ -41,6 +41,7 @@ namespace Spark::Render
         Attachment& Format(RHI::Format format);
         Attachment& View(const RHI::ImageViewDescriptor& view);
         Attachment& View(const RHI::BufferViewDescriptor& view);
+        Attachment& AccelerationStructure(const Ptr<RHI::AccelerationStructure>& structure);
 
         //! Take the resource as the pass called `passName` left it, whatever passes declared
         //! since have written to it. A read sees what that pass's last write of it left. A
@@ -105,6 +106,12 @@ namespace Spark::Render
             return *this;
         }
 
+        ShaderAttachment& AccelerationStructure(const Ptr<RHI::AccelerationStructure>& structure)
+        {
+            m_attachment.AccelerationStructure(structure);
+            return *this;
+        }
+
         //! See Attachment::From.
         ShaderAttachment& From(eastl::string_view passName)
         {
@@ -116,7 +123,7 @@ namespace Spark::Render
         //! through a shared binding). Render passes only: a compute pass's is fixed.
         ShaderAttachment& Stage(RHI::AttachmentStage stage);
 
-        //! Bind it to the per-pass shader input `input`: lowering puts its view there.
+        //! Bind its view or AS object to the per-pass shader input `input`.
         ShaderAttachment& Bind(const RHI::InputName& input);
 
         //! Bind it by heap index to the uint constant `input`, a root constant or a per-pass
@@ -183,6 +190,9 @@ namespace Spark::Render
         //! A shader's access of a buffer.
         ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
+
+        //! Shared bindings need only the buffer dependency; per-pass .Bind needs .View and .AccelerationStructure.
+        ShaderAttachment ReadAccelerationStructure(const RHI::AttachmentId& name);
 
         //! The buffer an indirect call of this Scope reads its records, or their count, from.
         //! Created with BufferBindFlags::Indirect.
@@ -288,6 +298,9 @@ namespace Spark::Render
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
         ShaderAttachment WriteBuffer(const RHI::AttachmentId& name);
 
+        //! Shared bindings need only the buffer dependency; per-pass .Bind needs .View and .AccelerationStructure.
+        ShaderAttachment ReadAccelerationStructure(const RHI::AttachmentId& name);
+
         //! The buffer an indirect call of this Scope reads its records from. Created with
         //! BufferBindFlags::Indirect.
         Attachment IndirectArguments(const RHI::AttachmentId& name);
@@ -358,6 +371,7 @@ namespace Spark::Render
         //! Vertex, index or instance data; View declares its element range and stride.
         Attachment BuildInput(const RHI::AttachmentId& name);
         Attachment ReadAccelerationStructure(const RHI::AttachmentId& name);
+        //! View declares the AS byte range for a build target.
         Attachment WriteAccelerationStructure(const RHI::AttachmentId& name);
         Attachment ReadWriteAccelerationStructure(const RHI::AttachmentId& name);
         //! View declares this build's scratch range.
