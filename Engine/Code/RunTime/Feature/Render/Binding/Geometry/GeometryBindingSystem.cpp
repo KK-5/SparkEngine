@@ -9,6 +9,7 @@
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHIInterface.h>
 #include <RHI/Device/Device.h>
+#include <RHI/ResourceBuilder.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
@@ -20,12 +21,14 @@
 #include <Pass/ComputePass.h>
 #include <RenderGraph/PassScopes.h>
 #include <RayTracing/RayTracingBottomLevel.h>
+#include <Shader/ShaderBindingsUtils.h>
 
 namespace Spark::Render
 {
     namespace
     {
         constexpr const char* GeometryBufferName = "g_Geometries";
+        constexpr const char* MeshGeometryBufferName = "g_MeshGeometry";
     }
 
     GeometryData EncodeGeometryData(const MeshGeometry& geometry)
@@ -34,6 +37,7 @@ namespace Spark::Render
         data.m_firstIndex    = geometry.m_firstIndex;
         data.m_indexCount    = geometry.m_indexCount;
         data.m_vertexOffset  = static_cast<int32_t>(geometry.m_vertexOffset);
+        data.m_indexByteStride = RHI::GetIndexFormatSize(geometry.m_indexFormat);
         data.m_boundsCenter  = geometry.m_localBounds.Center();
         data.m_boundsExtents = geometry.m_localBounds.Extents();
         return data;
@@ -46,6 +50,9 @@ namespace Spark::Render
         inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
             RHI::InputName(GeometryBufferName), RHI::ShaderInputBufferAccess::Read,
             RHI::ShaderInputBufferType::Structured, 1, 0, 0, kGeometrySpaceId));
+        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
+            RHI::InputName(MeshGeometryBufferName), RHI::ShaderInputBufferAccess::Read,
+            RHI::ShaderInputBufferType::Raw, 1, 0, 1, kGeometrySpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
         // only the handle. The DeviceArray binds the g_Geometries SRV.
@@ -71,6 +78,16 @@ namespace Spark::Render
         if (m_geometries.Init(rhiCtx, device, arrayDesc))
         {
             rhiCtx.Add<GeometryPoolTag>(m_geometries.GetResource());
+        }
+
+        // MeshGeometrySystem initializes the stable pool before this binding system.
+        // Its address space stays fixed as physical pages are mapped and unmapped.
+        for (auto [entity, buffer] : rhiCtx.GetView<MeshGeometryPoolTag, RHI::Components::Buffer>().each())
+        {
+            const auto viewDesc = RHI::BufferViewDescriptor::CreateRaw(
+                0, static_cast<uint32_t>(buffer.m_buffer->GetDescriptor().m_byteCount));
+            auto* view = RHI::GetOrCreateBufferView(rhiCtx, entity, *buffer.m_buffer, viewDesc);
+            SetShaderBuffer(m_bindingsEntity, RHI::InputName(MeshGeometryBufferName), view);
         }
     }
 
@@ -179,6 +196,10 @@ namespace Spark::Render
 
     void GeometryBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
+        if (m_bindingsEntity != RHI::NullHandle)
+        {
+            SetShaderBuffer(m_bindingsEntity, RHI::InputName(MeshGeometryBufferName), nullptr);
+        }
         if (auto* world = WorldExecuteContext::Current())
         {
             world->Clear<GeometrySlot>();

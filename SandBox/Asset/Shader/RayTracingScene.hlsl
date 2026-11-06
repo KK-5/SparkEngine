@@ -1,5 +1,5 @@
 #include <Shaders/ViewBindings.hlsli>
-#include <Shaders/RayTracingSceneBindings.hlsli>
+#include <Shaders/Lib/RayTracing/RayTracing.hlsli>
 
 struct ScopeParameters
 {
@@ -35,14 +35,11 @@ float4 PSMain(VSOutput input) : SV_Target0
     ray.TMin = 0.001;
     ray.TMax = 100.0;
 
-    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
-    query.TraceRayInline(g_RayTracingScene, RAY_FLAG_NONE, 0xFF, ray);
-    while (query.Proceed()) {}
-
     float3 color = float3(0.025, 0.035, 0.055);
-    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+    RayTracingHit hit;
+    if (TraceClosestOpaqueTriangle(ray, 0xFF, hit))
     {
-        uint hash = (query.CommittedInstanceID() + 1u) * 0x9E3779B9u;
+        uint hash = (hit.InstanceIndex + 1u) * 0x9E3779B9u;
         hash ^= hash >> 16;
         color = 0.2 + 0.8 * float3(hash & 255u, (hash >> 8) & 255u, (hash >> 16) & 255u) / 255.0;
     }

@@ -33,7 +33,7 @@ namespace Spark::Render
     //! .Constant / .BindIndex. Root constants carry it, hence the shader layer's id.
     inline constexpr uint32_t kPerScopeSpaceId = Resource::RootConstantsSpaceId;
 
-    //! GeometryBindings.hlsli: g_Geometries. GeometryBindingSystem.
+    //! GeometryBindings.hlsli: g_Geometries and raw g_MeshGeometry. GeometryBindingSystem.
     inline constexpr uint32_t kGeometrySpaceId = 6;
 
     //! RayTracingSceneBindings.hlsli: g_RayTracingScene. RayTracingBindingSystem.

@@ -17,7 +17,8 @@ namespace Spark::Render
         uint32_t Get() const { return static_cast<uint32_t>(m_range.GetOffset() / sizeof(GeometryData)); }
     };
 
-    //! The single shared ShaderBindings entity carrying g_Geometries (space6).
+    //! The shared ShaderBindings carrying g_Geometries + the raw g_MeshGeometry (space6).
+    //! A reader of raw vertices/indices also imports MeshGeometryPoolTag and declares its read.
     struct GeometryBindingTag
     {
         using Uses = TagList<>;

@@ -21,7 +21,8 @@ namespace Spark::Render
         Math::Vector3 m_boundsExtents {0.0f};
         uint32_t      m_indexCount    = 0;
         int32_t       m_vertexOffset  = 0;
-        uint32_t      m_padding       = 0;
+        //! Bytes per index: 0 for non-indexed triangles, otherwise 2 or 4.
+        uint32_t      m_indexByteStride = 0;
         uint64_t      m_bottomLevelAddress = 0;
     };
 
@@ -29,4 +30,6 @@ namespace Spark::Render
         "GeometryData must stay 48 bytes to match GeometryData.hlsli.");
     static_assert(offsetof(GeometryData, m_bottomLevelAddress) == 40,
         "The BLAS address must match GeometryData.hlsli.");
+    static_assert(offsetof(GeometryData, m_indexByteStride) == 36,
+        "The index stride must match GeometryData.hlsli.");
 }

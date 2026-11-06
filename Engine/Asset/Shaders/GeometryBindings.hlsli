@@ -12,5 +12,8 @@
 
 // The group's layout is declared again in GeometryBindingSystem::Init; change both together.
 StructuredBuffer<GeometryData> g_Geometries : register(t0, space6);
+// The same pool draws and BLAS builds read, viewed from byte 0. Hit shading loads both
+// vertex attributes and UINT16/UINT32 indices through it. Declare its graph read too.
+ByteAddressBuffer g_MeshGeometry : register(t1, space6);
 
 #endif // SPARK_GEOMETRY_BINDINGS_HLSL

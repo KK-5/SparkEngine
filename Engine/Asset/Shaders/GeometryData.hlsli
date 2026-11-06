@@ -11,7 +11,7 @@ struct GeometryData
     float3 BoundsExtents;   // half the box's size along each axis
     uint   IndexCount;
     int    VertexOffset;
-    uint   _Pad;
+    uint   IndexByteStride;  // 0: non-indexed; 2: UINT16; 4: UINT32. FirstIndex is in indices.
     uint2  BottomLevelAddress;
 };
 

@@ -17,76 +17,101 @@ float3 GetMaterialWorldPositionOffset(MaterialVertexParameters parameters)
     return float3(0.0, 0.0, 0.0);
 }
 
-PixelMaterialInputs CalcPixelMaterialInputs(MaterialPixelParameters parameters, SamplerState materialSampler)
+// Sampling is separate from material math: raster uses derivatives, ray hits supply an
+// explicit mip level. Both paths evaluate the same factors, texture channels and normal map.
+struct MaterialTextureSamples
 {
-    MaterialData mat = GetMaterialData(parameters.MaterialIndex);
-    float2 uv = parameters.TexCoord0;
+    float4 BaseColor;
+    float4 MetallicRoughness;
+    float4 Normal;
+    float4 Occlusion;
+    float4 Emissive;
+};
 
+float4 SampleMaterialTexture(uint index, float2 uv, SamplerState materialSampler)
+{
+    if (index == SPARK_INVALID_TEXTURE_INDEX)
+    {
+        return 1.0;
+    }
+    Texture2D<float4> texture = ResourceDescriptorHeap[NonUniformResourceIndex(index)];
+    return texture.Sample(materialSampler, uv);
+}
+
+float4 SampleMaterialTextureLevel(uint index, float2 uv, SamplerState materialSampler, float mipLevel)
+{
+    if (index == SPARK_INVALID_TEXTURE_INDEX)
+    {
+        return 1.0;
+    }
+    Texture2D<float4> texture = ResourceDescriptorHeap[NonUniformResourceIndex(index)];
+    return texture.SampleLevel(materialSampler, uv, mipLevel);
+}
+
+PixelMaterialInputs EvaluateMaterialInputs(
+    MaterialPixelParameters parameters, MaterialData mat, MaterialTextureSamples samples)
+{
     PixelMaterialInputs inputs;
     inputs.Specular    = mat.Specular;
     inputs.OpacityMask = 1.0;
 
     // glTF: the base colour's alpha is the surface's opacity.
-    float4 baseColor = mat.BaseColor;
-    uint baseColorTexIndex = mat.TexIndices[SPARK_TEX_SLOT_BASE_COLOR];
-    if (baseColorTexIndex != SPARK_INVALID_TEXTURE_INDEX)
-    {
-        Texture2D<float4> baseColorTex = ResourceDescriptorHeap[NonUniformResourceIndex(baseColorTexIndex)];
-        baseColor *= baseColorTex.Sample(materialSampler, uv);
-    }
+    float4 baseColor = mat.BaseColor * samples.BaseColor;
     inputs.BaseColor = baseColor.rgb;
     inputs.Opacity   = baseColor.a;
 
-    inputs.Roughness = mat.Roughness;
-    inputs.Metallic  = mat.Metallic;
-    uint MRTexIndex = mat.TexIndices[SPARK_TEX_SLOT_METALLIC_ROUGH];
-    if (MRTexIndex != SPARK_INVALID_TEXTURE_INDEX)
-    {
-        // glTF metallic-roughness: G = roughness, B = metallic.
-        Texture2D<float4> MRTex = ResourceDescriptorHeap[NonUniformResourceIndex(MRTexIndex)];
-        float4 mr = MRTex.Sample(materialSampler, uv);
-        inputs.Roughness *= mr.g;
-        inputs.Metallic  *= mr.b;
-    }
-
-    inputs.AmbientOcclusion = 1.0;
-    uint occlusionTexIndex = mat.TexIndices[SPARK_TEX_SLOT_OCCLUSION];
-    if (occlusionTexIndex != SPARK_INVALID_TEXTURE_INDEX)
-    {
-        Texture2D<float4> occlusionTex = ResourceDescriptorHeap[NonUniformResourceIndex(occlusionTexIndex)];
-        inputs.AmbientOcclusion = occlusionTex.Sample(materialSampler, uv).r;
-    }
+    // glTF metallic-roughness: G = roughness, B = metallic.
+    inputs.Roughness = mat.Roughness * samples.MetallicRoughness.g;
+    inputs.Metallic  = mat.Metallic * samples.MetallicRoughness.b;
+    inputs.AmbientOcclusion = samples.Occlusion.r;
 
     inputs.Normal               = parameters.WorldVertexNormal;
     inputs.NormalIsTangentSpace = false;
     uint normalTexIndex = mat.TexIndices[SPARK_TEX_SLOT_NORMAL];
     if (normalTexIndex != SPARK_INVALID_TEXTURE_INDEX)
     {
-        Texture2D<float4> normalTex = ResourceDescriptorHeap[NonUniformResourceIndex(normalTexIndex)];
-        float3 normalTS = normalTex.Sample(materialSampler, uv).xyz * 2.0 - 1.0;
+        float3 normalTS = samples.Normal.xyz * 2.0 - 1.0;
         // glTF normalScale scales the tangent XY; CalcMaterialParameters renormalizes.
         normalTS.xy *= mat.NormalScale;
         inputs.Normal               = normalTS;
         inputs.NormalIsTangentSpace = true;
     }
 
-    inputs.EmissiveColor = mat.Emissive.rgb * mat.Emissive.a;
-    uint emissiveTexIndex = mat.TexIndices[SPARK_TEX_SLOT_EMISSIVE];
-    if (emissiveTexIndex != SPARK_INVALID_TEXTURE_INDEX)
-    {
-        Texture2D<float4> emissiveTex = ResourceDescriptorHeap[NonUniformResourceIndex(emissiveTexIndex)];
-        inputs.EmissiveColor *= emissiveTex.Sample(materialSampler, uv).rgb;
-    }
+    inputs.EmissiveColor = mat.Emissive.rgb * mat.Emissive.a * samples.Emissive.rgb;
 
     return inputs;
 }
 
-//! Evaluates the material and resolves what depends on it, the world normal today.
-void CalcMaterialParameters(
-    inout MaterialPixelParameters parameters, out PixelMaterialInputs inputs, SamplerState materialSampler)
+PixelMaterialInputs CalcPixelMaterialInputs(MaterialPixelParameters parameters, SamplerState materialSampler)
 {
-    inputs = CalcPixelMaterialInputs(parameters, materialSampler);
+    MaterialData mat = GetMaterialData(parameters.MaterialIndex);
+    float2 uv = parameters.TexCoord0;
+    MaterialTextureSamples samples;
+    samples.BaseColor = SampleMaterialTexture(mat.TexIndices[SPARK_TEX_SLOT_BASE_COLOR], uv, materialSampler);
+    samples.MetallicRoughness = SampleMaterialTexture(mat.TexIndices[SPARK_TEX_SLOT_METALLIC_ROUGH], uv, materialSampler);
+    samples.Normal = SampleMaterialTexture(mat.TexIndices[SPARK_TEX_SLOT_NORMAL], uv, materialSampler);
+    samples.Occlusion = SampleMaterialTexture(mat.TexIndices[SPARK_TEX_SLOT_OCCLUSION], uv, materialSampler);
+    samples.Emissive = SampleMaterialTexture(mat.TexIndices[SPARK_TEX_SLOT_EMISSIVE], uv, materialSampler);
+    return EvaluateMaterialInputs(parameters, mat, samples);
+}
 
+//! Explicit LOD for compute/ray-hit shading; no screen derivatives or implicit footprint.
+PixelMaterialInputs CalcPixelMaterialInputsLevel(
+    MaterialPixelParameters parameters, SamplerState materialSampler, float mipLevel)
+{
+    MaterialData mat = GetMaterialData(parameters.MaterialIndex);
+    float2 uv = parameters.TexCoord0;
+    MaterialTextureSamples samples;
+    samples.BaseColor = SampleMaterialTextureLevel(mat.TexIndices[SPARK_TEX_SLOT_BASE_COLOR], uv, materialSampler, mipLevel);
+    samples.MetallicRoughness = SampleMaterialTextureLevel(mat.TexIndices[SPARK_TEX_SLOT_METALLIC_ROUGH], uv, materialSampler, mipLevel);
+    samples.Normal = SampleMaterialTextureLevel(mat.TexIndices[SPARK_TEX_SLOT_NORMAL], uv, materialSampler, mipLevel);
+    samples.Occlusion = SampleMaterialTextureLevel(mat.TexIndices[SPARK_TEX_SLOT_OCCLUSION], uv, materialSampler, mipLevel);
+    samples.Emissive = SampleMaterialTextureLevel(mat.TexIndices[SPARK_TEX_SLOT_EMISSIVE], uv, materialSampler, mipLevel);
+    return EvaluateMaterialInputs(parameters, mat, samples);
+}
+
+void ResolveMaterialNormal(inout MaterialPixelParameters parameters, PixelMaterialInputs inputs)
+{
     if (inputs.NormalIsTangentSpace)
     {
         float3 N = parameters.WorldVertexNormal;
@@ -101,6 +126,22 @@ void CalcMaterialParameters(
 
     // The back of a double-sided surface faces the other way, bumps and all.
     parameters.WorldNormal *= parameters.TwoSidedSign;
+}
+
+//! Evaluates the material and resolves what depends on it, the world normal today.
+void CalcMaterialParameters(
+    inout MaterialPixelParameters parameters, out PixelMaterialInputs inputs, SamplerState materialSampler)
+{
+    inputs = CalcPixelMaterialInputs(parameters, materialSampler);
+    ResolveMaterialNormal(parameters, inputs);
+}
+
+void CalcMaterialParametersLevel(
+    inout MaterialPixelParameters parameters, out PixelMaterialInputs inputs,
+    SamplerState materialSampler, float mipLevel)
+{
+    inputs = CalcPixelMaterialInputsLevel(parameters, materialSampler, mipLevel);
+    ResolveMaterialNormal(parameters, inputs);
 }
 
 //! Feed to clip(): negative discards.

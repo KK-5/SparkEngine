@@ -9,7 +9,7 @@
 #ifndef SPARK_LIB_RAY_TRACED_SHADOW_HLSLI
 #define SPARK_LIB_RAY_TRACED_SHADOW_HLSLI
 
-#include <Shaders/RayTracingSceneBindings.hlsli>
+#include <Shaders/Lib/RayTracing/RayTracing.hlsli>
 
 //! A directional light's occluders have no range, so the ray runs as far as the API allows.
 static const float kShadowRayTMax = 1e30;
@@ -47,11 +47,7 @@ bool TraceDirectionalShadow(float3 worldPos, float3 N, float3 L)
     // ACCEPT_FIRST_HIT_AND_END_SEARCH: one occlusion test, so the first hit ends traversal
     // and a single Proceed is the whole query. Deliberately no CULL_BACK_FACING_TRIANGLES:
     // light must not leak through single sided geometry.
-    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE> query;
-    query.TraceRayInline(g_RayTracingScene, RAY_FLAG_NONE, kShadowRayInstanceMask, ray);
-    query.Proceed();
-
-    return query.CommittedStatus() != COMMITTED_TRIANGLE_HIT;
+    return TraceOpaqueVisibility(ray, kShadowRayInstanceMask);
 }
 
 #endif // SPARK_LIB_RAY_TRACED_SHADOW_HLSLI

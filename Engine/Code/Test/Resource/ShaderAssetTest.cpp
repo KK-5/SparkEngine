@@ -557,6 +557,41 @@ TEST_F(ShaderAssetTestFixture, RootConstantFloat3IsRejected)
     EXPECT_EQ(CompileComputeShader("test://Asset/Shaders/RootConstantsFloat3Test.hlsl"), nullptr);
 }
 
+TEST_F(ShaderAssetTestFixture, RayTracingSurfaceCompilesWithExplicitLodAndSharedBindings)
+{
+    auto compiledData = CompileComputeShader("test://Asset/Shaders/RayTracingSurfaceTest.hlsl", "cs_6_6");
+    ASSERT_NE(compiledData, nullptr);
+    ShaderAsset shader(AssetId::Of<ShaderAsset>("test://Asset/Shaders/RayTracingSurfaceTest.hlsl"));
+    shader.SetDataReady(eastl::move(compiledData));
+    const auto built = Resource::BuildShaderInputList(shader);
+
+    struct ExpectedBuffer { const char* name; uint32_t space; uint32_t slot; RHI::ShaderInputBufferType type; };
+    const ExpectedBuffer expected[] = {
+        { "g_Instances", 4, 0, RHI::ShaderInputBufferType::Structured },
+        { "g_Geometries", 6, 0, RHI::ShaderInputBufferType::Structured },
+        { "g_MeshGeometry", 6, 1, RHI::ShaderInputBufferType::Raw },
+        { "g_Materials", 3, 0, RHI::ShaderInputBufferType::Structured },
+    };
+    for (const auto& input : expected)
+    {
+        const RHI::ShaderInputBufferDescriptor* found = nullptr;
+        for (const auto& buffer : built.list.m_buffers)
+        {
+            if (eastl::string_view(buffer.m_name.GetCStr()) == input.name)
+            {
+                found = &buffer;
+            }
+        }
+        ASSERT_NE(found, nullptr) << input.name;
+        EXPECT_EQ(found->m_spaceId, input.space);
+        EXPECT_EQ(found->m_registerId, input.slot);
+        EXPECT_EQ(found->m_type, input.type);
+    }
+    ASSERT_EQ(built.list.m_accelerationStructures.size(), 1u);
+    EXPECT_EQ(built.list.m_accelerationStructures[0].m_spaceId, 7u);
+    EXPECT_EQ(built.list.m_accelerationStructures[0].m_registerId, 0u);
+}
+
 TEST_F(ShaderAssetTestFixture, LoadShaderAssetSync)
 {
     AssetId id = AssetId::Of<ShaderAsset>("engine://Shaders/Test/SimpleTriangle.hlsl");
