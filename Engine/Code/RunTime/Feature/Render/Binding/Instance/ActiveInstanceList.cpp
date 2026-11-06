@@ -1,6 +1,7 @@
 #include "ActiveInstanceList.h"
 
 #include <EASTL/algorithm.h>
+#include <EASTL/string.h>
 
 #include <Log/ILogSystem.h>
 #include <RHI/Component/Component.h>
@@ -9,26 +10,28 @@
 
 namespace Spark::Render
 {
-    bool ActiveInstanceList::Init(RHI::RHIContext& rhiCtx, RHI::Device& device)
+    bool ActiveInstanceList::Init(RHI::RHIContext& rhiCtx, RHI::Device& device,
+        const ObjectName& name, RHI::BufferBindFlags bindFlags)
     {
-        // Read as a vertex stream and by shaders on the Graphics queue, where its owner's pass writes it.
+        // The owner's update pass writes it on the Graphics queue.
         ReservedBuffer::Descriptor poolDesc;
         poolDesc.m_capacity  = ByteCount;
         poolDesc.m_pageSize  = device.GetLimits().m_reservedPageSizeInBytes;
-        poolDesc.m_bindFlags = RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::ShaderReadWrite;
-        poolDesc.m_name      = ObjectName("InstanceIDBuffer");
+        poolDesc.m_bindFlags = bindFlags;
+        poolDesc.m_name      = name;
         if (!m_pool.Init(device, poolDesc))
         {
-            LOG_ERROR("[ActiveInstanceList] The instance ID buffer failed to init; no instance will be drawn.");
+            LOG_ERROR("[ActiveInstanceList] {}: the ID buffer failed to init.", name.GetCStr());
             return false;
         }
 
+        const eastl::string updateName(eastl::string::CtorSprintf(), "%s Update", name.GetCStr());
         ElementUpdateBuffer::Descriptor updateDesc;
-        updateDesc.m_name        = ObjectName("InstanceIDUpdate");
+        updateDesc.m_name        = ObjectName(updateName.c_str());
         updateDesc.m_elementSize = sizeof(uint32_t);
         if (!m_updates.Init(device, updateDesc))
         {
-            LOG_ERROR("[ActiveInstanceList] The instance ID updates failed to init; no instance will be drawn.");
+            LOG_ERROR("[ActiveInstanceList] {}: the ID updates failed to init.", name.GetCStr());
             m_pool.Shutdown();
             return false;
         }
@@ -37,7 +40,6 @@ namespace Spark::Render
         rhiCtx.Add<RHI::Components::Buffer>(m_resource, RHI::Components::Buffer{ Ptr<RHI::Buffer>(m_pool.GetBuffer()) });
         rhiCtx.Add<RHI::ImportedTag>(m_resource);
         rhiCtx.Add<RHI::ResourceName>(m_resource, RHI::ResourceName{ poolDesc.m_name });
-        rhiCtx.Add<InstanceIDBufferTag>(m_resource);
         return true;
     }
 

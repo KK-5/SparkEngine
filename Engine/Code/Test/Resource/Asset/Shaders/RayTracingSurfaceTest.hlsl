@@ -36,4 +36,5 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     g_Output[3] = float4(material.WorldNormal, material.Inputs.Roughness);
     g_Output[4] = float4(material.Inputs.BaseColor, material.Inputs.Metallic);
     g_Output[5] = float4(surface.MaterialParameters.TexCoord0, material.Inputs.AmbientOcclusion, material.Inputs.Opacity);
+    g_Output[6] = float4(float(g_EmissiveInstanceIDs[id.x]), 0.0, 0.0, 1.0);
 }

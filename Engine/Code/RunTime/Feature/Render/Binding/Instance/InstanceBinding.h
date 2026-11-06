@@ -29,7 +29,7 @@ namespace Spark::Render
         Math::Matrix4X4 m_model{Math::Matrix4X4Const::IDENTITY};
     };
 
-    //! The single shared ShaderBindings entity carrying g_Instances (space4).
+    //! The shared ShaderBindings carrying g_Instances and g_EmissiveInstanceIDs (space4).
     struct InstanceBindingTag
     {
         using Uses = TagList<>;
@@ -52,4 +52,18 @@ namespace Spark::Render
     //! vertex stream, and a draw's FirstInstance is a position in it; one going through every
     //! instance reads it as g_InstanceIDs.
     struct InstanceIDBufferTag {};
+
+    //! Packed references to geometry-ready instances whose effective material has a
+    //! positive emissive factor * strength. Textures are evaluated at the sampled point;
+    //! an all-black emissive texture may therefore still have an entry. No triangle data
+    //! or material parameters are duplicated here. Readers import and declare a buffer read.
+    struct EmissiveInstanceIDBufferTag {};
+
+    //! On the same RHI entity as ActiveInstanceCount. Only this prefix of the emissive
+    //! ID buffer is valid. Consumers pass the count to their shaders just like the active
+    //! instance count; BufferView's capacity is not the current count.
+    struct EmissiveInstanceCount
+    {
+        uint32_t m_count = 0;
+    };
 }

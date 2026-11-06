@@ -568,6 +568,7 @@ TEST_F(ShaderAssetTestFixture, RayTracingSurfaceCompilesWithExplicitLodAndShared
     struct ExpectedBuffer { const char* name; uint32_t space; uint32_t slot; RHI::ShaderInputBufferType type; };
     const ExpectedBuffer expected[] = {
         { "g_Instances", 4, 0, RHI::ShaderInputBufferType::Structured },
+        { "g_EmissiveInstanceIDs", 4, 1, RHI::ShaderInputBufferType::Structured },
         { "g_Geometries", 6, 0, RHI::ShaderInputBufferType::Structured },
         { "g_MeshGeometry", 6, 1, RHI::ShaderInputBufferType::Raw },
         { "g_Materials", 3, 0, RHI::ShaderInputBufferType::Structured },

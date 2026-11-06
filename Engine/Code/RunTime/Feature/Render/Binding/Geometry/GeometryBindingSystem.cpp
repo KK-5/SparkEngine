@@ -38,6 +38,9 @@ namespace Spark::Render
         data.m_indexCount    = geometry.m_indexCount;
         data.m_vertexOffset  = static_cast<int32_t>(geometry.m_vertexOffset);
         data.m_indexByteStride = RHI::GetIndexFormatSize(geometry.m_indexFormat);
+        const uint32_t vertexCount = geometry.m_vertexByteStride != 0
+            ? static_cast<uint32_t>(geometry.m_vertices.GetSize() / geometry.m_vertexByteStride) : 0;
+        data.m_triangleCount = (data.m_indexByteStride != 0 ? geometry.m_indexCount : vertexCount) / 3u;
         data.m_boundsCenter  = geometry.m_localBounds.Center();
         data.m_boundsExtents = geometry.m_localBounds.Extents();
         return data;

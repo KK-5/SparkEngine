@@ -24,12 +24,17 @@ namespace Spark::Render
         //! Bytes per index: 0 for non-indexed triangles, otherwise 2 or 4.
         uint32_t      m_indexByteStride = 0;
         uint64_t      m_bottomLevelAddress = 0;
+        //! Works for both indexed and non-indexed triangle lists.
+        uint32_t      m_triangleCount = 0;
+        uint32_t      m_padding[3]{};
     };
 
-    static_assert(sizeof(GeometryData) == 48,
-        "GeometryData must stay 48 bytes to match GeometryData.hlsli.");
+    static_assert(sizeof(GeometryData) == 64,
+        "GeometryData must stay 64 bytes to match GeometryData.hlsli.");
     static_assert(offsetof(GeometryData, m_bottomLevelAddress) == 40,
         "The BLAS address must match GeometryData.hlsli.");
     static_assert(offsetof(GeometryData, m_indexByteStride) == 36,
         "The index stride must match GeometryData.hlsli.");
+    static_assert(offsetof(GeometryData, m_triangleCount) == 48,
+        "The triangle count must match GeometryData.hlsli.");
 }

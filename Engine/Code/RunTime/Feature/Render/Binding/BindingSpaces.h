@@ -26,7 +26,7 @@ namespace Spark::Render
     //! MaterialBindings.hlsli: g_Materials. MaterialBindingSystem.
     inline constexpr uint32_t kMaterialSpaceId = 3;
 
-    //! InstanceBindings.hlsli: g_Instances. InstanceBindingSystem.
+    //! InstanceBindings.hlsli: g_Instances, g_EmissiveInstanceIDs. InstanceBindingSystem.
     inline constexpr uint32_t kInstanceSpaceId = 4;
 
     //! The per-Scope tier (ScopeBindings.hlsli): each Scope's own block, set by its

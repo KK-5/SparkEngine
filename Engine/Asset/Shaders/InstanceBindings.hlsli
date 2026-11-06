@@ -18,6 +18,11 @@
 // The group's layout is declared again in InstanceBindingSystem::Init; change both together.
 StructuredBuffer<InstanceData> g_Instances : register(t0, space4);
 
+// Packed emissive candidates: position -> g_Instances slot. Read only the prefix
+// published as EmissiveInstanceCount on the CPU and passed by the consuming pass.
+// The sampled surface's material evaluation supplies the actual textured emission.
+StructuredBuffer<uint> g_EmissiveInstanceIDs : register(t1, space4);
+
 // Abstraction seam: today instanceIdx comes straight from the vertex input. If a
 // future path (e.g. same-mesh batching with an indirection table) changes how the
 // real slot is found, only this body changes — passes stay untouched.

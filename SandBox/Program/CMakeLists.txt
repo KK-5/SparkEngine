@@ -366,6 +366,27 @@ if (BUILD_RG_RAYTRACINGSCENE)
     )
 endif()
 
+option(BUILD_REFERENCEPATHTRACER "Build the ReferencePathTracer sandbox" ON)
+
+if (BUILD_REFERENCEPATHTRACER)
+    add_executable(ReferencePathTracer
+        Common/SimpleGlfwWindow.cpp
+        PathTracer/ReferencePathTracer.cpp
+        PathTracer/ReferencePathTracerFeature.cpp
+        PathTracer/CornellBoxScene.cpp
+    )
+
+    target_compile_definitions(ReferencePathTracer PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+
+    target_link_libraries(ReferencePathTracer PRIVATE
+        glfw SparkCore SparkInput SparkRender SparkMaterial SparkSpawn SparkTransform
+        SparkRHI SparkRHI_DX12 SparkAssetManager
+    )
+endif()
+
 option(BUILD_RG_COMPUTEPASS "Build RenderGraph ComputePass" ON)
 
 if (BUILD_RG_COMPUTEPASS)

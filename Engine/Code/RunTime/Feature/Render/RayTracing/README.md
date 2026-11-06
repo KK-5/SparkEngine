@@ -37,6 +37,7 @@ if (TraceClosestOpaqueTriangle(ray, 0xff, hit))
 - `TraceOpaqueVisibility` 查询调用者给定的射线段是否无遮挡，可提前结束求交。
 - 世界位置为 `Origin + T * Direction`。只有方向归一化时 T 才是世界距离。
 - 几何法线面向入射射线，供起点偏移和几何半球检查使用；着色法线独立保留。
+- `WorldTriangleNormal` 始终保留变换后的索引绕序方向，不随入射射线翻转。
 - 重建支持非均匀缩放和镜像变换。两侧均可求交、着色；单面剔除策略由后续调用者决定。
 - 贴图读取显式使用 `SampleLevel`；调用者指定 LOD，尚未估算 ray cone 或 ray differentials。
   光栅化入口仍使用隐式导数，材质因子、通道解释和法线贴图求值与 RT 共用。
@@ -75,5 +76,11 @@ MaterialBindingTag 沿用现有的材质纹理上传 acquire 机制。
 本模块提供求交、表面重建、材质与 BRDF 求值。光源采样、BRDF 采样/PDF、MIS、
 路径吞吐量、累积与输出仍属于下一步参考积分器的工作。
 
-验证包括 CPU 几何记录编码测试和完整 compute 命中着色路径的 DXC 编译/反射测试。
-这些检查不代替后续 ReferencePathTracer 的 GPU 数值与图像验证。
+## 公共三角形与任意表面访问
+
+`Lib/Geometry/MeshGeometry.hlsli` 提供标准顶点、索引和三角形读取。
+`Lib/Geometry/GeometrySurface.hlsli` 提供世界空间三角形、面积及重心坐标插值；
+不依赖 TLAS 或命中记录，供后续光源表面采样复用。
+
+`RayTracingSurface` 是公共 `GeometrySurface` 的别名；原有命中点入口继续保留，
+内部调用公共插值后恢复射线命中位置，并按入射方向定向表面。
