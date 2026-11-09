@@ -341,7 +341,7 @@ namespace Spark::Resource
         eastl::string resolvedPath,
         const std::string& baseDir)
     {
-        fastgltf::Parser parser;
+        fastgltf::Parser parser(fastgltf::Extensions::KHR_materials_emissive_strength);
         constexpr auto options = fastgltf::Options::LoadExternalBuffers;
 
         auto expected = parser.loadGltf(buf, baseDir, options);

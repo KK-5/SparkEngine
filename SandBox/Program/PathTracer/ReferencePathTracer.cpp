@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include <Hierarchy/HierarchyManager.h>
+#include <Light/LightSystem.h>
 #include <Material/MaterialSystem.h>
 #include <Spawn/ModelSpawnResolver.h>
 #include <Transform/TransformSystem.h>
@@ -23,7 +24,7 @@ int main(int argc, char** argv)
         const char* valueText = argv[++i];
         const unsigned long value = std::strtoul(valueText, &end, 10);
         if (errno != 0 || valueText[0] == '-' || end == valueText || *end != '\0'
-            || value < 1 || value > 6)
+            || value < 1 || value > 7)
         {
             return 1;
         }
@@ -36,6 +37,8 @@ int main(int argc, char** argv)
     hierarchy->Init();
     auto transforms = CreateSystem<Transform::TransformSystem>();
     transforms->Init();
+    auto lights = CreateSystem<Light::LightSystem>();
+    lights->Init();
     auto materials = CreateSystem<Material::MaterialSystem>();
     materials->Init();
 
@@ -67,6 +70,7 @@ int main(int argc, char** argv)
     // allocations. Texture owners must then go before the RHI context and its pools.
     sys.m_asyncUpload.reset();
     sys.m_render.reset();
+    lights.reset();
     materials.reset();
     transforms.reset();
     hierarchy.reset();

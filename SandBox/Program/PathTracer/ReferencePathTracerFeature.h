@@ -29,13 +29,15 @@ namespace Spark::SandBox
         }
 
     private:
-        void CreatePass();
+        void CreatePasses();
         void Update();
         void SetDebugMode(uint32_t mode);
 
         CornellBoxScene m_scene;
         Ptr<Resource::ShaderAsset> m_shader;
+        Ptr<Resource::ShaderAsset> m_displayShader;
         RHI::UniqueRHIHandle m_view;
         uint32_t m_debugMode = 0;
+        uint32_t m_sampleIndex = 0;
     };
 }

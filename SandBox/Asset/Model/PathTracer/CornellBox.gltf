@@ -3,6 +3,9 @@
     "version": "2.0",
     "generator": "SparkEngine original Cornell Box-style diagnostic scene"
   },
+  "extensionsUsed": [
+    "KHR_materials_emissive_strength"
+  ],
   "scene": 0,
   "scenes": [
     {
@@ -200,7 +203,12 @@
         1,
         1,
         1
-      ]
+      ],
+      "extensions": {
+        "KHR_materials_emissive_strength": {
+          "emissiveStrength": 10
+        }
+      }
     }
   ],
   "meshes": [

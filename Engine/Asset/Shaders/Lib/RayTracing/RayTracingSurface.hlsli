@@ -8,6 +8,7 @@
 #include <Shaders/Material/MaterialTemplate.hlsli>
 #include <Shaders/Lib/ShadingCommon.hlsli>
 #include <Shaders/Lib/BRDF/BRDF.hlsli>
+#include <Shaders/Lib/Sample/BRDFSampling.hlsli>
 
 typedef GeometrySurface RayTracingSurface;
 
@@ -55,7 +56,21 @@ float3 EvaluateRayTracingBRDF(RayTracingMaterial material, float3 V, float3 L)
         return 0.0;
     }
     return EvaluateBRDF(material.WorldNormal, V, L, material.DiffuseColor, material.SpecularColor,
-                        max(material.Inputs.Roughness, 0.045));
+                        max(material.Inputs.Roughness, BRDF_MIN_PERCEPTUAL_ROUGHNESS));
+}
+
+float EvaluateRayTracingBRDFPdf(RayTracingMaterial material, float3 V, float3 L)
+{
+    return EvaluateBRDFPdf(material.WorldNormal, V, L, material.DiffuseColor,
+                           material.SpecularColor, material.Inputs.Roughness);
+}
+
+// Response includes NoL, matching EvaluateRayTracingBRDF. Sampling and MIS PDF
+// evaluation use the same lobe probabilities and regularized roughness.
+bool SampleRayTracingBRDF(RayTracingMaterial material, float3 V, float3 randomSample, out BRDFSample brdfSample)
+{
+    return SampleBRDF(material.WorldNormal, V, material.DiffuseColor, material.SpecularColor,
+                      material.Inputs.Roughness, randomSample, brdfSample);
 }
 
 #endif // SPARK_LIB_RAY_TRACING_SURFACE_HLSLI
