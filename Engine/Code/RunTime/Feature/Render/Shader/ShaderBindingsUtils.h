@@ -9,12 +9,9 @@
 
 namespace Spark::Render
 {
-    //! Declarative data-injection helpers for ShaderBindings ENTITIES. Each takes a
-    //! binding entity (RHIHandle), an InputName, and the data; it resolves the
-    //! RHI::ShaderBindings from the entity in the current RHIContext, stages the
-    //! data into the named input, and marks the binding dirty so the next
-    //! CompileShaderInputs recompiles its descriptor. Callers never touch the RHI
-    //! ShaderBindings object directly.
+    //! Fill ShaderBindings objects directly. RenderGraph compiles the objects its
+    //! Scopes use, so these setters need no dirty tracking. Entity overloads below
+    //! are transitional adapters for systems that still publish binding entities.
 
     namespace Detail
     {
@@ -29,27 +26,13 @@ namespace Spark::Render
             return comp->m_bindings.get();
         }
 
-        inline void MarkShaderBindingsDirty(RHI::RHIContext& ctx, RHI::RHIHandle bindings)
-        {
-            if (!ctx.Has<RHI::ShaderBindingsUpdateTag>(bindings))
-            {
-                ctx.Add<RHI::ShaderBindingsUpdateTag>(bindings);
-            }
-        }
     }
 
-    //! Stage a constant's bytes, packed as in C++, into the named constant input, then mark
-    //! the binding dirty.
+    //! Stage a constant's bytes, packed as in C++, into the named constant input.
     inline void SetShaderConstantData(
-        RHI::RHIHandle bindings, RHI::InputName input, const void* bytes, uint32_t byteCount)
+        RHI::ShaderBindings& bindings, RHI::InputName input, const void* bytes, uint32_t byteCount)
     {
-        auto& ctx = *RHI::RHIExecuteContext::Current();
-        auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
-        if (!sb)
-        {
-            return;
-        }
-        auto* constant = sb->FindConstantInput(input);
+        auto* constant = bindings.FindConstantInput(input);
         if (!constant)
         {
             LOG_ERROR("[ShaderBindingsUtils] Constant input '{}' not found.", input.GetCStr());
@@ -60,74 +43,46 @@ namespace Spark::Render
             LOG_ERROR("[ShaderBindingsUtils] SetData size mismatch for constant '{}'.", input.GetCStr());
             return;
         }
-        Detail::MarkShaderBindingsDirty(ctx, bindings);
     }
 
     //! Stage a constant value — any trivially-copyable POD (matrix / vector /
-    //! scalar) — into the named constant input, then mark the binding dirty.
+    //! scalar) — into the named constant input.
     template<typename T>
-    void SetShaderConstant(RHI::RHIHandle bindings, RHI::InputName input, const T& value)
+    void SetShaderConstant(RHI::ShaderBindings& bindings, RHI::InputName input, const T& value)
     {
         SetShaderConstantData(bindings, input, &value, static_cast<uint32_t>(sizeof(T)));
     }
 
-    //! Bind an image view into the named image input, then mark the binding dirty.
+    //! Bind an image view into the named image input.
     inline void SetShaderImage(
-        RHI::RHIHandle bindings, RHI::InputName input, const RHI::ImageView* view, uint32_t arrayIndex = 0)
+        RHI::ShaderBindings& bindings, RHI::InputName input, const RHI::ImageView* view, uint32_t arrayIndex = 0)
     {
-        auto& ctx = *RHI::RHIExecuteContext::Current();
-        auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
-        if (!sb)
-        {
-            return;
-        }
-        auto* image = sb->FindImageInput(input);
+        auto* image = bindings.FindImageInput(input);
         if (!image)
         {
             LOG_ERROR("[ShaderBindingsUtils] Image input '{}' not found.", input.GetCStr());
             return;
         }
-        // Change-detection: an unchanged view must not re-dirty the SRG, which would
-        // force a redundant descriptor recompile every frame. First bind (null → view)
-        // and genuine swaps still fall through and mark dirty.
-        if (image->GetView(arrayIndex).get() == view)
-        {
-            return;
-        }
         image->SetView(arrayIndex, view);
-        Detail::MarkShaderBindingsDirty(ctx, bindings);
     }
 
-    //! Bind a buffer view into the named buffer input, then mark the binding dirty.
+    //! Bind a buffer view into the named buffer input.
     inline void SetShaderBuffer(
-        RHI::RHIHandle bindings, RHI::InputName input, const RHI::BufferView* view, uint32_t arrayIndex = 0)
+        RHI::ShaderBindings& bindings, RHI::InputName input, const RHI::BufferView* view, uint32_t arrayIndex = 0)
     {
-        auto& ctx = *RHI::RHIExecuteContext::Current();
-        auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
-        if (!sb)
-        {
-            return;
-        }
-        auto* buffer = sb->FindBufferInput(input);
+        auto* buffer = bindings.FindBufferInput(input);
         if (!buffer)
         {
             LOG_ERROR("[ShaderBindingsUtils] Buffer input '{}' not found.", input.GetCStr());
             return;
         }
         buffer->SetView(arrayIndex, view);
-        Detail::MarkShaderBindingsDirty(ctx, bindings);
     }
 
     inline void SetShaderAccelerationStructure(
-        RHI::RHIHandle bindings, RHI::InputName input, const RHI::AccelerationStructure* structure, uint32_t arrayIndex = 0)
+        RHI::ShaderBindings& bindings, RHI::InputName input, const RHI::AccelerationStructure* structure, uint32_t arrayIndex = 0)
     {
-        auto& ctx = *RHI::RHIExecuteContext::Current();
-        auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
-        if (!sb)
-        {
-            return;
-        }
-        auto* target = sb->FindAccelerationStructureInput(input);
+        auto* target = bindings.FindAccelerationStructureInput(input);
         if (!target)
         {
             LOG_ERROR("[ShaderBindingsUtils] Acceleration structure input '{}' not found.", input.GetCStr());
@@ -144,33 +99,69 @@ namespace Spark::Render
             return;
         }
         target->SetAccelerationStructure(arrayIndex, structure);
-        Detail::MarkShaderBindingsDirty(ctx, bindings);
     }
 
-    //! Bind a sampler state into the named sampler input, then mark the binding dirty.
+    //! Bind a sampler state into the named sampler input.
     inline void SetShaderSampler(
-        RHI::RHIHandle bindings, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)
+        RHI::ShaderBindings& bindings, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)
     {
-        auto& ctx = *RHI::RHIExecuteContext::Current();
-        auto* sb = Detail::ResolveShaderBindings(ctx, bindings);
-        if (!sb)
-        {
-            return;
-        }
-        auto* sampler = sb->FindSamplerInput(input);
+        auto* sampler = bindings.FindSamplerInput(input);
         if (!sampler)
         {
             LOG_ERROR("[ShaderBindingsUtils] Sampler input '{}' not found.", input.GetCStr());
             return;
         }
-        // Change-detection (mirrors SetShaderImage): an unchanged sampler state must not
-        // re-dirty the SRG, so a per-frame re-set of a constant sampler is a no-op rather
-        // than forcing a redundant descriptor recompile every frame.
-        if (sampler->GetState(arrayIndex) == state)
-        {
-            return;
-        }
         sampler->SetState(arrayIndex, state);
-        Detail::MarkShaderBindingsDirty(ctx, bindings);
+    }
+
+    inline void SetShaderConstantData(
+        RHI::RHIHandle entity, RHI::InputName input, const void* bytes, uint32_t byteCount)
+    {
+        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
+        {
+            SetShaderConstantData(*bindings, input, bytes, byteCount);
+        }
+    }
+
+    template<typename T>
+    void SetShaderConstant(RHI::RHIHandle entity, RHI::InputName input, const T& value)
+    {
+        SetShaderConstantData(entity, input, &value, static_cast<uint32_t>(sizeof(T)));
+    }
+
+    inline void SetShaderImage(
+        RHI::RHIHandle entity, RHI::InputName input, const RHI::ImageView* view, uint32_t arrayIndex = 0)
+    {
+        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
+        {
+            SetShaderImage(*bindings, input, view, arrayIndex);
+        }
+    }
+
+    inline void SetShaderBuffer(
+        RHI::RHIHandle entity, RHI::InputName input, const RHI::BufferView* view, uint32_t arrayIndex = 0)
+    {
+        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
+        {
+            SetShaderBuffer(*bindings, input, view, arrayIndex);
+        }
+    }
+
+    inline void SetShaderAccelerationStructure(
+        RHI::RHIHandle entity, RHI::InputName input, const RHI::AccelerationStructure* structure, uint32_t arrayIndex = 0)
+    {
+        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
+        {
+            SetShaderAccelerationStructure(*bindings, input, structure, arrayIndex);
+        }
+    }
+
+    inline void SetShaderSampler(
+        RHI::RHIHandle entity, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)
+    {
+        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
+        {
+            SetShaderSampler(*bindings, input, state, arrayIndex);
+        }
     }
 }

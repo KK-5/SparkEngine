@@ -42,7 +42,6 @@ namespace Spark::Render
     using RHI::ImportedTag;
     using RHI::TransientTag;
     using RHI::RHIUpdateTag;
-    using RHI::ShaderBindingsUpdateTag;
     using RHI::ResourceName;
 
     using RHI::Components::Buffer;
@@ -368,11 +367,6 @@ namespace Spark::Render
         RHIHandle m_pooledImage {NullHandle};
     };
 
-    //! Runtime marker on every per-pass ShaderBindings entity created via
-    //! CreatePassBindings. Lets teardown reap them all with a single
-    //! GetView<PassShaderBindingsTag>. Per-pass SRGs are persistent (built once, reused
-    //! each frame) and have no external owner, so this tag is their collection handle.
-    struct PassShaderBindingsTag {};
     /////////////////////////////////////////////////
 }
 

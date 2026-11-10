@@ -8,7 +8,7 @@ namespace Spark::Render
     namespace
     {
         const RHI::ShaderBindings* FindGroup(
-            eastl::span<const RHI::ShaderBindings* const> groups, uint32_t spaceId)
+            eastl::span<RHI::ShaderBindings* const> groups, uint32_t spaceId)
         {
             for (const RHI::ShaderBindings* group : groups)
             {
@@ -121,7 +121,7 @@ namespace Spark::Render
         template<typename Descriptor>
         void TakeReflected(
             const eastl::vector<Descriptor>& reflected, eastl::vector<Descriptor>& out,
-            eastl::span<const RHI::ShaderBindings* const> groups, const char* passName)
+            eastl::span<RHI::ShaderBindings* const> groups, const char* passName)
         {
             for (const Descriptor& read : reflected)
             {
@@ -186,7 +186,7 @@ namespace Spark::Render
 
     Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(
         RHI::Factory& factory, const PassShaders& shaders,
-        eastl::span<const RHI::ShaderBindings* const> groups, const char* passName)
+        eastl::span<RHI::ShaderBindings* const> groups, const char* passName)
     {
         const Resource::ShaderAsset* assets[] = {
             shaders.m_vertexShader.get(),

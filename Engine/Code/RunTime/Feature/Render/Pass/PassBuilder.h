@@ -32,7 +32,7 @@ namespace Spark::Render
     //! PassBuilder.cpp.
     Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(
         RHI::Factory& factory, const PassShaders& shaders,
-        eastl::span<const RHI::ShaderBindings* const> groups, const char* passName);
+        eastl::span<RHI::ShaderBindings* const> groups, const char* passName);
 
     //! A stage function for each shader the pass sets. The pass builders' Finalize stores it on
     //! the pass. Defined in PassBuilder.cpp.
@@ -55,14 +55,12 @@ namespace Spark::Render
 
     //! Allocate the pass's own per-pass (space2) ShaderBindings against its reflected layout
     //! and record it on the pass as PassBindings. The pass builders' Finalize calls this when
-    //! the layout declares the space. The entity is created with ShaderBindingsUpdateTag so
-    //! the first compile sweep produces valid GPU bindings before the first execute, and with
-    //! PassShaderBindingsTag so teardown can reap it. It owns the binding's lifetime
-    //! (Components::ShaderBindings holds the Ptr).
+    //! the layout declares the space. PassBindings owns the object directly; the graph
+    //! compiles it when a ScopeState references it.
     //!
-    //! Returns NullHandle, leaving the pass without PassBindings, if the pass has no
+    //! Returns null, leaving the pass without PassBindings, if the pass has no
     //! PassPipelineLayout or if RHI services / Init fail. Defined in PassAccess.cpp.
-    RHIHandle CreatePassBindings(PassContext& passCtx, RHIContext& rhiCtx, Pass pass);
+    Ptr<RHI::ShaderBindings> CreatePassBindings(PassContext& passCtx, Pass pass);
 
     // The builders live in <Pass/RenderPass.h> (RenderPassBuilder, SPARK_RENDER_PASS),
     // <Pass/ComputePass.h> (ComputePassBuilder, SPARK_COMPUTE_PASS), <Pass/CopyPass.h>

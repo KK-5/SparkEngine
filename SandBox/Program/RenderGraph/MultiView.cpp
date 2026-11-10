@@ -104,13 +104,7 @@ namespace Spark::SandBox
             view.Reset();
         }
 
-        eastl::fixed_vector<Spark::RHI::RHIHandle, 4> srgEntities;
-        ctx.GetView<Spark::Render::PassShaderBindingsTag>().each(
-            [&](Spark::RHI::RHIHandle e) { srgEntities.push_back(e); });
-        for (Spark::RHI::RHIHandle e : srgEntities)
-        {
-            destroyIfValid(e);
-        }
+        Spark::Render::ReleasePassBindings(*Spark::Render::PassExecuteContext::Current());
     }
 
     void MultiView::OnTick(const FrameTime& /*time*/)

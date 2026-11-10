@@ -25,6 +25,7 @@ option(INSTANCELISTS_TESTS "Culling and binning list layout tests" ON)
 option(INSTANCEBINDING_TESTS "Instance encoding and emissive candidate tests" ON)
 option(SUBALLOCATOR_TESTS "Suballocation release and hand-back tests" ON)
 option(COPYPASS_TESTS "Copy pass registration tests" ON)
+option(PASSBINDINGS_TESTS "Pass-owned shader binding lifetime tests" ON)
 
 set(TEST_SOURCES "")
 
@@ -57,6 +58,7 @@ ADD_TEST_SOUECE(INSTANCELISTS_TESTS "InstanceListsTest.cpp")
 ADD_TEST_SOUECE(INSTANCEBINDING_TESTS "InstanceBindingSystemTest.cpp")
 ADD_TEST_SOUECE(SUBALLOCATOR_TESTS "SuballocatorTest.cpp")
 ADD_TEST_SOUECE(COPYPASS_TESTS "CopyPassTest.cpp")
+ADD_TEST_SOUECE(PASSBINDINGS_TESTS "PassBindingsTest.cpp")
 
 set(TARGET_NAME SparkRenderTest)
 

@@ -305,15 +305,11 @@ namespace Spark::Render
     {
         TickBus::Handler::BusDisconnect();
 
-        // The feature processors own no teardown: per-pass SRGs are reaped by
-        // ReapPassShaderBindings.
-
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown();
 
-        // Per-pass SRGs have no external owner (created lazily via GetOrCreate,
-        // tag-owned). Reap them here alongside the other binding entities.
-        ReapPassShaderBindings(*RHI::RHIExecuteContext::Current());
+        // Release retained resource views before the render graph's pools go away.
+        ReleasePassBindings(m_pipeline.GetPassContext());
 
         DrawExecuteContext::Pop();
         PassExecuteContext::Pop();

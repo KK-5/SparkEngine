@@ -7,6 +7,7 @@
 #include <EASTL/bonus/overloaded.h>
 #include <EASTL/sort.h>
 #include <EASTL/unordered_map.h>
+#include <EASTL/vector.h>
 
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
@@ -1141,7 +1142,7 @@ namespace Spark::Render
     void RenderGraphCompiler::CompileScopeBindings(PassContext& passContext, RHIContext& context)
     {
         Pass      pass     = NullPass;
-        RHIHandle bindings = NullHandle;
+        RHI::ShaderBindings* bindings = nullptr;
         const RHI::ConstantsLayout* rootConstants = nullptr;   // the pass's, if its shaders declare any
         bool      declared = false;                    // the pass set anything this frame
         eastl::fixed_vector<RHI::InputName, 16> bound; // the inputs its attachments were bound to
@@ -1185,7 +1186,7 @@ namespace Spark::Render
             else
             {
                 checkAgrees(input, &value, sizeof(value));
-                SetShaderConstantData(bindings, input, &value, sizeof(value));
+                SetShaderConstantData(*bindings, input, &value, sizeof(value));
                 declared = true;
             }
         };
@@ -1203,19 +1204,19 @@ namespace Spark::Render
             {
                 return eastl::find(bound.begin(), bound.end(), input) != bound.end();
             };
-            const RHI::ShaderBindings& sb = *context.Get<RHI::Components::ShaderBindings>(bindings).m_bindings;
+            const RHI::ShaderBindings& sb = *bindings;
             for (const RHI::ShaderInputImage& image : sb.GetImageInputs())
             {
                 if (!isBound(image.GetDescription().m_name))
                 {
-                    SetShaderImage(bindings, image.GetDescription().m_name, nullptr);
+                    SetShaderImage(*bindings, image.GetDescription().m_name, nullptr);
                 }
             }
             for (const RHI::ShaderInputBuffer& buffer : sb.GetBufferInputs())
             {
                 if (!isBound(buffer.GetDescription().m_name) && buffer.GetView(0))
                 {
-                    SetShaderBuffer(bindings, buffer.GetDescription().m_name, nullptr);
+                    SetShaderBuffer(*bindings, buffer.GetDescription().m_name, nullptr);
                 }
             }
             for (const auto& structure : sb.GetAccelerationStructureInputs())
@@ -1224,7 +1225,7 @@ namespace Spark::Render
                 {
                     for (uint32_t i = 0; i < structure.GetCount(); ++i)
                     {
-                        SetShaderAccelerationStructure(bindings, structure.GetDescription().m_name, nullptr, i);
+                        SetShaderAccelerationStructure(*bindings, structure.GetDescription().m_name, nullptr, i);
                     }
                 }
             }
@@ -1243,7 +1244,7 @@ namespace Spark::Render
                 bound.clear();
                 setValues.clear();
                 const auto* own = passContext.TryGet<PassBindings>(pass);
-                bindings = own != nullptr ? own->m_bindings : NullHandle;
+                bindings = own != nullptr ? own->m_bindings.get() : nullptr;
                 const auto* layout = passContext.TryGet<PassPipelineLayout>(pass);
                 rootConstants = (layout != nullptr && layout->m_layout) ? layout->m_layout->GetRootConstantsLayout() : nullptr;
             }
@@ -1256,7 +1257,7 @@ namespace Spark::Render
                     {
                         const RHI::ImageView* view = ResolveAttachmentView(context, *image, m_frameIndex);
                         checkAgrees(binding->m_input, &view, sizeof(view));
-                        SetShaderImage(bindings, binding->m_input, view);
+                        SetShaderImage(*bindings, binding->m_input, view);
                     }
                     else if (context.Get<BufferPassAttachment>(attachment).m_usage
                         == RHI::AttachmentUsage::RayTracingAccelerationStructure)
@@ -1267,7 +1268,7 @@ namespace Spark::Render
                             reinterpret_cast<uintptr_t>(&structure->GetBuffer()), structure->GetOffset(),
                             structure->GetSize(), static_cast<uint64_t>(structure->GetType()) };
                         checkAgrees(binding->m_input, identity.data(), sizeof(identity));
-                        SetShaderAccelerationStructure(bindings, binding->m_input, structure);
+                        SetShaderAccelerationStructure(*bindings, binding->m_input, structure);
                     }
                     else
                     {
@@ -1277,7 +1278,7 @@ namespace Spark::Render
                             "[RenderGraphCompiler] Buffer {} bound to {} has no view: it has no backing, or the view could not be made.",
                             buffer.m_attachmentId.m_id.GetCStr(), binding->m_input.GetCStr());
                         checkAgrees(binding->m_input, &view, sizeof(view));
-                        SetShaderBuffer(bindings, binding->m_input, view);
+                        SetShaderBuffer(*bindings, binding->m_input, view);
                     }
                     bound.push_back(binding->m_input);
                     declared = true;
@@ -1301,7 +1302,7 @@ namespace Spark::Render
                 for (const ScopeSampler& sampler : samplers->m_samplers)
                 {
                     checkAgrees(sampler.m_input, &sampler.m_state, sizeof(sampler.m_state));
-                    SetShaderSampler(bindings, sampler.m_input, sampler.m_state);
+                    SetShaderSampler(*bindings, sampler.m_input, sampler.m_state);
                 }
                 declared = true;
             }
@@ -1311,7 +1312,7 @@ namespace Spark::Render
                 for (const ScopeConstant& constant : constants->m_constants)
                 {
                     checkAgrees(constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
-                    SetShaderConstantData(bindings, constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
+                    SetShaderConstantData(*bindings, constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
                 }
                 declared = true;
             }
@@ -1336,10 +1337,9 @@ namespace Spark::Render
                 ShaderBindingsList bindings;
                 if (const auto* own = passContext.TryGet<PassBindings>(data.m_pass))
                 {
-                    const auto& comp = context.Get<RHI::Components::ShaderBindings>(own->m_bindings);
-                    if (comp.m_bindings)
+                    if (own->m_bindings)
                     {
-                        bindings.push_back(comp.m_bindings.get());
+                        bindings.push_back(own->m_bindings.get());
                     }
                 }
                 const auto* caps = passContext.TryGet<PassCapabilities>(data.m_pass);
@@ -1347,8 +1347,10 @@ namespace Spark::Render
                 {
                     caps->m_resolveSharedBindings(context, bindings);
                 }
-                for (const RHI::ShaderBindings* b : bindings)
+                for (RHI::ShaderBindings* b : bindings)
                 {
+                    ASSERT(state.m_bindingCount < RHI::Limits::Pipeline::ShaderInputGroupCountMax,
+                        "[RenderGraphCompiler] Too many binding groups in a Scope.");
                     state.m_bindings[state.m_bindingCount++] = b;
                 }
             }
@@ -2054,19 +2056,32 @@ namespace Spark::Render
 
     void RenderGraphCompiler::CompileShaderInputs(RHI::Device& device, RHIContext& context)
     {
-        auto& view = context.GetView<ShaderBindingsUpdateTag, RHI::Components::ShaderBindings>();
         auto* factory = Service<RHI::Factory>::Get();
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
         auto& shaderInputCompiler = factory->AcquireShaderInputCompiler(device);
-        view.each([&](RHIHandle handle, RHI::Components::ShaderBindings& comp)
+        // Temporary object-identity deduplication. Keep it local to this compile:
+        // no entity dirty tags or state on the RHI objects are needed.
+        eastl::vector<RHI::ShaderBindings*> compiled;
+        compiled.reserve(context.GetView<ScopeState>().size());
+        for (auto [scope, state] : context.GetView<ScopeState>().each())
         {
-            ASSERT(comp.m_bindings,
-                "[CompileShaderInputs] Components::ShaderBindings holds null Ptr.");
-            const RHI::ResultCode rc = shaderInputCompiler.Compile(*comp.m_bindings);
-            ASSERT(rc == RHI::ResultCode::Success,
-                "[CompileShaderInputs] ShaderInputCompiler::Compile failed.");
-            context.Remove<ShaderBindingsUpdateTag>(handle);
-        });
+            for (uint32_t i = 0; i < state.m_bindingCount; ++i)
+            {
+                auto* bindings = state.m_bindings[i];
+                ASSERT(bindings != nullptr, "[CompileShaderInputs] Scope has null bindings.");
+                if (eastl::find(compiled.begin(), compiled.end(), bindings) != compiled.end())
+                {
+                    continue;
+                }
+                const RHI::ResultCode rc = shaderInputCompiler.Compile(*bindings);
+                ASSERT(rc == RHI::ResultCode::Success,
+                    "[CompileShaderInputs] ShaderInputCompiler::Compile failed.");
+                if (rc == RHI::ResultCode::Success)
+                {
+                    compiled.push_back(bindings);
+                }
+            }
+        }
     }
 }

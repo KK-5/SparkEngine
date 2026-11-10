@@ -117,7 +117,7 @@ namespace Spark::Render
             RHI::ShaderInputBufferType::Structured, 1, 0, 0, kViewSpaceId));
 
         // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The g_Views SRV is bound by Update, so we DO NOT mark it dirty here.
+        // only the handle. Update binds the g_Views SRV before consuming Scopes compile it.
         Ptr<RHI::ShaderBindings> viewBindings = CreateSharedBindings(inputs, kViewSpaceId, "ViewBindingSystem");
         if (!viewBindings)
         {

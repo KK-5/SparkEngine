@@ -97,16 +97,7 @@ namespace Spark::SandBox
 
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_view);
-        // Per-pass SRGs hold no member handle now — destroy them by tag (just the
-        // space2 SRG here). Collected first: destroying inside the view iteration
-        // would invalidate it.
-        eastl::fixed_vector<Spark::RHI::RHIHandle, 4> srgEntities;
-        ctx.GetView<Spark::Render::PassShaderBindingsTag>().each(
-            [&](Spark::RHI::RHIHandle e) { srgEntities.push_back(e); });
-        for (Spark::RHI::RHIHandle e : srgEntities)
-        {
-            destroyIfValid(e);
-        }
+        Spark::Render::ReleasePassBindings(*Spark::Render::PassExecuteContext::Current());
     }
 
     void TrianglePassFeature::OnTick(const FrameTime& /*time*/)

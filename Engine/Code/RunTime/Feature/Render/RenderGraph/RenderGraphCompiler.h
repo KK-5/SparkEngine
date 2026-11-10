@@ -147,9 +147,8 @@ namespace Spark::Render
         void CompileScopeSubmitRanges(
             PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList);
 
-        //! Sweeps every entity carrying ShaderBindingsUpdateTag + Components::ShaderBindings,
-        //! dispatches Compile on each, and clears the tag. User code (typically
-        //! SetShader* helpers or MarkShaderBindingsUpdate) drives the dirty bit.
+        //! Compile each object referenced by ScopeState once per invocation. A temporary
+        //! vector deduplicates object addresses; RHI objects carry no dirty or batch state.
         void CompileShaderInputs(RHI::Device& device, RHIContext& context);
 
         //! Every draw PSO: a pass's default (CompilePipelineStates) and each DrawGroup's, when its

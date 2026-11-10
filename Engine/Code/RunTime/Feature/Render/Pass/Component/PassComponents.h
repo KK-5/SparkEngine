@@ -11,6 +11,7 @@
 #include <RHI/Pipeline/RenderTargetLayout.h>
 #include <RHI/Pipeline/PipelineState.h>
 #include <RHI/Pipeline/ShaderStageFunction.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Resource/ResourceState.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/RHILimits.h>
@@ -141,11 +142,11 @@ namespace Spark::Render
         Ptr<RHI::PipelineState> m_pso;
     };
 
-    //! The pass's own per-pass (kPerPassSpaceId) bindings entity, created at Finalize when
-    //! the pass's layout has that space.
+    //! Owns the pass's per-pass (kPerPassSpaceId) bindings, created at Finalize when
+    //! the pass's layout has that space. No separate RHI entity is needed.
     struct PassBindings
     {
-        RHIHandle m_bindings { NullHandle };
+        Ptr<RHI::ShaderBindings> m_bindings;
     };
 
     //! Forces PSO recompilation on next frame (set on shader hot-reload).
