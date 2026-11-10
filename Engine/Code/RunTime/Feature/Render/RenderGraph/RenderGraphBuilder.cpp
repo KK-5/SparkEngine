@@ -843,8 +843,9 @@ namespace Spark::Render
         rhiContext.Add<IndirectArgumentsOfView>(attachment, IndirectArgumentsOfView{ view, byteOffset });
     }
 
-    void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const RHI::InputName& input)
+    void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const ShaderInputBinding& binding)
     {
+        const auto& input = binding.m_input;
         auto& rhiContext = *RHIExecuteContext::Current();
         CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
         auto* image  = rhiContext.TryGet<ImagePassAttachment>(attachment);
@@ -853,37 +854,78 @@ namespace Spark::Render
             "The access of {} is already bound; declare another access to bind another input.",
             image != nullptr ? image->m_attachmentId.m_id.GetCStr() : buffer->m_attachmentId.m_id.GetCStr());
 
-        // What the shader says of the input: where it is, whether it writes, in which stages.
-        uint32_t             spaceId       = 0;
-        bool                 shaderWrites  = false;
-        RHI::ShaderStageMask stageMask     = RHI::ShaderStageMask::None;
-        if (image != nullptr)
+        const auto& layout = CurrentPassLayout();
+        const auto* group = layout.FindSpaceGroupBySpaceId(binding.m_spaceId);
+        if (group == nullptr)
         {
-            const RHI::ShaderInputImageDescriptor* desc = CurrentPassLayout().FindImageDescriptor(input);
-            ASSERT(desc != nullptr, "The pass's shaders have no image input {}.", input.GetCStr());
-            spaceId      = desc->m_spaceId;
-            shaderWrites = desc->m_access == RHI::ShaderInputImageAccess::ReadWrite;
-            stageMask    = desc->m_stageMask;
-        }
-        else if (buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure)
-        {
-            const auto* desc = CurrentPassLayout().FindAccelerationStructureDescriptor(input);
-            ASSERT(desc != nullptr, "The pass's shaders have no acceleration structure input {}.", input.GetCStr());
-            spaceId   = desc->m_spaceId;
-            stageMask = desc->m_stageMask;
-        }
-        else
-        {
-            const RHI::ShaderInputBufferDescriptor* desc = CurrentPassLayout().FindBufferDescriptor(input);
-            ASSERT(desc != nullptr, "The pass's shaders have no buffer input {}.", input.GetCStr());
-            spaceId      = desc->m_spaceId;
-            shaderWrites = desc->m_access == RHI::ShaderInputBufferAccess::ReadWrite;
-            stageMask    = desc->m_stageMask;
+            ASSERT(false, "The pass's layout has no space {} for input {}.", binding.m_spaceId, input.GetCStr());
+            return;
         }
 
-        ASSERT(spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
-            input.GetCStr(), spaceId, kPerPassSpaceId);
+        // Search within the requested space; a name in another group is not this input.
+        bool                 found         = false;
+        uint32_t             inputCount    = 0;
+        bool                 shaderWrites  = false;
+        RHI::ShaderStageMask stageMask     = RHI::ShaderStageMask::None;
+        auto takeInput = [&](const auto& desc)
+        {
+            if (desc.m_name != input)
+            {
+                return false;
+            }
+            inputCount = desc.m_count;
+            stageMask = desc.m_stageMask;
+            return true;
+        };
+        const bool isStructure = buffer != nullptr
+            && buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure;
+        for (const auto& handle : group->m_shaderInputs)
+        {
+            if (image != nullptr && handle.m_type == RHI::ShaderInputType::Image)
+            {
+                const auto& desc = layout.GetImageDescriptor(handle.m_index);
+                found = takeInput(desc);
+                if (found)
+                {
+                    shaderWrites = desc.m_access == RHI::ShaderInputImageAccess::ReadWrite;
+                }
+            }
+            else if (isStructure && handle.m_type == RHI::ShaderInputType::AccelerationStructure)
+            {
+                found = takeInput(layout.GetAccelerationStructureDescriptor(handle.m_index));
+            }
+            else if (buffer != nullptr && !isStructure && handle.m_type == RHI::ShaderInputType::Buffer)
+            {
+                const auto& desc = layout.GetBufferDescriptor(handle.m_index);
+                found = takeInput(desc);
+                if (found)
+                {
+                    shaderWrites = desc.m_access == RHI::ShaderInputBufferAccess::ReadWrite;
+                }
+            }
+            if (found)
+            {
+                break;
+            }
+        }
+        if (!found)
+        {
+            ASSERT(false, "Space {} has no input {} matching this resource type.", binding.m_spaceId, input.GetCStr());
+            return;
+        }
+
+        if (binding.m_spaceId != kPerPassSpaceId)
+        {
+            ASSERT(false, "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
+                input.GetCStr(), binding.m_spaceId, kPerPassSpaceId);
+            return;
+        }
+        if (binding.m_arrayIndex >= inputCount)
+        {
+            ASSERT(false, "Input {} in space {} has {} elements, but array index {} was requested.",
+                input.GetCStr(), binding.m_spaceId, inputCount, binding.m_arrayIndex);
+            return;
+        }
 
         const RHI::AttachmentAccess access = image != nullptr ? image->m_access : buffer->m_access;
         const bool writes = CheckBitsAny(access, RHI::AttachmentAccess::Write);
@@ -903,7 +945,7 @@ namespace Spark::Render
                 "The stage declared for {} differs from the stages its shaders use it in.", input.GetCStr());
         }
 
-        rhiContext.Add<ShaderInputBinding>(attachment, ShaderInputBinding{ input });
+        rhiContext.Add<ShaderInputBinding>(attachment, binding);
     }
 
     void RenderGraphBuilder::AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state)

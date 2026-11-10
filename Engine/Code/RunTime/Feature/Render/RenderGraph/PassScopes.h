@@ -123,8 +123,12 @@ namespace Spark::Render
         //! through a shared binding). Render passes only: a compute pass's is fixed.
         ShaderAttachment& Stage(RHI::AttachmentStage stage);
 
-        //! Bind its view or AS object to the per-pass shader input `input`.
-        ShaderAttachment& Bind(const RHI::InputName& input);
+        //! Bind its view or AS object to an element of the per-pass shader input `input`.
+        ShaderAttachment& Bind(const RHI::InputName& input, uint32_t arrayIndex = 0);
+
+        //! Specify the full input location. Currently only per-pass space is writable;
+        //! shared-space binding compilation is a later step.
+        ShaderAttachment& Bind(const ShaderInputBinding& binding);
 
         //! Bind it by heap index to the uint constant `input`, a root constant or a per-pass
         //! one: lowering writes its view's bindless index there. Beside .Bind, not instead of

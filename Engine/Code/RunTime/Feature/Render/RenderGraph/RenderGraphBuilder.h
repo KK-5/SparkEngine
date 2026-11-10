@@ -112,11 +112,12 @@ namespace Spark::Render
         //! or 0 when it reads a stand-in.
         void BindPreviousFrameValid(RHIHandle attachment, const RHI::InputName& input);
 
-        //! Bind `attachment` to the shader input `input` of the current pass's per-pass space:
-        //! checks the input exists there and suits the access (SRV for reads, UAV for
+        //! Bind `attachment` to the space/name/array element in `binding`. Currently only
+        //! per-pass space is writable. Checks the input exists, its array index and access
+        //! (SRV for reads, UAV for
         //! writes), and gives the attachment the input's stages, or checks them against its
         //! own.
-        void BindShaderInput(RHIHandle attachment, const RHI::InputName& input);
+        void BindShaderInput(RHIHandle attachment, const ShaderInputBinding& binding);
 
         //! Bind `attachment` by heap index to the uint constant `input`, a root constant or a
         //! per-pass one: lowering writes its view's bindless index there. The access needs a

@@ -273,7 +273,16 @@ namespace Spark::Render
     //! the attachment's view into that input of its pass's per-pass bindings.
     struct ShaderInputBinding
     {
+        uint32_t m_spaceId = 0;
         RHI::InputName m_input;
+        uint32_t m_arrayIndex = 0;
+
+        bool operator==(const ShaderInputBinding& other) const
+        {
+            return m_spaceId == other.m_spaceId
+                && m_input == other.m_input
+                && m_arrayIndex == other.m_arrayIndex;
+        }
     };
 
     //! On an attachment a shader reaches by heap index (.BindIndex): lowering writes its view's

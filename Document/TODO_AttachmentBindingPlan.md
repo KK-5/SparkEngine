@@ -1,6 +1,6 @@
 # 基于 Attachment 的资源声明与 Shader Binding 编译
 
-状态：第一阶段已实现并通过用户运行验证，见§八；资源发布与 attachment 统一分组仍为设计草案。记录截至 2026-11-10 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
+状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与 attachment 统一分组仍为设计草案。记录截至 2026-11-10 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
 
 本文是 [资源绑定模型](TODO_BindingModelPlan.md) 的后续设计讨论。原文记录的已完成改造仍是历史记录；本文的资源发布与 attachment 统一分组方案尚未实现。
 
@@ -94,18 +94,20 @@ ReadShaderAccelerationStructure
 
 参数如何定位资源、是否提供批量接口，留待后续决定。AS 的构建和更新仍通过 AS Build 访问声明，不设计 shader 写入 AS 的对应接口。
 
-绑定位置至少需要能确定输入空间、具体输入和数组元素。下面是候选结构，不是已定字段：
+绑定位置已确定并实现为输入空间、输入名称和输入数组下标三个字段：
 
 ```cpp
 struct ShaderInputBinding
 {
-    uint32_t m_spaceId;
+    uint32_t m_spaceId = 0;
     RHI::InputName m_input;
-    uint32_t m_arrayElement = 0;
+    uint32_t m_arrayIndex = 0;
 };
 ```
 
 register、输入类型等尽量从 shader 布局解析，不要求调用方重复填写。仅有变量名或 space 均不足以在所有使用上下文中确定绑定位置。
+
+`m_arrayIndex` 选择输入数组中的描述符元素，例如 `Texture2D g_Textures[4]` 中的 `g_Textures[1]`；它不表示 Buffer 内的数据下标，也不表示 Image 的 mip 或 layer。非数组输入使用下标 0。三个字段共同参与绑定位置比较。
 
 同一个资源存在多个 View 或绑定用途时，需要允许多条用法描述。首版采用单条组件、集合还是其他 ECS 关系表达，尚未定案。
 
@@ -194,7 +196,7 @@ Bindless 的 `.BindIndex` 路径需要保留：它记录将某个 View 的索引
 | 编号 | 问题 | 需要明确的内容 |
 |---|---|---|
 | Q1 | 资源实体上的共享用法组件 | Buffer、Image、AS 各保存什么；实际 View 还是 View 描述；单条还是多条用法 |
-| Q2 | 绑定位置的表示 | space、输入名称/句柄、数组元素；与反射布局的对应方式 |
+| Q2 | 绑定位置的表示 | 已实现 space + 输入名称 + arrayIndex；按空间、资源种类和反射数量校验，当前写入范围仍限于 per-pass space，见§九 |
 | Q3 | 共享资源声明入口 | 参数与查询方式、Read/Write 接口、默认用法能否显式覆盖 |
 | Q4 | 布局权威与兼容性 | 完整共享组布局和每个 Pass 的反射子集如何处理；避免布局与绑定对象循环依赖 |
 | Q5 | 收集粒度 | 首版保持 per-pass 一致性，还是支持逐 Scope 的描述符内容快照 |
@@ -208,7 +210,7 @@ Bindless 的 `.BindIndex` 路径需要保留：它记录将某个 View 的索引
 
 SRV/UAV 是访问路径能力，Read/Write/ReadWrite 是本次访问契约；读取 UAV 仍需使用相应的 UAV 路径。部分写入是否需要保留前一版本，继续遵循图的现有资源版本语义。
 
-讨论顺序建议从 Q1、Q2 开始，先确定资源发布什么、attachment 记录什么，再确定编译细节。
+Q2 的绑定位置已先行落地；后续从 Q1 的资源发布组件继续讨论，再推进共享资源迁移与统一编译。
 
 ## 八、第一阶段：解除 RenderGraph 对绑定实体的依赖
 
@@ -244,7 +246,31 @@ SRV/UAV 是访问路径能力，Read/Write/ReadWrite 是本次访问契约；读
 - 用户完成运行检查并确认没有问题；运行和画面验证由用户负责。
 - RHI 对象及其编译接口未修改，未增加 dirty 或编译批次状态。
 
-## 九、方案边界
+## 九、绑定位置的统一表示
+
+本步骤只落实已确定的输入定位方式及资源输入数组支持，不迁移共享资源，也不开放向已有共享绑定组写入。
+
+- attachment 上的 `ShaderInputBinding` 保存 `m_spaceId`、`m_input`、`m_arrayIndex`。
+- `.Bind(name)` 保持原有行为，选择 per-pass space 的第 0 个元素。
+- `.Bind(name, arrayIndex)` 可选择 per-pass 输入数组中的元素。
+- `.Bind(ShaderInputBinding{ spaceId, name, arrayIndex })` 接受完整位置描述；当前仍检查 space 必须为 per-pass，后续再开放共享组。
+- builder 在指定 space 的输入组内按资源种类和名称查找输入，校验数组范围，并保留访问类型与 stage 的现有校验。
+- 编译时将 arrayIndex 传入 Buffer、Image、AS 的填值接口；跨 Scope 的内容一致性和已绑定记录按完整位置比较，不同元素可以保存不同值。
+- 对由图填写的 per-pass 绑定逐元素清理本帧未绑定的资源输入，避免上帧某个数组元素残留。没有声明填值的 Pass 继续保留现有外部填值行为。
+- sampler、constant、bindless 索引和历史有效标记的公开接口保持原样；它们沿用原来的编译路径。
+- RHI 对象、shader、共享系统和已有绑定组布局均未修改。
+
+调用形式：
+
+```cpp
+scope.ReadImage(image).Bind(RHI::InputName("g_Textures"), 1);
+scope.ReadImage(image).Bind(ShaderInputBinding{
+    kPerPassSpaceId, RHI::InputName("g_Textures"), 1 });
+```
+
+此步骤按要求仅做编译检查。Debug 编译通过：`SparkRenderTest`、`ReferencePathTracer`、`ComputePass`、`TrianglePass`、`MSAAPass`、`DrawCube`、`MultiView`、`RayTracingScene`、`IndirectDispatch`。未运行测试程序或示例，运行和画面验证由用户负责。
+
+## 十、方案边界
 
 - 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件及 attachment 的统一绑定分组仍待逐项设计。
 - 不新增可供外部直接调用资源系统对象的访问接口。
