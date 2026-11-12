@@ -1139,6 +1139,23 @@ namespace Spark::Render
         }
     }
 
+    namespace
+    {
+        //! The one shared group holding `spaceId`. Groups are few; a publication is resolved
+        //! against them by space.
+        RHI::ShaderBindings* FindSharedBindings(RHIContext& context, uint32_t spaceId)
+        {
+            for (auto [entity, component] : context.GetView<RHI::Components::ShaderBindings>().each())
+            {
+                if (component.m_bindings != nullptr && component.m_bindings->GetSpaceId() == spaceId)
+                {
+                    return component.m_bindings.get();
+                }
+            }
+            return nullptr;
+        }
+    }
+
     void RenderGraphCompiler::CompileScopeBindings(PassContext& passContext, RHIContext& context)
     {
         Pass      pass     = NullPass;
@@ -1157,7 +1174,8 @@ namespace Spark::Render
         };
         eastl::fixed_vector<BindingValue, 16> setValues;
         static_assert(sizeof(RHI::SamplerState) <= ScopeConstant::ByteCountMax, "A sampler is recorded as bytes.");
-        auto checkAgrees = [&](const ShaderInputBinding& binding, const void* bytes, uint32_t byteCount)
+        auto checkAgrees = [&](const ShaderInputBinding& binding, const void* bytes, uint32_t byteCount,
+                            bool perPass = true)
         {
             if constexpr (s_scopeBindingValidation)
             {
@@ -1172,10 +1190,12 @@ namespace Spark::Render
                     return;
                 }
                 ASSERT(it->m_byteCount == byteCount && memcmp(it->m_bytes.data(), bytes, byteCount) == 0,
-                    "[RenderGraphCompiler] Pass {}: its Scopes set input {}[{}] in space {} to different values, but "
-                    "the per-pass space holds one. A value that varies per Scope goes in ScopeParameters.",
+                    "[RenderGraphCompiler] Pass {}: its Scopes set input {}[{}] in space {} to different values.{}",
                     passContext.Get<PassName>(pass).m_name.GetCStr(), binding.m_input.GetCStr(),
-                    binding.m_arrayIndex, binding.m_spaceId);
+                    binding.m_arrayIndex, binding.m_spaceId,
+                    perPass
+                        ? " The per-pass space holds one; a value that varies per Scope goes in ScopeParameters."
+                        : " A shared space holds one value per input.");
             }
         };
 
@@ -1267,7 +1287,21 @@ namespace Spark::Render
             {
                 if (const auto* binding = context.TryGet<ShaderInputBinding>(attachment))
                 {
-                    if (bindings == nullptr || bindings->GetSpaceId() != binding->m_spaceId)
+                    // A published usage targets a shared space: its group is the one holding that
+                    // space, not the pass's own.
+                    const bool shared = binding->m_spaceId != kPerPassSpaceId;
+                    RHI::ShaderBindings* target = bindings;
+                    if (shared)
+                    {
+                        target = FindSharedBindings(context, binding->m_spaceId);
+                        ASSERT(target != nullptr, "[RenderGraphCompiler] No shared bindings in space {} for {}[{}].",
+                            binding->m_spaceId, binding->m_input.GetCStr(), binding->m_arrayIndex);
+                        if (target == nullptr)
+                        {
+                            continue;
+                        }
+                    }
+                    else if (bindings == nullptr || bindings->GetSpaceId() != binding->m_spaceId)
                     {
                         ASSERT(false, "[RenderGraphCompiler] No per-pass bindings for {}[{}] in space {}.",
                             binding->m_input.GetCStr(), binding->m_arrayIndex, binding->m_spaceId);
@@ -1276,8 +1310,8 @@ namespace Spark::Render
                     if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
                     {
                         const RHI::ImageView* view = ResolveAttachmentView(context, *image, m_frameIndex);
-                        checkAgrees(*binding, &view, sizeof(view));
-                        SetShaderImage(*bindings, binding->m_input, view, binding->m_arrayIndex);
+                        checkAgrees(*binding, &view, sizeof(view), !shared);
+                        SetShaderImage(*target, binding->m_input, view, binding->m_arrayIndex);
                     }
                     else if (context.Get<BufferPassAttachment>(attachment).m_usage
                         == RHI::AttachmentUsage::RayTracingAccelerationStructure)
@@ -1287,8 +1321,8 @@ namespace Spark::Render
                         const eastl::array<uint64_t, 4> identity {
                             reinterpret_cast<uintptr_t>(&structure->GetBuffer()), structure->GetOffset(),
                             structure->GetSize(), static_cast<uint64_t>(structure->GetType()) };
-                        checkAgrees(*binding, identity.data(), sizeof(identity));
-                        SetShaderAccelerationStructure(*bindings, binding->m_input, structure, binding->m_arrayIndex);
+                        checkAgrees(*binding, identity.data(), sizeof(identity), !shared);
+                        SetShaderAccelerationStructure(*target, binding->m_input, structure, binding->m_arrayIndex);
                     }
                     else
                     {
@@ -1297,11 +1331,14 @@ namespace Spark::Render
                         ASSERT(view != nullptr,
                             "[RenderGraphCompiler] Buffer {} bound to {} has no view: it has no backing, or the view could not be made.",
                             buffer.m_attachmentId.m_id.GetCStr(), binding->m_input.GetCStr());
-                        checkAgrees(*binding, &view, sizeof(view));
-                        SetShaderBuffer(*bindings, binding->m_input, view, binding->m_arrayIndex);
+                        checkAgrees(*binding, &view, sizeof(view), !shared);
+                        SetShaderBuffer(*target, binding->m_input, view, binding->m_arrayIndex);
                     }
-                    bound.push_back(*binding);
-                    declared = true;
+                    if (!shared)
+                    {
+                        bound.push_back(*binding);
+                        declared = true;
+                    }
                 }
                 else if (const auto* indexBinding = context.TryGet<IndexBinding>(attachment))
                 {

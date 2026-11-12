@@ -383,7 +383,6 @@ namespace Spark::Render
         m_drawContext.Clear();
         m_instanceBindingSystem.Update();
         m_rayTracingSceneSystem.Update();
-        m_rayTracingBindingSystem.Update();
         // What each view sees of the lists the CPU culls, from the instances the encoding listed.
         m_drawListCullingSystem.Update(rhiCtx, passContext, m_drawContext);
         // The groups of each pass from what the two above left.

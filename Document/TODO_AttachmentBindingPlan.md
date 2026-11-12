@@ -1,6 +1,6 @@
 # 基于 Attachment 的资源声明与 Shader Binding 编译
 
-状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与 attachment 统一分组仍为设计草案。记录截至 2026-11-10 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
+状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-12 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
 
 本文是 [资源绑定模型](TODO_BindingModelPlan.md) 的后续设计讨论。原文记录的已完成改造仍是历史记录；本文的资源发布与 attachment 统一分组方案尚未实现。
 
@@ -270,7 +270,34 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 此步骤按要求仅做编译检查。Debug 编译通过：`SparkRenderTest`、`ReferencePathTracer`、`ComputePass`、`TrianglePass`、`MSAAPass`、`DrawCube`、`MultiView`、`RayTracingScene`、`IndirectDispatch`。未运行测试程序或示例，运行和画面验证由用户负责。
 
-## 十、方案边界
+## 十、资源发布与共享导入
+
+状态：已实现并通过用户运行验证（2026-11-12）。`.Binds<...>()` 未改动，布局仍由它提供。
+
+- 资源实体发布自己的 shader 用法：`ShaderAccelerationStructureUsage`（`Shader/RayTracing` 侧的发布点）与 `ShaderBufferUsage` / `ShaderImageUsage`，同级保存 `ShaderInputBinding`（space、输入名、arrayIndex）；Buffer 与 Image 另存**默认视图描述符**。对象与物化视图不发布，填值时从资源自身组件解析。
+- `RenderPassScopes::ImportShared<Tag>(name)` 声明“这个资源按它发布的用法绑定”，与 `Import<Tag>` 对称，返回同样表示“资源是否就绪”的 `bool`。图中以**资源身份**记录意图，不以名字；一个 Pass 内同一资源只允许一种意图，混用即断言。
+- `ShaderAttachment` 构造时经中性查询 `IsImportedAsShared` 判断，命中才由 `BindSharedShaderInput` 把发布的位置、视图或对象写到这次访问上。普通访问不进入该路径，也不承担任何共享语义。
+- 首次消费者：`ShadowProjectionPass` 的 TLAS（space 7）、`GBufferPass` 的实例池（space 4）。`DeviceArray` 初始化时发布自己的结构化视图，Instance / Geometry / Material 三个数组因此具备被消费的条件。
+- 编译期按 space 找到目标共享组并填值；per-pass 与共享在填值上走同一条代码，只是目标对象不同。
+- `RayTracingBindingSystem::Update` 的填值随之删除：`g_RayTracingScene` 现在只由图在编译期写入。
+
+### 待办：无人声明时的陈旧值
+
+删掉系统侧填值之后，`g_RayTracingScene` 只剩图一个写入者。于是出现一个新的状态问题：TLAS 未构建的帧（`RayTracingSceneTag` 不出现）`ShadowProjectionPass` 不声明该访问，没有人写这个输入，共享组保留上一帧的 AS 指针。
+
+当前**接受**这一行为：AS 对象随资源实体存活到 Shutdown，不会悬空；shader 由 `traceShadows` 常量门控，不会读到它。`g_Instances` 等后续迁移的输入会遇到同一问题（`DeviceArray::Shutdown` 目前显式写 null）。
+
+若将来需要清除，候选方案：
+
+1. 让 Pass 每帧都声明该访问，无对象时绑定空——需要“发布存在但对象未就绪”的显式路径，当前的初始化断言不允许；
+2. 编译器记录本帧写过的共享输入，未写过的清空——需要给共享组加每帧的已写标记，机制变大。
+
+### 未完成
+
+- `.Binds<RayTracingSceneBindingTag>()`、`.Binds<InstanceBindingTag>()` 仍保留：前者提供 space 7 的布局，后者提供 space 4 及组内其他输入。摘除它们需要先解决“没有 tag 时布局从哪来”。
+- `InstanceBindingSystem` 等仍在向组内填值（与图的填值相同）。逐项删除是后续步骤。
+
+## 十一、方案边界
 
 - 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件及 attachment 的统一绑定分组仍待逐项设计。
 - 不新增可供外部直接调用资源系统对象的访问接口。

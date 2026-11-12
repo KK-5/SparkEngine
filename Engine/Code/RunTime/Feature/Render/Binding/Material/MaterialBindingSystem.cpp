@@ -88,6 +88,7 @@ namespace Spark::Render
         arrayDesc.m_elementSize = sizeof(MaterialData);
         arrayDesc.m_capacity    = Capacity;
         arrayDesc.m_inputName   = RHI::InputName(MaterialBufferName);
+        arrayDesc.m_spaceId     = kMaterialSpaceId;
         arrayDesc.m_bindings    = m_bindings;
         if (m_materials.Init(rhiCtx, device, arrayDesc))
         {

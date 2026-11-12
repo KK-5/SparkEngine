@@ -55,6 +55,8 @@ namespace Spark::Render
         if (RHI::BufferView* view = RHI::GetOrCreateBufferView(rhiCtx, m_resource, *m_pool.GetBuffer(), viewDesc))
         {
             SetShaderBuffer(descriptor.m_bindings, descriptor.m_inputName, view);
+            rhiCtx.Add<ShaderBufferUsage>(m_resource, ShaderBufferUsage{
+                ShaderInputBinding{ descriptor.m_spaceId, descriptor.m_inputName, 0 }, viewDesc });
         }
 
         return true;

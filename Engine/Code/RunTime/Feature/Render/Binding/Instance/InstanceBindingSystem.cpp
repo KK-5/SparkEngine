@@ -193,6 +193,7 @@ namespace Spark::Render
         arrayDesc.m_elementSize = sizeof(InstanceData);
         arrayDesc.m_capacity    = InstanceCapacity;
         arrayDesc.m_inputName   = RHI::InputName(InstanceBufferName);
+        arrayDesc.m_spaceId     = kInstanceSpaceId;
         arrayDesc.m_bindings    = m_bindingsEntity;
         if (m_instances.Init(rhiCtx, device, arrayDesc))
         {

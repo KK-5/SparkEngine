@@ -77,6 +77,7 @@ namespace Spark::Render
         arrayDesc.m_elementSize = sizeof(GeometryData);
         arrayDesc.m_capacity    = Capacity;
         arrayDesc.m_inputName   = RHI::InputName(GeometryBufferName);
+        arrayDesc.m_spaceId     = kGeometrySpaceId;
         arrayDesc.m_bindings    = m_bindingsEntity;
         if (m_geometries.Init(rhiCtx, device, arrayDesc))
         {

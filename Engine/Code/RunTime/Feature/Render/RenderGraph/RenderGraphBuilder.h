@@ -99,6 +99,10 @@ namespace Spark::Render
         //! Importing a name again is fine for the same resource only.
         void ImportResource(const RHI::AttachmentId& name, RHIHandle resource);
 
+        //! Import `resource` as one whose shader usage it publishes itself: an access of `name`
+        //! binds to the published input rather than to a .Bind the Scope writes.
+        void ImportSharedResource(const RHI::AttachmentId& name, RHIHandle resource);
+
         void PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource);
 
         //! Add to `scope` a read of the copy of `attachment`'s name produced last frame. The
@@ -118,6 +122,14 @@ namespace Spark::Render
         //! writes), and gives the attachment the input's stages, or checks them against its
         //! own.
         void BindShaderInput(RHIHandle attachment, const ShaderInputBinding& binding);
+
+        //! Whether this access is of a resource the current pass imported as shared
+        //! (ImportSharedResource).
+        bool IsImportedAsShared(RHIHandle attachment) const;
+
+        //! Apply the usage the resource publishes to this access: its location, and the view or
+        //! object it is bound through.
+        void BindSharedShaderInput(RHIHandle attachment);
 
         //! Bind `attachment` by heap index to the uint constant `input`, a root constant or a
         //! per-pass one: lowering writes its view's bindless index there. The access needs a
@@ -251,6 +263,13 @@ namespace Spark::Render
         //! gives it; a root constant is marked set in `scope`.
         void ReserveUintConstant(RHIHandle scope, const RHI::InputName& input);
 
+        //! BindShaderInput's checks, with the per-pass space requirement lifted for a
+        //! published location.
+        void BindShaderInputInternal(RHIHandle attachment, const ShaderInputBinding& binding, bool published);
+
+        //! ImportResource's checks, recording whether the pass imported `resource` as shared.
+        void ImportResourceInternal(const RHI::AttachmentId& name, RHIHandle resource, bool shared);
+
         Pass m_currentPass {NullPass};
 
         //! How many Scopes the current pass has opened.
@@ -266,6 +285,10 @@ namespace Spark::Render
 
         //! The resource Create / Import put under each name.
         eastl::unordered_map<RHI::AttachmentId, RHIHandle> m_resources;
+
+        //! The resources the current pass imported, and whether as shared
+        //! (ImportSharedResource). Cleared at BeginPass: the intent is the pass's, not the frame's.
+        eastl::unordered_map<RHI::RHIHandle, bool> m_passImports;
 
         GraphResolution m_resolution;
 

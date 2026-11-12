@@ -157,6 +157,11 @@ namespace Spark::Render
             , m_attachment(handle)
             , m_fixedStage(fixedStage)
         {
+            // An access of a resource imported as shared binds where that resource publishes it.
+            if (m_builder->IsImportedAsShared(handle))
+            {
+                m_builder->BindSharedShaderInput(handle);
+            }
         }
 
         RenderGraphBuilder* m_builder { nullptr };
@@ -195,7 +200,8 @@ namespace Spark::Render
         ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
 
-        //! Shared bindings need only the buffer dependency; per-pass .Bind needs .View and .AccelerationStructure.
+        //! A shader's read of an AS. Imported as shared, it binds where the resource publishes
+        //! it; otherwise the Scope binds it with .View and .AccelerationStructure.
         ShaderAttachment ReadAccelerationStructure(const RHI::AttachmentId& name);
 
         //! The buffer an indirect call of this Scope reads its records, or their count, from.
@@ -480,6 +486,20 @@ namespace Spark::Render
                 return false;
             }
             m_builder.ImportResource(name, resource);
+            return true;
+        }
+
+        //! Import the resource carrying Tag as one that publishes its shader input binding: a
+        //! Scope of this pass reads it without a .Bind. False as Import is.
+        template<typename Tag>
+        bool ImportShared(const RHI::AttachmentId& name)
+        {
+            const RHIHandle resource = FindReadyResource<Tag>(*RHI::RHIExecuteContext::Current());
+            if (resource == NullHandle)
+            {
+                return false;
+            }
+            m_builder.ImportSharedResource(name, resource);
             return true;
         }
 
