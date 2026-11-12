@@ -127,6 +127,7 @@ namespace Spark::SandBox
             .Binds<Render::ViewBindingTag>()
             .Build([this](Render::ComputePassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 m_argsWritten = false;
                 uint32_t viewIndex = 0;
                 if (!TryGetViewIndex(viewIndex))
@@ -142,6 +143,7 @@ namespace Spark::SandBox
                 p.CreateBuffer(kDispatchArgs, desc);
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.WriteBuffer(kDispatchArgs)
                     .View(RHI::BufferViewDescriptor::CreateStructured(0, 3, sizeof(uint32_t)))
                     .Bind(RHI::InputName("g_Args"));
@@ -163,6 +165,7 @@ namespace Spark::SandBox
             .Binds<Render::ViewBindingTag>()
             .Build([this](Render::ComputePassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 m_patternWritten = false;
                 uint32_t viewIndex = 0;
                 if (!m_argsWritten || !TryGetViewIndex(viewIndex))
@@ -180,6 +183,7 @@ namespace Spark::SandBox
                 // otherwise show whatever the transient memory held.
                 {
                     auto s = p.Scope();
+                    s.ReadBuffer(RHI::AttachmentId("Views"));
                     s.WriteImage(kPattern).BindIndex(RHI::InputName("outputIndex"));
                     s.Constant(RHI::InputName("time"), m_time);
                     s.Constant(RHI::InputName("viewIndex"), viewIndex);

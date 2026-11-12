@@ -108,6 +108,7 @@ namespace Spark::Render
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
 
                 const uint32_t sliceCount = ShadowMaskSliceCount(rhiCtx);
@@ -139,6 +140,7 @@ namespace Spark::Render
                 maskView.m_isArray = 1;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("ShadowMask"), clear).View(maskView);
 
                 // Both depth resources are typeless underneath, read as R32_FLOAT.

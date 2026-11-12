@@ -194,7 +194,6 @@ namespace Spark::Render
         arrayDesc.m_capacity    = InstanceCapacity;
         arrayDesc.m_inputName   = RHI::InputName(InstanceBufferName);
         arrayDesc.m_spaceId     = kInstanceSpaceId;
-        arrayDesc.m_bindings    = m_bindingsEntity;
         if (m_instances.Init(rhiCtx, device, arrayDesc))
         {
             rhiCtx.Add<InstancePoolTag>(m_instances.GetResource());
@@ -388,9 +387,11 @@ namespace Spark::Render
 
     void InstanceBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
+        // The group holds the views, which hold the buffers: it goes before the arrays do.
         if (m_bindingsEntity != RHI::NullHandle)
         {
-            SetShaderBuffer(m_bindingsEntity, RHI::InputName(EmissiveIDsName), nullptr);
+            rhiCtx.DestoryEntity(m_bindingsEntity);
+            m_bindingsEntity = RHI::NullHandle;
         }
         if (auto* world = WorldExecuteContext::Current())
         {
@@ -398,10 +399,7 @@ namespace Spark::Render
         }
         m_instances.Shutdown(rhiCtx);
 
-        if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
         if (m_instanceCountEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_instanceCountEntity); }
-
-        m_bindingsEntity = RHI::NullHandle;
         m_instanceCountEntity = RHI::NullHandle;
 
         m_activeList.Shutdown(rhiCtx);

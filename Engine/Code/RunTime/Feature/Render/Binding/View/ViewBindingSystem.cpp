@@ -20,9 +20,9 @@
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
-#include <Shader/ShaderBindingsUtils.h>
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/ShaderUsage.h>
 #include <View/ViewComponents.h>
 
 namespace Spark::Render
@@ -179,14 +179,14 @@ namespace Spark::Render
     {
         rhiCtx.Clear<ViewIndex>();
 
-        // The view holds the buffer, which goes before its pool.
+        // The group holds the view, which holds the buffer: it goes before the slots do.
         if (m_bindings != RHI::NullHandle)
         {
-            SetShaderBuffer(m_bindings, RHI::InputName(ViewBufferName), nullptr);
-            rhiCtx.Add<DeadTag>(m_bindings);
+            rhiCtx.DestoryEntity(m_bindings);
+            m_bindings = RHI::NullHandle;
         }
-        m_bindings = RHI::NullHandle;
         m_viewBuffer.Shutdown();
+        m_bufferResource = RHI::NullHandle;
         m_views.clear();
     }
 
@@ -199,7 +199,6 @@ namespace Spark::Render
         RHI::Buffer* buffer = m_viewBuffer.GetBuffer();
         if (!allocation.m_data || !buffer)
         {
-            SetShaderBuffer(m_bindings, RHI::InputName(ViewBufferName), nullptr);
             return false;
         }
         if (!m_views.empty())
@@ -207,11 +206,25 @@ namespace Spark::Render
             memcpy(allocation.m_data, m_views.data(), m_views.size() * sizeof(ViewData));
         }
 
-        // A view of the whole buffer, so each buffer gets one whatever the count.
+        // A view of the whole buffer, so each buffer gets one whatever the count. Published
+        // rather than bound: it changes with the buffer, so the usage is refreshed not set once.
         const RHI::BufferViewDescriptor viewDesc = RHI::BufferViewDescriptor::CreateStructured(
             0, static_cast<uint32_t>(buffer->GetDescriptor().m_byteCount / sizeof(ViewData)), sizeof(ViewData));
-        RHI::BufferView* view = RHI::GetOrCreateBufferView(rhiCtx, m_viewBuffer.GetResource(), *buffer, viewDesc);
-        SetShaderBuffer(m_bindings, RHI::InputName(ViewBufferName), view);
-        return view != nullptr;
+
+        // The slots rotate, so the tag follows this frame's: a pass imports the buffer by it.
+        const RHI::RHIHandle resource = m_viewBuffer.GetResource();
+        if (m_bufferResource != resource)
+        {
+            if (m_bufferResource != RHI::NullHandle && rhiCtx.Valid(m_bufferResource))
+            {
+                rhiCtx.Remove<ViewBufferTag>(m_bufferResource);
+            }
+            rhiCtx.Add<ViewBufferTag>(resource);
+            m_bufferResource = resource;
+        }
+
+        rhiCtx.AddOrReplace<ShaderBufferUsage>(resource, ShaderBufferUsage{
+            ShaderInputBinding{ kViewSpaceId, RHI::InputName(ViewBufferName), 0 }, viewDesc });
+        return true;
     }
 }

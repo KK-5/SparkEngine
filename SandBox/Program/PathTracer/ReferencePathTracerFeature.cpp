@@ -94,6 +94,7 @@ namespace Spark::SandBox
             .RendersView<Render::MainViewTag>()
             .Build([this](Render::RenderPassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 const RHI::AttachmentId accumulation("ReferencePathTracerAccumulation");
                 const RHI::AttachmentId scene("ReferenceScene");
                 const RHI::AttachmentId instances("ReferenceInstances");
@@ -126,6 +127,7 @@ namespace Spark::SandBox
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
                 clear.m_clearValue = RHI::ClearValue::CreateVector4Float(0.0f, 0.0f, 0.0f, 1.0f);
                 auto scope = p.Scope();
+                scope.ReadBuffer(RHI::AttachmentId("Views"));
                 scope.RenderTarget(accumulation, clear);
                 scope.ReadPreviousImage(accumulation)
                     .Bind(RHI::InputName("g_History"));
@@ -163,6 +165,7 @@ namespace Spark::SandBox
             .RendersView<Render::MainViewTag>()
             .Build([this](Render::RenderPassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 const RHI::AttachmentId output("SwapChain");
                 p.Import(output, p.GetCurrentSwapChainResource());
                 RHI::AttachmentLoadStoreAction clear;
@@ -171,6 +174,7 @@ namespace Spark::SandBox
                 clear.m_clearValue = RHI::ClearValue::CreateVector4Float(0.0f, 0.0f, 0.0f, 1.0f);
 
                 auto scope = p.Scope();
+                scope.ReadBuffer(RHI::AttachmentId("Views"));
                 scope.RenderTarget(output, clear);
                 scope.ReadImage(RHI::AttachmentId("ReferencePathTracerAccumulation"))
                     .Bind(RHI::InputName("g_Accumulation"));

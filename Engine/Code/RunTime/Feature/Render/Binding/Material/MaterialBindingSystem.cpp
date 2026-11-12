@@ -89,7 +89,6 @@ namespace Spark::Render
         arrayDesc.m_capacity    = Capacity;
         arrayDesc.m_inputName   = RHI::InputName(MaterialBufferName);
         arrayDesc.m_spaceId     = kMaterialSpaceId;
-        arrayDesc.m_bindings    = m_bindings;
         if (m_materials.Init(rhiCtx, device, arrayDesc))
         {
             rhiCtx.Add<MaterialPoolTag>(m_materials.GetResource());
@@ -308,10 +307,13 @@ namespace Spark::Render
         {
             matCtx->Clear<MaterialSlot>();
         }
+
+        // The group holds the views, which hold the buffers: it goes before the array does.
+        if (m_bindings != RHI::NullHandle)
+        {
+            rhiCtx.DestoryEntity(m_bindings);
+            m_bindings = RHI::NullHandle;
+        }
         m_materials.Shutdown(rhiCtx);
-
-        if (m_bindings != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindings); }
-
-        m_bindings = RHI::NullHandle;
     }
 }

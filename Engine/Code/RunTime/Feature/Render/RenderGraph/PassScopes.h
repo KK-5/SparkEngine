@@ -556,6 +556,19 @@ namespace Spark::Render
             return true;
         }
 
+        //! See RenderPassScopes::ImportShared.
+        template<typename Tag>
+        bool ImportShared(const RHI::AttachmentId& name)
+        {
+            const RHIHandle resource = FindReadyResource<Tag>(*RHI::RHIExecuteContext::Current());
+            if (resource == NullHandle)
+            {
+                return false;
+            }
+            m_builder.ImportSharedResource(name, resource);
+            return true;
+        }
+
         RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }
 
         ComputeScope Scope()

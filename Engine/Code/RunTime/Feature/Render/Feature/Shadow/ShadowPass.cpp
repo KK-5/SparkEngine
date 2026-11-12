@@ -103,6 +103,7 @@ namespace Spark::Render
             .Draw<ShadowCasterTag>()
             .Build([](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 // Until the shadow maps exist the pass declares nothing and is skipped.
                 if (!p.Import<ShadowMapTag>(RHI::AttachmentId("ShadowMaps")))
                 {
@@ -117,18 +118,19 @@ namespace Spark::Render
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.DepthWrite(RHI::AttachmentId("ShadowMaps"), clear).View(ShadowMapView(RHI::Format::Unknown));
                 // Until they all exist nothing of the scene is drawn, but the shadow maps are still cleared.
                 if (p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
-                    && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances")))
+                    && p.ImportShared<InstancePoolTag>(RHI::AttachmentId("Instances")))
                 {
                     // The pool is the first vertex stream and the indices, the instance IDs the
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
                     const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
-                    // Through the shared binding, by the vertex shader.
-                    s.ReadBuffer(RHI::AttachmentId("Instances")).Stage(RHI::AttachmentStage::VertexShader);
+                    // Through the shared binding, by the stages its input declares.
+                    s.ReadBuffer(RHI::AttachmentId("Instances"));
                     s.DrawIndirect(InstanceLists::Shadow::DrawArgumentsName(), InstanceLists::Shadow::DrawCountName(),
                         vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }

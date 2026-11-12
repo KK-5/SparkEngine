@@ -181,8 +181,8 @@ namespace Spark::Render
                 const RHI::AttachmentId geometriesPoolName("Geometries");
                 if (m_instanceCount != 0
                     && !(p.Import<InstanceIDBufferTag>(idsName)
-                        && p.Import<InstancePoolTag>(instancesPoolName)
-                        && p.Import<GeometryPoolTag>(geometriesPoolName)))
+                        && p.ImportShared<InstancePoolTag>(instancesPoolName)
+                        && p.ImportShared<GeometryPoolTag>(geometriesPoolName)))
                 {
                     m_instanceCount = 0;
                 }

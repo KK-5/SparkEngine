@@ -98,11 +98,13 @@ namespace Spark::Render
             .Draw<TranslucentTag>()
             .Build([](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 s.DepthRead(RHI::AttachmentId("SceneDepth"));
                 s.Sampler(RHI::InputName("g_MatSampler"),
@@ -122,17 +124,16 @@ namespace Spark::Render
                 if (p.Import<CpuCulledDrawArgumentsTag>(arguments)
                     && p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
-                    && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances"))
-                    && p.Import<MaterialPoolTag>(RHI::AttachmentId("Materials")))
+                    && p.ImportShared<InstancePoolTag>(RHI::AttachmentId("Instances"))
+                    && p.ImportShared<MaterialPoolTag>(RHI::AttachmentId("Materials")))
                 {
                     // The pool is the first vertex stream and the indices, the instance IDs the
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
                     const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
-                    // Through the shared binding, by the vertex shader.
-                    s.ReadBuffer(RHI::AttachmentId("Instances")).Stage(RHI::AttachmentStage::VertexShader);
-                    // Through the shared binding, by the pixel shader.
-                    s.ReadBuffer(RHI::AttachmentId("Materials")).Stage(RHI::AttachmentStage::FragmentShader);
+                    // Through the shared binding, by the stages their inputs declare.
+                    s.ReadBuffer(RHI::AttachmentId("Instances"));
+                    s.ReadBuffer(RHI::AttachmentId("Materials"));
                     s.DrawIndirect(arguments, vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }
                 s.Close();

@@ -44,8 +44,8 @@ namespace Spark::Render
             const RHI::AttachmentId instancesPoolName("Instances");
             const RHI::AttachmentId geometriesPoolName("Geometries");
             const bool     hasInstances  = p.Import<InstanceIDBufferTag>(idsName)
-                                        && p.Import<InstancePoolTag>(instancesPoolName)
-                                        && p.Import<GeometryPoolTag>(geometriesPoolName);
+                                        && p.ImportShared<InstancePoolTag>(instancesPoolName)
+                                        && p.ImportShared<GeometryPoolTag>(geometriesPoolName);
             const uint32_t instanceCount = hasInstances ? layout.m_instanceCount : 0;
 
             constexpr RHI::BufferBindFlags bindFlags = RHI::BufferBindFlags::ShaderReadWrite;
@@ -120,6 +120,7 @@ namespace Spark::Render
                 }
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 if (hasInstances)
                 {
                     s.ReadBuffer(idsName).View(idsView).Bind(idsInput);
@@ -160,6 +161,7 @@ namespace Spark::Render
             .Binds<ViewBindingTag, InstanceBindingTag, GeometryBindingTag>()
             .Build([](ComputePassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 ViewHandleList views;
                 CollectViews<MainViewTag>(*RHI::RHIExecuteContext::Current(), views);
                 BuildVisibleList(p, DrawMaskOf<OpaqueTag>(), views,
@@ -173,6 +175,7 @@ namespace Spark::Render
             .Binds<ViewBindingTag, InstanceBindingTag, GeometryBindingTag>()
             .Build([](ComputePassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 ViewHandleList views;
                 CollectViews<ShadowViewTag>(*RHI::RHIExecuteContext::Current(), views);
                 BuildVisibleList(p, DrawMaskOf<ShadowCasterTag>(), views,

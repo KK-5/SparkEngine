@@ -100,8 +100,10 @@ namespace Spark::Render
             .Draw<OpaqueTag>()
             .Build([](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 const auto size = p.GetRenderSize();
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
 
                 // Transient GBuffer color target: cleared + stored, and shader-readable
                 // so the deferred lighting pass can sample it. Numbered in the order declared.
@@ -159,17 +161,15 @@ namespace Spark::Render
                 if (p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
                     && p.ImportShared<InstancePoolTag>(RHI::AttachmentId("Instances"))
-                    && p.Import<MaterialPoolTag>(RHI::AttachmentId("Materials")))
+                    && p.ImportShared<MaterialPoolTag>(RHI::AttachmentId("Materials")))
                 {
                     // The pool is the first vertex stream and the indices, the instance IDs the
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
                     const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
-                    // Through the shared binding, by the vertex shader; the binding follows from
-                    // the pool's published usage.
+                    // Through the shared binding, by the stages their inputs declare.
                     s.ReadBuffer(RHI::AttachmentId("Instances"));
-                    // Through the shared binding, by the pixel shader.
-                    s.ReadBuffer(RHI::AttachmentId("Materials")).Stage(RHI::AttachmentStage::FragmentShader);
+                    s.ReadBuffer(RHI::AttachmentId("Materials"));
                     s.DrawIndirect(InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName(),
                         vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }

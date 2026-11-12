@@ -65,8 +65,8 @@ namespace Spark::Render
             const RHI::AttachmentId instancesPoolName("Instances");
             const RHI::AttachmentId geometriesPoolName("Geometries");
             const bool hasInstances = p.Import<InstanceIDBufferTag>(idsName)
-                                   && p.Import<InstancePoolTag>(instancesPoolName)
-                                   && p.Import<GeometryPoolTag>(geometriesPoolName);
+                                   && p.ImportShared<InstancePoolTag>(instancesPoolName)
+                                   && p.ImportShared<GeometryPoolTag>(geometriesPoolName);
 
             const PassIndirectLayout& layout = passContext.Get<PassIndirectLayout>(drawPass);
 

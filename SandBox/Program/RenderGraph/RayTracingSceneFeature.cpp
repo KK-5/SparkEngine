@@ -97,6 +97,7 @@ namespace Spark::SandBox
             .RendersView<Render::MainViewTag>()
             .Build([](Render::RenderPassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 const RHI::AttachmentId swapChain("SwapChain");
                 const RHI::AttachmentId storage("RayTracingSceneStorage");
                 p.Import(swapChain, p.GetCurrentSwapChainResource());
@@ -109,6 +110,7 @@ namespace Spark::SandBox
                 const bool hasScene = p.Import<Render::RayTracingSceneTag>(storage);
 
                 auto scope = p.Scope();
+                scope.ReadBuffer(RHI::AttachmentId("Views"));
                 scope.RenderTarget(swapChain, clear);
                 if (hasScene)
                 {

@@ -115,6 +115,7 @@ namespace Spark::Render
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 // GBufferPass owns SceneColor and left the emissive in it; this pass blends
                 // its lighting on top, so the contents are loaded, not cleared.
                 RHI::AttachmentLoadStoreAction load;
@@ -122,6 +123,7 @@ namespace Spark::Render
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 for (const auto& tex : s_gbufferTextures)
                 {

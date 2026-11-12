@@ -24,6 +24,7 @@
 #include <Shader/ShaderBindingsUtils.h>
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/SharedGroupValues.h>
 #include <Binding/View/ViewBinding.h>
 
 #include <RHI/Resource/Image/Image.h>
@@ -171,6 +172,11 @@ namespace Spark::Render
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindings, RHI::Components::ShaderBindings{ sceneBindings });
         rhiCtx.Add<MainSceneTag>(m_bindings);
+
+        // What no resource carries: refilled each frame, written into the group at compile.
+        SharedGroupValues values;
+        values.m_spaceId = kSceneSpaceId;
+        rhiCtx.Add<SharedGroupValues>(m_bindings, values);
 
         // The arrays land in the space0 group created above, read by shaders straight from
         // host memory.
@@ -405,60 +411,62 @@ namespace Spark::Render
         const uint32_t lightCount = WriteAndBind(*rhiCtx, m_lightBuffer, m_lights, m_bindings, LightBufferName)
                 ? static_cast<uint32_t>(m_lights.size()) : 0;
 
+        // What no resource carries, refilled every frame: the compiler writes it into the group.
+        auto* values = rhiCtx->TryGet<SharedGroupValues>(m_bindings);
+        ASSERT(values != nullptr, "[SceneBindingSystem] The space0 group has no values component.");
+        if (values == nullptr)
+        {
+            return;
+        }
+        values->m_samplers.clear();
+        values->m_constants.clear();
+
         // A per-scene constant, not a per-view one: every layer is as wide, whatever the
         // resolution of the shadow map in it.
-        SetShaderConstant(m_bindings, RHI::InputName(ShadowTexelSizeName), 1.0f / static_cast<float>(kShadowMapResolution));
+        PushSharedConstant(*values, RHI::InputName(ShadowTexelSizeName), 1.0f / static_cast<float>(kShadowMapResolution));
 
         // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every frame
         // so the CBV is always compiled: its bind is unguarded in CommandList, unlike the SRV
         // table's, and a missing address trips a hard assert. The shader loop is empty while
         // count is 0.
-        SetShaderConstant(m_bindings, RHI::InputName(LightCountName), lightCount);
+        PushSharedConstant(*values, RHI::InputName(LightCountName), lightCount);
 
         // Same unconditional-write rule as g_LightCount; 0 mips is also the shader's gate,
         // since the cubes share g_Lights' table and "unbound" there means stale, not null.
         const EnvironmentBinding env = BindEnvironmentIBL();
-        SetShaderConstant(m_bindings, RHI::InputName(PrefilteredMipsName), env.m_prefilteredMipCount);
-        SetShaderConstant(m_bindings, RHI::InputName(EnvIntensityName), env.m_intensity);
+        PushSharedConstant(*values, RHI::InputName(PrefilteredMipsName), env.m_prefilteredMipCount);
+        PushSharedConstant(*values, RHI::InputName(EnvIntensityName), env.m_intensity);
 
         // Not inside either gate: the cubes and the LTC tables are read through it, and
         // each can be bound without the other.
-        SetShaderSampler(m_bindings, RHI::InputName(IBLSamplerName),
+        PushSharedSampler(*values, RHI::InputName(IBLSamplerName),
             RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear,
                                       RHI::AddressMode::Clamp));
 
         const uint32_t areaLightLutReady = BindAreaLightLuts(*rhiCtx) ? 1u : 0u;
-        SetShaderConstant(m_bindings, RHI::InputName(AreaLightLutReadyName), areaLightLutReady);
+        PushSharedConstant(*values, RHI::InputName(AreaLightLutReadyName), areaLightLutReady);
 
         // Doubles on the CPU so they stay exact across a long session; the shader only ever
         // needs the low bits, so the narrowing is deliberate.
-        SetShaderConstant(m_bindings, RHI::InputName(FrameNumberName),
+        PushSharedConstant(*values, RHI::InputName(FrameNumberName),
             static_cast<uint32_t>(time.m_frameNumber));
-        SetShaderConstant(m_bindings, RHI::InputName(GameTimeName),
+        PushSharedConstant(*values, RHI::InputName(GameTimeName),
             static_cast<float>(time.m_gameTime));
-        SetShaderConstant(m_bindings, RHI::InputName(PrevGameTimeName),
+        PushSharedConstant(*values, RHI::InputName(PrevGameTimeName),
             static_cast<float>(time.m_prevGameTime));
-        SetShaderConstant(m_bindings, RHI::InputName(DeltaTimeName), time.m_deltaTime);
+        PushSharedConstant(*values, RHI::InputName(DeltaTimeName), time.m_deltaTime);
     }
 
     void SceneBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        // The views hold the buffers, which go before their pools.
+        // The group holds the views, which hold the buffers: it goes before they do.
         if (m_bindings != RHI::NullHandle)
         {
-            SetShaderBuffer(m_bindings, RHI::InputName(LightBufferName), nullptr);
-            SetShaderBuffer(m_bindings, RHI::InputName(ShadowViewBufferName), nullptr);
-            SetShaderBuffer(m_bindings, RHI::InputName(ViewShadowMapBufferName), nullptr);
+            rhiCtx.DestoryEntity(m_bindings);
+            m_bindings = RHI::NullHandle;
         }
         m_lightBuffer.Shutdown();
         m_shadowViewBuffer.Shutdown();
         m_viewShadowMapBuffer.Shutdown();
-
-        if (m_bindings != RHI::NullHandle)
-        {
-            rhiCtx.DestoryEntity(m_bindings);
-        }
-
-        m_bindings = RHI::NullHandle;
     }
 }

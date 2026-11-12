@@ -33,6 +33,7 @@
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/ShaderStages.h>
 
+#include <Binding/SharedGroupValues.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/PassDrawListComponents.h>
@@ -1141,9 +1142,9 @@ namespace Spark::Render
 
     namespace
     {
-        //! The one shared group holding `spaceId`. Groups are few; a publication is resolved
-        //! against them by space.
-        RHI::ShaderBindings* FindSharedBindings(RHIContext& context, uint32_t spaceId)
+        //! The object holding `spaceId`. Groups are few, and a publication or a group's values
+        //! resolve through this one place.
+        RHI::ShaderBindings* ResolveGroupBindings(RHIContext& context, uint32_t spaceId)
         {
             for (auto [entity, component] : context.GetView<RHI::Components::ShaderBindings>().each())
             {
@@ -1293,7 +1294,7 @@ namespace Spark::Render
                     RHI::ShaderBindings* target = bindings;
                     if (shared)
                     {
-                        target = FindSharedBindings(context, binding->m_spaceId);
+                        target = ResolveGroupBindings(context, binding->m_spaceId);
                         ASSERT(target != nullptr, "[RenderGraphCompiler] No shared bindings in space {} for {}[{}].",
                             binding->m_spaceId, binding->m_input.GetCStr(), binding->m_arrayIndex);
                         if (target == nullptr)
@@ -1377,6 +1378,30 @@ namespace Spark::Render
             }
         }
         finishPass();
+    }
+
+    void RenderGraphCompiler::CompileSharedGroupValues(RHIContext& context)
+    {
+        for (auto [entity, values] : context.GetView<SharedGroupValues>(Exclude<DeadTag>).each())
+        {
+            RHI::ShaderBindings* bindings = ResolveGroupBindings(context, values.m_spaceId);
+            ASSERT(bindings != nullptr,
+                "[RenderGraphCompiler] No shared group in space {} holds the values published for it.",
+                values.m_spaceId);
+            if (bindings == nullptr)
+            {
+                continue;
+            }
+
+            for (const ScopeSampler& sampler : values.m_samplers)
+            {
+                SetShaderSampler(*bindings, sampler.m_input, sampler.m_state);
+            }
+            for (const ScopeConstant& constant : values.m_constants)
+            {
+                SetShaderConstantData(*bindings, constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
+            }
+        }
     }
 
     void RenderGraphCompiler::CompileScopeState(PassContext& passContext, RHIContext& context)

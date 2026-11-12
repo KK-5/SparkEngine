@@ -246,6 +246,7 @@ namespace Spark::SandBox
             .RendersView<Render::MainViewTag>()
             .Build([this](Spark::Render::RenderPassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 const auto renderSize = p.GetRenderSize();
 
                 auto imageDesc = RHI::ImageDescriptor::Create2D(
@@ -276,6 +277,7 @@ namespace Spark::SandBox
                 depthAction.m_storeAction = RHI::AttachmentStoreAction::DontCare;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 auto color = s.RenderTarget(RHI::AttachmentId("MSAAColor"), colorAction);
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), depthAction);
                 s.Resolve(RHI::AttachmentId("SwapChain"), color);

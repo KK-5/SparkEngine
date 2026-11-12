@@ -11,7 +11,6 @@
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 
-#include <Shader/ShaderBindingsUtils.h>
 
 namespace Spark::Render
 {
@@ -52,9 +51,8 @@ namespace Spark::Render
 
         const RHI::BufferViewDescriptor viewDesc = RHI::BufferViewDescriptor::CreateStructured(
             0, descriptor.m_capacity, descriptor.m_elementSize);
-        if (RHI::BufferView* view = RHI::GetOrCreateBufferView(rhiCtx, m_resource, *m_pool.GetBuffer(), viewDesc))
+        if (RHI::GetOrCreateBufferView(rhiCtx, m_resource, *m_pool.GetBuffer(), viewDesc) != nullptr)
         {
-            SetShaderBuffer(descriptor.m_bindings, descriptor.m_inputName, view);
             rhiCtx.Add<ShaderBufferUsage>(m_resource, ShaderBufferUsage{
                 ShaderInputBinding{ descriptor.m_spaceId, descriptor.m_inputName, 0 }, viewDesc });
         }
@@ -69,8 +67,6 @@ namespace Spark::Render
             return;
         }
 
-        // The view holds the buffer, which goes before its pool.
-        SetShaderBuffer(m_descriptor.m_bindings, m_descriptor.m_inputName, nullptr);
         rhiCtx.DestoryEntity(m_resource);
         m_resource = RHI::NullHandle;
         m_updates.Shutdown();

@@ -22,6 +22,12 @@ namespace Spark::Render
         using Uses = TagList<>;
     };
 
+    //! This frame's g_Views buffer, on the staging slot it was written into. The slots rotate,
+    //! so the tag moves to whichever one the frame uses.
+    struct ViewBufferTag
+    {
+    };
+
     //! The view's g_Views index, for a Scope that picks its view in Build and sets
     //! .Constant("viewIndex", ...) itself. False when the view has no row this frame: skip
     //! the Scope.

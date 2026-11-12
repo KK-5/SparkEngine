@@ -107,6 +107,7 @@ namespace Spark::SandBox
             .Binds<Render::ViewBindingTag>()
             .Build([this](Render::ComputePassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 m_patternWritten = false;
                 if (m_size.x <= 0 || m_size.y <= 0)
                 {
@@ -126,6 +127,7 @@ namespace Spark::SandBox
                     RHI::ImageBindFlags::ShaderReadWrite, width, height, RHI::Format::R8G8B8A8_UNORM));
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.WriteImage(kPattern).BindIndex(RHI::InputName("outputIndex"));
                 s.Constant(RHI::InputName("time"), m_time);
                 s.Constant(RHI::InputName("viewIndex"), viewIndex);

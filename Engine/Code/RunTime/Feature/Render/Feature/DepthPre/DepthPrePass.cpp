@@ -72,9 +72,6 @@ namespace Spark::Render
         cfg.m_inputLayout        = input;
         cfg.m_renderStates       = states;
 
-
-
-
         return cfg;
     }
 
@@ -92,6 +89,7 @@ namespace Spark::Render
             .Draw<OpaqueTag>()
             .Build([cfg](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 auto depthDesc = RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::DepthStencil | RHI::ImageBindFlags::ShaderRead,
                     p.GetRenderSize().x,
@@ -108,9 +106,10 @@ namespace Spark::Render
                 // Until they all exist nothing of the scene is drawn, but the depth is still cleared.
                 const bool hasGeometry = p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                                       && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
-                                      && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances"));
+                                      && p.ImportShared<InstancePoolTag>(RHI::AttachmentId("Instances"));
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), clear);
                 if (hasGeometry)
                 {
@@ -118,8 +117,8 @@ namespace Spark::Render
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
                     const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
-                    // Through the shared binding, by the vertex shader.
-                    s.ReadBuffer(RHI::AttachmentId("Instances")).Stage(RHI::AttachmentStage::VertexShader);
+                    // Through the shared binding, by the stages its input declares.
+                    s.ReadBuffer(RHI::AttachmentId("Instances"));
                     s.DrawIndirect(InstanceLists::DepthPre::DrawArgumentsName(), InstanceLists::DepthPre::DrawCountName(),
                         vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }

@@ -262,6 +262,7 @@ namespace Spark::SandBox
             .RendersView<Render::MainViewTag>()
             .Build([this](Spark::Render::RenderPassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 const auto renderSize = p.GetRenderSize();
 
                 p.Import(RHI::AttachmentId("SwapChain"), p.GetCurrentSwapChainResource());
@@ -282,6 +283,7 @@ namespace Spark::SandBox
                 depthAction.m_storeAction = RHI::AttachmentStoreAction::DontCare;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), colorAction);
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), depthAction);
 

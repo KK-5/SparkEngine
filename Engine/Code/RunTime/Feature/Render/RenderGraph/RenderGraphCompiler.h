@@ -117,6 +117,10 @@ namespace Spark::Render
         //! and the transient / extracted stages (views need backing), before CompileShaderInputs.
         void CompileScopeBindings(PassContext& passContext, RHIContext& context);
 
+        //! Write the samplers and constants a group's owner publishes (SharedGroupValues) into
+        //! that group's object. Once per frame: the values belong to the group, not to an access.
+        void CompileSharedGroupValues(RHIContext& context);
+
         //! Put on each Scope the submit state its pass decides (ScopeState): the compiled PSO
         //! and, when there is one, the bindings bound once per Scope — the pass's own
         //! (PassBindings) then the shared ones it declared via .Binds<>. Runs after

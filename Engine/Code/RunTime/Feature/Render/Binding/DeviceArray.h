@@ -37,11 +37,9 @@ namespace Spark::Render
             //! A whole number of uints: ElementUpdate.hlsl copies a uint at a time.
             uint32_t       m_elementSize = 0;
             uint32_t       m_capacity    = 0;
-            //! The structured input on m_bindings the array is bound to, and its space: both are
-            //! published on the resource for passes that import it as shared.
+            //! The structured input the array is published at, and its space.
             RHI::InputName m_inputName;
             uint32_t       m_spaceId     = 0;
-            RHI::RHIHandle m_bindings    = RHI::NullHandle;
         };
 
         bool Init(RHI::RHIContext& rhiCtx, RHI::Device& device, const Descriptor& descriptor);
