@@ -108,6 +108,10 @@ namespace Spark::Render
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
+                const bool hasLights = p.ImportShared<LightBufferTag>(RHI::AttachmentId("SceneLights"));
+                const bool hasShadowViews = p.ImportShared<ShadowViewBufferTag>(RHI::AttachmentId("SceneShadowViews"));
+                const bool hasLtc1 = p.ImportShared<LTC1Tag>(RHI::AttachmentId("SceneLTC1"));
+                const bool hasLtc2 = p.ImportShared<LTC2Tag>(RHI::AttachmentId("SceneLTC2"));
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 auto& rhiCtx = *RHI::RHIExecuteContext::Current();
 
@@ -140,6 +144,22 @@ namespace Spark::Render
                 maskView.m_isArray = 1;
 
                 auto s = p.Scope();
+                if (hasLights)
+                {
+                    s.ReadBuffer(RHI::AttachmentId("SceneLights"));
+                }
+                if (hasShadowViews)
+                {
+                    s.ReadBuffer(RHI::AttachmentId("SceneShadowViews"));
+                }
+                if (hasLtc1)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneLTC1"));
+                }
+                if (hasLtc2)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneLTC2"));
+                }
                 s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("ShadowMask"), clear).View(maskView);
 

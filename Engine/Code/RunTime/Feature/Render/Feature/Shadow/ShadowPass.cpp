@@ -103,6 +103,7 @@ namespace Spark::Render
             .Draw<ShadowCasterTag>()
             .Build([](RenderPassScopes& p)
             {
+                const bool hasViewShadowMaps = p.ImportShared<ViewShadowMapBufferTag>(RHI::AttachmentId("SceneViewShadowMaps"));
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 // Until the shadow maps exist the pass declares nothing and is skipped.
                 if (!p.Import<ShadowMapTag>(RHI::AttachmentId("ShadowMaps")))
@@ -118,6 +119,10 @@ namespace Spark::Render
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                if (hasViewShadowMaps)
+                {
+                    s.ReadBuffer(RHI::AttachmentId("SceneViewShadowMaps"));
+                }
                 s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.DepthWrite(RHI::AttachmentId("ShadowMaps"), clear).View(ShadowMapView(RHI::Format::Unknown));
                 // Until they all exist nothing of the scene is drawn, but the shadow maps are still cleared.

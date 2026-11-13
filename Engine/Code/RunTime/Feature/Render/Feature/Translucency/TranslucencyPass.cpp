@@ -98,12 +98,47 @@ namespace Spark::Render
             .Draw<TranslucentTag>()
             .Build([](RenderPassScopes& p)
             {
+                const bool hasLights = p.ImportShared<LightBufferTag>(RHI::AttachmentId("SceneLights"));
+                const bool hasShadowViews = p.ImportShared<ShadowViewBufferTag>(RHI::AttachmentId("SceneShadowViews"));
+                const bool hasLtc1 = p.ImportShared<LTC1Tag>(RHI::AttachmentId("SceneLTC1"));
+                const bool hasLtc2 = p.ImportShared<LTC2Tag>(RHI::AttachmentId("SceneLTC2"));
+                const bool hasIrradiance = p.ImportShared<IrradianceCubeTag>(RHI::AttachmentId("SceneIrradiance"));
+                const bool hasPrefiltered = p.ImportShared<PrefilteredCubeTag>(RHI::AttachmentId("ScenePrefiltered"));
+                const bool hasBrdfLut = p.ImportShared<BRDFLutTag>(RHI::AttachmentId("SceneBRDFLut"));
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                if (hasLights)
+                {
+                    s.ReadBuffer(RHI::AttachmentId("SceneLights"));
+                }
+                if (hasShadowViews)
+                {
+                    s.ReadBuffer(RHI::AttachmentId("SceneShadowViews"));
+                }
+                if (hasLtc1)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneLTC1"));
+                }
+                if (hasLtc2)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneLTC2"));
+                }
+                if (hasIrradiance)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneIrradiance"));
+                }
+                if (hasPrefiltered)
+                {
+                    s.ReadImage(RHI::AttachmentId("ScenePrefiltered"));
+                }
+                if (hasBrdfLut)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneBRDFLut"));
+                }
                 s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 s.DepthRead(RHI::AttachmentId("SceneDepth"));

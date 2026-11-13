@@ -110,12 +110,23 @@ namespace Spark::Render
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
+                const bool hasPrefiltered = p.ImportShared<PrefilteredCubeTag>(RHI::AttachmentId("ScenePrefiltered"));
+                const bool hasBrdfLut = p.ImportShared<BRDFLutTag>(RHI::AttachmentId("SceneBRDFLut"));
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                if (hasPrefiltered)
+                {
+                    s.ReadImage(RHI::AttachmentId("ScenePrefiltered"));
+                }
+                if (hasBrdfLut)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneBRDFLut"));
+                }
+
                 s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 for (const auto& tex : s_gbufferTextures)

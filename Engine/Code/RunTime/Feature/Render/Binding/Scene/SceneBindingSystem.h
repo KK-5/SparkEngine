@@ -78,5 +78,11 @@ namespace Spark::Render
         //! A shadow view's g_Views row -> the shadow map it renders into.
         StagingBuffer           m_viewShadowMapBuffer;
         eastl::vector<uint32_t> m_viewShadowMaps;
+
+        //! The staging slot each buffer is written into this frame, tagged for the passes:
+        //! the slots rotate, so each follows the one the frame uses.
+        RHI::RHIHandle m_lightSlot = RHI::NullHandle;
+        RHI::RHIHandle m_shadowViewSlot = RHI::NullHandle;
+        RHI::RHIHandle m_viewShadowMapSlot = RHI::NullHandle;
     };
 }

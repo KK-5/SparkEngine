@@ -32,6 +32,15 @@ namespace Spark::Render
         static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
     };
 
+    //! The active sky's two IBL images, one tag each so a pass can import them apart.
+    struct IrradianceCubeTag
+    {
+    };
+
+    struct PrefilteredCubeTag
+    {
+    };
+
     //! Individual table identities. Consumers find them in RHIContext, excluding DeadTag.
     struct BRDFLutTag {};
     struct LTC1Tag {};

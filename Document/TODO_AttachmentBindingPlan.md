@@ -296,6 +296,28 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 - `.Binds<RayTracingSceneBindingTag>()`、`.Binds<InstanceBindingTag>()` 仍保留：前者提供 space 7 的布局，后者提供 space 4 及组内其他输入。摘除它们需要先解决“没有 tag 时布局从哪来”。
 - `InstanceBindingSystem` 等仍在向组内填值（与图的填值相同）。逐项删除是后续步骤。
+- `SceneBindingSystem` 已改为发布 buffer 与 image、由 Pass 显式访问，`MainSceneTag::Uses` 随之清空；但 `.Binds<MainSceneTag>()` 仍提供 space 0 的布局，Scene 的五张图与三张 buffer 的上传承接目前依赖“每帧都有 Pass 读取”这一惯例。
+
+### 上传承接与 Uses 的退役
+
+`ScopeUses`（`BindingTag::Uses` → `TakeUploads`）承担两件事，新模型的覆盖情况不同：
+
+- **用途固定**（`Tag::Access`）：已被替代，且更准确。acquire 的目标状态现在来自本次访问的 access 与 stage，而不是 tag 上写死的常量。
+- **承接上传**：对**被显式访问**的资源等价。`CompileImageAccess` / `CompileBufferAccess` 调 `FindUploadsToAcquire`，最终与 Uses 走同一个 `AcquireUpload`（写 `QueueTransfer` 的 dst、记 `ScopeUpload`），障碍由执行器按 `ScopeUpload` 统一发 `QueueAcquire`。
+- **跨队列等待**：Uses 在 `CompileScopeUploads` 里为“第二个队列的 scope 也想承接同一上传”补 `RecordCrossQueueWait`。显式访问不需要这条特例——消费者有 attachment 时，通用状态跟踪会生成 release/acquire 对并调用 `RecordCrossQueueWait`。前提是**任何跨队列的消费者都声明了 attachment**；Uses 承接但无 attachment 的资源与显式访问混用会缺少 producer。
+- **丢失的保证**：Uses 保证“绑了组就 acquire”，显式访问只保证“被访问才 acquire”。上传完成却无人访问的资源会停在 `PendingAcquires`，而上传系统会因此拒绝它的下一次上传（`AsyncUploadSystem` 的 “A buffer is uploaded once”）。目前依赖“每帧都有人读”这一惯例。待办：帧末断言无残留 pending acquire，或在帧末做一次兜底承接。
+
+两条路并存会**重复 acquire**：Uses 只安排障碍、不回写镜像状态，显式访问随后按 `GetSubresourceStates()` 播种，于是发出前置状态为 COMMON 的第二次转换，触发 `INCOMPATIBLE_BARRIER_LAYOUT`。因此迁移完成的组必须清空 `Uses`（`MainSceneTag` 已清空）。
+
+上传链路的既有事实（两条路共用）：拷贝在 Copy 队列完成后，`AsyncUploadSystem::FinishUploads` 在帧首用上传 fence 的值把关，只有已完成的上传才转为待 acquire；因此 acquire 不需要队列侧的等待，跨队列顺序由 fence 与提交顺序保证。
+
+**剩余的 Uses**：`MaterialBindingTag::Uses = TagList<MaterialTextureTag>`。材质纹理按 GPU 数据动态索引、数量不定、没有逐资源的访问可声明，无法走 attachment。可选方向（未定）：
+
+1. 材质纹理改在图形队列上传，取消跨队列交接，从而不需要 acquire；
+2. 保留组级承接，但由发布驱动（按 space 收集发布资源），而不是手写 tag 列表；
+3. 收窄并改名（例如 `MaterialTextureAcquire`），明确它只服务动态资源。
+
+在方向确定前，不要给能被显式访问的资源再添加 `Uses`。
 
 ## 十一、方案边界
 

@@ -110,12 +110,17 @@ namespace Spark::Render
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
+                const bool hasIrradiance = p.ImportShared<IrradianceCubeTag>(RHI::AttachmentId("SceneIrradiance"));
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                if (hasIrradiance)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneIrradiance"));
+                }
                 s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 for (const auto& tex : s_gbufferTextures)

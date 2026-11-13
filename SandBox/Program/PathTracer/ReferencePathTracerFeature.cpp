@@ -107,11 +107,11 @@ namespace Spark::SandBox
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
                     size.x, size.y, RHI::Format::R32G32B32A32_FLOAT));
                 // Try every import: short-circuiting would hide resources on startup frames.
-                const bool hasScene = p.Import<Render::RayTracingSceneTag>(scene);
-                const bool hasInstances = p.Import<Render::InstancePoolTag>(instances);
-                const bool hasGeometries = p.Import<Render::GeometryPoolTag>(geometries);
+                const bool hasScene = p.ImportShared<Render::RayTracingSceneTag>(scene);
+                const bool hasInstances = p.ImportShared<Render::InstancePoolTag>(instances);
+                const bool hasGeometries = p.ImportShared<Render::GeometryPoolTag>(geometries);
                 const bool hasMesh = p.Import<Render::MeshGeometryPoolTag>(mesh);
-                const bool hasMaterials = p.Import<Render::MaterialPoolTag>(materials);
+                const bool hasMaterials = p.ImportShared<Render::MaterialPoolTag>(materials);
                 const bool hasEmissiveIDs = p.Import<Render::EmissiveInstanceIDBufferTag>(emissiveIDs);
                 uint32_t emissiveCount = 0;
                 if (hasEmissiveIDs)
@@ -133,11 +133,11 @@ namespace Spark::SandBox
                     .Bind(RHI::InputName("g_History"));
                 if (hasScene && hasInstances && hasGeometries && hasMesh && hasMaterials)
                 {
-                    scope.ReadAccelerationStructure(scene).Stage(RHI::AttachmentStage::FragmentShader);
-                    scope.ReadBuffer(instances).Stage(RHI::AttachmentStage::FragmentShader);
-                    scope.ReadBuffer(geometries).Stage(RHI::AttachmentStage::FragmentShader);
+                    scope.ReadAccelerationStructure(scene);
+                    scope.ReadBuffer(instances);
+                    scope.ReadBuffer(geometries);
                     scope.ReadBuffer(mesh).Stage(RHI::AttachmentStage::FragmentShader);
-                    scope.ReadBuffer(materials).Stage(RHI::AttachmentStage::FragmentShader);
+                    scope.ReadBuffer(materials);
                     if (hasEmissiveIDs)
                     {
                         scope.ReadBuffer(emissiveIDs).Stage(RHI::AttachmentStage::FragmentShader);
