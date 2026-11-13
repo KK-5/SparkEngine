@@ -1,7 +1,11 @@
 #include "PassBuilder.h"
 
+#include <RHI/Context/RHIContext.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <Resource/Shader/ShaderBuilder.h>
+
+#include <Binding/BindingSpaces.h>
+#include <Binding/SharedBindings.h>
 
 namespace Spark::Render
 {
@@ -208,11 +212,56 @@ namespace Spark::Render
             AppendGroupSpace(*group, reflected.stageMask, inputs);
         }
 
-        TakeReflected(reflected.list.m_buffers,   inputs.m_buffers,   groups, passName);
-        TakeReflected(reflected.list.m_images,    inputs.m_images,    groups, passName);
-        TakeReflected(reflected.list.m_accelerationStructures, inputs.m_accelerationStructures, groups, passName);
-        TakeReflected(reflected.list.m_samplers,  inputs.m_samplers,  groups, passName);
-        TakeReflected(reflected.list.m_constants, inputs.m_constants, groups, passName);
+        // What a pass uses is its shaders' reflection. A shader reading a shared space names it
+        // in its registers, so the group that fills that space is found by the space: no
+        // .Binds<> has to repeat it. The bound groups above stay as they were, and a space both
+        // ways is appended once.
+        eastl::fixed_vector<RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax> resolved;
+        for (RHI::ShaderBindings* group : groups)
+        {
+            resolved.push_back(group);
+        }
+        const auto resolvedGroups = [&resolved]
+        {
+            return eastl::span<RHI::ShaderBindings* const>(resolved.data(), resolved.size());
+        };
+        const auto takeSpaceOf = [&](uint32_t spaceId)
+        {
+            if (spaceId == kPerPassSpaceId || spaceId == kPerScopeSpaceId
+                || FindGroup(resolvedGroups(), spaceId) != nullptr)
+            {
+                return;
+            }
+
+            // No group there is TakeReflected's to report: it knows which input asked.
+            auto* rhiContext = RHI::RHIExecuteContext::Current();
+            RHI::ShaderBindings* group = rhiContext != nullptr ? FindSharedBindings(*rhiContext, spaceId) : nullptr;
+            if (group == nullptr)
+            {
+                return;
+            }
+
+            AppendGroupSpace(*group, reflected.stageMask, inputs);
+            resolved.push_back(group);
+        };
+        const auto takeSpacesOf = [&takeSpaceOf](const auto& described)
+        {
+            for (const auto& input : described)
+            {
+                takeSpaceOf(input.m_spaceId);
+            }
+        };
+        takeSpacesOf(reflected.list.m_buffers);
+        takeSpacesOf(reflected.list.m_images);
+        takeSpacesOf(reflected.list.m_accelerationStructures);
+        takeSpacesOf(reflected.list.m_samplers);
+        takeSpacesOf(reflected.list.m_constants);
+
+        TakeReflected(reflected.list.m_buffers,   inputs.m_buffers,   resolvedGroups(), passName);
+        TakeReflected(reflected.list.m_images,    inputs.m_images,    resolvedGroups(), passName);
+        TakeReflected(reflected.list.m_accelerationStructures, inputs.m_accelerationStructures, resolvedGroups(), passName);
+        TakeReflected(reflected.list.m_samplers,  inputs.m_samplers,  resolvedGroups(), passName);
+        TakeReflected(reflected.list.m_constants, inputs.m_constants, resolvedGroups(), passName);
         inputs.m_rootConstants = eastl::move(reflected.list.m_rootConstants);
 
         auto layout = factory.CreatePipelineLayoutDescriptor();

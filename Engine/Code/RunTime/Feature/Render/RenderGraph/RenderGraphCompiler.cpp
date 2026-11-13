@@ -33,6 +33,7 @@
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/ShaderStages.h>
 
+#include <Binding/SharedBindings.h>
 #include <Binding/SharedGroupValues.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/Component/PassComponents.h>
@@ -1142,18 +1143,10 @@ namespace Spark::Render
 
     namespace
     {
-        //! The object holding `spaceId`. Groups are few, and a publication or a group's values
-        //! resolve through this one place.
+        //! The object holding `spaceId`: the same lookup a pass uses to take a group's layout.
         RHI::ShaderBindings* ResolveGroupBindings(RHIContext& context, uint32_t spaceId)
         {
-            for (auto [entity, component] : context.GetView<RHI::Components::ShaderBindings>().each())
-            {
-                if (component.m_bindings != nullptr && component.m_bindings->GetSpaceId() == spaceId)
-                {
-                    return component.m_bindings.get();
-                }
-            }
-            return nullptr;
+            return FindSharedBindings(context, spaceId);
         }
     }
 
@@ -1431,6 +1424,34 @@ namespace Spark::Render
                 {
                     caps->m_resolveSharedBindings(context, bindings);
                 }
+
+                // Every shared space the pass's layout declares gets its group bound, whether an
+                // access filled anything there or the space holds only constants: the object is
+                // what the draw sets its descriptor tables and constant buffers through.
+                const auto* passLayout = passContext.TryGet<PassPipelineLayout>(data.m_pass);
+                if (passLayout != nullptr && passLayout->m_layout)
+                {
+                    const RHI::PipelineLayoutDescriptor& layout = *passLayout->m_layout;
+                    for (size_t i = 0; i < layout.GetSpaceGroupCount(); ++i)
+                    {
+                        const uint32_t spaceId = layout.GetSpaceGroup(i).m_spaceId;
+                        if (spaceId == kPerPassSpaceId || spaceId == kPerScopeSpaceId)
+                        {
+                            continue;
+                        }
+                        const bool bound = eastl::any_of(bindings.begin(), bindings.end(),
+                            [spaceId](const RHI::ShaderBindings* group) { return group->GetSpaceId() == spaceId; });
+                        if (bound)
+                        {
+                            continue;
+                        }
+                        if (RHI::ShaderBindings* group = FindSharedBindings(context, spaceId))
+                        {
+                            bindings.push_back(group);
+                        }
+                    }
+                }
+
                 for (RHI::ShaderBindings* b : bindings)
                 {
                     ASSERT(state.m_bindingCount < RHI::Limits::Pipeline::ShaderInputGroupCountMax,
