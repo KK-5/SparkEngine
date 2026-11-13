@@ -1,6 +1,6 @@
 # 基于 Attachment 的资源声明与 Shader Binding 编译
 
-状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-12 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
+状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；布局与 per-scope 绑定改由 space 推导、`.Binds<>` 开始退役，见§十末；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-13 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
 
 本文是 [资源绑定模型](TODO_BindingModelPlan.md) 的后续设计讨论。原文记录的已完成改造仍是历史记录；本文的资源发布与 attachment 统一分组方案尚未实现。
 
@@ -272,7 +272,7 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 ## 十、资源发布与共享导入
 
-状态：已实现并通过用户运行验证（2026-11-12）。`.Binds<...>()` 未改动，布局仍由它提供。
+状态：资源发布已实现并通过用户运行验证（2026-11-12）。布局与 per-scope 的绑定对象现在也能按 space 推导（见本节末），`.Binds<>` 的第一批 tag 已退役。
 
 - 资源实体发布自己的 shader 用法：`ShaderAccelerationStructureUsage`（`Shader/RayTracing` 侧的发布点）与 `ShaderBufferUsage` / `ShaderImageUsage`，同级保存 `ShaderInputBinding`（space、输入名、arrayIndex）；Buffer 与 Image 另存**默认视图描述符**。对象与物化视图不发布，填值时从资源自身组件解析。
 - `RenderPassScopes::ImportShared<Tag>(name)` 声明“这个资源按它发布的用法绑定”，与 `Import<Tag>` 对称，返回同样表示“资源是否就绪”的 `bool`。图中以**资源身份**记录意图，不以名字；一个 Pass 内同一资源只允许一种意图，混用即断言。
@@ -292,11 +292,19 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 1. 让 Pass 每帧都声明该访问，无对象时绑定空——需要“发布存在但对象未就绪”的显式路径，当前的初始化断言不允许；
 2. 编译器记录本帧写过的共享输入，未写过的清空——需要给共享组加每帧的已写标记，机制变大。
 
-### 未完成
+### 按 space 推导与 `.Binds<>` 的退役
 
-- `.Binds<RayTracingSceneBindingTag>()`、`.Binds<InstanceBindingTag>()` 仍保留：前者提供 space 7 的布局，后者提供 space 4 及组内其他输入。摘除它们需要先解决“没有 tag 时布局从哪来”。
-- `InstanceBindingSystem` 等仍在向组内填值（与图的填值相同）。逐项删除是后续步骤。
-- `SceneBindingSystem` 已改为发布 buffer 与 image、由 Pass 显式访问，`MainSceneTag::Uses` 随之清空；但 `.Binds<MainSceneTag>()` 仍提供 space 0 的布局，Scene 的五张图与三张 buffer 的上传承接目前依赖“每帧都有 Pass 读取”这一惯例。
+状态：按 space 推导的两半已落地并通过用户验证（2026-11-13）；`RayTracingSceneBindingTag` 已退役，其余 tag 仍在。
+
+- Pass 用到哪些共享 space，由 **shader 反射**决定，不再由 tag 告诉它。`BuildPassPipelineLayout` 在已绑定的组之外，把反射出现、但没有组覆盖的 space 对应的组取来，并入该 space 的完整布局；一个 space 只并一次。
+- `CompileScopeState` 按 **PSO layout 里的每个共享 space** 取组对象放进 ScopeState，跳过 per-pass space 与根常量空间。这一条覆盖了“只用常量、没有任何资源访问”的 Pass（`SkyboxPass` 只用 `g_EnvIntensity`）：若只按“谁填过数据”推导，它的 space 0 不会被绑定，CBV 也就设不上。
+- `FindSharedBindings(RHIContext&, spaceId)` 成为 space → 组对象的唯一入口；发布填值、组值填值、Pass 布局、ScopeState 四处共用。将来组对象归图持有时，只改这一处。
+- 反射出 space 但没有组时不做处理，仍由 `TakeReflected` 报 `"reads '{}' in space{}, but binds no group there."`，错误信息不退化。
+
+**已退役**：`RayTracingSceneBindingTag`（`RayTracingBinding.h` 删除，`RayTracingBindingSystem::Init` 不再打 tag）。space 7 现在完全靠反射推导。
+
+**退役顺序**（按依赖与规模）：`GeometryBindingTag` → `InstanceBindingTag` → `MainSceneTag` → `ViewBindingTag` → `MaterialBindingTag`。最后一个必须等材质纹理的上传承接方案确定，因为 `MaterialBindingTag::Uses` 是那批纹理 acquire 的唯一保障。每摘一个跑一次验证。
+
 
 ### 上传承接与 Uses 的退役
 
@@ -318,6 +326,12 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 3. 收窄并改名（例如 `MaterialTextureAcquire`），明确它只服务动态资源。
 
 在方向确定前，不要给能被显式访问的资源再添加 `Uses`。
+
+### 未完成
+
+- 其余五个 tag 仍在 `.Binds<>` 里：`GeometryBindingTag`、`InstanceBindingTag`、`MainSceneTag`、`ViewBindingTag`、`MaterialBindingTag`。摘除本身是机械改动，因为布局与 ScopeState 已经能按 space 推导。
+- `InstanceBindingSystem` 等仍在向组内填值（与图的填值相同）。逐项删除是后续步骤。
+- `SceneBindingSystem` 已改为发布 buffer 与 image、由 Pass 显式访问，`MainSceneTag::Uses` 随之清空；Scene 的五张图与三张 buffer 的上传承接目前依赖“每帧都有 Pass 读取”这一惯例。
 
 ## 十一、方案边界
 

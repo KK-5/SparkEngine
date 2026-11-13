@@ -1,5 +1,4 @@
 #include "RayTracingBindingSystem.h"
-#include "RayTracingBinding.h"
 
 #include <Service/Service.h>
 
@@ -35,7 +34,6 @@ namespace Spark::Render
 
         m_bindings = rhiContext.CreateEntity();
         rhiContext.Add<RHI::Components::ShaderBindings>(m_bindings, RHI::Components::ShaderBindings{ bindings });
-        rhiContext.Add<RayTracingSceneBindingTag>(m_bindings);
     }
 
     void RayTracingBindingSystem::Shutdown(RHI::RHIContext& rhiContext)

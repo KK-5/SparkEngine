@@ -16,7 +16,6 @@
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
 #include <Binding/Material/MaterialBinding.h>
-#include <Binding/RayTracing/RayTracingBinding.h>
 #include <Binding/Scene/SceneBinding.h>
 #include <Binding/View/ViewBinding.h>
 #include <Geometry/MeshGeometry.h>
@@ -88,7 +87,7 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(targets)
             .RenderStates(states)
-            .Binds<Render::ViewBindingTag, Render::RayTracingSceneBindingTag,
+            .Binds<Render::ViewBindingTag,
                    Render::InstanceBindingTag, Render::GeometryBindingTag, Render::MaterialBindingTag,
                    Render::MainSceneTag>()
             .RendersView<Render::MainViewTag>()

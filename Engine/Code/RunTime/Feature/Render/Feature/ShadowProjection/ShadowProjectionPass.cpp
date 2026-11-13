@@ -14,7 +14,6 @@
 #include <RenderGraph/RenderGraphUtils.h>
 
 #include <Binding/Scene/SceneBinding.h>
-#include <Binding/RayTracing/RayTracingBinding.h>
 #include <RayTracing/RayTracingScene.h>
 #include <View/ShadowMapAllocator.h>
 #include <View/ShadowMapLayout.h>
@@ -104,7 +103,7 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<ViewBindingTag, MainSceneTag, RayTracingSceneBindingTag>()
+            .Binds<ViewBindingTag, MainSceneTag>()
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {

@@ -15,7 +15,6 @@
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Pipeline/RenderStates.h>
 
-#include <Binding/RayTracing/RayTracingBinding.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/RenderPass.h>
 #include <RayTracing/RayTracingScene.h>
@@ -93,7 +92,7 @@ namespace Spark::SandBox
             .InputLayout(input.End())
             .RenderTargetLayout(targets)
             .RenderStates(states)
-            .Binds<Render::ViewBindingTag, Render::RayTracingSceneBindingTag>()
+            .Binds<Render::ViewBindingTag>()
             .RendersView<Render::MainViewTag>()
             .Build([](Render::RenderPassScopes& p)
             {
