@@ -270,19 +270,36 @@ namespace Spark::Render
         RHIHandle m_source {NullHandle};
     };
 
-    //! On an attachment a shader reads or writes through a named input (.Bind): lowering puts
-    //! the attachment's view into that input of its pass's per-pass bindings.
+    enum class ShaderBindingMode
+    {
+        Direct,
+        Bindless,
+    };
+
+    //! How a resource is exposed to shaders. Direct names a fixed input; Bindless exposes the
+    //! view through its heap index, whose delivery is the consumer's responsibility.
+    //! On an attachment only Direct is recorded: lowering fills that named input.
     struct ShaderInputBinding
     {
         uint32_t m_spaceId = 0;
         RHI::InputName m_input;
         uint32_t m_arrayIndex = 0;
+        ShaderBindingMode m_mode = ShaderBindingMode::Direct;
+
+        static ShaderInputBinding Bindless()
+        {
+            ShaderInputBinding binding;
+            binding.m_mode = ShaderBindingMode::Bindless;
+            return binding;
+        }
 
         bool operator==(const ShaderInputBinding& other) const
         {
-            return m_spaceId == other.m_spaceId
-                && m_input == other.m_input
-                && m_arrayIndex == other.m_arrayIndex;
+            return m_mode == other.m_mode
+                && (m_mode == ShaderBindingMode::Bindless
+                    || (m_spaceId == other.m_spaceId
+                        && m_input == other.m_input
+                        && m_arrayIndex == other.m_arrayIndex));
         }
     };
 

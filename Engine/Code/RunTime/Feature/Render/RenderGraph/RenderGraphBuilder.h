@@ -100,7 +100,7 @@ namespace Spark::Render
         void ImportResource(const RHI::AttachmentId& name, RHIHandle resource);
 
         //! Import `resource` as one whose shader usage it publishes itself: an access of `name`
-        //! binds to the published input rather than to a .Bind the Scope writes.
+        //! takes its default view and, for Direct, its input location from that publication.
         void ImportSharedResource(const RHI::AttachmentId& name, RHIHandle resource);
 
         void PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource);
@@ -116,7 +116,7 @@ namespace Spark::Render
         //! or 0 when it reads a stand-in.
         void BindPreviousFrameValid(RHIHandle attachment, const RHI::InputName& input);
 
-        //! Bind `attachment` to the space/name/array element in `binding`. Currently only
+        //! Bind `attachment` to the Direct space/name/array element in `binding`. Currently only
         //! per-pass space is writable. Checks the input exists, its array index and access
         //! (SRV for reads, UAV for
         //! writes), and gives the attachment the input's stages, or checks them against its
@@ -127,9 +127,9 @@ namespace Spark::Render
         //! (ImportSharedResource).
         bool IsImportedAsShared(RHIHandle attachment) const;
 
-        //! Apply the usage the resource publishes to this access: its location, and the view or
-        //! object it is bound through.
-        void BindSharedShaderInput(RHIHandle attachment);
+        //! Apply the resource's published view or AS object and, for Direct, its input location.
+        //! A Bindless Image supplies only its view; its index is delivered by the consumer.
+        void ApplySharedShaderUsage(RHIHandle attachment);
 
         //! Bind `attachment` by heap index to the uint constant `input`, a root constant or a
         //! per-pass one: lowering writes its view's bindless index there. The access needs a

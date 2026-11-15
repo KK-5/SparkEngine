@@ -126,7 +126,7 @@ namespace Spark::Render
         //! Bind its view or AS object to an element of the per-pass shader input `input`.
         ShaderAttachment& Bind(const RHI::InputName& input, uint32_t arrayIndex = 0);
 
-        //! Specify the full input location. Currently only per-pass space is writable;
+        //! Specify the full Direct input location. Currently only per-pass space is writable;
         //! shared-space binding compilation is a later step.
         ShaderAttachment& Bind(const ShaderInputBinding& binding);
 
@@ -157,10 +157,10 @@ namespace Spark::Render
             , m_attachment(handle)
             , m_fixedStage(fixedStage)
         {
-            // An access of a resource imported as shared binds where that resource publishes it.
+            // An access imported as shared takes the resource's published view and binding mode.
             if (m_builder->IsImportedAsShared(handle))
             {
-                m_builder->BindSharedShaderInput(handle);
+                m_builder->ApplySharedShaderUsage(handle);
             }
         }
 
@@ -489,8 +489,8 @@ namespace Spark::Render
             return true;
         }
 
-        //! Import the resource carrying Tag as one that publishes its shader input binding: a
-        //! Scope of this pass reads it without a .Bind. False as Import is.
+        //! Import the resource carrying Tag with its published shader usage. A Scope takes its
+        //! default view and Direct input location, if any. False as Import is.
         template<typename Tag>
         bool ImportShared(const RHI::AttachmentId& name)
         {

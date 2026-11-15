@@ -1,8 +1,8 @@
 # 基于 Attachment 的资源声明与 Shader Binding 编译
 
-状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；布局与 per-scope 绑定改由 space 推导、`.Binds<>` 开始退役，见§十末；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-13 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
+状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；布局与 per-scope 绑定改由 space 推导、`.Binds<>` 开始退役，见§十末；共享 Image 的 bindless 用法第一步已实现并通过编译，`ImportSharedSet` 与材质迁移仍为提案，见§十一；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-15 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
 
-本文是 [资源绑定模型](TODO_BindingModelPlan.md) 的后续设计讨论。原文记录的已完成改造仍是历史记录；本文的资源发布与 attachment 统一分组方案尚未实现。
+本文是 [资源绑定模型](TODO_BindingModelPlan.md) 的后续设计讨论。原文记录的已完成改造仍是历史记录；本文已落地的资源发布见§十，attachment 统一分组仍为后续设计。
 
 ## 一、问题与目标
 
@@ -276,7 +276,7 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 - 资源实体发布自己的 shader 用法：`ShaderAccelerationStructureUsage`（`Shader/RayTracing` 侧的发布点）与 `ShaderBufferUsage` / `ShaderImageUsage`，同级保存 `ShaderInputBinding`（space、输入名、arrayIndex）；Buffer 与 Image 另存**默认视图描述符**。对象与物化视图不发布，填值时从资源自身组件解析。
 - `RenderPassScopes::ImportShared<Tag>(name)` 声明“这个资源按它发布的用法绑定”，与 `Import<Tag>` 对称，返回同样表示“资源是否就绪”的 `bool`。图中以**资源身份**记录意图，不以名字；一个 Pass 内同一资源只允许一种意图，混用即断言。
-- `ShaderAttachment` 构造时经中性查询 `IsImportedAsShared` 判断，命中才由 `BindSharedShaderInput` 把发布的位置、视图或对象写到这次访问上。普通访问不进入该路径，也不承担任何共享语义。
+- `ShaderAttachment` 构造时经中性查询 `IsImportedAsShared` 判断，命中才应用发布的位置、视图或对象。入口原为 `BindSharedShaderInput`，§十一第一步改名为 `ApplySharedShaderUsage`。普通访问不进入该路径，也不承担任何共享语义。
 - 首次消费者：`ShadowProjectionPass` 的 TLAS（space 7）、`GBufferPass` 的实例池（space 4）。`DeviceArray` 初始化时发布自己的结构化视图，Instance / Geometry / Material 三个数组因此具备被消费的条件。
 - 编译期按 space 找到目标共享组并填值；per-pass 与共享在填值上走同一条代码，只是目标对象不同。
 - `RayTracingBindingSystem::Update` 的填值随之删除：`g_RayTracingScene` 现在只由图在编译期写入。
@@ -319,13 +319,13 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 上传链路的既有事实（两条路共用）：拷贝在 Copy 队列完成后，`AsyncUploadSystem::FinishUploads` 在帧首用上传 fence 的值把关，只有已完成的上传才转为待 acquire；因此 acquire 不需要队列侧的等待，跨队列顺序由 fence 与提交顺序保证。
 
-**剩余的 Uses**：`MaterialBindingTag::Uses = TagList<MaterialTextureTag>`。材质纹理按 GPU 数据动态索引、数量不定、没有逐资源的访问可声明，无法走 attachment。可选方向（未定）：
+**剩余的 Uses**：`MaterialBindingTag::Uses = TagList<MaterialTextureTag>`。材质纹理按 GPU 数据动态索引、数量不定，此前没有逐资源的 attachment 声明。以下保留当时讨论的候选方向；后续选用批量导入、展开为 attachment 的提案，见§十一：
 
 1. 材质纹理改在图形队列上传，取消跨队列交接，从而不需要 acquire；
 2. 保留组级承接，但由发布驱动（按 space 收集发布资源），而不是手写 tag 列表；
 3. 收窄并改名（例如 `MaterialTextureAcquire`），明确它只服务动态资源。
 
-在方向确定前，不要给能被显式访问的资源再添加 `Uses`。
+不要给能被显式访问的资源再添加 `Uses`。材质集合迁移时，必须同时清空旧 `Uses`，避免重复 acquire。
 
 ### 未完成
 
@@ -333,9 +333,129 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 - `InstanceBindingSystem` 等仍在向组内填值（与图的填值相同）。逐项删除是后续步骤。
 - `SceneBindingSystem` 已改为发布 buffer 与 image、由 Pass 显式访问，`MainSceneTag::Uses` 随之清空；Scene 的五张图与三张 buffer 的上传承接目前依赖“每帧都有 Pass 读取”这一惯例。
 
-## 十一、方案边界
+## 十一、实现提案：Bindless 共享 Image 与 ImportSharedSet
 
-- 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件及 attachment 的统一绑定分组仍待逐项设计。
+状态：第一步已按后续讨论实现并通过 Debug 编译（2026-11-15），见§11.8；集合导入与材质迁移尚未实现。本步服务当前材质纹理，支持不指定 `.BindIndex` 的 bindless 共享用法；已有普通资源的 `.BindIndex` 保持原样，向共享 bindless 访问增加索引输出目标不在本步范围内。
+
+### 11.1 共享用法与索引传递分别表达
+
+绑定模式统一放进 `ShaderInputBinding`，Image / Buffer / AS 的发布结构继续引用它，不加入材质槽位、数据表字段或裸 bindless index：
+
+```cpp
+enum class ShaderBindingMode
+{
+    Direct,
+    Bindless,
+};
+
+struct ShaderInputBinding
+{
+    uint32_t m_spaceId = 0;
+    RHI::InputName m_input;
+    uint32_t m_arrayIndex = 0;
+    ShaderBindingMode m_mode = ShaderBindingMode::Direct;
+
+    static ShaderInputBinding Bindless();
+};
+```
+
+- 模式放在末尾并默认 Direct，现有 `{ space, input, arrayIndex }` 和 `{ binding, view }` 发布点不改变含义。`ShaderImageUsage` 本身不增加模式字段。
+- `Direct` 使用输入位置；`Bindless` 没有固定输入位置，不读取 space / input / arrayIndex。通过 `ShaderInputBinding::Bindless()` 发布该模式；未知模式报错，缺少输入位置不自动解释为 bindless。
+- 绑定描述的相等比较先区分模式：Direct 比较完整输入位置，Bindless 忽略无意义的位置字段。这不是资源身份或 View 的相等比较。
+- 本步仅为共享 Image 应用 Bindless 模式；Buffer / AS 和固定输入填值入口仍要求 Direct，不开放 Scope 的 `.Bind(ShaderInputBinding::Bindless())`。
+- 资源发布的是通过哪个 View、以什么方式提供给 shader；具体 index 从该 View 解析，不在发布组件中重复存储。
+- index 写入哪个材质槽位仍由材质数据生产者负责。基础机制不推断索引传递已经完成，也不描述材质表布局。
+
+### 11.2 单资源 ImportShared 的扩展
+
+单资源 `ImportShared<Tag>(name)` 的参数、就绪判定与 `bool` 返回值沿用现有规则。`ImportSharedSet` 对每个成员使用同一套共享资源准备和用法应用逻辑。
+
+将 `BindSharedShaderInput` 改名为 `ApplySharedShaderUsage`，明确其应用已发布用法的职责：
+
+| 已发布用法 | 访问 attachment 上的记录 | 后续处理 |
+|---|---|---|
+| Image / Buffer / AS 的直接输入绑定 | 原有 View / AS 信息与 `ShaderInputBinding` | 按 space 填入输入，保留现有校验 |
+| Image 的 bindless 用法 | 复制发布的默认 View，不登记固定输入位置 | 沿用普通 attachment 的资源访问、stage、acquire 和障碍处理 |
+
+- 不增加 bindless attachment 标记、Scope bindless 功能或专用编译分支。发布模式由共享用法应用入口处理，编译器继续只对已登记的固定输入执行填值。
+- 图不为这种用法创建 `ShaderInputBinding` 或 `IndexBinding`，不获取或传递 index，也不增加索引有效性验证。材质系统继续负责解析 View 的索引、处理不可用情况并写入材质数据。
+- 不因本步增加 `.BindIndex`、View 覆盖等 Scope 操作限制；原有普通接口不变，材质迁移保证编码索引和访问声明使用同一发布 View。
+- RenderScope 的此类访问显式指定 stage；ComputeScope 沿用固定 ComputeShader stage。直接绑定继续从输入推导 stage；后续批量指定 stage 时也应保持该路径的兼容性校验。
+
+### 11.3 集合导入与读取接口
+
+首版 API 提议如下，RenderPassScopes 与 ComputePassScopes 均提供导入入口：
+
+```cpp
+const RHI::AttachmentId textures("MaterialTextures");
+p.ImportSharedSet<MaterialTextureTag>(textures);
+
+auto s = p.Scope();
+s.ReadSet(textures).Stage(RHI::AttachmentStage::FragmentShader);
+// 其余 attachment 与 draw 声明……
+s.Close();
+```
+
+- `ImportSharedSet<Tag>(name)` 返回 `void`。枚举所有携带 Tag、未标记删除的成员，校验发布信息和资源种类，再选取 `IsResourceReady` 的成员。空集合合法，不作为跳过绘制的条件。
+- 首版集合只支持 Image，可包含直接绑定或 bindless 两种已发布用法；不能假定 SharedSet 等于 bindless。Buffer / AS 集合与集合写入后续再扩展，现有单资源共享接口继续支持它们。
+- `ReadSet(name)` 在当前 Scope 为每个成员生成普通读取 attachment，并应用其已发布用法；返回批量访问对象，其 `.Stage` 只作用于本次生成的 attachment。ComputeScope 无须额外指定 stage。
+- 导入不生成访问，也不 acquire。空集合的读取不生成 attachment，不凭空使 Scope 可执行；Scope 仍需满足现有声明规则。
+- 集合名只在当前 Pass 有效，由 builder 保存集合名到成员列表的映射，随 Pass 结束清理；不同 Pass 可使用相同集合名。重复声明同一集合名、未声明便读取，以及将集合名当作单资源名使用均报错。
+- 不为集合创建 GPU 资源、独立 ECS 资源实体或跨帧句柄。成员列表只保存资源身份；资源与发布内容在本次构图至提交期间保持稳定。首版各 Pass 自行获取列表，不新增跨 Pass 的 Tag 查询缓存。
+- 成员走与单资源相同的导入准备流程，设置 backing 并登记该 Pass 的共享意图。附件直接关联成员实体，不要求调用方为成员逐个命名，也不为每个成员生成公开的字符串别名；诊断使用资源原有名称。
+- 同一成员出现在多个集合时按资源身份处理。重复的相同读取可合并，兼容的不同读取按原规则合并状态；不得吞掉冲突、不同 View 或不同 stage。直接绑定的多个成员也必须遵守输入位置冲突校验。
+- 单资源与集合导入共用现有“同一 Pass 内一个资源只有一种导入意图”规则。经集合共享导入的成员不能同时作为普通导入使用。
+
+### 11.4 材质纹理接入
+
+1. `MaterialTextureSystem::CreateTexture` 在资源实体上发布 `ShaderImageUsage`，模式为 Bindless，默认 View 与当前材质采样一致，覆盖完整 mip / layer 范围。`MaterialTextureTag` 收窄为集合成员标记，不再携带 `Access`。
+2. `MaterialBindingSystem::ResolveTexIndex` 使用发布的默认 View 解析索引，替换其中独立写死的 `ImageViewDescriptor{}`，继续复用 RHI 已有的 View 创建与缓存入口，不新增纹理系统 getter。
+3. 保持材质系统把 index 写入 `MaterialData.TexIndices`，shader 的 bindless 访问、材质数据布局和 sampler 来源不变。发布 bindless 用法不能替代这一步。
+4. GBuffer、Translucency、ReferencePathTracer 的采样 Scope 导入并读取纹理集合，stage 为实际采样阶段；材质表仍由 `ImportShared<MaterialPoolTag>` 与 `ReadBuffer` 单独声明。其他实际采样材质纹理的入口也须核查，不能只凭是否使用 space3 判断。
+5. 同一改动中将 `MaterialBindingTag::Uses` 清空，移除 `MaterialTextureTag::Access`；`MaterialBindingTag` 的对象查询适配可以暂留，继续按既定顺序退役各绑定 tag。
+
+### 11.5 就绪、上传与生命周期
+
+| 成员状态 | 集合处理 |
+|---|---|
+| 上传未完成、没有实际对象 | 不纳入；材质索引沿用现有 InvalidTextureIndex / 默认采样行为 |
+| 拷贝完成、PendingAcquires | 纳入，由第一个读取 attachment 承接上传 |
+| 以前已完成 acquire | 纳入，继续声明本帧可能访问，按实际状态决定障碍 |
+| DeadTag / 无效实体 | 不纳入；沿用资源退役和孤立上传清理 |
+
+- `CompileImageAccess`、`AcquireUpload` 与执行器的 `ScopeUpload` 路径继续处理交接，不为集合新增 acquire 回调。旧 Uses 必须随材质消费者接入一起清空。
+- 集合保守包含所有存活、就绪的材质纹理，不按本帧可见材质筛选。当前材质编码先于图的帧首上传完成回调；新就绪成员可以已进入集合而尚未写入本帧材质索引，这是安全的访问范围扩大。
+- 材质编码和 attachment 必须解析同一资源的同一个 View，且索引在材质数据使用期间有效。禁止集合读取自行换 View 后仍沿用旧材质索引。
+- 无 Scope 读取时允许上传保持待 acquire，后续消费或资源销毁时结束；不增加“帧末必须全部 acquire”的断言或无条件兜底读取。
+- 保留当前 Graphics 消费队列限制和资源池的延迟释放。此步不开放异步 Compute 消费，也不改变已导入资源拒绝再次异步上传的约束；mip 流送、原地更新与替换另行设计。
+
+### 11.6 大集合的必要成本控制
+
+- 展开仍产生约“成员数 × 消费 Scope 数”的访问记录；不会按每个材质槽位或每次 draw 再展开。
+- 修改 `CloseScope` 的全体两两冲突检查：用临时索引按实际资源分组，只在同资源的候选访问间检查重叠和冲突。保留未链接名称、同资源别名和历史读取的现有语义，不改 attachment 的声明顺序。
+- 大量上传同时完成时，`FindUploadsToAcquire` 当前会为各资源反复扫描待 acquire 事件。实现阶段按资源建立本次编译的临时查询索引，保持匹配、排除已承接任务和销毁时机不变。
+- 不因去重而合并不同 Scope 的访问，也不将多个直接绑定成员覆盖到同一个输入。暂不引入压缩集合 attachment、常驻全局成员表或绑定结果缓存。
+
+### 11.7 实施与验证顺序
+
+1. 在 `ShaderInputBinding` 增加统一绑定模式和单资源共享 Image 应用路径，保持原有直接绑定，不生成 bindless attachment 标记、固定输入或索引常量写入。助手仅做编译检查，运行验证由用户负责；第一步已获用户验证确认，见§11.8。
+2. 增加集合导入、成员 attachment 展开与批量 stage，完成大集合的冲突检查和上传查询调整。
+3. 材质侧发布并使用同一默认 View，接入全部材质纹理消费者；同批清空旧 Uses，核对上传只有一条承接路径。
+4. 针对就绪筛选、空集合、删除成员、多个 Scope、重复成员、共享意图冲突、不同 View 冲突和大量独立成员做有意义的验证；已有直接绑定、普通 `.BindIndex`、资源别名与跨帧读取也做回归检查。
+5. Debug 编译 `SparkRenderTest`、`ReferencePathTracer` 及原共享导入相关示例；检查首次上传、后续帧读取和多消费者的 acquire。记录规模验证的附件数量与构图成本。运行测试与画面验证沿用项目当前约定，具体执行情况如实记录。
+
+### 11.8 第一步实现与验证记录
+
+- `ShaderInputBinding` 增加 `ShaderBindingMode`、默认 Direct、`Bindless()` 工厂及按模式区分的相等比较；现有三字段聚合初始化保持兼容。
+- 共享应用入口改名为 `ApplySharedShaderUsage`。共享 Image 的 Direct 用法沿用原填值路径，Bindless 用法只复制默认 View，不在 attachment 上登记固定输入位置。
+- 固定输入入口拒绝非 Direct 模式；未增加 Scope bindless 标记、索引输出或编译器专用分支。`ShaderImageUsage` 数据结构、材质发布点、`Uses` 与集合接口均未在本步迁移。
+- Debug 编译通过：`SparkRenderTest`、`ReferencePathTracer`、`ComputePass`、`TrianglePass`、`MSAAPass`、`DrawCube`、`MultiView`、`RayTracingScene`、`IndirectDispatch`。
+- 按用户要求仅做编译检查，未运行测试程序或示例；具体运行与画面验证由用户负责。
+- 用户已完成验证并确认无问题，同意提交第一步。
+
+## 十二、方案边界
+
+- 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件已按§十落地，attachment 的统一绑定分组仍待逐项设计。§十一的单资源 bindless Image 用法已完成第一步，集合导入与材质迁移仍为提案。
 - 不新增可供外部直接调用资源系统对象的访问接口。
 - 不通过导入或发布资源隐式声明整组访问。
 - 不以移除专用 ECS 实体为由移除 RHI 绑定对象或必要的布局信息。

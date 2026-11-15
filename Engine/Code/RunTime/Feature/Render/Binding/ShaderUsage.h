@@ -4,9 +4,9 @@
 
 namespace Spark::Render
 {
-    //! A resource entity's shader usage: where shaders can see it. Only the location — and, for
-    //! a kind a resource can be seen through several ways, the default view — is published; the
-    //! object stays on the resource's own components.
+    //! A resource entity's shader usage: its binding mode, fixed input location for Direct,
+    //! and default view. The object stays on the resource's own components. Bindless Image
+    //! usage publishes the view; the consumer resolves its index and delivers it to shaders.
 
     struct ShaderAccelerationStructureUsage
     {

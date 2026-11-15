@@ -891,19 +891,19 @@ namespace Spark::Render
         return intent != m_passImports.end() && intent->second;
     }
 
-    void RenderGraphBuilder::BindSharedShaderInput(RHIHandle attachment)
+    void RenderGraphBuilder::ApplySharedShaderUsage(RHIHandle attachment)
     {
         auto& rhiContext = *RHIExecuteContext::Current();
         auto* image  = rhiContext.TryGet<ImagePassAttachment>(attachment);
         auto* buffer = image != nullptr ? nullptr : rhiContext.TryGet<BufferPassAttachment>(attachment);
-        ASSERT(image != nullptr || buffer != nullptr, "Binding the published usage of no attachment.");
+        ASSERT(image != nullptr || buffer != nullptr, "Applying the published usage of no attachment.");
         if (image == nullptr && buffer == nullptr)
         {
             return;
         }
 
         const RHIHandle resource = image != nullptr ? image->m_image : buffer->m_buffer;
-        ASSERT(resource != NullHandle, "Binding a published usage before its resource is declared.");
+        ASSERT(resource != NullHandle, "Applying a published usage before its resource is declared.");
         if (resource == NullHandle)
         {
             return;
@@ -920,7 +920,19 @@ namespace Spark::Render
                 return;
             }
             image->m_viewDescriptor = usage->m_view;
-            BindShaderInputInternal(attachment, usage->m_binding, true);
+            switch (usage->m_binding.m_mode)
+            {
+            case ShaderBindingMode::Direct:
+                BindShaderInputInternal(attachment, usage->m_binding, true);
+                break;
+            case ShaderBindingMode::Bindless:
+                // Its consumer supplies the index through its own data. This access only
+                // declares the published view's resource dependency.
+                break;
+            default:
+                ASSERT(false, "{}: its resource publishes an unknown shader binding mode.", name.GetCStr());
+                break;
+            }
             return;
         }
 
@@ -961,6 +973,13 @@ namespace Spark::Render
     void RenderGraphBuilder::BindShaderInputInternal(
         RHIHandle attachment, const ShaderInputBinding& binding, bool published)
     {
+        ASSERT(binding.m_mode == ShaderBindingMode::Direct,
+            "A fixed shader input requires Direct binding. Bindless publication is supported only for Images.");
+        if (binding.m_mode != ShaderBindingMode::Direct)
+        {
+            return;
+        }
+
         const auto& input = binding.m_input;
         auto& rhiContext = *RHIExecuteContext::Current();
         CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
