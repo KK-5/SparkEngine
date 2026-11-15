@@ -21,7 +21,7 @@ namespace Spark::Render
     using ViewHandleList = eastl::fixed_vector<RHI::RHIHandle, 16>;
 
     using ShaderBindingsList =
-        eastl::fixed_vector<const RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax>;
+        eastl::fixed_vector<RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax>;
 
     //! What a pass can be asked to do, as a table of type-erased operations on the pass
     //! entity. Every entry is a template instantiation frozen at RenderPassBuilder::
@@ -51,7 +51,8 @@ namespace Spark::Render
 
     // ---- m_resolveSharedBindings -----------------------------------------------
 
-    //! Append every ShaderBindings tagged BindingTag (a global singleton per tag) to out.
+    //! Transitional adapter: publish objects from the systems' existing binding entities.
+    //! RenderGraph consumes only the objects; resource-side publication can replace this later.
     template<typename BindingTag>
     void ResolveSharedBinding(RHI::RHIContext& ctx, ShaderBindingsList& out)
     {

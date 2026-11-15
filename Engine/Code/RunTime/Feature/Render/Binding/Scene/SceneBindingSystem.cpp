@@ -24,6 +24,8 @@
 #include <Shader/ShaderBindingsUtils.h>
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/ShaderUsage.h>
+#include <Binding/SharedGroupValues.h>
 #include <Binding/View/ViewBinding.h>
 
 #include <RHI/Resource/Image/Image.h>
@@ -78,13 +80,13 @@ namespace Spark::Render
             return table;
         }
 
-        //! Copies `records` into this frame's buffer of `staging` in one go and binds `input` to
-        //! a view of the whole buffer, so each buffer gets one view whatever the count. Room for
-        //! one record at least, so the view is never empty. False when the buffer could not
-        //! grow: then `input` is bound to nothing.
-        template<typename Record>
+        //! Copies `records` into this frame's buffer of `staging` in one go and publishes a view
+        //! of the whole buffer as `input`, so each buffer gets one view whatever the count. Room
+        //! for one record at least, so the view is never empty. The buffer's slots rotate, so
+        //! `taggedSlot` follows this frame's, and the usage is refreshed on it.
+        template<typename BufferTag, typename Record>
         bool WriteAndBind(RHI::RHIContext& rhiCtx, StagingBuffer& staging, const eastl::vector<Record>& records,
-            RHI::RHIHandle bindings, const char* input)
+            const char* input, RHI::RHIHandle& taggedSlot)
         {
             const uint64_t byteCount = eastl::max<uint64_t>(records.size(), 1) * sizeof(Record);
             staging.Begin(byteCount);
@@ -92,7 +94,6 @@ namespace Spark::Render
             RHI::Buffer* buffer = staging.GetBuffer();
             if (!allocation.m_data || !buffer)
             {
-                SetShaderBuffer(bindings, RHI::InputName(input), nullptr);
                 return false;
             }
             if (!records.empty())
@@ -102,9 +103,21 @@ namespace Spark::Render
 
             const RHI::BufferViewDescriptor viewDesc = RHI::BufferViewDescriptor::CreateStructured(
                 0, static_cast<uint32_t>(buffer->GetDescriptor().m_byteCount / sizeof(Record)), sizeof(Record));
-            RHI::BufferView* view = RHI::GetOrCreateBufferView(rhiCtx, staging.GetResource(), *buffer, viewDesc);
-            SetShaderBuffer(bindings, RHI::InputName(input), view);
-            return view != nullptr;
+
+            const RHI::RHIHandle resource = staging.GetResource();
+            if (taggedSlot != resource)
+            {
+                if (taggedSlot != RHI::NullHandle && rhiCtx.Valid(taggedSlot))
+                {
+                    rhiCtx.Remove<BufferTag>(taggedSlot);
+                }
+                rhiCtx.Add<BufferTag>(resource);
+                taggedSlot = resource;
+            }
+
+            rhiCtx.AddOrReplace<ShaderBufferUsage>(resource, ShaderBufferUsage{
+                ShaderInputBinding{ kSceneSpaceId, RHI::InputName(input), 0 }, viewDesc });
+            return true;
         }
     }
 
@@ -171,6 +184,11 @@ namespace Spark::Render
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindings, RHI::Components::ShaderBindings{ sceneBindings });
         rhiCtx.Add<MainSceneTag>(m_bindings);
+
+        // What no resource carries: refilled each frame, written into the group at compile.
+        SharedGroupValues values;
+        values.m_spaceId = kSceneSpaceId;
+        rhiCtx.Add<SharedGroupValues>(m_bindings, values);
 
         // The arrays land in the space0 group created above, read by shaders straight from
         // host memory.
@@ -318,8 +336,25 @@ namespace Spark::Render
         const RHI::RHIHandle prefiltered = gpu->m_prefiltered.Get();
         const auto brdfLut = FindLookupTable<BRDFLutTag>(*rhiCtx);
 
-        // All or nothing: a partially bound set would leave some slot stale while the mip
-        // count says "go ahead and sample". The LUT joins the same gate -- without it the
+        // Published on the images themselves, as soon as they exist: this system is where the
+        // scene's pieces, owned by several others, are gathered and given their shader usage.
+        // The view is this group's choice, so it is made here, not by the owners. Publishing
+        // does not wait for the upload: a pass imports an input the moment it is there, so a
+        // publication that waited for readiness would race it.
+        const RHI::ImageViewDescriptor cubeView = RHI::ImageViewDescriptor::CreateCubemap();
+        if (irradiance != RHI::NullHandle)
+        {
+            rhiCtx->AddOrReplace<ShaderImageUsage>(irradiance, ShaderImageUsage{
+                ShaderInputBinding{ kSceneSpaceId, RHI::InputName(IrradianceCubeName), 0 }, cubeView });
+        }
+        if (prefiltered != RHI::NullHandle)
+        {
+            rhiCtx->AddOrReplace<ShaderImageUsage>(prefiltered, ShaderImageUsage{
+                ShaderInputBinding{ kSceneSpaceId, RHI::InputName(PrefilteredCubeName), 0 }, cubeView });
+        }
+
+        // All or nothing for the constant: a partially ready set must not be sampled, and the
+        // mip count is what the shader gates on. The LUT joins the same gate -- without it the
         // specular term has no F0 scale/bias to apply.
         if (!RHI::IsResourceReady(*rhiCtx, irradiance)
             || !RHI::IsResourceReady(*rhiCtx, prefiltered)
@@ -328,29 +363,11 @@ namespace Spark::Render
             return result;
         }
 
-        auto* irradianceImage  = rhiCtx->TryGet<RHI::Components::Image>(irradiance);
-        auto* prefilteredImage = rhiCtx->TryGet<RHI::Components::Image>(prefiltered);
-        auto* brdfLutImage     = rhiCtx->TryGet<RHI::Components::Image>(brdfLut);
-        if (!irradianceImage || !prefilteredImage || !brdfLutImage)
+        const auto* prefilteredImage = rhiCtx->TryGet<RHI::Components::Image>(prefiltered);
+        if (prefilteredImage == nullptr)
         {
             return result;
         }
-
-        const RHI::ImageViewDescriptor cubeView = RHI::ImageViewDescriptor::CreateCubemap();
-        RHI::ImageView* irradianceView = RHI::GetOrCreateImageView(
-            *rhiCtx, irradiance, *irradianceImage->m_image, cubeView);
-        RHI::ImageView* prefilteredView = RHI::GetOrCreateImageView(
-            *rhiCtx, prefiltered, *prefilteredImage->m_image, cubeView);
-        RHI::ImageView* brdfLutView = RHI::GetOrCreateImageView(
-            *rhiCtx, brdfLut, *brdfLutImage->m_image, RHI::ImageViewDescriptor{});
-        if (!irradianceView || !prefilteredView || !brdfLutView)
-        {
-            return result;
-        }
-
-        SetShaderImage(m_bindings, RHI::InputName(IrradianceCubeName), irradianceView);
-        SetShaderImage(m_bindings, RHI::InputName(PrefilteredCubeName), prefilteredView);
-        SetShaderImage(m_bindings, RHI::InputName(BRDFLutName), brdfLutView);
 
         // From the live image, not a bake-time constant, so a re-bake at a different mip
         // count needs no change here.
@@ -362,31 +379,21 @@ namespace Spark::Render
     {
         const auto ltc1 = FindLookupTable<LTC1Tag>(rhiCtx);
         const auto ltc2 = FindLookupTable<LTC2Tag>(rhiCtx);
-        // Both or neither, for the reason BindEnvironmentIBL gives.
-        if (!RHI::IsResourceReady(rhiCtx, ltc1) || !RHI::IsResourceReady(rhiCtx, ltc2))
+
+        // Published as soon as the tables exist, for the reason BindEnvironmentIBL gives.
+        if (ltc1 != RHI::NullHandle)
         {
-            return false;
+            rhiCtx.AddOrReplace<ShaderImageUsage>(ltc1, ShaderImageUsage{
+                ShaderInputBinding{ kSceneSpaceId, RHI::InputName(LTC1Name), 0 }, RHI::ImageViewDescriptor{} });
+        }
+        if (ltc2 != RHI::NullHandle)
+        {
+            rhiCtx.AddOrReplace<ShaderImageUsage>(ltc2, ShaderImageUsage{
+                ShaderInputBinding{ kSceneSpaceId, RHI::InputName(LTC2Name), 0 }, RHI::ImageViewDescriptor{} });
         }
 
-        auto* ltc1Image = rhiCtx.TryGet<RHI::Components::Image>(ltc1);
-        auto* ltc2Image = rhiCtx.TryGet<RHI::Components::Image>(ltc2);
-        if (!ltc1Image || !ltc2Image)
-        {
-            return false;
-        }
-
-        RHI::ImageView* ltc1View = RHI::GetOrCreateImageView(
-            rhiCtx, ltc1, *ltc1Image->m_image, RHI::ImageViewDescriptor{});
-        RHI::ImageView* ltc2View = RHI::GetOrCreateImageView(
-            rhiCtx, ltc2, *ltc2Image->m_image, RHI::ImageViewDescriptor{});
-        if (!ltc1View || !ltc2View)
-        {
-            return false;
-        }
-
-        SetShaderImage(m_bindings, RHI::InputName(LTC1Name), ltc1View);
-        SetShaderImage(m_bindings, RHI::InputName(LTC2Name), ltc2View);
-        return true;
+        // Both or neither for the flag, for the reason BindEnvironmentIBL gives.
+        return RHI::IsResourceReady(rhiCtx, ltc1) && RHI::IsResourceReady(rhiCtx, ltc2);
     }
 
     void SceneBindingSystem::Update(const FrameTime& time)
@@ -400,65 +407,79 @@ namespace Spark::Render
 
         PackShadowViews(*world, *rhiCtx);
         PackLightData(*world);
-        WriteAndBind(*rhiCtx, m_shadowViewBuffer, m_shadowViews, m_bindings, ShadowViewBufferName);
-        WriteAndBind(*rhiCtx, m_viewShadowMapBuffer, m_viewShadowMaps, m_bindings, ViewShadowMapBufferName);
-        const uint32_t lightCount = WriteAndBind(*rhiCtx, m_lightBuffer, m_lights, m_bindings, LightBufferName)
+        WriteAndBind<ShadowViewBufferTag>(*rhiCtx, m_shadowViewBuffer, m_shadowViews, ShadowViewBufferName, m_shadowViewSlot);
+        WriteAndBind<ViewShadowMapBufferTag>(*rhiCtx, m_viewShadowMapBuffer, m_viewShadowMaps, ViewShadowMapBufferName, m_viewShadowMapSlot);
+        const uint32_t lightCount = WriteAndBind<LightBufferTag>(*rhiCtx, m_lightBuffer, m_lights, LightBufferName, m_lightSlot)
                 ? static_cast<uint32_t>(m_lights.size()) : 0;
+
+        // The BRDF LUT is its own table, not part of the sky's set: it is published whether or
+        // not there is a skybox, since a pass reads it as soon as the table is there.
+        const auto brdfLut = FindLookupTable<BRDFLutTag>(*rhiCtx);
+        if (brdfLut != RHI::NullHandle)
+        {
+            rhiCtx->AddOrReplace<ShaderImageUsage>(brdfLut, ShaderImageUsage{
+                ShaderInputBinding{ kSceneSpaceId, RHI::InputName(BRDFLutName), 0 }, RHI::ImageViewDescriptor{} });
+        }
+
+        // What no resource carries, refilled every frame: the compiler writes it into the group.
+        auto* values = rhiCtx->TryGet<SharedGroupValues>(m_bindings);
+        ASSERT(values != nullptr, "[SceneBindingSystem] The space0 group has no values component.");
+        if (values == nullptr)
+        {
+            return;
+        }
+        values->m_samplers.clear();
+        values->m_constants.clear();
 
         // A per-scene constant, not a per-view one: every layer is as wide, whatever the
         // resolution of the shadow map in it.
-        SetShaderConstant(m_bindings, RHI::InputName(ShadowTexelSizeName), 1.0f / static_cast<float>(kShadowMapResolution));
+        PushSharedConstant(*values, RHI::InputName(ShadowTexelSizeName), 1.0f / static_cast<float>(kShadowMapResolution));
 
         // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every frame
         // so the CBV is always compiled: its bind is unguarded in CommandList, unlike the SRV
         // table's, and a missing address trips a hard assert. The shader loop is empty while
         // count is 0.
-        SetShaderConstant(m_bindings, RHI::InputName(LightCountName), lightCount);
+        PushSharedConstant(*values, RHI::InputName(LightCountName), lightCount);
 
         // Same unconditional-write rule as g_LightCount; 0 mips is also the shader's gate,
         // since the cubes share g_Lights' table and "unbound" there means stale, not null.
         const EnvironmentBinding env = BindEnvironmentIBL();
-        SetShaderConstant(m_bindings, RHI::InputName(PrefilteredMipsName), env.m_prefilteredMipCount);
-        SetShaderConstant(m_bindings, RHI::InputName(EnvIntensityName), env.m_intensity);
+        PushSharedConstant(*values, RHI::InputName(PrefilteredMipsName), env.m_prefilteredMipCount);
+        PushSharedConstant(*values, RHI::InputName(EnvIntensityName), env.m_intensity);
 
         // Not inside either gate: the cubes and the LTC tables are read through it, and
         // each can be bound without the other.
-        SetShaderSampler(m_bindings, RHI::InputName(IBLSamplerName),
+        PushSharedSampler(*values, RHI::InputName(IBLSamplerName),
             RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear,
                                       RHI::AddressMode::Clamp));
 
         const uint32_t areaLightLutReady = BindAreaLightLuts(*rhiCtx) ? 1u : 0u;
-        SetShaderConstant(m_bindings, RHI::InputName(AreaLightLutReadyName), areaLightLutReady);
+        PushSharedConstant(*values, RHI::InputName(AreaLightLutReadyName), areaLightLutReady);
 
         // Doubles on the CPU so they stay exact across a long session; the shader only ever
         // needs the low bits, so the narrowing is deliberate.
-        SetShaderConstant(m_bindings, RHI::InputName(FrameNumberName),
+        PushSharedConstant(*values, RHI::InputName(FrameNumberName),
             static_cast<uint32_t>(time.m_frameNumber));
-        SetShaderConstant(m_bindings, RHI::InputName(GameTimeName),
+        PushSharedConstant(*values, RHI::InputName(GameTimeName),
             static_cast<float>(time.m_gameTime));
-        SetShaderConstant(m_bindings, RHI::InputName(PrevGameTimeName),
+        PushSharedConstant(*values, RHI::InputName(PrevGameTimeName),
             static_cast<float>(time.m_prevGameTime));
-        SetShaderConstant(m_bindings, RHI::InputName(DeltaTimeName), time.m_deltaTime);
+        PushSharedConstant(*values, RHI::InputName(DeltaTimeName), time.m_deltaTime);
     }
 
     void SceneBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        // The views hold the buffers, which go before their pools.
+        // The group holds the views, which hold the buffers: it goes before they do.
         if (m_bindings != RHI::NullHandle)
         {
-            SetShaderBuffer(m_bindings, RHI::InputName(LightBufferName), nullptr);
-            SetShaderBuffer(m_bindings, RHI::InputName(ShadowViewBufferName), nullptr);
-            SetShaderBuffer(m_bindings, RHI::InputName(ViewShadowMapBufferName), nullptr);
+            rhiCtx.DestoryEntity(m_bindings);
+            m_bindings = RHI::NullHandle;
         }
         m_lightBuffer.Shutdown();
         m_shadowViewBuffer.Shutdown();
         m_viewShadowMapBuffer.Shutdown();
-
-        if (m_bindings != RHI::NullHandle)
-        {
-            rhiCtx.DestoryEntity(m_bindings);
-        }
-
-        m_bindings = RHI::NullHandle;
+        m_lightSlot = RHI::NullHandle;
+        m_shadowViewSlot = RHI::NullHandle;
+        m_viewShadowMapSlot = RHI::NullHandle;
     }
 }

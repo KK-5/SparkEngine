@@ -15,7 +15,6 @@
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Pipeline/RenderStates.h>
 
-#include <Binding/RayTracing/RayTracingBinding.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/RenderPass.h>
 #include <RayTracing/RayTracingScene.h>
@@ -93,10 +92,11 @@ namespace Spark::SandBox
             .InputLayout(input.End())
             .RenderTargetLayout(targets)
             .RenderStates(states)
-            .Binds<Render::ViewBindingTag, Render::RayTracingSceneBindingTag>()
+            .Binds<Render::ViewBindingTag>()
             .RendersView<Render::MainViewTag>()
             .Build([](Render::RenderPassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 const RHI::AttachmentId swapChain("SwapChain");
                 const RHI::AttachmentId storage("RayTracingSceneStorage");
                 p.Import(swapChain, p.GetCurrentSwapChainResource());
@@ -109,6 +109,7 @@ namespace Spark::SandBox
                 const bool hasScene = p.Import<Render::RayTracingSceneTag>(storage);
 
                 auto scope = p.Scope();
+                scope.ReadBuffer(RHI::AttachmentId("Views"));
                 scope.RenderTarget(swapChain, clear);
                 if (hasScene)
                 {

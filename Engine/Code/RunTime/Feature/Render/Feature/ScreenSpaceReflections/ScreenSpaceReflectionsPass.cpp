@@ -43,6 +43,7 @@ namespace Spark::Render
             .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 using namespace SceneTextures;
 
                 auto& rhiContext = *RHI::RHIExecuteContext::Current();
@@ -72,6 +73,7 @@ namespace Spark::Render
                     ScreenSpaceReflections::kFormat));
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.Constant(RHI::InputName("viewIndex"), viewIndex);
                 s.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT)
                     .Bind(RHI::InputName("g_Depth"));

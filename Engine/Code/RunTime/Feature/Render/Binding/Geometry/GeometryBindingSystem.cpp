@@ -77,7 +77,7 @@ namespace Spark::Render
         arrayDesc.m_elementSize = sizeof(GeometryData);
         arrayDesc.m_capacity    = Capacity;
         arrayDesc.m_inputName   = RHI::InputName(GeometryBufferName);
-        arrayDesc.m_bindings    = m_bindingsEntity;
+        arrayDesc.m_spaceId     = kGeometrySpaceId;
         if (m_geometries.Init(rhiCtx, device, arrayDesc))
         {
             rhiCtx.Add<GeometryPoolTag>(m_geometries.GetResource());
@@ -199,18 +199,16 @@ namespace Spark::Render
 
     void GeometryBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
+        // The group holds the views, which hold the buffers: it goes before the array does.
         if (m_bindingsEntity != RHI::NullHandle)
         {
-            SetShaderBuffer(m_bindingsEntity, RHI::InputName(MeshGeometryBufferName), nullptr);
+            rhiCtx.DestoryEntity(m_bindingsEntity);
+            m_bindingsEntity = RHI::NullHandle;
         }
         if (auto* world = WorldExecuteContext::Current())
         {
             world->Clear<GeometrySlot>();
         }
         m_geometries.Shutdown(rhiCtx);
-
-        if (m_bindingsEntity != RHI::NullHandle) { rhiCtx.Add<DeadTag>(m_bindingsEntity); }
-
-        m_bindingsEntity = RHI::NullHandle;
     }
 }

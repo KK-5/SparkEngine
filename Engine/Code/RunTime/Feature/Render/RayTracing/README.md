@@ -49,7 +49,7 @@ if (TraceClosestOpaqueTriangle(ray, 0xff, hit))
 使用完整模块的 Pass 声明：
 
 ```cpp
-.Binds<InstanceBindingTag, GeometryBindingTag, MaterialBindingTag, RayTracingSceneBindingTag>()
+.Binds<InstanceBindingTag, GeometryBindingTag, MaterialBindingTag>()
 ```
 
 每个执行 Scope 必须导入并声明以下读取，不能只绑定 SRV：

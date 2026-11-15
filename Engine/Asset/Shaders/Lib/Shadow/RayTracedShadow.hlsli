@@ -4,8 +4,8 @@
 // nothing downstream knows whether the mask came from the atlas or from a trace. That is
 // also where a denoiser will sit later: this file produces the raw 1 spp signal.
 //
-// Binds g_RayTracingScene through RayTracingSceneBindings.hlsli, which the pass that
-// includes this must declare with Binds<RayTracingSceneBindingTag>.
+// Binds g_RayTracingScene through RayTracingSceneBindings.hlsli; the pass that includes this
+// reads it, which is how the group it lives in is found.
 #ifndef SPARK_LIB_RAY_TRACED_SHADOW_HLSLI
 #define SPARK_LIB_RAY_TRACED_SHADOW_HLSLI
 

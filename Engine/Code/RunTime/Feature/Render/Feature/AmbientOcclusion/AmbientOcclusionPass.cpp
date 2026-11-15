@@ -136,6 +136,7 @@ namespace Spark::Render
             .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 FrameInputs inputs;
                 if (!TryGetFrameInputs(*RHI::RHIExecuteContext::Current(), inputs))
                 {
@@ -150,6 +151,7 @@ namespace Spark::Render
                 p.CreateImage(DepthChainName(), desc);
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 SetFrameInputs(s, inputs);
                 s.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT)
                     .BindIndex(RHI::InputName("sceneDepthIndex"));
@@ -177,6 +179,7 @@ namespace Spark::Render
             .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 FrameInputs inputs;
                 if (!TryGetFrameInputs(*RHI::RHIExecuteContext::Current(), inputs))
                 {
@@ -188,6 +191,7 @@ namespace Spark::Render
                 p.CreateImage(EdgesName(), FullSizeImage(size));
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 SetFrameInputs(s, inputs);
                 s.ReadImage(DepthChainName()).BindIndex(RHI::InputName("depthIndex"));
                 s.ReadImage(RHI::AttachmentId("GBufferNormal")).BindIndex(RHI::InputName("normalIndex"));
@@ -206,6 +210,7 @@ namespace Spark::Render
             .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 FrameInputs inputs;
                 if (!TryGetFrameInputs(*RHI::RHIExecuteContext::Current(), inputs))
                 {
@@ -216,6 +221,7 @@ namespace Spark::Render
                 p.CreateImage(SceneTextures::AmbientOcclusion::Name(), FullSizeImage(size));
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 SetFrameInputs(s, inputs);
                 s.ReadImage(WorkingTermName()).BindIndex(RHI::InputName("termIndex"));
                 s.ReadImage(EdgesName()).BindIndex(RHI::InputName("edgesIndex"));

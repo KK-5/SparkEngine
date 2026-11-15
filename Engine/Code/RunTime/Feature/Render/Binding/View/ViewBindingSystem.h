@@ -43,5 +43,8 @@ namespace Spark::Render
         eastl::vector<ViewData> m_views;
 
         RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Views @ space1
+
+        //! The staging slot the frame writes, tagged ViewBufferTag: it changes as slots rotate.
+        RHI::RHIHandle m_bufferResource = RHI::NullHandle;
     };
 }

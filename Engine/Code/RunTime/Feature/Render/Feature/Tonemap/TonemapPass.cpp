@@ -81,6 +81,7 @@ namespace Spark::Render
             .RendersView<OutputViewTag>()
             .Build([](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 // TonemapPass is the first pass to touch the swap chain, so it owns the import;
                 // UIPass writes the same imported "SwapChain" afterwards. Cleared (black) so the
                 // warmup frame — before SceneColor is ready and the draw is dropped — is not garbage.
@@ -94,6 +95,7 @@ namespace Spark::Render
                 auto& rhiContext = *RHI::RHIExecuteContext::Current();
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), clear);
                 s.ReadImage(PostProcess::SceneColorName(rhiContext)).Bind(RHI::InputName("g_SceneColor"));
 

@@ -48,6 +48,21 @@ float4 SampleMaterialTextureLevel(uint index, float2 uv, SamplerState materialSa
     return texture.SampleLevel(materialSampler, uv, mipLevel);
 }
 
+float3 EvaluateMaterialEmission(MaterialData mat, float3 emissiveTexel)
+{
+    return mat.Emissive.rgb * mat.Emissive.a * emissiveTexel;
+}
+
+// Light sampling only needs emission, so avoid fetching the other material maps.
+float3 EvaluateMaterialEmissionLevel(
+    MaterialPixelParameters parameters, SamplerState materialSampler, float mipLevel)
+{
+    const MaterialData mat = GetMaterialData(parameters.MaterialIndex);
+    const float3 emissiveTexel = SampleMaterialTextureLevel(
+        mat.TexIndices[SPARK_TEX_SLOT_EMISSIVE], parameters.TexCoord0, materialSampler, mipLevel).rgb;
+    return EvaluateMaterialEmission(mat, emissiveTexel);
+}
+
 PixelMaterialInputs EvaluateMaterialInputs(
     MaterialPixelParameters parameters, MaterialData mat, MaterialTextureSamples samples)
 {
@@ -77,7 +92,7 @@ PixelMaterialInputs EvaluateMaterialInputs(
         inputs.NormalIsTangentSpace = true;
     }
 
-    inputs.EmissiveColor = mat.Emissive.rgb * mat.Emissive.a * samples.Emissive.rgb;
+    inputs.EmissiveColor = EvaluateMaterialEmission(mat, samples.Emissive.rgb);
 
     return inputs;
 }

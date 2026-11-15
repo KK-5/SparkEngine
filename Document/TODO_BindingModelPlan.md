@@ -5,6 +5,8 @@
 
 决策 D1~D11 已确认；§七 余下的两项不阻塞实现。步骤 1~5 全部完成，§一、§二 记的是改造前的状态。
 
+后续改造见 [基于 Attachment 的资源声明与 Shader Binding 编译](TODO_AttachmentBindingPlan.md)。第一阶段已完成并通过用户运行验证：Pass 直接持有绑定对象，图按 ScopeState 引用编译并临时去重，不再通过绑定实体填值或扫描 dirty tag。资源实体发布共享用法、attachment 统一分组及生成绑定对象仍是后续草案；本文原有步骤保留为历史记录。
+
 ---
 
 ## 一、现状

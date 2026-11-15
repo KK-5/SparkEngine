@@ -104,13 +104,7 @@ namespace Spark::SandBox
             view.Reset();
         }
 
-        eastl::fixed_vector<Spark::RHI::RHIHandle, 4> srgEntities;
-        ctx.GetView<Spark::Render::PassShaderBindingsTag>().each(
-            [&](Spark::RHI::RHIHandle e) { srgEntities.push_back(e); });
-        for (Spark::RHI::RHIHandle e : srgEntities)
-        {
-            destroyIfValid(e);
-        }
+        Spark::Render::ReleasePassBindings(*Spark::Render::PassExecuteContext::Current());
     }
 
     void MultiView::OnTick(const FrameTime& /*time*/)
@@ -268,6 +262,7 @@ namespace Spark::SandBox
             .RendersView<Render::MainViewTag>()
             .Build([this](Spark::Render::RenderPassScopes& p)
             {
+                p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
                 const auto renderSize = p.GetRenderSize();
 
                 p.Import(RHI::AttachmentId("SwapChain"), p.GetCurrentSwapChainResource());
@@ -288,6 +283,7 @@ namespace Spark::SandBox
                 depthAction.m_storeAction = RHI::AttachmentStoreAction::DontCare;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SwapChain"), colorAction);
                 s.DepthWrite(RHI::AttachmentId("SceneDepth"), depthAction);
 

@@ -76,6 +76,7 @@ namespace Spark::Render
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 // Declaring nothing skips the pass this frame.
                 const ViewTemporalAA* settings = FindMainViewComponent<ViewTemporalAA>(*RHI::RHIExecuteContext::Current());
                 if (!settings)
@@ -94,6 +95,7 @@ namespace Spark::Render
                 clear.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(PostProcess::TemporalAAName(), clear);
                 s.ReadPreviousImage(PostProcess::TemporalAAName())
                     .Bind(RHI::InputName("g_History"))

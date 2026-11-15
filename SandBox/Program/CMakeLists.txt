@@ -382,7 +382,7 @@ if (BUILD_REFERENCEPATHTRACER)
     )
 
     target_link_libraries(ReferencePathTracer PRIVATE
-        glfw SparkCore SparkInput SparkRender SparkMaterial SparkSpawn SparkTransform
+        glfw SparkCore SparkInput SparkRender SparkMaterial SparkSpawn SparkTransform SparkLight
         SparkRHI SparkRHI_DX12 SparkAssetManager
     )
 endif()

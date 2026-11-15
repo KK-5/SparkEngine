@@ -3,6 +3,8 @@
 #include <EASTL/type_traits.h>
 #include <EASTL/vector.h>
 
+#include <Binding/ShaderUsage.h>
+
 #include <Log/ILogSystem.h>
 #include <Object/ObjectName.h>
 #include <RHI/Context/RHIContext.h>
@@ -35,9 +37,9 @@ namespace Spark::Render
             //! A whole number of uints: ElementUpdate.hlsl copies a uint at a time.
             uint32_t       m_elementSize = 0;
             uint32_t       m_capacity    = 0;
-            //! The structured input on m_bindings the array is bound to.
+            //! The structured input the array is published at, and its space.
             RHI::InputName m_inputName;
-            RHI::RHIHandle m_bindings    = RHI::NullHandle;
+            uint32_t       m_spaceId     = 0;
         };
 
         bool Init(RHI::RHIContext& rhiCtx, RHI::Device& device, const Descriptor& descriptor);

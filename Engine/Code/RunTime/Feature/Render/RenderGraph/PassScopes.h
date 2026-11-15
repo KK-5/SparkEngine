@@ -123,8 +123,12 @@ namespace Spark::Render
         //! through a shared binding). Render passes only: a compute pass's is fixed.
         ShaderAttachment& Stage(RHI::AttachmentStage stage);
 
-        //! Bind its view or AS object to the per-pass shader input `input`.
-        ShaderAttachment& Bind(const RHI::InputName& input);
+        //! Bind its view or AS object to an element of the per-pass shader input `input`.
+        ShaderAttachment& Bind(const RHI::InputName& input, uint32_t arrayIndex = 0);
+
+        //! Specify the full input location. Currently only per-pass space is writable;
+        //! shared-space binding compilation is a later step.
+        ShaderAttachment& Bind(const ShaderInputBinding& binding);
 
         //! Bind it by heap index to the uint constant `input`, a root constant or a per-pass
         //! one: lowering writes its view's bindless index there. Beside .Bind, not instead of
@@ -153,6 +157,11 @@ namespace Spark::Render
             , m_attachment(handle)
             , m_fixedStage(fixedStage)
         {
+            // An access of a resource imported as shared binds where that resource publishes it.
+            if (m_builder->IsImportedAsShared(handle))
+            {
+                m_builder->BindSharedShaderInput(handle);
+            }
         }
 
         RenderGraphBuilder* m_builder { nullptr };
@@ -191,7 +200,8 @@ namespace Spark::Render
         ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
         ShaderAttachment ReadWriteBuffer(const RHI::AttachmentId& name);
 
-        //! Shared bindings need only the buffer dependency; per-pass .Bind needs .View and .AccelerationStructure.
+        //! A shader's read of an AS. Imported as shared, it binds where the resource publishes
+        //! it; otherwise the Scope binds it with .View and .AccelerationStructure.
         ShaderAttachment ReadAccelerationStructure(const RHI::AttachmentId& name);
 
         //! The buffer an indirect call of this Scope reads its records, or their count, from.
@@ -479,6 +489,20 @@ namespace Spark::Render
             return true;
         }
 
+        //! Import the resource carrying Tag as one that publishes its shader input binding: a
+        //! Scope of this pass reads it without a .Bind. False as Import is.
+        template<typename Tag>
+        bool ImportShared(const RHI::AttachmentId& name)
+        {
+            const RHIHandle resource = FindReadyResource<Tag>(*RHI::RHIExecuteContext::Current());
+            if (resource == NullHandle)
+            {
+                return false;
+            }
+            m_builder.ImportSharedResource(name, resource);
+            return true;
+        }
+
         RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }
 
         RenderScope Scope()
@@ -529,6 +553,19 @@ namespace Spark::Render
                 return false;
             }
             m_builder.ImportResource(name, resource);
+            return true;
+        }
+
+        //! See RenderPassScopes::ImportShared.
+        template<typename Tag>
+        bool ImportShared(const RHI::AttachmentId& name)
+        {
+            const RHIHandle resource = FindReadyResource<Tag>(*RHI::RHIExecuteContext::Current());
+            if (resource == NullHandle)
+            {
+                return false;
+            }
+            m_builder.ImportSharedResource(name, resource);
             return true;
         }
 

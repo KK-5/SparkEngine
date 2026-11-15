@@ -290,7 +290,7 @@ namespace Spark::Render
     struct ScopeState
     {
         const RHI::PipelineState*  m_pso = nullptr;
-        const RHI::ShaderBindings* m_bindings[RHI::Limits::Pipeline::ShaderInputGroupCountMax] {};
+        RHI::ShaderBindings*       m_bindings[RHI::Limits::Pipeline::ShaderInputGroupCountMax] {};
         uint8_t                    m_bindingCount = 0;
     };
 

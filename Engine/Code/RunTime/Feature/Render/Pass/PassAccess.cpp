@@ -7,13 +7,13 @@
 
 namespace Spark::Render
 {
-    RHIHandle CreatePassBindings(PassContext& passCtx, RHIContext& rhiCtx, Pass pass)
+    Ptr<RHI::ShaderBindings> CreatePassBindings(PassContext& passCtx, Pass pass)
     {
         if (!passCtx.Has<PassPipelineLayout>(pass))
         {
             LOG_ERROR("[CreatePassBindings] Pass has no PassPipelineLayout "
                       "(custom-pipeline pass or shader reflection unavailable).");
-            return NullHandle;
+            return nullptr;
         }
         auto& layout = passCtx.Get<PassPipelineLayout>(pass).m_layout;
         ASSERT(layout, "[CreatePassBindings] PassPipelineLayout component holds null layout.");
@@ -35,14 +35,10 @@ namespace Spark::Render
         if (rc != RHI::ResultCode::Success)
         {
             LOG_ERROR("[CreatePassBindings] ShaderBindings::Init failed for spaceId={}.", kPerPassSpaceId);
-            return NullHandle;
+            return nullptr;
         }
 
-        RHIHandle entity = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(entity, RHI::Components::ShaderBindings{ bindings });
-        rhiCtx.Add<RHI::ShaderBindingsUpdateTag>(entity);
-        rhiCtx.Add<PassShaderBindingsTag>(entity);
-        passCtx.Add<PassBindings>(pass, PassBindings{ entity });
-        return entity;
+        passCtx.Add<PassBindings>(pass, PassBindings{ bindings });
+        return bindings;
     }
 }

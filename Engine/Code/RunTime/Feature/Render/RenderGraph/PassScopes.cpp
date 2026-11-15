@@ -105,9 +105,14 @@ namespace Spark::Render
         return *this;
     }
 
-    ShaderAttachment& ShaderAttachment::Bind(const RHI::InputName& input)
+    ShaderAttachment& ShaderAttachment::Bind(const RHI::InputName& input, uint32_t arrayIndex)
     {
-        m_builder->BindShaderInput(GetHandle(), input);
+        return Bind(ShaderInputBinding{ kPerPassSpaceId, input, arrayIndex });
+    }
+
+    ShaderAttachment& ShaderAttachment::Bind(const ShaderInputBinding& binding)
+    {
+        m_builder->BindShaderInput(GetHandle(), binding);
         return *this;
     }
 

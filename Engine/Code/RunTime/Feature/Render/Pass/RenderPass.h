@@ -222,7 +222,7 @@ namespace Spark::Render
                     m_context->Add<PassPipelineLayout>(pass, PassPipelineLayout{ eastl::move(layout) });
                     if (hasPerPassSpace)
                     {
-                        CreatePassBindings(*m_context, *RHIExecuteContext::Current(), pass);
+                        CreatePassBindings(*m_context, pass);
                     }
                 }
             }

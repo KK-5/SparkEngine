@@ -5,5 +5,6 @@
 #define SPARK_LIB_BRDF_CONSTANTS_HLSLI
 
 static const float PI = 3.14159265359;
+static const float BRDF_MIN_PERCEPTUAL_ROUGHNESS = 0.045;
 
 #endif // SPARK_LIB_BRDF_CONSTANTS_HLSLI

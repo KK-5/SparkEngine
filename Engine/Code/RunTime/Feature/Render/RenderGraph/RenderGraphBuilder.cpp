@@ -6,6 +6,7 @@
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/PassDrawListComponents.h>
 #include <Pass/PassCapabilities.h>
+#include <Binding/ShaderUsage.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Command/CopyItem.h>
 #include <RHI/Command/AccelerationStructureBuildItem.h>
@@ -132,6 +133,7 @@ namespace Spark::Render
         ASSERT(m_currentPass == NullPass,
             "BeginPass called while another pass scope is still active.");
         m_currentPass = pass;
+        m_passImports.clear();
     }
 
     void RenderGraphBuilder::EndPass()
@@ -428,6 +430,24 @@ namespace Spark::Render
 
     void RenderGraphBuilder::ImportResource(const RHI::AttachmentId& name, RHIHandle resource)
     {
+        ImportResourceInternal(name, resource, false);
+    }
+
+    void RenderGraphBuilder::ImportSharedResource(const RHI::AttachmentId& name, RHIHandle resource)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        ASSERT(!rhiContext.Has<TransientTag>(resource),
+            "Import of {} as shared: only a resource owned outside the graph publishes a usage.", name.GetCStr());
+        ASSERT(rhiContext.Has<ShaderAccelerationStructureUsage>(resource)
+                || rhiContext.Has<ShaderBufferUsage>(resource)
+                || rhiContext.Has<ShaderImageUsage>(resource),
+            "Import of {} as shared: the resource publishes no shader usage.", name.GetCStr());
+        ImportResourceInternal(name, resource, true);
+    }
+
+    void RenderGraphBuilder::ImportResourceInternal(
+        const RHI::AttachmentId& name, RHIHandle resource, bool shared)
+    {
         ASSERT(m_currentPass != NullPass, "BeginPass must be called before declaring resources.");
         ASSERT(resource != NullHandle, "Import of {}: the resource is NullHandle.", name.GetCStr());
         PrepareImportedResource(name, resource);
@@ -435,6 +455,13 @@ namespace Spark::Render
         const auto [it, inserted] = m_resources.emplace(name, resource);
         ASSERT(inserted || it->second == resource,
             "{} is already declared for another resource.", name.GetCStr());
+
+        // The intent is the resource's, not the name's: a pass that imports one resource both
+        // ways would bind by whichever name it read last.
+        const auto [intent, isNew] = m_passImports.emplace(resource, shared);
+        ASSERT(isNew || intent->second == shared,
+            "{}: the pass imports this resource both as shared and not; one intent per resource.",
+            name.GetCStr());
     }
 
     void RenderGraphBuilder::PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource)
@@ -843,47 +870,185 @@ namespace Spark::Render
         rhiContext.Add<IndirectArgumentsOfView>(attachment, IndirectArgumentsOfView{ view, byteOffset });
     }
 
-    void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const RHI::InputName& input)
+    bool RenderGraphBuilder::IsImportedAsShared(RHIHandle attachment) const
     {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        RHIHandle resource = NullHandle;
+        if (const auto* image = rhiContext.TryGet<ImagePassAttachment>(attachment))
+        {
+            resource = image->m_image;
+        }
+        else if (const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(attachment))
+        {
+            resource = buffer->m_buffer;
+        }
+        if (resource == NullHandle)
+        {
+            return false;
+        }
+
+        const auto intent = m_passImports.find(resource);
+        return intent != m_passImports.end() && intent->second;
+    }
+
+    void RenderGraphBuilder::BindSharedShaderInput(RHIHandle attachment)
+    {
+        auto& rhiContext = *RHIExecuteContext::Current();
+        auto* image  = rhiContext.TryGet<ImagePassAttachment>(attachment);
+        auto* buffer = image != nullptr ? nullptr : rhiContext.TryGet<BufferPassAttachment>(attachment);
+        ASSERT(image != nullptr || buffer != nullptr, "Binding the published usage of no attachment.");
+        if (image == nullptr && buffer == nullptr)
+        {
+            return;
+        }
+
+        const RHIHandle resource = image != nullptr ? image->m_image : buffer->m_buffer;
+        ASSERT(resource != NullHandle, "Binding a published usage before its resource is declared.");
+        if (resource == NullHandle)
+        {
+            return;
+        }
+
+        const RHI::AttachmentId& name = image != nullptr ? image->m_attachmentId.m_id : buffer->m_attachmentId.m_id;
+
+        if (image != nullptr)
+        {
+            const auto* usage = rhiContext.TryGet<ShaderImageUsage>(resource);
+            ASSERT(usage != nullptr, "{}: its resource publishes no image usage.", name.GetCStr());
+            if (usage == nullptr)
+            {
+                return;
+            }
+            image->m_viewDescriptor = usage->m_view;
+            BindShaderInputInternal(attachment, usage->m_binding, true);
+            return;
+        }
+
+        if (const auto* usage = rhiContext.TryGet<ShaderAccelerationStructureUsage>(resource))
+        {
+            // A shader-bound AS carries its range and object on the access: barriers need the
+            // range, the binding needs the object.
+            const auto* owned = rhiContext.TryGet<AccelerationStructure>(resource);
+            ASSERT(owned != nullptr && owned->m_structure != nullptr && owned->m_structure->IsInitialized(),
+                "{}: its resource has no initialized acceleration structure.", name.GetCStr());
+            if (owned == nullptr || owned->m_structure == nullptr)
+            {
+                return;
+            }
+            buffer->m_viewDescriptor = RHI::BufferViewDescriptor::CreateRaw(
+                static_cast<uint32_t>(owned->m_structure->GetOffset()),
+                static_cast<uint32_t>(owned->m_structure->GetSize()));
+            rhiContext.AddOrReplace<AccelerationStructure>(attachment, AccelerationStructure{ owned->m_structure });
+            BindShaderInputInternal(attachment, usage->m_binding, true);
+            return;
+        }
+
+        const auto* usage = rhiContext.TryGet<ShaderBufferUsage>(resource);
+        ASSERT(usage != nullptr, "{}: its resource publishes no buffer usage.", name.GetCStr());
+        if (usage == nullptr)
+        {
+            return;
+        }
+        buffer->m_viewDescriptor = usage->m_view;
+        BindShaderInputInternal(attachment, usage->m_binding, true);
+    }
+
+    void RenderGraphBuilder::BindShaderInput(RHIHandle attachment, const ShaderInputBinding& binding)
+    {
+        BindShaderInputInternal(attachment, binding, false);
+    }
+
+    void RenderGraphBuilder::BindShaderInputInternal(
+        RHIHandle attachment, const ShaderInputBinding& binding, bool published)
+    {
+        const auto& input = binding.m_input;
         auto& rhiContext = *RHIExecuteContext::Current();
         CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
         auto* image  = rhiContext.TryGet<ImagePassAttachment>(attachment);
         auto* buffer = image != nullptr ? nullptr : &rhiContext.Get<BufferPassAttachment>(attachment);
         ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
-            "The access of {} is already bound; declare another access to bind another input.",
+            "The access of {} is already bound. A resource imported with ImportShared binds where it publishes "
+            "its usage and takes no .Bind; otherwise declare another access to bind another input.",
             image != nullptr ? image->m_attachmentId.m_id.GetCStr() : buffer->m_attachmentId.m_id.GetCStr());
 
-        // What the shader says of the input: where it is, whether it writes, in which stages.
-        uint32_t             spaceId       = 0;
-        bool                 shaderWrites  = false;
-        RHI::ShaderStageMask stageMask     = RHI::ShaderStageMask::None;
-        if (image != nullptr)
+        const auto& layout = CurrentPassLayout();
+        const auto* group = layout.FindSpaceGroupBySpaceId(binding.m_spaceId);
+        if (group == nullptr)
         {
-            const RHI::ShaderInputImageDescriptor* desc = CurrentPassLayout().FindImageDescriptor(input);
-            ASSERT(desc != nullptr, "The pass's shaders have no image input {}.", input.GetCStr());
-            spaceId      = desc->m_spaceId;
-            shaderWrites = desc->m_access == RHI::ShaderInputImageAccess::ReadWrite;
-            stageMask    = desc->m_stageMask;
-        }
-        else if (buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure)
-        {
-            const auto* desc = CurrentPassLayout().FindAccelerationStructureDescriptor(input);
-            ASSERT(desc != nullptr, "The pass's shaders have no acceleration structure input {}.", input.GetCStr());
-            spaceId   = desc->m_spaceId;
-            stageMask = desc->m_stageMask;
-        }
-        else
-        {
-            const RHI::ShaderInputBufferDescriptor* desc = CurrentPassLayout().FindBufferDescriptor(input);
-            ASSERT(desc != nullptr, "The pass's shaders have no buffer input {}.", input.GetCStr());
-            spaceId      = desc->m_spaceId;
-            shaderWrites = desc->m_access == RHI::ShaderInputBufferAccess::ReadWrite;
-            stageMask    = desc->m_stageMask;
+            ASSERT(false, "The pass's layout has no space {} for input {}.", binding.m_spaceId, input.GetCStr());
+            return;
         }
 
-        ASSERT(spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
-            input.GetCStr(), spaceId, kPerPassSpaceId);
+        // Search within the requested space; a name in another group is not this input.
+        bool                 found         = false;
+        uint32_t             inputCount    = 0;
+        bool                 shaderWrites  = false;
+        RHI::ShaderStageMask stageMask     = RHI::ShaderStageMask::None;
+        auto takeInput = [&](const auto& desc)
+        {
+            if (desc.m_name != input)
+            {
+                return false;
+            }
+            inputCount = desc.m_count;
+            stageMask = desc.m_stageMask;
+            return true;
+        };
+        const bool isStructure = buffer != nullptr
+            && buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure;
+        for (const auto& handle : group->m_shaderInputs)
+        {
+            if (image != nullptr && handle.m_type == RHI::ShaderInputType::Image)
+            {
+                const auto& desc = layout.GetImageDescriptor(handle.m_index);
+                found = takeInput(desc);
+                if (found)
+                {
+                    shaderWrites = desc.m_access == RHI::ShaderInputImageAccess::ReadWrite;
+                }
+            }
+            else if (isStructure && handle.m_type == RHI::ShaderInputType::AccelerationStructure)
+            {
+                found = takeInput(layout.GetAccelerationStructureDescriptor(handle.m_index));
+            }
+            else if (buffer != nullptr && !isStructure && handle.m_type == RHI::ShaderInputType::Buffer)
+            {
+                const auto& desc = layout.GetBufferDescriptor(handle.m_index);
+                found = takeInput(desc);
+                if (found)
+                {
+                    shaderWrites = desc.m_access == RHI::ShaderInputBufferAccess::ReadWrite;
+                }
+            }
+            if (found)
+            {
+                break;
+            }
+        }
+        if (!found)
+        {
+            ASSERT(false, "Space {} has no input {} matching this resource type.", binding.m_spaceId, input.GetCStr());
+            return;
+        }
+
+        if (published)
+        {
+            ASSERT(binding.m_spaceId != kPerPassSpaceId,
+                "{} is published into the per-pass space {}; a resource publishes a shared space.",
+                input.GetCStr(), binding.m_spaceId);
+        }
+        else if (binding.m_spaceId != kPerPassSpaceId)
+        {
+            ASSERT(false, "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
+                input.GetCStr(), binding.m_spaceId, kPerPassSpaceId);
+            return;
+        }
+        if (binding.m_arrayIndex >= inputCount)
+        {
+            ASSERT(false, "Input {} in space {} has {} elements, but array index {} was requested.",
+                input.GetCStr(), binding.m_spaceId, inputCount, binding.m_arrayIndex);
+            return;
+        }
 
         const RHI::AttachmentAccess access = image != nullptr ? image->m_access : buffer->m_access;
         const bool writes = CheckBitsAny(access, RHI::AttachmentAccess::Write);
@@ -903,7 +1068,7 @@ namespace Spark::Render
                 "The stage declared for {} differs from the stages its shaders use it in.", input.GetCStr());
         }
 
-        rhiContext.Add<ShaderInputBinding>(attachment, ShaderInputBinding{ input });
+        rhiContext.Add<ShaderInputBinding>(attachment, binding);
     }
 
     void RenderGraphBuilder::AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state)

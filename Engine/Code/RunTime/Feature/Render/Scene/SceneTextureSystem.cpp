@@ -123,11 +123,19 @@ namespace Spark::Render
         {
             gpu.m_irradiance = RHI::UniqueRHIHandle(CreateImage(rhiCtx, irradiance,
                 ObjectName(eastl::string("SkyboxIrradiance_") + suffix)));
+            if (gpu.m_irradiance.IsValid())
+            {
+                rhiCtx.Add<IrradianceCubeTag>(gpu.m_irradiance.Get());
+            }
         }
         if (const auto prefiltered = asset->GetPrefilteredAsset())
         {
             gpu.m_prefiltered = RHI::UniqueRHIHandle(CreateImage(rhiCtx, prefiltered,
                 ObjectName(eastl::string("SkyboxPrefiltered_") + suffix)));
+            if (gpu.m_prefiltered.IsValid())
+            {
+                rhiCtx.Add<PrefilteredCubeTag>(gpu.m_prefiltered.Get());
+            }
         }
         gpu.m_cubemapAsset = asset;
         world.Add<SkyboxGPUComponent>(entity, eastl::move(gpu));

@@ -42,7 +42,6 @@ namespace Spark::Render
     using RHI::ImportedTag;
     using RHI::TransientTag;
     using RHI::RHIUpdateTag;
-    using RHI::ShaderBindingsUpdateTag;
     using RHI::ResourceName;
 
     using RHI::Components::Buffer;
@@ -238,7 +237,8 @@ namespace Spark::Render
         Pass                      m_pass {NullPass};
     };
 
-    //! Keeps the externally owned AS alive while this attachment uses its buffer range.
+    //! The AS object an entity holds: the range an attachment binds, or the one a resource
+    //! publishes to shaders.
     struct AccelerationStructure
     {
         Ptr<RHI::AccelerationStructure> m_structure;
@@ -274,7 +274,16 @@ namespace Spark::Render
     //! the attachment's view into that input of its pass's per-pass bindings.
     struct ShaderInputBinding
     {
+        uint32_t m_spaceId = 0;
         RHI::InputName m_input;
+        uint32_t m_arrayIndex = 0;
+
+        bool operator==(const ShaderInputBinding& other) const
+        {
+            return m_spaceId == other.m_spaceId
+                && m_input == other.m_input
+                && m_arrayIndex == other.m_arrayIndex;
+        }
     };
 
     //! On an attachment a shader reaches by heap index (.BindIndex): lowering writes its view's
@@ -368,11 +377,6 @@ namespace Spark::Render
         RHIHandle m_pooledImage {NullHandle};
     };
 
-    //! Runtime marker on every per-pass ShaderBindings entity created via
-    //! CreatePassBindings. Lets teardown reap them all with a single
-    //! GetView<PassShaderBindingsTag>. Per-pass SRGs are persistent (built once, reused
-    //! each frame) and have no external owner, so this tag is their collection handle.
-    struct PassShaderBindingsTag {};
     /////////////////////////////////////////////////
 }
 

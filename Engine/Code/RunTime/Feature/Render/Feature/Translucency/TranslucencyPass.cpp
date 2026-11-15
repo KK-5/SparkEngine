@@ -98,11 +98,48 @@ namespace Spark::Render
             .Draw<TranslucentTag>()
             .Build([](RenderPassScopes& p)
             {
+                const bool hasLights = p.ImportShared<LightBufferTag>(RHI::AttachmentId("SceneLights"));
+                const bool hasShadowViews = p.ImportShared<ShadowViewBufferTag>(RHI::AttachmentId("SceneShadowViews"));
+                const bool hasLtc1 = p.ImportShared<LTC1Tag>(RHI::AttachmentId("SceneLTC1"));
+                const bool hasLtc2 = p.ImportShared<LTC2Tag>(RHI::AttachmentId("SceneLTC2"));
+                const bool hasIrradiance = p.ImportShared<IrradianceCubeTag>(RHI::AttachmentId("SceneIrradiance"));
+                const bool hasPrefiltered = p.ImportShared<PrefilteredCubeTag>(RHI::AttachmentId("ScenePrefiltered"));
+                const bool hasBrdfLut = p.ImportShared<BRDFLutTag>(RHI::AttachmentId("SceneBRDFLut"));
+                p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
 
                 auto s = p.Scope();
+                if (hasLights)
+                {
+                    s.ReadBuffer(RHI::AttachmentId("SceneLights"));
+                }
+                if (hasShadowViews)
+                {
+                    s.ReadBuffer(RHI::AttachmentId("SceneShadowViews"));
+                }
+                if (hasLtc1)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneLTC1"));
+                }
+                if (hasLtc2)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneLTC2"));
+                }
+                if (hasIrradiance)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneIrradiance"));
+                }
+                if (hasPrefiltered)
+                {
+                    s.ReadImage(RHI::AttachmentId("ScenePrefiltered"));
+                }
+                if (hasBrdfLut)
+                {
+                    s.ReadImage(RHI::AttachmentId("SceneBRDFLut"));
+                }
+                s.ReadBuffer(RHI::AttachmentId("Views"));
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 s.DepthRead(RHI::AttachmentId("SceneDepth"));
                 s.Sampler(RHI::InputName("g_MatSampler"),
@@ -122,17 +159,16 @@ namespace Spark::Render
                 if (p.Import<CpuCulledDrawArgumentsTag>(arguments)
                     && p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
-                    && p.Import<InstancePoolTag>(RHI::AttachmentId("Instances"))
-                    && p.Import<MaterialPoolTag>(RHI::AttachmentId("Materials")))
+                    && p.ImportShared<InstancePoolTag>(RHI::AttachmentId("Instances"))
+                    && p.ImportShared<MaterialPoolTag>(RHI::AttachmentId("Materials")))
                 {
                     // The pool is the first vertex stream and the indices, the instance IDs the
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
                     const Attachment geometry   = s.InputAssembly(RHI::AttachmentId("MeshGeometry"));
                     const Attachment vertices[] = { geometry, s.InputAssembly(RHI::AttachmentId("InstanceIDs")) };
-                    // Through the shared binding, by the vertex shader.
-                    s.ReadBuffer(RHI::AttachmentId("Instances")).Stage(RHI::AttachmentStage::VertexShader);
-                    // Through the shared binding, by the pixel shader.
-                    s.ReadBuffer(RHI::AttachmentId("Materials")).Stage(RHI::AttachmentStage::FragmentShader);
+                    // Through the shared binding, by the stages their inputs declare.
+                    s.ReadBuffer(RHI::AttachmentId("Instances"));
+                    s.ReadBuffer(RHI::AttachmentId("Materials"));
                     s.DrawIndirect(arguments, vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }
                 s.Close();

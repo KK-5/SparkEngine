@@ -2,6 +2,8 @@
 
 #include <Base.h>
 
+#include <RHI/Context/RHIContext.h>
+#include <RHI/Component/Component.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 
@@ -18,4 +20,19 @@ namespace Spark::Render
     //! Null, logged, on failure.
     Ptr<RHI::ShaderBindings> CreateSharedBindings(
         const RHI::ShaderInputList& inputs, uint32_t spaceId, const char* owner);
+
+    //! The group whose space is `spaceId`, or null. A shared space has at most one group, so
+    //! this is how a pass finds the group its shaders read without naming it: what a pass uses
+    //! is its shaders' reflection, and the group that fills a space is found by that space.
+    inline RHI::ShaderBindings* FindSharedBindings(RHI::RHIContext& context, uint32_t spaceId)
+    {
+        for (auto [entity, component] : context.GetView<RHI::Components::ShaderBindings>().each())
+        {
+            if (component.m_bindings != nullptr && component.m_bindings->GetSpaceId() == spaceId)
+            {
+                return component.m_bindings.get();
+            }
+        }
+        return nullptr;
+    }
 }
