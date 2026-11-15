@@ -169,6 +169,27 @@ namespace Spark::Render
         bool                m_fixedStage { false };
     };
 
+    //! The ordinary Image accesses expanded by ReadSet. Indices into the open Scope's
+    //! attachment list remain valid as later declarations append; Close ends their use.
+    class ShaderAttachmentSet
+    {
+    public:
+        ShaderAttachmentSet& Stage(RHI::AttachmentStage stage);
+
+    private:
+        friend class RenderScope;
+        friend class ComputeScope;
+
+        ShaderAttachmentSet(RenderGraphBuilder& builder, RHIHandle scope,
+            const RHI::AttachmentId& name, bool fixedStage);
+
+        RenderGraphBuilder* m_builder;
+        RHIHandle m_scope;
+        size_t m_begin;
+        size_t m_end;
+        bool m_fixedStage;
+    };
+
     //! One Scope of a render pass: one render pass bracket. Open from the moment the pass gets
     //! it until Close; a pass has one Scope open at a time.
     class RenderScope
@@ -195,6 +216,9 @@ namespace Spark::Render
         //! A shader's access of an image.
         ShaderAttachment ReadImage(const RHI::AttachmentId& name);
         ShaderAttachment ReadWriteImage(const RHI::AttachmentId& name);
+
+        //! Read every member of an imported shared Image set. Empty sets add no access.
+        ShaderAttachmentSet ReadSet(const RHI::AttachmentId& name);
 
         //! A shader's access of a buffer.
         ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
@@ -302,6 +326,9 @@ namespace Spark::Render
         ShaderAttachment ReadImage(const RHI::AttachmentId& name);
         ShaderAttachment ReadWriteImage(const RHI::AttachmentId& name);
         ShaderAttachment WriteImage(const RHI::AttachmentId& name);
+
+        //! See RenderScope::ReadSet. Accesses use the fixed compute stage.
+        ShaderAttachmentSet ReadSet(const RHI::AttachmentId& name);
 
         //! A shader's access of a buffer.
         ShaderAttachment ReadBuffer(const RHI::AttachmentId& name);
@@ -503,6 +530,14 @@ namespace Spark::Render
             return true;
         }
 
+        //! Import live, ready Images carrying Tag with their published shader usage.
+        //! An empty set is valid; importing alone declares no resource access.
+        template<typename Tag>
+        void ImportSharedSet(const RHI::AttachmentId& name)
+        {
+            m_builder.ImportSharedResourceSet<Tag>(name);
+        }
+
         RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }
 
         RenderScope Scope()
@@ -567,6 +602,13 @@ namespace Spark::Render
             }
             m_builder.ImportSharedResource(name, resource);
             return true;
+        }
+
+        //! See RenderPassScopes::ImportSharedSet.
+        template<typename Tag>
+        void ImportSharedSet(const RHI::AttachmentId& name)
+        {
+            m_builder.ImportSharedResourceSet<Tag>(name);
         }
 
         RHIHandle GetCurrentSwapChainResource() const { return m_builder.GetCurrentSwapChainResource(); }

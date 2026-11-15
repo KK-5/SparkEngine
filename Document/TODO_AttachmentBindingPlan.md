@@ -1,6 +1,6 @@
 # 基于 Attachment 的资源声明与 Shader Binding 编译
 
-状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；布局与 per-scope 绑定改由 space 推导、`.Binds<>` 开始退役，见§十末；共享 Image 的 bindless 用法第一步已实现并通过编译，`ImportSharedSet` 与材质迁移仍为提案，见§十一；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-15 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
+状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；布局与 per-scope 绑定改由 space 推导、`.Binds<>` 开始退役，见§十末；共享 Image 的 bindless 用法第一步与第二步 `ImportSharedSet` 机制均已实现并通过用户验证，材质迁移仍待实施，见§十一；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-15 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
 
 本文是 [资源绑定模型](TODO_BindingModelPlan.md) 的后续设计讨论。原文记录的已完成改造仍是历史记录；本文已落地的资源发布见§十，attachment 统一分组仍为后续设计。
 
@@ -335,7 +335,7 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 ## 十一、实现提案：Bindless 共享 Image 与 ImportSharedSet
 
-状态：第一步已按后续讨论实现并通过 Debug 编译（2026-11-15），见§11.8；集合导入与材质迁移尚未实现。本步服务当前材质纹理，支持不指定 `.BindIndex` 的 bindless 共享用法；已有普通资源的 `.BindIndex` 保持原样，向共享 bindless 访问增加索引输出目标不在本步范围内。
+状态：第一步与第二步均已实现并通过用户验证，分别见§11.8、§11.9（2026-11-15）；材质迁移尚未实现。本步服务当前材质纹理，支持不指定 `.BindIndex` 的 bindless 共享用法；已有普通资源的 `.BindIndex` 保持原样，向共享 bindless 访问增加索引输出目标不在本步范围内。
 
 ### 11.1 共享用法与索引传递分别表达
 
@@ -396,13 +396,16 @@ s.ReadSet(textures).Stage(RHI::AttachmentStage::FragmentShader);
 s.Close();
 ```
 
-- `ImportSharedSet<Tag>(name)` 返回 `void`。枚举所有携带 Tag、未标记删除的成员，校验发布信息和资源种类，再选取 `IsResourceReady` 的成员。空集合合法，不作为跳过绘制的条件。
+- `ImportSharedSet<Tag>(name)` 返回 `void`。枚举所有携带 Tag、未标记删除的成员，检查 Image 类型并按 `IsResourceReady` 筛选；就绪成员在公共导入准备入口统一检查共享资格。空集合合法，不作为跳过绘制的条件。
 - 首版集合只支持 Image，可包含直接绑定或 bindless 两种已发布用法；不能假定 SharedSet 等于 bindless。Buffer / AS 集合与集合写入后续再扩展，现有单资源共享接口继续支持它们。
 - `ReadSet(name)` 在当前 Scope 为每个成员生成普通读取 attachment，并应用其已发布用法；返回批量访问对象，其 `.Stage` 只作用于本次生成的 attachment。ComputeScope 无须额外指定 stage。
 - 导入不生成访问，也不 acquire。空集合的读取不生成 attachment，不凭空使 Scope 可执行；Scope 仍需满足现有声明规则。
-- 集合名只在当前 Pass 有效，由 builder 保存集合名到成员列表的映射，随 Pass 结束清理；不同 Pass 可使用相同集合名。重复声明同一集合名、未声明便读取，以及将集合名当作单资源名使用均报错。
+- 保留原有 `m_resources`，另增 `m_resourceSets` 保存集合名到成员列表的映射；两张表共用名称空间，均在本帧构图结束时清理。单资源与集合使用同名、未声明集合便读取、将集合名当作单资源名使用均报错。
+- 成员排序并按实体去重。同名集合可以在多个 Pass 中重复导入，但成员身份必须一致，不依赖 ECS 查询顺序；不同成员不得覆盖已有声明。每次导入仍为当前 Pass 登记所有成员的共享意图，读取时检查该意图。
 - 不为集合创建 GPU 资源、独立 ECS 资源实体或跨帧句柄。成员列表只保存资源身份；资源与发布内容在本次构图至提交期间保持稳定。首版各 Pass 自行获取列表，不新增跨 Pass 的 Tag 查询缓存。
 - 成员走与单资源相同的导入准备流程，设置 backing 并登记该 Pass 的共享意图。附件直接关联成员实体，不要求调用方为成员逐个命名，也不为每个成员生成公开的字符串别名；诊断使用资源原有名称。
+- `PrepareImportedResource(name, resource, shared)` 统一两种入口的共享资格检查、backing 准备和导入意图登记；已合并原先的 `PrepareResourceImport` 薄包装，集合筛选不再重复检查共享发布信息和非 transient 资格。名称登记分别写入原单资源表与集合表；集合读取复用 `AddImageAttachment` 与 `ApplySharedShaderUsage`，之后图编译不区分访问来自单资源还是集合。
+- 批量访问对象仅记录当前 Scope attachment 列表的起止下标，后续追加不使其失效，不额外保存一份所有成员 attachment 的数组；其使用限于 Scope 关闭之前。批量 stage 与单个访问使用相同的设置入口，不覆盖为与已绑定输入不兼容的阶段。
 - 同一成员出现在多个集合时按资源身份处理。重复的相同读取可合并，兼容的不同读取按原规则合并状态；不得吞掉冲突、不同 View 或不同 stage。直接绑定的多个成员也必须遵守输入位置冲突校验。
 - 单资源与集合导入共用现有“同一 Pass 内一个资源只有一种导入意图”规则。经集合共享导入的成员不能同时作为普通导入使用。
 
@@ -429,17 +432,17 @@ s.Close();
 - 无 Scope 读取时允许上传保持待 acquire，后续消费或资源销毁时结束；不增加“帧末必须全部 acquire”的断言或无条件兜底读取。
 - 保留当前 Graphics 消费队列限制和资源池的延迟释放。此步不开放异步 Compute 消费，也不改变已导入资源拒绝再次异步上传的约束；mip 流送、原地更新与替换另行设计。
 
-### 11.6 大集合的必要成本控制
+### 11.6 大集合的成本处理
 
 - 展开仍产生约“成员数 × 消费 Scope 数”的访问记录；不会按每个材质槽位或每次 draw 再展开。
-- 修改 `CloseScope` 的全体两两冲突检查：用临时索引按实际资源分组，只在同资源的候选访问间检查重叠和冲突。保留未链接名称、同资源别名和历史读取的现有语义，不改 attachment 的声明顺序。
-- 大量上传同时完成时，`FindUploadsToAcquire` 当前会为各资源反复扫描待 acquire 事件。实现阶段按资源建立本次编译的临时查询索引，保持匹配、排除已承接任务和销毁时机不变。
+- `CloseScope` 已改为按实际资源分组，只在同资源的候选访问间检查重叠和冲突。保留未链接名称、同资源别名和历史读取的现有语义，不改 attachment 的声明顺序。未做性能基准，不将复杂度下降表述为已测得的速度提升。
+- `FindUploadsToAcquire` 保留原有 ECS 扫描。只有资源首次访问且带有 `PendingAcquires` 时才查询，集合中所有纹理并非每帧都扫描上传。节点式 map 的构建、分配和缓存访问可能抵消扫描次数减少的收益；缺少实际测量，因此本步不引入上传查询索引。
 - 不因去重而合并不同 Scope 的访问，也不将多个直接绑定成员覆盖到同一个输入。暂不引入压缩集合 attachment、常驻全局成员表或绑定结果缓存。
 
 ### 11.7 实施与验证顺序
 
 1. 在 `ShaderInputBinding` 增加统一绑定模式和单资源共享 Image 应用路径，保持原有直接绑定，不生成 bindless attachment 标记、固定输入或索引常量写入。助手仅做编译检查，运行验证由用户负责；第一步已获用户验证确认，见§11.8。
-2. 增加集合导入、成员 attachment 展开与批量 stage，完成大集合的冲突检查和上传查询调整。
+2. 增加集合导入、成员 attachment 展开与批量 stage，完成按资源分组的冲突检查；上传查询保留原有扫描。第二步已获用户验证确认，见§11.9。
 3. 材质侧发布并使用同一默认 View，接入全部材质纹理消费者；同批清空旧 Uses，核对上传只有一条承接路径。
 4. 针对就绪筛选、空集合、删除成员、多个 Scope、重复成员、共享意图冲突、不同 View 冲突和大量独立成员做有意义的验证；已有直接绑定、普通 `.BindIndex`、资源别名与跨帧读取也做回归检查。
 5. Debug 编译 `SparkRenderTest`、`ReferencePathTracer` 及原共享导入相关示例；检查首次上传、后续帧读取和多消费者的 acquire。记录规模验证的附件数量与构图成本。运行测试与画面验证沿用项目当前约定，具体执行情况如实记录。
@@ -453,9 +456,22 @@ s.Close();
 - 按用户要求仅做编译检查，未运行测试程序或示例；具体运行与画面验证由用户负责。
 - 用户已完成验证并确认无问题，同意提交第一步。
 
+### 11.9 第二步实现与验证记录
+
+- `RenderPassScopes` / `ComputePassScopes` 增加 `ImportSharedSet<Tag>`，`RenderScope` / `ComputeScope` 增加 `ReadSet`；首版支持共享 Image 的集合读取，RenderScope 可批量指定 stage，ComputeScope 使用固定计算阶段。
+- `m_resources` 保持原有单资源记录，额外的 `m_resourceSets` 只记录名称到资源实体列表，随本帧构图结束清理。成员按身份排序去重，支持空集合和同成员集合重复导入，校验两种名称冲突、发布信息、就绪与共享意图。
+- 单资源与集合复用合并后的 `PrepareImportedResource(name, resource, shared)`，共享资格只检查一次，仍登记并检查当前 Pass 的导入意图。集合读取复用 `AddImageAttachment` / `ApplySharedShaderUsage`。不创建集合资源实体、成员公开别名或集合专用同步路径；每次读取生成独立的普通 attachment。
+- 批量访问用 Scope 内的下标范围表示，不复制 attachment 数组。stage 设置复用公共入口，保持已经绑定的输入阶段；Scope 关闭后不再使用该批量对象。
+- `CloseScope` 按实际资源分组检查冲突，并对未链接访问保留按名称与 frameOffset 的原有匹配。
+- 撤回曾加入的上传查询临时 map，恢复 `FindUploadsToAcquire` 的原有扫描；最终 `RenderGraphCompiler.cpp` 与第一步提交版本一致，不随第二步提交。
+- 第二步初版 Debug 编译通过：`SparkRenderTest`、`ReferencePathTracer`、`ComputePass`、`TrianglePass`、`MSAAPass`、`DrawCube`、`MultiView`、`RayTracingScene`、`IndirectDispatch`。
+- 另用构建目录中的临时编译单元，以 `MaterialTextureTag` 实例化 Render / Compute 两种 `ImportSharedSet` 并编译对应 `ReadSet` 调用，MSVC 语法与模板编译检查通过；未将临时单元加入项目源文件。
+- 后续导入准备精简、上传查询索引撤回按用户要求未重新编译；助手未运行测试、示例或性能基准。用户已验证最终版本并确认无问题，同意更新文档并提交第二步。
+- 材质资源发布、消费者接入与 `MaterialBindingTag::Uses` 清理留给第三步，尚未迁移。
+
 ## 十二、方案边界
 
-- 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件已按§十落地，attachment 的统一绑定分组仍待逐项设计。§十一的单资源 bindless Image 用法已完成第一步，集合导入与材质迁移仍为提案。
+- 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件已按§十落地，attachment 的统一绑定分组仍待逐项设计。§十一的单资源 bindless Image 用法与集合导入机制已完成前两步，材质迁移尚待实施。
 - 不新增可供外部直接调用资源系统对象的访问接口。
 - 不通过导入或发布资源隐式声明整组访问。
 - 不以移除专用 ECS 实体为由移除 RHI 绑定对象或必要的布局信息。

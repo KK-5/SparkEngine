@@ -2,6 +2,8 @@
 #include "RenderGraphUtils.h"
 #include "PassScopes.h"
 
+#include <EASTL/algorithm.h>
+#include <EASTL/sort.h>
 #include <Pass/PassContext.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/PassDrawListComponents.h>
@@ -242,13 +244,58 @@ namespace Spark::Render
                         passName, scopeIndex, name);
                 }
 
-                for (uint32_t j = i + 1; j < static_cast<uint32_t>(m_scopeAttachments.size()); ++j)
+            }
+
+            // Large sets mostly contain unrelated resources. Only compare accesses of one
+            // resource, and separately retain name-based checks when either access is unlinked.
+            using AccessList = eastl::fixed_vector<RHIHandle, 1>;
+            eastl::unordered_map<RHIHandle, AccessList> byResource;
+            bool hasUnlinked = false;
+            for (RHIHandle attachment : m_scopeAttachments)
+            {
+                const RHIHandle resource = rhiContext.Get<ScopeAttachment>(attachment).m_resource;
+                if (resource != NullHandle)
                 {
-                    ASSERT(!AreOfOneResource(rhiContext, attachment, m_scopeAttachments[j])
-                            || !AccessesConflict(rhiContext, attachment, m_scopeAttachments[j]),
-                        "Pass {} Scope #{}: {} is declared more than once with conflicting accesses to the "
-                        "same subresource.",
-                        passName, scopeIndex, name);
+                    byResource[resource].push_back(attachment);
+                }
+                else
+                {
+                    hasUnlinked = true;
+                }
+            }
+            const auto checkGroup = [&](const AccessList& accesses, bool onlyUnlinked)
+            {
+                for (size_t i = 0; i < accesses.size(); ++i)
+                {
+                    for (size_t j = i + 1; j < accesses.size(); ++j)
+                    {
+                        if (onlyUnlinked
+                            && rhiContext.Get<ScopeAttachment>(accesses[i]).m_resource != NullHandle
+                            && rhiContext.Get<ScopeAttachment>(accesses[j]).m_resource != NullHandle)
+                        {
+                            continue;
+                        }
+                        ASSERT(!AreOfOneResource(rhiContext, accesses[i], accesses[j])
+                                || !AccessesConflict(rhiContext, accesses[i], accesses[j]),
+                            "Pass {} Scope #{}: {} is declared more than once with conflicting accesses to the "
+                            "same subresource.", passName, scopeIndex, GetAttachmentId(rhiContext, accesses[i]).m_id.GetCStr());
+                    }
+                }
+            };
+            for (const auto& entry : byResource)
+            {
+                checkGroup(entry.second, false);
+            }
+            if (hasUnlinked)
+            {
+                eastl::unordered_map<RHI::AttachmentId, AccessList> byName;
+                for (RHIHandle attachment : m_scopeAttachments)
+                {
+                    byName[GetAttachmentId(rhiContext, attachment).m_id].push_back(attachment);
+                }
+                for (const auto& entry : byName)
+                {
+                    checkGroup(entry.second, true);
                 }
             }
         }
@@ -311,6 +358,8 @@ namespace Spark::Render
             ASSERT(m_resources.find(name) == m_resources.end(),
                 "AttachmentId {} has already been declared (Create / Import).",
                 name.GetCStr());
+            ASSERT(m_resourceSets.find(name) == m_resourceSets.end(),
+                "{} is already declared as a resource set.", name.GetCStr());
         }
         m_resources.emplace(name, CreateTransientImageResource(name, desc, nullptr));
     }
@@ -324,12 +373,16 @@ namespace Spark::Render
             ASSERT(m_resources.find(name) == m_resources.end(),
                 "AttachmentId {} has already been declared (Create / Import).",
                 name.GetCStr());
+            ASSERT(m_resourceSets.find(name) == m_resourceSets.end(),
+                "{} is already declared as a resource set.", name.GetCStr());
         }
         m_resources.emplace(name, CreateTransientBufferResource(name, desc));
     }
 
     RHIHandle RenderGraphBuilder::FindResource(const RHI::AttachmentId& name) const
     {
+        ASSERT(m_resourceSets.find(name) == m_resourceSets.end(),
+            "{} names a resource set; read its members with ReadSet.", name.GetCStr());
         const auto it = m_resources.find(name);
         return it != m_resources.end() ? it->second : NullHandle;
     }
@@ -396,6 +449,52 @@ namespace Spark::Render
         return attachment;
     }
 
+    void RenderGraphBuilder::AddScopeImageSetReads(
+        RHIHandle scope, const RHI::AttachmentId& name, RHI::AttachmentStage stage)
+    {
+        CheckScopeOpen(scope);
+        const auto set = m_resourceSets.find(name);
+        ASSERT(set != m_resourceSets.end(), "{} has not been imported as a shared Image set.", name.GetCStr());
+        if (set == m_resourceSets.end())
+        {
+            return;
+        }
+
+        auto& context = *RHIExecuteContext::Current();
+        for (RHIHandle resource : set->second)
+        {
+            const auto intent = m_passImports.find(resource);
+            ASSERT(intent != m_passImports.end() && intent->second,
+                "{}: each member must be imported as shared by the current pass before ReadSet.", name.GetCStr());
+            ASSERT(context.Valid(resource) && !context.Has<DeadTag>(resource) && RHI::IsResourceReady(context, resource),
+                "{}: its members must remain alive and ready during graph construction.", name.GetCStr());
+
+            ImagePassAttachment attachment;
+            const auto* resourceName = context.TryGet<ResourceName>(resource);
+            attachment.m_attachmentId = AttachmentId{ resourceName != nullptr ? resourceName->m_name : name, 0 };
+            attachment.m_access = RHI::AttachmentAccess::Read;
+            attachment.m_usage = RHI::AttachmentUsage::Shader;
+            attachment.m_stage = stage;
+            attachment.m_image = resource;
+            attachment.m_pass = m_currentPass;
+            ApplySharedShaderUsage(AddImageAttachment(attachment, scope, nullptr));
+        }
+    }
+
+    void RenderGraphBuilder::SetShaderAttachmentStage(RHIHandle attachment, RHI::AttachmentStage stage)
+    {
+        auto& context = *RHIExecuteContext::Current();
+        CheckScopeOpen(context.Get<ScopeAttachment>(attachment).m_scope);
+        auto* image = context.TryGet<ImagePassAttachment>(attachment);
+        auto& declared = image != nullptr ? image->m_stage : context.Get<BufferPassAttachment>(attachment).m_stage;
+        ASSERT(!context.Has<ShaderInputBinding>(attachment) || declared == stage,
+            "The requested stage differs from the stages of the shader input this access binds.");
+        if (!context.Has<ShaderInputBinding>(attachment) || declared == stage)
+        {
+            declared = stage;
+        }
+    }
+
     RHIHandle RenderGraphBuilder::AddImageAttachment(
         const ImagePassAttachment& attachment, RHIHandle scope, uint32_t* colorCount)
     {
@@ -435,39 +534,83 @@ namespace Spark::Render
 
     void RenderGraphBuilder::ImportSharedResource(const RHI::AttachmentId& name, RHIHandle resource)
     {
-        auto& rhiContext = *RHIExecuteContext::Current();
-        ASSERT(!rhiContext.Has<TransientTag>(resource),
-            "Import of {} as shared: only a resource owned outside the graph publishes a usage.", name.GetCStr());
-        ASSERT(rhiContext.Has<ShaderAccelerationStructureUsage>(resource)
-                || rhiContext.Has<ShaderBufferUsage>(resource)
-                || rhiContext.Has<ShaderImageUsage>(resource),
-            "Import of {} as shared: the resource publishes no shader usage.", name.GetCStr());
         ImportResourceInternal(name, resource, true);
     }
 
-    void RenderGraphBuilder::ImportResourceInternal(
-        const RHI::AttachmentId& name, RHIHandle resource, bool shared)
+    void RenderGraphBuilder::ImportSharedResourceSet(const RHI::AttachmentId& name, eastl::vector<RHIHandle> resources)
     {
-        ASSERT(m_currentPass != NullPass, "BeginPass must be called before declaring resources.");
-        ASSERT(resource != NullHandle, "Import of {}: the resource is NullHandle.", name.GetCStr());
-        PrepareImportedResource(name, resource);
+        ASSERT(m_currentPass != NullPass, "BeginPass must be called before importing a resource set.");
+        ASSERT(m_resources.find(name) == m_resources.end(),
+            "{} is already declared as a single resource.", name.GetCStr());
+        if (m_resources.find(name) != m_resources.end())
+        {
+            return;
+        }
+
+        auto& context = *RHIExecuteContext::Current();
+        resources.erase(eastl::remove_if(resources.begin(), resources.end(), [&](RHIHandle resource)
+        {
+            const bool valid = context.Valid(resource) && !context.Has<DeadTag>(resource);
+            ASSERT(valid, "{}: its resource set contains an invalid or dead entity.", name.GetCStr());
+            if (!valid)
+            {
+                return true;
+            }
+            const bool image = context.Has<Image>(resource) || context.Has<ImagePerFrame>(resource);
+            ASSERT(image, "{}: each resource set member must be an Image.", name.GetCStr());
+            return !image || !RHI::IsResourceReady(context, resource);
+        }), resources.end());
+        eastl::sort(resources.begin(), resources.end());
+        resources.erase(eastl::unique(resources.begin(), resources.end()), resources.end());
+
+        auto set = m_resourceSets.find(name);
+        if (set != m_resourceSets.end())
+        {
+            ASSERT(set->second == resources,
+                "{} is already imported as a set with different members this frame.", name.GetCStr());
+            if (set->second != resources)
+            {
+                return;
+            }
+        }
+        else
+        {
+            set = m_resourceSets.emplace(name, eastl::move(resources)).first;
+        }
+        for (RHIHandle resource : set->second)
+        {
+            PrepareImportedResource(name, resource, true);
+        }
+    }
+
+    void RenderGraphBuilder::ImportResourceInternal(const RHI::AttachmentId& name, RHIHandle resource, bool shared)
+    {
+        ASSERT(m_resourceSets.find(name) == m_resourceSets.end(),
+            "{} is already declared as a resource set.", name.GetCStr());
+        if (m_resourceSets.find(name) != m_resourceSets.end())
+        {
+            return;
+        }
+        PrepareImportedResource(name, resource, shared);
 
         const auto [it, inserted] = m_resources.emplace(name, resource);
         ASSERT(inserted || it->second == resource,
             "{} is already declared for another resource.", name.GetCStr());
-
-        // The intent is the resource's, not the name's: a pass that imports one resource both
-        // ways would bind by whichever name it read last.
-        const auto [intent, isNew] = m_passImports.emplace(resource, shared);
-        ASSERT(isNew || intent->second == shared,
-            "{}: the pass imports this resource both as shared and not; one intent per resource.",
-            name.GetCStr());
     }
 
-    void RenderGraphBuilder::PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource)
+    void RenderGraphBuilder::PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource, bool shared)
     {
+        ASSERT(m_currentPass != NullPass, "BeginPass must be called before declaring resources.");
         auto& rhiContext = *RHIExecuteContext::Current();
         ASSERT(rhiContext.Valid(resource), "Import of {}: the resource entity is invalid.", name.GetCStr());
+        if (shared)
+        {
+            ASSERT(!rhiContext.Has<TransientTag>(resource),
+                "Import of {} as shared: only a resource owned outside the graph publishes a usage.", name.GetCStr());
+            ASSERT(rhiContext.Has<ShaderAccelerationStructureUsage>(resource)
+                    || rhiContext.Has<ShaderBufferUsage>(resource) || rhiContext.Has<ShaderImageUsage>(resource),
+                "Import of {} as shared: the resource publishes no shader usage.", name.GetCStr());
+        }
 
         if (!rhiContext.Has<ImportedTag>(resource))
         {
@@ -516,6 +659,12 @@ namespace Spark::Render
                 "component before importing; per-frame: ensure RefreshPerFrameBackings ran.",
                 name.GetCStr());
         }
+
+        // The intent belongs to the resource, including when it is imported under several names.
+        const auto [intent, isNew] = m_passImports.emplace(resource, shared);
+        ASSERT(isNew || intent->second == shared,
+            "{}: the pass imports this resource both as shared and not; one intent per resource.",
+            name.GetCStr());
     }
 
     RHIHandle RenderGraphBuilder::AddPreviousFrameAttachment(ImagePassAttachment attachment, RHIHandle scope)
@@ -1344,6 +1493,7 @@ namespace Spark::Render
         // so a missed Begin() can't drag stale data forward.
         m_attachments.clear();
         m_resources.clear();
+        m_resourceSets.clear();
         m_currentPass = NullPass;
     }
 }

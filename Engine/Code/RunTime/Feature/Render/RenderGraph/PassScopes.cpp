@@ -137,15 +137,35 @@ namespace Spark::Render
     ShaderAttachment& ShaderAttachment::Stage(RHI::AttachmentStage stage)
     {
         ASSERT(!m_fixedStage, "A compute pass's shader accesses are always in the compute stage.");
-        auto& rhiContext = *RHIExecuteContext::Current();
-        const RHIHandle handle = m_attachment.GetHandle();
-        if (auto* image = rhiContext.TryGet<ImagePassAttachment>(handle))
+        if (!m_fixedStage)
         {
-            image->m_stage = stage;
+            m_builder->SetShaderAttachmentStage(GetHandle(), stage);
         }
-        else
+        return *this;
+    }
+
+    ShaderAttachmentSet::ShaderAttachmentSet(RenderGraphBuilder& builder, RHIHandle scope,
+        const RHI::AttachmentId& name, bool fixedStage)
+        : m_builder(&builder)
+        , m_scope(scope)
+        , m_begin(builder.m_scopeAttachments.size())
+        , m_fixedStage(fixedStage)
+    {
+        builder.AddScopeImageSetReads(scope, name, fixedStage
+            ? RHI::AttachmentStage::ComputeShader : RHI::AttachmentStage::Uninitialized);
+        m_end = builder.m_scopeAttachments.size();
+    }
+
+    ShaderAttachmentSet& ShaderAttachmentSet::Stage(RHI::AttachmentStage stage)
+    {
+        ASSERT(!m_fixedStage, "A compute pass's shader accesses are always in the compute stage.");
+        if (!m_fixedStage)
         {
-            rhiContext.Get<BufferPassAttachment>(handle).m_stage = stage;
+            m_builder->CheckScopeOpen(m_scope);
+            for (size_t i = m_begin; i < m_end; ++i)
+            {
+                m_builder->SetShaderAttachmentStage(m_builder->m_scopeAttachments[i], stage);
+            }
         }
         return *this;
     }
@@ -197,6 +217,11 @@ namespace Spark::Render
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, &m_colorCount, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read,
             RHI::AttachmentStage::Uninitialized, nullptr), false);
+    }
+
+    ShaderAttachmentSet RenderScope::ReadSet(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachmentSet(*m_builder, m_scope, name, false);
     }
 
     ShaderAttachment RenderScope::ReadWriteImage(const RHI::AttachmentId& name)
@@ -326,6 +351,11 @@ namespace Spark::Render
         return ShaderAttachment(*m_builder, m_builder->AddScopeAttachment(m_scope, nullptr, name,
             RHI::AttachmentUsage::Shader, RHI::AttachmentAccess::Read,
             RHI::AttachmentStage::ComputeShader, nullptr), true);
+    }
+
+    ShaderAttachmentSet ComputeScope::ReadSet(const RHI::AttachmentId& name)
+    {
+        return ShaderAttachmentSet(*m_builder, m_scope, name, true);
     }
 
     ShaderAttachment ComputeScope::ReadWriteImage(const RHI::AttachmentId& name)

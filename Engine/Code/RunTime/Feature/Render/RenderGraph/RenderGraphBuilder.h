@@ -4,6 +4,7 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
 
+#include <CoreComponents/Tags.h>
 #include <Log/ILogSystem.h>
 #include <Math/Vector2.h>
 
@@ -59,6 +60,7 @@ namespace Spark::Render
         friend class AccelerationStructurePassScopes;
         friend class AccelerationStructureScope;
         friend class ShaderAttachment;
+        friend class ShaderAttachmentSet;
 
         void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
                    const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize);
@@ -103,7 +105,20 @@ namespace Spark::Render
         //! takes its default view and, for Direct, its input location from that publication.
         void ImportSharedResource(const RHI::AttachmentId& name, RHIHandle resource);
 
-        void PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource);
+        //! Collect live Images; the non-template overload filters readiness before import preparation.
+        template<typename Tag>
+        void ImportSharedResourceSet(const RHI::AttachmentId& name)
+        {
+            eastl::vector<RHIHandle> resources;
+            RHIExecuteContext::Current()->GetView<Tag>(Exclude<DeadTag>).each(
+                [&](RHIHandle resource) { resources.push_back(resource); });
+            ImportSharedResourceSet(name, eastl::move(resources));
+        }
+
+        void ImportSharedResourceSet(const RHI::AttachmentId& name, eastl::vector<RHIHandle> resources);
+
+        //! Common publication checks, backing preparation and per-pass intent for all imports.
+        void PrepareImportedResource(const RHI::AttachmentId& name, RHIHandle resource, bool shared);
 
         //! Add to `scope` a read of the copy of `attachment`'s name produced last frame. The
         //! caller fills the attachment's id, usage, stage, action and view. End links it to
@@ -211,6 +226,12 @@ namespace Spark::Render
             RHIHandle scope, const RHI::AttachmentId& name,
             RHI::AttachmentUsage usage, RHI::AttachmentAccess access, RHI::AttachmentStage stage);
 
+        //! Expand an imported Image set into ordinary shared reads of this Scope.
+        void AddScopeImageSetReads(RHIHandle scope, const RHI::AttachmentId& name, RHI::AttachmentStage stage);
+
+        //! Refine a shader access's stage, preserving the stages of an already bound input.
+        void SetShaderAttachmentStage(RHIHandle attachment, RHI::AttachmentStage stage);
+
         //! The resource declared under `name` so far, or NullHandle.
         RHIHandle FindResource(const RHI::AttachmentId& name) const;
 
@@ -286,6 +307,9 @@ namespace Spark::Render
         //! The resource Create / Import put under each name.
         eastl::unordered_map<RHI::AttachmentId, RHIHandle> m_resources;
 
+        //! Named shared Image sets, without ownership. Cleared with m_resources at End.
+        eastl::unordered_map<RHI::AttachmentId, eastl::vector<RHIHandle>> m_resourceSets;
+
         //! The resources the current pass imported, and whether as shared
         //! (ImportSharedResource). Cleared at BeginPass: the intent is the pass's, not the frame's.
         eastl::unordered_map<RHI::RHIHandle, bool> m_passImports;
@@ -310,13 +334,12 @@ namespace Spark::Render
 
     inline RHIHandle RenderGraphBuilder::FindTransientImage(const RHI::AttachmentId& name) const
     {
-        auto it = m_resources.find(name);
-        if (it == m_resources.end())
+        const RHIHandle resource = FindResource(name);
+        if (resource == NullHandle)
         {
             return NullHandle;
         }
         const auto& rhiContext = *RHIExecuteContext::Current();
-        const RHIHandle resource = it->second;
         return rhiContext.Has<TransientTag>(resource) && rhiContext.Has<RHI::ImageDescriptor>(resource)
             ? resource : NullHandle;
     }
