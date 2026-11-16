@@ -8,6 +8,7 @@ set(SOURCES
     Feature/GBuffer/GBufferPass.cpp
     Feature/ShadowProjection/ShadowProjectionPass.cpp
     Feature/Lighting/LightsPass.cpp
+    Feature/Lighting/DirectLightingPass.cpp
     Feature/Lighting/IndirectDiffusePass.cpp
     Feature/Lighting/ReflectionsPass.cpp
     Feature/Shadow/ShadowPass.cpp

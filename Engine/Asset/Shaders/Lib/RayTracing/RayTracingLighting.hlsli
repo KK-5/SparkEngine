@@ -53,35 +53,46 @@ bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSampl
 // One next-event-estimation sample. context.WorldPosition must be the receiver's
 // original surface position; ray offsets affect visibility only. randomSample is
 // supplied by the caller, independently of BRDF samples, and uniform in [0,1)^4.
-float3 EvaluateDirectLighting(GeometrySurface surface, RayTracingMaterial material, float3 V,
+struct DirectLightingSample
+{
+    float3 Diffuse;
+    float3 Specular;
+    // Receiver-to-light distance, independent of visibility, PDF and material.
+    // Zero for an invalid sample. Infinite lights use settings.MaxDistance.
+    float HitDistance;
+};
+
+DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTracingMaterial material, float3 V,
                               LightSamplingContext context, float4 randomSample,
                               SamplerState materialSampler, RayTracingLightingSettings settings,
                               LightingSampleCounts sampleCounts)
 {
+    DirectLightingSample result = (DirectLightingSample)0;
     if (sampleCounts.LightSampleCount == 0u)
     {
-        return 0.0;
+        return result;
     }
     LightSample lightSample;
     float selectionPmf;
     if (!SampleLight(context, randomSample, materialSampler, lightSample, selectionPmf))
     {
-        return 0.0;
+        return result;
     }
     // Opaque reflection cannot transport light through the geometric back side,
     // even when a normal map tilts the shading normal toward that direction.
     if (dot(surface.WorldGeometricNormal, lightSample.Direction) <= 0.0)
     {
-        return 0.0;
+        return result;
     }
-    const float3 response = EvaluateRayTracingBRDF(material, V, lightSample.Direction);
-    if (!any(response > 0.0) || !any(lightSample.Radiance > 0.0))
+    const BRDFResponse response = EvaluateRayTracingBRDFLobes(material, V, lightSample.Direction);
+    if (!any(response.Diffuse + response.Specular > 0.0) || !any(lightSample.Radiance > 0.0))
     {
-        return 0.0;
+        return result;
     }
+    result.HitDistance = lightSample.IsInfinite ? settings.MaxDistance : lightSample.Distance;
     if (!TraceSampledLightVisibility(surface, lightSample, settings))
     {
-        return 0.0;
+        return result;
     }
 
     const float lightPdf = selectionPmf * lightSample.Pdf;
@@ -95,7 +106,22 @@ float3 EvaluateDirectLighting(GeometrySurface surface, RayTracingMaterial materi
     const float weight = MISPowerHeuristic(
         float(sampleCounts.LightSampleCount) * lightPdf,
         float(sampleCounts.BRDFSampleCount) * brdfPdf);
-    return response * lightSample.Radiance * (weight / lightPdf);
+    const float3 incident = lightSample.Radiance * (weight / lightPdf);
+    result.Diffuse = response.Diffuse * incident;
+    result.Specular = response.Specular * incident;
+    return result;
+}
+
+// Compatibility entry point for reference/path integrators that accumulate the
+// complete response. Both entry points share sampling, visibility, PDFs and MIS.
+float3 EvaluateDirectLighting(GeometrySurface surface, RayTracingMaterial material, float3 V,
+                              LightSamplingContext context, float4 randomSample,
+                              SamplerState materialSampler, RayTracingLightingSettings settings,
+                              LightingSampleCounts sampleCounts)
+{
+    const DirectLightingSample result = EvaluateDirectLightingSample(surface, material, V, context,
+        randomSample, materialSampler, settings, sampleCounts);
+    return result.Diffuse + result.Specular;
 }
 
 // Adapts a ray hit to the light sampler's representation. Unknown/noncandidate

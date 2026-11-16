@@ -24,6 +24,7 @@ struct VSOutput
     VertexFactoryInterpolantsVSToPS Interpolants;
     float4 ClipPosition     : CLIP_POSITION;        // unjittered
     float4 PrevClipPosition : PREV_CLIP_POSITION;   // last frame, unjittered
+    float3 WorldPosition    : WORLD_POSITION;
 };
 
 struct PSOutput
@@ -33,6 +34,7 @@ struct PSOutput
     float4 surface    : SV_Target2;  // GBufferSurface
     float4 baseColor  : SV_Target3;  // GBufferBaseColor
     float4 velocity   : SV_Target4;  // rg NDC motion, see Lib/Velocity.hlsli
+    float4 geometricNormal : SV_Target5; // geometric, world-space, facing the camera
 };
 
 VSOutput VSMain(VertexFactoryInput input)
@@ -56,6 +58,7 @@ VSOutput VSMain(VertexFactoryInput input)
     output.Interpolants     = VertexFactoryGetInterpolantsVSToPS(input, intermediates);
     output.ClipPosition     = mul(view.viewProjectionNoAA, worldPosition);
     output.PrevClipPosition = mul(view.prevViewProjection, prevWorldPosition);
+    output.WorldPosition = worldPosition.xyz;
     return output;
 }
 
@@ -88,5 +91,14 @@ PSOutput PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace)
 
     PSOutput output = EncodeGBuffer(parameters, inputs);
     output.velocity = float4(CalcVelocity(input.ClipPosition, input.PrevClipPosition), 0.0, 0.0);
+    // Derivatives of this primitive's interpolated position remain on the same
+    // triangle even in helper lanes at silhouettes. Depth-texture derivatives in
+    // the lighting pass would instead mix unrelated surfaces.
+    float3 Ng = cross(ddx(input.WorldPosition), ddy(input.WorldPosition));
+    const float lengthSquared = dot(Ng, Ng);
+    Ng = lengthSquared > 0.0 ? Ng * rsqrt(lengthSquared) : parameters.WorldVertexNormal;
+    const float3 eye = mul(GetView(g_Scope.viewIndex).invView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    Ng = dot(Ng, eye - input.WorldPosition) < 0.0 ? -Ng : Ng;
+    output.geometricNormal = float4(EncodeNormal(Ng), 0.0);
     return output;
 }

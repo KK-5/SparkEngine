@@ -31,6 +31,7 @@
 #include <Feature/ScreenSpaceReflections/ScreenSpaceReflectionsPass.h>
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Feature/Lighting/LightsPass.h>
+#include <Feature/Lighting/DirectLightingPass.h>
 #include <Feature/Lighting/IndirectDiffusePass.h>
 #include <Feature/Lighting/ReflectionsPass.h>
 #include <Feature/Shadow/ShadowPass.h>
@@ -210,36 +211,41 @@ namespace Spark::Render
         auto velocityResolvePassCfg = VelocityResolvePass::DefaultConfig();
         VelocityResolvePass::SetUp(passContext, velocityResolvePassCfg);
 
+        // Opaque lighting is now direct-only, 1 spp. NRD will sit between its
+        // signal producer and composition. Shadow maps above remain available
+        // to forward translucency; opaque visibility uses the TLAS instead.
+        DirectLightingPass::SetUp(passContext);
+
         // The closest / furthest depth mip chains over the finished SceneDepth, on the frames
         // something reads them: screen-space reflections march the closest one.
-        HZBPass::SetUp(passContext);
+        // HZBPass::SetUp(passContext);
 
         // Screen-space ambient occlusion from SceneDepth and GBufferNormal, which the two
         // indirect lighting passes multiply in. Before them: a reader is declared after its
         // producer.
-        AmbientOcclusionPass::SetUp(passContext);
+        // AmbientOcclusionPass::SetUp(passContext);
 
         // Resolves the shadow atlas into ShadowMask, the screen-space visibility signal
         // the lighting reads instead of sampling the atlas itself.
-        auto shadowProjectionCfg = ShadowProjectionPass::DefaultConfig();
-        ShadowProjectionPass::SetUp(passContext, shadowProjectionCfg);
+        // auto shadowProjectionCfg = ShadowProjectionPass::DefaultConfig();
+        // ShadowProjectionPass::SetUp(passContext, shadowProjectionCfg);
 
         // Deferred lighting, one pass per signal so each can be replaced on its own -- direct
         // light, indirect diffuse (later DDGI), reflections (later SSR). All three blend
         // additively into SceneColor, so this order is only for reading. After GBuffer,
         // before Skybox (which fills the sky they depth-cull).
-        auto lightsPassCfg = LightsPass::DefaultConfig();
-        LightsPass::SetUp(passContext, lightsPassCfg);
+        // auto lightsPassCfg = LightsPass::DefaultConfig();
+        // LightsPass::SetUp(passContext, lightsPassCfg);
 
-        auto indirectDiffuseCfg = IndirectDiffusePass::DefaultConfig();
-        IndirectDiffusePass::SetUp(passContext, indirectDiffuseCfg);
+        // auto indirectDiffuseCfg = IndirectDiffusePass::DefaultConfig();
+        // IndirectDiffusePass::SetUp(passContext, indirectDiffuseCfg);
 
         // What the mirror direction of each pixel sees on screen, which ReflectionsPass lays
         // over the environment's reflection.
-        ScreenSpaceReflectionsPass::SetUp(passContext);
+        // ScreenSpaceReflectionsPass::SetUp(passContext);
 
-        auto reflectionsCfg = ReflectionsPass::DefaultConfig();
-        ReflectionsPass::SetUp(passContext, reflectionsCfg);
+        // auto reflectionsCfg = ReflectionsPass::DefaultConfig();
+        // ReflectionsPass::SetUp(passContext, reflectionsCfg);
 
         // Skybox samples the baked cube into SceneColor (linear HDR) after depth pre.
         auto skyboxPassCfg = SkyboxPass::DefaultConfig();

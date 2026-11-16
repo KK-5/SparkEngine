@@ -10,6 +10,28 @@
 //! into another to learn them. Each is written by one pass and read by the ones after it.
 namespace Spark::Render::SceneTextures
 {
+    //! Direct lighting before composition: one NEE sample per pixel, no history or
+    //! pre-exposure. RGB is divided by DirectLightingSignal.hlsli's material factors;
+    //! alpha is receiver-to-light distance (0 invalid, capped at 65504 for infinity).
+    //! The guides use signed world normals + perceptual roughness, positive linear
+    //! viewZ (1e30 for background), and unjittered previousUV-currentUV motion.
+    //! These are engine signals; an NRD adapter must use the SDK's packing helpers
+    //! and matching encoding settings. REBLUR also needs hit-distance normalization.
+    namespace DirectLighting
+    {
+        // Preserve high-variance samples before a denoiser's explicit range handling.
+        constexpr RHI::Format kRadianceFormat = RHI::Format::R32G32B32A32_FLOAT;
+        constexpr RHI::Format kNormalRoughnessFormat = RHI::Format::R16G16B16A16_FLOAT;
+        constexpr RHI::Format kViewZFormat = RHI::Format::R32_FLOAT;
+        constexpr RHI::Format kMotionFormat = RHI::Format::R16G16_FLOAT;
+
+        const RHI::AttachmentId& DiffuseName();
+        const RHI::AttachmentId& SpecularName();
+        const RHI::AttachmentId& NormalRoughnessName();
+        const RHI::AttachmentId& ViewZName();
+        const RHI::AttachmentId& MotionName();
+    }
+
     //! The hierarchical Z-buffer, written by HZBPass: two mip chains over the scene depth, each
     //! texel the closest / the furthest depth of the pixels under it. Depth is reversed-Z, so
     //! closest is the largest value.

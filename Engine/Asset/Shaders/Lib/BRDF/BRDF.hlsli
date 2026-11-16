@@ -15,7 +15,15 @@
 // Precondition: perceptualRoughness must be clamped to >= 0.045 by the caller (matches
 // Filament — the material stage clamps, the BRDF assumes valid input). Below that the
 // visibility term's 0.5 / (GGXV + GGXL) can divide by zero at grazing angles.
-float3 EvaluateBRDF(float3 N, float3 V, float3 L, float3 diffuseColor, float3 F0, float perceptualRoughness)
+struct BRDFResponse
+{
+    float3 Diffuse;
+    float3 Specular;
+};
+
+// Both lobes include NoL. Keeping them separate lets lighting signals be denoised
+// independently without changing the BRDF used by the reference integrator.
+BRDFResponse EvaluateBRDFLobes(float3 N, float3 V, float3 L, float3 diffuseColor, float3 F0, float perceptualRoughness)
 {
     float3 H = normalize(V + L);
     float NoV = max(abs(dot(N, V)), 1e-4);   // floor to avoid /0; must stay <= 1 or F_Schlick's pow() gets a negative base -> NaN
@@ -35,7 +43,16 @@ float3 EvaluateBRDF(float3 N, float3 V, float3 L, float3 diffuseColor, float3 F0
     // diffuse BRDF
     float3 Fd = diffuseColor * Fd_Burley(NoV, NoL, LoH, roughness);
 
-    return (Fr + Fd) * NoL;
+    BRDFResponse response;
+    response.Diffuse = Fd * NoL;
+    response.Specular = Fr * NoL;
+    return response;
+}
+
+float3 EvaluateBRDF(float3 N, float3 V, float3 L, float3 diffuseColor, float3 F0, float perceptualRoughness)
+{
+    const BRDFResponse response = EvaluateBRDFLobes(N, V, L, diffuseColor, F0, perceptualRoughness);
+    return response.Diffuse + response.Specular;
 }
 
 #endif // SPARK_LIB_BRDF_HLSLI

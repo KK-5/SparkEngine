@@ -39,17 +39,18 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // Five color targets + read-only SceneDepth. The depth format must match the
+        // Six color targets + read-only SceneDepth. The depth format must match the
         // SceneDepth attachment DepthPrePass creates (D32_FLOAT). Lighting reconstructs
         // world position from SceneDepth, so no position target is written.
         RHI::RenderTargetLayout rt;
-        rt.m_colorAttachmentCount = 5;
+        rt.m_colorAttachmentCount = 6;
         // Layout and channel assignment: Shaders/Lib/DeferredShadingCommon.hlsli.
         rt.m_colorFormats[0]      = RHI::Format::R16G16B16A16_FLOAT;  // SceneColor (emissive)
         rt.m_colorFormats[1]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferNormal
         rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM;      // GBufferSurface
         rt.m_colorFormats[3]      = RHI::Format::R8G8B8A8_UNORM_SRGB; // GBufferBaseColor
         rt.m_colorFormats[4]      = RHI::Format::R16G16_FLOAT;        // Velocity (NDC)
+        rt.m_colorFormats[5]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferGeometricNormal
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         RHI::InputStreamLayout input;
@@ -145,6 +146,8 @@ namespace Spark::Render
                 // kVelocityUnwritten in Lib/Velocity.hlsli: marks pixels no geometry covered.
                 createColor("Velocity", RHI::Format::R16G16_FLOAT,
                     RHI::ClearValue::CreateVector4Float(65504.f, 65504.f, 0.f, 0.f));
+                createColor("GBufferGeometricNormal", RHI::Format::R10G10B10A2_UNORM,
+                    RHI::ClearValue::CreateVector4Float(0.5f, 0.5f, 1.f, 0.f));
 
                 // Read-only depth test against DepthPrePass's SceneDepth: Load the depth
                 // to test against, Store it back unchanged. A depth read selects a

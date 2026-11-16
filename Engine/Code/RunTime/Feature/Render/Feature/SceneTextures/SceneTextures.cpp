@@ -11,6 +11,39 @@
 
 namespace Spark::Render::SceneTextures
 {
+    namespace DirectLighting
+    {
+        const RHI::AttachmentId& DiffuseName()
+        {
+            static const RHI::AttachmentId name("DirectDiffuseRadianceHitDistance");
+            return name;
+        }
+
+        const RHI::AttachmentId& SpecularName()
+        {
+            static const RHI::AttachmentId name("DirectSpecularRadianceHitDistance");
+            return name;
+        }
+
+        const RHI::AttachmentId& NormalRoughnessName()
+        {
+            static const RHI::AttachmentId name("LightingNormalRoughness");
+            return name;
+        }
+
+        const RHI::AttachmentId& ViewZName()
+        {
+            static const RHI::AttachmentId name("LightingViewZ");
+            return name;
+        }
+
+        const RHI::AttachmentId& MotionName()
+        {
+            static const RHI::AttachmentId name("LightingMotion");
+            return name;
+        }
+    }
+
     namespace HZB
     {
         const RHI::AttachmentId& ClosestName()

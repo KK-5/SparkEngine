@@ -47,16 +47,22 @@ RayTracingMaterial EvaluateRayTracingMaterial(
 
 // Same BRDF * NoL convention as deferred lighting. V and L point away from the surface.
 // This is a surface response, not a complete lighting integral or a sampling PDF.
-float3 EvaluateRayTracingBRDF(RayTracingMaterial material, float3 V, float3 L)
+BRDFResponse EvaluateRayTracingBRDFLobes(RayTracingMaterial material, float3 V, float3 L)
 {
     // The reflection BRDF has support only above its shading hemisphere. Besides avoiding
     // wasted work, this prevents normalize(V + L) from producing NaN when L == -V.
     if (dot(material.WorldNormal, V) <= 0.0 || dot(material.WorldNormal, L) <= 0.0)
     {
-        return 0.0;
+        return (BRDFResponse)0;
     }
-    return EvaluateBRDF(material.WorldNormal, V, L, material.DiffuseColor, material.SpecularColor,
+    return EvaluateBRDFLobes(material.WorldNormal, V, L, material.DiffuseColor, material.SpecularColor,
                         max(material.Inputs.Roughness, BRDF_MIN_PERCEPTUAL_ROUGHNESS));
+}
+
+float3 EvaluateRayTracingBRDF(RayTracingMaterial material, float3 V, float3 L)
+{
+    const BRDFResponse response = EvaluateRayTracingBRDFLobes(material, V, L);
+    return response.Diffuse + response.Specular;
 }
 
 float EvaluateRayTracingBRDFPdf(RayTracingMaterial material, float3 V, float3 L)
