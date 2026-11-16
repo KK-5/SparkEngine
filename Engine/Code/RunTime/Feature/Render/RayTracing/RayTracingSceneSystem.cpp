@@ -16,6 +16,7 @@
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
 #include <Binding/ShaderUsage.h>
+#include <Binding/SharedGroupLayouts.h>
 #include <Resource/AssetManagerInterface.h>
 #include <RHI/RHIInterface.h>
 #include <RHI/Factory.h>
@@ -127,7 +128,7 @@ namespace Spark::Render
         // Only the location is published; the structure and its view stay in RayTracingScene.
         rhiContext.Add<ShaderAccelerationStructureUsage>(m_storageResource,
             ShaderAccelerationStructureUsage{ ShaderInputBinding{
-                kRayTracingSpaceId, RHI::InputName(TopLevelSceneInputName), 0 } });
+                kRayTracingSpaceId, RHI::InputName(SharedInput::RayTracingScene), 0 } });
     }
 
     bool RayTracingSceneSystem::EnsureScratchBuffer(RHI::RHIContext& rhiContext, uint64_t byteCount)

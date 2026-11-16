@@ -9,6 +9,8 @@
 #include <RHI/Context/RHIContext.h>
 #include <Pass/PassContext.h>
 
+#include <Binding/SharedBindingPool.h>
+
 #include "RenderGraphBuilder.h"
 #include "RenderGraphCompiler.h"
 #include "RenderGraphExecuter.h"
@@ -87,6 +89,8 @@ namespace Spark::Render
         //! frame's.
         eastl::vector<RHIHandle>  m_swapChainImages;
 
+        //! The groups every shared space is filled into. Owned here, created on first use.
+        SharedBindingPool   m_sharedBindings;
         RenderGraphBuilder  m_builder;
         RenderGraphCompiler m_compiler;
         RenderGraphExecuter m_executer;

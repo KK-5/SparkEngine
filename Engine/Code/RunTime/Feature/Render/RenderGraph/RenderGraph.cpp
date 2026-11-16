@@ -128,6 +128,7 @@ namespace Spark::Render
             return false;
         }
         m_compiler.m_drawPipelineCache.Init(factory, device, m_pipelineLibrary.get());
+        m_compiler.SetSharedBindingPool(&m_sharedBindings);
 
         m_device = &device;
 
@@ -230,6 +231,10 @@ namespace Spark::Render
         auto& context = *RHIExecuteContext::Current();
         DestroySwapChainImages(context);
         m_swapChain = nullptr;
+
+        // The groups hold views of the resources their systems still own: let go of them before
+        // those systems shut their pools down.
+        m_sharedBindings.Shutdown();
 
         // Pooled images outlive every frame, so nothing else reaps them.
         eastl::vector<RHIHandle> pooledImages;

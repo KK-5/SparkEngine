@@ -61,7 +61,6 @@ namespace Spark::Render
         //! This frame's active list into m_activeSlots.
         void CollectActiveSlots(WorldContext& world);
 
-        RHI::RHIHandle m_bindingsEntity      = RHI::NullHandle;  // Components::ShaderBindings — g_Instances @ space4
         RHI::RHIHandle m_instanceCountEntity = RHI::NullHandle;  // active + emissive counts
 
         //! g_Instances, carrying InstancePoolTag.

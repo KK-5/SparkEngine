@@ -9,6 +9,7 @@
 
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/SharedGroupLayouts.h>
 #include <RayTracing/RayTracingScene.h>
 
 namespace Spark::Render
@@ -22,26 +23,11 @@ namespace Spark::Render
         }
 
         // The layout this space declares, independent of what publishes into it this frame.
-        const RHI::InputName sceneInput(TopLevelSceneInputName);
-        RHI::ShaderInputList inputs;
-        inputs.m_accelerationStructures.push_back(
-            RHI::ShaderInputAccelerationStructureDescriptor(sceneInput, 1, 0, kRayTracingSpaceId));
-        Ptr<RHI::ShaderBindings> bindings = CreateSharedBindings(inputs, kRayTracingSpaceId, "RayTracingBindingSystem");
-        if (!bindings)
-        {
-            return;
-        }
+        const RHI::InputName sceneInput(SharedInput::RayTracingScene);
 
-        m_bindings = rhiContext.CreateEntity();
-        rhiContext.Add<RHI::Components::ShaderBindings>(m_bindings, RHI::Components::ShaderBindings{ bindings });
     }
 
     void RayTracingBindingSystem::Shutdown(RHI::RHIContext& rhiContext)
     {
-        if (m_bindings != RHI::NullHandle)
-        {
-            rhiContext.DestoryEntity(m_bindings);
-            m_bindings = RHI::NullHandle;
-        }
     }
 }

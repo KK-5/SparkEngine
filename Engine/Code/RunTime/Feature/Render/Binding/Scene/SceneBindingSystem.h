@@ -65,7 +65,9 @@ namespace Spark::Render
         bool BindAreaLightLuts(RHI::RHIContext& rhiCtx);
 
         // Shared resources, owned by their RHIContext entities (this system holds handles).
-        RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Lights + SceneConstants @ space0
+        //! This frame's sampler and constants for space0, which no resource carries. The group
+        //! itself belongs to the render graph.
+        RHI::RHIHandle m_values = RHI::NullHandle;
 
         //! Packed densely in iteration order, [0, g_LightCount).
         StagingBuffer            m_lightBuffer;

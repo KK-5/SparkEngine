@@ -22,6 +22,7 @@ namespace Spark::RHI
 
 namespace Spark::Render
 {
+    class SharedBindingPool;
 
     class RenderGraphCompiler
     {
@@ -149,6 +150,9 @@ namespace Spark::Render
         //! nothing wrote to skip themselves.
         void CompileShaderInputs(RHI::Device& device, RHIContext& context);
 
+        //! The groups every shared space is filled into. RenderGraph owns it; it outlives a frame.
+        void SetSharedBindingPool(SharedBindingPool* pool) { m_sharedBindings = pool; }
+
         //! Log how many groups were compiled and how many skipped, every 600 frames. Kept as a
         //! tool: CompileShaderInputs counts them but does not call this, so measuring the
         //! ratio is one line away. A skip count stuck at zero means the change detection never
@@ -163,6 +167,7 @@ namespace Spark::Render
         //! item is expanded. A stopgap until a real PSO cache exists; that one may belong in
         //! RenderGraph, which makes and manages the RHI objects, handed in where needed.
         DrawPipelineCache m_drawPipelineCache;
+        SharedBindingPool* m_sharedBindings = nullptr;
 
         // Per-queue monotonically increasing counter for cross-queue fence values.
         // Incremented each time a queue emits a signal; never resets across frames.

@@ -35,6 +35,7 @@
 
 #include <Binding/SharedBindings.h>
 #include <Binding/SharedGroupValues.h>
+#include <Binding/SharedBindingPool.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/PassDrawListComponents.h>
@@ -1096,15 +1097,6 @@ namespace Spark::Render
         }
     }
 
-    namespace
-    {
-        //! The object holding `spaceId`: the same lookup a pass uses to take a group's layout.
-        RHI::ShaderBindings* ResolveGroupBindings(RHIContext& context, uint32_t spaceId)
-        {
-            return FindSharedBindings(context, spaceId);
-        }
-    }
-
     void RenderGraphCompiler::CompileScopeBindings(PassContext& passContext, RHIContext& context)
     {
         Pass      pass     = NullPass;
@@ -1242,7 +1234,7 @@ namespace Spark::Render
                     RHI::ShaderBindings* target = bindings;
                     if (shared)
                     {
-                        target = ResolveGroupBindings(context, binding->m_spaceId);
+                        target = m_sharedBindings->Get(binding->m_spaceId);
                         ASSERT(target != nullptr, "[RenderGraphCompiler] No shared bindings in space {} for {}[{}].",
                             binding->m_spaceId, binding->m_input.GetCStr(), binding->m_arrayIndex);
                         if (target == nullptr)
@@ -1332,7 +1324,7 @@ namespace Spark::Render
     {
         for (auto [entity, values] : context.GetView<SharedGroupValues>(Exclude<DeadTag>).each())
         {
-            RHI::ShaderBindings* bindings = ResolveGroupBindings(context, values.m_spaceId);
+            RHI::ShaderBindings* bindings = m_sharedBindings->Get(values.m_spaceId);
             ASSERT(bindings != nullptr,
                 "[RenderGraphCompiler] No shared group in space {} holds the values published for it.",
                 values.m_spaceId);
@@ -1395,7 +1387,7 @@ namespace Spark::Render
                         {
                             continue;
                         }
-                        if (RHI::ShaderBindings* group = FindSharedBindings(context, spaceId))
+                        if (RHI::ShaderBindings* group = m_sharedBindings->Get(spaceId))
                         {
                             bindings.push_back(group);
                         }

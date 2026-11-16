@@ -21,6 +21,7 @@
 #include <Binding/BindingSpaces.h>
 #include <Binding/ShaderUsage.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/SharedGroupLayouts.h>
 
 #include <ECS/ExecuteContext.h>
 #include <ECS/WorldContext.h>
@@ -38,7 +39,6 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr const char* MaterialBufferName = "g_Materials";
 
         uint32_t ResolveTexIndex(
             RHI::RHIContext& rhiCtx, Material::MaterialContext& matCtx,
@@ -73,31 +73,12 @@ namespace Spark::Render
 
     void MaterialBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        // The layout of MaterialBindings.hlsli, declared rather than reflected (see SharedBindings.h).
-        RHI::ShaderInputList inputs;
-        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
-            RHI::InputName(MaterialBufferName), RHI::ShaderInputBufferAccess::Read,
-            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kMaterialSpaceId));
-
-        // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The DeviceArray binds the g_Materials SRV.
-        Ptr<RHI::ShaderBindings> materialBindings =
-            CreateSharedBindings(inputs, kMaterialSpaceId, "MaterialBindingSystem");
-        if (!materialBindings)
-        {
-            return;
-        }
-
-        m_bindings = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(
-            m_bindings, RHI::Components::ShaderBindings{ materialBindings });
-
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         DeviceArray::Descriptor arrayDesc;
-        arrayDesc.m_name        = ObjectName(MaterialBufferName);
+        arrayDesc.m_name        = ObjectName(SharedInput::Materials);
         arrayDesc.m_elementSize = sizeof(MaterialData);
         arrayDesc.m_capacity    = Capacity;
-        arrayDesc.m_inputName   = RHI::InputName(MaterialBufferName);
+        arrayDesc.m_inputName   = RHI::InputName(SharedInput::Materials);
         arrayDesc.m_spaceId     = kMaterialSpaceId;
         if (m_materials.Init(rhiCtx, device, arrayDesc))
         {
@@ -318,12 +299,6 @@ namespace Spark::Render
             matCtx->Clear<MaterialSlot>();
         }
 
-        // The group holds the views, which hold the buffers: it goes before the array does.
-        if (m_bindings != RHI::NullHandle)
-        {
-            rhiCtx.DestoryEntity(m_bindings);
-            m_bindings = RHI::NullHandle;
-        }
         m_materials.Shutdown(rhiCtx);
     }
 }

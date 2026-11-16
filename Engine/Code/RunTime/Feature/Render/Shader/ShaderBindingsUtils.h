@@ -2,33 +2,13 @@
 
 #include <Log/ILogSystem.h>
 
-#include <RHI/Context/RHIContext.h>
-#include <RHI/Component/Component.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 
 namespace Spark::Render
 {
-    //! Fill ShaderBindings objects directly. RenderGraph compiles the objects its Scopes use;
-    //! a setter that writes what is already there leaves the object clean, so that compile
-    //! skips it.
-    //!
-    //! Entity overloads resolve a Components::ShaderBindings and forward to the same setters.
-
-    namespace Detail
-    {
-        inline RHI::ShaderBindings* ResolveShaderBindings(RHI::RHIContext& ctx, RHI::RHIHandle bindings)
-        {
-            auto* comp = ctx.TryGet<RHI::Components::ShaderBindings>(bindings);
-            if (!comp || !comp->m_bindings)
-            {
-                LOG_ERROR("[ShaderBindingsUtils] Entity has no Components::ShaderBindings (or it is null).");
-                return nullptr;
-            }
-            return comp->m_bindings.get();
-        }
-
-    }
+    //! Fill a ShaderBindings object. The render graph compiles the ones its Scopes use, and a
+    //! setter that writes what is already there leaves the object clean, so compile skips it.
 
     //! Stage a constant's bytes, packed as in C++, into the named constant input.
     inline void SetShaderConstantData(
@@ -137,54 +117,4 @@ namespace Spark::Render
         bindings.MarkDirty();
     }
 
-    inline void SetShaderConstantData(
-        RHI::RHIHandle entity, RHI::InputName input, const void* bytes, uint32_t byteCount)
-    {
-        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
-        {
-            SetShaderConstantData(*bindings, input, bytes, byteCount);
-        }
-    }
-
-    template<typename T>
-    void SetShaderConstant(RHI::RHIHandle entity, RHI::InputName input, const T& value)
-    {
-        SetShaderConstantData(entity, input, &value, static_cast<uint32_t>(sizeof(T)));
-    }
-
-    inline void SetShaderImage(
-        RHI::RHIHandle entity, RHI::InputName input, const RHI::ImageView* view, uint32_t arrayIndex = 0)
-    {
-        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
-        {
-            SetShaderImage(*bindings, input, view, arrayIndex);
-        }
-    }
-
-    inline void SetShaderBuffer(
-        RHI::RHIHandle entity, RHI::InputName input, const RHI::BufferView* view, uint32_t arrayIndex = 0)
-    {
-        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
-        {
-            SetShaderBuffer(*bindings, input, view, arrayIndex);
-        }
-    }
-
-    inline void SetShaderAccelerationStructure(
-        RHI::RHIHandle entity, RHI::InputName input, const RHI::AccelerationStructure* structure, uint32_t arrayIndex = 0)
-    {
-        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
-        {
-            SetShaderAccelerationStructure(*bindings, input, structure, arrayIndex);
-        }
-    }
-
-    inline void SetShaderSampler(
-        RHI::RHIHandle entity, RHI::InputName input, const RHI::SamplerState& state, uint32_t arrayIndex = 0)
-    {
-        if (auto* bindings = Detail::ResolveShaderBindings(*RHI::RHIExecuteContext::Current(), entity))
-        {
-            SetShaderSampler(*bindings, input, state, arrayIndex);
-        }
-    }
 }

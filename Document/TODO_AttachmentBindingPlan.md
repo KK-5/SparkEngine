@@ -1,6 +1,6 @@
 # 基于 Attachment 的资源声明与 Shader Binding 编译
 
-状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；布局与 per-scope 绑定改由 space 推导、六个绑定 tag 与 `.Binds<>` 已全部退役，见§十；`ImportSharedSet` 已接入材质纹理与 UI 图标，`Uses` 路径整体删除，见§十一；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-16 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
+状态：第一阶段已实现并通过用户运行验证，见§八；绑定位置的统一表示已落地，见§九；资源发布与共享导入已落地，见§十；布局与 per-scope 绑定改由 space 推导、六个绑定 tag 与 `.Binds<>` 已全部退役，共享组归渲染图所有（声明表与池），见§十；`ImportSharedSet` 已接入材质纹理与 UI 图标，`Uses` 路径整体删除，见§十一；attachment 的统一分组编译仍为设计草案。记录截至 2026-11-16 的设计共识与待定细节，设计代码片段仅用于说明结构，不代表最终 API。
 
 本文是 [资源绑定模型](TODO_BindingModelPlan.md) 的后续设计讨论。原文记录的已完成改造仍是历史记录；本文已落地的资源发布见§十，attachment 统一分组仍为后续设计。
 
@@ -338,6 +338,18 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 - 消费方随之改为共享导入：`ReferencePathTracerFeature` 对 `MeshGeometryPoolTag` 与 `EmissiveInstanceIDBufferTag` 改 `ImportShared`，读取时由 `ApplySharedShaderUsage` 填进组。工程内其余 Pass 只把 `MeshGeometryPoolTag` 当输入装配流（`InputAssembly`）使用，保持普通 `Import`，不经过组。
 - 两个系统不再需要 `Shader/ShaderBindingsUtils.h`。
 - 后果与既有约定一致：某一帧没人读这两个输入时，组里保留上一帧的值（见「待办：无人声明时的陈旧值」）。
+
+### 组的归属与创建（已完成）
+
+2026-11-16：共享组不再由各系统创建和持有，改为渲染图自己的对象。
+
+- **声明**：`Binding/SharedGroupLayouts.h` 是图的表，`space → 该组声明的完整输入`，输入名集中在 `SharedInput` 命名空间（系统发布输入名与图声明输入名读同一份）。布局按 space 懒建一次并缓存，纯 CPU 数据，不持有设备资源。
+- **布局**：`BuildPassPipelineLayout` 只从这张表取布局，不再接触 `ShaderBindings`；反射出的输入仍按声明逐字段校验，错误文案改为“no group declares that space”。
+- **组**：`SharedBindingPool` 是唯一的创建者与持有者：`Get(spaceId)` 首次取用时按声明建出来，之后复用；`Shutdown()` 释放（连同它们持有的视图）。只认共享 space，per-pass 与根常量空间属于断言路径。
+- **归属**：`RenderGraph` 持有池，在 `RenderGraph::Shutdown` 内、各系统 `Shutdown` 之前释放——组持有的视图必须先于这些视图来源的池消失。
+- **系统侧**：六个绑定系统不再创建组、不保留句柄、不写 Shutdown 销毁；`SceneBindingSystem` 的 `SharedGroupValues` 移到独立实体，编译器按 `m_spaceId` 解析，不再依赖“values 挂在组实体上”。
+- **编译**：`CompileShaderInputs` 仍以 `ScopeState` 的绑定列表为枚举来源——那是本帧确定会被绑定的集合；同一个组被多个 Scope 引用时，首次编译后即为干净，后续自动跳过，无需地址去重数组。
+- **退役**：`RHI::Components::ShaderBindings` 组件（及其 `ShaderBindingsUpdateTag`、`RHIResourceSystem` 的清理）、`FindSharedBindings` 实体扫描、`ShaderBindingsUtils` 的实体重载。
 
 ### 绑定对象的变更识别（已实现）
 

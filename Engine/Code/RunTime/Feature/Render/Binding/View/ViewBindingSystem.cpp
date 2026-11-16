@@ -22,6 +22,7 @@
 
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/SharedGroupLayouts.h>
 #include <Binding/ShaderUsage.h>
 #include <View/ViewComponents.h>
 
@@ -29,7 +30,6 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr const char* ViewBufferName = "g_Views";
 
         Math::Vector4 SizeAndInvSize(float width, float height)
         {
@@ -110,26 +110,11 @@ namespace Spark::Render
 
     void ViewBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        // The layout of ViewBindings.hlsli, declared rather than reflected (see SharedBindings.h).
-        RHI::ShaderInputList inputs;
-        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
-            RHI::InputName(ViewBufferName), RHI::ShaderInputBufferAccess::Read,
-            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kViewSpaceId));
 
-        // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. Update binds the g_Views SRV before consuming Scopes compile it.
-        Ptr<RHI::ShaderBindings> viewBindings = CreateSharedBindings(inputs, kViewSpaceId, "ViewBindingSystem");
-        if (!viewBindings)
-        {
-            return;
-        }
 
-        m_bindings = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(
-            m_bindings, RHI::Components::ShaderBindings{ viewBindings });
 
         StagingBuffer::Descriptor bufferDesc;
-        bufferDesc.m_name      = ObjectName(ViewBufferName);
+        bufferDesc.m_name      = ObjectName(SharedInput::Views);
         bufferDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
         m_viewBuffer.Init(*Service<RHI::RHIInterface>::Get()->GetDevice(), bufferDesc);
     }
@@ -178,12 +163,6 @@ namespace Spark::Render
     {
         rhiCtx.Clear<ViewIndex>();
 
-        // The group holds the view, which holds the buffer: it goes before the slots do.
-        if (m_bindings != RHI::NullHandle)
-        {
-            rhiCtx.DestoryEntity(m_bindings);
-            m_bindings = RHI::NullHandle;
-        }
         m_viewBuffer.Shutdown();
         m_bufferResource = RHI::NullHandle;
         m_views.clear();
@@ -223,7 +202,7 @@ namespace Spark::Render
         }
 
         rhiCtx.AddOrReplace<ShaderBufferUsage>(resource, ShaderBufferUsage{
-            ShaderInputBinding{ kViewSpaceId, RHI::InputName(ViewBufferName), 0 }, viewDesc });
+            ShaderInputBinding{ kViewSpaceId, RHI::InputName(SharedInput::Views), 0 }, viewDesc });
         return true;
     }
 }

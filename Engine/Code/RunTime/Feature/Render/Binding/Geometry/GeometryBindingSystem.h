@@ -39,7 +39,6 @@ namespace Spark::Render
         //! A slot for each MeshGeometry; an entity that lost its MeshGeometry gives its back.
         void AllocateSlots(WorldContext& world);
 
-        RHI::RHIHandle m_bindingsEntity = RHI::NullHandle;  // Components::ShaderBindings — g_Geometries @ space6
 
         //! g_Geometries, carrying GeometryPoolTag.
         DeviceArray m_geometries;

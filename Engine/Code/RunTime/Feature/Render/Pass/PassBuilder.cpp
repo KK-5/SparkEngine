@@ -5,33 +5,23 @@
 #include <Resource/Shader/ShaderBuilder.h>
 
 #include <Binding/BindingSpaces.h>
+#include <Binding/SharedGroupLayouts.h>
 #include <Binding/SharedBindings.h>
 
 namespace Spark::Render
 {
     namespace
     {
-        const RHI::ShaderBindings* FindGroup(
-            eastl::span<RHI::ShaderBindings* const> groups, uint32_t spaceId)
-        {
-            for (const RHI::ShaderBindings* group : groups)
-            {
-                if (group->GetSpaceId() == spaceId)
-                {
-                    return group;
-                }
-            }
-            return nullptr;
-        }
-
         //! The group's space, entry by entry in the group's own order: AddShaderInputDescriptors
-        //! files them the way it did for the group, so the pass's table matches the group's.
-        void AppendGroupSpace(const RHI::ShaderBindings& group, RHI::ShaderStageMask stages, RHI::ShaderInputList& out)
+        //! files them the way the declaration lays them out, so the pass's table matches the
+        //! group's.
+        void AppendSharedGroupSpace(
+            const RHI::PipelineLayoutDescriptor& layout, uint32_t spaceId,
+            RHI::ShaderStageMask stages, RHI::ShaderInputList& out)
         {
-            const RHI::PipelineLayoutDescriptor& layout = group.GetLayoutDescriptor();
-            const RHI::ShaderInputGroup* space = layout.FindSpaceGroupBySpaceId(group.GetSpaceId());
-            ASSERT(space, "[BuildPassPipelineLayout] The group at space{} has no such space in its layout.",
-                group.GetSpaceId());
+            const RHI::ShaderInputGroup* space = layout.FindSpaceGroupBySpaceId(spaceId);
+            ASSERT(space, "[BuildPassPipelineLayout] The declaration for space{} has no such space in its layout.",
+                spaceId);
 
             for (const RHI::ShaderInputHandle& handle : space->m_shaderInputs)
             {
@@ -119,13 +109,13 @@ namespace Spark::Render
             return layout.FindConstantDescriptor(read.m_name);
         }
 
-        //! One reflected input: the pass's own space keeps it, a bound group's space checks it
-        //! against the group (its entry is already in from AppendGroupSpace), any other space
-        //! is a group the pass does not bind.
+        //! One reflected input: the pass's own space keeps it; a shared space checks it against
+        //! the graph's declaration for that space (its entry is already in from
+        //! AppendSharedGroupSpace).
         template<typename Descriptor>
         void TakeReflected(
             const eastl::vector<Descriptor>& reflected, eastl::vector<Descriptor>& out,
-            eastl::span<RHI::ShaderBindings* const> groups, const char* passName)
+            RHI::Factory& factory, const char* passName)
         {
             for (const Descriptor& read : reflected)
             {
@@ -135,15 +125,15 @@ namespace Spark::Render
                     continue;
                 }
 
-                const RHI::ShaderBindings* group = FindGroup(groups, read.m_spaceId);
-                if (!group)
+                const RHI::PipelineLayoutDescriptor* declaration = FindSharedGroupLayout(factory, read.m_spaceId);
+                if (!declaration)
                 {
-                    LOG_ERROR("[BuildPassPipelineLayout] Pass '{}' reads '{}' in space{}, but binds no group there.",
-                        passName, read.m_name.GetCStr(), read.m_spaceId);
+                    LOG_ERROR("[BuildPassPipelineLayout] Pass '{}' reads '{}' in space{}, and no group declares "
+                        "that space.", passName, read.m_name.GetCStr(), read.m_spaceId);
                     continue;
                 }
 
-                const Descriptor* declared = FindDeclared(group->GetLayoutDescriptor(), read);
+                const Descriptor* declared = FindDeclared(*declaration, read);
                 if (!declared)
                 {
                     LOG_ERROR("[BuildPassPipelineLayout] Pass '{}' reads '{}' in space{}, which the group there "
@@ -206,31 +196,27 @@ namespace Spark::Render
         }
 
         // What a pass uses is its shaders' reflection: a shader reading a shared space names it
-        // in its registers, so the group that fills that space is found by the space.
+        // in its registers, so the declaration that fills that space is found by the space. No
+        // group object is involved: a layout comes from the graph's declarations.
         RHI::ShaderInputList inputs;
-        eastl::fixed_vector<RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax> resolved;
-        const auto resolvedGroups = [&resolved]
-        {
-            return eastl::span<RHI::ShaderBindings* const>(resolved.data(), resolved.size());
-        };
+        eastl::fixed_vector<uint32_t, RHI::Limits::Pipeline::ShaderInputGroupCountMax> resolvedSpaces;
         const auto takeSpaceOf = [&](uint32_t spaceId)
         {
             if (spaceId == kPerPassSpaceId || spaceId == kPerScopeSpaceId
-                || FindGroup(resolvedGroups(), spaceId) != nullptr)
+                || eastl::find(resolvedSpaces.begin(), resolvedSpaces.end(), spaceId) != resolvedSpaces.end())
             {
                 return;
             }
 
-            // No group there is TakeReflected's to report: it knows which input asked.
-            auto* rhiContext = RHI::RHIExecuteContext::Current();
-            RHI::ShaderBindings* group = rhiContext != nullptr ? FindSharedBindings(*rhiContext, spaceId) : nullptr;
-            if (group == nullptr)
+            // No declaration there is TakeReflected's to report: it knows which input asked.
+            const RHI::PipelineLayoutDescriptor* declaration = FindSharedGroupLayout(factory, spaceId);
+            if (declaration == nullptr)
             {
                 return;
             }
 
-            AppendGroupSpace(*group, reflected.stageMask, inputs);
-            resolved.push_back(group);
+            AppendSharedGroupSpace(*declaration, spaceId, reflected.stageMask, inputs);
+            resolvedSpaces.push_back(spaceId);
         };
         const auto takeSpacesOf = [&takeSpaceOf](const auto& described)
         {
@@ -245,11 +231,11 @@ namespace Spark::Render
         takeSpacesOf(reflected.list.m_samplers);
         takeSpacesOf(reflected.list.m_constants);
 
-        TakeReflected(reflected.list.m_buffers,   inputs.m_buffers,   resolvedGroups(), passName);
-        TakeReflected(reflected.list.m_images,    inputs.m_images,    resolvedGroups(), passName);
-        TakeReflected(reflected.list.m_accelerationStructures, inputs.m_accelerationStructures, resolvedGroups(), passName);
-        TakeReflected(reflected.list.m_samplers,  inputs.m_samplers,  resolvedGroups(), passName);
-        TakeReflected(reflected.list.m_constants, inputs.m_constants, resolvedGroups(), passName);
+        TakeReflected(reflected.list.m_buffers,   inputs.m_buffers,   factory, passName);
+        TakeReflected(reflected.list.m_images,    inputs.m_images,    factory, passName);
+        TakeReflected(reflected.list.m_accelerationStructures, inputs.m_accelerationStructures, factory, passName);
+        TakeReflected(reflected.list.m_samplers,  inputs.m_samplers,  factory, passName);
+        TakeReflected(reflected.list.m_constants, inputs.m_constants, factory, passName);
         inputs.m_rootConstants = eastl::move(reflected.list.m_rootConstants);
 
         auto layout = factory.CreatePipelineLayoutDescriptor();

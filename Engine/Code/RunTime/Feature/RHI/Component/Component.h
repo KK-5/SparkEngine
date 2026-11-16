@@ -40,10 +40,6 @@ namespace Spark::RHI
     // and needs flushing this frame.
     struct RHIUpdateTag {};
 
-    // Marks a ShaderBindings entity whose constants / views have been updated
-    // and need recompilation this frame. Consumed by
-    // RenderGraphCompiler::CompileShaderInputs.
-    struct ShaderBindingsUpdateTag {};
 
     // Human-readable debug name on a resource entity.
     struct ResourceName
@@ -154,14 +150,6 @@ namespace Spark::RHI::Components
     {
         static constexpr uint32_t MaxViews = 8;
         eastl::fixed_vector<BufferViewCacheEntry, MaxViews> m_entries;
-    };
-
-    // Owning component holding a ShaderBindings instance. Placed on an entity by
-    // Render::CreatePassBindings so RenderGraphCompiler::CompileShaderInputs
-    // can discover it via view iteration. Filter tag is ShaderBindingsUpdateTag.
-    struct ShaderBindings
-    {
-        Ptr<RHI::ShaderBindings> m_bindings;
     };
 
     template <typename T>

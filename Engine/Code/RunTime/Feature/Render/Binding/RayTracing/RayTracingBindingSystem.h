@@ -14,6 +14,5 @@ namespace Spark::Render
         void Shutdown(RHI::RHIContext& rhiContext);
 
     private:
-        RHI::RHIHandle m_bindings = RHI::NullHandle;
     };
 }

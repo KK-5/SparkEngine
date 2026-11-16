@@ -21,6 +21,7 @@
 #include <Binding/BindingSpaces.h>
 #include <Binding/ShaderUsage.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/SharedGroupLayouts.h>
 #include <Pass/ComputePass.h>
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/PassScopes.h>
@@ -38,8 +39,6 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr const char* InstanceBufferName = "g_Instances";
-        constexpr const char* EmissiveIDsName = "g_EmissiveInstanceIDs";
 
         //! The material an object draws with. The one it overrides wins over the one it
         //! references; both are ordinary material entities by now. Falls back to the default
@@ -164,34 +163,12 @@ namespace Spark::Render
 
     void InstanceBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        // The layout of InstanceBindings.hlsli, declared rather than reflected (see SharedBindings.h).
-        RHI::ShaderInputList inputs;
-        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
-            RHI::InputName(InstanceBufferName), RHI::ShaderInputBufferAccess::Read,
-            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kInstanceSpaceId));
-        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
-            RHI::InputName(EmissiveIDsName), RHI::ShaderInputBufferAccess::Read,
-            RHI::ShaderInputBufferType::Structured, 1, 0, 1, kInstanceSpaceId));
-
-        // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The DeviceArray binds the g_Instances SRV.
-        Ptr<RHI::ShaderBindings> instanceBindings =
-            CreateSharedBindings(inputs, kInstanceSpaceId, "InstanceBindingSystem");
-        if (!instanceBindings)
-        {
-            return;
-        }
-
-        m_bindingsEntity = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(
-            m_bindingsEntity, RHI::Components::ShaderBindings{ instanceBindings });
-
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         DeviceArray::Descriptor arrayDesc;
-        arrayDesc.m_name        = ObjectName(InstanceBufferName);
+        arrayDesc.m_name        = ObjectName(SharedInput::Instances);
         arrayDesc.m_elementSize = sizeof(InstanceData);
         arrayDesc.m_capacity    = InstanceCapacity;
-        arrayDesc.m_inputName   = RHI::InputName(InstanceBufferName);
+        arrayDesc.m_inputName   = RHI::InputName(SharedInput::Instances);
         arrayDesc.m_spaceId     = kInstanceSpaceId;
         if (m_instances.Init(rhiCtx, device, arrayDesc))
         {
@@ -213,7 +190,7 @@ namespace Spark::Render
             const auto resource = m_emissiveList.GetResource();
             rhiCtx.Add<EmissiveInstanceIDBufferTag>(resource);
             rhiCtx.Add<ShaderBufferUsage>(resource, ShaderBufferUsage{
-                ShaderInputBinding{ kInstanceSpaceId, RHI::InputName(EmissiveIDsName), 0 },
+                ShaderInputBinding{ kInstanceSpaceId, RHI::InputName(SharedInput::EmissiveInstanceIDs), 0 },
                 RHI::BufferViewDescriptor::CreateStructured(0, InstanceCapacity, sizeof(uint32_t)) });
         }
     }
@@ -385,12 +362,6 @@ namespace Spark::Render
 
     void InstanceBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        // The group holds the views, which hold the buffers: it goes before the arrays do.
-        if (m_bindingsEntity != RHI::NullHandle)
-        {
-            rhiCtx.DestoryEntity(m_bindingsEntity);
-            m_bindingsEntity = RHI::NullHandle;
-        }
         if (auto* world = WorldExecuteContext::Current())
         {
             world->Clear<InstanceSlot>();

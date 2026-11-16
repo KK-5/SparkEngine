@@ -109,7 +109,6 @@ namespace Spark::RHI
             rhiCtx->Clear<Components::ImageViewCachePerFrame>();
             rhiCtx->Clear<Components::BufferViewCache>();
             rhiCtx->Clear<Components::BufferViewCachePerFrame>();
-            rhiCtx->Clear<Components::ShaderBindings>();
 
             rhiCtx->Clear<Components::Buffer>();
             rhiCtx->Clear<Components::BufferPerFrame>();

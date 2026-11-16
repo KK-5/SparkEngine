@@ -46,7 +46,6 @@ namespace Spark::Render
         //! A slot for each material with StandardPBR; one that lost it gives its back.
         void AllocateSlots(Material::MaterialContext& matCtx);
 
-        RHI::RHIHandle m_bindings = RHI::NullHandle;  // Components::ShaderBindings — g_Materials @ space3
 
         //! g_Materials, carrying MaterialPoolTag.
         DeviceArray m_materials;

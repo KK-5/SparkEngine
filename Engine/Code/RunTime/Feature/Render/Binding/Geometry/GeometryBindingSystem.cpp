@@ -19,6 +19,7 @@
 #include <Binding/BindingSpaces.h>
 #include <Binding/ShaderUsage.h>
 #include <Binding/SharedBindings.h>
+#include <Binding/SharedGroupLayouts.h>
 #include <Pass/ComputePass.h>
 #include <RenderGraph/PassScopes.h>
 #include <RayTracing/RayTracingBottomLevel.h>
@@ -27,8 +28,6 @@ namespace Spark::Render
 {
     namespace
     {
-        constexpr const char* GeometryBufferName = "g_Geometries";
-        constexpr const char* MeshGeometryBufferName = "g_MeshGeometry";
     }
 
     GeometryData EncodeGeometryData(const MeshGeometry& geometry)
@@ -48,34 +47,14 @@ namespace Spark::Render
 
     void GeometryBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-        // The layout of GeometryBindings.hlsli, declared rather than reflected (see SharedBindings.h).
-        RHI::ShaderInputList inputs;
-        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
-            RHI::InputName(GeometryBufferName), RHI::ShaderInputBufferAccess::Read,
-            RHI::ShaderInputBufferType::Structured, 1, 0, 0, kGeometrySpaceId));
-        inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
-            RHI::InputName(MeshGeometryBufferName), RHI::ShaderInputBufferAccess::Read,
-            RHI::ShaderInputBufferType::Raw, 1, 0, 1, kGeometrySpaceId));
-
-        // The entity owns the binding (and transitively its layout); the system keeps
-        // only the handle. The DeviceArray binds the g_Geometries SRV.
-        Ptr<RHI::ShaderBindings> geometryBindings =
-            CreateSharedBindings(inputs, kGeometrySpaceId, "GeometryBindingSystem");
-        if (!geometryBindings)
-        {
-            return;
-        }
-
-        m_bindingsEntity = rhiCtx.CreateEntity();
-        rhiCtx.Add<RHI::Components::ShaderBindings>(
-            m_bindingsEntity, RHI::Components::ShaderBindings{ geometryBindings });
-
+        // The group itself belongs to the render graph (SharedBindingPool), built from the
+        // declaration in SharedGroupLayouts.h; this system only fills what the shaders read.
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         DeviceArray::Descriptor arrayDesc;
-        arrayDesc.m_name        = ObjectName(GeometryBufferName);
+        arrayDesc.m_name        = ObjectName(SharedInput::Geometries);
         arrayDesc.m_elementSize = sizeof(GeometryData);
         arrayDesc.m_capacity    = Capacity;
-        arrayDesc.m_inputName   = RHI::InputName(GeometryBufferName);
+        arrayDesc.m_inputName   = RHI::InputName(SharedInput::Geometries);
         arrayDesc.m_spaceId     = kGeometrySpaceId;
         if (m_geometries.Init(rhiCtx, device, arrayDesc))
         {
@@ -87,7 +66,7 @@ namespace Spark::Render
         for (auto [entity, buffer] : rhiCtx.GetView<MeshGeometryPoolTag, RHI::Components::Buffer>().each())
         {
             rhiCtx.Add<ShaderBufferUsage>(entity, ShaderBufferUsage{
-                ShaderInputBinding{ kGeometrySpaceId, RHI::InputName(MeshGeometryBufferName), 0 },
+                ShaderInputBinding{ kGeometrySpaceId, RHI::InputName(SharedInput::MeshGeometry), 0 },
                 RHI::BufferViewDescriptor::CreateRaw(
                     0, static_cast<uint32_t>(buffer.m_buffer->GetDescriptor().m_byteCount)) });
         }
@@ -198,12 +177,6 @@ namespace Spark::Render
 
     void GeometryBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
-        // The group holds the views, which hold the buffers: it goes before the array does.
-        if (m_bindingsEntity != RHI::NullHandle)
-        {
-            rhiCtx.DestoryEntity(m_bindingsEntity);
-            m_bindingsEntity = RHI::NullHandle;
-        }
         if (auto* world = WorldExecuteContext::Current())
         {
             world->Clear<GeometrySlot>();
