@@ -26,7 +26,7 @@ CPU collection is rebuilt each frame, while `ActiveInstanceList` stages only cha
 positions. Shrinking the list only changes its valid count and retires unused pages.
 The order is not an identity and can change when instances or materials change.
 
-A consumer declares `InstanceBindingTag`, imports `EmissiveInstanceIDBufferTag`, and
+A consumer reads space4, imports `EmissiveInstanceIDBufferTag`, and
 declares its shader read in each scope that uses the list. It also declares reads of
 the instance, geometry and material resources it subsequently accesses. Buffer
 uploads are registered by `RenderSystem::SetUpSystemPasses`.

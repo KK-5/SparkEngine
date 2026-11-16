@@ -31,8 +31,7 @@ namespace Spark::Render
     //! callbacks can grab it before the render-graph Compile phase runs. Defined in
     //! PassBuilder.cpp.
     Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(
-        RHI::Factory& factory, const PassShaders& shaders,
-        eastl::span<RHI::ShaderBindings* const> groups, const char* passName);
+        RHI::Factory& factory, const PassShaders& shaders, const char* passName);
 
     //! A stage function for each shader the pass sets. The pass builders' Finalize stores it on
     //! the pass. Defined in PassBuilder.cpp.

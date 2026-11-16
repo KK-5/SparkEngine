@@ -46,11 +46,7 @@ if (TraceClosestOpaqueTriangle(ray, 0xff, hit))
 
 ## Pass 与 RenderGraph 契约
 
-使用完整模块的 Pass 声明：
-
-```cpp
-.Binds<InstanceBindingTag, GeometryBindingTag, MaterialBindingTag>()
-```
+无需声明组：shader 反射到 space3/4/6 时，图按 space 找到对应的共享组并绑定。
 
 每个执行 Scope 必须导入并声明以下读取，不能只绑定 SRV：
 
@@ -63,7 +59,7 @@ if (TraceClosestOpaqueTriangle(ray, 0xff, hit))
 | `MaterialPoolTag` | `ReadBuffer` |
 
 render pass 的共享读取还需指定 shader stage；compute pass 的 stage 固定。
-MaterialBindingTag 沿用现有的材质纹理上传 acquire 机制。
+材质纹理以 ImportSharedSet<MaterialTextureTag> 读取，上传承接由这些读取完成。
 只做可见性查询时，仅需 `RayTracing.hlsli`、AS binding 和 AS 读取。
 
 ## 当前范围

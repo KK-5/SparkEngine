@@ -196,7 +196,7 @@ namespace Spark::SandBox
         auto& ctx = *Spark::RHI::RHIExecuteContext::Current();
 
         // The standard view path: ViewBindingSystem gives the view a g_Views row, the pass binds
-        // the table with .Binds<ViewBindingTag>(), and the executer writes the view's index into
+        // the table by reading space1, and the executer writes the view's index into
         // CubeTextured.hlsl's viewIndex.
         m_view = Spark::Render::CreateViewEntity<Spark::Render::MainViewTag>(ctx);
         ASSERT(m_view.IsValid(), "[DrawCube] Failed to create the view.");
@@ -242,7 +242,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Binds<Render::ViewBindingTag>()
             .RendersView<Render::MainViewTag>()
             .Build([this](Spark::Render::RenderPassScopes& p)
             {

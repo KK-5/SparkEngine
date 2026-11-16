@@ -117,7 +117,7 @@ namespace Spark::Render
 
         //! Put on each Scope the submit state its pass decides (ScopeState): the compiled PSO
         //! and, when there is one, the bindings bound once per Scope — the pass's own
-        //! (PassBindings) then the shared ones it declared via .Binds<>. Runs after
+        //! (PassBindings) then the shared ones its layout declares. Runs after
         //! CompilePipelineStates.
         void CompileScopeState(PassContext& passContext, RHIContext& context);
 

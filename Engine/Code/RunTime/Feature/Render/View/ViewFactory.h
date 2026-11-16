@@ -9,7 +9,7 @@
 namespace Spark::Render
 {
     //! A view instance: an entity carrying View + ViewTag. ViewBindingSystem encodes its
-    //! g_Views row each frame; a pass reads it through .Binds<ViewBindingTag>()
+    //! g_Views row each frame; a pass reads it through space1
     //! and the viewIndex the executer writes at its handle.
     template<typename ViewTag>
     RHI::UniqueRHIHandle CreateViewEntity(RHI::RHIContext& rhiCtx)

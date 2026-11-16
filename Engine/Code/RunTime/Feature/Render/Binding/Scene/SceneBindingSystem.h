@@ -18,8 +18,8 @@ namespace Spark::Render
     //! SceneConstants cbuffer (g_LightCount). Each frame it MARSHALS every world
     //! Light::LightRenderData into the current frame's g_Lights copy and writes g_LightCount
     //! — a pure field copy, no computation (direction/position were resolved upstream by
-    //! LightSystem). Tags the binding entity MainSceneTag so a pass pulls it via
-    //! .Binds<MainSceneTag>(), exactly like the view group.
+    //! LightSystem). A pass that reads space0 finds the group by the space, as it does for
+    //! every shared group.
     //!
     //! The arrays are small and change every frame, so each is a StagingBuffer rewritten
     //! whole: put together in CPU memory first, then copied in once, as the mapped memory is

@@ -1374,11 +1374,6 @@ namespace Spark::Render
                         bindings.push_back(own->m_bindings.get());
                     }
                 }
-                const auto* caps = passContext.TryGet<PassCapabilities>(data.m_pass);
-                if (caps && caps->m_resolveSharedBindings)
-                {
-                    caps->m_resolveSharedBindings(context, bindings);
-                }
 
                 // Every shared space the pass's layout declares gets its group bound, whether an
                 // access filled anything there or the space holds only constants: the object is

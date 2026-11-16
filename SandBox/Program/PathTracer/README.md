@@ -49,4 +49,4 @@ identity; transformed-instance normal tests will need additional scene coverage.
 These flat materials exercise factor evaluation; textured materials and normal maps
 will need additional scene coverage. The render graph declares the TLAS and all four
 geometry/instance/material buffer reads and acquires material textures through the
-shared MaterialBindingTag.
+the material texture set it reads.

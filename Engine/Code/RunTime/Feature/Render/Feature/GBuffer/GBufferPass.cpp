@@ -95,7 +95,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<ViewBindingTag, MaterialBindingTag, InstanceBindingTag>()
             .RendersView<MainViewTag>()
             .Draw<OpaqueTag>()
             .Build([](RenderPassScopes& p)

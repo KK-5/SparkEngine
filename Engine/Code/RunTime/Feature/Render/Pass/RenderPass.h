@@ -84,18 +84,6 @@ namespace Spark::Render
             return *this;
         }
 
-        // Declare the shared bindings (view / material / instance / …, each a global
-        // singleton) the executer binds once before this pass's draws. Order-free — each
-        // self-describes its HLSL space. The pass's own group (space2) is resolved via
-        // PassBindings and is not listed here.
-        template<typename... BindingTags>
-        RenderPassBuilder& Binds()
-        {
-            m_capabilities.m_resolveSharedBindings = &ResolveSharedBindings<BindingTags...>;
-            m_hasCapabilities                      = true;
-            return *this;
-        }
-
         // ---- Views ----
         // Declare which TYPE of view this pass renders: one DrawList per live view
         // instance of that type. A single tag, not a pack — one pass rendering both the
@@ -206,12 +194,7 @@ namespace Spark::Render
                     m_name.GetCStr());
                 m_context->Add<PassStageFunctions>(pass, CreatePassStageFunctions(*factory, m_shaders, m_name.GetCStr()));
 
-                ShaderBindingsList groups;
-                if (m_capabilities.m_resolveSharedBindings)
-                {
-                    m_capabilities.m_resolveSharedBindings(*RHIExecuteContext::Current(), groups);
-                }
-                if (auto layout = BuildPassPipelineLayout(*factory, m_shaders, groups, m_name.GetCStr()))
+                if (auto layout = BuildPassPipelineLayout(*factory, m_shaders, m_name.GetCStr()))
                 {
                     // Auto-create the per-pass (space2) bindings now that the layout is
                     // built, but only when the shader actually declares that space, so no

@@ -133,7 +133,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "GTAOPrefilterDepthsPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(prefilterShader)
-            .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
@@ -176,7 +175,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "GTAOMainPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(mainShader)
-            .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
@@ -207,7 +205,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "GTAODenoisePass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(denoiseShader)
-            .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));

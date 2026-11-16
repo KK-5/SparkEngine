@@ -173,7 +173,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(passContext, "RayTracingSceneInstances")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)
-            .Binds<InstanceBindingTag, GeometryBindingTag>()
             .Build([this](ComputePassScopes& p)
             {
                 const RHI::AttachmentId idsName("InstanceIDs");

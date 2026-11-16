@@ -127,7 +127,6 @@ namespace Spark::Render
         m_bindings = rhiCtx.CreateEntity();
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindings, RHI::Components::ShaderBindings{ viewBindings });
-        rhiCtx.Add<ViewBindingTag>(m_bindings);
 
         StagingBuffer::Descriptor bufferDesc;
         bufferDesc.m_name      = ObjectName(ViewBufferName);

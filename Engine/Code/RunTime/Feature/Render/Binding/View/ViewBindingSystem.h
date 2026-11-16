@@ -18,7 +18,7 @@ namespace Spark::Render
     //!
     //! g_Views (space1) is small and changes every frame, so it is a StagingBuffer rewritten
     //! whole: the live views packed densely, each given its row as a ViewIndex. A pass
-    //! reaches the array through .Binds<ViewBindingTag>(), and the row through the viewIndex
+    //! reaches the array through space1, and the row through the viewIndex
     //! the executer writes at each view handle.
     //!
     //! Not an ISystem: a plain helper owned by RenderSystem and driven from

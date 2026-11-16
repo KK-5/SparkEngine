@@ -185,7 +185,6 @@ namespace Spark::Render
         m_bindingsEntity = rhiCtx.CreateEntity();
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindingsEntity, RHI::Components::ShaderBindings{ instanceBindings });
-        rhiCtx.Add<InstanceBindingTag>(m_bindingsEntity);
 
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         DeviceArray::Descriptor arrayDesc;

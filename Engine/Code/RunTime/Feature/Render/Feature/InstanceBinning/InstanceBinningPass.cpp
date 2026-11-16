@@ -209,7 +209,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "DepthPrePassInstanceBinning")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)
-            .Binds<InstanceBindingTag, GeometryBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 ViewHandleList views;
@@ -224,7 +223,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "GBufferPassInstanceBinning")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)
-            .Binds<InstanceBindingTag, GeometryBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 ViewHandleList views;
@@ -239,7 +237,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "ShadowPassInstanceBinning")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)
-            .Binds<InstanceBindingTag, GeometryBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 ViewHandleList views;

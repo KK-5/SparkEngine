@@ -40,7 +40,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "ScreenSpaceReflectionsPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)
-            .Binds<ViewBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));

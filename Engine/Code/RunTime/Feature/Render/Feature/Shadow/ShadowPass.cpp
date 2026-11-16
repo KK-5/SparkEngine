@@ -98,7 +98,6 @@ namespace Spark::Render
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
             // The scene group for g_ViewShadowMaps, which places each view in its shadow map.
-            .Binds<ViewBindingTag, InstanceBindingTag, MainSceneTag>()
             .RendersView<ShadowViewTag>()
             .Draw<ShadowCasterTag>()
             .Build([](RenderPassScopes& p)

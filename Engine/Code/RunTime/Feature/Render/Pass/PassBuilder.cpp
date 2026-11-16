@@ -189,8 +189,7 @@ namespace Spark::Render
     }
 
     Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(
-        RHI::Factory& factory, const PassShaders& shaders,
-        eastl::span<RHI::ShaderBindings* const> groups, const char* passName)
+        RHI::Factory& factory, const PassShaders& shaders, const char* passName)
     {
         const Resource::ShaderAsset* assets[] = {
             shaders.m_vertexShader.get(),
@@ -206,21 +205,10 @@ namespace Spark::Render
             return nullptr;
         }
 
+        // What a pass uses is its shaders' reflection: a shader reading a shared space names it
+        // in its registers, so the group that fills that space is found by the space.
         RHI::ShaderInputList inputs;
-        for (const RHI::ShaderBindings* group : groups)
-        {
-            AppendGroupSpace(*group, reflected.stageMask, inputs);
-        }
-
-        // What a pass uses is its shaders' reflection. A shader reading a shared space names it
-        // in its registers, so the group that fills that space is found by the space: no
-        // .Binds<> has to repeat it. The bound groups above stay as they were, and a space both
-        // ways is appended once.
         eastl::fixed_vector<RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax> resolved;
-        for (RHI::ShaderBindings* group : groups)
-        {
-            resolved.push_back(group);
-        }
         const auto resolvedGroups = [&resolved]
         {
             return eastl::span<RHI::ShaderBindings* const>(resolved.data(), resolved.size());

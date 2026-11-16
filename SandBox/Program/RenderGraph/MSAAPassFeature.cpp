@@ -171,7 +171,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Binds<>()
             .RendersView<Spark::Render::MainViewTag>()
             .Build([this](Spark::Render::RenderPassScopes& p)
             {

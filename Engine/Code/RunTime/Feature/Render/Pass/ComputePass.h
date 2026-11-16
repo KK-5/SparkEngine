@@ -35,17 +35,6 @@ namespace Spark::Render
             return *this;
         }
 
-        // Declare the shared bindings (view / material / …, each a global singleton) the
-        // executer binds once per Scope, as RenderPassBuilder::Binds does. A compute pass
-        // renders no view: one that reads a view picks it in Build and sets viewIndex itself.
-        template<typename... BindingTags>
-        ComputePassBuilder& Binds()
-        {
-            m_capabilities.m_resolveSharedBindings = &ResolveSharedBindings<BindingTags...>;
-            m_hasCapabilities                      = true;
-            return *this;
-        }
-
         // ---- Functions ----
         //! Called every frame to declare the pass's resources and Scopes; declaring nothing
         //! skips the pass that frame.
@@ -102,12 +91,7 @@ namespace Spark::Render
                     m_name.GetCStr());
                 m_context->Add<PassStageFunctions>(pass, CreatePassStageFunctions(*factory, m_shaders, m_name.GetCStr()));
 
-                ShaderBindingsList groups;
-                if (m_capabilities.m_resolveSharedBindings)
-                {
-                    m_capabilities.m_resolveSharedBindings(*RHIExecuteContext::Current(), groups);
-                }
-                if (auto layout = BuildPassPipelineLayout(*factory, m_shaders, groups, m_name.GetCStr()))
+                if (auto layout = BuildPassPipelineLayout(*factory, m_shaders, m_name.GetCStr()))
                 {
                     // Auto-create the per-pass (space2) bindings, as RenderPassBuilder does.
                     const bool hasPerPassSpace = layout->FindSpaceGroupBySpaceId(kPerPassSpaceId) != nullptr;

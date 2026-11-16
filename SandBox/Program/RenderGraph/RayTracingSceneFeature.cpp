@@ -92,7 +92,6 @@ namespace Spark::SandBox
             .InputLayout(input.End())
             .RenderTargetLayout(targets)
             .RenderStates(states)
-            .Binds<Render::ViewBindingTag>()
             .RendersView<Render::MainViewTag>()
             .Build([](Render::RenderPassScopes& p)
             {

@@ -87,9 +87,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(targets)
             .RenderStates(states)
-            .Binds<Render::ViewBindingTag,
-                   Render::InstanceBindingTag, Render::GeometryBindingTag, Render::MaterialBindingTag,
-                   Render::MainSceneTag>()
             .RendersView<Render::MainViewTag>()
             .Build([this](Render::RenderPassScopes& p)
             {
@@ -162,7 +159,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(targets)
             .RenderStates(states)
-            .Binds<Render::ViewBindingTag>()
             .RendersView<Render::MainViewTag>()
             .Build([this](Render::RenderPassScopes& p)
             {

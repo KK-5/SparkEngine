@@ -29,11 +29,6 @@ namespace Spark::Render
         Math::Matrix4X4 m_model{Math::Matrix4X4Const::IDENTITY};
     };
 
-    //! The shared ShaderBindings carrying g_Instances and g_EmissiveInstanceIDs (space4).
-    struct InstanceBindingTag
-    {
-    };
-
     //! The buffer entity g_Instances is a view of, written in the graph. A pass whose shaders
     //! read g_Instances imports it by this tag and declares the read in each Scope.
     struct InstancePoolTag {};

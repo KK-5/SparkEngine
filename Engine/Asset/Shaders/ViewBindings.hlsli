@@ -3,7 +3,7 @@
 // that needs camera/view data does:
 //     #include <Shaders/ViewBindings.hlsli>
 // and reads a view by index, GetView(g_Scope.viewIndex) for the one being rendered (see
-// ScopeBindings.hlsli). The pass declares .Binds<ViewBindingTag>(); ViewBindingSystem
+// ScopeBindings.hlsli). A pass reading space1 gets the group by that space; ViewBindingSystem
 // fills the rows.
 //
 // The spaces of all binding tiers are listed in Render/Binding/BindingSpaces.h.

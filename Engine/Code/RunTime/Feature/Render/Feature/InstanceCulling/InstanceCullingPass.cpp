@@ -158,7 +158,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "OpaqueInstanceCulling")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)
-            .Binds<ViewBindingTag, InstanceBindingTag, GeometryBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
@@ -172,7 +171,6 @@ namespace Spark::Render
         SPARK_COMPUTE_PASS(ctx, "ShadowCasterInstanceCulling")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)
-            .Binds<ViewBindingTag, InstanceBindingTag, GeometryBindingTag>()
             .Build([](ComputePassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));

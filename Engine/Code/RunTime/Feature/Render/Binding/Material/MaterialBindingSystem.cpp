@@ -91,7 +91,6 @@ namespace Spark::Render
         m_bindings = rhiCtx.CreateEntity();
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindings, RHI::Components::ShaderBindings{ materialBindings });
-        rhiCtx.Add<MaterialBindingTag>(m_bindings);
 
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         DeviceArray::Descriptor arrayDesc;

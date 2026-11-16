@@ -34,37 +34,13 @@ namespace Spark::Render
     //! file. A null entry means the pass never declared that capability.
     struct PassCapabilities
     {
-        //! Append the shared bindings this pass declared, bound once per Scope after the
-        //! pass's own (PassBindings). (.Binds<BindingTags...>)
-        void (*m_resolveSharedBindings)(RHI::RHIContext&, ShaderBindingsList&);
-
         //! The live view instances of the type this pass renders — one batch each.
         //! Null for a pass that renders no view (copy, and compute),
         //! which then emits a single batch. (.RendersView<ViewTag>)
         void (*m_collectViews)(RHI::RHIContext&, ViewHandleList&);
     };
 
-    // ---- m_resolveSharedBindings -----------------------------------------------
-
-    //! Transitional adapter: publish objects from the systems' existing binding entities.
-    //! RenderGraph consumes only the objects; resource-side publication can replace this later.
-    template<typename BindingTag>
-    void ResolveSharedBinding(RHI::RHIContext& ctx, ShaderBindingsList& out)
-    {
-        for (auto [entity, comp] : ctx.GetView<BindingTag, RHI::Components::ShaderBindings>().each())
-        {
-            if (comp.m_bindings)
-            {
-                out.push_back(comp.m_bindings.get());
-            }
-        }
-    }
-
-    template<typename... BindingTags>
-    void ResolveSharedBindings(RHI::RHIContext& ctx, ShaderBindingsList& out)
-    {
-        (ResolveSharedBinding<BindingTags>(ctx, out), ...);
-    }
+    // ---- m_collectViews --------------------------------------------------------
 
     // ---- m_collectViews --------------------------------------------------------
 

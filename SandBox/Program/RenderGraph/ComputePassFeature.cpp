@@ -104,7 +104,6 @@ namespace Spark::SandBox
         SPARK_COMPUTE_PASS(passContext, "PatternPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(m_patternShader)
-            .Binds<Render::ViewBindingTag>()
             .Build([this](Render::ComputePassScopes& p)
             {
                 p.ImportShared<Render::ViewBufferTag>(RHI::AttachmentId("Views"));
@@ -162,7 +161,6 @@ namespace Spark::SandBox
             .InputLayout(inputLayout)
             .RenderTargetLayout(rtLayout)
             .RenderStates(renderStates)
-            .Binds<>()
             .RendersView<Render::MainViewTag>()
             .Build([this](Render::RenderPassScopes& p)
             {

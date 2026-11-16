@@ -183,7 +183,6 @@ namespace Spark::Render
         m_bindings = rhiCtx.CreateEntity();
         rhiCtx.Add<RHI::Components::ShaderBindings>(
             m_bindings, RHI::Components::ShaderBindings{ sceneBindings });
-        rhiCtx.Add<MainSceneTag>(m_bindings);
 
         // What no resource carries: refilled each frame, written into the group at compile.
         SharedGroupValues values;

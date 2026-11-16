@@ -16,11 +16,6 @@ namespace Spark::Render
         uint32_t m_index = 0;
     };
 
-    //! The single shared ShaderBindings entity carrying g_Views (space1).
-    struct ViewBindingTag
-    {
-    };
-
     //! This frame's g_Views buffer, on the staging slot it was written into. The slots rotate,
     //! so the tag moves to whichever one the frame uses.
     struct ViewBufferTag

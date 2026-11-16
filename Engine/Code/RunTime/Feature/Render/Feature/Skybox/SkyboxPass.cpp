@@ -93,7 +93,6 @@ namespace Spark::Render
             .InputLayout(cfg.m_inputLayout)
             .RenderTargetLayout(cfg.m_renderTargetLayout)
             .RenderStates(cfg.m_renderStates)
-            .Binds<ViewBindingTag, MainSceneTag>()
             .RendersView<MainViewTag>()
             .Build([](RenderPassScopes& p)
             {
