@@ -19,6 +19,7 @@
 #include <Resource/AssetManagerInterface.h>
 
 #include <Binding/BindingSpaces.h>
+#include <Binding/ShaderUsage.h>
 #include <Binding/SharedBindings.h>
 #include <Pass/ComputePass.h>
 #include <Pass/Component/RHIComponents.h>
@@ -32,7 +33,6 @@
 #include <Drawable/DrawMask.h>
 #include <DrawList/DrawList.h>
 #include <PipelineState/PipelineKeyIndex.h>
-#include <Shader/ShaderBindingsUtils.h>
 
 namespace Spark::Render
 {
@@ -212,10 +212,9 @@ namespace Spark::Render
         {
             const auto resource = m_emissiveList.GetResource();
             rhiCtx.Add<EmissiveInstanceIDBufferTag>(resource);
-            auto& buffer = *rhiCtx.Get<RHI::Components::Buffer>(resource).m_buffer;
-            const auto viewDesc = RHI::BufferViewDescriptor::CreateStructured(0, InstanceCapacity, sizeof(uint32_t));
-            auto* view = RHI::GetOrCreateBufferView(rhiCtx, resource, buffer, viewDesc);
-            SetShaderBuffer(m_bindingsEntity, RHI::InputName(EmissiveIDsName), view);
+            rhiCtx.Add<ShaderBufferUsage>(resource, ShaderBufferUsage{
+                ShaderInputBinding{ kInstanceSpaceId, RHI::InputName(EmissiveIDsName), 0 },
+                RHI::BufferViewDescriptor::CreateStructured(0, InstanceCapacity, sizeof(uint32_t)) });
         }
     }
 

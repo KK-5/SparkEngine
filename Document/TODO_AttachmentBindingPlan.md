@@ -330,9 +330,17 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 `Uses` 消失后，资源的上传承接只有一条路径：**被某个 Scope 的 attachment 首次访问时 acquire**。反过来说，一个“上传了但没人访问”的资源不会自动 acquire——需要在帧末做兜底或断言时，应加在这条唯一路径上（尚未实现）。
 
+### 系统填值退场（已完成）
+
+截至 2026-11-16，绑定系统不再向共享组写任何资源输入；组里的资源输入只有图一个写入者，按 attachment 的访问与资源发布填值。
+
+- 最后两处是 `GeometryBindingSystem` 的 `g_MeshGeometry` 与 `InstanceBindingSystem` 的 `g_EmissiveInstanceIDs`：改为在资源实体上发布 `ShaderBufferUsage`（各自的 space、输入名、视图描述符），不再建视图、不再 `SetShaderBuffer`。
+- 消费方随之改为共享导入：`ReferencePathTracerFeature` 对 `MeshGeometryPoolTag` 与 `EmissiveInstanceIDBufferTag` 改 `ImportShared`，读取时由 `ApplySharedShaderUsage` 填进组。工程内其余 Pass 只把 `MeshGeometryPoolTag` 当输入装配流（`InputAssembly`）使用，保持普通 `Import`，不经过组。
+- 两个系统不再需要 `Shader/ShaderBindingsUtils.h`。
+- 后果与既有约定一致：某一帧没人读这两个输入时，组里保留上一帧的值（见「待办：无人声明时的陈旧值」）。
+
 ### 未完成
 
-- `InstanceBindingSystem`、`ViewBindingSystem`、`MaterialBindingSystem`、`GeometryBindingSystem` 仍在向组内填值（与图的填值相同，见§十开头）。逐项删除是后续步骤。
 - 上传承接现在只有“被访问才 acquire”一条路径；帧末对残留 `PendingAcquires` 的兜底或断言尚未实现。
 - `TODO_BindingModelPlan.md` 的分层表仍按 `.Binds<...>()` 描述，需要按“按 space 推导”重写。
 

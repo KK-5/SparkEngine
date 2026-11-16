@@ -17,11 +17,11 @@
 #include <Resource/AssetManagerInterface.h>
 
 #include <Binding/BindingSpaces.h>
+#include <Binding/ShaderUsage.h>
 #include <Binding/SharedBindings.h>
 #include <Pass/ComputePass.h>
 #include <RenderGraph/PassScopes.h>
 #include <RayTracing/RayTracingBottomLevel.h>
-#include <Shader/ShaderBindingsUtils.h>
 
 namespace Spark::Render
 {
@@ -86,10 +86,10 @@ namespace Spark::Render
         // Its address space stays fixed as physical pages are mapped and unmapped.
         for (auto [entity, buffer] : rhiCtx.GetView<MeshGeometryPoolTag, RHI::Components::Buffer>().each())
         {
-            const auto viewDesc = RHI::BufferViewDescriptor::CreateRaw(
-                0, static_cast<uint32_t>(buffer.m_buffer->GetDescriptor().m_byteCount));
-            auto* view = RHI::GetOrCreateBufferView(rhiCtx, entity, *buffer.m_buffer, viewDesc);
-            SetShaderBuffer(m_bindingsEntity, RHI::InputName(MeshGeometryBufferName), view);
+            rhiCtx.Add<ShaderBufferUsage>(entity, ShaderBufferUsage{
+                ShaderInputBinding{ kGeometrySpaceId, RHI::InputName(MeshGeometryBufferName), 0 },
+                RHI::BufferViewDescriptor::CreateRaw(
+                    0, static_cast<uint32_t>(buffer.m_buffer->GetDescriptor().m_byteCount)) });
         }
     }
 

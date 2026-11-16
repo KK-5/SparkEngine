@@ -484,7 +484,8 @@ namespace Spark::Render
         auto* image = context.TryGet<ImagePassAttachment>(attachment);
         auto& declared = image != nullptr ? image->m_stage : context.Get<BufferPassAttachment>(attachment).m_stage;
         ASSERT(!context.Has<ShaderInputBinding>(attachment) || declared == stage,
-            "The requested stage differs from the stages of the shader input this access binds.");
+            "The requested stage differs from the stages of the shader input this access binds: a "
+            "shared import takes its stage from the input, so it needs no .Stage(...).");
         if (!context.Has<ShaderInputBinding>(attachment) || declared == stage)
         {
             declared = stage;

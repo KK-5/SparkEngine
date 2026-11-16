@@ -106,9 +106,9 @@ namespace Spark::SandBox
                 const bool hasScene = p.ImportShared<Render::RayTracingSceneTag>(scene);
                 const bool hasInstances = p.ImportShared<Render::InstancePoolTag>(instances);
                 const bool hasGeometries = p.ImportShared<Render::GeometryPoolTag>(geometries);
-                const bool hasMesh = p.Import<Render::MeshGeometryPoolTag>(mesh);
+                const bool hasMesh = p.ImportShared<Render::MeshGeometryPoolTag>(mesh);
                 const bool hasMaterials = p.ImportShared<Render::MaterialPoolTag>(materials);
-                const bool hasEmissiveIDs = p.Import<Render::EmissiveInstanceIDBufferTag>(emissiveIDs);
+                const bool hasEmissiveIDs = p.ImportShared<Render::EmissiveInstanceIDBufferTag>(emissiveIDs);
                 p.ImportSharedSet<Render::MaterialTextureTag>(RHI::AttachmentId("MaterialTextures"));
                 uint32_t emissiveCount = 0;
                 if (hasEmissiveIDs)
@@ -134,11 +134,13 @@ namespace Spark::SandBox
                     scope.ReadAccelerationStructure(scene);
                     scope.ReadBuffer(instances);
                     scope.ReadBuffer(geometries);
-                    scope.ReadBuffer(mesh).Stage(RHI::AttachmentStage::FragmentShader);
+                    // The stage is the shader input's own, taken from the group's layout: this pass runs
+                    // one shader as both stages, so naming one here would narrow it.
+                    scope.ReadBuffer(mesh);
                     scope.ReadBuffer(materials);
                     if (hasEmissiveIDs)
                     {
-                        scope.ReadBuffer(emissiveIDs).Stage(RHI::AttachmentStage::FragmentShader);
+                        scope.ReadBuffer(emissiveIDs);
                     }
                     scope.Constant(RHI::InputName("debugMode"), m_debugMode);
                     scope.Constant(RHI::InputName("emissiveInstanceCount"), emissiveCount);
