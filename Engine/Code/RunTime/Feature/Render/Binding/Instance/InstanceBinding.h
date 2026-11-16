@@ -32,7 +32,6 @@ namespace Spark::Render
     //! The shared ShaderBindings carrying g_Instances and g_EmissiveInstanceIDs (space4).
     struct InstanceBindingTag
     {
-        using Uses = TagList<>;
     };
 
     //! The buffer entity g_Instances is a view of, written in the graph. A pass whose shaders

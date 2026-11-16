@@ -27,9 +27,8 @@ namespace Spark::UI
     };
 
     //! On the RHIContext entity of each icon image (IconGPUComponent::m_image), which the UI
-    //! samples.
+    //! samples as one set: each publishes how it is sampled on its own entity.
     struct IconImageTag
     {
-        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
     };
 }

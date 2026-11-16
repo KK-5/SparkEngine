@@ -44,9 +44,11 @@ namespace Spark::Render
     //! Marks the single ShaderBindings entity (in the RHIContext) that holds the
     //! g_Materials SRV at space3. A pass declares .Binds<MaterialBindingTag>() and the
     //! executer binds it once before the pass's draws, exactly like ViewBindingTag (space1).
+    //!
+    //! No Uses: the material textures are read as a set (ImportSharedSet), and those reads
+    //! acquire their uploads themselves.
     struct MaterialBindingTag
     {
-        using Uses = TagList<MaterialTextureTag>;
     };
 
     //! The buffer entity g_Materials is a view of, written in the graph. A pass whose shaders

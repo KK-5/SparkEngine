@@ -308,7 +308,6 @@ namespace Spark::Render
 
         m_compiler.CompilePipelineStates(passContext, *m_device, m_pipelineLibrary.get());
 
-        m_compiler.CompileScopeUploads(passContext, context);
         m_compiler.CompileScopeBarriers(passContext, context);
         m_compiler.CompileExternalWaits(context);
         m_compiler.CompileScopeSync(passContext, context, m_crossQueueFences);

@@ -18,7 +18,6 @@ namespace Spark::Render
     //! the take left behind rather than the one it recorded.
     struct MainSceneTag
     {
-        using Uses = TagList<>;
     };
 
     //! This frame's g_Lights / g_ShadowViews / g_ViewShadowMaps buffer, on the staging slot it

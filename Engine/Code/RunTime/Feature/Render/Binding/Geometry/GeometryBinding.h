@@ -21,7 +21,6 @@ namespace Spark::Render
     //! A reader of raw vertices/indices also imports MeshGeometryPoolTag and declares its read.
     struct GeometryBindingTag
     {
-        using Uses = TagList<>;
     };
 
     //! The buffer entity g_Geometries is a view of, written in the graph. A pass whose shaders

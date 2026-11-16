@@ -17,7 +17,6 @@
 #include <CoreComponents/Tags.h>
 #include <RHI/ResourceBuilder.h>
 
-#include <Pass/ScopeUses.h>
 
 #include "RenderGraphBuilder.h"
 
@@ -264,14 +263,6 @@ namespace Spark::Render
         void DrawIndirect(const RHI::AttachmentId& argumentsName,
             eastl::span<const Attachment> vertices, const IndexStream& indices);
 
-        //! Read the resources carrying Tag, which live outside the graph, as Tag::Access says.
-        //! For what nothing in this Scope names: .Binds<> declares what it reads itself.
-        template<typename Tag>
-        void Uses()
-        {
-            m_builder->AddScopeUse(m_scope, &TakeUploads<Tag>);
-        }
-
         //! Read the copy of `name` produced last frame (see ShaderAttachment::BindValid). A pass
         //! of this frame creates `name`, declared before this one or after it.
         ShaderAttachment ReadPreviousImage(const RHI::AttachmentId& name);
@@ -359,13 +350,6 @@ namespace Spark::Render
         void DispatchIndirect(const Attachment& arguments, uint64_t byteOffset = 0)
         {
             m_builder->AddScopeDispatchIndirect(m_scope, arguments.GetHandle(), byteOffset);
-        }
-
-        //! See RenderScope::Uses.
-        template<typename Tag>
-        void Uses()
-        {
-            m_builder->AddScopeUse(m_scope, &TakeUploads<Tag>);
         }
 
         //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that

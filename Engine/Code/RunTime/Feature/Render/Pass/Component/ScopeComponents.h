@@ -159,26 +159,6 @@ namespace Spark::Render
         const RHI::PipelineState* m_pso = nullptr;
     };
 
-    //! An upload awaiting its acquire whose target carries a tag a Scope uses, with the
-    //! access that tag says its resources are read with.
-    struct UploadTake
-    {
-        RHI::RHIEvent    m_request {RHI::NullEvent};
-        RHI::AccessFlags m_access  {RHI::AccessFlags::None};
-    };
-
-    using UploadTakeList = eastl::fixed_vector<UploadTake, 8, true>;
-
-    //! On a Scope that reads resources from outside the graph by tag (.Uses): per tag, what
-    //! picks the uploads into resources carrying it that await their acquire, whichever
-    //! Scope acquires them. CompileScopeUploads decides which this Scope does.
-    struct ScopeUses
-    {
-        using Take = void (*)(RHI::RHIContext&, RHI::RHIEventContext&, UploadTakeList& out);
-
-        eastl::fixed_vector<Take, 4> m_takes;
-    };
-
     //! On an upload awaiting its acquire (an RHIEventContext entity), naming the Scope that
     //! records the acquire: the transfer the request carries, its dst side set by then.
     struct ScopeUpload
@@ -201,22 +181,6 @@ namespace Spark::Render
     {
         const ScopeUploadRange& range = context.Get<ScopeUploadRange>(scope);
         return { events.GetStorage<ScopeUpload>().data() + range.m_begin, range.m_end - range.m_begin };
-    }
-
-    //! Declare one more tag on `scope`. One it declares already, from another source, is not
-    //! added again.
-    inline void AddScopeUse(RHI::RHIContext& context, RHI::RHIHandle scope, ScopeUses::Take take)
-    {
-        auto* component = context.TryGet<ScopeUses>(scope);
-        auto& takes     = (component != nullptr ? *component : context.Add<ScopeUses>(scope)).m_takes;
-        for (ScopeUses::Take existing : takes)
-        {
-            if (existing == take)
-            {
-                return;
-            }
-        }
-        takes.push_back(take);
     }
 
     //! On a Scope whose access to some resource follows one on another queue: per source queue,

@@ -112,6 +112,7 @@ namespace Spark::SandBox
                 const bool hasMesh = p.Import<Render::MeshGeometryPoolTag>(mesh);
                 const bool hasMaterials = p.ImportShared<Render::MaterialPoolTag>(materials);
                 const bool hasEmissiveIDs = p.Import<Render::EmissiveInstanceIDBufferTag>(emissiveIDs);
+                p.ImportSharedSet<Render::MaterialTextureTag>(RHI::AttachmentId("MaterialTextures"));
                 uint32_t emissiveCount = 0;
                 if (hasEmissiveIDs)
                 {
@@ -127,6 +128,7 @@ namespace Spark::SandBox
                 clear.m_clearValue = RHI::ClearValue::CreateVector4Float(0.0f, 0.0f, 0.0f, 1.0f);
                 auto scope = p.Scope();
                 scope.ReadBuffer(RHI::AttachmentId("Views"));
+                scope.ReadSet(RHI::AttachmentId("MaterialTextures")).Stage(RHI::AttachmentStage::FragmentShader);
                 scope.RenderTarget(accumulation, clear);
                 scope.ReadPreviousImage(accumulation)
                     .Bind(RHI::InputName("g_History"));

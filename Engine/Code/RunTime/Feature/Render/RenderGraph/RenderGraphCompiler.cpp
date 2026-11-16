@@ -776,51 +776,6 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphCompiler::CompileScopeUploads(PassContext& passContext, RHIContext& context)
-    {
-        auto& events = *RHI::RHIEventExecuteContext::Current();
-        for (auto [scope, data] : context.GetStorage<Scope>().each())
-        {
-            const auto* uses = context.TryGet<ScopeUses>(scope);
-            if (!uses)
-            {
-                continue;
-            }
-
-            UploadTakeList taken;
-            for (ScopeUses::Take take : uses->m_takes)
-            {
-                take(context, events, taken);
-            }
-
-            for (const UploadTake& upload : taken)
-            {
-                // As for an imported resource: DX12 runs it, Vulkan would not.
-                ASSERT(!RHI::IsExclusiveQueueMask(GetUploadQueueMask(events, upload.m_request))
-                        || GetUploadQueue(events, upload.m_request) == data.m_queue,
-                    "Pass {} uses on queue {} a resource uploaded for queue {} alone.",
-                    passContext.Get<PassName>(data.m_pass).m_name.GetCStr(),
-                    static_cast<uint32_t>(data.m_queue),
-                    static_cast<uint32_t>(GetUploadQueue(events, upload.m_request)));
-
-                // Acquired by an earlier Scope. On another queue (a resource several queues
-                // share), this one waits for it.
-                if (const auto* acquiring = events.TryGet<ScopeUpload>(upload.m_request))
-                {
-                    const RHI::HardwareQueueClass queue = context.Get<Scope>(acquiring->m_scope).m_queue;
-                    if (queue != data.m_queue)
-                    {
-                        RecordCrossQueueWait(scope, acquiring->m_scope, queue, passContext, context);
-                    }
-                    continue;
-                }
-
-                // Into what the tag reads it as, for every read from then on.
-                AcquireUpload(events, upload.m_request, scope, data, upload.m_access, RHI::AttachmentStage::Any);
-            }
-        }
-    }
-
     void RenderGraphCompiler::CompileScopeBarriers(PassContext& passContext, RHIContext& context)
     {
         // Apart: neither's barriers depend on the other's.

@@ -2,7 +2,6 @@
 
 #include <EASTL/array.h>
 #include <RHI/Context/RHIHandle.h>
-#include <RHI/Resource/AccessFlags.h>
 #include <Resource/Material/StandardPBR.h>
 
 namespace Spark::Render
@@ -19,9 +18,9 @@ namespace Spark::Render
         }
     };
 
-    //! Material images are sampled through the bindless heap.
+    //! A texture the material tables index. A pass reads them as one set, and each publishes
+    //! how it is sampled (Bindless) on its own entity.
     struct MaterialTextureTag
     {
-        static constexpr RHI::AccessFlags Access = RHI::AccessFlags::ShaderSampledRead;
     };
 }

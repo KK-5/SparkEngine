@@ -101,9 +101,11 @@ namespace Spark::Render
             .Build([](RenderPassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
+                p.ImportSharedSet<MaterialTextureTag>(RHI::AttachmentId("MaterialTextures"));
                 const auto size = p.GetRenderSize();
                 auto s = p.Scope();
                 s.ReadBuffer(RHI::AttachmentId("Views"));
+                s.ReadSet(RHI::AttachmentId("MaterialTextures")).Stage(RHI::AttachmentStage::FragmentShader);
 
                 // Transient GBuffer color target: cleared + stored, and shader-readable
                 // so the deferred lighting pass can sample it. Numbered in the order declared.

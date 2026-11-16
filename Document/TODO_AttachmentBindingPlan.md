@@ -319,13 +319,18 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 上传链路的既有事实（两条路共用）：拷贝在 Copy 队列完成后，`AsyncUploadSystem::FinishUploads` 在帧首用上传 fence 的值把关，只有已完成的上传才转为待 acquire；因此 acquire 不需要队列侧的等待，跨队列顺序由 fence 与提交顺序保证。
 
-**剩余的 Uses**：`MaterialBindingTag::Uses = TagList<MaterialTextureTag>`。材质纹理按 GPU 数据动态索引、数量不定，此前没有逐资源的 attachment 声明。以下保留当时讨论的候选方向；后续选用批量导入、展开为 attachment 的提案，见§十一：
+**剩余的 Uses（已解决）**：`MaterialBindingTag::Uses = TagList<MaterialTextureTag>` 曾是唯一的组级 Uses，材质纹理按 GPU 数据动态索引、数量不定。已按§十一的批量导入方案接入集合，同批清空 `Uses`。UI 图标（`UIPass` 的 `s.Uses<UI::IconImageTag>()`）是另一处 scope 级 Uses，同样接入集合后删除。
 
-1. 材质纹理改在图形队列上传，取消跨队列交接，从而不需要 acquire；
-2. 保留组级承接，但由发布驱动（按 space 收集发布资源），而不是手写 tag 列表；
-3. 收窄并改名（例如 `MaterialTextureAcquire`），明确它只服务动态资源。
+### Uses 的退役（已完成）
 
-不要给能被显式访问的资源再添加 `Uses`。材质集合迁移时，必须同时清空旧 `Uses`，避免重复 acquire。
+截至 2026-11-16，`Uses` 这条路径已整体删除：
+
+- `Scope::Uses<Tag>()`（`RenderScope` / `ComputeScope`）、`Pass/ScopeUses.h`、`PassCapabilities::m_uses` 与 `DeclareBindingUses`、`BindingTag::Uses` 的展开、`ScopeUses` / `UploadTake` / `AddScopeUse` 全部移除；各绑定 tag 上的 `using Uses = TagList<>` 一并删除。
+- `RenderGraphCompiler::CompileScopeUploads` 删除。它的职责只剩“按 tag 挑出待 acquire 的上传”，而没有 tag 声明后这一遍无事可做。`ScopeUpload` / `ScopeUploadRange` / `GetScopeUploads` 保留：显式访问路径仍通过它们记录并执行 acquire。
+- UI 图标改由 `UIPass` 发布 `ShaderImageUsage{Bindless, IconGPUComponent::m_viewDesc}`（渲染层发布，`SparkUI` 不依赖 `SparkRender`），再以 `ImportSharedSet<UI::IconImageTag>` + `ReadSet(Fragment)` 读取。
+- 代价与材质纹理相同：新上传的图标若无任何消费者读集合会停在 `PendingAcquires`，直到被读取或资源销毁；这是§11.5 接受的取舍。
+
+`Uses` 消失后，资源的上传承接只有一条路径：**被某个 Scope 的 attachment 首次访问时 acquire**。反过来说，一个“上传了但没人访问”的资源不会自动 acquire——需要在帧末做兜底或断言时，应加在这条唯一路径上（尚未实现）。
 
 ### 未完成
 
@@ -335,7 +340,7 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 
 ## 十一、实现提案：Bindless 共享 Image 与 ImportSharedSet
 
-状态：第一步与第二步均已实现并通过用户验证，分别见§11.8、§11.9（2026-11-15）；材质迁移尚未实现。本步服务当前材质纹理，支持不指定 `.BindIndex` 的 bindless 共享用法；已有普通资源的 `.BindIndex` 保持原样，向共享 bindless 访问增加索引输出目标不在本步范围内。
+状态：第一步至第三步均已实现并通过用户验证，分别见§11.8、§11.9、§11.10（2026-11-15 与 2026-11-16）；第四步的验证分工见§11.11；Uses 已整体退役，见§十末。本步服务当前材质纹理，支持不指定 `.BindIndex` 的 bindless 共享用法；已有普通资源的 `.BindIndex` 保持原样，向共享 bindless 访问增加索引输出目标不在本步范围内。
 
 ### 11.1 共享用法与索引传递分别表达
 
@@ -443,9 +448,9 @@ s.Close();
 
 1. 在 `ShaderInputBinding` 增加统一绑定模式和单资源共享 Image 应用路径，保持原有直接绑定，不生成 bindless attachment 标记、固定输入或索引常量写入。助手仅做编译检查，运行验证由用户负责；第一步已获用户验证确认，见§11.8。
 2. 增加集合导入、成员 attachment 展开与批量 stage，完成按资源分组的冲突检查；上传查询保留原有扫描。第二步已获用户验证确认，见§11.9。
-3. 材质侧发布并使用同一默认 View，接入全部材质纹理消费者；同批清空旧 Uses，核对上传只有一条承接路径。
-4. 针对就绪筛选、空集合、删除成员、多个 Scope、重复成员、共享意图冲突、不同 View 冲突和大量独立成员做有意义的验证；已有直接绑定、普通 `.BindIndex`、资源别名与跨帧读取也做回归检查。
-5. Debug 编译 `SparkRenderTest`、`ReferencePathTracer` 及原共享导入相关示例；检查首次上传、后续帧读取和多消费者的 acquire。记录规模验证的附件数量与构图成本。运行测试与画面验证沿用项目当前约定，具体执行情况如实记录。
+3. 材质侧发布并使用同一默认 View，接入全部材质纹理消费者；同批清空旧 Uses，核对上传只有一条承接路径。已完成并获用户验证确认，见§11.10。
+4. 验证按“构建期语义用单元测试、运行时行为用现有示例场景”分工，见§11.11。原第 5 步（规模基准与附件数量记录）取消：每一步都有对应的验证画面，运行验证沿用现有示例，不再单独做性能基准。
+
 
 ### 11.8 第一步实现与验证记录
 
@@ -469,9 +474,46 @@ s.Close();
 - 后续导入准备精简、上传查询索引撤回按用户要求未重新编译；助手未运行测试、示例或性能基准。用户已验证最终版本并确认无问题，同意更新文档并提交第二步。
 - 材质资源发布、消费者接入与 `MaterialBindingTag::Uses` 清理留给第三步，尚未迁移。
 
+### 11.10 第三步实现与验证记录
+
+- `MaterialTextureSystem::CreateTexture` 在建好实体后发布 `ShaderImageUsage`：`ShaderInputBinding::Bindless()` 加 `ImageViewDescriptor{}`，即整张图的默认 View，与材质索引当前解析用的 View 一致。发布不等待上传完成，理由与 Scene 各图相同。
+- `MaterialBindingSystem::ResolveTexIndex` 改为读该发布并使用 `usage->m_view` 建视图、取 bindless 索引；缺发布或模式不是 Bindless 时断言并返回 `InvalidTextureIndex`。`IsResourceReady` 判定与索引编码写入 `MaterialData.TexIndices` 均未改动。
+- `MaterialTextureTag` 去掉 `Access`，收窄为集合成员标记；`MaterialBindingTag::Uses` 清空。
+- 消费侧接入三处，均为 `ImportSharedSet<MaterialTextureTag>("MaterialTextures")` 加 `ReadSet(...).Stage(FragmentShader)`：`GBufferPass`、`TranslucencyPass`、`ReferencePathTracerFeature`。材质表仍由 `ImportShared<MaterialPoolTag>` 与 `ReadBuffer` 单独声明。
+- 消费方核查按“是否真正消费 `TexIndices`”进行，而不是看是否 include `MaterialTemplate.hlsli`：`DepthOnly`、`ShadowDepth` 虽然 include 该模板，但不读索引、不采样材质纹理，因此不接入。
+- 现存 `BindingTag::Uses` 已全部为空，按组声明 Uses 的路径无消费者，可整体删除；`ScopeUses` 底层仍由 `UIPass` 的 `s.Uses<UI::IconImageTag>()` 使用，不能一并删除。
+- Debug 编译通过：`SparkRender`、`ReferencePathTracer`、`SparkRenderTest`、`ComputePass`、`TrianglePass`、`MSAAPass`、`DrawCube`、`MultiView`、`RayTracingScene`、`IndirectDispatch`。用户已运行验证材质与路径追踪画面，确认无问题。
+
+### 11.11 第四步：验证分工
+
+构建期语义放在 `SparkRenderTest` 里做单元测试，新增 `Engine/Code/Test/Render/ImportSharedSetTest.cpp`（选项 `IMPORTSHAREDSET_TESTS`）。`RenderGraphBuilder` 的入口只对各 Scope 类开放，测试沿用同一做法：`RenderGraphBuilder` 声明 `friend class ::ImportSharedSetTest`，测试以 fixture 驱动一帧（`Begin` → `BeginPass` → `ImportSharedResourceSet` → 开 Scope → `ReadSet` → `Close`），再从 builder 读回该 Scope 声明了什么。成员实体的构造沿用 `MaterialTextureSystemTest` 的假件：假 `Image`、`ShaderImageUsage{Bindless}`、`MaterialTextureTag`。
+
+已覆盖并全部通过（`SparkRenderTest` 共 222 项全绿）：
+
+- 空集合：导入并读取后 Scope 没有任何访问记录，导入本身不报错。
+- 每个成员一条访问：两个成员展开两条。
+- 重复成员：同一实体重复三次只展开一条。
+- 就绪筛选：带 `PendingUploads` 的成员不展开，剩下的是就绪的那个。
+- Bindless 不登记固定输入：访问上没有 `ShaderInputBinding` / `IndexBinding`，访问权限为 Read。
+- 多 Scope：第二个 Scope 再读一次集合，各自展开、互不重复。
+- 成员一致性：同一集合以不同顺序导入两次后仍能正常读取，说明收集结果与访问顺序无关。
+
+未纳入单元测试的部分：名称冲突、未导入就读、集合名当单资源名是 `ASSERT` 路径，仓库没有 death test 先例，不为此引入；靠运行示例时暴露。
+
+运行时行为沿用现有示例场景（每步都有对应画面）：
+
+- 首次上传后的多消费者 acquire：新材质纹理在所在帧被 GBuffer / Translucency / ReferencePathTracer 读取时无残留 `PendingAcquires`。
+- 索引与 View 一致性：材质球表面、半透明表面与路径追踪的纹理采样正确，无错图。
+- 成员删除与跨帧读取：纹理被 GC 后不再展开，后续帧画面不崩、不黑。
+- 规模：几百张纹理下的 attachment 数量与构图耗时只做观察，不再单独做基准或写入门槛。
+
+
+回归沿用 `ctest` 与现有示例；名称冲突、未导入就读、集合名当单资源名这类断言路径不引入 death test（仓库暂无此先例），靠场景运行时暴露。
+
+
 ## 十二、方案边界
 
-- 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件已按§十落地，attachment 的统一绑定分组仍待逐项设计。§十一的单资源 bindless Image 用法与集合导入机制已完成前两步，材质迁移尚待实施。
+- 第一阶段仅解除图对绑定实体的依赖；资源上的共享用法组件已按§十落地，attachment 的统一绑定分组仍待逐项设计。§十一的单资源 bindless Image 用法与集合导入机制已完成前三步，材质纹理已接入，验证见§11.11。
 - 不新增可供外部直接调用资源系统对象的访问接口。
 - 不通过导入或发布资源隐式声明整组访问。
 - 不以移除专用 ECS 实体为由移除 RHI 绑定对象或必要的布局信息。

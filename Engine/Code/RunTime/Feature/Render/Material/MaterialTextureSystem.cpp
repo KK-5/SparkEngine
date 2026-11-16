@@ -13,6 +13,8 @@
 
 #include "MaterialTextureComponents.h"
 
+#include <Binding/ShaderUsage.h>
+
 namespace Spark::Render
 {
     namespace
@@ -143,6 +145,11 @@ namespace Spark::Render
         rhiCtx.Add<RHI::ResourceName>(handle, RHI::ResourceName{ name });
         rhiCtx.Add<RHI::Components::Image>(handle, RHI::Components::Image{ eastl::move(image) });
         rhiCtx.Add<MaterialTextureTag>(handle);
+
+        // Sampled through the bindless heap: no fixed input, and the view the material's
+        // indices are resolved through is the whole image, as the sampling samples it.
+        rhiCtx.Add<ShaderImageUsage>(handle, ShaderImageUsage{
+            ShaderInputBinding::Bindless(), RHI::ImageViewDescriptor{} });
 
         const auto request = RHI::RequestImageUpload(rhiCtx, handle,
             data->GetTextureBytes().data(), data->GetTextureBytes().size(),

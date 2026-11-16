@@ -19,6 +19,7 @@
 #include <EASTL/fixed_vector.h>
 
 #include <Binding/BindingSpaces.h>
+#include <Binding/ShaderUsage.h>
 #include <Binding/SharedBindings.h>
 
 #include <ECS/ExecuteContext.h>
@@ -54,8 +55,18 @@ namespace Spark::Render
                 return InvalidTextureIndex;
             }
 
+            // The same view the set's read uses, so the index and the access name one image
+            // view: an index resolved through another view would sample something else.
+            const auto* usage = rhiCtx.TryGet<ShaderImageUsage>(handle);
+            ASSERT(usage != nullptr && usage->m_binding.m_mode == ShaderBindingMode::Bindless,
+                "[MaterialBindingSystem] Material texture publishes no bindless usage.");
+            if (usage == nullptr)
+            {
+                return InvalidTextureIndex;
+            }
+
             RHI::ImageView* view = RHI::GetOrCreateImageView(
-                rhiCtx, handle, *rhiCtx.Get<RHI::Components::Image>(handle).m_image, RHI::ImageViewDescriptor{});
+                rhiCtx, handle, *rhiCtx.Get<RHI::Components::Image>(handle).m_image, usage->m_view);
             return view ? view->GetBindlessReadIndex() : InvalidTextureIndex;
         }
     }

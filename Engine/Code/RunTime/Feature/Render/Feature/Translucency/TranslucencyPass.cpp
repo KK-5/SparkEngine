@@ -106,6 +106,7 @@ namespace Spark::Render
                 const bool hasPrefiltered = p.ImportShared<PrefilteredCubeTag>(RHI::AttachmentId("ScenePrefiltered"));
                 const bool hasBrdfLut = p.ImportShared<BRDFLutTag>(RHI::AttachmentId("SceneBRDFLut"));
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
+                p.ImportSharedSet<MaterialTextureTag>(RHI::AttachmentId("MaterialTextures"));
                 RHI::AttachmentLoadStoreAction load;
                 load.m_loadAction  = RHI::AttachmentLoadAction::Load;
                 load.m_storeAction = RHI::AttachmentStoreAction::Store;
@@ -140,6 +141,7 @@ namespace Spark::Render
                     s.ReadImage(RHI::AttachmentId("SceneBRDFLut"));
                 }
                 s.ReadBuffer(RHI::AttachmentId("Views"));
+                s.ReadSet(RHI::AttachmentId("MaterialTextures")).Stage(RHI::AttachmentStage::FragmentShader);
                 s.RenderTarget(RHI::AttachmentId("SceneColor"), load);
                 s.DepthRead(RHI::AttachmentId("SceneDepth"));
                 s.Sampler(RHI::InputName("g_MatSampler"),

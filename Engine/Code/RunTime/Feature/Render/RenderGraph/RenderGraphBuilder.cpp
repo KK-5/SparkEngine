@@ -322,10 +322,6 @@ namespace Spark::Render
         m_scopeAttachments.clear();
 
         const auto* caps = passContext.TryGet<PassCapabilities>(m_currentPass);
-        if (caps != nullptr && caps->m_uses != nullptr)
-        {
-            caps->m_uses(rhiContext, scope);
-        }
 
         const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
         const RHI::ConstantsLayout* rootConstants = (layout != nullptr && layout->m_layout)
@@ -904,12 +900,6 @@ namespace Spark::Render
         inputAssembly.m_indexAttachment = indices;
         inputAssembly.m_indexFormat     = indexFormat;
         return inputAssembly;
-    }
-
-    void RenderGraphBuilder::AddScopeUse(RHIHandle scope, ScopeUses::Take take)
-    {
-        CheckScopeOpen(scope);
-        Render::AddScopeUse(*RHIExecuteContext::Current(), scope, take);
     }
 
     const RHI::PipelineLayoutDescriptor& RenderGraphBuilder::CurrentPassLayout() const

@@ -17,6 +17,8 @@
 #include "PooledImage.h"
 #include "RenderGraphResolve.h"
 
+class ImportSharedSetTest;
+
 namespace Spark::RHI
 {
     class ImagePool;
@@ -61,6 +63,10 @@ namespace Spark::Render
         friend class AccelerationStructureScope;
         friend class ShaderAttachment;
         friend class ShaderAttachmentSet;
+
+        //! The builder is driven through the scopes alone; a test that reads what a pass
+        //! declared drives it the same way, from a frame of its own.
+        friend class ::ImportSharedSetTest;
 
         void Begin(uint32_t frameIndex, RHI::RHIHandle swapChainResource,
                    const Math::Vector2Int& renderSize, const Math::Vector2Int& outputSize);
@@ -206,7 +212,6 @@ namespace Spark::Render
             RHIHandle destination, RHIHandle scratch) const;
 
         //! A tag `scope` uses (.Uses): `take` takes that tag's uploads for it.
-        void AddScopeUse(RHIHandle scope, ScopeUses::Take take);
 
         //! The current pass's pipeline layout, reflected from its shaders.
         const RHI::PipelineLayoutDescriptor& CurrentPassLayout() const;
