@@ -50,7 +50,20 @@ namespace Spark::RHI
                 return ResultCode::InvalidOperation;
             }
         }
-        return CompileInternal(bindings);
+
+        // Nothing was written to it since the last compile: the backend still holds those
+        // values, and rewriting them would only repeat the same descriptor stores.
+        if (!bindings.IsDirty())
+        {
+            return ResultCode::Success;
+        }
+
+        const ResultCode result = CompileInternal(bindings);
+        if (result == ResultCode::Success)
+        {
+            bindings.ClearDirty();
+        }
+        return result;
     }
 
     bool ShaderInputCompiler::ValidateShaderBindings(const ShaderBindings& bindings) const

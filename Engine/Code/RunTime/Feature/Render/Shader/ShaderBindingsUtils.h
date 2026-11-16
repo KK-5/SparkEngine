@@ -9,9 +9,11 @@
 
 namespace Spark::Render
 {
-    //! Fill ShaderBindings objects directly. RenderGraph compiles the objects its
-    //! Scopes use, so these setters need no dirty tracking. Entity overloads below
-    //! are transitional adapters for systems that still publish binding entities.
+    //! Fill ShaderBindings objects directly. RenderGraph compiles the objects its Scopes use;
+    //! a setter that writes what is already there leaves the object clean, so that compile
+    //! skips it.
+    //!
+    //! Entity overloads resolve a Components::ShaderBindings and forward to the same setters.
 
     namespace Detail
     {
@@ -38,11 +40,16 @@ namespace Spark::Render
             LOG_ERROR("[ShaderBindingsUtils] Constant input '{}' not found.", input.GetCStr());
             return;
         }
+        if (constant->IsSameData(bytes, byteCount))
+        {
+            return;
+        }
         if (!constant->SetData(bytes, byteCount))
         {
             LOG_ERROR("[ShaderBindingsUtils] SetData size mismatch for constant '{}'.", input.GetCStr());
             return;
         }
+        bindings.MarkDirty();
     }
 
     //! Stage a constant value — any trivially-copyable POD (matrix / vector /
@@ -63,7 +70,12 @@ namespace Spark::Render
             LOG_ERROR("[ShaderBindingsUtils] Image input '{}' not found.", input.GetCStr());
             return;
         }
+        if (image->GetView(arrayIndex).get() == view)
+        {
+            return;
+        }
         image->SetView(arrayIndex, view);
+        bindings.MarkDirty();
     }
 
     //! Bind a buffer view into the named buffer input.
@@ -76,7 +88,12 @@ namespace Spark::Render
             LOG_ERROR("[ShaderBindingsUtils] Buffer input '{}' not found.", input.GetCStr());
             return;
         }
+        if (buffer->GetView(arrayIndex).get() == view)
+        {
+            return;
+        }
         buffer->SetView(arrayIndex, view);
+        bindings.MarkDirty();
     }
 
     inline void SetShaderAccelerationStructure(
@@ -99,6 +116,7 @@ namespace Spark::Render
             return;
         }
         target->SetAccelerationStructure(arrayIndex, structure);
+        bindings.MarkDirty();
     }
 
     //! Bind a sampler state into the named sampler input.
@@ -111,7 +129,12 @@ namespace Spark::Render
             LOG_ERROR("[ShaderBindingsUtils] Sampler input '{}' not found.", input.GetCStr());
             return;
         }
+        if (sampler->GetState(arrayIndex) == state)
+        {
+            return;
+        }
         sampler->SetState(arrayIndex, state);
+        bindings.MarkDirty();
     }
 
     inline void SetShaderConstantData(

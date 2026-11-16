@@ -328,7 +328,7 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 - UI 图标改由 `UIPass` 发布 `ShaderImageUsage{Bindless, IconGPUComponent::m_viewDesc}`（渲染层发布，`SparkUI` 不依赖 `SparkRender`），再以 `ImportSharedSet<UI::IconImageTag>` + `ReadSet(Fragment)` 读取。
 - 代价与材质纹理相同：新上传的图标若无任何消费者读集合会停在 `PendingAcquires`，直到被读取或资源销毁；这是§11.5 接受的取舍。
 
-`Uses` 消失后，资源的上传承接只有一条路径：**被某个 Scope 的 attachment 首次访问时 acquire**。反过来说，一个“上传了但没人访问”的资源不会自动 acquire——需要在帧末做兜底或断言时，应加在这条唯一路径上（尚未实现）。
+`Uses` 消失后，资源的上传承接只有一条路径：**被某个 Scope 的 attachment 首次访问时 acquire**。一个“上传了但没人访问”的资源因此不会自动 acquire，会停在 `PendingAcquires` 上，直到被读取或资源销毁；在此之前上传系统拒绝再次上传同一资源。这是这条唯一路径的固有代价，不加帧末兜底或检查。
 
 ### 系统填值退场（已完成）
 
@@ -339,10 +339,21 @@ scope.ReadImage(image).Bind(ShaderInputBinding{
 - 两个系统不再需要 `Shader/ShaderBindingsUtils.h`。
 - 后果与既有约定一致：某一帧没人读这两个输入时，组里保留上一帧的值（见「待办：无人声明时的陈旧值」）。
 
+### 绑定对象的变更识别（已实现）
+
+`ShaderInputCompiler::Compile` 曾经每帧全量重写每个组的描述符表，即使内容一字未改。现在由对象自己回答“自我上次编译以来变没变”：
+
+- `RHI::ShaderBindings` 带 `IsDirty` / `MarkDirty` / `ClearDirty`，新建即为脏（后端还没有它的任何东西）。
+- 写入幂等：`ShaderBindingsUtils` 的 setter 先比较再写——图像/缓冲区/AS 比视图指针，采样器比 `SamplerState`，常量用 `ShaderInputConstant::IsSameData` 按 HLSL 步长逐元素比较；只有真的变了才 `MarkDirty`。所有写入都经过这五个 setter（`CompileScopeBindings`、`CompileSharedGroupValues`、Scope 的 `.Bind` / `.Sampler` / `.Constant` 都走它们），没有旁路。
+- `ShaderInputCompiler::Compile` 对干净的组直接返回成功；`CompileInternal` 成功后才 `ClearDirty`。因此 `CompileShaderInputs` 里那句“按对象地址去重”的临时 vector 可以删掉——同一个组在多个 Scope 里重复调用时，第一次编译后它就是干净的。
+
+哪些组会一直脏：来源是**轮转 staging buffer** 的那几档（`g_Views`、`g_Lights`、`g_ShadowViews`、`g_ViewShadowMaps`）每帧换 slot，视图指针确实变了。稳定的那些（IBL 立方图、LUT、材质纹理、静态常量）第一帧之后应长期跳过。
+
+防线：`CompileShaderInputs` 累计 `compiled / skipped` 两个计数，`RenderGraphCompiler::ReportShaderInputCompiles` 负责每 600 帧打一行。这个函数**当前不被调用**，留着当工具：需要量这个比例时在 `CompileShaderInputs` 末尾加回一行即可。若届时发现 `skipped` 长期为 0，说明某条写入绕过了幂等 setter 或一直在变，值得查。
+
 ### 未完成
 
-- 上传承接现在只有“被访问才 acquire”一条路径；帧末对残留 `PendingAcquires` 的兜底或断言尚未实现。
-- `TODO_BindingModelPlan.md` 的分层表仍按 `.Binds<...>()` 描述，需要按“按 space 推导”重写。
+- 本文档范围内暂无；[资源绑定模型](TODO_BindingModelPlan.md) 的分层表已按“按 space 推导”更新（2026-11-16）。
 
 ## 十一、实现提案：Bindless 共享 Image 与 ImportSharedSet
 

@@ -145,9 +145,19 @@ namespace Spark::Render
         void CompileScopeSubmitRanges(
             PassContext& passContext, RHIContext& context, eastl::vector<RHIHandle>& submitList);
 
-        //! Compile each object referenced by ScopeState once per invocation. A temporary
-        //! vector deduplicates object addresses; RHI objects carry no dirty or batch state.
+        //! Compile the binding objects whose inputs changed since their last compile; the ones
+        //! nothing wrote to skip themselves.
         void CompileShaderInputs(RHI::Device& device, RHIContext& context);
+
+        //! Log how many groups were compiled and how many skipped, every 600 frames. Kept as a
+        //! tool: CompileShaderInputs counts them but does not call this, so measuring the
+        //! ratio is one line away. A skip count stuck at zero means the change detection never
+        //! bites, and the reasons are worth looking at.
+        void ReportShaderInputCompiles();
+
+        uint32_t m_compiledGroups = 0;
+        uint32_t m_skippedGroups  = 0;
+        uint32_t m_statFrames     = 0;
 
         //! Every draw PSO: a pass's default (CompilePipelineStates) and each DrawGroup's, when its
         //! item is expanded. A stopgap until a real PSO cache exists; that one may belong in

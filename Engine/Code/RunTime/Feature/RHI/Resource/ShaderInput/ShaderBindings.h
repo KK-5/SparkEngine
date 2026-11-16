@@ -66,6 +66,12 @@ namespace Spark::RHI
         uint32_t                              GetSpaceId()             const { return m_spaceId; }
         const PipelineLayoutDescriptor&       GetLayoutDescriptor()    const { return *m_layoutDescriptor; }
 
+        /// Whether any input changed since the last Compile. A new object is dirty: nothing of
+        /// it has reached the backend yet. The setters' callers mark it; Compile clears it.
+        bool IsDirty() const { return m_dirty; }
+        void MarkDirty() { m_dirty = true; }
+        void ClearDirty() { m_dirty = false; }
+
     protected:
         ShaderBindings() = default;
 
@@ -83,6 +89,8 @@ namespace Spark::RHI
         eastl::vector<ShaderInputAccelerationStructure> m_accelerationStructures;
         eastl::vector<ShaderInputSampler>  m_samplers;
         eastl::vector<ShaderInputConstant> m_constants;
+
+        bool m_dirty = true;
     };
 
 } // namespace Spark::RHI

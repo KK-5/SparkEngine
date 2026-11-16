@@ -5,15 +5,15 @@
 
 决策 D1~D11 已确认；§七 余下的两项不阻塞实现。步骤 1~5 全部完成，§一、§二 记的是改造前的状态。
 
-后续改造见 [基于 Attachment 的资源声明与 Shader Binding 编译](TODO_AttachmentBindingPlan.md)。第一阶段已完成并通过用户运行验证：Pass 直接持有绑定对象，图按 ScopeState 引用编译并临时去重，不再通过绑定实体填值或扫描 dirty tag。资源实体发布共享用法、attachment 统一分组及生成绑定对象仍是后续草案；本文原有步骤保留为历史记录。
+后续改造见 [基于 Attachment 的资源声明与 Shader Binding 编译](TODO_AttachmentBindingPlan.md)。第一阶段与后续两步均已完成并通过用户运行验证：Pass 直接持有绑定对象，图按 ScopeState 引用编译并临时去重，不再通过绑定实体填值或扫描 dirty tag；资源实体发布自己的共享用法，图按 attachment 的访问填值，布局与 per-scope 绑定改由 shader 反射出的 space 推导，`.Binds<>` 与 `Uses` 均已删除。本文原有步骤保留为历史记录。
 
 ---
 
 ## 一、现状
 
-五个 space 按数据粒度命名，按实际绑定方式看：
+五个 space 按数据粒度命名，按改造前的绑定方式看：
 
-| space | 名义 | 载体 | 实际怎么绑 | 绑定频率 |
+| space | 名义 | 载体 | 改造前怎么绑 | 改造前频率 |
 |---|---|---|---|---|
 | 0 | scene | `SceneBindingSystem`，一个 SRG（`MainSceneTag`）：`g_Lights`、`g_ShadowViews` 两张表、环境贴图、`SceneConstants` | `.Binds<MainSceneTag>()` | 每 Scope 一次 |
 | 1 | view | 每个视图实体一个 SRG（`ViewFactory` 建，`ViewShaderBindings` 指向），`ViewBindingSystem` 每帧写 cbuffer | 执行器在提交表的视图句柄处绑（`SubmitScopeRange`） | **每视图段一次** |
@@ -26,6 +26,17 @@ shader 的根常量里时写进这里，每个 Scope 各一份。
 
 material 与 object 名义上频率最高，绑定上却和 scene 一样：**全局表 + 按下标取**。按绑定频率只有三档：全局表（0 / 3 /
 4）、视图段（1）、pass（2）。
+
+### 现状（2026-11-16）：不再有 `.Binds<>`
+
+上表记的是改造前的绑定方式。现在共享组不再由 pass 声明：
+
+- **布局**：`BuildPassPipelineLayout` 按 shader 反射出的 space 找组（`FindSharedBindings`），把该 space 的完整布局并入 PSO layout；反射出 space 而没有组时，仍报原来的 `binds no group there`。
+- **绑定对象**：`CompileScopeState` 按 PSO layout 里的每个共享 space 取组对象放进 ScopeState，只用常量、不读任何资源的 pass（如 `SkyboxPass` 只用 `g_EnvIntensity`）也因此能绑上。
+- **资源输入**：由 attachment 的访问按资源发布填值；系统不再向组内写任何资源输入，自己也不再建视图。
+- **上传**：资源在被访问时 acquire，`Uses`（组级与 scope 级）已整体删除。
+
+六个绑定 tag（`GeometryBindingTag`、`InstanceBindingTag`、`MaterialBindingTag`、`MainSceneTag`、`ViewBindingTag`、`RayTracingSceneBindingTag`）与 `RenderPassBuilder::Binds<>`、`ComputePassBuilder::Binds<>` 均已删除。细节与验证见 [基于 Attachment 的资源声明与 Shader Binding 编译](TODO_AttachmentBindingPlan.md) §十。
 
 ---
 
@@ -57,7 +68,7 @@ material 与 object 名义上频率最高，绑定上却和 scene 一样：**全
 
 | 档 | 内容 | 载体 |
 |---|---|---|
-| 全局表 | scene、view、material、instance | 每帧上传，pass 以 `.Binds<>()` 声明、Scope 开头绑一次，shader 按下标取 |
+| 全局表 | scene、view、material、instance | 每帧上传，Scope 开头绑一次，shader 按下标取；pass 读它的 space 即绑（2026-11-16 起由反射推导，此前写作 `.Binds<>()`） |
 | pass 参数 | 一个 pass 内各 Scope 一致的资源、采样器、常量 | space2 SRG，每 pass 一份 |
 | Scope 参数 | 随 Scope 变的资源下标与小常量 | space5（D11），目前的载体是根常量，每 Scope 一块 |
 | 视图段 | 一个 `viewIndex` | space5 里的一个字段，执行器在视图句柄处部分写；光栅照旧在此设 viewport |
@@ -95,7 +106,7 @@ Pass                            ← PSO 布局、space2（pass 参数）
 - 删除：每视图的 SRG、`ViewShaderBindings`、`ResolveViewShaderBindings`；lowering 里"视图绑定未就绪则跳过"改为"shader 读
   视图（根常量里有 `viewIndex`）而视图没有槽位则跳过"；只要 viewport 的 pass 不受槽位影响。
 - `ViewBindingsReflect.hlsl` 保留：space1 组的 SRG 仍靠它反射布局，同 `SceneBindingsReflect.hlsl`，内容改为引用 `g_Views`。
-- 绑定：space1 的 SRG 实体打 `ViewBindingTag`，读视图的 pass 都声明 `.Binds<ViewBindingTag>()`，在 Scope 开头绑一次
+- 绑定：space1 的组在 Scope 开头绑一次（当时由 `.Binds<ViewBindingTag>()` 声明，2026-11-16 起由反射的 space 推导）
   （D9）；执行器在视图句柄处不再绑任何 SRG。
 
 ### viewIndex 的传递
@@ -108,7 +119,7 @@ Pass                            ← PSO 布局、space2（pass 参数）
 
 ### 对 ScreenSpacePlan 的影响
 
-compute 不再需要 `ForEachView`：`ComputePassBuilder` 只加 `Binds<>()`，pass 声明 `.Binds<ViewBindingTag>()`，Build 自己
+compute 不再需要 `ForEachView`：读视图的 compute pass 只要 shader 声明了 space1 就会绑上该组（当时写作 `Binds<>()` + `.Binds<ViewBindingTag>()`），Build 自己
 选视图、设 `viewIndex`、定 dispatch。每个视图不同的线程数、多 Scope × 多视图（资源不随视图变时）都能在 Build 里表达。
 ScreenSpacePlan 的 D2 与 0a 待本文定稿后改写。
 
@@ -248,6 +259,8 @@ space1 全组一份后在 Scope 开头绑一次，同 space0 / 3 / 4。space1 �
 Triangle / MSAA；Build 里选视图的 compute），且 `Binds<>()` 只存一个函数指针，隐含的与显式的要能叠加。
 
 以后：由 pass 的反射决定绑哪些共享组（布局里有该 space 就绑），"读了而没声明"随之消失。对所有共享组一起做，单独立项。
+
+**已实现（2026-11-16）**：上面这条"以后"已经落地——共享组由反射出的 space 决定，`.Binds<ViewBindingTag, ...>()` 与其余绑定 tag 一并删除，"读了而没声明"不再出现。见 [基于 Attachment 的资源声明与 Shader Binding 编译](TODO_AttachmentBindingPlan.md) §十。
 
 ### D10　保持 D3，放宽 `GlobalBuffer` 注释的判据　✅ 已定
 

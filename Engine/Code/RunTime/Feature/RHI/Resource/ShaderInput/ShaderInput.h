@@ -343,6 +343,31 @@ namespace Spark::RHI
             return { m_data.data(), m_data.size() };
         }
 
+        //! Whether `SetData` would write exactly what is already staged, laid out the same way
+        //! (so the HLSL stride gaps are compared as they are stored, not as they arrive).
+        bool IsSameData(const void* bytes, uint32_t byteCount) const
+        {
+            if (byteCount != m_descriptor.m_elementCount * m_descriptor.m_elementByteSize)
+            {
+                return false;
+            }
+            if (m_descriptor.m_elementStride == m_descriptor.m_elementByteSize)
+            {
+                return memcmp(m_data.data(), bytes, byteCount) == 0;
+            }
+
+            const auto* src = static_cast<const uint8_t*>(bytes);
+            for (uint32_t i = 0; i < m_descriptor.m_elementCount; ++i)
+            {
+                if (memcmp(m_data.data() + i * m_descriptor.m_elementStride,
+                        src + i * m_descriptor.m_elementByteSize, m_descriptor.m_elementByteSize) != 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         uint32_t GetByteCount() const { return m_descriptor.m_constantByteCount; }
 
     private:

@@ -2115,18 +2115,18 @@ namespace Spark::Render
         ASSERT(factory, "[RenderGraph] RHI::Factory service not registered.");
 
         auto& shaderInputCompiler = factory->AcquireShaderInputCompiler(device);
-        // Temporary object-identity deduplication. Keep it local to this compile:
-        // no entity dirty tags or state on the RHI objects are needed.
-        eastl::vector<RHI::ShaderBindings*> compiled;
-        compiled.reserve(context.GetView<ScopeState>().size());
+
+        // Each object answers whether anything was written to it since its last compile, so a
+        // group nothing touched costs nothing: no per-scope deduplication is needed here.
         for (auto [scope, state] : context.GetView<ScopeState>().each())
         {
             for (uint32_t i = 0; i < state.m_bindingCount; ++i)
             {
                 auto* bindings = state.m_bindings[i];
                 ASSERT(bindings != nullptr, "[CompileShaderInputs] Scope has null bindings.");
-                if (eastl::find(compiled.begin(), compiled.end(), bindings) != compiled.end())
+                if (bindings == nullptr || !bindings->IsDirty())
                 {
+                    ++m_skippedGroups;
                     continue;
                 }
                 const RHI::ResultCode rc = shaderInputCompiler.Compile(*bindings);
@@ -2134,9 +2134,26 @@ namespace Spark::Render
                     "[CompileShaderInputs] ShaderInputCompiler::Compile failed.");
                 if (rc == RHI::ResultCode::Success)
                 {
-                    compiled.push_back(bindings);
+                    ++m_compiledGroups;
                 }
             }
         }
+
+        ++m_statFrames;
+    }
+
+    void RenderGraphCompiler::ReportShaderInputCompiles()
+    {
+        constexpr uint32_t StatFrames = 600;
+        if (m_statFrames < StatFrames)
+        {
+            return;
+        }
+
+        LOG_INFO("[RenderGraphCompiler] Shader input groups over {} frames: {} compiled, {} skipped.",
+            m_statFrames, m_compiledGroups, m_skippedGroups);
+        m_compiledGroups = 0;
+        m_skippedGroups  = 0;
+        m_statFrames     = 0;
     }
 }
