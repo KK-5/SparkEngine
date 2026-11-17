@@ -24,10 +24,12 @@ struct LightingSampleCounts
 };
 
 bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSample,
-                                 RayTracingLightingSettings settings)
+                                 RayTracingLightingSettings settings, float3 shadowOriginOffset)
 {
     RayDesc shadowRay;
-    shadowRay.Origin = surface.WorldPosition + surface.WorldGeometricNormal * settings.RayBias;
+    // Preserve the receiver position used by sampling, PDFs and raw hit distance.
+    shadowRay.Origin = surface.WorldPosition + shadowOriginOffset
+                    + surface.WorldGeometricNormal * settings.RayBias;
     shadowRay.TMin = 0.0;
     if (lightSample.IsInfinite)
     {
@@ -50,6 +52,12 @@ bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSampl
     return TraceOpaqueVisibility(shadowRay, settings.InstanceMask);
 }
 
+bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSample,
+                                 RayTracingLightingSettings settings)
+{
+    return TraceSampledLightVisibility(surface, lightSample, settings, float3(0.0, 0.0, 0.0));
+}
+
 // One next-event-estimation sample. context.WorldPosition must be the receiver's
 // original surface position; ray offsets affect visibility only. randomSample is
 // supplied by the caller, independently of BRDF samples, and uniform in [0,1)^4.
@@ -65,7 +73,7 @@ struct DirectLightingSample
 DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTracingMaterial material, float3 V,
                               LightSamplingContext context, float4 randomSample,
                               SamplerState materialSampler, RayTracingLightingSettings settings,
-                              LightingSampleCounts sampleCounts)
+                              LightingSampleCounts sampleCounts, float3 shadowOriginOffset)
 {
     DirectLightingSample result = (DirectLightingSample)0;
     if (sampleCounts.LightSampleCount == 0u)
@@ -78,9 +86,10 @@ DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTr
     {
         return result;
     }
-    // Opaque reflection cannot transport light through the geometric back side,
-    // even when a normal map tilts the shading normal toward that direction.
-    if (dot(surface.WorldGeometricNormal, lightSample.Direction) <= 0.0)
+    // A corrected ray origin approximates the smooth vertex-normal surface. The
+    // original triangle's hemisphere must not reject it before tracing visibility.
+    // Uncorrected surfaces retain the geometric check, including reference paths.
+    if (!any(shadowOriginOffset != 0.0) && dot(surface.WorldGeometricNormal, lightSample.Direction) <= 0.0)
     {
         return result;
     }
@@ -90,7 +99,7 @@ DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTr
         return result;
     }
     result.HitDistance = lightSample.IsInfinite ? settings.MaxDistance : lightSample.Distance;
-    if (!TraceSampledLightVisibility(surface, lightSample, settings))
+    if (!TraceSampledLightVisibility(surface, lightSample, settings, shadowOriginOffset))
     {
         return result;
     }
@@ -110,6 +119,17 @@ DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTr
     result.Diffuse = response.Diffuse * incident;
     result.Specular = response.Specular * incident;
     return result;
+}
+
+// Existing integrators keep their uncorrected visibility policy. Only callers
+// supplying a displacement opt into smooth-surface shadow-origin correction.
+DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTracingMaterial material, float3 V,
+                              LightSamplingContext context, float4 randomSample,
+                              SamplerState materialSampler, RayTracingLightingSettings settings,
+                              LightingSampleCounts sampleCounts)
+{
+    return EvaluateDirectLightingSample(surface, material, V, context, randomSample,
+        materialSampler, settings, sampleCounts, float3(0.0, 0.0, 0.0));
 }
 
 // Compatibility entry point for reference/path integrators that accumulate the

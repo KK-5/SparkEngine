@@ -4,6 +4,8 @@
 #include <Shaders/VertexFactory/LocalVertexFactory.hlsli>
 #include <Shaders/Lib/Velocity.hlsli>
 #include <Shaders/Lib/SpecularAA.hlsli>
+#include <Shaders/Lib/Geometry/GeometryShading.hlsli>
+#include <Shaders/Lib/Geometry/MeshGeometry.hlsli>
 
 struct ScopeParameters
 {
@@ -25,6 +27,7 @@ struct VSOutput
     float4 ClipPosition     : CLIP_POSITION;        // unjittered
     float4 PrevClipPosition : PREV_CLIP_POSITION;   // last frame, unjittered
     float3 WorldPosition    : WORLD_POSITION;
+    nointerpolation uint InstanceIndex : INSTANCE_INDEX;
 };
 
 struct PSOutput
@@ -35,6 +38,7 @@ struct PSOutput
     float4 baseColor  : SV_Target3;  // GBufferBaseColor
     float4 velocity   : SV_Target4;  // rg NDC motion, see Lib/Velocity.hlsli
     float4 geometricNormal : SV_Target5; // geometric, world-space, facing the camera
+    float4 shadowOriginOffset : SV_Target6; // signed world-space displacement, alpha unused
 };
 
 VSOutput VSMain(VertexFactoryInput input)
@@ -59,6 +63,7 @@ VSOutput VSMain(VertexFactoryInput input)
     output.ClipPosition     = mul(view.viewProjectionNoAA, worldPosition);
     output.PrevClipPosition = mul(view.prevViewProjection, prevWorldPosition);
     output.WorldPosition = worldPosition.xyz;
+    output.InstanceIndex = input.InstanceIndex;
     return output;
 }
 
@@ -74,7 +79,36 @@ PSOutput EncodeGBuffer(MaterialPixelParameters parameters, PixelMaterialInputs i
     return output;
 }
 
-PSOutput PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace)
+// Material-dependent triangle loading stays at the raster entry point. The
+// geometry helper only needs positions and normals, regardless of their source.
+float3 GetShadowOriginOffset(VSOutput input, uint primitiveIndex, float3 geometricNormal,
+                             float3 worldVertexNormal)
+{
+    const InstanceData instance = GetInstanceData(input.InstanceIndex);
+    const GeometryData geometry = g_Geometries[instance.GeometryIndex];
+    const MeshTriangle meshTriangle = LoadMeshTriangle(geometry, primitiveIndex);
+    const MeshVertex vertices[3] = { meshTriangle.Vertex0, meshTriangle.Vertex1, meshTriangle.Vertex2 };
+    float3 positions[3];
+    float3 normals[3];
+    // Orient all vertex normals together, including mirrored and double-sided meshes.
+    const float normalSign = dot(worldVertexNormal, geometricNormal) < 0.0 ? -1.0 : 1.0;
+    [unroll]
+    for (uint i = 0u; i < 3u; ++i)
+    {
+        positions[i] = TransformLocalToWorld(instance, vertices[i].Position).xyz;
+        MaterialVertexParameters vertexParameters;
+        vertexParameters.WorldPosition = positions[i];
+        vertexParameters.MaterialIndex = instance.MaterialIndex;
+        positions[i] += GetMaterialWorldPositionOffset(vertexParameters);
+
+        const float3 normal = mul((float3x3)instance.NormalMatrix, vertices[i].Normal);
+        const float lengthSquared = dot(normal, normal);
+        normals[i] = lengthSquared > 0.0 ? normal * (normalSign * rsqrt(lengthSquared)) : geometricNormal;
+    }
+    return ComputeShadowOriginOffset(input.WorldPosition, positions, normals);
+}
+
+PSOutput PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace, uint primitiveIndex : SV_PrimitiveID)
 {
     // A single-sided surface's back is culled, so only a double-sided one reaches here back-facing.
     MaterialPixelParameters parameters = GetMaterialPixelParameters(input.Interpolants, input.Position, isFrontFace);
@@ -91,14 +125,11 @@ PSOutput PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace)
 
     PSOutput output = EncodeGBuffer(parameters, inputs);
     output.velocity = float4(CalcVelocity(input.ClipPosition, input.PrevClipPosition), 0.0, 0.0);
-    // Derivatives of this primitive's interpolated position remain on the same
-    // triangle even in helper lanes at silhouettes. Depth-texture derivatives in
-    // the lighting pass would instead mix unrelated surfaces.
-    float3 Ng = cross(ddx(input.WorldPosition), ddy(input.WorldPosition));
-    const float lengthSquared = dot(Ng, Ng);
-    Ng = lengthSquared > 0.0 ? Ng * rsqrt(lengthSquared) : parameters.WorldVertexNormal;
     const float3 eye = mul(GetView(g_Scope.viewIndex).invView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
-    Ng = dot(Ng, eye - input.WorldPosition) < 0.0 ? -Ng : Ng;
+    const float3 Ng = ComputeGeometricNormal(ddx(input.WorldPosition), ddy(input.WorldPosition),
+        parameters.WorldVertexNormal, eye - input.WorldPosition);
     output.geometricNormal = float4(EncodeNormal(Ng), 0.0);
+    output.shadowOriginOffset = float4(GetShadowOriginOffset(input, primitiveIndex, Ng,
+        parameters.WorldVertexNormal), 0.0);
     return output;
 }

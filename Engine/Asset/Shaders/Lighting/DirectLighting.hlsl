@@ -15,13 +15,14 @@ struct ScopeParameters
 };
 #include <Shaders/ScopeBindings.hlsli>
 
-Texture2D g_GBufferNormal : register(t0, space2);
-Texture2D g_GBufferSurface : register(t1, space2);
-Texture2D g_GBufferBaseColor : register(t2, space2);
-Texture2D g_Depth : register(t3, space2);
-Texture2D<float2> g_Velocity : register(t4, space2);
-Texture2D g_GBufferGeometricNormal : register(t5, space2);
-SamplerState g_MaterialSampler : register(s0, space2);
+Texture2D         g_GBufferNormal             : register(t0, space2);
+Texture2D         g_GBufferSurface            : register(t1, space2);
+Texture2D         g_GBufferBaseColor          : register(t2, space2);
+Texture2D         g_Depth                     : register(t3, space2);
+Texture2D<float2> g_Velocity                  : register(t4, space2);
+Texture2D         g_GBufferGeometricNormal    : register(t5, space2);
+Texture2D<float4> g_GBufferShadowOriginOffset : register(t6, space2);
+SamplerState      g_MaterialSampler           : register(s0, space2);
 
 struct VSOutput
 {
@@ -38,11 +39,11 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
 
 struct PSOutput
 {
-    float4 Diffuse : SV_Target0; // demodulated scene-linear RGB, raw hit distance
-    float4 Specular : SV_Target1;
+    float4 Diffuse         : SV_Target0; // demodulated scene-linear RGB, raw hit distance
+    float4 Specular        : SV_Target1;
     float4 NormalRoughness : SV_Target2; // signed world normal, perceptual roughness
-    float ViewZ : SV_Target3; // positive linear camera depth
-    float2 Motion : SV_Target4; // previous UV - current UV, without jitter
+    float  ViewZ           : SV_Target3; // positive linear camera depth
+    float2 Motion          : SV_Target4; // previous UV - current UV, without jitter
 };
 
 PSOutput PSMain(VSOutput input)
@@ -97,8 +98,9 @@ PSOutput PSMain(VSOutput input)
     const uint2 localPixel = uint2(input.Position.xy - view.viewRectMin.xy);
     const uint seed = MakeSobolBurleyPixelSeed(localPixel, g_Scope.viewIndex);
     const float4 randomSample = SobolBurley4D(view.frameNumber, 0u, seed);
+    const float3 shadowOriginOffset = g_GBufferShadowOriginOffset.Load(int3(pixel, 0)).xyz;
     const DirectLightingSample lighting = EvaluateDirectLightingSample(surface, material, V, context,
-        randomSample, g_MaterialSampler, settings, sampleCounts);
+        randomSample, g_MaterialSampler, settings, sampleCounts, shadowOriginOffset);
 
     float3 diffuseFactor;
     float3 specularFactor;

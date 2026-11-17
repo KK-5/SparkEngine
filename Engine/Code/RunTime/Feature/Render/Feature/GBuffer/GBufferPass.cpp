@@ -16,6 +16,7 @@
 #include <View/ViewTags.h>
 #include <Binding/Material/MaterialBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
+#include <Binding/Geometry/GeometryBinding.h>
 #include <Geometry/MeshGeometry.h>
 
 #include <RenderGraph/RenderGraphBuilder.h>
@@ -39,11 +40,11 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // Six color targets + read-only SceneDepth. The depth format must match the
+        // Seven color targets + read-only SceneDepth. The depth format must match the
         // SceneDepth attachment DepthPrePass creates (D32_FLOAT). Lighting reconstructs
         // world position from SceneDepth, so no position target is written.
         RHI::RenderTargetLayout rt;
-        rt.m_colorAttachmentCount = 6;
+        rt.m_colorAttachmentCount = 7;
         // Layout and channel assignment: Shaders/Lib/DeferredShadingCommon.hlsli.
         rt.m_colorFormats[0]      = RHI::Format::R16G16B16A16_FLOAT;  // SceneColor (emissive)
         rt.m_colorFormats[1]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferNormal
@@ -51,6 +52,7 @@ namespace Spark::Render
         rt.m_colorFormats[3]      = RHI::Format::R8G8B8A8_UNORM_SRGB; // GBufferBaseColor
         rt.m_colorFormats[4]      = RHI::Format::R16G16_FLOAT;        // Velocity (NDC)
         rt.m_colorFormats[5]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferGeometricNormal
+        rt.m_colorFormats[6]      = RHI::Format::R16G16B16A16_FLOAT;  // GBufferShadowOriginOffset
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
 
         RHI::InputStreamLayout input;
@@ -148,6 +150,8 @@ namespace Spark::Render
                     RHI::ClearValue::CreateVector4Float(65504.f, 65504.f, 0.f, 0.f));
                 createColor("GBufferGeometricNormal", RHI::Format::R10G10B10A2_UNORM,
                     RHI::ClearValue::CreateVector4Float(0.5f, 0.5f, 1.f, 0.f));
+                createColor("GBufferShadowOriginOffset", RHI::Format::R16G16B16A16_FLOAT,
+                    RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 0.f));
 
                 // Read-only depth test against DepthPrePass's SceneDepth: Load the depth
                 // to test against, Store it back unchanged. A depth read selects a
@@ -162,10 +166,11 @@ namespace Spark::Render
                     RHI::SamplerState::CreateAnisotropic(16, RHI::AddressMode::Wrap));
 
                 // Until they all exist nothing of the scene is drawn, but the targets are still cleared.
-                if (p.Import<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
+                if (p.ImportShared<MeshGeometryPoolTag>(RHI::AttachmentId("MeshGeometry"))
                     && p.Import<InstanceIDBufferTag>(RHI::AttachmentId("InstanceIDs"))
                     && p.ImportShared<InstancePoolTag>(RHI::AttachmentId("Instances"))
-                    && p.ImportShared<MaterialPoolTag>(RHI::AttachmentId("Materials")))
+                    && p.ImportShared<MaterialPoolTag>(RHI::AttachmentId("Materials"))
+                    && p.ImportShared<GeometryPoolTag>(RHI::AttachmentId("Geometries")))
                 {
                     // The pool is the first vertex stream and the indices, the instance IDs the
                     // second. Every mesh's indices are 32 bit: the model loader writes no other.
@@ -174,6 +179,10 @@ namespace Spark::Render
                     // Through the shared binding, by the stages their inputs declare.
                     s.ReadBuffer(RHI::AttachmentId("Instances"));
                     s.ReadBuffer(RHI::AttachmentId("Materials"));
+                    // The same mesh pool is read by IA and by the PS to reconstruct
+                    // this primitive's positions/normals for shadow-origin correction.
+                    s.ReadBuffer(RHI::AttachmentId("Geometries"));
+                    s.ReadBuffer(RHI::AttachmentId("MeshGeometry"));
                     s.DrawIndirect(InstanceLists::GBuffer::DrawArgumentsName(), InstanceLists::GBuffer::DrawCountName(),
                         vertices, IndexStream{ geometry, RHI::IndexFormat::UINT32 });
                 }

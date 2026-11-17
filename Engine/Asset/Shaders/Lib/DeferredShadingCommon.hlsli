@@ -5,6 +5,9 @@
 // GBufferNormal↔GBufferA, GBufferSurface↔GBufferB, GBufferBaseColor↔GBufferC,
 // GBufferCustomData↔GBufferD. GBufferData's FIELD names stay identical to UE's FGBufferData
 // -- that is what ported shaders reference.
+// Additional raster guides: GBufferGeometricNormal stores an encoded, view-facing
+// triangle normal; GBufferShadowOriginOffset stores a signed world-space displacement
+// in RGB (RGBA16F, alpha unused), consumed only by direct-light visibility queries.
 //
 // Nothing here is bound: the textures arrive as arguments, so the caller owns every register.
 #ifndef SPARK_LIB_DEFERRED_SHADING_COMMON_HLSLI

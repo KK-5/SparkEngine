@@ -118,6 +118,7 @@ namespace Spark::Render
                 scope.ReadImage(RHI::AttachmentId("SceneDepth")).Format(RHI::Format::R32_FLOAT).Bind(RHI::InputName("g_Depth"));
                 scope.ReadImage(RHI::AttachmentId("Velocity")).Bind(RHI::InputName("g_Velocity"));
                 scope.ReadImage(RHI::AttachmentId("GBufferGeometricNormal")).Bind(RHI::InputName("g_GBufferGeometricNormal"));
+                scope.ReadImage(RHI::AttachmentId("GBufferShadowOriginOffset")).Bind(RHI::InputName("g_GBufferShadowOriginOffset"));
                 if (ready)
                 {
                     // Direct shared imports derive their stages from the shader
