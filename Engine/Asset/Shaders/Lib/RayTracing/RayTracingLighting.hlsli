@@ -5,6 +5,7 @@
 
 #include <Shaders/Lib/RayTracing/RayTracingSurface.hlsli>
 #include <Shaders/Lib/Sample/LightSampling.hlsli>
+#include <Shaders/Lib/Sample/LightIntersection.hlsli>
 #include <Shaders/Lib/Sample/MIS.hlsli>
 
 struct RayTracingLightingSettings
@@ -61,6 +62,75 @@ bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSampl
                                  RayTracingLightingSettings settings)
 {
     return TraceSampledLightVisibility(surface, lightSample, settings, float3(0.0, 0.0, 0.0));
+}
+
+// ray.Origin, context.WorldPosition and surface.WorldPosition are the original
+// receiver; ray.Direction is the sampled unit direction. Enumerates every visible
+// emitting rectangle, not just the nearest one. Its interval must not be clipped
+// by a scene hit: a rectangle with CastShadow == false remains visible behind it.
+bool QueryNextVisibleRectLight(GeometrySurface surface, LightSamplingContext context, RayDesc ray,
+                               SamplerState materialSampler, RayTracingLightingSettings settings,
+                               float3 shadowOriginOffset, inout uint nextLightIndex,
+                               out LightSample lightSample)
+{
+    lightSample = (LightSample)0;
+    LightSampleLocation location;
+    float hitT;
+    [loop]
+    while (FindNextRectLightIntersection(ray, nextLightIndex, location, hitT))
+    {
+        LightSample candidate;
+        if (!ReconstructLightSample(context, location, materialSampler, candidate))
+        {
+            continue;
+        }
+        if (!any(candidate.Radiance > 0.0))
+        {
+            continue;
+        }
+        // Re-aim the corrected visibility ray at this exact light-surface point,
+        // as NEE does. No offset is applied to its BRDF direction or sampling PDF.
+        if (!TraceSampledLightVisibility(surface, candidate, settings, shadowOriginOffset))
+        {
+            continue;
+        }
+        // Discovery does not opt an integrator into rectangle MIS. The estimator
+        // must actually allocate the matching BRDF technique before using it.
+        lightSample = candidate;
+        return true;
+    }
+    return false;
+}
+
+LightSampleLocation MakeEmissiveLightSampleLocation(RayTracingHit hit)
+{
+    LightSampleLocation location = (LightSampleLocation)0;
+    location.Light.Source = LIGHT_SOURCE_EMISSIVE_INSTANCE;
+    location.Light.Index = hit.InstanceIndex;
+    location.PrimitiveIndex = hit.PrimitiveIndex;
+    location.Coordinates = hit.Barycentrics;
+    return location;
+}
+
+// Precondition: a successful closest scene hit. The caller retains its hit/T
+// even if this surface does not emit, so a distance guide needs no extra trace.
+// No ordinary-surface reflection is evaluated. Ray traversal and its origin
+// policy remain explicit at the caller, separate from light reconstruction.
+bool ReconstructEmissiveLightSample(LightSamplingContext context, RayTracingHit hit,
+                                    SamplerState materialSampler, out LightSample lightSample)
+{
+    lightSample = (LightSample)0;
+    LightSample candidate;
+    if (!ReconstructLightSample(context, MakeEmissiveLightSampleLocation(hit), materialSampler, candidate))
+    {
+        return false;
+    }
+    if (!any(candidate.Radiance > 0.0))
+    {
+        return false;
+    }
+    lightSample = candidate;
+    return true;
 }
 
 // One next-event-estimation sample. context.WorldPosition must be the receiver's
@@ -154,12 +224,7 @@ float3 EvaluateDirectLighting(GeometrySurface surface, RayTracingMaterial materi
 // LightReference/LightSampleLocation or know how the selection list is stored.
 float EvaluateLightPdfAtHit(LightSamplingContext context, RayTracingHit hit)
 {
-    LightSampleLocation location = (LightSampleLocation)0;
-    location.Light.Source = LIGHT_SOURCE_EMISSIVE_INSTANCE;
-    location.Light.Index = hit.InstanceIndex;
-    location.PrimitiveIndex = hit.PrimitiveIndex;
-    location.Coordinates = hit.Barycentrics;
-    return EvaluateLightPdf(context, location);
+    return EvaluateLightPdf(context, MakeEmissiveLightSampleLocation(hit));
 }
 
 float EvaluateEmissionMISWeight(LightSamplingContext previousContext, RayTracingHit hit,

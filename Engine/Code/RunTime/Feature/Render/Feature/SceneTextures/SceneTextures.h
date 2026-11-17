@@ -10,10 +10,20 @@
 //! into another to learn them. Each is written by one pass and read by the ones after it.
 namespace Spark::Render::SceneTextures
 {
-    //! Direct lighting before composition: one NEE sample per pixel, no history or
-    //! pre-exposure. RGB is divided by DirectLightingSignal.hlsli's material factors;
-    //! alpha is receiver-to-light distance (0 invalid, capped at 65504 for infinity).
-    //! The guides use signed world normals + perceptual roughness, positive linear
+    //! Direct lighting before composition: one light sample + one pure GGX sample
+    //! per pixel, specular MIS, no history or pre-exposure. RGB is divided by
+    //! DirectLightingSignal.hlsli's material factors (floor 0.02).
+    //! Diffuse alpha is receiver-to-light distance, retained for occluded samples
+    //! and lights with shadows disabled; invalid/zero-response light samples use 0.
+    //! Specular alpha is the nearest scene triangle or visible, nonzero emitting
+    //! rectangle along the GGX direction. Ordinary surfaces provide distance only.
+    //! Non-shadowing rectangles behind geometry contribute RGB without replacing
+    //! its nearer distance. Black specular responses retain scene distance only.
+    //! Rejected GGX directions use 0; miss/infinite distances are capped at 65504.
+    //! Distances use the original receiver, not corrected shadow origins, and are
+    //! neither averaged nor divided by PDFs/material factors or weighted by MIS.
+    //! The guides use signed world normals + effective perceptual roughness
+    //! (minimum 0.045, matching the BRDF/GGX sampler), positive linear
     //! viewZ (1e30 for background), and unjittered previousUV-currentUV motion.
     //! These are engine signals; an NRD adapter must use the SDK's packing helpers
     //! and matching encoding settings. REBLUR also needs hit-distance normalization.

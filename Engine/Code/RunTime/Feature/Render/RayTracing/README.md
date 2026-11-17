@@ -81,3 +81,46 @@ render pass 的共享读取还需指定 shader stage；compute pass 的 stage �
 
 `RayTracingSurface` 是公共 `GeometrySurface` 的别名；原有命中点入口继续保留，
 内部调用公共插值后恢复射线命中位置，并按入射方向定向表面。
+
+## 解析矩形灯与光源命中
+
+`Lib/Geometry/Rectangle.hlsli` 提供纯解析矩形求交，不访问场景或加速结构。
+`WorldRectangle` 使用正交的单位 Normal / Right 及正半尺寸，`IntersectRectangle`
+返回射线参数、灯面坐标与正背面；矩形边界及射线区间边界包含在内。
+
+`Lib/Sample/LightIntersection.hlsli` 将矩形灯适配到几何接口，并分开候选枚举与命中枚举：
+
+- `IntersectRectLight`：只使用传入的 LightData，并按现有单面发光策略拒绝背面。
+- `FindNextRectLightCandidate`：遍历当前场景矩形灯，是以后替换灯光搜索结构的位置。
+- `FindNextRectLightIntersection`：返回 `LightSampleLocation` 和射线参数；每条新射线从游标 0 开始。
+
+`RayTracingLighting.hlsli` 的 `QueryNextVisibleRectLight` 复用光源重建和可见性查询。
+射线起点必须是原始接收点，方向必须归一化；修正起点只用于随后重新瞄准灯面点的遮挡射线。
+解析灯互不遮挡，因此要遍历所有命中。不能按场景命中提前截断，否则关闭投影的灯会被错误遮挡。
+
+自发光网格先使用已有最近三角形查询，再调用 `ReconstructEmissiveLightSample`。
+普通表面没有光照贡献，但场景命中距离仍由调用者持有；不继续计算间接反弹。
+
+这些查询接口供下述实时双样本估计使用，不改变参考积分器的矩形灯 MIS 能力标记。
+分步计划见 `Document/TODO_DirectLightingMISPlan.md`。
+
+## 实时双样本直接光
+
+`Lib/RayTracing/RayTracingDirectLighting.hlsli` 提供 `EvaluateDirectLightingMIS`：
+调用者传入一组独立的 float4 光源随机数和 float2 GGX 随机数，每种技术各一个样本。
+Diffuse 仅由光源样本估计；Specular 合并光源与纯 GGX VNDF 样本，使用 power heuristic，结果不除以 2。
+返回线性 RGB 以及光源采样距离、GGX 最近命中距离两份原始元数据。
+
+GGX 只计算发光网格和解析矩形灯，不计算普通表面的反射光或天空光。
+解析灯分别使用自己的光源 PDF，保留重叠灯及关闭投影灯的贡献；delta 灯的光源侧权重为 1。
+自发光网格的镜面估计两侧均要求原始路径可见及修正起点后的路径可见，确保最近网格发现与光源采样匹配。
+几何发现和 PDF 使用原始接收点；数值偏移仍沿用现有 RayBias 近似。
+
+DirectLighting Pass 已调用新入口。光源使用 SobolBurley4D 的维度组 0，GGX 使用 SobolBurley2D
+的维度组 1；同一像素的 seed 保持稳定，帧号推进序列。Diffuse alpha 保留光源采样距离；
+Specular alpha 取 GGX 最近场景三角形及可见非零发光矩形灯的最近距离。
+关闭投影灯仍可在几何后方贡献 RGB，但不会覆盖更近的场景距离；普通表面命中只提供距离。
+光源无效 / GGX 方向被拒绝时各自距离为 0，miss / 无限距离输出封顶为 65504。
+距离不参与 MIS 或材质去调制，合成只读取 RGB。NormalRoughness 的粗糙度下限为 0.045，
+与实际 BRDF/GGX 采样一致。完整信号契约见 `Feature/SceneTextures/SceneTextures.h`。
+这些仍是引擎原始辅助信号，NRD 接入需要另外匹配 SDK 的打包及距离语义。

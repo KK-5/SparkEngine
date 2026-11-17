@@ -75,11 +75,10 @@ float3 SampleGGXVisibleNormal(float3 localView, float perceptualRoughness, float
     return normalize(float3(alpha * hemisphereNormal.xy, max(0.0, hemisphereNormal.z)));
 }
 
-// N, V and L must be normalized. V and L point away from the surface, and N is
-// the shading normal. Only reflection above N is supported by the current model.
-// Use this same mixture density for both BRDF samples and light-sampled directions.
-float EvaluateBRDFPdf(float3 N, float3 V, float3 L,
-                      float3 diffuseColor, float3 F0, float perceptualRoughness)
+// World-space reflection-direction density for the GGX VNDF proposal alone.
+// N, V and L are unit vectors; V and L point away from the surface. The PDF is
+// with respect to solid angle, with no diffuse/specular selection probability.
+float EvaluateGGXReflectionPdf(float3 N, float3 V, float3 L, float perceptualRoughness)
 {
     const float NoV = saturate(dot(N, V));
     const float NoL = saturate(dot(N, L));
@@ -93,14 +92,69 @@ float EvaluateBRDFPdf(float3 N, float3 V, float3 L,
     const float alphaSquared = alpha * alpha;
     const float3 H = normalize(V + L);
     const float NoH = saturate(dot(N, H));
-    const float diffusePdf = NoL / PI;
 
     // Visible half-vector density: D(H) * G1(V) * VoH / NoV.
     // Reflection Jacobian: 1 / (4 * VoH).
     // Together: D(H) * G1(V) / (4 * NoV), simplified below to avoid a grazing /0.
     // Use actual NoV here, not the numerical floor used by BRDF evaluation.
     const float smithRoot = sqrt(NoV * NoV + alphaSquared * saturate(1.0 - NoV * NoV));
-    const float specularPdf = D_GGX(NoH, alpha) / (2.0 * (NoV + smithRoot));
+    return D_GGX(NoH, alpha) / (2.0 * (NoV + smithRoot));
+}
+
+// Samples a world-space reflected direction, not a half vector. N and V must be
+// normalized; randomSample is uniform in [0,1)^2. This proposes a direction only:
+// no BRDF value, material color, visibility or light contribution is evaluated.
+bool SampleGGXReflection(float3 N, float3 V, float perceptualRoughness,
+                         float2 randomSample, out float3 direction, out float pdf)
+{
+    direction = 0.0;
+    pdf = 0.0;
+    const float NoV = dot(N, V);
+    if (NoV <= 0.0)
+    {
+        return false;
+    }
+    perceptualRoughness = max(perceptualRoughness, BRDF_MIN_PERCEPTUAL_ROUGHNESS);
+
+    float3 tangent;
+    float3 bitangent;
+    BuildBRDFSamplingFrame(N, tangent, bitangent);
+    const float3 localView = float3(dot(V, tangent), dot(V, bitangent), NoV);
+    const float3 halfVector = SampleGGXVisibleNormal(localView, perceptualRoughness, randomSample);
+    const float3 localDirection = reflect(-localView, halfVector);
+    // VNDF reflection can land below the shading hemisphere. Keep it as a zero
+    // contribution; retries would require renormalizing the direction PDF.
+    if (localDirection.z <= 0.0)
+    {
+        return false;
+    }
+
+    const float3 L = normalize(localDirection.x * tangent + localDirection.y * bitangent + localDirection.z * N);
+    const float directionPdf = EvaluateGGXReflectionPdf(N, V, L, perceptualRoughness);
+    if (directionPdf <= 0.0)
+    {
+        return false;
+    }
+    direction = L;
+    pdf = directionPdf;
+    return true;
+}
+
+// N, V and L must be normalized. V and L point away from the surface, and N is
+// the shading normal. Only reflection above N is supported by the current model.
+// Use this same mixture density for both BRDF samples and light-sampled directions.
+float EvaluateBRDFPdf(float3 N, float3 V, float3 L,
+                      float3 diffuseColor, float3 F0, float perceptualRoughness)
+{
+    const float NoV = saturate(dot(N, V));
+    const float NoL = saturate(dot(N, L));
+    if (NoV <= 0.0 || NoL <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float diffusePdf = NoL / PI;
+    const float specularPdf = EvaluateGGXReflectionPdf(N, V, L, perceptualRoughness);
     const float specularPmf = BRDFSpecularSelectionPmf(NoV, diffuseColor, F0);
     return (1.0 - specularPmf) * diffusePdf + specularPmf * specularPdf;
 }
@@ -120,29 +174,25 @@ bool SampleBRDF(float3 N, float3 V, float3 diffuseColor, float3 F0,
     }
     perceptualRoughness = max(perceptualRoughness, BRDF_MIN_PERCEPTUAL_ROUGHNESS);
 
-    float3 tangent;
-    float3 bitangent;
-    BuildBRDFSamplingFrame(N, tangent, bitangent);
-    float3 localDirection;
+    float3 L;
     const float specularPmf = BRDFSpecularSelectionPmf(NoV, diffuseColor, F0);
     if (randomSample.x < specularPmf)
     {
-        const float3 localView = float3(dot(V, tangent), dot(V, bitangent), NoV);
-        const float3 halfVector = SampleGGXVisibleNormal(localView, perceptualRoughness, randomSample.yz);
-        localDirection = reflect(-localView, halfVector);
-        // VNDF reflection can land below the shading hemisphere. It is a zero
-        // contribution; do not retry, or the stated PDF would need renormalization.
-        if (localDirection.z <= 0.0)
+        float specularPdf;
+        if (!SampleGGXReflection(N, V, perceptualRoughness, randomSample.yz, L, specularPdf))
         {
             return false;
         }
     }
     else
     {
-        localDirection = SampleCosineHemisphere(randomSample.yz);
+        float3 tangent;
+        float3 bitangent;
+        BuildBRDFSamplingFrame(N, tangent, bitangent);
+        const float3 localDirection = SampleCosineHemisphere(randomSample.yz);
+        L = normalize(localDirection.x * tangent + localDirection.y * bitangent + localDirection.z * N);
     }
 
-    const float3 L = normalize(localDirection.x * tangent + localDirection.y * bitangent + localDirection.z * N);
     const float pdf = EvaluateBRDFPdf(N, V, L, diffuseColor, F0, perceptualRoughness);
     if (pdf <= 0.0)
     {

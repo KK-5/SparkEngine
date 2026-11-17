@@ -1,9 +1,9 @@
-// One light sample per GBuffer pixel, one shared visibility query for both lobes.
+// One light sample and one pure GGX direction per GBuffer pixel; specular uses MIS.
 // No primary ray, indirect lighting, pre-exposure or temporal accumulation.
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/Lib/DeferredShadingCommon.hlsli>
 #include <Shaders/Lib/Velocity.hlsli>
-#include <Shaders/Lib/RayTracing/RayTracingLighting.hlsli>
+#include <Shaders/Lib/RayTracing/RayTracingDirectLighting.hlsli>
 #include <Shaders/Lib/Sample/SobolBurley.hlsli>
 #include "DirectLightingSignal.hlsli"
 
@@ -39,8 +39,8 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
 
 struct PSOutput
 {
-    float4 Diffuse         : SV_Target0; // demodulated scene-linear RGB, raw hit distance
-    float4 Specular        : SV_Target1;
+    float4 Diffuse         : SV_Target0; // demodulated scene-linear RGB, light-sample distance
+    float4 Specular        : SV_Target1; // demodulated scene-linear RGB, GGX hit distance
     float4 NormalRoughness : SV_Target2; // signed world normal, perceptual roughness
     float  ViewZ           : SV_Target3; // positive linear camera depth
     float2 Motion          : SV_Target4; // previous UV - current UV, without jitter
@@ -63,7 +63,8 @@ PSOutput PSMain(VSOutput input)
 
     const float3 worldPosition = SvPositionToWorld(view, float4(input.Position.xy, gbuffer.Depth, 1.0));
     const float3 N = normalize(gbuffer.WorldNormal);
-    output.NormalRoughness = float4(N, saturate(gbuffer.Roughness));
+    // Match the roughness actually used by BRDF evaluation and GGX sampling.
+    output.NormalRoughness = float4(N, max(saturate(gbuffer.Roughness), BRDF_MIN_PERCEPTUAL_ROUGHNESS));
     output.ViewZ = abs(ConvertFromDeviceZ(view, gbuffer.Depth));
     const float2 velocity = g_Velocity.Load(int3(pixel, 0));
     output.Motion = IsVelocityWritten(velocity) ? -velocity * float2(0.5, -0.5) : float2(2.0, 2.0);
@@ -92,23 +93,24 @@ PSOutput PSMain(VSOutput input)
     settings.RayBias = max(1e-4, max(abs(worldPosition.x), max(abs(worldPosition.y), abs(worldPosition.z))) * 2e-6);
     settings.MaxDistance = 1e30;
     settings.InstanceMask = 0xFF;
-    LightingSampleCounts sampleCounts;
-    sampleCounts.LightSampleCount = 1u;
-    sampleCounts.BRDFSampleCount = 0u; // NEE only: no competing BSDF technique/MIS weight
     const uint2 localPixel = uint2(input.Position.xy - view.viewRectMin.xy);
     const uint seed = MakeSobolBurleyPixelSeed(localPixel, g_Scope.viewIndex);
-    const float4 randomSample = SobolBurley4D(view.frameNumber, 0u, seed);
+    // Keep the existing light sequence. GGX uses a separate dimension set, not
+    // components reused from light selection/shape; seeds stay fixed per pixel.
+    const float4 lightRandomSample = SobolBurley4D(view.frameNumber, 0u, seed);
+    const float2 ggxRandomSample = SobolBurley2D(view.frameNumber, 1u, seed);
     const float3 shadowOriginOffset = g_GBufferShadowOriginOffset.Load(int3(pixel, 0)).xyz;
-    const DirectLightingSample lighting = EvaluateDirectLightingSample(surface, material, V, context,
-        randomSample, g_MaterialSampler, settings, sampleCounts, shadowOriginOffset);
+    const DirectLightingEstimate lighting = EvaluateDirectLightingMIS(surface, material, V, context,
+        lightRandomSample, ggxRandomSample, g_MaterialSampler, settings, shadowOriginOffset);
 
     float3 diffuseFactor;
     float3 specularFactor;
     DirectLightingMaterialFactors(gbuffer.DiffuseColor, gbuffer.SpecularColor, diffuseFactor, specularFactor);
-    // For this NEE-only baseline hitT is receiver-to-light, including for occluded
-    // samples. It is never camera depth or divided by a sampling probability.
-    const float hitDistance = min(lighting.HitDistance, 65504.0);
-    output.Diffuse = float4(lighting.Diffuse / diffuseFactor, hitDistance);
-    output.Specular = float4(lighting.Specular / specularFactor, hitDistance);
+    // Distances are raw world-space guides: no PDF/MIS weighting, averaging or
+    // material factor. Preserve zero for invalid samples and cap miss/infinity.
+    const float diffuseHitDistance = min(lighting.LightSampleDistance, 65504.0);
+    const float specularHitDistance = min(lighting.GGXHitDistance, 65504.0);
+    output.Diffuse = float4(lighting.Diffuse / diffuseFactor, diffuseHitDistance);
+    output.Specular = float4(lighting.Specular / specularFactor, specularHitDistance);
     return output;
 }
