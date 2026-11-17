@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include <Math/Matrix4x4.h>
@@ -20,6 +21,7 @@ namespace Spark::Render
         Math::Matrix4X4 m_invView            = Math::Matrix4X4Const::IDENTITY;
         Math::Matrix4X4 m_viewProjectionNoAA = Math::Matrix4X4Const::IDENTITY;
         Math::Matrix4X4 m_prevViewProjection = Math::Matrix4X4Const::IDENTITY;
+        Math::Matrix4X4 m_prevView           = Math::Matrix4X4Const::IDENTITY;
         Math::Matrix4X4 m_clipToPrevClip     = Math::Matrix4X4Const::IDENTITY;
 
         Math::Vector4   m_temporalAAJitter          {0.0f, 0.0f, 0.0f, 0.0f};
@@ -29,18 +31,25 @@ namespace Spark::Render
         Math::Vector4   m_bufferSizeAndInvSize      {0.0f, 0.0f, 0.0f, 0.0f};
         Math::Vector4   m_inputBufferSizeAndInvSize {0.0f, 0.0f, 0.0f, 0.0f};
         Math::Vector4   m_invDeviceZToViewZ         {0.0f, 0.0f, 0.0f, 0.0f};
+        Math::Vector4   m_prevInvDeviceZToViewZ     {0.0f, 0.0f, 0.0f, 0.0f};
 
         float           m_exposure           = 1.0f;
         float           m_preExposure        = 1.0f;
         float           m_oneOverPreExposure = 1.0f;
         uint32_t        m_frameNumber        = 0;
 
-        float           m_gameTime     = 0.0f;
-        float           m_prevGameTime = 0.0f;
-        float           m_deltaTime    = 0.0f;
-        uint32_t        m_padding0     = 0;
+        float           m_gameTime             = 0.0f;
+        float           m_prevGameTime         = 0.0f;
+        float           m_deltaTime            = 0.0f;
+        uint32_t        m_temporalHistoryValid = 0;
     };
 
-    static_assert(sizeof(ViewData) == 592,
-        "ViewData must stay 592 bytes to match ViewData.hlsli.");
+    static_assert(sizeof(ViewData) == 672,
+        "ViewData must stay 672 bytes to match ViewData.hlsli.");
+    static_assert(offsetof(ViewData, m_prevView) == 384,
+        "The previous view matrix must match ViewData.hlsli.");
+    static_assert(offsetof(ViewData, m_prevInvDeviceZToViewZ) == 624,
+        "Previous depth parameters must match ViewData.hlsli.");
+    static_assert(offsetof(ViewData, m_temporalHistoryValid) == 668,
+        "Temporal history validity must match ViewData.hlsli.");
 }

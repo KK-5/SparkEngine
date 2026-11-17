@@ -1,5 +1,7 @@
 #include "CameraViewSystem.h"
 
+#include <cmath>
+
 #include <EASTL/fixed_vector.h>
 
 #include <ECS/Common.h>
@@ -38,10 +40,26 @@ namespace Spark::Render
         ViewTemporalAA ValidateTemporalAA(const AntiAliasing::TemporalAAComponent& c)
         {
             ViewTemporalAA v;
-            v.m_currentFrameWeight = Math::Clamp(c.m_currentFrameWeight, 0.02f, 0.5f);
-            v.m_motionFrameWeight  = Math::Clamp(c.m_motionFrameWeight, v.m_currentFrameWeight, 1.0f);
-            v.m_varianceClipGamma  = Math::Clamp(c.m_varianceClipGamma, 0.75f, 2.0f);
-            v.m_filterSize         = Math::Clamp(c.m_filterSize, 0.5f, 2.0f);
+            if (std::isfinite(c.m_minVarianceGamma))
+            {
+                v.m_minVarianceGamma = Math::Clamp(c.m_minVarianceGamma, 0.25f, 4.0f);
+            }
+            if (std::isfinite(c.m_maxVarianceGamma))
+            {
+                v.m_maxVarianceGamma = Math::Clamp(c.m_maxVarianceGamma, v.m_minVarianceGamma, 4.0f);
+            }
+            else
+            {
+                v.m_maxVarianceGamma = Math::Clamp(v.m_maxVarianceGamma, v.m_minVarianceGamma, 4.0f);
+            }
+            if (std::isfinite(c.m_motionRejectionPixels))
+            {
+                v.m_motionRejectionPixels = Math::Clamp(c.m_motionRejectionPixels, 1.0f, 1024.0f);
+            }
+            if (std::isfinite(c.m_depthRejectionBias))
+            {
+                v.m_depthRejectionBias = Math::Clamp(c.m_depthRejectionBias, 0.0f, 0.01f);
+            }
             switch (c.m_jitterSamples)
             {
             case AntiAliasing::TemporalAAJitterSamples::Four:

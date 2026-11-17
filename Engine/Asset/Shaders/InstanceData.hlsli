@@ -1,6 +1,6 @@
 // Single definition source for the per-instance GPU record. Any shader needing
 // per-instance data includes this (directly or via InstanceBindings.hlsli).
-// C++ mirror lives in Render/Instance/InstanceData.h — keep the two identical.
+// C++ mirror lives in Render/Binding/Instance/InstanceData.h — keep the two identical (224 bytes).
 #ifndef SPARK_INSTANCE_DATA_HLSLI
 #define SPARK_INSTANCE_DATA_HLSLI
 
@@ -13,6 +13,11 @@ struct InstanceData
     uint     DrawMask;       // one bit per classification tag (DrawMask.h); 0 = not drawn
     uint     GeometryIndex;  // slot into g_Geometries (space6); only meaningful while DrawMask is set
     uint     PipelineKeyIndex; // what each pass's bin table is addressed by (PipelineKeyIndex.h)
+    uint     MotionHistoryValid; // 0 on first appearance, missing history or explicit reset
+    // Scalars avoid a uint3 member's stricter alignment on other backends.
+    uint     Padding0;
+    uint     Padding1;
+    uint     Padding2;
 };
 
 #endif // SPARK_INSTANCE_DATA_HLSLI

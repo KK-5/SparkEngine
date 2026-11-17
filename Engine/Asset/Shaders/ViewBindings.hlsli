@@ -22,11 +22,16 @@ ViewData GetView(uint viewIndex)
 
 //! Device depth -> view-space depth, for the reversed-Z perspective and orthographic
 //! projections Math::PerspectiveFov / OrthographicProjection build.
+float ConvertFromDeviceZ(float4 invDeviceZToViewZ, float deviceZ)
+{
+    return invDeviceZToViewZ.z > 0.5
+        ? invDeviceZToViewZ.y / (deviceZ - invDeviceZToViewZ.x)
+        : (deviceZ - invDeviceZToViewZ.y) / invDeviceZToViewZ.x;
+}
+
 float ConvertFromDeviceZ(ViewData view, float deviceZ)
 {
-    return view.invDeviceZToViewZ.z > 0.5
-        ? view.invDeviceZToViewZ.y / (deviceZ - view.invDeviceZToViewZ.x)
-        : (deviceZ - view.invDeviceZToViewZ.y) / view.invDeviceZToViewZ.x;
+    return ConvertFromDeviceZ(view.invDeviceZToViewZ, deviceZ);
 }
 
 //! A pixel shader's SV_Position back to the world, through the jittered matrix it was

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <EASTL/fixed_vector.h>
 
 #include <Math/Frustum.h>
@@ -10,6 +12,7 @@
 #include <Suballocation/Suballocator.h>
 
 #include "ShadowMapLayout.h"
+#include "View.h"
 
 namespace Spark::Render
 {
@@ -27,22 +30,26 @@ namespace Spark::Render
         Math::Matrix4X4 m_worldToView = Math::Matrix4X4Const::IDENTITY;
         Math::Matrix4X4 m_viewToClip  = Math::Matrix4X4Const::IDENTITY;
         Math::Vector2   m_jitter {0.0f, 0.0f};
+        Math::Vector2Int m_bufferSize {0, 0};
+        ViewRect        m_rect {};
+        uint64_t        m_frameNumber = 0;
         bool            m_valid = false;
     };
 
     //! Discards the view's history this frame: a camera cut or a teleport, where last
-    //! frame's matrices would read as motion.
+    //! frame's matrices would read as motion. ViewBindingSystem consumes the tag
+    //! and exposes the invalidation to GPU consumers through temporalHistoryValid.
     struct ViewHistoryResetTag {};
 
     //! The view runs temporal AA: its source's TemporalAAComponent, validated. Written by
     //! CameraViewSystem; TemporalAAPass and TonemapPass read it.
     struct ViewTemporalAA
     {
-        float    m_currentFrameWeight = 1.0f / 16.0f;
-        float    m_motionFrameWeight  = 0.25f;
-        float    m_varianceClipGamma  = 1.25f;
-        float    m_filterSize         = 1.0f;
-        uint32_t m_jitterSamples      = 8;
+        float    m_minVarianceGamma      = 0.75f;
+        float    m_maxVarianceGamma      = 2.0f;
+        float    m_motionRejectionPixels = 128.0f;
+        float    m_depthRejectionBias    = 0.001f;
+        uint32_t m_jitterSamples         = 8;
     };
 
     //! The view runs bloom: the BloomComponent resolved for its camera (its own, else the

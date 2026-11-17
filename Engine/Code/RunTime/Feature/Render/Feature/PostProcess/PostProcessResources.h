@@ -10,7 +10,7 @@
 //! read by the ones after it.
 namespace Spark::Render::PostProcess
 {
-    //! Written by TemporalAAPass.
+    //! Written by TemporalAAPass: linear HDR RGB, recursive TAA history weight in A.
     const RHI::AttachmentId& TemporalAAName();
 
     //! The finished HDR scene color: TemporalAA while the main view runs temporal AA,

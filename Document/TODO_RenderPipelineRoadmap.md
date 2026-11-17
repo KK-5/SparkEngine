@@ -25,6 +25,7 @@ Lights → IndirectDiffuse → Reflections → Skybox → TemporalAA → Tonemap
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | P1 | 时序基础 + TAA（含提前的 reversed-Z） | **已完成**，见 `TODO_TemporalPlan.md`（`ITemporalUpscaler` 抽象推迟到第二个实现） |
+| P1 后续 | 时域历史验证与去遮挡处理（TAA 首先接入，复用至 NRD / ReSTIR 的数据基础） | T1 用户已确认，T2 运动拖影改善已验证；T3 的 Intel / Microsoft TAA 质量路径已实现并获用户确认，不引入 SDK，专项验收结果尚未逐项记录；T0 跳过，T4 待实现，见 [独立计划](TODO_TemporalHistoryValidationPlan.md) |
 | P2 | 结构对齐（GBuffer / PreExposure / 光照拆分 / ShadowMask） | **已完成**，见 `TODO_StructureAlignPlan.md`（reversed-Z 已提前到 P1 完成） |
 | P3 | 后处理主干（Bloom / Tonemap；曝光分支已推迟） | **已完成**，见 `TODO_PostProcessPlan.md`（Punchy Look 暂缓） |
 | P4 | 屏幕空间效果（HZB / GTAO / Contact Shadow / SSR） | 进行中（I4、HZB 完成，GTAO 已实现，SSR 已完成、画面已确认：质量受限于屏幕空间，定位是混合反射的第一层；剩 Contact Shadow），见 `TODO_ScreenSpacePlan.md` |

@@ -25,6 +25,7 @@
 #include <Binding/SharedGroupLayouts.h>
 #include <Binding/ShaderUsage.h>
 #include <View/ViewComponents.h>
+#include <View/ViewTags.h>
 
 namespace Spark::Render
 {
@@ -57,6 +58,7 @@ namespace Spark::Render
             data.m_invView            = Math::Inverse(view.m_worldToView);
             data.m_viewProjectionNoAA = viewProjectionNoAA;
             data.m_prevViewProjection = prevViewProjection;
+            data.m_prevView           = previous.m_worldToView;
             data.m_clipToPrevClip     = prevViewProjection * Math::Inverse(viewProjectionNoAA);
 
             data.m_temporalAAJitter =
@@ -74,6 +76,7 @@ namespace Spark::Render
             data.m_bufferSizeAndInvSize      = SizeAndInvSize(bufferWidth, bufferHeight);
             data.m_inputBufferSizeAndInvSize = SizeAndInvSize(inputWidth, inputHeight);
             data.m_invDeviceZToViewZ         = Math::DeviceZToViewZParams(view.m_viewToClip);
+            data.m_prevInvDeviceZToViewZ     = Math::DeviceZToViewZParams(previous.m_viewToClip);
 
             data.m_exposure = view.m_exposure;
 
@@ -87,24 +90,50 @@ namespace Spark::Render
             data.m_gameTime     = static_cast<float>(time.m_gameTime);
             data.m_prevGameTime = static_cast<float>(time.m_prevGameTime);
             data.m_deltaTime    = time.m_deltaTime;
+            data.m_temporalHistoryValid = previous.m_valid ? 1u : 0u;
             return data;
         }
 
-        ViewHistory CurrentHistory(const View& view)
+        ViewHistory CurrentHistory(const View& view, const FrameTime& time)
         {
             ViewHistory current;
             current.m_worldToView = view.m_worldToView;
             current.m_viewToClip  = view.m_viewToClip;
             current.m_jitter      = view.m_jitter;
+            current.m_bufferSize  = view.m_bufferSize;
+            current.m_rect        = view.m_rect;
+            current.m_frameNumber = time.m_frameNumber;
             current.m_valid       = true;
             return current;
         }
 
-        //! A view without a valid history encodes its previous frame as the current one.
-        ViewHistory PreviousHistory(RHI::RHIContext& rhiCtx, RHI::RHIHandle entity, const View& view)
+        //! Fixed-size history only. Projection/rect changes restart accumulation;
+        //! jitter is intentionally excluded from the compatibility test.
+        bool IsHistoryCompatible(const ViewHistory& previous, const View& view, const FrameTime& time)
+        {
+            return previous.m_valid
+                && time.m_frameNumber > previous.m_frameNumber
+                && time.m_frameNumber - previous.m_frameNumber == 1u
+                && previous.m_bufferSize == view.m_bufferSize
+                && previous.m_viewToClip == view.m_viewToClip
+                && previous.m_rect.m_minX == view.m_rect.m_minX
+                && previous.m_rect.m_maxX == view.m_rect.m_maxX
+                && previous.m_rect.m_minY == view.m_rect.m_minY
+                && previous.m_rect.m_maxY == view.m_rect.m_maxY;
+        }
+
+        //! Fallback matrices keep motion finite, but must not make history valid.
+        ViewHistory PreviousHistory(RHI::RHIContext& rhiCtx, RHI::RHIHandle entity,
+                                    const View& view, const FrameTime& time)
         {
             const auto* history = rhiCtx.TryGet<ViewHistory>(entity);
-            return (history && history->m_valid) ? *history : CurrentHistory(view);
+            if (history && IsHistoryCompatible(*history, view, time))
+            {
+                return *history;
+            }
+            ViewHistory fallback = CurrentHistory(view, time);
+            fallback.m_valid = false;
+            return fallback;
         }
     }
 
@@ -145,17 +174,19 @@ namespace Spark::Render
         rhiCtx->GetView<View>(Exclude<DeadTag>).each([&](RHI::RHIHandle entity, const View& view)
         {
             rhiCtx->Add<ViewIndex>(entity, ViewIndex{ static_cast<uint32_t>(m_views.size()) });
-            m_views.push_back(EncodeViewData(view, PreviousHistory(*rhiCtx, entity, view), time));
+            m_views.push_back(EncodeViewData(view, PreviousHistory(*rhiCtx, entity, view, time), time));
         });
-        if (!WriteAndBind(*rhiCtx))
+        const bool written = WriteAndBind(*rhiCtx);
+        if (!written)
         {
             rhiCtx->Clear<ViewIndex>();
         }
 
         rhiCtx->GetView<View, ViewHistory>(Exclude<DeadTag>).each(
-            [&](const View& view, ViewHistory& history)
+            [&](RHI::RHIHandle entity, const View& view, ViewHistory& history)
         {
-            history = CurrentHistory(view);
+            history = CurrentHistory(view, time);
+            history.m_valid = written && !rhiCtx->Has<ViewInactiveTag>(entity);
         });
     }
 

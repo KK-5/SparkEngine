@@ -1,12 +1,28 @@
-// Temporal anti-aliasing, after UE4's TemporalAA.usf: reproject last frame's result by the
-// closest-depth velocity of the neighbourhood, clip it to the neighbourhood's colour statistics,
-// and blend it with this frame's colour reconstructed at the unjittered pixel centre. The output
-// is this frame's TemporalAA and next frame's history.
+// Adapted from Intel Graphics Optimized TAA, based on Microsoft's MiniEngine.
+// https://github.com/GameTechDev/TAA/blob/39786709cf70a1e0906196c600f6079571a33ceb/MiniEngine/Core/Shaders/TAAResolve.hlsl
+// Quality path: 9-sample variance clipping, longest velocity, 5-tap bicubic,
+// neighbourhood depth rejection and recursive history weight. Adaptations are
+// documented in Document/TODO_TemporalHistoryValidationPlan.md, section 7.
 //
-// The body is TemporalAA(px), which takes only a pixel coordinate, so a compute entry point
-// can wrap it once compute passes enter the graph.
+// Copyright (c) 2019-2020, Intel Corporation
+// Copyright (c) 2013-2015 Microsoft
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is furnished to do
+// so, subject to the following conditions:
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
-#include <Shaders/ViewBindings.hlsli>
+#include <Shaders/Lib/Temporal/TemporalReprojection.hlsli>
 
 struct ScopeParameters
 {
@@ -15,28 +31,23 @@ struct ScopeParameters
 
 #include <Shaders/ScopeBindings.hlsli>
 
-Texture2D<float4> g_SceneColor : register(t0, space2);
-Texture2D<float>  g_Depth      : register(t1, space2);   // SceneDepth, viewed as R32_FLOAT
-Texture2D<float2> g_Velocity   : register(t2, space2);   // ResolvedVelocity
-Texture2D<float4> g_History    : register(t3, space2);   // last frame's TemporalAA
+Texture2D<float4> g_SceneColor    : register(t0, space2);
+Texture2D<float>  g_Depth         : register(t1, space2);
+Texture2D<float4> g_Velocity      : register(t2, space2); // NDC XY, previousViewZ - currentViewZ, validity
+Texture2D<float4> g_History       : register(t3, space2); // linear HDR RGB, recursive history weight A
+Texture2D<float>  g_PreviousDepth : register(t4, space2); // previous jittered, reversed device Z
 
 SamplerState g_LinearSampler : register(s0, space2);
 
 cbuffer TemporalAAParams : register(b0, space2)
 {
-    // 0 when there is no previous frame: its content is undefined, so it must be selected
-    // away, never weighted — it may hold NaN.
     uint  g_TemporalAAHistoryValid;
-    // From TemporalAAComponent, see there.
-    float g_TemporalAACurrentFrameWeight;
-    float g_TemporalAAMotionFrameWeight;
-    float g_TemporalAAVarianceClipGamma;
-    float g_TemporalAAFilterSize;
+    uint  g_PreviousDepthValid;
+    float g_TemporalAAMinVarianceGamma;
+    float g_TemporalAAMaxVarianceGamma;
+    float g_TemporalAAMotionRejectionPixels; // pixels/frame at 1080p
+    float g_TemporalAADepthRejectionBias;   // fraction of the previous far viewZ, as in MiniEngine
 };
-
-// Motion at which the current frame weight reaches g_TemporalAAMotionFrameWeight: motion makes
-// the history less trustworthy, so the current frame takes over faster.
-static const float kFastMotionPixels = 8.0;
 
 static const int2 kNeighbourOffsets[9] = {
     int2(-1, -1), int2(0, -1), int2(1, -1),
@@ -44,157 +55,295 @@ static const int2 kNeighbourOffsets[9] = {
     int2(-1,  1), int2(0,  1), int2(1,  1),
 };
 
-float Luma(float3 c)
+// Keep a current-frame contribution even if an old history contained alpha=1,
+// or bicubic's negative lobes overshoot. New histories start at 0.5.
+static const float kHistoryWeightLimit = 1.0 - 1.0 / 1024.0;
+static const float kMaxHDR = 65504.0; // output is RGBA16F
+
+float Luma(float3 color)
 {
-    return dot(c, float3(0.2126, 0.7152, 0.0722));
+    return dot(color, float3(0.2126, 0.7152, 0.0722));
 }
 
-// HDR is compressed by luma before any filtering, so a single very bright sample cannot
-// dominate the neighbourhood range or the blend (flicker on highlights).
-float3 ToPerceptual(float3 c)   { return c * rcp(1.0 + Luma(c)); }
-float3 FromPerceptual(float3 c) { return c * rcp(max(1.0 - Luma(c), 1e-4)); }
+float3 ToPerceptual(float3 color)
+{
+    return color * rcp(1.0 + Luma(color));
+}
 
-float3 RGBToYCoCg(float3 c)
+float3 FromPerceptual(float3 color)
+{
+    return color * rcp(max(1.0 - Luma(color), 1e-6));
+}
+
+float3 RGBToYCoCg(float3 color)
 {
     return float3(
-         0.25 * c.r + 0.5 * c.g + 0.25 * c.b,
-         0.5  * c.r             - 0.5  * c.b,
-        -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
+         0.25 * color.r + 0.5 * color.g + 0.25 * color.b,
+         0.5  * color.r                 - 0.5 * color.b,
+        -0.25 * color.r + 0.5 * color.g - 0.25 * color.b);
 }
 
-float3 YCoCgToRGB(float3 c)
+float3 YCoCgToRGB(float3 color)
 {
-    return float3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
+    return float3(color.x + color.y - color.z, color.x + color.z, color.x - color.y - color.z);
 }
 
-// Moves history toward the box centre until it lies inside, keeping its hue direction —
-// a per-channel clamp would shift colour.
-float3 ClipToAABB(float3 history, float3 boxMin, float3 boxMax)
+float3 LoadCurrentColor(int2 px)
 {
-    float3 center  = 0.5 * (boxMax + boxMin);
-    float3 extents = 0.5 * (boxMax - boxMin) + 1e-5;
-    float3 offset  = history - center;
-    float3 unit    = abs(offset / extents);
-    float  maxUnit = max(unit.x, max(unit.y, unit.z));
-    return maxUnit > 1.0 ? center + offset / maxUnit : history;
+    const float3 color = g_SceneColor.Load(int3(px, 0)).rgb;
+    return all(isfinite(color)) ? ToPerceptual(clamp(color, 0.0, kMaxHDR)) : 0.0;
 }
 
-// Gaussian fit of a Blackman-Harris window, distance in pixels scaled by the filter size.
-float ReconstructionWeight(float2 offset)
+// Quality-mode clipping towards the current colour. Intersect all slabs rather
+// than dividing by a zero direction or stopping at a slab while still outside
+// another. Clamping the target handles current-colour outliers outside mean +/- sigma.
+float3 ClipHistoryColor(float3 history, float3 current, float3 mean, float3 sigma, float gamma)
 {
-    offset /= g_TemporalAAFilterSize;
-    return exp(-2.29 * dot(offset, offset));
+    const float3 extents = max(gamma * sigma, 1e-6);
+    const float3 boxMin = mean - extents;
+    const float3 boxMax = mean + extents;
+    const float3 target = clamp(current, boxMin, boxMax);
+    const float3 direction = target - history;
+    float entry = 0.0;
+    [unroll]
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        if (history[axis] < boxMin[axis])
+        {
+            entry = max(entry, (boxMin[axis] - history[axis]) / max(direction[axis], 1e-8));
+        }
+        else if (history[axis] > boxMax[axis])
+        {
+            entry = max(entry, (boxMax[axis] - history[axis]) / min(direction[axis], -1e-8));
+        }
+    }
+    return lerp(history, target, saturate(entry));
 }
 
-// Catmull-Rom in 5 bilinear taps (the corners of the 4x4 kernel are dropped). Sharper than
-// bilinear, which would blur the history a little more every frame.
-float3 SampleHistory(ViewData view, float2 uv)
+float4 SampleHistoryTap(ViewData view, float2 pixelPosition, int2 minPx, int2 maxPx)
 {
-    float2 texSize    = view.bufferSizeAndInvSize.xy;
-    float2 invTexSize = view.bufferSizeAndInvSize.zw;
+    // Replicate the view's edge, not a neighbouring view or unused buffer area.
+    const float2 uv = clamp(pixelPosition, float2(minPx) + 0.5, float2(maxPx) + 0.5)
+                    * view.bufferSizeAndInvSize.zw;
+    return g_History.SampleLevel(g_LinearSampler, uv, 0);
+}
 
-    float2 samplePos = uv * texSize;
-    float2 texPos1   = floor(samplePos - 0.5) + 0.5;
-    float2 f         = samplePos - texPos1;
+// Intel's BicubicSampling5, including its approximated corner contributions.
+// RGB stays linear HDR in storage so Tonemap, Bloom and SSR keep their contract.
+// Alpha is sampled along with RGB, then bounded before use as a weight.
+float4 SampleHistory(ViewData view, float2 viewUV, int2 minPx, int2 maxPx)
+{
+    const float2 samplePosition = view.viewRectMin.xy + viewUV * view.viewSizeAndInvSize.xy;
+    const float2 basePosition = floor(samplePosition - 0.5) + 0.5;
+    const float2 f = samplePosition - basePosition;
+    const float2 f2 = f * f;
+    const float2 f3 = f2 * f;
+    const float2 w0 = -0.5 * f3 + f2 - 0.5 * f;
+    const float2 w1 =  1.5 * f3 - 2.5 * f2 + 1.0;
+    const float2 w2 = -1.5 * f3 + 2.0 * f2 + 0.5 * f;
+    const float2 w3 =  0.5 * f3 - 0.5 * f2;
+    const float2 w12 = w1 + w2;
+    const float2 middle = basePosition + w2 / w12;
 
-    float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
-    float2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
-    float2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
-    float2 w3 = f * f * (-0.5 + 0.5 * f);
+    const float4 top    = SampleHistoryTap(view, float2(middle.x, basePosition.y - 1.0), minPx, maxPx);
+    const float4 left   = SampleHistoryTap(view, float2(basePosition.x - 1.0, middle.y), minPx, maxPx);
+    const float4 center = SampleHistoryTap(view, middle, minPx, maxPx);
+    const float4 right  = SampleHistoryTap(view, float2(basePosition.x + 2.0, middle.y), minPx, maxPx);
+    const float4 bottom = SampleHistoryTap(view, float2(middle.x, basePosition.y + 2.0), minPx, maxPx);
 
-    float2 w12      = w1 + w2;
-    float2 texPos0  = (texPos1 - 1.0) * invTexSize;
-    float2 texPos3  = (texPos1 + 2.0) * invTexSize;
-    float2 texPos12 = (texPos1 + w2 / w12) * invTexSize;
+    return (0.5 * (top + left) * w0.x + top * w12.x + 0.5 * (top + left) * w3.x) * w0.y
+         + (left * w0.x + center * w12.x + right * w3.x) * w12.y
+         + (0.5 * (left + bottom) * w0.x + bottom * w12.x + 0.5 * (right + bottom) * w3.x) * w3.y;
+}
 
-    float4 sum = 0.0;
-    sum += float4(g_History.SampleLevel(g_LinearSampler, float2(texPos12.x, texPos0.y),  0).rgb, 1.0) * (w12.x * w0.y);
-    sum += float4(g_History.SampleLevel(g_LinearSampler, float2(texPos0.x,  texPos12.y), 0).rgb, 1.0) * (w0.x  * w12.y);
-    sum += float4(g_History.SampleLevel(g_LinearSampler, float2(texPos12.x, texPos12.y), 0).rgb, 1.0) * (w12.x * w12.y);
-    sum += float4(g_History.SampleLevel(g_LinearSampler, float2(texPos3.x,  texPos12.y), 0).rgb, 1.0) * (w3.x  * w12.y);
-    sum += float4(g_History.SampleLevel(g_LinearSampler, float2(texPos12.x, texPos3.y),  0).rgb, 1.0) * (w12.x * w3.y);
+struct TemporalSurface
+{
+    int2 Pixel;
+    float DeviceZ;
+    float4 Velocity;
+};
 
-    // The negative lobes can undershoot; the clip below bounds it from the other side.
-    return max(sum.rgb / sum.w, 0.0);
+bool IsSurfaceMotionValid(TemporalSurface surface)
+{
+    return isfinite(surface.DeviceZ) && surface.DeviceZ >= 0.0 && surface.DeviceZ <= 1.0
+        && IsTemporalMotionValid(surface.Velocity.xy)
+        && (surface.DeviceZ == 0.0 || IsVelocityDepthValid(surface.Velocity));
+}
+
+// Intel uses a one-sided occlusion test against the farthest of four previous
+// linear depths. Unlike an absolute difference against one texel, a slope does
+// not reject history simply because reprojection falls between pixel centres.
+// Each invocation keeps the surface's own pixel, depth and complete motion record.
+bool ValidateHistoryDepth(ViewData view, TemporalSurface surface, int2 minPx, int2 maxPx)
+{
+    if (!IsSurfaceMotionValid(surface))
+    {
+        return false;
+    }
+    const float2 rasterUV = TemporalBufferPixelToViewUV(view, float2(surface.Pixel) + 0.5);
+    const float2 previousDepthUV = ReprojectTemporalDepthUV(view, rasterUV, surface.Velocity.xy);
+    if (!IsTemporalViewUVValid(previousDepthUV))
+    {
+        return false;
+    }
+    const float2 previousPosition = view.viewRectMin.xy + previousDepthUV * view.viewSizeAndInvSize.xy;
+    if (surface.DeviceZ == 0.0)
+    {
+        // Sky has no finite depth motion. Do not turn a geometry tap into sky
+        // merely because another tap in its neighbourhood contains background.
+        const int2 previousPx = int2(floor(previousPosition));
+        return g_PreviousDepth.Load(int3(previousPx, 0)) == 0.0;
+    }
+
+    const float expectedViewZ = ConvertFromDeviceZ(view, surface.DeviceZ) + surface.Velocity.z;
+    if (!isfinite(expectedViewZ) || expectedViewZ <= 0.0)
+    {
+        return false;
+    }
+
+    const int2 basePx = int2(floor(previousPosition - 0.5));
+    float farthestViewZ = 0.0;
+    [unroll]
+    for (int y = 0; y < 2; ++y)
+    {
+        [unroll]
+        for (int x = 0; x < 2; ++x)
+        {
+            const int2 samplePx = basePx + int2(x, y);
+            if (all(samplePx >= minPx) && all(samplePx <= maxPx))
+            {
+                const float previousDeviceZ = g_PreviousDepth.Load(int3(samplePx, 0));
+                // An empty footprint cannot validate a surface. Background is
+                // not an infinite far sample that accepts every geometry point.
+                if (isfinite(previousDeviceZ) && previousDeviceZ > 0.0 && previousDeviceZ <= 1.0)
+                {
+                    const float previousViewZ = ConvertFromDeviceZ(view.prevInvDeviceZToViewZ, previousDeviceZ);
+                    if (isfinite(previousViewZ) && previousViewZ > 0.0)
+                    {
+                        farthestViewZ = max(farthestViewZ, previousViewZ);
+                    }
+                }
+            }
+        }
+    }
+    if (farthestViewZ <= 0.0)
+    {
+        return false;
+    }
+
+    // MiniEngine stores linear depth as viewZ / farZ (LinearizeDepthCS.hlsl).
+    // Convert its normalized bias into our positive world-unit viewZ. Infinite
+    // far projections have no finite normalization: use relative view depth there.
+    const float farViewZ = ConvertFromDeviceZ(view.prevInvDeviceZToViewZ, 0.0);
+    const float biasScale = isfinite(farViewZ) && farViewZ > 0.0 ? farViewZ : expectedViewZ;
+    const float bias = g_TemporalAADepthRejectionBias * biasScale
+                     + VelocityDepthQuantizationError(surface.Velocity.z);
+    return expectedViewZ <= farthestViewZ + bias;
+}
+
+float4 EncodeResult(float3 perceptualColor, float historyWeight)
+{
+    const float3 color = FromPerceptual(max(perceptualColor, 0.0));
+    return float4(all(isfinite(color)) ? clamp(color, 0.0, kMaxHDR) : 0.0, historyWeight);
 }
 
 float4 TemporalAA(int2 px)
 {
     const ViewData view = GetView(g_Scope.viewIndex);
+    const int2 minPx = int2(view.viewRectMin.xy);
+    const int2 maxPx = min(minPx + int2(view.viewSizeAndInvSize.xy), int2(view.bufferSizeAndInvSize.xy)) - 1;
 
-    int2 maxPx = int2(view.bufferSizeAndInvSize.xy) - 1;
+    TemporalSurface surface;
+    surface.Pixel = px;
+    surface.DeviceZ = g_Depth.Load(int3(px, 0));
+    surface.Velocity = g_Velocity.Load(int3(px, 0));
+    TemporalSurface motionSurface = surface;
+    const bool centerMotionValid = IsSurfaceMotionValid(surface);
+    float longestMotionSquared = centerMotionValid
+        ? dot(TemporalNDCToUVDelta(surface.Velocity.xy) * view.viewSizeAndInvSize.xy,
+              TemporalNDCToUVDelta(surface.Velocity.xy) * view.viewSizeAndInvSize.xy) : 0.0;
 
-    // The scene was shifted by the jitter, so each sample saw the unjittered image at its own
-    // centre minus the jitter. In pixels, y down.
-    float2 jitterPixels = view.temporalAAJitter.xy * float2(0.5, -0.5) * view.bufferSizeAndInvSize.xy;
-
-    // Neighbourhood: this frame's colour at the unjittered pixel centre, its colour statistics,
-    // and the closest surface's motion. Closest rather than centre, so an edge carries the
-    // foreground's motion and does not smear.
-    float3 current   = 0.0;
-    float  weightSum = 0.0;
-    float3 m1        = 0.0;
-    float3 m2        = 0.0;
-    float3 minColor  = 1e30;
-    float3 maxColor  = -1e30;
-    float  bestDepth = -1.0;
-    int2   bestPx    = px;
+    const float3 current = LoadCurrentColor(px);
+    float3 moment1 = 0.0;
+    float3 moment2 = 0.0;
+    float3 fallback = current;
     [unroll]
     for (int i = 0; i < 9; ++i)
     {
-        int3 samplePx = int3(clamp(px + kNeighbourOffsets[i], 0, maxPx), 0);
-
-        float3 color = RGBToYCoCg(ToPerceptual(g_SceneColor.Load(samplePx).rgb));
-
-        // Reconstruct rather than take the centre sample: it moves with the jitter, so on its
-        // own it changes every frame even when nothing else does.
-        float weight = ReconstructionWeight(float2(kNeighbourOffsets[i]) - jitterPixels);
-        current   += color * weight;
-        weightSum += weight;
-
-        m1 += color;
-        m2 += color * color;
-        minColor = min(minColor, color);
-        maxColor = max(maxColor, color);
-
-        // Reversed-Z: larger is closer.
-        float depth = g_Depth.Load(samplePx);
-        if (depth > bestDepth)
+        const int2 samplePx = clamp(px + kNeighbourOffsets[i], minPx, maxPx);
+        const float3 color = i == 4 ? current : LoadCurrentColor(samplePx);
+        const float3 colorYCoCg = RGBToYCoCg(color);
+        moment1 += colorYCoCg;
+        moment2 += colorYCoCg * colorYCoCg;
+        if (all(kNeighbourOffsets[i] != 0))
         {
-            bestDepth = depth;
-            bestPx    = samplePx.xy;
+            fallback += color;
+        }
+
+        if (centerMotionValid && i != 4)
+        {
+            TemporalSurface candidate;
+            candidate.Pixel = samplePx;
+            candidate.DeviceZ = g_Depth.Load(int3(samplePx, 0));
+            candidate.Velocity = g_Velocity.Load(int3(samplePx, 0));
+            // Never borrow valid history for a first-appearance/reset centre,
+            // or cross the finite-surface / infinite-sky boundary.
+            if (IsSurfaceMotionValid(candidate) && (candidate.DeviceZ == 0.0) == (surface.DeviceZ == 0.0))
+            {
+                const float2 motionPixels = TemporalNDCToUVDelta(candidate.Velocity.xy) * view.viewSizeAndInvSize.xy;
+                const float motionSquared = dot(motionPixels, motionPixels);
+                if (motionSquared > longestMotionSquared)
+                {
+                    motionSurface = candidate;
+                    longestMotionSquared = motionSquared;
+                }
+            }
         }
     }
-    current /= weightSum;
+    // Reference no-history cross/diagonal filter only; valid pixels use the raw
+    // centre sample, with no extra per-frame Gaussian reconstruction blur.
+    fallback *= 0.2;
 
-    // Variance clipping: a min/max box is stretched by one outlier and collapses when a
-    // sub-pixel feature misses the neighbourhood for a frame; mean +- gamma * sigma is not as
-    // sensitive to either. Kept inside min/max so it never admits a colour no sample has.
-    float3 mean   = m1 / 9.0;
-    float3 sigma  = sqrt(max(m2 / 9.0 - mean * mean, 0.0));
-    float3 boxMin = max(mean - g_TemporalAAVarianceClipGamma * sigma, minColor);
-    float3 boxMax = min(mean + g_TemporalAAVarianceClipGamma * sigma, maxColor);
+    const float motionLimit = g_TemporalAAMotionRejectionPixels * (view.viewSizeAndInvSize.y / 1080.0);
+    const float motionConfidence = saturate(1.0 - sqrt(longestMotionSquared) / max(motionLimit, 1e-4));
+    const float2 viewUV = TemporalBufferPixelToViewUV(view, float2(px) + 0.5);
+    const float2 historyUV = ReprojectTemporalHistoryUV(viewUV, motionSurface.Velocity.xy);
+    bool historyValid = g_TemporalAAHistoryValid != 0 && g_PreviousDepthValid != 0
+                     && view.temporalHistoryValid != 0 && centerMotionValid
+                     && motionConfidence > 0.0 && IsTemporalViewUVValid(historyUV);
+    [branch]
+    if (historyValid)
+    {
+        // Centre validation protects newly revealed background from a dilated
+        // foreground vector. The chosen representative also validates its own
+        // depth and B; this remains a coverage heuristic, not a per-colour-tap proof.
+        historyValid = ValidateHistoryDepth(view, surface, minPx, maxPx);
+        if (historyValid && any(motionSurface.Pixel != surface.Pixel))
+        {
+            historyValid = ValidateHistoryDepth(view, motionSurface, minPx, maxPx);
+        }
+    }
+    [branch]
+    if (!historyValid)
+    {
+        return EncodeResult(fallback, 0.5);
+    }
 
-    // Velocity is an NDC delta; NDC y points up, UV y down.
-    float2 velocity = g_Velocity.Load(int3(bestPx, 0));
-    float2 uv       = (float2(px) + 0.5) * view.bufferSizeAndInvSize.zw;
-    float2 prevUV   = uv - velocity * float2(0.5, -0.5);
-
-    bool onScreen     = all(prevUV >= 0.0) && all(prevUV <= 1.0);
-    bool historyValid = g_TemporalAAHistoryValid != 0 && onScreen;
-
-    float3 history = RGBToYCoCg(ToPerceptual(SampleHistory(view, prevUV)));
-    history = ClipToAABB(history, boxMin, boxMax);
-
-    float motionPixels = length(velocity * 0.5 * view.bufferSizeAndInvSize.xy);
-    float blend        = lerp(g_TemporalAACurrentFrameWeight, g_TemporalAAMotionFrameWeight, saturate(motionPixels / kFastMotionPixels));
-    float3 blended     = lerp(history, current, blend);
-
-    // Select, not weight: an invalid history may be NaN, and 0 * NaN is NaN.
-    float3 result = historyValid ? blended : current;
-    result = FromPerceptual(YCoCgToRGB(result));
-    result = any(isnan(result)) || any(isinf(result)) ? 0.0 : result;
-    return float4(result, 1.0);
+    const float4 rawHistory = SampleHistory(view, historyUV, minPx, maxPx);
+    if (!all(isfinite(rawHistory)))
+    {
+        return EncodeResult(fallback, 0.5);
+    }
+    const float3 mean = moment1 * (1.0 / 9.0);
+    const float3 sigma = sqrt(max(moment2 * (1.0 / 9.0) - mean * mean, 0.0));
+    const float gamma = lerp(g_TemporalAAMinVarianceGamma, g_TemporalAAMaxVarianceGamma,
+                             motionConfidence * motionConfidence);
+    const float3 history = ToPerceptual(clamp(rawHistory.rgb, 0.0, kMaxHDR));
+    const float3 clippedHistory = YCoCgToRGB(ClipHistoryColor(
+        RGBToYCoCg(history), RGBToYCoCg(current), mean, sigma, gamma));
+    const float weight = clamp(rawHistory.a, 0.0, kHistoryWeightLimit) * motionConfidence;
+    const float nextWeight = rcp(2.0 - weight);
+    return EncodeResult(lerp(current, clippedHistory, weight), nextWeight);
 }
 
 struct VSOutput
@@ -204,8 +353,7 @@ struct VSOutput
 
 VSOutput VSMain(uint vertexId : SV_VertexID)
 {
-    // Full-screen triangle from SV_VertexID: NDC (-1,-1),(3,-1),(-1,3).
-    float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
+    const float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
     VSOutput output;
     output.position = float4(uv * 2.0 - 1.0, 0.0, 1.0);
     return output;
@@ -213,6 +361,5 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    // Inputs share this pass's target, so the pixel addresses them directly.
     return TemporalAA(int2(input.position.xy));
 }

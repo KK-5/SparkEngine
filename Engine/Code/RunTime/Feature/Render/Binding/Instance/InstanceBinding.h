@@ -23,11 +23,17 @@ namespace Spark::Render
     };
 
     //! The model matrix a renderable was encoded with last frame, on the WORLD entity.
-    //! Absent means no history: the previous transform is taken as the current one.
+    //! Absent/invalid means no history: the previous transform falls back to the current
+    //! one, but motion history stays invalid. Only a geometry-ready encoded frame is valid.
     struct InstanceHistory
     {
         Math::Matrix4X4 m_model{Math::Matrix4X4Const::IDENTITY};
+        bool m_valid = false;
     };
+
+    //! On the WORLD entity: reject this instance's motion history for one encoded
+    //! frame (e.g. teleport or topology replacement). Consumed by InstanceBindingSystem.
+    struct InstanceHistoryResetTag {};
 
     //! The buffer entity g_Instances is a view of, written in the graph. A pass whose shaders
     //! read g_Instances imports it by this tag and declares the read in each Scope.

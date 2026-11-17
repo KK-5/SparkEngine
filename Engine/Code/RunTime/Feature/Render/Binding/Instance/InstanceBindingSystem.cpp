@@ -132,8 +132,9 @@ namespace Spark::Render
         EncodedInstance encoded;
         InstanceData& out = encoded.m_data;
         const auto* history = world.TryGet<InstanceHistory>(entity);
+        const bool historyValid = history && history->m_valid && !world.Has<InstanceHistoryResetTag>(entity);
         out.m_model = transform.m_worldMatrix;
-        out.m_prevModel = history ? history->m_model : transform.m_worldMatrix;
+        out.m_prevModel = historyValid ? history->m_model : transform.m_worldMatrix;
         out.m_normalMatrix = Math::ToMatrix4X4(
             Math::Transpose(Math::Inverse(Math::ToMatrix3X3(transform.m_worldMatrix))));
 
@@ -157,6 +158,7 @@ namespace Spark::Render
         const bool drawable = geometrySlot && world.Has<MeshGeometryReadyTag>(entity);
         out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
         out.m_drawMask = drawable ? DrawListsOf(state) : 0;
+        out.m_motionHistoryValid = historyValid && drawable ? 1u : 0u;
         encoded.m_emissive = encoded.m_emissive && drawable;
         return encoded;
     }
@@ -292,16 +294,14 @@ namespace Spark::Render
             rhiCtx->AddOrReplace<EmissiveInstanceCount>(m_instanceCountEntity, EmissiveInstanceCount{ emissiveCount });
         }
 
-        // Only encoded renderables hold a slot, so history starts on the frame they were first written.
-        world->GetView<InstanceHistory, Transform::WorldTransformMatrix>(Exclude<DeadTag>).each(
-            [](Entity, InstanceHistory& history, const Transform::WorldTransformMatrix& m)
-        {
-            history.m_model = m.m_worldMatrix;
-        });
-        world->GetView<InstanceSlot, Transform::WorldTransformMatrix>(Exclude<InstanceHistory, DeadTag>).each(
+        // Capture only encoded instances, after every record has used the old history.
+        // A mesh still uploading must not make its first drawable frame look historical.
+        world->GetView<InstanceSlot, Transform::WorldTransformMatrix>(Exclude<DeadTag>).each(
             [&](Entity e, const InstanceSlot&, const Transform::WorldTransformMatrix& m)
         {
-            world->Add<InstanceHistory>(e, InstanceHistory{ m.m_worldMatrix });
+            const bool drawable = world->HasAll<GeometrySlot, MeshGeometryReadyTag>(e);
+            world->AddOrReplace<InstanceHistory>(e, InstanceHistory{ m.m_worldMatrix, drawable });
+            world->Remove<InstanceHistoryResetTag>(e);
         });
     }
 
@@ -318,7 +318,7 @@ namespace Spark::Render
         });
         for (Entity entity : lostSource)
         {
-            world.Remove<InstanceSlot>(entity);
+            world.Remove<InstanceSlot, InstanceHistory>(entity);
         }
 
         // Structural write inside iteration: InstanceSlot is only in the exclude set.
@@ -331,6 +331,8 @@ namespace Spark::Render
                 LOG_ERROR("[InstanceBindingSystem] All {} instance slots are taken; an entity is not drawn.", InstanceCapacity);
                 return;
             }
+            // A newly allocated slot must not inherit a stale transform snapshot.
+            world.Remove<InstanceHistory>(entity);
             world.Add<InstanceSlot>(entity, InstanceSlot{ eastl::move(range) });
         });
     }

@@ -99,6 +99,10 @@ namespace Spark::Render
                 s.ReadPreviousImage(PostProcess::TemporalAAName())
                     .Bind(RHI::InputName("g_History"))
                     .BindValid(RHI::InputName("g_TemporalAAHistoryValid"));
+                s.ReadPreviousImage(RHI::AttachmentId("SceneDepth"))
+                    .Format(RHI::Format::R32_FLOAT)
+                    .Bind(RHI::InputName("g_PreviousDepth"))
+                    .BindValid(RHI::InputName("g_PreviousDepthValid"));
                 s.ReadImage(RHI::AttachmentId("SceneColor")).Bind(RHI::InputName("g_SceneColor"));
                 s.ReadImage(RHI::AttachmentId("ResolvedVelocity")).Bind(RHI::InputName("g_Velocity"));
                 // Same R32_FLOAT shader-read view over the typeless depth as LightingPass.
@@ -107,10 +111,10 @@ namespace Spark::Render
                 s.Sampler(RHI::InputName("g_LinearSampler"),
                     RHI::SamplerState::Create(RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Clamp));
 
-                s.Constant(RHI::InputName("g_TemporalAACurrentFrameWeight"), settings->m_currentFrameWeight);
-                s.Constant(RHI::InputName("g_TemporalAAMotionFrameWeight"), settings->m_motionFrameWeight);
-                s.Constant(RHI::InputName("g_TemporalAAVarianceClipGamma"), settings->m_varianceClipGamma);
-                s.Constant(RHI::InputName("g_TemporalAAFilterSize"), settings->m_filterSize);
+                s.Constant(RHI::InputName("g_TemporalAAMinVarianceGamma"), settings->m_minVarianceGamma);
+                s.Constant(RHI::InputName("g_TemporalAAMaxVarianceGamma"), settings->m_maxVarianceGamma);
+                s.Constant(RHI::InputName("g_TemporalAAMotionRejectionPixels"), settings->m_motionRejectionPixels);
+                s.Constant(RHI::InputName("g_TemporalAADepthRejectionBias"), settings->m_depthRejectionBias);
 
                 s.Draw(RHI::DrawLinear(3, 0)); // full-screen triangle
                 s.Close();

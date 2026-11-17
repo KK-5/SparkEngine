@@ -1,5 +1,6 @@
 // Completes GBufferPass's Velocity into ResolvedVelocity, the one every temporal consumer reads.
-// Pixels no geometry wrote (sky) take the camera's motion, rebuilt from SceneDepth.
+// Surface pixels retain all four channels. Uncovered background pixels receive
+// camera rotation only: an infinite sky has no parallax from camera translation.
 
 #include <Shaders/ViewBindings.hlsli>
 #include <Shaders/Lib/Velocity.hlsli>
@@ -11,13 +12,12 @@ struct ScopeParameters
 
 #include <Shaders/ScopeBindings.hlsli>
 
-Texture2D g_Velocity : register(t0, space2);
-Texture2D g_Depth    : register(t1, space2);   // SceneDepth, viewed as R32_FLOAT
+Texture2D<float4> g_Velocity : register(t0, space2);
+Texture2D<float>  g_Depth    : register(t1, space2); // SceneDepth, viewed as R32_FLOAT
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 uv       : TEXCOORD0;
 };
 
 VSOutput VSMain(uint vertexId : SV_VertexID)
@@ -26,7 +26,6 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
     float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
     VSOutput output;
     output.position = float4(uv * 2.0 - 1.0, 0.0, 1.0);
-    output.uv       = uv;
     return output;
 }
 
@@ -34,13 +33,28 @@ float4 PSMain(VSOutput input) : SV_Target0
 {
     int3 px = int3(int2(input.position.xy), 0);   // inputs share this pass's target
 
-    float2 velocity = g_Velocity.Load(px).xy;
-    if (!IsVelocityWritten(velocity))
+    const float4 velocity = g_Velocity.Load(px);
+    if (IsVelocityWritten(velocity.xy))
     {
-        // The pixel centre is a jittered sample; clipToPrevClip expects an unjittered position.
-        const ViewData view = GetView(g_Scope.viewIndex);
-        float4 clipPosition = float4(input.uv * 2.0 - 1.0 - view.temporalAAJitter.xy, g_Depth.Load(px).r, 1.0);
-        velocity = CalcVelocity(clipPosition, mul(view.clipToPrevClip, clipPosition));
+        return velocity;
     }
-    return float4(velocity, 0.0, 0.0);
+
+    // Missing geometry velocity is not sky just because the GBuffer was unwritten.
+    const float deviceZ = g_Depth.Load(px);
+    if (!isfinite(deviceZ) || deviceZ != 0.0)
+    {
+        return float4(kVelocityMax, kVelocityMax, 0.0, 0.0);
+    }
+
+    const ViewData view = GetView(g_Scope.viewIndex);
+    const float2 viewUV = (input.position.xy - view.viewRectMin.xy) * view.viewSizeAndInvSize.zw;
+    const float2 ndc = viewUV * float2(2.0, -2.0) + float2(-1.0, 1.0) - view.temporalAAJitter.xy;
+    // invViewProj includes current jitter, so unproject the original raster NDC.
+    const float4 farWorldH = mul(view.invViewProj, float4(ndc + view.temporalAAJitter.xy, 0.0, 1.0));
+    const float3 eye = mul(view.invView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    // Homogeneous subtraction works for both finite and infinite far planes.
+    const float3 direction = farWorldH.xyz - eye * farWorldH.w;
+    const float4 previousClip = mul(view.prevViewProjection, float4(direction, 0.0));
+    const float2 skyVelocity = CalcVelocity(float4(ndc, 0.0, 1.0), previousClip);
+    return float4(skyVelocity, 0.0, 0.0);
 }

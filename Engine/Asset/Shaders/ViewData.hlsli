@@ -3,7 +3,7 @@
 #ifndef SPARK_VIEW_DATA_HLSLI
 #define SPARK_VIEW_DATA_HLSLI
 
-// 592 bytes.
+// 672 bytes.
 struct ViewData
 {
     float4x4 viewProjection;            // world -> clip, jittered: what rasterizes
@@ -12,6 +12,7 @@ struct ViewData
     float4x4 invView;                   // view  -> world (mul by view origin -> camera world pos)
     float4x4 viewProjectionNoAA;        // world -> clip, unjittered
     float4x4 prevViewProjection;        // previous frame's world -> clip, unjittered
+    float4x4 prevView;                  // previous frame's world -> view
     float4x4 clipToPrevClip;            // unjittered clip -> previous frame's unjittered clip
 
     float4   temporalAAJitter;          // NDC offsets: xy this frame, zw previous frame
@@ -21,6 +22,7 @@ struct ViewData
     float4   bufferSizeAndInvSize;      // target the rect is part of: w, h, 1/w, 1/h
     float4   inputBufferSizeAndInvSize; // input images the region is read from: w, h, 1/w, 1/h
     float4   invDeviceZToViewZ;         // see ConvertFromDeviceZ
+    float4   prevInvDeviceZToViewZ;     // decode previous depth with its own projection
 
     float    exposure;                  // linear pre-tonemap exposure multiplier; 1.0 = neutral
     // Encoding scale, not an artistic one: every shader that writes SceneColor multiplies
@@ -33,7 +35,7 @@ struct ViewData
     float    gameTime;                  // seconds; stops under pause, stretches under time scale
     float    prevGameTime;
     float    deltaTime;                 // game time step
-    uint     padding0;
+    uint     temporalHistoryValid;     // 0 on reset, missing/nonconsecutive view history or incompatible layout/projection
 };
 
 #endif // SPARK_VIEW_DATA_HLSLI

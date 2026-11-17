@@ -16,15 +16,16 @@ namespace Spark::AntiAliasing
     //! On a camera entity: its view runs temporal anti-aliasing. Presence enables it.
     struct TemporalAAComponent
     {
-        //! Weight of the current frame when static. Lower is smoother, higher reacts faster.
-        float m_currentFrameWeight = 1.0f / 16.0f;
-        //! Weight of the current frame under fast motion; at least the static weight.
-        float m_motionFrameWeight = 0.25f;
-        //! Clip box half-width in standard deviations. Wider flickers less, ghosts more.
-        float m_varianceClipGamma = 1.25f;
-        //! Width of the current-frame reconstruction filter. Wider is softer and steadier.
-        float m_filterSize = 1.0f;
-        //! Length of the jitter sequence. More needs a lower frame weight to pay off.
+        //! Variance box width under motion, in standard deviations (Intel quality path).
+        float m_minVarianceGamma = 0.75f;
+        //! Variance box width when stationary. Wider preserves detail but admits more history.
+        float m_maxVarianceGamma = 2.0f;
+        //! Motion at which history is discarded, in pixels/frame at 1080p; scales with view height.
+        float m_motionRejectionPixels = 128.0f;
+        //! Depth bias as a fraction of the far clip distance, matching MiniEngine's normalized Z.
+        //! E.g. 0.001 at far=1000 allows 1 world unit. Smaller rejects closer depth separations.
+        float m_depthRejectionBias = 0.001f;
+        //! Length of the jitter sequence; accumulation weight is maintained in history alpha.
         TemporalAAJitterSamples m_jitterSamples = TemporalAAJitterSamples::Eight;
     };
 }

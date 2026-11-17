@@ -50,7 +50,7 @@ namespace Spark::Render
         rt.m_colorFormats[1]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferNormal
         rt.m_colorFormats[2]      = RHI::Format::R8G8B8A8_UNORM;      // GBufferSurface
         rt.m_colorFormats[3]      = RHI::Format::R8G8B8A8_UNORM_SRGB; // GBufferBaseColor
-        rt.m_colorFormats[4]      = RHI::Format::R16G16_FLOAT;        // Velocity (NDC)
+        rt.m_colorFormats[4]      = RHI::Format::R16G16B16A16_FLOAT;  // Velocity (NDC XY, viewZ delta, validity)
         rt.m_colorFormats[5]      = RHI::Format::R10G10B10A2_UNORM;   // GBufferGeometricNormal
         rt.m_colorFormats[6]      = RHI::Format::R16G16B16A16_FLOAT;  // GBufferShadowOriginOffset
         rt.m_depthStencilFormat   = RHI::Format::D32_FLOAT;
@@ -146,7 +146,7 @@ namespace Spark::Render
                 createColor("GBufferBaseColor", RHI::Format::R8G8B8A8_UNORM_SRGB,
                     RHI::ClearValue::CreateVector4Float(0.f, 0.f, 0.f, 1.f));
                 // kVelocityUnwritten in Lib/Velocity.hlsli: marks pixels no geometry covered.
-                createColor("Velocity", RHI::Format::R16G16_FLOAT,
+                createColor("Velocity", RHI::Format::R16G16B16A16_FLOAT,
                     RHI::ClearValue::CreateVector4Float(65504.f, 65504.f, 0.f, 0.f));
                 createColor("GBufferGeometricNormal", RHI::Format::R10G10B10A2_UNORM,
                     RHI::ClearValue::CreateVector4Float(0.5f, 0.5f, 1.f, 0.f));

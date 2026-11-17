@@ -27,7 +27,9 @@ struct VSOutput
     float4 ClipPosition     : CLIP_POSITION;        // unjittered
     float4 PrevClipPosition : PREV_CLIP_POSITION;   // last frame, unjittered
     float3 WorldPosition    : WORLD_POSITION;
+    float2 ViewDepths       : VIEW_DEPTHS; // current/previous viewZ of the same model-space point
     nointerpolation uint InstanceIndex : INSTANCE_INDEX;
+    nointerpolation uint MotionHistoryValid : MOTION_HISTORY_VALID;
 };
 
 struct PSOutput
@@ -36,7 +38,7 @@ struct PSOutput
     float4 normal     : SV_Target1;  // GBufferNormal, see Lib/DeferredShadingCommon.hlsli
     float4 surface    : SV_Target2;  // GBufferSurface
     float4 baseColor  : SV_Target3;  // GBufferBaseColor
-    float4 velocity   : SV_Target4;  // rg NDC motion, see Lib/Velocity.hlsli
+    float4 velocity   : SV_Target4;  // rg NDC motion, b viewZ delta, a validity; see Lib/Velocity.hlsli
     float4 geometricNormal : SV_Target5; // geometric, world-space, facing the camera
     float4 shadowOriginOffset : SV_Target6; // signed world-space displacement, alpha unused
 };
@@ -63,7 +65,9 @@ VSOutput VSMain(VertexFactoryInput input)
     output.ClipPosition     = mul(view.viewProjectionNoAA, worldPosition);
     output.PrevClipPosition = mul(view.prevViewProjection, prevWorldPosition);
     output.WorldPosition = worldPosition.xyz;
+    output.ViewDepths = float2(mul(view.view, worldPosition).z, mul(view.prevView, prevWorldPosition).z);
     output.InstanceIndex = input.InstanceIndex;
+    output.MotionHistoryValid = intermediates.Instance.MotionHistoryValid & view.temporalHistoryValid;
     return output;
 }
 
@@ -124,7 +128,8 @@ PSOutput PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace, uint primitiv
     inputs.Roughness = sqrt(sqrt(CalculateSpecularAA(parameters.WorldNormal, roughnessA2)));
 
     PSOutput output = EncodeGBuffer(parameters, inputs);
-    output.velocity = float4(CalcVelocity(input.ClipPosition, input.PrevClipPosition), 0.0, 0.0);
+    output.velocity = CalcSurfaceVelocity(input.ClipPosition, input.PrevClipPosition,
+        input.ViewDepths, input.MotionHistoryValid != 0u);
     const float3 eye = mul(GetView(g_Scope.viewIndex).invView, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     const float3 Ng = ComputeGeometricNormal(ddx(input.WorldPosition), ddy(input.WorldPosition),
         parameters.WorldVertexNormal, eye - input.WorldPosition);

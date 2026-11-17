@@ -189,3 +189,61 @@ TEST_F(InstanceBindingSystemTest, SharedMaterialsClassifyEachInstanceIndependent
     EXPECT_FALSE(EncodeInstanceData(world, a).m_emissive);
     EXPECT_TRUE(EncodeInstanceData(world, b).m_emissive);
 }
+
+TEST_F(InstanceBindingSystemTest, FirstAppearanceHasNoMotionHistoryDespiteTheFallbackMatrix)
+{
+    const Entity entity = AddInstance(defaultMaterial);
+    world.Get<Transform::WorldTransformMatrix>(entity).m_worldMatrix[3][2] = 3.0f;
+    const auto encoded = EncodeInstanceData(world, entity);
+
+    EXPECT_EQ(encoded.m_data.m_motionHistoryValid, 0u);
+    EXPECT_EQ(encoded.m_data.m_prevModel[3][2], 3.0f);
+    EXPECT_FALSE(world.Has<InstanceHistory>(entity));
+}
+
+TEST_F(InstanceBindingSystemTest, StaticInstanceWithARealHistoryRemainsValid)
+{
+    const Entity entity = AddInstance(defaultMaterial);
+    world.Add<InstanceHistory>(entity, InstanceHistory{ Math::Matrix4X4Const::IDENTITY, true });
+
+    EXPECT_EQ(EncodeInstanceData(world, entity).m_data.m_motionHistoryValid, 1u);
+}
+
+TEST_F(InstanceBindingSystemTest, MovingInstanceUsesThePreviousCorrespondingTransform)
+{
+    const Entity entity = AddInstance(defaultMaterial);
+    Math::Matrix4X4 previous = Math::Matrix4X4Const::IDENTITY;
+    previous[3][2] = 4.0f;
+    world.Add<InstanceHistory>(entity, InstanceHistory{ previous, true });
+    world.Get<Transform::WorldTransformMatrix>(entity).m_worldMatrix[3][2] = 3.0f;
+    const auto encoded = EncodeInstanceData(world, entity);
+
+    EXPECT_EQ(encoded.m_data.m_motionHistoryValid, 1u);
+    EXPECT_EQ(encoded.m_data.m_prevModel[3][2], 4.0f);
+    EXPECT_EQ(encoded.m_data.m_model[3][2], 3.0f);
+}
+
+TEST_F(InstanceBindingSystemTest, ExplicitResetRejectsHistoryWithoutDestroyingTheSnapshotDuringEncoding)
+{
+    const Entity entity = AddInstance(defaultMaterial);
+    world.Add<InstanceHistory>(entity, InstanceHistory{ Math::Matrix4X4Const::IDENTITY, true });
+    world.Get<Transform::WorldTransformMatrix>(entity).m_worldMatrix[3][2] = 3.0f;
+    world.Add<InstanceHistoryResetTag>(entity);
+    const auto encoded = EncodeInstanceData(world, entity);
+
+    EXPECT_EQ(encoded.m_data.m_motionHistoryValid, 0u);
+    EXPECT_EQ(encoded.m_data.m_prevModel[3][2], 3.0f);
+    EXPECT_TRUE(world.Has<InstanceHistoryResetTag>(entity));
+    EXPECT_EQ(world.Get<InstanceHistory>(entity).m_model[3][2], 0.0f);
+}
+
+TEST_F(InstanceBindingSystemTest, InvalidSnapshotOrUnavailableGeometryCannotSupplyMotionHistory)
+{
+    const Entity entity = AddInstance(defaultMaterial);
+    world.Add<InstanceHistory>(entity, InstanceHistory{ Math::Matrix4X4Const::IDENTITY, false });
+    EXPECT_EQ(EncodeInstanceData(world, entity).m_data.m_motionHistoryValid, 0u);
+
+    world.Get<InstanceHistory>(entity).m_valid = true;
+    world.Remove<MeshGeometryReadyTag>(entity);
+    EXPECT_EQ(EncodeInstanceData(world, entity).m_data.m_motionHistoryValid, 0u);
+}

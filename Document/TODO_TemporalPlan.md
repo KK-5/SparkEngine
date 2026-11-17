@@ -12,6 +12,13 @@
 
 ## 状态
 
+后续独立事项：[时域历史验证与去遮挡处理](TODO_TemporalHistoryValidationPlan.md)。补充 TAA 的几何历史验证，
+统一后续降噪与 ReSTIR 可复用的重投影数据约定，不重做本计划已完成的跨帧资源机制。
+其中 T2 已将下文最初的 RG16F 速度图扩为 RGBA16F，新增对应点深度差和表面运动有效位；最新契约见独立计划与 `Lib/Velocity.hlsli`。
+后续 T3 已完成 Intel / Microsoft 公开 TAA 质量路径的代码移植，用户已确认本次修改；专项验收结果见独立计划。保留现有历史基础设施，
+不引入新的 SDK。使用 bicubic、9 样本自适应方差裁剪及 alpha 累积权重，旧固定混合/滤波参数已替换；
+参数和适配差异见独立计划 §7.6。以下步骤 8 记录的是原有实现。
+
 | 步骤 | 内容 | 状态 |
 |---|---|---|
 | 1 | reversed-Z | 已完成（画面已验证；含 `ShadowViewSystem` 近平面反推修复） |
@@ -283,13 +290,13 @@ RenderGraph 持有一个 `ImagePool`（committed，释放按 `frameCountMax` 延
 | 级别 | 触发 | 处理 |
 |---|---|---|
 | 资源级 | 首次读取、描述符变化、读取方恢复 | 读取的 attachment 带 `PreviousFrameMissingTag`，执行期 `IsPreviousFrameMissing` 查询 |
-| 视图级 | 镜头切换（`ViewHistoryResetTag`） | ViewBindings 增加 `g_CameraCut`，逐 view 生效（未做） |
+| 视图级 | 镜头切换（`ViewHistoryResetTag`）等历史不兼容 | `ViewData.temporalHistoryValid` 逐 view 生效，历史验证 T1 已实现、待验证 |
 
 视图级不能让整张图失效：多个 view 共享同一张图，各占一块 rect，左半屏切镜头时右半屏的历史仍然有效。逐 view 执行的地方是
-shader，所以标志放在 ViewBindings 里，消费者写成 `historyWeight = g_CameraCut ? 0 : historyWeight`。
+shader，所以有效位放在 ViewBindings 里，消费者在历史无效时直接选择当前帧。
 
-`ViewHistoryResetTag` 的存活期改为整帧：由 `RenderSystem::OnTick` 在 `ExecutePipeline` 之后统一移除。目前还没有生产者，
-来源在世界层（切换相机、瞬移、加载场景）。
+`ViewHistoryResetTag` 由唯一的 `ViewBindingSystem` 编码入口消费，产生的 GPU 有效位供整帧消费者读取，
+不要求 tag 保留整帧。显式切镜头/瞬移的生产者仍需按场景接入；首帧、帧不连续和尺寸/rect/投影变化由编码入口识别。
 
 ### 暂不处理
 
@@ -360,7 +367,7 @@ shader，所以标志放在 ViewBindings 里，消费者写成 `historyWeight = 
   `ImagePool` 先于引用它图的 SRG 销毁，D3D12MA 报未释放分配。临时补丁：`ReapPassShaderBindings` 直接销毁 per-pass SRG（不走
   `DeadTag`）。正解是按 Init 逆序关闭、关闭前全局等待 GPU 空闲，另行处理。
 - 多相机 / 多主 view：只取第一个主 view 的设置，与步骤 7 的单 view 限制一致。
-- 镜头切换失效（`g_CameraCut`）未做，尚无 `ViewHistoryResetTag` 的产生者。
+- 历史验证 T1 已通过 `temporalHistoryValid` 接入视图级失效；显式切镜头/瞬移的 `ViewHistoryResetTag` 生产者仍待接入。
 
 ### 后续方向
 

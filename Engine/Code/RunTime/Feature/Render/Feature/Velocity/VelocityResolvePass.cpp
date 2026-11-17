@@ -46,7 +46,7 @@ namespace Spark::Render
         // Every pixel is written, so no depth test and no depth attachment.
         RHI::RenderTargetLayout rt;
         rt.m_colorAttachmentCount = 1;
-        rt.m_colorFormats[0]      = RHI::Format::R16G16_FLOAT;
+        rt.m_colorFormats[0]      = RHI::Format::R16G16B16A16_FLOAT;
 
         RHI::InputStreamLayoutBuilder builder;
         builder.SetTopology(RHI::PrimitiveTopology::TriangleList);
@@ -82,7 +82,7 @@ namespace Spark::Render
                 const auto size = p.GetRenderSize();
                 p.CreateImage(RHI::AttachmentId("ResolvedVelocity"), RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
-                    size.x, size.y, RHI::Format::R16G16_FLOAT));
+                    size.x, size.y, RHI::Format::R16G16B16A16_FLOAT));
 
                 // Cleared so a warmup frame whose draw is dropped still reads as no motion.
                 RHI::AttachmentLoadStoreAction clear;
