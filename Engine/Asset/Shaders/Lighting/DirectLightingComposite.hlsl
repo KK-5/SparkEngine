@@ -35,8 +35,7 @@ float4 PSMain(VSOutput input) : SV_Target0
     const float3 baseColor = g_GBufferBaseColor.Load(int3(pixel, 0)).rgb;
     float3 diffuseFactor;
     float3 specularFactor;
-    DirectLightingMaterialFactors(ComputeDiffuseColor(baseColor, surface.r),
-        ComputeF0(surface.g, baseColor, surface.r), diffuseFactor, specularFactor);
+    DirectLightingMaterialFactors(ComputeDiffuseColor(baseColor, surface.r), ComputeF0(surface.g, baseColor, surface.r), diffuseFactor, specularFactor);
     const float3 radiance = g_DirectDiffuse.Load(int3(pixel, 0)).rgb * diffuseFactor
                          + g_DirectSpecular.Load(int3(pixel, 0)).rgb * specularFactor;
     // SceneColor already contains sharp emissive. Only the composition applies

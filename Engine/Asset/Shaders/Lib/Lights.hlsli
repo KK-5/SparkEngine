@@ -70,7 +70,8 @@ float3 EvaluateLightResponse(LightData light, float3 worldPos, float3 N, float3 
 
     float3 L;
     float3 radiance = EvaluateLight(light, worldPos, L);
-    return EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness) * radiance;
+    const BRDFResult brdf = EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness);
+    return (brdf.Diffuse + brdf.Specular) * radiance;
 }
 
 #endif // SPARK_LIB_LIGHTS_HLSLI

@@ -211,6 +211,7 @@ namespace Spark::Render
             d.m_right      = rd.m_worldRight;
             d.m_halfWidth  = rd.m_halfWidth;
             d.m_halfHeight = rd.m_halfHeight;
+            d.m_castShadow = rd.m_castShadow ? 1u : 0u;
 
             // Read from the light: g_Lights is packed by iteration order while the shadow maps
             // are not, so this is the one place the two index spaces meet.

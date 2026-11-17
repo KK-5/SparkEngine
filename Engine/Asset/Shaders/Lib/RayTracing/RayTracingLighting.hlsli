@@ -26,6 +26,11 @@ struct LightingSampleCounts
 bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSample,
                                  RayTracingLightingSettings settings, float3 shadowOriginOffset)
 {
+    if (!lightSample.CastShadow)
+    {
+        return true;
+    }
+
     RayDesc shadowRay;
     // Preserve the receiver position used by sampling, PDFs and raw hit distance.
     shadowRay.Origin = surface.WorldPosition + shadowOriginOffset
@@ -93,8 +98,8 @@ DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTr
     {
         return result;
     }
-    const BRDFResponse response = EvaluateRayTracingBRDFLobes(material, V, lightSample.Direction);
-    if (!any(response.Diffuse + response.Specular > 0.0) || !any(lightSample.Radiance > 0.0))
+    const BRDFResult brdf = EvaluateRayTracingBRDF(material, V, lightSample.Direction);
+    if (!any(brdf.Diffuse + brdf.Specular > 0.0) || !any(lightSample.Radiance > 0.0))
     {
         return result;
     }
@@ -116,8 +121,8 @@ DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTr
         float(sampleCounts.LightSampleCount) * lightPdf,
         float(sampleCounts.BRDFSampleCount) * brdfPdf);
     const float3 incident = lightSample.Radiance * (weight / lightPdf);
-    result.Diffuse = response.Diffuse * incident;
-    result.Specular = response.Specular * incident;
+    result.Diffuse = brdf.Diffuse * incident;
+    result.Specular = brdf.Specular * incident;
     return result;
 }
 

@@ -150,7 +150,8 @@ bool SampleBRDF(float3 N, float3 V, float3 diffuseColor, float3 F0,
     }
     brdfSample.Direction = L;
     brdfSample.Pdf = pdf;
-    brdfSample.Response = EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness);
+    const BRDFResult brdf = EvaluateBRDF(N, V, L, diffuseColor, F0, perceptualRoughness);
+    brdfSample.Response = brdf.Diffuse + brdf.Specular;
     return true;
 }
 

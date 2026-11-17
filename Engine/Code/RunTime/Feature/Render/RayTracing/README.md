@@ -29,7 +29,8 @@ if (TraceClosestOpaqueTriangle(ray, 0xff, hit))
     RayTracingSurface surface = LoadRayTracingSurface(ray, hit);
     RayTracingMaterial material = EvaluateRayTracingMaterial(surface, samplerState, mipLevel);
     // 材质输出包括 WorldNormal、DiffuseColor、SpecularColor、Inputs.EmissiveColor 等。
-    // EvaluateRayTracingBRDF 返回 BRDF * NoL；尚未乘光源亮度或可见性。
+    // EvaluateRayTracingBRDF 返回 BRDFResult，Diffuse / Specular 均包含 NoL；
+    // 尚未乘光源亮度或可见性，需要总值时显式将两项相加。
 }
 ```
 

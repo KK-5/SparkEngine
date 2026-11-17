@@ -30,7 +30,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     shadow.TMin = 0.0;
     shadow.TMax = 1000.0;
     const float visibility = TraceOpaqueVisibility(shadow, 0xff) ? 1.0 : 0.0;
-    g_Output[0] = float4(EvaluateRayTracingBRDF(material, V, L) * visibility + material.Inputs.EmissiveColor, hit.T);
+    const BRDFResult brdf = EvaluateRayTracingBRDF(material, V, L);
+    g_Output[0] = float4((brdf.Diffuse + brdf.Specular) * visibility + material.Inputs.EmissiveColor, hit.T);
     g_Output[1] = float4(surface.WorldPosition, float(hit.InstanceIndex));
     g_Output[2] = float4(surface.WorldGeometricNormal, float(hit.PrimitiveIndex));
     g_Output[3] = float4(material.WorldNormal, material.Inputs.Roughness);

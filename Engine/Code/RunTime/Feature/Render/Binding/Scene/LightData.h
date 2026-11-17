@@ -7,7 +7,7 @@
 namespace Spark::Render
 {
     //! Per-light GPU record, one element of the global g_Lights StructuredBuffer (space0).
-    //! HLSL mirror lives in SceneBindings.hlsli — the two MUST stay byte-for-byte identical
+    //! HLSL mirror lives in LightData.hlsli — the two MUST stay byte-for-byte identical
     //! (the static_assert below is the only automatic guard).
     //!
     //! Assembled each frame by SceneBindingSystem from Light::LightRenderData — a pure
@@ -24,7 +24,7 @@ namespace Spark::Render
         float         m_invRange  = 0.0f;      // 1/range for attenuation (0 = directional)
         float         m_cosInner  = 1.0f;      // spot cone
         float         m_cosOuter  = 1.0f;
-        int32_t       m_shadowIndex = -1;      // first shadow map, and g_ShadowViews row; -1 = casts no shadow
+        int32_t       m_shadowIndex = -1;      // first shadow map, and g_ShadowViews row; -1 = no shadow map
 
         //! Shadow maps the light holds from m_shadowIndex on, a cube's being its faces. Above 1
         //! the shader adds a face index to m_shadowIndex; a face not committed this frame still
@@ -42,8 +42,11 @@ namespace Spark::Render
         float         m_halfWidth  = 0.0f;     // rect, world units
         float         m_halfHeight = 0.0f;
 
+        //! Authoring switch, independent of shadow-map allocation. 0 skips RT visibility.
+        uint32_t      m_castShadow = 1;
+
         //! To the next 16B boundary, and where the next field goes.
-        uint32_t      m_padding[2] = {};
+        uint32_t      m_padding = 0;
     };
 
     // 96B. StructuredBuffer elements are tightly C-packed, so sizeof must match the HLSL

@@ -59,6 +59,8 @@ struct LightSample
     // Whether the renderer's scattering-ray emitter evaluation supports this
     // representation (on a hit or miss). This is a capability, not visibility.
     bool SupportsBSDFSampling;
+    // Scene-light authoring switch. Emissive mesh samples always cast shadows.
+    bool CastShadow;
 };
 
 float UniformLightSelectionPmf(uint emissiveInstanceCount)
@@ -126,6 +128,7 @@ bool EvaluateLightSampleGeometry(LightSamplingContext context, LightSampleLocati
 {
     lightSample = (LightSample)0;
     lightSample.Location = location;
+    lightSample.CastShadow = true;
     emitterParameters = (MaterialPixelParameters)0;
     float areaPdf = 0.0;
 
@@ -136,6 +139,7 @@ bool EvaluateLightSampleGeometry(LightSamplingContext context, LightSampleLocati
             return false;
         }
         const LightData light = GetLight(location.Light.Index);
+        lightSample.CastShadow = light.castShadow != 0u;
         if (light.type == 0u)
         {
             if (dot(light.direction, light.direction) == 0.0)
