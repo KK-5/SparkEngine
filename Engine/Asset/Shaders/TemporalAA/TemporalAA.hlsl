@@ -55,10 +55,8 @@ static const int2 kNeighbourOffsets[9] = {
     int2(-1,  1), int2(0,  1), int2(1,  1),
 };
 
-// Keep a current-frame contribution even if an old history contained alpha=1,
-// or bicubic's negative lobes overshoot. New histories start at 0.5.
-static const float kHistoryWeightLimit = 1.0 - 1.0 / 1024.0;
-static const float kMaxHDR = 65504.0; // output is RGBA16F
+static const float kMaxEdgeClipRelaxation = 0.25;
+static const float kEdgeClipMotionLimit = 0.5; // pixels per frame
 
 float Luma(float3 color)
 {
@@ -72,7 +70,7 @@ float3 ToPerceptual(float3 color)
 
 float3 FromPerceptual(float3 color)
 {
-    return color * rcp(max(1.0 - Luma(color), 1e-6));
+    return color * rcp(1.0 - Luma(color));
 }
 
 float3 RGBToYCoCg(float3 color)
@@ -90,16 +88,15 @@ float3 YCoCgToRGB(float3 color)
 
 float3 LoadCurrentColor(int2 px)
 {
-    const float3 color = g_SceneColor.Load(int3(px, 0)).rgb;
-    return all(isfinite(color)) ? ToPerceptual(clamp(color, 0.0, kMaxHDR)) : 0.0;
+    return ToPerceptual(g_SceneColor.Load(int3(px, 0)).rgb);
 }
 
-// Quality-mode clipping towards the current colour. Intersect all slabs rather
-// than dividing by a zero direction or stopping at a slab while still outside
-// another. Clamping the target handles current-colour outliers outside mean +/- sigma.
+// Quality-mode clipping towards the current colour. Clamping the target handles
+// current-colour outliers outside mean +/- sigma. For an outside component, the
+// direction towards this target is necessarily nonzero, even at zero variance.
 float3 ClipHistoryColor(float3 history, float3 current, float3 mean, float3 sigma, float gamma)
 {
-    const float3 extents = max(gamma * sigma, 1e-6);
+    const float3 extents = gamma * sigma;
     const float3 boxMin = mean - extents;
     const float3 boxMax = mean + extents;
     const float3 target = clamp(current, boxMin, boxMax);
@@ -110,11 +107,11 @@ float3 ClipHistoryColor(float3 history, float3 current, float3 mean, float3 sigm
     {
         if (history[axis] < boxMin[axis])
         {
-            entry = max(entry, (boxMin[axis] - history[axis]) / max(direction[axis], 1e-8));
+            entry = max(entry, (boxMin[axis] - history[axis]) / direction[axis]);
         }
         else if (history[axis] > boxMax[axis])
         {
-            entry = max(entry, (boxMax[axis] - history[axis]) / min(direction[axis], -1e-8));
+            entry = max(entry, (boxMax[axis] - history[axis]) / direction[axis]);
         }
     }
     return lerp(history, target, saturate(entry));
@@ -130,7 +127,7 @@ float4 SampleHistoryTap(ViewData view, float2 pixelPosition, int2 minPx, int2 ma
 
 // Intel's BicubicSampling5, including its approximated corner contributions.
 // RGB stays linear HDR in storage so Tonemap, Bloom and SSR keep their contract.
-// Alpha is sampled along with RGB, then bounded before use as a weight.
+// Alpha is sampled along with RGB, as in the reference accumulation path.
 float4 SampleHistory(ViewData view, float2 viewUV, int2 minPx, int2 maxPx)
 {
     const float2 samplePosition = view.viewRectMin.xy + viewUV * view.viewSizeAndInvSize.xy;
@@ -165,43 +162,79 @@ struct TemporalSurface
 
 bool IsSurfaceMotionValid(TemporalSurface surface)
 {
-    return isfinite(surface.DeviceZ) && surface.DeviceZ >= 0.0 && surface.DeviceZ <= 1.0
-        && IsTemporalMotionValid(surface.Velocity.xy)
-        && (surface.DeviceZ == 0.0 || IsVelocityDepthValid(surface.Velocity));
+    // GBuffer/VelocityResolve provide valid depth and finite depth motion. Read
+    // their invalid-motion sentinel and A flag instead of revalidating the data.
+    return IsTemporalMotionValid(surface.Velocity.xy)
+        && (surface.DeviceZ == 0.0 || surface.Velocity.w > 0.5);
 }
 
-// Intel uses a one-sided occlusion test against the farthest of four previous
-// linear depths. Unlike an absolute difference against one texel, a slope does
-// not reject history simply because reprojection falls between pixel centres.
-// Each invocation keeps the surface's own pixel, depth and complete motion record.
-bool ValidateHistoryDepth(ViewData view, TemporalSurface surface, int2 minPx, int2 maxPx)
+float ExpectedPreviousViewZ(ViewData view, TemporalSurface surface, float previousFarViewZ)
 {
-    if (!IsSurfaceMotionValid(surface))
-    {
-        return false;
-    }
-    const float2 rasterUV = TemporalBufferPixelToViewUV(view, float2(surface.Pixel) + 0.5);
-    const float2 previousDepthUV = ReprojectTemporalDepthUV(view, rasterUV, surface.Velocity.xy);
+    // Sky carries rotation-only RG, with no finite depth motion in B/A.
+    return surface.DeviceZ == 0.0
+        ? previousFarViewZ
+        : ConvertFromDeviceZ(view, surface.DeviceZ) + surface.Velocity.z;
+}
+
+// Intel's nearest-current / farthest-previous depth envelope, adapted to our B
+// depth motion. Each current sample predicts its own previous Z before taking
+// the minimum. Both 2x2 footprints follow the unjittered output/history grid,
+// comparing local coverage rather than the jittered centre's surface identity.
+bool ValidateHistoryDepth(ViewData view, TemporalSurface surface, float2 historyUV,
+                          int2 minPx, int2 maxPx, out float edgeStrength)
+{
+    edgeStrength = 0.0;
+    const float2 outputUV = TemporalBufferPixelToViewUV(view, float2(surface.Pixel) + 0.5);
+    const float2 currentDepthUV = outputUV + TemporalNDCToUVDelta(view.temporalAAJitter.xy);
+    const float2 previousDepthUV = historyUV + TemporalNDCToUVDelta(view.temporalAAJitter.zw);
     if (!IsTemporalViewUVValid(previousDepthUV))
     {
         return false;
     }
+
+    // MiniEngine's bias is in viewZ / farZ. The main view has a finite far clip.
+    // Sky uses this same far depth instead of a separate point-validity test.
+    const float previousFarViewZ = ConvertFromDeviceZ(view.prevInvDeviceZToViewZ, 0.0);
+    const float2 currentPosition = view.viewRectMin.xy + currentDepthUV * view.viewSizeAndInvSize.xy;
+    const int2 currentBasePx = int2(floor(currentPosition - 0.5));
+
+    // The centre is always inside this 2x2 footprint for our +/- half-pixel
+    // jitter, and the caller has checked its motion validity. It supplies the
+    // initial candidate; invalid neighbours cannot contribute depth motion.
+    float nearestViewZ = ExpectedPreviousViewZ(view, surface, previousFarViewZ);
+    float farthestPredictedViewZ = nearestViewZ;
+    float nearestDepthError = surface.DeviceZ == 0.0 ? 0.0 : VelocityDepthQuantizationError(surface.Velocity.z);
+    [unroll]
+    for (int y = 0; y < 2; ++y)
+    {
+        [unroll]
+        for (int x = 0; x < 2; ++x)
+        {
+            const int2 samplePx = clamp(currentBasePx + int2(x, y), minPx, maxPx);
+            if (any(samplePx != surface.Pixel))
+            {
+                TemporalSurface candidate;
+                candidate.Pixel = samplePx;
+                candidate.DeviceZ = g_Depth.Load(int3(samplePx, 0));
+                candidate.Velocity = g_Velocity.Load(int3(samplePx, 0));
+                if (IsSurfaceMotionValid(candidate))
+                {
+                    const float expectedViewZ = ExpectedPreviousViewZ(view, candidate, previousFarViewZ);
+                    farthestPredictedViewZ = max(farthestPredictedViewZ, expectedViewZ);
+                    if (expectedViewZ < nearestViewZ)
+                    {
+                        nearestViewZ = expectedViewZ;
+                        nearestDepthError = candidate.DeviceZ == 0.0
+                            ? 0.0 : VelocityDepthQuantizationError(candidate.Velocity.z);
+                    }
+                }
+            }
+        }
+    }
+
     const float2 previousPosition = view.viewRectMin.xy + previousDepthUV * view.viewSizeAndInvSize.xy;
-    if (surface.DeviceZ == 0.0)
-    {
-        // Sky has no finite depth motion. Do not turn a geometry tap into sky
-        // merely because another tap in its neighbourhood contains background.
-        const int2 previousPx = int2(floor(previousPosition));
-        return g_PreviousDepth.Load(int3(previousPx, 0)) == 0.0;
-    }
-
-    const float expectedViewZ = ConvertFromDeviceZ(view, surface.DeviceZ) + surface.Velocity.z;
-    if (!isfinite(expectedViewZ) || expectedViewZ <= 0.0)
-    {
-        return false;
-    }
-
-    const int2 basePx = int2(floor(previousPosition - 0.5));
+    const int2 previousBasePx = int2(floor(previousPosition - 0.5));
+    float nearestHistoryViewZ = previousFarViewZ;
     float farthestViewZ = 0.0;
     [unroll]
     for (int y = 0; y < 2; ++y)
@@ -209,42 +242,32 @@ bool ValidateHistoryDepth(ViewData view, TemporalSurface surface, int2 minPx, in
         [unroll]
         for (int x = 0; x < 2; ++x)
         {
-            const int2 samplePx = basePx + int2(x, y);
-            if (all(samplePx >= minPx) && all(samplePx <= maxPx))
-            {
-                const float previousDeviceZ = g_PreviousDepth.Load(int3(samplePx, 0));
-                // An empty footprint cannot validate a surface. Background is
-                // not an infinite far sample that accepts every geometry point.
-                if (isfinite(previousDeviceZ) && previousDeviceZ > 0.0 && previousDeviceZ <= 1.0)
-                {
-                    const float previousViewZ = ConvertFromDeviceZ(view.prevInvDeviceZToViewZ, previousDeviceZ);
-                    if (isfinite(previousViewZ) && previousViewZ > 0.0)
-                    {
-                        farthestViewZ = max(farthestViewZ, previousViewZ);
-                    }
-                }
-            }
+            // Match the reference clamp sampler within this view's rectangle.
+            const int2 samplePx = clamp(previousBasePx + int2(x, y), minPx, maxPx);
+            const float previousDeviceZ = g_PreviousDepth.Load(int3(samplePx, 0));
+            // Reversed device Z=0 maps to the finite far clip and participates
+            // in the envelope, matching the reference normalized depth buffer.
+            const float previousViewZ = ConvertFromDeviceZ(view.prevInvDeviceZToViewZ, previousDeviceZ);
+            nearestHistoryViewZ = min(nearestHistoryViewZ, previousViewZ);
+            farthestViewZ = max(farthestViewZ, previousViewZ);
         }
     }
-    if (farthestViewZ <= 0.0)
-    {
-        return false;
-    }
 
-    // MiniEngine stores linear depth as viewZ / farZ (LinearizeDepthCS.hlsl).
-    // Convert its normalized bias into our positive world-unit viewZ. Infinite
-    // far projections have no finite normalization: use relative view depth there.
-    const float farViewZ = ConvertFromDeviceZ(view.prevInvDeviceZToViewZ, 0.0);
-    const float biasScale = isfinite(farViewZ) && farViewZ > 0.0 ? farViewZ : expectedViewZ;
-    const float bias = g_TemporalAADepthRejectionBias * biasScale
-                     + VelocityDepthQuantizationError(surface.Velocity.z);
-    return expectedViewZ <= farthestViewZ + bias;
+    const float bias = g_TemporalAADepthRejectionBias * previousFarViewZ + nearestDepthError;
+
+    // The edge can be missing from either footprint in one jitter phase.
+    // Measure the relative depth span on both frames to keep it detectable.
+    // The predicted depth can round to zero when a large FP16 B cancels viewZ.
+    const float currentSpan = farthestPredictedViewZ > 0.0
+        ? (farthestPredictedViewZ - nearestViewZ) / farthestPredictedViewZ : 0.0;
+    const float historySpan = 1.0 - nearestHistoryViewZ / farthestViewZ;
+    edgeStrength = smoothstep(0.02, 0.10, max(currentSpan, historySpan));
+    return nearestViewZ <= farthestViewZ + bias;
 }
 
 float4 EncodeResult(float3 perceptualColor, float historyWeight)
 {
-    const float3 color = FromPerceptual(max(perceptualColor, 0.0));
-    return float4(all(isfinite(color)) ? clamp(color, 0.0, kMaxHDR) : 0.0, historyWeight);
+    return float4(FromPerceptual(perceptualColor), historyWeight);
 }
 
 float4 TemporalAA(int2 px)
@@ -259,9 +282,10 @@ float4 TemporalAA(int2 px)
     surface.Velocity = g_Velocity.Load(int3(px, 0));
     TemporalSurface motionSurface = surface;
     const bool centerMotionValid = IsSurfaceMotionValid(surface);
+    const float2 centerMotionPixels = TemporalNDCToUVDelta(surface.Velocity.xy) * view.viewSizeAndInvSize.xy;
     float longestMotionSquared = centerMotionValid
-        ? dot(TemporalNDCToUVDelta(surface.Velocity.xy) * view.viewSizeAndInvSize.xy,
-              TemporalNDCToUVDelta(surface.Velocity.xy) * view.viewSizeAndInvSize.xy) : 0.0;
+        ? dot(centerMotionPixels, centerMotionPixels) : 0.0;
+    float neighbourhoodMotionSquared = longestMotionSquared;
 
     const float3 current = LoadCurrentColor(px);
     float3 moment1 = 0.0;
@@ -286,13 +310,13 @@ float4 TemporalAA(int2 px)
             candidate.Pixel = samplePx;
             candidate.DeviceZ = g_Depth.Load(int3(samplePx, 0));
             candidate.Velocity = g_Velocity.Load(int3(samplePx, 0));
-            // Never borrow valid history for a first-appearance/reset centre,
-            // or cross the finite-surface / infinite-sky boundary.
-            if (IsSurfaceMotionValid(candidate) && (candidate.DeviceZ == 0.0) == (surface.DeviceZ == 0.0))
+            if (IsSurfaceMotionValid(candidate))
             {
                 const float2 motionPixels = TemporalNDCToUVDelta(candidate.Velocity.xy) * view.viewSizeAndInvSize.xy;
                 const float motionSquared = dot(motionPixels, motionPixels);
-                if (motionSquared > longestMotionSquared)
+                // Motion on either side of the edge should reduce relaxation.
+                neighbourhoodMotionSquared = max(neighbourhoodMotionSquared, motionSquared);
+                if ((candidate.DeviceZ == 0.0) == (surface.DeviceZ == 0.0) && motionSquared > longestMotionSquared)
                 {
                     motionSurface = candidate;
                     longestMotionSquared = motionSquared;
@@ -305,23 +329,17 @@ float4 TemporalAA(int2 px)
     fallback *= 0.2;
 
     const float motionLimit = g_TemporalAAMotionRejectionPixels * (view.viewSizeAndInvSize.y / 1080.0);
-    const float motionConfidence = saturate(1.0 - sqrt(longestMotionSquared) / max(motionLimit, 1e-4));
+    const float motionConfidence = saturate(1.0 - sqrt(longestMotionSquared) / motionLimit);
     const float2 viewUV = TemporalBufferPixelToViewUV(view, float2(px) + 0.5);
     const float2 historyUV = ReprojectTemporalHistoryUV(viewUV, motionSurface.Velocity.xy);
     bool historyValid = g_TemporalAAHistoryValid != 0 && g_PreviousDepthValid != 0
                      && view.temporalHistoryValid != 0 && centerMotionValid
                      && motionConfidence > 0.0 && IsTemporalViewUVValid(historyUV);
+    float edgeStrength = 0.0;
     [branch]
     if (historyValid)
     {
-        // Centre validation protects newly revealed background from a dilated
-        // foreground vector. The chosen representative also validates its own
-        // depth and B; this remains a coverage heuristic, not a per-colour-tap proof.
-        historyValid = ValidateHistoryDepth(view, surface, minPx, maxPx);
-        if (historyValid && any(motionSurface.Pixel != surface.Pixel))
-        {
-            historyValid = ValidateHistoryDepth(view, motionSurface, minPx, maxPx);
-        }
+        historyValid = ValidateHistoryDepth(view, surface, historyUV, minPx, maxPx, edgeStrength);
     }
     [branch]
     if (!historyValid)
@@ -330,20 +348,19 @@ float4 TemporalAA(int2 px)
     }
 
     const float4 rawHistory = SampleHistory(view, historyUV, minPx, maxPx);
-    if (!all(isfinite(rawHistory)))
-    {
-        return EncodeResult(fallback, 0.5);
-    }
     const float3 mean = moment1 * (1.0 / 9.0);
     const float3 sigma = sqrt(max(moment2 * (1.0 / 9.0) - mean * mean, 0.0));
     const float gamma = lerp(g_TemporalAAMinVarianceGamma, g_TemporalAAMaxVarianceGamma,
                              motionConfidence * motionConfidence);
-    const float3 history = ToPerceptual(clamp(rawHistory.rgb, 0.0, kMaxHDR));
+    const float3 history = ToPerceptual(rawHistory.rgb);
     const float3 clippedHistory = YCoCgToRGB(ClipHistoryColor(
         RGBToYCoCg(history), RGBToYCoCg(current), mean, sigma, gamma));
-    const float weight = clamp(rawHistory.a, 0.0, kHistoryWeightLimit) * motionConfidence;
-    const float nextWeight = rcp(2.0 - weight);
-    return EncodeResult(lerp(current, clippedHistory, weight), nextWeight);
+    const float stillness = 1.0 - smoothstep(0.0, kEdgeClipMotionLimit * kEdgeClipMotionLimit, neighbourhoodMotionSquared);
+    const float clipRelaxation = kMaxEdgeClipRelaxation * edgeStrength * stillness;
+    const float3 relaxedHistory = lerp(clippedHistory, history, clipRelaxation);
+    const float weight = rawHistory.a * motionConfidence;
+    const float nextWeight = saturate(rcp(2.0 - weight));
+    return EncodeResult(lerp(current, relaxedHistory, weight), nextWeight);
 }
 
 struct VSOutput

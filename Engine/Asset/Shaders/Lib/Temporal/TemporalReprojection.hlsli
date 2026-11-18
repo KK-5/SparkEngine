@@ -23,13 +23,13 @@ float2 TemporalViewUVToBufferUV(ViewData view, float2 viewUV)
 
 bool IsTemporalViewUVValid(float2 viewUV)
 {
-    return all(isfinite(viewUV)) && all(viewUV >= 0.0) && all(viewUV < 1.0);
+    return all(viewUV >= 0.0) && all(viewUV < 1.0);
 }
 
 bool IsTemporalMotionValid(float2 velocity)
 {
     // CalcVelocity uses kVelocityMax for invalid homogeneous projections.
-    return all(isfinite(velocity)) && all(abs(velocity) < kVelocityMax);
+    return all(abs(velocity) < kVelocityMax);
 }
 
 // Both inputs/outputs are view-local, Y-down UVs. The output grid is unjittered;

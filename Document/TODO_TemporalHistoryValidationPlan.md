@@ -12,10 +12,11 @@ T3 已完成 Intel / Microsoft TAA 质量路径的代码移植及静态检查，
 - T1 已补齐 View 历史有效性、前一帧 view/深度参数与 SceneDepth 历史读取，公共工具位于
   `Shaders/Lib/Temporal/TemporalReprojection.hlsli`。
 - T2 已把 `Velocity` / `ResolvedVelocity` 扩为 RGBA16F：RG 保持二维运动，B 保存对应点的 viewZ 差，A 标记表面深度运动有效。
-- TAA 用中心深度加 B 预测上一帧 viewZ，支持静态与刚体运动表面；T3 恢复参考实现的最长速度邻域选择，
-  保留完整代表样本并分别验证中心与代表点，不混用邻域 RG 与中心 B，也不使用 T1 的静态回投影/半像素限制。
-- 历史深度查询扣除当前 jitter、补回上一帧 jitter；颜色历史仍按 unjittered 输出网格读取。
-  T3 使用上一帧 2×2 有限几何深度中的最远 viewZ 做单侧遮挡检查，不再使用 T2 的单点绝对误差阈值。
+- TAA 在当前 2×2 深度足迹中，将各样本的深度与其自身 B 配对预测上一帧 viewZ，再取最近值；
+  历史 2×2 取最远 viewZ，做一次深度包络比较。3×3 最长速度仍用于颜色历史重投影。
+  不再同时要求中心与运动代表点两次深度检查通过，也不使用 T1 的静态回投影/半像素限制。
+- TAA 颜色历史位于 unjittered 输出网格；当前/历史深度分别围绕输出位置、历史颜色位置补上各自 jitter 读取。
+  天空以有限远裁面深度参与包络，不再单点验证天空或从几何历史足迹中排除天空，见 §7.8。
 - T3 深度偏置默认是前一帧远裁面 viewZ 的 `0.001`，加 B 的 FP16 量化误差；沿用参考归一化深度的单位，
   例如 far=1000 时允许 1 世界单位的深度偏置。它可能接受距离较近的不同表面，可通过新参数降低，属于验收重点。
 - 历史保持线性 HDR RGB，A 改为递推权重；有效历史使用中心颜色，默认 5-tap bicubic，9 样本 YCoCg 方差裁剪。
@@ -191,8 +192,8 @@ tolerance      = absoluteTolerance + relativeTolerance * expectedPrevViewZ
 处理 FP16 深度运动误差、线性深度单位及 reversed-Z。源码中的深度偏置不能直接视为引擎世界单位，见 §7。
 本轮不额外设计表面斜率拟合；后续确有需求再单独评估，不能把前后景深度跳变解释为斜率来扩大容差。
 
-当前/历史背景、投影位于相机背后、非法数值、越出 view rect 均需显式分类。
-表面投影到历史背景时拒绝；当前天空仅在历史采样仍为背景且相机方向投影有效时允许天空颜色重用。
+无效投影由运动生产方标记，资源/View/实例有效性与重投影越界仍直接拒绝历史。
+TAA 的背景深度按有限远裁面参与局部覆盖包络，不以中心前后帧背景分类相等为必要条件。
 
 ## 6. 公共 HLSL 的形状
 
@@ -245,9 +246,9 @@ Sky 分支和无历史分支必须有确定结果，不能通过无效数据参�
 | HDR 颜色 | 可逆压缩与不同历史存储选项 | TAA 输出继续是供 Tonemap / 其他消费者读取的线性 HDR；选定相容的存储路径并记录与原码的差异 |
 | 屏幕边界 | 参考代码主要面向全屏 | 所有邻域和过滤范围显式遵守 view rect；Clamp 采样器不能替代 rect 检查 |
 
-保留 T1/T2 的资源缺失、View 连续性、实例运动有效位、有限性与前一帧投影检查。
-天空继续使用方向重投影和独立背景分支，不套用几何 B/A 检查。
-这些是数据契约适配，不以完全照搬参考代码为由删除引擎已有的无效数据防护。
+保留 T1/T2 的资源缺失、View 连续性、实例运动有效位及前一帧投影检查；数据有限性和可表示范围由生产方保证。
+天空继续使用方向运动重投影，A=0 不表示天空历史无效；深度接受按 §7.8 与几何统一使用包络。
+TAA 消费生产方的 A 有效位与 RG 无效运动标记，不重复逐样本数值校验，见 §7.7。
 
 ### 7.3 历史过滤与锐度
 
@@ -285,27 +286,27 @@ Sky 分支和无历史分支必须有确定结果，不能通过无效数据参�
 | 参考函数 / 行为 | Spark 实现 | 适配说明 |
 |---|---|---|
 | `GetVelocity` | `TemporalAA` 的 3×3 最长速度选择 | 以像素长度比较，记录代表像素及完整 RGBA；无效中心不借用邻居，天空与有限几何互不借用 |
-| `GetCurrentDepth` + `GetDepthConfidenceFactor` | `ValidateHistoryDepth` | 不把当前邻域最小深度与另一个像素的 B 相加；用各自中心深度和 B 预测，分别检查中心及所选代表点 |
-| `GetPreviousDepth` | `ValidateHistoryDepth` 的 2×2 读取 | 保留最远线性深度和单侧遮挡接受逻辑，改用显式 Load、rect 范围及有限值检查；天空不充当无限远接受样本 |
+| `GetCurrentDepth` + `GetDepthConfidenceFactor` | `ExpectedPreviousViewZ` + `ValidateHistoryDepth` | 当前 2×2 中各样本用自己的深度和 B 预测，再取最近 viewZ；一次包络判断替代中心/代表点双重检查 |
+| `GetPreviousDepth` | `ValidateHistoryDepth` 的历史 2×2 读取 | view rect 内 Clamp 后取最远线性深度，天空 0 对应有限远裁面并参与包络；保留单侧遮挡判断 |
 | `BicubicSampling5` | `SampleHistory` / `SampleHistoryTap` | 保留五次线性采样及角落近似贡献；每次采样约束在 view rect 中，RGB/A 一起采样 |
 | `ClipHistoryColour` + `ClipToAABB` 质量选项 | `ClipHistoryColor` 及 9 样本统计 | 在 YCoCg 内向当前颜色方向裁剪；用所有轴的进入位置处理多轴越界，保护零方差和零方向 |
-| `GetFinalColour` | `TemporalAA` + `EncodeResult` | `weight = sampledAlpha * motionConfidence`，`nextAlpha = 1 / (2 - weight)`；拒绝时 A=0.5 |
+| `GetFinalColour` | `TemporalAA` + `EncodeResult` | `weight = sampledAlpha * motionConfidence`，`nextAlpha = saturate(1 / (2 - weight))`；拒绝时 A=0.5 |
 | `GetCurrentColourNeighbourhood` | `fallback` | 仅无历史时平均中心及四个对角样本；有效像素用中心样本，替换原来每帧都执行的 Gaussian 重建 |
 
 深度单位已核对锁定提交中的
 [LinearizeDepthCS.hlsl](https://github.com/GameTechDev/TAA/blob/39786709cf70a1e0906196c600f6079571a33ceb/MiniEngine/Core/Shaders/LinearizeDepthCS.hlsl)
 和 [SSAO.cpp](https://github.com/GameTechDev/TAA/blob/39786709cf70a1e0906196c600f6079571a33ceb/MiniEngine/Core/SSAO.cpp)：
 `linearZ = 1 / (ZMagic * deviceZ + 1) = viewZ / farZ`，因此偏置换算为 `depthRejectionBias * previousFarViewZ`。
-无限远投影没有有限的 far 归一化，代码在此情形回退为相对 expectedViewZ 的偏置；当前主视图采用有限远裁面。
+当前主视图采用有限远裁面，与参考深度归一化一致；不额外提供无限远投影的偏置回退。
 深度运动仍保持公共 B 通道的世界单位含义，不为 TAA 改写生产方。
 
 颜色使用参考中“线性 HDR 存储、读取后可逆压缩”的路径，统计与混合在压缩域进行；
 输出再解压回线性 HDR，保持 Tonemap / Bloom / SSR 的 RGB 契约。
-负值、非法数和 RGBA16F 溢出有显式保护。历史权重上限为 `1 - 1/1024`，避免旧历史 A=1 或 bicubic 超调使当前帧贡献为零。
-这不是新增固定 current/motion 混合权重，A 的正常递推仍沿用参考公式。
+颜色读取与输出按参考直接进行可逆压缩/解压，不额外钳制 HDR 范围或将非法结果替换为黑色。
+历史 alpha 直接参与参考权重递推，移除了额外的 `1 - 1/1024` 上限，仅保留参考对 nextAlpha 的 saturate。
 
-中心与代表点的独立深度检查、天空分类、防止无效中心借历史、view rect 边界及数值保护，
-均是保留 T1/T2 数据契约所需的有意差异。未实现逐颜色 tap 的深度验证；速度膨胀和 2×2 深度极值仍是启发式，
+保留无效中心不得借用邻居历史、运动标记与 view rect 边界；天空与几何的运动选择仍分别处理，
+深度验证改为 §7.8 的统一包络。未实现逐颜色 tap 的深度验证；速度膨胀和 2×2 深度极值仍是启发式，
 不保证历史颜色完全来自同一表面。更严格的足迹过滤以后按实际缺陷评估，不混入本轮基准。
 
 配置已同步更新 `TemporalAAComponent`、反射 UI、`ViewTemporalAA`、CameraViewSystem 校验和 Pass 绑定：
@@ -325,7 +326,58 @@ Jitter Samples 的反射键保持不变。没有修改其他组件的序列化�
 静态检查覆盖参数绑定、旧字段残留、bicubic 常量/像素中心保持、AABB 多轴及零方差、
 累积递推、分辨率缩放、斜平面足迹、归一化深度偏置、深度运动、jitter 网格与全屏三角形。
 这些是 CPU 数学和源码契约检查，不替代 Shader 编译、GPU 执行或画面验收；按用户约定均未编译。
-新增读取成本主要为 3×3 邻域运动/深度，以及最多两组历史 2×2 深度；没有新增全屏资源或 Pass，GPU 时间待 T4 测量。
+读取成本主要为 3×3 邻域运动/深度，以及当前/历史各一组 2×2 深度足迹；
+当前非中心候选还读取自身运动，中心直接复用已知记录。没有新增全屏资源或 Pass，GPU 时间待 T4 测量。
+
+### 7.7 数值校验清理（2026-11-18）
+
+按用户要求以参考算法为准，清除 TAA 消费端额外添加的防御性检查：
+
+- 删除当前颜色、历史颜色、输出颜色及深度线性化前后的 `isfinite` 与数值范围复查。
+- `IsSurfaceMotionValid` 只读取生产方的 RG 无效标记和 A 有效位；深度判断入口不再重复调用它。
+- 删除颜色 HDR 限幅、历史 alpha 自定义上限、压缩反函数与运动阈值分母的额外 epsilon，恢复参考表达式。
+- 颜色裁剪通过“仅越界分量才做求交”的条件保证方向非零，移除额外的包围盒宽度和方向 epsilon。
+- 公共 UV/运动工具保留范围比较，删除其已覆盖的 `isfinite`。生产方与 CPU 配置边界校验保持不变。
+- 当时历史深度 2×2 Clamp 到 view rect 后读取并排除天空；后续 §7.8 已将天空纳入包络并移除空结果判断。
+
+保留资源/View/实例历史有效性、天空分类、UV 越界、rect 采样范围和深度遮挡判定。
+方差取平方根前的非负约束保留，用于正常浮点运算中的舍入误差。
+本次不更换过滤核、颜色裁剪策略或深度运动协议；按约定不编译。
+
+### 7.8 静态轮廓历史接受：深度包络（2026-11-18）
+
+用户确认相机与物体静止时仍有轮廓闪烁，并要求先处理历史过度拒绝，再讨论颜色裁剪。
+本次只修改几何接受规则，保持 bicubic、当前颜色/fallback、颜色裁剪及 alpha 递推不变。
+
+围绕固定输出点与颜色历史位置建立两个深度足迹，使用 view-local、Y-down UV：
+
+```text
+currentDepthUV  = outputUV  + currentJitterNDC  * (0.5, -0.5)
+previousDepthUV = historyUV + previousJitterNDC * (0.5, -0.5)
+
+predictedPreviousZ[i] = currentViewZ[i] + velocityB[i]
+nearestPreviousZ     = min(valid predictedPreviousZ[0..3])
+farthestHistoryZ     = max(previousViewZ[0..3])
+
+depthValid = nearestPreviousZ <= farthestHistoryZ + bias
+```
+
+- 当前 2×2 的每个几何样本独立读取自己的 B 和 A，有效时才提供预测深度；不把最小 currentViewZ 与另一像素的 B 相加。
+- 中心在当前 +/- 半像素 jitter 的足迹内，且已通过有效位检查，因此用中心记录初始化最近预测，随后合并有效邻居。
+- 天空不使用几何 B/A：当前天空预测取前一帧有限远裁面 viewZ，历史设备深度 0 线性化为该远裁面并参与最大值。
+  删除旧的单点天空分支、排除天空及 `farthestViewZ == 0` 检查。
+- 从两次独立几何点验证改为一次覆盖包络验证；中心运动无效、资源/View/实例 reset、颜色或深度重投影越界仍拒绝。
+- 四个采样点分别 Clamp 到 view rect；B 的 FP16 量化误差取提供最小预测深度的同一个样本。
+
+例如当前与历史都覆盖深度 5/10 的两个表面时保留边缘历史；若当前足迹全部为背景 10、
+历史足迹全部为前景 5，且深度分离超过 bias，则拒绝新露出的背景。天空与几何采用同一比较规则。
+这是局部覆盖近似，仍需颜色裁剪控制错误历史颜色，不承诺每个颜色 tap 精确来自同一表面。
+
+CPU 数学检查覆盖非零 view rect 原点、1 像素视图、4/8/16 点 Halton 足迹、B 配对、无效 A 排除、
+天空/几何边缘以及完全去遮挡。简化 8 点 Halton 模型的稳定阶段 32 帧中：
+天空直边的深度拒绝从 12 次降至 0，几何小孔从 8 次降至 0；
+完全露出的背景及天空仍正确拒绝。这些只验证几何接受逻辑，不是用户实际场景的 GPU 或画面验证。
+代码未编译、未提交，静态闪烁与运动拖影需由用户回归验收。
 
 ## 8. 后续消费者
 
