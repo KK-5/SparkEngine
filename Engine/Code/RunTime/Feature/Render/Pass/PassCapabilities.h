@@ -19,9 +19,6 @@ namespace Spark::Render
     //! call needs no allocation; fixed_vector spills to the heap past that, only slower.
     using ViewHandleList = eastl::fixed_vector<RHI::RHIHandle, 16>;
 
-    using ShaderBindingsList =
-        eastl::fixed_vector<RHI::ShaderBindings*, RHI::Limits::Pipeline::ShaderInputGroupCountMax>;
-
     //! What a pass can be asked to do, as a table of type-erased operations on the pass
     //! entity. Every entry is a template instantiation frozen at RenderPassBuilder::
     //! Finalize, where the pass's declared BindingTags / ViewTag are known; the render

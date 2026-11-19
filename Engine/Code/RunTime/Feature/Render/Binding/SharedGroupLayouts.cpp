@@ -161,12 +161,6 @@ namespace Spark::Render
         }
     }
 
-    const RHI::ShaderInputList* FindSharedGroupInputs(uint32_t spaceId)
-    {
-        const SharedGroup* group = FindSharedGroup(spaceId);
-        return group != nullptr ? &group->m_inputs : nullptr;
-    }
-
     const RHI::PipelineLayoutDescriptor* FindSharedGroupLayout(RHI::Factory& factory, uint32_t spaceId)
     {
         SharedGroup* group = FindSharedGroup(spaceId);

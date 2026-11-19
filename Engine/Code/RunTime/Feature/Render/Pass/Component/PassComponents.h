@@ -117,14 +117,13 @@ namespace Spark::Render
         Ptr<RHI::ShaderStageFunction> m_compute;
     };
 
-    //! PipelineLayoutDescriptor built at PassBuilder::Finalize from the bound groups and
-    //! the PassShaders reflection (BuildPassPipelineLayout). Lives on the pass so user-side Build callbacks
-    //! can construct ShaderBindings (which require the layout at Init) without
-    //! waiting for the render-graph Compile phase. PSO compiler reads this
-    //! to assemble the root signature / descriptor set layouts.
+    //! Layout built at Finalize from shader reflection and shared group declarations.
+    //! Build validates declarations against it, and Compile uses it for the PSO and bindings.
     struct PassPipelineLayout
     {
         Ptr<RHI::PipelineLayoutDescriptor> m_layout;
+        //! Spaces supplied by the graph's shared binding pool.
+        eastl::fixed_vector<uint32_t, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_sharedSpaces;
     };
 
     //! On a compute pass with a shader: its [numthreads], from reflection at Finalize. A
@@ -140,13 +139,6 @@ namespace Spark::Render
     struct PassCompiledPSO
     {
         Ptr<RHI::PipelineState> m_pso;
-    };
-
-    //! Owns the pass's per-pass (kPerPassSpaceId) bindings, created at Finalize when
-    //! the pass's layout has that space. No separate RHI entity is needed.
-    struct PassBindings
-    {
-        Ptr<RHI::ShaderBindings> m_bindings;
     };
 
     //! Forces PSO recompilation on next frame (set on shader hot-reload).

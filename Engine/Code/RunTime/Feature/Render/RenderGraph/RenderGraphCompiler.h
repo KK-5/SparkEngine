@@ -102,25 +102,20 @@ namespace Spark::Render
             RHI::Device&          device,
             RHI::PipelineLibrary* pipelineLibrary);
 
-        //! Write what Scopes declared for their pass's per-pass space into its bindings: the views
-        //! of attachments bound to inputs (ShaderInputBinding), samplers and constants; and the
-        //! uints attachments give constants (IndexBinding, PreviousFrameValidBinding), a root
-        //! constant's into its Scope's block. A pass
-        //! that declared any of these gets null in the image and buffer inputs none of them
-        //! bound. Scopes of one pass share its per-pass space: an input two of them set must be
-        //! the same, which is the pass's to keep, not checked here. Runs after SortScopes
-        //! and the transient / extracted stages (views need backing), before CompileShaderInputs.
+        //! Fill the bindings owned by this Scope and its root constants.
+        //! Runs after CompileScopeState and resource allocation.
         void CompileScopeBindings(PassContext& passContext, RHIContext& context);
+
+        //! Fill Direct shared inputs once from each resource marked by this frame's imports.
+        void CompileSharedResourceBindings(RHIContext& context);
 
         //! Write the samplers and constants a group's owner publishes (SharedGroupValues) into
         //! that group's object. Once per frame: the values belong to the group, not to an access.
         void CompileSharedGroupValues(RHIContext& context);
 
-        //! Put on each Scope the submit state its pass decides (ScopeState): the compiled PSO
-        //! and, when there is one, the bindings bound once per Scope — the pass's own
-        //! (PassBindings) then the shared ones its layout declares. Runs after
-        //! CompilePipelineStates.
-        void CompileScopeState(PassContext& passContext, RHIContext& context);
+        //! Resolve the compiled PSO and binding sources for each Scope. Create bindings for the
+        //! local spaces and borrow shared bindings from the graph. Runs after CompilePipelineStates.
+        void CompileScopeState(PassContext& passContext, RHIContext& context, RHI::Device& device);
 
         //! Give each item that reads its arguments from a buffer of the graph
         //! (ItemIndirectArguments) that buffer's backing, and a draw its count buffer's and how
@@ -180,6 +175,5 @@ namespace Spark::Render
         static constexpr bool s_scopeOrderValidation { true };
 
         //! Scopes of one pass that set one per-pass input must set it to one value.
-        static constexpr bool s_scopeBindingValidation { true };
     };
 }

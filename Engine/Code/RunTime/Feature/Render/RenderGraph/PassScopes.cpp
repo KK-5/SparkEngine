@@ -9,6 +9,13 @@ namespace Spark::Render
     {
         constexpr RHI::AttachmentStage DepthStages =
             RHI::AttachmentStage::EarlyFragmentTest | RHI::AttachmentStage::LateFragmentTest;
+
+        bool CanOverrideAttachmentView(RHIHandle attachment)
+        {
+            const bool directShared = RHIExecuteContext::Current()->Has<SharedDirectAccessTag>(attachment);
+            ASSERT(!directShared, "A Direct shared access uses the resource's published view.");
+            return !directShared;
+        }
     }
 
     // ============================================================
@@ -17,6 +24,10 @@ namespace Spark::Render
 
     Attachment& Attachment::Format(RHI::Format format)
     {
+        if (!CanOverrideAttachmentView(m_handle))
+        {
+            return *this;
+        }
         auto* image = RHIExecuteContext::Current()->TryGet<ImagePassAttachment>(m_handle);
         ASSERT(image != nullptr, "Format() is for image attachments.");
         image->m_viewDescriptor.m_overrideFormat = format;
@@ -25,6 +36,10 @@ namespace Spark::Render
 
     Attachment& Attachment::View(const RHI::ImageViewDescriptor& view)
     {
+        if (!CanOverrideAttachmentView(m_handle))
+        {
+            return *this;
+        }
         auto* image = RHIExecuteContext::Current()->TryGet<ImagePassAttachment>(m_handle);
         ASSERT(image != nullptr, "An image view on an attachment of a buffer.");
         image->m_viewDescriptor = view;
@@ -33,6 +48,10 @@ namespace Spark::Render
 
     Attachment& Attachment::View(const RHI::BufferViewDescriptor& view)
     {
+        if (!CanOverrideAttachmentView(m_handle))
+        {
+            return *this;
+        }
         auto* buffer = RHIExecuteContext::Current()->TryGet<BufferPassAttachment>(m_handle);
         ASSERT(buffer != nullptr, "A buffer view on an attachment of an image.");
         buffer->m_viewDescriptor = view;
@@ -41,6 +60,10 @@ namespace Spark::Render
 
     Attachment& Attachment::AccelerationStructure(const Ptr<RHI::AccelerationStructure>& structure)
     {
+        if (!CanOverrideAttachmentView(m_handle))
+        {
+            return *this;
+        }
         auto& context = *RHIExecuteContext::Current();
         const auto* buffer = context.TryGet<BufferPassAttachment>(m_handle);
         ASSERT(buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure,
@@ -96,6 +119,10 @@ namespace Spark::Render
 
     ShaderAttachment& ShaderAttachment::Format(RHI::Format format)
     {
+        if (!CanOverrideAttachmentView(GetHandle()))
+        {
+            return *this;
+        }
         auto* image = RHIExecuteContext::Current()->TryGet<ImagePassAttachment>(GetHandle());
         ASSERT(image != nullptr, "Format() is for image attachments.");
         const bool writes = CheckBitsAny(image->m_access, RHI::AttachmentAccess::Write);

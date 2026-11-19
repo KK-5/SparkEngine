@@ -225,7 +225,9 @@ namespace Spark::Render
                     passName, scopeIndex, name);
 
                 // Buffer inputs, including AS ranges, require an explicit view.
-                ASSERT(buffer == nullptr || !rhiContext.Has<ShaderInputBinding>(attachment)
+                const bool direct = rhiContext.Has<ShaderInputBinding>(attachment)
+                    || rhiContext.Has<SharedDirectAccessTag>(attachment);
+                ASSERT(buffer == nullptr || !direct
                         || buffer->m_viewDescriptor.m_elementCount != 0,
                     "Pass {} Scope #{}: the access of buffer {} is bound to a shader input but has no view. "
                     "Give it one with .View(...).",
@@ -483,10 +485,12 @@ namespace Spark::Render
         CheckScopeOpen(context.Get<ScopeAttachment>(attachment).m_scope);
         auto* image = context.TryGet<ImagePassAttachment>(attachment);
         auto& declared = image != nullptr ? image->m_stage : context.Get<BufferPassAttachment>(attachment).m_stage;
-        ASSERT(!context.Has<ShaderInputBinding>(attachment) || declared == stage,
+        const bool direct = context.Has<ShaderInputBinding>(attachment)
+            || context.Has<SharedDirectAccessTag>(attachment);
+        ASSERT(!direct || declared == stage,
             "The requested stage differs from the stages of the shader input this access binds: a "
             "shared import takes its stage from the input, so it needs no .Stage(...).");
-        if (!context.Has<ShaderInputBinding>(attachment) || declared == stage)
+        if (!direct || declared == stage)
         {
             declared = stage;
         }
@@ -604,9 +608,17 @@ namespace Spark::Render
         {
             ASSERT(!rhiContext.Has<TransientTag>(resource),
                 "Import of {} as shared: only a resource owned outside the graph publishes a usage.", name.GetCStr());
-            ASSERT(rhiContext.Has<ShaderAccelerationStructureUsage>(resource)
-                    || rhiContext.Has<ShaderBufferUsage>(resource) || rhiContext.Has<ShaderImageUsage>(resource),
-                "Import of {} as shared: the resource publishes no shader usage.", name.GetCStr());
+            const auto* image = rhiContext.TryGet<ShaderImageUsage>(resource);
+            const auto* buffer = rhiContext.TryGet<ShaderBufferUsage>(resource);
+            const auto* structure = rhiContext.TryGet<ShaderAccelerationStructureUsage>(resource);
+            ASSERT(image || buffer || structure, "Import of {} as shared: no published shader usage.", name.GetCStr());
+            const bool direct = (image && image->m_binding.m_mode == ShaderBindingMode::Direct)
+                || (buffer && buffer->m_binding.m_mode == ShaderBindingMode::Direct)
+                || (structure && structure->m_binding.m_mode == ShaderBindingMode::Direct);
+            if (direct && !rhiContext.Has<SharedBindingImportTag>(resource))
+            {
+                rhiContext.Add<SharedBindingImportTag>(resource);
+            }
         }
 
         if (!rhiContext.Has<ImportedTag>(resource))
@@ -908,7 +920,7 @@ namespace Spark::Render
         auto& passContext = *PassExecuteContext::Current();
         const auto* layout = passContext.TryGet<PassPipelineLayout>(m_currentPass);
         ASSERT(layout != nullptr && layout->m_layout,
-            "Pass {} binds shader inputs but has no shaders to reflect them from.",
+            "Pass {} binds shader inputs but has no pipeline layout.",
             passContext.Get<PassName>(m_currentPass).m_name.GetCStr());
         return *layout->m_layout;
     }
@@ -952,7 +964,7 @@ namespace Spark::Render
     {
         CheckScopeOpen(scope);
 
-        const RHI::PipelineLayoutDescriptor& layout = CurrentPassLayout();
+        const auto& layout = CurrentPassLayout();
         if (const RHI::ConstantsLayout* root = layout.GetRootConstantsLayout())
         {
             const RHI::ShaderInputIndex index = root->FindShaderInputIndex(input);
@@ -965,12 +977,9 @@ namespace Spark::Render
             }
         }
 
-        const RHI::ShaderInputConstantDescriptor* desc = layout.FindConstantDescriptor(input);
-        ASSERT(desc != nullptr, "The pass's shaders have no constant {}.", input.GetCStr());
-        ASSERT(desc->m_spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-Scope (space {}) and per-pass (space {}) constants can be set from a Scope.",
-            input.GetCStr(), desc->m_spaceId, kPerScopeSpaceId, kPerPassSpaceId);
-        ASSERT(desc->m_constantByteCount == 4, "Constant {} is not a 4-byte uint.", input.GetCStr());
+        const auto* desc = layout.FindConstantDescriptor(input);
+        ASSERT(desc != nullptr && desc->m_constantByteCount == 4,
+            "Constant {} is not a 4-byte uint.", input.GetCStr());
     }
 
     void RenderGraphBuilder::BindShaderInputIndex(RHIHandle attachment, const RHI::InputName& input)
@@ -978,9 +987,13 @@ namespace Spark::Render
         auto& rhiContext = *RHIExecuteContext::Current();
         ASSERT(rhiContext.Has<ImagePassAttachment>(attachment),
             "Binding {} by index to a buffer: buffer bindings are not supported yet.", input.GetCStr());
-        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
-            "The access bound to {} is already bound; declare another access to bind another input.",
-            input.GetCStr());
+        if (rhiContext.Has<ShaderInputBinding>(attachment) || rhiContext.Has<SharedDirectAccessTag>(attachment)
+            || rhiContext.Has<IndexBinding>(attachment))
+        {
+            ASSERT(false, "The access bound to {} is already bound; declare another access to bind another input.",
+                input.GetCStr());
+            return;
+        }
 
         ReserveUintConstant(rhiContext.Get<ScopeAttachment>(attachment).m_scope, input);
         rhiContext.Add<IndexBinding>(attachment, IndexBinding{ input });
@@ -1078,19 +1091,16 @@ namespace Spark::Render
 
         if (const auto* usage = rhiContext.TryGet<ShaderAccelerationStructureUsage>(resource))
         {
-            // A shader-bound AS carries its range and object on the access: barriers need the
-            // range, the binding needs the object.
+            // The access needs the byte range for barriers. The resource owns the bound object.
             const auto* owned = rhiContext.TryGet<AccelerationStructure>(resource);
-            ASSERT(owned != nullptr && owned->m_structure != nullptr && owned->m_structure->IsInitialized(),
-                "{}: its resource has no initialized acceleration structure.", name.GetCStr());
-            if (owned == nullptr || owned->m_structure == nullptr)
+            const auto* structure = owned != nullptr ? owned->m_structure.get() : nullptr;
+            if (structure == nullptr || !structure->IsInitialized())
             {
+                ASSERT(false, "{}: its resource has no initialized acceleration structure.", name.GetCStr());
                 return;
             }
             buffer->m_viewDescriptor = RHI::BufferViewDescriptor::CreateRaw(
-                static_cast<uint32_t>(owned->m_structure->GetOffset()),
-                static_cast<uint32_t>(owned->m_structure->GetSize()));
-            rhiContext.AddOrReplace<AccelerationStructure>(attachment, AccelerationStructure{ owned->m_structure });
+                static_cast<uint32_t>(structure->GetOffset()), static_cast<uint32_t>(structure->GetSize()));
             BindShaderInputInternal(attachment, usage->m_binding, true);
             return;
         }
@@ -1125,10 +1135,15 @@ namespace Spark::Render
         CheckScopeOpen(rhiContext.Get<ScopeAttachment>(attachment).m_scope);
         auto* image  = rhiContext.TryGet<ImagePassAttachment>(attachment);
         auto* buffer = image != nullptr ? nullptr : &rhiContext.Get<BufferPassAttachment>(attachment);
-        ASSERT(!rhiContext.Has<ShaderInputBinding>(attachment) && !rhiContext.Has<IndexBinding>(attachment),
-            "The access of {} is already bound. A resource imported with ImportShared binds where it publishes "
-            "its usage and takes no .Bind; otherwise declare another access to bind another input.",
-            image != nullptr ? image->m_attachmentId.m_id.GetCStr() : buffer->m_attachmentId.m_id.GetCStr());
+        if (rhiContext.Has<ShaderInputBinding>(attachment) || rhiContext.Has<SharedDirectAccessTag>(attachment)
+            || rhiContext.Has<IndexBinding>(attachment))
+        {
+            ASSERT(false,
+                "The access of {} is already bound. A resource imported with ImportShared binds where it publishes "
+                "its usage and takes no .Bind; otherwise declare another access to bind another input.",
+                image != nullptr ? image->m_attachmentId.m_id.GetCStr() : buffer->m_attachmentId.m_id.GetCStr());
+            return;
+        }
 
         const auto& layout = CurrentPassLayout();
         const auto* group = layout.FindSpaceGroupBySpaceId(binding.m_spaceId);
@@ -1190,18 +1205,6 @@ namespace Spark::Render
             return;
         }
 
-        if (published)
-        {
-            ASSERT(binding.m_spaceId != kPerPassSpaceId,
-                "{} is published into the per-pass space {}; a resource publishes a shared space.",
-                input.GetCStr(), binding.m_spaceId);
-        }
-        else if (binding.m_spaceId != kPerPassSpaceId)
-        {
-            ASSERT(false, "{} is in space {}; only per-pass inputs (space {}) can be bound from a Scope.",
-                input.GetCStr(), binding.m_spaceId, kPerPassSpaceId);
-            return;
-        }
         if (binding.m_arrayIndex >= inputCount)
         {
             ASSERT(false, "Input {} in space {} has {} elements, but array index {} was requested.",
@@ -1227,18 +1230,25 @@ namespace Spark::Render
                 "The stage declared for {} differs from the stages its shaders use it in.", input.GetCStr());
         }
 
-        rhiContext.Add<ShaderInputBinding>(attachment, binding);
+        if (published)
+        {
+            rhiContext.Add<SharedDirectAccessTag>(attachment);
+        }
+        else
+        {
+            rhiContext.Add<ShaderInputBinding>(attachment, binding);
+        }
     }
 
     void RenderGraphBuilder::AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state)
     {
         CheckScopeOpen(scope);
 
-        const RHI::ShaderInputSamplerDescriptor* desc = CurrentPassLayout().FindSamplerDescriptor(input);
-        ASSERT(desc != nullptr, "The pass's shaders have no sampler {}.", input.GetCStr());
-        ASSERT(desc->m_spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-pass samplers (space {}) can be set from a Scope.",
-            input.GetCStr(), desc->m_spaceId, kPerPassSpaceId);
+        if (CurrentPassLayout().FindSamplerDescriptor(input) == nullptr)
+        {
+            ASSERT(false, "The pass's layout has no sampler {}.", input.GetCStr());
+            return;
+        }
 
         auto& rhiContext = *RHIExecuteContext::Current();
         auto*  component  = rhiContext.TryGet<ScopeSamplers>(scope);
@@ -1255,7 +1265,8 @@ namespace Spark::Render
     {
         CheckScopeOpen(scope);
 
-        if (const RHI::ConstantsLayout* root = CurrentPassLayout().GetRootConstantsLayout())
+        const auto& layout = CurrentPassLayout();
+        if (const RHI::ConstantsLayout* root = layout.GetRootConstantsLayout())
         {
             const RHI::ShaderInputIndex index = root->FindShaderInputIndex(input);
             if (index != RHI::InvalidShaderInputIndex)
@@ -1270,11 +1281,12 @@ namespace Spark::Render
             }
         }
 
-        const RHI::ShaderInputConstantDescriptor* desc = CurrentPassLayout().FindConstantDescriptor(input);
-        ASSERT(desc != nullptr, "The pass's shaders have no constant {}.", input.GetCStr());
-        ASSERT(desc->m_spaceId == kPerPassSpaceId,
-            "{} is in space {}; only per-Scope (space {}) and per-pass (space {}) constants can be set from a Scope.",
-            input.GetCStr(), desc->m_spaceId, kPerScopeSpaceId, kPerPassSpaceId);
+        const auto* desc = layout.FindConstantDescriptor(input);
+        if (desc == nullptr)
+        {
+            ASSERT(false, "The pass's layout has no constant {}.", input.GetCStr());
+            return;
+        }
         ASSERT(byteCount == desc->m_elementCount * desc->m_elementByteSize,
             "Constant {} takes {} bytes, given {}.",
             input.GetCStr(), desc->m_elementCount * desc->m_elementByteSize, byteCount);

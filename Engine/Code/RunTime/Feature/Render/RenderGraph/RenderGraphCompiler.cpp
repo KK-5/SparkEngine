@@ -36,6 +36,7 @@
 #include <Binding/SharedBindings.h>
 #include <Binding/SharedGroupValues.h>
 #include <Binding/SharedBindingPool.h>
+#include <Binding/ShaderUsage.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/PassDrawListComponents.h>
@@ -864,39 +865,47 @@ namespace Spark::Render
 
     namespace
     {
-        //! The attachment's view from its resource's view cache: per-frame resources (swap
-        //! chain, ImagePerFrame) resolve this frame's slot.
-        RHI::ImageView* ResolveAttachmentView(
-            RHIContext& context, const ImagePassAttachment& att, uint32_t frameIndex)
+        //! Per-frame resources resolve the view of this frame's backing.
+        RHI::ImageView* ResolveResourceView(RHIContext& context, RHIHandle resource,
+            const RHI::ImageViewDescriptor& view, uint32_t frameIndex)
         {
-            auto* backImage = context.TryGet<BackingImage>(att.m_image);
+            auto* backImage = context.TryGet<BackingImage>(resource);
             if (!backImage || !backImage->m_image)
             {
                 return nullptr;
             }
-            if (context.Has<RHI::PerFrameTag>(att.m_image))
+            if (context.Has<RHI::PerFrameTag>(resource))
             {
-                return RHI::GetOrCreateImageViewPerFrame(
-                    context, att.m_image, *backImage->m_image, att.m_viewDescriptor, frameIndex);
+                return RHI::GetOrCreateImageViewPerFrame(context, resource, *backImage->m_image, view, frameIndex);
             }
-            return RHI::GetOrCreateImageView(context, att.m_image, *backImage->m_image, att.m_viewDescriptor);
+            return RHI::GetOrCreateImageView(context, resource, *backImage->m_image, view);
         }
 
-        //! The buffer counterpart.
-        RHI::BufferView* ResolveAttachmentView(
-            RHIContext& context, const BufferPassAttachment& att, uint32_t frameIndex)
+        RHI::BufferView* ResolveResourceView(RHIContext& context, RHIHandle resource,
+            const RHI::BufferViewDescriptor& view, uint32_t frameIndex)
         {
-            auto* backBuffer = context.TryGet<BackingBuffer>(att.m_buffer);
+            auto* backBuffer = context.TryGet<BackingBuffer>(resource);
             if (!backBuffer || !backBuffer->m_buffer)
             {
                 return nullptr;
             }
-            if (context.Has<RHI::PerFrameTag>(att.m_buffer))
+            if (context.Has<RHI::PerFrameTag>(resource))
             {
-                return RHI::GetOrCreateBufferViewPerFrame(
-                    context, att.m_buffer, *backBuffer->m_buffer, att.m_viewDescriptor, frameIndex);
+                return RHI::GetOrCreateBufferViewPerFrame(context, resource, *backBuffer->m_buffer, view, frameIndex);
             }
-            return RHI::GetOrCreateBufferView(context, att.m_buffer, *backBuffer->m_buffer, att.m_viewDescriptor);
+            return RHI::GetOrCreateBufferView(context, resource, *backBuffer->m_buffer, view);
+        }
+
+        RHI::ImageView* ResolveAttachmentView(
+            RHIContext& context, const ImagePassAttachment& attachment, uint32_t frameIndex)
+        {
+            return ResolveResourceView(context, attachment.m_image, attachment.m_viewDescriptor, frameIndex);
+        }
+
+        RHI::BufferView* ResolveAttachmentView(
+            RHIContext& context, const BufferPassAttachment& attachment, uint32_t frameIndex)
+        {
+            return ResolveResourceView(context, attachment.m_buffer, attachment.m_viewDescriptor, frameIndex);
         }
 
         //! The heap index a shader reaches the attachment's view by (.BindIndex): its UAV's if
@@ -1099,225 +1108,183 @@ namespace Spark::Render
 
     void RenderGraphCompiler::CompileScopeBindings(PassContext& passContext, RHIContext& context)
     {
-        Pass      pass     = NullPass;
-        RHI::ShaderBindings* bindings = nullptr;
-        const RHI::ConstantsLayout* rootConstants = nullptr;   // the pass's, if its shaders declare any
-        bool      declared = false;                    // the pass set anything this frame
-        eastl::fixed_vector<ShaderInputBinding, 16> bound; // input locations bound by attachments
-
-        // s_scopeBindingValidation: the value each per-pass input was first set to this frame, as
-        // bytes (a view pointer, a SamplerState, a constant). Each array element has its own value.
-        struct BindingValue
-        {
-            ShaderInputBinding m_binding;
-            uint32_t m_byteCount = 0;
-            eastl::array<uint8_t, ScopeConstant::ByteCountMax> m_bytes {};
-        };
-        eastl::fixed_vector<BindingValue, 16> setValues;
-        static_assert(sizeof(RHI::SamplerState) <= ScopeConstant::ByteCountMax, "A sampler is recorded as bytes.");
-        auto checkAgrees = [&](const ShaderInputBinding& binding, const void* bytes, uint32_t byteCount,
-                            bool perPass = true)
-        {
-            if constexpr (s_scopeBindingValidation)
-            {
-                auto it = eastl::find_if(setValues.begin(), setValues.end(),
-                    [&](const BindingValue& v) { return v.m_binding == binding; });
-                if (it == setValues.end())
-                {
-                    BindingValue& first = setValues.push_back();
-                    first.m_binding   = binding;
-                    first.m_byteCount = byteCount;
-                    memcpy(first.m_bytes.data(), bytes, byteCount);
-                    return;
-                }
-                ASSERT(it->m_byteCount == byteCount && memcmp(it->m_bytes.data(), bytes, byteCount) == 0,
-                    "[RenderGraphCompiler] Pass {}: its Scopes set input {}[{}] in space {} to different values.{}",
-                    passContext.Get<PassName>(pass).m_name.GetCStr(), binding.m_input.GetCStr(),
-                    binding.m_arrayIndex, binding.m_spaceId,
-                    perPass
-                        ? " The per-pass space holds one; a value that varies per Scope goes in ScopeParameters."
-                        : " A shared space holds one value per input.");
-            }
-        };
-
-        // A uint an attachment gives a constant (.BindIndex, .BindValid): into the Scope's block
-        // if the constant is a root constant, else into the per-pass space.
-        auto setAttachmentConstant = [&](RHIHandle scope, const RHI::InputName& input, uint32_t value)
-        {
-            const RHI::ShaderInputIndex root = rootConstants != nullptr
-                ? rootConstants->FindShaderInputIndex(input) : RHI::InvalidShaderInputIndex;
-            if (root != RHI::InvalidShaderInputIndex)
-            {
-                auto& block = context.Get<ScopeRootConstants>(scope);
-                memcpy(block.m_bytes.data() + rootConstants->GetInterval(root).m_min, &value, sizeof(value));
-            }
-            else
-            {
-                checkAgrees(ShaderInputBinding{ kPerPassSpaceId, input, 0 }, &value, sizeof(value));
-                SetShaderConstantData(*bindings, input, &value, sizeof(value));
-                declared = true;
-            }
-        };
-
-        // A pass that set anything leaves no view it did not bind this frame in its per-pass
-        // space: an image, buffer or AS input nothing bound gets null. Passes that set nothing are
-        // left alone — they may still set their inputs themselves.
-        auto finishPass = [&]()
-        {
-            if (!declared)
-            {
-                return;
-            }
-            auto isBound = [&bound, bindings](const RHI::InputName& input, uint32_t arrayIndex)
-            {
-                const ShaderInputBinding location{ bindings->GetSpaceId(), input, arrayIndex };
-                return eastl::find(bound.begin(), bound.end(), location) != bound.end();
-            };
-            const RHI::ShaderBindings& sb = *bindings;
-            for (const RHI::ShaderInputImage& image : sb.GetImageInputs())
-            {
-                for (uint32_t i = 0; i < image.GetCount(); ++i)
-                {
-                    if (!isBound(image.GetDescription().m_name, i))
-                    {
-                        SetShaderImage(*bindings, image.GetDescription().m_name, nullptr, i);
-                    }
-                }
-            }
-            for (const RHI::ShaderInputBuffer& buffer : sb.GetBufferInputs())
-            {
-                for (uint32_t i = 0; i < buffer.GetCount(); ++i)
-                {
-                    if (!isBound(buffer.GetDescription().m_name, i) && buffer.GetView(i))
-                    {
-                        SetShaderBuffer(*bindings, buffer.GetDescription().m_name, nullptr, i);
-                    }
-                }
-            }
-            for (const auto& structure : sb.GetAccelerationStructureInputs())
-            {
-                for (uint32_t i = 0; i < structure.GetCount(); ++i)
-                {
-                    if (!isBound(structure.GetDescription().m_name, i))
-                    {
-                        SetShaderAccelerationStructure(*bindings, structure.GetDescription().m_name, nullptr, i);
-                    }
-                }
-            }
-        };
-
-        // One pass's Scopes are adjacent in stream order. They share the pass's per-pass space,
-        // which holds one value per input: two Scopes setting one input must agree
-        // (checkAgrees), and one Scope leaving it unset keeps the other's.
         for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
-            if (data.m_pass != pass)
+            const Pass pass = data.m_pass;
+            const auto* passLayout = passContext.TryGet<PassPipelineLayout>(pass);
+            if (passLayout == nullptr || !passLayout->m_layout)
             {
-                finishPass();
-                pass     = data.m_pass;
-                declared = false;
-                bound.clear();
-                setValues.clear();
-                const auto* own = passContext.TryGet<PassBindings>(pass);
-                bindings = own != nullptr ? own->m_bindings.get() : nullptr;
-                const auto* layout = passContext.TryGet<PassPipelineLayout>(pass);
-                rootConstants = (layout != nullptr && layout->m_layout) ? layout->m_layout->GetRootConstantsLayout() : nullptr;
+                continue;
             }
+
+            const auto& layout = *passLayout->m_layout;
+            const auto* local = context.TryGet<ScopeBinding>(scope);
+
+            auto findBindings = [&](uint32_t spaceId) -> RHI::ShaderBindings*
+            {
+                if (local != nullptr)
+                {
+                    for (const auto& bindings : local->m_groups)
+                    {
+                        if (bindings->GetSpaceId() == spaceId)
+                        {
+                            return bindings.get();
+                        }
+                    }
+                }
+                ASSERT(false, "[RenderGraphCompiler] Scope #{} of pass {} has no local bindings for space {}.",
+                    data.m_index, passContext.Get<PassName>(pass).m_name.GetCStr(), spaceId);
+                return nullptr;
+            };
+
+            auto writeConstant = [&](const RHI::InputName& input, const void* bytes, uint32_t byteCount)
+            {
+                const auto* desc = layout.FindConstantDescriptor(input);
+                ASSERT(desc != nullptr, "[RenderGraphCompiler] No constant input {}.", input.GetCStr());
+                if (desc == nullptr)
+                {
+                    return;
+                }
+                if (auto* bindings = findBindings(desc->m_spaceId))
+                {
+                    SetShaderConstantData(*bindings, input, bytes, byteCount);
+                }
+            };
+
+            auto writeAttachmentConstant = [&](const RHI::InputName& input, uint32_t value)
+            {
+                if (const auto* root = layout.GetRootConstantsLayout())
+                {
+                    const auto index = root->FindShaderInputIndex(input);
+                    if (index != RHI::InvalidShaderInputIndex)
+                    {
+                        auto& block = context.Get<ScopeRootConstants>(scope);
+                        memcpy(block.m_bytes.data() + root->GetInterval(index).m_min, &value, sizeof(value));
+                        return;
+                    }
+                }
+                writeConstant(input, &value, sizeof(value));
+            };
 
             for (RHIHandle attachment : GetScopeAttachments(context, scope))
             {
                 if (const auto* binding = context.TryGet<ShaderInputBinding>(attachment))
                 {
-                    // A published usage targets a shared space: its group is the one holding that
-                    // space, not the pass's own.
-                    const bool shared = binding->m_spaceId != kPerPassSpaceId;
-                    RHI::ShaderBindings* target = bindings;
-                    if (shared)
+                    if (auto* target = findBindings(binding->m_spaceId))
                     {
-                        target = m_sharedBindings->Get(binding->m_spaceId);
-                        ASSERT(target != nullptr, "[RenderGraphCompiler] No shared bindings in space {} for {}[{}].",
-                            binding->m_spaceId, binding->m_input.GetCStr(), binding->m_arrayIndex);
-                        if (target == nullptr)
+                        if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
                         {
-                            continue;
+                            const auto* view = ResolveAttachmentView(context, *image, m_frameIndex);
+                            SetShaderImage(*target, binding->m_input, view, binding->m_arrayIndex);
+                        }
+                        else
+                        {
+                            const auto& buffer = context.Get<BufferPassAttachment>(attachment);
+                            if (buffer.m_usage == RHI::AttachmentUsage::RayTracingAccelerationStructure)
+                            {
+                                const auto* structure = context.Get<AccelerationStructure>(attachment).m_structure.get();
+                                SetShaderAccelerationStructure(*target, binding->m_input, structure, binding->m_arrayIndex);
+                            }
+                            else
+                            {
+                                const auto* view = ResolveAttachmentView(context, buffer, m_frameIndex);
+                                ASSERT(view != nullptr, "[RenderGraphCompiler] Buffer {} bound to {} has no view.",
+                                    buffer.m_attachmentId.m_id.GetCStr(), binding->m_input.GetCStr());
+                                SetShaderBuffer(*target, binding->m_input, view, binding->m_arrayIndex);
+                            }
                         }
                     }
-                    else if (bindings == nullptr || bindings->GetSpaceId() != binding->m_spaceId)
-                    {
-                        ASSERT(false, "[RenderGraphCompiler] No per-pass bindings for {}[{}] in space {}.",
-                            binding->m_input.GetCStr(), binding->m_arrayIndex, binding->m_spaceId);
-                        continue;
-                    }
-                    if (const auto* image = context.TryGet<ImagePassAttachment>(attachment))
-                    {
-                        const RHI::ImageView* view = ResolveAttachmentView(context, *image, m_frameIndex);
-                        checkAgrees(*binding, &view, sizeof(view), !shared);
-                        SetShaderImage(*target, binding->m_input, view, binding->m_arrayIndex);
-                    }
-                    else if (context.Get<BufferPassAttachment>(attachment).m_usage
-                        == RHI::AttachmentUsage::RayTracingAccelerationStructure)
-                    {
-                        const auto& resource = context.Get<AccelerationStructure>(attachment);
-                        const RHI::AccelerationStructure* structure = resource.m_structure.get();
-                        const eastl::array<uint64_t, 4> identity {
-                            reinterpret_cast<uintptr_t>(&structure->GetBuffer()), structure->GetOffset(),
-                            structure->GetSize(), static_cast<uint64_t>(structure->GetType()) };
-                        checkAgrees(*binding, identity.data(), sizeof(identity), !shared);
-                        SetShaderAccelerationStructure(*target, binding->m_input, structure, binding->m_arrayIndex);
-                    }
-                    else
-                    {
-                        const auto& buffer = context.Get<BufferPassAttachment>(attachment);
-                        const RHI::BufferView* view = ResolveAttachmentView(context, buffer, m_frameIndex);
-                        ASSERT(view != nullptr,
-                            "[RenderGraphCompiler] Buffer {} bound to {} has no view: it has no backing, or the view could not be made.",
-                            buffer.m_attachmentId.m_id.GetCStr(), binding->m_input.GetCStr());
-                        checkAgrees(*binding, &view, sizeof(view), !shared);
-                        SetShaderBuffer(*target, binding->m_input, view, binding->m_arrayIndex);
-                    }
-                    if (!shared)
-                    {
-                        bound.push_back(*binding);
-                        declared = true;
-                    }
                 }
-                else if (const auto* indexBinding = context.TryGet<IndexBinding>(attachment))
+                else if (const auto* index = context.TryGet<IndexBinding>(attachment))
                 {
-                    setAttachmentConstant(scope, indexBinding->m_input,
+                    writeAttachmentConstant(index->m_input,
                         ResolveBindlessIndex(context, context.Get<ImagePassAttachment>(attachment), m_frameIndex));
                 }
 
-                // Beside either binding of a previous-frame read, not instead of it.
                 if (const auto* valid = context.TryGet<PreviousFrameValidBinding>(attachment))
                 {
-                    setAttachmentConstant(scope, valid->m_input,
+                    writeAttachmentConstant(valid->m_input,
                         context.Has<PreviousFrameMissingTag>(attachment) ? 0u : 1u);
                 }
             }
 
             if (const auto* samplers = context.TryGet<ScopeSamplers>(scope))
             {
-                for (const ScopeSampler& sampler : samplers->m_samplers)
+                for (const auto& sampler : samplers->m_samplers)
                 {
-                    checkAgrees(ShaderInputBinding{ kPerPassSpaceId, sampler.m_input, 0 },
-                        &sampler.m_state, sizeof(sampler.m_state));
-                    SetShaderSampler(*bindings, sampler.m_input, sampler.m_state);
+                    const auto* desc = layout.FindSamplerDescriptor(sampler.m_input);
+                    ASSERT(desc != nullptr, "[RenderGraphCompiler] No sampler input {}.", sampler.m_input.GetCStr());
+                    if (desc != nullptr)
+                    {
+                        if (auto* bindings = findBindings(desc->m_spaceId))
+                        {
+                            SetShaderSampler(*bindings, sampler.m_input, sampler.m_state);
+                        }
+                    }
                 }
-                declared = true;
             }
 
             if (const auto* constants = context.TryGet<ScopeConstants>(scope))
             {
-                for (const ScopeConstant& constant : constants->m_constants)
+                for (const auto& constant : constants->m_constants)
                 {
-                    checkAgrees(ShaderInputBinding{ kPerPassSpaceId, constant.m_input, 0 },
-                        constant.m_bytes.data(), constant.m_byteCount);
-                    SetShaderConstantData(*bindings, constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
+                    writeConstant(constant.m_input, constant.m_bytes.data(), constant.m_byteCount);
                 }
-                declared = true;
             }
         }
-        finishPass();
+    }
+
+    void RenderGraphCompiler::CompileSharedResourceBindings(RHIContext& context)
+    {
+        auto findBindings = [&](const ShaderInputBinding& binding) -> RHI::ShaderBindings*
+        {
+            if (binding.m_mode != ShaderBindingMode::Direct)
+            {
+                return nullptr;
+            }
+            auto* bindings = m_sharedBindings->Get(binding.m_spaceId);
+            ASSERT(bindings != nullptr, "[RenderGraphCompiler] No shared bindings for input {} in space {}.",
+                binding.m_input.GetCStr(), binding.m_spaceId);
+            return bindings;
+        };
+
+        for (auto [resource, usage] : context.GetView<SharedBindingImportTag, ShaderImageUsage>(Exclude<DeadTag>).each())
+        {
+            const auto& binding = usage.m_binding;
+            if (auto* bindings = findBindings(binding))
+            {
+                const auto* view = ResolveResourceView(context, resource, usage.m_view, m_frameIndex);
+                SetShaderImage(*bindings, binding.m_input, view, binding.m_arrayIndex);
+            }
+        }
+
+        for (auto [resource, usage] : context.GetView<SharedBindingImportTag, ShaderBufferUsage>(
+                Exclude<DeadTag, ShaderAccelerationStructureUsage>).each())
+        {
+            const auto& binding = usage.m_binding;
+            if (auto* bindings = findBindings(binding))
+            {
+                const auto* view = ResolveResourceView(context, resource, usage.m_view, m_frameIndex);
+                ASSERT(view != nullptr, "[RenderGraphCompiler] Shared buffer input {} has no view.",
+                    binding.m_input.GetCStr());
+                SetShaderBuffer(*bindings, binding.m_input, view, binding.m_arrayIndex);
+            }
+        }
+
+        for (auto [resource, usage] : context.GetView<SharedBindingImportTag, ShaderAccelerationStructureUsage>(
+                Exclude<DeadTag>).each())
+        {
+            const auto& binding = usage.m_binding;
+            if (auto* bindings = findBindings(binding))
+            {
+                const auto* owned = context.TryGet<AccelerationStructure>(resource);
+                const auto* structure = owned != nullptr ? owned->m_structure.get() : nullptr;
+                const bool ready = structure != nullptr && structure->IsInitialized();
+                ASSERT(ready, "[RenderGraphCompiler] Shared input {} has no initialized acceleration structure.",
+                    binding.m_input.GetCStr());
+                SetShaderAccelerationStructure(*bindings, binding.m_input, ready ? structure : nullptr, binding.m_arrayIndex);
+            }
+        }
     }
 
     void RenderGraphCompiler::CompileSharedGroupValues(RHIContext& context)
@@ -1344,8 +1311,11 @@ namespace Spark::Render
         }
     }
 
-    void RenderGraphCompiler::CompileScopeState(PassContext& passContext, RHIContext& context)
+    void RenderGraphCompiler::CompileScopeState(PassContext& passContext, RHIContext& context, RHI::Device& device)
     {
+        auto* factory = Service<RHI::Factory>::Get();
+        ASSERT(factory != nullptr, "[RenderGraphCompiler] RHI::Factory service not registered.");
+
         for (auto [scope, data] : context.GetStorage<Scope>().each())
         {
             ScopeState state;
@@ -1354,51 +1324,40 @@ namespace Spark::Render
                 state.m_pso = compiled->m_pso.get();
             }
 
-            // Bindings resolve their space against the PSO's layout: without one there is
-            // nothing to bind them against. The pass's own group first, then the shared ones.
-            if (state.m_pso)
+            const auto* passLayout = passContext.TryGet<PassPipelineLayout>(data.m_pass);
+            if (passLayout != nullptr && passLayout->m_layout)
             {
-                ShaderBindingsList bindings;
-                if (const auto* own = passContext.TryGet<PassBindings>(data.m_pass))
+                const auto& layout = *passLayout->m_layout;
+                const auto& sharedSpaces = passLayout->m_sharedSpaces;
+                ScopeBinding local;
+                for (size_t i = 0; i < layout.GetSpaceGroupCount(); ++i)
                 {
-                    if (own->m_bindings)
+                    const auto& group = layout.GetSpaceGroup(i);
+                    if (eastl::find(sharedSpaces.begin(), sharedSpaces.end(), group.m_spaceId) != sharedSpaces.end())
                     {
-                        bindings.push_back(own->m_bindings.get());
+                        if (auto* bindings = m_sharedBindings->Get(group.m_spaceId))
+                        {
+                            state.m_bindings[state.m_bindingCount++] = bindings;
+                        }
                     }
-                }
-
-                // Every shared space the pass's layout declares gets its group bound, whether an
-                // access filled anything there or the space holds only constants: the object is
-                // what the draw sets its descriptor tables and constant buffers through.
-                const auto* passLayout = passContext.TryGet<PassPipelineLayout>(data.m_pass);
-                if (passLayout != nullptr && passLayout->m_layout)
-                {
-                    const RHI::PipelineLayoutDescriptor& layout = *passLayout->m_layout;
-                    for (size_t i = 0; i < layout.GetSpaceGroupCount(); ++i)
+                    else
                     {
-                        const uint32_t spaceId = layout.GetSpaceGroup(i).m_spaceId;
-                        if (spaceId == kPerPassSpaceId || spaceId == kPerScopeSpaceId)
+                        auto bindings = factory->CreateShaderBindings();
+                        const RHI::ShaderBindings::Descriptor desc{ passLayout->m_layout, group.m_spaceId };
+                        const auto result = bindings->Init(device, desc);
+                        ASSERT(result == RHI::ResultCode::Success,
+                            "[RenderGraphCompiler] Failed to initialize Scope bindings for space {}.", group.m_spaceId);
+                        if (result == RHI::ResultCode::Success)
                         {
-                            continue;
-                        }
-                        const bool bound = eastl::any_of(bindings.begin(), bindings.end(),
-                            [spaceId](const RHI::ShaderBindings* group) { return group->GetSpaceId() == spaceId; });
-                        if (bound)
-                        {
-                            continue;
-                        }
-                        if (RHI::ShaderBindings* group = m_sharedBindings->Get(spaceId))
-                        {
-                            bindings.push_back(group);
+                            state.m_bindings[state.m_bindingCount++] = bindings.get();
+                            local.m_groups.push_back(eastl::move(bindings));
                         }
                     }
                 }
 
-                for (RHI::ShaderBindings* b : bindings)
+                if (!local.m_groups.empty())
                 {
-                    ASSERT(state.m_bindingCount < RHI::Limits::Pipeline::ShaderInputGroupCountMax,
-                        "[RenderGraphCompiler] Too many binding groups in a Scope.");
-                    state.m_bindings[state.m_bindingCount++] = b;
+                    context.Add<ScopeBinding>(scope, eastl::move(local));
                 }
             }
 

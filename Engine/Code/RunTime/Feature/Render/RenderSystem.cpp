@@ -16,7 +16,6 @@
 #include <Pass/RenderPass.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
-#include <Pass/PassAccess.h>
 
 #include <Drawable/DrawTag.h>
 
@@ -316,9 +315,6 @@ namespace Spark::Render
 
         m_shadowMaskSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_cameraViewSystem.Shutdown();
-
-        // Release retained resource views before the render graph's pools go away.
-        ReleasePassBindings(m_pipeline.GetPassContext());
 
         DrawExecuteContext::Pop();
         PassExecuteContext::Pop();

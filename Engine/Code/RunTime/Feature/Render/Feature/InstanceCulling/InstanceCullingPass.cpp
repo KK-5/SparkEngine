@@ -152,9 +152,7 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // A pass each: the Scopes of one pass share its bindings, so one pass cannot write
-        // two lists into buffers of their own. Each list is written for the views of the
-        // passes that draw it.
+        // Register a pass for each list, using the views of the passes that draw it.
         SPARK_COMPUTE_PASS(ctx, "OpaqueInstanceCulling")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)

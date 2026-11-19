@@ -278,7 +278,7 @@ namespace Spark::Render
 
     //! How a resource is exposed to shaders. Direct names a fixed input; Bindless exposes the
     //! view through its heap index, whose delivery is the consumer's responsibility.
-    //! On an attachment only Direct is recorded: lowering fills that named input.
+    //! An attachment records its local .Bind here. Shared slots live on their resources.
     struct ShaderInputBinding
     {
         uint32_t m_spaceId = 0;
@@ -302,6 +302,9 @@ namespace Spark::Render
                         && m_arrayIndex == other.m_arrayIndex));
         }
     };
+
+    //! A Direct shared access uses the published view and its reflected shader stages.
+    struct SharedDirectAccessTag {};
 
     //! On an attachment a shader reaches by heap index (.BindIndex): lowering writes its view's
     //! bindless index into the uint constant `m_input`, a root constant or a per-pass one.

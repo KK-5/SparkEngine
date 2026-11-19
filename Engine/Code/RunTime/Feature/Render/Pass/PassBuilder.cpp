@@ -1,5 +1,7 @@
 #include "PassBuilder.h"
 
+#include <EASTL/algorithm.h>
+
 #include <RHI/Context/RHIContext.h>
 #include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <Resource/Shader/ShaderBuilder.h>
@@ -178,7 +180,7 @@ namespace Spark::Render
         return functions;
     }
 
-    Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(
+    PassPipelineLayout BuildPassPipelineLayout(
         RHI::Factory& factory, const PassShaders& shaders, const char* passName)
     {
         const Resource::ShaderAsset* assets[] = {
@@ -192,18 +194,19 @@ namespace Spark::Render
 
         if (reflected.stageMask == RHI::ShaderStageMask::None)
         {
-            return nullptr;
+            return {};
         }
 
         // What a pass uses is its shaders' reflection: a shader reading a shared space names it
         // in its registers, so the declaration that fills that space is found by the space. No
         // group object is involved: a layout comes from the graph's declarations.
         RHI::ShaderInputList inputs;
-        eastl::fixed_vector<uint32_t, RHI::Limits::Pipeline::ShaderInputGroupCountMax> resolvedSpaces;
+        PassPipelineLayout result;
         const auto takeSpaceOf = [&](uint32_t spaceId)
         {
+            const auto& sharedSpaces = result.m_sharedSpaces;
             if (spaceId == kPerPassSpaceId || spaceId == kPerScopeSpaceId
-                || eastl::find(resolvedSpaces.begin(), resolvedSpaces.end(), spaceId) != resolvedSpaces.end())
+                || eastl::find(sharedSpaces.begin(), sharedSpaces.end(), spaceId) != sharedSpaces.end())
             {
                 return;
             }
@@ -216,7 +219,7 @@ namespace Spark::Render
             }
 
             AppendSharedGroupSpace(*declaration, spaceId, reflected.stageMask, inputs);
-            resolvedSpaces.push_back(spaceId);
+            result.m_sharedSpaces.push_back(spaceId);
         };
         const auto takeSpacesOf = [&takeSpaceOf](const auto& described)
         {
@@ -238,9 +241,9 @@ namespace Spark::Render
         TakeReflected(reflected.list.m_constants, inputs.m_constants, factory, passName);
         inputs.m_rootConstants = eastl::move(reflected.list.m_rootConstants);
 
-        auto layout = factory.CreatePipelineLayoutDescriptor();
-        layout->AddShaderInputDescriptors(inputs);
-        layout->Finalize();
-        return layout;
+        result.m_layout = factory.CreatePipelineLayoutDescriptor();
+        result.m_layout->AddShaderInputDescriptors(inputs);
+        result.m_layout->Finalize();
+        return result;
     }
 }

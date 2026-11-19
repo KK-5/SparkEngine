@@ -205,7 +205,7 @@ namespace Spark::Render
         }
         auto shaderAsset = assetManager->LoadAsset<Resource::ShaderAsset>(assetId);
 
-        // A pass each, as the culling passes are: the Scopes of one pass share its bindings.
+        // Register one binning pass for each draw list, as with the culling passes.
         SPARK_COMPUTE_PASS(ctx, "DepthPrePassInstanceBinning")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shaderAsset)

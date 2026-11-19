@@ -21,16 +21,10 @@
 
 namespace Spark::Render
 {
-    //! The pass's PipelineLayoutDescriptor. Each shared group it binds (`groups`, from
-    //! .Binds) gives its whole space, copied from the group's own layout so the pass's
-    //! descriptor tables are the ones the group writes, however little of it the shaders
-    //! read; the space is made visible to every stage the pass has. The pass's own space
-    //! (kPerPassSpaceId) and its root constants come from its shaders' reflection, which
-    //! is also checked against the groups. Null if no shader is present (a pass without a
-    //! pipeline). PassBuilder stores it on the pass as PassPipelineLayout so user Build
-    //! callbacks can grab it before the render-graph Compile phase runs. Defined in
-    //! PassBuilder.cpp.
-    Ptr<RHI::PipelineLayoutDescriptor> BuildPassPipelineLayout(
+    //! Build the RHI layout and record which spaces the pass takes from shared bindings.
+    //! The RHI layout contains the full input declarations with the pass's stage visibility.
+    //! The component's layout is null when no shader is present.
+    PassPipelineLayout BuildPassPipelineLayout(
         RHI::Factory& factory, const PassShaders& shaders, const char* passName);
 
     //! A stage function for each shader the pass sets. The pass builders' Finalize stores it on
@@ -51,15 +45,6 @@ namespace Spark::Render
     
 
 
-
-    //! Allocate the pass's own per-pass (space2) ShaderBindings against its reflected layout
-    //! and record it on the pass as PassBindings. The pass builders' Finalize calls this when
-    //! the layout declares the space. PassBindings owns the object directly; the graph
-    //! compiles it when a ScopeState references it.
-    //!
-    //! Returns null, leaving the pass without PassBindings, if the pass has no
-    //! PassPipelineLayout or if RHI services / Init fail. Defined in PassAccess.cpp.
-    Ptr<RHI::ShaderBindings> CreatePassBindings(PassContext& passCtx, Pass pass);
 
     // The builders live in <Pass/RenderPass.h> (RenderPassBuilder, SPARK_RENDER_PASS),
     // <Pass/ComputePass.h> (ComputePassBuilder, SPARK_COMPUTE_PASS), <Pass/CopyPass.h>

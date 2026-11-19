@@ -122,11 +122,10 @@ namespace Spark::Render
         //! through a shared binding). Render passes only: a compute pass's is fixed.
         ShaderAttachment& Stage(RHI::AttachmentStage stage);
 
-        //! Bind its view or AS object to an element of the per-pass shader input `input`.
+        //! Bind its view or AS object to an input in the engine's local space (space2).
         ShaderAttachment& Bind(const RHI::InputName& input, uint32_t arrayIndex = 0);
 
-        //! Specify the full Direct input location. Currently only per-pass space is writable;
-        //! shared-space binding compilation is a later step.
+        //! Specify the full Direct input location in a local space of the layout.
         ShaderAttachment& Bind(const ShaderInputBinding& binding);
 
         //! Bind it by heap index to the uint constant `input`, a root constant or a per-pass
@@ -267,9 +266,7 @@ namespace Spark::Render
         //! of this frame creates `name`, declared before this one or after it.
         ShaderAttachment ReadPreviousImage(const RHI::AttachmentId& name);
 
-        //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
-        //! set the same input must agree (lowering asserts it): the per-pass space holds one
-        //! value. One that varies per Scope goes in the shader's ScopeParameters instead.
+        //! Set a local sampler or a constant (local buffer or root constant) for this Scope.
         void Sampler(const RHI::InputName& input, const RHI::SamplerState& state)
         {
             m_builder->AddScopeSampler(m_scope, input, state);
@@ -352,9 +349,7 @@ namespace Spark::Render
             m_builder->AddScopeDispatchIndirect(m_scope, arguments.GetHandle(), byteOffset);
         }
 
-        //! Set the per-pass sampler / constant `input` for this Scope. Scopes of one pass that
-        //! set the same input must agree (lowering asserts it): the per-pass space holds one
-        //! value. One that varies per Scope goes in the shader's ScopeParameters instead.
+        //! Set a local sampler or a constant (local buffer or root constant) for this Scope.
         void Sampler(const RHI::InputName& input, const RHI::SamplerState& state)
         {
             m_builder->AddScopeSampler(m_scope, input, state);

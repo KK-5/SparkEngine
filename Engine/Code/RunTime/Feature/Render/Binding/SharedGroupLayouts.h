@@ -53,17 +53,8 @@ namespace Spark::Render
         inline constexpr const char* RayTracingScene = "g_RayTracingScene";
     }
 
-    //! What a shared group (one HLSL space) declares: every input its space holds, in register
-    //! order. This is the render graph's own table, not a system's: a pass builds its PSO layout
-    //! from it, and a group is created from it when a frame first needs one. It must match the
-    //! group's .hlsli; a pass's shaders are checked against it (BuildPassPipelineLayout).
-    //!
-    //! Null when no group declares `spaceId`.
-    const RHI::ShaderInputList* FindSharedGroupInputs(uint32_t spaceId);
-
-    //! `spaceId`'s layout, built once from its inputs: the whole space, with stage masks left
-    //! None. A pass appends it with its own stages, so every pass lays the group out the same
-    //! way while binding it only in the stages it uses.
+    //! Canonical layout for a shared group, built once from its declaration and used by its
+    //! ShaderBindings. A pass copies the whole space with its own stage visibility.
     //!
     //! Null when no group declares `spaceId`.
     const RHI::PipelineLayoutDescriptor* FindSharedGroupLayout(RHI::Factory& factory, uint32_t spaceId);

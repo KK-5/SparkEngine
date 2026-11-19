@@ -16,6 +16,7 @@
 #include <RHI/Resource/Buffer/IndexBufferView.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <RHI/Resource/ShaderInput/ShaderInputDescriptor.h>
+#include <RHI/Resource/ShaderInput/ShaderBindings.h>
 #include <Pass/Pass.h>
 #include <Pass/Component/RHIComponents.h>
 
@@ -203,7 +204,7 @@ namespace Spark::Render
         uint64_t    m_value = 0;
     };
 
-    //! Samplers a Scope declared (.Sampler), for its pass's per-pass bindings.
+    //! Samplers a Scope declared (.Sampler), for its local bindings.
     struct ScopeSampler
     {
         RHI::InputName    m_input;
@@ -248,9 +249,14 @@ namespace Spark::Render
         static_assert(RHI::Limits::Pipeline::RootConstantByteCountMax / 4 <= 32, "m_writtenDwords has a bit per DWORD.");
     };
 
-    //! The part of a Scope's submit state its pass decides: the PSO and the bindings bound once
-    //! for the whole Scope (the pass's own space2 and those it declared via .Binds). Resolved by
-    //! lowering. Viewport and viewIndex come from the view handles in the Scope's submit range.
+    //! Owns the binding data for the local spaces of this Scope's layout.
+    struct ScopeBinding
+    {
+        eastl::fixed_vector<Ptr<RHI::ShaderBindings>, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_groups;
+    };
+
+    //! The PSO and the local and shared bindings bound once for the whole Scope.
+    //! Viewport and viewIndex come from the view handles in the Scope's submit range.
     struct ScopeState
     {
         const RHI::PipelineState*  m_pso = nullptr;

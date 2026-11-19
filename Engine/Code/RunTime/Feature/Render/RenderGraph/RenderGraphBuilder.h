@@ -137,8 +137,8 @@ namespace Spark::Render
         //! or 0 when it reads a stand-in.
         void BindPreviousFrameValid(RHIHandle attachment, const RHI::InputName& input);
 
-        //! Bind `attachment` to the Direct space/name/array element in `binding`. Currently only
-        //! per-pass space is writable. Checks the input exists, its array index and access
+        //! Bind `attachment` to a local Direct space/name/array element. Checks the input
+        //! exists, its array index and access
         //! (SRV for reads, UAV for
         //! writes), and gives the attachment the input's stages, or checks them against its
         //! own.
@@ -148,7 +148,7 @@ namespace Spark::Render
         //! (ImportSharedResource).
         bool IsImportedAsShared(RHIHandle attachment) const;
 
-        //! Apply the resource's published view or AS object and, for Direct, its input location.
+        //! Apply the published resource range and, for Direct, validate the shader access and stage.
         //! A Bindless Image supplies only its view; its index is delivered by the consumer.
         void ApplySharedShaderUsage(RHIHandle attachment);
 
@@ -162,7 +162,7 @@ namespace Spark::Render
         //! the graph has created already, with BufferBindFlags::Indirect.
         void SetIndirectArgumentsOfView(RHIHandle attachment, RHIHandle view, uint64_t byteOffset);
 
-        //! A sampler `scope` sets in the current pass's per-pass space.
+        //! A sampler `scope` sets in a local space of the layout.
         void AddScopeSampler(RHIHandle scope, const RHI::InputName& input, const RHI::SamplerState& state);
 
         //! A constant `scope` sets: a root constant if the pass's shaders declare one called

@@ -26,6 +26,10 @@ namespace
     {
     };
 
+    class TestSharedLayout final : public RHI::PipelineLayoutDescriptor
+    {
+    };
+
     //! A material texture as the renderer makes one: a ready Image publishing the bindless
     //! usage that the material tables' indices are resolved through.
     RHI::RHIHandle AddMaterialTexture(RHI::RHIContext& context)
@@ -68,6 +72,11 @@ protected:
     void ImportSet(const char* name, Members members)
     {
         m_builder.ImportSharedResourceSet(RHI::AttachmentId(name), eastl::move(members));
+    }
+
+    void ImportShared(const RHI::AttachmentId& name, RHI::RHIHandle resource)
+    {
+        m_builder.ImportSharedResource(name, resource);
     }
 
     //! Import `members` as `name` and read the set in a Scope of its own.
@@ -149,14 +158,56 @@ TEST_F(ImportSharedSetTest, MembersStillUploadingAreDropped)
 TEST_F(ImportSharedSetTest, BindlessMemberRegistersNoFixedInput)
 {
     RenderPassScopes scopes(m_builder);
-    RenderScope scope = ImportAndRead(scopes, "Textures", { AddMaterialTexture(m_rhi) });
+    const auto resource = AddMaterialTexture(m_rhi);
+    RenderScope scope = ImportAndRead(scopes, "Textures", { resource });
 
     const Members attachments = ScopeAccesses();
     ASSERT_EQ(attachments.size(), 1u);
+    EXPECT_FALSE(m_rhi.Has<SharedBindingImportTag>(resource));
     EXPECT_FALSE(m_rhi.Has<ShaderInputBinding>(attachments[0]));
     EXPECT_FALSE(m_rhi.Has<IndexBinding>(attachments[0]));
     EXPECT_EQ(m_rhi.Get<ImagePassAttachment>(attachments[0]).m_access, RHI::AttachmentAccess::Read);
     scope.Close();
+}
+
+TEST_F(ImportSharedSetTest, DirectImportMarksResourceAndLeavesOnlyAccessOnEachScope)
+{
+    constexpr uint32_t space = kSceneSpaceId;
+    const RHI::InputName input("g_SharedImage");
+    const RHI::AttachmentId name("SharedImage");
+    const auto resource = AddMaterialTexture(m_rhi);
+    const auto view = RHI::ImageViewDescriptor::Create(RHI::Format::Unknown, 0, 0);
+    m_rhi.AddOrReplace<ShaderImageUsage>(resource, ShaderImageUsage{ { space, input, 0 }, view });
+
+    RHI::ShaderInputList inputs;
+    auto& descriptor = inputs.m_images.emplace_back(
+        input, RHI::ShaderInputImageAccess::Read, RHI::ShaderInputImageType::Image2D, 1, 0, space);
+    descriptor.m_stageMask = RHI::ShaderStageMask::Fragment;
+    Ptr<RHI::PipelineLayoutDescriptor> layout(new TestSharedLayout);
+    layout->AddShaderInputDescriptors(inputs);
+    ASSERT_EQ(layout->Finalize(), RHI::ResultCode::Success);
+    PassPipelineLayout passLayout;
+    passLayout.m_layout = layout;
+    passLayout.m_sharedSpaces.push_back(space);
+    m_passContext.Add<PassPipelineLayout>(m_pass, eastl::move(passLayout));
+
+    ImportShared(name, resource);
+    ImportShared(name, resource);
+    EXPECT_TRUE(m_rhi.Has<SharedBindingImportTag>(resource));
+
+    RenderPassScopes scopes(m_builder);
+    for (uint32_t i = 0; i < 2; ++i)
+    {
+        RenderScope scope = scopes.Scope();
+        const auto attachment = scope.ReadImage(name).GetHandle();
+        const auto& access = m_rhi.Get<ImagePassAttachment>(attachment);
+        EXPECT_EQ(access.m_image, resource);
+        EXPECT_EQ(access.m_stage, RHI::AttachmentStage::FragmentShader);
+        EXPECT_EQ(access.m_viewDescriptor.m_mipSliceMax, view.m_mipSliceMax);
+        EXPECT_TRUE(m_rhi.Has<SharedDirectAccessTag>(attachment));
+        EXPECT_FALSE(m_rhi.Has<ShaderInputBinding>(attachment));
+        scope.Close();
+    }
 }
 
 //! Two Scopes read the set once each: the set is expanded per Scope, and the second read

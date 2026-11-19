@@ -4,7 +4,6 @@
 
 #include <Binding/BindingSpaces.h>
 #include <Binding/SharedBindings.h>
-#include <Binding/SharedGroupLayouts.h>
 
 namespace Spark::Render
 {
@@ -26,14 +25,7 @@ namespace Spark::Render
             }
         }
 
-        const RHI::ShaderInputList* inputs = FindSharedGroupInputs(spaceId);
-        ASSERT(inputs != nullptr, "space{} has no shared group: nothing declares it.", spaceId);
-        if (inputs == nullptr)
-        {
-            return nullptr;
-        }
-
-        Ptr<RHI::ShaderBindings> group = CreateSharedBindings(*inputs, spaceId, "SharedBindingPool");
+        Ptr<RHI::ShaderBindings> group = CreateSharedBindings(spaceId);
         if (!group)
         {
             return nullptr;

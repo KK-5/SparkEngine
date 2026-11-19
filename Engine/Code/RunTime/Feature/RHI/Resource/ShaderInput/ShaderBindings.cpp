@@ -22,6 +22,7 @@ namespace Spark::RHI
         DeviceObject::Init(device);
         m_layoutDescriptor = descriptor.m_layout;
         m_spaceId          = descriptor.m_spaceId;
+        m_dirty            = true;
 
         BuildInputsFromLayout(descriptor);
 

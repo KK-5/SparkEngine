@@ -29,7 +29,6 @@
 #include <Pass/PassContext.h>
 #include <Pass/RenderPass.h>
 #include <Pass/PassTag.h>
-#include <Pass/PassAccess.h>
 #include <Pass/Component/PassComponents.h>
 #include <Pass/Component/RHIComponents.h>
 #include <RenderGraph/RenderGraphBuilder.h>
@@ -97,7 +96,6 @@ namespace Spark::SandBox
 
         destroyIfValid(m_vertexBuffer);
         destroyIfValid(m_view);
-        Spark::Render::ReleasePassBindings(*Spark::Render::PassExecuteContext::Current());
     }
 
     void TrianglePassFeature::OnTick(const FrameTime& /*time*/)

@@ -18,9 +18,8 @@ namespace Spark::Render
     //! ViewBindings.hlsli: g_Views. ViewBindingSystem.
     inline constexpr uint32_t kViewSpaceId = 1;
 
-    //! A pass's OWN per-pass ShaderBindings tier (g_SceneColor, g_SkyCube, g_MatSampler, …).
-    //! RenderPassBuilder::Finalize auto-creates it when the reflected layout declares it,
-    //! so no pass processor has to allocate it.
+    //! The engine's local shader space (g_SceneColor, g_SkyCube, g_MatSampler, …).
+    //! The graph creates bindings for each Scope whose layout declares it.
     inline constexpr uint32_t kPerPassSpaceId = 2;
 
     //! MaterialBindings.hlsli: g_Materials. MaterialBindingSystem.

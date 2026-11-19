@@ -15,6 +15,5 @@ namespace Spark::Render
     //!
     //! Stage masks stay None: a group is not tied to stages, the pass that reads it is.
     //! Called by SharedBindingPool; null, logged, on failure.
-    Ptr<RHI::ShaderBindings> CreateSharedBindings(
-        const RHI::ShaderInputList& inputs, uint32_t spaceId, const char* owner);
+    Ptr<RHI::ShaderBindings> CreateSharedBindings(uint32_t spaceId);
 }

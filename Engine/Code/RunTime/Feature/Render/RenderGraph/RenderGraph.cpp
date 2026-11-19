@@ -15,6 +15,7 @@
 #include <RHI/Pipeline/PipelineLibrary.h>
 #include <RHI/ResourceBuilder.h>
 
+#include <Binding/ShaderUsage.h>
 #include <Pass/Pipeline.h>
 #include <Pass/Component/RHIComponents.h>
 #include <Pass/Component/ScopeComponents.h>
@@ -319,8 +320,9 @@ namespace Spark::Render
         m_compiler.CompileScopeBeginInfo(passContext, context);
 
         m_compiler.CompileSharedGroupValues(context);
+        m_compiler.CompileSharedResourceBindings(context);
+        m_compiler.CompileScopeState(passContext, context, *m_device);
         m_compiler.CompileScopeBindings(passContext, context);
-        m_compiler.CompileScopeState(passContext, context);
         m_compiler.CompileItemIndirectArguments(passContext, context);
         m_compiler.CompileItemCopies(passContext, context);
         m_compiler.CompileItemInputAssembly(passContext, context);
@@ -424,6 +426,7 @@ namespace Spark::Render
         ExtractImages(context);
 
         m_executer.End();
+        context.Clear<SharedBindingImportTag>();
         ////////////////////////////////////////////////
 
         m_commandQueueContext.End();
