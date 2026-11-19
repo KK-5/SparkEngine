@@ -182,6 +182,7 @@ namespace Spark::Render
             geometry.m_meshIndex      = meshComp.m_meshIndex;
             geometry.m_primitiveIndex = meshComp.m_primitiveIndex;
             geometry.m_localBounds    = primitive->bounds;
+            geometry.m_localSurfaceArea = primitive->localSurfaceArea;
 
             MeshGeometryUpload upload;
             if (!CreateGeometry(*primitive, geometry, upload))

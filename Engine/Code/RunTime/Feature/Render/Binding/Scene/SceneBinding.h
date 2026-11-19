@@ -13,6 +13,13 @@ namespace Spark::Render
     {
     };
 
+    //! CPU mirror of g_LightCount for passes that size their dispatch by scene lights.
+    struct SceneLightCount
+    {
+        uint32_t m_count = 0;
+    };
+
+
     struct ShadowViewBufferTag
     {
     };

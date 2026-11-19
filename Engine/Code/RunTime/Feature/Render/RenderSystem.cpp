@@ -32,6 +32,7 @@
 #include <Feature/ShadowProjection/ShadowProjectionPass.h>
 #include <Feature/Lighting/LightsPass.h>
 #include <Feature/Lighting/DirectLightingPass.h>
+#include <Feature/Lighting/LightWeightTreePass.h>
 #include <Feature/Lighting/IndirectDiffusePass.h>
 #include <Feature/Lighting/ReflectionsPass.h>
 #include <Feature/Shadow/ShadowPass.h>
@@ -214,6 +215,7 @@ namespace Spark::Render
         // Opaque lighting is now direct-only, 1 spp. NRD will sit between its
         // signal producer and composition. Shadow maps above remain available
         // to forward translucency; opaque visibility uses the TLAS instead.
+        LightWeightTreePass::SetUp(passContext);
         DirectLightingPass::SetUp(passContext);
 
         // The closest / furthest depth mip chains over the finished SceneDepth, on the frames

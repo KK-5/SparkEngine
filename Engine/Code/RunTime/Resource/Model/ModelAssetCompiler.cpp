@@ -332,6 +332,7 @@ namespace Spark::Resource
 
                 ++totalPrimitives;
                 OptimizePrimitive(prim);
+                prim.RecalculateLocalSurfaceArea();
                 ++it;
             }
         }

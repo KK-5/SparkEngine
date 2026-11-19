@@ -26,7 +26,8 @@ namespace Spark::Render
         uint64_t      m_bottomLevelAddress = 0;
         //! Works for both indexed and non-indexed triangle lists.
         uint32_t      m_triangleCount = 0;
-        uint32_t      m_padding[3]{};
+        float         m_localSurfaceArea = 0.0f;
+        uint32_t      m_padding[2]{};
     };
 
     static_assert(sizeof(GeometryData) == 64,
@@ -37,4 +38,6 @@ namespace Spark::Render
         "The index stride must match GeometryData.hlsli.");
     static_assert(offsetof(GeometryData, m_triangleCount) == 48,
         "The triangle count must match GeometryData.hlsli.");
+    static_assert(offsetof(GeometryData, m_localSurfaceArea) == 52,
+        "The local surface area must match GeometryData.hlsli.");
 }

@@ -9,6 +9,7 @@
 
 static const uint LIGHT_SOURCE_SCENE = 0u;
 static const uint LIGHT_SOURCE_EMISSIVE_INSTANCE = 1u;
+static const uint INVALID_LIGHT_SELECTION_INDEX = 0xffffffffu;
 static const float LIGHT_INFINITE_DISTANCE = 3.402823466e+38;
 
 struct LightReference
@@ -63,21 +64,13 @@ struct LightSample
     bool CastShadow;
 };
 
-float UniformLightSelectionPmf(uint emissiveInstanceCount)
+// A BRDF hit identifies an instance slot. Find its position in the packed light
+// list before looking up the PMF. A live instance can be absent from that list.
+uint FindLightSelectionIndex(LightReference lightReference, uint emissiveInstanceCount)
 {
-    const uint count = g_LightCount + emissiveInstanceCount;
-    return count > 0u ? 1.0 / float(count) : 0.0;
-}
-
-// Selection-PMF query for an identified emitter, e.g. a BRDF ray's hit. A live
-// instance is not necessarily in the emissive candidate list. The reference
-// integrator can use this linear lookup; sampling itself needs no search.
-float EvaluateUniformLightSelectionPmf(LightReference lightReference, uint emissiveInstanceCount)
-{
-    const float pmf = UniformLightSelectionPmf(emissiveInstanceCount);
     if (lightReference.Source == LIGHT_SOURCE_SCENE)
     {
-        return lightReference.Index < g_LightCount ? pmf : 0.0;
+        return lightReference.Index < g_LightCount ? lightReference.Index : INVALID_LIGHT_SELECTION_INDEX;
     }
     if (lightReference.Source == LIGHT_SOURCE_EMISSIVE_INSTANCE)
     {
@@ -86,37 +79,72 @@ float EvaluateUniformLightSelectionPmf(LightReference lightReference, uint emiss
         {
             if (g_EmissiveInstanceIDs[i] == lightReference.Index)
             {
-                return pmf;
+                return g_LightCount + i;
             }
         }
     }
-    return 0.0;
+    return INVALID_LIGHT_SELECTION_INDEX;
 }
 
 // Logical concatenation of existing lists; no extra GPU light list is required.
-// All random inputs in this file must be uniform in [0,1).
-bool SelectUniformLight(uint emissiveInstanceCount, float selectionSample,
-                        out LightReference lightReference, out float selectionPmf)
+LightReference GetLightReferenceFromSelectionIndex(uint lightIndex)
 {
-    lightReference = (LightReference)0;
-    selectionPmf = UniformLightSelectionPmf(emissiveInstanceCount);
-    const uint count = g_LightCount + emissiveInstanceCount;
-    if (count == 0u)
-    {
-        return false;
-    }
-
-    const uint selected = min(uint(selectionSample * float(count)), count - 1u);
-    if (selected < g_LightCount)
+    LightReference lightReference;
+    if (lightIndex < g_LightCount)
     {
         lightReference.Source = LIGHT_SOURCE_SCENE;
-        lightReference.Index = selected;
+        lightReference.Index = lightIndex;
     }
     else
     {
         lightReference.Source = LIGHT_SOURCE_EMISSIVE_INSTANCE;
-        lightReference.Index = g_EmissiveInstanceIDs[selected - g_LightCount];
+        lightReference.Index = g_EmissiveInstanceIDs[lightIndex - g_LightCount];
     }
+    return lightReference;
+}
+
+float GetLightWeightTotal(StructuredBuffer<float> weightTree, uint leafBase)
+{
+    // A zero leaf base means there is no tree to read.
+    [branch]
+    if (leafBase == 0u)
+    {
+        return 0.0;
+    }
+    return weightTree[1];
+}
+
+// All random inputs in this file must be uniform in [0,1).
+bool SelectLight(StructuredBuffer<float> weightTree, uint leafBase,
+                 float selectionSample, out LightReference lightReference, out float selectionPmf)
+{
+    const float totalWeight = GetLightWeightTotal(weightTree, leafBase);
+    if (!(totalWeight > 0.0))
+    {
+        lightReference = (LightReference)0;
+        selectionPmf = 0.0;
+        return false;
+    }
+
+    float target = selectionSample * totalWeight;
+    uint node = 1u;
+    [loop]
+    while (node < leafBase)
+    {
+        const uint leftNode = 2u * node;
+        const float leftWeight = weightTree[leftNode];
+        node = leftNode;
+        // A rounded upper boundary must stay in the nonempty subtree, including
+        // the last level where the right leaf can be padding.
+        if (target >= leftWeight && weightTree[leftNode + 1u] > 0.0)
+        {
+            target -= leftWeight;
+            node = leftNode + 1u;
+        }
+    }
+
+    lightReference = GetLightReferenceFromSelectionIndex(node - leafBase);
+    selectionPmf = weightTree[node] / totalWeight;
     return true;
 }
 
@@ -283,9 +311,22 @@ float EvaluateLightSamplePdf(LightSamplingContext context, LightSampleLocation l
 
 // Complete continuous light-sampling density at an identified location. Keep
 // the selection strategy paired with SampleLight here, rather than in integrators.
-float EvaluateLightPdf(LightSamplingContext context, LightSampleLocation location)
+float EvaluateLightPdf(LightSamplingContext context, LightSampleLocation location,
+                       StructuredBuffer<float> weightTree, uint leafBase)
 {
-    const float selectionPmf = EvaluateUniformLightSelectionPmf(location.Light, context.EmissiveInstanceCount);
+    const float totalWeight = GetLightWeightTotal(weightTree, leafBase);
+    if (!(totalWeight > 0.0))
+    {
+        return 0.0;
+    }
+
+    const uint lightIndex = FindLightSelectionIndex(location.Light, context.EmissiveInstanceCount);
+    if (lightIndex == INVALID_LIGHT_SELECTION_INDEX)
+    {
+        return 0.0;
+    }
+
+    const float selectionPmf = weightTree[leafBase + lightIndex] / totalWeight;
     if (selectionPmf <= 0.0)
     {
         return 0.0;
@@ -323,12 +364,12 @@ bool SampleSelectedLight(LightSamplingContext context, LightReference lightRefer
 // mesh triangle; .zw chooses a surface point (e.g. one SobolBurley4D call).
 // false means a zero contribution; do not retry zero-area/backfacing samples or
 // the light/triangle selection probabilities would need renormalization.
-bool SampleLight(LightSamplingContext context, float4 randomSample, SamplerState materialSampler,
-                 out LightSample lightSample, out float selectionPmf)
+bool SampleLight(LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
+                 float4 randomSample, SamplerState materialSampler, out LightSample lightSample, out float selectionPmf)
 {
     lightSample = (LightSample)0;
     LightReference lightReference;
-    if (!SelectUniformLight(context.EmissiveInstanceCount, randomSample.x, lightReference, selectionPmf))
+    if (!SelectLight(weightTree, leafBase, randomSample.x, lightReference, selectionPmf))
     {
         return false;
     }

@@ -113,6 +113,7 @@ namespace Spark::Render
         SharedGroupValues values;
         values.m_spaceId = kSceneSpaceId;
         rhiCtx.Add<SharedGroupValues>(m_values, values);
+        rhiCtx.Add<SceneLightCount>(m_values, SceneLightCount{});
 
         // The arrays land in the space0 group, read by shaders straight from host memory.
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
@@ -335,6 +336,7 @@ namespace Spark::Render
         WriteAndBind<ViewShadowMapBufferTag>(*rhiCtx, m_viewShadowMapBuffer, m_viewShadowMaps, SharedInput::ViewShadowMaps, m_viewShadowMapSlot);
         const uint32_t lightCount = WriteAndBind<LightBufferTag>(*rhiCtx, m_lightBuffer, m_lights, SharedInput::Lights, m_lightSlot)
                 ? static_cast<uint32_t>(m_lights.size()) : 0;
+        rhiCtx->Get<SceneLightCount>(m_values).m_count = lightCount;
 
         // The BRDF LUT is its own table, not part of the sky's set: it is published whether or
         // not there is a skybox, since a pass reads it as soon as the table is there.

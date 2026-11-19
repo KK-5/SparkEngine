@@ -37,6 +37,8 @@ namespace Spark::Render
 
         //! Around the mesh's vertices, in the space they are stored in.
         Math::AABB m_localBounds;
+        //! Surface area from the model primitive, in the same local space as the bounds.
+        float m_localSurfaceArea = 0.0f;
     };
 
     //! On a world entity whose MeshGeometry still has bytes to go into the pool: its vertices,

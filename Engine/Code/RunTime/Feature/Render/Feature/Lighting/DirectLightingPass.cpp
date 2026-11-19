@@ -1,4 +1,5 @@
 #include "DirectLightingPass.h"
+#include "LightWeightTree.h"
 
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
@@ -12,6 +13,7 @@
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Shader/ShaderAsset.h>
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <View/ViewTags.h>
 
@@ -80,14 +82,8 @@ namespace Spark::Render
                 const bool hasMaterials = p.ImportShared<MaterialPoolTag>(RHI::AttachmentId("LightingMaterials"));
                 const bool hasEmitters = p.ImportShared<EmissiveInstanceIDBufferTag>(RHI::AttachmentId("LightingEmitters"));
                 p.ImportSharedSet<MaterialTextureTag>(RHI::AttachmentId("MaterialTextures"));
-                uint32_t emissiveCount = 0;
-                if (hasEmitters)
-                {
-                    for (auto [entity, count] : RHI::RHIExecuteContext::Current()->GetView<EmissiveInstanceCount>().each())
-                    {
-                        emissiveCount = count.m_count;
-                    }
-                }
+                const auto lightLayout = LightWeightTree::LayOut(*RHI::RHIExecuteContext::Current());
+                const uint32_t emissiveCount = hasEmitters ? lightLayout.m_emissiveInstanceCount : 0;
                 const bool ready = hasLights && hasScene && hasInstances && hasGeometry && hasMesh && hasMaterials;
                 const auto size = p.GetRenderSize();
                 auto scope = p.Scope();
@@ -119,6 +115,7 @@ namespace Spark::Render
                 scope.ReadImage(RHI::AttachmentId("Velocity")).Bind(RHI::InputName("g_Velocity"));
                 scope.ReadImage(RHI::AttachmentId("GBufferGeometricNormal")).Bind(RHI::InputName("g_GBufferGeometricNormal"));
                 scope.ReadImage(RHI::AttachmentId("GBufferShadowOriginOffset")).Bind(RHI::InputName("g_GBufferShadowOriginOffset"));
+                uint32_t lightWeightTreeLeafBase = 0;
                 if (ready)
                 {
                     // Direct shared imports derive their stages from the shader
@@ -135,9 +132,17 @@ namespace Spark::Render
                     {
                         scope.ReadBuffer(RHI::AttachmentId("LightingEmitters"));
                     }
+                    if (lightLayout.m_leafBase != 0)
+                    {
+                        lightWeightTreeLeafBase = lightLayout.m_leafBase;
+                        scope.ReadBuffer(RHI::AttachmentId(LightWeightTree::BufferName))
+                            .View(RHI::BufferViewDescriptor::CreateStructured(0, lightLayout.NodeCount(), sizeof(float)))
+                            .Bind(RHI::InputName("g_LightWeightTree"));
+                    }
                 }
                 scope.Constant(RHI::InputName("emissiveInstanceCount"), emissiveCount);
                 scope.Constant(RHI::InputName("lightingReady"), ready ? 1u : 0u);
+                scope.Constant(RHI::InputName("lightWeightTreeLeafBase"), lightWeightTreeLeafBase);
                 scope.Sampler(RHI::InputName("g_MaterialSampler"), RHI::SamplerState::Create(
                     RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));
                 scope.Draw(RHI::DrawLinear(3, 0));

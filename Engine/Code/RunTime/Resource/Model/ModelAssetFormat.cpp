@@ -356,6 +356,15 @@ namespace Spark::Resource
             return nullptr;
         }
 
+        // Derive the area from the cached geometry so older cache entries can provide it too.
+        for (Mesh& mesh : data->m_meshes)
+        {
+            for (Primitive& prim : mesh.primitives)
+            {
+                prim.RecalculateLocalSurfaceArea();
+            }
+        }
+
         return data;
     }
 }

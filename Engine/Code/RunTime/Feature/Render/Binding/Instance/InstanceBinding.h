@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Math/AABB.h>
 #include <RHI/Resource/AccessFlags.h>
 
 #include <Pass/TagList.h>
@@ -65,5 +66,13 @@ namespace Spark::Render
     struct EmissiveInstanceCount
     {
         uint32_t m_count = 0;
+    };
+
+    //! World-space bounds of this frame's geometry-ready opaque instances, published
+    //! alongside the instance counts. An empty scene has no valid bounds.
+    struct OpaqueSceneBounds
+    {
+        Math::AABB m_worldBounds;
+        bool m_valid = false;
     };
 }

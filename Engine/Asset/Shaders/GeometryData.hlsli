@@ -14,7 +14,7 @@ struct GeometryData
     uint   IndexByteStride;  // 0: non-indexed; 2: UINT16; 4: UINT32. FirstIndex is in indices.
     uint2  BottomLevelAddress;
     uint   TriangleCount; // indexed: IndexCount / 3; non-indexed: vertex count / 3
-    uint   Padding0;
+    float  LocalSurfaceArea; // sum of triangle areas in the mesh's own space
     uint   Padding1;
     uint   Padding2;
 };

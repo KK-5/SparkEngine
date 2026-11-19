@@ -12,6 +12,7 @@ struct ScopeParameters
     uint viewIndex;
     uint emissiveInstanceCount;
     uint lightingReady;
+    uint lightWeightTreeLeafBase;
 };
 #include <Shaders/ScopeBindings.hlsli>
 
@@ -22,6 +23,7 @@ Texture2D         g_Depth                     : register(t3, space2);
 Texture2D<float2> g_Velocity                  : register(t4, space2);
 Texture2D         g_GBufferGeometricNormal    : register(t5, space2);
 Texture2D<float4> g_GBufferShadowOriginOffset : register(t6, space2);
+StructuredBuffer<float> g_LightWeightTree    : register(t7, space2);
 SamplerState      g_MaterialSampler           : register(s0, space2);
 
 struct VSOutput
@@ -101,7 +103,8 @@ PSOutput PSMain(VSOutput input)
     const float2 ggxRandomSample = SobolBurley2D(view.frameNumber, 1u, seed);
     const float3 shadowOriginOffset = g_GBufferShadowOriginOffset.Load(int3(pixel, 0)).xyz;
     const DirectLightingEstimate lighting = EvaluateDirectLightingMIS(surface, material, V, context,
-        lightRandomSample, ggxRandomSample, g_MaterialSampler, settings, shadowOriginOffset);
+        g_LightWeightTree, g_Scope.lightWeightTreeLeafBase, lightRandomSample, ggxRandomSample,
+        g_MaterialSampler, settings, shadowOriginOffset);
 
     float3 diffuseFactor;
     float3 specularFactor;

@@ -68,13 +68,13 @@ bool TraceDirectLightingMeshVisibility(GeometrySurface surface, LightSample ligh
 }
 
 DirectLightingSample EvaluateDirectLightingLightSample(GeometrySurface surface, RayTracingMaterial material,
-    float3 V, LightSamplingContext context, float4 randomSample, SamplerState materialSampler,
-    RayTracingLightingSettings settings, float3 shadowOriginOffset)
+    float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
+    float4 randomSample, SamplerState materialSampler, RayTracingLightingSettings settings, float3 shadowOriginOffset)
 {
     DirectLightingSample result = (DirectLightingSample)0;
     LightSample lightSample;
     float selectionPmf;
-    if (!SampleLight(context, randomSample, materialSampler, lightSample, selectionPmf))
+    if (!SampleLight(context, weightTree, leafBase, randomSample, materialSampler, lightSample, selectionPmf))
     {
         return result;
     }
@@ -126,16 +126,16 @@ DirectLightingSample EvaluateDirectLightingLightSample(GeometrySurface surface, 
 // One sampled direction may see several nonblocking analytic emitters. Every
 // emitter uses its own light-selection PMF and conditional solid-angle density.
 float3 EvaluateDirectLightingGGXContribution(float3 specular, float ggxPdf,
-    LightSamplingContext context, LightSample lightSample)
+    LightSamplingContext context, LightSample lightSample, StructuredBuffer<float> weightTree, uint leafBase)
 {
-    const float lightPdf = EvaluateLightPdf(context, lightSample.Location);
+    const float lightPdf = EvaluateLightPdf(context, lightSample.Location, weightTree, leafBase);
     const float weight = MISPowerHeuristic(ggxPdf, lightPdf);
     return specular * lightSample.Radiance * (weight / ggxPdf);
 }
 
 DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, RayTracingMaterial material,
-    float3 V, LightSamplingContext context, float2 randomSample, SamplerState materialSampler,
-    RayTracingLightingSettings settings, float3 shadowOriginOffset)
+    float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
+    float2 randomSample, SamplerState materialSampler, RayTracingLightingSettings settings, float3 shadowOriginOffset)
 {
     DirectLightingSample result = (DirectLightingSample)0;
     float3 direction;
@@ -166,7 +166,7 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
             if (TraceSampledLightVisibility(surface, meshSample, settings, shadowOriginOffset))
             {
                 result.Specular += EvaluateDirectLightingGGXContribution(
-                    brdf.Specular, ggxPdf, context, meshSample);
+                    brdf.Specular, ggxPdf, context, meshSample, weightTree, leafBase);
             }
         }
         // Ordinary surfaces retain distance only; no GI or reflected surface shading.
@@ -182,7 +182,8 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
     while (QueryNextVisibleRectLight(surface, context, ray, materialSampler,
         settings, shadowOriginOffset, nextLightIndex, rectSample))
     {
-        result.Specular += EvaluateDirectLightingGGXContribution(brdf.Specular, ggxPdf, context, rectSample);
+        result.Specular += EvaluateDirectLightingGGXContribution(
+            brdf.Specular, ggxPdf, context, rectSample, weightTree, leafBase);
         // Guide only: do not shorten ray.TMax or stop accumulating other lights.
         // A non-shadowing light behind geometry contributes RGB, while the guide
         // still describes the nearest event along the original GGX direction.
@@ -197,13 +198,14 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
 // context.WorldPosition must equal surface.WorldPosition before shadow offsets.
 // Settings require 0 < RayBias < MaxDistance.
 DirectLightingEstimate EvaluateDirectLightingMIS(GeometrySurface surface, RayTracingMaterial material,
-    float3 V, LightSamplingContext context, float4 lightRandomSample, float2 ggxRandomSample,
-    SamplerState materialSampler, RayTracingLightingSettings settings, float3 shadowOriginOffset)
+    float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
+    float4 lightRandomSample, float2 ggxRandomSample, SamplerState materialSampler,
+    RayTracingLightingSettings settings, float3 shadowOriginOffset)
 {
-    const DirectLightingSample lightSample = EvaluateDirectLightingLightSample(surface, material, V,
-        context, lightRandomSample, materialSampler, settings, shadowOriginOffset);
-    const DirectLightingSample ggxSample = EvaluateDirectLightingGGXSample(surface, material, V,
-        context, ggxRandomSample, materialSampler, settings, shadowOriginOffset);
+    const DirectLightingSample lightSample = EvaluateDirectLightingLightSample(surface, material, V, context,
+        weightTree, leafBase, lightRandomSample, materialSampler, settings, shadowOriginOffset);
+    const DirectLightingSample ggxSample = EvaluateDirectLightingGGXSample(surface, material, V, context,
+        weightTree, leafBase, ggxRandomSample, materialSampler, settings, shadowOriginOffset);
     DirectLightingEstimate result;
     result.Diffuse = lightSample.Diffuse;
     result.Specular = lightSample.Specular + ggxSample.Specular;

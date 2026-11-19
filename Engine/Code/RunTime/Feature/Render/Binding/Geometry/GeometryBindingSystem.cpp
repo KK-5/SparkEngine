@@ -42,6 +42,7 @@ namespace Spark::Render
         data.m_triangleCount = (data.m_indexByteStride != 0 ? geometry.m_indexCount : vertexCount) / 3u;
         data.m_boundsCenter  = geometry.m_localBounds.Center();
         data.m_boundsExtents = geometry.m_localBounds.Extents();
+        data.m_localSurfaceArea = geometry.m_localSurfaceArea;
         return data;
     }
 

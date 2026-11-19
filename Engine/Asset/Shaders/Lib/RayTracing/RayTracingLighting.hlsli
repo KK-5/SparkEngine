@@ -145,10 +145,10 @@ struct DirectLightingSample
     float HitDistance;
 };
 
-DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTracingMaterial material, float3 V,
-                              LightSamplingContext context, float4 randomSample,
-                              SamplerState materialSampler, RayTracingLightingSettings settings,
-                              LightingSampleCounts sampleCounts, float3 shadowOriginOffset)
+DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTracingMaterial material,
+    float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
+    float4 randomSample, SamplerState materialSampler, RayTracingLightingSettings settings,
+    LightingSampleCounts sampleCounts, float3 shadowOriginOffset)
 {
     DirectLightingSample result = (DirectLightingSample)0;
     if (sampleCounts.LightSampleCount == 0u)
@@ -157,7 +157,7 @@ DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTr
     }
     LightSample lightSample;
     float selectionPmf;
-    if (!SampleLight(context, randomSample, materialSampler, lightSample, selectionPmf))
+    if (!SampleLight(context, weightTree, leafBase, randomSample, materialSampler, lightSample, selectionPmf))
     {
         return result;
     }
@@ -198,23 +198,22 @@ DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTr
 
 // Existing integrators keep their uncorrected visibility policy. Only callers
 // supplying a displacement opt into smooth-surface shadow-origin correction.
-DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTracingMaterial material, float3 V,
-                              LightSamplingContext context, float4 randomSample,
-                              SamplerState materialSampler, RayTracingLightingSettings settings,
-                              LightingSampleCounts sampleCounts)
+DirectLightingSample EvaluateDirectLightingSample(GeometrySurface surface, RayTracingMaterial material,
+    float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
+    float4 randomSample, SamplerState materialSampler, RayTracingLightingSettings settings,
+    LightingSampleCounts sampleCounts)
 {
-    return EvaluateDirectLightingSample(surface, material, V, context, randomSample,
+    return EvaluateDirectLightingSample(surface, material, V, context, weightTree, leafBase, randomSample,
         materialSampler, settings, sampleCounts, float3(0.0, 0.0, 0.0));
 }
 
-// Compatibility entry point for reference/path integrators that accumulate the
-// complete response. Both entry points share sampling, visibility, PDFs and MIS.
+// Complete response for reference/path integrators.
 float3 EvaluateDirectLighting(GeometrySurface surface, RayTracingMaterial material, float3 V,
-                              LightSamplingContext context, float4 randomSample,
-                              SamplerState materialSampler, RayTracingLightingSettings settings,
-                              LightingSampleCounts sampleCounts)
+    LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
+    float4 randomSample, SamplerState materialSampler, RayTracingLightingSettings settings,
+    LightingSampleCounts sampleCounts)
 {
-    const DirectLightingSample result = EvaluateDirectLightingSample(surface, material, V, context,
+    const DirectLightingSample result = EvaluateDirectLightingSample(surface, material, V, context, weightTree, leafBase,
         randomSample, materialSampler, settings, sampleCounts);
     return result.Diffuse + result.Specular;
 }
@@ -222,13 +221,15 @@ float3 EvaluateDirectLighting(GeometrySurface surface, RayTracingMaterial materi
 // Adapts a ray hit to the light sampler's representation. Unknown/noncandidate
 // emitters return zero through EvaluateLightPdf. Integrators need not construct
 // LightReference/LightSampleLocation or know how the selection list is stored.
-float EvaluateLightPdfAtHit(LightSamplingContext context, RayTracingHit hit)
+float EvaluateLightPdfAtHit(LightSamplingContext context, RayTracingHit hit,
+    StructuredBuffer<float> weightTree, uint leafBase)
 {
-    return EvaluateLightPdf(context, MakeEmissiveLightSampleLocation(hit));
+    return EvaluateLightPdf(context, MakeEmissiveLightSampleLocation(hit), weightTree, leafBase);
 }
 
 float EvaluateEmissionMISWeight(LightSamplingContext previousContext, RayTracingHit hit,
-                                float previousBRDFPdf, LightingSampleCounts previousSampleCounts)
+    StructuredBuffer<float> weightTree, uint leafBase,
+    float previousBRDFPdf, LightingSampleCounts previousSampleCounts)
 {
     // A camera hit has no previous BRDF sample. A path with no NEE at the
     // previous vertex has no competing light estimate either.
@@ -236,7 +237,7 @@ float EvaluateEmissionMISWeight(LightSamplingContext previousContext, RayTracing
     {
         return 1.0;
     }
-    const float lightPdf = EvaluateLightPdfAtHit(previousContext, hit);
+    const float lightPdf = EvaluateLightPdfAtHit(previousContext, hit, weightTree, leafBase);
     return MISPowerHeuristic(
         float(previousSampleCounts.BRDFSampleCount) * previousBRDFPdf,
         float(previousSampleCounts.LightSampleCount) * lightPdf);

@@ -77,6 +77,10 @@ namespace Spark::Resource
         VertexLayout            layout;
         uint32_t                materialIndex{kInvalidMaterialIndex};
         Math::AABB              bounds;
+        //! Sum of triangle areas in the stored vertex space, computed for runtime data.
+        float                   localSurfaceArea = 0.0f;
+
+        void RecalculateLocalSurfaceArea();
     };
 
     // === Raw image entry (intermediate; Builder consumes & clears after sub-asset dispatch) ===

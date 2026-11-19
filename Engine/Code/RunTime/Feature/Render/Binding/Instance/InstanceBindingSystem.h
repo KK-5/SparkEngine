@@ -55,8 +55,8 @@ namespace Spark::Render
         //! A slot for each renderable with a transform and geometry; one that lost either gives its back.
         void AllocateSlots(WorldContext& world);
 
-        //! Every held slot's record, into the pool.
-        void UpdateInstanceData(WorldContext& world);
+        //! Writes held slots and accumulates the opaque scene bounds.
+        OpaqueSceneBounds UpdateInstanceData(WorldContext& world);
 
         //! This frame's active list into m_activeSlots.
         void CollectActiveSlots(WorldContext& world);

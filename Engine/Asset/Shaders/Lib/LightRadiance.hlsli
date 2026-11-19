@@ -23,6 +23,11 @@ float EvaluateLightRangeWindow(LightData light, float3 worldPos)
     return window * window;
 }
 
+float SpotConeCosineWidth(LightData light)
+{
+    return max(light.cosInner - light.cosOuter, 1e-4);
+}
+
 // Directional, point and spot only. Rect lights must integrate/sample their area.
 // Returns unoccluded incident radiance; L points from the receiver to the light.
 float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
@@ -40,7 +45,7 @@ float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
     if (light.type == 2)
     {
         const float cosAngle = dot(light.direction, -L);
-        const float cone = saturate((cosAngle - light.cosOuter) / max(light.cosInner - light.cosOuter, 1e-4));
+        const float cone = saturate((cosAngle - light.cosOuter) / SpotConeCosineWidth(light));
         attenuation *= cone * cone;
     }
     return light.color * light.intensity * attenuation;

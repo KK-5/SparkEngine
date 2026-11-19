@@ -199,6 +199,7 @@ TEST(ModelAssetCompilerTest, CompileCube)
     const Primitive& prim = mesh->primitives[0];
     EXPECT_GT(prim.vertexBuffer.size(), 0u);
     EXPECT_GT(prim.indexBuffer.size(), 0u);
+    EXPECT_FLOAT_EQ(prim.localSurfaceArea, 24.0f); // Cube.glb has six faces of area 4.
 
     // 优化后 vertex 数量不增（meshoptimizer 可能移除 unused vertices）
     const size_t idxCount = prim.indexBuffer.size() / sizeof(uint32_t);
@@ -587,6 +588,7 @@ TEST_F(ModelCacheTestFixture, ASecondRunRestoresTheGlbUnitFromCache)
     size_t                 meshCount = 0, nodeCount = 0;
     eastl::vector<uint8_t> vertices, indices;
     uint32_t               indexCount = 0, stride = 0;
+    float                  localSurfaceArea = 0.0f;
     Math::AABB             bounds;
     AssetId                imageId, materialId;
     StandardPBR            params;
@@ -606,6 +608,8 @@ TEST_F(ModelCacheTestFixture, ASecondRunRestoresTheGlbUnitFromCache)
         indices    = prim.indexBuffer;
         indexCount = prim.indexCount;
         stride     = prim.layout.stride;
+        localSurfaceArea = prim.localSurfaceArea;
+        ASSERT_GT(localSurfaceArea, 0.0f);
         bounds     = cooked->GetBounds();
         imageId    = cooked->GetImageAssetId(0);
         materialId = cooked->GetMaterialAssetId(0);
@@ -633,6 +637,7 @@ TEST_F(ModelCacheTestFixture, ASecondRunRestoresTheGlbUnitFromCache)
     EXPECT_EQ(prim.indexBuffer, indices);
     EXPECT_EQ(prim.indexCount, indexCount);
     EXPECT_EQ(prim.layout.stride, stride);
+    EXPECT_FLOAT_EQ(prim.localSurfaceArea, localSurfaceArea);
     EXPECT_EQ(fromCache->GetBounds().min, bounds.min);
     EXPECT_EQ(fromCache->GetBounds().max, bounds.max);
     EXPECT_EQ(fromCache->GetImageAssetId(0), imageId);

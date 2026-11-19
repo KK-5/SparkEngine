@@ -180,6 +180,7 @@ namespace Spark::Render
         m_instanceCountEntity = rhiCtx.CreateEntity();
         rhiCtx.Add<ActiveInstanceCount>(m_instanceCountEntity, ActiveInstanceCount{ 0 });
         rhiCtx.Add<EmissiveInstanceCount>(m_instanceCountEntity, EmissiveInstanceCount{ 0 });
+        rhiCtx.Add<OpaqueSceneBounds>(m_instanceCountEntity, OpaqueSceneBounds{});
 
         if (m_activeList.Init(rhiCtx, device, ObjectName("InstanceIDBuffer"),
             RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::ShaderReadWrite))
@@ -278,7 +279,7 @@ namespace Spark::Render
 
         AllocateSlots(*world);
         m_instances.BeginUpdate();
-        UpdateInstanceData(*world);
+        const OpaqueSceneBounds opaqueBounds = UpdateInstanceData(*world);
         m_instances.EndUpdate();
         if (auto* drawCtx = DrawExecuteContext::Current())
         {
@@ -292,6 +293,7 @@ namespace Spark::Render
         {
             rhiCtx->AddOrReplace<ActiveInstanceCount>(m_instanceCountEntity, ActiveInstanceCount{ instanceCount });
             rhiCtx->AddOrReplace<EmissiveInstanceCount>(m_instanceCountEntity, EmissiveInstanceCount{ emissiveCount });
+            rhiCtx->Get<OpaqueSceneBounds>(m_instanceCountEntity) = opaqueBounds;
         }
 
         // Capture only encoded instances, after every record has used the old history.
@@ -337,10 +339,11 @@ namespace Spark::Render
         });
     }
 
-    void InstanceBindingSystem::UpdateInstanceData(WorldContext& world)
+    OpaqueSceneBounds InstanceBindingSystem::UpdateInstanceData(WorldContext& world)
     {
         auto* drawCtx = DrawExecuteContext::Current();
         const auto& slots = world.GetStorage<InstanceSlot>();
+        OpaqueSceneBounds opaqueBounds;
         m_emissiveSlots.clear();
         world.GetView<InstanceSlot, Transform::WorldTransformMatrix, MeshGeometry>(Exclude<DeadTag>).each(
             [&](Entity e, const InstanceSlot& slot,
@@ -348,6 +351,20 @@ namespace Spark::Render
         {
             const EncodedInstance encoded = EncodeInstanceData(world, e);
             const InstanceData& out = encoded.m_data;
+            if ((out.m_drawMask & DrawMaskOf<OpaqueTag>()) != 0)
+            {
+                const Math::AABB bounds = Math::TransformBounds(geometry.m_localBounds, out.m_model);
+                if (opaqueBounds.m_valid)
+                {
+                    opaqueBounds.m_worldBounds.Expand(bounds.min);
+                    opaqueBounds.m_worldBounds.Expand(bounds.max);
+                }
+                else
+                {
+                    opaqueBounds.m_worldBounds = bounds;
+                    opaqueBounds.m_valid = true;
+                }
+            }
             m_keyCounter.Count(encoded.m_key, out.m_drawMask);
             if (drawCtx)
             {
@@ -360,6 +377,7 @@ namespace Spark::Render
                 m_emissiveSlots.push_back(slot.Get());
             }
         });
+        return opaqueBounds;
     }
 
     void InstanceBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
