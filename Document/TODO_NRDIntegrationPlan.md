@@ -13,24 +13,24 @@
 | 步骤 | 内容 | 状态 |
 |---|---|---|
 | 0 | 方案调研（NRD 源码 + 引擎源码） | ✅ 完成，结论见 §一 |
-| 1 | 引擎：per-Scope 的 bindings 来源 | 未开始 |
+| 1 | 引擎：per-Scope 的 bindings 来源 | 已完成（`52173081`） |
 | 2 | 引擎：detached pipeline（layout + PSO） | 未开始 |
-| 3 | 引擎：权限校验（owner / lowering / RHI） | 未开始 |
+| 3 | 引擎：本地与共享 bindings 隔离 | 已完成（见 D5，`52173081`） |
+| 3a | 引擎：按字段提交运行时常量 | 方案已定，见 D4 |
 | 4 | 信号层（打包、归一化、MV、范围） | 未开始 |
 | 5 | NRD 系统（instance / pool / settings / 生命周期） | 未开始 |
 | 6 | 合成与开关（降噪 / 直通） | 未开始 |
 | 7 | 构建与依赖（可选 CMake 依赖） | 未开始 |
 
-1~3 是引擎结构，4~6 是 NRD 接入本身，7 只影响构建。1 与 2 可以并行。
+1~3a 是引擎前置工作，4~6 是 NRD 接入本身，7 只影响构建。
 
 ---
 
 ## 一、结论
 
 - **一条 dispatch 对应一个 Scope；一条 pipeline 对应一个 PSO；一份 layout 覆盖全部 pipeline。**
-- 引擎的结构缺口是两条，都很小：**per-Scope 的 bindings 来源**，以及**无 shader 的 pass 没有 dispatch 的
-  group size 来源**（`.Dispatch` 依赖 `PassThreadGroupSize`，那只由 shader 反射给出）。PSO、每 dispatch 常量、
-  屏障、bindings 编译、输出清屏这五件都已经有现成机制，见 §三。
+- **per-Scope bindings 已落地。** 接下来补齐外部 layout/PSO 的接入、按 group 数提交 dispatch，
+  以及供接入层按字段提交运行时常量的入口，见 §三和 D4。
 - 不做 bindless，也不改 NRD 源码：NRD 的 shader 按固定寄存器取图（没有索引层），改它属于修改 SDK 本体，
   许可证不授权（见 §五）。
 - 其余都是机械工作（detached pipeline）与参数工作（信号、设置、生命周期）。
@@ -42,7 +42,7 @@
   └ N 个 Scope，每个 Scope = 一条 NRD dispatch
        PSO       ← pipelines[dispatch.pipelineIndex]
        bindings  ← 该 Scope 自己的 ShaderBindings（同一份 layout）
-       常量      ← dispatch.constantBufferData
+       常量      ← 接入层按字段拆解 dispatch.constantBufferData，再逐项 .Constant(...)
        grid      ← dispatch.gridWidth / gridHeight
 ```
 
@@ -155,12 +155,14 @@ NRD 两种布局都支持（`DescriptorPoolDesc` 注释）：共享一份并集 
 
 ### 3.1 已有的
 
-- **数据模型已经是 per-Scope**：`ScopeState` 有 `m_pso` 和 `m_bindings[]` 指针数组（`Pass/Component/ScopeComponents.h`）。
+- **本地 bindings 由 Scope 持有**：图从 pass layout 为每个本地 space 创建一个 `ShaderBindings`，
+  由 `ScopeBinding` 持有。实际执行的指针与共享组一起放进 `ScopeState.m_bindings[]`。
 - **bindings 编译不是缺口**：`CompileShaderInputs` 遍历 `ScopeState` 的指针，挂在哪儿就编哪儿
   （`RenderGraph/RenderGraphCompiler.cpp`）。
-- **PSO 不是缺口**：`ItemPipelineState` 支持 per-item 切换，执行器对 item 类型无关；不透明钩子里也可以
+- **执行器已支持 PSO 切换**：`ItemPipelineState` 支持 per-item 切换，执行器对 item 类型无关；不透明钩子里也可以
   直接 `SetPipelineState`（`RenderGraph/RenderGraphExecuter.cpp`、`RHI/Command/CommandList.h`）。
-- **每 dispatch 常量不是缺口**：每个 `ShaderBindings` 在 `Init` 时分配自己的常量内存，`SetData` 写入即可。
+- **CB 已支持逐字段写入**：图按字段填充 `ShaderBindings`，RHI 按寄存器和字节偏移组装 CB。
+  现有 Scope `.Constant(name, value)` 接收静态类型，外部字节块的逐字段适配见 D4。
 - **屏障在 Scope 边界**：图按 Scope 生成前后屏障，1 dispatch = 1 Scope 时是免费的。
 - **输出清屏**：RHI 有 `ClearUnorderedAccess`。
 - **space 是 layout 内的索引**，不是全局命名空间。`BuildPassPipelineLayout` 只会把 pass 自己的
@@ -169,14 +171,10 @@ NRD 两种布局都支持（`DescriptorPoolDesc` 注释）：共享一份并集 
 
 ### 3.2 缺的
 
-**唯一的结构缺口：lowering 只填 pass 级的 bindings 来源。** `CompileScopeBindings` 给每个 Scope 挂的是
-同一个 `PassBindings`（+ 共享组），而 `PassScopes.h` 的 `.Bind/.Sampler` 有明确约束：
+**外部 compute pipeline 的接入。** RHI 已能从 DXIL 创建 PSO，RenderGraph 仍需接收不经 ShaderAsset 反射构建
+的 pass layout，并让 Scope 使用预建的 PSO。NRD 在自己的 layout 中编号，参见 D1–D3。
 
-> Scopes of one pass that set the same input must agree (lowering asserts it): the per-pass space holds one value.
-
-即"一条 pass 的多个 Scope 共用一份值"。而 NRD 每条 dispatch 的视图与常量都不同。
-
-**第二条小缺口：无 shader 的 pass 没有 dispatch 的 group size。** `ComputeScope::Dispatch(threadCount)` 要按
+**按 group 数提交 dispatch。** `ComputeScope::Dispatch(threadCount)` 要按
 pass 的 `PassThreadGroupSize` 换算 group 数，而该组件只在 pass 有 compute shader 时由反射填；
 `RenderGraphBuilder::AddScopeDispatch` 会直接断言 "Pass dispatches without a compute shader"
 (`RenderGraph/RenderGraphBuilder.cpp`)。NRD 的 grid 本身就是 group 数，所以两条路都可以：
@@ -187,13 +185,8 @@ pass 的 `PassThreadGroupSize` 换算 group 数，而该组件只在 pass 有 co
 
 第一版走第一条更省事；如果后面确认要"1 Scope = 1 dispatch 且由 item 表达"，再把第二条补上。
 
-**顺带要补的三处校验（不是能力，是边界）**：
-
-1. scope 的 bindings 只能落在本 layout 里 owner 为 Pass 的 space 上（见 D5）。
-2. 共享 tier 的 space 只能由系统对象绑定，lowering 断言（同上）。
-3. `BindShaderInputsForDispatch/Draw` 现在只按 spaceId 在 PSO 的 layout 里找表，**不校验 bindings 的 layout
-   与 PSO 的 layout 是否同一份**（`RHI/Backend/DX12/Command/CommandList.cpp`）。补一条断言，否则把引擎的
-   scene bindings 误绑到 NRD 的 PSO 上会静默错。
+**运行时单字段常量。** 保持现有按名声明的方式，补充由接入层提供单个字段字节的重载。SDK 的常量布局映射
+由 NRD 接入层完成，见 D4。
 
 ### 3.3 为什么不改 NRD 源码（bindless）
 
@@ -214,9 +207,9 @@ model 提到 6.6、重编全部排列 —— 等于 fork，且许可证不允许
 
 ### D1　一个 pass + N 个 Scope；每条 dispatch 一个 Scope
 
-目标形状：pass 用无 shader 的 `SPARK_COMPUTE_PASS`（没有 shader 就没有 `PassCompiledPSO` / `PassBindings`，
-PSO 与 bindings 都由 NRD 系统按 Scope 提供）。`Build` 里按当帧的 dispatch 列表开 N 个 Scope，每个 Scope 声明
-自己的附件，屏障由图的 Scope 边界给出。
+目标形状：无 `ShaderAsset` 的 `SPARK_COMPUTE_PASS` 接收 NRD 系统构建的 layout 和 PSO。
+`Build` 按当帧的 dispatch 列表开 N 个 Scope，每个 Scope 声明附件和常量，图按 layout 创建并填充 bindings，
+屏障由图的 Scope 边界给出。
 
 无 shader 的 pass 拿不到 `PassThreadGroupSize`，所以第一版的 dispatch 由 pass 的 `.Execute` 钩子记录：
 钩子按 Scope 调用一次（`ExecuteWork::m_scopeIndex` 指认是哪条，`m_itemHandles` 为空），在里面
@@ -228,7 +221,8 @@ pipeline 在一帧里 dispatch 多次（§2.3）；且排列数（22~27）会把
 
 ### D2　layout：一份并集，手工按 `InstanceDesc` 构建
 
-- space A（常量+采样器）：`b0` CBV（大小 `constantBufferMaxDataSize`）+ `s0/s1` static sampler。
+- space A（常量+采样器）：`b0` CBV 由 D4 的字段描述按字节偏移组成，另有 `s0/s1` static sampler。
+  初始化时记录 `constantBufferMaxDataSize`，用来核对 SDK 输出的常量块。
 - space B（资源）：一个 SRV 数组 + 一个 UAV 数组，长度为所有 pipeline 的最大值。
   数量按 `pipelines[].resourceRanges` 求，不直接用 `descriptorPoolDesc.perSet*`（§2.4 的坑）。
 - 布局由 NRD 系统在 device 初始化后手工建，不经过 `BuildPassPipelineLayout`；`AddShaderInputDescriptors` /
@@ -245,25 +239,33 @@ pipeline 在一帧里 dispatch 多次（§2.3）；且排列数（22~27）会把
 - 注意：引擎每个 PSO 内部各建一个 `PipelineLayout`，切 PSO 会 `SetComputeRootSignature` 并清空已绑定的
   space，所以**每条 dispatch 都要重绑**它的表与 CBV。
 
-### D4　bindings：每 Scope 一份，值由 NRD 系统填
+### D4　bindings 与常量：按 Scope 声明，常量逐字段传入
 
-- 每 dispatch 一个 `ShaderBindings`（同 layout、同一 space），挂进 `ScopeState.m_bindings`；
-  `CompileShaderInputs` 会编译它。
-- 值：按 `resources[]` 把 view 写进数组的对应槽位（`SetView(arrayIndex, view)`），常量写
-  `constantBufferData`；长度按该 pipeline 的 ranges，短 pass 的尾部槽位不填。
-- 生命周期：对象跨帧复用，只重填值；不每帧 new（每次 `Init` 都要一份 descriptor 区与常量内存）。
-- 引擎侧需要的最小能力：pass 能创建 N 份同 layout 的 bindings，并在 Build 里给每个 Scope 指定一份。
-  建议做成 pass 在 setup 时声明"binding set"（layout + 允许覆盖的 space + 份数），Build 里 Scope 选一份；
-  权限在创建时固定，运行期不能扩。
+- NRD 的 Build 按 `resources[]` 和当前 pipeline 的 ranges 声明 SRV/UAV 附件并绑定对应的数组槽位。
+  图为每个 Scope 的本地 space 创建 `ShaderBindings`，由 `ScopeBinding` 持有到帧末。
+  lowering 将声明的视图和常量填入这些对象，再通过 `ScopeState` 统一编译和使用。
+- 初始化时在 NRD 接入层构建字段表。先确认实际 SDK 的 DXIL 能否提取常量反射，再复用
+  `ShaderAssetCompiler` 的反射逻辑获取字段名、CB 寄存器和 space、字节偏移、大小及元素步长。
+  若发行物缺反射，需从同一版本、同一编译配置取得字段元数据。并集 layout 按字段建立
+  `ShaderInputConstantDescriptor`，合并前验证各 PSO 的字段偏移、尺寸和步长相容。
+- Build 按当前 pipeline 的字段表从 `DispatchDesc::constantBufferData` 取值。先用
+  `constantBufferDataSize` 检查每个字段的读范围，再逐项调用 `.Constant(name, bytes)`。
+  `bytes` 是一个字段的字节 span。若字段在 HLSL CB 中有填充，接入层先按元素去掉填充，再交给现有字段
+  写入逻辑恢复其 CB 步长。没有常量数据的 dispatch 省略这一步。
+- `.Constant(name, bytes)` 是拟新增的运行时单字段重载，沿用已有按名校验与拷贝语义。原有
+  `.Constant(name, value)` 仍可直接传矩阵、向量和标量。Scope 在 Build 时复制每个字段，Compile 无需保留
+  SDK 的指针。同一个寄存器内的字段最终仍组装成一份 GPU CB。
+- 保留 `ScopeConstants` 的 8 条内嵌预留和单条 64 B 上限。REBLUR 4.18 的共享 CB 约有 81 个字段，
+  单个 `float4x4` 占 64 B。实际字段超过 8 条时使用 `eastl::fixed_vector` 已有的堆扩展。
+- SDK 的字段表和字节解析留在 NRD 接入层。自研或替换降噪器时，Scope、PSO 选择、SRV/UAV 声明、
+  逐字段常量和图屏障都可以复用，替换 dispatch 生成和算法自己的历史管理即可。
 
 ### D5　权限边界
 
-- `RHI::ShaderInputGroup` 增加 owner（Pass / Scene / View / Material / Instance / Geometry / RayTracing），
-  在 `BuildPassPipelineLayout` 的两个来源处填：`kPerPassSpaceId` → Pass，共享声明 → 其 tier。
-- lowering：非 Pass 的 space 必须由系统对象（`m_sharedBindings`）提供；scope 提供的对象落在其上 → 断言。
-- RHI：`BindShaderInputsForDispatch/Draw` 断言 bindings 的 layout descriptor 与当前 PSO 的 layout 是同一份。
-- 效果：engine pass 只能覆盖 space2；NRD 的 layout 只有它自己的两个 space（owner 都是 Pass），
-  共享 tier 根本不在里面，越权在数据层面不可达。
+- Render 层的 `PassPipelineLayout.m_sharedSpaces` 记录哪些 space 由共享池提供。NRD 使用手工 layout，
+  共享列表留空，两个 space 都由 Scope 持有，编号可以和引擎共享 space 重合。
+- `CompileScopeBindings` 只向 `ScopeBinding` 持有的对象写值。Direct 共享资源从资源发布的
+  `Shader*Usage` 独立填入共享池，Scope 只声明访问并沿用发布的视图。因此 RHI 无需保存共享归属。
 
 ### D6　图可见性、屏障、清屏
 
@@ -327,7 +329,7 @@ NRD 作为**可选外部依赖**，不进仓库；使用者自己构建。缺省
 
 | 阶段 | 做什么 | 验收 |
 |---|---|---|
-| 1 | per-Scope bindings 来源 + dispatch 的 group size 来源 + 三项权限校验 | 一个测试 pass：两个 Scope 绑不同图、写不同目标，彼此独立；共享 space 不能被 scope 覆盖（断言触发）；错误 layout 绑定被 RHI 断言拦住 |
+| 1 | per-Scope bindings、group 数提交与运行时逐字段常量 | 一个测试 pass 的两个 Scope 分别绑定不同图、写不同目标；每个 Scope 按字段传入合计超过 64 B 的不同常量并验证结果；本地声明无法改写共享对象 |
 | 2 | detached pipeline + 并集 layout | 建出全部 NRD PSO；跑一条 Clear dispatch，内容变 0 |
 | 3 | NRD 系统 + 信号层最小改动 | REBLUR_DIFFUSE_SPECULAR 出图：静止画面收敛、无闪烁；关闭 NRD 时与现在逐像素一致（直通） |
 | 4 | 合成 + 开关 | 编辑器可切降噪/直通；切换与 resize 不产生残留历史（画面无拖影） |
@@ -348,10 +350,8 @@ NRD 作为**可选外部依赖**，不进仓库；使用者自己构建。缺省
   （`NRD_SUPPORTS_VIEWPORT_OFFSET=0` 时必须为 0）。要么把 NRD 资源做成视口大小，要么打开这个编译开关。
 - **性能**：每条 dispatch 一份 bindings 意味着每帧 N 次 descriptor 表更新 + N 次常量上传；REBLUR 是 7~10 条，
   预计可忽略，但要在阶段 4 量一次（尤其 + 切换 PSO 导致的重绑）。
-- **常量大小**：`CommonSettings` 光矩阵就 5 个 4x4（320B），远超 root constants 的 128B，必须走 CBV；
-  `constantBufferMaxDataSize` 实测值存档。
-- **是否复用给别的降噪器/超分**（SIGMA、DLSS RR、FSR）：D4 的"binding set"形状如果做对了，这条能力可以复用；
-  如果只为 NRD 特例化，后面会重来一次。
+- **常量布局**：REBLUR 4.18 的共享 CB 按源码计算约 896 B，字段总量大但每个矩阵只有 64 B。
+  初始化时存档实际 SDK 的 `constantBufferMaxDataSize` 和字段偏移，确认共用 layout 的排列相容。
 - **参数默认值**：第一版全部用 NRD 默认设置（`{}` 构造），不要先调参。
 
 ---
@@ -371,4 +371,5 @@ NRD 作为**可选外部依赖**，不进仓库；使用者自己构建。缺省
 - `NRD/Source/Reblur.cpp`、`Source/Denoisers/Reblur_DiffuseSpecular.hpp` —— REBLUR 的链与每 pass 的读写
 - `NRD/Source/Relax.cpp` —— A-trous 的 binding variant 与重复 dispatch
 - `NRD/Shaders/*.resources.hlsli` —— 每个 pass 的常量结构、sampler、寄存器列表
+- [`NRD/Shaders/REBLUR_Config.hlsli`](https://raw.githubusercontent.com/NVIDIA-RTX/NRD/v4.18.0/Shaders/REBLUR_Config.hlsli#L107) —— REBLUR 共享常量字段
 - `NRD/LICENSE.txt` —— 修改授权（§1(b)/§4(b)）、开源限制（§4(e)）、致谢（§6.1(c)）
