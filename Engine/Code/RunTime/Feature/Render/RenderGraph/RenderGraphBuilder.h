@@ -22,6 +22,7 @@ class ImportSharedSetTest;
 namespace Spark::RHI
 {
     class ImagePool;
+    struct DispatchDirect;
     struct DrawItem;
 }
 
@@ -167,7 +168,7 @@ namespace Spark::Render
 
         //! A constant `scope` sets: a root constant if the pass's shaders declare one called
         //! `input`, written into the Scope's block now, else one of its per-pass space.
-        void AddScopeConstant(RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount);
+        void AddScopeConstant(RHIHandle scope, const RHI::InputName& input, const void* bytes, size_t byteCount);
 
         //! A new item of `scope`: an entity carrying ScopeItem, for the caller to give its
         //! DrawItem. It lives for the frame.
@@ -176,6 +177,8 @@ namespace Spark::Render
         //! A dispatch of `scope` covering the given thread counts: the groups follow from the
         //! current pass's [numthreads] (PassThreadGroupSize), rounded up.
         void AddScopeDispatch(RHIHandle scope, uint32_t threadCountX, uint32_t threadCountY, uint32_t threadCountZ);
+
+        void AddScopeDispatch(RHIHandle scope, const RHI::DispatchDirect& dispatch);
 
         //! A dispatch of `scope` that reads its group counts from the buffer `arguments`
         //! accesses, `byteOffset` into it. `arguments` is an indirect-arguments access of

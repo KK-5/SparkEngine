@@ -19,13 +19,24 @@ namespace Spark::RHI
             return 0;
         }
 
-        return (value + alignment - 1) / alignment;
+        return value / alignment + (value % alignment != 0);
     }
+
+    struct DispatchGroupCount
+    {
+        uint32_t m_x = 1;
+        uint32_t m_y = 1;
+        uint32_t m_z = 1;
+    };
 
     //! Arguments used when submitting a (direct) dispatch call into a CommandList.
     struct DispatchDirect
     {
         DispatchDirect() = default;
+
+        explicit DispatchDirect(DispatchGroupCount groupCount)
+            : m_groupCount(groupCount)
+        {}
 
         DispatchDirect(
             uint32_t totalNumberOfThreadsX,
@@ -34,38 +45,29 @@ namespace Spark::RHI
             uint16_t threadsPerGroupX,
             uint16_t threadsPerGroupY,
             uint16_t threadsPerGroupZ)
-            : m_totalNumberOfThreadsX(totalNumberOfThreadsX)
-            , m_totalNumberOfThreadsY(totalNumberOfThreadsY)
-            , m_totalNumberOfThreadsZ(totalNumberOfThreadsZ)
-            , m_threadsPerGroupX(threadsPerGroupX)
-            , m_threadsPerGroupY(threadsPerGroupY)
-            , m_threadsPerGroupZ(threadsPerGroupZ)
+            : DispatchDirect(DispatchGroupCount{
+                DivideAndRoundUp(totalNumberOfThreadsX, threadsPerGroupX),
+                DivideAndRoundUp(totalNumberOfThreadsY, threadsPerGroupY),
+                DivideAndRoundUp(totalNumberOfThreadsZ, threadsPerGroupZ) })
         {}
 
         uint32_t GetNumberOfGroupsX() const
         {
-            return DivideAndRoundUp(m_totalNumberOfThreadsX, static_cast<uint32_t>(m_threadsPerGroupX));
+            return m_groupCount.m_x;
         }
 
         uint32_t GetNumberOfGroupsY() const
         {
-            return DivideAndRoundUp(m_totalNumberOfThreadsY, static_cast<uint32_t>(m_threadsPerGroupY));
+            return m_groupCount.m_y;
         }
 
         uint32_t GetNumberOfGroupsZ() const
         {
-            return DivideAndRoundUp(m_totalNumberOfThreadsZ, static_cast<uint32_t>(m_threadsPerGroupZ));
+            return m_groupCount.m_z;
         }
 
-        // Different platforms require number of groups or number of threads or both in their Dispatch() call
-        uint32_t m_totalNumberOfThreadsX = 1; // = numberOfGroupsX * m_threadsPerGroupX
-        uint32_t m_totalNumberOfThreadsY = 1; // = numberOfGroupsY * m_threadsPerGroupY
-        uint32_t m_totalNumberOfThreadsZ = 1; // = numberOfGroupsZ * m_threadsPerGroupZ
-
-        // Group size (number of threads in a group) must match the declaration in the shader
-        uint16_t m_threadsPerGroupX = 1; // = m_totalNumberOfThreadsX / numberOfGroupsX
-        uint16_t m_threadsPerGroupY = 1; // = m_totalNumberOfThreadsY / numberOfGroupsY
-        uint16_t m_threadsPerGroupZ = 1; // = m_totalNumberOfThreadsZ / numberOfGroupsZ
+    private:
+        DispatchGroupCount m_groupCount;
     };
 
     //! Arguments used when submitting an indirect dispatch call into a CommandList: one

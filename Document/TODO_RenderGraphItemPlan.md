@@ -18,7 +18,8 @@ N 跟渲染分辨率走（720p~4K 约 5~7），窗口一改就变。
   工作挤在一次 Execute hook 里。
 
 同形状的后续用例：P4 的 HZB、原由 `ShadowMaskSystem` 代管 draw 的 `ShadowProjectionPass`、在 Execute 里手写
-两条屏障的 `CopyFrameBufferPass`。NRD 的 dispatch 列表 shader 异构，一个 PSO 装不下，走不透明工作。
+两条屏障的 `CopyFrameBufferPass`。NRD 每条 dispatch 由对应的 ComputePass 提交一个 item，多个 Pass 的帧内编排见
+[NRD 接入方案](TODO_NRDIntegrationPlan.md)。
 
 追下去发现，这些假设背后是同一个问题：**执行期仍在以 pass 为单位工作，而 pass 的边界难以界定。**
 
@@ -700,7 +701,7 @@ key 临时建的 `perPass` map 与两个 vector、`m_graph` 的节点与后继 s
 - **多视图下 Scope 与视图的展开顺序**：只影响"有多个 Scope 又按视图重放"的 pass（每个视图一条 Bloom 链），与
   "多视图各有附件"一起等真实用例；在此之前，多个 Scope 的 pass 不得 `RendersView`（断言）。
 - **不透明工作的比例**：若大量工作无法表达为 item，流的大部分成为不透明工作，本模型的收益大幅缩水。拷贝已可
-  表达为 Scope + item，目前只剩 UI，以及以后的 NRD。
+  表达为 Scope + item，UI 仍使用执行回调。
 - **`TODO_DrawItemPersistencePlan.md` 已部分过时**：它主张每 (Drawable, pass) 一个骨架，理由是 PSO 各 pass
   不同、要存进骨架；PSO 已挪出 item，代码也已走到共享一份 DrawItem，本改造还去掉了 item 上的 PassTag。那份文档
   要跟着更新。

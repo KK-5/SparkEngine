@@ -71,8 +71,9 @@ shader 里求值（材质是"参数 + bindless 纹理"的单一 PBR 模型，成
 
 NRD（SIGMA 阴影、REBLUR occlusion AO，以后 REBLUR/RELAX 做反射与 GI）跨厂商、纯 compute shader。
 **不走 NRDIntegration/NRI**，而是按 `GetInstanceDesc` / `GetComputeDispatches` 走自己的 RHI 与 RenderGraph：
-permanent pool → 持久资源（决策 2），transient pool → 图的 transient，dispatch 列表 → 一个 CustomPipeline
-compute pass。封装在 `IScreenSpaceDenoiser` 形状的接口之后。
+permanent pool → 持久资源（决策 2），transient pool → 图的 transient，dispatch 列表 → 按帧编排的多个 ComputePass。
+每个 ComputePass 使用一个 pipeline，细节见 [NRD 接入方案](TODO_NRDIntegrationPlan.md)。封装在 `IScreenSpaceDenoiser`
+形状的接口之后。
 
 OIDN 只用于将来的烘焙/路径追踪预览；DLSS RR / FSR Ray Regeneration 若要支持，接在 `ITemporalUpscaler` 位置，
 并让对应信号的降噪器可配为直通。

@@ -117,7 +117,7 @@ namespace Spark::Render
         Ptr<RHI::ShaderStageFunction> m_compute;
     };
 
-    //! Layout built at Finalize from shader reflection and shared group declarations.
+    //! Layout finalized from shader reflection and shared group declarations, or imported by the pass.
     //! Build validates declarations against it, and Compile uses it for the PSO and bindings.
     struct PassPipelineLayout
     {
@@ -126,8 +126,7 @@ namespace Spark::Render
         eastl::fixed_vector<uint32_t, RHI::Limits::Pipeline::ShaderInputGroupCountMax> m_sharedSpaces;
     };
 
-    //! On a compute pass with a shader: its [numthreads], from reflection at Finalize. A
-    //! shader fixes it, so it goes with the PSO; per pass while a pass has one PSO.
+    //! Reflected [numthreads] for thread-count dispatches of a compute pass.
     struct PassThreadGroupSize
     {
         uint16_t m_x = 1;
@@ -135,7 +134,7 @@ namespace Spark::Render
         uint16_t m_z = 1;
     };
 
-    //! Compiled PSO cache. Written by PSO compiler, read by executer.
+    //! Default PSO of a pass, compiled by the graph or supplied by the pass builder.
     struct PassCompiledPSO
     {
         Ptr<RHI::PipelineState> m_pso;

@@ -717,22 +717,27 @@ namespace Spark::Render
     {
         auto& passContext = *PassExecuteContext::Current();
         const auto* groupSize = passContext.TryGet<PassThreadGroupSize>(m_currentPass);
-        ASSERT(groupSize != nullptr, "Pass {} dispatches without a compute shader.",
-            passContext.Get<PassName>(m_currentPass).m_name.GetCStr());
+        if (!groupSize)
+        {
+            ASSERT(false, "Pass '{}' needs a reflected thread group size for a thread-count dispatch.",
+                passContext.Get<PassName>(m_currentPass).m_name.GetCStr());
+            return;
+        }
 
-        RHI::DispatchItem item;
-        item.m_arguments = RHI::DispatchArguments(RHI::DispatchDirect(
+        AddScopeDispatch(scope, RHI::DispatchDirect(
             threadCountX, threadCountY, threadCountZ, groupSize->m_x, groupSize->m_y, groupSize->m_z));
+    }
+
+    void RenderGraphBuilder::AddScopeDispatch(RHIHandle scope, const RHI::DispatchDirect& dispatch)
+    {
+        RHI::DispatchItem item;
+        item.m_arguments = RHI::DispatchArguments(dispatch);
         RHIExecuteContext::Current()->Add<RHI::DispatchItem>(AddScopeItem(scope), item);
     }
 
     void RenderGraphBuilder::AddScopeDispatchIndirect(RHIHandle scope, RHIHandle arguments, uint64_t byteOffset)
     {
-        auto& rhiContext  = *RHIExecuteContext::Current();
-        auto& passContext = *PassExecuteContext::Current();
-        ASSERT(passContext.Has<PassThreadGroupSize>(m_currentPass), "Pass {} dispatches without a compute shader.",
-            passContext.Get<PassName>(m_currentPass).m_name.GetCStr());
-
+        auto& rhiContext = *RHIExecuteContext::Current();
         const auto* buffer = rhiContext.TryGet<BufferPassAttachment>(arguments);
         ASSERT(buffer != nullptr && buffer->m_usage == RHI::AttachmentUsage::Indirect
                 && rhiContext.Get<ScopeAttachment>(arguments).m_scope == scope,
@@ -1261,7 +1266,7 @@ namespace Spark::Render
     }
 
     void RenderGraphBuilder::AddScopeConstant(
-        RHIHandle scope, const RHI::InputName& input, const void* bytes, uint32_t byteCount)
+        RHIHandle scope, const RHI::InputName& input, const void* bytes, size_t byteCount)
     {
         CheckScopeOpen(scope);
 
@@ -1272,8 +1277,12 @@ namespace Spark::Render
             if (index != RHI::InvalidShaderInputIndex)
             {
                 const Interval interval = root->GetInterval(index);
-                ASSERT(byteCount == interval.m_max - interval.m_min,
-                    "Root constant {} takes {} bytes, given {}.", input.GetCStr(), interval.m_max - interval.m_min, byteCount);
+                const size_t expectedByteCount = interval.m_max - interval.m_min;
+                if (byteCount != expectedByteCount)
+                {
+                    ASSERT(false, "Root constant {} takes {} bytes, given {}.", input.GetCStr(), expectedByteCount, byteCount);
+                    return;
+                }
                 auto& block = RHIExecuteContext::Current()->Get<ScopeRootConstants>(scope);
                 MarkRootConstantWritten(block, interval, input);
                 memcpy(block.m_bytes.data() + interval.m_min, bytes, byteCount);
@@ -1287,12 +1296,18 @@ namespace Spark::Render
             ASSERT(false, "The pass's layout has no constant {}.", input.GetCStr());
             return;
         }
-        ASSERT(byteCount == desc->m_elementCount * desc->m_elementByteSize,
-            "Constant {} takes {} bytes, given {}.",
-            input.GetCStr(), desc->m_elementCount * desc->m_elementByteSize, byteCount);
-        ASSERT(byteCount <= ScopeConstant::ByteCountMax,
-            "Constant {} is {} bytes; a Scope constant holds at most {}.",
-            input.GetCStr(), byteCount, ScopeConstant::ByteCountMax);
+        const size_t expectedByteCount = static_cast<size_t>(desc->m_elementCount) * desc->m_elementByteSize;
+        if (byteCount != expectedByteCount)
+        {
+            ASSERT(false, "Constant {} takes {} bytes, given {}.", input.GetCStr(), expectedByteCount, byteCount);
+            return;
+        }
+        if (byteCount > ScopeConstant::ByteCountMax)
+        {
+            ASSERT(false, "Constant {} is {} bytes; a Scope constant holds at most {}.",
+                input.GetCStr(), byteCount, ScopeConstant::ByteCountMax);
+            return;
+        }
 
         auto& rhiContext = *RHIExecuteContext::Current();
         auto*  component  = rhiContext.TryGet<ScopeConstants>(scope);
@@ -1303,7 +1318,7 @@ namespace Spark::Render
         }
         ScopeConstant constant;
         constant.m_input     = input;
-        constant.m_byteCount = byteCount;
+        constant.m_byteCount = static_cast<uint32_t>(byteCount);
         memcpy(constant.m_bytes.data(), bytes, byteCount);
         constants.push_back(constant);
     }

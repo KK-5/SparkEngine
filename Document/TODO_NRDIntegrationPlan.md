@@ -14,9 +14,10 @@
 |---|---|---|
 | 0 | 方案调研（NRD 源码 + 引擎源码） | ✅ 完成，结论见 §一 |
 | 1 | 引擎：per-Scope 的 bindings 来源 | 已完成（`52173081`） |
-| 2 | 引擎：detached pipeline（layout + PSO） | 未开始 |
+| 2 | 引擎：ComputePass 导入外部 PSO 和 layout，支持按 group 数提交 | 接口已实现，待 NRD 集成验证 |
+| 2a | 引擎：按帧编排多个 ComputePass（含重复 pipeline） | 方案见 D1，未开始 |
 | 3 | 引擎：本地与共享 bindings 隔离 | 已完成（见 D5，`52173081`） |
-| 3a | 引擎：按字段提交运行时常量 | 方案已定，见 D4 |
+| 3a | 引擎：按字段提交运行时常量 | 代码已实现，编译与运行验收待补（见 D4） |
 | 4 | 信号层（打包、归一化、MV、范围） | 未开始 |
 | 5 | NRD 系统（instance / pool / settings / 生命周期） | 未开始 |
 | 6 | 合成与开关（降噪 / 直通） | 未开始 |
@@ -28,22 +29,21 @@
 
 ## 一、结论
 
-- **一条 dispatch 对应一个 Scope；一条 pipeline 对应一个 PSO；一份 layout 覆盖全部 pipeline。**
-- **per-Scope bindings 已落地。** 接下来补齐外部 layout/PSO 的接入、按 group 数提交 dispatch，
-  以及供接入层按字段提交运行时常量的入口，见 §三和 D4。
+- **每条 NRD dispatch 对应一次 ComputePass 执行，内含一个 Scope 和一个 `DispatchItem`。** 每个 ComputePass 固定使用一个
+  compute pipeline。同一 pipeline 的多次执行共用 PSO，全链共用一份 layout。
+- **per-Scope bindings、逐字段常量和外部 pipeline 导入接口已实现。** 接下来补齐按当帧 dispatch 顺序编排多个 Pass 的能力，
+  见 §三和 D1–D4。
 - 不做 bindless，也不改 NRD 源码：NRD 的 shader 按固定寄存器取图（没有索引层），改它属于修改 SDK 本体，
   许可证不授权（见 §五）。
-- 其余都是机械工作（detached pipeline）与参数工作（信号、设置、生命周期）。
 
-一句话的形状：
+每帧的构建流程
 
 ```
-一个 compute pass（无 shader）
-  └ N 个 Scope，每个 Scope = 一条 NRD dispatch
-       PSO       ← pipelines[dispatch.pipelineIndex]
-       bindings  ← 该 Scope 自己的 ShaderBindings（同一份 layout）
-       常量      ← 接入层按字段拆解 dispatch.constantBufferData，再逐项 .Constant(...)
-       grid      ← dispatch.gridWidth / gridHeight
+NRD GetComputeDispatches → 按列表顺序编排 N 个 ComputePass
+  └ 每个 ComputePass 固定使用 pipelines[dispatch.pipelineIndex]
+      └ Build → 一个 Scope
+          ├ SRV/UAV、逐字段常量 → Scope 自己的 ShaderBindings
+          └ .Dispatch(RHI::DispatchGroupCount{gridWidth, gridHeight, 1}) → 一个 DispatchItem
 ```
 
 ---
@@ -135,7 +135,8 @@ A-trous 有 5 个 binding variant（SMEM / 读 PING 写 PONG / 读 PONG 写 PING
 5 次迭代的 `passIndex` 序列是 **0,1,2,1,4**：同一个 pipeline 会出现两次，**且不相邻**（中间隔着另一个 variant）。
 8 次迭代时 v1、v2 各出现 3 次，对应 `.hpp` 里的 `maxRepeatNum = 3`。
 
-结论：**pass ↔ pipeline 不是 pass ↔ dispatch**。这是"一个 dispatch 一个 Pass"做不到的原因。
+以 5 次 A-trous 为例，两次 v1 dispatch 各自占一个 Pass 执行位置，中间保留 v2。两次 v1 共用同一个 PSO，
+各自声明当次的资源和常量。Pass 的执行身份和 pipeline 的缓存身份分别处理，见 D1。
 
 ### 2.4 布局差异
 
@@ -159,34 +160,21 @@ NRD 两种布局都支持（`DescriptorPoolDesc` 注释）：共享一份并集 
   由 `ScopeBinding` 持有。实际执行的指针与共享组一起放进 `ScopeState.m_bindings[]`。
 - **bindings 编译不是缺口**：`CompileShaderInputs` 遍历 `ScopeState` 的指针，挂在哪儿就编哪儿
   （`RenderGraph/RenderGraphCompiler.cpp`）。
-- **执行器已支持 PSO 切换**：`ItemPipelineState` 支持 per-item 切换，执行器对 item 类型无关；不透明钩子里也可以
-  直接 `SetPipelineState`（`RenderGraph/RenderGraphExecuter.cpp`、`RHI/Command/CommandList.h`）。
+- **ComputePass 有一份默认 PSO**：`.ComputeShader()` 在 Pass 上设置一份 `ShaderAsset`，`CompileScopeState` 从所属
+  Pass 的 `PassCompiledPSO` 取默认 PSO。执行器按 Scope 绑定该 PSO 和本地 bindings，再提交 `DispatchItem`。
+- **支持导入外部 compute pipeline**：`ComputePassBuilder::ImportPipeline(pso, layout)` 为 Pass 提供默认 PSO 和 layout。
+  `.Dispatch(RHI::DispatchGroupCount{...})` 直接使用已算好的 group 数。
 - **CB 已支持逐字段写入**：图按字段填充 `ShaderBindings`，RHI 按寄存器和字节偏移组装 CB。
-  现有 Scope `.Constant(name, value)` 接收静态类型，外部字节块的逐字段适配见 D4。
-- **屏障在 Scope 边界**：图按 Scope 生成前后屏障，1 dispatch = 1 Scope 时是免费的。
-- **输出清屏**：RHI 有 `ClearUnorderedAccess`。
+  Scope 同时支持 `.Constant(name, value)` 和 `.Constant(name, bytes)`，外部字节块的逐字段适配见 D4。
+- **屏障在 Scope 边界**：图从每个 Scope 的附件访问生成前后屏障。每条 dispatch 都有自己的 Scope。
 - **space 是 layout 内的索引**，不是全局命名空间。`BuildPassPipelineLayout` 只会把 pass 自己的
   `kPerPassSpaceId` 与 `FindSharedGroupLayout(spaceId)` 里的共享 space 放进一个 layout
   （`Pass/PassBuilder.cpp`）；`Binding/BindingSpaces.h` 也写明 standalone shader 自己编号 space。
 
 ### 3.2 缺的
 
-**外部 compute pipeline 的接入。** RHI 已能从 DXIL 创建 PSO，RenderGraph 仍需接收不经 ShaderAsset 反射构建
-的 pass layout，并让 Scope 使用预建的 PSO。NRD 在自己的 layout 中编号，参见 D1–D3。
-
-**按 group 数提交 dispatch。** `ComputeScope::Dispatch(threadCount)` 要按
-pass 的 `PassThreadGroupSize` 换算 group 数，而该组件只在 pass 有 compute shader 时由反射填；
-`RenderGraphBuilder::AddScopeDispatch` 会直接断言 "Pass dispatches without a compute shader"
-(`RenderGraph/RenderGraphBuilder.cpp`)。NRD 的 grid 本身就是 group 数，所以两条路都可以：
-
-- `.Execute` 钩子里手工 `Submit(DispatchItem{DispatchDirect{grid, 1, 1, 1, 1, 1}})`（DX12 只算
-  `ceil(total/threadsPerGroup)`，等价于直接给 group 数）；
-- 或者给 pass 一个 group size 的来源（例如 builder 的 `.ThreadGroupSize(x, y)`），让 `.Dispatch` 可用。
-
-第一版走第一条更省事；如果后面确认要"1 Scope = 1 dispatch 且由 item 表达"，再把第二条补上。
-
-**运行时单字段常量。** 保持现有按名声明的方式，补充由接入层提供单个字段字节的重载。SDK 的常量布局映射
-由 NRD 接入层完成，见 D4。
+- **多个 Pass 的帧内编排**。现有 Pass 按注册顺序 Build，RenderGraph 按附件依赖建立执行时间线。
+  需要让 NRD 当帧的有序列表参与 Build 和排序，并能表达同一 pipeline 的多次执行，见 D1。
 
 ### 3.3 为什么不改 NRD 源码（bindless）
 
@@ -205,19 +193,20 @@ model 提到 6.6、重编全部排列 —— 等于 fork，且许可证不允许
 
 ## 四、方案
 
-### D1　一个 pass + N 个 Scope；每条 dispatch 一个 Scope
+### D1　多个 ComputePass，每条 dispatch 执行一次
 
-目标形状：无 `ShaderAsset` 的 `SPARK_COMPUTE_PASS` 接收 NRD 系统构建的 layout 和 PSO。
-`Build` 按当帧的 dispatch 列表开 N 个 Scope，每个 Scope 声明附件和常量，图按 layout 创建并填充 bindings，
-屏障由图的 Scope 边界给出。
-
-无 shader 的 pass 拿不到 `PassThreadGroupSize`，所以第一版的 dispatch 由 pass 的 `.Execute` 钩子记录：
-钩子按 Scope 调用一次（`ExecuteWork::m_scopeIndex` 指认是哪条，`m_itemHandles` 为空），在里面
-`SetPipelineState(psos[pipelineIndex])` → 绑该 Scope 的 bindings → `Submit(DispatchDirect{grid, 1, 1, 1, 1, 1})`
-（见 §3.2）。如果后面改成"每条 dispatch 一个 item"的正规表达，再补 group size 的来源。
-
-不采用"一条 dispatch 一个 pass"：pass 身份是编译期类型（`SPARK_PASS_TAG`），而 RELAX 的 A-trous 会让同一
-pipeline 在一帧里 dispatch 多次（§2.3）；且排列数（22~27）会把 pass 集合撑成"注册全部、每帧激活少数"。
+- **每个 Pass 固定使用一个 compute pipeline**。NRD 接入层在 Build 前为当帧调用一次 `GetComputeDispatches()`，
+  按原顺序为每条记录安排一个 ComputePass。该 Pass 的 `Build` 开一个 Scope，声明这条记录的附件和常量，
+  再用 `.Dispatch(...)` 创建普通 `DispatchItem`。Clear、Split screen 和 Validation 也走这套流程。
+- **重复 pipeline 有独立的执行位置**。例如列表 `A → B → A` 对应三个 Pass 执行位置，两次 A 共用同一个 PSO。
+  现有遍历每帧只 Build 一次已注册的 Pass，Resolve 也按 Pass 身份记录依赖。第一版拟按
+  `(pipelineIndex, 当帧出现序号)` 复用独立的 Pass 实体。pipeline 来自运行时的 `InstanceDesc`，需要运行时注册入口。
+- **Build 与执行顺序以当帧列表为准**。把 NRD Pass 列表放在信号生产与合成之间，让 Build 和 Resolve 使用同一份帧内顺序，
+  保证附件版本按当帧读写次序分配。图通过附件读写生成依赖和屏障。相邻 dispatch 缺少资源依赖时，仍需补显式顺序边，
+  以保持 NRD 返回的执行顺序。
+- **使用 `.Dispatch(RHI::DispatchGroupCount{gridWidth, gridHeight, 1})`**。NRD 提供的 grid 已经是 group 数，builder 在
+  Build 中将它直接写入普通 `DispatchItem`。使用 `ShaderAsset` 的 Pass 仍可用 `.Dispatch(threadCount)` 按反射得到的
+  `[numthreads]` 换算 group 数。
 
 ### D2　layout：一份并集，手工按 `InstanceDesc` 构建
 
@@ -231,13 +220,13 @@ pipeline 在一帧里 dispatch 多次（§2.3）；且排列数（22~27）会把
   是子集，也成立）。开工第一步先打印 `GetInstanceDesc()` 的 `pipelinesNum`、每个 pipeline 的 ranges、
   `perSetTexturesMaxNum`、`constantBufferMaxDataSize` 存档。
 
-### D3　PSO：每 pipeline 一个，共享同一份 layout
+### D3　PSO：每 pipeline 一个，由对应的 ComputePass 引用
 
 - `Factory::CreateShaderStageFunction(Compute)` + `SetByteCode(pipelines[i].computeShaderDXIL)` + `Finalize`。
 - `PipelineStateDescriptorForDispatch` + 同一份 layout descriptor，每个 `pipelineIndex` 一个 PSO。
-- 存放：NRD 系统自己的 detached 容器（不挂 pass 组件，`PassBuilder::Finalize` 只认 `ShaderAsset`）。
-- 注意：引擎每个 PSO 内部各建一个 `PipelineLayout`，切 PSO 会 `SetComputeRootSignature` 并清空已绑定的
-  space，所以**每条 dispatch 都要重绑**它的表与 CBV。
+- NRD 系统按 `pipelineIndex` 缓存 PSO。外部 ComputePass 注册时调用 `ImportPipeline`，传入对应的 PSO 和创建该 PSO
+  时使用的 layout。builder 将它们写入 `PassCompiledPSO` 和 `PassPipelineLayout`，每个 Scope 继承所属 Pass 的默认 PSO。
+- 引擎每个 PSO 内部各建一个 `PipelineLayout`。切换 PSO 后，执行器按普通 Scope 路径绑定该 Scope 的表和 CBV。
 
 ### D4　bindings 与常量：按 Scope 声明，常量逐字段传入
 
@@ -252,7 +241,7 @@ pipeline 在一帧里 dispatch 多次（§2.3）；且排列数（22~27）会把
   `constantBufferDataSize` 检查每个字段的读范围，再逐项调用 `.Constant(name, bytes)`。
   `bytes` 是一个字段的字节 span。若字段在 HLSL CB 中有填充，接入层先按元素去掉填充，再交给现有字段
   写入逻辑恢复其 CB 步长。没有常量数据的 dispatch 省略这一步。
-- `.Constant(name, bytes)` 是拟新增的运行时单字段重载，沿用已有按名校验与拷贝语义。原有
+- `.Constant(name, bytes)` 是已实现的运行时单字段重载，沿用已有按名校验与拷贝语义。原有
   `.Constant(name, value)` 仍可直接传矩阵、向量和标量。Scope 在 Build 时复制每个字段，Compile 无需保留
   SDK 的指针。同一个寄存器内的字段最终仍组装成一份 GPU CB。
 - 保留 `ScopeConstants` 的 8 条内嵌预留和单条 64 B 上限。REBLUR 4.18 的共享 CB 约有 81 个字段，
@@ -269,16 +258,16 @@ pipeline 在一帧里 dispatch 多次（§2.3）；且排列数（22~27）会把
 
 ### D6　图可见性、屏障、清屏
 
-- 只把**终端输出**（denoised diffuse/specular）与要读的 4~5 张信号 import 进图；pool 与中间纹理全部私有，
-  不声明为附件。
-- dispatch 之间手发 UAV/状态屏障（`QueueBarrier` + `FlushBarriers`）。**不要**对手动改过状态的图内资源再手发，
-  否则与 `ImageStateTracker` 失步；需要跨 dispatch 传递的中间结果全部留在私有池里。
-- 终端输出在首个 dispatch 前清 0（`ClearUnorderedAccess`）：NRD 不写 `denoisingRange` 之外的像素。
+- 把终端输出、输入信号和 dispatch 间共享的池纹理都声明为图附件。按 `DispatchDesc.resources[]` 的实际读写声明 SRV/UAV，
+  包括作为 scratch 的 `OUT_*` 和会写回的 `IN_MV`。图据此生成 Pass 依赖，并在 Scope 边界生成资源转换和 UAV 屏障。
+- NRD 注入的 Clear dispatch 按 D1 的顺序执行。NRD 可能跳过 `denoisingRange` 外的像素，因此每帧需要在首个降噪
+  dispatch 前将终端输出清零。使用图内清零操作，例如声明 UAV 写入的清零 ComputePass。
 
 ### D7　池与 ping-pong
 
 - 按 `InstanceDesc::permanentPool/transientPool` 的 `TextureDesc{format, downsampleFactor}` 分配 RHI image，
-  由 view 实体持有（`RHIComponents.h` 的 pooled/imported 机制可复用），每帧 import 进图（如果被声明）。
+  permanent 池由 view 持有并每帧导入，transient 池可由图分配。每个池槽位在同一帧内对应同一个资源，
+  前后 Pass 通过该资源声明读写。
 - 每帧按 `DispatchDesc.resources` 解析：`type` 是 `IN_*`/`OUT_*` 用引擎自己的视图表；
   `PERMANENT_POOL`/`TRANSIENT_POOL` 用 `pool[indexInPool]`。
 - `indexInPool` 每帧会因 ping-pong 变化，**不能缓存**。
@@ -329,8 +318,8 @@ NRD 作为**可选外部依赖**，不进仓库；使用者自己构建。缺省
 
 | 阶段 | 做什么 | 验收 |
 |---|---|---|
-| 1 | per-Scope bindings、group 数提交与运行时逐字段常量 | 一个测试 pass 的两个 Scope 分别绑定不同图、写不同目标；每个 Scope 按字段传入合计超过 64 B 的不同常量并验证结果；本地声明无法改写共享对象 |
-| 2 | detached pipeline + 并集 layout | 建出全部 NRD PSO；跑一条 Clear dispatch，内容变 0 |
+| 1 | per-Scope bindings 与运行时逐字段常量（验收可延后） | 一个测试 Pass 的两个 Scope 分别绑定不同图、写不同目标；每个 Scope 按字段传入合计超过 64 B 的不同常量并验证结果；本地声明无法改写共享对象 |
+| 2 | 外部 compute pipeline、并集 layout 与多个 Pass 的帧内编排 | 建出全部 NRD PSO；在 Build 中提交与 NRD grid 一致的 group 数；验证 `A → B → A` 中两个 A 共用 PSO、独立绑定且按序执行；跑一条 Clear dispatch，内容变 0 |
 | 3 | NRD 系统 + 信号层最小改动 | REBLUR_DIFFUSE_SPECULAR 出图：静止画面收敛、无闪烁；关闭 NRD 时与现在逐像素一致（直通） |
 | 4 | 合成 + 开关 | 编辑器可切降噪/直通；切换与 resize 不产生残留历史（画面无拖影） |
 | 5 | 质量与参数 | 2.5D MV、validation 调试、antilag/预通道参数调优；相机运动下的拖影可接受 |
@@ -344,8 +333,8 @@ NRD 作为**可选外部依赖**，不进仓库；使用者自己构建。缺省
 - **并集 layout 的可行性**：需要一个超集 root signature 被全部 pipeline 接受。开工第一件事是把
   `GetInstanceDesc()` 的全量信息打印出来存档，再定 D2 的数组长度与 CB 大小。
 - **`descriptorPoolDesc.perSet*` 是启发式**（§2.4），不要直接当上限用。
-- **Scope 内屏障**：图只发 Scope 边界的屏障。如果 NRD 的相邻 dispatch 需要更细的状态（同一张图既读又写），
-  手发是否足够、`ImageStateTracker` 会不会失步，需要在阶段 2 实测。
+- **Pass 顺序和资源版本**：阶段 2 验证当帧列表变动、重复 pipeline，以及同一纹理跨 Pass 从 UAV 写入切到 SRV 读取。
+  同一 dispatch 对同一子资源既读又写时，单独验证其声明能否匹配 NRD 的 shader 访问方式。
 - **编辑器视口的 rect/origin**：NRD 的 `inputRectOrigin/outputRectOrigin` 默认不支持
   （`NRD_SUPPORTS_VIEWPORT_OFFSET=0` 时必须为 0）。要么把 NRD 资源做成视口大小，要么打开这个编译开关。
 - **性能**：每条 dispatch 一份 bindings 意味着每帧 N 次 descriptor 表更新 + N 次常量上传；REBLUR 是 7~10 条，

@@ -1,7 +1,10 @@
 #pragma once
 
+#include <EASTL/optional.h>
+
 #include <Pass/PassBuilder.h>
 #include <Pass/PassCapabilities.h>
+#include <RHI/Pipeline/PipelineState.h>
 
 namespace Spark::Render
 {
@@ -28,10 +31,17 @@ namespace Spark::Render
             return *this;
         }
 
-        // ---- Shader ----
+        // ---- Pipeline ----
         ComputePassBuilder& ComputeShader(Ptr<Resource::ShaderAsset> asset)
         {
             m_shaders.m_computeShader = eastl::move(asset);
+            return *this;
+        }
+
+        //! Use a prebuilt compute PSO and the finalized layout that was used to create it.
+        ComputePassBuilder& ImportPipeline(Ptr<RHI::PipelineState> pso, PassPipelineLayout layout)
+        {
+            m_importedPipeline = ImportedPipeline{ eastl::move(pso), eastl::move(layout) };
             return *this;
         }
 
@@ -61,10 +71,27 @@ namespace Spark::Render
             ASSERT(m_queueSet, "Compute pass '{}': Queue must be set.", m_name.GetCStr());
             ASSERT(m_buildFunction, "Compute pass '{}': Build function is required.", m_name.GetCStr());
 
-            // A pass that sets no shader has no pipeline: its .Execute sets all its state.
-            const bool hasPipeline = m_shaders.m_computeShader != nullptr;
-            ASSERT(hasPipeline || m_executeFunction,
-                "Compute pass '{}' sets no shader, so its .Execute is required.", m_name.GetCStr());
+            const bool hasShader = m_shaders.m_computeShader != nullptr;
+            if (m_importedPipeline)
+            {
+                if (hasShader)
+                {
+                    ASSERT(false, "Compute pass '{}': choose either ComputeShader or ImportPipeline.", m_name.GetCStr());
+                    return NullPass;
+                }
+
+                const auto& pso = m_importedPipeline->m_pso;
+                const auto& layout = m_importedPipeline->m_layout.m_layout;
+                if (!pso || !pso->IsInitialized() || pso->GetType() != RHI::PipelineStateType::Dispatch
+                    || !layout || !layout->IsFinalized())
+                {
+                    ASSERT(false, "Compute pass '{}': ImportPipeline requires an initialized compute PSO and a finalized layout.",
+                        m_name.GetCStr());
+                    return NullPass;
+                }
+            }
+            ASSERT(hasShader || m_importedPipeline || m_executeFunction,
+                "Compute pass '{}': set a compute shader, import a pipeline, or provide .Execute.", m_name.GetCStr());
 
             Pass pass = m_context->CreatePass();
 
@@ -82,7 +109,7 @@ namespace Spark::Render
 
             m_context->Add<PassShaders>(pass, m_shaders);
 
-            if (hasPipeline)
+            if (hasShader)
             {
                 // Build validates its input declarations against this layout.
                 auto* factory = Service<RHI::Factory>::Get();
@@ -104,6 +131,11 @@ namespace Spark::Render
                     static_cast<uint16_t>(reflection->m_threadGroupSizeY),
                     static_cast<uint16_t>(reflection->m_threadGroupSizeZ) });
             }
+            else if (m_importedPipeline)
+            {
+                m_context->Add<PassCompiledPSO>(pass, PassCompiledPSO{ eastl::move(m_importedPipeline->m_pso) });
+                m_context->Add<PassPipelineLayout>(pass, eastl::move(m_importedPipeline->m_layout));
+            }
 
             PassFunctions funcs;
             funcs.m_buildFunction   = eastl::move(m_buildFunction);
@@ -120,6 +152,12 @@ namespace Spark::Render
         }
 
     private:
+        struct ImportedPipeline
+        {
+            Ptr<RHI::PipelineState> m_pso;
+            PassPipelineLayout      m_layout;
+        };
+
         template<typename T>
         friend ComputePassBuilder<T> RegisterComputePass(PassContext&, ObjectName);
 
@@ -136,6 +174,7 @@ namespace Spark::Render
 
         PassShaders             m_shaders;
         PassCapabilities        m_capabilities {};
+        eastl::optional<ImportedPipeline> m_importedPipeline;
 
         BuildFunction           m_buildFunction;
         ExecuteFunction         m_executeFunction;

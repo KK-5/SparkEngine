@@ -2,6 +2,7 @@
 
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Attachment/AttachmentLoadStoreAction.h>
+#include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawArguments.h>
 #include <RHI/Command/DrawItem.h>
 #include <RHI/Format.h>
@@ -276,7 +277,15 @@ namespace Spark::Render
         void Constant(const RHI::InputName& input, const T& value)
         {
             static_assert(eastl::is_trivially_copyable_v<T>, "A constant is copied as bytes.");
-            m_builder->AddScopeConstant(m_scope, input, &value, static_cast<uint32_t>(sizeof(T)));
+            m_builder->AddScopeConstant(m_scope, input, &value, sizeof(T));
+        }
+
+        //! Copy one named field's packed bytes into this Scope.
+        template<typename Byte, size_t Extent,
+            eastl::enable_if_t<eastl::is_same_v<eastl::remove_const_t<Byte>, uint8_t>, int> = 0>
+        void Constant(const RHI::InputName& input, const eastl::span<Byte, Extent>& bytes)
+        {
+            m_builder->AddScopeConstant(m_scope, input, bytes.data(), bytes.size());
         }
 
     private:
@@ -341,9 +350,14 @@ namespace Spark::Render
             m_builder->AddScopeDispatch(m_scope, threadCountX, threadCountY, threadCountZ);
         }
 
-        //! A dispatch that reads its size from `arguments`, an IndirectArguments access of this
-        //! Scope: one RHI::DispatchIndirectCommand at `byteOffset`. Unlike Dispatch, that is a
-        //! count of groups, not of threads -- whoever writes the record divides by [numthreads].
+        //! A dispatch with group counts already computed by the caller.
+        void Dispatch(RHI::DispatchGroupCount groupCount)
+        {
+            m_builder->AddScopeDispatch(m_scope, RHI::DispatchDirect(groupCount));
+        }
+
+        //! A dispatch that reads its group counts from one RHI::DispatchIndirectCommand
+        //! at `byteOffset` in `arguments`, an IndirectArguments access of this Scope.
         void DispatchIndirect(const Attachment& arguments, uint64_t byteOffset = 0)
         {
             m_builder->AddScopeDispatchIndirect(m_scope, arguments.GetHandle(), byteOffset);
@@ -359,7 +373,15 @@ namespace Spark::Render
         void Constant(const RHI::InputName& input, const T& value)
         {
             static_assert(eastl::is_trivially_copyable_v<T>, "A constant is copied as bytes.");
-            m_builder->AddScopeConstant(m_scope, input, &value, static_cast<uint32_t>(sizeof(T)));
+            m_builder->AddScopeConstant(m_scope, input, &value, sizeof(T));
+        }
+
+        //! Copy one named field's packed bytes into this Scope.
+        template<typename Byte, size_t Extent,
+            eastl::enable_if_t<eastl::is_same_v<eastl::remove_const_t<Byte>, uint8_t>, int> = 0>
+        void Constant(const RHI::InputName& input, const eastl::span<Byte, Extent>& bytes)
+        {
+            m_builder->AddScopeConstant(m_scope, input, bytes.data(), bytes.size());
         }
 
     private:
