@@ -1,6 +1,8 @@
 set(THIRD_PARTY_FOLDER "3rdParty")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
+include("${SPARK_ROOT_DIR}/cmake/NRD/Import.cmake")
+
 if(NOT TARGET EnTT)
     Message(STATUS "Import entt")
     add_subdirectory(entt)

@@ -21,7 +21,7 @@
 | 4 | 信号层（打包、归一化、MV、范围） | 未开始 |
 | 5 | NRD 系统（instance / pool / settings / 生命周期） | 未开始 |
 | 6 | 合成与开关（降噪 / 直通） | 未开始 |
-| 7 | 构建与依赖（可选 CMake 依赖） | 未开始 |
+| 7 | 构建与依赖（可选 CMake 依赖） | 本地源码的编译和 SDK 打包已验证 |
 
 1~3a 是引擎前置工作，4~6 是 NRD 接入本身，7 只影响构建。
 
@@ -296,15 +296,26 @@ model 提到 6.6、重编全部排列 —— 等于 fork，且许可证不允许
 
 ## 五、依赖与构建
 
-NRD 作为**可选外部依赖**，不进仓库；使用者自己构建。缺省关闭，渲染走直通。
+NRD SDK 由 `cmake/NRD` 独立准备。该入口需要 CMake 3.30+、Git 和 VS x64。生成器应与 Spark 的构建环境一致。
+例如在 VS 2026 环境下，从 Spark 仓库根目录运行
 
-- CMake 变量（名字待定，示例 `SPARK_NRD_SDK_DIR`）：指向 `_NRD_SDK`（`Include/` + `Lib/` + `Shaders/`）。
-  找不到则 `SPARK_WITH_NRD=0`，`#include <NRD.h>` 收在一个 wrapper 头里，其余代码不依赖它的 include 路径。
-- 消费侧需要：三个头文件、库、**Shaders 目录**（含构建期生成的 `NRDConfig.hlsli`），后者要加进 DXC 的
-  include 路径（给 DirectLighting 里的打包函数用）。
-- 构建 NRD 的一方需要：CMake ≥ 3.30、VS 2022 x64、git submodule（至少 **ShaderMake** 与 **MathLib**）、DXC。
-  建议 `NRD_STATIC_LIBRARY=ON`、`NRD_NRI=OFF`、`NRD_EMBEDS_SPIRV_SHADERS=OFF`、`NRD_EMBEDS_DXBC_SHADERS=OFF`
-  （只做 DX12 的话）。
+```powershell
+cmake -S cmake/NRD -B build/nrd-sdk -G "Visual Studio 18 2026" -A x64
+cmake --build build/nrd-sdk --target nrd-sdk
+cmake --preset windows-msvc-debug -DSPARK_NRD_SDK_DIR="$PWD/build/nrd-sdk/_NRD_SDK"
+```
+
+- 默认由 `nrd-sdk` target 检出 `v4.18.0`。已下载源码时，在 SDK 的配置命令里加 `-DSPARK_NRD_SOURCE_DIR=E:/NRD`，
+  复用本地源码目录。NRD 的构建负责取得 ShaderMake、MathLib 和 DXC。SDK 使用静态库、内嵌 DXIL、
+  `R10G10B10A2_UNORM` 法线编码和 `SQRT_LINEAR` 粗糙度编码。
+- CMake 自动将 shader 编译产物写到 NRD 子构建目录的 `shaders/`。本地源码模式按源码路径隔离子构建缓存，使用时只指定
+  源码目录和 SDK 准备工程的构建目录。
+- 多配置生成器一次产出 `Lib/Debug` 和 `Lib/Release`，每套包含 `NRD.lib` 和 `ShaderMakeBlob.lib`。单配置生成器
+  产出对应库。SDK 还包含 `Include` 和 `Shaders`，其中 `NRDConfig.hlsli` 由该次构建生成。
+- Spark 的 `SPARK_NRD_SDK_DIR` 指向构建好的 `_NRD_SDK`。Render 层链接 `NRD::NRD`，Debug 用 Debug 库，Release、
+  RelWithDebInfo 和 MinSizeRel 用 Release 库。显式指定 SDK 时，缺失的文件会在 CMake 配置时报出。
+  默认 `SPARK_WITH_NRD=0`，渲染走直通。
+- 信号打包接入时，将 SDK 的 `Shaders` 加进 Spark 的 DXC include 路径。将 `#include <NRD.h>` 收在 NRD 接入层。
 - **一致性**：`NRD_NORMAL_ENCODING` / `NRD_ROUGHNESS_ENCODING` / 两个 space 号必须与引擎 shader 编译时用的
   `NRDConfig.hlsli` 是同一份；启动时用 `GetLibraryDesc()` 校验并断言，同时断言 `NRD_VERSION_MAJOR/MINOR`
   在已验证范围内（当前 4.18）。
@@ -325,6 +336,21 @@ NRD 作为**可选外部依赖**，不进仓库；使用者自己构建。缺省
 | 5 | 质量与参数 | 2.5D MV、validation 调试、antilag/预通道参数调优；相机运动下的拖影可接受 |
 
 阶段 3 之前不要动合成 pass 的输入，保证"关掉 NRD 就是今天的效果"始终成立。
+
+### NRDClear 集成验证
+
+按第五节配置 SDK 后，从 Spark 仓库根目录构建并运行 DX12 验证程序。
+
+```powershell
+cmake --build --preset debug --target NRDClear
+.\bin\Debug\NRDClear.exe
+```
+
+程序从 `REBLUR_DIFFUSE_SPECULAR` 的 `CLEAR_AND_RESTART` 列表选出写入 `OUT_DIFF_RADIANCE_HITDIST`
+的 Clear dispatch，把普通 ComputePass 注册到 `RenderSystem` 的当前 PassContext。渲染系统随帧执行 SDK 的 DXIL、
+常量和 group 数，示例读回结果后退出。成功时打印 `PASS` 并返回 `0`。
+读回的 32×32 RGBA16F 纹理中，左上角 19×11 的 209 个像素应为四通道零，其余 815 个像素应保持四通道一。
+像素不符时打印首个坐标和通道值，返回 `1`。
 
 ---
 

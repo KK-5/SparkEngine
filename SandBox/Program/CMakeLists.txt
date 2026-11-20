@@ -414,3 +414,18 @@ if (BUILD_RG_COMPUTEPASS)
         SparkAssetManager
     )
 endif()
+
+if (TARGET NRD::NRD)
+    add_executable(NRDClear
+        Common/SimpleGlfwWindow.cpp
+        RenderGraph/NRDClear.cpp
+    )
+    target_compile_definitions(NRDClear PRIVATE
+        SHADER_ASSET_DIR="${SANDBOX_ASSET_DIR}"
+        ENGINE_ASSET_DIR="${ENGINE_ROOT_DIR}/Asset"
+    )
+    target_link_libraries(NRDClear PRIVATE
+        glfw SparkCore SparkInput SparkRender SparkRHI SparkRHI_DX12 SparkAssetManager NRD::NRD
+    )
+    add_dependencies(NRDClear copy_dxc_dlls)
+endif()

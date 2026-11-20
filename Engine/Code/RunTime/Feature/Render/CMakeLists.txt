@@ -102,3 +102,10 @@ target_link_libraries(${TARGET_NAME}
 target_include_directories(
   ${TARGET_NAME}
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+if(TARGET NRD::NRD)
+    target_link_libraries(${TARGET_NAME} PRIVATE NRD::NRD)
+    target_compile_definitions(${TARGET_NAME} PRIVATE SPARK_WITH_NRD=1)
+else()
+    target_compile_definitions(${TARGET_NAME} PRIVATE SPARK_WITH_NRD=0)
+endif()
